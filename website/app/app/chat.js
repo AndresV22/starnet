@@ -1640,6 +1640,7 @@ const Chat = (() => {
     renderHistory(); replayChannel(); syncStatus(); maybeEmptyState();
     read.repaint = false;
     if (typeof Briefing !== 'undefined' && Briefing.presentFor) { try { Briefing.presentFor(ws.id).catch(() => {}); } catch (_) {} }   // the repaint wiped the chips
+    if (typeof Delegated !== 'undefined' && Delegated.presentFor) { try { Delegated.presentFor(ws.id).catch(() => {}); } catch (_) {} }   // …and the delegated cards
     pinLoadedHistoryAfterLayout(loadToken);
     return reachable;
   }
@@ -1705,6 +1706,10 @@ const Chat = (() => {
     // THE ONE RETURN REPORT: opening the briefing session offers each briefed item's own session as a chip
     if (activeWs && typeof Briefing !== 'undefined' && Briefing.presentFor) {
       try { Briefing.presentFor(activeWs.id).catch(() => {}); } catch (_) {}
+    }
+    // DELEGATED WORK: a conversation that handed work to the crew shows one live card per dispatch (delegated.js)
+    if (activeWs && typeof Delegated !== 'undefined' && Delegated.presentFor) {
+      try { Delegated.presentFor(activeWs.id).catch(() => {}); } catch (_) {}
     }
     pinLoadedHistoryAfterLayout(historyPin);
     // Reconcile a run that died while this page was closed or the sidecar restarted. Only the server's durable
@@ -2160,7 +2165,7 @@ const Chat = (() => {
     // which was true while one agent owned every turn — a work line breaks that: stages 2..N are other agents
     // and labelling their work with the entry dock's name is a fabricated attribution (the same law that
     // stopped the hub writing a downstream stage's reply into the entry dock's transcript).
-    who.textContent = role === 'user' ? 'COMMANDER' : role === 'system' ? 'SYSTEM' : ((opts && opts.who) || name);
+    who.textContent = role === 'user' ? ((opts && opts.brief) || 'COMMANDER') : role === 'system' ? 'SYSTEM' : ((opts && opts.who) || name);
     const body = document.createElement('span'); body.className = 'body';
     // TIMESTAMP TRUTH (P0): opts.stamp is `true` for a row created LIVE (real wall-clock now), a number/Date for a
     // stored turn's REAL recorded time, or falsy for a legacy turn that carries no time — in which case we render
@@ -2230,11 +2235,17 @@ const Chat = (() => {
   }
   // stamp: omitted → live now (real); a number/Date → the turn's stored real time; false → no stamp (replay of a
   // legacy turn that carries no time — never fabricate the current clock).
-  function addUser(t, atts, stamp) {
-    const r = row('user', { stamp: stamp === undefined ? true : stamp });
+  // brief: the agent that delegated this turn (a worker thread's directive) — named as the speaker, never COMMANDER
+  function addUser(t, atts, stamp, brief) {
+    const r = row('user', { stamp: stamp === undefined ? true : stamp, brief: brief ? briefLabel(brief) : '' });
+    if (brief) r.d.classList.add('brief');
     if (t) r.body.textContent = t;
     if (atts && atts.length) renderUserAttachments(r.d, atts);   // ATTACHMENTS: thumbnails/file-chips under the message text
     autoscroll();
+  }
+  function briefLabel(id) {
+    const nm = (typeof App !== 'undefined' && App.agentName && App.agentName(id)) || String(id || 'agent').toUpperCase();
+    return String(nm).toUpperCase() + ' · BRIEF';
   }
   // render a SENT user turn's attachments: images as clickable thumbnails, other files as openable chips — both
   // served by the sidecar's jailed /api/file route (so they survive a reload, exactly like agent deliverables).
@@ -6994,7 +7005,7 @@ const Chat = (() => {
       // TIMESTAMP TRUTH (P0): pass the turn's STORED real time (m.ts), or `false` when a legacy turn carries none —
       // never `true` here (that would re-stamp replayed history with the current clock, the fabrication we're killing).
       const stamp = (m && m.ts != null) ? m.ts : false;
-      if (m.role === 'user') { addUser(m.content, m.attachments, stamp); lastReal = m; continue; }
+      if (m.role === 'user') { addUser(m.content, m.attachments, stamp, m.from); lastReal = m; continue; }
       // a SYSTEM STATUS marker (sys — e.g. an autosessions run-outcome framing line) renders as a system-styled
       // line, NOT as agent speech; it never seeds the model (historyWindow drops it) and it stays visible in-thread.
       if (m && m.sys) { if ((m.content || '').trim()) toolLine(m.content, !!m.error); continue; }
