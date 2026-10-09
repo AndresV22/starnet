@@ -87,7 +87,7 @@ const Delegated = (() => {
     const rows = b.rows.map(r => ({ r, st: stateOf(r, parentId, b.lead) }));
     const count = c => rows.filter(x => x.st.cls === c).length;
     const sum = [count('waiting') && count('waiting') + ' waiting on you', count('working') && count('working') + ' working',
-      count('queued') && count('queued') + ' starting', count('failed') && count('failed') + ' failed', count('done') && count('done') + ' done']
+      count('queued') && count('queued') + ' starting', count('failed') && count('failed') + ' failed', count('stopped') && count('stopped') + ' stopped', count('done') && count('done') + ' done']
       .filter(Boolean).join(' · ');
     return '<div class="dg-head"><span class="dg-title">DELEGATED · ' + rows.length + '</span><span class="dg-sum">' + esc(sum) + '</span></div>'
       + rows.map(({ r, st }) => {

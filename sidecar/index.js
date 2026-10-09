@@ -19244,7 +19244,7 @@ async function runOnceCore(o) {
     // fileUnderThreads). Idempotent per requestId; a taken title gets a numeric suffix rather than refusing the work.
     childThread: require('./overseer.js').isCoordinatorRun({ ...o, agentId, surface }) ? (a) => {
       for (let n = 1; n <= 9; n++) {
-        try { return overseer.create({ parentStreamId: a.parentStreamId, agentId: a.agentId, requestId: a.requestId, title: n === 1 ? a.title : a.title + ' ' + n }); }
+        try { return overseer.create({ parentStreamId: a.parentStreamId, agentId: a.agentId, requestId: a.requestId, title: n === 1 ? a.title : a.title + ' (' + n + ')' }); }
         catch (e) { if (!/already exists/.test(e.message)) throw e; }
       }
       throw new Error('no free thread title');
@@ -20224,7 +20224,7 @@ async function runOnceCore(o) {
      dispatch, the results after), the compaction tiers' strict drain, and run end — which then appends only what
      is left. Directive text is captured pre-loop (runTranscript.setDirective below). */
   const runTranscript = makeRunTranscript({
-    store: transcriptStore, streamId: o.streamId, agentId, runId,
+    store: transcriptStore, streamId: o.streamId, agentId, runId, from: o.delegatedBy || '',
     // rows written after untrusted content entered this run carry its taint source (sec-taint 09-25)
     taint: () => execution.taintedBy() || (typeof o.connectorAuthority?.taintedBy === 'function' ? o.connectorAuthority.taintedBy() : null),
     // mid-run write failures never kill the run or reorder dialogue: the rows stay pending (and in the run journal)
@@ -21655,7 +21655,7 @@ async function runOnceCore(o) {
           console.warn('[run-journal] retained unsettled run for review:', runId, retirement.state && retirement.state.status);
         }
       } else {
-        if (title && !retryDirective && !o.syntheticTrigger && !runTranscript.directiveWritten()) transcriptStore.append({ streamId: o.streamId, agentId, role: 'user', content: title });
+        if (title && !retryDirective && !o.syntheticTrigger && !runTranscript.directiveWritten()) transcriptStore.append({ streamId: o.streamId, agentId, role: 'user', content: title, from: o.delegatedBy || undefined });
         if (result && Array.isArray(result.messages)) transcriptStore.appendNew(o.streamId, agentId, result.messages, { taint: execution.taintedBy() });
       }
     } catch (_) {}

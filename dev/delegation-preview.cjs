@@ -34,7 +34,7 @@ async function provider() {
     const system = messages.filter(m => m.role === 'system').map(m => m.content).join('\n');
     const crew = Array.from(system.matchAll(/^  - ([A-Za-z0-9_-]+) \(/mg)).map(m => m[1]);
     const task = TASKS.find(t => user.includes(t.prompt));
-    if (!parsed.tools || !parsed.tools.length) send({ content: 'Ready.' });
+    if (!parsed.tools || !parsed.tools.length) send({ content: 'Launch prep' });   // titles + other no-tool asks
     else if (user.startsWith('Review the background work')) {
       await sleep(600);
       const t = TASKS.find(x => user.includes(x.prompt));

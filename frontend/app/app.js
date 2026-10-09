@@ -4174,11 +4174,17 @@ const App = (() => {
   }
   /* the fold header under a conversation that delegated work: how many threads, and what they are doing right now —
      read from the same per-row truth the rail lamps use (railRowState), never a guess. */
+  // background workers the durable ledger says are running (survives a page reload, when the live channel is gone)
+  function railLedgerRunning() {
+    const s = typeof Overseer !== 'undefined' && Overseer.snapshot ? Overseer.snapshot() : null;
+    return new Set(((s && s.workers) || []).filter(w => w && w.status === 'running' && w.streamId).map(w => w.streamId));
+  }
   function railKidsSummary(kids) {
     let waiting = 0, working = 0, failed = 0, done = 0;
+    const running = railLedgerRunning();
     for (const k of kids) {
       const st = railRowState(k);
-      if (st.attn) waiting++; else if (st.busy) working++; else if (k.lastRunOk === false) failed++; else if ((k.runIds || []).length) done++;
+      if (st.attn) waiting++; else if (st.busy || running.has(k.id)) working++; else if (k.lastRunOk === false) failed++; else if ((k.runIds || []).length) done++;
     }
     return [waiting && waiting + ' waiting on you', working && working + ' working', failed && failed + ' failed', done && done + ' done']
       .filter(Boolean).join(' · ') || 'starting';
@@ -4210,7 +4216,8 @@ const App = (() => {
     });
     // DELEGATED THREADS fold under the conversation that asked for them (Workstreams.nestRows); anything open, busy,
     // waiting on you, failed or unread stays visible while folded. The attention view stays a flat list.
-    const keep = flat.filter(w => w.id === activeId || pending.has(w.id) || w.lastRunOk === false || Workstreams.unread(w) || railRowState(w).busy).map(w => w.id);
+    const running = railLedgerRunning();
+    const keep = flat.filter(w => w.id === activeId || pending.has(w.id) || running.has(w.id) || w.lastRunOk === false || Workstreams.unread(w) || railRowState(w).busy).map(w => w.id);
     const items = railAttentionOnly ? flat.map(w => ({ type: 'row', w, depth: 0 })) : Workstreams.nestRows(flat, { expanded: [...railExpanded], keep });
     railChildIds = new Set(items.filter(i => i.type === 'row' && i.depth).map(i => i.w.id));
     railKidsOf = new Map(items.filter(i => i.type === 'kids').map(i => [i.key, i.rows.map(w => w.id)]));

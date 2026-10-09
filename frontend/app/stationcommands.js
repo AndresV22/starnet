@@ -211,6 +211,15 @@ const StationCommands = (() => {
     const id = String((a && (a.streamId || a.sessionId)) || '');
     const byId = id && Workstreams.get(id);
     if (byId) return { w: byId, resolvedBy: 'id' };
+    // A worker thread the overseer JUST filed under a conversation (orchestration.js fileUnderThreads) announces itself
+    // before the 2.5s overseer poll adopts it. Adopt it now, under its parent, so its lamp lights and its result lands
+    // in its own thread — never refused, never misfiled. Only for a parent this page really holds.
+    const parentId = String((a && a.parentStreamId) || '');
+    if (id && parentId && Workstreams.get(parentId) && Workstreams.adopt) {
+      const w = Workstreams.adopt({ id, title: String((a && a.sessionTitle) || '').trim() || null, titleAuto: false,
+        agentId: String((a && a.agentId) || 'agent'), parentStreamId: parentId, kind: 'chat', lane: 'active' });
+      if (w) { try { if (typeof App !== 'undefined' && App.persist) App.persist(); } catch (_) {} return { w, resolvedBy: 'adopted' }; }
+    }
     const title = String((a && a.sessionTitle) || '').trim();
     if (title) {
       const lower = title.toLowerCase();
@@ -248,7 +257,9 @@ const StationCommands = (() => {
     if (!Array.isArray(ws.history)) ws.history = [];
     /* The instruction goes in as a sys marker, not a user turn: the Commander did not type it here, and
        chat.js excludes sys lines from historyWindow() so it is never replayed to the model as if they had. */
-    if (prompt) ws.history.push({ role: 'system', sys: true, content: '— delegated to ' + who + ': ' + prompt.slice(0, 400) + ' —', ts });
+    // a worker's OWN thread (filed under its parent) already holds the brief as its first durable turn, named for the
+    // agent that wrote it — the marker would say the same thing twice
+    if (prompt && !(a && a.parentStreamId && ws.parentStreamId)) ws.history.push({ role: 'system', sys: true, content: '— delegated to ' + who + ': ' + prompt.slice(0, 400) + ' —', ts });
     ws.history.push({ role: 'assistant', content: text, agentId: who, ts });
     if (runId && Workstreams.appendRun) Workstreams.appendRun(ws.id, runId, ts);
     else if (Workstreams.touch) Workstreams.touch(ws.id);
