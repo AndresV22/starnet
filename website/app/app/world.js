@@ -10362,9 +10362,12 @@ const World = (() => {
     // it means a clean run whose reply was exactly the [SILENT] marker (the routine chose to report nothing).
     U.bus.on('cron.result', p => {
       if (!p) return;
-      if (p.outcome === 'failed') hudNote('✕ routine failed' + (p.reason ? ' — ' + p.reason : ''), 'warn', { kind: 'alert', go: { term: 'automation', section: 'routines' } });
-      // its result is in the routine's HISTORY (AUTOMATE › ROUTINES), never in DELIVERABLES › TO REVIEW, which lists desk runs
-      else if (p.outcome === 'ok') hudNote('◷ routine completed', 'good', { go: { term: 'automation', section: 'routines' } }, 'cronDigest');
+      // (2026-10-09) the notification opens the run ITSELF — its session holds the result — never the routines list,
+      // where the result was one more click (and opening the session never settled the notification)
+      const ses = p.runId ? { ws: 'cron-' + p.runId } : { term: 'automation', section: 'routines' };
+      if (p.outcome === 'failed') hudNote('✕ routine failed' + (p.reason ? ' — ' + p.reason : ''), 'warn', { kind: 'alert', go: ses });
+      // its result is in the routine's own session (and HISTORY under AUTOMATE › ROUTINES), never in DELIVERABLES › TO REVIEW
+      else if (p.outcome === 'ok') hudNote('◷ routine completed', 'good', { go: ses }, 'cronDigest');
     });
     // REWIND: the rare, important "we rolled the workspace back" beat. checkpoint.created is frequent + quiet
     // (the workbench already pulses on shell), so only the restore is toasted.

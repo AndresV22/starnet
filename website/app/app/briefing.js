@@ -97,6 +97,66 @@ const Briefing = (() => {
     }
     return out;
   }
+  /* THE ORGANIZED VIEW (2026-10-09, Andrew: "when the user isn't there and comes back, really easily and organized see
+     all the work done"). The briefing's own items, sorted into what NEEDS YOU, what got DONE and IDEAS, one row
+     each: what it is, what happened (the run's own words), and OPEN into the thread that holds the evidence. Every
+     row is a server item (truthful telemetry — no row without a run behind it); OPEN only where that thread really
+     exists on this station (a deleted one stays gone, chipsFor's rule). */
+  function rowsFor(items) {
+    const has = id => !!id && typeof Workstreams !== 'undefined' && Workstreams.get && !!Workstreams.get(id);
+    const out = { needs: [], done: [], ideas: [] };
+    const push = (bucket, r) => out[bucket].push(Object.assign({ open: '' }, r, { open: has(r.open) ? r.open : '' }));
+    for (const it of (Array.isArray(items) ? items : [])) {
+      const L = it.latest || {};
+      if (it.kind === 'build') push('needs', { state: 'needs', tag: 'BUILD', name: it.title, what: 'built while you were away — keep it or toss it' + (it.summary ? ' · ' + it.summary : ''), open: it.open });
+      else if (it.kind === 'builds-waiting') push('needs', { state: 'needs', tag: 'BUILDS', name: it.count + ' earlier build' + (it.count === 1 ? '' : 's'), what: 'still waiting on a decision', open: it.open });
+      else if (it.kind === 'build-failed') push('needs', { state: 'failed', tag: 'BUILD', name: it.title, what: 'did not finish: ' + it.why, open: 'workshop-' + it.runId });
+      else if (it.kind === 'routine') push(L.failed ? 'needs' : 'done', { state: L.failed ? 'failed' : 'done', tag: 'ROUTINE', name: it.name,
+        what: (L.failed ? 'failed: ' + L.why : (L.excerpt || 'nothing new to report')), count: it.runs > 1 ? it.runs + '×' : '', open: L.open });
+      else if (it.kind === 'loop') push(L.failed ? 'needs' : 'done', { state: L.failed ? 'failed' : 'done', tag: 'LOOP', name: it.name,
+        what: (L.failed ? 'failed: ' + L.why : (L.excerpt || it.runs + ' pass' + (it.runs === 1 ? '' : 'es'))), count: it.runs > 1 ? it.runs + '×' : '', open: L.open });
+      else if (it.kind === 'delegated') push(it.failed ? 'needs' : 'done', { state: it.failed ? 'failed' : 'done', tag: 'DELEGATED', name: it.name,
+        what: (it.runs - it.failed) + ' of ' + it.runs + ' job' + (it.runs === 1 ? '' : 's') + ' finished' + (it.failed ? ' · ' + it.failed + ' did not' : (L.excerpt ? ' · ' + L.excerpt : '')), open: it.open });
+      else if (it.kind === 'draft') push('ideas', { state: 'idea', tag: 'IDEA', name: it.title, what: 'drafted, not built', open: '' });
+    }
+    return out;
+  }
+  function cardFor(items) {
+    const r = rowsFor(items);
+    const total = r.needs.length + r.done.length + r.ideas.length;
+    if (!total) return null;
+    const el = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; };
+    const card = el('div', 'bf-card briefing-links');
+    card.setAttribute && card.setAttribute('role', 'group');
+    const head = el('div', 'bf-head');
+    head.appendChild(el('span', 'bf-title', 'WHILE YOU WERE AWAY'));
+    head.appendChild(el('span', 'bf-sum', [r.needs.length && r.needs.length + ' need' + (r.needs.length === 1 ? 's' : '') + ' you', r.done.length && r.done.length + ' done', r.ideas.length && r.ideas.length + ' idea' + (r.ideas.length === 1 ? '' : 's')].filter(Boolean).join(' · ')));
+    card.appendChild(head);
+    const section = (label, rows) => {
+      if (!rows.length) return;
+      card.appendChild(el('div', 'bf-sec', label));
+      for (const x of rows) {
+        const row = el('div', 'bf-row ' + x.state);
+        row.appendChild(el('span', 'bf-lamp'));
+        const main = el('span', 'bf-main');
+        const line = el('span', 'bf-line1');
+        line.appendChild(el('span', 'bf-tag', x.tag));
+        line.appendChild(el('span', 'bf-name', String(x.name || '').slice(0, 80)));
+        if (x.count) line.appendChild(el('span', 'bf-count', x.count));
+        main.appendChild(line);
+        main.appendChild(el('span', 'bf-what', String(x.what || '').slice(0, 160)));
+        row.appendChild(main);
+        if (x.open) {
+          const b = el('button', 'bf-key', 'OPEN'); b.type = 'button';
+          b.addEventListener('click', () => { try { if (typeof App !== 'undefined' && App.openWorkstream) App.openWorkstream(String(x.open)); } catch (_) {} });
+          row.appendChild(b);
+        }
+        card.appendChild(row);
+      }
+    };
+    section('NEEDS YOU', r.needs); section('DONE', r.done); section('IDEAS', r.ideas);
+    return card;
+  }
   async function presentFor(wsId) {
     if (String(wsId || '') !== STREAM) return;
     if (typeof Chat === 'undefined' || !Chat.choices) return;
@@ -108,20 +168,13 @@ const Briefing = (() => {
       } catch (_) { return; }
     }
     if (typeof Workstreams === 'undefined' || !Workstreams.activeId || Workstreams.activeId() !== STREAM) return;   // switched away meanwhile
-    const chips = chipsFor(items);
     const log = (typeof document !== 'undefined' && document.getElementById) ? document.getElementById('chat-log') : null;
     if (!log) return;
-    // a STANDING row under the briefing (not Chat.choices): the open-doors are navigation, not a one-shot question,
+    // a STANDING card under the briefing (not Chat.choices): the open-doors are navigation, not a one-shot question,
     // so another beat's chips must never clear them; renderHistory wipes the log, and load()/repaint re-present it.
     const old = log.querySelector('.briefing-links'); if (old) old.remove();
-    if (!chips.length) return;
-    const row = document.createElement('div'); row.className = 'choice-row briefing-links';
-    for (const c of chips) {
-      const b = document.createElement('button'); b.type = 'button'; b.className = 'choice'; b.textContent = c.label;
-      b.addEventListener('click', () => { try { if (typeof App !== 'undefined' && App.openWorkstream) App.openWorkstream(String(c.value)); } catch (_) {} });
-      row.appendChild(b);
-    }
-    log.appendChild(row);
+    const card = cardFor(items);
+    if (card) log.appendChild(card);
   }
 
   // has the Commander been gone (no input) long enough that new unattended work belongs to a briefing?
@@ -159,6 +212,6 @@ const Briefing = (() => {
   function ownsReturn() { return enabled; }
   function reset() { enabled = false; lastItems = null; }
 
-  return { init, reset, deliver, presentFor, ownsReturn, isAway, chipsFor, STREAM, TITLE, _ensureSession: ensureSession };
+  return { init, reset, deliver, presentFor, ownsReturn, isAway, chipsFor, rowsFor, STREAM, TITLE, _ensureSession: ensureSession };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = Briefing;

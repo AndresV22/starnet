@@ -4019,6 +4019,19 @@ const App = (() => {
     if (typeof GroupChat !== 'undefined' && GroupChat.attentionIds) for (const id of GroupChat.attentionIds()) if (Workstreams.get(id) && !ids.includes(id)) ids.push(id);
     return new Set(ids);
   }
+  /* where an agent is WAITING on the Commander (an approval or a question) — the crew card's "needs your OK" opens
+     it in one click instead of narrowing the rail and leaving you to find it (2026-10-09). The pending prompt names
+     its agent (a delegated worker's ask can surface in the conversation that dispatched it); else the session's own
+     agent/members. null = nothing waiting for that agent. */
+  function waitingSessionOf(agentId) {
+    if (!agentId || typeof Workstreams === 'undefined') return null;
+    for (const id of railPendingIds()) {
+      const w = Workstreams.get(id); if (!w) continue;
+      const p = typeof Channels !== 'undefined' && Channels.pendingOf ? Channels.pendingOf(id) : null;
+      if ((p && p.agentId === agentId) || railHasAgent(w, agentId)) return id;
+    }
+    return null;
+  }
   function syncRailAttention(pending) {
     railAttentionKey = [...pending].sort().join('\n');
     if (!pending.size) railAttentionOnly = false;
@@ -5862,7 +5875,7 @@ const App = (() => {
   // (never an id in the UI) and keys its standing candidates against the focused hero.
   // currentAgent/agents/applyConfig (slash-plan): the slash-command suite reads/writes the live roster
   // and per-agent config (/agents, /model, /personality, …).
-  return { show, refreshUsage, persist, pushRoster, refreshRail: renderRail, openWorkstream, launchRecipe, summonAgent, summonForRequest, crewCount: () => agents.size,
+  return { show, refreshUsage, persist, pushRoster, refreshRail: renderRail, openWorkstream, waitingSessionOf, launchRecipe, summonAgent, summonForRequest, crewCount: () => agents.size,
     agentName: id => { const a = agents.get(id); return a ? (a.name || a.id) : null; },
     // WORK LINES: a downstream stage runs as ANOTHER agent, so the chat host needs THAT agent's composed
     // prompt — never the focused one's. Read-only; null for an id that is not on the live roster.
