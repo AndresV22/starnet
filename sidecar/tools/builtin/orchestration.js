@@ -514,6 +514,28 @@
       }
     }
 
+    /* EVERY WORKER GETS ITS OWN THREAD (2026-10-09, Andrew: managing agents and their threads must be the easiest
+       thing in the app). A coordinator's worker with no named `session` used to run inside the lead's own stream:
+       its turns had nowhere of their own to live and there was nothing to open. Now each one gets a child thread
+       filed under the conversation that asked (the rail folds it under that parent). Best-effort: a thread that
+       cannot be created leaves the worker running exactly as before — this never blocks or refuses work. */
+    function threadTitle(prompt, ident) {
+      const line = String(prompt || '').split(/\r?\n/).map(s => s.trim()).find(Boolean) || '';
+      const t = line.replace(/\s+/g, ' ').replace(/[.:;,\s]+$/, '');
+      if (t) return t.length > 48 ? t.slice(0, 47).trimEnd() + '…' : t;
+      return ((ident && ident.name) || 'Delegated') + ' task';
+    }
+    function fileUnderThreads(jobs, ctx) {
+      if (typeof deps.childThread !== 'function' || !ctx || !ctx.streamId || ctx.streamId === 'global') return;
+      jobs.forEach((job, i) => {
+        if (job.error || job.streamId) return;
+        try {
+          const t = deps.childThread({ parentStreamId: ctx.streamId, agentId: job.agentId, title: threadTitle(job.prompt, job.ident), requestId: (ctx.runId || '') + ':' + i });
+          if (t && t.id) { job.streamId = String(t.id); job.sessionTitle = String(t.title || ''); job.parentStreamId = ctx.streamId; }
+        } catch (e) { job.threadNote = String((e && e.message) || e); }
+      });
+    }
+
     /* THE VISIBLE HALF. runOnce already filed the run under this streamId (runStore + transcriptStore), so the
        durable record is true either way; this is what puts the worker's answer in front of the Commander, in the
        session they named. Failure is REPORTED on the row, never swallowed: a lead that says "it's in research"
@@ -523,7 +545,8 @@
       let out = null;
       const args = {
         streamId: job.streamId, sessionTitle: job.sessionTitle || job.session || '',
-        agentId: job.agentId, runId: row.runId || '', prompt: job.prompt, text: row.result
+        agentId: job.agentId, runId: row.runId || '', prompt: job.prompt, text: row.result,
+        parentStreamId: job.parentStreamId || undefined   // a fresh child thread the page may not have adopted yet
       };
       try { out = await station.request('station.deliver', args); }
       catch (e) { out = { ok: false, error: String((e && e.message) || e) }; }
@@ -540,7 +563,7 @@
       try {
         const pending = station.request(verb, {
           streamId: job.streamId, sessionTitle: job.sessionTitle || job.session || '',
-          agentId: job.agentId, runId: runId || ''
+          agentId: job.agentId, runId: runId || '', parentStreamId: job.parentStreamId || undefined
         });
         if (pending && typeof pending.catch === 'function') pending.catch(() => {});
       } catch (_) {}
@@ -558,7 +581,7 @@
       // user keeps the frictionless flow by choosing it. Lead-only conferral + budget caps + the concurrency
       // ceiling + autonomous workers (default-deny) all still stand underneath.
       name: 'team.dispatch', capability: 'orchestrator', scope: 'execute', requiresConsent: true,
-      description: 'Delegate subtasks to your specialist crew. Each worker runs its OWN real agent loop (live web search/read, files, memory) and returns its result for you to synthesize into the final answer. Address workers by the agentId listed under YOUR TEAM. Runs sequentially by default; pass parallel:true to run them at once. Pass background:true to start watchable workers and keep working. SESSIONS: pass `session` on a worker (the session\'s NAME, as the Commander says it) to make that subtask run in — and be filed under — that session instead of this one. Use an existing relevant session or create a named working session first. A name that does not match one on this station is REFUSED, not guessed, and that worker does not run. FILES: in a conversation scoped to a trusted project, a worker\'s RELATIVE file paths (fs_write, image_generate, voice_generate) land in that project folder, the same place yours do, so fs_read finds them by the same relative path. Otherwise each worker saves into its OWN private workspace — you cannot fs.read another agent\'s private files, so never "verify" such a file with your own file tools (absence in YOUR workspace proves nothing); every save receipt names the absolute location. The result\'s artifacts list is the proof of what each worker saved, and the Commander is shown those files as cards automatically — reference them as "<workerId>\'s workspace: <path>". COMMANDS: in ASK mode a delegated worker cannot run shell commands (shell_exec / verify_run are withheld from delegated runs, WORKBENCH or not, unless that worker is set to Full Access); run commands in this conversation yourself, or have the worker return the exact commands to you.',
+      description: 'Delegate subtasks to your specialist crew. Each worker runs its OWN real agent loop (live web search/read, files, memory) and returns its result for you to synthesize into the final answer. Address workers by the agentId listed under YOUR TEAM. Runs sequentially by default; pass parallel:true to run them at once. Pass background:true to start watchable workers and keep working. SESSIONS: pass `session` on a worker (the session\'s NAME, as the Commander says it) to make that subtask run in — and be filed under — that session instead of this one. Without it, each worker gets its own thread under this conversation. A name that does not match one on this station is REFUSED, not guessed, and that worker does not run. FILES: in a conversation scoped to a trusted project, a worker\'s RELATIVE file paths (fs_write, image_generate, voice_generate) land in that project folder, the same place yours do, so fs_read finds them by the same relative path. Otherwise each worker saves into its OWN private workspace — you cannot fs.read another agent\'s private files, so never "verify" such a file with your own file tools (absence in YOUR workspace proves nothing); every save receipt names the absolute location. The result\'s artifacts list is the proof of what each worker saved, and the Commander is shown those files as cards automatically — reference them as "<workerId>\'s workspace: <path>". COMMANDS: in ASK mode a delegated worker cannot run shell commands (shell_exec / verify_run are withheld from delegated runs, WORKBENCH or not, unless that worker is set to Full Access); run commands in this conversation yourself, or have the worker return the exact commands to you.',
       schema: {
         type: 'object', required: ['workers'], properties: {
           workers: {
@@ -616,6 +639,7 @@
         // WHERE before WHO does the work: an unresolvable session marks its job failed here, so that worker is
         // never started in the wrong place (see resolveSessions). One bridge round-trip for the whole dispatch.
         await resolveSessions(jobs);
+        fileUnderThreads(jobs, ctx);
         for (const job of jobs) {
           if (job.streamId && ctx && job.streamId === ctx.streamId) job.error = 'Delegate into a separate working session, not the lead conversation.';
           if (!job.error && job.streamId && typeof deps.sessionContext === 'function') {

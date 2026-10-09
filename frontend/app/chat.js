@@ -1706,6 +1706,10 @@ const Chat = (() => {
     if (activeWs && typeof Briefing !== 'undefined' && Briefing.presentFor) {
       try { Briefing.presentFor(activeWs.id).catch(() => {}); } catch (_) {}
     }
+    // DELEGATED WORK: a conversation that handed work to the crew shows one live card per dispatch (delegated.js)
+    if (activeWs && typeof Delegated !== 'undefined' && Delegated.presentFor) {
+      try { Delegated.presentFor(activeWs.id).catch(() => {}); } catch (_) {}
+    }
     pinLoadedHistoryAfterLayout(historyPin);
     // Reconcile a run that died while this page was closed or the sidecar restarted. Only the server's durable
     // safe verdict can start work; uncertain mutations remain paused and visible.

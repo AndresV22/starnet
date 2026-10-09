@@ -546,6 +546,18 @@ body.glass-demo:not(.hud-mode) #left .ws-auto-group button span { font-size: 14p
 body.glass-demo:not(.hud-mode) #left .ws-auto-group button small { grid-column: 2; font-size: 13px; color: var(--cg-mute); }
 body.glass-demo:not(.hud-mode) #left .ws-auto-group button:is(:hover, :focus-visible) { border-color: rgba(var(--ph-rgb), .45); background: rgba(var(--ph-rgb), .08); }
 
+/* DELEGATED THREADS (2026-10-09): a conversation's worker threads fold under it — indented rows hung on a thread
+   line, behind a quieter twin of the routine fold header (Workstreams.nestRows, app.js railKidsHead) */
+body.glass-demo:not(.hud-mode) #left .ws-auto-group.ws-kids { margin: 1px 6px 1px 24px; position: relative; }
+body.glass-demo:not(.hud-mode) #left .ws-auto-group.ws-kids button { padding: 4px 9px; border-color: rgba(var(--ph-rgb), .14); background: transparent; }
+body.glass-demo:not(.hud-mode) #left .ws-auto-group.ws-kids button span { font-size: 13px; }
+body.glass-demo:not(.hud-mode) #left .ws-auto-group.ws-kids::before,
+body.glass-demo:not(.hud-mode) #left #workstreams .ws-row.ws-child::after {
+  content: ''; position: absolute; left: -13px; top: -5px; height: calc(50% + 5px); width: 9px; pointer-events: none;
+  border-left: 1px solid rgba(var(--ph-rgb), .3); border-bottom: 1px solid rgba(var(--ph-rgb), .3); border-bottom-left-radius: 4px;
+}
+body.glass-demo:not(.hud-mode) #left #workstreams .ws-row.ws-child { margin-left: 24px; position: relative; overflow: visible; }
+
 /* --- old-style leftovers found by the 16-window sweep (10-02), each brought into the current glass --- */
 /* step-by-step guides (ABILITIES, CHANNELS): were a flat black box with a 1px dim rule */
 body.glass-demo:not(.hud-mode) .term .platform-guide {

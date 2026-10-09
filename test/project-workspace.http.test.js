@@ -50,7 +50,14 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
     }
     const snapshot = (await fixture.json('GET', '/api/overseer')).body;
     assert.ok(snapshot.reviews.some(r => r.status === 'done' && r.parentStreamId === home.id), JSON.stringify(snapshot));
-    assert.equal(snapshot.threads.filter(w => w.parentStreamId === home.id).length, 0, 'project delegation does not create visible child sessions');
+    // ONE filing rule (2026-10-09): a project's worker gets its own thread under the project conversation, scoped to
+    // the same project, and the worker runs in it (the rail folds it under the project conversation)
+    const kids = snapshot.threads.filter(w => w.parentStreamId === home.id);
+    assert.equal(kids.length, 1, 'project delegation files the worker in its own thread under the project conversation');
+    assert.equal(kids[0].agentId, 'researcher');
+    assert.equal(kids[0].projectRoot, roots[0], 'the worker thread keeps the project scope');
+    assert.equal(kids[0].leadRunId, run.body.runId || kids[0].leadRunId, 'the thread names the lead run that filed it');
+    assert.ok(snapshot.workers.some(w => w.agentId === 'researcher' && w.streamId === kids[0].id), 'the worker ran in its own thread');
     assert.ok(provider.requests.some(ms => ms.some(m => m.role === 'system' && /Preferred crew: \["researcher"\]/.test(m.content))), 'preferences reach the orchestrator');
     assert.ok(provider.requests.some(ms => ms.some(m => m.role === 'user' && /commanderDirections/.test(m.content) && /first milestone/.test(m.content))), 'review includes direct worker steering');
     await fixture.restart();

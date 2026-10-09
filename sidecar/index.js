@@ -11039,7 +11039,10 @@ const ROUTES = [
   { m: 'GET', exact: '/api/overseer', h: (_req, res) => {
     try { respondJson(res, 200, { ...overseer.snapshot(), workers: subagents.list().map(w => ({
       id: w.id, runId: w.runId, parentStreamId: w.parentStreamId, streamId: w.streamId,
-      status: w.status, working: w.working, startedAt: w.startedAt, prompt: String(w.prompt || '').slice(0, 80)
+      status: w.status, working: w.working, startedAt: w.startedAt, prompt: String(w.prompt || '').slice(0, 80),
+      // the parent's DELEGATED card (frontend/app/delegated.js): who, which dispatch, and whether STOP can act
+      agentId: w.agentId, parentRunId: w.parentRunId || '', generation: w.generation, completedAt: w.completedAt || 0,
+      canInterrupt: !!w.canInterrupt, reason: w.reason || ''
     })) }); }
     catch (e) { respondJson(res, 503, { error: e.message }); }
   } },
@@ -19237,6 +19240,15 @@ async function runOnceCore(o) {
     runOnce, roster: () => agentRoster, key: runKey, model, provider: providerId, baseUrl, reasoningEffort, subagents,
     runRecord: (id) => runStore.latest(id),   // team.subagents {runId}: verify a foreground dispatch against run history (#57)
     coordinateResults: require('./overseer.js').isCoordinatorRun({ ...o, agentId, surface }),
+    // every coordinator worker is filed in its own thread under the conversation that delegated it (orchestration.js
+    // fileUnderThreads). Idempotent per requestId; a taken title gets a numeric suffix rather than refusing the work.
+    childThread: require('./overseer.js').isCoordinatorRun({ ...o, agentId, surface }) ? (a) => {
+      for (let n = 1; n <= 9; n++) {
+        try { return overseer.create({ parentStreamId: a.parentStreamId, agentId: a.agentId, requestId: a.requestId, title: n === 1 ? a.title : a.title + ' ' + n }); }
+        catch (e) { if (!/already exists/.test(e.message)) throw e; }
+      }
+      throw new Error('no free thread title');
+    } : undefined,
     classes: SPECIALIST_CLASSES,   // Class Loadouts S1: the summon-tool class list, composed from the shared catalog (no hardcoded prose)
     selfSystem: system,   // team.spawn clones the LEAD's OWN base identity into each ephemeral subagent (Meeseeks)
     sessionContext: require('./overseer.js').isCoordinatorRun({ ...o, agentId, surface }) ? id => {
@@ -20868,9 +20880,9 @@ async function runOnceCore(o) {
     if (require('./overseer.js').isCoordinatorRun({ ...o, agentId, surface })) teamNote += '\nCoordinate the Commander\'s existing station crew from this conversation. Handle simple work directly. '
       + 'Use the agents the Commander has already created, choosing by their roles and instructions. '
       + 'Do not create a replacement crew or require a special General session. '
-      + (projectConversation
-        ? 'For independent or long-running project work, dispatch with background:true and omit session. The project activity feed exposes the worker; do not create additional working sessions by default. Background results return here automatically for your review. '
-        : 'For independent or long-running work, inspect existing sessions, reuse the relevant thread or create a named working session, then dispatch with background:true and its session id. Background results return here automatically for your review. ')
+      // ONE filing rule everywhere (2026-10-09): every dispatched worker gets its own thread filed under THIS
+      // conversation automatically (orchestration.js fileUnderThreads), so the model never decides where work lives.
+      + 'For independent or long-running work, dispatch with background:true; each worker gets its own thread under this conversation. Background results return here automatically for your review. '
       + 'Keep the Commander free to continue talking; never switch their focus just because you delegated. '
       + 'Route follow-ups to existing work; inspect worker status and generation before steering. '
       + 'Project context stays scoped to the relevant thread; read its decisions before acting. '

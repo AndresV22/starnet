@@ -4036,6 +4036,8 @@ const App = (() => {
   }
   let railKind = 'all';
   const railExpanded = new Set();
+  let railChildIds = new Set();   // rows renderRail folded under a parent conversation (rowClass marks them ws-child)
+  let railKidsOf = new Map();     // fold key 'kids:<parentId>' -> its child session ids (the 1s ticker refreshes the header)
   try {
     const saved = JSON.parse(localStorage.getItem('skynet.session-view') || '{}');
     // the ALL / AUTOMATED switch was removed (Andrew 10-01): the rail always shows every session; a saved
@@ -4167,7 +4169,23 @@ const App = (() => {
   function rowClass(w, st, activeId) {
     return 'ws-row' + (w.id === activeId ? ' sel' : '') + (st.busy ? ' busy' : '') + (st.attn ? ' attn' : '')
       + (w.pinned ? ' pinned' : '') + (w.archived ? ' archived' : '')
+      + (railChildIds.has(w.id) ? ' ws-child' : '')   // folded under its parent (renderRail's nestRows); the 1s ticker keeps it
       + (Workstreams.unread(w) ? ' unread' : '');   // real unseen activity (lastActiveAt > lastReadAt, never the open stream)
+  }
+  /* the fold header under a conversation that delegated work: how many threads, and what they are doing right now —
+     read from the same per-row truth the rail lamps use (railRowState), never a guess. */
+  function railKidsSummary(kids) {
+    let waiting = 0, working = 0, failed = 0, done = 0;
+    for (const k of kids) {
+      const st = railRowState(k);
+      if (st.attn) waiting++; else if (st.busy) working++; else if (k.lastRunOk === false) failed++; else if ((k.runIds || []).length) done++;
+    }
+    return [waiting && waiting + ' waiting on you', working && working + ' working', failed && failed + ' failed', done && done + ' done']
+      .filter(Boolean).join(' · ') || 'starting';
+  }
+  function railKidsHead(item) {
+    return '<li class="ws-auto-group ws-kids" role="presentation"><button type="button" data-ws-group="' + U.esc(item.key) + '" aria-expanded="' + item.expanded + '">'
+      + '<span>' + item.rows.length + ' delegated</span><small>' + U.esc(railKidsSummary(item.rows)) + '</small></button></li>';
   }
   function renderRail() {
     const ul = el('workstreams');
@@ -4185,11 +4203,18 @@ const App = (() => {
     syncRailAgentChip(allRows.length);
     const grouped = railAttentionOnly ? allRows.map(w => ({ type: 'session', w })) : Workstreams.railGroups(allRows, { view: railKind, activeId, expanded: [...railExpanded], urgent: allRows.filter(w => railRowState(w).busy || pending.has(w.id)).map(w => w.id) });
     const headers = new Map();
-    const rows = grouped.flatMap(item => {
+    const flat = grouped.flatMap(item => {
       if (item.type === 'session') return [item.w];
       headers.set(item.visible[0].id, item);
       return item.visible;
     });
+    // DELEGATED THREADS fold under the conversation that asked for them (Workstreams.nestRows); anything open, busy,
+    // waiting on you, failed or unread stays visible while folded. The attention view stays a flat list.
+    const keep = flat.filter(w => w.id === activeId || pending.has(w.id) || w.lastRunOk === false || Workstreams.unread(w) || railRowState(w).busy).map(w => w.id);
+    const items = railAttentionOnly ? flat.map(w => ({ type: 'row', w, depth: 0 })) : Workstreams.nestRows(flat, { expanded: [...railExpanded], keep });
+    railChildIds = new Set(items.filter(i => i.type === 'row' && i.depth).map(i => i.w.id));
+    railKidsOf = new Map(items.filter(i => i.type === 'kids').map(i => [i.key, i.rows.map(w => w.id)]));
+    const rows = items.filter(i => i.type === 'row').map(i => i.w);
     const filters = el('ws-kind-filter');
     if (filters) filters.hidden = railAttentionOnly;
     if (filters) filters.querySelectorAll('[data-ws-kind]').forEach(button => {
@@ -4199,13 +4224,16 @@ const App = (() => {
     if (!rows.some(w => w.id === railFocusId)) railFocusId = rows.some(w => w.id === activeId) ? activeId : (rows[0] && rows[0].id);
     ul.setAttribute('role', 'listbox');
     ul.setAttribute('aria-label', 'Sessions');
-    ul.innerHTML = rows.map((w, index) => {
+    let index = 0;
+    ul.innerHTML = items.map(item => {
+      if (item.type === 'kids') return railKidsHead(item);
+      const w = item.w; index++;
       const title = w.title || 'General';
       const st = railRowState(w);
       const group = headers.get(w.id);
       const groupHead = group ? '<li class="ws-auto-group" role="presentation"><button type="button" data-ws-group="' + U.esc(group.key) + '" aria-expanded="' + railExpanded.has(group.key) + '"><span>' + U.esc(group.name) + '</span><small>' + U.esc(railAgentName(w)) + ' · ' + group.rows.length + ' run' + (group.rows.length === 1 ? '' : 's') + ' · ' + (railExpanded.has(group.key) ? 'collapse' : 'show history') + '</small></button></li>' : '';
       const tip = railRowTip(w, st);
-      return groupHead + '<li class="' + rowClass(w, st, activeId) + '" data-id="' + U.esc(w.id) + '" tabindex="' + (w.id === railFocusId ? '0' : '-1') + '" role="option" aria-selected="' + (w.id === activeId ? 'true' : 'false') + '" aria-posinset="' + (index + 1) + '" aria-setsize="' + rows.length + '" aria-label="' + U.esc(railRowLabel(w, st)) + '" aria-keyshortcuts="Shift+F10" title="' + U.esc(tip) + '">' +
+      return groupHead + '<li class="' + rowClass(w, st, activeId) + '" data-id="' + U.esc(w.id) + '" tabindex="' + (w.id === railFocusId ? '0' : '-1') + '" role="option" aria-selected="' + (w.id === activeId ? 'true' : 'false') + '" aria-posinset="' + index + '" aria-setsize="' + rows.length + '" aria-label="' + U.esc(railRowLabel(w, st)) + '" aria-keyshortcuts="Shift+F10" title="' + U.esc(tip) + '">' +
         '<span class="' + st.dot + '" aria-hidden="true"></span>' +
         (w.pinned ? '<span class="ws-pin" aria-hidden="true">★</span>' : '') +
         '<span class="ws-agent" aria-hidden="true"' + railAgentColorAttr(w) + '>' + U.esc(railAgentName(w)) + '</span>' +
@@ -4306,6 +4334,12 @@ const App = (() => {
       if (li.getAttribute(tipAttr) !== tip) li.setAttribute(tipAttr, tip);
       const card = el('station-tip');
       if (card && !card.hidden && li.getAttribute('aria-describedby') === 'station-tip' && card.textContent !== tip) card.textContent = tip;
+    });
+    // the delegated-threads fold header counts what its children are doing right now (same truth as their lamps)
+    ul.querySelectorAll('.ws-kids [data-ws-group]').forEach(b => {
+      const ids = railKidsOf.get(b.dataset.wsGroup), small = b.querySelector('small'); if (!ids || !small) return;
+      const t = railKidsSummary(ids.map(id => Workstreams.get(id)).filter(Boolean));
+      if (small.textContent !== t) small.textContent = t;
     });
   }
   function armRailTicker() { if (!railTicker) railTicker = setInterval(updateRailLive, 1000); }

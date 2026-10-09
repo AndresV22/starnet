@@ -654,8 +654,41 @@
     return result.filter(item => item.type === 'session' || item.visible.length);
   }
 
+  /* CHILD THREADS FOLD UNDER THEIR PARENT (2026-10-09, Andrew: managing agents and their threads must be the easiest
+     thing in the app). A display projection only, like railGroups: never merges, moves or deletes a session.
+     A row whose parentStreamId names a TOP-LEVEL row of this same list renders right under it, behind one fold
+     header ({type:'kids'}); a child whose parent is filtered out, archived or missing stays a top-level row, so
+     nothing is ever hidden. While folded, a child still shows when opts.keep names it (open, busy, waiting,
+     failed, unread) — the fold only tucks away work you have already seen. Input order is kept within each level. */
+  function nestRows(rows, options) {
+    const opts = options || {}, expanded = new Set(opts.expanded || []), keep = new Set(opts.keep || []);
+    const list = Array.isArray(rows) ? rows : [];
+    const present = new Set(list.map(w => w && w.id));
+    const parentOf = w => (w && w.parentStreamId && w.parentStreamId !== w.id && present.has(w.parentStreamId)) ? w.parentStreamId : null;
+    const byId = new Map(list.map(w => [w.id, w]));
+    const kidsOf = new Map();
+    for (const w of list) {
+      const p = parentOf(w);
+      if (!p || parentOf(byId.get(p))) continue;   // one level deep: a child's own children stay where they are
+      if (!kidsOf.has(p)) kidsOf.set(p, []);
+      kidsOf.get(p).push(w);
+    }
+    const nested = new Set(); kidsOf.forEach(kids => kids.forEach(w => nested.add(w.id)));
+    const out = [];
+    for (const w of list) {
+      if (nested.has(w.id)) continue;
+      out.push({ type: 'row', w, depth: 0 });
+      const kids = kidsOf.get(w.id);
+      if (!kids) continue;
+      const key = 'kids:' + w.id, open = expanded.has(key);
+      out.push({ type: 'kids', key, parentId: w.id, rows: kids, expanded: open });
+      for (const k of kids) if (open || keep.has(k.id)) out.push({ type: 'row', w: k, depth: 1 });
+    }
+    return out;
+  }
+
   return {
-    init, reset, serialize, all, list, search, setConnectorHandoff, connectorHandoff, automationOf, railGroups,
+    init, reset, serialize, all, list, search, setConnectorHandoff, connectorHandoff, automationOf, railGroups, nestRows,
     exportConversation, parseConversationExport, clearConversation,
     previewArchive, archivePreview, canUndo, undoLast,
     create, startSession, adopt, get, active, activeId: getActiveId, generalId: getGeneralId,

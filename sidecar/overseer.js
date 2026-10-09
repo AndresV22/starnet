@@ -135,7 +135,9 @@ function makeOverseer(deps) {
   function snapshot() { if (unavailable) return { threads: [], reviews: [], paused: true, error: unavailable };
     return { threads: threads().map(w => ({ id: w.id, title: w.title, agentId: w.agentId,
     parentStreamId: w.parentStreamId || '', projectRoot: w.projectRoot || null, projectHome: !!w.projectHome,
-    kind: w.kind, lane: w.lane, createdAt: w.createdAt })), reviews: copy(state.reviews), paused: emergencyPaused || !!state.paused }; }
+    kind: w.kind, lane: w.lane, createdAt: w.createdAt,
+    // the lead run that filed this thread (requestId = '<leadRunId>:<n|title>'): the page groups a dispatch's threads by it
+    leadRunId: String(w.requestId || '').split(':')[0] })), reviews: copy(state.reviews), paused: emergencyPaused || !!state.paused }; }
   function resumeReviews() {
     // A damaged optional coordination store must not prevent ordinary chat.
     // Reads/creates still refuse, and the poller remains paused; never overwrite it.
