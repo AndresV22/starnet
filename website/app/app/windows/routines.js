@@ -297,7 +297,7 @@
       const schedHuman = human(sched);
       const schedTz = j.schedule && j.schedule.kind === 'cron' ? String(j.schedule.tz || '') : '';
       const tzLabel = schedTz ? ' [' + schedTz + ']' : '';
-      return '<div class="mc-row" data-id="' + esc(j.id) + '" data-agent="' + esc(j.agentId || 'agent') + '" data-on="' + (on ? '1' : '0') + '" data-sched="' + esc(sched) + '" data-tz="' + esc(schedTz) + '">' +
+      return '<div class="mc-row" data-id="' + esc(j.id) + '" data-agent="' + esc(j.agentId || 'agent') + '" data-name="' + esc(j.name || '') + '" data-on="' + (on ? '1' : '0') + '" data-sched="' + esc(sched) + '" data-tz="' + esc(schedTz) + '">' +
         '<div class="mc-top"><b>' + esc(j.name || '(unnamed)') + '</b> <span class="dim"' +
           (schedHuman !== sched ? ' title="' + esc(sched) + '"' : '') + '>' + esc(schedHuman + tzLabel) + '</span> ' + stateBadge + termBadge + runtimeBadge + fromRecipe + '</div>' +
         '<div class="mc-url dim">' + runsLine(j) + ' · next ' + next + ' · last ' + lastResult(j) + spendLine(j) + '</div>' +
@@ -672,7 +672,7 @@
       if (act === 'open-run') {
         sfx('click');
         let opened = false;
-        try { if (typeof ReturnStore !== 'undefined' && ReturnStore.openWork) opened = await ReturnStore.openWork({ runId: btn.dataset.run, streamId: btn.dataset.stream, agentId: rowEl.dataset.agent || 'agent', title: '' }); } catch (_) { opened = false; }
+        try { if (typeof ReturnStore !== 'undefined' && ReturnStore.openWork) opened = await ReturnStore.openWork({ runId: btn.dataset.run, streamId: btn.dataset.stream, agentId: rowEl.dataset.agent || 'agent', title: rowEl.dataset.name || '' }); } catch (_) { opened = false; }
         if (!opened && typeof StationUI !== 'undefined' && StationUI.notify) StationUI.notify('That run’s conversation could not be loaded.', 'warn');
         return;
       }
