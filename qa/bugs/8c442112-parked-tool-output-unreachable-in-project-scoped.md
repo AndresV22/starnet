@@ -4,11 +4,11 @@ slug: parked-tool-output-unreachable-in-project-scoped
 title: Parked tool output unreachable in project-scoped runs (relative .output pointer resolves against the project)
 surface: sessions
 severity: P1
-status: open
+status: fixed
 found: 2026-10-09
 lane: agent/park-path-fix
-fix:
-origin: unknown
+fix: 4a4dc6908
+origin: audit
 ---
 
 # Parked tool output unreachable in project-scoped runs (relative .output pointer resolves against the project)
@@ -46,4 +46,16 @@ Automated: `node test/project-parked-output.e2e.test.js`.
 
 ## Verdict
 
-_Filled in when the bug leaves the backlog: what was true, and why it is closed._
+Fixed in 4a4dc6908 (+ 9e4d77dcf ratchet follow-up), merged FF to trunk 9e4d77dcf on 2026-10-09. In a project
+session the model is now handed the absolute jail path (`visibleOutputPath` in `sidecar/output-artifacts.js`),
+which path trust already serves for an agent's own workspace — no new authority. The same rule covers the
+`shell.bg.*` and `terminal.read` spill notes; worker spills ride `ctx.parkOutput` and inherit it. `fs.search` on a
+single file now searches that file (it threw ENOTDIR). Taint is unchanged: absolute `untrusted-*` parks still taint
+(`test/taint-lineage.test.js`).
+
+Proof: `test/project-parked-output.e2e.test.js` 11/11 (fs.read of the exact pointer, offset paging to the elided
+middle, fs.search on the file); `npm run test:fast` 1101/1101; `npm run test:http` 196/196 (step 50
+station-show.e2e failed once as a timing flake, then passed 2/2 on the branch and 2/2 on clean trunk). Live:
+the gauntlet `starnet bigraw` ran 104 s / 160 s / 147 s (all pass, zero Get-ChildItem hunts, the model opened the
+absolute parked path directly) vs 772 s / 720 s before. The remaining gap to Claude Code (31 s) is per-turn
+`claude -p` latency, gauntlet gap G2 — not this bug.
