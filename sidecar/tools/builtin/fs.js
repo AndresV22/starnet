@@ -990,7 +990,9 @@ const { note: failNote } = require('../../failopen');
            Root the scan at the file's own folder and admit only that name: narrower than the folder the jail
            already allows, and naming the file is consent to search it even when a .gitignore would skip it. */
         let onlyName = null;
-        try { if ((await fsp.stat(abs)).isFile()) { onlyName = P.basename(abs); abs = P.dirname(abs); } } catch (_) {}
+        // An unstattable path stays a folder search, whose own scan reports the real error.
+        const startStat = await fsp.stat(abs).catch((e) => { failNote('fs.search.start.stat', e); return null; });
+        if (startStat && startStat.isFile()) { onlyName = P.basename(abs); abs = P.dirname(abs); }
         const startPrefix = P.relative(base, abs).split(P.sep).join('/');     // '' when searching from the root
         const ic = !!args.ignoreCase;
         const limit = Math.max(1, Math.min(1000, Number(args.limit) || 50));
