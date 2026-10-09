@@ -30,7 +30,7 @@ function canonicalArgs(call) {
    the digest and can therefore prove a genuinely new observation. */
 function normalizeEvidence(value) {
   return String(value == null ? '' : value)
-    .replace(/\.output\/[A-Za-z0-9._-]+-[0-9a-f-]{16,}-\d+\.txt/gi, '.output/<parked-result>.txt')
+    .replace(/\.output[\\/][A-Za-z0-9._-]+-[0-9a-f-]{16,}-\d+\.txt/gi, '.output/<parked-result>.txt')
     .replace(/\bcall_[A-Za-z0-9_-]+\b/g, 'call_<id>')
     .replace(/\bref\s+b\d+\b/gi, 'ref b<id>')
     .replace(/\bb\d+\s+\[/g, 'b<id> [')

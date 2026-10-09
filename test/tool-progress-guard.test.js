@@ -15,6 +15,9 @@ const ok = (content, summary) => ({ ok: true, isError: false, content, summary: 
 // Host-generated volatility must not manufacture evidence.
 A.eq(T.normalizeEvidence('b12 [button] X ref b9 .output/browser.snapshot-12345678-1234-1234-1234-123456789abc-9.txt'),
   'b<id> [button] X ref b<id> .output/<parked-result>.txt', 'refs and parked receipt ids normalize away');
+// A project session's pointer is absolute (win32 separators): its fresh run id must normalize away the same way.
+A.eq(T.normalizeEvidence('C:\\ws\\a\\.output\\shell.exec-12345678-1234-1234-1234-123456789abc-3.txt'),
+  'C:\\ws\\a\\.output/<parked-result>.txt', 'an absolute win32 parked pointer normalizes too');
 
 // Identical successful calls warn, then block BEFORE another paid dispatch.
 {

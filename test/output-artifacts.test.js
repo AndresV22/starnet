@@ -6,7 +6,7 @@ const fsp = require('node:fs/promises');
 const path = require('node:path');
 const os = require('node:os');
 const crypto = require('node:crypto');
-const { makeOutputArtifacts } = require('../sidecar/output-artifacts.js');
+const { makeOutputArtifacts, visibleOutputPath } = require('../sidecar/output-artifacts.js');
 
 (async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'starnet-output-artifacts-'));
@@ -72,6 +72,17 @@ const { makeOutputArtifacts } = require('../sidecar/output-artifacts.js');
       'a rejected append is rolled back so the next receipt cannot bless corrupt history');
 
     A.throws(() => store.append({ agentId: '../escape', kind: 'x', id: 'y', text: 'z' }), 'artifact paths cannot escape the agent workspace');
+
+    // THE POINTER MUST RESOLVE WHERE IT IS READ: a project session gets the absolute jail path, everything else is unchanged
+    A.eq(first.abs, path.join(root, 'a1', '.output', 'shell.exec-run-0.txt'), 'park also reports the absolute location');
+    const vis = (rel, o) => visibleOutputPath(rel, Object.assign({ agentId: 'a1', root, pathMod: path }, o));
+    A.eq(vis(first.path, {}), first.path, 'outside a project session the relative pointer is unchanged');
+    A.eq(vis(first.path, { projectRoot: '  ' }), first.path, 'a blank projectRoot is no project');
+    A.eq(vis(first.path, { projectRoot: '/proj' }), first.abs, 'in a project session the pointer is the absolute jail path');
+    A.eq(await fsp.readFile(vis(first.path, { projectRoot: '/proj' }), 'utf8'), full, 'and it names the real parked bytes');
+    A.eq(vis('notes/.output/x.txt', { projectRoot: '/proj' }), 'notes/.output/x.txt', 'only a host-shaped .output/<file> pointer is rewritten');
+    A.eq(vis('.output/x.txt', { projectRoot: '/proj', agentId: '../escape' }), '.output/x.txt', 'a bad agent id never builds a path');
+    A.eq(vis(null, { projectRoot: '/proj' }), '', 'no pointer stays no pointer');
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
   A.report('output-artifacts.test');
 })().catch(e => { console.error(e); process.exit(1); });

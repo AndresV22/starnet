@@ -149,6 +149,10 @@ const leadCtx = (extra) => makeCapCtx({ agentId: 'lead', room: 'office', hasComp
   A.eq(taint.UNTRUSTED_PARK_PREFIX, 'untrusted-', 'the host prefix is the one the source rule matches');
   A.ok(taint.isUntrustedSource(FS_READ, { args: { path: '.output/untrusted-team.dispatch-researcher-r1-0.txt' } }), 'fs.read of an untrusted park taints the reading run');
   A.ok(taint.isUntrustedSource(FS_READ, { args: { path: 'sub\\.output\\untrusted-web_fetch-r-1.txt' } }), 'either separator');
+  // a project session hands the model the ABSOLUTE pointer (visibleOutputPath); reading it must taint the same way
+  A.ok(taint.isUntrustedSource(FS_READ, { args: { path: 'C:\\Users\\u\\AppData\\Local\\StarNet\\workspaces\\a\\.output\\untrusted-web_fetch-r-1.txt' } }), 'an absolute win32 untrusted park taints');
+  A.ok(taint.isUntrustedSource(FS_READ, { args: { path: '/home/u/.starnet/workspaces/a/.output/untrusted-web_fetch-r-1.txt' } }), 'an absolute posix untrusted park taints');
+  A.ok(taint.isUntrustedSource(FS_SEARCH, { args: { path: '/home/u/.starnet/workspaces/a/.output/shell.exec-r1-0.txt' } }), 'fs.search on an absolute park (now a supported file search) taints');
   A.ok(!taint.isUntrustedSource(FS_READ, { args: { path: '.output/shell.exec-r1-0.txt' } }), 'a clean park (own shell output) does NOT taint (stated v1 boundary kept)');
   A.ok(taint.isUntrustedSource(FS_SEARCH, { args: { path: '.output' } }), 'fs.search rooted in .output/ taints (returns park bytes as snippets)');
   A.ok(!taint.isUntrustedSource(FS_SEARCH, { args: { path: 'src' } }), 'an ordinary fs.search does not');

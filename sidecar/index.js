@@ -42,7 +42,7 @@ const { makeAgentLifecycle } = require('./agent-lifecycle.js');
 const { makeConsentWait } = require('./consentwait.js');   // EL-11: fail-closed consent timer + human-visible ack extension
 const { killAll } = require('./halt.js');
 const { makeRegistry, outputBudgetFor, outputWindowFor } = require('./tools/registry.js');
-const { makeOutputArtifacts } = require('./output-artifacts.js');
+const { makeOutputArtifacts, visibleOutputPath } = require('./output-artifacts.js');
 const { makeWebTools, makePoliteScheduler } = require('./tools/builtin/web.js');
 const { makeWebReader } = require('./tools/builtin/webreader.js');
 const { makeBrowserTools, _internals: browserInternals } = require('./tools/builtin/browser.js');
@@ -19975,7 +19975,11 @@ async function runOnceCore(o) {
         const untrusted = !!(execution.taintedBy() || (meta && meta.taintedBy)
           || revokedByTaint.isSource({ name: String((meta && meta.tool) || ''), capability: String((meta && meta.capability) || '') }, { args: {} }));
         const stem = (untrusted ? taintPolicy.UNTRUSTED_PARK_PREFIX : '') + safeTool + '-' + String(runId || 'run').replace(/[^A-Za-z0-9_-]/g, '') + '-' + (parkSeq++);
-        return await outputArtifacts.park(agentId || 'agent', stem, content);
+        const parked = await outputArtifacts.park(agentId || 'agent', stem, content);
+        // In a project session a relative pointer resolves against the project, not this jail: hand the model the
+        // absolute path (see visibleOutputPath). Every note, receipt and worker spill reads parked.path.
+        if (parked && parked.path && o.projectRoot) parked.path = visibleOutputPath(parked.path, { projectRoot: o.projectRoot, agentId: agentId || 'agent', root: WORKSPACES, pathMod: path });
+        return parked;
       } catch (_) { return null; }
     },
     // The context carries the host-minted remote-owner lease only for a locally paired Telegram owner.

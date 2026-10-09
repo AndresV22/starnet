@@ -41,7 +41,7 @@ function makeOutputArtifacts(deps) {
     } finally { if (handle) await handle.close(); }
     const actual = await fsp.readFile(chosen.abs);
     if (!Buffer.isBuffer(actual) || !actual.equals(bytes)) return null;
-    return { path: chosen.rel, chars: text.length, bytes: bytes.length, sha256: digest(bytes) };
+    return { path: chosen.rel, abs: chosen.abs, chars: text.length, bytes: bytes.length, sha256: digest(bytes) };
   }
 
   function append(entry) {
@@ -99,4 +99,18 @@ function makeOutputArtifacts(deps) {
   return { park, append, _internals: { paths, safe, agent } };
 }
 
-module.exports = { makeOutputArtifacts };
+/* THE POINTER MUST RESOLVE WHERE IT IS READ (harness gauntlet G1, 2026-10-08). A park lands in the agent's private
+   jail and is named relative to it (.output/…). In a project-scoped session a relative fs/shell path resolves
+   against the PROJECT, so that pointer dangled and the model burned ~12 minutes hunting its own file. There the
+   model is handed the absolute path instead — path trust already serves an agent's own workspace by absolute
+   path, so this grants nothing new. Outside a project session the relative pointer is unchanged. */
+function visibleOutputPath(rel, o) {
+  o = o || {};
+  rel = String(rel == null ? '' : rel);
+  const projectRoot = typeof o.projectRoot === 'string' ? o.projectRoot.trim() : '';
+  const aid = String(o.agentId || 'agent');
+  if (!projectRoot || !o.root || !o.pathMod || !/^\.output\/[^\\/]+$/.test(rel) || !/^[A-Za-z0-9_-]{1,40}$/.test(aid)) return rel;
+  return o.pathMod.join(String(o.root), aid, rel);
+}
+
+module.exports = { makeOutputArtifacts, visibleOutputPath };

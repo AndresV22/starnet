@@ -28,6 +28,7 @@
   // foreground receipts for the boot orphan sweep (procledger.js trackChild); inert when no ledger is injected
   const trackChild = (typeof require === 'function') ? require('../../procledger.js').trackChild : function () { return { exited: function () {}, done: function () {} }; };
   const shellFailNote = (typeof require === 'function') ? require('../../failopen.js').note : function () {};
+  const visibleOutputPath = (typeof require === 'function') ? require('../../output-artifacts.js').visibleOutputPath : function (p) { return p; };
   function safeAgentId(id) { if (!AID_RE.test(id || '')) throw new Error('bad agentId'); return id; }
   function clip(s, n) { s = String(s == null ? '' : s); n = n || 200; return s.length > n ? s.slice(0, n) + '…' : s; }
   function clamp(n, lo, hi) { n = Number(n); if (!isFinite(n)) return lo; return Math.max(lo, Math.min(hi, n)); }
@@ -817,6 +818,9 @@
     const environment = deps.environment || null;
     const spawn = deps.spawn, fs = deps.fs || null, P = deps.pathMod || (typeof require === 'function' ? require('node:path') : null), ROOT = deps.root || '';
     const bg = deps.bg || null;   // H2.2: the singleton background-process manager (shellbg.js); null -> bg disabled
+    // A spill lives in the agent's jail (.output/…); a project session resolves relative paths in the project, so
+    // the pointer the model reads must be absolute there (output-artifacts.js visibleOutputPath).
+    const spillPath = (rel, ctx) => visibleOutputPath(rel, { projectRoot: ctx && ctx.projectRoot, agentId: safeAgentId((ctx && ctx.agentId) || 'agent'), root: ROOT, pathMod: P });
     // procledger.js: foreground children are receipted while they run (the environment path does the same in
     // environment.js runProcess — that is the production route; this covers the direct runCommand route)
     const ledger = (deps.ledger && typeof deps.ledger.record === 'function') ? deps.ledger : null;
@@ -986,7 +990,7 @@
         if (id) {
           const v = await Promise.resolve(source ? source.statusBackground(aid, id) : bg.status(aid, id));
           if (!v) return { content: 'No background process "' + id + '".', summary: 'not found' };
-          const saved = v.outputSpillVerified ? '\n[full output: ' + v.outputBytes + ' bytes durably appended to ' + v.outputPath + ']' : (v.outputSpillError ? '\n[full-output spill failed: ' + v.outputSpillError + ']' : '');
+          const saved = v.outputSpillVerified ? '\n[full output: ' + v.outputBytes + ' bytes durably appended to ' + spillPath(v.outputPath, ctx) + ']' : (v.outputSpillError ? '\n[full-output spill failed: ' + v.outputSpillError + ']' : '');
           const state = v.running ? 'RUNNING' + killNote(v) : v.lost ? 'LOST — ' + (v.remoteBoundary || 'remote process identity is unconfirmed') : 'exited ' + v.exitCode + (v.killed ? ' (killed)' : '') + killNote(v);
           return { content: '[' + v.bgId + '] ' + state + ' · ' + v.ms + 'ms · ' + v.cmd + saved + '\n--- output tail ---\n' + redact(v.tail || '(none)'), summary: v.running ? 'running' : v.lost ? 'lost' : 'exited ' + v.exitCode };
         }
@@ -1087,9 +1091,9 @@
            that assumes it is will conclude a failure started somewhere it did not. */
         const note = r.truncatedStart
           ? (r.outputSpillVerified
-              ? '\n(earlier output left the memory buffer; the full ' + r.outputBytes + '-byte log is saved once at ' + r.outputPath + ' and can be paged with fs.read)'
+              ? '\n(earlier output left the memory buffer; the full ' + r.outputBytes + '-byte log is saved once at ' + spillPath(r.outputPath, ctx) + ' and can be paged with fs.read)'
               : '\n(earlier output was dropped from memory and durable spill is unverified' + (r.outputSpillError ? ': ' + r.outputSpillError : '') + ')')
-          : (r.outputSpillVerified ? '\n(full output is durably appended to ' + r.outputPath + '; ' + r.outputBytes + ' bytes so far)' : '');
+          : (r.outputSpillVerified ? '\n(full output is durably appended to ' + spillPath(r.outputPath, ctx) + '; ' + r.outputBytes + ' bytes so far)' : '');
         const body = r.returned
           ? r.lines.map(function (ln, i) { return String(r.lineNos[i]).padStart(6, ' ') + '  ' + ln; }).join('\n')
           : (r.grep ? '(no lines match)' : '(no output yet)');

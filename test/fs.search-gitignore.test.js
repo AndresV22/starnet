@@ -68,6 +68,13 @@ async function contract(tools, label) {
   // a PATH-shaped file_glob is workspace-relative on BOTH engines, with or without a scoped `path`
   const pg = await tools.searchTool.run({ query: 'NEEDLE', file_glob: 'src/*.js', output_mode: 'files_only', limit: 100 }, ctx);
   A.eq(lines(pg), ['src/app.js'], label + ': a path file_glob matches the workspace-relative path');
+  // a FILE as `path` searches exactly that file (the clamp notes say "search" the saved output file) — it used to ENOTDIR
+  const one = await tools.searchTool.run({ query: 'NEEDLE', path: 'docs/guide.md', output_mode: 'files_only', limit: 100 }, ctx);
+  A.eq(lines(one), ['docs/guide.md'], label + ': a file path searches only that file, never its siblings');
+  const named = await tools.searchTool.run({ query: 'NEEDLE', path: 'build.log', limit: 100 }, ctx);
+  A.ok(/NEEDLE logged/.test(named.content), label + ': naming a .gitignored file searches it anyway');
+  const oneFiles = await tools.searchTool.run({ query: '*.md', target: 'files', path: 'docs/guide.md', limit: 100 }, ctx);
+  A.eq(lines(oneFiles), ['docs/guide.md'], label + ': target files on a file path lists only that file');
   const pgScoped = await tools.searchTool.run({ query: 'NEEDLE', path: 'src', file_glob: 'src/*.js', output_mode: 'files_only', limit: 100 }, ctx);
   A.eq(lines(pgScoped), ['src/app.js'], label + ': …and means the SAME thing when `path` is set (rg used to match it against the scoped dir)');
   const pgDeep = await tools.searchTool.run({ query: 'NEEDLE', path: 'docs', file_glob: 'docs/**', output_mode: 'files_only', limit: 100 }, ctx);

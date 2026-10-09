@@ -2,6 +2,7 @@
 'use strict';
 
 const Shell = require('./shell.js');
+const { visibleOutputPath } = require('../../output-artifacts.js');
 
 function makeTerminalTools(deps) {
   deps = deps || {};
@@ -121,7 +122,7 @@ function makeTerminalTools(deps) {
     run: function (args, ctx) {
       const r = fail(manager.read(aid(ctx), sessionRef(args), { offset: args.offset, maxChars: args.maxChars }));
       const saved = r.session.outputSpillVerified
-        ? '; full ' + r.session.outputBytes + '-byte output saved once at ' + r.session.outputPath + ' (page with fs.read)'
+        ? '; full ' + r.session.outputBytes + '-byte output saved once at ' + visibleOutputPath(r.session.outputPath, { projectRoot: ctx && ctx.projectRoot, agentId: aid(ctx), root: ROOT, pathMod: P }) + ' (page with fs.read)'
         : (r.session.outputSpillError ? '; durable output spill failed: ' + r.session.outputSpillError : '');
       const note = '[offset ' + r.offset + '→' + r.nextOffset + ' of ' + r.endOffset
         + (r.truncatedStart ? '; earlier output left the bounded scrollback' : '') + saved

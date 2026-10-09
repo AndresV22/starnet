@@ -982,7 +982,15 @@ const { note: failNote } = require('../../failopen');
         args = args || {};
         const q = String(args.query != null ? args.query : '');
         if (!q) throw new Error('"query" must be a non-empty string');
-        const { base, abs } = await resolveInside((ctx && ctx.agentId) || 'agent', args.path || '.', { scope: 'read', ctx });
+        const resolved = await resolveInside((ctx && ctx.agentId) || 'agent', args.path || '.', { scope: 'read', ctx });
+        const base = resolved.base;
+        let abs = resolved.abs;
+        /* A FILE as `path` searches just that file. Every clamp note says "THE FULL OUTPUT WAS SAVED to <file> — read
+           that file … or search it", yet a file path died here with ENOTDIR, so the advertised search never worked.
+           Root the scan at the file's own folder and admit only that name: narrower than the folder the jail
+           already allows, and naming the file is consent to search it even when a .gitignore would skip it. */
+        let onlyName = null;
+        try { if ((await fsp.stat(abs)).isFile()) { onlyName = P.basename(abs); abs = P.dirname(abs); } } catch (_) {}
         const startPrefix = P.relative(base, abs).split(P.sep).join('/');     // '' when searching from the root
         const ic = !!args.ignoreCase;
         const limit = Math.max(1, Math.min(1000, Number(args.limit) || 50));
@@ -990,7 +998,7 @@ const { note: failNote } = require('../../failopen');
         const target = ({ grep: 'content', find: 'files' })[args.target] || args.target || 'content';
         const cx = Math.max(0, Math.min(10, Number(args.context) || 0));
         const maxFiles = Math.max(1, Math.min(SEARCH_MAX_FILES_CEILING, Math.floor(Number(args.max_files)) || SEARCH_MAX_FILES));
-        const stats = { files: 0, truncated: false, maxFiles, gitignore: args.gitignore !== false };
+        const stats = { files: 0, truncated: false, maxFiles, gitignore: args.gitignore !== false && !onlyName };
         const signal = ctx && ctx.signal;
 
         // .gitignore layers ABOVE the start dir still bind (a `path` of "src/x" is inside the root's rules);
@@ -1018,6 +1026,7 @@ const { note: failNote } = require('../../failopen');
           const hasSlash = q.indexOf('/') >= 0;
           const re = globToRe((!hasSlash && q.charAt(0) !== '*') ? ('*' + q) : q, ic);   // bare name -> suffix match (rg --files -g *name)
           const nameOf = (rel) => hasSlash ? rel : rel.split('/').pop();
+          const wanted = (rel) => (!onlyName || rel.split('/').pop() === onlyName) && re.test(nameOf(rel));
           let hits = null;
           if (rg) {
             const rels = [];
@@ -1028,13 +1037,13 @@ const { note: failNote } = require('../../failopen');
               hits = [];
               for (const p of rels) {
                 const rel = rgRel(p);
-                if (!re.test(nameOf(rel))) continue;
+                if (!wanted(rel)) continue;
                 let st; try { st = await fsp.stat(P.join(base, rel)); } catch (_) { continue; }
                 hits.push({ rel, mtimeMs: st.mtimeMs || 0 });
               }
             }
           }
-          if (!hits) { const all = await walkAll(); stats.engine = 'walk'; hits = all.filter(f => re.test(nameOf(f.rel))); }
+          if (!hits) { const all = await walkAll(); stats.engine = 'walk'; hits = all.filter(f => wanted(f.rel)); }
           hits.sort((a, b) => (b.mtimeMs - a.mtimeMs) || (a.rel < b.rel ? -1 : a.rel > b.rel ? 1 : 0));   // newest first; path tiebreak = determinism
           const total = hits.length, page = hits.slice(offset, offset + limit);
           if (!page.length) return { content: '(no files matching ' + q + ')', summary: '0 files' };
@@ -1066,6 +1075,7 @@ const { note: failNote } = require('../../failopen');
           if (!globPath && fg.charAt(0) !== '*') fg = '*' + fg;
           globRe = globToRe(fg, ic);
         }
+        if (onlyName) { globRe = new RegExp('^' + onlyName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '$'); globPath = false; }
 
         let fileHits = null;   // [{ rel, idxs:[lineIdx…], lines: string[] | { [idx]: text }, maxIdx }]
         let totalMatches = 0, timedOut = false;
