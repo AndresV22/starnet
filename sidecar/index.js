@@ -22692,7 +22692,9 @@ async function awayBriefingInputs(since, now, tzOffsetMin) {
   let focus = null;
   const rung = currentInitiative();
   if (rung === 'leash' || rung === 'free') { try { focus = (nightFocusState && nightFocusState.focus) || null; } catch (_) { focus = null; } }
-  return { since, now, tzOffsetMin, runs, builds, drafts, jobs, loops, focus };
+  // delegated workers are briefed under the conversation that asked for them (worker thread -> parent, parent title)
+  let threads = []; try { threads = overseer.threads().map(t => ({ id: t.id, parentStreamId: t.parentStreamId || '', title: t.title || '' })); } catch (e) { failNote('away-briefing.threads', e); }
+  return { since, now, tzOffsetMin, runs, builds, drafts, jobs, loops, focus, threads };
 }
 function tzOffsetOf(body) { const n = Number(body && body.tzOffsetMin); return (Number.isFinite(n) && Math.abs(n) <= 14 * 60) ? n : 0; }
 async function handleAwayBriefingPreview(req, res) {

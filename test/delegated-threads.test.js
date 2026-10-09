@@ -126,6 +126,15 @@ const roster = new Map([['researcher', { system: 'R', name: 'MIRA' }], ['writer'
   A.ok(/each worker gets its own thread under this conversation/.test(idx), 'the lead prompt states the one filing rule');
   A.ok(/childThread: require\('\.\/overseer\.js'\)\.isCoordinatorRun/.test(idx), 'only coordinator runs file child threads');
   A.ok(/if \(local\) \{ if \(!local\.parentStreamId\)/.test(ov), 'a session the page already had learns its parent');
+  // COMING BACK (2026-10-09): every "what happened" line opens the thread that holds it
+  const ui = src('frontend/app/stationui.js'), world = src('frontend/app/world.js'), auto = src('frontend/app/autosessions.js'), rt = src('frontend/app/windows/routines.js'), sc = src('frontend/app/stationcommands.js');
+  A.ok(/li\.classList\.contains\('asking'\) && typeof App !== 'undefined' && App\.waitingSessionOf \? App\.waitingSessionOf\(li\.dataset\.agentId\)/.test(ui)
+    && /if \(waiting && App\.openWorkstream\) \{ App\.openWorkstream\(waiting\); return; \}/.test(ui), 'a crew card that needs your OK opens where it is waiting');
+  A.ok(/waitingSessionOf,/.test(app) && /\(p && p\.agentId === agentId\) \|\| railHasAgent\(w, agentId\)/.test(app), 'App finds the session an agent is waiting in');
+  A.ok(/const ses = p\.runId \? \{ ws: 'cron-' \+ p\.runId \}/.test(world), 'a routine notification opens that run\'s own session');
+  A.ok(/lastReadAt: existing \? undefined : 0 \}\);/.test(auto), 'a routine run that finished while the station was closed arrives unread');
+  A.ok(/data-act="open-run" data-run="/.test(rt) && /act === 'open-run'/.test(rt) && /ReturnStore\.openWork\(\{ runId: btn\.dataset\.run/.test(rt), 'every routine HISTORY run opens its conversation');
+  A.ok(/if \(id && parentId && Workstreams\.get\(parentId\) && Workstreams\.adopt\)/.test(sc), 'a just-filed worker thread is adopted under its parent on first contact');
 }
 
 A.report('delegated-threads.test');

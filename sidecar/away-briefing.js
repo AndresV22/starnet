@@ -82,7 +82,9 @@ function whenLabel(ms, tzOffsetMin) {
      drafts — night-shift drafts { title, at }
      jobs   — cron jobs { id, name }   (names the routine rows)
      loops  — { id, name }             (names the loop rows)
-     focus  — the resolved night focus { title, why[] } or null (the "next up" line; caller decides relevance) */
+     focus  — the resolved night focus { title, why[] } or null (the "next up" line; caller decides relevance)
+     threads — worker threads { id, parentStreamId } + conversations { id, title } (names the delegated rows: a
+               delegated worker is briefed as part of the CONVERSATION that asked for it, never on its own) */
 function compose(input) {
   const o = input || {};
   const since = Math.max(0, num(o.since));
@@ -91,11 +93,26 @@ function compose(input) {
   const loopName = new Map((Array.isArray(o.loops) ? o.loops : []).filter(l => l && l.id).map(l => [str(l.id), clip(l.name, TITLE_MAX)]));
   const inWindow = (t) => t > since && t <= now;
 
+  const threadRows = Array.isArray(o.threads) ? o.threads : [];
+  const parentOf = new Map(threadRows.filter(t => t && t.id && t.parentStreamId).map(t => [str(t.id), str(t.parentStreamId)]));
+  const titleOf = new Map(threadRows.filter(t => t && t.id).map(t => [str(t.id), clip(t.title, TITLE_MAX)]));
+  const delegated = new Map();   // parent conversation id -> { kind:'delegated', parentId, name, runs, failed, latest }
   const routines = new Map();   // key -> { kind:'routine', jobId, name, runs, failed, silent, latest }
   const loops = new Map();
   const failedBuilds = [];
   const runs = (Array.isArray(o.runs) ? o.runs : []).slice().sort((a, b) => endedAt(a) - endedAt(b));   // oldest → newest
   for (const r of runs) {
+    // DELEGATED WORK (2026-10-09): a worker the overseer dispatched ran in its own thread under a conversation; it is
+    // briefed as that conversation's work ("Launch planning: 3 delegated jobs finished"), opened at the conversation.
+    const parent = r && r.delegatedBy && r.internal !== true && r.surface !== 'interactive' ? parentOf.get(str(r.streamId)) : '';
+    if (parent && inWindow(endedAt(r))) {
+      let g = delegated.get(parent);
+      if (!g) { g = { kind: 'delegated', parentId: parent, name: titleOf.get(parent) || 'a conversation', runs: 0, failed: 0, latest: null, open: parent }; delegated.set(parent, g); }
+      g.runs++;
+      if (failed(r)) g.failed++;
+      g.latest = { runId: str(r.runId), at: endedAt(r), failed: failed(r), why: failed(r) ? failWord(r) : '', excerpt: failed(r) ? '' : excerptOf(r.deliveryText), open: str(r.streamId) };
+      continue;
+    }
     const kind = kindOf(r);
     if (!kind || !inWindow(endedAt(r))) continue;
     if (kind === 'routine') {
@@ -129,18 +146,20 @@ function compose(input) {
 
   const routineList = Array.from(routines.values()).sort((a, b) => (b.failed - a.failed) || ((b.latest && b.latest.at) - (a.latest && a.latest.at)));
   const loopList = Array.from(loops.values()).sort((a, b) => (b.latest && b.latest.at) - (a.latest && a.latest.at));
+  const delegatedList = Array.from(delegated.values()).sort((a, b) => (b.failed - a.failed) || ((b.latest && b.latest.at) - (a.latest && a.latest.at)));
 
   // something NEW must have happened inside the window; still-waiting older builds alone never re-brief (anti-nag)
-  const hasNews = newBuilds.length || failedBuilds.length || routineList.length || loopList.length || drafts.length;
+  const hasNews = newBuilds.length || failedBuilds.length || routineList.length || loopList.length || delegatedList.length || drafts.length;
   const counts = {
     newBuilds: newBuilds.length, waitingBuilds: allBuilds.length, failedBuilds: failedBuilds.length,
     routines: routineList.length, routineRuns: routineList.reduce((n, g) => n + g.runs, 0),
-    failed: failedBuilds.length + routineList.reduce((n, g) => n + g.failed, 0) + loopList.reduce((n, g) => n + g.failed, 0),
-    loops: loopList.length, drafts: drafts.length
+    failed: failedBuilds.length + routineList.reduce((n, g) => n + g.failed, 0) + loopList.reduce((n, g) => n + g.failed, 0) + delegatedList.reduce((n, g) => n + g.failed, 0),
+    loops: loopList.length, drafts: drafts.length,
+    delegated: delegatedList.reduce((n, g) => n + g.runs, 0)
   };
   if (!hasNews) return { empty: true, since, through: now, items: [], counts, text: '' };
 
-  const items = [].concat(newBuilds, failedBuilds, routineList, loopList, drafts);
+  const items = [].concat(newBuilds, failedBuilds, routineList, loopList, delegatedList, drafts);
   if (olderBuilds.length) items.push({ kind: 'builds-waiting', count: olderBuilds.length, runIds: olderBuilds.map(b => b.runId), open: olderBuilds[0].open });
 
   // ---- the text: needs-you first, then what got done, then ideas, then what's next. Plain words. ----
@@ -153,6 +172,7 @@ function compose(input) {
   if (olderBuilds.length) needs.push(olderBuilds.length + ' earlier build' + (olderBuilds.length === 1 ? ' is' : 's are') + ' still waiting on a decision.');
   for (const f of failedBuilds.slice(0, 2)) needs.push('An away build (“' + f.title + '”) didn’t finish: ' + f.why + '.');
   for (const g of routineList) if (g.latest && g.latest.failed) needs.push('“' + g.name + '” failed' + (g.runs > 1 ? ' (latest of ' + g.runs + ' runs)' : '') + ': ' + g.latest.why + '.');
+  for (const g of delegatedList) if (g.failed) needs.push(g.failed + ' delegated job' + (g.failed === 1 ? '' : 's') + ' in “' + g.name + '” didn’t finish' + (g.latest && g.latest.failed ? ': ' + g.latest.why : '') + '.');
   if (needs.length) { L.push(''); L.push('**Waiting on you**'); for (const n of needs) L.push('- ' + n); }
 
   const done = [];
@@ -166,6 +186,10 @@ function compose(input) {
   if (routineList.length > MAX_ROUTINES) done.push((routineList.length - MAX_ROUTINES) + ' more routine' + (routineList.length - MAX_ROUTINES === 1 ? '' : 's') + ' ran.');
   for (const g of loopList.slice(0, MAX_LOOPS)) {
     done.push('Loop “' + g.name + '”: ' + g.runs + ' pass' + (g.runs === 1 ? '' : 'es') + (g.failed ? ' (' + g.failed + ' failed)' : '') + (g.latest && g.latest.excerpt ? '. Latest: ' + g.latest.excerpt : '.'));
+  }
+  for (const g of delegatedList) {
+    const ok = g.runs - g.failed;
+    if (ok > 0) done.push('“' + g.name + '”: ' + ok + ' delegated job' + (ok === 1 ? '' : 's') + ' finished' + (g.latest && g.latest.excerpt ? '. Latest: ' + g.latest.excerpt : '.'));
   }
   if (done.length) { L.push(''); L.push('**Done**'); for (const d of done) L.push('- ' + d); }
 
@@ -198,6 +222,7 @@ function contextBlock(briefing) {
     else if (it.kind === 'routine') L.push('- routine "' + it.name + '"' + (it.jobId ? ' (job ' + it.jobId + ')' : '') + ': ' + it.runs + ' run(s), ' + it.failed + ' failed; latest run ' + (it.latest ? it.latest.runId : '?') + '.');
     else if (it.kind === 'loop') L.push('- loop "' + it.name + '" (' + it.loopId + '): ' + it.runs + ' pass(es).');
     else if (it.kind === 'draft') L.push('- night-shift idea draft "' + it.title + '" (not built).');
+    else if (it.kind === 'delegated') L.push('- conversation "' + it.name + '" (' + it.parentId + '): ' + it.runs + ' delegated job(s) finished, ' + it.failed + ' failed; each worker has its own thread under that conversation.');
     else if (it.kind === 'builds-waiting') L.push('- ' + it.count + ' earlier undecided build(s): ' + it.runIds.slice(0, 6).map(id => 'workshop/' + id + '/').join(', ') + '.');
   }
   return L.join('\n');

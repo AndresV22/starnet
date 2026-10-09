@@ -296,3 +296,36 @@ body #chat-panel #chat-log > .dg-from {
   color: var(--text); font-size: 16px;
 }
 body #chat-panel #chat-log > .dg-from b { color: var(--ph-bright); font-weight: 400; }
+
+/* WHILE YOU WERE AWAY, ORGANIZED (2026-10-09, frontend/app/briefing.js cardFor): the briefing's own items sorted into
+   NEEDS YOU · DONE · IDEAS — same glass card as DELEGATED, one row per item, OPEN into the thread with the evidence */
+body #chat-panel #chat-log > .bf-card {
+  margin: 8px 2px 12px; border: 1px solid rgba(var(--ph-rgb), .2); border-radius: 10px; overflow: hidden;
+  background: linear-gradient(165deg, rgba(var(--ph-rgb), .075), transparent 46%), color-mix(in srgb, var(--panel2) 88%, transparent);
+  box-shadow: inset 0 1px 0 rgba(var(--ph-rgb), .08), 0 6px 18px rgba(0, 0, 0, .28);
+}
+body #chat-panel #chat-log > .bf-card .bf-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; padding: 8px 12px 7px; border-bottom: 1px solid rgba(var(--ph-rgb), .14); }
+body #chat-panel #chat-log > .bf-card .bf-title { color: var(--ph-bright); font-size: 16px; letter-spacing: 2px; }
+body #chat-panel #chat-log > .bf-card .bf-sum { color: var(--text); opacity: .8; font-size: 15px; text-align: right; }
+body #chat-panel #chat-log > .bf-card .bf-sec { padding: 8px 12px 2px; color: var(--ph); font-size: 14px; letter-spacing: 1.6px; opacity: .85; }
+body #chat-panel #chat-log > .bf-card .bf-row { display: grid; grid-template-columns: 10px minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 7px 10px 7px 12px; }
+body #chat-panel #chat-log > .bf-card .bf-row + .bf-row { border-top: 1px solid rgba(var(--ph-rgb), .08); }
+body #chat-panel #chat-log > .bf-card .bf-row:hover { background: rgba(var(--ph-rgb), .05); }
+body #chat-panel #chat-log > .bf-card .bf-lamp { width: 10px; height: 10px; border-radius: 50%; background: #4a3a22; box-shadow: 0 0 0 1px rgba(0, 0, 0, .55), inset 0 1px 0 rgba(255, 255, 255, .3); }
+body #chat-panel #chat-log > .bf-card .bf-row.needs .bf-lamp { background: var(--gold, #ffd34a); }
+body #chat-panel #chat-log > .bf-card .bf-row.failed .bf-lamp { background: var(--bad); }
+body #chat-panel #chat-log > .bf-card .bf-row.done .bf-lamp { background: var(--ok); }
+body #chat-panel #chat-log > .bf-card .bf-main { display: flex; flex-direction: column; min-width: 0; line-height: 1.15; }
+body #chat-panel #chat-log > .bf-card .bf-line1 { display: flex; gap: 8px; align-items: baseline; min-width: 0; }
+body #chat-panel #chat-log > .bf-card .bf-tag { flex: none; font-size: 14px; letter-spacing: 1.2px; color: var(--ph); opacity: .8; }
+body #chat-panel #chat-log > .bf-card .bf-name { color: var(--ph-bright); font-size: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+body #chat-panel #chat-log > .bf-card .bf-count { flex: none; color: var(--text); opacity: .7; font-size: 15px; }
+body #chat-panel #chat-log > .bf-card .bf-what { color: var(--text); opacity: .78; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+body #chat-panel #chat-log > .bf-card .bf-row.failed .bf-what { color: var(--bad); opacity: .9; }
+body #chat-panel #chat-log > .bf-card .bf-key {
+  min-height: 30px; padding: 3px 11px; font: 15px VT323, "Courier New", monospace; letter-spacing: .6px; cursor: pointer;
+  color: var(--ph); border: 1px solid rgba(var(--ph-rgb), .22); border-radius: 8px;
+  background: linear-gradient(125deg, rgba(var(--ph-bright-rgb), .09), rgba(var(--ph-rgb), .045) 48%, rgba(var(--ph-rgb), .015));
+  box-shadow: inset 0 1px 0 rgba(var(--ph-bright-rgb), .07);
+}
+body #chat-panel #chat-log > .bf-card .bf-key:is(:hover, :focus-visible) { color: var(--ph-bright); background: rgba(var(--ph-rgb), .1); border-color: rgba(var(--ph-rgb), .45); }
