@@ -104,7 +104,7 @@ A.ok(/function onCancel\(\) \{[^}]*releaseDrag\(\)/.test(build), 'pointercancel 
 const blur = build.slice(build.indexOf('function onBlur()'), build.indexOf('function onBlur()') + 200);
 A.ok(/releaseDrag\(\)/.test(blur), 'window blur releases the capture');
 A.ok(!/drag\.mode === 'pan'/.test(blur), 'and blur cancels EVERY drag, not just a pan (no frozen ghost after alt-tab)');
-A.ok(/if \(drag \|\| connectFrom \|\| dupe\) \{ selectTool\('select'\); return; \}/.test(escCode)
+A.ok(/if \(drag \|\| connectFrom \|\| connectTo \|\| dupe\) \{ selectTool\('select'\); return; \}/.test(escCode)   // (connectTo: JOIN A LINE's armed destination, 2026-10-09)
   && /if \(drag \|\| dragPid != null\) releaseDrag\(\)/.test(build), 'ESC cancels the gesture and tool through the capture-release path');
 
 /* ---------- 5. completed Build actions leave truthful controls and status ---------- */

@@ -135,7 +135,8 @@ function loopDecision(step, ctx, n, visited, text) {
    runs, so it is enforced to within one hop's spend), the line's daily cap, and an empty crate. */
 function preHopRefusal(g) {
   if (g.visited[g.targetKey != null ? g.targetKey : g.target] && !g.loopHop) return 'the line loops back to ' + g.target;
-  if (g.hop - g.loopHops > g.lim.maxHops) return 'the line is longer than ' + g.lim.maxHops + ' stages';
+  // (the stop says where the ceiling is raised — 2026-10-09 P0; the floor and the Workflow panel warn LINE_TOO_LONG before a run)
+  if (g.hop - g.loopHops > g.lim.maxHops) return 'the line is longer than ' + g.lim.maxHops + ' stages — raise max stages in the INBOX’s LINE BUDGET';
   if (g.spent >= g.lim.maxUsd) return 'the line reached its $' + g.lim.maxUsd.toFixed(2) + ' limit';
   // THE DAILY CAP — same pre-hop posture, measured against the durable per-line day ledger (entry run and
   // every earlier message today included). Only a line with a ledger AND a cap can refuse; a line with no
@@ -175,8 +176,10 @@ function lineRefusalNote(lineOfAgent, dock, lineId, dockId) {
   let own = null;
   try { own = (dockId != null && String(dockId)) ? lineOfAgent(dock, String(dockId)) : lineOfAgent(dock); } catch (_) { return null; }
   if (!own || String(own) === String(lineId)) return null;
-  // plain language, no ids, no belt vocabulary — the same voice the floor speaks (build.js step card)
-  return 'this job did not come in through this line’s door, so the line did not run past ' + dock;
+  // plain language, no ids, no belt vocabulary — the same voice the floor speaks (build.js step card). It says the one thing
+  // the Commander can act on (2026-10-09 P0: "did not come in through this line's door" read as jargon to a user chaining
+  // three lines): the job belongs to another line, and one line does not hand work on to another.
+  return 'this job started on a different line, and lines can’t hand work to each other yet, so it stopped at ' + dock;
 }
 
 function makeChainRunner(o) {

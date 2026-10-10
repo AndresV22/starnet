@@ -52,14 +52,14 @@ A.ok(/editBtn\('tidy', S\.sel, \{\}, '⌗ TIDY LINE'/.test(panel), 'the footer o
 const btn = at(panel, '  function editBtn(op, id, args, label, tip, cls) {', '  function wireEdits(scope) {');
 A.ok(/aria-disabled="true"/.test(btn) && /c\.msg \|\| tip/.test(btn) && /' off'/.test(btn), 'a button whose edit would fail is OFF, its reason in the tip');
 const wire = at(panel, '  function wireEdits(scope) {', '  // a BAY\'s line edits');
-A.ok(/classList\.contains\('off'\)/.test(wire) && /H\.flashTip\(b\.dataset\.tip, false\)/.test(wire), '…and clicking it says the reason instead of trying');
-A.ok(/saveOpenFields\(\)/.test(at(panel, '  function lineEdit(op, id, args, okMsg, how) {', '  // one edit as a button')), 'a half-typed brief is saved before an edit changes the floor under it');
+A.ok(/classList\.contains\('off'\)/.test(wire) && /refuse\(b\.dataset\.tip, b\)/.test(wire), '…and clicking it says the reason instead of trying (in the panel, under the key — 2026-10-09)');
+A.ok(/saveOpenFields\(\)/.test(at(panel, '  function lineEdit(op, id, args, okMsg, how, anchor) {', '  // one edit as a button')), 'a half-typed brief is saved before an edit changes the floor under it');
 // the SPLITTER's and the FILTER's shape edits
 A.ok(/editBtn\('addArm', p\.id, \{ split: p\.id \}, '⑂ ADD A BRANCH'/.test(panel) && /editBtn\('removeArm', p\.id, \{ split: p\.id, head: l\.dock \}, '✕ ' \+ branchLabel\(f, l\.dock\)/.test(panel), 'a SPLITTER\'s card offers ADD A BRANCH and a ✕ for each branch…');
 A.ok(/'BAY ' \+ \(i \+ 1\) \+ \(d && d\.role \? ' · ' \+ d\.role : ''\)/.test(at(panel, '  function branchLabel(f, pid) {', '  function laneName(')), '…each named BAY n · ROLE, as the strip names it (two WRITER branches never read alike)');
 A.ok(/editBtn\('addRoute', p\.id, \{ id: p\.id, tag \}, '\+ A STEP FOR ' \+ lbl/.test(panel) && /\.error !== 'HAS_ROUTE'/.test(panel), 'a FILTER\'s card offers a step for a type it has no route for (never one it has)');
 A.ok(/editBtn\('removeSorter', p\.id, \{ id: p\.id \}, '✕ REMOVE THE SORTER'/.test(panel), '…and REMOVE THE SORTER');
-const le = at(panel, '  function lineEdit(op, id, args, okMsg, how) {', '  // one edit as a button');
+const le = at(panel, '  function lineEdit(op, id, args, okMsg, how, anchor) {', '  // one edit as a button');
 A.ok(/res\.canTidy && op !== 'tidy' && !\(how && how\.tidy\)/.test(le) && /S\.armTidy = \{ key, t: Date\.now\(\) \}/.test(le) && /click it again to TIDY the line round it/.test(le), 'no room where the line stands: the button ARMS in place and says a second click tidies round it');
 A.ok(/'⌗ TIDY LINE TO FIT IT\?'/.test(btn) && /data-tidy-armed="1"/.test(btn), '…the armed button says what the second click does');
 A.ok(/tidy \? \{ tidy: true \} : null/.test(wire), '…and the second click asks the editor to lay the line out afresh round the change');

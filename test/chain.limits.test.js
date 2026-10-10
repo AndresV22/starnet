@@ -35,7 +35,7 @@ let T = 0; const clock = () => (T += 10);
     const c = makeChainRunner({ nextAgent: line(chain5), runAgent: harness({}), now: clock });
     const r1 = await c.advance({ agentId: 'a', text: 'go', limits: { maxHops: 2 } });
     A.eq(r1.hops.length, 2, 'maxHops:2 runs exactly two downstream stages');
-    A.eq(r1.stopped, 'the line is longer than 2 stages', "and says so in the ceiling's own number");
+    A.eq(r1.stopped, 'the line is longer than 2 stages — raise max stages in the INBOX’s LINE BUDGET', "and says so in the ceiling's own number — and where it is raised");
     const r2 = await c.advance({ agentId: 'a', text: 'go', limits: { maxUsdPerMessage: 0.25 } });
     A.eq(r2.stopped, 'the line reached its $0.25 limit', 'maxUsdPerMessage replaces the $2.00 constant in the reason');
     A.ok(r2.hops.length < 5, 'and actually stopped the line short');

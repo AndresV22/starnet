@@ -200,6 +200,13 @@
 .wf-help.dim, .wf-panel .dim { color: var(--ph-dim); }
 .wf-help b { font-weight: normal; color: var(--ph-bright); }
 .wf-help.bad, .wf-warnline { color: var(--warn); font-size: 17px; line-height: 1.45; display: block; }
+/* TOO LONG (2026-10-09): the line's stage ceiling said under the pill, with the one key that raises it */
+.wf-toolong b { font-weight: normal; color: var(--warn); }
+.wf-toolong .bb { margin-left: 4px; vertical-align: baseline; }
+/* the panel's own answer to a click — under the control that was clicked, never a toast at the screen's edge (2026-10-09) */
+.wf-note { margin: 0; font-size: 16px; line-height: 1.4; color: var(--ph-bright); }
+.wf-note.bad { color: var(--warn); }
+.wf-note.top { flex: 0 0 auto; padding: 8px 18px; border-bottom: 1px solid var(--wf-edge); }
 .wf-ok, .wf-okc { color: var(--ok); font-weight: normal; }
 .wf-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .wf-link { font: inherit; background: none; border: 0; padding: 0; color: var(--ph-bright); text-decoration: underline; cursor: pointer; }

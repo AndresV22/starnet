@@ -455,6 +455,60 @@
     return out;
   }
 
+  /* ---------- HOW MANY STAGES ONE JOB RUNS (LINE_TOO_LONG, 2026-10-09 P0) ----------
+     The chain executor stops a line once a job would run more than maxHops + 1 stages (sidecar/routing/chain.js
+     preHopRefusal) — and nothing said so until a PAID run reached that stage. jobStages(plan, startTiles) counts, from an
+     INBOX's feed mouths, the most stages one job can run, the way the executor spends that ceiling:
+       · a dock runs once and hands on from its ship tile (its own hookups are ridden through, a foreign dock consumes);
+       · a FILTER, a turn-taking SPLITTER, a LOOP's done / escalation lanes: the job takes ONE way — the cap must allow the
+         longest;
+       · a FAN-OUT split runs EVERY branch (each branch's stages are hops of the same job) and its JOINER sends one merged
+         job on;
+       · a LOOP's passes back round are off the ceiling (the executor counts them as loopHops) — only the first pass counts.
+     Pure over the compiled plan (dockChains, junction fanout and bayTileToDock must be set). Memoized per (tile, producer). */
+  function jobStages(plan, startTiles) {
+    const map = plan.belts || {}, junctions = plan.junctions || {}, dockAt = plan.bayTileToDock || {}, chains = plan.dockChains || {};
+    const NONE = { n: 0, join: null }, memo = {}, active = {};
+    // from tile t on, for work produced by dock `self`: { n: stages, join: the JOINER a fan-out branch stops at, or null }
+    function at(t, self) {
+      const k = key(t.x, t.y);
+      if (!map[k]) return NONE;
+      const mk = k + '|' + (self || '');
+      if (memo[mk]) return memo[mk];
+      if (active[mk]) return NONE;   // (a cycle — CYCLE / CHAIN_CYCLE already speak for it)
+      active[mk] = true;
+      let r = NONE;
+      const owner = dockAt[k], j = junctions[k];
+      if (owner && owner !== self) { const rec = chains[owner], d = rec && rec.tile ? at(rec.tile, owner) : NONE; r = { n: 1 + d.n, join: d.join }; }
+      else if (j && j.kind === 'join') r = { n: 0, join: k };
+      else {
+        const nts = nextTiles(map, junctions, t);
+        if (j && j.kind === 'split' && j.fanout && nts.length > 1) {
+          let n = 0, jn = null;
+          for (const nt of nts) { const b = at(nt, self); n += b.n; if (b.join && !jn) jn = b.join; }
+          const after = jn ? past(jn) : NONE;
+          r = { n: n + after.n, join: after.join };
+        } else for (const nt of nts) { const b = at(nt, self); if (b.n > r.n || (b.n === r.n && b.join && !r.join)) r = b; }
+      }
+      active[mk] = false;
+      return (memo[mk] = r);
+    }
+    // on from a JOINER's exit (the merged job: any dock it reaches consumes it)
+    function past(jk) {
+      const p = jk.split(','), x = +p[0], y = +p[1], ex = outLanes(map, x, y)[0];
+      if (!ex) return NONE;
+      const v = DIRV[ex];
+      return at({ x: x + v[0], y: y + v[1] }, null);
+    }
+    let best = 0;
+    for (const t of (startTiles || [])) {
+      let r = at(t, null), guard = 0;
+      while (r.join && guard++ < 64) { const a = past(r.join); r = { n: r.n + a.n, join: a.join }; }
+      if (r.n > best) best = r.n;
+    }
+    return best;
+  }
+
   /* DFS along belt flow for a cycle (a back-edge to a GRAY node). Returns the offending tile, or null.
 
      ITERATIVE (explicit stack) ON PURPOSE: the recursive version recursed once per tile along the flow and
@@ -906,7 +960,7 @@
        Attached AFTER the hash inputs are fixed, and only onto the LEGIBILITY list (`dockBays`) plus these
        lookup maps — the dispatch topology is unchanged, so the same floor keeps the same plan.hash it had
        before line identity existed and no station needlessly re-arms on upgrade. */
-    const lines = [], lineOfProp = {}, lineOfAgent = {}, lineLimits = {};
+    const lines = [], lineOfProp = {}, lineOfAgent = {}, lineLimits = {}, budgetIntake = {};
     for (const c of lineComponents(geo)) {
       const lineId = c.key, rec = { lineId, propIds: c.props.slice(), intakes: c.intakes.slice(), outboxes: c.outboxes.slice(), agents: [] };
       for (const pid of c.props) lineOfProp[pid] = lineId;
@@ -919,7 +973,7 @@
       for (const iid of c.intakes) {
         const ip = props.find(q => q.id === iid);
         const lim = ip ? normalizeLineLimits(ip.limits) : null;
-        if (lim) { rec.limits = lim; lineLimits[lineId] = lim; break; }
+        if (lim) { rec.limits = lim; lineLimits[lineId] = lim; budgetIntake[lineId] = iid; break; }
       }
       // The first Inbox with a project supplies the whole connected workflow.
       for (const iid of c.intakes) {
@@ -929,6 +983,17 @@
         }
       }
       lines.push(rec);
+    }
+    /* LINE_TOO_LONG (2026-10-09 P0 — a user lost days to a line that stopped part-way, paid, with no warning before the run):
+       one job on this line can run more stages than its ceiling allows (the first stage + maxHops more — the LINE BUDGET's
+       "max stages after the first", else the default), so every such job would stop part-way. Advice, never a blocker (the
+       stages that do run are real work), anchored on the INBOX whose LINE BUDGET is in force — where it is raised. Only an
+       INBOX-fed line is counted; under a belt or work-line loop routing is off anyway and those findings speak. */
+    if (!cyc && !cc) for (const rec of lines) {
+      let stages = 0;
+      for (const s of sources) if (rec.intakes.indexOf(s.propId) >= 0) stages = Math.max(stages, jobStages(plan, srcTiles(s)));
+      const maxHops = rec.limits ? rec.limits.maxHops : LINE_LIMIT_DEFAULTS.maxHops;
+      if (stages > maxHops + 1) errors.push({ code: 'LINE_TOO_LONG', propId: budgetIntake[rec.lineId] || rec.intakes[0], lineId: rec.lineId, stages, maxHops, warn: true });
     }
     plan.lines = lines;
     plan.lineLimits = lineLimits;     // lineId -> normalized { maxHops, maxUsdPerMessage, maxUsdPerDay, clamped? } (only lines that set one)

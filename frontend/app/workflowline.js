@@ -99,7 +99,7 @@
      DOCK layer (reachDock / dockChains / Pipeline.chainStepDock) — writer@A → editor@B → writer@C is three
      columns with the writer in two of them. A plan without the dock layer derives it (Pipeline.dockLayer). */
   function lineFlow(plan, comp, P, props) {
-    const out = { cols: [], docks: {}, gates: [], order: [], edges: {}, probeIn: {}, probeNext: {}, outbox: { propId: null, reached: false, reachedOnceCrewed: false }, trigger: { propId: null } };
+    const out = { cols: [], docks: {}, gates: [], order: [], edges: {}, probeIn: {}, probeNext: {}, outbox: { propId: null, reached: false, reachedOnceCrewed: false }, trigger: { propId: null }, tooLong: null };
     // UNDER A BELT CYCLE the compiler never computes reach (every dock reads unreached), so no connectivity claim can
     // be made from it: readers say the one true thing — the loop stops all routing (station.layout audit 2026-09-28)
     out.cyclic = !!(plan && (plan.errors || []).some(e => e && e.code === 'CYCLE'));
@@ -139,6 +139,11 @@
     const L = walkCompiled(probe || plan, comp, P, props, bays.filter(b => (probe || b.agentId) && pl.reachDock[b.propId]).map(b => b.propId));
     for (const pid in L.col) if (out.docks[pid]) { out.docks[pid].col = L.col[pid]; out.docks[pid].reachedBy = L.reachedBy[pid] || null; }
     out.gates = L.gates;
+    /* TOO LONG (2026-10-09 P0): the compiler's own LINE_TOO_LONG for this line — the stages one job runs against the LINE
+       BUDGET in force — read off the stand-in-crew compile while a bay is uncrewed, so a line hears it is too long while it is
+       being built, not when its first paid job stops part-way. */
+    const tl = (((probe || plan) && (probe || plan).errors) || []).find(e => e && e.code === 'LINE_TOO_LONG' && e.lineId === comp.key) || null;
+    out.tooLong = tl ? { propId: tl.propId || null, stages: tl.stages | 0, maxHops: tl.maxHops | 0 } : null;
     // a dock reached only on a LOOP's escalation lane is flagged: it runs only when the loop gives up (see walkCompiled)
     for (const pid in L.reachedBy) if (L.reachedBy[pid] === 'esc' && out.docks[pid]) out.docks[pid].escalation = true;
     // an uncrewed dock's upstream (its GETS) is the probe compile's — the only compiled answer for a dock with no agent
@@ -497,6 +502,8 @@
     // belts that already reach the OUTBOX once every bay is crewed are not a belt problem: the uncrewed bays' own
     // "needs an agent" items above are what is missing (sweep 2026-09-25)
     else if (!cyclic && !flow.outbox.reached && !(flow.outbox.reachedOnceCrewed && flow.order.some(pid => !flow.docks[pid].agentId))) blocking.push({ what: flow.outbox.propId ? 'connect the last step to the OUTBOX' : 'add an OUTBOX', propId: flow.outbox.propId });
+    // a line one job would run past its stage ceiling stops EVERY job part-way (chain.js preHopRefusal): not ready to run
+    if (flow.tooLong && !cyclic) blocking.push({ what: tooLongText(flow.tooLong), propId: flow.tooLong.propId, code: 'LINE_TOO_LONG' });
     const seenCodes = {};
     for (const e of (f.errors || [])) {
       if (!e || e.warn || !onLine(e) || seenCodes[e.code]) continue;
@@ -510,6 +517,15 @@
     if (flow.trigger.propId && !live) hints.push({ what: paused.length ? 'nothing starts it right now: ' + paused.join('; ') : 'nothing starts it yet (no schedule, channel, folder or webhook)', propId: flow.trigger.propId });
     else if (paused.length) hints.push({ what: 'paused: ' + paused.join('; '), propId: flow.trigger.propId });
     return { ready: !blocking.length, blocking, hints };
+  }
+  /* LINE_TOO_LONG in words, numbers first (the panel's blocking line and the floor hover card say the same): `tl` = a flow's
+     tooLong or the compiler finding ({ stages, maxHops }). raiseTo = the "max stages after the first" that fits, or null when
+     even the ceiling (24) is too few — then the fix is a shorter line. */
+  const HOPS_CEILING = 24;
+  function tooLongFix(tl) { const need = Math.max(0, ((tl && tl.stages) | 0) - 1); return need <= HOPS_CEILING ? need : null; }
+  function tooLongText(tl) {
+    const s = (tl && tl.stages) | 0, m = (tl && tl.maxHops) | 0;
+    return 'too long: one job runs ' + s + ' stages, the LINE BUDGET allows ' + (m + 1) + (tooLongFix(tl) == null ? ' — shorten the line' : '');
   }
   function pillText(r) {
     if (r.ready) return 'READY TO RUN';
@@ -712,7 +728,7 @@
     if (s && has('schedule')) s.why += '; its INBOX can run it on your schedule';
     return s;
   }
-  return { ROLE, GENERIC, roleInfo, starters, defaultBrief, lineFlow, physicalOrder, neighbours, howItRuns, readiness, pillText,
+  return { ROLE, GENERIC, roleInfo, starters, defaultBrief, lineFlow, physicalOrder, neighbours, howItRuns, readiness, pillText, tooLongText, tooLongFix,
     costEstimate, channelFeeds, lineRoutines, lineEventTriggers, lineStarts, entryDocksOf, entryAgentsOf, dockAgentsOf, sentenceText,
     triggerSig, rowPatch, testInputFor, pausedNext, hopLabel, isLive, CHAN_LABEL, suggestLineFor };
 });

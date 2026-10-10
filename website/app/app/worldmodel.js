@@ -1873,6 +1873,8 @@ const WorldModel = (() => {
       else { const s = dy >= 0 ? 1 : -1; for (let y = ay; y !== by + s; y += s) tiles.push([ax, y]); }
       // validate every tile first so a run is all-or-nothing (the ghost already tinted it)
       for (const [x, y] of tiles) { const v = beltPlaceable(x, y); if (!v.ok) return v; }
+      const no = runHandoffRefusal(tiles, dir);   // never a belt out of an OUTBOX or into an INBOX (see HANDOFF_WORDS)
+      if (no) return no;
       const dirty = [];
       let changed = false;
       // single snapshot for the whole run
@@ -1891,7 +1893,8 @@ const WorldModel = (() => {
       if (horiz) { const s = bx >= ax ? 1 : -1; for (let x = ax; x !== bx + s; x += s) tiles.push([x, ay]); }
       else { const s = by >= ay ? 1 : -1; for (let y = ay; y !== by + s; y += s) tiles.push([ax, y]); }
       for (const [x, y] of tiles) { const v = beltPlaceable(x, y); if (!v.ok) return v; }
-      return { ok: true };
+      const dir = horiz ? (bx >= ax ? 'E' : 'W') : (by >= ay ? 'S' : 'N');   // (placeBeltRun's own heading rule)
+      return runHandoffRefusal(tiles, dir) || { ok: true };
     };
 
     /* ---------- INSERT A STEP (workflow panel "+" on a belt, 2026-09-22) ----------
@@ -2258,11 +2261,67 @@ const WorldModel = (() => {
          · no tile but the lane's own two ends touches a junction's tile, or that junction would read it as a lane;
          · a third machine's ring is skirted on the first pass for tidiness only — passing it hooks nothing.
        A floor whose links were never adopted keeps the ring-rule behaviour (TOO CLOSE included), unchanged. */
+    /* LINES DO NOT HAND WORK TO EACH OTHER — YET (2026-10-09 P0). Dispatch never routes THROUGH an OUTBOX (a line's finished
+       work lands there) and an INBOX is where a line STARTS, so a belt out of an OUTBOX or into an INBOX carries no job. Live,
+       one was accepted with "CONNECTED · N belts laid themselves" and fused two lines into one jumbled line, and a user lost
+       three days to it. Every way the Commander lays a belt — the BELT tool's two clicks, the lane it previews, a hand-drawn
+       run — refuses both: no chime, nothing laid, and words that say what to do instead (`short` is the floor's caption). */
+    const HANDOFF_WORDS = {
+      FROM_OUTBOX: { msg: 'An OUTBOX ends its line. Lines can’t hand work to each other yet — to chain them, belt this line’s last BAY into the next line’s first BAY.', short: 'AN OUTBOX ENDS ITS LINE — BELT FROM ITS LAST BAY' },
+      INTO_INBOX: { msg: 'An INBOX is where a line starts — nothing can belt into it.', short: 'AN INBOX STARTS A LINE — NOTHING BELTS INTO IT' }
+    };
+    const handoffFail = code => Object.assign(fail(code, HANDOFF_WORDS[code].msg), { short: HANDOFF_WORDS[code].short });
+    function beltEndRefusal(A, B) {
+      if (A && A.t === 'outbox') return handoffFail('FROM_OUTBOX');
+      if (B && B.t === 'intake') return handoffFail('INTO_INBOX');
+      return null;
+    }
+    // the BELT tool asks before its FIRST click arms a machine (an OUTBOX is never a start) and before its second (an INBOX is
+    // never a destination): null = fine, else the refusal
+    function connectRefusal(fromId, toId) {
+      const A = fromId != null ? doc.props.find(p => p.id === fromId) : null, B = toId != null ? doc.props.find(p => p.id === toId) : null;
+      return beltEndRefusal(A, B);
+    }
+    /* …and a HAND-DRAWN run is judged by what a floor built by links would make of it: reconcileLinks joins a loose run that
+       runs out of one machine and into another, so the run is refused when it would add a link out of an OUTBOX or into an
+       INBOX. (A floor not yet built by links keeps the ring rule's reading, as before.) Memoized per floor version + run: the
+       REFIT ghost asks every frame. */
+    const runMemo = { k: null, v: null };
+    function runHandoffRefusal(tiles, dir) {
+      const P = pipelineModule(), L0 = currentLinks();
+      if (!P || typeof P.reconcileLinks !== 'function' || !Array.isArray(L0) || !tiles.length) return null;
+      const k = seq + '|' + dir + '|' + tiles.map(t => t[0] + ',' + t[1]).join(';');
+      if (runMemo.k === k) return runMemo.v;
+      let v = null;
+      try {
+        const props = [], belts = [];
+        for (const p of doc.props) {
+          if (!LINK_MACHINES[p.t]) continue;
+          const o = { id: p.id, t: p.t, x: p.x, y: p.y, w: p.w || 1, h: p.h || 1 };
+          if (p.routes) o.routes = p.routes; if (p.def) o.def = p.def; if (p.done) o.done = p.done;
+          props.push(o);
+        }
+        const after = Object.assign({}, doc.belts);
+        for (const [x, y] of tiles) after[beltKey(x, y)] = dir;
+        for (const kk in after) { const q = kk.split(','); belts.push({ x: +q[0], y: +q[1], dir: after[kk] }); }
+        const pair = l => l.from.prop + '>' + l.to.prop, was = new Set(L0.filter(l => l && l.from && l.to).map(pair));
+        const typeOf = id => { const p = doc.props.find(q => q.id === id); return p ? p.t : null; };
+        for (const l of P.reconcileLinks({ props, belts, links: L0 }).links) {
+          if (!l || !l.from || !l.to || l.from.prop == null || l.to.prop == null || was.has(pair(l))) continue;
+          if (typeOf(l.from.prop) === 'outbox') { v = handoffFail('FROM_OUTBOX'); break; }
+          if (typeOf(l.to.prop) === 'intake') { v = handoffFail('INTO_INBOX'); break; }
+        }
+      } catch (e) { v = null; }   // (a floor the reconciler cannot read is judged as before — the run is not refused on a guess)
+      runMemo.k = k; runMemo.v = v;
+      return v;
+    }
     function connectBelt(fromId, toId) {
       const A = doc.props.find(p => p.id === fromId), B = doc.props.find(p => p.id === toId);
       if (!A || !B) return fail('NOT_FOUND', 'no such prop');
       if (A.id === B.id) return fail('SAME_PROP', 'pick two different machines');
       if (!CONNECTABLE[A.t] || !CONNECTABLE[B.t]) return fail('NOT_CONNECTABLE', 'connect workflow machines (INBOX/BAY/OUTBOX/junctions)');
+      const no = beltEndRefusal(A, B);
+      if (no) return no;
       const linked = Array.isArray(currentLinks());
       const r = planBelt(A, B, linked);
       if (!r.ok) return r;
@@ -2315,6 +2374,14 @@ const WorldModel = (() => {
         if (!isJunction(p) || p.id === A.id || p.id === B.id) continue;
         for (const [dx, dy] of N4) nearOther.add(beltKey(p.x + dx, p.y + dy));
       }
+      /* A NEWER BAY'S LANE INTO AN OLDER BAY NEVER RUNS ON A TILE BOTH RINGS SHARE (2026-10-09 P0). On a linked floor a bay hooks
+         every tile of its own links inside its ring, and a tile two bays both hook belongs to the one later in the floor's order.
+         Laid from the newer bay into an older one standing a tile from it, that shared tile made the older bay read its own way IN
+         as a way OUT to the newer: the two handed work to each other (CHAIN_CYCLE — routing off for the whole station) while the
+         floor chimed CONNECTED. Such a lane goes round the shared tiles, or is refused TOO CLOSE. (The other way round the newer bay
+         owns the tile, and it IS its way in.) */
+      const sharedRing = (linked && A.t === 'bay' && B.t === 'bay' && doc.props.indexOf(A) > doc.props.indexOf(B))
+        ? (x, y) => inBox(A, x, y) && inBox(B, x, y) : () => false;
       // START set: a beltless junction starts ON its own tile; a machine already ON a line branches from a
       // free 4-neighbor of its tile (an out-lane); anything else starts from a pathable ring tile.
       let starts = [];
@@ -2322,6 +2389,8 @@ const WorldModel = (() => {
       else if (aOn) { for (const [dx, dy] of N4) { const x = A.x + dx, y = A.y + dy; if (pathable(x, y)) starts.push({ x, y }); } }
       else for (const t of ring(A)) if (pathable(t.x, t.y)) starts.push(t);
       if (linked) starts = starts.filter(t => !nearOther.has(beltKey(t.x, t.y)));
+      if (starts.length && !starts.some(t => !sharedRing(t.x, t.y))) return fail('TOO_CLOSE', 'these two BAYs stand too close — a belt from this one into that one would touch both at once. Move one a tile further away, then connect again');
+      starts = starts.filter(t => !sharedRing(t.x, t.y));
       if (!starts.length) return fail('FROM_BLOCKED', aJ ? 'no free tile beside the ' + A.t.toUpperCase() + ' to leave from — clear one of its four sides' : 'no free tile beside the start machine');
       // GOAL set: a beltless junction is entered THROUGH its own tile; a junction already on a line only via a
       // free 4-neighbour (the last tile aims INTO it = an in-lane); for docks, pathable ring tiles — EDGE tiles
@@ -2392,7 +2461,7 @@ const WorldModel = (() => {
           const preGoal = linked && bJ && !bOn && adj(t.x, t.y, B);
           for (const [dx, dy] of [[1, 0], [0, 1], [-1, 0], [0, -1]]) {
             const x = t.x + dx, y = t.y + dy, k = x + ',' + y;
-            if (prev.has(k) || !pathable(x, y)) continue;
+            if (prev.has(k) || !pathable(x, y) || sharedRing(x, y)) continue;
             if (avoid && foreignRing.has(k) && !want.has(k)) continue;
             if (linked) {
               if (preGoal && !(x === B.x && y === B.y)) continue;
@@ -2593,6 +2662,8 @@ const WorldModel = (() => {
     function previewBelt(fromId, toId) {
       const A = doc.props.find(p => p.id === fromId), B = doc.props.find(p => p.id === toId);
       if (!A || !B || A.id === B.id || !CONNECTABLE[A.t] || !CONNECTABLE[B.t]) return { ok: false, msg: 'pick two different machines' };
+      const no = beltEndRefusal(A, B);
+      if (no) return { ok: false, error: no.error, msg: no.msg, short: no.short };
       const r = planBelt(A, B, Array.isArray(currentLinks()));
       return r.ok ? { ok: true, path: r.path.map((t, i) => ({ x: t.x, y: t.y, d: r.dirs[i] })) } : { ok: false, error: r.error, msg: r.msg };
     }
@@ -3554,7 +3625,7 @@ const WorldModel = (() => {
       links: () => { const l = currentLinks(); return l ? clone(l) : null; },
       // does this floor build by LINKS (every floor this build adopted)? — REFIT retires the ring-rule advice when it does
       isLinked: () => Array.isArray(currentLinks()),
-      previewBelt,
+      previewBelt, connectRefusal,
     };
   }
 

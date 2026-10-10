@@ -348,4 +348,52 @@ const run = (st, id, op, args, opts) => LE.run(st, id, op, args, Object.assign({
   A.eq(alts.map(h => h.links.filter(l => l.from.node === 'F').map(l => l.id).join()), ['l2,n,l4', 'n,l2,l4'], 'another lane is tried in every place among its junction\'s lanes');
 }
 
+/* ---------- A MERGED LINE (2026-10-09 P0): two lines joined bay → bay, then a step added with the + between two steps ----------
+   Live, on a line built by belting line A's last BAY into line B's first BAY (two INBOXes, a leftover OUTBOX), the + between
+   BAY 1 and BAY 2 put the new BAY across the floor — past the long belt between the two lines — and broke the line ("BAY 6 is not
+   connected to the INBOX"). Two causes, both in the layout engine's pinned placement: (1) a step's own place taken, it walked
+   its COLUMN up to 24 tiles before trying any spot beside it, so the belt between the lines sent it under line B; (2) the spot it
+   took could put its ring over the ring of the step it hands to — a belt tile both rings share is read by the compiler as BOTH
+   bays' hookup, and the two bays then hand work to each other (CHAIN_CYCLE: routing off, the line "not connected"). */
+{
+  const mergedFloor = (bpA, bpB, w, h, at) => {
+    const d = WM.starterDoc();
+    for (const id in d.rooms) for (const r of d.rooms[id].rects) { r.x2 = w; r.y2 = h; }
+    const st = WM.create(d);
+    const a = LE.placeBlueprint(st, bpA, at[0]), b = LE.placeBlueprint(st, bpB, at[1]);
+    if (!a.ok || !b.ok) throw new Error('placeBlueprint ' + JSON.stringify([a, b]));
+    crewAll(st);
+    const bays = r => r.ids.filter(id => st.propById(id).t === 'bay');
+    const A1 = bays(a), B1 = bays(b);
+    const c = st.connectBelt(A1[A1.length - 1], B1[0]);
+    if (!c.ok) throw new Error('join ' + JSON.stringify(c));
+    return { st, A: A1, B: B1 };
+  };
+  const near = (st, n, x, z) => { const px = st.propById(x), pz = st.propById(z); return Math.min(Math.abs(n.x - px.x) + Math.abs(n.y - px.y), Math.abs(n.x - pz.x) + Math.abs(n.y - pz.y)); };
+  const cases = [
+    ['assembly line → research line, + between its steps 2 and 3', 'assembly_line', 'research_line', 30, 24, [{ x: 8, y: 4 }, { x: 8, y: 14 }], 1],
+    ['research line → research line, + between line A\'s last step and line B\'s first', 'research_line', 'research_line', 30, 24, [{ x: 8, y: 4 }, { x: 8, y: 14 }], 'join'],
+    ['assembly line → assembly line, + between its steps 2 and 3', 'assembly_line', 'assembly_line', 30, 24, [{ x: 8, y: 4 }, { x: 8, y: 14 }], 1]
+  ];
+  for (const [label, bpA, bpB, w, h, at, k] of cases) {
+    const { st, A: As, B: Bs } = mergedFloor(bpA, bpB, w, h, at);
+    const x = k === 'join' ? As[As.length - 1] : As[k], z = k === 'join' ? Bs[0] : As[k + 1];
+    const plan0 = planOf(st);
+    A.eq(plan0.lineOfProp[As[0]], plan0.lineOfProp[Bs[0]], label + ': the two lines are one line now (two INBOXes)');
+    const before = new Set(st.props().map(p => p.id));
+    const r = run(st, x, 'insertStep', { from: x, to: z, role: 'GENERALIST' });
+    A.ok(r.ok, label + ': the step goes in' + (r.ok ? '' : ' — ' + JSON.stringify(r)));
+    const N = st.props().find(p => !before.has(p.id) && p.t === 'bay');
+    // beside the steps it joins: within 8 tiles of the nearer — or, for two steps that stand further apart than that (the
+    // belt between two joined lines), no further from the nearer than they are from each other
+    const px = st.propById(x), pz = st.propById(z), gap = Math.abs(px.x - pz.x) + Math.abs(px.y - pz.y);
+    A.ok(!!N && near(st, N, x, z) <= Math.max(8, gap > 8 ? gap : 0), label + ': the new BAY stands beside the steps it joins (' + (N ? near(st, N, x, z) : '?') + ' tiles from the nearer; they are ' + gap + ' apart), not across the floor');
+    crewAll(st);
+    const plan = planOf(st);
+    A.eq(blocking(plan), [], label + ': the line still compiles clean (no CHAIN_CYCLE: the new BAY and its neighbour do not share a hookup tile)');
+    A.eq((next(plan, x) || {}).dockId, N && N.id, label + ': the step before hands to the new BAY');
+    A.eq((next(plan, N.id) || {}).dockId, z, label + ': …and the new BAY hands to the step after');
+  }
+}
+
 A.report('line-edit.test');

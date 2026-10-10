@@ -327,7 +327,14 @@
     };
     // at a junction the link leaves or enters by the side settled for it (sidesOf); at a box, by any tile round it
     const sd = sides[l.id] || {}, beside = (p, d) => d ? [{ x: p.x + DIRV[d][0], y: p.y + DIRV[d][1] }] : [];
-    const starts = (aJ ? beside(pa, sd.a) : sideTiles(A, pa, true)).filter(t => open(t.x, t.y) && okNear(t.x, t.y, 'start'));
+    /* A NEW BAY'S BELT INTO A BAY ALREADY THERE NEVER RUNS ON A TILE BOTH RINGS SHARE (2026-10-09 P0, a step added on a merged
+       line). The compiler hooks every tile of a link that lies in a bay's ring, and a tile two bays both hook belongs to the one
+       later in the floor's order — a NEW bay. On the new bay's belt into an older bay standing a tile from it, that shared tile
+       made the older bay read its own way IN as a way OUT to the new one: the two handed work to each other (CHAIN_CYCLE) and the
+       line read "not connected". So that belt goes round the shared tiles. (The other way — an older bay into a new one — the
+       new bay owns the tile and it IS its way in; whole layouts, laid without pins, never stand two linked bays that close.) */
+    const shared = (A.t === 'bay' && B.t === 'bay' && !A.pin && B.pin) ? (x, y) => inBox(A, pa, x, y) && inBox(B, pb, x, y) : () => false;
+    const starts = (aJ ? beside(pa, sd.a) : sideTiles(A, pa, true)).filter(t => open(t.x, t.y) && okNear(t.x, t.y, 'start') && !shared(t.x, t.y));
     const own = B.t === 'bay' && !aJ;   // the tile work arrives on at a BAY is that bay's alone
     const goalList = (bJ ? beside(pb, sd.b) : sideTiles(B, pb, false))
       .filter(t => open(t.x, t.y) && okNear(t.x, t.y, 'goal') && !(own && inBox(A, pa, t.x, t.y)));
@@ -362,7 +369,7 @@
       for (let d = 0; d < 4; d++) {
         const nx = x + DX[d], ny = y + DY[d], nt = G.idx(nx, ny);
         if (nt < 0 || G.open[nt] !== 1 || G.used[nt] !== 0) continue;
-        if (!okNear(nx, ny, goals.has(nt) ? 'goal' : 'mid')) continue;
+        if (!okNear(nx, ny, goals.has(nt) ? 'goal' : 'mid') || shared(nx, ny)) continue;
         const ng = g + TIE * (1 + (hd !== 4 && hd !== d ? BEND : 0) + (nearOther(nx, ny) ? NEAR : 0)) + 1, ns = nt * 5 + d;
         if (G.stamp[ns] !== gen || ng < G.best[ns]) { G.stamp[ns] = gen; G.best[ns] = ng; G.prev[ns] = s; push((ng + hOf(nx, ny)) * HK + ns); }
       }
@@ -523,7 +530,12 @@
           const out = [], seen = new Set();
           const add = q => { const k = key(q.x, q.y); if (!seen.has(k) && clear(id, q)) { seen.add(k); out.push(q); } return out.length >= SPOTS; };
           if (add(p)) return out;
-          for (let d = 1; d <= 12; d++) for (const sgn of [d, -d]) if (add({ x: p.x, y: p.y + sgn * pitch })) return out;
+          /* …but the column walk never passes a nearer clear spot by more than a lane (2026-10-09 P0, a merged line): the long
+             belt between two joined lines took every spot down the column, and the walk went on 24 tiles to put the new step
+             under the OTHER line while the floor beside its neighbours was clear. */
+          let closest = Infinity;
+          scan: for (let r = 1; r <= 40; r++) for (let dy = -r; dy <= r; dy++) for (const dx of [r - Math.abs(dy), Math.abs(dy) - r]) if (clear(id, { x: p.x + dx, y: p.y + dy })) { closest = r; break scan; }
+          for (let d = 1; d <= 12 && d * pitch <= closest + pitch; d++) for (const sgn of [d, -d]) if (add({ x: p.x, y: p.y + sgn * pitch })) return out;
           for (let r = 1; r <= 40; r++) for (let dy = -r; dy <= r; dy++) for (const dx of [r - Math.abs(dy), Math.abs(dy) - r]) if (add({ x: p.x + dx, y: p.y + dy })) return out;
           return out;
         };

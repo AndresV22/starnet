@@ -8916,7 +8916,7 @@ const Chat = (() => {
         spentToday = (typeof lim.spentToday === 'number' && lim.spentToday > 0) ? lim.spentToday : 0;
       }
       if (hop > maxHops) {
-        if (isActiveWs(ws)) toolLine('⚠ the work line stopped early — the line is longer than ' + maxHops + ' stages.', true);
+        if (isActiveWs(ws)) toolLine('⚠ the work line stopped early — the line is longer than ' + maxHops + ' stages — raise max stages in the INBOX’s LINE BUDGET.', true);
         return out;
       }
       // THE LINE'S SPEND CEILING — the same pre-hop check as the sidecar executor (chain.js: out.usd >= maxUsd

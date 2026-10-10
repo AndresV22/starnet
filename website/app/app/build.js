@@ -91,6 +91,7 @@ const Build = (() => {
 
   let opts = null, station = null, unsub = null;
   let connectFrom = null;   // connect-mode state: the armed FROM machine's propId (null = not connecting)
+  let connectTo = null;     // JOIN A LINE (2026-10-09): a lone BAY armed as the DESTINATION — the next machine clicked is what hands it work
   let root, cv, ctx, tip, hintEl, undoBtn, redoBtn, propCard, dpr = 1, ro = null;
   let raf = 0, frameRetryTimer = 0, running = false, frameFailures = 0;
   let cache = null, cacheGeo = null, bakeDirty = true, bakeDirtyRects = null, bakeDirtyRectsGlobal = false, bakeVisibleOnly = false, valPlan = null, valLive = null;   // valPlan = live RoutingPlan (cost-safety ghosts); valLive = energized-belt tile set
@@ -101,7 +102,8 @@ const Build = (() => {
   // short human labels for the routing-validation overlay (cost-safety: surfaced before any paid run)
   // every label NAMES THE FIX, in words (mirrors world.js NAG_LABEL — keep the two in sync)
   const VAL_LABEL = {
-    ORPHAN_SOURCE: 'NOT CONNECTED — BELT: CLICK IT, THEN A BAY', ORPHAN_BAY: 'NOT ON THE LINE',
+    // ORPHAN_BAY names its fix (2026-10-09 P0: NOT ON THE LINE said what was wrong, never what to do)
+    ORPHAN_SOURCE: 'NOT CONNECTED — BELT: CLICK IT, THEN A BAY', ORPHAN_BAY: 'NOT ON A LINE — BELT INTO IT',
     // a belt that only TOUCHES the junction corner feeds nothing: the lane must run THROUGH the junction tile
     // (SHORT on the floor — the full sentence rides the hover card, VAL_WHY: the long form ran wider than a room)
     BAY_NOT_FED: 'NOT FED — BELT INTO IT',
@@ -116,20 +118,33 @@ const Build = (() => {
     ORPHAN_JUNCTION: 'NOT ON A BELT — MOVE IT ONTO THE LINE',
     BELT_BURIED: 'A PROP SITS ON THIS LINE — MOVE IT',
     // the docks feed each OTHER: no belt loop anywhere, but the work line would run forever, paying each lap
-    CHAIN_CYCLE: 'WORK LINE LOOPS — CUT ONE HANDOFF'
+    CHAIN_CYCLE: 'WORK LINE LOOPS — CUT ONE HANDOFF',
+    // one job here runs more stages than its stage ceiling: every job would stop part-way (2026-10-09 P0) — said on its INBOX
+    LINE_TOO_LONG: 'TOO LONG — RAISE THE LINE BUDGET'
   };
   /* THE FULL SENTENCE for a finding whose floor label had to be cut short (2026-09-23 playtest: the NOT FED nag
      ran wider than the room). The floor keeps the short label; the machine's HOVER CARD and the Workflow panel's
      hints carry this — a glance says what is wrong, the card says exactly how to fix it. */
   const VAL_WHY = {
+    ORPHAN_BAY: 'This BAY isn’t on any line, so it only works when you message it directly. To add it to a line, pick BELT, click the machine that should hand it work, then this BAY (or click it and choose JOIN A LINE).',
     BAY_NOT_FED: 'Not fed — no belt brings work into this BAY. Run a belt INTO it (BELT tool: click the machine before it, then this BAY). If the lane passes a junction, it must run THROUGH the junction’s tile, not past its corner.',
     BAY_TOO_CLOSE: 'Too close — this BAY sits right beside the machine that feeds it, so the belt between them touches both at once and the job never arrives. Move one of them a tile further apart, then connect them again with BELT.',
     SPLIT_ONE_LANE: 'This SPLITTER needs two out-lanes — run belts THROUGH its tile: in on one side, out on two others.',
     JOIN_ONE_LANE: 'This JOINER needs two in-lanes — run a second belt INTO its tile.',
     LOOP_NO_DONE: 'This LOOP has no DONE lane — run a belt OUT of its tile onward (the first exit, in E/S/W/N order, is DONE unless you choose one).',
-    LOOP_NO_BACK: 'This LOOP has no BACK lane — run a second belt OUT of its tile back to an earlier BAY.'
+    LOOP_NO_BACK: 'This LOOP has no BACK lane — run a second belt OUT of its tile back to an earlier BAY.',
+    LINE_TOO_LONG: 'Too long — one job on this line runs more stages than its LINE BUDGET allows, so every job would stop part-way (the stages that ran are still paid for). Raise “max stages after the first” in this INBOX’s Workflow card › Optional limits · LINE BUDGET (24 at most), or shorten the line.'
   };
   const valWhy = code => VAL_WHY[code] || VAL_LABEL[code] || code;
+  // a finding's full sentence for THIS machine — with its own numbers where the finding carries them (LINE_TOO_LONG)
+  function findingWhy(e) {
+    if (e && e.code === 'LINE_TOO_LONG' && e.stages > 0) {
+      const fits = e.stages - 1 <= 24;
+      return 'Too long — one job on this line runs ' + e.stages + ' stages, but its LINE BUDGET allows ' + (e.maxHops + 1) + ' (the first + ' + e.maxHops + ' more), so every job would stop at stage ' + (e.maxHops + 2) + ' (the stages that ran are still paid for). '
+        + (fits ? 'Raise “max stages after the first” to ' + (e.stages - 1) + ' in this INBOX’s Workflow card › Optional limits · LINE BUDGET, or shorten the line.' : 'No LINE BUDGET allows that many (25 stages at most): shorten the line.');
+    }
+    return VAL_WHY[e && e.code] || null;
+  }
   const esc = s => U.esc(s == null ? '' : s);   // one complete impl (escapes & < > " ' — value="…" attrs here stay injection-safe)
   // THE ONE SENTENCE (2026-08-04 onramp): every self-introduction of the belt system leads with this.
   // It also leads the INBOX catalog desc (propsprites.js) and the first-run guide card — keep them aligned.
@@ -333,7 +348,7 @@ const Build = (() => {
   function close() {
     if (!running) return;
     running = false;
-    connectFrom = null;   // never carry a half-made connection across sessions
+    connectFrom = null; connectTo = null;   // never carry a half-made connection across sessions
     deskOwner = null;
     if (raf) cancelAnimationFrame(raf), raf = 0;
     clearTimeout(frameRetryTimer); frameRetryTimer = 0;
@@ -2433,7 +2448,7 @@ const Build = (() => {
     const wasSelect = tool === 'select';
     movingPropId=null;selectedPropId=null;groupIds=[];selectedRoomId=null;renderSelection();
     if (drag || dragPid != null) releaseDrag();
-    tool = id; drag = null; connectFrom = null; dupe = null; hideTip(); hidePropCard();
+    tool = id; drag = null; connectFrom = null; connectTo = null; dupe = null; hideTip(); hidePropCard();
     if (id !== 'prop') deskOwner = null;
     if (id !== 'select' && !(o && o.keepGroup)) buildGroup = BUILD_GROUPS.find(g => g[2].includes(id))?.[0] || buildGroup;
     root.querySelectorAll('.refit-tool').forEach(b => {
@@ -2443,7 +2458,7 @@ const Build = (() => {
     });
     // arming a tool shows its options; a bare deselect (ESC, select→select) leaves a minimized library alone —
     // the docked Workflow panel may have stepped it aside, and a deselect is not a request to bring it back
-    if (id !== 'select' || !wasSelect) toggleKit(false);
+    if ((id !== 'select' || !wasSelect) && !(o && o.keepKit)) toggleKit(false);   // (keepKit: the Workflow panel's JOIN A LINE arms BELT beside it)
     renderPalette(); repaintIcons(); setHint(); setCursor();
     if (buildGroup === 'props' && window.matchMedia('(max-width: 700px)').matches) fitCamera();
     renderFinCard();
@@ -3033,6 +3048,17 @@ const Build = (() => {
     finFocusLine(bayId);
     openWorkflowPanel(bayId);
   }
+  /* JOIN A LINE (2026-10-09 P0 — the Workflow panel of a BAY on no line): the BELT tool arms with THIS bay already chosen as the
+     destination, the Build Library staying minimized beside the panel; the next machine clicked on the floor is the one that hands
+     it work (onDown, connectTo). The floor captions the armed BAY "TO ▸ …" and previews each lane before the click. */
+  function armJoin(bayId) {
+    const p = station && station.propById(bayId);
+    if (!p || p.t !== 'bay') return false;
+    selectTool('belt', { keepKit: true, silent: true });
+    connectTo = bayId;
+    sfx('click');
+    return true;
+  }
   function openWorkflowPanel(propId, fromFloor) {
     if (typeof WorkflowPanel === 'undefined' || !root) return;
     WorkflowPanel.open(wfHost(), propId, { fromFloor: !!fromFloor });
@@ -3065,6 +3091,7 @@ const Build = (() => {
       provider: () => (typeof Harness !== 'undefined' && Harness.getProv) ? Harness.getProv() : undefined,
       openTerm: name => { close(); if (typeof StationUI !== 'undefined' && StationUI.openTerm) StationUI.openTerm(name); },
       highlight: id => { wfHighlightId = id || null; },
+      joinLine: id => armJoin(id),   // JOIN A LINE: BELT armed with this BAY as the destination (onDown's connectTo)
       focusProp: (id, onlyIfHidden) => focusPropOnFloor(id, onlyIfHidden),
       frameLine: key => frameLineOnFloor(key),
       pausedMarker: m => { wfPaused = m || null; },
@@ -4543,7 +4570,7 @@ const Build = (() => {
     // right-button cancels an in-progress edit (and never starts one) — then DROPS the armed tool
     // back to SELECT. The browser context menu is already suppressed on the canvas (contextmenu
     // preventDefault in buildDOM), so right-click is a pure deselect gesture.
-    if (ev.button === 2) { if (drag) { releaseDrag(); hideTip(); } if (connectFrom) { connectFrom = null; hideTip(); } if (dupe) { dupe = null; hideTip(); setHint(); } deselectTool(); return; }
+    if (ev.button === 2) { if (drag) { releaseDrag(); hideTip(); } if (connectFrom || connectTo) { connectFrom = null; connectTo = null; hideTip(); } if (dupe) { dupe = null; hideTip(); setHint(); } deselectTool(); return; }
     try { cv.setPointerCapture(ev.pointerId); dragPid = ev.pointerId; } catch (e) { dragPid = null; }
     if (panTrigger(ev)) { drag = { mode: 'pan', sx: toCanvas(ev).x, sy: toCanvas(ev).y }; cv.style.cursor = 'grabbing'; return; }
     if (ev.button !== 0) return;
@@ -4573,7 +4600,23 @@ const Build = (() => {
       const pid = propAtEvent(ev);
       const pp = pid && station.propById(pid);
       if (pp && CONNECT_TYPES[pp.t]) {
-        if (!connectFrom) { connectFrom = pid; sfx('click'); flashTip(ev, 'FROM ▸ ' + (propSpec(pp.t).label || pp.t).toUpperCase() + ' — now click a destination', true); return; }
+        /* JOIN A LINE armed this BAY as the destination: the click names the machine that hands it work. A refusal (an OUTBOX,
+           no route) keeps it armed so the next click can try another machine; the BAY itself, or empty floor, cancels. */
+        if (connectTo) {
+          if (pid === connectTo) { connectTo = null; hideTip(); return; }
+          const res = station.connectBelt(pid, connectTo);
+          if (res && res.ok) {
+            connectTo = null; sfx('chime'); flashTip(ev, 'CONNECTED — ' + res.count + ' belts laid themselves · the BAY is on that line now', true);
+            if (typeof Tutorial !== 'undefined' && Tutorial.onBeltPlaced) Tutorial.onBeltPlaced();
+          } else { sfx('bad'); flashTip(ev, (res && res.msg) || 'no clear route between those machines', false); }
+          return;
+        }
+        if (!connectFrom) {
+          // an OUTBOX ends its line: it is never where a belt starts (worldmodel HANDOFF_WORDS) — said on the first click, not the second
+          const no = station.connectRefusal ? station.connectRefusal(pid, null) : null;
+          if (no) { sfx('bad'); flashTip(ev, no.msg, false); return; }
+          connectFrom = pid; sfx('click'); flashTip(ev, 'FROM ▸ ' + (propSpec(pp.t).label || pp.t).toUpperCase() + ' — now click a destination', true); return;
+        }
         if (connectFrom === pid) { connectFrom = null; hideTip(); return; }
         const res = station.connectBelt(connectFrom, pid);
         connectFrom = null;
@@ -4583,7 +4626,7 @@ const Build = (() => {
         } else { sfx('bad'); flashTip(ev, (res && res.msg) || 'no clear route between those machines', false); }
         return;
       }
-      if (connectFrom) { connectFrom = null; flashTip(ev, 'connect cancelled', false); return; }
+      if (connectFrom || connectTo) { connectFrom = null; connectTo = null; flashTip(ev, 'connect cancelled', false); return; }
       drag = { mode: 'beltrun', start: w, cur: w, moved: false };
     } else if (tool === 'prop') {
       drag = { mode: 'propstamp', start: w, cur: w, moved: false, cx: ev.clientX, cy: ev.clientY };   // cx/cy: a jitter is not a row
@@ -5769,7 +5812,7 @@ const Build = (() => {
       if (categoryMenu) { categoryMenu.open = false; categoryMenu.querySelector('summary').focus(); return; }
       const details = root.querySelector('.refit-propworkspace.show-details');
       if (details) { const toggle = details.querySelector('.refit-details-toggle'); toggle.click(); toggle.focus(); return; }
-      if (drag || connectFrom || dupe) { selectTool('select'); return; }
+      if (drag || connectFrom || connectTo || dupe) { selectTool('select'); return; }
       if (selectedPropId || movingPropId || groupIds.length || selectedRoomId) { selectTool('select'); return; }
       if (typeof WorkflowPanel !== 'undefined' && WorkflowPanel.isOpen()) { WorkflowPanel.close(); return; }   // the docked panel closes (saving) before BUILD MODE does
       if (tool !== 'select') { deselectTool(); return; }                 // then the armed tool → SELECT
@@ -7111,8 +7154,10 @@ const Build = (() => {
   }
   function drawBeltEndpointGlow(t, now) {
     if (tool !== 'belt' || !station) return;
-    if (connectFrom && hoverPropId && hoverPropId !== connectFrom) {
-      const hp = station.propById(hoverPropId), pv = hp && CONNECT_TYPES[hp.t] ? beltPreview(connectFrom, hoverPropId) : null;
+    // the armed machine: a FROM — or, JOIN A LINE, the destination BAY (the lane then runs from the hovered machine INTO it)
+    const armed = connectFrom || connectTo;
+    if (armed && hoverPropId && hoverPropId !== armed) {
+      const hp = station.propById(hoverPropId), pv = hp && CONNECT_TYPES[hp.t] ? (connectTo ? beltPreview(hoverPropId, connectTo) : beltPreview(connectFrom, hoverPropId)) : null;
       if (pv && pv.ok) drawBeltPreview(t, pv, '#7ee2a8');
     }
     const pulse = 0.45 + 0.3 * Math.sin(now / 260);
@@ -7121,9 +7166,9 @@ const Build = (() => {
     ctx.font = VAL_FONT();
     for (const p of station.props()) {
       if (!CONNECT_TYPES[p.t]) continue;
-      const isFrom = connectFrom && p.id === connectFrom;
+      const isFrom = !!armed && p.id === armed;
       // mid-connect the story flips: the armed machine burns gold, every other machine reads as a target
-      const col = isFrom ? '#ffd94a' : connectFrom ? '#7ee2a8' : p.t === 'intake' ? '#3fd08a' : '#5ad0ff';
+      const col = isFrom ? '#ffd94a' : armed ? '#7ee2a8' : p.t === 'intake' ? '#3fd08a' : '#5ad0ff';
       const X = p.x * t, Y = p.y * t, Wd = (p.w || 1) * t, Hd = (p.h || 1) * t;
       ctx.globalAlpha = isFrom ? 0.95 : pulse;
       ctx.strokeStyle = col; ctx.lineWidth = (isFrom ? 2.5 : 1.5) / zoom;
@@ -7132,13 +7177,13 @@ const Build = (() => {
          (connectFrom armed). At rest the pulsing outlines alone say "these are the endpoints" —
          nine simultaneous CLICK TO CONNECT / JUNCTION captions were the loudest single layer in
          Andrew's text-soup screenshot. Mid-gesture labels ride the activeFlow layer (top priority). */
-      if (!connectFrom) continue;
+      if (!armed) continue;
       /* …and mid-gesture only the HOVERED target speaks (2026-09-23 playtest: "CLICK TO CONNECT" printed over
          every target at once, a wall of the same words). The other targets keep their pulsing glow — that
          alone says "these are the endpoints"; the caption answers "this one?" where the pointer is. */
       if (!isFrom && hoverPropId !== p.id) continue;
-      const pv = isFrom ? null : beltPreview(connectFrom, p.id);
-      const role = isFrom ? 'FROM ▸ NOW CLICK A DESTINATION' : (pv && !pv.ok) ? 'NO ROUTE — ' + (NO_ROUTE[pv.error] || 'NO CLEAR PATH') : 'CLICK TO CONNECT';
+      const pv = isFrom ? null : connectTo ? beltPreview(p.id, connectTo) : beltPreview(connectFrom, p.id);
+      const role = isFrom ? (connectTo ? 'TO ▸ NOW CLICK THE MACHINE THAT HANDS IT WORK' : 'FROM ▸ NOW CLICK A DESTINATION') : (pv && !pv.ok) ? (pv.short || 'NO ROUTE — ' + (NO_ROUTE[pv.error] || 'NO CLEAR PATH')) : 'CLICK TO CONNECT';
       const tw = ctx.measureText(role).width;
       // baseline-top label below the prop: colliders step DOWN (dir +1), away from the machinery
       const lh = Math.max(9, 11 / zoom) + 2 / zoom;
@@ -7482,6 +7527,7 @@ const Build = (() => {
 
   function placementReason(g) {
     if (g.kind === 'resize') return (g.v && g.v.msg) || 'Choose a clear space';   // a room's own refusal names its own reason
+    if (g.v && g.v.short) return g.v.short;   // a refusal with a floor caption of its own (a belt out of an OUTBOX / into an INBOX)
     const code = g.v && g.v.error;
     if (code === 'OFF_DECK') return 'Place this on a room floor';
     if (code === 'NEEDS_WALL') return 'Place this against the back wall';
@@ -7728,7 +7774,7 @@ const Build = (() => {
     for (const e of ((valPlan && valPlan.errors) || [])) {
       if (e.propId !== placed.id || seen[e.code] || !VAL_WHY[e.code]) continue;
       seen[e.code] = true;
-      out += '<div class="pc-assign">⚠ ' + esc(VAL_WHY[e.code]) + '</div>';
+      out += '<div class="pc-assign">⚠ ' + esc(findingWhy(e)) + '</div>';
     }
     if (brushedHookups().some(h => h.propId === placed.id))
       out += '<div class="pc-assign">⚠ A belt from another lane brushes this ' + esc(propLabel(placed.t)) + ' — the floor reads them as ONE line, so it hooks here. Leave a 1-tile gap to keep them apart.</div>';
