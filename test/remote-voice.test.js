@@ -129,6 +129,9 @@ function parsePages(buf) {
     const settle = () => new Promise((r) => setImmediate(r));
     // each sentence: 1 s of a tone at speech level, as a mono 16-bit WAV
     const sentenceWav = (n) => wav16(24000, 24000, (i) => Math.sin(i / (6 + n)) * 0.2);
+    // three sentences of ~150 characters: more than one breath each, so the reply is synthesised in three chunks
+    const S150 = (w) => (w + ' ').repeat(30).trim().slice(0, 148) + '.';
+    const LONG_REPLY = S150('alpha') + ' ' + S150('bravo') + ' ' + S150('delta');
     const gate = [];   // synthesis of sentences 2+ waits here, so the test can watch the reply grow
     let calls = 0, said = [];
     const voice = makeRemoteVoice({
@@ -147,7 +150,7 @@ function parsePages(buf) {
     A.ok(!failed.ok && /no engine/.test(failed.error), 'an engine failure is reported, not faked: ' + failed.error);
 
     said = [];
-    const s = await voice.speak('devA', { text: 'The build finished without any errors. Three files changed in the repo today. Do you want the full summary?' });
+    const s = await voice.speak('devA', { text: LONG_REPLY });
     A.ok(s.ok && s.data.mime === ADPCM_MIME && s.data.sentences === 3, 'speak answers after the FIRST sentence, as ADPCM: ' + JSON.stringify(s.data));
     A.eq(s.data.bytes, 8 + 24000 / 2, 'the first sentence is there already: header + 1 s at 4 bits a sample (12 KB, not 48 KB)');
     const all = [];
@@ -198,7 +201,7 @@ function parsePages(buf) {
     // a later sentence that fails ends the reply with what was said, and says why
     let n = 0;
     const flaky = makeRemoteVoice({ now: () => 1, newId: () => 'f1', synthesize: async () => (++n === 2 ? { ok: false, reason: 'engine crashed' } : { ok: true, buf: sentenceWav(n), mime: 'audio/wav' }) });
-    const fs1 = await flaky.speak('devA', { text: 'One sentence here. Another sentence here. A third one here.' });
+    const fs1 = await flaky.speak('devA', { text: LONG_REPLY });
     await settle(); await settle();
     const fc = flaky.speech('devA', { id: fs1.data.id, offset: 0 });
     A.ok(fc.data.done && /engine crashed/.test(fc.data.error || ''), 'a failed later sentence ends the reply and reports it');
@@ -212,7 +215,11 @@ function parsePages(buf) {
     const snr = 10 * Math.log10(s2s / e2);
     A.ok(snr > 20, 'ADPCM keeps a speech-band tone clean: SNR ' + snr.toFixed(1) + ' dB');
 
-    A.eq(splitSentences('Ok. Fine, here is the first real sentence. And the second!'), ['Ok. Fine, here is the first real sentence.', 'And the second!'], 'tiny fragments fold into the next sentence');
+    A.eq(splitSentences('Doing well. The station is up and nothing looks broken. Want a status rundown?'), ['Doing well. The station is up and nothing looks broken. Want a status rundown?'],
+      'a short spoken reply is synthesised in one breath, never sentence by sentence');
+    const chunks = splitSentences(LONG_REPLY);
+    A.eq(chunks.length, 3, 'a long reply is cut at sentence ends into chunks under 240 characters');
+    A.ok(chunks.every((c) => c.endsWith('.')), 'each chunk ends on a sentence boundary');
     const long = splitSentences('word '.repeat(120).trim());
     A.ok(long.length >= 2 && long.every((p) => p.length <= 240), 'a run-on is cut at spaces under 240 characters');
   }

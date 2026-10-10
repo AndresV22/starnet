@@ -255,10 +255,12 @@ function splitSentences(text) {
     }
     if (p) out.push(p);
   }
-  // fold tiny fragments ("Ok.") into the next sentence: each synthesis has a fixed cost
+  // Keep sentences together up to MAX_SENTENCE: a voice engine given ONE sentence at a time reads each as a standalone
+  // announcement (careful onset, full final fall, a pause), which on the device sounded stilted and over-articulated
+  // next to the desk speaking the same reply in one breath. Only a reply longer than that is cut, at sentences.
   const merged = [];
   for (const p of out) {
-    if (merged.length && merged[merged.length - 1].length < 25) merged[merged.length - 1] += ' ' + p;
+    if (merged.length && merged[merged.length - 1].length + 1 + p.length <= MAX_SENTENCE) merged[merged.length - 1] += ' ' + p;
     else merged.push(p);
   }
   return merged;
