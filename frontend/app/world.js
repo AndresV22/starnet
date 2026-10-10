@@ -8166,7 +8166,7 @@ const World = (() => {
      may differ — BUILD MODE can spell out a gesture the world has no room for); locked by
      test/routing-nag-parity.test.js, which reads both tables out of the two source files. */
   const NAG_LABEL = {
-    UNBOUND_BAY: 'NO AGENT — CLICK', ORPHAN_BAY: 'NOT ON THE LINE', ORPHAN_SOURCE: 'NO BELT OUT',
+    UNBOUND_BAY: 'NO AGENT — CLICK', ORPHAN_BAY: 'NOT ON A LINE — BELT INTO IT', ORPHAN_SOURCE: 'NO BELT OUT',
     BAY_NOT_FED: 'NOT FED — BELT THROUGH THE JUNCTION', BAY_TOO_CLOSE: 'TOO CLOSE — MOVE 1 TILE', CYCLE: 'LOOP!', FILTER_NO_DEFAULT: 'NO DEFAULT LANE', SPLIT_CREW: 'PLACE A DESK — TOOLS FOLLOW THE DOCK',
     SPLIT_ONE_LANE: 'SPLITTER — BELT THROUGH IT, 2 OUT', CHAIN_CYCLE: 'WORK LINE LOOPS',
     JOIN_ONE_LANE: 'JOINER — NEEDS 2 BELTS IN', LOOP_NO_DONE: 'LOOP — NO DONE LANE OUT', LOOP_NO_BACK: 'LOOP — NO BACK LANE',

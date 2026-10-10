@@ -58,7 +58,7 @@ A.ok(/H\.panelShown\(true\)/.test(panel) && /H\.panelShown\(false\)/.test(panel)
 A.ok(/if \(dock && !dock\.classList\.contains\('is-collapsed'\)\) \{ toggleKit\(true\); wfKitAuto = true; \}/.test(build), 'opening minimizes the library via toggleKit, remembering it did');
 A.ok(/if \(restore && dock && dock\.classList\.contains\('is-collapsed'\)\) toggleKit\(false\);/.test(build), 'closing restores it only if the panel minimized it');
 A.ok(/if \(!hide\) wfKitAuto = false;/.test(build), 'a reopen by the Commander cancels the owed restore');
-A.ok(/if \(id !== 'select' \|\| !wasSelect\) toggleKit\(false\);/.test(build), 'a bare deselect (ESC) does not pop the minimized library back open');
+A.ok(/if \(\(id !== 'select' \|\| !wasSelect\) && !\(o && o\.keepKit\)\) toggleKit\(false\);/.test(build), 'a bare deselect (ESC) does not pop the minimized library back open (nor does JOIN A LINE arming BELT beside the panel)');
 
 // the real step-test backend's shape (2026-09-23 live run): an `ended` session did NOT reach the OUTBOX; the
 // total includes rewound spend (droppedUsd); a blocked next hop, a hop's error and its exact turn are shown

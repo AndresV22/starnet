@@ -391,7 +391,7 @@ const WorkflowPanel = (() => {
         : s.t === 'loop' ? '<span class="wf-lp">' + esc(s.s) + '</span>'
         : (i === 0 && intake) ? '<span class="wf-st" data-go="' + esc(intake.id) + '">' + esc(s.s) + '</span>' : esc(s.s)).join('');
       sent.querySelectorAll('[data-go]').forEach(n => { n.onclick = () => { if (n.dataset.go) select(n.dataset.go); }; });
-    } else sent.textContent = 'This BAY is not on a belt line. Work addressed to its agent arrives here directly; use the BELT tool to connect it to an INBOX and an OUTBOX.';
+    } else sent.textContent = 'This BAY isn’t on any line, so it only works when you message its agent directly. MAKE IT A LINE gives it a line of its own; JOIN A LINE belts it onto a line already on the floor.';
     const hints = $('#wf-hints');
     // the sentence above already says what starts the line, or that nothing does: that one is never said twice
     const tips = r ? r.blocking.slice(1).concat(r.hints.filter(h => !/^nothing starts it/.test(h.what))).slice(0, 4) : [];
@@ -625,9 +625,13 @@ const WorkflowPanel = (() => {
   // a BAY's line edits: move it, review it, give it a partner, take it out — or, for a BAY on no line, make it one
   function shapeHTML(p) {
     if (!H.lineEdit) return '';
-    if (S.lone === p.id) return '<section class="wf-sec wf-shape"><h3>Make it a line</h3><div class="wf-chips">'
+    /* A BAY ON NO LINE (2026-10-09 P0): its own line (MAKE IT A LINE), or a place on a line that already exists — JOIN A LINE arms
+       the BELT tool with this BAY as the destination, so the next machine clicked on the floor is the one that hands it work */
+    if (S.lone === p.id) return '<section class="wf-sec wf-shape"><h3>Put it on a line</h3><div class="wf-chips">'
       + editBtn('wrapLine', p.id, { id: p.id }, '▸ MAKE IT A LINE', 'an INBOX feeds this step and an OUTBOX takes its work')
-      + '</div><p class="wf-help dim">Places an INBOX before it and an OUTBOX after it, belts laid — one UNDO takes it back.</p></section>';
+      + (H.joinLine ? '<button type="button" class="wf-chip" id="wf-join" data-tip="arms BELT with this BAY as the destination — then click the machine on the floor that should hand it work">⊕ JOIN A LINE</button>' : '')
+      + '</div><p class="wf-help dim">MAKE IT A LINE places an INBOX before it and an OUTBOX after it, belts laid — one UNDO takes it back.'
+      + (H.joinLine ? ' JOIN A LINE belts it onto a line that is already on the floor: click the machine that should hand it work.' : '') + '</p></section>';
     return '<section class="wf-sec wf-shape"><h3>Shape the line</h3><div class="wf-chips">'
       + editBtn('moveStep', p.id, { id: p.id, dir: -1 }, '◂ EARLIER', 'swap this step with the one before it')
       + editBtn('moveStep', p.id, { id: p.id, dir: 1 }, 'LATER ▸', 'swap this step with the one after it')
@@ -797,6 +801,12 @@ const WorkflowPanel = (() => {
       + (f && f.order.length > 1 ? '<p class="wf-help dim">A direct COMMS message to this agent runs only this step. The whole line runs from its INBOX: send it a job there, or let a schedule or channel start it.</p>' : '')
       + '</section>' + shapeHTML(p) + tr.html;
     wireEdits(body);
+    const join = $('#wf-join');
+    if (join) join.onclick = () => {
+      const ok = H.joinLine(p.id);
+      if (!ok) { H.sfx('bad'); note('BELT could not be armed for this BAY', true, join); return; }
+      note('BELT is armed with this BAY as the destination: click the machine on the floor that should hand it work (a BAY or an INBOX of that line) — ESC cancels.', false, join);
+    };
     $$('[data-role]').forEach(b => b.onclick = () => {
       const res = H.station().setPropRole(p.id, b.getAttribute('aria-pressed') === 'true' ? '' : b.dataset.role);
       if (res && res.ok) { H.sfx('click'); H.flashTip(res.role ? 'this step is the ' + res.role : 'role cleared', true); paint(true); } else H.sfx('bad');

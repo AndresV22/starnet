@@ -98,7 +98,7 @@ const tutorialSrc = read('tutorial.js');
 {
   // ESC: the bare select-mode ESC arms, a second one inside the window leaves; any other key disarms
   const between = (a, b) => build.slice(build.indexOf(a), build.indexOf(b, build.indexOf(a)));
-  const s = { tool: 'select', buildGroup: 'workflow', drag: null, dragPid: null, connectFrom: null, dupe: null, selectedPropId: null, movingPropId: null, groupIds: [], selectedRoomId: null, closed: 0, tipped: '',
+  const s = { tool: 'select', buildGroup: 'workflow', drag: null, dragPid: null, connectFrom: null, connectTo: null, dupe: null, selectedPropId: null, movingPropId: null, groupIds: [], selectedRoomId: null, closed: 0, tipped: '',
     root: { querySelector: () => null, querySelectorAll: () => [] }, cardTop: () => null, WorkflowPanel: { isOpen: () => false },
     performance: { now: () => s.now }, now: 1000, tipTimer: 0,
     showTip: t => { s.tipped = t; }, hideTip() {}, setTimeout: () => 0, clearTimeout() {}, sfx() {}, selectTool() {}, deselectTool() {}, fitCamera() {},
@@ -120,7 +120,8 @@ const tutorialSrc = read('tutorial.js');
   // CLICK TO CONNECT: only the hovered target speaks mid-gesture
   const glow = build.slice(build.indexOf('function drawBeltEndpointGlow('), build.indexOf('function drawAgentTag('));
   // (2026-10-09: a refusal with a caption of its own — a belt into an INBOX — prints that caption instead of NO ROUTE)
-  A.ok(/if \(!isFrom && hoverPropId !== p\.id\) continue;\s*const pv = isFrom \? null : beltPreview\(connectFrom, p\.id\);\s*const role = isFrom \? 'FROM ▸ NOW CLICK A DESTINATION' : \(pv && !pv\.ok\) \? \(pv\.short \|\| 'NO ROUTE — ' \+ \(NO_ROUTE\[pv\.error\] \|\| 'NO CLEAR PATH'\)\) : 'CLICK TO CONNECT';/.test(glow), 'mid-connect, CLICK TO CONNECT (or why there is no route) prints on the HOVERED target only (the rest keep the glow)');
+  // (2026-10-09: JOIN A LINE arms the DESTINATION — connectTo — and the lane is previewed from the hovered machine into it)
+  A.ok(/if \(!isFrom && hoverPropId !== p\.id\) continue;\s*const pv = isFrom \? null : connectTo \? beltPreview\(p\.id, connectTo\) : beltPreview\(connectFrom, p\.id\);\s*const role = isFrom \? \(connectTo \? 'TO ▸ NOW CLICK THE MACHINE THAT HANDS IT WORK' : 'FROM ▸ NOW CLICK A DESTINATION'\) : \(pv && !pv\.ok\) \? \(pv\.short \|\| 'NO ROUTE — ' \+ \(NO_ROUTE\[pv\.error\] \|\| 'NO CLEAR PATH'\)\) : 'CLICK TO CONNECT';/.test(glow), 'mid-connect, CLICK TO CONNECT (or why there is no route) prints on the HOVERED target only (the rest keep the glow)');
   // conveyor links phase B: the hovered destination shows the very lane the click would lay
   A.ok(/if \(pv && pv\.ok\) drawBeltPreview\(t, pv, '#7ee2a8'\);/.test(glow) && /station\.previewBelt\(from, to\)/.test(build), 'mid-connect, the hovered destination draws the lane the click would lay (station.previewBelt)');
 
