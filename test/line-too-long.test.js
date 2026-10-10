@@ -147,6 +147,7 @@ function stamped(bpId) {
   A.ok(/LINE_TOO_LONG: 'TOO LONG — RAISE THE LINE BUDGET'/.test(build) && /LINE_TOO_LONG: 'TOO LONG — RAISE THE LINE BUDGET'/.test(world), 'the floor names the fix, in REFIT and in the live world');
   A.ok(/LINE_TOO_LONG: 'Too long — /.test(build) && /function findingWhy\(e\)/.test(build) && /esc\(findingWhy\(e\)\)/.test(build), 'the hover card says it in full, with this line\'s own numbers');
   A.ok(/\.wf-toolong/.test(css) && /\.wf-note/.test(css), 'styled in the panel\'s own sheet');
+  A.ok(/r\.blocking\.slice\(1\)\.filter\(h => h\.code !== 'LINE_TOO_LONG'\)/.test(panel), '…and said once: the header\'s hint chips leave it to its row');
 }
 
 /* ---------- THE RUNTIME AGREES: the real chain runner stops exactly where the compile said ---------- */

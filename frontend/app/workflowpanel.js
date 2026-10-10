@@ -394,7 +394,8 @@ const WorkflowPanel = (() => {
     } else sent.textContent = 'This BAY isn’t on any line, so it only works when you message its agent directly. MAKE IT A LINE gives it a line of its own; JOIN A LINE belts it onto a line already on the floor.';
     const hints = $('#wf-hints');
     // the sentence above already says what starts the line, or that nothing does: that one is never said twice
-    const tips = r ? r.blocking.slice(1).concat(r.hints.filter(h => !/^nothing starts it/.test(h.what))).slice(0, 4) : [];
+    // (TOO LONG has its own row under the pill, with its key — never a second chip saying the same)
+    const tips = r ? r.blocking.slice(1).filter(h => h.code !== 'LINE_TOO_LONG').concat(r.hints.filter(h => !/^nothing starts it/.test(h.what))).slice(0, 4) : [];
     hints.innerHTML = tips.map(h => '<li><button type="button" class="wf-hint" data-go="' + esc(h.propId || '') + '">' + esc(h.what) + '</button></li>').join('');
     hints.hidden = !tips.length;
     hints.querySelectorAll('[data-go]').forEach(n => { n.onclick = () => { if (n.dataset.go) select(n.dataset.go); }; });
