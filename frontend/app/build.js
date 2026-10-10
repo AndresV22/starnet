@@ -4585,7 +4585,12 @@ const Build = (() => {
       const pid = propAtEvent(ev);
       const pp = pid && station.propById(pid);
       if (pp && CONNECT_TYPES[pp.t]) {
-        if (!connectFrom) { connectFrom = pid; sfx('click'); flashTip(ev, 'FROM ▸ ' + (propSpec(pp.t).label || pp.t).toUpperCase() + ' — now click a destination', true); return; }
+        if (!connectFrom) {
+          // an OUTBOX ends its line: it is never where a belt starts (worldmodel HANDOFF_WORDS) — said on the first click, not the second
+          const no = station.connectRefusal ? station.connectRefusal(pid, null) : null;
+          if (no) { sfx('bad'); flashTip(ev, no.msg, false); return; }
+          connectFrom = pid; sfx('click'); flashTip(ev, 'FROM ▸ ' + (propSpec(pp.t).label || pp.t).toUpperCase() + ' — now click a destination', true); return;
+        }
         if (connectFrom === pid) { connectFrom = null; hideTip(); return; }
         const res = station.connectBelt(connectFrom, pid);
         connectFrom = null;
@@ -7150,7 +7155,7 @@ const Build = (() => {
          alone says "these are the endpoints"; the caption answers "this one?" where the pointer is. */
       if (!isFrom && hoverPropId !== p.id) continue;
       const pv = isFrom ? null : beltPreview(connectFrom, p.id);
-      const role = isFrom ? 'FROM ▸ NOW CLICK A DESTINATION' : (pv && !pv.ok) ? 'NO ROUTE — ' + (NO_ROUTE[pv.error] || 'NO CLEAR PATH') : 'CLICK TO CONNECT';
+      const role = isFrom ? 'FROM ▸ NOW CLICK A DESTINATION' : (pv && !pv.ok) ? (pv.short || 'NO ROUTE — ' + (NO_ROUTE[pv.error] || 'NO CLEAR PATH')) : 'CLICK TO CONNECT';
       const tw = ctx.measureText(role).width;
       // baseline-top label below the prop: colliders step DOWN (dir +1), away from the machinery
       const lh = Math.max(9, 11 / zoom) + 2 / zoom;
@@ -7494,6 +7499,7 @@ const Build = (() => {
 
   function placementReason(g) {
     if (g.kind === 'resize') return (g.v && g.v.msg) || 'Choose a clear space';   // a room's own refusal names its own reason
+    if (g.v && g.v.short) return g.v.short;   // a refusal with a floor caption of its own (a belt out of an OUTBOX / into an INBOX)
     const code = g.v && g.v.error;
     if (code === 'OFF_DECK') return 'Place this on a room floor';
     if (code === 'NEEDS_WALL') return 'Place this against the back wall';

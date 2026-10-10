@@ -119,7 +119,8 @@ const tutorialSrc = read('tutorial.js');
 
   // CLICK TO CONNECT: only the hovered target speaks mid-gesture
   const glow = build.slice(build.indexOf('function drawBeltEndpointGlow('), build.indexOf('function drawAgentTag('));
-  A.ok(/if \(!isFrom && hoverPropId !== p\.id\) continue;\s*const pv = isFrom \? null : beltPreview\(connectFrom, p\.id\);\s*const role = isFrom \? 'FROM ▸ NOW CLICK A DESTINATION' : \(pv && !pv\.ok\) \? 'NO ROUTE — ' \+ \(NO_ROUTE\[pv\.error\] \|\| 'NO CLEAR PATH'\) : 'CLICK TO CONNECT';/.test(glow), 'mid-connect, CLICK TO CONNECT (or why there is no route) prints on the HOVERED target only (the rest keep the glow)');
+  // (2026-10-09: a refusal with a caption of its own — a belt into an INBOX — prints that caption instead of NO ROUTE)
+  A.ok(/if \(!isFrom && hoverPropId !== p\.id\) continue;\s*const pv = isFrom \? null : beltPreview\(connectFrom, p\.id\);\s*const role = isFrom \? 'FROM ▸ NOW CLICK A DESTINATION' : \(pv && !pv\.ok\) \? \(pv\.short \|\| 'NO ROUTE — ' \+ \(NO_ROUTE\[pv\.error\] \|\| 'NO CLEAR PATH'\)\) : 'CLICK TO CONNECT';/.test(glow), 'mid-connect, CLICK TO CONNECT (or why there is no route) prints on the HOVERED target only (the rest keep the glow)');
   // conveyor links phase B: the hovered destination shows the very lane the click would lay
   A.ok(/if \(pv && pv\.ok\) drawBeltPreview\(t, pv, '#7ee2a8'\);/.test(glow) && /station\.previewBelt\(from, to\)/.test(build), 'mid-connect, the hovered destination draws the lane the click would lay (station.previewBelt)');
 
