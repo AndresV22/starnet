@@ -18,7 +18,7 @@
   "expectedClaimCount": 37,
   "releaseSurface": {
     "algorithm": "sha256",
-    "sourceCommit": "06d7cf150faa05dcf00b3af81ae39fafd02bd14e",
+    "sourceCommit": "8ba27b902c0f31511024e8c14e2046a2f2298e7d",
     "pathSetSha256": "924d81529f0a80ffbfd9c068c1357735fcab2c4a41a985bda183850f173d5e3e",
     "files": [
       {
@@ -173,8 +173,8 @@
       },
       {
         "path": "frontend/app/app.js",
-        "bytes": 439678,
-        "sha256": "4d2ceca352b628c689e98e2653fe731bf2d9447d2f0ce6da7ddc49c8d00f34da"
+        "bytes": 440057,
+        "sha256": "fce1b0a01e7e36f4dc34d4707bab5c78f08bcefd28205daac3752c95a6e8c320"
       },
       {
         "path": "frontend/app/approved-sheet-effects.js",
@@ -323,8 +323,8 @@
       },
       {
         "path": "frontend/app/briefing.js",
-        "bytes": 14474,
-        "sha256": "f28c9c143226782cabb0841f1962586787319bfa6a2cf52e8919adb60acb4435"
+        "bytes": 15524,
+        "sha256": "d15755223b1d8de04608839a444584c924d17774364aa57baa30126cefcb5131"
       },
       {
         "path": "frontend/app/browserstream.js",
@@ -433,8 +433,8 @@
       },
       {
         "path": "frontend/app/delegated.js",
-        "bytes": 15169,
-        "sha256": "27b2740b3e132520f0ae59e905fc6b8075545232e90400cde2d366be5f615f6a"
+        "bytes": 15997,
+        "sha256": "b33b4ee33e29fbc1482e56e6f64e0934d9e03701009e57c3e11d880ffd41386e"
       },
       {
         "path": "frontend/app/deliverables.js",
@@ -1533,8 +1533,8 @@
       },
       {
         "path": "frontend/css/beat-cards.css",
-        "bytes": 30513,
-        "sha256": "d1fcb4259d761ecad3e45f0f896d2563a6e8bc2f785a787701be4b79e9e7f028"
+        "bytes": 25263,
+        "sha256": "7f5a8cd5c77ef16f6ec4332708e6f20439861354040c3272256d947dc46a387e"
       },
       {
         "path": "frontend/css/cabinet-clean.css",
@@ -1553,8 +1553,8 @@
       },
       {
         "path": "frontend/css/comms-convo.css",
-        "bytes": 18024,
-        "sha256": "dd4fd9192150c827b1de6577310e1bc4f4e84fee39a1921074d7da5f2274f84a"
+        "bytes": 23061,
+        "sha256": "7052175eda7acdd627647c6134da3230951c5c93e6acd47057d145eb92fb903d"
       },
       {
         "path": "frontend/css/comms-layout.css",
@@ -1648,8 +1648,8 @@
       },
       {
         "path": "frontend/css/pipglass.css",
-        "bytes": 64118,
-        "sha256": "cf347a9e41b78be8d2fccea5cb553bac8c8a1e7a88273606b90bc53922a924be"
+        "bytes": 63310,
+        "sha256": "6673b37b47989e372b5042df0218318ee4e0507aa98b78e87d37012f2a7804d4"
       },
       {
         "path": "frontend/css/plugins.css",
