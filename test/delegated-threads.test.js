@@ -114,6 +114,7 @@ const roster = new Map([['researcher', { system: 'R', name: 'MIRA' }], ['writer'
   pend.clear(); pend.set('home', { tool: 'shell.run', agentId: 'researcher' });
   A.eq(st({ ws: ws({ agentId: 'researcher' }), worker: { status: 'running', startedAt: Date.now() } }).cls, 'waiting', 'a worker\'s approval raised on the conversation that dispatched it reads as waiting');
   A.eq(st({ ws: ws({ agentId: 'writer' }), worker: { status: 'running', startedAt: Date.now() } }).cls, 'working', 'but only for the worker it names');
+  A.eq(st({ ws: ws({ agentId: 'researcher', runIds: ['r0'] }), worker: { status: 'done', startedAt: 1000, completedAt: 2000 } }).cls, 'done', 'and never for a FINISHED thread of that agent (an earlier dispatch)');
   pend.clear(); busy.add('k');
   A.eq(st({ ws: ws(), worker: null }).cls + '|' + st({ ws: ws(), worker: null }).t, 'working|1:05', 'a foreground worker is working while its thread channel is live');
   busy.clear();
@@ -122,6 +123,20 @@ const roster = new Map([['researcher', { system: 'R', name: 'MIRA' }], ['writer'
   A.eq(st({ ws: ws(), worker: null }).live, 'starting', 'before delivery, while the lead run that dispatched it is still live: starting');
   busy.clear();
   A.eq(st({ ws: ws(), worker: null }).live, 'ended without a result', 'after the lead run ended with nothing delivered: never "done"');
+  // OPEN WHILE IT RUNS (2026-10-10 blind test): who has what + stop are visible without a click until every worker settles
+  const L = D._internals;
+  global.App = { agentName: id => ({ researcher: 'MIRA', writer: 'VEX' })[id] || id };
+  const running = { lead: 'b1', rows: [{ ws: ws({ id: 'k1', agentId: 'researcher', title: 'Scan competitors' }), worker: { status: 'running', startedAt: Date.now(), canInterrupt: true, id: 'w1', runId: 'r1' } },
+    { ws: ws({ id: 'k2', agentId: 'writer', title: 'Write the email', runIds: ['r2'] }), worker: { status: 'done', startedAt: 1000, completedAt: 5000 } }] };
+  const live = L.lineHtml(running, 'home');
+  A.ok(/aria-expanded="true"/.test(live) && /dg-li-task">Scan competitors/.test(live) && /data-dg-stop="w1"/.test(live), 'a running dispatch shows each worker, its task and stop without a click');
+  const settled = L.lineHtml({ lead: 'b2', rows: [running.rows[1]] }, 'home');
+  A.ok(/aria-expanded="false"/.test(settled) && !/dg-line-list/.test(settled), 'once every worker settles it folds to the one line');
+  L.closed.add('b1');
+  A.ok(/aria-expanded="false"/.test(L.lineHtml(running, 'home')), 'the Commander folding a running dispatch is respected');
+  L.closed.clear(); L.opened.add('b2');
+  A.ok(/aria-expanded="true"/.test(L.lineHtml({ lead: 'b2', rows: [running.rows[1]] }, 'home')), 'and opening a settled one too');
+  L.opened.clear(); delete global.App;
   delete global.Channels; delete global.document;
 }
 
@@ -158,7 +173,11 @@ const roster = new Map([['researcher', { system: 'R', name: 'MIRA' }], ['writer'
   A.ok(/else if \(it\.kind === 'delegated'\) \{ open = it\.open;/.test(bf) && !/bf-card|bf-replaced/.test(bf), 'the away report offers delegated work as a chip into its conversation, never a separate card');
   A.ok(/if \(prompt && !ws\.parentStreamId\) ws\.history\.push\(/.test(sc), 'a worker\'s own thread never repeats its brief as a delegated marker');
   A.ok(/if \(!local\.projectRoot && row\.projectRoot\)/.test(ov), 'a thread the page already had learns its project');
-  A.ok(/Channels\.pendingOf\(k\.parentStreamId\)/.test(app), 'the SESSIONS chip turns gold when a worker waits on you in the parent');
+  A.ok(/Channels\.pendingOf\(k\.parentStreamId\)/.test(app) && /if \(unfinished && pp && pp\.agentId && pp\.agentId === k\.agentId\) return 'waiting';/.test(app), 'the SESSIONS chip turns gold when an unfinished worker waits on you in the parent');
+  A.ok(/function railKidsLabel\(n, tone\) \{ return tone === 'waiting' \? n \+ ' · needs you' : String\(n\); \}/.test(app)
+    && /const label = railKidsLabel\(kids\.length, tone\); if \(b\.textContent !== label\) b\.textContent = label;/.test(app), 'and says "needs you" in words, live, never by colour alone');
+  const convo = src('frontend/css/comms-convo.css');
+  A.ok(/\.cmsg\.user\.brief \{ align-self: flex-start; \}/.test(convo) && /\.cmsg\.user\.brief > \.body::before \{ content: none; \}/.test(convo), 'a worker\'s brief sits on the agent side, never as the Commander\'s > input line');
 }
 
 A.report('delegated-threads.test');

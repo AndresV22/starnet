@@ -4195,9 +4195,11 @@ const App = (() => {
   // one child's state for the fold header — the same truth as its own lamp (railRowState) plus the durable ledger
   function railKidState(k, running) {
     const st = railRowState(k);
-    // a worker's approval/question is raised on its PARENT conversation, named for the worker (the lead's consent)
+    // a worker's approval/question is raised on its PARENT conversation, named for the worker (the lead's consent) —
+    // by agent, not by run, so only an UNFINISHED thread of that agent can be the one waiting
     const pp = typeof Channels !== 'undefined' && Channels.pendingOf && k.parentStreamId ? Channels.pendingOf(k.parentStreamId) : null;
-    if (pp && pp.agentId && pp.agentId === k.agentId) return 'waiting';
+    const unfinished = st.busy || running.has(k.id) || !(k.runIds || []).length;
+    if (unfinished && pp && pp.agentId && pp.agentId === k.agentId) return 'waiting';
     return st.attn ? 'waiting' : (st.busy || running.has(k.id)) ? 'working' : k.lastRunOk === false ? 'failed' : (k.runIds || []).length ? 'done' : 'starting';
   }
   function railKidsSummary(kids) {
@@ -4215,8 +4217,10 @@ const App = (() => {
   function railKidsChip(item) {
     const n = item.rows.length, sum = railKidsSummary(item.rows);
     return '<button type="button" class="ws-kids-n' + (railKidsTone(item.rows) ? ' ' + railKidsTone(item.rows) : '') + '" data-ws-group="' + U.esc(item.key) + '" aria-expanded="' + item.expanded + '"'
-      + ' aria-label="' + n + ' delegated thread' + (n === 1 ? '' : 's') + ': ' + U.esc(sum) + ' — ' + (item.expanded ? 'hide' : 'show') + '" data-tip="' + n + ' delegated · ' + U.esc(sum) + '">' + n + '</button>';
+      + ' aria-label="' + n + ' delegated thread' + (n === 1 ? '' : 's') + ': ' + U.esc(sum) + ' — ' + (item.expanded ? 'hide' : 'show') + '" data-tip="' + n + ' delegated · ' + U.esc(sum) + '">' + railKidsLabel(n, railKidsTone(item.rows)) + '</button>';
   }
+  // a worker waiting on you says so in WORDS on the chip, never by colour alone (2026-10-10 blind test)
+  function railKidsLabel(n, tone) { return tone === 'waiting' ? n + ' · needs you' : String(n); }
   function renderRail() {
     const ul = el('workstreams');
     if (!ul || typeof Workstreams === 'undefined') return;
@@ -4376,6 +4380,7 @@ const App = (() => {
       const ids = railKidsOf.get(b.dataset.wsGroup); if (!ids) return;
       const kids = ids.map(id => Workstreams.get(id)).filter(Boolean), tone = railKidsTone(kids);
       const cls = 'ws-kids-n' + (tone ? ' ' + tone : ''); if (b.className !== cls) b.className = cls;
+      const label = railKidsLabel(kids.length, tone); if (b.textContent !== label) b.textContent = label;
       const tip = kids.length + ' delegated · ' + railKidsSummary(kids);
       if (b.getAttribute('data-tip') !== tip) b.setAttribute('data-tip', tip);
     });

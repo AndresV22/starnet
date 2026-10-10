@@ -91,11 +91,17 @@ body #chat-panel :is(#chat-log, #gc-log) .cmsg.user > .body::before { content: '
 body #chat-panel :is(#chat-log, #gc-log) .cmsg.user .chat-attach-view { justify-content: flex-end; }
 /* the ⧉ rides the header line on the stamp's side (the reserved lane in comms.css / glass-comms.css) */
 body #chat-panel :is(#chat-log, #gc-log) .cmsg.user > .cmsg-copy { top: -2px; }
-/* a worker thread's brief (chat.js addUser brief): written by the agent that delegated it, so it keeps the input
-   line's shape but in that agent's phosphor, never the Commander's gold */
-body #chat-panel #chat-log .cmsg.user.brief > .body { --rail: rgba(var(--ph-rgb), .5); color: var(--text); }
-body #chat-panel #chat-log .cmsg.user.brief > .body::before { color: var(--ph); }
-body #chat-panel #chat-log .cmsg.user.brief .who { color: var(--ph-bright); }
+/* a worker thread's brief (chat.js addUser brief): written by the agent that delegated it, so it sits on the AGENT
+   side in that agent's phosphor — never on the Commander's right-hand gold input line with its `>` prompt (2026-10-10
+   blind test: on the right it read as the Commander's own words) */
+body #chat-panel #chat-log .cmsg.user.brief { align-self: flex-start; }
+body #chat-panel #chat-log .cmsg.user.brief > .cmsg-head { flex-direction: row; padding-left: 0; padding-right: 28px; }
+body #chat-panel #chat-log .cmsg.user.brief > .cmsg-copy { left: auto; right: 5px; }
+body #chat-panel #chat-log .cmsg.user.brief > .body {
+  --rail: rgba(var(--ph-rgb), .5); padding: 4px 10px 5px 12px; border-right: 0; border-left: 2px solid var(--rail); color: var(--text);
+}
+body #chat-panel #chat-log .cmsg.user.brief > .body::before { content: none; }
+body #chat-panel #chat-log .cmsg.user.brief .who { color: var(--ph-bright); text-align: left; margin-right: 0; }
 
 /* ---- THE AGENT — the Commander's line, mirrored: callsign + stamp above, the text on the phosphor rail. No face, no box
    (Andrew 10-03: "keep the name as is without the pfp"). ---- */
@@ -261,10 +267,17 @@ body #chat-panel #chat-log > .dg-line .dg-line-text { min-width: 0; white-space:
 body #chat-panel #chat-log > .dg-line .dg-line-sum { flex: none; margin-left: auto; color: var(--text); }
 body #chat-panel #chat-log > .dg-line .dg-line-sum.waiting { color: var(--gold); }
 body #chat-panel #chat-log > .dg-line .dg-line-list { border-left: 2px solid rgba(var(--ph-rgb), .18); padding: 2px 0 4px; }
+/* two lines per worker so the TASK keeps its words in a narrow COMMS: who + task, then status (+ stop) under the task */
 body #chat-panel #chat-log > .dg-line .dg-li {
-  display: grid; grid-template-columns: 7px auto minmax(0, 1fr) auto auto; align-items: center; gap: 8px;
-  padding: 3px 10px 3px 14px; font-size: var(--sn-type-compact, 15px); cursor: pointer;
+  display: grid; grid-template-columns: 7px auto minmax(0, 1fr) auto; align-items: center; gap: 1px 8px;
+  grid-template-areas: "lamp who task task" ". . st stop";
+  padding: 4px 10px 4px 14px; font-size: var(--sn-type-compact, 15px); cursor: pointer;
 }
+body #chat-panel #chat-log > .dg-line .dg-li > .dg-li-lamp { grid-area: lamp; }
+body #chat-panel #chat-log > .dg-line .dg-li > .dg-li-who { grid-area: who; }
+body #chat-panel #chat-log > .dg-line .dg-li > .dg-li-task { grid-area: task; }
+body #chat-panel #chat-log > .dg-line .dg-li > .dg-li-st { grid-area: st; max-width: none; }
+body #chat-panel #chat-log > .dg-line .dg-li > .dg-li-stop { grid-area: stop; justify-self: end; }
 body #chat-panel #chat-log > .dg-line .dg-li:is(:hover, :focus-visible) { background: rgba(var(--ph-rgb), .06); }
 body #chat-panel #chat-log > .dg-line .dg-li:focus-visible { outline: 2px solid var(--ph); outline-offset: -2px; }
 body #chat-panel #chat-log > .dg-line .dg-li-lamp { width: 7px; height: 7px; border-radius: 1px; background: rgba(var(--ph-rgb), .3); box-shadow: 0 0 0 1px rgba(0, 0, 0, .5); }
