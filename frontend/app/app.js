@@ -4192,19 +4192,26 @@ const App = (() => {
     const s = typeof Overseer !== 'undefined' && Overseer.snapshot ? Overseer.snapshot() : null;
     return new Set(((s && s.workers) || []).filter(w => w && w.status === 'running' && w.streamId).map(w => w.streamId));
   }
+  // one child's state for the fold header — the same truth as its own lamp (railRowState) plus the durable ledger
+  function railKidState(k, running) {
+    const st = railRowState(k);
+    return st.attn ? 'waiting' : (st.busy || running.has(k.id)) ? 'working' : k.lastRunOk === false ? 'failed' : (k.runIds || []).length ? 'done' : 'starting';
+  }
   function railKidsSummary(kids) {
-    let waiting = 0, working = 0, failed = 0, done = 0;
-    const running = railLedgerRunning();
-    for (const k of kids) {
-      const st = railRowState(k);
-      if (st.attn) waiting++; else if (st.busy || running.has(k.id)) working++; else if (k.lastRunOk === false) failed++; else if ((k.runIds || []).length) done++;
-    }
-    return [waiting && waiting + ' waiting on you', working && working + ' working', failed && failed + ' failed', done && done + ' done']
+    const running = railLedgerRunning(), n = { waiting: 0, working: 0, failed: 0, done: 0 };
+    for (const k of kids) { const s = railKidState(k, running); if (n[s] != null) n[s]++; }
+    return [n.waiting && n.waiting + ' waiting on you', n.working && n.working + ' working', n.failed && n.failed + ' failed', n.done && n.done + ' done']
       .filter(Boolean).join(' · ') || 'starting';
+  }
+  // one housed lamp per worker thread (the card's meter, in the rail): the whole batch at a glance, max 8
+  function railKidsLamps(kids) {
+    const running = railLedgerRunning();
+    return kids.slice(0, 8).map(k => '<i class="' + railKidState(k, running) + '"></i>').join('');
   }
   function railKidsHead(item) {
     return '<li class="ws-auto-group ws-kids" role="presentation"><button type="button" data-ws-group="' + U.esc(item.key) + '" aria-expanded="' + item.expanded + '">'
-      + '<span>' + item.rows.length + ' delegated</span><small>' + U.esc(railKidsSummary(item.rows)) + '</small></button></li>';
+      + '<span>' + item.rows.length + ' delegated</span><span class="ws-kids-lamps" aria-hidden="true">' + railKidsLamps(item.rows) + '</span>'
+      + '<small>' + U.esc(railKidsSummary(item.rows)) + '</small></button></li>';
   }
   function renderRail() {
     const ul = el('workstreams');
@@ -4358,8 +4365,11 @@ const App = (() => {
     // the delegated-threads fold header counts what its children are doing right now (same truth as their lamps)
     ul.querySelectorAll('.ws-kids [data-ws-group]').forEach(b => {
       const ids = railKidsOf.get(b.dataset.wsGroup), small = b.querySelector('small'); if (!ids || !small) return;
-      const t = railKidsSummary(ids.map(id => Workstreams.get(id)).filter(Boolean));
+      const kids = ids.map(id => Workstreams.get(id)).filter(Boolean);
+      const t = railKidsSummary(kids);
       if (small.textContent !== t) small.textContent = t;
+      const lamps = b.querySelector('.ws-kids-lamps'), l = railKidsLamps(kids);
+      if (lamps && lamps.innerHTML !== l) lamps.innerHTML = l;
     });
   }
   function armRailTicker() { if (!railTicker) railTicker = setInterval(updateRailLive, 1000); }

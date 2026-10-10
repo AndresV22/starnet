@@ -147,9 +147,14 @@ const Briefing = (() => {
         main.appendChild(el('span', 'bf-what', String(x.what || '').slice(0, 160)));
         row.appendChild(main);
         if (x.open) {
+          // the whole row opens the item's thread (keyboard too); OPEN stays as the visible door
+          const go = (e) => { if (e && e.stopPropagation) e.stopPropagation(); try { if (typeof App !== 'undefined' && App.openWorkstream) App.openWorkstream(String(x.open)); } catch (_) {} };
           const b = el('button', 'bf-key', 'OPEN'); b.type = 'button';
-          b.addEventListener('click', () => { try { if (typeof App !== 'undefined' && App.openWorkstream) App.openWorkstream(String(x.open)); } catch (_) {} });
+          b.addEventListener('click', go);
           row.appendChild(b);
+          if (row.setAttribute) { row.setAttribute('role', 'button'); row.setAttribute('tabindex', '0'); row.setAttribute('aria-label', x.tag + ': ' + x.name + ' — open'); }
+          row.addEventListener('click', go);
+          row.addEventListener('keydown', (e) => { if (e && e.target === row && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); go(e); } });
         }
         card.appendChild(row);
       }
