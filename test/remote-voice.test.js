@@ -99,6 +99,14 @@ function parsePages(buf) {
     A.ok(short.ok && short.data.text === '' && short.data.short === true, 'a 120 ms blip is not speech and never reaches STT');
     A.eq(heard.length, 1, 'still transcribed once');
 
+    for (const junk of ['00:00:01 - 00:00:03', '...', '  ♪ ♪  ', '1, 2, 3']) {
+      const v2 = makeRemoteVoice({ now: () => t, newId: () => 'x', transcribeOgg: async () => ({ ok: true, text: junk }) });
+      const n = await v2.hear('devN', { utt: 'n1', part: 0, frames: Array(10).fill(b64u(SILK_WB_60MS)), frameMs: 60, last: true });
+      A.ok(n.ok && n.data.text === '' && n.data.noise === junk.trim(), 'a letterless transcript is noise, not speech: ' + JSON.stringify(junk));
+    }
+    const v3 = makeRemoteVoice({ now: () => t, newId: () => 'x', transcribeOgg: async () => ({ ok: true, text: 'Привет, 你好' }) });
+    const intl = await v3.hear('devN', { utt: 'n2', part: 0, frames: Array(10).fill(b64u(SILK_WB_60MS)), frameMs: 60, last: true });
+    A.eq(intl.data.text, 'Привет, 你好', 'speech in any script is kept');
     A.ok(!(await voice.hear('devA', { utt: 'u3', part: 0, frames: ['not+base64url'] })).ok, 'a malformed frame is refused');
     A.ok(!(await voice.hear('devA', { utt: 'u3', part: 0, frames: [b64u(Buffer.alloc(2000, 1))] })).ok, 'an oversized frame is refused');
     A.ok(!(await voice.hear('devA', { utt: 'bad id!', part: 0, frames: [] })).ok, 'a bad utterance id is refused');

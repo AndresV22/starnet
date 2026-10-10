@@ -223,7 +223,11 @@ function makeRemoteVoice(deps) {
     let r;
     try { r = await transcribeOgg(ogg); } catch (e) { r = { ok: false, reason: (e && e.message) || String(e) }; }
     if (!r || !r.ok) return { ok: false, error: 'the station could not transcribe that (' + String((r && r.reason) || 'no transcription').slice(0, 160) + ')' };
-    return { ok: true, data: { utt, text: String(r.text || '').trim(), ms } };
+    // Whisper turns room noise into timestamps or punctuation ("00:00:01 - 00:00:03", first live test): a
+    // transcript with no letters in any script is not speech, and must not become a run on the overseer.
+    const text = String(r.text || '').trim();
+    if (!/p{L}/u.test(text)) return { ok: true, data: { utt, text: '', ms, noise: text.slice(0, 80) } };
+    return { ok: true, data: { utt, text, ms } };
   }
 
   async function speak(deviceId, a) {
