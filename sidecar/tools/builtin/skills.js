@@ -98,7 +98,7 @@
     }
 
     const writeTool = {
-      name: 'skill.write', capability: 'memory', scope: 'write', requiresConsent: false,
+      name: 'skill.write', capability: 'memory', scope: 'write', requiresConsent: false, taintLocked: true,
       description: 'Save or update a reusable SKILL: a named, multi-step procedure you can reload later. Use skill.manage for patch/archive/support-file lifecycle work.',
       schema: {
         type: 'object', required: ['name', 'body'],
@@ -133,7 +133,7 @@
     };
 
     const manageTool = {
-      name: 'skill.manage', capability: 'memory', scope: 'write', requiresConsent: false,
+      name: 'skill.manage', capability: 'memory', scope: 'write', requiresConsent: false, taintLocked: true,
       description: 'Create, edit, patch, archive, restore, pin, or attach support files for saved skills. Prefer patching or updating an existing skill before creating a duplicate.',
       schema: {
         type: 'object', required: ['action'],

@@ -19272,7 +19272,7 @@ async function runOnceCore(o) {
       // the Commander's taste rides into delegated work too: a worker writes the deliverable the Commander rates
       const tasteRecs = (personalizationStore.read().enabled && !tasteWithheld) ? FeedbackMemory.stationTaste(notes, otherAgentNotebooks(agentId)) : [];
       const tasteIds = new Set(tasteRecs.map(r => r.id).filter(Boolean));
-      const pinned = Array.isArray(notes) ? notes.filter(r => r && r.pinned && !tasteIds.has(r.id) && !(tasteWithheld && r.origin === FeedbackMemory.ORIGIN)) : [];
+      const pinned = Array.isArray(notes) ? notes.filter(r => r && r.pinned && !tasteIds.has(r.id) && !(tasteWithheld && r.origin === FeedbackMemory.ORIGIN) && !r.taintedBy) : [];
       const recalled = renderRecall(rank(pinned, recentUserText(messages), { now: Date.now(), streamId, projectRoot: o.projectRoot || null }), { limit: 1500 });
       const taste = renderRecall(tasteRecs, { limit: FeedbackMemory.TASTE_CHARS, header: FeedbackMemory.TASTE_HEADER });
       return settled + (recalled.text ? '\n\n' + redact(recalled.text) : '') + (taste.text ? '\n\n' + redact(taste.text) : '');
@@ -21226,6 +21226,11 @@ async function runOnceCore(o) {
     };
     recall.chars = recall.text.length;
     if (recall.text) {
+      // a recalled note that a TAINTED run saved puts that outside content back in front of the model: this run is
+      // tainted from its start, exactly like replayed history (2026-10-10; notebook.write stamps taintedBy)
+      const usedSet = new Set(recall.usedIds || []);
+      const taintedNote = ranked.concat(tasteRecs).find(r => r && usedSet.has(r.id) && typeof r.taintedBy === 'string' && r.taintedBy);
+      if (taintedNote && !execution.taintedBy()) { latchRunTaint('recalled memory saved by a run that read ' + String(taintedNote.taintedBy).slice(0, 120)); taintAtStart = execution.taintedBy(); }
       msgs = injectRecall(msgs, redact(recall.text));   // §5.6 belt-and-suspenders: a legacy plaintext note can't reach the provider verbatim
       emit('memory.recall', { agentId, runId, count: recall.count, chars: recall.chars });
       if (taste.count && DEBUG_CHANNEL_LOGS) console.log('[memory] taste run=' + runId + ' agent=' + agentId + ' records=' + taste.count);

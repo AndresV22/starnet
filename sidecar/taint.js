@@ -83,7 +83,9 @@
   function allowedWhenTainted(tool) {
     if (!tool) return true;                                  // unknown name -> let the ordinary unknown-tool path answer
     // a tool that PERSISTS text a later run obeys (team.configure rewrites a crew member's standing orders) would
-    // launder this run's taint into every future run of that agent — past the per-run fence entirely
+    // launder this run's taint into every future run of that agent — past the per-run fence entirely. Same for a
+    // routine/loop (its prompt fires later as a fresh, untainted run — with Full Access) and a skill (a procedure
+    // later runs load and follow, scripts/ included): all taint-locked 2026-10-10.
     if (tool.taintLocked === true) return false;
     const impact = impactOfTool(tool);
     if (impact === 'workspace-process') return false;        // shell.exec / verify.run
