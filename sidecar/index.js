@@ -508,6 +508,23 @@ const FRONTEND = path.resolve(__dirname, '..', 'frontend');
 // read-only, .js-only allowlist so the browser + the desktop bundle (which ships ../shared as a resource)
 // can load it without escaping into arbitrary repo files. Path-jailed to SHARED exactly like FRONTEND.
 const SHARED = path.resolve(__dirname, '..', 'shared');
+// The served page carries the master token, and loopback TCP has no per-user ACL: only a process running as THIS
+// OS user may receive it (another Windows account, a sandbox account or another login on a shared box never does).
+// See peerowner.js; STARNET_TRUST_LOCAL_PEERS=1 is the owner's escape hatch where the lookup cannot work.
+const peerOwnerCheck = require('./peerowner.js').makePeerOwnerCheck({
+  platform: process.platform, selfPid: process.pid,
+  uid: (typeof process.getuid === 'function') ? process.getuid() : null,
+  winUser: (() => { try { return (process.env.USERDOMAIN ? process.env.USERDOMAIN + '\\' : '') + os.userInfo().username; } catch (_) { return ''; } })(),
+  winSystemDir: path.join(process.env.SystemRoot || process.env.windir || 'C:\\Windows', 'System32'),
+  trustAll: /^(1|true|yes|on)$/i.test(String(ENV('TRUST_LOCAL_PEERS') || '').trim()),
+  readFile: (f) => fsp.readFile(f, 'utf8'),
+  run: (exe, args) => new Promise((resolve) => {
+    try {
+      stationChildProcess.execFile(exe, args, { windowsHide: true, timeout: 5000, maxBuffer: 16 * 1024 * 1024 }, (err, stdout) =>
+        resolve({ ok: !err, code: err && typeof err.code === 'number' ? err.code : (err ? -1 : 0), stdout: String(stdout || '') }));
+    } catch (_) { resolve({ ok: false, code: -1, stdout: '' }); }
+  })
+});
 // the agent workspaces + their protected siblings (notebook/ledger/permissions/channels). SKYNET_WORKSPACES
 // wins (the desktop shell + isolated tests set it); otherwise resolve a PER-USER, writable OS app-data dir.
 // CRITICAL for a packaged install: NEVER default under __dirname — a shipped app lives in read-only Program
@@ -26115,6 +26132,17 @@ async function serveShared(req, res) {
   } catch (e) { res.writeHead(404); res.end('not found'); }
 }
 
+// One stderr line per distinct (reason, pid), so a scanning stranger cannot flood the log and a false refusal of the
+// owner is visible in startup.log / the terminal instead of silently breaking the page.
+const tokenWithheldSeen = new Set();
+function noteTokenWithheld(peer) {
+  const k = String(peer.reason) + ':' + String(peer.pid || '');
+  if (tokenWithheldSeen.has(k) || tokenWithheldSeen.size > 64) return;
+  tokenWithheldSeen.add(k);
+  console.error('  · withheld the station token from a local connection (' + peer.reason + (peer.pid ? ', pid ' + peer.pid : '') +
+    ') — only a process of this OS user receives it. Set STARNET_TRUST_LOCAL_PEERS=1 only if your own browser is being refused.');
+}
+
 async function serveStatic(req, res) {
   try {
     const url = decodeURIComponent((req.url || '/').split('?')[0]);
@@ -26124,7 +26152,11 @@ async function serveStatic(req, res) {
     let data = await fsp.readFile(abs);
     if (abs.toLowerCase() === path.resolve(FRONTEND, 'index.html').toLowerCase() ||
         (DEV_MODE && abs.toLowerCase() === path.resolve(FRONTEND, 'agent-station-demo.html').toLowerCase())) {
-      let boot = '<script>window.__STARNET_API_TOKEN__=' + JSON.stringify(API_TOKEN) + ';';
+      const sock = req.socket || {};
+      const peer = await peerOwnerCheck({ remoteAddress: sock.remoteAddress, remotePort: sock.remotePort, localPort: sock.localPort });
+      let boot = '<script>' + (peer.ok ? 'window.__STARNET_API_TOKEN__=' + JSON.stringify(API_TOKEN) + ';'
+        : 'window.__STARNET_TOKEN_WITHHELD__=' + JSON.stringify(peer.reason) + ';');
+      if (!peer.ok) noteTokenWithheld(peer);
       // DEV fast-path: hand the page a model + provider hint so a fresh origin auto-resumes the seeded
       // save with no setup. No secret crosses here — the key stays server-side in runtimeKey.
       // `hasKey` is the honest half: the page's credential badge assumed a DEV boot meant the host HELD a
