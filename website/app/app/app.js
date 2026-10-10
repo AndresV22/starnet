@@ -4203,10 +4203,13 @@ const App = (() => {
     return [n.waiting && n.waiting + ' waiting on you', n.working && n.working + ' working', n.failed && n.failed + ' failed', n.done && n.done + ' done']
       .filter(Boolean).join(' · ') || 'starting';
   }
-  // one housed lamp per worker thread (the card's meter, in the rail): the whole batch at a glance, max 8
+  // one housed lamp per worker thread (the card's meter, in the rail): the batch at a glance — at most 6 (the rail is
+  // ~200px), the ones that need you first, then running, failed, starting, done
+  const RAIL_KID_ORDER = { waiting: 0, working: 1, failed: 2, starting: 3, done: 4 };
   function railKidsLamps(kids) {
     const running = railLedgerRunning();
-    return kids.slice(0, 8).map(k => '<i class="' + railKidState(k, running) + '"></i>').join('');
+    return kids.map(k => railKidState(k, running)).sort((a, b) => RAIL_KID_ORDER[a] - RAIL_KID_ORDER[b]).slice(0, 6)
+      .map(s => '<i class="' + s + '"></i>').join('');
   }
   function railKidsHead(item) {
     return '<li class="ws-auto-group ws-kids" role="presentation"><button type="button" data-ws-group="' + U.esc(item.key) + '" aria-expanded="' + item.expanded + '">'
