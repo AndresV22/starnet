@@ -10835,7 +10835,21 @@ const remoteHost = require('./remote/host.js').makeRemoteHost({
     return { ok: true, enabled: !!enabled };
   }
 });
-const remoteGateway = require('./remote/gateway.js').makeGateway({ host: remoteHost, approvals: remoteApprovals, push: remotePush, now: () => Date.now() });
+// A paired device with a microphone and a speaker (the AIPI-Lite companion): its Opus frames are wrapped as Ogg and
+// go through the SAME decoder + STT chain Telegram voice notes use; replies are spoken in the station's own voice.
+const remoteVoice = require('./remote/voice.js').makeRemoteVoice({
+  now: () => Date.now(),
+  newId: () => require('crypto').randomUUID(),
+  transcribeOgg: async (ogg) => {
+    const { oggOpusToMono16kFloat32, float32PcmToWav } = require('./media-service.js');
+    const pcm = await oggOpusToMono16kFloat32(ogg);
+    const wav = float32PcmToWav(Buffer.from(pcm.buffer, pcm.byteOffset, pcm.byteLength), 16000);
+    if (!wav) return { ok: false, reason: 'no audio' };
+    return media.transcribeAudioBuffer(wav, 'wav');
+  },
+  synthesize: (text) => media.synthesizeStationVoice(text)
+});
+const remoteGateway = require('./remote/gateway.js').makeGateway({ host: remoteHost, approvals: remoteApprovals, push: remotePush, voice: remoteVoice, now: () => Date.now() });
 const remoteLan = require('./remote/lan.js').makeLanListener({
   sessions: remoteSessions, devices: remoteDevices, gateway: remoteGateway, crypto: remoteCrypto, now: () => Date.now(),
   onPaired: () => { if (remoteRelay) remoteRelay.syncTokens(); },
@@ -10981,7 +10995,8 @@ async function handleRemoteRevoke(req, res) {
   const r = remoteDevices.revoke(id);
   remoteSessions.endDevice(id);
   if (remoteRelay) remoteRelay.kickDevice(id);
-  if (r.ok) remoteHost.stopDevice(id);   // the runs that phone started stop with it (a lost phone's task never keeps going)
+  if (r.ok) remoteHost.stopDevice(id);
+  if (r.ok) remoteVoice.forget(id);   // and nothing it said or was about to hear stays behind   // the runs that phone started stop with it (a lost phone's task never keeps going)
   if (r.ok) { const f = remotePush.forget(id); if (!f.ok) failNote('remote.index.pushForget', new Error(f.error)); }   // a removed phone gets no more notifications
   if (!r.ok) return respondJson(res, r.error === 'no such device' ? 404 : 500, { ok: false, error: r.error });
   respondJson(res, 200, remoteSnapshot());

@@ -29,6 +29,9 @@
      pushOn    { endpoint, keys }    subscribe this phone to the station's notifications
      pushOff                         unsubscribe this phone
      pushTest                        send this phone one notification now
+     hear      { utt, part, frames, frameMs?, last? }   a device's spoken request, Opus frames in order -> { text }
+     speak     { text }              say a reply in the station's voice -> { id, mime, bytes }
+     speech    { id, offset?, length? }   that reply's audio in sealed chunks (≤ 64 KB each)
      routines                        scheduled routines
      routine   { jobId, enabled }    pause or resume one
      ping                            liveness; the phone's link lamp reads this
@@ -51,6 +54,12 @@ function makeGateway(deps) {
   const good = (data) => ({ ok: true, data: data === undefined ? null : data });
   const id = (v) => { const s = String(v == null ? '' : v); return ID_RE.test(s) ? s : ''; };
   const clampInt = (v, lo, hi, dflt) => { const n = Math.floor(Number(v)); return Number.isFinite(n) ? Math.max(lo, Math.min(hi, n)) : dflt; };
+  const voiceCall = async (verb, a, ctx) => {
+    if (!deps.voice) return bad('this station cannot do voice');
+    if (!ctx || !ctx.deviceId) return bad('unknown device');
+    const r = await deps.voice[verb](ctx.deviceId, a);
+    return r && r.ok ? good(r.data) : bad((r && r.error) || 'voice failed');
+  };
 
   const VERBS = {
     async ping() { return good({ at: now() }); },
@@ -166,6 +175,11 @@ function makeGateway(deps) {
       const [r] = await deps.push.send([ctx.deviceId], { title: 'Notifications are on', body: 'Your station will tap this phone when your crew needs you.', tag: 'test', url: '#needs' });
       return r && r.ok ? good({ sent: true }) : bad('the push service did not take the notification' + (r && r.status ? ' (' + r.status + ')' : ''));
     },
+
+    // voice: a paired device with a microphone and a speaker (sidecar/remote/voice.js)
+    async hear(a, ctx) { return voiceCall('hear', a, ctx); },
+    async speak(a, ctx) { return voiceCall('speak', a, ctx); },
+    async speech(a, ctx) { return voiceCall('speech', a, ctx); },
 
     async routines() { return good(await host.routines()); },
 
