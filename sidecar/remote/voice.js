@@ -110,9 +110,20 @@ function opusFramesToOgg(frames, o) {
   return Buffer.concat(pages);
 }
 
-/* ---------- WAV for a small decoder ----------
-   The local voice engine writes 32-bit float WAV; a device decoder wants 16-bit PCM. Returns a mono 16-bit WAV
-   (the input itself when it already is one), or null when the bytes are not a WAV this can read. */
+/* ---------- WAV for a small decoder and a small speaker ----------
+   The local voice engine writes 32-bit float WAV at normal speech loudness (peaks ~-3 dBFS, average ~-22 dBFS);
+   on a palm-sized speaker that is barely audible (2026-10-09, first live test). Returns a mono 16-bit WAV levelled
+   for a small speaker: average raised toward SPEAKER_RMS (at most MAX_GAIN), peaks above the knee bent smoothly
+   under full scale instead of clipping. null when the bytes are not a WAV this can read. */
+const SPEAKER_RMS = 0.16;   // ~-16 dBFS average
+const MAX_GAIN = 3;         // never lift a near-silent take into hiss
+const KNEE = 0.7;
+function speakerLevel(x, gain) {
+  const y = x * gain, a = Math.abs(y);
+  if (a <= KNEE) return y;
+  const over = a - KNEE, room = 1 - KNEE;
+  return Math.sign(y) * (KNEE + room * (over / (over + room)));   // approaches 1, never reaches it
+}
 function wavToPcm16(buf) {
   if (!Buffer.isBuffer(buf) || buf.length < 44 || buf.toString('latin1', 0, 4) !== 'RIFF' || buf.toString('latin1', 8, 12) !== 'WAVE') return null;
   let fmt = null, data = null;
@@ -127,9 +138,8 @@ function wavToPcm16(buf) {
     o += 8 + size + (size & 1);
   }
   if (!fmt || !data || !fmt.channels || !fmt.rate) return null;
-  if (fmt.format === 1 && fmt.bits === 16 && fmt.channels === 1) return buf;
   const frames = Math.floor(data.length / (fmt.channels * (fmt.bits / 8)));
-  const out = Buffer.alloc(frames * 2);
+  const mono = new Float32Array(frames);
   for (let i = 0; i < frames; i++) {
     let sum = 0;
     for (let ch = 0; ch < fmt.channels; ch++) {
@@ -138,7 +148,15 @@ function wavToPcm16(buf) {
       else if (fmt.format === 1 && fmt.bits === 16) sum += data.readInt16LE(at) / 32768;
       else return null;
     }
-    const v = Math.max(-1, Math.min(1, sum / fmt.channels));
+    mono[i] = Math.max(-1, Math.min(1, sum / fmt.channels));
+  }
+  let energy = 0;
+  for (let i = 0; i < frames; i++) energy += mono[i] * mono[i];
+  const rms = frames ? Math.sqrt(energy / frames) : 0;
+  const gain = rms > 0 ? Math.max(1, Math.min(MAX_GAIN, SPEAKER_RMS / rms)) : 1;
+  const out = Buffer.alloc(frames * 2);
+  for (let i = 0; i < frames; i++) {
+    const v = speakerLevel(mono[i], gain);
     out.writeInt16LE(v < 0 ? Math.round(v * 32768) : Math.round(v * 32767), i * 2);
   }
   const h = Buffer.alloc(44);

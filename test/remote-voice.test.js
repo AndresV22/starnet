@@ -161,8 +161,18 @@ function parsePages(buf) {
 
   /* ---------- 3b. WAV normalisation: what the local voice engine writes -> what a device decoder plays ---------- */
   {
+    const rmsOf = (w) => { let e = 0; const n = (w.length - 44) / 2; for (let i = 0; i < n; i++) { const v = w.readInt16LE(44 + i * 2) / 32768; e += v * v; } return Math.sqrt(e / n); };
+    const peakOf = (w) => { let p = 0; for (let i = 44; i < w.length; i += 2) p = Math.max(p, Math.abs(w.readInt16LE(i))); return p; };
+    // normal speech level (what the local engine writes): lifted toward ~-16 dBFS average for a small speaker
+    const speech = wav16(24000, 24000, (i) => Math.sin(i / 9) * (i % 4000 < 2000 ? 0.09 : 0.02));
+    const loud = wavToPcm16(speech);
+    A.ok(rmsOf(speech) < 0.07 && rmsOf(loud) > rmsOf(speech) * 2, 'quiet speech is made louder: rms ' + rmsOf(speech).toFixed(3) + ' -> ' + rmsOf(loud).toFixed(3));
+    A.ok(peakOf(loud) < 32767, 'and never hits full scale');
+    const already = wav16(24000, 2400, (i) => Math.sin(i / 5) * 0.5);
+    A.ok(Math.abs(rmsOf(wavToPcm16(already)) - rmsOf(already)) < 0.03, 'a take that is already loud is left about as loud');
+    const hiss = wav16(24000, 2400, (i) => (i % 2 ? 0.001 : -0.001));
+    A.ok(rmsOf(wavToPcm16(hiss)) <= rmsOf(hiss) * 3 + 0.0005, 'near-silence is lifted at most 3x (no hiss pumped up)');
     const mono16 = wav16(24000, 100, (i) => i / 200);
-    A.ok(wavToPcm16(mono16) === mono16, 'mono 16-bit WAV passes through untouched');
     const frames = 480;
     const fd = Buffer.alloc(frames * 2 * 4);
     for (let i = 0; i < frames; i++) { fd.writeFloatLE(0.5, i * 8); fd.writeFloatLE(-0.25, i * 8 + 4); }
@@ -171,11 +181,12 @@ function parsePages(buf) {
     A.ok(out && out.readUInt16LE(20) === 1 && out.readUInt16LE(22) === 1 && out.readUInt16LE(34) === 16, 'float32 stereo becomes PCM16 mono');
     A.eq(out.readUInt32LE(24), 24000, 'the sample rate is kept');
     A.eq(out.readUInt32LE(40), frames * 2, 'one 16-bit sample per frame');
-    A.eq(out.readInt16LE(44), Math.round(0.125 * 32767), 'channels are averaged ((0.5 - 0.25) / 2)');
+    A.eq(out.readInt16LE(44), Math.round(0.125 * (0.16 / 0.125) * 32767), 'channels are averaged ((0.5 - 0.25) / 2 = 0.125), then levelled to the 0.16 target');
     A.ok(wavToPcm16(Buffer.from('not a wav at all, definitely not')) === null, 'non-WAV bytes are refused');
     const clip = Buffer.alloc(8); clip.writeFloatLE(3.0, 0); clip.writeFloatLE(-3.0, 4);
     const clipped = wavToPcm16(Buffer.concat([wavHeader(3, 1, 16000, 32, 8), clip]));
-    A.ok(clipped.readInt16LE(44) === 32767 && clipped.readInt16LE(46) === -32768, 'out-of-range floats clip instead of wrapping');
+    A.ok(clipped.readInt16LE(44) === -clipped.readInt16LE(46) - 1 || clipped.readInt16LE(44) === -clipped.readInt16LE(46), 'out-of-range floats stay symmetric (no wrap): ' + clipped.readInt16LE(44) + ' / ' + clipped.readInt16LE(46));
+    A.ok(clipped.readInt16LE(44) > 0.8 * 32767 && clipped.readInt16LE(44) < 32767, 'and are bent under full scale by the soft knee, never wrapped or hard-clipped');
 
     const v = makeRemoteVoice({ now: () => 1, newId: () => 'w1', synthesize: async () => ({ ok: true, buf: stereoFloat, mime: 'audio/wav', provider: 'local-kokoro' }) });
     const sp = await v.speak('devA', { text: 'hi' });
