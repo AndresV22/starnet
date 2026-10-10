@@ -19243,6 +19243,8 @@ async function runOnceCore(o) {
     // every coordinator worker is filed in its own thread under the conversation that delegated it (orchestration.js
     // fileUnderThreads). Idempotent per requestId; a taken title gets a numeric suffix rather than refusing the work.
     childThread: require('./overseer.js').isCoordinatorRun({ ...o, agentId, surface }) ? (a) => {
+      // the asking conversation may be too new for the page to have saved it yet: this run proves it exists
+      if (a.parentStreamId === String(o.streamId || '')) overseer.ensure({ id: a.parentStreamId, title: o.sessionTitle || '', agentId, projectRoot: a.projectRoot });
       for (let n = 1; n <= 9; n++) {
         try { return overseer.create({ parentStreamId: a.parentStreamId, agentId: a.agentId, requestId: a.requestId, projectRoot: a.projectRoot, title: n === 1 ? a.title : a.title + ' (' + n + ')' }); }
         catch (e) { if (!/already exists/.test(e.message)) throw e; }

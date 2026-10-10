@@ -72,6 +72,22 @@ function makeOverseer(deps) {
       kind: 'chat', lane: 'active', history: [], runIds: [], createdAt: deps.now(), lastActiveAt: deps.now() };
     return update(s => { s.threads.push(row); return row; });
   }
+  // A brand-new conversation whose FIRST ask delegates: its run is live before the page's debounced save lands, so the
+  // overseer has never seen it and every worker lost its thread ("no such session", 2026-10-10). The run that asks proves
+  // the conversation exists; it is filed from that run's identity, and the page's saved copy wins every field once it
+  // lands. A conversation the Commander deleted is never brought back.
+  function ensure(args) {
+    const id = String(args.id || '');
+    if (threads().some(w => w.id === id)) return resolve(id);
+    const legacy = deps.sessions() || {};
+    if (!valid(id) || (legacy.deletedIds || []).includes(id) || state.threads.some(w => w.id === id)) throw new Error('no such session');
+    const agentId = args.agentId || 'agent';
+    if (!valid(agentId) || !deps.hasAgent(agentId)) throw new Error('unknown crew agent');
+    const row = { id, title: String(args.title || '').trim().slice(0, 80), agentId, projectRoot: args.projectRoot ? String(args.projectRoot) : null,
+      parentStreamId: '', kind: 'chat', lane: 'active', history: [], runIds: [], createdAt: deps.now(), lastActiveAt: deps.now() };
+    update(s => { s.threads.push(row); return row; });
+    return resolve(id);
+  }
   // One durable conversation per trusted project. Opening a project is an
   // explicit user action; repeated opens reuse the same identity after restart.
   function projectHome(root, title, createIfMissing) {
@@ -151,6 +167,6 @@ function makeOverseer(deps) {
     if (state.paused || emergencyPaused) update(s => { s.paused = false; return null; });
     emergencyPaused = false;
   }
-  return { threads, resolve, create, projectHome, collect, patchReview, withThread, snapshot, stopReviews, resumeReviews };
+  return { threads, resolve, create, ensure, projectHome, collect, patchReview, withThread, snapshot, stopReviews, resumeReviews };
 }
 module.exports = { makeOverseer, isCoordinatorRun };
