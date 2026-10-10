@@ -104,7 +104,7 @@ const Briefing = (() => {
      exists on this station (a deleted one stays gone, chipsFor's rule). */
   function rowsFor(items) {
     const has = id => !!id && typeof Workstreams !== 'undefined' && Workstreams.get && !!Workstreams.get(id);
-    const out = { needs: [], done: [], ideas: [] };
+    const out = { needs: [], done: [], ideas: [], next: [] };
     const push = (bucket, r) => out[bucket].push(Object.assign({ open: '' }, r, { open: has(r.open) ? r.open : '' }));
     for (const it of (Array.isArray(items) ? items : [])) {
       const L = it.latest || {};
@@ -118,12 +118,13 @@ const Briefing = (() => {
       else if (it.kind === 'delegated') push(it.failed ? 'needs' : 'done', { state: it.failed ? 'failed' : 'done', tag: 'DELEGATED', name: it.name,
         what: (it.runs - it.failed) + ' of ' + it.runs + ' job' + (it.runs === 1 ? '' : 's') + ' finished' + (it.failed ? ' · ' + it.failed + ' did not' : (L.excerpt ? ' · ' + L.excerpt : '')), open: it.open });
       else if (it.kind === 'draft') push('ideas', { state: 'idea', tag: 'IDEA', name: it.title, what: 'drafted, not built', open: '' });
+      else if (it.kind === 'next') push('next', { state: 'idea', tag: 'NEXT', name: it.title, what: it.why || 'what the station picks up next', open: '' });
     }
     return out;
   }
   function cardFor(items) {
     const r = rowsFor(items);
-    const total = r.needs.length + r.done.length + r.ideas.length;
+    const total = r.needs.length + r.done.length + r.ideas.length + r.next.length;
     if (!total) return null;
     const el = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; };
     const card = el('div', 'bf-card briefing-links');
@@ -159,7 +160,7 @@ const Briefing = (() => {
         card.appendChild(row);
       }
     };
-    section('NEEDS YOU', r.needs); section('DONE', r.done); section('IDEAS', r.ideas);
+    section('NEEDS YOU', r.needs); section('DONE', r.done); section('IDEAS', r.ideas); section('NEXT UP', r.next);
     return card;
   }
   async function presentFor(wsId) {
@@ -180,6 +181,16 @@ const Briefing = (() => {
     const old = log.querySelector('.briefing-links'); if (old) old.remove();
     const card = cardFor(items);
     if (card) log.appendChild(card);
+    // ONE THING, NOT TWO (2026-10-10): the card carries every item of the newest report (the same server items, and
+    // NEXT UP), so the newest report's text above it would only say it twice — it is tucked away while its card shows.
+    // Older reports keep their text; the session transcript itself is unchanged (a reply still sees the full report).
+    if (card && log.querySelectorAll) {
+      const agentRows = Array.from(log.querySelectorAll('.cmsg.agent'));
+      for (const n of agentRows) if (n.classList) n.classList.remove('bf-replaced');
+      const last = agentRows[agentRows.length - 1];
+      const body = last && last.querySelector ? (last.querySelector('.body') || last) : null;
+      if (body && last.classList && String(body.textContent || '').trim().indexOf(TITLE) === 0) last.classList.add('bf-replaced');
+    }
   }
 
   // has the Commander been gone (no input) long enough that new unattended work belongs to a briefing?

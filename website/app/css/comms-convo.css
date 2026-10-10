@@ -235,3 +235,58 @@ body #chat-panel :is(#chat-log, #gc-log) > .cmsg.work-rate.rate-inline .consent-
 body #chat-panel :is(#chat-log, #gc-log) > .cmsg.work-rate.rate-inline .consent-btn.thumb-down:is(:hover, :focus-visible) { border-color: var(--bad); }
 body #chat-panel :is(#chat-log, #gc-log) > .cmsg.work-rate.rate-inline .thumb-px { width: 13px; height: 13px; filter: none; }
 body #chat-panel :is(#chat-log, #gc-log) > .cmsg.work-rate.rate-inline .consent-result { font-size: var(--sn-type-meta, 13px) !important; letter-spacing: 1px; opacity: .8; }
+
+/* DELEGATED WORK, CALM (2026-10-10, delegated.js lineHtml): one quiet transcript line per dispatch, in the terminal
+   vocabulary of the run summary above it. A left rule, never a card; it opens to one short line per worker. It never
+   repeats a worker's result (the overseer's review below is the content). */
+body #chat-panel #chat-log > .dg-line { margin: 2px 0 10px; }
+body #chat-panel #chat-log > .dg-line .dg-line-head {
+  display: flex; align-items: baseline; gap: 8px; width: 100%; min-width: 0; padding: 5px 10px; text-align: left; cursor: pointer;
+  font: inherit; font-size: var(--sn-type-compact, 15px); letter-spacing: .4px; color: var(--ph); text-shadow: none;
+  background: transparent; border: 0; border-left: 2px solid rgba(var(--ph-rgb), .4); border-radius: 0;
+}
+body #chat-panel #chat-log > .dg-line .dg-line-head:is(:hover, :focus-visible) { background: rgba(var(--ph-rgb), .06); border-left-color: var(--ph); }
+body #chat-panel #chat-log > .dg-line .dg-line-head:focus-visible { outline: 2px solid var(--ph); outline-offset: 2px; }
+body #chat-panel #chat-log > .dg-line .dg-caret {
+  flex: none; align-self: center; width: 0; height: 0; border-style: solid; border-width: 4px 0 4px 6px;
+  border-color: transparent transparent transparent currentColor; transition: transform var(--t-fast, .12s) ease;
+}
+body #chat-panel #chat-log > .dg-line .dg-line-head[aria-expanded="true"] .dg-caret { transform: rotate(90deg); }
+body #chat-panel #chat-log > .dg-line .dg-line-text { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+body #chat-panel #chat-log > .dg-line .dg-line-sum { flex: none; margin-left: auto; color: var(--text); }
+body #chat-panel #chat-log > .dg-line .dg-line-sum.waiting { color: var(--gold); }
+body #chat-panel #chat-log > .dg-line .dg-line-list { border-left: 2px solid rgba(var(--ph-rgb), .18); padding: 2px 0 4px; }
+body #chat-panel #chat-log > .dg-line .dg-li {
+  display: grid; grid-template-columns: 7px auto minmax(0, 1fr) auto auto; align-items: center; gap: 8px;
+  padding: 3px 10px 3px 14px; font-size: var(--sn-type-compact, 15px); cursor: pointer;
+}
+body #chat-panel #chat-log > .dg-line .dg-li:is(:hover, :focus-visible) { background: rgba(var(--ph-rgb), .06); }
+body #chat-panel #chat-log > .dg-line .dg-li:focus-visible { outline: 2px solid var(--ph); outline-offset: -2px; }
+body #chat-panel #chat-log > .dg-line .dg-li-lamp { width: 7px; height: 7px; border-radius: 1px; background: rgba(var(--ph-rgb), .3); box-shadow: 0 0 0 1px rgba(0, 0, 0, .5); }
+body #chat-panel #chat-log > .dg-line .dg-li.working .dg-li-lamp { background: var(--ph); animation: dg-breathe 1.6s ease-in-out infinite; }
+body #chat-panel #chat-log > .dg-line .dg-li.waiting .dg-li-lamp { background: var(--gold); }
+body #chat-panel #chat-log > .dg-line .dg-li.done .dg-li-lamp { background: var(--ok); }
+body #chat-panel #chat-log > .dg-line .dg-li:is(.failed, .stopped) .dg-li-lamp { background: var(--bad); }
+@keyframes dg-breathe { 50% { opacity: .45; } }
+@media (prefers-reduced-motion: reduce) { body #chat-panel #chat-log > .dg-line .dg-li-lamp { animation: none !important; } }
+body #chat-panel #chat-log > .dg-line .dg-li-who { color: var(--ph); letter-spacing: 1px; }
+body #chat-panel #chat-log > .dg-line .dg-li-task { min-width: 0; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+body #chat-panel #chat-log > .dg-line .dg-li-st { max-width: 16em; color: var(--text); opacity: .8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+body #chat-panel #chat-log > .dg-line .dg-li.waiting .dg-li-st { color: var(--gold); opacity: 1; }
+body #chat-panel #chat-log > .dg-line .dg-li:is(.failed, .stopped) .dg-li-st { color: var(--bad); opacity: 1; }
+body #chat-panel #chat-log > .dg-line .dg-li-stop {
+  padding: 0 2px; font: inherit; font-size: var(--sn-type-meta, 14px); color: var(--bad); background: none; border: 0; cursor: pointer; text-decoration: underline; text-underline-offset: 2px;
+}
+body #chat-panel #chat-log > .dg-line .dg-li-stop:disabled { opacity: .55; cursor: default; }
+/* inside a worker thread: one slim line — who sent this work, from where, and the way back */
+body #chat-panel #chat-log > .dg-from {
+  display: flex; align-items: baseline; gap: 10px; margin: 2px 0 10px; padding: 5px 10px;
+  border-left: 2px solid rgba(var(--ph-rgb), .4); font-size: var(--sn-type-compact, 15px); color: var(--text); text-shadow: none;
+}
+body #chat-panel #chat-log > .dg-from b { font-weight: normal; color: var(--ph-bright); }
+body #chat-panel #chat-log > .dg-from .dg-from-text { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+body #chat-panel #chat-log > .dg-from .dg-from-back {
+  flex: none; margin-left: auto; padding: 0 2px; font: inherit; color: var(--ph); background: none; border: 0; cursor: pointer;
+  text-decoration: underline; text-underline-offset: 2px;
+}
+body #chat-panel #chat-log > .dg-from .dg-from-back:is(:hover, :focus-visible) { color: var(--ph-bright); }
