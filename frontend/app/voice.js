@@ -361,6 +361,9 @@ const Voice = (() => {
     s = s.replace(/\*\*([^*]+)\*\*/g, '$1').replace(/\*([^*]+)\*/g, '$1').replace(/_([^_]+)_/g, '$1'); // emphasis
     s = s.replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{2190}-\u{21FF}\u{2B00}-\u{2BFF}️]/gu, ' '); // emoji/arrows
     s = s.replace(/\b([A-Z]{4,})\b/g, m => m[0] + m.slice(1).toLowerCase()); // ULTRON → Ultron (keep AI/OK/API)
+    // a line that ends with no punctuation (a bullet, a heading) ENDS a sentence when read aloud — collapsed
+    // into one line it became a breathless run-on ("fixed the voice added tests updated the docs").
+    s = s.replace(/([^\s.!?…:;,])[ \t]*\n+(?=\s*\S)/g, '$1. ');
     return s.replace(/\s+/g, ' ').trim();
   }
 
@@ -555,11 +558,101 @@ const Voice = (() => {
     } catch (_) { return false; }
   }
 
+  /* ---- NATURAL — a person in the room, not a radio and not a robot ----------------------------------------
+     The machine shell above was tuned for ONE voice: the keyed Algenib station recipe. Run over the built-in
+     voices (Kokoro, and the Edge floor they map to) its bit-crusher, 47 Hz ring-mod and comb resonators made
+     every one of them sound like a robot — the complaint, by ear, 2026-10-10. Natural keeps the voice itself
+     and only finishes it: rumble cut, a little chest, a little presence, the synthetic top end softened, a
+     gentle leveller so quiet words don't vanish, and a barely-there small room so it sits in the station
+     instead of inside your head. Every move is ≤2 dB; the voice must survive any one of them failing.
+     Its own AudioContext and output tap, exactly like the other two chains. */
+  let natCtx = null, natIn = null, natAnalyser = null, natReady = false, natBroken = false;
+  function makeRoomIR(ctx, dur) {
+    const sr = ctx.sampleRate, len = Math.max(1, (dur * sr) | 0), buf = ctx.createBuffer(2, len, sr);
+    for (let ch = 0; ch < 2; ch++) {
+      const d = buf.getChannelData(ch);
+      let lp = 0;
+      for (let i = 0; i < len; i++) {
+        const t = i / sr;
+        lp += 0.35 * ((Math.random() * 2 - 1) - lp);            // one-pole lowpass: walls absorb the top end
+        d[i] = lp * Math.exp(-t * 11) * 0.6;
+      }
+      // a few early reflections (a modest room's walls, ~7-23 ms), slightly different per ear
+      [0.007, 0.011, 0.017, 0.023].forEach((at, k) => { const i = Math.round((at + ch * 0.0013) * sr); if (i < len) d[i] += (0.32 - k * 0.06); });
+    }
+    return buf;
+  }
+  function ensureNaturalGraph() {
+    if (natCtx && natCtx.state === 'closed') { natCtx = null; natIn = null; natAnalyser = null; natReady = false; natBroken = false; }
+    if (natReady || natBroken) return natReady;
+    try {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) { natBroken = true; return false; }
+      natCtx = new AC();
+      natIn = natCtx.createGain();
+      const hp = natCtx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 70; hp.Q.value = 0.707;
+      const body = natCtx.createBiquadFilter(); body.type = 'lowshelf'; body.frequency.value = 180; body.gain.value = 1.5;
+      const presence = natCtx.createBiquadFilter(); presence.type = 'peaking'; presence.frequency.value = 3200; presence.Q.value = 1.0; presence.gain.value = 1.5;
+      const air = natCtx.createBiquadFilter(); air.type = 'highshelf'; air.frequency.value = 8500; air.gain.value = -1.5;
+      const comp = natCtx.createDynamicsCompressor();
+      comp.threshold.value = -24; comp.knee.value = 12; comp.ratio.value = 2.5; comp.attack.value = 0.012; comp.release.value = 0.25;
+      const makeup = natCtx.createGain(); makeup.gain.value = 1.12;
+      const room = natCtx.createConvolver(); room.buffer = makeRoomIR(natCtx, 0.45);
+      const roomMix = natCtx.createGain(); roomMix.gain.value = 0.06;
+      const out = natCtx.createGain(); out.gain.value = 1.0;
+      natIn.connect(hp); hp.connect(body); body.connect(presence); presence.connect(air); air.connect(comp); comp.connect(makeup);
+      makeup.connect(out);
+      makeup.connect(room); room.connect(roomMix); roomMix.connect(out);
+      out.connect(natCtx.destination);
+      try { natAnalyser = natCtx.createAnalyser(); natAnalyser.fftSize = 1024; out.connect(natAnalyser); } catch (_) { natAnalyser = null; }
+      natReady = true;
+      return true;
+    } catch (_) { natBroken = true; try { if (natCtx) natCtx.close(); } catch (__) {} natCtx = null; natIn = null; return false; }
+  }
+  function routeThroughNatural(a) {
+    if (!ensureNaturalGraph()) return false;
+    try {
+      if (!resumeSpeechContext(natCtx)) return false;
+      if (!a._natSrc) a._natSrc = natCtx.createMediaElementSource(a);
+      a._natSrc.connect(natIn);
+      return true;
+    } catch (_) { return false; }
+  }
+
+  /* ---- which chain a clip plays through ----------------------------------------------------------------------
+     A Settings choice (LOOK & SOUND › SPOKEN VOICE › EFFECT), saved per app/browser. Unset = AUTO: every voice
+     wears the effect it was made for — the keyed Algenib station recipe keeps its locked machine shell
+     (Andrew, 2026-07-12), the built-in voices play natural. A chosen effect applies to every voice. The chain is
+     resolved from the engine that ACTUALLY answered (the sidecar's X-Voice-Provider), and pinned for the whole
+     reply: a one-sentence provider blip onto the Edge floor must not change the effect mid-reply. */
+  const VOICE_EFFECT_KEY = 'starnet.voice.effect.v1';
+  const VOICE_EFFECTS = ['natural', 'comms', 'machine'];
+  function voiceEffect() {
+    try { const v = String(localStorage.getItem(VOICE_EFFECT_KEY) || '').trim(); return VOICE_EFFECTS.indexOf(v) >= 0 ? v : ''; } catch (_) { return ''; }
+  }
+  function setVoiceEffect(v) {
+    const want = VOICE_EFFECTS.indexOf(String(v || '')) >= 0 ? String(v) : '';
+    // A failed save must reach the picker (it throws); never paint an effect that was not stored.
+    if (want) localStorage.setItem(VOICE_EFFECT_KEY, want); else localStorage.removeItem(VOICE_EFFECT_KEY);
+    try { armAudio(); } catch (_) {}   // inside the click: the newly needed chain starts running
+    return { effect: want || 'auto', appliesOn: 'the next spoken reply' };
+  }
+  function engineOf(servedBy) {
+    const s = String(servedBy || '').toLowerCase();
+    return s === 'local-kokoro' ? 'kokoro' : s.indexOf('edge:') === 0 ? 'edge' : 'keyed';
+  }
+  function effectFor(engine) {
+    return voiceEffect() || (engine === 'keyed' ? 'machine' : 'natural');
+  }
+  let replyEffect = '';     // the chain this reply is pinned to (set by its first played clip)
+  let lastChain = '';       // what the most recent clip ACTUALLY routed through ('natural'|'comms'|'machine'|'dry')
+
   // play an audio blob (mp3/wav), wiring start/end into the same speaking-state + loop hooks as the
   // browser path. playbackRate gives the per-personality pacing (Gemini TTS takes no speed param).
   // deep=true disables pitch-preservation, so a sub-1 rate lowers PITCH along with pace — the character-
   // voice register (persona ttsDeep). Vendor-prefixed setters for older engines; all guarded.
-  function playBlob(blob, onEnd, volume, onFail, rate, deep, shell, onStarted) {
+  // `effect` is the resolved chain name; `shell` the machine-shell amounts that chain uses.
+  function playBlob(blob, onEnd, volume, onFail, rate, deep, shell, onStarted, effect) {
     let url = null, a = null, done = false, watchdog = null;
     const cleanup = () => {
       done = true; // cancellation also fences a late rejected play() promise
@@ -597,9 +690,14 @@ const Voice = (() => {
       // A persona with a machine shell (Ultron) routes through the shell and SKIPS the transmission color; if
       // the shell graph can't wire, fall back to transmission (best-effort) rather than nothing.
       // remember WHICH chain took this element — that chain's tap is what the live meter reads.
-      if (shell && routeThroughShell(a, shell)) outAnalyser = shAnalyser;
-      else if (routeThroughFx(a)) outAnalyser = fxAnalyser;
-      else outAnalyser = null;              // dry playback: no tap, so the meter reports nothing rather than lying
+      // A natural clip whose chain cannot wire plays DRY, never through a harsher chain it did not ask for.
+      const want = effect || (shell ? 'machine' : 'comms');
+      if (want === 'natural') {
+        if (routeThroughNatural(a)) { outAnalyser = natAnalyser; lastChain = 'natural'; }
+        else { outAnalyser = null; lastChain = 'dry'; }
+      } else if (want === 'machine' && shell && routeThroughShell(a, shell)) { outAnalyser = shAnalyser; lastChain = 'machine'; }
+      else if (routeThroughFx(a)) { outAnalyser = fxAnalyser; lastChain = 'comms'; }
+      else { outAnalyser = null; lastChain = 'dry'; }   // dry playback: no tap, so the meter reports nothing rather than lying
       // PLAYBACK WATCHDOG: an element captured into a WebAudio graph that suspends (device change, WebKit) can
       // go silent and never fire ended/error — the queue then waited forever. Re-armed once the length is known.
       const armWatchdog = () => {
@@ -653,9 +751,14 @@ const Voice = (() => {
     // reply) they start suspended, and the opening sentence played dry — without the station shell — so the
     // reply's first words sounded like a different voice. Only while the speaker is on; idempotent.
     if (speakReplies) {
-      try { const cfg = ttsConfig(); if (cfg && cfg.shell) ensureShellGraph(); else if (TRANSMISSION_FX) ensureFxGraph(); } catch (_) {}
+      try {
+        const chosen = voiceEffect();
+        if (chosen !== 'machine' && chosen !== 'comms') ensureNaturalGraph();          // natural or AUTO
+        if (chosen === 'machine' || !chosen) { const cfg = ttsConfig(); if (cfg && cfg.shell) ensureShellGraph(); }
+        if (chosen === 'comms' && TRANSMISSION_FX) ensureFxGraph();
+      } catch (_) {}
     }
-    resumeSpeechContext(fxCtx); resumeSpeechContext(shCtx);
+    resumeSpeechContext(fxCtx); resumeSpeechContext(shCtx); resumeSpeechContext(natCtx);
     if (audioArmed) return; audioArmed = true;
     try { const u = silentWav(); const a = new Audio(u); a.volume = 0; const p = a.play(); if (p && p.catch) p.catch(() => {}); setTimeout(() => { try { URL.revokeObjectURL(u); } catch (_) {} }, 1000); } catch (_) {}
     try { if (typeof SFX !== 'undefined' && SFX.boot) SFX.boot(); } catch (_) {}   // also resume the SFX audio context
@@ -747,7 +850,7 @@ const Voice = (() => {
   const PLAY_MAX_S = 120;                    // playback watchdog when the clip reports no duration
   const PLAY_GRACE_MS = 8000;                // slack past the clip's own length before a playback counts as stalled    // keep each synth call under the sidecar's 1200-char cap
 
-  function resetQueue() { jobs = []; replyVoice = null; replyOwner = null; playIdx = 0; synthIdx = 0; draining = false; playing = false; replyClosed = true; replyFails = 0; replyTried = false; }
+  function resetQueue() { jobs = []; replyVoice = null; replyEffect = ''; replyOwner = null; playIdx = 0; synthIdx = 0; draining = false; playing = false; replyClosed = true; replyFails = 0; replyTried = false; }
 
   // One attempt returns audio, a recoverable/terminal failure, or an intentional cancellation.
   // The sidecar owns credentials and the engine ladder. startSynth owns bounded retries/cold-off;
@@ -769,7 +872,9 @@ const Voice = (() => {
         local: job.voice.local,
         localVoice: job.voice.id,
         localEngine: job.voice.engine,
-        speed: cfg.speed
+        // a built-in voice is PACED by the engine (Kokoro takes a speed); stretching its clip in the browser
+        // instead (playbackRate with pitch preserved) smears it into a phasey, robotic texture.
+        speed: job.voice.local ? cfg.speed * (job.opts.speedMul || 1) : cfg.speed
       })
     }).then(async r => {
       if (job.voice.local && job.seq === speakSeq && !job.voice.engine) {
@@ -782,7 +887,7 @@ const Voice = (() => {
         }
       }
       const ct = r.headers.get('Content-Type') || '';
-      if (r.ok && ct.indexOf('audio') === 0) { const blob = await r.blob(); if (blob && blob.size) return { kind: 'neural', blob }; }
+      if (r.ok && ct.indexOf('audio') === 0) { const blob = await r.blob(); if (blob && blob.size) return { kind: 'neural', blob, engine: engineOf(r.headers.get('X-Voice-Provider')) }; }
       let reason = 'http ' + r.status;
       try { const j = await r.json(); if (j && j.reason) reason = j.reason; } catch (_) {}
       if (job.seq === speakSeq) recordSpeechEvent('synthesis_failure', { chunk: jobs.indexOf(job), attempt: job.attempt, httpStatus: r.status, category: classifyFallback(reason), retryable: retryableFallback(reason) });
@@ -894,7 +999,9 @@ const Voice = (() => {
       const advance = () => { playing = false; playIdx++; pumpPlay(); };
       if (res.kind === 'neural') {
         const cfg = ttsConfig();
-        const rate = cfg.speed * (job.opts.speedMul || 1);
+        const rate = res.engine === 'kokoro' ? 1 : cfg.speed * (job.opts.speedMul || 1);
+        if (!replyEffect) replyEffect = effectFor(res.engine);
+        const effect = replyEffect;
         let attempts = 0;
         const play = () => {
           if (job.seq !== speakSeq) return;
@@ -912,7 +1019,7 @@ const Voice = (() => {
             else skipChunk('playback_error', job, error, advance);
           }, rate, cfg.deep, cfg.shell, () => {
             if (job.seq === speakSeq && !job.opts.mutter) coordinatorEvent('onTiming', { audioStartMs: Math.max(0, Date.now() - job.queuedAt) });
-          });
+          }, effect);
         };
         play();
       } else if (res.kind === 'fail') {
@@ -1893,6 +2000,7 @@ const Voice = (() => {
     canListen, canSpeak, startCoordinator, stopCoordinator, pauseCoordinator, resumeCoordinator, attachCoordinator, detachCoordinator,
     canOAuthLive: () => !!SR || typeof fetch !== 'undefined', personaId: () => activePersonaId,
     setLocalTts, voiceChoice, localVoiceId, setVoiceChoice, currentAgentId, microphoneHelp,
+    voiceEffect, setVoiceEffect, playbackChain: () => lastChain,
     /* LIVE VOICE MUST ARRIVE AUDIBLE. Opening a hands-free session with the speaker muted is a room where you
        talk and nothing answers — the Commander then has to find a toggle to make the feature work at all.
        Classic voice mode already force-enables the speaker in toggleVoiceMode(); the Local Live panel does not
