@@ -5,7 +5,7 @@
 'use strict';
 const A = require('./_assert.js');
 const nodeCrypto = require('crypto');
-const { makeRemoteVoice, opusFramesToOgg, oggCrc, wavToPcm16, MAX_FRAMES, MAX_SPEECH_CHUNK, VOICE_TTL_MS } = require('../sidecar/remote/voice.js');
+const { makeRemoteVoice, opusFramesToOgg, oggCrc, wavToPcm16, decodeAdpcm, makeAdpcmEncoder, splitSentences, ADPCM_MIME, MAX_FRAMES, MAX_SPEECH_CHUNK, VOICE_TTL_MS } = require('../sidecar/remote/voice.js');
 const { makeGateway } = require('../sidecar/remote/gateway.js');
 const { oggOpusToMono16kFloat32 } = require('../sidecar/media-service.js');
 
@@ -122,49 +122,98 @@ function parsePages(buf) {
     A.ok(!(await voice.hear('devB', { utt: 'b1', part: 1, frames: [], last: true })).ok, 'an abandoned utterance expires');
   }
 
-  /* ---------- 3. speak / speech: chunked, per device, re-askable, expiring ---------- */
+  /* ---------- 3. speak / speech: progressive (sentence by sentence), ADPCM, per device, re-askable, expiring ---------- */
   {
     let t = 5000;
-    // a real mono 16-bit WAV (what a device plays as-is), 150 KB in total
-    const audio = wav16(24000, (150 * 1024 - 44) / 2, (i) => Math.sin(i / 7) * 0.5);
-    let calls = 0;
+    const settle = () => new Promise((r) => setImmediate(r));
+    // each sentence: 1 s of a tone at speech level, as a mono 16-bit WAV
+    const sentenceWav = (n) => wav16(24000, 24000, (i) => Math.sin(i / (6 + n)) * 0.2);
+    const gate = [];   // synthesis of sentences 2+ waits here, so the test can watch the reply grow
+    let calls = 0, said = [];
     const voice = makeRemoteVoice({
       now: () => t, newId: () => 'r' + (++calls),
-      synthesize: async (text) => (text === 'fail' ? { ok: false, reason: 'no engine' } : { ok: true, buf: audio, mime: 'audio/wav', provider: 'local-kokoro' })
+      synthesize: async (text) => {
+        said.push(text);
+        if (text === 'fail') return { ok: false, reason: 'no engine' };
+        if (said.length > 1) await new Promise((r) => gate.push(r));
+        return { ok: true, buf: sentenceWav(said.length), mime: 'audio/wav', provider: 'local-kokoro' };
+      }
     });
     A.ok(!(await voice.speak('devA', { text: '   ' })).ok, 'nothing to say is refused');
     A.ok(!(await voice.speak('devA', { text: 'x'.repeat(1201) })).ok, 'an over-long reply is refused');
+    said = [];
     const failed = await voice.speak('devA', { text: 'fail' });
     A.ok(!failed.ok && /no engine/.test(failed.error), 'an engine failure is reported, not faked: ' + failed.error);
 
-    const s = await voice.speak('devA', { text: 'The build finished.' });
-    A.ok(s.ok && s.data.bytes === audio.length && s.data.mime === 'audio/wav', 'speak returns the audio size and type');
-    const parts = [];
-    let off = 0, last = null;
-    while (true) {
-      const c = voice.speech('devA', { id: s.data.id, offset: off, length: 64 * 1024 });
+    said = [];
+    const s = await voice.speak('devA', { text: 'The build finished without any errors. Three files changed in the repo today. Do you want the full summary?' });
+    A.ok(s.ok && s.data.mime === ADPCM_MIME && s.data.sentences === 3, 'speak answers after the FIRST sentence, as ADPCM: ' + JSON.stringify(s.data));
+    A.eq(s.data.bytes, 8 + 24000 / 2, 'the first sentence is there already: header + 1 s at 4 bits a sample (12 KB, not 48 KB)');
+    const all = [];
+    let off = 0;
+    let c = voice.speech('devA', { id: s.data.id, offset: off });
+    A.ok(c.ok && !c.data.done && c.data.data.length > 0, 'the first sentence can be fetched while the rest are synthesised');
+    all.push(Buffer.from(c.data.data, 'base64url')); off += all[0].length;
+    c = voice.speech('devA', { id: s.data.id, offset: off });
+    A.ok(c.ok && c.data.pending === true && !c.data.done, 'caught up: "pending", not done and not an error');
+    for (let guard = 0; (gate.length || said.length < 3) && guard < 200; guard++) { if (gate.length) gate.shift()(); await settle(); }
+    for (let i = 0; i < 5; i++) { if (gate.length) gate.shift()(); await settle(); }
+    for (let guard = 0; guard < 500; guard++) {
+      c = voice.speech('devA', { id: s.data.id, offset: off, length: 5000 });
       A.ok(c.ok, 'chunk at ' + off);
-      parts.push(Buffer.from(c.data.data, 'base64url'));
-      off += parts[parts.length - 1].length;
-      last = c;
+      const b = Buffer.from(c.data.data, 'base64url'); all.push(b); off += b.length;
       if (c.data.done) break;
+      if (!b.length) await settle();
     }
-    A.ok(Buffer.concat(parts).equals(audio), 'the chunks reassemble byte for byte');
-    A.eq(parts.length, 3, '150 KB arrives in three 64 KB chunks');
-    A.ok(voice.speech('devA', { id: s.data.id, offset: last.data.offset }).ok, 'the last chunk can be asked for again (lost frame)');
+    const decoded = decodeAdpcm(Buffer.concat(all));
+    A.eq(decoded.rate, 24000, 'the stream says its rate');
+    A.eq(decoded.samples.length, 3 * 24000, 'all three sentences arrive, exactly 3 s of samples');
+    let err = 0, sig = 0;
+    const ref = [1, 2, 3].map((n) => { const w = sentenceWav(n); const out = []; for (let i = 44; i < w.length; i += 2) out.push(w.readInt16LE(i)); return out; }).flat();
+    const gainRef = Math.max(...ref.map(Math.abs)) / 32767;
+    for (let i = 0; i < ref.length; i++) { const want = ref[i] * (decoded.samples[i] === 0 && ref[i] === 0 ? 1 : 1); sig += want * want; }
+    let peak = 0; for (const v of decoded.samples) peak = Math.max(peak, Math.abs(v));
+    A.ok(peak > gainRef * 32767, 'the reply is levelled up for the small speaker (peak ' + peak + ')');
+    for (let i = 1; i < decoded.samples.length; i++) err += Math.abs(decoded.samples[i] - decoded.samples[i - 1]) > 30000 ? 1 : 0;
+    A.eq(err, 0, 'no clicks at the sentence joins (one encoder state for the whole reply)');
+    A.ok(voice.speech('devA', { id: s.data.id, offset: off - all[all.length - 1].length }).ok, 'the last chunk can be asked for again (lost frame)');
     A.ok(voice.speech('devA', { id: s.data.id, offset: 0, length: 10 * MAX_SPEECH_CHUNK }).data.data.length <= Math.ceil(MAX_SPEECH_CHUNK * 4 / 3), 'chunk size is capped');
     A.ok(!voice.speech('devB', { id: s.data.id, offset: 0 }).ok, 'another device cannot read this reply');
     A.ok(!voice.speech('devA', { id: 'nope', offset: 0 }).ok, 'a wrong id is refused');
-    A.ok(!voice.speech('devA', { id: s.data.id, offset: audio.length + 1 }).ok, 'past the end is refused');
+    A.ok(!voice.speech('devA', { id: s.data.id, offset: off + 1 }).ok, 'past the end is refused');
 
-    const s2 = await voice.speak('devA', { text: 'Second reply.' });
+    said = [];
+    const s2 = await voice.speak('devA', { text: 'Second reply. With a tail.' });
     A.ok(!voice.speech('devA', { id: s.data.id, offset: 0 }).ok, 'a new reply replaces the old one');
     A.ok(voice.speech('devA', { id: s2.data.id, offset: 0 }).ok, 'and is readable');
     voice.forget('devA');
+    while (gate.length) { gate.shift()(); await settle(); }
     A.ok(!voice.speech('devA', { id: s2.data.id, offset: 0 }).ok, 'forget (revoke) drops it');
+    said = [];
     const s3 = await voice.speak('devA', { text: 'Third.' });
     t += VOICE_TTL_MS + 1;
     A.ok(!voice.speech('devA', { id: s3.data.id, offset: 0 }).ok, 'an unread reply expires');
+
+    // a later sentence that fails ends the reply with what was said, and says why
+    let n = 0;
+    const flaky = makeRemoteVoice({ now: () => 1, newId: () => 'f1', synthesize: async () => (++n === 2 ? { ok: false, reason: 'engine crashed' } : { ok: true, buf: sentenceWav(n), mime: 'audio/wav' }) });
+    const fs1 = await flaky.speak('devA', { text: 'One sentence here. Another sentence here. A third one here.' });
+    await settle(); await settle();
+    const fc = flaky.speech('devA', { id: fs1.data.id, offset: 0 });
+    A.ok(fc.data.done && /engine crashed/.test(fc.data.error || ''), 'a failed later sentence ends the reply and reports it');
+
+    // the encoder itself: a 440 Hz tone survives ADPCM with good SNR
+    const enc = makeAdpcmEncoder();
+    const tone = new Int16Array(24000); for (let i = 0; i < tone.length; i++) tone[i] = Math.round(Math.sin(2 * Math.PI * 440 * i / 24000) * 12000);
+    const stream = Buffer.concat([Buffer.from('SNA1'), Buffer.from([0xc0, 0x5d, 0, 0]), enc.encode(tone), enc.flush()]);
+    const back = decodeAdpcm(stream).samples;
+    let e2 = 0, s2s = 0; for (let i = 0; i < tone.length; i++) { e2 += (back[i] - tone[i]) ** 2; s2s += tone[i] ** 2; }
+    const snr = 10 * Math.log10(s2s / e2);
+    A.ok(snr > 20, 'ADPCM keeps a speech-band tone clean: SNR ' + snr.toFixed(1) + ' dB');
+
+    A.eq(splitSentences('Ok. Fine, here is the first real sentence. And the second!'), ['Ok. Fine, here is the first real sentence.', 'And the second!'], 'tiny fragments fold into the next sentence');
+    const long = splitSentences('word '.repeat(120).trim());
+    A.ok(long.length >= 2 && long.every((p) => p.length <= 240), 'a run-on is cut at spaces under 240 characters');
   }
 
   /* ---------- 3b. WAV normalisation: what the local voice engine writes -> what a device decoder plays ---------- */
@@ -198,7 +247,7 @@ function parsePages(buf) {
 
     const v = makeRemoteVoice({ now: () => 1, newId: () => 'w1', synthesize: async () => ({ ok: true, buf: stereoFloat, mime: 'audio/wav', provider: 'local-kokoro' }) });
     const sp = await v.speak('devA', { text: 'hi' });
-    A.ok(sp.ok && sp.data.bytes === out.length, 'speak serves the normalised WAV');
+    A.ok(sp.ok && sp.data.mime === ADPCM_MIME && sp.data.bytes === 8 + frames / 2, 'speak turns float stereo WAV into mono ADPCM (8-byte header + 4 bits a sample)');
     const bad = makeRemoteVoice({ now: () => 1, newId: () => 'w2', synthesize: async () => ({ ok: true, buf: Buffer.from('garbage bytes here....'), mime: 'audio/wav' }) });
     A.ok(!(await bad.speak('devA', { text: 'hi' })).ok, 'an unreadable WAV is reported, not sent');
     const mp3 = makeRemoteVoice({ now: () => 1, newId: () => 'm1', synthesize: async () => ({ ok: true, buf: Buffer.from([0xff, 0xfb, 0x90, 0x00]), mime: 'audio/mpeg', provider: 'edge' }) });

@@ -124,7 +124,7 @@ function speakerLevel(x, gain) {
   const over = a - KNEE, room = 1 - KNEE;
   return Math.sign(y) * (KNEE + room * (over / (over + room)));   // approaches 1, never reaches it
 }
-function wavToPcm16(buf) {
+function decodeWavMono(buf) {
   if (!Buffer.isBuffer(buf) || buf.length < 44 || buf.toString('latin1', 0, 4) !== 'RIFF' || buf.toString('latin1', 8, 12) !== 'WAVE') return null;
   let fmt = null, data = null;
   for (let o = 12; o + 8 <= buf.length;) {
@@ -150,10 +150,28 @@ function wavToPcm16(buf) {
     }
     mono[i] = Math.max(-1, Math.min(1, sum / fmt.channels));
   }
+  return { rate: fmt.rate, samples: mono };
+}
+function speakerGain(mono) {
   let energy = 0;
+  const frames = mono.length;
   for (let i = 0; i < frames; i++) energy += mono[i] * mono[i];
   const rms = frames ? Math.sqrt(energy / frames) : 0;
-  const gain = rms > 0 ? Math.max(1, Math.min(MAX_GAIN, SPEAKER_RMS / rms)) : 1;
+  return rms > 0 ? Math.max(1, Math.min(MAX_GAIN, SPEAKER_RMS / rms)) : 1;
+}
+function levelToInt16(mono, gain) {
+  const out = new Int16Array(mono.length);
+  for (let i = 0; i < mono.length; i++) {
+    const v = speakerLevel(mono[i], gain);
+    out[i] = v < 0 ? Math.round(v * 32768) : Math.round(v * 32767);
+  }
+  return out;
+}
+function wavToPcm16(buf) {
+  const w = decodeWavMono(buf);
+  if (!w) return null;
+  const frames = w.samples.length, mono = w.samples, fmt = { rate: w.rate };
+  const gain = speakerGain(mono);
   const out = Buffer.alloc(frames * 2);
   for (let i = 0; i < frames; i++) {
     const v = speakerLevel(mono[i], gain);
@@ -165,6 +183,85 @@ function wavToPcm16(buf) {
   h.writeUInt32LE(fmt.rate, 24); h.writeUInt32LE(fmt.rate * 2, 28); h.writeUInt16LE(2, 32); h.writeUInt16LE(16, 34);
   h.write('data', 36, 'latin1'); h.writeUInt32LE(out.length, 40);
   return Buffer.concat([h, out]);
+}
+
+/* ---------- IMA ADPCM: a spoken reply at 4 bits a sample ----------
+   Raw 24 kHz PCM is 48 KB/s; through the relay, one sealed request per chunk, that ran slower than real time and
+   the first live replies stuttered. IMA ADPCM is 4:1 (12 KB/s), trivially decodable on the device, and good enough
+   for speech. Stream: "SNA1" + rate (u32 LE) + nibbles, low nibble first, one encoder state for the whole reply. */
+const ADPCM_STEPS = [7, 8, 9, 10, 11, 12, 13, 14, 16, 17, 19, 21, 23, 25, 28, 31, 34, 37, 41, 45, 50, 55, 60, 66, 73, 80, 88, 97, 107,
+  118, 130, 143, 157, 173, 190, 209, 230, 253, 279, 307, 337, 371, 408, 449, 494, 544, 598, 658, 724, 796, 876, 963, 1060, 1166, 1282,
+  1411, 1552, 1707, 1878, 2066, 2272, 2499, 2749, 3024, 3327, 3660, 4026, 4428, 4871, 5358, 5894, 6484, 7132, 7845, 8630, 9493, 10442,
+  11487, 12635, 13899, 15289, 16818, 18500, 20350, 22385, 24623, 27086, 29794, 32767];
+const ADPCM_INDEX = [-1, -1, -1, -1, 2, 4, 6, 8];
+const ADPCM_MIME = 'audio/x-starnet-adpcm';
+function adpcmHeader(rate) { const h = Buffer.alloc(8); h.write('SNA1', 0, 'latin1'); h.writeUInt32LE(rate, 4); return h; }
+function makeAdpcmEncoder() {
+  let pred = 0, index = 0, half = -1;   // half: a low nibble waiting for its high nibble
+  function nibble(sample) {
+    const step = ADPCM_STEPS[index];
+    let diff = sample - pred, code = 0;
+    if (diff < 0) { code = 8; diff = -diff; }
+    let delta = step >> 3;
+    if (diff >= step) { code |= 4; diff -= step; delta += step; }
+    if (diff >= step >> 1) { code |= 2; diff -= step >> 1; delta += step >> 1; }
+    if (diff >= step >> 2) { code |= 1; delta += step >> 2; }
+    pred = Math.max(-32768, Math.min(32767, code & 8 ? pred - delta : pred + delta));
+    index = Math.max(0, Math.min(88, index + ADPCM_INDEX[code & 7]));
+    return code;
+  }
+  return {
+    encode(int16) {
+      const out = [];
+      for (let i = 0; i < int16.length; i++) {
+        const c = nibble(int16[i]);
+        if (half < 0) half = c; else { out.push(half | (c << 4)); half = -1; }
+      }
+      return Buffer.from(out);
+    },
+    flush() { if (half < 0) return Buffer.alloc(0); const b = Buffer.from([half]); half = -1; return b; }
+  };
+}
+function decodeAdpcm(buf) {   // the device's decoder, in JS: what the tests (and only the tests) use
+  if (buf.length < 8 || buf.toString('latin1', 0, 4) !== 'SNA1') return null;
+  const rate = buf.readUInt32LE(4), out = new Int16Array((buf.length - 8) * 2);
+  let pred = 0, index = 0, n = 0;
+  for (let i = 8; i < buf.length; i++) {
+    for (const code of [buf[i] & 15, buf[i] >> 4]) {
+      const step = ADPCM_STEPS[index];
+      let delta = step >> 3;
+      if (code & 4) delta += step;
+      if (code & 2) delta += step >> 1;
+      if (code & 1) delta += step >> 2;
+      pred = Math.max(-32768, Math.min(32767, code & 8 ? pred - delta : pred + delta));
+      index = Math.max(0, Math.min(88, index + ADPCM_INDEX[code & 7]));
+      out[n++] = pred;
+    }
+  }
+  return { rate, samples: out };
+}
+
+/* Sentences, so the first one is spoken while the rest are still being synthesised. */
+const MAX_SENTENCE = 240;
+function splitSentences(text) {
+  const parts = String(text).match(/[^.!?]+[.!?]+["')\]]*\s*|[^.!?]+$/g) || [String(text)];
+  const out = [];
+  for (let p of parts) {
+    p = p.trim();
+    while (p.length > MAX_SENTENCE) {
+      const cut = p.lastIndexOf(' ', MAX_SENTENCE);
+      out.push(p.slice(0, cut > 40 ? cut : MAX_SENTENCE).trim());
+      p = p.slice(cut > 40 ? cut : MAX_SENTENCE).trim();
+    }
+    if (p) out.push(p);
+  }
+  // fold tiny fragments ("Ok.") into the next sentence: each synthesis has a fixed cost
+  const merged = [];
+  for (const p of out) {
+    if (merged.length && merged[merged.length - 1].length < 25) merged[merged.length - 1] += ' ' + p;
+    else merged.push(p);
+  }
+  return merged;
 }
 
 /* ---------- the verbs ---------- */
@@ -230,29 +327,66 @@ function makeRemoteVoice(deps) {
     return { ok: true, data: { utt, text, ms } };
   }
 
+  async function synthOne(text) {
+    let r;
+    try { r = await synthesize(text); } catch (e) { r = { ok: false, reason: (e && e.message) || String(e) }; }
+    if (!r || !r.ok || !Buffer.isBuffer(r.buf) || !r.buf.length) return { ok: false, reason: String((r && r.reason) || 'no audio') };
+    return r;
+  }
+
+  // Encode one synthesised sentence onto the reply. WAV becomes levelled ADPCM; MP3 (the Edge floor) is
+  // appended as it is (MP3 frames concatenate). A later sentence in a different format ends the reply there.
+  function append(rec, r) {
+    const mime = String(r.mime || '');
+    if (/wav/.test(mime)) {
+      if (rec.mime !== ADPCM_MIME) return 'the voice changed format mid-reply';
+      const w = decodeWavMono(r.buf);
+      if (!w) return 'the station\'s voice produced audio this device cannot play';
+      if (rec.rate && w.rate !== rec.rate) return 'the voice changed sample rate mid-reply';
+      if (!rec.rate) { rec.rate = w.rate; rec.gain = speakerGain(w.samples); rec.enc = makeAdpcmEncoder(); rec.parts.push(adpcmHeader(w.rate)); }
+      rec.parts.push(rec.enc.encode(levelToInt16(w.samples, rec.gain)));
+    } else {
+      if (rec.mime !== mime) return 'the voice changed format mid-reply';
+      rec.parts.push(r.buf);
+    }
+    rec.buf = Buffer.concat(rec.parts);
+    rec.parts = [rec.buf];
+    rec.at = now();
+    return '';
+  }
+
   async function speak(deviceId, a) {
     sweep();
     const text = String(a.text == null ? '' : a.text).replace(/\s+/g, ' ').trim();
     if (!text) return { ok: false, error: 'nothing to say' };
     if (text.length > MAX_SPEAK_TEXT) return { ok: false, error: 'that is too long to say in one reply (' + MAX_SPEAK_TEXT + ' characters max)' };
     if (typeof synthesize !== 'function') return { ok: false, error: 'this station has no voice' };
-    let r;
-    try { r = await synthesize(text); } catch (e) { r = { ok: false, reason: (e && e.message) || String(e) }; }
-    if (!r || !r.ok || !Buffer.isBuffer(r.buf) || !r.buf.length) {
-      return { ok: false, error: 'the station could not speak that (' + String((r && r.reason) || 'no audio').slice(0, 160) + ')' };
-    }
-    let buf = r.buf, mime = String(r.mime || '');
-    if (/wav/.test(mime)) {
-      const pcm16 = wavToPcm16(buf);
-      if (!pcm16) return { ok: false, error: 'the station\'s voice produced audio this device cannot play' };
-      buf = pcm16;
-      mime = 'audio/wav';
-    }
-    const id = String(newId()).replace(/[^A-Za-z0-9_-]/g, '').slice(0, 40);
-    replies.set(deviceId, { id, buf, mime, provider: String(r.provider || ''), at: now() });
-    return { ok: true, data: { id, mime, bytes: buf.length, provider: String(r.provider || '') } };
+    const sentences = splitSentences(text);
+    const first = await synthOne(sentences[0]);
+    if (!first.ok) return { ok: false, error: 'the station could not speak that (' + first.reason.slice(0, 160) + ')' };
+    const firstMime = String(first.mime || '');
+    const rec = { id: String(newId()).replace(/[^A-Za-z0-9_-]/g, '').slice(0, 40), mime: /wav/.test(firstMime) ? ADPCM_MIME : firstMime,
+      provider: String(first.provider || ''), parts: [], buf: Buffer.alloc(0), rate: 0, gain: 1, enc: null, complete: false, error: '', at: now() };
+    const err = append(rec, first);
+    if (err) return { ok: false, error: err };
+    replies.set(deviceId, rec);
+    // the rest, in order, while the device is already playing the first sentence
+    (async () => {
+      for (let i = 1; i < sentences.length; i++) {
+        if (replies.get(deviceId) !== rec) return;   // replaced or forgotten: stop spending on it
+        const r = await synthOne(sentences[i]);
+        if (!r.ok) { rec.error = r.reason.slice(0, 160); break; }
+        const e = append(rec, r);
+        if (e) { rec.error = e; break; }
+      }
+      if (rec.enc) { const tail = rec.enc.flush(); if (tail.length) { rec.buf = Buffer.concat([rec.buf, tail]); rec.parts = [rec.buf]; } }
+      rec.complete = true;
+      rec.at = now();
+    })().catch((e) => { rec.error = String((e && e.message) || e).slice(0, 160); rec.complete = true; });
+    return { ok: true, data: { id: rec.id, mime: rec.mime, bytes: rec.buf.length, provider: rec.provider, sentences: sentences.length } };
   }
 
+  // A reply grows while it is synthesised: an empty chunk with done:false means "more is coming, ask again".
   function speech(deviceId, a) {
     sweep();
     const r = replies.get(deviceId);
@@ -261,10 +395,10 @@ function makeRemoteVoice(deps) {
     const length = Math.max(1, Math.min(MAX_SPEECH_CHUNK, Math.floor(Number(a.length) || MAX_SPEECH_CHUNK)));
     if (offset > r.buf.length) return { ok: false, error: 'past the end of that reply' };
     const chunk = r.buf.subarray(offset, offset + length);
-    const done = offset + chunk.length >= r.buf.length;
+    const done = r.complete && offset + chunk.length >= r.buf.length;
     // kept after the last chunk: a frame lost on the relay can be asked for again until the TTL or the next reply
     r.at = now();
-    return { ok: true, data: { id: r.id, offset, bytes: r.buf.length, data: chunk.toString('base64url'), done } };
+    return { ok: true, data: { id: r.id, offset, bytes: r.buf.length, data: chunk.toString('base64url'), done, pending: !done && !chunk.length, error: r.error || undefined } };
   }
 
   function forget(deviceId) { utterances.delete(deviceId); replies.delete(deviceId); }
@@ -272,4 +406,4 @@ function makeRemoteVoice(deps) {
   return { hear, speak, speech, forget, _sizes: () => ({ utterances: utterances.size, replies: replies.size }) };
 }
 
-module.exports = { makeRemoteVoice, opusFramesToOgg, oggCrc, wavToPcm16, MAX_FRAMES, MAX_SPEECH_CHUNK, MAX_SPEAK_TEXT, VOICE_TTL_MS };
+module.exports = { makeRemoteVoice, opusFramesToOgg, oggCrc, wavToPcm16, decodeAdpcm, makeAdpcmEncoder, splitSentences, ADPCM_MIME, MAX_FRAMES, MAX_SPEECH_CHUNK, MAX_SPEAK_TEXT, VOICE_TTL_MS };
