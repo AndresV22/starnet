@@ -116,7 +116,9 @@ const Build = (() => {
     ORPHAN_JUNCTION: 'NOT ON A BELT — MOVE IT ONTO THE LINE',
     BELT_BURIED: 'A PROP SITS ON THIS LINE — MOVE IT',
     // the docks feed each OTHER: no belt loop anywhere, but the work line would run forever, paying each lap
-    CHAIN_CYCLE: 'WORK LINE LOOPS — CUT ONE HANDOFF'
+    CHAIN_CYCLE: 'WORK LINE LOOPS — CUT ONE HANDOFF',
+    // one job here runs more stages than its stage ceiling: every job would stop part-way (2026-10-09 P0) — said on its INBOX
+    LINE_TOO_LONG: 'TOO LONG — RAISE THE LINE BUDGET'
   };
   /* THE FULL SENTENCE for a finding whose floor label had to be cut short (2026-09-23 playtest: the NOT FED nag
      ran wider than the room). The floor keeps the short label; the machine's HOVER CARD and the Workflow panel's
@@ -127,9 +129,19 @@ const Build = (() => {
     SPLIT_ONE_LANE: 'This SPLITTER needs two out-lanes — run belts THROUGH its tile: in on one side, out on two others.',
     JOIN_ONE_LANE: 'This JOINER needs two in-lanes — run a second belt INTO its tile.',
     LOOP_NO_DONE: 'This LOOP has no DONE lane — run a belt OUT of its tile onward (the first exit, in E/S/W/N order, is DONE unless you choose one).',
-    LOOP_NO_BACK: 'This LOOP has no BACK lane — run a second belt OUT of its tile back to an earlier BAY.'
+    LOOP_NO_BACK: 'This LOOP has no BACK lane — run a second belt OUT of its tile back to an earlier BAY.',
+    LINE_TOO_LONG: 'Too long — one job on this line runs more stages than its LINE BUDGET allows, so every job would stop part-way (the stages that ran are still paid for). Raise “max stages after the first” in this INBOX’s Workflow card › Optional limits · LINE BUDGET (24 at most), or shorten the line.'
   };
   const valWhy = code => VAL_WHY[code] || VAL_LABEL[code] || code;
+  // a finding's full sentence for THIS machine — with its own numbers where the finding carries them (LINE_TOO_LONG)
+  function findingWhy(e) {
+    if (e && e.code === 'LINE_TOO_LONG' && e.stages > 0) {
+      const fits = e.stages - 1 <= 24;
+      return 'Too long — one job on this line runs ' + e.stages + ' stages, but its LINE BUDGET allows ' + (e.maxHops + 1) + ' (the first + ' + e.maxHops + ' more), so every job would stop at stage ' + (e.maxHops + 2) + ' (the stages that ran are still paid for). '
+        + (fits ? 'Raise “max stages after the first” to ' + (e.stages - 1) + ' in this INBOX’s Workflow card › Optional limits · LINE BUDGET, or shorten the line.' : 'No LINE BUDGET allows that many (25 stages at most): shorten the line.');
+    }
+    return VAL_WHY[e && e.code] || null;
+  }
   const esc = s => U.esc(s == null ? '' : s);   // one complete impl (escapes & < > " ' — value="…" attrs here stay injection-safe)
   // THE ONE SENTENCE (2026-08-04 onramp): every self-introduction of the belt system leads with this.
   // It also leads the INBOX catalog desc (propsprites.js) and the first-run guide card — keep them aligned.
@@ -7728,7 +7740,7 @@ const Build = (() => {
     for (const e of ((valPlan && valPlan.errors) || [])) {
       if (e.propId !== placed.id || seen[e.code] || !VAL_WHY[e.code]) continue;
       seen[e.code] = true;
-      out += '<div class="pc-assign">⚠ ' + esc(VAL_WHY[e.code]) + '</div>';
+      out += '<div class="pc-assign">⚠ ' + esc(findingWhy(e)) + '</div>';
     }
     if (brushedHookups().some(h => h.propId === placed.id))
       out += '<div class="pc-assign">⚠ A belt from another lane brushes this ' + esc(propLabel(placed.t)) + ' — the floor reads them as ONE line, so it hooks here. Leave a 1-tile gap to keep them apart.</div>';

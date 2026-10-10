@@ -8171,7 +8171,8 @@ const World = (() => {
     SPLIT_ONE_LANE: 'SPLITTER — BELT THROUGH IT, 2 OUT', CHAIN_CYCLE: 'WORK LINE LOOPS',
     JOIN_ONE_LANE: 'JOINER — NEEDS 2 BELTS IN', LOOP_NO_DONE: 'LOOP — NO DONE LANE OUT', LOOP_NO_BACK: 'LOOP — NO BACK LANE',
     BELT_BURIED: 'PROP ON THE LINE — MOVE IT',
-    ORPHAN_JUNCTION: 'NOT ON A BELT — MOVE IT'
+    ORPHAN_JUNCTION: 'NOT ON A BELT — MOVE IT',
+    LINE_TOO_LONG: 'TOO LONG — RAISE THE LINE BUDGET'
   };
   // project the compiled plan's error list onto floor rectangles once per recompile (zero per-frame walk)
   function buildRoutingNags() {

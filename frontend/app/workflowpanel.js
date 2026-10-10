@@ -29,6 +29,7 @@ const WorkflowPanel = (() => {
     cron: null, chans: null, trgOpen: false, trgDock: null, drafts: {}, testJob: {}, testMode: null,   // testMode: the TEST view's last-picked mode
     projects: null, projectMsg: null,   // GET /api/projects answer (trusted folders for the INBOX working-folder pick)
     lt: null, ltSig: null, ltForm: null, ltMsg: null, ltReveal: null, ltTimer: 0,   // LINE TRIGGERS (folder / webhook), server truth + the once-only key
+    note: null,   // the panel's own answer line ({ t, bad, at, ts }): said under the control that was clicked (note / placeNote)
   };
   const WL = () => (typeof WorkflowLine !== 'undefined' ? WorkflowLine : null);
   const esc = s => (H && H.esc ? H.esc(s) : String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])));
@@ -151,6 +152,7 @@ const WorkflowPanel = (() => {
     if (todayTimer) { clearInterval(todayTimer); todayTimer = 0; }
     if (S.ltTimer) { clearInterval(S.ltTimer); S.ltTimer = 0; }
     S.ltReveal = null; S.ltForm = null;   // a key shown once is gone once the panel closes
+    S.note = null; clearTimeout(noteTimer);
     el.remove(); el = null;
     S.sel = null; S.lineKey = null; S.lone = null;
     H.highlight(null); H.pausedMarker(null);
@@ -229,6 +231,79 @@ const WorkflowPanel = (() => {
       const h = S.session.hops[S.session.paused.afterHop];
       H.pausedMarker(h ? { agentId: h.agentId, dockId: h.dockId || null, label: 'HANDOFF WAITING ▸ ' + ((WL().pausedNext(S.session, nameOf) || {}).label || '') } : null);
     } else H.pausedMarker(null);
+    placeNote();
+  }
+
+  /* A PANEL ANSWER IS SAID WHERE THE CLICK WAS (2026-10-09 P0 — "not enough clear floor" landed as a toast at the far-left
+     edge of the screen, outside the panel, where nobody looking at the panel saw it): what an edit key, a + or a raise key
+     answers is a line INSIDE the panel, right under the row of the control that was clicked (under the line diagram for a +,
+     just above the footer for a footer key). It survives the repaint the edit causes and goes after a few seconds or with the
+     next answer. `anchor` is the clicked element; its key finds the same control again after a repaint. */
+  const NOTE_MS = 9000;
+  let noteTimer = 0;
+  const anchorKey = b => {
+    if (!b || !b.dataset) return '';
+    if (b.dataset.edit) return 'edit:' + b.dataset.edit + '|' + (b.dataset.editId || '') + '|' + (b.dataset.editArgs || '');
+    if (b.dataset.plusAt != null) return 'plus:' + b.dataset.plusAt;
+    if (b.dataset.insRole != null) return 'ins:' + b.dataset.insRole;
+    return b.id ? 'id:' + b.id : '';
+  };
+  function findAnchor(k) { if (!k || !el) return null; return $$('button, [data-edit]').find(b => anchorKey(b) === k) || null; }
+  function placeNote() {
+    if (!el) return;
+    for (const o of $$('.wf-note')) o.remove();
+    const n = S.note;
+    if (!n) return;
+    if (Date.now() - n.ts > NOTE_MS) { S.note = null; return; }
+    const p = document.createElement('p');
+    p.className = 'wf-note' + (n.bad ? ' bad' : '');
+    p.setAttribute('role', n.bad ? 'alert' : 'status');
+    p.textContent = n.t;
+    const a = findAnchor(n.at), map = $('#wf-map'), foot = $('#wf-foot');
+    const after = (ref, cls) => { if (cls) p.classList.add(cls); ref.parentNode.insertBefore(p, ref.nextSibling); };
+    if (a && foot && foot.contains(a)) { p.classList.add('top'); el.insertBefore(p, foot); return; }
+    if (a && map && map.contains(a)) { after(map, 'top'); return; }
+    const row = a && a.closest('.wf-chips, .wf-row, .wf-toolong, .wf-inserter .h');
+    if (row) { after(row); return; }
+    if (a) { after(a); return; }
+    if (map) after(map, 'top');   // (the control went with the edit: under the line diagram)
+  }
+  function note(t, bad, anchor) {
+    if (!el) return;
+    S.note = { t: String(t || ''), bad: !!bad, at: anchorKey(anchor), ts: Date.now() };
+    clearTimeout(noteTimer);
+    noteTimer = setTimeout(() => { if (S.note && Date.now() - S.note.ts >= NOTE_MS - 50) { S.note = null; placeNote(); } }, NOTE_MS);
+    placeNote();
+  }
+
+  /* TOO LONG, SAID BEFORE A JOB IS PAID FOR (2026-10-09 P0). A line whose jobs run more stages than its LINE BUDGET allows stops
+     every job part-way (chain.js preHopRefusal) — the compiler's LINE_TOO_LONG (flow.tooLong) is said here, under the pill, with
+     the numbers and ONE key that raises this line's "max stages after the first" to fit: the INBOX's own LINE BUDGET setter, its
+     $ limits kept, one UNDO. Past the ceiling (24 after the first) no budget fits — the row says to shorten the line instead. */
+  function paintTooLong(f) {
+    const row = $('#wf-toolong'); if (!row) return;
+    const tl = f && comp() ? f.tooLong : null, W = WL();
+    const ip = tl && tl.propId ? prop(tl.propId) : null;
+    const to = tl && W && W.tooLongFix ? W.tooLongFix(tl) : null;
+    const sig = tl ? tl.stages + '|' + tl.maxHops + '|' + (ip ? ip.id : '') : '';
+    row.hidden = !tl;
+    if (!tl) { row.innerHTML = ''; row.dataset.sig = ''; return; }
+    if (row.dataset.sig === sig) return;
+    row.dataset.sig = sig;
+    row.innerHTML = '<b>TOO LONG</b> — one job on this line runs <b>' + tl.stages + ' stages</b>, but its LINE BUDGET allows <b>' + (tl.maxHops + 1) + '</b> (the first + ' + tl.maxHops + ' more), so every job would stop at stage ' + (tl.maxHops + 2) + '. '
+      + (to != null && ip && typeof H.station().setPropLimits === 'function'
+        ? '<button type="button" class="bb sm refit-primary" id="wf-raise" data-tip="sets this INBOX’s LINE BUDGET › max stages after the first to ' + to + ' — its $ limits stay as they are · one UNDO">▲ ALLOW ' + tl.stages + ' STAGES</button>'
+        : 'No LINE BUDGET allows that many (25 stages at most): shorten the line.');
+    const b = $('#wf-raise');
+    if (b) b.onclick = () => {
+      const p = prop(tl.propId);
+      const cur = (p && p.limits && typeof p.limits === 'object') ? p.limits : {};
+      const res = p ? H.station().setPropLimits(p.id, Object.assign({}, cur, { maxHops: to })) : null;
+      if (!res || !res.ok) { H.sfx('bad'); note('the LINE BUDGET could not be changed' + (res && res.msg ? ' — ' + res.msg : ''), true, b); return; }
+      H.sfx('chime');
+      note('✓ LINE BUDGET raised: ' + to + ' stages after the first — the line fits · UNDO takes it back', false, b);
+      paint(true);
+    };
   }
 
   /* LINE WATCH (2026-09-23): today's numbers for THIS line — runs / shipped / failed / $ today vs the daily cap /
@@ -277,6 +352,7 @@ const WorkflowPanel = (() => {
           ? '<input id="wf-name" class="wf-name-in" type="text" maxlength="48" aria-label="Workflow name" placeholder="' + esc(H.stampName(intake.id) || 'Name this workflow') + '" value="' + esc(intake.label || '') + '" />'
           : '<span class="wf-name-none">' + (c ? 'Unnamed line' : 'A single BAY') + '</span>') + '</div>'
         + '<div class="wf-ready"><span class="wf-pill" id="wf-pill"></span><button type="button" class="bb sm refit-primary" id="wf-sendnow" hidden>▶ SEND IT A JOB</button><span class="wf-est" id="wf-est"></span></div>'
+        + '<div class="wf-warnline wf-toolong" id="wf-toolong" role="status" hidden></div>'
         + '<p class="wf-today" id="wf-today" aria-label="This line today"></p>'
         + '<p class="wf-sentence" id="wf-sentence" aria-live="polite"></p><ul class="wf-hints" id="wf-hints"></ul>';
       $('#wf-close').onclick = () => { H.sfx('click'); close(); };
@@ -304,6 +380,7 @@ const WorkflowPanel = (() => {
     const sendNow = $('#wf-sendnow');
     if (sendNow) { sendNow.hidden = !sendTo || S.sel === sendTo; sendNow.onclick = toSend; }
     $('#wf-est').textContent = est && est.tested ? est.text : '';   // a real number only: "test a step to see its cost" is an instruction, and the TEST key is right below
+    paintTooLong(f);
     paintToday();
     const sent = $('#wf-sentence');
     if (f && c) {
@@ -388,6 +465,7 @@ const WorkflowPanel = (() => {
     drawArcs(strip, f);
     const selN = strip.querySelector('.wf-node.sel');
     if (selN) { const wrap = strip.parentNode, l = selN.offsetLeft, r = l + selN.offsetWidth; if (l < wrap.scrollLeft || r > wrap.scrollLeft + wrap.clientWidth) wrap.scrollLeft = Math.max(0, l - (wrap.clientWidth - selN.offsetWidth) / 2); }
+    placeNote();
   }
   /* THE LINE'S MACHINES AS TILES (2026-09-30 — Andrew on this diagram: "make this look way better"). Each part is a glass tile in
      the Build Library's language: the machine's own floor art big in a lit well (the still the Build host renders from the sprite

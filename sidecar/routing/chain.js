@@ -135,7 +135,8 @@ function loopDecision(step, ctx, n, visited, text) {
    runs, so it is enforced to within one hop's spend), the line's daily cap, and an empty crate. */
 function preHopRefusal(g) {
   if (g.visited[g.targetKey != null ? g.targetKey : g.target] && !g.loopHop) return 'the line loops back to ' + g.target;
-  if (g.hop - g.loopHops > g.lim.maxHops) return 'the line is longer than ' + g.lim.maxHops + ' stages';
+  // (the stop says where the ceiling is raised — 2026-10-09 P0; the floor and the Workflow panel warn LINE_TOO_LONG before a run)
+  if (g.hop - g.loopHops > g.lim.maxHops) return 'the line is longer than ' + g.lim.maxHops + ' stages — raise max stages in the INBOX’s LINE BUDGET';
   if (g.spent >= g.lim.maxUsd) return 'the line reached its $' + g.lim.maxUsd.toFixed(2) + ' limit';
   // THE DAILY CAP — same pre-hop posture, measured against the durable per-line day ledger (entry run and
   // every earlier message today included). Only a line with a ledger AND a cap can refuse; a line with no
