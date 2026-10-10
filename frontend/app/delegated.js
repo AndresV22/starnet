@@ -28,10 +28,6 @@ const Delegated = (() => {
     const list = has(App, 'agents') ? App.agents() : [];
     return list.find(a => a.id === id) || { id, name: (has(App, 'agentName') && App.agentName(id)) || id };
   }
-  function portrait(id) {
-    const img = document.querySelector('#crew .crew-row[data-agent-id="' + (window.CSS && CSS.escape ? CSS.escape(id) : id) + '"] img');
-    return img ? img.src : '';
-  }
   function excerpt(ws) {
     const h = (ws && ws.history) || [];
     for (let i = h.length - 1; i >= 0; i--) {
@@ -105,30 +101,39 @@ const Delegated = (() => {
     return { cls: 'stopped', live: 'ended without a result', t: '' };
   }
 
-  const CHIP = { working: 'WORKING', waiting: 'NEEDS YOU', done: 'DONE', failed: 'FAILED', stopped: 'STOPPED', queued: 'STARTING' };
-  function cardHtml(b, parentId) {
-    const rows = b.rows.map(r => ({ r, st: stateOf(r, parentId, b.lead) }));
+  /* THE CALM LINE (2026-10-10, Andrew: the full card "feels like a clusterfuck"). One quiet line per dispatch —
+     "Delegated to MIRA, ROOK and VEX · 2 working · 1 done" — that opens to one short line per worker. It never repeats
+     a worker's result: the overseer's review right below is the content; this line is only where things stand + the
+     doors into each thread. Collapsed by default; what you opened stays open while the page lives. */
+  const opened = new Set();   // batch keys the Commander expanded
+  const WORD = { working: 'working', waiting: 'needs you', done: 'done', failed: 'failed', stopped: 'stopped', queued: 'starting' };
+  function names(list) {
+    const n = list.map(a => String(a.name || a.id));
+    return n.length <= 3 ? (n.length > 1 ? n.slice(0, -1).join(', ') + ' and ' + n[n.length - 1] : n[0] || '')
+      : n.slice(0, 2).join(', ') + ' and ' + (n.length - 2) + ' more';
+  }
+  function lineHtml(b, parentId) {
+    const rows = b.rows.map(r => ({ r, st: stateOf(r, parentId, b.lead), a: agentOf(r.ws.agentId || 'agent') }));
     const count = c => rows.filter(x => x.st.cls === c).length;
     const sum = [count('waiting') && count('waiting') + ' need' + (count('waiting') === 1 ? 's' : '') + ' you', count('working') && count('working') + ' working',
-      count('queued') && count('queued') + ' starting', count('failed') && count('failed') + ' failed', count('stopped') && count('stopped') + ' stopped', count('done') && count('done') + ' done']
+      count('queued') && count('queued') + ' starting', count('failed') && count('failed') + ' failed', count('stopped') && count('stopped') + ' stopped',
+      count('done') && (count('done') === rows.length ? (rows.length > 1 ? 'all ' + rows.length + ' done' : 'done') : count('done') + ' done')]
       .filter(Boolean).join(' · ');
-    // one segment per worker, in row order, coloured by its state: the whole dispatch at a glance
-    const meter = '<div class="dg-meter" aria-hidden="true">' + rows.map(({ st }) => '<i class="' + st.cls + '"></i>').join('') + '</div>';
-    return '<div class="dg-head"><span class="dg-title">DELEGATED</span><span class="dg-n">' + rows.length + '</span><span class="dg-sum">' + esc(sum) + '</span></div>' + meter
-      + rows.map(({ r, st }) => {
-        const a = agentOf(r.ws.agentId || 'agent'), src = portrait(a.id), task = r.ws.title || 'Delegated task';
-        // the whole row opens the worker's thread (keyboard too); OPEN stays as the visible door, STOP never falls through
-        return '<div class="dg-row ' + st.cls + '" data-dg-open="' + esc(r.ws.id) + '" role="button" tabindex="0" aria-label="' + esc((a.name || a.id) + ': ' + task + ' — ' + CHIP[st.cls] + '. Open its thread') + '">'
-          + '<span class="dg-face" aria-hidden="true">' + (src ? '<img alt="" src="' + esc(src) + '">' : '') + '</span>'
-          + '<span class="dg-main">'
-          + '<span class="dg-line1"><span class="dg-name"' + (a.color ? ' style="color:' + esc(a.color) + '"' : '') + '>' + esc(a.name || a.id) + '</span>'
-          + (st.t ? '<span class="dg-time">' + esc(st.t) + '</span>' : '') + '</span>'
-          + '<span class="dg-task">' + esc(task) + '</span>'
-          + '<span class="dg-live"><span class="dg-chip ' + st.cls + '"><i aria-hidden="true"></i>' + CHIP[st.cls] + '</span><span class="dg-what">' + esc(st.live) + '</span></span>'
-          + '</span>'
-          + '<span class="dg-keys">' + (st.stop ? '<button type="button" class="dg-key stop" data-dg-stop="' + esc(st.worker.id) + '" data-tip="Stop this worker">STOP</button>' : '')
-          + '<button type="button" class="dg-key" data-dg-open="' + esc(r.ws.id) + '">OPEN</button></span></div>';
-      }).join('');
+    const open = opened.has(b.lead);
+    const head = '<button type="button" class="dg-line-head" data-dg-toggle="' + esc(b.lead) + '" aria-expanded="' + open + '">'
+      + '<span class="dg-caret" aria-hidden="true"></span><span class="dg-line-text">Delegated to ' + esc(names(rows.map(x => x.a))) + '</span>'
+      + '<span class="dg-line-sum' + (count('waiting') ? ' waiting' : '') + '">' + esc(sum) + '</span></button>';
+    if (!open) return head;
+    return head + '<div class="dg-line-list">' + rows.map(({ r, st, a }) => {
+      const task = r.ws.title || 'Delegated task';
+      const status = st.cls === 'working' ? st.live + (st.t ? ' · ' + st.t : '') : WORD[st.cls] + (st.t && st.cls === 'done' ? ' · ' + st.t : '');
+      // the whole line opens the worker's thread (keyboard too); stop is a quiet word, only while it runs
+      return '<div class="dg-li ' + st.cls + '" data-dg-open="' + esc(r.ws.id) + '" role="button" tabindex="0" aria-label="' + esc((a.name || a.id) + ': ' + task + ' — ' + WORD[st.cls] + '. Open its thread') + '">'
+        + '<span class="dg-li-lamp" aria-hidden="true"></span><span class="dg-li-who">' + esc(a.name || a.id) + '</span>'
+        + '<span class="dg-li-task">' + esc(task) + '</span><span class="dg-li-st">' + esc(status) + '</span>'
+        + (st.stop ? '<button type="button" class="dg-li-stop" data-dg-stop="' + esc(st.worker.id) + '" data-tip="Stop this worker">stop</button>' : '')
+        + '</div>';
+    }).join('') + '</div>';
   }
 
   // a dispatch's card sits under the lead's reply to that ask: the first agent row stamped at/after the dispatch
@@ -146,16 +151,20 @@ const Delegated = (() => {
     const parentId = Workstreams.activeId();
     const list = batches(parentId);
     const keepKeys = new Set(list.map(b => b.lead));
-    log.querySelectorAll(':scope > .dg-card').forEach(n => { if (n.dataset.dgParent !== parentId || !keepKeys.has(n.dataset.dgBatch)) n.remove(); });
+    log.querySelectorAll(':scope > .dg-line').forEach(n => { if (n.dataset.dgParent !== parentId || !keepKeys.has(n.dataset.dgBatch)) n.remove(); });
     for (const b of list) {
-      let card = Array.from(log.querySelectorAll(':scope > .dg-card')).find(n => n.dataset.dgBatch === b.lead);
+      let card = Array.from(log.querySelectorAll(':scope > .dg-line')).find(n => n.dataset.dgBatch === b.lead);
       if (!card) {
-        card = document.createElement('div'); card.className = 'dg-card'; card.dataset.dgBatch = b.lead; card.dataset.dgParent = parentId;
+        card = document.createElement('div'); card.className = 'dg-line'; card.dataset.dgBatch = b.lead; card.dataset.dgParent = parentId;
         card.setAttribute('role', 'group'); card.setAttribute('aria-label', 'Delegated work');
         const anchor = anchorFor(log, b.at);
         if (anchor) anchor.after(card); else log.appendChild(card);
+      } else {
+        // made before the lead's reply landed (appended at the end), it settles under that reply once it exists
+        const anchor = anchorFor(log, b.at);
+        if (anchor && anchor !== card && anchor.nextElementSibling !== card) anchor.after(card);
       }
-      const html = cardHtml(b, parentId);
+      const html = lineHtml(b, parentId);
       if (card.dataset.dgHtml !== html) { card.innerHTML = html; card.dataset.dgHtml = html; }
     }
     strip(log);
@@ -172,9 +181,9 @@ const Delegated = (() => {
     if (!parent) { if (el) el.remove(); return; }
     if (!el) { el = document.createElement('div'); el.className = 'dg-from'; log.insertBefore(el, log.firstChild); }
     const lead = agentOf(parent.agentId || 'agent');
-    const html = '<span class="dg-from-text"><span class="dg-from-k">DELEGATED BY ' + esc(String(lead.name || lead.id).toUpperCase()) + '</span>'
-      + '<span class="dg-from-v">from <b>' + esc(parent.title || 'General') + '</b> · results go back there</span></span>'
-      + '<button type="button" class="dg-key" data-dg-open="' + esc(parent.id) + '">BACK</button>';
+    // calm: one slim line, not a card — who sent this work and from where, and the way back
+    const html = '<span class="dg-from-text">Delegated by ' + esc(lead.name || lead.id) + ' from <b>' + esc(parent.title || 'General') + '</b></span>'
+      + '<button type="button" class="dg-from-back" data-dg-open="' + esc(parent.id) + '">back to ' + esc(parent.title || 'General') + '</button>';
     if (el.dataset.dgHtml !== html) { el.innerHTML = html; el.dataset.dgHtml = html; }
     if (log.firstChild !== el) log.insertBefore(el, log.firstChild);
   }
@@ -198,11 +207,13 @@ const Delegated = (() => {
       const t = e.target && e.target.closest ? e.target : null; if (!t) return;
       const s = t.closest('#chat-log [data-dg-stop]');
       if (s) { e.preventDefault(); stop(s.dataset.dgStop, s); return; }
+      const tog = t.closest('#chat-log [data-dg-toggle]');
+      if (tog) { e.preventDefault(); const k = tog.dataset.dgToggle; if (opened.has(k)) opened.delete(k); else opened.add(k); repaint(); return; }
       const open = t.closest('#chat-log [data-dg-open]');
       if (open) { e.preventDefault(); if (has(App, 'openWorkstream')) App.openWorkstream(open.dataset.dgOpen); }
     });
     document.addEventListener('keydown', e => {
-      const row = e.target && e.target.closest ? e.target.closest('#chat-log .dg-row[data-dg-open]') : null;
+      const row = e.target && e.target.closest ? e.target.closest('#chat-log .dg-li[data-dg-open]') : null;
       if (!row || e.target !== row || (e.key !== 'Enter' && e.key !== ' ')) return;
       e.preventDefault(); if (has(App, 'openWorkstream')) App.openWorkstream(row.dataset.dgOpen);
     });

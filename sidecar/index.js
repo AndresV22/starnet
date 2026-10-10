@@ -25222,6 +25222,10 @@ function serveRunRecoveries(req, res) {
   catch (e) { return respondJson(res, 500, { error: 'could not read run recoveries' }); }
   const rows = page.rows.map(markRunRecoveryForensic).filter(r => {
     if (!r) return false;
+    // A run that is STILL RUNNING has a journal too, but nothing to recover. Listing it let a page that reloaded a
+    // conversation mid-way through the overseer's automatic review (a server-started run the page's channel never
+    // sees as busy) "safely continue" it — a second, interactive copy of the same review (2026-10-10).
+    if (runs.has(r.runId) || transcriptLiveRuns.has(r.runId)) return false;
     // Converge this run's interrupted-history row with its journal (idempotent; skips live and finished runs).
     try { syncInterruptedRunHistory(r); } catch (e) { failNote('run-history.interrupted-sync', e); }
     // A durable transcript acknowledgement is the commit record. If the process died between that record and

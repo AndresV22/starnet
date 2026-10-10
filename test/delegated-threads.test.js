@@ -135,6 +135,15 @@ const roster = new Map([['researcher', { system: 'R', name: 'MIRA' }], ['writer'
   A.ok(/lastReadAt: existing \? undefined : 0 \}\);/.test(auto), 'a routine run that finished while the station was closed arrives unread');
   A.ok(/data-act="open-run" data-run="/.test(rt) && /act === 'open-run'/.test(rt) && /ReturnStore\.openWork\(\{ runId: btn\.dataset\.run/.test(rt), 'every routine HISTORY run opens its conversation');
   A.ok(/if \(id && parentId && Workstreams\.get\(parentId\) && Workstreams\.adopt\)/.test(sc), 'a just-filed worker thread is adopted under its parent on first contact');
+  // a STILL-RUNNING run (the overseer's automatic review) is never offered for recovery: a page reload mid-review used
+  // to "safely continue" it — a second, interactive copy of the same review in the conversation (2026-10-10)
+  A.ok(/if \(runs\.has\(r\.runId\) \|\| transcriptLiveRuns\.has\(r\.runId\)\) return false;/.test(idx.slice(idx.indexOf('function serveRunRecoveries'))), 'live runs are not recoverable');
+  // CALM (2026-10-10): one quiet line per dispatch, a count chip on the parent, no repeated report text
+  const dg = src('frontend/app/delegated.js'), bf = src('frontend/app/briefing.js');
+  A.ok(/function lineHtml\(b, parentId\)/.test(dg) && !/function cardHtml/.test(dg), 'COMMS shows the calm delegated line, not the card');
+  A.ok(/function railKidsChip\(item\)/.test(app) && /if \(item\.type === 'kids'\) return '';/.test(app), 'SESSIONS: a count chip on the parent, no fold header row');
+  A.ok(/const keep = flat\.filter\(w => w\.id === activeId \|\| pending\.has\(w\.id\)\)/.test(app), 'folded threads stay out of the list unless open or waiting on you');
+  A.ok(/last\.classList\.add\('bf-replaced'\)/.test(bf), 'the newest report\'s text is tucked behind its card');
 }
 
 A.report('delegated-threads.test');

@@ -4203,18 +4203,16 @@ const App = (() => {
     return [n.waiting && n.waiting + ' waiting on you', n.working && n.working + ' working', n.failed && n.failed + ' failed', n.done && n.done + ' done']
       .filter(Boolean).join(' · ') || 'starting';
   }
-  // one housed lamp per worker thread (the card's meter, in the rail): the batch at a glance — at most 6 (the rail is
-  // ~200px), the ones that need you first, then running, failed, starting, done
-  const RAIL_KID_ORDER = { waiting: 0, working: 1, failed: 2, starting: 3, done: 4 };
-  function railKidsLamps(kids) {
-    const running = railLedgerRunning();
-    return kids.map(k => railKidState(k, running)).sort((a, b) => RAIL_KID_ORDER[a] - RAIL_KID_ORDER[b]).slice(0, 6)
-      .map(s => '<i class="' + s + '"></i>').join('');
+  // the calm fold (2026-10-10): no header row — the parent conversation carries a small count of its delegated threads,
+  // tinted by the most urgent of them (needs you > working); one click shows or hides them under it
+  function railKidsTone(kids) {
+    const running = railLedgerRunning(), s = kids.map(k => railKidState(k, running));
+    return s.includes('waiting') ? 'waiting' : s.includes('working') ? 'working' : '';
   }
-  function railKidsHead(item) {
-    return '<li class="ws-auto-group ws-kids" role="presentation"><button type="button" data-ws-group="' + U.esc(item.key) + '" aria-expanded="' + item.expanded + '">'
-      + '<span>' + item.rows.length + ' delegated</span><span class="ws-kids-lamps" aria-hidden="true">' + railKidsLamps(item.rows) + '</span>'
-      + '<small>' + U.esc(railKidsSummary(item.rows)) + '</small></button></li>';
+  function railKidsChip(item) {
+    const n = item.rows.length, sum = railKidsSummary(item.rows);
+    return '<button type="button" class="ws-kids-n' + (railKidsTone(item.rows) ? ' ' + railKidsTone(item.rows) : '') + '" data-ws-group="' + U.esc(item.key) + '" aria-expanded="' + item.expanded + '"'
+      + ' aria-label="' + n + ' delegated thread' + (n === 1 ? '' : 's') + ': ' + U.esc(sum) + ' — ' + (item.expanded ? 'hide' : 'show') + '" data-tip="' + n + ' delegated · ' + U.esc(sum) + '">' + n + '</button>';
   }
   function renderRail() {
     const ul = el('workstreams');
@@ -4237,13 +4235,14 @@ const App = (() => {
       headers.set(item.visible[0].id, item);
       return item.visible;
     });
-    // DELEGATED THREADS fold under the conversation that asked for them (Workstreams.nestRows); anything open, busy,
-    // waiting on you, failed or unread stays visible while folded. The attention view stays a flat list.
-    const running = railLedgerRunning();
-    const keep = flat.filter(w => w.id === activeId || pending.has(w.id) || running.has(w.id) || w.lastRunOk === false || Workstreams.unread(w) || railRowState(w).busy).map(w => w.id);
+    // DELEGATED THREADS fold under the conversation that asked for them (Workstreams.nestRows). Calm: folded, they stay
+    // out of the list unless one is open or WAITING ON YOU; the parent's count chip shows the rest on a click.
+    // The attention view stays a flat list.
+    const keep = flat.filter(w => w.id === activeId || pending.has(w.id)).map(w => w.id);
     const items = railAttentionOnly ? flat.map(w => ({ type: 'row', w, depth: 0 })) : Workstreams.nestRows(flat, { expanded: [...railExpanded], keep });
     railChildIds = new Set(items.filter(i => i.type === 'row' && i.depth).map(i => i.w.id));
     railKidsOf = new Map(items.filter(i => i.type === 'kids').map(i => [i.key, i.rows.map(w => w.id)]));
+    const kidsOfParent = new Map(items.filter(i => i.type === 'kids').map(i => [i.parentId, i]));
     const rows = items.filter(i => i.type === 'row').map(i => i.w);
     const filters = el('ws-kind-filter');
     if (filters) filters.hidden = railAttentionOnly;
@@ -4256,8 +4255,9 @@ const App = (() => {
     ul.setAttribute('aria-label', 'Sessions');
     let index = 0;
     ul.innerHTML = items.map(item => {
-      if (item.type === 'kids') return railKidsHead(item);
+      if (item.type === 'kids') return '';   // calm: no header row — the parent carries the count chip
       const w = item.w; index++;
+      const kids = kidsOfParent.get(w.id);
       const title = w.title || 'General';
       const st = railRowState(w);
       const group = headers.get(w.id);
@@ -4269,6 +4269,8 @@ const App = (() => {
         '<span class="ws-agent" aria-hidden="true"' + railAgentColorAttr(w) + '>' + U.esc(railAgentName(w)) + '</span>' +
         // a group chat says so on the row itself, inside the title cell so every rail layout places it (compact, attention, inbox)
         '<span class="ws-title">' + (w.conversationMode === 'group' ? '<span class="ws-gc" aria-hidden="true">GROUP</span>' : '') + U.esc(title) + '</span>' +
+        // its delegated threads: a count chip on the row (inside no other cell, so every rail layout can place it)
+        (kids ? railKidsChip(kids) : '') +
         '<span class="ws-meta">' + U.esc(st.meta) + '</span>' +
         '<span class="ws-receipt" aria-hidden="true">' + U.esc(railReceipt(w)) + '</span>' +
         '<button class="ws-kebab" tabindex="-1" aria-label="session actions" title="session actions">⋯</button>' +
@@ -4286,7 +4288,8 @@ const App = (() => {
       ul.innerHTML = '<li class="proj-empty" role="presentation"><span role="status">No automation sessions yet.</span></li>';
     }
     ul.querySelectorAll('[data-ws-group]').forEach(button => {
-      button.onclick = () => {
+      button.onclick = (e) => {
+        if (e) e.stopPropagation();   // a count chip sits ON a session row: toggling its threads must not also open the row
         const key = button.dataset.wsGroup;
         if (railExpanded.has(key)) railExpanded.delete(key); else railExpanded.add(key);
         saveRailView();
@@ -4365,14 +4368,13 @@ const App = (() => {
       const card = el('station-tip');
       if (card && !card.hidden && li.getAttribute('aria-describedby') === 'station-tip' && card.textContent !== tip) card.textContent = tip;
     });
-    // the delegated-threads fold header counts what its children are doing right now (same truth as their lamps)
-    ul.querySelectorAll('.ws-kids [data-ws-group]').forEach(b => {
-      const ids = railKidsOf.get(b.dataset.wsGroup), small = b.querySelector('small'); if (!ids || !small) return;
-      const kids = ids.map(id => Workstreams.get(id)).filter(Boolean);
-      const t = railKidsSummary(kids);
-      if (small.textContent !== t) small.textContent = t;
-      const lamps = b.querySelector('.ws-kids-lamps'), l = railKidsLamps(kids);
-      if (lamps && lamps.innerHTML !== l) lamps.innerHTML = l;
+    // a parent's count chip is tinted by what its delegated threads are doing right now (same truth as their lamps)
+    ul.querySelectorAll('.ws-kids-n[data-ws-group]').forEach(b => {
+      const ids = railKidsOf.get(b.dataset.wsGroup); if (!ids) return;
+      const kids = ids.map(id => Workstreams.get(id)).filter(Boolean), tone = railKidsTone(kids);
+      const cls = 'ws-kids-n' + (tone ? ' ' + tone : ''); if (b.className !== cls) b.className = cls;
+      const tip = kids.length + ' delegated · ' + railKidsSummary(kids);
+      if (b.getAttribute('data-tip') !== tip) b.setAttribute('data-tip', tip);
     });
   }
   function armRailTicker() { if (!railTicker) railTicker = setInterval(updateRailLive, 1000); }

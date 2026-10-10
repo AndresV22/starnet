@@ -546,30 +546,24 @@ body.glass-demo:not(.hud-mode) #left .ws-auto-group button span { font-size: 14p
 body.glass-demo:not(.hud-mode) #left .ws-auto-group button small { grid-column: 2; font-size: 13px; color: var(--cg-mute); }
 body.glass-demo:not(.hud-mode) #left .ws-auto-group button:is(:hover, :focus-visible) { border-color: rgba(var(--ph-rgb), .45); background: rgba(var(--ph-rgb), .08); }
 
-/* DELEGATED THREADS (2026-10-09): a conversation's worker threads fold under it — indented rows hung on a thread
-   line, behind a quieter twin of the routine fold header (Workstreams.nestRows, app.js railKidsHead) */
-body.glass-demo:not(.hud-mode) #left .ws-auto-group.ws-kids { margin: 1px 6px 1px 24px; position: relative; }
-body.glass-demo:not(.hud-mode) #left .ws-auto-group.ws-kids button { padding: 4px 9px; border-color: rgba(var(--ph-rgb), .14); background: transparent; }
-body.glass-demo:not(.hud-mode) #left .ws-auto-group.ws-kids button > span:first-child { flex: 1 1 calc(100% - 20px); font-size: var(--sn-type-meta, 14px); white-space: nowrap; }
-body.glass-demo:not(.hud-mode) #left .ws-auto-group.ws-kids::before,
+/* DELEGATED THREADS, CALM (2026-10-10): a conversation's worker threads fold under it with NO header row — the
+   parent carries a small count chip (app.js railKidsChip) tinted amber while one works, gold while one waits on you;
+   a click shows them, indented on a thread line. Folded, only an open or waiting thread stays in the list. */
+body.glass-demo:not(.hud-mode) #left #workstreams .ws-row .ws-kids-n {
+  flex: none; min-width: 22px; height: 20px; padding: 0 6px; font: var(--sn-type-meta, 14px)/18px 'VT323', monospace; letter-spacing: .5px; cursor: pointer;
+  color: var(--text); border: 1px solid rgba(var(--ph-rgb), .28); border-radius: 4px; background: rgba(0, 0, 0, .22); text-shadow: none;
+}
+body.glass-demo:not(.hud-mode) #left #workstreams .ws-row .ws-kids-n:is(:hover, :focus-visible) { color: var(--ph-bright); border-color: rgba(var(--ph-rgb), .6); }
+body.glass-demo:not(.hud-mode) #left #workstreams .ws-row .ws-kids-n[aria-expanded="true"] { color: var(--ph-bright); background: rgba(var(--ph-rgb), .12); }
+body.glass-demo:not(.hud-mode) #left #workstreams .ws-row .ws-kids-n.working { color: var(--ph); border-color: rgba(var(--ph-rgb), .6); }
+body.glass-demo:not(.hud-mode) #left #workstreams .ws-row .ws-kids-n.waiting { color: var(--gold); border-color: rgba(var(--gold-rgb), .7); }
+body.glass-demo.rows-inbox:not(.hud-mode) #left #workstreams .ws-row .ws-kids-n { grid-area: pin; justify-self: end; }
 body.glass-demo:not(.hud-mode) #left #workstreams .ws-row.ws-child::after {
   content: ''; position: absolute; left: -13px; top: -5px; height: calc(50% + 5px); width: 9px; pointer-events: none;
   border-left: 1px solid rgba(var(--ph-rgb), .3); border-bottom: 1px solid rgba(var(--ph-rgb), .3); border-bottom-left-radius: 4px;
 }
-body.glass-demo:not(.hud-mode) #left #workstreams .ws-row.ws-child { margin-left: 24px; position: relative; overflow: visible; }
-/* SESSIONS: a conversation's delegated threads, folded under it (app.js railKidsHead / ws-child) */
-/* line 1: the fold + "6 DELEGATED"; line 2: one lamp per thread + what they are doing (the rail is ~200px wide) */
-body.glass-demo:not(.hud-mode) #left .ws-auto-group.ws-kids button { display: flex; flex-wrap: wrap; align-items: center; column-gap: 8px; row-gap: 3px; }
-body.glass-demo:not(.hud-mode) #left .ws-auto-group.ws-kids button::before { flex: none; }
-body.glass-demo:not(.hud-mode) #left .ws-kids .ws-kids-lamps { display: inline-flex; gap: 3px; flex: none; margin-left: 14px; }
-body.glass-demo:not(.hud-mode) #left .ws-kids .ws-kids-lamps > i { width: 7px; height: 7px; border-radius: 1px; background: rgba(var(--ph-rgb), .28); box-shadow: 0 0 0 1px rgba(0,0,0,.55); }
-body.glass-demo:not(.hud-mode) #left .ws-kids .ws-kids-lamps > i.working { background: var(--ph); animation: dg-breathe 1.6s ease-in-out infinite; }
-body.glass-demo:not(.hud-mode) #left .ws-kids .ws-kids-lamps > i.waiting { background: var(--gold); }
-body.glass-demo:not(.hud-mode) #left .ws-kids .ws-kids-lamps > i.done { background: var(--ok); }
-body.glass-demo:not(.hud-mode) #left .ws-kids .ws-kids-lamps > i.failed { background: var(--bad); }
-body.glass-demo:not(.hud-mode) #left .ws-auto-group.ws-kids button small { flex: 1 1 0; min-width: 0; font-size: var(--sn-type-meta, 14px); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+body.glass-demo:not(.hud-mode) #left #workstreams .ws-row.ws-child { margin-left: 24px; position: relative; overflow: visible; min-height: 38px; padding-top: 7px; padding-bottom: 7px; }
 /* a worker thread names its worker before its task; its clock shows only while it runs or waits on you */
-body.glass-demo:not(.hud-mode) #left #workstreams .ws-row.ws-child { min-height: 38px; padding-top: 7px; padding-bottom: 7px; }
 body.glass-demo:not(.hud-mode) #left #workstreams .ws-row.ws-child > .ws-agent { display: inline; flex: none; font-size: var(--sn-type-meta); letter-spacing: 1px; }
 body.glass-demo:not(.hud-mode) #left #workstreams .ws-row.ws-child:not(.busy):not(.attn) > .ws-meta { display: none; }
 
