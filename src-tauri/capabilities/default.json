@@ -1,11 +1,10 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Core permissions for the StarNet app window plus the app's own keychain/update commands. The packaged UI loads from the bundled app origin; the loopback sidecar bridge is plain fetch/CORS and does not need native permissions on remote localhost pages.",
+  "description": "Core permissions for the StarNet app window plus the app's own keychain/update commands (starnet_update_check/install — the updater plugin's raw IPC, which takes allowDowngrades/proxy/target, is not exposed to the webview). The packaged UI loads from the bundled app origin; the loopback sidecar bridge is plain fetch/CORS and does not need native permissions on remote localhost pages.",
   "windows": ["*"],
   "permissions": [
     "core:default",
-    "updater:default",
     "core:window:allow-start-dragging",
     "core:window:allow-internal-toggle-maximize",
     "core:window:allow-minimize",

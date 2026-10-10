@@ -92,5 +92,8 @@ A.ok(/const SIDECAR_PAGE_ROUTES: \[&str; 5\] = \["\/view\/", "\/workshop-run\/",
   'the frame exception covers the BROWSER window and the APPS / plugin windows, and nothing else');
 A.ok(/let init = format!\(\s*"if\(location\.protocol==='tauri:'\|\|location\.hostname==='tauri\.localhost'\)\{\{window\.__STARNET_API__=/.test(mainRs),
   'the API token is injected only into the bundled app origin (second layer behind on_navigation)');
+// 2026-10-10: the webview drives updates only through the app's own starnet_update_check/install commands; the
+// updater plugin's raw IPC (check with allowDowngrades / proxy / target / headers) is never granted to it
+A.ok(!caps.permissions.some(p => /^updater:/.test(String(p))), 'the webview holds no raw updater-plugin permission');
 
 A.report('tauri.hardening.test');
