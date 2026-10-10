@@ -2374,6 +2374,14 @@ const WorldModel = (() => {
         if (!isJunction(p) || p.id === A.id || p.id === B.id) continue;
         for (const [dx, dy] of N4) nearOther.add(beltKey(p.x + dx, p.y + dy));
       }
+      /* A NEWER BAY'S LANE INTO AN OLDER BAY NEVER RUNS ON A TILE BOTH RINGS SHARE (2026-10-09 P0). On a linked floor a bay hooks
+         every tile of its own links inside its ring, and a tile two bays both hook belongs to the one later in the floor's order.
+         Laid from the newer bay into an older one standing a tile from it, that shared tile made the older bay read its own way IN
+         as a way OUT to the newer: the two handed work to each other (CHAIN_CYCLE — routing off for the whole station) while the
+         floor chimed CONNECTED. Such a lane goes round the shared tiles, or is refused TOO CLOSE. (The other way round the newer bay
+         owns the tile, and it IS its way in.) */
+      const sharedRing = (linked && A.t === 'bay' && B.t === 'bay' && doc.props.indexOf(A) > doc.props.indexOf(B))
+        ? (x, y) => inBox(A, x, y) && inBox(B, x, y) : () => false;
       // START set: a beltless junction starts ON its own tile; a machine already ON a line branches from a
       // free 4-neighbor of its tile (an out-lane); anything else starts from a pathable ring tile.
       let starts = [];
@@ -2381,6 +2389,8 @@ const WorldModel = (() => {
       else if (aOn) { for (const [dx, dy] of N4) { const x = A.x + dx, y = A.y + dy; if (pathable(x, y)) starts.push({ x, y }); } }
       else for (const t of ring(A)) if (pathable(t.x, t.y)) starts.push(t);
       if (linked) starts = starts.filter(t => !nearOther.has(beltKey(t.x, t.y)));
+      if (starts.length && !starts.some(t => !sharedRing(t.x, t.y))) return fail('TOO_CLOSE', 'these two BAYs stand too close — a belt from this one into that one would touch both at once. Move one a tile further away, then connect again');
+      starts = starts.filter(t => !sharedRing(t.x, t.y));
       if (!starts.length) return fail('FROM_BLOCKED', aJ ? 'no free tile beside the ' + A.t.toUpperCase() + ' to leave from — clear one of its four sides' : 'no free tile beside the start machine');
       // GOAL set: a beltless junction is entered THROUGH its own tile; a junction already on a line only via a
       // free 4-neighbour (the last tile aims INTO it = an in-lane); for docks, pathable ring tiles — EDGE tiles
@@ -2451,7 +2461,7 @@ const WorldModel = (() => {
           const preGoal = linked && bJ && !bOn && adj(t.x, t.y, B);
           for (const [dx, dy] of [[1, 0], [0, 1], [-1, 0], [0, -1]]) {
             const x = t.x + dx, y = t.y + dy, k = x + ',' + y;
-            if (prev.has(k) || !pathable(x, y)) continue;
+            if (prev.has(k) || !pathable(x, y) || sharedRing(x, y)) continue;
             if (avoid && foreignRing.has(k) && !want.has(k)) continue;
             if (linked) {
               if (preGoal && !(x === B.x && y === B.y)) continue;

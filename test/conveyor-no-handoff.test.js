@@ -13,7 +13,7 @@
 const A = require('./_assert.js');
 const fs = require('fs');
 const path = require('path');
-require('../frontend/app/pipeline.js');
+const P = require('../frontend/app/pipeline.js');
 const WM = require('../frontend/app/worldmodel.js');
 const LE = require('../frontend/app/lineedit.js');
 
@@ -91,6 +91,33 @@ const snap = st => JSON.stringify({ props: st.props(), belts: st.belts(), links:
   const p3 = st.placeBeltRun(run2[0], run2[1]);
   A.ok(p3.ok === true && p3.count === 4, 'a hand-drawn run from a step into a step is laid — ' + JSON.stringify(p3));
   A.ok(st.links().some(l => l.from.prop === bay.id && l.to.prop === lb2.id), '…and the floor reads it as WRITER → the new BAY');
+}
+
+/* ---------- A NEWER BAY INTO AN OLDER ONE A TILE AWAY: never a lane on a tile both rings share ----------
+   A tile two bays both hook belongs to the later one in the floor's order; a belt from the newer bay into the older one that ran
+   on such a tile made the older bay read its own way IN as a way OUT — the two handed work to each other (CHAIN_CYCLE, routing off
+   for the whole station) while the BELT tool chimed CONNECTED. Every spot round an existing step, both ways round. */
+{
+  let connects = 0, refused = 0;
+  const bad = [];
+  for (let dy = -4; dy <= 4; dy++) for (let dx = -4; dx <= 4; dx++) {
+    const d = WM.starterDoc();
+    for (const id in d.rooms) for (const r of d.rooms[id].rects) { r.x2 = 30; r.y2 = 24; }
+    const st = WM.create(d);
+    if (!LE.run(st, null, 'newLine', { role: 'WRITER' }, { near: { x: 12, y: 10 } }).ok) continue;
+    const old = st.props().find(p => p.t === 'bay');
+    const nb = st.addProp({ t: 'bay', x: old.x + dx, y: old.y + dy, w: 2, h: 2 });
+    if (!nb.ok) continue;
+    for (const p of st.props()) if (p.t === 'bay' && !p.agentId) st.assignPropAgent(p.id, 'ag_' + p.id);
+    const c = st.connectBelt(nb.id, old.id);
+    if (!c.ok) { refused++; if (c.error !== 'TOO_CLOSE' && c.error !== 'NO_PATH' && c.error !== 'FROM_BLOCKED' && c.error !== 'TO_BLOCKED') bad.push(dx + ',' + dy + ' refused ' + c.error); continue; }
+    connects++;
+    const plan = P.compileRoutingPlan(st.projectGeometry());
+    const nNext = (plan.dockChains[nb.id] || { next: [] }).next, oNext = (plan.dockChains[old.id] || { next: [] }).next;
+    if (plan.errors.some(e => e.code === 'CHAIN_CYCLE') || nNext.indexOf(old.id) < 0 || oNext.indexOf(nb.id) >= 0) bad.push(dx + ',' + dy + ' ' + JSON.stringify({ nNext, oNext }));
+  }
+  A.ok(connects > 40, 'a new BAY is belted into an older one from ' + connects + ' spots round it (' + refused + ' refused)');
+  A.eq(bad, [], 'every one hands work one way — the new BAY to the old — never back (no CHAIN_CYCLE); a lane that cannot avoid the shared tiles is refused TOO CLOSE');
 }
 
 /* ---------- THE WIRING: REFIT says it where the click was ---------- */
