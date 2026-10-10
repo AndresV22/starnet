@@ -21804,6 +21804,15 @@ async function runOnceCore(o) {
   let _capReached = !!(result && result.reason === 'budget');
   if (!_capReached && !providerUnmetered) { try { _capReached = !!budget.check(null, agentId, 0, Date.now(), null); } catch (e) { failNote('aux.budget', e); } }
   if (_capReached) _auxCandidates.length = 0;
+  // A TAINTED RUN TEACHES NOTHING DURABLE (2026-10-10): these passes turn the run's transcript into notes, lessons and
+  // skills that later — Full Access — runs read as trusted context, outside the per-run taint fence. Content the
+  // Commander did not author (a web page, an email, a stranger's message) must not be laundered into memory that way.
+  if (execution.taintedBy()) {
+    for (const pass of ['reflection', 'failure-review', 'study', 'threadmine', 'skill-review']) {
+      const at = _auxCandidates.indexOf(pass);
+      if (at >= 0) _auxCandidates.splice(at, 1);
+    }
+  }
   const _auxBudget = AuxGovernor.parseBudget(process.env.SKYNET_AUX_BUDGET);
   const _auxPlan = AuxGovernor.decide({ candidates: _auxCandidates, budget: _auxBudget, reserved: ['skill-review'] });
   const _auxSpend = new Set(_auxPlan.spend);
