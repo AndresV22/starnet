@@ -31,13 +31,16 @@ function makeRemoteHost(d) {
   if (typeof now !== 'function') throw new Error('makeRemoteHost needs an injected clock (deps.now)');
   const remoteRuns = new Map();   // runId -> { ac, agentId, streamId, deviceId, startedAt }
   const clip = (s, n) => String(s == null ? '' : s).slice(0, n);
+  const spriteSetOf = (skin) => { try { return (d.spriteSet && d.spriteSet(skin)) || ''; } catch (e) { note('remote.host.spriteSet', e); return ''; } };
   const broadcast = (evt) => { try { d.broadcast(evt); } catch (e) { note('remote.host.d.broadcast', e); } };
 
   function agentsList() {
     let looks = {};
     try { looks = (d.crewLooks && d.crewLooks()) || {}; } catch (e) { note('remote.host.crewLooks', e); looks = {}; }
     return d.roster().map(a => ({ agentId: a.agentId, name: a.name || a.agentId, model: a.model || null, provider: a.provider || null,
-      skin: clip((looks[a.agentId] && looks[a.agentId].skin) || '', 40), color: clip((looks[a.agentId] && looks[a.agentId].color) || '', 16) }));
+      skin: clip((looks[a.agentId] && looks[a.agentId].skin) || '', 40), color: clip((looks[a.agentId] && looks[a.agentId].color) || '', 16),
+      // the sprite set its skin draws with, so a device can fetch its walk/type tracks with no desk page open
+      sprite: clip(spriteSetOf((looks[a.agentId] && looks[a.agentId].skin) || ''), 40) }));
   }
 
   async function status() {

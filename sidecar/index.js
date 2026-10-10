@@ -10799,6 +10799,7 @@ const remoteHost = require('./remote/host.js').makeRemoteHost({
     return out;
   },
   portrait: (skin) => remotePortraits.forSkin(skin),
+  spriteSet: (skin) => remotePortraits.setFor(skin),
   sprites: (key) => remotePortraits.framesFor(key),
   // the run history the desk's activity feed reads (newest first)
   runHistory: (n) => runStore.list(null, { limit: n }),

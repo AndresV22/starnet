@@ -6,7 +6,9 @@
    falls back to the default one, exactly as the renderer does.
 
      const p = makePortraits({ fs, path, frontend })
-     p.forSkin('ultron') -> { skin, mime: 'image/png', data: <base64> } | null */
+     p.forSkin('ultron') -> { skin, mime: 'image/png', data: <base64> } | null
+     p.setFor('ultron')  -> the sprite SET that skin draws with ('ultron'), the default skin's set when unknown —
+                            what a device needs to ask framesFor('<set>.<track>.<facing>') without the desk page */
 'use strict';
 
 const { note } = require('../failopen.js');
@@ -81,7 +83,12 @@ function makePortraits(deps) {
     return out;
   }
 
-  return { forSkin, framesFor, skins: () => Array.from(load().keys()) };
+  function setFor(skin) {
+    const t = load();
+    return t.get(t.has(String(skin || '')) ? String(skin) : fallback) || '';
+  }
+
+  return { forSkin, framesFor, setFor, skins: () => Array.from(load().keys()) };
 }
 
 module.exports = { makePortraits };
