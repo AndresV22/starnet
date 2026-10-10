@@ -1818,6 +1818,8 @@
             key: usingCodex ? '' : sec.key, model: sec.model, provider, baseUrl: sec.baseUrl || sec.base_url || '', reasoningEffort, system, messages, agentId, isTask,
             emit: sink, signal: ac.signal, runId, lineId, trigger: 'event',
             streamId: canonicalStreamId || undefined,
+            // a VOICE NOTE is a spoken turn: the voice chat model may answer it (never a work line's stage)
+            voiceTurn: (!!spoken && !lineId) || undefined,
             initialTaint: entryTaint || (mediaIngest.attachments.length ? 'channel attachment' : (carriesThirdPartyText(msg) ? 'forwarded message' : null)),
             // RUN ORIGIN (run-origin.js entryUntrusted): the job itself is third-party content, so Full Access does not
             // lift this run's taint lock. Every hop of its line inherits the same verdict (lineEntryUntrusted below).
