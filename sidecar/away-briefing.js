@@ -161,9 +161,6 @@ function compose(input) {
 
   const items = [].concat(newBuilds, failedBuilds, routineList, loopList, delegatedList, drafts);
   if (olderBuilds.length) items.push({ kind: 'builds-waiting', count: olderBuilds.length, runIds: olderBuilds.map(b => b.runId), open: olderBuilds[0].open });
-  // what the station will pick up next, as an item too, so the organized view can carry everything the text says
-  const focus = o.focus && str(o.focus.title).trim() ? o.focus : null;
-  if (focus) items.push({ kind: 'next', title: clip(focus.title, TITLE_MAX), why: Array.isArray(focus.why) ? clip(focus.why[0], EXCERPT_MAX) : '' });
 
   // ---- the text: needs-you first, then what got done, then ideas, then what's next. Plain words. ----
   const L = [];
@@ -202,6 +199,7 @@ function compose(input) {
     if (drafts.length > MAX_DRAFTS) L.push('- …and ' + (drafts.length - MAX_DRAFTS) + ' more');
   }
 
+  const focus = o.focus && str(o.focus.title).trim() ? o.focus : null;
   if (focus) {
     const why = Array.isArray(focus.why) ? clip(focus.why[0], EXCERPT_MAX) : '';
     L.push(''); L.push('**Next up:** ' + clip(focus.title, TITLE_MAX) + (why ? ' — ' + why : ''));

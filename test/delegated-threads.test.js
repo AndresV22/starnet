@@ -154,7 +154,8 @@ const roster = new Map([['researcher', { system: 'R', name: 'MIRA' }], ['writer'
   A.ok(/function lineHtml\(b, parentId\)/.test(dg) && !/function cardHtml/.test(dg), 'COMMS shows the calm delegated line, not the card');
   A.ok(/function railKidsChip\(item\)/.test(app) && /if \(item\.type === 'kids'\) return '';/.test(app), 'SESSIONS: a count chip on the parent, no fold header row');
   A.ok(/const keep = flat\.filter\(w => w\.id === activeId \|\| pending\.has\(w\.id\)\)/.test(app), 'folded threads stay out of the list unless open or waiting on you');
-  A.ok(/last\.classList\.add\('bf-replaced'\)/.test(bf) && /head === TITLE \|\| head\.indexOf\(TITLE \+ ' · since '\) === 0/.test(bf), 'only the report\'s own header line is tucked behind its card, never a reply that starts with the same words');
+  // COMING BACK keeps NOVA's own report + its chip row (Andrew 10-10: the boxed card looked unlike everything else)
+  A.ok(/else if \(it\.kind === 'delegated'\) \{ open = it\.open;/.test(bf) && !/bf-card|bf-replaced/.test(bf), 'the away report offers delegated work as a chip into its conversation, never a separate card');
   A.ok(/if \(prompt && !ws\.parentStreamId\) ws\.history\.push\(/.test(sc), 'a worker\'s own thread never repeats its brief as a delegated marker');
   A.ok(/if \(!local\.projectRoot && row\.projectRoot\)/.test(ov), 'a thread the page already had learns its project');
   A.ok(/Channels\.pendingOf\(k\.parentStreamId\)/.test(app), 'the SESSIONS chip turns gold when a worker waits on you in the parent');
