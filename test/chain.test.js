@@ -356,7 +356,9 @@ let T = 0; const clock = () => (T += 10);
     A.eq(refused.hops.length, 0, 'a refused line runs no downstream stage');
     A.eq(refused.text, 'raw findings', "…and still delivers the last good output (a chain never gates the reply)");
     A.ok(refused.stopped, 'THE STOP IS REPORTED — a truncated line no longer claims it finished');
-    A.ok(/did not come in through this line/.test(refused.stopped), '…in plain language about the door it came in');
+    A.ok(/started on a different line/.test(refused.stopped), '…in plain language: the job belongs to another line — ' + refused.stopped);
+    A.ok(/lines can.t hand work to each other yet/.test(refused.stopped), '…and says lines do not hand work on to each other (no jargon about a "door")');
+    A.ok(/stopped at researcher$/.test(refused.stopped), '…naming where it stopped');
     A.ok(!/lineId|p10|belt/.test(refused.stopped), '…with no ids and no belt vocabulary in it');
 
     // (b) a genuinely terminal dock stays silent — the common case must not grow a spurious note
