@@ -126,6 +126,60 @@ function packageOnDisk(name) {
     assert.equal(localVoice.status().available, expected, 'clearing the switch restores the probed truth');
   }
 
+  /* ---- NATURAL SPEECH ASSEMBLY (engine-free: a stub model stands in for Kokoro) -------------------------
+     Kokoro reads at most 510 phoneme tokens per call and silently drops the rest, so a long chunk lost its
+     back half. renderSpeech must speak EVERY word, one sentence-sized piece at a time, joined by the pause
+     its punctuation calls for — never cut a number apart, never pass a piece over the cap. */
+  {
+    const pieces = localVoice._speechPieces;
+    assert.deepEqual(pieces('Version 0.13.2 is out. It ships today!'), ['Version 0.13.2 is out. It ships today!'],
+      'short sentences share one piece and a version number is never split at its dots');
+    const long = Array.from({ length: 14 }, (_, i) => `Sentence number ${i + 1} carries a fair amount of ordinary words, like a real reply would.`).join(' ');
+    const cut = pieces(long);
+    assert.ok(cut.length > 1, 'a long reply is cut into several pieces');
+    assert.ok(cut.every(p => p.length <= 300), 'no piece passes the 300-character cap (Kokoro truncates past ~510 tokens)');
+    assert.equal(cut.join(' '), long, 'every word survives the cut, in order');
+    const runOn = 'word '.repeat(180).trim() + ', and then a final clause.';
+    const runCut = pieces(runOn);
+    assert.ok(runCut.every(p => p.length <= 300) && runCut.join(' ') === runOn, 'a single over-long sentence is split without losing words');
+    assert.deepEqual(pieces('   '), [], 'blank text has nothing to say');
+
+    const calls = [];
+    const RATE = 24000;
+    const stub = {
+      async generate(text, opts) {
+        calls.push({ text, opts });
+        // 50 ms silence + 200 ms of "voice" + 300 ms silence, like an engine's padded output
+        const a = new Float32Array(Math.round(RATE * 0.55));
+        for (let i = Math.round(RATE * 0.05); i < Math.round(RATE * 0.25); i++) a[i] = 0.3 * Math.sin(i / 6);
+        return { audio: a, sampling_rate: RATE };
+      }
+    };
+    const wav = await localVoice._renderSpeech(stub, long, { voice: 'am_michael', speed: 0.9 });
+    assert.equal(calls.length, cut.length, 'one engine call per piece — the whole reply is synthesized');
+    assert.ok(calls.every(c => c.opts.voice === 'am_michael' && c.opts.speed === 0.9), 'every piece keeps the chosen voice and pace');
+    assert.equal(wav.toString('ascii', 0, 4), 'RIFF');
+    assert.equal(wav.readUInt16LE(20), 1, 'PCM');
+    assert.equal(wav.readUInt16LE(34), 16, '16-bit samples');
+    assert.equal(wav.readUInt32LE(24), RATE);
+    const seconds = (wav.length - 44) / 2 / RATE;
+    // per piece: 200 ms voice + 30 ms lead + 50 ms tail + a 240 ms sentence pause — the 350 ms of engine
+    // padding is gone, the punctuation pause is there.
+    const expectS = cut.length * (0.2 + 0.03 + 0.05 + 0.24);
+    assert.ok(Math.abs(seconds - expectS) < 0.02, `edges trimmed and sentence pauses inserted (${seconds.toFixed(3)}s vs ${expectS.toFixed(3)}s)`);
+    calls.length = 0;
+    await localVoice._renderSpeech(stub, 'hello', { voice: 'not-a-voice' });
+    assert.equal(calls[0].opts.voice, 'am_onyx', 'an unknown voice id speaks in the default voice');
+
+    const before = process.env.STARNET_KOKORO_DTYPE;
+    delete process.env.STARNET_KOKORO_DTYPE;
+    assert.deepEqual(localVoice._kokoroDtypes(), ['fp32', 'q4'], 'full precision first, q4 only as the fallback');
+    process.env.STARNET_KOKORO_DTYPE = 'q4';
+    try { assert.deepEqual(localVoice._kokoroDtypes(), ['q4'], 'STARNET_KOKORO_DTYPE pins one precision'); }
+    finally { if (before === undefined) delete process.env.STARNET_KOKORO_DTYPE; else process.env.STARNET_KOKORO_DTYPE = before; }
+    assert.equal(localVoice.status().ttsPrecision, '', 'no precision is reported before one has actually loaded');
+  }
+
   console.log(`local-voice.test.js: ok (models ${expected ? 'installed' : 'absent'})`);
 })().catch(error => {
   console.error(error);
