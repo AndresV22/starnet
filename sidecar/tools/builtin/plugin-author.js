@@ -278,6 +278,8 @@ function makePluginAuthorTools(deps) {
     capability: 'pluginauthor',
     impact: 'none',
     requiresConsent: !!ASKS[t.name],
+    // a cached "Always" never carries submit on ANY surface (the broker only refused it for unattended runs) — 2026-10-10
+    freshConsent: t.name === 'plugin.submit',
     network: false
   }, t));
 

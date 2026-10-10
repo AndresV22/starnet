@@ -24654,6 +24654,9 @@ async function serveWorkspaceFile(req, res) {
          resolving it in the agent's private workspace OPENED A DIFFERENT FILE (an older same-named one) or a 404. Only a
          currently BLESSED project root; a relative, '..'-free path whose realpath stays inside it; and the same protected-
          file floor the agents' own file tools meet (.env, .git …). */
+      // a UNC / device path never reaches realpath: resolving \\host\share would open an outbound SMB session (and
+      // hand the host this user's NTLM hash) before the blessed-root check could refuse it (2026-10-10)
+      if (/^[\\/]{2}/.test(String(project)) || String(project).indexOf('\0') >= 0) throw new Error('escape: network paths are never project roots');
       const root = fs.realpathSync(String(project));
       if (!isBlessedRoot(root)) throw new Error('escape: that project is not trusted');
       if (!rel || rel.indexOf('\0') >= 0 || path.isAbsolute(rel) || /^[A-Za-z]:/.test(rel) || /(^|[\\/])\.\.([\\/]|$)/.test(rel)) throw new Error('illegal path');
