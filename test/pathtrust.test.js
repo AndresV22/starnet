@@ -155,6 +155,37 @@ function scriptPrompt(decision) {
       'the protected-file floor still denies under Full Access');
   }
 
+  // ---- 2026-10-10 THE CREDENTIAL FLOOR: THIS COMPUTER (Full Access) lets unattended runs read any non-hardline
+  //      path with no card, so well-known credential stores are hardline: SSH/cloud/signing keys, saved logins,
+  //      the OS credential store, browser profiles. Only Full Power (unrestrictedHost) reaches them. ----
+  {
+    const home = path.join(ROOT, 'home');
+    const stores = [['.ssh', 'id_ed25519'], ['.aws', 'credentials'], ['.tauri', 'starnet-updater.key'], ['.codex', 'auth.json'],
+      [path.join('AppData', 'Local', 'Google', 'Chrome', 'User Data', 'Default'), 'Login Data']];
+    for (const [dir, file] of stores) { await fsp.mkdir(path.join(home, dir), { recursive: true }); await fsp.writeFile(path.join(home, dir, file), 'secret'); }
+    await fsp.writeFile(path.join(home, '.git-credentials'), 'https://u:p@h');
+    await fsp.writeFile(path.join(home, 'notes.ssh.txt'), 'not a key');
+    const h = harness({ roots: [home] });
+    for (const [dir, file] of stores) {
+      await rejects(h.pt.guard(path.join(home, dir, file), { scope: 'read', surface: 'autonomous', fullAccess: true }),
+        'credential floor: ' + dir + ' is denied to an unattended Full Access run even under a blessed root');
+    }
+    await rejects(h.pt.guard(path.join(home, '.git-credentials'), { scope: 'read', surface: 'interactive', prompt: scriptPrompt('always'), fullAccess: true }),
+      'credential floor: saved git credentials are denied to a watched run too');
+    const ok = await h.pt.guard(path.join(home, 'notes.ssh.txt'), { scope: 'read', surface: 'autonomous', fullAccess: true });
+    A.ok(ok && ok.abs, 'a file merely NAMED like a credential store still reads (segment match, not substring)');
+    let msg = '';
+    try { await h.pt.guard(path.join(home, '.ssh', 'id_ed25519'), { scope: 'read', surface: 'autonomous', fullAccess: true }); } catch (e) { msg = e.message; }
+    A.ok(/credential floor/.test(msg) && /Full Power/.test(msg), 'the refusal names the floor and the one switch that reaches it — got: ' + msg);
+    const power = await h.pt.guard(path.join(home, '.ssh', 'id_ed25519'), { scope: 'read', surface: 'autonomous', unrestrictedHost: true });
+    A.ok(power && power.unrestrictedHost === true, 'Full Power (the operator\'s explicit host-wide switch) still reaches it');
+    // a symlink named innocently that points INTO a credential store is caught on its real target
+    const link = path.join(home, 'innocent.txt');
+    let linked = false;
+    try { await fsp.symlink(path.join(home, '.ssh', 'id_ed25519'), link, 'file'); linked = true; } catch (_) {}
+    if (linked) await rejects(h.pt.guard(link, { scope: 'read', surface: 'autonomous', fullAccess: true }), 'credential floor is re-proven on the symlink\'s real target');
+  }
+
   // ---- Full Power: the whole local computer, including protected paths, with no project card ----
   {
     const h = harness();

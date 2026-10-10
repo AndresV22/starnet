@@ -97,6 +97,26 @@
     // returns it; pathInside is case-insensitive on win32, so any residual case difference still matches.
     function normalizeRoot(abs) { return P.resolve(String(abs == null ? '' : abs)); }
 
+    /* THE CREDENTIAL FLOOR (2026-10-10 security pass). The THIS COMPUTER profile gives every run — scheduled and
+       chat-driven ones included — read access to any non-hardline path with no card, and fs.read never asks. So a
+       prompt-injected routine could read the user's SSH keys, cloud CLI logins, other AI CLIs' tokens, release
+       signing keys or browser profiles and fetch them out. These well-known credential stores are part of the
+       floor: no project grant or Full Access reaches them; only host-wide Full Power (unrestrictedHost, which
+       bypasses this whole function) does — the operator's explicit "this agent is me" switch. Matched on path
+       SEGMENTS (forward-slashed, case-folded), so a name merely containing ".ssh" is not caught. */
+    const CREDENTIAL_STORES = [
+      [/(^|\/)\.(ssh|gnupg|aws|azure|kube|tauri|starnet-signing|starnet-keys|fly|codex)(\/|$)/, 'SSH, GPG, cloud CLI and signing keys'],
+      [/(^|\/)(\.netrc|_netrc|\.git-credentials|\.pypirc|\.pgpass|\.npmrc)$/, 'saved login credentials'],
+      [/(^|\/)\.docker\/config\.json$|(^|\/)\.config\/(gcloud|gh)(\/|$)|(^|\/)\.claude\/\.credentials\.json$/, 'cloud and developer CLI logins'],
+      [/(^|\/)microsoft\/(credentials|protect|vault)(\/|$)|(^|\/)library\/keychains(\/|$)|(^|\/)\.local\/share\/keyrings(\/|$)/, 'the operating system credential store'],
+      [/(^|\/)(google\/chrome|chromium|microsoft\/edge|bravesoftware\/brave-browser|vivaldi|opera software)(\/|\s)?(user data|beta|dev)?(\/|$)|(^|\/)(mozilla\/firefox|\.mozilla\/firefox|\.config\/(google-chrome|chromium|brave-?software))(\/|$)|(^|\/)library\/(cookies|application support\/(google\/chrome|firefox|microsoft edge|bravesoftware))(\/|$)/, 'browser profiles (cookies and saved passwords)']
+    ];
+    function credentialFloor(p) {
+      const s = String(p || '').replace(/\\/g, '/').toLowerCase();
+      for (const [rx, what] of CREDENTIAL_STORES) if (rx.test(s)) return what;
+      return null;
+    }
+
     // the unconditional floor — throws a reason if the path is illegal or protected regardless of any grant.
     function hardlineReason(rawAbs, resolvedAbs) {
       if (rawAbs.indexOf('\0') >= 0) return 'illegal path (NUL): ' + rawAbs;
@@ -105,6 +125,8 @@
       const probe = resolvedAbs || rawAbs;
       if (/(^|[\\/])\.env(\.|$)/i.test(probe)) return 'reading ' + probe + ' is blocked by the protected-file floor (.env)';
       if (/(^|[\\/])\.git([\\/]|$)/i.test(probe)) return 'reading ' + probe + ' is blocked by the protected-file floor (.git)';
+      const cred = credentialFloor(probe);
+      if (cred) return 'reading ' + probe + ' is blocked by the credential floor (' + cred + ') — only Full Power reaches it';
       return null;
     }
 
