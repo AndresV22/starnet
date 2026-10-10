@@ -18,7 +18,7 @@
   "expectedClaimCount": 37,
   "releaseSurface": {
     "algorithm": "sha256",
-    "sourceCommit": "c6be6e4e2908cfd02a9ad6eeecf3b113014cf68d",
+    "sourceCommit": "eb23cb0437f9d31136a5c8b8e6ed2030b7c1ecfe",
     "pathSetSha256": "924d81529f0a80ffbfd9c068c1357735fcab2c4a41a985bda183850f173d5e3e",
     "files": [
       {
@@ -323,8 +323,8 @@
       },
       {
         "path": "frontend/app/briefing.js",
-        "bytes": 15616,
-        "sha256": "667879ddaed5221ed0f9c278d2253b0f206f01be5fa296a376769f15bff7df55"
+        "bytes": 9919,
+        "sha256": "fcae68ce62c174555dd45d427db7cdfa2660d1be6cd0cbf2cd6da3683abd1b75"
       },
       {
         "path": "frontend/app/browserstream.js",
@@ -1533,8 +1533,8 @@
       },
       {
         "path": "frontend/css/beat-cards.css",
-        "bytes": 25263,
-        "sha256": "7f5a8cd5c77ef16f6ec4332708e6f20439861354040c3272256d947dc46a387e"
+        "bytes": 20246,
+        "sha256": "e46a5e58ceddcefb79e3efe7502679f34dbb384540a7eaa3f8691ee624cc9b4d"
       },
       {
         "path": "frontend/css/cabinet-clean.css",
