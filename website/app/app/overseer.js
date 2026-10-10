@@ -18,7 +18,11 @@ const Overseer = (() => {
         const local = Workstreams.get(row.id);
         // a session this page already had (e.g. delivered before the poll adopted it) learns its parent once, so the
         // rail can fold it under the conversation that delegated it; adopt() leaves existing records untouched
-        if (local) { if (!local.parentStreamId) { local.parentStreamId = String(row.parentStreamId); adopted = true; } continue; }
+        if (local) {
+          if (!local.parentStreamId) { local.parentStreamId = String(row.parentStreamId); adopted = true; }
+          if (!local.projectRoot && row.projectRoot) { local.projectRoot = String(row.projectRoot); adopted = true; }
+          continue;
+        }
         if (Workstreams.adopt(row)) adopted = true;
       }
       last = data;

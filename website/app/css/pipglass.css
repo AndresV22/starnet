@@ -557,7 +557,12 @@ body.glass-demo:not(.hud-mode) #left #workstreams .ws-row .ws-kids-n:is(:hover, 
 body.glass-demo:not(.hud-mode) #left #workstreams .ws-row .ws-kids-n[aria-expanded="true"] { color: var(--ph-bright); background: rgba(var(--ph-rgb), .12); }
 body.glass-demo:not(.hud-mode) #left #workstreams .ws-row .ws-kids-n.working { color: var(--ph); border-color: rgba(var(--ph-rgb), .6); }
 body.glass-demo:not(.hud-mode) #left #workstreams .ws-row .ws-kids-n.waiting { color: var(--gold); border-color: rgba(var(--gold-rgb), .7); }
-body.glass-demo.rows-inbox:not(.hud-mode) #left #workstreams .ws-row .ws-kids-n { grid-area: pin; justify-self: end; }
+/* in the grid layouts the chip takes its own cell, so a pinned conversation keeps its pin beside it */
+body.glass-demo.rows-inbox:not(.hud-mode) #left #workstreams .ws-row:has(> .ws-kids-n) { grid-template-areas: "dot agent pin meta" ".   title title kids"; }
+body.glass-demo.rows-inbox:not(.hud-mode) #left #workstreams .ws-row.attn:has(> .ws-kids-n) { grid-template-areas: "dot agent pin menu" ".   title title kids" ".   meta meta meta"; }
+body.glass-demo:not(.rows-inbox):not(.hud-mode) #left #workstreams .ws-row.attn:has(> .ws-kids-n) { grid-template-areas: "dot title kids pin" ". meta meta menu"; }
+body.glass-demo:not(.hud-mode) #left #workstreams .ws-row > .ws-kids-n { grid-area: kids; justify-self: end; align-self: start; }
+body.glass-demo.rows-inbox:not(.hud-mode) #left #workstreams .ws-row.ws-child { margin-left: 30px; }
 body.glass-demo:not(.hud-mode) #left #workstreams .ws-row.ws-child::after {
   content: ''; position: absolute; left: -13px; top: -5px; height: calc(50% + 5px); width: 9px; pointer-events: none;
   border-left: 1px solid rgba(var(--ph-rgb), .3); border-bottom: 1px solid rgba(var(--ph-rgb), .3); border-bottom-left-radius: 4px;

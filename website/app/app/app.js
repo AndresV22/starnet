@@ -4195,6 +4195,9 @@ const App = (() => {
   // one child's state for the fold header — the same truth as its own lamp (railRowState) plus the durable ledger
   function railKidState(k, running) {
     const st = railRowState(k);
+    // a worker's approval/question is raised on its PARENT conversation, named for the worker (the lead's consent)
+    const pp = typeof Channels !== 'undefined' && Channels.pendingOf && k.parentStreamId ? Channels.pendingOf(k.parentStreamId) : null;
+    if (pp && pp.agentId && pp.agentId === k.agentId) return 'waiting';
     return st.attn ? 'waiting' : (st.busy || running.has(k.id)) ? 'working' : k.lastRunOk === false ? 'failed' : (k.runIds || []).length ? 'done' : 'starting';
   }
   function railKidsSummary(kids) {

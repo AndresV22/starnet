@@ -189,7 +189,8 @@ const Briefing = (() => {
       for (const n of agentRows) if (n.classList) n.classList.remove('bf-replaced');
       const last = agentRows[agentRows.length - 1];
       const body = last && last.querySelector ? (last.querySelector('.body') || last) : null;
-      if (body && last.classList && String(body.textContent || '').trim().indexOf(TITLE) === 0) last.classList.add('bf-replaced');
+      const head = body ? String((body.firstElementChild || body).textContent || '').trim() : '';
+      if (last.classList && (head === TITLE || head.indexOf(TITLE + ' · since ') === 0)) last.classList.add('bf-replaced');
     }
   }
 

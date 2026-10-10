@@ -658,8 +658,8 @@
      thing in the app). A display projection only, like railGroups: never merges, moves or deletes a session.
      A row whose parentStreamId names a TOP-LEVEL row of this same list renders right under it, behind one fold
      header ({type:'kids'}); a child whose parent is filtered out, archived or missing stays a top-level row, so
-     nothing is ever hidden. While folded, a child still shows when opts.keep names it (open, busy, waiting,
-     failed, unread) — the fold only tucks away work you have already seen. Input order is kept within each level. */
+     nothing is ever hidden. While folded, a child still shows when opts.keep names it (the rail keeps the open one and
+     any waiting on you). Input order is kept within each level. */
   function nestRows(rows, options) {
     const opts = options || {}, expanded = new Set(opts.expanded || []), keep = new Set(opts.keep || []);
     const list = Array.isArray(rows) ? rows : [];

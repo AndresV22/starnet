@@ -54,8 +54,10 @@ const Delegated = (() => {
       const t = threads.get(k.id);
       const lead = (t && t.leadRunId) || (worker && worker.parentRunId) || ('at:' + Math.floor((+k.createdAt || 0) / 60000));
       if (!groups.has(lead)) groups.set(lead, { lead, at: +k.createdAt || 0, rows: [] });
-      groups.get(lead).rows.push({ ws: k, worker });
+      groups.get(lead).rows.push({ ws: k, worker, slot: (t && Number(t.slot)) || 0 });
     }
+    // a dispatch's workers in the order the lead asked for them (threads made in the same instant tie on createdAt)
+    groups.forEach(g => g.rows.sort((x, y) => x.slot - y.slot));
     return Array.from(groups.values()).sort((a, b) => a.at - b.at);
   }
 
@@ -85,7 +87,10 @@ const Delegated = (() => {
   /* the row's state, in priority order. `parentLive` = the lead run that dispatched it is still running on this page. */
   function stateOf(r, parentId, lead) {
     const k = r.ws, w = r.worker, C = typeof Channels !== 'undefined' ? Channels : null;
-    const pend = C && C.pendingOf ? C.pendingOf(k.id) : null;
+    // a worker's approval or question lands on the conversation that dispatched it (the lead's consent), named for the
+    // worker; its own thread only holds one when the Commander is talking to it there
+    const parentPend = C && C.pendingOf ? C.pendingOf(parentId) : null;
+    const pend = (C && C.pendingOf ? C.pendingOf(k.id) : null) || (parentPend && parentPend.agentId && parentPend.agentId === k.agentId ? parentPend : null);
     if (pend) return { cls: 'waiting', live: pend.tool === 'brief.ask' ? 'asking you a question' : 'waiting for your approval', t: '' };
     if (w && w.status === 'running') {
       return { cls: 'working', live: doing(steps.get(String(w.runId))), t: clock(Date.now() - (+w.startedAt || Date.now())), stop: !!w.canInterrupt, worker: w };
@@ -195,7 +200,7 @@ const Delegated = (() => {
       let j = null; try { j = await r.json(); } catch (_) { j = null; }
       if (!r.ok || (j && j.ok === false)) throw new Error((j && j.error) || ('HTTP ' + r.status));
     } catch (e) {
-      key.disabled = false; key.textContent = 'STOP';
+      key.disabled = false; key.textContent = 'stop';
       if (typeof StationUI !== 'undefined' && StationUI.notify) StationUI.notify('Could not stop that worker: ' + e.message, 'warn', undefined, { kind: 'alert' });
     }
     if (typeof Overseer !== 'undefined' && Overseer.refresh) Overseer.refresh();
