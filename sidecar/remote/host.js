@@ -23,6 +23,7 @@
 'use strict';
 
 const { note } = require('../failopen.js');
+const { withVoiceStyle } = require('./voice-style.js');
 
 const TEXT_FLUSH_MS = 250;
 
@@ -262,7 +263,7 @@ function makeRemoteHost(d) {
     // and the phone's "accepted" reply must leave first (measured: the ack took 1.3 s behind a microtask start).
     new Promise((resolve) => setImmediate(resolve)).then(() => d.runOnce({
       key: cred.key, model: cred.model, provider: cred.provider, baseUrl: cred.baseUrl || '', reasoningEffort: cred.reasoningEffort,
-      system: cred.system, messages, agentId: o.agentId, isTask,
+      system: o.voice ? withVoiceStyle(cred.system) : cred.system, messages, agentId: o.agentId, isTask,
       emit, signal: ac.signal, runId, streamId, trigger: 'event',
       surface: 'interactive', prompt, ownerTrusted: true, floorless: true, broadcast: true, reflect: true,
       // A PHONE WORKS WITH THE DESK'S PERMISSIONS (Andrew 2026-10-02: "full access so I can vibe code on the go"): an

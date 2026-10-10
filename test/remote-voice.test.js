@@ -5,6 +5,7 @@
 'use strict';
 const A = require('./_assert.js');
 const nodeCrypto = require('crypto');
+const fs = require('fs');
 const { makeRemoteVoice, opusFramesToOgg, oggCrc, wavToPcm16, decodeAdpcm, makeAdpcmEncoder, splitSentences, ADPCM_MIME, MAX_FRAMES, MAX_SPEECH_CHUNK, VOICE_TTL_MS } = require('../sidecar/remote/voice.js');
 const { makeGateway } = require('../sidecar/remote/gateway.js');
 const { oggOpusToMono16kFloat32 } = require('../sidecar/media-service.js');
@@ -275,6 +276,24 @@ function parsePages(buf) {
     const bare = makeGateway({ host: {}, approvals: { size: () => 0 }, now: () => 1 });
     const none = await bare.call({ verb: 'hear', args: {} }, { deviceId: 'devA' });
     A.ok(!none.ok && /cannot do voice/.test(none.error), 'a station without voice says so');
+  }
+
+  /* ---------- 5. a question spoken on a voice-only device gets a reply shaped to be heard ---------- */
+  {
+    const { withVoiceStyle, VOICE_SURFACE } = require('../sidecar/remote/voice-style.js');
+    const sent = [];
+    const host = { send: async (o) => { sent.push(o); return { runId: 'r1', streamId: 's1' }; } };
+    const gw = makeGateway({ host, approvals: { size: () => 0 }, now: () => 1 });
+    await gw.call({ verb: 'send', args: { agentId: 'agent', text: 'what time is it', voice: true } }, { deviceId: 'devA' });
+    await gw.call({ verb: 'send', args: { agentId: 'agent', text: 'from the phone' } }, { deviceId: 'devB' });
+    await gw.call({ verb: 'send', args: { agentId: 'agent', text: 'sneaky', voice: 'yes' } }, { deviceId: 'devB' });
+    A.eq(sent.map((o) => o.voice), [true, false, false], 'only an explicit voice:true marks the run as spoken (a phone is unchanged)');
+    const sys = withVoiceStyle('You are NOVA, the overseer.');
+    A.ok(sys.startsWith('You are NOVA, the overseer.') && sys.endsWith(VOICE_SURFACE), "the agent's own system prompt is kept, the voice rules follow it");
+    A.ok(/first sentence/.test(VOICE_SURFACE) && /markdown/.test(VOICE_SURFACE) && /read aloud/.test(VOICE_SURFACE), 'the rules: answer first, no markdown, it is heard not read');
+    A.eq(withVoiceStyle(''), VOICE_SURFACE, 'an agent with no system prompt still gets them');
+    const hostSrc = fs.readFileSync(require('path').join(__dirname, '../sidecar/remote/host.js'), 'utf8');
+    A.ok(hostSrc.includes('system: o.voice ? withVoiceStyle(cred.system) : cred.system'), 'host.send applies them to the run it starts');
   }
 
   A.report('remote-voice');

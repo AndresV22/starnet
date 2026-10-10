@@ -13,7 +13,8 @@
      status                          crew, live runs, the needs-you count
      threads   { agentId?, limit? }  recent conversations (newest first)
      thread    { streamId, limit? }  one conversation's turns, oldest first
-     send      { agentId, text, streamId? }   start a task; the run lives on the station, not on this socket
+     send      { agentId, text, streamId?, voice? }   start a task; the run lives on the station, not on this socket
+                                     (voice: spoken on a voice-only device: the reply is shaped to be heard)
      stop      { runId }             abort a live run, all the way to the provider
      approvals                       every open approval and question on the station
      decide    { runId, promptId, decision }   once | session | deny   (never always / full from a phone)
@@ -89,7 +90,8 @@ function makeGateway(deps) {
       if (text.length > MAX_TEXT) return bad('that message is too long for one task (' + MAX_TEXT + ' characters max)');
       let streamId = a.streamId == null || a.streamId === '' ? '' : String(a.streamId);
       if (streamId && !STREAM_RE.test(streamId)) return bad('unknown conversation');
-      const r = await host.send({ agentId, text, streamId, deviceId: ctx.deviceId });
+      // voice: the message was spoken on a voice-only device; the reply will only be heard (remote/voice-style.js)
+      const r = await host.send({ agentId, text, streamId, deviceId: ctx.deviceId, voice: a.voice === true });
       return r && r.ok === false ? bad(r.error || 'the task could not start') : good(r);
     },
 
