@@ -47,7 +47,8 @@ async function provider() {
     }
     else if (system.includes('[ORCHESTRATION]')) {
       if (!used.includes('brief_proceed')) call('brief_proceed', { objective: 'Get the launch ready with the crew', deliverable: 'Competitor scan, pricing page draft, launch email' });
-      else if (!used.includes('team_dispatch') && crew.length) call('team_dispatch', { background: true, workers: crew.slice(0, 3).map((id, i) => ({ agentId: id, prompt: TASKS[i].prompt })) });
+      // "quick …" asks run the workers in the FOREGROUND (the lead waits for them inside its own run)
+      else if (!used.includes('team_dispatch') && crew.length) call('team_dispatch', { background: !/\bquick\b/i.test(user), workers: crew.slice(0, /\bquick\b/i.test(user) ? 2 : 3).map((id, i) => ({ agentId: id, prompt: TASKS[i].prompt })) });
       else send({ content: crew.length ? 'Three of the crew are on it: competitors, the pricing page and the launch email. Each has its own thread under this conversation.' : 'There is no crew to delegate to yet: recruit a specialist or two first.' });
     }
     else send({ content: 'Done.' });

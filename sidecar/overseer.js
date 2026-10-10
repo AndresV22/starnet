@@ -40,7 +40,10 @@ function makeOverseer(deps) {
     for (const w of state.threads) {
       if (deleted.has(w.id)) { rows.delete(w.id); continue; }
       const visible = rows.get(w.id);
-      rows.set(w.id, Object.assign({}, w, visible || {}, { parentStreamId: w.parentStreamId, projectHome: !!w.projectHome }));
+      // the page's saved copy wins for what the Commander edits (title, lane…), but never blanks the project this thread
+      // was filed under: a page that adopted it before learning the project saves projectRoot:null
+      rows.set(w.id, Object.assign({}, w, visible || {}, { parentStreamId: w.parentStreamId, projectHome: !!w.projectHome,
+        projectRoot: (visible && visible.projectRoot) || w.projectRoot || null }));
     }
     return Array.from(rows.values()).filter(w => !w.archived).map(w => ({ ...w,
       title: w.title || (w.id === legacy.generalId ? 'General' : 'Untitled') }));
@@ -64,7 +67,8 @@ function makeOverseer(deps) {
     const agentId = args.agentId || parent.agentId || 'agent';
     if (!valid(agentId) || !deps.hasAgent(agentId)) throw new Error('unknown crew agent');
     const row = { id: deps.newId(), title, agentId, parentStreamId: parent.id,
-      projectRoot: parent.projectRoot || null, requestId: String(args.requestId || ''),
+      // the parent's project, or the project the creating run was admitted under (a page-saved parent row can lag it)
+      projectRoot: parent.projectRoot || (args.projectRoot ? String(args.projectRoot) : null), requestId: String(args.requestId || ''),
       kind: 'chat', lane: 'active', history: [], runIds: [], createdAt: deps.now(), lastActiveAt: deps.now() };
     return update(s => { s.threads.push(row); return row; });
   }
@@ -137,7 +141,9 @@ function makeOverseer(deps) {
     parentStreamId: w.parentStreamId || '', projectRoot: w.projectRoot || null, projectHome: !!w.projectHome,
     kind: w.kind, lane: w.lane, createdAt: w.createdAt,
     // the lead run that filed this thread (requestId = '<leadRunId>:<n|title>'): the page groups a dispatch's threads by it
-    leadRunId: String(w.requestId || '').split(':')[0] })), reviews: copy(state.reviews), paused: emergencyPaused || !!state.paused }; }
+    leadRunId: String(w.requestId || '').split(':')[0],
+    // the worker slot in that dispatch ('<leadRunId>:<n>'): the page lists a dispatch's workers in the order they were asked
+    slot: Number(String(w.requestId || '').split(':').pop()) || 0 })), reviews: copy(state.reviews), paused: emergencyPaused || !!state.paused }; }
   function resumeReviews() {
     // A damaged optional coordination store must not prevent ordinary chat.
     // Reads/creates still refuse, and the poller remains paused; never overwrite it.

@@ -91,6 +91,11 @@ body #chat-panel :is(#chat-log, #gc-log) .cmsg.user > .body::before { content: '
 body #chat-panel :is(#chat-log, #gc-log) .cmsg.user .chat-attach-view { justify-content: flex-end; }
 /* the ⧉ rides the header line on the stamp's side (the reserved lane in comms.css / glass-comms.css) */
 body #chat-panel :is(#chat-log, #gc-log) .cmsg.user > .cmsg-copy { top: -2px; }
+/* a worker thread's brief (chat.js addUser brief): written by the agent that delegated it, so it keeps the input
+   line's shape but in that agent's phosphor, never the Commander's gold */
+body #chat-panel #chat-log .cmsg.user.brief > .body { --rail: rgba(var(--ph-rgb), .5); color: var(--text); }
+body #chat-panel #chat-log .cmsg.user.brief > .body::before { color: var(--ph); }
+body #chat-panel #chat-log .cmsg.user.brief .who { color: var(--ph-bright); }
 
 /* ---- THE AGENT — the Commander's line, mirrored: callsign + stamp above, the text on the phosphor rail. No face, no box
    (Andrew 10-03: "keep the name as is without the pfp"). ---- */

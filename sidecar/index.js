@@ -19244,7 +19244,7 @@ async function runOnceCore(o) {
     // fileUnderThreads). Idempotent per requestId; a taken title gets a numeric suffix rather than refusing the work.
     childThread: require('./overseer.js').isCoordinatorRun({ ...o, agentId, surface }) ? (a) => {
       for (let n = 1; n <= 9; n++) {
-        try { return overseer.create({ parentStreamId: a.parentStreamId, agentId: a.agentId, requestId: a.requestId, title: n === 1 ? a.title : a.title + ' (' + n + ')' }); }
+        try { return overseer.create({ parentStreamId: a.parentStreamId, agentId: a.agentId, requestId: a.requestId, projectRoot: a.projectRoot, title: n === 1 ? a.title : a.title + ' (' + n + ')' }); }
         catch (e) { if (!/already exists/.test(e.message)) throw e; }
       }
       throw new Error('no free thread title');

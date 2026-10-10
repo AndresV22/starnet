@@ -527,12 +527,19 @@
     }
     function fileUnderThreads(jobs, ctx) {
       if (typeof deps.childThread !== 'function' || !ctx || !ctx.streamId || ctx.streamId === 'global') return;
+      // '<leadRunId>:<this call>:<slot>' — unique per dispatch CALL, so a second dispatch in the same lead run (a retry
+      // the timeout row asks for, or two calls in one turn) never lands in the first call's threads
+      const call = newId();
       jobs.forEach((job, i) => {
         if (job.error || job.streamId) return;
         try {
-          const t = deps.childThread({ parentStreamId: ctx.streamId, agentId: job.agentId, title: threadTitle(job.prompt, job.ident), requestId: (ctx.runId || '') + ':' + i });
+          const t = deps.childThread({ parentStreamId: ctx.streamId, agentId: job.agentId, title: threadTitle(job.prompt, job.ident), requestId: (ctx.runId || '') + ':' + call + ':' + i, projectRoot: ctx.projectRoot || '' });
           if (t && t.id) { job.streamId = String(t.id); job.sessionTitle = String(t.title || ''); job.parentStreamId = ctx.streamId; }
-        } catch (e) { job.threadNote = String((e && e.message) || e); }
+        } catch (e) {
+          // never silent: the worker still runs (in this conversation), and its row tells the lead why it has no thread
+          job.threadNote = 'ran in this conversation: its own thread could not be created (' + String((e && e.message) || e) + ')';
+          failNote('dispatch.child-thread', e);
+        }
       });
     }
 
@@ -795,7 +802,15 @@
           /* Show it where the Commander asked for it. Only a COMPLETED worker delivers: every other outcome
              (error / refused / timeout) returned above, so a partial or failed run is reported to the lead but
              never folded into a session as though it were finished work. */
-          await deliverToSession(job, row);
+          if (job.parentStreamId) {
+            // a worker's OWN thread: the run is already filed there durably, and the page reconciles it on its next
+            // poll — so the live fold is best-effort and never waits (a headless lead, e.g. the overseer's automatic
+            // review, has no page to answer the bridge and would otherwise lose ~6s of wall clock per worker)
+            row.session = job.sessionTitle || job.streamId;
+            const p = deliverToSession(job, Object.assign({}, row));
+            if (p && typeof p.catch === 'function') p.catch(e => failNote('dispatch.thread-delivery', e));
+          } else await deliverToSession(job, row);
+          if (job.threadNote) row.sessionNote = job.threadNote;
           // WORK VISIBILITY (ghost-file fix): what the worker PROVABLY produced (its runOnce artifact ledger),
           // stamped with the OWNING agentId. Files live in the WORKER's private workspace — the lead cannot
           // fs.read them and must reference them as the worker's (they are already shown to the Commander as

@@ -58,24 +58,32 @@ const roster = new Map([['researcher', { system: 'R', name: 'MIRA' }], ['writer'
   await dispatchTool.run({ workers: [
     { agentId: 'researcher', prompt: 'Scan our four closest competitors and their entry pricing, then save it.\nUse public pages only.' },
     { agentId: 'writer', prompt: 'Write the launch email.' }
-  ] }, { agentId: 'agent', streamId: 'home', runId: 'lead1' });
+  ] }, { agentId: 'agent', streamId: 'home', runId: 'lead1', projectRoot: '/projects/launch' });
   A.eq(made.length, 2, 'one thread per worker');
   A.eq(made[0].parentStreamId, 'home', 'filed under the conversation that delegated it');
   A.eq(made[0].agentId, 'researcher', 'bound to the worker');
-  A.eq(made[0].requestId, 'lead1:0', 'idempotent per lead run + worker slot');
+  A.ok(/^lead1:[^:]+:0$/.test(made[0].requestId), 'idempotent per lead run + dispatch call + worker slot');
+  A.eq(made[0].requestId.split(':')[1], made[1].requestId.split(':')[1], 'one call id for every worker of a dispatch');
+  A.ok(/:1$/.test(made[1].requestId), 'the slot is the last segment');
+  A.eq(made[0].projectRoot, '/projects/launch', 'a project conversation worker thread keeps the project it was dispatched under');
   A.eq(made[0].title, 'Scan our four closest competitors and their ent…', 'titled from the first line, clipped to the rail');
   A.eq(made[1].title, 'Write the launch email', 'a short task keeps its own words');
+  const before = made[0].requestId;
+  await dispatchTool.run({ workers: [{ agentId: 'researcher', prompt: 'Again.' }] }, { agentId: 'agent', streamId: 'home', runId: 'lead1' });
+  A.ok(made[2].requestId !== before && /^lead1:/.test(made[2].requestId), 'a second dispatch in the same lead run gets new threads, never the first one\'s');
   A.eq(ro.calls[0].streamId, 'thread_1', 'the worker runs (and is filed) in its own thread');
   A.eq(ro.calls[0].sessionTitle, made[0].title, 'with that thread\'s title');
   A.eq(ro.calls[1].streamId, 'thread_2', 'every worker, not just the first');
+  A.eq(ro.calls[2].streamId, 'thread_3', 'and the second dispatch runs in its own new thread');
 }
 {
   const ro = fakeRunOnce(); let asked = 0;
   const { dispatchTool } = makeOrchestrationTools({ runOnce: ro, roster: () => roster, key: 'k', model: 'm', newId: counter(), coordinateResults: true, childThread: () => { asked++; throw new Error('no such session'); } });
-  await dispatchTool.run({ workers: [{ agentId: 'researcher', prompt: 'find X' }] }, { agentId: 'agent', streamId: 'home', runId: 'lead2' });
+  const res = await dispatchTool.run({ workers: [{ agentId: 'researcher', prompt: 'find X' }] }, { agentId: 'agent', streamId: 'home', runId: 'lead2' });
   A.eq(asked, 1, 'a thread was asked for');
   A.eq(ro.calls.length, 1, 'a thread that cannot be created never blocks the work');
   A.eq(ro.calls[0].streamId, undefined, 'the worker runs exactly as before (in the lead stream)');
+  A.ok(/its own thread could not be created \(no such session\)/.test(JSON.stringify(res)), 'and the lead is told where it ran and why');
 }
 {
   const ro = fakeRunOnce(); let asked = 0;
@@ -103,6 +111,9 @@ const roster = new Map([['researcher', { system: 'R', name: 'MIRA' }], ['writer'
   A.eq(st({ ws: ws(), worker: { status: 'stale' } }).live, 'stopped when the station restarted', 'a stale worker is honest about it');
   pend.set('k', { tool: 'brief.ask' });
   A.eq(st({ ws: ws(), worker: { status: 'running', startedAt: Date.now() } }).cls, 'waiting', 'waiting on the Commander outranks working');
+  pend.clear(); pend.set('home', { tool: 'shell.run', agentId: 'researcher' });
+  A.eq(st({ ws: ws({ agentId: 'researcher' }), worker: { status: 'running', startedAt: Date.now() } }).cls, 'waiting', 'a worker\'s approval raised on the conversation that dispatched it reads as waiting');
+  A.eq(st({ ws: ws({ agentId: 'writer' }), worker: { status: 'running', startedAt: Date.now() } }).cls, 'working', 'but only for the worker it names');
   pend.clear(); busy.add('k');
   A.eq(st({ ws: ws(), worker: null }).cls + '|' + st({ ws: ws(), worker: null }).t, 'working|1:05', 'a foreground worker is working while its thread channel is live');
   busy.clear();
@@ -125,7 +136,7 @@ const roster = new Map([['researcher', { system: 'R', name: 'MIRA' }], ['writer'
   A.ok(/agentId: w\.agentId, parentRunId: w\.parentRunId \|\| '', generation: w\.generation/.test(idx), 'the overseer route carries the card\'s fields');
   A.ok(/each worker gets its own thread under this conversation/.test(idx), 'the lead prompt states the one filing rule');
   A.ok(/childThread: require\('\.\/overseer\.js'\)\.isCoordinatorRun/.test(idx), 'only coordinator runs file child threads');
-  A.ok(/if \(local\) \{ if \(!local\.parentStreamId\)/.test(ov), 'a session the page already had learns its parent');
+  A.ok(/if \(!local\.parentStreamId\) \{ local\.parentStreamId = String\(row\.parentStreamId\); adopted = true; \}/.test(ov), 'a session the page already had learns its parent');
   // COMING BACK (2026-10-09): every "what happened" line opens the thread that holds it
   const ui = src('frontend/app/stationui.js'), world = src('frontend/app/world.js'), auto = src('frontend/app/autosessions.js'), rt = src('frontend/app/windows/routines.js'), sc = src('frontend/app/stationcommands.js');
   A.ok(/li\.classList\.contains\('asking'\) && typeof App !== 'undefined' && App\.waitingSessionOf \? App\.waitingSessionOf\(li\.dataset\.agentId\)/.test(ui)
@@ -143,7 +154,10 @@ const roster = new Map([['researcher', { system: 'R', name: 'MIRA' }], ['writer'
   A.ok(/function lineHtml\(b, parentId\)/.test(dg) && !/function cardHtml/.test(dg), 'COMMS shows the calm delegated line, not the card');
   A.ok(/function railKidsChip\(item\)/.test(app) && /if \(item\.type === 'kids'\) return '';/.test(app), 'SESSIONS: a count chip on the parent, no fold header row');
   A.ok(/const keep = flat\.filter\(w => w\.id === activeId \|\| pending\.has\(w\.id\)\)/.test(app), 'folded threads stay out of the list unless open or waiting on you');
-  A.ok(/last\.classList\.add\('bf-replaced'\)/.test(bf), 'the newest report\'s text is tucked behind its card');
+  A.ok(/last\.classList\.add\('bf-replaced'\)/.test(bf) && /head === TITLE \|\| head\.indexOf\(TITLE \+ ' · since '\) === 0/.test(bf), 'only the report\'s own header line is tucked behind its card, never a reply that starts with the same words');
+  A.ok(/if \(prompt && !ws\.parentStreamId\) ws\.history\.push\(/.test(sc), 'a worker\'s own thread never repeats its brief as a delegated marker');
+  A.ok(/if \(!local\.projectRoot && row\.projectRoot\)/.test(ov), 'a thread the page already had learns its project');
+  A.ok(/Channels\.pendingOf\(k\.parentStreamId\)/.test(app), 'the SESSIONS chip turns gold when a worker waits on you in the parent');
 }
 
 A.report('delegated-threads.test');
