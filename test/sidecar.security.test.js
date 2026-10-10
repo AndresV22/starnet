@@ -96,7 +96,15 @@ async function tokenFromIndex(base) {
     A.ok(/frame-ancestors 'self'/.test(localIndex.headers['content-security-policy'] || ''), 'the app refuses cross-site framing (CSP frame-ancestors)');
     // APPS / plugin windows: a sandboxed page the station frames must never be able to navigate ITSELF to the web
     // (that is how a poisoned app page would leak what it shows) — the station page only frames its own origin.
-    A.ok(/frame-src 'self' http:\/\/127\.0\.0\.1:\d+ http:\/\/localhost:\d+$/.test(localIndex.headers['content-security-policy'] || ''), 'the station page frames only its own origin (CSP frame-src)');
+    A.ok(/frame-src 'self' http:\/\/127\.0\.0\.1:\d+ http:\/\/localhost:\d+(;|$)/.test(localIndex.headers['content-security-policy'] || ''), 'the station page frames only its own origin (CSP frame-src)');
+    // 2026-10-10: the token page carries a SCRIPT policy — same-origin files + its one nonce'd boot script only
+    const pageCsp = localIndex.headers['content-security-policy'] || '';
+    const nonce = (/script-src 'self' 'nonce-([A-Za-z0-9+/=]{16,})'/.exec(pageCsp) || [])[1] || '';
+    A.ok(!!nonce, 'the app page CSP allows scripts from its own origin plus a per-response nonce only — got: ' + pageCsp);
+    A.ok(/object-src 'none'/.test(pageCsp) && /base-uri 'none'/.test(pageCsp), 'no plugins and no <base> hijack on the app page');
+    A.ok(localIndex.body.indexOf('<script nonce="' + nonce + '">window.__STARNET_API_TOKEN__=') >= 0, 'the boot script carries that nonce (and this same-user client receives the token)');
+    const again = await rawGet('/', '127.0.0.1:' + port);
+    A.ok(((/'nonce-([^']+)'/.exec(again.headers['content-security-policy'] || '') || [])[1] || '') !== nonce, 'the nonce is fresh per response');
     A.eq((await rawGet('/', 'localhost:' + port)).status, 200, 'localhost Host is loopback too');
     // The ONE exemption: a line-trigger webhook may arrive through the Commander's own tunnel carrying its public
     // Host. It must reach the trigger's secret check (here: an unknown trigger), never the Host floor.
