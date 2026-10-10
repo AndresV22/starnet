@@ -341,7 +341,7 @@ function makeMediaService(options) {
     const reasons = [];
     const voiceId = localVoice.defaultVoice();
     let localReady = false;
-    try { localReady = !!localVoice.status().available; } catch (_) {}
+    try { localReady = !!localVoice.status().available; } catch (error) { reasons.push('local status: ' + ((error && error.message) || error)); }
     if (localReady) {
       try {
         const buf = await localVoice.synthesize(said, { voice: voiceId, speed: 1 });
