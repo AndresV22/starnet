@@ -7,7 +7,7 @@ const path = require('node:path');
 const os = require('node:os');
 const { spawn } = require('node:child_process');
 const A = require('./_assert.js');
-const { makeLspManager } = require('../sidecar/lsp-manager.js');
+const { makeLspManager, DEFAULT_SERVERS } = require('../sidecar/lsp-manager.js');
 const { makeFsTools } = require('../sidecar/tools/builtin/fs.js');
 
 (async () => {
@@ -126,6 +126,31 @@ const { makeFsTools } = require('../sidecar/tools/builtin/fs.js');
     A.eq(fs.readFileSync(cancelFile, 'utf8'), 'clean before cancel\n', 'a cancelled baseline never permits a late mutation');
 
     A.eq(manager.status().length, 0, 'an already-cancelled edit leaves no cached replacement client');
+    // 2026-10-10: a server that EXECUTES the project (rust-analyzer: cargo config, toolchain files, build.rs, proc
+    // macros) starts only for a watched run — an unattended file write must not become code execution.
+    {
+      const execRows = [];
+      const execManager = makeLspManager({
+        spawn: (...a) => { execRows.push(a[0]); return spawn(...a); }, fs, fsp, pathMod: path, env,
+        servers: [{ id: 'execfake', command: process.execPath, args: [fixture], extensions: ['.xfake'], languageIds: { '.xfake': 'fake' }, executesProject: true, settings: { probe: true } }],
+        limits: { requestTimeoutMs: 2000, diagnosticTimeoutMs: 1000, idleMs: 500 }
+      });
+      try {
+        const file = { abs: path.join(workspace, 'm.xfake'), base: workspace, rel: 'm.xfake', text: '' };
+        const unattended = await execManager.beginEdit({ files: [file] });
+        A.eq(execRows.length, 0, 'an unattended edit never starts a project-executing language server');
+        A.ok(unattended.unavailable.length === 1 && /starts only for a watched run/.test(unattended.unavailable[0].reason), 'and says why, honestly');
+        const watched = await execManager.beginEdit({ files: [file], allowProjectExecution: true });
+        A.eq(execRows.length, 1, 'a watched run may start it');
+        A.eq(watched.unavailable.length, 0, 'and gets diagnostics');
+      } finally { await execManager.closeAll(); }
+      const ra = DEFAULT_SERVERS.find(s => s.id === 'rust-analyzer');
+      A.ok(ra && ra.executesProject === true, 'rust-analyzer is marked as executing the project');
+      A.eq(JSON.stringify(ra.settings), JSON.stringify({ cargo: { buildScripts: { enable: false } }, procMacro: { enable: false }, checkOnSave: false, check: { workspace: false } }),
+        'and never runs build scripts, proc macros or cargo check on its own');
+      const fsSrc = fs.readFileSync(path.join(__dirname, '..', 'sidecar', 'tools', 'builtin', 'fs.js'), 'utf8');
+      A.ok(/allowProjectExecution: !!\(ctx && ctx\.surface === 'interactive'\)/.test(fsSrc), 'fs edits allow project execution only on the interactive surface');
+    }
     A.eq(ledgerRows.length, 1, 'the long-lived language-server child is recorded for crash recovery');
     A.ok(ledgerRows[0].kind === 'lsp:fake' && ledgerReleases.includes(ledgerRows[0].pid), 'normal idle exit releases the durable process-ledger row');
   } finally {
