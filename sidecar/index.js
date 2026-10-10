@@ -26164,11 +26164,15 @@ async function serveStatic(req, res) {
     const abs = path.resolve(FRONTEND, rel);
     if (abs !== FRONTEND && abs.indexOf(FRONTEND + path.sep) !== 0) { res.writeHead(403); return res.end('forbidden'); }
     let data = await fsp.readFile(abs);
-    if (abs.toLowerCase() === path.resolve(FRONTEND, 'index.html').toLowerCase() ||
+    const isAppPage = abs.toLowerCase() === path.resolve(FRONTEND, 'index.html').toLowerCase();
+    let scriptNonce = '';
+    if (isAppPage ||
         (DEV_MODE && abs.toLowerCase() === path.resolve(FRONTEND, 'agent-station-demo.html').toLowerCase())) {
       const sock = req.socket || {};
       const peer = await peerOwnerCheck({ remoteAddress: sock.remoteAddress, remotePort: sock.remotePort, localPort: sock.localPort });
-      let boot = '<script>' + (peer.ok ? 'window.__STARNET_API_TOKEN__=' + JSON.stringify(API_TOKEN) + ';'
+      // the app page gets a per-response script nonce (CSP below), so its one inline boot script runs and nothing else inline does
+      if (isAppPage) scriptNonce = crypto.randomBytes(16).toString('base64');
+      let boot = (scriptNonce ? '<script nonce="' + scriptNonce + '">' : '<script>') + (peer.ok ? 'window.__STARNET_API_TOKEN__=' + JSON.stringify(API_TOKEN) + ';'
         : 'window.__STARNET_TOKEN_WITHHELD__=' + JSON.stringify(peer.reason) + ';');
       if (!peer.ok) noteTokenWithheld(peer);
       // DEV fast-path: hand the page a model + provider hint so a fresh origin auto-resumes the seeded
@@ -26183,8 +26187,14 @@ async function serveStatic(req, res) {
     // ANTI-FRAMING (2026-09-23 security audit): a foreign site must not frame the live app (the framed page passes
     // Host/Origin with its own requests, so a clickjacking overlay could drive consent cards and toggles).
     // SAMEORIGIN, not DENY: frontend/dev/comms-layout-review.html frames "/" from this same origin.
+    /* SCRIPT CSP ON THE TOKEN PAGE (2026-10-10): the browser-mode app page holds the master token and had no script
+       policy, so one missed escape anywhere (a session title, a mail subject, a skill name) would have run with full
+       API reach. Mirrors the desktop CSP's script rules: same-origin files, the nonce'd boot script, no inline handlers,
+       no plugins, no <base> hijack. Other static files keep the framing-only policy. */
+    const csp = "frame-ancestors 'self'; frame-src 'self' http://127.0.0.1:" + PORT + ' http://localhost:' + PORT +
+      (scriptNonce ? "; script-src 'self' 'nonce-" + scriptNonce + "'; object-src 'none'; base-uri 'none'; worker-src 'self' blob:" : '');
     res.writeHead(200, { 'Content-Type': MIME[path.extname(abs).toLowerCase()] || 'application/octet-stream', 'Cache-Control': 'no-store',
-      'X-Frame-Options': 'SAMEORIGIN', 'Content-Security-Policy': "frame-ancestors 'self'; frame-src 'self' http://127.0.0.1:" + PORT + ' http://localhost:' + PORT, 'X-Content-Type-Options': 'nosniff' });
+      'X-Frame-Options': 'SAMEORIGIN', 'Content-Security-Policy': csp, 'X-Content-Type-Options': 'nosniff' });
     res.end(data);
   } catch (e) { res.writeHead(404); res.end('not found'); }
 }
