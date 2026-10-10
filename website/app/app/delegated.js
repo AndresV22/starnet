@@ -16,7 +16,7 @@
    - a finished row quotes the first line the worker itself delivered into its thread.
    A foreground worker that ended without delivering anything says exactly that — never "done". */
 const Delegated = (() => {
-  const steps = new Map();   // worker runId -> latest tool name (agent.tool_call)
+  const steps = new Map();   // worker runId -> { name, args } of its latest agent.tool_call
   let ticker = 0, wired = false;
   const $log = () => document.getElementById('chat-log');
   const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -63,14 +63,36 @@ const Delegated = (() => {
     return Array.from(groups.values()).sort((a, b) => a.at - b.at);
   }
 
+  /* what a worker is doing, in words: the verb its tool call means plus the one argument that says what about
+     (the query, the page, the file). Read off its own agent.tool_call event — never a guess. */
+  const VERBS = [[/search/, 'searching'], [/fetch|request|browse|browser|navigate/, 'reading the web'], [/(^|[._])(write|edit|patch|append)/, 'writing'],
+    [/(^|[._])(read|list|glob|grep|find)/, 'looking through files'], [/shell|exec|terminal|verify/, 'running a command'],
+    [/image|voice|video|audio|media/, 'making media'], [/notebook|memory|recall/, 'checking its notes']];
+  function argOf(raw) {
+    let v = '';
+    try {
+      const j = JSON.parse(raw);
+      if (j && typeof j === 'object') for (const k of ['query', 'q', 'url', 'path', 'file', 'command', 'cmd', 'pattern', 'prompt', 'text', 'name']) if (typeof j[k] === 'string' && j[k].trim()) { v = j[k]; break; }
+    } catch (_) { v = /^[\s{[]/.test(String(raw)) ? '' : String(raw || ''); }
+    v = String(v).replace(/\s+/g, ' ').trim();
+    return v.length > 60 ? v.slice(0, 59) + '…' : v;
+  }
+  function doing(step) {
+    if (!step) return 'working';
+    const n = String(step.name || '').toLowerCase().replace(/^mcp__/, '');
+    const hit = VERBS.find(([re]) => re.test(n));
+    const verb = hit ? hit[1] : n.replace(/^[a-z]+[._]/, '').replace(/[_.]+/g, ' ');
+    const arg = argOf(step.args);
+    return arg && arg !== '.' ? verb + ' · ' + arg : verb;
+  }
+
   /* the row's state, in priority order. `parentLive` = the lead run that dispatched it is still running on this page. */
   function stateOf(r, parentId, lead) {
     const k = r.ws, w = r.worker, C = typeof Channels !== 'undefined' ? Channels : null;
     const pend = C && C.pendingOf ? C.pendingOf(k.id) : null;
     if (pend) return { cls: 'waiting', live: pend.tool === 'brief.ask' ? 'asking you a question' : 'waiting for your approval', t: '' };
     if (w && w.status === 'running') {
-      const tool = steps.get(String(w.runId));
-      return { cls: 'working', live: tool ? tool.replace(/^[a-z_]+\./, '') : 'working', t: clock(Date.now() - (+w.startedAt || Date.now())), stop: !!w.canInterrupt, worker: w };
+      return { cls: 'working', live: doing(steps.get(String(w.runId))), t: clock(Date.now() - (+w.startedAt || Date.now())), stop: !!w.canInterrupt, worker: w };
     }
     if (C && C.isBusy && C.isBusy(k.id)) return { cls: 'working', live: 'working', t: C.elapsedOf ? clock(C.elapsedOf(k.id)) : '' };
     if (w && w.status === 'done') return { cls: 'done', live: excerpt(k) || 'done', t: w.completedAt && w.startedAt ? clock(w.completedAt - w.startedAt) : '' };
@@ -83,23 +105,28 @@ const Delegated = (() => {
     return { cls: 'stopped', live: 'ended without a result', t: '' };
   }
 
+  const CHIP = { working: 'WORKING', waiting: 'NEEDS YOU', done: 'DONE', failed: 'FAILED', stopped: 'STOPPED', queued: 'STARTING' };
   function cardHtml(b, parentId) {
     const rows = b.rows.map(r => ({ r, st: stateOf(r, parentId, b.lead) }));
     const count = c => rows.filter(x => x.st.cls === c).length;
-    const sum = [count('waiting') && count('waiting') + ' waiting on you', count('working') && count('working') + ' working',
+    const sum = [count('waiting') && count('waiting') + ' need' + (count('waiting') === 1 ? 's' : '') + ' you', count('working') && count('working') + ' working',
       count('queued') && count('queued') + ' starting', count('failed') && count('failed') + ' failed', count('stopped') && count('stopped') + ' stopped', count('done') && count('done') + ' done']
       .filter(Boolean).join(' · ');
-    return '<div class="dg-head"><span class="dg-title">DELEGATED · ' + rows.length + '</span><span class="dg-sum">' + esc(sum) + '</span></div>'
+    // one segment per worker, in row order, coloured by its state: the whole dispatch at a glance
+    const meter = '<div class="dg-meter" aria-hidden="true">' + rows.map(({ st }) => '<i class="' + st.cls + '"></i>').join('') + '</div>';
+    return '<div class="dg-head"><span class="dg-title">DELEGATED</span><span class="dg-n">' + rows.length + '</span><span class="dg-sum">' + esc(sum) + '</span></div>' + meter
       + rows.map(({ r, st }) => {
-        const a = agentOf(r.ws.agentId || 'agent'), src = portrait(a.id);
-        return '<div class="dg-row ' + st.cls + '">'
-          + '<span class="dg-lamp" aria-hidden="true"></span>'
+        const a = agentOf(r.ws.agentId || 'agent'), src = portrait(a.id), task = r.ws.title || 'Delegated task';
+        // the whole row opens the worker's thread (keyboard too); OPEN stays as the visible door, STOP never falls through
+        return '<div class="dg-row ' + st.cls + '" data-dg-open="' + esc(r.ws.id) + '" role="button" tabindex="0" aria-label="' + esc((a.name || a.id) + ': ' + task + ' — ' + CHIP[st.cls] + '. Open its thread') + '">'
           + '<span class="dg-face" aria-hidden="true">' + (src ? '<img alt="" src="' + esc(src) + '">' : '') + '</span>'
-          + '<span class="dg-main"><span class="dg-line1"><span class="dg-name"' + (a.color ? ' style="color:' + esc(a.color) + '"' : '') + '>' + esc(a.name || a.id) + '</span>'
-          + '<span class="dg-task">' + esc(r.ws.title || 'Delegated task') + '</span></span>'
-          + '<span class="dg-live">' + esc(st.live) + '</span></span>'
-          + '<span class="dg-time">' + esc(st.t) + '</span>'
-          + '<span class="dg-keys">' + (st.stop ? '<button type="button" class="dg-key ghost" data-dg-stop="' + esc(st.worker.id) + '">STOP</button>' : '')
+          + '<span class="dg-main">'
+          + '<span class="dg-line1"><span class="dg-name"' + (a.color ? ' style="color:' + esc(a.color) + '"' : '') + '>' + esc(a.name || a.id) + '</span>'
+          + (st.t ? '<span class="dg-time">' + esc(st.t) + '</span>' : '') + '</span>'
+          + '<span class="dg-task">' + esc(task) + '</span>'
+          + '<span class="dg-live"><span class="dg-chip ' + st.cls + '"><i aria-hidden="true"></i>' + CHIP[st.cls] + '</span><span class="dg-what">' + esc(st.live) + '</span></span>'
+          + '</span>'
+          + '<span class="dg-keys">' + (st.stop ? '<button type="button" class="dg-key stop" data-dg-stop="' + esc(st.worker.id) + '" data-tip="Stop this worker">STOP</button>' : '')
           + '<button type="button" class="dg-key" data-dg-open="' + esc(r.ws.id) + '">OPEN</button></span></div>';
       }).join('');
   }
@@ -144,7 +171,9 @@ const Delegated = (() => {
     let el = log.querySelector(':scope > .dg-from');
     if (!parent) { if (el) el.remove(); return; }
     if (!el) { el = document.createElement('div'); el.className = 'dg-from'; log.insertBefore(el, log.firstChild); }
-    const html = '<span class="dg-from-text"><span aria-hidden="true">↖</span> Delegated from <b>' + esc(parent.title || 'General') + '</b>. Its results go back there.</span>'
+    const lead = agentOf(parent.agentId || 'agent');
+    const html = '<span class="dg-from-text"><span class="dg-from-k">DELEGATED BY ' + esc(String(lead.name || lead.id).toUpperCase()) + '</span>'
+      + '<span class="dg-from-v">from <b>' + esc(parent.title || 'General') + '</b> · results go back there</span></span>'
       + '<button type="button" class="dg-key" data-dg-open="' + esc(parent.id) + '">BACK</button>';
     if (el.dataset.dgHtml !== html) { el.innerHTML = html; el.dataset.dgHtml = html; }
     if (log.firstChild !== el) log.insertBefore(el, log.firstChild);
@@ -167,13 +196,18 @@ const Delegated = (() => {
     if (wired || typeof document === 'undefined') return; wired = true;
     document.addEventListener('click', e => {
       const t = e.target && e.target.closest ? e.target : null; if (!t) return;
-      const open = t.closest('#chat-log [data-dg-open]');
-      if (open) { e.preventDefault(); if (has(App, 'openWorkstream')) App.openWorkstream(open.dataset.dgOpen); return; }
       const s = t.closest('#chat-log [data-dg-stop]');
-      if (s) { e.preventDefault(); stop(s.dataset.dgStop, s); }
+      if (s) { e.preventDefault(); stop(s.dataset.dgStop, s); return; }
+      const open = t.closest('#chat-log [data-dg-open]');
+      if (open) { e.preventDefault(); if (has(App, 'openWorkstream')) App.openWorkstream(open.dataset.dgOpen); }
+    });
+    document.addEventListener('keydown', e => {
+      const row = e.target && e.target.closest ? e.target.closest('#chat-log .dg-row[data-dg-open]') : null;
+      if (!row || e.target !== row || (e.key !== 'Enter' && e.key !== ' ')) return;
+      e.preventDefault(); if (has(App, 'openWorkstream')) App.openWorkstream(row.dataset.dgOpen);
     });
     if (typeof U !== 'undefined' && U.bus && U.bus.on) {
-      U.bus.on('agent.tool_call', p => { if (p && p.runId && p.name) { steps.set(String(p.runId), String(p.name)); } });
+      U.bus.on('agent.tool_call', p => { if (p && p.runId && p.name) { steps.set(String(p.runId), { name: String(p.name), args: String(p.argsSummary || '') }); } });
       U.bus.on('agent.run.end', p => { if (p && p.runId) steps.delete(String(p.runId)); });
     }
   }
