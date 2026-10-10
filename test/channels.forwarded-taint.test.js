@@ -65,6 +65,24 @@ const dm = (text, extra) => Object.assign({ channel: 'telegram', chatId: String(
     A.eq(h.runs[1].ownerTrusted, true, 'owner identity is unchanged — the taint, not admission, carries the provenance');
   }
 
+  // ---- 2b. THE REAL PIPE: telegram.normalize → channel adapter → hub (2026-10-10). Each stage was tested alone and
+  //          the adapter's field-by-field rebuild silently dropped `forwarded`, so a real forward ran untainted. ----
+  {
+    const { makeChannelAdapter } = require('../sidecar/channels/adapter.js');
+    const h = harness();
+    const ad = makeChannelAdapter({
+      transport: { getUpdates: async () => [], send: async () => ({ ok: true }) },
+      normalize: TG.normalize, name: 'telegram', clock: { now: () => 1 },
+      ownerUserId: String(OWNER), onInbound: (im) => { h.hub.onInbound(im); }
+    });
+    ad._internals.dispatch(update({ forward_origin: { type: 'hidden_user', sender_user_name: 'x', date: 1 }, forward_date: 1 }));
+    ad._internals.dispatch(update({ message_id: 8, text: 'what is the weather' }));
+    await new Promise(r => setTimeout(r, 20));
+    A.eq(h.runs.length, 2, 'both piped messages reached a run');
+    A.eq(h.runs[0].initialTaint, 'forwarded message', 'a REAL forward through the adapter begins the run tainted');
+    A.eq(h.runs[1].initialTaint, null, 'the owner\'s own piped words stay untainted');
+  }
+
   // ---- 3. a forwarded slash command is data, never a control command ----
   {
     const h = harness();
