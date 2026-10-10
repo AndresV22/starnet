@@ -110,6 +110,45 @@ function opusFramesToOgg(frames, o) {
   return Buffer.concat(pages);
 }
 
+/* ---------- WAV for a small decoder ----------
+   The local voice engine writes 32-bit float WAV; a device decoder wants 16-bit PCM. Returns a mono 16-bit WAV
+   (the input itself when it already is one), or null when the bytes are not a WAV this can read. */
+function wavToPcm16(buf) {
+  if (!Buffer.isBuffer(buf) || buf.length < 44 || buf.toString('latin1', 0, 4) !== 'RIFF' || buf.toString('latin1', 8, 12) !== 'WAVE') return null;
+  let fmt = null, data = null;
+  for (let o = 12; o + 8 <= buf.length;) {
+    const id = buf.toString('latin1', o, o + 4), size = buf.readUInt32LE(o + 4);
+    const body = buf.subarray(o + 8, Math.min(buf.length, o + 8 + size));
+    if (id === 'fmt ' && body.length >= 16) {
+      let format = body.readUInt16LE(0);
+      if (format === 0xfffe && body.length >= 26) format = body.readUInt16LE(24);   // WAVE_FORMAT_EXTENSIBLE: the sub-format
+      fmt = { format, channels: body.readUInt16LE(2), rate: body.readUInt32LE(4), bits: body.readUInt16LE(14) };
+    } else if (id === 'data') data = body;
+    o += 8 + size + (size & 1);
+  }
+  if (!fmt || !data || !fmt.channels || !fmt.rate) return null;
+  if (fmt.format === 1 && fmt.bits === 16 && fmt.channels === 1) return buf;
+  const frames = Math.floor(data.length / (fmt.channels * (fmt.bits / 8)));
+  const out = Buffer.alloc(frames * 2);
+  for (let i = 0; i < frames; i++) {
+    let sum = 0;
+    for (let ch = 0; ch < fmt.channels; ch++) {
+      const at = (i * fmt.channels + ch) * (fmt.bits / 8);
+      if (fmt.format === 3 && fmt.bits === 32) sum += data.readFloatLE(at);
+      else if (fmt.format === 1 && fmt.bits === 16) sum += data.readInt16LE(at) / 32768;
+      else return null;
+    }
+    const v = Math.max(-1, Math.min(1, sum / fmt.channels));
+    out.writeInt16LE(v < 0 ? Math.round(v * 32768) : Math.round(v * 32767), i * 2);
+  }
+  const h = Buffer.alloc(44);
+  h.write('RIFF', 0, 'latin1'); h.writeUInt32LE(36 + out.length, 4); h.write('WAVE', 8, 'latin1');
+  h.write('fmt ', 12, 'latin1'); h.writeUInt32LE(16, 16); h.writeUInt16LE(1, 20); h.writeUInt16LE(1, 22);
+  h.writeUInt32LE(fmt.rate, 24); h.writeUInt32LE(fmt.rate * 2, 28); h.writeUInt16LE(2, 32); h.writeUInt16LE(16, 34);
+  h.write('data', 36, 'latin1'); h.writeUInt32LE(out.length, 40);
+  return Buffer.concat([h, out]);
+}
+
 /* ---------- the verbs ---------- */
 
 function makeRemoteVoice(deps) {
@@ -180,9 +219,16 @@ function makeRemoteVoice(deps) {
     if (!r || !r.ok || !Buffer.isBuffer(r.buf) || !r.buf.length) {
       return { ok: false, error: 'the station could not speak that (' + String((r && r.reason) || 'no audio').slice(0, 160) + ')' };
     }
+    let buf = r.buf, mime = String(r.mime || '');
+    if (/wav/.test(mime)) {
+      const pcm16 = wavToPcm16(buf);
+      if (!pcm16) return { ok: false, error: 'the station\'s voice produced audio this device cannot play' };
+      buf = pcm16;
+      mime = 'audio/wav';
+    }
     const id = String(newId()).replace(/[^A-Za-z0-9_-]/g, '').slice(0, 40);
-    replies.set(deviceId, { id, buf: r.buf, mime: String(r.mime || ''), provider: String(r.provider || ''), at: now() });
-    return { ok: true, data: { id, mime: String(r.mime || ''), bytes: r.buf.length, provider: String(r.provider || '') } };
+    replies.set(deviceId, { id, buf, mime, provider: String(r.provider || ''), at: now() });
+    return { ok: true, data: { id, mime, bytes: buf.length, provider: String(r.provider || '') } };
   }
 
   function speech(deviceId, a) {
@@ -204,4 +250,4 @@ function makeRemoteVoice(deps) {
   return { hear, speak, speech, forget, _sizes: () => ({ utterances: utterances.size, replies: replies.size }) };
 }
 
-module.exports = { makeRemoteVoice, opusFramesToOgg, oggCrc, MAX_FRAMES, MAX_SPEECH_CHUNK, MAX_SPEAK_TEXT, VOICE_TTL_MS };
+module.exports = { makeRemoteVoice, opusFramesToOgg, oggCrc, wavToPcm16, MAX_FRAMES, MAX_SPEECH_CHUNK, MAX_SPEAK_TEXT, VOICE_TTL_MS };

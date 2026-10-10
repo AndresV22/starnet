@@ -5,7 +5,7 @@
 'use strict';
 const A = require('./_assert.js');
 const nodeCrypto = require('crypto');
-const { makeRemoteVoice, opusFramesToOgg, oggCrc, MAX_FRAMES, MAX_SPEECH_CHUNK, VOICE_TTL_MS } = require('../sidecar/remote/voice.js');
+const { makeRemoteVoice, opusFramesToOgg, oggCrc, wavToPcm16, MAX_FRAMES, MAX_SPEECH_CHUNK, VOICE_TTL_MS } = require('../sidecar/remote/voice.js');
 const { makeGateway } = require('../sidecar/remote/gateway.js');
 const { oggOpusToMono16kFloat32 } = require('../sidecar/media-service.js');
 
@@ -13,6 +13,19 @@ const { oggOpusToMono16kFloat32 } = require('../sidecar/media-service.js');
 // as 60 ms of silence. Real enough to exercise the container end to end without an encoder.
 const SILK_WB_60MS = Buffer.from([0x58]);
 const b64u = (b) => Buffer.from(b).toString('base64url');
+function wavHeader(format, channels, rate, bits, dataLen) {
+  const h = Buffer.alloc(44);
+  h.write('RIFF', 0, 'latin1'); h.writeUInt32LE(36 + dataLen, 4); h.write('WAVE', 8, 'latin1');
+  h.write('fmt ', 12, 'latin1'); h.writeUInt32LE(16, 16); h.writeUInt16LE(format, 20); h.writeUInt16LE(channels, 22);
+  h.writeUInt32LE(rate, 24); h.writeUInt32LE(rate * channels * bits / 8, 28); h.writeUInt16LE(channels * bits / 8, 32); h.writeUInt16LE(bits, 34);
+  h.write('data', 36, 'latin1'); h.writeUInt32LE(dataLen, 40);
+  return h;
+}
+function wav16(rate, frames, fn) {
+  const d = Buffer.alloc(frames * 2);
+  for (let i = 0; i < frames; i++) d.writeInt16LE(Math.round(fn(i) * 32767), i * 2);
+  return Buffer.concat([wavHeader(1, 1, rate, 16, d.length), d]);
+}
 
 function parsePages(buf) {
   const pages = [];
@@ -104,8 +117,8 @@ function parsePages(buf) {
   /* ---------- 3. speak / speech: chunked, per device, re-askable, expiring ---------- */
   {
     let t = 5000;
-    const audio = Buffer.alloc(150 * 1024);
-    for (let i = 0; i < audio.length; i++) audio[i] = (i * 31) & 0xff;
+    // a real mono 16-bit WAV (what a device plays as-is), 150 KB in total
+    const audio = wav16(24000, (150 * 1024 - 44) / 2, (i) => Math.sin(i / 7) * 0.5);
     let calls = 0;
     const voice = makeRemoteVoice({
       now: () => t, newId: () => 'r' + (++calls),
@@ -144,6 +157,34 @@ function parsePages(buf) {
     const s3 = await voice.speak('devA', { text: 'Third.' });
     t += VOICE_TTL_MS + 1;
     A.ok(!voice.speech('devA', { id: s3.data.id, offset: 0 }).ok, 'an unread reply expires');
+  }
+
+  /* ---------- 3b. WAV normalisation: what the local voice engine writes -> what a device decoder plays ---------- */
+  {
+    const mono16 = wav16(24000, 100, (i) => i / 200);
+    A.ok(wavToPcm16(mono16) === mono16, 'mono 16-bit WAV passes through untouched');
+    const frames = 480;
+    const fd = Buffer.alloc(frames * 2 * 4);
+    for (let i = 0; i < frames; i++) { fd.writeFloatLE(0.5, i * 8); fd.writeFloatLE(-0.25, i * 8 + 4); }
+    const stereoFloat = Buffer.concat([wavHeader(3, 2, 24000, 32, fd.length), fd]);
+    const out = wavToPcm16(stereoFloat);
+    A.ok(out && out.readUInt16LE(20) === 1 && out.readUInt16LE(22) === 1 && out.readUInt16LE(34) === 16, 'float32 stereo becomes PCM16 mono');
+    A.eq(out.readUInt32LE(24), 24000, 'the sample rate is kept');
+    A.eq(out.readUInt32LE(40), frames * 2, 'one 16-bit sample per frame');
+    A.eq(out.readInt16LE(44), Math.round(0.125 * 32767), 'channels are averaged ((0.5 - 0.25) / 2)');
+    A.ok(wavToPcm16(Buffer.from('not a wav at all, definitely not')) === null, 'non-WAV bytes are refused');
+    const clip = Buffer.alloc(8); clip.writeFloatLE(3.0, 0); clip.writeFloatLE(-3.0, 4);
+    const clipped = wavToPcm16(Buffer.concat([wavHeader(3, 1, 16000, 32, 8), clip]));
+    A.ok(clipped.readInt16LE(44) === 32767 && clipped.readInt16LE(46) === -32768, 'out-of-range floats clip instead of wrapping');
+
+    const v = makeRemoteVoice({ now: () => 1, newId: () => 'w1', synthesize: async () => ({ ok: true, buf: stereoFloat, mime: 'audio/wav', provider: 'local-kokoro' }) });
+    const sp = await v.speak('devA', { text: 'hi' });
+    A.ok(sp.ok && sp.data.bytes === out.length, 'speak serves the normalised WAV');
+    const bad = makeRemoteVoice({ now: () => 1, newId: () => 'w2', synthesize: async () => ({ ok: true, buf: Buffer.from('garbage bytes here....'), mime: 'audio/wav' }) });
+    A.ok(!(await bad.speak('devA', { text: 'hi' })).ok, 'an unreadable WAV is reported, not sent');
+    const mp3 = makeRemoteVoice({ now: () => 1, newId: () => 'm1', synthesize: async () => ({ ok: true, buf: Buffer.from([0xff, 0xfb, 0x90, 0x00]), mime: 'audio/mpeg', provider: 'edge' }) });
+    const m = await mp3.speak('devA', { text: 'hi' });
+    A.ok(m.ok && m.data.mime === 'audio/mpeg' && m.data.bytes === 4, 'MP3 is passed through as-is');
   }
 
   /* ---------- 4. the gateway: device identity comes from the session, never from args ---------- */
