@@ -30,7 +30,7 @@ const trig = at(panel, '  function paintTrigger(body, f, p) {', '  // LINE BUDGE
 A.ok(/const sendHTML = '<section class="wf-sec wf-send"><h3><span class="n">INBOX<\/span>Send it a job<\/h3>'/.test(trig) && /body\.innerHTML = sendHTML \+ '<section class="wf-sec"><h3>Or start it automatically<\/h3>'/.test(trig),
   'the INBOX card opens on SEND IT A JOB; the automatic starts follow it');
 const sendDyn = at(panel, '  function sendDynHTML(f) {', '  function jobResultHTML(');
-A.ok(/'▶ SEND IT DOWN THE LINE'/.test(sendDyn) && /H\.runSample\(cc, \{ text: t, onUpdate: \(\) => paint\(false\) \}\);/.test(sendDyn) && /if \(!t\) \{ H\.sfx\('bad'\); H\.flashTip\('write the job first/.test(sendDyn),
+A.ok(/'▶ SEND IT DOWN THE LINE'/.test(sendDyn) && /H\.runSample\(cc, \{ text: t, onUpdate: \(\) => paint\(false\) \}\);/.test(sendDyn) && /if \(!t\) \{ refuse\('write the job first/.test(sendDyn),   // (refuse: said in the panel under the key — 2026-10-09)
   '…the same real job as RUN ONE REAL JOB, with the typed text (an empty job is refused with the reason)');
 A.ok(/S\.testJob\[S\.lineKey\] = job\.value; saveTests\(\);/.test(trig) && !/id="wf-job"/.test(panel), '…and the typed job is the line\'s test job (one box, not two)');
 A.ok(/id="wf-send-stop"/.test(sendDyn) && /H\.stopSample\(\)/.test(sendDyn), '…and a job riding the line can be stopped from there');

@@ -439,8 +439,9 @@ const WorkflowPanel = (() => {
         const chk = lined && lined.ok ? lined : canPlus && H.canInsertBay ? (H.canInsertBay(a, b) || { ok: true }) : { ok: true };
         html += '<div class="wf-belt">' + (carry ? '<span class="carry">' + esc(carry) + '</span>' : '') + '<span class="rail"></span>'
           + (canPlus ? (chk.ok
-            ? '<button type="button" class="wf-plus" data-plus="' + i + '" data-from="' + esc(a) + '" data-to="' + esc(b) + '" aria-label="Add a step here" data-tip="Add a step here">+</button>'
-            : '<button type="button" class="wf-plus off" aria-disabled="true" data-plus-off="' + esc(chk.msg || 'a step cannot be added here') + '" aria-label="Adding a step here is not possible" data-tip="' + esc(chk.msg || 'a step cannot be added here') + '">+</button>') : '')
+            ? '<button type="button" class="wf-plus" data-plus="' + i + '" data-plus-at="' + i + '" data-from="' + esc(a) + '" data-to="' + esc(b) + '" aria-label="Add a step here" data-tip="Add a step here">+</button>'
+            // OFF: its reason is the hover tip (the station card, like every key here) and, clicked, the panel's own answer line
+            : '<button type="button" class="wf-plus off" aria-disabled="true" data-plus-at="' + i + '" data-plus-off="' + esc(plusWhy(chk)) + '" aria-label="' + esc('Adding a step here is not possible: ' + plusWhy(chk)) + '" data-tip="' + esc(plusWhy(chk)) + '">+</button>') : '')
           + '</div>';
       }
       html += nodeHTML(n, f);
@@ -451,8 +452,14 @@ const WorkflowPanel = (() => {
     ins.hidden = !open;
     if (open) open.classList.add('on');
     strip.querySelectorAll('[data-node]').forEach(b => { b.onclick = () => { if (b.dataset.node) { H.sfx('click'); select(b.dataset.node); } }; });
-    strip.querySelectorAll('.wf-plus').forEach(b => { b.onclick = e => { e.stopPropagation(); if (b.dataset.plusOff) { H.sfx('bad'); H.flashTip(b.dataset.plusOff, false); return; } S.insertAt = S.insertAt === +b.dataset.plus ? null : +b.dataset.plus; paintStrip(flow()); if (S.insertAt != null) toCard(); }; });
-    ins.querySelectorAll('[data-ins-role]').forEach(b => { b.onclick = e => { e.stopPropagation(); insertStep(open.dataset.from, open.dataset.to, b.dataset.insRole); }; });
+    strip.querySelectorAll('.wf-plus').forEach(b => { b.onclick = e => { e.stopPropagation(); if (b.dataset.plusOff) { refuse(b.dataset.plusOff, b); return; } S.insertAt = S.insertAt === +b.dataset.plus ? null : +b.dataset.plus; paintStrip(flow()); if (S.insertAt != null) toCard(); }; });
+    // a role chip: the step goes in; with no room where the line stands it ARMS like an edit key (a second click tidies round it)
+    ins.querySelectorAll('[data-ins-role]').forEach(b => { b.onclick = e => {
+      e.stopPropagation();
+      const from = open.dataset.from, to = open.dataset.to, role = b.dataset.insRole || null;
+      const tidy = !!b.getAttribute('data-tidy-armed') && !!S.armTidy && S.armTidy.key === armKey('insertStep', from, { from, to, role });
+      insertStep(from, to, role, b, tidy);
+    }; });
     wireEdits(ins);
     wireEdits(strip);   // (an OUTBOX the line still needs is added from its place on the strip)
     const cx = ins.querySelector('[data-ins-close]'); if (cx) cx.onclick = () => { S.insertAt = null; paintStrip(flow()); };
@@ -495,8 +502,11 @@ const WorkflowPanel = (() => {
       + (B && !JN[B.t] ? editBtn('addSorter', from, { from, to }, '⧩ SORT BY TASK TYPE', 'a FILTER: CODE work to an ENGINEER, RESEARCH to a RESEARCHER, everything else straight on') : '')
       + '</div>' : '';
     return '<div class="wf-inserter" role="group" aria-label="Add to the line"><div class="h">' + (lined ? 'ADD BETWEEN ' : 'ADD A BAY BETWEEN ') + esc(nm(from)) + ' AND ' + esc(nm(to)) + '<button type="button" class="bb sm" data-ins-close aria-label="Cancel">✕</button></div>'
-      + '<div class="wf-chips" aria-label="A step">' + roles.map(r => '<button type="button" class="wf-chip" data-ins-role="' + r + '">' + r + '</button>').join('')
-      + '<button type="button" class="wf-chip" data-ins-role="">NO ROLE</button></div>' + shapes
+      + '<div class="wf-chips" aria-label="A step">' + roles.concat(['']).map(r => {
+        // a chip whose step found no room where the line stands is ARMED: its second click lays the line out afresh round it
+        const armed = lined && S.armTidy && S.armTidy.key === armKey('insertStep', from, { from, to, role: r || null }) && Date.now() - S.armTidy.t < ARM_MS;
+        return '<button type="button" class="wf-chip' + (armed ? ' armed' : '') + '" data-ins-role="' + r + '"' + (armed ? ' data-tidy-armed="1" data-rest="' + esc(r || 'NO ROLE') + '" data-tip="the line where it stands has no room for this: a second click lays the whole line out afresh with it (its INBOX stays put) — one UNDO"' : '') + '>' + esc(armed ? '⌗ TIDY LINE TO FIT IT?' : (r || 'NO ROLE')) + '</button>';
+      }).join('') + '</div>' + shapes
       + '<span class="n">' + (lined ? 'A step, or a branch or sorter with its steps: real machines are placed on the floor with their belts, and every other belt stays where it is — one UNDO takes it all back. If there is no room, nothing changes.'
         : 'A real BAY is placed on the floor near this belt and the belts re-route through it — one UNDO takes it all back. If there is no room, nothing changes.') + '</span></div>';
   }
@@ -558,14 +568,17 @@ const WorkflowPanel = (() => {
     }
     strip.appendChild(svg);
   }
-  function insertStep(fromId, toId, role) {
+  // why a + is off, in words (never the bare "not possible" its old label said)
+  const plusWhy = chk => (chk && chk.msg) || 'a step cannot be added on this belt automatically — add a BAY by hand (Conveyors › MACHINES › BAY) and connect it with BELT';
+  // a refusal: the bad sound and the panel's own answer line under the control that was clicked (note) — never an off-panel toast
+  function refuse(msg, anchor) { H.sfx('bad'); note(msg, true, anchor); }
+  function insertStep(fromId, toId, role, anchor, tidy) {
     // a floor that builds by links: the step goes in as a LINE EDIT (only what changed moves); an older floor keeps the
     // insert that lays its belts by the ring rule
-    if (H.lineEdit && canEdit('insertStep', fromId, { from: fromId, to: toId }).ok) return lineEdit('insertStep', fromId, { from: fromId, to: toId, role: role || null }, 'step added');
+    if (H.lineEdit && canEdit('insertStep', fromId, { from: fromId, to: toId }).ok) return lineEdit('insertStep', fromId, { from: fromId, to: toId, role: role || null }, 'step added', tidy ? { tidy: true } : null, anchor);
     const res = H.insertBay(fromId, toId, role || null);
-    S.insertAt = null;
-    if (res && res.ok) { H.sfx('chime'); H.flashTip('BAY placed on the floor · belts re-routed · UNDO removes it', true); S.sel = res.id; paint(true); H.highlight(res.id); H.focusProp(res.id); }
-    else { H.sfx('bad'); H.flashTip((res && res.msg) || 'could not add a step here', false); paintStrip(flow()); }
+    if (res && res.ok) { S.insertAt = null; H.sfx('chime'); note('BAY placed on the floor · belts re-routed · UNDO removes it', false, anchor); S.sel = res.id; paint(true); H.highlight(res.id); H.focusProp(res.id); }
+    else { paintStrip(flow()); refuse((res && res.msg) || 'could not add a step here', anchor); }   // (the inserter stays open: try another step, or close it)
     return res;
   }
 
@@ -582,25 +595,28 @@ const WorkflowPanel = (() => {
      re-layout of the whole line: every machine of it may move, so that takes the Commander's second click. */
   const ARM_MS = 4000;
   const armKey = (op, id, args) => op + '|' + id + '|' + JSON.stringify(args || {});
-  function lineEdit(op, id, args, okMsg, how) {
+  /* `anchor` = the control that was clicked: the answer is said under it, inside the panel (note) — the refusal ("not enough
+     clear floor", "no room … click it again to TIDY") used to be a toast at the screen's far-left edge. A refused step keeps the
+     + inserter open, so its chips (and the armed one) are still there to click. */
+  function lineEdit(op, id, args, okMsg, how, anchor) {
     if (!H.lineEdit) return null;
     saveOpenFields();   // a half-typed brief is saved before the floor changes under it
     const res = H.lineEdit(op, id, args, how);
-    S.insertAt = null; S.armTidy = null;
+    S.armTidy = null;
     if (res && res.ok) {
-      H.sfx('chime'); H.flashTip((okMsg || EDIT_DONE[op] || 'line changed') + (res.tidied ? ' · the whole line laid out afresh round it' : res.relaid ? ' · the belts round it re-routed' : '') + ' · UNDO takes it back', true);
+      S.insertAt = null;
+      H.sfx('chime'); note((okMsg || EDIT_DONE[op] || 'line changed') + (res.tidied ? ' · the whole line laid out afresh round it' : res.relaid ? ' · the belts round it re-routed' : '') + ' · UNDO takes it back', false, anchor);
       const focus = res.focus && prop(res.focus) ? res.focus : (prop(S.sel) ? S.sel : null);
       if (focus) { S.sel = focus; H.highlight(focus); }
       refresh(); paint(true);
       if (focus) H.focusProp(focus, true);
     } else if (res && res.canTidy && op !== 'tidy' && !(how && how.tidy)) {
-      H.sfx('bad');
       const key = armKey(op, id, args);
       S.armTidy = { key, t: Date.now() };
-      H.flashTip('no room for that with the line where it stands — click it again to TIDY the line round it (every machine may move · one UNDO)', false);
       paint(true);
+      refuse('no room for that with the line where it stands — click it again to TIDY the line round it (every machine may move · one UNDO)', anchor);
       setTimeout(() => { if (S.armTidy && S.armTidy.key === key && Date.now() - S.armTidy.t >= ARM_MS - 50) { S.armTidy = null; if (el) el.querySelectorAll('[data-tidy-armed]').forEach(disarmBtn); } }, ARM_MS);
-    } else { H.sfx('bad'); H.flashTip((res && res.msg) || 'that change cannot be made here', false); paint(true); }
+    } else { paint(true); refuse((res && res.msg) || 'that change cannot be made here', anchor); }
     return res;
   }
   function disarmBtn(b) { b.textContent = b.dataset.rest || b.textContent; b.classList.remove('armed'); b.removeAttribute('data-tidy-armed'); }
@@ -616,10 +632,10 @@ const WorkflowPanel = (() => {
     if (!scope) return;
     scope.querySelectorAll('[data-edit]').forEach(b => { b.onclick = e => {
       e.stopPropagation();
-      if (b.classList.contains('off')) { H.sfx('bad'); H.flashTip(b.dataset.tip, false); return; }
+      if (b.classList.contains('off')) { refuse(b.dataset.tip, b); return; }
       let args = {}; try { args = JSON.parse(b.dataset.editArgs || '{}'); } catch (x) { args = {}; }
       const tidy = !!b.getAttribute('data-tidy-armed') && !!S.armTidy && S.armTidy.key === armKey(b.dataset.edit, b.dataset.editId, args);
-      lineEdit(b.dataset.edit, b.dataset.editId, args, null, tidy ? { tidy: true } : null);
+      lineEdit(b.dataset.edit, b.dataset.editId, args, null, tidy ? { tidy: true } : null, b);
     }; });
   }
   // a BAY's line edits: move it, review it, give it a partner, take it out — or, for a BAY on no line, make it one
@@ -743,7 +759,7 @@ const WorkflowPanel = (() => {
     b.disabled = true;
     const res = H.requisitionPcFor(S.sel);
     if (res.ok) { H.sfx('chime'); H.flashTip('PC placed + assigned — compute is on', true); paint(true); }
-    else { b.disabled = false; H.sfx('bad'); H.flashTip(res.reason === 'no-room-for-a-desk' ? 'no clear 2×1 floor in this room — make space first' : 'could not place a PC here', false); }
+    else { b.disabled = false; refuse(res.reason === 'no-room-for-a-desk' ? 'no clear 2×1 floor in this room — make space first' : 'could not place a PC here', b); }
   }
   /* MULTI-BAY (Andrew's ruling, 2026-09-22): each bay has ONE agent, but one agent may crew MANY bays — so an
      agent already on another bay is NOT disabled here; the row says where else it works ("also on WRITER bay").
@@ -823,7 +839,7 @@ const WorkflowPanel = (() => {
       rec.disabled = true;
       const a = H.summonForRole(p.role, ri), res = a && H.station().assignPropAgent(p.id, a.id);
       if (res && res.ok) { H.sfx('chime'); H.flashTip(a.name + ' recruited → works this bay', true); paint(true); }
-      else { rec.disabled = false; H.sfx('bad'); H.flashTip(a ? 'recruited, but the bay refused the assignment' : 'recruit failed — pick an agent above', false); }
+      else { rec.disabled = false; refuse(a ? 'recruited, but the bay refused the assignment' : 'recruit failed — pick an agent above', rec); }
     };
     const aid = $('#wf-aid'), aerr = $('#wf-aid-err');
     aid.oninput = () => aerr.classList.remove('show');
@@ -892,7 +908,7 @@ const WorkflowPanel = (() => {
       const run = $('#wf-run');
       if (run) run.onclick = () => {
         const tin = $('#wf-tin'), text = tin ? tin.value.trim() : '';
-        if (!text) { H.sfx('bad'); H.flashTip('give this step a test input first', false); return; }
+        if (!text) { refuse('give this step a test input first', run); return; }
         tryStep(p.id, p.agentId, text);   // startAt = THIS bay (multi-bay: the agent may crew another)
       };
     } };
@@ -1737,7 +1753,7 @@ const WorkflowPanel = (() => {
     send.onclick = () => {
       const job = $('#wf-send-in'), cc = comp(); if (!cc || !job) return;
       const t = job.value.trim();
-      if (!t) { H.sfx('bad'); H.flashTip('write the job first: what should the line work on?', false); job.focus(); return; }
+      if (!t) { refuse('write the job first: what should the line work on?', send); job.focus(); return; }
       job.blur();   // the cursor leaves the box: the card follows the job from here
       S.testJob[S.lineKey] = job.value; saveTests(); S.prevJob = null; liveSeen = false;   // a new job: nothing to compare it with, nothing seen working yet
       H.runSample(cc, { text: t, onUpdate: () => paint(false) }); startLive();
@@ -1971,7 +1987,7 @@ const WorkflowPanel = (() => {
     body.innerHTML = (budget ? '<section class="wf-sec wf-sthead">' + budget + '</section>' : '') + err + log + main;
     // wiring
     $$('[data-tmode]').forEach(b => b.onclick = () => {
-      if (b.classList.contains('off')) { H.sfx('bad'); H.flashTip(b.getAttribute('data-tip') || 'not available here', false); return; }
+      if (b.classList.contains('off')) { refuse(b.getAttribute('data-tip') || 'not available here', b); return; }
       const inp = $('#wf-st-in'); if (inp) S.testJob[S.lineKey] = inp.value;   // the test job rides along to the next mode
       S.testMode = b.dataset.tmode; H.sfx('click'); paint(true);
     });
@@ -1995,7 +2011,7 @@ const WorkflowPanel = (() => {
     };
     $$('[data-hop]').forEach(b => b.onclick = () => { S.hop = S.hop === +b.dataset.hop ? null : +b.dataset.hop; paint(true); });
     $$('[data-pause]').forEach(b => b.onclick = () => { S.pauseMode = b.dataset.pause; $$('[data-pause]').forEach(x => x.setAttribute('aria-pressed', String(x === b))); });
-    const go = $('#wf-st-go'); if (go) go.onclick = () => { const t = $('#wf-st-in').value.trim(); if (!t) { H.sfx('bad'); H.flashTip('give the test an input first', false); return; } H.sfx('click'); startSession(t, S.pauseMode === 'none' ? 'none' : 'every'); };
+    const go = $('#wf-st-go'); if (go) go.onclick = () => { const t = $('#wf-st-in').value.trim(); if (!t) { refuse('give the test an input first', go); return; } H.sfx('click'); startSession(t, S.pauseMode === 'none' ? 'none' : 'every'); };
     const stp = $('#wf-st-stop'); if (stp) stp.onclick = () => sessionCall('stop');
     wirePaused(s, f);
     const back = $('#wf-hop-back'); if (back) back.onclick = () => { S.hop = null; paint(true); };

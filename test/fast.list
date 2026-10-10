@@ -740,6 +740,7 @@ test/line-place.test.js
 test/line-too-long.test.js
 test/conveyor-no-handoff.test.js
 test/orphan-bay-join.test.js
+test/workflow-panel-inline-refusals.test.js
 test/refit-flow-polish.test.js
 test/refit-junction-cards.test.js
 test/refit-footprint.test.js
