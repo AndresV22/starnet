@@ -24,7 +24,7 @@ const env = C.buildExport({
   autonomy: { initiative: 'wait', reach: 'sandbox' },
   roster: [{ agentId: 'lead', name: 'Lead', model: 'x/y', provider: 'openrouter', role: 'boss', system: 'SECRET PROMPT' }],
   dossier: 'the commander block',
-  permissions: ['fs.write:workspace', 'shell.exec:*'],
+  permissions: ['cabinet:write', 'shell.exec:*'],
   connectors: [{
     id: 'gh', transport: 'http', url: 'https://mcp.example/api?token=SEKRET#FRAGMENT_SECRET',
     headers: { Authorization: 'Bearer abc', 'X-Foo': 'ok' }, hasToken: true,
@@ -88,7 +88,8 @@ eq(p.schema, 1, 'parsed schema is 1');
 eq(p.sections.budget.perRun, 2, 'budget round-trips');
 eq(p.sections.fallback.models.length, 2, 'fallback round-trips');
 eq(p.sections.roster[0].model, 'x/y', 'roster metadata round-trips');
-eq(p.sections.permissions.allow.length, 2, 'permissions round-trip');
+eq(JSON.stringify(p.sections.permissions.allow), JSON.stringify(['cabinet:write']), 'the curated grant round-trips; a standing execute approval does not (2026-10-10)');
+ok(p.notes.some(x => /skipped 1 standing approval/.test(x)), 'the dropped standing approval is named in the import notes');
 ok(Array.isArray(p.secretsNeeded) && p.secretsNeeded.length === 3, 'all redacted connectors surface re-enter-your-key prompts');
 eq(p.secretsNeeded[0].id, 'gh', 'the secretsNeeded prompt names the connector');
 eq(p.sections.connectors[0].enabled, false, 'disabled state round-trips');
@@ -140,9 +141,9 @@ eq(C.parseImport({ starnetExport: 1, sections: { budget: 'not an object' } }).ok
 
 // ---- security audit 2026-09-25: an imported file cannot bless folders (path:<root> grants are machine authority) ----
 {
-  const hostile = C.parseImport({ starnetExport: 1, sections: { permissions: { allow: ['fs.write:workspace', 'path:C:\\', 'PATH:/', 'path:/home/victim'] } } });
+  const hostile = C.parseImport({ starnetExport: 1, sections: { permissions: { allow: ['cabinet:write', 'workbench:execute', 'path:C:\\', 'PATH:/', 'path:/home/victim'] } } });
   ok(hostile.ok, 'an import carrying path grants still parses');
-  eq(JSON.stringify(hostile.sections.permissions.allow), JSON.stringify(['fs.write:workspace']), 'every path:<root> grant is dropped; capability grants survive');
+  eq(JSON.stringify(hostile.sections.permissions.allow), JSON.stringify(['cabinet:write']), 'every path:<root> grant and every non-catalog grant is dropped; the curated grant survives');
   ok(hostile.notes.some(x => /skipped 3 project folder grants/.test(x)), 'the skipped folder grants are named in the import notes');
 }
 
