@@ -89,8 +89,10 @@ const Delegated = (() => {
     const k = r.ws, w = r.worker, C = typeof Channels !== 'undefined' ? Channels : null;
     // a worker's approval or question lands on the conversation that dispatched it (the lead's consent), named for the
     // worker; its own thread only holds one when the Commander is talking to it there
+    // — the prompt names the agent, not the worker's run, so only an UNFINISHED worker of that agent can be the one waiting
     const parentPend = C && C.pendingOf ? C.pendingOf(parentId) : null;
-    const pend = (C && C.pendingOf ? C.pendingOf(k.id) : null) || (parentPend && parentPend.agentId && parentPend.agentId === k.agentId ? parentPend : null);
+    const unfinished = w ? w.status === 'running' : ((C && C.isBusy && C.isBusy(k.id)) || !(k.runIds || []).length);
+    const pend = (C && C.pendingOf ? C.pendingOf(k.id) : null) || (unfinished && parentPend && parentPend.agentId && parentPend.agentId === k.agentId ? parentPend : null);
     if (pend) return { cls: 'waiting', live: pend.tool === 'brief.ask' ? 'asking you a question' : 'waiting for your approval', t: '' };
     if (w && w.status === 'running') {
       return { cls: 'working', live: doing(steps.get(String(w.runId))), t: clock(Date.now() - (+w.startedAt || Date.now())), stop: !!w.canInterrupt, worker: w };
@@ -109,8 +111,11 @@ const Delegated = (() => {
   /* THE CALM LINE (2026-10-10, Andrew: the full card "feels like a clusterfuck"). One quiet line per dispatch —
      "Delegated to MIRA, ROOK and VEX · 2 working · 1 done" — that opens to one short line per worker. It never repeats
      a worker's result: the overseer's review right below is the content; this line is only where things stand + the
-     doors into each thread. Collapsed by default; what you opened stays open while the page lives. */
+     doors into each thread. OPEN WHILE IT RUNS (2026-10-10 blind test: every tester needed who-has-what and stop without
+     a click): a dispatch with a worker still working, starting or waiting on you shows its rows; once all settle it
+     folds to the one line. The Commander's own click wins either way while the page lives. */
   const opened = new Set();   // batch keys the Commander expanded
+  const closed = new Set();   // batch keys the Commander folded while they were still running
   const WORD = { working: 'working', waiting: 'needs you', done: 'done', failed: 'failed', stopped: 'stopped', queued: 'starting' };
   function names(list) {
     const n = list.map(a => String(a.name || a.id));
@@ -124,7 +129,8 @@ const Delegated = (() => {
       count('queued') && count('queued') + ' starting', count('failed') && count('failed') + ' failed', count('stopped') && count('stopped') + ' stopped',
       count('done') && (count('done') === rows.length ? (rows.length > 1 ? 'all ' + rows.length + ' done' : 'done') : count('done') + ' done')]
       .filter(Boolean).join(' · ');
-    const open = opened.has(b.lead);
+    const live = count('working') + count('waiting') + count('queued') > 0;
+    const open = opened.has(b.lead) || (live && !closed.has(b.lead));
     const head = '<button type="button" class="dg-line-head" data-dg-toggle="' + esc(b.lead) + '" aria-expanded="' + open + '">'
       + '<span class="dg-caret" aria-hidden="true"></span><span class="dg-line-text">Delegated to ' + esc(names(rows.map(x => x.a))) + '</span>'
       + '<span class="dg-line-sum' + (count('waiting') ? ' waiting' : '') + '">' + esc(sum) + '</span></button>';
@@ -213,7 +219,11 @@ const Delegated = (() => {
       const s = t.closest('#chat-log [data-dg-stop]');
       if (s) { e.preventDefault(); stop(s.dataset.dgStop, s); return; }
       const tog = t.closest('#chat-log [data-dg-toggle]');
-      if (tog) { e.preventDefault(); const k = tog.dataset.dgToggle; if (opened.has(k)) opened.delete(k); else opened.add(k); repaint(); return; }
+      if (tog) {
+        e.preventDefault(); const k = tog.dataset.dgToggle;
+        if (tog.getAttribute('aria-expanded') === 'true') { opened.delete(k); closed.add(k); } else { opened.add(k); closed.delete(k); }
+        repaint(); return;
+      }
       const open = t.closest('#chat-log [data-dg-open]');
       if (open) { e.preventDefault(); if (has(App, 'openWorkstream')) App.openWorkstream(open.dataset.dgOpen); }
     });
@@ -232,6 +242,6 @@ const Delegated = (() => {
   async function presentFor() { wire(); repaint(); }
 
   if (typeof document !== 'undefined') document.addEventListener('DOMContentLoaded', wire);
-  return { presentFor, repaint, batches, stateOf, _internals: { anchorFor, excerpt } };
+  return { presentFor, repaint, batches, stateOf, _internals: { anchorFor, excerpt, lineHtml, opened, closed } };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = Delegated;

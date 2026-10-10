@@ -550,7 +550,7 @@ body.glass-demo:not(.hud-mode) #left .ws-auto-group button:is(:hover, :focus-vis
    parent carries a small count chip (app.js railKidsChip) tinted amber while one works, gold while one waits on you;
    a click shows them, indented on a thread line. Folded, only an open or waiting thread stays in the list. */
 body.glass-demo:not(.hud-mode) #left #workstreams .ws-row .ws-kids-n {
-  flex: none; min-width: 22px; height: 20px; padding: 0 6px; font: var(--sn-type-meta, 14px)/18px 'VT323', monospace; letter-spacing: .5px; cursor: pointer;
+  flex: none; min-width: 22px; height: 20px; padding: 0 6px; font: var(--sn-type-meta, 14px)/18px 'VT323', monospace; letter-spacing: .5px; cursor: pointer; white-space: nowrap;
   color: var(--text); border: 1px solid rgba(var(--ph-rgb), .28); border-radius: 4px; background: rgba(0, 0, 0, .22); text-shadow: none;
 }
 body.glass-demo:not(.hud-mode) #left #workstreams .ws-row .ws-kids-n:is(:hover, :focus-visible) { color: var(--ph-bright); border-color: rgba(var(--ph-rgb), .6); }
