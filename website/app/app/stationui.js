@@ -111,22 +111,49 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
   // panelBright (−100…100, default 0) is the tube's BRIGHTNESS knob: above 0 it lifts the panel glass's black
   // level toward the phosphor colour (never toward white); below 0 it takes the panels DOWN toward true black
   // (Andrew 10-01: "it doesnt get dark enough"). 0 = the shipped look, untouched.
-  function defaults() { return { theme: 'amber', themeHue: 35, themeSat: 100, themeGlow: 100, panelBright: 0, roomLighting: 'low', textScale: 0, flicker: true, crtGlass: 'full', staticLevel: 100, sound: true, hints: true, backdrop: 'void', sessionRow: 'compact', keepComputerAwake: false, notifyPrefs: notifyDefaults() }; }
-  // Raise overall room exposure without changing the distribution of its lights.
-  // Existing saves retain their chosen level; missing values start at LOW.
-  const ROOM_LIGHTING_STEPS = [
-    ['low', 'LOW', 0.82],
-    ['medium', 'MEDIUM', 0.72],
-    ['high', 'HIGH', 0.62],
-  ];
-  function resolveRoomLighting(v) { return ROOM_LIGHTING_STEPS.some(([id]) => id === v) ? v : 'low'; }
-  function applyRoomLighting(value) {
+  function defaults() { return { theme: 'amber', themeHue: 35, themeSat: 100, themeGlow: 100, panelBright: 0, roomLighting: 0, textScale: 0, flicker: true, crtGlass: 'full', staticLevel: 100, sound: true, hints: true, backdrop: 'void', sessionRow: 'compact', keepComputerAwake: false, notifyPrefs: notifyDefaults() }; }
+  // ROOM LIGHT is a 0–100 slider (Andrew 10-10: "maybe we should have adjustable lighting setting?").
+  // 0 is the approved station, untouched, and the default. Ambient alone barely moved the screen (the old
+  // HIGH chip measured +3% over LOW, 10-10 player report: "high lighting but still too dark"): WorldLight's
+  // deck film, the pool cut, the KEY light and the CRT density film all set what reaches the eye, so the
+  // slider drives all of them together. `film` scales the renderer's own CRT.film (the classic world's 0 stays 0).
+  // 100 = the brightest tuned look (hab mean luma 15.9 at 0 → 28.5 at 100). Old LOW/MEDIUM/HIGH saves map to 0/15/30.
+  const ROOM_LIGHTING_MIN = { ambient: 0.82, cut: 1, key: 0, film: 1 };
+  const ROOM_LIGHTING_MAX = { ambient: 0.3, cut: 2.4, key: 2, film: 0.26 };
+  const ROOM_LIGHTING_LEGACY = { low: 0, medium: 15, high: 30 };
+  let roomLightingFilm = null;   // the renderer's CRT.film before the slider touched it
+  let roomLightingTimer = 0;
+  function resolveRoomLighting(v) {
+    if (typeof v === 'string' && Object.prototype.hasOwnProperty.call(ROOM_LIGHTING_LEGACY, v)) return ROOM_LIGHTING_LEGACY[v];
+    const n = typeof v === 'number' || (typeof v === 'string' && v.trim() !== '') ? Number(v) : NaN;
+    return Number.isFinite(n) ? Math.round(Math.min(100, Math.max(0, n))) : 0;
+  }
+  function roomLightingKnobs(level) {
+    const t = resolveRoomLighting(level) / 100, out = {};
+    for (const k of Object.keys(ROOM_LIGHTING_MIN)) out[k] = +(ROOM_LIGHTING_MIN[k] + (ROOM_LIGHTING_MAX[k] - ROOM_LIGHTING_MIN[k]) * t).toFixed(4);
+    return out;
+  }
+  // `live` (a slider drag): film and ambient reach the next frame on their own; the pool cut + key need a
+  // rebake, which is too heavy for every drag tick, so it waits until the drag pauses (crtlab's 90 ms idiom).
+  function applyRoomLighting(value, live) {
     if (typeof StationBake === 'undefined') return;
-    const level = resolveRoomLighting(value);
-    const ambient = ROOM_LIGHTING_STEPS.find(([id]) => id === level)[2];
-    if (StationBake.LIGHT.ambient === ambient) return;
-    StationBake.LIGHT.ambient = ambient;
-    if (typeof World !== 'undefined' && World.rebake) World.rebake();
+    const step = roomLightingKnobs(value);
+    const crt = typeof World !== 'undefined' && World.crt;
+    const tex = typeof IndustrialTextures !== 'undefined' && IndustrialTextures.lighting;
+    if (crt) {
+      if (roomLightingFilm == null) roomLightingFilm = Number(crt.film) || 0;
+      crt.film = +(roomLightingFilm * step.film).toFixed(4);   // a per-frame post pass: no rebake needed
+    }
+    const rebake = () => { roomLightingTimer = 0; if (typeof World !== 'undefined' && World.rebake) World.rebake(); };
+    if (StationBake.LIGHT.ambient === step.ambient && (!tex || (tex.cut === step.cut && tex.key === step.key))) {
+      if (roomLightingTimer && !live) { clearTimeout(roomLightingTimer); rebake(); }   // a release lands the pending rebake now
+      return;
+    }
+    StationBake.LIGHT.ambient = step.ambient;
+    if (tex) { tex.cut = step.cut; tex.key = step.key; }
+    if (roomLightingTimer) clearTimeout(roomLightingTimer);
+    if (live) roomLightingTimer = setTimeout(rebake, 90);
+    else rebake();
   }
   // TEXT SIZE steps (percent → chip label; 0 = AUTO, the default). Applied as a body zoom in
   // applySettings(): zoom scales layout too, so every hard-px face (COMMS included) grows together —
@@ -7282,12 +7309,8 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       '<label class="set-slider"><span class="set-slider-name">GLOW</span><input type="range" id="set-glow" min="0" max="150" step="5" value="' + clampN(s.themeGlow, 0, 150, 100) + '"><span class="set-slider-val" id="set-glow-val">' + clampN(s.themeGlow, 0, 150, 100) + '%</span></label>' +
       '<label class="set-slider"><span class="set-slider-name">BRIGHTNESS</span><input type="range" id="set-bright" min="-100" max="100" step="5" value="' + clampN(s.panelBright, -100, 100, 0) + '"><span class="set-slider-val" id="set-bright-val">' + clampN(s.panelBright, -100, 100, 0) + '%</span></label>' +
       '<h4 class="ms-h" id="set-lighting-label">ROOM LIGHTING</h4>' +
-      '<p class="set-about">Choose the brightness across your rooms. LOW is softly lit; MEDIUM and HIGH make the whole room brighter.</p>' +
-      '<div class="set-themes" id="set-lighting" role="group" aria-labelledby="set-lighting-label">' +
-      ROOM_LIGHTING_STEPS.map(([v, name]) => {
-        const on = resolveRoomLighting(s.roomLighting) === v;
-        return '<button type="button" class="set-theme ' + (on ? 'sel' : '') + '" aria-pressed="' + on + '" data-lighting="' + v + '">' + name + '</button>';
-      }).join('') + '</div>' +
+      '<p class="set-about">Drag right to light your rooms brighter. All the way left is the standard station lighting.</p>' +
+      '<div id="set-lighting"><label class="set-slider"><span class="set-slider-name">ROOM LIGHT</span><input type="range" id="set-room-light" aria-labelledby="set-lighting-label" min="0" max="100" step="1" value="' + resolveRoomLighting(s.roomLighting) + '"><span class="set-slider-val" id="set-room-light-val">' + resolveRoomLighting(s.roomLighting) + '%</span></label></div>' +
       // THE BACKDROP — what the station floats in. Swatches are painted by the REAL backdrop
       // renderer below (SpaceBG.paintSample), never by a stand-in gradient, so a preview can
       // not promise a sky the station won't deliver — the same law the deck/wall swatches follow.
@@ -7622,17 +7645,11 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     wireSlider(host.querySelector('#set-static'), v => { s.staticLevel = clampN(v, 0, 200, 100); sliderVal('#set-static-val', s.staticLevel + '%'); });
     const bind = (id, key) => host.querySelector(id).addEventListener('change', ev => { s[key] = ev.target.checked; applySettings(); save(); flashSaved(appMsg()); });
     bind('#set-flicker', 'flicker'); bind('#set-sound', 'sound'); bind('#set-hints', 'hints');
-    const lightingChips = host.querySelectorAll('#set-lighting [data-lighting]');
-    lightingChips.forEach(b => b.addEventListener('click', () => {
-      s.roomLighting = resolveRoomLighting(b.dataset.lighting);
-      applyRoomLighting(s.roomLighting); save(); sfx('click');
-      lightingChips.forEach(x => {
-        const on = x.dataset.lighting === s.roomLighting;
-        x.classList.toggle('sel', on);
-        x.setAttribute('aria-pressed', String(on));
-      });
-      flashSaved(appMsg());
-    }));
+    const roomLightIn = host.querySelector('#set-room-light');
+    if (roomLightIn) {
+      roomLightIn.addEventListener('input', ev => { s.roomLighting = resolveRoomLighting(ev.target.value); applyRoomLighting(s.roomLighting, true); sliderVal('#set-room-light-val', s.roomLighting + '%'); });
+      roomLightIn.addEventListener('change', () => { applyRoomLighting(s.roomLighting); save(); sfx('click'); flashSaved(appMsg()); });
+    }
     // CRT GLASS chips — same instant-apply + persist idiom as TEXT SIZE below.
     const glChips = host.querySelectorAll('#set-crtglass [data-glass]');
     const syncGlass = () => glChips.forEach(x => {
@@ -11225,7 +11242,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
   function lookOptions() {
     const bds = typeof SpaceBG === 'undefined' ? [] : [].concat(SpaceBG.list()).concat(typeof Terrain === 'undefined' || !Terrain.list ? [] : Terrain.list());
     return { theme: THEMES.map(([n]) => n).concat('custom'), themeHue: '0-359', themeSat: '0-100', themeGlow: '0-150', panelBright: '-100-100',
-      roomLighting: ROOM_LIGHTING_STEPS.map(([id]) => id), textScale: TEXT_SCALES.map(([v, n]) => v + ' (' + n + ')'), flicker: 'true|false',
+      roomLighting: '0-100', textScale: TEXT_SCALES.map(([v, n]) => v + ' (' + n + ')'), flicker: 'true|false',
       crtGlass: GLASS_STEPS.map(([id]) => id), staticLevel: '0-200', sound: 'true|false', hints: 'true|false', backdrop: bds.map(b => b.id), sessionRow: ROW_STEPS.map(([id]) => id),
       notifyPrefs: Object.keys(notifyDefaults()).join('|') + ': true|false' };
   }
@@ -11249,7 +11266,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       else if (k === 'themeGlow') num(k, 0, 150);
       else if (k === 'panelBright') num(k, -100, 100);
       else if (k === 'staticLevel') num(k, 0, 200);
-      else if (k === 'roomLighting') pick(k, ROOM_LIGHTING_STEPS.map(([id]) => id));
+      else if (k === 'roomLighting') num(k, 0, 100);
       else if (k === 'crtGlass') pick(k, GLASS_STEPS.map(([id]) => id));
       else if (k === 'sessionRow') pick(k, ROW_STEPS.map(([id]) => id));
       else if (k === 'backdrop') pick(k, opts.backdrop);
