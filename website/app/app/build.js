@@ -4800,6 +4800,7 @@ const Build = (() => {
       // THE HAND: a workflow machine dragged (Shift up) lays a belt to the pointer; with Shift — or any other prop — it moves
       if(drag.mode==='selectpress'&&drag.moved)drag.mode=(!drag.add&&beltSource(drag.propId))?'handbelt':'propmove';
       if(drag.mode==='beltpress'&&drag.moved)drag.mode='handbranch';
+      if ((drag.mode === 'handbelt' || drag.mode === 'handbranch') && cv.style.cursor !== 'crosshair') cv.style.cursor = 'crosshair';   // laying a belt aims (onUp restores)
       if(drag.mode==='grouppress'&&drag.moved)drag.mode='groupmove';
       if(drag.mode==='boxpress'&&drag.moved)drag.mode='box';
       if (drag.mode === 'paint' || drag.mode === 'reclaim') rasterTo(drag, w);   // accumulate every tile the brush crosses
