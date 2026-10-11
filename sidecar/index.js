@@ -12324,6 +12324,9 @@ async function runSampleJob(readArgs) {
         error: completed ? '' : stoppedJob ? 'you stopped this job' : !onLine ? 'the job did not enter through this line' : runs.length ? 'a step did not finish cleanly' : 'no step ran' }));
       sampleInFlight.jobId = null;
     }
+    const recordedJob = jobId ? LineJobs.get(lineJobs, jobId) : null;
+    const onward = recordedJob && recordedJob.sentTo ? { sentTo: recordedJob.sentTo } : {};
+    if (line && plan.sendTo) onward.onwardDestinations = Object.values(plan.sendTo).filter(s => s.fromLine === line).map(s => ({ lineId: s.toLine, outboxId: s.outboxId }));
     if (workitemId) {
       const d = bumpQueue(agentId, -1);
       if (completed) chanEmit('workitem.delivered', { workitemId, finalQueueId: 'outbox', agentId, box: '', ms: Date.now() - t0, ts: Date.now(), sample: true });
@@ -12339,13 +12342,13 @@ async function runSampleJob(readArgs) {
           : runs.length ? 'sample job did not complete cleanly' : 'sample job produced no durable run outcome',
         chatId: SAMPLE_CHAT, streamId: streamId, agentId: agentId || null, isTask: isTask,
         workitemId: workitemId || null, replies: sampleReplies.slice(), runs: runs, delivered: null, totalUsd: totalUsd
-      }, line ? { line: line } : null, stopped ? { stopped: true } : null, jobId ? { jobId } : null));
+      }, line ? { line: line } : null, stopped ? { stopped: true } : null, jobId ? { jobId } : null, onward));
     }
     return json(200, Object.assign({
       ok: true, sample: true, chatId: SAMPLE_CHAT, streamId: streamId,
       agentId: agentId || null, isTask: isTask, workitemId: workitemId || null,
       replies: sampleReplies.slice(), runs: runs, delivered: delivered, totalUsd: totalUsd
-    }, line ? { line: line } : null, jobId ? { jobId } : null));
+    }, line ? { line: line } : null, jobId ? { jobId } : null, onward));
   } finally {
     // a job whose route threw after it went out is never left "running"
     if (sampleInFlight && sampleInFlight.jobId) { try { lineJobsSet(LineJobs.finish(lineJobs, sampleInFlight.jobId, { at: Date.now(), status: 'failed', error: 'the station hit an error while the job was out' })); } catch (e) { failNote('linejobs.finish', e); } }
@@ -24755,7 +24758,7 @@ function consentSummary(call) {
   }
   // station.control / station.power: the catalog's own sentence for the change (sidecar/tools/builtin/station-control.js)
   if (/^station[._](?:control|power)$/.test(String(call && call.name || ''))) return stationControlCard(redact(a));
-  if (/^station[._]test_line$/.test(String(call && call.name || ''))) return 'the line ' + String(a.line || '').replace(/\s+/g, ' ').trim().slice(0, 48) + ', with this test job: "' + String(a.job || '').replace(/\s+/g, ' ').trim().slice(0, 240) + (String(a.job || '').length > 240 ? '…' : '') + '". It runs the line\'s agents and spends what they spend; the result lands in DELIVERABLES › TO REVIEW.';
+  if (/^station[._]test_line$/.test(String(call && call.name || ''))) return 'the line ' + String(a.line || '').replace(/\s+/g, ' ').trim().slice(0, 48) + ', with this test job: "' + String(a.job || '').replace(/\s+/g, ' ').trim().slice(0, 240) + (String(a.job || '').length > 240 ? '…' : '') + '". It runs the line\'s agents and spends what they spend; the result lands in DELIVERABLES › TO REVIEW. If its OUTBOX has SEND TO, the downstream line also runs the result at its own cost.';
   if (/^station[._]make_prop$/.test(String(call && call.name || ''))) return '"' + String(a.describe || '').replace(/\s+/g, ' ').trim().slice(0, 60) + '", drawn with your StarNet credits (about $0.35' + (a.sideView ? ', and about $0.30 more for its side view' : '') + '). It joins your MADE BY YOU library; nothing is placed until a plan says so.';
   // a bare path names the call only when nothing else it carries could change what is approved (flags, counts)
   if (typeof a.path === 'string' && a.path && Object.keys(a).every(k => k === 'path' || a[k] == null || typeof a[k] === 'boolean' || typeof a[k] === 'number')) return a.path;
