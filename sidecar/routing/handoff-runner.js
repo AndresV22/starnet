@@ -96,13 +96,18 @@ function makeHandoffRunner(deps) {
     const at = now(), plan = planOf(), error = 'not sent on: ' + why;
     refused.push({ at, fromLine: item.fromLine, toLine: item.toLine, error: why });
     if (refused.length > MAX_REFUSALS) refused.shift();
-    const last = J.latest(item.toLine);
     let yj = null;
-    if (last && last.status === 'failed' && last.from && String(last.from.line) === String(item.fromLine) && last.error === String(error).slice(0, 400)) yj = J.again(last.id, at);
-    if (!yj) {
-      yj = J.start({ id: newJobId(), line: item.toLine, name: nameOf(plan, item.toLine) || item.toName, text: item.original, handedIn: item.output, streamId: '', at,
-        from: { line: item.fromLine, jobId: item.fromJobId, name: item.fromName } });
-      if (yj) J.finish(yj.id, { at, status: 'failed', usd: 0, output: '', runs: [], error });
+    /* (fix-runtime 54) ONLY ON A LINE THE FLOOR STILL HAS: a target line deleted (or rebuilt under a new key) while the hand-off
+       waited gets no record — one keyed by its dead lineId would sit in line-jobs.json where no window ever shows it. The refusal
+       then lands on the SENDER alone (sentTo.refused below, with no job to open). */
+    if (lineRec(plan, item.toLine)) {
+      const last = J.latest(item.toLine);
+      if (last && last.status === 'failed' && last.from && String(last.from.line) === String(item.fromLine) && last.error === String(error).slice(0, 400)) yj = J.again(last.id, at);
+      if (!yj) {
+        yj = J.start({ id: newJobId(), line: item.toLine, name: nameOf(plan, item.toLine) || item.toName, text: item.original, handedIn: item.output, streamId: '', at,
+          from: { line: item.fromLine, jobId: item.fromJobId, name: item.fromName } });
+        if (yj) J.finish(yj.id, { at, status: 'failed', usd: 0, output: '', runs: [], error });
+      }
     }
     if (item.fromJobId) J.link(item.fromJobId, { line: item.toLine, jobId: yj ? yj.id : null, name: item.toName, refused: why });
     warn('[handoff] ' + item.fromLine + ' → ' + item.toLine + ' refused: ' + why);
@@ -186,7 +191,16 @@ function makeHandoffRunner(deps) {
   async function dispatch(item, s) {
     // THE GATES AGAIN AT DISPATCH: the item may have waited; E-STOP, the cap, the floor or the SEND TO itself may have changed
     const plan = planOf();
-    const still = plan ? Pipeline.sendToOf(plan, item.fromLine, item.rec.dockId, item.fromOutbox) : null;
+    if (!plan) return refuse(item, 'no work line is armed');
+    const still = Pipeline.sendToOf(plan, item.fromLine, item.rec.dockId, item.fromOutbox);
+    /* (fix-runtime 54) THE TARGET LINE ITSELF FIRST: DELETE LINE prunes the pointer too, so "the SEND TO changed" was said for a
+       line that went. A line rebuilt under a new key (its oldest machine removed) still has the INBOX this pointer names — that
+       waiting hand-off's line is gone all the same: said as rebuilt, never sent into a line it was not checked against */
+    if (!lineRec(plan, item.toLine)) {
+      const rekeyed = !!(still && String(still.intakeId) === String(item.toIntake) && lineRec(plan, still.toLine));
+      return refuse(item, rekeyed ? say(plan, still.toLine) + ' was rebuilt while the hand-off waited — send the job again'
+        : 'the line it sends to is no longer on the floor');
+    }
     if (!still || still.toLine !== item.toLine) return refuse(item, 'the SEND TO changed before the hand-off ran');
     const pf = preflight(plan, item.toLine);
     if (pf) return refuse(item, pf);
@@ -258,8 +272,16 @@ function makeHandoffRunner(deps) {
     return { ok: completed, streamId, jobId: yj ? yj.id : null, runs: runs.length, usd, error: err || null };
   }
 
-  /* E-STOP: drop every waiting hand-off; the host kills the in-flight runs through the hubs' inflight maps. */
-  function haltAll() { let n = 0; for (const s of live.values()) { n += s.queue.length; s.queue.length = 0; } return n; }
+  /* E-STOP: drop every waiting hand-off; the host kills the in-flight runs through the hubs' inflight maps.
+     (fix-runtime 24) A drop is SAID, never silent: each dropped hand-off goes through refuse() — the target line gets the failed
+     "not sent on" record (a burst counted on ONE record, the standing-refusal rule) and every dropped sending job reads NOT sent
+     on, with why. `why` names a stop that was not the Commander's E-STOP (the process-fault containment says its own). */
+  function haltAll(why) {
+    const reason = (typeof why === 'string' && why.trim()) ? why.trim() : 'automation is stopped (E-STOP) — nothing was sent on';
+    let n = 0;
+    for (const s of live.values()) { const q = s.queue.splice(0); n += q.length; for (const it of q) refuse(it, reason); }
+    return n;
+  }
   function inflights() { const out = []; for (const s of live.values()) if (s.hub && s.hub._internals && s.hub._internals.inflight) out.push(s.hub._internals.inflight); return out; }
   function status() {
     const lines = [];

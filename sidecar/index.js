@@ -11779,7 +11779,8 @@ function quiesceForProcessFault() {
     killAll(null, ...triggerRunner.inflights());
   });
   // SEND TO hand-offs: every waiting one dropped, every target line's live run killed (handoffRunner is declared below too)
-  contain('handoffs', () => { if (handoffRunner) { handoffRunner.haltAll(); killAll(null, ...handoffRunner.inflights()); } });
+  // (each dropped one is said on its records — the station's fault, never the Commander's E-STOP)
+  contain('handoffs', () => { if (handoffRunner) { handoffRunner.haltAll('the station hit an internal fault and stopped its background work — nothing was sent on'); killAll(null, ...handoffRunner.inflights()); } });
   // the whole-line SAMPLE hub's run (POST /api/routing/sample) is real spend too — its own containment for the same
   // reason as the triggers above (sampleHub is declared further down this file)
   contain('sample', () => { if (sampleInFlight) sampleInFlight.stopRequested = true; killAll(null, (sampleHub && sampleHub._internals) ? sampleHub._internals.inflight : null); });
