@@ -4886,6 +4886,7 @@ const Build = (() => {
     }
     const w = toWorldTile(ev);
     if (drag) {
+      drag.forceMove = !!ev.shiftKey;
       if (w.tx !== drag.cur.tx || w.ty !== drag.cur.ty) { drag.moved = true; snapTick(drag.mode); }
       // THE HAND: an UNSELECTED workflow machine dragged (Shift up) lays a belt to the pointer; a SELECTED one moves over open floor
       // and lays the belt over another machine (the target decides); Shift, or any other prop, moves (SELECT MOVES, 10-11); the
@@ -6935,7 +6936,7 @@ const Build = (() => {
       const p = station.propById(drag.propId); if (!p) return null;
       const dx = drag.cur.tx - drag.start.tx, dy = drag.cur.ty - drag.start.ty;
       // SEND TO: an OUTBOX dragged onto another line's INBOX points at it (it stays where it stands — no belt, no move)
-      const sendTo = !drag.add && p.t === 'outbox' && (dx || dy) ? intakeAt(drag.cur.tx, drag.cur.ty) : null;
+      const sendTo = !drag.add && !drag.forceMove && p.t === 'outbox' && (dx || dy) ? intakeAt(drag.cur.tx, drag.cur.ty) : null;
       if (sendTo) { const pv = sendToPv(p.id, sendTo.id) || { ok: false, short: 'CANNOT SEND THERE' }; return { sendTo: true, from: p, to: sendTo, rects: [propRect(sendTo)], v: pv }; }
       const nx = p.x + dx, ny = p.y + dy;
       const rect = { x1: nx, y1: ny, x2: nx + p.w - 1, y2: ny + p.h - 1 };
@@ -8333,8 +8334,8 @@ const Build = (() => {
     const bound = isIntake ? true : !!p.agentId;
     // a role-carrying dock's glance names the role it wants while unbound ("BAY · needs a RESEARCHER")
     const ri = (!bound && p.role && typeof WorldModel !== 'undefined' && WorldModel.bayRoleInfo) ? WorldModel.bayRoleInfo(p.role) : null;
-    const txt = isIntake ? ('LINE · ' + String(p.label))
-      : (isPc ? 'PC · ' : 'BAY · ') + (bound ? String(p.agentId).replace(/^tg_/, '') : (ri ? 'needs a ' + p.role + ' — ' + ri.desc : 'unassigned'));
+    const txt = isIntake ? Pipeline.lineWord(p.label, station.lineLetter ? 'LINE ' + station.lineLetter(p.id) : 'LINE ' + p.id)
+      : (isPc ? 'PC · ' : (p.label || 'BAY') + ' · ') + (bound ? String(p.agentId).replace(/^tg_/, '') : (ri ? 'needs a ' + p.role + ' — ' + ri.desc : 'unassigned'));
     // dock→dock affordance: a BOUND bay's glance also says where its OUTPUT goes — read from the compiled
     // plan's chain record (valPlan.chains — the same fact the sidecar routes by), so the tag can never
     // claim a handoff dispatch wouldn't perform. Same tag chrome, stacked one line above; still a glance,

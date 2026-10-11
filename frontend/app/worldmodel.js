@@ -2525,8 +2525,8 @@ const WorldModel = (() => {
     }
     // a line as the floor names it: its INBOX's label, else plainly "another line"
     function lineWord(g, key) {
-      const c = g && g.comps.find(x => x.key === key);
-      for (const iid of (c ? c.intakes : [])) { const ip = propById(iid); if (ip && ip.label) return 'LINE ' + String(ip.label).toUpperCase(); }
+      const c = g && g.comps.find(x => x.key === key), P = pipelineModule();
+      for (const iid of (c ? c.intakes : [])) { const ip = propById(iid); if (ip) return P && P.lineWord ? P.lineWord(ip.label, 'LINE ' + lineLetter(iid)) : 'LINE ' + String(ip.label || lineLetter(iid)).toUpperCase(); }
       return null;
     }
     // does line `from` reach line `to` through the floor's SEND TO pointers (transitively)?

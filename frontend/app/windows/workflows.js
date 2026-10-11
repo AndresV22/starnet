@@ -79,7 +79,7 @@ const WorkflowsWindow = (() => {
       let flow, ready;
       try { flow = Wl.lineFlow(plan, c, Pp, geo.props); ready = Wl.readiness(flow, c, { hasCompute, errors: plan.errors || [], labelOf, isCrew, briefOf }); } catch (e) { return; }
       const intake = st.propById(c.intakes[0]) || {};
-      const steps = flow.order.map((pid, k) => { const p = st.propById(pid) || {}; return { id: pid, n: k + 1, role: p.role || '', agentId: p.agentId || '', brief: p.brief || '', hands: p.hands || '', desk: hasCompute(p.agentId, pid) }; });
+      const steps = flow.order.map((pid, k) => { const p = st.propById(pid) || {}; return { id: pid, n: k + 1, label: p.label || '', role: p.role || '', agentId: p.agentId || '', brief: p.brief || '', hands: p.hands || '', desk: hasCompute(p.agentId, pid) }; });
       lines.push({ key: c.key, name: String(intake.label || '').trim() || (st.lineLetter ? 'LINE ' + st.lineLetter(intake.id) : 'LINE ' + c.key), intakeId: c.intakes[0], flow, ready, steps,
         loops: (flow.gates || []).some(g => g.kind === 'loop'), outbox: flow.outbox && flow.outbox.propId, outboxes: (c.outboxes || []).slice(), sends: Object.values(plan.sendTo || {}).filter(s => s.fromLine === c.key) });
     });
@@ -88,7 +88,7 @@ const WorkflowsWindow = (() => {
   }
   const lineOf = (f, key) => (f && f.lines.find(l => l.key === key)) || null;
   // a line's route in words: the hover tip of its row (the description lives in the tip, never as a sentence under the name)
-  const routeTip = l => 'INBOX → ' + l.steps.map(s => (s.role || 'STEP ' + s.n) + (s.agentId ? ' · ' + NAME(s.agentId) : ' · no agent yet')).join(' → ') + (l.loops ? ' (with a review loop)' : '') + ' → OUTBOX' + ((l.sendNames || []).length ? ' → ' + l.sendNames.join(' / ') : '');
+  const routeTip = l => 'INBOX → ' + l.steps.map(s => (s.label || s.role || 'STEP ' + s.n) + (s.agentId ? ' · ' + NAME(s.agentId) : ' · no agent yet')).join(' → ') + (l.loops ? ' (with a review loop)' : '') + ' → OUTBOX' + ((l.sendNames || []).length ? ' → ' + l.sendNames.join(' / ') : '');
 
   /* ---------- the jobs: the server's records ---------- */
   function loadJobs() {
@@ -552,7 +552,7 @@ const WorkflowsWindow = (() => {
       const okay = !!s.agentId && s.desk;
       tiles.push('<button type="button" class="wf-node' + (S.step === s.id ? ' sel' : '') + (workingId === s.id ? ' working' : '') + '" data-step="' + esc(s.id) + '" aria-pressed="' + (S.step === s.id) + '" data-tip="' + esc('Step ' + s.n + (s.role ? ' · ' + s.role : '') + (s.agentId ? ' · ' + NAME(s.agentId) : '') + (s.brief ? ': ' + s.brief.slice(0, 220) : '')) + '">'
         + '<span class="wf-nbadge' + (okay ? ' ok' : '') + '">' + s.n + '</span>' + art('bay', s.agentId)
-        + '<span class="wf-nname">' + esc(s.role || 'STEP ' + s.n) + '</span><span class="wf-nmeta' + (okay ? '' : ' warn') + '">' + esc(!s.agentId ? 'needs an agent' : !s.desk ? 'needs a desk' : NAME(s.agentId)) + '</span><span class="dot' + (okay ? ' ok' : '') + '"></span></button>');
+        + '<span class="wf-nname">' + esc(s.label || s.role || 'STEP ' + s.n) + '</span><span class="wf-nmeta' + (okay ? '' : ' warn') + '">' + esc(!s.agentId ? 'needs an agent' : !s.desk ? 'needs a desk' : NAME(s.agentId)) + '</span><span class="dot' + (okay ? ' ok' : '') + '"></span></button>');
     }
     tiles.push('<span class="wf-node" data-tip="OUTBOX: the finished result lands here.">' + art('outbox') + '<span class="wf-nname">OUTBOX</span><span class="wf-nmeta">' + esc((l.sendNames || []).length ? 'sends on to ' + l.sendNames.join(' / ') : 'results out') + '</span><span class="dot ok"></span></span>');
     return '<div class="wfw-mapwrap"><div class="wf-strip wfw-map' + (l.ready.ready ? ' live' : '') + '">' + tiles.join(join) + '</div></div>';

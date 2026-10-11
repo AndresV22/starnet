@@ -23,6 +23,7 @@ for(const [bp,worst] of [['revision_loop',8],['deep_dive',12]]) {
  const st=fresh(), a=LE.placeBlueprint(st,'research_line',{x:8,y:4}), b=LE.placeBlueprint(st,'research_line',{x:8,y:22}); crew(st);
  const find=(r,t)=>r.ids.find(id=>st.propById(id).t===t), ob=find(a,'outbox'), ia=find(a,'intake'), ib=find(b,'intake');
  A.ok(st.setSendTo(ob,ib).ok,'two independent lines linked by SEND TO');
+ st.setPropLabel(ib,'Line B'); A.eq(st.sendToChoices(ob).find(c=>c.on).name,'LINE B','model SEND TO choices use the same normalized label');
  const p=P.compileRoutingPlan(st.projectGeometry());
  A.ok(p.errors.some(e=>e.code==='SEND_TO_PRIVATE_FILES'&&e.propId===ob&&e.warn),'private source files carry an advisory warning');
  A.ok(P.ok(p)&&!!p.sendTo[ob],'file-access warning does not disable hand-off');

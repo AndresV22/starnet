@@ -9469,7 +9469,7 @@ const World = (() => {
     const aid = p && p.agentId;
     const b = aid ? bodyForAgent(aid) : null;
     const who = (b && b.name) ? String(b.name).toUpperCase() : (aid ? String(aid).toUpperCase() : 'NO AGENT');
-    return (p && p.role ? String(p.role).toUpperCase() : 'BAY') + ' · ' + who;
+    return (p && (p.label || p.role) ? String(p.label || p.role).toUpperCase() : 'BAY') + ' · ' + who;
   }
   function lwLineName(lineId) {
     const ip = geo && geo.props ? geo.props.find(q => q.id === lineId) : null;
@@ -10182,7 +10182,7 @@ const World = (() => {
       // product-only: slag (an unproductive run) finishes nothing. World tiles ride over so Build maps
       // the mouth tile to its line in its own geometry frame.
       if (p.box === 'product' && geo && geo.origin && typeof Build !== 'undefined' && Build.noteLineDelivered) {
-        try { const receipt=Build.noteLineDelivered(bx.x + geo.origin.tx, bx.y + geo.origin.ty); if(receipt&&receipt.first){ firstShipPulse={at:fnow,tiles:receipt.tiles}; if(typeof StationUI!=='undefined'&&StationUI.notify)StationUI.notify('FIRST SHIP · '+receipt.name); if(typeof SFX!=='undefined'&&SFX.milestone)SFX.milestone(); } } catch (_) {}
+        try { const receipt=Build.noteLineDelivered(bx.x + geo.origin.tx, bx.y + geo.origin.ty); if(receipt&&receipt.first){ firstShipPulse={at:fnow,tiles:receipt.tiles}; if(typeof StationUI!=='undefined'&&StationUI.notify)StationUI.notify('FIRST SHIP · '+receipt.name,'gold'); if(typeof SFX!=='undefined'&&SFX.milestone)SFX.milestone(); } } catch (_) {}
       }
       // slag is NOT a satisfying delivery — skip the relaxed exhale; the post-mortem already fired at run.end
       if (p.box !== 'slag' && agent && !agent.unplaced && activity === 'idle') {   // EXHALE: watch the reply leave, satisfied, then relax (downtime clock resets)

@@ -533,7 +533,7 @@ const WorkflowPanel = (() => {
     const col = n.col;
     const inner = col.docks.map(d => {
       const p = prop(d.propId) || {}, t = testOf(d.propId), i = f ? f.order.indexOf(d.propId) + 1 : 1;
-      const ok = !!(d.agentId && H.hasCompute(d.agentId, d.propId)), who = d.agentId ? nameOf(d.agentId) : null, role = d.role || 'STEP';
+      const ok = !!(d.agentId && H.hasCompute(d.agentId, d.propId)), who = d.agentId ? nameOf(d.agentId) : null, role = (prop(d.propId) || {}).label || d.role || 'STEP';
       const brief = p.brief ? String(p.brief) : '';
       const tip = 'BAY ' + i + ' · ' + role + '\n' + (who ? who + ' works this step' : 'no agent yet')
         + (who && !ok ? '\nneeds a workstation' : '') + (d.agentId && !d.routed ? '\nnot routed yet' : '')
@@ -1509,7 +1509,7 @@ const WorkflowPanel = (() => {
   // a branch on its ✕ chip, named the way the strip names it — BAY n · ROLE (two WRITER branches must never read alike)
   function branchLabel(f, pid) {
     const i = f && f.order ? f.order.indexOf(pid) : -1, d = f && f.docks ? f.docks[pid] : null;
-    return i < 0 ? dockLabel(f, pid) : 'BAY ' + (i + 1) + (d && d.role ? ' · ' + d.role : '');
+    return i < 0 || (prop(pid) || {}).label ? dockLabel(f, pid) : 'BAY ' + (i + 1) + (d && d.role ? ' · ' + d.role : '');
   }
   function laneName(f, l, arrow) {
     const d = l && l.dock && f && f.docks ? f.docks[l.dock] : null;
