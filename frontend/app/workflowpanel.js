@@ -421,10 +421,11 @@ const WorkflowPanel = (() => {
       });
       const lastCol = f.cols[f.cols.length - 1];
       const endId = lastCol ? (lastCol.gate ? lastCol.gate.propId : lastCol.docks.length === 1 ? lastCol.docks[0].propId : null) : null;
-      const sendsTo = sendTarget(f.outbox.propId);   // SEND TO: where this line's finished work rides on to (one short thing)
+      const sendsTo = sendTarget(f.outbox.propId);   // SEND TO: where this line's finished work rides on to (one short thing) — or OFF
       nodes.push({ kind: 'outbox', propId: f.outbox.propId, mach: 'outbox', addAfter: !f.outbox.propId && endId && H.lineEdit ? endId : null, cls: 'wf-term', ok: f.outbox.reached, name: 'OUTBOX',
-        meta: f.outbox.reached ? (sendsTo ? 'sends to ' + sendsTo : 'the result') : f.outbox.reachedOnceCrewed ? 'needs crew' : 'not connected', warn: !f.outbox.reached && !f.outbox.reachedOnceCrewed,
-        tip: 'OUTBOX\n' + (f.outbox.reached ? (sendsTo ? 'the line ends here — every job it finishes rides on to ' + sendsTo : 'the line ends here') : f.outbox.propId ? (f.outbox.reachedOnceCrewed ? 'connected · waiting on agents' : 'not connected yet') : 'no OUTBOX') });
+        meta: f.outbox.reached ? (sendsTo ? 'sends to ' + sendsTo.name + (sendsTo.off ? ' · OFF' : '') : 'the result') : f.outbox.reachedOnceCrewed ? 'needs crew' : 'not connected',
+        warn: (!f.outbox.reached && !f.outbox.reachedOnceCrewed) || !!(sendsTo && sendsTo.off),
+        tip: 'OUTBOX\n' + (f.outbox.reached ? (sendsTo ? (sendsTo.off ? 'the line ends here — its SEND TO ' + sendsTo.name + ' is off: nothing is sent on' : 'the line ends here — every job that lands in it rides on to ' + sendsTo.name) : 'the line ends here') : f.outbox.propId ? (f.outbox.reachedOnceCrewed ? 'connected · waiting on agents' : 'not connected yet') : 'no OUTBOX') });
     } else if (S.lone) {
       nodes.push({ kind: 'col', col: { docks: [{ propId: S.lone, agentId: (prop(S.lone) || {}).agentId || null, role: (prop(S.lone) || {}).role || null, routed: false }], mode: 'single' }, ok: false });
     }
@@ -1510,11 +1511,25 @@ const WorkflowPanel = (() => {
      why, right under the chips (never a hover-only reason). station.setSendTo is the one writer (one UNDO); the floor's drag
      (the OUTBOX onto another line's INBOX) and the BELT tool's two clicks write the same pointer. */
   function sendChoices(outboxId) { const st = H.station(); return (outboxId && st && typeof st.sendToChoices === 'function') ? st.sendToChoices(outboxId) : []; }
-  function sendTarget(outboxId) { const on = sendChoices(outboxId).find(c => c.on); return on ? (on.name || 'an unnamed line') : null; }
+  /* (10-11) the doc's pointer and the ONE verdict (station.sendToRefusal — the compiler's own rules: both ends on a line, two lines,
+     no circle) decide whether it SENDS. A pointer it refuses is OFF — never "rides on to LINE B" for a SEND TO the plan dropped. */
+  function sendState(outboxId) {
+    const st = H.station(), o = st && outboxId ? st.propById(outboxId) : null;
+    if (!o || !o.sendTo) return null;
+    const no = typeof st.sendToRefusal === 'function' ? st.sendToRefusal(o.id, o.sendTo) : null;
+    return { to: o.sendTo, off: !!no, why: no ? (no.msg || no.error || 'it cannot send there') : '' };
+  }
+  function sendTarget(outboxId) {
+    const s = sendState(outboxId); if (!s) return null;
+    const on = sendChoices(outboxId).find(c => c.on);
+    return { name: on ? (on.name || 'an unnamed line') : 'its INBOX', off: s.off };
+  }
   function paintOutbox(body, f, p) {
-    const choices = sendChoices(p.id), on = choices.find(c => c.on);
+    const choices = sendChoices(p.id), on = choices.find(c => c.on), ss = sendState(p.id);
     const nameOf = (c, i) => c.name || ('UNNAMED LINE ' + (i + 1));
-    const chips = '<button type="button" class="wf-chip" data-sendto="" aria-pressed="' + !on + '">NOWHERE</button>'
+    const onName = on ? nameOf(on, choices.indexOf(on)) : null;
+    // NOWHERE is pressed only when the OUTBOX points nowhere — a pointer the compiler turned off is still a pointer NOWHERE clears
+    const chips = '<button type="button" class="wf-chip" data-sendto="" aria-pressed="' + !ss + '">NOWHERE</button>'
       + choices.map((c, i) => '<button type="button" class="wf-chip' + (c.refusal ? ' off' : '') + '" data-sendto="' + esc(c.intakeId) + '" aria-pressed="' + c.on + '"'
         + (c.refusal ? ' aria-disabled="true"' : '') + '>' + esc(nameOf(c, i)) + '</button>').join('');
     const why = choices.map((c, i) => c.refusal ? '<p class="wf-help dim wf-sendwhy">' + esc(nameOf(c, i)) + ' — ' + esc(c.refusal.msg || c.refusal.error) + '</p>' : '').join('');
@@ -1523,7 +1538,8 @@ const WorkflowPanel = (() => {
       + '<h4 class="wf-sub">SEND TO ›</h4>'
       + (choices.length ? '<div class="wf-chips" role="group" aria-label="Where this line sends its finished work">' + chips + '</div>' + why
         : '<p class="wf-help dim">There is no other line on the floor yet. Build one, then pick it here to hand this line’s finished work on to it.</p>')
-      + '<p class="wf-help" id="send-note">' + (on ? 'Every job this line finishes rides on to <b>' + esc(nameOf(on, choices.indexOf(on))) + '</b> — its own crew works it, under its own budget. This line’s result stays here too.' : 'This line’s work stops here.') + '</p>'
+      + '<p class="wf-help' + (ss && ss.off ? ' wf-warnline' : '') + '" id="send-note">' + (ss && !ss.off && onName ? 'Every job that lands in this OUTBOX rides on to <b>' + esc(onName) + '</b> — its own crew works it, under its own budget. This line’s result stays here too.'
+        : ss ? '✕ Its SEND TO' + (onName ? ' <b>' + esc(onName) + '</b>' : '') + ' is off — ' + esc(ss.why) + ' Nothing is sent on: pick another line, or NOWHERE.' : 'This line’s work stops here.') + '</p>'
       + '<p class="wf-help dim">Or drag this OUTBOX onto another line’s INBOX. One UNDO takes it back.</p></section>';
     body.querySelectorAll('[data-sendto]').forEach(b => { b.onclick = () => {
       const note = $('#send-note');

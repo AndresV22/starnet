@@ -1012,7 +1012,8 @@
     for (const ob of props) {
       if (!ob || ob.t !== 'outbox' || typeof ob.sendTo !== 'string' || !ob.sendTo || ob.id == null) continue;
       const from = lineOfProp[ob.id];
-      if (!from) continue;   // an OUTBOX on no line ships nothing, so it sends nothing
+      // an OUTBOX on no line ships nothing, so it sends nothing — said (warn), never dropped silently under a red arc (10-11)
+      if (!from) { errors.push({ code: 'SEND_TO_MISSING', propId: ob.id, lineId: null, warn: true }); continue; }
       const tgt = props.find(q => q && q.id === ob.sendTo && q.t === 'intake');
       const to = tgt ? lineOfProp[tgt.id] : null;
       if (!to) { errors.push({ code: 'SEND_TO_MISSING', propId: ob.id, lineId: from, warn: true }); continue; }

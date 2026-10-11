@@ -85,6 +85,33 @@ const lineOf = (pl, id) => pl.lineOfProp[id];
   A.ok(st.setSendTo(c.outbox, a.intake).ok, 'with B → C gone, C → A is no circle (C → A → B)');
 }
 
+/* ---------- A POINTER THE COMPILER WOULD DROP IS NEVER ACCEPTED, AND ONE IT TURNED OFF IS SAID OFF (2026-10-11 repair) ---------- */
+{
+  const { st, L: [a, b, c] } = lines(3);
+  st.setPropLabel(b.intake, 'B'); st.setPropLabel(c.intake, 'C');
+  const lone = st.addProp({ t: 'intake', x: 40, y: 40, w: 2, h: 2 }).id;
+  const r1 = st.setSendTo(a.outbox, lone);
+  A.ok(r1.ok === false && r1.error === 'NO_LINE' && /starts no line yet/.test(r1.msg) && r1.short === 'THAT INBOX STARTS NO LINE YET', 'an INBOX that starts no line is refused at the edit (the drop chimed green and the compiler dropped it) — ' + JSON.stringify(r1));
+  const lob = st.addProp({ t: 'outbox', x: 40, y: 34, w: 2, h: 2 }).id;
+  const r2 = st.setSendTo(lob, b.intake);
+  A.ok(r2.ok === false && r2.error === 'NO_LINE' && /ends no line yet/.test(r2.msg), 'an OUTBOX that ends no line is refused too — ' + JSON.stringify(r2));
+  A.ok(st.sendToChoices(lob).every(x => x.refusal && x.refusal.error === 'NO_LINE'), '…so its SEND TO chips are each disabled with that reason');
+  // a stale pointer on an OUTBOX on no line is SAID by the compiler (it was dropped with no finding under a red arc)
+  const doc = JSON.parse(JSON.stringify(st.serialize()));
+  doc.props.find(p => p.id === lob).sendTo = b.intake;
+  const pl = P.compileRoutingPlan(WM.deserialize(doc).projectGeometry());
+  A.ok(pl.errors.some(e => e.code === 'SEND_TO_MISSING' && e.propId === lob && e.warn) && P.ok(pl), 'an OUTBOX on no line that carries a SEND TO: SEND_TO_MISSING (a warning)');
+  // SEND_TO_SELF: A sends to B, then A's last BAY is belted into B's first BAY (the two lines fuse) — the pointer is OFF
+  A.ok(st.setSendTo(a.outbox, b.intake).ok, 'A → B');
+  A.ok(st.connectBelt(a.bays[a.bays.length - 1], b.bays[0]).ok, 'a BAY → BAY belt fuses A into B');
+  const ps = plan(st);
+  A.ok(ps.errors.some(e => e.code === 'SEND_TO_SELF' && e.propId === a.outbox) && !(ps.sendTo && ps.sendTo[a.outbox]), 'the compiler turns it off: SEND_TO_SELF');
+  const off = st.sendToRefusal(a.outbox, st.propById(a.outbox).sendTo);
+  A.ok(off && off.error === 'SAME_LINE', 'the ONE verdict says the same (the Workflow panel reads it: OFF, never "rides on") — ' + JSON.stringify(off));
+  A.ok(!st.sendToChoices(a.outbox).some(x => x.on), 'no chip is on — so NOWHERE must read the DOC pointer to be pressable');
+  A.ok(st.setSendTo(a.outbox, null).ok && st.propById(a.outbox).sendTo === undefined, 'NOWHERE clears a pointer the compiler had off');
+}
+
 /* ---------- PERSISTENCE + PROJECTION + LINE GRAPH ---------- */
 {
   const { st, L: [a, b] } = lines(2);
@@ -204,6 +231,8 @@ const lineOf = (pl, id) => pl.lineOfProp[id];
   A.ok(/const r = typeof station\.setSendTo === 'function' \? station\.setSendTo\(outboxId, intakeId\) : null;/.test(build), 'one writer: station.setSendTo');
   A.ok(/drawLayer\('sendTo', \(\) => drawSendLinks\(t, now\)\);/.test(build) && /if \(!near\) continue;   \/\/ ONE-VOICE LAW/.test(build), 'build mode draws each SEND TO as an arc; its words only when you look at either end');
   A.ok(/if \(p\.t === 'outbox'\) return paintOutbox\(body, f, p\);/.test(panel) && /const r = H\.station\(\)\.setSendTo\(p\.id, b\.dataset\.sendto \|\| null\);/.test(panel) && /wf-sendwhy/.test(panel), 'the Workflow panel’s OUTBOX card: SEND TO chips (+ NOWHERE), a circle disabled with its reason inline');
+  A.ok(/data-sendto="" aria-pressed="' \+ !ss \+ '">NOWHERE<\/button>/.test(panel) && /const no = typeof st\.sendToRefusal === 'function' \? st\.sendToRefusal\(o\.id, o\.sendTo\) : null;/.test(panel)
+    && /' is off — ' \+ esc\(ss\.why\)/.test(panel) && /\(sendsTo\.off \? ' · OFF' : ''\)/.test(panel), 'NOWHERE reads the doc pointer; a SEND TO the compiler has off is said OFF on the card and the tile (never "rides on")');
   A.ok(/\+ '\|' \+ JSON\.stringify\(plan\.sendTo \|\| \{\}\)\) : '';/.test(world), 'the plan poster re-posts on a SEND TO edit (outside plan.hash)');
   A.ok(/if \(p\.kind === 'handoff' && placeSendCrate\(p\)\) return;/.test(world) && /noteOutboxSink\(bx\.x, bx\.y\);/.test(world) && /fnow - c\.born >= HANDOFF_GRACE_MS/.test(world), 'the hand-off crate: held until the sending line’s crate sinks (or the grace runs out), then flown OUTBOX → INBOX');
   A.ok(/drawSendPlates\(\);/.test(world) && /const text = 'SENDS TO ' \+ \(nm \? 'LINE ' \+ nm : 'ANOTHER LINE'\);/.test(world) && /for \(const s of stat\) if \(s\.box\) taken\.push\(s\.box\);/.test(world), 'the OUTBOX plate SENDS TO LINE B, placed in the line plates’ own pass');

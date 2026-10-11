@@ -137,7 +137,7 @@ const Build = (() => {
     LOOP_NO_DONE: 'This LOOP has no DONE lane — run a belt OUT of its tile onward (the first exit, in E/S/W/N order, is DONE unless you choose one).',
     LOOP_NO_BACK: 'This LOOP has no BACK lane — run a second belt OUT of its tile back to an earlier BAY.',
     LINE_TOO_LONG: 'Too long — one job on this line runs more stages than its LINE BUDGET allows, so every job would stop part-way (the stages that ran are still paid for). Raise “max stages after the first” in this INBOX’s Workflow card › Optional limits · LINE BUDGET (24 at most), or shorten the line.',
-    SEND_TO_MISSING: 'This OUTBOX sends its line’s finished work to an INBOX that is gone or starts no line yet, so nothing is sent on. Click the OUTBOX and pick a line under SEND TO (or NOWHERE).',
+    SEND_TO_MISSING: 'This OUTBOX sends to an INBOX that is gone or starts no line yet (or the OUTBOX itself ends no line), so nothing is sent on. Click the OUTBOX and pick a line under SEND TO (or NOWHERE).',
     SEND_TO_SELF: 'This OUTBOX sends its work back into its own line’s INBOX, so nothing is sent on. Click it and pick another line under SEND TO (or NOWHERE).',
     SEND_TO_LOOP: 'These lines send their work round in a circle, so every SEND TO on the circle is off — a job would never stop. Click one OUTBOX on the circle and set its SEND TO to NOWHERE or another line.'
   };
@@ -4622,7 +4622,7 @@ const Build = (() => {
           const no = station.connectRefusal ? station.connectRefusal(pid, null) : null;
           if (no) { sfx('bad'); flashTip(ev, no.msg, false); return; }
           // (an OUTBOX arms a SEND TO: its one destination is another line's INBOX — never a belt)
-          connectFrom = pid; sfx('click'); flashTip(ev, pp.t === 'outbox' ? 'SEND TO — now click another line’s INBOX: every job this line finishes rides on to it' : 'FROM ▸ ' + (propSpec(pp.t).label || pp.t).toUpperCase() + ' — now click a destination', true); return;
+          connectFrom = pid; sfx('click'); flashTip(ev, pp.t === 'outbox' ? 'SEND TO — now click another line’s INBOX: every job that lands in this OUTBOX rides on to it' : 'FROM ▸ ' + (propSpec(pp.t).label || pp.t).toUpperCase() + ' — now click a destination', true); return;
         }
         if (connectFrom === pid) { connectFrom = null; hideTip(); return; }
         // the armed OUTBOX's second click on an INBOX: SEND TO (refused in its own words — this same line, a circle)
@@ -7197,7 +7197,7 @@ const Build = (() => {
     const o = station.propById(outboxId), ip = intakeId ? station.propById(intakeId) : null;
     if (r && r.ok) {
       sfx('chime');
-      flashTip(ev, ip ? 'SENDS TO ' + sendName(ip.id) + ' — every job this line finishes rides on to it' : 'SENDS NOWHERE — this line’s work stops at its OUTBOX', true);
+      flashTip(ev, ip ? 'SENDS TO ' + sendName(ip.id) + ' — every job that lands in this OUTBOX rides on to it' : 'SENDS NOWHERE — this line’s work stops at its OUTBOX', true);
       if (o) pushFlash([propRect(o)].concat(ip ? [propRect(ip)] : []), false);
       if (o) { selectedPropId = o.id; renderSelection(); }
     } else { sfx('bad'); flashTip(ev, (r && r.msg) || 'an OUTBOX sends only to another line’s INBOX', false); }
@@ -7263,7 +7263,7 @@ const Build = (() => {
     const ok = !!(g.v && g.v.ok);
     strokeSendArc(sendArc(t, g.from, g.to), ok ? '#57bd8b' : '#d2684c', now, 0.95);
     drawPropSelection(g.to, t, ok ? 'rgba(120,255,170,0.95)' : 'rgba(255,120,110,0.95)', false);
-    ghostBadge(t, ok ? ['SEND TO ' + (g.v.name || sendName(g.to.id)), 'RELEASE: EVERY JOB THIS LINE FINISHES RIDES ON'] : [placementReason(g)], ok, g.rects[0]);
+    ghostBadge(t, ok ? ['SEND TO ' + (g.v.name || sendName(g.to.id)), 'RELEASE: WORK THAT LANDS HERE RIDES ON'] : [placementReason(g)], ok, g.rects[0]);
   }
   // the BELT tool armed on an OUTBOX: its one destination is another line's INBOX (a SEND TO) — what each hovered target says
   function sendRole(isFrom, p) {

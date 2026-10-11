@@ -59,9 +59,10 @@ const snap = st => JSON.stringify({ props: st.props(), belts: st.belts(), links:
   A.eq((st.connectRefusal(a.outbox, b.bays[0]) || {}).error, 'FROM_OUTBOX', '…but an OUTBOX to a BAY is refused at the second click');
   A.eq(st.connectRefusal(a.bays[0], null), null, '…a BAY is a fine start');
   A.eq((st.connectRefusal(a.bays[0], b.intake) || {}).error, 'INTO_INBOX', '…and an INBOX is never a destination');
-  // the way the message says to chain two lines still works: the last BAY into the next line's first BAY
+  // a plain step-to-step belt is still laid (the refusal is only about OUTBOX-out / INBOX-in). It is NOT the way to chain two
+  // lines: a BAY → BAY belt across lines FUSES them into one line, one lineId, one budget (the 10-09 P0 shape) — SEND TO is.
   const ok = st.connectBelt(a.bays[a.bays.length - 1], b.bays[0]);
-  A.ok(ok && ok.ok === true && ok.count > 0, 'belting the last BAY into the next line\'s first BAY is laid — ' + JSON.stringify(ok));
+  A.ok(ok && ok.ok === true && ok.count > 0, 'a BAY → BAY belt is still laid (it makes ONE line of the two — chaining lines is SEND TO) — ' + JSON.stringify(ok));
 }
 
 /* ---------- A HAND-DRAWN RUN ---------- */

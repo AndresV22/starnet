@@ -2351,6 +2351,9 @@ const WorldModel = (() => {
       if (I.t !== 'intake') return sendFail('NOT_INBOX', 'An OUTBOX hands its work on only to another line’s INBOX — drop it on one.', 'DROP THE OUTBOX ON ANOTHER LINE’S INBOX');
       const g = sendGraph();
       const a = g && g.lineOfProp[O.id], b = g && g.lineOfProp[I.id];
+      // (10-11) both ends must be on a line, or the compiler drops the pointer: never a green ghost + a chime for a hand-off it won't make
+      if (g && !a) return sendFail('NO_LINE', 'This OUTBOX ends no line yet — belt the last BAY of a line into it first.', 'THIS OUTBOX ENDS NO LINE YET');
+      if (g && !b) return sendFail('NO_LINE', 'That INBOX starts no line yet — belt it to a BAY first.', 'THAT INBOX STARTS NO LINE YET');
       if (a && b && a === b) return sendFail('SAME_LINE', 'That INBOX starts this same line — pick another line’s INBOX.', 'THAT INBOX STARTS THIS SAME LINE');
       if (a && b && sendReaches(g, b, a)) {
         const nm = lineWord(g, b);
