@@ -12446,7 +12446,9 @@ handoffRunner = makeHandoffRunner({
     byStream: (streamId) => LineJobs.byStream(lineJobs, streamId),
     start: (rec) => lineJobsSet(LineJobs.start(lineJobs, rec)),
     finish: (id, rec) => lineJobsSet(LineJobs.finish(lineJobs, id, rec)),
-    link: (id, to) => lineJobsSet(LineJobs.link(lineJobs, id, to))
+    link: (id, to) => lineJobsSet(LineJobs.link(lineJobs, id, to)),
+    latest: (line) => LineJobs.latest(lineJobs, line),
+    again: (id, at) => lineJobsSet(LineJobs.again(lineJobs, id, at))
   },
   emit: chanEmit, bumpQueue: bumpQueue, queueCap: QUEUE_CAP,
   now: () => Date.now(), newId: () => crypto.randomUUID(),
@@ -15459,6 +15461,9 @@ async function handleCronRun(req, res) {
         const line = await chainRunner.advance({
           agentId: job.agentId, dockId: job.dockId ? (router.dockOf(job.agentId, job.dockId) || undefined) : undefined,
           text: state.buf, originalText: String(job.prompt || ''), signal: ac.signal,
+          // the fire's own stream, exactly as the scheduled fire passes it: a SEND TO hand-off reads back THIS run's rows (the
+          // every-step-ended-done check and the files it made) — without it Run Now handed on half-finished work the schedule refuses
+          streamId: 'cron-' + runId,
           entryUsd: state.usd,   // stage one is part of the chain — its spend counts against MAX_CHAIN_USD (2026-08-10)
           // SAME ORIGIN AS THE SCHEDULED FIRE (work belongs to a line, 2026-08-07): Run Now is this routine's
           // own trigger pressed by hand, so it carries the dock's lineId and the line runs — but ONLY for a

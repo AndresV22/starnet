@@ -117,7 +117,9 @@ function station(n) {
     byStream: s => LineJobs.byStream(jobs, s),
     start: r => { const x = LineJobs.start(jobs, r); if (x.job) jobs = x.state; return x.job; },
     finish: (id, r) => { const x = LineJobs.finish(jobs, id, r); if (x.job) jobs = x.state; return x.job; },
-    link: (id, to) => { const x = LineJobs.link(jobs, id, to); if (x.job) jobs = x.state; return x.job; }
+    link: (id, to) => { const x = LineJobs.link(jobs, id, to); if (x.job) jobs = x.state; return x.job; },
+    latest: line => LineJobs.latest(jobs, line),
+    again: (id, at) => { const x = LineJobs.again(jobs, id, at); if (x.job) jobs = x.state; return x.job; }
   };
   const runsByStream = {}, emitted = [], hubCalls = [], hooksSeen = [];
   let halted = false, cap = {}, hang = null, R = null, n = 0, clock = 1000;
@@ -159,7 +161,8 @@ function station(n) {
   runsByStream[xs] = [{ runId: 'x1', agentId: 'ag_' + a.bays[0], reason: 'done', usd: 0.01, streamId: xs, startedAt: clock, artifacts: [{ kind: 'file', path: 'C:/work/mars.md' }] },
     { runId: 'x2', agentId: 'ag_' + a.bays[1], reason: 'done', usd: 0.02, streamId: xs, startedAt: clock + 1 }];
   const lastA = a.bays[1];
-  const q = R.onShipped({ lineId: LA, agentId: 'ag_' + lastA, dockId: lastA, text: 'Mars has two moons.', originalText: 'Find three facts about Mars.', streamId: xs, since: clock });
+  clock += 5;   // the job ships AFTER its runs started (the run read-back stops at the ship time)
+  const q = R.onShipped({ lineId: LA, agentId: 'ag_' + lastA, dockId: lastA, text: 'Mars has two moons.', originalText: 'Find three facts about Mars.', streamId: xs, since: clock - 5 });
   A.ok(q.ok && q.toLine === LB && q.queued === 1, 'a clean job on A is queued for B — ' + JSON.stringify(q));
   await tick(40);
   // the sending route finishes its own record after the hand-off went out: the link survives
@@ -170,6 +173,7 @@ function station(n) {
   A.eq(yb && yb.from, { line: LA, jobId: 'job-aaaa1111', name: 'A' }, 'B’s record says where it came from');
   A.eq(xa.sentTo, { line: LB, jobId: yb && yb.id, name: 'B' }, 'A’s record says where it went — and A’s own output stays A’s');
   A.eq(xa.output, 'Mars has two moons.', '…A’s result is still A’s');
+  A.ok(yb && yb.text === 'Find three facts about Mars.' && yb.handedIn === 'Mars has two moons.', 'B’s record keeps the job as it first arrived and what A handed in APART (never a 2000-char cut of the frame) — ' + JSON.stringify(yb && { text: yb.text, handedIn: yb.handedIn }));
   const toB = hubCalls.find(h => h.line === LB);
   A.ok(toB && /^\[HAND-OFF — LINE A finished its part/.test(toB.msg.text) && /Find three facts about Mars\./.test(toB.msg.text) && /Mars has two moons\./.test(toB.msg.text) && /- C:\/work\/mars\.md/.test(toB.msg.text), 'B was handed the job as it arrived, what A delivered and A’s file');
   A.ok(hooksSeen.some(h => h.lineId() === LB), 'the hub is scoped to LINE B (its INBOX picks the dock; its budget governs)');
@@ -177,6 +181,10 @@ function station(n) {
   A.ok(placed && placed.p.kind === 'handoff' && placed.p.fromLine === LA && placed.p.fromOutbox === a.outbox && placed.p.toIntake === b.intake, 'the crate rides from A’s OUTBOX into B’s INBOX — ' + JSON.stringify(placed && placed.p));
   A.ok(emitted.some(x => x.nm === 'workitem.delivered' && x.p.finalQueueId === 'outbox' && x.p.workitemId === (placed && placed.p.workitemId)), '…and lands in B’s OUTBOX');
   A.ok(zc && zc.status === 'delivered' && zc.from && zc.from.line === LB && zc.from.jobId === yb.id, 'B sends on to C: C’s job came from B’s');
+  // A → B → C: C is handed the job AS IT FIRST ARRIVED and what B delivered — never B's whole frame nested as "the job"
+  const toC = hubCalls.find(h => h.line === LC), cin = toC && P.parseHandoffInput(toC.msg.text);
+  A.ok(cin && cin.fromName === 'B' && cin.original === 'Find three facts about Mars.' && cin.output === 'OUTPUT OF ' + LB && (toC.msg.text.match(/\[HAND-OFF/g) || []).length === 1, 'C’s input: one frame, the first job, B’s output — ' + JSON.stringify(cin));
+  A.ok(zc.text === 'Find three facts about Mars.' && zc.handedIn === 'OUTPUT OF ' + LB, '…and C’s record says the same');
   A.eq(LineJobs.get(jobs, yb.id).sentTo && LineJobs.get(jobs, yb.id).sentTo.line, LC, '…and B’s record says it went on to C');
   A.ok(!jobs.jobs.some(j => j.line === LD), 'C sends nowhere: the ride stops at C');
 
@@ -206,8 +214,13 @@ function station(n) {
   // E-STOP
   halted = true;
   const callsBefore = hubCalls.length;
+  J.start({ id: 'job-eeee5555', line: LA, name: 'A', text: 'A job E-STOP catches', streamId: 'sample-es', at: clock });
   const es = R.onShipped(fresh('sample-es', LA, lastA));
   A.ok(!es.ok && /E-STOP/.test(es.error) && hubCalls.length === callsBefore, 'E-STOP: nothing is sent on, nothing runs');
+  const esA = LineJobs.get(jobs, 'job-eeee5555');
+  A.ok(esA.sentTo && esA.sentTo.line === LB && /E-STOP/.test(esA.sentTo.refused || ''), 'the sending job says it was NOT sent on, and why (a plain sentTo reads as "SENT ON TO LINE B") — ' + JSON.stringify(esA.sentTo));
+  const es2 = R.onShipped(fresh('sample-es2', LA, lastA));
+  A.ok(es2.jobId === es.jobId && LineJobs.get(jobs, es.jobId).repeats === 2, 'a STANDING refusal (same line, same reason, back to back) is counted on ONE record, not a new one per job');
   halted = false;
   // the target over its day cap
   cap[LB] = { cap: 1, spent: 1 };
@@ -234,6 +247,7 @@ function station(n) {
   await tick();
   A.eq(burst.filter(x => x.ok).length, MAX_PENDING + 1, 'a burst admits one in flight + ' + MAX_PENDING + ' waiting');
   A.ok(burst.slice(MAX_PENDING + 1).every(x => !x.ok && /hand-offs waiting/.test(x.error)), 'the rest are refused (and said on LINE B)');
+  A.ok(burst.slice(MAX_PENDING + 1).every(x => x.jobId === burst[MAX_PENDING + 1].jobId) && LineJobs.get(jobs, burst[MAX_PENDING + 1].jobId).repeats === burst.length - (MAX_PENDING + 1), '…on ONE record counting them all — ' + JSON.stringify(burst.slice(MAX_PENDING + 1).map(x => [x.jobId, (LineJobs.get(jobs, x.jobId) || {}).repeats])));
   A.ok(R.status().lines.some(l => l.line === LB && l.running && l.queued === MAX_PENDING), 'status: B running with ' + MAX_PENDING + ' waiting');
   A.ok(R.inflights().length >= 1, 'E-STOP can reach the target line’s hub');
   A.eq(R.haltAll(), MAX_PENDING, 'E-STOP drops every waiting hand-off');
@@ -252,6 +266,49 @@ function station(n) {
   plan = was;
   A.ok(R.onShipped({ lineId: LC, agentId: 'x', dockId: c.bays[1], text: 'x', streamId: 's' }).code === 'none', 'a line that sends nowhere: nothing (the common case)');
   A.eq(R.onShipped({ agentId: 'x', text: 'x' }).code, 'none', 'no line: nothing');
+
+  /* THE SENDING JOB'S RUNS STOP AT ITS SHIP TIME: a channel chat's stream carries the NEXT message's runs too — a later run that
+     ended cancelled must not refuse this job, and its files must not ride in this job's hand-off */
+  {
+    const calls = [];
+    const R5 = makeHandoffRunner({ makeHub: (hooks) => ({ onInbound(msg) {
+        calls.push(msg.text);
+        const docks = crewedDocksOnLine(plan, hooks.lineId()).sort(P.propIdCmp), agentId = plan.agentOfDock[docks[0]];
+        hooks.onRouted({ agentId, dockId: docks[0] }); hooks.onResolved({ agentId, lineId: hooks.lineId(), dockId: docks[0] });
+        const sid = hooks.streamId();
+        runsByStream[sid] = [{ runId: 'q' + (++n), agentId, dockId: docks[0], reason: 'done', usd: 0, streamId: sid, startedAt: clock }];
+        const last = plan.lines.find(l => l.lineId === hooks.lineId()).propIds.filter(id => plan.agentOfDock[id]).sort(P.propIdCmp).pop();
+        hooks.send('B OUT'); hooks.onLineOutcome({ agentId: plan.agentOfDock[last], dockId: last, stopped: null });
+        return Promise.resolve();
+      } }), plan: () => plan, jobs: J, shipsToOutbox: () => true, runsFor: sid => runsByStream[sid] || [], now: () => clock,
+      newId: () => 'id' + (++n) + 'abcdef0123456789', warn: () => {} });
+    clock = 5000;
+    runsByStream['chat-1'] = [{ runId: 'm1', agentId: 'ag_' + lastA, reason: 'done', usd: 0, streamId: 'chat-1', startedAt: 4990, artifacts: [{ kind: 'file', path: 'C:/w/msg1.md' }] }];
+    const s1 = R5.onShipped({ lineId: LA, agentId: 'ag_' + lastA, dockId: lastA, text: 'msg1 out', originalText: 'msg1', streamId: 'chat-1', since: 4990 });
+    // …the chat's next message runs on the same stream before the hand-off dispatches, ends cancelled, writes a file
+    runsByStream['chat-1'].push({ runId: 'm2', agentId: 'ag_' + lastA, reason: 'cancelled', usd: 0, streamId: 'chat-1', startedAt: 5010, artifacts: [{ kind: 'file', path: 'C:/w/msg2.md' }] });
+    await tick(30);
+    const sent1 = calls[calls.length - 1] || '';
+    A.ok(s1.ok && /msg1 out/.test(sent1) && /C:\/w\/msg1\.md/.test(sent1) && !/msg2\.md/.test(sent1), 'msg1 is handed on with ITS file only, not refused by msg2’s cancelled run — ' + JSON.stringify(sent1.slice(-160)));
+  }
+
+  /* E-STOP KILLS A RUNNING HAND-OFF: its record says STOPPED (the Commander stopped it), never "a step did not finish cleanly" */
+  {
+    let release = null;
+    const R6 = makeHandoffRunner({ makeHub: (hooks) => ({ onInbound() {
+        const docks = crewedDocksOnLine(plan, hooks.lineId()).sort(P.propIdCmp), agentId = plan.agentOfDock[docks[0]];
+        hooks.onRouted({ agentId, dockId: docks[0] }); hooks.onResolved({ agentId, lineId: hooks.lineId(), dockId: docks[0] });
+        const sid = hooks.streamId();
+        return new Promise(res => { release = () => { runsByStream[sid] = [{ runId: 'k' + (++n), agentId, dockId: docks[0], reason: 'cancelled', usd: 0.004, streamId: sid, startedAt: clock }]; res(); }; });
+      } }), plan: () => plan, jobs: J, shipsToOutbox: () => true, halted: () => halted, runsFor: sid => runsByStream[sid] || [], now: () => clock,
+      newId: () => 'id' + (++n) + 'abcdef0123456789', warn: () => {} });
+    const s6 = R6.onShipped(fresh('sample-stop', LA, lastA));
+    await tick();
+    A.ok(s6.ok && typeof release === 'function', 'the hand-off is running on LINE B');
+    halted = true; release(); await tick(30); halted = false;
+    const rec6 = jobs.jobs.filter(j => j.line === LB).pop();
+    A.ok(rec6 && rec6.status === 'stopped' && /E-STOP/.test(rec6.error), 'E-STOP: the hand-off’s record is STOPPED — ' + JSON.stringify(rec6 && { status: rec6.status, error: rec6.error }));
+  }
 }
 )().then(() => {
   /* ---------- THE RECORD (linejobs) ---------- */
@@ -269,5 +326,9 @@ function station(n) {
   A.ok(sum.from && sum.from.name === 'RESEARCH' && sum.sentTo && sum.sentTo.line === 'p30', 'the window’s list carries both');
   A.eq(LineJobs.byStream(s, 'handoff-1').id, 'job-bbbb2222', 'byStream finds the job a stream belongs to');
   A.eq(LineJobs.normJob({ id: 'job-cccc3333', line: 'p1', from: { line: 'bad line!' } }).from, null, 'a junk end is null');
+  const rj = LineJobs.normJob({ id: 'job-dddd4444', line: 'p1', text: 'the job', handedIn: 'y'.repeat(20000), from: { line: 'p2' }, sentTo: { line: 'p3', refused: 'E-STOP' }, repeats: 3 });
+  A.ok(rj.handedIn.length === LineJobs.MAX_OUTPUT && rj.sentTo.refused === 'E-STOP' && rj.repeats === 3, 'handedIn (bounded like an output), sentTo.refused and repeats are kept');
+  const plain = LineJobs.normJob({ id: 'job-dddd4445', line: 'p1', handedIn: 'x', sentTo: { line: 'p3' } });
+  A.ok(!('handedIn' in plain) && !('repeats' in plain) && !('refused' in plain.sentTo), '…and absent where they do not apply (a job with no `from` keeps no handedIn)');
   A.report('routing.handoff.test');
 }).catch(err => { console.log('FAIL: threw ' + (err && err.stack || err)); process.exit(1); });

@@ -77,9 +77,9 @@ test('a job that ships on LINE A rides on to LINE B by SEND TO', async () => {
     assert.equal(y.status, 'delivered', JSON.stringify({ status: y.status, error: y.error }));
     assert.deepEqual(y.from, { line: LA, jobId: sent.body.jobId, name: 'A' }, 'B’s job says it came from A’s');
     assert.equal(y.output, 'B turned the facts into a haiku.', 'B’s result is B’s');
-    assert.match(y.text, /^\[HAND-OFF — LINE A finished its part/);
-    assert.match(y.text, /THE JOB AS IT FIRST ARRIVED:\nTwo facts about the moon\./);
-    assert.match(y.text, /WHAT LINE A DELIVERED:\nTwo facts about the moon\./);
+    // the record keeps the job as it first arrived and what A handed in APART (the agent was handed the whole frame — below)
+    assert.equal(y.text, 'Two facts about the moon.', 'B’s job is the job as it first arrived, never the frame');
+    assert.equal(y.handedIn, 'Two facts about the moon.', 'what A handed in, whole');
     assert.ok(y.runs.length >= 1 && y.runs.every(r => r.dockId === 'p5' && r.agentId === 'beta' && r.reason === 'done'), 'B’s crew ran it at B’s bay: ' + JSON.stringify(y.runs));
     const x = (await fixture.json('GET', '/api/line-jobs/' + sent.body.jobId)).body.job;
     assert.equal(x.status, 'delivered');
@@ -104,6 +104,7 @@ test('a job that ships on LINE A rides on to LINE B by SEND TO', async () => {
     await fixture.restart();
     const after = (await fixture.json('GET', '/api/line-jobs/' + y.id)).body.job;
     assert.deepEqual(after.from, { line: LA, jobId: sent.body.jobId, name: 'A' });
+    assert.equal(after.handedIn, 'Two facts about the moon.', 'what A handed in survives a restart');
   } finally {
     await fixture.dispose();
     await new Promise(resolve => server.close(resolve));

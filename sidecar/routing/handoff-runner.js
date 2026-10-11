@@ -20,10 +20,12 @@
      · at most MAX_PENDING hand-offs wait per target line behind the one running (a burst beyond is refused), one in flight.
    Re-checked at dispatch (a waiting hand-off whose gate closed meanwhile is dropped with the reason on record).
 
-   THE RECORDS: the target line's job is a line-jobs record of ITS line with from:{ line, jobId, name }, and the sending job is
-   linked sentTo:{ line, jobId, name } — each line's result stays its own. The crate: workitem.placed { kind:'handoff',
-   lineId: target, fromLine, fromOutbox, toIntake } (the frozen contract's obj() stanza allows the extra fields), so the floor
-   draws the hand-off from the sending OUTBOX to the target INBOX before the job rides the target line.
+   THE RECORDS: the target line's job is a line-jobs record of ITS line with from:{ line, jobId, name }, its `text` the job AS IT
+   FIRST ARRIVED and `handedIn` what the sending line delivered; the sending job is linked sentTo:{ line, jobId, name } — or,
+   refused, sentTo.refused = why (never read as "sent on"). Each line's result stays its own. A job E-STOP killed is `stopped`.
+   The crate: workitem.placed { kind:'handoff', lineId: target, fromLine, fromOutbox, toIntake, jobId, streamId } (the frozen
+   contract's obj() stanza allows the extra fields), so the floor draws the hand-off from the sending OUTBOX to the target INBOX
+   before the job rides the target line, and the page reads back exactly that job when it lands.
 
    Determinism-clean: the clock and ids are injected (index.js owns timers, fs and the hub). */
 'use strict';
@@ -52,10 +54,14 @@ function makeHandoffRunner(deps) {
     byStream: s => { try { return typeof jobs.byStream === 'function' ? jobs.byStream(s) : null; } catch (e) { warn('[handoff] job lookup: ' + ((e && e.message) || e)); return null; } },
     start: r => { try { return typeof jobs.start === 'function' ? jobs.start(r) : null; } catch (e) { warn('[handoff] job start: ' + ((e && e.message) || e)); return null; } },
     finish: (id, r) => { try { return typeof jobs.finish === 'function' ? jobs.finish(id, r) : null; } catch (e) { warn('[handoff] job finish: ' + ((e && e.message) || e)); return null; } },
-    link: (id, to) => { try { return typeof jobs.link === 'function' ? jobs.link(id, to) : null; } catch (e) { warn('[handoff] job link: ' + ((e && e.message) || e)); return null; } }
+    link: (id, to) => { try { return typeof jobs.link === 'function' ? jobs.link(id, to) : null; } catch (e) { warn('[handoff] job link: ' + ((e && e.message) || e)); return null; } },
+    latest: line => { try { return typeof jobs.latest === 'function' ? jobs.latest(line) : null; } catch (e) { warn('[handoff] job read: ' + ((e && e.message) || e)); return null; } },
+    again: (id, at) => { try { return typeof jobs.again === 'function' ? jobs.again(id, at) : null; } catch (e) { warn('[handoff] job count: ' + ((e && e.message) || e)); return null; } }
   };
 
-  const lineage = new Map();   // streamId -> { lines:[lineId…], depth } — the lines a job's work has been through
+  // streamId -> { lines:[lineId…], depth, original } — the lines a job's work has been through, and the job AS IT FIRST ARRIVED
+  // (a line further down is handed that, never the frame the line before it was handed: A → B → C must not nest frames)
+  const lineage = new Map();
   const live = new Map();      // target lineId -> { queue:[], busy, hub, current }
   const refused = [];          // [{ at, fromLine, toLine, error }] newest last
 
@@ -82,17 +88,23 @@ function makeHandoffRunner(deps) {
     return null;
   }
 
-  /* a refusal is SAID on the target line: a failed job record "from LINE A" with the reason, linked from the sending job */
+  /* a refusal is SAID on the target line: a failed job record "from LINE A" with the reason. The sending job is linked with
+     sentTo.refused = why — never a plain sentTo, which every surface reads as "SENT ON TO LINE B". A STANDING refusal (the target's
+     newest record is already this refusal: same sending line, same reason) is counted on that record instead of a new one — a
+     folder trigger firing into a capped line would otherwise push every line's job history out of the store. */
   function refuse(item, why) {
-    const at = now(), plan = planOf();
+    const at = now(), plan = planOf(), error = 'not sent on: ' + why;
     refused.push({ at, fromLine: item.fromLine, toLine: item.toLine, error: why });
     if (refused.length > MAX_REFUSALS) refused.shift();
-    const yj = J.start({ id: newJobId(), line: item.toLine, name: nameOf(plan, item.toLine) || item.toName, text: item.input, streamId: '', at,
-      from: { line: item.fromLine, jobId: item.fromJobId, name: item.fromName } });
-    if (yj) {
-      J.finish(yj.id, { at, status: 'failed', usd: 0, output: '', runs: [], error: 'not sent on: ' + why });
-      if (item.fromJobId) J.link(item.fromJobId, { line: item.toLine, jobId: yj.id, name: item.toName });
+    const last = J.latest(item.toLine);
+    let yj = null;
+    if (last && last.status === 'failed' && last.from && String(last.from.line) === String(item.fromLine) && last.error === String(error).slice(0, 400)) yj = J.again(last.id, at);
+    if (!yj) {
+      yj = J.start({ id: newJobId(), line: item.toLine, name: nameOf(plan, item.toLine) || item.toName, text: item.original, handedIn: item.output, streamId: '', at,
+        from: { line: item.fromLine, jobId: item.fromJobId, name: item.fromName } });
+      if (yj) J.finish(yj.id, { at, status: 'failed', usd: 0, output: '', runs: [], error });
     }
+    if (item.fromJobId) J.link(item.fromJobId, { line: item.toLine, jobId: yj ? yj.id : null, name: item.toName, refused: why });
     warn('[handoff] ' + item.fromLine + ' → ' + item.toLine + ' refused: ' + why);
     return { ok: false, error: why, jobId: yj ? yj.id : null };
   }
@@ -109,12 +121,16 @@ function makeHandoffRunner(deps) {
     const from = (r.streamId && lineage.get(String(r.streamId))) || { lines: [String(r.lineId)], depth: 0 };
     const lines = from.lines.indexOf(String(r.lineId)) >= 0 ? from.lines.slice() : from.lines.concat([String(r.lineId)]);
     const fromJob = r.streamId ? J.byStream(String(r.streamId)) : null;
+    // THE JOB AS IT FIRST ARRIVED: a handed-on job's own "original" is the frame it was handed — carry the first job's text down
+    // the lineage (and, if that is gone, read it back out of the frame), so line C is never handed B's frame as "the job"
+    const inner = (from.original == null) ? Pipeline.parseHandoffInput(r.originalText) : null;
+    const original = from.original != null ? String(from.original) : (inner && inner.original) ? inner.original : String(r.originalText == null ? '' : r.originalText);
     const item = {
       rec: r, fromLine: String(r.lineId), toLine: st.toLine, fromOutbox: st.outboxId, toIntake: st.intakeId,
       fromName: nameOf(plan, r.lineId), toName: nameOf(plan, st.toLine), fromJobId: fromJob ? fromJob.id : null,
-      lines, depth: from.depth + 1, at: now(), files: [], input: ''
+      lines, depth: from.depth + 1, at: now(), files: [], input: '', original, output: String(r.text == null ? '' : r.text)
     };
-    item.input = Pipeline.handoffInput({ fromName: item.fromName, original: r.originalText, output: r.text, files: [] });
+    item.input = Pipeline.handoffInput({ fromName: item.fromName, original: item.original, output: item.output, files: [] });
     if (lines.indexOf(st.toLine) >= 0) return refuse(item, 'this job already went through ' + say(plan, st.toLine) + ' — sending it on again would send it round in a circle');
     if (item.depth >= MAX_DEPTH) return refuse(item, 'this job has already been handed on ' + from.depth + ' times — a job crosses at most ' + MAX_DEPTH + ' lines');
     const pf = preflight(plan, st.toLine);
@@ -154,13 +170,16 @@ function makeHandoffRunner(deps) {
     return s.hub;
   }
 
-  // the sending job's own run rows (its stream, since its entry run started): did every step end `done`? + the files it made
-  function sendingRuns(rec) {
+  // the sending job's own run rows (its stream, from its entry run's start UP TO the moment it shipped — a channel chat's stream
+  // carries the next message's runs too, which must never refuse this job or lend it their files): did every step end `done`?
+  // + the files it made
+  function sendingRuns(rec, until) {
     if (!rec.streamId) return { known: false, rows: [] };
     let rows = [];
     try { rows = (runsFor(String(rec.streamId)) || []).filter(x => x && String(x.streamId || rec.streamId) === String(rec.streamId)); }
     catch (e) { warn('[handoff] run read-back failed: ' + ((e && e.message) || e)); return { known: false, rows: [] }; }
     if (typeof rec.since === 'number') rows = rows.filter(x => typeof x.startedAt !== 'number' || x.startedAt >= rec.since - 1);
+    if (typeof until === 'number') rows = rows.filter(x => typeof x.startedAt !== 'number' || x.startedAt <= until);
     return { known: true, rows };
   }
 
@@ -171,19 +190,21 @@ function makeHandoffRunner(deps) {
     if (!still || still.toLine !== item.toLine) return refuse(item, 'the SEND TO changed before the hand-off ran');
     const pf = preflight(plan, item.toLine);
     if (pf) return refuse(item, pf);
-    const sr = sendingRuns(item.rec);
+    const sr = sendingRuns(item.rec, item.at);
     if (sr.known && sr.rows.some(x => x.reason !== 'done')) {
       const bad = sr.rows.find(x => x.reason !== 'done');
       return refuse(item, say(plan, item.fromLine) + '’s job did not finish cleanly (a step ended “' + (bad.reason || 'unknown') + '”)');
     }
     const files = [];
     for (const x of sr.rows) for (const a of (Array.isArray(x.artifacts) ? x.artifacts : [])) if (a && a.path && files.indexOf(String(a.path)) < 0) files.push(String(a.path));
-    const input = Pipeline.handoffInput({ fromName: item.fromName, original: item.rec.originalText, output: item.rec.text, files });
+    const input = Pipeline.handoffInput({ fromName: item.fromName, original: item.original, output: item.output, files });
 
     const startedAt = now(), streamId = newStream();
-    lineage.set(streamId, { lines: item.lines.concat([item.toLine]), depth: item.depth });
+    lineage.set(streamId, { lines: item.lines.concat([item.toLine]), depth: item.depth, original: item.original });
     if (lineage.size > 500) lineage.delete(lineage.keys().next().value);
-    const yj = J.start({ id: newJobId(), line: item.toLine, name: nameOf(plan, item.toLine) || item.toName, text: input, streamId, at: startedAt,
+    // the record keeps the job as it first arrived (`text`) and what the sending line delivered (`handedIn`) apart — never the
+    // whole frame, which the record's 2000 characters would cut through what was delivered
+    const yj = J.start({ id: newJobId(), line: item.toLine, name: nameOf(plan, item.toLine) || item.toName, text: item.original, handedIn: item.output, streamId, at: startedAt,
       from: { line: item.fromLine, jobId: item.fromJobId, name: item.fromName } });
     if (yj && item.fromJobId) J.link(item.fromJobId, { line: item.toLine, jobId: yj.id, name: item.toName });
 
@@ -198,8 +219,11 @@ function makeHandoffRunner(deps) {
       agentId = String(info.agentId);
       workitemId = String(newId());
       const depth = bumpQueue(agentId, +1);
+      // jobId / streamId (additive, obj() latitude): the receiving job's own record, so the page reads back exactly THAT job when
+      // the crate lands — never "the line's newest", which a queued hand-off or a refusal can already have replaced
       emit('workitem.placed', { workitemId, queueId: agentId, agentId, kind: 'handoff', lineId: info.lineId || item.toLine, dockId: info.dockId || undefined,
-        fromLine: item.fromLine, fromOutbox: item.fromOutbox, toIntake: item.toIntake, preview: ('FROM ' + (item.fromName ? 'LINE ' + item.fromName.toUpperCase() : 'ANOTHER LINE')).slice(0, 40), queueDepth: depth, ts: startedAt });
+        fromLine: item.fromLine, fromOutbox: item.fromOutbox, toIntake: item.toIntake, jobId: yj ? yj.id : undefined, streamId,
+        preview: ('FROM ' + (item.fromName ? 'LINE ' + item.fromName.toUpperCase() : 'ANOTHER LINE')).slice(0, 40), queueDepth: depth, ts: startedAt });
       emit('queue.status', { queueId: agentId, depth, maxCapacity: d.queueCap || 64, nextAdvanceAt: 0 });
     }
     const threw = await settled;
@@ -217,7 +241,10 @@ function makeHandoffRunner(deps) {
       emit('queue.status', { queueId: agentId, depth: dep, maxCapacity: d.queueCap || 64, nextAdvanceAt: 0 });
     }
     let err = '';
-    if (!completed) {
+    // E-STOP killed it: the Commander stopped this job (the sample route's STOPPED), never "a step did not finish cleanly"
+    const stopped = !completed && halted();
+    if (stopped) err = 'E-STOP stopped this job';
+    else if (!completed) {
       if (threw && threw.error) err = 'the line failed: ' + threw.error;
       else if (!info || !info.agentId || !s.current.routed || s.current.routed.agentId !== info.agentId) err = 'the line routed this work to no dock';
       else if (!onLine) err = 'the work did not enter through this line';
@@ -226,7 +253,7 @@ function makeHandoffRunner(deps) {
       else if (lo && lo.stopped) err = 'the line stopped early: ' + lo.stopped;
       else err = 'the line did not reach its OUTBOX';
     }
-    if (yj) J.finish(yj.id, { at: now(), usd, output: s.current.replies.join(''), status: completed ? 'delivered' : runs.length ? 'problem' : 'failed', error: err,
+    if (yj) J.finish(yj.id, { at: now(), usd, output: s.current.replies.join(''), status: completed ? 'delivered' : stopped ? 'stopped' : runs.length ? 'problem' : 'failed', error: err,
       runs: runs.map(x => ({ runId: x.runId, agentId: x.agentId, dockId: x.dockId || null, reason: x.reason, usd: x.usd })) });
     return { ok: completed, streamId, jobId: yj ? yj.id : null, runs: runs.length, usd, error: err || null };
   }
