@@ -178,8 +178,8 @@ function lineRefusalNote(lineOfAgent, dock, lineId, dockId) {
   if (!own || String(own) === String(lineId)) return null;
   // plain language, no ids, no belt vocabulary — the same voice the floor speaks (build.js step card). It says the one thing
   // the Commander can act on (2026-10-09 P0: "did not come in through this line's door" read as jargon to a user chaining
-  // three lines): the job belongs to another line, and one line does not hand work on to another.
-  return 'this job started on a different line, and lines can’t hand work to each other yet, so it stopped at ' + dock;
+  // three lines): the job belongs to another line, and work crosses to another line only by SEND TO (2026-10-10).
+  return 'this job started on a different line, so it stopped at ' + dock + ' — a line hands its work to another line only by SEND TO (drag its OUTBOX onto that line’s INBOX)';
 }
 
 function makeChainRunner(o) {
@@ -273,6 +273,16 @@ function makeChainRunner(o) {
   // the NON-ADVANCING step read (router.chainPeekDock): lets the runner see that a fan's branches all hand straight to one
   // JOINER — the shape it may run at once (PARALLEL BRANCHES below). Absent = branches run one after another, as before.
   const peekDock = typeof o.peekDock === 'function' ? o.peekDock : null;
+  /* SEND TO (2026-10-10) — onShipped(rec): told when a job LEAVES ITS LINE CLEAN, so a line whose OUTBOX sends on can start the
+     next line's job (sidecar/routing/handoff-runner.js). Fired from ONE place — after advanceLine returns, whatever return point
+     it took (a joiner shipping out, the end of the line, any branch path) — when, and only when: the work belongs to a line
+     (a direct order never ships anywhere), the line did not stop (stopped == null: no refusal, no failed or empty stage, no hop
+     or $ ceiling, no STOP), and the stage that produced the answer is one whose lane ships to an OUTBOX (lastStage). Never
+     awaited and never thrown through — A CHAIN NEVER GATES THE REPLY (law 1): the hand-off is queued, the reply goes now.
+     rec = { lineId, agentId, dockId, outboxId, text, originalText, usd, streamId, since } (streamId / since from the seed, when
+     the caller has them: the job's own stream and the time its entry run started, so the runner reads back exactly its runs;
+     outboxId = the OUTBOX the job's last walk landed in — a line with two OUTBOXes hands on only from the one that sends). */
+  const onShipped = typeof o.onShipped === 'function' ? o.onShipped : null;
 
   /* THE JOIN BARRIER — in-memory, keyed "joinTile|runId". A branch DELIVERS its output; the barrier releases
      when `expect` deliveries are in, or when a waiter's timeout (the joiner's timeoutMin) fires with fewer —
@@ -362,6 +372,24 @@ function makeChainRunner(o) {
        `agentId` who produced it, `stopped` a short honest reason when the line did not run to its end (null
        when it did). Never throws: a chain is an enhancement to a reply the caller already holds. */
   async function advance(seed) {
+    const out = await advanceLine(seed);
+    if (onShipped) shipped(seed || {}, out);
+    return out;
+  }
+  // SEND TO: did this job leave its line clean at a stage that ships to the OUTBOX? then tell the host (see onShipped above)
+  function shipped(s, out) {
+    const lineId = (s.lineId != null && String(s.lineId)) || null;
+    if (!lineId || !out || out.stopped != null || !out.agentId || !String(out.text || '').trim()) return;
+    let ships = false;
+    try { ships = !!(lastStage && (out.dockId ? lastStage(out.agentId, out.dockId) : lastStage(out.agentId))); } catch (e) { failNote('chain.onShipped.lastStage', e); ships = false; }
+    if (!ships) return;
+    const rec = { lineId, agentId: out.agentId, dockId: out.dockId || null, outboxId: out.outboxId || null, text: String(out.text), originalText: String(s.originalText != null ? s.originalText : (s.text || '')),
+      usd: ((typeof s.entryUsd === 'number' && isFinite(s.entryUsd) && s.entryUsd > 0) ? s.entryUsd : 0) + (out.usd || 0),
+      streamId: (s.streamId != null && String(s.streamId)) || null, since: (typeof s.since === 'number' && isFinite(s.since)) ? s.since : null };
+    try { const r = onShipped(rec); if (r && typeof r.then === 'function') r.then(null, e => failNote('chain.onShipped', e)); }
+    catch (e) { failNote('chain.onShipped', e); }
+  }
+  async function advanceLine(seed) {
     const s = seed || {};
     const startAgent = s.agentId, originalText = s.originalText != null ? s.originalText : s.text;
     // the line this work ENTERED on (null for a direct order — the gate then keeps every dock terminal)
@@ -448,9 +476,10 @@ function makeChainRunner(o) {
       for (const b of items) {
         if (!b.node || !b.node.dockId) return null;
         for (const tag of ['general', 'code', 'research']) {
-          let st = null; try { st = peekDock(b.node.dockId, { tag, lineId }); } catch (_) { st = null; }
+          const rch = {};
+          let st = null; try { st = peekDock(b.node.dockId, { tag, lineId, reach: rch }); } catch (_) { st = null; }
           if (!st || !st.join || (js && st.join !== js.join)) return null;
-          js = js || st;
+          if (!js) { js = st; js.reach = rch; }   // SEND TO: the OUTBOX the merged job lands in (Pipeline.chainStepDock ctx.reach)
         }
       }
       return js;
@@ -513,10 +542,12 @@ function makeChainRunner(o) {
       // the tag is derived from the OUTPUT of the stage that just ran — this is what makes a FILTER downstream
       // of a dock a real branch on the result rather than a re-read of the original message.
       let target = null, step = null, loopHop = false, entryBranch = false, hopPart = null;
+      // SEND TO (2026-10-11): the walk says which OUTBOX a job that ends here lands in (Pipeline.chainStepDock ctx.reach)
+      const reach = {};
       if (forced) {
         target = forced.node; entryBranch = !!forced.entry; hopPart = forced.part || null; forced = null;
       } else {
-        const ctx = { tag: getTag(out.text), verdict: getVerdict(out.text), lineId: lineId, fromTile: fromTile, via: via };
+        const ctx = { tag: getTag(out.text), verdict: getVerdict(out.text), lineId: lineId, fromTile: fromTile, via: via, reach };
         fromTile = null; via = null;
         try { step = (dockMode && cur.dockId) ? stepDock(cur.dockId, ctx) : stepAgent ? stepAgent(cur.agentId, ctx) : null; } catch (_) { step = null; }
         let loopDone = false;
@@ -560,7 +591,7 @@ function makeChainRunner(o) {
             out.agentId = last.agentId; if (last.dockId) out.dockId = last.dockId;
             say('workitem.delivered', withDock({ workitemId: newId(), finalQueueId: last.agentId, agentId: last.agentId, box: 'join:' + allAt.join, ms: 0, ts: now() }, last.dockId));
             branchMode = false; fan = null; fromTile = tileOf(allAt.join);
-            if (!allAt.next) { out.stopped = null; return out; }
+            if (!allAt.next) { out.stopped = null; if (allAt.reach && allAt.reach.outboxId) out.outboxId = allAt.reach.outboxId; return out; }
             continue;
           }
           if (texts) out.text = texts[0];
@@ -572,7 +603,7 @@ function makeChainRunner(o) {
           const bk = step.join + '|' + runId;
           const fw = fan ? Math.max(1, fan.width - fan.failed.length) : 0;
           const r = barrier.deliver(bk, fw || step.expect, cur.agentId, out.text, step.timeoutMin, cur.dockId);
-          if (fan) { fan.joinKey = bk; fan.joinStep = step; }
+          if (fan) { fan.joinKey = bk; fan.joinStep = step; fan.joinReach = reach.outboxId || null; }
           const failedNames = fan ? fan.failed.slice() : [];
           if (!r.released && pending.length > 1 && joinOfAll(pending) && joinOfAll(pending).join === step.join) {
             const items = pending.splice(0);
@@ -585,7 +616,7 @@ function makeChainRunner(o) {
             out.agentId = last.agentId; if (last.dockId) out.dockId = last.dockId;
             say('workitem.delivered', withDock({ workitemId: newId(), finalQueueId: last.agentId, agentId: last.agentId, box: 'join:' + step.join, ms: 0, ts: now() }, last.dockId));
             branchMode = false; fan = null; fromTile = tileOf(step.join);
-            if (!step.next) { out.stopped = null; return out; }
+            if (!step.next) { out.stopped = null; if (reach.outboxId) out.outboxId = reach.outboxId; return out; }
             continue;
           }
           if (!r.released) {
@@ -601,7 +632,7 @@ function makeChainRunner(o) {
           branchMode = false; fan = null;
           // the merged crate continues from the joiner's exit; the last deliverer is its producer
           fromTile = tileOf(step.join);
-          if (!step.next) { out.stopped = null; return out; }   // the joiner ships straight out: merged text IS the answer
+          if (!step.next) { out.stopped = null; if (reach.outboxId) out.outboxId = reach.outboxId; return out; }   // the joiner ships straight out: merged text IS the answer
           hop--; continue;
         } else if (loopDone) {
           // (decided above)
@@ -615,7 +646,9 @@ function makeChainRunner(o) {
       // refusing this work. refusalNote tells the two apart, and only speaks when it can prove the second.
       if (!target) {
         if (pending.length) { forced = nextPending(); hop--; continue; }
-        out.stopped = refusalNote(cur, lineId); return out;
+        out.stopped = refusalNote(cur, lineId);
+        if (out.stopped == null && reach.outboxId) out.outboxId = reach.outboxId;   // the OUTBOX this job landed in (SEND TO)
+        return out;
       }
       const tKey = nodeKey(target);
       if (looping) loopHop = true;
@@ -674,13 +707,13 @@ function makeChainRunner(o) {
           if (pending.length) { forced = nextPending(); continue; }
           const rel = fan.joinKey ? barrier.release(fan.joinKey) : null;
           if (rel && rel.parts.length) {
-            const js = fan.joinStep, last = rel.parts[rel.parts.length - 1];
+            const js = fan.joinStep, jr = fan.joinReach, last = rel.parts[rel.parts.length - 1];
             out.text = Pipeline.joinPayload(rel.parts, [], fan.failed);
             say('workitem.delivered', withDock({ workitemId: newId(), finalQueueId: last.agentId, agentId: last.agentId, box: 'join:' + js.join, ms: 0, ts: now() }, last.dockId));
             cur = { agentId: last.agentId, dockId: dockMode ? (last.dockId || null) : null };
             out.agentId = last.agentId; if (last.dockId) out.dockId = last.dockId;
             branchMode = false; fan = null; fromTile = tileOf(js.join);
-            if (!js.next) { out.stopped = null; return out; }
+            if (!js.next) { out.stopped = null; if (jr) out.outboxId = jr; return out; }
             continue;
           }
         }

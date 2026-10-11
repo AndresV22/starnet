@@ -170,7 +170,10 @@ A.eq(taint.postTaintBoundary(FS_WRITE, { taintedBy: 'web_fetch', surface: 'auton
   const hub = fs.readFileSync(path.join(root, 'sidecar', 'channels', 'hub.js'), 'utf8');
   A.ok(/initialTaint: entryTaint \|\| \(mediaIngest\.attachments\.length \? 'channel attachment' : \(carriesThirdPartyText\(msg\) \? 'forwarded message' : null\)\)/.test(hub), 'channel attachments and forwarded messages begin tainted (a hub entryTaint wins when set)');
   const idx = fs.readFileSync(path.join(root, 'sidecar', 'index.js'), 'utf8');
-  A.ok(/function makeTriggerHub\(hooks\) \{[\s\S]{0,4000}entryTaint: 'line trigger payload'/.test(idx), 'line-trigger runs (webhook bodies, watched files) begin tainted');
+  // (a caller may name its own taint — never clear it: the trigger's own is the fallback)
+  A.ok(/function makeTriggerHub\(hooks\) \{[\s\S]{0,4000}entryTaint: hooks\.entryTaint \|\| 'line trigger payload'/.test(idx), 'line-trigger runs (webhook bodies, watched files) begin tainted');
+  // SEND TO (2026-10-10): a hand-off's entry run reads another line's OUTPUT — it begins tainted like any chain hop
+  A.ok(/makeHub: \(hooks\) => makeTriggerHub\(Object\.assign\(\{\}, hooks, \{ persona: HANDOFF_PERSONA, entryTaint: 'upstream line output' \}\)\)/.test(idx), 'SEND TO hand-off runs (another line\'s output) begin tainted');
   A.ok(/initialTaint: 'upstream agent output'/.test(hub), 'agent-chain hops cannot treat upstream output as Commander-authored');
 }
 

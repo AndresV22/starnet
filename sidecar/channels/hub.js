@@ -1885,6 +1885,9 @@
           // WORK BELONGS TO A LINE: only work the floor routed in through this line's own INBOX advances it.
           // A /talk-bound or fallback-resolved message carries no lineId and stops at the dock that answered.
           lineId: lineId,
+          // SEND TO (2026-10-10, additive): the job's stream and the time its entry run started, so a hand-off reads back exactly
+          // this job's run rows (a channel chat's stream carries every earlier message too)
+          streamId: canonicalStreamId || undefined, since: (typeof myRec.startedAt === 'number' ? myRec.startedAt : undefined),
           signal: myRec.abort ? myRec.abort.signal : null,
           runAgent: async function (h) {
             // a hop is a plain autonomous run of ANOTHER agent: its OWN composed persona (never this channel's

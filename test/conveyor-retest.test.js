@@ -150,7 +150,8 @@ A.ok(/after ' \+ String\(agentName\(hand\.from\)\)\.toUpperCase\(\)/.test(outbox
 }
 
 /* ---------- P5 + B4: what the floor says while a machine is in hand ---------- */
-A.ok(/if \(tool === 'prop' && JUNCTION_TAG_TYPES\[propType\] && belts\.length\)/.test(build) && /ctx\.setLineDash\(\[3 \/ zoom, 2 \/ zoom\]\)/.test(build), 'a junction in hand: every belt tile wears a dashed edge (drawn geometry, never a glow)');
+// (a junction held in the PROP tool or in THE HAND, 2026-10-10)
+A.ok(/if \(placingProp\(\) && JUNCTION_TAG_TYPES\[propType\] && belts\.length\)/.test(build) && /const placingProp = \(\) => tool === 'prop' \|\| !!hand;/.test(build) && /ctx\.setLineDash\(\[3 \/ zoom, 2 \/ zoom\]\)/.test(build), 'a junction in hand: every belt tile wears a dashed edge (drawn geometry, never a glow)');
 A.ok(/const RING_DOCK_T = \{ bay: 1, intake: 1, outbox: 1 \}/.test(build) && /'CLOSE TO THE ' \+ String\(propLabel\(near\.t\)\)\.toUpperCase\(\) \+ ' — LEAVE 2 TILES OR THEIR BELTS TOUCH'/.test(build), 'a dock in hand near another dock: the spacing advice (never a refusal)');
 
 /* ---------- captions + the FINISH card keep off what the builder needs to see ---------- */

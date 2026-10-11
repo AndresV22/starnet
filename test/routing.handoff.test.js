@@ -1,0 +1,334 @@
+/* test/routing.handoff.test.js — SEND TO at run time (2026-10-10): the chain's onShipped hook, the handoff runner, the job records.
+
+   Locks, on a REAL station compiled by the REAL compiler (the hub is a fake: it stands in for the target line's run):
+     ONSHIPPED  — chain.js tells the host exactly when a job LEFT ITS LINE CLEAN at a stage that ships to the OUTBOX: never for a
+                  direct order, a refused line, a failed stage or a stage that does not ship; a throwing / rejecting hook never
+                  touches the reply.
+     THE RUNNER — a job finished on LINE A whose OUTBOX sends to LINE B starts LINE B's OWN job: the hub is scoped to B (its lineId
+                  hook answers B — so B's INBOX picks the dock and B's budget governs), the input carries the job as it arrived,
+                  what A delivered and A's files; the crate is workitem.placed kind:'handoff' from A's OUTBOX to B's INBOX; B's
+                  record says from:A, A's record says sentTo:B. A → B → C rides on (lineage); a circle, a 4th hand-off, E-STOP,
+                  an uncrewed target, a target over its day cap, a sending job that did not finish clean, a SEND TO changed
+                  while waiting and a burst past MAX_PENDING are each refused AND said on the target line's job record.
+     THE RECORD — linejobs keeps from / sentTo through normalize, finish and the window's summary. */
+'use strict';
+const A = require('./_assert.js');
+const P = require('../frontend/app/pipeline.js');
+const WM = require('../frontend/app/worldmodel.js');
+const LE = require('../frontend/app/lineedit.js');
+const LineJobs = require('../sidecar/routing/linejobs.js');
+const { makeChainRunner } = require('../sidecar/routing/chain.js');
+const { makeHandoffRunner, MAX_PENDING, MAX_DEPTH } = require('../sidecar/routing/handoff-runner.js');
+const { crewedDocksOnLine } = require('../sidecar/routing/trigger-runner.js');
+
+const tick = (ms) => new Promise(r => setTimeout(r, ms || 15));
+
+function station(n) {
+  const d = WM.starterDoc();
+  for (const id in d.rooms) for (const r of d.rooms[id].rects) { r.x2 = 44; r.y2 = 8 + n * 6; }
+  const st = WM.create(d);
+  const L = [];
+  for (let i = 0; i < n; i++) {
+    const r = LE.placeBlueprint(st, 'research_line', { x: 8, y: 4 + i * 6 });
+    if (!r.ok) throw new Error('placeBlueprint ' + JSON.stringify(r));
+    const of = t => r.ids.filter(id => st.propById(id).t === t);
+    L.push({ intake: of('intake')[0], bays: of('bay'), outbox: of('outbox')[0] });
+    st.setPropLabel(of('intake')[0], String.fromCharCode(65 + i));
+  }
+  for (const p of st.props()) if (p.t === 'bay' && !p.agentId) st.assignPropAgent(p.id, 'ag_' + p.id);
+  return { st, L };
+}
+
+(async () => {
+  /* ---------- ONSHIPPED (chain.js) ---------- */
+  {
+    const fired = [];
+    const mk = (extra) => makeChainRunner(Object.assign({
+      nextAgent: a => ({ researcher: 'writer' })[a] || null,
+      runAgent: async ({ agentId }) => ({ text: agentId + ' work', usd: 0.01 }),
+      lastStage: a => a === 'writer', onShipped: r => { fired.push(r); }, now: () => 0
+    }, extra || {}));
+    const c = mk();
+    const res = await c.advance({ agentId: 'researcher', text: 'notes', originalText: 'the job', lineId: 'L1', entryUsd: 0.02, streamId: 'sample-1', since: 5 });
+    A.eq(res.stopped, null, 'the line ran to its end');
+    A.eq(fired.length, 1, 'onShipped fired once for a job that left its line clean at the OUTBOX stage');
+    A.ok(fired[0] && fired[0].lineId === 'L1' && fired[0].agentId === 'writer' && fired[0].text === 'writer work' && fired[0].originalText === 'the job' && fired[0].streamId === 'sample-1' && fired[0].since === 5 && Math.abs(fired[0].usd - 0.03) < 1e-9, '…with the line, the producer, the answer, the job as it arrived, its stream and its whole spend — ' + JSON.stringify(fired[0]));
+    fired.length = 0;
+    await c.advance({ agentId: 'researcher', text: 'notes', originalText: 'the job' });
+    A.eq(fired.length, 0, 'a DIRECT ORDER (no lineId) never ships anywhere');
+    await mk({ lastStage: () => false }).advance({ agentId: 'researcher', text: 'notes', lineId: 'L1' });
+    A.eq(fired.length, 0, 'a last stage whose lane does not ship to an OUTBOX sends nothing on');
+    await mk({ runAgent: async () => ({ error: 'provider exploded' }) }).advance({ agentId: 'researcher', text: 'notes', lineId: 'L1' });
+    A.eq(fired.length, 0, 'a failed stage (the line stopped) sends nothing on');
+    await mk({ lineOfAgent: () => 'L9' }).advance({ agentId: 'writer', text: 'w', lineId: 'L1' });
+    A.eq(fired.length, 0, 'a line that REFUSED the work (another line\'s job) sends nothing on');
+    const boom = await mk({ onShipped: () => { throw new Error('host bug'); } }).advance({ agentId: 'researcher', text: 'notes', lineId: 'L1' });
+    A.ok(boom.text === 'writer work' && boom.stopped === null, 'a throwing onShipped never touches the reply');
+    const rej = await mk({ onShipped: () => Promise.reject(new Error('later')) }).advance({ agentId: 'researcher', text: 'notes', lineId: 'L1' });
+    A.ok(rej.text === 'writer work', '…nor does a rejecting one (and the rejection is noted, never unhandled)');
+    await tick();
+  }
+
+  /* ---------- ONSHIPPED names the OUTBOX the job landed in (2026-10-11 repair) ----------
+     A line with two OUTBOXes (a SORTING OFFICE, each BAY belted to its own OUTBOX), only one sending: the chain's own terminal walk
+     (Pipeline.chainStepDock ctx.reach) says which OUTBOX each job reached, and the runner hands on only from the sending one. */
+  {
+    const d = WM.starterDoc();
+    for (const id in d.rooms) for (const r of d.rooms[id].rects) { r.x2 = 60; r.y2 = 44; }
+    const st2 = WM.create(d);
+    const so = LE.placeBlueprint(st2, 'sorting_office', { x: 8, y: 4 });
+    const sb = so.ids.filter(id => st2.propById(id).t === 'bay');
+    const o1 = st2.addProp({ t: 'outbox', x: 16, y: 1, w: 2, h: 2 }).id, o2 = st2.addProp({ t: 'outbox', x: 16, y: 6, w: 2, h: 2 }).id;
+    st2.connectBelt(sb[0], o1); st2.connectBelt(sb[1], o2);
+    const rb = LE.placeBlueprint(st2, 'research_line', { x: 8, y: 24 });
+    const bIn = rb.ids.find(id => st2.propById(id).t === 'intake');
+    for (const p of st2.props()) if (p.t === 'bay' && !p.agentId) st2.assignPropAgent(p.id, 'ag_' + p.id);
+    st2.setSendTo(o1, bIn);
+    const pl = P.compileRoutingPlan(st2.projectGeometry()), la = pl.lineOfProp[sb[0]];
+    const got = [];
+    const chain = makeChainRunner({
+      nextAgent: () => null, runAgent: async () => ({ text: 'x', usd: 0 }), now: () => 0,
+      stepDock: (dock, ctx) => P.chainStepDock(pl, dock, ctx), entryDockOf: () => null,
+      lastStage: (a, dock) => { const r = P.dockLayer(pl).dockChains[dock]; return !!(r && r.outbox && !r.deadEnd); },
+      onShipped: r => { got.push(r); }
+    });
+    for (const dock of sb) await chain.advance({ agentId: pl.agentOfDock[dock], dockId: dock, text: 'done', originalText: 'job', lineId: la });
+    A.eq(got.map(r => [r.dockId, r.outboxId]), [[sb[0], o1], [sb[1], o2]], 'onShipped says which OUTBOX each job landed in');
+    const sent = [];
+    const R0 = makeHandoffRunner({ makeHub: () => ({ onInbound: () => new Promise(() => {}) }), plan: () => pl, jobs: {}, now: () => 1, newId: () => 'z' + sent.length + 'abcdef0123456789',
+      emit: () => {}, runsFor: () => [], warn: () => {} });
+    for (const r of got) sent.push(R0.onShipped(r));
+    A.ok(sent[0].ok && sent[0].toLine === pl.lineOfProp[bIn], 'the job that landed in the SENDING OUTBOX is handed on — ' + JSON.stringify(sent[0]));
+    A.eq(sent[1].code, 'none', 'the job that landed in the OTHER OUTBOX is not (it was, before: every job on a line with one sender rode on)');
+    await tick();
+  }
+
+  /* ---------- THE RUNNER ---------- */
+  const { st, L } = station(5);
+  const [a, b, c, dd, e] = L;
+  A.ok(st.setSendTo(a.outbox, b.intake).ok && st.setSendTo(b.outbox, c.intake).ok, 'A → B → C');
+  let plan = P.compileRoutingPlan(st.projectGeometry());
+  const lineOf = id => plan.lineOfProp[id];
+  const LA = lineOf(a.intake), LB = lineOf(b.intake), LC = lineOf(c.intake), LD = lineOf(dd.intake), LEE = lineOf(e.intake);
+  A.ok(plan.sendTo && plan.sendTo[a.outbox] && plan.sendTo[a.outbox].toLine === LB, 'the plan carries A → B');
+
+  let jobs = { jobs: [] };
+  const J = {
+    byStream: s => LineJobs.byStream(jobs, s),
+    start: r => { const x = LineJobs.start(jobs, r); if (x.job) jobs = x.state; return x.job; },
+    finish: (id, r) => { const x = LineJobs.finish(jobs, id, r); if (x.job) jobs = x.state; return x.job; },
+    link: (id, to) => { const x = LineJobs.link(jobs, id, to); if (x.job) jobs = x.state; return x.job; },
+    latest: line => LineJobs.latest(jobs, line),
+    again: (id, at) => { const x = LineJobs.again(jobs, id, at); if (x.job) jobs = x.state; return x.job; }
+  };
+  const runsByStream = {}, emitted = [], hubCalls = [], hooksSeen = [];
+  let halted = false, cap = {}, hang = null, R = null, n = 0, clock = 1000;
+  // the fake hub stands in for the target line's run: its ONE resolution walks only that line's doors (hooks.lineId), a clean
+  // run is recorded on the hand-off's own stream, the line's answer is "sent", and — as chain.js would — the target line's
+  // clean exit is reported back through onShipped, so A → B → C rides on
+  function fakeHub(hooks) {
+    hooksSeen.push(hooks);
+    return {
+      _internals: { inflight: new Map() },
+      onInbound(msg) {
+        const line = hooks.lineId();
+        hubCalls.push({ line, msg });
+        const docks = crewedDocksOnLine(plan, line).sort(P.propIdCmp), dock = docks[0];
+        const agentId = dock ? plan.agentOfDock[dock] : 'trg_fallback';
+        const routed = hooks.onRouted(dock ? { agentId, dockId: dock } : null);
+        hooks.onResolved({ chatId: msg.chatId, agentId, isTask: true, lineId: routed ? line : null, dockId: dock });
+        const sid = hooks.streamId();
+        if (hang) return hang;
+        return Promise.resolve().then(() => {
+          runsByStream[sid] = [{ runId: 'r' + (++n), agentId, dockId: dock, reason: 'done', usd: 0.01, streamId: sid, startedAt: clock }];
+          const last = plan.lines.find(l => l.lineId === line).propIds.filter(id => plan.agentOfDock[id]).sort(P.propIdCmp).pop();
+          hooks.send('OUTPUT OF ' + line);
+          hooks.onLineOutcome({ agentId: plan.agentOfDock[last], dockId: last, stopped: null, hops: [] });
+          R.onShipped({ lineId: line, agentId: plan.agentOfDock[last], dockId: last, text: 'OUTPUT OF ' + line, originalText: msg.text, streamId: sid, since: clock });
+        });
+      }
+    };
+  }
+  R = makeHandoffRunner({
+    makeHub: fakeHub, plan: () => plan, jobs: J, emit: (nm, p) => emitted.push({ nm, p }),
+    shipsToOutbox: (agentId, dockId) => !!dockId, dayCap: line => cap[line] || { cap: null, spent: 0 }, halted: () => halted,
+    runsFor: sid => runsByStream[sid] || [], now: () => clock, newId: () => 'id' + (++n) + 'abcdef0123456789', warn: () => {}
+  });
+
+  // the job on LINE A, as the sample route keeps it
+  const xs = 'sample-aaaa1111';
+  J.start({ id: 'job-aaaa1111', line: LA, name: 'A', text: 'Find three facts about Mars.', streamId: xs, at: clock });
+  runsByStream[xs] = [{ runId: 'x1', agentId: 'ag_' + a.bays[0], reason: 'done', usd: 0.01, streamId: xs, startedAt: clock, artifacts: [{ kind: 'file', path: 'C:/work/mars.md' }] },
+    { runId: 'x2', agentId: 'ag_' + a.bays[1], reason: 'done', usd: 0.02, streamId: xs, startedAt: clock + 1 }];
+  const lastA = a.bays[1];
+  clock += 5;   // the job ships AFTER its runs started (the run read-back stops at the ship time)
+  const q = R.onShipped({ lineId: LA, agentId: 'ag_' + lastA, dockId: lastA, text: 'Mars has two moons.', originalText: 'Find three facts about Mars.', streamId: xs, since: clock - 5 });
+  A.ok(q.ok && q.toLine === LB && q.queued === 1, 'a clean job on A is queued for B — ' + JSON.stringify(q));
+  await tick(40);
+  // the sending route finishes its own record after the hand-off went out: the link survives
+  J.finish('job-aaaa1111', { at: clock, status: 'delivered', usd: 0.03, output: 'Mars has two moons.', runs: [] });
+  const xa = LineJobs.get(jobs, 'job-aaaa1111');
+  const yb = jobs.jobs.find(j => j.line === LB), zc = jobs.jobs.find(j => j.line === LC);
+  A.ok(yb && yb.status === 'delivered' && yb.output === 'OUTPUT OF ' + LB, 'LINE B ran its own job and delivered — ' + JSON.stringify(yb && { status: yb.status, error: yb.error }));
+  A.eq(yb && yb.from, { line: LA, jobId: 'job-aaaa1111', name: 'A' }, 'B’s record says where it came from');
+  A.eq(xa.sentTo, { line: LB, jobId: yb && yb.id, name: 'B' }, 'A’s record says where it went — and A’s own output stays A’s');
+  A.eq(xa.output, 'Mars has two moons.', '…A’s result is still A’s');
+  A.ok(yb && yb.text === 'Find three facts about Mars.' && yb.handedIn === 'Mars has two moons.', 'B’s record keeps the job as it first arrived and what A handed in APART (never a 2000-char cut of the frame) — ' + JSON.stringify(yb && { text: yb.text, handedIn: yb.handedIn }));
+  const toB = hubCalls.find(h => h.line === LB);
+  A.ok(toB && /^\[HAND-OFF — LINE A finished its part/.test(toB.msg.text) && /Find three facts about Mars\./.test(toB.msg.text) && /Mars has two moons\./.test(toB.msg.text) && /- C:\/work\/mars\.md/.test(toB.msg.text), 'B was handed the job as it arrived, what A delivered and A’s file');
+  A.ok(hooksSeen.some(h => h.lineId() === LB), 'the hub is scoped to LINE B (its INBOX picks the dock; its budget governs)');
+  const placed = emitted.find(x => x.nm === 'workitem.placed' && x.p.lineId === LB);
+  A.ok(placed && placed.p.kind === 'handoff' && placed.p.fromLine === LA && placed.p.fromOutbox === a.outbox && placed.p.toIntake === b.intake, 'the crate rides from A’s OUTBOX into B’s INBOX — ' + JSON.stringify(placed && placed.p));
+  A.ok(emitted.some(x => x.nm === 'workitem.delivered' && x.p.finalQueueId === 'outbox' && x.p.workitemId === (placed && placed.p.workitemId)), '…and lands in B’s OUTBOX');
+  A.ok(zc && zc.status === 'delivered' && zc.from && zc.from.line === LB && zc.from.jobId === yb.id, 'B sends on to C: C’s job came from B’s');
+  // A → B → C: C is handed the job AS IT FIRST ARRIVED and what B delivered — never B's whole frame nested as "the job"
+  const toC = hubCalls.find(h => h.line === LC), cin = toC && P.parseHandoffInput(toC.msg.text);
+  A.ok(cin && cin.fromName === 'B' && cin.original === 'Find three facts about Mars.' && cin.output === 'OUTPUT OF ' + LB && (toC.msg.text.match(/\[HAND-OFF/g) || []).length === 1, 'C’s input: one frame, the first job, B’s output — ' + JSON.stringify(cin));
+  A.ok(zc.text === 'Find three facts about Mars.' && zc.handedIn === 'OUTPUT OF ' + LB, '…and C’s record says the same');
+  A.eq(LineJobs.get(jobs, yb.id).sentTo && LineJobs.get(jobs, yb.id).sentTo.line, LC, '…and B’s record says it went on to C');
+  A.ok(!jobs.jobs.some(j => j.line === LD), 'C sends nowhere: the ride stops at C');
+
+  // a CIRCLE: the plan is re-posted mid-run with C → A (the compiler would warn SEND_TO_LOOP; the run time stands on its own)
+  plan = JSON.parse(JSON.stringify(plan));
+  plan.sendTo[c.outbox] = { intakeId: a.intake, fromLine: LC, toLine: LA };
+  const zStream = zc.streamId;
+  const circ = R.onShipped({ lineId: LC, agentId: 'ag_' + c.bays[1], dockId: c.bays[1], text: 'C out', originalText: 'x', streamId: zStream, since: clock });
+  A.ok(!circ.ok && /round in a circle/.test(circ.error) && /LINE A/.test(circ.error), 'C → A after A → B → C is refused: a circle — ' + JSON.stringify(circ));
+  const circRec = jobs.jobs.find(j => j.id === circ.jobId);
+  A.ok(circRec && circRec.line === LA && circRec.status === 'failed' && /not sent on: .*circle/.test(circRec.error) && circRec.from.line === LC, '…and said on LINE A as a job that was not sent on, from C');
+  delete plan.sendTo[c.outbox];
+
+  // a 4th hand-off: A → B → C → D → E
+  plan.sendTo[c.outbox] = { intakeId: dd.intake, fromLine: LC, toLine: LD };
+  plan.sendTo[dd.outbox] = { intakeId: e.intake, fromLine: LD, toLine: LEE };
+  const before = jobs.jobs.length;
+  R.onShipped({ lineId: LC, agentId: 'ag_' + c.bays[1], dockId: c.bays[1], text: 'C out', originalText: 'x', streamId: zStream, since: clock });
+  await tick(40);
+  const dRec = jobs.jobs.slice(before).find(j => j.line === LD), eRec = jobs.jobs.slice(before).find(j => j.line === LEE);
+  A.ok(dRec && dRec.status === 'delivered', 'the 3rd hand-off (C → D) runs');
+  A.ok(eRec && eRec.status === 'failed' && new RegExp('at most ' + MAX_DEPTH + ' lines').test(eRec.error), 'the 4th (D → E) is refused: a job crosses at most ' + MAX_DEPTH + ' lines — ' + JSON.stringify(eRec && eRec.error));
+  delete plan.sendTo[c.outbox]; delete plan.sendTo[dd.outbox];
+
+  const fresh = (sid, line, dock, reason) => { runsByStream[sid] = [{ runId: 'f' + (++n), agentId: 'ag_' + dock, reason: reason || 'done', usd: 0, streamId: sid, startedAt: clock }]; return { lineId: line, agentId: 'ag_' + dock, dockId: dock, text: 'out', originalText: 'job', streamId: sid, since: clock }; };
+  const refusedOnB = () => jobs.jobs.filter(j => j.line === LB && j.status === 'failed').map(j => j.error);
+  // E-STOP
+  halted = true;
+  const callsBefore = hubCalls.length;
+  J.start({ id: 'job-eeee5555', line: LA, name: 'A', text: 'A job E-STOP catches', streamId: 'sample-es', at: clock });
+  const es = R.onShipped(fresh('sample-es', LA, lastA));
+  A.ok(!es.ok && /E-STOP/.test(es.error) && hubCalls.length === callsBefore, 'E-STOP: nothing is sent on, nothing runs');
+  const esA = LineJobs.get(jobs, 'job-eeee5555');
+  A.ok(esA.sentTo && esA.sentTo.line === LB && /E-STOP/.test(esA.sentTo.refused || ''), 'the sending job says it was NOT sent on, and why (a plain sentTo reads as "SENT ON TO LINE B") — ' + JSON.stringify(esA.sentTo));
+  const es2 = R.onShipped(fresh('sample-es2', LA, lastA));
+  A.ok(es2.jobId === es.jobId && LineJobs.get(jobs, es.jobId).repeats === 2, 'a STANDING refusal (same line, same reason, back to back) is counted on ONE record, not a new one per job');
+  halted = false;
+  // the target over its day cap
+  cap[LB] = { cap: 1, spent: 1 };
+  const dc = R.onShipped(fresh('sample-dc', LA, lastA));
+  A.ok(!dc.ok && /LINE B reached its \$1\.00 daily limit/.test(dc.error), 'the TARGET line’s own daily cap refuses it — ' + dc.error);
+  delete cap[LB];
+  // a sending job that did not finish clean (a step ended max_iters with some text — the chain read it as an answer)
+  R.onShipped(fresh('sample-mi', LA, lastA, 'max_iters'));
+  await tick(30);
+  A.ok(refusedOnB().some(x => /did not finish cleanly \(a step ended “max_iters”\)/.test(x)), 'a sending job with a step that did not end done is not sent on');
+  // an uncrewed target
+  const unplan = plan;
+  for (const id of b.bays) st.assignPropAgent(id, '');
+  st.setSendTo(b.outbox, null);
+  plan = P.compileRoutingPlan(st.projectGeometry());
+  const un = R.onShipped(fresh('sample-un', LA, lastA));
+  A.ok(!un.ok && /routes work to no crewed dock/.test(un.error), 'a target line with no crew is refused — ' + un.error);
+  for (const id of b.bays) st.assignPropAgent(id, 'ag_' + id);
+  plan = unplan;
+  // a burst: one in flight + MAX_PENDING waiting, the rest refused; E-STOP drops the waiting ones
+  hang = new Promise(() => {});
+  const burst = [];
+  for (let i = 0; i < MAX_PENDING + 3; i++) burst.push(R.onShipped(fresh('sample-b' + i, LA, lastA)));
+  await tick();
+  A.eq(burst.filter(x => x.ok).length, MAX_PENDING + 1, 'a burst admits one in flight + ' + MAX_PENDING + ' waiting');
+  A.ok(burst.slice(MAX_PENDING + 1).every(x => !x.ok && /hand-offs waiting/.test(x.error)), 'the rest are refused (and said on LINE B)');
+  A.ok(burst.slice(MAX_PENDING + 1).every(x => x.jobId === burst[MAX_PENDING + 1].jobId) && LineJobs.get(jobs, burst[MAX_PENDING + 1].jobId).repeats === burst.length - (MAX_PENDING + 1), '…on ONE record counting them all — ' + JSON.stringify(burst.slice(MAX_PENDING + 1).map(x => [x.jobId, (LineJobs.get(jobs, x.jobId) || {}).repeats])));
+  A.ok(R.status().lines.some(l => l.line === LB && l.running && l.queued === MAX_PENDING), 'status: B running with ' + MAX_PENDING + ' waiting');
+  A.ok(R.inflights().length >= 1, 'E-STOP can reach the target line’s hub');
+  A.eq(R.haltAll(), MAX_PENDING, 'E-STOP drops every waiting hand-off');
+  hang = null;
+  // a SEND TO changed while a hand-off waited — dispatch re-reads the plan
+  const R2 = makeHandoffRunner({ makeHub: () => ({ onInbound: () => new Promise(() => {}) }), plan: () => plan, jobs: J, runsFor: sid => runsByStream[sid] || [],
+    now: () => clock, newId: () => 'id' + (++n) + 'abcdef0123456789' });
+  R2.onShipped(fresh('sample-c1', LA, lastA));
+  const waiting = R2.onShipped(fresh('sample-c2', LA, lastA));
+  A.ok(waiting.ok && waiting.queued === 2, 'a second hand-off waits behind the first');
+  await tick();
+  const was = plan; plan = JSON.parse(JSON.stringify(plan)); delete plan.sendTo[a.outbox];
+  const pend = R2._internals.live.get(LB);
+  const res = await R2._internals.dispatch(pend.queue.shift(), pend);
+  A.ok(res && !res.ok && /SEND TO changed/.test(res.error), 'a hand-off whose SEND TO changed while it waited is dropped with the reason');
+  plan = was;
+  A.ok(R.onShipped({ lineId: LC, agentId: 'x', dockId: c.bays[1], text: 'x', streamId: 's' }).code === 'none', 'a line that sends nowhere: nothing (the common case)');
+  A.eq(R.onShipped({ agentId: 'x', text: 'x' }).code, 'none', 'no line: nothing');
+
+  /* THE SENDING JOB'S RUNS STOP AT ITS SHIP TIME: a channel chat's stream carries the NEXT message's runs too — a later run that
+     ended cancelled must not refuse this job, and its files must not ride in this job's hand-off */
+  {
+    const calls = [];
+    const R5 = makeHandoffRunner({ makeHub: (hooks) => ({ onInbound(msg) {
+        calls.push(msg.text);
+        const docks = crewedDocksOnLine(plan, hooks.lineId()).sort(P.propIdCmp), agentId = plan.agentOfDock[docks[0]];
+        hooks.onRouted({ agentId, dockId: docks[0] }); hooks.onResolved({ agentId, lineId: hooks.lineId(), dockId: docks[0] });
+        const sid = hooks.streamId();
+        runsByStream[sid] = [{ runId: 'q' + (++n), agentId, dockId: docks[0], reason: 'done', usd: 0, streamId: sid, startedAt: clock }];
+        const last = plan.lines.find(l => l.lineId === hooks.lineId()).propIds.filter(id => plan.agentOfDock[id]).sort(P.propIdCmp).pop();
+        hooks.send('B OUT'); hooks.onLineOutcome({ agentId: plan.agentOfDock[last], dockId: last, stopped: null });
+        return Promise.resolve();
+      } }), plan: () => plan, jobs: J, shipsToOutbox: () => true, runsFor: sid => runsByStream[sid] || [], now: () => clock,
+      newId: () => 'id' + (++n) + 'abcdef0123456789', warn: () => {} });
+    clock = 5000;
+    runsByStream['chat-1'] = [{ runId: 'm1', agentId: 'ag_' + lastA, reason: 'done', usd: 0, streamId: 'chat-1', startedAt: 4990, artifacts: [{ kind: 'file', path: 'C:/w/msg1.md' }] }];
+    const s1 = R5.onShipped({ lineId: LA, agentId: 'ag_' + lastA, dockId: lastA, text: 'msg1 out', originalText: 'msg1', streamId: 'chat-1', since: 4990 });
+    // …the chat's next message runs on the same stream before the hand-off dispatches, ends cancelled, writes a file
+    runsByStream['chat-1'].push({ runId: 'm2', agentId: 'ag_' + lastA, reason: 'cancelled', usd: 0, streamId: 'chat-1', startedAt: 5010, artifacts: [{ kind: 'file', path: 'C:/w/msg2.md' }] });
+    await tick(30);
+    const sent1 = calls[calls.length - 1] || '';
+    A.ok(s1.ok && /msg1 out/.test(sent1) && /C:\/w\/msg1\.md/.test(sent1) && !/msg2\.md/.test(sent1), 'msg1 is handed on with ITS file only, not refused by msg2’s cancelled run — ' + JSON.stringify(sent1.slice(-160)));
+  }
+
+  /* E-STOP KILLS A RUNNING HAND-OFF: its record says STOPPED (the Commander stopped it), never "a step did not finish cleanly" */
+  {
+    let release = null;
+    const R6 = makeHandoffRunner({ makeHub: (hooks) => ({ onInbound() {
+        const docks = crewedDocksOnLine(plan, hooks.lineId()).sort(P.propIdCmp), agentId = plan.agentOfDock[docks[0]];
+        hooks.onRouted({ agentId, dockId: docks[0] }); hooks.onResolved({ agentId, lineId: hooks.lineId(), dockId: docks[0] });
+        const sid = hooks.streamId();
+        return new Promise(res => { release = () => { runsByStream[sid] = [{ runId: 'k' + (++n), agentId, dockId: docks[0], reason: 'cancelled', usd: 0.004, streamId: sid, startedAt: clock }]; res(); }; });
+      } }), plan: () => plan, jobs: J, shipsToOutbox: () => true, halted: () => halted, runsFor: sid => runsByStream[sid] || [], now: () => clock,
+      newId: () => 'id' + (++n) + 'abcdef0123456789', warn: () => {} });
+    const s6 = R6.onShipped(fresh('sample-stop', LA, lastA));
+    await tick();
+    A.ok(s6.ok && typeof release === 'function', 'the hand-off is running on LINE B');
+    halted = true; release(); await tick(30); halted = false;
+    const rec6 = jobs.jobs.filter(j => j.line === LB).pop();
+    A.ok(rec6 && rec6.status === 'stopped' && /E-STOP/.test(rec6.error), 'E-STOP: the hand-off’s record is STOPPED — ' + JSON.stringify(rec6 && { status: rec6.status, error: rec6.error }));
+  }
+}
+)().then(() => {
+  /* ---------- THE RECORD (linejobs) ---------- */
+  let s = { jobs: [] };
+  s = LineJobs.start(s, { id: 'job-bbbb2222', line: 'p20', text: 'handed on', streamId: 'handoff-1', at: 5, from: { line: 'p10', jobId: 'job-aaaa1111', name: 'RESEARCH', junk: 1 } }).state;
+  A.eq(LineJobs.get(s, 'job-bbbb2222').from, { line: 'p10', jobId: 'job-aaaa1111', name: 'RESEARCH' }, 'from is kept (and only its own fields)');
+  s = LineJobs.link(s, 'job-bbbb2222', { line: 'p30', jobId: 'nope', name: 'X'.repeat(80) }).state;
+  A.eq(LineJobs.get(s, 'job-bbbb2222').sentTo, { line: 'p30', jobId: null, name: 'X'.repeat(48) }, 'sentTo: a bad job id is null, the name bounded');
+  s = LineJobs.finish(s, 'job-bbbb2222', { at: 9, status: 'delivered', output: 'ok', runs: [] }).state;
+  const g = LineJobs.get(s, 'job-bbbb2222');
+  A.ok(g.status === 'delivered' && g.sentTo && g.sentTo.line === 'p30' && g.from.line === 'p10', 'finish keeps both ends');
+  const back = LineJobs.normalizeAll(JSON.parse(JSON.stringify(s)));
+  A.ok(back.jobs[0].from.jobId === 'job-aaaa1111' && back.jobs[0].sentTo.line === 'p30', 'both survive a save + reload');
+  const sum = LineJobs.list(s, {})[0];
+  A.ok(sum.from && sum.from.name === 'RESEARCH' && sum.sentTo && sum.sentTo.line === 'p30', 'the window’s list carries both');
+  A.eq(LineJobs.byStream(s, 'handoff-1').id, 'job-bbbb2222', 'byStream finds the job a stream belongs to');
+  A.eq(LineJobs.normJob({ id: 'job-cccc3333', line: 'p1', from: { line: 'bad line!' } }).from, null, 'a junk end is null');
+  const rj = LineJobs.normJob({ id: 'job-dddd4444', line: 'p1', text: 'the job', handedIn: 'y'.repeat(20000), from: { line: 'p2' }, sentTo: { line: 'p3', refused: 'E-STOP' }, repeats: 3 });
+  A.ok(rj.handedIn.length === LineJobs.MAX_OUTPUT && rj.sentTo.refused === 'E-STOP' && rj.repeats === 3, 'handedIn (bounded like an output), sentTo.refused and repeats are kept');
+  const plain = LineJobs.normJob({ id: 'job-dddd4445', line: 'p1', handedIn: 'x', sentTo: { line: 'p3' } });
+  A.ok(!('handedIn' in plain) && !('repeats' in plain) && !('refused' in plain.sentTo), '…and absent where they do not apply (a job with no `from` keeps no handedIn)');
+  A.report('routing.handoff.test');
+}).catch(err => { console.log('FAIL: threw ' + (err && err.stack || err)); process.exit(1); });

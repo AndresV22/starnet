@@ -10,9 +10,13 @@
 // fields the migration ADDS to a plan — excluded so the comparison is "every old field, unchanged"
 // (+ unboundBayTile, 2026-09-28: an additive legibility map — ring belt tile -> uncrewed bay — outside the hash)
 const DOCK_FIELDS = ['bayTileToDock', 'agentOfDock', 'docksOfAgent', 'dockChains', 'reachDock', 'gateDocks', 'lineOfDock', 'entryDock', 'homeDock', 'unboundBayTile'];
+// …and the fields SEND TO (2026-10-10) adds to each LINE record — additive legibility, outside the hash: the line's stage count
+// and ceiling (the INBOX's stages n/max), its name, and where it sends (plan.sendTo itself is absent on every floor here)
+const LINE_FIELDS = ['stages', 'maxHops', 'name', 'sendTo'];
 function stripDock(plan) {
   const out = {};
   for (const k of Object.keys(plan)) if (DOCK_FIELDS.indexOf(k) < 0) out[k] = plan[k];
+  if (Array.isArray(out.lines)) out.lines = out.lines.map(l => { const o = {}; for (const k of Object.keys(l || {})) if (LINE_FIELDS.indexOf(k) < 0) o[k] = l[k]; return o; });
   return JSON.parse(JSON.stringify(out));
 }
 function answersFor(P, geo) {

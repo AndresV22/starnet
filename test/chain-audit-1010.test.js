@@ -131,5 +131,42 @@ const belt = (x, y, dir) => ({ x, y, dir });
     A.ok(!chk.ok && chk.error === 'HAS_LOOP', 'refused, naming the loop (' + JSON.stringify(chk.error) + ')');
   }
 
+  /* ---- 4. SEND TO still fires from a line that ends at a JOINER, on every new branch path (parallel, divided, a failed
+     branch): onShipped needs the OUTBOX the job landed in (ctx.reach), and the peek that found the joiner must carry it ---- */
+  {
+    const s = WM.create(), z = s.rooms()[0].rects[0];
+    s.addRoom({ kind: 'hab', rect: { x1: z.x2 + 1, y1: z.y1, x2: z.x2 + 40, y2: z.y1 + 30 } });
+    let ok = null;
+    for (let y = z.y1; y < z.y1 + 25 && !ok; y++) for (let x = z.x1; x < z.x2 + 30 && !ok; x++) { const r = s.stampBlueprint('parallel_crew', x, y); if (r.ok) ok = r; }
+    A.ok(!!ok, 'PARALLEL CREW stamped');
+    const intake = s.props().find(p => p.t === 'intake'), split = s.props().find(p => p.t === 'splitter'), merger = s.props().find(p => p.t === 'merger'), outbox = s.props().find(p => p.t === 'outbox');
+    A.ok(LE.run(s, intake.id, 'insertStep', { from: intake.id, to: split.id, role: 'PLANNER' }, { near: { x: split.x, y: split.y } }).ok, 'a PLANNER before the splitter');
+    A.ok(s.swapJoinerMerger(merger.id).ok && s.setSplitDivide(split.id, true).ok, 'its MERGER is a JOINER and the splitter divides');
+    s.props().filter(p => p.t === 'bay').forEach((b, i) => s.assignPropAgent(b.id, b.role === 'PLANNER' ? 'planner' : 'c' + i));
+    const plan = P.compileRoutingPlan(s.projectGeometry());
+    A.eq(plan.errors.filter(e => !e.warn).length, 0, 'compiles');
+    const router = makeRouter(); router.setPlan(plan);
+    const planner = s.props().find(p => p.role === 'PLANNER'), lineId = router.lineOfAgent('planner', planner.id);
+    const run = async (opts) => {
+      const shipped = [];
+      const c = makeChainRunner(Object.assign({ nextAgent: (a, x) => router.chainNext(a, x), stepAgent: (a, x) => router.chainStep(a, x),
+        stepDock: (d, x) => router.chainStepDock(d, x), entryDockOf: a => router.entryDockOf(a), fanSiblingsDock: d => router.fanSiblingsDock(d),
+        lineOfAgent: (a, d) => router.lineOfAgent(a, d), lastStage: (a, d) => router.chainShipsToOutbox(a, d), onShipped: r => shipped.push(r),
+        setTimer: () => 0 }, opts.peek ? { peekDock: (d, x) => router.chainPeekDock(d, x) } : {}));
+      const res = await c.advance({ agentId: 'planner', dockId: planner.id, text: opts.text, originalText: 'do X', lineId,
+        runAgent: async h => (opts.fail && h.agentId === opts.fail ? { error: 'down' } : { text: h.agentId + ' did it' }) });
+      await new Promise(r => setImmediate(r));
+      return { res, shipped };
+    };
+    for (const [name, opts] of [['parallel + divided', { peek: true, text: 'PART 1: a\nPART 2: b\nPART 3: c' }], ['one after another + divided', { peek: false, text: 'PART 1: a\nPART 2: b\nPART 3: c' }],
+      ['parallel, one branch failing', { peek: true, text: 'PART 1: a\nPART 2: b\nPART 3: c', fail: 'c2' }], ['one after another, last branch failing', { peek: false, text: 'PART 1: a\nPART 2: b\nPART 3: c', fail: 'c2' }]]) {
+      const { res, shipped } = await run(opts);
+      A.eq(res.stopped, null, name + ': the line ends clean (' + res.stopped + ')');
+      A.eq(res.outboxId, outbox.id, name + ': it names the OUTBOX the joined job landed in');
+      A.ok(shipped.length === 1 && shipped[0].outboxId === outbox.id, name + ': SEND TO is told it shipped');
+      if (opts.fail) A.ok(/1 branch failed and sent nothing/.test(res.text), name + ': the failed branch really failed, and is named');
+    }
+  }
+
   A.report('chain-audit-1010');
 })();
