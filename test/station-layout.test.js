@@ -448,6 +448,12 @@ const detail = async (o, line) => (await layout(o, { line: line || 'draft & revi
     A.eq([LA.sendsWorkTo, LB.getsWorkFromLines, LB.sendsWorkTo], [['LINE B'], ['LINE A'], undefined], 'and names the lines on each end');
     const D = (await layout({ app: app(s, agents) }, { line: 'A' })).r.line;
     A.ok(D.steps[0].sendsTo.some(x => /^OUTBOX, then on to LINE B \(SEND TO/.test(String(x))), 'one line in full: its last step hands to the OUTBOX, then on to LINE B — ' + JSON.stringify(D.steps[0].sendsTo));
+    // (10-11 repair) a SECOND OUTBOX on LINE A that sends nowhere: the lead is never told "every job it finishes" rides on
+    const ox = s.addProp({ t: 'outbox', x: z.x2 + 30, y: z.y1 + 1, w: 2, h: 2 });
+    A.ok(ox.ok && s.connectBelt(ids[0].bay, ox.id).ok, 'fixture: LINE A gets a second OUTBOX that sends nowhere');
+    const L2 = (await layout({ app: app(s, agents) })).r.lines.find(l => l.name === 'A');
+    A.ok(!/every job it finishes/.test(L2.howItRuns) && new RegExp('a job that lands in its OUTBOX ' + ids[0].outbox + '[^;]* is sent on to LINE B').test(L2.howItRuns) && /a job that lands in another of its 2 OUTBOXes stops there\.$/.test(L2.howItRuns),
+      'two OUTBOXes, one sending: the sentence names the OUTBOX that sends — ' + L2.howItRuns);
   }
 
   A.report('station-layout');

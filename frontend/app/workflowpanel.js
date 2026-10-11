@@ -1522,7 +1522,7 @@ const WorkflowPanel = (() => {
   function sendTarget(outboxId) {
     const s = sendState(outboxId); if (!s) return null;
     const on = sendChoices(outboxId).find(c => c.on);
-    return { name: on ? (on.name || 'an unnamed line') : 'its INBOX', off: s.off };
+    return { name: on ? (on.name || 'an unnamed line') : 'an INBOX', off: s.off };
   }
   function paintOutbox(body, f, p) {
     const choices = sendChoices(p.id), on = choices.find(c => c.on), ss = sendState(p.id);
@@ -1539,7 +1539,7 @@ const WorkflowPanel = (() => {
       + (choices.length ? '<div class="wf-chips" role="group" aria-label="Where this line sends its finished work">' + chips + '</div>' + why
         : '<p class="wf-help dim">There is no other line on the floor yet. Build one, then pick it here to hand this line’s finished work on to it.</p>')
       + '<p class="wf-help' + (ss && ss.off ? ' wf-warnline' : '') + '" id="send-note">' + (ss && !ss.off && onName ? 'Every job that lands in this OUTBOX rides on to <b>' + esc(onName) + '</b> — its own crew works it, under its own budget. This line’s result stays here too.'
-        : ss ? '✕ Its SEND TO' + (onName ? ' <b>' + esc(onName) + '</b>' : '') + ' is off — ' + esc(ss.why) + ' Nothing is sent on: pick another line, or NOWHERE.' : 'This line’s work stops here.') + '</p>'
+        : ss ? '✕ Its SEND TO' + (onName ? ' <b>' + esc(onName) + '</b>' : '') + ' is off, so nothing is sent on — ' + esc(ss.why) + ' (Or pick NOWHERE.)' : 'This line’s work stops here.') + '</p>'
       + '<p class="wf-help dim">Or drag this OUTBOX onto another line’s INBOX. One UNDO takes it back.</p></section>';
     body.querySelectorAll('[data-sendto]').forEach(b => { b.onclick = () => {
       const note = $('#send-note');

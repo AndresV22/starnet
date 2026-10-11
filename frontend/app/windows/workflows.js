@@ -571,8 +571,11 @@ const WorkflowsWindow = (() => {
     const mark = s => ({ delivered: '<span class="wfw-st ok">✓ DONE</span>', running: '<span class="wfw-st run">RUNNING</span>', stopped: '<span class="wfw-st">STOPPED</span>',
       problem: '<span class="wfw-st warn">⚠ PROBLEM</span>', failed: '<span class="wfw-st warn">DIDN’T RUN</span>', interrupted: '<span class="wfw-st warn">INTERRUPTED</span>' })[s] || '';
     // a handed-on job reads as FROM LINE A · the job (its text is the job as it first arrived); a standing refusal says ×N
-    const said = j => (j.from ? 'FROM ' + lineWord(j.from) + ' · ' : '') + String(j.text || '').replace(/\s+/g, ' ');
-    return '<div class="wfw-jobs">' + rows.map(j => '<button type="button" class="wfw-jobrow" data-job="' + esc(j.id) + '">' + mark(j.status) + (j.repeats > 1 ? '<span class="wfw-st warn">×' + esc(j.repeats) + '</span>' : '') + '<span class="wfw-jtext">' + esc(said(j).slice(0, 120) || '(no text)') + '</span><span class="wfw-jmeta">' + esc(ago(j.startedAt) + (j.usd ? ' · ' + usd(j.usd) : '')) + '</span></button>').join('') + '</div>';
+    // (an older record held the hand-off frame as its text: read the job back out of it)
+    const jobOf = j => { const h = j.from && !j.handedIn && P() && P().parseHandoffInput ? P().parseHandoffInput(j.text) : null; return h && h.original ? h.original : String(j.text || ''); };
+    const said = j => (j.from ? 'FROM ' + lineWord(j.from) + ' · ' : '') + jobOf(j).replace(/\s+/g, ' ');
+    const markOf = j => j.repeats > 1 ? mark(j.status).replace('</span>', ' ×' + esc(j.repeats) + '</span>') : mark(j.status);
+    return '<div class="wfw-jobs">' + rows.map(j => '<button type="button" class="wfw-jobrow" data-job="' + esc(j.id) + '">' + markOf(j) + '<span class="wfw-jtext">' + esc(said(j).slice(0, 120) || '(no text)') + '</span><span class="wfw-jmeta">' + esc(ago(j.startedAt) + (j.usd ? ' · ' + usd(j.usd) : '')) + '</span></button>').join('') + '</div>';
   }
   function composeHTML(l) {
     // one job runs at a time (the station's rule): the one this window sent counts before the server's list shows it
@@ -605,7 +608,8 @@ const WorkflowsWindow = (() => {
   function resultHTML(l, job) {
     const st = stationOf(), runs = (job.runs || []).slice().reverse(), work = workOf(job.output), ok = job.status === 'delivered';
     const delivered = ok && (job.runs || [])[0], inOutbox = !!(delivered && typeof ReturnStore !== 'undefined' && ReturnStore.pendingRows && ReturnStore.pendingRows().some(r => r && r.runId === delivered.runId));
-    const took = job.endedAt && job.startedAt ? secs(job.endedAt - job.startedAt) : '';
+    // (a refusal counted on one record spans the refusals, not a run: no "took")
+    const took = job.endedAt && job.startedAt && !(job.repeats > 1) ? secs(job.endedAt - job.startedAt) : '';
     const bad = runs.find(r => r.reason && r.reason !== 'done');
     const END = { empty: 'gave no final answer', error: 'hit an error', max_iters: 'ran out of turns', budget: 'hit the spending cap', refusal: 'refused the work', interrupted: 'was interrupted', stopped: 'was stopped' };
     const head = ok ? '<b class="ok">✓ DONE</b>' : job.status === 'stopped' ? '<b>■ STOPPED</b>' : job.status === 'interrupted' ? '<b class="warn">⚠ INTERRUPTED</b>' : job.status === 'failed' ? '<b class="warn">✕ IT DIDN’T RUN</b>' : '<b class="warn">⚠ FINISHED WITH A PROBLEM</b>';
