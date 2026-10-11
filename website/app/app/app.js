@@ -4246,7 +4246,7 @@ const App = (() => {
     // out of the list unless one is open or WAITING ON YOU; the parent's count chip shows the rest on a click.
     // The attention view stays a flat list.
     const keep = flat.filter(w => w.id === activeId || pending.has(w.id)).map(w => w.id);
-    const items = railAttentionOnly ? flat.map(w => ({ type: 'row', w, depth: 0 })) : Workstreams.nestRows(flat, { expanded: [...railExpanded], keep });
+    const items = railAttentionOnly ? flat.map(w => ({ type: 'row', w, depth: 0 })) : Workstreams.nestRows(flat, { expanded: [...railExpanded], keep, isChild: w => w.worker === true });
     railChildIds = new Set(items.filter(i => i.type === 'row' && i.depth).map(i => i.w.id));
     railKidsOf = new Map(items.filter(i => i.type === 'kids').map(i => [i.key, i.rows.map(w => w.id)]));
     const kidsOfParent = new Map(items.filter(i => i.type === 'kids').map(i => [i.parentId, i]));

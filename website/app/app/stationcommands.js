@@ -217,7 +217,7 @@ const StationCommands = (() => {
     const parentId = String((a && a.parentStreamId) || '');
     if (id && parentId && Workstreams.get(parentId) && Workstreams.adopt) {
       const w = Workstreams.adopt({ id, title: String((a && a.sessionTitle) || '').trim() || null, titleAuto: false,
-        agentId: String((a && a.agentId) || 'agent'), parentStreamId: parentId, kind: 'chat', lane: 'active',
+        agentId: String((a && a.agentId) || 'agent'), parentStreamId: parentId, worker: true, kind: 'chat', lane: 'active',
         projectRoot: Workstreams.get(parentId).projectRoot || null });   // a project conversation's worker keeps its project
       if (w) { try { if (typeof App !== 'undefined' && App.persist) App.persist(); } catch (_) {} return { w, resolvedBy: 'adopted' }; }
     }
@@ -260,7 +260,7 @@ const StationCommands = (() => {
        chat.js excludes sys lines from historyWindow() so it is never replayed to the model as if they had. */
     // a worker's OWN thread (filed under its parent) already holds the brief as its first durable turn, named for the
     // agent that wrote it — the marker would say the same thing twice
-    if (prompt && !ws.parentStreamId) ws.history.push({ role: 'system', sys: true, content: '— delegated to ' + who + ': ' + prompt.slice(0, 400) + ' —', ts });
+    if (prompt && !ws.worker) ws.history.push({ role: 'system', sys: true, content: '— delegated to ' + who + ': ' + prompt.slice(0, 400) + ' —', ts });
     ws.history.push({ role: 'assistant', content: text, agentId: who, ts });
     if (runId && Workstreams.appendRun) Workstreams.appendRun(ws.id, runId, ts);
     else if (Workstreams.touch) Workstreams.touch(ws.id);

@@ -76,6 +76,9 @@
       // sessions attached to each project — a REAL stored link, never a guessed title match.
       projectRoot: opts.projectRoot != null ? String(opts.projectRoot) : null,
       parentStreamId: opts.parentStreamId ? String(opts.parentStreamId) : null,
+      // a delegated WORKER's own thread (team.dispatch files one per worker). Only these fold under their parent in
+      // SESSIONS; a session the agent opened with session.create (it records its parent too) keeps its own row.
+      worker: opts.worker === true,
       projectHome: opts.projectHome === true,
       history: Array.isArray(opts.history) ? opts.history.slice() : [],
       runIds: Array.isArray(opts.runIds) ? opts.runIds.slice() : [],
@@ -664,7 +667,9 @@
     const opts = options || {}, expanded = new Set(opts.expanded || []), keep = new Set(opts.keep || []);
     const list = Array.isArray(rows) ? rows : [];
     const present = new Set(list.map(w => w && w.id));
-    const parentOf = w => (w && w.parentStreamId && w.parentStreamId !== w.id && present.has(w.parentStreamId)) ? w.parentStreamId : null;
+    // opts.isChild narrows which rows may fold at all (the rail: delegated worker threads only)
+    const isChild = typeof opts.isChild === 'function' ? opts.isChild : () => true;
+    const parentOf = w => (w && isChild(w) && w.parentStreamId && w.parentStreamId !== w.id && present.has(w.parentStreamId)) ? w.parentStreamId : null;
     const byId = new Map(list.map(w => [w.id, w]));
     const kidsOf = new Map();
     for (const w of list) {

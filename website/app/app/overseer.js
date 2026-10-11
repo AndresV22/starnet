@@ -20,6 +20,7 @@ const Overseer = (() => {
         // rail can fold it under the conversation that delegated it; adopt() leaves existing records untouched
         if (local) {
           if (!local.parentStreamId) { local.parentStreamId = String(row.parentStreamId); adopted = true; }
+          if (row.worker === true && local.worker !== true) { local.worker = true; adopted = true; }
           if (!local.projectRoot && row.projectRoot) { local.projectRoot = String(row.projectRoot); adopted = true; }
           continue;
         }
