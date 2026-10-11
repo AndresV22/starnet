@@ -1,0 +1,44 @@
+{
+  "results": [
+    {
+      "name": "seeded station opens",
+      "ok": true
+    },
+    {
+      "name": "empty terminal reason matches UI",
+      "ok": true,
+      "detail": {
+        "ends": [
+          "empty"
+        ],
+        "text": "TODAY · 7:00 PM\nCOMMANDER\n7:00 PM\nPlease answer this simple arithmetic question: what is two plus three?\n⧉\n■ RUN STOPPED · 518ms · 0 tool calls · test/model▸\n⏹ the model sent back an empty reply, so nothing was done — say \"continue\" to try again, or switch model if it keeps happening\n↻ TRY AGAIN\n◈ ended: empty — Please answer this simple arithmetic question: what i…\n60ms · test/model",
+        "providerCalls": 3
+      }
+    },
+    {
+      "name": "empty has retry",
+      "ok": true
+    },
+    {
+      "name": "stop reason survives reload",
+      "ok": true,
+      "detail": "TODAY · 7:00 PM\nCOMMANDER\n7:00 PM\nPlease answer this simple arithmetic question: what is two plus three?\n⧉\n⏹ the model sent back an empty reply, so nothing was done — say \"continue\" to try again, or switch model if it keeps happening\n↻ TRY AGAIN"
+    },
+    {
+      "name": "retry completes through provider",
+      "ok": true,
+      "detail": "TODAY · 7:00 PM\nCOMMANDER\n7:00 PM\nPlease answer this simple arithmetic question: what is two plus three?\n⧉\nNOVA\n7:00 PM\nThe answer is five.\n⧉\n■ RUN COMPLETE · 97ms · 0 tool calls · test/model▸\nTROPHY EARNSG > DY>UF H▚6%█"
+    },
+    {
+      "name": "unkept memory promise says no save",
+      "ok": true,
+      "detail": "TODAY · 7:00 PM\nCOMMANDER\n7:00 PM\nPlease answer this simple arithmetic question: what is two plus three?\n⧉\nNOVA\n7:00 PM\nThe answer is five.\n⧉\n■ RUN COMPLETE · 97ms · 0 tool calls · test/model▸\nTROPHY EARNED · FIRST LIG/▓\nCOMMANDER\n7:00 PM\nPlease remember for all future conversations that I prefer violet accents.\n⧉\nNOVA\n7:00 PM\nI will remember your preference for future conversations.\nI will remember your preference for future conversations.\nI will remember your preference for future conversations.\nThe promise to remember above is unverified: this run wrote nothing to memory, so a later run will not know it. Ask again (e.g. \"save this to memory: …\") to retry the save.\n⚠ The agent said it saved (or would remember) something, but nothing was written to memory — it will not remember this next time. Ask it again to save it.\n⧉\nThe promise to remember above is unverified: this run wrote nothing to memory, so a later run will not know it. Ask again (e.g. \"save this to memory: …\") to retry the save.\n■ RUN FAILED · 0s\n↻ TRY AGAIN\n⧉ COPY DIAGNOSTICS FOR A BUG REPORT"
+    },
+    {
+      "name": "Escape attributes stop to user",
+      "ok": true,
+      "detail": "TODAY · 7:00 PM\nCOMMANDER\n7:00 PM\nPlease answer this simple arithmetic question: what is two plus three?\n⧉\nNOVA\n7:00 PM\nThe answer is five.\n⧉\n■ RUN COMPLETE · 97ms · 0 tool calls · test/model▸\nTROPHY EARNED · FIRST LIGHT\nCOMMANDER\n7:00 PM\nPlease remember for all future conversations that I prefer violet accents.\n⧉\nNOVA\n7:00 PM\nI will remember your preference for future conversations.\nI will remember your preference for future conversations.\nI will remember your preference for future conversations.\nThe promise to remember above is unverified: this run wrote nothing to memory, so a later run will not know it. Ask again (e.g. \"save this to memory: …\") to retry the save.\n⚠ The agent said it saved (or would remember) something, but nothing was written to memory — it will not remember this next time. Ask it again to save it.\n⧉\nThe promise to remember above is unverified: this run wrote nothing to memory, so a later run will not know it. Ask again (e.g. \"save this to memory: …\") to retry the save.\n■ RUN FAILED · 0s\n⧉ COPY DIAGNOSTICS FOR A BUG REPORT\nCOMMANDER\n7:00 PM\nWrite a short explanation of the ocean.\n⧉\nNOVA\n7:00 PM\nStarting the requested work.\n⧉\n■ STOPPED BY YOU (ESC) · 0s\n↻ TRY AGAIN"
+    }
+  ],
+  "hits": 10
+}

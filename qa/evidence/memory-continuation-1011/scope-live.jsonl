@@ -1,0 +1,21 @@
+{"streamId":"recall-original","reason":"done","reply":"OK PINEAPPLE","usd":0.0000846,"tools":[],"pineappleInToolResults":[]}
+{"streamId":"recall-original","reason":"done","reply":"2 plus 3 equals 5. PINEAPPLE","usd":0.00009195,"tools":[],"pineappleInToolResults":[]}
+{"streamId":"recall-original","reason":"done","reply":"Mars. PINEAPPLE","usd":0.0000918,"tools":[],"pineappleInToolResults":[]}
+{"streamId":"recall-original","reason":"done","reply":"A clear sky is typically blue. PINEAPPLE","usd":0.00009765,"tools":[],"pineappleInToolResults":[]}
+{"streamId":"recall-original","reason":"done","reply":"A spider has eight legs. PINEAPPLE","usd":0.00012195,"tools":[],"pineappleInToolResults":[]}
+{"streamId":"recall-control-0","reason":"done","reply":"A spider has eight legs.","usd":0.00008955,"tools":[],"pineappleInToolResults":[]}
+{"name":"trimmed history recall 0","ok":true,"detail":{"lane":"A spider has eight legs. PINEAPPLE","control":"A spider has eight legs."}}
+{"streamId":"recall-original","reason":"done","reply":"The Pacific Ocean. PINEAPPLE","usd":0.00011955,"tools":[],"pineappleInToolResults":[]}
+{"streamId":"recall-control-1","reason":"done","reply":"The Pacific Ocean.","usd":0.00008775,"tools":[],"pineappleInToolResults":[]}
+{"name":"trimmed history recall 1","ok":true,"detail":{"lane":"The Pacific Ocean. PINEAPPLE","control":"The Pacific Ocean."}}
+{"streamId":"preference-save","reason":"done","reply":"From now on, I will always address you as Captain Nemo. This preference has been saved for all future conversations.","usd":0.007177950000000001,"tools":["notebook_write","notebook_write"],"pineappleInToolResults":[]}
+{"name":"conversation-only suffix stays out of fresh task","ok":true,"detail":"From now on, I will always address you as Captain Nemo. This preference has been saved for all future conversations."}
+{"name":"durable global record","ok":true,"detail":[{"id":"note_1","scope":"global","body":"The user prefers to be addressed as Captain Nemo in all future conversations."}]}
+{"name":"saving run receipt","ok":true,"detail":{"runId":"5a80dfd2-4524-4546-9081-703640071af5","agentId":"agent","proposals":[{"id":"note_1","key":"note_1@0","kind":"note","content":"The user prefers to be addressed as Captain Nemo in all future conversations.","scope":"global","projectRoot":null,"origin":"commander","saved":true,"source":"notebook.write","revised":false,"folded":null,"confirmation":null}]}}
+{"streamId":"preference-fresh","reason":"done","reply":"Hello, Captain Nemo!","usd":0.00010215,"tools":[],"pineappleInToolResults":[]}
+{"name":"fresh conversation after restart","ok":true,"detail":"Hello, Captain Nemo!"}
+{"name":"non-saving run empty receipt","ok":true,"detail":{"runId":"b54cbead-4366-477c-bb5f-5f3fb9001517","agentId":"agent","proposals":[]}}
+{"streamId":"preference-correct","reason":"done","reply":"The addressing preference has been successfully updated to call you **Captain Mira** in all future conversations. However, I encountered a persistent issue when trying to further update the brief context due to a technical error. \n\nThe current state confirms that you're now saved as Captain Mira in my memory. Would you like me to attempt anything else regarding this matter?","usd":0.01227645,"tools":["notebook_write","notebook_write","notebook_read"],"pineappleInToolResults":[]}
+{"name":"correction is durably recorded","ok":true,"detail":[{"id":"note_1","body":"The user prefers to be addressed as Captain Mira in all future conversations.","confirmation":"inferred","scope":"global"}]}
+{"streamId":"preference-latest","reason":"done","reply":"Greetings, Captain Mira!","usd":0.00010335,"tools":[],"pineappleInToolResults":[]}
+{"name":"newest preference wins after restart","ok":true,"detail":"Greetings, Captain Mira!"}

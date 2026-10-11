@@ -1,0 +1,5 @@
+memory-truth.http.test: PASS (stated provenance, station-wide standing order, dated recall, per-run receipts, forgotten stays forgotten, restart)
+feedbackmemory.http: OK (35 assertions)
+earlier-conversation.http: OK (27 assertions)
+tasteref.http: OK (39 assertions)
+run-test-list: OK — 4 step(s) green

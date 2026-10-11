@@ -1,0 +1,93 @@
+{
+  "model": "openai/gpt-4o-mini",
+  "usd": 0.0204447,
+  "results": [
+    {
+      "name": "trimmed history recall 0",
+      "ok": true,
+      "detail": {
+        "lane": "A spider has eight legs. PINEAPPLE",
+        "control": "A spider has eight legs."
+      }
+    },
+    {
+      "name": "trimmed history recall 1",
+      "ok": true,
+      "detail": {
+        "lane": "The Pacific Ocean. PINEAPPLE",
+        "control": "The Pacific Ocean."
+      }
+    },
+    {
+      "name": "conversation-only suffix stays out of fresh task",
+      "ok": true,
+      "detail": "From now on, I will always address you as Captain Nemo. This preference has been saved for all future conversations."
+    },
+    {
+      "name": "durable global record",
+      "ok": true,
+      "detail": [
+        {
+          "id": "note_1",
+          "scope": "global",
+          "body": "The user prefers to be addressed as Captain Nemo in all future conversations."
+        }
+      ]
+    },
+    {
+      "name": "saving run receipt",
+      "ok": true,
+      "detail": {
+        "runId": "5a80dfd2-4524-4546-9081-703640071af5",
+        "agentId": "agent",
+        "proposals": [
+          {
+            "id": "note_1",
+            "key": "note_1@0",
+            "kind": "note",
+            "content": "The user prefers to be addressed as Captain Nemo in all future conversations.",
+            "scope": "global",
+            "projectRoot": null,
+            "origin": "commander",
+            "saved": true,
+            "source": "notebook.write",
+            "revised": false,
+            "folded": null,
+            "confirmation": null
+          }
+        ]
+      }
+    },
+    {
+      "name": "fresh conversation after restart",
+      "ok": true,
+      "detail": "Hello, Captain Nemo!"
+    },
+    {
+      "name": "non-saving run empty receipt",
+      "ok": true,
+      "detail": {
+        "runId": "b54cbead-4366-477c-bb5f-5f3fb9001517",
+        "agentId": "agent",
+        "proposals": []
+      }
+    },
+    {
+      "name": "correction is durably recorded",
+      "ok": true,
+      "detail": [
+        {
+          "id": "note_1",
+          "body": "The user prefers to be addressed as Captain Mira in all future conversations.",
+          "confirmation": "inferred",
+          "scope": "global"
+        }
+      ]
+    },
+    {
+      "name": "newest preference wins after restart",
+      "ok": true,
+      "detail": "Greetings, Captain Mira!"
+    }
+  ]
+}

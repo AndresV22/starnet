@@ -1,0 +1,26 @@
+PASS ⛔ station_control refuses Full Power on (an escalation) :: REFUSED: fullpower.set with these values widens what agents may do or spend: call station.power with the same {action, args} (the Commander approves it separately) — do not report this change as done.
+PASS a bad value is refused with the real choices :: REFUSED: theme must be one of: amber, green, blue, purple, red, white, custom — do not report this change as done.
+PASS page: the hero is ATLAS, composed :: {"name":"ATLAS","persona":"composed","model":"test/model2","crew":["agent"],"mars":{"pinned":true,"archived":false},"scratch":false,"theme":"green","text":115,"bodyGreen":true}
+PASS page: Mars research is pinned, Scratch is gone
+PASS page: the researcher left the crew
+PASS page: green theme on screen at 115% text
+PASS page: the hero runs test/model2
+PASS server: the per-day cap is $7 :: {"perRun":0,"perAgent":0,"perDay":7,"global":0}
+PASS server: learning is paused :: false
+PASS server: Full Power was NOT turned on :: false
+PASS the page reloads
+PASS after reload: every change is still there :: {"name":"ATLAS","model":"test/model2","crew":["agent"],"pinned":true,"scratch":false,"theme":"green","text":115}
+PASS no uncaught page exceptions
+PASS ASK station starts (Full Access off)
+PASS ASK station page is live
+FAIL three approval cards appeared in COMMS :: 0 cards
+FAIL card 1 names the look change in the station's own words
+FAIL card 2 names the new $9 daily cap
+FAIL ⛔ an escalation card offers Approve once / Deny only (no Always, no Full access) :: []
+FAIL card 3 names Full Power for what it is
+FAIL the approved look landed
+FAIL the approved $9 cap landed :: {"perRun":0,"perAgent":0,"perDay":25,"global":0}
+PASS ⛔ the DENIED Full Power stayed off :: false
+FAIL the model was told Full Power was denied
+station-control.e2e: 8 FAILED
+run-test-list: FAILED at step 50/200: node test/station-control.e2e.test.mjs (exit 1)
