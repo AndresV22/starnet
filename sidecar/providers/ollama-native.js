@@ -43,6 +43,29 @@
     return String(baseUrl || '').replace(/\/+$/, '').replace(/\/v1$/i, '');
   }
 
+  // #102: strict Ollama templates accept one SYSTEM message, at the beginning only. The loop
+  // legitimately appends host steering/continuation/compaction instructions later. Project ONLY
+  // existing system messages into that slot, in their original relative order: never demote host
+  // policy to a user turn, or promote user/tool content into policy. Non-system turns (including
+  // tool-call/result pairs) keep their order and identity; the durable transcript is not mutated.
+  // This is applied by the adapter before sizing/sending, including its compatible-wire fallback.
+  function leadingSystemMessages(messages) {
+    if (!Array.isArray(messages)) return messages;
+    const systems = messages.filter(m => m && m.role === 'system');
+    if (!systems.length || (systems.length === 1 && messages[0] === systems[0])) return messages;
+    let content;
+    if (systems.some(m => Array.isArray(m.content))) {
+      content = [];
+      for (const m of systems) {
+        if (content.length) content.push({ type: 'text', text: '\n\n' });
+        if (Array.isArray(m.content)) content.push(...m.content);
+        else if (m.content != null) content.push({ type: 'text', text: String(m.content) });
+      }
+    } else content = systems.map(m => m.content == null ? '' : String(m.content)).join('\n\n');
+    const system = systems.length === 1 ? systems[0] : Object.assign({}, systems[0], { content });
+    return [system, ...messages.filter(m => !(m && m.role === 'system'))];
+  }
+
   function textOfParts(content) {
     if (typeof content === 'string') return { text: content, images: [] };
     if (!Array.isArray(content)) return { text: content == null ? '' : String(content), images: [] };
@@ -245,6 +268,6 @@
     return row ? (Math.floor(Number(row.context_length)) || 0) : 0;
   }
 
-  return { CTX_LADDER, DEFAULT_MAX_CTX, placementNote, loadedWindow, nativeRoot, toNativeMessages, toNativeRequest, estimateTokens, pickNumCtx,
+  return { CTX_LADDER, DEFAULT_MAX_CTX, placementNote, loadedWindow, nativeRoot, leadingSystemMessages, toNativeMessages, toNativeRequest, estimateTokens, pickNumCtx,
     exceedFrom, makeChunkTranslator, showFacts };
 });

@@ -159,6 +159,7 @@ test/managed-image.e2e.test.js
 test/transparent-image.e2e.test.js
 test/managed-endpoint.e2e.test.js
 test/tool-projection.e2e.test.js
+test/ollama-system.e2e.test.js
 test/request-idempotency.e2e.test.js
 test/output-only-repair.e2e.test.js
 test/saved-provider-fallback.e2e.test.js
