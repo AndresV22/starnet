@@ -18,7 +18,7 @@
   "expectedClaimCount": 37,
   "releaseSurface": {
     "algorithm": "sha256",
-    "sourceCommit": "751231e1d3e76c7f9a79be60f31f1fa6fa9ec826",
+    "sourceCommit": "cd36ee8a77e159710bf5ad843bb6c1af8c23b123",
     "pathSetSha256": "924d81529f0a80ffbfd9c068c1357735fcab2c4a41a985bda183850f173d5e3e",
     "files": [
       {
@@ -433,8 +433,8 @@
       },
       {
         "path": "frontend/app/delegated.js",
-        "bytes": 17409,
-        "sha256": "d420d9e6cce64baa0e6c9c6eb541e62afd1b4b8f710d8ecd66f573ff12269732"
+        "bytes": 18125,
+        "sha256": "21fe7e3d430acf06f8ea0fdb1970791cf6d02f02856279edd07689c7516aaa02"
       },
       {
         "path": "frontend/app/deliverables.js",
@@ -1533,8 +1533,8 @@
       },
       {
         "path": "frontend/css/beat-cards.css",
-        "bytes": 20246,
-        "sha256": "e46a5e58ceddcefb79e3efe7502679f34dbb384540a7eaa3f8691ee624cc9b4d"
+        "bytes": 28950,
+        "sha256": "41b586f4656b403e1aff6a4f86c33233d76ff79cfc287c6e9630cbc565463bc8"
       },
       {
         "path": "frontend/css/cabinet-clean.css",
@@ -1553,8 +1553,8 @@
       },
       {
         "path": "frontend/css/comms-convo.css",
-        "bytes": 24638,
-        "sha256": "ff2c8e660069e9150a779579f9f80e609ecb229ba2d86d1799fe82d8bd71eb37"
+        "bytes": 18992,
+        "sha256": "20ece462861afb4288d4335356fde2a19c42167dfad08a77bcbfb40ab5e443cd"
       },
       {
         "path": "frontend/css/comms-layout.css",
@@ -1648,8 +1648,8 @@
       },
       {
         "path": "frontend/css/pipglass.css",
-        "bytes": 64051,
-        "sha256": "0ad90f7a06ea0b1a281835f9ddb8a7cfb7df4bf0b64156e144fd648fb91ae92b"
+        "bytes": 64691,
+        "sha256": "0e613ab573787c5144def38fc9dddf2a799732767f20907d145b2d5c580e53b4"
       },
       {
         "path": "frontend/css/plugins.css",
