@@ -1,0 +1,71 @@
+{
+  "model": "openai/gpt-4o-mini",
+  "usd": 0.00843075,
+  "results": [
+    {
+      "name": "trimmed history recall 0",
+      "ok": true,
+      "detail": {
+        "lane": "A spider has eight legs. PINEAPPLE",
+        "control": "A spider has eight legs."
+      }
+    },
+    {
+      "name": "trimmed history recall 1",
+      "ok": true,
+      "detail": {
+        "lane": "Pacific Ocean. PINEAPPLE",
+        "control": "The Pacific Ocean."
+      }
+    },
+    {
+      "name": "durable global record",
+      "ok": false,
+      "detail": [
+        {
+          "id": "note_1",
+          "scope": "global",
+          "body": "User prefers to be addressed as Captain Nemo in all future conversations."
+        }
+      ]
+    },
+    {
+      "name": "saving run receipt",
+      "ok": true,
+      "detail": {
+        "runId": "dcf9dbe1-3e6a-4aae-a24a-9b6f7bceb79a",
+        "agentId": "agent",
+        "proposals": [
+          {
+            "id": "note_1",
+            "key": "note_1@0",
+            "kind": "note",
+            "content": "User prefers to be addressed as Captain Nemo in all future conversations.",
+            "scope": "global",
+            "projectRoot": null,
+            "origin": "commander",
+            "saved": true,
+            "source": "notebook.write",
+            "revised": false,
+            "folded": null,
+            "confirmation": null
+          }
+        ]
+      }
+    },
+    {
+      "name": "fresh conversation after restart",
+      "ok": true,
+      "detail": "Hello, Captain Nemo!"
+    },
+    {
+      "name": "non-saving run empty receipt",
+      "ok": true,
+      "detail": {
+        "runId": "4c859d21-9858-4007-af24-cac7161e5ad8",
+        "agentId": "agent",
+        "proposals": []
+      }
+    }
+  ]
+}

@@ -1,0 +1,3 @@
+  · supersede race did not fire this run; #2 still delivered its real answer (invariant holds)
+channels.telegram.e2e.test: OK (88 assertions)
+run-test-list: OK — 1 step(s) green

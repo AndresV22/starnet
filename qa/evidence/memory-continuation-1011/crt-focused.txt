@@ -1,0 +1,12 @@
+PASS isolated seeded sidecar starts
+PASS seeded station reaches the live floor
+PASS camera begins on a lit WebGL frame :: {"path":"webgl","ready":true,"failed":false,"lost":false,"frameSum":70}
+PASS WEBGL_lose_context is available and invoked :: {"ok":true}
+PASS same page abandons WebGL for the CPU warp :: {"path":"cpu","ready":false,"failed":true,"lost":true,"frameSum":70}
+PASS camera feed stays lit after context loss :: {"path":"cpu","ready":false,"failed":true,"lost":true,"frameSum":70}
+PASS recovery does not reload the page
+PASS one truthful context-loss fallback warning is logged :: [{"type":"warning","text":"[crt] WebGL context lost before draw — switching to CPU fallback"}]
+PASS context loss raises no uncaught exception :: []
+
+=== ALL CHECKS PASSED ===
+run-test-list: OK — 1 step(s) green

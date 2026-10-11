@@ -1,0 +1,40 @@
+trust.test: OK (72 assertions)
+truststore.test: OK (97 assertions)
+goalloop: OK (67 assertions)
+interview.test: OK (117 assertions)
+onboarding.test: OK (70 assertions)
+onboard-fresh-launcher.test: OK (4 assertions)
+codex-configured.test: OK (12 assertions)
+tests: OK (30 assertions)
+PASS isolated seeded sidecar starts
+PASS seeded station reaches the live floor
+PASS camera begins on a lit WebGL frame :: {"path":"webgl","ready":true,"failed":false,"lost":false,"frameSum":76}
+PASS WEBGL_lose_context is available and invoked :: {"ok":true}
+PASS same page abandons WebGL for the CPU warp :: {"path":"cpu","ready":false,"failed":true,"lost":true,"frameSum":70}
+PASS camera feed stays lit after context loss :: {"path":"cpu","ready":false,"failed":true,"lost":true,"frameSum":70}
+PASS recovery does not reload the page
+PASS one truthful context-loss fallback warning is logged :: [{"type":"warning","text":"[crt] WebGL context lost before draw — switching to CPU fallback"},{"type":"warning","text":"[harness] model list unavailable: The user aborted a request."}]
+PASS context loss raises no uncaught exception :: []
+node:fs:1948
+  binding.unlink(getValidatedPath(path));
+          ^
+
+Error: EBUSY: resource busy or locked, unlink 'C:\Users\andro\AppData\Local\Temp\starnet-crt-loss-jLO4YT\profile\Default\chrome_debug.log'
+    at unlinkSync (node:fs:1948:11)
+    at _unlinkSync (node:internal/fs/rimraf:215:14)
+    at rimrafSync (node:internal/fs/rimraf:196:7)
+    at node:internal/fs/rimraf:254:9
+    at Array.forEach (<anonymous>)
+    at _rmdirSync (node:internal/fs/rimraf:251:7)
+    at rimrafSync (node:internal/fs/rimraf:194:7)
+    at node:internal/fs/rimraf:254:9
+    at Array.forEach (<anonymous>)
+    at _rmdirSync (node:internal/fs/rimraf:251:7) {
+  errno: -4082,
+  code: 'EBUSY',
+  syscall: 'unlink',
+  path: 'C:\\Users\\andro\\AppData\\Local\\Temp\\starnet-crt-loss-jLO4YT\\profile\\Default\\chrome_debug.log'
+}
+
+Node.js v22.23.0
+run-fast-tests: FAILED at step 450/1118: node test/crt-context-loss.e2e.test.mjs (exit 1)

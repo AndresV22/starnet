@@ -1,0 +1,24 @@
+PASS the page reloads
+PASS after reload: every change is still there :: {"name":"ATLAS","model":"test/model2","crew":["agent"],"pinned":true,"scratch":false,"theme":"green","text":115}
+PASS no uncaught page exceptions
+PASS ASK station starts (Full Access off)
+PASS ASK station page is live
+PASS three approval cards appeared in COMMS :: 3 cards
+PASS card 1 names the look change in the station's own words :: ▣ NOVA wants to change the station's look: theme blue 
+Approve once
+Always
+Full access
+Deny
+PASS card 2 names the new $9 daily cap :: ▣ NOVA wants to set your spending limits: perDay $9 
+Approve once
+Deny
+PASS ⛔ an escalation card offers Approve once / Deny only (no Always, no Full access) :: ["ion's look: theme blue \nApprove once\nAlways\nFull access\nDeny","ts to set your spending limits: perDay $9 \nApprove once\nDeny","gent acts on this computer without asking \nApprove once\nDeny"]
+PASS card 3 names Full Power for what it is :: ▣ NOVA wants to turn on station-wide FULL POWER: every agent acts on this computer without asking 
+Approve once
+Deny
+PASS the approved look landed
+PASS the approved $9 cap landed :: {"perRun":0,"perAgent":0,"perDay":9,"global":0}
+PASS ⛔ the DENIED Full Power stayed off :: false
+PASS the model was told Full Power was denied :: ERROR: consent denied for station.power: denied
+station-control.e2e: ALL PASS
+run-test-list: OK — 1 step(s) green
