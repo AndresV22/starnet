@@ -18,7 +18,7 @@
   "expectedClaimCount": 37,
   "releaseSurface": {
     "algorithm": "sha256",
-    "sourceCommit": "7688999fa919a7354c22413f10072aa6fe65be9b",
+    "sourceCommit": "37b595d21ab0b269394eaa1fa02d2f10120d95b1",
     "pathSetSha256": "02b89ce2d893cfb89a028e02d127dfe9f73466048d2fc0c7572bba244cdfea2f",
     "files": [
       {
@@ -863,8 +863,8 @@
       },
       {
         "path": "frontend/app/propsprites.js",
-        "bytes": 809090,
-        "sha256": "d8848258268da6925d2346a3b0abdf09eb4c718841891ae25646b156775c8d5d"
+        "bytes": 809665,
+        "sha256": "b802a0440894f0bb1775c0529ba3d7d322a5a5926b45acc4619230dbb837d9f3"
       },
       {
         "path": "frontend/app/prospect.js",
@@ -1443,8 +1443,8 @@
       },
       {
         "path": "frontend/app/world.js",
-        "bytes": 842213,
-        "sha256": "50eea8a693239b2b1c38f42bda34484fd3634533dda5acb3507783e98b21bd3b"
+        "bytes": 843405,
+        "sha256": "073ed257853382faa0151bcefa7eb1ab4c3eec51400fbb34201789919f3ccde3"
       },
       {
         "path": "frontend/app/worldlab.js",
@@ -1453,8 +1453,8 @@
       },
       {
         "path": "frontend/app/worldlight.js",
-        "bytes": 41640,
-        "sha256": "d218c268433cd07cf985e95ccace93766b81109aec1187158ef8b764d91a08f1"
+        "bytes": 48610,
+        "sha256": "2cf69aa68fa8c9091137e31ffb1bd79f7c043af66405ffcd87fb0b540d9418ef"
       },
       {
         "path": "frontend/app/worldmodel.js",
@@ -1818,8 +1818,8 @@
       },
       {
         "path": "frontend/js/assets.js",
-        "bytes": 53505,
-        "sha256": "41658a4ea3ee5d5253f2ecc0654abd854f9821cce69f2b790dde9d657ee55470"
+        "bytes": 54346,
+        "sha256": "aa93be55c04d712cab9146492f1542da489dbeba06493847d49d725dc6a0a17c"
       },
       {
         "path": "frontend/js/audio.js",
