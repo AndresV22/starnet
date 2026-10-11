@@ -66,7 +66,7 @@
   // the COMMS elapsed timer reads a real "how long has this turn been running" off the channel.
   function begin(wsId, ts) {
     const c = get(wsId);
-    c.busy = true; c.runId = null; c.acc = ''; c.tools = []; c.toolEvents = []; c.pending = null;
+    c.busy = true; c.runId = null; c.acc = ''; c.tools = []; c.toolEvents = []; c.pending = null; c.pendings = [];
     c.startedAt = ts || 0;
     c.pausedMs = 0; c.pausedAt = 0;
     // TRUTHFUL TELEMETRY: at send time the sidecar has confirmed NOTHING — the request may still be
@@ -79,7 +79,7 @@
   // the run finished (or errored/aborted) — drop transient state; the turn now lives in Workstreams.history.
   function end(wsId) {
     const c = peek(wsId); if (!c) return;
-    c.busy = false; c.runId = null; c.acc = ''; c.tools = []; c.toolEvents = []; c.pending = null;
+    c.busy = false; c.runId = null; c.acc = ''; c.tools = []; c.toolEvents = []; c.pending = null; c.pendings = [];
     c.startedAt = 0;
     c.pausedMs = 0; c.pausedAt = 0;
     c.status = 'online';
@@ -118,8 +118,25 @@
   // ts (optional, caller-injected wall-clock) opens/closes an approval PAUSE window: while a run sits
   // waiting on the human, the clock is stopped — elapsedOf() excludes paused spans, so "RUN COMPLETE · 2:14"
   // is machine time, never the Commander's think-time counted as agent work.
-  function setPending(wsId, p, ts) { const c = get(wsId); c.pending = p || null; if (p) { c.status = 'awaiting your approval…'; if (ts && !c.pausedAt) c.pausedAt = ts; } return c.pending; }
-  function clearPending(wsId, ts) { const c = peek(wsId); if (c) { c.pending = null; if (c.pausedAt) { c.pausedMs += Math.max(0, (ts || c.pausedAt) - c.pausedAt); c.pausedAt = 0; } c.status = c.busy ? 'working…' : 'online'; } }
+  // SEVERAL ASKS AT ONCE (2026-10-11): parallel delegated workers can each wait on the Commander inside one conversation.
+  // `pendings` keeps every open ask by promptId; `pending` stays the newest (every single-ask reader keeps working).
+  // Answering one (clearPending with its promptId) leaves the others open; the pause window closes when none remain.
+  function setPending(wsId, p, ts) {
+    const c = get(wsId);
+    if (!Array.isArray(c.pendings)) c.pendings = [];
+    if (!p) { c.pendings = []; c.pending = null; return null; }
+    c.pendings = c.pendings.filter(x => !(x && p.promptId && x.promptId === p.promptId)).concat([p]);
+    c.pending = p; c.status = 'awaiting your approval…'; if (ts && !c.pausedAt) c.pausedAt = ts;
+    return c.pending;
+  }
+  function clearPending(wsId, ts, promptId) {
+    const c = peek(wsId); if (!c) return;
+    c.pendings = promptId ? (c.pendings || []).filter(x => !(x && x.promptId === promptId)) : [];
+    c.pending = c.pendings.length ? c.pendings[c.pendings.length - 1] : null;
+    if (c.pending) return;
+    if (c.pausedAt) { c.pausedMs += Math.max(0, (ts || c.pausedAt) - c.pausedAt); c.pausedAt = 0; }
+    c.status = c.busy ? 'working…' : 'online';
+  }
 
   // ---------- queries ----------
   function isBusy(wsId) { const c = peek(wsId); return !!(c && c.busy); }
@@ -134,6 +151,9 @@
   }
   function statusOf(wsId) { const c = peek(wsId); return c ? c.status : 'online'; }
   function pendingOf(wsId) { const c = peek(wsId); return c ? c.pending : null; }
+  function pendingAllOf(wsId) { const c = peek(wsId); return c && Array.isArray(c.pendings) ? c.pendings.slice() : (c && c.pending ? [c.pending] : []); }
+  // every open ask on the station, oldest conversation first (the NEEDS YOU list reads this)
+  function allPending() { const out = []; for (const c of map.values()) for (const p of pendingAllOf(c.wsId)) out.push({ wsId: c.wsId, p }); return out; }
   function anyBusy() { for (const c of map.values()) if (c.busy) return true; return false; }
   function busyCount() { let n = 0; for (const c of map.values()) if (c.busy) n++; return n; }
   function busyIds() { const out = []; for (const c of map.values()) if (c.busy) out.push(c.wsId); return out; }
@@ -147,6 +167,7 @@
       tools: c.tools.map(t => ({ text: t.text, isErr: t.isErr })),
       toolEvents: (c.toolEvents || []).map(e => Object.assign({}, e)),
       pending: c.pending ? Object.assign({}, c.pending) : null,
+      pendings: (c.pendings || []).map(p => Object.assign({}, p)),
       startedAt: c.startedAt,
       pausedMs: c.pausedMs, pausedAt: c.pausedAt,
       status: c.status
@@ -165,7 +186,7 @@
     get: get, peek: peek, has: has,
     begin: begin, end: end, setRunId: setRunId, setStatus: setStatus,
     appendToken: appendToken, setAcc: setAcc, addTool: addTool, addToolCall: addToolCall, addToolResult: addToolResult, setPending: setPending, clearPending: clearPending,
-    isBusy: isBusy, runIdOf: runIdOf, startedAtOf: startedAtOf, elapsedOf: elapsedOf, statusOf: statusOf, pendingOf: pendingOf,
+    isBusy: isBusy, runIdOf: runIdOf, startedAtOf: startedAtOf, elapsedOf: elapsedOf, statusOf: statusOf, pendingOf: pendingOf, pendingAllOf: pendingAllOf, allPending: allPending,
     anyBusy: anyBusy, busyCount: busyCount, busyIds: busyIds, pendingIds: pendingIds, snapshot: snapshot,
     setComposeTarget: setComposeTarget, composeTarget: composeTarget,
     drop: drop, reset: reset

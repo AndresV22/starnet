@@ -28,6 +28,10 @@ const StationCommands = (() => {
     const byPart = rows.filter(r => r.title && r.title.toLowerCase().indexOf(lower) >= 0);
     const hits = byId.length ? byId : (byTitle.length ? byTitle : byPart);
     if (hits.length === 1) return hits[0];
+    // an exact id the lists hide (a delegated worker's thread) still reads: it is the lead's evidence; opening it
+    // lands on its conversation (App.openWorkstream re-homes it)
+    const exact = !hits.length && Workstreams.get ? Workstreams.get(want) : null;
+    if (exact) return { w: exact, title: String(exact.title || '').trim() };
     const names = rows.map(r => r.title).filter(Boolean).join(', ');
     throw new Error(hits.length > 1
       ? 'more than one session matches "' + want + '" — name it exactly. Open sessions: ' + names
@@ -264,7 +268,7 @@ const StationCommands = (() => {
     ws.history.push({ role: 'assistant', content: text, agentId: who, ts });
     if (runId && Workstreams.appendRun) Workstreams.appendRun(ws.id, runId, ts);
     else if (Workstreams.touch) Workstreams.touch(ws.id);
-    if (Workstreams.markUnread) Workstreams.markUnread(ws.id);
+    if (Workstreams.markUnread && !ws.worker) Workstreams.markUnread(ws.id);   // a worker's thread is hidden: the asking conversation gets the one report
     try { if (typeof Channels !== 'undefined' && Channels.end) Channels.end(ws.id); } catch (_) {}
     refreshAndPersist(ws, !!opts.quiet);
     return { folded: true, session: ws.title || 'General', agentId: who, resolvedBy: hit.resolvedBy };

@@ -1,16 +1,19 @@
-/* node test/delegated-threads.test.js — DELEGATED WORK (2026-10-09, Andrew: managing agents and their threads must be
-   the easiest thing in the app).
+/* node test/delegated-threads.test.js — DELEGATED WORK, VERSION B (2026-10-11: a blind usability test picked one place —
+   the conversation you asked in — over worker threads in SESSIONS and over workers posting into the chat).
 
-   1. GENUINE: Workstreams.nestRows — a conversation's worker threads fold under it in SESSIONS; nothing is ever hidden.
-   2. GENUINE: team.dispatch files every coordinator worker in its own thread under the conversation that asked
+   1. GENUINE: Workstreams hides a delegated worker's thread from every session list, re-homes anything that opens it to
+      its conversation, finds its words as that conversation's hit, deletes it with its conversation, and keeps the
+      worker mark across a save (a session the agent opened itself is never hidden).
+   2. GENUINE: team.dispatch files every coordinator worker in its own (hidden) thread under the conversation that asked
       (orchestration.js fileUnderThreads) — best-effort, never blocking the work.
-   3. GENUINE: Delegated.stateOf — the card's row state reads the ledger / live channel, and a foreground worker that
-      ended without delivering says so (never "done").
-   4. SOURCE-LOCKED wiring: the rail renders the projection, the card mounts on Chat.load, the page loads the module,
-      the overseer route carries the card's fields, and the lead prompt states the one filing rule.
+   3. GENUINE: Delegated.stateOf / lineHtml / foldReceipt — the card's rows read the ledger, the live channel and the
+      worker's EXACT ask (stamped by the sidecar, never matched by agent id); See work folds the worker run's own record
+      and transcript into its receipt.
+   4. SOURCE-LOCKED wiring: the rail no longer folds workers, the card mounts on Chat.load, worker asks are answered from
+      the card through the approval card's own path, and the lead prompt states the filing rule.
 
-   OUT OF HEADLESS SCOPE (proven live, lane notes delegation-proto-lane-1008 / work-threads): the folded rail, the card
-   in COMMS on a scripted-model station (dev/delegation-preview.cjs), OPEN into a worker thread and BACK. */
+   OUT OF HEADLESS SCOPE (proven live on a scripted-model station, dev/delegation-preview.cjs): the card in COMMS, See
+   work unfolding a real receipt, Stop, a worker approval answered from its row. */
 'use strict';
 const A = require('./_assert.js');
 const fs = require('fs');
@@ -20,38 +23,36 @@ const { makeOrchestrationTools } = require('../sidecar/tools/builtin/orchestrati
 
 (async () => {
 
-/* ---- 1. nestRows ---- */
+/* ---- 1. a worker's thread is storage, never a session you go to ---- */
 {
-  const rows = [
-    { id: 'kidB', parentStreamId: 'home' },
-    { id: 'home' },
-    { id: 'other' },
-    { id: 'kidA', parentStreamId: 'home' },
-    { id: 'orphan', parentStreamId: 'gone' },
-    { id: 'grand', parentStreamId: 'kidA' }
-  ];
-  const folded = W.nestRows(rows, {});
-  const shape = folded.map(i => i.type === 'kids' ? 'kids:' + i.parentId + ':' + i.rows.length : i.w.id + '@' + i.depth);
-  A.eq(shape.join(' '), 'home@0 kids:home:2 other@0 orphan@0 grand@0',
-    'children fold under their parent; folded children hide; an orphan and a grandchild stay top-level');
-  const open = W.nestRows(rows, { expanded: ['kids:home'] }).map(i => i.type === 'kids' ? 'K' + (i.expanded ? '+' : '-') : i.w.id + '@' + i.depth);
-  A.eq(open.join(' '), 'home@0 K+ kidB@1 kidA@1 other@0 orphan@0 grand@0', 'expanded, the children follow their parent in their own order');
-  const kept = W.nestRows(rows, { keep: ['kidA'] }).map(i => i.type === 'kids' ? 'K' : i.w.id);
-  A.eq(kept.join(' '), 'home K kidA other orphan grand', 'a folded child that needs attention (open/busy/waiting/unread) still shows');
-  A.eq(W.nestRows([{ id: 'x', parentStreamId: 'x' }]).length, 1, 'a session can never be its own parent');
-  // UPGRADE SAFETY (2026-10-10): session.create already recorded a parent on main; only delegated WORKER threads fold
-  const mixed = [{ id: 'home' }, { id: 'made', parentStreamId: 'home' }, { id: 'w1', parentStreamId: 'home', worker: true }];
-  const onlyWorkers = W.nestRows(mixed, { isChild: w => w.worker === true }).map(i => i.type === 'kids' ? 'kids:' + i.rows.map(r => r.id).join('+') : i.w.id + '@' + i.depth);
-  A.eq(onlyWorkers.join(' '), 'home@0 kids:w1 made@0', 'a session the agent opened keeps its own row; only the worker folds');
-  W.init({ workstreams: [{ id: 'home', title: null }, { id: 'w1', title: 'Scan', parentStreamId: 'home', worker: true }, { id: 'made', title: 'Notes', parentStreamId: 'home' }], generalId: 'home' });
+  W.init({ generalId: 'home', activeId: 'w1', workstreams: [
+    { id: 'home', title: null, agentId: 'agent', history: [{ role: 'user', content: 'Get the launch ready' }] },
+    { id: 'w1', title: 'Scan competitors', agentId: 'researcher', parentStreamId: 'home', worker: true, history: [{ role: 'assistant', content: 'Two rivals undercut our entry tier by $5' }] },
+    { id: 'made', title: 'Marketing plan', agentId: 'agent', parentStreamId: 'home', history: [] },
+    { id: 'orphan', title: 'Lost work', agentId: 'writer', parentStreamId: 'gone', worker: true, history: [] }
+  ] });
+  A.eq(W.activeId(), 'home', 'a station saved while a worker\'s thread was open boots into its conversation');
+  const ids = W.list().map(w => w.id);
+  A.ok(!ids.includes('w1') && ids.includes('made') && ids.includes('orphan'), 'session lists hide a worker\'s thread; a session the agent opened, and a worker whose conversation is gone, stay');
+  A.ok(W.list({ includeWorkers: true }).some(w => w.id === 'w1'), 'the delegation card asks for workers explicitly');
+  A.eq(W.homeOf('w1') + '|' + W.homeOf('made'), 'home|made', 'opening a worker lands on its conversation; anything else opens itself');
+  A.ok(W.isHidden('w1') && !W.isHidden('orphan') && !W.isHidden('made'), 'isHidden: a worker with its conversation present');
+  const hit = W.search('undercut');
+  A.eq(hit.length + '|' + hit[0].id + '|' + hit[0].match + '|' + hit[0].workerId, '1|home|delegated|w1', 'a worker\'s words are found as its conversation\'s hit, naming whose work it was');
+  A.eq(W.search('Scan competitors').length, 0, 'a worker\'s title is never a hit of its own');
   W.init(JSON.parse(JSON.stringify(W.serialize())));
-  A.eq(String(W.get('w1').worker) + '/' + String(W.get('made').worker), 'true/false', 'the worker mark survives a save and reload, and an old saved session reads as not-a-worker');
+  A.eq(String(W.get('w1').worker) + '/' + String(W.get('made').worker), 'true/false', 'the worker mark survives a save and reload; an old saved session reads as not-a-worker');
+  W.removeByAgent('researcher');
+  A.ok(!!W.get('w1'), 'deleting an agent keeps its delegated work (it is the conversation\'s record)');
+  W.create('Side chat'); const side = W.activeId();
+  W.init(Object.assign(JSON.parse(JSON.stringify(W.serialize())), {}));
+  W.adopt({ id: 'w9', title: 'Draft email', agentId: 'writer', parentStreamId: side, worker: true });
+  W.del(side);
+  A.ok(!W.get('w9') && W.isDeleted('w9'), 'deleting a conversation deletes its workers\' threads with it (never unreachable leftovers)');
   W.init({});
-  A.eq(W.nestRows(null).length, 0, 'no rows, no items');
-  A.eq(rows[0].parentStreamId, 'home', 'a display projection: rows are never mutated');
 }
 
-/* ---- 2. every coordinator worker gets its own thread ---- */
+/* ---- 2. every coordinator worker gets its own (hidden) thread ---- */
 function fakeRunOnce() {
   const calls = [];
   const fn = async (o) => { calls.push(o); return { reason: 'done', messages: [{ role: 'assistant', content: 'out:' + o.agentId }], usd: 0 }; };
@@ -74,7 +75,7 @@ const roster = new Map([['researcher', { system: 'R', name: 'MIRA' }], ['writer'
   A.eq(made[0].requestId.split(':')[1], made[1].requestId.split(':')[1], 'one call id for every worker of a dispatch');
   A.ok(/:1$/.test(made[1].requestId), 'the slot is the last segment');
   A.eq(made[0].projectRoot, '/projects/launch', 'a project conversation worker thread keeps the project it was dispatched under');
-  A.eq(made[0].title, 'Scan our four closest competitors and their ent…', 'titled from the first line, clipped to the rail');
+  A.eq(made[0].title, 'Scan our four closest competitors and their ent…', 'titled from the first line, clipped');
   A.eq(made[1].title, 'Write the launch email', 'a short task keeps its own words');
   const before = made[0].requestId;
   await dispatchTool.run({ workers: [{ agentId: 'researcher', prompt: 'Again.' }] }, { agentId: 'agent', streamId: 'home', runId: 'lead1' });
@@ -103,10 +104,10 @@ const roster = new Map([['researcher', { system: 'R', name: 'MIRA' }], ['writer'
   A.ok(true, 'a non-coordinator lead (no childThread) dispatches unchanged');
 }
 
-/* ---- 3. the card's row state ---- */
+/* ---- 3. the card: row state, the worker's exact ask, the receipt ---- */
 {
   const busy = new Set(), pend = new Map(), runOf = new Map();
-  global.Channels = { pendingOf: id => pend.get(id) || null, isBusy: id => busy.has(id), elapsedOf: () => 65000, runIdOf: id => runOf.get(id) || '' };
+  global.Channels = { pendingOf: id => (pend.get(id) || [])[0] || null, pendingAllOf: id => pend.get(id) || [], isBusy: id => busy.has(id), elapsedOf: () => 65000, runIdOf: id => runOf.get(id) || '' };
   global.document = undefined;
   const D = require('../frontend/app/delegated.js');
   const ws = (o) => Object.assign({ id: 'k', history: [], runIds: [] }, o);
@@ -117,12 +118,27 @@ const roster = new Map([['researcher', { system: 'R', name: 'MIRA' }], ['writer'
   A.eq(done.cls + '|' + done.live + '|' + done.t, 'done|Found|0:12', 'a finished worker quotes the first line it delivered, with its real run time');
   A.eq(st({ ws: ws(), worker: { status: 'error', reason: 'timeout' } }).live, 'failed · timeout', 'a failed worker says why');
   A.eq(st({ ws: ws(), worker: { status: 'stale' } }).live, 'stopped when the station restarted', 'a stale worker is honest about it');
-  pend.set('k', { tool: 'brief.ask' });
-  A.eq(st({ ws: ws(), worker: { status: 'running', startedAt: Date.now() } }).cls, 'waiting', 'waiting on the Commander outranks working');
-  pend.clear(); pend.set('home', { tool: 'shell.run', agentId: 'researcher' });
-  A.eq(st({ ws: ws({ agentId: 'researcher' }), worker: { status: 'running', startedAt: Date.now() } }).cls, 'waiting', 'a worker\'s approval raised on the conversation that dispatched it reads as waiting');
-  A.eq(st({ ws: ws({ agentId: 'writer' }), worker: { status: 'running', startedAt: Date.now() } }).cls, 'working', 'but only for the worker it names');
-  A.eq(st({ ws: ws({ agentId: 'researcher', runIds: ['r0'] }), worker: { status: 'done', startedAt: 1000, completedAt: 2000 } }).cls, 'done', 'and never for a FINISHED thread of that agent (an earlier dispatch)');
+  // a worker's ask rides the lead's channel stamped with the worker that asked: matched EXACTLY, never by agent id
+  pend.set('home', [{ promptId: 'p1', tool: 'fs.write', agentId: 'agent', workerStreamId: 'k1', workerRunId: 'r1', workerAgentId: 'researcher' }]);
+  A.eq(st({ ws: ws({ id: 'k1', agentId: 'researcher' }), worker: { status: 'running', startedAt: Date.now(), id: 'w1', runId: 'r1' } }).cls, 'waiting', 'the worker that asked reads as waiting on you');
+  A.eq(st({ ws: ws({ id: 'k2', agentId: 'researcher' }), worker: { status: 'running', startedAt: Date.now(), id: 'w2', runId: 'r2' } }).cls, 'working', 'a crewmate of the same agent does not (the stamp names the run)');
+  pend.set('home', [{ promptId: 'p2', tool: 'fs.write', agentId: 'agent', workerAgentId: 'researcher' }]);
+  A.eq(st({ ws: ws({ id: 'k1', agentId: 'researcher' }), worker: { status: 'running', startedAt: Date.now(), id: 'w1', runId: 'r1' } }).cls, 'working', 'an ask with no worker stamp is never pinned on a row by agent id');
+  pend.set('home', [{ promptId: 'p3', tool: 'fs.write', agentId: 'agent', workerRunId: 'r7' }, { promptId: 'p4', tool: 'web.request', agentId: 'agent', workerRunId: 'r8' }]);
+  A.eq(D._internals.askOf({ ws: ws({ id: 'k8' }), worker: { runId: 'r8' } }, 'home').promptId, 'p4', 'two workers asking at once each find their own ask');
+  // the live permission.prompt event and the copy Channels stores are DIFFERENT objects for one ask: the card must still
+  // claim it (live drive 10-11: an identity check missed it, so COMMS drew a second approval card and toasted the lead)
+  {
+    const stored = { promptId: 'p6', tool: 'fs.write', agentId: 'agent', workerStreamId: 'k6', workerAgentId: 'writer' };
+    pend.set('home', [stored]);
+    global.Workstreams = { activeId: () => 'home', list: () => [ws({ id: 'k6', agentId: 'writer', worker: true, parentStreamId: 'home', createdAt: 1 })] };
+    A.ok(D.hosts({ ...stored }), 'a worker\'s ask is hosted on its card row even when the event is not the stored object');
+    A.ok(!D.hosts({ ...stored, promptId: 'p7' }), 'and a different ask is not');
+    A.ok(!D.hosts({ promptId: 'p6', tool: 'fs.write' }), 'an unstamped (lead\'s own) ask is never hosted on the card');
+    delete global.Workstreams;
+  }
+  pend.clear(); pend.set('k', [{ tool: 'brief.ask' }]);
+  A.eq(st({ ws: ws(), worker: { status: 'running', startedAt: Date.now() } }).cls, 'waiting', 'an ask on the worker\'s own thread outranks working');
   pend.clear(); busy.add('k');
   A.eq(st({ ws: ws(), worker: null }).cls + '|' + st({ ws: ws(), worker: null }).t, 'working|1:05', 'a foreground worker is working while its thread channel is live');
   busy.clear();
@@ -131,66 +147,87 @@ const roster = new Map([['researcher', { system: 'R', name: 'MIRA' }], ['writer'
   A.eq(st({ ws: ws(), worker: null }).live, 'starting', 'before delivery, while the lead run that dispatched it is still live: starting');
   busy.clear();
   A.eq(st({ ws: ws(), worker: null }).live, 'ended without a result', 'after the lead run ended with nothing delivered: never "done"');
-  // OPEN WHILE IT RUNS (2026-10-10 blind test): who has what + stop are visible without a click until every worker settles
+  // OPEN WHILE IT RUNS: who has what + stop without a click until every worker settles; settled rows offer See work
   const L = D._internals;
   global.App = { agentName: id => ({ researcher: 'MIRA', writer: 'VEX' })[id] || id };
   const running = { lead: 'b1', rows: [{ ws: ws({ id: 'k1', agentId: 'researcher', title: 'Scan competitors' }), worker: { status: 'running', startedAt: Date.now(), canInterrupt: true, id: 'w1', runId: 'r1' } },
-    { ws: ws({ id: 'k2', agentId: 'writer', title: 'Write the email', runIds: ['r2'] }), worker: { status: 'done', startedAt: 1000, completedAt: 5000 } }] };
+    { ws: ws({ id: 'k2', agentId: 'writer', title: 'Write the email (3)', runIds: ['r2'] }), worker: { status: 'done', startedAt: 1000, completedAt: 5000 } }] };
   const live = L.lineHtml(running, 'home');
-  A.ok(/aria-expanded="true"/.test(live) && /dg-li-task">Scan competitors/.test(live) && /data-dg-stop="w1"/.test(live), 'a running dispatch shows each worker, its task and stop without a click');
+  A.ok(/aria-expanded="true"/.test(live) && /dg-li-task">Scan competitors/.test(live) && /data-dg-stop="w1"/.test(live), 'a running dispatch shows each worker, its task and Stop without a click');
+  A.ok(/data-dg-see="k2"/.test(live) && /dg-li-task">Write the email</.test(live), 'a finished worker offers See work (and its task loses the thread\'s "(3)")');
+  A.ok(!/data-dg-open/.test(live), 'nothing on the card opens a worker\'s thread: its work unfolds in place');
   const settled = L.lineHtml({ lead: 'b2', rows: [running.rows[1]] }, 'home');
   A.ok(/aria-expanded="false"/.test(settled) && !/dg-line-list/.test(settled), 'once every worker settles it folds to the one line');
   L.closed.add('b1');
   A.ok(/aria-expanded="false"/.test(L.lineHtml(running, 'home')), 'the Commander folding a running dispatch is respected');
-  L.closed.clear(); L.opened.add('b2');
+  pend.set('home', [{ promptId: 'p5', tool: 'fs.write', agentId: 'agent', workerStreamId: 'k1' }]);
+  const asking = L.lineHtml(running, 'home');
+  A.ok(/aria-expanded="true"/.test(asking) && /data-dg-consent="once" data-dg-ws="k1"/.test(asking) && /data-dg-consent="deny" data-dg-ws="k1"/.test(asking), 'a worker waiting on you shows even folded, with Approve and Deny on its row');
+  A.ok(!/data-dg-consent="(always|full|session)"/.test(asking), 'a worker row never offers a lead- or station-wide grant');
+  pend.clear(); L.closed.clear(); L.opened.add('b2');
   A.ok(/aria-expanded="true"/.test(L.lineHtml({ lead: 'b2', rows: [running.rows[1]] }, 'home')), 'and opening a settled one too');
-  L.opened.clear(); delete global.App;
+  L.seen.add('k2'); L.receipts.set('k2', { status: 'loading', at: Date.now() });
+  A.ok(/Loading VEX's work/.test(L.lineHtml({ lead: 'b2', rows: [running.rows[1]] }, 'home')), 'See work says it is loading, never an empty receipt');
+  L.opened.clear(); L.seen.clear(); L.receipts.clear(); delete global.App;
   delete global.Channels; delete global.document;
+  // the receipt: the worker run's own record + transcript, nothing invented
+  global.DeskScreen = { parseScreens: require('../frontend/app/deskscreen.js')._parseScreens || require('../frontend/app/deskscreen.js').parseScreens };
+  const turns = [
+    { role: 'assistant', toolCalls: JSON.stringify([{ id: 'c1', function: { name: 'web_search', arguments: JSON.stringify({ query: 'closest competitors pricing' }) } }, { id: 'c2', function: { name: 'web_fetch', arguments: JSON.stringify({ url: 'https://www.acme.com/pricing/' }) } }]) },
+    { role: 'tool', toolCallId: 'c1', content: '4 results' }, { role: 'tool', toolCallId: 'c2', content: 'ERROR: blocked' },
+    { role: 'assistant', toolCalls: JSON.stringify([{ id: 'c3', function: { name: 'fs_write', arguments: JSON.stringify({ path: 'competitors.md', content: 'x' }) } }]) },
+    { role: 'tool', toolCallId: 'c3', content: 'wrote 1 KB' },
+    { role: 'assistant', content: 'Scanned 4 competitors. Two undercut us.' }
+  ];
+  const row = { runId: 'r1', agentId: 'researcher', deliveryText: 'Scanned 4 competitors. Two undercut us.', durationMs: 41000, usd: 0.031, projectRoot: '',
+    artifacts: [{ path: 'competitors.md', kind: 'file' }, { kind: 'message', target: 'email' }] };
+  const rec = L.foldReceipt(row, turns);
+  A.eq(rec.answer, 'Scanned 4 competitors. Two undercut us.', 'the answer is the one it delivered');
+  A.eq(rec.steps.map(s => s.verb + ':' + s.arg + ':' + s.ok).join(' | '), 'searched:closest competitors pricing:true | opened:acme.com/pricing:false | wrote:competitors.md:true', 'every step it took, in words, failures marked');
+  A.eq(rec.sites.map(s => s.host).join(',') + '|' + rec.searches.join(','), 'acme.com|closest competitors pricing', 'the sites it opened and what it searched for');
+  A.eq(rec.files.map(f => f.name + '@' + f.agentId).join(','), 'competitors.md@researcher', 'the files it saved, opened from the WORKER\'s workspace (a sent message is not a file)');
+  A.eq(rec.ms + '|' + rec.cost, '41000|$0.03', 'its own time and cost');
+  A.eq(L.foldReceipt({ ...row, unmetered: true }, []).cost, 'subscription', 'a subscription run never shows a fake price');
+  A.eq(L.foldReceipt(null, turns).live, true, 'no run record yet = still working (never "no work")');
+  delete global.DeskScreen;
 }
 
 /* ---- 4. wiring ---- */
 {
   const src = f => fs.readFileSync(path.join(__dirname, '..', f), 'utf8');
   const app = src('frontend/app/app.js'), chat = src('frontend/app/chat.js'), html = src('frontend/index.html'), idx = src('sidecar/index.js'), ov = src('frontend/app/overseer.js');
-  A.ok(/Workstreams\.nestRows\(flat, \{ expanded: \[\.\.\.railExpanded\], keep, isChild: w => w\.worker === true \}\)/.test(app), 'the rail folds only delegated worker threads');
+  const dg = src('frontend/app/delegated.js'), sc = src('frontend/app/stationcommands.js'), rs = src('frontend/app/returnstore.js');
+  A.ok(!/nestRows|railKidsChip|ws-child/.test(app), 'SESSIONS never folds or counts workers\' threads (they are not sessions)');
+  A.ok(/const home = Workstreams\.homeOf \? Workstreams\.homeOf\(id\) : id;\s*\n\s*if \(home !== id\) \{ switchWorkstream\(home\); if \(typeof Delegated !== 'undefined' && Delegated\.reveal\) Delegated\.reveal\(id\); return; \}/.test(app),
+    'opening a worker\'s thread from anywhere lands on its conversation with its work unfolded');
+  A.ok(/x\.status === 'running' && x\.parentStreamId === w\.id/.test(app), 'a conversation whose crew is still working says so on its own lamp');
   A.ok(/title, worker: true \}\);/.test(idx) && /parentStreamId: t\.worker \? \(t\.parentStreamId \|\| ''\) : ''/.test(idx), 'the delegating run marks its threads as workers, and only those are briefed as delegated work');
-  const dgSrc = src('frontend/app/delegated.js'), scSrc = src('frontend/app/stationcommands.js');
-  A.ok(/w\.worker === true && w\.parentStreamId === parentId/.test(dgSrc) && /ws && ws\.worker === true && ws\.parentStreamId/.test(dgSrc), 'the card and the "delegated by" bar only count worker threads');
-  A.ok(/parentStreamId: parentId, worker: true,/.test(scSrc) && /if \(prompt && !ws\.worker\) ws\.history\.push\(/.test(scSrc), 'a worker adopted on first delivery is marked a worker; a created session keeps its delegated marker');
-  A.ok(/railChildIds\.has\(w\.id\) \? ' ws-child' : ''/.test(app), 'rowClass marks a folded child, so the 1s ticker never strips it');
+  A.ok(/includeArchived: true, includeWorkers: true \}\)\.filter\(w => w && w\.worker === true && w\.parentStreamId === parentId\)/.test(dg), 'the card is the one place that reads workers\' threads');
+  A.ok(/parentStreamId: parentId, worker: true,/.test(sc) && /if \(prompt && !ws\.worker\) ws\.history\.push\(/.test(sc) && /markUnread && !ws\.worker/.test(sc), 'a worker adopted on first delivery is marked a worker, never unread on its own');
+  A.ok(/Workstreams\.isHidden && Workstreams\.isHidden\(w\)\) \|\| filed/.test(rs), 'a deliverable\'s "open conversation" never adopts a worker\'s thread as a session');
+  A.ok(/overseer\.threads\(\)\.filter\(w => w\.worker !== true\)\.map/.test(idx), 'the lead\'s session list never offers a worker\'s thread');
+  A.ok(/workerThreadIds: \(\) =>/.test(idx) && /workers\.has\(r\.streamId\)/.test(src('sidecar/remote/host.js')), 'nor does the phone');
   A.ok(/Delegated\.presentFor\(activeWs\.id\)/.test(chat), 'Chat.load mounts the card');
   A.ok(html.indexOf('app/overseer.js') >= 0 && html.indexOf('app/delegated.js') > 0, 'the page loads the card module');
   A.ok(/agentId: w\.agentId, parentRunId: w\.parentRunId \|\| '', generation: w\.generation/.test(idx), 'the overseer route carries the card\'s fields');
-  A.ok(/each worker gets its own thread under this conversation/.test(idx), 'the lead prompt states the one filing rule');
+  A.ok(/each worker\\'s work is filed on this conversation\\'s card/.test(idx), 'the lead prompt states the filing rule');
   A.ok(/childThread: require\('\.\/overseer\.js'\)\.isCoordinatorRun/.test(idx), 'only coordinator runs file child threads');
-  A.ok(/for \(let n = 1; n <= 99; n\+\+\)/.test(idx) && /return make\(a\.title \+ ' · ' \+ new Date\(\)\.toISOString\(\)/.test(idx), 'the same ask delegated again and again never runs out of thread titles (it stopped at "(9)")');
-  A.ok(/if \(!local\.parentStreamId\) \{ local\.parentStreamId = String\(row\.parentStreamId\); adopted = true; \}/.test(ov), 'a session the page already had learns its parent');
-  // COMING BACK (2026-10-09): every "what happened" line opens the thread that holds it
-  const ui = src('frontend/app/stationui.js'), world = src('frontend/app/world.js'), auto = src('frontend/app/autosessions.js'), rt = src('frontend/app/windows/routines.js'), sc = src('frontend/app/stationcommands.js');
-  A.ok(/li\.classList\.contains\('asking'\) && typeof App !== 'undefined' && App\.waitingSessionOf \? App\.waitingSessionOf\(li\.dataset\.agentId\)/.test(ui)
-    && /if \(waiting && App\.openWorkstream\) \{ App\.openWorkstream\(waiting\); return; \}/.test(ui), 'a crew card that needs your OK opens where it is waiting');
-  A.ok(/waitingSessionOf,/.test(app) && /\(p && p\.agentId === agentId\) \|\| railHasAgent\(w, agentId\)/.test(app), 'App finds the session an agent is waiting in');
+  A.ok(/for \(let n = 1; n <= 99; n\+\+\)/.test(idx) && /return make\(a\.title \+ ' · ' \+ new Date\(\)\.toISOString\(\)/.test(idx), 'the same ask delegated again and again never runs out of thread titles');
+  A.ok(/if \(!local\.parentStreamId\) \{ local\.parentStreamId = String\(row\.parentStreamId\); adopted = true; \}/.test(ov) && /if \(!local\.projectRoot && row\.projectRoot\)/.test(ov), 'a thread the page already had learns its parent and project');
+  A.ok(/Chat\.answerConsent\(p, Workstreams\.get\(Workstreams\.activeId\(\)\), decision === 'deny' \? 'deny' : 'once'\)/.test(dg), 'a worker\'s ask is answered from its row through the approval card\'s own path, once or deny only');
+  A.ok(/Chat\.renderProse\(el, text\)/.test(dg), 'a worker\'s answer renders through the safe prose renderer, never raw HTML');
+  A.ok(/function openFile\(path, agentId, projectRoot\)/.test(chat) && /openFile, answerConsent, consentPhrase: actionPhrase,/.test(chat), 'a receipt\'s files open through the same doors as a COMMS file row');
+  // COMING BACK (2026-10-09): every "what happened" line opens the conversation that holds it
+  const ui = src('frontend/app/stationui.js'), world = src('frontend/app/world.js'), auto = src('frontend/app/autosessions.js'), rt = src('frontend/app/windows/routines.js');
+  A.ok(/li\.classList\.contains\('asking'\) && typeof App !== 'undefined' && App\.waitingSessionOf \? App\.waitingSessionOf\(li\.dataset\.agentId\)/.test(ui), 'a crew card that needs your OK opens where it is waiting');
   A.ok(/const ses = p\.runId \? \{ ws: 'cron-' \+ p\.runId \}/.test(world), 'a routine notification opens that run\'s own session');
   A.ok(/lastReadAt: existing \? undefined : 0 \}\);/.test(auto), 'a routine run that finished while the station was closed arrives unread');
-  A.ok(/data-act="open-run" data-run="/.test(rt) && /act === 'open-run'/.test(rt) && /ReturnStore\.openWork\(\{ runId: btn\.dataset\.run/.test(rt), 'every routine HISTORY run opens its conversation');
-  A.ok(/if \(id && parentId && Workstreams\.get\(parentId\) && Workstreams\.adopt\)/.test(sc), 'a just-filed worker thread is adopted under its parent on first contact');
-  // a STILL-RUNNING run (the overseer's automatic review) is never offered for recovery: a page reload mid-review used
-  // to "safely continue" it — a second, interactive copy of the same review in the conversation (2026-10-10)
+  A.ok(/data-act="open-run" data-run="/.test(rt) && /ReturnStore\.openWork\(\{ runId: btn\.dataset\.run/.test(rt), 'every routine HISTORY run opens its conversation');
   A.ok(/if \(runs\.has\(r\.runId\) \|\| transcriptLiveRuns\.has\(r\.runId\)\) return false;/.test(idx.slice(idx.indexOf('function serveRunRecoveries'))), 'live runs are not recoverable');
-  // CALM (2026-10-10): one quiet line per dispatch, a count chip on the parent, no repeated report text
-  const dg = src('frontend/app/delegated.js'), bf = src('frontend/app/briefing.js');
-  A.ok(/function lineHtml\(b, parentId\)/.test(dg) && !/function cardHtml/.test(dg), 'COMMS shows the calm delegated line, not the card');
-  A.ok(/function railKidsChip\(item\)/.test(app) && /if \(item\.type === 'kids'\) return '';/.test(app), 'SESSIONS: a count chip on the parent, no fold header row');
-  A.ok(/const keep = flat\.filter\(w => w\.id === activeId \|\| pending\.has\(w\.id\)\)/.test(app), 'folded threads stay out of the list unless open or waiting on you');
-  // COMING BACK keeps NOVA's own report + its chip row (Andrew 10-10: the boxed card looked unlike everything else)
+  const bf = src('frontend/app/briefing.js');
   A.ok(/else if \(it\.kind === 'delegated'\) \{ open = it\.open;/.test(bf) && !/bf-card|bf-replaced/.test(bf), 'the away report offers delegated work as a chip into its conversation, never a separate card');
-  A.ok(/if \(prompt && !ws\.worker\) ws\.history\.push\(/.test(sc), 'a worker\'s own thread never repeats its brief as a delegated marker');
-  A.ok(/if \(!local\.projectRoot && row\.projectRoot\)/.test(ov), 'a thread the page already had learns its project');
-  A.ok(/Channels\.pendingOf\(k\.parentStreamId\)/.test(app) && /if \(unfinished && pp && pp\.agentId && pp\.agentId === k\.agentId\) return 'waiting';/.test(app), 'the SESSIONS chip turns gold when an unfinished worker waits on you in the parent');
-  A.ok(/function railKidsLabel\(n, tone\) \{ return tone === 'waiting' \? n \+ ' · needs you' : String\(n\); \}/.test(app)
-    && /const label = railKidsLabel\(kids\.length, tone\); if \(b\.textContent !== label\) b\.textContent = label;/.test(app), 'and says "needs you" in words, live, never by colour alone');
   const convo = src('frontend/css/comms-convo.css');
-  A.ok(/\.cmsg\.user\.brief \{ align-self: flex-start; \}/.test(convo) && /\.cmsg\.user\.brief > \.body::before \{ content: none; \}/.test(convo), 'a worker\'s brief sits on the agent side, never as the Commander\'s > input line');
+  A.ok(/\.cmsg\.user\.brief \{ align-self: flex-start; \}/.test(convo), 'a worker\'s brief (in its stored thread) sits on the agent side');
 }
 
 A.report('delegated-threads.test');

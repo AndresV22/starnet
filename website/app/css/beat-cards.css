@@ -377,30 +377,53 @@ body #chat-panel #chat-log > .dg-line .dg-li-st {
 }
 body #chat-panel #chat-log > .dg-line .dg-li.waiting .dg-li-st { color: var(--gold); opacity: 1; }
 body #chat-panel #chat-log > .dg-line .dg-li:is(.failed, .stopped) .dg-li-st { color: var(--bad); opacity: 1; }
-body #chat-panel #chat-log > .dg-line .dg-li > .dg-key { grid-column: 4; grid-row: 1 / span 2; margin-left: 4px; }
+body #chat-panel #chat-log > .dg-line .dg-li > :is(.dg-key, .dg-keys) { grid-column: 4; grid-row: 1 / span 2; margin-left: 4px; }
+body #chat-panel #chat-log > .dg-line .dg-keys { display: flex; gap: 6px; }
 /* the key: the Build Library / Workflow panel glass key, at COMMS's 34px */
-body #chat-panel #chat-log :is(.dg-line, .dg-from) .dg-key {
+body #chat-panel #chat-log .dg-line .dg-key {
   min-height: 34px; padding: 6px 14px; font-family: inherit; font-size: var(--sn-type-control) !important; line-height: 1.15; letter-spacing: .4px;
   color: var(--ph); border: 1px solid rgba(var(--ph-rgb), .2); border-radius: 8px; white-space: nowrap; cursor: pointer;
   background: linear-gradient(125deg, rgba(var(--ph-bright-rgb), .09), rgba(var(--ph-rgb), .045) 48%, rgba(var(--ph-rgb), .015));
   box-shadow: inset 0 1px 0 rgba(var(--ph-bright-rgb), .07); text-shadow: none;
   transition: background-color var(--t-fast) var(--ease-soft), border-color var(--t-fast) var(--ease-soft), color var(--t-fast) var(--ease-soft);
 }
-body #chat-panel #chat-log :is(.dg-line, .dg-from) .dg-key:hover:not(:disabled) { color: var(--ph-bright); border-color: rgba(var(--ph-rgb), .45); background: rgba(var(--ph-rgb), .1); }
-body #chat-panel #chat-log :is(.dg-line, .dg-from) .dg-key:active:not(:disabled) { box-shadow: inset 0 2px 4px rgba(0,0,0,.35); }
-body #chat-panel #chat-log :is(.dg-line, .dg-from) .dg-key:focus-visible { outline: 2px solid var(--ph-bright); outline-offset: 2px; }
-body #chat-panel #chat-log :is(.dg-line, .dg-from) .dg-key.deny {
+body #chat-panel #chat-log .dg-line .dg-key:hover:not(:disabled) { color: var(--ph-bright); border-color: rgba(var(--ph-rgb), .45); background: rgba(var(--ph-rgb), .1); }
+body #chat-panel #chat-log .dg-line .dg-key:active:not(:disabled) { box-shadow: inset 0 2px 4px rgba(0,0,0,.35); }
+body #chat-panel #chat-log .dg-line .dg-key:focus-visible { outline: 2px solid var(--ph-bright); outline-offset: 2px; }
+body #chat-panel #chat-log .dg-line .dg-key.deny {
   color: var(--bad); border-color: color-mix(in srgb, var(--bad) 35%, transparent); background: color-mix(in srgb, var(--bad) 5%, transparent);
 }
-body #chat-panel #chat-log :is(.dg-line, .dg-from) .dg-key.deny:hover:not(:disabled) { color: var(--bad); border-color: var(--bad); background: color-mix(in srgb, var(--bad) 12%, transparent); }
-body #chat-panel #chat-log :is(.dg-line, .dg-from) .dg-key:disabled { opacity: .55; cursor: default; }
-/* inside a worker thread: one slim glass bar, who sent this work and from where, and a real key back */
-body #chat-panel #chat-log > .dg-from {
-  display: flex; align-items: center; gap: 12px; min-width: 0; margin: 4px 0 12px; padding: 7px 7px 7px 14px;
-  border: 1px solid var(--beat-edge); border-left: 2px solid rgba(var(--ph-rgb), .55); border-radius: 10px;
-  background: var(--beat-face); box-shadow: inset 0 1px 0 var(--beat-light);
-  font-size: var(--sn-type-control) !important; line-height: 1.3; color: var(--text); text-shadow: none;
+body #chat-panel #chat-log .dg-line .dg-key.deny:hover:not(:disabled) { color: var(--bad); border-color: var(--bad); background: color-mix(in srgb, var(--bad) 12%, transparent); }
+body #chat-panel #chat-log .dg-line .dg-key:disabled { opacity: .55; cursor: default; }
+/* the primary answer on a worker's ask: the consent card's lit key (gold edge), never a glow */
+body #chat-panel #chat-log .dg-line .dg-key.primary { color: var(--ph-bright); border-color: rgba(var(--gold-rgb), .55); background: linear-gradient(140deg, rgba(var(--gold-rgb), .15), rgba(var(--ph-rgb), .04)); }
+body #chat-panel #chat-log .dg-line .dg-key.primary:hover:not(:disabled) { border-color: var(--gold); background: rgba(var(--gold-rgb), .16); }
+/* SEE WORK (2026-10-11): a worker's own answer and "What MIRA did" receipt unfold in place under its row — the
+   conversation stays the one place. The receipt is a recessed well (matte), the answer reads at prose size. */
+body #chat-panel #chat-log > .dg-line .dg-line-list > .dg-work { grid-column: 1 / -1; padding: 2px 14px 14px 34px; border-top: 1px solid rgba(var(--ph-rgb), .08); }
+body #chat-panel #chat-log > .dg-line .dg-work-answer {
+  margin: 8px 0 10px; padding: 2px 0 2px 12px; border-left: 2px solid rgba(var(--ph-rgb), .35);
+  font-size: var(--sn-type-control) !important; line-height: 1.5; color: var(--text); overflow-wrap: anywhere;
 }
-body #chat-panel #chat-log > .dg-from .dg-from-text { flex: 1 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-body #chat-panel #chat-log > .dg-from b { font-weight: normal; color: var(--ph-bright); }
-body #chat-panel #chat-log > .dg-from .dg-key { flex: none; }
+body #chat-panel #chat-log > .dg-line .dg-work-note { margin: 8px 0; font-size: var(--sn-type-meta) !important; color: var(--text); opacity: .75; }
+body #chat-panel #chat-log > .dg-line .dg-work-note.bad { color: var(--bad); opacity: 1; }
+body #chat-panel #chat-log > .dg-line .dg-receipt {
+  padding: 10px 12px; border: 1px solid rgba(var(--ph-rgb), .16); border-radius: 8px;
+  background: rgba(0, 0, 0, .2); box-shadow: inset 0 1px 3px rgba(0, 0, 0, .18);
+}
+body #chat-panel #chat-log > .dg-line .dg-receipt-head {
+  display: flex; justify-content: space-between; gap: 10px; margin-bottom: 6px;
+  font-size: var(--sn-type-meta) !important; letter-spacing: 1.4px; text-transform: uppercase; color: var(--ph);
+}
+body #chat-panel #chat-log > .dg-line .dg-receipt-head > span:last-child { letter-spacing: .4px; text-transform: none; color: var(--text); }
+body #chat-panel #chat-log > .dg-line .dg-receipt-steps { margin: 0 0 6px; padding-left: 26px; font-size: var(--sn-type-compact) !important; line-height: 1.45; color: var(--text); }
+body #chat-panel #chat-log > .dg-line .dg-receipt-steps li { overflow-wrap: anywhere; }
+body #chat-panel #chat-log > .dg-line .dg-receipt-steps li::marker { color: rgba(var(--ph-rgb), .55); }
+body #chat-panel #chat-log > .dg-line .dg-receipt-steps li b { font-weight: normal; color: var(--ph-bright); }
+body #chat-panel #chat-log > .dg-line .dg-receipt-steps li.bad span { color: var(--bad); }
+body #chat-panel #chat-log > .dg-line .dg-receipt-row {
+  display: grid; grid-template-columns: 5.5em minmax(0, 1fr) auto; align-items: center; gap: 10px; min-height: 34px;
+  border-top: 1px solid rgba(var(--ph-rgb), .1); font-size: var(--sn-type-compact) !important; color: var(--text);
+}
+body #chat-panel #chat-log > .dg-line .dg-receipt-row .k { font-size: var(--sn-type-meta) !important; letter-spacing: 1.2px; text-transform: uppercase; color: var(--ph); }
+body #chat-panel #chat-log > .dg-line .dg-receipt-row .v { min-width: 0; overflow-wrap: anywhere; }

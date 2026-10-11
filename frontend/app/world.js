@@ -10611,7 +10611,8 @@ const World = (() => {
     // {promptId, agentId}). For the HERO, walk the body off its desk to the wait anchor and hold the waiting pose;
     // permission.response ({promptId, decision}) resumes (approve) or ends (deny) the run server-side, so we clear
     // the await and let the ongoing/finished run drive the body back to work or idle. Crew pauses hold position with the same amber tag; prompt IDs isolate overlapping approvals.
-    U.bus.on('permission.prompt', p => { if (p && (!p.agentId || (agent && p.agentId === agent.id))) enterAwait({ promptId: p.promptId || '', agentId: p.agentId || (agent && agent.id) }); else enterCrewAwait(p); });
+    // a delegated worker's ask rides its lead's run but names the worker (workerAgentId): the WORKER's body waits, not the lead's
+    U.bus.on('permission.prompt', p => { if (p && p.workerAgentId) { enterCrewAwait(Object.assign({}, p, { agentId: p.workerAgentId })); return; } if (p && (!p.agentId || (agent && p.agentId === agent.id))) enterAwait({ promptId: p.promptId || '', agentId: p.agentId || (agent && agent.id) }); else enterCrewAwait(p); });
     U.bus.on('permission.response', p => {
       if (p && awaitPrompt && (!p.promptId || p.promptId === awaitPrompt.promptId)) clearAwait();
       if (p && p.promptId) for (const b of crew) clearCrewAwait(b, p.promptId, true);

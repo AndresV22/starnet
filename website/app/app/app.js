@@ -3967,7 +3967,6 @@ const App = (() => {
   let railTicker = 0;
   let railShowArchived = false;   // when true the rail also lists archived (put-away) sessions, dimmed
   let railFocusId = null;         // roving-tabindex cursor: one rail stop regardless of session count
-  let railAttentionOnly = false;
   let railAttentionKey = '';
   // PER-AGENT THREADS: a crew-row click narrows the rail to that agent's sessions — the streams bound to it
   // plus every group chat it sits in (so a group lists under each member). The SESSIONS tab, the chip's ✕,
@@ -3981,7 +3980,6 @@ const App = (() => {
     if (id && id === railAgentFilter) id = null;   // the same crew row again = back to every session
     railAgentFilter = id;
     if (id && railView !== 'sessions') setRailView('sessions', { keepAgentFilter: true });
-    if (id) railAttentionOnly = false;
     renderSessionSearch();   // a typed search re-scopes to (or back out of) the chosen agent
     renderRail();
     if (typeof StationUI !== 'undefined' && StationUI.refreshCrew) StationUI.refreshCrew();
@@ -3991,7 +3989,7 @@ const App = (() => {
   function syncRailAgentChip(count) {
     let chip = el('ws-agent-filter');
     if (!chip) {
-      const anchor = el('ws-attention'); if (!anchor) return;
+      const anchor = el('ws-needs'); if (!anchor) return;
       chip = document.createElement('button');
       chip.id = 'ws-agent-filter'; chip.type = 'button'; chip.className = 'ws-agent-filter';
       chip.onclick = () => { SFX.click(); setRailAgentFilter(null); };
@@ -4032,25 +4030,16 @@ const App = (() => {
     }
     return null;
   }
+  // NEEDS YOU (needsyou.js, 2026-10-11) replaced the "Waiting for you" filter: one pinned list of every ask and failure
+  // on the station, each with its own action. It lives in the SESSIONS view only.
   function syncRailAttention(pending) {
     railAttentionKey = [...pending].sort().join('\n');
-    if (!pending.size) railAttentionOnly = false;
-    const btn = el('ws-attention'); if (!btn) return;
-    const hide = !pending.size || railView !== 'sessions';
-    if (hide && document.activeElement === btn) el('ws-search')?.focus();
-    if (btn.hidden !== hide) btn.hidden = hide;
-    const pressed = String(railAttentionOnly);
-    if (btn.getAttribute('aria-pressed') !== pressed) btn.setAttribute('aria-pressed', pressed);
-    const label = 'Waiting for you · ' + pending.size + ' session' + (pending.size === 1 ? '' : 's') + ' waiting for your response. ' + (railAttentionOnly ? 'Show all sessions' : 'Show waiting sessions');
-    if (btn.getAttribute('aria-label') !== label) btn.setAttribute('aria-label', label);
-    const count = el('ws-attention-count'), clear = el('ws-attention-clear');
-    if (count && count.textContent !== String(pending.size)) count.textContent = pending.size;
-    if (clear) clear.hidden = !railAttentionOnly;
+    const host = el('ws-needs'); if (!host) return;
+    if (railView !== 'sessions') { host.hidden = true; return; }
+    if (typeof NeedsYou !== 'undefined' && NeedsYou.render) NeedsYou.render();
   }
   let railKind = 'all';
   const railExpanded = new Set();
-  let railChildIds = new Set();   // rows renderRail folded under a parent conversation (rowClass marks them ws-child)
-  let railKidsOf = new Map();     // fold key 'kids:<parentId>' -> its child session ids (the 1s ticker refreshes the header)
   try {
     const saved = JSON.parse(localStorage.getItem('skynet.session-view') || '{}');
     // the ALL / AUTOMATED switch was removed (Andrew 10-01): the rail always shows every session; a saved
@@ -4100,6 +4089,11 @@ const App = (() => {
       const started = Channels.startedAtOf(w.id);
       return { dot: 'ws-dot working', meta: started ? railFmtElapsed(Channels.elapsedOf(w.id, Date.now())) : '…', busy: true, attn: false, status };
     }
+    // its delegated crew still at work (a background worker outlives the reply that started it). Workers' own threads
+    // are not in SESSIONS, so the asking conversation's lamp carries it — from the durable ledger, never a guess.
+    const ov = typeof Overseer !== 'undefined' && Overseer.snapshot ? Overseer.snapshot() : null;
+    const crew = ((ov && ov.workers) || []).filter(x => x && x.status === 'running' && x.parentStreamId === w.id).length;
+    if (crew) return { dot: 'ws-dot working', meta: crew + ' working', busy: true, attn: false, status: crew + ' of the crew working on what you delegated' };
     // A settled failure uses the crossed lamp; only a live approval/question earns the action row.
     if (w.lastRunOk === false) return { dot: 'ws-dot failed', meta: railRelTime(w.lastActiveAt), busy: false, attn: false, status: 'last run failed — open to inspect' };
     // a DELIVERY session ('workshop-<runId>' — idle-built work) that hasn't been reviewed is a decision the
@@ -4182,45 +4176,8 @@ const App = (() => {
   function rowClass(w, st, activeId) {
     return 'ws-row' + (w.id === activeId ? ' sel' : '') + (st.busy ? ' busy' : '') + (st.attn ? ' attn' : '')
       + (w.pinned ? ' pinned' : '') + (w.archived ? ' archived' : '')
-      + (railChildIds.has(w.id) ? ' ws-child' : '')   // folded under its parent (renderRail's nestRows); the 1s ticker keeps it
       + (Workstreams.unread(w) ? ' unread' : '');   // real unseen activity (lastActiveAt > lastReadAt, never the open stream)
   }
-  /* the fold header under a conversation that delegated work: how many threads, and what they are doing right now —
-     read from the same per-row truth the rail lamps use (railRowState), never a guess. */
-  // background workers the durable ledger says are running (survives a page reload, when the live channel is gone)
-  function railLedgerRunning() {
-    const s = typeof Overseer !== 'undefined' && Overseer.snapshot ? Overseer.snapshot() : null;
-    return new Set(((s && s.workers) || []).filter(w => w && w.status === 'running' && w.streamId).map(w => w.streamId));
-  }
-  // one child's state for the fold header — the same truth as its own lamp (railRowState) plus the durable ledger
-  function railKidState(k, running) {
-    const st = railRowState(k);
-    // a worker's approval/question is raised on its PARENT conversation, named for the worker (the lead's consent) —
-    // by agent, not by run, so only an UNFINISHED thread of that agent can be the one waiting
-    const pp = typeof Channels !== 'undefined' && Channels.pendingOf && k.parentStreamId ? Channels.pendingOf(k.parentStreamId) : null;
-    const unfinished = st.busy || running.has(k.id) || !(k.runIds || []).length;
-    if (unfinished && pp && pp.agentId && pp.agentId === k.agentId) return 'waiting';
-    return st.attn ? 'waiting' : (st.busy || running.has(k.id)) ? 'working' : k.lastRunOk === false ? 'failed' : (k.runIds || []).length ? 'done' : 'starting';
-  }
-  function railKidsSummary(kids) {
-    const running = railLedgerRunning(), n = { waiting: 0, working: 0, failed: 0, done: 0 };
-    for (const k of kids) { const s = railKidState(k, running); if (n[s] != null) n[s]++; }
-    return [n.waiting && n.waiting + ' waiting on you', n.working && n.working + ' working', n.failed && n.failed + ' failed', n.done && n.done + ' done']
-      .filter(Boolean).join(' · ') || 'starting';
-  }
-  // the calm fold (2026-10-10): no header row — the parent conversation carries a small count of its delegated threads,
-  // tinted by the most urgent of them (needs you > working); one click shows or hides them under it
-  function railKidsTone(kids) {
-    const running = railLedgerRunning(), s = kids.map(k => railKidState(k, running));
-    return s.includes('waiting') ? 'waiting' : s.includes('working') ? 'working' : '';
-  }
-  function railKidsChip(item) {
-    const n = item.rows.length, sum = railKidsSummary(item.rows);
-    return '<button type="button" class="ws-kids-n' + (railKidsTone(item.rows) ? ' ' + railKidsTone(item.rows) : '') + '" data-ws-group="' + U.esc(item.key) + '" aria-expanded="' + item.expanded + '"'
-      + ' aria-label="' + n + ' delegated thread' + (n === 1 ? '' : 's') + ': ' + U.esc(sum) + ' — ' + (item.expanded ? 'hide' : 'show') + '" data-tip="' + n + ' delegated · ' + U.esc(sum) + '">' + railKidsLabel(n, railKidsTone(item.rows)) + '</button>';
-  }
-  // a worker waiting on you says so in WORDS on the chip, never by colour alone (2026-10-10 blind test)
-  function railKidsLabel(n, tone) { return tone === 'waiting' ? n + ' · needs you' : String(n); }
   function renderRail() {
     const ul = el('workstreams');
     if (!ul || typeof Workstreams === 'undefined') return;
@@ -4233,38 +4190,30 @@ const App = (() => {
     if (railAgentFilter && !agents.has(railAgentFilter)) railAgentFilter = null;   // that agent left the station
     const allRows = Workstreams.list({ includeArchived: true }).filter(w =>
       (!railAgentFilter || railHasAgent(w, railAgentFilter))
-      && (railAttentionOnly ? pending.has(w.id) : (!w.archived || railShowArchived || pending.has(w.id))));
+      && (!w.archived || railShowArchived || pending.has(w.id)));
     syncRailAgentChip(allRows.length);
-    const grouped = railAttentionOnly ? allRows.map(w => ({ type: 'session', w })) : Workstreams.railGroups(allRows, { view: railKind, activeId, expanded: [...railExpanded], urgent: allRows.filter(w => railRowState(w).busy || pending.has(w.id)).map(w => w.id) });
+    const grouped = Workstreams.railGroups(allRows, { view: railKind, activeId, expanded: [...railExpanded], urgent: allRows.filter(w => railRowState(w).busy || pending.has(w.id)).map(w => w.id) });
     const headers = new Map();
     const flat = grouped.flatMap(item => {
       if (item.type === 'session') return [item.w];
       headers.set(item.visible[0].id, item);
       return item.visible;
     });
-    // DELEGATED THREADS fold under the conversation that asked for them (Workstreams.nestRows). Calm: folded, they stay
-    // out of the list unless one is open or WAITING ON YOU; the parent's count chip shows the rest on a click.
-    // The attention view stays a flat list.
-    const keep = flat.filter(w => w.id === activeId || pending.has(w.id)).map(w => w.id);
-    const items = railAttentionOnly ? flat.map(w => ({ type: 'row', w, depth: 0 })) : Workstreams.nestRows(flat, { expanded: [...railExpanded], keep, isChild: w => w.worker === true });
-    railChildIds = new Set(items.filter(i => i.type === 'row' && i.depth).map(i => i.w.id));
-    railKidsOf = new Map(items.filter(i => i.type === 'kids').map(i => [i.key, i.rows.map(w => w.id)]));
-    const kidsOfParent = new Map(items.filter(i => i.type === 'kids').map(i => [i.parentId, i]));
-    const rows = items.filter(i => i.type === 'row').map(i => i.w);
+    // delegated workers' threads are never rows (Workstreams.list hides them): their work is on the asking
+    // conversation's delegation card, and a running crew shows on that conversation's own lamp (railRowState reads the ledger)
+    const rows = flat;
     const filters = el('ws-kind-filter');
-    if (filters) filters.hidden = railAttentionOnly;
+    if (filters) filters.hidden = false;
     if (filters) filters.querySelectorAll('[data-ws-kind]').forEach(button => {
       button.setAttribute('aria-pressed', String(button.dataset.wsKind === railKind));
-      button.onclick = () => { railAttentionOnly = false; railKind = button.dataset.wsKind; saveRailView(); renderRail(); };
+      button.onclick = () => { railKind = button.dataset.wsKind; saveRailView(); renderRail(); };
     });
     if (!rows.some(w => w.id === railFocusId)) railFocusId = rows.some(w => w.id === activeId) ? activeId : (rows[0] && rows[0].id);
     ul.setAttribute('role', 'listbox');
     ul.setAttribute('aria-label', 'Sessions');
     let index = 0;
-    ul.innerHTML = items.map(item => {
-      if (item.type === 'kids') return '';   // calm: no header row — the parent carries the count chip
-      const w = item.w; index++;
-      const kids = kidsOfParent.get(w.id);
+    ul.innerHTML = rows.map(w => {
+      index++;
       const title = w.title || 'General';
       const st = railRowState(w);
       const group = headers.get(w.id);
@@ -4276,14 +4225,12 @@ const App = (() => {
         '<span class="ws-agent" aria-hidden="true"' + railAgentColorAttr(w) + '>' + U.esc(railAgentName(w)) + '</span>' +
         // a group chat says so on the row itself, inside the title cell so every rail layout places it (compact, attention, inbox)
         '<span class="ws-title">' + (w.conversationMode === 'group' ? '<span class="ws-gc" aria-hidden="true">GROUP</span>' : '') + U.esc(title) + '</span>' +
-        // its delegated threads: a count chip on the row (inside no other cell, so every rail layout can place it)
-        (kids ? railKidsChip(kids) : '') +
         '<span class="ws-meta">' + U.esc(st.meta) + '</span>' +
         '<span class="ws-receipt" aria-hidden="true">' + U.esc(railReceipt(w)) + '</span>' +
         '<button class="ws-kebab" tabindex="-1" aria-label="session actions" title="session actions">⋯</button>' +
         '</li>';
     }).join('');
-    if (!rows.length && railAgentFilter && !railAttentionOnly) {
+    if (!rows.length && railAgentFilter) {
       const a = agents.get(railAgentFilter), name = U.esc((a && (a.name || a.id)) || railAgentFilter);
       // an agent whose sessions are all ARCHIVED has had sessions: never "yet" above "▸ 2 archived" (QA 2026-10-02)
       let archivedHere = 0; for (const w of Workstreams.list({ includeArchived: true })) if (w.archived && railHasAgent(w, railAgentFilter)) archivedHere++;
@@ -4291,12 +4238,11 @@ const App = (() => {
         + (railKind === 'automated' ? 'automation ' : '') + (archivedHere ? 'open sessions with ' + name + ' — ' + archivedHere + ' archived below.' : 'sessions with ' + name + ' yet.') + '</span>'
         + '<button type="button" class="btn ws-agent-start">START ONE</button></li>';
       const start = ul.querySelector('.ws-agent-start'); if (start) start.onclick = () => newWorkstream();
-    } else if (!rows.length && railKind === 'automated' && !railAttentionOnly) {
+    } else if (!rows.length && railKind === 'automated') {
       ul.innerHTML = '<li class="proj-empty" role="presentation"><span role="status">No automation sessions yet.</span></li>';
     }
     ul.querySelectorAll('[data-ws-group]').forEach(button => {
       button.onclick = (e) => {
-        if (e) e.stopPropagation();   // a count chip sits ON a session row: toggling its threads must not also open the row
         const key = button.dataset.wsGroup;
         if (railExpanded.has(key)) railExpanded.delete(key); else railExpanded.add(key);
         saveRailView();
@@ -4355,6 +4301,7 @@ const App = (() => {
     if (!ul || typeof Workstreams === 'undefined' || !game || !game.classList.contains('active')) { stopRailTicker(); return; }
     const pending = railPendingIds();
     if ([...pending].sort().join('\n') !== railAttentionKey) { renderRail(); return; }
+    if (railView === 'sessions' && typeof NeedsYou !== 'undefined' && NeedsYou.render) NeedsYou.render();   // ages tick, failures arrive
     const activeId = Workstreams.activeId();
     document.querySelectorAll('#workstreams .ws-row,#projects .proj-sess-full').forEach(li => {
       if (li.querySelector('.ws-rename')) return;   // leave a row alone while its title is being edited in place
@@ -4375,15 +4322,6 @@ const App = (() => {
       const card = el('station-tip');
       if (card && !card.hidden && li.getAttribute('aria-describedby') === 'station-tip' && card.textContent !== tip) card.textContent = tip;
     });
-    // a parent's count chip is tinted by what its delegated threads are doing right now (same truth as their lamps)
-    ul.querySelectorAll('.ws-kids-n[data-ws-group]').forEach(b => {
-      const ids = railKidsOf.get(b.dataset.wsGroup); if (!ids) return;
-      const kids = ids.map(id => Workstreams.get(id)).filter(Boolean), tone = railKidsTone(kids);
-      const cls = 'ws-kids-n' + (tone ? ' ' + tone : ''); if (b.className !== cls) b.className = cls;
-      const label = railKidsLabel(kids.length, tone); if (b.textContent !== label) b.textContent = label;
-      const tip = kids.length + ' delegated · ' + railKidsSummary(kids);
-      if (b.getAttribute('data-tip') !== tip) b.setAttribute('data-tip', tip);
-    });
   }
   function armRailTicker() { if (!railTicker) railTicker = setInterval(updateRailLive, 1000); }
   function stopRailTicker() { if (railTicker) { clearInterval(railTicker); railTicker = 0; } }
@@ -4402,6 +4340,10 @@ const App = (() => {
   // Chat.load re-renders the in-flight stream on switch — the run you left keeps streaming in the background.
   function switchWorkstream(id) {
     if (typeof StationUI !== 'undefined' && StationUI.seenSession) StationUI.seenSession(id);   // you're in it now: its notifications are read
+    // a delegated worker's thread is not a conversation: opening it (a search hit, a deliverable, a desk screen) lands on
+    // the conversation that asked, with that worker's work unfolded on its card
+    const home = Workstreams.homeOf ? Workstreams.homeOf(id) : id;
+    if (home !== id) { switchWorkstream(home); if (typeof Delegated !== 'undefined' && Delegated.reveal) Delegated.reveal(id); return; }
     if (typeof ProjectHome !== 'undefined') ProjectHome.onSession(id);
     if (id === Workstreams.activeId()) return;
     const ws = Workstreams.switch(id); if (!ws) return;
@@ -4458,10 +4400,12 @@ const App = (() => {
     const hits = Workstreams.search(q).filter(hit => { if (!railAgentFilter) return true; const w = Workstreams.get(hit.id); return !!(w && railHasAgent(w, railAgentFilter)); });
     for (const hit of hits) {
       const li = document.createElement('li'); li.className = 'ws-search-hit'; li.tabIndex = 0; li.dataset.id = hit.id;
-      const title = document.createElement('b'); title.textContent = hit.title || 'General';
+      // a delegated worker's words are found in its CONVERSATION: say whose work it was, and open it unfolded there
+      const worker = hit.match === 'delegated' && hit.workerId ? Workstreams.get(hit.workerId) : null;
+      const title = document.createElement('b'); title.textContent = (hit.title || 'General') + (worker ? ' · ' + (((agents.get(worker.agentId) || {}).name) || worker.agentId) + '\'s work' : '');
       const snippet = document.createElement('small'); snippet.textContent = hit.snippet;
       li.append(title, snippet);
-      const open = () => { switchWorkstream(hit.id); input.value = ''; renderSessionSearch(); };
+      const open = () => { switchWorkstream(hit.id); if (worker && typeof Delegated !== 'undefined' && Delegated.reveal) Delegated.reveal(worker.id); input.value = ''; renderSessionSearch(); };
       li.onclick = open; li.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); } };
       out.appendChild(li);
     }
@@ -4472,16 +4416,8 @@ const App = (() => {
   function wireRailSearch() {
     const q = el('ws-search'); if (!q || q.__wired) return;
     q.__wired = true;
-    q.oninput = () => { if (railAttentionOnly) { railAttentionOnly = false; renderRail(); } renderSessionSearch(); };
+    q.oninput = () => { renderSessionSearch(); };
     q.onkeydown = e => { if (e.key === 'Escape') { e.preventDefault(); q.value = ''; renderSessionSearch(); q.blur(); } };
-    const attention = el('ws-attention');
-    if (attention) attention.onclick = () => {
-      railAttentionOnly = !railAttentionOnly;
-      // the count is station-wide, so its list must be too: kept narrowed to one agent, "Waiting for you · 2" for
-      // another agent's sessions opened a BLANK rail with no empty-state line (sweep 2026-10-01)
-      if (railAttentionOnly && railAgentFilter) { railAgentFilter = null; if (typeof StationUI !== 'undefined' && StationUI.refreshCrew) StationUI.refreshCrew(); }
-      q.value = ''; renderSessionSearch(); renderRail(); SFX.click();
-    };
   }
   // COMMS AGENT SELECTOR: put the Commander on the line with agent <agentId>. Selecting an agent must never
   // silently rebind an existing conversation to a different agent (that would corrupt whose transcript it is);
@@ -4722,7 +4658,6 @@ const App = (() => {
   function updateArchivedToggle() {
     const ul = el('workstreams'); if (!ul) return;
     const old = ul.querySelector('.ws-arch-row'); if (old) old.remove();
-    if (railAttentionOnly) return;
     // narrowed to one agent, count only that agent's archived sessions — "1 archived" must open onto one
     let n = 0; for (const w of Workstreams.list({ includeArchived: true })) if (w.archived && (!railAgentFilter || railHasAgent(w, railAgentFilter))) n++;
     if (!n) { if (!railAgentFilter) railShowArchived = false; return; }

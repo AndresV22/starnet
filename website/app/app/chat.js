@@ -1916,8 +1916,11 @@ const Chat = (() => {
   function busyPeerFor(ws) {
     if (!ws || typeof Workstreams === 'undefined' || typeof Channels === 'undefined') return null;
     const aid = ws.agentId || 'agent';
-    const list = Workstreams.list ? Workstreams.list({ includeArchived: true }) : (Workstreams.all ? Workstreams.all() : []);
-    return list.find(w => w && w.id !== ws.id && (w.agentId || 'agent') === aid && Channels.isBusy(w.id)) || null;
+    const list = Workstreams.list ? Workstreams.list({ includeArchived: true, includeWorkers: true }) : (Workstreams.all ? Workstreams.all() : []);
+    const peer = list.find(w => w && w.id !== ws.id && (w.agentId || 'agent') === aid && Channels.isBusy(w.id)) || null;
+    // busy on delegated work: name the conversation that asked (the worker's own thread is not a place you go)
+    const home = peer && Workstreams.isHidden && Workstreams.isHidden(peer) ? Workstreams.get(peer.parentStreamId) : null;
+    return home && home.id !== ws.id ? home : (home ? null : peer);
   }
   function renderAgentBusy(peer, detail) {
     if (!log) return;
@@ -2891,6 +2894,27 @@ const Chat = (() => {
   // browser the base is '' and the URL stays same-origin relative.
   // Auth (2026-09-25): a FILE-SCOPED 5-minute ticket (ApiTicket.fileUrl), never the master token — this href reaches
   // OS-browser history, Referer and copied links. wireFileOpen re-mints it right before any use.
+  /* open a file a run produced from any surface (the delegation card's receipts): the same doors as a COMMS file row —
+     a web page in the station BROWSER, the desktop host's own open (with its confirm), else a ticketed tab. A file a
+     worker wrote into a trusted project is addressed inside that project (&project=, absolute for the host). */
+  function openFile(path, agentId, projectRoot) {
+    const rel = String(path || ''), aid = agentId || 'agent';
+    if (!rel) return;
+    const isAbs = /^([A-Za-z]:[\\/]|[\\/])/.test(rel), root = projectRoot && !isAbs ? String(projectRoot).replace(/[\\/]+$/, '') : '';
+    if (!root && typeof OutputBrowser !== 'undefined' && OutputBrowser.isHtml && OutputBrowser.isHtml(rel)) { OutputBrowser.open({ agentId: aid, path: rel }); return; }
+    const url = fileUrl(rel, aid) + (root ? '&project=' + encodeURIComponent(root) : '');
+    const core = tauriCore();
+    if (core && core.invoke) {
+      Promise.resolve(core.invoke('starnet_open_artifact', { path: root ? root + '/' + rel : rel, agentId: aid }))
+        .catch(err => {
+          if (/declined at the host/i.test(String(err || ''))) return;   // the host's own confirm said no: an answer, not a failure
+          return Promise.resolve(core.invoke('open_external_url', { url }))
+            .catch(() => { if (typeof StationUI !== 'undefined' && StationUI.notify) StationUI.notify('could not open that file — use folder or copy path to find it on disk', 'warn'); });
+        });
+      return;
+    }
+    try { window.open(url, '_blank', 'noopener'); } catch (e) { if (typeof StationUI !== 'undefined' && StationUI.notify) StationUI.notify('could not open that file: ' + ((e && e.message) || e), 'warn'); }
+  }
   function fileUrl(title, agentId) {
     if (typeof ApiTicket !== 'undefined' && ApiTicket.fileUrl) return ApiTicket.fileUrl(agentId || 'agent', String(title));
     let base = '';
@@ -3148,6 +3172,14 @@ const Chat = (() => {
       const act = pick('action'), ref = pick('id');
       return (act || 'change') + ' the routine' + (ref ? ' “' + ref + '”' : '') + (when ? ' — ' + when : '');
     }
+    // DELEGATION (2026-10-11): say WHO gets the work, by name, never the raw worker JSON (the inspect panel holds it).
+    // Read the ids by pattern: argsSummary may be clipped mid-object.
+    if (/^team[._](?:dispatch|spawn)$/.test(t)) {
+      const s = String(ev.argsSummary || ''), ids = [...new Set([...s.matchAll(/"agentId"\s*:\s*"([^"]+)"/g)].map(m => m[1]))];
+      const names = ids.map(id => (typeof App !== 'undefined' && App.agentName && App.agentName(id)) || id);
+      const who = names.length > 1 ? names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1] : names[0] || 'the crew';
+      return 'hand work to ' + who + (/"background"\s*:\s*true/.test(s) ? ' (in the background)' : '');
+    }
     // THE STATION BUILDER (2026-09-29): the card IS the plan — what gets built, where, who works each step. The sidecar
     // sends the plan's own summary (its dry run on a copy of the station), never the model's words.
     if (/^station[._]build$/.test(t)) { const plan = String(ev.argsSummary || '').split('\n')[0] || 'a planned change'; return 'build this on your station: ' + plan + (/\bUNDO\b/.test(plan) ? '' : ' One UNDO in Build mode takes it back.'); }
@@ -3317,10 +3349,61 @@ const Chat = (() => {
   // p = a consent payload { promptId, tool, argsSummary } — works for both a live onPermission event and a
   // Channels snapshot.pending (re-rendered after a switch). ws is the origin stream, so the answer routes to
   // THAT stream's run (per-channel runId), not a single global one.
+  /* ANSWER AN APPROVAL from any surface — this card, a delegated worker's row on its delegation card, the NEEDS YOU list
+     (2026-10-11): one path. The sidecar's consent route (the lead's run is the one that holds the ask, also for a worker's),
+     the bus (every rendered card of that ask settles), the channel (THIS ask only: a crewmate's open ask stays open), NEEDS
+     YOU and the presence card. Returns what the sidecar actually applied (fullSaved: a "full" that really persisted). */
+  async function answerConsent(p, ws, decision) {
+    if (ws && typeof StationUI !== 'undefined' && StationUI.settleNotifs) StationUI.settleNotifs('needs:' + ws.id);
+    const rid = (p && p.runId) || ((ws && typeof Channels !== 'undefined') ? Channels.runIdOf(ws.id) : null);
+    const answer = await Harness.consent(rid, p.promptId, decision);
+    const appliedDecision = (answer && answer.decision) || 'deny';
+    let fullSaved = true;
+    if (decision === 'full') {
+      const saved = !!(answer && answer.ok && answer.approvalMode === 'full');
+      const adopted = saved && typeof App !== 'undefined' && App.setApproval
+        ? App.setApproval((answer && answer.agentId) || p.agentId || (ws && ws.agentId), 'full')
+        : false;
+      fullSaved = saved && adopted;
+    }
+    // surface the decision on the bus (schema: permission.response) so listeners — e.g. the first-run tutorial —
+    // can tell an approve from a deny and narrate the consent loop honestly. Additive; the run resumes via Harness.consent.
+    try { if (typeof U !== 'undefined' && U.bus) U.bus.emit('permission.response', { promptId: p.promptId, decision: appliedDecision }); } catch (_) {}
+    // NS conversational anchor: "Always" — and now "Full access" — on a path.trust card IS the project bless
+    // (a standing path grant + known-projects row land on the sidecar). Stamp the origin session's projectRoot
+    // with the SAME proposed root so the PROJECTS rail lists this session under its project — the identical
+    // anchor "Work here" stamps. Both standing grades, never "once" (it grants nothing standing, so there is
+    // no project row to attach to), and never overwrite an anchor the session already has.
+    if (p.tool === 'path.trust' && (appliedDecision === 'always' || appliedDecision === 'full') && ws && typeof Workstreams !== 'undefined' && Workstreams.setProjectRoot) {
+      try { if (p.argsSummary && !(Workstreams.get(ws.id) || {}).projectRoot) Workstreams.setProjectRoot(ws.id, p.argsSummary); } catch (_) {}
+    }
+    if (ws && typeof Channels !== 'undefined') Channels.clearPending(ws.id, Date.now(), p.promptId);   // closes the paused span once none remain — approval wait never counts as run time
+    if (ws && isActiveWs(ws)) renderPresence();   // drop the paused styling the instant the run resumes
+    syncStatus();
+    return { answer, appliedDecision, fullSaved };
+  }
+  // the channel's record of an ask — a delegated worker's says who asked (sidecar attributeAsks): its row on the
+  // delegation card answers it; askedAt gives the NEEDS YOU list its age
+  function pendingFrom(ev, ws) {
+    return { promptId: ev.promptId, agentId: ev.agentId || ws.agentId, tool: ev.tool, argsSummary: ev.argsSummary, runId: Channels.runIdOf(ws.id),
+      workerAgentId: ev.workerAgentId || '', workerRunId: ev.workerRunId || '', workerStreamId: ev.workerStreamId || '', askedAt: ev.askedAt || Date.now() };
+  }
+  // who is asking: a delegated worker's ask names the worker (the sidecar stamps workerAgentId), never the lead
+  function askerName(p, ws) {
+    const id = (p && p.workerAgentId) || (ws && ws.agentId) || 'agent';
+    return (typeof App !== 'undefined' && App.agentName && App.agentName(id)) || id;
+  }
   function permissionRow(p, ws) {
     if (p && p.tool === 'brief.ask') return clarifyRow(p, ws);   // a question, not a grade — its own card
+    // ONE PLACE PER STATUS: a delegated worker's ask is answered on that worker's row of the delegation card
+    if (p && (p.workerStreamId || p.workerRunId) && typeof Delegated !== 'undefined' && Delegated.hosts && Delegated.hosts(p)) {
+      Delegated.repaint();
+      // the same one bell entry the lead's own ask gets, naming the worker (re-renders never re-toast: announcedPrompt)
+      if (ws && !announcedPrompt(p.promptId, ws) && typeof StationUI !== 'undefined') StationUI.notify(askerName(p, ws) + ' needs approval to ' + actionPhrase(p), 'warn', 'needsApproval', { kind: 'needs', go: { ws: ws.id }, key: 'needs:' + ws.id, prompt: p.promptId });
+      return null;
+    }
     const r = row('agent'); r.d.classList.add('tool'); r.d.classList.add('consent');
-    r.body.appendChild(document.createTextNode('▣ ' + name + ' wants to ' + actionPhrase(p) + ' '));
+    r.body.appendChild(document.createTextNode('▣ ' + ((p && p.workerAgentId) ? askerName(p, ws) : name) + ' wants to ' + actionPhrase(p) + ' '));
     // INSPECT: an approval carries the request it approves, every character of it, one click away (user report 10-08:
     // a long shell command showed 77 chars and a "…", and nothing on the card held the rest)
     const inspect = consentInspect(p);
@@ -3354,31 +3437,9 @@ const Chat = (() => {
       if (ws && typeof StationUI !== 'undefined' && StationUI.settleNotifs) StationUI.settleNotifs('needs:' + ws.id);   // decided: leaves NEEDS YOU
       if (decided) return; decided = true;
       for (const b of btns.querySelectorAll('button')) b.disabled = true;
-      const rid = (ws && typeof Channels !== 'undefined') ? Channels.runIdOf(ws.id) : null;
-      const answer = await Harness.consent(rid, p.promptId, decision);
-      const appliedDecision = (answer && answer.decision) || 'deny';
-      if (decision === 'full') {
-        const saved = !!(answer && answer.ok && answer.approvalMode === 'full');
-        const adopted = saved && typeof App !== 'undefined' && App.setApproval
-          ? App.setApproval((answer && answer.agentId) || p.agentId || (ws && ws.agentId), 'full')
-          : false;
-        if (!saved || !adopted) { doneLabel = '✕ full access was not saved'; isDeny = true; }
-      } else if (appliedDecision === 'deny' && decision !== 'deny') {
-        doneLabel = '✕ approval was not applied'; isDeny = true;
-      }
-      // surface the decision on the bus (schema: permission.response) so listeners — e.g. the first-run tutorial —
-      // can tell an approve from a deny and narrate the consent loop honestly. Additive; the run resumes via Harness.consent.
-      try { if (typeof U !== 'undefined' && U.bus) U.bus.emit('permission.response', { promptId: p.promptId, decision: appliedDecision }); } catch (_) {}
-      // NS conversational anchor: "Always" — and now "Full access" — on a path.trust card IS the project bless
-      // (a standing path grant + known-projects row land on the sidecar). Stamp the origin session's projectRoot
-      // with the SAME proposed root so the PROJECTS rail lists this session under its project — the identical
-      // anchor "Work here" stamps. Both standing grades, never "once" (it grants nothing standing, so there is
-      // no project row to attach to), and never overwrite an anchor the session already has.
-      if (p.tool === 'path.trust' && (appliedDecision === 'always' || appliedDecision === 'full') && ws && typeof Workstreams !== 'undefined' && Workstreams.setProjectRoot) {
-        try { if (p.argsSummary && !(Workstreams.get(ws.id) || {}).projectRoot) Workstreams.setProjectRoot(ws.id, p.argsSummary); } catch (_) {}
-      }
-      if (ws && typeof Channels !== 'undefined') Channels.clearPending(ws.id, Date.now());   // closes the paused span — approval wait never counts as run time
-      if (isActiveWs(ws)) renderPresence();   // drop the paused styling the instant the run resumes
+      const res = await answerConsent(p, ws, decision);
+      if (decision === 'full' && !res.fullSaved) { doneLabel = '✕ full access was not saved'; isDeny = true; }
+      else if (decision !== 'full' && res.appliedDecision === 'deny' && decision !== 'deny') { doneLabel = '✕ approval was not applied'; isDeny = true; }
       btns.remove();
       const tag = document.createElement('span');
       tag.className = 'consent-result' + (isDeny ? ' err' : '');
@@ -3439,8 +3500,9 @@ const Chat = (() => {
     r.d.tabIndex = -1;
     r.d.addEventListener('keydown', e => { if (e.key === 'Escape') { e.preventDefault(); decide('deny', '✕ denied', true); } });
     status('awaiting your approval…');
-    if (ws && !announcedPrompt(p.promptId, ws) && typeof StationUI !== 'undefined') StationUI.notify(name + ' needs approval to ' + actionPhrase(p), 'warn', 'needsApproval', { kind: 'needs', go: { ws: ws.id }, key: 'needs:' + ws.id, prompt: p.promptId });
-    else if (!ws && typeof StationUI !== 'undefined') StationUI.notify(name + ' needs approval to ' + actionPhrase(p), 'warn', 'needsApproval');   // P1-8 category: consent prompt
+    const asker = (p && p.workerAgentId) ? askerName(p, ws) : name;   // a delegated worker's ask names the worker
+    if (ws && !announcedPrompt(p.promptId, ws) && typeof StationUI !== 'undefined') StationUI.notify(asker + ' needs approval to ' + actionPhrase(p), 'warn', 'needsApproval', { kind: 'needs', go: { ws: ws.id }, key: 'needs:' + ws.id, prompt: p.promptId });
+    else if (!ws && typeof StationUI !== 'undefined') StationUI.notify(asker + ' needs approval to ' + actionPhrase(p), 'warn', 'needsApproval');   // P1-8 category: consent prompt
     // FOCUS-STEAL GUARD (P0): a consent prompt must NEVER hijack focus from a Commander who is mid-typing or holds
     // a draft — a stolen focus + a reflexive Enter could approve a file write they never read. Only follow the
     // scroll when they were already at the bottom (honor stick), and only take focus (onto the row CONTAINER, so
@@ -3474,7 +3536,8 @@ const Chat = (() => {
     if (key && typeof StationUI !== 'undefined' && StationUI.settleNotifs) StationUI.settleNotifs(key);
   });
   function backgroundPermissionNotify(ev, ws) {
-    const who = (typeof App !== 'undefined' && App.agentName && App.agentName(ws.agentId || 'agent')) || ws.agentId || 'an agent';
+    // the AGENT that asks — a delegated worker's ask names the worker, never the lead it rode in on
+    const who = (typeof App !== 'undefined' && App.agentName && App.agentName((ev && ev.workerAgentId) || ws.agentId || 'agent')) || ws.agentId || 'an agent';
     if (!announcedPrompt(ev && ev.promptId, ws) && typeof StationUI !== 'undefined' && StationUI.notify) {
       StationUI.notify(who + ' needs approval to ' + actionPhrase(ev) + sessionNote(ws), 'warn', 'needsApproval',
         { kind: 'needs', go: { ws: ws.id }, key: 'needs:' + ws.id, prompt: ev && ev.promptId });
@@ -7066,7 +7129,7 @@ const Chat = (() => {
       const o = streamingAgent(); if (s.acc) o.append(s.acc);
       if (s.busy) activeLiveRow = o; else o.done();   // a still-running stream keeps its live row so new tokens flow into it
     }
-    if (s.pending) permissionRow(s.pending, activeWs);
+    for (const p of (s.pendings && s.pendings.length ? s.pendings : (s.pending ? [s.pending] : []))) permissionRow(p, activeWs);
   }
 
   // A streaming turn's PROSE controller. The agent's text streams into an open paragraph row with a blinking
@@ -9308,7 +9371,7 @@ const Chat = (() => {
         // a background stream fires the global clickable toast + rail marker (backgroundPermissionNotify). Both
         // paths then ACK the sidecar (consentAck) that the prompt is human-visible, earning the paused run its
         // one bounded extension of the fail-closed auto-deny timer.
-        onPermission: ev => { Channels.setPending(ws.id, { promptId: ev.promptId, agentId: ev.agentId || ws.agentId, tool: ev.tool, argsSummary: ev.argsSummary, runId: Channels.runIdOf(ws.id) }, Date.now()); walkToDesk(); if (isActiveWs(ws)) { breakLive(); permissionRow(ev, ws); renderPresence(); } else { backgroundPermissionNotify(ev, ws); } try { Promise.resolve(Harness.consentAck(Channels.runIdOf(ws.id), ev.promptId)).then(v => { if (!(v && v.ok)) consentAckFailed(ws, ev, v); }, e => consentAckFailed(ws, ev, { ok: false, error: (e && e.message) || String(e) })); } catch (e) { consentAckFailed(ws, ev, { ok: false, error: (e && e.message) || String(e) }); } },
+        onPermission: ev => { Channels.setPending(ws.id, { ...pendingFrom(ev, ws) }, Date.now()); walkToDesk(); if (isActiveWs(ws)) { breakLive(); permissionRow(ev, ws); renderPresence(); } else { backgroundPermissionNotify(ev, ws); } try { Promise.resolve(Harness.consentAck(Channels.runIdOf(ws.id), ev.promptId)).then(v => { if (!(v && v.ok)) consentAckFailed(ws, ev, v); }, e => consentAckFailed(ws, ev, { ok: false, error: (e && e.message) || String(e) })); } catch (e) { consentAckFailed(ws, ev, { ok: false, error: (e && e.message) || String(e) }); } },
         // the lead's team.summon tool asked the station to create a worker: run the REAL summon (App.summonForRequest
         // → the Recruitment Bay's own summonAgent), then ack with the new id so the lead can delegate to it. The id
         // resolves only after the roster POST lands (App awaits it), so the lead's next team.dispatch finds the worker.
@@ -9876,5 +9939,5 @@ const Chat = (() => {
   // only" gate maybeStandaloneRate uses — so a pure-chat run is never bottle-offered. Used by App.runBottleInfo (R5).
   function runDidWork(id) { const w = id ? runWork.get(id) : null; return !!(w && ((w.toolsOk || 0) >= 1 || (w.delivered || 0) >= 1)); }
 
-  return { init, load, send, consentInspect, copyText, continuityDiagnostics, refreshStarters, sendOrQueue, continueConnectorTask, stopActive, status, localLine, broadcast, renderProse, setSystem, getHistory, contextRef, abort, isBusy, beatBusy: skillBeatBusy, beginInterview, endInterview, echoUser, prefill, autoGrowInput, choices, clearChoices, retireDeskPrompt, typeLine, nudge, clearNudge, offerCuriosity, offerFork, planGoalPath, briefingReceipt, isComposerEngaged, canFocusSession, runMeta, runDidWork, awayDigest, awayReview, awayRate, sampleCard, workshopReturn, refreshIdBar: renderIdBar, refreshGroupControls: updateControls, refreshAgentIdentity, setRosterStatus, askBudgetSpent, spendAsk, clockLabel: fmtClock, breakLabel: fmtBreak };
+  return { init, load, send, consentInspect, copyText, continuityDiagnostics, refreshStarters, sendOrQueue, continueConnectorTask, stopActive, status, localLine, broadcast, renderProse, openFile, answerConsent, consentPhrase: actionPhrase, setSystem, getHistory, contextRef, abort, isBusy, beatBusy: skillBeatBusy, beginInterview, endInterview, echoUser, prefill, autoGrowInput, choices, clearChoices, retireDeskPrompt, typeLine, nudge, clearNudge, offerCuriosity, offerFork, planGoalPath, briefingReceipt, isComposerEngaged, canFocusSession, runMeta, runDidWork, awayDigest, awayReview, awayRate, sampleCard, workshopReturn, refreshIdBar: renderIdBar, refreshGroupControls: updateControls, refreshAgentIdentity, setRosterStatus, askBudgetSpent, spendAsk, clockLabel: fmtClock, breakLabel: fmtBreak };
 })();

@@ -161,6 +161,7 @@
     generalId = (slice.generalId && find(slice.generalId)) ? slice.generalId : null;
     ensureGeneral();
     activeId = (slice.activeId && find(slice.activeId)) ? slice.activeId : generalId;
+    activeId = homeOf(activeId);   // a station saved while a worker's thread was open boots into its conversation
     undoCheckpoint = normalizeCheckpoint(slice.sessionUndo);
     const a = active();
     if (a && (a.lastActiveAt || 0) > (a.lastReadAt || 0)) a.lastReadAt = a.lastActiveAt;   // boot renders it — read
@@ -187,10 +188,21 @@
     return !!w && w.id !== activeId && (w.lastActiveAt || 0) > (w.lastReadAt || 0);
   }
 
-  // display order: pinned first, then most-recently-active; archived hidden unless asked.
+  // DELEGATED WORK IS NOT A CONVERSATION (2026-10-11, a blind usability test picked this over threads in SESSIONS):
+  // a worker's own thread is storage for its run. It never shows in a session list; anything that opens it lands on
+  // the conversation that asked (homeOf), where the delegation card holds the worker's answer and receipt. A worker
+  // whose parent is gone stays visible (never an unreachable record).
+  function isHidden(w) {
+    w = (w && w.id) ? w : find(w);
+    return !!w && w.worker === true && !!w.parentStreamId && w.parentStreamId !== w.id && !!find(w.parentStreamId);
+  }
+  function homeOf(id) { const w = find(id); return w && isHidden(w) ? w.parentStreamId : id; }
+
+  // display order: pinned first, then most-recently-active; archived hidden unless asked; delegated workers'
+  // threads hidden unless asked (includeWorkers: the delegation card and the busy-peer chip read them).
   function list(opts) {
     opts = opts || {};
-    return ws.filter(w => opts.includeArchived ? true : !w.archived)
+    return ws.filter(w => (opts.includeArchived ? true : !w.archived) && (opts.includeWorkers === true || !isHidden(w)))
       .slice()
       .sort((a, b) => (Number(b.pinned) - Number(a.pinned)) || (b.lastActiveAt - a.lastActiveAt));
   }
@@ -297,6 +309,8 @@
     ws.splice(i, 1);
     if (tombs.indexOf(id) < 0) { tombs.push(id); if (tombs.length > MAX_TOMBS) tombs = tombs.slice(-MAX_TOMBS); }
     if (activeId === id) activeId = generalId;
+    // its delegated workers' threads were its record: they go with it (never left behind, unreachable)
+    for (const k of ws.filter(x => x.worker === true && x.parentStreamId === id)) del(k.id);
     return true;
   }
   // DOSSIER › DELETE AGENT support: drop every (non-General) stream bound to a now-deleted agent so the rail
@@ -306,7 +320,8 @@
     const aid = String(agentId == null ? '' : agentId);
     if (!aid) return 0;
     let n = 0;
-    for (const w of ws.slice()) { if (w.conversationMode !== 'group' && w.id !== generalId && w.agentId === aid && del(w.id)) n++; }
+    // a worker's thread is the asking conversation's record of that work (its card reads it): it stays
+    for (const w of ws.slice()) { if (w.conversationMode !== 'group' && w.id !== generalId && w.worker !== true && w.agentId === aid && del(w.id)) n++; }
     return n;
   }
 
@@ -565,10 +580,12 @@
   function search(q) {
     q = String(q || '').trim().toLowerCase();
     if (!q) return [];
-    const out = [];
+    const out = [], seen = new Set();
     for (const w of ws) {
+      // a delegated worker's words are found, but the hit is its CONVERSATION (workerId says whose work it is)
+      const hidden = isHidden(w);
       const title = safeTitle(w), ti = title.toLowerCase().indexOf(q);
-      if (ti >= 0) { out.push({ id: w.id, title: w.title, snippet: 'title match', match: 'title' }); continue; }
+      if (!hidden && ti >= 0) { if (!seen.has(w.id)) { seen.add(w.id); out.push({ id: w.id, title: w.title, snippet: 'title match', match: 'title' }); } continue; }
       for (const m of visibleMessages(w)) {
         // Most queries do not occur in most turns. Check the raw text first so a miss does not pay
         // for every credential-redaction regex across the whole session archive. A raw candidate is
@@ -576,8 +593,11 @@
         // unsearchable and snippets remain safe.
         const raw = m.content, rawIndex = raw.toLowerCase().indexOf(q); if (rawIndex < 0) continue;
         const body = scrubSecrets(raw), i = body.toLowerCase().indexOf(q); if (i < 0) continue;
-        const start = Math.max(0, i - 20);
-        out.push({ id: w.id, title: w.title, snippet: body.slice(start, start + 60).replace(/\s+/g, ' ').trim(), match: 'transcript' });
+        const start = Math.max(0, i - 20), snippet = body.slice(start, start + 60).replace(/\s+/g, ' ').trim();
+        if (hidden) {
+          const home = find(w.parentStreamId);
+          if (!seen.has(home.id)) { seen.add(home.id); out.push({ id: home.id, title: home.title, snippet, match: 'delegated', workerId: w.id }); }
+        } else if (!seen.has(w.id)) { seen.add(w.id); out.push({ id: w.id, title: w.title, snippet, match: 'transcript' }); }
         break;
       }
     }
@@ -657,46 +677,12 @@
     return result.filter(item => item.type === 'session' || item.visible.length);
   }
 
-  /* CHILD THREADS FOLD UNDER THEIR PARENT (2026-10-09, Andrew: managing agents and their threads must be the easiest
-     thing in the app). A display projection only, like railGroups: never merges, moves or deletes a session.
-     A row whose parentStreamId names a TOP-LEVEL row of this same list renders right under it, behind one fold
-     header ({type:'kids'}); a child whose parent is filtered out, archived or missing stays a top-level row, so
-     nothing is ever hidden. While folded, a child still shows when opts.keep names it (the rail keeps the open one and
-     any waiting on you). Input order is kept within each level. */
-  function nestRows(rows, options) {
-    const opts = options || {}, expanded = new Set(opts.expanded || []), keep = new Set(opts.keep || []);
-    const list = Array.isArray(rows) ? rows : [];
-    const present = new Set(list.map(w => w && w.id));
-    // opts.isChild narrows which rows may fold at all (the rail: delegated worker threads only)
-    const isChild = typeof opts.isChild === 'function' ? opts.isChild : () => true;
-    const parentOf = w => (w && isChild(w) && w.parentStreamId && w.parentStreamId !== w.id && present.has(w.parentStreamId)) ? w.parentStreamId : null;
-    const byId = new Map(list.map(w => [w.id, w]));
-    const kidsOf = new Map();
-    for (const w of list) {
-      const p = parentOf(w);
-      if (!p || parentOf(byId.get(p))) continue;   // one level deep: a child's own children stay where they are
-      if (!kidsOf.has(p)) kidsOf.set(p, []);
-      kidsOf.get(p).push(w);
-    }
-    const nested = new Set(); kidsOf.forEach(kids => kids.forEach(w => nested.add(w.id)));
-    const out = [];
-    for (const w of list) {
-      if (nested.has(w.id)) continue;
-      out.push({ type: 'row', w, depth: 0 });
-      const kids = kidsOf.get(w.id);
-      if (!kids) continue;
-      const key = 'kids:' + w.id, open = expanded.has(key);
-      out.push({ type: 'kids', key, parentId: w.id, rows: kids, expanded: open });
-      for (const k of kids) if (open || keep.has(k.id)) out.push({ type: 'row', w: k, depth: 1 });
-    }
-    return out;
-  }
 
   return {
-    init, reset, serialize, all, list, search, setConnectorHandoff, connectorHandoff, automationOf, railGroups, nestRows,
+    init, reset, serialize, all, list, search, setConnectorHandoff, connectorHandoff, automationOf, railGroups,
     exportConversation, parseConversationExport, clearConversation,
     previewArchive, archivePreview, canUndo, undoLast,
-    create, startSession, adopt, get, active, activeId: getActiveId, generalId: getGeneralId,
+    create, startSession, adopt, get, active, activeId: getActiveId, generalId: getGeneralId, isHidden, homeOf,
     switch: switchTo, rename, setAgent, setLane, setProjectRoot, pin, archive, del, removeByAgent, isDeleted, touch, markUnread, markRead, unread: isUnread,
     autoTitle, retitle, deriveTitle, needsModelTitle, isLowSignal, titleBasis,
     appendRun, noteRunEnd, recordDeliverable, addCost, costOf, noteModel, modelOf,

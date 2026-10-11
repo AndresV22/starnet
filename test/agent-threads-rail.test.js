@@ -81,8 +81,9 @@ A.ok(/row\.classList\.toggle\('filtering', !!railFilter && a\.id === railFilter\
 // sweep 2026-10-01
 A.ok(/ev\.key === 'ContextMenu' \|\| \(ev\.shiftKey && ev\.key === 'F10'\)\) \{ ev\.preventDefault\(\); sfx\('click'\); openAgent\(\+li\.dataset\.i\); \}/.test(ui),
   'Shift+F10 / the menu key open the dossier from the keydown too (WKWebView fires no contextmenu for it)');
-A.ok(/if \(railAttentionOnly && railAgentFilter\) \{ railAgentFilter = null;/.test(app),
-  '"Waiting for you" shows every waiting session — the station-wide count never opens a narrowed, blank rail');
+// the "Waiting for you" filter became NEEDS YOU (2026-10-11): a station-wide list that never narrows the rail at all
+A.ok(!/railAttentionOnly/.test(app) && /NeedsYou\.render\(\)/.test(app),
+  'what waits on you is a station-wide list (NEEDS YOU) — it never narrows the rail, so it can never open a blank one');
 const desk = read('frontend/app/deskscreen.js');
 A.ok(/deskAgentId = String\(agentId\);/.test(ui) && !/function openDesk\(agentId\) \{[^}]*\bsel = i;/.test(ui) && /get deskAgentId\(\) \{ return deskAgentId; \}/.test(ui),
   'opening a desk sets the desk\'s own target, never the dossier\'s selection');

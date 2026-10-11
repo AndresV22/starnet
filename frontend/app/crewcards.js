@@ -112,7 +112,8 @@
       };
       U.bus.on('agent.run.end', end);
       U.bus.on('agent.run.error', end);
-      U.bus.on('permission.prompt', (p) => { if (p && p.promptId && p.agentId && !asks.has(String(p.promptId))) { asks.set(String(p.promptId), { agentId: String(p.agentId), at: Date.now() }); paint(); } });
+      // a delegated worker's ask names the worker (workerAgentId): its card says "needs your OK", not the lead's
+      U.bus.on('permission.prompt', (p) => { const who = p && (p.workerAgentId || p.agentId); if (p && p.promptId && who && !asks.has(String(p.promptId))) { asks.set(String(p.promptId), { agentId: String(who), at: Date.now() }); paint(); } });
       U.bus.on('permission.response', (p) => { if (p && p.promptId && closeAsk(String(p.promptId), Date.now())) paint(); });
     }
     const crew = document.getElementById('crew');
