@@ -27,6 +27,9 @@ const Updates = (() => {
   // relaunches (stuck update). Windows can't hit this: its updater process::exit()s before restart.
   // Set right before the install invoke; only cleared if the install throws (app still alive).
   let installing = false;
+  // When a check last STARTED in this launch (0 = none yet). Only this proves "up to date"; a lastCheckAt
+  // persisted from an earlier run says nothing about a release published since.
+  let sessionCheckAt = 0;
   let state = {
     desktop: !!TAURI,
     phase: TAURI ? 'idle' : 'unsupported',
@@ -42,7 +45,7 @@ const Updates = (() => {
   };
 
   function loadPrefs() {
-    if (!CORE) return { v: 1, autoCheck: false, lastCheckAt: 0, nextCheckAt: 0, remindAfter: 0, ignoredVersion: '', notifiedVersion: '', failureCount: 0 };
+    if (!CORE) return { v: 1, autoCheck: false, lastCheckAt: 0, nextCheckAt: 0, remindAfter: 0, ignoredVersion: '', notifiedVersion: '', availableVersion: '', failureCount: 0 };
     try { return CORE.hydrateSettings(JSON.parse(localStorage.getItem(KEY))); }
     catch (_) { return CORE.hydrateSettings(null); }
   }
@@ -68,7 +71,21 @@ const Updates = (() => {
     return Object.assign({}, state, { prefs: Object.assign({}, prefs) });
   }
   function emit() {
+    paintBadge();
     try { rerender('updates'); } catch (_) {}
+  }
+  // The dock's UPDATES item carries a NEW chip while a verified update is armed (state.update comes only from a
+  // native check this launch) — the toast fires once per version, so without this a missed toast was the only sign.
+  // navdock.js mirrors it onto the collapsed SYSTEM trigger.
+  function paintBadge() {
+    if (typeof document === 'undefined' || !document.getElementById) return;
+    const b = document.getElementById('up-badge');
+    if (!b) return;
+    const on = !!(state.update && state.update.version);
+    const text = on ? 'NEW' : '';
+    if (b.textContent !== text) b.textContent = text;
+    const display = on ? 'inline-block' : 'none';
+    if (b.style.display !== display) b.style.display = display;
   }
 
   async function init(opts) {
@@ -112,7 +129,7 @@ const Updates = (() => {
     const now = Date.now();
     const action = CORE.nextAction({
       settings: prefs,
-      runtime: { desktop: state.desktop, phase: state.phase, hasUpdate: !!state.update },
+      runtime: { desktop: state.desktop, phase: state.phase, hasUpdate: !!state.update, currentVersion: state.currentVersion },
       now
     });
     if (action.action === 'check') {
@@ -127,7 +144,7 @@ const Updates = (() => {
     if (!CORE) return;
     const action = CORE.nextAction({
       settings: prefs,
-      runtime: { desktop: state.desktop, phase: state.phase, hasUpdate: !!state.update },
+      runtime: { desktop: state.desktop, phase: state.phase, hasUpdate: !!state.update, currentVersion: state.currentVersion },
       now: Date.now()
     });
     if (action.action === 'check') {
@@ -140,6 +157,7 @@ const Updates = (() => {
   async function check(manual, reason) {
     if (!TAURI || !CORE || busy) return snapshot();
     busy = true;
+    sessionCheckAt = Date.now();
     state.phase = 'checking';
     state.error = '';
     state.confirmRuns = 0;
@@ -387,7 +405,7 @@ const Updates = (() => {
     if (state.phase === 'restarting') return 'restarting';
     if (state.phase === 'current') return 'up to date';
     if (state.phase === 'error') return 'check failed';
-    return 'ready';
+    return 'not checked yet';
   }
 
   function settingsHtml() {
@@ -414,6 +432,13 @@ const Updates = (() => {
   function render(body) {
     body.innerHTML = html();
     wire(body);
+    // The window is the "check it now" place: opening it checks unless this launch already checked recently.
+    // Deferred out of this render's stack; check() stamps sessionCheckAt and busy first, so its rerenders never re-enter. AUTO-CHECK off means
+    // no request the Commander didn't click (PRIVACY.md §6) — CHECK NOW stays the manual path.
+    if (TAURI && CORE && !busy && !installing && prefs.autoCheck !== false && (state.phase === 'idle' || state.phase === 'current' || state.phase === 'error') &&
+        CORE.shouldCheckOnOpen(sessionCheckAt, Date.now())) {
+      Promise.resolve().then(() => check(false, 'open'));
+    }
   }
 
   function html() {
@@ -449,8 +474,16 @@ const Updates = (() => {
           '<button class="bb sm" id="up-remind">REMIND TOMORROW</button>' +
           (update.critical ? '' : '<button class="bb sm danger" id="up-ignore">SKIP VERSION</button>') + '</div></div>';
       }
-    } else {
-      out += '<div class="up-empty">No update is pending. StarNet will keep checking in the background while automatic checks are on.</div>';
+    } else if (state.phase === 'current') {
+      out += '<div class="up-empty">You have the latest StarNet (checked ' + esc(fmtTime(state.lastCheckedAt)) + ').</div>';
+    } else if (state.phase === 'checking') {
+      out += '<div class="up-empty">Checking for a newer StarNet...</div>';
+    } else if (state.phase === 'idle') {
+      // Not checked this launch: say only what is known — when the last check ran and what it found.
+      const known = prefs.availableVersion && prefs.availableVersion !== state.currentVersion && prefs.availableVersion !== prefs.ignoredVersion ? prefs.availableVersion : '';
+      out += '<div class="up-empty">' + (known
+        ? 'The last check found v' + esc(known) + '. Press CHECK NOW to get it ready to install.'
+        : 'Not checked since ' + esc(fmtTime(state.lastCheckedAt)) + '. Press CHECK NOW to look for a newer StarNet.') + '</div>';
     }
     if (state.phase === 'preparing' || state.phase === 'downloading' || state.phase === 'installing' || state.phase === 'restarting') {
       out += '<div class="up-progress"><div style="width:' + pct + '%"></div></div>' +
