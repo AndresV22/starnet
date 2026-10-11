@@ -1,0 +1,78 @@
+{
+  "status": "hypothesis; no baseline proof",
+  "candidate": "9f7ab4b4cee18a0369600c1570cc3d0154018d56",
+  "observed": {
+    "aggregateFirstRun": "Parent reported station-builder.e2e failed six line execution/start checks: new SHIP IT line p12 visible, backend returned no armed work line.",
+    "focusedRerun": "Parent subsequently ran unchanged candidate: ALL CHECKS PASSED, 122 mock-provider calls, all six checks passed.",
+    "interpretation": "Intermittent failure is confirmed by parent reports; the proposed missed-publication timing cause is not established."
+  },
+  "hypothesis": "station.build applies the floor and reports local compile readiness before World publishes it. If Build opens before World's next rederive frame, it freezes the world. station.line_ref compiles a fresh line ID from the document without syncing the backend, so test/start tools may dispatch the new ID against the previous router plan.",
+  "source": [
+    {
+      "path": "frontend/app/stationcommands.js:700",
+      "fact": "station.build is synchronous; apply at712, returns local ready at734, no World.syncPlan."
+    },
+    {
+      "path": "frontend/app/world.js:648",
+      "fact": "station change only sets geoDirty; rederive at652 invokes compileRouting at660."
+    },
+    {
+      "path": "test/station-builder.e2e.test.mjs:167",
+      "fact": "Build.openAssign follows floor inspection, before test_line at183 and start_line at195, with no explicit new-plan synchronization."
+    },
+    {
+      "path": "frontend/app/build.js:310",
+      "fact": "opening Build stops the world."
+    },
+    {
+      "path": "frontend/app/stationcommands.js:676",
+      "fact": "station.line_ref resolves from serialized current floor and returns line ID without router synchronization."
+    },
+    {
+      "path": "sidecar/tools/builtin/station.js:576",
+      "fact": "test_line resolves line_ref then dispatches at581; start_line repeats at626/630."
+    },
+    {
+      "path": "frontend/app/world.js:11119",
+      "fact": "existing syncPlan forces dirty rederive then awaits planPoster.flush; planStatus at11128 can expose pending dirty state."
+    },
+    {
+      "path": "frontend/app/build.js:4360",
+      "fact": "UI finPlanGate already awaits syncPlan and refuses compiler errors/refused/stale posting."
+    },
+    {
+      "path": "sidecar/index.js:5277",
+      "fact": "accepted/refused posted plan persists in isolated WORKSPACES/routing.plan.json; backend unknown-line refusal at12179."
+    }
+  ],
+  "proposedDeterministicReproduction": {
+    "executed": false,
+    "scope": "Only an isolated seeded workspace/local mock provider and disposable browser profile.",
+    "steps": [
+      "Load the normal seeded page; await initial World.syncPlan and retain World.planStatus plus routing.plan.json line/source IDs.",
+      "Hold the world render step with World.stop while Build is still closed. This is a test-only scheduling control, not a production workaround. Keep the real station bridge, builder and router.",
+      "Perform the test's normal station_plan/station_build sequence (lookFirst false) for SHIP IT. Confirm built:true and the new line ID from the real document. Open Build.openAssign(newIntake) as the test does.",
+      "Before test/start dispatch, record World.planStatus.pending and persisted router plan. Hypothesis requires the document to contain the new line while router readback lacks it; if both match, this mechanism is refuted for that run.",
+      "Call the real station.test_line and station.start_line flows once; record whether they refuse the new ID. Avoid real webhook fires, schedules or external providers.",
+      "Await existing World.syncPlan exactly once; require successful, nonstale, nonrefused result and router readback containing that line. Retry the same test_line. A before/after difference with no other state edit would support the hypothesis.",
+      "Restore normal rendering and dispose only the constructor-owned test roots."
+    ],
+    "acceptance": "Require a before/after publication mismatch and matching refusal/recovery; an added delay or isolated green rerun alone is not causal proof."
+  },
+  "overlap": {
+    "checked": [
+      "agent/fix-runtime@a783de82e",
+      "agent/fix-floor@de7100ed3",
+      "agent/fix-ui@58eb3b136",
+      "agent/splitter-merge@de7100ed3",
+      "agent/builder-lend@691aa23b5"
+    ],
+    "method": "Read-only triple-dot Git diffs from own workspace.",
+    "finding": "No pending branch changes the station.line_ref sync, world poster or this e2e. Splitter/runtime changes concern branch execution and UI changes concern controls; builder lending alters delegation/recruitment/attribution.",
+    "alreadyPresent": "b7042a1c6 serialized plan-poster fix is an ancestor of ddd4cbcfa; do not duplicate it."
+  },
+  "nextAction": "If deterministic proof succeeds, align the owner lane on reusing existing synchronization/refusal semantics at the mutating build/test/start boundary. Keep station.map/layout reads nonmutating. No source repair justified solely by this hypothesis.",
+  "performed": "Read-only source/branch review; no new tests, source edits or other-worktree access except the explicitly handed-off report.",
+  "supersededBy": "station-builder-publication-confirmed.json",
+  "currentOutcome": "Hypothesis subsequently confirmed by a controlled live experiment and repaired; retained here as investigation history."
+}

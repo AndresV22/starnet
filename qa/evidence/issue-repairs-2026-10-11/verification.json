@@ -1,0 +1,432 @@
+{
+  "date": "2026-10-11",
+  "sourceCandidate": "cc772515354445d36c98b195404d6f1c692fa92a",
+  "alignedTrunk": "ddd4cbcfa66f496960d57a0b8b64390d08442d92",
+  "branch": "agent/issue-triage-1011",
+  "node": "v22.23.0",
+  "platform": "win32",
+  "integration": "Isolated branch; not merged to shared trunk or released",
+  "gates": {
+    "fast": {
+      "command": "npm run test:fast",
+      "candidate": "79a0592c767a0b89cae23296c2024b47465d9ab0",
+      "exit": 0,
+      "status": "PASS",
+      "steps": 1122,
+      "log": ".investigation/test-fast-combined.log",
+      "applicableToCandidate": true,
+      "changedSincePass": [
+        "qa/evidence/atlas-supersede-steering-2026-10-11.json",
+        "qa/evidence/routing-sample-stop-observation-2026-10-11.json",
+        "test/atlas-events.emit.e2e.test.js",
+        "test/routing.sample-stop.e2e.test.js"
+      ],
+      "applicability": "Since the fast gate, only the HTTP Atlas and workflow-stop fixtures and their sanitized evidence changed. Application code, fast runner/list and fast-test files are identical."
+    },
+    "http": {
+      "command": "npm run test:http",
+      "candidate": "cc772515354445d36c98b195404d6f1c692fa92a",
+      "exit": 1,
+      "status": "FAILED: first-boot timeout; unchanged focused reruns passed",
+      "steps": null,
+      "uninterruptedFullPass": false,
+      "log": ".investigation/test-http-verified-final.log",
+      "failedStep": 87,
+      "startupTimeoutMs": 12000,
+      "focusedRerun": {
+        "exit": 0,
+        "assertions": 27,
+        "sourceChanged": false,
+        "log": ".investigation/loops-endurance-final-rerun.log"
+      },
+      "continuation": {
+        "fromStep": 88,
+        "toStep": 207,
+        "exit": 1,
+        "status": "FAILED",
+        "log": ".investigation/test-http-tail-88-final.log"
+      },
+      "continuationFailure": {
+        "originalStep": 88,
+        "continuationStep": 1,
+        "exit": 1,
+        "fixture": "test/loops-stall.e2e.test.js",
+        "phase": "GET /api/loops while awaiting first park, after startup, token, budget requests and loop creation succeeded",
+        "error": "TypeError: fetch failed",
+        "cause": "Unconfirmed: saved fixture log omits underlying fetch cause and post-ready sidecar output/exit details",
+        "sourceChangedSinceEarlierPassingCandidate": false,
+        "focusedRerun": {
+          "exit": 0,
+          "assertions": 38,
+          "sourceChanged": false,
+          "log": ".investigation/loops-stall-final-rerun.log"
+        },
+        "limits": "No crash, external termination, socket reset or application stall cause is established. No production or timeout change selected."
+      },
+      "currentRunCoverageComplete": false
+    }
+  },
+  "previousCandidate": {
+    "candidate": "9f7ab4b4cee18a0369600c1570cc3d0154018d56",
+    "fast": {
+      "exit": 0,
+      "steps": 1121
+    },
+    "http": {
+      "uninterruptedFullPass": false,
+      "findings": [
+        "Station-builder readiness race reproduced and repaired indd731e1a1",
+        "Quest-refresh boot timeout passed its focused rerun100assertions",
+        "Telegram fixture assumed superseding, contradicting newd489326f0 same-run steering; fixture updated in128a58ebe with93assertions"
+      ]
+    },
+    "priorAttempts": [
+      {
+        "gate": "fast",
+        "result": "Plugin-runtime restart-rate assertion failed; unchanged focused rerun and later full gate passed."
+      },
+      {
+        "gate": "fast",
+        "result": "Fail-open ratchet correctly found checkpoint silent-catch count improved12 to11; baseline tightened in9f7ab4b4c, subsequent full gate passed."
+      },
+      {
+        "gate": "http",
+        "result": "Six station-builder assertions failed at step 54/207. The unchanged focused rerun passed, but the resumed suite reproduced the six failures. Later controlled publication testing established the cause; dd731e1a1 repaired exact-floor readiness. The held-frame live regression and publication checks passed. This supersedes the initial unproven timing hypothesis."
+      },
+      {
+        "gate": "http",
+        "result": "The second complete run failed at step 41/207 with a questrefresh.e2e boot timeout. Its isolated rerun passed 100 assertions. The continuation from step 42 then exposed the builder failure, and the later continuation from step 55 exposed the obsolete Telegram expectation. Both were subsequently addressed; the final combined candidate has its own separately recorded aggregate gates."
+      }
+    ]
+  },
+  "intermediateCandidate": {
+    "candidate": "79a0592c767a0b89cae23296c2024b47465d9ab0",
+    "fast": {
+      "exit": 0,
+      "steps": 1122
+    },
+    "http": {
+      "exit": 1,
+      "failedStep": 136,
+      "totalSteps": 207,
+      "fixture": "test/atlas-events.emit.e2e.test.js",
+      "cause": "Obsolete plain owner-DM supersession expectation contradicted current same-run steering; reproduced independently.",
+      "resolution": "Test-only fd3a95b77 preserves genuine supersede event/payload coverage via forwarded ingress, proves its fresh trust context, and adds no-false-supersede assertions for plain steering; focused25 assertions passed."
+    },
+    "finalCandidateDifference": [
+      "qa/evidence/atlas-supersede-steering-2026-10-11.json",
+      "qa/evidence/routing-sample-stop-observation-2026-10-11.json",
+      "test/atlas-events.emit.e2e.test.js",
+      "test/routing.sample-stop.e2e.test.js"
+    ]
+  },
+  "stopFixtureInvestigation": {
+    "candidate": "ab0bfb47c3974b6a21d13d190c0ab2df30055361",
+    "fullHttpExit": 1,
+    "failedStep": 148,
+    "totalSteps": 207,
+    "fixture": "test/routing.sample-stop.e2e.test.js",
+    "observations": [
+      "An earlier unchanged continuation passed 28 assertions.",
+      "The full run on ab0bfb47 timed out waiting 15 seconds for the second E-STOP sample response.",
+      "Unchanged focused rerun instead failed the first provider-connection-close assertion while the E-STOP checks passed.",
+      "A real-sidecar probe observed topic and quest analysis quoting old hang text. Exact distinct task admission and per-request socket receipts now prevent that unrelated traffic from satisfying the fixture. Original 10s/15s/3s bounds remain."
+    ],
+    "productionChangeSelected": false,
+    "status": "Fixture observation defect confirmed and corrected; no production cancellation change",
+    "source": "7638da054147049c434edbbff8b5bd17e89d09f9",
+    "focusedAssertions": 32,
+    "focusedPasses": 2,
+    "limits": "Original full-run admission order remains unknown. Controlled reproduction proves late HTTP admission after the halt response; no already-admitted job escaping halt was demonstrated.",
+    "evidence": "qa/evidence/routing-sample-stop-observation-2026-10-11.json"
+  },
+  "currentCandidateStartupTimeout": {
+    "candidate": "cc772515354445d36c98b195404d6f1c692fa92a",
+    "fullHttpExit": 1,
+    "failedStep": 87,
+    "totalSteps": 207,
+    "fixture": "test/loops-endurance.e2e.test.js",
+    "phase": "First SidecarFixture.start, before any loop/provider behavioral checks",
+    "timeoutMs": 12000,
+    "existingWindowsHelperDefaultMs": 30000,
+    "focusedRerun": {
+      "exit": 0,
+      "assertions": 27,
+      "sourceChanged": false,
+      "log": ".investigation/loops-endurance-final-rerun.log"
+    },
+    "observations": [
+      "The candidate and previous ab0bfb47 production/endurance/helper bytes are identical.",
+      "The failed boot emitted the completed scratch-recovery skip, without reaching the later exec-env milestone.",
+      "Concurrent host memory pressure was observed after the failure; it is not causal proof."
+    ],
+    "cause": "Unconfirmed startup latency; no production defect selected",
+    "remainingVerification": "Complete a clean uninterrupted full HTTP gate before integration; investigate repeated failures with child lifecycle and underlying request error evidence.",
+    "continuationFailure": {
+      "originalStep": 88,
+      "continuationStep": 1,
+      "exit": 1,
+      "fixture": "test/loops-stall.e2e.test.js",
+      "phase": "GET /api/loops while awaiting first park, after startup, token, budget requests and loop creation succeeded",
+      "error": "TypeError: fetch failed",
+      "cause": "Unconfirmed: saved fixture log omits underlying fetch cause and post-ready sidecar output/exit details",
+      "sourceChangedSinceEarlierPassingCandidate": false,
+      "focusedRerun": {
+        "exit": 0,
+        "assertions": 38,
+        "sourceChanged": false,
+        "log": ".investigation/loops-stall-final-rerun.log"
+      },
+      "limits": "No crash, external termination, socket reset or application stall cause is established. No production or timeout change selected."
+    }
+  },
+  "continuation": {
+    "candidate": "79a0592c767a0b89cae23296c2024b47465d9ab0",
+    "fromStep": 137,
+    "toStep": 207,
+    "exit": 0,
+    "log": ".investigation/test-http-tail-137.log"
+  },
+  "checks": {
+    "syntax": {
+      "candidate": "cc772515354445d36c98b195404d6f1c692fa92a",
+      "files": [
+        "frontend/app/stationcommands.js",
+        "sidecar/checkpoint-git.js",
+        "sidecar/checkpoint-store.js",
+        "sidecar/environment.js",
+        "sidecar/index.js",
+        "sidecar/providers/ollama-native.js",
+        "sidecar/providers/openai-compatible.js",
+        "sidecar/tools/builtin/browser-upload.js",
+        "sidecar/tools/builtin/browser.js",
+        "sidecar/workspace-recovery.js",
+        "test/atlas-events.emit.e2e.test.js",
+        "test/browser-upload.e2e.test.js",
+        "test/browser-upload.run.e2e.test.js",
+        "test/browser-upload.test.js",
+        "test/browser.test.js",
+        "test/channels.telegram.e2e.test.js",
+        "test/checkpoint-git.test.js",
+        "test/checkpoint-maintenance.e2e.test.js",
+        "test/checkpoint-maintenance.test.js",
+        "test/failopen-ratchet.test.js",
+        "test/ollama-system.e2e.test.js",
+        "test/provider.ollama-native.test.js",
+        "test/provider.ollama-system.test.js",
+        "test/routing.sample-stop.e2e.test.js",
+        "test/station-builder-publication.test.js",
+        "test/station-builder.e2e.test.mjs",
+        "test/workspace-recovery-fresh-start.http.test.js",
+        "test/workspace-recovery-fresh-start.test.js",
+        "website/app/app/stationcommands.js"
+      ],
+      "passed": 29,
+      "exit": 0
+    },
+    "bugRegister": {
+      "records": 227,
+      "valid": true
+    },
+    "packaging": {
+      "method": "Static configuration and import inspection",
+      "sidecarResourceMapping": "../sidecar -> sidecar",
+      "modules": [
+        "sidecar/checkpoint-git.js",
+        "sidecar/tools/builtin/browser-upload.js"
+      ],
+      "result": "Whole sidecar directory is configured as a bundled resource; new imports are inside that directory.",
+      "installerAcceptance": false
+    },
+    "live": {
+      "99": "Local no-header/idle/cancel loopback probe; truthful diagnostics: 87 assertions; retry policy unresolved",
+      "101": "Real isolated sidecar boot, restart and explicit restore: 18 assertions",
+      "102": "Seeded native Ollama and compatible fallback real tool runs, usage and correlated diagnostics",
+      "104": "Real Chromium: 17 assertions and seeded nine-turn run selecting project 19-byte file over private 5-byte decoy",
+      "107": "Real Git and supervised-process fixtures; seeded write/list/restore/restart-undo API proof",
+      "workflowStop": "Actual sidecar: 32 assertions passed twice with exact per-job admission and socket-close observations; production cancellation behavior unchanged",
+      "builder": "Deterministic held-frame seeded Chromium proof; 73 publication assertions including concurrent floor/capability changes",
+      "telegram": "Actual sidecar same-run follow-up consumed and distinct response delivered; 93 assertions, unchanged production behavior",
+      "atlas": "Actual sidecar: 25 assertions: plain owner follow-up does not falsely supersede; forwarded third-party task emits the real old-crate event and retains outside-content restrictions on wire"
+    }
+  },
+  "limitations": [
+    "Synthetic workspaces/local provider endpoints in live fixtures.",
+    "No installed-build, actual Qwen/WSL, actual Etsy or macOS multi-hour disk-growth acceptance.",
+    "Customer recovery remains unconfirmed.",
+    "Earlier HTTP failures are retained: builder cause was proven/repaired; Telegram and Atlas expectations were aligned to the current contract; quest-refresh boot timeout passed on rerun.",
+    "Controlled reproduction exposed an E-STOP fixture defect: auxiliary quoted text could be mistaken for job admission. Exact-job observation was corrected without changing production cancellation behavior; original full-run admission order remains unknown.",
+    "The final uninterrupted HTTP run stopped at a 12-second first-boot timeout before endurance behaviors; its unchanged focused rerun passed 27 assertions. The continuation then hit an unexplained request transport error; that unchanged focused rerun passed 38 assertions. An uninterrupted full gate remains outstanding.",
+    "No station-wide release-readiness claim."
+  ],
+  "logs": [
+    {
+      "path": ".investigation/test-fast.log",
+      "sha256": "c539656fd18fbe0b043bf3ab51f62cbff4e4d9b9259f3a052dabf1d746e6cf20",
+      "bytes": 18407,
+      "resultLines": [
+        "run-fast-tests: FAILED at step 144/1121: node test/plugin-runtime.test.js (exit 1)"
+      ]
+    },
+    {
+      "path": ".investigation/plugin-runtime-rerun.log",
+      "sha256": "a5eec89ba9692e93520237bb4b396dcc20cacc7040e38d5ca67b2322c35a9ed3",
+      "bytes": 41,
+      "resultLines": []
+    },
+    {
+      "path": ".investigation/test-fast-rerun.log",
+      "sha256": "d62ba1175ce2665f67c27e7bdb4b22e8995f6976ae45b8be111b1d30f6805391",
+      "bytes": 75065,
+      "resultLines": [
+        "=== ALL CHECKS PASSED ===",
+        "run-fast-tests: FAILED at step 934/1121: node test/failopen-ratchet.test.js (exit 1)"
+      ]
+    },
+    {
+      "path": ".investigation/test-fast-final.log",
+      "sha256": "0bf142d038403efe7d954f72e3ee185a29ab7e70c92ef1422d29bb66faf474d0",
+      "bytes": 99654,
+      "resultLines": [
+        "=== ALL CHECKS PASSED ===",
+        "run-fast-tests: OK — 1121 step(s) green"
+      ]
+    },
+    {
+      "path": ".investigation/test-http.log",
+      "sha256": "6c348480f5702d8d8acb7fda641518abe415ce41fa0ff3c38b53c90a0c814a1c",
+      "bytes": 36947,
+      "resultLines": [
+        "=== station-layout.e2e: ALL CHECKS PASSED ===",
+        "run-test-list: FAILED at step 54/207: node test/station-builder.e2e.test.mjs (exit 1)"
+      ]
+    },
+    {
+      "path": ".investigation/station-builder-rerun.log",
+      "sha256": "e63fad8ca8a5aedc7a19ba2e472cbbc0f1369e45adb4916a4aaa0607bd6dd08f",
+      "bytes": 16726,
+      "resultLines": [
+        "=== station-builder.e2e: ALL CHECKS PASSED ==="
+      ]
+    },
+    {
+      "path": ".investigation/test-http-rerun.log",
+      "sha256": "a581ab2412960cfd1efae99467142d65a5886d309992356e2f116d89f9c11013",
+      "bytes": 4989,
+      "resultLines": [
+        "FAIL: questrefresh.e2e.test threw - Error: boot timeout:",
+        "run-test-list: FAILED at step 41/207: node test/questrefresh.e2e.test.js (exit 1)"
+      ]
+    },
+    {
+      "path": ".investigation/questrefresh-rerun.log",
+      "sha256": "14a994c39277c1c5a4785b208bc764f946a48a93a82472284e287154cb610865",
+      "bytes": 83,
+      "resultLines": [
+        "run-test-list: OK — 1 step(s) green"
+      ]
+    },
+    {
+      "path": ".investigation/test-http-tail.log",
+      "sha256": "f52e7260a6e1a863d656444430d9e024be515df0f275c1985e118690dbd2e36d",
+      "bytes": 32727,
+      "resultLines": [
+        "=== station-layout.e2e: ALL CHECKS PASSED ===",
+        "run-test-list: FAILED at step 13/166: node test/station-builder.e2e.test.mjs (exit 1)"
+      ]
+    },
+    {
+      "path": ".investigation/test-http-tail-55.log",
+      "sha256": "83c216cde57978db8bc61b60700d8427842a4aa1978e2e6becf565f0a4a53df3",
+      "bytes": 3622,
+      "resultLines": [
+        "FAIL: channels.telegram.e2e.test threw - Error: timed out waiting for chat 5555 eventually gets the real answer for message #2",
+        "run-test-list: FAILED at step 48/153: node test/channels.telegram.e2e.test.js (exit 1)"
+      ]
+    },
+    {
+      "path": ".investigation/telegram-rerun.log",
+      "sha256": "f3ab4f3f83060d5e63329df662c9ef2d2f2f1ddfceb2fd9318c51b0c604d08ae",
+      "bytes": 415,
+      "resultLines": [
+        "FAIL: channels.telegram.e2e.test threw - Error: timed out waiting for chat 5555 eventually gets the real answer for message #2",
+        "run-test-list: FAILED at step 1/1: node test/channels.telegram.e2e.test.js (exit 1)"
+      ]
+    },
+    {
+      "path": ".investigation/test-fast-combined.log",
+      "sha256": "df943fdbded3f077f638ab9c0617b54bfe6bdfc91b8214444292e4ff5d7a35b1",
+      "bytes": 99669,
+      "resultLines": [
+        "=== ALL CHECKS PASSED ===",
+        "run-fast-tests: OK — 1122 step(s) green"
+      ]
+    },
+    {
+      "path": ".investigation/test-http-combined.log",
+      "sha256": "5b151d832488b3cd44a1e21773bdbe1331e816f8aa59c749e15eb47e77da3939",
+      "bytes": 48729,
+      "resultLines": [
+        "=== station-layout.e2e: ALL CHECKS PASSED ===",
+        "=== station-builder.e2e: ALL CHECKS PASSED ===",
+        "run-test-list: FAILED at step 136/207: node test/atlas-events.emit.e2e.test.js (exit 1)"
+      ]
+    },
+    {
+      "path": ".investigation/test-http-tail-137.log",
+      "sha256": "2cf26f2335c6c855a85013086705a67dc7bae65ef490d779bddbc78df14b18d7",
+      "bytes": 14661,
+      "resultLines": [
+        "run-test-list: OK — 71 step(s) green"
+      ]
+    },
+    {
+      "path": ".investigation/test-http-final-combined.log",
+      "sha256": "14ca25939d390df07613e38d260e10bce58a010c3f57501729945d8104a39deb",
+      "bytes": 53133,
+      "resultLines": [
+        "=== station-layout.e2e: ALL CHECKS PASSED ===",
+        "=== station-builder.e2e: ALL CHECKS PASSED ===",
+        "run-test-list: FAILED at step 148/207: node test/routing.sample-stop.e2e.test.js (exit 1)"
+      ]
+    },
+    {
+      "path": ".investigation/routing-sample-stop-rerun.log",
+      "sha256": "67143daa5f01c11902f4c132c9be27181433b9efa796ffe461d8429630ce9b59",
+      "bytes": 231,
+      "resultLines": [
+        "run-test-list: FAILED at step 1/1: node test/routing.sample-stop.e2e.test.js (exit 1)"
+      ]
+    },
+    {
+      "path": ".investigation/loops-endurance-final-rerun.log",
+      "sha256": "7756dea874e8f89bbfe5b206ee4b91f33d0c3350d706d08e5fa9aef36aeacbb0",
+      "bytes": 77,
+      "resultLines": []
+    },
+    {
+      "path": ".investigation/loops-stall-final-rerun.log",
+      "sha256": "31810c39e7d84e05258a77bb667e75ead7743067efb1e5b368f3cdde7981c2b3",
+      "bytes": 74,
+      "resultLines": []
+    },
+    {
+      "path": ".investigation/test-http-tail-88-final.log",
+      "sha256": "477cfa66dc58f58b2c8aae5b6b10f073d2d1235a108dea3b4fa65f38dc4e82dd",
+      "bytes": 349,
+      "resultLines": [
+        "run-test-list: FAILED at step 1/120: node test/loops-stall.e2e.test.js (exit 1)"
+      ]
+    },
+    {
+      "path": ".investigation/test-http-verified-final.log",
+      "sha256": "df0f4845cec64513cd7135165aa6988f7d3347308440f5a39b827182c313eeff",
+      "bytes": 41461,
+      "resultLines": [
+        "=== station-layout.e2e: ALL CHECKS PASSED ===",
+        "=== station-builder.e2e: ALL CHECKS PASSED ===",
+        "run-test-list: FAILED at step 87/207: node test/loops-endurance.e2e.test.js (exit 1)"
+      ]
+    }
+  ]
+}

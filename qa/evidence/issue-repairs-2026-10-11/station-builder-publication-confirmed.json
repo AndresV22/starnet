@@ -1,0 +1,60 @@
+{
+  "status": "confirmed",
+  "sourceBefore": "65c9d632a",
+  "previousHypothesis": "station-builder-timing-hypothesis.json",
+  "cause": "station.build acknowledges structural readiness before dirty floor is explicitly rederived and published",
+  "control": "World.stop() before the build, Build mode remains closed",
+  "before": {
+    "built": true,
+    "ready": true,
+    "intake": "p12",
+    "world": {
+      "pending": true,
+      "hash": "7cc42668",
+      "inflight": false,
+      "errors": []
+    },
+    "persisted": {
+      "hash": "7cc42668",
+      "lines": []
+    },
+    "failedOriginalChecks": 6
+  },
+  "causalControl": {
+    "action": "World.syncPlan() only",
+    "persistedHash": "be733148",
+    "lineId": "p12",
+    "identicalTestLine": "delivered"
+  },
+  "after": {
+    "receiptPublished": true,
+    "receiptHash": "be733148",
+    "persistedHash": "be733148",
+    "persistedLine": "p12",
+    "worldPending": false,
+    "worldStale": false,
+    "realFixture": "ALL CHECKS PASSED",
+    "mockCalls": 122,
+    "pageExceptions": []
+  },
+  "regression": {
+    "path": "test/station-builder-publication.test.js",
+    "beforeFailed": 31,
+    "afterPassed": 73
+  },
+  "limitations": [
+    "source seeded Chromium only",
+    "no installer or customer recovery proof",
+    "aggregate integration gate owned by root"
+  ],
+  "sourceFix": "dd731e1a191197de95a7ab1c04a9847e9f0e4cdd",
+  "concurrentEditRegression": {
+    "beforeFailed": 2,
+    "expected": "pin synchronous offered hash and full poster key",
+    "covers": [
+      "new topology",
+      "same topology changed full key"
+    ]
+  },
+  "peerReview": "no blocking findings on exact commit objects"
+}
