@@ -222,7 +222,7 @@ function contextBlock(briefing) {
     else if (it.kind === 'routine') L.push('- routine "' + it.name + '"' + (it.jobId ? ' (job ' + it.jobId + ')' : '') + ': ' + it.runs + ' run(s), ' + it.failed + ' failed; latest run ' + (it.latest ? it.latest.runId : '?') + '.');
     else if (it.kind === 'loop') L.push('- loop "' + it.name + '" (' + it.loopId + '): ' + it.runs + ' pass(es).');
     else if (it.kind === 'draft') L.push('- night-shift idea draft "' + it.title + '" (not built).');
-    else if (it.kind === 'delegated') L.push('- conversation "' + it.name + '" (' + it.parentId + '): ' + it.runs + ' delegated job(s) finished, ' + it.failed + ' failed; each worker has its own thread under that conversation.');
+    else if (it.kind === 'delegated') L.push('- conversation "' + it.name + '" (' + it.parentId + '): ' + it.runs + ' delegated job(s) finished, ' + it.failed + ' failed; each worker\'s work is on that conversation\'s delegation card.');
     else if (it.kind === 'builds-waiting') L.push('- ' + it.count + ' earlier undecided build(s): ' + it.runIds.slice(0, 6).map(id => 'workshop/' + id + '/').join(', ') + '.');
   }
   return L.join('\n');

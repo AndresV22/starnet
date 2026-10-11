@@ -295,7 +295,8 @@ const leadCtx = (extra) => makeCapCtx({ agentId: 'lead', room: 'office', hasComp
   const src = fs.readFileSync(path.join(root, 'sidecar', 'index.js'), 'utf8');
   A.ok(/const relayed = taintPolicy\.relayedTaint\(r\);\s*if \(relayed\) latchRunTaint\(relayed\);/.test(src), 'the dispatch seam latches a relayed worker taint on the lead');
   A.ok(/result\.taintedBy = execution\.taintedBy\(\)/.test(src), 'runOnce reports its taint to the caller (worker -> team.* rows)');
-  A.ok(/initialTaint: taintPolicy\.relayedTaint\(worker\) \|\| undefined/.test(src), 'the overseer hand-back review starts tainted by a tainted worker');
+  // one report per hand-off (2026-10-11): ANY tainted worker of the batch taints the reviewing lead
+  A.ok(/initialTaint: taintPolicy\.relayedTaint\(\{ taintedBy: taintPolicy\.firstTaint\(members\) \|\| '' \}\) \|\| undefined/.test(src), 'the overseer hand-back review starts tainted by a tainted worker');
   A.ok(/taintPolicy\.UNTRUSTED_PARK_PREFIX/.test(src), 'the host parker names untrusted parks');
   A.ok(/taint: \(\) => execution\.taintedBy\(\)/.test(src), 'transcript rows are written with the run\'s live taint');
   A.ok(/appendNew\(o\.streamId, agentId, result\.messages, \{ taint: execution\.taintedBy\(\) \}\)/.test(src), 'the run-end transcript fallback writes taint too');

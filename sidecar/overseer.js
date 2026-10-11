@@ -53,7 +53,9 @@ function makeOverseer(deps) {
     const key = String(ref || '').trim().toLowerCase();
     const exact = rows.filter(w => w.id === ref);
     const named = rows.filter(w => w.title.toLowerCase() === key);
-    const hits = exact.length ? exact : named;
+    // a name means the conversation the Commander can see, never a delegated worker's thread that shares it
+    const visible = named.filter(w => w.worker !== true);
+    const hits = exact.length ? exact : (visible.length ? visible : named);
     if (hits.length !== 1) throw new Error(hits.length ? 'ambiguous session title; use its id' : 'no such session');
     return hits[0];
   }
@@ -63,7 +65,8 @@ function makeOverseer(deps) {
     const parent = resolve(args.parentStreamId);
     const duplicate = state.threads.find(w => args.requestId && w.requestId === args.requestId);
     if (duplicate) return copy(resolve(duplicate.id));
-    if (threads().some(w => w.title.toLowerCase() === title.toLowerCase())) throw new Error('session title already exists; use its id');
+    // a hidden worker thread never blocks a name the Commander can see; worker threads stay unique among themselves too
+    if (threads().some(w => (args.worker === true || w.worker !== true) && w.title.toLowerCase() === title.toLowerCase())) throw new Error('session title already exists; use its id');
     const agentId = args.agentId || parent.agentId || 'agent';
     if (!valid(agentId) || !deps.hasAgent(agentId)) throw new Error('unknown crew agent');
     const row = { id: deps.newId(), title, agentId, parentStreamId: parent.id,
@@ -108,17 +111,64 @@ function makeOverseer(deps) {
       parentStreamId: '', kind: 'chat', lane: 'active', history: [], runIds: [], createdAt: deps.now(), lastActiveAt: deps.now() };
     return update(s => { s.threads.push(row); return row; });
   }
-  function freshReviews(workers) {
-    // A worker stopped BECAUSE its lead run was cancelled (subagents.js cancelChildren) gets no review turn: the
-    // Commander just pressed Stop on that conversation, and a fresh paid run reporting the stop would override it.
-    const fresh = workers.filter(w => w.leadId === 'agent' && valid(w.parentStreamId) && (w.completedAt || w.status === 'stale')
-      && w.cancelledBy !== 'parent'
-      && ['done', 'error', 'refused', 'interrupted', 'stale'].includes(w.status)
-      && !state.reviews.some(r => r.id === w.runId + ':review'));
-    return fresh.map(w => ({ id: w.runId + ':review',
-      parentStreamId: w.parentStreamId, childStreamId: w.streamId || '', agentId: w.leadId,
-      workerId: w.id, workerRunId: w.runId, generation: w.generation, status: 'pending',
-      createdAt: deps.now(), reviewRunId: '', error: '' }));
+  /* ONE REPORT PER HAND-OFF (2026-10-11, version B — a blind usability test: one report per request read clearer, and
+     calmer on return, than one message per worker). The workers one lead run sent out are reviewed TOGETHER once they
+     have all settled, so NOVA posts one report naming each worker's part. A worker that never settles cannot hold that
+     report forever: past the ceiling NOVA reports on the finished part and names who is still working, and the straggler
+     gets one follow-up report when it settles. A worker stopped BECAUSE its lead run was cancelled (subagents.js
+     cancelChildren) gets no review: the Commander just pressed Stop on that conversation, and a fresh paid run
+     reporting the stop would override it. */
+  const SETTLED = ['done', 'error', 'refused', 'interrupted', 'stale'];
+  const ceilingMs = () => (Number(deps.reportCeilingMs) > 0 ? Number(deps.reportCeilingMs) : 600000);
+  // every worker generation already reported on — batch rows list theirs; a pre-batching '<runId>:review' row covers
+  // its one worker (an upgrade never re-reviews history)
+  function covered() {
+    const out = new Set();
+    for (const r of state.reviews) {
+      if (Array.isArray(r.workerRunIds)) r.workerRunIds.forEach(id => out.add(String(id)));
+      else if (r.workerRunId) out.add(String(r.workerRunId));
+    }
+    return out;
+  }
+  // the order the lead asked for its workers (the thread slot in its requestId '<leadRunId>:<call>:<slot>')
+  function slotOf(w) {
+    const t = state.threads.find(x => x.id === w.streamId);
+    return t ? Number(String(t.requestId || '').split(':').pop()) || 0 : 0;
+  }
+  function membersOf(review) {
+    return Array.isArray(review && review.members) ? review.members
+      : [{ workerId: review.workerId, workerRunId: review.workerRunId, generation: review.generation, streamId: review.childStreamId || '' }];
+  }
+  function freshReviews(workers, opts) {
+    const done = covered();
+    const groups = new Map();
+    for (const w of workers) {
+      if (!(w && w.leadId === 'agent' && valid(w.parentStreamId) && w.cancelledBy !== 'parent' && !done.has(String(w.runId)))) continue;
+      const key = w.parentStreamId + '|' + (w.parentRunId || 'solo-' + w.runId);
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(w);
+    }
+    const out = [];
+    for (const [key, members] of groups) {
+      const settled = members.filter(w => (w.completedAt || w.status === 'stale') && SETTLED.includes(w.status)).sort((a, b) => slotOf(a) - slotOf(b));
+      const running = members.filter(w => !settled.includes(w));
+      if (!settled.length) continue;
+      if (running.length && !(opts && opts.force)) {
+        const first = Math.min(...settled.map(w => +w.completedAt || +w.updatedAt || +w.startedAt || deps.now()));
+        if (deps.now() - first < ceilingMs()) continue;
+      }
+      const seq = 1 + state.reviews.filter(r => r.groupKey === key).length;
+      const lead = settled[0];
+      out.push({ id: key + ':report:' + seq, kind: 'batch', groupKey: key, followUp: seq > 1,
+        parentStreamId: lead.parentStreamId, childStreamId: lead.streamId || '', agentId: lead.leadId,
+        // the single-worker fields name the first member (older readers and the page's change signal keep working)
+        workerId: lead.id, workerRunId: lead.runId, generation: lead.generation,
+        members: settled.map(w => ({ workerId: w.id, workerRunId: w.runId, generation: w.generation, streamId: w.streamId || '', agentId: w.agentId })),
+        workerRunIds: settled.map(w => String(w.runId)),
+        waitingOn: running.map(w => ({ workerId: w.id, workerRunId: w.runId, agentId: w.agentId })),
+        status: 'pending', createdAt: deps.now(), reviewRunId: '', error: '' });
+    }
+    return out;
   }
   function collect(workers) {
     const fresh = freshReviews(workers);
@@ -146,7 +196,7 @@ function makeOverseer(deps) {
     // Keep cancellation in RAM even if persistence fails. A later successful
     // resume must not resurrect work the Commander already stopped.
     const next = copy(state);
-    next.reviews.push(...freshReviews(workers || []));
+    next.reviews.push(...freshReviews(workers || [], { force: true }));
     next.paused = true;
     for (const r of next.reviews) if (r.status === 'pending' || r.status === 'reviewing') {
       r.status = 'cancelled'; r.error = 'Stopped by the Commander.';
@@ -169,6 +219,6 @@ function makeOverseer(deps) {
     if (state.paused || emergencyPaused) update(s => { s.paused = false; return null; });
     emergencyPaused = false;
   }
-  return { threads, resolve, create, ensure, projectHome, collect, patchReview, withThread, snapshot, stopReviews, resumeReviews };
+  return { threads, resolve, create, ensure, projectHome, collect, patchReview, withThread, snapshot, stopReviews, resumeReviews, membersOf };
 }
 module.exports = { makeOverseer, isCoordinatorRun };
