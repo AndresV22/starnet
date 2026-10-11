@@ -136,6 +136,27 @@ const userRowIndex = (rows, k) => { let n = 0; for (let i = 0; i < rows.length; 
     A.ok(p.items.reduce((a, it) => a + it.text.length, 0) <= 3000 && p.omitted === 0, 'without instructions the fair share is unchanged');
   }
 
+  // ---- 3b. the run's own request rides a fold as the CURRENT TASK: whole, first, never dropped ----
+  {
+    const task = { role: 'user', content: 'Build the bakery landing page: hero with the sourdough photo, a menu grid of 12 items, opening hours, a contact form. ' + 'Use the brand colours exactly as before. '.repeat(30) };
+    const older = [{ role: 'user', content: 'ok' }, task];
+    for (let k = 1; k <= 60; k++) older.push({ role: 'user', content: 'Status ' + k + ': ' + 'still waiting on the upload to finish. '.repeat(8) });
+    const items = F.collectUserMessages(older, { pinned: task });
+    A.eq(items.filter(it => it.kind === 'task').length, 1, 'the pinned request is collected as the current task');
+    A.eq(F.collectUserMessages([{ role: 'user', content: task.content }], { pinned: task })[0].kind, 'task', 'a copy with the same text is recognised too (identity can change across elision)');
+    A.eq(F.collectUserMessages(older)[1].kind, 'user', 'without a pin it is an ordinary message');
+    const sec = F.mergeUserMessages(null, items, 3000);
+    const kept = sec.items.find(it => it.kind === 'task');
+    A.ok(kept && kept.text.length >= Math.min(task.content.length, Math.floor(3000 * 0.7) - 1), 'under a tight budget the current task keeps its share (' + (kept && kept.text.length) + ' chars)');
+    A.ok(sec.items.filter(it => it.kind !== 'task').every(it => it.text.length > 1), 'the others still get real text, not 1-char stubs');
+    const rendered = F.renderUserSection(sec);
+    A.ok(/\[current task: (?:first \d+ of )?\d+ chars\]\nBuild the bakery landing page/.test(rendered), 'it renders labelled as the current task');
+    const back = F.splitSummary('prose\n\n' + rendered);
+    A.eq(back.items.filter(it => it.kind === 'task').length, 1, 'and parses back as the current task (successive folds keep the label)');
+    const again = F.mergeUserMessages(back, [], 2000);
+    A.ok(again.items.some(it => it.kind === 'task'), 'a later, tighter fold never drops it');
+  }
+
   // ---- 4. the REAL loop: its compaction merges onto the note, the instruction rides every post-fold request once ----
   {
     const rows = transcript(30, { userAt: { 2: RULE } });

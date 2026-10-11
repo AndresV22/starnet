@@ -698,6 +698,11 @@
 
   async function runAgentLoop(o) {
     const messages = o.messages;
+    // THIS RUN'S REQUEST (consistency audit 2026-10-11): the latest Commander message at start. In a long chat the
+    // pinned "first non-system message" is an old turn, not this task, so a long agentic run could fold the request
+    // itself into the verbatim section at a fair share like any chatter. A fold now carries it as the current task:
+    // whole, first, never dropped (compaction-fidelity collectUserMessages `pinned`).
+    const runRequest = (() => { for (let i = (messages || []).length - 1; i >= 0; i--) { const m = messages[i]; if (m && m.role === 'user') return m; } return null; })();
     let provider = o.provider;
     const emit = o.emit;
     // COPIED, not aliased: a tool.search reveal APPENDS here, and the caller's array is built once per run and
@@ -1362,7 +1367,7 @@
          modify prod-db.conf" went through the summarizer and a generic summary dropped it. Every fold that removes
          messages (paid, fallback) now ends its note with the folded slice's user/steering messages, word for word,
          merged onto what the previous note carried — deterministic, bounded, never duplicated (compaction-fidelity). */
-      const userSection = () => fidelity.renderUserSection(fidelity.mergeUserMessages(prevUsers, fidelity.collectUserMessages(plan.older), fidelity.userBudgetChars(windowTokens())));
+      const userSection = () => fidelity.renderUserSection(fidelity.mergeUserMessages(prevUsers, fidelity.collectUserMessages(plan.older, { pinned: runRequest }), fidelity.userBudgetChars(windowTokens())));
       const summaryNote = (text) => ({ role: 'system', content: '<conversation_summary>\n' + fidelity.joinSummary(text, userSection()) + '\n</conversation_summary>' });
       // ---- micro tier: free; measured on a copy; committed only if it clears the threshold on its own ----
       if (microCompaction && threshold > 0) {
