@@ -222,6 +222,7 @@ const { admitRelayMessage } = require('./channels/relay-admission.js');   // rel
 const { hostPowerWithheldFor, entryUntrusted, standingWorkEscalates } = require('./run-origin.js');   // Full Power follows the owner, not the chat (non-owner channel senders never inherit it)
 const { makePromptRegistry } = require('./channels/prompts.js');   // C6: the bounded token→meaning map behind inline keyboards
 const { makeOpenAiCompat } = require('./openai-compat.js');   // /v1/* OpenAI-compatible surface (external harness ingress)
+const StopReason = require('./stop-reason.js');   // plain-English stop sentences shared by channels/routines/loops
 const { makeChannelRegistry, wireChannel } = require('./channels/registry.js');   // H6.2: channel descriptors + generic wire-up
 const { parseSlackTokens } = require('./channels/slack.js');                       // slack stores its two tokens as ONE secret string
 const engineCredential = require('./engine-credential.js');                      // #89: the page's provider key, kept for unattended runs + the ONE no-credential sentence
@@ -1828,6 +1829,13 @@ function formatRunHolderAge(ageMs) {
 const STEER_MAX_PENDING = 8;      // bound the buffer so a spammed steer can't grow unbounded between iterations
 const steerBufs = makeSteerBuffers({ maxPending: STEER_MAX_PENDING, maxNoteChars: 2000 });
 function drainSteer(runId) { return steerBufs.drain(runId); }
+// A Telegram/Discord/… follow-up that lands while that chat's run is working JOINS the run (channels/hub.js LIVE STEER)
+// through the SAME buffer and the same in-flight test POST /api/run/steer uses — instead of aborting the task.
+function channelSteerRun(runId, text) {
+  const id = String(runId || '');
+  const out = steerBufs.post(id, text, !!id && (runs.has(id) || runStopHandles.has(id)));
+  return { ok: out.status === 200, status: out.status };
+}
 function closeSteer(runId) { return steerBufs.close(runId); }
 // Teardown drop with diagnostics (GROUND_UP_AUDIT 2026-07-06 P2): at run end we drop any un-drained steering notes
 // so a stale correction can't leak to a later run. That drop was SILENT — a Commander whose steer arrived after the
@@ -3786,6 +3794,10 @@ function channelAskConsent(o) {
   return makeConsentWait({
     pending: pend, signal: o.signal, timeoutMs: CONSENT_TIMEOUT_MS, extendMs: CONSENT_ACK_EXTEND_MS,
     uuid: () => crypto.randomUUID(),
+    // NO ANSWER IN TIME is not "denied" (2026-10-11): the broker maps 'timeout' to a distinct, still-closed result the
+    // model reads as "nobody answered", and the surface (hub onTimeout) tells the chat the action did not run.
+    timeoutDecision: 'timeout',
+    onTimeout: (promptId) => { if (typeof o.onTimeout === 'function') { try { o.onTimeout(promptId, fields); } catch (e) { failNote('channels.consent.onTimeout', e); } } },
     // onPrompt is the hub's cue to render the keyboard. It is called synchronously while the deny timer is
     // already armed, so a throw from the renderer must never escape into the waiter (it would leave the run
     // paused with no timer owner) — hence the guard.
@@ -9609,7 +9621,7 @@ function startTelegram(token, key, model, agentCfg) {
   const secretsPersisted = saveChannelSecrets(channelSecrets);   // read-back-proven; surfaced by the connect route
   let adapterRef = null;
   const hub = makeChannelHub({
-    channel: 'telegram', runOnce: runOnce, store: channelStore,
+    channel: 'telegram', runOnce: runOnce, store: channelStore, steerRun: channelSteerRun,
     historyFor: (streamId) => transcriptStore.reconstruct(streamId, { limit: 100 }),
     runSlash: (input, sctx) => runSlashForChannel(input, sctx),   // shared slash registry — identical answers to the desktop
     userCommandNames: () => userCommandEntries().map(c => c.name),
@@ -9876,7 +9888,7 @@ function startTelegramBot(botId) {
   // instances would leave the command reporting success while the gate never changed.
   const botStore = makeBotScopedStore(botId);
   const hub = makeChannelHub({
-    channel: 'telegram:' + botId, runOnce: runOnce, store: botStore,
+    channel: 'telegram:' + botId, runOnce: runOnce, store: botStore, steerRun: channelSteerRun,
     historyFor: (streamId) => transcriptStore.reconstruct(streamId, { limit: 100 }),
     runSlash: (input, sctx) => runSlashForChannel(input, sctx),   // shared slash registry — identical answers to the desktop
     userCommandNames: () => userCommandEntries().map(c => c.name),
@@ -10018,7 +10030,7 @@ function startDiscord(token, key, model, agentCfg) {
   const secretsPersisted = saveChannelSecrets(channelSecrets);   // read-back-proven; surfaced by the connect route
   const wired = wireChannel(channelRegistry.get('discord'), {
     hub: {
-      runOnce: runOnce, store: channelStore,
+      runOnce: runOnce, store: channelStore, steerRun: channelSteerRun,
       historyFor: (streamId) => transcriptStore.reconstruct(streamId, { limit: 100 }),
       secrets: () => {
         const d = (channelSecrets && channelSecrets.discord) || {};
@@ -10306,7 +10318,7 @@ function startGenericChannel(id, token, key, model, agentCfg) {
   }
   const wired = wireChannel(desc, {
     hub: {
-      runOnce: runOnce, store: channelStore,
+      runOnce: runOnce, store: channelStore, steerRun: channelSteerRun,
       historyFor: (streamId) => transcriptStore.reconstruct(streamId, { limit: 100 }),
       secrets: () => {
         const r = (channelSecrets && channelSecrets[id]) || {};
@@ -15447,7 +15459,7 @@ async function handleCronRun(req, res) {
     // the routine green. Missing terminal telemetry also fails closed.
     const terminalReason = String(state.reason || '').trim();
     if (!state.errMsg && terminalReason !== 'done') {
-      state.errMsg = 'run ended without completion: ' + (terminalReason || 'missing-terminal-event');
+      state.errMsg = StopReason.incompleteRunMessage(terminalReason);   // plain words + the machine reason in brackets
     }
     /* RUN NOW MUST FIRE THE WHOLE LINE, exactly like the scheduled fire does. This route calls runOnce
        DIRECTLY (it streams to the watching browser), so it does not pass through the cron driver's
@@ -18264,7 +18276,12 @@ async function handleRun(req, res) {
 
   // the "bus" writes one validated, REDACTED NDJSON line per event (key-shaped secrets are scrubbed even
   // if a tool ever echoes one back); makeEmitter validates against the frozen registry first.
-  const bus = { emit: (name, payload) => { try { res.write(JSON.stringify({ name, payload: redact(payload) }) + '\n'); } catch (_) {} } };
+  // leadStarted/leadEnded: did THIS run's lifecycle reach the page? A throw out of runOnce must still end it (catch below).
+  let leadStarted = false, leadEnded = false;
+  const bus = { emit: (name, payload) => {
+    if (payload && payload.runId === runId) { if (name === 'agent.run.start') leadStarted = true; else if (name === 'agent.run.end') leadEnded = true; }
+    try { res.write(JSON.stringify({ name, payload: redact(payload) }) + '\n'); } catch (_) {}
+  } };
   const emit = wrapEmitDiag(makeEmitter(bus, e => { if (e) console.warn('[event]', e.kind, e.event, (e.errors || []).join(';')); }));
 
   // THE LIVE CONSENT CHANNEL: emit a permission.prompt down the NDJSON stream and return a Promise that the loop's
@@ -18438,7 +18455,13 @@ async function handleRun(req, res) {
     if (recovery) settleRunRecoveryContinuation(recovery, runId, (continuedResult && continuedResult.reason) || 'error');
   } catch (e) {
     if (recovery) settleRunRecoveryContinuation(recovery, runId, 'error');
+    /* A THROW STILL ENDS THE RUN ON SCREEN (2026-10-11). The error used to be the only event: a throw before
+       agent.run.start was dropped by the page (it keys errors to the run it saw start) and read as "Reply stream
+       disconnected", and a throw mid-run never sent agent.run.end, so nothing marked the run over. Balanced
+       start/end so the crew counts stay true; the error between them is what the page shows. */
+    if (!leadStarted) { try { emit('agent.run.start', { agentId, runId, trigger: 'directive', model: String(model || '') }); } catch (e2) { failNote('run.throw.start', e2); } }
     try { emit('agent.run.error', { agentId, runId, message: 'sidecar failure: ' + ((e && e.message) || e), transient: false }); } catch (_) {}
+    if (!leadEnded) { try { emit('agent.run.end', { agentId, runId, reason: 'error', turns: 0, usd: 0 }); } catch (e2) { failNote('run.throw.end', e2); } }
   } finally {
     runs.delete(runId);
     runsMeta.delete(runId);
@@ -18547,7 +18570,20 @@ function cascadeCancelToWorkers(signal, runId) {
 async function runOnce(o) {
   if (o && o.streamId && !o.internal && !o.outputOnly) {
     return overseer.withThread(o.streamId, ({ queued }) => {
-      if (o.signal && o.signal.aborted) return undefined;
+      if (o.signal && o.signal.aborted) {
+        /* CANCELLED WHILE QUEUED (2026-10-11): it waited behind this conversation's previous run and was stopped
+           (a STOP by id, E-STOP) before it began. It used to return with NO events, which the page reads as "Reply
+           stream disconnected" and a routine as a missing outcome. A balanced start/end with reason 'cancelled' is
+           the honest receipt: admitted, never run. */
+        if (typeof o.emit === 'function' && o.runId) {
+          const qa = { agentId: o.agentId || 'agent', runId: o.runId };
+          try {
+            o.emit('agent.run.start', Object.assign({}, qa, { trigger: o.trigger || 'directive', model: String(o.model || '') }));
+            o.emit('agent.run.end', Object.assign({}, qa, { reason: 'cancelled', turns: 0, usd: 0 }));
+          } catch (e) { failNote('runOnce.queuedAbort.emit', e); }
+        }
+        return undefined;
+      }
       // Refresh ordinary queued chat after the preceding turn has persisted.
       // Preserve the new user message (including attachments); checkpoint and
       // group histories retain their own provider-valid assembly contracts.

@@ -492,6 +492,8 @@
       if (tool.requiresConsent && ctx.consent && !(authority && authority.oneShot === true)) {
         let c;
         try { c = await ctx.consent(call, tool); } catch (e) { c = { allow: false, reason: 'consent error' }; }
+        // a TIMED-OUT approval is not a refusal: name it as what happened, or the model reports "you declined"
+        if (c && !c.allow && c.timedOut) return errResult('approval timed out for ' + call.name + ': the Commander did not answer the approval request in time, so it was NOT run. This was not a refusal — tell them it timed out and that they can ask again to retry. Do NOT retry it yourself.', 'denied');
         if (!c || !c.allow) return errResult('consent denied for ' + call.name + (c && c.reason ? ': ' + c.reason : ''), 'denied');
       }
 
