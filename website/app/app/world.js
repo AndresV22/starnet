@@ -709,14 +709,28 @@ const World = (() => {
     scanNovelty();   // diff props/belts vs last frame — anything new becomes a "go check it out" target
     const frameMoved = !cache || cache.W !== geo.W || cache.H !== geo.H || !cache.origin || !geo.origin
       || cache.origin.tx !== geo.origin.tx || cache.origin.ty !== geo.origin.ty;
-    if (bakeEditPending || frameMoved) bakeDirty = true;   // STATIC BAKE: a props-only edit keeps the deck it already has
+    if (bakeEditPending || frameMoved || fixtureAnchorKey(geo) !== bakedAnchorKey) bakeDirty = true;   // STATIC BAKE: a props-only edit keeps the deck it already has
     geoDirty = false; bakeEditPending = false;
   }
 
+  /* STATIC BAKE guard: furniture reaches the bake in exactly one place — WorldSurface.planFixtures puts a wall lamp's light
+     sample on clear deck in the 3 rows below its north wall face, skipping past furniture. A props-only edit that changes
+     walkability on any of those tiles could move a lamp's light, so it re-bakes; any other props-only edit cannot. */
+  let bakedAnchorKey = null;
+  function fixtureAnchorKey(g) {
+    if (!g || !g.zoneGrid || typeof g.walkable !== 'function') return '';
+    const C = g.COLS, R = g.ROWS, zg = g.zoneGrid; let k = '';
+    for (let y = 0; y < R; y++) for (let x = 0; x < C; x++) {
+      if (zg[y * C + x] == null || (y > 0 && zg[(y - 1) * C + x] != null)) continue;   // a tile with a north wall face
+      for (let dy = 1; dy <= 3 && y + dy < R; dy++) k += g.walkable(x, y + dy) ? '1' : '0';
+    }
+    return k;
+  }
   function rebake() {
     if (geoDirty || !geo) rederive();
     if (!geo) return;
     cache = StationBake.bake(geo);
+    bakedAnchorKey = fixtureAnchorKey(geo);
     for (const d of cache.doorOccluders || []) {
       if (d.image.addEventListener) d.image.addEventListener('contextlost', () => { bakeDirty = true; });
     }
