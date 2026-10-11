@@ -171,8 +171,9 @@
         // a work line's later stage was HANDED a machine prompt; the Commander asked for the ORIGINAL request (R2)
         const hand0 = (users.length && typeof Pipeline !== 'undefined' && Pipeline.parseHandoff) ? Pipeline.parseHandoff(users[0].content) : null;
         // SEND TO: a job another line handed on opens with that line's frame — title it by the job as it first arrived
-        const sent = (!hand0 && users.length && typeof Pipeline !== 'undefined' && Pipeline.parseHandoffInput) ? Pipeline.parseHandoffInput(users[0].content) : null;
-        const hand = hand0 || (sent && sent.original ? { original: sent.original, stage: 1, from: '', sent } : null);
+        const inner = hand0 && Pipeline.parseHandoffInput ? Pipeline.parseHandoffInput(hand0.original) : null;
+        const sent = inner && inner.original ? inner : ((!hand0 && users.length && typeof Pipeline !== 'undefined' && Pipeline.parseHandoffInput) ? Pipeline.parseHandoffInput(users[0].content) : null);
+        const hand = inner && inner.original ? { original: inner.original, stage: hand0.stage, from: hand0.from, sent: inner } : hand0 || (sent && sent.original ? { original: sent.original, stage: 1, from: '', sent } : null);
         // …and a reviewer's trailing "VERDICT: approved" is the loop gate's control signal, not part of the work (R1) — shown without it
         const rawReply = replies.length ? String(replies[replies.length - 1].content) : '';
         const lastReply = (hand && Pipeline.stripVerdictLine) ? Pipeline.stripVerdictLine(rawReply) : rawReply;
@@ -180,14 +181,14 @@
         desc.textContent = lastReply ? firstLine(plain(lastReply), 150)
           : (turns === null ? 'couldn’t read the result — is the station running?'
             : (turns && turns.length ? 'the run finished with nothing to report.' : 'no transcript recorded for this run. Open the session for older work without run attribution.'));
-        const askFull = hand && hand.sent ? String(hand.original) + '\n\n— handed on from ' + (hand.sent.fromName ? 'LINE ' + String(hand.sent.fromName).toUpperCase() : 'another line') + ': this reply is this line’s work on what that line delivered.'
+        const askFull = hand && hand.sent ? String(hand.original) + '\n\n— handed on from ' + Pipeline.lineWord(hand.sent.fromName, 'another line') + ': this reply is this line’s work on what that line delivered.'
           : hand ? String(hand.original) + '\n\n— the result of a work line: this reply is from step ' + hand.stage + ', after ' + String(agentName(hand.from)).toUpperCase() + '.'
           : users.length ? String(users[0].content) : '';
         // where this job came from / went on to (SEND TO) — the job's own record says, never a guess from the text
         if (jobStream) {
           try {
             const lj = await Harness.api.get('/api/line-jobs?stream=' + encodeURIComponent(rw.streamId) + '&limit=1');
-            const sj = lj && Array.isArray(lj.jobs) ? lj.jobs[0] : null, word = e => (e && e.name ? 'LINE ' + String(e.name).toUpperCase() : 'ANOTHER LINE');
+            const sj = lj && Array.isArray(lj.jobs) ? lj.jobs[0] : null, word = e => Pipeline.lineWord(e && e.name, e && e.lineId ? 'LINE ' + e.lineId : 'ANOTHER LINE');
             // (a REFUSED hand-off is NOT SENT ON, with why — never "sent on" for work the station did not send, 10-11)
             const bits = sj ? [sj.from ? 'FROM ' + word(sj.from) : '', sj.sentTo ? (sj.sentTo.refused ? 'NOT SENT ON TO ' + word(sj.sentTo) + ' — ' + sj.sentTo.refused : 'SENT ON TO ' + word(sj.sentTo)) : ''].filter(Boolean) : [];
             const pv = row.querySelector('.ob-prov');

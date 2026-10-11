@@ -53,7 +53,7 @@ const lineOf = (pl, id) => pl.lineOfProp[id];
   A.eq(recA.sendTo, [{ outboxId: a.outbox, intakeId: b.intake, toLine: lineOf(p1, b.intake) }], 'LINE A’s record names where it sends');
   A.ok(recA.name === 'A' && typeof recA.stages === 'number' && recA.stages >= 1 && recA.maxHops === P.LINE_LIMIT_DEFAULTS.maxHops, 'the line record carries its name and stages n / max — ' + JSON.stringify({ name: recA.name, stages: recA.stages, maxHops: recA.maxHops }));
   A.eq(p1.hash, hash0, 'plan.hash never moves with a SEND TO (dispatch topology is unchanged; SPLITTER counters keep)');
-  A.ok(P.ok(p1) && !p1.errors.some(e => /^SEND_TO/.test(e.code)), 'a clean SEND TO is no finding');
+  A.ok(P.ok(p1) && !p1.errors.some(e => /^SEND_TO_(MISSING|SELF|LOOP)$/.test(e.code)), 'a clean SEND TO has no disabling finding (private-file access may still need a shared project)');
 
   // the same pointer again burns no undo slot
   st.undo(); A.eq(st.propById(a.outbox).sendTo, undefined, 'UNDO takes the pointer back');
@@ -101,15 +101,21 @@ const lineOf = (pl, id) => pl.lineOfProp[id];
   doc.props.find(p => p.id === lob).sendTo = b.intake;
   const pl = P.compileRoutingPlan(WM.deserialize(doc).projectGeometry());
   A.ok(pl.errors.some(e => e.code === 'SEND_TO_MISSING' && e.propId === lob && e.warn) && P.ok(pl), 'an OUTBOX on no line that carries a SEND TO: SEND_TO_MISSING (a warning)');
-  // SEND_TO_SELF: A sends to B, then A's last BAY is belted into B's first BAY (the two lines fuse) — the pointer is OFF
+  // A belt must not disable an established handoff, even before any job has run.
   A.ok(st.setSendTo(a.outbox, b.intake).ok, 'A → B');
-  A.ok(st.connectBelt(a.bays[a.bays.length - 1], b.bays[0]).ok, 'a BAY → BAY belt fuses A into B');
-  const ps = plan(st);
-  A.ok(ps.errors.some(e => e.code === 'SEND_TO_SELF' && e.propId === a.outbox) && !(ps.sendTo && ps.sendTo[a.outbox]), 'the compiler turns it off: SEND_TO_SELF');
-  const off = st.sendToRefusal(a.outbox, st.propById(a.outbox).sendTo);
-  A.ok(off && off.error === 'SAME_LINE', 'the ONE verdict says the same (the Workflow panel reads it: OFF, never "rides on") — ' + JSON.stringify(off));
-  A.ok(!st.sendToChoices(a.outbox).some(x => x.on), 'no chip is on — so NOWHERE must read the DOC pointer to be pressable');
-  A.ok(st.setSendTo(a.outbox, null).ok && st.propById(a.outbox).sendTo === undefined, 'NOWHERE clears a pointer the compiler had off');
+  const before = JSON.stringify(st.serialize());
+  const fused = st.connectBelt(a.bays[a.bays.length - 1], b.bays[0]);
+  A.ok(!fused.ok && fused.error === 'SEND_TO_CONFLICT', 'a BAY → BAY belt that would fuse SEND TO lines is refused');
+  A.ok(JSON.stringify(st.serialize()) === before, 'refused fusion preserves the floor');
+  A.ok(plan(st).sendTo[a.outbox] && !st.sendToRefusal(a.outbox, b.intake), 'the existing handoff stays effective');
+  // Legacy saves can already contain that mistake: the compiler and panel still explain it.
+  st.setSendTo(a.outbox, null);
+  A.ok(st.connectBelt(a.bays[a.bays.length - 1], b.bays[0]).ok, 'without SEND TO an intentional join is allowed');
+  const legacy = JSON.parse(JSON.stringify(st.serialize())); legacy.props.find(p => p.id === a.outbox).sendTo = b.intake;
+  const old = WM.deserialize(legacy), ps = plan(old);
+  A.ok(ps.errors.some(e => e.code === 'SEND_TO_SELF' && e.propId === a.outbox) && !(ps.sendTo && ps.sendTo[a.outbox]), 'legacy same-line SEND TO is still off');
+  A.eq(old.sendToRefusal(a.outbox, b.intake).error, 'SAME_LINE', 'the panel can explain the legacy pointer');
+  A.ok(old.setSendTo(a.outbox, null).ok && old.propById(a.outbox).sendTo === undefined, 'NOWHERE clears the legacy pointer');
 }
 
 /* ---------- PERSISTENCE + PROJECTION + LINE GRAPH ---------- */

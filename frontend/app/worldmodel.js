@@ -1748,6 +1748,42 @@ const WorldModel = (() => {
       return { ok: true };
     }
 
+    // A move keeps the route, not merely the visible pieces. Check the compiler with temporary
+    // crew on empty bays as well: an unsafe floor must not wait until hiring to reveal its cycle.
+    function moveRouting() {
+      const routing = routingSummary(doc.props.filter(p => p.t === 'bay').map(p => p.id));
+      sendMemo.k = null;
+      const g = sendGraph();
+      return { routing, lines: g ? g.comps.map(c => c.props.slice().sort().join(',')).sort() : null };
+    }
+    function moveRouteRefusal(before, links) {
+      const after = moveRouting(), now = currentLinks() || [];
+      const pair = l => l.from.prop + '>' + l.to.prop;
+      const expected = new Set(links.map(pair));
+      if (now.some(l => !expected.has(pair(l))) || links.some(l => !now.some(n => pair(n) === pair(l)))
+        || (before && JSON.stringify(before) !== JSON.stringify(after)))
+        return sendFail('WOULD_REWIRE', 'Moving here would change which machines receive the work. Choose clear floor where the same belts can follow.', 'THIS MOVE WOULD CHANGE THE ROUTE');
+      return null;
+    }
+    const moveMemo = { k: null, v: null };
+    function canMoveProps(ids, dx, dy) {
+      const k = JSON.stringify([seq, ids, dx, dy]);
+      if (moveMemo.k !== k) {
+        const probe = makeStation(clone(doc));
+        moveMemo.v = probe.moveProps(ids, dx, dy); moveMemo.k = k;
+      }
+      return clone(moveMemo.v);
+    }
+    function canMoveProp(id, x, y) {
+      const p = propById(id);
+      if (!p) return fail('NOT_FOUND', 'no such prop');
+      const k = JSON.stringify([seq, id, x, y]);
+      if (moveMemo.k !== k) {
+        const probe = makeStation(clone(doc));
+        moveMemo.v = probe.moveProp(id, x - p.x, y - p.y); moveMemo.k = k;
+      }
+      return clone(moveMemo.v);
+    }
     function moveProp(id, dTx, dTy) {
       const p = propById(id);
       if (!p) return fail('NOT_FOUND', 'no such prop');
@@ -1756,7 +1792,10 @@ const WorldModel = (() => {
       const v = checkProp({ x1: nx, y1: ny, x2: nx + p.w - 1, y2: ny + p.h - 1 }, id, p.t);
       if (!v.ok) return v;
       const linked = CONNECTABLE[p.t] && Array.isArray(currentLinks());
-      snapshot();
+      const links = linked ? clone(currentLinks()) : [], route = linked ? moveRouting() : null;
+      if (linked && isJunction(p) && links.some(l => l.from.prop !== id && l.to.prop !== id && (l.path || []).some(t => t.x === nx && t.y === ny)))
+        return sendFail('ON_BELT', 'A junction cannot move onto another belt: it would take that line. Choose clear floor.', 'ANOTHER BELT RUNS HERE');
+      return transact(() => {
       const before = propFootprint(p);
       if (!linked) {
         p.x = nx; p.y = ny;
@@ -1766,8 +1805,10 @@ const WorldModel = (() => {
       // A LINKED MACHINE'S BELTS FOLLOW IT (conveyor-links phase B): each link to another machine is lifted and re-laid
       // from its new spot, keeping its id and ports; one that finds no route is reported, never silently kept
       const r = relayLinksOf(p, () => { p.x = nx; p.y = ny; });
+      const no = moveRouteRefusal(route, links); if (no) return no;
       emit([before, propFootprint(p)].concat(r.dirty), { staticBakeUnchanged: true });
       return { ok: true, relaid: r.relaid, lost: r.lost };
+      }, 'MOVE');
     }
     /* MOVE SEVERAL PIECES AS ONE (Build Mode's group move, sweep 2026-10-02): every member shifts by (dTx, dTy) at once, then
        each is checked against the floor where it lands, and the belt links of every member are lifted first and re-laid once,
@@ -1778,12 +1819,15 @@ const WorldModel = (() => {
       const ps = Array.from(new Set(ids || [])).map(propById).filter(Boolean);
       if (!ps.length) return fail('NOT_FOUND', 'no such prop');
       if (!dTx && !dTy) return { ok: true };
+      const linksBefore = clone(currentLinks() || []), routeBefore = moveRouting();
       return transact(() => {
         const set = new Set(ps.map(q => q.id)), dirty = ps.map(propFootprint);
         const L = Array.isArray(doc.links) ? doc.links : [];
         const mine = L.filter(l => l && l.from && l.to && l.from.prop != null && l.to.prop != null && l.from.prop !== l.to.prop && (set.has(l.from.prop) || set.has(l.to.prop)));
         const others = L.filter(l => mine.indexOf(l) < 0), keepTile = new Set(), cell = (x, y) => ({ x1: x, y1: y, x2: x, y2: y });
         for (const l of others) for (const t of (l.path || [])) keepTile.add(beltKey(t.x, t.y));
+        for (const q of ps) if (isJunction(q) && keepTile.has(beltKey(q.x + dTx, q.y + dTy)))
+          return sendFail('ON_BELT', 'A junction cannot move onto another belt: it would take that line. Choose clear floor.', 'ANOTHER BELT RUNS HERE');
         for (const l of mine) for (const t of (l.path || [])) { const k = beltKey(t.x, t.y); if (!keepTile.has(k) && doc.belts[k]) { delete doc.belts[k]; dirty.push(cell(t.x, t.y)); } }
         for (const q of ps) if (isJunction(q) && mine.some(l => l.from.prop === q.id || l.to.prop === q.id)) { const k = beltKey(q.x, q.y); if (!keepTile.has(k) && doc.belts[k]) { delete doc.belts[k]; dirty.push(cell(q.x, q.y)); } }
         if (Array.isArray(doc.links)) doc.links = others;
@@ -1804,6 +1848,7 @@ const WorldModel = (() => {
         }
         if (lost.length) return { ok: false, error: 'LINK_LOST', msg: 'moving these together would take up a belt link — move those machines one at a time (their belts follow)', lost };
         for (const id of ends) { const J = propById(id); if (J && isJunction(J)) syncJunctionCfg(J); }
+        const no = moveRouteRefusal(routeBefore, linksBefore); if (no) return no;
         emit(dirty, { staticBakeUnchanged: !ps.some(q => q.t === 'airlock') });
         return { ok: true, relaid };
       });
@@ -2233,7 +2278,7 @@ const WorldModel = (() => {
             if (n.role && BAY_ROLES[n.role]) p.role = n.role;
             if (typeof n.agentId === 'string' && n.agentId) p.agentId = n.agentId;
             if (n.t === 'bay') stampBrief(p, n.role && (n.brief || n.hands) ? { [n.role]: { does: n.brief, hands: n.hands } } : null);
-            if (n.t === 'intake' && typeof n.label === 'string' && n.label.trim()) p.label = n.label.trim().slice(0, 48);
+            if ((n.t === 'intake' || n.t === 'bay') && typeof n.label === 'string' && n.label.trim()) p.label = n.label.trim().slice(0, 48);
             if (n.t === 'intake' && n.limits && typeof n.limits === 'object') {   // through the one normalizer, as a stamp does
               const nl = normalizeLimits(n.limits);
               if (nl) p.limits = { maxHops: nl.maxHops, maxUsdPerMessage: nl.maxUsdPerMessage, maxUsdPerDay: nl.maxUsdPerDay };
@@ -2271,6 +2316,11 @@ const WorldModel = (() => {
           links.push(link); placed.push(link);
         }
         doc.links = links;
+        // A layout edits only this line. Tile adjacency must not absorb a neighbour into it.
+        sendMemo.k = null;
+        const edited = new Set(Object.values(idOf)), components = sendGraph();
+        if (components && components.comps.some(c => c.props.some(id => edited.has(id)) && c.props.some(id => !edited.has(id))))
+          return sendFail('JOINS_FLOOR', 'This layout would join a different line. Move this line onto clearer floor before adding a step.', 'ANOTHER LINE IS TOO CLOSE');
         // 6. a junction's compass config follows its lanes (a FILTER's routes, a LOOP's done / escape)
         for (const n of graph.nodes) { const p = propById(idOf[n.id]); if (p && isJunction(p)) syncJunctionCfg(p); }
         pruneSendTo();
@@ -2396,10 +2446,22 @@ const WorldModel = (() => {
        link the edit lifts first (a RE-ROUTE); o.here / o.there = how the floor names the two ends ('THIS BELT', 'THAT BELT');
        o.strict = a LOOP's lane judged like any other: a BRANCH off a belt the LOOP's work already rides, or a RE-ROUTE of its done /
        escape lane (the link keeps its port) — neither is its back lane. */
+    function sendMergeRefusal(fromId, toId) {
+      const g = sendGraph(), a = g && g.lineOfProp[fromId], b = g && g.lineOfProp[toId];
+      if (a && b && a !== b && (sendReaches(g, a, b) || sendReaches(g, b, a)))
+        return sendFail('SEND_TO_CONFLICT', 'That belt would join lines connected by SEND TO and stop their handoff. Clear SEND TO before joining these lines.', 'THIS BELT WOULD BREAK SEND TO');
+      return null;
+    }
     function circleRefusal(A, toId, o) {
-      if (!A || toId == null || (A.t === 'loop' && !(o && o.strict))) return null;
+      if (!A || toId == null) return null;
+      const handoff = sendMergeRefusal(A.id, toId); if (handoff) return handoff;
       const L = currentLinks();
       if (!Array.isArray(L) || !handsOnTo(handOffs(L, doc.belts, o && o.skip), toId, A.id)) return null;
+      if (A.t === 'loop' && !(o && o.strict)) {
+        const outs = L.filter(l => l.from && l.from.prop === A.id), back = loopBackLinks(L, doc.belts);
+        if (outs.length && (!outs.some(l => back.has(l.id)) || (o && back.has(o.skip)))) return null;
+        return sendFail('CIRCLE', outs.length ? 'This LOOP already has its back lane. Another upstream exit would close a circle.' : 'Connect the LOOP’s done lane downstream before adding its back lane.', outs.length ? 'LOOP ALREADY HAS A BACK LANE' : 'DRAW THE LOOP DONE LANE FIRST');
+      }
       return circleFail((o && o.here) || 'THIS ' + machineWord(A), (o && o.there) || 'THAT ' + machineWord(propById(toId)), A.id, toId);
     }
     // a BRANCH off belt `own` ({link} under the splitter): the splitter hands on what the belt's START sends it, so the new lane to
@@ -2411,11 +2473,10 @@ const WorldModel = (() => {
     }
     // a set of links that hands work round in a circle among `ids` (a paste's own machines) — the first link that closes one, or null
     function circleAmong(L, belts, ids) {
-      const next = handOffs(L, belts, null);
+      const next = handOffs(L, belts, null), back = loopBackLinks(L, belts);
       for (const l of L) {
         if (!l || !l.from || !l.to || !ids.has(l.from.prop) || !ids.has(l.to.prop)) continue;
-        const from = propById(l.from.prop);
-        if (from && from.t === 'loop') continue;
+        if (back.has(l.id)) continue;
         if ((next[l.from.prop] || []).indexOf(l.to.prop) >= 0 && handsOnTo(next, l.to.prop, l.from.prop)) return l;
       }
       return null;
@@ -2453,6 +2514,15 @@ const WorldModel = (() => {
       sendMemo.k = seq; sendMemo.v = v;
       return v;
     }
+    // The fallback name follows the persistent INBOX id, never its index among surviving lines.
+    function lineLetter(intakeId) {
+      const p = propById(intakeId); if (!p || p.t !== 'intake') return null;
+      const digits = /^p([1-9][0-9]*)$/.exec(p.id);
+      let n = digits ? Number(digits[1]) : 0;
+      if (!Number.isSafeInteger(n) || n <= 0) { n = 0; for (const c of String(p.id)) n = (Math.imul(n, 31) + c.charCodeAt(0)) >>> 0; n++; }
+      let name = ''; do { n--; name = String.fromCharCode(65 + n % 26) + name; n = Math.floor(n / 26); } while (n > 0);
+      return name;
+    }
     // a line as the floor names it: its INBOX's label, else plainly "another line"
     function lineWord(g, key) {
       const c = g && g.comps.find(x => x.key === key);
@@ -2472,6 +2542,22 @@ const WorldModel = (() => {
     }
     const sendFail = (code, msg, short) => Object.assign(fail(code, msg), { short });
     // null = this OUTBOX may send to this INBOX, else the refusal (with the floor's caption in `short`)
+    function oldHandoffBelts(outboxId) {
+      const O = propById(outboxId); if (!O || O.t !== 'outbox') return [];
+      return (currentLinks() || []).filter(l => l.from.prop === outboxId && propById(l.to.prop)?.t === 'intake')
+        .map(l => ({ id: l.id, intakeId: l.to.prop, name: propById(l.to.prop).label || null }));
+    }
+    function convertHandoffBelt(outboxId) {
+      const old = oldHandoffBelts(outboxId);
+      if (old.length !== 1) return sendFail('OLD_BELT', old.length ? 'This OUTBOX has several old handoff belts. Remove the extras before converting.' : 'No old OUTBOX-to-INBOX belt is here.', 'CHOOSE ONE OLD HANDOFF BELT');
+      return transact(() => {
+        const l = currentLinks().find(q => q.id === old[0].id), dirty = liftLink(l);
+        sendMemo.k = null;
+        const r = setSendTo(outboxId, old[0].intakeId); if (!r.ok) return r;
+        emit(dirty, { staticBakeUnchanged: true });
+        return Object.assign({}, r, { converted: old[0].id });
+      }, 'SEND TO');
+    }
     function sendToRefusal(outboxId, intakeId) {
       const O = propById(outboxId), I = propById(intakeId);
       if (!O || !I) return fail('NOT_FOUND', 'no such prop');
@@ -2482,6 +2568,7 @@ const WorldModel = (() => {
       // (10-11) both ends must be on a line, or the compiler drops the pointer: never a green ghost + a chime for a hand-off it won't make
       if (g && !a) return sendFail('NO_LINE', 'This OUTBOX ends no line yet — belt the last BAY of a line into it first.', 'THIS OUTBOX ENDS NO LINE YET');
       if (g && !b) return sendFail('NO_LINE', 'That INBOX starts no line yet — belt it to a BAY first.', 'THAT INBOX STARTS NO LINE YET');
+      if (oldHandoffBelts(outboxId).some(l => l.intakeId === intakeId)) return sendFail('OLD_BELT', 'An old belt joins this OUTBOX to that INBOX. Convert it to SEND TO so the lines can work separately.', 'CONVERT THE OLD BELT TO SEND TO');
       if (a && b && a === b) return sendFail('SAME_LINE', 'That INBOX starts this same line — pick another line’s INBOX.', 'THAT INBOX STARTS THIS SAME LINE');
       if (a && b && sendReaches(g, b, a)) {
         const nm = lineWord(g, b);
@@ -2558,12 +2645,13 @@ const WorldModel = (() => {
           if (!l || !l.from || !l.to || l.from.prop == null || l.to.prop == null || was.has(pair(l))) continue;
           if (typeOf(l.from.prop) === 'outbox') { v = handoffFail('FROM_OUTBOX'); break; }
           if (typeOf(l.to.prop) === 'intake') { v = handoffFail('INTO_INBOX'); break; }
+          v = sendMergeRefusal(l.from.prop, l.to.prop); if (v) break;
         }
         // …and never a lane that hands work back round a circle (NO CIRCLE BUT A LOOP'S): judged on the links the run would make
         if (!v) {
-          const next = handOffs(L1, after, null);
+          const next = handOffs(L1, after, null), back = loopBackLinks(L1, after);
           for (const l of L1) {
-            if (!l || !l.from || !l.to || l.from.prop == null || l.to.prop == null || was.has(pair(l)) || typeOf(l.from.prop) === 'loop') continue;
+            if (!l || !l.from || !l.to || l.from.prop == null || l.to.prop == null || was.has(pair(l)) || back.has(l.id)) continue;
             if ((next[l.from.prop] || []).indexOf(l.to.prop) >= 0 && handsOnTo(next, l.to.prop, l.from.prop)) { v = circleFail('THIS ' + machineWord(propById(l.from.prop)), 'THAT ' + machineWord(propById(l.to.prop)), l.from.prop, l.to.prop); break; }
           }
         }
@@ -2632,6 +2720,19 @@ const WorldModel = (() => {
       if (linked) for (const p of doc.props) {
         if (!isJunction(p) || p.id === A.id || p.id === B.id) continue;
         for (const [dx, dy] of N4) nearOther.add(beltKey(p.x + dx, p.y + dy));
+      }
+      // Side-by-side belts belong to one floor component. Keep the new route away from every
+      // third line, including plain belts without a junction; otherwise a harmless-looking corner
+      // silently absorbs that line and changes its budget and SEND TO identity.
+      if (linked) {
+        const g = sendGraph();
+        const ownerOf = p => { const at = g && !g.lineOfProp[p.id] && linkAtTile(p.x, p.y); return g && (g.lineOfProp[p.id] || (at && g.lineOfProp[at.link.from.prop])); };
+        const allowed = new Set([ownerOf(A), ownerOf(B)].filter(Boolean));
+        if (g) for (const l of (currentLinks() || [])) {
+          const owner = g.lineOfProp[l.from.prop] || g.lineOfProp[l.to.prop];
+          if (!owner || allowed.has(owner)) continue;
+          for (const t of (l.path || [])) for (const [dx, dy] of N4) nearOther.add(beltKey(t.x + dx, t.y + dy));
+        }
       }
       /* A NEWER BAY'S LANE INTO AN OLDER BAY NEVER RUNS ON A TILE BOTH RINGS SHARE (2026-10-09 P0). On a linked floor a bay hooks
          every tile of its own links inside its ring, and a tile two bays both hook belongs to the one later in the floor's order.
@@ -2707,32 +2808,39 @@ const WorldModel = (() => {
          machine touches — edge first, then corner — and only when none exists falls back to the whole goal set. */
       const cleanGoals = new Set([...goalEdge].filter(k => !foreignRing.has(k)));
       if (!cleanGoals.size) for (const k of goalCorner) if (!foreignRing.has(k)) cleanGoals.add(k);
+      const via = o && o.via;
+      if (via && (!Number.isInteger(via.x) || !Number.isInteger(via.y) || !pathable(via.x, via.y) || nearOther.has(beltKey(via.x, via.y))))
+        return sendFail('NO_WAYPOINT', 'The belt cannot pass through that tile. Pick clear deck away from other lines.', 'NO CLEAR BELT ROUTE THROUGH HERE');
+      const viaKey = via ? beltKey(via.x, via.y) : null;
       function bfs(avoid) {
         const want = (avoid && cleanGoals.size) ? cleanGoals : goals;
         const prev = new Map(), q = [];
-        for (const s of starts) { const k = s.x + ',' + s.y; if (!prev.has(k) && !(avoid && foreignRing.has(k))) { prev.set(k, null); q.push(s); } }
+        for (const s of starts) {
+          const pos = beltKey(s.x, s.y), passed = !via || pos === viaKey, k = via ? pos + ',' + Number(passed) : pos;
+          if (!prev.has(k) && !(avoid && foreignRing.has(pos))) { prev.set(k, null); q.push({ x: s.x, y: s.y, passed, key: k }); }
+        }
         let hit = null, head = 0;
         while (head < q.length && !hit) {
           const t = q[head++];
-          const tk = t.x + ',' + t.y;
-          if (want.has(tk)) { hit = t; break; }
+          const tk = t.key;
+          if (t.passed && want.has(beltKey(t.x, t.y))) { hit = t; break; }
           // LINKED: a tile beside a beltless destination junction may only step onto that junction's own tile
           const preGoal = linked && bJ && !bOn && adj(t.x, t.y, B);
           for (const [dx, dy] of STEPS) {
-            const x = t.x + dx, y = t.y + dy, k = x + ',' + y;
+            const x = t.x + dx, y = t.y + dy, pos = beltKey(x, y), passed = t.passed || pos === viaKey, k = via ? pos + ',' + Number(passed) : pos;
             if (prev.has(k) || !pathable(x, y) || sharedRing(x, y)) continue;
-            if (avoid && foreignRing.has(k) && !want.has(k)) continue;
+            if (avoid && foreignRing.has(pos) && !want.has(pos)) continue;
             if (linked) {
               if (preGoal && !(x === B.x && y === B.y)) continue;
-              if (nearOther.has(k)) continue;
+              if (nearOther.has(pos)) continue;
               // beside the start junction: only the first lane tile (a step straight off a beltless junction's own tile)
               if (aJ && adj(x, y, A) && !(!aOn && t.x === A.x && t.y === A.y)) continue;
               // beside the destination junction: only as the arrival (a goal), or the step onto a beltless one's tile
-              if (bJ && adj(x, y, B) && !want.has(k) && bOn) continue;
+              if (bJ && adj(x, y, B) && !want.has(pos) && bOn) continue;
             }
-            prev.set(k, tk); q.push({ x, y });
+            prev.set(k, tk); q.push({ x, y, passed, key: k });
           }
-          if (q.length > 4096) return { err: fail('NO_PATH', 'no route found (path too long)') };
+          if (q.length > (via ? 8192 : 4096)) return { err: fail('NO_PATH', 'no route found (path too long)') };
         }
         return { hit, prev };
       }
@@ -2742,7 +2850,7 @@ const WorldModel = (() => {
       /* R FLIPS THE CORNER: the same search, asked to try the vertical step toward B first (then the horizontal one) — the
          first ordering whose route differs from the plain one wins; where only one shortest route exists, it stays. */
       if (o && o.flip && found.hit) {
-        const keyOf = f => { const out = []; let ck = f.hit.x + ',' + f.hit.y; while (ck) { out.push(ck); ck = f.prev.get(ck); } return out.join(';'); };
+        const keyOf = f => { const out = []; let ck = f.hit.key; while (ck) { out.push(ck); ck = f.prev.get(ck); } return out.join(';'); };
         const plain = keyOf(found), mid = p => ({ x: p.x + (p.w || 1) / 2, y: p.y + (p.h || 1) / 2 }), ca = mid(A), cb = mid(B);
         const hx = cb.x >= ca.x ? [1, 0] : [-1, 0], vy = cb.y >= ca.y ? [0, 1] : [0, -1], neg = v => [-v[0], -v[1]];
         for (const order of [[vy, hx, neg(hx), neg(vy)], [hx, vy, neg(vy), neg(hx)]]) {
@@ -2755,8 +2863,10 @@ const WorldModel = (() => {
       if (!hit) return fail('NO_PATH', 'no clear route between these machines');
       // rebuild the path start→goal
       const path = [];
-      let ck = hit.x + ',' + hit.y;
+      let ck = hit.key;
       while (ck) { const pp = ck.split(','); path.unshift({ x: +pp[0], y: +pp[1] }); ck = prev.get(ck); }
+      if (via && new Set(path.map(t => beltKey(t.x, t.y))).size !== path.length)
+        return sendFail('NO_WAYPOINT', 'That detour would double back over itself. Pick a tile beside the route instead.', 'THE BELT WOULD DOUBLE BACK HERE');
       // orient each tile at the next; the LAST tile aims into B's footprint (open-end sink at the dock)
       const dirs = [];
       for (let i = 0; i < path.length - 1; i++) dirs.push(dirTo(path[i], path[i + 1]));
@@ -3210,6 +3320,30 @@ const WorldModel = (() => {
         return { ok: true, path: nl ? nl.path.map(t => ({ x: t.x, y: t.y, d: t.d })) : [] };
       } catch (e) { return { ok: false, msg: String((e && e.message) || e) }; }
     }
+    // Reshaping preserves both endpoints and routing. Its preview runs the exact same transaction
+    // on a copy, and caches one verdict per pointer tile instead of compiling on every paint frame.
+    function reshapeLink(linkId, x, y, o) {
+      const links = clone(currentLinks() || []), l = links.find(q => q.id === linkId);
+      if (!l) return fail('NOT_FOUND', 'no such belt');
+      const before = moveRouting();
+      return transact(() => {
+        const r = relinkTo(linkId, l.to.prop, Object.assign({}, o, { via: { x, y } })); if (!r.ok) return r;
+        const after = (currentLinks() || []).find(q => q.id === linkId);
+        if (!after || !after.path.some(t => t.x === x && t.y === y)) return sendFail('NO_WAYPOINT', 'The belt cannot keep that bend while joining the same machines.', 'NO CLEAR BELT ROUTE THROUGH HERE');
+        const no = moveRouteRefusal(before, links); if (no) return no;
+        return r;
+      }, 'RESHAPE BELT');
+    }
+    const reshapeMemo = { k: null, v: null };
+    function canReshapeLink(linkId, x, y, o) {
+      const k = JSON.stringify([seq, linkId, x, y, !!(o && o.flip)]);
+      if (reshapeMemo.k !== k) {
+        const probe = makeStation(clone(doc)), r = probe.reshapeLink(linkId, x, y, o);
+        const l = r.ok && (probe.links() || []).find(q => q.id === linkId);
+        reshapeMemo.v = l ? Object.assign({}, r, { path: l.path }) : r; reshapeMemo.k = k;
+      }
+      return clone(reshapeMemo.v);
+    }
     // lift link l off the floor (its tiles no other link rides; no snapshot, no emit) — returns the dirty rects
     function liftLink(l) {
       const L = Array.isArray(doc.links) ? doc.links : [], dirty = [], keep = new Set();
@@ -3289,6 +3423,7 @@ const WorldModel = (() => {
           if (typeof p.brief === 'string' && p.brief.trim()) n.brief = p.brief.slice(0, 2000);
           if (typeof p.hands === 'string' && p.hands.trim()) n.hands = p.hands.slice(0, 160);
         }
+        if (p.t === 'bay' && typeof p.label === 'string' && p.label.trim()) n.label = p.label.trim().slice(0, 48);
         if (p.t === 'intake') {
           if (typeof p.label === 'string' && p.label.trim()) n.label = p.label.trim().slice(0, 48);
           if (p.limits && typeof p.limits === 'object') n.limits = Object.assign({}, p.limits);
@@ -3369,6 +3504,7 @@ const WorldModel = (() => {
         if (typeof n.brief === 'string' && n.brief.trim()) p.brief = n.brief.slice(0, 2000);
         if (typeof n.hands === 'string' && n.hands.trim()) p.hands = n.hands.replace(/\s+/g, ' ').trim().slice(0, 160);
       }
+      if (p.t === 'bay' && typeof n.label === 'string' && n.label.trim()) p.label = n.label.trim().slice(0, 48);
       if (p.t === 'intake') {
         if (typeof n.label === 'string' && n.label.trim()) { const nm = freshIntakeLabel(n.label, newLabels); if (nm) p.label = nm; }
         if (n.limits && typeof n.limits === 'object') { const nl = normalizeLimits(n.limits); if (nl) p.limits = { maxHops: nl.maxHops, maxUsdPerMessage: nl.maxUsdPerMessage, maxUsdPerDay: nl.maxUsdPerDay }; }
@@ -3389,7 +3525,7 @@ const WorldModel = (() => {
           const n = clip.nodes[i], p = clipProp(n, ax, ay, o, fresh);
           const v = checkProp(propFootprint(p), null, p.t);
           if (!v.ok) return Object.assign(v, { short: 'A PIECE OF THE COPY CANNOT STAND THERE' });
-          doc.props.push(p); dropRoomIdx(); fresh.add(p.id);
+          doc.props.push(p); propIdx = null; propIdIdx = null; fresh.add(p.id);
           map[n.oid] = p.id; made.push(p.id); dirty.push(propFootprint(p));
         }
         for (const b of (clip.belts || [])) {
@@ -4223,9 +4359,12 @@ const WorldModel = (() => {
     function setPropLabel(propId, label) {
       const p = doc.props.find(q => q.id === propId);
       if (!p) return fail('NOT_FOUND', 'no such prop');
-      if (p.t !== 'intake') return fail('BAD_TYPE', 'only an INBOX names its line');
+      if (p.t !== 'intake' && p.t !== 'bay') return fail('BAD_TYPE', 'only an INBOX or BAY has a name');
       const l = (label == null ? '' : String(label)).trim().slice(0, 48);
       if ((p.label || '') === l || (!p.label && !l)) return { ok: true, id: propId, label: p.label || null };
+      const nameKey = v => String(v || '').trim().replace(/^line\s+/i, '').replace(/\s+/g, ' ').toUpperCase();
+      if (p.t === 'intake' && nameKey(l) && doc.props.some(q => q.id !== p.id && q.t === 'intake' && nameKey(q.label) === nameKey(l)))
+        return sendFail('DUPLICATE_NAME', 'Another INBOX already uses that line name. Choose a distinct name.', 'THAT LINE NAME IS ALREADY IN USE');
       snapshot();
       if (l) p.label = l; else delete p.label;
       emit([{ x1: p.x, y1: p.y, x2: p.x + (p.w || 1) - 1, y2: p.y + (p.h || 1) - 1 }]);
@@ -4509,7 +4648,7 @@ const WorldModel = (() => {
       },
       // mutations
       addRoom, placeHallway, removeRoom, moveRoom, moveRooms, resizeRoom, setRoomKind, setFloor, setMaterial, setDeck, setWalls, setHull, paintTiles, renameRoom,
-      addProp, removeProp, moveProp, moveProps, rotateProp, faceProp, mirrorProp, assignPropAgent, assignDesk, ensureWorkstation, configureJunction, swapJoinerMerger, setSplitDivide, bindConnector, bindPlugin, placePluginTerminal, setDoorState, setPropProject, setPropBrief, setPropRole, setPropHands, setPropLabel, setPropLimits, setSendTo, sendToRefusal, sendToChoices,
+      addProp, removeProp, moveProp, moveProps, canMoveProp, canMoveProps, rotateProp, faceProp, mirrorProp, assignPropAgent, assignDesk, ensureWorkstation, configureJunction, swapJoinerMerger, setSplitDivide, bindConnector, bindPlugin, placePluginTerminal, setDoorState, setPropProject, setPropBrief, setPropRole, setPropHands, setPropLabel, setPropLimits, setSendTo, sendToRefusal, sendToChoices, lineLetter, oldHandoffBelts, convertHandoffBelt,
       setBelt, removeBelt, removeBelts, placeBeltRun, connectBelt, connectionPreview, hookedBelts, stampBlueprint, insertBayBetween, canInsertBayBetween, transact, lineGraph, applyLineLayout, blueprintGraph,
       // agent-bay binding queries
       propsByType, propsByAgent, pipelineEdges, setPipelineEdges, addPipelineEdge, removePipelineEdge, agentRoomId, bayObjects,
@@ -4522,8 +4661,9 @@ const WorldModel = (() => {
       // does this floor build by LINKS (every floor this build adopted)? — REFIT retires the ring-rule advice when it does
       isLinked: () => Array.isArray(currentLinks()),
       previewBelt, connectRefusal,
+      isBackLink: id => loopBackLinks(currentLinks() || [], doc.belts).has(id),
       // THE HAND (2026-10-10): the drag gestures — previews are pure, each mutation is one undo
-      previewBeltTo, previewBranch, previewRelink, junctionOnBeltRefusal, junctionOnBelt, mergeBelt, branchBelt, dropFrom, probeDrop, relinkTo, removeLinkAt,
+      previewBeltTo, previewBranch, previewRelink, canReshapeLink, reshapeLink, junctionOnBeltRefusal, junctionOnBelt, mergeBelt, branchBelt, dropFrom, probeDrop, relinkTo, removeLinkAt,
       linkAt: (x, y) => { const at = linkAtTile(x, y); return at ? Object.assign(clone(at.link), { at: at.i }) : null; },
       // THE HAND part 2 (2026-10-11): copy / paste a piece of floor with its belts, and the whole-line ops — checks are pure,
       // each mutation is one undo

@@ -424,10 +424,10 @@
     if (!graph) {
       /* say what would actually help: TIDY LINE only when the same edit fits with the line laid out afresh; when even that
          cannot fit, the floor is too small for this line — a bigger room is the answer, never "tidy it" in a circle */
-      if (op === 'tidy' || op === 'newLine') return op === 'tidy' ? fail('NO_FIT', 'this whole line does not fit here laid out afresh — give it a bigger room (Rooms), or keep it as it is') : why(L);
+      if (op === 'tidy' || op === 'newLine') return op === 'tidy' ? fail('NO_FIT', 'this whole line does not fit here laid out afresh — enlarge the room it stands in, move the whole line to clear floor, or keep it as it is') : why(L);
       const t = OPS.tidy(clone(e.graph));
       const T = t.ok ? LL.layout(t.graph, g.floor, { near: opts && opts.near }) : null;
-      if (!(T && T.ok)) return fail(L.error === 'NO_SPACE' || L.error === 'NO_ROOM' ? L.error : 'NO_FIT', 'there is not enough clear floor round this line for that — give it a bigger room (Rooms), or clear some space');
+      if (!(T && T.ok)) return fail(L.error === 'NO_SPACE' || L.error === 'NO_ROOM' ? L.error : 'NO_FIT', 'there is not enough clear floor round this line for that — enlarge the room it stands in, move the whole line to clear floor, or clear some space');
       // it fits with the line laid out afresh: that moves every machine of the line, so it is done only when asked (opts.tidy —
       // the panel's armed second click), never on the first
       if (!(opts && opts.tidy)) return Object.assign(fail('NEEDS_TIDY', 'there is no room for that with the line where it stands — TIDY LINE first, then try again'), { canTidy: true });

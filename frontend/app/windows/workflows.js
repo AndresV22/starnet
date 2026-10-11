@@ -80,14 +80,15 @@ const WorkflowsWindow = (() => {
       try { flow = Wl.lineFlow(plan, c, Pp, geo.props); ready = Wl.readiness(flow, c, { hasCompute, errors: plan.errors || [], labelOf, isCrew, briefOf }); } catch (e) { return; }
       const intake = st.propById(c.intakes[0]) || {};
       const steps = flow.order.map((pid, k) => { const p = st.propById(pid) || {}; return { id: pid, n: k + 1, role: p.role || '', agentId: p.agentId || '', brief: p.brief || '', hands: p.hands || '', desk: hasCompute(p.agentId, pid) }; });
-      lines.push({ key: c.key, name: String(intake.label || '').trim() || ('Workflow ' + (i + 1)), intakeId: c.intakes[0], flow, ready, steps,
-        loops: (flow.gates || []).some(g => g.kind === 'loop'), outbox: flow.outbox && flow.outbox.propId, outboxes: (c.outboxes || []).slice() });
+      lines.push({ key: c.key, name: String(intake.label || '').trim() || (st.lineLetter ? 'LINE ' + st.lineLetter(intake.id) : 'LINE ' + c.key), intakeId: c.intakes[0], flow, ready, steps,
+        loops: (flow.gates || []).some(g => g.kind === 'loop'), outbox: flow.outbox && flow.outbox.propId, outboxes: (c.outboxes || []).slice(), sends: Object.values(plan.sendTo || {}).filter(s => s.fromLine === c.key) });
     });
+    for (const l of lines) { l.sendNames = [...new Set(l.sends.map(s => { const to = lines.find(x => x.key === s.toLine); return Pp.lineWord(to && to.name, 'LINE ' + s.toLine); }))]; l.sendsAll = l.outboxes.length > 0 && l.outboxes.length <= l.sends.length; }
     return { st, lines };
   }
   const lineOf = (f, key) => (f && f.lines.find(l => l.key === key)) || null;
   // a line's route in words: the hover tip of its row (the description lives in the tip, never as a sentence under the name)
-  const routeTip = l => 'INBOX → ' + l.steps.map(s => (s.role || 'STEP ' + s.n) + (s.agentId ? ' · ' + NAME(s.agentId) : ' · no agent yet')).join(' → ') + (l.loops ? ' (with a review loop)' : '') + ' → OUTBOX';
+  const routeTip = l => 'INBOX → ' + l.steps.map(s => (s.role || 'STEP ' + s.n) + (s.agentId ? ' · ' + NAME(s.agentId) : ' · no agent yet')).join(' → ') + (l.loops ? ' (with a review loop)' : '') + ' → OUTBOX' + ((l.sendNames || []).length ? ' → ' + l.sendNames.join(' / ') : '');
 
   /* ---------- the jobs: the server's records ---------- */
   function loadJobs() {
@@ -110,7 +111,7 @@ const WorkflowsWindow = (() => {
   const runningJob = () => (S.jobs || []).find(j => j.status === 'running' && !j.from) || null;
   const runningHandoff = key => (S.jobs || []).find(j => j.status === 'running' && j.from && (key == null || j.line === key)) || null;
   // the words a SEND TO end is said in
-  const lineWord = e => (e && e.name ? 'LINE ' + String(e.name).toUpperCase() : 'another line');
+  const lineWord = e => P().lineWord(e && e.name, e && e.lineId ? 'LINE ' + e.lineId : 'another line');
   function loadJob(id) {
     return getJSON('/api/line-jobs/' + encodeURIComponent(id)).then(({ status, j }) => (status === 200 && j && j.ok && j.job) ? j.job : null, () => null);
   }
@@ -553,7 +554,7 @@ const WorkflowsWindow = (() => {
         + '<span class="wf-nbadge' + (okay ? ' ok' : '') + '">' + s.n + '</span>' + art('bay', s.agentId)
         + '<span class="wf-nname">' + esc(s.role || 'STEP ' + s.n) + '</span><span class="wf-nmeta' + (okay ? '' : ' warn') + '">' + esc(!s.agentId ? 'needs an agent' : !s.desk ? 'needs a desk' : NAME(s.agentId)) + '</span><span class="dot' + (okay ? ' ok' : '') + '"></span></button>');
     }
-    tiles.push('<span class="wf-node" data-tip="OUTBOX: the finished result lands here.">' + art('outbox') + '<span class="wf-nname">OUTBOX</span><span class="wf-nmeta">results out</span><span class="dot ok"></span></span>');
+    tiles.push('<span class="wf-node" data-tip="OUTBOX: the finished result lands here.">' + art('outbox') + '<span class="wf-nname">OUTBOX</span><span class="wf-nmeta">' + esc((l.sendNames || []).length ? 'sends on to ' + l.sendNames.join(' / ') : 'results out') + '</span><span class="dot ok"></span></span>');
     return '<div class="wfw-mapwrap"><div class="wf-strip wfw-map' + (l.ready.ready ? ' live' : '') + '">' + tiles.join(join) + '</div></div>';
   }
   // a step, opened: who does it (one click changes it) and what it does (edited in the full editor)
@@ -598,7 +599,7 @@ const WorkflowsWindow = (() => {
     return '<section class="wfw-sec wfw-send"><h3>Send it a job</h3>'
       + '<textarea id="wfw-job" class="wfw-field" rows="3" maxlength="2000" aria-label="The job for this workflow" placeholder="' + esc(exampleJob(l)) + '">' + esc(S.draft['job:' + l.key] || '') + '</textarea>'
       + '<div class="wf-row"><button type="button" class="bb refit-primary" data-act="send"' + (busy ? ' disabled' : '') + '>▶ SEND IT A JOB</button>'
-      + '<span class="wfw-note">' + (other ? 'Another workflow (' + esc(busy.name || 'a line') + ') is working on a job — one job runs at a time.' : 'Real agents do the work, at real cost. The result comes back here, and to the OUTBOX.') + '</span></div>'
+      + '<span class="wfw-note">' + (other ? 'Another workflow (' + esc(busy.name || 'a line') + ') is working on a job — one job runs at a time.' : 'Real agents do the work, at real cost. The result comes back here, and to the OUTBOX.' + ((l.sendNames || []).length ? ' Then it ' + (l.sendsAll ? 'rides on' : 'can ride on') + ' to ' + esc(l.sendNames.join(' / ')) + ' — its crew, at its cost.' : '')) + '</span></div>'
       + (S.msg ? '<p class="' + (S.msg.bad ? 'wfw-bad' : 'wfw-okline') + '">' + (S.msg.bad ? '✕ ' : '') + esc(S.msg.text) + '</p>' : '')
       + '</section><section class="wfw-sec"><h3>Last jobs</h3>' + jobRows(l) + '</section>';
   }

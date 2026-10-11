@@ -211,7 +211,7 @@
     const p = payload || {}, c = ctx || {};
     const agentName = typeof c.agentName === 'function' ? c.agentName : (a => str(a).toUpperCase());
     const dockName = typeof c.dockName === 'function' ? c.dockName : (d => 'BAY ' + str(d));
-    const lineName = typeof c.lineName === 'function' ? c.lineName : (l => 'LINE ' + str(l));
+    const lineName = typeof c.lineName === 'function' ? c.lineName : (l => typeof Pipeline !== 'undefined' && Pipeline.lineWord ? Pipeline.lineWord(l) : 'LINE ' + str(l));
     const usd = typeof c.usd === 'function' ? c.usd : (n => '$' + (+n || 0).toFixed(4));
     const run = c.run || null, row = c.row || null;
     const box = p.box || (p.outbound ? 'product' : 'ore');
