@@ -14,7 +14,8 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 const TASKS = [
   { prompt: 'Scan our 4 closest competitors and their entry pricing', ms: 9000, tool: ['fs_list', { path: '.' }], out: 'Scanned 4 competitors. Two undercut our entry tier by $5 to $8 a month; none offer a local-first plan.' },
   { prompt: 'Draft the new pricing page copy and layout', ms: 16000, tool: ['fs_list', { path: '.' }], out: 'Drafted the pricing page: entry price unchanged, a cheaper annual plan, and a local-first comparison row.' },
-  { prompt: 'Write the launch email for the 20th', ms: 12000, tool: ['fs_list', { path: '.' }], out: 'Wrote the launch email: subject line plus two openers built on the local-first angle.' }
+  // VEX WRITES a file: a real artifact for its receipt, and (SEED_FULL_ACCESS=0) a real approval that names VEX
+  { prompt: 'Write the launch email for the 20th', ms: 12000, tool: ['fs_write', { path: 'launch-email.md', content: '# Launch email\n\nSubject: Local-first, finally.\n' }], out: 'Wrote the launch email: subject line plus two openers built on the local-first angle.' }
 ];
 
 async function provider() {
@@ -37,9 +38,16 @@ async function provider() {
     if (!parsed.tools || !parsed.tools.length) send({ content: 'Launch prep' });   // titles + other no-tool asks
     else if (user.startsWith('Review the background work')) {
       await sleep(600);
-      const t = TASKS.find(x => user.includes(x.prompt));
-      send({ content: /"status"\s*:\s*"(interrupted|stale)"/.test(user) ? 'That worker was stopped before it finished. Say the word and I will restart it.'
-        : 'Reviewed: ' + (t ? t.out : 'the worker finished its part.') });
+      // ONE report for the hand-off (version B): the outcome, then one line per worker by name, then who is still working
+      let brief = { workers: [], stillWorking: [] };
+      try { brief = JSON.parse(user.slice(user.lastIndexOf('{"workers"'))); } catch (_) { brief = { workers: [], stillWorking: [] }; }
+      const lines = (brief.workers || []).map(w => {
+        const t = TASKS.find(x => String(w.objective || '').includes(x.prompt));
+        return w.name + ' — ' + (w.status === 'done' ? (t ? t.out : 'finished its part.') : 'stopped before it finished.');
+      });
+      const still = (brief.stillWorking || []).map(w => w.name);
+      send({ content: (lines.length > 1 ? 'The launch kit is ready.' : 'Here is what came back.') + '\n\n' + lines.join('\n')
+        + (still.length ? '\n\n' + still.join(' and ') + (still.length > 1 ? ' are' : ' is') + ' still working; I will report when they finish.' : '') });
     }
     else if (task && !system.includes('[ORCHESTRATION]')) {
       if (!used.includes(task.tool[0])) call(task.tool[0], task.tool[1]);
@@ -48,8 +56,10 @@ async function provider() {
     else if (system.includes('[ORCHESTRATION]')) {
       if (!used.includes('brief_proceed')) call('brief_proceed', { objective: 'Get the launch ready with the crew', deliverable: 'Competitor scan, pricing page draft, launch email' });
       // "quick …" asks run the workers in the FOREGROUND (the lead waits for them inside its own run)
-      else if (!used.includes('team_dispatch') && crew.length) call('team_dispatch', { background: !/\bquick\b/i.test(user), workers: crew.slice(0, /\bquick\b/i.test(user) ? 2 : 3).map((id, i) => ({ agentId: id, prompt: TASKS[i].prompt })) });
-      else send({ content: crew.length ? 'Three of the crew are on it: competitors, the pricing page and the launch email. Each has its own thread under this conversation.' : 'There is no crew to delegate to yet: recruit a specialist or two first.' });
+      else if (!used.includes('team_dispatch') && crew.length) call('team_dispatch', { background: !/\bquick\b/i.test(user), workers: crew.slice(0, 3).map((id, i) => ({ agentId: id, prompt: TASKS[i].prompt })) });
+      // a foreground hand-off has its results in hand when the lead replies: say them, never "I will report back"
+      else if (crew.length && /\bquick\b/i.test(user)) send({ content: 'All three are done.\n\n' + crew.slice(0, 3).map((id, i) => id + ' — ' + TASKS[i].out).join('\n') });
+      else send({ content: crew.length ? 'Three of the crew are on it: competitors, the pricing page and the launch email. I will report back here when they finish.' : 'There is no crew to delegate to yet: recruit a specialist or two first.' });
     }
     else send({ content: 'Done.' });
     res.write('data: ' + JSON.stringify({ choices: [{ delta: {}, finish_reason: 'stop' }], usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 } }) + '\n\n');
