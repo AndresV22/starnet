@@ -93,4 +93,25 @@ function lines(n) {
  const re=WM.deserialize(JSON.parse(frozen(s)));A.eq(re.propById(a.B[0]).label,'Draft review','BAY label survives reload');
  A.eq(s.copyLines([a.B[0]]).clip.nodes[0].label,'Draft review','BAY label survives copy');
 }
+// A belt reshape goes through the requested waypoint, keeps its endpoints and routing, and
+// previews the exact committed path. One undo also restores its original ports and tiles.
+{
+ const {s,B1,B2}=rig('merger'),l=s.links().find(q=>q.from.prop===B2),from=s.propById(l.from.prop),to=s.propById(l.to.prop),x=Math.round((from.x+to.x)/2),y=from.y+8;
+ const before=frozen(s),pv=s.canReshapeLink(l.id,x,y);
+ A.ok(pv.ok&&pv.path.some(t=>t.x===x&&t.y===y),'waypoint preview takes a real detour');
+ A.ok(frozen(s)===before,'reshape preview is pure');
+ const r=s.reshapeLink(l.id,x,y),nl=s.links().find(q=>q.id===l.id);
+ A.ok(r.ok&&nl.from.prop===l.from.prop&&nl.to.prop===l.to.prop,'reshape preserves both endpoints and id');
+ A.eq(nl.path,pv.path,'committed detour exactly matches preview');
+ s.undo();A.ok(frozen(s)===before,'one undo restores unbent belt');
+ const flip=s.canReshapeLink(l.id,x,y,{flip:true});
+ A.ok(flip.ok&&flip.path.some(t=>t.x===x&&t.y===y),'R flip keeps waypoint constraint');
+ const bad=s.canReshapeLink(l.id,from.x,from.y),refuse=s.reshapeLink(l.id,from.x,from.y);
+ A.ok(!bad.ok&&!refuse.ok&&bad.error===refuse.error&&frozen(s)===before,'blocked detour preview and commit refuse unchanged');
+}
+{
+ const {s,L:[a,b]}=lines(2),name=s.lineLetter(b.I);A.ok(/^[A-Z]+$/.test(name),'unnamed line has a derived readable letter');
+ s.removeLine(a.I);A.eq(s.lineLetter(b.I),name,'deleting another line never renames this one');
+ A.eq(WM.deserialize(JSON.parse(frozen(s))).lineLetter(b.I),name,'fallback line letter survives reload');
+}
 A.report('conveyor-floor-integrity.test');
