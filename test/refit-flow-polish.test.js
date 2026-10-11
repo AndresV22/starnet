@@ -8,7 +8,7 @@ function fixture() {
   const s = {tool:'prop',buildGroup:'props',drag:null,dragPid:null,connectFrom:null,connectTo:null,dupe:null,hoverPropId:'placed',propType:'chair',propRot:0,propMir:0,
     hand:null,touchArm:null,dropPick:null,altHeld:false,HOTBAR:[],placingProp:()=>s.tool==='prop'||!!s.hand,setHand(){},toggleHand(){},flipCorner(){},pipette(){},floatHistory(){},   // THE HAND (2026-10-10)
     selBelts:null,setSelection(){},turnClip(){},cutSelected(){},holdClip(){},deleteGroup(){},   // THE HAND part 2 (2026-10-11)
-    edits:0,releases:0,closed:0,focused:false,selectedPropId:null,movingPropId:null,
+    edits:0,releases:0,closed:0,focused:false,selectedPropId:null,groupIds:[],selectedRoomId:null,
     root:{querySelectorAll:()=>[],querySelector:()=>null},
     window:{matchMedia:()=>({matches:false})}, BUILD_GROUPS:[['props','Props',['prop']],['workflow','Conveyors',['line','belt']]],
     station:{propById:()=>({id:'placed',t:'chair',r:0,x:0,y:0,w:1,h:1})},
@@ -38,13 +38,14 @@ function fixture() {
   s.tool='select'; s.turnUnderCursor(1); s.flipUnderCursor();
   assert.equal(s.edits,2,'hover rotation and mirroring still work while browsing');
 }
-for (const state of [{tool:'move',drag:{mode:'propmove'},dragPid:7},{tool:'belt',connectFrom:'inbox'},{tool:'dupe',dupe:{type:'prop'}},{tool:'select',selectedPropId:'placed'},{tool:'move',movingPropId:'placed'}]) {
+// (the MOVE tool is retired — SELECT MOVES, 10-11: a select drag moving a piece, a selected group and a selected room take its place)
+for (const state of [{tool:'select',drag:{mode:'propmove'},dragPid:7},{tool:'belt',connectFrom:'inbox'},{tool:'dupe',dupe:{type:'prop'}},{tool:'select',selectedPropId:'placed'},{tool:'select',groupIds:['placed','other']},{tool:'select',drag:{mode:'move',roomId:'r1'},dragPid:9},{tool:'select',selectedRoomId:'r1'}]) {
   const s=Object.assign(fixture(),state);
   s.onKey({key:'Escape',target:null});
   assert.equal(s.tool,'select','one Escape returns to browsing');
   assert.equal(s.drag,null); assert.equal(s.connectFrom,null); assert.equal(s.dupe,null);
   assert.equal(s.dragPid,null); assert.equal(s.closed,0,'cancel does not exit the editor');
-  assert.equal(s.selectedPropId,null); assert.equal(s.movingPropId,null);
+  assert.equal(s.selectedPropId,null); assert.equal(s.groupIds.length,0); assert.equal(s.selectedRoomId,null);
   if(state.dragPid) assert.equal(s.releases,1,'cancel releases the captured pointer');
 }
 {

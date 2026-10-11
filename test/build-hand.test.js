@@ -226,7 +226,8 @@ const frozen = s => JSON.stringify(s.serialize()) + '|' + s.getSeq() + '|' + s.c
   const down = fn('onDown');
   A.ok(/const held = !!\(drag \|\| connectFrom \|\| connectTo \|\| dupe \|\| hand \|\| touchArm \|\| dropPick \|\| tool !== 'select'\);/.test(down) && /if \(!held && removeAt\(ev\)\) return;/.test(down), 'right-click removes ONLY with nothing held, armed or live — otherwise it puts down / deselects as before');
   A.ok(/if \(station\.beltAt\(w\.tx, w\.ty\)\) \{ drag = \{ mode: 'beltpress'/.test(down), 'a press on a belt can become a branch (the belt card waits for the release)');
-  A.ok(/drag\.mode=\(!drag\.add&&beltSource\(drag\.propId\)\)\?'handbelt':'propmove';/.test(build), 'a workflow machine dragged lays a belt; with Shift (or any other prop) it moves');
+  // (SELECT MOVES, 10-11: a SELECTED machine dragged moves — only an unselected one lays a belt)
+  A.ok(/drag\.mode=\(!drag\.add&&!drag\.sel&&beltSource\(drag\.propId\)\)\?'handbelt':'propmove';/.test(build), 'an unselected workflow machine dragged lays a belt; selected, with Shift (or any other prop) it moves');
   A.ok(/if \(d\.mode === 'beltpress'\) return openBeltCard\(/.test(fn('onUp')), 'a belt CLICKED still opens its card');
   const rm = fn('removeAt');
   A.ok(/if \(p && isConveyorPiece\(p\)\)/.test(rm) && /if \(p\) return false;/.test(rm) && /station\.removeLinkAt\(w\.tx, w\.ty\)/.test(rm), 'right-click removes a conveyor piece or a whole belt — never furniture');
@@ -254,7 +255,7 @@ const frozen = s => JSON.stringify(s.serialize()) + '|' + s.getSeq() + '|' + s.c
   /* ---- repair pass 2026-10-11 ---- */
   A.ok(/const CLICK_SLOP = 12;/.test(build) && /const slipped = drag\.cx == null \|\| Math\.hypot\(ev\.clientX - drag\.cx, ev\.clientY - drag\.cy\) >= CLICK_SLOP;/.test(fn('onMove'))
     && /if\(drag\.mode==='selectpress'&&drag\.moved&&slipped\)/.test(fn('onMove')) && /if\(drag\.mode==='beltpress'&&drag\.moved&&slipped\)drag\.mode='handbranch';/.test(fn('onMove'))
-    && /mode:'selectpress',propId:p\.id,start:w,cur:w,moved:false,add:ev\.shiftKey,cx:ev\.clientX,cy:ev\.clientY/.test(down) && /mode: 'beltpress', start: w, cur: w, moved: false, from: \{ x: w\.tx, y: w\.ty \}, cx: ev\.clientX, cy: ev\.clientY/.test(down),
+    && /mode:'selectpress',propId:p\.id,start:w,cur:w,moved:false,add:ev\.shiftKey,cx:ev\.clientX,cy:ev\.clientY,sel:p\.id===selectedPropId/.test(down) && /mode: 'beltpress', start: w, cur: w, moved: false, from: \{ x: w\.tx, y: w\.ty \}, cx: ev\.clientX, cy: ev\.clientY/.test(down),
     'a press becomes a belt / branch / move only past 12 screen px — a click that drifts across a tile edge stays a click');
   A.ok(/hand = null; touchArm = null; dropPick = null; selBelts = null; flipPref = false; altHeld = false; altLatched = false; floaters\.length = 0;/.test(fn('open')), 'a reopened BUILD MODE holds nothing: no piece, no armed REMOVE, no stale PICK WHAT GOES HERE, no box belts, no flipped corner');
   const lso = fn('lineStagesOf');
