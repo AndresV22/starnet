@@ -260,20 +260,25 @@ module.exports = (async () => {
     A.eq('think' in seen.pop(), false, 'a model that cannot think is never sent the field');
   }
 
-  // A silent local model says WHERE it runs (the 605s "stalled" report = two 300s attempts with no bytes).
+  // A silent local model reports placement evidence without inventing its loading or prompt-reading stage.
   {
     const ps = (vram) => ({ models: [{ name: 'qwen3:8b', size: 10e9, size_vram: vram, context_length: 32768 }] });
     A.ok(/entirely on the CPU/.test(N.placementNote(ps(0), 'qwen3:8b', 21000)), 'no VRAM = CPU only');
-    A.ok(/~21k-token prompt/.test(N.placementNote(ps(0), 'qwen3:8b', 21000)), 'names the prompt it was reading');
+    A.ok(/~21k-token prompt/.test(N.placementNote(ps(0), 'qwen3:8b', 21000)), 'names the requested prompt estimate');
     A.ok(/only 40% on the GPU/.test(N.placementNote(ps(4e9), 'qwen3:8b', 21000)), 'a partial offload is stated as a share');
     A.ok(/fully on the GPU at a 32k window/.test(N.placementNote(ps(10e9), 'qwen3:8b', 21000)), 'a full GPU load is stated too');
     A.ok(!/smaller model/.test(N.placementNote(ps(10e9), 'qwen3:8b', 21000)), 'and no CPU advice when it is on the GPU');
-    A.ok(/still loading the model/.test(N.placementNote({ models: [] }, 'qwen3:8b', 21000)), 'not listed = still loading');
+    const absent = N.placementNote({ models: [] }, 'qwen3:8b', 21000);
+    A.ok(/not listed as loaded/.test(absent), 'absence is reported as the observed status');
+    A.ok(/may still be loading/.test(absent), 'loading is only a possibility');
+    A.ok(!/so it was still loading|was still loading the model from disk/.test(absent), 'an absent model is not proof of disk loading');
+    A.ok(!/had not finished reading/.test(N.placementNote(ps(10e9), 'qwen3:8b', 21000)), 'placement does not prove the model is reading the prompt');
     A.ok(/could not be read/.test(N.placementNote(null, 'qwen3:8b', 0)), 'an unreadable status says so, never guesses');
 
+    let statusBody = ps(0);
     const fetch = async (url, init) => {
       if (url.endsWith('/api/show')) return SHOW(40960, ['completion', 'tools']);
-      if (url.endsWith('/api/ps')) return new Response(JSON.stringify(ps(0)), { status: 200 });
+      if (url.endsWith('/api/ps')) return new Response(JSON.stringify(statusBody), { status: 200 });
       if (url.endsWith('/api/chat')) return new Promise((_, reject) => { init.signal.addEventListener('abort', () => reject(init.signal.reason), { once: true }); });
       return new Response('{"data":[]}', { status: 200 });
     };
@@ -283,6 +288,13 @@ module.exports = (async () => {
     A.ok(err && /timed out/.test(err.message), 'a silent local model still times out');
     A.ok(err && /entirely on the CPU/.test(err.message), 'and the error says the model runs on the CPU (from /api/ps)');
     A.eq(errorClass.classifyApiError(err, { model: 'qwen3:8b' }).reason, 'timeout', 'the explanation does not change how it classifies');
+    statusBody = { models: [] };
+    let absentErr = null;
+    try { await collect(p, { model: 'qwen3:8b', messages: [{ role: 'user', content: 'x' }], preStreamRetries: 0 }); } catch (e) { absentErr = e; }
+    A.eq(absentErr && absentErr.phase, 'connect', 'missing placement does not change timeout phase');
+    A.ok(absentErr && /not listed as loaded/.test(absentErr.message), 'actual timed-out request carries observed missing-model status');
+    A.ok(absentErr && /may still be loading/.test(absentErr.message) && !/so it was still loading/.test(absentErr.message), 'actual adapter preserves uncertainty about loading');
+    A.eq(errorClass.classifyApiError(absentErr, { model: 'qwen3:8b' }).reason, 'timeout', 'absent placement remains a timeout, not a model-load failure');
   }
 
   A.report('provider.ollama-native.test');
