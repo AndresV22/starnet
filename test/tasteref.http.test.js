@@ -1,0 +1,129 @@
+'use strict';
+// THE DESIGN ANCHOR, live (user report 2026-10-11: "say I approve one, the next comes out with a complete off-the-wall style
+// and concept"). Real sidecar + real /api/run against a local mock provider that also renders the image (no money spent):
+// a run WRITES a styled page and GENERATES an image; a 👍 stores the run's real reference (its files, the palette and
+// fonts inside the page, the image prompt / rendered model / shape, the tools in order); the NEXT run on an UNRELATED task
+// carries that reference + the match-the-approved rule in its prompt; ★ KEEP THIS STYLE (POST /api/taste/keep-style) on
+// another design run becomes the newest approval; everything survives a sidecar restart; the personalization pause stops
+// keep-style and says so.
+const A = require('./_assert.js');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const http = require('node:http');
+const {spawn} = require('node:child_process');
+const {once} = require('node:events');
+const {bootToken} = require('./_httpToken.js');
+const root = path.resolve(__dirname, '..');
+const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'starnet-taste-ref-'));
+const PNG_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
+const PAGE = (accent, font) => '<!doctype html><html><head><style>:root{--bg:#0b0f14;--accent:' + accent + '}body{background:var(--bg);color:#e6e6e6;font-family:"' + font + '",sans-serif}h1{color:' + accent + '}a{color:' + accent + '}</style></head><body><h1>Candles</h1></body></html>';
+let child, base, headers;
+const seen = [];   // every chat request body the provider received
+function sse(res, delta, finish) {
+  res.writeHead(200, {'Content-Type': 'text/event-stream'});
+  res.write('data: ' + JSON.stringify({choices: [{delta}]}) + '\n\n');
+  res.write('data: ' + JSON.stringify({choices: [{delta: {}, finish_reason: finish || 'stop'}], usage: {prompt_tokens: 5, completion_tokens: 5, total_tokens: 10}}) + '\n\n');
+  res.end('data: [DONE]\n\n');
+}
+const mock = http.createServer((req, res) => {
+  if (req.url.includes('/models')) { res.setHeader('Content-Type', 'application/json'); return res.end(JSON.stringify({data: [{id: 'test/model', context_length: 128000, pricing: {prompt: '0', completion: '0'}, supported_parameters: ['tools']}]})); }
+  let raw = ''; req.on('data', d => { raw += d; }); req.on('end', () => {
+    let body = {}; try { body = JSON.parse(raw); } catch (_) {}
+    if (Array.isArray(body.modalities) && body.modalities.includes('image')) {   // the STUDIO render: a real PNG, free
+      res.writeHead(200, {'Content-Type': 'application/json'});
+      return res.end(JSON.stringify({choices: [{message: {images: [{image_url: {url: 'data:image/png;base64,' + PNG_B64}}]}}]}));
+    }
+    seen.push(body);
+    const msgs = Array.isArray(body.messages) ? body.messages : [];
+    let lastUser = -1; for (let i = msgs.length - 1; i >= 0; i--) if (msgs[i] && msgs[i].role === 'user') { lastUser = i; break; }
+    const ask = lastUser >= 0 ? String(msgs[lastUser].content || '') : '';
+    const answered = msgs.slice(lastUser + 1).some(m => m && m.role === 'tool');
+    const job = /DESIGN_JOB_(\w+)/.exec(ask);
+    if (job && !answered) {
+      const v2 = job[1] === 'TWO';
+      return sse(res, {tool_calls: [
+        {index: 0, id: 'w_' + job[1], type: 'function', function: {name: 'fs_write', arguments: JSON.stringify({path: v2 ? 'site/v2.html' : 'site/index.html', content: PAGE(v2 ? '#ff2bd6' : '#39ff88', v2 ? 'VT323' : 'Space Grotesk')})}},
+        {index: 1, id: 'i_' + job[1], type: 'function', function: {name: 'image_generate', arguments: JSON.stringify({prompt: v2 ? 'magenta arcade marquee, pixel art' : 'neon synthwave skyline, teal haze', aspect_ratio: '16:9'})}}
+      ]}, 'tool_calls');
+    }
+    return sse(res, {content: 'Here is the finished piece of work you asked for.'});
+  });
+});
+async function boot() {
+  const socket = http.createServer(); socket.listen(0, '127.0.0.1'); await once(socket, 'listening'); const port = socket.address().port; await new Promise(r => socket.close(r));
+  base = 'http://127.0.0.1:' + port;
+  const orBase = 'http://127.0.0.1:' + mock.address().port + '/api/v1';
+  child = spawn(process.execPath, ['sidecar/index.js'], {cwd: root, env: {...process.env, SKYNET_WORKSPACES: workspace, SKYNET_PORT: String(port), SKYNET_OPENROUTER_BASE: orBase, STARNET_OPENROUTER_BASE: orBase, SKYNET_OPENROUTER_KEY: 'sk-or-v1-tasteref-fixture', SKYNET_FULL_ACCESS: '1', SKYNET_EDGE_TTS: '0', SKYNET_REFLECT: '0', SKYNET_SKILL_REVIEW: '0', SKYNET_AUX_BUDGET: '0'}, stdio: ['ignore', 'pipe', 'pipe']});
+  await new Promise((resolve, reject) => { let out = ''; const timer = setTimeout(() => reject(new Error('boot timeout: ' + out.slice(-1200))), 30000); const read = d => { out += d; if (out.includes('Open in your browser:')) { clearTimeout(timer); resolve(); } }; child.stdout.on('data', read); child.stderr.on('data', read); child.once('exit', c => { clearTimeout(timer); reject(new Error('boot exit ' + c + out.slice(-1200))); }); });
+  headers = {'Content-Type': 'application/json', 'X-StarNet-Token': await bootToken(base, base), Origin: base};
+}
+async function stop() { if (child && child.exitCode === null) { const exit = once(child, 'exit'); child.kill(); await exit; } }
+async function api(url, body) { const r = await fetch(base + url, {headers, method: body === undefined ? 'GET' : 'POST', body: body === undefined ? undefined : JSON.stringify(body)}); return {status: r.status, body: await r.json()}; }
+async function run(text, agentId) {
+  const before = seen.length;
+  const r = await fetch(base + '/api/run', {method: 'POST', headers, body: JSON.stringify({agentId: agentId || 'agent', key: 'sk-or-v1-tasteref-fixture', model: 'test/model', isTask: true, placed: ['cabinet', 'studio'], messages: [{role: 'user', content: text}]})});
+  const events = (await r.text()).split('\n').filter(Boolean).map(s => { try { return JSON.parse(s); } catch (_) { return null; } }).filter(Boolean);
+  const end = events.filter(e => e.name === 'agent.run.end').pop();
+  A.eq(end && end.payload.reason, 'done', 'run completed: ' + text);
+  const req = seen.slice(before).find(b => Array.isArray(b.messages) && b.messages.some(m => m.role === 'user' && String(m.content).indexOf(text) >= 0));
+  return {runId: end && end.payload.runId, prompt: req ? JSON.stringify(req.messages) : '', events};
+}
+(async () => {
+  mock.listen(0, '127.0.0.1'); await once(mock, 'listening');
+  try {
+    await boot();
+    A.ok((await api('/api/roster', {agents: [{agentId: 'agent', name: 'Hero', model: 'test/model', provider: 'openrouter'}, {agentId: 'scribe', name: 'Scribe', model: 'test/model', provider: 'openrouter'}]})).body.ok, 'roster saved');
+
+    // 1. a design run: a styled page + a hero image, both REAL files in the workspace
+    const r1 = await run('Design the candle shop landing page with a hero image. DESIGN_JOB_ONE');
+    A.ok(r1.events.some(e => e.name === 'agent.tool_result' && e.payload.callId === 'i_ONE' && e.payload.ok), 'the image was generated (mock render, no spend)');
+    A.ok(fs.existsSync(path.join(workspace, 'agent', 'site', 'index.html')), 'the page was written');
+
+    // 2. 👍 -> the record carries what the run REALLY made
+    const liked = await api('/api/growth/ratings', {runId: r1.runId, verdict: 'great', epoch: 1});
+    A.ok(liked.body.ok && liked.body.feedbackMemory && liked.body.feedbackMemory.stored, 'great stored: ' + JSON.stringify(liked.body.feedbackMemory));
+    const ref = (liked.body.feedbackMemory || {}).reference || {};
+    A.eq((ref.paths || [])[0], 'site/index.html', 'the page leads the reference');
+    A.ok((ref.paths || []).some(p => /^images\/gen-[0-9a-f]+\.png$/.test(p)), 'the saved image path (the tool\'s own) is in it: ' + JSON.stringify(ref.paths));
+    A.eq((ref.palette || [])[0], '#39ff88', 'the palette was read out of the page: ' + JSON.stringify(ref.palette));
+    A.ok((ref.palette || []).indexOf('#0b0f14') >= 0, 'its background token too');
+    A.eq((ref.fonts || [])[0], 'Space Grotesk', 'the font was read out of the page');
+    const im = (ref.images || [])[0] || {};
+    A.eq([im.prompt, im.aspect, im.model], ['neon synthwave skyline, teal haze', '16:9', 'google/gemini-3.1-flash-image'], 'the image prompt, shape and RENDERED model came from the run\'s transcript: ' + JSON.stringify(im));
+    A.ok(/fs[._]write → image_generate/.test(String(ref.tools || '')), 'the approach, in order: ' + ref.tools);
+
+    // 3. the NEXT run, on an unrelated task, carries the reference and the rule
+    const r2 = await run('Summarize these customer call notes.');
+    A.ok(/APPROVED \d{4}-\d{2}-\d{2}: Design the candle shop landing page/.test(r2.prompt), 'the approval rides the unrelated next run');
+    for (const want of ['site/index.html', '#39ff88', 'Space Grotesk', 'neon synthwave skyline, teal haze', 'google/gemini-3.1-flash-image, 16:9'])
+      A.ok(r2.prompt.indexOf(want) >= 0, 'next run sees ' + want);
+    A.ok(r2.prompt.indexOf('match the newest relevant APPROVED one in style and concept') >= 0, 'with the match-the-approved rule');
+    A.ok(r2.prompt.indexOf('[agent workspace]') < 0, 'the agent that made it sees its own openable paths');
+    // station-wide: ANOTHER agent gets the same approval, its files tagged as the maker's jail (it cannot open them; it matches the line)
+    const rs = await run('Compose a short poem about autumn leaves.', 'scribe');
+    A.ok(rs.prompt.indexOf('[agent workspace] site/index.html') >= 0 && rs.prompt.indexOf('#39ff88') >= 0, 'another agent sees the approval with the owner tag and the palette');
+
+    // 4. ★ KEEP THIS STYLE on a second design: the newest approval leads
+    const r3 = await run('Design the arcade night flyer with a marquee image. DESIGN_JOB_TWO');
+    const kept = await api('/api/taste/keep-style', {runId: r3.runId});
+    A.ok(kept.body.ok && kept.body.feedbackMemory && kept.body.feedbackMemory.stored && kept.body.feedbackMemory.created, 'keep-style stored a new approval: ' + JSON.stringify(kept.body));
+    A.eq(((kept.body.feedbackMemory || {}).reference || {}).paths && kept.body.feedbackMemory.reference.paths[0], 'site/v2.html', 'with that run\'s own page');
+    A.eq((await api('/api/taste/keep-style', {runId: 'no-such-run'})).status, 404, 'an unknown run is refused');
+    const r4 = await run('Draft an email to the landlord about the heating.');
+    const iKept = r4.prompt.indexOf('APPROVED (style kept)'), iFirst = r4.prompt.indexOf('Design the candle shop landing page');
+    A.ok(iKept >= 0 && iFirst > iKept, 'the kept style leads, the earlier approval follows');
+    A.ok(r4.prompt.indexOf('#ff2bd6') >= 0 && r4.prompt.indexOf('VT323') >= 0 && r4.prompt.indexOf('magenta arcade marquee, pixel art') >= 0, 'with its real palette, font and image prompt');
+
+    // 5. survives a restart
+    await stop(); await boot();
+    const r5 = await run('Plan the team offsite agenda.');
+    A.ok(r5.prompt.indexOf('site/v2.html') >= 0 && r5.prompt.indexOf('neon synthwave skyline, teal haze') >= 0, 'both references survive a sidecar restart and reach the prompt');
+
+    // 6. the personalization pause stops keep-style and says so
+    A.ok((await api('/api/personalization', {enabled: false})).body.ok, 'personalization paused');
+    const paused = await api('/api/taste/keep-style', {runId: r1.runId});
+    A.eq(paused.body.feedbackMemory && paused.body.feedbackMemory.reason, 'personalization-paused', 'no taste while paused, reported truthfully');
+  } finally { await stop(); await new Promise(r => mock.close(r)); fs.rmSync(workspace, {recursive: true, force: true}); }
+  A.report('tasteref.http');
+})().catch(e => { console.error(e); process.exit(1); });

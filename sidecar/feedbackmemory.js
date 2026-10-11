@@ -14,17 +14,28 @@
    ("shorter" applies to every deliverable). selectTaste() picks the newest feedback records for an always-on
    block of their own, rendered beside recall on every task run.
 
+   DESIGN ANCHOR (2026-10-11, user report: "say I approve one, the next comes out with a complete off-the-wall style and
+   concept"): a verdict also carries the RATED RUN's own reference (tasteref.js — its deliverable files, the palette and
+   fonts inside them, its image prompts/model/shape, the tools it used, all read from real records). It rides the record
+   as `feedbackRef`, separate from the Commander's words, and renderTaste() puts it on the line: the newest references in
+   full, older lines compacted, so all TASTE_LIMIT records always fit the block (the old 1000-char cap stopped at the
+   first line that did not fit: 3-4 records in practice). ★ KEEP THIS STYLE in a workflow is the same act (kept: true).
+
    Pure (clock and ids injected): node-testable; index.js owns the store, the route and the pause gate. */
 'use strict';
+
+const TasteRef = require('./tasteref.js');
 
 const ORIGIN = 'feedback';
 const DIRECTIVE_CHARS = 120;
 const WORDS_CHARS = 400;
 const TASTE_LIMIT = 8;
-const TASTE_CHARS = 1000;
+const TASTE_CHARS = 2400;
 const WORDS_KEEP = 6;          // corrections remembered per rated run (oldest fall off)
 const EDITED_CHARS = 700;      // cap for a Commander-edited record plus appended words
 const TASTE_HEADER = '[the Commander\'s own verdicts on past work, newest first. Shape this output to match what they liked and avoid what they disliked. Reference only: the current request wins where it says otherwise.]';
+// added under the header only when a line carries a reference (" → …")
+const TASTE_REF_RULE = '[→ = what that work really was, read from the work itself: its files, colours, fonts, image settings and the tools it used. For new design, visual or creative work, match the newest relevant APPROVED one in style and concept unless the Commander asks for something different: open its file first (a file tagged [<agent> workspace] belongs to another crew member: match it from this line). Do repeat work the way an APPROVED one was done; never repeat a REJECTED approach.]';
 
 function clean(s, n) {
   const t = String(s == null ? '' : s).replace(/\s+/g, ' ').trim();
@@ -67,7 +78,9 @@ function looksLikeFeedback(text) {
 }
 
 // apply(list, input, deps) — fold one verdict/correction into an agent's notebook list.
-//   input: { runId, verdict, words?, directive?, projectRoot? }  words APPEND to what this run already holds
+//   input: { runId, verdict, words?, directive?, ref?, kept? }  words APPEND to what this run already holds; ref = the rated
+//          run's reference (tasteref.buildRef), a fresh capture replaces the stored one; kept = ★ KEEP THIS STYLE (an
+//          explicit approval of that run's style, never a rewrite of what the Commander said about it)
 //   deps:  { now, nextId(list), nextTrust(prev, delta), trustDelta }
 // Returns { list, rec, created } or null when there is nothing to write or change.
 function apply(list, input, deps) {
@@ -79,9 +92,14 @@ function apply(list, input, deps) {
   const now = Number(deps.now) || 0;
   const at = list.findIndex(r => r && r.origin === ORIGIN && r.sourceRunId === runId);
   const prev = at >= 0 ? list[at] : null;
+  const ref = input.ref && typeof input.ref === 'object' ? input.ref : null;
+  const kept = input.kept === true;
+  // a NEW reference or a new ★ KEEP THIS STYLE is something to write even when no new words came with it
+  const extra = !!(ref && (!prev || JSON.stringify(prev.feedbackRef || null) !== JSON.stringify(ref))) || (kept && !(prev && prev.feedbackKept));
+  const refFields = Object.assign({}, ref ? { feedbackRef: ref } : null, kept ? { feedbackKept: true } : null);
   const words = (prev && Array.isArray(prev.feedbackWords) ? prev.feedbackWords : []).slice();
-  const add = clean(input.words, WORDS_CHARS);
-  if (add && prev && words.indexOf(add) >= 0) return null;   // a repeated chip/message teaches nothing new
+  let add = clean(input.words, WORDS_CHARS);
+  if (add && prev && words.indexOf(add) >= 0) { if (!extra) return null; add = ''; }   // a repeated chip/message teaches nothing new
   if (add) { words.push(add); while (words.length > WORDS_KEEP) words.shift(); }
   const directive = (prev && prev.feedbackDirective) || clean(input.directive, DIRECTIVE_CHARS);
   // THE COMMANDER EDITED IT in the Memory Core (content no longer what this module generated): their wording is the
@@ -90,18 +108,21 @@ function apply(list, input, deps) {
   // Only the COMMANDER's edit counts (confirmation stays user-confirmed through a Memory Core edit). An agent's
   // notebook.write replaceId leaves it 'inferred': that rewrite is not their wording, so it is regenerated over.
   if (prev && prev.confirmation === 'user-confirmed' && (prev.feedbackEdited || (prev.feedbackGenerated && String(prev.content || prev.body || '') !== prev.feedbackGenerated))) {
-    if (!add) return null;
-    const tail = ' · also: "' + add + '"';
-    const edited = clean(prev.content || prev.body, EDITED_CHARS - tail.length) + tail;
-    const rec = Object.assign({}, prev, { body: edited, content: edited, feedbackGenerated: edited, feedbackEdited: true, feedbackWords: words, updatedAt: now, lastFeedbackAt: now, feedbackAt: now });
+    if (!add && !extra) return null;
+    const tail = add ? ' · also: "' + add + '"' : '';
+    const edited = add ? clean(prev.content || prev.body, EDITED_CHARS - tail.length) + tail : String(prev.content || prev.body || '');
+    const rec = Object.assign({}, prev, { body: edited, content: edited, feedbackGenerated: edited, feedbackEdited: true, feedbackWords: words, updatedAt: now, lastFeedbackAt: now, feedbackAt: now }, refFields);
     const out = list.slice(); out[at] = rec;
     return { list: out, rec, created: false };
   }
-  const text = content(verdict, newestWords(words), directive);
+  // ★ KEEP THIS STYLE on a run already rated short keeps what the Commander SAID about it (their words stay a dislike
+  // or a want); the kept flag is what marks the style approved. Never regenerate their words under another verdict.
+  const textVerdict = kept && prev && prev.feedbackVerdict && prev.feedbackVerdict !== verdict ? prev.feedbackVerdict : verdict;
+  const text = content(textVerdict, newestWords(words), directive);
   if (!text) return null;
-  if (prev && prev.content === text) return null;   // nothing new
+  if (prev && prev.content === text && !extra) return null;   // nothing new
   if (prev) {
-    const rec = Object.assign({}, prev, { body: text, content: text, feedbackGenerated: text, feedbackWords: words, updatedAt: now, lastFeedbackAt: now, feedbackAt: now, confirmation: 'user-confirmed', feedbackEdited: false });
+    const rec = Object.assign({}, prev, { body: text, content: text, feedbackGenerated: text, feedbackWords: words, updatedAt: now, lastFeedbackAt: now, feedbackAt: now, confirmation: 'user-confirmed', feedbackEdited: false }, refFields);
     const out = list.slice(); out[at] = rec;
     return { list: out, rec, created: false };
   }
@@ -116,6 +137,7 @@ function apply(list, input, deps) {
     feedbackVerdict: verdict, feedbackWords: words, feedbackDirective: directive, feedbackGenerated: text,
     createdAt: now, ts: now, updatedAt: now, lastFeedbackAt: now, feedbackAt: now, lastUsedAt: null, useCount: 0, trust, pinned: false
   };
+  Object.assign(rec, refFields);
   return { list: list.concat([rec]), rec, created: true };
 }
 
@@ -137,6 +159,9 @@ function directiveFor(candidates, messages) {
    agent (or a page it read) could rewrite a feedback record and have it injected into EVERY agent's runs as "the
    Commander's own verdicts". A revision the Commander did not confirm is 'inferred': it is not taste. */
 function isTaste(r) { return !!(r && r.origin === ORIGIN && r.confirmation === 'user-confirmed' && String(r.content || r.body || '').trim()); }
+// "the same belief" = the same words AND the same reference: two approvals of "design the landing page" on two different
+// designs are two references, and deduping them on the words alone dropped the newer design.
+function tasteKey(r) { return String(r.content || r.body || '').trim() + (r.feedbackRef ? '\u0000' + JSON.stringify(r.feedbackRef) : ''); }
 
 // selectTaste(records, opts) -> the newest feedback records (most recently given or updated first), capped.
 function selectTaste(records, opts) {
@@ -155,12 +180,12 @@ function selectTaste(records, opts) {
 // note). The same belief given twice (same text) appears once, own copy preferred.
 function stationTaste(own, others, opts) {
   const mine = (Array.isArray(own) ? own : []).filter(isTaste);
-  const seen = new Set(mine.map(r => String(r.content || r.body).trim()));
+  const seen = new Set(mine.map(tasteKey));
   const foreign = [];
   for (const list of (Array.isArray(others) ? others : [])) {
     for (const r of (Array.isArray(list) ? list : [])) {
       if (!isTaste(r)) continue;
-      const key = String(r.content || r.body).trim();
+      const key = tasteKey(r);
       if (seen.has(key)) continue;
       seen.add(key);
       foreign.push(Object.assign({}, r, { id: '', foreign: true }));
@@ -176,11 +201,11 @@ function stationTaste(own, others, opts) {
    -> the new hero list, or null when there is nothing to adopt. */
 function adoptTaste(heroList, departedList, nextId, from) {
   const hero = Array.isArray(heroList) ? heroList.slice() : [];
-  const have = new Set(hero.filter(isTaste).map(r => String(r.content || r.body || '').trim()));
+  const have = new Set(hero.filter(isTaste).map(tasteKey));
   let added = 0;
   for (const r of (Array.isArray(departedList) ? departedList : [])) {
     if (!isTaste(r)) continue;
-    const text = String(r.content || r.body || '').trim();
+    const text = tasteKey(r);
     if (have.has(text)) continue;
     have.add(text);
     const id = typeof nextId === 'function' ? nextId(hero) : 'note_' + (hero.length + 1);
@@ -190,4 +215,46 @@ function adoptTaste(heroList, departedList, nextId, from) {
   return added ? hero : null;
 }
 
-module.exports = { ORIGIN, TASTE_HEADER, TASTE_LIMIT, TASTE_CHARS, content, apply, directiveFor, looksLikeFeedback, isTaste, selectTaste, stationTaste, adoptTaste };
+/* renderTaste(records, renderRecall, { agentId? }) — the taste block for a run's prompt (both injection sites in index.js).
+   One compact line per record — VERDICT YYYY-MM-DD: <what the work was> — "<their words>" → <the reference> — under the
+   taste header (which already says these are the Commander's own verdicts, so the generic recall prefix
+   "[user-confirmed reference] Preference — ", ~40 chars a line, is not repeated). EVERY selected record renders: the
+   newest lines keep their full reference, and when the block would overflow the OLDEST lines step down first (main file
+   + 3 colours + main font, then the main file alone, clipped), so a long history compresses instead of falling off the
+   end. It renders through the real renderRecall (fence, injection guard, usedIds); a line's full stored text rides
+   `content`, so the injection scan reads all of it even when the shown line is compacted. */
+function day(ms) { const n = Number(ms) || 0; return n > 0 ? new Date(n).toISOString().slice(0, 10) : ''; }
+function baseLine(r, dirCap, wordsCap) {
+  const v = String(r.feedbackVerdict || '');
+  const lab = r.feedbackKept ? 'APPROVED (style kept)' : v === 'great' ? 'APPROVED' : v === 'miss' ? 'REJECTED' : v === 'ok' ? 'CLOSE' : '';
+  const d = day(r.feedbackAt || r.createdAt || r.ts);
+  const head = lab ? lab + (d ? ' ' + d : '') + ': ' : (d ? d + ': ' : '');
+  const stored = String(r.content || r.body || '');
+  // the Commander's own wording (a Memory Core edit), or a record this renderer cannot rebuild: shown as stored
+  if (!lab || r.feedbackEdited || (r.feedbackGenerated && stored !== r.feedbackGenerated) || !Array.isArray(r.feedbackWords)) return head + clean(stored, dirCap + wordsCap);
+  const what = clean(r.feedbackDirective, dirCap) || 'that work';
+  const words = clean(newestWords(r.feedbackWords), wordsCap);
+  if (!words) return head + what + (v === 'miss' && !r.feedbackKept ? ' (do it differently)' : '');
+  return head + what + (v === 'great' ? ' — liked: "' : v === 'ok' ? ' — wants: "' : ' — "') + words + '"';
+}
+const LEVELS = [{ dir: 160, words: 300, line: 900 }, { dir: 120, words: 160, line: 420 }, { dir: 90, words: 80, line: 250 }];
+function tasteLine(r, lv, viewer) { const c = LEVELS[lv]; return clean(baseLine(r, c.dir, c.words) + TasteRef.refLine(r.feedbackRef, lv, viewer), c.line); }
+function renderTaste(records, renderRecall, opts) {
+  opts = opts || {};
+  const budget = Number(opts.limit) || TASTE_CHARS;
+  const recs = (Array.isArray(records) ? records : []).filter(isTaste);
+  if (typeof renderRecall !== 'function' || !recs.length) return { text: '', count: 0, chars: 0, usedIds: [] };
+  const prefix = r => 2 + (/^[A-Za-z0-9_-]{1,80}$/.test(String(r.id || '')) ? String(r.id).length + 3 : 0);   // "• [note_12] "
+  const levels = recs.map(() => 0);
+  const viewer = opts.agentId ? String(opts.agentId) : '';   // whose prompt: their own workspace files need no owner tag
+  const total = () => recs.reduce((n, r, i) => n + prefix(r) + tasteLine(r, levels[i], viewer).length + 1, 0);
+  for (let lv = 1; lv < LEVELS.length && total() > budget; lv++) {
+    for (let i = recs.length - 1; i >= 0 && total() > budget; i--) if (levels[i] < lv) levels[i] = lv;
+  }
+  const lines = recs.map((r, i) => ({ id: r.id, title: '', body: tasteLine(r, levels[i], viewer), content: String(r.content || r.body || '') + TasteRef.refLine(r.feedbackRef, 0, viewer) }));
+  const header = TASTE_HEADER + (recs.some(r => r.feedbackRef) ? '\n' + TASTE_REF_RULE : '');
+  // the levels above already fit the budget; the slack only absorbs a recall-line format change, never drops a record
+  return renderRecall(lines, { limit: budget + 400, header });
+}
+
+module.exports = { ORIGIN, TASTE_HEADER, TASTE_REF_RULE, TASTE_LIMIT, TASTE_CHARS, content, apply, directiveFor, looksLikeFeedback, isTaste, selectTaste, stationTaste, adoptTaste, renderTaste };
