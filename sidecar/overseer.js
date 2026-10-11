@@ -42,7 +42,7 @@ function makeOverseer(deps) {
       const visible = rows.get(w.id);
       // the page's saved copy wins for what the Commander edits (title, lane…), but never blanks the project this thread
       // was filed under: a page that adopted it before learning the project saves projectRoot:null
-      rows.set(w.id, Object.assign({}, w, visible || {}, { parentStreamId: w.parentStreamId, projectHome: !!w.projectHome,
+      rows.set(w.id, Object.assign({}, w, visible || {}, { parentStreamId: w.parentStreamId, projectHome: !!w.projectHome, worker: w.worker === true,
         projectRoot: (visible && visible.projectRoot) || w.projectRoot || null }));
     }
     return Array.from(rows.values()).filter(w => !w.archived).map(w => ({ ...w,
@@ -67,6 +67,8 @@ function makeOverseer(deps) {
     const agentId = args.agentId || parent.agentId || 'agent';
     if (!valid(agentId) || !deps.hasAgent(agentId)) throw new Error('unknown crew agent');
     const row = { id: deps.newId(), title, agentId, parentStreamId: parent.id,
+      // a delegated worker's own thread (team.dispatch): the only kind the page folds under its parent conversation
+      ...(args.worker === true ? { worker: true } : {}),
       // the parent's project, or the project the creating run was admitted under (a page-saved parent row can lag it)
       projectRoot: parent.projectRoot || (args.projectRoot ? String(args.projectRoot) : null), requestId: String(args.requestId || ''),
       kind: 'chat', lane: 'active', history: [], runIds: [], createdAt: deps.now(), lastActiveAt: deps.now() };
@@ -154,7 +156,7 @@ function makeOverseer(deps) {
   }
   function snapshot() { if (unavailable) return { threads: [], reviews: [], paused: true, error: unavailable };
     return { threads: threads().map(w => ({ id: w.id, title: w.title, agentId: w.agentId,
-    parentStreamId: w.parentStreamId || '', projectRoot: w.projectRoot || null, projectHome: !!w.projectHome,
+    parentStreamId: w.parentStreamId || '', projectRoot: w.projectRoot || null, projectHome: !!w.projectHome, worker: w.worker === true,
     kind: w.kind, lane: w.lane, createdAt: w.createdAt,
     // the lead run that filed this thread (requestId = '<leadRunId>:<n|title>'): the page groups a dispatch's threads by it
     leadRunId: String(w.requestId || '').split(':')[0],

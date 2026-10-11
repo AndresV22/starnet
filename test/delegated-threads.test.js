@@ -39,6 +39,14 @@ const { makeOrchestrationTools } = require('../sidecar/tools/builtin/orchestrati
   const kept = W.nestRows(rows, { keep: ['kidA'] }).map(i => i.type === 'kids' ? 'K' : i.w.id);
   A.eq(kept.join(' '), 'home K kidA other orphan grand', 'a folded child that needs attention (open/busy/waiting/unread) still shows');
   A.eq(W.nestRows([{ id: 'x', parentStreamId: 'x' }]).length, 1, 'a session can never be its own parent');
+  // UPGRADE SAFETY (2026-10-10): session.create already recorded a parent on main; only delegated WORKER threads fold
+  const mixed = [{ id: 'home' }, { id: 'made', parentStreamId: 'home' }, { id: 'w1', parentStreamId: 'home', worker: true }];
+  const onlyWorkers = W.nestRows(mixed, { isChild: w => w.worker === true }).map(i => i.type === 'kids' ? 'kids:' + i.rows.map(r => r.id).join('+') : i.w.id + '@' + i.depth);
+  A.eq(onlyWorkers.join(' '), 'home@0 kids:w1 made@0', 'a session the agent opened keeps its own row; only the worker folds');
+  W.init({ workstreams: [{ id: 'home', title: null }, { id: 'w1', title: 'Scan', parentStreamId: 'home', worker: true }, { id: 'made', title: 'Notes', parentStreamId: 'home' }], generalId: 'home' });
+  W.init(JSON.parse(JSON.stringify(W.serialize())));
+  A.eq(String(W.get('w1').worker) + '/' + String(W.get('made').worker), 'true/false', 'the worker mark survives a save and reload, and an old saved session reads as not-a-worker');
+  W.init({});
   A.eq(W.nestRows(null).length, 0, 'no rows, no items');
   A.eq(rows[0].parentStreamId, 'home', 'a display projection: rows are never mutated');
 }
@@ -144,7 +152,11 @@ const roster = new Map([['researcher', { system: 'R', name: 'MIRA' }], ['writer'
 {
   const src = f => fs.readFileSync(path.join(__dirname, '..', f), 'utf8');
   const app = src('frontend/app/app.js'), chat = src('frontend/app/chat.js'), html = src('frontend/index.html'), idx = src('sidecar/index.js'), ov = src('frontend/app/overseer.js');
-  A.ok(/Workstreams\.nestRows\(flat, \{ expanded: \[\.\.\.railExpanded\], keep \}\)/.test(app), 'the rail renders the nesting projection');
+  A.ok(/Workstreams\.nestRows\(flat, \{ expanded: \[\.\.\.railExpanded\], keep, isChild: w => w\.worker === true \}\)/.test(app), 'the rail folds only delegated worker threads');
+  A.ok(/title, worker: true \}\);/.test(idx) && /parentStreamId: t\.worker \? \(t\.parentStreamId \|\| ''\) : ''/.test(idx), 'the delegating run marks its threads as workers, and only those are briefed as delegated work');
+  const dgSrc = src('frontend/app/delegated.js'), scSrc = src('frontend/app/stationcommands.js');
+  A.ok(/w\.worker === true && w\.parentStreamId === parentId/.test(dgSrc) && /ws && ws\.worker === true && ws\.parentStreamId/.test(dgSrc), 'the card and the "delegated by" bar only count worker threads');
+  A.ok(/parentStreamId: parentId, worker: true,/.test(scSrc) && /if \(prompt && !ws\.worker\) ws\.history\.push\(/.test(scSrc), 'a worker adopted on first delivery is marked a worker; a created session keeps its delegated marker');
   A.ok(/railChildIds\.has\(w\.id\) \? ' ws-child' : ''/.test(app), 'rowClass marks a folded child, so the 1s ticker never strips it');
   A.ok(/Delegated\.presentFor\(activeWs\.id\)/.test(chat), 'Chat.load mounts the card');
   A.ok(html.indexOf('app/overseer.js') >= 0 && html.indexOf('app/delegated.js') > 0, 'the page loads the card module');
@@ -172,7 +184,7 @@ const roster = new Map([['researcher', { system: 'R', name: 'MIRA' }], ['writer'
   A.ok(/const keep = flat\.filter\(w => w\.id === activeId \|\| pending\.has\(w\.id\)\)/.test(app), 'folded threads stay out of the list unless open or waiting on you');
   // COMING BACK keeps NOVA's own report + its chip row (Andrew 10-10: the boxed card looked unlike everything else)
   A.ok(/else if \(it\.kind === 'delegated'\) \{ open = it\.open;/.test(bf) && !/bf-card|bf-replaced/.test(bf), 'the away report offers delegated work as a chip into its conversation, never a separate card');
-  A.ok(/if \(prompt && !ws\.parentStreamId\) ws\.history\.push\(/.test(sc), 'a worker\'s own thread never repeats its brief as a delegated marker');
+  A.ok(/if \(prompt && !ws\.worker\) ws\.history\.push\(/.test(sc), 'a worker\'s own thread never repeats its brief as a delegated marker');
   A.ok(/if \(!local\.projectRoot && row\.projectRoot\)/.test(ov), 'a thread the page already had learns its project');
   A.ok(/Channels\.pendingOf\(k\.parentStreamId\)/.test(app) && /if \(unfinished && pp && pp\.agentId && pp\.agentId === k\.agentId\) return 'waiting';/.test(app), 'the SESSIONS chip turns gold when an unfinished worker waits on you in the parent');
   A.ok(/function railKidsLabel\(n, tone\) \{ return tone === 'waiting' \? n \+ ' · needs you' : String\(n\); \}/.test(app)

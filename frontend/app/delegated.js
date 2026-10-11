@@ -47,7 +47,7 @@ const Delegated = (() => {
     const threads = new Map((s.threads || []).map(t => [t.id, t]));
     const workers = Array.isArray(s.workers) ? s.workers : [];
     const groups = new Map();
-    const kids = Workstreams.list({ includeArchived: true }).filter(w => w && w.parentStreamId === parentId)
+    const kids = Workstreams.list({ includeArchived: true }).filter(w => w && w.worker === true && w.parentStreamId === parentId)
       .sort((a, b) => (+a.createdAt || 0) - (+b.createdAt || 0));
     for (const k of kids) {
       const worker = workers.filter(x => x && x.streamId === k.id).sort((a, b) => (+b.startedAt || 0) - (+a.startedAt || 0))[0] || null;
@@ -194,7 +194,7 @@ const Delegated = (() => {
   // inside a worker's own thread: where it came from, one click back
   function strip(log) {
     const ws = Workstreams.active && Workstreams.active();
-    const parent = ws && ws.parentStreamId ? Workstreams.get(ws.parentStreamId) : null;
+    const parent = ws && ws.worker === true && ws.parentStreamId ? Workstreams.get(ws.parentStreamId) : null;
     let el = log.querySelector(':scope > .dg-from');
     if (!parent) { if (el) el.remove(); return; }
     if (!el) { el = document.createElement('div'); el.className = 'dg-from'; log.insertBefore(el, log.firstChild); }

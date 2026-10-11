@@ -19247,7 +19247,7 @@ async function runOnceCore(o) {
       if (a.parentStreamId === String(o.streamId || '')) overseer.ensure({ id: a.parentStreamId, title: o.sessionTitle || '', agentId, projectRoot: a.projectRoot });
       // titles are station-unique, and the same ask is often delegated again and again (a weekly email, a daily
       // scan): count up, then fall back to the time it was asked, so a repeat never costs a worker its thread
-      const make = title => overseer.create({ parentStreamId: a.parentStreamId, agentId: a.agentId, requestId: a.requestId, projectRoot: a.projectRoot, title });
+      const make = title => overseer.create({ parentStreamId: a.parentStreamId, agentId: a.agentId, requestId: a.requestId, projectRoot: a.projectRoot, title, worker: true });
       for (let n = 1; n <= 99; n++) {
         try { return make(n === 1 ? a.title : a.title + ' (' + n + ')'); }
         catch (e) { if (!/already exists/.test(e.message)) throw e; }
@@ -22698,7 +22698,8 @@ async function awayBriefingInputs(since, now, tzOffsetMin) {
   const rung = currentInitiative();
   if (rung === 'leash' || rung === 'free') { try { focus = (nightFocusState && nightFocusState.focus) || null; } catch (_) { focus = null; } }
   // delegated workers are briefed under the conversation that asked for them (worker thread -> parent, parent title)
-  let threads = []; try { threads = overseer.threads().map(t => ({ id: t.id, parentStreamId: t.parentStreamId || '', title: t.title || '' })); } catch (e) { failNote('away-briefing.threads', e); }
+  // — only a WORKER's own thread counts: a session the agent opened with session.create keeps its own place
+  let threads = []; try { threads = overseer.threads().map(t => ({ id: t.id, parentStreamId: t.worker ? (t.parentStreamId || '') : '', title: t.title || '' })); } catch (e) { failNote('away-briefing.threads', e); }
   return { since, now, tzOffsetMin, runs, builds, drafts, jobs, loops, focus, threads };
 }
 function tzOffsetOf(body) { const n = Number(body && body.tzOffsetMin); return (Number.isFinite(n) && Math.abs(n) <= 14 * 60) ? n : 0; }
