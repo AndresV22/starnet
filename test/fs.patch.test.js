@@ -131,22 +131,39 @@ function patch(body) {
     A.ok(!res.ok && /provide more context/.test(res.error), 'fuzzy matcher uniqueness guard is direct-testable');
   }
 
-  /* ---- blockAnchor must not report a single block as ambiguous ----
-     It paired EVERY occurrence of the first anchor with the same last anchor, producing overlapping ranges,
-     so a block occurring exactly once answered "Found 2 matches; provide more context" and the hunk was
-     refused. (With replaceAll the overlap spliced the replacement in twice.) ---- */
+  // ---- stale/guessed interiors must never match merely by their boundary lines ----
   {
-    const { fuzzyFindAndReplace, _internals } = require('../sidecar/tools/builtin/fuzzymatch.js');
-    const NL = String.fromCharCode(10);
-    const content = ['if (a) {', 'if (a) {', '  body();', '}'].join(NL);
-    const oldText = ['if (a) {', '  CHANGED();', '}'].join(NL);
-    A.eq(_internals.blockAnchor(content, oldText).length, 1, 'the repeated opening anchor yields ONE block, not two overlapping ones');
-    const r = fuzzyFindAndReplace(content, oldText, 'X');
-    A.ok(r.ok, 'and the hunk applies instead of being refused as ambiguous');
-    A.eq(r.strategy, 'block_anchor', 'via the block_anchor strategy');
-    // two genuinely DISTINCT blocks are still ambiguous
-    const twice = ['start', '  x', 'end', 'pad', 'start', '  y', 'end'].join(NL);
-    A.ok(!fuzzyFindAndReplace(twice, ['start', '  z', 'end'].join(NL), 'X').ok, 'two distinct blocks are still reported ambiguous');
+    const content = 'function save(user) {\n  if (!user) {\n    throw new Error("missing");\n  }\n  db.write(user);\n}\n';
+    const guessed = 'function save(user) {\n  validate(user);\n  db.write(user);\n}';
+    const replacement = 'function save(user) {\n  db.write(user, true);\n}';
+    const r = fuzzyFindAndReplace(content, guessed, replacement);
+    A.ok(!r.ok, 'nested closing brace cannot stand in for the requested block');
+    A.eq(r.content, content, 'refused guessed hunk preserves every byte');
+    A.ok(!fuzzyFindAndReplace('start\n  actual();\nend', 'start\n  guessed();\nend', 'X').ok, 'equal-height guessed interiors also refuse');
+    A.ok(!fuzzyFindAndReplace('const label = "a  b";', 'const label = "a b";', 'X').ok, 'spaces inside string literals are significant');
+    await writeTool.run({ path: 'nested.js', content }, ctx);
+    await writeTool.run({ path: 'first.txt', content: 'original' }, ctx);
+    const unsafe = patch([
+      '*** Update File: first.txt', '-original', '+changed',
+      '*** Update File: nested.js',
+      ...guessed.split('\n').map(line => '-' + line),
+      ...replacement.split('\n').map(line => '+' + line)
+    ].join('\n'));
+    await rejects(patchTool.run({ patch: unsafe }, ctx), /Could not find a match/, 'guessed interior rejects the entire multi-file patch');
+    A.eq((await readTool.run({ path: 'nested.js' }, ctx)).content, content, 'real file is unchanged after rejected block');
+    A.eq((await readTool.run({ path: 'first.txt' }, ctx)).content, 'original', 'an earlier valid file plan is not committed');
+    const observed = patch(['*** Update File: nested.js', ...content.trimEnd().split('\n').map(line => '-' + line), ...replacement.split('\n').map(line => '+' + line)].join('\n'));
+    await patchTool.run({ patch: observed }, ctx);
+    A.eq((await readTool.run({ path: 'nested.js' }, ctx)).content, replacement + '\n', 'a corrected exact hunk still applies');
+  }
+
+  // ---- LF patch text must preserve the CRLF file's line separators ----
+  {
+    await writeTool.run({ path: 'windows.txt', content: 'alpha\r\nbeta\r\ngamma\r\n' }, ctx);
+    await patchTool.run({ patch: patch('*** Update File: windows.txt\n alpha\n-beta\n+BETA\n+extra\n gamma') }, ctx);
+    A.eq((await readTool.run({ path: 'windows.txt' }, ctx)).content, 'alpha\r\nBETA\r\nextra\r\ngamma\r\n', 'multi-line replacement keeps CRLF including the final context line');
+    const mixed = fuzzyFindAndReplace('before\nalpha\r\nbeta\r\nafter\n', 'alpha\nbeta', 'ALPHA\nBETA');
+    A.eq(mixed.content, 'before\nALPHA\r\nBETA\r\nafter\n', 'only the matched region is normalized to its own line ending');
   }
 
   // ---- mutation receipts: injected storage faults never produce a false success claim ----
