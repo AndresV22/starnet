@@ -166,6 +166,29 @@ function drag(R, id, tiles, o) {
   ctx.selectedPropId = R.SP;
   A.eq(ctx.selectedDragAims({ propId: R.SP }, { tx: l.path[1].x, ty: l.path[1].y }, false), false, 'a selected SPLITTER over a belt keeps its move (a junction goes ON a line)');
 }
+/* 9. NO CIRCLE BUT A LOOP'S (found live on this lane: BAY p20 onto BAY p19, which feeds it, went green and laid the belt): the hand's
+      ghost goes RED with the circle's words — selected or not, connect or re-route — and the release lays nothing */
+{
+  const R = rig(), { s, ctx } = R;
+  A.ok(s.connectBelt(R.B3, R.B5).ok, 'rig: B3 → B5');
+  const words = 'A CIRCLE — THAT BAY ALREADY HANDS WORK BACK TO THIS BAY · USE A LOOP TO SEND WORK BACK';
+  for (const sel of [false, true]) {
+    ctx.selectedPropId = sel ? R.B5 : null;
+    const before = links(s), at = pos(s, R.B5), tag = sel ? ' (selected)' : ' (unselected)';
+    const g = drag(R, R.B5, [[46, 13], [40, 13]]);
+    A.eq(g.modes[1], 'handbelt', 'over the BAY that feeds it the drag is the hand' + tag);
+    A.ok(g.plans[1] && g.plans[1].ok === false && g.plans[1].why === words, 'the ghost is RED with the circle\'s words' + tag + ': ' + (g.plans[1] && g.plans[1].why));
+    A.eq(links(s), before, 'let go: no belt laid' + tag);
+    A.eq(pos(s, R.B5), at, '…nothing moved' + tag);
+    A.eq(R.said[R.said.length - 1], 'NO ' + words, 'the floor says why, in the ghost\'s words' + tag);
+  }
+  // RE-ROUTE: line 1's last BAY (its one exit is the OUTBOX) dragged back onto the BAY that feeds it
+  ctx.selectedPropId = null;
+  const before = links(s);
+  const h = drag(R, R.B2, [[45, 9], [40, 4]]);
+  A.ok(h.plans[1] && h.plans[1].ok === false && h.plans[1].why === words, 'a re-route that would close a circle is red too: ' + (h.plans[1] && h.plans[1].why));
+  A.eq(links(s), before, '…and lays nothing');
+}
 /* 8. the source wiring: one line in onMove, the old "deselect first" teaching gone */
 {
   const mv = between('function onMove(ev) {', 'function onUp(ev) {');

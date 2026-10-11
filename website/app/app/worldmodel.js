@@ -2316,13 +2316,99 @@ const WorldModel = (() => {
       if (B && B.t === 'intake') return handoffFail('INTO_INBOX');
       return null;
     }
+    // every refusal of a lane A -> B before its route is asked: its ends (above), then a circle (below) — previewBelt, connectBelt
+    // and connectRefusal all read this one, so the ghost, the BELT tool's armed check and the commit say the same thing
+    const laneRefusal = (A, B) => beltEndRefusal(A, B) || (A && B ? circleRefusal(A, B.id) : null);
     // the BELT tool asks before its FIRST click arms a machine and before its second: null = fine, else the refusal. An OUTBOX
     // may be armed — its only destination is another line's INBOX, which is a SEND TO (answered by sendToRefusal), never a belt.
     function connectRefusal(fromId, toId) {
       const A = fromId != null ? doc.props.find(p => p.id === fromId) : null, B = toId != null ? doc.props.find(p => p.id === toId) : null;
       if (A && A.t === 'outbox' && !B) return null;
       if (A && A.t === 'outbox' && B && B.t === 'intake') return sendToRefusal(A.id, B.id);
-      return beltEndRefusal(A, B);
+      return laneRefusal(A, B);
+    }
+
+    /* ---------- NO CIRCLE BUT A LOOP'S (2026-10-11 — found live on the SELECT MOVES refine) ----------
+       BAY p20 dragged onto BAY p19 — p19 already feeding p20 — went green and laid p20 → p19: a work-line CIRCLE. The compiler
+       calls it CHAIN_CYCLE (a BLOCKING error: the plan is not deployable, so routing stops for the WHOLE station) the moment the
+       bays are crewed, and an uncrewed floor shows nothing at all until then — so the floor must never get there. A LOOP gate's
+       BACK lane is the one sanctioned way to send work back: the compiler never counts it as a static hand-off (pipeline.js
+       nextTiles), and neither does this. A new lane is refused when the machine its work goes on to already hands work on, round
+       the floor's links, to the machine the lane leaves — unless the lane leaves a LOOP (a lane out of a LOOP that runs upstream
+       IS its back lane). Every way a lane is laid asks it — connectBelt (the BELT tool's two clicks, the hand's connect, JOIN A
+       LINE, a drop, the second half of a merge / branch), relinkTo, previewBeltTo's merge, previewBranch, a hand-drawn run
+       (runHandoffRefusal), a paste — and every preview reads the same verdict, so the ghost goes red where the commit would
+       refuse, in the same words. A floor not built by links has none to walk: its compile still names the cycle. */
+    // the links a LOOP gate sends work BACK round on, read the compiler's way (pipeline.js compileRoutingPlan: a linked floor's
+    // 'done' / 'esc' / 'back' ports, else the gate's compass config, then loopLanes picks done, back and escape)
+    function loopBackLinks(L, belts) {
+      const back = new Set(), I = (pipelineModule() || {})._internals;
+      for (const J of doc.props) {
+        if (J.t !== 'loop') continue;
+        const outs = L.filter(l => l && l.from && l.from.prop === J.id);
+        if (!outs.length) continue;
+        if (!I || typeof I.loopLanes !== 'function' || typeof I.outLanes !== 'function' || typeof I.dirBetween !== 'function') {
+          for (const l of outs) if (l.from.port !== 'done' && l.from.port !== 'esc') back.add(l.id);   // (no compiler: every unnamed exit)
+          continue;
+        }
+        const dirOf = l => I.dirBetween({ x: J.x, y: J.y }, (l.path && l.path[0]) || null);
+        const named = port => { const l = outs.find(q => q.from.port === port); return l ? dirOf(l) : null; };
+        const cDone = named('done') || J.done || null, cBack = named('back');
+        let cEsc = named('esc') || J.esc || null;
+        if (cBack && !named('esc')) { const rest = I.outLanes(belts, J.x, J.y).filter(d => d !== cDone && d !== cBack); if (rest.length === 1) cEsc = rest[0]; }
+        const ll = I.loopLanes(belts, J.x, J.y, { done: cDone, esc: cEsc });
+        for (const l of outs) if (ll.back && dirOf(l) === ll.back) back.add(l.id);
+      }
+      return back;
+    }
+    // machine id -> the machines it hands work on to, along links L (a LOOP's back lane is no hand-off; `skip` = a link left out)
+    function handOffs(L, belts, skip) {
+      const back = loopBackLinks(L, belts), next = {};
+      for (const l of L) {
+        if (!l || !l.from || !l.to || l.from.prop == null || l.to.prop == null || back.has(l.id) || (skip != null && l.id === skip)) continue;
+        (next[l.from.prop] = next[l.from.prop] || []).push(l.to.prop);
+      }
+      return next;
+    }
+    function handsOnTo(next, a, b) {
+      if (a === b) return true;
+      const seen = new Set([a]), q = [a];
+      while (q.length) for (const n of (next[q.shift()] || [])) { if (n === b) return true; if (!seen.has(n)) { seen.add(n); q.push(n); } }
+      return false;
+    }
+    const machineWord = p => (p && LABEL_OF[p.t]) || 'MACHINE';
+    function circleFail(here, there, fromId, toId) {
+      return Object.assign(fail('CIRCLE', 'That belt would close a circle: ' + there.toLowerCase() + ' already hands its work on, round to ' + here.toLowerCase()
+        + ', so a job would go round for ever and routing would stop for the whole station. A LOOP gate is the one way to send work back — belt it upstream from a LOOP.'),
+      { short: 'A CIRCLE — ' + there + ' ALREADY HANDS WORK BACK TO ' + here + ' · USE A LOOP TO SEND WORK BACK', circle: { from: fromId, back: toId } });
+    }
+    /* null = a new lane out of machine A, whose work goes on to machine `toId`, closes no circle — else the refusal. o.skip = a
+       link the edit lifts first (a RE-ROUTE); o.here / o.there = how the floor names the two ends ('THIS BELT', 'THAT BELT');
+       o.strict = a LOOP's lane judged like any other: a BRANCH off a belt the LOOP's work already rides, or a RE-ROUTE of its done /
+       escape lane (the link keeps its port) — neither is its back lane. */
+    function circleRefusal(A, toId, o) {
+      if (!A || toId == null || (A.t === 'loop' && !(o && o.strict))) return null;
+      const L = currentLinks();
+      if (!Array.isArray(L) || !handsOnTo(handOffs(L, doc.belts, o && o.skip), toId, A.id)) return null;
+      return circleFail((o && o.here) || 'THIS ' + machineWord(A), (o && o.there) || 'THAT ' + machineWord(propById(toId)), A.id, toId);
+    }
+    // a BRANCH off belt `own` ({link} under the splitter): the splitter hands on what the belt's START sends it, so the new lane to
+    // `toId` closes a circle when that machine already hands work back to the start — unless the belt is a LOOP's back lane
+    function branchCircle(own, toId, there) {
+      const L = currentLinks();
+      if (!own || !own.link || !Array.isArray(L) || loopBackLinks(L, doc.belts).has(own.link.id)) return null;
+      return circleRefusal(propById(own.link.from.prop), toId, { strict: true, here: 'THIS BELT', there });
+    }
+    // a set of links that hands work round in a circle among `ids` (a paste's own machines) — the first link that closes one, or null
+    function circleAmong(L, belts, ids) {
+      const next = handOffs(L, belts, null);
+      for (const l of L) {
+        if (!l || !l.from || !l.to || !ids.has(l.from.prop) || !ids.has(l.to.prop)) continue;
+        const from = propById(l.from.prop);
+        if (from && from.t === 'loop') continue;
+        if ((next[l.from.prop] || []).indexOf(l.to.prop) >= 0 && handsOnTo(next, l.to.prop, l.from.prop)) return l;
+      }
+      return null;
     }
 
     /* ---------- SEND TO (2026-10-10) — one line hands its finished work on to another ----------
@@ -2457,10 +2543,19 @@ const WorldModel = (() => {
         for (const kk in after) { const q = kk.split(','); belts.push({ x: +q[0], y: +q[1], dir: after[kk] }); }
         const pair = l => l.from.prop + '>' + l.to.prop, was = new Set(L0.filter(l => l && l.from && l.to).map(pair));
         const typeOf = id => { const p = doc.props.find(q => q.id === id); return p ? p.t : null; };
-        for (const l of P.reconcileLinks({ props, belts, links: L0 }).links) {
+        const L1 = P.reconcileLinks({ props, belts, links: L0 }).links;
+        for (const l of L1) {
           if (!l || !l.from || !l.to || l.from.prop == null || l.to.prop == null || was.has(pair(l))) continue;
           if (typeOf(l.from.prop) === 'outbox') { v = handoffFail('FROM_OUTBOX'); break; }
           if (typeOf(l.to.prop) === 'intake') { v = handoffFail('INTO_INBOX'); break; }
+        }
+        // …and never a lane that hands work back round a circle (NO CIRCLE BUT A LOOP'S): judged on the links the run would make
+        if (!v) {
+          const next = handOffs(L1, after, null);
+          for (const l of L1) {
+            if (!l || !l.from || !l.to || l.from.prop == null || l.to.prop == null || was.has(pair(l)) || typeOf(l.from.prop) === 'loop') continue;
+            if ((next[l.from.prop] || []).indexOf(l.to.prop) >= 0 && handsOnTo(next, l.to.prop, l.from.prop)) { v = circleFail('THIS ' + machineWord(propById(l.from.prop)), 'THAT ' + machineWord(propById(l.to.prop)), l.from.prop, l.to.prop); break; }
+          }
         }
       } catch (e) { v = null; }   // (a floor the reconciler cannot read is judged as before — the run is not refused on a guess)
       runMemo.k = k; runMemo.v = v;
@@ -2471,7 +2566,7 @@ const WorldModel = (() => {
       if (!A || !B) return fail('NOT_FOUND', 'no such prop');
       if (A.id === B.id) return fail('SAME_PROP', 'pick two different machines');
       if (!CONNECTABLE[A.t] || !CONNECTABLE[B.t]) return fail('NOT_CONNECTABLE', 'connect workflow machines (INBOX/BAY/OUTBOX/junctions)');
-      const no = beltEndRefusal(A, B);
+      const no = laneRefusal(A, B);   // its ends, then a circle (NO CIRCLE BUT A LOOP'S)
       if (no) return no;
       const linked = Array.isArray(currentLinks());
       const r = planBelt(A, B, linked, o);
@@ -2828,8 +2923,8 @@ const WorldModel = (() => {
     function previewBelt(fromId, toId, o) {
       const A = doc.props.find(p => p.id === fromId), B = doc.props.find(p => p.id === toId);
       if (!A || !B || A.id === B.id || !CONNECTABLE[A.t] || !CONNECTABLE[B.t]) return { ok: false, msg: 'pick two different machines' };
-      const no = beltEndRefusal(A, B);
-      if (no) return { ok: false, error: no.error, msg: no.msg, short: no.short };
+      const no = laneRefusal(A, B);   // (the connect's own verdict — the ghost goes red where the commit refuses)
+      if (no) return { ok: false, error: no.error, msg: no.msg, short: no.short, circle: no.circle };
       const r = planBelt(A, B, Array.isArray(currentLinks()), o);
       return r.ok ? { ok: true, path: r.path.map((t, i) => ({ x: t.x, y: t.y, d: r.dirs[i] })) } : { ok: false, error: r.error, msg: r.msg };
     }
@@ -2936,6 +3031,9 @@ const WorldModel = (() => {
         if (no) return { ok: false, mode: 'merge', error: no.error, msg: no.msg, short: no.short };
         const at = linkAtTile(x, y);
         if (at && (at.link.from.prop === A.id || at.link.to.prop === A.id)) return { ok: false, mode: 'merge', error: 'OWN_BELT', msg: 'that is this machine’s own belt', short: 'THIS MACHINE’S OWN BELT' };
+        // a MERGER on that belt hands on to the belt's END: a circle when that machine already hands work back to A
+        const cr = at ? circleRefusal(A, at.link.to.prop, { there: 'THAT BELT' }) : null;
+        if (cr) return { ok: false, mode: 'merge', error: cr.error, msg: cr.msg, short: cr.short, circle: cr.circle };
         const r = planBelt(A, standIn('merger', x, y), linked, o);
         return r.ok ? { ok: true, mode: 'merge', path: pathOut(r) } : { ok: false, mode: 'merge', error: r.error, msg: r.msg };
       }
@@ -2959,6 +3057,8 @@ const WorldModel = (() => {
         if (own && (own.link.to.prop === B.id || own.link.from.prop === B.id)) return { ok: false, mode: 'branch', error: 'SAME_LINE', msg: 'that machine is already on this belt', short: 'ALREADY ON THIS BELT' };
         const end = beltEndRefusal(null, B);
         if (end) return { ok: false, mode: 'branch', error: end.error, msg: end.msg, short: end.short };
+        const cr = branchCircle(own, B.id, 'THAT ' + machineWord(B));
+        if (cr) return { ok: false, mode: 'branch', error: cr.error, msg: cr.msg, short: cr.short, circle: cr.circle };
         const r = planBelt(S, B, linked, o);
         return r.ok ? { ok: true, mode: 'branch', path: pathOut(r) } : { ok: false, mode: 'branch', error: r.error, msg: r.msg };
       }
@@ -2969,6 +3069,8 @@ const WorldModel = (() => {
         const no2 = junctionOnBeltRefusal(tx, ty);
         if (no2) return { ok: false, mode: 'branchmerge', error: no2.error, msg: no2.msg, short: no2.short };
         if (Math.abs(tx - fx) + Math.abs(ty - fy) <= 1) return { ok: false, mode: 'branchmerge', error: 'NEAR_JUNCTION', msg: 'too close to the branch point', short: 'TOO CLOSE TO THE BRANCH' };
+        const cr = at ? branchCircle(own, at.link.to.prop, 'THAT BELT') : null;
+        if (cr) return { ok: false, mode: 'branchmerge', error: cr.error, msg: cr.msg, short: cr.short, circle: cr.circle };
         const r = planBelt(S, standIn('merger', tx, ty), linked, o);
         return r.ok ? { ok: true, mode: 'branchmerge', path: pathOut(r) } : { ok: false, mode: 'branchmerge', error: r.error, msg: r.msg };
       }
@@ -3072,7 +3174,8 @@ const WorldModel = (() => {
       if (!l || !A) return fail('NOT_FOUND', 'no such belt');
       if (!C || !CONNECTABLE[C.t]) return fail('NOT_CONNECTABLE', 'connect workflow machines');
       if (C.id === A.id) return fail('SAME_PROP', 'pick two different machines');
-      const no = beltEndRefusal(A, C);
+      // (the lane it re-lays is lifted first; a LOOP's lane keeps its port, so only its BACK lane may be re-laid upstream)
+      const no = beltEndRefusal(A, C) || circleRefusal(A, C.id, { skip: l.id, strict: A.t === 'loop' && !loopBackLinks(L, doc.belts).has(l.id) });
       if (no) return no;
       return transact(() => {
         const dirty = liftLink(l);
@@ -3306,6 +3409,9 @@ const WorldModel = (() => {
           const ours = new Set(placed.map(l => l.id));
           if (after.some(q => !ours.has(q.id) && (mine.has(q.from.prop) || mine.has(q.to.prop)))) return Object.assign(fail('JOINS_FLOOR', 'the copy would join a belt already here'), { short: 'IT WOULD JOIN A BELT ALREADY HERE' });
           for (const id of made) { const J = propById(id); if (J && isJunction(J)) syncJunctionCfg(J); }
+          // …and a copy never brings a work-line circle onto the floor (a legacy floor's — NO CIRCLE BUT A LOOP'S)
+          const cl = circleAmong(currentLinks() || [], doc.belts, mine);
+          if (cl) return circleFail('THIS ' + machineWord(propById(cl.from.prop)), 'THAT ' + machineWord(propById(cl.to.prop)), cl.from.prop, cl.to.prop);
         }
         // SEND TO inside the copy points at the copy's own INBOX
         for (const n of clip.nodes) if (n.sendTo && map[n.sendTo] && map[n.oid]) { const P = propById(map[n.oid]); if (P && P.t === 'outbox') P.sendTo = map[n.sendTo]; }
@@ -3348,6 +3454,9 @@ const WorldModel = (() => {
         if (!r || !r.ok) return r || fail('NOT_APPLIED', 'the copy could not be laid out');
         const map = {}, made = [], fresh = new Set();
         clip.nodes.forEach((n, i) => { const id = r.ids['clip:' + i]; if (id) { map[n.oid] = id; made.push(id); fresh.add(id); } });
+        // a copy never brings a work-line circle onto the floor (NO CIRCLE BUT A LOOP'S — the layout synced each junction's lanes)
+        const cl = circleAmong(currentLinks() || [], doc.belts, fresh);
+        if (cl) return circleFail('THIS ' + machineWord(propById(cl.from.prop)), 'THAT ' + machineWord(propById(cl.to.prop)), cl.from.prop, cl.to.prop);
         /* the layout just synced each junction's compass from the lanes IT laid (applyLineLayout step 6) — the clip's compass is
            the old floor's (or a turned one's), so it never goes back on: a stale LOOP done / FILTER route re-tagged the next lane
            drawn out of it (repair 2026-10-11). Everything else the clip carries (passes, verdict, wait, buffer) still lands. */
