@@ -19,6 +19,10 @@ const connectorVaultMod = require('./connector-vault.js');
 const connectorVault = connectorVaultMod.makeConnectorVault({ fs, path,
   keyHex: process.env.STARNET_CONNECTOR_ENCRYPTION_KEY || '', required: process.env.STARNET_DESKTOP_SHELL === '1' });
 delete process.env.STARNET_CONNECTOR_ENCRYPTION_KEY;
+// Why the desktop shell could not hand over a key (non-secret, e.g. "the credential store refused access (...)").
+// Without it the user only ever saw "locked" and support had nothing to go on.
+const CONNECTOR_KEY_ERROR = String(process.env.STARNET_CONNECTOR_KEY_ERROR || '').trim().slice(0, 240);
+delete process.env.STARNET_CONNECTOR_KEY_ERROR;
 
 const { runAgentLoop, _internals: LoopInternals } = require('./loop.js');
 const DomainTask = require('./domain-task.js');
@@ -352,6 +356,7 @@ const { makeTaskBriefStore } = require('./taskbrief-store.js'); // durable origi
 const WorkflowTakeover = require('./workflow-takeover.js');
 const TaskBriefPolicy = require('./taskbrief-policy.js');       // host validation + mutation boundary
 const { registerTaskBriefTools } = require('./taskbrief-tools.js'); // structured ask/proceed controls
+const CrewCall = require('./crew-call.js');   // names a crew member the Commander asked for at the END of the lead prompt
 const TaskIntent = require('../frontend/app/fork.js').TaskIntent;    // shared TASK_QUESTION protocol + prompt doctrine
 const CommanderContext = require('./commander-context.js');    // bounded provenance-labelled task context
 const threadmine = require('./threadmine.js');                // NS-6: pure post-run thread-mining producer (reflect/study mold)
@@ -5300,6 +5305,12 @@ const CONNECTORS_OAUTH_FILE = path.join(CONNECTORS_DIR, 'oauth.json');       // 
 const CONNECTORS_STATE_FILE = path.join(CONNECTORS_DIR, 'state.json');       // authoritative v2 envelope
 const CONNECTORS_SCHEMA_DIR = path.join(CONNECTORS_DIR, 'schemas');
 let connectorStorageError = '';
+let connectorStorageReason = '';        // key-unavailable | key-mismatch | unreadable | unrecognized
+function lockConnectorStorage(reason, message) {
+  connectorStorageReason = reason;
+  connectorStorageError = message || connectorVaultMod.lockMessage(reason, CONNECTOR_KEY_ERROR);
+  console.error('[connectors] ' + connectorStorageError);
+}
 function connectorSchemaFile(id) { return path.join(CONNECTORS_SCHEMA_DIR, String(id) + '.json'); }
 const connectorSchemaCacheStore = {
   load: (id) => {
@@ -5344,7 +5355,7 @@ function migrateConnectorCatalogKeyHeaders(rawState) {
 function loadConnectorState() {
   let current = null, legacyConfigs = [], legacyOauth = {};
   try { current = connectorVault.load(CONNECTORS_STATE_FILE); }
-  catch (_) { connectorStorageError = connectorVaultMod.UNAVAILABLE; console.error('[connectors] ' + connectorStorageError); return connectorStateMod.normalize(null); }
+  catch (_) { lockConnectorStorage(connectorVault.lockReason || 'unreadable'); return connectorStateMod.normalize(null); }
   if (current && current.version === 2 && Array.isArray(current.configs) && current.oauth) {
     const original = connectorStateMod.normalize(current);
     const moved = migrateConnectorCatalogKeyHeaders(original);
@@ -5360,14 +5371,13 @@ function loadConnectorState() {
     return original;
   }
   if (current != null) {
-    connectorStorageError = 'Saved connector state is not recognized. The original files have been preserved.';
-    console.error('[connectors] ' + connectorStorageError);
+    lockConnectorStorage('unrecognized', 'Saved connector state is not recognized. The original files have been preserved. START FRESH to sign in again; the old files are kept, not deleted.');
     return connectorStateMod.normalize(null);
   }
   try {
     const raw = connectorVault.load(CONNECTORS_FILE); legacyConfigs = (raw && Array.isArray(raw.connectors)) ? raw.connectors : [];
     const oauth = connectorVault.load(CONNECTORS_OAUTH_FILE); legacyOauth = (oauth && typeof oauth === 'object') ? { byId: oauth.byId || {}, clients: oauth.clients || {} } : {};
-  } catch (_) { connectorStorageError = connectorVaultMod.UNAVAILABLE; console.error('[connectors] ' + connectorStorageError); return connectorStateMod.normalize(null); }
+  } catch (_) { lockConnectorStorage(connectorVault.lockReason || 'unreadable'); return connectorStateMod.normalize(null); }
   const migrated = migrateConnectorCatalogKeyHeaders(connectorStateMod.normalize(null, { configs: legacyConfigs, oauth: legacyOauth })).state;
   // Migration is best-effort at boot. Until the verified v2 write succeeds, the legacy files remain untouched
   // and will be read again next boot, so a read-only disk never loses the last credential copy.
@@ -5387,6 +5397,7 @@ if (connectorVault.protected && !connectorStorageError) {
   try { connectorVault.migrate(CONNECTORS_STATE_FILE, connectorState, [CONNECTORS_FILE, CONNECTORS_OAUTH_FILE]); }
   catch (_) { connectorStorageError = 'Connector credential migration is incomplete. Restart StarNet to retry; saved credentials have been preserved.'; console.error('[connectors] ' + connectorStorageError); }
 }
+if (connectorVault.fallback && !connectorStorageError) console.warn('[connectors] saving connector sign-ins WITHOUT encryption: ' + (CONNECTOR_KEY_ERROR || 'the desktop shell supplied no credential-store key'));
 let connectorConfigs = connectorState.configs;
 let connectorOauth = connectorState.oauth;
 /* Publisher-owned Desktop registration wins for new sign-ins. Keep launch configuration out of the
@@ -5441,6 +5452,35 @@ function adoptConnectorState(next) {
   connectorState = connectorStateMod.normalize(next);
   connectorConfigs = connectorState.configs;
   connectorOauth = connectorState.oauth;
+}
+/* START FRESH — the explicit exit from a locked/unrecognized connector store. The unreadable copies are moved
+   into connectors/unreadable-<time>/ (never deleted) and a new empty store is written, sealed when the OS key
+   exists. Only offered while the store is locked: a readable store is reset through /api/config/reset. */
+const connectorStorageCanStartFresh = () => !!connectorStorageReason;
+function startFreshConnectorStorage() {
+  if (!connectorStorageCanStartFresh()) return { ok: false, status: 409, error: 'Connector storage is not locked; nothing to start fresh from.' };
+  let result;
+  try { result = connectorVault.startFresh(CONNECTORS_STATE_FILE, [CONNECTORS_FILE, CONNECTORS_OAUTH_FILE], { stamp: new Date().toISOString() }); }
+  catch (e) { console.error('[connectors] START FRESH failed: ' + ((e && e.message) || e)); return { ok: false, status: 500, error: 'START FRESH could not set the old connector files aside; nothing was changed. ' + ((e && e.message) || '') }; }
+  connectorStorageError = ''; connectorStorageReason = '';
+  adoptConnectorState(result.state);
+  console.log('[connectors] START FRESH: kept ' + (result.moved.join(', ') || 'nothing') + (result.movedTo ? ' in ' + result.movedTo : '') + '; new store ' + (connectorVault.protected ? 'encrypted' : 'NOT encrypted'));
+  return { ok: true, movedTo: result.movedTo, moved: result.moved };
+}
+// Settings' connector reset of a LOCKED store IS start fresh: a removal write can never verify against a store it can't open.
+function resetLockedConnectors(json, section) {
+  const fresh = startFreshConnectorStorage();
+  return fresh.ok ? json(200, { ok: true, section }) : json(fresh.status || 500, { ok: false, section, error: fresh.error });
+}
+function connectorStorageSnapshot() {
+  const fallback = connectorVault.fallback && !connectorStorageError;
+  return {
+    encrypted: connectorVault.protected && !connectorStorageError, error: connectorStorageError || null,
+    reason: connectorStorageReason || null, canStartFresh: connectorStorageCanStartFresh(),
+    fallback, keyError: (fallback || connectorStorageReason === 'key-unavailable') ? (CONNECTOR_KEY_ERROR || null) : null,
+    notice: fallback ? 'Saved on this computer WITHOUT encryption: StarNet could not open the system credential store.' +
+      (CONNECTOR_KEY_ERROR ? ' Reason: ' + CONNECTOR_KEY_ERROR + '.' : '') + ' Sign-ins still work, and StarNet seals them automatically once the store is reachable.' : null
+  };
 }
 function saveConnectorConfigs() {
   const next = connectorStateMod.envelope(connectorConfigs, connectorOauth);
@@ -11292,6 +11332,7 @@ const ROUTES = [
   { m: 'POST', exact: '/api/connectors/oauth/device/poll', h: handleConnectorDevicePoll },
   { m: 'POST', exact: '/api/connectors/oauth/client', h: handleConnectorOauthClient },
   { m: 'POST', exact: '/api/connectors/oauth/cancel', h: handleConnectorOauthCancel },
+  { m: 'POST', exact: '/api/connectors/storage/start-fresh', h: handleConnectorStorageStartFresh },
   { m: 'GET', prefix: '/api/connectors/oauth/callback', h: handleConnectorOauthCallback },
   { m: 'GET', exact: '/api/connectors', h: handleConnectorsList },
   { m: 'POST', exact: '/api/connectors', h: handleConnectorUpsert },
@@ -13647,6 +13688,7 @@ async function handleConfigReset(req, res) {
       break;
     }
     case 'connectors': {
+      if (connectorStorageReason) return resetLockedConnectors(json, section);
       const next = connectorStateMod.envelope([], { byId: {}, clients: {} });
       if (!persistConnectorRemoval(next.configs, next.oauth)) return json(500, { ok: false, section, error: 'connector reset could not be verified in both protected recovery copies; active connectors were left unchanged' });
       const oldIds = connectorConfigs.map(c => c && c.id).filter(Boolean);
@@ -13951,11 +13993,18 @@ function connectedConnectorSnapshot() {
     ? Object.assign({}, c, { catalogSignIn: true })
     : c);
 }
+/* POST /api/connectors/storage/start-fresh { confirm: true } — see startFreshConnectorStorage. */
+async function handleConnectorStorageStartFresh(req, res) {
+  const json = (code, obj) => { res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(obj)); };
+  let body; try { body = JSON.parse(await readBody(req, 1024)) || {}; } catch (e) { return json(400, { error: 'bad json' }); }
+  if (body.confirm !== true) return json(400, { error: 'START FRESH needs { confirm: true }' });
+  const r = startFreshConnectorStorage();
+  if (!r.ok) return json(r.status || 500, { ok: false, error: r.error });
+  return json(200, { ok: true, movedTo: r.movedTo, moved: r.moved, credentialStorage: connectorStorageSnapshot() });
+}
 function handleConnectorsList(req, res) {
   res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
-  res.end(JSON.stringify({ connectors: connectedConnectorSnapshot(), credentialStorage: {
-    encrypted: connectorVault.protected && !connectorStorageError, error: connectorStorageError || null
-  }, browserSession: { busy: !!browserProfileHolder, waitingRunIds: Array.from(browserProfileWaiters) } }));
+  res.end(JSON.stringify({ connectors: connectedConnectorSnapshot(), credentialStorage: connectorStorageSnapshot(), browserSession: { busy: !!browserProfileHolder, waitingRunIds: Array.from(browserProfileWaiters) } }));
 }
 /* ---- /api/servicekeys: the KEYS tab's custom platform keys. The value is accepted on POST, persisted to the
    protected sibling file, applied to process.env, and NEVER echoed back (the list carries a masked last4). ---- */
@@ -21028,7 +21077,7 @@ async function runOnceCore(o) {
       if (track) anyTrack = true;
       lines.push('  - ' + aid + ' (' + (ident.name || aid) + ')' + (ident.role ? ' — ' + ident.role : '') + (track ? ' [' + track + ']' : ''));
     }
-    if (lines.length) teamNote += '\n• DELEGATE to your existing specialist crew with team.dispatch — call it with '
+    if (lines.length) teamNote += '\n• YOUR TEAM — DELEGATE to your existing specialist crew with team.dispatch — call it with '
       + 'workers:[{agentId, prompt}] and synthesize their returned results into your final answer:\n' + lines.join('\n')
       // only explain the bracket when at least one is actually present — a station with no proven crew stays
       // byte-identical to the pre-S3 briefing (no dangling legend for a notation nothing uses).
@@ -21214,6 +21263,12 @@ async function runOnceCore(o) {
   }
   let taskIntentNote = '';
   if (taskBrief) taskIntentNote = '\n\n' + TaskIntent.directive(taskContextBlock);
+  // CREW CALL (crew-call.js): a request that names a crew member gets one closing line naming them and the exact
+  // team.dispatch call. Same grant gate as the [ORCHESTRATION] note: never ask for a tool this run does not have.
+  let crewCallNote = '';
+  if (!internal && isTask && resolved && Array.isArray(resolved.tools) && resolved.tools.includes('team.dispatch')) {
+    try { crewCallNote = CrewCall.crewCallNote(latestUserText(messages), agentRoster, agentId); } catch (e) { failNote('crew-call', e); }
+  }
   // SERVICE KEYS (KEYS tab): advertise the env-var NAMES of the Commander's connected platform keys — value never
   // rides the prompt. TRUTHFUL-TELEMETRY GATE: the block says "available to your shell commands", so it composes
   // ONLY when shell.exec is in THIS run's resolved tool set (same discipline as the quest block above). A user with
@@ -21279,7 +21334,7 @@ async function runOnceCore(o) {
         : resolved, { surface, ownerTrusted, unrestrictedHost: unrestrictedHostNow(), delegatedBy: o.delegatedBy || '', toolless: !isTask }) + skillBlock;
   const taskSystem = FinishLine.append(cacheSystemPrefix + runtimeSkillBlock
     + preloadedSkillBlock + serviceKeysBlock + taskIntentNote + awayBriefingNote + directDomainBlock + journeyBlock
-    + deliverableNote + runtimeBlock, { isTask, internal, tools: resolved.tools });
+    + deliverableNote + crewCallNote + runtimeBlock, { isTask, internal, tools: resolved.tools });
   const sys = internal
     ? (String(system || '') + evidenceBlock)
     : withQuests(taskSystem, questsBlock);   // ground-truth caps + task-context doctrine share the one final prompt seam

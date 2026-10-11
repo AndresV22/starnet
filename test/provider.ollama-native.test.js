@@ -192,6 +192,17 @@ module.exports = (async () => {
     seen.length = 0;
     await collect(factory.selectProvider({ provider: 'custom', baseUrl: 'http://127.0.0.1:1234/v1', fetch: async (url) => { seen.push(url); return new Response('data: [DONE]\n\n', { status: 200 }); } }), { model: 'm', messages: [{ role: 'user', content: 'hi' }] });
     A.ok(seen.every(u => !/\/api\//.test(u)), 'a custom endpoint stays on /v1');
+    // ...unless the custom endpoint IS an Ollama server (2026-10-11: a local Qwen added as CUSTOM ran at the 4k
+    // default window and never saw its delegation tool).
+    seen.length = 0;
+    let customCtx = 0;
+    await collect(factory.selectProvider({ provider: 'custom', baseUrl: 'http://localhost:11434/v1', fetch: async (url, init) => {
+      seen.push(url);
+      if (url.endsWith('/api/chat')) { customCtx = JSON.parse(init.body).options.num_ctx; return ndjson([{ message: { content: 'hi' }, done: true, done_reason: 'stop' }]); }
+      return new Response('{}', { status: 200 });
+    } }), { model: 'qwen3:8b', messages: [{ role: 'user', content: 'hi' }] });
+    A.ok(seen.some(u => /localhost:11434\/api\/chat$/.test(u)), 'a CUSTOM endpoint on Ollama\'s port chats on the native /api/chat');
+    A.ok(customCtx >= 8192, 'and asks for a real window, not the 4k server default');
     const prev = process.env.SKYNET_OLLAMA_NUM_CTX;
     process.env.SKYNET_OLLAMA_NUM_CTX = '12000';
     try {

@@ -1000,7 +1000,8 @@
       try {
         const j = await Harness.api.get('/api/connectors');
         const list = (j && j.connectors) || []; lastList = list;
-        const storageError = j && j.credentialStorage && j.credentialStorage.error;
+        const storage = (j && j.credentialStorage) || {};
+        const storageError = storage.error;
         renderHandoffs(list);
         const overview = body.querySelector('#mc-overview');
         const notices = body.querySelector('#mc-notices');
@@ -1014,9 +1015,29 @@
         if (storageError) {
           overview.textContent = 'Saved services unavailable';
           notices.innerHTML += '<div class="mc-notice"><b>Credential storage</b>' + esc(storageError) + '</div>';
-          listEl.innerHTML = '<div class="mc-detail">Your saved connections have not been erased. Unlock the credential store and restart StarNet.</div>';
+          // START FRESH is the exit the sidecar offers for a store it cannot open (wrong key, damaged, unrecognized):
+          // the old files are moved aside, never deleted, and every service is signed in again.
+          listEl.innerHTML = '<div class="mc-detail">Your saved connections have not been erased.' +
+            (storage.canStartFresh ? ' START FRESH sets the unreadable files aside and lets you sign in to each service again.' : ' Unlock the credential store and restart StarNet.') + '</div>' +
+            (storage.canStartFresh ? '<div class="mc-acts"><button class="bb sm danger" id="mc-start-fresh" type="button">START FRESH</button></div>' : '');
+          const fresh = listEl.querySelector('#mc-start-fresh');
+          if (fresh && typeof ArmConfirm !== 'undefined' && ArmConfirm.wire) {
+            ArmConfirm.wire(fresh, {
+              armedLabel: 'SURE? SIGN IN AGAIN', restLabel: 'START FRESH', timeoutMs: 4000,
+              onArm: () => sfx('bad'),
+              onConfirm: async () => {
+                fresh.disabled = true;
+                let r = null;
+                try { r = await Harness.api.post('/api/connectors/storage/start-fresh', { confirm: true }); } catch (_) {}
+                if (r && r.ok) { sfx('ok'); notify('Connector storage started fresh. Old files kept in ' + ((r.j && r.j.movedTo) || 'the connectors folder')); }
+                else { sfx('bad'); notify('START FRESH failed: ' + ((r && r.j && r.j.error) || 'the station did not answer')); }
+                refresh();
+              }
+            });
+          }
           return;
         }
+        if (storage.notice) notices.innerHTML += '<div class="mc-notice"><b>Credential storage · not encrypted</b>' + esc(storage.notice) + '</div>';
         if (list.length) {
           const expanded = new Set(Array.from(listEl.querySelectorAll('.mc-inspect[open]')).map(el => el.closest('.mc-row').dataset.id));
           listEl.innerHTML = list.map(row).join('');

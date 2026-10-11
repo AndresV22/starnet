@@ -88,7 +88,8 @@ function fakeFetch() { return async () => ({ ok: true, status: 200, async json()
 
   // beginner help: a one-line pointer to where the bot token comes from
   A.ok(/Developer Portal/.test(station), 'inline help points at the Discord Developer Portal for the bot token');
-  A.ok(/MESSAGE CONTENT INTENT/.test(station), 'inline help flags the message-content intent gotcha');
+  A.ok(!/MESSAGE CONTENT INTENT/.test(station), 'inline help no longer sends users to a privileged intent the DM-only bot does not need');
+  A.ok(/direct message<\/b> with the bot/.test(station), 'inline help says to pair in a DM (server channels are ignored)');
 
   // P2-E: the "send-only" disclosure is GONE — Discord is now full-duplex, and the card must claim two-way honestly.
   A.ok(!/Send-only for now/.test(station), 'the "Send-only for now" disclaimer was removed (Discord now receives)');
