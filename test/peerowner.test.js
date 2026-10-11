@@ -85,6 +85,13 @@ const Q = { remoteAddress: '127.0.0.1', remotePort: 52345, localPort: 8787 };
   t += 16000; await winCache(Q);
   A.eq(calls, 2, 'win32: ...and expires');
 
+  // no injected clock → no cache at all (an inert clock would make a verdict immortal for a recycled PID)
+  let noClockCalls = 0;
+  const winNoClock = P.makePeerOwnerCheck({ platform: 'win32', selfPid: 100, winUser: 'HOST\\owner', cacheMs: 15000,
+    run: fakeRun({ 'netstat.exe': () => ({ ok: true, stdout: NETSTAT }), 'tasklist.exe': () => { noClockCalls++; return { ok: true, stdout: '"chrome.exe","4242","Console","1","1 K"' }; } }) });
+  const nc1 = await winNoClock(Q); const nc2 = await winNoClock(Q);
+  A.eq([nc1.ok, nc2.ok, noClockCalls], [true, true, 2], 'win32: without an injected clock every load re-checks (no cache, never a frozen one)');
+
   const linSame = P.makePeerOwnerCheck({ platform: 'linux', uid: 1001, readFile: async (f) => f === '/proc/net/tcp' ? PROC : '' });
   A.eq((await linSame({ remoteAddress: '127.0.0.1', remotePort: 52537, localPort: 8787 })).ok, true, 'linux: same uid → token');
   const linOther = P.makePeerOwnerCheck({ platform: 'linux', uid: 1000, readFile: async (f) => f === '/proc/net/tcp' ? PROC : '' });
