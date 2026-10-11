@@ -7,6 +7,8 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const http = require('node:http');
+const fs = require('node:fs');
+const path = require('node:path');
 const { SidecarFixture } = require('./helpers/sidecar-fixture.js');
 const Pipeline = require('../frontend/app/pipeline.js');
 
@@ -14,6 +16,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 test('a job that ships on LINE A rides on to LINE B by SEND TO', async () => {
   const calls = [];
+  let fileProof = false, fileRequested = false;
   const server = http.createServer((req, res) => {
     if (req.url.includes('/chat/completions')) {
       let raw = ''; req.on('data', d => { raw += d; });
@@ -21,7 +24,17 @@ test('a job that ships on LINE A rides on to LINE B by SEND TO', async () => {
         const body = JSON.parse(raw);
         const user = (body.messages || []).filter(m => m && m.role === 'user').map(m => String(m.content || '')).join('\n');
         const handoff = user.indexOf('[HAND-OFF') >= 0;   // (the roster's own system prompt wins over the hub persona)
-        calls.push({ handoff, user });
+        calls.push({ handoff, user, tools: (body.tools || []).map(t => t.function && t.function.name), results: (body.messages || []).filter(m => m.role === 'tool').map(m => m.content) });
+        if (fileProof && !handoff && !fileRequested && user.startsWith('FILE PROOF') && body.tools && body.tools.length) {
+          const settled = (body.messages || []).some(m => m.role === 'tool' && /Task Brief settled/.test(String(m.content || '')));
+          const name = settled ? 'fs_write' : 'brief_proceed';
+          const args = settled ? { path: 'handoff-note.txt', content: 'producer-owned file proof' }
+            : { objective: 'Save handoff-note.txt', deliverable: 'the saved file and its path', success: 'the file contains producer-owned file proof' };
+          fileRequested = settled;
+          res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+          res.end('data: ' + JSON.stringify({ choices: [{ delta: { tool_calls: [{ index: 0, id: 'write-proof', type: 'function', function: { name, arguments: JSON.stringify(args) } }] }, finish_reason: 'tool_calls' }], usage: { prompt_tokens: 40, completion_tokens: 20 } }) + '\n\ndata: [DONE]\n\n');
+          return;
+        }
         const text = handoff ? 'B turned the facts into a haiku.' : 'Two facts about the moon.';
         res.writeHead(200, { 'Content-Type': 'text/event-stream' });
         res.end('data: ' + JSON.stringify({ choices: [{ delta: { content: text }, finish_reason: 'stop' }], usage: { prompt_tokens: 40, completion_tokens: 20 } }) + '\n\ndata: [DONE]\n\n');
@@ -36,6 +49,7 @@ test('a job that ships on LINE A rides on to LINE B by SEND TO', async () => {
   const fixture = SidecarFixture.create({ prefix: 'handoff-', timeoutMs: 20000, env: {
     STARNET_DEFAULT_MODEL: '', SKYNET_DEFAULT_MODEL: '',
     STARNET_OPENROUTER_KEY: '', SKYNET_OPENROUTER_KEY: '',
+    SKYNET_FULL_ACCESS: '1', STARNET_FULL_ACCESS: '1',
     CUSTOM_OPENAI_KEY: 'direct-fixture', CUSTOM_OPENAI_BASE_URL: base + '/v1'
   } });
   try {
@@ -55,7 +69,7 @@ test('a job that ships on LINE A rides on to LINE B by SEND TO', async () => {
     ], belts: [1, 2, 4, 5].map(x => ({ x, y: 0, dir: 'E' })).concat([1, 2, 4, 5].map(x => ({ x, y: 4, dir: 'E' }))) });
     const arm = async (geo) => {
       const plan = Pipeline.compileRoutingPlan(geo);
-      for (const bay of plan.bays.concat(plan.dockBays)) bay.objects = ['computer'];
+      for (const bay of plan.bays.concat(plan.dockBays)) bay.objects = ['computer', 'workbench'];
       const r = await fixture.json('POST', '/api/routing', plan);
       assert.equal(r.body.ok, true, JSON.stringify(r.body));
       return plan;
@@ -105,6 +119,27 @@ test('a job that ships on LINE A rides on to LINE B by SEND TO', async () => {
     const after = (await fixture.json('GET', '/api/line-jobs/' + y.id)).body.job;
     assert.deepEqual(after.from, { line: LA, jobId: sent.body.jobId, name: 'A' });
     assert.equal(after.handedIn, 'Two facts about the moon.', 'what A handed in survives a restart');
+
+    // A real relative fs.write artifact retains the producer's private workspace in the downstream prompt.
+    fileProof = true;
+    await arm(geoOf('p4'));
+    const fileJob = await fixture.json('POST', '/api/routing/sample', { line: LA, text: 'FILE PROOF: save handoff-note.txt, then send the finished work.', name: 'A' });
+    assert.equal(fileJob.status, 200, JSON.stringify(fileJob.body));
+    let fileDownstream;
+    for (let i = 0; i < 150; i++) {
+      const jobs = (await fixture.json('GET', '/api/line-jobs?line=' + encodeURIComponent(LB))).body.jobs;
+      fileDownstream = jobs.find(j => j.from && j.from.jobId === fileJob.body.jobId);
+      if (fileDownstream && fileDownstream.status !== 'running') break;
+      await sleep(100);
+    }
+    assert.ok(fileRequested, 'producer actually requested the file tool');
+    const produced = path.join(fixture.workspace, 'alpha', 'handoff-note.txt');
+    assert.ok(fs.existsSync(produced), 'file proof missing: ' + JSON.stringify(calls.filter(c => c.user.includes('FILE PROOF'))));
+    assert.equal(fs.readFileSync(produced, 'utf8'), 'producer-owned file proof', 'real file exists in the producing workspace');
+    assert.ok(fileDownstream && fileDownstream.status === 'delivered', 'file handoff reaches downstream terminal state: ' + JSON.stringify(fileDownstream));
+    assert.ok(calls.some(c => c.handoff && c.user.includes(produced)), 'downstream receives the exact absolute producer path');
+    assert.ok(!calls.some(c => c.handoff && c.user.includes(path.join(fixture.workspace, 'beta', 'handoff-note.txt'))), 'handoff never invents a path under the receiver');
+
   } finally {
     await fixture.dispose();
     await new Promise(resolve => server.close(resolve));
