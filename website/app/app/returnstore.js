@@ -192,6 +192,13 @@ const ReturnStore = (() => {
   }
   // rated (collected) — clear the crate
   function resolve(runId) { if (ready() && runId) { state = Returns.resolve(state, runId); save(); } }
+  // TO REVIEW's CLEAR ALL — collect every listed crate in ONE save (the runs stay in the library; only the reminder goes)
+  function resolveAll(runIds) {
+    if (!ready() || !Array.isArray(runIds)) return;
+    for (const id of runIds) if (id) state = Returns.resolve(state, id);
+    save();
+    try { if (typeof OutboxView !== 'undefined' && OutboxView.refresh) OutboxView.refresh(); } catch (_) {}   // DELIVERABLES › TO REVIEW
+  }
 
   /* foldRow(row) — PROOF crate (guided workflow Phase 4): fold ONE real finished-run row into the pending
      ledger NOW, so the sample job the Commander just fired lands on the OUTBOX like any delivered run. The
@@ -223,7 +230,7 @@ const ReturnStore = (() => {
     state = null; fired = false; try { localStorage.removeItem(KEY); } catch (_) {}
   }
 
-  return { init, pendingCount, pendingRows, reviewNext, resolve, foldRow, reset, lastSeen, isAttended, outboxLine, openWork };
+  return { init, pendingCount, pendingRows, reviewNext, resolve, resolveAll, foldRow, reset, lastSeen, isAttended, outboxLine, openWork };
 })();
 
 if (typeof module !== 'undefined' && module.exports) module.exports = { ReturnStore };

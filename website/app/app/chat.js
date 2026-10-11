@@ -119,6 +119,7 @@ const Chat = (() => {
   let stick = true;   // STICKY-BOTTOM: auto-scroll only fires when the Commander is already at/near the bottom,
                       // so scrolling UP to re-read history mid-stream isn't yanked back down by every token.
   let historyPinSeq = 0, historyPinPending = 0;   // a load owns one final post-layout pin; a real user gesture cancels it
+  let userScrollAt = 0;   // last real scroll GESTURE on the log (wheel/touch/scrollbar/keys) — only a gesture can unstick
   function nearBottom() { return !log || (log.scrollHeight - log.scrollTop - log.clientHeight < 40); }
   function autoscroll() { if (stick && log) log.scrollTop = log.scrollHeight; else if (log) showNewPill(true); }   // content landed while unstuck → "new messages"
 
@@ -676,7 +677,7 @@ const Chat = (() => {
      invariant is inviolate: every model substring is HTML-ESCAPED first (escapeHtml / linkify both escape), and
      we only ever wrap ALREADY-ESCAPED text in our OWN tags — model output never reaches innerHTML raw. `code`
      spans are pulled to placeholders before the bold pass so a ** inside code stays literal. */
-  const MD_MARKERS = /\||^\s*>|^\s*\d+[.)]\s|\*\*|`|^#{1,6}\s|^[ \t]*[-*+]\s|\r?\n[ \t]*\r?\n/m;   // plain paragraph breaks need the same spacing as formatted prose
+  const MD_MARKERS = /\||^\s*>|^\s*\d+[.)]\s|\*\*|`|^#{1,6}\s|^[ \t]*[-*+]\s|\r?\n[ \t]*\r?\n|\]\(/m;   // plain paragraph breaks need the same spacing as formatted prose
   function mdInline(safe) {
     // `safe` is escaped-and-linkified HTML. Pull `inline code` to placeholders, bold the rest, restore code.
     const codes = [];
@@ -706,9 +707,77 @@ const Chat = (() => {
     const shown = hostOf(label), real = hostOf(href);
     return (shown && real && shown !== real) ? ' <span class="md-host">(' + escapeHtml(real) + ')</span>' : '';
   }
+  /* FILES THE AGENT NAMES (2026-10-10, Andrew's screenshot: "[Review the original…](review/x/index.html)" and "![…](…/final.jpg)"
+     sat in the transcript as raw markdown). Agents point at the files they made with RELATIVE paths — their workspace (or, in
+     a group, a shared file). A link becomes a real file link; an image becomes the picture, opened in the lightbox on click.
+     Escaping law unchanged: the path and the label are escaped into OUR markup; renderProse hydrates them afterwards through
+     a resolver (the jailed /api/file seams by default — the server refuses any escape). A target that is neither a web
+     address nor a plain relative path (an anchor, an absolute or '..' path, a scheme) keeps just its readable label. */
+  const REL_PATH = /^(?![\/\\#])(?!.*\.\.)[^\s:<>"'()]+$/;
+  function fileRefLink(label, target) {
+    if (!REL_PATH.test(target)) return escapeHtml(label);
+    return '<a class="md-file" href="#" data-md-path="' + escapeHtml(target) + '">' + escapeHtml(label) + '</a>';
+  }
+  function fileRefImage(alt, target) {
+    const name = alt || target.split('/').pop();
+    if (/^https?:\/\//i.test(target)) return '<a href="' + escapeHtml(target) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(name) + '</a>' + linkHostNote(name, target);
+    if (!REL_PATH.test(target)) return escapeHtml(name);
+    return '<span class="md-img" data-md-path="' + escapeHtml(target) + '" data-md-alt="' + escapeHtml(name) + '"><span class="md-img-alt">' + escapeHtml(name) + '</span></span>';
+  }
+  // the default resolver: the speaking agent's workspace, through the same open/preview/lightbox seams as every deliverable
+  const fileRefCache = new Map();   // agent|path -> Promise<blob url>; kept so a streaming re-render never refetches per frame
+  function cachedBlob(key, load) {
+    if (fileRefCache.has(key)) return fileRefCache.get(key);
+    const p = load().catch(e => { fileRefCache.delete(key); throw e; });
+    fileRefCache.set(key, p);
+    if (fileRefCache.size > 60) { const [old, op] = fileRefCache.entries().next().value; fileRefCache.delete(old); op.then(u => { try { URL.revokeObjectURL(u); } catch (_) {} }, () => {}); }
+    return p;
+  }
+  // fetch an image for an <img>: the file routes serve .svg as a download (application/octet-stream / text/plain, so it can
+  // never run as a page) — an <img> never runs script, so the blob is retyped to image/svg+xml purely so it decodes
+  function imageBlobUrl(url, path) {
+    return fetch(url, { cache: 'no-store' }).then(r => { if (!r.ok) throw new Error('file HTTP ' + r.status); return r.blob(); })
+      .then(b => URL.createObjectURL(/\.svg$/i.test(String(path || '')) && b.type !== 'image/svg+xml' ? new Blob([b], { type: 'image/svg+xml' }) : b));
+  }
+  function workspaceFileRefs(agentId) {
+    return {
+      wire: (a, path) => wireFileOpen(a, path, agentId || attachAgentId()),
+      image: path => { const aid = agentId || attachAgentId(); return cachedBlob(aid + '|' + path, () => imageBlobUrl(fileUrl(path, aid), path)); }
+    };
+  }
+  function hydrateFileRefs(bodyEl) {
+    if (!bodyEl.querySelector || !bodyEl.querySelector('.md-file, .md-img')) return;
+    const refs = bodyEl.__fileRefs || workspaceFileRefs(null);
+    bodyEl.querySelectorAll('a.md-file').forEach(a => { try { refs.wire(a, a.getAttribute('data-md-path')); } catch (_) {} });
+    bodyEl.querySelectorAll('.md-img:not([data-ready])').forEach(box => {
+      const path = box.getAttribute('data-md-path'), alt = box.getAttribute('data-md-alt') || path;
+      const link = document.createElement('a'); link.className = 'thumb md-thumb'; link.href = '#'; link.setAttribute('aria-label', 'Enlarge ' + alt);
+      const img = document.createElement('img'); img.alt = alt; img.decoding = 'async';
+      link.appendChild(img);
+      link.addEventListener('click', ev => { ev.preventDefault(); ev.stopPropagation(); openLightbox(() => refs.image(path), alt, { revoke: false }); });
+      /* An image that decodes AFTER the transcript pinned itself to the bottom grows the log; the browser's scroll anchoring
+         then holds the old offset, the reader drifts off the bottom and the "new messages" pill lies about them scrolling up.
+         If the reader was following the conversation, follow the image too. */
+      // (the transcript is looked up when it matters, not at render time: a replayed or streaming body may not be attached yet)
+      const hostOf = n => (n && n.closest) ? n.closest('#chat-log, #gc-log') : null;
+      img.addEventListener('load', () => {
+        const host = hostOf(link); if (!host) return;
+        const following = host === log ? (stick || historyPinPending) : host.__mdWasAtBottom;
+        if (following) { host.scrollTop = host.scrollHeight; if (host === log) hideNewPill(); }
+      });
+      Promise.resolve().then(() => refs.image(path)).then(u => {
+        const host = hostOf(box);
+        if (host) host.__mdWasAtBottom = host.scrollHeight - host.scrollTop - host.clientHeight < 60;
+        img.src = u; box.replaceChildren(link); box.setAttribute('data-ready', '1');
+      }, () => {
+        box.classList.add('md-img-missing');   // not on disk (or not shared): say so instead of a broken frame
+        box.querySelector('.md-img-alt').textContent = alt + ' — image not found';
+      });
+    });
+  }
   function reportInline(raw) {
     // Tokenize raw text before escaping; generated markup never enters another pass.
-    const re = /`([^`\n]+)`|\[([^\]\n]+)\]\((https?:\/\/[^\s<>"']+)\)|\*\*([^*\n]+)\*\*|https?:\/\/[^\s<>"']+/g;
+    const re = /`([^`\n]+)`|\[([^\]\n]+)\]\((https?:\/\/[^\s<>"']+)\)|\*\*([^*\n]+)\*\*|!\[([^\]\n]*)\]\(([^)\s<>"']+)\)|\[([^\]\n]+)\]\(([^)\s<>"']+)\)|https?:\/\/[^\s<>"']+/g;
     let out='',last=0,m;
     while((m=re.exec(raw))) {
       out+=escapeHtml(raw.slice(last,m.index));
@@ -719,6 +788,8 @@ const Chat = (() => {
       // bold holds no '*', so its inside can be read again for code, [label](url) and bare links (QA 2026-10-02: **`npm run dev`**
       // showed its backticks, **[docs](url)** showed '[docs](' around a bare link); reportInline escapes everything it emits
       else if(m[4]!==undefined)out+='<span class="md-b">'+reportInline(m[4])+'</span>';
+      else if(m[6]!==undefined)out+=fileRefImage(m[5],m[6]);
+      else if(m[8]!==undefined)out+=fileRefLink(m[7],m[8]);
       else out+=linkify(m[0]);
       last=re.lastIndex;
     }
@@ -805,12 +876,19 @@ const Chat = (() => {
   }
   // render agent prose into a body span. Fast textContent path when there's no URL AND no markdown marker (the
   // common streamed token) — no per-token HTML reparse; otherwise the escaped+linkified+markdown pipeline.
-  function renderProse(bodyEl, raw) {
+  function renderProse(bodyEl, raw, opts) {
     if (!bodyEl) return;
     raw = String(raw == null ? '' : raw);
     bodyEl.__proseSource = raw;
+    if (opts && opts.files) bodyEl.__fileRefs = opts.files;   // where this body's relative file links resolve (kept across re-renders)
     if (raw.indexOf('http') === -1 && !MD_MARKERS.test(raw)) { bodyEl.textContent = raw; return; }
+    // a streaming reply re-renders every frame: carry an image that already loaded into the new markup instead of
+    // rebuilding it (a rebuilt <img> collapses and re-grows each frame — flicker, and the log jumps under the reader)
+    const shown = new Map();
+    if (bodyEl.querySelectorAll) bodyEl.querySelectorAll('.md-img[data-ready]').forEach(n => { const k = n.getAttribute('data-md-path'); if (!shown.has(k)) shown.set(k, n); });
     bodyEl.innerHTML = renderMarkdown(raw);
+    if (shown.size) bodyEl.querySelectorAll('.md-img:not([data-ready])').forEach(n => { const k = n.getAttribute('data-md-path'), old = shown.get(k); if (old) { n.replaceWith(old); shown.delete(k); } });
+    hydrateFileRefs(bodyEl);
   }
 
   function messageCopyText(bodyEl) {
@@ -889,10 +967,20 @@ const Chat = (() => {
     if (log) {
       log.addEventListener('scroll', () => {
         if (historyPinPending) return;   // row()-driven replay scroll events cannot cancel the load's final pin
-        stick = nearBottom(); if (stick) hideNewPill(); else showNewPill(false);
+        /* ONLY THE COMMANDER UNSTICKS (2026-10-10). A scroll event also fires when the BROWSER moves the log — a reply
+           image decoding, a row re-rendering, scroll anchoring holding an old offset — and reading every one of those as
+           "they scrolled up" stopped the follow mid-reply and lit "new messages" over a conversation nobody had left.
+           Now: at the bottom = following; off the bottom right after a real gesture (wheel/touch/scrollbar/keys) =
+           reading history; off the bottom with NO gesture = layout moved under a follower, so follow it back down. */
+        const near = nearBottom();
+        if (near) stick = true;
+        else if (Date.now() - userScrollAt < 1200) stick = false;
+        else if (stick) log.scrollTop = log.scrollHeight;
+        if (stick) hideNewPill(); else showNewPill(false);
       });   // at the bottom → retire the pill; scrolled up → a persistent "↓ latest" affordance
       // A real attempt to inspect history wins even during the two-frame settle window.
       ['wheel', 'touchstart', 'pointerdown'].forEach(type => log.addEventListener(type, cancelHistoryPin, { passive: true }));
+      ['wheel', 'touchstart', 'touchmove', 'pointerdown', 'keydown'].forEach(type => log.addEventListener(type, () => { userScrollAt = Date.now(); }, { passive: true }));
     }
     // LINKS OUTSIDE COMMS (QA 2026-10-02): group chats, a group's .md file preview and the WORKFLOWS results render through
     // this same renderProse, but the OS-browser hand-off below lives on #chat-log only — so on desktop those links were dead
@@ -10031,5 +10119,5 @@ const Chat = (() => {
   // only" gate maybeStandaloneRate uses — so a pure-chat run is never bottle-offered. Used by App.runBottleInfo (R5).
   function runDidWork(id) { const w = id ? runWork.get(id) : null; return !!(w && ((w.toolsOk || 0) >= 1 || (w.delivered || 0) >= 1)); }
 
-  return { init, load, send, consentInspect, copyText, continuityDiagnostics, refreshStarters, sendOrQueue, continueConnectorTask, stopActive, status, localLine, broadcast, renderProse, openFile, answerConsent, consentPhrase: actionPhrase, setSystem, getHistory, contextRef, abort, isBusy, beatBusy: skillBeatBusy, beginInterview, endInterview, echoUser, prefill, autoGrowInput, choices, clearChoices, retireDeskPrompt, typeLine, nudge, clearNudge, offerCuriosity, offerFork, planGoalPath, briefingReceipt, isComposerEngaged, canFocusSession, runMeta, runDidWork, awayDigest, awayReview, awayRate, sampleCard, workshopReturn, refreshIdBar: renderIdBar, refreshGroupControls: updateControls, refreshAgentIdentity, setRosterStatus, askBudgetSpent, spendAsk, clockLabel: fmtClock, breakLabel: fmtBreak };
+  return { init, load, send, consentInspect, copyText, continuityDiagnostics, refreshStarters, sendOrQueue, continueConnectorTask, stopActive, status, localLine, broadcast, renderProse, openFile, answerConsent, consentPhrase: actionPhrase, setSystem, getHistory, contextRef, abort, isBusy, beatBusy: skillBeatBusy, beginInterview, endInterview, echoUser, prefill, autoGrowInput, choices, clearChoices, retireDeskPrompt, typeLine, nudge, clearNudge, offerCuriosity, offerFork, planGoalPath, briefingReceipt, isComposerEngaged, canFocusSession, runMeta, runDidWork, awayDigest, awayReview, awayRate, sampleCard, workshopReturn, refreshIdBar: renderIdBar, refreshGroupControls: updateControls, refreshAgentIdentity, setRosterStatus, askBudgetSpent, spendAsk, clockLabel: fmtClock, breakLabel: fmtBreak, workspaceFileRefs, imageBlobUrl };
 })();

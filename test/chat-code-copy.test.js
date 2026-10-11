@@ -21,9 +21,11 @@ function extract(name) {
 const escSrc = /const HTML_ESC = \{[^}]*\};/.exec(src);
 A.ok(escSrc, 'chat.js still defines HTML_ESC');
 // eslint-disable-next-line no-new-func
+const relSrc = /  const REL_PATH = [^\n]*;/.exec(src);
+A.ok(relSrc, 'chat.js still defines REL_PATH (relative file links)');
 const renderMarkdown = new Function(
-  escSrc[0] + '\n' + extract('escapeHtml') + '\n' + extract('linkify') + '\n' +
-  extract('mdInline') + '\n' + extract('hostOf') + '\n' + extract('linkHostNote') + '\n' + extract('reportInline') + '\n' + extract('renderFence') + '\n' + extract('renderMarkdown') +
+  escSrc[0] + '\n' + relSrc[0] + '\n' + extract('escapeHtml') + '\n' + extract('linkify') + '\n' +
+  extract('mdInline') + '\n' + extract('hostOf') + '\n' + extract('linkHostNote') + '\n' + extract('fileRefLink') + '\n' + extract('fileRefImage') + '\n' + extract('reportInline') + '\n' + extract('renderFence') + '\n' + extract('renderMarkdown') +
   '\nreturn renderMarkdown;'
 )();
 
@@ -71,7 +73,7 @@ A.ok(/messageCopyText\(bodyEl\)/.test(clickBody),'message button uses the source
 // Exercise the public renderer too: its fast-path marker gate must agree with the
 // block parser, for both streamed prose and restored history.
 const markerSource = /const MD_MARKERS = [^;]+;/.exec(src)[0];
-const renderProse = new Function('renderMarkdown', markerSource + '\n' + extract('renderProse') + '\nreturn renderProse;')(renderMarkdown);
+const renderProse = new Function('renderMarkdown', 'hydrateFileRefs', markerSource + '\n' + extract('renderProse') + '\nreturn renderProse;')(renderMarkdown, () => {});
 for (const marker of ['+', '-', '*', '1.', '1)']) {
   for (const gap of [' ', '\t']) {
     const raw = marker + gap + 'First\n' + marker + gap + 'Second';
