@@ -363,7 +363,7 @@ const GroupChat = (() => {
       const row = keep('m:' + m.id, rowKey, () => {
         const row = h('article', { class: 'gc-message cmsg' + (m.author === 'user' ? ' user' : ' agent'), 'data-message-id': m.id });
         const body = h('div', { class: 'body' });
-        if (typeof Chat !== 'undefined' && Chat.renderProse) Chat.renderProse(body, content, { files: fileRefs(group.id, m.author) }); else body.textContent = content;
+        if (typeof Chat !== 'undefined' && Chat.renderProse) Chat.renderProse(body, content, { files: fileRefs(group.id, m.author, m.id) }); else body.textContent = content;
         const color = colorOf(m.author); if (color) { row.style.setProperty('--gc-c', color); body.style.setProperty('--rail', color); }
         const who = group.members.includes(m.author) ? speaker(m.author, m.id) : h('span', { class: 'who' }, name(m.author).toUpperCase());
         if (at) {
@@ -525,8 +525,8 @@ const GroupChat = (() => {
     const norm = a => clean(a.sourcePath);
     return g.artifacts.find(a => norm(a) === want) || g.artifacts.find(a => norm(a).endsWith('/' + want)) || g.artifacts.find(a => a.name === base) || null;
   }
-  function fileRefs(groupId, agentId) {
-    const own = (typeof Chat !== 'undefined' && Chat.workspaceFileRefs) ? Chat.workspaceFileRefs(agentId) : null;
+  function fileRefs(groupId, agentId, messageId) {
+    const own = (typeof Chat !== 'undefined' && Chat.workspaceFileRefs) ? Chat.workspaceFileRefs(agentId, 'group:' + groupId + ':' + messageId) : null;
     return {
       // decided at CLICK time: a message rendered before the file was shared must still open the shared copy afterwards
       // (capture on the link itself runs before the workspace opener's own listeners, so it can take the click over)
@@ -541,8 +541,7 @@ const GroupChat = (() => {
       image: p => {
         const art = sharedFor(groupId, p);
         if (!art) return own ? own.image(p) : Promise.reject(new Error('no file'));
-        if (!sharedBlobs.has(art.id)) sharedBlobs.set(art.id, Chat.imageBlobUrl('/api/groups?id=' + encodeURIComponent(groupId) + '&file=' + encodeURIComponent(art.id), art.sourcePath || art.name)
-          .catch(e => { sharedBlobs.delete(art.id); throw e; }));
+        if (!sharedBlobs.has(art.id)) sharedBlobs.set(art.id, Chat.imageBlobUrl('/api/groups?id=' + encodeURIComponent(groupId) + '&file=' + encodeURIComponent(art.id), art.sourcePath || art.name));
         return sharedBlobs.get(art.id);
       }
     };

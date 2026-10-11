@@ -192,7 +192,7 @@ const GhostLine = (() => {
       // the line to project: FIRST candidate with work left — the exact incompleteness truth the
       // finish-the-line card reads (unbound docks, or a provably unfed intake).
       let sel = null;
-      for (const c of cands) { if (c.crewLeft > 0 || (c.hasIntake && feed.known && !feed.fed)) { sel = c; break; } }
+      for (const c of cands) { if (c.crewLeft > 0 || (c.hasIntake && feed.known && !feed.fed && !(opt && opt.fedLines && opt.fedLines[c.key]))) { sel = c; break; } }
       if (!sel || blocked) {
         // STOP INSTANTLY: the line completed, real telemetry owns the belt, or a coach is up.
         if (e.boxCount() || notes.length || pendingChain) clearRide();

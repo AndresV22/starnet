@@ -473,7 +473,7 @@
      dead escalation lane, paused starts and the belt CYCLE were all read wrong or not at all.) */
   function readiness(flow, comp, facts) {
     const f = facts || {}, blocking = [], hints = [];
-    if (!comp) return { ready: false, blocking: [{ what: 'Connect this BAY to a line with the BELT tool', propId: null }], hints };
+    if (!comp) return { ready: false, blocking: [{ what: 'Connect this BAY to a line: drag a machine onto it (or use the BELT tool)', propId: null }], hints };
     const mine = {}; for (const id of (comp.props || [])) mine[id] = true;
     const onLine = e => (e.propId != null && mine[e.propId]) || !!(e.tile && comp.tiles && comp.tiles[key(e.tile.x, e.tile.y)]);
     const label = code => (f.labelOf ? f.labelOf(code) : code);
