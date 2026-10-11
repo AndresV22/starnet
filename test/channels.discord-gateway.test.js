@@ -87,7 +87,8 @@ function okFetch(url) {
     A.ok(identify, 'IDENTIFY (op 2) sent after HELLO');
     A.eq(identify.d.token, 'BOT', 'IDENTIFY carries the bot token');
     A.eq(identify.d.intents, DEFAULT_INTENTS, 'IDENTIFY requests the default intents');
-    A.ok((identify.d.intents & INTENT.MESSAGE_CONTENT) !== 0, 'MESSAGE_CONTENT intent is set (needed to read text)');
+    A.ok((identify.d.intents & INTENT.MESSAGE_CONTENT) === 0, 'no privileged MESSAGE_CONTENT intent: DM text arrives without it, and a missing portal toggle no longer kills the bot (4014)');
+    A.ok((identify.d.intents & INTENT.GUILD_MESSAGES) === 0, 'no GUILD_MESSAGES: server channels are ignored by the DM-only adapter anyway');
     A.ok((identify.d.intents & INTENT.DIRECT_MESSAGES) !== 0, 'DIRECT_MESSAGES intent is set');
     // READY
     ws.emit({ op: 0, t: 'READY', s: 1, d: { session_id: 'sess123', resume_gateway_url: 'wss://resume.test', user: { id: 'BOTID' } } });
@@ -274,8 +275,9 @@ function okFetch(url) {
     const timers2 = fakeTimers();
     const FakeWS2 = makeFakeWS();
     const states2 = [];
+    let detail2 = '';
     const gw2 = makeDiscordGateway({
-      token: 'BAD', onMessage: () => {}, onState: s => states2.push(s.state),
+      token: 'BAD', onMessage: () => {}, onState: s => { states2.push(s.state); if (s.state === 'error') detail2 = s.detail || ''; },
       fetch: okFetch, WebSocketImpl: FakeWS2, gatewayUrl: 'wss://gw.test',
       setTimeoutImpl: timers2.setTimeoutImpl, clearTimeoutImpl: timers2.clearTimeoutImpl, now: timers2.now, random: () => 0.5
     });
@@ -284,6 +286,7 @@ function okFetch(url) {
     const n = FakeWS2._instances.length;
     wsb.serverClose(4004);                       // authentication failed -> fatal
     A.ok(states2.indexOf('error') !== -1, 'a fatal close (4004) reports an error state');
+    A.ok(/Reset Token/.test(detail2), 'the 4004 error tells the user how to fix the token, not just the close code');
     timers2.advance(60000);
     await Promise.resolve(); await Promise.resolve();
     A.eq(FakeWS2._instances.length, n, 'a fatal close does NOT reconnect (stops for good)');

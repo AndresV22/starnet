@@ -43,8 +43,11 @@ function cleanMessage(s, max) {
 
 function safeChildEnv(env) {
   env = env || {};
+  // SystemDrive/ProgramData/ALLUSERSPROFILE are Windows system locations (never secrets): without them native
+  // code resolves "%ProgramData%\..." caches as RELATIVE paths and litters the child's cwd (the user's project).
   const allow = ['PATH', 'Path', 'PATHEXT', 'SYSTEMROOT', 'SystemRoot', 'WINDIR', 'TEMP', 'TMP',
-    'HOME', 'USERPROFILE', 'LOCALAPPDATA', 'APPDATA', 'LANG', 'LC_ALL', 'RUSTUP_HOME', 'CARGO_HOME'];
+    'HOME', 'USERPROFILE', 'LOCALAPPDATA', 'APPDATA', 'LANG', 'LC_ALL', 'RUSTUP_HOME', 'CARGO_HOME',
+    'SystemDrive', 'ProgramData', 'ALLUSERSPROFILE'];
   const out = {};
   for (const key of allow) if (env[key] != null) out[key] = String(env[key]);
   return out;

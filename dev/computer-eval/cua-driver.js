@@ -5,29 +5,28 @@
 const { spawn, execFile } = require('node:child_process');
 const { randomUUID } = require('node:crypto');
 const { makeMcpClient } = require('../../sidecar/mcp/client.js');
-
-function childEnv(source = process.env) {
-  const env = {};
-  for (const key of ['PATH', 'Path', 'PATHEXT', 'SystemRoot', 'WINDIR', 'TEMP', 'TMP', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA']) {
-    if (source[key] != null) env[key] = source[key];
-  }
-  env.CUA_DRIVER_RS_TELEMETRY_ENABLED = '0';
-  return env;
-}
+// One allowlist for both launchers: the production runtime's env keeps the Windows
+// system locations (ProgramData, SystemDrive, …) a GPU/shell process needs, so this
+// prototype cannot drift back to littering its cwd with "%SystemDrive%" folders.
+// driverBinary pins a relative driver path (live-loop/notepad pass argv[2] as given)
+// to OUR cwd before the child gets its private one.
+const { childEnv, driverCwd, driverBinary } = require('../../sidecar/tools/builtin/cua-runtime.js');
 function unwrap(result) {
   if (result.isError) throw new Error((result.content || []).filter(c => c.type === 'text').map(c => c.text).join('\n'));
   if (result.structuredContent) return result.structuredContent;
   const text = (result.content || []).filter(c => c.type === 'text').map(c => c.text).join('\n');
   try { return JSON.parse(text); } catch { return { text }; }
 }
-async function connect({ binary, fullPower, timeoutMs = 20000 }) {
+async function connect({ binary: requested, fullPower, timeoutMs = 20000 }) {
   if (fullPower !== true) throw new Error('Evaluation launcher requires explicit Full Power');
+  const binary = driverBinary(requested);
   const env = childEnv();
+  const cwd = driverCwd();
   const socket = process.platform === 'win32' ? '\\\\.\\pipe\\starnet-cua-eval-' + randomUUID() : require('node:path').join(require('node:os').tmpdir(), 'sn-' + randomUUID() + '.sock');
   const session = 'starnet-eval-' + randomUUID();
   const errors = [];
   const start = (args) => {
-    const child = spawn(binary, args, { env, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
+    const child = spawn(binary, args, { env, cwd, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
     child.stderr.on('data', b => { errors.push(String(b)); if (errors.length > 20) errors.shift(); });
     return child;
   };
@@ -35,7 +34,7 @@ async function connect({ binary, fullPower, timeoutMs = 20000 }) {
   daemon.stdout.resume();
   let spawnError, proxy, client;
   daemon.on('error', e => { spawnError = e; });
-  const cli = (args) => new Promise((resolve, reject) => execFile(binary, args, { env, windowsHide: true, timeout: 2500 }, (e, stdout) => e ? reject(e) : resolve(stdout)));
+  const cli = (args) => new Promise((resolve, reject) => execFile(binary, args, { env, cwd, windowsHide: true, timeout: 2500 }, (e, stdout) => e ? reject(e) : resolve(stdout)));
   async function close() {
     if (client) {
       try { await client.callTool('end_session', { session }); } catch {}

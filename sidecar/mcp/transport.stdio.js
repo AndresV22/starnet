@@ -32,7 +32,10 @@
   ];
   const BASE_ENV_KEYS = [
     'PATH', 'Path', 'PATHEXT', 'SystemRoot', 'WINDIR', 'TEMP', 'TMP',
-    'HOME', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA'
+    'HOME', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA',
+    // Windows system locations (never secrets): without them a native/GPU child (a browser an MCP server
+    // drives) resolves "%ProgramData%\..." caches as RELATIVE paths and litters its cwd.
+    'SystemDrive', 'ProgramData', 'ALLUSERSPROFILE'
   ];
   const SECRET_ENV_RE = /(TOKEN|KEY|SECRET|PASSWORD|PASS|AUTH|BEARER|CREDENTIAL|COOKIE)/i;
 

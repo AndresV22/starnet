@@ -35,6 +35,43 @@ const envOf = (over, dmOver) => ({ envelope: Object.assign({ sourceNumber: '+155
     A.eq(MAX_MESSAGE_LENGTH, 4096, 'declared chunking limit');
   }
 
+  // ---- A2. Note to Self: a bridge LINKED to the user's own number only sees what they type there as a sync
+  //          transcript addressed to the account itself (2026-10-11: the guide's link option was a dead end). ----
+  {
+    const ME = '+15557770000';
+    const sync = (dest, msg, extra) => ({ account: ME, envelope: Object.assign({ sourceNumber: ME, sourceName: 'Me', timestamp: 500,
+      syncMessage: { sentMessage: Object.assign({ destinationNumber: dest, destination: dest, message: msg, timestamp: 501 }, extra || {}) } }) });
+    const n = normalize(sync(ME, 'pair ABCDE-FGHIJ'));
+    A.eq(n && n.message, { chatId: ME, chatType: 'dm', userId: ME, userName: 'Me', text: 'pair ABCDE-FGHIJ', messageId: '501' }, 'Note to Self normalizes to a DM from (and back to) the account');
+    A.eq(normalize(sync('+15550001111', 'private chat with a friend')), null, 'a transcript of the user talking to SOMEONE ELSE is never delivered');
+    A.eq(normalize(sync(ME, 'x', { groupInfo: { groupId: 'g' } })), null, 'a group transcript is never delivered');
+    A.eq(normalize(sync(ME, '')), null, 'an empty Note to Self delivers nothing');
+    const noAccount = sync(ME, 'hi'); delete noAccount.account;
+    A.eq(normalize(noAccount), null, 'without knowing the account, a sync is never trusted');
+    A.eq(normalize(noAccount, { account: ME }).message.text, 'hi', 'the configured account number identifies Note to Self');
+    A.eq(normalize({ account: ME, envelope: { sourceNumber: ME, syncMessage: { readMessages: [{ timestamp: 1 }] } } }), null, 'other sync traffic (read receipts) delivers nothing');
+
+    // end to end: the owner IS the account; the reply goes back to Note to Self and its echo is refused.
+    const sent = [];
+    const seq = [[sync(ME, 'what is on my calendar')]];
+    const inbound = [];
+    const transport = {
+      getUpdates: async () => seq.length ? seq.shift() : (await new Promise(r => setTimeout(() => r([]), 1))),
+      send: async (chatId, text) => { sent.push({ chatId, text }); return { ok: true, messageId: '777' }; }
+    };
+    const ad = makeSignalAdapter({ transport, account: ME, clock: { now: () => 9 }, ownerUserId: ME, onInbound: m => inbound.push(m), sleep: () => Promise.resolve() });
+    await ad.connect();
+    for (let i = 0; i < 20 && inbound.length < 1; i++) await tick();
+    A.eq(inbound.length, 1, 'a Note to Self from the paired owner reaches the run host');
+    A.eq(inbound[0].chatId, ME, 'its reply is addressed to Note to Self');
+    await ad.send(ME, 'You have two meetings.');
+    A.eq(sent[0] && sent[0].chatId, ME, 'the reply is sent to the account itself');
+    seq.push([sync(ME, 'You have two meetings.', { timestamp: 777 })]);
+    for (let i = 0; i < 20; i++) await tick();
+    await ad.disconnect();
+    A.eq(inbound.length, 1, 'the echo of our own reply (same timestamp) is refused, never a new turn');
+  }
+
   // ---- B. transport: receive URL shape, send body shape, error classes ----
   {
     const calls = [];
@@ -57,6 +94,7 @@ const envOf = (over, dmOver) => ({ envelope: Object.assign({ sourceNumber: '+155
     const t400 = makeSignalTransport({ fetch: async () => jres(400, { error: 'account not registered' }), endpoint: 'http://x', account: '+1' });
     let err = null; try { await t400.getUpdates({}); } catch (e) { err = e; }
     A.ok(err && err.fatal === true, 'a 400 (unknown account) receive is FATAL — stop polling for good');
+    A.ok(/MODE=native/.test(err.message), 'the fatal 400 names the json-rpc mode fix the user can make');
 
     const t500 = makeSignalTransport({ fetch: async () => jres(500, { error: 'boom' }), endpoint: 'http://x', account: '+1' });
     const r5 = await t500.send('+2', 'x', {});

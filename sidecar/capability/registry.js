@@ -333,6 +333,16 @@
       { capId: 'orchestrator', tool: 'loop.create', scope: 'write', requiresConsent: true, network: false },
       { capId: 'orchestrator', tool: 'loop.manage', scope: 'write', requiresConsent: true, network: false }
     ],
+    /* BUILDER (2026-10-11, the delegated Build Manager): a SLICE of the lead's station builder — see the floor, plan on a
+       copy, build behind the Commander's approval card — LENT by the lead to ONE dispatched worker for ONE job
+       (team.dispatch builder:true). Never placed and never in the full-power sweep: only the lead's dispatch confers it.
+       Same capId as the orchestrator it is cut from, so the TASK DELEGATION switch turns it off with the rest. Making
+       props (credits), testing and starting lines, and settings stay the lead's. */
+    builder: [
+      { capId: 'orchestrator', tool: 'station.map', scope: 'read', requiresConsent: false, network: false, deferred: true },
+      { capId: 'orchestrator', tool: 'station.plan', scope: 'read', requiresConsent: false, network: false, deferred: true },
+      { capId: 'orchestrator', tool: 'station.build', scope: 'write', requiresConsent: true, network: false, deferred: true }
+    ],
     // STUDIO (media skills): text->image generation + image vision analysis, both on the SAME BYOK OpenRouter
     // key the agent already uses (no new provider). image_generate WRITES a file into the agent's workspace, so
     // it is consent-gated like fs.write; image_analyze only READS an image and returns text (consent-free).

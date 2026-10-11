@@ -404,6 +404,7 @@ test/browser-handoff-routes.test.js
 test/desktop.test.js
 test/computer.test.js
 test/cua-computer.test.js
+test/cua-runtime-env.test.js
 test/computer-control.test.js
 test/win32desktop.test.js
 test/inputpolicy.test.js
@@ -667,6 +668,8 @@ test/desk-one-per-agent.test.js
 test/recruit-identity-ui.test.js
 test/subagents.test.js
 test/orchestration.test.js
+test/builder-lend.test.js
+test/crew-call.test.js
 test/domain-terminal.test.js
 test/worker-iteration-cap.test.js
 test/channels.test.js

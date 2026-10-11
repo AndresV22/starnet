@@ -69,9 +69,9 @@
         verb: 'receiving',
         steps: [
           'Open the <b>Discord Developer Portal</b> → <b>New Application</b> → <b>Bot</b> → <b>Reset Token</b> → copy the token.',
-          'Enable <b>MESSAGE CONTENT INTENT</b> on the Bot page (required to read your messages), then invite the bot to a server (OAuth2 → URL Generator → <code>bot</code> scope).',
+          'Invite the bot to a server you are in (OAuth2 → URL Generator → tick <code>bot</code> → open the link). Discord only lets you DM a bot you share a server with. No intents need turning on.',
           'Paste the token below and connect.',
-          '<b>Pair your account.</b> StarNet shows a <code>pair</code> message with a one-time code. Send it to the bot from YOUR account (no slash — Slack reserves <code>/</code>). Until you do, the bot refuses every message.'
+          '<b>Pair your account.</b> Open a <b>direct message</b> with the bot (click it in the server member list → Message) and send the <code>pair</code> message StarNet shows, exactly as shown. Messages in server channels are ignored. Until you pair, the bot refuses every message.'
         ],
         note: 'Your token is saved on this machine and never displayed.',
         fieldsHtml: '<label class="ch-lbl" for="dc-token">BOT TOKEN <span class="dim">— from the Discord Developer Portal</span></label>' +
@@ -80,7 +80,7 @@
         clear: (b) => { b.querySelector('#dc-token').value = ''; },
         emptyMsg: 'paste your Discord bot token first',
         okMsg: '✓ connected — DM your bot on Discord',
-        errHint: ' — check the bot token / MESSAGE CONTENT intent' },
+        errHint: ' — check the bot token' },
 
       { id: 'slack', title: 'SLACK', pre: 'sl', accent: '#b98ec8',
         // HONESTY: channel messages need a chat allowlist no production path supplies yet — DMs only today.
@@ -92,7 +92,7 @@
           'Enable <b>Socket Mode</b> (Settings → Socket Mode) and create an <b>app-level token</b> with <code>connections:write</code> (starts <code>xapp-</code>).',
           'Under <b>OAuth &amp; Permissions</b> add bot scopes <code>chat:write</code>, <code>im:history</code>, <code>channels:history</code> → <b>Install to Workspace</b> → copy the <b>bot token</b> (starts <code>xoxb-</code>).',
           'Under <b>Event Subscriptions</b> subscribe the bot to <code>message.im</code>.',
-          '<b>Pair your account.</b> StarNet shows a <code>pair</code> message with a one-time code. Send it to the bot from YOUR account (no slash — Slack reserves <code>/</code>). Until you do, the bot refuses every message.'
+          '<b>Pair your account.</b> StarNet shows a <code>pair</code> message with a one-time code. Send it to the bot from YOUR account, without a slash (Slack reserves <code>/</code>). Until you do, the bot refuses every message.'
         ],
         note: 'Both tokens are saved on this machine and never displayed.',
         fieldsHtml: '<label class="ch-lbl" for="sl-bot-token">BOT TOKEN <span class="dim">— xoxb-…, from OAuth &amp; Permissions</span></label>' +
@@ -115,7 +115,7 @@
           'Create a Matrix account for the agent (e.g. on <b>matrix.org</b> or your homeserver).',
           'Get an <b>access token</b> for that account (Element: Settings → Help &amp; About → Advanced → Access Token).',
           'Enter the homeserver URL + token below and connect, then invite the agent\'s account to a room from YOUR account and accept the invite once from any client.',
-          '<b>Pair your account.</b> StarNet shows a <code>pair</code> message with a one-time code. Send it to the bot from YOUR account (no slash — Slack reserves <code>/</code>). Until you do, the bot refuses every message.'
+          '<b>Pair your account.</b> StarNet shows a <code>pair</code> message with a one-time code. Send it in that room from YOUR account, exactly as shown. Until you do, the bot refuses every message.'
         ],
         note: 'Owner-locked: only the account that sends the one-time pair code can reach the agent — anyone else in a room is ignored.',
         fieldsHtml: '<label class="ch-lbl" for="mx-endpoint">HOMESERVER URL <span class="dim">— e.g. https://matrix.org</span></label>' +
@@ -133,15 +133,15 @@
         tagline: 'Message your agent on Signal through a self-hosted signal-cli bridge.',
         verb: 'receiving',
         steps: [
-          'Run the <b>signal-cli REST API</b> next to StarNet (docker: <code>bbernhard/signal-cli-rest-api</code>).',
-          'Register or link a number for the agent (the bridge\'s <code>/v1/register</code> or QR link flow).',
-          'Enter the bridge URL + that number below and connect, then message it from your own Signal.',
-          '<b>Pair your account.</b> StarNet shows a <code>pair</code> message with a one-time code. Send it to the bot from YOUR account (no slash — Slack reserves <code>/</code>). Until you do, the bot refuses every message.'
+          'Start the bridge with Docker: <code>docker run -d --name signal-api -p 127.0.0.1:8080:8080 -v signal-api:/home/.local/share/signal-cli -e MODE=native bbernhard/signal-cli-rest-api</code>. Keep <code>MODE=native</code> (or <code>normal</code>); <code>json-rpc</code> mode cannot be polled.',
+          'Link it to your own Signal: open <code>http://127.0.0.1:8080/v1/qrcodelink?device_name=starnet</code> and scan it from Signal → Settings → Linked devices. No second number needed. (A spare number registered on the bridge works too.)',
+          'Enter the bridge URL and that number below, then connect.',
+          '<b>Pair your account.</b> StarNet shows a <code>pair</code> message with a one-time code. Linked to your own number: send it in <b>Note to Self</b>, and keep chatting there. Spare number: message that number from your Signal. Until you pair, the bot refuses every message.'
         ],
         note: 'No token needed — the bridge runs on your machine; keep it bound to localhost.',
         fieldsHtml: '<label class="ch-lbl" for="sg-endpoint">SIGNAL-CLI REST URL <span class="dim">— e.g. http://127.0.0.1:8080</span></label>' +
           '<input id="sg-endpoint" type="text" class="key-input" placeholder="http://127.0.0.1:8080" autocomplete="off" spellcheck="false">' +
-          '<label class="ch-lbl" for="sg-account">REGISTERED NUMBER <span class="dim">— the agent\'s Signal number</span></label>' +
+          '<label class="ch-lbl" for="sg-account">SIGNAL NUMBER <span class="dim">— the number linked or registered on the bridge</span></label>' +
           '<input id="sg-account" type="text" class="key-input" placeholder="+15551234567" autocomplete="off" spellcheck="false">',
         read: (b) => ({ endpoint: (b.querySelector('#sg-endpoint').value || '').trim(), account: (b.querySelector('#sg-account').value || '').trim() }),
         clear: () => {},

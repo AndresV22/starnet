@@ -38,6 +38,11 @@
     return rateLimits;
   }
 
+  // Ollama's default port, or a host named for it (a reverse proxy like ollama.lan). Anything else stays generic.
+  function looksLikeOllama(baseUrl) {
+    try { const u = new URL(String(baseUrl || '')); return u.port === '11434' || /ollama/i.test(u.hostname); }
+    catch (_) { return false; }
+  }
   function resolveMaxOutputTokens(profile, field = 'maxOutputTokens') {
     if (!profile) return 0;
     const envName = String(profile[field + 'Env'] || '');
@@ -133,6 +138,12 @@
           ? 'STARNET is not linked on this station — link it in SETTINGS to run on credits (relink if you recently unlinked or reinstalled)'
           : 'provider ' + id + ' has no endpoint configured (base URL missing)');
       }
+      /* An Ollama server added as a CUSTOM OpenAI-compatible endpoint (http://…:11434/v1) got none of the Ollama
+         profile's wire fixes: /v1 runs it at the server's default window (4k) and silently cuts a ~21k-token task
+         prompt to its tail, so a local Qwen lead never even saw team.dispatch (2026-10-11 user report). Such an
+         endpoint borrows the Ollama profile's WIRE (native /api/chat + sized window, output ceiling, model-load
+         timeout); the native path still drops back to /v1 by itself when the server has no /api/chat. */
+      const wire = (id === 'custom' && looksLikeOllama(opts.baseUrl || profile.baseUrl) && registry.getProviderProfile('ollama')) || profile;
       const mergedHeaders = (profile.extraHeaders || opts.headers)
         ? Object.assign({}, profile.extraHeaders || {}, opts.headers || {})
         : undefined;
@@ -164,15 +175,15 @@
         priceFamily: (typeof profile.priceFamily === 'string') ? profile.priceFamily : null,
         // Local runtimes may need to load a model before returning headers. Hosted providers retain the
         // shared 30s connect ceiling; only profiles that prove a different need override it.
-        connectTimeoutMs: profile.connectTimeoutMs,
+        connectTimeoutMs: wire.connectTimeoutMs,
         // Output ceiling: only profiles that declare one (Ollama) send max_tokens; an env override wins.
-        maxTokens: resolveMaxOutputTokens(profile),
-        maxChatTokens: resolveMaxOutputTokens(profile, 'maxChatOutputTokens'),
+        maxTokens: resolveMaxOutputTokens(wire),
+        maxChatTokens: resolveMaxOutputTokens(wire, 'maxChatOutputTokens'),
         // Ollama: chat on the native /api/chat with a request-sized window (registry `nativeOllama`); an env pin or
         // ceiling wins over the profile's, the same way the output ceilings above resolve.
-        nativeOllama: profile.nativeOllama === true,
-        numCtx: resolveMaxOutputTokens(profile, 'numCtx'),
-        maxCtx: resolveMaxOutputTokens(profile, 'maxCtx'),
+        nativeOllama: wire.nativeOllama === true,
+        numCtx: resolveMaxOutputTokens(wire, 'numCtx'),
+        maxCtx: resolveMaxOutputTokens(wire, 'maxCtx'),
         defaultContext: opts.defaultContext,
         headers: mergedHeaders,
         // run attribution header (starnet only — the profile names it; see openai-compatible requestHeaders)

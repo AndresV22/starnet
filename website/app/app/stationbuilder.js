@@ -86,7 +86,7 @@
     const n = norm(raw), crew = (env.crew || []).filter(a => a && a.id);
     if (!n) return { ok: true, id: '' };
     if (LEAD_WORDS[n] && env.heroId) return { ok: true, id: env.heroId };
-    if (NEW_WORDS[n]) return env.canRecruit ? { ok: true, id: '', recruit: true } : refuse('Recruiting is not available on this page. Staff the step with a crew member, or leave agent empty.');
+    if (NEW_WORDS[n]) return env.canRecruit ? { ok: true, id: '', recruit: true } : refuse(env.recruitRefusal || 'Recruiting is not available on this page. Staff the step with a crew member, or leave agent empty.');
     const hit = crew.filter(a => norm(a.id) === n || norm(a.name) === n);
     if (hit.length === 1) return { ok: true, id: hit[0].id };
     return refuse((hit.length ? 'More than one crew member matches "' : 'Nobody on the crew is called "') + String(raw).slice(0, 40) + '".'

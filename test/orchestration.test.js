@@ -188,6 +188,20 @@ const tick = () => new Promise(resolve => setImmediate(resolve));
   A.ok(/yourself/.test(parsed[0].result), 'self rejection explains why');
   A.eq(parsed[1].reason, 'error', 'unknown worker is an error');
   A.ok(/no such live worker/.test(parsed[1].result), 'unknown rejection points at the roster');
+  A.ok(/Valid agentIds: researcher\./.test(parsed[1].result), 'the rejection lists the real agentIds so a small model can self-correct');
+}
+
+// ---- a worker addressed the way the briefing SHOWS it ("Name", "id (Name)", wrong case) resolves (2026-10-11) ----
+{
+  const ro = fakeRunOnce();
+  const roster = new Map([['researcher', { system: 'R', name: 'Ada' }], ['writer', { system: 'W', name: 'Quill' }], ['writer2', { system: 'W', name: 'Quill' }]]);
+  const { dispatchTool } = makeOrchestrationTools({ runOnce: ro, roster: () => roster, key: 'k', model: 'm', newId: counter() });
+  const out = await dispatchTool.run({ workers: [{ agentId: 'Ada', prompt: 'a' }, { agentId: 'Researcher (Ada)', prompt: 'b' }, { agentId: 'Quill', prompt: 'c' }] }, { agentId: 'agent', emit: () => {} });
+  const parsed = JSON.parse(out.content);
+  A.eq(parsed[0].agentId, 'researcher', 'an exact display name resolves to its agentId');
+  A.eq(parsed[1].agentId, 'researcher', 'the "id (Name)" form the crew list prints resolves, case-insensitively');
+  A.eq(parsed[2].reason, 'error', 'an AMBIGUOUS name (two Quills) is refused, never guessed');
+  A.eq(ro.calls.length, 2, 'only the two resolved workers ran');
 }
 
 // ---- a child that could not start (runOnce -> undefined) is reported, not a crash ----
