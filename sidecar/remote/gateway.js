@@ -13,7 +13,8 @@
      status                          crew, live runs, the needs-you count
      threads   { agentId?, limit? }  recent conversations (newest first)
      thread    { streamId, limit? }  one conversation's turns, oldest first
-     send      { agentId, text, streamId? }   start a task; the run lives on the station, not on this socket
+     send      { agentId, text, streamId?, voice? }   start a task; the run lives on the station, not on this socket
+                                     (voice: spoken on a voice-only device: the reply is shaped to be heard)
      stop      { runId }             abort a live run, all the way to the provider
      approvals                       every open approval and question on the station
      decide    { runId, promptId, decision }   once | session | deny   (never always / full from a phone)
@@ -29,6 +30,9 @@
      pushOn    { endpoint, keys }    subscribe this phone to the station's notifications
      pushOff                         unsubscribe this phone
      pushTest                        send this phone one notification now
+     hear      { utt, part, frames, frameMs?, last? }   a device's spoken request, Opus frames in order -> { text }
+     speak     { text }              say a reply in the station's voice -> { id, mime, bytes }
+     speech    { id, offset?, length? }   that reply's audio in sealed chunks (≤ 64 KB each)
      routines                        scheduled routines
      routine   { jobId, enabled }    pause or resume one
      ping                            liveness; the phone's link lamp reads this
@@ -51,6 +55,12 @@ function makeGateway(deps) {
   const good = (data) => ({ ok: true, data: data === undefined ? null : data });
   const id = (v) => { const s = String(v == null ? '' : v); return ID_RE.test(s) ? s : ''; };
   const clampInt = (v, lo, hi, dflt) => { const n = Math.floor(Number(v)); return Number.isFinite(n) ? Math.max(lo, Math.min(hi, n)) : dflt; };
+  const voiceCall = async (verb, a, ctx) => {
+    if (!deps.voice) return bad('this station cannot do voice');
+    if (!ctx || !ctx.deviceId) return bad('unknown device');
+    const r = await deps.voice[verb](ctx.deviceId, a);
+    return r && r.ok ? good(r.data) : bad((r && r.error) || 'voice failed');
+  };
 
   const VERBS = {
     async ping() { return good({ at: now() }); },
@@ -80,7 +90,8 @@ function makeGateway(deps) {
       if (text.length > MAX_TEXT) return bad('that message is too long for one task (' + MAX_TEXT + ' characters max)');
       let streamId = a.streamId == null || a.streamId === '' ? '' : String(a.streamId);
       if (streamId && !STREAM_RE.test(streamId)) return bad('unknown conversation');
-      const r = await host.send({ agentId, text, streamId, deviceId: ctx.deviceId });
+      // voice: the message was spoken on a voice-only device; the reply will only be heard (remote/voice-style.js)
+      const r = await host.send({ agentId, text, streamId, deviceId: ctx.deviceId, voice: a.voice === true });
       return r && r.ok === false ? bad(r.error || 'the task could not start') : good(r);
     },
 
@@ -166,6 +177,11 @@ function makeGateway(deps) {
       const [r] = await deps.push.send([ctx.deviceId], { title: 'Notifications are on', body: 'Your station will tap this phone when your crew needs you.', tag: 'test', url: '#needs' });
       return r && r.ok ? good({ sent: true }) : bad('the push service did not take the notification' + (r && r.status ? ' (' + r.status + ')' : ''));
     },
+
+    // voice: a paired device with a microphone and a speaker (sidecar/remote/voice.js)
+    async hear(a, ctx) { return voiceCall('hear', a, ctx); },
+    async speak(a, ctx) { return voiceCall('speak', a, ctx); },
+    async speech(a, ctx) { return voiceCall('speech', a, ctx); },
 
     async routines() { return good(await host.routines()); },
 

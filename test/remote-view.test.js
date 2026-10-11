@@ -61,6 +61,11 @@ const jpeg = () => Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.
   const dflt = portraits.forSkin('no-such-skin');
   A.eq(dflt && dflt.skin, ctx.DATA.DEFAULT_SKIN, 'an unknown skin falls back to the default, as the renderer does');
   A.eq(portraits.forSkin('../../secret'), dflt, 'a hostile skin name reads nothing but the default sprite');
+  // a device asks for tracks by SET name: every skin maps to a set whose walk/type tracks exist
+  let noTracks = [];
+  for (const s of skins) { const set = portraits.setFor(s); if (!set || !portraits.framesFor(set + '.walk.east') || !portraits.framesFor(set + '.rot.south')) noTracks.push(s); }
+  A.eq(noTracks, [], 'every skin names a sprite set with walk and facing tracks');
+  A.eq(portraits.setFor('no-such-skin'), portraits.setFor(ctx.DATA.DEFAULT_SKIN), 'an unknown skin draws with the default skin\'s set');
 
   /* ---------- 3. the verbs, through the real gateway ---------- */
   let now = 50000;
@@ -70,7 +75,7 @@ const jpeg = () => Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.
     roster: () => [{ agentId: 'forge', name: 'FORGE', model: 'm', provider: 'p' }, { agentId: 'scout', name: 'SCOUT' }],
     liveRuns: () => [], transcript: { streams: () => [], history: () => [] },
     view: v2, crewLooks: () => ({ forge: { skin: 'robot', color: '#fff' } }), portrait: (skin) => portraits.forSkin(skin),
-    sprites: (key) => portraits.framesFor(key),
+    sprites: (key) => portraits.framesFor(key), spriteSet: (skin) => portraits.setFor(skin),
     runHistory: () => history
   });
   let history = [];
@@ -102,6 +107,8 @@ const jpeg = () => Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.
 
   const st = await call('status', {});
   A.eq(st.data.agents.map(a => a.skin), ['robot', ''], 'status carries each agent\'s skin (blank when the save has none)');
+  A.eq(st.data.agents.map(a => a.sprite), [portraits.setFor('robot'), portraits.setFor('')], 'and the sprite set it draws with (the default set when it has no skin)');
+  A.ok(!!(await call('sprite', { key: st.data.agents[0].sprite + '.walk.east' })).ok, 'which a device can fetch tracks from directly');
   const pf = await call('portrait', { agentId: 'forge' });
   A.eq([pf.ok, pf.data.skin, pf.data.mime], [true, 'robot', 'image/png'], 'an agent\'s portrait is its own sprite');
   const ps = await call('portrait', { agentId: 'scout' });

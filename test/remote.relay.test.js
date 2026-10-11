@@ -299,6 +299,24 @@ function wsClose(url) {
     A.ok(first === 1000 && second === 2000, 'a link replaced right after ready keeps backing off (1s then 2s), never a 1s loop: ' + first + ' then ' + second);
     rc2.stop();
   }
+  // (2026-10-09) a dial that never opens (network lost mid-connect) is abandoned and retried, never 'connecting' forever
+  {
+    const socks = [];
+    class HangWS { constructor() { this.closed = false; socks.push(this); } send() {} close() { this.closed = true; } }
+    const rc3 = makeRelayClient({ url: 'ws://relay.test', devices: { stationKeys() { return {}; }, relayTokenHashes() { return []; } }, sessions: {}, gateway: {}, crypto: C, WebSocketImpl: HangWS, now: () => Date.now(), log: () => {}, connectTimeoutMs: 40 });
+    rc3.start();
+    A.eq(rc3.info().state, 'connecting', 'the first dial is connecting');
+    await new Promise(r => setTimeout(r, 90));
+    A.eq(rc3.info().state, 'offline', 'a dial that never opens is given up: ' + rc3.info().state);
+    A.ok(/did not answer/.test(String(rc3.info().lastError)), 'and says why: ' + rc3.info().lastError);
+    A.ok(socks[0].closed, 'the hung socket is closed');
+    if (socks[0].onclose) socks[0].onclose({ code: 1006 });   // a late close from the abandoned socket changes nothing
+    A.eq(rc3.info().state, 'offline', 'a late close from the abandoned dial is ignored');
+    await new Promise(r => setTimeout(r, 1100));
+    A.ok(socks.length >= 2, 'and the link dials again on the backoff (' + socks.length + ' dials)');
+    rc3.stop();
+    A.eq(rc3.info().state, 'off', 'stop clears the pending dial');
+  }
   // (sweep 2026-10-02) per-address limits count an IPv6 host by its /64; a data frame is checked WITH the held fragments
   {
     const { addrKey } = require('../relay/server.js');

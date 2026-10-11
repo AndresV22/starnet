@@ -332,6 +332,35 @@ function makeMediaService(options) {
     } else reasons.push('edge: disabled');
     return { ok: false, reason: reasons.join('; ') || 'this station holds no voice-capable credential' };
   }
+  /* The station's SPOKEN voice for a paired device (remote/voice.js `speak`): the same order the desk's own speaker
+     uses — the bundled offline engine in its default voice, then that voice's mapped Edge neural, then the keyed
+     ladder — so the companion on the desk and the desk itself sound like one station. Never throws. */
+  async function synthesizeStationVoice(text) {
+    const said = String(text || '').replace(/\s+/g, ' ').trim();
+    if (!said) return { ok: false, reason: 'no text' };
+    const reasons = [];
+    const voiceId = localVoice.defaultVoice();
+    let localReady = false;
+    try { localReady = !!localVoice.status().available; } catch (error) { reasons.push('local status: ' + ((error && error.message) || error)); }
+    if (localReady) {
+      try {
+        const buf = await localVoice.synthesize(said, { voice: voiceId, speed: 1 });
+        if (buf && buf.length) return { ok: true, buf, mime: 'audio/wav', provider: 'local-kokoro' };
+        reasons.push('local: empty audio');
+      } catch (error) { reasons.push('local: ' + ((error && error.message) || error)); }
+    }
+    if (edgetts.enabled()) {
+      try {
+        const buf = await edgetts.synth(said, { voice: localVoice.edgeVoiceFor(voiceId), nowMs: now() });
+        if (buf && buf.length) return { ok: true, buf, mime: 'audio/mpeg', provider: 'edge' };
+        reasons.push('edge: empty audio');
+      } catch (error) { reasons.push('edge: ' + ((error && error.message) || error)); }
+    }
+    const keyed = await synthesizeForAgent({ text: said });
+    if (keyed.ok) return keyed;
+    reasons.push(keyed.reason);
+    return { ok: false, reason: reasons.join('; ') };
+  }
   // CERTAIN-availability probe for voice_generate (runOnce's tool footprint): false only when synthesizeForAgent
   // above has no leg it could even try — no keyed TTS provider AND the keyless Edge floor switched off. Reads the
   // same provider list and the same switch as the ladder itself, so the two cannot disagree.
@@ -719,6 +748,7 @@ function makeMediaService(options) {
 
   return {
     synthesizeForAgent,
+    synthesizeStationVoice,
     voiceRouteAvailable,
     sttStatus,
     transcribeAudioBuffer,

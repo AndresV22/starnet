@@ -25,6 +25,11 @@ const nodeCrypto = require('crypto');
 const LABEL = 'starnet-relay/1';
 const PING_MS = 30000;
 const PONG_WAIT_MS = 20000;
+/* A connection attempt that never opens (the machine changed or lost its network mid-dial) used to leave the link
+   'connecting' forever: no open, no close, no retry — the desk showed connecting and every phone was locked out
+   until the station restarted (2026-10-09, found by pairing a device right after the PC hopped Wi-Fi). An attempt
+   that has not reached 'ready' in this long is abandoned and retried on the normal backoff. */
+const CONNECT_TIMEOUT_MS = 20000;
 
 function makeRelayClient(d) {
   const C = d.crypto, devices = d.devices, sessions = d.sessions, gateway = d.gateway;
@@ -34,7 +39,8 @@ function makeRelayClient(d) {
   const log = d.log || (() => {});
   const url = String(d.url || '').replace(/\/+$/, '');
   let ws = null, state = 'off', rid = null, since = null, lastError = null;
-  let retryMs = 1000, retryTimer = null, pingTimer = null, pongTimer = null, stopped = true;
+  let retryMs = 1000, retryTimer = null, pingTimer = null, pongTimer = null, connectTimer = null, stopped = true;
+  const connectTimeoutMs = d.connectTimeoutMs || CONNECT_TIMEOUT_MS;
   /* the backoff resets only after the link has HELD (sweep 2026-10-02): reset on every 'ready', two stations sharing one
      key (an orphaned old process) replaced each other at the relay (4410) once a second forever, and every phone was
      dropped each cycle — now a link that dies within STABLE_MS keeps backing off. */
@@ -107,7 +113,7 @@ function makeRelayClient(d) {
       } catch (e) { lastError = 'could not sign the relay challenge: ' + ((e && e.message) || e); }
       return;
     }
-    if (m.t === 'ready') { rid = m.rid; onlineAt = now(); set('online', null); log('online at the relay'); syncTokens(); return; }
+    if (m.t === 'ready') { if (connectTimer) { clearTimeout(connectTimer); connectTimer = null; } rid = m.rid; onlineAt = now(); set('online', null); log('online at the relay'); syncTokens(); return; }
     if (m.t === 'pong') { if (pongTimer) { clearTimeout(pongTimer); pongTimer = null; } return; }
     if (m.t === 'open') { conns.set(Number(m.conn), { paired: !!m.paired, th: String(m.th || ''), sid: null, deviceId: '', detach: null }); return; }
     if (m.t === 'gone') { drop(Number(m.conn)); return; }
@@ -115,6 +121,7 @@ function makeRelayClient(d) {
   }
 
   function clearTimers() {
+    if (connectTimer) { clearTimeout(connectTimer); connectTimer = null; }
     if (pingTimer) { clearInterval(pingTimer); pingTimer = null; }
     if (pongTimer) { clearTimeout(pongTimer); pongTimer = null; }
   }
@@ -126,10 +133,19 @@ function makeRelayClient(d) {
     let sock;
     try { sock = new WS(url + '/v1/station'); } catch (e) { return fail('could not open the relay connection: ' + ((e && e.message) || e)); }
     ws = sock;
+    connectTimer = setTimeout(() => {
+      connectTimer = null;
+      if (ws !== sock || state === 'online') return;
+      ws = null;   // late events from this socket are ignored from here on
+      try { sock.close(); } catch (e) { note('remote.relay-client.connect-timeout.close', e); }
+      fail('the relay did not answer within ' + Math.round(connectTimeoutMs / 1000) + 's');
+    }, connectTimeoutMs);
+    if (connectTimer.unref) connectTimer.unref();
     sock.onmessage = (ev) => { if (ws === sock) onMessage(ev); };
     sock.onopen = () => {
       if (ws !== sock) return;
-      clearTimers();
+      if (pingTimer) { clearInterval(pingTimer); pingTimer = null; }
+      if (pongTimer) { clearTimeout(pongTimer); pongTimer = null; }
       pingTimer = setInterval(() => {
         send({ t: 'ping' });
         if (!pongTimer) pongTimer = setTimeout(() => { pongTimer = null; try { sock.close(); } catch (e) { note('remote.relay-client.sock.close', e); } fail('the relay stopped answering'); }, PONG_WAIT_MS);
