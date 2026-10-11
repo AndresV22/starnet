@@ -153,6 +153,9 @@
         if (!X || X.t !== 'bay') return fail('NOT_A_STEP', 'pick a step (a BAY) to branch around');
         const ins = insOf(g, X.id), outs = outsOf(g, X.id);
         if (ins.length !== 1 || outs.length !== 1) return fail('NOT_SIMPLE', 'a branch goes round a step with one way in and one way out');
+        // a review loop sends work back to THIS step: a branch round it would never re-run on a revise pass and the joiner
+        // would sit out its timeout every time (2026-10-10 audit) — the same refusal removeStep and addLoop already make
+        if (backsAt(g, X.id).length) return fail('HAS_LOOP', 'a review loop sends work back to this step — a branch round it would be skipped on every revise pass');
         head = ins[0]; tail = outs[0]; keep = [X.id];
         role = role || bayRole(X.role);   // a second opinion / a second hand is named like the step it partners
       } else {
