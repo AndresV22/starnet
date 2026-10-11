@@ -242,6 +242,12 @@ const frozen = s => JSON.stringify(s.serialize()) + '|' + s.getSeq() + '|' + s.c
   A.ok(/drawLayer\('hand', \(\) => drawHandGhost\(t, now\)\);/.test(build) && /drawLayer\('altView', \(\) => drawAltView\(t\)\);/.test(build), 'the hand ghost and the Alt view each draw in their own guarded layer');
   const alt = fn('drawAltView');
   A.ok(/if \(alt\) for \(const p of \(cacheGeo\.props \|\| \[\]\)\)/.test(alt) && /\(!alt && !st\.over\)/.test(alt), 'at rest only an over-budget INBOX says n/max; junction settings and SEND TO arcs wait for Alt (one-voice law)');
+  // fix wave 10-11 (#5/#21): Alt never paints a SEND TO off the doc pointer — the one arc per SEND TO is drawSendLinks', coloured by the
+  // COMPILED plan (valPlan.sendTo), and Alt only makes every arc speak (green SENDS TO X, red SEND TO X IS OFF)
+  A.ok(!/\.sendTo\b/.test(alt) && !/drawSendArc\(/.test(alt), 'the Alt view draws no second SEND TO arc off the doc pointer (it painted green for a SEND TO the compiler dropped)');
+  const sl = fn('drawSendLinks');
+  A.ok(/const near = altOn\(\) \|\| \[hoverPropId, selectedPropId\]/.test(sl) && /strokeSendArc\(arc, s\.live \? '#57bd8b' : '#d2684c'/.test(sl) && /s\.live \? 'SENDS TO ' \+ s\.name : 'SEND TO ' \+ s\.name \+ ' IS OFF'/.test(sl)
+    && /live: !!\(valPlan && valPlan\.sendTo && valPlan\.sendTo\[p\.id\]\)/.test(fn('sendLinks')), '…Alt makes every SEND TO arc say its words, live or OFF exactly as the compiled plan has it');
   const ajt = fn('altJunctionText');
   A.ok(!/[×→▸]/.test(ajt), 'the Alt texts are ASCII (VT323 has no × or arrows)');
   A.ok(/floatHistory\(r, ev\.shiftKey \? 'REDID' : 'UNDID'\)/.test(key) && /undoBtn\.onclick = \(\) => \{ const r = station\.undo\(\); sfx\(r\.ok \? 'click' : 'bad'\); floatHistory\(r, 'UNDID'\); \};/.test(build), 'Ctrl+Z / Ctrl+Y and the UNDO / REDO keys float UNDID · / REDID · <WHAT>');

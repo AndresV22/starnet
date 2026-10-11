@@ -8002,8 +8002,8 @@ const Build = (() => {
       if (drag && drag.mode === 'propmove' && drag.propId === s.from.id) continue;   // the drag ghost draws the one being re-aimed
       const arc = sendArc(t, s.from, s.to);
       strokeSendArc(arc, s.live ? '#57bd8b' : '#d2684c', now, s.live ? 0.7 : 0.8);
-      const near = [hoverPropId, selectedPropId].some(id => id && (id === s.from.id || id === s.to.id));
-      if (!near) continue;   // ONE-VOICE LAW: the arc alone at rest; its words when you look at either end
+      const near = altOn() || [hoverPropId, selectedPropId].some(id => id && (id === s.from.id || id === s.to.id));
+      if (!near) continue;   // ONE-VOICE LAW: the arc alone at rest; its words when you look at either end (or hold Alt — every arc speaks, in its compiled colour)
       const txt = s.live ? 'SENDS TO ' + s.name : 'SEND TO ' + s.name + ' IS OFF';
       ctx.save(); ctx.font = VAL_FONT();
       const tw = ctx.measureText(txt).width, lh = Math.max(9, 11 / zoom) + 2 / zoom;
@@ -8213,11 +8213,9 @@ const Build = (() => {
       const X = (ip.x + o.tx) * t, Y = (ip.y + o.ty) * t, W = (ip.w || 1) * t;
       plate(st.n + '/' + st.max + ' STAGES', X + W / 2, Y - fh - 4 / zoom, st.over ? '#ffbe3c' : '#7ee2a8', alt ? null : 'topNag', { x: X, y: Y, w: W, h: (ip.h || 1) * t });
     }
-    if (alt) for (const p of station.props()) {   // every SEND TO (an OUTBOX field another lane adds — read, never assumed)
-      if (p.t !== 'outbox' || typeof p.sendTo !== 'string' || !p.sendTo) continue;
-      const q = station.propById(p.sendTo); if (!q) continue;
-      drawSendArc(p, q, t, '#7ee2a8', 'SENDS TO ' + mName(q.id));
-    }
+    /* every SEND TO under Alt: NOT drawn here. drawSendLinks already strokes each pointer in the colour the COMPILED plan gives it
+       (the plan's SEND TO table — green live, red OFF) and, with Alt held, says its words on every arc (SENDS TO X / SEND TO X IS OFF).
+       A second arc read off the doc pointer painted green for a SEND TO the compiler had dropped (fix wave 10-11, #5/#21). */
   }
 
   // hovering an agent-bound endpoint (a PC = compute, a BAY = routing) floats the bound agent's name above it —
