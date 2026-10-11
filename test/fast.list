@@ -131,6 +131,7 @@ test/managed-credit-held.test.js
 test/credits-link.test.js
 test/credits-store-recovery.test.js
 test/friendlyerror.test.js
+test/stop-reason.test.js
 test/codexsignin.test.js
 test/oauthsignin.test.js
 test/hooks.test.js

@@ -38,6 +38,7 @@ const Chat = (() => {
   const interrupted = new Set();   // wsIds the Commander deliberately STOPPED this turn — send()'s catch reads this as a
                                    // graceful stop (keep the partial reply, log no error) rather than a disconnect. Consumed in finally.
   const interruptedStreams = new Set();   // wsIds whose in-flight run lost its stream; durable recovery decides
+  const stopSource = new Map();   // wsId -> 'esc' | 'you': HOW the Commander stopped it (the card names it); consumed with `interrupted`
                                    // whether work resumes automatically or stops for explicit review.
   const recoveryClaims = new Set();       // source run ids already being recovered by this page
   const recoveryNotices = new Set();      // review-required run ids already explained on this page
@@ -400,7 +401,10 @@ const Chat = (() => {
     presenceCurTool = null;
     const isErr = !!opts.error, needsVerify = !!opts.verificationRequired, isStop = needsVerify || !!opts.stopped || (opts.endReason && opts.endReason !== 'done') || !!opts.cutShort;
     card.classList.add('resolved'); if (isErr) card.classList.add('err'); else if (isStop) card.classList.add('stopped');
-    let label = isErr ? '■ RUN FAILED' : needsVerify ? '■ VERIFICATION REQUIRED' : opts.cutShort ? '■ CUT SHORT' : isStop ? '■ RUN STOPPED' : '■ RUN COMPLETE';
+    // WHO stopped it (2026-10-11): the Commander's own Stop/Esc says so on the card — a bare "RUN STOPPED" after Esc
+    // read as the run quitting on its own. opts.stoppedBy: 'esc' | 'you' (stopActive's record); absent = not proven.
+    const byYou = opts.stoppedBy === 'esc' ? '■ STOPPED BY YOU (ESC)' : opts.stoppedBy === 'you' ? '■ STOPPED BY YOU' : '';
+    let label = isErr ? '■ RUN FAILED' : needsVerify ? '■ VERIFICATION REQUIRED' : opts.cutShort ? '■ CUT SHORT' : (isStop && byYou) ? byYou : isStop ? '■ RUN STOPPED' : '■ RUN COMPLETE';
     const bits = [];
     if (dur) bits.push(dur);
     if (typeof opts.steps === 'number' && opts.steps > 0) bits.push(opts.steps + (opts.steps === 1 ? ' step' : ' steps'));
@@ -1003,7 +1007,7 @@ const Chat = (() => {
         submitComposer();
       } else if (e.key === 'Escape' && isBusy()) {
         e.preventDefault(); e.stopPropagation();   // INTERRUPT: beat navdock's global Esc-closes-menus while a run is live
-        stopActive();
+        stopActive('esc');   // the card then says STOPPED BY YOU (ESC) — an Esc stop must never read as the run quitting
       }
     };
     // SLASH PALETTE: a leading "/" opens the command menu and filters it live as you type past it.
@@ -1793,7 +1797,9 @@ const Chat = (() => {
     // drop LOCAL markers that are records, not dialogue: the history-cap marker (truncated) and any system status
     // line (sys — e.g. an autosessions "routine ran, nothing to report" / "couldn't load the output" framing line).
     // These must NEVER be replayed to the model as prior turns (a frontend-authored string is not the agent's word).
-    const real = history.filter(m => !(m && (m.truncated || m.sys)));
+    // …and the ⚠ error/stop rows COMMS writes when a run fails (error:true): the Commander keeps seeing the reason after a
+    // reload, but the model must never be shown "Something went wrong…" as if it had said it (2026-10-11).
+    const real = history.filter(m => !(m && (m.truncated || m.sys || m.error)));
     const turnCapped = real.length > HISTORY_CAP ? real.slice(-HISTORY_CAP) : real;
     return fitHistoryBytes(turnCapped, HISTORY_WIRE_MAX_BYTES);
   }
@@ -6999,7 +7005,7 @@ const Chat = (() => {
       // line, NOT as agent speech; it never seeds the model (historyWindow drops it) and it stays visible in-thread.
       if (m && m.sys) { if ((m.content || '').trim()) toolLine(m.content, !!m.error); continue; }
       if (m.role !== 'assistant') continue;   // only dialogue turns render (a stray system marker never shows as an agent reply)
-      if (!(m.content || '').trim()) { if (m.stopped) lastReal = m; continue; }   // zero-token stop: durable recovery truth, never a blank speech row
+      if (!(m.content || '').trim()) { if (m.stopped) { lastReal = m; if (m.stopNote) toolLine('⏹ ' + m.stopNote); } continue; }   // zero-token stop: durable recovery truth, never a blank speech row (its reason line survives the reload)
       // rows re-synced from the server transcript still carry their FORK:/TASK_QUESTION: machine lines — they are
       // chip data, never speech (a reload used to print them raw, first-hour walk 2026-09-28)
       const shownText = (typeof Fork !== 'undefined' && Fork.stripMarkers) ? Fork.stripMarkers(m.content) : m.content;
@@ -7011,6 +7017,7 @@ const Chat = (() => {
       const r = row('agent', { stamp: stamp, who: spoke });   // past turns render as plain GROUPED messages; only the LIVE reply is the lit headline
       if (m.error) r.d.classList.add('err');
       renderProse(r.body, shownText);   // same linkify path as live tokens, so replayed history matches
+      if (m.stopped && m.stopNote) toolLine('⏹ ' + m.stopNote);   // WHY it stopped survives the reload
       lastReal = m;
     }
     flushDeliverablesBefore(null);   // files newer than the last stored turn (or from turns without a stamp)
@@ -7177,7 +7184,7 @@ const Chat = (() => {
   // here + a server runId) so this just exposes a ⏹ button / Esc for it. Flag the stream interrupted so send()'s
   // catch keeps what already streamed instead of logging an error, and drop that stream's type-ahead queue — a
   // deliberate stop means "I'm taking over", not "now run my backlog".
-  function stopActive() {
+  function stopActive(how) {
     if (activeWs?.conversationMode === 'group' && typeof GroupChat !== 'undefined') return GroupChat.stop();
     // /loop: Stop ends the interval watcher too, or the next tick fires a run the user just said they didn't
     // want. Checked BEFORE the isBusy() guard on purpose — a loop is usually WAITING between ticks when you
@@ -7192,6 +7199,8 @@ const Chat = (() => {
     }
     const id = activeWs.id;
     interrupted.add(id);
+    // how: 'esc' from the composer key; the STOP button passes its click event, voice barge-in passes nothing — all YOU
+    stopSource.set(id, how === 'esc' ? 'esc' : 'you');
     queued.delete(id);
     // GOAL LOOP: a deliberate Stop means "I'm taking over" — pause any active loop so the teardown's judge doesn't
     // fire the next continuation. (The user resumes it explicitly with /goal resume.)
@@ -7216,6 +7225,7 @@ const Chat = (() => {
   // its status. STOP stays available — the Commander can press it again.
   function stopFailed(id, v) {
     interrupted.delete(id);
+    stopSource.delete(id);
     const alive = (typeof Harness !== 'undefined' && Harness.pingEngine) ? Promise.resolve(Harness.pingEngine()).catch(() => null) : Promise.resolve(null);
     alive.then(engineAlive => {
       const reason = (v && v.error) || 'no answer from the station';
@@ -7297,6 +7307,16 @@ const Chat = (() => {
       return;
     }
     ws.history.push({ role: 'assistant', content: text, stopped: true, ts: Date.now() });
+  }
+  // WHY it stopped, kept on the stopped turn itself (2026-10-11): the ⏹ work-log line was DOM-only, so after a reload the
+  // thread showed a cut-off reply with no reason. renderHistory replays it as the same ⏹ line. Metadata only — the
+  // model's wire carries role/content, never this field.
+  function stoppedByLine(by) { return by === 'esc' ? 'stopped by you (Esc)' : by ? 'stopped by you' : ''; }
+  function noteStopReason(ws, note) {
+    const n = String(note || '').trim();
+    if (!n || !ws || !Array.isArray(ws.history)) return;
+    const last = ws.history[ws.history.length - 1];
+    if (last && last.role === 'assistant' && last.stopped) last.stopNote = n.slice(0, 400);
   }
   // RETRY — re-run the last turn after an outage / connection drop / in-band error. Discard the trailing failed
   // reply, re-render the thread (dropping the ⚠ row), then resend the last user message WITHOUT echoing it again.
@@ -7434,13 +7454,30 @@ const Chat = (() => {
       return false;
     } finally { connectorContinuing.delete(streamId); }
   }
+  // The ⚠ row a failed run leaves in the transcript (it survives a reload; historyWindowFrom keeps error rows off the
+  // model's wire). A specific verdict already names the cause; the generic "Something went wrong" keeps the real
+  // reason beside it, so a reload never loses WHY the run stopped (2026-10-11).
+  function errorHistoryLine(v) {
+    const msg = String((v && v.userMessage) || 'Something went wrong on that turn.');
+    const raw = String((v && v.raw) || '').replace(/\s+/g, ' ').trim();
+    const keepRaw = !!(v && v.kind === 'unknown' && raw && raw !== msg);
+    return '⚠ ' + msg + (keepRaw ? ' (' + (raw.length > 240 ? raw.slice(0, 237) + '…' : raw) + ')' : '');
+  }
   function offerTryAgain() {
     choices([{ label: '↻ Try again', value: 'retry' }], () => retryLast());
   }
   // Budget-stop legibility (2026-07-23): a 'budget' stop names WHICH spend cap fired and how big it is, in money
   // words — the old "reached this run's limit" read as a runtime setting and sent users hunting in the wrong
   // panel. Scope/cap ride the additive agent.run.end fields; an old sidecar omits them and gets the generic line.
-  function budgetStopLine(scope, capUsd, atBalance) {
+  function budgetStopLine(scope, capUsd, atBalance, unpriced) {
+    /* THE UNPRICED-MODEL TOKEN CEILING IS NOT A $ CAP (2026-10-11). A model with no known price is bounded per run in
+       TOKENS (loop.js maxUnpricedTokens, 2,000,000 by default); the $ settings never read it, so "hit the per-run spend
+       cap — raise it" sent the user to a lever that changes nothing. unpriced = { model, capTokens } from the additive
+       agent.run.end fields. Name the real limit and the real ways out. */
+    if (unpriced && unpriced.model) {
+      const n = Number(unpriced.capTokens) > 0 ? Number(unpriced.capTokens).toLocaleString('en-US') + '-token' : 'token';
+      return 'hit the ' + n + ' safety ceiling for ' + unpriced.model + ', a model StarNet has no price for — raising the $ spending limit does not change this; pick a priced model to keep going';
+    }
     // only show the $ figure when it renders honestly at cent precision (a sub-cent test cap would read "$0.00")
     const cap = (typeof capUsd === 'number' && isFinite(capUsd) && capUsd >= 0.01) ? '$' + capUsd.toFixed(2).replace(/\.00$/, '') + ' ' : '';
     // atBalance (agent.run.end budgetCapIsBalance, additive): admission clamped this StarNet run's ceiling to the
@@ -7468,6 +7505,19 @@ const Chat = (() => {
       if (it && it.value === 'retry') { retryLast(); return; }
       if (topUp) { topUp.run(); return; }
       try { if (typeof StationUI !== 'undefined' && StationUI.openTerm) StationUI.openTerm('settings', 'budget'); } catch (_) {}
+    });
+  }
+  // the unpriced-model token ceiling's door: a DIFFERENT (priced) model — the model dock, the same ▸ PICK A MODEL door
+  // friendlyerror owns — never SPENDING LIMITS, where no setting governs this ceiling. Retry rides alongside.
+  function offerUnpricedDoor() {
+    const pick = (typeof Friendly !== 'undefined' && Friendly.actionButton) ? Friendly.actionButton({ action: 'settings', kind: 'model_not_found' }) : null;
+    if (!pick) { offerTryAgain(); return; }
+    choices([
+      { label: pick.label, value: 'model' },
+      { label: '↻ Try again', value: 'retry', quiet: true }
+    ], it => {
+      if (it && it.value === 'retry') { retryLast(); return; }
+      pick.run();
     });
   }
   // a one-tap recovery chip dropped under a failed turn (reuses the suggestion-pill row, which self-removes on
@@ -7793,7 +7843,7 @@ const Chat = (() => {
   // `wasContinuation` = this turn WAS a loop-driven continuation (vs a real user message). A real user message
   // PREEMPTS: it pauses the loop for this turn (their message wins) — we don't judge, we don't queue. reply is the
   // agent's last assistant text (what the judge evaluates).
-  async function judgeGoalTurn(ws, reply, wasContinuation) {
+  async function judgeGoalTurn(ws, reply, wasContinuation, stall) {
     const s = goalOf(ws);
     if (!s || !GoalLoop.isActive(s)) return;
     // a REAL user message mid-loop preempts: pause, judge nothing, queue nothing (they took over). Checked BEFORE
@@ -7807,7 +7857,15 @@ const Chat = (() => {
     if (goalJudging.has(ws.id)) return;          // a judge is already deciding this stream — don't double-fire
     // a continuation turn that produced NO clean reply (errored / stopped mid-thought) is not judgeable — leave the
     // loop as-is (it advances no turn); a later free moment or /goal resume continues it. Don't claim done on nothing.
-    if (!reply || !String(reply).trim()) return;
+    if (!reply || !String(reply).trim()) {
+      /* NO SILENT STALL (2026-10-11). This step stopped, failed, was cut short or asked a question, so there is nothing
+         to judge — and the loop used to stay "active" with nothing ever firing the next step. Pause it and SAY why;
+         /goal resume (the existing control) picks it up once the cause is handled. */
+      const why = String(stall || 'the last step ended without a reply').trim();
+      GoalLoop.pause(s, why); persistGoal();
+      if (isActiveWs(ws)) localLine('⏸ goal loop paused: ' + why + ' — /goal resume to continue.');
+      return;
+    }
     goalJudging.add(ws.id);
     let judged;
     try {
@@ -9159,6 +9217,8 @@ const Chat = (() => {
     let voiceQuestion = '';   // VOICE-AWARE CHOICES: the parsed FORK/TASK_QUESTION question — spoken naturally at reply end (options stay on-screen chips, never read aloud)
     let busyRefusal = null;   // race-time server mutex refusal: restore the directive instead of minting failed turns
     let goalJudgeReply = null;   // GOAL LOOP: set to the clean assistant reply when a turn should be judged; fired in finally
+    let goalStall = null;        // GOAL LOOP: WHY this step is not judgeable (stopped/failed/cut short/asked) — the loop pauses and says it
+    let presenceStoppedBy = null;   // 'esc' | 'you' when the Commander's own Stop ended this run cleanly (the card names it)
     // VOICE-AWARE CHOICES: never let TTS read the FORK:/TASK_QUESTION: choice markers (they render as
     // one-tap chips; spoken aloud they come out as "TASK QUESTION … pipe pipe …" + every option verbatim).
     // speakSafe truncates the spoken view at the first marker LINE, and holds back a still-streaming
@@ -9233,7 +9293,7 @@ const Chat = (() => {
         renderHistory(); syncStatus();
         activeLiveRow = streamingAgent(); historyRead.repaint = false;
       }
-      const { text: reply, error, endReason, finishReason, completionVerdict, effectVerdict, budgetScope, budgetCapUsd, budgetCapIsBalance } = await Harness.chat({
+      const { text: reply, error, endReason, finishReason, completionVerdict, effectVerdict, budgetScope, budgetCapUsd, budgetCapIsBalance, unpricedModel, unpricedCapTokens } = await Harness.chat({
         system: sys, messages: retry ? endOnUserTurn(historyWindow(ws)) : historyWindow(ws), agentId: ws.agentId || 'agent', isTask, recurring, signal: ac.signal, streamId: ws.id,
         taskAction: taskAction || undefined,
         postconditions: opts && opts.postconditions != null ? opts.postconditions : undefined,
@@ -9333,7 +9393,8 @@ const Chat = (() => {
         if (v.kind === 'network' && thisRunId) { interruptedStreams.add(ws.id); armReconnectWatch(); }
         persistPartial(ws, acc);
         if (isActiveWs(ws)) { if (activeLiveRow) activeLiveRow.error(v.userMessage, v.raw); }
-        ws.history.push({ role: 'assistant', content: '⚠ ' + v.userMessage, error: true, ts: Date.now() });   // so the failure survives a switch-back, not just a transient notify
+        ws.history.push({ role: 'assistant', content: errorHistoryLine(v), error: true, ts: Date.now() });   // so the failure (and its real reason) survives a switch-back/reload — error:true keeps it off the model's wire
+        goalStall = v.userMessage;
         // the run DIED in flight — settle its outcome (task-board truth: a dead run can never wear the DONE
         // chip). Guarded on thisRunId: no run started → nothing was filed, nothing to settle.
         if (thisRunId && typeof Workstreams !== 'undefined' && Workstreams.noteRunEnd) Workstreams.noteRunEnd(ws.id, thisRunId, false);
@@ -9356,6 +9417,7 @@ const Chat = (() => {
           replyText = TaskIntent.strip(replyText);
           if (taskQuestion.question) voiceQuestion = taskQuestion.question;   // spoken (question only, no options) at reply end
           if (isActiveWs(ws) && activeLiveRow && activeLiveRow.cleanTaskIntent) activeLiveRow.cleanTaskIntent();
+          goalStall = 'it asked you a question — answer it first';
         }
         // FORK is parsed from the RAW reply, then every choice marker (FORK and any leftover TASK_QUESTION) leaves the
         // displayed + saved text: nothing used to strip a FORK line, so it always printed raw under its own chips.
@@ -9386,25 +9448,37 @@ const Chat = (() => {
           // of these reasons, so a work-log line that only says "stopped" restated the card verbatim one row
           // below it. Emit this line only when it carries something the card can't: what to do next (step limit,
           // budget door) or a reason the label doesn't name. Your own interrupt → the card alone tells the truth.
-          const stopLine = endReason === 'max_iters' ? 'reached the step limit — say "continue" to keep going'
-            : endReason === 'budget' ? budgetStopLine(budgetScope, budgetCapUsd, budgetCapIsBalance)
-            : endReason === 'cancelled' ? (interrupted.has(ws.id) ? '' : runPressedEstop ? 'stopped by the E-STOP this run pressed — RESUME AUTOMATION (top bar) is yours alone' : 'run cancelled')
+          // EVERY STOP SAYS WHY (2026-10-11): "stopped (empty)" / "run cancelled" / "run stopped: empty" read as the run
+          // quitting for no reason. Friendly.stopLine names what happened + the next step; your own Stop says it was you.
+          const unpriced = (endReason === 'budget' && unpricedModel) ? { model: unpricedModel, capTokens: unpricedCapTokens } : null;
+          const stoppedBy = (endReason === 'cancelled' && interrupted.has(ws.id)) ? (stopSource.get(ws.id) || 'you') : null;
+          const stopLine = endReason === 'budget' ? budgetStopLine(budgetScope, budgetCapUsd, budgetCapIsBalance, unpriced)
+            : stoppedBy ? stoppedByLine(stoppedBy)
+            : (typeof Friendly !== 'undefined' && Friendly.stopLine) ? Friendly.stopLine(endReason, { cancelSource: runPressedEstop ? 'estop_by_run' : '' })
             : 'stopped (' + endReason + ')';
-          if (isActiveWs(ws)) { breakLive(); if (stopLine) toolLine('⏹ ' + stopLine); }
+          // the card already says STOPPED BY YOU — the work log only repeats a reason the card can't carry
+          if (isActiveWs(ws)) { breakLive(); if (stopLine && !stoppedBy) toolLine('⏹ ' + stopLine); }
           markStoppedTurn(ws, replyText);
+          noteStopReason(ws, stopLine);
+          if (stoppedBy) presenceStoppedBy = stoppedBy;
+          // GOAL LOOP: a stopped step is not judgeable — the loop pauses and SAYS why (judgeGoalTurn), never stalls silently
+          goalStall = stopLine || ('the step stopped (' + endReason + ')');
           // a budget stop's honest door is SETTINGS › SPENDING LIMITS (the top-up door when the ceiling was the StarNet
           // balance), not a doomed retry (the same cap fires again immediately); every other stop keeps the plain retry chip.
-          if (isActiveWs(ws) && !(endReason === 'cancelled' && runPressedEstop)) { if (endReason === 'budget') offerBudgetDoor(budgetCapIsBalance); else offerTryAgain(); }
-          if (typeof StationUI !== 'undefined') StationUI.notify(isActiveWs(ws) ? 'run stopped: ' + endReason
-            : whoOf(ws) + ' stopped' + sessionNote(ws) + ' — ' + (endReason === 'budget' ? (budgetCapIsBalance === true ? 'used the rest of your StarNet balance' : 'hit a spending limit') : endReason === 'max_iters' ? 'reached the step limit; say "continue" to keep going' : endReason === 'cancelled' ? 'cancelled' : endReason),
+          // The UNPRICED-model token ceiling is not a $ cap at all: its door is a different model (raising $ does nothing).
+          if (isActiveWs(ws) && !(endReason === 'cancelled' && runPressedEstop)) { if (endReason === 'budget' && unpriced) offerUnpricedDoor(); else if (endReason === 'budget') offerBudgetDoor(budgetCapIsBalance); else offerTryAgain(); }
+          if (typeof StationUI !== 'undefined') StationUI.notify(isActiveWs(ws) ? (stoppedBy ? 'stopped by you' : 'run stopped: ' + brief(stopLine || endReason))
+            : whoOf(ws) + ' stopped' + sessionNote(ws) + ' — ' + (endReason === 'budget' ? (unpriced ? 'hit the token ceiling for a model with no price' : budgetCapIsBalance === true ? 'used the rest of your StarNet balance' : 'hit a spending limit') : endReason === 'max_iters' ? 'reached the step limit; say "continue" to keep going' : brief(stopLine || endReason)),
             'warn', undefined, isActiveWs(ws) || endReason === 'cancelled' ? undefined : { kind: 'alert', go: { ws: ws.id } });
         } else if (cutShort) {
           // distinct honest "cut short" recap: the reply is truncated/filtered, not a clean delivery.
+          goalStall = finishReason === 'content_filter' ? 'the model’s output was filtered' : 'the reply was cut short by the output limit';
           if (isActiveWs(ws)) breakLive(), toolLine('⏹ ' + (finishReason === 'content_filter'
             ? 'reply cut short — the model\'s output was filtered'
             : 'reply cut short — hit the response length limit; say "continue" for the rest'));
           if (typeof StationUI !== 'undefined') StationUI.notify('reply cut short: ' + finishReason, 'warn');
         } else if (postconditionUnmet) {
+          goalStall = 'completion was not proven';
           if (isActiveWs(ws)) breakLive(), toolLine('⚠ completion was not proven — typed postconditions returned ' + (completionVerdict || 'not_assessed') + ' (' + (effectVerdict || 'no effect evidence') + ')');
           if (typeof StationUI !== 'undefined') StationUI.notify(isActiveWs(ws) ? 'completion needs verification' : whoOf(ws) + ' finished but couldn’t prove it worked' + sessionNote(ws) + ' — check it', 'warn', undefined, isActiveWs(ws) ? undefined : { kind: 'alert', go: { ws: ws.id } });
         // (a run that already announced a file still says it has a QUESTION: "made X" alone never told you it waits on you)
@@ -9496,7 +9570,7 @@ const Chat = (() => {
         if (thisRunId && (ws.agentId || 'agent') === 'agent') { const crew = claimCrew(runStartedAt); if (crew.length) { runCrew.set(thisRunId, crew); if (runCrew.size > 60) runCrew.delete(runCrew.keys().next().value); } }
         // COMMS-PREMIUM: resolve the presence card into a compact summary. steps = real successful tool rounds,
         // cost = this run's REAL usd delta — both truthful (shown only when > 0), never fabricated.
-        if (isActiveWs(ws)) resolvePresence(ws, { endReason: taskQuestion ? 'done' : endReason, cutShort: cutShort, verificationRequired: postconditionUnmet, steps: runToolsOk, cost: runCost });
+        if (isActiveWs(ws)) resolvePresence(ws, { endReason: taskQuestion ? 'done' : endReason, cutShort: cutShort, verificationRequired: postconditionUnmet, steps: runToolsOk, cost: runCost, stoppedBy: presenceStoppedBy });
         // WORK VISIBILITY: a passive recap of what this run PRODUCED, fetched from the run's recorded
         // artifacts ledger. A report, not an ask — it never claims the post-run beat slot. Fire-and-forget.
         // DURATION HONESTY (2026-07-19): the recap's "RUN COMPLETE · M:SS" reads Channels.elapsedOf — the
@@ -9514,8 +9588,10 @@ const Chat = (() => {
       if (stopped) {
         // keep whatever already streamed, mark it stopped, and log NO error (the stop was intentional).
         // No toolLine (2026-07-27): resolvePresence already prints "■ RUN STOPPED · …" — `⏹ stopped` echoed it.
-        if (isActiveWs(ws)) { if (activeLiveRow) activeLiveRow.done(); resolvePresence(ws, { stopped: true, steps: runToolsOk }); }
+        const by = stopSource.get(ws.id);
+        if (isActiveWs(ws)) { if (activeLiveRow) activeLiveRow.done(); resolvePresence(ws, { stopped: true, steps: runToolsOk, stoppedBy: by }); }
         markStoppedTurn(ws, acc);
+        noteStopReason(ws, stoppedByLine(by));
         if (isActiveWs(ws)) offerTryAgain();
         if (!isTask && isActiveWs(ws) && acc.trim()) World.say(acc);
       } else {
@@ -9535,7 +9611,8 @@ const Chat = (() => {
           ? Friendly.friendlyError(aborted ? new Error('connection dropped mid-reply') : e, null, { engineAlive: engineAlive })
           : { userMessage: aborted ? 'Lost the connection — try again.' : (e.message || String(e)), retryable: true, action: null, raw: (e && e.message) || String(e) };
         if (isActiveWs(ws)) { if (activeLiveRow) activeLiveRow.error(v.userMessage, v.raw); resolvePresence(ws, { error: true }); }
-        ws.history.push({ role: 'assistant', content: '⚠ ' + v.userMessage, error: true, ts: Date.now() });   // keep a readable trace of the failure
+        ws.history.push({ role: 'assistant', content: errorHistoryLine(v), error: true, ts: Date.now() });   // keep a readable trace of the failure (never replayed to the model)
+        goalStall = v.userMessage;
         if (v.kind === 'network' && thisRunId) { interruptedStreams.add(ws.id); armReconnectWatch(); }
         if (thisRunId && typeof Workstreams !== 'undefined' && Workstreams.noteRunEnd) Workstreams.noteRunEnd(ws.id, thisRunId, false);
         if (isActiveWs(ws)) offerRetry(v);   // RETRY: context-aware recovery chip (a dropped connection is retryable)
@@ -9547,6 +9624,7 @@ const Chat = (() => {
     } finally {
       aborters.delete(ws.id);
       interrupted.delete(ws.id);   // consume the stop flag (whether or not it fired)
+      stopSource.delete(ws.id);
       Channels.end(ws.id);
       // P1: drain this directive from the QUEUE gauge on ANY teardown (shipped, in-band error, or abort) —
       // the backlog is "runs in flight", independent of whether the work shipped.
@@ -9627,7 +9705,8 @@ const Chat = (() => {
         const reply = goalJudgeReply, wasCont = goalContinuation;
         if (wasCont || goalActiveAtStart) {
           // a continuation turn → judge it; a REAL user turn that ran while the loop was already active → preempt.
-          setTimeout(() => { judgeGoalTurn(ws, reply, wasCont); }, 0);
+          const stall = goalStall;
+          setTimeout(() => { judgeGoalTurn(ws, reply, wasCont, stall); }, 0);
         } else {
           // the loop was SET during this very turn (/goal <text> while the stream was busy): this turn isn't a
           // preemption — it's the turn that triggered the loop. Kick the first continuation now the stream freed.
