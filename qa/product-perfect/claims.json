@@ -18,7 +18,7 @@
   "expectedClaimCount": 37,
   "releaseSurface": {
     "algorithm": "sha256",
-    "sourceCommit": "efefa867729f138f35cd8cabe6f642f205ef021a",
+    "sourceCommit": "3775d0770a35f0bc42575f46a5adbd7656af6a85",
     "pathSetSha256": "02b89ce2d893cfb89a028e02d127dfe9f73466048d2fc0c7572bba244cdfea2f",
     "files": [
       {
@@ -433,8 +433,8 @@
       },
       {
         "path": "frontend/app/deliverables.js",
-        "bytes": 36928,
-        "sha256": "636054782023ca8eac8626d1ca4161fe3052b25f95daf2f5c9396c9f532fe0fa"
+        "bytes": 42654,
+        "sha256": "04987a147ddcd73d8749d357bfb7d824200d8d4cc5efff87784600b2e2651a25"
       },
       {
         "path": "frontend/app/deskscreen.js",
@@ -553,8 +553,8 @@
       },
       {
         "path": "frontend/app/group-chat.js",
-        "bytes": 70725,
-        "sha256": "6504967e4fc2bdc8bcc4df98e266e8eb3fadf77f2ec54b14b76a98e9505a6f8b"
+        "bytes": 74518,
+        "sha256": "5021e25d01e7d755c03c31a9db9fd486fcce359f54699020ab59323b7caf1009"
       },
       {
         "path": "frontend/app/harness.js",
@@ -1053,8 +1053,8 @@
       },
       {
         "path": "frontend/app/returnstore.js",
-        "bytes": 14472,
-        "sha256": "df312f10a6eddb8cef7a9ba52c544b5af1b7996bb937a00f799a41a41d724449"
+        "bytes": 14922,
+        "sha256": "f2594eeee985784637d1d757494f8c793e8db7d088c515f0a92f0168e3e6d372"
       },
       {
         "path": "frontend/app/roomstyles.js",
@@ -1363,8 +1363,8 @@
       },
       {
         "path": "frontend/app/windows/outbox.js",
-        "bytes": 17708,
-        "sha256": "9702f06b8c4e09df5bfda75525327b1f133af47ec80c4e724fc3e8173e48f629"
+        "bytes": 20615,
+        "sha256": "c8185912d26473f56eefcc1ebb62ba8b362ed9bb29c6d8514e0c2ddf37cdaea2"
       },
       {
         "path": "frontend/app/windows/rewind.js",
@@ -1568,8 +1568,8 @@
       },
       {
         "path": "frontend/css/deliverables-glass.css",
-        "bytes": 9938,
-        "sha256": "e284b5b5d961faf2a659de9a06c6d23291a343aae339aadf23f6ce94b9279fd5"
+        "bytes": 12010,
+        "sha256": "ce627d662795dff9272b6e0b2b005ba1aaf207634546786eca437ca028d7b552"
       },
       {
         "path": "frontend/css/deskscreen.css",
