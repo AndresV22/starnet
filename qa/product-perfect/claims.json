@@ -18,7 +18,7 @@
   "expectedClaimCount": 37,
   "releaseSurface": {
     "algorithm": "sha256",
-    "sourceCommit": "a1dbc6d7d87718fc3f1d9694b7282d21523cce54",
+    "sourceCommit": "989228a065c635c680e7621b0590cbf55a56b890",
     "pathSetSha256": "02b89ce2d893cfb89a028e02d127dfe9f73466048d2fc0c7572bba244cdfea2f",
     "files": [
       {
@@ -333,8 +333,8 @@
       },
       {
         "path": "frontend/app/build.js",
-        "bytes": 623772,
-        "sha256": "25470f3a8bd8a9e97b4a80729469cced0fc9d164ea10e1691421afa7e7f9151c"
+        "bytes": 648164,
+        "sha256": "9e255b191349d8c37a261a57432ef85fa5096f84819c90a760370dd329e5f919"
       },
       {
         "path": "frontend/app/channels.js",
@@ -638,8 +638,8 @@
       },
       {
         "path": "frontend/app/lineedit.js",
-        "bytes": 35668,
-        "sha256": "85032fa9ea4f97ef8f45bc779e5ed2f9b7b7e158bb2d70c3919fcebfa244b883"
+        "bytes": 36695,
+        "sha256": "c5a494eeaf8ace3c488c9d31ad5648933b4e5845f5e0cfa2b53ddeb32d683a74"
       },
       {
         "path": "frontend/app/linelayout.js",
@@ -1263,8 +1263,8 @@
       },
       {
         "path": "frontend/app/tutorial.js",
-        "bytes": 100866,
-        "sha256": "e9d6139b769e6b0cdc8f53202c29e17f724eb2e210f5817a8334f939153820e5"
+        "bytes": 101494,
+        "sha256": "81df88794fcdee013a4e67b3b5333e4037f88f9d88cb0ed998b65b7853c7cc88"
       },
       {
         "path": "frontend/app/understanding.js",
@@ -1458,8 +1458,8 @@
       },
       {
         "path": "frontend/app/worldmodel.js",
-        "bytes": 276523,
-        "sha256": "4abba28cbdc77b0b411c78546f7c84300981d75871482abe59877ca22a4632a7"
+        "bytes": 298313,
+        "sha256": "b9fc0fae364ad1feb44b464229b60df7f0f23201a0e689fd90714dac4840a96b"
       },
       {
         "path": "frontend/app/worldrenderer.js",
