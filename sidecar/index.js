@@ -2824,10 +2824,26 @@ const reflectingNow = new Set();       // agentIds with a reflection in flight �
 const lastFailReviewAt = new Map();    // agentId -> ts of the last failure review we fired (its own cooldown gate)
 const failReviewingNow = new Set();    // agentIds with a failure review in flight — same gap-closer as reflectingNow
 const skillReviewingNow = new Set();   // agentIds with a nudge-due skill review in flight: two run-ends close together must not both rewrite one skillbase
-function stashProposals(agentId, runId, proposals) {
+// memory-truth: a run's batch MERGES (memcore.mergeReceipts) — notebook.write registers its saves mid-run through
+// recordRunReceipt, then reflection / failure review stash after the run. An overwrite here erased the receipts
+// already registered for the run; a re-insert keeps the batch newest in the FIFO cap order.
+function putRunBatch(agentId, runId, items) {
+  const prev = proposalsByRun.get(runId);
+  const proposals = memcore.mergeReceipts(prev && prev.agentId === agentId ? prev.proposals : [], items);
+  proposalsByRun.delete(runId);
   proposalsByRun.set(runId, { agentId, runId, createdAt: Date.now(), proposals });
-  latestProposalRun.set(agentId, runId);
   while (proposalsByRun.size > PROPOSALS_CAP) { const k = proposalsByRun.keys().next().value; proposalsByRun.delete(k); }
+}
+function stashProposals(agentId, runId, proposals) {
+  putRunBatch(agentId, runId, proposals);
+  latestProposalRun.set(agentId, runId);
+}
+// a committed save, registered as a receipt for the run that made it (never moves latestProposalRun — that names the
+// newest PENDING batch). Fail-open: a receipt is observability, the memory itself is already durable.
+function recordRunReceipt(agentId, runId, item) {
+  if (!runId || !item) return;
+  try { putRunBatch(String(agentId || 'agent'), String(runId), [item]); }
+  catch (e) { failNote('memory.receipt', e); }
 }
 
 /* ---- the DURABLE pending queue (pending:<agent>) ----
@@ -3075,7 +3091,7 @@ async function runReflection(o) {
       for (const p of normalProps) {
         try {
           const w = await writeMemoryRecord(agentId, p, { runId, trustDelta: 0, source: 'reflection', origin: origin });
-          if (w.ok) saved.push({ id: w.id, kind: w.kind, content: p.content, scope: p.scope || 'global', projectRoot: p.projectRoot || null, origin: origin, saved: true });
+          if (w.ok) { saved.push({ id: w.id, kind: w.kind, content: p.content, scope: p.scope || 'global', projectRoot: p.projectRoot || null, origin: origin, saved: true }); recordRunReceipt(agentId, runId, saved[saved.length - 1]); }   // registered as it lands: the memory.write it emitted makes COMMS fetch this run's batch
         } catch (_) {}   // one failed write never sinks the batch
       }
       // stash ONE batch (mixed: saved receipts carry saved:true + a real record id; high-stakes carry the pending
@@ -3163,7 +3179,7 @@ async function runFailureReview(o) {
       for (const p of normalProps) {
         try {
           const w = await writeMemoryRecord(agentId, p, { runId, trustDelta: 0, source: 'failure-review', origin: Failreview.ORIGIN });
-          if (w.ok) saved.push({ id: w.id, kind: w.kind, content: p.content, scope: p.scope || 'global', projectRoot: p.projectRoot || null, origin: Failreview.ORIGIN, saved: true });
+          if (w.ok) { saved.push({ id: w.id, kind: w.kind, content: p.content, scope: p.scope || 'global', projectRoot: p.projectRoot || null, origin: Failreview.ORIGIN, saved: true }); recordRunReceipt(agentId, runId, saved[saved.length - 1]); }
         } catch (_) {}   // one failed write never sinks the batch
       }
       // ONE stash per runId (a failed run never reflected, so this slot is free) + the durable pending queue for
@@ -19223,7 +19239,7 @@ async function runOnceCore(o) {
     unrestrictedHost: unrestrictedHostNow()
   });
   makeFsTools({ fsp, pathMod: path, root: WORKSPACES, environment: executionEnvironment, limits: { writeBytes: 1 << 20, readReturn: 24000 }, redact, pathTrust: runPathTrust, docExtract, imageWire, editDiagnostics: lspManager, spawn: childSpawn }).register(registry);   // redact: scrub secrets out of surfaced fs.search lines (§5.6); baseline-before-edit LSP feedback; spawn: lets fs.search use `rg` when the machine has it
-  makeNotebookTools({ store: notebookStore, clock: { now: () => Date.now() }, redact, rank, nextTrust: memcore.nextTrust, findSimilar: memcore.findSimilar }).register(registry);   // §5.6: scrub secrets at the write boundary; rank: explicit read shares auto-recall's relevance order; nextTrust: notebook.feedback rating fold; findSimilar: near-dupe guard so the same belief can't accumulate in N phrasings
+  makeNotebookTools({ store: notebookStore, clock: { now: () => Date.now() }, redact, rank, nextTrust: memcore.nextTrust, findSimilar: memcore.findSimilar, similarity: memcore.tokenJaccard, onSaved: recordRunReceipt }).register(registry);   // §5.6: scrub secrets at the write boundary; rank: explicit read shares auto-recall's relevance order; nextTrust: notebook.feedback rating fold; findSimilar: near-dupe guard so the same belief can't accumulate in N phrasings; similarity: the same-subject listing; onSaved: this run's COMMS receipt
   widgetTools.register(registry);   // WIDGET RAILS Phase 2: widget.set — agent-fed rail readouts (memory capability: sandboxed local write, no consent, no network)
   makeRecallTool({ transcriptStore }).register(registry);   // H1.3: recall_conversation — agent searches its own past dialogue (transcriptstore); joins the NOTEBOOK (memory) capability
   makeSkillTools({
@@ -19947,8 +19963,15 @@ async function runOnceCore(o) {
   // on memory writes. makeCapCtx merges `extra` verbatim; the consumer arrives with M-mem.2.
   let parkSeq = 0;   // distinguishes parked outputs within one run (see parkOutput below)
   const checkpointedMutationRoots = new Set();
+  /* MEMORY PROVENANCE (memory-truth lane, 2026-10-11): the text the Commander typed in this run's conversation, so
+     notebook.write can PROVE a note is their own words (notebook.js statedSentence). Host-minted from the owner's own
+     surfaces only — the watched COMMS run or an owner-admitted channel DM. Never a channel guest, a routine, a
+     delegated worker (its "user" turn is the lead's brief), a line hand-off (the previous stage's output) or
+     harness self-talk: there, the "user" words are not the Commander's. */
+  const commanderWords = (!internal && !o.parentRunId && !o.delegatedBy && (surface === 'interactive' || ownerTrusted) &&
+    !(Pipeline.isHandoff && Pipeline.isHandoff(latestUserText(messages)))) ? recentUserText(messages) : '';
   const capCtx = makeCapCtx(resolved, Object.assign({
-    emit, consent, summon, timeoutMs: CAPS.toolTimeoutMs, runId, streamId, signal: signal, ownerTrusted,
+    emit, consent, summon, timeoutMs: CAPS.toolTimeoutMs, runId, streamId, signal: signal, ownerTrusted, commanderWords,
     // Host-minted routine identity for routine.notepad. Interactive/model-authored runs cannot name another
     // job: only the autonomous schedule path receives this context field.
     cronJobId: (surface === 'autonomous' && trigger === 'schedule') ? String(o.cronJobId || '') : '',
@@ -24803,13 +24826,18 @@ async function handleNotebookRestore(req, res) {
   try {
     // P1: merge under the per-agent lock, re-reading existing so a concurrent run's memory.write isn't lost.
     let existingLen = 0, mergedLen = 0;
+    // memory-truth: a memory the Commander forgot (its text is on the declined list) is not resurrected by an older
+    // backup — reported as `forgotten` so the import says so; Memory Core's Restore on the declined entry re-admits it
+    const declinedRaw = notebookStore.get('declined:' + agent);
+    const skipped = [];
     await notebookStore.update('notebook:' + agent, (prev) => {
       const existing = Array.isArray(prev) ? prev : [];
-      const merged = mergeNotes(existing, incoming);
+      skipped.length = 0;
+      const merged = mergeNotes(existing, incoming, { declined: Array.isArray(declinedRaw) ? declinedRaw : [], skipped });
       existingLen = existing.length; mergedLen = merged.length;
       return merged;
     });
-    json(200, { ok: true, total: mergedLen, added: mergedLen - existingLen });
+    json(200, { ok: true, total: mergedLen, added: mergedLen - existingLen, forgotten: skipped.length });
   } catch (e) { json(400, { error: (e && e.message) || 'restore failed' }); }
 }
 
@@ -25581,8 +25609,9 @@ async function handleChannelWebhook(req, res) {
 }
 
 // GET /api/memory/proposals?agent=<id>&run=<id> — the pending Keep/Edit/Discard candidates reflection raised
-// for a run (with content; the memory.proposed SSE event is just the trigger and carries no content). Read-only;
-// falls back to the agent's newest pending batch when the runId is unknown. Empty (never a 500) if none.
+// for a run, plus the run's committed saves as receipts (with content; the memory.proposed/memory.write SSE events
+// are just triggers and carry no content). Read-only; falls back to the agent's newest pending batch ONLY when no
+// runId is given. Empty (never a 500) if none.
 function serveProposals(req, res) {
   const json = (code, obj) => respondJson(res, code, obj);   // canonical helper (sidecar/respond.js)
   try {
@@ -25590,9 +25619,9 @@ function serveProposals(req, res) {
     const agent = u.searchParams.get('agent') || 'agent';
     if (!isAgentId(agent)) return json(403, { error: 'forbidden' });
     const runId = u.searchParams.get('run') || '';
-    let batch = runId && proposalsByRun.get(runId);
-    if (!batch) { const lr = latestProposalRun.get(agent); batch = lr && proposalsByRun.get(lr); }
-    if (!batch || batch.agentId !== agent) return json(200, { runId: runId || null, agentId: agent, proposals: [] });
+    // a named run gets exactly its own saves — never the agent's previous run's list (memcore.receiptBatchFor)
+    const batch = memcore.receiptBatchFor(proposalsByRun, latestProposalRun, agent, runId);
+    if (!batch) return json(200, { runId: runId || null, agentId: agent, proposals: [] });
     json(200, { runId: batch.runId, agentId: agent, proposals: batch.proposals });
   } catch (e) { json(200, { proposals: [] }); }
 }
