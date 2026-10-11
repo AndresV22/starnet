@@ -105,7 +105,7 @@
 <h2 id="floor">The floor</h2>
 <dl class="gloss">
   <dt>STATION</dt><dd>Your whole world: rooms, hallways, decks, props, belts, and the crew inside it. Its layout is real configuration, not decoration.</dd>
-  <dt>REFIT <span class="app">REFIT STATION</span></dt><dd>Build mode. Nine tools on keys <kbd>0</kbd>&ndash;<kbd>3</kbd> and <kbd>5</kbd>&ndash;<kbd>9</kbd>: select, room, hallway, surface, delete, prop, belt, dupe, lines. Select also moves: drag a selected piece (or a selected room) to move it. Undo always works.</dd>
+  <dt>REFIT <span class="app">REFIT STATION</span></dt><dd>Build mode. Nine tools on keys <kbd>0</kbd>&ndash;<kbd>3</kbd> and <kbd>5</kbd>&ndash;<kbd>9</kbd>: select, room, hallway, surface, delete, prop, belt, dupe, lines. On the Conveyors tab, <kbd>1–8</kbd> pick conveyor pieces instead. Select also moves: drag a selected piece (or a selected room) to move it. Undo always works.</dd>
   <dt>GEAR / PROP</dt><dd>A placed object. Some gear grants a real ability to the whole crew: <b>DISH</b> = WEB, <b>INTEL CAB</b> = FILES, <b>WORKBENCH</b> = TERMINAL, <b>CORE</b> = MEMORY, <b>STUDIO</b> = IMAGES, <b>CONSOLE</b> = COMPUTE. Place one of each and the station is fully powered.</dd>
   <dt>BAY <span class="app">a desk</span></dt><dd>Where one agent sits. Every bay is another agent working in parallel. An agent&rsquo;s bay needs a computer in its room, or the floor says <b>NO COMPUTE</b>.</dd>
   <dt>COMMS</dt><dd>The chat panel where you direct the station and where every beat &mdash; rate the work, keep this memory, confirm this quest &mdash; arrives.</dd>
@@ -114,11 +114,11 @@
 
 <h2 id="belts">Belts and lines</h2>
 <dl class="gloss">
-  <dt>BELT</dt><dd>The path work takes across the floor. Laid with the BELT tool (<kbd>7</kbd>): click one machine, then another. Lit means &ldquo;this will run&rdquo;; dark means something is missing.</dd>
+  <dt>BELT</dt><dd>The path work takes across the floor. Drag one machine onto the next, or use BELT to click one machine then another. Lit means &ldquo;this will run&rdquo;; dark means something is missing.</dd>
   <dt>LINE</dt><dd>A whole job&rsquo;s route from front door to out tray: machines plus the belts between them. Every line has a budget ($2.00 per job unless you raise it).</dd>
   <dt>BOX <span class="app">WORK ITEM</span></dt><dd>One job in transit. When you see a box move, an agent is really working right then. The app&rsquo;s tooltips call it a work item.</dd>
   <dt>INBOX <span class="app">the front door</span></dt><dd>Where outside work &mdash; a routine, a message from a paired chat &mdash; enters and drops onto a belt. Its card holds the line&rsquo;s name and budget. COMMS orders skip it and land at the agent&rsquo;s bay.</dd>
-  <dt>OUTBOX <span class="app">the out tray</span></dt><dd>Where finished work leaves the line. Click it to read and rate finished runs.</dd>
+  <dt>OUTBOX <span class="app">the out tray</span></dt><dd>Where finished work leaves the line. Click it to read and rate finished runs. With SEND TO, each job landing here goes on to another line’s INBOX.</dd><dt>SEND TO</dt><dd>An OUTBOX’s onward destination: another line’s INBOX. Drag the OUTBOX onto it, or choose it in the Workflow panel. The target runs its own job with its own crew and budget. Choose NOWHERE to stop sending. Circles are refused; no belt leaves an OUTBOX.</dd>
   <dt>FILTER <span class="app">a signpost</span></dt><dd>Reads each job&rsquo;s text and sends it down a lane: CODE, RESEARCH, or EVERYTHING ELSE. Never drops work. Needs a default lane.</dd>
   <dt>SPLITTER</dt><dd>Fans work across its lanes. Alone: jobs take turns (load-balance). With a JOINER downstream: every lane gets the same job (fan-out).</dd>
   <dt>JOINER</dt><dd>A barrier that waits for every branch (10 minutes for a late one, adjustable), then sends one merged crate on.</dd>

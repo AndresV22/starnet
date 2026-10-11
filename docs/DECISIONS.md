@@ -179,3 +179,12 @@ many of these — they win on any wording conflict.
   every candidate-bound wave W0–W7 passes. Neither verdict authorizes publishing, deployment,
   credential rotation, or any other external release operation; those still require the owner's
   explicit authorization.
+
+
+## Build mode / conveyors (Andrew, 2026-10-10/11)
+
+- SEND TO is an OUTBOX pointer to another line’s INBOX, never a belt. Each finished job starts that line’s own job with its own crew and budget; circles are refused.
+- SELECT MOVES: MOVE is retired. Click selects; a selected piece dragged onto open floor moves. A single machine dropped onto another machine connects them, selected or not. An unselected machine dragged onto open floor lays a belt. Shift+drag moves.
+- THE HAND: Conveyors hotbar keys 1–8 pick pieces, right-click removes, Q copies the pointed piece. PICK WHAT GOES HERE is a docked station window, never a popover.
+- Hold Alt for the floor’s junction settings and SEND TO overlay; keep the one-voice display rule.
+- No belt may close a work-line circle except a LOOP’s valid back lane. Copying a line preserves its internal settings and crew, not external SEND TOs, project folders or triggers.
