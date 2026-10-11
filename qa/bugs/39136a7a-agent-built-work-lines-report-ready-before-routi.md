@@ -7,7 +7,7 @@ severity: P1
 status: fixed
 found: 2026-10-11
 lane: agent/runtime-triage-1011
-fix: ad003230c055661a35ffb3573db855beeed4d429
+fix: dd731e1a191197de95a7ab1c04a9847e9f0e4cdd
 origin: audit
 ---
 
@@ -36,11 +36,13 @@ After an agent builds a staffed work line, its receipt says ready and the floor 
 
 ## Verdict
 
-Source repair `ad003230c055661a35ffb3573db855beeed4d429` passed the focused real seeded-app regression. Aggregate integration verification remains with the integration owner. The mutation now waits for World.syncPlan within 3.5 seconds and requires a matching acknowledged hash with no dirty, refused, stale, pending, retry or in-flight state. A failure keeps built=true and the undo receipt, adds routing.published=false with its reason, and downgrades ready on the result and each returned line. Read-only commands are unchanged. Later manual floor edits and unrelated dispatch paths are outside this repair. No installer, deployment or customer recovery claim is made.
+Source repair `ad003230c055661a35ffb3573db855beeed4d429` and exact-floor acknowledgment follow-up `dd731e1a191197de95a7ab1c04a9847e9f0e4cdd` passed the focused real seeded-app regression. Aggregate integration verification remains with the integration owner. The mutation now waits for World.syncPlan within 3.5 seconds and requires a matching acknowledged hash with no dirty, refused, stale, pending, retry or in-flight state. The expected topology hash and full poster key are pinned immediately after synchronous rederive; a later topology or capability change cannot make the earlier build appear ready. A failure keeps built=true and the undo receipt, adds routing.published=false with its reason, and downgrades ready on the result and each returned line. Read-only commands are unchanged. Later manual floor edits and unrelated dispatch paths are outside this repair. No installer, deployment or customer recovery claim is made.
 
 ## Regression
 
-`test/station-builder-publication.test.js` executes the real page command and ack path. Before the repair, 31 assertions failed; after the repair and additional hash checks, all 65 passed. It covers held publication, a deadline below the six-second bridge limit, stale/inflight/retry/refusal/compiler errors, unavailable/throwing/rejecting publication, acknowledged hash mismatch, changes during the await, multi-line readiness, structural blockers, consumed plans, and failed floor application.
+`test/station-builder-publication.test.js` executes the real page command and ack path. Before the repair, 31 assertions failed; after the repair and additional hash checks, all 73 passed. It covers held publication, a deadline below the six-second bridge limit, stale/inflight/retry/refusal/compiler errors, unavailable/throwing/rejecting publication, acknowledged hash mismatch, changes during the await, multi-line readiness, structural blockers, consumed plans, and failed floor application.
+
+The concurrent-edit follow-up first failed two readiness assertions on the initial repair, then passed with the expected hash/key pinned. The full real seeded Chromium fixture passed again after this follow-up (122 mock calls, no page exceptions). Independent exact-object peer review found no remaining blocking issue.
 
 Focused siblings passed: station-commands 147 assertions, station-layout 253, station-builder 5535, station-tools 80, and plan-poster 56. The live fixture retains undo, restore-previous, room/recruit/restyle/refit/design and readback coverage in addition to the six formerly failing work-line checks. No full fast/HTTP gate was run in this lane; the integration owner owns that gate.
 
