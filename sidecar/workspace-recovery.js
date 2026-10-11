@@ -12,6 +12,7 @@ const osNative = require('node:os');
 const pathNative = require('node:path');
 const { makeCronLock } = require('./cron-lock.js');   // O_EXCL + pid:nonce + stale-break advisory lock (G4.3 primitive)
 const { makeWorkspaceOwner } = require('./workspace-owner.js');
+const { FRESH_MARKER } = require('./workspace-lineage.js');
 
 const REQUEST_VERSION = 1;
 // Recovery activation runs BEFORE the workspace owner claim (it renames the workspace itself, so the
@@ -295,6 +296,36 @@ function scratchTargetReason(o) {
   return null;
 }
 
+/* #101: a reset's clean generation is intentional, not a missing station. Only automatic recovery
+   consults this choice; explicit recovery still shows every candidate and preserves the clean generation
+   in rollback. An erase blocks all automatic imports. START FRESH acknowledges specific old roots only.
+   An existing marker that cannot be read/validated never authorizes an automatic replacement. */
+function automaticRecoveryPolicy(o) {
+  const fs = o.fs || fsNative, path = o.path || pathNative;
+  const current = path.resolve(String(o.workspaceRoot || ''));
+  const platform = String(o.platform || process.platform);
+  let marker;
+  try {
+    marker = JSON.parse(fs.readFileSync(path.join(current, FRESH_MARKER), 'utf8'));
+    if (!marker || marker.version !== 1 || !Array.isArray(marker.acknowledgedRoots)
+        || (marker.erased !== undefined && typeof marker.erased !== 'boolean')
+        || marker.acknowledgedRoots.some(root => typeof root !== 'string' || !root.trim())) {
+      throw new Error('invalid fresh-start marker');
+    }
+  } catch (error) {
+    if (error && error.code === 'ENOENT') return { candidateRoots: o.candidateRoots };
+    return { code: 'AUTO_RECOVERY_FRESH_MARKER_UNREADABLE',
+      reason: 'the fresh-start choice could not be read safely; automatic recovery preserved this workspace. Explicit recovery remains available.' };
+  }
+  if (marker.erased === true) return { code: 'AUTO_RECOVERY_ERASED',
+    reason: 'ERASE EVERYTHING selected this clean generation; no prior station was imported. Explicit recovery remains available.' };
+  const roots = uniqueRoots(o.candidateRoots, path, platform);
+  const candidateRoots = roots.filter(root => !marker.acknowledgedRoots.some(ack => samePath(root, ack, path, platform)));
+  if (roots.length && !candidateRoots.length) return { code: 'AUTO_RECOVERY_ACKNOWLEDGED',
+    reason: 'START FRESH already acknowledged these prior roots; no prior station was imported. Explicit recovery remains available.' };
+  return { candidateRoots };
+}
+
 function recoveryLockFile(workspaceRoot, path) {
   const root = path.resolve(String(workspaceRoot || ''));
   return path.join(path.dirname(root), path.basename(root) + '.recovery.lock');
@@ -364,8 +395,13 @@ function applyPendingRecoveryLocked(opts) {
         try { console.warn('[recovery] auto station recovery SKIPPED: target workspace is a scratch root (' + current + ' is under ' + scratch.root + '); a real station is never ingested into a temp workspace. Explicit recovery (request file / CLI restore) is unaffected.'); } catch (_) {}
         return { applied: false, pending: false, autoSkipped: true, code: scratch.code, scratchRoot: scratch.root };
       }
+      const policy = automaticRecoveryPolicy(o);
+      if (policy.code) {
+        console.warn('[recovery] auto station recovery SKIPPED (' + policy.code + '): ' + policy.reason);
+        return { applied: false, pending: false, autoSkipped: true, code: policy.code, reason: policy.reason };
+      }
       const active = readRootCandidate(current, { fs, path });
-      const inspection = inspectCandidates(o);
+      const inspection = inspectCandidates(Object.assign({}, o, { candidateRoots: policy.candidateRoots }));
       if ((!active || !active.recoverable) && inspection.recoverableCount === 1 && inspection.automaticCandidateId) {
         requestRecovery(Object.assign({}, o, { inspection, candidateId: inspection.automaticCandidateId }));
         return applyPendingRecoveryLocked(Object.assign({}, o, { auto: false }));   // stay inside the held lock
