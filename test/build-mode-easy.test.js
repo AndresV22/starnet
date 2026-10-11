@@ -53,8 +53,9 @@ A.ok(/propArtInto\(host\.querySelector\('\.refit-sel-art'\),p\)/.test(sel) && /r
 for (const [label, key] of [['TURN', 'R'], ['FLIP', 'M'], ['DUPLICATE', 'Ctrl\\+D'], ['COPY', 'Ctrl\\+C'], ['DELETE', 'Del']])
   A.ok(new RegExp("addKey\\('" + label + "','" + key + "'").test(sel), 'the ' + label + ' key wears its shortcut (' + key.replace(/\\/g, '') + ')');
 // (SELECT MOVES, Andrew 10-11: "rather than a move button, which is annoying can we just make the select button allow the user to
-//  move" — the card has no MOVE key any more: the selected piece moves when dragged, and the card's sub-line says so)
-A.ok(!/addKey\('MOVE'/.test(sel) && /\(pressMovesSelection\(\)\?' · drag it to move · arrows nudge':''\)\+'<\/small>/.test(sel), 'no MOVE key on the card — it says a drag moves the selected piece (only where a drag on it does: pressMovesSelection)');
+//  move" — the card has no MOVE key any more: the selected piece moves when dragged, and the card's sub-line says so; a conveyor
+//  machine's card says both halves of ONE GESTURE, THE TARGET DECIDES — onto floor it moves, onto a machine it belts)
+A.ok(!/addKey\('MOVE'/.test(sel) && /\(pressMovesSelection\(\)\?' · '\+\(CONNECT_TYPES\[p\.t\]\?'drag onto floor to move, onto a machine to belt':'drag it to move'\)\+' · arrows nudge':''\)\+'<\/small>/.test(sel), 'no MOVE key on the card — it says what a drag on the selected piece does (only where a drag on it does: pressMovesSelection)');
 A.ok(/finally \{ if \(ctx\) PropSprites\.setCtx\(ctx\); \}/.test(fn('propArtInto')), 'drawing the card art hands PropSprites back to the floor canvas');
 A.ok(/\.refit-overlay \.refit-selection-actions \{ display: grid; grid-template-columns: repeat\(3, minmax\(0,1fr\)\); gap: 5px; \}/.test(easy)
   && /@container \(max-width: 380px\) \{ \.refit-overlay \.refit-selection-actions \{ grid-template-columns: repeat\(2, minmax\(0,1fr\)\); \} \}/.test(easy),
@@ -187,9 +188,9 @@ A.ok(/\(shift \|\| p\.id === selectedPropId \|\| groupIds\.includes\(p\.id\)\) \
   && /const want = cursorFor\(ev\.shiftKey\);/.test(fn('onMove')),
   'the pointer says what a drag will do: move over a selected piece (or the selected room, or with Shift), aim over an unselected machine');
 A.ok(!/MOVE \(4\)|selectTool\('move'\)|\['4', 'Move'\]/.test(build + rd('frontend/app/tutorial.js')), 'no copy or key list names the retired MOVE (4)');
-A.ok(/<span><b>Drag a selected piece<\/b> Move it<\/span>/.test(build) && /\['Drag a selected one', 'move it'\], \['Drag a machine', 'lay a belt \(if unselected\)'\], \['Shift \+ drag', 'move any piece'\]/.test(build)
-  && /fmEntry\(null, 'Select &amp; move', 'Click a piece to select it, then drag it to move it;/.test(rd('frontend/app/tutorial.js')),
-  'HELP, the Edit key caps and the Field Manual teach: click to select, drag a selected piece to move it, drag a machine to lay a belt');
+A.ok(/<span><b>Drag a selected piece<\/b> Move it<\/span>/.test(build) && /\['Drag a machine', 'onto another: belt them'\], \['Drag a selected one', 'onto floor: move it'\], \['Shift \+ drag', 'move any piece'\]/.test(build)
+  && /fmEntry\(null, 'Select &amp; move', 'Click a piece to select it, then drag it onto open floor to move it;[^']*Drag a machine onto another machine to belt them, selected or not;/.test(rd('frontend/app/tutorial.js')),
+  'HELP, the Edit key caps and the Field Manual teach: drag a machine onto another to belt them (selected or not), drag a selected piece onto open floor to move it');
 
 /* ---------- 6c. SELECT MOVES — the review's repair pass (10-11) ---------- */
 // an armed tool: the card said "drag it to move" over the desk PROP just placed (or a BAY clicked with a chair armed), and the drag
@@ -218,29 +219,32 @@ A.ok(/if \(inSelRoom && ev\.shiftKey && station\.beltAt\(w\.tx, w\.ty\)\) \{ dra
   'Shift+drag over a belt inside the selected room moves the room (a Shift+click on it still opens the belt card)');
 A.ok(/if \(ev\.key === 'Shift'\) \{ escExitArmedAt = 0;/.test(key), 'Shift still disarms a pending Esc-to-exit (any other key does)');
 A.ok(/upCommit\(d, ev\);\n[^\n]*\n[^\n]*\n    if \(!drag\) setCursor\(\);/.test(fn('onUp')), 'the cursor is said again AFTER the release changed the selection (a just-selected machine shows the move cursor)');
-// the points of use that walked users into "I dragged to belt it and it moved"
-A.ok(/const ORPHAN_SOURCE_SELECTED = 'NOT CONNECTED — DESELECT, THEN DRAG IT ONTO A BAY';/.test(build)
-  && /if \(e\.code === 'ORPHAN_SOURCE' && e\.propId && \(e\.propId === selectedPropId \|\| groupIds\.includes\(e\.propId\)\)\) label = ORPHAN_SOURCE_SELECTED;/.test(build),
-  'a SELECTED unconnected source says DESELECT first on the floor');
-A.ok(/' PLACED AND CONNECTED' \+ \(t === 'bay' \? ' · DRAG ON FROM IT, THEN CLICK IT TO CREW IT' : ''\)/.test(fn('commitDropPick'))
-  && /click bare floor to deselect the SPLITTER \(a selected one moves when dragged\), then drag from it/.test(fn('splitModeInfo'))
-  && /it was selected, so the drag MOVED it — click bare floor to deselect it, then drag from it to lay a belt/.test(fn('commitPropMove')),
-  'the drop-pick tip, the SPLITTER refusal and a selected machine dropped on another machine all name the deselect');
+// the points of use that walked users into "I dragged to belt it and it moved" — the refine (10-11) made that drag WORK (a selected
+// machine let go on another machine belts them: test/build-select-target.test.js), so none of them teaches a deselect any more
+A.ok(!/ORPHAN_SOURCE_SELECTED/.test(build) && /ORPHAN_SOURCE: 'NOT CONNECTED — DRAG IT ONTO A BAY'/.test(build),
+  'an unconnected source says DRAG IT ONTO A BAY on the floor, selected or not (no DESELECT variant)');
+A.ok(/' PLACED AND CONNECTED' \+ \(t === 'bay' \? ' · CLICK IT TO CREW IT' : ''\)/.test(fn('commitDropPick'))
+  && /'run a second belt OUT of the splitter first: drag from the SPLITTER onto the next machine'/.test(fn('splitModeInfo'))
+  && !/it was selected, so the drag MOVED it/.test(fn('commitPropMove')),
+  'the drop-pick tip and the SPLITTER refusal say just the gesture; a selected machine let go on a machine is never a move to explain');
+A.ok(/const dragWords = p => CONNECT_TYPES\[p\.t\] \? 'drag it onto another machine to belt them, onto open floor to move it' : 'drag it to move it';/.test(build)
+  && /setHint\('Selected '\+propLabel\(p\.t\)\+' · '\+dragWords\(p\)\+' · choose an action in the build kit'\);/.test(fn('onInspect')),
+  'the status line under a just-clicked machine says both halves: onto a machine belts, onto open floor moves');
 {
   const tut = rd('frontend/app/tutorial.js'), lines = tut.slice(tut.indexOf("if (tab === 'LINES') {"), tut.indexOf("if (tab === 'PROGRESS') {"));
-  const caveat = lines.indexOf('moves when dragged instead: click bare floor to deselect it first'), route = lines.indexOf('Connect INBOX → BAY, then BAY → OUTBOX');
-  A.ok(/Click the BAY: the <b>Workflow panel<\/b>/.test(lines) && caveat > 0 && route > caveat,
-    'the Field Manual LINES steps crew the BAY (selecting it) and then warn before BAY → OUTBOX that a selected machine moves when dragged');
+  const same = lines.indexOf('selected or not, so the BAY you just crewed belts the same way'), route = lines.indexOf('Connect INBOX → BAY, then BAY → OUTBOX');
+  A.ok(/Click the BAY: the <b>Workflow panel<\/b>/.test(lines) && same > 0 && route > same && !/deselect/i.test(lines),
+    'the Field Manual LINES steps crew the BAY (selecting it) and then say the drag belts it all the same — no deselect step');
   const wfp = rd('frontend/app/workflowpanel.js');
-  A.ok(!/Esc lets go of it first|so Esc lets go of it first/.test(wfp) && (wfp.match(/click bare floor to deselect it first/g) || []).length >= 3,
-    'the Workflow panel says click bare floor (its own Esc closes the PANEL and keeps the selection)');
+  A.ok(!/Esc lets go of it first|deselect it first/.test(wfp) && /'Drag from one machine onto the next to connect them\.'\]/.test(wfp),
+    'the Workflow panel teaches the drag alone (selected or not, it belts)');
 }
 A.ok(/^\.refit-toolset-buttons\.is-edit \{ grid-template-columns: repeat\(3,minmax\(0,1fr\)\); \}/m.test(kit)
   && /^\.refit-overlay \.refit-toolset-buttons\.is-edit \{ grid-template-columns: repeat\(3,minmax\(0,1fr\)\); \}/m.test(rd('frontend/css/refit-polish.css')),
   'the Edit toolset lays out three columns for its three tools (no empty cell where MOVE was)');
 {
   const sc = rd('website/docs/shortcuts.html'), gl = rd('website/docs/glossary.html');
-  A.ok(!/<b>MOVE<\/b>/.test(sc) && /<b>SELECT<\/b> &mdash; click to select &middot; drag a selected piece to move it/.test(sc) && !/Ten tools|, move, delete,/.test(gl),
+  A.ok(!/<b>MOVE<\/b>/.test(sc) && /<b>SELECT<\/b> &mdash; click to select &middot; drag a machine onto another to belt them &middot; drag a selected piece onto open floor to move it/.test(sc) && !/Ten tools|, move, delete,/.test(gl),
     'the public shortcuts page and glossary no longer advertise the retired MOVE on key 4');
 }
 

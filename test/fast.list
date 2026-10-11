@@ -1087,6 +1087,7 @@ test/linedraft.test.js
 test/workflows-window.test.js
 test/build-mode-easy.test.js
 test/build-hand.test.js
+test/build-select-target.test.js
 test/build-clip.test.js
 test/worldmodel-moveprops.test.js
 test/buildmode-halls.test.js

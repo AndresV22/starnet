@@ -19,9 +19,10 @@ const Build = (() => {
     // icon painted on the button's canvas, because those glyphs fall back to a system font
     /* SELECT MOVES (Andrew 10-11: "rather than a move button, which is annoying can we just make the select button allow the
        user to move"). The MOVE tool (it was key 4) is retired: click a piece to select it, then drag it to move it (a selection
-       moves together, its belts re-laid); an UNSELECTED machine dragged still lays a belt (THE HAND); Shift+drag moves anything;
-       a selected ROOM moves by a drag inside it. Key 4 stays free — no other tool's number changed. */
-    { id: 'select', key: '0', label: 'SELECT', verb: 'click to select · drag a selected piece to move it · drag an unselected machine to lay a belt', hint: 'click to select · drag a selected piece to move it · drag a box to select several', cursor: 'default' },
+       moves together, its belts re-laid); a machine dragged ONTO another machine lays a belt (THE HAND) — selected or not, the target
+       decides (refine 10-11); Shift+drag moves anything; a selected ROOM moves by a drag inside it. Key 4 stays free — no other
+       tool's number changed. */
+    { id: 'select', key: '0', label: 'SELECT', verb: 'click to select · drag a machine onto another to belt them · drag a selected piece onto open floor to move it', hint: 'click to select · drag a selected piece to move it · drag a box to select several', cursor: 'default' },
     { id: 'room', key: '1', label: 'ROOM', verb: 'click to place · drag to size', hint: 'click the deck to place a room at the last size you drew, or drag out any size', cursor: 'crosshair' },
     { id: 'hall', key: '2', label: 'HALLWAY', verb: 'click to run · drag to size', hint: 'click to run a corridor at the last length you drew, or drag along an axis for any length', cursor: 'crosshair' },
     // 'paint' stays the INTERNAL id (the drag mode, the model's paintTiles verb, the key map and every
@@ -101,9 +102,6 @@ const Build = (() => {
   let planDirty = true;   // routing-plan cache flag: set by EDITS (station.onChange / open), never by pure pans — see rebake()
   let projectionDirty = false;
   const flashes = [];   // {rects, t0, bad} place/delete confirmations
-  // ORPHAN_SOURCE on a SELECTED source (SELECT MOVES, 10-11): a drag moves a selected machine, so the floor names deselecting first
-  // (build mode only, never a finding code — the live world has no selection; routing-nag-parity keeps VAL_LABEL to codes)
-  const ORPHAN_SOURCE_SELECTED = 'NOT CONNECTED — DESELECT, THEN DRAG IT ONTO A BAY';
   // short human labels for the routing-validation overlay (cost-safety: surfaced before any paid run)
   // every label NAMES THE FIX, in words (mirrors world.js NAG_LABEL — keep the two in sync)
   const VAL_LABEL = {
@@ -1250,7 +1248,7 @@ const Build = (() => {
       paletteLabel = 'INSPECT';
       const note = document.createElement('div');
       note.className = 'refit-selectnote refit-keycard';
-      const KEYS = [['Click', 'select it'], ['Drag a box', 'select several'], ['Double-click', 'a whole line'], ['Shift + click', 'add or drop one'], ['Drag a selected one', 'move it'], ['Drag a machine', 'lay a belt (if unselected)'], ['Shift + drag', 'move any piece'], ['Right-click', 'remove a piece'], ['Q · Alt', 'pick up · every setting'],
+      const KEYS = [['Click', 'select it'], ['Drag a box', 'select several'], ['Double-click', 'a whole line'], ['Shift + click', 'add or drop one'], ['Drag a machine', 'onto another: belt them'], ['Drag a selected one', 'onto floor: move it'], ['Shift + drag', 'move any piece'], ['Right-click', 'remove a piece'], ['Q · Alt', 'pick up · every setting'],
         ['Arrows', 'nudge · Shift: 5'], ['R · M', 'turn · flip'], ['Ctrl + D', 'duplicate'], ['Ctrl + C · X · V', 'copy · cut · paste'], ['Del', 'delete'], ['Ctrl + Z', 'undo'],
         ['Click a room', 'move · resize · furnish']];
       note.innerHTML = '<b>Click anything to edit</b><div class="refit-keyrows">' + KEYS.map(([k, v]) => '<span class="refit-keyrow"><kbd>' + esc(k) + '</kbd><span>' + esc(v) + '</span></span>').join('') + '</div>';
@@ -2610,7 +2608,7 @@ const Build = (() => {
     // SURFACE means three different gestures depending on which surface is targeted — say which
     let verb = (t && t.verb) || (t && t.hint) || '';
     if (tool === 'select' && buildGroup === 'props') verb = 'Pick a prop, then click the floor to place it · click a placed one to edit it';
-    if (tool === 'select' && buildGroup === 'workflow') verb = 'Drag an unselected machine to lay a belt · click to select, then drag a selected piece to move it · drag a belt to branch it · 1–8 pick a piece · Q picks up the one under the pointer · right-click removes · hold Alt to see every setting';
+    if (tool === 'select' && buildGroup === 'workflow') verb = 'Drag a machine onto another to belt them · click a piece, then drag it onto open floor to move it · drag a belt to branch it · 1–8 pick a piece · Q picks up the one under the pointer · right-click removes · hold Alt to see every setting';
     // THE HAND: what is held, what a click does with it, and how to put it down (or what the armed dock key's next tap does)
     if (tool === 'select' && hand) verb = 'Holding ' + propLabel(hand.t) + (hand.agentId ? ' (crewed by ' + agentLabel(hand.agentId) + ')' : '') + ' · click to place it' + (JUNCTION_TAG_TYPES[hand.t] ? ' · click a belt to put it on that line' : '') + ' · right-click or Esc puts it down';
     if (tool === 'dupe' && dupe && dupe.type === 'lines') verb = 'Holding ' + dupe.label + ' · click to place a copy (it stays in hand) · R turns it · right-click or Esc puts it down';   // THE HAND part 2
@@ -4753,8 +4751,9 @@ const Build = (() => {
       const p = pid && station.propById(pid);
       // a member of a selected group: a drag moves the whole group, a click (no drag) selects just it; Shift+click adds / drops one
       if (p && groupIds.includes(p.id)) { drag={mode:'grouppress',propId:p.id,start:w,cur:w,moved:false,add:ev.shiftKey};return; }
-      /* SELECT MOVES (10-11): the piece already SELECTED moves when dragged (sel); an UNSELECTED workflow machine becomes a belt
-         drag the moment it moves (THE HAND); furniture moves either way; Shift+drag moves any of them (onMove decides) */
+      /* SELECT MOVES (10-11): the piece already SELECTED moves when dragged (sel) — unless it is a conveyor machine let go on another
+         machine, which belts them (the target decides); an UNSELECTED workflow machine becomes a belt drag the moment it moves (THE
+         HAND); furniture moves either way; Shift+drag moves any of them (onMove decides) */
       if (p) { drag={mode:'selectpress',propId:p.id,start:w,cur:w,moved:false,add:ev.shiftKey,cx:ev.clientX,cy:ev.clientY,sel:p.id===selectedPropId};return; }   // cx/cy: a click that crosses a tile edge is still a click
       const inSelRoom = !!selectedRoomId && station.roomAt(w.tx, w.ty) === selectedRoomId;
       // Shift over a BELT inside the selected room grabs the ROOM (a hallway its belt covers end to end has no bare floor to press —
@@ -4852,13 +4851,19 @@ const Build = (() => {
     const w = toWorldTile(ev);
     if (drag) {
       if (w.tx !== drag.cur.tx || w.ty !== drag.cur.ty) { drag.moved = true; snapTick(drag.mode); }
-      // THE HAND: an UNSELECTED workflow machine dragged (Shift up) lays a belt to the pointer; a SELECTED one, Shift, or any other
-      // prop moves (SELECT MOVES, 10-11); the selected ROOM's floor dragged moves the room.
+      // THE HAND: an UNSELECTED workflow machine dragged (Shift up) lays a belt to the pointer; a SELECTED one moves over open floor
+      // and lays the belt over another machine (the target decides); Shift, or any other prop, moves (SELECT MOVES, 10-11); the
+      // selected ROOM's floor dragged moves the room.
       // A press becomes a gesture only once the pointer has travelled CLICK_SLOP screen px (repair 2026-10-11): a click or a tap
       // that drifts a pixel or two across a tile edge (a 2x2 BAY's middle seam, a belt's next tile, a machine's rim — common on
       // touch and zoomed out) stays a click — it never turns into a refused belt, THE SAME BELT or a PICK WHAT GOES HERE.
       const slipped = drag.cx == null || Math.hypot(ev.clientX - drag.cx, ev.clientY - drag.cy) >= CLICK_SLOP;
       if(drag.mode==='selectpress'&&drag.moved&&slipped)drag.mode=(!drag.add&&!drag.sel&&beltSource(drag.propId))?'handbelt':'propmove';
+      /* ONE GESTURE, THE TARGET DECIDES (SELECT MOVES refine, 10-11 — make what people already try work): a SELECTED conveyor
+         machine dragged onto ANOTHER conveyor machine (or a belt the hand would merge into) is THE HAND's belt / SEND TO — its
+         ghost, its verdict, its commit — exactly as if it had not been selected; over open floor it stays a MOVE. Asked tile by
+         tile (selectedDragAims), so the ghost always says what letting go there does. Shift held = a move, always. */
+      if (drag.sel && !drag.add && (drag.mode === 'propmove' || drag.mode === 'handbelt')) drag.mode = selectedDragAims(drag, w, ev.shiftKey) ? 'handbelt' : 'propmove';
       if(drag.mode==='roompress'&&drag.moved&&slipped)drag.mode='move';
       if ((drag.mode === 'propmove' || drag.mode === 'groupmove' || drag.mode === 'move') && cv.style.cursor !== 'move') cv.style.cursor = 'move';   // a move carries the move cursor (onUp restores)
       if(drag.mode==='beltpress'&&drag.moved&&slipped)drag.mode='handbranch';
@@ -5059,8 +5064,10 @@ const Build = (() => {
     // THE CARD AND THE FLOOR ARE ONE LINE: a click on a line machine opens the docked Workflow panel on it
     // (or re-selects it there), without panning — the floor is where the Commander is looking
     if(WF_PART[p.t]){finFocusLine(p.id);openWorkflowPanel(p.id,true);}
-    setHint('Selected '+propLabel(p.t)+' · drag it to move it · choose an action in the build kit');
+    setHint('Selected '+propLabel(p.t)+' · '+dragWords(p)+' · choose an action in the build kit');
   }
+  // what a drag on the SELECTED piece does, in words (ONE GESTURE, THE TARGET DECIDES — a conveyor machine belts onto a machine)
+  const dragWords = p => CONNECT_TYPES[p.t] ? 'drag it onto another machine to belt them, onto open floor to move it' : 'drag it to move it';
   /* THE SELECTED OBJECT, BESIDE THE LIBRARY (2026-10-01 build-mode upgrade). Selecting a placed prop used to REPLACE the whole Build
      Library with a column of keys, so placing the next thing meant deselecting first. It is now one compact card ABOVE the library —
      the object's own art and name, then its actions, each key wearing the keyboard shortcut that does the same thing (drag, R, M,
@@ -5082,7 +5089,7 @@ const Build = (() => {
     }
     const p=station&&station.propById(selectedPropId);host.hidden=!p;root.classList.toggle('has-selection',!!p);
     if(!p){host.replaceChildren();return;}
-    host.innerHTML='<div class="refit-sel-head"><span class="refit-sel-art" aria-hidden="true"></span><span class="refit-sel-name"><b>'+esc(propLabel(p.t))+'</b><small>'+p.w+' × '+p.h+' tiles'+(canTurn(p.t)?' · facing '+FACE_WORD[(p.r|0)&3]:'')+(pressMovesSelection()?' · drag it to move · arrows nudge':'')+'</small></span>'
+    host.innerHTML='<div class="refit-sel-head"><span class="refit-sel-art" aria-hidden="true"></span><span class="refit-sel-name"><b>'+esc(propLabel(p.t))+'</b><small>'+p.w+' × '+p.h+' tiles'+(canTurn(p.t)?' · facing '+FACE_WORD[(p.r|0)&3]:'')+(pressMovesSelection()?' · '+(CONNECT_TYPES[p.t]?'drag onto floor to move, onto a machine to belt':'drag it to move')+' · arrows nudge':'')+'</small></span>'
       +'<button class="bb sm refit-sel-x" type="button" aria-label="Deselect" data-tip="Deselect · Esc">\u2715</button></div><div class="refit-selection-actions"></div>';
     propArtInto(host.querySelector('.refit-sel-art'),p);
     host.querySelector('.refit-sel-x').onclick=()=>{selectedPropId=null;renderSelection();setHint();sfx('click');};
@@ -5208,7 +5215,7 @@ const Build = (() => {
     const bs = beltSel(), nb = bs ? bs.links.length + bs.tiles.length : 0;
     if (!live.length && nb) setHint(nb + (nb === 1 ? ' belt' : ' belts') + ' selected · Delete removes ' + (nb === 1 ? 'it' : 'them'));
     else if (live.length > 1 || (live.length && nb)) setHint(live.length + ' selected' + (nb ? ' with ' + nb + (nb === 1 ? ' belt' : ' belts') : '') + ' · drag any of them to move them together · Ctrl+C copies · Ctrl+D duplicates · Delete removes');
-    else if (live.length === 1) setHint('Selected ' + propLabel(station.propById(live[0]).t) + ' · drag it to move it · choose an action in the build kit');
+    else if (live.length === 1) setHint('Selected ' + propLabel(station.propById(live[0]).t) + ' · ' + dragWords(station.propById(live[0])) + ' · choose an action in the build kit');
     else setHint();
   }
   const propRect = (p, dx, dy) => ({ x1: p.x + (dx | 0), y1: p.y + (dy | 0), x2: p.x + (dx | 0) + (p.w || 1) - 1, y2: p.y + (dy | 0) + (p.h || 1) - 1 });
@@ -6036,13 +6043,8 @@ const Build = (() => {
     }
     // belts never ride along with a machine: say so at the drop (the ghost already warned amber)
     const left = mp ? beltsLeftBehind(mp, mp.x + dx, mp.y + dy) : 0;
+    // (a SELECTED conveyor machine let go on another machine never lands here: that drag is THE HAND's — selectedDragAims)
     const moved = station.moveProp(d.propId, dx, dy);
-    /* SELECT MOVES: a SELECTED conveyor machine let go ON another machine was moved, not belted (the Field Manual's crew-then-connect
-       order walks right into it) — the refusal says so, and how to lay the belt instead */
-    if (moved && !moved.ok && d.sel && mp && CONNECT_TYPES[mp.t]) {
-      const tid = station.propAt(d.cur.tx, d.cur.ty), tp = tid && tid !== mp.id && station.propById(tid);
-      if (tp && CONNECT_TYPES[tp.t]) moved.msg = (moved.msg || 'blocked') + ' · it was selected, so the drag MOVED it — click bare floor to deselect it, then drag from it to lay a belt';
-    }
     feedback(moved, ev, moveMsg(moved, left, okMsg));
     // the piece it moved is THE selection now (a press on an unselected chair selects + moves it — never leaves a group card up)
     if(moved && moved.ok){if(selectedPropId!==d.propId||groupIds.length||selectedRoomId)setSelection([d.propId]);else renderSelection();landProps([d.propId]);}
@@ -6175,6 +6177,19 @@ const Build = (() => {
   const HAND_PLAN_MODES = { handbelt: 1, handbranch: 1 };
   const beltSource = id => { const p = id && station.propById(id); return !!(p && CONNECT_TYPES[p.t]); };
   const isConveyorPiece = p => !!(p && CONNECT_TYPES[p.t]);
+  /* a drag of the SELECTED piece (onMove — ONE GESTURE, THE TARGET DECIDES): does the pointer stand on a target THE HAND takes?
+     Only for a lone conveyor machine (never a group, never furniture, never with Shift held). ANOTHER conveyor machine: always (a
+     move there could only overlap it). A belt tile: where the hand would MERGE into it (green) — except a 1x1 junction, whose move
+     onto a line is where a junction goes (commitPropMove's snap). Anything else — open floor, its own footprint — is the MOVE. */
+  function selectedDragAims(d, w, shift) {
+    if (shift || groupIds.length || !beltSource(d.propId)) return false;
+    const A = station.propById(d.propId), tid = station.propAt(w.tx, w.ty), T = tid && station.propById(tid);
+    if (!A) return false;
+    if (T) return T.id !== A.id && isConveyorPiece(T);
+    if (JUNCTION_TAG_TYPES[A.t] || !station.beltAt(w.tx, w.ty)) return false;
+    const plan = handPlan({ mode: 'handbelt', propId: A.id, moved: true, cur: { tx: w.tx, ty: w.ty } });   // (the same memo the ghost reads)
+    return !!(plan && plan.ok && plan.kind === 'merge');
+  }
   let linksVer = 0, linksMemo = null;
   const linksMemoed = () => (linksVer === geoVer && linksMemo) ? linksMemo : (linksVer = geoVer, linksMemo = (station && station.links && station.links()) || []);
   // the ONE exit a BAY or INBOX hands its work on through — a new belt from it re-routes that exit (a junction may have several)
@@ -6297,7 +6312,7 @@ const Build = (() => {
     dropPick = null; renderSelection(); setHint();
     if (res && res.ok) {
       const newId = res.made || res.id, np = newId && station.propById(newId);
-      sfx('chime'); flashTip(at, propLabel(t) + ' PLACED AND CONNECTED' + (t === 'bay' ? ' · DRAG ON FROM IT, THEN CLICK IT TO CREW IT' : ''), true);   // (that order: a clicked — selected — BAY moves when dragged)
+      sfx('chime'); flashTip(at, propLabel(t) + ' PLACED AND CONNECTED' + (t === 'bay' ? ' · CLICK IT TO CREW IT' : ''), true);
       const laid = newId && (station.links() || []).find(l => l.to && l.to.prop === newId);   // the belt it really got (never the stand-in's route)
       pushFlash(pathRects(laid ? laid.path : dp.path).concat(np ? [{ x1: np.x, y1: np.y, x2: np.x + np.w - 1, y2: np.y + np.h - 1 }] : []), false);
       if (np) landProps([np.id]);
@@ -7719,7 +7734,7 @@ const Build = (() => {
       ? (joins.length ? { ok: true, swap: joins } : { ok: false, msg: 'a JOINER further down the line combines these branches — make that one a MERGER to let them take turns' })
       : { ok: true, already: true };
     const toCopy = !copies
-      ? (lanes.length < 2 ? { ok: false, msg: 'run a second belt OUT of the splitter first: click bare floor to deselect the SPLITTER (a selected one moves when dragged), then drag from it onto the next machine' }
+      ? (lanes.length < 2 ? { ok: false, msg: 'run a second belt OUT of the splitter first: drag from the SPLITTER onto the next machine' }
         : meet && meet.kind === 'merge' && propAt(meet.at) ? { ok: true, swap: [propAt(meet.at)] }
         : { ok: false, msg: 'the branches never meet at one MERGER — belt them into one JOINER where they come back together (Conveyors › MACHINES › JOINER)' })
       : { ok: true, already: true };
@@ -7824,8 +7839,6 @@ const Build = (() => {
         let label = VAL_LABEL[e.code] || e.code, layer = 'topNag';
         // THE HAND (H5): an over-budget INBOX says its n/max on the floor — the one resting number — in the same voice that names the fix
         if (e.code === 'LINE_TOO_LONG' && e.stages > 0) label = 'TOO LONG ' + e.stages + '/' + (e.maxHops + 1) + ' — RAISE THE BUDGET';
-        // SELECT MOVES: a SELECTED machine moves when dragged, so its "drag it onto a BAY" names the step before the drag
-        if (e.code === 'ORPHAN_SOURCE' && e.propId && (e.propId === selectedPropId || groupIds.includes(e.propId))) label = ORPHAN_SOURCE_SELECTED;
         /* a ROLE-carrying unbound dock is a PLACARD, not a permanent nag (one-voice law): it speaks
            only while hovered or while it is the checklist's focused next step — at rest the amber
            bracket + the FINISH-THE-LINE card already carry the story. Roleless unbound bays keep
