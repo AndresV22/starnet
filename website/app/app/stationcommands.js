@@ -587,6 +587,40 @@ const StationCommands = (() => {
       recruit: role => Build.summonForRole(role, WorldModel.bayRoleInfo ? WorldModel.bayRoleInfo(role) : null) } };
   }
 
+  // A build is a mutation boundary: do not depend on the next animation frame to publish its floor.
+  // Keep the receipt inside the bridge's six-second deadline. Publication may continue after this wait;
+  // its failure never undoes the applied floor or makes the consumed plan safe to apply twice.
+  async function builderPublication() {
+    const unconfirmed = reason => ({ published: false, reason });
+    const unknown = 'The floor was built, but its work lines are not confirmed yet. Check Workflow before starting a line.';
+    if (typeof World === 'undefined' || typeof World.syncPlan !== 'function') return unconfirmed(unknown);
+    let timer = null;
+    try {
+      const pending = World.syncPlan(); // rederive is synchronous; pin exactly the floor this build offered
+      const offered = typeof World.planStatus === 'function' ? World.planStatus() : null;
+      const expectedHash = offered && offered.hash, expectedKey = offered && (offered.pendingHash || offered.lastHash);
+      const s = await Promise.race([
+        pending,
+        new Promise(resolve => { timer = setTimeout(() => resolve(null), 3500); })
+      ]);
+      if (!s || !expectedHash || !expectedKey || s.hash !== expectedHash || s.lastHash !== expectedKey
+        || String(s.lastHash).split('|')[0] !== s.hash) return unconfirmed(unknown);
+      const current = typeof World.planStatus === 'function' ? World.planStatus() : s;
+      for (const state of [s, current]) {
+        if (!state) return unconfirmed(unknown);
+        const errors = (state.errors || []).filter(e => !e.warn);
+        if (errors.length) return unconfirmed('The floor was built, but its work lines need repairs: '
+          + [...new Set(errors.map(e => typeof Build !== 'undefined' && Build.nagLabel ? Build.nagLabel(e.code) : e.code))].join(' · ') + '. Check Workflow.');
+        if (state.refusedHash && state.refusedHash === state.lastHash)
+          return unconfirmed('The floor was built, but the station refused its work lines. Fix the findings in Workflow before starting a line.');
+        if (state.pending || state.stale || state.inflight || state.retryPending || state.pendingHash) return unconfirmed(unknown);
+      }
+      if (current.hash !== s.hash || current.lastHash !== s.lastHash) return unconfirmed(unknown);
+      return { published: true, hash: s.hash };
+    } catch (_) { return unconfirmed(unknown); }
+    finally { if (timer != null) clearTimeout(timer); }
+  }
+
   const VERBS = {
     /* A crew-written plugin DRAFT's window, previewed (plugin.preview tool): sandboxed, a throwaway store, no backend.
        The sidecar names the draft, its digest and its screens; PluginHost opens (or reloads) the DRAFT window. */
@@ -697,7 +731,7 @@ const StationCommands = (() => {
       return { planId: p.planId, summary: p.plan.summary, notes: p.plan.notes, expiresInMinutes: PLAN_TTL_MS / 60000, next: NEXT_STEP };
     },
     // builds ANY parked plan, exactly, in one undo step
-    'station.build': (a) => {
+    'station.build': async (a) => {
       const { st, env } = builderReady();
       const planId = String((a && a.planId) || '').trim();
       const e = builderPlans.get(planId);
@@ -730,9 +764,16 @@ const StationCommands = (() => {
       const undo = 'The Commander can take all of it back with one UNDO in Build mode'
         + (r.kind === 'swap' ? ', or bring the old station back with RESTORE PREVIOUS in Build → Presets' : '')
         + ((r.recruited || []).length ? '; the recruited agents stay on the crew (DELETE AGENT in a Dossier removes one)' : '') + '.';
-      return Object.assign({ built: true, undo }, r.line
+      const result = Object.assign({ built: true, undo }, r.line
         ? { summary: r.summary, line: r.line, where: r.where, steps: r.steps, lineId: r.lineKey, ready: r.ready, blocking: r.blocking, recruited: r.recruited }
         : { summary: r.summary, rooms: r.rooms, hallways: r.hallways, lines: r.lines, recruited: r.recruited, where: r.where });
+      result.routing = await builderPublication();
+      if (!result.routing.published) {
+        result.ready = false;
+        result.blocking = (result.blocking || []).concat(result.routing.reason);
+        if (result.lines) result.lines = result.lines.map(l => Object.assign({}, l, { ready: false, blocking: (l.blocking || []).concat(result.routing.reason) }));
+      }
+      return result;
     },
 
     'station.agent_config': (args) => {

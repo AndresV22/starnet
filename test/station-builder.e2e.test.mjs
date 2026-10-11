@@ -11,7 +11,7 @@
    Last, vibe design: "the left side cozy, the right side a line that builds and tests code" lands exactly so, in one undo. Isolated like station-layout.e2e (APPDATA / LOCALAPPDATA / USERPROFILE / HOME /
    HERMES_HOME to scratch, a fresh Chrome profile, OS-picked ports, a local mock model). Skips LOUDLY with no Chromium. */
 import { spawn } from 'node:child_process';
-import { mkdtempSync, mkdirSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync, readFileSync } from 'node:fs';
 import http from 'node:http';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -133,6 +133,10 @@ try {
   let sync = null;
   for (let i = 0; i < 40; i++) { sync = await evalJS(cdp, 'World.planStatus()'); if (sync && !sync.pending && !sync.inflight && !sync.stale) break; await sleep(500); }
 
+  // Hold the frame pump before the mutation: a build must publish itself, even if no animation frame runs.
+  // Previously the document changed but /api/routing kept the empty plan, while the receipt said ready.
+  await evalJS(cdp, 'World.stop(); true');
+
   // 1. the lead plans a line from the fixed menu, then builds exactly that plan (full access: no approval card here)
   mock.planTool = 'station_plan'; mock.planArgs = { line: 'Build + test', name: 'SHIP IT', steps: [{ step: 1, agent: 'lead' }, { step: 2, agent: 'lead' }], dailyCap: 5 };
   const req0 = mock.requests.length;   // only THIS run's requests are its own
@@ -162,6 +166,13 @@ try {
   check('a new room named for the line, beside the station', floor.rooms.length === before.rooms.length + 1 && floor.rooms.includes('SHIP IT'), JSON.stringify(floor.rooms));
   check('the Inbox is named and carries the $5 daily cap', !!floor.intake && floor.cap === 5, JSON.stringify(floor));
   check('both steps are staffed by the lead with their standard instructions', floor.bays.length === 2 && floor.bays.every(b => b[1] && b[2].length > 5) && floor.loop === 3, JSON.stringify(floor.bays));
+
+  const posted = JSON.parse(readFileSync(join(workspace, 'routing.plan.json'), 'utf8'));
+  const builtSync = await evalJS(cdp, 'World.planStatus()');
+  check('the build receipt follows publication even with the frame pump held',
+    !!BL && !!BL.routing && BL.routing.published === true && (posted.lines || []).some(l => l.lineId === floor.intake && l.name === 'SHIP IT')
+      && !builtSync.pending && !builtSync.inflight && !builtSync.stale && !builtSync.refusedHash && BL.routing.hash === posted.hash,
+    JSON.stringify({ routing: BL && BL.routing, hash: posted.hash, lines: (posted.lines || []).map(l => l.lineId), world: builtSync }));
 
   // 3. parity: the Workflow panel on that line says what the tool said
   await evalJS(cdp, `(() => { Build.openAssign(${JSON.stringify(floor.intake)}); return true; })()`);
