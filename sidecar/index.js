@@ -5435,6 +5435,11 @@ function startFreshConnectorStorage() {
   console.log('[connectors] START FRESH: kept ' + (result.moved.join(', ') || 'nothing') + (result.movedTo ? ' in ' + result.movedTo : '') + '; new store ' + (connectorVault.protected ? 'encrypted' : 'NOT encrypted'));
   return { ok: true, movedTo: result.movedTo, moved: result.moved };
 }
+// Settings' connector reset of a LOCKED store IS start fresh: a removal write can never verify against a store it can't open.
+function resetLockedConnectors(json, section) {
+  const fresh = startFreshConnectorStorage();
+  return fresh.ok ? json(200, { ok: true, section }) : json(fresh.status || 500, { ok: false, section, error: fresh.error });
+}
 function connectorStorageSnapshot() {
   const fallback = connectorVault.fallback && !connectorStorageError;
   return {
@@ -13648,11 +13653,7 @@ async function handleConfigReset(req, res) {
       break;
     }
     case 'connectors': {
-      if (connectorStorageCanStartFresh()) {
-        const fresh = startFreshConnectorStorage();
-        if (!fresh.ok) return json(fresh.status || 500, { ok: false, section, error: fresh.error });
-        break;
-      }
+      if (connectorStorageReason) return resetLockedConnectors(json, section);
       const next = connectorStateMod.envelope([], { byId: {}, clients: {} });
       if (!persistConnectorRemoval(next.configs, next.oauth)) return json(500, { ok: false, section, error: 'connector reset could not be verified in both protected recovery copies; active connectors were left unchanged' });
       const oldIds = connectorConfigs.map(c => c && c.id).filter(Boolean);
