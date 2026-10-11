@@ -49,7 +49,7 @@ A.ok(/H\.station\(\)\.setPropHands\(p\.id, hands\.value\)/.test(panel), 'HANDS O
 // the doors
 A.ok(/if \(t === 'bay'\) return openStepCard\(p\.id, ev\);/.test(build), 'a BAY configures through openStepCard');
 A.ok(/t === 'intake' \|\| t === 'outbox' \|\| t === 'merger' \|\| t === 'splitter' \|\| t === 'joiner' \|\| t === 'loop'\) return openFlowCard\(p\.id\)/.test(build), 'INBOX / OUTBOX / gates configure through openFlowCard');
-A.ok(/if\(WF_PART\[p\.t\]\)\{finFocusLine\(p\.id\);openWorkflowPanel\(p\.id,true\);\}/.test(build), 'a floor click on a line machine selects it in the panel');
+A.ok(/if\(WF_PART\[p\.t\]\)\{[^\n]*inspectTimer=setTimeout[^\n]*finFocusLine\(id\);openWorkflowPanel\(id,true\);/.test(build), 'a floor click on a line machine selects it in the panel');
 A.ok(!/refit-step-card|refit-flow-card/.test(build.replace(/\/\*[\s\S]*?\*\//g, ' ')), 'the modal step/flow cards are gone');
 
 // two panels must not squeeze the floor: the Workflow panel minimizes the Build Library through its own

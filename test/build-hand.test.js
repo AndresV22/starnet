@@ -205,7 +205,7 @@ const frozen = s => JSON.stringify(s.serialize()) + '|' + s.getSeq() + '|' + s.c
   const p = plan(s), rec = p.lines.find(l => l.intakes.includes(I)), ls = P.lineStages(p, rec.lineId), e = p.errors.find(q => q.code === 'LINE_TOO_LONG');
   A.ok(ls && e && ls.stages === e.stages && ls.max === e.maxHops + 1, 'lineStages counts what LINE_TOO_LONG counts (' + (ls && ls.stages) + '/' + (ls && ls.max) + ')');
   const s2 = fresh(), L = line(s2), p2 = plan(s2), r2 = p2.lines.find(l => l.intakes.includes(L.I));
-  A.eq(P.lineStages(p2, r2.lineId), { stages: 2, max: 7, maxHops: 6 }, '…and a line under budget too (2 of 7)');
+  A.eq(P.lineStages(p2, r2.lineId), { stages: 2, worst: 2, max: 7, maxHops: 6 }, '…and a line under budget too (2 of 7)');
   A.ok(!JSON.stringify(P.compileRoutingPlan(s2.projectGeometry())).includes('lineStages'), 'it is a reader, never a plan field (the hash and the posted plan are untouched)');
 }
 
@@ -220,8 +220,8 @@ const frozen = s => JSON.stringify(s.serialize()) + '|' + s.getSeq() + '|' + s.c
   const key = fn('onKey');
   A.ok(/if \(buildGroup === 'workflow' && \/\^\[1-8\]\$\/\.test\(ev\.key\)/.test(key) && key.indexOf("buildGroup === 'workflow' && /^[1-8]$/") < key.indexOf("const map = { '0': 'select'"), 'keys 1–8 pick hotbar pieces only while the Conveyors tab is up — the other tabs keep their tool keys');
   A.ok(/if \(ev\.key === 'Alt'\) \{ ev\.preventDefault\(\); altHeld = true; return; \}/.test(key), 'Alt is the ALT VIEW — preventDefault, so the browser menu bar never takes the focus');
-  A.ok(/if \(ev\.key === 'Alt'\) \{ ev\.preventDefault\(\); altHeld = false; \}/.test(build) && /function onBlur\(\) \{ spaceHeld = false; altHeld = false;/.test(build), '…let go on keyup, and on blur (Alt+Tab never leaves it stuck on)');
-  A.ok(/drag\.mode === 'handbelt' \|\| drag\.mode === 'handbranch'\)\) \{ ev\.preventDefault\(\); flipCorner\(\); return; \}/.test(key) && key.indexOf('flipCorner()') < key.indexOf('turnUnderCursor('), 'R mid-drag flips the corner (before R turns a prop)');
+  A.ok(/if \(ev\.key === 'Alt'\) \{ ev\.preventDefault\(\); altHeld = false; \}/.test(build) && /function onBlur\(\)[^\n]*spaceHeld = false; altHeld = false;/.test(build), '…let go on keyup, and on blur (Alt+Tab never leaves it stuck on)');
+  A.ok(/drag && HAND_PLAN_MODES\[drag\.mode\]\) \{ ev\.preventDefault\(\); flipCorner\(\); return; \}/.test(key) && key.indexOf('flipCorner()') < key.indexOf('turnUnderCursor('), 'R mid-drag flips the corner (before R turns a prop)');
   A.ok(/if \(!drag && \(hand \|\| touchArm \|\| dropPick\)\) \{ setHand\(null\); return; \}/.test(key), 'Esc puts down what is held (or the unanswered picker)');
   const down = fn('onDown');
   A.ok(/const held = !!\(drag \|\| connectFrom \|\| connectTo \|\| dupe \|\| hand \|\| touchArm \|\| dropPick \|\| tool !== 'select'\);/.test(down) && /if \(!held && removeAt\(ev\)\) return;/.test(down), 'right-click removes ONLY with nothing held, armed or live — otherwise it puts down / deselects as before');
@@ -230,7 +230,7 @@ const frozen = s => JSON.stringify(s.serialize()) + '|' + s.getSeq() + '|' + s.c
   A.ok(/drag\.mode=\(!drag\.add&&!drag\.sel&&beltSource\(drag\.propId\)\)\?'handbelt':'propmove';/.test(build), 'an unselected workflow machine dragged lays a belt; selected, with Shift (or any other prop) it moves');
   A.ok(/if \(d\.mode === 'beltpress'\) return openBeltCard\(/.test(fn('onUp') + fn('upCommit')), 'a belt CLICKED still opens its card');   // (onUp hands the release to upCommit, then re-says the cursor)
   const rm = fn('removeAt');
-  A.ok(/if \(p && isConveyorPiece\(p\)\)/.test(rm) && /if \(p\) return false;/.test(rm) && /station\.removeLinkAt\(w\.tx, w\.ty\)/.test(rm), 'right-click removes a conveyor piece or a whole belt — never furniture');
+  A.ok(/if \(p && isConveyorPiece\(p\)\)/.test(rm) && /if \(p\) return false;/.test(rm) && /return removeBeltAt\(w\.tx,w\.ty,ev\)/.test(rm) && /station\.removeLinkAt\(w\.tx, w\.ty\)/.test(build), 'right-click removes a conveyor piece or a whole belt — never furniture');
   const hp = fn('handPlan');
   A.ok(/const k = geoVer \+ '\|' \+ src \+ '\|' \+ d\.cur\.tx \+ ',' \+ d\.cur\.ty \+ '\|' \+ \(flipPref \? 1 : 0\);/.test(hp) && /if \(k === handPvKey\) return handPvMemo;/.test(hp), 'the drag ghost is memoized per (edit, tile, corner) — the planner never runs per frame (H9)');
   const plan2 = fn('planHandGesture');
@@ -250,7 +250,7 @@ const frozen = s => JSON.stringify(s.serialize()) + '|' + s.getSeq() + '|' + s.c
     && /live: !!\(valPlan && valPlan\.sendTo && valPlan\.sendTo\[p\.id\]\)/.test(fn('sendLinks')), '…Alt makes every SEND TO arc say its words, live or OFF exactly as the compiled plan has it');
   const ajt = fn('altJunctionText');
   A.ok(!/[×→▸]/.test(ajt), 'the Alt texts are ASCII (VT323 has no × or arrows)');
-  A.ok(/floatHistory\(r, ev\.shiftKey \? 'REDID' : 'UNDID'\)/.test(key) && /undoBtn\.onclick = \(\) => \{ const r = station\.undo\(\); sfx\(r\.ok \? 'click' : 'bad'\); floatHistory\(r, 'UNDID'\); \};/.test(build), 'Ctrl+Z / Ctrl+Y and the UNDO / REDO keys float UNDID · / REDID · <WHAT>');
+  A.ok(/floatHistory\(r, ev\.shiftKey \? 'REDID' : 'UNDID'\)/.test(key) && /undoBtn\.onclick = \(\) => \{ setHand\(null, \{ silent: true \}\); const r = station\.undo\(\); sfx\(r\.ok \? 'click' : 'bad'\); floatHistory\(r, 'UNDID'\); \};/.test(build), 'Ctrl+Z / Ctrl+Y and the UNDO / REDO keys float UNDID · / REDID · <WHAT>');
   A.ok(/if\(dropPick\)\{host\.hidden=false;root\.classList\.add\('has-selection'\);return renderDropPick\(host\);\}/.test(build), 'PICK WHAT GOES HERE docks where the selection card does (windows dock from the bottom — never a popover at the pointer)');
   const od = fn('openDropPick');
   A.ok(/station\.probeDrop\(/.test(od) && !/probeDrop/.test(hp + plan2), 'the fit probe runs once on RELEASE, never per frame');
