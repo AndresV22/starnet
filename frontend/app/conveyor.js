@@ -446,10 +446,16 @@ const Conveyor = (() => {
          · while the camera holds still, each on-screen tile is drawn ONCE per roller phase into a device-aligned atlas
            cell and blitted 1:1 — one drawImage per tile, every tile from the same texture. A cell is rasterized at the
            device pixels the live tile covers, so the art is the same art; only the roller phase is held to steps of at
-           most 1/4 device px. The moment the camera moves (pan, zoom, the idle director's follow) tiles draw live.
-       A caller without getTransform (the test recorder) always draws live. */
-    const ATLAS_MAX_TILE_PX = 40, ATLAS_MAX_TILES = 4096, ROLL_MS = 180;
-    const views = new WeakMap();   // canvas -> { a, e, f: last transform, still: unchanged draws, atlas }
+           most 1/4 device px. A zoom (or a resize, or a new layout) drops the atlas and tiles draw live until it holds.
+       A caller without getTransform (the test recorder) always draws live.
+     PANS KEEP IT (2026-10-10, "can't navigate"): the atlas used to cover only the on-screen tiles at one exact camera,
+     so every pan frame drew every belt live — the dearest part of a moving frame on a big line (CPU×4: 7 → 26 ms).
+     When the WHOLE layout fits ATLAS_WHOLE_MAX_PX (all roller phases together) the atlas covers every belt and a pan
+     only shifts where its cells land: a whole-device-pixel shift blits the very same pixels; a fractional one (a
+     high-DPI drag, the idle director's ease) lands rounded — at most half a device px — until the camera holds, and
+     then the atlas is rebuilt at the exact offset. A layout too big for that budget keeps the still-only atlas. */
+    const ATLAS_MAX_TILE_PX = 40, ATLAS_MAX_TILES = 4096, ATLAS_WHOLE_MAX_PX = 8388608, ROLL_MS = 180;
+    const views = new WeakMap();   // canvas -> { a, e, f: last transform, still: unchanged draws, held: same-zoom draws, atlas }
     function drawBelts(ctx, nowMs, T, belts, liveSet) {
       if (!belts || !belts.length) return;
       _ctx = ctx; _now = nowMs;
@@ -461,20 +467,26 @@ const Conveyor = (() => {
         return;
       }
       let view = views.get(cv);
-      if (!view) views.set(cv, view = { a: 0, e: 0, f: 0, w: 0, h: 0, belts: null, still: 0, atlas: null });
-      // still = the camera, the canvas size AND the layout held for this draw (a BUILD-mode paint-drag lays a new
-      // belts array per tile: no sheet is built for a layout that changes again next frame)
-      const same = view.a === m.a && view.e === m.e && view.f === m.f && view.w === cv.width && view.h === cv.height && view.belts === belts;
-      view.still = same ? view.still + 1 : 0; view.a = m.a; view.e = m.e; view.f = m.f; view.w = cv.width; view.h = cv.height; view.belts = belts;
-      if (!same) dropAtlas(view);
+      if (!view) views.set(cv, view = { a: 0, e: 0, f: 0, w: 0, h: 0, belts: null, still: 0, held: 0, atlas: null });
+      // held = the zoom, the canvas size AND the layout held for this draw (a BUILD-mode paint-drag lays a new belts
+      // array per tile: no sheet is built for a layout that changes again next frame); still = the pan held too
+      const zoomSame = view.a === m.a && view.w === cv.width && view.h === cv.height && view.belts === belts;
+      const same = zoomSame && view.e === m.e && view.f === m.f;
+      view.still = same ? view.still + 1 : 0; view.held = zoomSame ? view.held + 1 : 0;
+      view.a = m.a; view.e = m.e; view.f = m.f; view.w = cv.width; view.h = cv.height; view.belts = belts;
+      if (!zoomSame || (!same && view.atlas && !view.atlas.whole)) dropAtlas(view);
       const s = m.a, W = cv.width, H = cv.height, tilePx = T * s, shown = [];
       for (const b of belts) {
         const x0 = b.x * T * s + m.e, y0 = b.y * T * s + m.f;
         if (x0 + tilePx < -1 || y0 + tilePx < -1 || x0 > W + 1 || y0 > H + 1) continue;   // wholly off the canvas
         shown.push(b);
       }
-      if (view.still >= 2 && tilePx <= ATLAS_MAX_TILE_PX && shown.length <= ATLAS_MAX_TILES && typeof document !== 'undefined'
-        && drawAtlas(ctx, view, map, T, belts, shown, liveSet, nowMs, m)) { drawMergeFx(T); return; }
+      if (tilePx <= ATLAS_MAX_TILE_PX && typeof document !== 'undefined') {
+        const S = Math.ceil(tilePx) + 2, cols = Math.max(1, Math.ceil(Math.sqrt(belts.length)));
+        const whole = belts.length <= ATLAS_MAX_TILES && cols * cols * S * S * atlasPhases(T, s) <= ATLAS_WHOLE_MAX_PX;
+        if ((whole ? view.held >= 2 : (view.still >= 2 && shown.length <= ATLAS_MAX_TILES))
+          && drawAtlas(ctx, view, map, T, belts, whole ? belts : shown, whole, liveSet, nowMs, m)) { drawMergeFx(T); return; }
+      }
       for (const b of shown) drawTileLive(b, map, T, nowMs, liveSet);
       drawMergeFx(T);   // convergence pulses over the merge tiles (under the riding boxes)
     }
@@ -489,19 +501,27 @@ const Conveyor = (() => {
       for (const c of view.atlas.sheets.values()) c.width = c.height = 1;   // free the bitmaps now, not at GC
       view.atlas = null;
     }
-    // the still camera's frame: blit each shown tile from this roller phase's sheet (drawn once, on first use)
-    function drawAtlas(ctx, view, map, T, belts, shown, liveSet, nowMs, m) {
-      const s = m.a, lives = shown.map(b => !liveSet || !!liveSet[key(b.x, b.y)]), liveKey = lives.map(v => v ? 1 : 0).join('');
+    // enough roller phases that the held roller is never more than 1/4 device px from where the live one would be
+    function atlasPhases(T, s) { return Math.max(4, Math.min(32, Math.ceil(4 * (T / 3) * s))); }
+    // blit each tile from this roller phase's sheet (drawn once, on first use). `list` is every belt (a whole atlas,
+    // which a pan reuses) or the on-screen tiles (a still-only atlas, dropped by the first pan).
+    function drawAtlas(ctx, view, map, T, belts, list, whole, liveSet, nowMs, m) {
+      const s = m.a, lives = list.map(b => !liveSet || !!liveSet[key(b.x, b.y)]), liveKey = lives.map(v => v ? 1 : 0).join('');
       let at = view.atlas;
-      if (!at || at.belts !== belts || at.T !== T || at.count !== shown.length || at.liveKey !== liveKey) {
+      // where this camera puts the atlas's cells, relative to the camera it was rasterized at
+      let dx = at ? m.e - at.e0 : 0, dy = at ? m.f - at.f0 : 0;
+      const fractional = Math.abs(dx - Math.round(dx)) > 1e-3 || Math.abs(dy - Math.round(dy)) > 1e-3;
+      if (!at || at.belts !== belts || at.T !== T || at.whole !== whole || at.count !== list.length || at.liveKey !== liveKey
+        || (fractional && view.still >= 2)) {   // the camera came to rest off the atlas's pixel grid: re-rasterize there
         dropAtlas(view);
-        const S = Math.ceil(T * s) + 2, cols = Math.max(1, Math.ceil(Math.sqrt(shown.length)));
-        // enough phases that the held roller is never more than 1/4 device px from where the live one would be
-        const phases = lives.some(Boolean) ? Math.max(4, Math.min(32, Math.ceil(4 * (T / 3) * s))) : 1;
-        at = view.atlas = { belts, T, count: shown.length, liveKey, S, cols, rows: Math.ceil(shown.length / cols), phases, sheets: new Map(),
-          cells: shown.map((b, i) => { const ix = Math.floor(b.x * T * s + m.e) - 1, iy = Math.floor(b.y * T * s + m.f) - 1;
+        const S = Math.ceil(T * s) + 2, cols = Math.max(1, Math.ceil(Math.sqrt(list.length)));
+        const phases = lives.some(Boolean) ? atlasPhases(T, s) : 1;
+        at = view.atlas = { belts, T, whole, e0: m.e, f0: m.f, count: list.length, liveKey, S, cols, rows: Math.ceil(list.length / cols), phases, sheets: new Map(),
+          cells: list.map((b, i) => { const ix = Math.floor(b.x * T * s + m.e) - 1, iy = Math.floor(b.y * T * s + m.f) - 1;
             return { b, ix, iy, cx: (i % cols) * S, cy: Math.floor(i / cols) * S, live: lives[i] }; }) };
+        dx = dy = 0;
       }
+      dx = Math.round(dx); dy = Math.round(dy);
       const q = at.phases > 1 ? Math.round(((nowMs / ROLL_MS) % 1) * at.phases) % at.phases : 0;
       let sheet = at.sheets.get(q);
       if (sheet) { const g = sheet.getContext('2d'); if (!g || (g.isContextLost && g.isContextLost())) { dropAtlas(view); return false; } }
@@ -517,8 +537,9 @@ const Conveyor = (() => {
         _ctx = g;
         try {
           for (const c of at.cells) {
-            // world -> this cell: the device transform shifted by whole pixels, so every edge lands on the same pixel
-            g.setTransform(s, 0, 0, s, m.e - c.ix + c.cx, m.f - c.iy + c.cy);
+            // world -> this cell: the device transform (as of the atlas's build — a phase first drawn mid-pan must
+            // match its siblings) shifted by whole pixels, so every edge lands on the same pixel
+            g.setTransform(s, 0, 0, s, at.e0 - c.ix + c.cx, at.f0 - c.iy + c.cy);
             beltTile(c.b.x * T, c.b.y * T, T, classify(map, c.b), c.live ? nowQ : 0, c.live);
           }
         } finally { _ctx = ctx; }
@@ -526,7 +547,12 @@ const Conveyor = (() => {
       }
       ctx.save();
       ctx.setTransform(1, 0, 0, 1, 0, 0);
-      for (const c of at.cells) ctx.drawImage(sheet, c.cx, c.cy, at.S, at.S, c.ix, c.iy, at.S, at.S);
+      const W = ctx.canvas.width, H = ctx.canvas.height;
+      for (const c of at.cells) {
+        const x = c.ix + dx, y = c.iy + dy;
+        if (x + at.S < 0 || y + at.S < 0 || x > W || y > H) continue;   // a whole atlas carries the off-screen tiles too
+        ctx.drawImage(sheet, c.cx, c.cy, at.S, at.S, x, y, at.S, at.S);
+      }
       ctx.restore();
       return true;
     }

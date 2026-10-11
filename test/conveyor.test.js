@@ -578,7 +578,8 @@ A.eq(Conveyor.weightForUsd(0.004), 0.004, 'a sub-cent run reads as a near-weight
 }
 /* BELT ATLAS + CULLING (2026-10-07 "laggy" reports: 133 tiles were ~6,500 fills + ~1,100 strokes a frame). A tile wholly
    off the canvas draws nothing; once the camera has held still for two draws every shown tile is ONE 1:1 blit from its
-   roller phase's sheet; any camera move draws live again and frees the sheets. Recording contexts, no raster. */
+   roller phase's sheet; a zoom draws live again and frees the sheets (a pan keeps a whole-layout atlas — below). Recording
+   contexts, no raster. */
 {
   const rec = () => {
     const ops = [];
@@ -613,9 +614,32 @@ A.eq(Conveyor.weightForUsd(0.004), 0.004, 'a sub-cent run reads as a near-weight
   A.eq(sheets.length, made, 'the same roller phase one cycle later reuses its sheet');
   draw(166 + 90, tf);
   A.eq(sheets.length, made + 1, 'a new roller phase draws its sheet once');
-  const moved = draw(300, [0.8, 0, 0, 0.8, 11, 20.5]);
-  A.ok(moved.some(o => o[0] === 'fill') && !moved.some(o => o[0] === 'img'), 'a moving camera draws live again');
-  A.ok(sheets.slice(0, made + 1).every(c => c.width === 1), '...and frees the still camera\'s sheets');
+  // PANS KEEP IT (2026-10-10, "can't navigate"): this layout fits the whole-atlas budget, so the atlas covers every belt
+  // (the off-canvas one too) and a pan only moves where its cells land
+  const panned = draw(166 + 360, [0.8, 0, 0, 0.8, 12.25, 20.5]);
+  const pblits = panned.filter(o => o[0] === 'img');
+  A.ok(!panned.some(o => o[0] === 'fill' || o[0] === 'stroke') && pblits.length === 3, 'a whole-pixel pan still blits (no live belt commands), culled to the shown tiles');
+  A.ok(pblits.every((o, i) => o[6] === blits[i][6] + 2 && o[7] === blits[i][7]), '...each cell moved by exactly the pan, same pixels');
+  A.ok(sheets.slice(0, made + 1).every(c => c.width > 1) && sheets.length === made + 1, '...from the sheets it already had');
+  const drift = draw(166 + 540, [0.8, 0, 0, 0.8, 12.75, 20.5]);
+  A.ok(!drift.some(o => o[0] === 'fill') && drift.filter(o => o[0] === 'img').every(o => Number.isInteger(o[6]) && Number.isInteger(o[7])) && sheets.length === made + 1,
+    'a fractional pan in motion lands the cells rounded to whole device pixels, no rebuild');
+  draw(166 + 720, [0.8, 0, 0, 0.8, 12.75, 20.5]);
+  draw(166 + 900, [0.8, 0, 0, 0.8, 12.75, 20.5]);
+  A.ok(sheets.slice(0, made + 1).every(c => c.width === 1) && sheets.length === made + 2, 'once it comes to rest off the pixel grid the atlas is rebuilt there');
+  const recell = sheets[made + 1].ctx.ops.find(o => o[0] === 'tf');
+  A.ok(Math.abs((recell[5] - 12.75) % 1) < 1e-9, '...at the resting camera\'s sub-pixel phase');
+  const zoomed = draw(500, [0.9, 0, 0, 0.9, 12.75, 20.5]);
+  A.ok(zoomed.some(o => o[0] === 'fill') && !zoomed.some(o => o[0] === 'img'), 'a zoom draws live again');
+  A.eq(sheets[made + 1].width, 1, '...and frees the sheets');
+  // a layout past the whole-atlas budget keeps the still-only atlas: on-screen tiles, dropped by the first pan
+  const huge = belts.slice(0, 3).concat(Array.from({ length: 4200 }, (_, i) => ({ x: 200 + (i % 60), y: 200 + Math.floor(i / 60), dir: 'E' })));
+  const big = Conveyor.create(), bdraw = (t, f) => { stage.ops.length = 0; stage.tf = f; big.drawBelts(stage, t, 12, huge, null); return stage.ops; };
+  bdraw(100, tf); bdraw(133, tf);
+  const bstill = bdraw(166, tf), bsheet = sheets[sheets.length - 1];
+  A.eq(bstill.filter(o => o[0] === 'img').length, 3, 'an over-budget layout still blits its shown tiles once the camera holds');
+  const bpan = bdraw(200, [0.8, 0, 0, 0.8, 12.25, 20.5]);
+  A.ok(bpan.some(o => o[0] === 'fill') && !bpan.some(o => o[0] === 'img') && bsheet.width === 1, '...and a pan draws it live and frees that atlas');
   // a layout edit under a still camera (BUILD mode laying belts): live until the new layout has held for two draws
   const edit = Conveyor.create(); stage.tf = tf;
   for (let i = 0; i < 3; i++) { stage.ops.length = 0; edit.drawBelts(stage, 500 + i * 33, 12, belts, null); }

@@ -364,4 +364,34 @@ A.eq(keyed.stats().key, false, 'switching the key off releases its buffers');
 A.eq(ops.filter(o => o.op === 'overlay').length, 0, 'and the composite returns to the unkeyed path');
 keyed.dispose();
 
+// LIGHT GRID + KERNELS (2026-10-10, "slower since the new textures"): a sample walks only the sources whose reach covers
+// its grid cell, and a brightness-only frame reuses each point's geometry kernel — the descriptor stays exactly lightAt's
+{
+  const big = (() => { const COLS = 40, ROWS = 20, zg = new Array(COLS * ROWS).fill(null);
+    for (let y = 1; y <= 18; y++) for (let x = 1; x <= 38; x++) zg[y * COLS + x] = x <= 19 ? 'a' : 'b';
+    return { COLS, ROWS, TILE: 12, W: 480, H: 240, zoneGrid: zg, allRects: [{ x1: 1, y1: 1, x2: 38, y2: 18 }],
+      canStep: (x, y, nx, ny) => zg[y * COLS + x] === zg[ny * COLS + nx] || (y === 9 && ny === 9 && Math.abs(x - nx) === 1) }; })();
+  const lightsAt = (a, nudge) => Array.from({ length: 40 }, (_, i) => ({ x: 20 + (i * 53) % 440 + (nudge && i === 3 ? 7 : 0), y: 20 + (i * 37) % 200,
+    r: 18 + (i * 7) % 40, a: a * (0.3 + (i % 5) / 10), c: [255 - i * 3, 150 + i, 90 + i * 2], softness: (i % 3) * 0.6 }));
+  const points = Array.from({ length: 120 }, (_, i) => [15 + (i * 41.3) % 450, 15 + (i * 23.7) % 210]);
+  const view = h => JSON.stringify([h.rgb, h.strength, h.color, h.dx, h.dy, h.energy, h.coherence, h.source && [h.source.x, h.source.y, h.source.a]]);
+  const segs = Light.buildSegments(big);
+  const brute = (lights, x, y) => Light.lightAt(x, y, lights.map(s => Light.normalizeLight(s, false, 1)).filter(Boolean), segs);
+  const warm = Light.create({ canvasFactory }); warm.setGeometry(big);
+  warm.prepare({ lights: lightsAt(1) }); points.forEach(([x, y]) => warm.sample(x, y));
+  warm.prepare({ lights: lightsAt(0.5) });   // brightness only: the sample cache clears, the kernels stay
+  const walked = warm.stats().sampleSourcesWalked;
+  const reused = points.map(([x, y]) => warm.sample(x, y));
+  A.eq(warm.stats().sampleSourcesWalked, walked, 'a brightness-only frame re-samples every point without walking a source again');
+  const cold = Light.create({ canvasFactory }); cold.setGeometry(big); cold.prepare({ lights: lightsAt(0.5) });
+  const fresh = points.map(([x, y]) => cold.sample(x, y));
+  A.ok(reused.every((h, i) => view(h) === view(fresh[i])), 'a reused kernel gives the descriptor a fresh evaluation gives');
+  A.ok(fresh.every((h, i) => view(h) === view(brute(lightsAt(0.5), points[i][0], points[i][1]))), '...which is exactly lightAt over EVERY source');
+  A.ok(fresh.some(h => h.strength > 0) && fresh.some(h => h.strength === 0), '(the fixture spans lit and unlit points)');
+  A.ok(cold.stats().sampleSourcesWalked < points.length * 40 / 3, 'the grid walks only the sources that can reach a point');
+  warm.prepare({ lights: lightsAt(0.5, true) });   // a source MOVED: geometry changed, kernels rebuild
+  A.ok(points.every(([x, y]) => view(warm.sample(x, y)) === view(brute(lightsAt(0.5, true), x, y))), 'a moved source rebuilds the grid and every kernel');
+  warm.dispose(); cold.dispose();
+}
+
 A.report('WorldLight spatial illumination');

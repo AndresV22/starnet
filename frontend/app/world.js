@@ -21,6 +21,7 @@ const World = (() => {
 
   /* ---------- station + bake cache ---------- */
   let station = null, geo = null, cache = null, geoDirty = true, bakeDirty = true, unsub = null;
+  let bakeEditPending = true;   // STATIC BAKE: a station edit since the last derive changed what the bake draws
   let desk = null, seat = null, blocked = new Set();   // desk footprint (local tiles) blocks pathing
   let deskPropId = null, deskFace = 'north';           // set when the hero's desk is a PLACED workstation prop assigned to it (its id + the seat's facing)
   let convey = null;   // live conveyor transport sim (boxes riding the belts)
@@ -645,7 +646,13 @@ const World = (() => {
     if (agent && agent.fond) agent.fond.clear();        // forget the old floor's haunts — the new floor earns its own
     for (const b of crew) if (!b.summoned) seizeFromIdle(b);
     crew = crew.filter(b => b.summoned);                // drop plan-derived crew (rebuilt from the new floor's bays); KEEP summoned crew (app-level, not floor-bound)
-    if (station && station.onChange) unsub = station.onChange(() => { geoDirty = true; });
+    /* STATIC BAKE (2026-10-10, "slower since the new textures"): the deck/wall/light bake reads rooms, walls and doors —
+       never props or belts — and on a large industrial station it costs ~2.5 s of frozen main thread. Every edit used to
+       re-bake it: placing, moving or turning a prop, giving a desk an agent, labelling a line, each step the station
+       builder lays. WorldModel already marks the edits that leave the bake alone (staticBakeUnchanged; airlocks never
+       are), exactly as BUILD mode reads them, so the floor now re-bakes only for an edit that changes the bake — or when
+       the derived floor's size or origin moved (the bake is drawn in that frame). */
+    if (station && station.onChange) unsub = station.onChange(p => { geoDirty = true; if (!p || !p.staticBakeUnchanged || p.global) bakeEditPending = true; });
     rederive();
   }
 
@@ -700,13 +707,30 @@ const World = (() => {
       }
     }
     scanNovelty();   // diff props/belts vs last frame — anything new becomes a "go check it out" target
-    geoDirty = false; bakeDirty = true;
+    const frameMoved = !cache || cache.W !== geo.W || cache.H !== geo.H || !cache.origin || !geo.origin
+      || cache.origin.tx !== geo.origin.tx || cache.origin.ty !== geo.origin.ty;
+    if (bakeEditPending || frameMoved || fixtureAnchorKey(geo) !== bakedAnchorKey) bakeDirty = true;   // STATIC BAKE: a props-only edit keeps the deck it already has
+    geoDirty = false; bakeEditPending = false;
   }
 
+  /* STATIC BAKE guard: furniture reaches the bake in exactly one place — WorldSurface.planFixtures puts a wall lamp's light
+     sample on clear deck in the 3 rows below its north wall face, skipping past furniture. A props-only edit that changes
+     walkability on any of those tiles could move a lamp's light, so it re-bakes; any other props-only edit cannot. */
+  let bakedAnchorKey = null;
+  function fixtureAnchorKey(g) {
+    if (!g || !g.zoneGrid || typeof g.walkable !== 'function') return '';
+    const C = g.COLS, R = g.ROWS, zg = g.zoneGrid; let k = '';
+    for (let y = 0; y < R; y++) for (let x = 0; x < C; x++) {
+      if (zg[y * C + x] == null || (y > 0 && zg[(y - 1) * C + x] != null)) continue;   // a tile with a north wall face
+      for (let dy = 1; dy <= 3 && y + dy < R; dy++) k += g.walkable(x, y + dy) ? '1' : '0';
+    }
+    return k;
+  }
   function rebake() {
     if (geoDirty || !geo) rederive();
     if (!geo) return;
     cache = StationBake.bake(geo);
+    bakedAnchorKey = fixtureAnchorKey(geo);
     for (const d of cache.doorOccluders || []) {
       if (d.image.addEventListener) d.image.addEventListener('contextlost', () => { bakeDirty = true; });
     }
@@ -1670,6 +1694,30 @@ const World = (() => {
     drawCostMs = drawCostMs ? drawCostMs * 0.9 + ms * 0.1 : ms;
   }
   function budgetMs() { return Math.min(drawCostMs / BUDGET_SHARE, 1000 / BUDGET_MIN_FPS); }
+  /* STRAINED DETAIL (2026-10-10, "1 frame per hour — can't navigate"; see SPRITES.setStrained). The budget above keeps
+     the UI alive but cannot make a slow draw fast: a weak machine sat at 5 draws/s and every pan landed 5 times a second.
+     While the floor's draw would hold the budget under ~25 fps the crew drops its extra passes (walk in-between, pose
+     dissolve, local light). Leaving needs proof, not a prediction: every STRAIN_PROBE_DRAWS strained draws, one draw is
+     made at full detail and timed, and full detail returns only after two probes in a row fit comfortably
+     (STRAIN_EXIT_MS, well under the entry line, so a borderline station can't flap). A healthy station never enters. */
+  const STRAIN_ENTER_MS = PACE_FOCUS_MS * BUDGET_SHARE * 1.2, STRAIN_EXIT_MS = STRAIN_ENTER_MS * 0.7;
+  const STRAIN_SETTLE_DRAWS = 10, STRAIN_PROBE_DRAWS = 45;   // settle: a boot-time false start is harmless (the probes undo it); a slow one is 15 s of slideshow at 2 draws/s
+  let strained = false, strainProbe = false, strainProbeMs = 0, strainPasses = 0, strainDraws = 0, strainForce = null;
+  function noteStrain(ms) {
+    strainDraws++;
+    if (strainForce != null) { strained = strainForce; strainProbe = false; return; }
+    if (!strained) {
+      if (strainDraws > STRAIN_SETTLE_DRAWS && drawCostMs > STRAIN_ENTER_MS) { strained = true; strainDraws = 0; strainPasses = 0; }
+      return;
+    }
+    if (strainProbe) {   // the draw that just finished was the full-detail probe
+      strainProbe = false; strainProbeMs = ms;
+      strainPasses = ms < STRAIN_EXIT_MS ? strainPasses + 1 : 0;
+      if (strainPasses >= 2) { strained = false; strainDraws = 0; }
+      return;
+    }
+    if (strainDraws % STRAIN_PROBE_DRAWS === 0) strainProbe = true;   // the next draw measures full detail again
+  }
   function paceMs(now) {
     const base = frameCapMs ? Math.max(frameCapMs, PACE_FOCUS_MS) : (now < engagedUntil || pageFocused()) ? PACE_FOCUS_MS : PACE_BLUR_MS;
     return Math.max(base, budgetMs());
@@ -1707,7 +1755,7 @@ const World = (() => {
     const now = performance.now(), pace = running ? paceMs(now) : 0;
     return { running, focused: pageFocused(), engaged: now < engagedUntil, paceMs: +pace.toFixed(1),
       mode: !running ? 'stopped' : frameCapMs ? 'capped' : pace >= PACE_BLUR_MS ? 'blur' : pace > PACE_FOCUS_MS + 0.5 ? 'budget' : 'focus',
-      drawCostMs: +drawCostMs.toFixed(2), budgetMs: +budgetMs().toFixed(1),
+      drawCostMs: +drawCostMs.toFixed(2), budgetMs: +budgetMs().toFixed(1), strained, strainProbeMs: +strainProbeMs.toFixed(1),
       draws: pacedDraws, simMs: Math.round(simMs), timerWait: !!paceTimer };
   }
   /* OVERLAYS (HUD widget, 2026-09-30): the station's in-world readouts — run clocks, tool tickers, await tags,
@@ -6408,6 +6456,7 @@ const World = (() => {
       if (renderFaults >= RENDER_FAULT_LIMIT) { try { drawRenderFault(); } catch (_) {} }
     } finally {
       noteDrawCost(performance.now() - drawStart);   // FRAME BUDGET: what this draw really cost the main thread
+      noteStrain(performance.now() - drawStart);     // STRAINED DETAIL: the same cost, raw (a probe is judged on its own draw)
       if(reviewPerformance.enabled && reviewPerformance.samples.length<3600)reviewPerformance.samples.push({t:now,ms:performance.now()-reviewStart,parts:reviewParts});
       reviewParts=null;
     }
@@ -6800,12 +6849,16 @@ const World = (() => {
     if (sceneRenderer && crewInScene) sceneRenderer.drawGrounding(ctx, [agent, ...crew].filter(b => b && !b.unplaced && !b.seated && !b.lying)
       .map(b => ({ x: bodyPosX(b), y: bodyPosY(b), width: 7, height: 20, opacity: .16 })));
     reviewMark('shadows');
-    if (sceneRenderer) {
-      sceneRenderer.drawEntities(ctx, items);
-    } else {
-      items.sort((a, b) => a.y - b.y);
-      for (const it of items) it.draw();
-    }
+    const strainBodies = strained && !strainProbe && !stillPass && typeof SPRITES !== 'undefined' && SPRITES.setStrained;   // a still (phone, renderStill) always draws full detail
+    if (strainBodies) SPRITES.setStrained(true);
+    try {
+      if (sceneRenderer) {
+        sceneRenderer.drawEntities(ctx, items);
+      } else {
+        items.sort((a, b) => a.y - b.y);
+        for (const it of items) it.draw();
+      }
+    } finally { if (strainBodies) SPRITES.setStrained(false); }
     if (convey) convey.drawBoxes(ctx, now, T);   // boxes ride on top of the belts
     if (ghost) {
       // the projection + its WOULD-captions (NAG_FONT size). A caption never prints over a line's plate (2026-09-28 retest:
@@ -11213,6 +11266,7 @@ const World = (() => {
         return ok;
       }finally{self=keep;}
     },
+    _dbgStrain: on => { strainForce = on == null ? null : !!on; if (strainForce == null) { strained = strainProbe = false; strainDraws = 0; } return renderPace(); },   // perf A/B: force STRAINED DETAIL on/off, null = automatic
     _dbgReviewPerformance: enabled => {
       const samples=reviewPerformance.samples.slice();
       if(typeof enabled==='boolean'){reviewPerformance.enabled=enabled;reviewPerformance.samples=[];}
