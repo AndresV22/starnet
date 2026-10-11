@@ -1561,22 +1561,34 @@ const WorkflowPanel = (() => {
     if (p.t === 'splitter') {
       /* THE MODE IS A CHOICE (2026-09-28): COPY TO EACH / TAKE TURNS, right here. The floor's rule stands — a JOINER where
          the branches meet makes a split copy, a MERGER lets it take turns — and the switch swaps that junction for you. */
+      /* THREE CHOICES (2026-10-10 — "the option is greyed out"): COPY TO EACH, SPLIT THE JOB, TAKE TURNS. A choice the floor
+         can't make yet says WHY right under the picks, in the panel — the reason used to live only in a hover tip. */
       const sm = H.splitModeInfo ? H.splitModeInfo(p.id) : null;
-      const copies = sm ? sm.mode === 'copy' : !!(cfg && cfg.fanout);
-      const pick = (mode, label, sub) => {
-        const on = (mode === 'copy') === copies, step = sm ? (mode === 'copy' ? sm.toCopy : sm.toTurns) : null;
-        const off = !on && (!step || !step.ok);
-        return '<button type="button" class="wf-chip wf-modepick' + (off ? ' off' : '') + '" data-smode="' + mode + '" aria-pressed="' + on + '"'
-          + (off ? ' aria-disabled="true" data-tip="' + esc((step && step.msg) || 'not available on this floor yet') + '"' : '') + '><b>' + label + '</b><small>' + esc(sub) + '</small></button>';
+      const mode = sm ? sm.mode : (cfg && cfg.fanout ? 'copy' : 'turns');
+      const copies = mode !== 'turns';
+      const stepOf = m => (sm ? (m === 'divide' ? sm.toDivide : m === 'copy' ? sm.toCopy : sm.toTurns) : null);
+      const LABEL = { copy: 'COPY TO EACH', divide: 'SPLIT THE JOB', turns: 'TAKE TURNS' };
+      const isOff = m => m !== mode && (!stepOf(m) || !stepOf(m).ok);
+      const pick = (m, sub) => {
+        const on = m === mode, step = stepOf(m), off = isOff(m);
+        return '<button type="button" class="wf-chip wf-modepick' + (off ? ' off' : '') + '" data-smode="' + m + '" aria-pressed="' + on + '"'
+          + (off ? ' aria-disabled="true" data-tip="' + esc((step && step.msg) || 'not available on this floor yet') + '"' : '') + '><b>' + LABEL[m] + '</b><small>' + esc(sub) + '</small></button>';
       };
-      body.innerHTML = '<section class="wf-sec"><h3><span class="n">SPLITTER</span>' + (copies ? 'Every branch gets a copy' : 'Branches take turns') + '</h3>'
-        + '<div class="wf-modepicks" role="group" aria-label="What this splitter does with each job">'
-        + pick('copy', 'COPY TO EACH', 'every branch works the same job; a JOINER combines the results')
-        + pick('turns', 'TAKE TURNS', 'each job goes down one branch; a MERGER sends each result on')
+      const whyOff = ['copy', 'divide', 'turns'].filter(isOff).map(m => '<li><b>' + LABEL[m] + '</b> — ' + esc((stepOf(m) && stepOf(m).msg) || 'not available on this floor yet') + '</li>').join('');
+      const leadNote = mode !== 'divide' && sm && sm.toDivide && sm.toDivide.ok && sm.toDivide.addLead ? '<p class="wf-help dim">SPLIT THE JOB adds a PLANNER step before the splitter — it writes the job as one part per branch.</p>' : '';
+      const MODE_TEXT = {
+        copy: 'Each job is copied to <b>every</b> branch. The JOINER after the branches waits for all of them, then sends one combined result on. Branches that are one step each work at the same time.',
+        divide: 'The step before the splitter writes the job as numbered parts, one per branch. Each branch is handed <b>only its own part</b>, they work at the same time, and the JOINER puts the parts back together. A branch that fails is named in the result; the others still finish.',
+        turns: 'Each job goes down <b>one</b> branch, and the next job takes the next branch — jobs from different chats, schedules or triggers are shared between the agents (a new message in the SAME chat still replaces the one before it). A branch with no agent yet is skipped. To share ONE job between agents, use SPLIT THE JOB.'
+      };
+      body.innerHTML = '<section class="wf-sec"><h3><span class="n">SPLITTER</span>' + (mode === 'divide' ? 'The job is split into parts' : copies ? 'Every branch gets a copy' : 'Branches take turns') + '</h3>'
+        + '<div class="wf-modepicks wf-modepicks-3" role="group" aria-label="What this splitter does with each job">'
+        + pick('copy', 'every branch works the same job; a JOINER combines the results')
+        + pick('divide', 'the job is cut into parts; each branch does one; a JOINER puts them together')
+        + pick('turns', 'each job goes down one branch; a MERGER sends each result on')
         + '</div>'
-        + '<div class="wf-mode">' + dia + '<p>' + (copies
-          ? 'Each job is copied to <b>every</b> branch. The JOINER after the branches waits for all of them, then sends one combined result on.'
-          : 'Each job goes down <b>one</b> branch, and the next job takes the next branch. Use this to share a heavy load between agents.') + '</p></div>'
+        + (whyOff ? '<ul class="wf-why" aria-label="Why a choice is not available yet">' + whyOff + '</ul>' : '') + leadNote
+        + '<div class="wf-mode">' + dia + '<p>' + MODE_TEXT[mode] + '</p></div>'
         + '<h4 class="wf-sub">Branches</h4>' + branches('No branches yet. Run two belts OUT of the splitter: drag from the SPLITTER onto the next machine, then again for the second branch.')
         + '<p class="wf-help" id="split-note">Switching swaps the JOINER or MERGER where the branches meet. Same belts, one UNDO.</p></section>'
         + (H.lineEdit ? '<section class="wf-sec wf-shape"><h3>Shape the line</h3><div class="wf-chips">'

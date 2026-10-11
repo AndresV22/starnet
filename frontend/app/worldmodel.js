@@ -90,6 +90,7 @@ const WorldModel = (() => {
     const done = cleanDir(src.done); if (done) dst.done = done;
     const esc = cleanDir(src.esc); if (esc) dst.esc = esc;   // LOOP escalation lane (2026-08-30)
     if (typeof src.when === 'string' && /^[A-Za-z0-9_.:-]{1,40}$/.test(src.when)) dst.when = src.when;
+    if (src.divide === true) dst.divide = true;   // a SPLITTER that divides ONE job into parts (2026-10-10) — only ever true
     return dst;
   }
   /* a CLIP (station.copyLines) a quarter turn clockwise: tile (x, y) of a clip H tall goes to (H-1-y, x), every belt's
@@ -467,6 +468,7 @@ const WorldModel = (() => {
     TESTER:     { desc: 'checks the change & calls the verdict', cls: 'reviewer', name: 'TESTER' },   // `name`: a recruit is named for the step, not its class
     ANALYST:    { desc: 'turns the branches into one answer',   cls: 'analyst' },
     FIXER:      { desc: 'takes over when the loop gives up',    cls: 'chief' },
+    PLANNER:    { desc: 'divides the job into parts for the branches', cls: 'analyst' },   // the step before a SPLIT THE JOB splitter (2026-10-10)
   };
   /* THE SHELF (expanded 2026-08-29). Array order IS shelf order: the simplest working line first,
      then one line per MACHINE the floor owns — FILTER, SPLITTER, LOOP gate, JOINER, MERGER — so a
@@ -596,20 +598,28 @@ const WorldModel = (() => {
         { x: 10, y: 7, d: 'E' }, { x: 11, y: 7, d: 'N' }, { x: 11, y: 6, d: 'N' }, { x: 11, y: 5, d: 'N' },
         { x: 11, y: 4, d: 'E' }, { x: 12, y: 4, d: 'E' }, { x: 13, y: 4, d: 'E' },
       ] },
-    { id: 'parallel_crew', grp: 'crew', label: 'PARALLEL CREW', w: 10, h: 8,
-      desc: 'INBOX ▸ SPLITTER ▸ three BAYs — one stream of work spread across three agents working in parallel.',
+    /* PARALLEL CREW ships (2026-10-10): it had no MERGER and no OUTBOX, so its results reached no door, and its splitter's
+       COPY TO EACH could never be switched on. Now its three branches meet at a MERGER (the split takes turns) that ships. */
+    { id: 'parallel_crew', grp: 'crew', label: 'PARALLEL CREW', w: 17, h: 8,
+      desc: 'INBOX ▸ SPLITTER ▸ three BAYs ▸ MERGER ▸ OUTBOX — each job goes to the next of three agents (turn about), and every result ships by the same door.',
       props: [
         { t: 'intake', x: 0, y: 3, w: 2, h: 2 },
         { t: 'splitter', x: 4, y: 4, w: 1, h: 1, block: false },
         { t: 'bay', x: 8, y: 0, w: 2, h: 2, role: 'CREW' },
         { t: 'bay', x: 8, y: 3, w: 2, h: 2, role: 'CREW' },
         { t: 'bay', x: 8, y: 6, w: 2, h: 2, role: 'CREW' },
+        { t: 'merger', x: 12, y: 4, w: 1, h: 1, block: false },
+        { t: 'outbox', x: 15, y: 3, w: 2, h: 2 },
       ],
       belts: [
         { x: 2, y: 4, d: 'E' }, { x: 3, y: 4, d: 'E' }, { x: 4, y: 4, d: 'E' },
         { x: 4, y: 3, d: 'N' }, { x: 4, y: 2, d: 'N' }, { x: 4, y: 1, d: 'E' }, { x: 5, y: 1, d: 'E' }, { x: 6, y: 1, d: 'E' }, { x: 7, y: 1, d: 'E' },
         { x: 5, y: 4, d: 'E' }, { x: 6, y: 4, d: 'E' }, { x: 7, y: 4, d: 'E' },
         { x: 4, y: 5, d: 'S' }, { x: 4, y: 6, d: 'S' }, { x: 4, y: 7, d: 'E' }, { x: 5, y: 7, d: 'E' }, { x: 6, y: 7, d: 'E' }, { x: 7, y: 7, d: 'E' },
+        { x: 10, y: 1, d: 'E' }, { x: 11, y: 1, d: 'E' }, { x: 12, y: 1, d: 'S' }, { x: 12, y: 2, d: 'S' }, { x: 12, y: 3, d: 'S' },
+        { x: 10, y: 4, d: 'E' }, { x: 11, y: 4, d: 'E' },
+        { x: 10, y: 7, d: 'E' }, { x: 11, y: 7, d: 'E' }, { x: 12, y: 7, d: 'N' }, { x: 12, y: 6, d: 'N' }, { x: 12, y: 5, d: 'N' },
+        { x: 12, y: 4, d: 'E' }, { x: 13, y: 4, d: 'E' }, { x: 14, y: 4, d: 'E' },
       ] },
     /* FAN-OUT ▸ FAN-IN. A SPLITTER whose lanes reach a JOINER compiles as a FAN-OUT (`fanout: true`):
        every branch runs the SAME job, and the joiner is a real barrier — it holds one crate per
@@ -2155,7 +2165,7 @@ const WorldModel = (() => {
       const P = pipelineModule();
       if (!P || typeof P.deriveLinks !== 'function') return fail('NO_COMPILER', 'the line compiler is not loaded');
       const ov = (opts && typeof opts === 'object') ? opts : {};
-      const CFG = ['routes', 'def', 'bufferSize', 'timeoutMin', 'maxIter', 'done', 'esc', 'when'];
+      const CFG = ['routes', 'def', 'bufferSize', 'timeoutMin', 'maxIter', 'done', 'esc', 'when', 'divide'];
       const nodes = bp.props.map((sp, i) => {
         const n = { id: 'b' + i, t: sp.t, w: sp.w || 1, h: sp.h || 1 };
         if (sp.block === false) n.block = false;
@@ -3830,6 +3840,7 @@ const WorldModel = (() => {
         if (p.limits) lp.limits = p.limits;   // an INTAKE's LINE BUDGET -> the compiled plan (pipeline normalizes; chain executor reads)
         if (p.routes) lp.routes = p.routes; if (p.def) lp.def = p.def; if (p.bufferSize) lp.bufferSize = p.bufferSize;   // junction config -> the bake/pipeline
         if (p.timeoutMin) lp.timeoutMin = p.timeoutMin; if (p.maxIter) lp.maxIter = p.maxIter; if (p.done) lp.done = p.done; if (p.when) lp.when = p.when;   // joiner / loop gate config
+        if (p.divide) lp.divide = true;   // a SPLITTER's SPLIT THE JOB mode -> the compiler (meaningful only with a JOINER downstream)
         if (p.door) lp.door = p.door;   // an AIRLOCK's seal state -> the prop sprite's status light / jam spark
         if (p.connectorId) lp.connectorId = p.connectorId;   // a CONNECTOR PORTAL's bound server -> live state + firing pulse on the sprite
         if (p.pluginId) lp.pluginId = p.pluginId;            // a PLUGIN TERMINAL's bound plugin -> the click opens that plugin's window
@@ -4077,6 +4088,19 @@ const WorldModel = (() => {
       delete p.timeoutMin;
       emit([propFootprint(p)], { staticBakeUnchanged: true });
       return { ok: true, id: p.id, t: to };
+    }
+    /* SPLIT THE JOB (2026-10-10 — "add splitting one job"): a SPLITTER whose branches meet at a JOINER either COPIES the
+       job to every branch or DIVIDES it — the step before the splitter writes the job as numbered parts and each branch
+       is handed only its own. One flag on the splitter, one undo; the JOINER and the belts stay as they are. */
+    function setSplitDivide(propId, on) {
+      const p = doc.props.find(q => q.id === propId);
+      if (!p) return fail('NOT_FOUND', 'no such prop');
+      if (p.t !== 'splitter') return fail('BAD_TYPE', 'only a SPLITTER divides a job');
+      if (!!p.divide === !!on) return { ok: true, id: p.id, divide: !!on, already: true };
+      snapshot();
+      if (on) p.divide = true; else delete p.divide;
+      emit([propFootprint(p)], { staticBakeUnchanged: true });
+      return { ok: true, id: p.id, divide: !!on };
     }
     function configureJunction(propId, cfg) {
       const p = doc.props.find(q => q.id === propId);
@@ -4485,7 +4509,7 @@ const WorldModel = (() => {
       },
       // mutations
       addRoom, placeHallway, removeRoom, moveRoom, moveRooms, resizeRoom, setRoomKind, setFloor, setMaterial, setDeck, setWalls, setHull, paintTiles, renameRoom,
-      addProp, removeProp, moveProp, moveProps, rotateProp, faceProp, mirrorProp, assignPropAgent, assignDesk, ensureWorkstation, configureJunction, swapJoinerMerger, bindConnector, bindPlugin, placePluginTerminal, setDoorState, setPropProject, setPropBrief, setPropRole, setPropHands, setPropLabel, setPropLimits, setSendTo, sendToRefusal, sendToChoices,
+      addProp, removeProp, moveProp, moveProps, rotateProp, faceProp, mirrorProp, assignPropAgent, assignDesk, ensureWorkstation, configureJunction, swapJoinerMerger, setSplitDivide, bindConnector, bindPlugin, placePluginTerminal, setDoorState, setPropProject, setPropBrief, setPropRole, setPropHands, setPropLabel, setPropLimits, setSendTo, sendToRefusal, sendToChoices,
       setBelt, removeBelt, removeBelts, placeBeltRun, connectBelt, connectionPreview, hookedBelts, stampBlueprint, insertBayBetween, canInsertBayBetween, transact, lineGraph, applyLineLayout, blueprintGraph,
       // agent-bay binding queries
       propsByType, propsByAgent, pipelineEdges, setPipelineEdges, addPipelineEdge, removePipelineEdge, agentRoomId, bayObjects,

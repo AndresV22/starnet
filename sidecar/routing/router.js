@@ -212,7 +212,17 @@ function makeRouter(o) {
      never influence resolveTarget/chainNext (routing) or stationFor (capability). Same plan precedence as
      stationFor: a brief is a fact about the PLACED floor, true whether or not the belts compile — so it
      reads the capability view (stationPlan || plan || capsPlan), and a broken belt graph can't strip it. */
+  /* SPLIT THE JOB (2026-10-10): the step whose output a dividing splitter cuts is told — on EVERY run at that dock, entry run
+     or hand-off, the same way its brief rides — to end its reply with a numbered list of exactly n parts. Prompt text only;
+     n (the splitter's crewed branches) is read off the deployable plan, the same one the chain runner divides by. */
   function stageBrief(agentId, dockId) {
+    const base = standingBrief(agentId, dockId), p = activePlan(), d = (p && agentId) ? dockOf(agentId, dockId) : null;
+    const n = d ? Pipeline.divideAfterDock(p, d) : 0;
+    if (!n) return base;
+    const add = Pipeline.divideBrief(n);
+    return base ? base + '\n\n' + add : add;
+  }
+  function standingBrief(agentId, dockId) {
     const p = stationPlan || plan || capsPlan;
     if (!p || !agentId) return null;
     // PER DOCK (multi-bay): the brief of the bay THIS run is at — writer@C is told bay C's job, never bay A's
