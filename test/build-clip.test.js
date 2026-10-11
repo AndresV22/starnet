@@ -99,6 +99,8 @@ const lineOfIntake = (s, id) => plan(s).lines.find(l => l.intakes.includes(id));
   A.ok(!c2.ok && (c2.error === 'ON_BELT' || c2.error === 'NEAR_JUNCTION' || c2.error === 'JUNCTION_TOUCH') && c2.badTiles.length + c2.badNodes.length > 0, 'a belt already there is a bad spot (' + c2.error + ')');
   const pc = s.pasteLines(c, c.x0, c.y0 + 14);
   A.ok(!pc.ok && s.props().length === n0, 'and the paste is refused whole — nothing half laid');
+  const dupd = s.pasteLines(c, c.x0, c.y0 + 24, { label: 'DUPLICATE' });
+  A.ok(dupd.ok && s.undo().label === 'DUPLICATE', 'a caller may name the slot (Ctrl+D: UNDID · DUPLICATE)');
   const off = s.checkPaste(c, 200, 200);
   A.ok(!off.ok && off.error === 'OFF_DECK' && off.short === 'PART OF IT IS OFF THE STATION FLOOR', 'off the station floor says so');
 }

@@ -144,7 +144,7 @@ A.ok(/if \(n - lastVanishSfx < 80\) return;/.test(fn('sfxVanish')), '…on one h
 //  the one transact, and its clipOrder lays a table before what stands on it — test/build-clip.test.js)
 const dup2 = fn('duplicateGroup'), dupc = fn('duplicateClip'), wm = rd('frontend/app/worldmodel.js');
 A.ok(/return duplicateClip\(ev\);/.test(dup2) && /tries\.push\(\[c\.x0 \+ c\.w \+ gap, c\.y0 \+ s\], \[c\.x0 \+ s, c\.y0 \+ c\.h \+ gap\], \[c\.x0 - c\.w - gap, c\.y0 \+ s\], \[c\.x0 \+ s, c\.y0 - c\.h - gap\]\)/.test(dupc)
-  && /const res = station\.pasteLines\(c, ax, ay, \{ agent: agentHere \}\);/.test(dupc) && /setSelection\(res\.ids, \{ links: res\.links \|\| \[\], tiles: \[\] \}\);/.test(dupc)
+  && /const res = station\.pasteLines\(c, ax, ay, \{ agent: agentHere, label: 'DUPLICATE' \}\);/.test(dupc) && /setSelection\(res\.ids, \{ links: res\.links \|\| \[\], tiles: \[\] \}\);/.test(dupc)
   && /\(ma\.mount === 'surface' \|\| ma\.stack\) \? 1 : 0\)/.test(wm),
   'Ctrl+D lays the whole arrangement again beside itself (one transact, tables before what stands on them, its belts with it), and the copies become the selection');
 for (const fname of ['deleteSelected', 'duplicateSelected', 'nudgeSelected']) A.ok(/if \(groupIds\.length\) return /.test(fn(fname)), fname + ' speaks for the group when there is one');

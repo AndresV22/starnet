@@ -5317,7 +5317,8 @@ const Build = (() => {
     if (!m || m.ids.length < 2 || m.ids.length !== ps.length) return null;
     const set = new Set(ps.map(p => p.id));
     if (!m.ids.every(id => set.has(id))) return null;
-    const nm = lineNameOf(lineOfProp(ps[0].id));
+    // its name rides its INBOX (read off the props, not the compiled lines — a line pasted a moment ago is not compiled yet)
+    const ip = ps.find(p => p.t === 'intake' && p.label), nm = ip ? ip.label : lineNameOf(lineOfProp(ps[0].id));
     return { id: ps[0].id, name: nm ? 'LINE ' + String(nm).toUpperCase() : 'THIS LINE', links: m.links.length };
   }
   // a double-click (double-tap, the card's WHOLE LINE) on a conveyor piece: every machine its belts join, and those belts
@@ -5388,11 +5389,11 @@ const Build = (() => {
   function duplicateClip(ev) {
     const c = clipOfSelection();
     if (!c) { sfx('bad'); flashTip(ev, 'select something to duplicate', false); return true; }
-    const tries = [];
-    for (let gap = 0; gap <= 8; gap++) for (const s of [0, 1, -1, 2, -2]) tries.push([c.x0 + c.w + gap, c.y0 + s], [c.x0 + s, c.y0 + c.h + gap], [c.x0 - c.w - gap, c.y0 + s], [c.x0 + s, c.y0 - c.h - gap]);
+    const tries = [];   // (a line keeps two tiles of floor between it and its copy — side by side they read as one long line)
+    for (let gap = c.nb ? 2 : 0; gap <= 10; gap++) for (const s of [0, 1, -1, 2, -2]) tries.push([c.x0 + c.w + gap, c.y0 + s], [c.x0 + s, c.y0 + c.h + gap], [c.x0 - c.w - gap, c.y0 + s], [c.x0 + s, c.y0 - c.h - gap]);
     for (const [ax, ay] of tries) {
       if (!(station.checkPaste(c, ax, ay) || {}).ok || !(station.probePaste(c, ax, ay) || {}).ok) continue;   // (asked first: a refused paste re-bakes the floor)
-      const res = station.pasteLines(c, ax, ay, { agent: agentHere });
+      const res = station.pasteLines(c, ax, ay, { agent: agentHere, label: 'DUPLICATE' });
       if (!res || !res.ok) continue;
       const made = res.ids.map(id => station.propById(id)).filter(Boolean);
       pushFlash(made.map(p => propRect(p)), false);
@@ -5690,7 +5691,7 @@ const Build = (() => {
     const names = kinds.slice(0, 3).map(l => count[l] > 1 ? l + ' ×' + count[l] : l).join(' · ') + (kinds.length > 3 ? ' · +' + (kinds.length - 3) + ' more' : '');
     const beltWord = nb ? nb + (nb === 1 ? ' belt' : ' belts') : '';
     const title = line ? line.name : ps.length ? ps.length + ' SELECTED' : beltWord.toUpperCase() + ' SELECTED';
-    const sub = line ? 'whole line · ' + ps.length + ' pieces' + (beltWord ? ' · ' + beltWord : '') : [names, beltWord].filter(Boolean).join(' · ');
+    const sub = line ? 'whole line · ' + ps.length + ' pieces' + (beltWord ? ' · ' + beltWord : '') : ps.length ? [names, beltWord].filter(Boolean).join(' · ') : (nb === 1 ? 'the whole belt' : 'each one whole');
     host.innerHTML = '<div class="refit-sel-head"><span class="refit-sel-art is-group" aria-hidden="true"></span><span class="refit-sel-name"><b>' + esc(title) + '</b><small>' + esc(sub) + '</small></span>'
       + '<button class="bb sm refit-sel-x" type="button" aria-label="Deselect all" data-tip="Let go of all of them · Esc">✕</button></div><div class="refit-selection-actions"></div>';
     const art = host.querySelector('.refit-sel-art');

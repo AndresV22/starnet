@@ -3161,7 +3161,7 @@ const WorldModel = (() => {
         for (const n of clip.nodes) if (n.sendTo && map[n.sendTo] && map[n.oid]) { const P = propById(map[n.oid]); if (P && P.t === 'outbox') P.sendTo = map[n.sendTo]; }
         emit(dirty, { staticBakeUnchanged: !clip.nodes.some(n => n.t === 'airlock') });
         return { ok: true, ids: made, map, links: placed.map(l => l.id), belts: (clip.belts || []).length };
-      }, 'PASTE');
+      }, (o && typeof o.label === 'string' && o.label) || 'PASTE');
     }
     // the full verdict on a probe copy (the real paste, thrown away) — the ghost asks this only when checkPaste said yes
     function probePaste(clip, ax, ay) {
