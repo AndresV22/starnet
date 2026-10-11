@@ -18,7 +18,7 @@
   "expectedClaimCount": 37,
   "releaseSurface": {
     "algorithm": "sha256",
-    "sourceCommit": "989228a065c635c680e7621b0590cbf55a56b890",
+    "sourceCommit": "e5b3e51de6140822a505d6e93c654a50db17b848",
     "pathSetSha256": "02b89ce2d893cfb89a028e02d127dfe9f73466048d2fc0c7572bba244cdfea2f",
     "files": [
       {
@@ -333,8 +333,8 @@
       },
       {
         "path": "frontend/app/build.js",
-        "bytes": 648164,
-        "sha256": "9e255b191349d8c37a261a57432ef85fa5096f84819c90a760370dd329e5f919"
+        "bytes": 658522,
+        "sha256": "7654cb02480d668c676667abe8accdc23aeb72146791fbc741fbffcbef5ee717"
       },
       {
         "path": "frontend/app/channels.js",
@@ -898,8 +898,8 @@
       },
       {
         "path": "frontend/app/quests.js",
-        "bytes": 12030,
-        "sha256": "7a4a968aaf39af70de80c23192f87abf8aec136190901479912b8fe7ba96af43"
+        "bytes": 12062,
+        "sha256": "c2bf9e0b4030faf49ebe9ba09c218855ae978f748d4e6d5b4c02a4b8e04b7381"
       },
       {
         "path": "frontend/app/queststate.js",
@@ -1263,8 +1263,8 @@
       },
       {
         "path": "frontend/app/tutorial.js",
-        "bytes": 101494,
-        "sha256": "81df88794fcdee013a4e67b3b5333e4037f88f9d88cb0ed998b65b7853c7cc88"
+        "bytes": 101773,
+        "sha256": "46ee4f22107634ced5e354da4f710479679297b1f0e8176c1b1ddf78aef3ba48"
       },
       {
         "path": "frontend/app/understanding.js",
@@ -1458,8 +1458,8 @@
       },
       {
         "path": "frontend/app/worldmodel.js",
-        "bytes": 298313,
-        "sha256": "b9fc0fae364ad1feb44b464229b60df7f0f23201a0e689fd90714dac4840a96b"
+        "bytes": 303234,
+        "sha256": "4c0f8ed6af7bfa74d70bf576aea4dee1a0174e9c304361a9f994943cbaaaf27a"
       },
       {
         "path": "frontend/app/worldrenderer.js",
