@@ -1145,19 +1145,21 @@ const WorldModel = (() => {
     const snap = () => clone({ rooms: doc.rooms, order: doc.order, meta: doc.meta, _nid: doc._nid, props: doc.props, belts: doc.belts, edges: doc.edges, links: doc.links });
     // snapshot() runs immediately BEFORE every doc mutation, so dropping the roomAt index here is
     // what keeps a mid-mutation read honest (it rebuilds against the doc as it currently stands).
-    function snapshot() { dropRoomIdx(); if (batchDepth) return; undoStack.push(snap()); if (undoStack.length > 120) undoStack.shift(); redoStack.length = 0; }
+    // `label` (THE HAND, 2026-10-10 — additive): a word for the edit this slot takes back ("BELT", "SPLITTER"), which
+    // undo()/redo() hand back so the floor can say UNDID · BELT where it happened. Absent, the slot names itself by its diff.
+    function snapshot(label) { dropRoomIdx(); if (batchDepth) return; const s = snap(); if (label) s._label = String(label).slice(0, 32); undoStack.push(s); if (undoStack.length > 120) undoStack.shift(); redoStack.length = 0; }
     /* transact(fn) — ONE undo slot for a compound edit, all-or-nothing (workflow panel "+", 2026-09-22).
        The pre-batch state is snapshotted once; every mutation inside skips its own snapshot (batchDepth);
        a failed (or throwing) batch restores that state and re-emits, so nothing half-done ever stays. */
     let batchDepth = 0;
-    function transact(fn) {
+    function transact(fn, label) {
       /* A REFUSED batch leaves history exactly as it found it (sweep 2026-10-01): snapshot() clears redo, so a refused
          group move / Ctrl+D after an undo used to kill Ctrl+Y. And a NESTED batch (applyLineLayout inside apply) never
          pushed its own slot, yet popped one on failure — the outer batch's (or the user's previous undo). */
       const nested = batchDepth > 0;
       const inner = nested ? snap() : null;
       const redoKept = nested ? null : redoStack.slice();
-      snapshot();
+      snapshot(label);
       batchDepth++;
       let r;
       try { r = fn(); } catch (e) { r = fail('THREW', String((e && e.message) || e)); }
@@ -2315,7 +2317,7 @@ const WorldModel = (() => {
       runMemo.k = k; runMemo.v = v;
       return v;
     }
-    function connectBelt(fromId, toId) {
+    function connectBelt(fromId, toId, o) {
       const A = doc.props.find(p => p.id === fromId), B = doc.props.find(p => p.id === toId);
       if (!A || !B) return fail('NOT_FOUND', 'no such prop');
       if (A.id === B.id) return fail('SAME_PROP', 'pick two different machines');
@@ -2323,7 +2325,7 @@ const WorldModel = (() => {
       const no = beltEndRefusal(A, B);
       if (no) return no;
       const linked = Array.isArray(currentLinks());
-      const r = planBelt(A, B, linked);
+      const r = planBelt(A, B, linked, o);
       if (!r.ok) return r;
       snapshot();   // one undo slot for the whole connection
       emit(layBelt(A, B, r, linked, null));
@@ -2347,8 +2349,11 @@ const WorldModel = (() => {
       } else if (J.t === 'loop') { if (J.done === d) f.port = 'done'; else if (J.esc === d) f.port = 'esc'; }
       return f;
     }
-    // the route a lane A -> B would take (pure: reads the doc, writes nothing) — { ok, path, dirs, exitTile, … } or a fail
-    function planBelt(A, B, linked) {
+    // the route a lane A -> B would take (pure: reads the doc, writes nothing) — { ok, path, dirs, exitTile, … } or a fail.
+    // o.flip (THE HAND's R, 2026-10-10): the search tries the vertical step before the horizontal one, so where two shortest
+    // routes exist the corner turns the other way. The preview and the commit pass the same o, so what was drawn is laid.
+    function planBelt(A, B, linked, o) {
+      let STEPS = [[1, 0], [0, 1], [-1, 0], [0, -1]];
       const inFoot = (p, x, y) => x >= p.x && x < p.x + (p.w || 1) && y >= p.y && y < p.y + (p.h || 1);
       const inBox = (p, x, y) => x >= p.x - 1 && x <= p.x + (p.w || 1) && y >= p.y - 1 && y <= p.y + (p.h || 1);
       const aJ = isJunction(A), bJ = isJunction(B);
@@ -2459,7 +2464,7 @@ const WorldModel = (() => {
           if (want.has(tk)) { hit = t; break; }
           // LINKED: a tile beside a beltless destination junction may only step onto that junction's own tile
           const preGoal = linked && bJ && !bOn && adj(t.x, t.y, B);
-          for (const [dx, dy] of [[1, 0], [0, 1], [-1, 0], [0, -1]]) {
+          for (const [dx, dy] of STEPS) {
             const x = t.x + dx, y = t.y + dy, k = x + ',' + y;
             if (prev.has(k) || !pathable(x, y) || sharedRing(x, y)) continue;
             if (avoid && foreignRing.has(k) && !want.has(k)) continue;
@@ -2477,9 +2482,21 @@ const WorldModel = (() => {
         }
         return { hit, prev };
       }
-      let found = bfs(true);
+      const search = () => { let f = bfs(true); if (!f.err && !f.hit) f = bfs(false); return f; };
+      let found = search();
       if (found.err) return found.err;
-      if (!found.hit) { found = bfs(false); if (found.err) return found.err; }
+      /* R FLIPS THE CORNER: the same search, asked to try the vertical step toward B first (then the horizontal one) — the
+         first ordering whose route differs from the plain one wins; where only one shortest route exists, it stays. */
+      if (o && o.flip && found.hit) {
+        const keyOf = f => { const out = []; let ck = f.hit.x + ',' + f.hit.y; while (ck) { out.push(ck); ck = f.prev.get(ck); } return out.join(';'); };
+        const plain = keyOf(found), mid = p => ({ x: p.x + (p.w || 1) / 2, y: p.y + (p.h || 1) / 2 }), ca = mid(A), cb = mid(B);
+        const hx = cb.x >= ca.x ? [1, 0] : [-1, 0], vy = cb.y >= ca.y ? [0, 1] : [0, -1], neg = v => [-v[0], -v[1]];
+        for (const order of [[vy, hx, neg(hx), neg(vy)], [hx, vy, neg(vy), neg(hx)]]) {
+          STEPS = order;
+          const alt = search();
+          if (!alt.err && alt.hit && keyOf(alt) !== plain) { found = alt; break; }
+        }
+      }
       const hit = found.hit, prev = found.prev;
       if (!hit) return fail('NO_PATH', 'no clear route between these machines');
       // rebuild the path start→goal
@@ -2659,13 +2676,263 @@ const WorldModel = (() => {
     }
     // the lane a click A -> B would lay, without laying it — { ok, path:[{x,y,d}] } or { ok:false, msg } (REFIT draws it
     // under the cursor mid-connect, so the Commander sees where the belt will run before the click)
-    function previewBelt(fromId, toId) {
+    function previewBelt(fromId, toId, o) {
       const A = doc.props.find(p => p.id === fromId), B = doc.props.find(p => p.id === toId);
       if (!A || !B || A.id === B.id || !CONNECTABLE[A.t] || !CONNECTABLE[B.t]) return { ok: false, msg: 'pick two different machines' };
       const no = beltEndRefusal(A, B);
       if (no) return { ok: false, error: no.error, msg: no.msg, short: no.short };
-      const r = planBelt(A, B, Array.isArray(currentLinks()));
+      const r = planBelt(A, B, Array.isArray(currentLinks()), o);
       return r.ok ? { ok: true, path: r.path.map((t, i) => ({ x: t.x, y: t.y, d: r.dirs[i] })) } : { ok: false, error: r.error, msg: r.msg };
+    }
+
+    /* ---------- THE HAND (2026-10-10 build-hand lane): the floor is built by DRAGGING ----------
+       Andrew's prototype (scratchpad proto/build-mode-proto.html) defines the feel: drag a machine and a belt follows the
+       pointer to wherever you let go — onto a machine (connect, or re-route a BAY's one exit), onto a belt (merge into it:
+       a MERGER lands on that tile), or onto empty floor (pick what goes there). Drag a belt's middle and it branches (a
+       SPLITTER lands on that tile). Every one of these is the connect planner above (planBelt) — the preview asks it with a
+       stand-in for the end that does not exist yet (the junction about to land on a belt, the empty tile), the commit lays
+       the same route through connectBelt with the same `o` — so the ghost is the belt. Each gesture is ONE undo (transact).
+       Nothing here writes during a drag: previews are pure, the build mode memoizes them per (edit, tile, flip). */
+    const tileKey = (x, y) => (x | 0) + ',' + (y | 0);
+    // the link whose belt runs over tile x,y (a junction's own tile is no link's), with the tile's index on its path
+    function linkAtTile(x, y) {
+      const L = currentLinks();
+      if (!Array.isArray(L)) return null;
+      for (const l of L) {
+        const i = (l.path || []).findIndex(t => t.x === (x | 0) && t.y === (y | 0));
+        if (i >= 0) return { link: l, i };
+      }
+      return null;
+    }
+    /* may a 1x1 junction go ON this belt tile? It must sit inside one link (never its first or last tile — those belong to
+       the machines at its ends, and a junction there takes the line apart), with no other belt or junction beside it (the
+       compiler would read that neighbour as one of its lanes: JUNCTION_TOUCH). null = yes, else the refusal. Pure. */
+    function junctionOnBeltRefusal(x, y) {
+      x |= 0; y |= 0;
+      if (!doc.belts[tileKey(x, y)]) return fail('NO_BELT', 'there is no belt on that tile');
+      if (!Array.isArray(currentLinks())) return fail('NOT_LINKED', 'this floor does not build by links yet — connect with BELT first');
+      const at = linkAtTile(x, y);
+      if (!at) return Object.assign(fail('LOOSE_BELT', 'that belt joins no two machines — connect it first'), { short: 'THIS BELT JOINS NOTHING' });
+      const path = at.link.path;
+      if (at.i === 0 || at.i === path.length - 1) return Object.assign(fail('BELT_END', 'too close to the machine at the end of this belt — use a tile further along it'), { short: 'TOO CLOSE TO A MACHINE — A TILE FURTHER ALONG' });
+      const prev = path[at.i - 1], next = path[at.i + 1];
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const nx = x + dx, ny = y + dy;
+        const own = (prev && prev.x === nx && prev.y === ny) || (next && next.x === nx && next.y === ny);
+        if (!own && doc.belts[tileKey(nx, ny)]) return Object.assign(fail('JUNCTION_TOUCH', 'another belt runs right beside this tile — use a tile where only this belt passes'), { short: 'ANOTHER BELT TOUCHES THIS TILE' });
+        const q = propAt(nx, ny), qp = q && propById(q);
+        if (qp && isJunction(qp)) return Object.assign(fail('NEAR_JUNCTION', 'a junction already stands beside this tile — use a tile further along'), { short: 'TOO CLOSE TO ANOTHER JUNCTION' });
+      }
+      if (propAt(x, y)) return fail('OVERLAP', 'something already stands on that tile');
+      return null;
+    }
+    /* put a 1x1 junction ON a belt tile: the link it sits on becomes two (the floor's own reconcile — the first keeps the
+       link's id), and a FILTER's EVERYTHING ELSE lane / a LOOP's DONE lane is the lane the belt already runs on, so the
+       line keeps flowing exactly as before (a filter with no default lane is a finding). `o.cfg` = settings carried in
+       hand (a pipette / a copy): passes, verdict, wait — never a compass lane from somewhere else. One undo. */
+    const HAND_CFG = ['maxIter', 'when', 'timeoutMin', 'bufferSize'];
+    function junctionOnBelt(x, y, t, o) {
+      if (!JUNCTION[t]) return fail('NOT_JUNCTION', 'only a 1×1 junction goes on a belt');
+      const no = junctionOnBeltRefusal(x, y);
+      if (no) return no;
+      const lane = doc.belts[tileKey(x, y)];
+      const placement = { t, x: x | 0, y: y | 0, w: 1, h: 1, block: !!(o && o.block === true) };   // a junction is walked over (catalog blocks:false)
+      const cfg = (o && o.cfg) || {};
+      for (const k of HAND_CFG) if (cfg[k] != null) placement[k] = cfg[k];
+      if (t === 'filter') placement.def = lane;
+      if (t === 'loop') placement.done = lane;
+      return transact(() => {
+        const r = addProp(placement);
+        if (!r.ok) return r;
+        currentLinks();   // the link under it splits now, inside this undo slot
+        return { ok: true, id: r.id, lane };
+      }, LABEL_OF[t]);
+    }
+    // a stand-in machine for an end that does not exist yet — never in doc.props, so no rule counts it as a third machine
+    const standIn = (t, x, y) => ({ id: '__hand_' + t + '_' + x + '_' + y, t, x: x | 0, y: y | 0, w: 1, h: 1 });
+    const pathOut = r => r.path.map((t, i) => ({ x: t.x, y: t.y, d: r.dirs[i] }));
+    /* where a drag from machine `fromId` would lay its belt if let go over tile {x,y} that is NOT a machine:
+         · a belt tile → MERGE: a MERGER lands on that tile and the belt runs into it (mode 'merge');
+         · empty deck → the belt runs to beside that tile, where the piece you then pick will stand (mode 'floor').
+       { ok, mode, path:[{x,y,d}] } or { ok:false, mode, error, msg, short }. Pure. */
+    function previewBeltTo(fromId, tile, o) {
+      const A = doc.props.find(p => p.id === fromId);
+      if (!A || !CONNECTABLE[A.t]) return { ok: false, msg: 'drag from a workflow machine' };
+      const x = tile.x | 0, y = tile.y | 0, linked = Array.isArray(currentLinks());
+      if (doc.belts[tileKey(x, y)]) {
+        const no = junctionOnBeltRefusal(x, y) || beltEndRefusal(A, null);
+        if (no) return { ok: false, mode: 'merge', error: no.error, msg: no.msg, short: no.short };
+        const at = linkAtTile(x, y);
+        if (at && (at.link.from.prop === A.id || at.link.to.prop === A.id)) return { ok: false, mode: 'merge', error: 'OWN_BELT', msg: 'that is this machine’s own belt', short: 'THIS MACHINE’S OWN BELT' };
+        const r = planBelt(A, standIn('merger', x, y), linked, o);
+        return r.ok ? { ok: true, mode: 'merge', path: pathOut(r) } : { ok: false, mode: 'merge', error: r.error, msg: r.msg };
+      }
+      if (!roomAt(x, y)) return { ok: false, mode: 'floor', error: 'OFF_DECK', msg: 'that is not station floor', short: 'NOT STATION FLOOR' };
+      if (propAt(x, y)) return { ok: false, mode: 'floor', error: 'OVERLAP', msg: 'something stands there', short: 'SOMETHING STANDS HERE' };
+      const no = beltEndRefusal(A, null);
+      if (no) return { ok: false, mode: 'floor', error: no.error, msg: no.msg, short: no.short };
+      const r = planBelt(A, standIn('__tile', x, y), linked, o);
+      return r.ok ? { ok: true, mode: 'floor', path: pathOut(r) } : { ok: false, mode: 'floor', error: r.error, msg: r.msg };
+    }
+    /* a drag that starts on the MIDDLE of a belt branches it: a SPLITTER lands on that tile and a new belt leaves it for
+       `to` — a machine id, another belt tile (a MERGER lands there too) or an empty tile. Pure preview, same shape. */
+    function previewBranch(from, to, o) {
+      const fx = from.x | 0, fy = from.y | 0, linked = Array.isArray(currentLinks());
+      const no = junctionOnBeltRefusal(fx, fy);
+      if (no) return { ok: false, mode: 'branch', error: no.error, msg: no.msg, short: no.short };
+      const S = standIn('splitter', fx, fy), own = linkAtTile(fx, fy);
+      if (typeof to === 'string') {
+        const B = doc.props.find(p => p.id === to);
+        if (!B || !CONNECTABLE[B.t]) return { ok: false, mode: 'branch', msg: 'branch to a workflow machine' };
+        if (own && (own.link.to.prop === B.id || own.link.from.prop === B.id)) return { ok: false, mode: 'branch', error: 'SAME_LINE', msg: 'that machine is already on this belt', short: 'ALREADY ON THIS BELT' };
+        const end = beltEndRefusal(null, B);
+        if (end) return { ok: false, mode: 'branch', error: end.error, msg: end.msg, short: end.short };
+        const r = planBelt(S, B, linked, o);
+        return r.ok ? { ok: true, mode: 'branch', path: pathOut(r) } : { ok: false, mode: 'branch', error: r.error, msg: r.msg };
+      }
+      const tx = to.x | 0, ty = to.y | 0;
+      if (doc.belts[tileKey(tx, ty)]) {
+        const at = linkAtTile(tx, ty);
+        if (own && at && at.link.id === own.link.id) return { ok: false, mode: 'branchmerge', error: 'SAME_BELT', msg: 'that is the same belt', short: 'THE SAME BELT' };
+        const no2 = junctionOnBeltRefusal(tx, ty);
+        if (no2) return { ok: false, mode: 'branchmerge', error: no2.error, msg: no2.msg, short: no2.short };
+        if (Math.abs(tx - fx) + Math.abs(ty - fy) <= 1) return { ok: false, mode: 'branchmerge', error: 'NEAR_JUNCTION', msg: 'too close to the branch point', short: 'TOO CLOSE TO THE BRANCH' };
+        const r = planBelt(S, standIn('merger', tx, ty), linked, o);
+        return r.ok ? { ok: true, mode: 'branchmerge', path: pathOut(r) } : { ok: false, mode: 'branchmerge', error: r.error, msg: r.msg };
+      }
+      if (!roomAt(tx, ty)) return { ok: false, mode: 'branchfloor', error: 'OFF_DECK', msg: 'that is not station floor', short: 'NOT STATION FLOOR' };
+      if (propAt(tx, ty)) return { ok: false, mode: 'branchfloor', error: 'OVERLAP', msg: 'something stands there', short: 'SOMETHING STANDS HERE' };
+      const r = planBelt(S, standIn('__tile', tx, ty), linked, o);
+      return r.ok ? { ok: true, mode: 'branchfloor', path: pathOut(r) } : { ok: false, mode: 'branchfloor', error: r.error, msg: r.msg };
+    }
+    // the MERGE gesture: a MERGER on belt tile {x,y}, and machine fromId belted into it — one undo
+    function mergeBelt(fromId, tile, o) {
+      const A = doc.props.find(p => p.id === fromId);
+      if (!A) return fail('NOT_FOUND', 'no such prop');
+      const pv = previewBeltTo(fromId, tile, o);
+      if (!pv.ok || pv.mode !== 'merge') return Object.assign(fail(pv.error || 'NO_PATH', pv.msg || 'no clear route to that belt'), { short: pv.short });
+      return transact(() => {
+        const m = junctionOnBelt(tile.x, tile.y, 'merger', o);
+        if (!m.ok) return m;
+        const c = connectBelt(fromId, m.id, o);
+        return c.ok ? { ok: true, id: m.id, count: c.count } : c;
+      }, 'MERGER');
+    }
+    /* the BRANCH gesture: a SPLITTER on belt tile `from`, and a belt from it to `to` (a machine id, or a belt tile, which
+       takes a MERGER, or an empty tile + a piece type in o.place = {t,w,h,block}) — one undo */
+    function branchBelt(from, to, o) {
+      const pv = previewBranch(from, to, o);
+      if (!pv.ok) return Object.assign(fail(pv.error || 'NO_PATH', pv.msg || 'no clear route for that branch'), { short: pv.short });
+      return transact(() => {
+        const s = junctionOnBelt(from.x, from.y, 'splitter', o);
+        if (!s.ok) return s;
+        let toId = typeof to === 'string' ? to : null, made = null;
+        if (!toId && doc.belts[tileKey(to.x, to.y)]) { const m = junctionOnBelt(to.x, to.y, 'merger', o); if (!m.ok) return m; toId = made = m.id; }
+        if (!toId) { const d = placeNear(o && o.place, to, s.id); if (!d.ok) return d; toId = made = d.id; }
+        const c = connectBelt(s.id, toId, o);
+        return c.ok ? { ok: true, id: s.id, made, count: c.count } : c;
+      }, 'SPLITTER');
+    }
+    /* stand a new machine of spec {t,w,h,block} at (or as near as fits) tile {x,y} — the empty-floor drop. A 1x1 junction
+       goes exactly there; a 2x2 machine tries the four footprints that cover the tile, then a ring further out. */
+    function placeNear(spec, tile, avoidId) {
+      if (!spec || !spec.t) return fail('NO_TYPE', 'pick what goes here');
+      const w = Math.max(1, spec.w | 0 || 1), h = Math.max(1, spec.h | 0 || 1), x0 = tile.x | 0, y0 = tile.y | 0;
+      const cands = [[x0, y0]];
+      for (let dy = 0; dy < h; dy++) for (let dx = 0; dx < w; dx++) if (dx || dy) cands.push([x0 - dx, y0 - dy]);
+      if (w > 1 || h > 1) for (const [dx, dy] of [[1, 0], [0, 1], [-1, 0], [0, -1], [-w, 0], [0, -h], [1, 1], [-w, -h]]) cands.push([x0 + dx, y0 + dy]);
+      const clearOfBelts = (x, y) => { for (let yy = y; yy < y + h; yy++) for (let xx = x; xx < x + w; xx++) if (doc.belts[tileKey(xx, yy)]) return false; return true; };
+      let last = fail('NO_ROOM', 'no room for a ' + String(spec.t).toUpperCase() + ' there');
+      for (const [x, y] of cands) {
+        if (!clearOfBelts(x, y)) continue;
+        const placement = { t: spec.t, x, y, w, h, block: spec.block !== false };
+        const cfg = spec.cfg || {};
+        for (const k of HAND_CFG) if (cfg[k] != null) placement[k] = cfg[k];
+        if (typeof spec.agentId === 'string' && spec.agentId) placement.agentId = spec.agentId;
+        const r = addProp(placement);
+        if (r.ok) {
+          const np = propById(r.id);
+          if (np && spec.role && BAY_ROLES[spec.role]) np.role = spec.role;
+          return r;
+        }
+        last = r;
+      }
+      return last;
+    }
+    // the EMPTY-FLOOR drop: stand a piece there (placeNear) and belt machine fromId into it — one undo
+    function dropFrom(fromId, tile, spec, o) {
+      return transact(() => {
+        const d = placeNear(spec, tile, fromId);
+        if (!d.ok) return d;
+        const c = connectBelt(fromId, d.id, o);
+        return c.ok ? { ok: true, id: d.id, count: c.count } : c;
+      }, LABEL_OF[spec && spec.t] || 'PIECE');
+    }
+    /* which of `specs` [{t,w,h,block}] fit a drop at tile {x,y} — asked on a probe copy (the real edit, thrown away), once,
+       on RELEASE (never per frame): the dock lists only these. from = a machine id, or {belt:{x,y}} for a branch. */
+    function probeDrop(from, tile, specs, o) {
+      const out = [];
+      for (const spec of (specs || [])) {
+        let r;
+        try {
+          const probe = makeStation(clone(doc));
+          r = (from && typeof from === 'object' && from.belt) ? probe.branchBelt(from.belt, tile, Object.assign({}, o, { place: spec })) : probe.dropFrom(from, tile, spec, o);
+        } catch (e) { r = fail('THREW', String((e && e.message) || e)); }
+        out.push({ t: spec.t, ok: !!(r && r.ok), msg: r && !r.ok ? (r.short || r.msg) : null });
+      }
+      return out;
+    }
+    /* RE-ROUTE: link linkId is lifted (the tiles no other link rides) and laid again from its same start to machine toId —
+       same id, same port (a FILTER's CODE lane stays its CODE lane), one undo. A route that will not go is refused whole. */
+    function relinkTo(linkId, toId, o) {
+      const L = currentLinks();
+      if (!Array.isArray(L)) return fail('NOT_LINKED', 'this floor does not build by links yet');
+      const l = L.find(q => q.id === linkId);
+      const A = l && propById(l.from.prop), C = propById(toId);
+      if (!l || !A) return fail('NOT_FOUND', 'no such belt');
+      if (!C || !CONNECTABLE[C.t]) return fail('NOT_CONNECTABLE', 'connect workflow machines');
+      if (C.id === A.id) return fail('SAME_PROP', 'pick two different machines');
+      const no = beltEndRefusal(A, C);
+      if (no) return no;
+      return transact(() => {
+        const dirty = liftLink(l);
+        const r = planBelt(A, C, true, o);
+        if (!r.ok) return r;
+        for (const d of layBelt(A, C, r, true, { id: l.id, from: l.from })) dirty.push(d);
+        for (const J of [A, C]) if (isJunction(J)) syncJunctionCfg(J);
+        emit(dirty, { staticBakeUnchanged: true });
+        return { ok: true, count: r.path.length, id: l.id };
+      }, 'RE-ROUTE');
+    }
+    /* the preview of a re-route (pure): the route a lane from the start of linkId to toId would take once that link is
+       lifted — asked on a probe copy, memoized by the caller per (edit, link, target, flip) */
+    function previewRelink(linkId, toId, o) {
+      try {
+        const probe = makeStation(clone(doc));
+        const L = probe.links() || [], l = L.find(q => q.id === linkId);
+        if (!l) return { ok: false, msg: 'no such belt' };
+        const r = probe.relinkTo(linkId, toId, o);
+        if (!r || !r.ok) return { ok: false, error: r && r.error, msg: r && r.msg, short: r && r.short };
+        const nl = (probe.links() || []).find(q => q.id === linkId);
+        return { ok: true, path: nl ? nl.path.map(t => ({ x: t.x, y: t.y, d: t.d })) : [] };
+      } catch (e) { return { ok: false, msg: String((e && e.message) || e) }; }
+    }
+    // lift link l off the floor (its tiles no other link rides; no snapshot, no emit) — returns the dirty rects
+    function liftLink(l) {
+      const L = Array.isArray(doc.links) ? doc.links : [], dirty = [], keep = new Set();
+      for (const q of L) if (q !== l && q.id !== l.id) for (const t of (q.path || [])) keep.add(tileKey(t.x, t.y));
+      for (const t of (l.path || [])) { const k = tileKey(t.x, t.y); if (!keep.has(k) && doc.belts[k]) { delete doc.belts[k]; dirty.push({ x1: t.x, y1: t.y, x2: t.x, y2: t.y }); } }
+      doc.links = L.filter(q => q.id !== l.id);
+      return dirty;
+    }
+    // REMOVE A WHOLE BELT (right-click on a belt): the link under tile x,y goes, with every tile no other link rides — one undo
+    function removeLinkAt(x, y) {
+      const at = linkAtTile(x, y);
+      if (!at) return fail('NOT_FOUND', 'no linked belt here');
+      snapshot('BELT');
+      const dirty = liftLink(at.link);
+      emit(dirty, { staticBakeUnchanged: true });
+      return { ok: true, id: at.link.id, from: at.link.from.prop, to: at.link.to.prop, tiles: dirty.length };
     }
     /* the belt tiles a machine is hooked to RIGHT NOW (its footprint + 1-tile ring) — REFIT's move ghost reads it
        to say "its belts stay here" when a drag would leave them behind (belts never ride along with a prop) */
@@ -2801,19 +3068,50 @@ const WorldModel = (() => {
       return {ok:true};
     }
 
+    /* WHAT AN UNDO TOOK BACK, AND WHERE (THE HAND, 2026-10-10 — additive): the footprints of every machine that came,
+       went or moved between two states, and every belt tile that changed — plus a word for it: the label the edit was
+       taken under, else one read off the diff (the one machine that came or went, BELT, MOVE). Read off the two snapshots
+       themselves, so it can never name an edit that did not happen. */
+    const LABEL_OF = { intake: 'INBOX', bay: 'BAY', outbox: 'OUTBOX', splitter: 'SPLITTER', merger: 'MERGER', joiner: 'JOINER', filter: 'FILTER', loop: 'LOOP' };
+    function editDiff(a, b) {
+      const rects = [], pa = new Map(), pb = new Map();
+      for (const p of (a.props || [])) pa.set(p.id, p);
+      for (const p of (b.props || [])) pb.set(p.id, p);
+      const foot = p => ({ x1: p.x, y1: p.y, x2: p.x + (p.w || 1) - 1, y2: p.y + (p.h || 1) - 1 });
+      const came = [], went = [], moved = [];
+      for (const [id, p] of pb) { const q = pa.get(id); if (!q) came.push(p); else if (q.x !== p.x || q.y !== p.y || q.w !== p.w || q.h !== p.h) moved.push(p); else if (JSON.stringify(q) !== JSON.stringify(p)) rects.push(foot(p)); }
+      for (const [id, p] of pa) if (!pb.has(id)) went.push(p);
+      for (const p of came.concat(went)) rects.push(foot(p));
+      for (const p of moved) { rects.push(foot(p)); rects.push(foot(pa.get(p.id))); }
+      const ba = a.belts || {}, bb = b.belts || {};
+      let belts = 0;
+      for (const k in ba) if (ba[k] !== bb[k] && rects.length < 400) { const q = k.split(','); rects.push({ x1: +q[0], y1: +q[1], x2: +q[0], y2: +q[1] }); belts++; }
+      for (const k in bb) if (!(k in ba) && rects.length < 400) { const q = k.split(','); rects.push({ x1: +q[0], y1: +q[1], x2: +q[0], y2: +q[1] }); belts++; }
+      const one = came.length + went.length === 1 ? (came[0] || went[0]) : null;
+      const word = one ? (LABEL_OF[one.t] || String(one.t).toUpperCase().replace(/_/g, ' '))
+        : (came.length + went.length > 1) ? (came.length + went.length) + ' PIECES'
+        : moved.length ? 'MOVE' : belts ? 'BELT' : rects.length ? 'SETTINGS' : 'EDIT';
+      return { rects, word };
+    }
     function undo() {
       if (!undoStack.length) return fail('NOTHING', 'nothing to undo');
-      redoStack.push(snap());
-      restore(undoStack.pop());
+      const cur = snap(), back = undoStack.pop();
+      if (back._label) cur._label = back._label;
+      redoStack.push(cur);
+      const d = editDiff(cur, back);
+      restore(back);
       emit([]);   // empty dirty = full re-bake
-      return { ok: true };
+      return { ok: true, label: back._label || d.word, rects: d.rects };
     }
     function redo() {
       if (!redoStack.length) return fail('NOTHING', 'nothing to redo');
-      undoStack.push(snap());
-      restore(redoStack.pop());
+      const cur = snap(), fwd = redoStack.pop();
+      if (fwd._label) cur._label = fwd._label;
+      undoStack.push(cur);
+      const d = editDiff(cur, fwd);
+      restore(fwd);
       emit([]);
-      return { ok: true };
+      return { ok: true, label: fwd._label || d.word, rects: d.rects };
     }
     const canUndo = () => undoStack.length > 0;
     const canRedo = () => redoStack.length > 0;
@@ -3626,6 +3924,9 @@ const WorldModel = (() => {
       // does this floor build by LINKS (every floor this build adopted)? — REFIT retires the ring-rule advice when it does
       isLinked: () => Array.isArray(currentLinks()),
       previewBelt, connectRefusal,
+      // THE HAND (2026-10-10): the drag gestures — previews are pure, each mutation is one undo
+      previewBeltTo, previewBranch, previewRelink, junctionOnBeltRefusal, junctionOnBelt, mergeBelt, branchBelt, dropFrom, probeDrop, relinkTo, removeLinkAt,
+      linkAt: (x, y) => { const at = linkAtTile(x, y); return at ? Object.assign(clone(at.link), { at: at.i }) : null; },
     };
   }
 

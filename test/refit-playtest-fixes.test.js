@@ -47,7 +47,8 @@ const tutorialSrc = read('tutorial.js');
   A.ok(/\['lines', LINES_LABEL, blueprints\(\)\.length\], \['machines', MACHINES_LABEL, workflowMachines\(\)\.length\]/.test(wfBranch), 'the line library header counts the real catalog (the LINES · MACHINES section keys)');
   A.ok(/\(tool === 'prop' && buildGroup !== 'workflow'\) \|\| \(\(tool === 'select' \|\| tool === 'dupe'\) && buildGroup === 'props'\)/.test(build), 'arming a machine from the Conveyors tab keeps the Conveyors tab up (it does not jump to the Props catalog); a copy held from the Props tab keeps the catalog up (2026-10-01)');
   const mp = build.slice(build.indexOf('function machinePalette()'), build.indexOf('const THUMB_PAD'));
-  A.ok(/propType = c\.id;\s*setLibraryPlacement\(true\);/.test(mp), 'a shelf pick arms the ordinary PROP placement for that machine');
+  // THE HAND (2026-10-10): a shelf pick puts the machine IN HAND — the hotbar's own hand, a sub-state of SELECT (never a second placement mode)
+  A.ok(/propType = c\.id;\s*setHand\(\{ t: c\.id \}, \{ silent: true \}\);/.test(mp), 'a shelf pick puts that machine in hand (the hotbar’s own hand)');
 }
 
 /* ---------- 3. the guide + Field Manual read their names from the UI ---------- */
@@ -99,6 +100,7 @@ const tutorialSrc = read('tutorial.js');
   // ESC: the bare select-mode ESC arms, a second one inside the window leaves; any other key disarms
   const between = (a, b) => build.slice(build.indexOf(a), build.indexOf(b, build.indexOf(a)));
   const s = { tool: 'select', buildGroup: 'workflow', drag: null, dragPid: null, connectFrom: null, connectTo: null, dupe: null, selectedPropId: null, movingPropId: null, groupIds: [], selectedRoomId: null, closed: 0, tipped: '',
+    hand: null, touchArm: null, dropPick: null, altHeld: false, hoverPropId: null, HOTBAR: [], setHand() {}, toggleHand() {}, flipCorner() {}, pipette() {}, floatHistory() {}, orientEv: () => ({}),   // THE HAND's state (2026-10-10)
     root: { querySelector: () => null, querySelectorAll: () => [] }, cardTop: () => null, WorkflowPanel: { isOpen: () => false },
     performance: { now: () => s.now }, now: 1000, tipTimer: 0,
     showTip: t => { s.tipped = t; }, hideTip() {}, setTimeout: () => 0, clearTimeout() {}, sfx() {}, selectTool() {}, deselectTool() {}, fitCamera() {},

@@ -6,6 +6,7 @@ const source = fs.readFileSync(require.resolve('../frontend/app/build.js'),'utf8
 const between = (start,end) => source.slice(source.indexOf(start),source.indexOf(end,source.indexOf(start)));
 function fixture() {
   const s = {tool:'prop',buildGroup:'props',drag:null,dragPid:null,connectFrom:null,connectTo:null,dupe:null,hoverPropId:'placed',propType:'chair',propRot:0,propMir:0,
+    hand:null,touchArm:null,dropPick:null,altHeld:false,HOTBAR:[],placingProp:()=>s.tool==='prop'||!!s.hand,setHand(){},toggleHand(){},flipCorner(){},pipette(){},floatHistory(){},   // THE HAND (2026-10-10)
     edits:0,releases:0,closed:0,focused:false,selectedPropId:null,movingPropId:null,
     root:{querySelectorAll:()=>[],querySelector:()=>null},
     window:{matchMedia:()=>({matches:false})}, BUILD_GROUPS:[['props','Props',['prop']],['workflow','Conveyors',['line','belt']]],

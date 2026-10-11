@@ -492,8 +492,8 @@ const Build = (() => {
     root.querySelector('#refit-zout').onclick = () => zoomStep(-1);
     root.querySelector('#refit-zlvl').onclick = () => zoomTo(2);   // 2 = the entering default (a tile reads at 24px)
     root.querySelector('#refit-test').onclick = (e) => openTest(e);
-    undoBtn.onclick = () => { if (station.undo().ok) sfx('click'); else sfx('bad'); };
-    redoBtn.onclick = () => { if (station.redo().ok) sfx('click'); else sfx('bad'); };
+    undoBtn.onclick = () => { const r = station.undo(); sfx(r.ok ? 'click' : 'bad'); floatHistory(r, 'UNDID'); };
+    redoBtn.onclick = () => { const r = station.redo(); sfx(r.ok ? 'click' : 'bad'); floatHistory(r, 'REDID'); };
 
     cv.addEventListener('pointerdown', onDown);
     cv.addEventListener('pointermove', onMove);
@@ -1497,6 +1497,7 @@ const Build = (() => {
          (simplify = organization: nothing a tile said is gone). */
       if (tool === 'line') convSection = 'lines';   // an armed line always shows its card and its SET UP row
       else if (tool === 'prop' && workflowMachines().some(c => c.id === propType)) convSection = 'machines';   // …and an armed machine its tile
+      pal.appendChild(hotbarEl());   // THE HAND: the pieces you build a line from, always first, keys 1–8 (+ the touch keys)
       const secs = document.createElement('nav'); secs.className = 'refit-prop-sections refit-conv-sections'; secs.setAttribute('aria-label', 'Conveyors');
       for (const [id, label, n] of [['lines', LINES_LABEL, blueprints().length], ['machines', MACHINES_LABEL, workflowMachines().length]]) {
         const b = document.createElement('button'); b.type = 'button'; b.className = 'bb refit-prop-section' + (convSection === id ? ' active' : '');
@@ -1645,7 +1646,7 @@ const Build = (() => {
         wrap.appendChild(grid);
       }
       const b = document.createElement('button'); b.type = 'button';
-      const on = tool === 'prop' && propType === c.id;
+      const on = (tool === 'prop' && propType === c.id) || (!!hand && hand.t === c.id);
       b.className = 'refit-machinetile' + (on ? ' active' : ''); b.dataset.machine = c.id; b.dataset.prop = c.id;
       b.setAttribute('aria-pressed', on ? 'true' : 'false');
       const purpose = PALETTE_PURPOSE[c.id] || '', how = MACHINE_GROUPS[gi][1] || '';
@@ -1667,9 +1668,9 @@ const Build = (() => {
       b.append(cvEl, nm);
       if (MACHINE_DIAGRAM[c.id]) b.insertAdjacentHTML('beforeend', machineDiagramSVG(c.id));
       b.onclick = () => {
+        // a shelf pick puts the machine IN HAND — the hotbar's own hand (THE HAND, 2026-10-10), never a second placement mode
         propType = c.id;
-        setLibraryPlacement(true);
-        wrap.querySelectorAll('.refit-machinetile').forEach(t => { const a = t.dataset.machine === c.id; t.classList.toggle('active', a); t.setAttribute('aria-pressed', String(a)); });
+        setHand({ t: c.id }, { silent: true });
         root.querySelectorAll('.refit-linetile.active').forEach(t => { t.classList.remove('active'); t.setAttribute('aria-pressed', 'false'); });
         hidePropCard(); setHint(); sfx('click');
       };
@@ -1721,6 +1722,98 @@ const Build = (() => {
       b.classList.toggle('active',active); b.setAttribute('aria-pressed',String(active));
     });
     setHint();
+  }
+  /* ---------- THE HAND (2026-10-10 — Andrew: "fully polish and integrate this into starnet", from his build-mode prototype) ----------
+     Building a line is DRAGGING now, the way the prototype (scratchpad proto/build-mode-proto.html) feels: drag a machine and a belt
+     follows the pointer to wherever you let go; drag the middle of a belt and it branches; let go on empty floor and the dock offers
+     the pieces that fit there. What you HOLD is a sub-state of SELECT — never an eleventh tool: `hand` is the piece the next click
+     places, picked from the Conveyors tab's HOTBAR (keys 1–8 while that tab is up), the MACHINES shelf, or Q — the pipette, which
+     picks up one like the piece under the pointer, its settings and its crew with it. Right-click or Esc puts it down. Empty-handed,
+     right-click removes the conveyor piece (or the whole belt) under the pointer — one undo, and the floor says UNDID · <WHAT> where
+     it happened. Touch has no right-click, R, Q or Alt: the dock keys under the hotbar do each of them. */
+  const HOTBAR = ['bay', 'intake', 'outbox', 'splitter', 'merger', 'joiner', 'filter', 'loop'];
+  let hand = null;          // { t, cfg?, agentId?, role?, brief?, hands?, r?, m? } — the piece the next click places (null = an empty hand)
+  let touchArm = null;      // 'remove' | 'pipette' — a dock key armed the next tap (touch has no right-click and no Q)
+  let flipPref = false;     // R mid-drag (or the CORNER key): where two shortest routes exist, the belt's corner turns the other way
+  let altHeld = false, altLatched = false;   // Alt held (or the ALT VIEW key latched): every setting, SEND TO and stage count shows
+  let dropPick = null;      // an empty-floor release waiting on PICK WHAT GOES HERE: { from, tile, flip, path, opts:[{t,ok,msg}] }
+  const altOn = () => altHeld || altLatched;
+  const placingProp = () => tool === 'prop' || !!hand;   // a piece is in hand — through the PROP tool or the hotbar
+  const HAND_CFG_KEYS = ['maxIter', 'when', 'timeoutMin', 'bufferSize'];
+  // an agent this station crews (a pipette or a copy may carry only these — an id from elsewhere is dropped)
+  const agentHere = aid => !!aid && (((opts && typeof opts.agents === 'function' && opts.agents()) || []).some(a => a && a.id === aid));
+  // what the pipette picks up: the type, its settings (passes, verdict, wait), its facing, and for a BAY its crew, role and brief
+  function handFromProp(p) {
+    const h = { t: p.t };
+    const cfg = {};
+    for (const k of HAND_CFG_KEYS) if (p[k] != null) cfg[k] = p[k];
+    if (Object.keys(cfg).length) h.cfg = cfg;
+    if (p.t === 'bay') {
+      if (agentHere(p.agentId)) h.agentId = p.agentId;
+      if (p.role) h.role = p.role;
+      if (p.brief) h.brief = p.brief;
+      if (p.hands) h.hands = p.hands;
+    }
+    if (p.r) h.r = p.r;
+    if (p.m) h.m = 1;
+    return h;
+  }
+  function setHand(h, o) {
+    const next = h && h.t ? h : null;
+    if (next && tool !== 'select') selectTool('select', { silent: true, keepKit: true, keepGroup: true });
+    hand = next; touchArm = null; dropPick = null;
+    if (next) {
+      propType = next.t;
+      propRot = next.r != null && canTurn(next.t) ? (next.r & 3) : 0;
+      propMir = next.m && canFlip(next.t) ? 1 : 0;
+      if (selectedPropId || groupIds.length) { selectedPropId = null; groupIds = []; }
+    }
+    propHoverMemo = null;
+    if (root) { root.dataset.hand = next ? next.t : ''; paintHandKeys(); renderSelection(); }
+    hideTip(); setHint(); setCursor();
+    if (!(o && o.silent)) sfx('click');
+  }
+  const toggleHand = t => setHand(hand && hand.t === t && !hand.agentId && !hand.cfg ? null : { t });
+  // THE HOTBAR: the conveyor pieces, art + name (the sentence is the hover tip — no sentences under tiles), its key in the corner
+  function hotbarEl() {
+    const wrap = document.createElement('div'); wrap.className = 'refit-hotbar-wrap';
+    const bar = document.createElement('div'); bar.className = 'refit-hotbar'; bar.setAttribute('role', 'toolbar'); bar.setAttribute('aria-label', 'Conveyor pieces');
+    HOTBAR.forEach((t, i) => {
+      const c = catalog().find(x => x && x.id === t); if (!c) return;
+      const b = document.createElement('button'); b.type = 'button'; b.className = 'refit-hotslot' + (hand && hand.t === t ? ' active' : ''); b.dataset.hot = t;
+      b.setAttribute('aria-pressed', String(!!hand && hand.t === t));
+      b.setAttribute('aria-label', c.label + ' (' + (i + 1) + ')');
+      b.dataset.tip = c.label + ' · key ' + (i + 1) + (PALETTE_PURPOSE[t] ? '\n' + PALETTE_PURPOSE[t] : '') + (JUNCTION_TAG_TYPES[t] ? '\nclick a belt to put it on that line' : '');
+      const k = document.createElement('span'); k.className = 'refit-hotkey'; k.textContent = String(i + 1);
+      const img = document.createElement('img'); img.alt = ''; img.className = 'refit-hotart'; const url = machineStill(t); if (url) img.src = url;
+      const nm = document.createElement('span'); nm.className = 'refit-hotname'; nm.textContent = c.label;
+      b.append(k, img, nm);
+      b.onclick = () => { toggleHand(t); };
+      bar.appendChild(b);
+    });
+    // the gestures a mouse has and a finger does not, as keys (each one wears the key that does it)
+    const keys = document.createElement('div'); keys.className = 'refit-handkeys'; keys.setAttribute('aria-label', 'Hand keys');
+    const key = (id, label, kbd, tipText, fn) => {
+      const b = document.createElement('button'); b.type = 'button'; b.className = 'refit-handkey'; b.dataset.handkey = id;
+      b.innerHTML = '<span>' + esc(label) + '</span><kbd>' + esc(kbd) + '</kbd>';
+      b.dataset.tip = tipText; b.onclick = fn; keys.appendChild(b);
+      const on = { remove: touchArm === 'remove', pipette: touchArm === 'pipette', corner: flipPref, alt: altLatched }[id];
+      b.classList.toggle('active', !!on); b.setAttribute('aria-pressed', String(!!on));
+    };
+    key('remove', 'REMOVE', 'R-CLICK', 'Tap a piece or a belt to remove it (a mouse: right-click it) · UNDO puts it back', () => { const on = touchArm !== 'remove'; setHand(null, { silent: true }); touchArm = on ? 'remove' : null; paintHandKeys(); setHint(); sfx('click'); });
+    key('pipette', 'PICK UP', 'Q', 'Tap a piece to hold one like it — its settings and crew too (a mouse: point at it and press Q)', () => { const on = touchArm !== 'pipette'; setHand(null, { silent: true }); touchArm = on ? 'pipette' : null; paintHandKeys(); setHint(); sfx('click'); });
+    key('corner', 'CORNER', 'R', 'Flip which way a dragged belt turns its corner (a mouse: press R while dragging)', () => { flipPref = !flipPref; handPvKey = ''; paintHandKeys(); sfx('click'); });
+    key('alt', 'ALT VIEW', 'ALT', 'Show every setting, every SEND TO and every line’s stage count on the floor (a mouse: hold Alt)', () => { altLatched = !altLatched; paintHandKeys(); sfx('click'); });
+    wrap.append(bar, keys);
+    return wrap;
+  }
+  // the lit state of the hotbar slots + the hand keys, without rebuilding them (a rebuild would drop the pointer's hover)
+  function paintHandKeys() {
+    if (!root) return;
+    root.querySelectorAll('.refit-hotslot').forEach(b => { const on = !!hand && b.dataset.hot === hand.t; b.classList.toggle('active', on); b.setAttribute('aria-pressed', String(on)); });
+    root.querySelectorAll('.refit-machinetile').forEach(b => { const on = (!!hand && b.dataset.machine === hand.t) || (tool === 'prop' && propType === b.dataset.machine); b.classList.toggle('active', on); b.setAttribute('aria-pressed', String(on)); });
+    const lit = { remove: touchArm === 'remove', pipette: touchArm === 'pipette', corner: flipPref, alt: altLatched };
+    root.querySelectorAll('.refit-handkey').forEach(b => { const on = !!lit[b.dataset.handkey]; b.classList.toggle('active', on); b.setAttribute('aria-pressed', String(on)); });
   }
   function propTile(c, core = false) {
     const b = document.createElement('button');
@@ -2449,6 +2542,7 @@ const Build = (() => {
     movingPropId=null;selectedPropId=null;groupIds=[];selectedRoomId=null;renderSelection();
     if (drag || dragPid != null) releaseDrag();
     tool = id; drag = null; connectFrom = null; connectTo = null; dupe = null; hideTip(); hidePropCard();
+    hand = null; touchArm = null; dropPick = null;   // arming any tool (or a bare deselect) puts down what was in hand
     if (id !== 'prop') deskOwner = null;
     if (id !== 'select' && !(o && o.keepGroup)) buildGroup = BUILD_GROUPS.find(g => g[2].includes(id))?.[0] || buildGroup;
     root.querySelectorAll('.refit-tool').forEach(b => {
@@ -2497,7 +2591,11 @@ const Build = (() => {
     // SURFACE means three different gestures depending on which surface is targeted — say which
     let verb = (t && t.verb) || (t && t.hint) || '';
     if (tool === 'select' && buildGroup === 'props') verb = 'Pick a prop, then click the floor to place it · click a placed one to edit it';
-    if (tool === 'select' && buildGroup === 'workflow') verb = 'Choose a machine or a whole line, or use Belt to connect machines. Nothing is selected yet.';
+    if (tool === 'select' && buildGroup === 'workflow') verb = 'Drag from a machine to lay a belt · drag a belt to branch it · 1–8 pick a piece · Q picks up the one under the pointer · right-click removes · hold Alt to see every setting';
+    // THE HAND: what is held, what a click does with it, and how to put it down (or what the armed dock key's next tap does)
+    if (tool === 'select' && hand) verb = 'Holding ' + propLabel(hand.t) + (hand.agentId ? ' (crewed by ' + agentLabel(hand.agentId) + ')' : '') + ' · click to place it' + (JUNCTION_TAG_TYPES[hand.t] ? ' · click a belt to put it on that line' : '') + ' · right-click or Esc puts it down';
+    if (tool === 'select' && touchArm === 'remove') verb = 'REMOVE · tap a conveyor piece or a belt to remove it · tap REMOVE again to stop';
+    if (tool === 'select' && touchArm === 'pipette') verb = 'PICK UP · tap a piece to hold one like it · tap PICK UP again to stop';
     if (tool === 'select' && buildGroup === 'rooms') verb = 'Pick a room type, then drag on the grid · click a room to resize or furnish it';
     if (tool === 'select' && buildGroup === 'surfaces') verb = 'Pick a finish, then click a room to lay it · DECK, WALLS or SHELL';
     if (tool === 'paint') verb = paintTarget === 'hull' ? 'click a room to re-clad its outside'
@@ -2539,7 +2637,7 @@ const Build = (() => {
   function setCursor() {
     if (!cv) return;
     const t = TOOLS.find(x => x.id === tool);
-    cv.style.cursor = spaceHeld ? 'grab' : (t ? t.cursor : 'default');
+    cv.style.cursor = spaceHeld ? 'grab' : (tool === 'select' && hand) ? 'copy' : (tool === 'select' && touchArm) ? (touchArm === 'remove' ? 'not-allowed' : 'copy') : (t ? t.cursor : 'default');
   }
   function updateUndoRedo() {
     if (undoBtn) undoBtn.disabled = !station.canUndo();
@@ -4570,7 +4668,16 @@ const Build = (() => {
     // right-button cancels an in-progress edit (and never starts one) — then DROPS the armed tool
     // back to SELECT. The browser context menu is already suppressed on the canvas (contextmenu
     // preventDefault in buildDOM), so right-click is a pure deselect gesture.
-    if (ev.button === 2) { if (drag) { releaseDrag(); hideTip(); } if (connectFrom || connectTo) { connectFrom = null; connectTo = null; hideTip(); } if (dupe) { dupe = null; hideTip(); setHint(); } deselectTool(); return; }
+    /* THE HAND (2026-10-10): with something held (a piece, a dock key's armed tap, a PICK WHAT GOES HERE) right-click puts it
+       down; with NOTHING held or armed and no gesture live, it removes the conveyor piece or belt under the pointer (removeAt —
+       one undo, said on the floor). Anything else under it (furniture, bare floor) keeps the plain deselect. */
+    if (ev.button === 2) {
+      const held = !!(drag || connectFrom || connectTo || dupe || hand || touchArm || dropPick || tool !== 'select');
+      if (drag) { releaseDrag(); hideTip(); } if (connectFrom || connectTo) { connectFrom = null; connectTo = null; hideTip(); } if (dupe) { dupe = null; hideTip(); setHint(); }
+      if (hand || touchArm || dropPick) setHand(null, { silent: true });
+      if (!held && removeAt(ev)) return;
+      deselectTool(); return;
+    }
     try { cv.setPointerCapture(ev.pointerId); dragPid = ev.pointerId; } catch (e) { dragPid = null; }
     if (panTrigger(ev)) { drag = { mode: 'pan', sx: toCanvas(ev).x, sy: toCanvas(ev).y }; cv.style.cursor = 'grabbing'; return; }
     if (ev.button !== 0) return;
@@ -4578,6 +4685,11 @@ const Build = (() => {
     if (tool === 'select') {
       // SELECT (the default): a click INSPECTS what's under it — machine → its editor/picker/flow
       // card, belt tile → where this lane goes. A drag across empty deck draws a SELECTION BOX (MANY AT ONCE).
+      // THE HAND first: a dock key's armed tap (touch) removes / picks up; a piece in hand places (the PROP tool's own stamp)
+      if (touchArm === 'remove') { if (!removeAt(ev)) { sfx('bad'); flashTip(ev, 'TAP A CONVEYOR PIECE OR A BELT TO REMOVE IT', false); } return; }
+      if (touchArm === 'pipette') { pipette(ev, propAtEvent(ev)); return; }
+      if (hand) { drag = { mode: 'propstamp', start: w, cur: w, moved: false, cx: ev.clientX, cy: ev.clientY }; return; }
+      if (dropPick) { dropPick = null; renderSelection(); setHint(); }   // a press elsewhere lets the unanswered picker go
       // the SELECTED ROOM's edge handles come first: a drag on one resizes the room (THE ROOM CARD)
       const hd = selectedRoomId ? roomHandleAt(ev) : null;
       if (hd) { drag = { mode: 'roomresize', roomId: selectedRoomId, edge: hd.e, start: w, cur: w, moved: false }; return; }
@@ -4585,8 +4697,10 @@ const Build = (() => {
       const p = pid && station.propById(pid);
       // a member of a selected group: a drag moves the whole group, a click (no drag) selects just it; Shift+click adds / drops one
       if (p && groupIds.includes(p.id)) { drag={mode:'grouppress',propId:p.id,start:w,cur:w,moved:false,add:ev.shiftKey};return; }
+      // a WORKFLOW machine pressed with Shift up becomes a belt drag the moment it moves (onMove); Shift+drag moves it instead
       if (p) { drag={mode:'selectpress',propId:p.id,start:w,cur:w,moved:false,add:ev.shiftKey};return; }
-      if (station.beltAt(w.tx, w.ty)) { openBeltCard(w.tx, w.ty, ev); return; }
+      // a BELT: a click opens its card on the release, a drag off it BRANCHES it (a SPLITTER lands where it was pressed)
+      if (station.beltAt(w.tx, w.ty)) { drag = { mode: 'beltpress', start: w, cur: w, moved: false, from: { x: w.tx, y: w.ty } }; return; }
       // ...and a ROOM opens its own sheet — on the RELEASE now, so the same press can become a box. Clicking the thing
       // you spent build mode MAKING used to be the one dead click in the editor.
       drag = { mode: 'boxpress', start: w, cur: w, moved: false, add: ev.shiftKey, roomId: station.roomAt(w.tx, w.ty) };
@@ -4683,7 +4797,9 @@ const Build = (() => {
     const w = toWorldTile(ev);
     if (drag) {
       if (w.tx !== drag.cur.tx || w.ty !== drag.cur.ty) { drag.moved = true; snapTick(drag.mode); }
-      if(drag.mode==='selectpress'&&drag.moved)drag.mode='propmove';
+      // THE HAND: a workflow machine dragged (Shift up) lays a belt to the pointer; with Shift — or any other prop — it moves
+      if(drag.mode==='selectpress'&&drag.moved)drag.mode=(!drag.add&&beltSource(drag.propId))?'handbelt':'propmove';
+      if(drag.mode==='beltpress'&&drag.moved)drag.mode='handbranch';
       if(drag.mode==='grouppress'&&drag.moved)drag.mode='groupmove';
       if(drag.mode==='boxpress'&&drag.moved)drag.mode='box';
       if (drag.mode === 'paint' || drag.mode === 'reclaim') rasterTo(drag, w);   // accumulate every tile the brush crosses
@@ -4712,6 +4828,8 @@ const Build = (() => {
     setCursor();
     if (d.mode === 'pan') return;
     if (d.mode === 'selectpress' || d.mode === 'grouppress') return d.add ? toggleInSelection(d.propId) : onInspect(station.propById(d.propId),ev);
+    if (d.mode === 'beltpress') return openBeltCard(d.start.tx, d.start.ty, ev);   // a belt CLICKED (not dragged): where it goes
+    if (d.mode === 'handbelt' || d.mode === 'handbranch') return commitHandGesture(d, ev);
     if (d.mode === 'groupmove') return commitGroupMove(d, ev);
     if (d.mode === 'boxpress') return clickEmptyFloor(d, ev);
     if (d.mode === 'box') return commitBox(d, ev);
@@ -4729,7 +4847,7 @@ const Build = (() => {
      draw/belt/paint left a live drag with a frozen ghost pinned to the last tile the pointer touched —
      and the pointer that would have ended it is now somewhere else entirely. A gesture you cannot see
      is a gesture you cannot finish: end it, release the capture, and let the floor go quiet. */
-  function onBlur() { spaceHeld = false; if (drag || dragPid != null) { releaseDrag(); hideTip(); } setCursor(); }
+  function onBlur() { spaceHeld = false; altHeld = false; if (drag || dragPid != null) { releaseDrag(); hideTip(); } setCursor(); }   // (Alt+Tab never leaves the Alt view stuck on)
 
   // add every tile on the segment from drag.cur to w (so a fast brush stroke skips nothing)
   function rasterTo(d, w) {
@@ -4810,7 +4928,7 @@ const Build = (() => {
   // keyboard events carry no cursor position; the tip anchors to the last place the pointer was.
   const orientEv = () => ({ clientX: lastClient.x, clientY: lastClient.y });
   // Placement owns R/M. Browsing may rotate the hovered furniture; placing never edits it.
-  const orientTarget = () => (tool === 'select' && !drag && (hoverPropId || selectedPropId)) ? station.propById(hoverPropId || selectedPropId) : null;
+  const orientTarget = () => (tool === 'select' && !hand && !drag && (hoverPropId || selectedPropId)) ? station.propById(hoverPropId || selectedPropId) : null;
   const propLabel = t => String(propSpec(t).label || t).toUpperCase();
 
   function turnUnderCursor(dir) {
@@ -4823,7 +4941,7 @@ const Build = (() => {
       feedback(res, ev, 'turned · facing ' + FACE_WORD[(p.r | 0) & 3]);
       return;
     }
-    if (tool !== 'prop') { sfx('bad'); flashTip(ev, 'hover a placed prop to turn it, or pick the PROP tool (6)'); return; }
+    if (!placingProp()) { sfx('bad'); flashTip(ev, 'hover a placed prop to turn it, or pick the PROP tool (6)'); return; }
     if (!canTurn(propType)) { sfx('bad'); flashTip(ev, propLabel(propType) + (/^user_/.test(propType) ? ' has no side view yet \u00b7 MAKE SIDE VIEW (about 30\u00a2) turns it' : ' only faces one way — its turned art is not drawn')); return; }
     propRot = nextFace(propType, propRot, dir) & 3;
     renderPropPreview();
@@ -4841,7 +4959,7 @@ const Build = (() => {
       feedback(res, ev, (res && res.m) ? 'flipped' : 'unflipped');
       return;
     }
-    if (tool !== 'prop') { sfx('bad'); flashTip(ev, 'hover a placed prop to flip it, or pick the PROP tool (6)'); return; }
+    if (!placingProp()) { sfx('bad'); flashTip(ev, 'hover a placed prop to flip it, or pick the PROP tool (6)'); return; }
     if (!canFlip(propType)) { sfx('bad'); flashTip(ev, propLabel(propType) + ' cannot be flipped — its light is painted in, not derived'); return; }
     propMir = propMir ? 0 : 1;
     renderPropPreview();
@@ -4874,6 +4992,7 @@ const Build = (() => {
      Ctrl+D, Ctrl+C, Delete, the arrows nudge) — and the library stays where it was. */
   function renderSelection(){
     const host=root&&root.querySelector('#refit-selection');if(!host)return;
+    if(dropPick){host.hidden=false;root.classList.add('has-selection');return renderDropPick(host);}   // THE HAND: PICK WHAT GOES HERE docks where a selection does
     if(groupIds.length){
       const ps=groupIds.map(id=>station&&station.propById(id)).filter(Boolean);
       if(ps.length>1){host.hidden=false;root.classList.add('has-selection');return renderGroupCard(host,ps);}
@@ -5442,9 +5561,28 @@ const Build = (() => {
     const grant = (typeof WorldModel !== 'undefined' && WorldModel.grantLabelForProp) ? WorldModel.grantLabelForProp(propType) : null;
     const owner = WORKSTATION_TYPES[propType] ? deskOwner : null;   // PLACE ITS DESK: this desk is that agent's, and their only one
     if (owner) placement.agentId = owner;
+    /* THE HAND carries what the pipette picked up: a junction's passes / verdict / wait (through the model's own sanitizer), and a
+       BAY's crew (only an agent this station has), role, brief and hand-off — all in ONE undo with the piece itself */
+    const held = hand && hand.t === propType ? hand : null;
+    if (held && held.cfg) for (const k of HAND_CFG_KEYS) if (held.cfg[k] != null) placement[k] = held.cfg[k];
+    if (held && propType === 'bay' && agentHere(held.agentId)) placement.agentId = held.agentId;
+    const bayExtras = held && propType === 'bay' && (held.role || held.brief || held.hands);
+    /* A JUNCTION ON A BELT goes through the model's junctionOnBelt (THE HAND, 2026-10-10): never on a belt's first or last tile
+       (that took the line apart — ORPHAN_SOURCE), never touching another belt, and a FILTER's EVERYTHING ELSE / a LOOP's DONE lane
+       is the lane the belt already runs on, so the line keeps flowing (a filter dropped bare was a FILTER_NO_DEFAULT finding). */
+    const onBelt = JUNCTION_TAG_TYPES[propType] && station.beltAt(px, py) && linkedFloor() && typeof station.junctionOnBelt === 'function';
     const res = owner
       ? addOwnedDesk(placement, owner)
+      : onBelt ? station.junctionOnBelt(px, py, propType, { cfg: held && held.cfg })
+      : bayExtras ? station.transact(() => {
+          const a = station.addProp(placement); if (!a || !a.ok) return a;
+          if (held.role) station.setPropRole(a.id, held.role);
+          if (held.brief) station.setPropBrief(a.id, held.brief);
+          if (held.hands) station.setPropHands(a.id, held.hands);
+          return a;
+        }, propLabel(propType))
       : station.addProp(placement);
+    if (onBelt && res && !res.ok) res.msg = res.msg || 'that tile will not take it';
     if (res && !res.ok) res.msg = placementReason({v:res,rects:[{x1:px,y1:py,x2:px+s.w-1,y2:py+s.h-1}]});
     if (res && res.ok) {
       pushFlash([{ x1: px, y1: py, x2: px + s.w - 1, y2: py + s.h - 1 }], false);
@@ -5473,6 +5611,7 @@ const Build = (() => {
       selectedPropId = res.id; renderSelection();   // the tool stays armed; the new desk's card asks who sits there
       return feedback(res, ev, owner ? (agentLabel(owner) + '’s desk · they sit here now') : 'desk placed · pick who sits here');
     }
+    if (onBelt) return feedback(res, ev, propLabel(propType) + ' PUT ON THE LINE' + (propType === 'filter' ? ' · EVERYTHING ELSE KEEPS THIS LANE' : propType === 'loop' ? ' · DONE KEEPS THIS LANE — BELT ITS BACK LANE TO AN EARLIER BAY' : ''));
     feedback(res, ev, grant ? ('PLACED · ' + grant + ' equipment') : ('placed ' + ((typeof PropSprites !== 'undefined' && PropSprites.isUserProp && PropSprites.isUserProp(propType)) ? String((PropSprites.spec(propType) || {}).label || 'made prop').toLowerCase() : propType)));   // a made prop's id is internal; say its name
   }
   /* DRAG TO LAY A ROW (2026-10-01 build-mode upgrade). With a piece of furniture armed, a drag lays copies from where you pressed
@@ -5694,6 +5833,227 @@ const Build = (() => {
     return { rects, v, kind: 'dupe' };
   }
 
+  /* ---------- THE HAND: the drag gestures (2026-10-10) ----------
+     handbelt   — a WORKFLOW machine dragged (Shift up). Let go on: a machine → connect (a BAY or INBOX that already hands work on
+                  RE-ROUTES its one exit instead); an OUTBOX onto another line's INBOX → SEND TO (only when the station can —
+                  station.setSendTo, feature-detected); a belt → MERGE (a MERGER lands on that tile); empty floor → the dock asks
+                  PICK WHAT GOES HERE, listing only what fits there.
+     handbranch — a belt dragged from its middle: a SPLITTER lands where it was pressed, and the new belt goes where you let go
+                  (a machine, another belt — a MERGER there too — or empty floor and the same picker).
+     Each is the model's own planner asked through a pure preview while you drag (memoized per edit, tile and corner — nothing
+     is written until you let go, H9) and ONE transact when you do. The reason rides the pointer through the one-voice arbiter. */
+  const HAND_PLAN_MODES = { handbelt: 1, handbranch: 1 };
+  const beltSource = id => { const p = id && station.propById(id); return !!(p && CONNECT_TYPES[p.t]); };
+  const isConveyorPiece = p => !!(p && CONNECT_TYPES[p.t]);
+  let linksVer = 0, linksMemo = null;
+  const linksMemoed = () => (linksVer === geoVer && linksMemo) ? linksMemo : (linksVer = geoVer, linksMemo = (station && station.links && station.links()) || []);
+  // the ONE exit a BAY or INBOX hands its work on through — a new belt from it re-routes that exit (a junction may have several)
+  function soleExitOf(p) {
+    if (!p || (p.t !== 'bay' && p.t !== 'intake') || !linkedFloor()) return null;
+    const outs = linksMemoed().filter(l => l.from && l.from.prop === p.id);
+    return outs.length === 1 ? outs[0] : null;
+  }
+  const refusalWords = pv => String((pv && (pv.short || NO_ROUTE[pv.error] || pv.msg)) || 'NO CLEAR ROUTE').toUpperCase();
+  const mName = id => String(machineName(id)).toUpperCase();
+  let handPvKey = '', handPvMemo = null;
+  function handPlan(d) {
+    if (!d || !d.moved || !station) return null;
+    const src = d.mode === 'handbranch' ? 'b' + d.from.x + ',' + d.from.y : 'p' + d.propId;
+    const k = geoVer + '|' + src + '|' + d.cur.tx + ',' + d.cur.ty + '|' + (flipPref ? 1 : 0);
+    if (k === handPvKey) return handPvMemo;
+    let plan = null;
+    try { plan = planHandGesture(d, d.cur.tx, d.cur.ty); } catch (e) { plan = { ok: false, why: 'THAT DID NOT WORK OUT — ' + String((e && e.message) || e).toUpperCase() }; }
+    handPvKey = k; handPvMemo = plan;
+    return plan;
+  }
+  function planHandGesture(d, tx, ty) {
+    const o = { flip: flipPref }, tile = { x: tx, y: ty };
+    const pid = station.propAt(tx, ty), T = pid && station.propById(pid);
+    if (d.mode === 'handbranch') {
+      const F = d.from;
+      if (tx === F.x && ty === F.y) return null;   // still on the tile it was pressed on
+      const split = { t: 'splitter', x: F.x, y: F.y };
+      if (T) {
+        if (!isConveyorPiece(T)) return { ok: false, to: T, why: 'BELTS RUN BETWEEN CONVEYOR MACHINES' };
+        const pv = station.previewBranch(F, T.id, o);
+        return pv.ok ? { ok: true, kind: 'branch', to: T, path: pv.path, junctions: [split], why: 'BRANCH TO ' + mName(T.id) + ' · A SPLITTER GOES HERE' }
+          : { ok: false, to: T, junctions: [split], why: refusalWords(pv) };
+      }
+      const pv = station.previewBranch(F, tile, o);
+      if (pv.mode === 'branchmerge') return pv.ok ? { ok: true, kind: 'branchmerge', path: pv.path, junctions: [split, { t: 'merger', x: tx, y: ty }], why: 'BRANCH INTO THIS BELT · A SPLITTER AND A MERGER' }
+        : { ok: false, junctions: [split], why: refusalWords(pv) };
+      return pv.ok ? { ok: true, kind: 'branchfloor', path: pv.path, junctions: [split], why: 'LET GO TO PICK WHAT GOES HERE' } : { ok: false, junctions: [split], why: refusalWords(pv) };
+    }
+    const A = station.propById(d.propId);
+    if (!A) return null;
+    if (T && T.id === A.id) return null;   // still over the machine it left
+    const exit = soleExitOf(A);
+    if (T) {
+      if (!isConveyorPiece(T)) return { ok: false, to: T, why: 'BELTS RUN BETWEEN CONVEYOR MACHINES' };
+      if (A.t === 'outbox' && T.t === 'intake' && typeof station.setSendTo === 'function') {
+        const same = lineOfProp(A.id), there = lineOfProp(T.id);
+        if (same && there && same.key === there.key) return { ok: false, to: T, why: 'THAT INBOX STARTS THIS SAME LINE' };
+        return { ok: true, kind: 'send', to: T, why: 'SEND EVERY RESULT TO ' + mName(T.id) };
+      }
+      if (exit && exit.to.prop === T.id) return { ok: false, to: T, why: 'ALREADY CONNECTED' };
+      if (exit && T.t !== 'intake' && A.t !== 'outbox') {
+        const pv = station.previewRelink(exit.id, T.id, o);
+        return pv.ok ? { ok: true, kind: 'reroute', link: exit.id, to: T, path: pv.path, why: 'RE-ROUTE · HAND TO ' + mName(T.id) + ' INSTEAD OF ' + mName(exit.to.prop) }
+          : { ok: false, to: T, why: refusalWords(pv) };
+      }
+      if (linksMemoed().some(l => l.from.prop === A.id && l.to.prop === T.id)) return { ok: false, to: T, why: 'ALREADY CONNECTED' };
+      const pv = station.previewBelt(A.id, T.id, o);
+      const fed = (T.t === 'bay' || T.t === 'outbox') && linksMemoed().some(l => l.to.prop === T.id);
+      return pv.ok ? { ok: true, kind: 'connect', to: T, path: pv.path, why: (fed ? 'JOIN ' + mName(T.id) + '’S INPUT' : 'CONNECT TO ' + mName(T.id)) }
+        : { ok: false, to: T, why: refusalWords(pv) };
+    }
+    if (A.t !== 'outbox' && exit) return { ok: false, why: 'THIS ' + propLabel(A.t) + ' ALREADY HANDS WORK ON — DRAG FROM ITS BELT TO BRANCH IT' };
+    const pv = station.previewBeltTo(A.id, tile, o);
+    if (pv.mode === 'merge') return pv.ok ? { ok: true, kind: 'merge', path: pv.path, junctions: [{ t: 'merger', x: tx, y: ty }], why: 'MERGE INTO THIS BELT · A MERGER GOES HERE' } : { ok: false, why: refusalWords(pv) };
+    return pv.ok ? { ok: true, kind: 'floor', path: pv.path, why: 'LET GO TO PICK WHAT GOES HERE' } : { ok: false, why: refusalWords(pv) };
+  }
+  // R mid-drag: the corner turns the other way (where two shortest routes exist) — the preview re-asks, the commit lays the same
+  function flipCorner() {
+    flipPref = !flipPref; handPvKey = ''; paintHandKeys(); sfx('tick');
+    showTip(flipPref ? 'CORNER FLIPPED' : 'CORNER BACK', true); clearTimeout(tipTimer); tipTimer = setTimeout(hideTip, 900);
+  }
+  const pathRects = path => (path || []).map(q => ({ x1: q.x, y1: q.y, x2: q.x, y2: q.y }));
+  function commitHandGesture(d, ev) {
+    const plan = handPlan(d);
+    hideTip();
+    if (!plan) return;                                   // let go where it started: nothing happened
+    if (!plan.ok) { sfx('bad'); flashTip(ev, plan.why, false); return; }
+    const o = { flip: flipPref }, tile = { x: d.cur.tx, y: d.cur.ty };
+    if (plan.kind === 'floor' || plan.kind === 'branchfloor') { openDropPick(d, plan, tile, ev); flipPref = false; paintHandKeys(); return; }   // (the picker keeps the corner it was shown with)
+    let res = null, msg = '';
+    if (plan.kind === 'connect') { res = station.connectBelt(d.propId, plan.to.id, o); msg = 'CONNECTED TO ' + mName(plan.to.id) + (res && res.count ? ' · ' + res.count + ' BELTS' : ''); }
+    else if (plan.kind === 'reroute') { res = station.relinkTo(plan.link, plan.to.id, o); msg = 'RE-ROUTED · NOW HANDS TO ' + mName(plan.to.id); }
+    else if (plan.kind === 'send') { res = station.setSendTo(d.propId, plan.to.id); msg = 'SENDS EVERY RESULT TO ' + mName(plan.to.id); }
+    else if (plan.kind === 'merge') { res = station.mergeBelt(d.propId, tile, o); msg = 'MERGED · A MERGER JOINS THE TWO BELTS'; }
+    else if (plan.kind === 'branch') { res = station.branchBelt(d.from, plan.to.id, o); msg = 'BRANCHED · A SPLITTER NOW FEEDS ' + mName(plan.to.id); }
+    else if (plan.kind === 'branchmerge') { res = station.branchBelt(d.from, tile, o); msg = 'BRANCHED INTO THE OTHER BELT'; }
+    if (res && res.ok) {
+      sfx('chime'); flashTip(ev, msg, true);
+      pushFlash(pathRects(plan.path).concat((plan.junctions || []).map(j => ({ x1: j.x, y1: j.y, x2: j.x, y2: j.y }))), false);
+      const made = [res.id, res.made].filter(id => id && station.propById(id) && plan.kind !== 'reroute');
+      if (made.length && plan.kind !== 'connect' && plan.kind !== 'send') landProps(made, 60);
+      if (typeof Tutorial !== 'undefined' && Tutorial.onBeltPlaced && plan.kind !== 'send') Tutorial.onBeltPlaced();
+    } else { sfx('bad'); flashTip(ev, String((res && (res.short || res.msg)) || 'that did not go').toUpperCase(), false); }
+    flipPref = false; paintHandKeys();   // R flips THIS drag's corner; the next one starts plain (the CORNER key flips the next drag)
+  }
+  /* PICK WHAT GOES HERE (empty-floor release). The pieces that fit are asked ONCE, now, of a probe copy (station.probeDrop — the
+     real edit, thrown away); the bottom dock lists only those (windows dock from the bottom — never a popover at the pointer), a
+     pin marks the tile, the ghost belt stays drawn; a pick lays it all as one undo, Esc / right-click / a press elsewhere cancels. */
+  const DROP_TYPES = ['bay', 'outbox', 'splitter', 'merger', 'joiner', 'filter', 'loop'];   // an INBOX starts a line: nothing belts into it
+  function dropSpec(t) { const s = propSpec(t); return { t, w: s.w || 1, h: s.h || 1, block: s.blocks !== false }; }
+  function openDropPick(d, plan, tile, ev) {
+    const from = d.mode === 'handbranch' ? { belt: { x: d.from.x, y: d.from.y } } : d.propId;
+    let opts = [];
+    try { opts = station.probeDrop(from, tile, DROP_TYPES.map(dropSpec), { flip: flipPref }) || []; } catch (e) { opts = []; }
+    dropPick = { from, tile, flip: flipPref, path: plan.path || [], junctions: plan.junctions || [], opts };
+    sfx(opts.some(q => q.ok) ? 'open' : 'bad');
+    toggleKit(false); renderSelection();
+    setHint(opts.some(q => q.ok) ? 'PICK WHAT GOES HERE · Esc or right-click cancels' : 'NOTHING FITS THERE · Esc cancels');
+  }
+  function commitDropPick(t) {
+    const dp = dropPick; if (!dp) return;
+    const spec = dropSpec(t), at = { clientX: lastClient.x, clientY: lastClient.y };
+    const res = dp.from && typeof dp.from === 'object' && dp.from.belt
+      ? station.branchBelt(dp.from.belt, dp.tile, { flip: dp.flip, place: spec })
+      : station.dropFrom(dp.from, dp.tile, spec, { flip: dp.flip });
+    dropPick = null; renderSelection(); setHint();
+    if (res && res.ok) {
+      const newId = res.made || res.id, np = newId && station.propById(newId);
+      sfx('chime'); flashTip(at, propLabel(t) + ' PLACED AND CONNECTED' + (t === 'bay' ? ' · CLICK IT TO CREW IT' : ''), true);
+      pushFlash(pathRects(dp.path).concat(np ? [{ x1: np.x, y1: np.y, x2: np.x + np.w - 1, y2: np.y + np.h - 1 }] : []), false);
+      if (np) landProps([np.id]);
+      if (typeof Tutorial !== 'undefined' && Tutorial.onBeltPlaced) Tutorial.onBeltPlaced();
+    } else { sfx('bad'); flashTip(at, String((res && (res.short || res.msg)) || 'that did not fit').toUpperCase(), false); }
+  }
+  function renderDropPick(host) {
+    const dp = dropPick, fits = dp.opts.filter(q => q.ok), why = (dp.opts.find(q => !q.ok && q.msg) || {}).msg;
+    host.innerHTML = '<div class="refit-sel-head refit-droppick-head"><span class="refit-sel-name"><b>PICK WHAT GOES HERE</b><small>'
+      + (fits.length ? 'only what fits at the pin · one undo' : 'nothing fits at the pin') + '</small></span>'
+      + '<button class="bb sm refit-sel-x" type="button" aria-label="Cancel" data-tip="Cancel · Esc">✕</button></div>'
+      + (fits.length ? '<div class="refit-droppick"></div>' : '<p class="refit-droppick-none">' + esc(String(why || 'There is no room for a piece there — let go nearer clear floor.')) + '</p>');
+    host.querySelector('.refit-sel-x').onclick = () => { setHand(null); };
+    const grid = host.querySelector('.refit-droppick');
+    if (grid) for (const q of fits) {
+      const c = catalog().find(x => x && x.id === q.t) || { label: q.t };
+      const b = document.createElement('button'); b.type = 'button'; b.className = 'refit-hotslot refit-dropslot'; b.dataset.drop = q.t;
+      b.dataset.tip = c.label + (PALETTE_PURPOSE[q.t] ? '\n' + PALETTE_PURPOSE[q.t] : '');
+      const img = document.createElement('img'); img.alt = ''; img.className = 'refit-hotart'; const url = machineStill(q.t); if (url) img.src = url;
+      const nm = document.createElement('span'); nm.className = 'refit-hotname'; nm.textContent = c.label;
+      b.append(img, nm); b.onclick = () => commitDropPick(q.t);
+      grid.appendChild(b);
+    }
+  }
+  /* RIGHT-CLICK REMOVES (empty hand): the conveyor piece under the pointer (a 1-in/1-out junction's two belts become one again —
+     the floor's own reconcile), or the WHOLE belt under it (its link: every tile no other link rides). One undo; the floor says
+     REMOVED · <WHAT> where it went. Furniture and bare floor are not this gesture's (right-click there stays a plain deselect). */
+  function removeAt(ev) {
+    const w = toWorldTile(ev);
+    const pid = propAtEvent(ev) || station.propAt(w.tx, w.ty), p = pid && station.propById(pid);
+    if (p && isConveyorPiece(p)) {
+      const was = Object.assign({}, p), label = propLabel(p.t);
+      const res = station.removeProp(p.id);
+      if (res && res.ok) {
+        pushFlash([{ x1: was.x, y1: was.y, x2: was.x + was.w - 1, y2: was.y + was.h - 1 }], true); vanishProp(was); flashUndo();
+        floatAt({ x: was.x + was.w / 2, y: was.y }, 'REMOVED · ' + label + ' · CTRL+Z', 'bad');
+        if (selectedPropId === p.id) { selectedPropId = null; renderSelection(); }
+      } else { sfx('bad'); flashTip(ev, (res && res.msg) || 'blocked', false); }
+      return true;
+    }
+    if (p) return false;
+    if (!station.beltAt(w.tx, w.ty)) return false;
+    const linked = linkedFloor() && typeof station.removeLinkAt === 'function' ? station.removeLinkAt(w.tx, w.ty) : null;
+    const res = linked && linked.ok ? linked : station.removeBelt(w.tx, w.ty);
+    if (res && res.ok) {
+      pushFlash([{ x1: w.tx, y1: w.ty, x2: w.tx, y2: w.ty }], true); flashUndo(); sfxVanish();
+      floatAt({ x: w.tx + 0.5, y: w.ty }, 'REMOVED · ' + (linked && linked.ok ? 'BELT' : 'BELT TILE') + ' · CTRL+Z', 'bad');
+    } else { sfx('bad'); flashTip(ev, (res && res.msg) || 'blocked', false); }
+    return true;
+  }
+  // Q: pick up one like the piece under the pointer — its type, settings and crew (an agent this station has) — Q again puts it down
+  function pipette(ev, pid) {
+    if (hand) { setHand(null); return; }
+    const p = pid && station.propById(pid);
+    if (!p) { touchArm = null; paintHandKeys(); sfx('bad'); flashTip(ev, 'POINT AT A PIECE — Q PICKS UP ONE LIKE IT', false); return; }
+    const h = handFromProp(p);
+    setHand(h, { silent: true }); sfx('click');
+    flashTip(ev, 'HOLDING · ' + propLabel(p.t) + (h.agentId ? ' · CREWED BY ' + String(agentLabel(h.agentId)).toUpperCase() : '') + (h.cfg ? ' · ITS SETTINGS' : '') + ' — click to place', true);
+  }
+  /* UNDID · <WHAT> (H6): the model's undo/redo hand back what they took back and where (WorldModel editDiff) — a short float rises
+     over those tiles, which flash; a history with nothing to take back says nothing. World tiles, drawn in the 'flashes' layer. */
+  const floaters = [];
+  const FLOAT_MS = 2200;
+  function floatAt(tileCenter, text, tone) { floaters.push({ x: tileCenter.x, y: tileCenter.y, text: String(text).toUpperCase(), tone: tone || 'ok', t0: performance.now() }); if (floaters.length > 6) floaters.shift(); }
+  function floatHistory(r, word) {
+    if (!r || !r.ok) return;
+    const rects = Array.isArray(r.rects) ? r.rects : [];
+    let x = null, y = null;
+    if (rects.length) {
+      let x1 = Infinity, y1 = Infinity, x2 = -Infinity;
+      for (const q of rects) { x1 = Math.min(x1, q.x1); y1 = Math.min(y1, q.y1); x2 = Math.max(x2, q.x2); }
+      x = (x1 + x2 + 1) / 2; y = y1;
+      pushFlash(rects.slice(0, 60), false);   // what changed lights up (an undo that brings a piece back is not a deletion — never the red)
+    } else if (cv) { x = ((cv.width / 2 - panX) / zoom) / T(); y = ((cv.height / 2 - panY) / zoom) / T(); }
+    if (word === 'UNDID') sfxVanish(); else sfxLand();
+    floaters.length = 0;   // one voice at a time: the history float replaces whatever the floor was last saying (a REMOVED it just took back)
+    floatAt({ x, y }, word + ' · ' + (r.label || 'EDIT'), 'note');
+  }
+  function drawFloaters(now, t) {
+    for (let i = floaters.length - 1; i >= 0; i--) {
+      const f = floaters[i], k = (now - f.t0) / FLOAT_MS;
+      if (k >= 1 || f.x == null) { floaters.splice(i, 1); continue; }
+      const box = captionBox(f.text, f.x * t, f.y * t - t * 0.4 - k * t * 1.2);
+      const top = (viewInsetsFrame().t - panY) / zoom + 4 / zoom;   // kept on the visible glass (a float over the top row ran under the top bar)
+      if (box.y < top) box.y = top;
+      const col = f.tone === 'bad' ? '#ff8f80' : f.tone === 'note' ? '#f0e6ce' : '#7ee2a8';
+      captionPlate(ctx, f.text, box, col, k < 0.75 ? 1 : (1 - k) / 0.25);
+    }
+  }
+
   function feedback(res, ev, okMsg) {
     if (res && res.ok) { sfx('click'); flashTip(ev, okMsg, true); }
     else { sfx('bad'); flashTip(ev, (res && res.msg) || 'blocked'); }
@@ -5802,6 +6162,8 @@ const Build = (() => {
     if (modal && ev.key !== 'Escape') return;
     if (ev.key === ' ' && a && (a.tagName === 'BUTTON' || a.tagName === 'SUMMARY')) return;
     if (ev.key === ' ') { ev.preventDefault(); spaceHeld = true; setCursor(); return; }
+    // ALT VIEW while held — and never the browser's menu bar (a bare Alt focuses it in a browser tab); onBlur lets it go
+    if (ev.key === 'Alt') { ev.preventDefault(); altHeld = true; return; }
     if (ev.key === 'Escape') {
       // close the TOPMOST card through ITS OWN close path (which saves what that card saves — an unsaved
       // job brief / line name / room rename). markSeen() belongs to the first-run card ALONE, and that
@@ -5812,6 +6174,7 @@ const Build = (() => {
       if (categoryMenu) { categoryMenu.open = false; categoryMenu.querySelector('summary').focus(); return; }
       const details = root.querySelector('.refit-propworkspace.show-details');
       if (details) { const toggle = details.querySelector('.refit-details-toggle'); toggle.click(); toggle.focus(); return; }
+      if (!drag && (hand || touchArm || dropPick)) { setHand(null); return; }   // THE HAND: put down what is held (or the unanswered picker)
       if (drag || connectFrom || connectTo || dupe) { selectTool('select'); return; }
       if (selectedPropId || movingPropId || groupIds.length || selectedRoomId) { selectTool('select'); return; }
       if (typeof WorkflowPanel !== 'undefined' && WorkflowPanel.isOpen()) { WorkflowPanel.close(); return; }   // the docked panel closes (saving) before BUILD MODE does
@@ -5830,11 +6193,14 @@ const Build = (() => {
     if ((ev.ctrlKey || ev.metaKey) && (ev.key === 'z' || ev.key === 'Z')) {
       ev.preventDefault();
       const r = ev.shiftKey ? station.redo() : station.undo();
-      sfx(r.ok ? 'click' : 'bad'); return;
+      sfx(r.ok ? 'click' : 'bad'); floatHistory(r, ev.shiftKey ? 'REDID' : 'UNDID'); return;
     }
-    if ((ev.ctrlKey || ev.metaKey) && (ev.key === 'y' || ev.key === 'Y')) { ev.preventDefault(); sfx(station.redo().ok ? 'click' : 'bad'); return; }
+    if ((ev.ctrlKey || ev.metaKey) && (ev.key === 'y' || ev.key === 'Y')) { ev.preventDefault(); const r = station.redo(); sfx(r.ok ? 'click' : 'bad'); floatHistory(r, 'REDID'); return; }
     if (ev.key === '/') { ev.preventDefault(); buildGroup = 'props'; selectTool('select'); root.querySelector('#refit-propsearch-input')?.focus(); return; }
     if (ev.key === 'f' || ev.key === 'F') { fitCamera(); return; }
+    // THE HAND: R mid-drag flips the belt's corner; Q picks up one like the piece under the pointer (Q again puts it down)
+    if ((ev.key === 'r' || ev.key === 'R') && drag && (drag.mode === 'handbelt' || drag.mode === 'handbranch')) { ev.preventDefault(); flipCorner(); return; }
+    if ((ev.key === 'q' || ev.key === 'Q') && tool === 'select' && !(ev.ctrlKey || ev.metaKey)) { ev.preventDefault(); pipette(orientEv(), hoverPropId); return; }
     // R/M belong to pending prop placement, or to hovered furniture while browsing.
     // Both are no-ops with a reason on art that cannot turn/flip.
     if (ev.key === 'r' || ev.key === 'R') { ev.preventDefault(); turnUnderCursor(ev.shiftKey ? -1 : 1); return; }
@@ -5862,10 +6228,12 @@ const Build = (() => {
       setHint('holding ' + held.label + ' — click to stamp copies · right-click / Esc to drop');
       return;
     }
+    // THE HOTBAR: while the Conveyors tab is up, 1–8 pick its pieces (the same key again puts it down); other tabs keep the tool keys
+    if (buildGroup === 'workflow' && /^[1-8]$/.test(ev.key) && !(ev.ctrlKey || ev.metaKey || ev.altKey)) { toggleHand(HOTBAR[+ev.key - 1]); return; }
     const map = { '0': 'select', '1': 'room', '2': 'hall', '3': 'paint', '4': 'move', '5': 'reclaim', '6': 'prop', '7': 'belt', '8': 'dupe', '9': 'line' };
     if (map[ev.key]) selectTool(map[ev.key]);
   }
-  function onKeyUp(ev) { if (ev.key === ' ') { spaceHeld = false; setCursor(); } }
+  function onKeyUp(ev) { if (ev.key === ' ') { spaceHeld = false; setCursor(); } if (ev.key === 'Alt') { ev.preventDefault(); altHeld = false; } }
 
   /* ---------- geometry helpers (world tiles) ---------- */
   function norm(a, b) { return { x1: Math.min(a.tx, b.tx), y1: Math.min(a.ty, b.ty), x2: Math.max(a.tx, b.tx), y2: Math.max(a.ty, b.ty) }; }
@@ -6070,14 +6438,21 @@ const Build = (() => {
       if (tool === 'line' && hoverTile) return lineGhost(hoverTile.tx, hoverTile.ty);
       // Show a prop's occupied footprint before the click. Validation is stable while the
       // pointer, orientation and station stay put; avoid a model walk on every paint frame.
-      if (tool === 'prop' && hoverTile) {
+      if (placingProp() && hoverTile) {
         const { tx, ty } = hoverTile, facing = propFacing(propType);
         const key = [geoVer, propType, facing, tx, ty].join('|');
         if (!propHoverMemo || propHoverMemo.key !== key) {
           const s = propBox(propType, facing);
           const rect = { x1: tx, y1: ty, x2: tx + s.w - 1, y2: ty + s.h - 1 };
-          const links = isWorkflowType(propType) ? ghostLinks({ props: [{ t: propType, x: tx, y: ty, w: s.w, h: s.h }] }) : [];
-          propHoverMemo = { key, ghost: { rects: [rect], v: station.canPlaceProp(propType, tx, ty, s.w, s.h), kind: 'prop', stamp: true, links } };
+          // THE HAND: a junction held over a belt goes ON that belt (junctionOnBelt) — green where it may, red with the reason
+          const onBelt = JUNCTION_TAG_TYPES[propType] && station.beltAt(tx, ty) && linkedFloor() && typeof station.junctionOnBeltRefusal === 'function';
+          if (onBelt) {
+            const no = station.junctionOnBeltRefusal(tx, ty);
+            propHoverMemo = { key, ghost: { rects: [rect], v: no ? { ok: false, msg: no.msg, short: no.short } : { ok: true }, kind: 'prop', stamp: true, insert: true, links: [] } };
+          } else {
+            const links = isWorkflowType(propType) ? ghostLinks({ props: [{ t: propType, x: tx, y: ty, w: s.w, h: s.h }] }) : [];
+            propHoverMemo = { key, ghost: { rects: [rect], v: station.canPlaceProp(propType, tx, ty, s.w, s.h), kind: 'prop', stamp: true, links } };
+          }
         }
         return propHoverMemo.ghost;
       }
@@ -6343,6 +6718,7 @@ const Build = (() => {
     drawLayer('flashes', () => drawFlashes(now, t));
     drawLayer('validation', () => drawRoutingValidation(t, now));
     drawLayer('junctionTags', () => drawJunctionTags(t));   // what each 1×1 junction IS and will DO, under its tile (Conveyors tab)
+    drawLayer('altView', () => drawAltView(t));   // THE HAND: Alt shows every setting / SEND TO / stage count (and an over-budget INBOX says n/max at rest)
     drawLayer('workflow', () => drawWorkflowMarks(t, now));   // the docked panel's selection + a paused step test's waiting handoff   // plain-words callouts on any broken piece, IN build mode (cost-safety + guidance)
     drawLayer('beltEndpoints', () => drawBeltEndpointGlow(t, now)); // BELT tool armed → INTAKE glows FROM, BAY/OUTBOX glow TO (what connects to what)
     drawLayer('bayNames', () => {
@@ -6357,10 +6733,12 @@ const Build = (() => {
     drawLayer('hover', () => drawHover(t));
     drawLayer('agentTag', () => drawAgentTag(t));   // hovering a PC or BAY names the agent it's bound to (or flags an unassigned PC)
     drawLayer('ghost', () => drawGhost(t, now));
+    drawLayer('hand', () => drawHandGhost(t, now));   // THE HAND: a drag's belt-to-be + the reason at the pointer, or the picker's pin
     // every voice has registered — the arbiter now paints AT MOST one label per anchor region.
     // overFloor: the pointer is on the station (or a gesture is live) → the projection stays quiet.
     // guarded too: the registered labels PAINT here, so a throwing caption would otherwise take the frame
     drawLayer('voices', () => voiceFlush(!!drag || !!(hoverRoomId || hoverPropId || (hoverTile && station.beltAt(hoverTile.tx, hoverTile.ty)))));
+    if (floaters.length) drawLayer('floats', () => drawFloaters(now, t));   // REMOVED / UNDID · <WHAT>: rises over the tiles it names, then fades
     // animate the prop-palette preview gallery (~25fps is plenty + cheap). Runs LAST: it hijacks PropSprites'
     // ctx for the offscreen tiles, and the next frame re-points it at the main canvas in drawProps().
     if (tool === 'prop' && propThumbs.length && now - lastThumbTs >= 40) { paintThumbs(now); lastThumbTs = now; }
@@ -6650,7 +7028,7 @@ const Build = (() => {
      is the point — the paint and delete brushes raster whole runs of tiles per frame and would
      machine-gun it. */
   let lastTick = 0;
-  const SNAP_GESTURES = { draw: 1, beltrun: 1, move: 1, propmove: 1, propstamp: 1, groupmove: 1, roomresize: 1 };
+  const SNAP_GESTURES = { handbelt: 1, handbranch: 1, draw: 1, beltrun: 1, move: 1, propmove: 1, propstamp: 1, groupmove: 1, roomresize: 1 };   // (THE HAND's drags tick tile by tile too)
   function snapTick(mode) {
     if (!SNAP_GESTURES[mode]) return;
     const n = performance.now();
@@ -6801,7 +7179,7 @@ const Build = (() => {
     convey.drawBelts(ctx, now, t, belts, valLive);
     /* DROP IT ON A BELT (2026-09-27 audit P5): with a junction in hand, every belt tile it can go on wears a crisp dashed
        edge — drawn geometry, never a glow — so the shelf's "drop it ON a belt" points at something on the floor. */
-    if (tool === 'prop' && JUNCTION_TAG_TYPES[propType] && belts.length) {
+    if (placingProp() && JUNCTION_TAG_TYPES[propType] && belts.length) {
       const ins = 1.5 / zoom;
       ctx.save();
       ctx.strokeStyle = 'rgba(95,216,255,0.6)'; ctx.lineWidth = 1 / zoom; ctx.setLineDash([3 / zoom, 2 / zoom]);
@@ -7198,6 +7576,124 @@ const Build = (() => {
       });
     }
     ctx.restore();
+  }
+
+  /* ---------- THE HAND, DRAWN (2026-10-10) ----------
+     A drag's ghost is drawn GEOMETRY — the dashed tiles + chevrons drawBeltPreview already draws (never convey.drawBelts: a second
+     belt array per frame would drop the conveyor's atlas every frame, H9), the junction that would land as its own sprite at low
+     alpha, the target outlined green or red — and ONE caption at the pointer through the arbiter (activeFlow). */
+  function cursorWorld() {
+    if (!cv) return { x: 0, y: 0 };
+    const c = toCanvas({ clientX: lastClient.x, clientY: lastClient.y });
+    return { x: (c.x - panX) / zoom, y: (c.y - panY) / zoom };
+  }
+  function drawJunctionGhosts(list, now, alpha) {
+    if (!list || !list.length || typeof PropSprites === 'undefined') return;
+    ctx.save(); ctx.globalAlpha = alpha; PropSprites.setCtx(ctx); PropSprites.setNow(now);
+    try { for (const j of list) PropSprites.draw({ t: j.t, x: j.x, y: j.y, w: 1, h: 1 }, false); } finally { ctx.restore(); }
+  }
+  // a hand-off arc between two machines (SEND TO): a dashed curve that dips under them, drawn, never a belt
+  function drawSendArc(a, b, t, col, label) {
+    const ax = (a.x + (a.w || 1) / 2) * t, ay = (a.y + (a.h || 1) / 2) * t, bx = (b.x + (b.w || 1) / 2) * t, by = (b.y + (b.h || 1) / 2) * t;
+    const mx = (ax + bx) / 2, my = Math.max(ay, by) + t * 2.6;
+    ctx.save(); ctx.strokeStyle = col; ctx.globalAlpha = 0.9; ctx.lineWidth = 1.5 / zoom; ctx.setLineDash([4 / zoom, 3 / zoom]);
+    ctx.beginPath(); ctx.moveTo(ax, ay); ctx.quadraticCurveTo(mx, my, bx, by); ctx.stroke(); ctx.restore();
+    if (label) {
+      const box = captionBox(label, 0.25 * ax + 0.5 * mx + 0.25 * bx, null, 0.25 * ay + 0.5 * my + 0.25 * by);
+      voiceSay('activeFlow', box, box, c => captionPlate(c, label, box, col, 0.95));
+    }
+  }
+  function drawHandGhost(t, now) {
+    if (dropPick) {   // PICK WHAT GOES HERE waits: its belt stays drawn and a pin marks the tile
+      if (dropPick.path.length) drawBeltPreview(t, { path: dropPick.path }, '#7ee2a8');
+      drawJunctionGhosts(dropPick.junctions, now, 0.6);
+      const px = (dropPick.tile.x + 0.5) * t, py = (dropPick.tile.y + 0.5) * t, s = t * 0.42;
+      ctx.save(); ctx.fillStyle = 'rgba(255,217,74,0.95)'; ctx.strokeStyle = 'rgba(4,6,8,0.9)'; ctx.lineWidth = 1 / zoom;
+      ctx.beginPath(); ctx.moveTo(px, py + s); ctx.lineTo(px - s * 0.7, py - s * 0.2); ctx.arc(px, py - s * 0.45, s * 0.72, Math.PI * 0.86, Math.PI * 0.14, false); ctx.closePath(); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = 'rgba(4,6,8,0.9)'; ctx.beginPath(); ctx.arc(px, py - s * 0.45, s * 0.26, 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
+      return;
+    }
+    if (!drag || (drag.mode !== 'handbelt' && drag.mode !== 'handbranch')) return;
+    const plan = handPlan(drag);
+    const A = drag.mode === 'handbelt' ? station.propById(drag.propId) : null;
+    if (A) drawPropSelection(A, t, 'rgba(255,217,74,.95)', false);
+    if (!plan) return;
+    const ok = !!plan.ok, col = ok ? '#7ee2a8' : '#ff8f80';
+    if (plan.kind === 'send' && A && plan.to) drawSendArc(A, plan.to, t, col, null);
+    else if (plan.path && plan.path.length) drawBeltPreview(t, { path: plan.path }, col);
+    else {   // no route to draw: a straight dashed line from where it started to the pointer says where you are aiming
+      const s = A ? { x: (A.x + (A.w || 1) / 2) * t, y: (A.y + (A.h || 1) / 2) * t } : { x: (drag.from.x + 0.5) * t, y: (drag.from.y + 0.5) * t }, c = cursorWorld();
+      ctx.save(); ctx.strokeStyle = col; ctx.globalAlpha = 0.8; ctx.lineWidth = 1.2 / zoom; ctx.setLineDash([3 / zoom, 3 / zoom]);
+      ctx.beginPath(); ctx.moveTo(s.x, s.y); ctx.lineTo(c.x, c.y); ctx.stroke(); ctx.restore();
+    }
+    drawJunctionGhosts(plan.junctions, now, ok ? 0.65 : 0.35);
+    if (plan.to) drawPropSelection(plan.to, t, ok ? 'rgba(126,226,168,.95)' : 'rgba(255,143,128,.95)', false);
+    // the ONE voice at the pointer: what letting go here does, or why it can't (activeFlow)
+    const c = cursorWorld(), box = captionBox(plan.why, c.x, null, c.y + 20 / zoom);
+    box.x = c.x + 16 / zoom; captionFit(box);
+    voiceSay('activeFlow', box, box, cc => captionPlate(cc, plan.why, box, col));
+  }
+  /* ---------- ALT VIEW (H5) ----------
+     Held Alt (or the ALT VIEW key): every junction's setting under its tile (ASCII only — VT323 has no ×, so x3 / 2>1), every SEND TO
+     hand-off as an arc, every line's stage count on its INBOX (n/max). At rest the junction tags stay hover-only (one-voice law);
+     an INBOX whose line runs more stages than its budget allows wears its amber n/max plate — the one resting number. Read off the
+     compiled plan (valPlan — the same artifact the sidecar routes by); a count the plan does not carry is never invented. */
+  function altJunctionText(p, o) {
+    const k = p.x + ',' + p.y, cfg = valPlan && valPlan.junctions && valPlan.junctions[k];
+    const I = (typeof Pipeline !== 'undefined' && Pipeline._internals) || null, map = valPlan && valPlan.belts;
+    const outs = I && map ? I.outLanes(map, p.x, p.y).length : 0, ins = I && map ? I.inLanes(map, p.x, p.y).length : 0;
+    if (p.t === 'splitter') return (fanoutOnceCrewed()[k] ? 'COPY x' : 'TURNS x') + outs;
+    if (p.t === 'merger') return ins + '>1';
+    if (p.t === 'joiner') return 'WAITS ' + ((cfg && cfg.expect) || ins) + '/' + ((cfg && cfg.expect) || ins);
+    if (p.t === 'loop') return 'UP TO x' + ((cfg && cfg.max) || (typeof Pipeline !== 'undefined' && Pipeline.LOOP_MAX_DEFAULT) || 5);
+    if (p.t === 'filter') {
+      const r = (cfg && cfg.routes) || {}, tags = Object.keys(r).map(s => String(s).slice(0, 4).toUpperCase());
+      return (tags.length ? tags.join('/') + (cfg && cfg.def ? '/ELSE' : '') : (cfg && cfg.def ? 'ELSE' : 'SORTS'));
+    }
+    return null;
+  }
+  // a line's stage count n and ceiling max, from the plan — rec.stages when the compiler records it, else a LINE_TOO_LONG finding
+  function lineStagesOf(rec) {
+    if (!rec || !valPlan) return null;
+    const max = ((rec.limits && rec.limits.maxHops != null) ? rec.limits.maxHops : ((typeof Pipeline !== 'undefined' && Pipeline.LINE_LIMIT_DEFAULTS && Pipeline.LINE_LIMIT_DEFAULTS.maxHops) || 6)) + 1;
+    if (typeof rec.stages === 'number') return { n: rec.stages, max, over: rec.stages > max };
+    const e = (valPlan.errors || []).find(q => q.code === 'LINE_TOO_LONG' && q.lineId === rec.lineId);
+    if (e) return { n: e.stages, max: e.maxHops + 1, over: true };
+    const ls = (typeof Pipeline !== 'undefined' && Pipeline.lineStages) ? Pipeline.lineStages(valPlan, rec.lineId) : null;   // the compiler's own count
+    return ls && ls.stages > 0 ? { n: ls.stages, max: ls.max, over: ls.stages > ls.max } : null;
+  }
+  function drawAltView(t) {
+    if (!cacheGeo || !valPlan || buildGroup !== 'workflow' && !altOn()) return;
+    if (t * zoom < 7) return;   // a tile this small cannot carry a word
+    const o = cacheGeo.origin || { tx: 0, ty: 0 }, fh = Math.max(6, 8 / zoom), alt = altOn();
+    const plate = (text, cx, y, col, layer, anchor) => {
+      ctx.save(); ctx.font = TAG_FONT(); const tw = ctx.measureText(text).width; ctx.restore();
+      const box = { x: cx - tw / 2 - 2 / zoom, y: y - 1 / zoom, w: tw + 4 / zoom, h: fh + 2 / zoom };
+      const paint = c => {
+        c.save(); c.font = TAG_FONT(); c.textAlign = 'center'; c.textBaseline = 'top';
+        c.fillStyle = 'rgba(3,2,1,.8)'; c.fillRect(box.x, box.y, box.w, box.h);
+        c.strokeStyle = col; c.globalAlpha = 0.7; c.lineWidth = 1 / zoom; c.strokeRect(box.x, box.y, box.w, box.h); c.globalAlpha = 1;
+        c.fillStyle = col; c.fillText(text, cx, y); c.restore();
+      };
+      if (layer) voiceSay(layer, anchor || box, box, paint); else paint(ctx);
+    };
+    if (alt) for (const p of (cacheGeo.props || [])) {   // every junction's setting, under its tile — part of the machine (not a voice)
+      if (!JUNCTION_TAG_TYPES[p.t]) continue;
+      const text = altJunctionText(p, o); if (!text) continue;
+      plate(text, (p.x + o.tx + 0.5) * t, (p.y + o.ty + 1) * t + 2 / zoom, '#86dcff');
+    }
+    for (const rec of (valPlan.lines || [])) {   // a line's stages on its INBOX: always under Alt, at rest only when over budget
+      const st = lineStagesOf(rec); if (!st || (!alt && !st.over)) continue;
+      const iid = rec.intakes && rec.intakes[0], ip = iid && (cacheGeo.props || []).find(q => q.id === iid); if (!ip) continue;
+      const X = (ip.x + o.tx) * t, Y = (ip.y + o.ty) * t, W = (ip.w || 1) * t;
+      plate(st.n + '/' + st.max + ' STAGES', X + W / 2, Y - fh - 4 / zoom, st.over ? '#ffbe3c' : '#7ee2a8', alt ? null : 'topNag', { x: X, y: Y, w: W, h: (ip.h || 1) * t });
+    }
+    if (alt) for (const p of station.props()) {   // every SEND TO (an OUTBOX field another lane adds — read, never assumed)
+      if (p.t !== 'outbox' || typeof p.sendTo !== 'string' || !p.sendTo) continue;
+      const q = station.propById(p.sendTo); if (!q) continue;
+      drawSendArc(p, q, t, '#7ee2a8', 'SENDS TO ' + mName(q.id));
+    }
   }
 
   // hovering an agent-bound endpoint (a PC = compute, a BAY = routing) floats the bound agent's name above it —
@@ -7643,6 +8139,7 @@ const Build = (() => {
     // no — the reason on its own line right under them. (Was a DOM tip trailing into a screen corner.)
     const r0 = g.rects[0], w = r0.x2 - r0.x1 + 1, h = r0.y2 - r0.y1 + 1;
     let dims = g.belt ? ('BELT ' + g.dir + ' · ' + Math.max(w, h) + ' LONG')
+      : (hand && g.kind === 'prop' && g.stamp) ? propLabel(propType)   // THE HAND: what is held, not its footprint
       : g.kind === 'line' ? (String(g.label || '').toUpperCase() + (ok ? ' — CLICK TO PLACE' : g.laid ? ' — CLICK TO LAY IT OUT HERE' : ''))   // a red ghost invites the click only when the line fits laid out (2026-09-27 audit B1; phase E)
       : g.move ? ('MOVE ' + (g.dx >= 0 ? '+' : '') + g.dx + ', ' + (g.dy >= 0 ? '+' : '') + g.dy)
       : (tool === 'hall' ? (Math.max(w, h) + ' LONG × ' + Math.min(w, h) + ' WIDE') : (w + ' × ' + h));
@@ -7652,11 +8149,11 @@ const Build = (() => {
     // (a line that fits laid out: the drawn shape will not go here, but the click lays the same line out round what stands here)
     if (!ok) lines.push(g.kind === 'line' && g.laid ? 'THE DRAWN SHAPE DOES NOT FIT HERE — IT WILL BE LAID OUT TO FIT' : ((footprint && footprint.msg) || placementReason(g)).toUpperCase());
     // the hover preview teaches BOTH gestures: this size on a click, any size on a drag
-    else if (g.stamp) lines.push(g.kind === 'prop' ? (rowable(propType) ? 'CLICK TO PLACE · DRAG FOR A ROW' : 'CLICK TO PLACE') : 'CLICK TO PLACE · DRAG TO SIZE');
+    else if (g.stamp) lines.push(g.insert ? 'CLICK TO PUT IT ON THIS BELT' : g.kind === 'prop' ? (rowable(propType) ? 'CLICK TO PLACE · DRAG FOR A ROW' : 'CLICK TO PLACE') : 'CLICK TO PLACE · DRAG TO SIZE');
     /* SPACING (2026-09-27 audit B4): a dock hooks every belt in the 1-tile ring around it, so two docks with one empty tile
        between them share that tile — a belt there hooks BOTH, and the job goes nowhere. Said while the ghost is in hand,
        never refused (sandbox law): the Commander may still want them tight. */
-    if (ok && g.kind === 'prop' && tool === 'prop' && RING_DOCK_T[propType] && !linkedFloor()) {
+    if (ok && g.kind === 'prop' && placingProp() && RING_DOCK_T[propType] && !linkedFloor()) {
       const near = station.props().find(p => RING_DOCK_T[p.t] && p.x - 1 <= r0.x2 + 1 && r0.x1 - 1 <= p.x + (p.w || 1) && p.y - 1 <= r0.y2 + 1 && r0.y1 - 1 <= p.y + (p.h || 1));
       if (near) lines.push('CLOSE TO THE ' + String(propLabel(near.t)).toUpperCase() + ' — LEAVE 2 TILES OR THEIR BELTS TOUCH');
     }
@@ -7829,6 +8326,27 @@ const Build = (() => {
   }
   const __test__ = {
     isOpen: () => running,
+    /* THE HAND (2026-10-10): what is held, the picker, the floats — and REAL gestures driven through onDown/onMove/onUp (the same
+       three handlers a mouse does), so a CDP/preview proof exercises the ghost AND the commit, never a shortcut into the model */
+    hand: () => ({ hand: hand && Object.assign({}, hand), touchArm, flip: flipPref, alt: altOn(), pick: dropPick && { tile: dropPick.tile, opts: dropPick.opts.slice() }, floats: floaters.map(f => f.text), drag: drag && drag.mode, plan: drag && HAND_PLAN_MODES[drag.mode] ? handPlan(drag) : null }),
+    setHand: h => { setHand(h || null); return hand && Object.assign({}, hand); },
+    // press at tiles[0], move through the rest; `release:false` leaves the drag live (the ghost + caption can be drawn/read mid-gesture)
+    gesture: (tiles, o) => {
+      if (!running || !cv || !tiles || !tiles.length) return { ok: false, reason: 'not-in-build' };
+      const ev = (tile, extra) => Object.assign(__test__._tileEvent(tile), { shiftKey: !!(o && o.shift) }, extra || {});
+      onDown(ev(tiles[0])); for (let i = 1; i < tiles.length; i++) { const e = ev(tiles[i]); lastClient = { x: e.clientX, y: e.clientY }; onMove(e); }
+      const mid = { drag: drag && drag.mode, plan: drag && HAND_PLAN_MODES[drag.mode] ? handPlan(drag) : null };
+      if (!(o && o.release === false)) onUp(ev(tiles[tiles.length - 1]));
+      return { ok: true, mid, after: { drag: drag && drag.mode, pick: !!dropPick } };
+    },
+    release: (tile) => { if (drag) onUp(__test__._tileEvent(tile || [drag.cur.tx, drag.cur.ty])); return { drag: drag && drag.mode, pick: !!dropPick }; },
+    rightClick: (tile) => { onDown(__test__._tileEvent(tile, 2)); return { hand: hand && hand.t }; },
+    hover: (tile) => { const e = __test__._tileEvent(tile); onMove(e); return { hoverPropId, hoverTile }; },
+    key: (key, o) => { const e = Object.assign({ key, target: null, preventDefault() {}, shiftKey: false, ctrlKey: false, metaKey: false, altKey: false }, o || {}); onKey(e); return { hand: hand && hand.t, alt: altOn() }; },
+    keyUp: (key) => { onKeyUp({ key, preventDefault() {} }); return { alt: altOn() }; },
+    pick: (t) => { commitDropPick(t); return { pick: !!dropPick }; },
+    // one synchronous frame (the hidden preview pane never fires requestAnimationFrame)
+    frame: () => { if (running) frame(performance.now()); return root ? root.dataset.renderState : null; },
     // the build feel (2026-10-01): what is landing / dissolving right now — CDP proof reads these mid-animation
     feel: () => ({ landing: [...landings.keys()], vanishing: vanishing.length, selected: selectedPropId }),
     // MANY AT ONCE: the ids selected right now (one, a group, or none)

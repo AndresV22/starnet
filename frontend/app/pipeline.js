@@ -1950,8 +1950,22 @@
     const rec = m && typeof m === 'object' ? m[String(lineId)] : null;
     return rec && typeof rec === 'object' ? rec : null;
   }
+  /* THE HAND's ALT VIEW (build mode, 2026-10-10): how many stages one job on a line can run, and its ceiling — the same count
+     LINE_TOO_LONG makes (jobStages from every INBOX feed mouth of the line), for a line that is NOT over budget too, so the
+     floor can say n/max on every INBOX. Pure over a compiled plan; null for a line it cannot count (no INBOX on it, or routing
+     off under a belt / work-line loop, where LINE_TOO_LONG is silent too). Outside the hash — nothing dispatch reads. */
+  function lineStages(plan, lineId) {
+    const rec = plan && Array.isArray(plan.lines) ? plan.lines.find(l => l && l.lineId === lineId) : null;
+    if (!rec || !rec.intakes || !rec.intakes.length) return null;
+    if ((plan.errors || []).some(e => e && (e.code === 'CYCLE' || e.code === 'CHAIN_CYCLE'))) return null;
+    let stages = 0, any = false;
+    for (const s of (plan.sources || [])) if (rec.intakes.indexOf(s.propId) >= 0) { any = true; stages = Math.max(stages, jobStages(plan, srcTiles(s))); }
+    if (!any) return null;
+    const maxHops = rec.limits ? rec.limits.maxHops : LINE_LIMIT_DEFAULTS.maxHops;
+    return { stages, max: maxHops + 1, maxHops };
+  }
 
-  return { rejoinOf, deriveLinks, reconcileLinks, compileRoutingPlan, composeStageBrief, HANDS_LEAD, resolveTarget, lineOf, lineOriginOf, lineLimitsOf, normalizeLineLimits, LINE_LIMIT_DEFAULTS, LINE_LIMIT_CEILINGS, sourceFor, ok, liveTiles, routeFrom, junctionLaneOwners, chainNext, chainStep, fanSiblings, handoffPrompt, parseHandoff, isHandoff, stripVerdictLine, joinPayload, lineComponents, LOOP_MAX_DEFAULT, LOOP_MAX_CEILING,
+  return { lineStages, rejoinOf, deriveLinks, reconcileLinks, compileRoutingPlan, composeStageBrief, HANDS_LEAD, resolveTarget, lineOf, lineOriginOf, lineLimitsOf, normalizeLineLimits, LINE_LIMIT_DEFAULTS, LINE_LIMIT_CEILINGS, sourceFor, ok, liveTiles, routeFrom, junctionLaneOwners, chainNext, chainStep, fanSiblings, handoffPrompt, parseHandoff, isHandoff, stripVerdictLine, joinPayload, lineComponents, LOOP_MAX_DEFAULT, LOOP_MAX_CEILING,
     // THE DOCK LAYER (multi-bay agents, 2026-09-22) — the dock-keyed truth the agent readings above are views of
     resolveDock, chainNextDock, chainStepDock, fanSiblingsDock, junctionLaneDocks, lineOfDock, lineOriginOfDock, entryDockOf, docksOf, dockOf, agentOfDock: agentOfDockIn, deriveDockLayer, dockLayer, hasDockLayer, stepToAgents, propIdCmp,
     _internals: { DIRV, OPP, LANE_ORDER, key, buildBeltMap, outLanes, inLanes, loopLanes, beltTileNear, ringBelts, junctionAnchor, dirBetween, linkTilesByProp, linkedBeltMap, nextTiles, detectCycle, hashStr, compileChains, compileDockChains, chainCycle, shipFrom, propIdCmp, entryDocksOf, agentChainsView } };
