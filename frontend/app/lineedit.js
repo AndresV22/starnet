@@ -477,6 +477,18 @@
     if (!r || !r.ok) return r || fail('NOT_APPLIED', 'the line could not be laid');
     return { ok: true, ids: b.graph.nodes.map(n => r.ids[n.id]).filter(Boolean), via: L.via };
   }
+  /* A COPIED LINE, LAID OUT TO FIT (THE HAND part 2, 2026-10-11): a paste whose drawn shape will not go where it was aimed
+     is the same line as a graph (worldmodel clipGraph) — laid out near the spot exactly as a shelf line is. Returns the
+     engine's layout for station.pasteLinesLaid to write (one undo); nothing is written here. */
+  function layoutGraphNear(station, graph, near) {
+    const LL = layoutModule();
+    if (!LL) return fail('NO_ENGINE', 'the layout engine is not loaded');
+    if (!station || typeof station.lineGraph !== 'function' || !graph) return fail('NO_STATION', 'this station cannot lay out lines');
+    const g = station.lineGraph(null);
+    if (!g || !g.ok) return g || fail('NOT_LINKED', 'this floor does not build by links');
+    const L = layoutNear(LL, graph, g.floor, near, 12);
+    return L.ok ? L : Object.assign(fail(L.error === 'NO_ROOM' ? 'NO_ROOM' : 'NO_FIT', 'there is no clear floor near here to lay this copy out on'), L.needs ? { needs: L.needs } : {});
+  }
   // does it fit ANYWHERE, laid out? (the shelf card's answer when the drawn shape fits nowhere) — { ok, via, needs }
   function canPlaceBlueprint(station, bpId, near) {
     const LL = layoutModule();
@@ -494,5 +506,5 @@
     return OPS[op] ? OPS[op](clone(g.graph), args || {}, opts || {}) : fail('BAD_OP', 'no such edit');
   }
 
-  return { run, check, placeBlueprint, canPlaceBlueprint, OPS, _internals: { why, isBack, outsOf, insOf, layoutNear, armOf, laneAlts, loosen } };
+  return { run, check, placeBlueprint, canPlaceBlueprint, layoutGraphNear, OPS, _internals: { why, isBack, outsOf, insOf, layoutNear, armOf, laneAlts, loosen } };
 });

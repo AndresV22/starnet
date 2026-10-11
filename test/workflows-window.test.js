@@ -24,10 +24,11 @@ const tick = () => new Promise(r => setTimeout(r, 15));
 
 (async () => {
   const st = WM.create(WM.starterDoc());
-  const registered = {}, opened = [], folded = [], fetches = [];
+  const registered = {}, opened = [], folded = [], fetches = [], busOn = {};
   let replyFor = () => ({ ok: true, jobs: [] });
   const ctx = vm.createContext({
     console, setTimeout, clearTimeout, setInterval, clearInterval, Promise, JSON, Math, Date, Set, Map, encodeURIComponent,
+    U: { bus: { on: (n, fn) => { (busOn[n] = busOn[n] || []).push(fn); } } },
     module: { exports: {} }, window: {}, document: { activeElement: null, querySelector: () => null },
     StationUI: { registerWindow: (k, t, fn, o) => { registered[k] = { t, fn, o }; }, openTerm: k => opened.push(k),
       h: { present: [{ id: 'nova', name: 'NOVA' }], sfx() {}, notify() {}, navigateWork: (from, to) => opened.push(from + '>' + to) } },
@@ -93,6 +94,30 @@ const tick = () => new Promise(r => setTimeout(r, 15));
   WW._send(WW._floor().lines[0], 'gated', null);
   for (let i = 0; i < 8; i++) await tick();
   A.ok(!fetches.some(x => /\/api\/routing\/sample$/.test(x.url)) && S.msg && /nag:CYCLE/.test(S.msg.text), 'a floor with a blocking problem is not sent — the floor\'s own words say why');
+
+  /* ---------- SEND TO (10-11 repair): a job another line HANDED ON is not the Commander's sample ---------- */
+  {
+    ctx.World.syncPlan = () => Promise.resolve({ errors: [] });
+    const handed = { id: 'job-0123456789cd', line: 'p999', name: 'B', text: 'the first job', status: 'running', from: { line: 'p998', jobId: null, name: 'A' }, startedAt: 3, usd: 0, steps: 0 };
+    replyFor = url => /\/api\/routing\/sample$/.test(url) ? { ok: true, jobId: job.id, delivered: { runId: 'r2', reason: 'done', streamId: 'sample-1' }, runs: job.runs, replies: ['The moon…'], totalUsd: 0.002 }
+      : /\/api\/line-jobs\/job-/.test(url) ? { ok: true, job } : { ok: true, jobs: [handed] };
+    S.jobs = [handed]; S.job = null; S.msg = null; fetches.length = 0;
+    WW._send(WW._floor().lines[0], 'while B works', null);
+    A.ok(S.out && S.out.text === 'while B works', 'a hand-off running on another line never blocks sending a job (it holds no sample lock)');
+    for (let i = 0; i < 8; i++) await tick();
+    A.ok(fetches.some(x => /\/api\/routing\/sample$/.test(x.url)), '…the job is posted');
+    // its delivered result reaches TO REVIEW from THE job the crate names — even when a newer record already sits on that line
+    const delivered = { id: 'job-0123456789ef', line: line.key, name: 'B', text: 'the first job', handedIn: 'what A said', status: 'delivered', from: { line: 'p998', jobId: null, name: 'A' },
+      runs: [{ runId: 'rh1', agentId: 'nova', reason: 'done', usd: 0.001 }], usd: 0.001, startedAt: 5, endedAt: 9, streamId: 'handoff-1', notes: [], output: 'B did it' };
+    const newer = Object.assign({}, delivered, { id: 'job-0123456789aa', status: 'running', runs: [] });
+    replyFor = url => url.endsWith('/api/line-jobs/' + delivered.id) ? { ok: true, job: delivered } : /\/api\/line-jobs\//.test(url) ? { ok: true, job: newer } : { ok: true, jobs: [newer] };
+    folded.length = 0;
+    (busOn['workitem.placed'] || []).forEach(fn => fn({ kind: 'handoff', workitemId: 'w1', lineId: line.key, jobId: delivered.id }));
+    (busOn['workitem.delivered'] || []).forEach(fn => fn({ workitemId: 'w1', finalQueueId: 'outbox' }));
+    await new Promise(r => setTimeout(r, 750));
+    A.ok(folded.length === 1 && folded[0].runId === 'rh1' && folded[0].title === 'the first job', 'a delivered hand-off is folded into TO REVIEW from its own record, titled by the job as it first arrived — ' + JSON.stringify(folded));
+    S.jobs = []; S.out = null;
+  }
 
   /* ---------- NEEDS CHANGES → USE THIS / PUT IT BACK: each field's note keeps its OWN before and after ---------- */
   {
