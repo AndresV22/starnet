@@ -454,6 +454,37 @@
     for (const d of dirs) { const v = DIRV[d], nx = t.x + v[0], ny = t.y + v[1]; if (map[key(nx, ny)]) out.push({ x: nx, y: ny }); }
     return out;
   }
+  /* A SPLIT'S TURN GOES ONLY TO A CREWED BRANCH (2026-10-10 — "the splitter is bugged, I've tried everything"). TAKE TURNS
+     counted every out-lane, so a turn that fell on a branch whose bay has no agent resolved nobody, and the job left the
+     line for the chat's own agent (1 of 3 crewed: 2 of every 3 jobs gone, live in a probe of PARALLEL CREW). splitLanes
+     keeps the lanes that reach a crewed dock (atMap = the walk's own bound-dock map); with none crewed it keeps every lane,
+     which answers exactly what it always did (nobody). Every split pick — entry dispatch, the chain edge, the step walk —
+     reads it, so the sidecar and the floor still make one decision. Memoized per (belt map, dock map) object pair. */
+  const laneMemo = typeof WeakMap === 'function' ? new WeakMap() : null;
+  function reachesCrew(map, junctions, atMap, start) {
+    const seen = {}, q = [start]; seen[key(start.x, start.y)] = true;
+    while (q.length) {
+      const t = q.shift(), k = key(t.x, t.y);
+      if (atMap[k]) return true;
+      for (const nt of nextTiles(map, junctions, t)) { const nk = key(nt.x, nt.y); if (!seen[nk]) { seen[nk] = true; q.push(nt); } }
+    }
+    return false;
+  }
+  function splitLanes(map, junctions, atMap, x, y) {
+    const all = outLanes(map, x, y);
+    if (all.length < 2 || !atMap) return all;
+    let byDock = laneMemo && laneMemo.get(map);
+    if (laneMemo && !byDock) { byDock = new WeakMap(); laneMemo.set(map, byDock); }
+    let m = byDock && byDock.get(atMap);
+    if (byDock && !m) { m = {}; byDock.set(atMap, m); }
+    const mk = key(x, y);
+    if (m && m[mk]) return m[mk];
+    const live = all.filter(d => { const v = DIRV[d], nt = { x: x + v[0], y: y + v[1] }; return !!map[key(nt.x, nt.y)] && reachesCrew(map, junctions, atMap, nt); });
+    const out = live.length ? live : all;
+    if (m) m[mk] = out;
+    return out;
+  }
+  const pickLane = (lanes, k, pick) => lanes[pick ? ((pick(k, lanes.length) % lanes.length) + lanes.length) % lanes.length : 0];
 
   /* ---------- HOW MANY STAGES ONE JOB RUNS (LINE_TOO_LONG, 2026-10-09 P0) ----------
      The chain executor stops a line once a job would run more than maxHops + 1 stages (sidecar/routing/chain.js
@@ -593,6 +624,9 @@
         const lane = port => { const o = outs.find(q => q.port === port); return o ? o.dir : null; };
         const kind = p.t === 'splitter' ? 'split' : p.t === 'merger' ? 'merge' : p.t === 'joiner' ? 'join' : p.t === 'loop' ? 'loop' : 'filter';
         const cfg = { kind };
+        // SPLIT THE JOB (2026-10-10): a splitter set to divide ONE job into parts — kept below only when the split really
+        // fans out to a JOINER and a step feeds it (that step writes the parts); otherwise it is a plain split
+        if (kind === 'split' && p.divide === true) cfg.divide = true;
         /* JOINER (2026-08-21) — the real fan-in BARRIER the merger never was: it holds one crate per in-lane
            for a run, then releases ONE merged crate. `expect` = its in-lane count (the branches it waits for);
            `timeoutMin` = how long the sidecar barrier waits for a missing branch before releasing partial
@@ -876,6 +910,20 @@
        compiled cfg so the chain runner, the router and the floor all read one fact. A split with no joiner
        downstream keeps its round-robin meaning exactly. Hash input by design (topology changed). The walk
        crosses DOCKS the way work does — in at a hookup, out at the ship tile (plan.dockChains). */
+    // does a DOCK's output reach this split before any other dock does? (the step whose reply SPLIT THE JOB divides)
+    function dockFeeds(jk) {
+      for (const d in plan.dockChains) {
+        const ship = plan.dockChains[d].tile; if (!ship) continue;
+        const seen = {}, q = [ship]; seen[key(ship.x, ship.y)] = true;
+        while (q.length) {
+          const t = q.shift(), k = key(t.x, t.y);
+          if (k === jk) return true;
+          if (bayTileToDock[k] && bayTileToDock[k] !== d) continue;
+          for (const nt of nextTiles(map, junctions, t)) { const nk = key(nt.x, nt.y); if (!seen[nk]) { seen[nk] = true; q.push(nt); } }
+        }
+      }
+      return false;
+    }
     for (const jk in junctions) {
       const jc = junctions[jk];
       if (jc.kind !== 'split') continue;
@@ -888,6 +936,7 @@
         for (const nt of nts) { const nk = key(nt.x, nt.y); if (seen[nk]) continue; seen[nk] = true; if (junctions[nk] && junctions[nk].kind === 'join') { hit = true; break; } q.push(nt); }
       }
       if (hit) jc.fanout = true;
+      if (jc.divide && !(hit && dockFeeds(jk))) delete jc.divide;
     }
     const chainFed = {};
     for (const d in plan.dockChains) for (const n of plan.dockChains[d].next) chainFed[n] = true;
@@ -1358,8 +1407,8 @@
         const lanes = outLanes(map, t.x, t.y), want = j.routes && j.routes[tag];
         d = (want && lanes.indexOf(want) >= 0) ? want : (j.def && lanes.indexOf(j.def) >= 0) ? j.def : (lanes[0] || here);
       } else if (j && j.kind === 'split') {
-        const lanes = outLanes(map, t.x, t.y);
-        if (lanes.length) { const i = pick ? ((pick(k, lanes.length) % lanes.length) + lanes.length) % lanes.length : 0; d = lanes[i]; }
+        const lanes = splitLanes(map, junctions, dockAt, t.x, t.y);
+        if (lanes.length) d = pickLane(lanes, k, pick);
       } else if (j && j.kind === 'loop') {
         d = loopLanes(map, t.x, t.y, j).done || here;           // static reading: the loop is spent, leave on done
       }
@@ -1438,13 +1487,13 @@
             if (r && r.branches) { for (const b of r.branches) if (!has(b.dockId)) branches.push(b); }
             else if (r && r.dockId && !has(r.dockId)) branches.push(walkNode(r));
           }
-          return { branches, split: k };
+          return j.divide ? { branches, split: k, divide: true } : { branches, split: k };
         } else if (j && j.kind === 'filter') {
           const lanes = outLanes(map, t.x, t.y), want = j.routes && j.routes[tag];
           d = (want && lanes.indexOf(want) >= 0) ? want : (j.def && lanes.indexOf(j.def) >= 0) ? j.def : (lanes[0] || here);
         } else if (j && j.kind === 'split') {
-          const lanes = outLanes(map, t.x, t.y);
-          if (lanes.length) { const i = pick ? ((pick(k, lanes.length) % lanes.length) + lanes.length) % lanes.length : 0; d = lanes[i]; }
+          const lanes = splitLanes(map, junctions, dockAt, t.x, t.y);
+          if (lanes.length) d = pickLane(lanes, k, pick);
         }
         const v = DIRV[d], nx = t.x + v[0], ny = t.y + v[1];
         if (!map[key(nx, ny)]) return null;
@@ -1466,7 +1515,7 @@
     if (!s) return s;
     const a = n => (n && n.agentId) || null;
     if (s.dockId) return { agentId: s.agentId };
-    if (s.branches) { const out = []; for (const b of s.branches) { const x = a(b); if (x && out.indexOf(x) < 0) out.push(x); } return { branches: out, split: s.split }; }
+    if (s.branches) { const out = []; for (const b of s.branches) { const x = a(b); if (x && out.indexOf(x) < 0) out.push(x); } return s.divide ? { branches: out, split: s.split, divide: true } : { branches: out, split: s.split }; }
     if (s.join) return { join: s.join, expect: s.expect, timeoutMin: s.timeoutMin, next: a(s.next) };
     if (s.loop) return { loop: s.loop, max: s.max, backTo: a(s.backTo), when: s.when, esc: a(s.esc), next: a(s.next) };
     return s;
@@ -1713,8 +1762,8 @@
             : (lanes[0] || here);
         }
         else if (j && j.kind === 'split') {   // pick a lane (default 0; the router's picker round-robins to spread work)
-          const lanes = outLanes(map, t.x, t.y);
-          if (lanes.length) { const i = pick ? ((pick(k, lanes.length) % lanes.length) + lanes.length) % lanes.length : 0; d = lanes[i]; } else d = here;
+          const lanes = splitLanes(map, junctions, bayAt, t.x, t.y);
+          d = lanes.length ? pickLane(lanes, k, pick) : here;
         }
         // a MERGE follows the belt (it funnels lanes IN; its single exit IS the tile's dir), and must not
         // burn a round-robin tick — that counter belongs to splitters, which are the only real branch.
@@ -1847,12 +1896,72 @@
      delivery order; `missing` = branch names that never delivered before the timeout (marked, never hidden —
      a downstream stage must know it is working from a partial set). Shared module so the floor and the
      sidecar describe the same crate. */
-  function joinPayload(parts, missing) {
-    const ps = parts || [], ms = missing || [], n = ps.length + ms.length;
+  function joinPayload(parts, missing, failed) {
+    // failed (2026-10-10): branches that RAN and failed — the joiner sent on without them, and says so
+    const ps = parts || [], ms = missing || [], fl = failed || [], n = ps.length + ms.length + fl.length;
     const body = ps.map((p, i) => '=== BRANCH ' + (i + 1) + ' of ' + n + ' — ' + (p.agentId || '?') + ' ===\n' + String(p.text || '').trim());
     let out = 'JOINED OUTPUT — ' + ps.length + ' of ' + n + ' branch' + (n === 1 ? '' : 'es') + ' delivered.\n\n' + body.join('\n\n');
+    if (fl.length) out += '\n\n=== PARTIAL: ' + fl.length + ' branch' + (fl.length === 1 ? '' : 'es') + ' failed and sent nothing (' + fl.join(', ') + ') ===';
     if (ms.length) out += '\n\n=== PARTIAL: ' + ms.length + ' branch' + (ms.length === 1 ? '' : 'es') + ' never delivered before the joiner timed out (' + ms.join(', ') + ') ===';
     return out;
+  }
+
+  /* ---------- SPLIT THE JOB (2026-10-10) ----------
+     divideJob(text, n) -> [part…] (2..n strings) | null. The step before a dividing splitter is told to end its reply with a
+     numbered list of exactly n parts (divideBrief); this reads that list back. The LAST numbered run that counts up from 1
+     wins ("1." / "1)" / "Part 1:" / "**1.**"), a part keeps its continuation lines, more items than branches are grouped
+     into n contiguous runs, fewer run on fewer branches (never invented), and fewer than two is null — nothing to divide.
+     Pure and deterministic: the sidecar and the step test cut the same job the same way. */
+  const PART_RE = /^\s*(?:[*_#>]+\s*)?(?:part\s+|step\s+)?(\d{1,2})\s*(?:[.):\-\u2013\u2014]|\*\*[.):]?)\s*(?:\*\*\s*)?(.*)$/i;
+  function divideJob(text, n) {
+    const want = Math.max(2, n | 0), lines = String(text == null ? '' : text).split(/\r?\n/);
+    let best = null, cur = null, gap = false;
+    for (const ln of lines) {
+      if (!ln.trim()) { gap = true; continue; }
+      const m = PART_RE.exec(ln);
+      if (m) {
+        const num = +m[1];
+        gap = false;
+        if (num === 1) cur = [{ num: 1, text: [m[2].trim()] }];
+        else if (cur && num === cur[cur.length - 1].num + 1) cur.push({ num, text: [m[2].trim()] });
+        else { cur = null; continue; }
+        if (cur.length >= 2) best = cur;
+        continue;
+      }
+      // a part keeps its continuation lines; after a blank line only an INDENTED line still belongs to it
+      if (cur) { if (gap && !/^\s/.test(ln)) cur = null; else cur[cur.length - 1].text.push(ln.trim()); }
+      gap = false;
+    }
+    if (!best || best.length < 2) return null;
+    const items = best.map(it => it.num + '. ' + it.text.filter(Boolean).join('\n'));
+    const k = Math.min(want, items.length), out = [];
+    for (let g = 0; g < k; g++) {
+      const a = Math.floor(g * items.length / k), b = Math.floor((g + 1) * items.length / k);
+      out.push(items.slice(a, b).join('\n'));
+    }
+    return out;
+  }
+  /* the hand-off a dividing split gives branch i: its OWN part, plus the step's whole plan for context only */
+  function partTurn(plan, part, i, k) {
+    return 'THE JOB IS DIVIDED INTO ' + k + ' PARTS. You have PART ' + (i + 1) + ' of ' + k + ' — do ONLY this part. Other agents are '
+      + 'doing the other parts at the same time, and a JOINER puts every part together after.\n\n'
+      + 'YOUR PART:\n' + String(part || '').trim() + '\n\n'
+      + 'THE WHOLE PLAN (context only — do not do the other parts):\n' + String(plan || '').trim().slice(0, 6000);
+  }
+  /* the instruction the step BEFORE a dividing splitter carries on every run there (router.stageBrief appends it) */
+  function divideBrief(n) {
+    return 'YOUR REPLY IS SPLIT BETWEEN ' + n + ' AGENTS: the splitter after you divides this job. End your reply with a numbered list '
+      + 'of exactly ' + n + ' independent parts (1. … to ' + n + '. …), one per agent — each part a complete task on its own, together '
+      + 'covering the whole job, with no overlap. Do not do the parts yourself.';
+  }
+  /* divideAfterDock(plan, dockId) -> n when this dock's output next meets a dividing split (n = its crewed branches), else 0 */
+  function divideAfterDock(plan, dockId) {
+    if (!plan || dockId == null) return 0;
+    const L = dockLayer(plan), line = L.lineOfDock && L.lineOfDock[dockId];
+    if (!line) return 0;
+    let st = null;
+    try { st = chainStepDock(plan, String(dockId), { lineId: line }, () => 0); } catch (_) { st = null; }
+    return (st && st.branches && st.divide && st.branches.length > 1) ? st.branches.length : 0;
   }
 
   const ok = plan => !plan.errors.some(e => !e.warn);   // a plan is deployable iff it has no non-warning errors
@@ -1951,8 +2060,8 @@
     return rec && typeof rec === 'object' ? rec : null;
   }
 
-  return { rejoinOf, deriveLinks, reconcileLinks, compileRoutingPlan, composeStageBrief, HANDS_LEAD, resolveTarget, lineOf, lineOriginOf, lineLimitsOf, normalizeLineLimits, LINE_LIMIT_DEFAULTS, LINE_LIMIT_CEILINGS, sourceFor, ok, liveTiles, routeFrom, junctionLaneOwners, chainNext, chainStep, fanSiblings, handoffPrompt, parseHandoff, isHandoff, stripVerdictLine, joinPayload, lineComponents, LOOP_MAX_DEFAULT, LOOP_MAX_CEILING,
+  return { rejoinOf, deriveLinks, reconcileLinks, compileRoutingPlan, composeStageBrief, HANDS_LEAD, resolveTarget, lineOf, lineOriginOf, lineLimitsOf, normalizeLineLimits, LINE_LIMIT_DEFAULTS, LINE_LIMIT_CEILINGS, sourceFor, ok, liveTiles, routeFrom, junctionLaneOwners, chainNext, chainStep, fanSiblings, handoffPrompt, parseHandoff, isHandoff, stripVerdictLine, joinPayload, divideJob, partTurn, divideBrief, divideAfterDock, lineComponents, LOOP_MAX_DEFAULT, LOOP_MAX_CEILING,
     // THE DOCK LAYER (multi-bay agents, 2026-09-22) — the dock-keyed truth the agent readings above are views of
     resolveDock, chainNextDock, chainStepDock, fanSiblingsDock, junctionLaneDocks, lineOfDock, lineOriginOfDock, entryDockOf, docksOf, dockOf, agentOfDock: agentOfDockIn, deriveDockLayer, dockLayer, hasDockLayer, stepToAgents, propIdCmp,
-    _internals: { DIRV, OPP, LANE_ORDER, key, buildBeltMap, outLanes, inLanes, loopLanes, beltTileNear, ringBelts, junctionAnchor, dirBetween, linkTilesByProp, linkedBeltMap, nextTiles, detectCycle, hashStr, compileChains, compileDockChains, chainCycle, shipFrom, propIdCmp, entryDocksOf, agentChainsView } };
+    _internals: { DIRV, OPP, LANE_ORDER, key, buildBeltMap, outLanes, inLanes, loopLanes, beltTileNear, ringBelts, junctionAnchor, dirBetween, linkTilesByProp, linkedBeltMap, nextTiles, splitLanes, detectCycle, hashStr, compileChains, compileDockChains, chainCycle, shipFrom, propIdCmp, entryDocksOf, agentChainsView } };
 });

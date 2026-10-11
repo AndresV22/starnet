@@ -40,7 +40,7 @@ const splitOf = plan => Object.keys(plan.junctions).find(k => plan.junctions[k].
   const llanes = P.rejoinOf(lplan, splitOf(lplan)).lanes;
   A.ok(llanes.length === 2 && llanes.every(l => l.kind === 'merge' && l.at === llanes[0].at), 'LOAD BALANCER: both branches meet at one MERGER (it takes turns)');
   const pc = stampCrewed('parallel_crew'), pplan = P.compileRoutingPlan(pc.projectGeometry());
-  A.ok(P.rejoinOf(pplan, splitOf(pplan)).lanes.every(l => l.at === null), 'PARALLEL CREW: the branches never meet — nothing to swap');
+  { const pl = P.rejoinOf(pplan, splitOf(pplan)).lanes; A.ok(pl.length === 3 && pl.every(l => l.kind === 'merge' && l.at === pl[0].at), 'PARALLEL CREW (2026-10-10): its three branches meet at one MERGER that ships — so COPY TO EACH can be switched on'); }
   A.eq(P.rejoinOf(plan, 'nope').lanes, [], 'not a split: no lanes');
 
   // the swap is the mode switch, in place, one undo

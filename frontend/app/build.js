@@ -1934,7 +1934,7 @@ const Build = (() => {
     revision_loop: 'one agent drafts, a reviewer sends it back until it is right',
     sorting_office: 'sends each request to the right specialist, by what it is about',
     triage_desk: 'coding, research and everything else each go to their own specialist',
-    parallel_crew: 'shares the incoming work between three agents working at once',
+    parallel_crew: 'each job goes to the next of three agents, and every result ships',
     swarm_synthesis: 'three agents research the same job, one writes the answer',
     second_opinion: 'two agents take the same job, and their answers are combined into one',
     ship_out: 'no INBOX: whatever this agent finishes lands in the OUTBOX',

@@ -55,6 +55,8 @@
       ['Polish & ship', 'Turn the input into the final deliverable: clean formatting, a clear title, nothing missing.', 'the final deliverable']] },
     ANALYST: { verb: 'analyzes it', starters: [
       ['Combine branches', 'Combine the parts you receive into one answer. Note anywhere they disagree.', 'one combined answer']] },
+    PLANNER: { verb: 'divides it into parts', starters: [
+      ['Split into parts', 'Divide the task into independent parts, one per agent after you. Each part must be a complete task on its own; together they cover the whole job with no overlap.', 'a numbered list of parts']] },
     FIXER: { verb: 'fixes what the loop could not', starters: [
       ['Take over', 'The review loop gave up on this. Read the history, fix what is still wrong, and say what you changed.', 'the fixed result']] },
   };

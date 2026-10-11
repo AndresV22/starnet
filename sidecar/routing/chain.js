@@ -292,6 +292,7 @@ function makeChainRunner(o) {
     deliver(k, expect, agentId, text, timeoutMin, dockId) {
       let b = barriers.get(k);
       if (!b) { b = { expect: expect || 0, parts: [], waiters: [], ts: now(), timeoutMin: timeoutMin || 10 }; barriers.set(k, b); }
+      else if (expect > 0 && expect < b.expect) b.expect = expect;   // fewer branches are coming than the joiner's lanes (see FAN below)
       const part = { agentId, text, workitemId: newId() };
       if (dockId) part.dockId = dockId;
       b.parts.push(part);
@@ -318,6 +319,15 @@ function makeChainRunner(o) {
           fin({ released: true, parts: b.parts, missing, timedOut: true });
         }, Math.max(1, (timeoutMin || b.timeoutMin || 10)) * 60 * 1000);
       });
+    },
+    // release what has arrived NOW (the run's last live branch failed): the waiters get it, nothing else is coming
+    release(k) {
+      const b = barriers.get(k);
+      if (!b) return null;
+      barriers.delete(k); persistBarriers();
+      const res = { released: true, parts: b.parts, missing: [] };
+      for (const w of b.waiters.splice(0)) w(res);
+      return res;
     },
     size() { return barriers.size; }
   };
@@ -387,6 +397,12 @@ function makeChainRunner(o) {
        fromTile resume a walk from a junction the previous hop released (a joiner exit / a loop gate lane). */
     const runId = (s.runId != null && String(s.runId)) || (s.workitemId != null && String(s.workitemId)) || newId();
     const iter = {}, pending = [];
+    /* THE FAN (2026-10-10). One record per fan-out this run is inside: how many branches really LAUNCHED (a branch whose bay
+       has no agent never does — the compiled joiner still counts its lane, and the barrier sat out its whole timeout for a
+       branch nobody ran), which of them FAILED, and the joiner they meet at. The joiner waits for launched minus failed. A
+       failed branch no longer ends the job: the other branches still run, and the JOINER sends on what arrived, the failed
+       ones named as missing (it used to return the first branch's answer and strand the rest at the barrier). */
+    let fan = null;
     let fromTile = null, via = null, loopHops = 0;
     // inside a loop pass every hop is a re-visit by design (the body runs again); `looping` is raised at a
     // re-entry and lowered when the gate lets the crate out on its done lane
@@ -401,6 +417,7 @@ function makeChainRunner(o) {
       let sib = [];
       try { sib = (dockMode && fanSiblingsDock) ? (fanSiblingsDock(cur.dockId, { lineId }) || []) : (fanSiblings(cur.agentId, { lineId }) || []); } catch (_) { sib = []; }
       for (const a of sib) { const n = asNode(a); if (n) pending.push({ node: n, text: originalText, from: null, entry: true }); }
+      if (pending.length) fan = { width: 1 + pending.length, failed: [], joinKey: null, joinStep: null };
     }
     // a branch that ends (terminal / parked at the joiner) hands the loop to the next queued branch
     const nextPending = () => { const b = pending.shift(); if (!b) return false; cur = b.from || cur; out.text = b.text; branchMode = true; return b; };
@@ -419,22 +436,38 @@ function makeChainRunner(o) {
         if (step && step.branches) {
           // a FAN-OUT split mid-line: every lane runs from this output; first lane now, the rest queued
           const br = step.branches.map(asNode).filter(Boolean);
+          /* SPLIT THE JOB (2026-10-10): a dividing splitter hands each branch its OWN part of the job. The step that just ran
+             was told (router.stageBrief) to end on a numbered list of exactly n parts; Pipeline.divideJob reads it back (else
+             a numbered list in the original request). Fewer parts run on fewer branches — never an invented part. No list
+             at all = every branch works the whole job, and each is told why. */
+          let texts = null;
+          if (step.divide && br.length > 1) {
+            const parts = Pipeline.divideJob(out.text, br.length) || Pipeline.divideJob(originalText, br.length);
+            if (parts) { br.length = parts.length; texts = parts.map((p, i) => Pipeline.partTurn(out.text, p, i, parts.length)); out.divided = parts.length; }
+            else { const note = '(This job was meant to be split between ' + br.length + ' agents, but the step before the splitter gave no numbered parts — so every branch has the whole job.)\n\n'; texts = br.map(() => note + out.text); out.divided = 0; }
+          }
+          if (br.length) fan = { width: br.length, failed: [], joinKey: null, joinStep: null };
+          if (texts) out.text = texts[0];
           target = br.shift() || null;
-          for (const n of br) pending.push({ node: n, text: out.text, from: cur });
+          br.forEach((n, i) => pending.push({ node: n, text: texts ? texts[i + 1] : out.text, from: cur }));
         } else if (step && step.join) {
           // THE BARRIER. Park this branch's output; release only when every in-lane has delivered for this run.
-          const r = barrier.deliver(step.join + '|' + runId, step.expect, cur.agentId, out.text, step.timeoutMin, cur.dockId);
+          const bk = step.join + '|' + runId;
+          const fw = fan ? Math.max(1, fan.width - fan.failed.length) : 0;
+          const r = barrier.deliver(bk, fw ? Math.min(step.expect || fw, fw) : step.expect, cur.agentId, out.text, step.timeoutMin, cur.dockId);
+          if (fan) { fan.joinKey = bk; fan.joinStep = step; }
+          const failedNames = fan ? fan.failed.slice() : [];
           if (!r.released) {
             if (pending.length) { forced = nextPending(); hop--; continue; }   // run the next branch; it may fill the barrier
             // nothing left to run in THIS call: wait for another deliverer (same run) or the joiner's timeout
             const w = await barrier.wait(step.join + '|' + runId, step.timeoutMin);
             if (!w) { out.stopped = 'the joiner at ' + step.join + ' lost its branches'; return out; }
-            out.text = Pipeline.joinPayload(w.parts, w.missing);
+            out.text = Pipeline.joinPayload(w.parts, w.missing, failedNames);
             say('workitem.delivered', withDock({ workitemId: newId(), finalQueueId: cur.agentId, agentId: cur.agentId, box: 'join:' + step.join, ms: 0, ts: now() }, cur.dockId));
           } else {
-            out.text = Pipeline.joinPayload(r.parts, []);
+            out.text = Pipeline.joinPayload(r.parts, [], failedNames);
           }
-          branchMode = false;
+          branchMode = false; fan = null;
           // the merged crate continues from the joiner's exit; the last deliverer is its producer
           fromTile = tileOf(step.join);
           if (!step.next) { out.stopped = null; return out; }   // the joiner ships straight out: merged text IS the answer
@@ -507,6 +540,22 @@ function makeChainRunner(o) {
       // the note says the line stopped short, so the floor and the channel tell the same story.
       if (r.error || !String(r.text || '').trim()) {
         say('workitem.superseded', withDock({ workitemId, agentId: target.agentId, ts: now() }, target.dockId));
+        if (fan) {
+          // A BRANCH FAILED: the job goes on without it. The next branch runs; if none is left, the joiner releases what came in.
+          fan.failed.push(target.agentId + (r.error ? ' failed' : ' returned nothing'));
+          if (pending.length) { forced = nextPending(); continue; }
+          const rel = fan.joinKey ? barrier.release(fan.joinKey) : null;
+          if (rel && rel.parts.length) {
+            const js = fan.joinStep, last = rel.parts[rel.parts.length - 1];
+            out.text = Pipeline.joinPayload(rel.parts, [], fan.failed);
+            say('workitem.delivered', withDock({ workitemId: newId(), finalQueueId: last.agentId, agentId: last.agentId, box: 'join:' + js.join, ms: 0, ts: now() }, last.dockId));
+            cur = { agentId: last.agentId, dockId: dockMode ? (last.dockId || null) : null };
+            out.agentId = last.agentId; if (last.dockId) out.dockId = last.dockId;
+            branchMode = false; fan = null; fromTile = tileOf(js.join);
+            if (!js.next) { out.stopped = null; return out; }
+            continue;
+          }
+        }
         out.stopped = target.agentId + (r.error ? ' failed: ' + r.error : ' returned nothing');
         if (branchMode) { out.text = entryOut.text; out.agentId = entryOut.agentId; if (entryOut.dockId) out.dockId = entryOut.dockId; }   // a dead branch never replaces the entry's answer
         return out;
