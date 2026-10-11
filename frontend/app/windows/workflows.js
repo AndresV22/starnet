@@ -609,6 +609,7 @@ const WorkflowsWindow = (() => {
       : n.kind === 'example' ? 'You kept this result’s style for the ' + (n.role || 'last') + ' step' : 'You put the ' + (n.role || 'step') + ' step back the way it was') + ' · ' + ago(n.at) + '</li>').join('');
     // SEND TO (2026-10-10): where this job came from / went on to — each line's result stays its own, the two records point at each other
     const lineWord = e => (e && e.name ? 'LINE ' + String(e.name).toUpperCase() : 'another line');
+    const hin = (job.from && typeof Pipeline !== 'undefined' && Pipeline.parseHandoffInput) ? Pipeline.parseHandoffInput(job.text) : null;
     const prov = (job.from ? '<p class="wfw-why wfw-from">From ' + esc(lineWord(job.from)) + ' — that line finished its part and sent its result on to this one.'
         + (job.from.jobId ? ' <button type="button" class="wf-link" data-job="' + esc(job.from.jobId) + '">OPEN ITS JOB</button>' : '') + '</p>' : '')
       + (job.sentTo ? '<p class="wfw-why wfw-sent">Sent on to ' + esc(lineWord(job.sentTo)) + ' — that line works on this result next.'
@@ -617,7 +618,10 @@ const WorkflowsWindow = (() => {
       + prov
       + (why ? '<p class="wfw-why">' + esc(why) + '</p>' : '')
       + work.notes.map(t => '<p class="wfw-why">⚠ ' + esc(t) + '</p>').join('')
-      + '<div class="wfw-you"><span class="wfw-k">You asked</span><div class="wfw-quote">' + esc(job.text) + '</div></div>'
+      // a handed-on job: the job as it first arrived (what the Commander asked), and what the sending line handed in beside it
+      + (hin ? '<div class="wfw-you"><span class="wfw-k">The job</span><div class="wfw-quote">' + esc(hin.original || job.text) + '</div></div>'
+          + '<details class="wf-more wfw-handedin"><summary>What ' + esc(lineWord(job.from)) + ' handed in</summary><div class="wf-io" data-md data-md-src="' + esc(hin.output || '(nothing)') + '">' + esc(hin.output || '(nothing)') + '</div></details>'
+        : '<div class="wfw-you"><span class="wfw-k">You asked</span><div class="wfw-quote">' + esc(job.text) + '</div></div>')
       + (ok || work.rest ? '<div class="wfw-k">' + (ok ? 'The result' : 'What came out') + '</div><div class="wf-io out wfw-out" data-md data-md-src="' + esc(work.rest || '(the line delivered an empty reply)') + '">' + esc(work.rest || '(the line delivered an empty reply)') + '</div>' : '')
       + '<div class="wf-row wfw-acts">'
       + (ok || work.rest ? '<button type="button" class="bb' + (S.fix && S.fix.jobId === job.id && S.fix.open ? ' active' : '') + '" data-act="needs" aria-expanded="' + !!(S.fix && S.fix.jobId === job.id && S.fix.open) + '">✎ NEEDS CHANGES</button>' : '')
@@ -781,6 +785,35 @@ const WorkflowsWindow = (() => {
     }, () => true);
   }
   if (UI() && UI().registerWindow) UI().registerWindow('workflows', 'WORKFLOWS', build, { className: 'wfw-win' });
+  /* SEND TO (2026-10-10): a job another line handed on runs in the background — no window posted it, so nothing folded its
+     delivered run into DELIVERABLES › TO REVIEW, and the receiving line's result never reached the Commander's review pile. The
+     floor's own events say when one lands in its OUTBOX (workitem.placed kind:'handoff', then workitem.delivered to 'outbox' for
+     the same crate); the delivered run is read back from that line's job record (the route's own verdict) — never guessed. */
+  const handoffCrates = new Map();   // workitemId -> the receiving lineId
+  if (typeof U !== 'undefined' && U.bus) {
+    U.bus.on('workitem.placed', p => {
+      if (!p || p.kind !== 'handoff' || !p.workitemId || !p.lineId) return;
+      handoffCrates.set(String(p.workitemId), String(p.lineId));
+      if (handoffCrates.size > 20) handoffCrates.delete(handoffCrates.keys().next().value);
+    });
+    U.bus.on('workitem.delivered', p => {
+      const line = (p && p.finalQueueId === 'outbox') ? handoffCrates.get(String(p.workitemId || '')) : null;
+      if (!line) return;
+      handoffCrates.delete(String(p.workitemId));
+      setTimeout(() => {
+        getJSON('/api/line-jobs?line=' + encodeURIComponent(line) + '&limit=1').then(({ status, j }) => {
+          const s = status === 200 && j && Array.isArray(j.jobs) ? j.jobs[0] : null;
+          if (!s || s.status !== 'delivered' || !s.from) return null;
+          return loadJob(s.id).then(job => {
+            const run = job && (job.runs || [])[0];
+            if (!run || run.reason !== 'done' || typeof ReturnStore === 'undefined' || !ReturnStore.foldRow) return;
+            const hin = P() && P().parseHandoffInput ? P().parseHandoffInput(job.text) : null;
+            ReturnStore.foldRow({ runId: run.runId, agentId: run.agentId, usd: job.usd, ts: job.endedAt || Date.now(), streamId: job.streamId, title: (hin && hin.original) || job.name || '' });
+          });
+        }, () => null).catch(() => null);
+      }, 600);
+    });
+  }
   return { open, openLine: key => open({ view: 'line', line: key, job: null }), openNew: () => open({ view: 'new' }), openByStream, openOutbox, showJob,
     _state: S, _floor: floor, _pick: pickStarter, _create: create, _send: send, _useFix: useFix, _styleKept: styleKept, _putStyleBack: putStyleBack, _exampleBrief: exampleBrief, EX_HEAD };   // (the _ seams are test/eval reads)
 })();
