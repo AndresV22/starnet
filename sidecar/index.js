@@ -175,6 +175,7 @@ const { effectiveModel: resolveEffectiveModel, effectiveUsd, effectiveRunUsd } =
 const { makeEmitter } = require('../shared/emitter.js');
 const { redact, setKnownSecretSource, renderRecall, injectRecall, rank, makeContext, compactionMemoryBlock, compactionSummaryPrompt, RUN_CONTEXT_DEFAULTS, foldFreedEnough } = require('./context.js');
 const { makeSummarizer } = require('./compaction-summarizer.js');   // chunked context-compaction fold (Lane A)
+const EarlierConversation = require('./earlier-conversation.js');     // the turns COMMS's history window dropped, carried verbatim
 const { setStationSecretSource } = require('./child-env.js');   // station-secret-free env for every helper process
 const { collectSecretValues } = require('./secret-values.js');   // feeds redact()'s known-value layer (see setKnownSecretSource)
 const { makeConnectorOauthFetch } = require('./mcp/oauth-fetch.js');   // DNS-pinned fetch for every connector-OAuth leg
@@ -185,6 +186,7 @@ const { readBody, readBodyBuffer } = require('./http-body.js');
 const { MIME, CHANNEL_UPLOAD_MAX_BYTES, mimeForPath, safeDownloadName, isActiveDeliverable, parseRange } = require('./file-response.js');
 const { reflect, reflectSalient, recordFromProposal, feedbackFor, highStakes } = require('./reflect.js');
 const FeedbackMemory = require('./feedbackmemory.js');   // THE COMMANDER'S TASTE: verdicts + corrections -> durable like/dislike memory
+const TasteRef = require('./tasteref.js');   // DESIGN ANCHOR: the rated run's real files / palette / fonts / image args / method, captured on a verdict
 const Failreview = require('./failreview.js');   // failure-review aux pass: PURE lesson producer for FAILED runs (reflect.js mold)
 const Embed = require('./embed.js');              // memory-compound: the embedding lane of hybrid recall (BM25 + vectors over a configured provider)
 const { swallow, note: failNote, summary: failopenSummary, setClock: failopenSetClock } = require('./failopen.js');    // tagged fail-open: a swallowed error stays visible (throttled warn + counter + diagnostics summary)
@@ -222,6 +224,7 @@ const { admitRelayMessage } = require('./channels/relay-admission.js');   // rel
 const { hostPowerWithheldFor, entryUntrusted, standingWorkEscalates } = require('./run-origin.js');   // Full Power follows the owner, not the chat (non-owner channel senders never inherit it)
 const { makePromptRegistry } = require('./channels/prompts.js');   // C6: the bounded token→meaning map behind inline keyboards
 const { makeOpenAiCompat } = require('./openai-compat.js');   // /v1/* OpenAI-compatible surface (external harness ingress)
+const StopReason = require('./stop-reason.js');   // plain-English stop sentences shared by channels/routines/loops
 const { makeChannelRegistry, wireChannel } = require('./channels/registry.js');   // H6.2: channel descriptors + generic wire-up
 const { parseSlackTokens } = require('./channels/slack.js');                       // slack stores its two tokens as ONE secret string
 const engineCredential = require('./engine-credential.js');                      // #89: the page's provider key, kept for unattended runs + the ONE no-credential sentence
@@ -519,6 +522,7 @@ const peerOwnerCheck = require('./peerowner.js').makePeerOwnerCheck({
   winSystemDir: path.join(process.env.SystemRoot || process.env.windir || 'C:\\Windows', 'System32'),
   trustAll: /^(1|true|yes|on)$/i.test(String(ENV('TRUST_LOCAL_PEERS') || '').trim()),
   readFile: (f) => fsp.readFile(f, 'utf8'),
+  now: () => Date.now(),   // the composition root owns the clock (lint-determinism); the owner verdict caches 15 s on it
   run: (exe, args) => new Promise((resolve) => {
     try {
       stationChildProcess.execFile(exe, args, { windowsHide: true, timeout: 5000, maxBuffer: 16 * 1024 * 1024 }, (err, stdout) =>
@@ -1828,6 +1832,13 @@ function formatRunHolderAge(ageMs) {
 const STEER_MAX_PENDING = 8;      // bound the buffer so a spammed steer can't grow unbounded between iterations
 const steerBufs = makeSteerBuffers({ maxPending: STEER_MAX_PENDING, maxNoteChars: 2000 });
 function drainSteer(runId) { return steerBufs.drain(runId); }
+// A Telegram/Discord/… follow-up that lands while that chat's run is working JOINS the run (channels/hub.js LIVE STEER)
+// through the SAME buffer and the same in-flight test POST /api/run/steer uses — instead of aborting the task.
+function channelSteerRun(runId, text) {
+  const id = String(runId || '');
+  const out = steerBufs.post(id, text, !!id && (runs.has(id) || runStopHandles.has(id)));
+  return { ok: out.status === 200, status: out.status };
+}
 function closeSteer(runId) { return steerBufs.close(runId); }
 // Teardown drop with diagnostics (GROUND_UP_AUDIT 2026-07-06 P2): at run end we drop any un-drained steering notes
 // so a stale correction can't leak to a later run. That drop was SILENT — a Commander whose steer arrived after the
@@ -2824,10 +2835,26 @@ const reflectingNow = new Set();       // agentIds with a reflection in flight �
 const lastFailReviewAt = new Map();    // agentId -> ts of the last failure review we fired (its own cooldown gate)
 const failReviewingNow = new Set();    // agentIds with a failure review in flight — same gap-closer as reflectingNow
 const skillReviewingNow = new Set();   // agentIds with a nudge-due skill review in flight: two run-ends close together must not both rewrite one skillbase
-function stashProposals(agentId, runId, proposals) {
+// memory-truth: a run's batch MERGES (memcore.mergeReceipts) — notebook.write registers its saves mid-run through
+// recordRunReceipt, then reflection / failure review stash after the run. An overwrite here erased the receipts
+// already registered for the run; a re-insert keeps the batch newest in the FIFO cap order.
+function putRunBatch(agentId, runId, items) {
+  const prev = proposalsByRun.get(runId);
+  const proposals = memcore.mergeReceipts(prev && prev.agentId === agentId ? prev.proposals : [], items);
+  proposalsByRun.delete(runId);
   proposalsByRun.set(runId, { agentId, runId, createdAt: Date.now(), proposals });
-  latestProposalRun.set(agentId, runId);
   while (proposalsByRun.size > PROPOSALS_CAP) { const k = proposalsByRun.keys().next().value; proposalsByRun.delete(k); }
+}
+function stashProposals(agentId, runId, proposals) {
+  putRunBatch(agentId, runId, proposals);
+  latestProposalRun.set(agentId, runId);
+}
+// a committed save, registered as a receipt for the run that made it (never moves latestProposalRun — that names the
+// newest PENDING batch). Fail-open: a receipt is observability, the memory itself is already durable.
+function recordRunReceipt(agentId, runId, item) {
+  if (!runId || !item) return;
+  try { putRunBatch(String(agentId || 'agent'), String(runId), [item]); }
+  catch (e) { failNote('memory.receipt', e); }
 }
 
 /* ---- the DURABLE pending queue (pending:<agent>) ----
@@ -3075,7 +3102,7 @@ async function runReflection(o) {
       for (const p of normalProps) {
         try {
           const w = await writeMemoryRecord(agentId, p, { runId, trustDelta: 0, source: 'reflection', origin: origin });
-          if (w.ok) saved.push({ id: w.id, kind: w.kind, content: p.content, scope: p.scope || 'global', projectRoot: p.projectRoot || null, origin: origin, saved: true });
+          if (w.ok) { saved.push({ id: w.id, kind: w.kind, content: p.content, scope: p.scope || 'global', projectRoot: p.projectRoot || null, origin: origin, saved: true }); recordRunReceipt(agentId, runId, saved[saved.length - 1]); }   // registered as it lands: the memory.write it emitted makes COMMS fetch this run's batch
         } catch (_) {}   // one failed write never sinks the batch
       }
       // stash ONE batch (mixed: saved receipts carry saved:true + a real record id; high-stakes carry the pending
@@ -3163,7 +3190,7 @@ async function runFailureReview(o) {
       for (const p of normalProps) {
         try {
           const w = await writeMemoryRecord(agentId, p, { runId, trustDelta: 0, source: 'failure-review', origin: Failreview.ORIGIN });
-          if (w.ok) saved.push({ id: w.id, kind: w.kind, content: p.content, scope: p.scope || 'global', projectRoot: p.projectRoot || null, origin: Failreview.ORIGIN, saved: true });
+          if (w.ok) { saved.push({ id: w.id, kind: w.kind, content: p.content, scope: p.scope || 'global', projectRoot: p.projectRoot || null, origin: Failreview.ORIGIN, saved: true }); recordRunReceipt(agentId, runId, saved[saved.length - 1]); }
         } catch (_) {}   // one failed write never sinks the batch
       }
       // ONE stash per runId (a failed run never reflected, so this slot is free) + the durable pending queue for
@@ -3786,6 +3813,10 @@ function channelAskConsent(o) {
   return makeConsentWait({
     pending: pend, signal: o.signal, timeoutMs: CONSENT_TIMEOUT_MS, extendMs: CONSENT_ACK_EXTEND_MS,
     uuid: () => crypto.randomUUID(),
+    // NO ANSWER IN TIME is not "denied" (2026-10-11): the broker maps 'timeout' to a distinct, still-closed result the
+    // model reads as "nobody answered", and the surface (hub onTimeout) tells the chat the action did not run.
+    timeoutDecision: 'timeout',
+    onTimeout: (promptId) => { if (typeof o.onTimeout === 'function') { try { o.onTimeout(promptId, fields); } catch (e) { failNote('channels.consent.onTimeout', e); } } },
     // onPrompt is the hub's cue to render the keyboard. It is called synchronously while the deny timer is
     // already armed, so a throw from the renderer must never escape into the waiter (it would leave the run
     // paused with no timer owner) — hence the guard.
@@ -9609,7 +9640,7 @@ function startTelegram(token, key, model, agentCfg) {
   const secretsPersisted = saveChannelSecrets(channelSecrets);   // read-back-proven; surfaced by the connect route
   let adapterRef = null;
   const hub = makeChannelHub({
-    channel: 'telegram', runOnce: runOnce, store: channelStore,
+    channel: 'telegram', runOnce: runOnce, store: channelStore, steerRun: channelSteerRun,
     historyFor: (streamId) => transcriptStore.reconstruct(streamId, { limit: 100 }),
     runSlash: (input, sctx) => runSlashForChannel(input, sctx),   // shared slash registry — identical answers to the desktop
     userCommandNames: () => userCommandEntries().map(c => c.name),
@@ -9876,7 +9907,7 @@ function startTelegramBot(botId) {
   // instances would leave the command reporting success while the gate never changed.
   const botStore = makeBotScopedStore(botId);
   const hub = makeChannelHub({
-    channel: 'telegram:' + botId, runOnce: runOnce, store: botStore,
+    channel: 'telegram:' + botId, runOnce: runOnce, store: botStore, steerRun: channelSteerRun,
     historyFor: (streamId) => transcriptStore.reconstruct(streamId, { limit: 100 }),
     runSlash: (input, sctx) => runSlashForChannel(input, sctx),   // shared slash registry — identical answers to the desktop
     userCommandNames: () => userCommandEntries().map(c => c.name),
@@ -10018,7 +10049,7 @@ function startDiscord(token, key, model, agentCfg) {
   const secretsPersisted = saveChannelSecrets(channelSecrets);   // read-back-proven; surfaced by the connect route
   const wired = wireChannel(channelRegistry.get('discord'), {
     hub: {
-      runOnce: runOnce, store: channelStore,
+      runOnce: runOnce, store: channelStore, steerRun: channelSteerRun,
       historyFor: (streamId) => transcriptStore.reconstruct(streamId, { limit: 100 }),
       secrets: () => {
         const d = (channelSecrets && channelSecrets.discord) || {};
@@ -10306,7 +10337,7 @@ function startGenericChannel(id, token, key, model, agentCfg) {
   }
   const wired = wireChannel(desc, {
     hub: {
-      runOnce: runOnce, store: channelStore,
+      runOnce: runOnce, store: channelStore, steerRun: channelSteerRun,
       historyFor: (streamId) => transcriptStore.reconstruct(streamId, { limit: 100 }),
       secrets: () => {
         const r = (channelSecrets && channelSecrets[id]) || {};
@@ -11451,6 +11482,7 @@ const ROUTES = [
   // request its explicit ceiling instead of receiving a misleading static 404 before the handler is reached.
   { m: 'GET', qsplit: '/api/run-recoveries', h: serveRunRecoveries },
   { m: 'POST', exact: '/api/growth/ratings/correction', h: handleGrowthRatingCorrection },   // consistency loop: the Commander's words after a short-of-the-mark verdict
+  { m: 'POST', exact: '/api/taste/keep-style', h: handleTasteKeepStyle },   // DESIGN ANCHOR: ★ KEEP THIS STYLE -> station-wide taste with the run's real reference
   { m: ['GET', 'POST'], qsplit: '/api/growth/ratings', h: handleGrowthRatings },
   { m: 'GET', prefix: '/api/runs', h: serveRuns },
   { m: 'GET', qsplit: '/api/recipes/drift', h: serveRecipeDrift },   // qsplit: ?recipeId= narrows
@@ -15447,7 +15479,7 @@ async function handleCronRun(req, res) {
     // the routine green. Missing terminal telemetry also fails closed.
     const terminalReason = String(state.reason || '').trim();
     if (!state.errMsg && terminalReason !== 'done') {
-      state.errMsg = 'run ended without completion: ' + (terminalReason || 'missing-terminal-event');
+      state.errMsg = StopReason.incompleteRunMessage(terminalReason);   // plain words + the machine reason in brackets
     }
     /* RUN NOW MUST FIRE THE WHOLE LINE, exactly like the scheduled fire does. This route calls runOnce
        DIRECTLY (it streams to the watching browser), so it does not pass through the cron driver's
@@ -18264,7 +18296,12 @@ async function handleRun(req, res) {
 
   // the "bus" writes one validated, REDACTED NDJSON line per event (key-shaped secrets are scrubbed even
   // if a tool ever echoes one back); makeEmitter validates against the frozen registry first.
-  const bus = { emit: (name, payload) => { try { res.write(JSON.stringify({ name, payload: redact(payload) }) + '\n'); } catch (_) {} } };
+  // leadStarted/leadEnded: did THIS run's lifecycle reach the page? A throw out of runOnce must still end it (catch below).
+  let leadStarted = false, leadEnded = false;
+  const bus = { emit: (name, payload) => {
+    if (payload && payload.runId === runId) { if (name === 'agent.run.start') leadStarted = true; else if (name === 'agent.run.end') leadEnded = true; }
+    try { res.write(JSON.stringify({ name, payload: redact(payload) }) + '\n'); } catch (_) {}
+  } };
   const emit = wrapEmitDiag(makeEmitter(bus, e => { if (e) console.warn('[event]', e.kind, e.event, (e.errors || []).join(';')); }));
 
   // THE LIVE CONSENT CHANNEL: emit a permission.prompt down the NDJSON stream and return a Promise that the loop's
@@ -18438,7 +18475,13 @@ async function handleRun(req, res) {
     if (recovery) settleRunRecoveryContinuation(recovery, runId, (continuedResult && continuedResult.reason) || 'error');
   } catch (e) {
     if (recovery) settleRunRecoveryContinuation(recovery, runId, 'error');
+    /* A THROW STILL ENDS THE RUN ON SCREEN (2026-10-11). The error used to be the only event: a throw before
+       agent.run.start was dropped by the page (it keys errors to the run it saw start) and read as "Reply stream
+       disconnected", and a throw mid-run never sent agent.run.end, so nothing marked the run over. Balanced
+       start/end so the crew counts stay true; the error between them is what the page shows. */
+    if (!leadStarted) { try { emit('agent.run.start', { agentId, runId, trigger: 'directive', model: String(model || '') }); } catch (e2) { failNote('run.throw.start', e2); } }
     try { emit('agent.run.error', { agentId, runId, message: 'sidecar failure: ' + ((e && e.message) || e), transient: false }); } catch (_) {}
+    if (!leadEnded) { try { emit('agent.run.end', { agentId, runId, reason: 'error', turns: 0, usd: 0 }); } catch (e2) { failNote('run.throw.end', e2); } }
   } finally {
     runs.delete(runId);
     runsMeta.delete(runId);
@@ -18547,7 +18590,20 @@ function cascadeCancelToWorkers(signal, runId) {
 async function runOnce(o) {
   if (o && o.streamId && !o.internal && !o.outputOnly) {
     return overseer.withThread(o.streamId, ({ queued }) => {
-      if (o.signal && o.signal.aborted) return undefined;
+      if (o.signal && o.signal.aborted) {
+        /* CANCELLED WHILE QUEUED (2026-10-11): it waited behind this conversation's previous run and was stopped
+           (a STOP by id, E-STOP) before it began. It used to return with NO events, which the page reads as "Reply
+           stream disconnected" and a routine as a missing outcome. A balanced start/end with reason 'cancelled' is
+           the honest receipt: admitted, never run. */
+        if (typeof o.emit === 'function' && o.runId) {
+          const qa = { agentId: o.agentId || 'agent', runId: o.runId };
+          try {
+            o.emit('agent.run.start', Object.assign({}, qa, { trigger: o.trigger || 'directive', model: String(o.model || '') }));
+            o.emit('agent.run.end', Object.assign({}, qa, { reason: 'cancelled', turns: 0, usd: 0 }));
+          } catch (e) { failNote('runOnce.queuedAbort.emit', e); }
+        }
+        return undefined;
+      }
       // Refresh ordinary queued chat after the preceding turn has persisted.
       // Preserve the new user message (including attachments); checkpoint and
       // group histories retain their own provider-valid assembly contracts.
@@ -19223,7 +19279,7 @@ async function runOnceCore(o) {
     unrestrictedHost: unrestrictedHostNow()
   });
   makeFsTools({ fsp, pathMod: path, root: WORKSPACES, environment: executionEnvironment, limits: { writeBytes: 1 << 20, readReturn: 24000 }, redact, pathTrust: runPathTrust, docExtract, imageWire, editDiagnostics: lspManager, spawn: childSpawn }).register(registry);   // redact: scrub secrets out of surfaced fs.search lines (§5.6); baseline-before-edit LSP feedback; spawn: lets fs.search use `rg` when the machine has it
-  makeNotebookTools({ store: notebookStore, clock: { now: () => Date.now() }, redact, rank, nextTrust: memcore.nextTrust, findSimilar: memcore.findSimilar }).register(registry);   // §5.6: scrub secrets at the write boundary; rank: explicit read shares auto-recall's relevance order; nextTrust: notebook.feedback rating fold; findSimilar: near-dupe guard so the same belief can't accumulate in N phrasings
+  makeNotebookTools({ store: notebookStore, clock: { now: () => Date.now() }, redact, rank, nextTrust: memcore.nextTrust, findSimilar: memcore.findSimilar, similarity: memcore.tokenJaccard, onSaved: recordRunReceipt }).register(registry);   // §5.6: scrub secrets at the write boundary; rank: explicit read shares auto-recall's relevance order; nextTrust: notebook.feedback rating fold; findSimilar: near-dupe guard so the same belief can't accumulate in N phrasings; similarity: the same-subject listing; onSaved: this run's COMMS receipt
   widgetTools.register(registry);   // WIDGET RAILS Phase 2: widget.set — agent-fed rail readouts (memory capability: sandboxed local write, no consent, no network)
   makeRecallTool({ transcriptStore }).register(registry);   // H1.3: recall_conversation — agent searches its own past dialogue (transcriptstore); joins the NOTEBOOK (memory) capability
   makeSkillTools({
@@ -19318,7 +19374,7 @@ async function runOnceCore(o) {
       const tasteIds = new Set(tasteRecs.map(r => r.id).filter(Boolean));
       const pinned = Array.isArray(notes) ? notes.filter(r => r && r.pinned && !tasteIds.has(r.id) && !(tasteWithheld && r.origin === FeedbackMemory.ORIGIN) && !r.taintedBy) : [];
       const recalled = renderRecall(rank(pinned, recentUserText(messages), { now: Date.now(), streamId, projectRoot: o.projectRoot || null }), { limit: 1500 });
-      const taste = renderRecall(tasteRecs, { limit: FeedbackMemory.TASTE_CHARS, header: FeedbackMemory.TASTE_HEADER });
+      const taste = FeedbackMemory.renderTaste(tasteRecs, renderRecall);
       return settled + (recalled.text ? '\n\n' + redact(recalled.text) : '') + (taste.text ? '\n\n' + redact(taste.text) : '');
     },
     // A worker shares the LEAD's consent broker (see the `consent` note below), so its own roster APPROVAL clause is
@@ -19947,8 +20003,16 @@ async function runOnceCore(o) {
   // on memory writes. makeCapCtx merges `extra` verbatim; the consumer arrives with M-mem.2.
   let parkSeq = 0;   // distinguishes parked outputs within one run (see parkOutput below)
   const checkpointedMutationRoots = new Set();
+  /* MEMORY PROVENANCE (memory-truth lane, 2026-10-11): the text the Commander typed in this run's conversation, so
+     notebook.write can PROVE a note is their own words (notebook.js statedSentence). Host-minted from the owner's own
+     surfaces only — the watched COMMS run or an owner-admitted channel DM. Never a channel guest, a routine, a
+     delegated worker (its "user" turn is the lead's brief), a group session (its "user" turn is the shared transcript,
+     other agents' words included), a line hand-off (the previous stage's output) or harness self-talk: there, the
+     "user" words are not the Commander's. */
+  const commanderWords = (!internal && !o.parentRunId && !o.delegatedBy && !o.groupTools && (surface === 'interactive' || ownerTrusted) &&
+    !(Pipeline.isHandoff && Pipeline.isHandoff(latestUserText(messages)))) ? recentUserText(messages) : '';
   const capCtx = makeCapCtx(resolved, Object.assign({
-    emit, consent, summon, timeoutMs: CAPS.toolTimeoutMs, runId, streamId, signal: signal, ownerTrusted,
+    emit, consent, summon, timeoutMs: CAPS.toolTimeoutMs, runId, streamId, signal: signal, ownerTrusted, commanderWords,
     // Host-minted routine identity for routine.notepad. Interactive/model-authored runs cannot name another
     // job: only the autonomous schedule path receives this context field.
     cronJobId: (surface === 'autonomous' && trigger === 'schedule') ? String(o.cronJobId || '') : '',
@@ -21237,6 +21301,36 @@ async function runOnceCore(o) {
     if (replayed) execution.latchTaint(replayed);
   } catch (e) { failNote('taint.replay', e); execution.latchTaint('replayed context (taint check failed)'); }   // unprovable = tainted (fail closed)
   taintAtStart = execution.taintedBy();
+  /* THE TURNS THE WINDOW DROPPED STILL COUNT (consistency audit 2026-10-11, earlier-conversation.js). COMMS sends only
+     the newest slice of a long chat, and the compaction below folds only what it is sent — so whatever fell off the
+     front (an instruction from turn 3, the design the Commander approved) was gone without a trace. The durable
+     transcript still holds it: carry it as ONE <conversation_summary> note right after the system prompt — the
+     Commander's words verbatim, the replies as heads — which loop.js's compaction then merges onto like its own
+     earlier fold. A window the transcript cannot place injects nothing (the old behavior). */
+  if (!internal && !o.recovery && !o.groupTools && streamId && Array.isArray(convo) && convo.length) {
+    try {
+      let at = convo.length - 1;
+      while (at >= 0 && !(convo[at] && convo[at].role === 'user')) at--;
+      const window = at > 0 ? convo.slice(0, at) : [];
+      if (window.length) {
+        const rows = transcriptStore.history(streamId, { limit: 3000 });
+        const cut = EarlierConversation.windowCut(rows, window, redact);
+        if (cut > 0) {
+          const dropped = rows.slice(0, cut);
+          const wired = (d) => d && d.function && d.function.name === 'recall_conversation';
+          const searchTool = (toolDefs.some(wired) || (deferredToolDefs || []).some(wired)) ? 'recall_conversation' : '';
+          const earlier = EarlierConversation.render(dropped, { windowTokens: ctxMgr.contextLimit, searchTool });
+          if (earlier) {
+            let lead = 0;
+            while (lead < msgs.length && msgs[lead] && msgs[lead].role === 'system') lead++;
+            msgs.splice(lead, 0, { role: 'system', content: earlier.note });
+            const carried = EarlierConversation.taintOf(dropped);
+            if (carried && !execution.taintedBy()) { latchRunTaint('earlier conversation carried content from ' + String(carried).slice(0, 120)); taintAtStart = execution.taintedBy(); }
+          }
+        }
+      }
+    } catch (e) { failNote('run.earlierConversation', e); }
+  }
   // Cortex (M-mem.3): surface the agent's OWN memory in-prompt — RANK it by relevance to this message
   // (BM25 + recency/trust/pin), inject the top few as a recalled-memory fence before the triggering user
   // message, and emit memory.used per surfaced record (-> useCount/trust + the XP reuse path). The recency
@@ -21262,7 +21356,7 @@ async function runOnceCore(o) {
     const hv = recs.length ? await hybridVectors({ agentId, recs, query: q, run: { providerId, key: runKey, baseUrl }, runId, cost, unmetered: providerUnmetered }) : null;
     const ranked = rank(recs, q, { now: Date.now(), streamId, projectRoot: o.projectRoot || null, vectors: hv && hv.vectors, queryVec: hv && hv.queryVec });   // M-mem.2b stream boost · project tier: only THIS project's lessons
     const recalled = renderRecall(ranked, { limit: 1500 });
-    const taste = renderRecall(tasteRecs, { limit: FeedbackMemory.TASTE_CHARS, header: FeedbackMemory.TASTE_HEADER });
+    const taste = FeedbackMemory.renderTaste(tasteRecs, renderRecall, { agentId });
     const recall = {
       text: [recalled.text, taste.text].filter(Boolean).join('\n'),
       count: recalled.count + taste.count,
@@ -24803,13 +24897,18 @@ async function handleNotebookRestore(req, res) {
   try {
     // P1: merge under the per-agent lock, re-reading existing so a concurrent run's memory.write isn't lost.
     let existingLen = 0, mergedLen = 0;
+    // memory-truth: a memory the Commander forgot (its text is on the declined list) is not resurrected by an older
+    // backup — reported as `forgotten` so the import says so; Memory Core's Restore on the declined entry re-admits it
+    const declinedRaw = notebookStore.get('declined:' + agent);
+    const skipped = [];
     await notebookStore.update('notebook:' + agent, (prev) => {
       const existing = Array.isArray(prev) ? prev : [];
-      const merged = mergeNotes(existing, incoming);
+      skipped.length = 0;
+      const merged = mergeNotes(existing, incoming, { declined: Array.isArray(declinedRaw) ? declinedRaw : [], skipped });
       existingLen = existing.length; mergedLen = merged.length;
       return merged;
     });
-    json(200, { ok: true, total: mergedLen, added: mergedLen - existingLen });
+    json(200, { ok: true, total: mergedLen, added: mergedLen - existingLen, forgotten: skipped.length });
   } catch (e) { json(400, { error: (e && e.message) || 'restore failed' }); }
 }
 
@@ -24951,7 +25050,8 @@ async function handleGrowthRatings(req, res) {
   if (!result.duplicate) {
     const fbPacket = verdictReview.peek(runId);
     const directive = FeedbackMemory.directiveFor([lead.deliveryPrompt, lead.title], fbPacket && fbPacket.messages);
-    feedbackMemory = await recordFeedbackMemory({ agentId: lead.agentId || 'agent', runId, verdict: canonical.verdict, words: String(body.correction || ''), directive });
+    // run: the DESIGN ANCHOR — the record also carries what this run really made (files, palette, fonts, image args, tools)
+    feedbackMemory = await recordFeedbackMemory({ agentId: lead.agentId || 'agent', runId, verdict: canonical.verdict, words: String(body.correction || ''), directive, run: lead });
   }
   let skillReviewArmed = false;
   if (!result.duplicate && process.env.SKYNET_SKILL_REVIEW !== '0') {
@@ -24996,6 +25096,36 @@ async function handleGrowthRatingCorrection(req, res) {
   } catch (e) { failNote('feedback.correction', e); }
   if (!r.ok) return json(200, { ok: true, held: false, fired: false, reason: r.reason, feedbackMemory });
   return json(200, { ok: true, held: true, fired: !!r.fired, feedbackMemory });
+}
+// POST /api/taste/keep-style { runId } — ★ KEEP THIS STYLE (Workflows window) / ★ KEEP AS THE EXAMPLE (Workflow panel):
+// the Commander approves the STYLE of the run that delivered a line's result. Besides the example the page writes into
+// that step's instructions (which only that step reads, and only as text), the approval becomes station-wide taste
+// with the run's real reference (DESIGN ANCHOR), so every agent's next similar work matches it. Same consent rules as a
+// verdict: the personalization pause stops it (reported), self-talk runs are refused. No XP: this is not a rating.
+async function handleTasteKeepStyle(req, res) {
+  const json = (code, obj) => respondJson(res, code, obj);
+  let body;
+  try { body = JSON.parse(await readBody(req, 16 << 10)) || {}; }
+  catch (_) { return json(400, { ok: false, error: 'bad json' }); }
+  const runId = String(body.runId || '').trim();
+  if (!runId) return json(400, { ok: false, error: 'runId required' });
+  const lead = runStore.all().find(r => r && r.runId === runId);
+  if (!lead) return json(404, { ok: false, error: 'run not found' });
+  if (lead.internal) return json(409, { ok: false, error: 'internal run cannot be kept' });
+  // { undo: true } — PUT IT BACK / the panel's UNDO: the approval goes too (always allowed, even while learning is paused)
+  if (body.undo === true) {
+    const agentId = String(lead.agentId || 'agent');
+    let out = null;
+    try {
+      await notebookStore.update('notebook:' + agentId, (stored) => { const r = FeedbackMemory.unkeep(stored, runId); if (!r) return undefined; out = r; return r.list; });
+    } catch (e) { failNote('taste.unkeep', e); return json(200, { ok: false, error: 'the kept style could not be taken back' }); }
+    if (out) chanEmit(out.removed ? 'memory.forget' : 'memory.write', out.removed ? { agentId, id: out.rec.id } : { agentId, runId, id: out.rec.id, kind: out.rec.kind, scope: out.rec.scope });
+    return json(200, { ok: true, undone: !!out, removed: !!(out && out.removed) });
+  }
+  const packet = verdictReview.peek(runId);
+  const directive = FeedbackMemory.directiveFor([lead.deliveryPrompt, lead.title], packet && packet.messages);
+  const feedbackMemory = await recordFeedbackMemory({ agentId: lead.agentId || 'agent', runId, verdict: 'great', kept: true, directive, run: lead });
+  return json(200, { ok: true, feedbackMemory });
 }
 // GET /api/runs?agent=<id>&limit=<n>&since=<ms>[&runId=<id>] — the agent's run history (M-save P4), newest-first.
 // Rows carry the run's `artifacts` ledger (work-visibility); an explicit runId narrows to that single run's
@@ -25581,8 +25711,9 @@ async function handleChannelWebhook(req, res) {
 }
 
 // GET /api/memory/proposals?agent=<id>&run=<id> — the pending Keep/Edit/Discard candidates reflection raised
-// for a run (with content; the memory.proposed SSE event is just the trigger and carries no content). Read-only;
-// falls back to the agent's newest pending batch when the runId is unknown. Empty (never a 500) if none.
+// for a run, plus the run's committed saves as receipts (with content; the memory.proposed/memory.write SSE events
+// are just triggers and carry no content). Read-only; falls back to the agent's newest pending batch ONLY when no
+// runId is given. Empty (never a 500) if none.
 function serveProposals(req, res) {
   const json = (code, obj) => respondJson(res, code, obj);   // canonical helper (sidecar/respond.js)
   try {
@@ -25590,9 +25721,9 @@ function serveProposals(req, res) {
     const agent = u.searchParams.get('agent') || 'agent';
     if (!isAgentId(agent)) return json(403, { error: 'forbidden' });
     const runId = u.searchParams.get('run') || '';
-    let batch = runId && proposalsByRun.get(runId);
-    if (!batch) { const lr = latestProposalRun.get(agent); batch = lr && proposalsByRun.get(lr); }
-    if (!batch || batch.agentId !== agent) return json(200, { runId: runId || null, agentId: agent, proposals: [] });
+    // a named run gets exactly its own saves — never the agent's previous run's list (memcore.receiptBatchFor)
+    const batch = memcore.receiptBatchFor(proposalsByRun, latestProposalRun, agent, runId);
+    if (!batch) return json(200, { runId: runId || null, agentId: agent, proposals: [] });
     json(200, { runId: batch.runId, agentId: agent, proposals: batch.proposals });
   } catch (e) { json(200, { proposals: [] }); }
 }
@@ -25790,14 +25921,68 @@ function otherAgentNotebooks(agentId) {
   }
   return out;
 }
+/* DESIGN ANCHOR (tasteref.js): the rated run's own reference, read from its durable record — the runstore row's artifacts
+   + toolTrace, its transcript rows (image_generate arguments paired with their results; the parked review packet when
+   the transcript has none), and the design deliverables themselves (palette + fonts). Every file goes through the same
+   gates the DELIVERABLES viewer uses: a project run's file only inside a currently BLESSED project root, never a
+   protected file; a workspace file only through the agent's jail. Returns null when the run left nothing to point at;
+   never throws (a capture failure must never cost the Commander their verdict). */
+async function tasteRefFileAbs(agentId, projectRoot, p) {
+  const rel = String(p || '');
+  if (!rel || rel.indexOf('\0') >= 0 || /^[\\/]{2}/.test(rel)) return null;
+  if (projectRoot && !/^[\\/]{2}/.test(String(projectRoot))) {
+    try {
+      const root = fs.realpathSync(String(projectRoot));
+      if (isBlessedRoot(root)) {
+        const real = fs.realpathSync(path.isAbsolute(rel) ? rel : path.resolve(root, rel));
+        const relOut = path.relative(root, real);
+        if (relOut && !relOut.startsWith('..') && !path.isAbsolute(relOut) && !pathTrustCore._internals.hardlineReason(real, real)) return real;
+      }
+    } catch (e) { if (!e || e.code !== 'ENOENT') failNote('taste.ref.project-path', e); }
+  }
+  if (path.isAbsolute(rel) || /^[A-Za-z]:/.test(rel)) return null;
+  try { return (await fsJail.resolveInside(agentId, rel)).abs; }
+  catch (e) { if (!/escape|illegal|bad agentId/.test(String(e && e.message))) failNote('taste.ref.workspace-path', e); return null; }
+}
+async function captureTasteRef(lead) {
+  try {
+    if (!lead || !lead.runId) return null;
+    const agentId = String(lead.agentId || 'agent');
+    let rows = [];
+    try { rows = transcriptStore.history(lead.streamId || '', { sourceRunId: lead.runId, limit: 600 }) || []; }
+    catch (e) { failNote('taste.ref.transcript', e); }
+    if (!TasteRef.imageCalls(rows).length) {
+      const packet = verdictReview.peek(lead.runId);
+      if (packet && Array.isArray(packet.messages)) rows = rows.concat(packet.messages);
+    }
+    // a PROJECT run's files are named absolute (any run trusted for that project can open them); a workspace run's stay
+    // relative to the rated agent's private jail, and the reference names that agent
+    const proj = lead.projectRoot ? String(lead.projectRoot) : '';
+    const shown = (Array.isArray(lead.artifacts) ? lead.artifacts : []).map(a => (a && proj && a.path && !path.isAbsolute(String(a.path))) ? Object.assign({}, a, { path: path.join(proj, String(a.path)) }) : a);
+    const files = [];
+    for (const a of (Array.isArray(lead.artifacts) ? lead.artifacts : [])) {
+      if (files.length >= 6) break;
+      if (!a || a.kind !== 'file' || !TasteRef.isDesignPath(a.path)) continue;
+      const abs = await tasteRefFileAbs(agentId, lead.projectRoot || '', a.path);
+      if (!abs) continue;
+      try {
+        const st = await fsp.stat(abs);
+        if (st.isFile() && st.size <= 512 * 1024) files.push({ path: a.path, text: await fsp.readFile(abs, 'utf8') });
+      } catch (e) { if (!e || e.code !== 'ENOENT') failNote('taste.ref.read', e); }
+    }
+    return TasteRef.buildRef({ artifacts: shown, toolTrace: lead.toolTrace, rows, files, tainted: !!lead.taintedBy, redact: (t) => redact(t), agentId: proj ? '' : agentId });
+  } catch (e) { failNote('taste.ref', e); return null; }
+}
 async function recordFeedbackMemory(o) {
   o = o || {};
   const agentId = String(o.agentId || 'agent');
   try {
     if (!personalizationStore.read().enabled) return { stored: false, reason: 'personalization-paused' };
+    // the reference is read only for a verdict that is about to be stored (never while learning is paused)
+    const ref = o.run ? await captureTasteRef(o.run) : null;
     let out = null;
     await notebookStore.update('notebook:' + agentId, (stored) => {
-      const r = FeedbackMemory.apply(stored, { runId: o.runId, verdict: o.verdict, words: redact(String(o.words || '')), directive: redact(String(o.directive || '')) },
+      const r = FeedbackMemory.apply(stored, { runId: o.runId, verdict: o.verdict, words: redact(String(o.words || '')), directive: redact(String(o.directive || '')), ref, kept: o.kept === true },
         { now: Date.now(), nextId: memcore.nextNoteId, nextTrust: memcore.nextTrust, trustDelta: 2 });
       if (!r) return undefined;
       out = r;
@@ -25806,8 +25991,11 @@ async function recordFeedbackMemory(o) {
     if (!out) return { stored: false, reason: 'nothing to learn' };
     chanEmit('memory.write', { agentId, runId: String(o.runId || ''), id: out.rec.id, kind: out.rec.kind, scope: out.rec.scope });
     try { hookSpine.invoke('on_memory_write', { session_id: String(o.runId || ''), extra: { agent_id: agentId, id: out.rec.id, kind: out.rec.kind, scope: out.rec.scope, source: 'feedback' } }); } catch (e) { failNote('feedback.hook', e); }
-    console.log('[memory] feedback ' + (out.created ? 'saved' : 'updated') + ' run=' + o.runId + ' agent=' + agentId + ' id=' + out.rec.id + ' verdict=' + o.verdict);
-    return { stored: true, id: out.rec.id, created: out.created };
+    const refNow = out.rec.feedbackRef || null;
+    console.log('[memory] feedback ' + (out.created ? 'saved' : 'updated') + ' run=' + o.runId + ' agent=' + agentId + ' id=' + out.rec.id + ' verdict=' + o.verdict + (o.kept ? ' kept=style' : '')
+      + (refNow ? ' ref=' + ((refNow.paths || []).length) + 'f/' + ((refNow.palette || []).length) + 'c/' + ((refNow.images || []).length) + 'i' : ''));
+    // truthful: the response names the reference the record actually carries (null = none could be read from the run)
+    return { stored: true, id: out.rec.id, created: out.created, reference: refNow };
   } catch (e) {
     failNote('feedback.memory', e);
     return { stored: false, reason: 'could not save' };

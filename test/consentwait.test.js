@@ -158,5 +158,38 @@ async function settled(p) { let v, done = false; p.then(x => { v = x; done = tru
     A.eq([(await settled(po)).v, denied], ['once', ['t1', 'a1']], 'an answered prompt never announces an auto-deny');
   }
 
+  // 2026-10-11 TIMEOUT IS NOT A NO: a channel approval nobody answered used to resolve exactly like a tapped ❌ Deny, so
+  // the agent told the user "you declined". A caller can ask for its own timeout word + hear about the expiry; an abort
+  // stays a plain deny; the broker maps the word to a still-CLOSED result and the tool result says "timed out".
+  {
+    const clock = makeClock(), pending = new Map(), heard = [];
+    const wait = makeConsentWait({
+      pending, signal: makeSignal(), timeoutMs: 1000, extendMs: 5000, timeoutDecision: 'timeout', onTimeout: id => heard.push(id),
+      uuid: () => 'pt', setTimeoutFn: clock.setTimeout.bind(clock), clearTimeoutFn: clock.clearTimeout.bind(clock), emitPrompt: () => {}
+    });
+    const p = wait.ask();
+    clock.advance(1000);
+    A.eq((await settled(p)).v, 'timeout', 'an unanswered prompt settles with the caller\'s timeout word');
+    A.eq(heard, ['pt'], 'and the caller hears about the expiry (the channel is told)');
+    const sig = makeSignal(), heard2 = [];
+    const wait2 = makeConsentWait({
+      pending: new Map(), signal: sig, timeoutMs: 1000, extendMs: 5000, timeoutDecision: 'timeout', onTimeout: id => heard2.push(id),
+      uuid: () => 'pa', setTimeoutFn: clock.setTimeout.bind(clock), clearTimeoutFn: clock.clearTimeout.bind(clock), emitPrompt: () => {}
+    });
+    const p2 = wait2.ask();
+    sig.abort();
+    A.eq([(await settled(p2)).v, heard2.length], ['deny', 0], 'an abort is still a plain deny, never announced as a timeout');
+    const { makeConsentBroker } = require('../sidecar/permissions.js');
+    const broker = makeConsentBroker({ surface: 'interactive' });
+    const g = broker.grant('timeout', { name: 'fs_write' }, { scope: 'write', capability: 'cabinet' });
+    A.ok(g.allow === false && g.timedOut === true, 'the broker keeps a timeout CLOSED but marks it timed out');
+    const { makeRegistry } = require('../sidecar/tools/registry.js');
+    const reg = makeRegistry();
+    reg.register({ name: 'fs_write', requiresConsent: true, scope: 'write', capability: 'cabinet', schema: { type: 'object' }, run: async () => 'wrote' });
+    const r = await reg.dispatch({ name: 'fs_write', args: {}, id: 'c1' }, { canRun: () => true, canUse: () => ({ ok: true }), agentId: 'a', room: 'office', consent: async () => g });
+    A.ok(/approval timed out for fs_write/.test(r.content) && /not a refusal/i.test(r.content) && !/consent denied/.test(r.content), 'the model reads "timed out", never "denied": ' + r.content);
+    A.eq(r.summary, 'denied', 'still a terminal non-run (the loop never routes around it)');
+  }
+
   A.report('consentwait');
 })();

@@ -60,13 +60,32 @@
     // "raise", never "remove" — on StarNet credits PER RUN 0 still stops at the managed default (mirrors chat.js).
     return '\n\n(' + what + (scope === 'run' ? ' — raise it' : ' — raise or remove it') + ' in the app under SETTINGS › SPENDING LIMITS.)';
   }
+  // a follow-up that is itself a stop request never steers the running task — it stops it (the supersede path)
+  const STOP_WORDS_RE = /^\s*(?:stop|cancel|abort|halt|never\s*mind|nvm|forget\s+(?:it|that)|scratch\s+that)\s*[.!]*\s*$/i;
+  // plain-English stop sentences shared with routines/loops (sidecar/stop-reason.js); the inline fallback only serves a
+  // non-node embed, which never runs the hub against a real host.
+  const StopReason = (typeof require === 'function') ? require('../stop-reason.js') : { stopSentence: (r) => (r ? 'it stopped before finishing (' + r + ')' : '') };
+  /* WHY THE RUN STOPPED, in words (2026-10-11 — "they start a task and then stop repeatedly with no explanation"). A raw
+     "(stopped: empty)" read as a silent stop, a provider-cut reply had no note at all (finishReason was ignored), a
+     station-side cancel said nothing, and the unpriced-model TOKEN ceiling told the user to raise a $ cap that never
+     governed it. Every non-clean end now names what happened and the next step. */
   function endNote(reason, state) {
+    const st = state || {};
     if (reason === 'max_iters') return '\n\n(reached the step limit — message "continue" to keep going.)';
-    if (reason === 'budget') return budgetNote(state && state.budgetScope, state && state.budgetCapUsd, !!(state && state.budgetCapIsBalance));
-    if (reason === 'cancelled') return '';
+    if (reason === 'budget') {
+      if (st.unpricedModel) return '\n\n(' + StopReason.stopSentence('budget', st) + '.)';
+      return budgetNote(st.budgetScope, st.budgetCapUsd, !!st.budgetCapIsBalance);
+    }
+    // a /stop, a newer message or an E-STOP never reaches here (abandoned() owns those); what is left is a STOP by run
+    // id from the station (the desk screen / HUD STOP → POST /api/cancel), so say so instead of going quiet.
+    if (reason === 'cancelled') return '\n\n(stopped from the StarNet app before it finished — nothing more will run for this message.)';
     if (reason === 'clarifying') return '';   // a Task Brief question IS the reply — never a "(stopped: …)" note
     if (reason === 'refusal') return '';
-    return '\n\n(stopped: ' + reason + ')';
+    if (reason === 'done') {
+      const cut = StopReason.stopSentence('done', st);   // a provider-truncated/filtered reply is not a clean delivery
+      return cut ? '\n\n(' + cut + '.)' : '';
+    }
+    return '\n\n(' + StopReason.stopSentence(reason, st) + '.)';
   }
 
   // HISTORICAL COMPAT (concurrent-sessions lane, 2026-07-18): the host's admission-time same-agent mutex
@@ -308,6 +327,11 @@
        genuinely unaddressed — including on a station whose store already holds a stale 'sample' record. */
     const bindChats = o.bindChats !== false;
     const groundedFor = typeof o.groundedFor === 'function' ? o.groundedFor : null;
+    /* LIVE STEER (optional, 2026-10-11): steerRun(runId, text) -> { ok } posts a note into an IN-FLIGHT run's steer
+       buffer — the same buffer COMMS's mid-run steering uses (index.js steerBufs; the loop folds it in at its next
+       step). With it, a follow-up that lands while this chat's run is working joins THAT run instead of killing it.
+       Absent (tests, an older host) = the supersede behavior below, which now at least SAYS the earlier run stopped. */
+    const steerRun = typeof o.steerRun === 'function' ? o.steerRun : null;
     const newId = typeof o.newId === 'function' ? o.newId : (() => { let n = 0; return () => channel + '-run-' + (++n); })();
     // INJECTED wall-clock — no ambient fallback (this module is pure/deterministic; the determinism gate bans a bare
     // Date.now here). The composition root passes now:()=>Date.now(); a hub built without one (unit tests) stamps a
@@ -506,6 +530,14 @@
         prompts.take(entry.token);
         try { if (resolveConsent) resolveConsent(runId, promptId, 'deny'); } catch (e) { failNote('channels.hub.consent.deny', e); }
       })().catch(function () {});
+    }
+    /* AN UNANSWERED APPROVAL EXPIRED (2026-10-11). It fail-closes (the action does not run), but it used to do so in
+       silence and the agent then told the user "you declined". Tell the chat what actually happened and how to retry;
+       a late tap on the old keyboard already answers "this was already settled" (onCallback). */
+    function notifyConsentTimeout(chatId, runId, fields) {
+      const tool = String((fields && fields.tool) || 'that action');
+      deliver(chatId, '⌛ No answer in time — ' + tool + ' was NOT run, and the task carried on without it. Reply to ask for it again if you still want it.', runId, 'command')
+        .catch(function (e) { failNote('channels.hub.consent.timeoutNotice', e); });
     }
     const MAX_MEDIA_PER_MESSAGE = 10;                // a full Telegram album is 10 items; a merged album must fit
     const MAX_REPLY_MEDIA = 4;                       // files lifted off a QUOTED message — context, never the bulk
@@ -1576,6 +1608,35 @@
       // the dock this run is AT: only when the floor's own resolution picked this agent (never inferred)
       const dockId = (routedDock && routed && String(routed) === agentId) ? routedDock : null;
 
+      /* A FOLLOW-UP JOINS THE RUN IN FLIGHT (2026-10-11 — "they start a task and then stop repeatedly with no
+         explanation as to why"). Every message used to ABORT this chat's working run and delete its partial, so a
+         "also make it blue" or a "how's it going?" silently killed the task. When the host can steer (steerRun) and
+         this is a plain follow-up to the SAME agent, it goes into that run's steer buffer — the loop reads it at its
+         next step, exactly like a COMMS mid-run steer — and nothing is aborted. Only in a DIRECT chat with no
+         forwarded/quoted text and no media: the run's trust and taint were decided from its first sender, so a group
+         member or third-party text must never ride into it as a Commander instruction. A plain "stop"/"cancel" still
+         stops (falls through to the supersede below). A refused steer (the run already finished its work, or has no
+         id yet) falls through to the old path, which now says the earlier run was stopped. */
+      const liveRun = inflight.get(chatId);
+      // 409 = that run's loop already FINISHED its work and is settling its reply: never abort it (that would throw away
+      // a finished answer) — it delivers, and this message runs next, queued behind it on the same conversation.
+      let letPrevFinish = false;
+      if (steerRun && liveRun && liveRun.runId && !liveRun.superseded && !liveRun.halted && liveRun.agentId === agentId
+          && msg.chatType !== 'group' && !msg.edited && !carriesThirdPartyText(msg)
+          && !(Array.isArray(msg.media) && msg.media.length) && !(msg.replyTo && Array.isArray(msg.replyTo.media) && msg.replyTo.media.length)
+          && String(msg.text || '').trim() && !STOP_WORDS_RE.test(String(msg.text || ''))) {
+        const note = String(msg.text).trim();
+        let steered = false;
+        try { const r = await steerRun(liveRun.runId, note); steered = !!(r && r.ok); letPrevFinish = !steered && !!r && r.status === 409; }
+        catch (e) { failNote('channels.hub.steer', e); steered = false; }
+        if (steered) {
+          try { store.appendTurn(agentId, 'user', note); } catch (e) { failNote('channels.hub.appendTurn', e); }
+          try { emit('channel.inbound', { channel, chatId, agentId, userId: msg.userId || '', kind: 'dm' }); } catch (e) { failNote('channels.hub.inbound.emit', e); }
+          await deliver(chatId, '↪ Added to the task that is already running — it picks this up at its next step, no restart.', liveRun.runId, 'command');
+          return;
+        }
+      }
+
       if (resolveEntryRunConfig) {
         try {
           const config = resolveEntryRunConfig(agentId);
@@ -1621,8 +1682,10 @@
 
       // one run per CONVERSATION: a new message in THIS chat ABORTS its in-flight run — keyed by chatId, NOT
       // agentId, so two chats routed to the SAME agent (via a splitter/filter) never cross-cancel each other.
+      // `supersededBy` lets the aborted run's teardown SAY it was stopped for this message (abandoned() below) — a
+      // /stop and an E-STOP set superseded without it and keep their own replies.
       const prev = inflight.get(chatId);
-      if (prev) { prev.superseded = true; try { prev.abort.abort(); } catch (_) {} }
+      if (prev && !(letPrevFinish && prev === liveRun)) { prev.superseded = true; prev.supersededBy = 'message'; try { prev.abort.abort(); } catch (_) {} }
 
       try { emit('channel.inbound', { channel, chatId, agentId, userId: msg.userId || '', kind: msg.chatType === 'group' ? 'group' : 'dm' }); } catch (_) {}
 
@@ -1773,6 +1836,15 @@
           try {
             await deliver(chatId, '⏹ Stopped — E-STOP was pressed in the station. This message got no reply and nothing further will run for it.', myRec.runId || '', 'command');
           } catch (_) { /* a stop notice must never crash the teardown */ }
+        } else if (!myRec.halted && myRec.supersededBy === 'message' && !haltNoticeSent && myRec.runId && !(state && state.errMsg)) {
+          /* A NEWER MESSAGE STOPPED THIS RUN — never silently (2026-10-11). This is the fallback when the follow-up
+             could not join the run (no steer seam, a group chat, media, an explicit "stop", or no live loop to read
+             it): the earlier task's unfinished reply is dropped, so say so once. Its question stays
+             in the transcript, so the newer run can see it. */
+          haltNoticeSent = true;
+          try {
+            await deliver(chatId, '⏹ Stopped the earlier task before it finished so your newer message could be handled — its unfinished reply was dropped. If that earlier request still needs doing, say so.', myRec.runId || '', 'command');
+          } catch (e) { failNote('channels.hub.supersedeNotice', e); }
         }
         return true;
       };
@@ -1797,7 +1869,7 @@
           else if (name === 'agent.tool_call') state.buf = '';
           else if (name === 'agent.run.error') { state.errMsg = p.message || 'run error'; state.transient = !!p.transient; }
           else if (name === 'capdenied') state.errMsg = state.errMsg || ('no ' + (p.need || 'capability') + ' — ' + (p.reason || ''));
-          else if (name === 'agent.run.end') { state.reason = p.reason; state.budgetScope = p.budgetScope || null; state.budgetCapUsd = (typeof p.budgetCapUsd === 'number' && isFinite(p.budgetCapUsd)) ? p.budgetCapUsd : null; state.budgetCapIsBalance = p.budgetCapIsBalance === true; if (typeof p.usd === 'number' && isFinite(p.usd)) state.usd = Math.max(state.usd || 0, p.usd); }
+          else if (name === 'agent.run.end') { state.reason = p.reason; state.finishReason = p.finishReason || null; state.unpricedModel = p.unpricedModel || null; state.unpricedCapTokens = Number(p.unpricedCapTokens) || 0; state.budgetScope = p.budgetScope || null; state.budgetCapUsd = (typeof p.budgetCapUsd === 'number' && isFinite(p.budgetCapUsd)) ? p.budgetCapUsd : null; state.budgetCapIsBalance = p.budgetCapIsBalance === true; if (typeof p.usd === 'number' && isFinite(p.usd)) state.usd = Math.max(state.usd || 0, p.usd); }
         };
 
         // CONSENT SURFACE (per-chat, default OFF — see /approvals). With it off nothing changes: the run stays
@@ -1809,7 +1881,9 @@
         const consentPrompt = wantApprovals ? function (call, tool) {
           return askConsent({
             agentId: agentId, runId: runId, signal: ac.signal, call: call, tool: tool,
-            onPrompt: function (promptId, fields) { sendConsentPrompt(chatId, runId, promptId, fields); }
+            onPrompt: function (promptId, fields) { sendConsentPrompt(chatId, runId, promptId, fields); },
+            // the fail-closed timer fired with no tap: SAY so, or the chat sees the run carry on as if they had refused
+            onTimeout: function (promptId, fields) { notifyConsentTimeout(chatId, runId, fields); }
           });
         } : undefined;
 
@@ -1968,9 +2042,16 @@
       if (state.errMsg) {
         // an exhausted supersede-retry gets an HONEST channel reply (never the raw internal mutex message) — the
         // user's message was NOT lost silently; they can simply resend. Any other error surfaces its own message.
+        // a harness-authored stop (loop guard, loop breaker, unkept promise…) leads with what happened + what to do
+        const explained = StopReason.explainStop ? StopReason.explainStop(state.errMsg) : null;
         reply = isSupersedeRaceRefusal(state.transient, state.errMsg)
           ? '⚠ Still busy finishing your last message — please send that again in a moment.'
-          : '⚠ ' + state.errMsg;
+          : '⚠ ' + (explained ? explained.text : state.errMsg);
+      } else if (!String(state.buf || '').trim() && (state.reason === 'empty' || !state.reason)) {
+        // NOTHING came back. "(no reply)\n\n(stopped: empty)" read as a silent stop; say what happened and the way on.
+        reply = state.reason === 'empty'
+          ? '⚠ The model sent back an empty reply, so nothing was done — say "continue" to try again, or switch model with /model if it keeps happening.'
+          : '⚠ The run ended without a reply and without saying why — say "continue" to try again.';
       } else {
         reply = state.buf || '(no reply)';
         if (taskIntent) {
@@ -2019,7 +2100,7 @@
            entry dock gets back what IT actually produced. */
         const ownReply = (firstStageText != null) ? firstStageText : reply;
         if (ownReply) { try { store.appendTurn(agentId, 'assistant', ownReply); } catch (e) { failNote('channels.hub.appendTurn', e); } }
-        if (state.reason && state.reason !== 'done') reply += endNote(state.reason, state);
+        if (state.reason) reply += endNote(state.reason, state);   // 'done' adds a note only when the provider cut the reply short
       }
 
       // all three die BEFORE deliver — none of them may outlive the reply it announced. The stream is ABANDONED

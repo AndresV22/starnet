@@ -27,7 +27,10 @@
   // Absent on purpose: unknown + server_error (plausibly StarNet's own fault — those keep "report it").
   const KNOWN_ERROR_KINDS = { billing: 1, managed_credit: 1, managed_credit_link: 1, auth: 1, no_model: 1, oauth: 1, grok_oauth_unavailable: 1,
     quota_exhausted: 1, model_not_found: 1, context_overflow: 1, content_policy_blocked: 1, capdenied: 1,
-    spotify_not_connected: 1, stale_session: 1, spend_unknown: 1 };
+    spotify_not_connected: 1, stale_session: 1, spend_unknown: 1,
+    // harness stops whose own message is the fix and a plain resend repeats them (2026-10-11): a tool call too big for
+    // the model's output limit (ask in smaller parts / switch model), and a Commander hook that blocks the run
+    output_limit: 1, hook_blocked: 1 };
   // …and the retryable kinds whose message names a door that is NOT StarNet's bug: an unanswered StarNet balance check,
   // a provider's outage or rate limit, an agent still busy with its last run. Their own message is the fix; a resend in a
   // moment CAN go through, so the cause must not say it won't (2026-10-08: a refused link / an unanswered balance check

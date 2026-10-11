@@ -397,6 +397,37 @@ async function run() {
     A.eq(sends[sends.length - 1].t, 'could not write', 'and the run still completes and replies');
   }
 
+  // ---- 5D2. (2026-10-11) an EXPIRED approval is said out loud, and is not a "no" -------------------------------
+  // The host's channelAskConsent now asks the waiter for timeoutDecision:'timeout' + onTimeout (index.js). Silence still
+  // fail-closes — the action does not run — but the chat is told, and the decision the broker gets is 'timeout' (it
+  // maps that to a distinct closed result, so the agent never tells the user "you declined").
+  {
+    const sends = []; const store = fakeStore({ 555: { agentId: 'tg_555', approvals: true } });
+    let decision = null;
+    const ask = (o) => makeConsentWait({
+      pending: new Map(), signal: o.signal, timeoutMs: 20, extendMs: 100, uuid: idGen('prompt'),
+      timeoutDecision: 'timeout',
+      onTimeout: (pid) => { if (typeof o.onTimeout === 'function') o.onTimeout(pid, { tool: 'fs.write' }); },
+      emitPrompt: (promptId) => { o.onPrompt(promptId, { tool: 'fs.write', scope: 'write', argsSummary: 'path=notes.md' }); }
+    }).ask();
+    const runOnce = async (o) => {
+      decision = await o.prompt({ name: 'fs.write', args: { path: 'notes.md' } }, { scope: 'write' });
+      o.emit('agent.token', { delta: 'it timed out, so nothing was written' });
+      o.emit('agent.run.end', { reason: 'done' });
+    };
+    const hub = makeChannelHub({
+      isOwner: () => true, runOnce, store, prompts: makePromptRegistry({ newId: idGen('tok') }),
+      send: (c, t, opts) => { sends.push({ c, t, opts }); return Promise.resolve({ ok: true, messageId: 'm' + sends.length }); },
+      answerCallback: () => Promise.resolve({ ok: true }), editMessage: () => Promise.resolve({ ok: true }),
+      askConsent: ask, resolveConsent: () => false,
+      secrets: () => ({ key: 'k', model: 'm' }), classify: () => false, newId: idGen('run')
+    });
+    await hub.onInbound(dm('write notes.md'));
+    A.eq(decision, 'timeout', 'an unanswered approval settles as a TIMEOUT (still closed), not a human "deny"');
+    A.ok(sends.some(s => /No answer in time — fs\.write was NOT run/.test(s.t)), 'the chat is told the approval expired and the action did not run');
+    A.eq(sends[sends.length - 1].t, 'it timed out, so nothing was written', 'the run still finishes and replies');
+  }
+
   // ---- 5E. a tap that lost the race is reported honestly, never as a success ----
   // The PERMANENT RECORD matters as much as the follow-up: the ack toast and the message stamp both assert the
   // decision took effect, and both used to be written BEFORE resolveConsent was asked. A late tap therefore

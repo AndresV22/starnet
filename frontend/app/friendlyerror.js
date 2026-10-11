@@ -143,6 +143,19 @@
        refusal until the cause is fixed. The copy is REBUILT per cause in friendlyError() (spendUnknownMessage); this is
        the fallback. The door is SETTINGS › SPENDING LIMITS, where the cause and its fix are listed. */
     spend_unknown: { retryable: false, action: 'budget',   msg: "Your spending limits can't be checked because StarNet's spend history is unknown, so this run was stopped — open SETTINGS › SPENDING LIMITS to fix it." },
+    /* HARNESS STOPS (2026-10-11 — "they start a task and then stop repeatedly with no explanation"). The loop's own
+       stop messages (loop guard, loop breaker, unkept promises, output-limit cuts, hooks, checkpoints) fell through to
+       `unknown` and led with "Something went wrong on that turn". Each now leads with what happened + what to do;
+       the per-message copy is built by explainStop() below — these msgs are the fallback/metadata only. */
+    loop_stuck:         { retryable: true,  action: null, msg: 'The agent got stuck repeating one step, so StarNet stopped the run. Say what to try differently, then ask again.' },
+    unknown_tools:      { retryable: true,  action: null, msg: 'The model kept calling tools that don’t exist, so StarNet stopped the run. Try again, or switch to a stronger model.' },
+    tool_keeps_failing: { retryable: true,  action: null, msg: 'A tool kept failing, so StarNet stopped this unattended run. Check its error, fix the cause, then run it again.' },
+    no_progress:        { retryable: true,  action: null, msg: 'A tool kept returning the same result, so StarNet stopped this unattended run as stuck.' },
+    incomplete_work:    { retryable: true,  action: null, msg: 'The agent stopped before finishing: it kept saying what it would do next without doing it. Say "continue" to push it on.' },
+    memory_unverified:  { retryable: true,  action: null, msg: 'The agent said it saved something to memory, but nothing was written — ask it again to save it.' },
+    output_limit:       { retryable: false, action: null, msg: 'The reply hit the model’s output limit while writing a large tool call, so nothing from it was saved. Ask for it in smaller parts.' },
+    checkpoint_failed:  { retryable: true,  action: null, msg: 'StarNet couldn’t save this run’s progress to disk, so it stopped. Check free disk space, then try again.' },
+    hook_blocked:       { retryable: false, action: null, msg: 'One of your hooks blocked this run. Change or turn off that hook to let it run.' },
     unknown:      { retryable: true,  action: null,       msg: 'Something went wrong on that turn — try again.' }
   };
 
@@ -155,6 +168,59 @@
     model_not_found: 'model_not_found', content_policy_blocked: 'content_policy_blocked',
     format_error: 'unknown', unknown: 'unknown'
   };
+
+  /* MIRROR of sidecar/stop-reason.js STOP_EXPLAINERS — the browser never loads sidecar modules, so the harness's own
+     stop messages are explained here in the SAME words (test/stop-reason.test.js locks the two copies together).
+     Matched BEFORE any provider classification: these are StarNet's own decisions, not API failures. */
+  const STOP_EXPLAINERS = [
+    { kind: 'loop_stuck', re: /loop guard: (.+?) failed (\d+) times with identical arguments/i,
+      text: m => 'The agent got stuck repeating one step: ' + m[1] + ' failed ' + m[2] + ' times in a row with the same input, so StarNet stopped the run. Say what to try differently, or fix what that step needs, then ask again.' },
+    { kind: 'unknown_tools', re: /loop breaker: the model called tools that do not exist \(([^)]*)\)/i,
+      text: m => 'The model kept calling tools that don’t exist (' + m[1] + '), so StarNet stopped the run. Try again, or switch to a stronger model.' },
+    { kind: 'tool_keeps_failing', re: /loop breaker: (.+?) failed (\d+) times in a row/i,
+      text: m => m[1] + ' kept failing (' + m[2] + ' times in a row, with different inputs), so StarNet stopped this unattended run. Check its error, fix the cause, then run it again.' },
+    { kind: 'no_progress', re: /loop breaker: (.+?) returned the identical result (\d+) turns in a row/i,
+      text: m => m[1] + ' kept returning the same result (' + m[2] + ' turns in a row), so StarNet stopped this unattended run as stuck. Check what it was waiting for, then run it again.' },
+    { kind: 'incomplete_work', re: /Work is incomplete: the model kept announcing/i,
+      text: () => 'The agent stopped before finishing: it kept saying what it would do next without actually doing it. Say "continue" to push it on, or switch to a stronger model.' },
+    { kind: 'memory_unverified', re: /memory update is unverified|promise to remember above is unverified/i,
+      text: () => 'The agent said it saved (or would remember) something, but nothing was written to memory — it will not remember this next time. Ask it again to save it.' },
+    { kind: 'output_limit', re: /hit the model's output limit while writing a large (\S+) call/i,
+      text: m => 'The reply hit the model’s output limit while writing a large ' + m[1] + ' call, so it never ran and nothing from it was saved. Ask for it in smaller parts (for example "write it section by section"), or switch to a model with a larger output limit.' },
+    { kind: 'checkpoint_failed', re: /run checkpoint failed/i,
+      text: () => 'StarNet couldn’t save this run’s progress to disk, so it stopped rather than risk losing work. Check free disk space, then try again.' },
+    { kind: 'hook_blocked', re: /blocked by your hook(?: `([^`]*)`)?: ?(.*)$/i,
+      text: m => 'Your hook' + (m[1] ? ' `' + m[1] + '`' : '') + ' blocked this run' + (m[2] ? ': ' + m[2].replace(/\.\s*$/, '') : '') + '. Change or turn off that hook to let it run.' },
+    { kind: 'context_overflow', re: /context still too large after compacting/i,
+      text: () => 'This conversation got too long for the model, even after StarNet compacted it. Start a fresh conversation, or switch to a model with a larger context window.' }
+  ];
+  function explainStop(message) {
+    const s = String(message == null ? '' : message);
+    if (!s) return null;
+    for (const e of STOP_EXPLAINERS) {
+      const m = s.match(e.re);
+      if (m) return { kind: e.kind, text: e.text(m) };
+    }
+    return null;
+  }
+  /* The COMMS work-log line for a run that ENDED (agent.run.end reason) without a clean delivery and without an error
+     row of its own. Raw reason words ("stopped (empty)") read as a silent stop; each now says what happened + the
+     next step. opts.cancelSource: 'estop_by_run' (the run pressed E-STOP itself) — anything else that is not the
+     Commander's own Stop came from OUTSIDE this chat (a station/HUD/phone STOP or E-STOP). '' = nothing to add. */
+  function stopLine(reason, opts) {
+    const o = opts || {};
+    const r = String(reason == null ? '' : reason);
+    if (r === 'max_iters') return 'reached the step limit — say "continue" to keep going';
+    if (r === 'empty') return 'the model sent back an empty reply, so nothing was done — say "continue" to try again, or switch model if it keeps happening';
+    if (r === 'refusal') return 'the model declined that request — try rephrasing it';
+    if (r === 'cancelled') {
+      if (o.cancelSource === 'estop_by_run') return 'stopped by the E-STOP this run pressed — RESUME AUTOMATION (top bar) is yours alone';
+      return 'stopped from outside this chat — a STOP elsewhere (desk screen, HUD, phone or E-STOP) ended it before it finished';
+    }
+    if (r === 'error') return 'it stopped on an error before it finished — try again';
+    if (!r || r === 'done' || r === 'clarifying') return '';
+    return 'it stopped before finishing (' + r + ')';
+  }
 
   function rawText(err) {
     if (err == null) return '';
@@ -361,6 +427,13 @@
   function friendlyError(err, status, opts) {
     const engineAlive = (opts && typeof opts.engineAlive === 'boolean') ? opts.engineAlive : null;
     const raw = rawText(err);
+    // a StarNet-authored stop (loop guard, unkept promise, output-limit cut, hook…) leads with what happened and what
+    // to do — before the user-abort test, whose /abort/ would otherwise claim a hook reason that mentions the word
+    const harnessStop = (err && err.name === 'AbortError') ? null : explainStop(raw);
+    if (harnessStop) {
+      const hk = KINDS[harnessStop.kind] || KINDS.unknown;
+      return { userMessage: harnessStop.text, kind: harnessStop.kind, retryable: hk.retryable, action: hk.action, raw: raw };
+    }
     if (isUserAbort(err)) {
       const k = KINDS.user_abort;
       return { userMessage: k.msg, kind: 'user_abort', retryable: k.retryable, action: k.action, raw: raw };
@@ -676,6 +749,6 @@
     }
   }
 
-  return { friendlyError, actionButton, connectorDoor, connectorChipLabel, routeConsoleSearch, linkStartFailure, KINDS, CAP_INFO,
+  return { friendlyError, actionButton, connectorDoor, connectorChipLabel, routeConsoleSearch, linkStartFailure, explainStop, stopLine, STOP_EXPLAINERS, KINDS, CAP_INFO,
     _internals: { kindFromRaw, isTransportLoss, isUpstreamFetchFailure, isUserAbort, REASON_TO_KIND, capFromRaw, capdeniedMessage, codexConnected, transportMessage } };
 });

@@ -26,7 +26,9 @@ const DossierStore = (() => {
     dossier = (typeof Dossier !== 'undefined')
       ? Dossier.hydrate(opts.dossier)         // resume the saved slice (or a fresh one) — defensively sanitized
       : (opts.dossier || null);
-    if (ready() && opts.docs) Dossier.seedFromDocs(dossier, opts.docs, now());   // first-seed-wins per doc
+    // first-seed-wins per doc; opts.canonical = these are the Overseer's docs, so an edited doc also refreshes its
+    // still-untouched seed (memory-truth: an old manual must not ride every prompt beside the new one)
+    if (ready() && opts.docs) Dossier.seedFromDocs(dossier, opts.docs, now(), { resync: opts.canonical === true });
     pushToSidecar();   // Phase C: hand the composed block to the sidecar so server-composed (cron) runs know the Commander
   }
 
@@ -65,11 +67,13 @@ const DossierStore = (() => {
 
   // re-seed from freshly-authored onboarding docs (called from applyAgentConfig when the Commander edits a
   // config .md). First-seed-wins PER DOC, so this only adds a dimension newly filled — never duplicates.
-  function syncDocs(docs) {
+  // opts.canonical (the Overseer's own docs): an EDITED doc also updates its seed belief while that belief is still
+  // the untouched copy (dossier.js seedFromDocs). A specialist's docs never rewrite the station's seeds.
+  function syncDocs(docs, opts) {
     if (!ready() || !docs) return;
-    Dossier.seedFromDocs(dossier, docs, now());
+    Dossier.seedFromDocs(dossier, docs, now(), { resync: !!(opts && opts.canonical === true) });
     try { persistFn(); } catch (_) {}
-    pushToSidecar();   // newly-seeded beliefs reach the sidecar for cron runs too
+    pushToSidecar();   // newly-seeded (or re-synced) beliefs reach the sidecar for cron runs too
   }
 
   // the durable COMMANDER block for the system prompt (durable beliefs only → cache-stable). '' when cold.

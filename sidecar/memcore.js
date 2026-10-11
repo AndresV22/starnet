@@ -178,8 +178,40 @@
     };
     if (now != null) out.effectiveTrust = decayTrust(trust, r.lastFeedbackAt || r.createdAt || r.ts || 0, now);
     if (r.revision) { out.revision = r.revision; out.updatedAt = r.updatedAt; out.updatedSourceRunId = r.updatedSourceRunId; }
+    // memory-truth (additive): what the recall line asserts about this record, so the panel can show the same truth —
+    // whose words it is (with the proving sentence), and an "unhelpful" demotion trust alone could not record
+    if (r.confirmation) out.confirmation = String(r.confirmation);
+    if (r.statedBy && typeof r.statedBy.quote === 'string') out.statedQuote = r.statedBy.quote;
+    if (Number(r.distrust) > 0) out.distrust = clamp01(Number(r.distrust));
     return out;
   }
 
-  return { TRUST_STEP, TRUST_HALFLIFE_MS, clamp01, nextTrust, decayTrust, tokenJaccard, findSimilar, nextNoteId, originOf, reduceStats, applyPin, applyEdit, applyForget, projectRecord };
+  /* ---- RUN RECEIPTS (memory-truth lane, 2026-10-11) ----
+     COMMS shows "remembered · N" for a run by fetching that run's batch. notebook.write never registered one, so the
+     fetch found nothing and the server fell back to the agent's LATEST OTHER run — COMMS printed the previous run's
+     memories as this run's, then suppressed this run's real reflection receipts. These two pure helpers are the fix:
+     a run's batch MERGES every save made for it (mid-run notebook.write + post-run reflection/failure review, each
+     item keyed by `key || id` so a later state of the same record replaces the earlier line), and a lookup for a
+     named run returns exactly that run's batch or nothing. */
+  function mergeReceipts(prev, items) {
+    const out = [], at = new Map();
+    for (const p of [].concat(Array.isArray(prev) ? prev : [], Array.isArray(items) ? items : [])) {
+      if (!p || typeof p !== 'object') continue;
+      const k = String(p.key || p.id || '');
+      if (k && at.has(k)) { out[at.get(k)] = p; continue; }
+      if (k) at.set(k, out.length);
+      out.push(p);
+    }
+    return out;
+  }
+  function receiptBatchFor(byRun, latestByAgent, agentId, runId) {
+    const rid = String(runId || '');
+    // a NAMED run gets exactly its own batch — never another run's (the wrong-receipt bug). Only an un-named fetch
+    // (legacy callers) may fall back to the agent's newest pending batch.
+    const key = rid || (latestByAgent && typeof latestByAgent.get === 'function' ? latestByAgent.get(agentId) : '');
+    const batch = key && byRun && typeof byRun.get === 'function' ? byRun.get(key) : null;
+    return (batch && batch.agentId === agentId) ? batch : null;
+  }
+
+  return { TRUST_STEP, TRUST_HALFLIFE_MS, clamp01, nextTrust, decayTrust, tokenJaccard, findSimilar, nextNoteId, originOf, reduceStats, applyPin, applyEdit, applyForget, projectRecord, mergeReceipts, receiptBatchFor };
 });

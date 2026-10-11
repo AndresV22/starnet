@@ -32,6 +32,7 @@ test/consent-full-request.test.js
 test/outbound-failure-diagnosability.test.js
 test/reflect.test.js
 test/memory-corrections.test.js
+test/memory-truth.test.js
 test/memcore.test.js
 test/cost.test.js
 test/spend.test.js
@@ -132,6 +133,7 @@ test/managed-credit-held.test.js
 test/credits-link.test.js
 test/credits-store-recovery.test.js
 test/friendlyerror.test.js
+test/stop-reason.test.js
 test/codexsignin.test.js
 test/oauthsignin.test.js
 test/hooks.test.js
@@ -258,6 +260,7 @@ test/recruiterstore-readiness.test.js
 test/auxgovernor.test.js
 test/failreview.test.js
 test/feedbackmemory.test.js
+test/tasteref.test.js
 test/embed.test.js
 test/threadstore.test.js
 test/autopilot-threads.test.js
@@ -406,6 +409,7 @@ test/computer-control.test.js
 test/win32desktop.test.js
 test/inputpolicy.test.js
 test/image.test.js
+test/image-reference.test.js
 test/image-task.test.js
 test/voice-tool.test.js
 test/media-project-placement.test.js
@@ -1064,6 +1068,7 @@ test/preflight.first-call-fold.test.js
 test/threshold.anchored.test.js
 test/tail.token-budget.test.js
 test/fold.user-verbatim.test.js
+test/earlier-conversation.test.js
 test/compaction.images.test.js
 test/skills.on-demand.test.js
 test/manual.on-demand.test.js

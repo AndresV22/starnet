@@ -457,8 +457,14 @@ const App = (() => {
       // pushRoster (below) so the consent broker can honor it; the backend lane (W1) reads it there.
       if (typeof patch.workshop === 'boolean') a.workshop = patch.workshop;
     }
-    if (typeof DossierStore !== 'undefined') DossierStore.syncDocs(d);   // seed the dossier from any newly-authored onboarding doc (first-seed-wins per doc) BEFORE the recompose
+    // seed the dossier from any newly-authored onboarding doc (first-seed-wins per doc) BEFORE the recompose; the
+    // Overseer's own docs (id 'agent', the station's standing orders) also refresh a still-untouched seed after an edit
+    const dossierWas = (typeof DossierStore !== 'undefined') ? DossierStore.composeBlock() : '';
+    if (typeof DossierStore !== 'undefined') DossierStore.syncDocs(d, { canonical: a.id === 'agent' });
     a.systemPrompt = composeSystemPrompt(a);
+    // the COMMANDER block rides EVERY agent's stored prompt: when this edit changed it (a resynced seed), the whole crew
+    // is recomposed (pushRoster below carries it to the sidecar) — or the crew keeps reading the old standing order
+    if (typeof DossierStore !== 'undefined' && DossierStore.composeBlock() !== dossierWas) recomposeAllPrompts();
     if (focused && typeof Chat !== 'undefined' && Chat.setSystem) Chat.setSystem(a.systemPrompt);
     if (focused) syncChannels();   // keep a connected Telegram bot on the SAME (updated) identity — no reconnect needed
     // THE CACHED-PROMPT TRAP (roster-clause.test §D): rosterRole() reads a crew member's specialty/purpose, and the
@@ -691,6 +697,16 @@ const App = (() => {
   // changes shape (summon; crew rehydrate on resume; a crew rename) — this is the cached-systemPrompt trap: the
   // composed prompt is a stored snapshot, not a live view. Callers still pushRoster()/persist() themselves, since
   // every roster-change site already does both right after.
+  // memory-truth (2026-10-11): the dossier's COMMANDER block is baked into EVERY agent's stored systemPrompt, and a
+  // dossier change used to recompose only the focused/edited agent — a specialist kept the old standing order until
+  // something else happened to recompose it. Callers pushRoster()/persist() themselves.
+  function recomposeAllPrompts() {
+    for (const x of agents.values()) {
+      if (!x) continue;
+      x.systemPrompt = composeSystemPrompt(x);
+      if (agent && agent.id === x.id && typeof Chat !== 'undefined' && Chat.setSystem) Chat.setSystem(x.systemPrompt);
+    }
+  }
   function recomposeOrchestrators() {
     for (const a of agents.values()) {
       if (!a || a.role !== 'orchestrator') continue;
@@ -3482,8 +3498,9 @@ const App = (() => {
     // prompt so a freshly-deployed agent already knows the Commander. A panel edit recomposes the live prompt.
     if (typeof DossierStore !== 'undefined') {
       DossierStore.init({
-        dossier: pendingDossier, docs: agentDocs(agent), persist: persist,
-        onMutate: () => { if (!agent) return; agent.systemPrompt = composeSystemPrompt(agent); if (typeof Chat !== 'undefined' && Chat.setSystem) Chat.setSystem(agent.systemPrompt); persist(); }
+        dossier: pendingDossier, docs: agentDocs(agent), canonical: !!(agent && agent.id === 'agent'), persist: persist,
+        // a dossier edit reaches EVERY agent's stored prompt (and the sidecar roster), not only the focused one
+        onMutate: () => { if (!agent) return; recomposeAllPrompts(); pushRoster(); persist(); }
       });
       pendingDossier = null;
       agent.systemPrompt = composeSystemPrompt(agent);   // include the dossier block before Chat.init reads it below
@@ -5730,7 +5747,9 @@ const App = (() => {
       const mem = (typeof r.memoriesRestored === 'number') ? r.memoriesRestored
         : (r.memories ? r.memories + ' in file' : 0);
       dataStatus('restored ' + (r.agentName || 'agent') + ' — ' + (r.records == null ? r.keys : r.records) + ' records'
-        + (mem ? ' + ' + mem + ' memories' : ''));
+        + (mem ? ' + ' + mem + ' memories' : '')
+        // a memory the Commander forgot is not resurrected by an old backup (Memory Core › declined can restore it)
+        + (r.memoriesForgotten ? ' · ' + r.memoriesForgotten + ' forgotten ' + (r.memoriesForgotten > 1 ? 'memories' : 'memory') + ' left out' : ''));
       gateActive = false;
       reentry();   // resume straight into the restored agent (or its RESUME screen if creds are still missing)
     };

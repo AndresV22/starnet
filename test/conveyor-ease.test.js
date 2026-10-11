@@ -69,6 +69,10 @@ A.ok(/const last = \(mine\.runs \|\| \[\]\)\[0\], dockId = last && last\.dockId/
 A.ok(/replace\(\/\\n\*MATCH THIS EXAMPLE of a good result\[\\s\\S\]\*\$\/, ''\)/.test(ex) && /Math\.min\(1200, room\)/.test(ex) && /if \(room < 300\) return null;/.test(ex),
   '…as one marked block that replaces any earlier example, bounded to fit the 2000-character brief');
 A.ok(/★ KEEP AS THE EXAMPLE/.test(res) && /★ THE LINE’S EXAMPLE/.test(res), '…a key under the result, then a tag saying it is the line\'s example');
+A.ok(/keepTaste\(mine, last\.runId\);/.test(ex) && /api\('\/api\/taste\/keep-style', 'POST', \{ runId \}\)/.test(ex),
+  '…and the same approval becomes the Commander\'s station-wide taste, with the delivered run\'s real reference (DESIGN ANCHOR 10-11)');
+A.ok(/k\.sent\.then\(stored => stored && api\('\/api\/taste\/keep-style', 'POST', \{ runId: k\.runId, undo: true \}\)/.test(ex) && /unkeepTasteIfUndone\(mine\);/.test(panel),
+  '…and the panel\'s UNDO takes the crew\'s copy back too, only after the keep itself landed (the two can never cross)');
 /* ---------- the loop's machine note, in words ---------- */
 const ln = at(panel, '  const LOOP_NOTE = ', '  function jobResultHTML(');
 A.ok(/The review loop used all ' \+ n \+ ' tries without an approval, so the last version shipped as it was\./.test(ln) && /const ln = loopNotes\(/.test(res) && /ln\.notes\.map\(t => '<div class="wf-warnline">⚠ '/.test(res),

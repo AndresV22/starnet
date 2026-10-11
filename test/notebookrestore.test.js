@@ -64,4 +64,23 @@ const { sanitizeNotes, mergeNotes } = require('../sidecar/notebookrestore.js');
   A.eq(m.map(n => n.id), ['a', 'b'], 'merged ids');
 }
 
+// ---- F. memory-truth (2026-10-11): a FORGOTTEN memory is not resurrected by an older backup ----
+// Forget / veto / discard put the belief's text on declined:<agent> (the tombstone, restorable in Memory Core).
+{
+  const backup = [
+    { id: 'note_2', title: 'Indentation', body: 'User prefers tabs', ts: 1 },                       // forgotten via Memory Core (title + body)
+    { id: 'note_3', title: 'Note', body: 'User likes long reports', content: 'User likes long reports', ts: 2 },   // vetoed receipt (content)
+    { id: 'note_4', title: 'Deploy', body: 'staging deploys from main', ts: 3 }                   // never forgotten
+  ];
+  const skipped = [];
+  const m = mergeNotes([], backup, { declined: ['Indentation User prefers tabs', '  user likes LONG reports '], skipped });
+  A.eq(m.map(n => n.id), ['note_4'], 'notes whose text is on the declined list stay forgotten; the rest restore');
+  A.eq(skipped, ['note_2', 'note_3'], 'the skipped ids are reported (the route answers `forgotten: 2`, never a silent gap)');
+  A.eq(mergeNotes([], backup).length, 3, 'negative: with no declined list (or after Memory Core Restore removed the entry) the import brings them back');
+  A.eq(mergeNotes([], [{ id: 'n', title: 'Deploy', body: 'staging deploys from main and tags' }], { declined: ['staging deploys from main'] }).length, 1,
+    'negative: only the SAME text is a tombstone — a different note that merely contains it is restored');
+  A.eq(mergeNotes([{ id: 'note_2', title: 'Indentation', body: 'User prefers tabs' }], backup, { declined: ['Indentation User prefers tabs'] })[0].id, 'note_2',
+    'negative: the tombstone only filters the INCOMING side — an existing note is never removed by an import');
+}
+
 A.report('notebookrestore.test');
