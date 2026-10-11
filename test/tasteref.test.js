@@ -129,7 +129,20 @@ const REF = T.buildRef({ artifacts: ARTS, toolTrace: TRACE, rows: ROWS, files: [
   const edited = memcore.applyEdit(fresh.list, fresh.rec.id, 'Release notes: one page, dark theme').records;
   const e2 = FM.apply(edited, { runId: 'run-k', verdict: 'great', kept: true, ref: ref2 }, deps(50));
   A.ok(e2 && e2.rec.content === 'Release notes: one page, dark theme' && e2.rec.feedbackRef === ref2, 'an edited record keeps its words and takes the new reference');
+  // PUT IT BACK (unkeep): a record keep-style alone made goes whole; a rated one only loses the kept flag
+  A.ok(fresh.rec.feedbackKeptOnly === true, 'keep-style alone marks the record as its own');
+  const gone = FM.unkeep(fresh.list, 'run-k');
+  A.ok(gone && gone.removed && gone.list.length === 0, 'PUT IT BACK removes a keep-only approval');
+  const back = FM.unkeep(kept.list, 'run-m');
+  A.ok(back && !back.removed && back.list.length === 1 && !back.rec.feedbackKept && /^DISLIKED: "too dark"/.test(back.rec.content), 'on a rated run it only takes the kept flag back; the verdict and words stay');
+  const rated = FM.apply(fresh.list, { runId: 'run-k', verdict: 'great', words: 'love it' }, deps(60));
+  A.ok(rated && rated.rec.feedbackKeptOnly === false && rated.rec.feedbackKept === true, 'a real verdict on a keep-only record makes it a verdict record');
+  const keepRated = FM.unkeep(rated.list, 'run-k');
+  A.ok(keepRated && !keepRated.removed && /love it/.test(keepRated.rec.content), '…so PUT IT BACK no longer deletes the Commander\'s verdict');
+  A.eq(FM.unkeep(list0(), 'run-a'), null, 'nothing kept = nothing to put back');
+  A.eq(FM.unkeep(null, ''), null, 'null-safe');
 }
+function list0() { return FM.apply([], { runId: 'run-a', verdict: 'great', directive: 'x y z' }, deps(1)).list; }
 
 // ---- tasteKey: two approvals of the same words on different work are two references ----
 {

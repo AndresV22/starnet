@@ -120,6 +120,14 @@ async function run(text, agentId) {
     const r5 = await run('Plan the team offsite agenda.');
     A.ok(r5.prompt.indexOf('site/v2.html') >= 0 && r5.prompt.indexOf('neon synthwave skyline, teal haze') >= 0, 'both references survive a sidecar restart and reach the prompt');
 
+    // 5b. ★ STYLE KEPT · PUT IT BACK: the crew's copy goes too; the 👍 on the first design stays
+    const undo = await api('/api/taste/keep-style', {runId: r3.runId, undo: true});
+    A.ok(undo.body.ok && undo.body.undone === true && undo.body.removed === true, 'PUT IT BACK removed the keep-only approval: ' + JSON.stringify(undo.body));
+    const r6 = await run('List three ideas for a team lunch.');
+    A.ok(r6.prompt.indexOf('site/v2.html') < 0 && r6.prompt.indexOf('magenta arcade marquee') < 0, 'the put-back style no longer reaches the next prompt');
+    A.ok(r6.prompt.indexOf('neon synthwave skyline, teal haze') >= 0, 'the rated approval is untouched');
+    A.eq((await api('/api/taste/keep-style', {runId: r3.runId, undo: true})).body.undone, false, 'a second PUT IT BACK changes nothing');
+
     // 6. the personalization pause stops keep-style and says so
     A.ok((await api('/api/personalization', {enabled: false})).body.ok, 'personalization paused');
     const paused = await api('/api/taste/keep-style', {runId: r1.runId});

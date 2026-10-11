@@ -148,6 +148,18 @@ const tick = () => new Promise(r => setTimeout(r, 15));
     WW._putStyleBack(noNotes);
     A.ok((st.propById(dockId).brief || '') === plain && !WW._styleKept(noNotes), 'PUT IT BACK takes the panel-kept example out (it silently did nothing): ' + JSON.stringify((st.propById(dockId).brief || '').slice(-80)));
     for (let i = 0; i < 4; i++) await tick();
+    // DESIGN ANCHOR (2026-10-11): KEEP THIS STYLE also makes the approval the Commander's station-wide taste (the sidecar reads the
+    // delivered run's real files / palette / fonts / image args), and PUT IT BACK takes that back too
+    const keepPosts = () => fetches.filter(x => /\/api\/taste\/keep-style$/.test(x.url)).map(x => JSON.parse(x.init.body));
+    fetches.length = 0;
+    WW._keepStyle(job);
+    for (let i = 0; i < 4; i++) await tick();
+    A.ok(WW._styleKept(job), 'fixture: the style is kept on the step');
+    A.eq(keepPosts(), [{ runId: 'r2' }], 'KEEP THIS STYLE posts the DELIVERED run (runs[0]) to the station taste');
+    WW._putStyleBack(job);
+    for (let i = 0; i < 4; i++) await tick();
+    A.eq(keepPosts(), [{ runId: 'r2' }, { runId: 'r2', undo: true }], 'PUT IT BACK takes the station-wide approval back too');
+    A.ok((st.propById(dockId).brief || '') === plain, 'and the step is as it was');
   }
 
   /* ---------- source locks ---------- */

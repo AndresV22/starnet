@@ -25015,6 +25015,16 @@ async function handleTasteKeepStyle(req, res) {
   const lead = runStore.all().find(r => r && r.runId === runId);
   if (!lead) return json(404, { ok: false, error: 'run not found' });
   if (lead.internal) return json(409, { ok: false, error: 'internal run cannot be kept' });
+  // { undo: true } — PUT IT BACK / the panel's UNDO: the approval goes too (always allowed, even while learning is paused)
+  if (body.undo === true) {
+    const agentId = String(lead.agentId || 'agent');
+    let out = null;
+    try {
+      await notebookStore.update('notebook:' + agentId, (stored) => { const r = FeedbackMemory.unkeep(stored, runId); if (!r) return undefined; out = r; return r.list; });
+    } catch (e) { failNote('taste.unkeep', e); return json(200, { ok: false, error: 'the kept style could not be taken back' }); }
+    if (out) chanEmit(out.removed ? 'memory.forget' : 'memory.write', out.removed ? { agentId, id: out.rec.id } : { agentId, runId, id: out.rec.id, kind: out.rec.kind, scope: out.rec.scope });
+    return json(200, { ok: true, undone: !!out, removed: !!(out && out.removed) });
+  }
   const packet = verdictReview.peek(runId);
   const directive = FeedbackMemory.directiveFor([lead.deliveryPrompt, lead.title], packet && packet.messages);
   const feedbackMemory = await recordFeedbackMemory({ agentId: lead.agentId || 'agent', runId, verdict: 'great', kept: true, directive, run: lead });

@@ -95,8 +95,10 @@ function apply(list, input, deps) {
   const ref = input.ref && typeof input.ref === 'object' ? input.ref : null;
   const kept = input.kept === true;
   // a NEW reference or a new ★ KEEP THIS STYLE is something to write even when no new words came with it
-  const extra = !!(ref && (!prev || JSON.stringify(prev.feedbackRef || null) !== JSON.stringify(ref))) || (kept && !(prev && prev.feedbackKept));
-  const refFields = Object.assign({}, ref ? { feedbackRef: ref } : null, kept ? { feedbackKept: true } : null);
+  // (a real verdict on a record that only ★ KEEP THIS STYLE made turns it into a verdict record: PUT IT BACK must not delete it)
+  const verdictOnKept = !kept && !!(prev && prev.feedbackKeptOnly);
+  const extra = !!(ref && (!prev || JSON.stringify(prev.feedbackRef || null) !== JSON.stringify(ref))) || (kept && !(prev && prev.feedbackKept)) || verdictOnKept;
+  const refFields = Object.assign({}, ref ? { feedbackRef: ref } : null, kept ? { feedbackKept: true } : null, verdictOnKept ? { feedbackKeptOnly: false } : null);
   const words = (prev && Array.isArray(prev.feedbackWords) ? prev.feedbackWords : []).slice();
   let add = clean(input.words, WORDS_CHARS);
   if (add && prev && words.indexOf(add) >= 0) { if (!extra) return null; add = ''; }   // a repeated chip/message teaches nothing new
@@ -138,7 +140,24 @@ function apply(list, input, deps) {
     createdAt: now, ts: now, updatedAt: now, lastFeedbackAt: now, feedbackAt: now, lastUsedAt: null, useCount: 0, trust, pinned: false
   };
   Object.assign(rec, refFields);
+  if (kept) rec.feedbackKeptOnly = true;   // made by ★ KEEP THIS STYLE alone: its PUT IT BACK removes it whole
   return { list: list.concat([rec]), rec, created: true };
+}
+
+// unkeep(list, runId) — ★ STYLE KEPT · PUT IT BACK (or the panel's UNDO of its example): the approval goes with it. A record
+// that keep-style alone made is removed; one that also carries a real verdict only loses the kept flag (the verdict and
+// the Commander's words stay). -> { list, rec, removed } or null when that run has no kept style.
+function unkeep(list, runId) {
+  list = Array.isArray(list) ? list : [];
+  const id = String(runId || '').trim();
+  const at = id ? list.findIndex(r => r && r.origin === ORIGIN && r.sourceRunId === id && r.feedbackKept) : -1;
+  if (at < 0) return null;
+  const prev = list[at];
+  if (prev.feedbackKeptOnly) return { list: list.slice(0, at).concat(list.slice(at + 1)), rec: prev, removed: true };
+  const rec = Object.assign({}, prev);
+  delete rec.feedbackKept; delete rec.feedbackKeptOnly;
+  const out = list.slice(); out[at] = rec;
+  return { list: out, rec, removed: false };
 }
 
 // directiveFor(candidates, messages) — what the rated work was ABOUT, for the "(on: …)" citation. A run started by
@@ -257,4 +276,4 @@ function renderTaste(records, renderRecall, opts) {
   return renderRecall(lines, { limit: budget + 400, header });
 }
 
-module.exports = { ORIGIN, TASTE_HEADER, TASTE_REF_RULE, TASTE_LIMIT, TASTE_CHARS, content, apply, directiveFor, looksLikeFeedback, isTaste, selectTaste, stationTaste, adoptTaste, renderTaste };
+module.exports = { ORIGIN, TASTE_HEADER, TASTE_REF_RULE, TASTE_LIMIT, TASTE_CHARS, content, apply, directiveFor, looksLikeFeedback, isTaste, selectTaste, stationTaste, adoptTaste, renderTaste, unkeep };
