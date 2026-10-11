@@ -156,11 +156,107 @@ try {
   assert.equal(fs.readFileSync(path.join(root, 'unreadable-rollback-blocked', 'rollback-blocked.json'), 'utf8'), stuckBytes, 'failed rollback preserves the original in recovery');
   assert.throws(() => make().load(stuckFile), /locked/, 'failed rollback stays locked across restart');
   assert.throws(() => stuck.startFresh(stuckFile, [], { stamp: 'retry' }), /incomplete from a previous attempt/, 'retry cannot sweep an unfinished recovery aside');
+  // A successful readback can be served from the page cache. Recovery files and their directory
+  // entries must be flushed before the first original is removed; rollback has the same barrier.
+  function tracedResetFs(recovery, { failFlush = () => false, failUnlink = () => false } = {}) {
+    const traced = Object.create(fs), descriptors = new Map(), events = [];
+    let directoryFd = -100;
+    traced.openSync = (target, ...args) => {
+      const directory = target === root || target === recovery;
+      // Model a filesystem that supports directory flush even on Windows, where Node cannot open it.
+      const fd = directory ? directoryFd-- : fs.openSync(target, ...args);
+      descriptors.set(fd, { target, directory });
+      return fd;
+    };
+    traced.fsyncSync = fd => {
+      const row = descriptors.get(fd);
+      if (failFlush(row.target, row.directory)) throw Object.assign(Error('flush failed'), { code: 'EIO' });
+      if (!row.directory) fs.fsyncSync(fd);
+      events.push(['flush', row.target]);
+    };
+    traced.closeSync = fd => {
+      const row = descriptors.get(fd);
+      descriptors.delete(fd);
+      if (!row.directory) fs.closeSync(fd);
+    };
+    traced.copyFileSync = (from, to, flags) => { fs.copyFileSync(from, to, flags); events.push(['copy', to, flags]); };
+    traced.readFileSync = (target, ...args) => { const data = fs.readFileSync(target, ...args); events.push(['read', target]); return data; };
+    traced.unlinkSync = target => {
+      events.push(['unlink', target]);
+      if (failUnlink(target)) throw Error('busy');
+      return fs.unlinkSync(target);
+    };
+    return { fs: traced, events };
+  }
+  function resetFixture(label) {
+    const f = path.join(root, label + '.json'), recovery = path.join(root, 'unreadable-' + label);
+    make().write(f, state);
+    return { f, recovery, originals: [f, f + '.bak'].map(p => [p, fs.readFileSync(p)]) };
+  }
+  {
+    const { f, recovery, originals } = resetFixture('flush-order');
+    const trace = tracedResetFs(recovery);
+    make({ fs: trace.fs }).startFresh(f, [], { stamp: 'flush-order' });
+    const firstDelete = trace.events.findIndex(e => e[0] === 'unlink' && originals.some(([p]) => e[1] === p));
+    for (const [original] of originals) {
+      const saved = path.join(recovery, path.basename(original));
+      const copied = trace.events.findIndex(e => e[0] === 'copy' && e[1] === saved && e[2] === fs.constants.COPYFILE_EXCL);
+      const read = trace.events.findIndex((e, i) => i > copied && e[0] === 'read' && e[1] === saved);
+      const flushed = trace.events.findIndex(e => e[0] === 'flush' && e[1] === saved);
+      assert.ok(copied >= 0 && read > copied && flushed > read && flushed < firstDelete, 'exclusive, verified recovery copy is durable before any original deletion');
+    }
+    const recoveryFlush = trace.events.findIndex(e => e[0] === 'flush' && e[1] === recovery);
+    const parentFlush = trace.events.findIndex((e, i) => i > recoveryFlush && e[0] === 'flush' && e[1] === root);
+    assert.ok(recoveryFlush >= 0 && parentFlush > recoveryFlush && parentFlush < firstDelete, 'recovery entries and their parent are flushed before originals disappear');
+  }
+  for (const failure of ['file', 'directory', 'parent']) {
+    const label = 'flush-fail-' + failure, { f, recovery, originals } = resetFixture(label);
+    let recoveryWasFlushed = false;
+    const trace = tracedResetFs(recovery, { failFlush(target, directory) {
+      if (target === recovery) recoveryWasFlushed = true;
+      return failure === 'file' ? !directory && target === path.join(recovery, path.basename(f) + '.bak')
+        : failure === 'directory' ? target === recovery : target === root && recoveryWasFlushed;
+    } });
+    const v = make({ fs: trace.fs });
+    assert.throws(() => v.startFresh(f, [], { stamp: label }), /START FRESH failed/);
+    assert.equal(v.locked, true, failure + ' flush failure leaves the in-memory vault locked');
+    assert.ok(!trace.events.some(e => e[0] === 'unlink' && originals.some(([p]) => e[1] === p)), failure + ' flush failure never attempts deletion of an original');
+    for (const [original, bytes] of originals) assert.deepEqual(fs.readFileSync(original), bytes);
+    assert.deepEqual(make().load(f), state, failure + ' flush failure preserves the last good state across restart');
+  }
+  for (const restoreFailure of ['none', 'file', 'directory']) {
+    const label = 'restore-flush-' + restoreFailure, { f, recovery, originals } = resetFixture(label);
+    let restoring = false;
+    const trace = tracedResetFs(recovery, {
+      failUnlink: target => { if (target === f + '.bak') { restoring = true; return true; } return false; },
+      failFlush: target => restoring && (restoreFailure === 'file' ? target === f : restoreFailure === 'directory' && target === root)
+    });
+    const v = make({ fs: trace.fs });
+    assert.throws(() => v.startFresh(f, [], { stamp: label }), /START FRESH failed/);
+    assert.equal(v.locked, true);
+    const marker = f + '.reset-pending';
+    if (restoreFailure !== 'none') {
+      assert.ok(fs.existsSync(marker), 'rollback flush failure retains the durable recovery marker');
+      assert.ok(!trace.events.some(e => e[0] === 'unlink' && e[1] === marker), 'unflushed rollback never attempts to clear the marker');
+      assert.throws(() => make().load(f), /locked/, 'rollback flush failure stays locked after restart');
+    } else {
+      const copied = trace.events.findIndex(e => e[0] === 'copy' && e[1] === f);
+      const flushed = trace.events.findIndex((e, i) => i > copied && e[0] === 'flush' && e[1] === f);
+      const dirFlushed = trace.events.findIndex((e, i) => i > flushed && e[0] === 'flush' && e[1] === root);
+      const clear = trace.events.findIndex(e => e[0] === 'unlink' && e[1] === marker);
+      assert.ok(copied >= 0 && flushed > copied && dirFlushed > flushed && clear > dirFlushed, 'restored bytes and location are durable before clearing the marker');
+      assert.deepEqual(make().load(f), state);
+    }
+    for (const [original, bytes] of originals) {
+      assert.deepEqual(fs.readFileSync(original), bytes);
+      assert.deepEqual(fs.readFileSync(path.join(recovery, path.basename(original))), bytes, 'durable recovery bytes survive rollback errors');
+    }
+  }
   // A process may terminate after parking both copies. The persisted marker prevents an empty-store boot.
   const interrupted = path.join(root, 'interrupted.json');
   fs.writeFileSync(interrupted + '.reset-pending', JSON.stringify({ movedTo: path.join(root, 'unreadable-interrupted') }));
   const restarted = make();
   assert.throws(() => restarted.load(interrupted), /locked/, 'unfinished recovery never looks like a new empty store');
   assert.equal(restarted.lockReason, 'unreadable');
-  console.log('connector-vault: PASS (AES-GCM, restart, tampering, missing/wrong key + reasons, migration failure, recovery, removal, labelled fallback, START FRESH)');
+  console.log('connector-vault: PASS (AES-GCM, restart, tampering, missing/wrong key + reasons, migration failure, recovery, removal, labelled fallback, durable START FRESH + fail-closed rollback)');
 } finally { fs.rmSync(root, { recursive: true, force: true }); }
