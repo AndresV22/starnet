@@ -111,10 +111,13 @@ test/channels.relay-owner.e2e.test.js
 test/cron.arm.test.js
 test/lifecycle-armed.http.test.js
 test/checkpoint-store.test.js
+test/checkpoint-maintenance.test.js
 test/shell.test.js
 test/shell.process-tree.test.js
 test/verify.run.test.js
 test/browser.gauntlet.e2e.test.js
+test/browser-upload.e2e.test.js
+test/browser-upload.run.e2e.test.js
 test/browser-screencast-restart.e2e.test.js
 test/browser-mac-keys.e2e.test.js
 test/browser-minimized-window.e2e.test.js
@@ -134,6 +137,7 @@ test/routes-coverage.http.test.js
 test/atlas-events.emit.e2e.test.js
 test/openai-compat.e2e.test.js
 test/station-recovery.e2e.test.js
+test/workspace-recovery-fresh-start.http.test.js
 test/paid-link-lifecycle.e2e.test.js
 test/credits-heal-join.e2e.test.js
 test/routing.persist.e2e.test.js
@@ -162,6 +166,7 @@ test/managed-image.e2e.test.js
 test/transparent-image.e2e.test.js
 test/managed-endpoint.e2e.test.js
 test/tool-projection.e2e.test.js
+test/ollama-system.e2e.test.js
 test/request-idempotency.e2e.test.js
 test/output-only-repair.e2e.test.js
 test/saved-provider-fallback.e2e.test.js
@@ -201,3 +206,5 @@ test/remote.relay.e2e.test.js
 test/subscription-stacking.e2e.test.js
 test/subscription-stacking-oauth.e2e.test.js
 test/apps.http.test.js
+test/checkpoint-git.test.js
+test/checkpoint-maintenance.e2e.test.js

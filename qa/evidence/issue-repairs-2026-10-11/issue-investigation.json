@@ -1,0 +1,1552 @@
+{
+  "date": "2026-10-11",
+  "candidate": "cc772515354445d36c98b195404d6f1c692fa92a",
+  "publishedSource": "54899e5ff3f2b002b457757916b3977818db6fc1",
+  "release": {
+    "tag": "v0.13.2",
+    "publishedAt": "2026-10-09T05:31:55Z",
+    "url": "https://github.com/androoAGI/starnet-releases/releases/tag/v0.13.2"
+  },
+  "scope": "All 48 open issues reconciled against current trunk and relevant Claude branches; four principal customer repair candidates, an Ollama diagnostic correction and a confirmed builder readiness repair. No publication or GitHub closures/comments.",
+  "issues": [
+    {
+      "number": 107,
+      "status": "Source repair candidate for reproduced lifecycle gaps",
+      "priority": "P1",
+      "summary": "The report describes 41 GB of temporary checkpoint pack files. Before the repair, real-Git probes reproduced skipped maintenance on unchanged snapshots and misleading cleanup success. The candidate serializes checkpoint operations, supervises owned Git descendants, checks maintenance results and preserves rollback until the replacement index is durable. The size ceiling remains best effort; the reported macOS growth rate is not yet reproduced.",
+      "evidence": [
+        "Before repair (investigation at f2e1e91bb): sidecar/checkpoint-store.js:45-46 — keep=50 and default maxRepoBytes=500 MB",
+        "Before repair (investigation at f2e1e91bb): sidecar/checkpoint-store.js:285-298 — best-effort GC/reinitialize; GC exit code is not examined",
+        "Before repair (investigation at f2e1e91bb): sidecar/checkpoint-store.js:377-384 — unchanged content returns before size enforcement at line 422",
+        "Before repair (investigation at f2e1e91bb): sidecar/index.js:9502 — Git subprocess timeout is 15 seconds",
+        "Before repair (investigation at f2e1e91bb): sidecar/index.js:20575-20591 and 17294-17304 — normal mutation/restore entrypoints hold workspace leases; reported concurrent-process explanation remains unproven",
+        ".investigation/checkpoint-probe.json — 65,536-byte tmp_pack fixture retained above a 32,768-byte test limit, unchanged snapshot gcCalls=0; simulated maintenance failure also retains garbage",
+        "Focused existing tests PASS: checkpoint-store 59 assertions; checkpoint-default-on 14; checkpoint-restore-undoable 45",
+        "Before repair (investigation at f2e1e91bb): git diff v0.13.2 -- sidecar/checkpoint-store.js is empty",
+        "Source b387d48ab +7680f00da; checkpoint23, subprocess14, prior checkpoint118 and environment134 assertions pass.",
+        "Real seeded sidecar maintenance/list/restore/restart-undo passed. Independent review addressed output bounds and index-persistence rollback."
+      ],
+      "nextAction": "Aggregate gates and macOS installer soak test. Retain actual disk-failure pressure reporting; the cap is best effort when a baseline itself exceeds it.",
+      "limitations": "This is a source and real-Git module reproduction, not the reported macOS installed-app session or 12 GB/hour leak reproduction. The simulated failures demonstrate a gap but do not establish why the customer's packfiles accumulated. Do not blindly delete packfiles or turn on competing Git maintenance.",
+      "title": "[Bug]: StarNet checkpoint packfile leak — disk exhaustion from `tmp_pack_*` accumulation",
+      "url": "https://github.com/androoAGI/starnet/issues/107",
+      "createdAt": "2026-10-11T19:17:37Z",
+      "commentCount": 0,
+      "assigneeCount": 0,
+      "newSinceRelease": true,
+      "category": "Repair candidate",
+      "ownerAction": "Isolated repair batch: aggregate verification"
+    },
+    {
+      "number": 106,
+      "status": "insufficient information",
+      "priority": "P2",
+      "summary": "Windows Genesis cannot wake the Overseer after an API-key paste. Report gives neither provider, real app version, model, nor the exact failure; it cannot yet be assigned to an authentication or onboarding defect.",
+      "evidence": [
+        "GitHub #106: opened 2026-10-10, 0 comments, version field says only Genesis; no diagnostics.",
+        "frontend/app/app.js:3139 validates/stores the candidate, then app.js:3152 performs the live provider/model wake preflight.",
+        "sidecar/index.js:24021 validates provider credentials; a successful key check alone is not proof that model inference can run.",
+        "Claude connector-vault/reset repairs concern MCP secrets, not Genesis provider API-key validation; no matching overlap found."
+      ],
+      "nextAction": "Obtain installed version, selected provider/model and exact sanitized WAKE error. Distinguish key-validation failure from the subsequent30-second inference preflight; extend genesis-wake-credential.test.js through that specific door.",
+      "limitations": "No affected installation or usable reproduction details. Do not assume #90/#62 repair resolves this new report.",
+      "title": "[Bug]: API KEYS NOT WORKING",
+      "url": "https://github.com/androoAGI/starnet/issues/106",
+      "createdAt": "2026-10-10T18:53:22Z",
+      "commentCount": 0,
+      "assigneeCount": 0,
+      "newSinceRelease": true,
+      "category": "Unresolved investigation",
+      "ownerAction": "Investigation/product queue: follow stated next action"
+    },
+    {
+      "number": 105,
+      "status": "Open subscription overhead work; pending batched-review component identified",
+      "priority": "P2",
+      "summary": "The report measures subscription overhead, and current source exposes plausible contributors: learned dossier/fork state inside persona/cached prefix, the run model as auxiliary default, and a due skill review outside the two-pass auxiliary ceiling. Their individual contribution needs measurement. Pending Claude worker-review batching already addresses one call-count component; PR103 does not cover the entire report.",
+      "evidence": [
+        "frontend/app/app.js:390-402 appends DossierStore.composeBlock and conditional Fork.directive into persona",
+        "sidecar/providers/claude-cli.js:174-214 puts stable prefix plus tools before dynamic boundary and renders growing transcript into one stdin block",
+        "sidecar/index.js:2894-2901 resolveAuxModel returns null unless configured",
+        "sidecar/index.js:21751-21761 aux budget defaults 2 with due skill-review exception",
+        "sidecar/index.js:3347 USD cap 0.08; subscription zero-USD accounting cannot express quota usage",
+        "GitHub #105 measurements explicitly taken with PR103 installed",
+        "Reconciled Claude audit session is investigating token overhead; no implementation of the whole request is claimed.",
+        "Current trunk still places dossier/fork in persona, defaults auxiliary model to run model, reserves skill review outside the two-pass aux ceiling, and exempts subscription/unmetered runs from maxUnpricedTokens. PR103 installed in reporter's measurement, so it cannot close this issue.",
+        "ddd4cbcfa:frontend/app/app.js:394,401,3580",
+        "ddd4cbcfa:sidecar/index.js:2925,21597,21955",
+        "ddd4cbcfa:sidecar/providers/claude-cli.js:174-214",
+        "GitHub #105 relative weighted-token measurements; not billing",
+        "Final branch review identified work-threads-calm 312499626: one batch background review rather than per-worker reviews, and no duplicate foreground clone review. Pending at 9b395a7d0 and not in the tested candidate. No measured token savings, cached-prefix repair or broad auxiliary-policy fix is claimed.",
+        "A synthetic real-sidecar workflow fixture observed separate zero-tool intake/topic-analysis and quest-analysis requests quoting prior work. Include these contexts in the full call inventory. This is not a measurement of actual Claude CLI subscription cost or savings; see routing-sample-stop-observation-2026-10-11.json."
+      ],
+      "nextAction": "Coordinate with the existing Claude overhead audit and work-threads-calm batching before new implementation. First inventory main, auxiliary and frontend-internal calls per parent run with cache read/write/output usage, including 312499626 behavior. Then measure separate changes to learned-block cache placement, tool schema loading and visible token-based background budgets including skill review. Evaluate cheaper-model or one-shot cache behavior against supported CLI/auth modes rather than assume flags.",
+      "limitations": "No fresh paid/subscription measurements; no claim on actual subscription accounting or savings.",
+      "title": "[Feature]: claude-cli subscription overhead — 89-tool prompt, learned blocks inside the cached prefix, post-reply aux calls (measurements)",
+      "url": "https://github.com/androoAGI/starnet/issues/105",
+      "createdAt": "2026-10-10T17:45:02Z",
+      "commentCount": 0,
+      "assigneeCount": 0,
+      "newSinceRelease": true,
+      "category": "Feature / optimization",
+      "ownerAction": "Investigation/product queue: follow stated next action"
+    },
+    {
+      "number": 104,
+      "status": "Source repair candidate with real browser and sidecar proof",
+      "priority": "P1",
+      "summary": "The initial production-tool probe selected private-workspace bytes instead of the trusted project file and claimed attachment without checking file selection. The repair uses the existing project read trust, refuses ambiguous inputs, and reports observed FileList/event evidence. A real Chromium test and seeded tool run selected the project file; Etsy acceptance remains unverified.",
+      "evidence": [
+        "Before repair (investigation at f2e1e91bb): sidecar/tools/builtin/browser.js:2341-2359 resolves elementFromPoint/label then first nearby input[type=file], calls DOM.setFileInputFiles and returns 'file(s) attached'",
+        "Before repair (investigation at f2e1e91bb): sidecar/tools/builtin/browser.js:3627 creates shotJail without pathTrust",
+        "Before repair (investigation at f2e1e91bb): sidecar/tools/builtin/browser.js:3863 resolveInside(aid,rel) omits ctx; :3867 summary says uploaded",
+        "Synthetic production-tool resolver probe selected PRIVATE-OLD bytes over PROJECT-CURRENT for the same relative name, invoked supplied pathTrust 0 times, and returned ENOENT for project-only file",
+        "C:/Users/andro/gen-trees/runtime-triage-1011/.dogfood/runtime-triage/issue104-receipt.json",
+        "Source611176616. Real Chromium17 assertions and seeded sidecar9-turn proof selected project19-byte file instead of private5-byte decoy.",
+        "qa/evidence/browser-upload-104/receipts.json records real Chromium selection evidence and the seeded production run."
+      ],
+      "nextAction": "Aggregate gates, then installer and exact Etsy retest. Success means verified file selection; remote server acceptance remains unverified.",
+      "limitations": "The initial resolver probe used a fake driver with the production resolver; subsequent real Chromium and seeded sidecar fixtures verified selection and read-back. No Etsy account, listing or publication was touched; the exact Etsy failure and server acceptance remain unproven.",
+      "title": "[Bug]: v0.13.2 browser.upload reports success but Etsy listing photo remains empty",
+      "url": "https://github.com/androoAGI/starnet/issues/104",
+      "createdAt": "2026-10-10T14:54:22Z",
+      "commentCount": 0,
+      "assigneeCount": 0,
+      "newSinceRelease": true,
+      "category": "Repair candidate",
+      "ownerAction": "Isolated repair batch: aggregate verification"
+    },
+    {
+      "number": 102,
+      "status": "Source repair candidate with native and fallback live proof",
+      "priority": "P1",
+      "summary": "Before the repair, host continuations became late system messages on both Ollama wire paths and a strict-template fixture rejected them. The candidate combines SYSTEM content in the first message for native Ollama and its compatible fallback, preserving user/tool roles. Both seeded tool runs completed; actual Qwen acceptance remains to be tested.",
+      "evidence": [
+        "Before repair (investigation at f2e1e91bb): sidecar/loop.js:2012,2026,2042 append system nudges after conversation messages (also steering, compaction and other continuation paths).",
+        "Before repair (investigation at f2e1e91bb): sidecar/providers/openai-compatible.js:481 calls preserveClaudeContinuations; sidecar/providers/provider.js:526 limits that normalization to Claude/Anthropic model names.",
+        "Before repair (investigation at f2e1e91bb): sidecar/providers/ollama-native.js:77 preserves each message role; :106 uses those messages on /api/chat.",
+        "2026-10-11 production-adapter probe captured roles [system,user,assistant,system] at /v1/chat/completions and /api/chat. Strict-template local HTTP fixture rejected both with 'Jinja Exception: System message must be at the beginning'.",
+        "Before repair (investigation at f2e1e91bb): No #102 repair found in current source history; test/provider.ollama-native.test.js has no late-system case.",
+        "Source d3e708cb0; record6363184b4. Seeded native and /v1 fallback runs completed real fs_read, usage and run-correlated diagnostics.",
+        "Candidate9f7ab4b4c includes leadingSystemMessages in ollama-native.js and openai-compatible.js plus registered provider.ollama-system and ollama-system.e2e regressions."
+      ],
+      "nextAction": "Aggregate gates, then retest the actual Qwen model and installed build. Leading SYSTEM projection is limited to Ollama; user/tool messages retain their roles.",
+      "limitations": "Confirmed source-wire incompatibility against a local strict-template fixture. Real Qwen model, WSL endpoint and customer desktop not exercised; the exact first late-system producer in the reported run is unknown.",
+      "title": "[Bug]: Ollama / Qwen3.8 fails with Jinja error: \"System message must be at the beginning",
+      "url": "https://github.com/androoAGI/starnet/issues/102",
+      "createdAt": "2026-10-10T01:29:53Z",
+      "commentCount": 0,
+      "assigneeCount": 0,
+      "newSinceRelease": true,
+      "category": "Repair candidate",
+      "ownerAction": "Isolated repair batch: aggregate verification"
+    },
+    {
+      "number": 101,
+      "status": "Source repair candidate with live restart proof",
+      "priority": "P1",
+      "summary": "The initial source probe reproduced an erased station returning through automatic legacy-workspace recovery. The repair now honors the erased marker and acknowledged roots, fails closed on unreadable intent, and keeps explicit recovery available. Real isolated sidecar boot, restart and explicit restore passed.",
+      "evidence": [
+        "Before repair (investigation at f2e1e91bb): src-tauri/src/main.rs:4778-4784 filters legacy roots under install_root",
+        "Before repair (investigation at f2e1e91bb): sidecar/workspace-recovery.js:354-372 auto-restores an unambiguous candidate without consulting .fresh-start.json",
+        "Before repair (investigation at f2e1e91bb): sidecar/workspace-recovery.js:402 copies selected source generation including its marker",
+        "Synthetic actual-module probe at source f2e1e91bb: applied=true; SYNTHETIC-OLD-STATION restored; markerErased=false; acknowledgedRoots=[]; rollbackRetained=true",
+        "C:/Users/andro/gen-trees/runtime-triage-1011/.dogfood/runtime-triage/issue101-receipt.json",
+        "Source553cfa55d; record b09d5b133. Before29 failures; after59 unit assertions and18 real production-mode boot/restart/restore assertions."
+      ],
+      "nextAction": "Aggregate fast/http gates, then integration and Windows installer/customer retest. Explicit recovery remains available; automatic recovery honors erase/fresh-start intent.",
+      "limitations": "High confidence in mechanism; probe uses synthetic files and production recovery module, not the installed Windows erase UI. No user station was modified.",
+      "title": "[Bug]: ERASE EVERYTHING is undone on next boot (Windows): auto-recovery restores %LOCALAPPDATA%\\StarNet\\workspaces, which erase skips as install folder",
+      "url": "https://github.com/androoAGI/starnet/issues/101",
+      "createdAt": "2026-10-10T00:11:20Z",
+      "commentCount": 0,
+      "assigneeCount": 0,
+      "newSinceRelease": true,
+      "category": "Repair candidate",
+      "ownerAction": "Isolated repair batch: aggregate verification"
+    },
+    {
+      "number": 99,
+      "status": "Long pre-header retry path reproduced; customer cause unconfirmed",
+      "priority": "P2",
+      "summary": "A production-loop/local-native-adapter fixture now proves seven attempts when Ollama never sends response headers, versus two for post-header silence. Current default windows and the measured retry schedule project to36.76 minutes before timeout, excluding overhead. Cancellation completed promptly in the fixture. The original customer cause is still unknown.",
+      "evidence": [
+        "GitHub #99 reports v0.13.2 with llama3.1:8b and qwen3:8b; manually cancelled, no duration, provider stream trace or errors.",
+        "sidecar/providers/registry.js:567 gives Ollama a 300000ms header ceiling; :579 enables nativeOllama.",
+        "sidecar/providers/openai-compatible.js:529 sizes native context from the full request; sidecar/loop.js:1591 documents two consecutive silent stalls before provider_stalled.",
+        "qa/bugs/5274c7b7-ollama-chat-request-not-observed.md records real Ollama silence while loading/prefilling and explains why access logs can show no POST until completion, but explicitly leaves reporter recovery unconfirmed.",
+        "Existing test/provider.ollama-native.test.js passed 80 assertions in this investigation.",
+        "Pending Claude agent/user-report-fixes9aace0349 includes custom localhost Ollama native profile mapping, but is not an ancestor of tested candidate9f7ab4b4c. The independent #102 continuation repair is included.",
+        "Current300000ms connect wait can repeat over seven attempts; two-stall guard covers post-header idle only. Claude9aace0349 changes endpoint classification/context sizing, not termination.",
+        "qa/evidence/issue-repairs-2026-10-11/issue99-connect-silence.json: candidate9f7 loop and byte-matching adapter/policy; no-headers7 attempts -> timeout, headers-then-idle2 -> provider_stalled, cancellation1 -> cancelled77ms. Shortened connect/idle windows; injected loop backoffs captured without waiting.",
+        "Projection only:7*300000ms connect windows +105600ms backoffs =2205600ms (36.76min), excluding model-state probes/host overhead. No long real-model run was measured.",
+        "Source e91f3231e corrects the unsupported loading/prompt-reading cause in timeout diagnostics; provider.ollama-native87 assertions pass and the live loopback probe preserves cancellation/retry behavior. This does not fix the long pre-header policy or establish customer recovery."
+      ],
+      "nextAction": "Bound pre-header retry policy while preserving supported cold starts; test the chosen limit with this fixture, model loading and cancellation. Correlate reporter duration, request route/prompt/tools/num_ctx and GPU placement before attributing their failure. The unsupported loading diagnostic is now repaired separately; validate it on the installed build.",
+      "limitations": "Synthetic local endpoint, no affected Ollama model/hardware or installed UI. Loop backoffs were injected immediately and captured;36.76min is an arithmetic projection, not measured elapsed time. Customer causality and cold-start-safe retry limits remain unproven.",
+      "title": "[Bug]: Ollama agent chat remains stuck on “Working…” in StarNet 0.13.2",
+      "url": "https://github.com/androoAGI/starnet/issues/99",
+      "createdAt": "2026-10-09T10:02:52Z",
+      "commentCount": 0,
+      "assigneeCount": 0,
+      "newSinceRelease": true,
+      "category": "Unresolved investigation",
+      "ownerAction": "Investigation/product queue: follow stated next action"
+    },
+    {
+      "number": 98,
+      "status": "Routing mismatch remains unproven; no speculative patch",
+      "priority": "P2",
+      "summary": "Two distinct claims need tracing: selecting native Gemini still yielded OpenRouter diagnostics, and tool requests ended empty. v0.13.2 repairs Gemini tool-schema arrays, but that does not establish provider-selection repair or explain the reported OpenRouter empty turns.",
+      "evidence": [
+        "GitHub #98 reports v0.13.1 and provider=openrouter/model=google/gemini-2.5-flash despite selecting GEMINI; last run empty with 0 tools.",
+        "frontend/app/stationui.js:5758 writes selected provider and :5760 calls App.setStationProvider; frontend/app/app.js:757 persists the Overseer's provider pin.",
+        "frontend/app/modeldock.js:294 maps routed/direct Anthropic and managed IDs, but has no equivalent for google/gemini-* to native gemini-*; pure current-source probe returned empty for that mapping.",
+        "sidecar/providers/gemini.js:27 treats any slash-containing model as an existing model path, so a google/... routed slug is not a valid native substitution.",
+        "7a85d5008 fixes item-less array schemas for Gemini and is an ancestor of v0.13.2; RELEASE_NOTES.md:41 claims that schema repair.",
+        "Latest-run diagnostics can lag selection; Live Doctor derives provider/model from roster.",
+        "Existing setStationProvider fix 27ba92fa35 predates reported e0a36dcd."
+      ],
+      "nextAction": "Capture saved roster, selected native Gemini connection and Live Doctor provider together with the actual request wire. The old settings-provider fix predates the reported build and cannot close this report.",
+      "limitations": "No customer station/key or original wire capture. The missing mapping is source-proven, but the reported reversion to OpenRouter and empty response are not reproduced. An early isolated reconciliation test timed out; model-provider-reconcile.test.js subsequently passed within the complete1121-step fast gate.",
+      "title": "[Bug]: [Bug]: Native Gemini selection still routes through OpenRouter; tool runs stop empty",
+      "url": "https://github.com/androoAGI/starnet/issues/98",
+      "createdAt": "2026-10-09T09:03:07Z",
+      "commentCount": 0,
+      "assigneeCount": 0,
+      "newSinceRelease": true,
+      "category": "Unresolved investigation",
+      "ownerAction": "Investigation/product queue: follow stated next action"
+    },
+    {
+      "number": 97,
+      "status": "Open webhook lifecycle contract gap",
+      "priority": "P2",
+      "summary": "Webhook enqueue accepts no idempotency key and returns only queued position plus durable:false; trigger-secret-only clients have no supported per-run identity/cancel lifecycle.",
+      "evidence": [
+        "sidecar/index.js:12607-12626 webhook ingress reads body, composes text, enqueues and returns {ok,accepted,queued,durable:false}",
+        "sidecar/routing/trigger-runner.js:1-18 documents bounded in-memory queue and outcome lookup by fire streamId",
+        "sidecar/routing/trigger-runner.js:73 live map owns queue and current work",
+        "Current trigger admission persists rate-window metadata but queues work in memory; the route still returns {accepted:true,queued,durable:false}. streamId is minted at dispatch. Folder seenKey dedupe is not webhook request idempotency.",
+        "ddd4cbcfa:sidecar/index.js:12658",
+        "ddd4cbcfa:sidecar/routing/trigger-runner.js:72,151-166,216-225,269",
+        "No relevant pending implementation found. Recent channel live-steering/cancel fixes and webhook taint-lock fixes do not add this external webhook contract."
+      ],
+      "nextAction": "Define and implement a trigger-scoped durable job identity returned by 202, bounded idempotency-key retention with payload-conflict behavior, authenticated status and cancel scoped to the same trigger. Specify restart behavior and cancellation of queued versus in-flight work before coding; preserve existing secret/taint/permission and rate-limit boundaries.",
+      "limitations": "No new external webhook fire or mutation performed; report's duplicate-effects repro is reporter evidence.",
+      "title": "[Feature]: line-trigger webhook — add an idempotency key, return a run id, and support external cancel",
+      "url": "https://github.com/androoAGI/starnet/issues/97",
+      "createdAt": "2026-10-08T23:49:30Z",
+      "commentCount": 0,
+      "assigneeCount": 0,
+      "newSinceRelease": false,
+      "category": "Feature / optimization",
+      "ownerAction": "Investigation/product queue: follow stated next action"
+    },
+    {
+      "number": 96,
+      "status": "source-fixed-published-recovery-unconfirmed",
+      "priority": "P2",
+      "summary": "The omitted task flag is repaired for /v1 and ACP. /v1 keeps task tools optional for text-only models; output repair remains tool-less and autonomous consent rules remain in force.",
+      "evidence": [
+        "sidecar/openai-compat.js:287 sets isTask:!o.outputOnly, toolsOptional:true",
+        "sidecar/acp/serve.js:169 sets isTask:true",
+        "commits 6f2c1dc41, 8a768f580; follow-ups 584a9f09f and a4b17feba",
+        "Parent verified 0.13.2 release notes include #96"
+      ],
+      "nextAction": "Run reporter's advertised-tools matrix on installed 0.13.2 for /v1 sync/stream/roster and ACP; verify both permitted tool effects and clean default-deny results.",
+      "limitations": "No exact installed-app reproduction or customer recovery confirmation in this investigation; source/tests and published-source ancestry are separate from recovery.",
+      "title": "[Bug]: /v1 and ACP never advertise tools to the model — no supported route into the tool-bearing task path",
+      "url": "https://github.com/androoAGI/starnet/issues/96",
+      "createdAt": "2026-10-08T23:49:29Z",
+      "commentCount": 0,
+      "assigneeCount": 0,
+      "newSinceRelease": false,
+      "category": "Fix present; retest needed",
+      "ownerAction": "Existing implementation: targeted acceptance and release/customer verification"
+    },
+    {
+      "number": 95,
+      "status": "new provider proposal; no codex-cli profile found in current trunk",
+      "priority": "P3",
+      "summary": "The existing codex provider uses device-code OAuth. The reporter's macOS CLI prototype proposes a genuinely different login and execution authority boundary; it is not implemented by the current provider.",
+      "evidence": [
+        "GitHub #95 has 0 comments and describes a local prototype; GitHub PR search for codex-cli returned no matches.",
+        "sidecar/providers/registry.js:61 registers current Codex as oauth_device_code; sidecar/providers/codex-auth.js:91/:114 implement device-code initiation/poll.",
+        "Current sidecar/providers contains claude-cli.js and codex.js but no codex-cli adapter; the existing Claude CLI architecture is a relevant design precedent (PR #41).",
+        "GitHub #95 reports prototype on macOS Codex CLI 0.144.1 but has no linked PR/code or follow-up.",
+        "ddd4cbcfa:sidecar/providers/codex-auth.js:3-12 and :31-32 implement device code and device callback.",
+        "Targeted current-trunk registry/source search finds no codex-cli profile; sidecar/providers/claude-cli.js and docs/CLAUDE_CLI_PROVIDER.md show the nearest existing architecture."
+      ],
+      "nextAction": "Review a narrow opt-in codex-cli provider candidate, following the existing Claude CLI provider boundary rather than replacing codex. First validate the proposed CLI version, current commands/protocol and ability to disable all native tools. Require CLI-owned credentials, API-key-session rejection (or explicit metered semantics), dynamic model/readiness proof, normal StarNet capability/consent dispatch, abort/process cleanup, quota and malformed-output tests, and Windows/macOS acceptance. Preserve plan-limit wording; do not call it unlimited or generally free.",
+      "limitations": "Reporter prototype and proposed CLI flags not independently verified. This is implementation scope, not a claim that managed-workspace policy can or should be bypassed.",
+      "title": "[Feature]: Add a Codex CLI provider using existing ChatGPT browser login",
+      "url": "https://github.com/androoAGI/starnet/issues/95",
+      "createdAt": "2026-10-08T22:43:07Z",
+      "commentCount": 0,
+      "assigneeCount": 0,
+      "newSinceRelease": false,
+      "category": "Feature / optimization",
+      "ownerAction": "Investigation/product queue: follow stated next action"
+    },
+    {
+      "number": 94,
+      "status": "duplicate family; source fix present in v0.13.2",
+      "priority": "P2",
+      "summary": "Fable 5.1 signature mismatch is the same preserved-thinking family as #73. Current source explicitly includes Fable and pairs drop_block with the beta header plus a bounded strip-and-retry fallback.",
+      "evidence": [
+        "sidecar/providers/anthropic.js:111 includes claude-fable-5-1 and the Opus/Sonnet/Haiku variants; :116 defines the matching beta; :586/:617 provide bounded rescue.",
+        "Commit 214d74e9c is in v0.13.2 ancestry; RELEASE_NOTES.md:39 explicitly names #73 and #94.",
+        "test/provider.anthropic.thinking-binding.test.js passed (exit 0) in this investigation."
+      ],
+      "nextAction": "Group support handling with #73; ask reporter to retest v0.13.2 on the existing conversation and capture the sanitized outcome. Close only on adequate reproduction/installed recovery evidence.",
+      "limitations": "Source fix and release-tag inclusion verified; no installed desktop or live Anthropic/customer recovery verified.",
+      "title": "[Bug]: Anthropic thinking block signature mismatch breaks existing StarNet conversations",
+      "url": "https://github.com/androoAGI/starnet/issues/94",
+      "createdAt": "2026-10-08T15:56:42Z",
+      "commentCount": 0,
+      "assigneeCount": 0,
+      "newSinceRelease": false,
+      "category": "Fix present; retest needed",
+      "ownerAction": "Existing implementation: targeted acceptance and release/customer verification"
+    },
+    {
+      "number": 93,
+      "status": "source fix present in v0.13.2",
+      "priority": "P2",
+      "summary": "Managed models unavailable had three concrete source defects: bare model IDs failed catalog mapping, the opening click closed CHOOSE MODEL, and desktop keychain initialization erased the Managed configured flag. All have source repairs in v0.13.2.",
+      "evidence": [
+        "Commits aaae9e8d7 and 96eb04808 are ancestors of v0.13.2.",
+        "frontend/app/modeldock.js:294 maps a bare ID only to a unique vendor/catalog row; source probe maps gpt-5.5 to openai/gpt-5.5.",
+        "frontend/app/harness.js:331/:338 preserve the sidecar's starnet configured state during desktop keychain rebuild.",
+        "test/managed-model-93.test.js passed 30 assertions; RELEASE_NOTES.md:31-32 describes both link persistence and catalog/picker repairs."
+      ],
+      "nextAction": "Verify the reporter's Intel Mac on v0.13.2 across restart: LINKED and balance present, managed provider selectable, CHOOSE MODEL remains open and one managed turn succeeds.",
+      "limitations": "No installed Intel Mac, funded account or customer recovery tested. Tag inclusion and source tests do not prove deployment or account health.",
+      "title": "[Bug]: StarNet Managed linked but no models available — GPT-5.5 shown as unavailable",
+      "url": "https://github.com/androoAGI/starnet/issues/93",
+      "createdAt": "2026-10-08T07:33:58Z",
+      "commentCount": 0,
+      "assigneeCount": 0,
+      "newSinceRelease": false,
+      "category": "Fix present; retest needed",
+      "ownerAction": "Existing implementation: targeted acceptance and release/customer verification"
+    },
+    {
+      "number": 92,
+      "status": "source fix present in v0.13.2",
+      "priority": "P2",
+      "summary": "This is expired ChatGPT sign-in, not a Chat API key failure. The reporter clarified that RECONNECT was text only; current source renders a reconnect button for a known-dead sign-in and directs recovery to StarNet instead of requiring Codex CLI.",
+      "evidence": [
+        "GitHub #92 comment identifies missing RECONNECT button and says Codex CLI is not installed; copying the station to another computer is only the reporter's refresh-token-reuse hypothesis.",
+        "frontend/app/stationui.js:5281/:5298 keeps OAuth sign-in available and labels dead state RECONNECT.",
+        "sidecar/providers/codex-auth-state.js:54 rewrites legacy guidance; sidecar/providers/codex-auth.js:216 uses in-app recovery.",
+        "78603dd51 is in v0.13.2 ancestry; codex-auth-state.test.js passed 34 assertions and settings-oauth-rows.test.js passed 55."
+      ],
+      "nextAction": "Have the affected user retest Settings > AI & MODELS > ChatGPT RECONNECT on v0.13.2, complete the in-app sign-in, restart and make a real turn; separately trace the SSH-target unhandledRejection only if it persists.",
+      "limitations": "Token reuse origin is unverified. No actual login, token refresh, desktop or customer recovery performed.",
+      "title": "[Bug]: ChatAPI Key won't reconnect",
+      "url": "https://github.com/androoAGI/starnet/issues/92",
+      "createdAt": "2026-10-08T05:00:36Z",
+      "commentCount": 1,
+      "assigneeCount": 0,
+      "newSinceRelease": false,
+      "category": "Fix present; retest needed",
+      "ownerAction": "Existing implementation: targeted acceptance and release/customer verification"
+    },
+    {
+      "number": 91,
+      "status": "Capture abort source-fixed and published; complete preservation procedure still owed",
+      "priority": "P1",
+      "summary": "Unreadable-entry capture abort is repaired by skipping and recording unreadable entries. That does not satisfy the reporter's stronger request for complete checkpoint-history preservation and an independently verified full restore procedure.",
+      "evidence": [
+        "sidecar/station-recovery.js:194-200 describes unreadable-entry skip policy",
+        "sidecar/station-recovery.js:215-235 records path/reason for unreadable child while root and unknown errors remain fail-closed",
+        "commits fd953e9d9, f9ff069b7, 10a98eb44",
+        "Fresh focused regression: station-recovery-unreadable.test OK 36 assertions",
+        "fd953e9d9/f9ff069b7/10a98eb44 skip and report unreadable child entries, retain fail-closed root/unknown-error behavior and promote readable last-known-good store backups. They do not capture bytes Windows cannot read.",
+        "ddd4cbcfa:sidecar/station-recovery.js:194-235,273-299",
+        "test/station-recovery-unreadable.test.js (earlier focused run 36 assertions)",
+        "GitHub #91 exact checkpoint reparse-entry report",
+        "New #101 recovery-authority and #107 maintenance candidates improve adjacent lifecycles; neither repairs this unknown reparse entry or proves all original history preserved. Do not recommend deleting/excluding it, gc or re-init as this issue's resolution."
+      ],
+      "nextAction": "Produce the requested supported read-only diagnosis and preservation runbook for the exact entry, including manifest/skip disclosure and independent isolated restore. Preserve the original checkpoint directory and station generation; enumerate checkpoint refs/history and restored active records against the preservation set. Escalate any filesystem repair or destructive checkpoint maintenance only with the report's separate Founder approval.",
+      "limitations": "Exact inconsistent Windows entry and its filesystem cause were never inspected. Source skip workaround is not customer full recovery.",
+      "title": "[Bug] Windows 0.13.1 whole-station recovery capture aborts on unreadable shadow-Git reparse entry",
+      "url": "https://github.com/androoAGI/starnet/issues/91",
+      "createdAt": "2026-10-08T01:51:30Z",
+      "commentCount": 0,
+      "assigneeCount": 0,
+      "newSinceRelease": false,
+      "category": "Partly addressed / mitigation",
+      "ownerAction": "Investigation/product queue: follow stated next action"
+    },
+    {
+      "number": 90,
+      "status": "source fix present in v0.13.2; account details still needed",
+      "priority": "P2",
+      "summary": "StarNet has no sk-ant-api03-only format gate: it forwards any cleaned key in x-api-key. The diagnosed source bug was hiding Anthropic model-list 401/403 as 'no usable models'; v0.13.2 now preserves the real rejection/network cause. This does not make an upstream-rejected key usable.",
+      "evidence": [
+        "sidecar/providers/anthropic.js:161/:167 constructs x-api-key with no prefix allowlist; sidecar/index.js:23946 only strips whitespace/zero-width characters.",
+        "sidecar/index.js:24050 distinguishes model-list rejection status and :24056 handles fetch failure.",
+        "1fed42814 and b748ea005 repair status/cause reporting; 1fed42814 verified in v0.13.2 ancestry; RELEASE_NOTES.md:45 cites #90.",
+        "test/provider-key-check.test.js passed 29 assertions; the report itself says Anthropic directly rejected some keys with 401.",
+        "Existing1fed42814 and b748ea005 preserve401/403, network and other HTTP failures; provider-validate-rejected.http.test.js covers these source paths."
+      ],
+      "nextAction": "Retest existing Anthropic validation/error handling in the installed build. If direct /models returns200 empty but explicit /messages succeeds, reproduce that manual-model validation gap separately.",
+      "limitations": "No affected key/account or live Anthropic call; successful model permissions remain provider/account-specific. Reporter app version unknown.",
+      "title": "Connecting Starnet to Claude",
+      "url": "https://github.com/androoAGI/starnet/issues/90",
+      "createdAt": "2026-10-08T01:46:15Z",
+      "commentCount": 0,
+      "assigneeCount": 0,
+      "newSinceRelease": false,
+      "category": "Unresolved investigation",
+      "ownerAction": "Investigation/product queue: follow stated next action"
+    },
+    {
+      "number": 89,
+      "status": "source fix present in v0.13.2",
+      "priority": "P2",
+      "summary": "Confirmed browser/Linux seam: chat sent the browser-local key per request while unattended routines resolved only station-held credentials. The fix stores a durable station copy and uses one credential resolver/error message across routines, Run Now and autonomy.",
+      "evidence": [
+        "sidecar/engine-credential.js:1 documents exact gap and durable WORKSPACES/.secrets/provider-keys.json store with readback, revision protection and removal tombstones.",
+        "sidecar/index.js:13790 implements /api/providers/engine-key; :2495 reads station-held page credentials.",
+        "dc2a6676b (and follow-up 11b963f4d) included in v0.13.2; dc2a6676b ancestry verified.",
+        "engine-credential.test.js passed 111 assertions; engine-key-sync.test.js passed 49; RELEASE_NOTES.md:50 cites #89."
+      ],
+      "nextAction": "Retest affected Linux browser station on 0.13.2, re-save key if needed, close browser, fire scheduled routine, restart sidecar and repeat. Verify removal actually revokes the unattended copy.",
+      "limitations": "No affected Arch/Linux installation or real OpenRouter call/restart recovery tested in this investigation.",
+      "title": "[Bug]: Routine cannot use openrouter, complains about starnet provider instead (archlinux)",
+      "url": "https://github.com/androoAGI/starnet/issues/89",
+      "createdAt": "2026-10-08T01:14:06Z",
+      "commentCount": 0,
+      "assigneeCount": 0,
+      "newSinceRelease": false,
+      "category": "Fix present; retest needed",
+      "ownerAction": "Existing implementation: targeted acceptance and release/customer verification"
+    },
+    {
+      "number": 88,
+      "status": "source-fixed-published-recovery-unconfirmed",
+      "priority": "P2",
+      "summary": "Image generation and analysis now use the same pathTrust/project-context resolver as fs tools; downstream project-bound stages have regression coverage.",
+      "evidence": [
+        "sidecar/tools/builtin/image.js:365-368 injects pathTrust",
+        "sidecar/tools/builtin/image.js:610 generation passes {scope:'write',ctx}",
+        "sidecar/tools/builtin/image.js:652 analysis passes {scope:'read',ctx}",
+        "commits 63607af5c, 694fbb880, 127b6efc5",
+        "Fresh tests: media-project-placement OK22; conveyor-image-handoff OK14"
+      ],
+      "nextAction": "Verify original Creator→shared project→QA flow on installed 0.13.2 with read/write-only trust and existing guards, including relative and absolute paths.",
+      "limitations": "No exact installed-app reproduction or customer recovery confirmation in this investigation; source/tests and published-source ancestry are separate from recovery.",
+      "title": "[Bug]: Image tools do not resolve against trusted project context, breaking cross-agent image hand-off",
+      "url": "https://github.com/androoAGI/starnet/issues/88",
+      "createdAt": "2026-10-07T20:43:27Z",
+      "commentCount": 0,
+      "assigneeCount": 0,
+      "newSinceRelease": false,
+      "category": "Fix present; retest needed",
+      "ownerAction": "Existing implementation: targeted acceptance and release/customer verification"
+    },
+    {
+      "number": 87,
+      "status": "release-fix-present; affected-user retest pending",
+      "priority": "P2",
+      "summary": "Selectable workflow/deliverable/dossier text and the no-op full-conversation button have direct fixes in v0.13.2. 'No files' remains valid when a workflow produced text only; this fix does not promise automatic report-file creation.",
+      "evidence": [
+        "GitHub #87: Windows v0.13.1, reported 2026-10-07, no later comments.",
+        "Commit bba85b23a changes frontend/css/app.css and frontend/app/deliverables.js; verified ancestor of v0.13.2.",
+        "frontend/css/app.css:635-640 restores user-select:text on terminal body prose while controls stay unselectable.",
+        "frontend/app/deliverables.js:467-479 uses ReturnStore.openWork to adopt an otherwise unknown workflow stream before opening it.",
+        "v0.13.2 release notes explicitly list #87.",
+        "Commit 3fb526707 adds source regression checks for selectable window prose and ReturnStore.openWork routing; not run in this investigation."
+      ],
+      "nextAction": "Retest the original Deep Dive + Review result in the installed v0.13.2 build: copy text in all three views, open its exact conversation, and distinguish rendered output from an explicitly saved file.",
+      "limitations": "Source and release ancestry checked; no fresh live app, installer, or reporter recovery proof.",
+      "title": "[Bug]: Workflow and agent output is rendered as non-selectable text",
+      "url": "https://github.com/androoAGI/starnet/issues/87",
+      "createdAt": "2026-10-07T15:36:06Z",
+      "commentCount": 0,
+      "assigneeCount": 0,
+      "newSinceRelease": false,
+      "category": "Fix present; retest needed",
+      "ownerAction": "Existing implementation: targeted acceptance and release/customer verification"
+    },
+    {
+      "number": 86,
+      "status": "desk assignment delivered; shared-layout file branch pending; persistent personal presets still missing",
+      "priority": "P2",
+      "summary": "Desk assignment chips shipped in v0.13.2. The pending shared-build importer/exporter deliberately strips desk owners, instructions, project/connector bindings and player-made props, so it does not meet the request to retain assignments and paid station builds in a personal preset shelf.",
+      "evidence": [
+        "GitHub #86 asks for saved custom presets retaining assignments, desk assignment chips, and community imports.",
+        "frontend/app/build.js:3408 renders WHO SITS HERE; commit fffbea9a2 and merge 91c61fc35 implement chips and desk reassignment.",
+        "fffbea9a2 is an ancestor of v0.13.2; release notes list one-click desk assignment.",
+        "frontend/app/stationtemplates.js:11 defines a fixed seven-entry catalog and :228 exports it; presets deliberately do not hire staff.",
+        "frontend/app/stationui.js:7370-7374 offers station configuration export/import, which is not a selectable personal layout shelf or community gallery.",
+        "agent/build-share adds Presets > SHARED BUILDS export/import; tip e0d1161af.",
+        "fffbea9a2 desk assignment feature is in v0.13.2 (verified in original triage).",
+        "agent/build-share:frontend/app/build.js:2670 presents SHARED BUILDS export/import, not a persistent named personal shelf.",
+        "agent/build-share:frontend/app/buildshare.js:30 strips agentId/brief/projectRoot/limits/connectorId/pluginId; :94 drops user_ props; :120 excludes pipeline agent edges.",
+        "e0d1161af is not an ancestor of current trunk ddd4cbcfa."
+      ],
+      "nextAction": "Integrate/verify the existing shared-layout lane as its limited file interchange feature. Track a separate private preset/snapshot implementation that preserves the user's own agent assignments and custom-prop asset references, shows missing dependencies, previews authority effects and has durable undo/backup. Keep public shared files stripped and require explicit rebinding; a community/market browser remains another distinct slice.",
+      "limitations": "No personal preset roundtrip or paid asset restore tested; do not report #86 fully solved by portable layout export.",
+      "title": "[Feature]: requesting ui upgrades",
+      "url": "https://github.com/androoAGI/starnet/issues/86",
+      "createdAt": "2026-10-07T15:29:19Z",
+      "commentCount": 0,
+      "assigneeCount": 0,
+      "newSinceRelease": false,
+      "category": "Claude work pending",
+      "ownerAction": "Existing Claude lane: reconcile and verify before further edits"
+    },
+    {
+      "number": 85,
+      "status": "release-fix-present; affected-user retest pending",
+      "priority": "P1",
+      "summary": "Quest Log freeze has a matching source mechanism and v0.13.2 fix: maintenance-quest synchronization triggered synchronous re-entrant window rendering. The report also contains a separate session-history-unavailable symptom that must be checked after lag is removed.",
+      "evidence": [
+        "GitHub #85: Windows v0.13.0, 3-day uptime, app unresponsive for 10-20 seconds while Quest Log open.",
+        "Commit ee3d5853a fixes the maintenance sync/render recursion, settles old postmortems after clean runs, and classifies known errors; verified ancestor of v0.13.2.",
+        "frontend/app/maintqueststore.js:117 compares persisted state instead of treating a returned id as a mutation.",
+        "frontend/app/stationui.js:1394-1407 guards re-entrant window builds.",
+        "Issue diagnostics record history-loading -> history-unavailable -> send-held-history-unavailable; these are not proof of an Anthropic outage.",
+        "Release notes say QUEST LOG no longer freezes the app."
+      ],
+      "nextAction": "Retest a populated Quest Log on v0.13.2 while switching/sending in COMMS. If history remains unavailable after responsiveness is restored, capture the failing history request/status and preserve that as a separate continuity investigation.",
+      "limitations": "No reproduced customer station or performance trace. Cannot assert the rendering bug caused every network/history failure in the report.",
+      "title": "[Bug]: Quests",
+      "url": "https://github.com/androoAGI/starnet/issues/85",
+      "createdAt": "2026-10-07T15:27:17Z",
+      "commentCount": 0,
+      "assigneeCount": 0,
+      "newSinceRelease": false,
+      "category": "Partly addressed / mitigation",
+      "ownerAction": "Investigation/product queue: follow stated next action"
+    },
+    {
+      "number": 84,
+      "status": "likely related to #85; source mitigation present; retest needed",
+      "priority": "P2",
+      "summary": "The maintenance quest told the user to retry/report already-classifiable historical errors. The diagnostics show old retired-model/low-credit errors and a current blocked history read, not a newly identified provider defect.",
+      "evidence": [
+        "GitHub #84 and #85 use the same v0.13.0 source commit 6a48053616fb5dd549bf08a1a543450c5a1932ed and overlapping same-session diagnostics.",
+        "Recorded provider errors are Oct4 model 404 and low-credit 400; last recorded run on Oct7 finished done.",
+        "Commit ee3d5853a makes known model/billing failures point to recovery actions and retires fixed-agent postmortems after clean runs; v0.13.2 ancestor.",
+        "frontend/app/slaglog.js and sidecar/providers/errorClass.js were both changed by that fix.",
+        "The current send was held for unavailable session history; qa/bugs/2426399e-reopened-conversations-send-before-history-is-re.md explicitly treats unavailable history as a send gate and does not establish this reporter's cause."
+      ],
+      "nextAction": "Link the report to #85 for shared retest, without blindly closing as duplicate. Confirm obsolete quests clear after a clean run and whether the current history request succeeds; only investigate the specific failing endpoint if it persists.",
+      "limitations": "No new error stack, failing history HTTP status, or post-0.13.2 report. Causal relationship to quest freeze remains an inference.",
+      "title": "[Bug]: bug Copy  report",
+      "url": "https://github.com/androoAGI/starnet/issues/84",
+      "createdAt": "2026-10-07T15:21:37Z",
+      "commentCount": 0,
+      "assigneeCount": 0,
+      "newSinceRelease": false,
+      "category": "Partly addressed / mitigation",
+      "ownerAction": "Investigation/product queue: follow stated next action"
+    },
+    {
+      "number": 82,
+      "status": "source-fixed-published-recovery-unconfirmed",
+      "priority": "P2",
+      "summary": "Pinned DNS now honors options.all and returns all already-validated address records. The fix covers web_fetch/web_request and is in 0.13.2 source ancestry.",
+      "evidence": [
+        "sidecar/tools/builtin/web.js:483-485 returns address array for options.all",
+        "sidecar/mcp/oauth-fetch.js:41-42 already had analogous contract",
+        "d1e3d43f3 source repair; f245a03cd integration",
+        "git merge-base --is-ancestor d1e3d43f3 54899e5ff... exited0"
+      ],
+      "nextAction": "Confirm installed bundled Node can perform representative direct fetch/request on the affected network, including IPv6-unavailable fallback.",
+      "limitations": "No exact installed-app reproduction or customer recovery confirmation in this investigation; source/tests and published-source ancestry are separate from recovery.",
+      "title": "[Bug]: web_fetch always fails with \"fetch failed\" (pinned DNS lookup ignores options.all)",
+      "url": "https://github.com/androoAGI/starnet/issues/82",
+      "createdAt": "2026-10-07T09:21:39Z",
+      "commentCount": 0,
+      "assigneeCount": 0,
+      "newSinceRelease": false,
+      "category": "Fix present; retest needed",
+      "ownerAction": "Existing implementation: targeted acceptance and release/customer verification"
+    },
+    {
+      "number": 81,
+      "status": "existing same-job aggregation; SEND TO in source only; customer file-scope report still needs proof",
+      "priority": "P2",
+      "summary": "JOINER combines branches of one job. OUTBOX SEND TO forwards each completed job to another INBOX in newer trunk but does not synchronize independent departments. A trusted project must also be set as the workflow Working folder; the missing-file follow-up is separate from routing.",
+      "evidence": [
+        "GitHub #81 body asks how separate departmental conveyors combine outputs; Oct8 comment separately reports invisible project/reports files.",
+        "sidecar/routing/chain.js:284-286 and :454-469 key JOINER barriers by join tile plus runId, combining branches of the SAME job.",
+        "frontend/app/workflowpanel.js:1416 explains same-job JOINER behavior.",
+        "Commit 081aecd06 adds SEND TO; git merge-base verified it is NOT an ancestor of v0.13.2, though present on investigation base f2e1e91bb.",
+        "sidecar/projectbless.js:138-146 explains trusting a project does not attach it to a line; relative paths remain private unless WORKING FOLDER is set.",
+        "Commit 496373988 and v0.13.2 notes explicitly address #60/#81 folderless workflow guidance.",
+        "frontend/app/workflowpanel.js:1081-1115 persists a trusted Working folder for all workflow stages.",
+        "Trunk SEND TO: 081aecd06.",
+        "Claude splitter integration candidate: de7100ed3; shared budget and parallel branch behavior 649ff8d86, 9696a762d.",
+        "ddd4cbcfa:frontend/app/workflowpanel.js:1416 and :1574-1581 explain same-job COPY TO EACH/JOINER.",
+        "ddd4cbcfa:sidecar/routing/chain.js:284, :410 and :456 key the barrier by joinTile|runId.",
+        "081aecd06 SEND TO merge is in current trunk and not an ancestor of v0.13.2.",
+        "ddd4cbcfa:frontend/app/workflowpanel.js:1106-1115 exposes Working folder for all workflow stages; v0.13.2 contains496373988 folderless workflow guidance.",
+        "Pending agent/fix-runtime @a783de82e improves SEND TO E-STOP/drop/deleted-target receipts; splitter merge de7100ed3 and UI58eb3b136 are additional active work to reconcile before new routing edits.",
+        "Pending work-threads-calm 312499626/c6e6f5f0c batches background worker reviews by parent conversation and parentRun, with a default 10-minute ceiling and straggler follow-up. This concerns delegated crew reporting, not aggregation of independent conveyors."
+      ],
+      "nextAction": "For one executive report, configure a common job with COPY TO EACH branches and JOINER before the Overseer, then verify one combined result. Use SEND TO for sequential inter-line forwarding and state its source-only release status. Do not build implicit aggregation of unrelated jobs. For the file report, select the INBOX Working folder and prove an actual fs.write absolute-location receipt followed by Overseer fs.read in the same trusted project; handle COMMS and Away Work contexts separately. For delegated crew reports, reconcile the pending work-threads-calm parent-run batching and verify its late-worker behavior separately from JOINER and SEND TO.",
+      "limitations": "No customer file receipt or actual departmental workflow reproduced in this pass. SEND TO source availability is not a released installer or independent-job aggregation proof.",
+      "title": "[Bug]: How should separate departmental Conveyors report to a central Overseer?",
+      "url": "https://github.com/androoAGI/starnet/issues/81",
+      "createdAt": "2026-10-07T08:12:35Z",
+      "commentCount": 1,
+      "assigneeCount": 0,
+      "newSinceRelease": false,
+      "category": "Claude work pending",
+      "ownerAction": "Existing Claude lane: reconcile and verify before further edits"
+    },
+    {
+      "number": 79,
+      "status": "merged and release-fix-present; retest pending",
+      "priority": "P3",
+      "summary": "The requested HINTS toggle and single glossary hover behavior are implemented, with backup persistence and agent settings support.",
+      "evidence": [
+        "PR #80 merged 2026-10-09 as 03f2cd14b; verified ancestor of v0.13.2.",
+        "frontend/app/stationui.js:114 defaults hints:true, :440-441 applies no-hints, :6951 exports it in backup, :7317 renders the checkbox.",
+        "frontend/app/hint.js:111 suppresses glossary display while no-hints is set.",
+        "frontend/app/tooltip.js:140-141 refuses a second station tip for data-hint controls.",
+        "Commit 6ced0f45d exposes preference to chat; v0.13.2 release notes explicitly list #79."
+      ],
+      "nextAction": "Ask for/update internal retest evidence covering immediate dismissal, restart persistence, backup round-trip and plain icon tooltips before closing.",
+      "limitations": "No fresh UI retest or customer confirmation.",
+      "title": "[Feature]: HINTS switch for the glossary hover bubbles; glossary-only hovers",
+      "url": "https://github.com/androoAGI/starnet/issues/79",
+      "createdAt": "2026-10-07T01:44:20Z",
+      "commentCount": 0,
+      "assigneeCount": 0,
+      "newSinceRelease": false,
+      "category": "Fix present; retest needed",
+      "ownerAction": "Existing implementation: targeted acceptance and release/customer verification"
+    },
+    {
+      "number": 77,
+      "status": "partial-policy-clarification-plus-source-fix",
+      "priority": "P2",
+      "summary": "Cross-agent media placement is fixed, but delegated Ask-mode shell remains deliberately withheld on autonomous workers. Current prompts explain this and tell the lead to execute returned commands interactively; a Workbench alone does not grant that authority.",
+      "evidence": [
+        "sidecar/tools/builtin/orchestration.js:41-45 documents worker Ask-mode shell restriction",
+        "sidecar/tools/builtin/orchestration.js:561 team.dispatch description names restriction and project-media behavior",
+        "sidecar/tools/builtin/orchestration.js:683 autonomous worker surface",
+        "commits c9724adbd and 63607af5c",
+        "Fresh tool-withheld-message test OK55; media-project-placement OK22"
+      ],
+      "nextAction": "Ask-mode product decision needed only if delegated shell itself is required; otherwise verify clear explanation and image handoff without escalating permissions or whole-computer access.",
+      "limitations": "Cannot call the requested delegated-shell availability implemented: only explanation and media transfer repair are implemented. Reporter lacked raw discovery transcript; exact discovery behavior not independently reproduced.",
+      "title": "[Bug]:  Delegated agent cannot access shell execution after Workbench placement, blocking image transfer to trusted project",
+      "url": "https://github.com/androoAGI/starnet/issues/77",
+      "createdAt": "2026-10-06T18:41:23Z",
+      "commentCount": 0,
+      "assigneeCount": 0,
+      "newSinceRelease": false,
+      "category": "Partly addressed / mitigation",
+      "ownerAction": "Investigation/product queue: follow stated next action"
+    },
+    {
+      "number": 76,
+      "status": "Resume source fix and website redirect code present; deployment/recovery unverified",
+      "priority": "P1",
+      "summary": "Resume retry and stale account-link healing have specific v0.13.2 fixes; marketing-site login aliases now have redirect rules. The original report lacks the exact failing URL/account state, and current service availability was not established.",
+      "evidence": [
+        "GitHub #76: 'newest' Windows, cannot resume or log in, website login returns 404; no later recovery comment.",
+        "Commits 5ed6e143b and 36bbe8f8c retry link self-healing and re-read link state for RETRY AUTO-RESUME; merge 3166b96aa is a v0.13.2 ancestor.",
+        "website/_redirects:4-12 maps /login, /signin, /signup and /account to account.starnetos.com.",
+        "Commit 793018ee1 implements website redirects; release notes explicitly list #76.",
+        "Read-only web opens of starnetos.com/login and account.starnetos.com returned tool-access errors, not usable HTTP service evidence."
+      ],
+      "nextAction": "Retest installed v0.13.2 resume and capture the exact final URL/status of the failed sign-in link. Verify website deployment separately from desktop tag ancestry. Address the community-support question through documented official support channels.",
+      "limitations": "No affected-account access, current successful website request, actual redirect deployment proof, or customer recovery confirmation.",
+      "title": "[Bug]: Resume Station doesnt work | Cant check account credit on website",
+      "url": "https://github.com/androoAGI/starnet/issues/76",
+      "createdAt": "2026-10-06T16:48:36Z",
+      "commentCount": 1,
+      "assigneeCount": 0,
+      "newSinceRelease": false,
+      "category": "Partly addressed / mitigation",
+      "ownerAction": "Investigation/product queue: follow stated next action"
+    },
+    {
+      "number": 73,
+      "status": "source fix present in v0.13.2",
+      "priority": "P2",
+      "summary": "Preserved thinking binds to earlier context/tool definitions, which StarNet can change between turns. Source now pairs drop_block with the required beta, rescues mismatches once, preserves thinking order and uses Sonnet 5.5's between_tools OFF form. #94 is the same family.",
+      "evidence": [
+        "GitHub #73 comment adds distinct Sonnet OFF failure; sidecar/providers/anthropic.js:529 sends bare between_tools for Sonnet 5.5 OFF.",
+        "sidecar/providers/anthropic.js:111/:116 defines binding models/beta, :586/:617 handles one strip-and-retry rescue.",
+        "214d74e9c plus Haiku follow-up 9789f8a90 are ancestors of v0.13.2; RELEASE_NOTES.md:39 cites #73/#94.",
+        "test/provider.anthropic.thinking-binding.test.js passed (exit 0), covering binding mismatch and OFF behavior."
+      ],
+      "nextAction": "Retest original fresh-chat/tool and existing-conversation cases on installed v0.13.2 with Sonnet/Opus, including effort OFF where supported.",
+      "limitations": "No live Anthropic/customer installation tested; source tests and release ancestry are not customer recovery.",
+      "title": "[Bug]: Anthropic 400 \"Invalid signature in thinking block\" on Sonnet 5.5 / Opus 5.5 (Haiku 4.5 unaffected)",
+      "url": "https://github.com/androoAGI/starnet/issues/73",
+      "createdAt": "2026-10-06T10:59:02Z",
+      "commentCount": 1,
+      "assigneeCount": 0,
+      "newSinceRelease": false,
+      "category": "Fix present; retest needed",
+      "ownerAction": "Existing implementation: targeted acceptance and release/customer verification"
+    },
+    {
+      "number": 72,
+      "status": "Remote mobile slice exists; Android-local handheld product remains unimplemented",
+      "priority": "P3",
+      "summary": "v0.13.2 ancestry includes a Remote station/crew/session phone view and standalone PWA manifest. The requested local-first Android handheld harness, offline workspace/provider host and handheld-specific UI are broader than that companion.",
+      "evidence": [
+        "GitHub #72 requests an Android handheld build, local-first operation and core touch views.",
+        "README.md:67-79 and INSTALL.md:3-11 support public Windows/macOS installers only; Linux artifacts are internal/unofficial.",
+        "No Android target was found in the inspected package/desktop configuration.",
+        "GitHub #72 explicitly prioritizes core station/crew/COMMS before builder and offers AYN Thor testing.",
+        "ff50ad735 is an ancestor of v0.13.2; frontend/app/remoteview.js uses the desktop renderer and labels picture age.",
+        "ddd4cbcfa:relay/app/manifest.webmanifest has standalone portrait presentation; relay/README.md describes relay/phone separation.",
+        "ddd4cbcfa:INSTALL.md has no Android public target."
+      ],
+      "nextAction": "Use the contributor's offered AYN Thor testing to evaluate the current companion first: pairing, station pinch/zoom, crew, sessions/COMMS, touch text input and sleep/reconnect. Keep local Android execution as a separate design/implementation lane covering sidecar/runtime support, private local storage, process/tool authority and offline behavior; do not claim a Remote relay client satisfies 'no new cloud dependency' or local execution.",
+      "limitations": "No Android native/runtime prototype or actual handheld validation; remote access and local execution remain distinct.",
+      "title": "[Feature]: StarNet for Android — pocket station for handhelds (AYN Thor, etc.)",
+      "url": "https://github.com/androoAGI/starnet/issues/72",
+      "createdAt": "2026-10-05T19:12:35Z",
+      "commentCount": 0,
+      "assigneeCount": 0,
+      "newSinceRelease": false,
+      "category": "Feature / optimization",
+      "ownerAction": "Investigation/product queue: follow stated next action"
+    },
+    {
+      "number": 70,
+      "status": "source fix present in v0.13.2",
+      "priority": "P2",
+      "summary": "Kimi previously hardcoded mainland OAuth/API hosts. Region-aware credentials now keep Global or China consistent across login, refresh, model catalog and inference while preserving legacy China sign-ins.",
+      "evidence": [
+        "sidecar/providers/kimi-region.js:19 defines both deployments; :35 reads persisted credential region and :51 aligns inference URL.",
+        "sidecar/index.js:24173 chooses region for a new sign-in; :24228 carries it in the credential; extra accounts keep their own region at :4643.",
+        "b84c9c3f0 is in v0.13.2 ancestry; test/kimi-region.test.js passed 48 assertions; RELEASE_NOTES.md:45 cites #70."
+      ],
+      "nextAction": "Retest Global region sign-in and a real tool turn on reporter's Apple Silicon Mac, restart and refresh to verify retained region.",
+      "limitations": "No affected global account, login, installed Mac or customer recovery exercised.",
+      "title": "[Bug]: Kimi login only supports mainland China accounts",
+      "url": "https://github.com/androoAGI/starnet/issues/70",
+      "createdAt": "2026-10-05T15:32:42Z",
+      "commentCount": 0,
+      "assigneeCount": 0,
+      "newSinceRelease": false,
+      "category": "Fix present; retest needed",
+      "ownerAction": "Existing implementation: targeted acceptance and release/customer verification"
+    },
+    {
+      "number": 69,
+      "status": "Requested render throttling source-fixed; 24-hour memory growth unproven",
+      "priority": "P1",
+      "summary": "v0.13.2 contains render pacing and performance fixes directly matching the request. These reduce rendering load, but do not prove a 24-hour WebView2 GPU-memory growth issue is cured.",
+      "evidence": [
+        "GitHub #69 reports ~2 GB WebView2 GPU-process RAM after 24h and explicitly labels uncapped rendering as an unprofiled hypothesis.",
+        "Commit b61d37a9d caps focused rendering at 30 fps and background at 5 fps; v0.13.2 ancestor.",
+        "frontend/app/world.js:1648 defines 1000/30 and 200ms pacing, timer waits, focus/input wakeup and real-time simulation slices.",
+        "frontend/app/world.js:1655-1670 adds main-thread render cost budget.",
+        "Commit 8337026c2 rests infinite CSS loops when unfocused; release notes explicitly mention #69.",
+        "b61d37a9d adds 30 draws/s focused and 5/s unfocused; 8337026c2 stops idle CSS repaints; d53fa997f lowers adaptive budget floor to 5 draws/s. All are ancestors of ddd4cbcfa. Additional nav-lag performance commits 7688999fa/37b595d21/b38ef4cf6 are NOT ancestors of ddd4cbcfa.",
+        "ddd4cbcfa:frontend/app/world.js:1648-1689,6390-6410",
+        "test/render-pacing.test.js",
+        "pending agent/nav-lag: 7688999fa,37b595d21,b38ef4cf6",
+        "agent/nav-lag owns additional frame-budget/detail/cache work. Its latency optimizations are not evidence that the reported overnight GPU allocation growth is repaired."
+      ],
+      "nextAction": "Coordinate existing nav-lag candidate integration rather than duplicate pacing edits. Run a controlled installed WebView2 soak matching the reporter's 7 agents/8 routines, visible focused and unfocused, recording renderPace, GPU-process private bytes, dedicated/shared GPU memory, DOM/canvas/resource counts and input latency over 24 hours.",
+      "limitations": "Reporter explicitly labeled uncapped-loop-to-memory-growth causality a hypothesis and supplied no profile. No new soak/native run performed.",
+      "title": "[Bug]: Windows laggy after leaving starnet open",
+      "url": "https://github.com/androoAGI/starnet/issues/69",
+      "createdAt": "2026-10-04T20:53:58Z",
+      "commentCount": 0,
+      "assigneeCount": 0,
+      "newSinceRelease": false,
+      "category": "Partly addressed / mitigation",
+      "ownerAction": "Investigation/product queue: follow stated next action"
+    },
+    {
+      "number": 68,
+      "status": "Core cache-prefix defect source-fixed; persistent CLI follow-up still open",
+      "priority": "P2",
+      "summary": "Cross-run stable-system cache miss is repaired by merged PR74. Growing transcript replay within a tool run remains in trunk; open PR103 proposes one persistent CLI child and delta turns. Additional aux/cache-persona overhead is tracked by #105.",
+      "evidence": [
+        "sidecar/providers/claude-cli.js:170-190 boundary marker and prefix split are present",
+        "sidecar/providers/claude-cli.js:193-214 rebuilds the transcript for each stream request",
+        "PR74 merged b6a9a5cfa on Oct9; head4f0c9036d",
+        "PR103 open, not merged, head9a1cd208cd523971812239db92270b6678aab68a, 4 files, 451 additions/69 removals",
+        "PR74 merged b6a9a5cfa; adapter puts stable prefix and tool catalog before the dynamic boundary. Current trunk still starts a fresh CLI child for each provider stream request. Reporter corrected the original zero-token assertion; successful main runs already recorded real token totals.",
+        "ddd4cbcfa:sidecar/providers/claude-cli.js:170-214,633,657",
+        "PR103 OPEN at 9a1cd208cd523971812239db92270b6678aab68a (checked now)",
+        "GitHub #68 correction comment 5983559276 and follow-up 6016488821",
+        "Claude root-quality/Hermes audit has no identified token implementation commit. No conflicting provider change found in all-branch relevant history since October 9."
+      ],
+      "nextAction": "Review PR103 as a distinct candidate before implementing an alternative: per-run session identity, delta-turn accounting, cancellation/process-tree teardown, bounded child lifetime/pool, model/system/tool changes, and subscription versus API-key login. Measure cold/warm and multi-tool-turn cache read/write/output counts with the same workload.",
+      "limitations": "PR103 author measurements are not fresh independent verification; no new subscription calls made.",
+      "title": "[Bug]: claudecode provider: per-run IDs in the system prompt defeat prompt caching, so ~40k tokens are re-written on every message",
+      "url": "https://github.com/androoAGI/starnet/issues/68",
+      "createdAt": "2026-10-04T19:14:10Z",
+      "commentCount": 3,
+      "assigneeCount": 0,
+      "newSinceRelease": false,
+      "category": "Partly addressed / mitigation",
+      "ownerAction": "Investigation/product queue: follow stated next action"
+    },
+    {
+      "number": 67,
+      "status": "unsupported native platform request; existing remote client is a possible partial route",
+      "priority": "P3",
+      "summary": "ChromeOS remains outside the public Windows/macOS support matrix. The existing browser-based Remote companion is a candidate for access to an already-running desktop station, not a ChromeOS-local harness.",
+      "evidence": [
+        "GitHub #67 asks for a ChromeOS version with no failure reproduction.",
+        "README.md:74-79 and INSTALL.md:3-11 constrain supported public desktop targets to Windows/macOS.",
+        "GitHub #67 asks only for ChromeOS availability and provides no failing reproduction.",
+        "ddd4cbcfa:INSTALL.md:3-9 limits public installers to Windows and macOS.",
+        "ddd4cbcfa:relay/app/index.html and manifest.webmanifest provide the existing phone/browser client; sidecar/remote/host.js keeps work on the station."
+      ],
+      "nextAction": "Separate the two acceptance targets: first test current Remote pairing, station/sessions/COMMS and reconnect on a real Chromebook; independently scope a local ChromeOS/Linux-container host only if that is required. Record keyboard/touch, WebCrypto/secure origin, sleep/reconnect and file-opening results before naming ChromeOS supported.",
+      "limitations": "No Chromebook or container test; browser rendering does not establish device support.",
+      "title": "[Feature]: Available on ChromeOS",
+      "url": "https://github.com/androoAGI/starnet/issues/67",
+      "createdAt": "2026-10-04T18:27:18Z",
+      "commentCount": 0,
+      "assigneeCount": 0,
+      "newSinceRelease": false,
+      "category": "Feature / optimization",
+      "ownerAction": "Investigation/product queue: follow stated next action"
+    },
+    {
+      "number": 66,
+      "status": "existing community manifest; official package ownership remains open",
+      "priority": "P3",
+      "summary": "The linked Scoop manifest currently targets official v0.13.2 x64 installer with a hash and autoupdate template. No official Scoop workflow was found in current release/install sources.",
+      "evidence": [
+        "GitHub #66 links https://github.com/halr9000/scoop-bucket/blob/main/bucket/starnet.json .",
+        "Read-only GitHub API fetch shows manifest version 0.13.2, 64-bit official release installer URL, pinned hash and autoupdate URL.",
+        "Manifest install script removes HKCU/HKLM StarNet uninstall registration before invoking the NSIS installer with /S and /D; uninstall invokes bundled uninstall.exe.",
+        "No Scoop reference found in README.md, INSTALL.md, package.json or inspected release config.",
+        "GitHub #66 explicitly offers halr9000/scoop-bucket/bucket/starnet.json for use.",
+        "Read-only fresh GitHub content fetch on 2026-10-11: version 0.13.2; URL and hash pinned; installer script removes both StarNet registry uninstall keys then launches /S /D.",
+        "ddd4cbcfa:INSTALL.md:38 and :88 document Windows installer/upgrade path; targeted official README/INSTALL/workflow searches show no Scoop integration."
+      ],
+      "nextAction": "Review/adopt the existing manifest in an isolated Windows installation matrix: clean install, standalone-NSIS-to-Scoop migration, Scoop upgrade, in-app update coexistence, uninstall and preserved workspace data. Resolve its unconditional HKCU/HKLM StarNet uninstall-registration deletion before official ownership; tie any migration to the proven installation it owns. Verify downloaded signature and hash against the release. Do not run it on the user's current installation.",
+      "limitations": "Manifest inspected, never installed or executed; no official endorsement or compatibility proof.",
+      "title": "[Feature]: Scoop installer for Windows",
+      "url": "https://github.com/androoAGI/starnet/issues/66",
+      "createdAt": "2026-10-04T15:47:28Z",
+      "commentCount": 0,
+      "assigneeCount": 0,
+      "newSinceRelease": false,
+      "category": "Feature / optimization",
+      "ownerAction": "Investigation/product queue: follow stated next action"
+    },
+    {
+      "number": 65,
+      "status": "Reset feature released; recovery source repair awaiting native acceptance",
+      "priority": "P2",
+      "summary": "Desktop ERASE EVERYTHING supplies the requested reset action; ordinary uninstall intentionally leaves user data. The later Windows recovery regression #101 now has a source repair candidate with production-mode boot/restart proof. The original macOS packaged reset and cross-platform erase acceptance remain unverified.",
+      "evidence": [
+        "GitHub #65 reports reinstall preserving state on Apple Silicon macOS.",
+        "Commit cf36f21e6 adds frontend/app/datareset.js and src-tauri/src/erase_all.rs plus fresh-start host wiring; v0.13.2 ancestor.",
+        "frontend/app/stationui.js Settings App & Backup includes datareset control.",
+        "Commit 651dfed96 documents data locations and reset; release notes explicitly list #65."
+      ],
+      "nextAction": "Direct retest/documentation to desktop Settings -> App & Backup -> ERASE EVERYTHING. Verify the original Apple Silicon packaged build using a disposable station and confirm restart reaches first run while unrelated files remain untouched. Track #101 separately and verify legacy-data recovery cannot defeat the erase marker.",
+      "limitations": "No native erase action or macOS installer flow was performed. Synthetic production recovery and real isolated sidecar boot/restart proof for #101 do not establish native macOS or Windows erase UI acceptance.",
+      "title": "[Bug]: Restart from scratch",
+      "url": "https://github.com/androoAGI/starnet/issues/65",
+      "createdAt": "2026-10-03T23:04:51Z",
+      "commentCount": 0,
+      "assigneeCount": 0,
+      "newSinceRelease": false,
+      "category": "Partly addressed / mitigation",
+      "ownerAction": "Investigation/product queue: follow stated next action"
+    },
+    {
+      "number": 62,
+      "status": "source fix present in v0.13.2",
+      "priority": "P2",
+      "summary": "The tunnel symptom has a specific source explanation: fixed server-port Origin validation rejected the browser's forwarded loopback port with a silent 403. Source admits the exact same loopback Origin/Host pair, exposes sanitized key-check failures and cleans pasted whitespace.",
+      "evidence": [
+        "sidecar/apiauth.js:38 explains forwarded localhost:9000 vs sidecar port mismatch; :44 isSameLoopbackOrigin requires exact Origin/Host match.",
+        "sidecar/index.js:463 logs refused API calls without secrets; :23946 cleans keys; :23947 logs validation failure cause.",
+        "99be50565 is in v0.13.2 ancestry; RELEASE_NOTES.md:45 cites #62.",
+        "test/provider-key-check.test.js passed 29 assertions; test/apiauth.test.js contains explicit port-forwarded regression coverage (not rerun in this lane)."
+      ],
+      "nextAction": "Retest the original Debian systemd/SSH-tunnel setup on 0.13.2, record /api/providers/validate HTTP status and sanitized result, then restart and confirm provider remains available.",
+      "limitations": "No original tunnel or account reproduced here. User's actual cause remains inferred from matching setup, not captured original request.",
+      "title": "[Bug]: OpenRouter key never verifies, no error surfaced anywhere.",
+      "url": "https://github.com/androoAGI/starnet/issues/62",
+      "createdAt": "2026-10-02T10:22:29Z",
+      "commentCount": 0,
+      "assigneeCount": 0,
+      "newSinceRelease": false,
+      "category": "Fix present; retest needed",
+      "ownerAction": "Existing implementation: targeted acceptance and release/customer verification"
+    },
+    {
+      "number": 61,
+      "status": "release recovery implementation present; original incident unreproduced",
+      "priority": "P2",
+      "summary": "Station-owned orphan cleanup, temporary-profile fallback, explicit reset and better navigation-error classification now exist. The reporter's orphan/proxy failure was not reproduced and cannot be treated as definitively recovered.",
+      "evidence": [
+        "GitHub #61: v0.12.5 Windows, orphaned headless browser with non-listening proxy; original repro unavailable.",
+        "Commit 7d9b63d56 adds sidecar/tools/builtin/browser-orphans.js and healing in browser.js; v0.13.2 ancestor.",
+        "Commit 672a2fe98 exposes POST /api/browser/reset; aff855781 avoids falsely reporting a closed browser when none was open.",
+        "Commit 651dfed96 documents supported reset; v0.13.2 release notes explicitly list #61.",
+        "test/browser-orphans.test.js is included in the complete1121-step fast gate that passed on9f7ab4b4c."
+      ],
+      "nextAction": "Retest on installed v0.13.2 using the supported Reset Station Browser action; capture new launch/proxy/navigation failure cause if it persists. Never reuse historical PID4444 as current ownership proof.",
+      "limitations": "The original customer orphan state is unavailable. Focused fixtures cleaned only their own processes; the affected installed browser/proxy and customer recovery remain unverified.",
+      "title": "[Bug]: Failed to connect to web during bot runs for verifications on tasks",
+      "url": "https://github.com/androoAGI/starnet/issues/61",
+      "createdAt": "2026-10-02T03:44:34Z",
+      "commentCount": 0,
+      "assigneeCount": 0,
+      "newSinceRelease": false,
+      "category": "Fix present; retest needed",
+      "ownerAction": "Existing implementation: targeted acceptance and release/customer verification"
+    },
+    {
+      "number": 60,
+      "status": "source-fixed-published-recovery-unconfirmed",
+      "priority": "P2",
+      "summary": "Relative fs writes honor actual projectRoot; routine workdir is promoted into that context. Trusted folder permission alone is not a session/line binding. Current code explains private paths, refuses untrusted session anchors, and warns folderless workflows.",
+      "evidence": [
+        "sidecar/tools/builtin/fs.js:206-233 resolves relative paths through ctx.projectRoot and pathTrust",
+        "sidecar/tools/builtin/fs.js:83-110 location receipts distinguish private and project workspace",
+        "sidecar/index.js:18662-18670 promotes routine root and supplies folderless workflow explanation",
+        "commits a4d99ad63, af5559568, 496373988",
+        "Latest reporter comment Oct8 still saw a workflow split on0.13.1; release0.13.2 postdates it",
+        "Pending work-threads-calm e0c115ac0 preserves projectRoot during delegated worker session creation/adoption and page-save merging. This additional context path is not in the tested candidate and does not change the distinction between trust and binding."
+      ],
+      "nextAction": "Verify actual saved conversation/INBOX working-folder binding on installed0.13.2, then same-name file write/read from fs, shell, downstream agent and Windows. Do not equate trust approval with binding. For delegated worker sessions, first reconcile e0c115ac0 and verify projectRoot survives creation, adoption and save without granting new trust.",
+      "limitations": "Current source repairs identified; reporter's exact saved project/line context unavailable. No customer-recovered claim.",
+      "title": "[Bug]: Project-scoped fs.write files are not visible to shell/Windows filesystem",
+      "url": "https://github.com/androoAGI/starnet/issues/60",
+      "createdAt": "2026-10-01T17:52:04Z",
+      "commentCount": 2,
+      "assigneeCount": 0,
+      "newSinceRelease": false,
+      "category": "Fix present; retest needed",
+      "ownerAction": "Existing implementation: targeted acceptance and release/customer verification"
+    },
+    {
+      "number": 59,
+      "status": "source/release feature already present; retest pending",
+      "priority": "P3",
+      "summary": "DELETE AGENT is already a separate row at the bottom of CONFIG, outside collapsed APPEARANCE, matching the request.",
+      "evidence": [
+        "Commit d71530470 (2026-10-01) moves deletion to its own row; verified ancestor of v0.13.2.",
+        "frontend/app/stationui.js:2040-2056 defines agDeleteRow with visible deletion action and reason when disabled.",
+        "frontend/app/stationui.js:2616 documents deletion outside all groups; :3272 wires two-step confirmation.",
+        "GitHub #59 has no report of testing this newer placement."
+      ],
+      "nextAction": "Retest discoverability on the reporter's current version and close only once the separate CONFIG row is verified as visible. Preserve the overseer/last-agent restriction and archived-work semantics.",
+      "limitations": "No installed UI/reporter retest; author request may have been filed from an older build.",
+      "title": "[Feature]: Delete Agent UI Improvement",
+      "url": "https://github.com/androoAGI/starnet/issues/59",
+      "createdAt": "2026-10-01T17:03:08Z",
+      "commentCount": 0,
+      "assigneeCount": 0,
+      "newSinceRelease": false,
+      "category": "Fix present; retest needed",
+      "ownerAction": "Existing implementation: targeted acceptance and release/customer verification"
+    },
+    {
+      "number": 58,
+      "status": "source-fixed-published-recovery-unconfirmed",
+      "priority": "P2",
+      "summary": "Multiple causes were repaired: single-domain classifier no longer strips web_request, toolset labels/tool names normalize to real family ids, and older saved routine toolsets are repaired on load and persisted.",
+      "evidence": [
+        "sidecar/index.js:5817-5839 load-time toolset repair",
+        "sidecar/index.js:19834-19838 keeps web_request advertised for direct-domain runs",
+        "sidecar/index.js:20462 target-host restriction remains enforced",
+        "commits44284394f,3e6587990,24cc5b60f,ed3efc9b0,6fb908d15",
+        "Fresh routine-toolsets test OK52"
+      ],
+      "nextAction": "Retest an existing pre-upgrade routine on installed0.13.2 via Run Now and scheduler, with saved scheduled/messaged key and both execution profiles.",
+      "limitations": "No exact installed-app reproduction or customer recovery confirmation in this investigation; source/tests and published-source ancestry are separate from recovery.",
+      "title": "[Bug]: Scheduled routine does not receive web_request despite Web & Browser being enabled",
+      "url": "https://github.com/androoAGI/starnet/issues/58",
+      "createdAt": "2026-09-29T04:15:46Z",
+      "commentCount": 0,
+      "assigneeCount": 0,
+      "newSinceRelease": false,
+      "category": "Fix present; retest needed",
+      "ownerAction": "Existing implementation: targeted acceptance and release/customer verification"
+    },
+    {
+      "number": 57,
+      "status": "partial visibility fix; execution claim still needs verification",
+      "priority": "P2",
+      "summary": "Current source distinguishes foreground dispatch history from the background-worker registry and exposes durable run lookup. This addresses a plausible visibility explanation; the original claim that no execution occurred still needs reconciliation with the reported run IDs.",
+      "evidence": [
+        "sidecar/tools/builtin/orchestration.js:353-356 explains foreground/background split",
+        "sidecar/tools/builtin/orchestration.js:1088-1131 verifies runId through runRecord with lead ownership",
+        "sidecar/index.js:21686 durable runStore row includes parentRunId/delegatedBy/agentId",
+        "cd3920185 fixes visibility; ancestry into0.13.2 verified exit0",
+        "Pending agent/work-threads-calm @9b395a7d0: 720f5438d/e0c115ac0/e30096700/9965269cd/c6e6f5f0c auto-file coordinator workers, repair new/repeated worker sessions, and show per-worker status/evidence on the parent card. Not in candidate 79a0592c; exact reported run IDs still require reconciliation."
+      ],
+      "nextAction": "Reconcile the existing work-threads-calm worker/session changes before additional visibility edits. Replay exact Telegram lead -> named Strategist dispatch, match each returned runId to durable history, the bound worker session and target Dossier, and verify parent evidence. Keep installed-release and pending-branch outcomes separate.",
+      "limitations": "Original absence of background entries was not proof of fabricated execution. Exact customer dispatch receipts and installed Dossier behavior were not independently examined.",
+      "title": "[Bug]: team_dispatch returns well-formed success results (runId, cost, duration, tokens) for calls that never reach the target agent",
+      "url": "https://github.com/androoAGI/starnet/issues/57",
+      "createdAt": "2026-09-28T21:46:12Z",
+      "commentCount": 0,
+      "assigneeCount": 0,
+      "newSinceRelease": false,
+      "category": "Partly addressed / mitigation",
+      "ownerAction": "Investigation/product queue: follow stated next action"
+    },
+    {
+      "number": 55,
+      "status": "independently implemented in release; PR reconciliation needed",
+      "priority": "P3",
+      "summary": "Read-only lead-only station.status now exposes the existing page snapshot with explicit refusal when no live page answers. PR56 is still open despite equivalent implementation landing separately.",
+      "evidence": [
+        "GitHub PR #56 remains OPEN as of investigation.",
+        "Commit dc9633bb0 implements #55 and credits contributor; verified ancestor of v0.13.2.",
+        "sidecar/tools/builtin/station.js:130-142 calls existing station.status bridge and returns REFUSED on unsuccessful answer.",
+        "sidecar/capability/registry.js:299-301 registers orchestrator, read, consent-free and deferred metadata.",
+        "v0.13.2 release notes explicitly say lead can read which sessions are busy (#55)."
+      ],
+      "nextAction": "Compare PR56 against dc9633bb0/current tool behavior and reconcile the stale PR without duplicating code. Retest lead call, no-page refusal and specialist exclusion.",
+      "limitations": "Relevant capability suites passed within the full fast gate. No issue-specific installed lead-to-page bridge acceptance or customer recovery was established; deferred tools still require discovery as intended.",
+      "title": "Expose live station status to the lead through the station bridge",
+      "url": "https://github.com/androoAGI/starnet/issues/55",
+      "createdAt": "2026-09-28T20:25:05Z",
+      "commentCount": 1,
+      "assigneeCount": 0,
+      "newSinceRelease": false,
+      "category": "Fix present; retest needed",
+      "ownerAction": "Existing implementation: targeted acceptance and release/customer verification"
+    },
+    {
+      "number": 53,
+      "status": "Mitigation already in trunk; original charge unexplained",
+      "priority": "P1",
+      "summary": "Managed-credit runs now default to a $2 per-run reserve instead of the entire wallet. This limits recurrence but does not explain or reconcile the original $5/$10 charges for a short request.",
+      "evidence": [
+        "sidecar/budgetcaps.js:43 DEFAULT_MANAGED_PER_RUN_USD=2",
+        "sidecar/budgetcaps.js:58 managedRunCapUsd",
+        "sidecar/index.js:18964 applies managed cap",
+        "65e281d15 source mitigation; ancestry into0.13.2 verified exit0",
+        "Fresh budget-caps test OK77",
+        "65e281d15 sets the default managed reservation/per-run cap to $2; ddd4cbcfa retains wallet clamping and truthful balance-stop messaging. This is recurrence mitigation, not an accounting explanation.",
+        "ddd4cbcfa:sidecar/budgetcaps.js:43-64",
+        "ddd4cbcfa:sidecar/index.js:19020",
+        "GitHub #53 currently has no diagnostics or follow-up comments",
+        "Claude's current Hermes cost comparison is read-only; no remediation SHA identified. Do not conflate subscription prompt overhead with managed-credit billing."
+      ],
+      "nextAction": "Reconcile the original incident using sanitized run IDs, provider usage, credit reservation/settlement/refund rows and timestamps. Then exercise success, provider error, cancellation and restart settlement in a synthetic credit-service lifecycle before making any charge/refund claim.",
+      "limitations": "No account data, paid calls, financial conclusion or customer recovery proof.",
+      "title": "[Bug]: Credit Over Consumption On Simple Tasks",
+      "url": "https://github.com/androoAGI/starnet/issues/53",
+      "createdAt": "2026-09-27T22:36:20Z",
+      "commentCount": 0,
+      "assigneeCount": 0,
+      "newSinceRelease": false,
+      "category": "Partly addressed / mitigation",
+      "ownerAction": "Investigation/product queue: follow stated next action"
+    },
+    {
+      "number": 46,
+      "status": "partly delivered in v0.13.2; external-CLI crew projection remains a separate proposal",
+      "priority": "P3",
+      "summary": "The upstream Claude Code provider and Remote phone app cover the proposal's later provider and phone-access slices. They do not implement floor bodies for independently running Claude CLI sessions.",
+      "evidence": [
+        "sidecar/providers/claude-cli.js implements current provider",
+        "PR41 remains open despite equivalent provider already present upstream",
+        "No claude-crew/STARNET_REMOTE_HOSTS/CLAUDE_CREW matches in current sidecar/frontend/docs JS/MD search",
+        "Issue46 and its4 comments explicitly distinguish provider from floor crew and remote-host access",
+        "Current trunk ddd4cbcfa: sidecar/providers/registry.js:524 and sidecar/providers/factory.js:200 register claude-cli.",
+        "3d032f64a (Claude Code provider) and ff50ad735 (Remote station phone view) are both ancestors of v0.13.2.",
+        "ddd4cbcfa:sidecar/remote/host.js:1 uses the existing run/roster/transcript/consent logic; frontend/app/remoteview.js:1 and relay/app/manifest.webmanifest implement the phone presentation.",
+        "GitHub #46 and comments describe a broader fork; Windows installed 0.12.5 claims there belong to the contributor's build, not upstream verification."
+      ],
+      "nextAction": "Reconcile the contributor branch into three scopes before any port: provider overlap (already upstream), independent external-session observer/control (remaining feature), and remote ingress (compare to existing paired Remote host/relay instead of broadening the main API Host allowlist). Review only the remaining crew projection against actual external process lifecycle and distinguish it from roster agents. Keep provider auth/billing and optional metered fallback explicit.",
+      "limitations": "Read-only source/ancestry review. No installed Claude session, phone, fork regression or customer recovery test. Do not equate $0 marginal subscription usage with unlimited/free plans.",
+      "title": "Proposal: opt-in \"Claude Crew\" — Claude Code CLI sessions as floor crew (+ opt-in remote hosts for phone access)",
+      "url": "https://github.com/androoAGI/starnet/issues/46",
+      "createdAt": "2026-09-26T02:46:18Z",
+      "commentCount": 4,
+      "assigneeCount": 0,
+      "newSinceRelease": false,
+      "category": "Feature / optimization",
+      "ownerAction": "Investigation/product queue: follow stated next action"
+    },
+    {
+      "number": 39,
+      "status": "source/release fix present; PR superseded; recovery unconfirmed",
+      "priority": "P2",
+      "summary": "Stale-token failures now recover in place only for the exact forbidden-token response, replay once, and surface reload guidance if recovery fails. Start-fresh polling and the minor no-recovery retry path are also handled.",
+      "evidence": [
+        "PR #45 is CLOSED without merge, so its state is not evidence of incorporation.",
+        "Commit 92e76760a independently implements #39; merge 0c03a81d9; verified v0.13.2 ancestry.",
+        "frontend/app/harness.js:221-311 only matches exact forbidden token, shares one token refresh and bounds replay, otherwise notifies reload.",
+        "frontend/app/app.js:5573-5575 and :5661-5665 reload when a stale 403 survives recovery during recovery/start-fresh polling.",
+        "frontend/app/app.js:5601-5626 rechecks /api/lineage and says nothing recoverable instead of blindly reloading.",
+        "test/stale-token-recovery.test.js is included in the complete1121-step fast gate that passed on9f7ab4b4c."
+      ],
+      "nextAction": "Retest browser/manual sidecar restart, fresh start, save mutation, provider catalog and zero-recoverable state; preserve genuine authorization refusals unchanged. Then reconcile issue/closed PR with source fix.",
+      "limitations": "No fresh live restart, Linux container repro or customer recovery confirmation.",
+      "title": "[Bug]: after a sidecar restart the page keeps a stale API token — start-fresh button greys forever, and 403s surface as 'catalog offline' / 'Failed to fetch'",
+      "url": "https://github.com/androoAGI/starnet/issues/39",
+      "createdAt": "2026-09-23T10:10:02Z",
+      "commentCount": 0,
+      "assigneeCount": 0,
+      "newSinceRelease": false,
+      "category": "Fix present; retest needed",
+      "ownerAction": "Existing implementation: targeted acceptance and release/customer verification"
+    },
+    {
+      "number": 28,
+      "status": "Needs end-to-end replay against current builder/crew changes",
+      "priority": "P2",
+      "summary": "Dossier editing through team.config/team.configure is implemented; newer UI explains Bay instructions and exposes Send it a job. Native lead station-builder tools now cover much layout configuration. The reporter explicitly reported Telegram-first-bay routing failure after PR29, and desired Drive/PDF delivery was never established by that PR.",
+      "evidence": [
+        "PR #29 merged 2026-09-23 at 7ee93ceac; verified ancestor of v0.13.2.",
+        "sidecar/tools/builtin/station.js:193-207 exposes Dossier read/write via exact agentId and consent; notebook memory is explicitly not these documents.",
+        "GitHub #28 Sep24 reporter comment after testing 7ee93ceac says Chloe called team.dispatch instead of running Inbox -> Chloe -> Olivier -> Margot.",
+        "Commit 2d7e88016 clarifies additive Bay briefs and provides INBOX Send it a job; frontend/app/workflowpanel.js:1003-1015.",
+        "frontend/app/workflowpanel.js:985 reports whether each channel feeds the whole line; sidecar/channels/hub.js:345-352 advances only when lineOriginFor proves line ownership.",
+        "sidecar/tools/builtin/station.js:440-443 supports native planning of roles/briefs/belts/crew/folders; broader permissions retain their own controls.",
+        "Pending agent/builder-lend and agent/fix-runtime overlap requested capability; not counted as customer resolution.",
+        "Additional discovered race repaired indd731e1a1: deterministic seeded builder fixture proved visible p12 absent from backend plan; explicit publication control made identical job deliver. Readiness now pins exact published floor. Original multi-agent Telegram/Drive complaint still needs its own replay.",
+        "Pending work-threads-calm changes worker session creation and delegation display. Include those source differences in the replay; they do not establish a repair for the Telegram conveyor sequence or Drive/PDF delivery."
+      ],
+      "nextAction": "Replay Telegram -> Inbox -> Chloe -> Olivier -> Margot against the current workflow changes, distinguishing team.dispatch from executing that line. Trace the final Drive/PDF delivery separately. Also verify summoned-agent instruction changes and bay configuration against existing builder lending; identify the failed handoff before changing shared contracts. Reconcile pending work-threads-calm session/display behavior while tracing delegation; do not count it as conveyor or remote-delivery proof.",
+      "limitations": "PR29 does not prove later channel complaint or Drive integration. No real Telegram message or external file upload sent in this investigation.",
+      "title": "[Bug]: Poor integration between main agent and updating summoned agent's instructions and also poor support for configuring bays via agent chat",
+      "url": "https://github.com/androoAGI/starnet/issues/28",
+      "createdAt": "2026-09-21T19:42:33Z",
+      "commentCount": 3,
+      "assigneeCount": 0,
+      "newSinceRelease": false,
+      "category": "Unresolved investigation",
+      "ownerAction": "Investigation/product queue: follow stated next action"
+    },
+    {
+      "number": 20,
+      "status": "source fix present in v0.13.0; independent reporter confirms",
+      "priority": "P3",
+      "summary": "The silent context truncation defect was fixed by native Ollama /api/chat with request-sized num_ctx and truncate:false. An independent issue commenter measured no truncation and fs tool calls on v0.13.0; original reporter recovery remains unconfirmed.",
+      "evidence": [
+        "0e25b955f is an ancestor of v0.13.0; qa/bugs/678ac951-ollama-task-runs-finish-without-reported-filesys.md records before/after live Ollama proof.",
+        "sidecar/providers/registry.js:579 enables nativeOllama; sidecar/providers/ollama-native.js:106 requests truncate:false and options.num_ctx.",
+        "GitHub #20 comment: v0.12.5 default prompt truncation 70/70 and fs calls 0/30; v0.13.0 prompt truncation 0/194 and fs calls 30/30, completed files 22/30.",
+        "test/provider.ollama-native.test.js passed 80 assertions in this investigation; PR #30 earlier added mock-provider projection coverage without claiming original recovery."
+      ],
+      "nextAction": "Record independent confirmation in the durable bug record; request original reporter retest before treating their station as recovered. Keep #99 separate. Investigate residual llama3.1 template/tool-result limitations as a separate issue if reproduced.",
+      "limitations": "Independent test used its own Windows/Ollama setup; original customer's installer/run not inspected. Correct tool delivery does not guarantee every small-model task succeeds.",
+      "title": "[Bug]: Ollama agent runs complete with 0 tool calls despite File Cabinet tools being available",
+      "url": "https://github.com/androoAGI/starnet/issues/20",
+      "createdAt": "2026-09-19T07:00:37Z",
+      "commentCount": 1,
+      "assigneeCount": 0,
+      "newSinceRelease": false,
+      "category": "Fix present; retest needed",
+      "ownerAction": "Existing implementation: targeted acceptance and release/customer verification"
+    },
+    {
+      "number": 15,
+      "status": "released starter/lead builder plus pending scoped lending/sharing; broader gallery/authority request remains",
+      "priority": "P2",
+      "summary": "Built-in templates and lead-native builder are already present. Claude's unmerged builder-lend branch adds per-dispatch map/plan/build lending, and build-share adds local file exchange; neither implements the whole expanded Oct11 request.",
+      "evidence": [
+        "frontend/app/stationtemplates.js:11-18 includes software/research/creative/operations/general work templates plus look presets.",
+        "sidecar/tools/builtin/station.js:394-481 exposes station.map, station.plan and station.build with read planning and consent-gated application.",
+        "sidecar/capability/registry.js:314-318 binds those tools to orchestrator with deferred discovery.",
+        "GitHub #15 Oct11 follow-up: lead can use station.map/plan/build/make_prop on v0.13.2, dispatched specialist cannot discover them.",
+        "frontend/app/stationui.js:7370-7374 backup export/import is not a community gallery; #86 overlaps the reusable preset request.",
+        "Claude builder-lend: 86b1ddc9c, 874417c9c, 691aa23b5.",
+        "Claude build-share: 05a5fe757, e0d1161af.",
+        "Released lead builder confirmed by #15 Oct11 customer comment; source station.map/plan/build already on trunk.",
+        "agent/builder-lend @691aa23b5 includes feature86b1ddc9c: team.dispatch workers[{builder:true}], separate builder capability, shared consent broker, explicit restrictions; not ancestor of ddd4cbcfa.",
+        "agent/build-share @e0d1161af includes05a5fe757 layout import/export; not ancestor of ddd4cbcfa.",
+        "docs/STARNET_BEHAVIOR_CONTRACT.md requires runtime equipment/profile authority and truthful current capability state.",
+        "Pending work-threads-calm 312499626/c6e6f5f0c attributes shared-broker approvals to the worker and supports multiple simultaneous asks in Needs You. Coordinate its approval display with builder-lend acceptance before duplicating UI work."
+      ],
+      "nextAction": "Finish/review the existing Claude lanes first. Verify specialist tool discovery, foreground/background/resume, Commander approval attribution and refusal when the lead lacks builder authority. Describe the delivered grant as one worker/one job: custom-prop spending, crew recruitment/service bindings and testing/starting lines remain with the lead. Keep persistent area-scoped construction, routine boundaries and a browsable community gallery as explicit later work instead of granting all orchestrator authority. Include work-threads-calm worker-attributed and simultaneous approval asks in that acceptance matrix.",
+      "limitations": "This pass read Git objects only; pending branch tests/live claims were not rerun and do not establish a released installer.",
+      "title": "[Feature]: Station Templates, Community Gallery & AI-Assisted Station Building",
+      "url": "https://github.com/androoAGI/starnet/issues/15",
+      "createdAt": "2026-09-13T08:22:46Z",
+      "commentCount": 3,
+      "assigneeCount": 0,
+      "newSinceRelease": false,
+      "category": "Claude work pending",
+      "ownerAction": "Existing Claude lane: reconcile and verify before further edits"
+    }
+  ],
+  "alignedTrunk": "ddd4cbcfa",
+  "claudeReconciliation": {
+    "method": "Read-only recent Claude task evidence plus committed branch/ref diffs; pending work is not treated as merged or customer-verified.",
+    "pending": [
+      "agent/builder-lend",
+      "agent/build-share",
+      "agent/user-report-fixes",
+      "agent/fix-runtime",
+      "agent/fix-floor",
+      "agent/fix-ui",
+      "agent/fix-agentdocs",
+      "agent/splitter-merge",
+      "agent/work-threads-calm",
+      "agent/nav-lag"
+    ],
+    "integrated": [
+      "memory truth",
+      "design approval reference and shared taste",
+      "stop and continuation truth"
+    ],
+    "contract": "docs/STARNET_BEHAVIOR_CONTRACT.md",
+    "privacy": "No raw Claude sessions or private diagnostics included.",
+    "finalOverlapReview": {
+      "branch": "agent/work-threads-calm",
+      "head": "9b395a7d0",
+      "commonBase": "f2e1e91bb",
+      "inCandidate": false,
+      "includesAlignedTrunk": false,
+      "method": "Read-only exact Git object review; no branch test or live acceptance claims."
+    },
+    "references": [
+      {
+        "branch": "agent/build-share",
+        "head": "e0d1161af3c78673551f452cb37d1a23a82807c1",
+        "inCandidate": false
+      },
+      {
+        "branch": "agent/builder-lend",
+        "head": "691aa23b51014a3701a1a0dfde0551d1fcfd751c",
+        "inCandidate": false
+      },
+      {
+        "branch": "agent/fix-agentdocs",
+        "head": "de7100ed347ace7aadefa4008f1853301f9d0889",
+        "inCandidate": false
+      },
+      {
+        "branch": "agent/fix-floor",
+        "head": "de7100ed347ace7aadefa4008f1853301f9d0889",
+        "inCandidate": false
+      },
+      {
+        "branch": "agent/fix-runtime",
+        "head": "a783de82eb724298b4db8489f1e19973b4210b61",
+        "inCandidate": false
+      },
+      {
+        "branch": "agent/fix-ui",
+        "head": "58eb3b136acad75ff69744cb4ce2380c9e7e641b",
+        "inCandidate": false
+      },
+      {
+        "branch": "agent/nav-lag",
+        "head": "74c05facdde7029538d62374562ef49325065ce7",
+        "inCandidate": false
+      },
+      {
+        "branch": "agent/splitter-merge",
+        "head": "de7100ed347ace7aadefa4008f1853301f9d0889",
+        "inCandidate": false
+      },
+      {
+        "branch": "agent/user-report-fixes",
+        "head": "7a0d66fa9931ca2ccef5a0289f43510b5af2d15f",
+        "inCandidate": false
+      },
+      {
+        "branch": "agent/work-threads-calm",
+        "head": "9b395a7d0d6375e7b97e1a5b0aaaf3a3ea3ec1e0",
+        "inCandidate": false
+      }
+    ],
+    "refsRecheckedAt": "2026-10-11T23:10:02Z",
+    "overlapGroups": [
+      {
+        "lanes": [
+          "agent/builder-lend"
+        ],
+        "issues": [
+          15,
+          28
+        ],
+        "scope": "One worker / one job station-building authority; coordinate tool discovery and approval acceptance."
+      },
+      {
+        "lanes": [
+          "agent/work-threads-calm"
+        ],
+        "issues": [
+          15,
+          28,
+          57,
+          60,
+          81,
+          105
+        ],
+        "scope": "Worker sessions, project context, approval attribution and parent-run review batching. Independent conveyors and measured token savings remain open."
+      },
+      {
+        "lanes": [
+          "agent/build-share"
+        ],
+        "issues": [
+          15,
+          86
+        ],
+        "scope": "Local layout import/export. A public community gallery remains separate work."
+      },
+      {
+        "lanes": [
+          "agent/fix-runtime",
+          "agent/fix-floor",
+          "agent/fix-ui",
+          "agent/fix-agentdocs",
+          "agent/splitter-merge"
+        ],
+        "issues": [
+          81
+        ],
+        "scope": "Splitter / JOINER behavior and SEND TO stop or refusal receipts; reconcile these before routing changes."
+      },
+      {
+        "lanes": [
+          "agent/user-report-fixes"
+        ],
+        "issues": [
+          99
+        ],
+        "scope": "Custom Ollama endpoint mapping and crew delegation repairs; not proof of the reported stalled run being resolved."
+      },
+      {
+        "lanes": [
+          "agent/nav-lag"
+        ],
+        "issues": [
+          69
+        ],
+        "scope": "Additional frame-budget, detail and cache work. The overnight WebView2 memory-growth report still needs a controlled soak."
+      }
+    ],
+    "lastRefCheck": "Trunk and all ten committed branch heads unchanged; no private-session access in this recheck."
+  },
+  "gates": {
+    "fast": {
+      "command": "npm run test:fast",
+      "candidate": "79a0592c767a0b89cae23296c2024b47465d9ab0",
+      "exit": 0,
+      "status": "PASS",
+      "steps": 1122,
+      "log": ".investigation/test-fast-combined.log",
+      "applicableToCandidate": true,
+      "changedSincePass": [
+        "qa/evidence/atlas-supersede-steering-2026-10-11.json",
+        "qa/evidence/routing-sample-stop-observation-2026-10-11.json",
+        "test/atlas-events.emit.e2e.test.js",
+        "test/routing.sample-stop.e2e.test.js"
+      ],
+      "applicability": "Since the fast gate, only the HTTP Atlas and workflow-stop fixtures and their sanitized evidence changed. Application code, fast runner/list and fast-test files are identical."
+    },
+    "http": {
+      "command": "npm run test:http",
+      "candidate": "cc772515354445d36c98b195404d6f1c692fa92a",
+      "exit": 1,
+      "status": "FAILED: first-boot timeout; unchanged focused reruns passed",
+      "steps": null,
+      "uninterruptedFullPass": false,
+      "log": ".investigation/test-http-verified-final.log",
+      "failedStep": 87,
+      "startupTimeoutMs": 12000,
+      "focusedRerun": {
+        "exit": 0,
+        "assertions": 27,
+        "sourceChanged": false,
+        "log": ".investigation/loops-endurance-final-rerun.log"
+      },
+      "continuation": {
+        "fromStep": 88,
+        "toStep": 207,
+        "exit": 1,
+        "status": "FAILED",
+        "log": ".investigation/test-http-tail-88-final.log"
+      },
+      "continuationFailure": {
+        "originalStep": 88,
+        "continuationStep": 1,
+        "exit": 1,
+        "fixture": "test/loops-stall.e2e.test.js",
+        "phase": "GET /api/loops while awaiting first park, after startup, token, budget requests and loop creation succeeded",
+        "error": "TypeError: fetch failed",
+        "cause": "Unconfirmed: saved fixture log omits underlying fetch cause and post-ready sidecar output/exit details",
+        "sourceChangedSinceEarlierPassingCandidate": false,
+        "focusedRerun": {
+          "exit": 0,
+          "assertions": 38,
+          "sourceChanged": false,
+          "log": ".investigation/loops-stall-final-rerun.log"
+        },
+        "limits": "No crash, external termination, socket reset or application stall cause is established. No production or timeout change selected."
+      },
+      "currentRunCoverageComplete": false
+    }
+  },
+  "previousCandidateVerification": {
+    "candidate": "9f7ab4b4cee18a0369600c1570cc3d0154018d56",
+    "fast": {
+      "exit": 0,
+      "steps": 1121
+    },
+    "http": {
+      "uninterruptedFullPass": false,
+      "findings": [
+        "Station-builder readiness race reproduced and repaired indd731e1a1",
+        "Quest-refresh boot timeout passed its focused rerun100assertions",
+        "Telegram fixture assumed superseding, contradicting newd489326f0 same-run steering; fixture updated in128a58ebe with93assertions"
+      ]
+    },
+    "priorAttempts": [
+      {
+        "gate": "fast",
+        "result": "Plugin-runtime restart-rate assertion failed; unchanged focused rerun and later full gate passed."
+      },
+      {
+        "gate": "fast",
+        "result": "Fail-open ratchet correctly found checkpoint silent-catch count improved12 to11; baseline tightened in9f7ab4b4c, subsequent full gate passed."
+      },
+      {
+        "gate": "http",
+        "result": "Six station-builder assertions failed at step 54/207. The unchanged focused rerun passed, but the resumed suite reproduced the six failures. Later controlled publication testing established the cause; dd731e1a1 repaired exact-floor readiness. The held-frame live regression and publication checks passed. This supersedes the initial unproven timing hypothesis."
+      },
+      {
+        "gate": "http",
+        "result": "The second complete run failed at step 41/207 with a questrefresh.e2e boot timeout. Its isolated rerun passed 100 assertions. The continuation from step 42 then exposed the builder failure, and the later continuation from step 55 exposed the obsolete Telegram expectation. Both were subsequently addressed; the final combined candidate has its own separately recorded aggregate gates."
+      }
+    ]
+  },
+  "additionalRepairs": [
+    {
+      "issue": 99,
+      "source": "e91f3231efbe0c449442251e8eb9dbd380b4285b",
+      "scope": "Timeout diagnostic distinguishes observed placement from an unproven loading/prompt-reading cause. Retry policy and reported stall remain unresolved.",
+      "record": "ef2c7d7c"
+    },
+    {
+      "relatedIssue": 28,
+      "source": "dd731e1a191197de95a7ab1c04a9847e9f0e4cdd",
+      "scope": "Builder readiness waits for accepted publication of the exact floor revision; refusal/timeout/concurrent edits preserve built:true,ready:false. This does not establish original Telegram-to-Drive customer recovery.",
+      "record": "39136a7a"
+    },
+    {
+      "source": "128a58ebe2bd57c3e5e9350da4fa80094df0ac5e",
+      "scope": "Telegram fixture now verifies intended same-run follow-up consumption and distinct answer delivery; no production behavior changed."
+    },
+    {
+      "source": "fd3a95b778318a8ac0649449d05890e3aeb977e2",
+      "scope": "Atlas event fixture now distinguishes plain same-run steering from genuine forwarded-task supersession and proves its outside-content restriction on the provider wire. Test-only; no application behavior changed.",
+      "evidence": "qa/evidence/atlas-supersede-steering-2026-10-11.json"
+    },
+    {
+      "source": "7638da054147049c434edbbff8b5bd17e89d09f9",
+      "scope": "Workflow STOP/E-STOP fixture now waits for the exact distinct job request and observes its socket; auxiliary prompts quoting old work cannot impersonate the next job. No production behavior or timing bound changed.",
+      "evidence": "qa/evidence/routing-sample-stop-observation-2026-10-11.json"
+    }
+  ],
+  "intermediateCandidateVerification": {
+    "candidate": "79a0592c767a0b89cae23296c2024b47465d9ab0",
+    "fast": {
+      "exit": 0,
+      "steps": 1122
+    },
+    "http": {
+      "exit": 1,
+      "failedStep": 136,
+      "totalSteps": 207,
+      "fixture": "test/atlas-events.emit.e2e.test.js",
+      "cause": "Obsolete plain owner-DM supersession expectation contradicted current same-run steering; reproduced independently.",
+      "resolution": "Test-only fd3a95b77 preserves genuine supersede event/payload coverage via forwarded ingress, proves its fresh trust context, and adds no-false-supersede assertions for plain steering; focused25 assertions passed."
+    },
+    "finalCandidateDifference": [
+      "qa/evidence/atlas-supersede-steering-2026-10-11.json",
+      "qa/evidence/routing-sample-stop-observation-2026-10-11.json",
+      "test/atlas-events.emit.e2e.test.js",
+      "test/routing.sample-stop.e2e.test.js"
+    ]
+  },
+  "queueRecheck": {
+    "at": "2026-10-11T23:15:11.392Z",
+    "open": 48,
+    "added": 0,
+    "closed": 0,
+    "bodyOrCommentChanges": 0,
+    "titleOrCommentCountChanges": 0,
+    "latestIssueUpdate": {
+      "number": 107,
+      "updatedAt": "2026-10-11T19:17:37Z"
+    }
+  },
+  "stopFixtureInvestigation": {
+    "candidate": "ab0bfb47c3974b6a21d13d190c0ab2df30055361",
+    "fullHttpExit": 1,
+    "failedStep": 148,
+    "totalSteps": 207,
+    "fixture": "test/routing.sample-stop.e2e.test.js",
+    "observations": [
+      "An earlier unchanged continuation passed 28 assertions.",
+      "The full run on ab0bfb47 timed out waiting 15 seconds for the second E-STOP sample response.",
+      "Unchanged focused rerun instead failed the first provider-connection-close assertion while the E-STOP checks passed.",
+      "A real-sidecar probe observed topic and quest analysis quoting old hang text. Exact distinct task admission and per-request socket receipts now prevent that unrelated traffic from satisfying the fixture. Original 10s/15s/3s bounds remain."
+    ],
+    "productionChangeSelected": false,
+    "status": "Fixture observation defect confirmed and corrected; no production cancellation change",
+    "source": "7638da054147049c434edbbff8b5bd17e89d09f9",
+    "focusedAssertions": 32,
+    "focusedPasses": 2,
+    "limits": "Original full-run admission order remains unknown. Controlled reproduction proves late HTTP admission after the halt response; no already-admitted job escaping halt was demonstrated.",
+    "evidence": "qa/evidence/routing-sample-stop-observation-2026-10-11.json"
+  },
+  "currentCandidateStartupTimeout": {
+    "candidate": "cc772515354445d36c98b195404d6f1c692fa92a",
+    "fullHttpExit": 1,
+    "failedStep": 87,
+    "totalSteps": 207,
+    "fixture": "test/loops-endurance.e2e.test.js",
+    "phase": "First SidecarFixture.start, before any loop/provider behavioral checks",
+    "timeoutMs": 12000,
+    "existingWindowsHelperDefaultMs": 30000,
+    "focusedRerun": {
+      "exit": 0,
+      "assertions": 27,
+      "sourceChanged": false,
+      "log": ".investigation/loops-endurance-final-rerun.log"
+    },
+    "observations": [
+      "The candidate and previous ab0bfb47 production/endurance/helper bytes are identical.",
+      "The failed boot emitted the completed scratch-recovery skip, without reaching the later exec-env milestone.",
+      "Concurrent host memory pressure was observed after the failure; it is not causal proof."
+    ],
+    "cause": "Unconfirmed startup latency; no production defect selected",
+    "remainingVerification": "Complete a clean uninterrupted full HTTP gate before integration; investigate repeated failures with child lifecycle and underlying request error evidence.",
+    "continuationFailure": {
+      "originalStep": 88,
+      "continuationStep": 1,
+      "exit": 1,
+      "fixture": "test/loops-stall.e2e.test.js",
+      "phase": "GET /api/loops while awaiting first park, after startup, token, budget requests and loop creation succeeded",
+      "error": "TypeError: fetch failed",
+      "cause": "Unconfirmed: saved fixture log omits underlying fetch cause and post-ready sidecar output/exit details",
+      "sourceChangedSinceEarlierPassingCandidate": false,
+      "focusedRerun": {
+        "exit": 0,
+        "assertions": 38,
+        "sourceChanged": false,
+        "log": ".investigation/loops-stall-final-rerun.log"
+      },
+      "limits": "No crash, external termination, socket reset or application stall cause is established. No production or timeout change selected."
+    }
+  }
+}

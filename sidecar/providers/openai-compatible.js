@@ -478,7 +478,13 @@
       const dropped = droppedParams.get(String(req.model || ''));
       const skip = p => !!(dropped && dropped.has(p));
       // ONE pre-send normalization (provider.js prepareWireMessages) — for this wire, exactly repairToolPairs.
-      const body = { model: req.model, messages: provider.preserveClaudeContinuations(provider.prepareWireMessages(req.messages || [], 'chat'), req.model), stream: true };
+      const prepared = provider.prepareWireMessages(req.messages || [], 'chat');
+      // Keep the profile's SYSTEM projection even after nativeWire falls back to /v1. Do not
+      // infer this policy from a model name or change generic/hosted Chat Completions requests.
+      const messages = opts.nativeOllama === true && ollamaNative
+        ? ollamaNative.leadingSystemMessages(prepared)
+        : provider.preserveClaudeContinuations(prepared, req.model);
+      const body = { model: req.model, messages, stream: true };
       if (includeUsage && !skip('stream_options')) body.stream_options = { include_usage: true };
       const explicitMax = Math.floor(Number(req.max_tokens || req.maxTokens || 0)) || 0;
       // Only the host's explicit casual-turn classification selects this cap. No-tool auxiliary

@@ -1,0 +1,101 @@
+{
+  "status": "fixture observation defect confirmed; no production cancellation change",
+  "candidateInvestigated": "ab0bfb47c3974b6a21d13d190c0ab2df30055361",
+  "test": "test/routing.sample-stop.e2e.test.js",
+  "originalGateFailure": {
+    "passed": 25,
+    "failed": [
+      "the job answers stopped after an E-STOP: null",
+      "the E-STOPped job names its record"
+    ],
+    "serverAdmissionOrder": "not observed in original gate; cannot infer from fetch initiation"
+  },
+  "naturalProbe": {
+    "result": "28 assertions pass but predicate is proven false",
+    "auxiliary": {
+      "mockRequest": "mock-3",
+      "purpose": "intake topic analysis",
+      "toolCount": 0,
+      "quotedPriorTask": "SAMPLE JOB: hang here until someone stops you.",
+      "mockBehavior": "substring match incorrectly parks this auxiliary response"
+    },
+    "beforeSecondJob": {
+      "hangingMockRequests": [
+        "mock-3"
+      ],
+      "SSE": "only prior completed sample streams present"
+    },
+    "relativeTimingMs": {
+      "oldPredicateSatisfiedAndHaltSent": 0,
+      "actualSecondJobProviderRequest": 49,
+      "haltReply": 80
+    },
+    "note": "This ordering happened to stop the real job; it does not prove the original gate admission ordering."
+  },
+  "controlledReproduction": {
+    "control": "Withhold the second HTTP sample request until the halt response; retain real naturally occurring auxiliary requests that satisfy the old predicate. No production bytes changed.",
+    "beforeHalt": {
+      "hangingMockRequests": [
+        "mock-3",
+        "mock-5"
+      ],
+      "purposes": [
+        "intake topic analysis",
+        "quest analysis"
+      ],
+      "actualSecondJobAdmitted": false
+    },
+    "haltReply": {
+      "status": 200,
+      "halted": 0
+    },
+    "afterHalt": "Release second sample request; exact provider request mock-6 starts.",
+    "result": {
+      "passed": 25,
+      "failed": 2,
+      "sampleReceiptAfter15000ms": null
+    },
+    "controlRecovery": {
+      "action": "POST /api/routing/sample/stop after the late job is admitted",
+      "halted": 1,
+      "sameSampleHttpStatus": 502,
+      "stopped": true,
+      "delivered": null
+    },
+    "interpretation": "The two original failure messages can be produced by the fixture stopping before its target has reached the server. This is not evidence that an already admitted job survived E-STOP."
+  },
+  "fix": {
+    "scope": "test fixture only",
+    "identity": "Distinct exact latest-user task strings for sample STOP and global E-STOP; quoted history cannot select a hanging turn. Wait for the corresponding real mock request, track that request socket close, and assert E-STOP abort count is nonzero.",
+    "boundsUnchangedMs": {
+      "providerAdmission": 10000,
+      "sampleSettlement": 15000,
+      "providerSocketClose": 3000
+    },
+    "newChecks": [
+      "both exact direct tasks hang",
+      "auxiliary prompt quoting both tasks does not hang",
+      "prior stopped task in history does not hang current request",
+      "global E-STOP reports at least one aborted admitted run"
+    ]
+  },
+  "after": {
+    "focusedRealHost": "PASS32 assertions",
+    "productionBytesChanged": false,
+    "installerClaim": false
+  },
+  "pendingClaudeCoverage": {
+    "agent/fix-runtime": "a783de82eb724298b4db8489f1e19973b4210b61 adds parallel branch runOnce behavior and SEND TO outcome receipts; no sample settlement or handleHalt fix",
+    "agent/work-threads-calm": "9b395a7d0 changes overseer/delegation/reporting; no sample settlement or handleHalt fix"
+  },
+  "admissionInspection": {
+    "sampleEntry": "sidecar/index.js runSampleJob checks stopRequested after the asynchronous request-body read, before dispatch.",
+    "textOnlyHub": "sampleHub uses textBatchWaitMs:0; its sample message has no messageId or media; this path reaches inflight registration synchronously.",
+    "limits": "No already-admitted-before-halt escape was reproduced. Original failing gate lacks admission logs, so its exact server ordering remains unknown. No blanket claim about all ingress/halt races."
+  },
+  "localEvidence": [
+    ".dogfood/runtime-triage/sample-stop-probe.log",
+    ".dogfood/runtime-triage/sample-stop-held-admission.log",
+    ".dogfood/runtime-triage/sample-stop-correlated-after.log"
+  ]
+}

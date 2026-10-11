@@ -1,0 +1,56 @@
+{
+  "date": "2026-10-11",
+  "scope": "Align the existing Telegram E2E busy-owner-DM scenario with the current live-steering behavior; test fixture only, no production change.",
+  "sourceBase": "228cac9cd5d88a33ba94d46be103dd10d0b2c59a",
+  "sourceBaseDescription": "Merged trunk ddd4cbcfa plus native Ollama provider repairs; this is not a pure-trunk baseline.",
+  "behaviorCommit": "d489326f0",
+  "before": {
+    "command": "node scripts/run-test-list.mjs test/http.list channels.telegram.e2e",
+    "outcome": "FAIL: timed out waiting for chat 5555 eventually gets the real answer for message #2",
+    "location": "test/channels.telegram.e2e.test.js:314 (waitUntil), caller :633 in the pre-change fixture",
+    "cause": "The fixture held the first model completion indefinitely and assumed a second plain owner DM would cancel it. Current production correctly adds that DM to the same active run; the fixture never released its own gate.",
+    "candidateComparison": "git diff ddd4cbcfa..9f7ab4b4c was empty for sidecar/channels/hub.js, sidecar/channels/telegram.js, sidecar/loop.js and test/channels.telegram.e2e.test.js."
+  },
+  "after": {
+    "command": "node scripts/run-test-list.mjs test/http.list channels.telegram.e2e",
+    "exitCode": 0,
+    "assertions": 93,
+    "proof": {
+      "chatId": "5555",
+      "runId": "93b3df78-df24-4bf5-b58c-c6b0e1da7826",
+      "acknowledged": true,
+      "gateMatchedOriginalTask": true,
+      "sameRunLiveWhileHeld": true,
+      "providerSawSteering": true,
+      "originalTaskRetained": true,
+      "distinctAnswerDelivered": true,
+      "starts": 1,
+      "endReasons": [
+        "done"
+      ]
+    },
+    "responseDiscriminator": "Only a provider request containing the actual system steering note produces Follow-up applied: TELEGRAM_FOLLOWUP_APPLIED; neither the acknowledgement nor the initial generic answer satisfies delivery.",
+    "fixtureGate": "Matches the exact original user message, so unrelated auxiliary completions cannot consume the gate."
+  },
+  "preservedCoverage": {
+    "command": "node scripts/run-test-list.mjs test/fast.list channels.hub.test",
+    "exitCode": 0,
+    "assertions": 163,
+    "cases": [
+      "L: transient workspace-mutex retry delivers a real answer",
+      "L2: bounded retry exhaustion returns an honest busy reply",
+      "L3-L4: other errors are not retried and newer messages can supersede a retry",
+      "X: same-run steering and refused-steer fallback behavior"
+    ]
+  },
+  "verification": [
+    "node --check test/channels.telegram.e2e.test.js passed",
+    "git diff --check passed",
+    "After runner exit, no node.exe command line containing this provider-triage-1011 worktree remained."
+  ],
+  "limitations": [
+    "Actual local sidecar, synthetic loopback Telegram and OpenRouter fixtures; no external provider or real Telegram account used.",
+    "This proves the current source contract and corrects its stale regression scenario. It does not establish installer or customer recovery.",
+    "Full aggregate gates are owned by the parent integration lane."
+  ]
+}

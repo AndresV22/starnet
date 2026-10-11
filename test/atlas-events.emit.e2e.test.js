@@ -1,10 +1,10 @@
 /* node test/atlas-events.emit.e2e.test.js — emit-seam gate for two bus events the Atlas events-area audit
    found EMITTED + CONSUMED but with NO test asserting the emit/payload BY NAME:
 
-     · workitem.superseded (finding 40203e5e; shared/events.js:197, emit sidecar/index.js:~4172) — a newer
-       message for the same chat ABORTS the prior in-flight work-item's run (hub one-run-per-chat), so its
-       box drops off the belt. Driven the house way: a fake Telegram + fake OpenRouter, the LLM gate HOLDS
-       run #1 in-flight, a SECOND task message on the SAME chat supersedes it, and the event rides the SSE bus.
+     · workitem.superseded (finding 40203e5e) — a plain owner follow-up joins its active run; a FORWARDED
+       third-party message must instead enter a fresh, tainted run. Hold run #1 through the first follow-up,
+       prove no false supersede, then forward a task on the SAME chat and assert the genuine supersede event
+       and prior work-item id on SSE. A harmless canned shell call proves the forwarded-content lock on wire.
      · workshop.decided (finding cf61a8e9; shared/events.js:140, emit sidecar/index.js:~6749) — emit-only
        telemetry when the Commander decides a pending deliverable. Driven deterministically via the 'later'
        decision (no manifest/disk needed): POST /api/workshop/decide {decision:'later'} emits it on the bus.
@@ -22,16 +22,18 @@ const { bootToken } = require('./_httpToken.js');
 
 const HOST = '127.0.0.1';
 const INDEX = path.resolve(__dirname, '..', 'sidecar', 'index.js');
+const ORIGINAL_TASK = 'research the launch checklist now';
+const FORWARDED_TASK = 'research the release notes instead ATLAS_FORWARDED_TASK';
+const FORWARDED_ANSWER = 'ATLAS_FORWARDED_ANSWER';
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 function readJsonBody(req) { return new Promise(resolve => { let b = ''; req.on('data', d => { b += d; }); req.on('end', () => { try { resolve(JSON.parse(b || '{}')); } catch (_) { resolve({}); } }); }); }
 
-// fake OpenRouter with a GATE: when armed, the first completion emits its first delta (run is provably
-// in-flight), then AWAITS release() before the finishing chunk — so we can hold run #1 while a second
-// message supersedes it. (Mirrors the gate in channels.telegram.e2e.test.js.)
+// Hold only the exact original task after its first delta; auxiliary requests cannot steal this gate.
+// A plain follow-up keeps it live, then a forwarded task genuinely supersedes it.
 function startMockOpenRouter() {
   const requests = [];
-  const gate = { armed: false, _release: null, _startedResolve: null, started: null };
-  gate.arm = () => { gate.armed = true; gate.started = new Promise(r => { gate._startedResolve = r; }); };
+  const gate = { armed: false, userText: null, request: null, _release: null };
+  gate.arm = (userText) => { gate.armed = true; gate.userText = userText; gate.request = null; };
   gate.release = () => { const r = gate._release; gate._release = null; if (r) r(); };
   return new Promise(resolve => {
     const server = http.createServer((req, res) => {
@@ -44,10 +46,24 @@ function startMockOpenRouter() {
         let body = '';
         req.on('data', d => { body += d; });
         req.on('end', async () => {
-          try { requests.push(JSON.parse(body)); } catch (_) {}
+          let parsed = null;
+          try { parsed = JSON.parse(body); requests.push(parsed); } catch (_) {}
+          const msgs = (parsed && parsed.messages) || [];
+          const lastUser = [...msgs].reverse().find(m => m && m.role === 'user');
+          const forwardedTask = lastUser && lastUser.content === FORWARDED_TASK;
           res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache' });
-          res.write('data: ' + JSON.stringify({ choices: [{ delta: { content: 'answer' } }] }) + '\n\n');
-          if (gate.armed) { gate.armed = false; await new Promise(r => { gate._release = r; if (gate._startedResolve) gate._startedResolve(); }); }
+          if (forwardedTask && !msgs.some(m => m && m.role === 'tool' && m.tool_call_id === 'atlas_taint_probe')) {
+            // Safe even if a regression dispatches it: echo only. The assertion requires the genuine taint refusal.
+            res.write('data: ' + JSON.stringify({ choices: [{ delta: { tool_calls: [{ index: 0, id: 'atlas_taint_probe', type: 'function', function: { name: 'shell_exec', arguments: '{"cmd":"echo ATLAS_TAINT_MUST_NOT_EXECUTE"}' } }] } }] }) + '\n\n');
+            res.write('data: ' + JSON.stringify({ choices: [{ delta: {}, finish_reason: 'tool_calls' }] }) + '\n\n');
+            res.end('data: [DONE]\n\n');
+            return;
+          }
+          res.write('data: ' + JSON.stringify({ choices: [{ delta: { content: forwardedTask ? FORWARDED_ANSWER : 'answer' } }] }) + '\n\n');
+          if (gate.armed && lastUser && lastUser.content === gate.userText) {
+            gate.armed = false; gate.request = parsed;
+            await new Promise(r => { gate._release = r; });
+          }
           res.write('data: ' + JSON.stringify({ choices: [{ delta: {}, finish_reason: 'stop' }], usage: { prompt_tokens: 5, completion_tokens: 3, total_tokens: 8 } }) + '\n\n');
           res.write('data: [DONE]\n\n');
           res.end();
@@ -84,8 +100,10 @@ function startMockTelegram() {
     });
     server.listen(0, HOST, () => resolve({
       calls, sends, base: 'http://' + HOST + ':' + server.address().port,
-      pushText(chatId, userId, text) {
-        queued.push({ update_id: ++updateId, message: { message_id: ++messageId, date: Math.floor(Date.now() / 1000), chat: { id: chatId, type: 'private' }, from: { id: userId, username: 'commander' }, text } });
+      pushText(chatId, userId, text, forwarded = false) {
+        const message = { message_id: ++messageId, date: Math.floor(Date.now() / 1000), chat: { id: chatId, type: 'private' }, from: { id: userId, username: 'commander' }, text };
+        if (forwarded) message.forward_origin = { type: 'hidden_user', sender_user_name: 'Synthetic third party', date: message.date };
+        queued.push({ update_id: ++updateId, message });
         flush();
       },
       close(done) { while (waiters.length) respond(waiters.shift().res, { ok: true, result: [] }); server.close(done || (() => {})); }
@@ -163,20 +181,34 @@ async function waitUntil(fn, ms, label) { const deadline = Date.now() + ms; whil
     A.ok(/^[-A-Z0-9]{11}$/.test(String(pair.code || '')), 'owner pairing issued a code');
     tg.pushText(5555, 77, '/pair ' + pair.code);
     await waitUntil(() => tg.sends.some(s => String(s.chat_id) === '5555' && /Owner paired/i.test(String(s.text || ''))), 8000, 'owner pairing acknowledgement');
-    llm.gate.arm();
+    llm.gate.arm(ORIGINAL_TASK);
     const CHAT = 5555;
-    tg.pushText(CHAT, 77, 'research the launch checklist now');   // task-phrased → rides the belt as a crate
+    tg.pushText(CHAT, 77, ORIGINAL_TASK);   // task-phrased → rides the belt as a crate
 
     // run #1's work-item is placed on the belt; capture its id (superseded must carry the SAME id).
     await sse.waitFor(ev => ev.some(e => e.name === 'workitem.placed' && e.payload && e.payload.agentId === 'tg_' + CHAT), 8000, 'workitem.placed for run #1');
     const placed = sse.events.find(e => e.name === 'workitem.placed' && e.payload && e.payload.agentId === 'tg_' + CHAT);
     const wi1 = placed.payload.workitemId;
     A.ok(wi1 && typeof wi1 === 'string', 'run #1 got a workitemId on the belt');
-    // run #1 is provably in-flight now (the held completion emitted its first delta).
-    await llm.gate.started;
+    await waitUntil(() => !!llm.gate._release, 8000, 'the exact original task reaches the fixture gate');
+    A.ok(llm.gate.request.messages.some(m => m && m.role === 'user' && m.content === ORIGINAL_TASK), 'the gate holds the original task request');
+    const starts = () => sse.events.filter(e => e.name === 'agent.run.start' && e.payload && e.payload.agentId === 'tg_' + CHAT);
+    const ends = () => sse.events.filter(e => e.name === 'agent.run.end' && e.payload && e.payload.agentId === 'tg_' + CHAT);
+    await sse.waitFor(() => starts().length === 1, 5000, 'original run start');
+    const run1 = starts()[0].payload.runId;
+    const chatReplies = () => tg.sends.filter(s => String(s.chat_id) === String(CHAT));
 
-    // a SECOND task message on the SAME chat aborts run #1 (one-run-per-chat) → its box is superseded.
-    tg.pushText(CHAT, 77, 'actually research the release notes instead');
+    // The old fixture assumed this plain owner message superseded run #1. Current behavior steers it instead.
+    tg.pushText(CHAT, 77, 'also include the release notes in the checklist');
+    await waitUntil(() => chatReplies().some(s => /Added to the task that is already running/.test(String(s.text || ''))), 8000, 'plain follow-up is acknowledged as steering');
+    A.eq(starts().length, 1, 'plain follow-up starts no replacement run');
+    A.eq(ends().length, 0, 'the original run is still held, not cancelled');
+    A.ok(!sse.events.some(e => e.name === 'workitem.superseded' && e.payload && e.payload.workitemId === wi1), 'plain steering never falsely supersedes its live crate');
+    A.eq(sse.events.filter(e => e.name === 'workitem.placed' && e.payload && e.payload.agentId === 'tg_' + CHAT).length, 1, 'plain steering places no replacement crate');
+    const acknowledgements = chatReplies().filter(s => /Added to the task that is already running/.test(String(s.text || ''))).length;
+
+    // A FORWARDED third-party task cannot be an owner steering instruction. Its new tainted run supersedes #1.
+    tg.pushText(CHAT, 77, FORWARDED_TASK, true);
     await sse.waitFor(ev => ev.some(e => e.name === 'workitem.superseded' && e.payload && e.payload.workitemId === wi1), 8000, 'workitem.superseded for run #1');
     const sup = sse.events.find(e => e.name === 'workitem.superseded' && e.payload && e.payload.workitemId === wi1);
     A.ok(sup, 'workitem.superseded fired BY NAME for the aborted in-flight box');
@@ -184,7 +216,28 @@ async function waitUntil(fn, ms, label) { const deadline = Date.now() + ms; whil
     A.eq(sup.payload.agentId, 'tg_' + CHAT, 'superseded carries the aborted run\'s agentId');
     A.ok(typeof sup.payload.ts === 'number', 'superseded carries a numeric ts');
 
-    // let the held completions drain so the child exits cleanly.
+    await sse.waitFor(() => ends().some(e => e.payload.runId === run1 && e.payload.reason === 'cancelled'), 8000, 'the original run is cancelled by the genuine replacement');
+    await sse.waitFor(ev => ev.some(e => e.name === 'workitem.placed' && e.payload && e.payload.agentId === 'tg_' + CHAT && e.payload.workitemId !== wi1), 8000, 'the forwarded task gets a distinct crate');
+    const placed2 = sse.events.find(e => e.name === 'workitem.placed' && e.payload && e.payload.agentId === 'tg_' + CHAT && e.payload.workitemId !== wi1);
+    A.ok(placed2.payload.workitemId !== wi1, 'the supersede event names the old crate, not its replacement');
+    const forwardedRequests = () => llm.requests.filter(r => {
+      const last = [...(r.messages || [])].reverse().find(m => m && m.role === 'user');
+      return last && last.content === FORWARDED_TASK;
+    });
+    const probeResult = () => forwardedRequests().flatMap(r => r.messages || []).find(m => m && m.role === 'tool' && m.tool_call_id === 'atlas_taint_probe');
+    await waitUntil(() => !!probeResult(), 12000, 'the forwarded run returns its taint refusal to the provider');
+    A.ok(!forwardedRequests().some(r => r.messages.some(m => m && m.role === 'system' && /<steering_note>/.test(String(m.content || '')) && String(m.content).includes(FORWARDED_TASK))), 'forwarded content reaches a new user turn, never an owner system steering note');
+    A.ok(/BLOCKED: "shell[._]exec" is no longer available on this run/.test(String(probeResult().content)), 'the harmless shell probe is refused by the real content trust boundary');
+    A.ok(/started with outside content.*forwarded message/.test(String(probeResult().content)), 'the provider sees the real forwarded-message taint provenance');
+    await waitUntil(() => chatReplies().some(s => String(s.text || '').includes(FORWARDED_ANSWER)), 8000, 'the forwarded replacement answer is delivered');
+    await sse.waitFor(() => ends().some(e => e.payload.runId !== run1 && e.payload.reason === 'done'), 8000, 'a distinct replacement run finishes');
+    const run2 = ends().find(e => e.payload.runId !== run1 && e.payload.reason === 'done').payload.runId;
+    A.ok(starts().some(e => e.payload.runId === run2), 'the replacement answer belongs to a separately started run');
+    A.eq(chatReplies().filter(s => /Added to the task that is already running/.test(String(s.text || ''))).length, acknowledgements, 'the forwarded task never receives a misleading steering acknowledgement');
+    console.log('atlas-supersede-proof: ' + JSON.stringify({ originalRunId: run1, replacementRunId: run2,
+      priorWorkitemId: wi1, replacementWorkitemId: placed2.payload.workitemId,
+      plainFollowupKeptOriginal: true, supersededEvent: sup.payload,
+      originalCancelled: true, forwardedTaintRefusalOnWire: true, replacementAnswerDelivered: true }));
     llm.gate.release();
 
     // ================= workshop.decided =================

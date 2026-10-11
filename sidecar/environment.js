@@ -228,7 +228,7 @@
       let out = '', fullOut = '', total = 0, truncated = false, timedOut = false, aborted = false, settled = false;
       const append = function (text) {
         const complete = text == null ? '' : String(text);
-        fullOut += complete;
+        if (opts.captureFullOut !== false) fullOut += complete;
         if (total >= maxBytes) { truncated = true; return; }
         let s = complete;
         if (total + s.length > maxBytes) { s = s.slice(0, maxBytes - total); truncated = true; }

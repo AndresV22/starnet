@@ -43,6 +43,29 @@
     return String(baseUrl || '').replace(/\/+$/, '').replace(/\/v1$/i, '');
   }
 
+  // #102: strict Ollama templates accept one SYSTEM message, at the beginning only. The loop
+  // legitimately appends host steering/continuation/compaction instructions later. Project ONLY
+  // existing system messages into that slot, in their original relative order: never demote host
+  // policy to a user turn, or promote user/tool content into policy. Non-system turns (including
+  // tool-call/result pairs) keep their order and identity; the durable transcript is not mutated.
+  // This is applied by the adapter before sizing/sending, including its compatible-wire fallback.
+  function leadingSystemMessages(messages) {
+    if (!Array.isArray(messages)) return messages;
+    const systems = messages.filter(m => m && m.role === 'system');
+    if (!systems.length || (systems.length === 1 && messages[0] === systems[0])) return messages;
+    let content;
+    if (systems.some(m => Array.isArray(m.content))) {
+      content = [];
+      for (const m of systems) {
+        if (content.length) content.push({ type: 'text', text: '\n\n' });
+        if (Array.isArray(m.content)) content.push(...m.content);
+        else if (m.content != null) content.push({ type: 'text', text: String(m.content) });
+      }
+    } else content = systems.map(m => m.content == null ? '' : String(m.content)).join('\n\n');
+    const system = systems.length === 1 ? systems[0] : Object.assign({}, systems[0], { content });
+    return [system, ...messages.filter(m => !(m && m.role === 'system'))];
+  }
+
   function textOfParts(content) {
     if (typeof content === 'string') return { text: content, images: [] };
     if (!Array.isArray(content)) return { text: content == null ? '' : String(content), images: [] };
@@ -217,24 +240,23 @@
     return facts;
   }
 
-  /* WHY A LOCAL MODEL WENT SILENT (issue: a run "timed out" after 605s = the loop's two 300s silent attempts).
-     Ollama sends no bytes, not even headers, until its first token, so everything before it is invisible: loading
-     the weights, then reading the prompt. A StarNet task prompt is ~21k tokens; a GPU reads that in seconds, a CPU
-     can take many minutes. /api/ps says where the model actually sits, so the error states that fact instead of
-     "the provider may be down". Pure: psJson is the /api/ps body (or null when it could not be read). */
+  /* STATUS WHEN A LOCAL MODEL SENT NO RESPONSE. Ollama can withhold headers until its first token.
+     /api/ps provides placement evidence, not the cause of the silence or the current inference stage.
+     A missing row does not establish that a load is underway; a loaded row does not prove prompt reading.
+     Pure: psJson is the /api/ps body (or null when it could not be read). */
   function placementNote(psJson, model, promptTokens) {
     const id = String(model || '');
     const row = psJson && Array.isArray(psJson.models) ? psJson.models.find(m => m && (m.name === id || m.model === id)) : null;
     const prompt = promptTokens > 0 ? ' a ~' + Math.round(promptTokens / 1000) + 'k-token prompt' : ' the prompt';
     if (!psJson) return 'Ollama on this computer sent nothing back, and its status (/api/ps) could not be read.';
-    if (!row) return 'Ollama on this computer sent nothing back and does not list ' + id + ' as loaded, so it was still loading the model from disk.';
+    if (!row) return 'Ollama on this computer sent nothing back, and ' + id + ' was not listed as loaded when its status was checked. It may still be loading, but this status does not establish why no response arrived.';
     const size = Number(row.size) || 0, vram = Number(row.size_vram) || 0;
     const ctx = Number(row.context_length) || 0;
     const where = !vram ? 'entirely on the CPU (no part of it is on a GPU)'
       : (size && vram < size) ? 'only ' + Math.round(vram / size * 100) + '% on the GPU, the rest on the CPU'
       : 'fully on the GPU';
     return 'Ollama on this computer had ' + id + ' loaded ' + where + (ctx ? ' at a ' + Math.round(ctx / 1024) + 'k window' : '')
-      + ' and had not finished reading' + prompt + '. '
+      + ' but sent no response to' + prompt + '. '
       + (!vram || (size && vram < size) ? 'A model running on the CPU reads StarNet task prompts slowly; a smaller model, or one that fits the GPU, answers sooner.' : '');
   }
 
@@ -245,6 +267,6 @@
     return row ? (Math.floor(Number(row.context_length)) || 0) : 0;
   }
 
-  return { CTX_LADDER, DEFAULT_MAX_CTX, placementNote, loadedWindow, nativeRoot, toNativeMessages, toNativeRequest, estimateTokens, pickNumCtx,
+  return { CTX_LADDER, DEFAULT_MAX_CTX, placementNote, loadedWindow, nativeRoot, leadingSystemMessages, toNativeMessages, toNativeRequest, estimateTokens, pickNumCtx,
     exceedFrom, makeChunkTranslator, showFacts };
 });

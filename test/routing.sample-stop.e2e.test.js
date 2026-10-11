@@ -26,17 +26,20 @@ const Pipeline = require('../frontend/app/pipeline.js');
 const HOST = '127.0.0.1';
 const INDEX = path.resolve(__dirname, '..', 'sidecar', 'index.js');
 const sleep = ms => new Promise(r => setTimeout(r, ms));
+const STOP_JOB = 'SAMPLE JOB: hang here until the sample STOP, request one.';
+const HALT_JOB = 'SAMPLE JOB: hang here until E-STOP, request two.';
 
-/* Content-driven mock provider (same shape as routing.sample.e2e.test.js). A turn with `hang` opens the stream and then
-   sends NOTHING, holding the connection — a model call that never answers, which only a stop (or E-STOP) can end. */
+/* Hang only an EXACT job turn. Intake/quest analysis quotes recent jobs in its prompt: matching "hang here"
+   anywhere parked those unrelated requests too, so hung.size could claim the next sample was admitted before its
+   HTTP request reached the host. Each hanging request has its own admission and socket-close receipt. */
 function startMockOpenRouter(script) {
-  const requests = [], hung = new Set();
+  const requests = [], hung = new Set(), jobs = new Map(), waiters = new Map();
   function decide(body) {
     const msgs = (body && body.messages) || [];
     if (msgs.some(m => m && m.role === 'tool')) return { text: 'done' };
     const lastUser = [...msgs].reverse().find(m => m && m.role === 'user');
     const text = String((lastUser && lastUser.content) || '').toLowerCase();
-    return script.find(r => text.indexOf(r.when) >= 0) || { text: 'nothing to do' };
+    return script.find(r => r.job ? text === r.job.toLowerCase() : text.indexOf(r.when) >= 0) || { text: 'nothing to do' };
   }
   return new Promise((resolve) => {
     const server = http.createServer((req, res) => {
@@ -52,7 +55,14 @@ function startMockOpenRouter(script) {
           try { parsed = JSON.parse(body); requests.push(parsed); } catch (_) {}
           const turn = decide(parsed);
           res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache' });
-          if (turn.hang) { hung.add(res); res.on('close', () => hung.delete(res)); return; }   // never a byte more
+          if (turn.hang) {
+            const job = { requestId: requests.length, task: turn.job, arrivedAt: Date.now(), closedAt: null };
+            jobs.set(turn.job, job); hung.add(res);
+            res.on('close', () => { job.closedAt = Date.now(); hung.delete(res); });
+            for (const resolve of waiters.get(turn.job) || []) resolve(job);
+            waiters.delete(turn.job);
+            return;   // never a byte more
+          }
           res.write('data: ' + JSON.stringify({ choices: [{ delta: { content: turn.text } }] }) + '\n\n');
           res.write('data: ' + JSON.stringify({ choices: [{ delta: {}, finish_reason: 'stop' }], usage: { prompt_tokens: 5, completion_tokens: 3, total_tokens: 8 } }) + '\n\n');
           res.write('data: [DONE]\n\n');
@@ -62,7 +72,15 @@ function startMockOpenRouter(script) {
       }
       res.writeHead(404); res.end();
     });
-    server.listen(0, HOST, () => resolve({ server, requests, hung, base: 'http://' + HOST + ':' + server.address().port + '/api/v1' }));
+    function waitForJob(task) {
+      if (jobs.has(task)) return Promise.resolve(jobs.get(task));
+      return new Promise(resolve => {
+        const settle = job => { clearTimeout(timer); resolve(job); };
+        const timer = setTimeout(() => { waiters.delete(task); resolve(null); }, 10000);
+        waiters.set(task, (waiters.get(task) || []).concat(settle));
+      });
+    }
+    server.listen(0, HOST, () => resolve({ server, requests, hung, decide, waitForJob, base: 'http://' + HOST + ':' + server.address().port + '/api/v1' }));
   });
 }
 
@@ -135,10 +153,15 @@ function twoStagePlan() {
 
 (async () => {
   const mock = await startMockOpenRouter([
-    { when: 'hang here', hang: true },                          // the entry dock's model call never answers
+    { job: STOP_JOB, hang: true }, { job: HALT_JOB, hang: true }, // only these entry-dock calls never answer
     { when: 'stage one findings', text: 'final sample answer' },
     { when: 'sample job', text: 'stage one findings' }
   ]);
+  const modelTurn = text => ({ messages: [{ role: 'user', content: text }] });
+  A.ok(mock.decide(modelTurn(STOP_JOB)).hang && mock.decide(modelTurn(HALT_JOB)).hang, 'only each exact stop-test job opens its hanging provider request');
+  A.ok(!mock.decide(modelTurn('Recent activity: ' + STOP_JOB + '\n' + HALT_JOB)).hang, 'auxiliary analysis quoting both tasks cannot satisfy either job admission');
+  A.ok(!mock.decide({ messages: [{ role: 'user', content: STOP_JOB }, { role: 'assistant', content: 'stopped' }, { role: 'user', content: 'summarize recent work' }] }).hang,
+    'a prior stopped task in history does not make the latest request hang');
   const ws = fs.mkdtempSync(path.join(os.tmpdir(), 'sk-sample-stop-'));
   const env = {
     SKYNET_WORKSPACES: ws, STARNET_WORKSPACES: ws, STARNET_DEV: '', SKYNET_DEV: '',
@@ -168,10 +191,11 @@ function twoStagePlan() {
     sse = await startSseCollector(B + '/api/channels/events?' + sseQuery(token));
     const t0 = Date.now();
     const line = (Pipeline.lineComponents(GEO) || [])[0].key;   // sent with its line, as the WORKFLOWS window does: the job keeps a record
-    const riding = call('/api/routing/sample', { line, text: 'SAMPLE JOB: hang here until someone stops you.' });
-    // wait (bounded) until the entry dock's model call is really hanging at the provider
-    for (let i = 0; i < 200 && !mock.hung.size; i++) await sleep(50);
-    A.ok(mock.hung.size >= 1, 'fixture: the entry dock\'s model call is in flight and hanging');
+    const riding = call('/api/routing/sample', { line, text: STOP_JOB });
+    // A provider request with this exact unique task proves server admission, not merely fetch initiation.
+    const firstRequest = await mock.waitForJob(STOP_JOB);
+    A.ok(!!firstRequest && firstRequest.closedAt == null, 'fixture: the first job has its own hanging provider request: ' + JSON.stringify(firstRequest));
+    if (!firstRequest) throw new Error('the first sample never reached its provider');
     const busy = await call('/api/routing/sample', {});
     A.eq(busy.status, 409, 'while it rides, a second sample is still refused (one per station)');
     const stop = await call('/api/routing/sample/stop');
@@ -194,8 +218,8 @@ function twoStagePlan() {
     // the abort reaches the provider socket promptly, but its close lands on the mock's side a beat later under load: wait for it
     // (bounded), never a fixed 400ms that a busy machine misses
     const tClose = Date.now();
-    for (let i = 0; i < 60 && mock.hung.size; i++) await sleep(50);
-    A.eq(mock.hung.size, 0, 'the hanging provider connection was closed by the stop (' + (Date.now() - tClose) + 'ms)');
+    for (let i = 0; i < 60 && firstRequest.closedAt == null; i++) await sleep(50);
+    A.ok(firstRequest.closedAt != null, 'the first job\'s exact provider connection was closed by the stop (' + (Date.now() - tClose) + 'ms): ' + JSON.stringify(firstRequest));
     const again = await call('/api/routing/sample/stop');
     A.eq(again.status, 409, 'once it has settled there is nothing left to stop');
 
@@ -211,11 +235,14 @@ function twoStagePlan() {
       'a sample run\'s agent.run.start carries its sample-… streamId: ' + JSON.stringify(starts.map(p => [p.agentId, p.streamId])).slice(0, 300));
 
     /* ---- 6. an E-STOP mid-job: the record says stopped (not "did not finish cleanly — send it again"), no notice as output ---- */
-    const riding2 = call('/api/routing/sample', { line, text: 'SAMPLE JOB: hang here until someone stops you.' });
-    for (let i = 0; i < 200 && !mock.hung.size; i++) await sleep(50);
-    A.ok(mock.hung.size >= 1, 'fixture: the second job is hanging at the provider');
+    const riding2 = call('/api/routing/sample', { line, text: HALT_JOB });
+    const secondRequest = await mock.waitForJob(HALT_JOB);
+    A.ok(!!secondRequest && secondRequest.closedAt == null && secondRequest.requestId !== firstRequest.requestId,
+      'fixture: the E-STOP target has a distinct hanging provider request: ' + JSON.stringify(secondRequest));
+    if (!secondRequest) throw new Error('the E-STOP sample never reached its provider');
     const halt = await call('/api/halt');
     A.eq(halt.status, 200, 'E-STOP is accepted');
+    A.ok(halt.j.halted >= 1, 'E-STOP reports aborting the admitted sample run: ' + JSON.stringify(halt.j));
     const settled2 = await Promise.race([riding2, sleep(15000).then(() => null)]);
     A.ok(!!settled2 && settled2.j.stopped === true, 'the job answers stopped after an E-STOP: ' + JSON.stringify(settled2 && settled2.j && [settled2.status, settled2.j.error]));
     if (settled2 && settled2.j.jobId) {

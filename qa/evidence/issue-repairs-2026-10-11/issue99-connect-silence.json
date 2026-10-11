@@ -1,0 +1,555 @@
+{
+  "issue": 99,
+  "candidateLoop": "9f7ab4b4cee18a0369600c1570cc3d0154018d56",
+  "ownedTreeHead": "6363184b4f52ac4a4b6e3db0c9af5f483cadd781",
+  "sourceMatch": [
+    {
+      "file": "sidecar/providers/openai-compatible.js",
+      "matchesCandidate": true
+    },
+    {
+      "file": "sidecar/providers/ollama-native.js",
+      "matchesCandidate": true
+    },
+    {
+      "file": "sidecar/providers/provider.js",
+      "matchesCandidate": true
+    },
+    {
+      "file": "sidecar/recovery-policy.js",
+      "matchesCandidate": true
+    }
+  ],
+  "method": "Actual production loop and native Ollama adapter against a loopback HTTP stub. No upstream model, UI or installed app. Connect/idle windows shortened; loop backoff injected as immediate but exact requested waits captured. Adapter initial400/1200ms delays remain real.",
+  "scenarios": [
+    {
+      "mode": "no_headers",
+      "connectTimeoutMs": 200,
+      "idleTimeoutMs": 120,
+      "finishedAtMs": 3343,
+      "requests": [
+        {
+          "atMs": 218,
+          "route": "/api/chat",
+          "model": "qwen3:fixture-only",
+          "messageRoles": [
+            "user"
+          ],
+          "toolCount": 0,
+          "numCtx": 8192,
+          "headersSent": false,
+          "closed": true,
+          "closedAtMs": 439
+        },
+        {
+          "atMs": 858,
+          "route": "/api/chat",
+          "model": "qwen3:fixture-only",
+          "messageRoles": [
+            "user"
+          ],
+          "toolCount": 0,
+          "numCtx": 8192,
+          "headersSent": false,
+          "closed": true,
+          "closedAtMs": 1062
+        },
+        {
+          "atMs": 2279,
+          "route": "/api/chat",
+          "model": "qwen3:fixture-only",
+          "messageRoles": [
+            "user"
+          ],
+          "toolCount": 0,
+          "numCtx": 8192,
+          "headersSent": false,
+          "closed": true,
+          "closedAtMs": 2482
+        },
+        {
+          "atMs": 2497,
+          "route": "/api/chat",
+          "model": "qwen3:fixture-only",
+          "messageRoles": [
+            "user"
+          ],
+          "toolCount": 0,
+          "numCtx": 8192,
+          "headersSent": false,
+          "closed": true,
+          "closedAtMs": 2701
+        },
+        {
+          "atMs": 2718,
+          "route": "/api/chat",
+          "model": "qwen3:fixture-only",
+          "messageRoles": [
+            "user"
+          ],
+          "toolCount": 0,
+          "numCtx": 8192,
+          "headersSent": false,
+          "closed": true,
+          "closedAtMs": 2918
+        },
+        {
+          "atMs": 2934,
+          "route": "/api/chat",
+          "model": "qwen3:fixture-only",
+          "messageRoles": [
+            "user"
+          ],
+          "toolCount": 0,
+          "numCtx": 8192,
+          "headersSent": false,
+          "closed": true,
+          "closedAtMs": 3123
+        },
+        {
+          "atMs": 3137,
+          "route": "/api/chat",
+          "model": "qwen3:fixture-only",
+          "messageRoles": [
+            "user"
+          ],
+          "toolCount": 0,
+          "numCtx": 8192,
+          "headersSent": false,
+          "closed": true,
+          "closedAtMs": 3341
+        }
+      ],
+      "abortReasons": [
+        {
+          "atMs": 420,
+          "phase": "connect",
+          "code": "PROVIDER_STREAM_TIMEOUT",
+          "name": "Error"
+        },
+        {
+          "atMs": 1060,
+          "phase": "connect",
+          "code": "PROVIDER_STREAM_TIMEOUT",
+          "name": "Error"
+        },
+        {
+          "atMs": 2481,
+          "phase": "connect",
+          "code": "PROVIDER_STREAM_TIMEOUT",
+          "name": "Error"
+        },
+        {
+          "atMs": 2700,
+          "phase": "connect",
+          "code": "PROVIDER_STREAM_TIMEOUT",
+          "name": "Error"
+        },
+        {
+          "atMs": 2918,
+          "phase": "connect",
+          "code": "PROVIDER_STREAM_TIMEOUT",
+          "name": "Error"
+        },
+        {
+          "atMs": 3122,
+          "phase": "connect",
+          "code": "PROVIDER_STREAM_TIMEOUT",
+          "name": "Error"
+        },
+        {
+          "atMs": 3340,
+          "phase": "connect",
+          "code": "PROVIDER_STREAM_TIMEOUT",
+          "name": "Error"
+        }
+      ],
+      "requestedLoopBackoffsMs": [
+        4000,
+        10000,
+        30000,
+        60000
+      ],
+      "initialAdapterBackoffMs": 1600,
+      "loopBackoffsActuallyWaited": false,
+      "result": {
+        "reason": "error",
+        "failureStage": "provider_stream",
+        "failureCode": "timeout"
+      },
+      "terminalEvents": [
+        {
+          "name": "provider.retry",
+          "payload": {
+            "agentId": "fixture",
+            "runId": "issue99-no_headers",
+            "attempt": 3,
+            "reason": "timeout",
+            "delayMs": 4000,
+            "maxAttempts": 6,
+            "stage": "pre_stream",
+            "waitedMs": 1600,
+            "patienceMs": 105600,
+            "model": "qwen3:fixture-only"
+          },
+          "atMs": 2485
+        },
+        {
+          "name": "provider.retry",
+          "payload": {
+            "agentId": "fixture",
+            "runId": "issue99-no_headers",
+            "attempt": 4,
+            "reason": "timeout",
+            "delayMs": 10000,
+            "maxAttempts": 6,
+            "stage": "pre_stream",
+            "waitedMs": 5600,
+            "patienceMs": 105600,
+            "model": "qwen3:fixture-only"
+          },
+          "atMs": 2716
+        },
+        {
+          "name": "provider.retry",
+          "payload": {
+            "agentId": "fixture",
+            "runId": "issue99-no_headers",
+            "attempt": 5,
+            "reason": "timeout",
+            "delayMs": 30000,
+            "maxAttempts": 6,
+            "stage": "pre_stream",
+            "waitedMs": 15600,
+            "patienceMs": 105600,
+            "model": "qwen3:fixture-only"
+          },
+          "atMs": 2920
+        },
+        {
+          "name": "provider.retry",
+          "payload": {
+            "agentId": "fixture",
+            "runId": "issue99-no_headers",
+            "attempt": 6,
+            "reason": "timeout",
+            "delayMs": 60000,
+            "maxAttempts": 6,
+            "stage": "pre_stream",
+            "waitedMs": 45600,
+            "patienceMs": 105600,
+            "model": "qwen3:fixture-only"
+          },
+          "atMs": 3125
+        },
+        {
+          "name": "agent.run.error",
+          "payload": {
+            "agentId": "fixture",
+            "runId": "issue99-no_headers",
+            "message": "provider stream connect timed out after 200ms with no bytes received — Ollama on this computer sent nothing back and does not list qwen3:fixture-only as loaded, so it was still loading the model from disk.",
+            "transient": true
+          },
+          "atMs": 3342
+        },
+        {
+          "name": "agent.run.end",
+          "payload": {
+            "agentId": "fixture",
+            "runId": "issue99-no_headers",
+            "reason": "error",
+            "turns": 1,
+            "usd": 0
+          },
+          "atMs": 3343
+        }
+      ],
+      "waiting": {
+        "count": 103,
+        "phases": [
+          "first_byte"
+        ],
+        "first": {
+          "name": "agent.waiting",
+          "payload": {
+            "agentId": "fixture",
+            "runId": "issue99-no_headers",
+            "phase": "first_byte",
+            "sinceMs": 112,
+            "model": "qwen3:fixture-only"
+          },
+          "atMs": 177
+        },
+        "last": {
+          "name": "agent.waiting",
+          "payload": {
+            "agentId": "fixture",
+            "runId": "issue99-no_headers",
+            "phase": "first_byte",
+            "sinceMs": 199,
+            "model": "qwen3:fixture-only"
+          },
+          "atMs": 3324
+        }
+      },
+      "recovery": [
+        {
+          "sequence": 1,
+          "stage": "provider_stream",
+          "action": "retry",
+          "reason": "timeout",
+          "attempt": 3,
+          "model": "qwen3:fixture-only",
+          "delayMs": 4000
+        },
+        {
+          "sequence": 2,
+          "stage": "provider_stream",
+          "action": "retry",
+          "reason": "timeout",
+          "attempt": 4,
+          "model": "qwen3:fixture-only",
+          "delayMs": 10000
+        },
+        {
+          "sequence": 3,
+          "stage": "provider_stream",
+          "action": "retry",
+          "reason": "timeout",
+          "attempt": 5,
+          "model": "qwen3:fixture-only",
+          "delayMs": 30000
+        },
+        {
+          "sequence": 4,
+          "stage": "provider_stream",
+          "action": "retry",
+          "reason": "timeout",
+          "attempt": 6,
+          "model": "qwen3:fixture-only",
+          "delayMs": 60000
+        }
+      ],
+      "closedBeforeCleanup": 7
+    },
+    {
+      "mode": "headers_then_idle",
+      "connectTimeoutMs": 200,
+      "idleTimeoutMs": 120,
+      "finishedAtMs": 288,
+      "requests": [
+        {
+          "atMs": 23,
+          "route": "/api/chat",
+          "model": "qwen3:fixture-only",
+          "messageRoles": [
+            "user"
+          ],
+          "toolCount": 0,
+          "numCtx": 8192,
+          "headersSent": true,
+          "closed": true,
+          "closedAtMs": 152
+        },
+        {
+          "atMs": 153,
+          "route": "/api/chat",
+          "model": "qwen3:fixture-only",
+          "messageRoles": [
+            "user"
+          ],
+          "toolCount": 0,
+          "numCtx": 8192,
+          "headersSent": true,
+          "closed": true,
+          "closedAtMs": 288
+        }
+      ],
+      "abortReasons": [],
+      "requestedLoopBackoffsMs": [
+        400
+      ],
+      "initialAdapterBackoffMs": 0,
+      "loopBackoffsActuallyWaited": false,
+      "result": {
+        "reason": "error",
+        "failureStage": "provider_stream",
+        "failureCode": "provider_stalled"
+      },
+      "terminalEvents": [
+        {
+          "name": "provider.retry",
+          "payload": {
+            "agentId": "fixture",
+            "runId": "issue99-headers_then_idle",
+            "attempt": 1,
+            "reason": "timeout",
+            "delayMs": 400,
+            "maxAttempts": 6,
+            "stage": "pre_stream",
+            "waitedMs": 0,
+            "patienceMs": 105600,
+            "model": "qwen3:fixture-only"
+          },
+          "atMs": 151
+        },
+        {
+          "name": "agent.run.error",
+          "payload": {
+            "agentId": "fixture",
+            "runId": "issue99-headers_then_idle",
+            "message": "model stalled: 2 consecutive attempts on qwen3:fixture-only received no response bytes (provider stream idle timed out after 120ms with no bytes received) — stopped instead of waiting out the rest of the retry ladder. The provider may be down or overloaded; try again later or switch models.",
+            "transient": true
+          },
+          "atMs": 288
+        },
+        {
+          "name": "agent.run.end",
+          "payload": {
+            "agentId": "fixture",
+            "runId": "issue99-headers_then_idle",
+            "reason": "error",
+            "turns": 1,
+            "usd": 0
+          },
+          "atMs": 288
+        }
+      ],
+      "waiting": {
+        "count": 9,
+        "phases": [
+          "first_byte"
+        ],
+        "first": {
+          "name": "agent.waiting",
+          "payload": {
+            "agentId": "fixture",
+            "runId": "issue99-headers_then_idle",
+            "phase": "first_byte",
+            "sinceMs": 37,
+            "model": "qwen3:fixture-only"
+          },
+          "atMs": 38
+        },
+        "last": {
+          "name": "agent.waiting",
+          "payload": {
+            "agentId": "fixture",
+            "runId": "issue99-headers_then_idle",
+            "phase": "first_byte",
+            "sinceMs": 121,
+            "model": "qwen3:fixture-only"
+          },
+          "atMs": 272
+        }
+      },
+      "recovery": [
+        {
+          "sequence": 1,
+          "stage": "provider_stream",
+          "action": "retry",
+          "reason": "timeout",
+          "attempt": 1,
+          "model": "qwen3:fixture-only",
+          "delayMs": 400
+        }
+      ],
+      "closedBeforeCleanup": 2
+    },
+    {
+      "mode": "cancel_before_headers",
+      "connectTimeoutMs": 1000,
+      "idleTimeoutMs": 120,
+      "finishedAtMs": 77,
+      "requests": [
+        {
+          "atMs": 15,
+          "route": "/api/chat",
+          "model": "qwen3:fixture-only",
+          "messageRoles": [
+            "user"
+          ],
+          "toolCount": 0,
+          "numCtx": 8192,
+          "headersSent": false,
+          "closed": true,
+          "closedAtMs": 77
+        }
+      ],
+      "abortReasons": [
+        {
+          "atMs": 77,
+          "phase": null,
+          "code": null,
+          "name": "AbortError"
+        }
+      ],
+      "requestedLoopBackoffsMs": [],
+      "initialAdapterBackoffMs": 0,
+      "loopBackoffsActuallyWaited": false,
+      "result": {
+        "reason": "cancelled",
+        "failureStage": null,
+        "failureCode": null
+      },
+      "terminalEvents": [
+        {
+          "name": "agent.run.end",
+          "payload": {
+            "agentId": "fixture",
+            "runId": "issue99-cancel_before_headers",
+            "reason": "cancelled",
+            "turns": 1,
+            "usd": 0
+          },
+          "atMs": 77
+        }
+      ],
+      "waiting": {
+        "count": 2,
+        "phases": [
+          "first_byte"
+        ],
+        "first": {
+          "name": "agent.waiting",
+          "payload": {
+            "agentId": "fixture",
+            "runId": "issue99-cancel_before_headers",
+            "phase": "first_byte",
+            "sinceMs": 29,
+            "model": "qwen3:fixture-only"
+          },
+          "atMs": 30
+        },
+        "last": {
+          "name": "agent.waiting",
+          "payload": {
+            "agentId": "fixture",
+            "runId": "issue99-cancel_before_headers",
+            "phase": "first_byte",
+            "sinceMs": 59,
+            "model": "qwen3:fixture-only"
+          },
+          "atMs": 60
+        }
+      },
+      "recovery": [],
+      "closedBeforeCleanup": 1
+    }
+  ],
+  "extrapolation": {
+    "nativeProfileConnectMs": 300000,
+    "attempts": 7,
+    "connectWindowsMs": 2100000,
+    "backoffMs": 105600,
+    "totalNominalMs": 2205600,
+    "totalNominalMinutes": 36.76,
+    "qualification": "Arithmetic projection of current profile and measured attempt/backoff schedule, NOT a measured36.76-minute run or customer diagnosis. Excludes metadata probes, host/event-loop delays and network overhead; /api/ps can add up to3s per failed native attempt."
+  },
+  "limitations": [
+    "No actual Ollama model or affected hardware",
+    "No COMMS rendering or installed artifact tested",
+    "Reporter cancellation duration, payload and wire phase are unknown",
+    "The probe proves long bounded pre-header retries, not indefinite execution or customer causality"
+  ]
+}
