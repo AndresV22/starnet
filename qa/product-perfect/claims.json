@@ -18,7 +18,7 @@
   "expectedClaimCount": 37,
   "releaseSurface": {
     "algorithm": "sha256",
-    "sourceCommit": "914792adef530e43c4fd2705e0ce555458d4fa18",
+    "sourceCommit": "b06594f861b67c491346248d0f377699ed4989b8",
     "pathSetSha256": "02b89ce2d893cfb89a028e02d127dfe9f73466048d2fc0c7572bba244cdfea2f",
     "files": [
       {
@@ -343,8 +343,8 @@
       },
       {
         "path": "frontend/app/chat.js",
-        "bytes": 723278,
-        "sha256": "75c375cf99bed5d6b44a313270d726f5a0b515d7a69f54e0120858a89c600d94"
+        "bytes": 730087,
+        "sha256": "92067578bad5818a2e8437337fb292ebf7c8fac7b4c7b02a5833822fb80f8107"
       },
       {
         "path": "frontend/app/chatresize.js",
@@ -503,8 +503,8 @@
       },
       {
         "path": "frontend/app/friendlyerror.js",
-        "bytes": 57728,
-        "sha256": "30163adfa55e7c7fe0efdea98b8531f9d5c3e394e3aaaf21d47decf3e0b43388"
+        "bytes": 65276,
+        "sha256": "5d29ce9d6d1c791c420b95a6d725422d3932c883b979b12fc674148bee049366"
       },
       {
         "path": "frontend/app/fullscreen.js",
@@ -558,8 +558,8 @@
       },
       {
         "path": "frontend/app/harness.js",
-        "bytes": 106430,
-        "sha256": "07e99d2818f1a805a22711cf366de5fa6d7e1e14e93ff2c171f2d5ee678bb561"
+        "bytes": 106945,
+        "sha256": "524e2421474b78580bb6d4a40bbeb47b665240c938d39cb65eac8cf99cd0f7a0"
       },
       {
         "path": "frontend/app/hint.js",
@@ -1118,8 +1118,8 @@
       },
       {
         "path": "frontend/app/slaglog.js",
-        "bytes": 7780,
-        "sha256": "f8ff50901c68da49598acf09fda08a7a10a57663a15047c6075614dd4ec1e7c4"
+        "bytes": 8050,
+        "sha256": "dfcb1223e9591f482f3b879fb736f4d04c1137f5c3f55af0975f4c01ce7f5112"
       },
       {
         "path": "frontend/app/spacebg.js",
