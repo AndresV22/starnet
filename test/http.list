@@ -114,6 +114,8 @@ test/shell.test.js
 test/shell.process-tree.test.js
 test/verify.run.test.js
 test/browser.gauntlet.e2e.test.js
+test/browser-upload.e2e.test.js
+test/browser-upload.run.e2e.test.js
 test/browser-screencast-restart.e2e.test.js
 test/browser-mac-keys.e2e.test.js
 test/browser-minimized-window.e2e.test.js
