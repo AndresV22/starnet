@@ -1096,15 +1096,33 @@
     if (!comp.key) return refuse('the line ' + label + ' could not be read');
     return { ok: true, lineId: comp.key, name: label, room: room ? room.name : null, steps, crewed: steps.filter(s => s.agent).length };
   }
+  /* SEND TO ON THE CARD (2026-10-11): a line as the builder's words name it — LINE <its INBOX's name>, else the unnamed line by
+     where its INBOX stands — and the lines whose OUTBOX sends its finished work INTO pieces that are about to go. Taking an INBOX
+     away lets every SEND TO into it go with it (worldmodel pruneSendTo / removeLine, same undo), so the card that takes it away
+     says which lines stop handing work on: never "every other line stays" while one silently stops. */
+  function lineWordOf(st, env, pid) {
+    const comps = (env.Pipeline && env.Pipeline.lineComponents) ? env.Pipeline.lineComponents(st.projectGeometry()) || [] : [];
+    const c = comps.find(k => (k.props || []).some(q => (q && q.id ? q.id : q) === pid));
+    const ins = c ? (c.intakes || []).map(id => st.propById(id)).filter(Boolean) : [], named = ins.find(p => p.label);
+    return named ? (env.Pipeline.lineWord ? env.Pipeline.lineWord(named.label) : 'LINE ' + String(named.label).replace(/^line\b[\s:·-]*/i, '').toUpperCase()) : ins[0] ? 'the unnamed line whose INBOX is at (' + ins[0].x + ', ' + ins[0].y + ')' : 'a line';
+  }
+  function sendersInto(st, env, goneIds) {
+    const gone = new Set(goneIds || []);
+    return [...new Set(st.props().filter(p => p.t === 'outbox' && p.sendTo && gone.has(p.sendTo) && !gone.has(p.id)).map(o => lineWordOf(st, env, o.id)))];
+  }
+  const cutSendText = names => !names.length ? '' : '; ' + (names.length > 1 ? names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1] + ' no longer send their' : names[0] + ' no longer sends its')
+    + ' finished work on (' + (names.length > 1 ? 'their SEND TOs' : 'its SEND TO') + ' pointed here)';
   function editRemoveLine(live, env, q) {
     const bad = Object.keys(q).filter(k => ['line', 'room'].indexOf(k) < 0); if (bad.length) return refuse('remove { line, room } only takes line and room. Not accepted: ' + bad.slice(0, 6).join(', ') + '.');
     const ln = lineNamed(live, env, q.line, q.room); if (!ln.ok) return ln;
     const ids = ln.comp.props, props = ids.map(id => live.propById(id)).filter(Boolean);
     const staffed = [...new Set(props.filter(p => p.agentId).map(p => { const a = (env.crew || []).find(x => x && x.id === p.agentId); return a ? a.name : null; }).filter(Boolean))];
+    const senders = sendersInto(live, env, ids);
     const xs = props.map(p => p.x).concat(ln.tiles.map(t => t[0])), ys = props.map(p => p.y).concat(ln.tiles.map(t => t[1]));
     const box = { x1: Math.min(...xs) - 1, y1: Math.min(...ys) - 1, x2: Math.max(...props.map(p => p.x + (p.w || 1)), ...ln.tiles.map(t => t[0] + 1)), y2: Math.max(...props.map(p => p.y + (p.h || 1)), ...ln.tiles.map(t => t[1] + 1)) };
     return { ok: true, spec: { kind: 'edit', removeProps: ids.slice(), removeBelts: ln.tiles }, mark: ln.room ? ln.room.id : null, goneRects: [box], where: 'the removal of the line ' + ln.label,
-      summary: 'Remove the line ' + ln.label + (ln.room ? ' from ' + ln.room.name : '') + ': its ' + props.length + ' machines and ' + ln.tiles.length + ' belt tiles go' + (staffed.length ? '; ' + staffed.join(', ') + (staffed.length > 1 ? ' are' : ' is') + ' no longer staffed on it' : '') + '. The room, the crew and every other line stay; one UNDO in Build mode brings it back.' };
+      summary: 'Remove the line ' + ln.label + (ln.room ? ' from ' + ln.room.name : '') + ': its ' + props.length + ' machines and ' + ln.tiles.length + ' belt tiles go' + (staffed.length ? '; ' + staffed.join(', ') + (staffed.length > 1 ? ' are' : ' is') + ' no longer staffed on it' : '')
+        + cutSendText(senders) + '. The room, the crew and every other line' + (senders.length ? '\'s machines' : '') + ' stay; one UNDO in Build mode brings it back.' };
   }
   function editSeat(live, env, q) {
     if (!q || typeof q !== 'object' || Array.isArray(q)) return refuse('seat is { agent, room }: the agent whose desk moves, and the room it goes to.');
@@ -1223,9 +1241,18 @@
   // the edits a long refit's card always names, and what it calls them when it has to count them
   const REFIT_WEIGHTY = { delete: 'removals', unbelt: 'belts taken up', resize: 'resizes', move: 'moves', type: 'room types', brief: 'briefs', hands: 'hand-offs', role: 'roles',
     agent: 'staffing', cap: 'budgets', budget: 'budgets', loop: 'loop rules', tries: 'loop rules', routes: 'routes', wait: 'joiner waits', swap: 'joiner swaps', folder: 'folders',
-    bind: 'bound services', door: 'doors', edit: 'line edits' };
+    bind: 'bound services', door: 'doors', edit: 'line edits', send: 'SEND TOs', sendto: 'SEND TOs', copy: 'line copies' };
   const REFIT_MAX = 1500;   // a whole station designed by hand, room by room and piece by piece, fits one plan
-  const REFIT_OPS = 'room, hall, resize, move, delete, rename, type, floor, walls, hull, paint, style, place, rotate, mirror, agent, door, belt, unbelt, connect, role, brief, hands, label, budget, cap, loop, tries, routes, wait, swap, folder, bind, stamp, edit';
+  const REFIT_OPS = 'room, hall, resize, move, delete, rename, type, floor, walls, hull, paint, style, place, rotate, mirror, agent, door, belt, unbelt, connect, role, brief, hands, label, budget, cap, loop, tries, routes, wait, swap, folder, bind, stamp, edit, send, copy';
+  /* THE AGENT'S WORDS FOR A HAND-OFF (2026-10-11): the floor's refusals of a belt out of an OUTBOX or into an INBOX tell a PERSON
+     to drag the OUTBOX onto the INBOX (SEND TO). The lead cannot drag, so the same verdict (same code) is said with the op it
+     can send — never a gesture it cannot make. Every other refusal keeps the floor's own words. */
+  const AGENT_HANDOFF = {
+    FROM_OUTBOX: 'an OUTBOX ends its line: no belt leaves it. To hand this line\'s finished work to another line, send it there: { op: "send", from: this OUTBOX, to: that line\'s INBOX } (SEND TO, a pointer on the OUTBOX, never a belt)',
+    INTO_INBOX: 'an INBOX is where a line starts: no belt runs into it. To feed it another line\'s finished work: { op: "send", from: that line\'s OUTBOX, to: this INBOX } (SEND TO, never a belt)',
+    NOT_INBOX: 'an OUTBOX sends its work on only to another line\'s INBOX: to is that INBOX (its id, an as, or its tile), or null to send nowhere'
+  };
+  const agentMsg = r => (r && AGENT_HANDOFF[r.error]) || wmMsg(r);
   const LOOP_WHEN = /^(approved|revise|code|research|general)$/, CONNECTOR_T = /^connector_portal$/, DIR_WORD = { N: 'north', E: 'east', S: 'south', W: 'west' };
   const dirOf = v => { const s = String(v == null ? '' : v).trim().toLowerCase(); return { n: 'N', north: 'N', up: 'N', e: 'E', east: 'E', right: 'E', s: 'S', south: 'S', down: 'S', w: 'W', west: 'W', left: 'W' }[s] || null; };
   const tileRect = o => (o && isFinite(o.x) && isFinite(o.y) && isFinite(o.w) && isFinite(o.h) && o.w >= 1 && o.h >= 1) ? { x1: Math.round(o.x), y1: Math.round(o.y), x2: Math.round(o.x) + Math.round(o.w) - 1, y2: Math.round(o.y) + Math.round(o.h) - 1 } : null;
@@ -1242,6 +1269,22 @@
       return refuse('there is no piece "' + String(typeof ref === 'object' ? JSON.stringify(ref) : ref).slice(0, 40) + '" (use an id from station.map with { room } detail, a name given with as, or a tile [x, y])'); };
     const nm = t => pieceName(env, t), inRoom = (x, y) => { const id = st.roomAt(x, y), r = id && st.rooms().find(q => q.id === id); return r ? ' in ' + r.name : ''; };
     const did = (r, text) => r && r.ok ? { ok: true, text, res: r } : refuse(wmMsg(r));
+    const didA = (r, text) => r && r.ok ? { ok: true, text, res: r } : refuse(agentMsg(r));   // (a belt's hand-off refusal in the lead's words)
+    // SEND TO: the OUTBOX points at another line's INBOX through the floor's own setSendTo (sendToRefusal's verdict: this same
+    // line, a circle, an end on no line) — one pointer, never a belt; the card names it as weighty as a budget (it starts paid jobs)
+    const sendOn = (O, I, why) => {
+      if (typeof st.setSendTo !== 'function') return refuse('this page cannot send one line on to another; reload it');
+      const r = st.setSendTo(O.id, I.id); if (!r || !r.ok) return refuse(agentMsg(r));
+      return { ok: true, res: r, weighty: 'SEND TOs', text: 'the OUTBOX at ' + at(O.x, O.y) + ' sends every finished job on to ' + lineWordOf(st, env, I.id) + ' (its INBOX at ' + at(I.x, I.y) + '), whose own crew works it next at its own cost (SEND TO)' + (why || '') };
+    };
+    // a whole line by its name (line) or by any machine on it (prop, or a piece given as line)
+    const lineSrc = (pref, lref) => {
+      const piece = pref != null ? pref : (lref != null && (names[lref] || tileOf(lref) || (typeof lref === 'string' && st.propById(lref)))) ? lref : null;
+      if (piece != null) { const t = propRef(piece); if (!t.ok) return t; if (!MACHINE_T.test(t.p.t)) return refuse('the ' + nm(t.p.t) + ' at ' + at(t.p.x, t.p.y) + ' is no workflow machine: give any machine on the line, or the line\'s name'); return { ok: true, p: t.p }; }
+      if (lref == null) return refuse('say which line: line (its name) or prop (any machine on it)');
+      const ln = lineNamed(st, env, lref, o.room); return ln.ok ? { ok: true, p: ln.intake } : ln;
+    };
+    const crewHere = id => (env.crew || []).some(a => a && a.id === id);
     const targetOf = ref => { if (ref == null) return null; const id = names[ref] || ref, pp = typeof id === 'string' ? st.propById(id) : null; if (pp) return pp; const tt = tileOf(ref); if (!tt) return null; const pid = st.propAt(tt.x, tt.y), q = pid ? st.propById(pid) : null; return q || { x: tt.x, y: tt.y, w: 1, h: 1 }; };
     const isMain = rm => { const m = mainRoom(st), sp = (st.serialize().meta || {}).spawnRoomId; return (m && rm.id === m.id) || rm.id === sp; };
     const jcfg = p => { const c = {}; for (const k of ['routes', 'def', 'bufferSize', 'timeoutMin', 'maxIter', 'done', 'esc', 'when']) if (p[k] != null) c[k] = clone(p[k]); return c; };   // a junction edit changes only what it names
@@ -1330,12 +1373,25 @@
           return st.rooms().find(r => r.kind === 'corridor' && (r.id === ref || r.id === onTile || names[ref] === r.id || (typeof ref === 'string' && norm(r.name) === norm(ref)))) || null; };
         const hall = o.hall != null ? hallOf(o.hall) : hallOf(o.room);
         if (o.hall != null && !hall) return refuse('there is no hallway "' + String(typeof o.hall === 'object' ? JSON.stringify(o.hall) : o.hall).slice(0, 40) + '" (station.map lists every hallway under halls)');
+        // DELETE LINE (Build mode's own, 2026-10-11): every machine of the line and every belt between them (removeLine), one edit;
+        // a SEND TO into it goes with it, and the card says which lines stop handing work on
+        if (o.line != null && o.prop == null && o.room == null && o.hall == null) {
+          if (typeof st.removeLine !== 'function' || typeof st.lineMembers !== 'function') return refuse('this page cannot take a whole line up; reload it');
+          const s = lineSrc(null, o.line); if (!s.ok) return s;
+          const m = st.lineMembers(s.p.id);
+          if (!m) return refuse('the ' + nm(s.p.t) + ' at ' + at(s.p.x, s.p.y) + ' is not on a line built by links: take its pieces up one by one ({ op: "delete", prop }), or plan { remove: { line } }');
+          const ps = m.ids.map(id => st.propById(id)).filter(Boolean), word = lineWordOf(st, env, s.p.id), cut = cutSendText(sendersInto(st, env, m.ids));
+          const staffed = [...new Set(ps.filter(p => p.agentId).map(p => nameOf(env, p.agentId)))];
+          return did(st.removeLine(s.p.id), word + ' taken up: its ' + ps.length + (ps.length === 1 ? ' machine' : ' machines') + ' and the belts between them' + (staffed.length ? '; ' + staffed.join(', ') + (staffed.length > 1 ? ' are' : ' is') + ' no longer staffed on it' : '') + cut);
+        }
         // what goes with a removal: every piece TOUCHING it (removeRoom's own rule), and an agent's desk or a line's machine by name
         const goes = room => { const ps = st.props().filter(p => touchesRoom(p, room)), key = ps.filter(p => p.agentId || MACHINE_T.test(p.t));
-          return { n: ps.length, named: key.length ? ' (' + key.slice(0, 6).map(p => p.agentId ? nameOf(env, p.agentId) + '\'s ' + nm(p.t) : 'the ' + nm(p.t)).join(', ') + (key.length > 6 ? ' …' : '') + ')' : '' }; };
+          return { n: ps.length, named: (key.length ? ' (' + key.slice(0, 6).map(p => p.agentId ? nameOf(env, p.agentId) + '\'s ' + nm(p.t) : 'the ' + nm(p.t)).join(', ') + (key.length > 6 ? ' …' : '') + ')' : '') + cutSendText(sendersInto(st, env, ps.map(p => p.id))) }; };
         if (hall) { const B = bboxOf(hall), g = goes(hall), n = g.n; return did(st.removeRoom(hall.id), 'the hallway ' + hall.name + ' at ' + at(B.x1, B.y1) + ' taken up' + (n ? ', with the ' + n + (n === 1 ? ' piece' : ' pieces') + ' in or reaching into it' + g.named : '')); }
         if (o.room != null) { const t = roomRef(o.room); if (!t.ok) return t; if (isMain(t.room)) return refuse(t.room.name + ' is the main room, so it stays'); const g = goes(t.room), n = g.n; return did(st.removeRoom(t.room.id), t.room.name + ' removed, with the ' + n + (n === 1 ? ' piece' : ' pieces') + ' on it' + g.named); }
-        const t = propRef(o.prop); if (!t.ok) return t; const p = t.p; return did(st.removeProp(p.id), 'the ' + nm(p.t) + ' at ' + at(p.x, p.y) + inRoom(p.x, p.y) + ' removed' + (p.agentId ? ' (it was ' + nameOf(env, p.agentId) + '\'s)' : ''));
+        const t = propRef(o.prop); if (!t.ok) return t; const p = t.p, cut = p.t === 'intake' ? cutSendText(sendersInto(st, env, [p.id]))
+          : p.t === 'outbox' && p.sendTo && st.propById(p.sendTo) ? ' (its SEND TO on to ' + lineWordOf(st, env, p.sendTo) + ' goes with it)' : '';
+        return did(st.removeProp(p.id), 'the ' + nm(p.t) + ' at ' + at(p.x, p.y) + inRoom(p.x, p.y) + ' removed' + (p.agentId ? ' (it was ' + nameOf(env, p.agentId) + '\'s)' : '') + cut);
       }
       case 'agent': { const t = propRef(o.prop); if (!t.ok) return t; let aid = ''; if (o.agent != null && !/^(nobody|none|no one|clear)$/i.test(String(o.agent))) { const a = agentOf(env, o.agent); if (!a.ok) return a; aid = a.id; } const as = st.assignDesk(t.p.id, aid); if (!as || !as.ok) return refuse(wmMsg(as));
         // one desk per agent (the station's assignDesk, the same rule as BUILD MODE's WHO SITS HERE): an agent given a desk
@@ -1347,9 +1403,60 @@
         return { ok: true, text: 'the ' + nm(t.p.t) + ' at ' + at(t.p.x, t.p.y) + (aid ? ' is ' + nameOf(env, aid) + '\'s' : ' has nobody') + (gone.length ? ' (' + gone.join(', ') + ' removed: the desk brings its own chair)' : '')
           + (left.length ? '; ' + nameOf(env, aid) + ' leaves its ' + left.map(q => nm(q.t) + ' at ' + at(q.x, q.y)).join(' and its ') : '') }; }
       case 'door': { const t = propRef(o.prop); if (!t.ok) return t; return did(st.setDoorState(t.p.id, String(o.state || '')), 'the airlock at ' + at(t.p.x, t.p.y) + ' ' + o.state); }
-      case 'belt': { const a = tileOf(o.from), b = tileOf(o.to); if (!a || !b) return refuse('a belt is { from: [x, y], to: [x, y] }, one straight run'); return did(st.placeBeltRun({ tx: a.x, ty: a.y }, { tx: b.x, ty: b.y }), 'a belt from ' + at(a.x, a.y) + ' to ' + at(b.x, b.y)); }
+      case 'belt': { const a = tileOf(o.from), b = tileOf(o.to); if (!a || !b) return refuse('a belt is { from: [x, y], to: [x, y] }, one straight run'); return didA(st.placeBeltRun({ tx: a.x, ty: a.y }, { tx: b.x, ty: b.y }), 'a belt from ' + at(a.x, a.y) + ' to ' + at(b.x, b.y)); }
       case 'unbelt': { const tiles = (Array.isArray(o.tiles) ? o.tiles : []).map(tileOf).filter(Boolean).map(q => [q.x, q.y]); if (!tiles.length) return refuse('unbelt needs tiles: [[x, y], …]'); return did(st.removeBelts(tiles), tiles.length + ' belt tiles taken up'); }
-      case 'connect': { const a = propRef(o.from); if (!a.ok) return a; const b = propRef(o.to); if (!b.ok) return b; return did(st.connectBelt(a.p.id, b.p.id), 'the ' + nm(a.p.t) + ' at ' + at(a.p.x, a.p.y) + ' belted to the ' + nm(b.p.t) + ' at ' + at(b.p.x, b.p.y)); }
+      case 'connect': { const a = propRef(o.from); if (!a.ok) return a; const b = propRef(o.to); if (!b.ok) return b;
+        // an OUTBOX onto another line's INBOX is a SEND TO — the Commander's drop of one on the other makes the same (the target decides)
+        if (a.p.t === 'outbox' && b.p.t === 'intake') return sendOn(a.p, b.p, ' (an OUTBOX connected to an INBOX is a SEND TO, never a belt)');
+        return didA(st.connectBelt(a.p.id, b.p.id), 'the ' + nm(a.p.t) + ' at ' + at(a.p.x, a.p.y) + ' belted to the ' + nm(b.p.t) + ' at ' + at(b.p.x, b.p.y)); }
+      // SEND TO (2026-10-11): { op: "send", from: a line's OUTBOX, to: another line's INBOX, or null / "nowhere" }
+      case 'send': case 'sendto': {
+        const a = propRef(o.from != null ? o.from : o.prop); if (!a.ok) return a;
+        if (a.p.t !== 'outbox') return refuse('send is { op: "send", from: a line\'s OUTBOX, to: another line\'s INBOX, or null to send nowhere }: the ' + nm(a.p.t) + ' at ' + at(a.p.x, a.p.y) + ' is no OUTBOX');
+        if (o.to === undefined) return refuse('send needs to: another line\'s INBOX, or null to send nowhere');
+        if (o.to === null || /^(nowhere|none|nothing|no one|nobody|null|clear|off)$/i.test(String(o.to).trim())) {
+          if (typeof st.setSendTo !== 'function') return refuse('this page cannot send one line on to another; reload it');
+          const was = a.p.sendTo && st.propById(a.p.sendTo) ? lineWordOf(st, env, a.p.sendTo) : null;
+          return did(st.setSendTo(a.p.id, null), 'the OUTBOX at ' + at(a.p.x, a.p.y) + (was ? ' no longer sends its finished work on to ' + was + ' (SEND TO off): its jobs stop there' : ' sends its work nowhere (it already did)'));
+        }
+        const b = propRef(o.to); if (!b.ok) return b;
+        return sendOn(a.p, b.p, '');
+      }
+      // COPY A LINE (Build mode's Ctrl+C / Ctrl+V, 2026-10-11): the whole line — every step's role, crew, instructions and hand-off,
+      // its name (numbered), budget and junction settings, the belts between them — laid EXACTLY with its top-left on x, y, else laid
+      // out to fit near there, as Build mode's paste does; never a project folder, schedule, webhook, bind or a SEND TO out of it
+      case 'copy': {
+        if (typeof st.copyLines !== 'function' || typeof st.pasteLines !== 'function' || typeof st.lineMembers !== 'function') return refuse('this page cannot copy a line; reload it');
+        const s = lineSrc(o.prop, o.line); if (!s.ok) return s;
+        const m = st.lineMembers(s.p.id);
+        if (!m || m.ids.length < 2) return refuse('the ' + nm(s.p.t) + ' at ' + at(s.p.x, s.p.y) + ' is on no line yet: belt it to another machine first');
+        const q = tileOf(o); if (!q) return refuse('copy needs x and y: the top-left tile of the copy');
+        const turn = o.turn == null ? 0 : Number(o.turn);
+        if (!Number.isInteger(turn) || !(turn >= 0 && turn <= 3)) return refuse('turn is how many quarter turns clockwise the copy is laid: 0 to 3');
+        const word = lineWordOf(st, env, s.p.id), srcIn = m.ids.map(id => st.propById(id)).filter(p => p && p.t === 'intake');
+        const c = st.copyLines(m.ids, { agent: crewHere, turns: t => !!(S && S.canRotate && S.canRotate(t)) }); if (!c || !c.ok) return refuse(wmMsg(c));
+        let clip = c.clip;
+        if (turn) { if (!WM.clipTurns || !WM.rotateClip || !WM.clipTurns(clip)) return refuse('this line\'s copy cannot turn: a piece in it only stands one way'); clip = WM.rotateClip(clip, turn); }
+        let r = st.pasteLines(clip, q.x, q.y, { agent: crewHere }), laid = false;
+        if (!r || !r.ok) {
+          const why = String(agentMsg(r)).replace(/\.$/, '');
+          if (env.LineEdit && env.LineEdit.layoutGraphNear && typeof st.clipGraph === 'function' && typeof st.pasteLinesLaid === 'function') {
+            const gr = st.clipGraph(clip, { agent: crewHere });
+            const L = gr && gr.ok ? env.LineEdit.layoutGraphNear(st, gr.graph, { x: q.x + ((clip.w - 1) >> 1), y: q.y + ((clip.h - 1) >> 1) }) : null;
+            const r2 = L && L.ok ? st.pasteLinesLaid(clip, L, { agent: crewHere }) : null;
+            if (r2 && r2.ok) { r = r2; laid = why; }
+          }
+          if (!laid) return refuse('the copy of ' + word + ' does not fit at ' + at(q.x, q.y) + ': ' + why + ', and no layout of it fits near there');
+        }
+        const made = (r.ids || []).map(id => st.propById(id)).filter(Boolean), inbox = made.find(p => p.t === 'intake');
+        if (o.as) names[o.as] = inbox ? inbox.id : (r.ids || [])[0];
+        const left = [];
+        if (c.clip.crewLeft) left.push(c.clip.crewLeft + (c.clip.crewLeft === 1 ? ' step\'s agent (not on the crew)' : ' steps\' agents (not on the crew)'));
+        if (c.clip.dropped) left.push('its SEND TO (the copy sends nowhere; set one with op send)');
+        if (srcIn.some(p => typeof p.projectRoot === 'string' && p.projectRoot.trim())) left.push('its project folder');
+        return { ok: true, text: 'a copy of ' + word + ' at ' + at(q.x, q.y) + inRoom(q.x, q.y) + (laid ? ' (laid out to fit near there: ' + laid + ')' : '') + ': ' + made.length + ' pieces and ' + (r.links || []).length + ' belts, each step with its role, crew and instructions'
+          + (inbox && inbox.label ? '; the copy is ' + lineWordOf(st, env, inbox.id) : '') + ', its own line with its own jobs and budget' + (left.length ? '; not copied: ' + left.join(', ') : '') + (o.as && inbox ? ' (' + o.as + ' names its INBOX)' : '') };
+      }
       case 'role': { const t = propRef(o.prop); if (!t.ok) return t; const role = String(o.role || '').toUpperCase().replace(/[^A-Z]/g, ''); return did(st.setPropRole(t.p.id, role), 'the bay at ' + at(t.p.x, t.p.y) + ' is ' + (role ? titleCase(role) : 'roleless')); }
       case 'brief': { const t = propRef(o.prop); if (!t.ok) return t; const txt = String(o.text == null ? '' : o.text).trim(); if (!txt || txt.length > 2000) return refuse('brief text is 1 to 2000 characters'); return did(st.setPropBrief(t.p.id, txt), 'the ' + nm(t.p.t) + ' at ' + at(t.p.x, t.p.y) + ' is told: "' + txt.slice(0, 160) + (txt.length > 160 ? '…' : '') + '"'); }
       case 'label': { const t = propRef(o.prop); if (!t.ok) return t; const txt = String(o.text == null ? '' : o.text).trim().slice(0, 48); return did(st.setPropLabel(t.p.id, txt), 'the ' + nm(t.p.t) + ' at ' + at(t.p.x, t.p.y) + ' named ' + (txt || '(no name)')); }
@@ -1553,7 +1660,8 @@
       summary = 'Remove ' + (sized.length > 1 ? sized.slice(0, -1).join(', ') + ' and ' + sized[sized.length - 1] : sized[0])
         + (halls.length ? ', with the ' + (halls.length > 1 ? halls.length + ' hallways' : 'hallway') + ' that joined ' + (gone.length > 1 ? 'them' : 'it') : '') + '. '
         + (furniture.length ? (gone.length > 1 ? 'Their furniture goes with them (' : 'Its furniture goes with it (') + shortList(env, furniture) + '). ' : '')
-        + (machines.length ? (intakes.length ? (intakes.length > 1 ? intakes.length + ' workflow lines go too: ' : 'A workflow line goes too: ') + intakes.map(p => p.label || 'an unnamed line').join(', ') : machines.length + ' workflow machines go too') + '. ' : '')
+        + (machines.length ? (intakes.length ? (intakes.length > 1 ? intakes.length + ' workflow lines go too: ' : 'A workflow line goes too: ') + intakes.map(p => p.label || 'an unnamed line').join(', ') : machines.length + ' workflow machines go too')
+          + cutSendText(sendersInto(live, env, live.props().filter(inGone).map(p => p.id))) + '. ' : '')
         + lostGear(env, furniture)
         + (seats.length ? seats.map(p => crewName(p.agentId)).join(', ') + (seats.length > 1 ? ' get new desks in ' : ' gets a new desk in ') + deskRooms.join(' and ') + '. ' : '')
         + 'Agents and conversations stay; one UNDO in Build mode brings ' + (gone.length > 1 ? 'them' : 'it') + ' back.';
@@ -3540,7 +3648,7 @@
     const t = roomNamed(st, ref); if (!t.ok) return t;
     const r = t.room, B = bboxOf(r), S = env.PropSprites, g = st.projectGeometry(), belts = st.serialize().belts || {};
     const here = st.props().filter(p => st.roomAt(p.x, p.y) === r.id);
-    const pieces = here.map(p => { const o = { id: p.id, t: p.t, name: pieceName(env, p.t), x: p.x, y: p.y, w: p.w || 1, h: p.h || 1 }; if (p.r) o.r = p.r; if (p.m) o.m = 1; if (sideFacing(S, p.t) != null) o.faces = facingOf(S, p) === 1 ? 'west' : 'east'; if (p.agentId) o.agent = nameOf(env, p.agentId); if (p.role) o.role = p.role; if (p.label) o.label = p.label; if (p.brief) o.brief = String(p.brief).slice(0, 120); if (p.hands) o.hands = p.hands; if (p.limits) o.budget = { perDay: p.limits.maxUsdPerDay, perJob: p.limits.maxUsdPerMessage, stages: p.limits.maxHops }; if (p.projectRoot) o.folder = String(p.projectRoot).replace(/\\/g, '/').split('/').pop(); for (const k of ['routes', 'def', 'maxIter', 'when', 'done', 'esc', 'timeoutMin', 'connectorId', 'pluginId']) if (p[k] != null) o[k] = p[k]; if (p.block === false) o.walkOver = true; return o; });
+    const pieces = here.map(p => { const o = { id: p.id, t: p.t, name: pieceName(env, p.t), x: p.x, y: p.y, w: p.w || 1, h: p.h || 1 }; if (p.r) o.r = p.r; if (p.m) o.m = 1; if (sideFacing(S, p.t) != null) o.faces = facingOf(S, p) === 1 ? 'west' : 'east'; if (p.agentId) o.agent = nameOf(env, p.agentId); if (p.role) o.role = p.role; if (p.label) o.label = p.label; if (p.brief) o.brief = String(p.brief).slice(0, 120); if (p.hands) o.hands = p.hands; if (p.sendTo) o.sendTo = p.sendTo; if (p.limits) o.budget = { perDay: p.limits.maxUsdPerDay, perJob: p.limits.maxUsdPerMessage, stages: p.limits.maxHops }; if (p.projectRoot) o.folder = String(p.projectRoot).replace(/\\/g, '/').split('/').pop(); for (const k of ['routes', 'def', 'maxIter', 'when', 'done', 'esc', 'timeoutMin', 'connectorId', 'pluginId']) if (p[k] != null) o[k] = p[k]; if (p.block === false) o.walkOver = true; return o; });
     const beltList = Object.keys(belts).map(k => { const [x, y] = k.split(',').map(Number); return [x, y, belts[k]]; }).filter(([x, y]) => st.roomAt(x, y) === r.id);
     const doors = doorTiles(st, g, r.id).map(d => [d.x, d.y]);
     const mark = {}; for (const p of here) for (let y = p.y; y < p.y + (p.h || 1); y++) for (let x = p.x; x < p.x + (p.w || 1); x++) mark[x + ',' + y] = MACHINE_T.test(p.t) ? 'M' : p.agentId ? 'A' : p.block === false ? '_' : '#';
