@@ -32,6 +32,12 @@ const run = makeCheckpointGitRunner({spawn,file:process.execPath,timeoutMs:1200,
     A.ok(missing.code!==0,'missing executable resolves fail-open error');
     const source=fs.readFileSync(path.join(__dirname,'../sidecar/index.js'),'utf8');
     A.ok(source.includes("require('./checkpoint-git.js').makeCheckpointGitRunner"),'real sidecar wires supervised checkpoint runner');
+    const bounded = makeCheckpointGitRunner({spawn,file:process.execPath,maxBytes:128});
+    for (const stream of ['stdout','stderr']) {
+      const tooMuch = await bounded(['-e',"process."+stream+".write('x'.repeat(4096));setInterval(()=>{},1000)"],{cwd:root});
+      A.ok(tooMuch.code!==0&&tooMuch.truncated,'oversized '+stream+' cannot be parsed as success');
+      A.ok(tooMuch.stdout.length<=128&&tooMuch.stderr.length<256,'captured output stays bounded');
+    }
     A.report('checkpoint-git.test');
   } finally { fs.rmSync(root,{recursive:true,force:true}); }
 })().catch(e=>{console.error(e);process.exitCode=1;});

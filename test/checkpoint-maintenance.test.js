@@ -58,6 +58,17 @@ function inflate() { fs.mkdirSync(pack,{recursive:true}); fs.writeFileSync(garba
     A.ok(replacement,'replacement returns surviving indexed id');
     A.eq(replacement.runId,'replacement','replacement preserves triggering run correlation');
     A.ok(await tiny.restore(aid,replaced.id),'returned replacement id restores through undo guard');
+    const priorRows=tiny.list(aid).snapshots;
+    const failedFs=Object.create(fs);
+    failedFs.renameSync=(from,to)=>{
+      if(to===path.join(root,'.checkpoints',aid,'index.json')&&!from.endsWith('.reinit-index'))throw Object.assign(new Error('index replace denied'),{code:'EACCES'});
+      return fs.renameSync(from,to);
+    };
+    const noIndex=makeCheckpointStore({...deps,fs:failedFs,maxRepoBytes:1});
+    const attempted=await noIndex.enforceSizeCeiling(aid);
+    A.eq(attempted.reinit,false,'index failure rejects replacement');
+    A.eq(JSON.stringify(noIndex.list(aid).snapshots),JSON.stringify(priorRows),'index failure restores previous rows');
+    A.ok(await wide.restore(aid,replaced.id),'old object history survives index failure');
     A.report('checkpoint-maintenance.test');
   } finally { fs.rmSync(root,{recursive:true,force:true}); }
 })().catch(e=>{console.error(e);process.exitCode=1;});

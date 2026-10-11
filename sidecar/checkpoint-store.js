@@ -344,6 +344,13 @@
         if (com.code !== 0) { cleanup(); return false; }
         const sha = (await gitAt(fresh, ['rev-parse', 'HEAD'])).stdout.trim();
         if (!cp.isValidId(sha)) { cleanup(); return false; }
+        // Keep both the old objects AND an atomically restorable index until the new index is durable.
+        // Otherwise an index write failure leaves stale rows pointing at history already deleted.
+        const existing = await loadIndexResilient(aid);
+        if (readIndexRaw(aid).status === 'unreadable') { cleanup(); return false; }
+        const indexBackup = indexFileFor(aid) + '.reinit-index';
+        try { writeFileDurable({ fs: fs, path: pathMod }, indexBackup, JSON.stringify(existing)); }
+        catch (e) { failNote('checkpoint.reinit.indexBackup', e); cleanup(); return false; }
         const old = gitDir + '.old';
         try { fs.rmSync(old, { recursive: true, force: true }); } catch (e) { failNote('checkpoint.reinit.old', e); }
         try { fs.renameSync(gitDir, old); } catch (_) { cleanup(); return false; }
@@ -353,17 +360,26 @@
           try { fs.renameSync(old, gitDir); } catch (e) { failNote('checkpoint.reinit.restore', e); }
           cleanup(); return false;
         }
-        try { fs.rmSync(old, { recursive: true, force: true }); } catch (e) { failNote('checkpoint.reinit.old', e); }
         try {
           const size = await measure(aid, scope);
-          const existing = await loadIndexResilient(aid);
           const others = existing.snapshots.filter(function (s) { return String((s && s.scopeId) || '') !== String((scope && scope.id) || ''); });
           const fullId = (scope && scope.prefix || '') + sha;
           saveIndex(aid, cp.record(cp.toIndex(others), {
             id: fullId, runId: meta && meta.runId || '', turn: meta && meta.turn || 0, parentId: null, label: 'baseline (re-init)', files: size.files, bytes: size.bytes,
             scopeId: (scope && scope.id) || '', workTree: scope && scope.id ? scope.workTree : '', gitCommit: sha
           }, { now: clock.now(), keep: keep }));
-        } catch (e) { failNote('checkpoint.index.persist', e); }
+        } catch (e) {
+          failNote('checkpoint.index.persist', e);
+          try {
+            fs.renameSync(gitDir, fresh);
+            fs.renameSync(old, gitDir);
+            fs.renameSync(indexBackup, indexFileFor(aid));
+            cleanup();
+          } catch (rollbackError) { failNote('checkpoint.reinit.rollback', rollbackError); }
+          return false;
+        }
+        try { fs.rmSync(old, { recursive: true, force: true }); } catch (e) { failNote('checkpoint.reinit.old', e); }
+        try { fs.unlinkSync(indexBackup); } catch (e) { failNote('checkpoint.reinit.indexBackup', e); }
         return true;
       } catch (_) { return false; }
     }

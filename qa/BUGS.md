@@ -4,14 +4,15 @@
 One tracked file per bug under `qa/bugs/`; this is only the index. File a new bug with
 `node scripts/qa/bugs.mjs --new --title "..." --surface <surface>`.
 
-**10** open (open+claimed) of 222 total — 0 P0 · 0 P1 · 10 P2
+**10** open (open+claimed) of 223 total — 0 P0 · 0 P1 · 10 P2
 
 Engineering status is separate from delivery and customer recovery. Legacy rows without origin are not a customer census.
 
-User/owner reports: **101** · source fixed: **91** · installer verified: **6** · customer confirmed: **1** · still reported failing: **2** · recovery unconfirmed: **98**.
+User/owner reports: **102** · source fixed: **92** · installer verified: **6** · customer confirmed: **1** · still reported failing: **2** · recovery unconfirmed: **99**.
 
 | Report | Family | Source | Installer | Customer |
 | --- | --- | --- | --- | --- |
+| [Checkpoint maintenance bypass and orphan Git pack processes](bugs/8bdf73bb-checkpoint-maintenance-bypass-and-orphan-git-pac.md) | checkpoint-maintenance | fixed | unverified | unconfirmed |
 | [Delegated specialist lacks connected MCP tools](bugs/acd9ecb4-delegated-specialist-lacks-connected-mcp-tools.md) | delegated-capabilities | fixed | verified | unconfirmed |
 | [Customer reports an ONCE routine absent from Active Routines](bugs/c2a6c3c8-once-routine-reported-missing.md) | durability-and-visibility | fixed | unverified | unconfirmed |
 | [Persisted E-STOP cannot be resumed from the desktop control](bugs/8f911536-persisted-e-stop-cannot-be-resumed-from-the-desk.md) | emergency-stop | fixed | unverified | unconfirmed |
@@ -126,6 +127,7 @@ User/owner reports: **101** · source fixed: **91** · installer verified: **6**
 | P1 | fixed | autonomy | [Agent loop pause leaves cancelled iteration running and lease held](bugs/c66e8c39-agent-loop-pause-leaves-cancelled-iteration-runn.md) | agent/seam-audit-0912-b | b5c5cba75 |
 | P1 | fixed | autonomy | [Ambiguous permission and routine acknowledgements report unproven changes](bugs/95d13aaf-ambiguous-permission-and-routine-acknowledgement.md) | agent/systemic-bugs-0919 | 8eb87b0d3 |
 | P1 | fixed | autonomy | [Autonomy controls claim unconfirmed settings and overwrite server state on reload](bugs/b0349a7c-autonomy-controls-claim-unconfirmed-settings-and.md) | agent/system-polish-0920 | 4a2028759 |
+| P1 | fixed | autonomy | [Checkpoint maintenance bypass and orphan Git pack processes](bugs/8bdf73bb-checkpoint-maintenance-bypass-and-orphan-git-pac.md) | issue-triage-1011 | b387d48ab |
 | P1 | fixed | autonomy | [Concurrency-limited routines starve later due jobs in store order](bugs/0cfef8af-concurrency-limited-routines-starve-later-due-jo.md) | reliability-audit-0919 | b651a8f5d |
 | P1 | fixed | autonomy | [cron-store's armAt never receives the host defaultTz, so a tz-less cron routine's FIRST nextRunAt is UTC-anchored while every later advance uses local — the mar](bugs/f47a1e3a-cron-store-s-armat-never-receives-the-host-defau.md) | sweep/autonomy | 226cec3c |
 | P1 | fixed | autonomy | [Cron writes bypass a live lock after contention](bugs/0506aabf-cron-writes-bypass-a-live-lock-after-contention.md) | agent/cron-reliability-0921 | 0f881f44afde73e79de13f0117cf0dd9f2771ff9 |
