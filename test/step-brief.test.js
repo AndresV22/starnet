@@ -43,7 +43,7 @@ const HDR = 'YOUR STANDING BRIEF FOR THIS STATION:';
   // line naming on the INTAKE
   const nm = s.setPropLabel(intake.id, '  PRESS DESK  ');
   A.ok(nm.ok && nm.label === 'PRESS DESK', 'setPropLabel trims and stores the line name');
-  A.ok(!s.setPropLabel(bay.id, 'x').ok, 'a non-intake refuses a label (BAD_TYPE)');
+  A.ok(s.setPropLabel(bay.id, 'Draft review').ok, 'a BAY accepts its own visible step name');
   A.eq(s.setPropLabel(intake.id, 'y'.repeat(100)).label.length, 48, 'a label is bounded at 48 chars');
   s.setPropLabel(intake.id, 'PRESS DESK');
 
@@ -52,6 +52,7 @@ const HDR = 'YOUR STANDING BRIEF FOR THIS STATION:';
   const b2 = s2.props().find(p => p.t === 'bay');
   const i2 = s2.props().find(p => p.t === 'intake');
   A.eq(b2.brief, BRIEF, 'brief survives serialize -> migrate -> deserialize');
+  A.eq(b2.label, 'Draft review', 'the BAY name survives serialize -> migrate -> deserialize');
   A.eq(i2.label, 'PRESS DESK', 'label survives serialize -> migrate -> deserialize');
 
   // projectGeometry carries both (the compiler's input)
