@@ -167,7 +167,11 @@ const updater085 = {
   v: 1, autoCheck: false, lastCheckAt: 100, nextCheckAt: 200, remindAfter: 300,
   ignoredVersion: '0.9.0', notifiedVersion: '0.9.0', failureCount: 3
 };
-A.eq(UpdateCore.hydrateSettings(updater085), updater085, 'v0.8.5 updater metadata survives candidate hydration');
+// every 0.8.5 field survives; fields added since (availableVersion) hydrate to their empty default
+A.eq(UpdateCore.hydrateSettings(updater085), {
+  v: 1, autoCheck: false, lastCheckAt: 100, nextCheckAt: 200, remindAfter: 300,
+  ignoredVersion: '0.9.0', notifiedVersion: '0.9.0', availableVersion: '', failureCount: 3
+}, 'v0.8.5 updater metadata survives candidate hydration');
 
 // 5. Cross-platform/native invariants available to this host: canonical app-data root, retry markers, stable
 // keychain references, failed-install restoration, and restart after a successful non-Windows install.
