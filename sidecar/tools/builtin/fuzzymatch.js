@@ -1,6 +1,6 @@
 /* sidecar/tools/builtin/fuzzymatch.js - conservative fuzzy block replacement.
-   Strategy ladder: exact -> line_trimmed -> whitespace_normalized ->
-   indentation_flexible -> block_anchor. Non-exact replacements are reindented
+   Strategy ladder: exact -> line_trimmed. Every matched line must agree apart
+   from edge whitespace; guessed interiors are refused. Non-exact replacements are reindented
    against the file's matched region. */
 'use strict';
 (function (root, factory) {
@@ -71,39 +71,19 @@
     let cursor = 0;
     for (const m of matches) {
       const region = content.slice(m[0], m[1]);
-      const replacement = strategy === 'exact' ? newText : reindent(region, oldText, newText);
+      let replacement = strategy === 'exact' ? newText : reindent(region, oldText, newText);
+      // The patch parser uses LF. Follow the matched region's separator (or the next
+      // line's separator for a one-line hunk), leaving bytes outside the match alone.
+      const newline = region.match(/\r?\n/) || content.slice(m[0]).match(/\r?\n/)
+        || content.slice(0, m[0]).match(/\r?\n/);
+      if (newline) replacement = replacement.replace(/\r?\n/g, newline[0]);
+      // A line-window match includes the final CR but leaves its LF in the suffix.
+      if (strategy !== 'exact' && region.endsWith('\r') && !replacement.endsWith('\r')) replacement += '\r';
       out += content.slice(cursor, m[0]) + replacement;
       cursor = m[1];
     }
     return out + content.slice(cursor);
   }
-  // Anchor a block by its first and last meaningful lines. Matches are NON-OVERLAPPING: the scan resumes
-  // after the block it just claimed. Without that, every occurrence of the FIRST anchor before a given last
-  // anchor produced its own range ending at the SAME line — so a block occurring exactly once reported
-  // "Found 2 matches; provide more context" (e.g. two `if (a) {` lines above one `}`), and with replaceAll
-  // the overlapping ranges spliced the replacement in twice.
-  function blockAnchor(content, oldText) {
-    const oldLines = oldText.split('\n');
-    const first = oldLines.find(l => l.trim());
-    const last = oldLines.slice().reverse().find(l => l.trim());
-    if (!first || !last || first === last) return [];
-    const fileLines = content.split('\n');
-    const starts = lineStarts(content);
-    const out = [];
-    for (let i = 0; i < fileLines.length; i++) {
-      if (fileLines[i].trim() !== first.trim()) continue;
-      for (let j = i; j < fileLines.length; j++) {
-        if (fileLines[j].trim() !== last.trim()) continue;
-        const start = starts[i];
-        const end = starts[j] + fileLines[j].length;
-        out.push([start, end]);
-        i = j;              // claim the block: the next scan starts AFTER it, never inside it
-        break;
-      }
-    }
-    return out;
-  }
-
   function fuzzyFindAndReplace(content, oldText, newText, opts) {
     opts = opts || {};
     content = String(content == null ? '' : content);
@@ -112,10 +92,7 @@
     if (!oldText) return { ok: false, content, count: 0, strategy: null, error: 'old text cannot be empty' };
     const strategies = [
       ['exact', () => allIndexes(content, oldText)],
-      ['line_trimmed', () => findLineBlock(content, oldText, l => l.trim())],
-      ['whitespace_normalized', () => findLineBlock(content, oldText, l => l.trim().replace(/\s+/g, ' '))],
-      ['indentation_flexible', () => findLineBlock(content, oldText, l => l.replace(/^[ \t]+/, ''))],
-      ['block_anchor', () => blockAnchor(content, oldText)]
+      ['line_trimmed', () => findLineBlock(content, oldText, l => l.trim())]
     ];
     for (const pair of strategies) {
       const strategy = pair[0];
@@ -129,5 +106,5 @@
     return { ok: false, content, count: 0, strategy: null, error: 'Could not find a match for patch hunk' };
   }
 
-  return { fuzzyFindAndReplace, _internals: { findLineBlock, reindent, blockAnchor } };
+  return { fuzzyFindAndReplace, _internals: { findLineBlock, reindent } };
 });
