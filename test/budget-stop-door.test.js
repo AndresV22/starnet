@@ -78,8 +78,25 @@ for (const [scope, cap, want] of [
   } finally { globalThis.StationUI = prevUI; }
   // the flag rides from the stream to the stop line and the door
   const harness = read('frontend/app/harness.js');
-  A.ok(/budgetCapIsBalance = payload\.budgetCapIsBalance === true;/.test(harness) && /budgetScope, budgetCapUsd, budgetCapIsBalance \};\n    return \{ text: full,[^\n]*budgetCapIsBalance \};/.test(harness), 'Harness.chat latches the lead end\'s budgetCapIsBalance and returns it');
-  A.ok(/budgetStopLine\(budgetScope, budgetCapUsd, budgetCapIsBalance\)/.test(chat) && /offerBudgetDoor\(budgetCapIsBalance\)/.test(chat), 'COMMS passes it to the stop line and the door');
+  A.ok(/budgetCapIsBalance = payload\.budgetCapIsBalance === true;/.test(harness) && /budgetScope, budgetCapUsd, budgetCapIsBalance, unpricedModel, unpricedCapTokens \};\n    return \{ text: full,[^\n]*budgetCapIsBalance, unpricedModel, unpricedCapTokens \};/.test(harness), 'Harness.chat latches the lead end\'s budgetCapIsBalance (and the unpriced ceiling) and returns them');
+  A.ok(/budgetStopLine\(budgetScope, budgetCapUsd, budgetCapIsBalance, unpriced\)/.test(chat) && /offerBudgetDoor\(budgetCapIsBalance\)/.test(chat), 'COMMS passes it to the stop line and the door');
+}
+
+// ---- the UNPRICED-model TOKEN ceiling is not a $ cap (2026-10-11) ----
+// A model with no known price is bounded per run in TOKENS (loop.js maxUnpricedTokens); the $ settings never read it,
+// so "hit the per-run spend cap — raise it" sent users to a lever that changes nothing. Every surface names the real limit.
+{
+  const line = budgetStopLine('run', null, false, { model: 'x/mystery', capTokens: 2000000 });
+  A.ok(/2,000,000-token safety ceiling for x\/mystery/.test(line), 'COMMS names the token ceiling and the model: ' + line);
+  A.ok(/does not change this/.test(line) && !/raise it in SETTINGS/.test(line), 'and says raising the $ limit does not help: ' + line);
+  const harness = read('frontend/app/harness.js');
+  A.ok(/unpricedModel = payload\.unpricedModel/.test(harness), 'Harness.chat reads the additive unpricedModel field off agent.run.end');
+  A.ok(/offerUnpricedDoor\(\)/.test(chat), 'the unpriced stop offers a model door, not SPENDING LIMITS');
+  const { endNote } = require('../sidecar/channels/hub.js');
+  const note = endNote('budget', { budgetScope: 'run', unpricedModel: 'x/mystery', unpricedCapTokens: 2000000 });
+  A.ok(/2,000,000-token safety ceiling/.test(note) && !/SPENDING LIMITS/.test(note), 'channels name the token ceiling too: ' + note);
+  const { stopSentence } = require('../sidecar/stop-reason.js');
+  A.ok(/STARNET_MAX_UNPRICED_TOKENS/.test(stopSentence('budget', { unpricedModel: 'x/mystery', unpricedCapTokens: 2000000 })), 'and the server-side sentence names the real knob');
   // the sidecar owns the fact: admission's clamp sets it, the lead's own per-run stop at that ceiling carries it
   const idx = read('sidecar/index.js');
   A.ok(/const chosenCapUsd = \(runCapUsd > 0 && isFinite\(runCapUsd\)\) \? runCapUsd : 0;[^\n]*\n    runCapUsd = budgetCaps\.managedRunCapUsd\([^\n]*\);\n(?:    \/\/[^\n]*\n)*    runCapIsBalance = budgetCaps\.managedCapIsBalance\(chosenCapUsd, runCapUsd, avail\);/.test(idx),

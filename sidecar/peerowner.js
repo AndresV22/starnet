@@ -98,8 +98,9 @@ function parseLsofOwners(text, selfPid) {
 function makePeerOwnerCheck(deps) {
   const d = deps || {};
   const platform = d.platform || process.platform;
-  const now = d.now || (() => Date.now());
-  const cacheMs = d.cacheMs == null ? 15000 : d.cacheMs;
+  // the clock is injected (index.js passes the host's): without one there is no cache — every load is checked
+  const now = typeof d.now === 'function' ? d.now : null;
+  const cacheMs = !now ? 0 : (d.cacheMs == null ? 15000 : d.cacheMs);
   const okPids = new Map();
   function remember(pid) { if (cacheMs > 0 && pid) okPids.set(pid, now() + cacheMs); }
   function cached(pid) { const t = okPids.get(pid); if (t && t > now()) return true; if (t) okPids.delete(pid); return false; }

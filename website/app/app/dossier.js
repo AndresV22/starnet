@@ -71,7 +71,7 @@
   function fresh() {
     const dims = {};
     for (const k of DIM_KEYS) dims[k] = [];
-    return { v: 1, dims, seededFrom: {}, updatedAt: 0 };
+    return { v: 1, dims, seededFrom: {}, seedText: {}, updatedAt: 0 };
   }
 
   // a collision-proof belief id: a monotonic counter over the WHOLE dossier (never reuses a freed slot —
@@ -165,13 +165,38 @@
   // seed dimensions from the onboarding docs the Commander already authored — ONCE PER DOC (tracked in
   // seededFrom). First-seed-wins, so a doc that is empty at first init seeds later when the awakening fills
   // it, a forgotten seed never reappears on reload, and re-entering the game never duplicates a belief.
-  function seedFromDocs(dossier, docs, now) {
+  // the belief a doc seeded, still exactly as seeded: mechanical provenance, and its text equal to what was copied
+  // (a legacy dossier with no record of the copied text: the seed nobody has touched since — updatedAt === createdAt)
+  function untouchedSeed(dossier, dim, seededText) {
+    const seeds = (dossier.dims[dim] || []).filter(b => b && b.source === 'onboarding' && b.weight === 'seed');
+    if (typeof seededText === 'string') return seeds.find(b => b.text === seededText) || null;
+    const pristine = seeds.filter(b => (b.updatedAt || 0) === (b.createdAt || 0));
+    return pristine.length === 1 ? pristine[0] : null;
+  }
+  function seedFromDocs(dossier, docs, now, opts) {
     if (!dossier) return dossier;
     docs = docs || {};
+    opts = opts || {};
     if (!dossier.seededFrom || typeof dossier.seededFrom !== 'object') dossier.seededFrom = {};
+    if (!dossier.seedText || typeof dossier.seedText !== 'object') dossier.seedText = {};
     for (const s of DOC_SEEDS) {
-      if (dossier.seededFrom[s.doc]) continue;
       const text = String(docs[s.doc] == null ? '' : docs[s.doc]).trim();
+      if (dossier.seededFrom[s.doc]) {
+        /* A DOC EDIT REACHES ITS SEED (memory-truth lane, 2026-10-11). The seed used to be copied ONCE: edit
+           operating-manual.md later and every prompt carried BOTH "STANDING ORDERS: <new manual>" and the dossier's
+           "Standing orders: <old manual>" forever — an old instruction recalled beside the new one. Now, when the
+           CANONICAL docs (the Overseer's — opts.resync) change, the seed belief follows them IF it is still the
+           untouched copy. A belief the Commander edited, re-confirmed or forgot is theirs and is never touched; an
+           EMPTY doc is never treated as a deletion (unloaded and cleared look the same here). */
+        if (!opts.resync || !text) continue;
+        const clipped = clip(text);
+        const was = typeof dossier.seedText[s.doc] === 'string' ? dossier.seedText[s.doc] : undefined;
+        if (was === clipped) continue;
+        const seed = untouchedSeed(dossier, s.dim, was);
+        if (seed && seed.text !== clipped) upsert(dossier, s.dim, { id: seed.id, text: clipped }, now);
+        if (seed || was !== undefined) dossier.seedText[s.doc] = clipped;
+        continue;
+      }
       if (!text) continue;
       // V3 dedupe guard: when the interview already wrote this exact text as a real belief (e.g. the synthesized
       // purpose lands in `goals` as 'synth' BEFORE purpose.md commits), the mechanical seed would be a duplicate
@@ -182,6 +207,7 @@
       const dup = (dossier.dims[s.dim] || []).some(b => b && b.text === clipped);
       if (!dup) upsert(dossier, s.dim, { text, source: 'onboarding', weight: 'seed' }, now);
       dossier.seededFrom[s.doc] = true;
+      dossier.seedText[s.doc] = clipped;   // what was copied — the resync above compares against it
     }
     return dossier;
   }
@@ -240,6 +266,10 @@
     if (!raw || typeof raw !== 'object') return d;
     if (raw.seededFrom && typeof raw.seededFrom === 'object') {
       for (const s of DOC_SEEDS) if (raw.seededFrom[s.doc]) d.seededFrom[s.doc] = true;
+    }
+    // what each doc seed copied (memory-truth): lets a later doc edit update an untouched seed (seedFromDocs)
+    if (raw.seedText && typeof raw.seedText === 'object') {
+      for (const s of DOC_SEEDS) if (typeof raw.seedText[s.doc] === 'string') d.seedText[s.doc] = clip(raw.seedText[s.doc]);
     }
     if (Number.isFinite(raw.updatedAt) && raw.updatedAt >= 0) d.updatedAt = raw.updatedAt;
     if (raw.dims && typeof raw.dims === 'object') {

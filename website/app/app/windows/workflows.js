@@ -302,7 +302,21 @@ const WorkflowsWindow = (() => {
     if (!r || !r.ok) { sfx('bad'); notify('the style could not be saved', 'warn'); return; }
     sfx('chime');   // (the key says it: ★ STYLE KEPT)
     noteJob(job, { kind: 'example', dockId: d, role: p.role || '', field: 'does', text: next, was });
+    keptTaste(job, false);
     schedule();
+  }
+  /* DESIGN ANCHOR (2026-10-11): the step's example is text only that step reads. The same approval also becomes the
+     Commander's station-wide taste with the delivered run's REAL reference (its files, palette, fonts, image prompt — the
+     sidecar reads them from the run, POST /api/taste/keep-style), so every crew member's next similar work matches it.
+     PUT IT BACK takes that approval back too. A failure says so: the key still truthfully reports the step's example. */
+  function keptTaste(job, undo) {
+    const run = (job && job.runs || [])[0];
+    if (!run || !run.runId) return;
+    postJSON('/api/taste/keep-style', undo ? { runId: run.runId, undo: true } : { runId: run.runId }).then(({ status, j }) => {
+      if (status !== 200 || !(j && j.ok)) { notify((undo ? 'the crew still remembers this style: ' : 'kept for this step, but the crew could not learn the style: ') + ((j && j.error) || 'http ' + status), 'warn'); return; }
+      const fm = j.feedbackMemory;
+      if (!undo && fm && fm.reason === 'personalization-paused') notify('kept for this step — learning is paused, so the rest of the crew will not learn this style', 'warn');
+    }, () => notify(undo ? 'the crew’s copy of this style could not be taken back — is the station running?' : 'kept for this step — the crew could not learn the style (is the station running?)', 'warn'));
   }
   function putStyleBack(job) {
     const st = stationOf(), d = lastDockOf(job), p = d && st ? st.propById(d) : null;
@@ -314,6 +328,7 @@ const WorkflowsWindow = (() => {
     if (!r || !r.ok) { sfx('bad'); return; }
     sfx('click');
     noteJob(job, { kind: 'putback', dockId: d, role: p.role || '', field: 'does', text: was, was: p.brief || '' });
+    keptTaste(job, true);
     schedule();
   }
 
@@ -650,8 +665,8 @@ const WorkflowsWindow = (() => {
       + (ok || work.rest ? '<div class="wfw-k">' + (ok ? 'The result' : 'What came out') + '</div><div class="wf-io out wfw-out" data-md data-md-src="' + esc(work.rest || '(the line delivered an empty reply)') + '">' + esc(work.rest || '(the line delivered an empty reply)') + '</div>' : '')
       + '<div class="wf-row wfw-acts">'
       + (ok || work.rest ? '<button type="button" class="bb' + (S.fix && S.fix.jobId === job.id && S.fix.open ? ' active' : '') + '" data-act="needs" aria-expanded="' + !!(S.fix && S.fix.jobId === job.id && S.fix.open) + '">✎ NEEDS CHANGES</button>' : '')
-      + (ok ? (kept ? '<button type="button" class="bb" data-act="unkeep" data-tip="The last step stops copying this result’s format, length and tone.">★ STYLE KEPT · PUT IT BACK</button>'
-        : '<button type="button" class="bb" data-act="keep" data-tip="The step that wrote this result will match its format, length and tone every time.">★ KEEP THIS STYLE</button>') : '')
+      + (ok ? (kept ? '<button type="button" class="bb" data-act="unkeep" data-tip="The last step stops copying this result’s format, length and tone, and the crew forgets its style.">★ STYLE KEPT · PUT IT BACK</button>'
+        : '<button type="button" class="bb" data-act="keep" data-tip="The step that wrote this result will match its format, length and tone every time, and the whole crew matches its style in similar work.">★ KEEP THIS STYLE</button>') : '')
       // a handed-on job is never re-sent from here: its input is what the sending line delivered, and only that line sends it on
       + (job.from ? '' : '<button type="button" class="bb refit-primary" data-act="again"' + (runningJob() ? ' disabled' : '') + '>↻ SEND IT AGAIN</button>')
       + '<button type="button" class="bb" data-act="newjob">+ NEW JOB</button>'
@@ -841,6 +856,6 @@ const WorkflowsWindow = (() => {
     });
   }
   return { open, openLine: key => open({ view: 'line', line: key, job: null }), openNew: () => open({ view: 'new' }), openByStream, openOutbox, showJob,
-    _state: S, _floor: floor, _pick: pickStarter, _create: create, _send: send, _useFix: useFix, _styleKept: styleKept, _putStyleBack: putStyleBack, _exampleBrief: exampleBrief, EX_HEAD };   // (the _ seams are test/eval reads)
+    _state: S, _floor: floor, _pick: pickStarter, _create: create, _send: send, _useFix: useFix, _styleKept: styleKept, _keepStyle: keepStyle, _putStyleBack: putStyleBack, _exampleBrief: exampleBrief, EX_HEAD };   // (the _ seams are test/eval reads)
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = WorkflowsWindow;
