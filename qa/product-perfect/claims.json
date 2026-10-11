@@ -18,7 +18,7 @@
   "expectedClaimCount": 37,
   "releaseSurface": {
     "algorithm": "sha256",
-    "sourceCommit": "cd36ee8a77e159710bf5ad843bb6c1af8c23b123",
+    "sourceCommit": "f52cd80bcbc71547e4e89eb33c6b7dce340d26ee",
     "pathSetSha256": "924d81529f0a80ffbfd9c068c1357735fcab2c4a41a985bda183850f173d5e3e",
     "files": [
       {
@@ -173,8 +173,8 @@
       },
       {
         "path": "frontend/app/app.js",
-        "bytes": 440925,
-        "sha256": "4b60a08a36134988ece494caa6899ec92e337873370007579ce797618c206fea"
+        "bytes": 440958,
+        "sha256": "f4f8202bec8439b035a428bf6f9e19728fb277fec1f141ea81206488c7324356"
       },
       {
         "path": "frontend/app/approved-sheet-effects.js",
@@ -433,8 +433,8 @@
       },
       {
         "path": "frontend/app/delegated.js",
-        "bytes": 18125,
-        "sha256": "21fe7e3d430acf06f8ea0fdb1970791cf6d02f02856279edd07689c7516aaa02"
+        "bytes": 18168,
+        "sha256": "ddad0ba383d01c12f80d8d2cb221963ce32df8f33e69960adf4a819e5530a84a"
       },
       {
         "path": "frontend/app/deliverables.js",
@@ -738,8 +738,8 @@
       },
       {
         "path": "frontend/app/overseer.js",
-        "bytes": 2541,
-        "sha256": "add9df3c3c1b119165c11aa6c17f0617152321845e2f040004951b65dfd6a6cf"
+        "bytes": 2642,
+        "sha256": "9cba4eeea44f5987106dde35ac667e784804f450afa82725003d66043a0299d4"
       },
       {
         "path": "frontend/app/permissions.js",
@@ -1158,8 +1158,8 @@
       },
       {
         "path": "frontend/app/stationcommands.js",
-        "bytes": 84633,
-        "sha256": "b3896d2d24c9782f9a75e66085895c5d32aa6ed9c30823a351bd1bd5487b66b7"
+        "bytes": 84639,
+        "sha256": "90d1e2a1205ffd25a2dc2a713ba996bacc2c6575c85534cd37c7a04ca65df508"
       },
       {
         "path": "frontend/app/stationquests.js",
@@ -1438,8 +1438,8 @@
       },
       {
         "path": "frontend/app/workstreams.js",
-        "bytes": 43278,
-        "sha256": "c208843e9ecdab4e1ca71a436022d06f944915f598c8fe80becb5eab5cc8a556"
+        "bytes": 43739,
+        "sha256": "6d1c39cb793e6de1f9c5d1785ddb06fac2128a6ff61d1095a56076d3c5963e88"
       },
       {
         "path": "frontend/app/workview.js",
