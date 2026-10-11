@@ -183,6 +183,7 @@
      offsetParent — a closed .bb-menu is display:none, so offsetParent is null exactly when
      the mirror matters; read the textContent + inline display that stationui.badges() writes. */
   const nfBadge = document.getElementById('nf-badge');
+  const upBadge = document.getElementById('up-badge');   // updates.js paints NEW while a verified update is armed
   const sysBadge = document.getElementById('bb-sys-badge');
   function syncGroupState() {
     groups.forEach(g => {
@@ -191,7 +192,10 @@
     });
     if (nfBadge) {
       const sys = bar.querySelector('.bb-group[data-group="system"]');
-      const n = (nfBadge.style.display !== 'none' && nfBadge.textContent) ? nfBadge.textContent : '';
+      const notifs = (nfBadge.style.display !== 'none' && nfBadge.textContent) ? nfBadge.textContent : '';
+      // an armed update also lights the collapsed SYSTEM trigger — the notif count wins the chip when both apply
+      const update = !!(upBadge && upBadge.style.display !== 'none' && upBadge.textContent);
+      const n = notifs || (update ? 'NEW' : '');
       if (sys) sys.classList.toggle('has-alert', !!n);
       // guard the writes: this runs inside a MutationObserver on the bar's subtree, and an
       // unconditional textContent set replaces the text node even when the value is identical —
@@ -199,6 +203,8 @@
       if (sysBadge) {
         if (sysBadge.textContent !== n) sysBadge.textContent = n;
         if (sysBadge.hidden === !!n) sysBadge.hidden = !n;
+        const label = notifs ? 'unread notifications' : (update ? 'a StarNet update is ready' : 'unread notifications');
+        if (sysBadge.getAttribute('aria-label') !== label) sysBadge.setAttribute('aria-label', label);
       }
     }
   }

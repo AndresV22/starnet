@@ -13,6 +13,9 @@
   const RETRY_BASE_MS = 15 * 60 * 1000;
   const RETRY_MAX_MS = 6 * 60 * 60 * 1000;
   const REMIND_LATER_MS = 24 * 60 * 60 * 1000;
+  // Opening the Update Center re-checks when the last check is older than this (or none ran this session):
+  // "up to date" is only true as of a check, and a window that shows an hours-old answer as current lies.
+  const OPEN_RECHECK_MS = 15 * 60 * 1000;
 
   function finite(n, fallback) {
     n = Number(n);
@@ -29,6 +32,10 @@
       remindAfter: finite(raw.remindAfter, 0),
       ignoredVersion: typeof raw.ignoredVersion === 'string' ? raw.ignoredVersion : '',
       notifiedVersion: typeof raw.notifiedVersion === 'string' ? raw.notifiedVersion : '',
+      // The newer version the LAST successful check found ('' = none). The native pending update lives only in
+      // memory, so a restart forgets it — this is what lets the next launch re-arm it instead of showing
+      // "no update" for up to CHECK_INTERVAL_MS while the station already knew one exists (0.13.1 → 0.13.2 report).
+      availableVersion: typeof raw.availableVersion === 'string' ? raw.availableVersion : '',
       failureCount: Math.max(0, raw.failureCount | 0)
     };
   }
@@ -53,6 +60,13 @@
     if (runtime.hasUpdate && settings.remindAfter && now < settings.remindAfter) {
       return { action: 'noop', reason: 'waiting-reminder', nextAt: settings.remindAfter };
     }
+    // A known newer version that this launch hasn't re-armed yet: check now, not after the interval. Not for the
+    // version already running (the update landed) or one the Commander chose to skip.
+    if (!runtime.hasUpdate && settings.availableVersion &&
+        settings.availableVersion !== String(runtime.currentVersion || '') &&
+        settings.availableVersion !== settings.ignoredVersion) {
+      return { action: 'check', reason: 'known-update' };
+    }
     if (!due(settings, now)) return { action: 'noop', reason: 'waiting-interval', nextAt: settings.nextCheckAt };
     return { action: 'check', reason: 'due' };
   }
@@ -65,6 +79,7 @@
     next.nextCheckAt = checkedAt + CHECK_INTERVAL_MS;
     next.failureCount = 0;
     if (!(result && result.update)) next.remindAfter = 0;
+    next.availableVersion = (result && result.update && result.update.version) ? String(result.update.version) : '';
     return next;
   }
 
@@ -125,6 +140,14 @@
       : busyCount + ' agents are still working - installing now would kill their runs';
   }
 
+  // Opening the Update Center: check unless a check already ran this session within OPEN_RECHECK_MS.
+  // sessionCheckAt is in-memory (0 = none this launch) — a persisted lastCheckAt from a previous run never counts.
+  function shouldCheckOnOpen(sessionCheckAt, now) {
+    sessionCheckAt = finite(sessionCheckAt, 0);
+    if (!sessionCheckAt) return true;
+    return finite(now, 0) - sessionCheckAt >= OPEN_RECHECK_MS;
+  }
+
   function progress(downloaded, contentLength) {
     downloaded = finite(downloaded, 0);
     contentLength = finite(contentLength, 0);
@@ -133,8 +156,8 @@
   }
 
   return {
-    CHECK_INTERVAL_MS, RETRY_BASE_MS, RETRY_MAX_MS, REMIND_LATER_MS,
-    hydrateSettings, due, nextAction, recordCheckResult, recordCheckError,
+    CHECK_INTERVAL_MS, RETRY_BASE_MS, RETRY_MAX_MS, REMIND_LATER_MS, OPEN_RECHECK_MS,
+    hydrateSettings, due, nextAction, recordCheckResult, recordCheckError, shouldCheckOnOpen,
     shouldNotify, recordNotified, remindLater, ignoreVersion, setAutoCheck, progress,
     installBlockReason
   };
