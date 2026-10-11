@@ -4,7 +4,7 @@
 One tracked file per bug under `qa/bugs/`; this is only the index. File a new bug with
 `node scripts/qa/bugs.mjs --new --title "..." --surface <surface>`.
 
-**13** open (open+claimed) of 230 total — 0 P0 · 2 P1 · 11 P2
+**13** open (open+claimed) of 231 total — 0 P0 · 2 P1 · 11 P2
 
 Engineering status is separate from delivery and customer recovery. Legacy rows without origin are not a customer census.
 
@@ -205,6 +205,7 @@ User/owner reports: **104** · source fixed: **94** · installer verified: **6**
 | P1 | fixed | safecell | [Execution and disconnect controls confuse transport success with action success](bugs/1b9af0d7-execution-and-disconnect-controls-confuse-transp.md) | agent/systemic-bugs-0919 | 8eb87b0d3 |
 | P1 | fixed | safecell | [File approval hides the proposed edit and patch payload](bugs/48c51661-file-approval-omits-mutation.md) | report-0110-0908 | 72a8a3043c263cd53ed353daed2042e256c8e236 |
 | P1 | fixed | safecell | [Late permission responses replace newer authority and survive store reinitialization](bugs/dde8e66f-late-permission-responses-replace-newer-authorit.md) | agent/systemic-bugs-0919 | 8eb87b0d3 |
+| P1 | fixed | safecell | [Patch guesses an unmatched block interior and corrupts source](bugs/81da21e4-patch-guesses-an-unmatched-block-interior-and-co.md) | reliability-review-1011 | f0a53efb0 |
 | P1 | fixed | safecell | [The Projects rail's ADD doorway records a NON-canonical path grant, so blessing a folder reached through a junction/symlink reports success and grants nothing](bugs/cf0cd4cd-the-projects-rail-s-add-doorway-records-a-non-ca.md) | sweep/safecell | 226cec3c |
 | P1 | fixed | sessions | [Add agents silently fails when group backend is unavailable](bugs/0245a284-add-agents-silently-fails-when-group-backend-is.md) | comms-add-agents-0906 | cf6b3ca03c372c404bcb46997a56d570d7747d70 |
 | P1 | fixed | sessions | [Agent session focus commands can unexpectedly retarget the composer](bugs/774641dc-agent-session-focus-commands-can-unexpectedly-re.md) | typing-focus-0916-c7a2 | 86b33ace3 |

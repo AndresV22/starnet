@@ -1,0 +1,1159 @@
+{
+  "baseline": "ddd4cbcfa",
+  "source": "Recovered audit; titles are candidate claims, not accepted facts",
+  "counts": {
+    "resultRecords": 97,
+    "uniqueStageLabels": 70,
+    "candidateFindings": 127,
+    "completedVerificationLenses": 56,
+    "findingsWithAnyCompletedLens": 33
+  },
+  "findings": [
+    {
+      "key": "user-voice:UV1",
+      "originalCandidateTitle": "The support loop is dark: 0 of 47 open issues answered, 25 of them already fixed in shipped releases",
+      "completedRecoveredLenses": [
+        {
+          "lens": "repro",
+          "verdict": "confirmed"
+        },
+        {
+          "lens": "fair",
+          "verdict": "partly"
+        }
+      ],
+      "disposition": "not-independently-reverified",
+      "reason": "Retain as a candidate from recovered investigation; absence of a disposition is not confirmation. See group synthesis."
+    },
+    {
+      "key": "user-voice:UV2",
+      "originalCandidateTitle": "Works in COMMS, then missing or wrong when the same agent runs on any other surface",
+      "completedRecoveredLenses": [
+        {
+          "lens": "repro",
+          "verdict": "partly"
+        },
+        {
+          "lens": "fair",
+          "verdict": "partly"
+        }
+      ],
+      "disposition": "overstated",
+      "reason": "Shared host/resolvers exist; caller options and surface-blind display are narrower gap"
+    },
+    {
+      "key": "user-voice:UV3",
+      "originalCandidateTitle": "Tools and status report success the harness never proved",
+      "completedRecoveredLenses": [
+        {
+          "lens": "repro",
+          "verdict": "partly"
+        },
+        {
+          "lens": "fair",
+          "verdict": "partly"
+        }
+      ],
+      "disposition": "overstated-owned-elsewhere",
+      "reason": "File receipts already verify bytes; upload #104 is issue-review scope"
+    },
+    {
+      "key": "user-voice:UV4",
+      "originalCandidateTitle": "'Forgets / worse the longer the chat' is real on trunk: the browser drops the oldest turns and nothing summarizes them",
+      "completedRecoveredLenses": [
+        {
+          "lens": "repro",
+          "verdict": "confirmed"
+        },
+        {
+          "lens": "fair",
+          "verdict": "partly"
+        }
+      ],
+      "disposition": "superseded-in-part",
+      "reason": "Long-history recovery merged; memory lane verifies"
+    },
+    {
+      "key": "user-voice:UV5",
+      "originalCandidateTitle": "Token and latency overhead on every message, with aux passes on the expensive model by default",
+      "completedRecoveredLenses": [
+        {
+          "lens": "repro",
+          "verdict": "partly"
+        },
+        {
+          "lens": "fair",
+          "verdict": "partly"
+        }
+      ],
+      "disposition": "source-present-with-corrections",
+      "reason": "Greeting diet, existing #74 fix, aux budget zero means unlimited; measured scope varies"
+    },
+    {
+      "key": "user-voice:UV6",
+      "originalCandidateTitle": "Each update visibly breaks something: huge releases, and gates that mock the boundary that broke",
+      "completedRecoveredLenses": [
+        {
+          "lens": "repro",
+          "verdict": "confirmed"
+        },
+        {
+          "lens": "fair",
+          "verdict": "partly"
+        }
+      ],
+      "disposition": "not-independently-reverified",
+      "reason": "Retain as a candidate from recovered investigation; absence of a disposition is not confirmation. See group synthesis."
+    },
+    {
+      "key": "user-voice:UV7",
+      "originalCandidateTitle": "Learning curve: users can't find the intended way, and the metaphor keeps growing",
+      "completedRecoveredLenses": [
+        {
+          "lens": "repro",
+          "verdict": "partly"
+        },
+        {
+          "lens": "fair",
+          "verdict": "partly"
+        }
+      ],
+      "disposition": "overstated",
+      "reason": "Templates and chat station configuration exist; first-run clarity and pipeline concepts remain"
+    },
+    {
+      "key": "user-voice:UV8",
+      "originalCandidateTitle": "Provider, key and account setup is the biggest first-run cluster (17 of 69 issues)",
+      "completedRecoveredLenses": [
+        {
+          "lens": "repro",
+          "verdict": "partly"
+        },
+        {
+          "lens": "fair",
+          "verdict": "partly"
+        }
+      ],
+      "disposition": "not-independently-reverified",
+      "reason": "Retain as a candidate from recovered investigation; absence of a disposition is not confirmation. See group synthesis."
+    },
+    {
+      "key": "user-voice:UV9",
+      "originalCandidateTitle": "Local-model (Ollama) users hit a different failure every release",
+      "completedRecoveredLenses": [
+        {
+          "lens": "repro",
+          "verdict": "partly"
+        }
+      ],
+      "disposition": "not-independently-reverified",
+      "reason": "Retain as a candidate from recovered investigation; absence of a disposition is not confirmation. See group synthesis."
+    },
+    {
+      "key": "user-voice:UV10",
+      "originalCandidateTitle": "Dead controls and jank make it feel cheap",
+      "completedRecoveredLenses": [
+        {
+          "lens": "repro",
+          "verdict": "partly"
+        }
+      ],
+      "disposition": "historical-not-current-proof",
+      "reason": "Adversarial result retired cited dead controls; do not reopen from old issue status"
+    },
+    {
+      "key": "memory:memory-1",
+      "originalCandidateTitle": "The browser deletes long-chat history before the server's compactor ever sees it: about 42% of the window or message 121, whichever comes first",
+      "completedRecoveredLenses": [
+        {
+          "lens": "repro",
+          "verdict": "confirmed"
+        },
+        {
+          "lens": "fair",
+          "verdict": "partly"
+        }
+      ],
+      "disposition": "superseded-in-part",
+      "reason": "e042c73e0 restores bounded earlier context; memory lane owns live verification and remaining limits"
+    },
+    {
+      "key": "memory:memory-2",
+      "originalCandidateTitle": "COMMS history is prose-only: every tool call and result (files read, HTML written, commands run) disappears between turns",
+      "completedRecoveredLenses": [
+        {
+          "lens": "repro",
+          "verdict": "confirmed"
+        },
+        {
+          "lens": "fair",
+          "verdict": "partly"
+        }
+      ],
+      "disposition": "source-present-owned-elsewhere",
+      "reason": "Prose-only ordinary COMMS and channel metadata stripping remain; memory lane"
+    },
+    {
+      "key": "memory:memory-3",
+      "originalCandidateTitle": "Explicit 'from now on / always / never' instructions and corrections are the LEAST likely things to get saved, and the 'saved' claim is barely checked",
+      "completedRecoveredLenses": [
+        {
+          "lens": "repro",
+          "verdict": "partly"
+        },
+        {
+          "lens": "fair",
+          "verdict": "partly"
+        }
+      ],
+      "disposition": "superseded-in-part",
+      "reason": "Memory/stop merges changed provenance, standing instructions, and save guards; memory lane"
+    },
+    {
+      "key": "memory:memory-4",
+      "originalCandidateTitle": "Recall is relevance-gated and has no time awareness: unpinned preferences vanish on unrelated asks, an old confirmed belief outranks the newer correction, and pinned rules are silently capped",
+      "completedRecoveredLenses": [
+        {
+          "lens": "repro",
+          "verdict": "partly"
+        },
+        {
+          "lens": "fair",
+          "verdict": "partly"
+        }
+      ],
+      "disposition": "superseded-in-part",
+      "reason": "Dated newer-wins recall, write-time ranking, standing instructions and supersession merged; memory lane"
+    },
+    {
+      "key": "memory:memory-5",
+      "originalCandidateTitle": "Compaction summaries are thrown away after every run, so small-window and local-model chats pay for a fresh summarization on every message",
+      "completedRecoveredLenses": [
+        {
+          "lens": "repro",
+          "verdict": "partly"
+        },
+        {
+          "lens": "fair",
+          "verdict": "partly"
+        }
+      ],
+      "disposition": "not-reverified",
+      "reason": "Original in-run compaction cost needs remeasurement with earlier-conversation recovery"
+    },
+    {
+      "key": "memory:memory-6",
+      "originalCandidateTitle": "Approving a design stores no design: a thumbs-up saves a 120-char copy of the request, image generation can't take a reference, and pinning is refused in any tainted chat",
+      "completedRecoveredLenses": [
+        {
+          "lens": "repro",
+          "verdict": "confirmed"
+        },
+        {
+          "lens": "fair",
+          "verdict": "partly"
+        }
+      ],
+      "disposition": "superseded-in-part",
+      "reason": "Design anchors, image references, and taste coverage merged; memory/design lane"
+    },
+    {
+      "key": "memory:memory-7",
+      "originalCandidateTitle": "The same conversation gets a different context depending on how the message arrived; channel replay is 100 raw rows with tool ids stripped",
+      "completedRecoveredLenses": [
+        {
+          "lens": "repro",
+          "verdict": "partly"
+        },
+        {
+          "lens": "fair",
+          "verdict": "partly"
+        }
+      ],
+      "disposition": "source-present-owned-elsewhere",
+      "reason": "hub maps history to role/content, stripping tool metadata; memory lane"
+    },
+    {
+      "key": "memory:memory-8",
+      "originalCandidateTitle": "Editing the operating manual leaves the old copy in the Dossier, so contradictory standing orders ride every prompt",
+      "completedRecoveredLenses": [
+        {
+          "lens": "repro",
+          "verdict": "confirmed"
+        }
+      ],
+      "disposition": "source-repaired-awaiting-owner-proof",
+      "reason": "Dossier seed refresh 2ef2cb718 merged; memory lane"
+    },
+    {
+      "key": "reliability:REL-1",
+      "originalCandidateTitle": "StarNet sends a non-standard message format: 23 sources of mid-conversation `role:system` messages, which strict local model templates reject (#102). The failure is then retried for 106 s and blamed on the provider",
+      "completedRecoveredLenses": [
+        {
+          "lens": "repro",
+          "verdict": "confirmed"
+        },
+        {
+          "lens": "fair",
+          "verdict": "partly"
+        }
+      ],
+      "disposition": "owned-elsewhere",
+      "reason": "Strict-template issue #102: issue-review lane"
+    },
+    {
+      "key": "reliability:REL-2",
+      "originalCandidateTitle": "The loop knows exactly why it stopped, but 8 of its 10 own error messages show as 'Something went wrong on that turn — try again', and the reason is lost on reload",
+      "completedRecoveredLenses": [
+        {
+          "lens": "repro",
+          "verdict": "partly"
+        },
+        {
+          "lens": "fair",
+          "verdict": "partly"
+        }
+      ],
+      "disposition": "superseded-in-part",
+      "reason": "Stop-truth merge 5589b3110; memory/stop lane verification"
+    },
+    {
+      "key": "reliability:REL-3",
+      "originalCandidateTitle": "The check for 'announced work, then stopped' is wrong both ways: it misses most real stalls and turns finished answers into errors",
+      "completedRecoveredLenses": [
+        {
+          "lens": "repro",
+          "verdict": "confirmed"
+        },
+        {
+          "lens": "fair",
+          "verdict": "partly"
+        }
+      ],
+      "disposition": "superseded-in-part",
+      "reason": "Continuation classifier rewritten on trunk; memory/stop lane"
+    },
+    {
+      "key": "reliability:REL-4",
+      "originalCandidateTitle": "One empty model reply ends the run as '⏹ stopped (empty)' with no retry and no explanation (#98)",
+      "completedRecoveredLenses": [
+        {
+          "lens": "repro",
+          "verdict": "partly"
+        },
+        {
+          "lens": "fair",
+          "verdict": "partly"
+        }
+      ],
+      "disposition": "source-repaired-awaiting-owner-proof",
+      "reason": "Empty-response re-ask on trunk; memory/stop lane"
+    },
+    {
+      "key": "reliability:REL-5",
+      "originalCandidateTitle": "On Telegram and other chat apps, any follow-up message silently kills the running task",
+      "completedRecoveredLenses": [
+        {
+          "lens": "repro",
+          "verdict": "partly"
+        },
+        {
+          "lens": "fair",
+          "verdict": "partly"
+        }
+      ],
+      "disposition": "source-repaired-awaiting-owner-proof",
+      "reason": "Channel follow-up steering merged; memory/stop lane"
+    },
+    {
+      "key": "reliability:REL-6",
+      "originalCandidateTitle": "Ten separate checks with separate budgets decide whether a run may finish: up to 15 extra paid model calls, triggered by regexes over the model's wording",
+      "completedRecoveredLenses": [
+        {
+          "lens": "repro",
+          "verdict": "partly"
+        }
+      ],
+      "disposition": "not-independently-reverified",
+      "reason": "Retain as a candidate from recovered investigation; absence of a disposition is not confirmation. See group synthesis."
+    },
+    {
+      "key": "reliability:REL-7",
+      "originalCandidateTitle": "Why every update breaks something: the loop grew five-fold in three months through fix commits, and provider fixes are tested against mocks, never against real provider responses",
+      "completedRecoveredLenses": [
+        {
+          "lens": "repro",
+          "verdict": "partly"
+        }
+      ],
+      "disposition": "not-independently-reverified",
+      "reason": "Retain as a candidate from recovered investigation; absence of a disposition is not confirmation. See group synthesis."
+    },
+    {
+      "key": "reliability:REL-8",
+      "originalCandidateTitle": "browser.upload reports 'uploaded' without checking which input got the file or whether the page reacted (#104)",
+      "completedRecoveredLenses": [
+        {
+          "lens": "repro",
+          "verdict": "confirmed"
+        }
+      ],
+      "disposition": "owned-elsewhere",
+      "reason": "Upload issue #104: issue-review lane"
+    },
+    {
+      "key": "speed:speed-1",
+      "originalCandidateTitle": "claude-cli starts a new `claude -p` process every model turn and re-sends the whole transcript as one block that can never be cached",
+      "completedRecoveredLenses": [
+        {
+          "lens": "repro",
+          "verdict": "partly"
+        },
+        {
+          "lens": "fair",
+          "verdict": "partly"
+        }
+      ],
+      "disposition": "source-present-impact-not-remeasured",
+      "reason": "claude-cli spawns per step and sends conversation block; historical latency not isolated"
+    },
+    {
+      "key": "speed:speed-2",
+      "originalCandidateTitle": "Stop-guard 'nudges' reopen finished answers: the continuation guard misfires on a complete report, costing a full turn and showing the report twice",
+      "completedRecoveredLenses": [
+        {
+          "lens": "repro",
+          "verdict": "partly"
+        },
+        {
+          "lens": "fair",
+          "verdict": "partly"
+        }
+      ],
+      "disposition": "superseded-in-part",
+      "reason": "Continuation guard rewritten; duplicate/further nudge behavior needs owner proof"
+    },
+    {
+      "key": "speed:speed-3",
+      "originalCandidateTitle": "Turn inflation: StarNet uses 1.3-1.9x the model turns and ~3x the tool calls of Claude Code for the same task on the same model",
+      "completedRecoveredLenses": [
+        {
+          "lens": "repro",
+          "verdict": "partly"
+        },
+        {
+          "lens": "fair",
+          "verdict": "partly"
+        }
+      ],
+      "disposition": "superseded-in-part",
+      "reason": "Parked-output fix and stop fixes merged; batching/brief did not explain alleged turns"
+    },
+    {
+      "key": "speed:speed-4",
+      "originalCandidateTitle": "Station freezes: any prop edit re-bakes the whole station for 2.2-2.8 s, boot bakes twice, and the fix is unmerged",
+      "completedRecoveredLenses": [
+        {
+          "lens": "repro",
+          "verdict": "partly"
+        }
+      ],
+      "disposition": "source-present-existing-lane",
+      "reason": "Live world ignores change patch; nav-lag commit not merged; do not duplicate lane"
+    },
+    {
+      "key": "speed:speed-5",
+      "originalCandidateTitle": "The Codex/ChatGPT OAuth path sends no prompt_cache_key or session header and has no incremental input; the full transcript is re-POSTed every turn",
+      "completedRecoveredLenses": [
+        {
+          "lens": "repro",
+          "verdict": "confirmed"
+        }
+      ],
+      "disposition": "source-present-impact-unverified",
+      "reason": "Codex wire lacks affinity fields; no independent benefit measurement"
+    },
+    {
+      "key": "speed:speed-6",
+      "originalCandidateTitle": "Every task call ships ~25k chars of system prompt plus 84 tools / 66 KB of schemas, about 2x Hermes, which is slow on uncached and local models",
+      "completedRecoveredLenses": [],
+      "disposition": "not-independently-reverified",
+      "reason": "Retain as a candidate from recovered investigation; absence of a disposition is not confirmation. See group synthesis."
+    },
+    {
+      "key": "speed:speed-7",
+      "originalCandidateTitle": "Model-turn latency is never measured or gated, so every release can make StarNet slower without any test failing",
+      "completedRecoveredLenses": [
+        {
+          "lens": "repro",
+          "verdict": "partly"
+        }
+      ],
+      "disposition": "overstated",
+      "reason": "Deterministic gates and performance tools exist; real-model regression gating remains distinct"
+    },
+    {
+      "key": "speed:speed-8",
+      "originalCandidateTitle": "Host overhead on mutating turns: shadow-git snapshot plus fsync'd journal records plus parked output re-hashed into git, about 0.3-0.6 s per turn and seconds for big outputs",
+      "completedRecoveredLenses": [],
+      "disposition": "not-independently-reverified",
+      "reason": "Retain as a candidate from recovered investigation; absence of a disposition is not confirmation. See group synthesis."
+    },
+    {
+      "key": "speed:speed-9",
+      "originalCandidateTitle": "The app boot parses 262 synchronous, unbundled scripts (10.9 MB of JS) plus 49 stylesheets (1.4 MB) on every launch",
+      "completedRecoveredLenses": [],
+      "disposition": "not-independently-reverified",
+      "reason": "Retain as a candidate from recovered investigation; absence of a disposition is not confirmation. See group synthesis."
+    },
+    {
+      "key": "prompt-sprawl:PS-1",
+      "originalCandidateTitle": "Every COMMS task call ships ~21-46K tokens of fixed instructions+tool schemas before the user's words; on small windows it crowds out the conversation",
+      "completedRecoveredLenses": [],
+      "disposition": "not-independently-reverified",
+      "reason": "Retain as a candidate from recovered investigation; absence of a disposition is not confirmation. See group synthesis."
+    },
+    {
+      "key": "prompt-sprawl:PS-2",
+      "originalCandidateTitle": "Six competing ask-vs-act policies and three different 'how to ask' output protocols in the same prompt",
+      "completedRecoveredLenses": [],
+      "disposition": "not-independently-reverified",
+      "reason": "Retain as a candidate from recovered investigation; absence of a disposition is not confirmation. See group synthesis."
+    },
+    {
+      "key": "prompt-sprawl:PS-3",
+      "originalCandidateTitle": "Hidden Task Brief gate: every interactive message mints a new brief and every write/execute tool errors until the model calls brief_proceed",
+      "completedRecoveredLenses": [],
+      "disposition": "not-independently-reverified",
+      "reason": "Retain as a candidate from recovered investigation; absence of a disposition is not confirmation. See group synthesis."
+    },
+    {
+      "key": "prompt-sprawl:PS-4",
+      "originalCandidateTitle": "Instructions are gated on the live wire list, so tool-surface changes silently delete, dangle or garble rules (seam bugs)",
+      "completedRecoveredLenses": [],
+      "disposition": "not-independently-reverified",
+      "reason": "Retain as a candidate from recovered investigation; absence of a disposition is not confirmation. See group synthesis."
+    },
+    {
+      "key": "prompt-sprawl:PS-5",
+      "originalCandidateTitle": "The only growth guard measures a request no user sends, and it ratchets upward: tools 57→137 and the manual 6→32 KB in 3 months",
+      "completedRecoveredLenses": [],
+      "disposition": "not-independently-reverified",
+      "reason": "Retain as a candidate from recovered investigation; absence of a disposition is not confirmation. See group synthesis."
+    },
+    {
+      "key": "prompt-sprawl:PS-6",
+      "originalCandidateTitle": "The system prompt is recomposed on every message from volatile state, so the rules the model follows shift between turns of one conversation",
+      "completedRecoveredLenses": [],
+      "disposition": "not-independently-reverified",
+      "reason": "Retain as a candidate from recovered investigation; absence of a disposition is not confirmation. See group synthesis."
+    },
+    {
+      "key": "prompt-sprawl:PS-7",
+      "originalCandidateTitle": "Product-support doctrine and UI paths the model can't see ride every coding and research task",
+      "completedRecoveredLenses": [],
+      "disposition": "not-independently-reverified",
+      "reason": "Retain as a candidate from recovered investigation; absence of a disposition is not confirmation. See group synthesis."
+    },
+    {
+      "key": "prompt-sprawl:PS-8",
+      "originalCandidateTitle": "Duplicated doctrine plus explicit 'ignore what came earlier' patches, and an identity that is frozen per install age",
+      "completedRecoveredLenses": [],
+      "disposition": "not-independently-reverified",
+      "reason": "Retain as a candidate from recovered investigation; absence of a disposition is not confirmation. See group synthesis."
+    },
+    {
+      "key": "prompt-sprawl:PS-9",
+      "originalCandidateTitle": "One doctrine for every model: no model-family gating, so frontier models pay for weak-model crutches and weak models drown",
+      "completedRecoveredLenses": [],
+      "disposition": "not-independently-reverified",
+      "reason": "Retain as a candidate from recovered investigation; absence of a disposition is not confirmation. See group synthesis."
+    },
+    {
+      "key": "prompt-sprawl:PS-10",
+      "originalCandidateTitle": "The prompt grows with use, so a warm station carries ~13-15K more chars than a fresh one ('worse the longer')",
+      "completedRecoveredLenses": [],
+      "disposition": "not-independently-reverified",
+      "reason": "Retain as a candidate from recovered investigation; absence of a disposition is not confirmation. See group synthesis."
+    },
+    {
+      "key": "tokens:tokens-1",
+      "originalCandidateTitle": "claude-cli (subscription) path re-writes the entire transcript at the 2x cache-write rate on every agent step: quadratic cost; fix (PR #103) is open, not merged",
+      "completedRecoveredLenses": [
+        {
+          "lens": "repro",
+          "verdict": "partly"
+        }
+      ],
+      "disposition": "source-present-impact-not-remeasured",
+      "reason": "Model-specific contributor cache evidence; scope claude-cli long runs"
+    },
+    {
+      "key": "tokens:tokens-2",
+      "originalCandidateTitle": "Learned state sits at the FRONT of the cached prefix (dossier + time-decayed fork block inside the persona), and no breakpoint covers the tool array, so every learning event re-writes ~30-35k tokens",
+      "completedRecoveredLenses": [],
+      "disposition": "source-present-impact-not-remeasured",
+      "reason": "Dossier/fork remain in persona; cache-byte boundary needs representative capture"
+    },
+    {
+      "key": "tokens:tokens-3",
+      "originalCandidateTitle": "Always-sent prompt is ~28-35k tokens: 84-86 tools / ~68 KB plus 38-49K chars of system prose, ~2x Hermes and 5-7x Codex/OpenCode",
+      "completedRecoveredLenses": [],
+      "disposition": "not-independently-reverified",
+      "reason": "Retain as a candidate from recovered investigation; absence of a disposition is not confirmation. See group synthesis."
+    },
+    {
+      "key": "tokens:tokens-4",
+      "originalCandidateTitle": "Background learning: up to 3 aux passes per run-end plus frontend self-talk, all on the user's main model with no cheap default; ~40% of measured usage",
+      "completedRecoveredLenses": [],
+      "disposition": "not-independently-reverified",
+      "reason": "Retain as a candidate from recovered investigation; absence of a disposition is not confirmation. See group synthesis."
+    },
+    {
+      "key": "tokens:tokens-5",
+      "originalCandidateTitle": "On subscriptions (claude-cli, Codex OAuth) usage is booked as $0 and there is no token ceiling, so every $ guard is inert and background spend is unbounded and invisible",
+      "completedRecoveredLenses": [],
+      "disposition": "superseded-in-part",
+      "reason": "Stop lane added unpriced-token stop handling; no fresh subscription exposure measurement"
+    },
+    {
+      "key": "tokens:tokens-6",
+      "originalCandidateTitle": "Codex/ChatGPT-subscription adapter sends no prompt_cache_key and no session-id header, so prefix cache affinity is likely lost on every step",
+      "completedRecoveredLenses": [],
+      "disposition": "source-present-impact-unverified",
+      "reason": "Codex affinity fields absent; performance benefit not measured"
+    },
+    {
+      "key": "tokens:tokens-7",
+      "originalCandidateTitle": "Mandatory protocol turns and stop-nudges add full-context model calls to ordinary tasks",
+      "completedRecoveredLenses": [],
+      "disposition": "not-independently-reverified",
+      "reason": "Retain as a candidate from recovered investigation; absence of a disposition is not confirmation. See group synthesis."
+    },
+    {
+      "key": "tokens:tokens-8",
+      "originalCandidateTitle": "Root cause: 'prompt-as-patch'. Behaviour fixes become always-on prose, and the payload ratchet gets its budget raised instead of cut",
+      "completedRecoveredLenses": [],
+      "disposition": "not-independently-reverified",
+      "reason": "Retain as a candidate from recovered investigation; absence of a disposition is not confirmation. See group synthesis."
+    },
+    {
+      "key": "tokens:tokens-9",
+      "originalCandidateTitle": "Delegation multiplies the prefix and aux costs: every worker run is a separate ~19k-token prefix with its own scout and skill-review passes",
+      "completedRecoveredLenses": [],
+      "disposition": "not-independently-reverified",
+      "reason": "Retain as a candidate from recovered investigation; absence of a disposition is not confirmation. See group synthesis."
+    },
+    {
+      "key": "learning-curve:LC-1",
+      "originalCandidateTitle": "Default ASK posture strips command execution from every unattended surface (lines, crew delegation, routines, night shift); routines and lines also lose MCP connectors without a grant; no prop can fix it",
+      "completedRecoveredLenses": [],
+      "disposition": "not-independently-reverified",
+      "reason": "Retain as a candidate from recovered investigation; absence of a disposition is not confirmation. See group synthesis."
+    },
+    {
+      "key": "learning-curve:LC-2",
+      "originalCandidateTitle": "First-run brain setup is a hard wall: 17 providers, no key detection, raw errors, no way in without a working model connection (the #106 'API KEYS NOT WORKING' class)",
+      "completedRecoveredLenses": [],
+      "disposition": "not-independently-reverified",
+      "reason": "Retain as a candidate from recovered investigation; absence of a disposition is not confirmation. See group synthesis."
+    },
+    {
+      "key": "learning-curve:LC-3",
+      "originalCandidateTitle": "What an agent can do is computed from about 10 hidden inputs and differs on every surface; the floor predicts it only part of the time",
+      "completedRecoveredLenses": [],
+      "disposition": "not-independently-reverified",
+      "reason": "Retain as a candidate from recovered investigation; absence of a disposition is not confirmation. See group synthesis."
+    },
+    {
+      "key": "learning-curve:LC-4",
+      "originalCandidateTitle": "Onboarding front-loads about 11 decisions, a mandatory cinematic and 2 paid calls before the first task, and the recommended station adds an unrunnable line",
+      "completedRecoveredLenses": [],
+      "disposition": "not-independently-reverified",
+      "reason": "Retain as a candidate from recovered investigation; absence of a disposition is not confirmation. See group synthesis."
+    },
+    {
+      "key": "learning-curve:LC-5",
+      "originalCandidateTitle": "Concept and naming load: 70 glossary terms, 19 windows, 14 dock systems, about 11 permission axes and about 67 breadcrumb directions, with the same thing named two or three ways",
+      "completedRecoveredLenses": [],
+      "disposition": "not-independently-reverified",
+      "reason": "Retain as a candidate from recovered investigation; absence of a disposition is not confirmation. See group synthesis."
+    },
+    {
+      "key": "learning-curve:LC-6",
+      "originalCandidateTitle": "The 'every release adds more' mechanism: 34 per-user engagement stores, 15 separate files firing suggestion cards, three generations of first-task UX",
+      "completedRecoveredLenses": [],
+      "disposition": "not-independently-reverified",
+      "reason": "Retain as a candidate from recovered investigation; absence of a disposition is not confirmation. See group synthesis."
+    },
+    {
+      "key": "learning-curve:LC-7",
+      "originalCandidateTitle": "The Hermes/OpenClaw importer, built for Andrew's core audience, is buried and shallow",
+      "completedRecoveredLenses": [],
+      "disposition": "not-independently-reverified",
+      "reason": "Retain as a candidate from recovered investigation; absence of a disposition is not confirmation. See group synthesis."
+    },
+    {
+      "key": "learning-curve:LC-8",
+      "originalCandidateTitle": "The public support loop is silent, which reads as abandoned and cheap",
+      "completedRecoveredLenses": [],
+      "disposition": "not-independently-reverified",
+      "reason": "Retain as a candidate from recovered investigation; absence of a disposition is not confirmation. See group synthesis."
+    },
+    {
+      "key": "hermes-delta:HD-1",
+      "originalCandidateTitle": "In-app chat (COMMS) sends a text-only history from the browser that is silently cut; Hermes reloads the full server transcript, tool calls included, and keeps one saved summary",
+      "completedRecoveredLenses": [],
+      "disposition": "superseded-in-part",
+      "reason": "Bounded dropped-history recovery merged; tool history and persistence are distinct remaining questions"
+    },
+    {
+      "key": "hermes-delta:HD-2",
+      "originalCandidateTitle": "Hermes split its god files and added a size and complexity ratchet a branch cannot loosen; StarNet's composition root keeps growing and every lane edits it",
+      "completedRecoveredLenses": [],
+      "disposition": "not-independently-reverified",
+      "reason": "Retain as a candidate from recovered investigation; absence of a disposition is not confirmation. See group synthesis."
+    },
+    {
+      "key": "hermes-delta:HD-3",
+      "originalCandidateTitle": "Learned state sits inside the cached prompt prefix, and 7 kinds of side passes run from scratch with no cache reuse; Hermes freezes memory per session and runs one review that reuses the cache",
+      "completedRecoveredLenses": [],
+      "disposition": "not-independently-reverified",
+      "reason": "Retain as a candidate from recovered investigation; absence of a disposition is not confirmation. See group synthesis."
+    },
+    {
+      "key": "hermes-delta:HD-4",
+      "originalCandidateTitle": "CI checks about 3% of trunk states and every user is on the one release channel; Hermes gates every PR and push, then adds daily canaries, RC trains and a user-selectable stable channel",
+      "completedRecoveredLenses": [],
+      "disposition": "not-independently-reverified",
+      "reason": "Retain as a candidate from recovered investigation; absence of a disposition is not confirmation. See group synthesis."
+    },
+    {
+      "key": "hermes-delta:HD-5",
+      "originalCandidateTitle": "StarNet records lessons as prose for agents to remember; Hermes turns them into blocking checks whose message names the fix at the moment an agent trips them",
+      "completedRecoveredLenses": [],
+      "disposition": "overstated",
+      "reason": "Existing deterministic/source checks enforce some lessons; zero checks is unsupported"
+    },
+    {
+      "key": "hermes-delta:HD-6",
+      "originalCandidateTitle": "Prompt and tool-surface changes ship without review; Hermes commits per-surface snapshots that CI checks and a core maintainer must approve",
+      "completedRecoveredLenses": [],
+      "disposition": "not-independently-reverified",
+      "reason": "Retain as a candidate from recovered investigation; absence of a disposition is not confirmation. See group synthesis."
+    },
+    {
+      "key": "hermes-delta:HD-7",
+      "originalCandidateTitle": "StarNet auto-injects memories ranked fresh on every message, and each recall makes a memory rank higher next time; Hermes uses a small fixed curated memory plus explicit search",
+      "completedRecoveredLenses": [],
+      "disposition": "superseded-in-part",
+      "reason": "Recall write-time/newer-wins changes merged"
+    },
+    {
+      "key": "hermes-delta:HD-8",
+      "originalCandidateTitle": "Hermes now competes on StarNet's GUI turf: an Electron desktop app with onboarding, a built-in tour, a desktop pet and free inference out of the box (behind a per-bundle switch)",
+      "completedRecoveredLenses": [],
+      "disposition": "not-independently-reverified",
+      "reason": "Retain as a candidate from recovered investigation; absence of a disposition is not confirmation. See group synthesis."
+    },
+    {
+      "key": "hermes-delta:HD-9",
+      "originalCandidateTitle": "StarNet has no field signal at all; Hermes records why memory, compression and updates fail in a local store, and sending it is opt-in",
+      "completedRecoveredLenses": [],
+      "disposition": "not-independently-reverified",
+      "reason": "Retain as a candidate from recovered investigation; absence of a disposition is not confirmation. See group synthesis."
+    },
+    {
+      "key": "hermes-delta:HD-10",
+      "originalCandidateTitle": "No 'narrow waist' rule: StarNet adds every feature to the core sidecar, while Hermes moves capability out to plugins and skills",
+      "completedRecoveredLenses": [],
+      "disposition": "not-independently-reverified",
+      "reason": "Retain as a candidate from recovered investigation; absence of a disposition is not confirmation. See group synthesis."
+    },
+    {
+      "key": "integrations:INT-1",
+      "originalCandidateTitle": "Every non-Claude model gets mid-conversation system messages, so strict chat templates hard-fail (#102 is unfixed)",
+      "completedRecoveredLenses": [],
+      "disposition": "owned-elsewhere",
+      "reason": "#102 issue-review lane"
+    },
+    {
+      "key": "integrations:INT-2",
+      "originalCandidateTitle": "Provider/model selection has no single owner: page localStorage, hero pin, roster and four alias tables, and every unknown silently becomes OpenRouter",
+      "completedRecoveredLenses": [],
+      "disposition": "not-independently-reverified",
+      "reason": "Retain as a candidate from recovered investigation; absence of a disposition is not confirmation. See group synthesis."
+    },
+    {
+      "key": "integrations:INT-3",
+      "originalCandidateTitle": "Local models get a ~21k-token prompt per message and a 300 s x 3 silent ceiling, so 'Working…' runs 15+ min with no error (#99); the 30 s WAKE check can reject a cold local model",
+      "completedRecoveredLenses": [],
+      "disposition": "not-independently-reverified",
+      "reason": "Retain as a candidate from recovered investigation; absence of a disposition is not confirmation. See group synthesis."
+    },
+    {
+      "key": "integrations:INT-4",
+      "originalCandidateTitle": "Users who fail at the first screen cannot produce diagnostics, and the WAKE error is one truncated line (#106, #76, #90 arrive with no diagnostics)",
+      "completedRecoveredLenses": [],
+      "disposition": "not-independently-reverified",
+      "reason": "Retain as a candidate from recovered investigation; absence of a disposition is not confirmation. See group synthesis."
+    },
+    {
+      "key": "integrations:INT-5",
+      "originalCandidateTitle": "Standard stdio MCP servers (npx/uvx) run only inside a Docker 'Safe Cell' bound to one agent",
+      "completedRecoveredLenses": [],
+      "disposition": "not-independently-reverified",
+      "reason": "Retain as a candidate from recovered investigation; absence of a disposition is not confirmation. See group synthesis."
+    },
+    {
+      "key": "integrations:INT-6",
+      "originalCandidateTitle": "Connector vault uses one global key and fails closed with no way out: every connector dies, and RESET is refused too",
+      "completedRecoveredLenses": [],
+      "disposition": "not-independently-reverified",
+      "reason": "Retain as a candidate from recovered investigation; absence of a disposition is not confirmation. See group synthesis."
+    },
+    {
+      "key": "integrations:INT-7",
+      "originalCandidateTitle": "Channel setup has no preflight: Discord dies with 'gateway closed 4014 (check token/intents)', and Signal is DM-only, text-only, with no Note-to-Self",
+      "completedRecoveredLenses": [],
+      "disposition": "not-independently-reverified",
+      "reason": "Retain as a candidate from recovered investigation; absence of a disposition is not confirmation. See group synthesis."
+    },
+    {
+      "key": "integrations:INT-8",
+      "originalCandidateTitle": "14 of 47 open issues are already fixed in the shipped v0.13.2, and the maintainer has 0 comments on any open issue",
+      "completedRecoveredLenses": [],
+      "disposition": "not-independently-reverified",
+      "reason": "Retain as a candidate from recovered investigation; absence of a disposition is not confirmation. See group synthesis."
+    },
+    {
+      "key": "integrations:INT-9",
+      "originalCandidateTitle": "Browser actions report success when the input was sent, never from page state (#104 upload)",
+      "completedRecoveredLenses": [],
+      "disposition": "owned-elsewhere",
+      "reason": "#104 issue-review lane"
+    },
+    {
+      "key": "integrations:INT-10",
+      "originalCandidateTitle": "ERASE EVERYTHING is undone on the next Windows boot (#101), and the resurrected station can then lock every connector",
+      "completedRecoveredLenses": [],
+      "disposition": "owned-elsewhere",
+      "reason": "#101 issue-review lane"
+    },
+    {
+      "key": "peers:peers-1",
+      "originalCandidateTitle": "The browser owns the conversation: history is text only, built three different ways, and every run throws its compaction away",
+      "completedRecoveredLenses": [],
+      "disposition": "not-independently-reverified",
+      "reason": "Retain as a candidate from recovered investigation; absence of a disposition is not confirmation. See group synthesis."
+    },
+    {
+      "key": "peers:peers-2",
+      "originalCandidateTitle": "Every call carries ~25K chars of prompt plus 84 tool schemas, and every task can buy up to 3 more calls on the run's own model",
+      "completedRecoveredLenses": [],
+      "disposition": "not-independently-reverified",
+      "reason": "Retain as a candidate from recovered investigation; absence of a disposition is not confirmation. See group synthesis."
+    },
+    {
+      "key": "peers:peers-3",
+      "originalCandidateTitle": "The end of every turn runs 10 heuristic gates that can add up to 15 paid turns, or turn a finished answer into an error",
+      "completedRecoveredLenses": [],
+      "disposition": "not-independently-reverified",
+      "reason": "Retain as a candidate from recovered investigation; absence of a disposition is not confirmation. See group synthesis."
+    },
+    {
+      "key": "peers:peers-4",
+      "originalCandidateTitle": "fs.patch can silently corrupt files: StarNet's block_anchor dropped the safety check Hermes has",
+      "completedRecoveredLenses": [],
+      "disposition": "repaired-in-this-lane",
+      "reason": "f0a53efb0; source and seeded before/after proof; full gates reported separately"
+    },
+    {
+      "key": "peers:peers-5",
+      "originalCandidateTitle": "The subscription path (claude-cli) spawns a fresh claude -p every turn and does tool calling in text",
+      "completedRecoveredLenses": [],
+      "disposition": "not-independently-reverified",
+      "reason": "Retain as a candidate from recovered investigation; absence of a disposition is not confirmation. See group synthesis."
+    },
+    {
+      "key": "peers:peers-6",
+      "originalCandidateTitle": "Five stacked tool-output budgets where the peers have one rule",
+      "completedRecoveredLenses": [],
+      "disposition": "not-independently-reverified",
+      "reason": "Retain as a candidate from recovered investigation; absence of a disposition is not confirmation. See group synthesis."
+    },
+    {
+      "key": "peers:peers-7",
+      "originalCandidateTitle": "The system prompt has two authors: the browser composes identity and standing orders, the sidecar appends the rest, and channels use whatever was last pushed",
+      "completedRecoveredLenses": [],
+      "disposition": "not-independently-reverified",
+      "reason": "Retain as a candidate from recovered investigation; absence of a disposition is not confirmation. See group synthesis."
+    },
+    {
+      "key": "architecture:ARCH-1",
+      "originalCandidateTitle": "index.js is the single choke point every feature passes through; runOnceCore is a 3,348-line function",
+      "completedRecoveredLenses": [],
+      "disposition": "not-independently-reverified",
+      "reason": "Retain as a candidate from recovered investigation; absence of a disposition is not confirmation. See group synthesis."
+    },
+    {
+      "key": "architecture:ARCH-2",
+      "originalCandidateTitle": "No static guardrails: no types, no lint, no modules, so merges and renames break things silently",
+      "completedRecoveredLenses": [],
+      "disposition": "overstated",
+      "reason": "Static checks and modules exist; broad type/complexity enforcement is a narrower gap"
+    },
+    {
+      "key": "architecture:ARCH-3",
+      "originalCandidateTitle": "The event contract drops bad data silently and pushes features onto three parallel UI ingress paths",
+      "completedRecoveredLenses": [],
+      "disposition": "not-independently-reverified",
+      "reason": "Retain as a candidate from recovered investigation; absence of a disposition is not confirmation. See group synthesis."
+    },
+    {
+      "key": "architecture:ARCH-4",
+      "originalCandidateTitle": "Four to six overlapping subsystems per user job, each with its own store, timer, window and prompt block",
+      "completedRecoveredLenses": [],
+      "disposition": "not-independently-reverified",
+      "reason": "Retain as a candidate from recovered investigation; absence of a disposition is not confirmation. See group synthesis."
+    },
+    {
+      "key": "architecture:ARCH-5",
+      "originalCandidateTitle": "Duplicated policies in the hot path drift apart (memory recall, conversation window, decision cards)",
+      "completedRecoveredLenses": [],
+      "disposition": "not-independently-reverified",
+      "reason": "Retain as a candidate from recovered investigation; absence of a disposition is not confirmation. See group synthesis."
+    },
+    {
+      "key": "architecture:ARCH-6",
+      "originalCandidateTitle": "Tests pin source text, so correct changes turn trunk red and refactoring is punished",
+      "completedRecoveredLenses": [],
+      "disposition": "not-independently-reverified",
+      "reason": "Retain as a candidate from recovered investigation; absence of a disposition is not confirmation. See group synthesis."
+    },
+    {
+      "key": "architecture:ARCH-7",
+      "originalCandidateTitle": "Add-only growth: surface expands every release and almost nothing is retired",
+      "completedRecoveredLenses": [],
+      "disposition": "not-independently-reverified",
+      "reason": "Retain as a candidate from recovered investigation; absence of a disposition is not confirmation. See group synthesis."
+    },
+    {
+      "key": "architecture:ARCH-8",
+      "originalCandidateTitle": "Silent-failure density is high, and the frontend has no ratchet at all",
+      "completedRecoveredLenses": [],
+      "disposition": "not-independently-reverified",
+      "reason": "Retain as a candidate from recovered investigation; absence of a disposition is not confirmation. See group synthesis."
+    },
+    {
+      "key": "architecture:ARCH-9",
+      "originalCandidateTitle": "The visual layer is stacked restyle generations, not a design system",
+      "completedRecoveredLenses": [],
+      "disposition": "not-independently-reverified",
+      "reason": "Retain as a candidate from recovered investigation; absence of a disposition is not confirmation. See group synthesis."
+    },
+    {
+      "key": "architecture:ARCH-10",
+      "originalCandidateTitle": "Ceremony commits and committed build artifacts double the merge-conflict surface",
+      "completedRecoveredLenses": [],
+      "disposition": "not-independently-reverified",
+      "reason": "Retain as a candidate from recovered investigation; absence of a disposition is not confirmation. See group synthesis."
+    },
+    {
+      "key": "wire:wire-1",
+      "originalCandidateTitle": "Every non-greeting message ships a ~30k-token everything-included task request (88 tools, 35k-char system)",
+      "completedRecoveredLenses": [],
+      "disposition": "not-independently-reverified",
+      "reason": "Retain as a candidate from recovered investigation; absence of a disposition is not confirmation. See group synthesis."
+    },
+    {
+      "key": "wire:wire-2",
+      "originalCandidateTitle": "The volatile system block sits before the conversation, so history is never cache-reused across messages",
+      "completedRecoveredLenses": [],
+      "disposition": "not-independently-reverified",
+      "reason": "Retain as a candidate from recovered investigation; absence of a disposition is not confirmation. See group synthesis."
+    },
+    {
+      "key": "wire:wire-3",
+      "originalCandidateTitle": "Frontend silently drops every turn past 120 before the sidecar, which would have kept them, ever sees them",
+      "completedRecoveredLenses": [],
+      "disposition": "superseded-in-part",
+      "reason": "earlier-conversation.js carries bounded dropped user text and reply heads"
+    },
+    {
+      "key": "wire:wire-4",
+      "originalCandidateTitle": "Task Brief gate: a one-file write costs 4 full-context model calls instead of 2",
+      "completedRecoveredLenses": [],
+      "disposition": "overstated",
+      "reason": "Adversarial speed receipts did not show an extra turn for brief_proceed"
+    },
+    {
+      "key": "wire:wire-5",
+      "originalCandidateTitle": "Background-call cooldowns never start when nothing is saved: 2 extra reasoning calls on every task message, and threadmine/scout never run",
+      "completedRecoveredLenses": [],
+      "disposition": "source-present-impact-not-remeasured",
+      "reason": "Reflection and study cooldowns still arm only on surviving proposals; shared index lane not edited"
+    },
+    {
+      "key": "wire:wire-6",
+      "originalCandidateTitle": "Small-window models fail: the fixed prefix overflows 16K and fills 94% of 32K, and the user sees raw provider 400s",
+      "completedRecoveredLenses": [],
+      "disposition": "not-independently-reverified",
+      "reason": "Retain as a candidate from recovered investigation; absence of a disposition is not confirmation. See group synthesis."
+    },
+    {
+      "key": "wire:wire-7",
+      "originalCandidateTitle": "The payload guard passes with 24 chars of headroom while measuring a request shape the app never sends",
+      "completedRecoveredLenses": [],
+      "disposition": "not-independently-reverified",
+      "reason": "Retain as a candidate from recovered investigation; absence of a disposition is not confirmation. See group synthesis."
+    },
+    {
+      "key": "wire:wire-8",
+      "originalCandidateTitle": "A station with no props sends a bigger system prompt than a fully kitted one",
+      "completedRecoveredLenses": [],
+      "disposition": "not-independently-reverified",
+      "reason": "Retain as a candidate from recovered investigation; absence of a disposition is not confirmation. See group synthesis."
+    },
+    {
+      "key": "wire:wire-9",
+      "originalCandidateTitle": "Harness overhead is negligible except fs.write, which takes about 0.7 s per call",
+      "completedRecoveredLenses": [],
+      "disposition": "not-independently-reverified",
+      "reason": "Retain as a candidate from recovered investigation; absence of a disposition is not confirmation. See group synthesis."
+    },
+    {
+      "key": "wire:wire-10",
+      "originalCandidateTitle": "Fixture boots leave sibling recovery-owner directories in %TEMP% (7,729 found)",
+      "completedRecoveredLenses": [],
+      "disposition": "not-independently-reverified",
+      "reason": "Retain as a candidate from recovered investigation; absence of a disposition is not confirmation. See group synthesis."
+    },
+    {
+      "key": "hermes-wire:HW-1",
+      "originalCandidateTitle": "Every task call carries 84 tools / ~91 KB; Hermes carries 19 tools / 51 KB",
+      "completedRecoveredLenses": [],
+      "disposition": "not-independently-reverified",
+      "reason": "Retain as a candidate from recovered investigation; absence of a disposition is not confirmation. See group synthesis."
+    },
+    {
+      "key": "hermes-wire:HW-2",
+      "originalCandidateTitle": "Prior turns' tool calls and results are dropped from the next turn's context",
+      "completedRecoveredLenses": [],
+      "disposition": "source-present-owned-elsewhere",
+      "reason": "Ordinary COMMS tool-history shape; memory lane"
+    },
+    {
+      "key": "hermes-wire:HW-3",
+      "originalCandidateTitle": "The same conversation gets a different context depending on whether the message was queued",
+      "completedRecoveredLenses": [],
+      "disposition": "source-present-owned-elsewhere",
+      "reason": "Queued history shape differs; memory lane"
+    },
+    {
+      "key": "hermes-wire:HW-4",
+      "originalCandidateTitle": "Post-run background passes: up to 3 cold-cache calls per task run, each seeing only a 4,000-char excerpt",
+      "completedRecoveredLenses": [],
+      "disposition": "not-independently-reverified",
+      "reason": "Retain as a candidate from recovered investigation; absence of a disposition is not confirmation. See group synthesis."
+    },
+    {
+      "key": "hermes-wire:HW-5",
+      "originalCandidateTitle": "Long chats re-pay compaction on every message; the fold is thrown away at run end",
+      "completedRecoveredLenses": [],
+      "disposition": "not-independently-reverified",
+      "reason": "Retain as a candidate from recovered investigation; absence of a disposition is not confirmation. See group synthesis."
+    },
+    {
+      "key": "hermes-wire:HW-6",
+      "originalCandidateTitle": "No context-window floor: on 32k local models the overhead alone eats ~70% of the window",
+      "completedRecoveredLenses": [],
+      "disposition": "not-independently-reverified",
+      "reason": "Retain as a candidate from recovered investigation; absence of a disposition is not confirmation. See group synthesis."
+    },
+    {
+      "key": "hermes-wire:HW-7",
+      "originalCandidateTitle": "The prompt never tells the model to batch independent tool calls",
+      "completedRecoveredLenses": [],
+      "disposition": "not-independently-reverified",
+      "reason": "Retain as a candidate from recovered investigation; absence of a disposition is not confirmation. See group synthesis."
+    },
+    {
+      "key": "hermes-wire:HW-8",
+      "originalCandidateTitle": "Users can't see what a turn costs or why; Hermes ships `hermes prompt-size`",
+      "completedRecoveredLenses": [],
+      "disposition": "not-independently-reverified",
+      "reason": "Retain as a candidate from recovered investigation; absence of a disposition is not confirmation. See group synthesis."
+    },
+    {
+      "key": "regressions:R1",
+      "originalCandidateTitle": "No gate anywhere touches a real model or a real network, so the bugs users hit are the ones the gate cannot see",
+      "completedRecoveredLenses": [],
+      "disposition": "not-independently-reverified",
+      "reason": "Retain as a candidate from recovered investigation; absence of a disposition is not confirmation. See group synthesis."
+    },
+    {
+      "key": "regressions:R2",
+      "originalCandidateTitle": "Releases are cut at peak churn, with no freeze, no release candidate and no canary channel; the soaked build is not the shipped build",
+      "completedRecoveredLenses": [],
+      "disposition": "not-independently-reverified",
+      "reason": "Retain as a candidate from recovered investigation; absence of a disposition is not confirmation. See group synthesis."
+    },
+    {
+      "key": "regressions:R3",
+      "originalCandidateTitle": "Measured regression rate: most fixes repair code from the last few days, and the share is rising",
+      "completedRecoveredLenses": [],
+      "disposition": "not-independently-reverified",
+      "reason": "Retain as a candidate from recovered investigation; absence of a disposition is not confirmation. See group synthesis."
+    },
+    {
+      "key": "regressions:R4",
+      "originalCandidateTitle": "God files and a god function that only grow, with no size ratchet; every lane edits the same file",
+      "completedRecoveredLenses": [],
+      "disposition": "not-independently-reverified",
+      "reason": "Retain as a candidate from recovered investigation; absence of a disposition is not confirmation. See group synthesis."
+    },
+    {
+      "key": "regressions:R5",
+      "originalCandidateTitle": "About 36% of the fast gate tests the TEXT of shipped source, not behaviour: false greens, false reds, and refactoring made prohibitive",
+      "completedRecoveredLenses": [],
+      "disposition": "not-independently-reverified",
+      "reason": "Retain as a candidate from recovered investigation; absence of a disposition is not confirmation. See group synthesis."
+    },
+    {
+      "key": "regressions:R6",
+      "originalCandidateTitle": "'Green before merge' is honor-system only: trunk is red right now and feature merges keep landing on it",
+      "completedRecoveredLenses": [],
+      "disposition": "not-independently-reverified",
+      "reason": "Retain as a candidate from recovered investigation; absence of a disposition is not confirmation. See group synthesis."
+    },
+    {
+      "key": "regressions:R7",
+      "originalCandidateTitle": "Parallel lanes collide in the same hot files, and hand-resolved conflicts silently drop shipped fixes",
+      "completedRecoveredLenses": [],
+      "disposition": "not-independently-reverified",
+      "reason": "Retain as a candidate from recovered investigation; absence of a disposition is not confirmation. See group synthesis."
+    },
+    {
+      "key": "regressions:R8",
+      "originalCandidateTitle": "Ceremony commits outnumber fixes: 1,757 mechanical claims re-locks that verify nothing, plus mirror and status churn",
+      "completedRecoveredLenses": [],
+      "disposition": "not-independently-reverified",
+      "reason": "Retain as a candidate from recovered investigation; absence of a disposition is not confirmation. See group synthesis."
+    },
+    {
+      "key": "regressions:R9",
+      "originalCandidateTitle": "Budgets and ratchets get raised whenever they trip, and the tool payload is the clearest case",
+      "completedRecoveredLenses": [],
+      "disposition": "not-independently-reverified",
+      "reason": "Retain as a candidate from recovered investigation; absence of a disposition is not confirmation. See group synthesis."
+    },
+    {
+      "key": "regressions:R10",
+      "originalCandidateTitle": "The loop from user report to verified fix is open: shipped fixes leave issues open, the bug ledger went stale, and no record says which commit introduced a bug",
+      "completedRecoveredLenses": [],
+      "disposition": "not-independently-reverified",
+      "reason": "Retain as a candidate from recovered investigation; absence of a disposition is not confirmation. See group synthesis."
+    }
+  ]
+}
