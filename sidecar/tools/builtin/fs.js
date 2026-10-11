@@ -250,7 +250,9 @@ const { note: failNote } = require('../../failopen');
 
     async function beginEditDiagnostics(aid, files, ctx) {
       if (!editDiagnostics) return null;
-      try { return await editDiagnostics.beginEdit({ agentId: aid, files, signal: ctx && ctx.signal }); }
+      // a language server that executes the project (rust-analyzer) starts only for a WATCHED run — never from an
+      // unattended run's file write, which would turn write authority into code execution (2026-10-10)
+      try { return await editDiagnostics.beginEdit({ agentId: aid, files, signal: ctx && ctx.signal, allowProjectExecution: !!(ctx && ctx.surface === 'interactive') }); }
       catch (e) {
         // The new baseline wait must not turn an already-cancelled tool into a late file mutation. Other LSP
         // failures degrade honestly; cancellation keeps the ordinary registry abort semantics.

@@ -256,7 +256,7 @@
     };
 
     const createTool = {
-      name: 'routine.create', capability: 'orchestrator', scope: 'write', requiresConsent: true, timeoutMs: 15000,
+      name: 'routine.create', capability: 'orchestrator', scope: 'write', requiresConsent: true, timeoutMs: 15000, taintLocked: true,
       /* Trimmed 2026-07-26 (tool-schema cost pass). Re-sent every turn, so it keeps only what changes a
          decision and lives nowhere better: what this is, the trigger words that route work HERE instead of
          to a shell, and the check-first rule. Dropped: the agentId auto-routing and `arm` default, both of
@@ -382,7 +382,7 @@
        the SCHEDULER fire it on its next tick through the ordinary unattended path — which is also what the
        reference harness's trigger_job does. It reports the armed time, never "it ran". */
     const manageTool = {
-      name: 'routine.manage', capability: 'orchestrator', scope: 'write', requiresConsent: true, timeoutMs: 15000,
+      name: 'routine.manage', capability: 'orchestrator', scope: 'write', requiresConsent: true, timeoutMs: 15000, taintLocked: true,
       description: 'Edit, pause, resume, delete, or queue an immediate fire of an existing StarNet ROUTINES job. Call routine.list first to see what exists; reference a routine by its exact id, or by name when that name is unambiguous.',
       schema: {
         type: 'object',

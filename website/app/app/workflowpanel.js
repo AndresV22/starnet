@@ -421,9 +421,11 @@ const WorkflowPanel = (() => {
       });
       const lastCol = f.cols[f.cols.length - 1];
       const endId = lastCol ? (lastCol.gate ? lastCol.gate.propId : lastCol.docks.length === 1 ? lastCol.docks[0].propId : null) : null;
+      const sendsTo = sendTarget(f.outbox.propId);   // SEND TO: where this line's finished work rides on to (one short thing) — or OFF
       nodes.push({ kind: 'outbox', propId: f.outbox.propId, mach: 'outbox', addAfter: !f.outbox.propId && endId && H.lineEdit ? endId : null, cls: 'wf-term', ok: f.outbox.reached, name: 'OUTBOX',
-        meta: f.outbox.reached ? 'the result' : f.outbox.reachedOnceCrewed ? 'needs crew' : 'not connected', warn: !f.outbox.reached && !f.outbox.reachedOnceCrewed,
-        tip: 'OUTBOX\n' + (f.outbox.reached ? 'the line ends here' : f.outbox.propId ? (f.outbox.reachedOnceCrewed ? 'connected · waiting on agents' : 'not connected yet') : 'no OUTBOX') });
+        meta: f.outbox.reached ? (sendsTo ? 'sends to ' + sendsTo.name + (sendsTo.off ? ' · OFF' : '') : 'the result') : f.outbox.reachedOnceCrewed ? 'needs crew' : 'not connected',
+        warn: (!f.outbox.reached && !f.outbox.reachedOnceCrewed) || !!(sendsTo && sendsTo.off),
+        tip: 'OUTBOX\n' + (f.outbox.reached ? (sendsTo ? (sendsTo.off ? 'the line ends here — its SEND TO ' + sendsTo.name + ' is off: nothing is sent on' : 'the line ends here — every job that lands in it rides on to ' + sendsTo.name) : 'the line ends here') : f.outbox.propId ? (f.outbox.reachedOnceCrewed ? 'connected · waiting on agents' : 'not connected yet') : 'no OUTBOX') });
     } else if (S.lone) {
       nodes.push({ kind: 'col', col: { docks: [{ propId: S.lone, agentId: (prop(S.lone) || {}).agentId || null, role: (prop(S.lone) || {}).role || null, routed: false }], mode: 'single' }, ok: false });
     }
@@ -1504,8 +1506,53 @@ const WorkflowPanel = (() => {
     if (!d) return l.label;
     return (arrow ? '→ ' : '') + dockLabel(f, l.dock) + (d.agentId ? '' : ' (no agent yet)');
   }
+  /* ===== SEND TO (2026-10-10) — the OUTBOX card: where this line's finished work rides on to =====
+     One chip per OTHER line (named by its INBOX) + NOWHERE. A chip that would send work round in a circle is disabled and says
+     why, right under the chips (never a hover-only reason). station.setSendTo is the one writer (one UNDO); the floor's drag
+     (the OUTBOX onto another line's INBOX) and the BELT tool's two clicks write the same pointer. */
+  function sendChoices(outboxId) { const st = H.station(); return (outboxId && st && typeof st.sendToChoices === 'function') ? st.sendToChoices(outboxId) : []; }
+  /* (10-11) the doc's pointer and the ONE verdict (station.sendToRefusal — the compiler's own rules: both ends on a line, two lines,
+     no circle) decide whether it SENDS. A pointer it refuses is OFF — never "rides on to LINE B" for a SEND TO the plan dropped. */
+  function sendState(outboxId) {
+    const st = H.station(), o = st && outboxId ? st.propById(outboxId) : null;
+    if (!o || !o.sendTo) return null;
+    const no = typeof st.sendToRefusal === 'function' ? st.sendToRefusal(o.id, o.sendTo) : null;
+    return { to: o.sendTo, off: !!no, why: no ? (no.msg || no.error || 'it cannot send there') : '' };
+  }
+  function sendTarget(outboxId) {
+    const s = sendState(outboxId); if (!s) return null;
+    const on = sendChoices(outboxId).find(c => c.on);
+    return { name: on ? (on.name || 'an unnamed line') : 'an INBOX', off: s.off };
+  }
+  function paintOutbox(body, f, p) {
+    const choices = sendChoices(p.id), on = choices.find(c => c.on), ss = sendState(p.id);
+    const nameOf = (c, i) => c.name || ('UNNAMED LINE ' + (i + 1));
+    const onName = on ? nameOf(on, choices.indexOf(on)) : null;
+    // NOWHERE is pressed only when the OUTBOX points nowhere — a pointer the compiler turned off is still a pointer NOWHERE clears
+    const chips = '<button type="button" class="wf-chip" data-sendto="" aria-pressed="' + !ss + '">NOWHERE</button>'
+      + choices.map((c, i) => '<button type="button" class="wf-chip' + (c.refusal ? ' off' : '') + '" data-sendto="' + esc(c.intakeId) + '" aria-pressed="' + c.on + '"'
+        + (c.refusal ? ' aria-disabled="true"' : '') + '>' + esc(nameOf(c, i)) + '</button>').join('');
+    const why = choices.map((c, i) => c.refusal ? '<p class="wf-help dim wf-sendwhy">' + esc(nameOf(c, i)) + ' — ' + esc(c.refusal.msg || c.refusal.error) + '</p>' : '').join('');
+    body.innerHTML = '<section class="wf-sec"><h3><span class="n">OUTBOX</span>Collect the finished work</h3>'
+      + '<p class="wf-help">' + (f && f.outbox.reached ? 'This line’s finished work lands here — leave build mode and click it to read what came back.' : 'Connect the last BAY to it with the BELT tool.') + '</p>'
+      + '<h4 class="wf-sub">SEND TO ›</h4>'
+      + (choices.length ? '<div class="wf-chips" role="group" aria-label="Where this line sends its finished work">' + chips + '</div>' + why
+        : '<p class="wf-help dim">There is no other line on the floor yet. Build one, then pick it here to hand this line’s finished work on to it.</p>')
+      + '<p class="wf-help' + (ss && ss.off ? ' wf-warnline' : '') + '" id="send-note">' + (ss && !ss.off && onName ? 'Every job that lands in this OUTBOX rides on to <b>' + esc(onName) + '</b> — its own crew works it, under its own budget. This line’s result stays here too.'
+        : ss ? '✕ Its SEND TO' + (onName ? ' <b>' + esc(onName) + '</b>' : '') + ' is off, so nothing is sent on — ' + esc(ss.why) + ' (Or pick NOWHERE.)' : 'This line’s work stops here.') + '</p>'
+      + '<p class="wf-help dim">Or drag this OUTBOX onto another line’s INBOX. One UNDO takes it back.</p></section>';
+    body.querySelectorAll('[data-sendto]').forEach(b => { b.onclick = () => {
+      const note = $('#send-note');
+      if (b.getAttribute('aria-pressed') === 'true') return;
+      if (b.classList.contains('off')) { H.sfx('bad'); const c = choices.find(x => x.intakeId === b.dataset.sendto); if (note) note.textContent = '✕ ' + ((c && c.refusal && c.refusal.msg) || 'cannot send there'); return; }
+      const r = H.station().setSendTo(p.id, b.dataset.sendto || null);
+      if (!r || !r.ok) { H.sfx('bad'); if (note) note.textContent = '✕ ' + ((r && r.msg) || 'not saved'); return; }
+      H.sfx('click'); paint(true);
+    }; });
+  }
   function paintPlain(body, f, p) {
     if (p.t === 'filter') return paintFilter(body, f, p);
+    if (p.t === 'outbox') return paintOutbox(body, f, p);
     const info = H.junctionInfo ? H.junctionInfo(p.id) : null, cfg = (info && info.cfg) || null, lanes = (info && info.lanes) || [];
     const dia = H.machineDiagram ? H.machineDiagram(p.t) : '';
     const branches = n => lanes.length
@@ -1530,7 +1577,7 @@ const WorkflowPanel = (() => {
         + '<div class="wf-mode">' + dia + '<p>' + (copies
           ? 'Each job is copied to <b>every</b> branch. The JOINER after the branches waits for all of them, then sends one combined result on.'
           : 'Each job goes down <b>one</b> branch, and the next job takes the next branch. Use this to share a heavy load between agents.') + '</p></div>'
-        + '<h4 class="wf-sub">Branches</h4>' + branches('No branches yet. Run two belts OUT of the splitter: BELT, click the SPLITTER, then the next machine. Repeat for the second branch.')
+        + '<h4 class="wf-sub">Branches</h4>' + branches('No branches yet. Run two belts OUT of the splitter: drag from the SPLITTER onto the next machine, then again for the second branch.')
         + '<p class="wf-help" id="split-note">Switching swaps the JOINER or MERGER where the branches meet. Same belts, one UNDO.</p></section>'
         + (H.lineEdit ? '<section class="wf-sec wf-shape"><h3>Shape the line</h3><div class="wf-chips">'
           + editBtn('addArm', p.id, { split: p.id }, '⑂ ADD A BRANCH', copies ? 'one more step gets a copy of every job — the JOINER waits for it too' : 'one more step takes its turn with the others')
@@ -1554,8 +1601,8 @@ const WorkflowPanel = (() => {
       return;
     }
     const TXT = {
-      outbox: ['OUTBOX', 'Collect the finished work', 'The OUTBOX receives completed work. Leave build mode and click it to browse delivered work in the Logbook.' + (f && f.outbox.reached ? ' This line reaches it.' : ' Connect the last BAY to it with the BELT tool.')],
-    }[p.t] || [String(p.t).toUpperCase(), 'Part of the line', 'Connections are made with the BELT tool.'];
+      outbox: ['OUTBOX', 'Collect the finished work', 'The OUTBOX receives completed work. Leave build mode and click it to browse delivered work in the Logbook.' + (f && f.outbox.reached ? ' This line reaches it.' : ' Drag from the last BAY onto it to connect them.')],
+    }[p.t] || [String(p.t).toUpperCase(), 'Part of the line', 'Drag from one machine onto the next to connect them.'];
     body.innerHTML = '<section class="wf-sec workflow-no-settings"><h3><span class="n">' + esc(TXT[0]) + '</span>' + esc(TXT[1]) + '</h3><p class="wf-help">' + esc(TXT[2]) + '</p>'
       + '<p class="wf-help dim">No extra settings needed — the belts you draw decide the paths.</p></section>';
   }
@@ -1569,7 +1616,7 @@ const WorkflowPanel = (() => {
       + '</span></div>').join('');
     body.innerHTML = '<section class="wf-sec"><h3><span class="n">FILTER</span>Send each type of task its own way</h3>'
       + '<div class="wf-mode">' + (H.machineDiagram ? H.machineDiagram('filter') : '') + '<p>The filter reads each task and sorts it by <b>type</b>: code, research, or everything else. Pick the belt each type takes.</p></div>'
-      + (lanes.length ? '' : '<p class="wf-warnline">Run belts OUT of the filter first (BELT: click the FILTER, then the next machine). Each belt out appears here.</p>')
+      + (lanes.length ? '' : '<p class="wf-warnline">Run belts OUT of the filter first (drag from the FILTER onto the next machine). Each belt out appears here.</p>')
       + '<div class="wf-routes">' + rows + '</div>'
       + '<p class="wf-help" id="flt-note">' + (cur.def ? 'Saved as you choose.' : 'Choose a belt for EVERYTHING ELSE so no task is left without a way out.') + '</p>'
       + '<p class="wf-help dim">The filter only knows these three types. A task already addressed to one agent follows that agent’s belt instead.</p></section>'

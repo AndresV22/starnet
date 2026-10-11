@@ -153,6 +153,15 @@
         const scope = args.scope || (streamId ? 'stream' : 'global');
         if (scope === 'stream' && !streamId) throw new Error('stream memory requires an active stream');
         if (scope !== 'stream' && scope !== 'global') throw new Error('scope must be stream or global');
+        /* MEMORY CARRIES ITS RUN'S TAINT (2026-10-10). A run that read a web page, an email or a stranger's message
+           could otherwise save the injected text as a "fact" — and recalled memory is trusted context, so a later
+           Full Access run would start clean in front of it. A tainted run's note is stamped with that taint (recall
+           re-latches it on the reading run), and it can never be PINNED (pinned = injected into every prompt). */
+        let taintedBy = '';
+        try { const a = ctx && ctx.connectorAuthority; taintedBy = a && typeof a.taintedBy === 'function' ? String(a.taintedBy() || '') : ''; } catch (_) { taintedBy = 'taint check failed'; }
+        if (taintedBy && args.pinned === true) {
+          return { content: 'Not saved — this run has read outside content (' + taintedBy + '), so it cannot pin a memory into every future prompt. Save it unpinned, or ask the Commander to pin it.', summary: 'pin refused (tainted run)' };
+        }
         const now = clock.now();
         // §5.2 record minted INSIDE the lock against the re-read list, so the id is collision-proof even if a
         // concurrent run/UI write changed the notebook since this run started (P1).
@@ -166,6 +175,7 @@
             }, now);
             if (args.scope) { note.scope = scope; note.streamId = scope === 'stream' ? streamId : null; note.projectRoot = scope === 'stream' ? ((ctx && ctx.projectRoot) || null) : null; }
             if (typeof args.pinned === 'boolean') note.pinned = args.pinned;
+            if (taintedBy) { note.taintedBy = taintedBy.slice(0, 200); note.pinned = false; } else delete note.taintedBy;
             list[at] = note;
             return list;
           }
@@ -185,6 +195,7 @@
             origin: (ctx && ctx.origin) ? String(ctx.origin) : 'commander',
             createdAt: now, ts: now, lastUsedAt: null, useCount: 0, trust: 0, pinned: args.pinned === true
           };
+          if (taintedBy) note.taintedBy = taintedBy.slice(0, 200);
           list.push(note);
           return list;
         });
@@ -250,7 +261,9 @@
         // but the count is the honest half of that signal — and it is the number a crowded notebook shows up in).
         const total = q ? notesOf(aid).length : list.length;
         const foot = q ? '\n\n(' + list.length + ' of ' + total + ' entries in memory)' : '';
-        return { content: body + foot, summary: list.length + ' note(s)' };
+        // a note a tainted run saved is outside content at one remove: reading it taints this run too (2026-10-10)
+        const tainted = list.find(n => n && typeof n.taintedBy === 'string' && n.taintedBy);
+        return Object.assign({ content: body + foot, summary: list.length + ' note(s)' }, tainted ? { taintedBy: 'memory saved by a run that read ' + tainted.taintedBy } : {});
       }
     };
 

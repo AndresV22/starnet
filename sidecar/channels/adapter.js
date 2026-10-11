@@ -365,6 +365,9 @@
         // this a broadcast post rather than a person talking. A platform that sets neither behaves as before.
         if (m.edited) im.edited = true;
         if (m.channelPost) im.channelPost = true;
+        // A FORWARD is a third party's words under the owner's id — the hub taints its run and never parses it as a
+        // command. This rebuild used to drop the flag, so a forwarded message ran as the owner's own order (2026-10-10).
+        if (m.forwarded) im.forwarded = true;
         // OBSERVE-ONLY: heard, to be remembered, never dispatched. The hub files it in the transcript and returns
         // before a single model call. Additive — a platform that never observes sends the exact old shape.
         if (verdict === 'observe') im.observeOnly = true;

@@ -22,6 +22,9 @@
 })(typeof globalThis !== 'undefined' ? globalThis : this, function () {
   'use strict';
 
+  // the Permissions panel's curated grant catalog — the only standing approvals an imported file may carry
+  const GRANTABLE = (typeof module !== 'undefined' && module.exports) ? require('./permgrants.js').GRANTABLE
+    : (((typeof globalThis !== 'undefined' ? globalThis : {}).SK || {}).permgrants || { GRANTABLE: [] }).GRANTABLE;
   const SCHEMA = 1;
   const MAX_CONNECTOR_ARGS = 128;
   const MAX_CONNECTOR_ARG_LENGTH = 4096;
@@ -242,8 +245,15 @@
       // which strips path grants from backups: re-authorize the folder from a watched session instead.
       const allow = inSec.permissions.allow.filter(x => typeof x === 'string').slice(0, 256);
       const machinePaths = allow.filter(x => /^path:/i.test(x));
-      out.permissions = { allow: allow.filter(x => !/^path:/i.test(x)) };
+      // Any OTHER standing grant ("Always" on a shell card = workbench:execute, send, spend…) is authority too: a
+      // shared or crafted file must not hand an agent unprompted execute just by being imported (2026-10-10). Only
+      // the curated local-only catalog the Permissions panel itself may grant survives; the rest re-ask once.
+      const grantable = new Set(GRANTABLE);
+      const capability = allow.filter(x => !/^path:/i.test(x));
+      out.permissions = { allow: capability.filter(x => grantable.has(x)) };
+      const reask = capability.length - out.permissions.allow.length;
       if (machinePaths.length) notes.push('skipped ' + machinePaths.length + ' project folder grant' + (machinePaths.length === 1 ? '' : 's') + ' (path:…) — folder access is machine-specific; approve the folder again the first time an agent needs it');
+      if (reask) notes.push('skipped ' + reask + ' standing approval' + (reask === 1 ? '' : 's') + ' (run commands, send, spend…) — an imported file never grants them; approve again the first time an agent asks');
     }
     if (Array.isArray(inSec.connectors)) {
       for (const c of inSec.connectors) {

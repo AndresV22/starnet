@@ -6819,6 +6819,7 @@ const World = (() => {
       ghost.draw(ctx, now, T, capPx, plates.length ? (bx, paint) => { if (!onPlate(bx)) paint(); } : null);
     }
     drawHandoffBoxes(now);   // Stage 2: lead→worker delegation boxes fly over the entities
+    drawSendCrates();        // SEND TO: a line's product crate flies from its OUTBOX to the next line's INBOX
     drawQueueJam(now);   // the live backlog as a physical jam of waiting crates at the INTAKE (world-space, under the lightmap)
     drawShippedPallet(now);   // SHIPPED TODAY: completed jobs stack as product crates at the OUTBOX (server-truth count)
 
@@ -6875,6 +6876,7 @@ const World = (() => {
     reviewMark('overlays');
     drawBayLamps(now);    // LINE WATCH: every bound bay's status lamp, on its name plate
     drawLinePlates(now);  // LINE WATCH: each line's numbers at its INBOX (server truth)
+    drawSendPlates();     // SEND TO: an OUTBOX that hands its line's work on says where (the compiled plan's sendTo)
     drawBayGlance(now);   // LINE WATCH: hover a bay → one tiny glance plate (never a window)
     drawCrateGlance(now); // LINE WATCH: hover a crate → what it is + CLICK
     drawPlateGlance(now); // LINE WATCH: hover an INBOX → the line's whole reading today
@@ -8172,7 +8174,9 @@ const World = (() => {
     JOIN_ONE_LANE: 'JOINER — NEEDS 2 BELTS IN', LOOP_NO_DONE: 'LOOP — NO DONE LANE OUT', LOOP_NO_BACK: 'LOOP — NO BACK LANE',
     BELT_BURIED: 'PROP ON THE LINE — MOVE IT',
     ORPHAN_JUNCTION: 'NOT ON A BELT — MOVE IT',
-    LINE_TOO_LONG: 'TOO LONG — RAISE THE LINE BUDGET'
+    LINE_TOO_LONG: 'TOO LONG — RAISE THE LINE BUDGET',
+    SEND_TO_MISSING: 'SENDS NOWHERE — PICK A LINE', SEND_TO_SELF: 'SENDS TO ITSELF — PICK ANOTHER LINE',
+    SEND_TO_LOOP: 'SENDS IN A CIRCLE — CUT ONE SEND TO'
   };
   // project the compiled plan's error list onto floor rectangles once per recompile (zero per-frame walk)
   function buildRoutingNags() {
@@ -9087,7 +9091,10 @@ const World = (() => {
       + '|' + (plan.dockBays || []).map(b => b.propId + ':' + (b.brief || '')).join(';')
       // LINE BUDGET rides the key too (2026-08-21): limits live on `lines`, outside plan.hash (policy, not
       // topology — splitter balance must survive a cap edit), but the sidecar's copy must re-read them.
-      + '|' + JSON.stringify(plan.lineLimits || {}) + '|' + JSON.stringify((plan.lines || []).map(l => [l.lineId, l.projectRoot || '']))) : '';
+      + '|' + JSON.stringify(plan.lineLimits || {}) + '|' + JSON.stringify((plan.lines || []).map(l => [l.lineId, l.projectRoot || '', l.name || '']))
+      // SEND TO rides the key too (2026-10-10): plan.sendTo is outside plan.hash (a hand-off is not dispatch topology), but the
+      // sidecar's handoff runner reads the posted copy — an edited SEND TO that never re-posted would hand work to the old line
+      + '|' + JSON.stringify(plan.sendTo || {})) : '';
     planPoster.offer(plan, hash);
   }
   // junction props (splitter/filter/merger) keyed by tile — derived from the compiled plan so the VISUAL engine
@@ -9177,6 +9184,8 @@ const World = (() => {
     // bound to real outcomes, never to this inbound request. (WIRING_AUDIT P4: lie #5.)
     p.box = 'ore';
     if (p.weight == null) p.weight = 0.3;
+    // SEND TO: the next line's work arrives as the sending line's product, carried over from that line's OUTBOX (drawSendCrates)
+    if (p.kind === 'handoff' && placeSendCrate(p)) return;
     // WHERE does this work ENTER the floor? (multi-network law, 2026-07-05 — Andrew's two-room bug):
     //  • a COMMS directive is a DIRECT order to a specific agent — it skips the station doors entirely and
     //    lands at that agent's BAY (the model sentence: "COMMS orders skip the ride in");
@@ -9542,6 +9551,119 @@ const World = (() => {
       ctx.fillText(p.lines[0], b.x + b.w / 2, b.y + b.h / 2 - 0.3);
     }
     ctx.restore();
+  }
+  /* SEND TO PLATES (2026-10-10) — an OUTBOX whose line hands its finished work on says where, at rest: "SENDS TO LINE B". Read
+     from the COMPILED plan's sendTo (the very map the sidecar's handoff runner reads), so a SEND TO the compiler turned off — a
+     circle, an INBOX that is gone — shows no plate (its nag says why). Placed in the line plates' own pass: never over a stat
+     plate, a nag, a bay plate or a belt; above the OUTBOX first (the SHIPPED pallet owns the floor in front of it). */
+  let sendPlateKey = null, sendPlateMemo = [];
+  function sendPlateBoxes() {
+    if (!routingPlan || !routingPlan.sendTo || !Array.isArray(routingPlan.lines) || !geo || !geo.props) return [];
+    const stat = lwPlateBoxes();
+    // (an empty stat list is a FRESH [] each call until the server's numbers are known — keyed as null, or this pass re-ran per frame)
+    const key = [routingPlan, routingNags, geo, stat.length ? stat : null];
+    if (sendPlateKey && sendPlateKey.every((v, i) => v === key[i])) return sendPlateMemo;
+    const out = [], taken = [];
+    const hit = (a, b) => a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+    for (const d of (routingPlan.dockBays || [])) { if (!d.agentId) continue; const b = bayPlateBox(d); taken.push({ x: b.left, y: b.top - 3, w: b.width, h: b.h + 3 }); }
+    for (const n of (routingNags || [])) taken.push({ x: n.x * T - 24, y: n.y * T - 16, w: n.w * T + 48, h: 15 });
+    for (const bt of (geo.belts || [])) taken.push({ x: bt.x * T, y: bt.y * T + 2, w: T, h: T - 4 });
+    for (const s of stat) if (s.box) taken.push(s.box);
+    ctx.save();
+    ctx.font = "5.5px 'VT323','Courier New',monospace";
+    for (const obId of Object.keys(routingPlan.sendTo)) {
+      const st = routingPlan.sendTo[obId], ob = geo.props.find(q => q.id === obId);
+      if (!st || !ob) continue;
+      const rec = routingPlan.lines.find(l => l && l.lineId === st.toLine), nm = rec && rec.name ? String(rec.name).toUpperCase() : '';
+      const text = 'SENDS TO ' + (nm ? 'LINE ' + nm : 'ANOTHER LINE');
+      const w = ctx.measureText(text).width + 6, h = 8, cx = (ob.x + (ob.w || 1) / 2) * T;
+      const room = lwRoomBox(ob.x, ob.y);
+      const clampX = x => room ? Math.max(room.x, Math.min(room.x + room.w - w, x)) : x;
+      const ys = [ob.y * T - 2 - h, ob.y * T - 17 - h, ob.y * T - 26 - h, (ob.y + (ob.h || 1)) * T + 9];
+      const xs = [clampX(cx - w / 2), clampX(ob.x * T), clampX((ob.x + (ob.w || 1)) * T - w)];
+      let box = null;
+      for (const y of ys) {
+        if (room && (y < room.y || y + h > room.y + room.h)) continue;
+        for (const x of xs) { const b = { x, y, w, h }; if (!taken.some(t => hit(t, b))) { box = b; break; } }
+        if (box) break;
+      }
+      if (box) taken.push(box);
+      out.push({ obId, ob, text, box, toIntake: st.intakeId, toLine: st.toLine });
+    }
+    ctx.restore();
+    sendPlateMemo = out; sendPlateKey = key;
+    return out;
+  }
+  function drawSendPlates() {
+    if (lwDrawOff) return;
+    const plates = sendPlateBoxes(); if (!plates.length) return;
+    ctx.save();
+    ctx.font = "5.5px 'VT323','Courier New',monospace"; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.shadowBlur = 0;
+    ctx.globalAlpha = linkStaleDim ? 0.35 : 1;
+    for (const p of plates) {
+      const b = p.box; if (!b || !propOnScreen(p.ob)) continue;
+      ctx.fillStyle = '#0d1311'; ctx.fillRect(b.x, b.y, b.w, b.h);
+      ctx.strokeStyle = '#3f4c47'; ctx.lineWidth = 0.35; ctx.strokeRect(b.x, b.y, b.w, b.h);
+      ctx.strokeStyle = '#57bd8b'; ctx.lineWidth = 0.5; ctx.beginPath(); ctx.moveTo(b.x + 2, b.y + b.h - 0.8); ctx.lineTo(b.x + b.w - 2, b.y + b.h - 0.8); ctx.stroke();
+      ctx.fillStyle = '#9adcb0';
+      ctx.fillText(p.text, b.x + b.w / 2, b.y + b.h / 2 - 0.3);
+    }
+    ctx.restore();
+  }
+  /* THE HAND-OFF CRATE (SEND TO, 2026-10-10). The sidecar places the NEXT line's work as workitem.placed kind:'handoff'
+     { fromOutbox, toIntake } once the sending line's job left its line clean. Drawn as what it is: that line's PRODUCT, lifted out
+     of its OUTBOX and carried over to the next line's INBOX on an arc, where it drops in and rides the line as work (ore). Never
+     before the sending line's own crate has sunk into that OUTBOX — the placement usually arrives while that crate is still on
+     the belt — and never NEITHER: if that crate never comes (no lane drawn, a reload mid-run) the hand-off flies after the same
+     grace the dock hand-offs use. Exactly one crate either way; nothing here touches the doc or the plan. */
+  const SEND_FLY_MS = 1300;
+  const sendCrates = [];             // { p, ob, ib, born, t0 } — t0 = 0 while held
+  const outboxSunk = new Map();      // outbox propId -> fnow its last product crate sank
+  function placeSendCrate(p) {
+    if (!geo || !geo.props || !p.fromOutbox || !p.toIntake) return false;
+    const ob = geo.props.find(q => q.id === p.fromOutbox), ib = geo.props.find(q => q.id === p.toIntake);
+    if (!ob || !ib) return false;
+    p.box = 'product';
+    sendCrates.push({ p, ob, ib, born: fnow, t0: 0 });
+    if (sendCrates.length > 12) sendCrates.shift();
+    return true;
+  }
+  function noteOutboxSink(x, y) {
+    if (!geo || !geo.props) return;
+    for (const q of geo.props) if (q.t === 'outbox' && x >= q.x - 1 && x <= q.x + (q.w || 1) && y >= q.y - 1 && y <= q.y + (q.h || 1)) outboxSunk.set(q.id, fnow);
+  }
+  const sendArcPts = (c) => {
+    const ax = (c.ob.x + (c.ob.w || 1) / 2) * T, ay = (c.ob.y + (c.ob.h || 1) / 2) * T, bx = (c.ib.x + (c.ib.w || 1) / 2) * T, by = (c.ib.y + (c.ib.h || 1) / 2) * T;
+    return { ax, ay, bx, by, mx: (ax + bx) / 2, my: Math.max(ay, by) + 1.6 * T };
+  };
+  function landSendCrate(c) {
+    const p = c.p;
+    p.box = 'ore';
+    const t = (p.agentId && routingPlan && typeof Pipeline !== 'undefined' && Pipeline.sourceFor) ? Pipeline.sourceFor(routingPlan, p.agentId, p.dockId || undefined) : null;
+    if (t && convey) convey.enqueueAt(t.x, t.y, p); else dockArrival(p);
+    if (typeof SFX !== 'undefined' && SFX.ship) { try { SFX.ship(); } catch (_) { /* a sound never breaks the floor */ } }
+  }
+  function drawSendCrates() {
+    if (!sendCrates.length) return;
+    for (let i = sendCrates.length - 1; i >= 0; i--) {
+      const c = sendCrates[i];
+      if (!c.t0) {   // held until the sending line's own crate sinks at that OUTBOX (or the grace runs out)
+        const sunk = outboxSunk.get(c.ob.id);
+        if ((sunk != null && sunk >= c.born - 3000) || fnow - c.born >= HANDOFF_GRACE_MS) c.t0 = fnow;
+        else continue;
+      }
+      const k = (fnow - c.t0) / SEND_FLY_MS;
+      if (k >= 1) { sendCrates.splice(i, 1); landSendCrate(c); continue; }
+      const e = k < 0.5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2, u = 1 - e, a = sendArcPts(c);
+      const x = u * u * a.ax + 2 * u * e * a.mx + e * e * a.bx, y = u * u * a.ay + 2 * u * e * a.my + e * e * a.by;
+      ctx.save();
+      ctx.globalAlpha = 0.45; ctx.strokeStyle = '#57bd8b'; ctx.lineWidth = 0.6; ctx.setLineDash([2, 2]);
+      ctx.beginPath(); ctx.moveTo(a.ax, a.ay); ctx.quadraticCurveTo(a.mx, a.my, a.bx, a.by); ctx.stroke();
+      ctx.setLineDash([]); ctx.globalAlpha = 1;
+      if (typeof Conveyor !== 'undefined' && Conveyor.drawCrate) Conveyor.drawCrate(ctx, Math.round(x), Math.round(y), 'product');
+      else { ctx.fillStyle = '#57bd8b'; ctx.fillRect(Math.round(x) - 2, Math.round(y) - 2, 4, 4); }
+      ctx.restore();
+    }
   }
   // hover: an INBOX (or its plate) with a server reading → the whole reading as one glance line
   function lwPlateAt(wp) {
@@ -10041,6 +10163,7 @@ const World = (() => {
     const p = (bx && bx.payload) || {};
     if (p.outbound) {
       lastOutboxFlash = fnow;   // box reached the OUTBOX -> flash the chute
+      noteOutboxSink(bx.x, bx.y);   // SEND TO: a hand-off held for this OUTBOX's crate may fly now
       // GUIDED WORKFLOWS: a line's FIRST real product delivery permanently retires its finish-the-line
       // card. This is THE delivery seam (the crate that actually sank at the chute) — event-driven, and
       // product-only: slag (an unproductive run) finishes nothing. World tiles ride over so Build maps
@@ -10801,6 +10924,9 @@ const World = (() => {
   const _dbgSeedRun = (aid) => { if (!aid) return; runStartByAgent.set(aid, (typeof performance !== 'undefined') ? performance.now() : fnow); stampRun(aid); };
   const _dbgAgeRun = (aid, ms) => { const t = runLastSeenByAgent.get(aid); if (t != null) runLastSeenByAgent.set(aid, t - (+ms || 0)); const s = runStartByAgent.get(aid); if (s != null) runStartByAgent.set(aid, s - (+ms || 0)); const m = liveRunsByAgent.get(aid); if (m) for (const [rid, tt] of m) m.set(rid, tt - (+ms || 0)); };
   const _dbgReconcile = (snap) => { try { reconcileFromSnapshot(snap); } catch (_) {} };
+  // SEND TO verification (the hidden preview tab fires no rAF): the hand-off crates in hand + the OUTBOX plates, read-only
+  const _dbgSendTo = () => ({ crates: sendCrates.map(c => ({ fromOutbox: c.ob.id, toIntake: c.ib.id, lineId: c.p.lineId || null, fromLine: c.p.fromLine || null, held: !c.t0, ageMs: Math.round(fnow - c.born) })),
+    plates: sendPlateBoxes().map(p => ({ outbox: p.obId, text: p.text, placed: !!p.box })) });
   const _dbgSweep = () => { sweepStaleStates((typeof performance !== 'undefined') ? performance.now() : fnow); };   // drive the TTL sweep directly (rAF is throttled in a headless preview tab)
   /* LEISURE verification: the power-down and prop-dwell planners are gated behind a mood phase, an idle
      age and a 22% roll, so they cannot be observed on demand from the outside. These drive them directly
@@ -11004,7 +11130,7 @@ const World = (() => {
        floor to the router. `station: false` = no floor loaded (nothing is known). */
     planStatus: () => Object.assign({ station: !!station, pending: !!(station && (geoDirty || !geo)),
       errors: (routingPlan && routingPlan.errors ? routingPlan.errors : []).filter(e => !e.warn), hash: routingPlan ? routingPlan.hash : null }, planPoster.state()),
-    loadStation, spawn, spawnAgent, despawnAgent, setSkin, relabel, setActivityFor, agentRunsLive, dropRun: noteRunEnd, focusBody, lockBody, cameraMode, cameraState, restoreCamera, setFrameCap, setOverlays, setCinecamIdle, setChatFocus, chatFocusPing, start, stop, setActivity, wakeIn, beginAwakening, playArrival, cancelArrival, setWakeProgress, igniteSpark, armKindle, kindleHold, camPushIn, camCreep, camPunch, camPullBack, awakenTurn, truthPulse, beginFlood, collapseFlood, endAwakening, releaseAwakening, say, focusAgent, getActivity: () => activity, getUse: () => (agent ? agent.usingProp : null), setOnClick, setOnArcade, setOnOutbox, setOnMissionBoard, setOnTrophyCase, setOnPluginTerminal, setOnDesk, setOnBayAssign, setOnIntakeFeed, setOnIntakeSample, refit, pauseBridge, resumeBridge, linkState, _dbgSeedRun, _dbgAgeRun, _dbgReconcile, _dbgSweep, _dbgLinkState, _dbgDropBridge, _dbgCurveState, _dbgLoseCurveContext, _dbgLoseCanvases, _dbgCanvasLoss, _dbgKillStageContext, _dbgStageState, _dbgBeltLegibility, _dbgPropClientPoint, _dbgDeskClientPoint, _dbgSleep, _dbgUseProp, _dbgArrive, _dbgLeisure,
+    loadStation, spawn, spawnAgent, despawnAgent, setSkin, relabel, setActivityFor, agentRunsLive, dropRun: noteRunEnd, focusBody, lockBody, cameraMode, cameraState, restoreCamera, setFrameCap, setOverlays, setCinecamIdle, setChatFocus, chatFocusPing, start, stop, setActivity, wakeIn, beginAwakening, playArrival, cancelArrival, setWakeProgress, igniteSpark, armKindle, kindleHold, camPushIn, camCreep, camPunch, camPullBack, awakenTurn, truthPulse, beginFlood, collapseFlood, endAwakening, releaseAwakening, say, focusAgent, getActivity: () => activity, getUse: () => (agent ? agent.usingProp : null), setOnClick, setOnArcade, setOnOutbox, setOnMissionBoard, setOnTrophyCase, setOnPluginTerminal, setOnDesk, setOnBayAssign, setOnIntakeFeed, setOnIntakeSample, refit, pauseBridge, resumeBridge, linkState, _dbgSeedRun, _dbgAgeRun, _dbgReconcile, _dbgSweep, _dbgSendTo, _dbgLinkState, _dbgDropBridge, _dbgCurveState, _dbgLoseCurveContext, _dbgLoseCanvases, _dbgCanvasLoss, _dbgKillStageContext, _dbgStageState, _dbgBeltLegibility, _dbgPropClientPoint, _dbgDeskClientPoint, _dbgSleep, _dbgUseProp, _dbgArrive, _dbgLeisure,
     // AGENT GROWTH: XpStore pushes pre-computed Xp.compute() snapshots here; pulseLevelUp fires
     // the addressed body's gold ring. The colony headline is the top-bar STATION chip.
     setXp: (agentId, a) => {
