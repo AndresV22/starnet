@@ -75,6 +75,12 @@ const { SidecarFixture } = require('./helpers/sidecar-fixture.js');
       assert.ok(wire.some(w => w.specialist), 'real worker provider run occurred');
       assert.deepEqual(effects, ['read', 'write'], 'delegated specialist retains connected MCP tools');
       assert.ok(delegated.prompts.length >= 2, 'delegated write approval reaches the lead watcher');
+      // WHO ASKED (2026-10-11): the ask rides the lead's channel but names the worker that raised it (the page answers it
+      // on that worker's row), and the lead stays the answering run
+      const workerAsks = delegated.prompts.filter(p => /^mcp/.test(String(p.tool || '')));
+      assert.ok(workerAsks.length >= 1 && workerAsks.every(p => p.agentId === 'agent' && p.workerAgentId === 'worker' && p.workerRunId && p.workerRunId !== delegated.events.find(e => e.name === 'agent.run.start').payload.runId && p.askedAt > 0),
+        'a delegated ask names its worker: ' + JSON.stringify(delegated.prompts.map(p => ({ tool: p.tool, agentId: p.agentId, workerAgentId: p.workerAgentId, workerRunId: p.workerRunId }))));
+      assert.ok(delegated.prompts.filter(p => !/^mcp/.test(String(p.tool || ''))).every(p => !p.workerAgentId), 'the lead\'s own asks carry no worker stamp');
       assert.ok(wire.filter(w => w.specialist).every(w => !w.names.includes('team_dispatch')), 'worker cannot recursively delegate');
     }
     await setRoster('full');

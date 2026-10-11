@@ -107,7 +107,17 @@ const GroupChat = (() => {
     const header = h('div', { id: 'gc-header', class: 'gc-header', hidden: '' });
     const addAgents = button('+ Add agents', () => picker(true)); addAgents.id = 'gc-add-agents';
     bar.append(header, addAgents);
-    const files = h('div', { class: 'gc-files' }); files.append(h('div', { id: 'gc-files' }), h('div', { id: 'gc-preview' }));
+    /* THE TRAY (2026-10-10, Andrew: "wtf is this share BS … the user can't minimize that"). The shared-files shelf (40%),
+       the pending questions (50%) and the turn-state rows (45%) used to stack under the transcript with caps adding up to
+       135% — enough to squeeze the conversation to nothing, and the shelf (no overflow) spilled chips under the composer
+       where they could not be clicked. Now everything below the transcript lives in ONE tray with ONE budget: the
+       transcript always keeps most of the panel. Inside it, what needs the Commander (questions, approvals, live turns)
+       scrolls first; the shared files fold to a single "▤ SHARED FILES · N" line that opens on click (remembered per group);
+       an opened file shows in its own preview — no longer inside the shelf, so a message attachment previews even in a
+       group with no shared files (that was the bug: the preview's parent was hidden whenever the shelf was empty). */
+    const files = h('div', { class: 'gc-files' });
+    files.append(h('button', { type: 'button', id: 'gc-files-tog', 'aria-expanded': 'false', onclick: () => toggleFiles() }), h('div', { id: 'gc-files', hidden: '' }));
+    const preview = h('div', { id: 'gc-preview' });
     const transcript = h('div', { id: 'gc-log', role: 'log', 'aria-label': 'Group messages', 'aria-live': 'polite', class: 'scrolly' });
     const questions = h('div', { id: 'gc-questions' });
     const states = h('div', { id: 'gc-states', 'aria-live': 'polite' });
@@ -117,13 +127,17 @@ const GroupChat = (() => {
     const mentions = h('div', { id: 'gc-mentions', role: 'listbox', 'aria-label': 'Mention an agent' });
     $('chat-input').addEventListener('input', () => { draftKey = null; autocomplete(); });
     $('chat-input').addEventListener('blur', () => setTimeout(() => { if (!mentionBusy && document.activeElement !== $('chat-input') && !$('gc-mentions')?.contains?.(document.activeElement)) closeMentions(); }, 150));
-    root.append(transcript, files, questions, states, recipient, h('div', { id: 'gc-notice', role: 'status' }));
+    const tray = h('div', { id: 'gc-tray', class: 'gc-tray' }), trayScroll = h('div', { class: 'gc-tray-scroll scrolly' });
+    trayScroll.append(questions, states, preview); tray.append(trayScroll, files);
+    root.append(transcript, tray, recipient, h('div', { id: 'gc-notice', role: 'status' }));
     $('chat-log').before(root);
     const row = $('chat-inputrow'); if (row) row.before(mentions); else root.append(mentions);
     if (typeof ResizeObserver !== 'undefined') new ResizeObserver(() => fitPeople($('gc-header')?.querySelector?.('.gc-people'))).observe(header);
     const css = h('style'); css.textContent = `
       #group-chat{position:relative;display:flex;flex:1 1 0;min-width:0;min-height:0;flex-direction:column;overflow:hidden;color:var(--text);background:transparent;padding:0;gap:0}
-      #group-chat[hidden],#gc-header[hidden],#group-chat .gc-files[hidden]{display:none}
+      #group-chat[hidden],#gc-header[hidden],#group-chat .gc-files[hidden],#group-chat #gc-files[hidden]{display:none}
+      #gc-tray{flex:0 1 auto;min-height:0;max-height:45%;display:flex;flex-direction:column}#gc-tray:not(:has(.gc-question,.gc-state,#gc-preview:not(:empty),.gc-files:not([hidden]))){display:none}
+      #gc-tray .gc-tray-scroll{flex:0 1 auto;min-height:0;overflow-y:auto;scrollbar-color:var(--ph-dim) transparent}
       #comms-idbar{flex:0 0 auto;flex-wrap:nowrap}#comms-idbar.gc-group>.comms-agent-wrap,#comms-idbar.gc-group>#comms-agent-model,#chat-panel #comms-idbar.gc-group>.comms-identity,#chat-panel #comms-idbar.gc-group>.comms-portrait{display:none}
       #gc-header{display:flex;align-items:center;gap:10px;flex:1;min-width:0;color:var(--ph)}
       .gc-badge{flex:0 0 auto;align-self:center;font-size:12px;line-height:18px;letter-spacing:1.5px;color:var(--ph-bright);text-shadow:var(--pg-glow-soft,none);white-space:nowrap}
@@ -163,19 +177,21 @@ const GroupChat = (() => {
       #gc-mentions .gc-mt{flex:0 0 auto;margin-left:auto;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--ph-dim)}
       #gc-mentions .gc-mention[aria-selected=true] .gc-mt{color:var(--ph)}
       #gc-mentions .gc-mention-note{flex:0 0 auto;padding:4px 10px;border-top:1px solid rgba(var(--ph-rgb),.18);font-size:11px;letter-spacing:.6px;color:var(--ph-dim)}
-      .gc-files{flex:0 0 auto;display:flex;flex-direction:column;min-height:0;max-height:40%;border-top:1px solid var(--ph-faint);font-size:13px;background:linear-gradient(rgba(0,0,0,.18),rgba(0,0,0,.04))}
-      #gc-files{display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:6px 12px}#gc-files .gc-files-label{font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--ph-dim);margin-right:2px}
+      .gc-files{flex:0 4 auto;display:flex;flex-direction:column;min-height:30px;border-top:1px solid var(--ph-faint);font-size:13px;background:linear-gradient(rgba(0,0,0,.18),rgba(0,0,0,.04))}
+      #gc-files-tog{flex:0 0 auto;display:flex;align-items:center;gap:8px;width:100%;min-height:30px;margin:0;padding:4px 12px;border:0;border-radius:0;background:none;box-shadow:none;font:inherit;font-size:12px;letter-spacing:1px;text-transform:uppercase;text-align:left;color:var(--ph-dim);cursor:pointer}
+      #gc-files-tog:hover,#gc-files-tog[aria-expanded=true]{color:var(--ph)}#gc-files-tog .gc-files-n{color:var(--ph-bright)}#gc-files-tog .gc-files-caret{margin-left:auto}
+      #gc-files{flex:0 1 auto;min-height:0;max-height:132px;overflow-y:auto;display:flex;align-items:center;align-content:flex-start;gap:6px;flex-wrap:wrap;padding:0 12px 8px;scrollbar-color:var(--ph-dim) transparent}
       #gc-files .gc-file{display:inline-flex;align-items:baseline;gap:5px;max-width:100%;margin:0;padding:2px 8px;min-height:22px;font-size:12px;letter-spacing:.3px;border:1px solid var(--ph-faint);border-radius:var(--r-sm,3px);background:rgba(var(--ph-rgb),.03);color:var(--ph);cursor:pointer;box-shadow:none}
       #gc-files .gc-file:hover,#gc-files .gc-file.open{border-color:var(--ph-dim);background:rgba(var(--ph-rgb),.055);color:var(--ph-bright)}#gc-files .gc-file .tc-glyph{color:var(--ph-dim)}#gc-files .gc-file span:last-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-      #gc-preview{flex:0 1 auto;min-height:0;overflow:auto;padding:0 12px 8px}#gc-preview:empty{display:none}#gc-preview h4{margin:6px 0 2px;font-size:13px;letter-spacing:1px;text-transform:uppercase;color:var(--ph)}#gc-preview small{color:var(--ph-dim);font-size:11px;margin-right:10px}
-      #gc-preview{white-space:pre-wrap;overflow-wrap:anywhere}#gc-preview a{color:var(--ph);font-size:11px;letter-spacing:1px}#gc-preview .gc-message{margin-top:6px}
-      #gc-states{flex:0 0 auto;max-height:45%;overflow:auto;padding:0 12px 4px}
+      #gc-preview{padding:0 12px 8px;border-top:1px solid var(--ph-faint)}#gc-preview:empty{display:none}#gc-preview .gc-preview-head{display:flex;align-items:center;flex-wrap:wrap;gap:4px 10px;white-space:normal}#gc-preview .gc-preview-head h4{flex:1 1 auto;min-width:0}#gc-preview h4{margin:6px 0 2px;font-size:13px;letter-spacing:1px;text-transform:uppercase;color:var(--ph)}#gc-preview small{color:var(--ph-dim);font-size:11px;margin-right:10px}
+      #gc-preview{overflow-wrap:anywhere}#gc-preview .gc-doc .body{white-space:pre-wrap}#gc-preview .gc-doc .body:has(.md-p,.md-h,.md-list){white-space:normal}#gc-preview a{color:var(--ph);font-size:11px;letter-spacing:1px}#gc-preview .gc-message{margin-top:6px}
+      #gc-states{padding:0 12px 4px}#gc-states:empty{display:none}
       .gc-state{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;margin:4px 0 2px;padding:6px 11px;border-left:2px solid var(--ph);border-radius:0 4px 4px 0;background:linear-gradient(180deg,var(--ph-faint),rgba(0,0,0,.25));font-size:13px;letter-spacing:.5px;color:var(--ph-bright)}
       .gc-state .gc-dot{flex:0 0 auto;color:var(--ph);text-shadow:0 0 6px var(--ph-glow);animation:1s steps(1) infinite comms-blink}.gc-state .gc-verb{letter-spacing:1.5px;text-transform:uppercase}.gc-state .gc-what{color:var(--ph-dim);font-size:12px;min-width:0;overflow:hidden;text-overflow:ellipsis}
       .gc-state.hold{border-left-color:var(--gold);background:linear-gradient(180deg,color-mix(in srgb,var(--gold) 14%,transparent),rgba(0,0,0,.25))}.gc-state.hold .gc-dot,.gc-state.hold .gc-verb{color:var(--gold);animation:none;text-shadow:none}
       .gc-state.bad{border-left-color:var(--bad)}.gc-state.bad .gc-dot,.gc-state.bad .gc-verb{color:var(--bad);animation:none;text-shadow:none}
       .gc-state .gc-inspect summary{cursor:pointer}.gc-state .gc-inspect pre{max-height:240px;overflow:auto;margin:4px 0;white-space:pre-wrap;overflow-wrap:anywhere;user-select:text}.gc-state .gc-approval{flex:1 0 100%;font-size:12px;color:var(--text);opacity:.9;overflow-wrap:anywhere}.gc-state .bb{margin-left:auto!important;font-size:11px!important;min-height:20px!important;padding:0 6px!important}.gc-state .bb+.bb{margin-left:0!important}
-      #gc-questions{flex:0 0 auto;max-height:50%;overflow:auto}.gc-question{padding:8px 12px;border-left:2px solid var(--gold);background:var(--panel2);font-size:14px}.gc-question p{margin:5px 0}.gc-question-choices{display:flex;flex-wrap:wrap;gap:5px;margin:6px 0}.gc-question small,.gc-transfer{color:var(--ph-dim);font-size:12px}.gc-transfer{padding:2px 0 5px 14px;flex:0 0 auto}
+      #gc-questions:empty{display:none}.gc-question{padding:8px 12px;border-left:2px solid var(--gold);background:var(--panel2);font-size:14px}.gc-question p{margin:5px 0}.gc-question-choices{display:flex;flex-wrap:wrap;gap:5px;margin:6px 0}.gc-question small,.gc-transfer{color:var(--ph-dim);font-size:12px}.gc-transfer{padding:2px 0 5px 14px;flex:0 0 auto}
       #gc-notice:empty{display:none}#gc-notice{flex:0 0 auto;padding:4px 12px;font-size:13px;color:var(--gold);overflow-wrap:anywhere}
       /* the picker fills its window: the two lists share the height and scroll on their own, the footer never leaves view */
       .gc-picker{min-width:0;min-height:100%;box-sizing:border-box;display:flex;flex-direction:column;gap:10px}.gc-picker>.key-input{flex:0 0 auto;display:block;width:100%;box-sizing:border-box;margin:0}
@@ -347,7 +363,7 @@ const GroupChat = (() => {
       const row = keep('m:' + m.id, rowKey, () => {
         const row = h('article', { class: 'gc-message cmsg' + (m.author === 'user' ? ' user' : ' agent'), 'data-message-id': m.id });
         const body = h('div', { class: 'body' });
-        if (typeof Chat !== 'undefined' && Chat.renderProse) Chat.renderProse(body, content); else body.textContent = content;
+        if (typeof Chat !== 'undefined' && Chat.renderProse) Chat.renderProse(body, content, { files: fileRefs(group.id, m.author, m.id) }); else body.textContent = content;
         const color = colorOf(m.author); if (color) { row.style.setProperty('--gc-c', color); body.style.setProperty('--rail', color); }
         const who = group.members.includes(m.author) ? speaker(m.author, m.id) : h('span', { class: 'who' }, name(m.author).toUpperCase());
         if (at) {
@@ -461,7 +477,7 @@ const GroupChat = (() => {
     const sharedFiles = group.artifacts.filter(f => !attachedIds.has(f.id));
     const files = $('gc-files'); files.replaceChildren();
     files.parentElement.hidden = !sharedFiles.length;
-    if (sharedFiles.length) files.append(h('span', { class: 'gc-files-label' }, 'shared'));
+    paintFilesToggle(sharedFiles.length);
     for (const f of sharedFiles) {
       const chip = h('button', { type: 'button', class: 'gc-file' + (openedFile === f.id ? ' open' : ''), 'aria-label': 'Open shared file ' + f.name, onclick: () => openFile(group.id, f).catch(showError) });
       chip.append(h('span', { class: 'tc-glyph', 'aria-hidden': 'true' }, '▤'), h('span', {}, f.name)); files.append(chip);
@@ -498,6 +514,54 @@ const GroupChat = (() => {
     e.append(document.createTextNode('to'), h('span', { class: 'gc-to' }, selected.map(name).join(', ')));
     e.append(button('✕', () => { selected = []; replyTo = null; recipientLabel(); }));
   }
+  /* A FILE THE AGENT NAMES IN ITS MESSAGE ("[the review](review/x/index.html)", "![preview](review/x/final.jpg)") opens the
+     group's SHARED copy when one was published from that path — the exact bytes every member sees — and otherwise the
+     speaking agent's own workspace file (Chat's default resolver: the same jailed open + lightbox as every deliverable). */
+  const sharedBlobs = new Map();   // artifact id -> Promise<blob url> (immutable versions: safe to keep)
+  function sharedFor(groupId, p) {
+    const g = group && group.id === groupId ? group : null; if (!g) return null;
+    const clean = v => String(v || '').replace(/\\/g, '/').replace(/^\.\//, '');
+    const want = clean(p), base = want.split('/').pop();
+    const norm = a => clean(a.sourcePath);
+    return g.artifacts.find(a => norm(a) === want) || g.artifacts.find(a => norm(a).endsWith('/' + want)) || g.artifacts.find(a => a.name === base) || null;
+  }
+  function fileRefs(groupId, agentId, messageId) {
+    const own = (typeof Chat !== 'undefined' && Chat.workspaceFileRefs) ? Chat.workspaceFileRefs(agentId, 'group:' + groupId + ':' + messageId) : null;
+    return {
+      // decided at CLICK time: a message rendered before the file was shared must still open the shared copy afterwards
+      // (capture on the link itself runs before the workspace opener's own listeners, so it can take the click over)
+      wire: (a, p) => {
+        a.addEventListener('click', ev => {
+          const art = sharedFor(groupId, p); if (!art) return;
+          ev.preventDefault(); ev.stopImmediatePropagation();
+          openFile(groupId, art).catch(showError);
+        }, true);
+        if (own) own.wire(a, p);
+      },
+      image: p => {
+        const art = sharedFor(groupId, p);
+        if (!art) return own ? own.image(p) : Promise.reject(new Error('no file'));
+        if (!sharedBlobs.has(art.id)) sharedBlobs.set(art.id, Chat.imageBlobUrl('/api/groups?id=' + encodeURIComponent(groupId) + '&file=' + encodeURIComponent(art.id), art.sourcePath || art.name));
+        return sharedBlobs.get(art.id);
+      }
+    };
+  }
+  // the shared shelf's fold, remembered per group (closed until the Commander opens it — the files are one click away)
+  const filesKey = id => 'starnet.gc.filesOpen.' + id;
+  function filesOpen() { try { return !!(active && localStorage.getItem(filesKey(active.id)) === '1'); } catch (_) { return false; } }
+  function paintFilesToggle(n) {
+    const tog = $('gc-files-tog'), open = filesOpen(); if (!tog) return;
+    tog.replaceChildren(h('span', { class: 'tc-glyph', 'aria-hidden': 'true' }, '▤'), document.createTextNode('shared files'), h('span', { class: 'gc-files-n' }, String(n)), h('span', { class: 'gc-files-caret', 'aria-hidden': 'true' }, open ? '▾' : '▸'));
+    tog.setAttribute('aria-expanded', open ? 'true' : 'false');
+    tog.setAttribute('aria-label', (open ? 'Hide ' : 'Show ') + n + ' shared file' + (n === 1 ? '' : 's'));
+    $('gc-files').hidden = !open;
+  }
+  function toggleFiles() {
+    if (!active) return;
+    const open = !filesOpen();
+    try { if (open) localStorage.setItem(filesKey(active.id), '1'); else localStorage.removeItem(filesKey(active.id)); } catch (_) {}
+    paintFilesToggle($('gc-files').children.length);
+  }
   async function openFile(id, file) {
     const response = await fetch('/api/groups?id=' + encodeURIComponent(id) + '&file=' + encodeURIComponent(file.id));
     if (!response.ok) throw new Error('Could not open this shared file');
@@ -507,15 +571,22 @@ const GroupChat = (() => {
     if (openedFileUrl) URL.revokeObjectURL(openedFileUrl);
     const url = URL.createObjectURL(blob);
     openedFileUrl = url; openedFile = file.id; lastPaint = ''; paint();
-    preview.append(h('h4', {}, file.name), h('small', {}, 'version ' + file.hash.slice(0, 12)), h('a', { href: url, download: file.name }, 'SAVE FILE'));
+    const closeFile = () => { URL.revokeObjectURL(url); openedFileUrl = null; openedFile = null; preview.replaceChildren(); lastPaint = ''; paint(); };
+    // CLOSE sits in the head beside SAVE: it used to trail the whole file body, so a long file hid its own way out
+    const head = h('div', { class: 'gc-preview-head' });
+    head.append(h('h4', {}, file.name), h('small', {}, 'version ' + file.hash.slice(0, 12)), h('a', { href: url, download: file.name }, 'SAVE FILE'), button('CLOSE FILE', closeFile));
+    preview.append(head);
     if (/\.(png|jpe?g|gif|webp|avif|bmp)$/i.test(file.name)) {
       preview.append(h('img', { class: 'gc-file-image', src: url, alt: file.name }));
     } else if (/\.(md|txt|csv|json|log|js|ts|py|html|css|xml|ya?ml|svg)$/i.test(file.sourcePath || file.name)) {
-      const content = await blob.text(), body = h('div', { class: 'gc-message' });
-      if (/\.md$/i.test(file.sourcePath || file.name) && Chat.renderProse) Chat.renderProse(body, content); else body.textContent = content;
+      // the transcript's own markdown look (headings, lists, tables): .cmsg .body is what those styles key on
+      const content = await blob.text(), body = h('div', { class: 'gc-message cmsg agent gc-doc' }), inner = h('div', { class: 'body' });
+      body.append(inner);
+      if (/\.md$/i.test(file.sourcePath || file.name) && Chat.renderProse) Chat.renderProse(inner, content); else inner.textContent = content;
       preview.append(body);
     } else preview.append(h('p', {}, 'This file can be saved and opened in its associated application.'));
-    preview.append(button('CLOSE FILE', () => { URL.revokeObjectURL(url); openedFileUrl = null; openedFile = null; preview.replaceChildren(); lastPaint = ''; paint(); }));
+    // bring the opened file into view inside the tray (questions and turn rows sit above it)
+    const sc = preview.closest('.gc-tray-scroll'); if (sc) sc.scrollTop = Math.max(0, preview.offsetTop - sc.offsetTop);
   }
 
   /* ---------- STARTING A GROUP ----------

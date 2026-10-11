@@ -49,7 +49,8 @@ const DeskScreen = (() => {
   function fold(name, p, now) {
     if (!p || typeof p !== 'object') return;
     now = now || clock();
-    if (name === 'permission.prompt') { if (p.agentId && p.promptId) asks.set(p.agentId, { promptId: p.promptId, tool: p.tool || '', at: now }); return; }
+    // a delegated worker's ask is on the WORKER's desk (workerAgentId), never the lead's
+    if (name === 'permission.prompt') { const who = p.workerAgentId || p.agentId; if (who && p.promptId) asks.set(who, { promptId: p.promptId, tool: p.tool || '', at: now }); return; }
     if (name === 'permission.response') { for (const [aid, a] of asks) if (a.promptId === p.promptId) asks.delete(aid); return; }
     if (name === 'browser.handoff') {
       if (!p.id || !p.agentId) return;
@@ -507,7 +508,7 @@ const DeskScreen = (() => {
   const isOpen = () => !!(cur && cur.body && cur.body.isConnected);
   const text = () => (isOpen() ? cur.body.innerText : null);
   const agentOfOpen = () => (isOpen() ? cur.agentId : null);
-  return { init, open, isOpen, text, agentOfOpen, _deskTitle: deskTitle,
+  return { init, open, isOpen, text, agentOfOpen, parseScreens, _deskTitle: deskTitle,
     _fold: fold, _currentOf: currentOf, _lastEndedOf: lastEndedOf, _argDigest: argDigest, _taskOf: taskOf,
     _parseScreens: parseScreens, _screenOf: screenOf,
     _handoffOf: aid => handoffs.get(aid) || null,

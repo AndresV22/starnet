@@ -53,6 +53,8 @@ function makeRunTranscript(opts) {
   const agentId = o.agentId;
   const runId = o.runId;
   const onFailure = typeof o.onFailure === 'function' ? o.onFailure : function () {};
+  // a delegated worker's directive was written by the agent that dispatched it, never typed by the Commander
+  const from = o.from ? String(o.from) : '';
   // the run's CURRENT taint source (null = clean), read at each write: a row written after untrusted content
   // entered the run carries it, so a later replay of that row restores the taint (transcriptstore.taintOf)
   const taintNow = typeof o.taint === 'function' ? function () { try { return o.taint() || null; } catch (e) { onFailure('taint', e); return null; } } : function () { return null; };
@@ -61,7 +63,7 @@ function makeRunTranscript(opts) {
 
   function writeDirective() {
     if (directiveWritten || !directive) return;
-    store.appendStrict({ streamId: streamId, agentId: agentId, role: 'user', content: directive, sourceRunId: runId, taint: taintNow() });
+    store.appendStrict({ streamId: streamId, agentId: agentId, role: 'user', content: directive, sourceRunId: runId, taint: taintNow(), from: from || undefined });
     directiveWritten = true;
   }
 

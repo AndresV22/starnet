@@ -66,7 +66,12 @@ function makeRemoteHost(d) {
   function deskSessions() {
     let list = [];
     try { list = (d.deskSessions && d.deskSessions()) || []; } catch (e) { note('remote.host.deskSessions', e); list = []; }
-    return Array.isArray(list) ? list.filter(w => w && typeof w.id === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(w.id) && !w.archived && w.conversationMode !== 'group') : [];
+    return Array.isArray(list) ? list.filter(w => w && typeof w.id === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(w.id) && !w.archived && w.conversationMode !== 'group' && w.worker !== true) : [];
+  }
+  // a delegated worker's own thread is the asking conversation's record, never a phone thread of its own
+  function workerStreams() {
+    try { return new Set(((d.workerThreadIds && d.workerThreadIds()) || []).map(String)); }
+    catch (e) { note('remote.host.workerThreads', e); return new Set(); }
   }
   const STATION_TURNS = 2000;
   function stationTurns(streamId, limit) {
@@ -160,6 +165,7 @@ function makeRemoteHost(d) {
     const names = new Map(agentsList().map(a => [a.agentId, String(a.name || '').toLowerCase()]));
     const rows = d.transcript.streams({ limit: 500, previewChars: 140 }) || [];
     const stationHas = new Set(rows.filter(r => Number(r.turns) > 0).map(r => r.streamId));
+    const workers = workerStreams();
     for (const w of deskSessions()) {
       const agentId = String(w.agentId || 'agent');
       const hist = Array.isArray(w.history) ? w.history.filter(isProse) : [];
@@ -176,7 +182,7 @@ function makeRemoteHost(d) {
         if (row && Number(r.lastAt) > row.lastAt) { row.lastAt = Number(r.lastAt); if (r.preview) row.preview = r.preview; }
         continue;
       }
-      if (r.streamId === 'global' || /^(cron|nightshift|workshop)-/.test(r.streamId)) continue;   // background work has its own surfaces
+      if (r.streamId === 'global' || /^(cron|nightshift|workshop)-/.test(r.streamId) || workers.has(r.streamId)) continue;   // background work has its own surfaces
       let agentId = r.agentId || '';
       if (!agentId) { try { const h = d.transcript.history(r.streamId, { limit: 1 }); agentId = (h[0] && h[0].agentId) || ''; } catch (e) { note('remote.host.threadAgent', e); } }
       if (o.agentId && agentId !== o.agentId) continue;

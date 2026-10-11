@@ -605,7 +605,8 @@
     <div id="crew-vresizer" class="row-resizer" title="drag to resize CREW vs SESSIONS (double-click to reset)" role="separator" aria-orientation="horizontal" aria-label="Resize the crew roster"></div>
     <div id="ws-wrap">
       <div class="ws-head"><span class="ws-view" role="tablist" aria-label="rail view"><button id="ws-tab-sessions" class="ws-tab on" role="tab" aria-selected="true" title="your saved conversations">SESSIONS</button><button id="ws-tab-projects" class="ws-tab" role="tab" aria-selected="false" title="trusted project folders">PROJECTS</button></span><span class="ws-head-acts"><button id="ws-new" title="start a new COMMS session">+ NEW</button><button id="ws-addproject" title="bless a folder as a trusted project" hidden>+ ADD</button></span></div>
-      <button id="ws-attention" class="ws-attention" type="button" aria-pressed="false" aria-controls="workstreams" hidden><span>Waiting for you</span><span id="ws-attention-count"></span><span id="ws-attention-clear" aria-hidden="true" hidden>✕</span></button>
+      <!-- NEEDS YOU (needsyou.js, 2026-10-11): every approval, question and failure on the station, each with its action -->
+      <section id="ws-needs" class="ws-needs" aria-label="Needs you" hidden></section>
       <!-- RAIL SEARCH (2026-07-17): the SESSION TOOLS window was retired — search lives ON the rail now
            (the one capability no other surface covered); per-session export moved into the row ⋯ menu.
            The head above stays SESSIONS/PROJECTS + NEW only (Commander directive, 2026-07-08). -->
@@ -1079,6 +1080,8 @@
 <script src="app/widgets.js"></script><!-- widget rails: pinnable read-only telemetry instruments (insights/cron polls + run.end/queue.status/cron.fire folds); own localStorage key, never emits -->
 <script src="app/autosessions.js"></script><!-- surface an unattended cron/routine run as a readable SESSION: cron.fire → adopt a 'cron-<runId>' workstream (busy, no focus-steal), cron.result → fold its durable transcript; boot backfill for runs finished while closed. Read-only on U.bus (after app.js so App/Workstreams/Channels/Chat/U exist) -->
 <script src="app/briefing.js"></script><!-- THE ONE RETURN REPORT: boot + first input after a real absence → POST /api/away/briefing/deliver → ONE pinned "While you were away" session (sidecar composes every unattended outcome); the older return beats stand down while it is live -->
+<script src="app/needsyou.js"></script><!-- NEEDS YOU: every ask and failure waiting on the Commander, pinned atop SESSIONS -->
+<script src="app/delegated.js"></script><!-- DELEGATED WORK: one live card per dispatch in the conversation that asked; each worker's answer + receipt unfolds on it -->
 <script src="app/remoteview.js"></script><!-- StarNet Remote: the phone's STATION view. While a paired phone is looking, this page draws a still of the whole station with the real renderer (World.renderStill) and hands it to the sidecar (POST /api/remote/view) -->
 <script src="app/remotesessions.js"></script><!-- StarNet Remote: a conversation held from a phone is a desk SESSION too — adopt phone-started streams (GET /api/remote/recent + /api/runs backfill), show them busy while live, reload the open session when a phone turn lands. Read-only on U.bus -->
 <script src="app/warroom.js"></script>

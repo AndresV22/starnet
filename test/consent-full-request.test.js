@@ -59,6 +59,10 @@ test('the desk card: a glance line in the phrase, the whole request in INSPECT',
   // the generic fallback and a typed-in process use the same glance
   assert.ok(card.actionPhrase({ tool: 'team.configure', argsSummary: JSON.stringify({ brief: 'b'.repeat(500) }, null, 2) }).length < 140);
   assert.match(card.actionPhrase({ tool: 'shell.bg.write', argsSummary: '{"id":"bg1","input":"y"}' }), /^type into a running process: y$/);
+  // a hand-off names who gets the work, never the raw worker JSON (read by pattern: the summary may be clipped mid-object)
+  assert.equal(card.actionPhrase({ tool: 'team.dispatch', argsSummary: '{"background":true,"workers":[{"agentId":"researcher","prompt":"a"},{"agentId":"writer","prompt":"b"},{"agentId":"designer","pro' }),
+    'hand work to researcher, writer and designer (in the background)');
+  assert.equal(card.actionPhrase({ tool: 'team.dispatch', argsSummary: '{"background":false}' }), 'hand work to the crew');
 });
 
 test('cards the sidecar words itself, and a short bare value, get no panel; file changes keep theirs', () => {

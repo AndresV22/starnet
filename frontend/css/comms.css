@@ -871,3 +871,23 @@ body.glass-demo :is(#chat-log, #gc-log) .cmsg.user  + .cmsg.user  > .cmsg-head {
 .cmsg .body .md-table th { color: var(--ph-bright); }
 .cmsg .body > :first-child { margin-top: 0; }
 .cmsg .body > :last-child { margin-bottom: 0; }
+
+/* FILES THE AGENT NAMES in its reply (2026-10-10): a relative [link](path) is a file link with the file glyph's rhythm, and
+   an ![image](path) is the picture itself — bigger than an attachment thumb (it IS the thing being shown), click to enlarge.
+   Shared by COMMS and the group transcript (both render through Chat.renderProse). Matte: a brighter edge, never a glow. */
+.md-file { color: var(--ph-bright); text-decoration: underline; text-decoration-color: rgba(var(--ph-rgb), .45); text-underline-offset: 3px; cursor: pointer; }
+.md-file::before { content: '▤ '; color: var(--ph-dim); text-decoration: none; display: inline-block; margin-right: 2px; }
+.md-file:hover { color: var(--ph-bright); text-decoration-color: var(--ph-bright); }
+.md-img { display: block; margin: 6px 0; }
+.md-img .md-img-alt { display: inline-block; padding: 3px 8px; font-size: 13px; color: var(--ph-dim); border: 1px dashed rgba(var(--ph-rgb), .3); border-radius: 6px; }
+.md-img.md-img-missing .md-img-alt { color: var(--warn, var(--gold)); }
+.md-img a.md-thumb { display: inline-block; line-height: 0; max-width: 100%; border: 1px solid rgba(var(--ph-rgb), .3); border-radius: 8px; overflow: hidden; cursor: zoom-in; }
+.md-img a.md-thumb img { display: block; max-width: min(100%, 420px); max-height: 300px; object-fit: contain; background: rgba(0, 0, 0, .2); }
+.md-img a.md-thumb:hover { border-color: var(--ph-bright); }
+
+/* THE COMPOSER NEVER EATS THE CONVERSATION (2026-10-10): staged attachments and queued messages wrapped above the message box
+   with no cap — two videos (4 chips each) or a burst of queued notes pushed the transcript up by hundreds of pixels. Each
+   strip now holds ~3 rows and scrolls inside itself. */
+#chat-panel .chat-attach-strip:not([hidden]) { max-height: 124px; overflow-y: auto; scrollbar-color: var(--ph-dim) transparent; }
+#chat-panel .chat-queued:not(:empty) { max-height: 104px; overflow-y: auto; scrollbar-color: var(--ph-dim) transparent; }
+#voice-interruption { cursor: pointer; }

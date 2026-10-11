@@ -546,6 +546,54 @@ body.glass-demo:not(.hud-mode) #left .ws-auto-group button span { font-size: 14p
 body.glass-demo:not(.hud-mode) #left .ws-auto-group button small { grid-column: 2; font-size: 13px; color: var(--cg-mute); }
 body.glass-demo:not(.hud-mode) #left .ws-auto-group button:is(:hover, :focus-visible) { border-color: rgba(var(--ph-rgb), .45); background: rgba(var(--ph-rgb), .08); }
 
+/* NEEDS YOU (2026-10-11, needsyou.js): every approval, question and failure on the station, pinned atop SESSIONS — the
+   approval-card glass edged in the station's "needs you" gold. One row per item, sized for the narrow rail: WHO · where ·
+   how long, then what exactly (two lines at most), then its keys full width. Matte: state is an edge or a fill, never a glow. */
+body.glass-demo:not(.hud-mode) #left .ws-needs {
+  flex: 0 0 auto; margin: 8px 6px 4px; padding: 8px 10px 6px; font-family: 'VT323', monospace; color: var(--text); text-shadow: none;
+  border: 1px solid rgba(var(--gold-rgb), .32); border-left: 2px solid rgba(var(--gold-rgb), .75); border-radius: 10px;
+  background: linear-gradient(165deg, rgba(var(--gold-rgb), .08), transparent 55%), color-mix(in srgb, var(--panel) 92%, transparent);
+  box-shadow: inset 0 1px 0 rgba(var(--ph-bright-rgb), .07);
+}
+#left .ws-needs[hidden] { display: none !important; }
+body.glass-demo:not(.hud-mode) #left .ws-needs .ny-head { display: flex; align-items: center; gap: 8px; margin-bottom: 2px; font-size: 14px; letter-spacing: 1.6px; text-transform: uppercase; color: var(--gold); }
+body.glass-demo:not(.hud-mode) #left .ws-needs .ny-lamp { width: 9px; height: 9px; border-radius: 2px; background: var(--gold); box-shadow: 0 0 0 1px rgba(0, 0, 0, .55), inset 0 1px 0 rgba(255, 255, 255, .3); }
+body.glass-demo:not(.hud-mode) #left .ws-needs .ny-count { margin-left: auto; font-size: 15px; letter-spacing: .5px; font-variant-numeric: tabular-nums; }
+body.glass-demo:not(.hud-mode) #left .ws-needs .ny-list { margin: 0; padding: 0; list-style: none; }
+body.glass-demo:not(.hud-mode) #left .ws-needs .ny-item { padding: 7px 0 6px; border-top: 1px solid rgba(var(--ph-rgb), .1); cursor: pointer; }
+body.glass-demo:not(.hud-mode) #left .ws-needs .ny-item:first-child { border-top: 0; }
+body.glass-demo:not(.hud-mode) #left .ws-needs .ny-line { display: flex; align-items: baseline; gap: 6px; min-width: 0; font-size: 16px; line-height: 1.25; }
+body.glass-demo:not(.hud-mode) #left .ws-needs .ny-who { flex: none; color: var(--ph-bright); letter-spacing: 1px; }
+body.glass-demo:not(.hud-mode) #left .ws-needs .ny-what {
+  margin-top: 2px; font-size: 16px; line-height: 1.25; overflow-wrap: anywhere; overflow: hidden;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+}
+body.glass-demo:not(.hud-mode) #left .ws-needs .ny-item:is(.failed, .routine) .ny-what { color: var(--bad); }
+body.glass-demo:not(.hud-mode) #left .ws-needs .ny-age { flex: none; margin-left: auto; font-size: 14px; color: var(--cg-mute, var(--text)); }
+body.glass-demo:not(.hud-mode) #left .ws-needs .ny-where {
+  flex: 1 1 auto; min-width: 0; padding: 0; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer;
+  font: 14px 'VT323', monospace; letter-spacing: .3px; color: var(--text); opacity: .85; background: none; border: 0; box-shadow: none;
+}
+body.glass-demo:not(.hud-mode) #left .ws-needs .ny-where:is(:hover, :focus-visible) { color: var(--ph-bright); opacity: 1; }
+body.glass-demo:not(.hud-mode) #left .ws-needs .ny-keys { display: flex; gap: 6px; margin-top: 6px; }
+body.glass-demo:not(.hud-mode) #left .ws-needs .ny-key {
+  flex: 1 1 0; min-width: 0; min-height: 34px; padding: 5px 8px; font: 15px/1.1 'VT323', monospace; letter-spacing: .4px; cursor: pointer; white-space: nowrap;
+  color: var(--ph); border: 1px solid rgba(var(--ph-rgb), .2); border-radius: 8px; text-shadow: none;
+  background: linear-gradient(125deg, rgba(var(--ph-bright-rgb), .09), rgba(var(--ph-rgb), .045) 48%, rgba(var(--ph-rgb), .015));
+  box-shadow: inset 0 1px 0 rgba(var(--ph-bright-rgb), .07);
+}
+body.glass-demo:not(.hud-mode) #left .ws-needs .ny-key:hover:not(:disabled) { color: var(--ph-bright); border-color: rgba(var(--ph-rgb), .45); background: rgba(var(--ph-rgb), .1); }
+body.glass-demo:not(.hud-mode) #left .ws-needs .ny-key:focus-visible { outline: 2px solid var(--ph-bright); outline-offset: 2px; }
+body.glass-demo:not(.hud-mode) #left .ws-needs .ny-key.primary { color: var(--ph-bright); border-color: rgba(var(--gold-rgb), .55); background: linear-gradient(140deg, rgba(var(--gold-rgb), .15), rgba(var(--ph-rgb), .04)); }
+body.glass-demo:not(.hud-mode) #left .ws-needs .ny-key.deny { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 35%, transparent); background: color-mix(in srgb, var(--bad) 5%, transparent); }
+body.glass-demo:not(.hud-mode) #left .ws-needs .ny-key.quiet { color: var(--text); background: transparent; }
+body.glass-demo:not(.hud-mode) #left .ws-needs .ny-key:disabled { opacity: .55; cursor: default; }
+body.glass-demo:not(.hud-mode) #left .ws-needs .ny-more {
+  display: block; width: 100%; padding: 6px 0 2px; text-align: left; cursor: pointer;
+  font: 14px 'VT323', monospace; letter-spacing: .5px; color: var(--ph); background: none; border: 0; border-top: 1px solid rgba(var(--ph-rgb), .1); box-shadow: none;
+}
+body.glass-demo:not(.hud-mode) #left .ws-needs .ny-more:is(:hover, :focus-visible) { color: var(--ph-bright); }
+
 /* --- old-style leftovers found by the 16-window sweep (10-02), each brought into the current glass --- */
 /* step-by-step guides (ABILITIES, CHANNELS): were a flat black box with a 1px dim rule */
 body.glass-demo:not(.hud-mode) .term .platform-guide {

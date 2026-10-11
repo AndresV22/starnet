@@ -179,7 +179,8 @@
     let u;
     try { u = new URL(raw, 'http://127.0.0.1'); } catch (_) { return raw; }
     u.searchParams.delete('token');
-    if (u.pathname === '/api/file') return fileUrl(u.searchParams.get('agent') || 'agent', u.searchParams.get('path') || '');
+    // a project-scoped file keeps its project (the server resolves the path inside it; the ticket scope is agent+path)
+    if (u.pathname === '/api/file') { const project = u.searchParams.get('project'); return fileUrl(u.searchParams.get('agent') || 'agent', u.searchParams.get('path') || '') + (project ? '&project=' + encodeURIComponent(project) : ''); }
     const m = /^\/workshop-run\/([^/]+)\/([^/]+)\/(.+)$/.exec(u.pathname);
     if (m && m[1] !== '~t') {
       let agent, rid, rel;

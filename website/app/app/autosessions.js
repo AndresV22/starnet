@@ -287,7 +287,9 @@ const AutoSessions = (() => {
           continue;
         }
         // adopt (idempotent) — an existing seed-only session is preserved by adopt; a while-away run is already DONE.
-        Workstreams.adopt({ id: sid, title: jobName || String(run.title || 'Routine').split('\n')[0].slice(0, 80) || 'Routine', agentId: String(run.agentId || 'agent'), lane: 'active', history: (existing && existing.history) || [], automation: { kind: 'routine', id: run.cronJobId || '', name: jobName || run.title || 'Routine' } });
+        // A run that finished while the station was CLOSED arrives UNREAD (lastReadAt 0: the Commander has never
+        // opened it), so the rail lamp shows what ran while you were gone. A session already on this page keeps its own.
+        Workstreams.adopt({ id: sid, title: jobName || String(run.title || 'Routine').split('\n')[0].slice(0, 80) || 'Routine', agentId: String(run.agentId || 'agent'), lane: 'active', history: (existing && existing.history) || [], automation: { kind: 'routine', id: run.cronJobId || '', name: jobName || run.title || 'Routine' }, lastReadAt: existing ? undefined : 0 });
         const ws = Workstreams.get(sid);
         if (!ws) continue;
         const loaded = await fetchTranscript(ws.agentId, sid, options);

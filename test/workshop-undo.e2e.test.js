@@ -136,6 +136,14 @@ async function readNdjson(res) {
     const libAfterKeep = await (await fetch(B + '/api/deliverables', { headers })).json();
     A.ok(libAfterKeep.items.some(r => r.runId === runId && r.status === 'kept'), 'the library records the kept lifecycle');
 
+    // Clear the kept card before undo: the pending decision must reappear despite sharing the same durable id.
+    const clear = await fetch(B + '/api/deliverables/clear', { method: 'POST', headers, body: JSON.stringify({ ids: ['workshop:builder:' + runId] }) });
+    const clearJ = await clear.json();
+    A.ok(clear.status === 200 && clearJ.cleared === 1, 'kept build can be cleared from the library');
+    const clearedList = await (await fetch(B + '/api/deliverables', { headers })).json();
+    A.ok(!clearedList.items.some(r => r.runId === runId), 'cleared kept card is hidden before undo');
+    A.ok(fs.existsSync(path.join(keepDir, 'cleaner.py')), 'clearing the library never deletes kept files');
+
     // 4. UNDO → delete EXACTLY the kept files, verified gone; the build returns to PENDING.
     const undo = await fetch(B + '/api/workshop/undo', { method: 'POST', headers, body: JSON.stringify({ agentId: 'builder', runId: runId, destPath: keepDir }) });
     const undoJ = await undo.json();

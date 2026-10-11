@@ -297,7 +297,7 @@
       const schedHuman = human(sched);
       const schedTz = j.schedule && j.schedule.kind === 'cron' ? String(j.schedule.tz || '') : '';
       const tzLabel = schedTz ? ' [' + schedTz + ']' : '';
-      return '<div class="mc-row" data-id="' + esc(j.id) + '" data-on="' + (on ? '1' : '0') + '" data-sched="' + esc(sched) + '" data-tz="' + esc(schedTz) + '">' +
+      return '<div class="mc-row" data-id="' + esc(j.id) + '" data-agent="' + esc(j.agentId || 'agent') + '" data-name="' + esc(j.name || '') + '" data-on="' + (on ? '1' : '0') + '" data-sched="' + esc(sched) + '" data-tz="' + esc(schedTz) + '">' +
         '<div class="mc-top"><b>' + esc(j.name || '(unnamed)') + '</b> <span class="dim"' +
           (schedHuman !== sched ? ' title="' + esc(sched) + '"' : '') + '>' + esc(schedHuman + tzLabel) + '</span> ' + stateBadge + termBadge + runtimeBadge + fromRecipe + '</div>' +
         '<div class="mc-url dim">' + runsLine(j) + ' · next ' + next + ' · last ' + lastResult(j) + spendLine(j) + '</div>' +
@@ -642,7 +642,9 @@
         ' <span class="dim">' + esc(r.at ? new Date(r.at).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '') +
         ' · ' + took + ' · ' + cost + ' · ' + tools + ' tool call' + (tools === 1 ? '' : 's') +
         (files ? ' · ' + files + ' file' + (files === 1 ? '' : 's') : '') + '</span>' +
-        (r.error && !ok ? '<div class="dim">' + esc(String(r.error).slice(0, 240)) + '</div>' : '') + '</div>';
+        (r.error && !ok ? '<div class="dim">' + esc(String(r.error).slice(0, 240)) + '</div>' : '') +
+        // (2026-10-09) every past run opens the run itself — its session holds what it said and did
+        (r.runId ? ' <button class="bb xs" data-act="open-run" data-run="' + esc(r.runId) + '" data-stream="' + esc(r.streamId || ('cron-' + r.runId)) + '">OPEN</button>' : '') + '</div>';
     }
     async function toggleHistory(rowEl, id, btn) {
       const open = rowEl.querySelector('.rt-hist');
@@ -667,6 +669,13 @@
       const rowEl = ev.target.closest('.mc-row'); const id = rowEl && rowEl.dataset.id; if (!id) return;
       const act = btn.dataset.act;
       if (act === 'history') { sfx('click'); toggleHistory(rowEl, id, btn); return; }
+      if (act === 'open-run') {
+        sfx('click');
+        let opened = false;
+        try { if (typeof ReturnStore !== 'undefined' && ReturnStore.openWork) opened = await ReturnStore.openWork({ runId: btn.dataset.run, streamId: btn.dataset.stream, agentId: rowEl.dataset.agent || 'agent', title: rowEl.dataset.name || '' }); } catch (_) { opened = false; }
+        if (!opened && typeof StationUI !== 'undefined' && StationUI.notify) StationUI.notify('That run’s conversation could not be loaded.', 'warn');
+        return;
+      }
       if (act === 'edit') {
         sfx('click');
         const wasOpen = btn.classList.contains('on');

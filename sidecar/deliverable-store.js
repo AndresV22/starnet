@@ -17,6 +17,11 @@ const { writeFileDurable } = require('./durable-write.js');
 // will quietly report success as failure.
 const STATUS = new Set(['kept', 'implemented', 'discarded', 'failed']);
 const SOURCE_MAX = 40, TEXT_MAX = 260, UNDO_CAP = 20, FILE_CAP = 50;
+// CLEARED (2026-10-10, Andrew: "users can wipe them out if done"): ids the Commander cleared out of the library view.
+// Library-only — the files on disk, the run log and any lifecycle row are untouched, so a clear is always undoable
+// and can never destroy work. The id set is uncapped for the same reason lifecycle rows are: dropping the oldest
+// would silently bring a cleared deliverable back.
+const CLEAR_ID_MAX = 200;
 const COMPACT_BYTES = 8 * 1024 * 1024;
 
 function text(v, n) { return String(v == null ? '' : v).slice(0, n || TEXT_MAX); }
@@ -46,7 +51,9 @@ function normalize(v) {
   // Growth is bounded by append-log compaction, not by deleting the oldest deliverable.
   const rows = Array.isArray(s.rows) ? s.rows.map(r => rowOf(r, r && r.updatedAt)).filter(Boolean) : [];
   const undo = Array.isArray(s.undo) ? s.undo.filter(x => x && x.token && Array.isArray(x.rows)).slice(-UNDO_CAP) : [];
-  return { v: 2, appliedSeq: Math.max(0, Number(s.appliedSeq) || 0), rows, undo };
+  const cleared = Array.isArray(s.cleared) ? Array.from(new Set(s.cleared.map(id => text(id, CLEAR_ID_MAX)).filter(Boolean))) : [];
+  const clearUndo = Array.isArray(s.clearUndo) ? s.clearUndo.filter(x => x && x.token && Array.isArray(x.ids)).slice(-UNDO_CAP) : [];
+  return { v: 2, appliedSeq: Math.max(0, Number(s.appliedSeq) || 0), rows, undo, cleared, clearUndo };
 }
 function fingerprint(rows) {
   return rows.map(r => [r.id, r.status, r.updatedAt].join(':')).sort().join('|');
@@ -83,6 +90,16 @@ function makeDeliverableStore(deps) {
       s.undo = s.undo.filter(b => b.token !== op.token);
       s.undo.push({ token: text(op.token, 100), at: Number(op.at) || 0, rows: (op.rows || []).map(r => rowOf(r, r && r.updatedAt)).filter(Boolean) });
       while (s.undo.length > UNDO_CAP) s.undo.shift();
+    } else if (op.op === 'clear') {
+      const ids = Array.isArray(op.ids) ? op.ids.map(id => text(id, CLEAR_ID_MAX)).filter(Boolean) : [];
+      const had = new Set(s.cleared), added = ids.filter(id => !had.has(id));
+      for (const id of added) { s.cleared.push(id); had.add(id); }
+      s.clearUndo = s.clearUndo.filter(b => b.token !== op.token);
+      s.clearUndo.push({ token: text(op.token, 100), at: Number(op.at) || 0, ids: added });   // undo restores only what THIS clear hid
+      while (s.clearUndo.length > UNDO_CAP) s.clearUndo.shift();
+    } else if (op.op === 'unclear') {
+      const i = s.clearUndo.findIndex(b => b.token === op.token);
+      if (i >= 0) { const back = new Set(s.clearUndo[i].ids); s.clearUndo.splice(i, 1); s.cleared = s.cleared.filter(id => !back.has(id)); }
     } else if (op.op === 'undo') {
       const i = s.undo.findIndex(b => b.token === op.token);
       if (i >= 0) {
@@ -149,7 +166,7 @@ function makeDeliverableStore(deps) {
   }
   function read() {
     const s = load();
-    return normalize({ appliedSeq: s.appliedSeq, rows: s.rows, undo: s.undo });
+    return normalize({ appliedSeq: s.appliedSeq, rows: s.rows, undo: s.undo, cleared: s.cleared, clearUndo: s.clearUndo });
   }
   function list() { return read().rows.slice().sort((a, b) => (b.updatedAt - a.updatedAt) || a.id.localeCompare(b.id)).map(r => Object.assign({}, r, { files: r.files.map(f => Object.assign({}, f)) })); }
   function record(row, now) {
@@ -193,7 +210,29 @@ function makeDeliverableStore(deps) {
       return out;
     });
   }
-  return { read, list, record, previewCleanup, applyCleanup, undoCleanup, _durable: durable };
+  function clearedIds() { return new Set(load().cleared); }
+  // clear(ids) hides library rows; the caller (the route) decides WHICH ids are eligible against the live library.
+  function clear(ids, token, now) {
+    token = text(token, 100);
+    const want = Array.from(new Set((Array.isArray(ids) ? ids : []).map(id => text(id, CLEAR_ID_MAX)).filter(Boolean)));
+    if (!token) return Promise.resolve({ ok: false, reason: 'undo-token-required', cleared: 0 });
+    return durable.mutex.run(KEY, async () => {
+      const had = new Set(load().cleared), fresh = want.filter(id => !had.has(id));
+      if (!fresh.length) return { ok: true, cleared: 0, undoToken: '' };
+      commit({ op: 'clear', token, at: Number(now) || 0, ids: fresh });
+      return { ok: true, cleared: fresh.length, undoToken: token };
+    });
+  }
+  function unclear(token, now) {
+    token = text(token, 100);
+    return durable.mutex.run(KEY, async () => {
+      const b = load().clearUndo.find(x => x.token === token);
+      if (!b) return { ok: false, reason: 'not-found', restored: 0 };
+      commit({ op: 'unclear', token, at: Number(now) || 0 });
+      return { ok: true, restored: b.ids.length };
+    });
+  }
+  return { read, list, record, previewCleanup, applyCleanup, undoCleanup, clear, unclear, clearedIds, _durable: durable };
 }
 
 module.exports = { makeDeliverableStore, normalize };

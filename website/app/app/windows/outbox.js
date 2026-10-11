@@ -35,8 +35,10 @@
     mounted.add(body);
     body.hidden = !rows.length;
     body.innerHTML =
-      '<h4 class="ms-h dlv-review-h">TO REVIEW <span class="dim">— finished work waiting for your verdict (' + rows.length + ')</span></h4>' +
+      '<h4 class="ms-h dlv-review-h"><button type="button" class="dlv-review-tog" aria-expanded="true"><span class="ob-caret-all" aria-hidden="true">▾</span> TO REVIEW <span class="dim">— finished work waiting for your verdict (' + rows.length + ')</span></button>' +
+        '<button type="button" class="bb sm ob-clearall">✓ CLEAR ALL ' + rows.length + '</button></h4>' +
       '<div id="ob-list" class="ob-list"></div>' +
+      '<button type="button" class="bb sm ob-showall" hidden></button>' +
       '<div class="row ob-doors" style="margin-top:10px;gap:8px"><button class="bb sm" id="ob-logbook">AGENT RECORD · run history</button></div>';
     const list = body.querySelector('#ob-list');
     const lb = body.querySelector('#ob-logbook');
@@ -44,6 +46,37 @@
     // (ONE MENU: DELIVERABLES is this window's neighbouring MY WORK tab — no second door to it here)
     function renderEmpty() { list.innerHTML = ''; body.hidden = true; }   // nothing waiting: the section steps aside
     if (!rows.length) { renderEmpty(); return; }
+    /* A LIST THAT CAN'T BURY THE LIBRARY (2026-10-10): a routine left running overnight used to stack 30+ tall cards here,
+       pushing the library thousands of pixels down with no way to fold them. Now the heading folds the whole section (the
+       choice is remembered), only the first FEW rows show until SHOW ALL, and CLEAR ALL collects every crate in one go —
+       the work itself stays in the library below; only the "waiting for your verdict" reminder goes. */
+    const FOLD_KEY = 'starnet.dlv.review.open', FEW = 3;
+    let sectionOpen = true; try { sectionOpen = localStorage.getItem(FOLD_KEY) !== '0'; } catch (_) {}
+    let showAll = false;
+    const tog = body.querySelector('.dlv-review-tog'), more = body.querySelector('.ob-showall'), clearAll = body.querySelector('.ob-clearall');
+    const doors = body.querySelector('.ob-doors');
+    const paintFold = () => {
+      tog.setAttribute('aria-expanded', sectionOpen ? 'true' : 'false');
+      tog.querySelector('.ob-caret-all').textContent = sectionOpen ? '▾' : '▸';
+      list.hidden = !sectionOpen; if (doors) doors.hidden = !sectionOpen; clearAll.hidden = !sectionOpen;
+      const live = Array.from(list.children);
+      live.forEach((r, i) => { r.hidden = !showAll && i >= FEW; });
+      more.hidden = !sectionOpen || live.length <= FEW;
+      more.textContent = showAll ? 'SHOW FEWER ▴' : 'SHOW ALL ' + live.length + ' ▾';
+      // the counts follow the live list as crates are collected one by one
+      const n = tog.querySelector('.dim'); if (n) n.textContent = '— finished work waiting for your verdict (' + live.length + ')';
+      if (clearAll.dataset.armed !== '1') clearAll.textContent = '✓ CLEAR ALL ' + live.length;
+    };
+    tog.addEventListener('click', () => { sectionOpen = !sectionOpen; try { localStorage.setItem(FOLD_KEY, sectionOpen ? '1' : '0'); } catch (_) {} paintFold(); });
+    more.addEventListener('click', () => { showAll = !showAll; paintFold(); });
+    const clearEvery = () => {
+      const ids = Array.from(list.children).filter(r => r.dataset.collected !== '1').map(r => r.dataset.runId).filter(Boolean);
+      if (RS && RS.resolveAll) RS.resolveAll(ids); else if (RS && RS.resolve) ids.forEach(id => RS.resolve(id));
+      notify('Cleared ' + ids.length + ' from TO REVIEW. The work stays in your library.', '');
+      renderEmpty();
+    };
+    if (typeof ArmConfirm !== 'undefined' && ArmConfirm.wire) ArmConfirm.wire(clearAll, { armedLabel: 'CLEAR ALL — SURE?', onDisarm: paintFold, onConfirm: clearEvery });
+    else clearAll.addEventListener('click', clearEvery);
     // agent id → display name via the live roster (raw ids read as debug output)
     const agentName = id => { const a = (Array.isArray(H.present) ? H.present.find(x => x && x.id === id) : null); return (a && a.name) || id || 'agent'; };
     const firstLine = (s, n) => { const t = String(s || '').replace(/\s+/g, ' ').trim(); return t.length > n ? t.slice(0, n - 1).trimEnd() + '…' : t; };
@@ -69,7 +102,7 @@
     const dlvJoin = (async () => {
       const byRun = new Map();
       try {
-        const j = await Harness.api.get('/api/deliverables');
+        const j = await Harness.api.get('/api/deliverables?includeCleared=1');   // a crate whose library card was cleared keeps its files
         for (const it of ((j && j.items) || [])) {
           if (!it || !it.runId) continue;
           const cur = byRun.get(it.runId) || { agentId: it.agentId, runId: it.runId, files: [], main: '' };
@@ -88,10 +121,10 @@
       DLV.handleOpenClick(ev, dlvRows, openState, (s, bad) => notify(s, bad ? 'warn' : ''));
     });
     let open = rows.length;
-    const collected = (row) => { row.style.transition = 'opacity .25s ease'; row.style.opacity = '0'; setTimeout(() => { row.remove(); if (--open <= 0) renderEmpty(); }, 300); };
+    const collected = (row) => { row.dataset.collected = '1'; row.style.transition = 'opacity .25s ease'; row.style.opacity = '0'; setTimeout(() => { row.remove(); if (--open <= 0) renderEmpty(); else paintFold(); }, 300); };
     const closeOthers = (except) => { list.querySelectorAll('.ob-row.open').forEach(r => { if (r !== except) { r.classList.remove('open'); const b = r.querySelector('.ob-body'); if (b) b.hidden = true; r.querySelector('.ob-head').setAttribute('aria-expanded', 'false'); r.querySelector('.ob-caret').textContent = '▸'; } }); };
     for (const rw of rows) {
-      const row = document.createElement('div'); row.className = 'ob-row';
+      const row = document.createElement('div'); row.className = 'ob-row'; row.dataset.runId = rw.runId;
       const when = rw.ts ? esc(fmtRel(new Date(rw.ts).toISOString())) : '';
       const usd = (+rw.usd > 0 && typeof U !== 'undefined' && U.usd) ? ' · ' + esc(U.usd(+rw.usd)) : '';
       // title: routine name wins (it's the human name of the job); else the run title until the
@@ -138,8 +171,9 @@
         // a work line's later stage was HANDED a machine prompt; the Commander asked for the ORIGINAL request (R2)
         const hand0 = (users.length && typeof Pipeline !== 'undefined' && Pipeline.parseHandoff) ? Pipeline.parseHandoff(users[0].content) : null;
         // SEND TO: a job another line handed on opens with that line's frame — title it by the job as it first arrived
-        const sent = (!hand0 && users.length && typeof Pipeline !== 'undefined' && Pipeline.parseHandoffInput) ? Pipeline.parseHandoffInput(users[0].content) : null;
-        const hand = hand0 || (sent && sent.original ? { original: sent.original, stage: 1, from: '', sent } : null);
+        const inner = hand0 && Pipeline.parseHandoffInput ? Pipeline.parseHandoffInput(hand0.original) : null;
+        const sent = inner && inner.original ? inner : ((!hand0 && users.length && typeof Pipeline !== 'undefined' && Pipeline.parseHandoffInput) ? Pipeline.parseHandoffInput(users[0].content) : null);
+        const hand = inner && inner.original ? { original: inner.original, stage: hand0.stage, from: hand0.from, sent: inner } : hand0 || (sent && sent.original ? { original: sent.original, stage: 1, from: '', sent } : null);
         // …and a reviewer's trailing "VERDICT: approved" is the loop gate's control signal, not part of the work (R1) — shown without it
         const rawReply = replies.length ? String(replies[replies.length - 1].content) : '';
         const lastReply = (hand && Pipeline.stripVerdictLine) ? Pipeline.stripVerdictLine(rawReply) : rawReply;
@@ -147,14 +181,14 @@
         desc.textContent = lastReply ? firstLine(plain(lastReply), 150)
           : (turns === null ? 'couldn’t read the result — is the station running?'
             : (turns && turns.length ? 'the run finished with nothing to report.' : 'no transcript recorded for this run. Open the session for older work without run attribution.'));
-        const askFull = hand && hand.sent ? String(hand.original) + '\n\n— handed on from ' + (hand.sent.fromName ? 'LINE ' + String(hand.sent.fromName).toUpperCase() : 'another line') + ': this reply is this line’s work on what that line delivered.'
+        const askFull = hand && hand.sent ? String(hand.original) + '\n\n— handed on from ' + Pipeline.lineWord(hand.sent.fromName, 'another line') + ': this reply is this line’s work on what that line delivered.'
           : hand ? String(hand.original) + '\n\n— the result of a work line: this reply is from step ' + hand.stage + ', after ' + String(agentName(hand.from)).toUpperCase() + '.'
           : users.length ? String(users[0].content) : '';
         // where this job came from / went on to (SEND TO) — the job's own record says, never a guess from the text
         if (jobStream) {
           try {
             const lj = await Harness.api.get('/api/line-jobs?stream=' + encodeURIComponent(rw.streamId) + '&limit=1');
-            const sj = lj && Array.isArray(lj.jobs) ? lj.jobs[0] : null, word = e => (e && e.name ? 'LINE ' + String(e.name).toUpperCase() : 'ANOTHER LINE');
+            const sj = lj && Array.isArray(lj.jobs) ? lj.jobs[0] : null, word = e => Pipeline.lineWord(e && e.name, e && e.lineId ? 'LINE ' + e.lineId : 'ANOTHER LINE');
             // (a REFUSED hand-off is NOT SENT ON, with why — never "sent on" for work the station did not send, 10-11)
             const bits = sj ? [sj.from ? 'FROM ' + word(sj.from) : '', sj.sentTo ? (sj.sentTo.refused ? 'NOT SENT ON TO ' + word(sj.sentTo) + ' — ' + sj.sentTo.refused : 'SENT ON TO ' + word(sj.sentTo)) : ''].filter(Boolean) : [];
             const pv = row.querySelector('.ob-prov');
@@ -235,6 +269,7 @@
         rateHost.appendChild(b);
       }
     }
+    paintFold();
   }
 
   // DELIVERABLES mounts this as its TO REVIEW section; ReturnStore refreshes every mounted copy when crates change

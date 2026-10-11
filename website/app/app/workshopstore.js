@@ -472,7 +472,7 @@ const WorkshopStore = (() => {
       if (!ws || historyTellsTheStory(ws)) return;
       let row = null;
       try {
-        const r = await fetch('/api/deliverables?query=' + encodeURIComponent(runId), { cache: 'no-store' });
+        const r = await fetch('/api/deliverables?includeCleared=1&query=' + encodeURIComponent(runId), { cache: 'no-store' });
         if (r.ok) {
           const j = await r.json().catch(() => null);
           const items = (j && Array.isArray(j.items)) ? j.items : [];

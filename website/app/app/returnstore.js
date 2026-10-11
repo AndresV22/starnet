@@ -155,6 +155,16 @@ const ReturnStore = (() => {
     }
     if (!sid || typeof Workstreams === 'undefined' || !Workstreams.adopt) return false;
     let w = Workstreams.get(sid);
+    // a delegated worker's own thread is never a session of its own: its work opens on the asking conversation's card
+    // (known here, or only to the overseer when this page never adopted it)
+    const ov = !w && typeof Overseer !== 'undefined' && Overseer.snapshot ? Overseer.snapshot() : null;
+    const filed = ov && (ov.threads || []).find(t => t && t.id === sid && t.worker === true && t.parentStreamId && Workstreams.get(t.parentStreamId));
+    if ((w && Workstreams.isHidden && Workstreams.isHidden(w)) || filed) {
+      if (typeof App === 'undefined' || !App.openWorkstream) return false;
+      App.openWorkstream(w ? sid : filed.parentStreamId);
+      if (!w && typeof Delegated !== 'undefined' && Delegated.reveal) Delegated.reveal(sid);
+      return true;
+    }
     if (!w || !(w.history || []).some(m => m && m.role === 'assistant')) {
       // no session yet (or an output-less shell) — adopt + fold the durable transcript so the work is readable.
       // revive:true — this is a DELIBERATE Commander click ("review the work"), the one case that may
@@ -182,6 +192,13 @@ const ReturnStore = (() => {
   }
   // rated (collected) — clear the crate
   function resolve(runId) { if (ready() && runId) { state = Returns.resolve(state, runId); save(); } }
+  // TO REVIEW's CLEAR ALL — collect every listed crate in ONE save (the runs stay in the library; only the reminder goes)
+  function resolveAll(runIds) {
+    if (!ready() || !Array.isArray(runIds)) return;
+    for (const id of runIds) if (id) state = Returns.resolve(state, id);
+    save();
+    try { if (typeof OutboxView !== 'undefined' && OutboxView.refresh) OutboxView.refresh(); } catch (_) {}   // DELIVERABLES › TO REVIEW
+  }
 
   /* foldRow(row) — PROOF crate (guided workflow Phase 4): fold ONE real finished-run row into the pending
      ledger NOW, so the sample job the Commander just fired lands on the OUTBOX like any delivered run. The
@@ -213,7 +230,7 @@ const ReturnStore = (() => {
     state = null; fired = false; try { localStorage.removeItem(KEY); } catch (_) {}
   }
 
-  return { init, pendingCount, pendingRows, reviewNext, resolve, foldRow, reset, lastSeen, isAttended, outboxLine, openWork };
+  return { init, pendingCount, pendingRows, reviewNext, resolve, resolveAll, foldRow, reset, lastSeen, isAttended, outboxLine, openWork };
 })();
 
 if (typeof module !== 'undefined' && module.exports) module.exports = { ReturnStore };

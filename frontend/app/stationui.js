@@ -1831,6 +1831,9 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       // row keeps opening the dossier, as it always has.
       li.addEventListener('click', () => {
         sfx('click');
+        // "needs your OK" (the gold card): one click lands where it is waiting — the approval or the question
+        const waiting = li.classList.contains('asking') && typeof App !== 'undefined' && App.waitingSessionOf ? App.waitingSessionOf(li.dataset.agentId) : null;
+        if (waiting && App.openWorkstream) { App.openWorkstream(waiting); return; }
         if (present.length > 1 && typeof App !== 'undefined' && App.filterRailByAgent) App.filterRailByAgent(li.dataset.agentId);
         else openAgent(+li.dataset.i);
       });

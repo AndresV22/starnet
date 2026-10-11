@@ -611,6 +611,8 @@ test/returns.test.js
 test/away-briefing.test.js
 test/briefing-frontend.test.js
 test/outbox-window.test.js
+test/declutter-strips.test.js
+test/declutter-recovery.test.js
 test/notifications-useful.test.js
 test/bell-settles.test.js
 test/quest-log-window.test.js
@@ -861,6 +863,9 @@ test/dossier-delete-visible.test.js
 test/control-floor-theming.test.js
 test/crew-rail-fit.test.js
 test/agent-threads-rail.test.js
+test/delegated-threads.test.js
+test/overseer-batch.test.js
+test/needs-you.test.js
 test/crew-cards.test.js
 test/front-doors-tabs.test.js
 test/brand-wordmark-mask.test.js

@@ -66,6 +66,8 @@ const B = require('../frontend/app/briefing.js');
   A.ok(!!row, 'opening the briefing renders the standing link row');
   A.eq(chips, null, 'it is NOT a one-shot Chat.choices prompt another beat could clear');
   A.eq(B.chipsFor(reply.items).map(c => c.value).join(','), 'workshop-b1,cron-c2', 'links only point at sessions that really exist (a deleted one stays gone)');
+  const dg = B.chipsFor([{ kind: 'delegated', name: 'Launch planning', runs: 3, failed: 1, open: 'cron-c2' }, { kind: 'delegated', name: 'Gone', runs: 1, failed: 0, open: 'deleted-1' }]);
+  A.eq(dg.map(c => c.label + '>' + c.value).join(','), '⚠ Launch planning>cron-c2', 'delegated work links to the conversation that asked for it (a failure flagged), never into a deleted one');
   A.ok(/review “Speedrun timer v2”/.test(row.children[0].textContent), 'build link says what it opens');
   opened = []; row.children[1].listeners.click();
   A.eq(opened.join(','), 'cron-c2', 'a link opens that item’s own session');

@@ -119,6 +119,8 @@ const Chat = (() => {
   let stick = true;   // STICKY-BOTTOM: auto-scroll only fires when the Commander is already at/near the bottom,
                       // so scrolling UP to re-read history mid-stream isn't yanked back down by every token.
   let historyPinSeq = 0, historyPinPending = 0;   // a load owns one final post-layout pin; a real user gesture cancels it
+  let userScrollHeld = false;
+  let userScrollAt = 0;   // last real scroll GESTURE on the log (wheel/touch/scrollbar/keys) — only a gesture can unstick
   function nearBottom() { return !log || (log.scrollHeight - log.scrollTop - log.clientHeight < 40); }
   function autoscroll() { if (stick && log) log.scrollTop = log.scrollHeight; else if (log) showNewPill(true); }   // content landed while unstuck → "new messages"
 
@@ -700,7 +702,7 @@ const Chat = (() => {
      invariant is inviolate: every model substring is HTML-ESCAPED first (escapeHtml / linkify both escape), and
      we only ever wrap ALREADY-ESCAPED text in our OWN tags — model output never reaches innerHTML raw. `code`
      spans are pulled to placeholders before the bold pass so a ** inside code stays literal. */
-  const MD_MARKERS = /\||^\s*>|^\s*\d+[.)]\s|\*\*|`|^#{1,6}\s|^[ \t]*[-*+]\s|\r?\n[ \t]*\r?\n/m;   // plain paragraph breaks need the same spacing as formatted prose
+  const MD_MARKERS = /\||^\s*>|^\s*\d+[.)]\s|\*\*|`|^#{1,6}\s|^[ \t]*[-*+]\s|\r?\n[ \t]*\r?\n|\]\(/m;   // plain paragraph breaks need the same spacing as formatted prose
   function mdInline(safe) {
     // `safe` is escaped-and-linkified HTML. Pull `inline code` to placeholders, bold the rest, restore code.
     const codes = [];
@@ -730,9 +732,81 @@ const Chat = (() => {
     const shown = hostOf(label), real = hostOf(href);
     return (shown && real && shown !== real) ? ' <span class="md-host">(' + escapeHtml(real) + ')</span>' : '';
   }
+  /* FILES THE AGENT NAMES (2026-10-10, Andrew's screenshot: "[Review the original…](review/x/index.html)" and "![…](…/final.jpg)"
+     sat in the transcript as raw markdown). Agents point at the files they made with RELATIVE paths — their workspace (or, in
+     a group, a shared file). A link becomes a real file link; an image becomes the picture, opened in the lightbox on click.
+     Escaping law unchanged: the path and the label are escaped into OUR markup; renderProse hydrates them afterwards through
+     a resolver (the jailed /api/file seams by default — the server refuses any escape). A target that is neither a web
+     address nor a plain relative path (an anchor, an absolute or '..' path, a scheme) keeps just its readable label. */
+  const REL_PATH = /^(?![\/\\#])(?!.*\.\.)[^\s:<>"'()]+$/;
+  function fileRefLink(label, target) {
+    if (!REL_PATH.test(target)) return escapeHtml(label);
+    return '<a class="md-file" href="#" data-md-path="' + escapeHtml(target) + '">' + escapeHtml(label) + '</a>';
+  }
+  function fileRefImage(alt, target) {
+    const name = alt || target.split('/').pop();
+    if (/^https?:\/\//i.test(target)) return '<a href="' + escapeHtml(target) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(name) + '</a>' + linkHostNote(name, target);
+    if (!REL_PATH.test(target)) return escapeHtml(name);
+    return '<span class="md-img" data-md-path="' + escapeHtml(target) + '" data-md-alt="' + escapeHtml(name) + '"><span class="md-img-alt">' + escapeHtml(name) + '</span></span>';
+  }
+  // the default resolver: the speaking agent's workspace, through the same open/preview/lightbox seams as every deliverable
+  const fileRefCache = new Map();   // message|agent|path -> Promise<blob url>; failures stay cached for that message too
+  let fileRefScope = 0;
+  function cachedBlob(key, load) {
+    if (fileRefCache.has(key)) return fileRefCache.get(key);
+    const p = load();   // a missing file is stable within one message; a later message gets a fresh read
+    fileRefCache.set(key, p);
+    if (fileRefCache.size > 60) { const [old, op] = fileRefCache.entries().next().value; fileRefCache.delete(old); op.then(u => { try { URL.revokeObjectURL(u); } catch (_) {} }, () => {}); }
+    return p;
+  }
+  // fetch an image for an <img>: the file routes serve .svg as a download (application/octet-stream / text/plain, so it can
+  // never run as a page) — an <img> never runs script, so the blob is retyped to image/svg+xml purely so it decodes
+  function imageBlobUrl(url, path) {
+    return fetch(url, { cache: 'no-store' }).then(r => { if (!r.ok) throw new Error('file HTTP ' + r.status); return r.blob(); })
+      .then(b => URL.createObjectURL(/\.svg$/i.test(String(path || '')) && b.type !== 'image/svg+xml' ? new Blob([b], { type: 'image/svg+xml' }) : b));
+  }
+  function workspaceFileRefs(agentId, messageKey) {
+    const scope = messageKey == null ? 'body:' + (++fileRefScope) : String(messageKey);
+    return {
+      wire: (a, path) => wireFileOpen(a, path, agentId || attachAgentId()),
+      image: path => { const aid = agentId || attachAgentId(); return cachedBlob(scope + '|' + aid + '|' + path, () => imageBlobUrl(fileUrl(path, aid), path)); }
+    };
+  }
+  function hydrateFileRefs(bodyEl) {
+    if (!bodyEl.querySelector || !bodyEl.querySelector('.md-file, .md-img')) return;
+    const refs = bodyEl.__fileRefs || (bodyEl.__fileRefs = workspaceFileRefs(null));
+    bodyEl.querySelectorAll('a.md-file').forEach(a => { try { refs.wire(a, a.getAttribute('data-md-path')); } catch (_) {} });
+    bodyEl.querySelectorAll('.md-img:not([data-ready])').forEach(box => {
+      const path = box.getAttribute('data-md-path'), alt = box.getAttribute('data-md-alt') || path;
+      box.setAttribute('data-ready', 'loading');   // carry pending and failed slots across streaming re-renders too
+      const link = document.createElement('a'); link.className = 'thumb md-thumb'; link.href = '#'; link.setAttribute('aria-label', 'Enlarge ' + alt);
+      const img = document.createElement('img'); img.alt = alt; img.decoding = 'async';
+      link.appendChild(img);
+      link.addEventListener('click', ev => { ev.preventDefault(); ev.stopPropagation(); openLightbox(() => refs.image(path), alt, { revoke: false }); });
+      /* An image that decodes AFTER the transcript pinned itself to the bottom grows the log; the browser's scroll anchoring
+         then holds the old offset, the reader drifts off the bottom and the "new messages" pill lies about them scrolling up.
+         If the reader was following the conversation, follow the image too. */
+      // (the transcript is looked up when it matters, not at render time: a replayed or streaming body may not be attached yet)
+      const hostOf = n => (n && n.closest) ? n.closest('#chat-log, #gc-log') : null;
+      img.addEventListener('load', () => {
+        const host = hostOf(link); if (!host) return;
+        const following = host === log ? (stick || historyPinPending) : host.__mdWasAtBottom;
+        if (following) { host.scrollTop = host.scrollHeight; if (host === log) hideNewPill(); }
+      });
+      Promise.resolve().then(() => refs.image(path)).then(u => {
+        const host = hostOf(box);
+        if (host) host.__mdWasAtBottom = host.scrollHeight - host.scrollTop - host.clientHeight < 60;
+        img.src = u; box.replaceChildren(link); box.setAttribute('data-ready', '1');
+      }, () => {
+        box.setAttribute('data-ready', 'missing');
+        box.classList.add('md-img-missing');   // not on disk (or not shared): say so instead of a broken frame
+        box.querySelector('.md-img-alt').textContent = alt + ' — image not found';
+      });
+    });
+  }
   function reportInline(raw) {
     // Tokenize raw text before escaping; generated markup never enters another pass.
-    const re = /`([^`\n]+)`|\[([^\]\n]+)\]\((https?:\/\/[^\s<>"']+)\)|\*\*([^*\n]+)\*\*|https?:\/\/[^\s<>"']+/g;
+    const re = /`([^`\n]+)`|\[([^\]\n]+)\]\((https?:\/\/[^\s<>"']+)\)|\*\*([^*\n]+)\*\*|!\[([^\]\n]*)\]\(([^)\s<>"']+)\)|\[([^\]\n]+)\]\(([^)\s<>"']+)\)|https?:\/\/[^\s<>"']+/g;
     let out='',last=0,m;
     while((m=re.exec(raw))) {
       out+=escapeHtml(raw.slice(last,m.index));
@@ -743,6 +817,8 @@ const Chat = (() => {
       // bold holds no '*', so its inside can be read again for code, [label](url) and bare links (QA 2026-10-02: **`npm run dev`**
       // showed its backticks, **[docs](url)** showed '[docs](' around a bare link); reportInline escapes everything it emits
       else if(m[4]!==undefined)out+='<span class="md-b">'+reportInline(m[4])+'</span>';
+      else if(m[6]!==undefined)out+=fileRefImage(m[5],m[6]);
+      else if(m[8]!==undefined)out+=fileRefLink(m[7],m[8]);
       else out+=linkify(m[0]);
       last=re.lastIndex;
     }
@@ -829,12 +905,19 @@ const Chat = (() => {
   }
   // render agent prose into a body span. Fast textContent path when there's no URL AND no markdown marker (the
   // common streamed token) — no per-token HTML reparse; otherwise the escaped+linkified+markdown pipeline.
-  function renderProse(bodyEl, raw) {
+  function renderProse(bodyEl, raw, opts) {
     if (!bodyEl) return;
     raw = String(raw == null ? '' : raw);
     bodyEl.__proseSource = raw;
+    if (opts && opts.files) bodyEl.__fileRefs = opts.files;   // where this body's relative file links resolve (kept across re-renders)
     if (raw.indexOf('http') === -1 && !MD_MARKERS.test(raw)) { bodyEl.textContent = raw; return; }
+    // a streaming reply re-renders every frame: carry an image that already loaded into the new markup instead of
+    // rebuilding it (a rebuilt <img> collapses and re-grows each frame — flicker, and the log jumps under the reader)
+    const shown = new Map();
+    if (bodyEl.querySelectorAll) bodyEl.querySelectorAll('.md-img[data-ready]').forEach(n => { const k = n.getAttribute('data-md-path'); if (!shown.has(k)) shown.set(k, n); });
     bodyEl.innerHTML = renderMarkdown(raw);
+    if (shown.size) bodyEl.querySelectorAll('.md-img:not([data-ready])').forEach(n => { const k = n.getAttribute('data-md-path'), old = shown.get(k); if (old) { n.replaceWith(old); shown.delete(k); } });
+    hydrateFileRefs(bodyEl);
   }
 
   function messageCopyText(bodyEl) {
@@ -913,10 +996,25 @@ const Chat = (() => {
     if (log) {
       log.addEventListener('scroll', () => {
         if (historyPinPending) return;   // row()-driven replay scroll events cannot cancel the load's final pin
-        stick = nearBottom(); if (stick) hideNewPill(); else showNewPill(false);
+        /* ONLY THE COMMANDER UNSTICKS (2026-10-10). A scroll event also fires when the BROWSER moves the log — a reply
+           image decoding, a row re-rendering, scroll anchoring holding an old offset — and reading every one of those as
+           "they scrolled up" stopped the follow mid-reply and lit "new messages" over a conversation nobody had left.
+           Now: at the bottom = following; off the bottom right after a real gesture (wheel/touch/scrollbar/keys) =
+           reading history; off the bottom with NO gesture = layout moved under a follower, so follow it back down. */
+        const near = nearBottom();
+        if (near) stick = true;
+        else if (userScrollHeld || Date.now() - userScrollAt < 1200) stick = false;
+        else if (stick) log.scrollTop = log.scrollHeight;
+        if (stick) hideNewPill(); else showNewPill(false);
       });   // at the bottom → retire the pill; scrolled up → a persistent "↓ latest" affordance
       // A real attempt to inspect history wins even during the two-frame settle window.
       ['wheel', 'touchstart', 'pointerdown'].forEach(type => log.addEventListener(type, cancelHistoryPin, { passive: true }));
+      ['wheel', 'touchstart', 'touchmove', 'pointerdown', 'keydown'].forEach(type => log.addEventListener(type, () => { userScrollAt = Date.now(); }, { passive: true }));
+      log.addEventListener('pointerdown', () => { userScrollHeld = true; }, { passive: true });
+      if (!window.__chatScrollReleaseWired) {
+        window.__chatScrollReleaseWired = true;
+        ['pointerup', 'pointercancel', 'blur'].forEach(type => window.addEventListener(type, () => { userScrollHeld = false; userScrollAt = Date.now(); }, { passive: true }));
+      }
     }
     // LINKS OUTSIDE COMMS (QA 2026-10-02): group chats, a group's .md file preview and the WORKFLOWS results render through
     // this same renderProse, but the OS-browser hand-off below lives on #chat-log only — so on desktop those links were dead
@@ -1679,6 +1777,7 @@ const Chat = (() => {
     renderHistory(); replayChannel(); syncStatus(); maybeEmptyState();
     read.repaint = false;
     if (typeof Briefing !== 'undefined' && Briefing.presentFor) { try { Briefing.presentFor(ws.id).catch(() => {}); } catch (_) {} }   // the repaint wiped the chips
+    if (typeof Delegated !== 'undefined' && Delegated.presentFor) { try { Delegated.presentFor(ws.id).catch(() => {}); } catch (_) {} }   // …and the delegated cards
     pinLoadedHistoryAfterLayout(loadToken);
     return reachable;
   }
@@ -1744,6 +1843,10 @@ const Chat = (() => {
     // THE ONE RETURN REPORT: opening the briefing session offers each briefed item's own session as a chip
     if (activeWs && typeof Briefing !== 'undefined' && Briefing.presentFor) {
       try { Briefing.presentFor(activeWs.id).catch(() => {}); } catch (_) {}
+    }
+    // DELEGATED WORK: a conversation that handed work to the crew shows one live card per dispatch (delegated.js)
+    if (activeWs && typeof Delegated !== 'undefined' && Delegated.presentFor) {
+      try { Delegated.presentFor(activeWs.id).catch(() => {}); } catch (_) {}
     }
     pinLoadedHistoryAfterLayout(historyPin);
     // Reconcile a run that died while this page was closed or the sidecar restarted. Only the server's durable
@@ -1952,8 +2055,11 @@ const Chat = (() => {
   function busyPeerFor(ws) {
     if (!ws || typeof Workstreams === 'undefined' || typeof Channels === 'undefined') return null;
     const aid = ws.agentId || 'agent';
-    const list = Workstreams.list ? Workstreams.list({ includeArchived: true }) : (Workstreams.all ? Workstreams.all() : []);
-    return list.find(w => w && w.id !== ws.id && (w.agentId || 'agent') === aid && Channels.isBusy(w.id)) || null;
+    const list = Workstreams.list ? Workstreams.list({ includeArchived: true, includeWorkers: true }) : (Workstreams.all ? Workstreams.all() : []);
+    const peer = list.find(w => w && w.id !== ws.id && (w.agentId || 'agent') === aid && Channels.isBusy(w.id)) || null;
+    // busy on delegated work: name the conversation that asked (the worker's own thread is not a place you go)
+    const home = peer && Workstreams.isHidden && Workstreams.isHidden(peer) ? Workstreams.get(peer.parentStreamId) : null;
+    return home && home.id !== ws.id ? home : (home ? null : peer);
   }
   function renderAgentBusy(peer, detail) {
     if (!log) return;
@@ -2201,7 +2307,7 @@ const Chat = (() => {
     // which was true while one agent owned every turn — a work line breaks that: stages 2..N are other agents
     // and labelling their work with the entry dock's name is a fabricated attribution (the same law that
     // stopped the hub writing a downstream stage's reply into the entry dock's transcript).
-    who.textContent = role === 'user' ? 'COMMANDER' : role === 'system' ? 'SYSTEM' : ((opts && opts.who) || name);
+    who.textContent = role === 'user' ? ((opts && opts.brief) || 'COMMANDER') : role === 'system' ? 'SYSTEM' : ((opts && opts.who) || name);
     const body = document.createElement('span'); body.className = 'body';
     // TIMESTAMP TRUTH (P0): opts.stamp is `true` for a row created LIVE (real wall-clock now), a number/Date for a
     // stored turn's REAL recorded time, or falsy for a legacy turn that carries no time — in which case we render
@@ -2271,11 +2377,17 @@ const Chat = (() => {
   }
   // stamp: omitted → live now (real); a number/Date → the turn's stored real time; false → no stamp (replay of a
   // legacy turn that carries no time — never fabricate the current clock).
-  function addUser(t, atts, stamp) {
-    const r = row('user', { stamp: stamp === undefined ? true : stamp });
+  // brief: the agent that delegated this turn (a worker thread's directive) — named as the speaker, never COMMANDER
+  function addUser(t, atts, stamp, brief) {
+    const r = row('user', { stamp: stamp === undefined ? true : stamp, brief: brief ? briefLabel(brief) : '' });
+    if (brief) r.d.classList.add('brief');
     if (t) r.body.textContent = t;
     if (atts && atts.length) renderUserAttachments(r.d, atts);   // ATTACHMENTS: thumbnails/file-chips under the message text
     autoscroll();
+  }
+  function briefLabel(id) {
+    const nm = (typeof App !== 'undefined' && App.agentName && App.agentName(id)) || String(id || 'agent').toUpperCase();
+    return String(nm).toUpperCase() + ' · BRIEF';
   }
   // render a SENT user turn's attachments: images as clickable thumbnails, other files as openable chips — both
   // served by the sidecar's jailed /api/file route (so they survive a reload, exactly like agent deliverables).
@@ -2921,6 +3033,27 @@ const Chat = (() => {
   // browser the base is '' and the URL stays same-origin relative.
   // Auth (2026-09-25): a FILE-SCOPED 5-minute ticket (ApiTicket.fileUrl), never the master token — this href reaches
   // OS-browser history, Referer and copied links. wireFileOpen re-mints it right before any use.
+  /* open a file a run produced from any surface (the delegation card's receipts): the same doors as a COMMS file row —
+     a web page in the station BROWSER, the desktop host's own open (with its confirm), else a ticketed tab. A file a
+     worker wrote into a trusted project is addressed inside that project (&project=, absolute for the host). */
+  function openFile(path, agentId, projectRoot) {
+    const rel = String(path || ''), aid = agentId || 'agent';
+    if (!rel) return;
+    const isAbs = /^([A-Za-z]:[\\/]|[\\/])/.test(rel), root = projectRoot && !isAbs ? String(projectRoot).replace(/[\\/]+$/, '') : '';
+    if (!root && typeof OutputBrowser !== 'undefined' && OutputBrowser.isHtml && OutputBrowser.isHtml(rel)) { OutputBrowser.open({ agentId: aid, path: rel }); return; }
+    const url = fileUrl(rel, aid) + (root ? '&project=' + encodeURIComponent(root) : '');
+    const core = tauriCore();
+    if (core && core.invoke) {
+      Promise.resolve(core.invoke('starnet_open_artifact', { path: root ? root + '/' + rel : rel, agentId: aid }))
+        .catch(err => {
+          if (/declined at the host/i.test(String(err || ''))) return;   // the host's own confirm said no: an answer, not a failure
+          return Promise.resolve(core.invoke('open_external_url', { url }))
+            .catch(() => { if (typeof StationUI !== 'undefined' && StationUI.notify) StationUI.notify('could not open that file — use folder or copy path to find it on disk', 'warn'); });
+        });
+      return;
+    }
+    try { window.open(url, '_blank', 'noopener'); } catch (e) { if (typeof StationUI !== 'undefined' && StationUI.notify) StationUI.notify('could not open that file: ' + ((e && e.message) || e), 'warn'); }
+  }
   function fileUrl(title, agentId) {
     if (typeof ApiTicket !== 'undefined' && ApiTicket.fileUrl) return ApiTicket.fileUrl(agentId || 'agent', String(title));
     let base = '';
@@ -3178,6 +3311,14 @@ const Chat = (() => {
       const act = pick('action'), ref = pick('id');
       return (act || 'change') + ' the routine' + (ref ? ' “' + ref + '”' : '') + (when ? ' — ' + when : '');
     }
+    // DELEGATION (2026-10-11): say WHO gets the work, by name, never the raw worker JSON (the inspect panel holds it).
+    // Read the ids by pattern: argsSummary may be clipped mid-object.
+    if (/^team[._](?:dispatch|spawn)$/.test(t)) {
+      const s = String(ev.argsSummary || ''), ids = [...new Set([...s.matchAll(/"agentId"\s*:\s*"([^"]+)"/g)].map(m => m[1]))];
+      const names = ids.map(id => (typeof App !== 'undefined' && App.agentName && App.agentName(id)) || id);
+      const who = names.length > 1 ? names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1] : names[0] || 'the crew';
+      return 'hand work to ' + who + (/"background"\s*:\s*true/.test(s) ? ' (in the background)' : '');
+    }
     // THE STATION BUILDER (2026-09-29): the card IS the plan — what gets built, where, who works each step. The sidecar
     // sends the plan's own summary (its dry run on a copy of the station), never the model's words.
     if (/^station[._]build$/.test(t)) { const plan = String(ev.argsSummary || '').split('\n')[0] || 'a planned change'; return 'build this on your station: ' + plan + (/\bUNDO\b/.test(plan) ? '' : ' One UNDO in Build mode takes it back.'); }
@@ -3347,10 +3488,61 @@ const Chat = (() => {
   // p = a consent payload { promptId, tool, argsSummary } — works for both a live onPermission event and a
   // Channels snapshot.pending (re-rendered after a switch). ws is the origin stream, so the answer routes to
   // THAT stream's run (per-channel runId), not a single global one.
+  /* ANSWER AN APPROVAL from any surface — this card, a delegated worker's row on its delegation card, the NEEDS YOU list
+     (2026-10-11): one path. The sidecar's consent route (the lead's run is the one that holds the ask, also for a worker's),
+     the bus (every rendered card of that ask settles), the channel (THIS ask only: a crewmate's open ask stays open), NEEDS
+     YOU and the presence card. Returns what the sidecar actually applied (fullSaved: a "full" that really persisted). */
+  async function answerConsent(p, ws, decision) {
+    if (ws && typeof StationUI !== 'undefined' && StationUI.settleNotifs) StationUI.settleNotifs('needs:' + ws.id);
+    const rid = (p && p.runId) || ((ws && typeof Channels !== 'undefined') ? Channels.runIdOf(ws.id) : null);
+    const answer = await Harness.consent(rid, p.promptId, decision);
+    const appliedDecision = (answer && answer.decision) || 'deny';
+    let fullSaved = true;
+    if (decision === 'full') {
+      const saved = !!(answer && answer.ok && answer.approvalMode === 'full');
+      const adopted = saved && typeof App !== 'undefined' && App.setApproval
+        ? App.setApproval((answer && answer.agentId) || p.agentId || (ws && ws.agentId), 'full')
+        : false;
+      fullSaved = saved && adopted;
+    }
+    // surface the decision on the bus (schema: permission.response) so listeners — e.g. the first-run tutorial —
+    // can tell an approve from a deny and narrate the consent loop honestly. Additive; the run resumes via Harness.consent.
+    try { if (typeof U !== 'undefined' && U.bus) U.bus.emit('permission.response', { promptId: p.promptId, decision: appliedDecision }); } catch (_) {}
+    // NS conversational anchor: "Always" — and now "Full access" — on a path.trust card IS the project bless
+    // (a standing path grant + known-projects row land on the sidecar). Stamp the origin session's projectRoot
+    // with the SAME proposed root so the PROJECTS rail lists this session under its project — the identical
+    // anchor "Work here" stamps. Both standing grades, never "once" (it grants nothing standing, so there is
+    // no project row to attach to), and never overwrite an anchor the session already has.
+    if (p.tool === 'path.trust' && (appliedDecision === 'always' || appliedDecision === 'full') && ws && typeof Workstreams !== 'undefined' && Workstreams.setProjectRoot) {
+      try { if (p.argsSummary && !(Workstreams.get(ws.id) || {}).projectRoot) Workstreams.setProjectRoot(ws.id, p.argsSummary); } catch (_) {}
+    }
+    if (ws && typeof Channels !== 'undefined') Channels.clearPending(ws.id, Date.now(), p.promptId);   // closes the paused span once none remain — approval wait never counts as run time
+    if (ws && isActiveWs(ws)) renderPresence();   // drop the paused styling the instant the run resumes
+    syncStatus();
+    return { answer, appliedDecision, fullSaved };
+  }
+  // the channel's record of an ask — a delegated worker's says who asked (sidecar attributeAsks): its row on the
+  // delegation card answers it; askedAt gives the NEEDS YOU list its age
+  function pendingFrom(ev, ws) {
+    return { promptId: ev.promptId, agentId: ev.agentId || ws.agentId, tool: ev.tool, argsSummary: ev.argsSummary, runId: Channels.runIdOf(ws.id),
+      workerAgentId: ev.workerAgentId || '', workerRunId: ev.workerRunId || '', workerStreamId: ev.workerStreamId || '', askedAt: ev.askedAt || Date.now() };
+  }
+  // who is asking: a delegated worker's ask names the worker (the sidecar stamps workerAgentId), never the lead
+  function askerName(p, ws) {
+    const id = (p && p.workerAgentId) || (ws && ws.agentId) || 'agent';
+    return (typeof App !== 'undefined' && App.agentName && App.agentName(id)) || id;
+  }
   function permissionRow(p, ws) {
     if (p && p.tool === 'brief.ask') return clarifyRow(p, ws);   // a question, not a grade — its own card
+    // ONE PLACE PER STATUS: a delegated worker's ask is answered on that worker's row of the delegation card
+    if (p && (p.workerStreamId || p.workerRunId) && typeof Delegated !== 'undefined' && Delegated.hosts && Delegated.hosts(p)) {
+      Delegated.repaint();
+      // the same one bell entry the lead's own ask gets, naming the worker (re-renders never re-toast: announcedPrompt)
+      if (ws && !announcedPrompt(p.promptId, ws) && typeof StationUI !== 'undefined') StationUI.notify(askerName(p, ws) + ' needs approval to ' + actionPhrase(p), 'warn', 'needsApproval', { kind: 'needs', go: { ws: ws.id }, key: 'needs:' + ws.id, prompt: p.promptId });
+      return null;
+    }
     const r = row('agent'); r.d.classList.add('tool'); r.d.classList.add('consent');
-    r.body.appendChild(document.createTextNode('▣ ' + name + ' wants to ' + actionPhrase(p) + ' '));
+    r.body.appendChild(document.createTextNode('▣ ' + ((p && p.workerAgentId) ? askerName(p, ws) : name) + ' wants to ' + actionPhrase(p) + ' '));
     // INSPECT: an approval carries the request it approves, every character of it, one click away (user report 10-08:
     // a long shell command showed 77 chars and a "…", and nothing on the card held the rest)
     const inspect = consentInspect(p);
@@ -3384,31 +3576,9 @@ const Chat = (() => {
       if (ws && typeof StationUI !== 'undefined' && StationUI.settleNotifs) StationUI.settleNotifs('needs:' + ws.id);   // decided: leaves NEEDS YOU
       if (decided) return; decided = true;
       for (const b of btns.querySelectorAll('button')) b.disabled = true;
-      const rid = (ws && typeof Channels !== 'undefined') ? Channels.runIdOf(ws.id) : null;
-      const answer = await Harness.consent(rid, p.promptId, decision);
-      const appliedDecision = (answer && answer.decision) || 'deny';
-      if (decision === 'full') {
-        const saved = !!(answer && answer.ok && answer.approvalMode === 'full');
-        const adopted = saved && typeof App !== 'undefined' && App.setApproval
-          ? App.setApproval((answer && answer.agentId) || p.agentId || (ws && ws.agentId), 'full')
-          : false;
-        if (!saved || !adopted) { doneLabel = '✕ full access was not saved'; isDeny = true; }
-      } else if (appliedDecision === 'deny' && decision !== 'deny') {
-        doneLabel = '✕ approval was not applied'; isDeny = true;
-      }
-      // surface the decision on the bus (schema: permission.response) so listeners — e.g. the first-run tutorial —
-      // can tell an approve from a deny and narrate the consent loop honestly. Additive; the run resumes via Harness.consent.
-      try { if (typeof U !== 'undefined' && U.bus) U.bus.emit('permission.response', { promptId: p.promptId, decision: appliedDecision }); } catch (_) {}
-      // NS conversational anchor: "Always" — and now "Full access" — on a path.trust card IS the project bless
-      // (a standing path grant + known-projects row land on the sidecar). Stamp the origin session's projectRoot
-      // with the SAME proposed root so the PROJECTS rail lists this session under its project — the identical
-      // anchor "Work here" stamps. Both standing grades, never "once" (it grants nothing standing, so there is
-      // no project row to attach to), and never overwrite an anchor the session already has.
-      if (p.tool === 'path.trust' && (appliedDecision === 'always' || appliedDecision === 'full') && ws && typeof Workstreams !== 'undefined' && Workstreams.setProjectRoot) {
-        try { if (p.argsSummary && !(Workstreams.get(ws.id) || {}).projectRoot) Workstreams.setProjectRoot(ws.id, p.argsSummary); } catch (_) {}
-      }
-      if (ws && typeof Channels !== 'undefined') Channels.clearPending(ws.id, Date.now());   // closes the paused span — approval wait never counts as run time
-      if (isActiveWs(ws)) renderPresence();   // drop the paused styling the instant the run resumes
+      const res = await answerConsent(p, ws, decision);
+      if (decision === 'full' && !res.fullSaved) { doneLabel = '✕ full access was not saved'; isDeny = true; }
+      else if (decision !== 'full' && res.appliedDecision === 'deny' && decision !== 'deny') { doneLabel = '✕ approval was not applied'; isDeny = true; }
       btns.remove();
       const tag = document.createElement('span');
       tag.className = 'consent-result' + (isDeny ? ' err' : '');
@@ -3469,8 +3639,9 @@ const Chat = (() => {
     r.d.tabIndex = -1;
     r.d.addEventListener('keydown', e => { if (e.key === 'Escape') { e.preventDefault(); decide('deny', '✕ denied', true); } });
     status('awaiting your approval…');
-    if (ws && !announcedPrompt(p.promptId, ws) && typeof StationUI !== 'undefined') StationUI.notify(name + ' needs approval to ' + actionPhrase(p), 'warn', 'needsApproval', { kind: 'needs', go: { ws: ws.id }, key: 'needs:' + ws.id, prompt: p.promptId });
-    else if (!ws && typeof StationUI !== 'undefined') StationUI.notify(name + ' needs approval to ' + actionPhrase(p), 'warn', 'needsApproval');   // P1-8 category: consent prompt
+    const asker = (p && p.workerAgentId) ? askerName(p, ws) : name;   // a delegated worker's ask names the worker
+    if (ws && !announcedPrompt(p.promptId, ws) && typeof StationUI !== 'undefined') StationUI.notify(asker + ' needs approval to ' + actionPhrase(p), 'warn', 'needsApproval', { kind: 'needs', go: { ws: ws.id }, key: 'needs:' + ws.id, prompt: p.promptId });
+    else if (!ws && typeof StationUI !== 'undefined') StationUI.notify(asker + ' needs approval to ' + actionPhrase(p), 'warn', 'needsApproval');   // P1-8 category: consent prompt
     // FOCUS-STEAL GUARD (P0): a consent prompt must NEVER hijack focus from a Commander who is mid-typing or holds
     // a draft — a stolen focus + a reflexive Enter could approve a file write they never read. Only follow the
     // scroll when they were already at the bottom (honor stick), and only take focus (onto the row CONTAINER, so
@@ -3504,7 +3675,8 @@ const Chat = (() => {
     if (key && typeof StationUI !== 'undefined' && StationUI.settleNotifs) StationUI.settleNotifs(key);
   });
   function backgroundPermissionNotify(ev, ws) {
-    const who = (typeof App !== 'undefined' && App.agentName && App.agentName(ws.agentId || 'agent')) || ws.agentId || 'an agent';
+    // the AGENT that asks — a delegated worker's ask names the worker, never the lead it rode in on
+    const who = (typeof App !== 'undefined' && App.agentName && App.agentName((ev && ev.workerAgentId) || ws.agentId || 'agent')) || ws.agentId || 'an agent';
     if (!announcedPrompt(ev && ev.promptId, ws) && typeof StationUI !== 'undefined' && StationUI.notify) {
       StationUI.notify(who + ' needs approval to ' + actionPhrase(ev) + sessionNote(ws), 'warn', 'needsApproval',
         { kind: 'needs', go: { ws: ws.id }, key: 'needs:' + ws.id, prompt: ev && ev.promptId });
@@ -7038,7 +7210,7 @@ const Chat = (() => {
       // TIMESTAMP TRUTH (P0): pass the turn's STORED real time (m.ts), or `false` when a legacy turn carries none —
       // never `true` here (that would re-stamp replayed history with the current clock, the fabrication we're killing).
       const stamp = (m && m.ts != null) ? m.ts : false;
-      if (m.role === 'user') { addUser(m.content, m.attachments, stamp); lastReal = m; continue; }
+      if (m.role === 'user') { addUser(m.content, m.attachments, stamp, m.from); lastReal = m; continue; }
       // a SYSTEM STATUS marker (sys — e.g. an autosessions run-outcome framing line) renders as a system-styled
       // line, NOT as agent speech; it never seeds the model (historyWindow drops it) and it stays visible in-thread.
       if (m && m.sys) { if ((m.content || '').trim()) toolLine(m.content, !!m.error); continue; }
@@ -7100,7 +7272,7 @@ const Chat = (() => {
       const o = streamingAgent(); if (s.acc) o.append(s.acc);
       if (s.busy) activeLiveRow = o; else o.done();   // a still-running stream keeps its live row so new tokens flow into it
     }
-    if (s.pending) permissionRow(s.pending, activeWs);
+    for (const p of (s.pendings && s.pendings.length ? s.pendings : (s.pending ? [s.pending] : []))) permissionRow(p, activeWs);
   }
 
   // A streaming turn's PROSE controller. The agent's text streams into an open paragraph row with a blinking
@@ -9398,7 +9570,7 @@ const Chat = (() => {
         // a background stream fires the global clickable toast + rail marker (backgroundPermissionNotify). Both
         // paths then ACK the sidecar (consentAck) that the prompt is human-visible, earning the paused run its
         // one bounded extension of the fail-closed auto-deny timer.
-        onPermission: ev => { Channels.setPending(ws.id, { promptId: ev.promptId, agentId: ev.agentId || ws.agentId, tool: ev.tool, argsSummary: ev.argsSummary, runId: Channels.runIdOf(ws.id) }, Date.now()); walkToDesk(); if (isActiveWs(ws)) { breakLive(); permissionRow(ev, ws); renderPresence(); } else { backgroundPermissionNotify(ev, ws); } try { Promise.resolve(Harness.consentAck(Channels.runIdOf(ws.id), ev.promptId)).then(v => { if (!(v && v.ok)) consentAckFailed(ws, ev, v); }, e => consentAckFailed(ws, ev, { ok: false, error: (e && e.message) || String(e) })); } catch (e) { consentAckFailed(ws, ev, { ok: false, error: (e && e.message) || String(e) }); } },
+        onPermission: ev => { Channels.setPending(ws.id, { ...pendingFrom(ev, ws) }, Date.now()); walkToDesk(); if (isActiveWs(ws)) { breakLive(); permissionRow(ev, ws); renderPresence(); } else { backgroundPermissionNotify(ev, ws); } try { Promise.resolve(Harness.consentAck(Channels.runIdOf(ws.id), ev.promptId)).then(v => { if (!(v && v.ok)) consentAckFailed(ws, ev, v); }, e => consentAckFailed(ws, ev, { ok: false, error: (e && e.message) || String(e) })); } catch (e) { consentAckFailed(ws, ev, { ok: false, error: (e && e.message) || String(e) }); } },
         // the lead's team.summon tool asked the station to create a worker: run the REAL summon (App.summonForRequest
         // → the Recruitment Bay's own summonAgent), then ack with the new id so the lead can delegate to it. The id
         // resolves only after the roster POST lands (App awaits it), so the lead's next team.dispatch finds the worker.
@@ -9985,5 +10157,5 @@ const Chat = (() => {
   // only" gate maybeStandaloneRate uses — so a pure-chat run is never bottle-offered. Used by App.runBottleInfo (R5).
   function runDidWork(id) { const w = id ? runWork.get(id) : null; return !!(w && ((w.toolsOk || 0) >= 1 || (w.delivered || 0) >= 1)); }
 
-  return { init, load, send, consentInspect, copyText, continuityDiagnostics, refreshStarters, sendOrQueue, continueConnectorTask, stopActive, status, localLine, broadcast, renderProse, setSystem, getHistory, contextRef, abort, isBusy, beatBusy: skillBeatBusy, beginInterview, endInterview, echoUser, prefill, autoGrowInput, choices, clearChoices, retireDeskPrompt, typeLine, nudge, clearNudge, offerCuriosity, offerFork, planGoalPath, briefingReceipt, isComposerEngaged, canFocusSession, runMeta, runDidWork, awayDigest, awayReview, awayRate, sampleCard, workshopReturn, refreshIdBar: renderIdBar, refreshGroupControls: updateControls, refreshAgentIdentity, setRosterStatus, askBudgetSpent, spendAsk, clockLabel: fmtClock, breakLabel: fmtBreak };
+  return { init, load, send, consentInspect, copyText, continuityDiagnostics, refreshStarters, sendOrQueue, continueConnectorTask, stopActive, status, localLine, broadcast, renderProse, openFile, answerConsent, consentPhrase: actionPhrase, setSystem, getHistory, contextRef, abort, isBusy, beatBusy: skillBeatBusy, beginInterview, endInterview, echoUser, prefill, autoGrowInput, choices, clearChoices, retireDeskPrompt, typeLine, nudge, clearNudge, offerCuriosity, offerFork, planGoalPath, briefingReceipt, isComposerEngaged, canFocusSession, runMeta, runDidWork, awayDigest, awayReview, awayRate, sampleCard, workshopReturn, refreshIdBar: renderIdBar, refreshGroupControls: updateControls, refreshAgentIdentity, setRosterStatus, askBudgetSpent, spendAsk, clockLabel: fmtClock, breakLabel: fmtBreak, workspaceFileRefs, imageBlobUrl };
 })();

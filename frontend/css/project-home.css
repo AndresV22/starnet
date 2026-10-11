@@ -117,3 +117,8 @@ body.glass-demo .proj-row.project-selected {
 @media(prefers-reduced-motion:reduce) {
   body.glass-demo #chat-panel :is(.ph-actions .btn,.project-home .btn) { transition:none; }
 }
+
+/* ONE PLACE FOR DELEGATED WORK (2026-10-10): when the conversation shows its calm "Delegated to …" line (delegated.js),
+   the per-worker inline buttons would list the same workers twice — they step aside; the ACTIVITY view (steer/stop)
+   stays one key away in the header, and a project chat without a delegated line keeps them as before. */
+body #chat-panel #chat-log:has(> .dg-line) .ph-updates > .ph-inline { display: none; }
