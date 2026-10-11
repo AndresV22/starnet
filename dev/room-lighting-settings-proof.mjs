@@ -44,7 +44,7 @@ try {
   })()`);
   await load();
   await open();
-  for (const [level, ambient] of [['low', .82], ['medium', .72], ['high', .62]]) {
+  for (const [level, ambient] of [['low', .82], ['medium', .65], ['high', .3]]) {
     await evalJS(cdp, `document.querySelector('[data-lighting="${level}"]').click(); true`);
     const state = await read();
     assert.equal(state.ambient, ambient);

@@ -112,20 +112,31 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
   // level toward the phosphor colour (never toward white); below 0 it takes the panels DOWN toward true black
   // (Andrew 10-01: "it doesnt get dark enough"). 0 = the shipped look, untouched.
   function defaults() { return { theme: 'amber', themeHue: 35, themeSat: 100, themeGlow: 100, panelBright: 0, roomLighting: 'low', textScale: 0, flicker: true, crtGlass: 'full', staticLevel: 100, sound: true, hints: true, backdrop: 'void', sessionRow: 'compact', keepComputerAwake: false, notifyPrefs: notifyDefaults() }; }
-  // Raise overall room exposure without changing the distribution of its lights.
-  // Existing saves retain their chosen level; missing values start at LOW.
+  // Raise overall room exposure. Existing saves retain their chosen level; missing values start at LOW.
+  // LOW is the approved station, untouched. Ambient alone barely moved the screen (HIGH measured +3%
+  // over LOW, 10-10 player report: "high lighting but still too dark"): WorldLight's deck film, the
+  // pool cut, the KEY light and the CRT density film all set what reaches the eye, so each level
+  // drives all of them. `film` scales the renderer's own CRT.film (0 on the classic world stays 0).
+  // Measured hab/lounge mean luma: LOW 15.9/15.9 · MEDIUM 22.5/21.9 · HIGH 28.5/27.4.
   const ROOM_LIGHTING_STEPS = [
-    ['low', 'LOW', 0.82],
-    ['medium', 'MEDIUM', 0.72],
-    ['high', 'HIGH', 0.62],
+    ['low', 'LOW', { ambient: 0.82, cut: 1, key: 0, film: 1 }],
+    ['medium', 'MEDIUM', { ambient: 0.65, cut: 1.6, key: 1.2, film: 0.63 }],
+    ['high', 'HIGH', { ambient: 0.3, cut: 2.4, key: 2, film: 0.26 }],
   ];
+  let roomLightingFilm = null;   // the renderer's CRT.film before any level touched it
   function resolveRoomLighting(v) { return ROOM_LIGHTING_STEPS.some(([id]) => id === v) ? v : 'low'; }
   function applyRoomLighting(value) {
     if (typeof StationBake === 'undefined') return;
-    const level = resolveRoomLighting(value);
-    const ambient = ROOM_LIGHTING_STEPS.find(([id]) => id === level)[2];
-    if (StationBake.LIGHT.ambient === ambient) return;
-    StationBake.LIGHT.ambient = ambient;
+    const step = ROOM_LIGHTING_STEPS.find(([id]) => id === resolveRoomLighting(value))[2];
+    const crt = typeof World !== 'undefined' && World.crt;
+    const tex = typeof IndustrialTextures !== 'undefined' && IndustrialTextures.lighting;
+    if (crt) {
+      if (roomLightingFilm == null) roomLightingFilm = Number(crt.film) || 0;
+      crt.film = +(roomLightingFilm * step.film).toFixed(4);   // a per-frame post pass: no rebake needed
+    }
+    if (StationBake.LIGHT.ambient === step.ambient && (!tex || (tex.cut === step.cut && tex.key === step.key))) return;
+    StationBake.LIGHT.ambient = step.ambient;
+    if (tex) { tex.cut = step.cut; tex.key = step.key; }
     if (typeof World !== 'undefined' && World.rebake) World.rebake();
   }
   // TEXT SIZE steps (percent → chip label; 0 = AUTO, the default). Applied as a body zoom in
