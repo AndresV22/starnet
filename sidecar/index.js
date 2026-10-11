@@ -353,6 +353,7 @@ const { makeTaskBriefStore } = require('./taskbrief-store.js'); // durable origi
 const WorkflowTakeover = require('./workflow-takeover.js');
 const TaskBriefPolicy = require('./taskbrief-policy.js');       // host validation + mutation boundary
 const { registerTaskBriefTools } = require('./taskbrief-tools.js'); // structured ask/proceed controls
+const CrewCall = require('./crew-call.js');   // names a crew member the Commander asked for at the END of the lead prompt
 const TaskIntent = require('../frontend/app/fork.js').TaskIntent;    // shared TASK_QUESTION protocol + prompt doctrine
 const CommanderContext = require('./commander-context.js');    // bounded provenance-labelled task context
 const threadmine = require('./threadmine.js');                // NS-6: pure post-run thread-mining producer (reflect/study mold)
@@ -21000,7 +21001,7 @@ async function runOnceCore(o) {
       if (track) anyTrack = true;
       lines.push('  - ' + aid + ' (' + (ident.name || aid) + ')' + (ident.role ? ' — ' + ident.role : '') + (track ? ' [' + track + ']' : ''));
     }
-    if (lines.length) teamNote += '\n• DELEGATE to your existing specialist crew with team.dispatch — call it with '
+    if (lines.length) teamNote += '\n• YOUR TEAM — DELEGATE to your existing specialist crew with team.dispatch — call it with '
       + 'workers:[{agentId, prompt}] and synthesize their returned results into your final answer:\n' + lines.join('\n')
       // only explain the bracket when at least one is actually present — a station with no proven crew stays
       // byte-identical to the pre-S3 briefing (no dangling legend for a notation nothing uses).
@@ -21178,6 +21179,12 @@ async function runOnceCore(o) {
   }
   let taskIntentNote = '';
   if (taskBrief) taskIntentNote = '\n\n' + TaskIntent.directive(taskContextBlock);
+  // CREW CALL (crew-call.js): a request that names a crew member gets one closing line naming them and the exact
+  // team.dispatch call. Same grant gate as the [ORCHESTRATION] note: never ask for a tool this run does not have.
+  let crewCallNote = '';
+  if (!internal && isTask && resolved && Array.isArray(resolved.tools) && resolved.tools.includes('team.dispatch')) {
+    try { crewCallNote = CrewCall.crewCallNote(latestUserText(messages), agentRoster, agentId); } catch (e) { failNote('crew-call', e); }
+  }
   // SERVICE KEYS (KEYS tab): advertise the env-var NAMES of the Commander's connected platform keys — value never
   // rides the prompt. TRUTHFUL-TELEMETRY GATE: the block says "available to your shell commands", so it composes
   // ONLY when shell.exec is in THIS run's resolved tool set (same discipline as the quest block above). A user with
@@ -21243,7 +21250,7 @@ async function runOnceCore(o) {
         : resolved, { surface, ownerTrusted, unrestrictedHost: unrestrictedHostNow(), delegatedBy: o.delegatedBy || '', toolless: !isTask }) + skillBlock;
   const taskSystem = FinishLine.append(cacheSystemPrefix + runtimeSkillBlock
     + preloadedSkillBlock + serviceKeysBlock + taskIntentNote + awayBriefingNote + directDomainBlock + journeyBlock
-    + deliverableNote + runtimeBlock, { isTask, internal, tools: resolved.tools });
+    + deliverableNote + crewCallNote + runtimeBlock, { isTask, internal, tools: resolved.tools });
   const sys = internal
     ? (String(system || '') + evidenceBlock)
     : withQuests(taskSystem, questsBlock);   // ground-truth caps + task-context doctrine share the one final prompt seam

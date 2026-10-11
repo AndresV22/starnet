@@ -30,6 +30,27 @@
   'use strict';
 
   const ID_RE = /^[A-Za-z0-9_-]{1,40}$/;
+  /* A worker the way the briefing SHOWS it: the crew list prints "id (Name) — role", and small local models
+     (2026-10-11 report: a Qwen lead that "would not delegate") answer with "Researcher" or "researcher (Ada)"
+     and got a bare "no such live worker" back, so they gave up and did the work themselves. An UNAMBIGUOUS
+     id-in-any-case or exact display-name match resolves to the real agentId; anything else still fails. */
+  function resolveWorkerId(raw, crew, leadId) {
+    const asked = String(raw || '').trim();
+    if (crew.has(asked)) return asked;
+    const key = asked.replace(/\s*\([^)]*\)\s*$/, '').trim().toLowerCase();
+    if (!key) return asked;
+    const hits = [];
+    for (const [aid, ident] of crew) {
+      if (aid === leadId) continue;
+      const name = String((ident && ident.name) || '').trim().toLowerCase();
+      if (aid.toLowerCase() === key || (name && name === key)) hits.push(aid);
+    }
+    return hits.length === 1 ? hits[0] : asked;
+  }
+  const crewIdsHint = (crew, leadId) => {
+    const ids = [...crew.keys()].filter(id => id !== leadId);
+    return ids.length ? ' Valid agentIds: ' + ids.slice(0, 12).join(', ') + (ids.length > 12 ? ', …' : '') + '.' : ' This station has no other crew yet; use team.summon to create one.';
+  };
   // events forwarded from a child run onto the LEAD's bus — ENOUGH to animate the handoff + keep cost honest,
   // but NOT the child's tokens/tool-calls (those would clutter the lead's COMMS). The lead reads the worker's
   // actual output from the tool RESULT, not the stream.
@@ -603,11 +624,11 @@
 
         // validate every target up front: a real, live, OTHER worker (never self, never an unknown agentId).
         const jobs = reqs.map(w => {
-          const aid = w && String(w.agentId || '');
+          const aid = resolveWorkerId(w && w.agentId, crew, leadId);
           const session = String((w && w.session) || '').trim().slice(0, 80);
           if (!ID_RE.test(aid)) return { agentId: aid, error: 'invalid agentId' };
           if (aid === leadId) return { agentId: aid, error: 'cannot delegate to yourself' };
-          if (!crew.has(aid)) return { agentId: aid, error: 'no such live worker — summon them first, or check the agentId against YOUR TEAM' };
+          if (!crew.has(aid)) return { agentId: aid, error: 'no such live worker — summon them first, or check the agentId against YOUR TEAM.' + crewIdsHint(crew, leadId) };
           const contract = resultSchemaOf(w && w.resultSchema);
           if (!contract.ok) return { agentId: aid, error: 'invalid result contract: ' + contract.error };
           return { agentId: aid, prompt: String((w && w.prompt) || ''), context: handoffContext(w && w.context), ident: crew.get(aid), session: session, resultSchema: contract.schema };
