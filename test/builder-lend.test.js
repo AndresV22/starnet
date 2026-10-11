@@ -20,7 +20,7 @@ const { composeOffice } = require('../sidecar/capability/office.js');
 const { makeCapCtx } = require('../sidecar/capability/capGate.js');
 const { makeOrchestrationTools } = require('../sidecar/tools/builtin/orchestration.js');
 const { makeSubagentManager } = require('../sidecar/subagents.js');
-const { makeStationTools } = require('../sidecar/tools/builtin/station.js');
+const { makeStationTools, planSummaryFrom } = require('../sidecar/tools/builtin/station.js');
 
 function fakeRunOnce() {
   const calls = [];
@@ -144,11 +144,11 @@ const WORKER_ONLY = composeOffice({ surface: 'autonomous', lead: false });
   } };
   const base = { station: bridge, now: () => 1000, planMemo: new Map(), lineMenu: () => [], styleMenu: () => [], roomMenu: () => [], kitMenu: () => [], presetMenu: () => [] };
   const lead = makeStationTools(base);
-  const lent = makeStationTools(Object.assign({}, base, { agentId: 'builder', delegatedBy: 'lead' }));
+  const lent = makeStationTools(Object.assign({}, base, { agentId: 'builder', delegatedBy: 'lead', agentName: 'FORGE', lenderName: 'NOVA' }));
   const bind = { refit: [{ op: 'place', t: 'connector_portal', x: 3, y: 3, as: 'P' }, { op: 'bind', prop: 'P', connector: 'gmail' }] };
 
   const r1 = await lent.planTool.run(bind);
-  A.ok(/^REFUSED: binding a connector portal or plugin terminal grants live tools, so it stays with lead/.test(r1.content), 'a lent planner refuses a bind, and says who holds it: ' + r1.content);
+  A.ok(/^REFUSED: binding a connector portal or plugin terminal grants live tools, so it stays with NOVA, who lent you the builder/.test(r1.content), 'a lent planner refuses a bind, and names who holds it the way the crew knows them: ' + r1.content);
   A.eq(asked.length, 0, 'the refused bind never reached the page');
   const r1b = await lent.planTool.run({ refit: [{ op: ' BIND ', prop: 'P' }] });
   A.ok(/^REFUSED: binding/.test(r1b.content), 'the bind check reads the op the way the page does (case and spaces)');
@@ -158,7 +158,11 @@ const WORKER_ONLY = composeOffice({ surface: 'autonomous', lead: false });
   await lent.planTool.run({ line: 'build_test', delegated: false });
   A.eq([asked[1].verb, asked[1].args.delegated, asked[1].args.request.delegated], ['station.plan_line', true, false], 'the model cannot unmark it: delegated is the host\'s, outside the request it writes');
 
+  // the approval card's words: a lent plan names its builder and its lender on the first line; the lead's plan does not
+  A.eq(planSummaryFrom(base.planMemo, 'p1').split('\n')[0], 'FORGE\'s plan, on the builder NOVA lent it: a plan', 'the card names whose plan it is and who lent the builder');
+
   await lead.planTool.run(bind);
+  A.eq(planSummaryFrom(base.planMemo, 'p1').split('\n')[0], 'a plan', 'a plan the lead made itself reads exactly as before');
   A.eq(asked[2], { verb: 'station.plan_edit', args: { request: bind } }, 'the lead\'s own plan is byte-identical to before (binds allowed, no delegated flag)');
 
   await lent.buildTool.run({ planId: 'p1' });

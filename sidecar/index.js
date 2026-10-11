@@ -19355,6 +19355,8 @@ async function runOnceCore(o) {
     ? overseerStation(o.streamId, runId) : stationBridge, scanText: t => cronGuard.scanRoutinePrompt(t), now: () => Date.now(),
     // THE LENT BUILDER: a delegated run's planner refuses binds and recruits, and its builds carry its own name
     agentId, delegatedBy: o.delegatedBy || '',
+    agentName: String((agentRoster.get(agentId) || {}).name || agentId),
+    lenderName: o.delegatedBy ? String((agentRoster.get(o.delegatedBy) || {}).name || o.delegatedBy) : '',
     planMemo: stationPlanMemo, lineMenu: stationLineMenu, kitMenu: stationKitMenu, presetMenu: stationPresetMenu, styleMenu: stationStyleMenu, roomMenu: stationRoomMenu,
     userProps,   // MAKE A PROP: the station's own prop maker (StarNet credits), for station.make_prop
     // TEST A LINE: the very job SEND A JOB sends, for station.test_line. A stopped lead run (or the tool's own timeout)
