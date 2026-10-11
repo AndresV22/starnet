@@ -96,4 +96,3 @@ const { SidecarFixture } = require('./helpers/sidecar-fixture.js');
     await fixture.dispose(); await new Promise(resolve => upstream.close(resolve));
   }
 })().catch(e => { console.error(e.stack || e); process.exitCode = 1; });
-

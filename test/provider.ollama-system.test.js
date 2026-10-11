@@ -77,4 +77,3 @@ async function collect(p, req) { const events = []; for await (const e of p.stre
   assert.deepEqual(N.leadingSystemMessages(late), [history[0], history[2]]);
   console.log('provider.ollama-system.test: OK (native + persistent compatible fallback; system provenance, order, tool pairing, multipart and unchanged generic wire)');
 })().catch(e => { console.error(e.stack || e); process.exitCode = 1; });
-

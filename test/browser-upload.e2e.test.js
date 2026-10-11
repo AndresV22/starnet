@@ -91,4 +91,3 @@ const { makeBrowserTools, _internals: T } = require('../sidecar/tools/builtin/br
   }
   A.report('browser-upload.e2e');
 })().catch(e => { console.error(e.stack || e); process.exitCode = 1; });
-
