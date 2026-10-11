@@ -35,6 +35,7 @@ const { makeTierList } = require('./tierlist.js');   // editorial model tier lis
 const { makeCreditsLink } = require('./credits-link.js');   // device-pairing client + durable link config (inert unless STARNET_CLOUD_URL is set)
 const budgetCaps = require('./budgetcaps.js');   // pure resolve(env,overrides) + validate patch — SETTINGS→Budget (P0-2)
 const fallbackChain = require('./fallbackchain.js');   // pure resolve(env,saved) + validate patch — SETTINGS→Models fallback chain (P0-3)
+const voiceChatRoute = require('./voice-chat-route.js');   // pure planner — SETTINGS→Models voice chat model (a spoken turn's own model)
 const { makeConcurrencyGate } = require('./concurrency.js');
 const { makeWorkspaceLease } = require('./workspace-lease.js');
 const { makeWorkspaceOwner, makeBootedAt } = require('./workspace-owner.js');
@@ -1368,6 +1369,26 @@ function saveFallbackChain() {
 // the fallback chain actually in force for a run that DOESN'T carry its own per-run list = saved-or-env.
 function effectiveFallbackChain() { return fallbackChain.resolveChain(ENV_FALLBACK, fallbackSaved); }
 fallbackSaved = loadFallbackChain();
+
+/* ---- VOICE CHAT MODEL (SETTINGS → Models; Hermes parity auxiliary.voice_chat). The model a SPOKEN turn runs on and
+   its reasoning effort — see sidecar/voice-chat-route.js for the rules. Persisted beside the fallback chain (durable +
+   .bak) and read live by every voice turn; null = the shipped default (follow the agent's model, reasoning off). ---- */
+const VOICE_CHAT_FILE = path.join(WORKSPACES, 'voice-chat.json');
+const voiceChatStore = makeDomainStore({
+  fs, path, file: VOICE_CHAT_FILE, version: 1, writeDurable: writeFileDurable,
+  defaults: () => null,
+  normalize: value => (value && typeof value === 'object') ? voiceChatRoute.cleanSetting(value) : null,
+  encode: value => ({ setting: value }),
+  decode: envelope => envelope && envelope.setting && typeof envelope.setting === 'object' ? envelope.setting : undefined,
+  onIssue: reportDomainStoreIssue('voice-chat')
+});
+let voiceChatSaved = voiceChatStore.load().value;
+function effectiveVoiceChat() { return voiceChatSaved ? voiceChatRoute.cleanSetting(voiceChatSaved) : voiceChatRoute.defaultSetting(); }
+function saveVoiceChat() {
+  if (voiceChatSaved == null) { try { voiceChatStore.remove(); } catch (e) { failNote('voiceChat.remove', e); } return; }
+  try { voiceChatStore.save(voiceChatSaved); }
+  catch (e) { console.warn('[voice-chat] persist failed:', (e && e.message) || e); }
+}
 
 // admission gate: bounds how many distinct agents run paid loops concurrently (multi-agent fan-out guard).
 const concurrencyGate = makeConcurrencyGate({ max: MAX_CONCURRENT_AGENTS });
@@ -11269,6 +11290,8 @@ const ROUTES = [
   { m: 'POST', exact: '/api/budget/settle', h: handleBudgetSettle },   // the Commander books an interrupted run's real charge (SPENDING LIMITS)
   { m: 'GET', exact: '/api/fallback/chain', h: handleFallbackStatus },
   { m: 'POST', exact: '/api/fallback/chain', h: handleFallbackChain },
+  { m: 'GET', exact: '/api/voice/chat-model', h: handleVoiceChatStatus },   // SETTINGS→Models: the model a spoken turn runs on
+  { m: 'POST', exact: '/api/voice/chat-model', h: handleVoiceChatSet },
   { m: 'POST', exact: '/api/config/export', h: handleConfigExport },   // P1-7 station backup
   { m: 'POST', exact: '/api/config/import', h: handleConfigImport },
   { m: 'POST', exact: '/api/config/reset', h: handleConfigReset },
@@ -13442,6 +13465,110 @@ async function handleFallbackChain(req, res) {
     chain: effectiveFallbackChain(), saved: fallbackSaved != null, envDefault: ENV_FALLBACK.slice(),
     maxEntries: fallbackChain.MAX_ENTRIES, warnings: v.warnings || []
   }));
+}
+
+/* ---- GET/POST /api/voice/chat-model — the VOICE CHAT MODEL slot (SETTINGS → Models). GET reports the setting in force,
+   whether it is a saved choice, and whether the slot's provider can actually run right now (`configured`, the honest
+   boolean — a slot whose provider is signed out is shown as such, and voice turns stay on the agent's model).
+   POST { provider, model, reasoningEffort } saves; { clear:true } restores the shipped default. Applies to the
+   next voice turn, no restart. ---- */
+function voiceChatStatus() {
+  const s = effectiveVoiceChat();
+  let configured = null;   // null = the slot follows the agent's model, so there is nothing of its own to check
+  if (s.model && s.provider) {
+    const key = providerRuntimeKey(s.provider, '');
+    configured = !!getProviderProfile(s.provider) && providerHasCredential(s.provider, key, providerRuntimeBaseUrl(s.provider, '', key));
+  }
+  return { setting: s, saved: voiceChatSaved != null, configured, defaultReasoningEffort: voiceChatRoute.DEFAULT_EFFORT, efforts: voiceChatRoute.EFFORT_LADDER.slice() };
+}
+function handleVoiceChatStatus(req, res) {
+  res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+  res.end(JSON.stringify(voiceChatStatus()));
+}
+async function handleVoiceChatSet(req, res) {
+  const json = (code, obj) => { res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(obj)); };
+  let body; try { body = JSON.parse(await readBody(req, 4096)) || {}; } catch (e) { return json(400, { error: 'bad json' }); }
+  const v = voiceChatRoute.validatePatch(body);
+  if (!v.ok) return json(400, { error: v.error });
+  if (v.setting && v.setting.provider && !getProviderProfile(v.setting.provider)) return json(400, { error: 'unknown provider: ' + v.setting.provider });
+  voiceChatSaved = (v.setting && !voiceChatRoute.isDefault(v.setting)) ? v.setting : null;   // the default is not a saved choice
+  saveVoiceChat();
+  return json(200, voiceChatStatus());
+}
+
+/* A spoken turn's route (sidecar/voice-chat-route.js holds the rules). Reads the facts the planner needs — the slot's
+   credential, its model's window and effort levels — and returns the run options with ONLY this turn moved. The
+   catalog read is bounded and cached so a voice turn never waits on a cold catalog: an unknown window counts as
+   fitting (the run's own reactive overflow path still guards it) and unknown levels go out as asked, clamped by the
+   adapter like every run's effort. */
+const VOICE_CATALOG_TTL_MS = 10 * 60 * 1000, VOICE_CATALOG_WAIT_MS = 2500;
+const voiceCatalogCache = new Map();   // provider|baseUrl -> { at, models }
+async function voiceCatalogEntry(providerId, model, key, baseUrl) {
+  if (!providerId || !model) return null;
+  const cacheKey = providerId + '|' + (baseUrl || '');
+  const hit = voiceCatalogCache.get(cacheKey);
+  let models = (hit && Date.now() - hit.at < VOICE_CATALOG_TTL_MS) ? hit.models : null;
+  if (!models) {
+    let timer = null;
+    const fetching = listModelsForProvider(providerId, { key, baseUrl })
+      .then(list => { if (Array.isArray(list)) voiceCatalogCache.set(cacheKey, { at: Date.now(), models: list }); return list; });
+    try {
+      models = await Promise.race([fetching, new Promise(r => { timer = setTimeout(() => r(null), VOICE_CATALOG_WAIT_MS); })]);
+    } catch (e) { failNote('voiceChat.catalog', e); models = null; }
+    finally { if (timer) clearTimeout(timer); }
+    fetching.catch(e => failNote('voiceChat.catalogLate', e));   // a late failure after the race is still seen
+  }
+  return Array.isArray(models) ? (models.find(m => m && m.id === model) || null) : null;
+}
+async function applyVoiceTurnRoute(o) {
+  const setting = effectiveVoiceChat();
+  const rosterIdent = agentRoster.get(String(o.agentId || 'agent')) || null;
+  // the agent's own route, resolved exactly as runOnceCore resolves it
+  const mainProvider = normalizeProvider(o.provider || (rosterIdent && rosterIdent.provider) || '');
+  const mainModel = String(o.model || '').trim() || (rosterIdent && rosterIdent.model ? String(rosterIdent.model).trim() : '')
+    || (providerUsesCodex(mainProvider) ? CODEX_DEFAULT_MODEL : CRON_DEFAULT_MODEL);
+  const mainBaseUrl = o.baseUrl || o.base_url || '';
+  const tProvider = setting.model ? normalizeProvider(setting.provider || mainProvider) : mainProvider;
+  const sameProvider = tProvider === mainProvider;
+  // a key the page sent belongs to the agent's provider; it never crosses to another one
+  const tKey = providerRuntimeKey(tProvider, sameProvider ? (o.key || '') : '');
+  const tBaseUrl = providerRuntimeBaseUrl(tProvider, sameProvider ? mainBaseUrl : '', tKey);
+  const credentialOk = !!setting.model && !!getProviderProfile(tProvider) && providerHasCredential(tProvider, tKey, tBaseUrl);
+  const swapping = credentialOk && !(sameProvider && setting.model === mainModel);
+  const tEntry = swapping ? await voiceCatalogEntry(tProvider, setting.model, tKey, tBaseUrl) : null;
+  const limit = (tEntry && Number(tEntry.context_length)) || 0;
+  let promptTokens = 0;
+  if (limit) {
+    const est = makeContext(Object.assign({ contextLimit: limit }, RUN_CONTEXT_DEFAULTS));
+    promptTokens = est.estimateMessages(Array.isArray(o.messages) ? o.messages : []) + est.estimateTokens(String(o.system || ''));
+  }
+  const facts = {
+    setting, main: { provider: mainProvider, model: mainModel },
+    target: { credentialOk, contextLimit: limit, efforts: tEntry && tEntry.reasoningEfforts },
+    promptTokens, compactAt: RUN_CONTEXT_DEFAULTS.compactAt
+  };
+  let plan = voiceChatRoute.planVoiceRoute(facts);
+  if (plan.route === 'main' && plan.reasoningEffort === 'none') {
+    // staying on the agent's model with reasoning off: clamp to what THAT model offers
+    const mainKey = providerRuntimeKey(mainProvider, o.key || '');
+    const mainEntry = await voiceCatalogEntry(mainProvider, mainModel, mainKey, providerRuntimeBaseUrl(mainProvider, mainBaseUrl, mainKey));
+    plan = voiceChatRoute.planVoiceRoute(Object.assign(facts, { mainEfforts: mainEntry && mainEntry.reasoningEfforts }));
+  }
+  const next = Object.assign({}, o, {
+    voiceRoute: { used: plan.route === 'voice', provider: plan.provider, model: plan.model, reasoningEffort: plan.reasoningEffort || '', reason: plan.reason,
+      wanted: setting.model ? { provider: tProvider, model: setting.model } : null }
+  });
+  if (plan.reasoningEffort) next.reasoningEffort = plan.reasoningEffort;
+  if (plan.route === 'voice') {
+    next.provider = plan.provider; next.model = plan.model; next.key = tKey; next.baseUrl = tBaseUrl; next.base_url = '';
+    // a page's key pool is the agent provider's; the agent's own route answers if the voice model fails mid-turn
+    if (!sameProvider) next.keyPool = undefined;
+    next.fallbackProviders = [{ provider: mainProvider, model: mainModel, key: o.key || '', baseUrl: mainBaseUrl }]
+      .concat(Array.isArray(o.fallbackProviders) ? o.fallbackProviders : []);
+  } else if (plan.reason) {
+    console.warn('[voice-chat] ' + tProvider + '/' + setting.model + ' not used (' + voiceChatRoute.reasonText(plan.reason) + '); the voice turn runs on ' + mainProvider + '/' + mainModel);
+  }
+  return next;
 }
 
 /* ---- P1-7 STATION BACKUP: export / import / reset the station's persisted config to ONE portable JSON file.
@@ -18483,6 +18610,7 @@ async function handleRun(req, res) {
     const continuedResult = await runOnce({
       key, keyPool: body && body.keyPool, model, system: (projectLine || projectRules) ? (String(system || '') + projectLine + projectRules) : system, messages: runMessages, agentId, isTask, provider: runProvider, baseUrl, reasoningEffort, fallbackModels, fallbackProviders,
       emit, signal: ac.signal, runId, trigger: 'directive', internal, evidence,
+      voiceTurn: !!(body && body.voiceTurn === true),   // the reply will be SPOKEN: the voice chat model may answer it
       initialTaint: hasUserAttachments ? 'user attachment' : null,
       retryUserRunId: body && body.retryUserRunId,
       surface: 'interactive', prompt: promptConsent, pathPrompt: promptPathTrust, summon: summonRequest,   // team.summon → live summonAgent() round-trip; pathPrompt → NS-5 "work in <root>?" bless
@@ -18755,11 +18883,22 @@ async function runOnceCore(o) {
       o = { ...o, workdir: root, projectRoot: root };
     }
   }
+  // VOICE CHAT MODEL: a spoken turn may run on its own model (sidecar/voice-chat-route.js). Resolved HERE, once, so
+  // COMMS and the channel hubs share one rule; a recovery continuation and internal self-talk never move.
+  if (o.voiceTurn === true && !o.voiceRoute && !o.recovery && !o.internal) {
+    try { o = await applyVoiceTurnRoute(o); } catch (e) { failNote('voiceChat.route', e); }
+  }
   const { key, system: rawSystem, messages = [], agentId = 'agent', signal, runId } = o;
   // LINE WATCH (additive, sweep 2026-09-25): WHICH bay this run works at, and the crate it picked up when the host
   // knows it — so the floor lights the right bay for an agent that crews several (never the oldest crate's bay).
   // Extra fields on agent.run.start validate against the frozen contract (obj() has no additionalProperties:false).
   const runStartExtra = {};
+  // and WHICH route a voice turn took (additive): the model it ran on, and why the voice model was passed over
+  if (o.voiceRoute && typeof o.voiceRoute === 'object') {
+    const vr = o.voiceRoute;
+    runStartExtra.voiceRoute = { used: !!vr.used, model: String(vr.model || ''), provider: String(vr.provider || ''), reasoningEffort: String(vr.reasoningEffort || ''), reason: String(vr.reason || '') };
+    if (vr.wanted && vr.wanted.model) runStartExtra.voiceRoute.wanted = { provider: String(vr.wanted.provider || ''), model: String(vr.wanted.model) };
+  }
   if (o.dockId) runStartExtra.dockId = String(o.dockId);
   if (o.workitemId) runStartExtra.workitemId = String(o.workitemId);
   // and WHICH stream it runs on (additive, 2026-09-29): a line test's run (a step test's steptest-…, RUN ONE REAL JOB's
@@ -21534,7 +21673,8 @@ async function runOnceCore(o) {
     execution.observeToolEvent(name, payload);
     // LINE WATCH: the loop's own run.start is the normal path's — it must name the bay/crate like every early-exit
     // start above does, or the floor pairs a multi-bay agent's run with its OLDEST crate and lights the wrong bay.
-    if (name === 'agent.run.start' && payload && payload.runId === runId && (runStartExtra.dockId || runStartExtra.workitemId)) payload = Object.assign({}, payload, runStartExtra);
+    // (and a voice turn's route, so COMMS can say once why a voice model was passed over)
+    if (name === 'agent.run.start' && payload && payload.runId === runId && (runStartExtra.dockId || runStartExtra.workitemId || runStartExtra.voiceRoute)) payload = Object.assign({}, payload, runStartExtra);
     // BALANCE CEILING (additive, like completionVerdict below): this run's per-run stop fired at the ceiling admission
     // clamped to the StarNet balance, so every stop line names the balance + the top-up door, not a cap to raise.
     // A failover's own (lower) ceiling or the unpriced-token seatbelt carries a different cap and is left alone.

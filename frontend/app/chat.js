@@ -360,6 +360,30 @@ const Chat = (() => {
     const rid = (activeWs && typeof Channels !== 'undefined' && Channels.runIdOf) ? Channels.runIdOf(activeWs.id) : null;
     return rid ? (waitNotes.get(rid) || null) : null;
   }
+  /* VOICE CHAT MODEL NOTICE (Hermes parity): a spoken turn that could NOT use SETTINGS › Models › VOICE CHAT MODEL ran
+     on the agent's own model — say so ONCE per model+reason, in the stream it happened in, from the sidecar's own
+     agent.run.start voiceRoute (never inferred here). A turn the voice model answered needs no line: its receipt
+     already names the model that answered. PURE text builder, test-locked in test/voice-chat-route.test.js. */
+  const VOICE_ROUTE_REASONS = { not_configured: 'its provider is not connected', too_large: 'this conversation is larger than its context window' };
+  function voiceRouteNoticeText(vr) {
+    if (!vr || vr.used || !vr.reason || !VOICE_ROUTE_REASONS[vr.reason] || !vr.wanted || !vr.wanted.model) return '';
+    return 'VOICE MODEL ' + vr.wanted.model + ' not used — ' + VOICE_ROUTE_REASONS[vr.reason] + '; spoken replies use ' + (vr.model || 'the agent’s model');
+  }
+  const voiceRouteNoticed = new Set();
+  let voiceRouteWired = false;
+  function wireVoiceRouteNotice() {
+    if (voiceRouteWired || typeof U === 'undefined' || !U.bus) return;
+    voiceRouteWired = true;
+    U.bus.on('agent.run.start', p => {
+      const text = voiceRouteNoticeText(p && p.voiceRoute);
+      if (!text) return;
+      if (!activeWs || !p.streamId || String(p.streamId) !== String(activeWs.id)) return;
+      const once = p.voiceRoute.reason + '|' + p.voiceRoute.wanted.model;
+      if (voiceRouteNoticed.has(once)) return;
+      voiceRouteNoticed.add(once);
+      broadcast(text, { highlight: p.voiceRoute.wanted.model });
+    });
+  }
   let waitWired = false;
   function wireWaitNotes() {
     if (waitWired || typeof U === 'undefined' || !U.bus) return;
@@ -963,6 +987,7 @@ const Chat = (() => {
     wireProposals();   // Cortex turn-in beat: listen for reflection's memory.proposed (registers once)
     wireStudy();       // GROWTH Tier 1: after a salient run, offer ≤1 dossier belief-update at turn-in priority (registers once)
     wireBriefRead();   // TASTE EXTRACTION: the announce-and-act READ card (taskbrief.settled → correctable assumptions; registers once)
+    wireVoiceRouteNotice();   // a spoken turn that could not use the VOICE CHAT MODEL says so once
     wireWaitNotes();   // LIVE WAIT LINE: provider.retry / agent.waiting → the presence card's transient line (registers once)
     wireTrust();       // GROWTH Tier 3: after a clean run, offer ONE earned-autonomy raise at the LOWEST beat priority — below the arc (registers once)
     wireThreads();     // NS-6: after a mined task run, offer ONE thread turn-in (Keep/Edit/Discard) at the lowest beat priority — study wins the moment first (registers once)
@@ -9308,6 +9333,9 @@ const Chat = (() => {
       }
       const { text: reply, error, endReason, finishReason, completionVerdict, effectVerdict, budgetScope, budgetCapUsd, budgetCapIsBalance, unpricedModel, unpricedCapTokens } = await Harness.chat({
         system: sys, messages: retry ? endOnUserTurn(historyWindow(ws)) : historyWindow(ws), agentId: ws.agentId || 'agent', isTask, recurring, signal: ac.signal, streamId: ws.id,
+        // a SPOKEN reply may run on SETTINGS › Models › VOICE CHAT MODEL — never a live call's delegated work, which the
+        // live voice layer already answers fast and hands to the agent's own model on purpose
+        voiceTurn: (willSpeak && !liveVoiceCall()) || undefined,
         taskAction: taskAction || undefined,
         postconditions: opts && opts.postconditions != null ? opts.postconditions : undefined,
         recovery: recoveryResume ? opts.recovery : undefined,

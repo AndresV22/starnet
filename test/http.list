@@ -165,6 +165,7 @@ test/tool-projection.e2e.test.js
 test/request-idempotency.e2e.test.js
 test/output-only-repair.e2e.test.js
 test/saved-provider-fallback.e2e.test.js
+test/voice-chat-model.e2e.test.js
 test/provider-validate-rejected.http.test.js
 test/delegated-connectors.e2e.test.js
 test/prompt-cache-prefix.e2e.test.js

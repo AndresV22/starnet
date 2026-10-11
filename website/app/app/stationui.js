@@ -6798,6 +6798,82 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     });
   }
 
+  // VOICE CHAT MODEL — the model a spoken reply runs on. Saves on the change (no SAVE button: the pick IS the verb).
+  // The model list is the ACTIVE provider's live catalog, like the tier pins; a saved model on another provider
+  // stays listed under its own provider so reopening never silently re-points it.
+  function wireVoiceChatModel(body) {
+    const form = body.querySelector('#vcm-form');
+    if (!form) return;
+    const modelSel = body.querySelector('#vcm-model');
+    const effortSel = body.querySelector('#vcm-effort');
+    const hintEl = body.querySelector('#vcm-hint');
+    const msgEl = body.querySelector('#vcm-msg');
+    const setMsg = (t, ok) => { if (msgEl) { msgEl.textContent = t || ''; msgEl.className = 'msg' + (ok ? ' ok' : ''); } };
+    const active = Harness.getProv ? Harness.getProv() : 'openrouter';
+    let setting = { provider: '', model: '', reasoningEffort: 'none' }, configured = null, catalog = null;
+    const optVal = (provider, model) => model ? (provider || active) + '|' + model : '';
+    const paint = () => {
+      if (modelSel) {
+        const want = optVal(setting.provider, setting.model);
+        modelSel.replaceChildren();
+        const same = document.createElement('option'); same.value = ''; same.textContent = '(same as the agent)'; modelSel.appendChild(same);
+        const seen = new Set();
+        (catalog || []).forEach(m => {
+          if (!m || !m.id || seen.has(m.id)) return;
+          seen.add(m.id);
+          const o = document.createElement('option'); o.value = optVal(active, m.id);
+          o.textContent = (m.name && m.name !== m.id) ? (m.name + '  ·  ' + m.id) : m.id;
+          modelSel.appendChild(o);
+        });
+        if (want && !Array.from(modelSel.options).some(o => o.value === want)) {
+          const o = document.createElement('option'); o.value = want;
+          o.textContent = setting.model + '  ·  ' + (setting.provider && setting.provider !== active ? 'via ' + setting.provider : (catalog ? '(not in catalog)' : '(catalog unverified)'));
+          modelSel.appendChild(o);
+        }
+        modelSel.value = want;
+      }
+      if (effortSel) {
+        const e = String(setting.reasoningEffort == null ? 'none' : setting.reasoningEffort);
+        if (!Array.from(effortSel.options).some(o => o.value === e)) { const o = document.createElement('option'); o.value = e; o.textContent = e.toUpperCase(); effortSel.appendChild(o); }
+        effortSel.value = e;
+      }
+      if (hintEl) {
+        hintEl.textContent = !setting.model ? 'Spoken replies use the agent’s own model.'
+          : configured === false ? '⚠ ' + (setting.provider || active) + ' isn’t connected — spoken replies stay on the agent’s model until it is.'
+          : 'Spoken replies run on ' + setting.model + ' via ' + (setting.provider || active) + '.';
+      }
+    };
+    const apply = (st) => {
+      if (st && st.setting) setting = st.setting;
+      configured = st ? st.configured : null;
+      paint();
+    };
+    if (hintEl) hintEl.textContent = 'reading the voice chat model…';
+    Harness.api.get('/api/voice/chat-model').then(apply)
+      .catch(() => { if (hintEl) hintEl.textContent = 'voice chat model unavailable — sidecar unreachable'; });
+    const baseUrl = active === 'custom' && Harness.getBaseUrl ? Harness.getBaseUrl(active) : '';
+    Harness.api.get('/api/models/' + encodeURIComponent(active) + (baseUrl ? '?baseUrl=' + encodeURIComponent(baseUrl) : '')).then(j => {
+      if (!j || j.error || !Array.isArray(j.models)) throw new Error('catalog unavailable');
+      catalog = j.models.slice().sort((a, b) => String(a.id).localeCompare(String(b.id)));
+      paint();
+    }).catch(() => { paint(); });
+    const post = () => {
+      const v = modelSel ? String(modelSel.value || '') : '';
+      const cut = v.indexOf('|');
+      const next = { provider: cut > 0 ? v.slice(0, cut) : '', model: cut > 0 ? v.slice(cut + 1) : '', reasoningEffort: effortSel ? String(effortSel.value) : 'none' };
+      setMsg('saving…');
+      Harness.api.post('/api/voice/chat-model', next)
+        .then(({ ok, j }) => {
+          if (!ok) { setMsg((j && j.error) || 'could not save the voice chat model'); sfx('bad'); paint(); return; }
+          apply(j);
+          setMsg('✓ ' + (next.model ? 'spoken replies will use ' + next.model : 'spoken replies use the agent’s model'), true); sfx('click');
+        })
+        .catch(() => { setMsg('could not reach the sidecar'); sfx('bad'); paint(); });
+    };
+    if (modelSel) modelSel.addEventListener('change', post);
+    if (effortSel) effortSel.addEventListener('change', post);
+  }
+
   // P1-8 NOTIFICATION PREFS — persist per-category on/off + sound to store.settings.notifyPrefs (localStorage);
   // notify() reads it live at emit time, so a toggle takes effect on the very next notification with no rerender.
   function wireNotifyPrefs(body) {
@@ -7254,7 +7330,19 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
         '<div class="set-row"><label for="tm-fast">◆ FAST</label><select id="tm-fast" class="fbc-sel" data-tier="fast"><option value="">(station default)</option></select></div>' +
         '<div class="mc-hint">A pin applies to the next agent you summon of that tier. Empty = follow the model dock. This never overrides a model you set on a specific agent.</div>' +
       '</div>' +
-      '<div id="tm-msg" class="msg"></div>';
+      '<div id="tm-msg" class="msg"></div>' +
+      // VOICE CHAT MODEL (Hermes parity auxiliary.voice_chat) — the model a SPOKEN reply runs on. Server-persisted
+      // (/api/voice/chat-model) and read by the sidecar per voice turn; only that turn moves (sidecar/voice-chat-route.js).
+      '<h4 class="ms-h">Voice chat model <span class="dim">— answers spoken replies</span></h4>' +
+      '<p class="set-about">With the speaker on, spoken replies and Telegram voice notes can use a faster model. Only that reply moves: typed messages and the agent’s saved model stay as they are. If the voice model can’t answer, the agent’s own model does.</p>' +
+      '<div class="mc-form" id="vcm-form">' +
+        '<div class="set-row"><label for="vcm-model">MODEL</label><select id="vcm-model" class="fbc-sel"><option value="">(same as the agent)</option></select></div>' +
+        '<div class="set-row"><label for="vcm-effort">REASONING</label><select id="vcm-effort" class="fbc-sel">' +
+          '<option value="none">OFF (fastest)</option><option value="low">LOW</option><option value="medium">MEDIUM</option><option value="high">HIGH</option><option value="">SAME AS TYPED</option>' +
+        '</select></div>' +
+        '<div class="mc-hint" id="vcm-hint"></div>' +
+      '</div>' +
+      '<div id="vcm-msg" class="msg"></div>';
     const customSw = deriveCustomTheme(s.themeHue, s.themeSat, 100)['--ph'];   // swatch tint for the CUSTOM chip
     /* LIVE VOICE — which of the provider's voices speaks in hands-free mode. This lived only in a console
        call, which is not a setting. The list is fetched from the sidecar (status().voices) rather than
@@ -7578,6 +7666,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     wireBudget(host);
     wireFallbackChain(host);
     wireTierModels(host);
+    wireVoiceChatModel(host);
     wireNotifyPrefs(host);
     wireAdvanced(host);
     wireBackup(host);
