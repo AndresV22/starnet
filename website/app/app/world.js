@@ -21,6 +21,7 @@ const World = (() => {
 
   /* ---------- station + bake cache ---------- */
   let station = null, geo = null, cache = null, geoDirty = true, bakeDirty = true, unsub = null;
+  let bakeEditPending = true;   // STATIC BAKE: a station edit since the last derive changed what the bake draws
   let desk = null, seat = null, blocked = new Set();   // desk footprint (local tiles) blocks pathing
   let deskPropId = null, deskFace = 'north';           // set when the hero's desk is a PLACED workstation prop assigned to it (its id + the seat's facing)
   let convey = null;   // live conveyor transport sim (boxes riding the belts)
@@ -645,7 +646,13 @@ const World = (() => {
     if (agent && agent.fond) agent.fond.clear();        // forget the old floor's haunts — the new floor earns its own
     for (const b of crew) if (!b.summoned) seizeFromIdle(b);
     crew = crew.filter(b => b.summoned);                // drop plan-derived crew (rebuilt from the new floor's bays); KEEP summoned crew (app-level, not floor-bound)
-    if (station && station.onChange) unsub = station.onChange(() => { geoDirty = true; });
+    /* STATIC BAKE (2026-10-10, "slower since the new textures"): the deck/wall/light bake reads rooms, walls and doors —
+       never props or belts — and on a large industrial station it costs ~2.5 s of frozen main thread. Every edit used to
+       re-bake it: placing, moving or turning a prop, giving a desk an agent, labelling a line, each step the station
+       builder lays. WorldModel already marks the edits that leave the bake alone (staticBakeUnchanged; airlocks never
+       are), exactly as BUILD mode reads them, so the floor now re-bakes only for an edit that changes the bake — or when
+       the derived floor's size or origin moved (the bake is drawn in that frame). */
+    if (station && station.onChange) unsub = station.onChange(p => { geoDirty = true; if (!p || !p.staticBakeUnchanged || p.global) bakeEditPending = true; });
     rederive();
   }
 
@@ -700,7 +707,10 @@ const World = (() => {
       }
     }
     scanNovelty();   // diff props/belts vs last frame — anything new becomes a "go check it out" target
-    geoDirty = false; bakeDirty = true;
+    const frameMoved = !cache || cache.W !== geo.W || cache.H !== geo.H || !cache.origin || !geo.origin
+      || cache.origin.tx !== geo.origin.tx || cache.origin.ty !== geo.origin.ty;
+    if (bakeEditPending || frameMoved) bakeDirty = true;   // STATIC BAKE: a props-only edit keeps the deck it already has
+    geoDirty = false; bakeEditPending = false;
   }
 
   function rebake() {

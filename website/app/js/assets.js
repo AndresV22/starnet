@@ -74,18 +74,28 @@ const SPRITES = (() => {
      anchor the FEET to the floor instead. Auto-derived so new skins self-correct. */
   const footPad = {};                 // set -> transparent rows below the feet, in master px
   const DEFAULT_FOOT = 23;            // crew authoring constant; only used if a frame can't be read
+  /* (2026-10-10) a big crew shows 700+ distinct frames, each measured the first time it is drawn — ~14 a second for
+     minutes after boot, every one a fresh canvas plus a whole-frame readback (~5% of the main thread). One reused
+     scratch canvas, and the bottom band first: the feet sit within ~23 rows of the bottom, so the full frame is read
+     only when the band is empty. Same answer. */
+  let padScratch = null, padCtx = null;
+  const PAD_BAND = 48;
   function measureFootPad(img) {
     try {
       const w = img.width | 0, h = img.height | 0;
       if (!w || !h) return DEFAULT_FOOT;
-      const c = document.createElement('canvas'); c.width = w; c.height = h;
-      const x = c.getContext('2d', { willReadFrequently: true });
+      if (!padScratch) { padScratch = document.createElement('canvas'); padScratch.width = padScratch.height = 1; padCtx = padScratch.getContext('2d', { willReadFrequently: true }); }
+      if (padScratch.width < w || padScratch.height < h) { padScratch.width = Math.max(padScratch.width, w); padScratch.height = Math.max(padScratch.height, h); }
+      const x = padCtx;
+      x.clearRect(0, 0, w, h);
       x.drawImage(img, 0, 0);
-      const data = x.getImageData(0, 0, w, h).data;
-      for (let y = h - 1; y >= 0; y--) {
-        const row = y * w * 4;
-        for (let px = 0; px < w; px++) {
-          if (data[row + px * 4 + 3] > 16) return (h - 1) - y;   // first opaque row from the bottom
+      for (const band of h > PAD_BAND ? [PAD_BAND, h] : [h]) {
+        const top = h - band, data = x.getImageData(0, top, w, band).data;
+        for (let y = band - 1; y >= 0; y--) {
+          const row = y * w * 4;
+          for (let px = 0; px < w; px++) {
+            if (data[row + px * 4 + 3] > 16) return (h - 1) - (top + y);   // first opaque row from the bottom
+          }
         }
       }
       return DEFAULT_FOOT;

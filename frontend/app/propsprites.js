@@ -11915,6 +11915,17 @@ const PropSprites = (() => {
     if (s) return { mount: s.mount || null, stack: !!s.stack, surface: !!s.surface, flat: !!s.flat, footprintMigration: s.footprintMigration };
     return USER_ID.test(String(t || '')) ? { mount: null, stack: false, surface: false, flat: false } : null;
   }
+  /* The OS reduced-motion preference, read per draw. (2026-10-10) a fresh MediaQueryList per prop per frame was ~3% of
+     a floor draw; a REAL MediaQueryList is live (.matches follows the OS setting), so the first one is kept and read.
+     Anything else (a stub returning a snapshot) is still asked on every draw. */
+  let reduceMql = null;
+  function prefersStill() {
+    if (reduceMql) return reduceMql.matches;
+    if (typeof window === 'undefined' || !window.matchMedia) return false;
+    const q = window.matchMedia('(prefers-reduced-motion: reduce)');
+    if (typeof MediaQueryList !== 'undefined' && q instanceof MediaQueryList) reduceMql = q;
+    return !!(q && q.matches);
+  }
   if (typeof PropRemaster !== 'undefined') {
     for (const c of [...CATALOG,{id:'seatchair',artId:'chair'}]) {
       for (const facing of ['s','n','e','w']) {
@@ -11922,8 +11933,7 @@ const PropSprites = (() => {
         if (!native) continue; // never invent an unsupported upright facing
         F[key] = (x,y,w,h,o={}) => {
           if (nativeSkinDepth) return native(x,y,w,h,o);
-          const still = o.still || (typeof window !== 'undefined' && window.matchMedia &&
-            window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+          const still = o.still || prefersStill();
           const paintNative = target => {
             const previous = ctx, previousNow = now;
             ctx = target; nativeSkinDepth++;
