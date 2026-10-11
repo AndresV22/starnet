@@ -7462,6 +7462,8 @@ const Build = (() => {
         else if (e.propId && propById[e.propId]) { const p = propById[e.propId]; rect = { x1: p.x, y1: p.y, x2: p.x + (p.w || 1) - 1, y2: p.y + (p.h || 1) - 1 }; }
         if (!rect) continue;
         let label = VAL_LABEL[e.code] || e.code, layer = 'topNag';
+        // THE HAND (H5): an over-budget INBOX says its n/max on the floor — the one resting number — in the same voice that names the fix
+        if (e.code === 'LINE_TOO_LONG' && e.stages > 0) label = 'TOO LONG ' + e.stages + '/' + (e.maxHops + 1) + ' — RAISE THE BUDGET';
         /* a ROLE-carrying unbound dock is a PLACARD, not a permanent nag (one-voice law): it speaks
            only while hovered or while it is the checklist's focused next step — at rest the amber
            bracket + the FINISH-THE-LINE card already carry the story. Roleless unbound bays keep
