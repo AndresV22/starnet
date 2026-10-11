@@ -270,6 +270,15 @@ function makeChainRunner(o) {
   const stepDock = typeof o.stepDock === 'function' ? o.stepDock : null;
   const fanSiblingsDock = typeof o.fanSiblingsDock === 'function' ? o.fanSiblingsDock : null;
   const entryDockOf = typeof o.entryDockOf === 'function' ? o.entryDockOf : null;
+  /* SEND TO (2026-10-10) — onShipped(rec): told when a job LEAVES ITS LINE CLEAN, so a line whose OUTBOX sends on can start the
+     next line's job (sidecar/routing/handoff-runner.js). Fired from ONE place — after advanceLine returns, whatever return point
+     it took (a joiner shipping out, the end of the line, any branch path) — when, and only when: the work belongs to a line
+     (a direct order never ships anywhere), the line did not stop (stopped == null: no refusal, no failed or empty stage, no hop
+     or $ ceiling, no STOP), and the stage that produced the answer is one whose lane ships to an OUTBOX (lastStage). Never
+     awaited and never thrown through — A CHAIN NEVER GATES THE REPLY (law 1): the hand-off is queued, the reply goes now.
+     rec = { lineId, agentId, dockId, text, originalText, usd, streamId, since } (streamId / since from the seed, when the
+     caller has them: the job's own stream and the time its entry run started, so the runner reads back exactly its runs). */
+  const onShipped = typeof o.onShipped === 'function' ? o.onShipped : null;
 
   /* THE JOIN BARRIER — in-memory, keyed "joinTile|runId". A branch DELIVERS its output; the barrier releases
      when `expect` deliveries are in, or when a waiter's timeout (the joiner's timeoutMin) fires with fewer —
@@ -344,6 +353,24 @@ function makeChainRunner(o) {
        `agentId` who produced it, `stopped` a short honest reason when the line did not run to its end (null
        when it did). Never throws: a chain is an enhancement to a reply the caller already holds. */
   async function advance(seed) {
+    const out = await advanceLine(seed);
+    if (onShipped) shipped(seed || {}, out);
+    return out;
+  }
+  // SEND TO: did this job leave its line clean at a stage that ships to the OUTBOX? then tell the host (see onShipped above)
+  function shipped(s, out) {
+    const lineId = (s.lineId != null && String(s.lineId)) || null;
+    if (!lineId || !out || out.stopped != null || !out.agentId || !String(out.text || '').trim()) return;
+    let ships = false;
+    try { ships = !!(lastStage && (out.dockId ? lastStage(out.agentId, out.dockId) : lastStage(out.agentId))); } catch (e) { failNote('chain.onShipped.lastStage', e); ships = false; }
+    if (!ships) return;
+    const rec = { lineId, agentId: out.agentId, dockId: out.dockId || null, text: String(out.text), originalText: String(s.originalText != null ? s.originalText : (s.text || '')),
+      usd: ((typeof s.entryUsd === 'number' && isFinite(s.entryUsd) && s.entryUsd > 0) ? s.entryUsd : 0) + (out.usd || 0),
+      streamId: (s.streamId != null && String(s.streamId)) || null, since: (typeof s.since === 'number' && isFinite(s.since)) ? s.since : null };
+    try { const r = onShipped(rec); if (r && typeof r.then === 'function') r.then(null, e => failNote('chain.onShipped', e)); }
+    catch (e) { failNote('chain.onShipped', e); }
+  }
+  async function advanceLine(seed) {
     const s = seed || {};
     const startAgent = s.agentId, originalText = s.originalText != null ? s.originalText : s.text;
     // the line this work ENTERED on (null for a direct order — the gate then keeps every dock terminal)

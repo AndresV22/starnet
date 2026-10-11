@@ -720,6 +720,7 @@ test/chain.multibay.test.js
 test/routing.steptest.test.js
 test/routing.steptest.multibay.test.js
 test/routing.triggers.test.js
+test/routing.handoff.test.js
 test/trigger-polish.test.js
 test/channels.multibay.test.js
 test/cron.multibay.test.js
