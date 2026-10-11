@@ -434,6 +434,8 @@ function makeChainRunner(o) {
     // a branch that ends (terminal / parked at the joiner) hands the loop to the next queued branch
     const nextPending = () => { const b = pending.shift(); if (!b) return false; cur = b.from || cur; out.text = b.text; branchMode = true; return b; };
     let forced = null;   // a queued branch's node, run on this hop in place of the walk's answer
+    // the receiving dock's standing brief, for a divided branch's own hand-off (Pipeline.partHandoff)
+    const briefOf = t => { if (!stageBrief || !t) return null; try { return t.dockId ? stageBrief(t.agentId, t.dockId) : stageBrief(t.agentId); } catch (_) { return null; } };
     /* PARALLEL BRANCHES (2026-10-10 — "split the workload"). Branches that are each ONE step handing straight to the SAME
        JOINER never depended on each other, yet ran one after another: three agents on a split took three agents' time. Now
        they run AT ONCE. Only that shape (checked on the non-advancing peek, for every task type a FILTER could route by) —
@@ -468,7 +470,9 @@ function makeChainRunner(o) {
         if (t.dockId) placed.dockId = t.dockId;
         if (from && from.dockId) placed.fromDock = from.dockId;
         say('workitem.placed', placed);
-        const turn = b.entry ? String(originalText || '') : hopTurn({ handoffText, stageBrief, loopGateAfter, lastStage, originalText, from: from.agentId, upstream: b.text, hop: hop0 + i, target: t.agentId, targetDock: t.dockId, lineId });
+        const turn = b.entry ? String(originalText || '')
+          : b.part ? Pipeline.partHandoff(originalText, b.part.text, b.part.i, b.part.k, hop0 + i, briefOf(t))
+          : hopTurn({ handoffText, stageBrief, loopGateAfter, lastStage, originalText, from: from.agentId, upstream: b.text, hop: hop0 + i, target: t.agentId, targetDock: t.dockId, lineId });
         // `parallel`: the host runs this hop OFF the line's shared conversation stream — a stream runs one turn at a time, so
         // three branches on it queued behind each other (live 2026-10-10), and a queued turn is rebuilt from the whole thread
         const call = { agentId: t.agentId, text: turn, hop: hop0 + i, from: from ? from.agentId : null, signal: s.signal, workitemId, ceilingUsd: share, parallel: true };
@@ -508,9 +512,9 @@ function makeChainRunner(o) {
       if (s.signal && s.signal.aborted) { out.stopped = 'stopped'; return out; }
       // the tag is derived from the OUTPUT of the stage that just ran — this is what makes a FILTER downstream
       // of a dock a real branch on the result rather than a re-read of the original message.
-      let target = null, step = null, loopHop = false, entryBranch = false;
+      let target = null, step = null, loopHop = false, entryBranch = false, hopPart = null;
       if (forced) {
-        target = forced.node; entryBranch = !!forced.entry; forced = null;
+        target = forced.node; entryBranch = !!forced.entry; hopPart = forced.part || null; forced = null;
       } else {
         const ctx = { tag: getTag(out.text), verdict: getVerdict(out.text), lineId: lineId, fromTile: fromTile, via: via };
         fromTile = null; via = null;
@@ -534,16 +538,16 @@ function makeChainRunner(o) {
              was told (router.stageBrief) to end on a numbered list of exactly n parts; Pipeline.divideJob reads it back (else
              a numbered list in the original request). Fewer parts run on fewer branches — never an invented part. No list
              at all = every branch works the whole job, and each is told why. */
-          let texts = null;
+          let texts = null, partsInfo = null;
           if (step.divide && br.length > 1) {
             const parts = Pipeline.divideJob(out.text, br.length) || Pipeline.divideJob(originalText, br.length);
-            if (parts) { br.length = parts.length; texts = parts.map((p, i) => Pipeline.partTurn(out.text, p, i, parts.length)); out.divided = parts.length; }
+            if (parts) { br.length = parts.length; texts = parts.map((p, i) => Pipeline.partTurn(out.text, p, i, parts.length)); partsInfo = parts.map((p, i) => ({ text: p, i, k: parts.length })); out.divided = parts.length; }
             else { const note = '(This job was meant to be split between ' + br.length + ' agents, but the step before the splitter gave no numbered parts — so every branch has the whole job.)\n\n'; texts = br.map(() => note + out.text); out.divided = 0; }
           }
           if (br.length) fan = { width: br.length, failed: [], joinKey: null, joinStep: null };
           const allAt = joinOfAll(br.map(n => ({ node: n })));
           if (allAt) {
-            const items = br.map((n, i) => ({ node: n, text: texts ? texts[i] : out.text, from: cur }));
+            const items = br.map((n, i) => ({ node: n, text: texts ? texts[i] : out.text, from: cur, part: partsInfo ? partsInfo[i] : null }));
             const leadText = out.text, bk = allAt.join + '|' + runId;
             fan.joinKey = bk; fan.joinStep = allAt;
             const b = await runBatch(items, hop);
@@ -561,7 +565,8 @@ function makeChainRunner(o) {
           }
           if (texts) out.text = texts[0];
           target = br.shift() || null;
-          br.forEach((n, i) => pending.push({ node: n, text: texts ? texts[i + 1] : out.text, from: cur }));
+          hopPart = partsInfo ? partsInfo[0] : null;
+          br.forEach((n, i) => pending.push({ node: n, text: texts ? texts[i + 1] : out.text, from: cur, part: partsInfo ? partsInfo[i + 1] : null }));
         } else if (step && step.join) {
           // THE BARRIER. Park this branch's output; release only when every in-lane has delivered for this run.
           const bk = step.join + '|' + runId;
@@ -643,7 +648,9 @@ function makeChainRunner(o) {
       // the RECEIVING dock's standing brief + (a verdict-keyed LOOP gate ahead) the VERDICT-line instruction
       // ride the handoff turn — hopTurn, shared with the step-through test. An ENTRY branch is stage one of
       // its own lane: it gets the original message, not a handoff turn.
-      const turn = entryBranch ? String(originalText || '') : hopTurn({ handoffText, stageBrief, loopGateAfter, lastStage, originalText, from: cur.agentId, upstream: out.text, hop, target: target.agentId, targetDock: target.dockId, lineId });
+      const turn = entryBranch ? String(originalText || '')
+        : hopPart ? Pipeline.partHandoff(originalText, hopPart.text, hopPart.i, hopPart.k, hop, briefOf(target))
+        : hopTurn({ handoffText, stageBrief, loopGateAfter, lastStage, originalText, from: cur.agentId, upstream: out.text, hop, target: target.agentId, targetDock: target.dockId, lineId });
       const call = { agentId: target.agentId, text: turn, hop, from: entryBranch ? null : cur.agentId, signal: s.signal, workitemId };
       // what is LEFT of the line's $ ceiling rides the hop as a lower-only cap: the pre-hop check alone let one own-key stage
       // spend far past the line's limit ("within one hop's spend" — QA 2026-10-02)

@@ -91,7 +91,7 @@ const routerFor = s => { const r = makeRouter(), plan = P.compileRoutingPlan(s.p
     planner: { text: 'Here is how to split it:\n1. Research pricing\n2. Research reviews\n3. Research competitors', usd: 0.01 },
     analyst: { text: 'combined answer', usd: 0.01 },
   };
-  const runAgent = async ({ agentId, text }) => { log.push({ agentId, text }); return script[agentId] || { text: agentId + ' did ' + ((/YOUR PART:\n([^\n]*)/.exec(text) || [])[1] || '?'), usd: 0.01 }; };
+  const runAgent = async ({ agentId, text }) => { log.push({ agentId, text }); return script[agentId] || { text: agentId + ' did ' + ((/YOUR PART \(\d of \d\):\n([^\n]*)/.exec(text) || [])[1] || '?'), usd: 0.01 }; };
   const c = makeChainRunner({
     nextAgent: (a, ctx) => router.chainNext(a, ctx), stepAgent: (a, ctx) => router.chainStep(a, ctx),
     stepDock: (d, ctx) => router.chainStepDock(d, ctx), entryDockOf: a => router.entryDockOf(a),
@@ -105,9 +105,11 @@ const routerFor = s => { const r = makeRouter(), plan = P.compileRoutingPlan(s.p
   A.eq(res.divided, 3, 'the job was divided into 3 parts');
   const branchTurns = log.filter(l => /^r\d$/.test(l.agentId));
   A.eq(branchTurns.length, 3, 'three branches ran');
-  const parts = branchTurns.map(l => (/YOUR PART:\n([^\n]*)/.exec(l.text) || [])[1]).sort();
+  const parts = branchTurns.map(l => (/YOUR PART \(\d of \d\):\n([^\n]*)/.exec(l.text) || [])[1]).sort();
   A.eq(parts, ['1. Research pricing', '2. Research reviews', '3. Research competitors'].sort(), 'each branch got a DIFFERENT part — together, all of them');
-  A.ok(branchTurns.every(l => /You have PART \d of 3 — do ONLY this part/.test(l.text)), 'each is told to do only its part');
+  A.ok(branchTurns.every(l => /YOUR PART \(\d of 3\)/.test(l.text) && /Do ONLY your part/.test(l.text)), 'each is told to do only its part');
+  A.ok(branchTurns.every(l => !/You are the LAST stage/.test(l.text)), 'and none is told it is the last stage (live 2026-10-10: that made each do the whole job)');
+  A.ok(branchTurns.every(l => l.text.indexOf('YOUR PART') < l.text.indexOf('the whole request was')), 'its part comes first, the whole request only after, as context');
   const an = log.find(l => l.agentId === 'analyst');
   A.ok(an && /JOINED OUTPUT — 3 of 3 branches delivered/.test(an.text), 'the JOINER combined all three parts for the ANALYST');
   A.eq(res.text, 'combined answer', 'the analyst answer is the result');
@@ -147,7 +149,7 @@ const routerFor = s => { const r = makeRouter(), plan = P.compileRoutingPlan(s.p
       plog.push({ agentId, text });
       if (agentId === 'analyst') return { text: 'combined', usd: 0.01 };
       if (/^r\d$/.test(agentId)) { inflight++; peak = Math.max(peak, inflight); await new Promise(r => setTimeout(r, 5)); inflight--; }
-      return { text: agentId + ' did ' + ((/YOUR PART:\n([^\n]*)/.exec(text) || [])[1] || 'the job'), usd: 0.01 };
+      return { text: agentId + ' did ' + ((/YOUR PART \(\d of \d\):\n([^\n]*)/.exec(text) || [])[1] || 'the job'), usd: 0.01 };
     };
     const mk = () => makeChainRunner({
       nextAgent: (a, ctx) => router.chainNext(a, ctx), stepAgent: (a, ctx) => router.chainStep(a, ctx),
@@ -160,7 +162,7 @@ const routerFor = s => { const r = makeRouter(), plan = P.compileRoutingPlan(s.p
     const rp = await pc.advance({ agentId: 'planner', dockId: planner.id, text: '1. a\n2. b\n3. c', originalText: 'do X', lineId, runId: 'p1' });
     A.eq(rp.stopped, null, 'the parallel divided line runs to its end (' + rp.stopped + ')');
     A.eq(peak, 3, 'all three branches were in flight at once');
-    A.eq(plog.filter(l => /^r\d$/.test(l.agentId)).map(l => (/YOUR PART:\n([^\n]*)/.exec(l.text) || [])[1]).sort(), ['1. a', '2. b', '3. c'], 'each with its own part');
+    A.eq(plog.filter(l => /^r\d$/.test(l.agentId)).map(l => (/YOUR PART \(\d of \d\):\n([^\n]*)/.exec(l.text) || [])[1]).sort(), ['1. a', '2. b', '3. c'], 'each with its own part');
     const an = plog.find(l => l.agentId === 'analyst');
     A.ok(an && /JOINED OUTPUT — 3 of 3/.test(an.text), 'the joiner combined all three');
     A.eq(rp.hops.filter(h => /^r\d$/.test(h.agentId)).length, 3, 'three branch hops are recorded');

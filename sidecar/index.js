@@ -6369,7 +6369,7 @@ const cronDriver = makeCronDriver({
           system: cronSystemFor(h.agentId),
           messages: [{ role: 'user', content: h.text }], agentId: h.agentId, lineId: o.runsLine === true ? router.lineOfAgent(o.agentId, o.dockId ? router.dockOf(o.agentId, o.dockId) : undefined) : null, isTask: true,
           ceilingUsd: h.ceilingUsd,   // what is left of the line's $ ceiling (lower-only)
-          emit: sink, signal: h.signal, runId: hopRunId, streamId: h.parallel ? undefined : o.streamId,   // a PARALLEL branch hop never waits in the stream queue (chain.js runBatch)
+          emit: sink, signal: h.signal, runId: hopRunId, streamId: o.streamId, parallelBranch: !!h.parallel,   // a PARALLEL branch hop keeps its stream but never waits in its queue (chain.js runBatch)
           surface: 'autonomous', trigger: 'schedule', reflect: true,
           station: router.stationFor(h.agentId, h.dockId) || undefined,   // the hop's OWN bay room (multi-bay)
           lineId: h.lineId || undefined, dockId: h.dockId || undefined, workitemId: h.workitemId || undefined,   // LINE WATCH: the hop's line + bay on its run row (+ its crate on run.start)
@@ -15459,7 +15459,7 @@ async function handleCronRun(req, res) {
                 system: cronSystemFor(h.agentId),
                 messages: [{ role: 'user', content: h.text }], agentId: h.agentId, lineId: job.runsLine === true ? router.lineOfAgent(job.agentId, job.dockId ? router.dockOf(job.agentId, job.dockId) : undefined) : null, isTask: true,
                 ceilingUsd: h.ceilingUsd,   // what is left of the line's $ ceiling (lower-only)
-                emit: hopSink, signal: h.signal, runId: hopRunId, streamId: h.parallel ? undefined : 'cron-' + runId,   // a PARALLEL branch hop never waits in the stream queue (chain.js runBatch)
+                emit: hopSink, signal: h.signal, runId: hopRunId, streamId: 'cron-' + runId, parallelBranch: !!h.parallel,   // a PARALLEL branch hop keeps its stream but never waits in its queue (chain.js runBatch)
                 surface: 'autonomous', trigger: 'schedule', broadcast: true, reflect: true,
                 station: router.stationFor(h.agentId, h.dockId) || undefined,   // the hop's OWN bay room (multi-bay)
                 lineId: h.lineId || undefined, dockId: h.dockId || undefined, workitemId: h.workitemId || undefined,   // LINE WATCH: the hop's line + bay on its run row (+ its crate on run.start)
@@ -18502,7 +18502,10 @@ function cascadeCancelToWorkers(signal, runId) {
    reply-assembler for the hub), the run lifecycle/cleanup, AND the consent SURFACE — 'interactive' + a live
    `prompt` for the watched browser; 'autonomous' (default-deny on ungranted mutation) for a headless chat. */
 async function runOnce(o) {
-  if (o && o.streamId && !o.internal && !o.outputOnly) {
+  /* `parallelBranch` (2026-10-10): a line's PARALLEL branch hop (chain.js runBatch) keeps its stream — its run row, spend and
+     transcript still belong to the line's conversation — but skips the stream's one-turn-at-a-time queue: three branches on
+     it ran one after another, and a queued turn is rebuilt from the whole thread (each branch then saw the whole job). */
+  if (o && o.streamId && !o.internal && !o.outputOnly && !o.parallelBranch) {
     return overseer.withThread(o.streamId, ({ queued }) => {
       if (o.signal && o.signal.aborted) return undefined;
       // Refresh ordinary queued chat after the preceding turn has persisted.

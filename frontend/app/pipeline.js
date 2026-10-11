@@ -1960,6 +1960,20 @@
       + 'YOUR PART:\n' + String(part || '').trim() + '\n\n'
       + 'THE WHOLE PLAN (context only — do not do the other parts):\n' + String(plan || '').trim().slice(0, 3000);
   }
+  /* partHandoff — the WHOLE turn a divided branch is handed (live 2026-10-10: wrapped in the ordinary hand-off, a branch read
+     "The original request was: <the whole job>" first and — its lane shipping to the OUTBOX — "you are the LAST stage: give
+     them exactly what the original request asks for", and did the whole job three times over). It leads with the part, never
+     says last stage (the JOINER after it combines), and keeps the whole request only as context at the end. */
+  function partHandoff(originalText, part, i, k, hop, stageBrief) {
+    const brief = (typeof stageBrief === 'string' && stageBrief.trim()) ? stageBrief.trim().slice(0, 2000) : '';
+    return 'PIPELINE HANDOFF — you are stage ' + (hop + 1) + ' of a work line on this station.\n\n'
+      + 'The job was split into ' + k + ' parts, and other agents are doing the other parts. YOUR PART (' + (i + 1) + ' of ' + k + '):\n'
+      + String(part || '').trim() + '\n\n'
+      + (brief ? 'YOUR STANDING BRIEF FOR THIS STATION:\n' + brief + '\n\n' : '')
+      + 'Do ONLY your part — not the other parts, and not the whole job. A JOINER puts every part together after you. '
+      + 'Answer with the work for your part itself.\n\n'
+      + 'For context only, the whole request was:\n' + String(originalText || '(none recorded)');
+  }
   /* the instruction the step BEFORE a dividing splitter carries on every run there (router.stageBrief appends it) */
   function divideBrief(n) {
     const lines = []; for (let i = 1; i <= n; i++) lines.push('PART ' + i + ': <one task>');
@@ -2090,7 +2104,7 @@
     return rec && typeof rec === 'object' ? rec : null;
   }
 
-  return { rejoinOf, deriveLinks, reconcileLinks, compileRoutingPlan, composeStageBrief, HANDS_LEAD, resolveTarget, lineOf, lineOriginOf, lineLimitsOf, normalizeLineLimits, LINE_LIMIT_DEFAULTS, LINE_LIMIT_CEILINGS, sourceFor, ok, liveTiles, routeFrom, junctionLaneOwners, chainNext, chainStep, fanSiblings, handoffPrompt, parseHandoff, isHandoff, stripVerdictLine, joinPayload, divideJob, partTurn, divideBrief, divideAfterDock, splitFedByDock, lineComponents, LOOP_MAX_DEFAULT, LOOP_MAX_CEILING,
+  return { rejoinOf, deriveLinks, reconcileLinks, compileRoutingPlan, composeStageBrief, HANDS_LEAD, resolveTarget, lineOf, lineOriginOf, lineLimitsOf, normalizeLineLimits, LINE_LIMIT_DEFAULTS, LINE_LIMIT_CEILINGS, sourceFor, ok, liveTiles, routeFrom, junctionLaneOwners, chainNext, chainStep, fanSiblings, handoffPrompt, parseHandoff, isHandoff, stripVerdictLine, joinPayload, divideJob, partTurn, partHandoff, divideBrief, divideAfterDock, splitFedByDock, lineComponents, LOOP_MAX_DEFAULT, LOOP_MAX_CEILING,
     // THE DOCK LAYER (multi-bay agents, 2026-09-22) — the dock-keyed truth the agent readings above are views of
     resolveDock, chainNextDock, chainStepDock, fanSiblingsDock, junctionLaneDocks, lineOfDock, lineOriginOfDock, entryDockOf, docksOf, dockOf, agentOfDock: agentOfDockIn, deriveDockLayer, dockLayer, hasDockLayer, stepToAgents, propIdCmp,
     _internals: { DIRV, OPP, LANE_ORDER, key, buildBeltMap, outLanes, inLanes, loopLanes, beltTileNear, ringBelts, junctionAnchor, dirBetween, linkTilesByProp, linkedBeltMap, nextTiles, splitLanes, detectCycle, hashStr, compileChains, compileDockChains, chainCycle, shipFrom, propIdCmp, entryDocksOf, agentChainsView } };
