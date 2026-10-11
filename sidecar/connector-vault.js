@@ -119,6 +119,27 @@ function makeConnectorVault({ fs, path, keyHex = '', required = false, writeDura
     }
     return true;
   }
+  // Readback alone can come from the page cache. These barriers protect the only remaining credential
+  // bytes before originals are unlinked, and restored bytes before the recovery marker is cleared.
+  function flushRecoveryFile(file) {
+    const fd = fs.openSync(file, 'r+'); // Windows FlushFileBuffers needs a writable handle.
+    try { fs.fsyncSync(fd); }
+    finally { fs.closeSync(fd); }
+  }
+  function flushRecoveryDirectory(dir) {
+    let fd = null;
+    try {
+      fd = fs.openSync(dir, 'r');
+      fs.fsyncSync(fd);
+    } catch (e) {
+      // Like durable-write, tolerate unsupported directory flushing. Do not hide real I/O failures:
+      // EIO/ENOSPC and POSIX access failures must leave the originals or recovery marker in place.
+      const unsupported = e && (['EINVAL', 'ENOTSUP', 'EOPNOTSUPP'].includes(e.code)
+        || process.platform === 'win32' && (fd == null
+          ? ['EISDIR', 'EACCES', 'EPERM'].includes(e.code) : ['EBADF', 'EPERM'].includes(e.code)));
+      if (!unsupported) throw e;
+    } finally { if (fd != null) fs.closeSync(fd); }
+  }
   // START FRESH: the user's explicit exit from a store that cannot be opened. Every copy (main, backup,
   // legacy) is MOVED into a dated unreadable-* folder beside it, never deleted, and only once all of them
   // are aside is a new empty store written (sealed when a key exists). A failed move leaves the vault locked.
@@ -144,6 +165,11 @@ function makeConnectorVault({ fs, path, keyHex = '', required = false, writeDura
         const dest = path.join(dir, path.basename(src));
         fs.copyFileSync(src, dest, fs.constants.COPYFILE_EXCL);
         if (!fs.readFileSync(dest).equals(fs.readFileSync(src))) throw new Error('Recovery copy could not be verified: ' + path.basename(src));
+        flushRecoveryFile(dest);
+      }
+      if (sources.length) {
+        flushRecoveryDirectory(dir);
+        flushRecoveryDirectory(path.dirname(dir));
       }
       for (const src of sources) {
         fs.unlinkSync(src);
@@ -163,13 +189,19 @@ function makeConnectorVault({ fs, path, keyHex = '', required = false, writeDura
         if (sources.includes(target)) continue;
         try { fs.unlinkSync(target); } catch (e) { if (e.code !== 'ENOENT') restored = false; }
       }
+      const restoredDirs = new Set();
       for (const name of moved.slice().reverse()) {
         const src = sources.find(candidate => path.basename(candidate) === name);
         try {
           const saved = path.join(dir, name);
           fs.copyFileSync(saved, src);
           if (!fs.readFileSync(src).equals(fs.readFileSync(saved))) restored = false;
+          flushRecoveryFile(src);
+          restoredDirs.add(path.dirname(src));
         } catch (_) { restored = false; }
+      }
+      for (const dir of restoredDirs) {
+        try { flushRecoveryDirectory(dir); } catch (_) { restored = false; }
       }
       if (restored) try { fs.unlinkSync(marker); } catch (e) { if (e.code !== 'ENOENT') restored = false; }
       const detail = restored ? 'The original files were restored and storage remains locked.'
