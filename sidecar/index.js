@@ -175,6 +175,7 @@ const { effectiveModel: resolveEffectiveModel, effectiveUsd, effectiveRunUsd } =
 const { makeEmitter } = require('../shared/emitter.js');
 const { redact, setKnownSecretSource, renderRecall, injectRecall, rank, makeContext, compactionMemoryBlock, compactionSummaryPrompt, RUN_CONTEXT_DEFAULTS, foldFreedEnough } = require('./context.js');
 const { makeSummarizer } = require('./compaction-summarizer.js');   // chunked context-compaction fold (Lane A)
+const EarlierConversation = require('./earlier-conversation.js');     // the turns COMMS's history window dropped, carried verbatim
 const { setStationSecretSource } = require('./child-env.js');   // station-secret-free env for every helper process
 const { collectSecretValues } = require('./secret-values.js');   // feeds redact()'s known-value layer (see setKnownSecretSource)
 const { makeConnectorOauthFetch } = require('./mcp/oauth-fetch.js');   // DNS-pinned fetch for every connector-OAuth leg
@@ -21237,6 +21238,36 @@ async function runOnceCore(o) {
     if (replayed) execution.latchTaint(replayed);
   } catch (e) { failNote('taint.replay', e); execution.latchTaint('replayed context (taint check failed)'); }   // unprovable = tainted (fail closed)
   taintAtStart = execution.taintedBy();
+  /* THE TURNS THE WINDOW DROPPED STILL COUNT (consistency audit 2026-10-11, earlier-conversation.js). COMMS sends only
+     the newest slice of a long chat, and the compaction below folds only what it is sent — so whatever fell off the
+     front (an instruction from turn 3, the design the Commander approved) was gone without a trace. The durable
+     transcript still holds it: carry it as ONE <conversation_summary> note right after the system prompt — the
+     Commander's words verbatim, the replies as heads — which loop.js's compaction then merges onto like its own
+     earlier fold. A window the transcript cannot place injects nothing (the old behavior). */
+  if (!internal && !o.recovery && !o.groupTools && streamId && Array.isArray(convo) && convo.length) {
+    try {
+      let at = convo.length - 1;
+      while (at >= 0 && !(convo[at] && convo[at].role === 'user')) at--;
+      const window = at > 0 ? convo.slice(0, at) : [];
+      if (window.length) {
+        const rows = transcriptStore.history(streamId, { limit: 3000 });
+        const cut = EarlierConversation.windowCut(rows, window, redact);
+        if (cut > 0) {
+          const dropped = rows.slice(0, cut);
+          const wired = (d) => d && d.function && d.function.name === 'recall_conversation';
+          const searchTool = (toolDefs.some(wired) || (deferredToolDefs || []).some(wired)) ? 'recall_conversation' : '';
+          const earlier = EarlierConversation.render(dropped, { windowTokens: ctxMgr.contextLimit, searchTool });
+          if (earlier) {
+            let lead = 0;
+            while (lead < msgs.length && msgs[lead] && msgs[lead].role === 'system') lead++;
+            msgs.splice(lead, 0, { role: 'system', content: earlier.note });
+            const carried = EarlierConversation.taintOf(dropped);
+            if (carried && !execution.taintedBy()) { latchRunTaint('earlier conversation carried content from ' + String(carried).slice(0, 120)); taintAtStart = execution.taintedBy(); }
+          }
+        }
+      }
+    } catch (e) { failNote('run.earlierConversation', e); }
+  }
   // Cortex (M-mem.3): surface the agent's OWN memory in-prompt — RANK it by relevance to this message
   // (BM25 + recency/trust/pin), inject the top few as a recalled-memory fence before the triggering user
   // message, and emit memory.used per surfaced record (-> useCount/trust + the XP reuse path). The recency

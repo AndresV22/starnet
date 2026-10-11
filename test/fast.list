@@ -1062,6 +1062,7 @@ test/preflight.first-call-fold.test.js
 test/threshold.anchored.test.js
 test/tail.token-budget.test.js
 test/fold.user-verbatim.test.js
+test/earlier-conversation.test.js
 test/compaction.images.test.js
 test/skills.on-demand.test.js
 test/manual.on-demand.test.js

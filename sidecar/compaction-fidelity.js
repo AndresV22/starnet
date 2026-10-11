@@ -105,8 +105,38 @@ function capItem(it, max) {
    behind 2,200-char notes). Now every carried message gets an equal share of the budget — a short one is kept
    whole, a long one is cut to its share and says so — and only when even SHARE_FLOOR chars each would not fit are
    the OLDEST messages dropped (counted in the omitted line). An identical text repeated ("continue") is carried
-   once, at its newest position. */
+   once, at its newest position.
+
+   INSTRUCTIONS FIRST, ACKNOWLEDGEMENTS LAST (consistency audit 2026-10-11). Fair share still cut a 1,500-char
+   spec to ~480 chars once fifty folded messages shared the budget, and a long chat dropped its OLDEST messages
+   first — which is exactly where the Commander's standing instructions live ("always…", "never…", "from now
+   on…"). Each carried message now has a priority (messagePriority): an instruction-shaped message is dropped
+   only after every ordinary one, a bare acknowledgement ("ok", "thanks", "continue") goes first, and the
+   instructions are water-filled first with up to RULE_SHARE of the budget before ordinary messages share the
+   rest. With no instruction-shaped message the allocation is exactly the fair share above. */
 const SHARE_FLOOR = 240;
+const RULE_SHARE = 0.6;
+const RULE_RE = /\b(?:always|never|don['’]?t|do not|doesn['’]?t|must(?:n['’]?t)?|make sure|ensure|from now on|going forward|in (?:the )?future|next time|every time|remember|keep (?:it|them|this|that|the|using|to)|stop (?:doing|using|adding|making|saying)|no more|only (?:use|ever)|use only|instead of|rather than|prefer(?:s|red)?|i (?:want|need|like|hate|dislike|don['’]?t like)|avoid|(?:the )?rule|requirement|style|approved)\b/i;
+const ACK_RE = /^(?:ok(?:ay)?|k|thanks?(?: you)?|thx|ty|cool|nice|great|good|perfect|awesome|yes|yep|yeah|yup|no|nope|sure|continue|go(?: on| ahead)?|do it|proceed|next|lol|haha|done|got it|sounds good|looks good|lgtm)[\s.!?,]*$/i;
+// 2 = an instruction the Commander gave, 0 = a bare acknowledgement, 1 = everything else
+function messagePriority(text) {
+  const t = String(text == null ? '' : text).trim();
+  if (!t) return 0;
+  if (RULE_RE.test(t)) return 2;
+  if (ACK_RE.test(t)) return 0;
+  return 1;
+}
+// water-fill `budget` across `idx` (indexes into items): smallest first, each takes min(its cap, an equal share)
+function waterFill(items, idx, budget, cap, alloc) {
+  const order = idx.slice().sort((a, b) => cap(items[a]) - cap(items[b]));
+  let remaining = Math.max(0, budget);
+  for (let k = 0; k < order.length; k++) {
+    const i = order[k];
+    alloc[i] = Math.max(1, Math.min(cap(items[i]), Math.floor(remaining / (order.length - k))));
+    remaining -= alloc[i];
+  }
+  return remaining;
+}
 function mergeUserMessages(prev, fresh, budgetChars) {
   const p = prev || {};
   const all = (Array.isArray(p.items) ? p.items : []).concat(Array.isArray(fresh) ? fresh : []);
@@ -122,22 +152,35 @@ function mergeUserMessages(prev, fresh, budgetChars) {
   }
   const budget = Math.max(1, Math.floor(Number(budgetChars) || 0) || userBudgetChars(0));
   const cap = (it) => Math.min(it.text.length, PER_MESSAGE_MAX_CHARS);
-  // how many (newest) messages can each keep at least min(own length, SHARE_FLOOR)?
-  let n = uniq.length, need = 0;
+  const prio = uniq.map(it => messagePriority(it.text));
+  // which messages can each keep at least min(own length, SHARE_FLOOR)? Drop the lowest priority first, oldest first
+  // within a priority (uniq is newest first, so the oldest is the highest index), and always keep at least one.
+  const dropped = new Set();
+  let need = 0;
   for (let k = 0; k < uniq.length; k++) need += Math.min(cap(uniq[k]), SHARE_FLOOR);
-  while (n > 1 && need > budget) { n--; need -= Math.min(cap(uniq[n]), SHARE_FLOOR); }
-  // water-fill the budget across those n: smallest first, each takes min(its length, an equal share of what is left)
-  const keep = uniq.slice(0, n);
-  const order = keep.map((_, i) => i).sort((a, b) => cap(keep[a]) - cap(keep[b]));
+  for (let level = 0; level <= 2 && need > budget; level++) {
+    for (let k = uniq.length - 1; k >= 0 && need > budget; k--) {
+      if (prio[k] !== level || dropped.has(k) || dropped.size >= uniq.length - 1) continue;
+      dropped.add(k); need -= Math.min(cap(uniq[k]), SHARE_FLOOR);
+    }
+  }
+  const keepIdx = [];
+  for (let k = 0; k < uniq.length; k++) if (!dropped.has(k)) keepIdx.push(k);
+  const keep = keepIdx.map(k => uniq[k]);
+  const keepPrio = keepIdx.map(k => prio[k]);
   const alloc = new Array(keep.length);
-  let remaining = budget;
-  for (let k = 0; k < order.length; k++) {
-    const i = order[k];
-    alloc[i] = Math.max(1, Math.min(cap(keep[i]), Math.floor(remaining / (order.length - k))));
-    remaining -= alloc[i];
+  const rules = [], rest = [];
+  for (let i = 0; i < keep.length; i++) (keepPrio[i] === 2 ? rules : rest).push(i);
+  if (rules.length && rest.length) {
+    // instructions first: up to RULE_SHARE of the budget (never less than the floor each of them is owed)
+    const ruleBudget = Math.max(Math.min(budget, rules.length * SHARE_FLOOR), Math.floor(budget * RULE_SHARE));
+    const left = waterFill(keep, rules, ruleBudget, cap, alloc);
+    waterFill(keep, rest, budget - ruleBudget + left, cap, alloc);
+  } else {
+    waterFill(keep, keep.map((_, i) => i), budget, cap, alloc);
   }
   const kept = keep.map((it, i) => capItem(it, alloc[i]));
-  return { items: kept.reverse(), omitted: (Math.max(0, Math.floor(Number(p.omitted) || 0))) + (uniq.length - n) };
+  return { items: kept.reverse(), omitted: (Math.max(0, Math.floor(Number(p.omitted) || 0))) + dropped.size };
 }
 
 function renderUserSection(sec) {
@@ -268,7 +311,7 @@ function contentText(content, imageLabel) {
 }
 
 module.exports = {
-  userBudgetChars, collectUserMessages, mergeUserMessages, renderUserSection, splitSummary, joinSummary,
+  userBudgetChars, collectUserMessages, mergeUserMessages, messagePriority, renderUserSection, splitSummary, joinSummary,
   usageAnchor, reportedWindow, projectAfterFold, contentText, scrubBinary, isScreenCapture,
   VERBATIM_OPEN, VERBATIM_CLOSE, PER_MESSAGE_MAX_CHARS
 };
