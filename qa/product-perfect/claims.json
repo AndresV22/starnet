@@ -18,7 +18,7 @@
   "expectedClaimCount": 37,
   "releaseSurface": {
     "algorithm": "sha256",
-    "sourceCommit": "914792adef530e43c4fd2705e0ce555458d4fa18",
+    "sourceCommit": "ec555953833ae900f9984f52f59f4859339db79b",
     "pathSetSha256": "02b89ce2d893cfb89a028e02d127dfe9f73466048d2fc0c7572bba244cdfea2f",
     "files": [
       {
@@ -343,8 +343,8 @@
       },
       {
         "path": "frontend/app/chat.js",
-        "bytes": 723278,
-        "sha256": "75c375cf99bed5d6b44a313270d726f5a0b515d7a69f54e0120858a89c600d94"
+        "bytes": 730724,
+        "sha256": "9aa35794a72caafd64fad95a4da4c24145f25a71c2680bd474be921044123565"
       },
       {
         "path": "frontend/app/chatresize.js",
@@ -433,8 +433,8 @@
       },
       {
         "path": "frontend/app/deliverables.js",
-        "bytes": 36928,
-        "sha256": "636054782023ca8eac8626d1ca4161fe3052b25f95daf2f5c9396c9f532fe0fa"
+        "bytes": 42654,
+        "sha256": "04987a147ddcd73d8749d357bfb7d824200d8d4cc5efff87784600b2e2651a25"
       },
       {
         "path": "frontend/app/deskscreen.js",
@@ -553,8 +553,8 @@
       },
       {
         "path": "frontend/app/group-chat.js",
-        "bytes": 70725,
-        "sha256": "6504967e4fc2bdc8bcc4df98e266e8eb3fadf77f2ec54b14b76a98e9505a6f8b"
+        "bytes": 76966,
+        "sha256": "a9047d2bd8126d7d097b10a6399e99fd8919ba5ed917d68c9c78a35d70ee72ff"
       },
       {
         "path": "frontend/app/harness.js",
@@ -1053,8 +1053,8 @@
       },
       {
         "path": "frontend/app/returnstore.js",
-        "bytes": 14472,
-        "sha256": "df312f10a6eddb8cef7a9ba52c544b5af1b7996bb937a00f799a41a41d724449"
+        "bytes": 14922,
+        "sha256": "f2594eeee985784637d1d757494f8c793e8db7d088c515f0a92f0168e3e6d372"
       },
       {
         "path": "frontend/app/roomstyles.js",
@@ -1308,8 +1308,8 @@
       },
       {
         "path": "frontend/app/voice.js",
-        "bytes": 122530,
-        "sha256": "d5388d0412e06ef377fb3462fb62aab35a8096e07ad61c880083e93efca73b79"
+        "bytes": 122882,
+        "sha256": "6caa0481315bfa3fd484032860693204077dc6e14349f8970f338d6a87f99ffe"
       },
       {
         "path": "frontend/app/waitanchor.js",
@@ -1363,8 +1363,8 @@
       },
       {
         "path": "frontend/app/windows/outbox.js",
-        "bytes": 19714,
-        "sha256": "c7ee729d315cdd3f4c34516f0f6ae100803a4d846fbf4e8086079b083c0f4a33"
+        "bytes": 22621,
+        "sha256": "edf2b2103ffd120288e63a7f9033e7c446fc661ab33ca80bd7f2b086522235a0"
       },
       {
         "path": "frontend/app/windows/rewind.js",
@@ -1558,8 +1558,8 @@
       },
       {
         "path": "frontend/css/comms.css",
-        "bytes": 53642,
-        "sha256": "2d0d1a1db5987084a49c6c4e2ee17fa9590b0944dc71fa9f5eea195b6dc0c6ae"
+        "bytes": 55658,
+        "sha256": "6ab5352507fcbed1735aff004ebbf9eabd34da02f6557d887d8ebc619b767933"
       },
       {
         "path": "frontend/css/crew-glass.css",
@@ -1568,8 +1568,8 @@
       },
       {
         "path": "frontend/css/deliverables-glass.css",
-        "bytes": 9938,
-        "sha256": "e284b5b5d961faf2a659de9a06c6d23291a343aae339aadf23f6ce94b9279fd5"
+        "bytes": 12010,
+        "sha256": "ce627d662795dff9272b6e0b2b005ba1aaf207634546786eca437ca028d7b552"
       },
       {
         "path": "frontend/css/deskscreen.css",
