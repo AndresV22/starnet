@@ -97,33 +97,47 @@ function rig(floor, script, opts) {
     A.ok(/BRANCH 1 of 2 — B/.test(R.log[1].text) && /BRANCH 2 of 2 — A/.test(R.log[1].text), 'delivery order is the join order');
   }
 
-  /* ---- TIMEOUT: a joiner expecting THREE lanes on a two-lane split waits, then releases PARTIAL ---- */
+  /* ---- A LANE NOBODY RUNS IS NOT WAITED FOR (2026-10-10): a joiner with THREE in-lanes on a two-branch fan-out releases as
+     soon as both LAUNCHED branches deliver — it used to sit out its whole timeout for a lane no branch could ever fill ---- */
   {
     const floor = joinFloor({ timeoutMin: 3 });
     floor.belts.push(belt(9, 3, 'S'));   // a third in-lane from the north that nothing feeds
-    const R = rig(floor, { B: { text: 'beta' }, D: { text: 'synth from partial' } });
-    A.eq(R.plan.junctions['9,4'].expect, 3, 'the joiner now expects three lanes');
-    const p = R.c.advance({ agentId: 'A', text: 'alpha', originalText: 'go', lineId: R.lineId, runId: 'run3' });
-    await new Promise(r => setImmediate(r)); await new Promise(r => setImmediate(r));
-    A.eq(R.timers.length, 1, 'with no branch left to run the barrier arms ONE timeout');
-    A.eq(R.timers[0].ms, 3 * 60 * 1000, 'the timeout is the joiner\'s configured timeoutMin');
-    A.eq(R.log.map(l => l.agentId).join(','), 'B', 'nothing past the joiner ran while it waits');
+    const R = rig(floor, { B: { text: 'beta' }, D: { text: 'synth' } });
+    A.eq(R.plan.junctions['9,4'].expect, 3, 'the joiner has three lanes');
+    const res = await R.c.advance({ agentId: 'A', text: 'alpha', originalText: 'go', lineId: R.lineId, runId: 'run3' });
+    A.eq(R.timers.length, 0, 'no timeout armed: both launched branches delivered');
+    A.eq(res.stopped, null, 'the line runs on');
+    A.eq(res.text, 'synth', 'D ran on both branches');
+    A.ok(/JOINED OUTPUT — 2 of 2 branches delivered/.test(R.log[1].text), 'the merged crate counts the branches that ran');
+    A.eq(R.c._barrier.size(), 0, 'the barrier is cleared');
+  }
+
+  /* ---- TIMEOUT: a barrier still short when nothing in this run can fill it waits out timeoutMin, then releases PARTIAL ---- */
+  {
+    const R = rig(joinFloor({ timeoutMin: 3 }), {});
+    const r1 = R.c._barrier.deliver('9,4|run3b', 3, 'A', 'alpha', 3);
+    A.ok(!r1.released, 'one of three parts: held');
+    const p = R.c._barrier.wait('9,4|run3b', 3);
+    A.eq(R.timers.length, 1, 'the barrier arms ONE timeout');
+    A.eq(R.timers[0].ms, 3 * 60 * 1000, "the timeout is the joiner configured timeoutMin");
     R.timers[0].fn();   // the clock runs out
-    const res = await p;
-    A.eq(res.stopped, null, 'a timed-out join still runs the line on (' + res.stopped + ')');
-    A.eq(res.text, 'synth from partial', 'D ran on the partial set');
-    A.ok(/JOINED OUTPUT — 2 of 3 branches delivered/.test(R.log[1].text), 'the merged crate says 2 of 3');
-    A.ok(/PARTIAL: 1 branch never delivered before the joiner timed out \(lane 3\)/.test(R.log[1].text), 'and is MARKED partial, naming the missing lane');
+    const w = await p;
+    A.ok(w && w.timedOut && w.parts.length === 1, 'it releases what came in');
+    A.eq(w.missing, ['lane 2', 'lane 3'], 'naming the lanes that never delivered');
+    A.ok(/PARTIAL: 2 branches never delivered before the joiner timed out [(]lane 2, lane 3[)]/.test(P.joinPayload(w.parts, w.missing)), 'and the merged crate is MARKED partial');
     A.eq(R.c._barrier.size(), 0, 'the barrier is cleared after the timeout');
   }
 
-  /* ---- a FAILED branch does not deadlock the barrier: the chain stops with the honest note ---- */
+  /* ---- A FAILED BRANCH NO LONGER ENDS THE JOB (2026-10-10): the joiner sends on what arrived, the failed branch named ---- */
   {
-    const R = rig(joinFloor(), { B: { error: 'provider exploded' }, D: { text: 'never' } });
+    const R = rig(joinFloor(), { B: { error: 'provider exploded' }, D: { text: 'synth from A alone' } });
     const res = await R.c.advance({ agentId: 'A', text: 'alpha', originalText: 'go', lineId: R.lineId, runId: 'run4' });
-    A.ok(/B failed: provider exploded/.test(res.stopped), 'a failed branch stops the line with its reason');
-    A.eq(res.text, 'alpha', 'the last good output is delivered');
-    A.ok(R.log.every(l => l.agentId !== 'D'), 'D never ran');
+    A.eq(res.stopped, null, 'the line runs on past a failed branch (' + res.stopped + ')');
+    A.eq(res.text, 'synth from A alone', 'D ran on what arrived');
+    const dTurn = R.log.find(l => l.agentId === 'D');
+    A.ok(dTurn && /JOINED OUTPUT — 1 of 2 branches delivered/.test(dTurn.text), 'the merged crate says 1 of 2');
+    A.ok(dTurn && /PARTIAL: 1 branch failed and sent nothing [(]B failed[)]/.test(dTurn.text), 'and names the failed branch');
+    A.eq(R.c._barrier.size(), 0, 'nothing is stranded at the barrier');
   }
 
   /* ---- a direct order (no lineId) advances nothing — the line gate is unchanged by joiners ---- */
@@ -138,10 +152,10 @@ function rig(floor, script, opts) {
   {
     let disk = null;
     const store = { load: () => disk, save: v => { disk = JSON.parse(JSON.stringify(v)); } };
-    const floor = joinFloor(); floor.belts.push(belt(9, 3, 'S'));
-    const R = rig(floor, { B: { text: 'beta' }, D: { text: 'synth' } }, { barrierStore: store });
-    const p = R.c.advance({ agentId: 'A', text: 'alpha', originalText: 'go', lineId: R.lineId, runId: 'run5' });
-    await new Promise(r => setImmediate(r)); await new Promise(r => setImmediate(r));
+    const R = rig(joinFloor(), {}, { barrierStore: store });
+    // a barrier parked mid-run: two of three branches in (a third lane's branch still to come when the process died)
+    R.c._barrier.deliver('9,4|run5', 3, 'A', 'alpha', 10); R.c._barrier.deliver('9,4|run5', 3, 'B', 'beta', 10);
+    const p = R.c._barrier.wait('9,4|run5', 10);
     const keys = Object.keys(disk || {});
     A.eq(keys.length, 1, 'a parked barrier is written to the store');
     A.eq(keys[0], '9,4|run5', 'keyed by joiner tile + run');

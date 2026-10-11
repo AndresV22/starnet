@@ -262,6 +262,9 @@
 .wf-modepick.off { opacity: .5; border-style: dashed; cursor: not-allowed; }
 .wf-modepick.off:hover { border-color: var(--wf-edge); color: var(--ph); background: var(--refit-glass, var(--wf-plate)); }
 .wf-modepicks-3 { grid-template-columns: repeat(3, minmax(0,1fr)); }   /* the TEST view: WATCH IT · STEP THROUGH · RUN ONE REAL JOB */
+.wf-why { margin: 0 0 10px; padding: 0 0 0 18px; font-size: 16px; line-height: 1.4; color: var(--ph-dim); }   /* why a splitter choice is not available yet — said in the panel, not only on hover (2026-10-10) */
+.wf-why li { margin: 0 0 3px; }
+.wf-why b { font-weight: normal; color: var(--ph); }
 .wf-contract { display: grid; border: 1px solid var(--wf-edge); border-radius: 10px; overflow: hidden; background: var(--wf-well); box-shadow: var(--wf-well-shadow);
   transition: border-color var(--t-fast) var(--ease-soft); }
 .wf-contract:focus-within { border-color: rgba(var(--ph-rgb),.55); }
