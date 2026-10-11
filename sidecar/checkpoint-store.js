@@ -55,6 +55,21 @@
     const maxRepoBytes = d.maxRepoBytes != null ? d.maxRepoBytes : MAX_REPO_BYTES_DEFAULT;
     if (!fs || !pathMod || !root || typeof runGit !== 'function') throw new Error('checkpoint-store: fs/pathMod/root/runGit are required');
 
+    // All roots for one agent share index.json. Serialize whole operations, not individual Git calls,
+    // so a restore, rebuild or size sweep cannot race a snapshot (or lose another root's index row).
+    const pending = new Map();
+    function serialized(fn) {
+      return function (aid, ...args) {
+        const key = String(aid || '');
+        const previous = pending.get(key) || Promise.resolve();
+        const result = previous.catch(function () {}).then(function () { return fn(aid, ...args); });
+        const tail = result.catch(function () {});
+        pending.set(key, tail);
+        tail.then(function () { if (pending.get(key) === tail) pending.delete(key); });
+        return result;
+      };
+    }
+
     const defaultWorkTreeFor = (aid) => pathMod.join(root, aid);
     const scopeBaseFor = (aid, scopeId) => scopeId
       ? pathMod.join(root, '.checkpoints', aid, 'roots', scopeId)
@@ -114,6 +129,7 @@
     function base(aid, scope) {
       return ['--git-dir', gitDirFor(aid, scope), '--work-tree', workTreeFor(aid, scope),
         '-c', 'core.autocrlf=false', '-c', 'core.safecrlf=false',
+        '-c', 'gc.auto=0', '-c', 'maintenance.auto=false', '-c', 'gc.autoDetach=false',
         '-c', 'user.email=starnet@local', '-c', 'user.name=starnet'];
     }
     const git = (aid, scope, args) => runGit(base(aid, scope).concat(args), { cwd: workTreeFor(aid, scope) });
@@ -282,24 +298,29 @@
           sacrifices the older in-index rollback points to keep disk bounded — a disclosed, honest tradeoff, taken
           ONLY past the ceiling. Fail-open: any git failure leaves the repo as-is (never crash a run).
        Returns { swept, reinit, bytesBefore, bytesAfter } for tests/telemetry. */
-    async function enforceSizeCeiling(aid, scope) {
+    async function enforceSizeCeiling(aid, scope, meta) {
       if (!(maxRepoBytes > 0) || !repoExists(aid, scope)) return { swept: false, reinit: false };
       const gitDir = gitDirFor(aid, scope);
       const before = dirBytes(gitDir);
       if (before <= maxRepoBytes) return { swept: false, reinit: false, bytesBefore: before, bytesAfter: before };
-      try { await git(aid, scope, ['gc', '--prune=now', '-q']); } catch (_) {}
+      let gcSucceeded = false;
+      try {
+        const gc = await git(aid, scope, ['gc', '--prune=now', '-q']);
+        gcSucceeded = !!gc && gc.code === 0;
+        if (!gcSucceeded) failNote('checkpoint.gc', new Error('Git maintenance failed; checkpoint storage may remain over limit'));
+      } catch (e) { failNote('checkpoint.gc', e); }
       let after = dirBytes(gitDir);
       let reinit = false;
       if (after > maxRepoBytes) {
-        reinit = await reinitFromCurrentTree(aid, scope);
+        reinit = await reinitFromCurrentTree(aid, scope, meta);
         after = dirBytes(gitDir);
       }
-      try { console.warn('[checkpoint] shadow repo for ' + aid + ' over ceiling (' + before + 'B) -> ' + (reinit ? 're-init' : 'gc') + ' -> ' + after + 'B'); } catch (_) {}
-      return { swept: true, reinit: reinit, bytesBefore: before, bytesAfter: after };
+      try { console.warn('[checkpoint] shadow repo for ' + aid + ' over ceiling (' + before + 'B) -> ' + (reinit ? 're-init' : (gcSucceeded ? 'gc' : 'maintenance failed')) + ' -> ' + after + 'B'); } catch (_) {}
+      return { swept: true, reinit: reinit, bytesBefore: before, bytesAfter: after, gcSucceeded: gcSucceeded, overLimit: after > maxRepoBytes };
     }
     // wipe the shadow git-dir and re-create a single baseline commit of the CURRENT worktree, then re-stamp the
     // index to that one snapshot. Returns true on success. Fail-open (false) leaves the repo untouched on error.
-    async function reinitFromCurrentTree(aid, scope) {
+    async function reinitFromCurrentTree(aid, scope, meta) {
       try {
         const gitDir = gitDirFor(aid, scope);
         /* BUILD THE REPLACEMENT FIRST, DESTROY SECOND. Deleting the history and only then running
@@ -315,6 +336,7 @@
         fs.mkdirSync(fresh, { recursive: true });
         const gitAt = (dir, args) => runGit(['--git-dir', dir, '--work-tree', workTreeFor(aid, scope),
           '-c', 'core.autocrlf=false', '-c', 'core.safecrlf=false',
+        '-c', 'gc.auto=0', '-c', 'maintenance.auto=false', '-c', 'gc.autoDetach=false',
           '-c', 'user.email=starnet@local', '-c', 'user.name=starnet'].concat(args), { cwd: workTreeFor(aid, scope) });
         if ((await gitAt(fresh, ['init', '-q'])).code !== 0) { cleanup(); return false; }
         if ((await gitAt(fresh, ['add', '-A'])).code !== 0) { cleanup(); return false; }
@@ -338,7 +360,7 @@
           const others = existing.snapshots.filter(function (s) { return String((s && s.scopeId) || '') !== String((scope && scope.id) || ''); });
           const fullId = (scope && scope.prefix || '') + sha;
           saveIndex(aid, cp.record(cp.toIndex(others), {
-            id: fullId, runId: '', turn: 0, parentId: null, label: 'baseline (re-init)', files: size.files, bytes: size.bytes,
+            id: fullId, runId: meta && meta.runId || '', turn: meta && meta.turn || 0, parentId: null, label: 'baseline (re-init)', files: size.files, bytes: size.bytes,
             scopeId: (scope && scope.id) || '', workTree: scope && scope.id ? scope.workTree : '', gitCommit: sha
           }, { now: clock.now(), keep: keep }));
         } catch (e) { failNote('checkpoint.index.persist', e); }
@@ -355,12 +377,29 @@
       const aid = String(agentId);
       const scope = externalScope(aid, meta.workTree, meta.authorizedWorkTree === true);
       if (!scope || !saveScope(aid, scope)) return null;
-      return commitSnapshot(aid, scope, meta, null);
+      const result = await commitSnapshot(aid, scope, meta, null);
+      // Check even a dedup or failed add/commit: those were exactly the paths that left oversized
+      // temporary pack data untouched forever. Restore's internal pre-undo snapshot never sweeps.
+      let maintenance;
+      try { maintenance = await enforceSizeCeiling(aid, scope, meta); }
+      catch (e) { failNote('checkpoint.sizeCeiling', e); }
+      if (!result) return null;
+      if (maintenance && maintenance.reinit) {
+        // The sweep replaced history. Never hand the caller the now-deleted pre-sweep SHA.
+        try {
+          const head = (await git(aid, scope, ['rev-parse', 'HEAD'])).stdout.trim();
+          const row = cp.findById(loadIndex(aid), scope.prefix + head);
+          if (!cp.isValidId(head) || !row) return null;
+          result.id = row.id; result.created = true; result.files = row.files; result.bytes = row.bytes;
+        } catch (e) { failNote('checkpoint.sizeCeiling.head', e); return null; }
+      }
+      if (maintenance && maintenance.swept) result.maintenance = maintenance;
+      return result;
     }
     /* commitSnapshot — the one snapshot code path, on an already-resolved scope. opts.always: commit even when
        nothing changed (--allow-empty) so the index gets its OWN labelled row (restore's pre-restore undo point);
-       opts.skipCeiling: don't run the size-ceiling sweep, whose re-init could drop the very history a caller is
-       about to restore from. Fail-open: null on any git error. */
+       Maintenance belongs to public snapshot(), so restore's internal pre-undo capture cannot drop its target.
+       Fail-open: null on any git error. */
     async function commitSnapshot(aid, scope, meta, opts) {
       meta = meta || {}; opts = opts || {};
       try {
@@ -418,8 +457,6 @@
             { now: clock.now(), keep: keep });
           saveIndex(aid, index);
         } catch (e) { failNote('checkpoint.index.persist', e); }
-        // bound the shadow repo's on-disk footprint after each real commit (no-op unless past the ceiling).
-        if (!opts.skipCeiling) { try { await enforceSizeCeiling(aid, scope); } catch (e) { failNote('checkpoint.sizeCeiling', e); } }
         return { id: fullId, created: true, files: size.files, bytes: size.bytes, workTree: scope.id ? scope.workTree : '' };
       } catch (e) { return null; }                                               // fail-open
     }
@@ -453,7 +490,7 @@
       if (scope.id && fullId !== scope.prefix + sha) return { ok: false, reason: 'invalid' };   // root identity is part of the id
       const pre = await commitSnapshot(aid, scope,
         { runId: '', turn: 0, label: 'pre-restore (before rewinding to ' + String(sha).slice(0, 12) + ')' },
-        { always: true, skipCeiling: true });
+        { always: true });
       let preRecorded = false;
       try { preRecorded = !!(pre && pre.created && cp.findById(await loadIndexResilient(aid), pre.id)); }
       catch (e) { failNote('checkpoint.restore.preRestoreIndex', e); }
@@ -486,7 +523,7 @@
       return withAvailability(aid, await loadIndexResilient(aid));
     }
 
-    return { snapshot: snapshot, restore: restore, restoreDetailed: restoreDetailed, list: list, listResilient: listResilient, rebuild: rebuildIndexFromGit, enforceSizeCeiling: enforceSizeCeiling, isValidId: cp.isValidId };
+    return { snapshot: serialized(snapshot), restore: serialized(restore), restoreDetailed: serialized(restoreDetailed), list: list, listResilient: serialized(listResilient), rebuild: serialized(rebuildIndexFromGit), enforceSizeCeiling: serialized(enforceSizeCeiling), isValidId: cp.isValidId };
   }
 
   return { makeCheckpointStore: makeCheckpointStore };

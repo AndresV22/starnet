@@ -110,6 +110,7 @@ test/channels.relay-owner.e2e.test.js
 test/cron.arm.test.js
 test/lifecycle-armed.http.test.js
 test/checkpoint-store.test.js
+test/checkpoint-maintenance.test.js
 test/shell.test.js
 test/shell.process-tree.test.js
 test/verify.run.test.js
@@ -196,3 +197,5 @@ test/remote.relay.e2e.test.js
 test/subscription-stacking.e2e.test.js
 test/subscription-stacking-oauth.e2e.test.js
 test/apps.http.test.js
+test/checkpoint-git.test.js
+test/checkpoint-maintenance.e2e.test.js

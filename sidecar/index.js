@@ -9496,14 +9496,10 @@ const agentLifecycle = makeAgentLifecycle({
 // was called `runGit`, the checkpoint store below was handed the night-shift signature, every snapshot() returned
 // null, and the shadow-git undo net was dead in the shipped app while its own tests (which inject a fake runGit)
 // stayed green. Keep these two names distinct.
-function runGitCheckpoint(args, opts) {   // resolves (never rejects); a missing/failing git becomes a fail-open skip upstream
-  return new Promise((resolve) => {
-    try {
-      execFile('git', args, { cwd: (opts && opts.cwd) || WORKSPACES, timeout: 15000, windowsHide: true, maxBuffer: 8 << 20 },
-        (err, stdout, stderr) => resolve({ code: err ? (typeof err.code === 'number' ? err.code : 1) : 0, stdout: String(stdout || ''), stderr: String(stderr || '') }));
-    } catch (e) { resolve({ code: 1, stdout: '', stderr: String((e && e.message) || e) }); }
-  });
-}
+const checkpointGitRunner = require('./checkpoint-git.js').makeCheckpointGitRunner({
+  spawn: childSpawn, cwd: WORKSPACES, clock: { now: () => Date.now() }, ledger: procLedger
+});
+function runGitCheckpoint(args, opts) { return checkpointGitRunner(args, opts); }
 function checkpointPathInside(candidate, base) {
   let a = path.resolve(String(candidate || '')), b = path.resolve(String(base || ''));
   if (path.sep === '\\') { a = a.toLowerCase(); b = b.toLowerCase(); }
