@@ -2333,30 +2333,10 @@
       await waitForSettle(await page(), { budgetMs: settleNavBudgetMs, fallbackMs: 500 });
       return evalJS('location.href');
     }
-    /* FILE UPLOAD. Without DOM.setFileInputFiles any form with an attachment step is a dead end.
-       The ref usually points at a styled LABEL, because real file inputs are routinely hidden — so
-       resolve from the click point to the actual <input type=file> (self, the label's control, or the
-       nearest one in the same container) and hand CDP that element's objectId. Paths are resolved and
-       jail-checked by the caller; this only ever sees absolute paths. */
-    async function upload(node, absPaths) {
-      const c = await pinTab();   // a local file must never be attached to whatever tab replaced the one that was read
-      await c.send('DOM.enable');
-      const p = center(node);
-      const r = await c.send('Runtime.evaluate', { expression: `(() => {
-        const el = document.elementFromPoint(${p.x}, ${p.y});
-        if (!el) return null;
-        if (el.tagName === 'INPUT' && el.type === 'file') return el;
-        if (el.control && el.control.tagName === 'INPUT' && el.control.type === 'file') return el.control;
-        const lbl = el.closest && el.closest('label');
-        if (lbl && lbl.control && lbl.control.type === 'file') return lbl.control;
-        const scope = (el.closest && el.closest('form,fieldset,section,div')) || document;
-        return scope.querySelector('input[type=file]');
-      })()` });
-      const objectId = r && r.result && r.result.objectId;
-      if (!objectId) throw new Error('no file input found at this ref — snapshot the page and pick the upload control');
-      await c.send('DOM.setFileInputFiles', { files: absPaths, objectId });
-      await waitForSettle(c, { budgetMs: settleActionBudgetMs });
-      return absPaths.length + ' file(s) attached';
+    // #104: the pinned tab owns selection and its readback; never guess remote upload completion.
+    async function upload(node, absPaths, expectedFiles) {
+      return require('./browser-upload.js').selectFiles({ cdp: await pinTab(), node, paths: absPaths, expected: expectedFiles,
+        settle: c => waitForSettle(c, { budgetMs: settleActionBudgetMs }) });
     }
     async function testInput(action) {
       const a = Object.assign({}, action || {});
@@ -3218,7 +3198,7 @@
       return out;
     }
     async function forward() { const d = ensureDriver(); version++; navEpoch++; return driverFn(d, 'forward')(); }
-    async function upload(ref, absPaths) { const d = ensureDriver(); return actOnRef(ref, n => driverFn(d, 'upload')(n, absPaths)); }
+    async function upload(ref, absPaths, expectedFiles) { const d = ensureDriver(); return actOnRef(ref, n => driverFn(d, 'upload')(n, absPaths, expectedFiles)); }
     async function inspect(ref) { const d = ensureDriver(); return actOnRef(ref, n => driverFn(d, 'inspect')(n)); }
     // wait() is READ-ONLY and takes no ref, so it needs no recovery — it is the tool an agent reaches for
     // precisely when it does NOT yet know what is on the page.
@@ -3625,6 +3605,9 @@
     const shotFsp = deps.fsp, shotPath = deps.pathMod, shotRoot = deps.root;
     const canSaveShots = !!(shotFsp && shotPath && shotRoot);
     const shotJail = canSaveShots ? require('./fs.js').makeFsTools({ fsp: shotFsp, pathMod: shotPath, root: shotRoot })._internals : null;
+    // Upload reads share fs.read authority; screenshot/PDF outputs retain their private workspace shelf.
+    const uploadJail = canSaveShots ? require('./fs.js').makeFsTools({ fsp: shotFsp, pathMod: shotPath, root: shotRoot,
+      pathTrust: typeof deps.pathTrust === 'function' ? deps.pathTrust : undefined })._internals : null;
     async function saveShot(ctx, b64) {
       if (!canSaveShots) return null;
       const aid = (ctx && ctx.agentId) || 'agent';
@@ -3850,21 +3833,29 @@
         async a => ({ content: 'Now on tab ' + a.index + ': ' + await session.selectTab(a.index) + ' — take a fresh browser.snapshot.', summary: 'tab ' + a.index }), false),
       exec('browser.tab_close', 'Close a tab by index from browser.tabs. Tab 0 cannot be closed.', { type: 'object', required: ['index'], properties: { index: { type: 'number' } } },
         async a => ({ content: await session.closeTab(a.index), summary: 'tab closed' })),
-      exec('browser.upload', 'Attach files from your workspace to a file-upload control on the page. "ref" is the upload control (or its visible label) from the latest browser.snapshot; "paths" are workspace-relative files. Submitting the form is a separate click.', { type: 'object', required: ['ref', 'paths'], properties: { ref: { type: 'string' }, paths: { type: 'array', items: { type: 'string' } } } },
+      exec('browser.upload', 'Select files in a page file input and read back the selection. A relative path resolves in this run\'s trusted project, otherwise its private workspace; absolute paths use the same path permission check as fs.read. "ref" is the file input, its associated label, or a control beside exactly one file input from the latest browser.snapshot. This may trigger the website\'s upload handler, but the receipt proves selection only: inspect its thumbnail/status or network response before claiming the website received the file.', { type: 'object', required: ['ref', 'paths'], properties: { ref: { type: 'string' }, paths: { type: 'array', items: { type: 'string' } } } },
         async (a, ctx) => {
-          if (!canSaveShots) throw new Error('browser.upload needs a workspace; this run has none');
+          if (!uploadJail) throw new Error('browser.upload needs a workspace; this run has none');
           const aid = (ctx && ctx.agentId) || 'agent';
           const rels = Array.isArray(a.paths) ? a.paths : [a.paths];
-          if (!rels.length) throw new Error('browser.upload needs at least one path');
-          // Resolve through the SAME jail as fs.* — an upload must never be able to post a file from
-          // outside the agent's workspace (resolveInside throws on '..', absolute paths, escapes).
-          const abs = [];
+          if (!rels.length || rels.some(p => typeof p !== 'string' || !p.trim())) throw new Error('browser.upload needs at least one non-empty file path');
+          const abs = [], expected = [];
           for (const rel of rels) {
-            const r = await shotJail.resolveInside(aid, String(rel));
-            await shotFsp.stat(r.abs);   // fail loudly here, not silently inside the page
-            abs.push(r.abs);
+            const r = await uploadJail.resolveInside(aid, rel, { scope: 'read', ctx });
+            const stat = await shotFsp.stat(r.abs);
+            if (!stat.isFile()) throw new Error('browser.upload needs a regular file: ' + rel);
+            await shotFsp.access(r.abs, FS.constants.R_OK);
+            abs.push(r.abs); expected.push({ name: shotPath.basename(r.abs), size: stat.size });
           }
-          return { content: await session.upload(a.ref, abs) + ': ' + rels.join(', ') + '. Submit the form when ready.', summary: 'uploaded ' + abs.length };
+          const receipt = await session.upload(a.ref, abs, expected);
+          if (!receipt || receipt.status !== 'selected' || !Array.isArray(receipt.files)
+            || receipt.files.length !== expected.length || receipt.files.some((f, i) => f.name !== expected[i].name || f.size !== expected[i].size)) {
+            throw new Error('browser.upload did not return verified file-selection evidence; inspect the page before retrying');
+          }
+          return { content: 'File selection verified. ' + (receipt.retained ? 'The input still holds the requested files. ' : 'The input was cleared, replaced, or no longer retains the selection after a file-selection event. ')
+            + fenceExternal(JSON.stringify(receipt), 'file input readback from the controlled browser')
+            + '\nRemote upload/server acceptance is not verified. Inspect the page\'s thumbnail/status or network response before reporting upload success. Submit the form only when the task requires it.',
+            summary: 'selected ' + receipt.files.length + ' file(s)' };
         }),
       exec('browser.back', 'Go back in browser history.', { type: 'object', properties: {} },
         async () => ({ content: 'Browser went back to ' + await session.back(), summary: 'back' }), false),

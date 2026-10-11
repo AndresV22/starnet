@@ -19221,6 +19221,8 @@ async function runOnceCore(o) {
     // The workspace jail, so browser.screenshot can SAVE a frame and emit it as a deliverable
     // instead of capturing bytes and dropping them. Same jail image_generate writes through.
     fsp, pathMod: path, root: WORKSPACES,
+    // #104: uploads use the run's fs.read authority for project-relative/absolute paths.
+    pathTrust: (abs, o2) => runPathTrust(abs, o2),
     // Chrome's profile lives in OS.tmpdir(), OUTSIDE the workspace jail, so anything the agent
     // downloaded landed somewhere it could never read back. Point downloads at its own folder.
     downloadDir: /^[A-Za-z0-9_-]{1,40}$/.test(String(agentId || '')) ? path.join(WORKSPACES, String(agentId), 'downloads') : null,

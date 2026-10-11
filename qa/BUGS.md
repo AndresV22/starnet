@@ -4,11 +4,11 @@
 One tracked file per bug under `qa/bugs/`; this is only the index. File a new bug with
 `node scripts/qa/bugs.mjs --new --title "..." --surface <surface>`.
 
-**10** open (open+claimed) of 224 total — 0 P0 · 0 P1 · 10 P2
+**10** open (open+claimed) of 225 total — 0 P0 · 0 P1 · 10 P2
 
 Engineering status is separate from delivery and customer recovery. Legacy rows without origin are not a customer census.
 
-User/owner reports: **103** · source fixed: **93** · installer verified: **6** · customer confirmed: **1** · still reported failing: **2** · recovery unconfirmed: **100**.
+User/owner reports: **104** · source fixed: **94** · installer verified: **6** · customer confirmed: **1** · still reported failing: **2** · recovery unconfirmed: **101**.
 
 | Report | Family | Source | Installer | Customer |
 | --- | --- | --- | --- | --- |
@@ -90,6 +90,7 @@ User/owner reports: **103** · source fixed: **93** · installer verified: **6**
 | [Run metadata invalidates reusable prompt cache and unused fallback authentication delays primary requests](bugs/c9201c15-run-metadata-invalidates-reusable-prompt-cache-a.md) | response-latency | fixed | unverified | unconfirmed |
 | [Secondary console layouts lose provider text and dropdown affordances at enlarged scale](bugs/6c91f5d9-secondary-console-layouts-lose-provider-text-and.md) | secondary-console-polish | fixed | unverified | unconfirmed |
 | [Mac receipt test fails when Python is missing](bugs/046bd4a1-mac-receipt-test-fails-when-python-is-missing.md) | test-portability | fixed | not-applicable | unconfirmed |
+| [Browser upload resolves wrong project file and claims success without selection proof](bugs/d9a3499f-browser-upload-resolves-wrong-project-file-and-c.md) | browser-upload-selection-truth | fixed | unverified | unconfirmed |
 | [Agent work rating fails with a generic not saved message](bugs/1fc69e6a-agent-work-rating-fails-with-a-generic-not-saved.md) | work-rating | fixed | unverified | unconfirmed |
 | [COMMS starters suggest arbitrary tasks and lose session context](bugs/e84d1dfd-comms-starters-suggest-arbitrary-tasks-and-lose.md) | session-starters | fixed | unverified | unconfirmed |
 | [Context extraction card uses a flat surface outside the current theme](bugs/b87dbc17-context-extraction-card-uses-a-flat-surface-outs.md) | context-presentation | fixed | unverified | unconfirmed |
@@ -295,6 +296,7 @@ User/owner reports: **103** · source fixed: **93** · installer verified: **6**
 | P2 | fixed | release | [t5.1 prerequisite gate accepts T0–T4 verdicts with no installer-hash or freshness binding, though t3.2 already binds T0's recorded installer sha256 to the binar](bugs/4bd953e0-t5-1-prerequisite-gate-accepts-t0-t4-verdicts-wi.md) | sweep/release | b76e340c |
 | P2 | fixed | release | [Update canary uses obsolete saves and snapshots the startup WebView](bugs/050da842-update-canary-uses-obsolete-saves-and-snapshots.md) | agent/release-0112-audit-0910 | bed625bdd |
 | P2 | fixed | safecell | [A mid-run "Full access" click writes a per-agent '*' wildcard with no readout and no revoke anywhere, and the same wildcard is read by that agent's UNATTENDED r](bugs/13646d93-a-mid-run-full-access-click-writes-a-per-agent-w.md) | sweep/safecell | 226cec3c |
+| P2 | fixed | safecell | [Browser upload resolves wrong project file and claims success without selection proof](bugs/d9a3499f-browser-upload-resolves-wrong-project-file-and-c.md) | ux-triage-1011 | 61117661631fb4e2be6450d100354f8a4cb05c72 |
 | P2 | fixed | sessions | [Agent work rating fails with a generic not saved message](bugs/1fc69e6a-agent-work-rating-fails-with-a-generic-not-saved.md) | agent/rating-repair-0908 | a55a1ed07 |
 | P2 | fixed | sessions | [COMMS starters suggest arbitrary tasks and lose session context](bugs/e84d1dfd-comms-starters-suggest-arbitrary-tasks-and-lose.md) | agent/useful-starters-0906 | 33d995fed |
 | P2 | fixed | sessions | [Context extraction card uses a flat surface outside the current theme](bugs/b87dbc17-context-extraction-card-uses-a-flat-surface-outs.md) | release-0110 | fe5be77a9 |

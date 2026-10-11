@@ -1593,7 +1593,7 @@ function fakeDriver() {
       fs.writeFileSync(path.join(ws, 'secret.txt'), 'not yours');   // OUTSIDE the agent's folder
 
       const d = fakeDriver();
-      d.upload = async (node, abs) => { d.log.uploaded = [node.text, abs]; return abs.length + ' file(s) attached'; };
+      d.upload = async (node, abs, expected) => { d.log.uploaded = [node.text, abs]; return { status: 'selected', files: expected, retained: true, events: ['change'], evidence: 'FileList readback' }; };
       const U = makeBrowserTools({ driver: d, fsp, pathMod: path, root: ws });
       const snap = await U.session.snapshot();
       const ref = snap[0].ref;
@@ -1601,7 +1601,7 @@ function fakeDriver() {
 
       const ok = await up.run({ ref, paths: ['resume.pdf'] }, { agentId: 'ag' });
       A.eq(d.log.uploaded[1], [path.join(ws, 'ag', 'resume.pdf')], 'the driver receives an ABSOLUTE path inside the agent workspace');
-      A.ok(/Submit the form when ready/.test(ok.content), 'the agent is told attaching is not submitting');
+      A.ok(/Submit the form only when the task requires it/.test(ok.content), 'the agent is told attaching is not submitting');
 
       await rejects(up.run({ ref, paths: ['../secret.txt'] }, { agentId: 'ag' }), /illegal path|escapes workspace/i, 'a path escaping the workspace is refused');
       await rejects(up.run({ ref, paths: [path.join(ws, 'secret.txt')] }, { agentId: 'ag' }), /illegal path/i, 'an absolute path outside the jail is refused');
