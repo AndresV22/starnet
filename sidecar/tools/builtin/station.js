@@ -286,6 +286,9 @@
         const x = { lineId: L.lineId, name: L.name, status: L.status, ready: L.ready, howItRuns: L.howItRuns, blocking: L.blocking, hints: L.hints,
           starts: { schedules: L.starts.schedules, channels: L.starts.channels, events: L.starts.events, paused: L.starts.paused } };
         if (L.startsUnread) x.startsUnread = L.startsUnread;
+        // SEND TO (2026-10-10): where every finished job goes next / which lines hand theirs to this one — never "it ends at the OUTBOX"
+        if (L.sendsWorkTo) x.sendsWorkTo = L.sendsWorkTo.map(s => s.name);
+        if (L.getsWorkFromLines) x.getsWorkFromLines = L.getsWorkFromLines.map(s => s.name);
         if (L.budget) x.budget = L.budget;
         if (L.today !== undefined) x.today = L.today;
         x.steps = (L.steps || []).map(s => {

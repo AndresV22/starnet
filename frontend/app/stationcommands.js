@@ -454,7 +454,10 @@ const StationCommands = (() => {
       // SEND TO: where this line hands every finished job on to, and which lines hand theirs to it (compiled — a SEND TO the
       // compiler turned off, a circle or a gone INBOX, is in `issues`, never here)
       const st = plan.sendTo || {}, outs = Object.keys(st).filter(k => st[k].fromLine === c.key), ins = Object.keys(st).filter(k => st[k].toLine === c.key);
-      if (outs.length) out.sendsWorkTo = outs.map(k => ({ lineId: st[k].toLine, name: lineName(st[k].toLine), outboxPropId: k }));
+      if (outs.length) {
+        out.sendsWorkTo = outs.map(k => ({ lineId: st[k].toLine, name: lineName(st[k].toLine), outboxPropId: k }));
+        out.howItRuns += ' Then every job it finishes is sent on to ' + out.sendsWorkTo.map(x => x.name).join(' and ') + ' (SEND TO), whose own crew works it next.';
+      }
       if (ins.length) out.getsWorkFromLines = ins.map(k => ({ lineId: st[k].fromLine, name: lineName(st[k].fromLine), intakePropId: st[k].intakeId }));
       if (unread.length) out.startsUnread = unread;
       return out;
