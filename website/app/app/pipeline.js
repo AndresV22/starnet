@@ -497,13 +497,13 @@
          job on;
        · a LOOP's passes back round are off the ceiling (the executor counts them as loopHops) — only the first pass counts.
      Pure over the compiled plan (dockChains, junction fanout and bayTileToDock must be set). Memoized per (tile, producer). */
-  function jobStages(plan, startTiles) {
+  function jobStages(plan, startTiles, stopAt) {
     const map = plan.belts || {}, junctions = plan.junctions || {}, dockAt = plan.bayTileToDock || {}, chains = plan.dockChains || {};
     const NONE = { n: 0, join: null }, memo = {}, active = {};
     // from tile t on, for work produced by dock `self`: { n: stages, join: the JOINER a fan-out branch stops at, or null }
     function at(t, self) {
       const k = key(t.x, t.y);
-      if (!map[k]) return NONE;
+      if (k === stopAt || !map[k]) return NONE;
       const mk = k + '|' + (self || '');
       if (memo[mk]) return memo[mk];
       if (active[mk]) return NONE;   // (a cycle — CYCLE / CHAIN_CYCLE already speak for it)
@@ -1077,6 +1077,11 @@
     const onCircle = Object.keys(sendTo).filter(k => sendReaches(sendTo[k].toLine, sendTo[k].fromLine)).sort(propIdCmp);
     for (const k of onCircle) { errors.push({ code: 'SEND_TO_LOOP', propId: k, lineId: sendTo[k].fromLine, toLine: sendTo[k].toLine, warn: true }); delete sendTo[k]; }
     const sendKeys = Object.keys(sendTo).sort(propIdCmp);
+    // Absolute paths identify the files, but a private agent workspace is not granted to the next line's crew.
+    for (const k of sendKeys) {
+      const source = lines.find(l => l.lineId === sendTo[k].fromLine);
+      if (!source || !source.projectRoot) errors.push({ code: 'SEND_TO_PRIVATE_FILES', propId: k, lineId: sendTo[k].fromLine, toLine: sendTo[k].toLine, warn: true });
+    }
     if (sendKeys.length) {
       plan.sendTo = {};
       for (const k of sendKeys) plan.sendTo[k] = sendTo[k];
@@ -2166,7 +2171,27 @@
     for (const s of (plan.sources || [])) if (rec.intakes.indexOf(s.propId) >= 0) { any = true; stages = Math.max(stages, jobStages(plan, srcTiles(s))); }
     if (!any) return null;
     const maxHops = rec.limits ? rec.limits.maxHops : LINE_LIMIT_DEFAULTS.maxHops;
-    return { stages, max: maxHops + 1, maxHops };
+    let worst = stages;
+    for (const jk of Object.keys(plan.junctions || {})) {
+      const j = plan.junctions[jk];
+      if (!j || j.kind !== 'loop' || !j.back || !j.backTo) continue;
+      const ids = rec.propIds || [], onLine = (plan.props || []).some(p => ids.includes(p.id) && p.x + ',' + p.y === jk);
+      const backDock = plan.gateDocks && plan.gateDocks[jk] && plan.gateDocks[jk].backTo;
+      if (!onLine && !(backDock && plan.lineOfProp && plan.lineOfProp[backDock] === lineId)) continue;
+      const xy = jk.split(',').map(Number), v = DIRV[j.back];
+      if (!v) continue;
+      const body = jobStages(plan, [{ x: xy[0] + v[0], y: xy[1] + v[1] }], jk);
+      worst += (j.max || LOOP_MAX_DEFAULT) * (body || stages);
+    }
+    return { stages, worst, max: maxHops + 1, maxHops };
+  }
+
+  // Per-line evidence that an INBOX is fed: a compiled hand-off or a recorded real run, never a doc pointer.
+  function fedLineIds(plan, stats) {
+    const out = {};
+    for (const s of Object.values((plan && plan.sendTo) || {})) if (s && s.toLine) out[s.toLine] = true;
+    if (stats && stats.known) for (const id of Object.keys(stats.byLine || {})) if (stats.byLine[id] && stats.byLine[id].runs > 0) out[id] = true;
+    return out;
   }
 
   /* ---------- SEND TO at run time (2026-10-10) — pure readers the sidecar's handoff runner asks ----------
@@ -2219,14 +2244,25 @@
   /* handoffInput({ fromName, original, output, files }) -> the work a SEND TO hand-off drops into the next line's INBOX: the job as
      it first arrived, what the sending line delivered, and the files it made (paths only — nothing is copied; a line working in
      another project folder may not reach them). Pure and bounded (the job record keeps 12000 chars of output). */
+  /* lineWord(name, fallback) -> 'LINE A' — a line as every surface names it (fix wave 10-11, #15). A user who calls their lines
+     "Line A" / "line b" / "LINE: C" typed the word themselves: prefixing LINE again read "LINE LINE A" on the floor plates, the SEND TO
+     chips, the paste toast, DELIVERABLES and the hand-off frame the next line's agent reads. The stored name is never touched — only
+     the shown word drops a leading "line". Idempotent (lineWord('LINE A') is 'LINE A'); a name that is ONLY the word "line" keeps
+     it (LINE LINE beats showing nothing); no name = the caller's own fallback. Pure — the sidecar reads it through this module. */
+  function lineWord(name, fallback) {
+    const raw = String(name == null ? '' : name).replace(/\s+/g, ' ').trim();
+    if (!raw) return fallback == null ? '' : fallback;
+    const bare = raw.replace(/^line\b[\s:·.\-–—]*/i, '').trim() || raw;
+    return 'LINE ' + bare.toUpperCase();
+  }
   function handoffInput(o) {
     const x = o || {};
     const nm = String(x.fromName == null ? '' : x.fromName).replace(/\s+/g, ' ').trim().slice(0, 48);
-    const who = nm ? 'LINE ' + nm.toUpperCase() : 'the line before this one';
+    const who = lineWord(nm, 'the line before this one');
     const original = String(x.original == null ? '' : x.original).trim().slice(0, 4000);
     const output = String(x.output == null ? '' : x.output).trim().slice(0, 12000);
     const files = (Array.isArray(x.files) ? x.files : []).map(f => String(f == null ? '' : f).trim()).filter((f, i, a) => f && a.indexOf(f) === i).slice(0, 20);
-    const parts = ['[HAND-OFF — ' + who + ' finished its part of this job and sent its result on to this line. Do this line’s part of the job, working from that result.]'];
+    const parts = ['[HAND-OFF — ' + who + ' finished its part of this job and sent its result on to this line. Do this line’s part of the job, working from that result, and answer with the full finished work itself (what the job asks for), never a note on whether the job is done.]'];
     if (original) parts.push('THE JOB AS IT FIRST ARRIVED:\n' + original);
     parts.push('WHAT ' + who.toUpperCase() + ' DELIVERED:\n' + (output || '(no text came back)'));
     if (files.length) parts.push('FILES IT MADE (paths on this machine):\n' + files.map(f => '- ' + f).join('\n'));
@@ -2243,7 +2279,7 @@
     return { fromName: m[1] || '', original: orig ? orig[1] : '', output: out ? out[1] : '' };
   }
 
-  return { lineStages, rejoinOf, deriveLinks, reconcileLinks, compileRoutingPlan, sendToOf, sendsReachedOf, outboxesReached, handoffInput, parseHandoffInput, composeStageBrief, HANDS_LEAD, resolveTarget, lineOf, lineOriginOf, lineLimitsOf, normalizeLineLimits, LINE_LIMIT_DEFAULTS, LINE_LIMIT_CEILINGS, sourceFor, ok, liveTiles, routeFrom, junctionLaneOwners, chainNext, chainStep, fanSiblings, handoffPrompt, parseHandoff, isHandoff, stripVerdictLine, joinPayload, divideJob, partTurn, partHandoff, divideBrief, divideAfterDock, splitFedByDock, lineComponents, LOOP_MAX_DEFAULT, LOOP_MAX_CEILING,
+  return { lineStages, fedLineIds, rejoinOf, deriveLinks, reconcileLinks, compileRoutingPlan, sendToOf, sendsReachedOf, outboxesReached, lineWord, handoffInput, parseHandoffInput, composeStageBrief, HANDS_LEAD, resolveTarget, lineOf, lineOriginOf, lineLimitsOf, normalizeLineLimits, LINE_LIMIT_DEFAULTS, LINE_LIMIT_CEILINGS, sourceFor, ok, liveTiles, routeFrom, junctionLaneOwners, chainNext, chainStep, fanSiblings, handoffPrompt, parseHandoff, isHandoff, stripVerdictLine, joinPayload, divideJob, partTurn, partHandoff, divideBrief, divideAfterDock, splitFedByDock, lineComponents, LOOP_MAX_DEFAULT, LOOP_MAX_CEILING,
     // THE DOCK LAYER (multi-bay agents, 2026-09-22) — the dock-keyed truth the agent readings above are views of
     resolveDock, chainNextDock, chainStepDock, fanSiblingsDock, junctionLaneDocks, lineOfDock, lineOriginOfDock, entryDockOf, docksOf, dockOf, agentOfDock: agentOfDockIn, deriveDockLayer, dockLayer, hasDockLayer, stepToAgents, propIdCmp,
     _internals: { DIRV, OPP, LANE_ORDER, key, buildBeltMap, outLanes, inLanes, loopLanes, beltTileNear, ringBelts, junctionAnchor, dirBetween, linkTilesByProp, linkedBeltMap, nextTiles, splitLanes, detectCycle, hashStr, compileChains, compileDockChains, chainCycle, shipFrom, propIdCmp, entryDocksOf, agentChainsView } };

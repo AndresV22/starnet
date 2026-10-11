@@ -383,7 +383,7 @@ const StationCommands = (() => {
       : (I.beltTileNear ? (t => t ? t.x + ',' + t.y : null)(I.beltTileNear(plan.belts || {}, p.x, p.y, p.w || 1, p.h || 1)) : null);
     const comps = (P.lineComponents(geo) || []).filter(c => c.intakes.length || c.bays.length || c.outboxes.length);
     // SEND TO (2026-10-10): a line names another by its INBOX's label; the hand-offs are the COMPILED plan's (plan.sendTo)
-    const lineName = id => { const cc = comps.find(x => x.key === id), l = cc ? (cc.intakes.map(i => propOf(i)).find(p => p && p.label) || {}).label : null; return l ? 'LINE ' + String(l).toUpperCase() : 'an unnamed line'; };
+    const lineName = id => { const cc = comps.find(x => x.key === id), l = cc ? (cc.intakes.map(i => propOf(i)).find(p => p && p.label) || {}).label : null; return l ? (P.lineWord ? P.lineWord(l) : 'LINE ' + String(l).replace(/^line\b[\s:·-]*/i, '').toUpperCase()) : 'an unnamed line (lineId ' + id + ')'; };
     // the SEND TOs a step's own lane can ship into (a line with two OUTBOXes hands on only from the one that sends — 10-11 repair)
     const sendsOf = (lineId, pid) => (P.sendsReachedOf ? P.sendsReachedOf(plan, lineId, pid) : []);
     const reachedOf = pid => (P.outboxesReached ? P.outboxesReached(plan, pid) : []);
@@ -570,7 +570,7 @@ const StationCommands = (() => {
     }
     return out;
   }
-  function builderReady() {
+  function builderReady(a) {
     const st = typeof App !== 'undefined' && App.station ? App.station() : null;
     if (!st || !st.serialize || !st.transact || !st.roomSpots) throw new Error('the station is not ready yet');
     if (typeof StationBuilder === 'undefined' || typeof WorldModel === 'undefined' || typeof Pipeline === 'undefined' || typeof WorkflowLine === 'undefined')
@@ -583,7 +583,9 @@ const StationCommands = (() => {
       RoomStyles: typeof RoomStyles !== 'undefined' ? RoomStyles : null, LineLayout: typeof LineLayout !== 'undefined' ? LineLayout : null, LineEdit: typeof LineEdit !== 'undefined' ? LineEdit : null,
       EquipmentHelp: typeof EquipmentHelp !== 'undefined' ? EquipmentHelp : null,
       // a step marked "new" recruits that role's specialist exactly as the setup guide's RECRUIT does (Build.summonForRole: its desk comes with it)
-      canRecruit: typeof Build !== 'undefined' && typeof Build.summonForRole === 'function' && !!App.summonAgent,
+      // a LENT plan (team.dispatch builder:true; the sidecar sets delegated) never recruits: new crew stays the lead's call
+      canRecruit: !(a && a.delegated) && typeof Build !== 'undefined' && typeof Build.summonForRole === 'function' && !!App.summonAgent,
+      recruitRefusal: a && a.delegated ? 'Recruiting new crew stays with the lead who lent you the builder. Staff the step with a crew member, or leave agent out and name the role in your result.' : null,
       recruit: role => Build.summonForRole(role, WorldModel.bayRoleInfo ? WorldModel.bayRoleInfo(role) : null) } };
   }
 
@@ -623,14 +625,14 @@ const StationCommands = (() => {
        plan here for ten minutes; station.build applies exactly that plan in one undo step (StationBuilder.apply). They
        refuse while Build mode is open: the Commander's own edits own the floor then. */
     'station.plan_line': (a) => {
-      const { st, env } = builderReady();
+      const { st, env } = builderReady(a);
       const p = park(StationBuilder.plan(st.serialize(), (a && a.request) || {}, env));
       return { planId: p.planId, summary: p.plan.summary, line: p.plan.line, where: p.plan.where, steps: p.plan.steps, ready: p.plan.ready, blocking: p.plan.blocking,
         recruits: p.plan.recruits, picked: p.plan.picked, notes: p.plan.notes, expiresInMinutes: PLAN_TTL_MS / 60000, next: NEXT_STEP };
     },
     // ROOMS & DECOR (phase 2): a hand-designed room kit (a new room, or furnishing one with clear floor), or every room of a preset
     'station.plan_room': (a) => {
-      const { st, env } = builderReady();
+      const { st, env } = builderReady(a);
       const p = park(StationBuilder.planRoom(st.serialize(), (a && a.request) || {}, env));
       return { planId: p.planId, summary: p.plan.summary, rooms: p.plan.rooms, lines: p.plan.lines, steps: p.plan.steps, notes: p.plan.notes, expiresInMinutes: PLAN_TTL_MS / 60000, next: NEXT_STEP };
     },
@@ -650,19 +652,19 @@ const StationCommands = (() => {
       return r.map;
     },
     'station.plan_build': (a) => {
-      const { st, env } = builderReady();
+      const { st, env } = builderReady(a);
       const p = park(StationBuilder.planBuild(st.serialize(), (a && a.request) || {}, env));
       return { planId: p.planId, summary: p.plan.summary, rooms: p.plan.rooms, hallways: p.plan.hallways, lines: p.plan.lines, steps: p.plan.steps, notes: p.plan.notes, expiresInMinutes: PLAN_TTL_MS / 60000, next: NEXT_STEP };
     },
     // the one cosmetic change: a room's floor, material or name
     'station.plan_restyle': (a) => {
-      const { st, env } = builderReady();
+      const { st, env } = builderReady(a);
       const p = park(StationBuilder.planRestyle(st.serialize(), (a && a.request) || {}, env));
       return { planId: p.planId, summary: p.plan.summary, notes: p.plan.notes, expiresInMinutes: PLAN_TTL_MS / 60000, next: NEXT_STEP };
     },
     // EDIT WHAT STANDS: remove rooms, refurnish a room in another style, or clear a room's furniture
     'station.plan_edit': async (a) => {
-      const { st, env } = builderReady();
+      const { st, env } = builderReady(a);
       if (!StationBuilder.planEdit) throw new Error('this page cannot edit what stands yet; reload it');
       const req = (a && a.request) || {};
       // a refit that sets a line's folder or binds a portal: the trusted projects / connected services / plugins that are on,
@@ -722,8 +724,8 @@ const StationCommands = (() => {
       const hallsBuilt = (r.hallways || []).length, roomNames = (r.rooms || []).map(x => x.name).join(', ');
       const what = r.line ? r.line.name + ' in ' + r.where : r.kind === 'restyle' ? 'the restyle of ' + r.where : r.kind === 'edit' ? r.where : r.kind === 'swap' ? (r.preset ? r.preset.name : 'the preset') + ' (RESTORE PREVIOUS in Build → Presets brings your old station back)'
         : roomNames + (hallsBuilt ? (roomNames ? ' and ' : '') + (hallsBuilt > 1 ? hallsBuilt + ' hallways' : 'a hallway') : '');
-      const lead = (env.crew || []).find(x => x.id === env.heroId);
-      try { if (typeof StationUI !== 'undefined' && StationUI.notify) StationUI.notify('Built by ' + (lead ? lead.name : 'your lead') + ': ' + what + ' · open BUILD and press UNDO to remove it', 'good'); } catch (_) {}
+      const by = a && a.by ? String(a.by) : '', builder = (env.crew || []).find(x => x.id === (by || env.heroId));
+      try { if (typeof StationUI !== 'undefined' && StationUI.notify) StationUI.notify('Built by ' + (builder ? builder.name : by ? 'your crew' : 'your lead') + ': ' + what + ' · open BUILD and press UNDO to remove it', 'good'); } catch (_) {}
       // the camera shows what was built: the one room, or the whole station when a preset added several
       const ids = r.roomIds || [];
       setTimeout(() => { try { if (typeof World !== 'undefined' && World.frameReviewRoom) World.frameReviewRoom(ids.length === 1 ? ids[0] : ''); } catch (_) {} }, 700);

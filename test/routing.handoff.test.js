@@ -310,6 +310,38 @@ function station(n) {
   A.ok(R.onShipped({ lineId: LC, agentId: 'x', dockId: c.bays[1], text: 'x', streamId: 's' }).code === 'none', 'a line that sends nowhere: nothing (the common case)');
   A.eq(R.onShipped({ agentId: 'x', text: 'x' }).code, 'none', 'no line: nothing');
 
+  /* FILE POINTERS KEEP THE PRODUCER'S ROOT: the receiving line may use a different project or private workspace.
+     The stub hub only captures the transport frame; no provider behavior or live-app completion is claimed here. */
+  {
+    const handed = [], warnings = [];
+    const sourceRuns = [
+      { agentId: 'project-agent', projectRoot: '/projects/source', reason: 'done', startedAt: 10,
+        artifacts: [{ path: 'result.md' }, { path: 'result.md' }, { path: '/shared/absolute.md' }] },
+      { agentId: 'private-agent', reason: 'done', startedAt: 10, artifacts: [{ path: 'result.md' }] },
+      { agentId: 'windows-agent', projectRoot: 'D:\\project', reason: 'done', startedAt: 10,
+        artifacts: [{ path: 'notes\\result.md' }, { path: 'C:/already/absolute.md' }, { path: '\\\\server\\share\\result.md' }] },
+      { agentId: 'unknown-agent', reason: 'done', startedAt: 10, artifacts: [{ path: 'missing-root.md' }] }
+    ];
+    const runner = makeHandoffRunner({
+      makeHub: () => ({ onInbound(msg) { handed.push(msg.text); return Promise.resolve(); } }),
+      plan: () => plan, jobs: {}, now: () => 20, newId: () => 'artifactpaths1234',
+      runsFor: sid => sid === 'source-files' ? sourceRuns : [],
+      workspaceOf: aid => aid === 'private-agent' ? '/workspaces/private-agent' : null,
+      warn: msg => warnings.push(msg)
+    });
+    const sent = runner.onShipped({ lineId: LA, dockId: lastA, text: 'work product', originalText: 'make files',
+      streamId: 'source-files', since: 0 });
+    A.ok(sent.ok, 'file-bearing work is queued through the public handoff path');
+    await tick(30);
+    const paths = (handed[0] || '').split('\n').filter(line => line.startsWith('- ')).map(line => line.slice(2));
+    A.eq(paths, ['/projects/source/result.md', '/shared/absolute.md', '/workspaces/private-agent/result.md',
+      'D:\\project\\notes\\result.md', 'C:/already/absolute.md', '\\\\server\\share\\result.md'],
+      'handoff files resolve per producing run, dedupe exact pointers, and preserve absolute POSIX/Windows/UNC paths');
+    A.ok(warnings.some(msg => /unknown source folder: missing-root\.md/.test(msg))
+      && !(handed[0] || '').includes('missing-root.md'),
+      'an unknown origin is reported, never fabricated from the sidecar or receiving working directory');
+  }
+
   /* THE SENDING JOB'S RUNS STOP AT ITS SHIP TIME: a channel chat's stream carries the NEXT message's runs too — a later run that
      ended cancelled must not refuse this job, and its files must not ride in this job's hand-off */
   {

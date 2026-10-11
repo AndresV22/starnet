@@ -1,7 +1,8 @@
 /* sidecar/channels/signal.transport.js — the ONLY network-touching piece of the Signal channel.
 
    Signal has no public bot HTTP API — the standard self-hosted bridge is the signal-cli REST API
-   (github.com/bbernhard/signal-cli-rest-api, run in json-rpc mode next to the sidecar). This transport is a
+   (github.com/bbernhard/signal-cli-rest-api, run in MODE=native or MODE=normal next to the sidecar — in json-rpc
+   mode its receive endpoint is websocket-only, so this HTTP poll gets a 400 and stops). This transport is a
    thin fetch wrapper over that local endpoint, exposing the exact seam the generic adapter drives:
 
      getUpdates({ timeoutSec, signal }) -> Promise<raw[]>   // GET /v1/receive/<account> (long-poll via ?timeout=);
@@ -41,7 +42,9 @@
         try { data = await res.json(); } catch (e) {}
         if (res && res.ok) return Array.isArray(data) ? data : [];
         const code = (res && res.status) || 0;
-        const err = new Error('signal receive failed: ' + code + ((data && data.error) ? ' ' + data.error : ''));
+        // A 400 from a bridge in json-rpc mode looks like any other 400; name the one fix that is in the user's hands.
+        const hint = code === 400 ? ' — if the bridge runs with MODE=json-rpc, restart it with MODE=native (json-rpc cannot be polled)' : '';
+        const err = new Error('signal receive failed: ' + code + ((data && data.error) ? ' ' + data.error : '') + hint);
         err.code = code;
         // 400/401/404: unknown/unregistered account or wrong endpoint path — polling again can't fix it.
         if (code === 400 || code === 401 || code === 404) err.fatal = true;

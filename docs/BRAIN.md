@@ -99,6 +99,8 @@ instead of being learned as answers, terse channel answers resume by durable bri
 can contribute weak relationship evidence. The text `TASK_QUESTION` marker remains a compatibility/UI transport,
 not the authority boundary.
 
+Build-mode gestures and onward routing are locked in [DECISIONS.md](DECISIONS.md), “Build mode / conveyors”: SELECT MOVES, THE HAND, SEND TO and the LOOP-only cycle rule.
+
 ## How to work here (non-negotiable)
 
 1. **Read the local operating protocol** (`CLAUDE.md` at the repo root of the internal

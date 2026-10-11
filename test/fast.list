@@ -404,6 +404,7 @@ test/browser-handoff-routes.test.js
 test/desktop.test.js
 test/computer.test.js
 test/cua-computer.test.js
+test/cua-runtime-env.test.js
 test/computer-control.test.js
 test/win32desktop.test.js
 test/inputpolicy.test.js
@@ -667,6 +668,8 @@ test/desk-one-per-agent.test.js
 test/recruit-identity-ui.test.js
 test/subagents.test.js
 test/orchestration.test.js
+test/builder-lend.test.js
+test/crew-call.test.js
 test/domain-terminal.test.js
 test/worker-iteration-cap.test.js
 test/channels.test.js
@@ -749,6 +752,7 @@ test/line-place.test.js
 test/line-too-long.test.js
 test/conveyor-no-handoff.test.js
 test/line-sendto.test.js
+test/conveyor-ui-truth.test.js
 test/conveyor-floor-integrity.test.js
 test/orphan-bay-join.test.js
 test/workflow-panel-inline-refusals.test.js
@@ -921,6 +925,7 @@ test/team-configure-guard.test.js
 test/agent-config.test.js
 test/station-layout.test.js
 test/station-builder.test.js
+test/station-builder-lineops.test.js
 test/code-mode.test.js
 test/output-artifacts.test.js
 test/station-recovery.test.js

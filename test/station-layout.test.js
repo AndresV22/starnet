@@ -456,5 +456,19 @@ const detail = async (o, line) => (await layout(o, { line: line || 'draft & revi
       'two OUTBOXes, one sending: the sentence names the OUTBOX that sends — ' + L2.howItRuns);
   }
 
+  {
+    const LE = require('../frontend/app/lineedit.js'), s = WorldModel.create(), z = s.rooms()[0].rects[0], ids = [];
+    s.addRoom({ kind: 'hab', rect: { x1: z.x2 + 1, y1: z.y1, x2: z.x2 + 40, y2: z.y1 + 30 } });
+    for (const i of [0, 1]) {
+      const r = LE.run(s, null, 'newLine', { role: 'WRITER' }, { near: { x: z.x2 + 6, y: z.y1 + 3 + i * 8 } });
+      const c = Pipeline.lineComponents(s.projectGeometry()).find(cc => cc.props.indexOf(r.focus) >= 0);
+      s.setPropLabel(c.intakes[0], ''); ids.push(c);
+    }
+    s.setSendTo(ids[0].outboxes[0], ids[1].intakes[0]);
+    const result = (await layout({ app: app(s, []) })).r;
+    const source = result.lines.find(l => l.sendsWorkTo);
+    A.ok(source && source.sendsWorkTo[0] === 'an unnamed line (lineId ' + ids[1].key + ')', 'unlabeled SEND TO keeps its actionable lineId');
+  }
+
   A.report('station-layout');
 })().catch(e => { console.error(e); process.exit(1); });

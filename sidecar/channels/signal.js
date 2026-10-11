@@ -7,9 +7,14 @@
    DM-only first cut: group messages (envelope…dataMessage.groupInfo) deliver nothing — same shape the Telegram
    MVP shipped with. The owner trust-on-first-use gate applies to every DM, exactly like the other channels.
 
-   normalize(envelope) -> { message } | null
-     - null                : not a data message (receipt/typing/sync/own echo/group) — deliver nothing
-     - { message: {...} }  : a real other-user DM, in the adapter's neutral InboundMessage shape */
+   normalize(envelope, { account }?) -> { message } | null
+     - null                : not a data message (receipt/typing/other sync/group) — deliver nothing
+     - { message: {...} }  : a real other-user DM, in the adapter's neutral InboundMessage shape, OR a Note to Self:
+                             when the bridge is LINKED to the user's own number (the QR flow, no second number
+                             needed), what they type in Note to Self reaches signal-cli only as a sync transcript
+                             (syncMessage.sentMessage addressed to the account itself). Dropping every sync made the
+                             guide's own "link" option a dead end — even the pair code vanished. A transcript to
+                             ANYONE ELSE is the user's private conversation and is never delivered. */
 'use strict';
 (function (root, factory) {
   if (typeof module !== 'undefined' && module.exports) {
@@ -25,9 +30,26 @@
 
   const MAX_MESSAGE_LENGTH = 4096;   // Signal accepts long texts; chat-sized chunks read better
 
-  function normalize(raw) {
+  function normalize(raw, opts) {
     const env = raw && raw.envelope;
     if (!env) return null;
+    const sent = env.syncMessage && env.syncMessage.sentMessage;
+    if (sent) {
+      const self = String((raw && raw.account) || (opts && opts.account) || '').trim();
+      const dest = String(sent.destinationNumber || sent.destination || '').trim();
+      if (!self || dest !== self) return null;                                  // the user's chat with someone else
+      if (sent.groupInfo || typeof sent.message !== 'string' || !sent.message) return null;
+      return {
+        message: {
+          chatId: self,                                   // replies go back into Note to Self
+          chatType: 'dm',
+          userId: self,
+          userName: String(env.sourceName || 'Note to Self'),
+          text: sent.message,
+          messageId: String(sent.timestamp != null ? sent.timestamp : (env.timestamp != null ? env.timestamp : ''))
+        }
+      };
+    }
     const dm = env.dataMessage;
     if (!dm || typeof dm.message !== 'string' || !dm.message) return null;   // receipts/typing/sync -> nothing
     if (dm.groupInfo) return null;                                            // DM-only first cut
@@ -50,7 +72,7 @@
     const transport = o.transport || makeSignalTransport({ fetch: o.fetch, endpoint: o.endpoint, account: o.account });
     return makeChannelAdapter({
       transport,
-      normalize,
+      normalize: raw => normalize(raw, { account: o.account }),
       name: 'signal',
       maxMessageLength: MAX_MESSAGE_LENGTH,
       allowedChats: o.allowedChats,

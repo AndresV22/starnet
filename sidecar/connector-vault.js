@@ -6,6 +6,17 @@ const { writeFileDurable } = require('./durable-write.js');
 const FORMAT = 'starnet.connector-vault.v1';
 const AAD = Buffer.from(FORMAT);
 const UNAVAILABLE = 'Connector credentials are locked. Restart StarNet with the original OS account and an unlocked credential store.';
+// Why the saved sign-ins could not be opened. Each one names what the user can actually do about it:
+// a restart only helps when the OS store itself was unreachable; the other two need START FRESH.
+const LOCK_REASONS = ['key-unavailable', 'key-mismatch', 'unreadable'];
+function lockMessage(reason, keyError = '') {
+  const why = String(keyError || '').trim().slice(0, 240);
+  if (reason === 'key-unavailable') return 'Saved connector sign-ins are locked: StarNet could not open this computer\'s credential store.' +
+    (why ? ' Reason: ' + why + '.' : '') + ' They are safe and unchanged. Unlock or repair the credential store and restart StarNet, or START FRESH to sign in again.';
+  if (reason === 'key-mismatch') return 'Saved connector sign-ins are locked: they were sealed with a key this OS account no longer has (its credential-store entry was reset, or this is a different account). START FRESH to sign in again. The old files are kept, not deleted.';
+  return 'Saved connector sign-ins are locked: the saved file is damaged or from a newer StarNet. START FRESH to sign in again. The old files are kept, not deleted.';
+}
+function lockError(reason) { return Object.assign(new Error(UNAVAILABLE), { lockReason: LOCK_REASONS.includes(reason) ? reason : 'unreadable' }); }
 function validState(value) {
   const object = v => !!v && typeof v === 'object' && !Array.isArray(v);
   return object(value) && value.version === 2 && Array.isArray(value.configs) &&
@@ -13,15 +24,22 @@ function validState(value) {
 }
 
 // The desktop shell supplies a stable, OS-keychain-backed key. Never create a
-// plaintext key beside the ciphertext, and never treat a missing key as empty data.
+// plaintext key beside the ciphertext, and never treat a missing key as empty data:
+// ciphertext without its key stays locked and untouched. When the desktop expected a
+// key (required) but the OS store was unreachable, a store with NO sealed data runs
+// unencrypted instead of refusing every sign-in (`fallback` says so, truthfully), the
+// same rule as the credits token: better a token on disk than a token nobody has.
+// The next launch with a working store seals it (migrate).
 function makeConnectorVault({ fs, path, keyHex = '', required = false, writeDurable = writeFileDurable }) {
   if (keyHex && !/^[a-f0-9]{64}$/i.test(keyHex)) throw new Error(UNAVAILABLE);
   const key = keyHex ? Buffer.from(keyHex, 'hex') : null;
-  let locked = required && !key;
+  let locked = false;
+  let lockReason = '';
+  let resetInProgress = false;
   function decode(value) {
-    if (value && typeof value.format === 'string' && value.format.startsWith('starnet.connector-vault.') && value.format !== FORMAT) throw new Error(UNAVAILABLE);
+    if (value && typeof value.format === 'string' && value.format.startsWith('starnet.connector-vault.') && value.format !== FORMAT) throw lockError('unreadable');
     if (!value || value.format !== FORMAT) return value;
-    if (!key) throw new Error(UNAVAILABLE);
+    if (!key) throw lockError('key-unavailable');
     try {
       if (!/^[a-f0-9]{24}$/.test(value.iv || '') || !/^[a-f0-9]{32}$/.test(value.tag || '') ||
           typeof value.data !== 'string' || !/^[A-Za-z0-9+/]*={0,2}$/.test(value.data)) throw new Error();
@@ -31,7 +49,7 @@ function makeConnectorVault({ fs, path, keyHex = '', required = false, writeDura
       const plain = JSON.parse(Buffer.concat([cipher.update(Buffer.from(value.data, 'base64')), cipher.final()]).toString('utf8'));
       if (!validState(plain)) throw new Error();
       return plain;
-    } catch (_) { throw new Error(UNAVAILABLE); }
+    } catch (_) { throw lockError('key-mismatch'); }
   }
   function encode(value) {
     if (!validState(value)) throw new Error('Invalid connector state; saved credentials were preserved');
@@ -45,25 +63,27 @@ function makeConnectorVault({ fs, path, keyHex = '', required = false, writeDura
   function readOne(file) {
     let raw;
     try { raw = fs.readFileSync(file, 'utf8'); }
-    catch (e) { if (e.code === 'ENOENT') return { absent: true }; throw new Error(UNAVAILABLE); }
+    catch (e) { if (e.code === 'ENOENT') return { absent: true }; throw lockError('unreadable'); }
     let parsed;
     try { parsed = JSON.parse(raw); } catch (_) { return { corrupt: true }; }
     // Every supported current/legacy format is an object. JSON null is present
     // data, never proof of an absent store: boot migration would otherwise seal
     // an empty state over this file AND its last-good encrypted backup.
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error(UNAVAILABLE);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw lockError('unreadable');
     return { value: decode(parsed), encrypted: parsed && parsed.format === FORMAT };
   }
   function load(file) {
-    if (locked) throw new Error(UNAVAILABLE);
+    if (locked) throw lockError(lockReason);
     try {
+      // A reset interrupted after parking the old copies must never boot as an empty store.
+      if (!resetInProgress && fs.existsSync(file + '.reset-pending')) throw lockError('unreadable');
       const main = readOne(file);
       if (!main.absent && !main.corrupt) return main.value;
       const bak = readOne(file + '.bak');
       if (!bak.absent && !bak.corrupt) return bak.value;
       if (main.absent && bak.absent) return undefined;
-      throw new Error(UNAVAILABLE);
-    } catch (_) { locked = true; throw new Error(UNAVAILABLE); }
+      throw lockError('unreadable');
+    } catch (e) { locked = true; lockReason = (e && e.lockReason) || 'unreadable'; throw lockError(lockReason); }
   }
   function readVerified(file, value) {
     const got = readOne(file);
@@ -99,7 +119,69 @@ function makeConnectorVault({ fs, path, keyHex = '', required = false, writeDura
     }
     return true;
   }
-  return { load, write, migrate, get protected() { return !!key && !locked; }, get locked() { return locked; } };
+  // START FRESH: the user's explicit exit from a store that cannot be opened. Every copy (main, backup,
+  // legacy) is MOVED into a dated unreadable-* folder beside it, never deleted, and only once all of them
+  // are aside is a new empty store written (sealed when a key exists). A failed move leaves the vault locked.
+  function startFresh(file, legacyFiles = [], { stamp = '' } = {}) {
+    const empty = { version: 2, configs: [], oauth: { byId: {}, clients: {} } };
+    const label = String(stamp || '').replace(/[^0-9A-Za-z-]/g, '-').slice(0, 40) || 'unknown';
+    const dir = path.join(path.dirname(file), 'unreadable-' + label);
+    const sources = [file, ...legacyFiles].flatMap(f => [f, f + '.bak']).filter(src => fs.existsSync(src));
+    for (const src of sources) {
+      if (fs.existsSync(path.join(dir, path.basename(src)))) throw new Error('START FRESH could not keep ' + path.basename(src) + ' aside; nothing was changed');
+    }
+    const marker = file + '.reset-pending';
+    if (fs.existsSync(marker)) throw new Error('START FRESH is incomplete from a previous attempt; saved recovery files were preserved. Restore the original files before retrying.');
+    const oldReason = lockReason || 'unreadable';
+    const moved = [];
+    let writing = false;
+    try {
+      if (sources.length) fs.mkdirSync(dir, { recursive: true });
+      // Durable intent precedes the first move. A crash leaves a visible locked store, never an empty one.
+      writeDurable({ fs, path }, marker, JSON.stringify({ movedTo: dir, sources: sources.map(src => path.basename(src)) }));
+      // Verify every preserved copy before removing any original credential file.
+      for (const src of sources) {
+        const dest = path.join(dir, path.basename(src));
+        fs.copyFileSync(src, dest, fs.constants.COPYFILE_EXCL);
+        if (!fs.readFileSync(dest).equals(fs.readFileSync(src))) throw new Error('Recovery copy could not be verified: ' + path.basename(src));
+      }
+      for (const src of sources) {
+        fs.unlinkSync(src);
+        moved.push(path.basename(src));
+      }
+      resetInProgress = true;
+      locked = false; lockReason = '';
+      writing = true;
+      write(file, empty, { removal: true });
+      fs.unlinkSync(marker);
+      return { movedTo: moved.length ? dir : '', moved, state: empty };
+    } catch (error) {
+      locked = true; lockReason = oldReason;
+      let restored = true;
+      // Only remove files created by this attempt where no original existed; originals are copied back from verified recovery files.
+      if (writing) for (const target of [file, file + '.bak']) {
+        if (sources.includes(target)) continue;
+        try { fs.unlinkSync(target); } catch (e) { if (e.code !== 'ENOENT') restored = false; }
+      }
+      for (const name of moved.slice().reverse()) {
+        const src = sources.find(candidate => path.basename(candidate) === name);
+        try {
+          const saved = path.join(dir, name);
+          fs.copyFileSync(saved, src);
+          if (!fs.readFileSync(src).equals(fs.readFileSync(saved))) restored = false;
+        } catch (_) { restored = false; }
+      }
+      if (restored) try { fs.unlinkSync(marker); } catch (e) { if (e.code !== 'ENOENT') restored = false; }
+      const detail = restored ? 'The original files were restored and storage remains locked.'
+        : 'Storage remains locked; preserved recovery files are in ' + dir + '. Recovery did not fully restore the original locations.';
+      throw new Error('START FRESH failed. ' + detail + ' ' + String(error && error.message || error));
+    } finally { resetInProgress = false; }
+  }
+  return { load, write, migrate, startFresh,
+    get protected() { return !!key && !locked; }, get locked() { return locked; },
+    get lockReason() { return locked ? lockReason : ''; },
+    // The desktop expected an OS-keychain key and did not get one: whatever is saved is NOT encrypted.
+    get fallback() { return !!required && !key; } };
 }
 
-module.exports = { makeConnectorVault, FORMAT, UNAVAILABLE };
+module.exports = { makeConnectorVault, FORMAT, UNAVAILABLE, LOCK_REASONS, lockMessage };

@@ -164,7 +164,7 @@ const CONCEPTS =
   '- WORKFLOWS / LINES (the build library calls them CONVEYOR LINES — "a conveyor" is a line): a line is machines on the floor joined by belts — INTAKE (where work comes in: schedule, chat, watched ' +
   'folder, app), BAY (one step, done by the agent placed there), FILTER (sorts by kind onto belts), MERGER (belts share one), ' +
   'SPLITTER (one belt to several; with a JOINER after it every branch gets a copy), JOINER (waits for every branch, sends one ' +
-  'result), LOOP (sends work back until the reviewer approves), OUTBOX (where the result comes out). [workflows] has SEND A JOB. ' +
+  'result), LOOP (sends work back until the reviewer approves), OUTBOX (where the result comes out). SEND TO passes finished work from an OUTBOX to another line’s INBOX, using that line’s own crew and budget; a circle is refused. In station.plan refit, { op: "send", from: outboxId, to: intakeId } sets it and to:null clears it; connect OUTBOX to INBOX does the same. { op: "copy", line, x, y } copies a line (without its folder, triggers or outward SEND TO); { op: "delete", line } removes it. Read station.map { room } for ids and station.layout for sendsWorkTo / getsWorkFromLines. [workflows] has SEND A JOB. ' +
   'You: station.layout reads every line; station.test_line sends a real job; station.start_line puts it on a schedule, folder or ' +
   'webhook (or off). Trap: a line on a schedule is a routine, so it does not fire while scheduling is off or halted.\n' +
   '- OUTBOX vs DELIVERABLES vs TO REVIEW: a floor OUTBOX shows ONLY its own line\'s jobs (clicking it opens that line in ' +
