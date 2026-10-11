@@ -4,10 +4,10 @@ slug: windows-child-tools-lose-required-runtime-enviro
 title: Windows child tools lose required runtime environment and launch directory
 surface: safecell
 severity: P2
-status: claimed
+status: fixed
 found: 2026-10-11
 lane: agent/session-handoff-1011
-fix:
+fix: fc3c9132a
 origin: audit
 ---
 
@@ -27,4 +27,4 @@ Before recovery the dedicated environment suite had 8 failures and 1 pass; after
 
 ## Verdict
 
-Claimed by the recovery lane. Source and real subprocess checks pass; combined gates and device-specific acceptance remain pending.
+Source repair and real executable/LSP child checks pass. Combined full gates remain required before trunk integration; native CUA device acceptance remains unverified.

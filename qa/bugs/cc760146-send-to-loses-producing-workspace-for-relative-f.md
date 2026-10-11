@@ -4,10 +4,10 @@ slug: send-to-loses-producing-workspace-for-relative-f
 title: SEND TO loses producing workspace for relative file artifacts
 surface: autonomy
 severity: P1
-status: claimed
+status: fixed
 found: 2026-10-11
 lane: agent/session-handoff-1011
-fix:
+fix: 1428c8b11
 origin: audit
 ---
 
@@ -27,4 +27,4 @@ The regression against 34133606b produced 2 failures and 73 passes; after 1428c8
 
 ## Verdict
 
-Claimed by the recovery lane. Source repair implemented; live app and combined-gate acceptance remain pending.
+Source repair and real producer-file/downstream-prompt scenario pass. Combined full gates remain required before trunk integration; cross-agent file permissions are unchanged.
