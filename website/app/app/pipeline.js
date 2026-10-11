@@ -2033,8 +2033,18 @@
     if (files.length) parts.push('FILES IT MADE (paths on this machine):\n' + files.map(f => '- ' + f).join('\n'));
     return parts.join('\n\n');
   }
+  // parseHandoffInput(text) -> { fromName, original, output } | null — the reader of handoffInput's frame (the OUTBOX titles a
+  // handed-on job by the job as it first arrived, never by the frame)
+  function parseHandoffInput(text) {
+    const s = String(text == null ? '' : text);
+    const m = /^\[HAND-OFF — (?:LINE (.+?)|the line before this one) finished its part/.exec(s);
+    if (!m) return null;
+    const orig = /THE JOB AS IT FIRST ARRIVED:\n([\s\S]*?)(?:\n\nWHAT [^\n]* DELIVERED:\n|$)/.exec(s);
+    const out = /DELIVERED:\n([\s\S]*?)(?:\n\nFILES IT MADE \(|$)/.exec(s);
+    return { fromName: m[1] || '', original: orig ? orig[1] : '', output: out ? out[1] : '' };
+  }
 
-  return { rejoinOf, deriveLinks, reconcileLinks, compileRoutingPlan, sendToOf, handoffInput, composeStageBrief, HANDS_LEAD, resolveTarget, lineOf, lineOriginOf, lineLimitsOf, normalizeLineLimits, LINE_LIMIT_DEFAULTS, LINE_LIMIT_CEILINGS, sourceFor, ok, liveTiles, routeFrom, junctionLaneOwners, chainNext, chainStep, fanSiblings, handoffPrompt, parseHandoff, isHandoff, stripVerdictLine, joinPayload, lineComponents, LOOP_MAX_DEFAULT, LOOP_MAX_CEILING,
+  return { rejoinOf, deriveLinks, reconcileLinks, compileRoutingPlan, sendToOf, handoffInput, parseHandoffInput, composeStageBrief, HANDS_LEAD, resolveTarget, lineOf, lineOriginOf, lineLimitsOf, normalizeLineLimits, LINE_LIMIT_DEFAULTS, LINE_LIMIT_CEILINGS, sourceFor, ok, liveTiles, routeFrom, junctionLaneOwners, chainNext, chainStep, fanSiblings, handoffPrompt, parseHandoff, isHandoff, stripVerdictLine, joinPayload, lineComponents, LOOP_MAX_DEFAULT, LOOP_MAX_CEILING,
     // THE DOCK LAYER (multi-bay agents, 2026-09-22) — the dock-keyed truth the agent readings above are views of
     resolveDock, chainNextDock, chainStepDock, fanSiblingsDock, junctionLaneDocks, lineOfDock, lineOriginOfDock, entryDockOf, docksOf, dockOf, agentOfDock: agentOfDockIn, deriveDockLayer, dockLayer, hasDockLayer, stepToAgents, propIdCmp,
     _internals: { DIRV, OPP, LANE_ORDER, key, buildBeltMap, outLanes, inLanes, loopLanes, beltTileNear, ringBelts, junctionAnchor, dirBetween, linkTilesByProp, linkedBeltMap, nextTiles, detectCycle, hashStr, compileChains, compileDockChains, chainCycle, shipFrom, propIdCmp, entryDocksOf, agentChainsView } };

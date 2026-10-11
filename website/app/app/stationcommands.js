@@ -382,6 +382,9 @@ const StationCommands = (() => {
     const junctionKeyOf = p => (plan.belts && plan.belts[p.x + ',' + p.y]) ? p.x + ',' + p.y
       : (I.beltTileNear ? (t => t ? t.x + ',' + t.y : null)(I.beltTileNear(plan.belts || {}, p.x, p.y, p.w || 1, p.h || 1)) : null);
     const comps = (P.lineComponents(geo) || []).filter(c => c.intakes.length || c.bays.length || c.outboxes.length);
+    // SEND TO (2026-10-10): a line names another by its INBOX's label; the hand-offs are the COMPILED plan's (plan.sendTo)
+    const lineName = id => { const cc = comps.find(x => x.key === id), l = cc ? (cc.intakes.map(i => propOf(i)).find(p => p && p.label) || {}).label : null; return l ? 'LINE ' + String(l).toUpperCase() : 'an unnamed line'; };
+    const sendOf = (lineId, pid) => (P.sendToOf ? P.sendToOf(plan, lineId, pid) : null);
 
     let lines = comps.map(c => {
       const flow = W.lineFlow(plan, c, P, geo.props);
@@ -411,7 +414,8 @@ const StationCommands = (() => {
         const s = { step: step[pid], propId: pid, role: d.role || null, room: roomName(sp), agent: who(d.agentId),
           routed: !!d.routed, fedByInbox: fed,
           getsWorkFrom: (fed ? ['INBOX'] : []).concat(nb.prev.map(p => escFrom(p, pid) ? Object.assign(ref(p), { onEscalation: true }) : ref(p))),
-          sendsTo: d.agentId ? nb.next.filter(n => !escFrom(pid, n)).map(ref).concat(ch && ch.outbox ? ['OUTBOX'] : []) : [],
+          // (its OUTBOX may SEND the line's finished work on to another line: the agent must never say the work stops there)
+          sendsTo: d.agentId ? nb.next.filter(n => !escFrom(pid, n)).map(ref).concat(ch && ch.outbox ? [(st0 => st0 ? 'OUTBOX, then on to ' + lineName(st0.toLine) + ' (SEND TO: that line’s own crew and budget work it next)' : 'OUTBOX')(sendOf(c.key, pid))] : []) : [],
           brief: briefFor(pid), tools: d.agentId ? toolsAt(d.agentId, pid).map(toolName) : [] };
         const esc = escGates.filter(g => (g.after || []).indexOf(pid) >= 0);
         if (esc.length && d.agentId) s.escalatesTo = esc.map(g => Object.assign(ref(g.escTo), { when: escWhen(g), runs: !!g.when }));
@@ -447,6 +451,11 @@ const StationCommands = (() => {
           routines: starts.routines.map(r => ({ name: r.name, agent: upper(r.agentId), enabled: r.enabled, runsWholeLine: r.runsLine, atEntry: r.atEntry, startsLine: r.startsLine, schedule: human(r.display) })),
           channelBots: starts.chanRows.map(r => ({ label: r.label, connected: r.connected, answersAs: r.answersAs, feedsThisLine: r.feeds })) },
         steps, gates, filters, issues: mine.map(issue) };
+      // SEND TO: where this line hands every finished job on to, and which lines hand theirs to it (compiled — a SEND TO the
+      // compiler turned off, a circle or a gone INBOX, is in `issues`, never here)
+      const st = plan.sendTo || {}, outs = Object.keys(st).filter(k => st[k].fromLine === c.key), ins = Object.keys(st).filter(k => st[k].toLine === c.key);
+      if (outs.length) out.sendsWorkTo = outs.map(k => ({ lineId: st[k].toLine, name: lineName(st[k].toLine), outboxPropId: k }));
+      if (ins.length) out.getsWorkFromLines = ins.map(k => ({ lineId: st[k].fromLine, name: lineName(st[k].fromLine), intakePropId: st[k].intakeId }));
       if (unread.length) out.startsUnread = unread;
       return out;
     });

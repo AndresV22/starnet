@@ -421,9 +421,10 @@ const WorkflowPanel = (() => {
       });
       const lastCol = f.cols[f.cols.length - 1];
       const endId = lastCol ? (lastCol.gate ? lastCol.gate.propId : lastCol.docks.length === 1 ? lastCol.docks[0].propId : null) : null;
+      const sendsTo = sendTarget(f.outbox.propId);   // SEND TO: where this line's finished work rides on to (one short thing)
       nodes.push({ kind: 'outbox', propId: f.outbox.propId, mach: 'outbox', addAfter: !f.outbox.propId && endId && H.lineEdit ? endId : null, cls: 'wf-term', ok: f.outbox.reached, name: 'OUTBOX',
-        meta: f.outbox.reached ? 'the result' : f.outbox.reachedOnceCrewed ? 'needs crew' : 'not connected', warn: !f.outbox.reached && !f.outbox.reachedOnceCrewed,
-        tip: 'OUTBOX\n' + (f.outbox.reached ? 'the line ends here' : f.outbox.propId ? (f.outbox.reachedOnceCrewed ? 'connected · waiting on agents' : 'not connected yet') : 'no OUTBOX') });
+        meta: f.outbox.reached ? (sendsTo ? 'sends to ' + sendsTo : 'the result') : f.outbox.reachedOnceCrewed ? 'needs crew' : 'not connected', warn: !f.outbox.reached && !f.outbox.reachedOnceCrewed,
+        tip: 'OUTBOX\n' + (f.outbox.reached ? (sendsTo ? 'the line ends here — every job it finishes rides on to ' + sendsTo : 'the line ends here') : f.outbox.propId ? (f.outbox.reachedOnceCrewed ? 'connected · waiting on agents' : 'not connected yet') : 'no OUTBOX') });
     } else if (S.lone) {
       nodes.push({ kind: 'col', col: { docks: [{ propId: S.lone, agentId: (prop(S.lone) || {}).agentId || null, role: (prop(S.lone) || {}).role || null, routed: false }], mode: 'single' }, ok: false });
     }
@@ -1504,8 +1505,38 @@ const WorkflowPanel = (() => {
     if (!d) return l.label;
     return (arrow ? '→ ' : '') + dockLabel(f, l.dock) + (d.agentId ? '' : ' (no agent yet)');
   }
+  /* ===== SEND TO (2026-10-10) — the OUTBOX card: where this line's finished work rides on to =====
+     One chip per OTHER line (named by its INBOX) + NOWHERE. A chip that would send work round in a circle is disabled and says
+     why, right under the chips (never a hover-only reason). station.setSendTo is the one writer (one UNDO); the floor's drag
+     (the OUTBOX onto another line's INBOX) and the BELT tool's two clicks write the same pointer. */
+  function sendChoices(outboxId) { const st = H.station(); return (outboxId && st && typeof st.sendToChoices === 'function') ? st.sendToChoices(outboxId) : []; }
+  function sendTarget(outboxId) { const on = sendChoices(outboxId).find(c => c.on); return on ? (on.name || 'an unnamed line') : null; }
+  function paintOutbox(body, f, p) {
+    const choices = sendChoices(p.id), on = choices.find(c => c.on);
+    const nameOf = (c, i) => c.name || ('UNNAMED LINE ' + (i + 1));
+    const chips = '<button type="button" class="wf-chip" data-sendto="" aria-pressed="' + !on + '">NOWHERE</button>'
+      + choices.map((c, i) => '<button type="button" class="wf-chip' + (c.refusal ? ' off' : '') + '" data-sendto="' + esc(c.intakeId) + '" aria-pressed="' + c.on + '"'
+        + (c.refusal ? ' aria-disabled="true"' : '') + '>' + esc(nameOf(c, i)) + '</button>').join('');
+    const why = choices.map((c, i) => c.refusal ? '<p class="wf-help dim wf-sendwhy">' + esc(nameOf(c, i)) + ' — ' + esc(c.refusal.msg || c.refusal.error) + '</p>' : '').join('');
+    body.innerHTML = '<section class="wf-sec"><h3><span class="n">OUTBOX</span>Collect the finished work</h3>'
+      + '<p class="wf-help">' + (f && f.outbox.reached ? 'This line’s finished work lands here — leave build mode and click it to read what came back.' : 'Connect the last BAY to it with the BELT tool.') + '</p>'
+      + '<h4 class="wf-sub">SEND TO ›</h4>'
+      + (choices.length ? '<div class="wf-chips" role="group" aria-label="Where this line sends its finished work">' + chips + '</div>' + why
+        : '<p class="wf-help dim">There is no other line on the floor yet. Build one, then pick it here to hand this line’s finished work on to it.</p>')
+      + '<p class="wf-help" id="send-note">' + (on ? 'Every job this line finishes rides on to <b>' + esc(nameOf(on, choices.indexOf(on))) + '</b> — its own crew works it, under its own budget. This line’s result stays here too.' : 'This line’s work stops here.') + '</p>'
+      + '<p class="wf-help dim">Or drag this OUTBOX onto another line’s INBOX. One UNDO takes it back.</p></section>';
+    body.querySelectorAll('[data-sendto]').forEach(b => { b.onclick = () => {
+      const note = $('#send-note');
+      if (b.getAttribute('aria-pressed') === 'true') return;
+      if (b.classList.contains('off')) { H.sfx('bad'); const c = choices.find(x => x.intakeId === b.dataset.sendto); if (note) note.textContent = '✕ ' + ((c && c.refusal && c.refusal.msg) || 'cannot send there'); return; }
+      const r = H.station().setSendTo(p.id, b.dataset.sendto || null);
+      if (!r || !r.ok) { H.sfx('bad'); if (note) note.textContent = '✕ ' + ((r && r.msg) || 'not saved'); return; }
+      H.sfx('click'); paint(true);
+    }; });
+  }
   function paintPlain(body, f, p) {
     if (p.t === 'filter') return paintFilter(body, f, p);
+    if (p.t === 'outbox') return paintOutbox(body, f, p);
     const info = H.junctionInfo ? H.junctionInfo(p.id) : null, cfg = (info && info.cfg) || null, lanes = (info && info.lanes) || [];
     const dia = H.machineDiagram ? H.machineDiagram(p.t) : '';
     const branches = n => lanes.length

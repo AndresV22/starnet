@@ -140,6 +140,27 @@ const lineOf = (pl, id) => pl.lineOfProp[id];
   A.ok(/^\[HAND-OFF — LINE RESEARCH finished its part/.test(txt) && /THE JOB AS IT FIRST ARRIVED:\nFind three facts\./.test(txt) && /WHAT LINE RESEARCH DELIVERED:\nFact 1\./.test(txt), 'handoffInput: who, the job, what came back — ' + JSON.stringify(txt));
   A.ok(/FILES IT MADE \(paths on this machine\):\n- C:\/w\/a\.md$/.test(txt), '…and each file once');
   A.ok(P.handoffInput({ output: 'x'.repeat(20000) }).length < 12400, 'bounded');
+  A.eq(P.parseHandoffInput(P.handoffInput({ fromName: 'a', original: 'Find facts.\nTwo.', output: 'F1\n\nF2', files: ['x'] })), { fromName: 'A', original: 'Find facts.\nTwo.', output: 'F1\n\nF2' }, 'parseHandoffInput reads the frame back (the OUTBOX titles a handed-on job by the job as it first arrived)');
+  A.eq(P.parseHandoffInput('[LOOP — pass 2] x'), null, '…and nothing else');
+}
+
+/* ---------- THE WIRING: every surface reads the ONE pointer, writes it through the ONE setter ---------- */
+{
+  const fs = require('fs'), path = require('path');
+  const src = f => fs.readFileSync(path.join(__dirname, '..', 'frontend', 'app', f), 'utf8');
+  const build = src('build.js'), panel = src('workflowpanel.js'), world = src('world.js'), cmds = src('stationcommands.js'), outbox = src('windows/outbox.js'), wfw = src('windows/workflows.js');
+  A.ok(/const fo = station\.propById\(connectFrom\);\s*if \(fo && fo\.t === 'outbox' && pp\.t === 'intake'\) \{ connectFrom = null; commitSendTo\(fo\.id, pid, ev\); return; \}/.test(build), 'BELT tool: the armed OUTBOX’s click on an INBOX is a SEND TO (before connectBelt is ever asked)');
+  A.ok(/const so = station\.propById\(d\.propId\), si = so && so\.t === 'outbox' \? intakeAt\(d\.cur\.tx, d\.cur\.ty\) : null;\s*if \(si\) \{ commitSendTo\(so\.id, si\.id, ev\); return; \}/.test(build), 'SELECT: an OUTBOX let go on another line’s INBOX is a SEND TO (it does not move)');
+  A.ok(/const sendTo = p\.t === 'outbox' && \(dx \|\| dy\) \? intakeAt\(drag\.cur\.tx, drag\.cur\.ty\) : null;/.test(build) && /if \(g\.sendTo\) \{ drawSendGhost\(t, now, g\); return; \}/.test(build), '…its ghost is the SEND TO arc + the verdict, before the drop');
+  A.ok(/const r = typeof station\.setSendTo === 'function' \? station\.setSendTo\(outboxId, intakeId\) : null;/.test(build), 'one writer: station.setSendTo');
+  A.ok(/drawLayer\('sendTo', \(\) => drawSendLinks\(t, now\)\);/.test(build) && /if \(!near\) continue;   \/\/ ONE-VOICE LAW/.test(build), 'build mode draws each SEND TO as an arc; its words only when you look at either end');
+  A.ok(/if \(p\.t === 'outbox'\) return paintOutbox\(body, f, p\);/.test(panel) && /const r = H\.station\(\)\.setSendTo\(p\.id, b\.dataset\.sendto \|\| null\);/.test(panel) && /wf-sendwhy/.test(panel), 'the Workflow panel’s OUTBOX card: SEND TO chips (+ NOWHERE), a circle disabled with its reason inline');
+  A.ok(/\+ '\|' \+ JSON\.stringify\(plan\.sendTo \|\| \{\}\)\) : '';/.test(world), 'the plan poster re-posts on a SEND TO edit (outside plan.hash)');
+  A.ok(/if \(p\.kind === 'handoff' && placeSendCrate\(p\)\) return;/.test(world) && /noteOutboxSink\(bx\.x, bx\.y\);/.test(world) && /fnow - c\.born >= HANDOFF_GRACE_MS/.test(world), 'the hand-off crate: held until the sending line’s crate sinks (or the grace runs out), then flown OUTBOX → INBOX');
+  A.ok(/drawSendPlates\(\);/.test(world) && /const text = 'SENDS TO ' \+ \(nm \? 'LINE ' \+ nm : 'ANOTHER LINE'\);/.test(world) && /for \(const s of stat\) if \(s\.box\) taken\.push\(s\.box\);/.test(world), 'the OUTBOX plate SENDS TO LINE B, placed in the line plates’ own pass');
+  A.ok(/'OUTBOX, then on to ' \+ lineName\(st0\.toLine\)/.test(cmds) && /out\.sendsWorkTo = /.test(cmds), 'station.map tells the agent where a line’s work goes after its OUTBOX');
+  A.ok(/const jobStream = \/\^\(sample\|handoff\)-\/\.test/.test(outbox) && /'SENT ON TO ' \+ word\(sj\.sentTo\)/.test(outbox) && /'FROM ' \+ word\(sj\.from\)/.test(outbox), 'DELIVERABLES: a handed-on job opens in WORKFLOWS and says FROM / SENT ON TO');
+  A.ok(/>Sent on to ' \+ esc\(lineWord\(job\.sentTo\)\)/.test(wfw) && />From ' \+ esc\(lineWord\(job\.from\)\)/.test(wfw), 'WORKFLOWS: each result says where it came from / went on to');
 }
 
 A.report('line-sendto.test');

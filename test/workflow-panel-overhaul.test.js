@@ -76,7 +76,7 @@ A.ok(/mach: n\.propId \? n\.mach : null, lamp: n\.ok, name: n\.name, meta: n\.me
   'the INBOX, every BAY, a gate and the OUTBOX are all shown as their machine, with their lamp');
 A.ok(/'\\n' \+ \(brief \? '“' \+ brief\.slice\(0, 140\)/.test(node) && /: 'no instructions yet'\) \+ \(t \? '\\n✓ tested' : ''\);/.test(node) && !/<span class="s">|no agent yet<\/span>/.test(node),
   'a step\'s instructions, its missing agent and its test live in the tip — no sentence is printed on a tile');
-A.ok(/meta: f\.outbox\.reached \? 'the result' : f\.outbox\.reachedOnceCrewed \? 'needs crew' : 'not connected'/.test(panel) && /meta: !ip \? 'none yet' : kinds > 1/.test(panel), 'the INBOX and OUTBOX say one short thing each');
+A.ok(/meta: f\.outbox\.reached \? \(sendsTo \? 'sends to ' \+ sendsTo : 'the result'\) : f\.outbox\.reachedOnceCrewed \? 'needs crew' : 'not connected'/.test(panel) && /meta: !ip \? 'none yet' : kinds > 1/.test(panel), 'the INBOX and OUTBOX say one short thing each');
 /* the joins are a clean line with a chevron — NEVER the floor's real conveyor art (2026-09-30, Andrew: "ew … that u put the
    actual conveyor there. terrible") — a shade brighter once a job entering the INBOX would reach the OUTBOX, never moving */
 A.ok(!/beltStill|wf-belt-cold|wf-belt-live|has-belt/.test(panel + build + css) && !/Conveyor\./.test(panel), 'the diagram never draws the real conveyor');

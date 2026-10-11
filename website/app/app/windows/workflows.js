@@ -607,7 +607,14 @@ const WorkflowsWindow = (() => {
     const kept = ok && styleKept(job);
     const changes = (job.notes || []).map(n => '<li>' + esc(n.kind === 'fix' ? 'You changed the ' + (n.role || 'step') + ' step’s ' + (n.field === 'hands' ? 'hand-off' : 'instructions') + (n.why ? ' — ' + n.why : '')
       : n.kind === 'example' ? 'You kept this result’s style for the ' + (n.role || 'last') + ' step' : 'You put the ' + (n.role || 'step') + ' step back the way it was') + ' · ' + ago(n.at) + '</li>').join('');
+    // SEND TO (2026-10-10): where this job came from / went on to — each line's result stays its own, the two records point at each other
+    const lineWord = e => (e && e.name ? 'LINE ' + String(e.name).toUpperCase() : 'another line');
+    const prov = (job.from ? '<p class="wfw-why wfw-from">From ' + esc(lineWord(job.from)) + ' — that line finished its part and sent its result on to this one.'
+        + (job.from.jobId ? ' <button type="button" class="wf-link" data-job="' + esc(job.from.jobId) + '">OPEN ITS JOB</button>' : '') + '</p>' : '')
+      + (job.sentTo ? '<p class="wfw-why wfw-sent">Sent on to ' + esc(lineWord(job.sentTo)) + ' — that line works on this result next.'
+        + (job.sentTo.jobId ? ' <button type="button" class="wf-link" data-job="' + esc(job.sentTo.jobId) + '">OPEN ITS JOB</button>' : '') + '</p>' : '');
     let h = '<section class="wfw-sec wfw-result"><div class="wfw-rhead">' + head + '<span class="wfw-rmeta">' + esc(meta) + '</span></div>'
+      + prov
       + (why ? '<p class="wfw-why">' + esc(why) + '</p>' : '')
       + work.notes.map(t => '<p class="wfw-why">⚠ ' + esc(t) + '</p>').join('')
       + '<div class="wfw-you"><span class="wfw-k">You asked</span><div class="wfw-quote">' + esc(job.text) + '</div></div>'
