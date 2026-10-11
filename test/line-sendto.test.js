@@ -144,6 +144,55 @@ const lineOf = (pl, id) => pl.lineOfProp[id];
   A.eq(P.parseHandoffInput('[LOOP — pass 2] x'), null, '…and nothing else');
 }
 
+/* ---------- TWO OUTBOXES ON ONE LINE (2026-10-11 repair): only the jobs that land in the SENDING one ride on ---------- */
+{
+  const d = WM.starterDoc();
+  for (const id in d.rooms) for (const r of d.rooms[id].rects) { r.x2 = 60; r.y2 = 44; }
+  const st = WM.create(d);
+  const add = o => { const r = st.addProp(o); if (!r.ok) throw new Error('addProp ' + JSON.stringify(r)); return r.id; };
+  // a SORTING OFFICE (INBOX ▸ FILTER ▸ two BAYs), each BAY belted into its OWN OUTBOX
+  const so = LE.placeBlueprint(st, 'sorting_office', { x: 8, y: 4 });
+  const sb = so.ids.filter(id => st.propById(id).t === 'bay');
+  const o1 = add({ t: 'outbox', x: 16, y: 1, w: 2, h: 2 }), o2 = add({ t: 'outbox', x: 16, y: 6, w: 2, h: 2 });
+  A.ok(st.connectBelt(sb[0], o1).ok && st.connectBelt(sb[1], o2).ok, 'two BAYs, two OUTBOXes, one line');
+  const rb = LE.placeBlueprint(st, 'research_line', { x: 8, y: 24 });
+  const bIn = rb.ids.find(id => st.propById(id).t === 'intake');
+  for (const p of st.props()) if (p.t === 'bay' && !p.agentId) st.assignPropAgent(p.id, 'ag_' + p.id);
+  A.ok(st.setSendTo(o1, bIn).ok, 'only the first OUTBOX sends on');
+  const pl = plan(st), la = lineOf(pl, sb[0]);
+  A.eq(pl.lines.find(l => l.lineId === la).outboxes.slice().sort(), [o1, o2].sort(), 'the line has both OUTBOXes');
+  A.eq((P.sendToOf(pl, la, sb[0]) || {}).outboxId, o1, 'a job whose last stage ships into the SENDING OUTBOX rides on');
+  A.eq(P.sendToOf(pl, la, sb[1]), null, 'a job whose last stage ships into the OTHER OUTBOX is NOT handed on (the single-sender shortcut handed it on)');
+  A.eq(P.sendToOf(pl, la, sb[1], o2), null, '…nor when the chain says it landed in that OUTBOX');
+  A.eq(P.sendToOf(pl, la, null, o1).outboxId, o1, 'the exact OUTBOX the chain reports decides');
+  A.eq(P.sendsReachedOf(pl, la, sb[1]), [], 'sendsReachedOf: the other BAY reaches no sender');
+  const r1 = {}, r2 = {};
+  A.eq(P.chainStepDock(pl, sb[0], { lineId: la, reach: r1 }), null, 'a terminal dock is still terminal when the reach is asked');
+  P.chainStepDock(pl, sb[1], { lineId: la, reach: r2 });
+  A.ok(r1.outboxId === o1 && r2.outboxId === o2, 'ctx.reach names the OUTBOX each job lands in — ' + JSON.stringify([r1, r2]));
+}
+{
+  // a FILTER AFTER THE LAST DOCK: one BAY ▸ FILTER ▸ two OUTBOXes, only one sending — the job's own tag picks the OUTBOX
+  const d = WM.starterDoc();
+  for (const id in d.rooms) for (const r of d.rooms[id].rects) { r.x2 = 60; r.y2 = 44; }
+  const st = WM.create(d);
+  const add = o => { const r = st.addProp(o); if (!r.ok) throw new Error('addProp ' + JSON.stringify(r)); return r.id; };
+  const inA = add({ t: 'intake', x: 2, y: 4, w: 2, h: 2 }), bay = add({ t: 'bay', x: 7, y: 4, w: 2, h: 2 }), fl = add({ t: 'filter', x: 12, y: 5, w: 1, h: 1, block: false });
+  const ox = add({ t: 'outbox', x: 16, y: 1, w: 2, h: 2 }), oy = add({ t: 'outbox', x: 16, y: 8, w: 2, h: 2 });
+  A.ok([st.connectBelt(inA, bay), st.connectBelt(bay, fl), st.connectBelt(fl, ox), st.connectBelt(fl, oy)].every(r => r.ok), 'BAY ▸ FILTER ▸ two OUTBOXes');
+  const rb = LE.placeBlueprint(st, 'research_line', { x: 8, y: 24 });
+  const bIn = rb.ids.find(id => st.propById(id).t === 'intake');
+  for (const p of st.props()) if (p.t === 'bay' && !p.agentId) st.assignPropAgent(p.id, 'ag_' + p.id);
+  A.ok(st.configureJunction(fl, { routes: { code: 'S' }, def: 'E' }).ok && st.setSendTo(oy, bIn).ok, 'the FILTER splits code from the rest; one OUTBOX sends on');
+  const pl = plan(st), la = lineOf(pl, bay);
+  A.eq(P.outboxesReached(pl, bay).slice().sort(), [ox, oy].sort(), 'the BAY’s lane can reach both OUTBOXes');
+  const at = tag => { const reach = {}; P.chainStepDock(pl, bay, { lineId: la, tag, reach }); return reach.outboxId; };
+  const code = at('code'), gen = at('general');
+  A.ok(code && gen && code !== gen && [code, gen].sort().join() === [ox, oy].sort().join(), 'the job’s tag decides which OUTBOX it lands in — ' + JSON.stringify({ code, gen }));
+  A.eq((P.sendToOf(pl, la, bay, oy) || {}).toLine, lineOf(pl, bIn), 'landed in the sending OUTBOX: handed on');
+  A.eq(P.sendToOf(pl, la, bay, ox), null, 'landed in the other: not handed on (the reach walk alone picked the sender either way)');
+}
+
 /* ---------- THE WIRING: every surface reads the ONE pointer, writes it through the ONE setter ---------- */
 {
   const fs = require('fs'), path = require('path');
@@ -158,7 +207,7 @@ const lineOf = (pl, id) => pl.lineOfProp[id];
   A.ok(/\+ '\|' \+ JSON\.stringify\(plan\.sendTo \|\| \{\}\)\) : '';/.test(world), 'the plan poster re-posts on a SEND TO edit (outside plan.hash)');
   A.ok(/if \(p\.kind === 'handoff' && placeSendCrate\(p\)\) return;/.test(world) && /noteOutboxSink\(bx\.x, bx\.y\);/.test(world) && /fnow - c\.born >= HANDOFF_GRACE_MS/.test(world), 'the hand-off crate: held until the sending line’s crate sinks (or the grace runs out), then flown OUTBOX → INBOX');
   A.ok(/drawSendPlates\(\);/.test(world) && /const text = 'SENDS TO ' \+ \(nm \? 'LINE ' \+ nm : 'ANOTHER LINE'\);/.test(world) && /for \(const s of stat\) if \(s\.box\) taken\.push\(s\.box\);/.test(world), 'the OUTBOX plate SENDS TO LINE B, placed in the line plates’ own pass');
-  A.ok(/'OUTBOX, then on to ' \+ lineName\(st0\.toLine\)/.test(cmds) && /out\.sendsWorkTo = /.test(cmds), 'station.map tells the agent where a line’s work goes after its OUTBOX');
+  A.ok(/: 'OUTBOX, then on to ' \+ to \+ ' \(SEND TO: that line’s own crew and budget work it next\)';/.test(cmds) && /out\.sendsWorkTo = /.test(cmds) && /P\.sendsReachedOf\(plan, lineId, pid\)/.test(cmds), 'station.map tells the agent where a line’s work goes after its OUTBOX — from the OUTBOX each step’s lane really ships into');
   A.ok(/const jobStream = \/\^\(sample\|handoff\)-\/\.test/.test(outbox) && /'SENT ON TO ' \+ word\(sj\.sentTo\)/.test(outbox) && /'FROM ' \+ word\(sj\.from\)/.test(outbox), 'DELIVERABLES: a handed-on job opens in WORKFLOWS and says FROM / SENT ON TO');
   A.ok(/if \(!p \|\| p\.kind !== 'handoff' \|\| !p\.workitemId \|\| !p\.lineId\) return;/.test(wfw) && /if \(!s \|\| s\.status !== 'delivered' \|\| !s\.from\) return null;/.test(wfw) && /ReturnStore\.foldRow\(\{ runId: run\.runId/.test(wfw), 'a handed-on job’s delivered run lands in DELIVERABLES › TO REVIEW (read back from its own job record)');
   A.ok(/<span class="wfw-k">The job<\/span>/.test(wfw) && /' handed in<\/summary>/.test(wfw), 'a handed-on job shows the job as it first arrived, and what the sending line handed in, apart');

@@ -103,7 +103,8 @@ function makeHandoffRunner(deps) {
     const r = rec || {};
     if (!r.lineId) return { ok: false, code: 'none' };
     const plan = planOf();
-    const st = plan ? Pipeline.sendToOf(plan, r.lineId, r.dockId) : null;
+    // the OUTBOX the job landed in (the chain's terminal walk) decides — a line with two OUTBOXes hands on only from the one that sends
+    const st = plan ? Pipeline.sendToOf(plan, r.lineId, r.dockId, r.outboxId) : null;
     if (!st) return { ok: false, code: 'none' };   // this line sends nowhere (the common case)
     const from = (r.streamId && lineage.get(String(r.streamId))) || { lines: [String(r.lineId)], depth: 0 };
     const lines = from.lines.indexOf(String(r.lineId)) >= 0 ? from.lines.slice() : from.lines.concat([String(r.lineId)]);
@@ -166,7 +167,7 @@ function makeHandoffRunner(deps) {
   async function dispatch(item, s) {
     // THE GATES AGAIN AT DISPATCH: the item may have waited; E-STOP, the cap, the floor or the SEND TO itself may have changed
     const plan = planOf();
-    const still = plan ? Pipeline.sendToOf(plan, item.fromLine, item.rec.dockId) : null;
+    const still = plan ? Pipeline.sendToOf(plan, item.fromLine, item.rec.dockId, item.fromOutbox) : null;
     if (!still || still.toLine !== item.toLine) return refuse(item, 'the SEND TO changed before the hand-off ran');
     const pf = preflight(plan, item.toLine);
     if (pf) return refuse(item, pf);

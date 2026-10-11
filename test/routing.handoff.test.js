@@ -69,6 +69,40 @@ function station(n) {
     await tick();
   }
 
+  /* ---------- ONSHIPPED names the OUTBOX the job landed in (2026-10-11 repair) ----------
+     A line with two OUTBOXes (a SORTING OFFICE, each BAY belted to its own OUTBOX), only one sending: the chain's own terminal walk
+     (Pipeline.chainStepDock ctx.reach) says which OUTBOX each job reached, and the runner hands on only from the sending one. */
+  {
+    const d = WM.starterDoc();
+    for (const id in d.rooms) for (const r of d.rooms[id].rects) { r.x2 = 60; r.y2 = 44; }
+    const st2 = WM.create(d);
+    const so = LE.placeBlueprint(st2, 'sorting_office', { x: 8, y: 4 });
+    const sb = so.ids.filter(id => st2.propById(id).t === 'bay');
+    const o1 = st2.addProp({ t: 'outbox', x: 16, y: 1, w: 2, h: 2 }).id, o2 = st2.addProp({ t: 'outbox', x: 16, y: 6, w: 2, h: 2 }).id;
+    st2.connectBelt(sb[0], o1); st2.connectBelt(sb[1], o2);
+    const rb = LE.placeBlueprint(st2, 'research_line', { x: 8, y: 24 });
+    const bIn = rb.ids.find(id => st2.propById(id).t === 'intake');
+    for (const p of st2.props()) if (p.t === 'bay' && !p.agentId) st2.assignPropAgent(p.id, 'ag_' + p.id);
+    st2.setSendTo(o1, bIn);
+    const pl = P.compileRoutingPlan(st2.projectGeometry()), la = pl.lineOfProp[sb[0]];
+    const got = [];
+    const chain = makeChainRunner({
+      nextAgent: () => null, runAgent: async () => ({ text: 'x', usd: 0 }), now: () => 0,
+      stepDock: (dock, ctx) => P.chainStepDock(pl, dock, ctx), entryDockOf: () => null,
+      lastStage: (a, dock) => { const r = P.dockLayer(pl).dockChains[dock]; return !!(r && r.outbox && !r.deadEnd); },
+      onShipped: r => { got.push(r); }
+    });
+    for (const dock of sb) await chain.advance({ agentId: pl.agentOfDock[dock], dockId: dock, text: 'done', originalText: 'job', lineId: la });
+    A.eq(got.map(r => [r.dockId, r.outboxId]), [[sb[0], o1], [sb[1], o2]], 'onShipped says which OUTBOX each job landed in');
+    const sent = [];
+    const R0 = makeHandoffRunner({ makeHub: () => ({ onInbound: () => new Promise(() => {}) }), plan: () => pl, jobs: {}, now: () => 1, newId: () => 'z' + sent.length + 'abcdef0123456789',
+      emit: () => {}, runsFor: () => [], warn: () => {} });
+    for (const r of got) sent.push(R0.onShipped(r));
+    A.ok(sent[0].ok && sent[0].toLine === pl.lineOfProp[bIn], 'the job that landed in the SENDING OUTBOX is handed on — ' + JSON.stringify(sent[0]));
+    A.eq(sent[1].code, 'none', 'the job that landed in the OTHER OUTBOX is not (it was, before: every job on a line with one sender rode on)');
+    await tick();
+  }
+
   /* ---------- THE RUNNER ---------- */
   const { st, L } = station(5);
   const [a, b, c, dd, e] = L;

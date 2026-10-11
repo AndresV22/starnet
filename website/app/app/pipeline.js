@@ -1435,20 +1435,32 @@
     const map = plan.belts, junctions = plan.junctions || {}, dockAt = L.bayTileToDock, gates = L.gateDocks || {};
     const tag = (ctx && ctx.tag) || 'general';
     const fromTile = ctx && ctx.fromTile;
-    // a lane with no static next dock is still a step when a LOOP/JOIN gate sits on it (rec.gated) — the
-    // gate's back lane / barrier is what runs, and only the walk below can see it
-    if (!fromTile && (!rec || !rec.tile || (!rec.next.length && !rec.gated))) return null;
+    /* SEND TO (2026-10-11, additive): ctx.reach = {} asks WHICH OUTBOX this job's walk ships into — the walk that reaches the
+       end of its belt sets ctx.reach.outboxId (the OUTBOX whose mouth it passed last; a FILTER after the last dock routes by the
+       job's tag, a SPLITTER by its own turn). A terminal dock with no step past it is walked the same way, only when asked —
+       so the hand-off goes from the OUTBOX the job really landed in, never from another one on the same line. */
+    const reach = (ctx && ctx.reach && typeof ctx.reach === 'object') ? ctx.reach : null;
+    let outAt = null;
+    if (reach) { outAt = {}; for (const o of (plan.outs || [])) if (o && o.tile && o.propId != null && !outAt[key(o.tile.x, o.tile.y)]) outAt[key(o.tile.x, o.tile.y)] = String(o.propId); }
     const walkNode = r => (r && r.dockId) ? { dockId: r.dockId, agentId: r.agentId } : null;
     const gateNode = d => d ? nodeOf(L, d) : null;
+    // a lane with no static next dock is still a step when a LOOP/JOIN gate sits on it (rec.gated) — the
+    // gate's back lane / barrier is what runs, and only the walk below can see it
+    if (!fromTile && (!rec || !rec.tile || (!rec.next.length && !rec.gated))) {
+      if (reach && rec && rec.tile) walk(rec.tile);   // terminal: only to learn which OUTBOX the job lands in
+      return null;
+    }
     // walk one lane to the first foreign dock, honouring filters/merges; stops at a join, a loop or a fan-out split
     function walk(start, startDir) {
-      let t = start, forced = startDir || null, guard = 0; const seen = {};
+      let t = start, forced = startDir || null, guard = 0, lastOut = null; const seen = {};
+      const ended = () => { if (reach && lastOut) reach.outboxId = lastOut; return null; };
       while (t && guard++ < 4096) {
         const k = key(t.x, t.y);
         if (dockAt[k] && dockAt[k] !== dockId) return nodeOf(L, dockAt[k]);
         if (seen[k]) return null;
         seen[k] = true;
-        const here = map[k]; if (!here) return null;
+        if (outAt && outAt[k]) lastOut = outAt[k];
+        const here = map[k]; if (!here) return ended();
         const j = junctions[k];
         let d = here;
         if (forced) { d = forced; forced = null; }
@@ -1485,7 +1497,7 @@
           if (lanes.length) { const i = pick ? ((pick(k, lanes.length) % lanes.length) + lanes.length) % lanes.length : 0; d = lanes[i]; }
         }
         const v = DIRV[d], nx = t.x + v[0], ny = t.y + v[1];
-        if (!map[key(nx, ny)]) return null;
+        if (!map[key(nx, ny)]) return ended();   // the belt ends: shipped out (into the OUTBOX it passed last) or sank
         t = { x: nx, y: ny };
       }
       return null;
@@ -2008,14 +2020,33 @@
     }
     return found;
   }
-  function sendToOf(plan, lineId, dockId) {
+  /* (2026-10-11 repair) THE OUTBOX THE JOB LANDED IN decides, never "the line has a sender": a line with two OUTBOXes where only
+     one sends hands on only the jobs that ship into THAT one. `outboxId` (the chain's terminal walk — chainStepDock ctx.reach)
+     is exact; without it the dock's own lane decides (outboxesReached) — none of its OUTBOXes sending = null; several = the
+     oldest that sends (only a junction AFTER the last dock can reach two; the chain passes the exact one at run time). With no
+     reach to read at all, only a line with ONE OUTBOX is unambiguous. sendsReachedOf lists every sender a dock's lane can reach
+     (station.map says each). */
+  function sendersOf(plan, lineId) {
     const st = plan && plan.sendTo && typeof plan.sendTo === 'object' ? plan.sendTo : null;
-    if (!st || lineId == null) return null;
-    const mine = Object.keys(st).filter(k => st[k] && String(st[k].fromLine) === String(lineId) && st[k].toLine != null).sort(propIdCmp);
+    if (!st || lineId == null) return [];
+    return Object.keys(st).filter(k => st[k] && String(st[k].fromLine) === String(lineId) && st[k].toLine != null).sort(propIdCmp);
+  }
+  const sendRec = (plan, k) => ({ outboxId: k, intakeId: String(plan.sendTo[k].intakeId), fromLine: String(plan.sendTo[k].fromLine), toLine: String(plan.sendTo[k].toLine) });
+  function sendsReachedOf(plan, lineId, dockId) {
+    const mine = sendersOf(plan, lineId);
+    if (!mine.length || dockId == null) return [];
+    const r = outboxesReached(plan, dockId);
+    return mine.filter(k => r.indexOf(k) >= 0).map(k => sendRec(plan, k));
+  }
+  function sendToOf(plan, lineId, dockId, outboxId) {
+    const mine = sendersOf(plan, lineId);
     if (!mine.length) return null;
-    let pick = mine[0];
-    if (mine.length > 1 && dockId != null) { const r = outboxesReached(plan, dockId); pick = mine.find(k => r.indexOf(k) >= 0) || mine[0]; }
-    return { outboxId: pick, intakeId: String(st[pick].intakeId), fromLine: String(st[pick].fromLine), toLine: String(st[pick].toLine) };
+    if (outboxId != null && String(outboxId)) return mine.indexOf(String(outboxId)) >= 0 ? sendRec(plan, String(outboxId)) : null;
+    const r = dockId != null ? outboxesReached(plan, dockId) : [];
+    if (r.length) { const hit = mine.find(k => r.indexOf(k) >= 0); return hit ? sendRec(plan, hit) : null; }
+    const ln = (Array.isArray(plan.lines) ? plan.lines : []).find(l => l && String(l.lineId) === String(lineId));
+    const outs = ln && Array.isArray(ln.outboxes) ? ln.outboxes : [];
+    return (outs.length === 1 && mine.indexOf(String(outs[0])) >= 0) ? sendRec(plan, String(outs[0])) : null;
   }
   /* handoffInput({ fromName, original, output, files }) -> the work a SEND TO hand-off drops into the next line's INBOX: the job as
      it first arrived, what the sending line delivered, and the files it made (paths only — nothing is copied; a line working in
@@ -2044,7 +2075,7 @@
     return { fromName: m[1] || '', original: orig ? orig[1] : '', output: out ? out[1] : '' };
   }
 
-  return { rejoinOf, deriveLinks, reconcileLinks, compileRoutingPlan, sendToOf, handoffInput, parseHandoffInput, composeStageBrief, HANDS_LEAD, resolveTarget, lineOf, lineOriginOf, lineLimitsOf, normalizeLineLimits, LINE_LIMIT_DEFAULTS, LINE_LIMIT_CEILINGS, sourceFor, ok, liveTiles, routeFrom, junctionLaneOwners, chainNext, chainStep, fanSiblings, handoffPrompt, parseHandoff, isHandoff, stripVerdictLine, joinPayload, lineComponents, LOOP_MAX_DEFAULT, LOOP_MAX_CEILING,
+  return { rejoinOf, deriveLinks, reconcileLinks, compileRoutingPlan, sendToOf, sendsReachedOf, outboxesReached, handoffInput, parseHandoffInput, composeStageBrief, HANDS_LEAD, resolveTarget, lineOf, lineOriginOf, lineLimitsOf, normalizeLineLimits, LINE_LIMIT_DEFAULTS, LINE_LIMIT_CEILINGS, sourceFor, ok, liveTiles, routeFrom, junctionLaneOwners, chainNext, chainStep, fanSiblings, handoffPrompt, parseHandoff, isHandoff, stripVerdictLine, joinPayload, lineComponents, LOOP_MAX_DEFAULT, LOOP_MAX_CEILING,
     // THE DOCK LAYER (multi-bay agents, 2026-09-22) — the dock-keyed truth the agent readings above are views of
     resolveDock, chainNextDock, chainStepDock, fanSiblingsDock, junctionLaneDocks, lineOfDock, lineOriginOfDock, entryDockOf, docksOf, dockOf, agentOfDock: agentOfDockIn, deriveDockLayer, dockLayer, hasDockLayer, stepToAgents, propIdCmp,
     _internals: { DIRV, OPP, LANE_ORDER, key, buildBeltMap, outLanes, inLanes, loopLanes, beltTileNear, ringBelts, junctionAnchor, dirBetween, linkTilesByProp, linkedBeltMap, nextTiles, detectCycle, hashStr, compileChains, compileDockChains, chainCycle, shipFrom, propIdCmp, entryDocksOf, agentChainsView } };

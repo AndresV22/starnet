@@ -384,7 +384,16 @@ const StationCommands = (() => {
     const comps = (P.lineComponents(geo) || []).filter(c => c.intakes.length || c.bays.length || c.outboxes.length);
     // SEND TO (2026-10-10): a line names another by its INBOX's label; the hand-offs are the COMPILED plan's (plan.sendTo)
     const lineName = id => { const cc = comps.find(x => x.key === id), l = cc ? (cc.intakes.map(i => propOf(i)).find(p => p && p.label) || {}).label : null; return l ? 'LINE ' + String(l).toUpperCase() : 'an unnamed line'; };
-    const sendOf = (lineId, pid) => (P.sendToOf ? P.sendToOf(plan, lineId, pid) : null);
+    // the SEND TOs a step's own lane can ship into (a line with two OUTBOXes hands on only from the one that sends — 10-11 repair)
+    const sendsOf = (lineId, pid) => (P.sendsReachedOf ? P.sendsReachedOf(plan, lineId, pid) : []);
+    const reachedOf = pid => (P.outboxesReached ? P.outboxesReached(plan, pid) : []);
+    const sendWords = (lineId, pid) => {
+      const ss = sendsOf(lineId, pid);
+      if (!ss.length) return 'OUTBOX';
+      const to = ss.map(x => lineName(x.toLine)).filter((v, i, a) => a.indexOf(v) === i).join(' or ');
+      return reachedOf(pid).length > ss.length ? 'OUTBOX (the one that sends on goes to ' + to + ' — SEND TO; another OUTBOX it can reach keeps its work)'
+        : 'OUTBOX, then on to ' + to + ' (SEND TO: that line’s own crew and budget work it next)';
+    };
 
     let lines = comps.map(c => {
       const flow = W.lineFlow(plan, c, P, geo.props);
@@ -415,7 +424,7 @@ const StationCommands = (() => {
           routed: !!d.routed, fedByInbox: fed,
           getsWorkFrom: (fed ? ['INBOX'] : []).concat(nb.prev.map(p => escFrom(p, pid) ? Object.assign(ref(p), { onEscalation: true }) : ref(p))),
           // (its OUTBOX may SEND the line's finished work on to another line: the agent must never say the work stops there)
-          sendsTo: d.agentId ? nb.next.filter(n => !escFrom(pid, n)).map(ref).concat(ch && ch.outbox ? [(st0 => st0 ? 'OUTBOX, then on to ' + lineName(st0.toLine) + ' (SEND TO: that line’s own crew and budget work it next)' : 'OUTBOX')(sendOf(c.key, pid))] : []) : [],
+          sendsTo: d.agentId ? nb.next.filter(n => !escFrom(pid, n)).map(ref).concat(ch && ch.outbox ? [sendWords(c.key, pid)] : []) : [],
           brief: briefFor(pid), tools: d.agentId ? toolsAt(d.agentId, pid).map(toolName) : [] };
         const esc = escGates.filter(g => (g.after || []).indexOf(pid) >= 0);
         if (esc.length && d.agentId) s.escalatesTo = esc.map(g => Object.assign(ref(g.escTo), { when: escWhen(g), runs: !!g.when }));
@@ -455,8 +464,12 @@ const StationCommands = (() => {
       // compiler turned off, a circle or a gone INBOX, is in `issues`, never here)
       const st = plan.sendTo || {}, outs = Object.keys(st).filter(k => st[k].fromLine === c.key), ins = Object.keys(st).filter(k => st[k].toLine === c.key);
       if (outs.length) {
-        out.sendsWorkTo = outs.map(k => ({ lineId: st[k].toLine, name: lineName(st[k].toLine), outboxPropId: k }));
-        out.howItRuns += ' Then every job it finishes is sent on to ' + out.sendsWorkTo.map(x => x.name).join(' and ') + ' (SEND TO), whose own crew works it next.';
+        // which steps ship into each sending OUTBOX: only THOSE jobs ride on (a line with two OUTBOXes hands on from the one that sends)
+        const afterOf = k => flow.order.filter(pid => reachedOf(pid).indexOf(k) >= 0).map(pid => step[pid]).filter(Boolean);
+        out.sendsWorkTo = outs.map(k => ({ lineId: st[k].toLine, name: lineName(st[k].toLine), outboxPropId: k, afterSteps: afterOf(k) }));
+        if (c.outboxes.length <= 1) out.howItRuns += ' Then every job it finishes is sent on to ' + out.sendsWorkTo.map(x => x.name).join(' and ') + ' (SEND TO), whose own crew works it next.';
+        else out.howItRuns += ' Then ' + out.sendsWorkTo.map(x => (x.afterSteps.length ? 'a job that ends at step ' + x.afterSteps.join(' or ') : 'a job that lands in its OUTBOX ' + x.outboxPropId) + ' is sent on to ' + x.name).join('; ')
+          + ' (SEND TO), whose own crew works it next' + (outs.length < c.outboxes.length ? '; a job that lands in another of its ' + c.outboxes.length + ' OUTBOXes stops there.' : '.');
       }
       if (ins.length) out.getsWorkFromLines = ins.map(k => ({ lineId: st[k].fromLine, name: lineName(st[k].fromLine), intakePropId: st[k].intakeId }));
       if (unread.length) out.startsUnread = unread;
