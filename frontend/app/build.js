@@ -126,6 +126,7 @@ const Build = (() => {
     LINE_TOO_LONG: 'TOO LONG — RAISE THE LINE BUDGET',
     // SEND TO (2026-10-10) — said on the OUTBOX whose hand-off is off; advice, never a blocker
     SEND_TO_MISSING: 'SENDS NOWHERE — PICK A LINE', SEND_TO_SELF: 'SENDS TO ITSELF — PICK ANOTHER LINE',
+    SEND_TO_PRIVATE_FILES: 'PRIVATE FILES — PICK A SHARED PROJECT',
     SEND_TO_LOOP: 'SENDS IN A CIRCLE — CUT ONE SEND TO'
   };
   /* THE FULL SENTENCE for a finding whose floor label had to be cut short (2026-09-23 playtest: the NOT FED nag
@@ -142,6 +143,7 @@ const Build = (() => {
     LINE_TOO_LONG: 'Too long — one job on this line runs more stages than its LINE BUDGET allows, so every job would stop part-way (the stages that ran are still paid for). Raise “max stages after the first” in this INBOX’s Workflow card › Optional limits · LINE BUDGET (24 at most), or shorten the line.',
     SEND_TO_MISSING: 'This OUTBOX sends to an INBOX that is gone or starts no line yet (or the OUTBOX itself ends no line), so nothing is sent on. Click the OUTBOX and pick a line under SEND TO (or NOWHERE).',
     SEND_TO_SELF: 'This OUTBOX sends its work back into its own line’s INBOX, so nothing is sent on. Click it and pick another line under SEND TO (or NOWHERE).',
+    SEND_TO_PRIVATE_FILES: 'This line runs in a private workspace. Its finished text rides onward, but the next crew cannot open its private files. Choose a shared project on this line to hand files on.',
     SEND_TO_LOOP: 'These lines send their work round in a circle, so every SEND TO on the circle is off — a job would never stop. Click one OUTBOX on the circle and set its SEND TO to NOWHERE or another line.'
   };
   const valWhy = code => VAL_WHY[code] || VAL_LABEL[code] || code;
@@ -280,7 +282,7 @@ const Build = (() => {
     if (running) return;
     station = opts.getStation();
     if (!station) return;
-    spaceHeld = false; drag = null; dragPid = null; dupe = null; flashes.length = 0;   // never inherit latched state from a prior session
+    spaceHeld = false; drag = null; dragPid = null; dupe = null; flashes.length = 0; touchPts.clear(); pinchLock=false; clearTimeout(inspectTimer); clickMachine=null; sendCutArm=null;   // never inherit latched state from a prior session
     // THE HAND's latches too (repair 2026-10-11): a reopened BUILD MODE never starts holding a piece, with REMOVE armed, a stale PICK
     // WHAT GOES HERE (its pin + ghost belt, a pick aimed at the last session's prop and tile), a box's belts, a flipped corner or Alt
     hand = null; touchArm = null; dropPick = null; selBelts = null; flipPref = false; altHeld = false; altLatched = false; floaters.length = 0; lastTap = null;
@@ -507,8 +509,8 @@ const Build = (() => {
     root.querySelector('#refit-zout').onclick = () => zoomStep(-1);
     root.querySelector('#refit-zlvl').onclick = () => zoomTo(2);   // 2 = the entering default (a tile reads at 24px)
     root.querySelector('#refit-test').onclick = (e) => openTest(e);
-    undoBtn.onclick = () => { const r = station.undo(); sfx(r.ok ? 'click' : 'bad'); floatHistory(r, 'UNDID'); };
-    redoBtn.onclick = () => { const r = station.redo(); sfx(r.ok ? 'click' : 'bad'); floatHistory(r, 'REDID'); };
+    undoBtn.onclick = () => { setHand(null, { silent: true }); const r = station.undo(); sfx(r.ok ? 'click' : 'bad'); floatHistory(r, 'UNDID'); };
+    redoBtn.onclick = () => { setHand(null, { silent: true }); const r = station.redo(); sfx(r.ok ? 'click' : 'bad'); floatHistory(r, 'REDID'); };
 
     cv.addEventListener('pointerdown', onDown);
     cv.addEventListener('pointermove', onMove);
@@ -1755,7 +1757,7 @@ const Build = (() => {
   let dropPick = null;      // an empty-floor release waiting on PICK WHAT GOES HERE: { from, tile, flip, path, opts:[{t,ok,msg}] }
   const altOn = () => altHeld || altLatched;
   const placingProp = () => tool === 'prop' || !!hand;   // a piece is in hand — through the PROP tool or the hotbar
-  const HAND_CFG_KEYS = ['maxIter', 'when', 'timeoutMin', 'bufferSize'];
+  const HAND_CFG_KEYS = ['maxIter', 'when', 'timeoutMin', 'bufferSize', 'divide'];
   // an agent this station crews (a pipette or a copy may carry only these — an id from elsewhere is dropped)
   const agentHere = aid => !!aid && (((opts && typeof opts.agents === 'function' && opts.agents()) || []).some(a => a && a.id === aid));
   // what the pipette picks up: the type, its settings (passes, verdict, wait), its facing, and for a BAY its crew, role and brief
@@ -1820,6 +1822,7 @@ const Build = (() => {
     key('pipette', 'PICK UP', 'Q', 'Tap a piece to hold one like it — its settings and crew too (a mouse: point at it and press Q)', () => { const on = touchArm !== 'pipette'; setHand(null, { silent: true }); touchArm = on ? 'pipette' : null; paintHandKeys(); setHint(); sfx('click'); });
     key('corner', 'CORNER', 'R', 'Flip which way a dragged belt turns its corner (a mouse: press R while dragging)', () => { flipPref = !flipPref; handPvKey = ''; paintHandKeys(); sfx('click'); });
     key('alt', 'ALT VIEW', 'ALT', 'Show every setting, every SEND TO and every line’s stage count on the floor (a mouse: hold Alt)', () => { altLatched = !altLatched; paintHandKeys(); sfx('click'); });
+    if (lastCopy && lastCopy.type === 'lines') key('paste', 'PASTE', 'Ctrl+V', 'Pick up the last copy again: ' + lastCopy.label, () => holdClip(lastCopy, orientEv()));
     wrap.append(bar, keys);
     return wrap;
   }
@@ -2649,6 +2652,9 @@ const Build = (() => {
       };
       help.querySelector('span').textContent = msg || ((tool === 'dupe' && dupe && dupe.type === 'lines') ? verb : guidance[tool]) || verb;
       help.querySelector('button').textContent = 'CANCEL';
+      let turn = help.querySelector('#refit-turn');
+      if (!turn) { turn = document.createElement('button'); turn.type = 'button'; turn.id = 'refit-turn'; turn.className = 'bb sm'; turn.textContent = 'TURN'; turn.onclick = () => turnClip(1, orientEv()); help.appendChild(turn); }
+      turn.hidden = !(tool === 'dupe' && dupe && dupe.type === 'lines');
     }
   }
   function setCursor() {
@@ -3034,7 +3040,7 @@ const Build = (() => {
           <div class="refit-step" data-art="belt">
             <span class="refit-step-n">3</span>
             <b>CONNECT THE STEPS</b>
-            <span><b>Drag</b> from one machine onto the next — the belt follows your pointer and lays itself (a machine you have selected moves instead). Connect <b>INBOX → BAY → OUTBOX</b>; drag a belt’s middle to branch it. The bay needs an assigned agent to do the work.</span>
+            <span><b>Drag</b> from one machine onto the next — the belt follows your pointer and lays itself (a selected machine moves onto open floor; Shift + drag always moves). Connect <b>INBOX → BAY → OUTBOX</b>; drag a belt’s middle to branch it. The bay needs an assigned agent to do the work. Drag an <b>OUTBOX onto another line’s INBOX</b> to send its finished work onward with that line’s crew and budget.</span>
           </div>
         </div>
         <p class="refit-guide-foot">For a head start, open <b>${esc(G.tab)} › ${esc(G.lines)}</b> (${G.lineCount} ready-made layouts), stamp one, then assign its bays. <b>${esc(G.preview)}</b> animates the routing and runs no AI job. To test for real, click any machine on a line and use <b>STEP TEST</b> in its Workflow panel: it runs the real agents one step at a time and pauses at every hand-off so you can read or edit what moves on.</p>
@@ -3616,17 +3622,20 @@ const Build = (() => {
       if (r.deadEnd) li.push('A branch <b>dead-ends</b> — nothing consumes there.');
       if (!r.agents.length && !r.unbound && !r.outbox && !r.deadEnd) li.push('This tile isn’t on the compiled line yet — connect it to a machine.');
     } else li.push('No compiled route yet — lay the line to a machine and this card reads its destination.');
+    const back = linksMemoed().some(l => (l.path||[]).some(q=>q.x===tx&&q.y===ty) && station.isBackLink && station.isBackLink(l.id));
+    if(back) li.push('<b>LOOP BACK belt.</b> Removing it stops retries; the DONE exit stays. Undo restores it.');
     const g = document.createElement('div');
     g.className = 'refit-guide refit-belt-card refit-workflow-editor';
     g.innerHTML = '<div class="refit-guide-card" role="dialog" aria-modal="true" aria-labelledby="workflow-title">'
       + workflowIntroHTML('BELT · ' + (DIRWORD[dir] || dir), 'Where this belt takes work', 'Belts connect the steps in your workflow. Their direction decides where work travels next.')
       + '<div class="workflow-body"><section class="workflow-section"><h4>Connected destinations</h4><ul>' + li.map(s => '<li>' + s + '</li>').join('') + '</ul></section></div>'
-      + '<div class="workflow-footer"><span>Drag a belt’s middle to branch it · right-click removes it.</span><button type="button" class="btn-sm refit-primary" id="belt-ok">✓ DONE</button></div></div>';
+      + '<div class="workflow-footer"><span>Drag a belt’s middle to branch it · right-click removes it.</span><button type="button" class="btn-sm" id="belt-remove">REMOVE BELT</button><button type="button" class="btn-sm refit-primary" id="belt-ok">✓ DONE</button></div></div>';
     root.appendChild(g);
     requestAnimationFrame(() => g.classList.add('refit-swap'));
     const closeP = () => { if (g.parentNode) g.parentNode.removeChild(g); };
     cardRegister(g, closeP);
     g.querySelector('[data-workflow-close]').onclick = closeP;
+    g.querySelector('#belt-remove').onclick = () => { removeBeltAt(tx,ty,ev); closeP(); };
     g.querySelector('#belt-ok').onclick = () => { sfx('click'); closeP(); };
     g.addEventListener('click', e => { if (e.target === g) closeP(); });
   }
@@ -3635,8 +3644,8 @@ const Build = (() => {
   function machineName(id) {
     const p = station.propById(id);
     if (!p) return 'a removed machine';
-    if (p.t === 'bay') return p.agentId ? String(agentLabelFor(p.agentId)).toUpperCase() : 'AN EMPTY BAY';
-    if (p.t === 'intake') return p.label ? 'LINE ' + String(p.label).toUpperCase() : 'THE INBOX';
+    if (p.t === 'bay') return p.label ? String(p.label).toUpperCase() + (p.agentId ? ' · ' + String(agentLabelFor(p.agentId)).toUpperCase() : '') : p.agentId ? String(agentLabelFor(p.agentId)).toUpperCase() : 'AN EMPTY BAY';
+    if (p.t === 'intake') return Pipeline.lineWord(p.label, station.lineLetter ? 'LINE ' + station.lineLetter(p.id) : 'LINE ' + p.id);
     if (p.t === 'outbox') return 'THE OUTBOX';
     return 'THE ' + String(propLabel(p.t)).toUpperCase();
   }
@@ -3673,7 +3682,7 @@ const Build = (() => {
         + '<div class="refit-filter-rows">' + rowHtml + '</div></section></div>'
         + '<aside class="workflow-aside"><section class="workflow-section"><h4>Which tasks get sorted?</h4>'
         + '<p class="workflow-help">Tasks without an assigned agent use these rules. A task already addressed to an agent follows that agent’s path.</p></section>'
-        + '<section class="workflow-section"><h4>Need another destination?</h4><p class="workflow-help">Close this panel and use BELT to connect this Filter to another Bay. Its destination appears here.</p></section></aside></div>'
+        + '<section class="workflow-section"><h4>Need another destination?</h4><p class="workflow-help">Close this panel and drag this Filter onto another Bay (or use BELT) to connect them. Its destination appears here.</p></section></aside></div>'
         + '<div class="workflow-footer"><span>Save routes to apply your choices.</span><button type="button" class="btn-sm" id="j-clear">CLEAR ROUTES</button><button type="button" class="btn-sm" id="j-cancel">CANCEL</button><button type="button" class="btn-sm refit-primary" id="j-ok">▸ SAVE ROUTES</button></div></div>';
       root.appendChild(g);
       g.querySelector('[data-workflow-close]').onclick = closeP;
@@ -3885,7 +3894,7 @@ const Build = (() => {
           if (d === info.lane || !V[d]) continue;
           convey.enqueueAt(x + V[d][0], y + V[d][1], Object.assign({}, bx.payload, { workitemId: 'test-copy-' + (++_testN) }));
         }
-        note(x, y, 'SPLIT: A COPY TO EACH BRANCH', '#5ad0ff');
+        note(x, y, cfg.divide ? 'SPLIT: EACH BRANCH GETS ITS PART' : 'SPLIT: A COPY TO EACH BRANCH', '#5ad0ff');
       } else note(x, y, 'SPLIT: BRANCHES TAKE TURNS', '#5ad0ff');
     }
     else if (info.kind === 'join') {
@@ -4148,13 +4157,14 @@ const Build = (() => {
     const unbound = c.bays.filter(b => !b.agentId);
     const feed = (opts && opts.world && opts.world.feedState) ? opts.world.feedState() : { known: false, fed: false };
     const hasIntake = c.intakes.length > 0;
-    const feedDone = hasIntake && feed.known && feed.fed;
+    const fedLines = opts && opts.world && opts.world.fedLines ? opts.world.fedLines(valPlan) : Pipeline.fedLineIds(valPlan);
+    const feedDone = hasIntake && ((feed.known && feed.fed) || !!fedLines[c.key]);
     // a routine IS saved for this line but scheduling is off (2026-09-28 retest): ② says so, and still opens the INBOX section,
     // where the TURN SCHEDULING ON switch is — never "choose what starts this line" over a start the Commander already chose
     let schedOff = false;
     try { schedOff = hasIntake && feed.known && !feed.fed && !!(opts && opts.world && opts.world.schedOffFor && opts.world.schedOffFor(c.intakes[0], valPlan)); } catch (_) { schedOff = false; }
     return { unbound, crewLeft: unbound.length, hasIntake, feed, feedDone, schedOff,
-      todo: unbound.length > 0 || (hasIntake && feed.known && !feed.fed) };
+      todo: unbound.length > 0 || (hasIntake && feed.known && !feedDone) };
   }
   function finPick() {
     if (!valComps || !valComps.length) return null;
@@ -4267,7 +4277,7 @@ const Build = (() => {
     // keep the generic header. In the sig so a rename repaints without a topology edit.
     const lname = lineNameOf(c);
     const overview = workflowReadout(c, valPlan, agentLabelFor);
-    const sig = [c.key, st.crewLeft, st.hasIntake, st.feed.known, st.feed.fed, st.schedOff, finSample, lname || '', overview.compact, finSampleRes ? finSampleRes.key + ':' + finSampleRes.stamp : ''].join('|');
+    const sig = [c.key, st.crewLeft, st.hasIntake, st.feed.known, st.feed.fed, st.feedDone, st.schedOff, finSample, lname || '', overview.compact, finSampleRes ? finSampleRes.key + ':' + finSampleRes.stamp : ''].join('|');
     if (!finCardEl) {
       finCardEl = document.createElement('div');
       root.appendChild(finCardEl);
@@ -4279,7 +4289,7 @@ const Build = (() => {
     finSig = sig;
     const crewDone = st.crewLeft === 0;
     const crewTxt = crewDone ? '✓ AGENTS ASSIGNED' : '① ASSIGN STEP AGENTS — ' + st.crewLeft + ' TO GO';
-    const feedTxt = !st.hasIntake ? '② FEED IT — TASK THE AGENT, OR WIRE A ROUTINE'
+    const feedTxt = st.feedDone ? '✓ A START IS CONFIGURED OR WORK HAS ARRIVED' : !st.hasIntake ? '② FEED IT — TASK THE AGENT, OR WIRE A ROUTINE'
       : !st.feed.known ? '② CHECKING WHAT STARTS THIS LINE…'
       : st.feed.fed ? '✓ AUTOMATIC START CONFIGURED' : st.schedOff ? '② SCHEDULING IS OFF — TURN IT ON' : '② CHOOSE WHAT STARTS THIS LINE';
     // the sample RESULT belongs to the line it rode (finSampleRes.key) — another line's card shows none
@@ -4529,9 +4539,11 @@ const Build = (() => {
     for (const c of Pipeline.lineComponents(geo)) {
       if (!c.tiles[k]) continue;
       const reg = finRead(st);
-      if (!(reg[c.key] && reg[c.key].done)) finMark(st, c.key, 'done');
+      const first=!(reg[c.key] && reg[c.key].done);
+      if (first) finMark(st, c.key, 'done');
       if (running) renderFinCard();
-      return;
+      const ip=(geo.props||[]).find(p=>c.intakes.includes(p.id));
+      return first ? {first:true,name:Pipeline.lineWord(ip&&ip.label,ip&&st.lineLetter?'LINE '+st.lineLetter(ip.id):'LINE '+c.key),tiles:c.tiles} : null;
     }
   }
 
@@ -4573,6 +4585,7 @@ const Build = (() => {
   function doDeleteRoom(roomId, ev) {
     const rm = station.roomById(roomId);
     const on = rm ? station.props().filter(p => rm.rects.some(r => p.x <= r.x2 && p.x + (p.w || 1) - 1 >= r.x1 && p.y <= r.y2 && p.y + (p.h || 1) - 1 >= r.y1)).map(p => Object.assign({}, p)) : [];
+    if(warnSendCuts(on.map(p=>p.id),ev)) return;
     const res = keepsHalls(() => station.removeRoom(roomId));
     if (res && res.ok) { if (rm) pushFlash(rm.rects, true); on.forEach(p => vanishProp(p)); flashUndo(); flashTip(ev, 'deleted — UNDO to restore', true); sfx('click'); }
     else if (res && res.error === 'SPAWN_ROOM') { flashTip(ev, 'spawn room — can’t delete (select it and drag it to move it)'); sfx('bad'); }
@@ -4707,6 +4720,9 @@ const Build = (() => {
   }
 
   /* ---------- pointer interaction ---------- */
+  const touchPts = new Map();
+  let pinchLock = false, inspectTimer = null, clickMachine = null;
+  const touchPair = () => { const p = Array.from(touchPts.values()); return { x: (p[0].x + p[1].x) / 2, y: (p[0].y + p[1].y) / 2, d: Math.max(10, Math.hypot(p[0].x-p[1].x, p[0].y-p[1].y)) }; };
   function panTrigger(ev) { return spaceHeld || ev.button === 1; }  // space-drag or middle-drag
 
   function onDown(ev) {
@@ -4725,6 +4741,15 @@ const Build = (() => {
       if (!held && removeAt(ev)) return;
       deselectTool(); return;
     }
+    if (ev.pointerType === 'touch') {
+      touchPts.set(ev.pointerId, toCanvas(ev));
+      if (touchPts.size === 2 && !pinchLock) {
+        releaseDrag(); clearTimeout(inspectTimer); hideTip();
+        for (const id of touchPts.keys()) { try { cv.setPointerCapture(id); } catch (_) {} }
+        const m = touchPair(); drag = { mode: 'pinch', d0: m.d, z0: zoom, wx: (m.x-panX)/zoom, wy: (m.y-panY)/zoom }; pinchLock = true; return;
+      }
+      if (touchPts.size > 1 || pinchLock) return;
+    } else if (ev.isPrimary === false || dragPid != null && ev.pointerId !== dragPid) return;
     try { cv.setPointerCapture(ev.pointerId); dragPid = ev.pointerId; } catch (e) { dragPid = null; }
     if (panTrigger(ev)) { drag = { mode: 'pan', sx: toCanvas(ev).x, sy: toCanvas(ev).y }; cv.style.cursor = 'grabbing'; return; }
     if (ev.button !== 0) return;
@@ -4759,6 +4784,11 @@ const Build = (() => {
       // Shift over a BELT inside the selected room grabs the ROOM (a hallway its belt covers end to end has no bare floor to press —
       // the retired MOVE tool skipped belts the same way); a plain press on a belt keeps its own card / branch
       if (inSelRoom && ev.shiftKey && station.beltAt(w.tx, w.ty)) { drag = { mode: 'roompress', roomId: selectedRoomId, start: w, cur: w, moved: false, cx: ev.clientX, cy: ev.clientY, viaBelt: true }; return; }
+      if(station.beltAt(w.tx,w.ty) && (ev.ctrlKey || ev.metaKey)) {
+        const matches=linksMemoed().filter(l=>(l.path||[]).some(q=>q.x===w.tx&&q.y===w.ty));
+        if(matches.length!==1){flashTip(ev,'THIS TILE CARRIES '+matches.length+' BELTS — PICK ONE CLEAR BELT TO RESHAPE',false);return;}
+        drag={mode:'beltreshape',linkId:matches[0].id,from:{x:w.tx,y:w.ty},start:w,cur:w,moved:false,cx:ev.clientX,cy:ev.clientY};return;
+      }
       // a BELT: a click opens its card on the release, a drag off it BRANCHES it (a SPLITTER lands where it was pressed)
       if (station.beltAt(w.tx, w.ty)) { drag = { mode: 'beltpress', start: w, cur: w, moved: false, from: { x: w.tx, y: w.ty }, cx: ev.clientX, cy: ev.clientY }; return; }
       // inside the SELECTED ROOM, on bare floor: a drag moves the room and everything on it rides along (what the MOVE tool did)
@@ -4842,6 +4872,12 @@ const Build = (() => {
 
   const CLICK_SLOP = 12;   // screen px a press travels before it is a drag (the propstamp row's own rule: a jitter is not a row)
   function onMove(ev) {
+    if (ev.pointerType === 'touch' && touchPts.has(ev.pointerId)) {
+      touchPts.set(ev.pointerId, toCanvas(ev));
+      if (drag && drag.mode === 'pinch' && touchPts.size >= 2) { const m = touchPair(); zoom = clamp(drag.z0*m.d/drag.d0, MINZ, MAXZ); panX = m.x-drag.wx*zoom; panY = m.y-drag.wy*zoom; return; }
+      if (pinchLock) return;
+    }
+    if (dragPid != null && ev.pointerId !== dragPid) return;
     lastClient = { x: ev.clientX, y: ev.clientY };
     if (drag && drag.mode === 'pan') {
       const c = toCanvas(ev);
@@ -4850,6 +4886,7 @@ const Build = (() => {
     }
     const w = toWorldTile(ev);
     if (drag) {
+      drag.forceMove = !!ev.shiftKey;
       if (w.tx !== drag.cur.tx || w.ty !== drag.cur.ty) { drag.moved = true; snapTick(drag.mode); }
       // THE HAND: an UNSELECTED workflow machine dragged (Shift up) lays a belt to the pointer; a SELECTED one moves over open floor
       // and lays the belt over another machine (the target decides); Shift, or any other prop, moves (SELECT MOVES, 10-11); the
@@ -4892,6 +4929,11 @@ const Build = (() => {
   }
 
   function onUp(ev) {
+    if (ev.pointerType === 'touch') {
+      touchPts.delete(ev.pointerId);
+      if (pinchLock) { try { cv.releasePointerCapture(ev.pointerId); } catch (_) {} if (touchPts.size < 2) drag = null; if (!touchPts.size) pinchLock = false; return; }
+    }
+    if (dragPid != null && ev.pointerId !== dragPid) return;
     try { cv.releasePointerCapture(ev.pointerId); } catch (e) {}
     dragPid = null;
     if (!drag) return;
@@ -4903,10 +4945,11 @@ const Build = (() => {
     if (!drag) setCursor();
   }
   function upCommit(d, ev) {
-    if (d.mode === 'pan') return;
+    if (d.mode === 'pan' || d.mode === 'pinch') return;
     if (d.mode === 'selectpress' || d.mode === 'grouppress') return d.add ? toggleInSelection(d.propId) : onInspect(station.propById(d.propId),ev);
     if (d.mode === 'beltpress') return openBeltCard(d.start.tx, d.start.ty, ev);   // a belt CLICKED (not dragged): where it goes
-    if (d.mode === 'handbelt' || d.mode === 'handbranch') return commitHandGesture(d, ev);
+    if (d.mode === 'beltreshape' && !d.moved) return openBeltCard(d.start.tx,d.start.ty,ev);
+    if (HAND_PLAN_MODES[d.mode]) return commitHandGesture(d, ev);
     if (d.mode === 'groupmove') return commitGroupMove(d, ev);
     if (d.mode === 'roompress' && d.viaBelt) return openBeltCard(d.start.tx, d.start.ty, ev);   // a Shift+CLICK on its belt still opens the belt's card
     if (d.mode === 'boxpress' || d.mode === 'roompress') return clickEmptyFloor(d, ev);
@@ -4920,12 +4963,12 @@ const Build = (() => {
     if (d.mode === 'paint') return commitPaint(d, ev);
     if (d.mode === 'reclaim') return commitReclaim(d, ev);
   }
-  function onCancel() { if (drag || dragPid != null) { releaseDrag(); hideTip(); setCursor(); } }
+  function onCancel() { touchPts.clear(); pinchLock = false; clearTimeout(inspectTimer); if (drag || dragPid != null) { releaseDrag(); hideTip(); setCursor(); } }
   /* ALT-TAB DROPS THE WHOLE GESTURE, not just a pan. This cancelled `pan` only, so tabbing away mid
      draw/belt/paint left a live drag with a frozen ghost pinned to the last tile the pointer touched —
      and the pointer that would have ended it is now somewhere else entirely. A gesture you cannot see
      is a gesture you cannot finish: end it, release the capture, and let the floor go quiet. */
-  function onBlur() { spaceHeld = false; altHeld = false; if (drag || dragPid != null) { releaseDrag(); hideTip(); } setCursor(); }   // (Alt+Tab never leaves the Alt view stuck on)
+  function onBlur() { touchPts.clear(); pinchLock = false; clearTimeout(inspectTimer); spaceHeld = false; altHeld = false; if (drag || dragPid != null) { releaseDrag(); hideTip(); } setCursor(); }   // (Alt+Tab never leaves the Alt view stuck on)
 
   // add every tile on the segment from drag.cur to w (so a fast brush stroke skips nothing)
   function rasterTo(d, w) {
@@ -5055,15 +5098,17 @@ const Build = (() => {
   function onInspect(p,ev) {
     if(!p)return;
     // THE HAND part 2: a double-TAP on a conveyor piece takes its whole line (a mouse's double-click is onDblClick)
-    if(ev&&ev.pointerType==='touch'&&CONNECT_TYPES[p.t]&&tool==='select'){const tNow=performance.now();if(lastTap&&lastTap.id===p.id&&tNow-lastTap.t<380){lastTap=null;selectWholeLine(p.id,ev);return;}lastTap={id:p.id,t:tNow};}
-    if(ev&&ev.detail>=2&&isEditableProp(p.t))return configureProp(p,ev);
+    if(ev&&ev.pointerType==='touch'&&CONNECT_TYPES[p.t]&&tool==='select'){const tNow=performance.now();if(lastTap&&lastTap.id===p.id&&tNow-lastTap.t<380){lastTap=null;clearTimeout(inspectTimer);selectWholeLine(p.id,ev);return;}lastTap={id:p.id,t:tNow};}
+    clearTimeout(inspectTimer);
+    if(ev&&ev.detail>=2&&CONNECT_TYPES[p.t]){selectWholeLine((clickMachine&&clickMachine.id)||p.id,ev);return;}
+    clickMachine={id:p.id,t:performance.now()};
     selBelts=null;groupIds=[];selectedRoomId=null;selectedPropId=p.id;renderSelection();
     // an UNBOUND connector/plugin terminal says "CLICK TO BIND" on the floor and in its hover card — so one click
     // opens the bind editor (it only selected it, and members reported "no bind option": only unbind/cancel showed)
     if((p.t==='connector_portal'&&!p.connectorId)||(p.t==='plugin_terminal'&&!p.pluginId))return configureProp(p,ev);
     // THE CARD AND THE FLOOR ARE ONE LINE: a click on a line machine opens the docked Workflow panel on it
     // (or re-selects it there), without panning — the floor is where the Commander is looking
-    if(WF_PART[p.t]){finFocusLine(p.id);openWorkflowPanel(p.id,true);}
+    if(WF_PART[p.t]){const id=p.id;inspectTimer=setTimeout(()=>{if(running&&selectedPropId===id&&!pinchLock){finFocusLine(id);openWorkflowPanel(id,true);}},400);}
     setHint('Selected '+propLabel(p.t)+' · '+dragWords(p)+' · choose an action in the build kit');
   }
   // what a drag on the SELECTED piece does, in words (ONE GESTURE, THE TARGET DECIDES — a conveyor machine belts onto a machine)
@@ -5150,10 +5195,21 @@ const Build = (() => {
     }
     return null;
   }
+  let sendCutArm = null;
+  function warnSendCuts(ids, ev) {
+    const gone = new Set(ids), cuts = station.props().filter(p => p.t==='outbox' && p.sendTo && gone.has(p.sendTo) && !gone.has(p.id));
+    if (!cuts.length) { sendCutArm=null; return false; }
+    const key = ids.slice().sort().join(',')+'|'+cuts.map(p=>p.id+':'+p.sendTo).sort().join(',');
+    if (sendCutArm && sendCutArm.key===key && performance.now()-sendCutArm.t<6000) { sendCutArm=null; return false; }
+    sendCutArm={key,t:performance.now()};
+    const names=cuts.map(p=>{const c=lineOfProp(p.id);return Pipeline.lineWord(c&&lineNameOf(c),c&&c.intakes[0]&&station.lineLetter?'LINE '+station.lineLetter(c.intakes[0]):'LINE '+p.id);});
+    sfx('tick'); flashTip(ev,'THIS CUTS '+cuts.length+' SEND TO'+(cuts.length===1?'':'S')+' FROM '+Array.from(new Set(names)).join(', ')+' — repeat DELETE / REMOVE to continue · Undo restores them',false); return true;
+  }
   function deleteSelected(ev) {
     if (groupIds.length) return deleteGroupOrLine(ev);
     if (beltSel()) return deleteGroup(ev);   // (THE HAND part 2: the belts it took go too)
     const p = station.propById(selectedPropId); if (!p) return false;
+    if (warnSendCuts([p.id],ev)) return false;
     const had = linkedFloor() && isWorkflowType(p.t) && (station.links() || []).some(l => l.from.prop === p.id || l.to.prop === p.id);
     const was = Object.assign({}, p);
     const res = station.removeProp(p.id);
@@ -5330,6 +5386,7 @@ const Build = (() => {
   function deleteGroup(ev, verb) {
     const was = selectionIds().map(id => station.propById(id)).filter(Boolean).map(p => Object.assign({}, p)), bs = beltSel(), cut = verb === 'CUT';
     if (!was.length && !bs) return false;
+    if (warnSendCuts(was.map(p=>p.id),ev)) return false;
     const liftIds = cut ? cutLinksOf(was.map(p => p.id)) : (bs ? bs.links : []), loose = cut ? [] : (bs ? bs.tiles : []);
     const nb = cut ? liftIds.length : (bs ? bs.links.length + bs.tiles.length : 0);
     const cells = cut ? linksMemoed().filter(l => liftIds.includes(l.id)).reduce((a, l) => a.concat(l.path || []), []) : (bs ? bs.cells : []);
@@ -5407,7 +5464,8 @@ const Build = (() => {
     if (!m.ids.every(id => set.has(id))) return null;
     // its name rides its INBOX (read off the props, not the compiled lines — a line pasted a moment ago is not compiled yet)
     const ip = ps.find(p => p.t === 'intake' && p.label), nm = ip ? ip.label : lineNameOf(lineOfProp(ps[0].id));
-    return { id: ps[0].id, name: nm ? 'LINE ' + String(nm).toUpperCase() : 'THIS LINE', links: m.links.length };
+    const inbox = ps.find(p => p.t === 'intake');
+    return { id: ps[0].id, name: Pipeline.lineWord(nm, inbox && station.lineLetter ? 'LINE ' + station.lineLetter(inbox.id) : 'LINE ' + ps[0].id), links: m.links.length };
   }
   // exactly one whole line: Del is the card's DELETE LINE (removeLine — every belt, the tiles under its junctions, a SEND TO into it)
   function deleteGroupOrLine(ev) {
@@ -5434,7 +5492,8 @@ const Build = (() => {
   let lastTap = null;   // a touch tap on a conveyor piece — a second one on the same piece inside 380ms is a double-tap
   function onDblClick(ev) {
     if (tool !== 'select' || hand || touchArm || dropPick || drag) return;
-    const pid = propAtEvent(ev), p = pid && station.propById(pid);
+    clearTimeout(inspectTimer);
+    const pid = clickMachine && performance.now()-clickMachine.t<600 ? clickMachine.id : propAtEvent(ev), p = pid && station.propById(pid);
     if (!p || !CONNECT_TYPES[p.t]) return;
     if (ev.preventDefault) ev.preventDefault();
     selectWholeLine(p.id, ev);
@@ -5445,6 +5504,7 @@ const Build = (() => {
     const m = typeof station.lineMembers === 'function' ? station.lineMembers(pid) : null;
     if (!m || typeof station.removeLine !== 'function') return false;
     const was = m.ids.map(id => station.propById(id)).filter(Boolean).map(p => Object.assign({}, p));
+    if (warnSendCuts(m.ids,ev)) return false;
     const line = wholeLineOf(was), name = line ? line.name : 'THE LINE', cut = verb === 'CUT';
     const res = cut ? station.transact(() => station.removeLine(pid), 'CUT') : station.removeLine(pid);
     if (res && res.ok) {
@@ -5856,6 +5916,16 @@ const Build = (() => {
   const openPropEditor = (id, t, ev) => { const p = station && station.propById(id); if (p) configureProp(p, ev); };
   const PROP_EDITABLE = { bay: 1, filter: 1, merger: 1, splitter: 1, joiner: 1, loop: 1, airlock: 1, connector_portal: 1, plugin_terminal: 1, intake: 1, outbox: 1 };   // merger/splitter = flow card only (no config)
   const isEditableProp = t => !!PROP_EDITABLE[t] || !!WORKSTATION_TYPES[t];   // a workstation binds an agent + opens its picker on place/click
+  function beltUnderFoot(t, x, y, size) {
+    if (!CONNECT_TYPES[t] || JUNCTION_TAG_TYPES[t] || !linkedFloor()) return null;
+    const tiles = new Set();
+    for (let yy=y; yy<y+size.h; yy++) for(let xx=x; xx<x+size.w; xx++) if(station.beltAt(xx,yy)) tiles.add(xx+','+yy);
+    if (!tiles.size) return null;
+    const hits = linksMemoed().filter(l => (l.path||[]).some(q => tiles.has(q.x+','+q.y)));
+    const link = hits.length === 1 && hits[0].from.prop && hits[0].to.prop ? hits[0] : null;
+    const v = t === 'bay' && link && station.canInsertBayBetween ? station.canInsertBayBetween(link.from.prop,link.to.prop,{w:size.w,h:size.h,block:true}) : {ok:false,short:'A BELT RUNS HERE',msg:'Drop it beside the belt; a BAY can insert into one clear connection.'};
+    return {link,v};
+  }
   function commitPropStamp(d, ev) {
     // CLICK-ON-MACHINE WINS: a click (no drag) on ANY existing prop inspects it instead of attempting
     // a placement on top of it — placement happens only on clear deck. (The old rule only caught a
@@ -5893,7 +5963,12 @@ const Build = (() => {
        (that took the line apart — ORPHAN_SOURCE), never touching another belt, and a FILTER's EVERYTHING ELSE / a LOOP's DONE lane
        is the lane the belt already runs on, so the line keeps flowing (a filter dropped bare was a FILTER_NO_DEFAULT finding). */
     const onBelt = JUNCTION_TAG_TYPES[propType] && station.beltAt(px, py) && linkedFloor() && typeof station.junctionOnBelt === 'function';
-    const res = owner
+    const foot = beltUnderFoot(propType,px,py,s);
+    const res = foot ? (foot.v.ok ? station.transact(() => {
+      const r = station.insertBayBetween(foot.link.from.prop,foot.link.to.prop,{w:s.w,h:s.h,block:true,role:held&&held.role});
+      if (r && r.ok && held) { if(agentHere(held.agentId)) station.assignPropAgent(r.id,held.agentId); if(held.brief) station.setPropBrief(r.id,held.brief); if(held.hands) station.setPropHands(r.id,held.hands); }
+      return r;
+    },'BAY') : foot.v) : owner
       ? addOwnedDesk(placement, owner)
       : onBelt ? station.junctionOnBelt(px, py, propType, { cfg: held && held.cfg })
       : bayExtras ? station.transact(() => {
@@ -6026,7 +6101,7 @@ const Build = (() => {
     let dx = d.cur.tx - d.start.tx, dy = d.cur.ty - d.start.ty;
     if (!dx && !dy) { hideTip(); return; }
     // SEND TO: an OUTBOX let go on another line's INBOX points at it and stays where it stands (the ghost showed the arc)
-    const so = station.propById(d.propId), si = so && so.t === 'outbox' ? intakeAt(d.cur.tx, d.cur.ty) : null;
+    const so = station.propById(d.propId), si = !d.add && !ev.shiftKey && so && so.t === 'outbox' ? intakeAt(d.cur.tx, d.cur.ty) : null;
     if (si) { commitSendTo(so.id, si.id, ev); return; }
     // JUNCTION SNAP on MOVE — the same rule placement (commitPropStamp) already applies: a filter/
     // splitter/merger dropped NEXT to a line snaps onto the nearest belt tile. Without this, a moved
@@ -6034,13 +6109,6 @@ const Build = (() => {
     // tiles off, went silently inert. If the snapped tile is blocked, fall back to the plain move.
     const mp = station.propById(d.propId);
     let okMsg = 'relocated';
-    if (mp && (mp.t === 'filter' || mp.t === 'splitter' || mp.t === 'merger' || mp.t === 'joiner' || mp.t === 'loop') && !station.beltAt(mp.x + dx, mp.y + dy)) {
-      for (const [ox, oy] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]]) {
-        if (station.beltAt(mp.x + dx + ox, mp.y + dy + oy) && station.canPlaceProp(mp.t, mp.x + dx + ox, mp.y + dy + oy, mp.w, mp.h, mp.id).ok) {
-          dx += ox; dy += oy; okMsg = 'snapped onto the line'; break;
-        }
-      }
-    }
     // belts never ride along with a machine: say so at the drop (the ghost already warned amber)
     const left = mp ? beltsLeftBehind(mp, mp.x + dx, mp.y + dy) : 0;
     // (a SELECTED conveyor machine let go on another machine never lands here: that drag is THE HAND's — selectedDragAims)
@@ -6084,6 +6152,7 @@ const Build = (() => {
     const pid = station.propAt(d.cur.tx, d.cur.ty);   // props sit on top — reclaim them first
     if (pid) {
       const p = station.propById(pid), was = p && Object.assign({}, p);
+      if(warnSendCuts([pid],ev)) return;
       const res = station.removeProp(pid);
       if (res && res.ok) { if (p) pushFlash([{ x1: p.x, y1: p.y, x2: p.x + p.w - 1, y2: p.y + p.h - 1 }], true); vanishProp(was); flashUndo(); flashTip(ev, 'deleted — UNDO to restore', true); sfx('click'); }
       else { flashTip(ev, (res && res.msg) || 'blocked'); sfx('bad'); }
@@ -6174,7 +6243,7 @@ const Build = (() => {
                   (a machine, another belt — a MERGER there too — or empty floor and the same picker).
      Each is the model's own planner asked through a pure preview while you drag (memoized per edit, tile and corner — nothing
      is written until you let go, H9) and ONE transact when you do. The reason rides the pointer through the one-voice arbiter. */
-  const HAND_PLAN_MODES = { handbelt: 1, handbranch: 1 };
+  const HAND_PLAN_MODES = { handbelt: 1, handbranch: 1, beltreshape: 1 };
   const beltSource = id => { const p = id && station.propById(id); return !!(p && CONNECT_TYPES[p.t]); };
   const isConveyorPiece = p => !!(p && CONNECT_TYPES[p.t]);
   /* a drag of the SELECTED piece (onMove — ONE GESTURE, THE TARGET DECIDES): does the pointer stand on a target THE HAND takes?
@@ -6203,7 +6272,7 @@ const Build = (() => {
   let handPvKey = '', handPvMemo = null;
   function handPlan(d) {
     if (!d || !d.moved || !station) return null;
-    const src = d.mode === 'handbranch' ? 'b' + d.from.x + ',' + d.from.y : 'p' + d.propId;
+    const src = d.mode === 'beltreshape' ? 'l'+d.linkId : d.mode === 'handbranch' ? 'b' + d.from.x + ',' + d.from.y : 'p' + d.propId;
     const k = geoVer + '|' + src + '|' + d.cur.tx + ',' + d.cur.ty + '|' + (flipPref ? 1 : 0);
     if (k === handPvKey) return handPvMemo;
     let plan = null;
@@ -6214,6 +6283,7 @@ const Build = (() => {
   function planHandGesture(d, tx, ty) {
     const o = { flip: flipPref }, tile = { x: tx, y: ty };
     const pid = station.propAt(tx, ty), T = pid && station.propById(pid);
+    if(d.mode==='beltreshape'){const pv=station.canReshapeLink(d.linkId,tx,ty,o);return pv.ok?{ok:true,kind:'reshape',link:d.linkId,path:pv.path,why:'RESHAPE BELT THROUGH HERE · R FLIPS THE CORNER'}:{ok:false,why:refusalWords(pv)};}
     if (d.mode === 'handbranch') {
       const F = d.from;
       if (tx === F.x && ty === F.y) return null;   // still on the tile it was pressed on
@@ -6255,10 +6325,10 @@ const Build = (() => {
       return pv.ok ? { ok: true, kind: 'connect', to: T, path: pv.path, why: (fed ? 'JOIN ' + mName(T.id) + '’S INPUT' : 'CONNECT TO ' + mName(T.id)) }
         : { ok: false, to: T, why: refusalWords(pv) };
     }
-    if (A.t !== 'outbox' && exit) return { ok: false, why: 'THIS ' + propLabel(A.t) + ' ALREADY HANDS WORK ON — DRAG FROM ITS BELT TO BRANCH IT' };
+    if (A.t !== 'outbox' && exit) return { ok: false, why: 'THIS ' + propLabel(A.t) + ' ALREADY HANDS WORK ON — DRAG FROM ITS BELT TO BRANCH IT · CLICK IT FIRST TO MOVE IT' };
     const pv = station.previewBeltTo(A.id, tile, o);
     if (pv.mode === 'merge') return pv.ok ? { ok: true, kind: 'merge', path: pv.path, junctions: [{ t: 'merger', x: tx, y: ty }], why: 'MERGE INTO THIS BELT · A MERGER GOES HERE' } : { ok: false, why: refusalWords(pv) };
-    return pv.ok ? { ok: true, kind: 'floor', path: pv.path, why: 'LET GO TO PICK WHAT GOES HERE' } : { ok: false, why: refusalWords(pv) };
+    return pv.ok ? { ok: true, kind: 'floor', path: pv.path, why: 'LET GO TO PICK WHAT GOES HERE' } : { ok: false, why: refusalWords(pv) + (!d.sel ? ' · CLICK IT FIRST TO MOVE IT' : '') };
   }
   // R mid-drag: the corner turns the other way (where two shortest routes exist) — the preview re-asks, the commit lays the same
   function flipCorner() {
@@ -6274,7 +6344,8 @@ const Build = (() => {
     const o = { flip: flipPref }, tile = { x: d.cur.tx, y: d.cur.ty };
     if (plan.kind === 'floor' || plan.kind === 'branchfloor') { openDropPick(d, plan, tile, ev); flipPref = false; paintHandKeys(); return; }   // (the picker keeps the corner it was shown with)
     let res = null, msg = '';
-    if (plan.kind === 'connect') { res = station.connectBelt(d.propId, plan.to.id, o); msg = 'CONNECTED TO ' + mName(plan.to.id) + (res && res.count ? ' · ' + res.count + ' BELTS' : ''); }
+    if (plan.kind === 'reshape') { res=station.reshapeLink(plan.link,tile.x,tile.y,o); msg='RESHAPED BELT · SAME MACHINES · CTRL+Z'; }
+    else if (plan.kind === 'connect') { res = station.connectBelt(d.propId, plan.to.id, o); msg = 'CONNECTED TO ' + mName(plan.to.id) + (res && res.count ? ' · ' + res.count + ' BELTS' : ''); }
     else if (plan.kind === 'reroute') { res = station.relinkTo(plan.link, plan.to.id, o); msg = 'RE-ROUTED · NOW HANDS TO ' + mName(plan.to.id); }
     else if (plan.kind === 'send') { res = station.setSendTo(d.propId, plan.to.id); msg = 'SENDS EVERY RESULT TO ' + mName(plan.to.id); }
     else if (plan.kind === 'merge') { res = station.mergeBelt(d.propId, tile, o); msg = 'MERGED · A MERGER JOINS THE TWO BELTS'; }
@@ -6348,6 +6419,7 @@ const Build = (() => {
     const w = toWorldTile(ev);
     const pid = propAtEvent(ev) || station.propAt(w.tx, w.ty), p = pid && station.propById(pid);
     if (p && isConveyorPiece(p)) {
+      if(warnSendCuts([p.id],ev)) return true;
       const was = Object.assign({}, p), label = propLabel(p.t);
       const res = station.removeProp(p.id);
       if (res && res.ok) {
@@ -6358,6 +6430,10 @@ const Build = (() => {
       return true;
     }
     if (p) return false;
+    return removeBeltAt(w.tx,w.ty,ev);
+  }
+  function removeBeltAt(tx,ty,ev) {
+    const w={tx,ty};
     if (!station.beltAt(w.tx, w.ty)) return false;
     const linked = linkedFloor() && typeof station.removeLinkAt === 'function' ? station.removeLinkAt(w.tx, w.ty) : null;
     const res = linked && linked.ok ? linked : station.removeBelt(w.tx, w.ty);
@@ -6552,14 +6628,15 @@ const Build = (() => {
     escExitArmedAt = 0;   // any other key disarms the pending exit
     if ((ev.ctrlKey || ev.metaKey) && (ev.key === 'z' || ev.key === 'Z')) {
       ev.preventDefault();
+      setHand(null, { silent: true });
       const r = ev.shiftKey ? station.redo() : station.undo();
       sfx(r.ok ? 'click' : 'bad'); floatHistory(r, ev.shiftKey ? 'REDID' : 'UNDID'); return;
     }
-    if ((ev.ctrlKey || ev.metaKey) && (ev.key === 'y' || ev.key === 'Y')) { ev.preventDefault(); const r = station.redo(); sfx(r.ok ? 'click' : 'bad'); floatHistory(r, 'REDID'); return; }
+    if ((ev.ctrlKey || ev.metaKey) && (ev.key === 'y' || ev.key === 'Y')) { ev.preventDefault(); setHand(null, { silent: true }); const r = station.redo(); sfx(r.ok ? 'click' : 'bad'); floatHistory(r, 'REDID'); return; }
     if (ev.key === '/') { ev.preventDefault(); buildGroup = 'props'; selectTool('select'); root.querySelector('#refit-propsearch-input')?.focus(); return; }
     if (ev.key === 'f' || ev.key === 'F') { fitCamera(); return; }
     // THE HAND: R mid-drag flips the belt's corner; Q picks up one like the piece under the pointer (Q again puts it down)
-    if ((ev.key === 'r' || ev.key === 'R') && drag && (drag.mode === 'handbelt' || drag.mode === 'handbranch')) { ev.preventDefault(); flipCorner(); return; }
+    if ((ev.key === 'r' || ev.key === 'R') && drag && HAND_PLAN_MODES[drag.mode]) { ev.preventDefault(); flipCorner(); return; }
     if ((ev.key === 'q' || ev.key === 'Q') && tool === 'select' && !(ev.ctrlKey || ev.metaKey)) { ev.preventDefault(); pipette(orientEv(), hoverPropId); return; }
     // THE HAND part 2: R with a CLIP in hand turns the paste a quarter (Shift+R: back)
     if ((ev.key === 'r' || ev.key === 'R') && tool === 'dupe' && dupe && dupe.type === 'lines' && !(ev.ctrlKey || ev.metaKey)) { ev.preventDefault(); turnClip(ev.shiftKey ? 3 : 1, orientEv()); return; }
@@ -6773,8 +6850,8 @@ const Build = (() => {
   function linkNames(links) {
     const names = [];
     for (const l of links || []) {
-      const n = l.t === 'bay' ? (l.agentId ? String(agentLabelFor(l.agentId)).toUpperCase() : 'AN EMPTY BAY')
-        : l.t === 'intake' ? (l.label ? 'LINE ' + String(l.label).toUpperCase() : 'AN INBOX')
+      const n = l.t === 'bay' ? (l.label ? String(l.label).toUpperCase() : l.agentId ? String(agentLabelFor(l.agentId)).toUpperCase() : 'AN EMPTY BAY')
+        : l.t === 'intake' ? Pipeline.lineWord(l.label, station.lineLetter ? 'LINE ' + station.lineLetter(l.id) : 'LINE ' + l.id)
         : l.t === 'outbox' ? 'AN OUTBOX' : 'A ' + propLabel(l.t);
       if (names.indexOf(n) < 0) names.push(n);
     }
@@ -6814,7 +6891,8 @@ const Build = (() => {
           const rect = { x1: gx, y1: gy, x2: gx + s.w - 1, y2: gy + s.h - 1 };
           // THE HAND: a junction held over a belt goes ON that belt (junctionOnBelt) — green where it may, red with the reason
           const onBelt = JUNCTION_TAG_TYPES[propType] && station.beltAt(gx, gy) && linkedFloor() && typeof station.junctionOnBeltRefusal === 'function';
-          if (onBelt) {
+          const foot = beltUnderFoot(propType,gx,gy,s);
+          if (foot) { propHoverMemo = { key, ghost: { rects:[rect], v:foot.v, kind:'prop', stamp:true, insert:foot.v.ok, links:[] } }; } else if (onBelt) {
             const no = station.junctionOnBeltRefusal(gx, gy);
             propHoverMemo = { key, ghost: { rects: [rect], v: no ? { ok: false, msg: no.msg, short: no.short } : { ok: true }, kind: 'prop', stamp: true, insert: true, links: [] } };
           } else if (sn) {
@@ -6851,18 +6929,19 @@ const Build = (() => {
       const s = propBox(propType, propFacing(propType)), tx = drag.cur.tx, ty = drag.cur.ty;   // ghost shows the TURNED box
       const rect = { x1: tx, y1: ty, x2: tx + s.w - 1, y2: ty + s.h - 1 };
       const links = isWorkflowType(propType) ? ghostLinks({ props: [{ t: propType, x: tx, y: ty, w: s.w, h: s.h }] }) : [];
-      return { rects: [rect], v: station.canPlaceProp(propType, tx, ty, s.w, s.h), kind: 'prop', links };
+      const foot = beltUnderFoot(propType,tx,ty,s);
+      return { rects: [rect], v: foot ? foot.v : station.canPlaceProp(propType, tx, ty, s.w, s.h), kind: 'prop', links, insert: !!(foot && foot.v.ok) };
     }
     if (drag.mode === 'propmove') {
       const p = station.propById(drag.propId); if (!p) return null;
       const dx = drag.cur.tx - drag.start.tx, dy = drag.cur.ty - drag.start.ty;
       // SEND TO: an OUTBOX dragged onto another line's INBOX points at it (it stays where it stands — no belt, no move)
-      const sendTo = p.t === 'outbox' && (dx || dy) ? intakeAt(drag.cur.tx, drag.cur.ty) : null;
+      const sendTo = !drag.add && !drag.forceMove && p.t === 'outbox' && (dx || dy) ? intakeAt(drag.cur.tx, drag.cur.ty) : null;
       if (sendTo) { const pv = sendToPv(p.id, sendTo.id) || { ok: false, short: 'CANNOT SEND THERE' }; return { sendTo: true, from: p, to: sendTo, rects: [propRect(sendTo)], v: pv }; }
       const nx = p.x + dx, ny = p.y + dy;
       const rect = { x1: nx, y1: ny, x2: nx + p.w - 1, y2: ny + p.h - 1 };
       const links = isWorkflowType(p.t) && (dx || dy) ? ghostLinks({ props: [{ t: p.t, x: nx, y: ny, w: p.w, h: p.h }], ignoreId: p.id }) : [];
-      return { rects: [rect], v: station.canPlaceProp(p.t, nx, ny, p.w, p.h, p.id), move: true, dx, dy, preview:{...p,x:nx,y:ny}, links, leftBehind: (dx || dy) ? beltsLeftBehind(p, nx, ny) : 0 };
+      return { rects: [rect], v: station.canMoveProp ? station.canMoveProp(p.id, nx, ny) : station.canPlaceProp(p.t, nx, ny, p.w, p.h, p.id), move: true, dx, dy, preview:{...p,x:nx,y:ny}, links, leftBehind: (dx || dy) ? beltsLeftBehind(p, nx, ny) : 0 };
     }
     if (drag.mode === 'roomresize') {
       const rm = station.roomById(drag.roomId), nr = rm && resizedRect(drag); if (!nr) return null;
@@ -6871,7 +6950,7 @@ const Build = (() => {
     if (drag.mode === 'groupmove') {
       const ps = groupIds.map(id => station.propById(id)).filter(Boolean); if (!ps.length) return null;
       const dx = drag.cur.tx - drag.start.tx, dy = drag.cur.ty - drag.start.ty;
-      return { rects: ps.map(p => propRect(p, dx, dy)), v: groupFit(ps, dx, dy), move: true, dx, dy, group: ps.map(p => ({ ...p, x: p.x + dx, y: p.y + dy })) };
+      return { rects: ps.map(p => propRect(p, dx, dy)), v: station.canMoveProps ? station.canMoveProps(ps.map(p => p.id), dx, dy) : groupFit(ps, dx, dy), move: true, dx, dy, group: ps.map(p => ({ ...p, x: p.x + dx, y: p.y + dy })) };
     }
     if (drag.mode === 'move') {
       const rm = station.roomById(drag.roomId); if (!rm) return null;
@@ -7402,7 +7481,7 @@ const Build = (() => {
      is the point — the paint and delete brushes raster whole runs of tiles per frame and would
      machine-gun it. */
   let lastTick = 0;
-  const SNAP_GESTURES = { handbelt: 1, handbranch: 1, draw: 1, beltrun: 1, move: 1, propmove: 1, propstamp: 1, groupmove: 1, roomresize: 1 };   // (THE HAND's drags tick tile by tile too)
+  const SNAP_GESTURES = { handbelt: 1, handbranch: 1, beltreshape: 1, draw: 1, beltrun: 1, move: 1, propmove: 1, propstamp: 1, groupmove: 1, roomresize: 1 };   // (THE HAND's drags tick tile by tile too)
   function snapTick(mode) {
     if (!SNAP_GESTURES[mode]) return;
     const n = performance.now();
@@ -7548,7 +7627,7 @@ const Build = (() => {
         ghostMapFor = jmap; ghostMapFo = fo; ghostMap = jmap;
         if (jmap && fo) { const o = cacheGeo.origin || { tx: 0, ty: 0 }; for (const k in fo) if (fo[k]) { const q = k.split(','), wk = (+q[0] + o.tx) + ',' + (+q[1] + o.ty), j = jmap.get(wk); if (j && !j.fanout) { if (ghostMap === jmap) ghostMap = new Map(jmap); ghostMap.set(wk, Object.assign({}, j, { fanout: true })); } } }
       }
-      ghost.tick(dt, now, belts, ghostMap, { blocked, feed });
+      ghost.tick(dt, now, belts, ghostMap, { blocked, feed, fedLines: opts && opts.world && opts.world.fedLines ? opts.world.fedLines(valPlan) : Pipeline.fedLineIds(valPlan) });
     }
     convey.drawBelts(ctx, now, t, belts, valLive);
     /* DROP IT ON A BELT (2026-09-27 audit P5): with a junction in hand, every belt tile it can go on wears a crisp dashed
@@ -7773,8 +7852,8 @@ const Build = (() => {
     return res && res.ok ? { ok: true, mode } : { ok: false, msg: (res && (res.msg || res.error)) || 'could not switch' };
   }
   function junctionTagText(p) {
-    const cfg = (valPlan && valPlan.junctions && valPlan.junctions[p.x + ',' + p.y]) || null;
-    if (p.t === 'splitter') return cfg ? (fanoutOnceCrewed()[p.x + ',' + p.y] ? 'SPLITTER · COPY TO EACH' : 'SPLITTER · TAKES TURNS') : 'SPLITTER';
+    const jp = probePlanOnceCrewed() || valPlan, cfg = (jp && jp.junctions && jp.junctions[p.x + ',' + p.y]) || null;
+    if (p.t === 'splitter') return cfg ? (cfg.divide ? 'SPLITTER · SPLITS THE JOB' : fanoutOnceCrewed()[p.x + ',' + p.y] ? 'SPLITTER · COPY TO EACH' : 'SPLITTER · TAKES TURNS') : 'SPLITTER';
     if (p.t === 'joiner') return cfg && cfg.expect > 1 ? 'JOINER · WAITS FOR ' + cfg.expect : 'JOINER · WAITS';
     if (p.t === 'loop') return 'LOOP · UP TO ' + ((cfg && cfg.max) || (typeof Pipeline !== 'undefined' && Pipeline.LOOP_MAX_DEFAULT) || 5) + '×';
     if (p.t === 'filter') return 'FILTER · SORTS';
@@ -7948,7 +8027,7 @@ const Build = (() => {
   function sendName(intakeId) {
     const c = lineOfProp(intakeId), nm = c ? lineNameOf(c) : null, ip = station.propById(intakeId);
     const label = nm || (ip && ip.label) || '';
-    return label ? 'LINE ' + String(label).toUpperCase() : 'AN UNNAMED LINE';
+    return Pipeline.lineWord(label, station.lineLetter ? 'LINE ' + station.lineLetter(intakeId) : 'LINE ' + intakeId);
   }
   function intakeAt(tx, ty) { const id = station.propAt(tx, ty), p = id && station.propById(id); return p && p.t === 'intake' ? p : null; }
   function commitSendTo(outboxId, intakeId, ev) {
@@ -8052,7 +8131,9 @@ const Build = (() => {
       if (!CONNECT_TYPES[p.t]) continue;
       const isFrom = !!armed && p.id === armed;
       // mid-connect the story flips: the armed machine burns gold, every other machine reads as a target
-      const col = isFrom ? '#ffd94a' : armed ? '#7ee2a8' : p.t === 'intake' ? '#3fd08a' : '#5ad0ff';
+      const from = connectFrom && station.propById(connectFrom);
+      const verdict = !isFrom && hoverPropId === p.id && armed ? (from && from.t === 'outbox' && p.t === 'intake' ? sendToPv(from.id,p.id) : connectTo ? beltPreview(p.id,connectTo) : beltPreview(connectFrom,p.id)) : null;
+      const col = isFrom ? '#ffd94a' : verdict && !verdict.ok ? '#ff8f80' : armed ? '#7ee2a8' : p.t === 'intake' ? '#3fd08a' : '#5ad0ff';
       const X = p.x * t, Y = p.y * t, Wd = (p.w || 1) * t, Hd = (p.h || 1) * t;
       ctx.globalAlpha = isFrom ? 0.95 : pulse;
       ctx.strokeStyle = col; ctx.lineWidth = (isFrom ? 2.5 : 1.5) / zoom;
@@ -8124,7 +8205,7 @@ const Build = (() => {
       ctx.restore();
       return;
     }
-    if (!drag || (drag.mode !== 'handbelt' && drag.mode !== 'handbranch')) return;
+    if (!drag || !HAND_PLAN_MODES[drag.mode]) return;
     const plan = handPlan(drag);
     const A = drag.mode === 'handbelt' ? station.propById(drag.propId) : null;
     if (A) drawPropSelection(A, t, 'rgba(255,217,74,.95)', false);
@@ -8150,10 +8231,10 @@ const Build = (() => {
      an INBOX whose line runs more stages than its budget allows wears its amber n/max plate — the one resting number. Read off the
      compiled plan (valPlan — the same artifact the sidecar routes by); a count the plan does not carry is never invented. */
   function altJunctionText(p, o) {
-    const k = p.x + ',' + p.y, cfg = valPlan && valPlan.junctions && valPlan.junctions[k];
+    const k = p.x + ',' + p.y, jp = probePlanOnceCrewed() || valPlan, cfg = jp && jp.junctions && jp.junctions[k];
     const I = (typeof Pipeline !== 'undefined' && Pipeline._internals) || null, map = valPlan && valPlan.belts;
     const outs = I && map ? I.outLanes(map, p.x, p.y).length : 0, ins = I && map ? I.inLanes(map, p.x, p.y).length : 0;
-    if (p.t === 'splitter') return (fanoutOnceCrewed()[k] ? 'COPY x' : 'TURNS x') + outs;
+    if (p.t === 'splitter') return (cfg && cfg.divide ? 'PARTS x' : fanoutOnceCrewed()[k] ? 'COPY x' : 'TURNS x') + outs;
     if (p.t === 'merger') return ins + '>1';
     if (p.t === 'joiner') return 'WAITS ' + ((cfg && cfg.expect) || ins) + '/' + ((cfg && cfg.expect) || ins);
     if (p.t === 'loop') return 'UP TO x' + ((cfg && cfg.max) || (typeof Pipeline !== 'undefined' && Pipeline.LOOP_MAX_DEFAULT) || 5);
@@ -8184,8 +8265,19 @@ const Build = (() => {
         v = ls && ls.stages > 0 ? { n: ls.stages, max: ls.max, over: ls.stages > ls.max } : null;
       }
     }
+    if (v && !rest && typeof Pipeline !== 'undefined' && Pipeline.lineStages) v.worst = Pipeline.lineStages(valPlan, rec.lineId).worst;
     stagesMemo.set(mk, v);
     return v;
+  }
+  const LINE_HUES = ['#c58be0','#e07a8b','#9fb5e0','#d7a6cf','#9f9cde'];
+  let hueVer=-1,hueMemo=[];
+  function lineOutlines() {
+    if(hueVer===geoVer)return hueMemo;
+    hueVer=geoVer;hueMemo=[];
+    for(const c of valComps||[]) { const id=c.intakes&&c.intakes[0]; if(!id||!station.lineMembers)continue; const m=station.lineMembers(id);if(!m)continue;
+      let hash=0;for(const ch of String(id))hash=(Math.imul(hash,31)+ch.charCodeAt(0))>>>0;
+      const mine=new Set(m.links);hueMemo.push({hue:LINE_HUES[hash%LINE_HUES.length],ids:m.ids,cells:linksMemoed().filter(l=>mine.has(l.id)).flatMap(l=>l.path||[])});
+    } return hueMemo;
   }
   function drawAltView(t) {
     if (!cacheGeo || !valPlan || buildGroup !== 'workflow' && !altOn()) return;
@@ -8202,6 +8294,7 @@ const Build = (() => {
       };
       if (layer) voiceSay(layer, anchor || box, box, paint); else paint(ctx);
     };
+    if(alt) { ctx.save();ctx.globalAlpha=0.55;for(const line of lineOutlines()){for(const id of line.ids){const p=station.propById(id);if(p)drawPropSelection(p,t,line.hue,false);}drawBeltCells(t,line.cells,line.hue);}ctx.restore(); }
     if (alt) for (const p of (cacheGeo.props || [])) {   // every junction's setting, under its tile — part of the machine (not a voice)
       if (!JUNCTION_TAG_TYPES[p.t]) continue;
       const text = altJunctionText(p, o); if (!text) continue;
@@ -8211,7 +8304,7 @@ const Build = (() => {
       const st = lineStagesOf(rec, !alt); if (!st || (!alt && !st.over)) continue;
       const iid = rec.intakes && rec.intakes[0], ip = iid && (cacheGeo.props || []).find(q => q.id === iid); if (!ip) continue;
       const X = (ip.x + o.tx) * t, Y = (ip.y + o.ty) * t, W = (ip.w || 1) * t;
-      plate(st.n + '/' + st.max + ' STAGES', X + W / 2, Y - fh - 4 / zoom, st.over ? '#ffbe3c' : '#7ee2a8', alt ? null : 'topNag', { x: X, y: Y, w: W, h: (ip.h || 1) * t });
+      plate(st.n + '/' + st.max + ' STAGES' + (alt && st.worst > st.n ? ' · UP TO ' + st.worst + ' WITH LOOPS' : ''), X + W / 2, Y - fh - 4 / zoom, st.over ? '#ffbe3c' : '#7ee2a8', alt ? null : 'topNag', { x: X, y: Y, w: W, h: (ip.h || 1) * t });
     }
     /* every SEND TO under Alt: NOT drawn here. drawSendLinks already strokes each pointer in the colour the COMPILED plan gives it
        (the plan's SEND TO table — green live, red OFF) and, with Alt held, says its words on every arc (SENDS TO X / SEND TO X IS OFF).
@@ -8241,8 +8334,8 @@ const Build = (() => {
     const bound = isIntake ? true : !!p.agentId;
     // a role-carrying dock's glance names the role it wants while unbound ("BAY · needs a RESEARCHER")
     const ri = (!bound && p.role && typeof WorldModel !== 'undefined' && WorldModel.bayRoleInfo) ? WorldModel.bayRoleInfo(p.role) : null;
-    const txt = isIntake ? ('LINE · ' + String(p.label))
-      : (isPc ? 'PC · ' : 'BAY · ') + (bound ? String(p.agentId).replace(/^tg_/, '') : (ri ? 'needs a ' + p.role + ' — ' + ri.desc : 'unassigned'));
+    const txt = isIntake ? Pipeline.lineWord(p.label, station.lineLetter ? 'LINE ' + station.lineLetter(p.id) : 'LINE ' + p.id)
+      : (isPc ? 'PC · ' : (p.label || 'BAY') + ' · ') + (bound ? String(p.agentId).replace(/^tg_/, '') : (ri ? 'needs a ' + p.role + ' — ' + ri.desc : 'unassigned'));
     // dock→dock affordance: a BOUND bay's glance also says where its OUTPUT goes — read from the compiled
     // plan's chain record (valPlan.chains — the same fact the sidecar routes by), so the tag can never
     // claim a handoff dispatch wouldn't perform. Same tag chrome, stacked one line above; still a glance,
@@ -8710,7 +8803,7 @@ const Build = (() => {
     // (a line that fits laid out: the drawn shape will not go here, but the click lays the same line out round what stands here)
     if (!ok) lines.push(g.kind === 'line' && g.laid ? 'THE DRAWN SHAPE DOES NOT FIT HERE — IT WILL BE LAID OUT TO FIT' : ((footprint && footprint.msg) || placementReason(g)).toUpperCase());
     // the hover preview teaches BOTH gestures: this size on a click, any size on a drag
-    else if (g.stamp) lines.push(g.insert ? 'CLICK TO PUT IT ON THIS BELT' : g.kind === 'prop' ? (rowable(propType) ? 'CLICK TO PLACE · DRAG FOR A ROW' : 'CLICK TO PLACE') : 'CLICK TO PLACE · DRAG TO SIZE');
+    else if (g.stamp) lines.push(g.insert ? (propType === 'bay' ? 'INSERT A STEP — THE LINE MAKES ROOM' : 'CLICK TO PUT IT ON THIS BELT') : g.kind === 'prop' ? (rowable(propType) ? 'CLICK TO PLACE · DRAG FOR A ROW' : 'CLICK TO PLACE') : 'CLICK TO PLACE · DRAG TO SIZE');
     /* SPACING (2026-09-27 audit B4): a dock hooks every belt in the 1-tile ring around it, so two docks with one empty tile
        between them share that tile — a belt there hooks BOTH, and the job goes nowhere. Said while the ghost is in hand,
        never refused (sandbox law): the Commander may still want them tight. */
@@ -8887,6 +8980,7 @@ const Build = (() => {
   }
   const __test__ = {
     isOpen: () => running,
+    pointer: (phase, tile, data) => { const ev=Object.assign(__test__._tileEvent(tile),data||{}); ({down:onDown,move:onMove,up:onUp,cancel:onCancel})[phase](ev); return {zoom,panX,panY,drag:drag&&drag.mode,points:touchPts.size,locked:pinchLock}; },
     /* THE HAND (2026-10-10): what is held, the picker, the floats — and REAL gestures driven through onDown/onMove/onUp (the same
        three handlers a mouse does), so a CDP/preview proof exercises the ghost AND the commit, never a shortcut into the model */
     hand: () => ({ hand: hand && Object.assign({}, hand), touchArm, flip: flipPref, alt: altOn(), pick: dropPick && { tile: dropPick.tile, opts: dropPick.opts.slice() }, floats: floaters.map(f => f.text), drag: drag && drag.mode, plan: drag && HAND_PLAN_MODES[drag.mode] ? handPlan(drag) : null }),
@@ -8894,7 +8988,7 @@ const Build = (() => {
     // press at tiles[0], move through the rest; `release:false` leaves the drag live (the ghost + caption can be drawn/read mid-gesture)
     gesture: (tiles, o) => {
       if (!running || !cv || !tiles || !tiles.length) return { ok: false, reason: 'not-in-build' };
-      const ev = (tile, extra) => Object.assign(__test__._tileEvent(tile), { shiftKey: !!(o && o.shift) }, extra || {});
+      const ev = (tile, extra) => Object.assign(__test__._tileEvent(tile), { shiftKey: !!(o && o.shift), ctrlKey: !!(o && o.ctrl) }, extra || {});
       onDown(ev(tiles[0])); for (let i = 1; i < tiles.length; i++) { const e = ev(tiles[i]); lastClient = { x: e.clientX, y: e.clientY }; onMove(e); }
       const mid = { drag: drag && drag.mode, plan: drag && HAND_PLAN_MODES[drag.mode] ? handPlan(drag) : null };
       if (!(o && o.release === false)) onUp(ev(tiles[tiles.length - 1]));

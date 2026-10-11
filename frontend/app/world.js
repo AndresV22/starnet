@@ -34,6 +34,7 @@ const World = (() => {
   let hoverBeltTile = null;                      // belt tile under the cursor (hover-glance route tag), or null
   let hoverOutbox = null;                        // stacked OUTBOX under the cursor (hover-glance "N TO REVIEW" tag), or null
   let routingNags = null;                        // [{x,y,w,h,label,warn}] in-world callouts mirroring the compiler's errors
+  let firstShipPulse = null;
   let feedState = { known: false, fed: true };   // server-proven "something feeds the intake" truth (channels/cron); fed=true until proven otherwise
   let feedNagOn = false;                         // a NO FEED nag is showing → the intake becomes clickable (→ CHANNELS)
   let selectedRoutingTile = null;                // explicit canvas selection; full routing instructions never open on hover
@@ -640,7 +641,7 @@ const World = (() => {
     // LINE WATCH state is keyed by prop id, and a fresh doc reissues low ids — the old floor's lamps/plates would
     // light this floor's colliding bays. Drop the watch (lazily rebuilt; acks re-read from localStorage) and the
     // stats (re-asked by rederive's lineStatsSoon) so every lamp re-earns its state from THIS floor's events.
-    watch = null; lineStats = { known: false, byLine: {}, since: 0 }; hoverBay = null; hoverCrate = null;
+    watch = null; lineStats = { known: false, byLine: {}, since: 0 }; firstShipPulse=null; hoverBay = null; hoverCrate = null;
     propFoot = new Map(); pendingMourn = null;          // forget where things stood (no cross-station grief)
     agentDecor.length = 0; ownPlaced.clear(); placeCd = 0;   // forget which decor it placed (the new floor is a clean slate)
     if (agent && agent.fond) agent.fond.clear();        // forget the old floor's haunts — the new floor earns its own
@@ -6673,9 +6674,15 @@ const World = (() => {
       if (ghost) {
         const coaching = !!(typeof Tutorial !== 'undefined' && Tutorial.isCoaching && Tutorial.isCoaching());
         for (const [d, t] of slices) ghost.tick(d, t, geo.belts, junctions, { blocked: coaching || convey.boxCount() > 0,
-          feed: { known: feedState.known, fed: feedState.fed } });
+          feed: { known: feedState.known, fed: feedState.fed }, fedLines: knownFedLines() });
       }
       convey.drawBelts(ctx, now, T, geo.belts, beltLiveSet);
+      if(firstShipPulse) {
+        const age=now-firstShipPulse.at;
+        if(age>=1500)firstShipPulse=null;
+        else { ctx.save();ctx.strokeStyle='#fff0bf';ctx.lineWidth=1/scale;ctx.globalAlpha=reduceMotion()?0.55:0.75*(1-age/1500);
+          for(const key of Object.keys(firstShipPulse.tiles||{})){const [x,y]=key.split(',').map(Number);ctx.strokeRect(x*T+1,y*T+1,T-2,T-2);}ctx.restore(); }
+      }
     }
 
     const items = [], decals = [], propLights = [], bayLabels = [];   // decals = the flat floor pass, painted under every item (see isFlatProp) · propLights = this frame's emissive sources
@@ -8229,10 +8236,14 @@ const World = (() => {
     ORPHAN_JUNCTION: 'NOT ON A BELT — MOVE IT',
     LINE_TOO_LONG: 'TOO LONG — RAISE THE LINE BUDGET',
     SEND_TO_MISSING: 'SENDS NOWHERE — PICK A LINE', SEND_TO_SELF: 'SENDS TO ITSELF — PICK ANOTHER LINE',
+    SEND_TO_PRIVATE_FILES: 'PRIVATE FILES — PICK A SHARED PROJECT',
     SEND_TO_LOOP: 'SENDS IN A CIRCLE — CUT ONE SEND TO'
   };
   // project the compiled plan's error list onto floor rectangles once per recompile (zero per-frame walk)
+  const knownFedLines = plan => typeof Pipeline !== 'undefined' && Pipeline.fedLineIds ? Pipeline.fedLineIds(plan || routingPlan, lineStats) : {};
+  let feedNagIds = new Set();
   function buildRoutingNags() {
+    feedNagIds = new Set();
     const out = [];
     feedNagOn = false;
     if (!routingPlan || !routingPlan.errors || !geo || !geo.props) return out;
@@ -8268,7 +8279,8 @@ const World = (() => {
     //     never a nag on ignorance. The click-through opens the CHANNELS panel (onIntakeFeed).
     if (feedState.known && !feedState.fed && beltLiveSet && Object.keys(beltLiveSet).length) {
       for (const p of geo.props) {
-        if (p.t !== 'intake') continue;
+        if (p.t !== 'intake' || knownFedLines()[routingPlan.lineOfProp[p.id]]) continue;
+        feedNagIds.add(p.id);
         out.push({ x: p.x, y: p.y, w: p.w || 1, h: p.h || 1, label: schedOffFor(p.id) ? 'SCHEDULE OFF — CLICK' : 'NO FEED — CLICK', warn: true });
         feedNagOn = true;
       }
@@ -8329,7 +8341,7 @@ const World = (() => {
   function intakeFeedAt(wp) {
     if (!feedNagOn || !geo || !geo.props) return null;
     for (const p of geo.props) {
-      if (p.t !== 'intake') continue;
+      if (p.t !== 'intake' || !feedNagIds.has(p.id)) continue;
       const x0 = p.x * T, y0 = p.y * T - 10, x1 = (p.x + (p.w || 1)) * T, y1 = (p.y + (p.h || 1)) * T + 2;
       if (wp.x >= x0 && wp.x < x1 && wp.y >= y0 && wp.y < y1) return p;
     }
@@ -9371,6 +9383,7 @@ const World = (() => {
           const by = {};
           for (const l of j.lines) if (l && l.lineId) by[l.lineId] = l;
           lineStats = { known: true, byLine: by, since };
+          routingNags = buildRoutingNags();
           const w = lineWatch(); if (w) w.seedOutcomes(j.docks);
         }).catch(() => {});
     } catch (_) { /* offline: the plate keeps its last server answer */ }
@@ -9509,11 +9522,11 @@ const World = (() => {
     const aid = p && p.agentId;
     const b = aid ? bodyForAgent(aid) : null;
     const who = (b && b.name) ? String(b.name).toUpperCase() : (aid ? String(aid).toUpperCase() : 'NO AGENT');
-    return (p && p.role ? String(p.role).toUpperCase() : 'BAY') + ' · ' + who;
+    return (p && (p.label || p.role) ? String(p.label || p.role).toUpperCase() : 'BAY') + ' · ' + who;
   }
   function lwLineName(lineId) {
     const ip = geo && geo.props ? geo.props.find(q => q.id === lineId) : null;
-    return (ip && ip.label) ? String(ip.label).toUpperCase() : 'UNNAMED LINE';   // the Workflow panel names a line; an unnamed one says so
+    return Pipeline.lineWord(ip && ip.label, station && station.lineLetter ? 'LINE ' + station.lineLetter(lineId) : 'LINE ' + lineId);   // the Workflow panel names a line; an unnamed one says so
   }
   function lwAgentName(aid) { const b = bodyForAgent(aid); return (b && b.name) ? String(b.name).toUpperCase() : String(aid || '?').toUpperCase(); }
   function crateCtx(payload) {
@@ -9628,7 +9641,7 @@ const World = (() => {
       const st = routingPlan.sendTo[obId], ob = geo.props.find(q => q.id === obId);
       if (!st || !ob) continue;
       const rec = routingPlan.lines.find(l => l && l.lineId === st.toLine), nm = rec && rec.name ? String(rec.name).toUpperCase() : '';
-      const text = 'SENDS TO ' + (nm ? 'LINE ' + nm : 'ANOTHER LINE');
+      const text = 'SENDS TO ' + Pipeline.lineWord(nm, station && station.lineLetter ? 'LINE ' + station.lineLetter(st.intakeId) : 'LINE ' + st.toLine);
       const w = ctx.measureText(text).width + 6, h = 8, cx = (ob.x + (ob.w || 1) / 2) * T;
       const room = lwRoomBox(ob.x, ob.y);
       const clampX = x => room ? Math.max(room.x, Math.min(room.x + room.w - w, x)) : x;
@@ -10222,7 +10235,7 @@ const World = (() => {
       // product-only: slag (an unproductive run) finishes nothing. World tiles ride over so Build maps
       // the mouth tile to its line in its own geometry frame.
       if (p.box === 'product' && geo && geo.origin && typeof Build !== 'undefined' && Build.noteLineDelivered) {
-        try { Build.noteLineDelivered(bx.x + geo.origin.tx, bx.y + geo.origin.ty); } catch (_) {}
+        try { const receipt=Build.noteLineDelivered(bx.x + geo.origin.tx, bx.y + geo.origin.ty); if(receipt&&receipt.first){ firstShipPulse={at:fnow,tiles:receipt.tiles}; if(typeof StationUI!=='undefined'&&StationUI.notify)StationUI.notify('FIRST SHIP · '+receipt.name,'gold'); if(typeof SFX!=='undefined'&&SFX.milestone)SFX.milestone(); } } catch (_) {}
       }
       // slag is NOT a satisfying delivery — skip the relaxed exhale; the post-mortem already fired at run.end
       if (p.box !== 'slag' && agent && !agent.unplaced && activity === 'idle') {   // EXHALE: watch the reply leave, satisfied, then relax (downtime clock resets)
@@ -11157,6 +11170,7 @@ const World = (() => {
       ? { cache, geo } : null,
     // FEED TRUTH accessor (guided workflows): the exact server-proven state the NO FEED nag keys on —
     // BUILD MODE's finish-the-line card reads THIS, never a parallel poll, so the two can never disagree.
+    fedLines: knownFedLines,
     feedState: () => ({ known: feedState.known, fed: feedState.fed }),
     // does this INBOX's line wait on a routine saved while scheduling is off? (the floor's SCHEDULE OFF — CLICK) — BUILD MODE's
     // finish card asks it with ITS OWN compiled plan (plan param), so a line stamped this session answers too
