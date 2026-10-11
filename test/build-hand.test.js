@@ -140,6 +140,47 @@ const frozen = s => JSON.stringify(s.serialize()) + '|' + s.getSeq() + '|' + s.c
   A.ok(r.ok && pathKey(linkOf(s, C, T).path) === pathKey(pv.path), 'connect with the flip lays exactly the flipped preview');
 }
 
+/* ---------- A4. repair 2026-10-11: a junction on a belt never re-wires the floor; a drop's ghost belt is the belt it lays ---------- */
+{
+  /* two fuzz-found floors (trimmed): the junction's tile, or the tile before / after it, sat in the 1-tile ring of a machine that was
+     not that end of the belt, and the floor's reconcile handed the run to that machine (a p4<->p5 cycle, the line cut in two) while
+     the refusal said yes and the floor chimed PUT ON THE LINE */
+  const fx = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', 'hand-junction-rewire.json'), 'utf8'));
+  for (const [name, doc, x, y] of [['ring', fx.ring, 61, 22], ['bothEnds', fx.bothEnds, 69, 9]]) {
+    const s = WM.create(JSON.parse(JSON.stringify(doc))), before = frozen(s);
+    const no = s.junctionOnBeltRefusal(x, y);
+    A.ok(no && no.error === 'NEAR_MACHINE' && no.short === 'TOO CLOSE TO ANOTHER MACHINE', name + ': the refusal names the machine beside the cut (the ghost goes red)');
+    const r = s.junctionOnBelt(x, y, 'splitter');
+    A.ok(!r.ok && frozen(s) === before, name + ': …and the commit agrees — nothing laid, nothing re-wired, no undo slot');
+    const tgt = s.props().find(p => p.t === 'bay' && !(s.links() || []).some(l => l.from.prop === p.id || l.to.prop === p.id)) || s.props()[0];
+    A.ok(!s.previewBranch({ x, y }, tgt.id, {}).ok && !s.branchBelt({ x, y }, tgt.id, {}).ok && frozen(s) === before, name + ': a branch from that tile is refused the same way');
+  }
+  // the commit's own judge (a backstop the refusal mirrors): every other link keeps its ends, the cut link becomes exactly start→J→end
+  const wm = fs.readFileSync(path.join(__dirname, '..', 'frontend', 'app', 'worldmodel.js'), 'utf8');
+  const job = wm.slice(wm.indexOf('function junctionOnBelt('), wm.indexOf('// a stand-in machine for an end'));
+  A.ok(/fail\('WOULD_REWIRE'/.test(job) && /fresh\.length === 2/.test(job) && /const kept = was\.every\(/.test(job), 'junctionOnBelt checks the floor reconcile after the split and refuses a re-wire inside its transact (rolled back)');
+  // ordinary tiles still take a junction (the rule only bites beside a THIRD machine, or a tile beside both ends)
+  const s = fresh(), L = line(s), lk = linkOf(s, L.B1, L.B2), mid = lk.path[Math.floor(lk.path.length / 2)];
+  A.eq(s.junctionOnBeltRefusal(mid.x, mid.y), null, 'the middle of a plain belt still takes a junction');
+
+  // PICK WHAT GOES HERE: each piece that fits carries the belt IT gets and where it stands — a 2x2 stands where the 1x1 stand-in's
+  // route ended, so its belt is a tile shorter (the dock's ghost draws this one; the stand-in's ran a tile under the new machine)
+  const s2 = fresh(), I = add(s2, 'intake', 32, 4), B = add(s2, 'bay', 40, 4);
+  A.ok(s2.connectBelt(I, B).ok, 'a BAY fed by an INBOX');
+  const before2 = frozen(s2), tile = { x: 36, y: 20 };
+  const pv = s2.previewBeltTo(B, tile, {});
+  const opts = s2.probeDrop(B, tile, [{ t: 'bay', w: 2, h: 2, block: true }, { t: 'splitter', w: 1, h: 1, block: false }], {});
+  A.eq(frozen(s2), before2, 'probing the drop never touches the floor');
+  const bay = opts.find(q => q.t === 'bay'), spl = opts.find(q => q.t === 'splitter');
+  A.ok(bay.ok && Array.isArray(bay.path) && bay.path.length && bay.rect && bay.rect.x2 - bay.rect.x1 === 1, 'a BAY that fits says its belt and its 2x2 footprint');
+  const under = bay.path.some(q => q.x >= bay.rect.x1 && q.x <= bay.rect.x2 && q.y >= bay.rect.y1 && q.y <= bay.rect.y2);
+  A.ok(!under, 'its belt never runs under the machine it feeds');
+  A.ok(spl.ok && pathKey(spl.path) === pathKey(pv.path), 'a 1x1 piece gets exactly the stand-in route the drag showed');
+  const r = s2.dropFrom(B, tile, { t: 'bay', w: 2, h: 2, block: true }, {});
+  const laid = r.ok && linkOf(s2, B, r.id);
+  A.ok(laid && pathKey(laid.path) === pathKey(bay.path), 'the BAY drop lays exactly the belt its option carried (the ghost IS the commit)');
+}
+
 /* ---------- B. undo / redo say what they did, and where ---------- */
 {
   const s = fresh();
@@ -210,6 +251,25 @@ const frozen = s => JSON.stringify(s.serialize()) + '|' + s.getSeq() + '|' + s.c
   A.ok(/data-handkey|dataset\.handkey = id/.test(build) && /key\('remove', 'REMOVE', 'R-CLICK'/.test(build) && /key\('pipette', 'PICK UP', 'Q'/.test(build) && /key\('corner', 'CORNER', 'R'/.test(build) && /key\('alt', 'ALT VIEW', 'ALT'/.test(build), 'touch gets a dock key for each gesture a finger lacks (right-click, Q, R, Alt)');
   A.ok(!/b\.title = /.test(fn('hotbarEl')) && /b\.dataset\.tip = /.test(fn('hotbarEl')), 'the hotbar explains itself in the station tooltip (no native title), never in sentences under the tiles');
   A.ok(/agentHere\(held\.agentId\)/.test(fn('commitPropStamp')) && /if \(agentHere\(p\.agentId\)\) h\.agentId = p\.agentId;/.test(fn('handFromProp')), 'a pipetted crew travels only when that agent is on this station');
+  /* ---- repair pass 2026-10-11 ---- */
+  A.ok(/const CLICK_SLOP = 12;/.test(build) && /const slipped = drag\.cx == null \|\| Math\.hypot\(ev\.clientX - drag\.cx, ev\.clientY - drag\.cy\) >= CLICK_SLOP;/.test(fn('onMove'))
+    && /if\(drag\.mode==='selectpress'&&drag\.moved&&slipped\)/.test(fn('onMove')) && /if\(drag\.mode==='beltpress'&&drag\.moved&&slipped\)drag\.mode='handbranch';/.test(fn('onMove'))
+    && /mode:'selectpress',propId:p\.id,start:w,cur:w,moved:false,add:ev\.shiftKey,cx:ev\.clientX,cy:ev\.clientY/.test(down) && /mode: 'beltpress', start: w, cur: w, moved: false, from: \{ x: w\.tx, y: w\.ty \}, cx: ev\.clientX, cy: ev\.clientY/.test(down),
+    'a press becomes a belt / branch / move only past 12 screen px — a click that drifts across a tile edge stays a click');
+  A.ok(/hand = null; touchArm = null; dropPick = null; selBelts = null; flipPref = false; altHeld = false; altLatched = false; floaters\.length = 0;/.test(fn('open')), 'a reopened BUILD MODE holds nothing: no piece, no armed REMOVE, no stale PICK WHAT GOES HERE, no box belts, no flipped corner');
+  const lso = fn('lineStagesOf');
+  A.ok(/if \(stagesPlan !== valPlan\) \{ stagesPlan = valPlan; stagesMemo = new Map\(\); \}/.test(lso) && /else if \(!rest\) \{/.test(lso) && /lineStagesOf\(rec, !alt\)/.test(alt), 'the stage count is walked once per compiled plan — and at rest (no Alt) never walked (H9: compile nothing per frame)');
+  A.ok(/voiceSay\('float', /.test(fn('drawFloaters')) && !/captionPlate\(ctx, /.test(fn('drawFloaters')) && /float: 4\.5, hover: 4/.test(build)
+    && build.indexOf("drawLayer('floats'") < build.indexOf("drawLayer('voices'"), 'REMOVED / UNDID / SELECTED floats speak through the one-voice arbiter (registered before the flush — never a second label on the hovered piece)');
+  A.ok(/const snapped = junctionSnap\(propType, px, py\);/.test(fn('commitPropStamp')) && /const sn = junctionSnap\(propType, tx, ty\), gx = sn \? sn\.x : tx, gy = sn \? sn\.y : ty;/.test(build), 'a junction held beside a belt: the hover ghost stands where the click will snap it, judged as the click will judge it');
+  A.ok(/const shadowed = \/\^\[1-8\]\$\/\.test\(t\.key\) && BUILD_GROUPS\.some\(g => g\[0\] === 'workflow'/.test(build) && /btn\.title = t\.hint \+ \(shadowed \? '' : /.test(build), 'BELT (shown only in the Conveyors tab, where 1–8 pick hotbar pieces) wears no key number');
+  A.ok(!/PROP tool \(6\)|MOVE \(4\) relocates/.test(build), 'no tip names a tool by a number the hotbar may own');
+  A.ok(/hot\.path \? hot\.path : dropPick\.path/.test(ghost) && /dp\.hot = on \? q\.t :/.test(fn('renderDropPick')) && /const laid = newId && \(station\.links\(\) \|\| \[\]\)\.find\(l => l\.to && l\.to\.prop === newId\);/.test(fn('commitDropPick')), 'PICK WHAT GOES HERE draws the pointed piece\u2019s own belt and footprint, and flashes the belt it really got');
+  const art = fn('guideStepArt');
+  A.ok(!/the clicks: one per machine/.test(art) && /the stroke, dragged to the BAY/.test(art), 'the quick guide\u2019s CONNECT picture draws a drag, never the old click-click');
+  const tut = fs.readFileSync(path.join(__dirname, '..', 'frontend', 'app', 'tutorial.js'), 'utf8'), qs = fs.readFileSync(path.join(__dirname, '..', 'frontend', 'app', 'quests.js'), 'utf8');
+  A.ok(/In the <b>Conveyors<\/b> tab, <kbd>1<\/kbd>–<kbd>8<\/kbd> pick a conveyor piece from its hotbar instead/.test(tut) && !/press <kbd>1<\/kbd> and drag out a room\. Press <kbd>6<\/kbd>/.test(tut), 'the Field Manual says 1–8 pick hotbar pieces in the Conveyors tab (and its mission names tabs, not numbers)');
+  A.ok(!/drag a BELT \(7\)/.test(qs) && /drag from the INBOX onto the BAY to lay a belt/.test(qs), 'the belt quest teaches the drag, not key 7');
 }
 
 A.report('build-hand.test');

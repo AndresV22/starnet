@@ -159,6 +159,64 @@ const lineOfIntake = (s, id) => plan(s).lines.find(l => l.intakes.includes(id));
   A.eq(s.props().length, n0, '…takes it all back');
 }
 
+/* ---------- D2. repair 2026-10-11: a laid-out paste keeps every junction's compass ON the lanes the layout laid ---------- */
+{
+  const dirTo = (a, b) => (b.x > a.x ? 'E' : b.x < a.x ? 'W' : b.y > a.y ? 'S' : 'N');
+  const laneOf = (s, J, l) => dirTo(J, (l.path && l.path[0]) || s.propById(l.to.prop));
+  // a LOOP, turned 0-3 quarters in hand: its DONE compass is the lane its done link really leaves by (the clip's old compass
+  // went back on over the layout's — and the next lane drawn out of it was labelled DONE: two DONE lanes, no BACK)
+  for (const turns of [0, 1, 2, 3]) {
+    const s = fresh(), L = line(s);
+    const c = WM.rotateClip(s.copyLines(s.lineMembers(L.I).ids, { agent: () => true, turns: () => false }).clip, turns);
+    const r = s.pasteLinesLaid(c, LE.layoutGraphNear(s, s.clipGraph(c).graph, { x: 50, y: 24 }));
+    A.ok(r.ok, 'turned ' + turns + ': the copy lays out to fit');
+    const J = s.propById(r.map[L.LOOP]), done = s.links().find(l => l.from.prop === J.id && l.from.port === 'done');
+    A.ok(done && J.done === laneOf(s, J, done) && J.maxIter === 4 && J.when === 'APPROVED', 'turned ' + turns + ': the pasted LOOP DONE compass is the lane its done belt leaves by (' + J.done + '), its passes and verdict kept');
+    A.ok(s.connectBelt(J.id, r.map[L.B1]).ok, 'turned ' + turns + ': its BACK lane is drawn to the BAY before it');
+    const ports = s.links().filter(l => l.from.prop === J.id).map(l => l.from.port).sort();
+    A.eq(ports, ['done', 'out'], 'turned ' + turns + ': …and it is a BACK lane (never a second DONE)');
+  }
+  // a FILTER: CODE down one lane, EVERYTHING ELSE down another — after a laid paste its routes / default match its links, and the
+  // panel's next save (configureJunction from p.routes / p.def — what the FILTER card shows) leaves every tag where it was
+  for (const turns of [0, 1, 3]) {
+    const s = fresh();
+    const I = add(s, 'intake', 32, 10), B1 = add(s, 'bay', 46, 10), B2 = add(s, 'bay', 46, 18);
+    s.assignPropAgent(B1, 'nova'); s.assignPropAgent(B2, 'atlas');
+    A.ok(s.connectBelt(I, B1).ok, 'filter line laid');
+    const t = linkOf(s, I, B1).path[4], F = s.junctionOnBelt(t.x, t.y, 'filter');
+    A.ok(F.ok && s.connectBelt(F.id, B2).ok, 'a FILTER on the belt, a second lane to BAY 2');
+    const F0 = s.propById(F.id);
+    s.configureJunction(F.id, { routes: { code: laneOf(s, F0, linkOf(s, F.id, B1)) }, def: laneOf(s, F0, linkOf(s, F.id, B2)) });
+    const c = WM.rotateClip(s.copyLines(s.lineMembers(I).ids, { agent: () => true, turns: () => false }).clip, turns);
+    const r = s.pasteLinesLaid(c, LE.layoutGraphNear(s, s.clipGraph(c).graph, { x: 60, y: 28 }));
+    A.ok(r.ok, 'filter turned ' + turns + ': the copy lays out to fit');
+    const NF = s.propById(r.map[F.id]), toB1 = linkOf(s, NF.id, r.map[B1]), toB2 = linkOf(s, NF.id, r.map[B2]);
+    A.ok(toB1 && toB2 && (toB1.from.tags || []).includes('code') && toB2.from.else, 'filter turned ' + turns + ': the CODE lane still runs to the copy of BAY 1, EVERYTHING ELSE to BAY 2');
+    A.ok(NF.routes && NF.routes.code === laneOf(s, NF, toB1) && NF.def === laneOf(s, NF, toB2), 'filter turned ' + turns + ': its routes / default ARE those lanes (' + JSON.stringify(NF.routes) + ' / ' + NF.def + ')');
+    s.configureJunction(NF.id, { routes: Object.assign({}, NF.routes), def: NF.def });   // the panel's next save, from what it shows
+    A.ok((linkOf(s, NF.id, r.map[B1]).from.tags || []).includes('code') && linkOf(s, NF.id, r.map[B2]).from.else, 'filter turned ' + turns + ': the panel next save re-tags nothing (CODE still reaches BAY 1)');
+  }
+}
+
+/* ---------- E2. repair 2026-10-11: a selection's DELETE / CUT takes the belt under each junction it removes ---------- */
+{
+  // the model sequence deleteGroup runs (one transact): the selected belts with o.junctions, then every member
+  const s = fresh(), L = line(s), m = s.lineMembers(L.I);
+  const r = s.transact(() => { const rb = s.removeLinks(m.links, [], { junctions: [L.LOOP] }); if (!rb.ok) return rb; for (const id of m.ids) { const q = s.removeProp(id); if (!q.ok) return q; } return { ok: true }; });
+  A.ok(r.ok && s.belts().length === 0, 'Del on a whole line by box leaves no belt where its LOOP stood (the loose tile it used to leave)');
+  // CUT then paste back in place: the clip fits where it came from
+  const s2 = fresh(), L2 = line(s2), m2 = s2.lineMembers(L2.I);
+  const c = s2.copyLines(m2.ids, { agent: () => true }).clip;
+  s2.transact(() => { s2.removeLinks(m2.links, [], { junctions: [L2.LOOP] }); for (const id of m2.ids) s2.removeProp(id); return { ok: true }; }, 'CUT');
+  const v = s2.checkPaste(c, c.x0, c.y0);
+  A.ok(v.ok, 'Ctrl+X then Ctrl+V in the same place fits (' + (v.short || 'ok') + ')');
+  A.ok(s2.pasteLines(c, c.x0, c.y0).ok && codes(s2).join() === 'LOOP_NO_BACK', '…and lays the line back as it was');
+  // a junction that KEEPS a belt keeps its tile (the belt it sat on rejoins): only one of its two links is taken
+  const s3 = fresh(), L3 = line(s3), into = s3.links().find(l => l.to.prop === L3.LOOP), J = s3.propById(L3.LOOP);
+  const r3 = s3.transact(() => { s3.removeLinks([into.id], [], { junctions: [L3.LOOP] }); return s3.removeProp(L3.LOOP); });
+  A.ok(r3.ok && s3.belts().some(b => b.x === J.x && b.y === J.y), 'a junction whose other belt stays keeps the tile under it');
+}
+
 /* ---------- E. DELETE LINE and a selection's belts ---------- */
 {
   const s = fresh(), L = line(s);
@@ -205,7 +263,16 @@ const lineOfIntake = (s, id) => plan(s).lines.find(l => l.intakes.includes(id));
   A.ok(/addKey\('WHOLE LINE','dbl-click'/.test(fn('renderSelection')), 'a single conveyor piece\'s card has WHOLE LINE (the double-click, as a key — touch and discoverability)');
   // the clip
   A.ok(/station\.copyLines\(ids, \{ agent: agentHere, turns: t => canTurn\(t\) \}\)/.test(fn('clipOfSelection')), 'a clip carries only crew this station has (agentHere)');
-  A.ok(/if \(cut && !deleteGroup\(ev, 'CUT'\)\) return true;/.test(fn('copyClip')) && fn('copyClip').indexOf('clipOfSelection()') < fn('copyClip').indexOf("deleteGroup(ev, 'CUT')"), 'CUT copies first, then takes it up (one undo) — a refused cut holds nothing');
+  // (repair 2026-10-11: a whole line cuts through removeLine — the card's DELETE LINE, under a CUT undo slot)
+  A.ok(/if \(cut && !\(whole \? deleteLine\(whole\.id, ev, 'CUT'\) : deleteGroup\(ev, 'CUT'\)\)\) return true;/.test(fn('copyClip')) && fn('copyClip').indexOf('clipOfSelection()') < fn('copyClip').indexOf("deleteGroup(ev, 'CUT')"), 'CUT copies first, then takes it up (one undo) — a refused cut holds nothing');
+  const clb = fn('cutLeavesBehind');
+  A.ok(/cutLeavesBehind\(ps\)/.test(fn('copyClip')) && /NOT CARRIED: /.test(fn('copyClip')) && /THE PROJECT FOLDER/.test(clb) && /ANY SCHEDULE OR WEBHOOK ON /.test(clb) && /CONNECTOR \/ PLUGIN BINDS/.test(clb) && /DESK OWNERS/.test(clb), 'a CUT says what its paste cannot bring back (project folder, schedules / webhooks, binds, desk owners) — never silent');
+  const dg = fn('deleteGroup');
+  A.ok(/station\.removeLinks\(liftIds, loose, \{ junctions: was\.filter\(p => JUNCTION_TAG_TYPES\[p\.t\]\)\.map\(p => p\.id\) \}\)/.test(dg), 'a selection DELETE / CUT takes the belt under each junction it removes');
+  A.ok(/const liftIds = cut \? cutLinksOf\(was\.map\(p => p\.id\)\) : \(bs \? bs\.links : \[\]\), loose = cut \? \[\] : \(bs \? bs\.tiles : \[\]\);/.test(dg), 'a CUT takes up only the belts its clip carries — never a crossed belt it cannot bring back');
+  A.ok(/if \(groupIds\.length\) return deleteGroupOrLine\(ev\);/.test(fn('deleteSelected')) && /return line \? deleteLine\(line\.id, ev\) : deleteGroup\(ev\);/.test(fn('deleteGroupOrLine')), 'Del on exactly one whole line IS the card DELETE LINE (removeLine: its belts, its junction tiles, a SEND TO into it)');
+  A.ok(/line = lineSelectionOf\(ps\)/.test(fn('renderGroupCard')), '…and the card offers DELETE LINE for exactly that selection (a box that took another belt too is a group)');
+  A.ok(/if \(p && dupe\.type !== 'lines'\) \{ onInspect\(p, ev\); return; \}/.test(fn('onDown')), 'a click with a CLIP in hand keeps the ghost promise (lays it out near here) even over a machine');
   const cg = fn('clipGhost');
   A.ok(/key = \[geoVer, dupe\.cid, dupe\.rot \| 0, ax, ay\]\.join\('\|'\)/.test(cg) && /if \(clipGhostMemo && clipGhostMemo\.key === key\) return clipGhostMemo\.g;/.test(cg), 'the paste ghost is memoized per edit + clip + turn + spot (H9)');
   A.ok(/if \(v && v\.ok\) \{ const pr = station\.probePaste\(/.test(cg), '…the probe (a clone) runs only where the pure check already said yes');

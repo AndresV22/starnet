@@ -2754,6 +2754,19 @@ const WorldModel = (() => {
         if (qp && isJunction(qp)) return Object.assign(fail('NEAR_JUNCTION', 'a junction already stands beside this tile — use a tile further along'), { short: 'TOO CLOSE TO ANOTHER JUNCTION' });
       }
       if (propAt(x, y)) return fail('OVERLAP', 'something already stands on that tile');
+      /* a THIRD machine beside the cut (repair 2026-10-11, fuzz-found): the compiler hooks a machine to every belt tile in its 1-tile
+         ring, corners included — so where the junction's tile or the tile either side of it sits in the ring of a machine that is
+         not this belt's own end, the floor's reconcile can hand the run to that machine instead of the junction (a p4↔p5 cycle and
+         the line cut in two, while the ghost said yes). The tile is refused; the commit checks the same thing (junctionOnBelt). */
+      // (the tile before the cut may touch only the belt's START, the tile after it only its END — one in the other end's ring
+      //  too is just as ambiguous: the reconcile handed a run beside both ends to the wrong one)
+      const from = at.link.from.prop, to = at.link.to.prop;
+      const inRing = (q, tx, ty) => tx >= q.x - 1 && tx <= q.x + (q.w || 1) && ty >= q.y - 1 && ty <= q.y + (q.h || 1);
+      for (const q of doc.props) {
+        if (!CONNECTABLE[q.t]) continue;
+        const near = (q.id !== from && q.id !== to && inRing(q, x, y)) || (prev && q.id !== from && inRing(q, prev.x, prev.y)) || (next && q.id !== to && inRing(q, next.x, next.y));
+        if (near) return Object.assign(fail('NEAR_MACHINE', 'another machine stands right beside this part of the belt — it would take the line here; use a tile further along'), { short: 'TOO CLOSE TO ANOTHER MACHINE' });
+      }
       return null;
     }
     /* put a 1x1 junction ON a belt tile: the link it sits on becomes two (the floor's own reconcile — the first keeps the
@@ -2771,10 +2784,20 @@ const WorldModel = (() => {
       for (const k of HAND_CFG) if (cfg[k] != null) placement[k] = cfg[k];
       if (t === 'filter') placement.def = lane;
       if (t === 'loop') placement.done = lane;
+      const c0 = linkAtTile(x, y).link, cut = { id: c0.id, from: { prop: c0.from.prop }, to: { prop: c0.to.prop } };   // (plain copies: the reconcile may re-aim the link object)
+      const was = (currentLinks() || []).map(l => ({ id: l.id, from: l.from.prop, to: l.to.prop }));
       return transact(() => {
         const r = addProp(placement);
         if (!r.ok) return r;
-        currentLinks();   // the link under it splits now, inside this undo slot
+        const after = currentLinks();   // the link under it splits now, inside this undo slot
+        /* the floor's own judge (backstop for the refusal above): every other link keeps both its ends, and the cut link became
+           exactly its start → the junction and the junction → its end. Anything else re-wired the floor: undone, refused. */
+        if (Array.isArray(after)) {
+          const kept = was.every(w => w.id === cut.id || after.some(l => l.id === w.id && l.from.prop === w.from && l.to.prop === w.to));
+          const fresh = after.filter(l => l.id === cut.id || !was.some(w => w.id === l.id));
+          const split = fresh.length === 2 && fresh.some(l => l.from.prop === cut.from.prop && l.to.prop === r.id) && fresh.some(l => l.from.prop === r.id && l.to.prop === cut.to.prop);
+          if (!kept || !split) return Object.assign(fail('WOULD_REWIRE', 'a machine beside this belt would take the line here — use a tile further along'), { short: 'TOO CLOSE TO ANOTHER MACHINE' });
+        }
         return { ok: true, id: r.id, lane };
       }, LABEL_OF[t]);
     }
@@ -2903,12 +2926,20 @@ const WorldModel = (() => {
     function probeDrop(from, tile, specs, o) {
       const out = [];
       for (const spec of (specs || [])) {
-        let r;
+        let r, path = null, rect = null;
         try {
           const probe = makeStation(clone(doc));
           r = (from && typeof from === 'object' && from.belt) ? probe.branchBelt(from.belt, tile, Object.assign({}, o, { place: spec })) : probe.dropFrom(from, tile, spec, o);
+          /* the belt THIS piece gets and where it stands (repair 2026-10-11): a 2x2 stands on the tile the 1x1 stand-in's route
+             ended on, so its real belt stops a tile sooner — the dock's ghost draws this one, never the stand-in's */
+          const made = r && r.ok ? (r.made || r.id) : null, np = made && probe.propById(made);
+          if (np) {
+            rect = { x1: np.x, y1: np.y, x2: np.x + (np.w || 1) - 1, y2: np.y + (np.h || 1) - 1 };
+            const l = (probe.links() || []).find(q => q.to.prop === made);
+            if (l) path = (l.path || []).map(q => ({ x: q.x, y: q.y, d: q.d }));
+          }
         } catch (e) { r = fail('THREW', String((e && e.message) || e)); }
-        out.push({ t: spec.t, ok: !!(r && r.ok), msg: r && !r.ok ? (r.short || r.msg) : null });
+        out.push({ t: spec.t, ok: !!(r && r.ok), msg: r && !r.ok ? (r.short || r.msg) : null, path, rect });
       }
       return out;
     }
@@ -3198,10 +3229,18 @@ const WorldModel = (() => {
         if (!r || !r.ok) return r || fail('NOT_APPLIED', 'the copy could not be laid out');
         const map = {}, made = [], fresh = new Set();
         clip.nodes.forEach((n, i) => { const id = r.ids['clip:' + i]; if (id) { map[n.oid] = id; made.push(id); fresh.add(id); } });
+        /* the layout just synced each junction's compass from the lanes IT laid (applyLineLayout step 6) — the clip's compass is
+           the old floor's (or a turned one's), so it never goes back on: a stale LOOP done / FILTER route re-tagged the next lane
+           drawn out of it (repair 2026-10-11). Everything else the clip carries (passes, verdict, wait, buffer) still lands. */
+        const laidNode = n => {
+          if (!n.cfg) return n;
+          const cfg = Object.assign({}, n.cfg); delete cfg.routes; for (const f of CLIP_CFG_DIRS) delete cfg[f];
+          return Object.assign({}, n, { cfg });
+        };
         clip.nodes.forEach(n => {
           const p = propById(map[n.oid]); if (!p) return;
           const keep = { x: p.x, y: p.y, w: p.w, h: p.h };
-          clipExtras(p, n, o, fresh);
+          clipExtras(p, laidNode(n), o, fresh);
           Object.assign(p, keep);   // (a laid-out machine keeps the spot the engine gave it)
           if (n.sendTo && map[n.sendTo] && p.t === 'outbox') p.sendTo = map[n.sendTo];
         });
@@ -3229,13 +3268,23 @@ const WorldModel = (() => {
       }, 'LINE');
     }
     /* take these belts up whole (box select's belts, a selection's DELETE): each link by id, with every tile no other link
-       rides, plus any loose belt tiles named — no snapshot of its own (call it inside a transact, or it takes one) */
-    function removeLinks(linkIds, tiles) {
+       rides, plus any loose belt tiles named — no snapshot of its own (call it inside a transact, or it takes one).
+       o.junctions (repair 2026-10-11): the junctions the caller is about to remove — the belt tile under each one whose EVERY link
+       goes too is taken up with them (a junction's own tile is no link's, so it stayed behind as a loose belt where the junction
+       stood, and a CUT line could not be pasted back in place). A junction that keeps a link keeps its tile: the floor rejoins
+       the belt it sat on. The rule removeLine applies. */
+    function removeLinks(linkIds, tiles, o) {
       const want = new Set(linkIds || []);
       if (!batchDepth) snapshot((want.size + (tiles || []).length) === 1 ? 'BELT' : 'BELTS');
       const L = Array.isArray(currentLinks()) ? currentLinks() : [], dirty = [];
+      const under = [];
+      for (const id of ((o && o.junctions) || [])) {
+        const J = propById(id), mine = J && isJunction(J) ? L.filter(l => l.from.prop === id || l.to.prop === id) : [];
+        if (mine.length && mine.every(l => want.has(l.id))) under.push({ x: J.x, y: J.y });
+      }
       for (const l of L.filter(q => want.has(q.id))) for (const d of liftLink(l)) dirty.push(d);
-      for (const t of (tiles || [])) { const k = beltKey(t.x, t.y); if (doc.belts[k]) { delete doc.belts[k]; dirty.push({ x1: t.x | 0, y1: t.y | 0, x2: t.x | 0, y2: t.y | 0 }); } }
+      const ridden = new Set(); for (const l of (Array.isArray(doc.links) ? doc.links : [])) for (const t of (l.path || [])) ridden.add(beltKey(t.x, t.y));
+      for (const t of (tiles || []).concat(under.filter(q => !ridden.has(beltKey(q.x, q.y))))) { const k = beltKey(t.x, t.y); if (doc.belts[k]) { delete doc.belts[k]; dirty.push({ x1: t.x | 0, y1: t.y | 0, x2: t.x | 0, y2: t.y | 0 }); } }
       emit(dirty, { staticBakeUnchanged: true });
       return { ok: true, tiles: dirty.length };
     }

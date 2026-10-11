@@ -49,8 +49,10 @@ A.ok(/\.refit-overlay\[data-catalog="true"\] \.refit-hint \.refit-hint-keys \{ d
 A.ok(!/\.has-selection\[data-tool="select"\] #refit-option-section \{ display:none; \}/.test(kit), 'a selection never hides the library any more');
 const sel = fn('renderSelection');
 A.ok(/propArtInto\(host\.querySelector\('\.refit-sel-art'\),p\)/.test(sel) && /refit-sel-x/.test(sel), 'the card shows the selected object\'s own art and a ✕ to deselect');
-for (const [label, key] of [['MOVE', 'drag'], ['TURN', 'R'], ['FLIP', 'M'], ['DUPLICATE', 'Ctrl\\+D'], ['COPY', 'Ctrl\\+C'], ['DELETE', 'Del']])
+for (const [label, key] of [['TURN', 'R'], ['FLIP', 'M'], ['DUPLICATE', 'Ctrl\\+D'], ['COPY', 'Ctrl\\+C'], ['DELETE', 'Del']])
   A.ok(new RegExp("addKey\\('" + label + "','" + key + "'").test(sel), 'the ' + label + ' key wears its shortcut (' + key.replace(/\\/g, '') + ')');
+// (THE HAND, 2026-10-11: a conveyor piece's plain drag lays a belt — its MOVE wears Shift+drag; furniture's still says drag)
+A.ok(/addKey\('MOVE',CONNECT_TYPES\[p\.t\]\?'Shift\+drag':'drag'/.test(sel), 'the MOVE key wears its shortcut (drag — Shift+drag on a conveyor piece)');
 A.ok(/finally \{ if \(ctx\) PropSprites\.setCtx\(ctx\); \}/.test(fn('propArtInto')), 'drawing the card art hands PropSprites back to the floor canvas');
 A.ok(/\.refit-overlay \.refit-selection-actions \{ display: grid; grid-template-columns: repeat\(3, minmax\(0,1fr\)\); gap: 5px; \}/.test(easy)
   && /@container \(max-width: 380px\) \{ \.refit-overlay \.refit-selection-actions \{ grid-template-columns: repeat\(2, minmax\(0,1fr\)\); \} \}/.test(easy),
@@ -109,7 +111,7 @@ A.ok(/feel: \(\) => \(\{ landing: \[\.\.\.landings\.keys\(\)\], vanishing: vanis
 /* ---------- 6. many at once ---------- */
 const down = fn('onDown');
 A.ok(/if \(p && groupIds\.includes\(p\.id\)\) \{ drag=\{mode:'grouppress',propId:p\.id,start:w,cur:w,moved:false,add:ev\.shiftKey\};return; \}/.test(down)
-  && /if \(p\) \{ drag=\{mode:'selectpress',propId:p\.id,start:w,cur:w,moved:false,add:ev\.shiftKey\};return; \}/.test(down),
+  && /if \(p\) \{ drag=\{mode:'selectpress',propId:p\.id,start:w,cur:w,moved:false,add:ev\.shiftKey,cx:ev\.clientX,cy:ev\.clientY\};return; \}/.test(down),   // (cx/cy: THE HAND's click slop, 2026-10-11)
   'pressing a member of the group grabs the group; pressing anything else grabs just it (Shift remembered)');
 A.ok(/drag = \{ mode: 'boxpress', start: w, cur: w, moved: false, add: ev\.shiftKey, roomId: station\.roomAt\(w\.tx, w\.ty\) \};/.test(down) && !/openRoomCard\(/.test(down),
   'a press on empty floor can become a box — the room card waits for the release, never opens on the press');
@@ -136,7 +138,8 @@ A.ok(/const fit = groupFit\(/.test(fn('refusalOf')) && /refusalOf\(res, ids, dx,
   'a refused group move names what is in the way, as the ghost did');
 const dg = fn('deleteGroup');
 // (THE HAND part 2: the belts the box took go in the SAME transact — taken up first, while both their ends still stand)
-A.ok(/const res = station\.transact\(\(\) => \{/.test(dg) && /station\.removeLinks\(bs\.links, bs\.tiles\)/.test(dg) && /for \(const p of was\) \{ const r = station\.removeProp\(p\.id\);/.test(dg)
+// (repair 2026-10-11: the box's belts — or, for a CUT, the belts its clip carries — and the tile under each removed junction)
+A.ok(/const res = station\.transact\(\(\) => \{/.test(dg) && /station\.removeLinks\(liftIds, loose, \{ junctions: /.test(dg) && /: \(bs \? bs\.links : \[\]\), loose = cut \? \[\] : \(bs \? bs\.tiles : \[\]\);/.test(dg) && /for \(const p of was\) \{ const r = station\.removeProp\(p\.id\);/.test(dg)
   && dg.indexOf('station.removeLinks(') < dg.indexOf('station.removeProp(') && /was\.forEach\(p => vanishProp\(p\)\)/.test(dg),
   'Delete removes the whole group — and the belts it took — in one transact (one UNDO), and every member dissolves');
 A.ok(/if \(n - lastVanishSfx < 80\) return;/.test(fn('sfxVanish')), '…on one hiss, not a hiss per member');
