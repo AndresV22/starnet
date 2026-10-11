@@ -11334,6 +11334,8 @@ const ROUTES = [
   { m: 'POST', exact: '/api/deliverables/cleanup-preview', h: handleDeliverablesCleanupPreview },
   { m: 'POST', exact: '/api/deliverables/cleanup', h: handleDeliverablesCleanup },
   { m: 'POST', exact: '/api/deliverables/cleanup-undo', h: handleDeliverablesCleanupUndo },
+  { m: 'POST', exact: '/api/deliverables/clear', h: handleDeliverablesClear },
+  { m: 'POST', exact: '/api/deliverables/clear-undo', h: handleDeliverablesClearUndo },
   // ---- QUEST V2 §A: the harness-owned quest ledger (frontend polls /api/quests on the existing 1s tick) ----
   { m: 'GET', qsplit: '/api/quests', h: handleQuestsList },
   { m: 'POST', exact: '/api/quests/mint', h: handleQuestsMint },
@@ -16403,17 +16405,46 @@ function deliverableKindFacet(rows) {
   return Array.from(byKind.entries()).map(([kind, count]) => ({ kind, count }))
     .sort((a, b) => (b.count - a.count) || a.kind.localeCompare(b.kind));
 }
+// The library's ONE filter — the list view and the bulk CLEAR both read it, so "clear these" can only ever clear exactly
+// the rows the Commander is looking at (all of them, not just the first 500 the list ships).
+function deliverableFilterOf(src) {
+  const get = k => (src && typeof src.get === 'function') ? src.get(k) : (src ? src[k] : '');
+  return {
+    query: String(get('query') || '').trim().toLowerCase().slice(0, 120),
+    status: String(get('status') || '').trim(),
+    kind: String(get('kind') || '').trim(),
+    // DELIVERABLE ORGANIZATION: the project axis. '' = every project; the literal 'unfiled' selects the rows with no
+    // provable project (which, before any project-scoped session has run, is all of them).
+    project: String(get('project') || '').trim().slice(0, 4096),
+    // a createdAt window — the library's TODAY / THIS WEEK / EARLIER headings clear by these bounds
+    before: Math.max(0, Number(get('before')) || 0), after: Math.max(0, Number(get('after')) || 0)
+  };
+}
+function deliverableFilter(items, f) {
+  if (f.status) items = items.filter(r => r.status === f.status);
+  if (f.kind) items = items.filter(r => r.kind === f.kind);
+  if (f.project) items = items.filter(r => f.project === 'unfiled' ? !r.project : r.project === f.project);
+  if (f.before) items = items.filter(r => (Number(r.createdAt) || 0) < f.before);
+  if (f.after) items = items.filter(r => (Number(r.createdAt) || 0) >= f.after);
+  // `ask` is in the haystack deliberately: months later a Commander remembers what they ASKED for ("the churn
+  // thing") long before they remember what the agent named the file. Leaving their own words out of the search
+  // was the difference between a library you can find things in and one you have to scroll.
+  if (f.query) items = items.filter(r => [r.title, r.summary, r.ask, r.source, r.agentId, r.runId, r.project, (r.contributors || []).map(c => c.agentId).join(' ')].join(' ').toLowerCase().indexOf(f.query) >= 0);
+  return items;
+}
+// the live library minus what the Commander cleared (CLEARED is a view preference; the rows themselves are untouched)
+async function visibleDeliverableRows() {
+  const hidden = deliverableStore.clearedIds();
+  return (await deliverableRows()).filter(r => !hidden.has(r.id));
+}
 async function handleDeliverablesList(req, res) {
   const json = (code, obj) => { res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(obj)); };
   const u = new URL(req.url, 'http://x');
-  const query = String(u.searchParams.get('query') || '').trim().toLowerCase().slice(0, 120);
-  const status = String(u.searchParams.get('status') || '').trim();
-  const kind = String(u.searchParams.get('kind') || '').trim();
-  // DELIVERABLE ORGANIZATION: the project axis. '' = every project; the literal 'unfiled' selects the rows with no
-  // provable project (which, before any project-scoped session has run, is all of them).
-  const project = String(u.searchParams.get('project') || '').trim().slice(0, 4096);
+  const filter = deliverableFilterOf(u.searchParams);
+  // TO REVIEW's FILES join reads the whole index: a crate whose library row was cleared still shows its files
+  const includeCleared = u.searchParams.get('includeCleared') === '1';
   try {
-    let items = await deliverableRows();
+    let items = includeCleared ? await deliverableRows() : await visibleDeliverableRows();
     // The project FACET is computed before the project filter is applied, so the rail keeps showing every project
     // (with honest counts) while one of them is selected — a filter must never be able to hide its own siblings.
     const projects = deliverableProjectFacet(items);
@@ -16427,13 +16458,7 @@ async function handleDeliverablesList(req, res) {
       oldestAt: items.reduce((m, r) => (r.createdAt && (!m || r.createdAt < m)) ? r.createdAt : m, 0),
       newestAt: items.reduce((m, r) => Math.max(m, Number(r.createdAt) || 0), 0)
     };
-    if (status) items = items.filter(r => r.status === status);
-    if (kind) items = items.filter(r => r.kind === kind);
-    if (project) items = items.filter(r => project === 'unfiled' ? !r.project : r.project === project);
-    // `ask` is in the haystack deliberately: months later a Commander remembers what they ASKED for ("the churn
-    // thing") long before they remember what the agent named the file. Leaving their own words out of the search
-    // was the difference between a library you can find things in and one you have to scroll.
-    if (query) items = items.filter(r => [r.title, r.summary, r.ask, r.source, r.agentId, r.runId, r.project, (r.contributors || []).map(c => c.agentId).join(' ')].join(' ').toLowerCase().indexOf(query) >= 0);
+    items = deliverableFilter(items, filter);
     json(200, { ok: true, items: items.slice(0, 500), total: items.length, projects: projects, kinds: kinds, summary: summary, previewLimits: { markdown: DELIVERABLE_PREVIEW_MAX, csv: DELIVERABLE_PREVIEW_MAX, image: DELIVERABLE_IMAGE_MAX } });
   } catch (e) { json(500, { ok: false, error: 'could not read the deliverable library' }); }
 }
@@ -16451,6 +16476,32 @@ async function handleDeliverablesCleanup(req, res) {
   const out = await deliverableStore.applyCleanup({ statuses: body.statuses, fingerprint: body.fingerprint }, token, Date.now());
   if (!out.ok) return json(409, { ok: false, error: 'The library changed after preview. Preview cleanup again.', reason: out.reason });
   json(200, Object.assign({ metadataOnly: true }, out));
+}
+/* POST /api/deliverables/clear { ids:[…] } | { filter:{query,status,kind,project,before,after} } — "I'm done with these":
+   hide them from the library. Library-only and undoable (POST /api/deliverables/clear-undo): files on disk, the run log
+   and every lifecycle row stay exactly as they were. A row that still NEEDS A DECISION (an undecided Workshop build) is
+   never cleared — hiding it would strand its files in the jail with no way to keep or discard them — and the reply
+   counts those as skipped so the page can say so. An empty body clears nothing: a bulk clear must name its scope. */
+async function handleDeliverablesClear(req, res) {
+  const json = (code, obj) => { res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(obj)); };
+  let body; try { body = JSON.parse(await readBody(req, 1 << 18)) || {}; } catch (_) { return json(400, { ok: false, error: 'bad request' }); }
+  const byIds = Array.isArray(body.ids), byFilter = !!(body.filter && typeof body.filter === 'object');
+  if (byIds === byFilter) return json(400, { ok: false, error: 'name what to clear: ids or a filter' });
+  let rows; try { rows = await visibleDeliverableRows(); } catch (_) { return json(500, { ok: false, error: 'could not read the deliverable library' }); }
+  if (byIds) { const want = new Set(body.ids.slice(0, 5000).map(String)); rows = rows.filter(r => want.has(String(r.id))); }
+  else rows = deliverableFilter(rows, deliverableFilterOf(body.filter));
+  const skipped = rows.filter(r => r.status === 'pending').length;
+  const ids = rows.filter(r => r.status !== 'pending').map(r => r.id);
+  const out = await deliverableStore.clear(ids, crypto.randomUUID(), Date.now());
+  if (!out.ok) return json(500, { ok: false, error: 'could not clear those deliverables' });
+  json(200, { ok: true, cleared: out.cleared, skipped: skipped, undoToken: out.undoToken, filesKept: true });
+}
+async function handleDeliverablesClearUndo(req, res) {
+  const json = (code, obj) => { res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(obj)); };
+  let body; try { body = JSON.parse(await readBody(req, 4096)) || {}; } catch (_) { return json(400, { ok: false, error: 'bad request' }); }
+  const out = await deliverableStore.unclear(String(body.undoToken || ''), Date.now());
+  if (!out.ok) return json(404, { ok: false, error: 'That clear can no longer be undone.' });
+  json(200, out);
 }
 async function handleDeliverablesCleanupUndo(req, res) {
   const json = (code, obj) => { res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(obj)); };

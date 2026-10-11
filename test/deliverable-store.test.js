@@ -46,5 +46,24 @@ const writeDurable = ({ fs }, file, data) => fs.writeFileSync(file, data);
   const refused = await s2.applyCleanup(stale, 'undo-stale', 600);
   A.ok(refused.ok === false && refused.reason === 'preview-stale', 'apply refuses when the exact preview fingerprint is stale');
 
+  /* CLEARED — "I'm done with these": a library-only hide with undo; lifecycle rows are never touched */
+  A.eq(Array.from(s2.clearedIds()), [], 'nothing is cleared to begin with');
+  const noTok = await s2.clear(['run:a'], '', 700);
+  A.ok(noTok.ok === false, 'a clear without an undo token is refused');
+  const c1 = await s2.clear(['run:a', 'run:b', 'run:a', 'workshop:agent:r1'], 'clr-1', 800);
+  A.ok(c1.ok && c1.cleared === 3 && c1.undoToken === 'clr-1', 'clear hides each distinct id once and hands back its undo token');
+  A.eq(Array.from(s2.clearedIds()).sort(), ['run:a', 'run:b', 'workshop:agent:r1'], 'the cleared set holds exactly those ids');
+  A.eq(s2.list().map(x => x.id), ['workshop:agent:r3', 'workshop:agent:r2', 'workshop:agent:r1'], 'clearing never removes a lifecycle row');
+  const c2 = await s2.clear(['run:b', 'run:c'], 'clr-2', 900);
+  A.ok(c2.ok && c2.cleared === 1, 'a second clear counts only the ids it newly hid');
+  const s3 = makeDeliverableStore({ fs, path, workspaces: '/ws', writeDurable });
+  A.eq(Array.from(s3.clearedIds()).sort(), ['run:a', 'run:b', 'run:c', 'workshop:agent:r1'], 'cleared ids survive a fresh store instance (journal replay)');
+  const u1 = await s3.unclear('clr-1', 1000);
+  A.ok(u1.ok && u1.restored === 3, 'undo names how many rows came back');
+  A.eq(Array.from(s3.clearedIds()), ['run:c'], 'undo restores only what THAT clear hid (run:b was already hidden by clr-1, not clr-2)');
+  A.ok((await s3.unclear('clr-1', 1100)).ok === false, 'an undo token works once');
+  const s4 = makeDeliverableStore({ fs, path, workspaces: '/ws', writeDurable });
+  A.eq(Array.from(s4.clearedIds()), ['run:c'], 'the undo is durable too');
+
   A.report('deliverable-store.test');
 })().catch(e => { console.error(e); process.exit(1); });

@@ -230,7 +230,7 @@
     return items.filter(r => r.runId === runId && (!needle || [r.title, r.summary, r.ask].join(' ').toLowerCase().includes(needle)));
   }
   function mount(body) {
-    let rows = [], projects = [], kinds = [], summary = null, loadSeq = 0, project = '', kind = '';
+    let rows = [], projects = [], kinds = [], summary = null, loadSeq = 0, project = '', kind = '', total = 0;
     let runFilter = null;
     const openState = { blobUrl: '', previewHost: null };
     const revoke = () => revokePreview(openState);
@@ -238,7 +238,7 @@
     // a four-line paragraph sat (TO REVIEW still lands right after this p.muted — stationui's deliverables builder)
     body.innerHTML = '<div class="cfg dlv"><p class="muted dlv-lead" title="Previews open safely inside StarNet in a browser; desktop OPEN uses your file app.">Everything your crew made, filed by project — open one for the ask, the answer and every file.</p>' +
       '<div id="dl-head" class="dlv-head-strip"></div><div id="dl-run-scope" class="cfg-block" hidden></div>' +
-      '<div class="deliverables-toolbar"><input id="dl-query" aria-label="Search deliverables" placeholder="search title, agent, project"><select id="dl-status" aria-label="Filter deliverables"><option value="">ALL</option><option value="pending">NEEDS A DECISION</option><option value="produced">DONE</option><option value="kept">KEPT</option><option value="implemented">IMPLEMENTED</option><option value="failed">FAILED</option><option value="discarded">DISCARDED</option></select><button class="bb sm" id="dl-refresh">REFRESH</button><button class="bb sm" id="dl-clean">CLEAN OLD RECORDS</button></div>' +
+      '<div class="deliverables-toolbar"><input id="dl-query" aria-label="Search deliverables" placeholder="search title, agent, project"><select id="dl-status" aria-label="Filter deliverables"><option value="">ALL</option><option value="pending">NEEDS A DECISION</option><option value="produced">DONE</option><option value="kept">KEPT</option><option value="implemented">IMPLEMENTED</option><option value="failed">FAILED</option><option value="discarded">DISCARDED</option></select><button class="bb sm" id="dl-refresh">REFRESH</button><button class="bb sm" id="dl-clear-shown" hidden>CLEAR ALL</button><button class="bb sm" id="dl-clean">CLEAN OLD RECORDS</button></div>' +
       '<div id="dl-kinds" class="dlv-kinds"></div>' +
       '<div id="dl-msg" class="msg" aria-live="polite"></div><div id="dl-cleanup"></div>' +
       '<div class="dlv-split"><nav id="dl-rail" class="dlv-rail" aria-label="Projects"></nav><div id="dl-list" class="dlv-main"></div></div></div>';
@@ -308,7 +308,10 @@
         : '<p class="dlv-none">This run recorded no files.</p>';
       const openSession = (r.jobId ? '<button class="bb sm" data-act="workflow">OPEN IN WORKFLOWS</button>' : '') + ((run && run.streamId) ? '<button class="bb sm" data-act="session">↗ OPEN THE FULL CONVERSATION</button>' : '');
       const decide = ((r.actions && r.actions.keep) ? '<button class="bb sm" data-act="keep">KEEP IT</button>' : '') +
-        ((r.actions && r.actions.discard) ? '<button class="bb sm danger" data-act="discard">DISCARD</button>' : '');
+        ((r.actions && r.actions.discard) ? '<button class="bb sm danger" data-act="discard">DISCARD</button>' : '') +
+        // DONE WITH IT (2026-10-10): clears the card out of the library — files stay on disk, UNDO brings it back. An
+        // undecided build is the one row that can't go: it still needs KEEP IT or DISCARD (the backend refuses it too).
+        (r.status !== 'pending' ? '<button class="bb sm" data-act="clear" title="Takes it out of this library. The files stay on disk.">✓ DONE · CLEAR</button>' : '');
       const acts = (openSession || decide) ? '<div class="row dlv-acts">' + openSession + decide + '</div>' : '';
       return ask + back + sec('FILES', fileRows) + acts;
     }
@@ -361,6 +364,7 @@
       renderSummary();
       renderKinds();
       if (!rows.length) {
+        body.querySelector('#dl-clear-shown').hidden = true;   // nothing in view = nothing to clear
         // Say what MAKES a deliverable rather than just reporting absence — an empty library is the one moment
         // the window has to teach what it is for.
         // A filtered miss and an empty library are different facts and must not share a headline — "NOTHING HERE
@@ -374,10 +378,76 @@
       const now = Date.now();
       const groups = {};
       rows.forEach((r, i) => { const b = bucketOf(Number(r.createdAt) || 0, now); (groups[b] = groups[b] || []).push(cardHtml(r, i, now)); });
+      // each time heading carries its own CLEAR — "I'm done with everything from before this week" is one click, not forty
       list.innerHTML = BUCKETS.filter(b => groups[b] && groups[b].length)
-        .map(b => '<section class="dlv-bucket"><h4>' + b + '</h4>' + groups[b].join('') + '</section>').join('');
+        .map(b => '<section class="dlv-bucket"><h4><span>' + b + '</span><button type="button" class="dlv-bclear" data-bucket="' + b + '">CLEAR ' + b + '</button></h4>' + groups[b].join('') + '</section>').join('');
       wireDiscards();
+      wireClears();
     }
+    /* CLEAR — "I'm done with these, get them out of my library". Library-only and undoable: the files stay on disk and the
+       run log is untouched (POST /api/deliverables/clear hides the rows; UNDO brings them back). A bulk clear names its
+       scope as the CURRENT VIEW's filter, so the server clears every matching row — not just the 500 this list shows.
+       Rows that still need a decision are skipped by the server and the line says how many stayed. */
+    const curFilter = () => ({ query: q.value, status: status.value, kind: kind, project: project });
+    function bucketBounds(b) {
+      const midnight = new Date(); midnight.setHours(0, 0, 0, 0);
+      const t = midnight.getTime(), week = t - 6 * DAY_MS;
+      return b === 'TODAY' ? { after: t } : b === 'THIS WEEK' ? { after: week, before: t } : { before: week };
+    }
+    function sayUndo(text, token) {
+      msg.className = 'msg ok';
+      msg.innerHTML = esc(text) + (token ? ' <button type="button" class="bb sm" data-undo-clear="' + esc(token) + '">UNDO</button>' : '');
+    }
+    async function clearRows(body, b) {
+      if (b) b.disabled = true;
+      try {
+        const j = await post('/api/deliverables/clear', body);
+        await load();
+        const kept = j.skipped ? ' ' + j.skipped + (j.skipped === 1 ? ' still needs' : ' still need') + ' a decision and stayed.' : '';
+        sayUndo(j.cleared
+          ? 'Cleared ' + j.cleared + (j.cleared === 1 ? ' deliverable' : ' deliverables') + ' from the library. The files stay on disk.' + kept
+          : (j.skipped ? 'Nothing cleared —' + kept.replace(/ and stayed\.$/, ': KEEP IT or DISCARD first.') : 'Nothing to clear here.'), j.cleared ? j.undoToken : '');
+      } catch (e) { if (b) b.disabled = false; say('Could not clear: ' + e.message, true); }
+    }
+    function wireClears() {
+      const shown = body.querySelector('#dl-clear-shown');
+      const filtered = !!(runFilter || project || kind || q.value || status.value);
+      shown.hidden = !rows.length;
+      if (shown.dataset.wired !== '1' && typeof ArmConfirm !== 'undefined' && ArmConfirm.wire) {
+        shown.dataset.wired = '1';
+        ArmConfirm.wire(shown, {
+          armedLabel: 'CLEAR THEM — SURE?',
+          onArm: () => say('Clears every deliverable in this view out of the library (anything still waiting for a decision stays). The files stay on disk, and UNDO brings them back. Click again to confirm.'),
+          onDisarm: () => say(''),
+          onConfirm: () => clearRows(runFilter ? { ids: rows.map(r => r.id) } : { filter: curFilter() }, shown)
+        });
+      }
+      shown.disabled = false;
+      // the resting label names the real scope — the whole library, or the filtered view — with the server's own count
+      const label = (filtered ? 'CLEAR THESE ' : 'CLEAR ALL ') + (runFilter ? rows.length : total);
+      if (shown.dataset.armed !== '1') shown.textContent = label;
+      list.querySelectorAll('button.dlv-bclear').forEach(btn => {
+        if (typeof ArmConfirm === 'undefined' || !ArmConfirm.wire) return;
+        const bucket = btn.dataset.bucket;
+        ArmConfirm.wire(btn, {
+          armedLabel: 'CLEAR ' + bucket + ' — SURE?',
+          onArm: () => say('Clears everything under ' + bucket + ' in this view out of the library. The files stay on disk, and UNDO brings them back. Click again to confirm.'),
+          onDisarm: () => say(''),
+          onConfirm: () => {
+            const now = Date.now();
+            return clearRows(runFilter ? { ids: rows.filter(r => bucketOf(Number(r.createdAt) || 0, now) === bucket).map(r => r.id) }
+              : { filter: Object.assign(curFilter(), bucketBounds(bucket)) }, btn);
+          }
+        });
+      });
+    }
+    // UNDO lives in the message line; it outlives a re-render because the line is outside the list
+    msg.addEventListener('click', async ev => {
+      const b = ev.target.closest && ev.target.closest('button[data-undo-clear]'); if (!b) return;
+      b.disabled = true;
+      try { const u = await post('/api/deliverables/clear-undo', { undoToken: b.dataset.undoClear }); await load(); say('Brought back ' + u.restored + (u.restored === 1 ? ' deliverable.' : ' deliverables.')); }
+      catch (e) { b.disabled = false; say(e.message, true); }
+    });
     // Re-wired after every render: innerHTML replaces the buttons, so the previous listeners die with the
     // old nodes and there is nothing to dispose. If armconfirm.js somehow did not load, the buttons stay
     // unwired and the delegated handler discards on a single click — we do NOT fork a fourth hand-rolled
@@ -408,6 +478,7 @@
         const j = await fetch(url, { cache: 'no-store' }).then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); });
         if (seq !== loadSeq) return;
         rows = j.items || [];
+        total = Number(j.total) || rows.length;   // the FULL match count — the list itself ships at most 500
         // The backend's text search narrows the request; equality supplies the actual provenance boundary.
         if (runFilter) rows = rowsForRun(rows, runFilter.runId, q.value);
         projects = Array.isArray(j.projects) ? j.projects : [];   // an older sidecar simply sends none -> rail shows ALL WORK only
@@ -492,6 +563,7 @@
         WorkflowsWindow.showJob(r.jobId);
         return;
       }
+      if (b.dataset.act === 'clear') return clearRows({ ids: [r.id] }, b);   // one card: no arm — UNDO is right there
       if (b.dataset.act === 'discard' && b.dataset.wired === '1') return;   // its own ArmConfirm listener owns it
       decide(r, b.dataset.act, b);
     });
@@ -515,7 +587,7 @@
     });
     let debounce = 0; q.addEventListener('input', () => { clearTimeout(debounce); debounce = setTimeout(load, 180); }); status.addEventListener('change', load); body.querySelector('#dl-refresh').addEventListener('click', load);
     body.querySelector('#dl-clean').addEventListener('click', async () => {
-      try { const p = await post('/api/deliverables/cleanup-preview', { statuses: ['discarded', 'failed'] }); cleanup.innerHTML = '<div class="cfg-block"><b>CLEANUP PREVIEW</b><p>' + p.targets.length + ' discarded/failed lifecycle record(s) will be removed. ' + p.protected.length + ' pending, kept, or produced record(s) are protected. Files are not deleted.</p><ul>' + p.targets.map(r => '<li>' + esc(r.title) + ' · ' + esc(r.status) + ' · ' + esc(r.runId || r.id) + '</li>').join('') + '</ul><button class="bb sm danger" id="dl-clean-apply" ' + (p.targets.length ? '' : 'disabled') + '>REMOVE EXACTLY THESE ' + p.targets.length + ' RECORDS</button></div>'; const apply = cleanup.querySelector('#dl-clean-apply'); if (apply) apply.addEventListener('click', async () => { try { const c = await post('/api/deliverables/cleanup', { statuses: p.statuses, fingerprint: p.fingerprint }); cleanup.innerHTML = '<div class="msg ok">Removed ' + c.removed + ' record(s). <button class="bb sm" id="dl-undo">UNDO</button></div>'; cleanup.querySelector('#dl-undo').addEventListener('click', async () => { const u = await post('/api/deliverables/cleanup-undo', { undoToken: c.undoToken }); say('Restored ' + u.restored + ' record(s).'); cleanup.innerHTML = ''; await load(); }); await load(); } catch (e) { say(e.message, true); } }); }
+      try { const p = await post('/api/deliverables/cleanup-preview', { statuses: ['discarded', 'failed'] }); cleanup.innerHTML = '<div class="cfg-block"><b>CLEANUP PREVIEW</b><p>' + p.targets.length + ' discarded/failed lifecycle record(s) will be removed. ' + p.protected.length + ' pending, kept, or produced record(s) are protected. Files are not deleted.</p>' + (p.targets.length ? '<details class="dlv-clean-list"><summary>SEE THE ' + p.targets.length + ' RECORD' + (p.targets.length === 1 ? '' : 'S') + '</summary><ul>' + p.targets.map(r => '<li>' + esc(r.title) + ' · ' + esc(r.status) + ' · ' + esc(r.runId || r.id) + '</li>').join('') + '</ul></details>' : '') + '<div class="row dlv-acts"><button class="bb sm danger" id="dl-clean-apply" ' + (p.targets.length ? '' : 'disabled') + '>REMOVE EXACTLY THESE ' + p.targets.length + ' RECORDS</button><button class="bb sm" id="dl-clean-cancel">CANCEL</button></div></div>'; cleanup.querySelector('#dl-clean-cancel').addEventListener('click', () => { cleanup.innerHTML = ''; }); const apply = cleanup.querySelector('#dl-clean-apply'); if (apply) apply.addEventListener('click', async () => { try { const c = await post('/api/deliverables/cleanup', { statuses: p.statuses, fingerprint: p.fingerprint }); cleanup.innerHTML = '<div class="msg ok">Removed ' + c.removed + ' record(s). <button class="bb sm" id="dl-undo">UNDO</button></div>'; cleanup.querySelector('#dl-undo').addEventListener('click', async () => { const u = await post('/api/deliverables/cleanup-undo', { undoToken: c.undoToken }); say('Restored ' + u.restored + ' record(s).'); cleanup.innerHTML = ''; await load(); }); await load(); } catch (e) { say(e.message, true); } }); }
       catch (e) { say('Could not preview cleanup: ' + e.message, true); }
     });
     body._deliverablesCleanup = revoke;
