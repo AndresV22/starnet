@@ -6369,7 +6369,7 @@ const cronDriver = makeCronDriver({
           system: cronSystemFor(h.agentId),
           messages: [{ role: 'user', content: h.text }], agentId: h.agentId, lineId: o.runsLine === true ? router.lineOfAgent(o.agentId, o.dockId ? router.dockOf(o.agentId, o.dockId) : undefined) : null, isTask: true,
           ceilingUsd: h.ceilingUsd,   // what is left of the line's $ ceiling (lower-only)
-          emit: sink, signal: h.signal, runId: hopRunId, streamId: o.streamId,
+          emit: sink, signal: h.signal, runId: hopRunId, streamId: h.parallel ? undefined : o.streamId,   // a PARALLEL branch hop never waits in the stream queue (chain.js runBatch)
           surface: 'autonomous', trigger: 'schedule', reflect: true,
           station: router.stationFor(h.agentId, h.dockId) || undefined,   // the hop's OWN bay room (multi-bay)
           lineId: h.lineId || undefined, dockId: h.dockId || undefined, workitemId: h.workitemId || undefined,   // LINE WATCH: the hop's line + bay on its run row (+ its crate on run.start)
@@ -15459,7 +15459,7 @@ async function handleCronRun(req, res) {
                 system: cronSystemFor(h.agentId),
                 messages: [{ role: 'user', content: h.text }], agentId: h.agentId, lineId: job.runsLine === true ? router.lineOfAgent(job.agentId, job.dockId ? router.dockOf(job.agentId, job.dockId) : undefined) : null, isTask: true,
                 ceilingUsd: h.ceilingUsd,   // what is left of the line's $ ceiling (lower-only)
-                emit: hopSink, signal: h.signal, runId: hopRunId, streamId: 'cron-' + runId,
+                emit: hopSink, signal: h.signal, runId: hopRunId, streamId: h.parallel ? undefined : 'cron-' + runId,   // a PARALLEL branch hop never waits in the stream queue (chain.js runBatch)
                 surface: 'autonomous', trigger: 'schedule', broadcast: true, reflect: true,
                 station: router.stationFor(h.agentId, h.dockId) || undefined,   // the hop's OWN bay room (multi-bay)
                 lineId: h.lineId || undefined, dockId: h.dockId || undefined, workitemId: h.workitemId || undefined,   // LINE WATCH: the hop's line + bay on its run row (+ its crate on run.start)

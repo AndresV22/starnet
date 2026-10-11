@@ -1925,7 +1925,7 @@
                 system: hopConfig.system || personaFor(h.agentId, rec), messages: hist.map(m => ({ role: m.role, content: m.content })).concat([{ role: 'user', content: h.text }]),
                 agentId: h.agentId, lineId, isTask: true, emit: hopSink, signal: h.signal, runId: hopRunId, trigger: 'event',
                 ceilingUsd: h.ceilingUsd,   // what is left of the line's $ ceiling (lower-only)
-                streamId: canonicalStreamId || undefined,   // the whole line shares one canonical transcript
+                streamId: h.parallel ? undefined : (canonicalStreamId || undefined),   // the whole line shares one canonical transcript — except a PARALLEL branch hop: one stream runs one turn at a time, so it would wait for its siblings (chain.js runBatch)
                 initialTaint: 'upstream agent output',
                 untrustedEntry: lineEntryUntrusted || undefined,   // a hop of a payload-started line stays under the taint lock
                 surface: 'autonomous', ownerTrusted: ownerTrusted, broadcast: true, reflect: true,

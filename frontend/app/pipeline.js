@@ -933,7 +933,9 @@
         const ship = owner && plan.dockChains[owner] && plan.dockChains[owner].tile;
         // a hookup that is NOT the dock's ship tile is an entrance: work re-emerges at the ship tile
         const nts = (ship && !(ship.x === t.x && ship.y === t.y)) ? [ship] : nextTiles(map, junctions, t);
-        for (const nt of nts) { const nk = key(nt.x, nt.y); if (seen[nk]) continue; seen[nk] = true; if (junctions[nk] && junctions[nk].kind === 'join') { hit = true; break; } q.push(nt); }
+        // a MERGER is where TAKE TURNS branches meet: a JOINER past it belongs to a later section, never to this split (audit
+        // 2026-10-10: LOAD BALANCER + a COPY section after its MERGER made the balancer copy, and the job died at the merger)
+        for (const nt of nts) { const nk = key(nt.x, nt.y); if (seen[nk]) continue; seen[nk] = true; if (junctions[nk] && junctions[nk].kind === 'join') { hit = true; break; } if (junctions[nk] && junctions[nk].kind === 'merge') continue; q.push(nt); }
       }
       if (hit) jc.fanout = true;
       if (jc.divide && !(hit && dockFeeds(jk))) delete jc.divide;
@@ -1473,7 +1475,12 @@
           const g = gates[k] || {};
           // esc (2026-08-30): the dock the ESCALATION lane reaches (pre-resolved at compile like backTo) —
           // the runner sends a verdict-exhausted crate THERE instead of annotating it onto the done lane
-          return { loop: k, max: j.max || LOOP_MAX_DEFAULT, backTo: gateNode(g.backTo), when: j.when || null, esc: gateNode(g.escTo), next: (nt && map[key(nt.x, nt.y)]) ? walkNode(walk(nt)) : null };
+          // a DONE lane that meets a JOINER (a reviewed branch of a COPY split, 2026-10-10 audit): the walk's join answer rides
+          // as `afterJoin` — walkNode alone dropped it, so the reviewed work never reached the barrier and the joiner timed out
+          const after = (nt && map[key(nt.x, nt.y)]) ? walk(nt) : null;
+          const ls = { loop: k, max: j.max || LOOP_MAX_DEFAULT, backTo: gateNode(g.backTo), when: j.when || null, esc: gateNode(g.escTo), next: walkNode(after) };
+          if (after && after.join) ls.afterJoin = after;
+          return ls;
         } else if (j && j.kind === 'split' && j.fanout) {
           /* a lane may lead to an INNER fan-out split (a cascade — how a floor goes wider than 3
              branches): its walk returns { branches }, and dropping that on the floor lost every dock
@@ -1517,7 +1524,7 @@
     if (s.dockId) return { agentId: s.agentId };
     if (s.branches) { const out = []; for (const b of s.branches) { const x = a(b); if (x && out.indexOf(x) < 0) out.push(x); } return s.divide ? { branches: out, split: s.split, divide: true } : { branches: out, split: s.split }; }
     if (s.join) return { join: s.join, expect: s.expect, timeoutMin: s.timeoutMin, next: a(s.next) };
-    if (s.loop) return { loop: s.loop, max: s.max, backTo: a(s.backTo), when: s.when, esc: a(s.esc), next: a(s.next) };
+    if (s.loop) { const o = { loop: s.loop, max: s.max, backTo: a(s.backTo), when: s.when, esc: a(s.esc), next: a(s.next) }; if (s.afterJoin) o.afterJoin = { join: s.afterJoin.join, expect: s.afterJoin.expect, timeoutMin: s.afterJoin.timeoutMin, next: a(s.afterJoin.next) }; return o; }
     return s;
   }
   function chainStep(plan, agentId, ctx, pick) {
@@ -1912,28 +1919,33 @@
      wins ("1." / "1)" / "Part 1:" / "**1.**"), a part keeps its continuation lines, more items than branches are grouped
      into n contiguous runs, fewer run on fewer branches (never invented), and fewer than two is null — nothing to divide.
      Pure and deterministic: the sidecar and the step test cut the same job the same way. */
-  const PART_RE = /^\s*(?:[*_#>]+\s*)?(?:part\s+|step\s+)?(\d{1,2})\s*(?:[.):\-\u2013\u2014]|\*\*[.):]?)\s*(?:\*\*\s*)?(.*)$/i;
+  const PART_RE = /^\s*(?:[*_#>]+\s*)?(part\s+|step\s+)?(\d{1,2})\s*(?:[.):\-\u2013\u2014]|\*\*[.):]?)\s*(?:\*\*\s*)?(.*)$/i;
   function divideJob(text, n) {
     const want = Math.max(2, n | 0), lines = String(text == null ? '' : text).split(/\r?\n/);
-    let best = null, cur = null, gap = false;
+    /* every numbered run that counts up from 1 (2+ items). WHICH run is the job's parts (live, 2026-10-10: a cheap model did the
+       job as one list, then appended a second list of remarks — "the last list" handed each branch a remark): a run written
+       as "PART 1:" lines (what divideBrief asks for) wins, the last such; else the first run of exactly n items; else the last. */
+    const runs = [];
+    let cur = null, gap = false;
     for (const ln of lines) {
       if (!ln.trim()) { gap = true; continue; }
       const m = PART_RE.exec(ln);
       if (m) {
-        const num = +m[1];
+        const num = +m[2], explicit = !!m[1];
         gap = false;
-        if (num === 1) cur = [{ num: 1, text: [m[2].trim()] }];
-        else if (cur && num === cur[cur.length - 1].num + 1) cur.push({ num, text: [m[2].trim()] });
-        else { cur = null; continue; }
-        if (cur.length >= 2) best = cur;
+        if (num === 1) { cur = { explicit, items: [{ num: 1, text: [m[3].trim()] }] }; runs.push(cur); }
+        else if (cur && num === cur.items[cur.items.length - 1].num + 1) { cur.items.push({ num, text: [m[3].trim()] }); cur.explicit = cur.explicit && explicit; }
+        else cur = null;
         continue;
       }
       // a part keeps its continuation lines; after a blank line only an INDENTED line still belongs to it
-      if (cur) { if (gap && !/^\s/.test(ln)) cur = null; else cur[cur.length - 1].text.push(ln.trim()); }
+      if (cur) { if (gap && !/^\s/.test(ln)) cur = null; else cur.items[cur.items.length - 1].text.push(ln.trim()); }
       gap = false;
     }
-    if (!best || best.length < 2) return null;
-    const items = best.map(it => it.num + '. ' + it.text.filter(Boolean).join('\n'));
+    const ok = runs.filter(r => r.items.length >= 2);
+    const best = ok.filter(r => r.explicit).pop() || ok.find(r => r.items.length === want) || ok[ok.length - 1];
+    if (!best) return null;
+    const items = best.items.map(it => it.num + '. ' + it.text.filter(Boolean).join('\n'));
     const k = Math.min(want, items.length), out = [];
     for (let g = 0; g < k; g++) {
       const a = Math.floor(g * items.length / k), b = Math.floor((g + 1) * items.length / k);
@@ -1946,13 +1958,31 @@
     return 'THE JOB IS DIVIDED INTO ' + k + ' PARTS. You have PART ' + (i + 1) + ' of ' + k + ' — do ONLY this part. Other agents are '
       + 'doing the other parts, and a JOINER puts every part together after.\n\n'
       + 'YOUR PART:\n' + String(part || '').trim() + '\n\n'
-      + 'THE WHOLE PLAN (context only — do not do the other parts):\n' + String(plan || '').trim().slice(0, 6000);
+      + 'THE WHOLE PLAN (context only — do not do the other parts):\n' + String(plan || '').trim().slice(0, 3000);
   }
   /* the instruction the step BEFORE a dividing splitter carries on every run there (router.stageBrief appends it) */
   function divideBrief(n) {
-    return 'YOUR REPLY IS SPLIT BETWEEN ' + n + ' AGENTS: the splitter after you divides this job. End your reply with a numbered list '
-      + 'of exactly ' + n + ' independent parts (1. … to ' + n + '. …), one per agent — each part a complete task on its own, together '
-      + 'covering the whole job, with no overlap. Do not do the parts yourself.';
+    const lines = []; for (let i = 1; i <= n; i++) lines.push('PART ' + i + ': <one task>');
+    return 'YOUR ONLY JOB HERE IS TO DIVIDE THE WORK — do NOT do it yourself. ' + n + ' agents after you each take one part. '
+      + 'Reply with exactly ' + n + ' lines, one per agent:\n' + lines.join('\n') + '\n'
+      + 'Each part is a complete task on its own; together they cover the whole job, with no overlap.';
+  }
+  /* splitFedByDock(plan, splitKey) -> does a DOCK's output reach this split before any other dock (the step whose reply SPLIT
+     THE JOB would divide)? The compiler keeps a split's divide flag only when one does; the panel asks the same question. */
+  function splitFedByDock(plan, jk) {
+    if (!plan || !plan.belts || !plan.dockChains || jk == null) return false;
+    const map = plan.belts, junctions = plan.junctions || {}, dockAt = dockLayer(plan).bayTileToDock || {};
+    for (const d in plan.dockChains) {
+      const ship = plan.dockChains[d].tile; if (!ship) continue;
+      const seen = {}, q = [ship]; seen[key(ship.x, ship.y)] = true;
+      while (q.length) {
+        const t = q.shift(), k = key(t.x, t.y);
+        if (k === jk) return true;
+        if (dockAt[k] && dockAt[k] !== d) continue;
+        for (const nt of nextTiles(map, junctions, t)) { const nk = key(nt.x, nt.y); if (!seen[nk]) { seen[nk] = true; q.push(nt); } }
+      }
+    }
+    return false;
   }
   /* divideAfterDock(plan, dockId) -> n when this dock's output next meets a dividing split (n = its crewed branches), else 0 */
   function divideAfterDock(plan, dockId) {
@@ -2060,7 +2090,7 @@
     return rec && typeof rec === 'object' ? rec : null;
   }
 
-  return { rejoinOf, deriveLinks, reconcileLinks, compileRoutingPlan, composeStageBrief, HANDS_LEAD, resolveTarget, lineOf, lineOriginOf, lineLimitsOf, normalizeLineLimits, LINE_LIMIT_DEFAULTS, LINE_LIMIT_CEILINGS, sourceFor, ok, liveTiles, routeFrom, junctionLaneOwners, chainNext, chainStep, fanSiblings, handoffPrompt, parseHandoff, isHandoff, stripVerdictLine, joinPayload, divideJob, partTurn, divideBrief, divideAfterDock, lineComponents, LOOP_MAX_DEFAULT, LOOP_MAX_CEILING,
+  return { rejoinOf, deriveLinks, reconcileLinks, compileRoutingPlan, composeStageBrief, HANDS_LEAD, resolveTarget, lineOf, lineOriginOf, lineLimitsOf, normalizeLineLimits, LINE_LIMIT_DEFAULTS, LINE_LIMIT_CEILINGS, sourceFor, ok, liveTiles, routeFrom, junctionLaneOwners, chainNext, chainStep, fanSiblings, handoffPrompt, parseHandoff, isHandoff, stripVerdictLine, joinPayload, divideJob, partTurn, divideBrief, divideAfterDock, splitFedByDock, lineComponents, LOOP_MAX_DEFAULT, LOOP_MAX_CEILING,
     // THE DOCK LAYER (multi-bay agents, 2026-09-22) — the dock-keyed truth the agent readings above are views of
     resolveDock, chainNextDock, chainStepDock, fanSiblingsDock, junctionLaneDocks, lineOfDock, lineOriginOfDock, entryDockOf, docksOf, dockOf, agentOfDock: agentOfDockIn, deriveDockLayer, dockLayer, hasDockLayer, stepToAgents, propIdCmp,
     _internals: { DIRV, OPP, LANE_ORDER, key, buildBeltMap, outLanes, inLanes, loopLanes, beltTileNear, ringBelts, junctionAnchor, dirBetween, linkTilesByProp, linkedBeltMap, nextTiles, splitLanes, detectCycle, hashStr, compileChains, compileDockChains, chainCycle, shipFrom, propIdCmp, entryDocksOf, agentChainsView } };

@@ -58,6 +58,9 @@ const routerFor = s => { const r = makeRouter(), plan = P.compileRoutingPlan(s.p
   A.eq(P.divideJob('**Part 1:** one\n**Part 2:** two', 3), ['1. one', '2. two'], 'fewer items than branches: only what is there');
   A.eq(P.divideJob('1) x\n2) y\n\nThanks, hope that helps', 2), ['1. x', '2. y'], 'a blank line then prose ends the last part');
   A.eq(P.divideJob('1. old\n2. old\nthen\n1. new\n2. new\n3. new', 3), ['1. new', '2. new', '3. new'], 'the LAST numbered run wins');
+  A.eq(P.divideJob('PART 1: a\nPART 2: b\n\n1. note\n2. note\n3. note', 3), ['1. a', '2. b'], 'PART lines win over any other list');
+  // LIVE (2026-10-10, gemini flash lite): the planner did the job as a list, then added a list of remarks
+  A.eq(P.divideJob('The facts:\n\n1. Octopus: x\n2. Crow: y\n3. Tardigrade: z\n\n1. CREW: I checked.\n2. CREW 2: fine.\n3. CREW 3: no file.', 3), ['1. Octopus: x', '2. Crow: y', '3. Tardigrade: z'], 'two lists of n: the first one, not the remarks after it');
   A.eq(P.divideJob('no list at all', 3), null, 'no list: null');
   A.eq(P.divideJob('1. only one', 3), null, 'one item: nothing to divide');
 }
@@ -80,8 +83,8 @@ const routerFor = s => { const r = makeRouter(), plan = P.compileRoutingPlan(s.p
   const { r: router, plan } = routerFor(s);
   A.ok(plan.junctions[sk].divide === true && plan.junctions[sk].fanout === true, 'the compiled split divides');
   const brief = router.stageBrief('planner', planner.id);
-  A.ok(/YOUR REPLY IS SPLIT BETWEEN 3 AGENTS/.test(brief || '') && /numbered list/.test(brief), 'the PLANNER is told to write exactly 3 numbered parts');
-  A.ok(!/SPLIT BETWEEN/.test(router.stageBrief('r1') || ''), 'a branch is not told to divide');
+  A.ok(/do NOT do it yourself\. 3 agents after you each take one part/.test(brief || '') && /PART 1: .*\nPART 2: .*\nPART 3: /.test(brief), 'the PLANNER is told to write exactly 3 PART lines, and not to do the work');
+  A.ok(!/DIVIDE THE WORK/.test(router.stageBrief('r1') || ''), 'a branch is not told to divide');
 
   const log = [];
   const script = {

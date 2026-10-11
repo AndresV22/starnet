@@ -733,6 +733,7 @@ test/conveyor-results.test.js
 test/conveyor-retest.test.js
 test/conveyor-choices.test.js
 test/splitter-divide.test.js
+test/chain-audit-1010.test.js
 test/conveyor-links.test.js
 test/conveyor-link-tools.test.js
 test/line-layout.test.js

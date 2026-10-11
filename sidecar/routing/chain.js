@@ -308,13 +308,18 @@ function makeChainRunner(o) {
       persistBarriers();
       return { released: false, parts: b.parts, missing: [] };
     },
-    wait(k, timeoutMin) {
+    wait(k, timeoutMin, signal) {
       const b = barriers.get(k);
       if (!b) return Promise.resolve(null);
       return new Promise(resolve => {
         let done = false;
         const fin = res => { if (done) return; done = true; resolve(res); };
         b.waiters.push(fin);
+        // E-STOP / STOP / a superseding message ends the wait NOW (it sat out the joiner's whole timeout, 2026-10-10 audit)
+        if (signal && typeof signal.addEventListener === 'function') {
+          const onAbort = () => { if (done) return; if (barriers.get(k) === b) { barriers.delete(k); persistBarriers(); } fin(null); };
+          if (signal.aborted) onAbort(); else signal.addEventListener('abort', onAbort, { once: true });
+        }
         setTimer(() => {
           if (done || !barriers.has(k)) return;
           barriers.delete(k); persistBarriers();
@@ -410,6 +415,10 @@ function makeChainRunner(o) {
     // inside a loop pass every hop is a re-visit by design (the body runs again); `looping` is raised at a
     // re-entry and lowered when the gate lets the crate out on its done lane
     let looping = false;
+    /* the gates whose pass is still open (2026-10-10 audit): two review loops in a row broke on the outer one's second pass —
+       the INNER gate letting work out lowered `looping` while the outer gate's re-run was still under way, so its next
+       (already visited) step read as a loop-back and the line stopped. A gate closes only its own pass. */
+    const openLoops = new Set();
     // while a queued fan-out branch is running, the line's LAST GOOD answer is still the entry's own output
     const entryOut = { text: s.text, agentId: startAgent, dockId: cur.dockId }; let branchMode = false;
     /* ENTRY FAN-OUT: resolveTarget named ONE dock for the inbound message and it has already run (`cur`). If
@@ -460,7 +469,9 @@ function makeChainRunner(o) {
         if (from && from.dockId) placed.fromDock = from.dockId;
         say('workitem.placed', placed);
         const turn = b.entry ? String(originalText || '') : hopTurn({ handoffText, stageBrief, loopGateAfter, lastStage, originalText, from: from.agentId, upstream: b.text, hop: hop0 + i, target: t.agentId, targetDock: t.dockId, lineId });
-        const call = { agentId: t.agentId, text: turn, hop: hop0 + i, from: from ? from.agentId : null, signal: s.signal, workitemId, ceilingUsd: share };
+        // `parallel`: the host runs this hop OFF the line's shared conversation stream — a stream runs one turn at a time, so
+        // three branches on it queued behind each other (live 2026-10-10), and a queued turn is rebuilt from the whole thread
+        const call = { agentId: t.agentId, text: turn, hop: hop0 + i, from: from ? from.agentId : null, signal: s.signal, workitemId, ceilingUsd: share, parallel: true };
         if (t.dockId) { call.dockId = t.dockId; call.fromDock = from ? from.dockId : null; }
         if (lineId) call.lineId = lineId;
         let r = null;
@@ -487,7 +498,7 @@ function makeChainRunner(o) {
       for (const x of results) {
         if (x.error) { if (fan) fan.failed.push(x.error); continue; }
         const fw = fan ? Math.max(1, fan.width - fan.failed.length) : 0;
-        const d = barrier.deliver(bk, fw ? Math.min(jstep.expect || fw, fw) : jstep.expect, x.node.agentId, x.text, jstep.timeoutMin, x.node.dockId);
+        const d = barrier.deliver(bk, fw || jstep.expect, x.node.agentId, x.text, jstep.timeoutMin, x.node.dockId);
         cur = { agentId: x.node.agentId, dockId: x.node.dockId || null };
         if (d.released) rel = d;
       }
@@ -504,6 +515,18 @@ function makeChainRunner(o) {
         const ctx = { tag: getTag(out.text), verdict: getVerdict(out.text), lineId: lineId, fromTile: fromTile, via: via };
         fromTile = null; via = null;
         try { step = (dockMode && cur.dockId) ? stepDock(cur.dockId, ctx) : stepAgent ? stepAgent(cur.agentId, ctx) : null; } catch (_) { step = null; }
+        let loopDone = false;
+        if (step && step.loop) {
+          // THE ONE LOOP RULE — loopDecision (module level) holds it; the step-through test reads the same one
+          const n = iter[step.loop] || 0;
+          const d = loopDecision(step, ctx, n, visited, out.text);
+          target = asNode(d.target); out.text = d.text;
+          if (d.again) { iter[step.loop] = n + 1; loopHop = true; openLoops.add(step.loop); looping = true; fromTile = null; }
+          else { openLoops.delete(step.loop); looping = openLoops.size > 0; if (d.exhausted) out.loopExhausted = true; }
+          // the gate let the work out onto a DONE lane that meets a JOINER: this branch parks there like any other
+          if (!d.again && !target && step.afterJoin) step = step.afterJoin;
+          else loopDone = true;
+        }
         if (step && step.branches) {
           // a FAN-OUT split mid-line: every lane runs from this output; first lane now, the rest queued
           const br = step.branches.map(asNode).filter(Boolean);
@@ -543,7 +566,7 @@ function makeChainRunner(o) {
           // THE BARRIER. Park this branch's output; release only when every in-lane has delivered for this run.
           const bk = step.join + '|' + runId;
           const fw = fan ? Math.max(1, fan.width - fan.failed.length) : 0;
-          const r = barrier.deliver(bk, fw ? Math.min(step.expect || fw, fw) : step.expect, cur.agentId, out.text, step.timeoutMin, cur.dockId);
+          const r = barrier.deliver(bk, fw || step.expect, cur.agentId, out.text, step.timeoutMin, cur.dockId);
           if (fan) { fan.joinKey = bk; fan.joinStep = step; }
           const failedNames = fan ? fan.failed.slice() : [];
           if (!r.released && pending.length > 1 && joinOfAll(pending) && joinOfAll(pending).join === step.join) {
@@ -563,8 +586,8 @@ function makeChainRunner(o) {
           if (!r.released) {
             if (pending.length) { forced = nextPending(); hop--; continue; }   // run the next branch; it may fill the barrier
             // nothing left to run in THIS call: wait for another deliverer (same run) or the joiner's timeout
-            const w = await barrier.wait(step.join + '|' + runId, step.timeoutMin);
-            if (!w) { out.stopped = 'the joiner at ' + step.join + ' lost its branches'; return out; }
+            const w = await barrier.wait(step.join + '|' + runId, step.timeoutMin, s.signal);
+            if (!w) { out.stopped = (s.signal && s.signal.aborted) ? 'stopped' : 'the joiner at ' + step.join + ' lost its branches'; return out; }
             out.text = Pipeline.joinPayload(w.parts, w.missing, failedNames);
             say('workitem.delivered', withDock({ workitemId: newId(), finalQueueId: cur.agentId, agentId: cur.agentId, box: 'join:' + step.join, ms: 0, ts: now() }, cur.dockId));
           } else {
@@ -575,13 +598,8 @@ function makeChainRunner(o) {
           fromTile = tileOf(step.join);
           if (!step.next) { out.stopped = null; return out; }   // the joiner ships straight out: merged text IS the answer
           hop--; continue;
-        } else if (step && step.loop) {
-          // THE ONE LOOP RULE — loopDecision (module level) holds it; the step-through test reads the same one
-          const n = iter[step.loop] || 0;
-          const d = loopDecision(step, ctx, n, visited, out.text);
-          target = asNode(d.target); out.text = d.text;
-          if (d.again) { iter[step.loop] = n + 1; loopHop = true; looping = true; fromTile = null; }
-          else { looping = false; if (d.exhausted) out.loopExhausted = true; }
+        } else if (loopDone) {
+          // (decided above)
         } else if (step && (step.dockId || step.agentId)) {
           target = asNode(step);
         } else if (!stepAgent && !(dockMode && cur.dockId)) {
