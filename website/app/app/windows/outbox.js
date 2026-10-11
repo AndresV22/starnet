@@ -155,7 +155,8 @@
           try {
             const lj = await Harness.api.get('/api/line-jobs?stream=' + encodeURIComponent(rw.streamId) + '&limit=1');
             const sj = lj && Array.isArray(lj.jobs) ? lj.jobs[0] : null, word = e => (e && e.name ? 'LINE ' + String(e.name).toUpperCase() : 'ANOTHER LINE');
-            const bits = sj ? [sj.from ? 'FROM ' + word(sj.from) : '', sj.sentTo ? 'SENT ON TO ' + word(sj.sentTo) : ''].filter(Boolean) : [];
+            // (a REFUSED hand-off is NOT SENT ON, with why — never "sent on" for work the station did not send, 10-11)
+            const bits = sj ? [sj.from ? 'FROM ' + word(sj.from) : '', sj.sentTo ? (sj.sentTo.refused ? 'NOT SENT ON TO ' + word(sj.sentTo) + ' — ' + sj.sentTo.refused : 'SENT ON TO ' + word(sj.sentTo)) : ''].filter(Boolean) : [];
             const pv = row.querySelector('.ob-prov');
             if (pv && bits.length) { pv.textContent = bits.join(' · '); pv.hidden = false; }
           } catch (_) { /* the provenance line is extra: the result itself is already on screen */ }
