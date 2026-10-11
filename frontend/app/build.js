@@ -101,6 +101,9 @@ const Build = (() => {
   let planDirty = true;   // routing-plan cache flag: set by EDITS (station.onChange / open), never by pure pans — see rebake()
   let projectionDirty = false;
   const flashes = [];   // {rects, t0, bad} place/delete confirmations
+  // ORPHAN_SOURCE on a SELECTED source (SELECT MOVES, 10-11): a drag moves a selected machine, so the floor names deselecting first
+  // (build mode only, never a finding code — the live world has no selection; routing-nag-parity keeps VAL_LABEL to codes)
+  const ORPHAN_SOURCE_SELECTED = 'NOT CONNECTED — DESELECT, THEN DRAG IT ONTO A BAY';
   // short human labels for the routing-validation overlay (cost-safety: surfaced before any paid run)
   // every label NAMES THE FIX, in words (mirrors world.js NAG_LABEL — keep the two in sync)
   const VAL_LABEL = {
@@ -1247,7 +1250,7 @@ const Build = (() => {
       paletteLabel = 'INSPECT';
       const note = document.createElement('div');
       note.className = 'refit-selectnote refit-keycard';
-      const KEYS = [['Click', 'select it'], ['Drag a box', 'select several'], ['Double-click', 'a whole line'], ['Shift + click', 'add or drop one'], ['Drag a selected one', 'move it'], ['Drag a machine', 'lay a belt'], ['Shift + drag', 'move any piece'], ['Right-click', 'remove a piece'], ['Q · Alt', 'pick up · every setting'],
+      const KEYS = [['Click', 'select it'], ['Drag a box', 'select several'], ['Double-click', 'a whole line'], ['Shift + click', 'add or drop one'], ['Drag a selected one', 'move it'], ['Drag a machine', 'lay a belt (if unselected)'], ['Shift + drag', 'move any piece'], ['Right-click', 'remove a piece'], ['Q · Alt', 'pick up · every setting'],
         ['Arrows', 'nudge · Shift: 5'], ['R · M', 'turn · flip'], ['Ctrl + D', 'duplicate'], ['Ctrl + C · X · V', 'copy · cut · paste'], ['Del', 'delete'], ['Ctrl + Z', 'undo'],
         ['Click a room', 'move · resize · furnish']];
       note.innerHTML = '<b>Click anything to edit</b><div class="refit-keyrows">' + KEYS.map(([k, v]) => '<span class="refit-keyrow"><kbd>' + esc(k) + '</kbd><span>' + esc(v) + '</span></span>').join('') + '</div>';
@@ -2660,13 +2663,27 @@ const Build = (() => {
   }
   /* WHAT A DRAG HERE WILL DO, said by the pointer before the press (SELECT MOVES, 10-11): over a SELECTED piece — or with Shift
      held over any piece, or on the selected room's bare floor — the move cursor; over an UNSELECTED conveyor machine the
-     belt-aiming crosshair (the one a belt drag wears). Anything else keeps SELECT's own cursor. */
+     belt-aiming crosshair (the one a belt drag wears). Anything else keeps SELECT's own cursor. Under an armed tool that lets
+     the selection move (pressMovesSelection) the selected piece wears the move cursor too. */
   function selectAim(shift) {
-    if (tool !== 'select' || hand || touchArm || drag || !station) return null;
+    if (hand || touchArm || drag || !station) return null;
     const p = hoverPropId && station.propById(hoverPropId);
+    if (tool !== 'select') return (p && (p.id === selectedPropId || groupIds.includes(p.id)) && pressMovesSelection()) ? 'move' : null;
     if (p) return (shift || p.id === selectedPropId || groupIds.includes(p.id)) ? 'move' : beltSource(p.id) ? 'crosshair' : null;
-    if (selectedRoomId && hoverTile && hoverRoomId === selectedRoomId && !station.beltAt(hoverTile.tx, hoverTile.ty)) return 'move';
+    // (Shift over a belt inside the selected room grabs the room too — a hallway its belt covers end to end has no bare floor)
+    if (selectedRoomId && hoverTile && hoverRoomId === selectedRoomId && (shift || !station.beltAt(hoverTile.tx, hoverTile.ty))) return 'move';
     return null;
+  }
+  /* THE SELECTION MOVES UNDER AN ARMED TOOL TOO (repair 10-11). A piece gets selected while a tool is armed — the desk PROP just
+     placed, a machine clicked with PROP / LINES / ROOM / HALLWAY / a copy in hand (CLICK-ON-MACHINE WINS) — and its card says
+     "drag it to move". The retired MOVE key used to work from any tool; now a press on the selected piece (or a member of the
+     selected group) drags it whatever is armed — EXCEPT where pressing that piece is the armed tool's own job: DELETE takes it,
+     SURFACE paints its room, BELT connects from it, an empty COPY picks it up, a clip in hand lays out where it is clicked. */
+  function pressMovesSelection() {
+    if (tool === 'select') return !hand && !touchArm;
+    if (tool === 'reclaim' || tool === 'paint' || tool === 'belt') return false;
+    if (tool === 'dupe') return !!dupe && dupe.type !== 'lines';
+    return true;   // prop · line · room · hall: their click on a placed piece inspects it, so a drag on the selected one moves it
   }
   function updateUndoRedo() {
     if (undoBtn) undoBtn.disabled = !station.canUndo();
@@ -4714,6 +4731,13 @@ const Build = (() => {
     if (panTrigger(ev)) { drag = { mode: 'pan', sx: toCanvas(ev).x, sy: toCanvas(ev).y }; cv.style.cursor = 'grabbing'; return; }
     if (ev.button !== 0) return;
     const w = toWorldTile(ev);
+    // an armed tool that lets the selection move (pressMovesSelection): a press on the SELECTED piece — or a member of the selected
+    // group — is SELECT's own press (a drag moves it, a click inspects it, exactly what CLICK-ON-MACHINE WINS did), never a stamp or a row
+    if (tool !== 'select' && (selectedPropId || groupIds.length) && pressMovesSelection()) {
+      const sid = propAtEvent(ev), sp = sid && station.propById(sid);
+      if (sp && groupIds.includes(sp.id)) { drag = { mode: 'grouppress', propId: sp.id, start: w, cur: w, moved: false, add: false }; return; }
+      if (sp && sp.id === selectedPropId) { drag = { mode: 'selectpress', propId: sp.id, start: w, cur: w, moved: false, add: false, cx: ev.clientX, cy: ev.clientY, sel: true }; return; }
+    }
     if (tool === 'select') {
       // SELECT (the default): a click INSPECTS what's under it — machine → its editor/picker/flow
       // card, belt tile → where this lane goes. A drag across empty deck draws a SELECTION BOX (MANY AT ONCE).
@@ -4732,10 +4756,14 @@ const Build = (() => {
       /* SELECT MOVES (10-11): the piece already SELECTED moves when dragged (sel); an UNSELECTED workflow machine becomes a belt
          drag the moment it moves (THE HAND); furniture moves either way; Shift+drag moves any of them (onMove decides) */
       if (p) { drag={mode:'selectpress',propId:p.id,start:w,cur:w,moved:false,add:ev.shiftKey,cx:ev.clientX,cy:ev.clientY,sel:p.id===selectedPropId};return; }   // cx/cy: a click that crosses a tile edge is still a click
+      const inSelRoom = !!selectedRoomId && station.roomAt(w.tx, w.ty) === selectedRoomId;
+      // Shift over a BELT inside the selected room grabs the ROOM (a hallway its belt covers end to end has no bare floor to press —
+      // the retired MOVE tool skipped belts the same way); a plain press on a belt keeps its own card / branch
+      if (inSelRoom && ev.shiftKey && station.beltAt(w.tx, w.ty)) { drag = { mode: 'roompress', roomId: selectedRoomId, start: w, cur: w, moved: false, cx: ev.clientX, cy: ev.clientY, viaBelt: true }; return; }
       // a BELT: a click opens its card on the release, a drag off it BRANCHES it (a SPLITTER lands where it was pressed)
       if (station.beltAt(w.tx, w.ty)) { drag = { mode: 'beltpress', start: w, cur: w, moved: false, from: { x: w.tx, y: w.ty }, cx: ev.clientX, cy: ev.clientY }; return; }
       // inside the SELECTED ROOM, on bare floor: a drag moves the room and everything on it rides along (what the MOVE tool did)
-      if (selectedRoomId && station.roomAt(w.tx, w.ty) === selectedRoomId) { drag = { mode: 'roompress', roomId: selectedRoomId, start: w, cur: w, moved: false, cx: ev.clientX, cy: ev.clientY }; return; }
+      if (inSelRoom) { drag = { mode: 'roompress', roomId: selectedRoomId, start: w, cur: w, moved: false, cx: ev.clientX, cy: ev.clientY }; return; }
       // ...and a ROOM opens its own sheet — on the RELEASE now, so the same press can become a box. Clicking the thing
       // you spent build mode MAKING used to be the one dead click in the editor.
       drag = { mode: 'boxpress', start: w, cur: w, moved: false, add: ev.shiftKey, roomId: station.roomAt(w.tx, w.ty) };
@@ -4848,7 +4876,8 @@ const Build = (() => {
       hoverRoomId = station.roomAt(w.tx, w.ty);
       hoverTile = { tx: w.tx, ty: w.ty };
       // the pointer says what a drag here would do: move (a selected piece, the selected room's floor, Shift) or lay a belt
-      if (tool === 'select' && hoverHandle < 0) { const want = cursorFor(ev.shiftKey); if (cv.style.cursor !== want) cv.style.cursor = want; }
+      // (an armed tool asks too: its selected piece wears the move cursor where a drag on it moves it — pressMovesSelection)
+      if (hoverHandle < 0) { const want = cursorFor(ev.shiftKey); if (cv.style.cursor !== want) cv.style.cursor = want; }
       // hovering a placed FUNCTIONAL prop shows its Fallout-style card (what it does + its live assignment)
       const hp = hoverPropId && station.propById(hoverPropId);
       const sp = hp && (typeof PropSprites !== 'undefined') && PropSprites.spec(hp.t);
@@ -4863,11 +4892,18 @@ const Build = (() => {
     if (!drag) return;
     const d = drag; drag = null;
     setCursor();
+    upCommit(d, ev);
+    // ...and AGAIN once the release has done its work: a click that just SELECTED the machine under the pointer turns its belt
+    // crosshair into the move cursor (a drag from it moves it now), a Shift+click that dropped it turns it back
+    if (!drag) setCursor();
+  }
+  function upCommit(d, ev) {
     if (d.mode === 'pan') return;
     if (d.mode === 'selectpress' || d.mode === 'grouppress') return d.add ? toggleInSelection(d.propId) : onInspect(station.propById(d.propId),ev);
     if (d.mode === 'beltpress') return openBeltCard(d.start.tx, d.start.ty, ev);   // a belt CLICKED (not dragged): where it goes
     if (d.mode === 'handbelt' || d.mode === 'handbranch') return commitHandGesture(d, ev);
     if (d.mode === 'groupmove') return commitGroupMove(d, ev);
+    if (d.mode === 'roompress' && d.viaBelt) return openBeltCard(d.start.tx, d.start.ty, ev);   // a Shift+CLICK on its belt still opens the belt's card
     if (d.mode === 'boxpress' || d.mode === 'roompress') return clickEmptyFloor(d, ev);
     if (d.mode === 'box') return commitBox(d, ev);
     if (d.mode === 'roomresize') return commitRoomResize(d, ev);
@@ -5046,7 +5082,7 @@ const Build = (() => {
     }
     const p=station&&station.propById(selectedPropId);host.hidden=!p;root.classList.toggle('has-selection',!!p);
     if(!p){host.replaceChildren();return;}
-    host.innerHTML='<div class="refit-sel-head"><span class="refit-sel-art" aria-hidden="true"></span><span class="refit-sel-name"><b>'+esc(propLabel(p.t))+'</b><small>'+p.w+' × '+p.h+' tiles'+(canTurn(p.t)?' · facing '+FACE_WORD[(p.r|0)&3]:'')+' · drag it to move · arrows nudge</small></span>'
+    host.innerHTML='<div class="refit-sel-head"><span class="refit-sel-art" aria-hidden="true"></span><span class="refit-sel-name"><b>'+esc(propLabel(p.t))+'</b><small>'+p.w+' × '+p.h+' tiles'+(canTurn(p.t)?' · facing '+FACE_WORD[(p.r|0)&3]:'')+(pressMovesSelection()?' · drag it to move · arrows nudge':'')+'</small></span>'
       +'<button class="bb sm refit-sel-x" type="button" aria-label="Deselect" data-tip="Deselect · Esc">\u2715</button></div><div class="refit-selection-actions"></div>';
     propArtInto(host.querySelector('.refit-sel-art'),p);
     host.querySelector('.refit-sel-x').onclick=()=>{selectedPropId=null;renderSelection();setHint();sfx('click');};
@@ -5700,7 +5736,7 @@ const Build = (() => {
     const shape = plain ? (b.x2 - b.x1 + 1) + ' × ' + (b.y2 - b.y1 + 1) : rm.rects.length + ' sections';
     host.innerHTML = '<div class="refit-sel-head"><span class="refit-sel-art is-room" aria-hidden="true"></span><span class="refit-sel-name">'
       + '<input class="refit-room-name" type="text" maxlength="40" aria-label="Room name" placeholder="name this room" value="' + esc(rm.name || '') + '">'
-      + '<small>' + esc((kd.label || rm.kind) + ' · ' + shape + ' · ' + roomTiles(rm) + ' tiles' + (isSpawn ? ' · the spawn room' : '')) + '</small></span>'
+      + '<small>' + esc((kd.label || rm.kind) + ' · ' + shape + ' · ' + roomTiles(rm) + ' tiles' + (isSpawn ? ' · the spawn room' : '') + ' · drag inside to move · arrows nudge') + '</small></span>'
       + '<button class="bb sm refit-sel-x" type="button" aria-label="Deselect" data-tip="Let go of the room · Esc">\u2715</button></div><div class="refit-selection-actions"></div>';
     // the art well: the room's own deck, painted by the bake
     try {
@@ -5767,7 +5803,9 @@ const Build = (() => {
     const names = kinds.slice(0, 3).map(l => count[l] > 1 ? l + ' ×' + count[l] : l).join(' · ') + (kinds.length > 3 ? ' · +' + (kinds.length - 3) + ' more' : '');
     const beltWord = nb ? nb + (nb === 1 ? ' belt' : ' belts') : '';
     const title = line ? line.name : ps.length ? ps.length + ' SELECTED' : beltWord.toUpperCase() + ' SELECTED';
-    const sub = line ? 'whole line · ' + ps.length + ' pieces' + (beltWord ? ' · ' + beltWord : '') : ps.length ? [names, beltWord].filter(Boolean).join(' · ') : (nb === 1 ? 'the whole belt' : 'each one whole');
+    // (the card says how a group moves — its MOVE key is gone: SELECT MOVES. A selection of belts alone does not move by a drag)
+    const sub = (line ? 'whole line · ' + ps.length + ' pieces' + (beltWord ? ' · ' + beltWord : '') : ps.length ? [names, beltWord].filter(Boolean).join(' · ') : (nb === 1 ? 'the whole belt' : 'each one whole'))
+      + (ps.length && pressMovesSelection() ? ' · drag any to move' : '');
     host.innerHTML = '<div class="refit-sel-head"><span class="refit-sel-art is-group" aria-hidden="true"></span><span class="refit-sel-name"><b>' + esc(title) + '</b><small>' + esc(sub) + '</small></span>'
       + '<button class="bb sm refit-sel-x" type="button" aria-label="Deselect all" data-tip="Let go of all of them · Esc">✕</button></div><div class="refit-selection-actions"></div>';
     const art = host.querySelector('.refit-sel-art');
@@ -5999,6 +6037,12 @@ const Build = (() => {
     // belts never ride along with a machine: say so at the drop (the ghost already warned amber)
     const left = mp ? beltsLeftBehind(mp, mp.x + dx, mp.y + dy) : 0;
     const moved = station.moveProp(d.propId, dx, dy);
+    /* SELECT MOVES: a SELECTED conveyor machine let go ON another machine was moved, not belted (the Field Manual's crew-then-connect
+       order walks right into it) — the refusal says so, and how to lay the belt instead */
+    if (moved && !moved.ok && d.sel && mp && CONNECT_TYPES[mp.t]) {
+      const tid = station.propAt(d.cur.tx, d.cur.ty), tp = tid && tid !== mp.id && station.propById(tid);
+      if (tp && CONNECT_TYPES[tp.t]) moved.msg = (moved.msg || 'blocked') + ' · it was selected, so the drag MOVED it — click bare floor to deselect it, then drag from it to lay a belt';
+    }
     feedback(moved, ev, moveMsg(moved, left, okMsg));
     // the piece it moved is THE selection now (a press on an unselected chair selects + moves it — never leaves a group card up)
     if(moved && moved.ok){if(selectedPropId!==d.propId||groupIds.length||selectedRoomId)setSelection([d.propId]);else renderSelection();landProps([d.propId]);}
@@ -6253,7 +6297,7 @@ const Build = (() => {
     dropPick = null; renderSelection(); setHint();
     if (res && res.ok) {
       const newId = res.made || res.id, np = newId && station.propById(newId);
-      sfx('chime'); flashTip(at, propLabel(t) + ' PLACED AND CONNECTED' + (t === 'bay' ? ' · CLICK IT TO CREW IT' : ''), true);
+      sfx('chime'); flashTip(at, propLabel(t) + ' PLACED AND CONNECTED' + (t === 'bay' ? ' · DRAG ON FROM IT, THEN CLICK IT TO CREW IT' : ''), true);   // (that order: a clicked — selected — BAY moves when dragged)
       const laid = newId && (station.links() || []).find(l => l.to && l.to.prop === newId);   // the belt it really got (never the stand-in's route)
       pushFlash(pathRects(laid ? laid.path : dp.path).concat(np ? [{ x1: np.x, y1: np.y, x2: np.x + np.w - 1, y2: np.y + np.h - 1 }] : []), false);
       if (np) landProps([np.id]);
@@ -6462,7 +6506,8 @@ const Build = (() => {
     // ALT VIEW while held — and never the browser's menu bar (a bare Alt focuses it in a browser tab); onBlur lets it go
     if (ev.key === 'Alt') { ev.preventDefault(); altHeld = true; return; }
     // Shift over a piece turns the pointer into the move cursor (Shift+drag moves any piece) — and back when it is let go
-    if (ev.key === 'Shift') { if (tool === 'select' && !drag && hoverHandle < 0 && cv) cv.style.cursor = cursorFor(true); return; }
+    // (Shift is still "any other key": it disarms a pending Esc-to-exit first — a Shift+click after one Esc never leaves BUILD MODE)
+    if (ev.key === 'Shift') { escExitArmedAt = 0; if (tool === 'select' && !drag && hoverHandle < 0 && cv) cv.style.cursor = cursorFor(true); return; }
     if (ev.key === 'Escape') {
       // close the TOPMOST card through ITS OWN close path (which saves what that card saves — an unsaved
       // job brief / line name / room rename). markSeen() belongs to the first-run card ALONE, and that
@@ -6522,6 +6567,11 @@ const Build = (() => {
       if ((ev.ctrlKey || ev.metaKey) && (ev.key === 'd' || ev.key === 'D')) { ev.preventDefault(); duplicateSelected(orientEv()); return; }
       if ((ev.ctrlKey || ev.metaKey) && (ev.key === 'c' || ev.key === 'C')) { ev.preventDefault(); copySelected(orientEv()); return; }
       if ((ev.ctrlKey || ev.metaKey) && (ev.key === 'x' || ev.key === 'X')) { ev.preventDefault(); cutSelected(orientEv()); return; }   // CUT: copy, then take it up (one undo)
+      const ARROW = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[ev.key];
+      if (ARROW) { ev.preventDefault(); const n = ev.shiftKey ? 5 : 1; nudgeSelected(ARROW[0] * n, ARROW[1] * n, orientEv()); return; }
+    }
+    // ...and under an armed tool whose drag on the selection moves it (pressMovesSelection): its card says "arrows nudge" there too
+    if ((selectedPropId || groupIds.length) && tool !== 'select' && pressMovesSelection()) {
       const ARROW = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[ev.key];
       if (ARROW) { ev.preventDefault(); const n = ev.shiftKey ? 5 : 1; nudgeSelected(ARROW[0] * n, ARROW[1] * n, orientEv()); return; }
     }
@@ -6738,7 +6788,8 @@ const Build = (() => {
       if (tool === 'line' && hoverTile) return lineGhost(hoverTile.tx, hoverTile.ty);
       // Show a prop's occupied footprint before the click. Validation is stable while the
       // pointer, orientation and station stay put; avoid a model walk on every paint frame.
-      if (placingProp() && hoverTile) {
+      // (over the SELECTED piece a press drags it — pressMovesSelection — so no stamp ghost promises a placement there)
+      if (placingProp() && hoverTile && !(tool !== 'select' && hoverPropId && (hoverPropId === selectedPropId || groupIds.includes(hoverPropId)) && pressMovesSelection())) {
         const { tx, ty } = hoverTile, facing = propFacing(propType);
         const key = [geoVer, propType, facing, tx, ty].join('|');
         if (!propHoverMemo || propHoverMemo.key !== key) {
@@ -7668,7 +7719,7 @@ const Build = (() => {
       ? (joins.length ? { ok: true, swap: joins } : { ok: false, msg: 'a JOINER further down the line combines these branches — make that one a MERGER to let them take turns' })
       : { ok: true, already: true };
     const toCopy = !copies
-      ? (lanes.length < 2 ? { ok: false, msg: 'run a second belt OUT of the splitter first: drag from the SPLITTER onto the next machine' }
+      ? (lanes.length < 2 ? { ok: false, msg: 'run a second belt OUT of the splitter first: click bare floor to deselect the SPLITTER (a selected one moves when dragged), then drag from it onto the next machine' }
         : meet && meet.kind === 'merge' && propAt(meet.at) ? { ok: true, swap: [propAt(meet.at)] }
         : { ok: false, msg: 'the branches never meet at one MERGER — belt them into one JOINER where they come back together (Conveyors › MACHINES › JOINER)' })
       : { ok: true, already: true };
@@ -7773,6 +7824,8 @@ const Build = (() => {
         let label = VAL_LABEL[e.code] || e.code, layer = 'topNag';
         // THE HAND (H5): an over-budget INBOX says its n/max on the floor — the one resting number — in the same voice that names the fix
         if (e.code === 'LINE_TOO_LONG' && e.stages > 0) label = 'TOO LONG ' + e.stages + '/' + (e.maxHops + 1) + ' — RAISE THE BUDGET';
+        // SELECT MOVES: a SELECTED machine moves when dragged, so its "drag it onto a BAY" names the step before the drag
+        if (e.code === 'ORPHAN_SOURCE' && e.propId && (e.propId === selectedPropId || groupIds.includes(e.propId))) label = ORPHAN_SOURCE_SELECTED;
         /* a ROLE-carrying unbound dock is a PLACARD, not a permanent nag (one-voice law): it speaks
            only while hovered or while it is the checklist's focused next step — at rest the amber
            bracket + the FINISH-THE-LINE card already carry the story. Roleless unbound bays keep

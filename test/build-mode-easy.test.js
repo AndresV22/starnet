@@ -54,7 +54,7 @@ for (const [label, key] of [['TURN', 'R'], ['FLIP', 'M'], ['DUPLICATE', 'Ctrl\\+
   A.ok(new RegExp("addKey\\('" + label + "','" + key + "'").test(sel), 'the ' + label + ' key wears its shortcut (' + key.replace(/\\/g, '') + ')');
 // (SELECT MOVES, Andrew 10-11: "rather than a move button, which is annoying can we just make the select button allow the user to
 //  move" — the card has no MOVE key any more: the selected piece moves when dragged, and the card's sub-line says so)
-A.ok(!/addKey\('MOVE'/.test(sel) && /' · drag it to move · arrows nudge<\/small>/.test(sel), 'no MOVE key on the card — it says a drag moves the selected piece');
+A.ok(!/addKey\('MOVE'/.test(sel) && /\(pressMovesSelection\(\)\?' · drag it to move · arrows nudge':''\)\+'<\/small>/.test(sel), 'no MOVE key on the card — it says a drag moves the selected piece (only where a drag on it does: pressMovesSelection)');
 A.ok(/finally \{ if \(ctx\) PropSprites\.setCtx\(ctx\); \}/.test(fn('propArtInto')), 'drawing the card art hands PropSprites back to the floor canvas');
 A.ok(/\.refit-overlay \.refit-selection-actions \{ display: grid; grid-template-columns: repeat\(3, minmax\(0,1fr\)\); gap: 5px; \}/.test(easy)
   && /@container \(max-width: 380px\) \{ \.refit-overlay \.refit-selection-actions \{ grid-template-columns: repeat\(2, minmax\(0,1fr\)\); \} \}/.test(easy),
@@ -118,7 +118,7 @@ A.ok(/if \(p && groupIds\.includes\(p\.id\)\) \{ drag=\{mode:'grouppress',propId
 A.ok(/drag = \{ mode: 'boxpress', start: w, cur: w, moved: false, add: ev\.shiftKey, roomId: station\.roomAt\(w\.tx, w\.ty\) \};/.test(down) && !/openRoomCard\(/.test(down),
   'a press on empty floor can become a box — the room card waits for the release, never opens on the press');
 A.ok(/if\(drag\.mode==='grouppress'&&drag\.moved\)drag\.mode='groupmove';/.test(build) && /if\(drag\.mode==='boxpress'&&drag\.moved\)drag\.mode='box';/.test(build), '…a press that moves becomes a group drag or a box');
-const up = fn('onUp');
+const up = fn('onUp') + fn('upCommit');   // (onUp hands the release to upCommit, then re-says the cursor)
 A.ok(/if \(d\.mode === 'selectpress' \|\| d\.mode === 'grouppress'\) return d\.add \? toggleInSelection\(d\.propId\) : onInspect\(/.test(up)
   && /if \(d\.mode === 'groupmove'\) return commitGroupMove\(d, ev\);/.test(up) && /if \(d\.mode === 'boxpress' \|\| d\.mode === 'roompress'\) return clickEmptyFloor\(d, ev\);/.test(up) && /if \(d\.mode === 'box'\) return commitBox\(d, ev\);/.test(up),
   'releases: Shift+click toggles, a click inspects one, a group drag commits, a box selects, a plain floor click lets go');
@@ -178,18 +178,71 @@ A.ok(/const map = \{ '0': 'select', '1': 'room', '2': 'hall', '3': 'paint', '5':
 A.ok(/if \(id === 'move'\) id = 'select';/.test(fn('selectTool')), 'a stale selectTool(\'move\') lands on SELECT (which moves)');
 A.ok(/if\(drag\.mode==='selectpress'&&drag\.moved&&slipped\)drag\.mode=\(!drag\.add&&!drag\.sel&&beltSource\(drag\.propId\)\)\?'handbelt':'propmove';/.test(fn('onMove')),
   'a SELECTED piece dragged moves; an unselected machine dragged lays a belt; Shift (or furniture) moves');
-A.ok(/if \(selectedRoomId && station\.roomAt\(w\.tx, w\.ty\) === selectedRoomId\) \{ drag = \{ mode: 'roompress', roomId: selectedRoomId,/.test(down)
-  && down.indexOf("mode: 'roompress'") > down.indexOf("mode: 'beltpress'") && down.indexOf("mode: 'roompress'") < down.indexOf("mode: 'boxpress'")
+A.ok(/const inSelRoom = !!selectedRoomId && station\.roomAt\(w\.tx, w\.ty\) === selectedRoomId;/.test(down) && /if \(inSelRoom\) \{ drag = \{ mode: 'roompress', roomId: selectedRoomId,/.test(down)
+  && down.indexOf("if (inSelRoom) {") > down.indexOf("mode: 'beltpress'") && down.indexOf("if (inSelRoom) {") < down.indexOf("mode: 'boxpress'")
   && /if\(drag\.mode==='roompress'&&drag\.moved&&slipped\)drag\.mode='move';/.test(fn('onMove')) && /if \(d\.mode === 'move'\) return commitMove\(d, ev\);/.test(up),
   'inside the SELECTED room on bare floor a drag moves the room (pieces and belts first; elsewhere a box)');
 const aim = fn('selectAim');
-A.ok(/\(shift \|\| p\.id === selectedPropId \|\| groupIds\.includes\(p\.id\)\) \? 'move' : beltSource\(p\.id\) \? 'crosshair' : null/.test(aim) && /hoverRoomId === selectedRoomId && !station\.beltAt\(/.test(aim)
+A.ok(/\(shift \|\| p\.id === selectedPropId \|\| groupIds\.includes\(p\.id\)\) \? 'move' : beltSource\(p\.id\) \? 'crosshair' : null/.test(aim) && /hoverRoomId === selectedRoomId && \(shift \|\| !station\.beltAt\(/.test(aim)
   && /const want = cursorFor\(ev\.shiftKey\);/.test(fn('onMove')),
   'the pointer says what a drag will do: move over a selected piece (or the selected room, or with Shift), aim over an unselected machine');
 A.ok(!/MOVE \(4\)|selectTool\('move'\)|\['4', 'Move'\]/.test(build + rd('frontend/app/tutorial.js')), 'no copy or key list names the retired MOVE (4)');
-A.ok(/<span><b>Drag a selected piece<\/b> Move it<\/span>/.test(build) && /\['Drag a selected one', 'move it'\], \['Drag a machine', 'lay a belt'\], \['Shift \+ drag', 'move any piece'\]/.test(build)
+A.ok(/<span><b>Drag a selected piece<\/b> Move it<\/span>/.test(build) && /\['Drag a selected one', 'move it'\], \['Drag a machine', 'lay a belt \(if unselected\)'\], \['Shift \+ drag', 'move any piece'\]/.test(build)
   && /fmEntry\(null, 'Select &amp; move', 'Click a piece to select it, then drag it to move it;/.test(rd('frontend/app/tutorial.js')),
   'HELP, the Edit key caps and the Field Manual teach: click to select, drag a selected piece to move it, drag a machine to lay a belt');
+
+/* ---------- 6c. SELECT MOVES — the review's repair pass (10-11) ---------- */
+// an armed tool: the card said "drag it to move" over the desk PROP just placed (or a BAY clicked with a chair armed), and the drag
+// stamped a second desk / laid a row of chairs — the press on the SELECTED piece is SELECT's own press unless pressing it is the tool's job
+const pms = fn('pressMovesSelection');
+A.ok(/if \(tool === 'select'\) return !hand && !touchArm;/.test(pms) && /if \(tool === 'reclaim' \|\| tool === 'paint' \|\| tool === 'belt'\) return false;/.test(pms)
+  && /if \(tool === 'dupe'\) return !!dupe && dupe\.type !== 'lines';/.test(pms),
+  'the selection moves under an armed tool — never where DELETE / SURFACE / BELT / an empty COPY / a clip in hand owns that press');
+A.ok(/if \(tool !== 'select' && \(selectedPropId \|\| groupIds\.length\) && pressMovesSelection\(\)\) \{/.test(down)
+  && down.indexOf('pressMovesSelection()') < down.indexOf("if (tool === 'select') {") && down.indexOf('pressMovesSelection()') < down.indexOf("mode: 'propstamp', start: w, cur: w, moved: false, cx: ev.clientX, cy: ev.clientY };   // cx/cy: a jitter is not a row")
+  && /if \(sp && sp\.id === selectedPropId\) \{ drag = \{ mode: 'selectpress', propId: sp\.id, [^}]*sel: true \}; return; \}/.test(down)
+  && /if \(sp && groupIds\.includes\(sp\.id\)\) \{ drag = \{ mode: 'grouppress',/.test(down),
+  'PROP / LINES / ROOM armed: a press on the selected piece (or a group member) drags it before the tool branches — never a stamp or a row');
+A.ok(/if \(tool !== 'select'\) return \(p && \(p\.id === selectedPropId \|\| groupIds\.includes\(p\.id\)\) && pressMovesSelection\(\)\) \? 'move' : null;/.test(aim)
+  && /if \(hoverHandle < 0\) \{ const want = cursorFor\(ev\.shiftKey\);/.test(fn('onMove'))
+  && /!\(tool !== 'select' && hoverPropId && \(hoverPropId === selectedPropId \|\| groupIds\.includes\(hoverPropId\)\) && pressMovesSelection\(\)\)/.test(fn('ghostInfo')),
+  '…and the pointer says so (the move cursor, no stamp ghost over the selected piece)');
+A.ok(/if \(\(selectedPropId \|\| groupIds\.length\) && tool !== 'select' && pressMovesSelection\(\)\) \{/.test(key), '…and the arrows nudge it there too, as its card says');
+// the cards teach the drag their MOVE keys used to
+A.ok(/' · drag inside to move · arrows nudge'\)/.test(fn('renderRoomCard')) && /\+ \(ps\.length && pressMovesSelection\(\) \? ' · drag any to move' : ''\);/.test(gc),
+  'the room card and the group card say how they move (the single card says "drag it to move")');
+// a selected room with no bare floor (a hallway its belt covers end to end): Shift over a belt in it grabs the room
+A.ok(/if \(inSelRoom && ev\.shiftKey && station\.beltAt\(w\.tx, w\.ty\)\) \{ drag = \{ mode: 'roompress', roomId: selectedRoomId, [^}]*viaBelt: true \}; return; \}/.test(down)
+  && down.indexOf('viaBelt: true') < down.indexOf("mode: 'beltpress'")
+  && /if \(d\.mode === 'roompress' && d\.viaBelt\) return openBeltCard\(d\.start\.tx, d\.start\.ty, ev\);/.test(up),
+  'Shift+drag over a belt inside the selected room moves the room (a Shift+click on it still opens the belt card)');
+A.ok(/if \(ev\.key === 'Shift'\) \{ escExitArmedAt = 0;/.test(key), 'Shift still disarms a pending Esc-to-exit (any other key does)');
+A.ok(/upCommit\(d, ev\);\n[^\n]*\n[^\n]*\n    if \(!drag\) setCursor\(\);/.test(fn('onUp')), 'the cursor is said again AFTER the release changed the selection (a just-selected machine shows the move cursor)');
+// the points of use that walked users into "I dragged to belt it and it moved"
+A.ok(/const ORPHAN_SOURCE_SELECTED = 'NOT CONNECTED — DESELECT, THEN DRAG IT ONTO A BAY';/.test(build)
+  && /if \(e\.code === 'ORPHAN_SOURCE' && e\.propId && \(e\.propId === selectedPropId \|\| groupIds\.includes\(e\.propId\)\)\) label = ORPHAN_SOURCE_SELECTED;/.test(build),
+  'a SELECTED unconnected source says DESELECT first on the floor');
+A.ok(/' PLACED AND CONNECTED' \+ \(t === 'bay' \? ' · DRAG ON FROM IT, THEN CLICK IT TO CREW IT' : ''\)/.test(fn('commitDropPick'))
+  && /click bare floor to deselect the SPLITTER \(a selected one moves when dragged\), then drag from it/.test(fn('splitModeInfo'))
+  && /it was selected, so the drag MOVED it — click bare floor to deselect it, then drag from it to lay a belt/.test(fn('commitPropMove')),
+  'the drop-pick tip, the SPLITTER refusal and a selected machine dropped on another machine all name the deselect');
+{
+  const tut = rd('frontend/app/tutorial.js'), lines = tut.slice(tut.indexOf("if (tab === 'LINES') {"), tut.indexOf("if (tab === 'PROGRESS') {"));
+  const caveat = lines.indexOf('moves when dragged instead: click bare floor to deselect it first'), route = lines.indexOf('Connect INBOX → BAY, then BAY → OUTBOX');
+  A.ok(/Click the BAY: the <b>Workflow panel<\/b>/.test(lines) && caveat > 0 && route > caveat,
+    'the Field Manual LINES steps crew the BAY (selecting it) and then warn before BAY → OUTBOX that a selected machine moves when dragged');
+  const wfp = rd('frontend/app/workflowpanel.js');
+  A.ok(!/Esc lets go of it first|so Esc lets go of it first/.test(wfp) && (wfp.match(/click bare floor to deselect it first/g) || []).length >= 3,
+    'the Workflow panel says click bare floor (its own Esc closes the PANEL and keeps the selection)');
+}
+A.ok(/^\.refit-toolset-buttons\.is-edit \{ grid-template-columns: repeat\(3,minmax\(0,1fr\)\); \}/m.test(kit)
+  && /^\.refit-overlay \.refit-toolset-buttons\.is-edit \{ grid-template-columns: repeat\(3,minmax\(0,1fr\)\); \}/m.test(rd('frontend/css/refit-polish.css')),
+  'the Edit toolset lays out three columns for its three tools (no empty cell where MOVE was)');
+{
+  const sc = rd('website/docs/shortcuts.html'), gl = rd('website/docs/glossary.html');
+  A.ok(!/<b>MOVE<\/b>/.test(sc) && /<b>SELECT<\/b> &mdash; click to select &middot; drag a selected piece to move it/.test(sc) && !/Ten tools|, move, delete,/.test(gl),
+    'the public shortcuts page and glossary no longer advertise the retired MOVE on key 4');
+}
 
 /* ---------- 7. the tabs show their things ---------- */
 const pal = fn('renderPalette');

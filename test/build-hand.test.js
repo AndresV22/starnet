@@ -228,7 +228,7 @@ const frozen = s => JSON.stringify(s.serialize()) + '|' + s.getSeq() + '|' + s.c
   A.ok(/if \(station\.beltAt\(w\.tx, w\.ty\)\) \{ drag = \{ mode: 'beltpress'/.test(down), 'a press on a belt can become a branch (the belt card waits for the release)');
   // (SELECT MOVES, 10-11: a SELECTED machine dragged moves — only an unselected one lays a belt)
   A.ok(/drag\.mode=\(!drag\.add&&!drag\.sel&&beltSource\(drag\.propId\)\)\?'handbelt':'propmove';/.test(build), 'an unselected workflow machine dragged lays a belt; selected, with Shift (or any other prop) it moves');
-  A.ok(/if \(d\.mode === 'beltpress'\) return openBeltCard\(/.test(fn('onUp')), 'a belt CLICKED still opens its card');
+  A.ok(/if \(d\.mode === 'beltpress'\) return openBeltCard\(/.test(fn('onUp') + fn('upCommit')), 'a belt CLICKED still opens its card');   // (onUp hands the release to upCommit, then re-says the cursor)
   const rm = fn('removeAt');
   A.ok(/if \(p && isConveyorPiece\(p\)\)/.test(rm) && /if \(p\) return false;/.test(rm) && /station\.removeLinkAt\(w\.tx, w\.ty\)/.test(rm), 'right-click removes a conveyor piece or a whole belt — never furniture');
   const hp = fn('handPlan');

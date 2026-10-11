@@ -1577,7 +1577,7 @@ const WorkflowPanel = (() => {
         + '<div class="wf-mode">' + dia + '<p>' + (copies
           ? 'Each job is copied to <b>every</b> branch. The JOINER after the branches waits for all of them, then sends one combined result on.'
           : 'Each job goes down <b>one</b> branch, and the next job takes the next branch. Use this to share a heavy load between agents.') + '</p></div>'
-        + '<h4 class="wf-sub">Branches</h4>' + branches('No branches yet. Run two belts OUT of the splitter: drag from the SPLITTER onto the next machine, then again for the second branch (while it is selected a drag moves it — Esc lets go of it first).')
+        + '<h4 class="wf-sub">Branches</h4>' + branches('No branches yet. Run two belts OUT of the splitter: drag from the SPLITTER onto the next machine, then again for the second branch (while it is selected a drag moves it — click bare floor to deselect it first).')
         + '<p class="wf-help" id="split-note">Switching swaps the JOINER or MERGER where the branches meet. Same belts, one UNDO.</p></section>'
         + (H.lineEdit ? '<section class="wf-sec wf-shape"><h3>Shape the line</h3><div class="wf-chips">'
           + editBtn('addArm', p.id, { split: p.id }, '⑂ ADD A BRANCH', copies ? 'one more step gets a copy of every job — the JOINER waits for it too' : 'one more step takes its turn with the others')
@@ -1602,7 +1602,7 @@ const WorkflowPanel = (() => {
     }
     const TXT = {
       outbox: ['OUTBOX', 'Collect the finished work', 'The OUTBOX receives completed work. Leave build mode and click it to browse delivered work in the Logbook.' + (f && f.outbox.reached ? ' This line reaches it.' : ' Drag from the last BAY onto it to connect them.')],
-    }[p.t] || [String(p.t).toUpperCase(), 'Part of the line', 'Drag from one machine onto the next to connect them.'];
+    }[p.t] || [String(p.t).toUpperCase(), 'Part of the line', 'Drag from one machine onto the next to connect them (a selected machine moves when dragged — click bare floor to deselect it first).'];
     body.innerHTML = '<section class="wf-sec workflow-no-settings"><h3><span class="n">' + esc(TXT[0]) + '</span>' + esc(TXT[1]) + '</h3><p class="wf-help">' + esc(TXT[2]) + '</p>'
       + '<p class="wf-help dim">No extra settings needed — the belts you draw decide the paths.</p></section>';
   }
@@ -1616,7 +1616,7 @@ const WorkflowPanel = (() => {
       + '</span></div>').join('');
     body.innerHTML = '<section class="wf-sec"><h3><span class="n">FILTER</span>Send each type of task its own way</h3>'
       + '<div class="wf-mode">' + (H.machineDiagram ? H.machineDiagram('filter') : '') + '<p>The filter reads each task and sorts it by <b>type</b>: code, research, or everything else. Pick the belt each type takes.</p></div>'
-      + (lanes.length ? '' : '<p class="wf-warnline">Run belts OUT of the filter first (drag from the FILTER onto the next machine — while it is selected a drag moves it, so Esc lets go of it first). Each belt out appears here.</p>')
+      + (lanes.length ? '' : '<p class="wf-warnline">Run belts OUT of the filter first (drag from the FILTER onto the next machine — while it is selected a drag moves it, so click bare floor to deselect it first). Each belt out appears here.</p>')
       + '<div class="wf-routes">' + rows + '</div>'
       + '<p class="wf-help" id="flt-note">' + (cur.def ? 'Saved as you choose.' : 'Choose a belt for EVERYTHING ELSE so no task is left without a way out.') + '</p>'
       + '<p class="wf-help dim">The filter only knows these three types. A task already addressed to one agent follows that agent’s belt instead.</p></section>'

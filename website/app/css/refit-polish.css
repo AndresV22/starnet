@@ -266,7 +266,7 @@
 .refit-overlay .refit-toolset { display: block; }
 .refit-overlay .refit-toolset[hidden] { display: none; }
 .refit-overlay .refit-toolset-buttons { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); }
-.refit-overlay .refit-toolset-buttons.is-edit { grid-template-columns: repeat(4,minmax(0,1fr)); }
+.refit-overlay .refit-toolset-buttons.is-edit { grid-template-columns: repeat(3,minmax(0,1fr)); }   /* three Edit tools — no MOVE (SELECT moves) */
 .refit-overlay .refit-kindgrid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 8px; width: 100%; }
 .refit-overlay .refit-kindtile { width: auto; min-height: 100px; }
 .refit-overlay .refit-kindtile .refit-matname { font-size: 14px; }
