@@ -69,7 +69,17 @@ const Chat = (() => {
   let activeTurnin = null;      // the single visible memory-review deck; later batches queue behind it
   const turninQueue = [];       // memory-review batches waiting for the visible deck to finish
   const activeChoiceRows = new Set();   // one-shot chip rows; cleared when a typed answer supersedes them
-  const receiptRunsSeen = new Set();    // runIds whose SILENT auto-saved receipts already rendered (memory.write triggers once per run)
+  /* memory-truth (2026-10-11): receipts are tracked per SAVE, not per run. A run can save mid-run (notebook.write) AND
+     after it ends (reflection); the old once-per-run gate showed the first batch and then hid every later save of the
+     same run. receiptShown: runId -> keys already rendered; receiptFetching: runIds with a fetch already scheduled. */
+  const receiptShown = new Map();
+  const receiptFetching = new Set();
+  // the saves of this batch not yet shown for its run — marked shown as they are handed back (renders exactly once)
+  function unshownReceipts(runId, saved) {
+    let seen = receiptShown.get(runId);
+    if (!seen) { seen = new Set(); receiptShown.set(runId, seen); if (receiptShown.size > 200) receiptShown.delete(receiptShown.keys().next().value); }
+    return saved.filter(p => { const k = String(p.key || p.id || p.content || ''); if (seen.has(k)) return false; seen.add(k); return true; });
+  }
   const clarificationRuns = new Set();  // an intent-question turn is a continuation, not completed work
   /* Deliverable titles this run ALREADY announced inline, as they happened. The recap card is the run's
      ledger and must stay complete, but on a short run the same filename landed three times in a row — the
@@ -851,7 +861,7 @@ const Chat = (() => {
     system = opts.system || ''; name = opts.name || 'AGENT';
     sentHistory.length = 0; histIdx = -1; histDraft = '';   // recall never crosses a session/agent switch
     onTurn = opts.onTurn || null; interview = null;
-    receiptRunsSeen.clear(); clearChoices(); turninQueue.length = 0; activeTurnin = null; wiQDepth.clear(); queued.clear(); interrupted.clear();   // C2: per-session run-tracking + the queue gauge + turn-control state start clean for each agent (listeners stay once-registered)
+    receiptShown.clear(); receiptFetching.clear(); clearChoices(); turninQueue.length = 0; activeTurnin = null; wiQDepth.clear(); queued.clear(); interrupted.clear();   // C2: per-session run-tracking + the queue gauge + turn-control state start clean for each agent (listeners stay once-registered)
     // GROWTH Tier 1: the study side starts clean per session too — a prior hero's deferred study/taste beats must
     // never flush into a new session (same law as turninQueue above). A fresh beat-slot arbiter matches the DOM.
     arcRunsSeen.clear();   // GROWTH Tier 2: the arc side starts clean per session (a prior hero's arc offers never carry over)
@@ -4711,15 +4721,15 @@ const Chat = (() => {
     });
     U.bus.on('memory.write', p => {
       const runId = p && p.runId; const agentId = (p && p.agentId) || 'agent';
-      // dedup vs BOTH the deck path (proposalRunsSeen, set by memory.proposed) and this receipt path. Deliberately
+      // the deck path owns a run once memory.proposed claimed it (it renders receipts + deck together). Deliberately
       // NOT added to proposalRunsSeen: a passive receipt is not a review DECK, so it must not suppress the run's
       // curiosity/suggestion nudge (the wireCuriosity guard keys on proposalRunsSeen = "a deck owns the moment").
-      if (!runId || (beatCards && beatCards.hasSeen('memory', runId)) || receiptRunsSeen.has(runId)) return;
-      receiptRunsSeen.add(runId);
-      if (receiptRunsSeen.size > 200) receiptRunsSeen.delete(receiptRunsSeen.values().next().value);
-      // NO slot reservation — receipts are passive log lines. A tiny debounce lets the per-record memory.write
-      // events + the server-side batch stash settle before the single fetch (mirrors the proposed path's 350ms).
-      setTimeout(() => routeProposalBatch(runId, agentId, false), 350);
+      if (!runId || (beatCards && beatCards.hasSeen('memory', runId)) || receiptFetching.has(runId)) return;
+      receiptFetching.add(runId);
+      // NO slot reservation — receipts are passive log lines. A tiny debounce lets a burst of memory.write events
+      // + the server-side batch settle into ONE fetch; a save after that fetch schedules the next one, and only
+      // the saves not yet shown for the run render (unshownReceipts) — a later save is never swallowed.
+      setTimeout(() => { receiptFetching.delete(runId); routeProposalBatch(runId, agentId, false); }, 350);
     });
   }
 
@@ -4734,7 +4744,7 @@ const Chat = (() => {
     const lifecycle = beatCards, lifecycleGeneration = lifecycle && lifecycle.generation();
     const items = await Harness.memoryProposals(runId, agentId);
     if (!lifecycle || beatCards !== lifecycle || lifecycle.generation() !== lifecycleGeneration) return;
-    const saved = items.filter(p => p && p.saved);
+    const saved = unshownReceipts(runId, items.filter(p => p && p.saved));   // only this run's saves not shown yet
     const pending = items.filter(p => p && !p.saved);
     // route to the ORIGIN stream (many streams share agentId 'agent', so agentId-gating can drop the card into
     // the wrong COMMS after a mid-window switch).
@@ -4790,6 +4800,9 @@ const Chat = (() => {
       const item = document.createElement('div'); item.className = 'receipt-item';
       const kind = document.createElement('span'); kind.className = 'turnin-kind'; kind.textContent = KIND_TAG[prop.kind] || 'NOTE';
       const text = document.createElement('span'); text.className = 'receipt-text'; text.textContent = prop.content;
+      // an UPDATE replaced an existing memory's text (its old text is archived): say so, and offer no ✕ — forgetting
+      // would delete the whole memory, not undo the update (Memory Core edits it)
+      if (prop.revised) { text.textContent = 'updated: ' + prop.content; item.appendChild(kind); item.appendChild(text); list.appendChild(item); continue; }
       const veto = document.createElement('button'); veto.className = 'receipt-veto'; veto.type = 'button';
       veto.textContent = '✕'; veto.title = 'forget this — undo the save';
       veto.setAttribute('aria-label', 'forget this memory');
