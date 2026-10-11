@@ -18,7 +18,7 @@
   "expectedClaimCount": 37,
   "releaseSurface": {
     "algorithm": "sha256",
-    "sourceCommit": "914792adef530e43c4fd2705e0ce555458d4fa18",
+    "sourceCommit": "2ef2cb718f7072972ae48e5d41e5fd41ad19062f",
     "pathSetSha256": "02b89ce2d893cfb89a028e02d127dfe9f73466048d2fc0c7572bba244cdfea2f",
     "files": [
       {
@@ -173,8 +173,8 @@
       },
       {
         "path": "frontend/app/app.js",
-        "bytes": 434544,
-        "sha256": "2e1b6e66ee2bf91f895718ba11e943db35b32b04d03b63a63fb3e8eabbe8cebb"
+        "bytes": 436085,
+        "sha256": "a4dabd38e5592dcf352fb00f54e172f0ed6ad970a694ce2349198ccc07c938b2"
       },
       {
         "path": "frontend/app/approved-sheet-effects.js",
@@ -303,8 +303,8 @@
       },
       {
         "path": "frontend/app/backup.js",
-        "bytes": 10690,
-        "sha256": "1306accff135281d4f69a6d3527ee4396956358f0cd687fb9a5c6d96cdd08ee4"
+        "bytes": 11129,
+        "sha256": "5e51530c6acd3507bfa92c198fa5401f02ce1b80986459d5e064819838af3e91"
       },
       {
         "path": "frontend/app/beatcard.js",
@@ -343,8 +343,8 @@
       },
       {
         "path": "frontend/app/chat.js",
-        "bytes": 723278,
-        "sha256": "75c375cf99bed5d6b44a313270d726f5a0b515d7a69f54e0120858a89c600d94"
+        "bytes": 724568,
+        "sha256": "6d94b1451b77db2a91ac5872199e6728e96e9f24d4febbefe89e888cd4a97bf1"
       },
       {
         "path": "frontend/app/chatresize.js",
@@ -463,13 +463,13 @@
       },
       {
         "path": "frontend/app/dossier.js",
-        "bytes": 17541,
-        "sha256": "c84feada256966afbba6e54fcd629f4bc62d0994b5223c0f6fdc241b5c47f3a7"
+        "bytes": 19867,
+        "sha256": "ea9fdbedbbe3159df4db81817885b30b69fa7438b5e36c7d1b108fd86cfc784f"
       },
       {
         "path": "frontend/app/dossierstore.js",
-        "bytes": 7826,
-        "sha256": "d7b4ca483e22188dda3ab450b0679703fbcde3cf0b29e7e4bbddcaa0de62d038"
+        "bytes": 8347,
+        "sha256": "3b81ab6591f874aa65d86fe07f4bd85ecbbc466efe581962f76e664bd9aae74a"
       },
       {
         "path": "frontend/app/emergency-control.js",

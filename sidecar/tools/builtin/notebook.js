@@ -17,6 +17,7 @@
 
   // Compare against the version the caller actually read. A later edit must never be
   // overwritten by a stale correction; archive prior text outside active recall.
+  // change.confirmation (host-derived only — notebook.write's statedBy proof) overrides the userConfirmed flag.
   function reviseRecord(record, change, now) {
     if (!record) throw new Error('no such memory — read your notebook before correcting it');
     const previous = String(record.content != null ? record.content : record.body || '');
@@ -27,13 +28,64 @@
       title: record.title || '', body: previous, sourceRunId: record.updatedSourceRunId || record.sourceRunId || null,
       revision: record.revision || 0, replacedAt: now
     }]);
-    return Object.assign({}, record, {
+    const confirmation = change.confirmation || (change.userConfirmed ? 'user-confirmed' : 'inferred');
+    const out = Object.assign({}, record, {
       title: change.title == null ? record.title : change.title,
       body: change.body, content: change.body, updatedAt: now,
       updatedSourceRunId: change.runId || null, revision: (record.revision || 0) + 1, history,
-      confirmation: change.userConfirmed ? 'user-confirmed' : 'inferred', authority: 'reference-only',
-      trust: 0, lastFeedbackAt: change.userConfirmed ? now : null, lastUsedAt: null, useCount: 0
+      confirmation: confirmation, authority: 'reference-only',
+      trust: 0, lastFeedbackAt: confirmation === 'user-confirmed' ? now : null, lastUsedAt: null, useCount: 0
     });
+    // the old text's proof (and its old rating) describe the archived text, not this one
+    delete out.statedBy; delete out.distrust;
+    if (change.statedBy) out.statedBy = change.statedBy;
+    return out;
+  }
+
+  /* PROVENANCE PROVEN, NOT CLAIMED (memory-truth lane, 2026-10-11). A user's correction saved by the agent used to
+     render "[inferred, unconfirmed]" while the older rule it replaced read "[user-confirmed reference]" — so the
+     model trusted the stale one. A note can now carry the Commander's authority, but only when the HOST can show it:
+     ctx.commanderWords is the text the Commander typed in this run's conversation (set by the host on the owner's
+     own surfaces only — never a channel guest, a routine, a hand-off or a delegated worker), and the note must be
+     substantially THEIR words: one sentence of theirs holds >= 70% (and >= 2) of the note's content words, carries
+     the same polarity (a "hate tabs" sentence never proves "prefers tabs"), and is shaped like a statement about
+     themselves or an instruction (a bare "make it dark" is a one-off task, not a stated preference). Anything less
+     is not proof, and the note keeps its ordinary provenance. Pure + deterministic. */
+  const PROOF_STOP = new Set(('a an the of to in on for and or but is are was were be been it its this that these those with as at by ' +
+    'from your you i we they he she them our their not no do does did has have had will would can could me my so if up us am ' +
+    'user users commander prefers prefer preferred preference preferences wants want wanted likes like liked love loves ' +
+    'ask asks asked said says say told tell should must need needs please always never use uses used using instead rather ' +
+    'over than also just only really very all any every when what which whenever don doesn didn won isn aren shouldn can cannot t s ll ve re d m').split(/\s+/));
+  const PROOF_NEG = /\b(?:not|no|never|nor|none|don'?t|doesn'?t|didn'?t|won'?t|can'?t|cannot|isn'?t|aren'?t|shouldn'?t|avoid|without|stop|hate|hates|dislike|dislikes|against)\b/i;
+  const PROOF_SHAPE = /\b(?:i|i'm|i've|i'd|we|my|me|our|prefer|always|never|from now on|going forward|by default|every ?time|whenever|remember|don'?t|do not|stop|avoid|make sure|please)\b/i;
+  // a STANDING instruction in the Commander's own words: it is about every future conversation, not this one
+  const STANDING = /\b(?:always|never|from now on|going forward|in (?:the )?future|every ?time|whenever|by default|(?:i|we)(?:'d| would)? (?:always |really |much )?prefer|don'?t ever|do not ever|for (?:all|every) (?:future )?(?:chats?|conversations?|projects?|tasks?))\b/i;
+  const norm = s => String(s == null ? '' : s).replace(/[‘’]/g, "'");
+  function stem(t) {
+    if (t.length > 4 && /ies$/.test(t)) return t.slice(0, -3) + 'y';
+    if (t.length > 4 && /(?:s|x|z|ch|sh)es$/.test(t)) return t.slice(0, -2);
+    if (t.length > 3 && /[^s]s$/.test(t)) return t.slice(0, -1);
+    return t;
+  }
+  function proofTokens(s) {
+    const out = [];
+    for (const t of norm(s).toLowerCase().split(/[^a-z0-9]+/)) if (t.length >= 2 && !PROOF_STOP.has(t)) out.push(stem(t));
+    return out;
+  }
+  // -> the Commander's sentence that proves `body`, or '' when there is no such sentence
+  function statedSentence(body, words) {
+    const want = Array.from(new Set(proofTokens(body)));
+    if (want.length < 2) return '';
+    const neg = PROOF_NEG.test(norm(body));
+    let best = '', bestHit = 0;
+    for (const raw of norm(words).split(/[.!?;\n]+/)) {
+      const sentence = raw.trim();
+      if (!sentence || !PROOF_SHAPE.test(sentence) || PROOF_NEG.test(sentence) !== neg) continue;
+      const have = new Set(proofTokens(sentence));
+      let hit = 0; for (const t of want) if (have.has(t)) hit++;
+      if (hit >= 2 && hit / want.length >= 0.7 && hit > bestHit) { best = sentence; bestHit = hit; }
+    }
+    return best;
   }
 
   function makeNotebookTools(deps) {
@@ -59,6 +111,7 @@
     // than reward, so one bad recall sinks faster than one good recall rises). Expressed in OUR delta units (×0.15 in nextTrust):
     // helpful +0.075, unhelpful −0.15 — both WEAKER than a user turn-in keep (+2 → +0.30): the human still wins.
     const HELPFUL_DELTA = 0.5, UNHELPFUL_DELTA = -1.0;
+    const RATING_STEP = 0.15;   // = memcore.TRUST_STEP (the delta→trust scale nextTrust applies) — kept in sync
     // NEAR-DUPE CHALLENGE at the write boundary. Reflection has deduped its PROPOSALS by Jaccard since M-mem.6, but
     // a direct notebook.write never was — so the same belief accumulated in a dozen phrasings over months, diluting
     // recall (the top-K ranker spends slots on restatements) and giving the Commander a panel full of noise to
@@ -75,22 +128,33 @@
     // saved. Nothing is ever silently lost, and the common case costs one refused call instead of a permanent
     // duplicate. Threshold matches reflection's — one definition of "near-dupe" across the whole memory system.
     const DUPE_THRESHOLD = 0.6;
-    const findSimilar = typeof deps.findSimilar === 'function' ? deps.findSimilar : (records, text, o) => {
-      // inline Jaccard fallback (mirrors memcore.findSimilar/tokenJaccard) so this UMD tool stays dependency-free
-      // in the browser build + standalone tests. Kept in sync with memcore — that is the canonical copy.
+    // inline Jaccard fallback (mirrors memcore.tokenJaccard) so this UMD tool stays dependency-free in the browser
+    // build + standalone tests. Kept in sync with memcore — that is the canonical copy.
+    const jaccard = typeof deps.similarity === 'function' ? deps.similarity : (a, b) => {
       const STOP = new Set(('a an the of to in on for and or but is are was were be been it its this that with as at by from your you i we they').split(/\s+/));
       const toks = s => { const set = new Set(); for (const t of String(s == null ? '' : s).toLowerCase().split(/[^a-z0-9]+/)) if (t.length >= 3 && !STOP.has(t)) set.add(t); return set; };
+      const A = toks(a), B = toks(b);
+      if (!A.size || !B.size) return 0;
+      let inter = 0; for (const t of A) if (B.has(t)) inter++;
+      return inter / (A.size + B.size - inter);
+    };
+    const textOf = r => (r.content != null ? r.content : ((r.title || '') + ' ' + (r.body || '')));
+    const findSimilar = typeof deps.findSimilar === 'function' ? deps.findSimilar : (records, text, o) => {
       const threshold = (o && typeof o.threshold === 'number') ? o.threshold : 0.6;
-      const B = toks(text);
-      for (const r of (Array.isArray(records) ? records : [])) {
-        if (!r) continue;
-        const A = toks(r.content != null ? r.content : ((r.title || '') + ' ' + (r.body || '')));
-        if (!A.size || !B.size) continue;
-        let inter = 0; for (const t of A) if (B.has(t)) inter++;
-        if (inter / (A.size + B.size - inter) >= threshold) return r;
-      }
+      for (const r of (Array.isArray(records) ? records : [])) if (r && jaccard(textOf(r), text) >= threshold) return r;
       return null;
     };
+    /* SAME SUBJECT, DIFFERENT CLAIM (memory-truth lane, 2026-10-11). "User prefers tabs" vs "User prefers spaces"
+       overlap 0.5 — under the near-dupe bar — so the new note was saved beside the old one and BOTH stayed active
+       forever: a contradiction recall served side by side. A write that overlaps an existing note in [0.3, 0.6) is
+       still saved (it may be a separate fact — a false block is worse than a duplicate), but the result names those
+       notes so the model can retire the one this replaces through the ordinary correction path. Nothing is deleted
+       without the model choosing it. */
+    const SIMILAR_FLOOR = 0.3;
+    const SIMILAR_MAX = 3;
+    // memory-truth: the host's receipt seam — every committed write is reported for ITS run, so COMMS shows exactly
+    // what this run saved (it used to borrow the agent's previous run's list). Host-injected; absent standalone.
+    const onSaved = typeof deps.onSaved === 'function' ? deps.onSaved : null;
     const KEY = aid => 'notebook:' + (aid || 'agent');
     // M-mem.2: widen any legacy {id,title,body,ts} note to the §5.2 memory-record shape
     // (kind/scope/provenance/trust/useCount/pinned), idempotently — so an existing notebook upgrades
@@ -150,9 +214,9 @@
         const aid = (ctx && ctx.agentId) || 'agent';
         const runId = ctx && ctx.runId ? String(ctx.runId) : null;   // provenance source (B1 Cortex seam)
         const streamId = ctx && ctx.streamId ? String(ctx.streamId) : null;   // M-mem.2b: the run's workstream
-        const scope = args.scope || (streamId ? 'stream' : 'global');
-        if (scope === 'stream' && !streamId) throw new Error('stream memory requires an active stream');
-        if (scope !== 'stream' && scope !== 'global') throw new Error('scope must be stream or global');
+        const projectRoot = (ctx && ctx.projectRoot) || null;
+        if (args.scope && args.scope !== 'stream' && args.scope !== 'global') throw new Error('scope must be stream or global');
+        if (args.scope === 'stream' && !streamId) throw new Error('stream memory requires an active stream');
         /* MEMORY CARRIES ITS RUN'S TAINT (2026-10-10). A run that read a web page, an email or a stranger's message
            could otherwise save the injected text as a "fact" — and recalled memory is trusted context, so a later
            Full Access run would start clean in front of it. A tainted run's note is stamped with that taint (recall
@@ -163,21 +227,52 @@
           return { content: 'Not saved — this run has read outside content (' + taintedBy + '), so it cannot pin a memory into every future prompt. Save it unpinned, or ask the Commander to pin it.', summary: 'pin refused (tainted run)' };
         }
         const now = clock.now();
+        // PROVENANCE (see statedSentence): the Commander's own sentence behind this note, proven by the host's words —
+        // never on a tainted run (the words may sit beside outside content the note actually came from).
+        const words = (!taintedBy && ctx && typeof ctx.commanderWords === 'string') ? ctx.commanderWords : '';
+        const quote = words ? statedSentence(String(args.body), words) : '';
+        const statedBy = quote ? { runId: runId, quote: redact(quote).slice(0, 200) } : null;
+        /* STANDING INSTRUCTIONS GO STATION-WIDE (memory-truth lane). A note defaults to its chat thread (scope stream),
+           where it gets no boost and its pin does not apply anywhere else — so "from now on, always X", saved in one
+           chat, was invisible as a standing order in every other one. When the Commander's own sentence behind the
+           note is standing-shaped ("always", "never", "from now on", "I prefer", …) the default is global instead.
+           An explicit scope always wins, and a project session keeps its project tier (it already spans every chat
+           in that project). Task-local facts stay in their thread, as before. */
+        const standing = !!(quote && STANDING.test(norm(quote)));
+        const widen = standing && !projectRoot;
+        const scope = args.scope || (streamId && !widen ? 'stream' : 'global');
         // §5.2 record minted INSIDE the lock against the re-read list, so the id is collision-proof even if a
         // concurrent run/UI write changed the notebook since this run started (P1).
-        let note = null, dupe = null;
+        let note = null, dupe = null, folded = null, similar = [];
         const overridden = !!(args && args.distinct);   // the agent SAW the near-dupe and judged this fact different
         await updateNotes(aid, (list) => {
           if (args.replaceId) {
             const at = list.findIndex(n => n.id === args.replaceId);
-            note = reviseRecord(list[at], {
-              previousBody: args.previousBody, title: redact(String(args.title)), body: redact(String(args.body)), runId
+            const prior = list[at];
+            // a correction in the Commander's proven words keeps (or earns) their authority; otherwise it is the
+            // agent's inference and renders "[corrected, unconfirmed]" — superseding, never laundered
+            const confirmation = statedBy ? ((prior && prior.confirmation === 'user-confirmed') ? 'user-confirmed' : 'user-stated') : 'inferred';
+            note = reviseRecord(prior, {
+              previousBody: args.previousBody, title: redact(String(args.title)), body: redact(String(args.body)), runId,
+              confirmation: confirmation, statedBy: statedBy
             }, now);
-            if (args.scope) { note.scope = scope; note.streamId = scope === 'stream' ? streamId : null; note.projectRoot = scope === 'stream' ? ((ctx && ctx.projectRoot) || null) : null; }
+            if (args.scope || widen) { note.scope = scope; note.streamId = scope === 'stream' ? streamId : null; note.projectRoot = scope === 'stream' ? projectRoot : null; }
             if (typeof args.pinned === 'boolean') note.pinned = args.pinned;
+            /* FOLD THE SAME-RUN COPY. After a save that listed similar notes (below), the model retires the old one by
+               correcting it to the new text — which would leave this run's fresh copy as a duplicate. A note THIS run
+               created (same sourceRunId, never revised) whose text now equals the corrected record is folded into it:
+               one active belief, the old text archived in its history, and the copy's pin carried over. */
+            const same = s => String(s == null ? '' : s).replace(/\s+/g, ' ').trim().toLowerCase();
+            const copyAt = runId ? list.findIndex((n, i) => i !== at && n && n.sourceRunId === runId && !n.revision &&
+              !(Array.isArray(n.history) && n.history.length) && same(n.body) === same(note.body)) : -1;
+            if (copyAt >= 0) {
+              folded = list[copyAt];
+              if (typeof args.pinned !== 'boolean' && folded.pinned) note.pinned = true;
+              if (!args.scope && folded.scope === 'global' && note.scope === 'stream') { note.scope = 'global'; note.streamId = null; note.projectRoot = null; }
+            }
             if (taintedBy) { note.taintedBy = taintedBy.slice(0, 200); note.pinned = false; } else delete note.taintedBy;
             list[at] = note;
-            return list;
+            return copyAt >= 0 ? list.filter((_, i) => i !== copyAt) : list;
           }
           const text = String(args.title) + ' ' + String(args.body);
           // the near-dupe check runs INSIDE the lock against the RE-READ list — outside it, two concurrent runs
@@ -185,16 +280,21 @@
           dupe = list.find(n => Array.isArray(n.history) && n.history.some(h => h && String(h.body).trim() === String(args.body).trim())) ||
             (overridden ? null : findSimilar(list, text, { threshold: DUPE_THRESHOLD }));
           if (dupe) return undefined;   // nothing to write — skip the store write entirely
+          // same subject, different claim: collected against the list BEFORE the new note joins it
+          similar = list.map((n, i) => ({ n, i, s: n ? jaccard(textOf(n), text) : 0 }))
+            .filter(x => x.s >= SIMILAR_FLOOR && x.s < DUPE_THRESHOLD)
+            .sort((a, b) => (b.s - a.s) || (b.i - a.i)).slice(0, SIMILAR_MAX).map(x => x.n);
           note = {
             id: nextId(list), kind: 'note',
             title: redact(String(args.title)), body: redact(String(args.body)),   // §5.6: scrub secrets before they persist
             scope: scope, streamId: scope === 'stream' ? streamId : null, sourceRunId: runId,
-            projectRoot: scope === 'stream' ? ((ctx && ctx.projectRoot) || null) : null,
+            projectRoot: scope === 'stream' ? projectRoot : null,
             // which SURFACE formed this belief (memcore.originOf, injected on the run's tool ctx). Unattended runs
             // can write memory now, so the Commander must be able to tell a channel-learned fact from their own.
             origin: (ctx && ctx.origin) ? String(ctx.origin) : 'commander',
             createdAt: now, ts: now, lastUsedAt: null, useCount: 0, trust: 0, pinned: args.pinned === true
           };
+          if (statedBy) { note.confirmation = 'user-stated'; note.statedBy = statedBy; }
           if (taintedBy) note.taintedBy = taintedBy.slice(0, 200);
           list.push(note);
           return list;
@@ -213,11 +313,17 @@
             summary: 'already known (' + dupe.id + ')'
           };
         }
+        // the receipt for THIS run, registered before memory.write tells COMMS to fetch it
+        if (onSaved && runId) onSaved(aid, runId, {
+          id: note.id, key: note.id + '@' + (note.revision || 0), kind: 'note', content: String(note.body), scope: note.scope,
+          projectRoot: note.projectRoot || null, origin: note.origin || 'commander', saved: true, source: 'notebook.write',
+          revised: !!args.replaceId, folded: folded ? folded.id : null, confirmation: note.confirmation || null
+        });
         if (ctx && typeof ctx.emit === 'function') {
           // memory.write — the durable-memory rung (feeds useCount/trust + the dossier's archivist track). The
           // frozen contract requires runId, so emit only on a real run (some test fixtures carry no runId).
           // streamId is included only when present (the optional field is typed string — never emit a null).
-          if (runId) { const w = { agentId: aid, runId, id: note.id, kind: 'note', scope: scope }; if (streamId) w.streamId = streamId; ctx.emit('memory.write', w); }
+          if (runId) { const w = { agentId: aid, runId, id: note.id, kind: 'note', scope: note.scope }; if (streamId) w.streamId = streamId; ctx.emit('memory.write', w); }
           /* HOOKS — on_memory_write. Observe-only by construction (hooks.js refuses to let it block): memory is
              the Commander's own, and a script that could veto their notes would be a foot-gun with no upside.
              Fire-and-forget — the note is already saved, so a slow hook delays nothing. */
@@ -228,7 +334,23 @@
           if (ctx.room) d.room = ctx.room;
           ctx.emit('deliverable', d);
         }
-        return { content: (args.replaceId ? 'Updated' : 'Saved') + ' note "' + note.title + '" (' + note.id + ').' + (args.replaceId ? ' The previous text is archived and is no longer active recall.' : ''), summary: (args.replaceId ? 'updated ' : 'wrote ') + note.id };
+        // the result says what was really recorded: where the note applies, and — when the host proved it — that it
+        // carries the Commander's own words (a model may only claim that because the tool says so)
+        const where = (!args.replaceId || args.scope || widen)
+          ? ' Scope: ' + (note.scope === 'global' ? 'every conversation' : note.projectRoot ? 'this project' : 'this conversation only') +
+            (widen && !args.scope && note.scope === 'global' ? ' (a standing instruction in the Commander\'s own words)' : '') + '.'
+          : '';
+        const proof = note.confirmation === 'user-stated' || (statedBy && note.confirmation === 'user-confirmed') ? ' Recorded as the Commander\'s own words.' : '';
+        let tail = '';
+        if (folded) tail = ' Folded ' + folded.id + ' (saved earlier this run with the same text) into it.';
+        if (similar.length) {
+          tail = '\n\nSimilar notes you already hold:\n' + similar.map(n => '[' + n.id + '] ' + String(n.title || '') + ': ' +
+            String(n.content != null ? n.content : (n.body != null ? n.body : ''))).join('\n') +
+            '\n\nIf ' + note.id + ' REPLACES one of them, retire the old one now: call notebook.write with replaceId set to its id, ' +
+            'previousBody set to its exact text above, and this same title/body — StarNet folds ' + note.id + ' into it, so only ' +
+            'the corrected belief stays active. If they are separate facts, leave both.';
+        }
+        return { content: (args.replaceId ? 'Updated' : 'Saved') + ' note "' + note.title + '" (' + note.id + ').' + (args.replaceId ? ' The previous text is archived and is no longer active recall.' : '') + where + proof + tail, summary: (args.replaceId ? 'updated ' : 'wrote ') + note.id };
       }
     };
 
@@ -318,7 +440,23 @@
           }
           const rec = list[idx];
           const now = clock.now();
-          const next = Object.assign({}, rec, { trust: nextTrust(rec.trust, delta), lastFeedbackAt: now });
+          /* AN "UNHELPFUL" THAT TRUST CANNOT ABSORB BECOMES DISTRUST (memory-truth lane, 2026-10-11). Trust is clamped
+             at 0 and a fresh note starts there, so rating an outdated note unhelpful changed nothing: it ranked exactly
+             as before. The share of the penalty trust could not take is kept as `distrust` (bounded [0,1]; rank()
+             subtracts it, fading on the trust clock), and a later "helpful" pays distrust down before trust rises. */
+          const t0 = Math.max(0, Math.min(1, Number(rec.trust) || 0));
+          let distrust = Math.max(0, Math.min(1, Number(rec.distrust) || 0)), trust;
+          if (delta < 0) {
+            trust = nextTrust(t0, delta);
+            const shortfall = (-delta * RATING_STEP) - (t0 - trust);
+            if (shortfall > 1e-9) distrust = Math.min(1, distrust + shortfall);
+          } else {
+            const pay = Math.min(distrust, delta * RATING_STEP);
+            distrust -= pay;
+            trust = nextTrust(t0, (delta * RATING_STEP - pay) / RATING_STEP);
+          }
+          const next = Object.assign({}, rec, { trust: trust, lastFeedbackAt: now });
+          if (distrust > 1e-9) next.distrust = Math.round(distrust * 1e6) / 1e6; else delete next.distrust;
           const out = list.slice(); out[idx] = next;
           recOut = rec; nextOut = next;
           return out;
@@ -326,7 +464,10 @@
         // memory.feedback rung — telemetry/bus only (the trust fold already happened above; nobody re-folds it,
         // mirroring how the turn-in writer applies trust directly then emits). reason carries the rating verb.
         if (ctx && typeof ctx.emit === 'function') ctx.emit('memory.feedback', { agentId: aid, id: recOut.id, delta: delta, reason: rating });
-        return { content: 'Marked ' + recOut.id + ' ' + rating + ' (trust ' + (Math.round(recOut.trust * 100) / 100) + ' → ' + (Math.round(nextOut.trust * 100) / 100) + ').', summary: rating + ' ' + recOut.id };
+        const r2 = x => Math.round((Number(x) || 0) * 100) / 100;
+        const sink = (Number(nextOut.distrust) || 0) !== (Number(recOut.distrust) || 0)
+          ? ', distrust ' + r2(recOut.distrust) + ' → ' + r2(nextOut.distrust) + (rating === 'unhelpful' ? ' — it now ranks lower in recall' : '') : '';
+        return { content: 'Marked ' + recOut.id + ' ' + rating + ' (trust ' + r2(recOut.trust) + ' → ' + r2(nextOut.trust) + sink + ').', summary: rating + ' ' + recOut.id };
       }
     };
 

@@ -38,16 +38,43 @@
     return out;
   }
 
+  /* FORGOTTEN STAYS FORGOTTEN (memory-truth lane, 2026-10-11). Forget / veto / discard already write the belief's
+     text to the agent's permanent declined list (declined:<agent>, visible + restorable in Memory Core) so reflection
+     never re-mints it — but a backup import merged by id alone, so restoring an older backup quietly brought every
+     forgotten memory back. The declined list IS the tombstone: an incoming note whose text matches an entry is
+     skipped. The text is compared the way the forget route wrote it (content, else "title body"), whitespace- and
+     case-folded. Removing the entry in Memory Core (Restore) is the explicit way back: the next import brings it in. */
+  const fold = s => String(s == null ? '' : s).replace(/\s+/g, ' ').trim().toLowerCase();
+  function forgottenTexts(n) {
+    const out = [];
+    if (n.content != null) out.push(fold(n.content));
+    out.push(fold((n.title || '') + ' ' + (n.body || '')));
+    if (n.body) out.push(fold(n.body));
+    return out.filter(Boolean);
+  }
+  function isForgotten(n, declined) {
+    if (!declined || !declined.size) return false;
+    return forgottenTexts(n).some(t => declined.has(t));
+  }
+
   // ADDITIVE union by id: existing always wins on a collision (never clobber memory formed since the backup).
-  function mergeNotes(existing, incoming) {
+  // opts.declined (the agent's declined texts) skips incoming notes the Commander forgot; opts.skipped (an array)
+  // collects the ids skipped, so the route can report them instead of a silent count gap.
+  function mergeNotes(existing, incoming, opts) {
+    opts = opts || {};
+    const declined = new Set((Array.isArray(opts.declined) ? opts.declined : []).map(fold).filter(Boolean));
     const ex = sanitizeNotes(existing);
     const inc = sanitizeNotes(incoming);
     const seen = new Set();
     const merged = [];
     for (const n of ex) { if (!seen.has(n.id)) { seen.add(n.id); merged.push(n); } }
-    for (const n of inc) { if (!seen.has(n.id)) { seen.add(n.id); merged.push(n); } }   // only ids the target lacks
+    for (const n of inc) {
+      if (seen.has(n.id)) continue;   // only ids the target lacks
+      if (isForgotten(n, declined)) { if (Array.isArray(opts.skipped)) opts.skipped.push(n.id); continue; }
+      seen.add(n.id); merged.push(n);
+    }
     return merged;
   }
 
-  return { sanitizeNotes, mergeNotes };
+  return { sanitizeNotes, mergeNotes, isForgotten };
 });
