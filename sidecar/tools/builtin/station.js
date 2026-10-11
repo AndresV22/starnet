@@ -28,12 +28,18 @@
     const e = memo && memo.get ? memo.get(String(planId || '')) : null;
     if (!e) return null;
     const steps = (e.steps || []).map(s => 'Step ' + s.step + ' ' + s.role + ' (' + (s.agent || 'nobody yet') + '): ' + String(s.instructions || '').slice(0, 160)).join('\n');
-    return e.summary + (steps ? '\n' + steps : '');
+    // a LENT plan (team.dispatch builder:true) says whose plan it is and who lent the builder, on the card's first line
+    const lent = e.lentTo ? e.lentTo + '\'s plan, on the builder ' + (e.lentBy || 'the lead') + ' lent it: ' : '';
+    return lent + e.summary + (steps ? '\n' + steps : '');
   }
 
   function makeStationTools(deps) {
     deps = deps || {};
     const station = (deps.station && typeof deps.station.request === 'function') ? deps.station : null;
+    // THE LENT BUILDER: host-minted from the run (never the model's arguments) — who lent it, by id and name, and who holds it
+    const lentBy = String(deps.delegatedBy || '');
+    const lenderName = String(deps.lenderName || lentBy);
+    const builderName = String(deps.agentName || deps.agentId || '');
 
     // Mint provenance from the execution context, never from model-supplied arguments.
     function focusOrigin(ctx) {
@@ -381,7 +387,8 @@
     function remember(p) {
       if (!p || !p.planId) return;
       for (const [id, e] of planMemo) if (clock && clock() - e.at > 10 * 60 * 1000) planMemo.delete(id);
-      planMemo.set(p.planId, { summary: String(p.summary || ''), steps: p.steps || [], at: clock ? clock() : 0 });
+      planMemo.set(p.planId, Object.assign({ summary: String(p.summary || ''), steps: p.steps || [], at: clock ? clock() : 0 },
+        lentBy ? { lentTo: builderName || 'a crew member', lentBy: lenderName } : {}));
     }
     const kitMenu = typeof deps.kitMenu === 'function' ? deps.kitMenu : () => [];
     const presetMenu = typeof deps.presetMenu === 'function' ? deps.presetMenu : () => [];
@@ -432,6 +439,17 @@
       if (has('line') || has('shape') || has('purpose')) return { verb: 'station.plan_line', request: a };
       return { error: PLAN_HOW };
     }
+    /* THE LENT BUILDER (team.dispatch builder:true): a delegated run plans and builds the floor, but what grants tools or
+       adds crew stays with the lead who lent it. Binding a connector portal or plugin terminal hands its room live tools,
+       so it is refused here; recruiting ("new") is refused by the page's own planner (delegated: true below). Host-minted
+       from the run (deps.delegatedBy), never from the model's arguments. */
+    function lentRefusal(a) {
+      if (!lentBy) return null;
+      const ops = Array.isArray(a.refit) ? a.refit : [];
+      if (ops.some(o => o && typeof o.op === 'string' && o.op.toLowerCase().trim() === 'bind'))
+        return 'binding a connector portal or plugin terminal grants live tools, so it stays with ' + lenderName + ', who lent you the builder: plan the rest without the bind and name the portal to bind in your result';
+      return null;
+    }
     const planTool = {
       name: 'station.plan', capability: 'orchestrator', scope: 'read', requiresConsent: false,
       get description() {
@@ -467,7 +485,9 @@
         const a = args && typeof args === 'object' && !Array.isArray(args) ? args : {};
         const route = planVerb(a);
         if (route.error) return refuse(route.error);
-        const out = await ask(route.verb, { request: route.request });
+        const lent = lentRefusal(a);
+        if (lent) return refuse(lent);
+        const out = await ask(route.verb, lentBy ? { request: route.request, delegated: true } : { request: route.request });
         if (!out.ok) return refuse(out.error);
         const p = out.result || {};
         remember(p);
@@ -486,7 +506,8 @@
       schema: { type: 'object', properties: { planId: { type: 'string' } }, required: ['planId'] },
       run: async (args) => {
         const planId = String((args && args.planId) || '').trim().slice(0, 60);
-        const out = await ask('station.build', { planId });
+        // a lent build names its real builder on the page's toast, never the lead who lent the kit
+        const out = await ask('station.build', lentBy && deps.agentId ? { planId, by: String(deps.agentId) } : { planId });
         if (!out.ok) return refuse(out.error);
         planMemo.delete(planId);
         const r = out.result || {};

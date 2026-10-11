@@ -43,6 +43,14 @@
   // verify.run unless the worker (or the station) is Full Access — see the runOnce call below. The worker is told
   // that plainly, with the step that works (sidecar/capability/withheld.js, issue #77).
   const WORKER_KIT = [{ instanceId: 'wb_worker', objectType: 'workbench' }];
+  /* THE LENT BUILDER (2026-10-11, the delegated Build Manager): a lead that holds the station builder may lend a
+     SLICE of it (station.map / station.plan / station.build — CAP_REGISTRY.builder) to one worker for one job with
+     builder:true. Every build still stops at the Commander's approval card (the worker shares the lead's consent
+     broker); recruiting crew and binding services are refused in station.plan for a delegated run, and making props,
+     testing and starting lines stay the lead's. Only for a lead whose own run can build: a lend never widens. */
+  const BUILDER_KIT = [{ instanceId: 'builder_lent', objectType: 'builder' }];
+  const kitFor = lent => (lent ? WORKER_KIT.concat(BUILDER_KIT) : WORKER_KIT);
+  const canLendBuilder = ctx => { try { const r = ctx && typeof ctx.canUse === 'function' ? ctx.canUse({ name: 'station.build' }) : null; return !!(r && r.ok); } catch (_) { return false; } };
   const boundedDomainTask = (text) => {
     try { return domainTask && typeof domainTask.classify === 'function' ? domainTask.classify(text) : null; }
     catch (_) { return null; }
@@ -558,7 +566,7 @@
       // user keeps the frictionless flow by choosing it. Lead-only conferral + budget caps + the concurrency
       // ceiling + autonomous workers (default-deny) all still stand underneath.
       name: 'team.dispatch', capability: 'orchestrator', scope: 'execute', requiresConsent: true,
-      description: 'Delegate subtasks to your specialist crew. Each worker runs its OWN real agent loop (live web search/read, files, memory) and returns its result for you to synthesize into the final answer. Address workers by the agentId listed under YOUR TEAM. Runs sequentially by default; pass parallel:true to run them at once. Pass background:true to start watchable workers and keep working. SESSIONS: pass `session` on a worker (the session\'s NAME, as the Commander says it) to make that subtask run in — and be filed under — that session instead of this one. Use an existing relevant session or create a named working session first. A name that does not match one on this station is REFUSED, not guessed, and that worker does not run. FILES: in a conversation scoped to a trusted project, a worker\'s RELATIVE file paths (fs_write, image_generate, voice_generate) land in that project folder, the same place yours do, so fs_read finds them by the same relative path. Otherwise each worker saves into its OWN private workspace — you cannot fs.read another agent\'s private files, so never "verify" such a file with your own file tools (absence in YOUR workspace proves nothing); every save receipt names the absolute location. The result\'s artifacts list is the proof of what each worker saved, and the Commander is shown those files as cards automatically — reference them as "<workerId>\'s workspace: <path>". COMMANDS: in ASK mode a delegated worker cannot run shell commands (shell_exec / verify_run are withheld from delegated runs, WORKBENCH or not, unless that worker is set to Full Access); run commands in this conversation yourself, or have the worker return the exact commands to you.',
+      description: 'Delegate subtasks to your specialist crew. Each worker runs its OWN real agent loop (live web search/read, files, memory) and returns its result for you to synthesize into the final answer. Address workers by the agentId listed under YOUR TEAM. Runs sequentially by default; pass parallel:true to run them at once. Pass background:true to start watchable workers and keep working. SESSIONS: pass `session` on a worker (the session\'s NAME, as the Commander says it) to make that subtask run in — and be filed under — that session instead of this one. Use an existing relevant session or create a named working session first. A name that does not match one on this station is REFUSED, not guessed, and that worker does not run. FILES: in a conversation scoped to a trusted project, a worker\'s RELATIVE file paths (fs_write, image_generate, voice_generate) land in that project folder, the same place yours do, so fs_read finds them by the same relative path. Otherwise each worker saves into its OWN private workspace — you cannot fs.read another agent\'s private files, so never "verify" such a file with your own file tools (absence in YOUR workspace proves nothing); every save receipt names the absolute location. The result\'s artifacts list is the proof of what each worker saved, and the Commander is shown those files as cards automatically — reference them as "<workerId>\'s workspace: <path>". COMMANDS: in ASK mode a delegated worker cannot run shell commands (shell_exec / verify_run are withheld from delegated runs, WORKBENCH or not, unless that worker is set to Full Access); run commands in this conversation yourself, or have the worker return the exact commands to you. BUILDER: builder:true lends that worker your station.map/plan/build for this job; each build still asks the Commander.',
       schema: {
         type: 'object', required: ['workers'], properties: {
           workers: {
@@ -570,7 +578,9 @@
                 context: { type: 'string', description: 'Optional handoff of what YOU already established that this worker needs: discovered file paths, findings, constraints, decisions. It is placed before the prompt as settled starting knowledge, so the worker does not re-derive it. Do not restate the subtask here.' },
                 // WHERE the work lands. A session NAME (what the Commander calls it) or its exact id. Omit to run
                 // in the current session — see resolveSessions for why an unmatched name never falls back to that.
-                session: { type: 'string' }
+                session: { type: 'string' },
+                // THE LENT BUILDER: this worker gets station.map / plan / build for this job (BUILDER_KIT above)
+                builder: { type: 'boolean' }
               }
             }
           },
@@ -610,7 +620,10 @@
           if (!crew.has(aid)) return { agentId: aid, error: 'no such live worker — summon them first, or check the agentId against YOUR TEAM' };
           const contract = resultSchemaOf(w && w.resultSchema);
           if (!contract.ok) return { agentId: aid, error: 'invalid result contract: ' + contract.error };
-          return { agentId: aid, prompt: String((w && w.prompt) || ''), context: handoffContext(w && w.context), ident: crew.get(aid), session: session, resultSchema: contract.schema };
+          // a lend never widens: a lead whose own run cannot build gets this worker refused, not silently sent toolless
+          const builder = !!(w && w.builder === true);
+          if (builder && !canLendBuilder(ctx)) return { agentId: aid, error: 'builder:true needs the station builder in YOUR run, and it is not granted here: dispatch this worker without builder, or do the floor change yourself' };
+          return { agentId: aid, prompt: String((w && w.prompt) || ''), context: handoffContext(w && w.context), ident: crew.get(aid), session: session, resultSchema: contract.schema, builder };
         });
         markBatchQuality(jobs);
         // WHERE before WHO does the work: an unresolvable session marks its job failed here, so that worker is
@@ -697,7 +710,7 @@
               // model at all; only its background-shell and browser-test tools survive. Widening that is a deliberate
               // permissions-surface decision, not something to fix by editing this comment.
               consent: ctx && ctx.consent,
-              extraObjects: WORKER_KIT,
+              extraObjects: kitFor(job.builder),   // + the LENT BUILDER when the lead dispatched it with builder:true
               maxCostUsd: perWorker,           // a runaway worker can't blow the lead's per-run ceiling
               maxIters: bounded ? lowerPositive(workerMaxIters, bounded.workerMaxIters) : workerMaxIters,
               maxToolCalls: bounded ? bounded.workerMaxTools : undefined,
@@ -788,7 +801,7 @@
             if (job.error) return { agentId: job.agentId, reason: 'error', result: job.error };
             // parentRunId: a CANCELLED lead run cancels this worker too (subagents.cancelChildren); a lead that ends
             // normally leaves it running — outliving the call is what background:true is for.
-            return subagents.start({ ...projectOptions(job.sessionContext || ctx), leadId, parentRunId: (ctx && ctx.runId) || '', parentStreamId: deps.coordinateResults === true && ctx && ctx.streamId !== 'global' ? ctx.streamId : '', streamId: job.streamId || '', agentId: job.agentId, prompt: job.prompt, context: job.context, runId: newId(), resultSchema: job.resultSchema, originLimits: originLimitsOf(ctx) }, async (h) => {
+            return subagents.start({ ...projectOptions(job.sessionContext || ctx), leadId, parentRunId: (ctx && ctx.runId) || '', parentStreamId: deps.coordinateResults === true && ctx && ctx.streamId !== 'global' ? ctx.streamId : '', streamId: job.streamId || '', agentId: job.agentId, prompt: job.prompt, context: job.context, runId: newId(), resultSchema: job.resultSchema, builder: job.builder === true, originLimits: originLimitsOf(ctx) }, async (h) => {
               const r = await runWorker(job, { runId: h.runId, signal: h.signal, emit: h.emit, steer: h.steer });
               return { status: r.reason === 'done' ? 'done' : 'error', reason: r.reason, result: r.result, usd: r.usd || 0,
                 structuredResult: r.structuredResult, validation: r.validation, repairRunId: r.repairRunId, artifacts: r.artifacts,
@@ -1178,7 +1191,8 @@
             parentRunId: ctx && ctx.runId, delegatedBy: (ctx && ctx.agentId) || '',
             trigger: 'directive', surface: 'autonomous',
             consent: ctx && ctx.consent,
-            extraObjects: WORKER_KIT,
+            // a worker the lead LENT the builder keeps it on resume, while the resuming lead can still build
+            extraObjects: kitFor(rec.builder === true && canLendBuilder(ctx)),
             maxCostUsd: perWorker,
             maxIters: bounded ? lowerPositive(workerMaxIters, bounded.workerMaxIters) : workerMaxIters,
             maxToolCalls: bounded ? bounded.workerMaxTools : undefined,
