@@ -199,7 +199,8 @@
        one), and — for a belt — a tile beside another line's junction (that junction would read it as a lane) */
     const inflow = (x, y) => ORDER.some(d => { const nx = x + DIRV[d][0], ny = y + DIRV[d][1], bd = beltDir[key(nx, ny)]; return !!bd && nx + DIRV[bd][0] === x && ny + DIRV[bd][1] === y; });
     const nearJunction = (x, y) => ORDER.some(d => junctions.has(key(x + DIRV[d][0], y + DIRV[d][1])));
-    return { rects, free, inflow, nearJunction };
+    const nearBelt = (x, y) => ORDER.some(d => belts.has(key(x + DIRV[d][0], y + DIRV[d][1])));
+    return { rects, free, inflow, nearJunction, nearBelt };
   }
 
   /* ---------- 3. routing: one link, lowest cost first ---------- */
@@ -225,7 +226,7 @@
     }
     for (let y = y1; y <= y2; y++) for (let x = x1; x <= x2; x++) {
       const t = idx(x, y);
-      open[t] = (!foot[t] && fl.free(x, y) && !fl.inflow(x, y) && !fl.nearJunction(x, y)) ? 1 : 0;
+      open[t] = (!foot[t] && fl.free(x, y) && !fl.inflow(x, y) && !fl.nearJunction(x, y) && !fl.nearBelt(x, y)) ? 1 : 0;
     }
     return { x1, y1, W, H, idx, foot, junc, open, used, used0: used.slice(), best: new Int32Array(N * 5), prev: new Int32Array(N * 5), stamp: new Int32Array(N * 5), gen: 0 };
   }
@@ -519,7 +520,7 @@
           let sides = 0;
           for (const d of ORDER) {
             const x = p.x + DIRV[d][0], y = p.y + DIRV[d][1];
-            if (fl.free(x, y) && !fl.inflow(x, y) && !fl.nearJunction(x, y) && !taken(key(x, y))) sides++;
+            if (fl.free(x, y) && !fl.inflow(x, y) && !fl.nearJunction(x, y) && !fl.nearBelt(x, y) && !taken(key(x, y))) sides++;
             else if (want.has(d)) return false;
           }
           return sides >= a.inn[id].length + a.out[id].length;
@@ -581,7 +582,7 @@
     for (const r of fl.rects) { X1 = Math.min(X1, r.x1); Y1 = Math.min(Y1, r.y1); X2 = Math.max(X2, r.x2); Y2 = Math.max(Y2, r.y2); }
     const GW = X2 - X1 + 1, GH = Y2 - Y1 + 1, S = new Int32Array((GW + 1) * (GH + 1));
     for (let y = 0; y < GH; y++) for (let x = 0; x < GW; x++)
-      S[(y + 1) * (GW + 1) + x + 1] = (fl.free(X1 + x, Y1 + y) && !fl.inflow(X1 + x, Y1 + y) && !fl.nearJunction(X1 + x, Y1 + y) ? 0 : 1) + S[y * (GW + 1) + x + 1] + S[(y + 1) * (GW + 1) + x] - S[y * (GW + 1) + x];
+      S[(y + 1) * (GW + 1) + x + 1] = (fl.free(X1 + x, Y1 + y) && !fl.inflow(X1 + x, Y1 + y) && !fl.nearJunction(X1 + x, Y1 + y) && !fl.nearBelt(X1 + x, Y1 + y) ? 0 : 1) + S[y * (GW + 1) + x + 1] + S[(y + 1) * (GW + 1) + x] - S[y * (GW + 1) + x];
     const emptyWindow = (x, y, w, h) => { const u = x - X1, v = y - Y1; return S[(v + h) * (GW + 1) + u + w] - S[v * (GW + 1) + u + w] - S[(v + h) * (GW + 1) + u] + S[v * (GW + 1) + u] === 0; };
     let needs = null, routedAny = false, why = null;
     for (const pitch of PITCHES) {
@@ -608,7 +609,7 @@
         if (!emptyWindow(x, y, W, H)) {
           let ok = true;
           for (const t of mach) if (!fl.free(t.x + dx, t.y + dy) || fl.inflow(t.x + dx, t.y + dy)) { ok = false; break; }
-          if (ok) for (const t of belt) { const bx = t.x + dx, by = t.y + dy; if (!fl.free(bx, by) || fl.inflow(bx, by) || fl.nearJunction(bx, by)) { ok = false; break; } }
+          if (ok) for (const t of belt) { const bx = t.x + dx, by = t.y + dy; if (!fl.free(bx, by) || fl.inflow(bx, by) || (fl.nearJunction(bx, by) || fl.nearBelt(bx, by))) { ok = false; break; } }
           if (!ok) continue;
         }
         const at = shift(rel, dx, dy), paths = {};
