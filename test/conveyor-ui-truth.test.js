@@ -31,4 +31,20 @@ for(const [bp,worst] of [['revision_loop',8],['deep_dive',12]]) {
  A.ok(!q.errors.some(e=>e.code==='SEND_TO_PRIVATE_FILES'),'two named project folders need no private-workspace warning');
  A.eq(q.hash,p.hash,'private-file legibility does not change the routing hash');
 }
+
+// Placement checks the complete footprint and calls the same insertion verdict as the click.
+{
+ const fs=require('fs'),vm=require('vm'),build=fs.readFileSync(require.resolve('../frontend/app/build.js'),'utf8');
+ const start=build.indexOf('  function beltUnderFoot('),end=build.indexOf('  function commitPropStamp(',start);
+ let probes=0;const links=[{from:{prop:'a'},to:{prop:'b'},path:[{x:5,y:5}]}];
+ const ctx={CONNECT_TYPES:{bay:1,outbox:1,splitter:1},JUNCTION_TAG_TYPES:{splitter:1},linkedFloor:()=>true,linksMemoed:()=>links,station:{beltAt:(x,y)=>x===5&&y===5,canInsertBayBetween:()=>{probes++;return{ok:true};}}};
+ vm.createContext(ctx);vm.runInContext(build.slice(start,end)+'this.check=beltUnderFoot;',ctx);
+ A.ok(ctx.check('bay',4,4,{w:2,h:2}).v.ok,'BAY overlap at far footprint corner is an insertion');
+ A.eq(probes,1,'insertion asks the model verdict');
+ A.ok(!ctx.check('outbox',4,4,{w:2,h:2}).v.ok,'OUTBOX over any footprint belt tile refuses');
+ A.eq(ctx.check('splitter',5,5,{w:1,h:1}),null,'junctions keep their separate on-belt path');
+ A.eq(ctx.check('bay',1,1,{w:2,h:2}),null,'clear floor keeps ordinary placement');
+ links.push({from:{prop:'c'},to:{prop:'d'},path:[{x:5,y:5}]});
+ A.ok(!ctx.check('bay',4,4,{w:2,h:2}).v.ok,'shared belt tile refuses ambiguous insertion');
+}
 A.report('conveyor-ui-truth.test');
