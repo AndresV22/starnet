@@ -2,6 +2,7 @@
 test/provider-recovery.e2e.test.js
 test/computer-control.http.test.js
 test/memory-corrections.http.test.js
+test/memory-truth.http.test.js
 test/seam-audit-recovery.http.test.js
 test/customer-journey.e2e.test.js
 test/group-sessions.http.test.js

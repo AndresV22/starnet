@@ -19966,9 +19966,10 @@ async function runOnceCore(o) {
   /* MEMORY PROVENANCE (memory-truth lane, 2026-10-11): the text the Commander typed in this run's conversation, so
      notebook.write can PROVE a note is their own words (notebook.js statedSentence). Host-minted from the owner's own
      surfaces only — the watched COMMS run or an owner-admitted channel DM. Never a channel guest, a routine, a
-     delegated worker (its "user" turn is the lead's brief), a line hand-off (the previous stage's output) or
-     harness self-talk: there, the "user" words are not the Commander's. */
-  const commanderWords = (!internal && !o.parentRunId && !o.delegatedBy && (surface === 'interactive' || ownerTrusted) &&
+     delegated worker (its "user" turn is the lead's brief), a group session (its "user" turn is the shared transcript,
+     other agents' words included), a line hand-off (the previous stage's output) or harness self-talk: there, the
+     "user" words are not the Commander's. */
+  const commanderWords = (!internal && !o.parentRunId && !o.delegatedBy && !o.groupTools && (surface === 'interactive' || ownerTrusted) &&
     !(Pipeline.isHandoff && Pipeline.isHandoff(latestUserText(messages)))) ? recentUserText(messages) : '';
   const capCtx = makeCapCtx(resolved, Object.assign({
     emit, consent, summon, timeoutMs: CAPS.toolTimeoutMs, runId, streamId, signal: signal, ownerTrusted, commanderWords,
