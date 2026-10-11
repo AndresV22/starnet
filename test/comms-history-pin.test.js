@@ -15,7 +15,9 @@ A.ok(/historyPinPending !== seq[\s\S]{0,180}log\.scrollTop = log\.scrollHeight[\
   'only the latest load can perform the final pin and it retires its token afterward');
 A.ok(/\['wheel', 'touchstart', 'pointerdown'\][\s\S]{0,180}cancelHistoryPin/.test(src),
   'wheel, touch, and scrollbar/pointer intent cancel the pending automatic pin');
-A.ok(/log\.addEventListener\('scroll'[\s\S]{0,180}if \(historyPinPending\) return[\s\S]{0,240}stick = nearBottom\(\)/.test(src),
+// (2026-10-10) ordinary scrolls update stick too, but only a real GESTURE can turn it off: a layout-driven scroll event
+// (an image decoding, scroll anchoring) re-pins a follower instead of reading as "they scrolled up"
+A.ok(/log\.addEventListener\('scroll'[\s\S]{0,180}if \(historyPinPending\) return[\s\S]{0,900}const near = nearBottom\(\);\s*if \(near\) stick = true;\s*else if \(Date\.now\(\) - userScrollAt < 1200\) stick = false;/.test(src),
   'programmatic replay scroll events cannot falsely disable stick, while ordinary scrolls still update it');
 const loadBody = src.match(/function load\(ws\) \{([\s\S]*?)\n  \}/)?.[1] || '';
 A.ok(/const historyPin = \+\+historyPinSeq[\s\S]*renderHistory\(\)[\s\S]*replayChannel\(\)[\s\S]*pinLoadedHistoryAfterLayout\(historyPin\)/.test(loadBody),

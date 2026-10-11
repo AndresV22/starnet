@@ -853,6 +853,8 @@ const Voice = (() => {
     if (!el && toggleBtn && toggleBtn.parentNode && document.createElement) {
       el = document.createElement('span'); el.id = 'voice-interruption';
       el.setAttribute('role', 'status'); el.setAttribute('aria-live', 'polite');
+      // the note is a fact about the LAST spoken reply, not a standing alarm: a click puts it away
+      el.setAttribute('data-tip', 'dismiss'); el.addEventListener('click', () => showInterruption(''));
       toggleBtn.parentNode.appendChild(el);
     }
     if (el) { el.textContent = message; el.hidden = !message; }
@@ -1806,7 +1808,7 @@ const Voice = (() => {
     speakReplies = !speakReplies; savePref(LS_SPEAK, speakReplies);
     forcedSpeak = false;   // a manual speaker change is the user's own choice — keep it (don't restore on voice-mode exit)
     clearNeuralCold();     // ANY toggle re-probes the neural path fresh — no cold-off survives a deliberate flip
-    if (!speakReplies) muteStopSpeaking();
+    if (!speakReplies) { muteStopSpeaking(); if (interruptionMessage) showInterruption(''); }   // speaker off: a note about speech is moot
     else prewarmVoice();   // turning ON → quietly warm the stock lines so mutters/samples play instantly
     reflectToggle();
     if (typeof SFX !== 'undefined') SFX.click();
@@ -1817,7 +1819,7 @@ const Voice = (() => {
     if (speakReplies === want) { reflectToggle(); return speakReplies; }
     speakReplies = want; savePref(LS_SPEAK, speakReplies);
     forcedSpeak = false;
-    if (!speakReplies) muteStopSpeaking();
+    if (!speakReplies) { muteStopSpeaking(); if (interruptionMessage) showInterruption(''); }
     else prewarmVoice();
     reflectToggle();
     return speakReplies;

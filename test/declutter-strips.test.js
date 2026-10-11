@@ -49,4 +49,33 @@ const rstore = read('frontend/app/returnstore.js');
 A.ok(/function resolveAll\(runIds\)[\s\S]{0,300}save\(\);[\s\S]{0,200}OutboxView\.refresh\(\)/.test(rstore), 'resolveAll is one save + one refresh');
 A.ok(/\bresolveAll\b/.test(rstore.slice(rstore.lastIndexOf('return {'))), 'ReturnStore exports resolveAll');
 
+/* ---- CHAT: files the agent names render as files, not raw markdown (Andrew's screenshot, 2026-10-10) ---- */
+const chat = read('frontend/app/chat.js');
+const ex = name => { const m = new RegExp('(  function ' + name + '\\([\\s\\S]*?\\n  \\})').exec(chat); A.ok(m, 'chat.js defines ' + name); return m ? m[1] : ''; };
+const esc = /const HTML_ESC = \{[^}]*\};/.exec(chat)[0], rel = /  const REL_PATH = [^\n]*;/.exec(chat)[0];
+// eslint-disable-next-line no-new-func
+const inline = new Function(esc + '\n' + rel + '\n' + ex('escapeHtml') + ex('linkify') + ex('hostOf') + ex('linkHostNote') + ex('fileRefLink') + ex('fileRefImage') + ex('reportInline') + '\nreturn reportInline;')();
+let o = inline('[Review the original](review/coffee-break-cat-new/index.html)');
+A.ok(/<a class="md-file" href="#" data-md-path="review\/coffee-break-cat-new\/index\.html">Review the original<\/a>/.test(o), 'a relative [link](path) is a file link');
+o = inline('![New candidate](review/coffee-break-cat-new/final-preview.jpg)');
+A.ok(/<span class="md-img" data-md-path="review\/coffee-break-cat-new\/final-preview\.jpg" data-md-alt="New candidate">/.test(o) && !/!\[/.test(o), 'a relative ![image](path) becomes an image slot (no raw markdown left)');
+A.ok(/href="https:\/\/x\.test\/a\.png"/.test(inline('![pic](https://x.test/a.png)')) && !/<img/.test(inline('![pic](https://x.test/a.png)')), 'a web image is a link, never an auto-loaded remote <img>');
+for (const bad of ['../secrets.txt', '/etc/passwd', 'C:\\x.txt', '#top', 'javascript:alert(1)'])
+  A.ok(!/md-file|md-img|href="(?!https?:)/.test(inline('[x](' + bad + ')')), 'no file link for an unsafe target: ' + bad);
+A.ok(!/<script|<b>|"onerror/.test(inline('[<script>](a"onerror=1.png)') + inline('![<b>](x.png)')), 'labels and paths are escaped into our markup');
+A.ok(/\|\\\]\\\(\/m;/.test(chat), 'the prose fast path no longer skips a reply whose only markup is a link');
+A.ok(/function hydrateFileRefs\(bodyEl\)/.test(chat) && /hydrateFileRefs\(bodyEl\);/.test(chat), 'renderProse hydrates file links and images');
+A.ok(/new Blob\(\[b\], \{ type: 'image\/svg\+xml' \}\)/.test(chat), 'an .svg served as a download is retyped so the <img> decodes');
+A.ok(/\.md-img\[data-ready\]/.test(chat), 'a loaded image is carried across streaming re-renders (no per-frame rebuild)');
+A.ok(/Date\.now\(\) - userScrollAt < 1200\) stick = false/.test(chat) && /else if \(stick\) log\.scrollTop = log\.scrollHeight/.test(chat),
+  'only a real scroll gesture stops the follow; layout moving under a follower re-pins');
+A.ok(/wire: \(a, p\) => \{\s*a\.addEventListener\('click', ev => \{\s*const art = sharedFor\(groupId, p\)/.test(gc), "a group link resolves the shared copy at CLICK time");
+A.ok(/class: 'gc-message cmsg agent gc-doc'/.test(gc), 'a previewed .md file wears the transcript markdown styles');
+const comms = read('frontend/css/comms.css');
+A.ok(/\.chat-attach-strip:not\(\[hidden\]\) \{ max-height: 124px; overflow-y: auto/.test(comms) && /\.chat-queued:not\(:empty\) \{ max-height: 104px; overflow-y: auto/.test(comms),
+  'staged attachments and queued messages scroll inside a cap instead of pushing the transcript up');
+const voice = read('frontend/app/voice.js');
+A.ok(/el\.addEventListener\('click', \(\) => showInterruption\(''\)\)/.test(voice) && /muteStopSpeaking\(\); if \(interruptionMessage\) showInterruption\(''\);/.test(voice),
+  'the speech-interrupted note can be dismissed and clears when the speaker goes off');
+
 A.report('declutter-strips.test');

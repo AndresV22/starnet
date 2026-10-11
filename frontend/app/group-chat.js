@@ -184,7 +184,7 @@ const GroupChat = (() => {
       #gc-files .gc-file{display:inline-flex;align-items:baseline;gap:5px;max-width:100%;margin:0;padding:2px 8px;min-height:22px;font-size:12px;letter-spacing:.3px;border:1px solid var(--ph-faint);border-radius:var(--r-sm,3px);background:rgba(var(--ph-rgb),.03);color:var(--ph);cursor:pointer;box-shadow:none}
       #gc-files .gc-file:hover,#gc-files .gc-file.open{border-color:var(--ph-dim);background:rgba(var(--ph-rgb),.055);color:var(--ph-bright)}#gc-files .gc-file .tc-glyph{color:var(--ph-dim)}#gc-files .gc-file span:last-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
       #gc-preview{padding:0 12px 8px;border-top:1px solid var(--ph-faint)}#gc-preview:empty{display:none}#gc-preview .gc-preview-head{display:flex;align-items:center;flex-wrap:wrap;gap:4px 10px;white-space:normal}#gc-preview .gc-preview-head h4{flex:1 1 auto;min-width:0}#gc-preview h4{margin:6px 0 2px;font-size:13px;letter-spacing:1px;text-transform:uppercase;color:var(--ph)}#gc-preview small{color:var(--ph-dim);font-size:11px;margin-right:10px}
-      #gc-preview{white-space:pre-wrap;overflow-wrap:anywhere}#gc-preview a{color:var(--ph);font-size:11px;letter-spacing:1px}#gc-preview .gc-message{margin-top:6px}
+      #gc-preview{overflow-wrap:anywhere}#gc-preview .gc-doc .body{white-space:pre-wrap}#gc-preview .gc-doc .body:has(.md-p,.md-h,.md-list){white-space:normal}#gc-preview a{color:var(--ph);font-size:11px;letter-spacing:1px}#gc-preview .gc-message{margin-top:6px}
       #gc-states{padding:0 12px 4px}#gc-states:empty{display:none}
       .gc-state{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;margin:4px 0 2px;padding:6px 11px;border-left:2px solid var(--ph);border-radius:0 4px 4px 0;background:linear-gradient(180deg,var(--ph-faint),rgba(0,0,0,.25));font-size:13px;letter-spacing:.5px;color:var(--ph-bright)}
       .gc-state .gc-dot{flex:0 0 auto;color:var(--ph);text-shadow:0 0 6px var(--ph-glow);animation:1s steps(1) infinite comms-blink}.gc-state .gc-verb{letter-spacing:1.5px;text-transform:uppercase}.gc-state .gc-what{color:var(--ph-dim);font-size:12px;min-width:0;overflow:hidden;text-overflow:ellipsis}
@@ -363,7 +363,7 @@ const GroupChat = (() => {
       const row = keep('m:' + m.id, rowKey, () => {
         const row = h('article', { class: 'gc-message cmsg' + (m.author === 'user' ? ' user' : ' agent'), 'data-message-id': m.id });
         const body = h('div', { class: 'body' });
-        if (typeof Chat !== 'undefined' && Chat.renderProse) Chat.renderProse(body, content); else body.textContent = content;
+        if (typeof Chat !== 'undefined' && Chat.renderProse) Chat.renderProse(body, content, { files: fileRefs(group.id, m.author) }); else body.textContent = content;
         const color = colorOf(m.author); if (color) { row.style.setProperty('--gc-c', color); body.style.setProperty('--rail', color); }
         const who = group.members.includes(m.author) ? speaker(m.author, m.id) : h('span', { class: 'who' }, name(m.author).toUpperCase());
         if (at) {
@@ -514,6 +514,39 @@ const GroupChat = (() => {
     e.append(document.createTextNode('to'), h('span', { class: 'gc-to' }, selected.map(name).join(', ')));
     e.append(button('✕', () => { selected = []; replyTo = null; recipientLabel(); }));
   }
+  /* A FILE THE AGENT NAMES IN ITS MESSAGE ("[the review](review/x/index.html)", "![preview](review/x/final.jpg)") opens the
+     group's SHARED copy when one was published from that path — the exact bytes every member sees — and otherwise the
+     speaking agent's own workspace file (Chat's default resolver: the same jailed open + lightbox as every deliverable). */
+  const sharedBlobs = new Map();   // artifact id -> Promise<blob url> (immutable versions: safe to keep)
+  function sharedFor(groupId, p) {
+    const g = group && group.id === groupId ? group : null; if (!g) return null;
+    const clean = v => String(v || '').replace(/\\/g, '/').replace(/^\.\//, '');
+    const want = clean(p), base = want.split('/').pop();
+    const norm = a => clean(a.sourcePath);
+    return g.artifacts.find(a => norm(a) === want) || g.artifacts.find(a => norm(a).endsWith('/' + want)) || g.artifacts.find(a => a.name === base) || null;
+  }
+  function fileRefs(groupId, agentId) {
+    const own = (typeof Chat !== 'undefined' && Chat.workspaceFileRefs) ? Chat.workspaceFileRefs(agentId) : null;
+    return {
+      // decided at CLICK time: a message rendered before the file was shared must still open the shared copy afterwards
+      // (capture on the link itself runs before the workspace opener's own listeners, so it can take the click over)
+      wire: (a, p) => {
+        a.addEventListener('click', ev => {
+          const art = sharedFor(groupId, p); if (!art) return;
+          ev.preventDefault(); ev.stopImmediatePropagation();
+          openFile(groupId, art).catch(showError);
+        }, true);
+        if (own) own.wire(a, p);
+      },
+      image: p => {
+        const art = sharedFor(groupId, p);
+        if (!art) return own ? own.image(p) : Promise.reject(new Error('no file'));
+        if (!sharedBlobs.has(art.id)) sharedBlobs.set(art.id, Chat.imageBlobUrl('/api/groups?id=' + encodeURIComponent(groupId) + '&file=' + encodeURIComponent(art.id), art.sourcePath || art.name)
+          .catch(e => { sharedBlobs.delete(art.id); throw e; }));
+        return sharedBlobs.get(art.id);
+      }
+    };
+  }
   // the shared shelf's fold, remembered per group (closed until the Commander opens it — the files are one click away)
   const filesKey = id => 'starnet.gc.filesOpen.' + id;
   function filesOpen() { try { return !!(active && localStorage.getItem(filesKey(active.id)) === '1'); } catch (_) { return false; } }
@@ -547,8 +580,10 @@ const GroupChat = (() => {
     if (/\.(png|jpe?g|gif|webp|avif|bmp)$/i.test(file.name)) {
       preview.append(h('img', { class: 'gc-file-image', src: url, alt: file.name }));
     } else if (/\.(md|txt|csv|json|log|js|ts|py|html|css|xml|ya?ml|svg)$/i.test(file.sourcePath || file.name)) {
-      const content = await blob.text(), body = h('div', { class: 'gc-message' });
-      if (/\.md$/i.test(file.sourcePath || file.name) && Chat.renderProse) Chat.renderProse(body, content); else body.textContent = content;
+      // the transcript's own markdown look (headings, lists, tables): .cmsg .body is what those styles key on
+      const content = await blob.text(), body = h('div', { class: 'gc-message cmsg agent gc-doc' }), inner = h('div', { class: 'body' });
+      body.append(inner);
+      if (/\.md$/i.test(file.sourcePath || file.name) && Chat.renderProse) Chat.renderProse(inner, content); else inner.textContent = content;
       preview.append(body);
     } else preview.append(h('p', {}, 'This file can be saved and opened in its associated application.'));
     // bring the opened file into view inside the tray (questions and turn rows sit above it)
