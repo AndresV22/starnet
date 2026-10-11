@@ -112,5 +112,47 @@ try {
   assert.throws(() => clash.startFresh(fresh, [], { stamp: 'same' }), /could not keep/);
   assert.equal(fs.readFileSync(fresh, 'utf8'), clashBytes, 'a blocked move changes nothing');
   assert.equal(clash.locked, true, 'and the vault stays locked');
+  // START FRESH must remain locked and preserve the old copies through partial filesystem failures.
+  function failedReset(label, inject) {
+    const f = path.join(root, label + '.json');
+    make().write(f, state);
+    const originals = [f, f + '.bak'].map(p => [p, fs.readFileSync(p, 'utf8')]);
+    const extra = inject(f);
+    const v = make({ keyHex: 'e5'.repeat(32), ...extra });
+    assert.throws(() => v.load(f), /locked/);
+    assert.throws(() => v.startFresh(f, [], { stamp: label }), /failed|disk full|busy/);
+    assert.equal(v.locked, true, label + ': failed reset stays locked');
+    for (const [p, bytes] of originals) assert.equal(fs.readFileSync(p, 'utf8'), bytes, label + ': original restored');
+    assert.deepEqual(make().load(f), state, label + ': original account can recover after restart');
+  }
+  failedReset('second-move', f => {
+    const brokenFs = Object.create(fs);
+    brokenFs.renameSync = (from, to) => { if (from === f + '.bak') throw Error('busy'); return fs.renameSync(from, to); };
+    return { fs: brokenFs };
+  });
+  failedReset('new-write', f => ({ writeDurable(io, target, data) {
+    if (target === f + '.bak') throw Error('disk full');
+    fs.writeFileSync(target, data);
+  } }));
+  const stuckFile = path.join(root, 'rollback-blocked.json');
+  make().write(stuckFile, state);
+  const stuckBytes = fs.readFileSync(stuckFile, 'utf8');
+  const stuckFs = Object.create(fs);
+  stuckFs.renameSync = (from, to) => { if (from.includes('unreadable-rollback-blocked')) throw Error('restore busy'); return fs.renameSync(from, to); };
+  const stuck = make({ keyHex: 'e5'.repeat(32), fs: stuckFs, writeDurable(io, target, data) {
+    if (target === stuckFile) throw Error('disk full');
+    fs.writeFileSync(target, data);
+  } });
+  assert.throws(() => stuck.load(stuckFile), /locked/);
+  assert.throws(() => stuck.startFresh(stuckFile, [], { stamp: 'rollback-blocked' }), /did not fully restore/);
+  assert.equal(fs.readFileSync(path.join(root, 'unreadable-rollback-blocked', 'rollback-blocked.json'), 'utf8'), stuckBytes, 'failed rollback preserves the original in recovery');
+  assert.throws(() => make().load(stuckFile), /locked/, 'failed rollback stays locked across restart');
+  assert.throws(() => stuck.startFresh(stuckFile, [], { stamp: 'retry' }), /incomplete from a previous attempt/, 'retry cannot sweep an unfinished recovery aside');
+  // A process may terminate after parking both copies. The persisted marker prevents an empty-store boot.
+  const interrupted = path.join(root, 'interrupted.json');
+  fs.writeFileSync(interrupted + '.reset-pending', JSON.stringify({ movedTo: path.join(root, 'unreadable-interrupted') }));
+  const restarted = make();
+  assert.throws(() => restarted.load(interrupted), /locked/, 'unfinished recovery never looks like a new empty store');
+  assert.equal(restarted.lockReason, 'unreadable');
   console.log('connector-vault: PASS (AES-GCM, restart, tampering, missing/wrong key + reasons, migration failure, recovery, removal, labelled fallback, START FRESH)');
 } finally { fs.rmSync(root, { recursive: true, force: true }); }

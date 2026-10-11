@@ -35,6 +35,7 @@ function makeConnectorVault({ fs, path, keyHex = '', required = false, writeDura
   const key = keyHex ? Buffer.from(keyHex, 'hex') : null;
   let locked = false;
   let lockReason = '';
+  let resetInProgress = false;
   function decode(value) {
     if (value && typeof value.format === 'string' && value.format.startsWith('starnet.connector-vault.') && value.format !== FORMAT) throw lockError('unreadable');
     if (!value || value.format !== FORMAT) return value;
@@ -74,6 +75,8 @@ function makeConnectorVault({ fs, path, keyHex = '', required = false, writeDura
   function load(file) {
     if (locked) throw lockError(lockReason);
     try {
+      // A reset interrupted after parking the old copies must never boot as an empty store.
+      if (!resetInProgress && fs.existsSync(file + '.reset-pending')) throw lockError('unreadable');
       const main = readOne(file);
       if (!main.absent && !main.corrupt) return main.value;
       const bak = readOne(file + '.bak');
@@ -127,15 +130,42 @@ function makeConnectorVault({ fs, path, keyHex = '', required = false, writeDura
     for (const src of sources) {
       if (fs.existsSync(path.join(dir, path.basename(src)))) throw new Error('START FRESH could not keep ' + path.basename(src) + ' aside; nothing was changed');
     }
+    const marker = file + '.reset-pending';
+    if (fs.existsSync(marker)) throw new Error('START FRESH is incomplete from a previous attempt; saved recovery files were preserved. Restore the original files before retrying.');
+    const oldReason = lockReason || 'unreadable';
     const moved = [];
-    if (sources.length) fs.mkdirSync(dir, { recursive: true });
-    for (const src of sources) {
-      fs.renameSync(src, path.join(dir, path.basename(src)));
-      moved.push(path.basename(src));
-    }
-    locked = false; lockReason = '';
-    write(file, empty, { removal: true });
-    return { movedTo: moved.length ? dir : '', moved, state: empty };
+    let writing = false;
+    try {
+      if (sources.length) fs.mkdirSync(dir, { recursive: true });
+      // Durable intent precedes the first move. A crash leaves a visible locked store, never an empty one.
+      writeDurable({ fs, path }, marker, JSON.stringify({ movedTo: dir, sources: sources.map(src => path.basename(src)) }));
+      for (const src of sources) {
+        fs.renameSync(src, path.join(dir, path.basename(src)));
+        moved.push(path.basename(src));
+      }
+      resetInProgress = true;
+      locked = false; lockReason = '';
+      writing = true;
+      write(file, empty, { removal: true });
+      fs.unlinkSync(marker);
+      return { movedTo: moved.length ? dir : '', moved, state: empty };
+    } catch (error) {
+      locked = true; lockReason = oldReason;
+      let restored = true;
+      // Only remove files created by this attempt where no original existed; originals are renamed back.
+      if (writing) for (const target of [file, file + '.bak']) {
+        if (sources.includes(target)) continue;
+        try { fs.unlinkSync(target); } catch (e) { if (e.code !== 'ENOENT') restored = false; }
+      }
+      for (const name of moved.slice().reverse()) {
+        const src = sources.find(candidate => path.basename(candidate) === name);
+        try { fs.renameSync(path.join(dir, name), src); } catch (_) { restored = false; }
+      }
+      if (restored) try { fs.unlinkSync(marker); } catch (e) { if (e.code !== 'ENOENT') restored = false; }
+      const detail = restored ? 'The original files were restored and storage remains locked.'
+        : 'Storage remains locked; preserved recovery files are in ' + dir + '. Recovery did not fully restore the original locations.';
+      throw new Error('START FRESH failed. ' + detail + ' ' + String(error && error.message || error));
+    } finally { resetInProgress = false; }
   }
   return { load, write, migrate, startFresh,
     get protected() { return !!key && !locked; }, get locked() { return locked; },

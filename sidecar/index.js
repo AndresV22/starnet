@@ -5461,7 +5461,7 @@ function startFreshConnectorStorage() {
   if (!connectorStorageCanStartFresh()) return { ok: false, status: 409, error: 'Connector storage is not locked; nothing to start fresh from.' };
   let result;
   try { result = connectorVault.startFresh(CONNECTORS_STATE_FILE, [CONNECTORS_FILE, CONNECTORS_OAUTH_FILE], { stamp: new Date().toISOString() }); }
-  catch (e) { console.error('[connectors] START FRESH failed: ' + ((e && e.message) || e)); return { ok: false, status: 500, error: 'START FRESH could not set the old connector files aside; nothing was changed. ' + ((e && e.message) || '') }; }
+  catch (e) { console.error('[connectors] START FRESH failed: ' + ((e && e.message) || e)); return { ok: false, status: 500, error: (e && e.message) || 'START FRESH failed; connector storage remains locked and recovery files were preserved.' }; }
   connectorStorageError = ''; connectorStorageReason = '';
   adoptConnectorState(result.state);
   console.log('[connectors] START FRESH: kept ' + (result.moved.join(', ') || 'nothing') + (result.movedTo ? ' in ' + result.movedTo : '') + '; new store ' + (connectorVault.protected ? 'encrypted' : 'NOT encrypted'));
