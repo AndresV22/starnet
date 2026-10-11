@@ -106,7 +106,8 @@ function startMockOpenRouter() {
             res.end();
             return;
           }
-          const answer = parityWorker ? 'WORKER_PARITY_OK' : parityTask ? 'DELEGATION_PARITY_DONE' : 'Telegram answer';
+          const steered = msgs.some(m => m && m.role === 'system' && /<steering_note>/.test(String(m.content)) && /include the blue label/.test(String(m.content)));
+          const answer = steered ? 'Telegram steered answer: blue label' : parityWorker ? 'WORKER_PARITY_OK' : parityTask ? 'DELEGATION_PARITY_DONE' : 'Telegram answer';
           res.write('data: ' + JSON.stringify({ choices: [{ delta: { content: answer } }] }) + '\n\n');
           if (gate.armed) {
             gate.armed = false;   // hold only the FIRST completion after arming
@@ -612,7 +613,23 @@ async function waitUntil(fn, ms, label) {
     // AFTER IT ENDS: the run drops out of the snapshot (inflight cleared in the hub's finally) — no phantom clock.
     await waitUntil(async () => { const s = await snapshot(); return !(s.runs || []).some(x => x && x.agentId === 'tg_4243'); }, 5000, 'tg_4243 run leaves the snapshot after it ends');
 
-    // ---- P2 supersede race: a SECOND message to the SAME busy chat must NOT be silently dropped on the transient
+    // A plain owner follow-up joins the SAME live run. Holding the provider must not be mistaken for a
+    // supersede: wait for acknowledgement, release the held turn, then prove the next model call read the note.
+    llm.gate.arm();
+    tg.pushText(5554, 99, 'first message - hold while I add a detail');
+    await llm.gate.started;
+    await sse.waitFor(events => events.some(e => e.name === 'agent.run.start' && e.payload && e.payload.agentId === 'tg_5554'), 5000, 'steering run start');
+    const steeringRun = sse.events.find(e => e.name === 'agent.run.start' && e.payload && e.payload.agentId === 'tg_5554').payload.runId;
+    tg.pushText(5554, 99, 'also include the blue label');
+    await waitUntil(() => tg.sends.some(s => String(s.chat_id) === '5554' && /Added to the task that is already running/.test(String(s.text))), 8000, 'owner follow-up acknowledgement');
+    A.eq(sse.events.filter(e => e.name === 'agent.run.start' && e.payload && e.payload.agentId === 'tg_5554').length, 1, 'follow-up did not start a replacement run');
+    A.ok(!sse.events.some(e => e.name === 'agent.run.end' && e.payload && e.payload.runId === steeringRun), 'acknowledged follow-up did not stop the held run');
+    llm.gate.release();
+    await waitUntil(() => tg.sends.some(s => String(s.chat_id) === '5554' && /Telegram steered answer: blue label/.test(String(s.text))), 12000, 'same task answers the follow-up');
+    await sse.waitFor(events => events.some(e => e.name === 'agent.run.end' && e.payload && e.payload.runId === steeringRun && e.payload.reason === 'done'), 5000, 'steered run completed');
+    A.ok(llm.requests.some(r => (r.messages || []).some(m => m.role === 'system' && /<steering_note>/.test(String(m.content)) && /include the blue label/.test(String(m.content)))), 'the real provider received the follow-up in a steering note');
+    A.eq(sse.events.filter(e => e.name === 'agent.run.start' && e.payload && e.payload.agentId === 'tg_5554').length, 1, 'both messages completed under one run identity');
+    // ---- P2 supersede race: an explicit cancel message to the SAME busy chat must NOT be silently dropped on the transient
     // "already running a task" refusal. Repro: HOLD run #1 for chat 5555 in-flight (slot held), then send message #2
     // to 5555 — the hub aborts #1 and immediately starts #2, which loses the same-agent workspace-mutex race in the
     // host (index.js concurrencyGate.inFlight>0) and is refused TRANSIENTLY. The hub must RETRY with backoff until
@@ -625,9 +642,9 @@ async function waitUntil(fn, ms, label) {
     await llm.gate.started;                           // run #1 is provably in-flight (slot held) now
     await sse.waitFor(events => events.some(e => e.name === 'agent.run.start' && e.payload && e.payload.agentId === 'tg_5555'), 5000, 'run #1 start (tg_5555)');
 
-    // SECOND message to the SAME chat: aborts #1, then races the still-held workspace slot -> transient refusal ->
+    // Explicit cancel bypasses steering: aborts #1, then races the still-held workspace slot -> transient refusal ->
     // the hub's bounded retry recovers once #1's abort frees the slot.
-    tg.pushText(5555, 99, 'second message — should supersede and still get answered');
+    tg.pushText(5555, 99, 'cancel');
 
     // the user's SECOND message must EVENTUALLY get a real answer delivered to chat 5555 (the whole point of the fix).
     await waitUntil(() => tg.sends.some(s => String(s.chat_id) === '5555' && String(s.text || '').indexOf('Telegram answer') >= 0), 12000, 'chat 5555 eventually gets the real answer for message #2');
