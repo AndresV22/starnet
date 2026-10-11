@@ -161,7 +161,7 @@ const lineOf = (pl, id) => pl.lineOfProp[id];
   A.ok(/'OUTBOX, then on to ' \+ lineName\(st0\.toLine\)/.test(cmds) && /out\.sendsWorkTo = /.test(cmds), 'station.map tells the agent where a line’s work goes after its OUTBOX');
   A.ok(/const jobStream = \/\^\(sample\|handoff\)-\/\.test/.test(outbox) && /'SENT ON TO ' \+ word\(sj\.sentTo\)/.test(outbox) && /'FROM ' \+ word\(sj\.from\)/.test(outbox), 'DELIVERABLES: a handed-on job opens in WORKFLOWS and says FROM / SENT ON TO');
   A.ok(/if \(!p \|\| p\.kind !== 'handoff' \|\| !p\.workitemId \|\| !p\.lineId\) return;/.test(wfw) && /if \(!s \|\| s\.status !== 'delivered' \|\| !s\.from\) return null;/.test(wfw) && /ReturnStore\.foldRow\(\{ runId: run\.runId/.test(wfw), 'a handed-on job’s delivered run lands in DELIVERABLES › TO REVIEW (read back from its own job record)');
-  A.ok(/'<span class="wfw-k">The job<\/span>/.test(wfw) && /' handed in<\/summary>/.test(wfw), 'a handed-on job shows the job as it first arrived, and what the sending line handed in, apart');
+  A.ok(/<span class="wfw-k">The job<\/span>/.test(wfw) && /' handed in<\/summary>/.test(wfw), 'a handed-on job shows the job as it first arrived, and what the sending line handed in, apart');
   A.ok(/>Sent on to ' \+ esc\(lineWord\(job\.sentTo\)\)/.test(wfw) && />From ' \+ esc\(lineWord\(job\.from\)\)/.test(wfw), 'WORKFLOWS: each result says where it came from / went on to');
 }
 
