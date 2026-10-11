@@ -29,5 +29,3 @@ try{
  fs.writeFileSync('.tmp/stop-ui-results.json',JSON.stringify({results,hits},null,2));fs.writeFileSync('.tmp/stop-ui-sidecar.log',fixture.output());
  if(cdp){try{await cdp.send('Browser.close');}catch{}cdp.ws.close();}if(chrome?.proc&&chrome.proc.exitCode===null){const ex=once(chrome.proc,'exit');chrome.proc.kill();await Promise.race([ex,sleep(3000)]);}await fixture.dispose();mock.closeAllConnections();await new Promise(r=>mock.close(r));
 }
-
-

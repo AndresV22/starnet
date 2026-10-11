@@ -26,6 +26,3 @@ async function send(streamId,history,text,isTask=false){
  await fixture.restart();const latest=await send('preference-latest',[],'Hi! Greet me the way I asked you to, in one short sentence.');check('newest preference wins after restart',/Captain Mira/i.test(latest.reply)&&!/Captain Nemo/i.test(latest.reply),latest.reply);
  if(results.some(r=>!r.ok))process.exitCode=1;
 }catch(e){console.error(e.stack);process.exitCode=1;}finally{fs.writeFileSync('.tmp/scope-live-results.json',JSON.stringify({model,usd,results},null,2));fs.writeFileSync('.tmp/scope-live-sidecar.log',fixture.output());await fixture.dispose();}})();
-
-
-

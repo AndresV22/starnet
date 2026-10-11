@@ -57,8 +57,3 @@ On candidate `7ff71b1d0`, the fresh full fast gate exited 1 at step 450/1118: ev
 The fresh full HTTP gate exited 1 at step 50/200: the unchanged station-control ASK-mode scenario saw zero approval cards. That same scenario passed in the first full attempt and passed its unchanged isolated rerun (`station-control-focused.txt`). A diagnostic-only rerun also reproduced the missing cards even though the page origin was correct, both composer controls were enabled, and Chat was idle before the click (`station-control-diagnostic.txt`). That rules out the specific stale-origin/disabled-composer hypothesis; the precise intermittent cause was not established and remains for the combined-gate owner. This is not a full-HTTP green receipt. Per gate coordination, no further broad restart was launched; the organizing lane owns fresh combined-candidate gates.
 
 All four directly relevant HTTP scenarios passed on the repaired candidate: `memory-truth.http`, `feedbackmemory.http` (35 assertions), `earlier-conversation.http` (27), `tasteref.http` (39), with `run-test-list: OK — 4 step(s) green`. Those include real sidecar run/store/recall/restart behavior and approved design references. Telegram's repaired scenario passed 88 assertions. Original gate failures and focused terminal receipts are retained beside this report; passing retries do not erase the failed full invocations.
-
-
-
-
-
