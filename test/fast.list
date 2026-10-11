@@ -721,6 +721,7 @@ test/chain.multibay.test.js
 test/routing.steptest.test.js
 test/routing.steptest.multibay.test.js
 test/routing.triggers.test.js
+test/routing.handoff.test.js
 test/trigger-polish.test.js
 test/channels.multibay.test.js
 test/cron.multibay.test.js
@@ -741,6 +742,7 @@ test/line-edit-panel.test.js
 test/line-place.test.js
 test/line-too-long.test.js
 test/conveyor-no-handoff.test.js
+test/line-sendto.test.js
 test/orphan-bay-join.test.js
 test/workflow-panel-inline-refusals.test.js
 test/refit-flow-polish.test.js
@@ -1085,6 +1087,10 @@ test/linejobs.test.js
 test/linedraft.test.js
 test/workflows-window.test.js
 test/build-mode-easy.test.js
+test/build-hand.test.js
+test/build-select-target.test.js
+test/build-hand-circle.test.js
+test/build-clip.test.js
 test/worldmodel-moveprops.test.js
 test/buildmode-halls.test.js
 test/trigger-sweep.test.js

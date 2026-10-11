@@ -110,7 +110,7 @@ const msg = (text, extra) => Object.assign({ channel: 'telegram', chatId: '42', 
     A.eq((src.match(/fullAccess: stationBypassNow\(\) \|\| agentFullAccessNow\(\) \|\| connectorFullAccess, untrustedEntry: untrustedEntryRun/g) || []).length, 2,
       'BOTH post-taint boundary calls (first check + after the live prompt) carry the origin verdict');
     A.ok(/withholdHostPower: hostPowerWithheld,\s*\n\s*untrustedEntry: untrustedEntryRun,/.test(src), 'delegated workers inherit the origin verdict');
-    A.ok(/entryTaint: 'line trigger payload',/.test(src), 'the trigger hub still taints its entry');
+    A.ok(/entryTaint: hooks\.entryTaint \|\| 'line trigger payload',/.test(src), 'the trigger hub still taints its entry (a SEND TO hand-off names its own taint, never none)');
     // every chain hop the ROUTINE seams run (scheduled advanceChain + Run Now) starts tainted as upstream output
     const seams = src.split('runAgent: async (h) => {').slice(1);
     A.ok(seams.length >= 2, 'found the routine work-line hop seams (' + seams.length + ')');

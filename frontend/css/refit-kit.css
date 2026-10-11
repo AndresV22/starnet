@@ -19,7 +19,7 @@
 .refit-toolset { min-width: 0; }
 .refit-toolset-label { color: var(--ph-dim); font-size: 9px; letter-spacing: 1.2px; padding: 0 2px 3px; }
 .refit-toolset-buttons { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 4px; }
-.refit-toolset-buttons.is-edit { grid-template-columns: repeat(4,minmax(0,1fr)); }
+.refit-toolset-buttons.is-edit { grid-template-columns: repeat(3,minmax(0,1fr)); }   /* SELECT · COPY · DELETE (MOVE retired 10-11: SELECT moves) */
 .refit-toolset-buttons.is-edit .refit-tool { flex-direction: row; gap: 4px; padding: 3px 4px; font-size: 10px; }
 .refit-toolset-buttons.is-edit .refit-toolname { text-align: center; }
 .refit-toolset-buttons.is-edit .refit-key { display: none; }

@@ -100,7 +100,10 @@ function station() {
   const build = fs.readFileSync(path.join(__dirname, '..', 'frontend', 'app', 'build.js'), 'utf8');
   const body = A.fnBody(build, 'function addOwnedDesk(');
   A.ok(body.length > 30 && body.length < 1500, 'build.js addOwnedDesk located (length guard)');
-  A.ok(/const res = owner\s*\? addOwnedDesk\(placement, owner\)\s*: station\.addProp\(placement\);/.test(build), 'the floor click drops an owned desk through addOwnedDesk');
+  /* (THE HAND, 2026-10-11: the click grew two branches BETWEEN the owned desk and the plain addProp — a junction held over a belt goes
+     ON it through junctionOnBelt, a held BAY lands with its role/brief/hand-off in one transact. The pin keeps both ends: an owner
+     still goes FIRST through addOwnedDesk, and the plain case still ends in station.addProp.) */
+  A.ok(/const res = owner\s*\? addOwnedDesk\(placement, owner\)\s*: onBelt \? station\.junctionOnBelt\([\s\S]*?: station\.addProp\(placement\);/.test(build), 'the floor click drops an owned desk through addOwnedDesk');
   A.ok(/station\.assignDesk\(/.test(body) && !/assignPropAgent/.test(body), 'PLACE ITS DESK binds through station.assignDesk — no third copy of the unbind loop');
   const { st, old } = station(), before = snap(st);
   let spot = null;
