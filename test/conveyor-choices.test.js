@@ -60,8 +60,8 @@ const splitOf = plan => Object.keys(plan.junctions).find(k => plan.junctions[k].
   A.ok(/function splitModeInfo\(splitId\)/.test(build) && /Pipeline\.rejoinOf\(plan, lk\)\.lanes/.test(build) && /const plan = probePlanOnceCrewed\(\);/.test(build), 'the switch reads the once-crewed plan (a fresh stamp answers like a crewed one)');
   A.ok(/meet && meet\.kind === 'merge' && propAt\(meet\.at\) \? \{ ok: true, swap: \[propAt\(meet\.at\)\] \}/.test(build), 'COPY swaps the one MERGER where every branch meets');
   A.ok(/the branches never meet at one MERGER/.test(build), '…and says why when there is none');
-  A.ok(/station\.swapJoinerMerger\(step\.swap\[0\]\)/.test(build) && /splitModeInfo: id => splitModeInfo\(id\)/.test(build) && /setSplitMode: \(id, mode\) => setSplitMode\(id, mode\)/.test(build), 'the panel reaches it through the host');
-  A.ok(/pick\('copy', 'COPY TO EACH'/.test(panel) && /pick\('turns', 'TAKE TURNS'/.test(panel) && /H\.setSplitMode\(p\.id, b\.dataset\.smode\)/.test(panel), 'the SPLITTER section carries the switch');
+  A.ok(/for \(const id of step\.swap\) \{ const r = station\.swapJoinerMerger\(id\)/.test(build) && /station\.setSplitDivide\(splitId, mode === 'divide'\)/.test(build) && /splitModeInfo: id => splitModeInfo\(id\)/.test(build) && /setSplitMode: \(id, mode\) => setSplitMode\(id, mode\)/.test(build), 'the panel reaches it through the host');
+  A.ok(/const LABEL = \{ copy: 'COPY TO EACH', divide: 'SPLIT THE JOB', turns: 'TAKE TURNS' \}/.test(panel) && /pick\('copy',/.test(panel) && /pick\('divide',/.test(panel) && /pick\('turns',/.test(panel) && /class="wf-why"/.test(panel) && /H\.setSplitMode\(p\.id, b\.dataset\.smode\)/.test(panel), 'the SPLITTER section carries the switch');
   A.ok(/aria-disabled="true" data-tip="' \+ esc\(\(step && step\.msg\)/.test(panel), 'a choice the floor cannot make is greyed with its reason');
 }
 

@@ -6977,24 +6977,45 @@ const Build = (() => {
     const propAt = k => { const q = String(k).split(','), x = +q[0] + o.tx, y = +q[1] + o.ty; const hit = station.props().find(r => (r.t === 'joiner' || r.t === 'merger') && r.x === x && r.y === y); return hit ? hit.id : null; };
     const meet = lanes.length > 1 && lanes.every(l => l.at && l.at === lanes[0].at) ? lanes[0] : null;
     const joins = [...new Set(lanes.filter(l => l.kind === 'join').map(l => propAt(l.at)).filter(Boolean))];
+    /* SPLIT THE JOB (2026-10-10): the copying split's third reading — the step before the splitter writes the job as parts and
+       each branch gets only its own. It needs what COPY needs (a JOINER where the branches meet, swapped in from a MERGER) plus
+       a step BEFORE the splitter to write the parts; with none, the switch adds a PLANNER there (the INBOX can't divide). */
+    const divides = copies && !!plan.junctions[lk].divide;
     const toTurns = copies
       ? (joins.length ? { ok: true, swap: joins } : { ok: false, msg: 'a JOINER further down the line combines these branches — make that one a MERGER to let them take turns' })
       : { ok: true, already: true };
+    const noSecond = { ok: false, msg: 'run a second belt OUT of the splitter first: BELT, click the SPLITTER, then the next machine' };
     const toCopy = !copies
-      ? (lanes.length < 2 ? { ok: false, msg: 'run a second belt OUT of the splitter first: BELT, click the SPLITTER, then the next machine' }
+      ? (lanes.length < 2 ? noSecond
         : meet && meet.kind === 'merge' && propAt(meet.at) ? { ok: true, swap: [propAt(meet.at)] }
         : { ok: false, msg: 'the branches never meet at one MERGER — belt them into one JOINER where they come back together (Conveyors › MACHINES › JOINER)' })
-      : { ok: true, already: true };
-    return { mode: copies ? 'copy' : 'turns', toCopy, toTurns };
+      : divides ? { ok: true, swap: [] } : { ok: true, already: true };
+    let toDivide = divides ? { ok: true, already: true } : toCopy.already ? { ok: true, swap: [] } : toCopy.ok ? { ok: true, swap: toCopy.swap } : toCopy;
+    if (toDivide.ok && !toDivide.already && !(Pipeline.splitFedByDock && Pipeline.splitFedByDock(plan, lk))) {
+      // nothing but the INBOX feeds the splitter: a PLANNER step goes in on the belt that does
+      let from = null;
+      try { const g = station.lineGraph(splitId); const inl = g && g.ok ? g.graph.links.filter(l => l.to && l.to.node === splitId) : []; if (inl.length === 1) from = inl[0].from.node; } catch (e) { from = null; }
+      toDivide = from ? Object.assign({}, toDivide, { addLead: from }) : { ok: false, msg: 'put a step (a BAY) on the belt into the splitter first — it writes the parts each branch gets' };
+    }
+    return { mode: divides ? 'divide' : copies ? 'copy' : 'turns', toCopy, toTurns, toDivide };
   }
   function setSplitMode(splitId, mode) {
     const info = splitModeInfo(splitId);
     if (!info) return { ok: false, msg: 'this splitter is not on a line yet' };
-    const step = mode === 'copy' ? info.toCopy : info.toTurns;
+    const step = mode === 'divide' ? info.toDivide : mode === 'copy' ? info.toCopy : info.toTurns;
     if (step.already) return { ok: true, already: true };
     if (!step.ok) return { ok: false, msg: step.msg };
-    const res = step.swap.length === 1 ? station.swapJoinerMerger(step.swap[0])
-      : station.transact(() => { for (const id of step.swap) { const r = station.swapJoinerMerger(id); if (!r.ok) return r; } return { ok: true }; });
+    const sp = station.propById(splitId), dividing = !!(sp && sp.divide);
+    // ONE UNDO for the whole switch: the JOINER/MERGER swap, a PLANNER step when SPLIT THE JOB needs one, and the flag
+    const res = station.transact(() => {
+      for (const id of step.swap) { const r = station.swapJoinerMerger(id); if (!r.ok) return r; }
+      if (mode === 'divide' && step.addLead) {
+        const r = lineEditRun('insertStep', step.addLead, { from: step.addLead, to: splitId, role: 'PLANNER' });
+        if (!r || !r.ok) return { ok: false, msg: (r && (r.msg || r.error)) || 'there is no room for a PLANNER step before the splitter' };
+      }
+      if ((mode === 'divide') !== dividing) { const r = station.setSplitDivide(splitId, mode === 'divide'); if (!r.ok) return r; }
+      return { ok: true };
+    });
     if (res && res.ok) { try { rebake(); } catch (e) { /* the frame loop recompiles */ } }
     return res && res.ok ? { ok: true, mode } : { ok: false, msg: (res && (res.msg || res.error)) || 'could not switch' };
   }
