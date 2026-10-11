@@ -9560,7 +9560,8 @@ const World = (() => {
   function sendPlateBoxes() {
     if (!routingPlan || !routingPlan.sendTo || !Array.isArray(routingPlan.lines) || !geo || !geo.props) return [];
     const stat = lwPlateBoxes();
-    const key = [routingPlan, routingNags, geo, stat];
+    // (an empty stat list is a FRESH [] each call until the server's numbers are known — keyed as null, or this pass re-ran per frame)
+    const key = [routingPlan, routingNags, geo, stat.length ? stat : null];
     if (sendPlateKey && sendPlateKey.every((v, i) => v === key[i])) return sendPlateMemo;
     const out = [], taken = [];
     const hit = (a, b) => a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;

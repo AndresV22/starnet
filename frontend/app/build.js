@@ -7222,10 +7222,9 @@ const Build = (() => {
     ctx.restore();
   }
   // every SEND TO on the floor, rebuilt only when the floor or the plan changes (never per frame)
-  let sendLinksKey = null, sendLinksMemo = [];
+  let sendLinksGeo = null, sendLinksPlan = null, sendLinksMemo = [];
   function sendLinks() {
-    const k = geoVer + '|' + (valPlan ? (valPlan.hash || '') + JSON.stringify(valPlan.sendTo || {}) : '');
-    if (k === sendLinksKey) return sendLinksMemo;
+    if (sendLinksGeo === geoVer && sendLinksPlan === valPlan) return sendLinksMemo;   // (valPlan is rebuilt only when the floor changes)
     const out = [];
     for (const p of station.props()) {
       if (p.t !== 'outbox' || !p.sendTo) continue;
@@ -7233,7 +7232,7 @@ const Build = (() => {
       if (!ip) continue;
       out.push({ from: p, to: ip, live: !!(valPlan && valPlan.sendTo && valPlan.sendTo[p.id]), name: sendName(ip.id) });
     }
-    sendLinksKey = k; sendLinksMemo = out;
+    sendLinksGeo = geoVer; sendLinksPlan = valPlan; sendLinksMemo = out;
     return out;
   }
   function drawSendLinks(t, now) {
