@@ -41,6 +41,7 @@ const sandbox = {
 vm.createContext(sandbox);
 vm.runInContext('let frameCapMs = 0, lastDrawnAt = 0, running = true, raf = 0; function frame() {}\n' + world.slice(from, to) +
   '\nthis.api = { paceMs, simSlices, easeK, scheduleFrame, paceWake, paceEngage, noteDrawCost, budgetMs, resetBudget: () => { drawCostMs = 0; },' +
+  ' noteStrain, strain: () => ({ strained, strainProbe, strainDraws }), strainConsts: { STRAIN_ENTER_MS, STRAIN_EXIT_MS, STRAIN_SETTLE_DRAWS, STRAIN_PROBE_DRAWS },' +
   ' set: o => { if ("cap" in o) frameCapMs = o.cap; if ("low" in o) paceLowRate = o.low; if ("drawn" in o) lastDrawnAt = o.drawn; if ("raf" in o) raf = o.raf; },' +
   ' timer: () => paceTimer, consts: { PACE_FOCUS_MS, PACE_BLUR_MS, SIM_SLICE_MS, SIM_CATCHUP_MAX_MS, BUDGET_SHARE, BUDGET_MIN_FPS } };', sandbox);
 const W = sandbox.api;
@@ -148,5 +149,28 @@ A.ok(/isConnected\) restingAnims\.delete/.test(sweep), 'a held loop whose node l
 A.ok(/!document\.hasFocus\(\)/.test(A.fnBody(ui, 'function motionAtRest()')), 'rest is gated on the window being unfocused');
 A.ok(/addEventListener\('focus', motionEngage\)/.test(ui), 'focus resumes every held loop');
 A.ok(/armFlickerClock\(\); armMotionRest\(\);/.test(ui), 'applySettings arms both clocks');
+
+// ---- 3. STRAINED DETAIL (2026-10-10, "1 frame per hour — can't navigate") ----------------------------------------
+// a floor draw that can't hold the budget sheds the crew's extra passes; full detail returns only on measured proof
+{
+  const S = W.strainConsts;
+  // the draw costs what the mode it ran in costs: `full` at full detail (and on a probe), `lite` while strained
+  const run = (n, full, lite) => { let probes = 0; for (let i = 0; i < n; i++) { const st = W.strain(), ms = st.strained && !st.strainProbe ? lite : full; if (st.strained && st.strainProbe) probes++; W.noteDrawCost(ms); W.noteStrain(ms); } return probes; };
+  W.resetBudget();
+  run(200, 14, 14);
+  A.eq(W.strain().strained, false, 'a healthy station (14 ms a draw) never sheds detail');
+  A.ok(S.STRAIN_ENTER_MS > 20 && S.STRAIN_ENTER_MS < 33, 'strain begins where the budget would hold the floor under ~25-30 fps');
+  run(10, 120, 50);
+  A.eq(W.strain().strained, true, 'a weak machine (120 ms a draw) sheds detail');
+  const probes = run(S.STRAIN_PROBE_DRAWS * 6, 120, 50);
+  A.ok(probes >= 5 && probes <= 7, 'while strained, one draw in STRAIN_PROBE_DRAWS is a timed full-detail probe');
+  A.eq(W.strain().strained, true, '...and a probe that is still too slow keeps it strained (no flapping on the cheap draws)');
+  run(S.STRAIN_PROBE_DRAWS * 4, 25, 12);   // freed up, but a full draw (25 ms) is still over the comfortable exit line
+  A.eq(W.strain().strained, true, 'a full draw just under the entry line is not proof enough: it stays strained');
+  run(S.STRAIN_PROBE_DRAWS * 3, 12, 8);    // the machine freed up (a scan finished, a window closed)
+  A.eq(W.strain().strained, false, 'two full-detail probes that fit comfortably bring full detail back');
+  W.resetBudget(); run(200, 14, 14);
+  A.eq(W.strain().strained, false, '...and it stays back');
+}
 
 A.report('render pacing (#69)');

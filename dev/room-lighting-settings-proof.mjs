@@ -1,3 +1,5 @@
+// Live proof for Settings › ROOM LIGHT (0–100 slider). Needs a dev sidecar on :9197 (`npm start` with SKYNET_PORT=9197).
+// Drags the REAL slider, reads back every renderer knob it drives, screenshots, and checks the level survives a reload.
 import assert from 'node:assert/strict';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { launchChrome, connectCDP, evalJS, sleep, capture } from '../scripts/lib/cdp.mjs';
@@ -20,59 +22,39 @@ try {
   const open = async () => {
     await evalJS(cdp, "StationUI.openTerm('settings', 'appearance'); true");
     for (let i = 0; i < 60; i++) {
-      if (await evalJS(cdp, "!!document.querySelector('#set-lighting button')")) { await sleep(600); return; }
+      if (await evalJS(cdp, "!!document.querySelector('#set-room-light')")) { await sleep(600); return; }
       await sleep(100);
     }
-    throw Error('Lighting controls did not open');
+    throw Error('ROOM LIGHT slider did not open');
   };
-  const read = () => evalJS(cdp, `(() => {
-    const geo = WorldModel.create(World.stationDoc()).projectGeometry();
-    const bake = StationBake.bake(geo), c = bake.lightCv.getContext('2d');
-    let total = 0, count = 0;
-    for (const r of geo.allRects) {
-      for (let y = r.y1 * 12 + 3; y < (r.y2 + 1) * 12; y += 6) {
-        for (let x = r.x1 * 12 + 3; x < (r.x2 + 1) * 12; x += 6) {
-          total += 1 - c.getImageData(x, y, 1, 1).data[3] / 255; count++;
-        }
-      }
-    }
-    const buttons = [...document.querySelectorAll('#set-lighting button')];
-    return { ambient: StationBake.LIGHT.ambient, glow: World.crt.glow,
-      illumination: total / count, lamps: bake.lamps,
-      selected: buttons.filter(b => b.getAttribute('aria-pressed') === 'true').map(b => b.dataset.lighting),
-      buttons: buttons.map(b => ({ text: b.textContent, bg: getComputedStyle(b).backgroundColor, border: getComputedStyle(b).borderColor })) };
-  })()`);
+  const drag = v => evalJS(cdp, `(() => { const i = document.querySelector('#set-room-light');
+    for (let x = Number(i.value); x !== ${v}; x += Math.sign(${v} - x)) { i.value = x; i.dispatchEvent(new Event('input', { bubbles: true })); }
+    i.value = ${v}; i.dispatchEvent(new Event('input', { bubbles: true })); i.dispatchEvent(new Event('change', { bubbles: true })); return true; })()`);
+  const read = () => evalJS(cdp, `({ value: Number(document.querySelector('#set-room-light').value),
+    label: document.querySelector('#set-room-light-val').textContent, ambient: StationBake.LIGHT.ambient,
+    cut: IndustrialTextures.lighting.cut, key: IndustrialTextures.lighting.key, film: World.crt.film,
+    bg: getComputedStyle(document.querySelector('#set-room-light')).backgroundColor })`);
   await load();
   await open();
-  for (const [level, ambient] of [['low', .82], ['medium', .72], ['high', .62]]) {
-    await evalJS(cdp, `document.querySelector('[data-lighting="${level}"]').click(); true`);
+  for (const level of [0, 50, 100]) {
+    await drag(level);
+    await sleep(400);
     const state = await read();
-    assert.equal(state.ambient, ambient);
-    assert.equal(state.glow, .13);
-    assert.deepEqual(state.selected, [level]);
-    assert.equal(state.buttons.length, 3);
-    assert.ok(state.buttons.every(b => !['rgb(255, 255, 255)', 'rgb(239, 239, 239)'].includes(b.bg) && b.border !== 'rgb(118, 118, 118)'));
+    assert.equal(state.value, level);
+    assert.equal(state.label, level + '%');
+    assert.ok(!['rgb(255, 255, 255)', 'rgb(239, 239, 239)'].includes(state.bg), 'no OS-painted control');
     if (results.length) {
-      assert.ok(state.illumination > results.at(-1).illumination + .02, 'visible room illumination increases');
-      assert.deepEqual(state.lamps, results[0].lamps, 'light placement and radius remain identical');
+      const p = results.at(-1);
+      assert.ok(state.ambient < p.ambient && state.cut > p.cut && state.key > p.key && state.film < p.film, 'every stage brightens');
     }
     results.push({ level, ...state });
-    await capture(cdp, out, level + '-settings');
+    await capture(cdp, out, 'room-light-' + level);
     await load();
     await open();
-    const restored = await read();
-    assert.equal(restored.ambient, ambient);
-    assert.deepEqual(restored.selected, [level]);
+    assert.equal((await read()).value, level, 'the level survives a reload');
   }
-  // A real keyboard event activates the focused native button.
-  assert.equal(await evalJS(cdp, 'document.querySelector(\'[data-lighting="medium"]\').focus(); document.activeElement.dataset.lighting'), 'medium');
-  await cdp.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, text: '\r' });
-  await cdp.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 });
-  assert.deepEqual((await read()).selected, ['medium']);
-  await evalJS(cdp, 'document.querySelector(\'[data-lighting="low"]\').click(); true');
-  await load(); await open();
-  assert.deepEqual((await read()).selected, ['low']);
-  const receipt = { results, reloadPersistence: true, keyboard: true, restoredLow: true };
+  await drag(0);
+  const receipt = { results, reloadPersistence: true, restoredZero: (await read()).ambient === results[0].ambient };
   writeFileSync(out + '/proof.json', JSON.stringify(receipt, null, 2));
   console.log(JSON.stringify(receipt));
 } finally { cdp?.ws.close(); proc?.kill(); }

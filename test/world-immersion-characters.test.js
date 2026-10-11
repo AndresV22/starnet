@@ -26,12 +26,17 @@ class RecordingContext {
     this.draws.push({ image, args, alpha: this.globalAlpha, composite: this.globalCompositeOperation,
       smoothing: this.imageSmoothingEnabled, quality: this.imageSmoothingQuality });
   }
-  getImageData() {
+  getImageData(sx = 0, sy = 0, sw, sh) {
     // Production readbacks here only measure a single untouched master, never a composited frame.
     const draw = this.draws.at(-1);
     assert.ok(draw && draw.image.pixels && draw.args.length === 2 && draw.args.every(v => v === 0),
       'foot/stride reads must come from an actual native PNG at the origin');
-    return { data: draw.image.pixels };
+    // like a real canvas, a sub-rectangle read returns just those rows (the foot pad reads the bottom band first)
+    const img = draw.image, W = img.width;
+    if (sw == null || (sx === 0 && sy === 0 && sw === W && sh === img.height)) return { data: img.pixels };
+    const out = new Uint8ClampedArray(sw * sh * 4);
+    for (let y = 0; y < sh; y++) out.set(img.pixels.subarray(((sy + y) * W + sx) * 4, ((sy + y) * W + sx + sw) * 4), y * sw * 4);
+    return { data: out };
   }
   createLinearGradient(...coords) {
     if (this.failGradient) throw new Error('offscreen context unavailable');

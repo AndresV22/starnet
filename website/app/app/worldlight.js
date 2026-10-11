@@ -224,7 +224,7 @@ const WorldLight = (() => {
     let resourcesDirty = false, retryResourcesAt = 0;
     const metrics = { geometryRevision: 0, staticBuilds: 0, dynamicBuilds: 0, visibilityBuilds: 0,
       frames: 0, preparations: 0, beamBuilds: 0, lastBuildMs: 0, droppedSources: 0, supported: true, contextLosses: 0, contextRecoveries: 0,
-      configRevision: 0, sampleCacheHits: 0, sampleCacheMisses: 0, sampleCacheEvictions: 0, sampleCacheInvalidations: 0 };
+      configRevision: 0, sampleCacheHits: 0, sampleCacheMisses: 0, sampleSourcesWalked: 0, sampleCacheEvictions: 0, sampleCacheInvalidations: 0 };
     const sampleLimit = () => clamp(Math.floor(finite(config.sampleCacheLimit, 512)), 0, 2048);
     /* GEOMETRY-SCOPED VISIBILITY (2026-10-07, a 207-source station drew at ~22ms): an emitter's area origins, and
        the wall-occlusion fraction a point sees from them, depend only on the walls (segments) and the emitter's
@@ -235,7 +235,7 @@ const WorldLight = (() => {
        exactly, and a new wall set (setGeometry, a quality change) starts both caches over. */
     const ORIGIN_LIMIT = 4096, TRANS_LIMIT = 32768;
     let visFor = null; const originCache = new Map(), transCache = new Map();
-    function visScope() { if (visFor !== segments) { visFor = segments; originCache.clear(); transCache.clear(); } }
+    function visScope() { if (visFor !== segments) { visFor = segments; originCache.clear(); transCache.clear(); nearSegCache.clear(); } }
     const originKey = (l, count) => finite(l.originX, l.x) + ',' + finite(l.originY, l.y) + ',' + l.softness + ',' + count;
     function originsOf(l, count) {
       visScope();
@@ -247,6 +247,24 @@ const WorldLight = (() => {
       }
       l.originKey = k; return o;
     }
+    /* (2026-10-10) the walls a source can be blocked by: a ray from any of its area origins to a point in its reach lies
+       inside the box around those origins and its reach, so a wall wholly outside that box can never stop it. A walking
+       body's fresh sample traced 5 origins × EVERY wall of the station; it now traces the walls near the source. */
+    const nearSegCache = new Map();
+    function segsNear(l) {
+      visScope();
+      const k = l.originKey + '|' + l.x + ',' + l.y + ',' + l.r; let near = nearSegCache.get(k);
+      if (!near) {
+        const os = l.origins || [originOf(l)], pad = 1;
+        let x0 = l.x - l.r, x1 = l.x + l.r, y0 = l.y - l.r, y1 = l.y + l.r;
+        for (const o of os) { x0 = Math.min(x0, o.x); x1 = Math.max(x1, o.x); y0 = Math.min(y0, o.y); y1 = Math.max(y1, o.y); }
+        x0 -= pad; x1 += pad; y0 -= pad; y1 += pad;
+        near = segments.filter(s => Math.max(s.x1, s.x2) >= x0 && Math.min(s.x1, s.x2) <= x1 && Math.max(s.y1, s.y2) >= y0 && Math.min(s.y1, s.y2) <= y1);
+        if (nearSegCache.size >= ORIGIN_LIMIT) nearSegCache.delete(nearSegCache.keys().next().value);
+        nearSegCache.set(k, near);
+      }
+      return near;
+    }
     // === visibilityFraction(l, x, y, segments): in reach the fraction is a function of l.origins and the walls
     // alone (visibleFrom's own reach test is the same test, already passed), so it is looked up by both
     function transmissionOf(l, x, y) {
@@ -255,7 +273,7 @@ const WorldLight = (() => {
       visScope();
       const k = l.originKey + '|' + x + ',' + y; let v = transCache.get(k);
       if (v === undefined) {
-        v = visibilityFraction(l, x, y, segments);
+        v = visibilityFraction(l, x, y, l.segsNear || segments);
         if (transCache.size >= TRANS_LIMIT) transCache.delete(transCache.keys().next().value);
         transCache.set(k, v);
       }
@@ -263,6 +281,70 @@ const WorldLight = (() => {
     }
     function invalidateSamples() {
       samples.clear(); sampleKey = null; metrics.sampleCacheInvalidations++;
+    }
+    /* LIGHT GRID + KERNELS (2026-10-10, "slower since the new textures"). A station with ~270 emitters re-samples every
+       prop and body each frame (a flickering screen changes an alpha, which correctly clears the sample cache), and
+       every sample walked EVERY source with a string-keyed transmission lookup per source in reach — the hottest
+       function on the floor. Two remembered halves now, both scoped to the light GEOMETRY (every source's position,
+       reach and emitter origins, and the walls), never to brightness:
+         · grid — each cell lists the sources whose reach box covers it, in currentLights order;
+         · kernel — per exact sample point, each covering source's falloff, wall transmission and unit direction.
+       A sample is then the kernel weighted by this frame's alpha and colour: the same terms lightAt computes, summed in
+       the same order, so the descriptor is identical. A moving body's new point builds its kernel the old way. */
+    const GRID_CELL = 64, KERNEL_LIMIT = 4096;
+    let gridGeom = null, gridKeys = null, gridSegs = null, gridFor = null;
+    const gridIdx = new Map(), kernels = new Map();
+    function syncGrid() {
+      if (gridFor === currentLights && gridSegs === segments) return;
+      gridFor = currentLights;
+      let same = gridSegs === segments && !!gridGeom && gridGeom.length === currentLights.length * 3;
+      for (let i = 0; same && i < currentLights.length; i++) {
+        const l = currentLights[i];
+        same = gridGeom[i * 3] === l.x && gridGeom[i * 3 + 1] === l.y && gridGeom[i * 3 + 2] === l.r && gridKeys[i] === l.originKey;
+      }
+      if (same) return;
+      gridSegs = segments; gridGeom = new Float64Array(currentLights.length * 3); gridKeys = new Array(currentLights.length);
+      gridIdx.clear(); kernels.clear();
+      currentLights.forEach((l, i) => {
+        gridGeom[i * 3] = l.x; gridGeom[i * 3 + 1] = l.y; gridGeom[i * 3 + 2] = l.r; gridKeys[i] = l.originKey;
+        const x0 = Math.floor((l.x - l.r) / GRID_CELL), x1 = Math.floor((l.x + l.r) / GRID_CELL);
+        const y0 = Math.floor((l.y - l.r) / GRID_CELL), y1 = Math.floor((l.y + l.r) / GRID_CELL);
+        for (let gy = y0; gy <= y1; gy++) for (let gx = x0; gx <= x1; gx++) {
+          const k = gx + ',' + gy; let a = gridIdx.get(k); if (!a) gridIdx.set(k, a = []); a.push(i);
+        }
+      });
+    }
+    // the geometry half of lightAt for one point: [index, falloff, transmission, ux, uy] per contributing source
+    function kernelAt(x, y, key) {
+      let k = kernels.get(key);
+      if (k) return k;
+      k = [];
+      const idx = gridIdx.get(Math.floor(x / GRID_CELL) + ',' + Math.floor(y / GRID_CELL)) || [];
+      metrics.sampleSourcesWalked += idx.length;
+      for (const i of idx) {
+        const l = currentLights[i], transmission = transmissionOf(l, x, y); if (!transmission) continue;
+        const o = originOf(l), d = Math.hypot(o.x - x, o.y - y);
+        k.push(i, falloff(Math.hypot(x - l.x, y - l.y) / l.r), transmission, d > EPS ? (o.x - x) / d : NaN, d > EPS ? (o.y - y) / d : NaN);
+      }
+      if (kernels.size >= KERNEL_LIMIT) kernels.delete(kernels.keys().next().value);
+      kernels.set(key, k);
+      return k;
+    }
+    // lightAt's sum over a kernel, with this frame's alpha and colour (same terms, same order)
+    function lightFromKernel(k) {
+      const rgb = [0, 0, 0]; let strongest = null, strength = 0, energy = 0, dx = 0, dy = 0;
+      for (let j = 0; j < k.length; j += 5) {
+        const l = currentLights[k[j]], v = l.a * k[j + 1] * k[j + 2];
+        for (let i = 0; i < 3; i++) rgb[i] += l.c[i] * v;
+        if (k[j + 3] === k[j + 3]) { dx += k[j + 3] * v; dy += k[j + 4] * v; }
+        energy += v;
+        if (v > strength) { strength = v; strongest = l; }
+      }
+      const direction = Math.hypot(dx, dy);
+      return { rgb: rgb.map(v => Math.round(clamp(v, 0, 255))), strength, source: strongest,
+        color: rgb.map(v => energy > EPS ? Math.round(clamp(v / energy, 0, 255)) : 0),
+        dx: direction > EPS ? dx / direction : 0, dy: direction > EPS ? dy / direction : 0,
+        energy, coherence: energy > EPS ? clamp(direction / energy, 0, 1) : 0 };
     }
     function sample(x, y) {
       x = +x; y = +y;
@@ -274,7 +356,8 @@ const WorldLight = (() => {
         samples.delete(key); samples.set(key, cached); metrics.sampleCacheHits++; return cached;
       }
       metrics.sampleCacheMisses++;
-      const hit = lightAt(x, y, currentLights, segments, transmissionOf), limit = sampleLimit();
+      syncGrid();
+      const hit = lightFromKernel(kernelAt(x, y, key)), limit = sampleLimit();
       // Descriptors are read-only so a sprite's tint adjustment cannot poison the
       // next furniture/crew draw sharing this exact physical position.
       Object.freeze(hit.rgb); Object.freeze(hit.color); Object.freeze(hit);
@@ -556,7 +639,7 @@ const WorldLight = (() => {
       fixtureLights = sourceFixtures.map(s => normalizeLight(s, true, finite(frame.fixtureGain, 1))).filter(Boolean).slice(0, q.maxSources);
       preparedLights = sourceProps.map(s => normalizeLight(s, false, finite(frame.emission, config.emission))).filter(Boolean).slice(0, q.maxSources);
       currentLights = fixtureLights.concat(preparedLights); preparedFrame = frame;
-      for (const light of currentLights) light.origins = originsOf(light, q.areaSamples);
+      for (const light of currentLights) { light.origins = originsOf(light, q.areaSamples); light.segsNear = segsNear(light); }
       // Sample energy must respond to even sub-byte changes. Raster map keys may
       // quantize alpha for reuse; this key deliberately retains its exact value.
       const exact = lights => lights.map(l => keyOf(l) + ',' + l.a + ',' + beamKey(l)).join(';');
@@ -602,15 +685,36 @@ const WorldLight = (() => {
       metrics.frames++; metrics.lastBuildMs = +(clock() - started).toFixed(3); return true;
     }
 
+    /* (2026-10-10) a body's wall clip is a 24-ray cast against every wall, and a 49-body crew paid it for every body,
+       on-screen or not, every frame (~15% of a floor draw). The polygon depends only on the foot, the reach and the
+       walls, so a body standing still reuses it; off-canvas bodies skip the pass (everything here is clipped to it). */
+    const GROUND_POLY_LIMIT = 512; let groundPolyFor = null; const groundPolys = new Map();
+    function groundPolygon(x, y, r) {
+      if (groundPolyFor !== segments) { groundPolyFor = segments; groundPolys.clear(); }
+      const k = x + ',' + y + ',' + r; let p = groundPolys.get(k);
+      if (!p) {
+        p = visibilityPolygon({ x, y, r }, segments, 24);
+        if (groundPolys.size >= GROUND_POLY_LIMIT) groundPolys.delete(groundPolys.keys().next().value);
+        groundPolys.set(k, p);
+      }
+      return p;
+    }
     function drawGrounding(ctx, bodies) {
       if (disposed || !ctx || !geo) return;
+      const m = typeof ctx.getTransform === 'function' ? ctx.getTransform() : null, cv = ctx.canvas;
+      const cull = m && cv && cv.width > 0 && !m.b && !m.c && m.a > 0 && m.d > 0;
       ctx.save(); clipFloor(ctx); ctx.globalCompositeOperation = 'multiply';
       for (const body of (bodies || [])) {
-        const s = shadowFor(body, currentLights, segments,
-          sample(finite(body.x, body.px), finite(body.y, body.py))); if (!s) continue;
+        const bx = finite(body.x, body.px), by = finite(body.y, body.py);
+        if (cull && Number.isFinite(bx) && Number.isFinite(by)) {   // no shadow reaches past its body's height + width
+          const reach = (clamp(finite(body.height, 18), 2, 90) + clamp(finite(body.width, 8), 2, 140) + 6) * Math.max(m.a, m.d);
+          const sx = bx * m.a + m.e, sy = by * m.d + m.f;
+          if (sx + reach < 0 || sy + reach < 0 || sx - reach > cv.width || sy - reach > cv.height) continue;
+        }
+        const s = shadowFor(body, currentLights, segments, sample(bx, by)); if (!s) continue;
         ctx.save();
         // The silhouette can spread around a foot, but never through a bulkhead.
-        const polygon = visibilityPolygon({ x: s.x, y: s.y, r: s.length + s.width }, segments, 24);
+        const polygon = groundPolygon(s.x, s.y, s.length + s.width);
         ctx.beginPath(); polygon.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)); ctx.closePath(); ctx.clip();
         const ex = s.x + s.dx * s.length, ey = s.y + s.dy * s.length;
         // Nested low-opacity silhouettes form a bounded penumbra without a blur
