@@ -1,0 +1,88 @@
+# Reliability and performance handoff — 2026-10-11
+
+Reviewed baseline: `ddd4cbcfa` (integration trunk). Isolated continuation: `agent/reliability-review-1011`. Repair: `f0a53efb0`. No integration merge, push, installer, deployment, customer message, or release was performed by this lane.
+
+## Assessment
+
+The strongest explanation is **inconsistent behavior at integration boundaries, amplified by large prompts and repeated changes to shared code**. This is not evidence that StarNet is uniformly worse than Hermes, or that more features will cure the problem. The existing harness has useful safeguards; some audit recommendations would duplicate them. Fixes already merged since the audit must be verified before they are rebuilt.
+
+The first independently reproduced repair from this handoff prevents `fs.patch` from silently replacing a guessed block interior. The production tool returned success for a nested function edit that produced invalid JavaScript. It now refuses that hunk before any file write. Exact edits and existing edge-whitespace matching still work; the matched region retains its line-ending convention.
+
+## What the Claude process actually completed
+
+The preserved journal contains **97 result records**, not 97 independently confirmed bugs. Grouping by the recorded stage label gives **14 investigations, 127 candidate findings, and 56 distinct completed verification lenses covering 33 candidate findings**. Repeated result labels account for 27 additional records. Other candidates can be duplicates of verified findings, but they did not receive their own completed adversarial lens. The final synthesis and critique did not complete after the usage limit. The workflow ending is not the same as the audit being finished.
+
+The breadth was useful: local code, public reports, historical runs, live scripted-provider probes, and reference harnesses were compared. The adversarial stage was particularly valuable: it refuted missing-feature claims, narrowed affected providers, and separated tool-call counts from model turns. The expensive mistake was expanding discovery faster than findings could be reconciled and synthesized. The right continuation is an evidence ledger and a short prioritized queue, not another full audit.
+
+Evidence retained locally in `.dogfood/reliability-review/recovered-results.json` preserves the last completed result for each stage label. The original journal and output remain in the organizing lane's preserved handoff folder. The normalized file is not a claim that every result is correct. No private transcript or raw customer material is committed here.
+
+## Prioritized root causes and disposition
+
+| Priority | Finding supported by this review | Current evidence and next action |
+| --- | --- | --- |
+| P1 | Unsafe fuzzy patch selection can corrupt source while reporting success. | Fresh pure-module and seeded-sidecar reproduction on the baseline; source repair `f0a53efb0`, 40 focused assertions, before/after real file bytes and tool-result events. This lane owns the repair. |
+| P1 | Provider compatibility and state-lifecycle seams cause hard failures. | Audit examples include strict-template system-message placement (#102), reset versus recovery (#101), and upload target selection (#104). The issue-review lane owns #101/#102/#104/#107 and the station-builder registration race. Do not duplicate those edits. |
+| P1 | Conversation context differs between ordinary COMMS, channels, and queued/resumed runs. | Ordinary COMMS still builds a prose history; `channels/hub.js:1782` and `:2002` discard tool-call metadata, while the transcript reconstruction retains it. This is a remaining source-level inconsistency, not fresh live proof of every memory symptom. The memory/stop lane owns verification and disposition. |
+| P2 | Subscription-specific request packaging makes long tool runs expensive. | `providers/claude-cli.js` still spawns a child per turn and builds one growing conversation block. The audit's cache-write measurements are contributor/model-specific and its timings were n=1, not an isolated startup benchmark. A persistent-child implementation needs cancellation, compaction/reset, isolation, and same-model cache measurements before adoption. |
+| P2 | Fixed task payload and background learning consume disproportionate resources on short tasks and small models. | The real host payload guard exists. Its configured task budget is 84 tools / 66,100 schema bytes plus roughly 25k system characters. These are guard budgets, not a universal current token count. Reflection/study cooldowns in `index.js:3088` and `:3287` arm only when proposals survive. A NONE result can therefore spend again on the next eligible task. Dossier/fork content is still in the composed persona (`app.js:390–402`). Preserve learning while measuring and reducing cold requests. |
+| P2 | Caller-set run options and surface-blind capability display can drift. | There is already one `runOnceCore`, tool composition pipeline, and credential resolver. The defect class is an unstructured option contract and UI posture differences, not the absence of a shared host. Introduce explicit surface profiles and parity scenarios incrementally; do not add a second resolver or remove deliberate ASK restrictions. |
+| P2 | Change gates do not cover all boundaries that users exercise. | Existing deterministic loop, payload, HTTP, and static checks are real. Historical DNS transport and reset/recovery failures show why mock-only checks cannot prove the actual failing boundary. Each repair needs a regression at its boundary and a candidate-bound installed check where packaging matters. A green source gate is not customer recovery. |
+| P3 | Live-floor edits can trigger unnecessary full station baking. | `world.js:648` ignores the station-change patch and dirties geometry; rebake uses the full station. The existing nav-lag commit `37b595d21` is not an ancestor of this baseline. Build mode has separate incremental behavior, so “every manual prop edit freezes” is wrong. Coordinate the existing lane; measure live-floor edits, build exit, and pan separately. |
+
+These priorities are an engineering ordering for the handoff, not a measured population-wide incidence ranking. The issue reports and benchmark results are historical evidence; source presence does not establish current installer behavior.
+
+## Retire or qualify these audit headlines
+
+- **“Older chat turns disappear without any server recovery.”** Superseded as a blanket claim. `e042c73e0` added `earlier-conversation.js`; `index.js:21304` reconstructs dropped material into a bounded summary note using the durable transcript. It preserves user words within its budget and shortened reply heads. It is not full tool-history replay or an unlimited memory guarantee. Alignment/budget limits and the remaining history shapes belong to the memory verification lane.
+- **“A saved rule is always relevance-only; recall favors old beliefs; a thumbs-up carries no design; the manual seed never refreshes.”** The memory/design merges `1bbdd219c` and `4c088a135` contain source changes for dated/newer-wins recall, user-stated provenance, standing instructions, supersession, approval anchors, image references, and seed refresh. Do not report the old reproductions as current defects. Installed/live acceptance is separate.
+- **“An empty reply always stops immediately; a channel follow-up always kills work; completed offers always trigger the old continuation regex.”** Stop merge `5589b3110` adds recovery and clearer reasons; current `loop.js` uses revised sentence/condition logic. The remaining stop-cost and duplicate-text questions require the owning lane's fresh results.
+- **“The worst big-output benchmark proves current runs take 15 versus 8 turns.”** Stale. Parked-output fix `4a4dc6908` is an ancestor of this baseline. Multi-path reads and `brief_proceed` did not cost the extra turns alleged in those receipts; batching already occurred.
+- **“No shared resolver, no static checks, no prompt guard, no turn-count tests, no performance tooling, or no verified write receipts.”** False as absolutes. The repository contains the shared host, `lint-*` checks, `payload.budget.test.js`, `agent-eval`, `scripts/eval`, and read-back mutation receipts. Missing general type/lint coverage or a real-model latency regression gate is a narrower claim.
+- **“Templates and chat-based station configuration need to be invented.”** The adversarial review found existing implementations. Setup clarity, working-folder expectations, and the intended handoff path remain usability questions; the spatial metaphor itself was not proven to be the dominant cause.
+- **“Set aux budget to zero to stop extra calls.”** Unsafe recommendation: `auxgovernor.js` explicitly defines zero as unlimited. Do not apply it. Aux calls normally run after the reply, so they do not automatically explain that reply's latency; contention with a later local-model request is a separate hypothesis.
+- **“All open issues are unfixed” or “all issues named in release notes can be closed.”** Neither follows. Some fixes shipped, some reports are partial or recur, and reporter recovery is unknown. The issue-review lane owns triage. No public reply or close is authorized by this report.
+
+## Fair comparison with Hermes and other harnesses
+
+The recovered probes point to useful design differences: a durable conversation source with tool pairs, persistent compaction, stable cached prefixes, a smaller default tool surface with discovery, and enforceable code/release constraints. Those are specific engineering patterns to evaluate, not proof that Hermes is globally more reliable.
+
+The recovered Hermes payloads differ by configuration and probe (19 tools in one live scripted capture versus 38–39 in another comparison). StarNet's request shape also varies with floor, entry point, task classification, and learned state. A single universal “2x” or “5x” overhead number is unsupported. The live Hermes comparison used upstream snapshot `74f77ab9b0`; it was not rerun here. Greeting behavior actually favored StarNet's tool-free chat diet. StarNet also already has host-enforced side-effect replay safeguards and read-back file receipts. Raw issue counts are not comparable defect rates without user/exposure denominators.
+
+The useful next benchmark reuses the existing eval tools: pin both revisions, model, effort, tool posture, and representative tasks; capture request bytes, actual cache read/write usage, main versus aux calls, model turns, first-token time, verified-artifact time, and output correctness. Repeat cells rather than attributing n=1 total latency to process spawn. Do not copy an external contributor's branch into trunk as part of this handoff.
+
+## Process for the remaining work
+
+1. Keep each concrete symptom attached to its source revision, reproduction, owning lane, and disposition: current, source-repaired, awaiting live proof, or unverified. Collapse duplicate audit findings before assigning work.
+2. Finish the already-owned memory/stop, issue-triage, and conveyor lanes first. Integrate one reviewed lane at a time through the organizing chat. Preserve the interrupted audit-fixes tree.
+3. For a repair, make a failing behavioral test and a live before/after check at the actual seam. Include sibling entrypoints, adapters, displays, and restart behavior where relevant. Keep full-source gates distinct from installer and reporter acceptance.
+4. For performance, first measure payload/cache/turn/aux costs on the same scenario. Fix one cause, rerun that scenario, and retain the receipt. Do not add another prompt paragraph as the default response to a harness defect.
+5. Bound future audit rounds: synthesize the strongest few findings before starting more discovery, save partial verdicts continuously, and stop when new findings duplicate an owned item. A long report without verified disposition is unfinished work.
+
+## Validation and limitations
+
+Focused patch regression: baseline **10 failures**, repaired **40 assertions passed**. Seeded app (`dev/seed.js --keep`) with a local scripted SSE provider: baseline guessed patch returned a successful tool result and corrupted the file; repaired guessed patch returned `agent.tool_result {ok:false,isError:true}` and preserved every byte. Correct exact patch and CRLF update succeeded and read back. Each run produced `agent.run.end`; deterministic fixture usage was recorded. This proves the production tool/host/file path, not model decision quality.
+
+Receipts: `.dogfood/reliability-review/patch-before.log`, `patch-after.log`, `live-before.json`, `live-after.json`, and corresponding NDJSON/boot logs. The isolated checkout used junctions to shared art/dependencies after concurrent full checkouts exhausted disk. These links were not enforced read-only. A later sparse-checkout adjustment traversed the asset junctions and deleted 30,630 tracked assets in the integration tree. This was my workspace-setup error. The user explicitly authorized recovery from the current Git index, limited to recorded missing paths and without force-overwriting existing files. Recovery verification is recorded below. Original Claude worktrees are preserved. Do not run sparse-checkout or read-tree operations over asset junctions.
+
+Full gate results are appended below. No installed build or real-provider performance improvement has been verified by this lane. Remaining matcher policies such as read-before-patch and per-line indentation inference were not broadened in this repair.
+
+
+### Gate attempts and recovery
+
+The first fast gate stopped at step 80/1118 because the sparse checkout omitted gal/cap-bundle.js. After that setup adjustment, the next fast gate reached step 546/1118 and stopped at world-immersion-characters.test.js because the asset manifest was missing following the junction incident. Neither attempt is a passing gate.
+
+The HTTP gate stopped at step 54/200, station-builder.e2e.test.mjs, with six station-line registration/arming failures. That seam is owned by the issue-review lane. Because assets were missing during this attempt, this result needs a restored-assets check before attributing it solely to the existing race. Logs: .dogfood/reliability-review/fast.log and http.log.
+
+Fresh targeted baseline checks passed: stale-token-recovery.test.js (56 assertions) and lint-determinism.js (385 files). The recovered audit's old failures for those checks are not current proof on this baseline.
+
+Recovery initially restored all 30,630 recorded paths (checkout-index exit 0; deleted-path count 0). A subsequent status check observed assets being removed again, eventually returning to 30,630 deletions. Another active lane also recorded sparse-checkout changes over asset junctions during this period; exact attribution is not established. The same approved missing-only recovery was repeated. Final verification remains pending; no existing file is force-overwritten.
+
+Final recovery verification: both asset directories have an empty Git porcelain status (0 bytes); both sprites/manifest.json files exist. The repeated missing-only checkout completed with exit 0. The formerly blocked world-immersion-characters.test.js then passed all 13 cases. Receipts: asset-recovery-final.json, asset-recovery-final-status.nul and asset-recovery-retry.log under .dogfood/reliability-review. The organizing lane has instructed its children to detach verified links before Git/sparse/mirror operations; no additional sparse operations are permitted with this lane's links mounted. Fresh full fast and focused station-builder HTTP checks are running.
+
+The restored-assets station-builder HTTP rerun passed all checks (1 manifest step, 122 scripted model calls, no page exceptions), including line arming, Undo and real rendered-room output. This does not establish the cause of the earlier failure; it means that failure is not proof of a persistent defect on this revision. Receipt: station-builder-restored.log. The full HTTP gate was restarted after this pass.
+
+The full HTTP rerun stopped at step 9/200: sidecar.http.test.js exceeded its 9-second boot deadline in the paid-switch fixture. A targeted rerun then passed all 522 assertions (1 manifest step). Resource contention is a possibility, not an established cause. Receipts: http-restored.log and sidecar-http-targeted.log. No timeout was raised and no application source was changed to make the check pass. Per gate coordination, the organizing lane owns the final full fast/HTTP run on the combined candidate; this lane will not restart broad gates for this transient result. The already-running fast gate remains in progress.
+
+The organizing lane also identified seven missing tracked website/assets files (favicon, OG card, two logos, station image, and two font files). Their deletion was verified and each absent path restored from the current index without force; checkout-index exited 0 and website/assets porcelain status is empty. Receipt: website-asset-recovery.json. No existing file was replaced.
+
+Final lane fast-gate result: FAILED at step 897/1118 in website-app-sync.test.js. Its check-only script treats this sparse checkout's asset junction as a file and readFileSync raises EISDIR (sync-website-app.mjs:102). The first 896 steps completed; this is not a full green gate. Both owned asset junctions were then verified and detached with unlink only, leaving their target files intact. The gate is unchanged. The organizing candidate has physical asset directories and owns final full fast/HTTP validation. No integration/release readiness is claimed.
