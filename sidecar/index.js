@@ -16604,7 +16604,7 @@ function deliverableFilter(items, f) {
 // the live library minus what the Commander cleared (CLEARED is a view preference; the rows themselves are untouched)
 async function visibleDeliverableRows() {
   const hidden = deliverableStore.clearedIds();
-  return (await deliverableRows()).filter(r => !hidden.has(r.id));
+  return (await deliverableRows()).filter(r => r.status === 'pending' || !hidden.has(r.id));
 }
 async function handleDeliverablesList(req, res) {
   const json = (code, obj) => { res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(obj)); };

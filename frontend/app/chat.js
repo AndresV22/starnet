@@ -119,6 +119,7 @@ const Chat = (() => {
   let stick = true;   // STICKY-BOTTOM: auto-scroll only fires when the Commander is already at/near the bottom,
                       // so scrolling UP to re-read history mid-stream isn't yanked back down by every token.
   let historyPinSeq = 0, historyPinPending = 0;   // a load owns one final post-layout pin; a real user gesture cancels it
+  let userScrollHeld = false;
   let userScrollAt = 0;   // last real scroll GESTURE on the log (wheel/touch/scrollbar/keys) — only a gesture can unstick
   function nearBottom() { return !log || (log.scrollHeight - log.scrollTop - log.clientHeight < 40); }
   function autoscroll() { if (stick && log) log.scrollTop = log.scrollHeight; else if (log) showNewPill(true); }   // content landed while unstuck → "new messages"
@@ -725,10 +726,11 @@ const Chat = (() => {
     return '<span class="md-img" data-md-path="' + escapeHtml(target) + '" data-md-alt="' + escapeHtml(name) + '"><span class="md-img-alt">' + escapeHtml(name) + '</span></span>';
   }
   // the default resolver: the speaking agent's workspace, through the same open/preview/lightbox seams as every deliverable
-  const fileRefCache = new Map();   // agent|path -> Promise<blob url>; kept so a streaming re-render never refetches per frame
+  const fileRefCache = new Map();   // message|agent|path -> Promise<blob url>; failures stay cached for that message too
+  let fileRefScope = 0;
   function cachedBlob(key, load) {
     if (fileRefCache.has(key)) return fileRefCache.get(key);
-    const p = load().catch(e => { fileRefCache.delete(key); throw e; });
+    const p = load();   // a missing file is stable within one message; a later message gets a fresh read
     fileRefCache.set(key, p);
     if (fileRefCache.size > 60) { const [old, op] = fileRefCache.entries().next().value; fileRefCache.delete(old); op.then(u => { try { URL.revokeObjectURL(u); } catch (_) {} }, () => {}); }
     return p;
@@ -739,18 +741,20 @@ const Chat = (() => {
     return fetch(url, { cache: 'no-store' }).then(r => { if (!r.ok) throw new Error('file HTTP ' + r.status); return r.blob(); })
       .then(b => URL.createObjectURL(/\.svg$/i.test(String(path || '')) && b.type !== 'image/svg+xml' ? new Blob([b], { type: 'image/svg+xml' }) : b));
   }
-  function workspaceFileRefs(agentId) {
+  function workspaceFileRefs(agentId, messageKey) {
+    const scope = messageKey == null ? 'body:' + (++fileRefScope) : String(messageKey);
     return {
       wire: (a, path) => wireFileOpen(a, path, agentId || attachAgentId()),
-      image: path => { const aid = agentId || attachAgentId(); return cachedBlob(aid + '|' + path, () => imageBlobUrl(fileUrl(path, aid), path)); }
+      image: path => { const aid = agentId || attachAgentId(); return cachedBlob(scope + '|' + aid + '|' + path, () => imageBlobUrl(fileUrl(path, aid), path)); }
     };
   }
   function hydrateFileRefs(bodyEl) {
     if (!bodyEl.querySelector || !bodyEl.querySelector('.md-file, .md-img')) return;
-    const refs = bodyEl.__fileRefs || workspaceFileRefs(null);
+    const refs = bodyEl.__fileRefs || (bodyEl.__fileRefs = workspaceFileRefs(null));
     bodyEl.querySelectorAll('a.md-file').forEach(a => { try { refs.wire(a, a.getAttribute('data-md-path')); } catch (_) {} });
     bodyEl.querySelectorAll('.md-img:not([data-ready])').forEach(box => {
       const path = box.getAttribute('data-md-path'), alt = box.getAttribute('data-md-alt') || path;
+      box.setAttribute('data-ready', 'loading');   // carry pending and failed slots across streaming re-renders too
       const link = document.createElement('a'); link.className = 'thumb md-thumb'; link.href = '#'; link.setAttribute('aria-label', 'Enlarge ' + alt);
       const img = document.createElement('img'); img.alt = alt; img.decoding = 'async';
       link.appendChild(img);
@@ -770,6 +774,7 @@ const Chat = (() => {
         if (host) host.__mdWasAtBottom = host.scrollHeight - host.scrollTop - host.clientHeight < 60;
         img.src = u; box.replaceChildren(link); box.setAttribute('data-ready', '1');
       }, () => {
+        box.setAttribute('data-ready', 'missing');
         box.classList.add('md-img-missing');   // not on disk (or not shared): say so instead of a broken frame
         box.querySelector('.md-img-alt').textContent = alt + ' — image not found';
       });
@@ -974,13 +979,18 @@ const Chat = (() => {
            reading history; off the bottom with NO gesture = layout moved under a follower, so follow it back down. */
         const near = nearBottom();
         if (near) stick = true;
-        else if (Date.now() - userScrollAt < 1200) stick = false;
+        else if (userScrollHeld || Date.now() - userScrollAt < 1200) stick = false;
         else if (stick) log.scrollTop = log.scrollHeight;
         if (stick) hideNewPill(); else showNewPill(false);
       });   // at the bottom → retire the pill; scrolled up → a persistent "↓ latest" affordance
       // A real attempt to inspect history wins even during the two-frame settle window.
       ['wheel', 'touchstart', 'pointerdown'].forEach(type => log.addEventListener(type, cancelHistoryPin, { passive: true }));
       ['wheel', 'touchstart', 'touchmove', 'pointerdown', 'keydown'].forEach(type => log.addEventListener(type, () => { userScrollAt = Date.now(); }, { passive: true }));
+      log.addEventListener('pointerdown', () => { userScrollHeld = true; }, { passive: true });
+      if (!window.__chatScrollReleaseWired) {
+        window.__chatScrollReleaseWired = true;
+        ['pointerup', 'pointercancel', 'blur'].forEach(type => window.addEventListener(type, () => { userScrollHeld = false; userScrollAt = Date.now(); }, { passive: true }));
+      }
     }
     // LINKS OUTSIDE COMMS (QA 2026-10-02): group chats, a group's .md file preview and the WORKFLOWS results render through
     // this same renderProse, but the OS-browser hand-off below lives on #chat-log only — so on desktop those links were dead

@@ -409,22 +409,26 @@
           : (j.skipped ? 'Nothing cleared —' + kept.replace(/ and stayed\.$/, ': KEEP IT or DISCARD first.') : 'Nothing to clear here.'), j.cleared ? j.undoToken : '');
       } catch (e) { if (b) b.disabled = false; say('Could not clear: ' + e.message, true); }
     }
+    function clearShownLabel() {
+      const filtered = !!(runFilter || project || kind || q.value || status.value);
+      return (filtered ? 'CLEAR THESE ' : 'CLEAR ALL ') + (runFilter ? rows.length : total);
+    }
     function wireClears() {
       const shown = body.querySelector('#dl-clear-shown');
-      const filtered = !!(runFilter || project || kind || q.value || status.value);
       shown.hidden = !rows.length;
+      if (shown.dataset.armed !== '1') shown.textContent = clearShownLabel();
       if (shown.dataset.wired !== '1' && typeof ArmConfirm !== 'undefined' && ArmConfirm.wire) {
         shown.dataset.wired = '1';
         ArmConfirm.wire(shown, {
           armedLabel: 'CLEAR THEM — SURE?',
           onArm: () => say('Clears every deliverable in this view out of the library (anything still waiting for a decision stays). The files stay on disk, and UNDO brings them back. Click again to confirm.'),
-          onDisarm: () => say(''),
+          onDisarm: () => { shown.textContent = clearShownLabel(); say(''); },
           onConfirm: () => clearRows(runFilter ? { ids: rows.map(r => r.id) } : { filter: curFilter() }, shown)
         });
       }
       shown.disabled = false;
       // the resting label names the real scope — the whole library, or the filtered view — with the server's own count
-      const label = (filtered ? 'CLEAR THESE ' : 'CLEAR ALL ') + (runFilter ? rows.length : total);
+      const label = clearShownLabel();
       if (shown.dataset.armed !== '1') shown.textContent = label;
       list.querySelectorAll('button.dlv-bclear').forEach(btn => {
         if (typeof ArmConfirm === 'undefined' || !ArmConfirm.wire) return;

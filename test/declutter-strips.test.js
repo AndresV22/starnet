@@ -67,7 +67,7 @@ A.ok(/\|\\\]\\\(\/m;/.test(chat), 'the prose fast path no longer skips a reply w
 A.ok(/function hydrateFileRefs\(bodyEl\)/.test(chat) && /hydrateFileRefs\(bodyEl\);/.test(chat), 'renderProse hydrates file links and images');
 A.ok(/new Blob\(\[b\], \{ type: 'image\/svg\+xml' \}\)/.test(chat), 'an .svg served as a download is retyped so the <img> decodes');
 A.ok(/\.md-img\[data-ready\]/.test(chat), 'a loaded image is carried across streaming re-renders (no per-frame rebuild)');
-A.ok(/Date\.now\(\) - userScrollAt < 1200\) stick = false/.test(chat) && /else if \(stick\) log\.scrollTop = log\.scrollHeight/.test(chat),
+A.ok(/userScrollHeld \|\| Date\.now\(\) - userScrollAt < 1200\) stick = false/.test(chat) && /else if \(stick\) log\.scrollTop = log\.scrollHeight/.test(chat),
   'only a real scroll gesture stops the follow; layout moving under a follower re-pins');
 A.ok(/wire: \(a, p\) => \{\s*a\.addEventListener\('click', ev => \{\s*const art = sharedFor\(groupId, p\)/.test(gc), "a group link resolves the shared copy at CLICK time");
 A.ok(/class: 'gc-message cmsg agent gc-doc'/.test(gc), 'a previewed .md file wears the transcript markdown styles');

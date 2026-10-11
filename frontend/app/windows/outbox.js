@@ -70,12 +70,12 @@
     tog.addEventListener('click', () => { sectionOpen = !sectionOpen; try { localStorage.setItem(FOLD_KEY, sectionOpen ? '1' : '0'); } catch (_) {} paintFold(); });
     more.addEventListener('click', () => { showAll = !showAll; paintFold(); });
     const clearEvery = () => {
-      const ids = rows.map(r => r.runId);
+      const ids = Array.from(list.children).filter(r => r.dataset.collected !== '1').map(r => r.dataset.runId).filter(Boolean);
       if (RS && RS.resolveAll) RS.resolveAll(ids); else if (RS && RS.resolve) ids.forEach(id => RS.resolve(id));
       notify('Cleared ' + ids.length + ' from TO REVIEW. The work stays in your library.', '');
       renderEmpty();
     };
-    if (typeof ArmConfirm !== 'undefined' && ArmConfirm.wire) ArmConfirm.wire(clearAll, { armedLabel: 'CLEAR ALL — SURE?', onConfirm: clearEvery });
+    if (typeof ArmConfirm !== 'undefined' && ArmConfirm.wire) ArmConfirm.wire(clearAll, { armedLabel: 'CLEAR ALL — SURE?', onDisarm: paintFold, onConfirm: clearEvery });
     else clearAll.addEventListener('click', clearEvery);
     // agent id → display name via the live roster (raw ids read as debug output)
     const agentName = id => { const a = (Array.isArray(H.present) ? H.present.find(x => x && x.id === id) : null); return (a && a.name) || id || 'agent'; };
@@ -121,10 +121,10 @@
       DLV.handleOpenClick(ev, dlvRows, openState, (s, bad) => notify(s, bad ? 'warn' : ''));
     });
     let open = rows.length;
-    const collected = (row) => { row.style.transition = 'opacity .25s ease'; row.style.opacity = '0'; setTimeout(() => { row.remove(); if (--open <= 0) renderEmpty(); else paintFold(); }, 300); };
+    const collected = (row) => { row.dataset.collected = '1'; row.style.transition = 'opacity .25s ease'; row.style.opacity = '0'; setTimeout(() => { row.remove(); if (--open <= 0) renderEmpty(); else paintFold(); }, 300); };
     const closeOthers = (except) => { list.querySelectorAll('.ob-row.open').forEach(r => { if (r !== except) { r.classList.remove('open'); const b = r.querySelector('.ob-body'); if (b) b.hidden = true; r.querySelector('.ob-head').setAttribute('aria-expanded', 'false'); r.querySelector('.ob-caret').textContent = '▸'; } }); };
     for (const rw of rows) {
-      const row = document.createElement('div'); row.className = 'ob-row';
+      const row = document.createElement('div'); row.className = 'ob-row'; row.dataset.runId = rw.runId;
       const when = rw.ts ? esc(fmtRel(new Date(rw.ts).toISOString())) : '';
       const usd = (+rw.usd > 0 && typeof U !== 'undefined' && U.usd) ? ' · ' + esc(U.usd(+rw.usd)) : '';
       // title: routine name wins (it's the human name of the job); else the run title until the

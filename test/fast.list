@@ -608,6 +608,7 @@ test/away-briefing.test.js
 test/briefing-frontend.test.js
 test/outbox-window.test.js
 test/declutter-strips.test.js
+test/declutter-recovery.test.js
 test/notifications-useful.test.js
 test/bell-settles.test.js
 test/quest-log-window.test.js
