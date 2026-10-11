@@ -61,7 +61,8 @@ const inBox = (p, t) => t.x >= p.x - 1 && t.x <= p.x + p.w && t.y >= p.y - 1 && 
     A.ok(inBox(to, last) && !inBox(from, last), 'the tile work arrives on at ' + to.agentId + ' is that bay’s alone');
   }
   const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'frontend/app/worldmodel.js'), 'utf8');
-  const connect = src.slice(src.indexOf('    function planBelt(A, B, linked) {'), src.indexOf('    function layBelt('));
+  const connect = src.slice(src.indexOf('    function planBelt(A, B, linked, o) {'), src.indexOf('    function layBelt('));   // (o: THE HAND's corner flip, 2026-10-10)
+  A.ok(connect.length > 1000, 'planBelt located');
   A.ok(/\} else if \(!aJ && !bJ && B\.t === 'bay' && \(A\.t === 'intake' \|\| A\.t === 'bay'\)\) \{/.test(connect) && /const tooClose = /.test(connect), 'TOO CLOSE survives only for a floor whose links were never adopted');
 }
 
