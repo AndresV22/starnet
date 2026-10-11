@@ -11,7 +11,9 @@
      2. Open the WS. Wait for op 10 HELLO -> heartbeat_interval.
      3. Heartbeat every interval (first beat jittered) with op 1 { d: last_seq }. Track ACKs (op 11); a missed
         ACK means a zombied connection -> reconnect.
-     4. IDENTIFY (op 2) with the token + intents (GUILDS | GUILD_MESSAGES | MESSAGE_CONTENT | DIRECT_MESSAGES).
+     4. IDENTIFY (op 2) with the token + intents (GUILDS | DIRECT_MESSAGES). The channel is DM-only, and Discord
+        delivers DM text WITHOUT the privileged MESSAGE_CONTENT intent, so we never ask for it: forgetting that
+        portal toggle used to kill the connection (close 4014) for nothing (2026-10-11 user report).
      5. On READY (dispatch): record session_id, resume_gateway_url, and our own bot user id (to ignore self).
      6. On every dispatch: bump last_seq. On MESSAGE_CREATE: skip our own author.id, else onMessage(d).
      7. op 7 RECONNECT / op 9 INVALID_SESSION -> reconnect; RESUME (op 6) with session_id + seq when the session
@@ -36,13 +38,19 @@
   const OP = { DISPATCH: 0, HEARTBEAT: 1, IDENTIFY: 2, RESUME: 6, RECONNECT: 7, INVALID_SESSION: 9, HELLO: 10, HEARTBEAT_ACK: 11 };
   // intents bitfield: GUILDS(1<<0) | GUILD_MESSAGES(1<<9) | MESSAGE_CONTENT(1<<15) | DIRECT_MESSAGES(1<<12)
   const INTENT = { GUILDS: 1 << 0, GUILD_MESSAGES: 1 << 9, DIRECT_MESSAGES: 1 << 12, MESSAGE_CONTENT: 1 << 15 };
-  const DEFAULT_INTENTS = INTENT.GUILDS | INTENT.GUILD_MESSAGES | INTENT.DIRECT_MESSAGES | INTENT.MESSAGE_CONTENT;
+  const DEFAULT_INTENTS = INTENT.GUILDS | INTENT.DIRECT_MESSAGES;
 
   const BACKOFF_BASE_MS = 1000;      // first reconnect delay
   const BACKOFF_MAX_MS = 30000;      // cap
   // resumable close codes: anything NOT in this "do-not-resume" set is treated as resumable.
   const NON_RESUMABLE_CLOSE = new Set([4004, 4010, 4011, 4012, 4013, 4014]);   // auth/intents/sharding = fatal-ish
   const FATAL_CLOSE = new Set([4004, 4013, 4014]);   // bad token / invalid or disallowed intents — stop for good
+  // What the user can actually do about each fatal close, in their words (the panel shows this detail verbatim).
+  const FATAL_DETAIL = {
+    4004: 'Discord rejected the bot token (4004). In the Developer Portal open your app, Bot, Reset Token, and paste the new token.',
+    4013: 'Discord refused the requested intents as invalid (4013). This is a StarNet bug; please report it.',
+    4014: 'Discord refused a privileged intent (4014). Turn it on under Bot, Privileged Gateway Intents in the Developer Portal.'
+  };
 
   function makeDiscordGateway(opts) {
     const o = opts || {};
@@ -280,7 +288,7 @@
         clearTimers();
         if (ws === sock) ws = null;
         if (closed) { setState('down', ''); return; }
-        if (FATAL_CLOSE.has(code)) { setState('error', 'gateway closed ' + code + ' (check token/intents)'); log('fatal close ' + code); closed = true; return; }
+        if (FATAL_CLOSE.has(code)) { setState('error', FATAL_DETAIL[code] || ('gateway closed ' + code)); log('fatal close ' + code); closed = true; return; }
         const resumable = !NON_RESUMABLE_CLOSE.has(code);
         log('ws closed ' + code + ' (resumable=' + resumable + ')');
         setState('down', 'reconnecting (' + code + ')');
