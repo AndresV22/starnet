@@ -18,7 +18,7 @@
   "expectedClaimCount": 37,
   "releaseSurface": {
     "algorithm": "sha256",
-    "sourceCommit": "efefa867729f138f35cd8cabe6f642f205ef021a",
+    "sourceCommit": "6092b546fb422fe52efd9073bcdbe56f7179cd2c",
     "pathSetSha256": "02b89ce2d893cfb89a028e02d127dfe9f73466048d2fc0c7572bba244cdfea2f",
     "files": [
       {
@@ -698,8 +698,8 @@
       },
       {
         "path": "frontend/app/navdock.js",
-        "bytes": 12177,
-        "sha256": "c9265ab98f1851bf13f09ba17e48a3e7b39a5d3e2e4daf0d3008cd34af3435fe"
+        "bytes": 12779,
+        "sha256": "8f95a5862f957b5780beb70da2f833231393b0e03e3493da205b5f6d1fb2b7df"
       },
       {
         "path": "frontend/app/nightnudge.js",
@@ -1278,13 +1278,13 @@
       },
       {
         "path": "frontend/app/updatecore.js",
-        "bytes": 5443,
-        "sha256": "acdd46b8c84b66c1ea3f3a39b7b3950967b602878188eb018918aeaacc693f5b"
+        "bytes": 7179,
+        "sha256": "bb9c3669357aea797a994a9f57b34a21a4704517030d42727e05057a0d80c8aa"
       },
       {
         "path": "frontend/app/updates.js",
-        "bytes": 23139,
-        "sha256": "153f105f2a21457e4df965cf85d573c2a59cdfe1f174a00fff85f1329cf67d88"
+        "bytes": 25616,
+        "sha256": "38368d6828c0c2c95751268f8bcd179125f1afcbd19b004adf596b1e3addf309"
       },
       {
         "path": "frontend/app/userprops.js",
@@ -1808,8 +1808,8 @@
       },
       {
         "path": "frontend/index.html",
-        "bytes": 98746,
-        "sha256": "6e1927fad1aa45bbe9f447bf86abc1df88a34f74b5cd6f979987ac8298427add"
+        "bytes": 98808,
+        "sha256": "fce21e44659cd2381f078fd3031b71e42754f0a2c8c45b3405afc3f30108d2f2"
       },
       {
         "path": "frontend/js/arcade.js",
