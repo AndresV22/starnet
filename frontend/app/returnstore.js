@@ -155,6 +155,16 @@ const ReturnStore = (() => {
     }
     if (!sid || typeof Workstreams === 'undefined' || !Workstreams.adopt) return false;
     let w = Workstreams.get(sid);
+    // a delegated worker's own thread is never a session of its own: its work opens on the asking conversation's card
+    // (known here, or only to the overseer when this page never adopted it)
+    const ov = !w && typeof Overseer !== 'undefined' && Overseer.snapshot ? Overseer.snapshot() : null;
+    const filed = ov && (ov.threads || []).find(t => t && t.id === sid && t.worker === true && t.parentStreamId && Workstreams.get(t.parentStreamId));
+    if ((w && Workstreams.isHidden && Workstreams.isHidden(w)) || filed) {
+      if (typeof App === 'undefined' || !App.openWorkstream) return false;
+      App.openWorkstream(w ? sid : filed.parentStreamId);
+      if (!w && typeof Delegated !== 'undefined' && Delegated.reveal) Delegated.reveal(sid);
+      return true;
+    }
     if (!w || !(w.history || []).some(m => m && m.role === 'assistant')) {
       // no session yet (or an output-less shell) — adopt + fold the durable transcript so the work is readable.
       // revive:true — this is a DELIBERATE Commander click ("review the work"), the one case that may

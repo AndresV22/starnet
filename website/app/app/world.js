@@ -10486,9 +10486,12 @@ const World = (() => {
     // it means a clean run whose reply was exactly the [SILENT] marker (the routine chose to report nothing).
     U.bus.on('cron.result', p => {
       if (!p) return;
-      if (p.outcome === 'failed') hudNote('✕ routine failed' + (p.reason ? ' — ' + p.reason : ''), 'warn', { kind: 'alert', go: { term: 'automation', section: 'routines' } });
-      // its result is in the routine's HISTORY (AUTOMATE › ROUTINES), never in DELIVERABLES › TO REVIEW, which lists desk runs
-      else if (p.outcome === 'ok') hudNote('◷ routine completed', 'good', { go: { term: 'automation', section: 'routines' } }, 'cronDigest');
+      // (2026-10-09) the notification opens the run ITSELF — its session holds the result — never the routines list,
+      // where the result was one more click (and opening the session never settled the notification)
+      const ses = p.runId ? { ws: 'cron-' + p.runId } : { term: 'automation', section: 'routines' };
+      if (p.outcome === 'failed') hudNote('✕ routine failed' + (p.reason ? ' — ' + p.reason : ''), 'warn', { kind: 'alert', go: ses });
+      // its result is in the routine's own session (and HISTORY under AUTOMATE › ROUTINES), never in DELIVERABLES › TO REVIEW
+      else if (p.outcome === 'ok') hudNote('◷ routine completed', 'good', { go: ses }, 'cronDigest');
     });
     // REWIND: the rare, important "we rolled the workspace back" beat. checkpoint.created is frequent + quiet
     // (the workbench already pulses on shell), so only the restore is toasted.
@@ -10608,7 +10611,8 @@ const World = (() => {
     // {promptId, agentId}). For the HERO, walk the body off its desk to the wait anchor and hold the waiting pose;
     // permission.response ({promptId, decision}) resumes (approve) or ends (deny) the run server-side, so we clear
     // the await and let the ongoing/finished run drive the body back to work or idle. Crew pauses hold position with the same amber tag; prompt IDs isolate overlapping approvals.
-    U.bus.on('permission.prompt', p => { if (p && (!p.agentId || (agent && p.agentId === agent.id))) enterAwait({ promptId: p.promptId || '', agentId: p.agentId || (agent && agent.id) }); else enterCrewAwait(p); });
+    // a delegated worker's ask rides its lead's run but names the worker (workerAgentId): the WORKER's body waits, not the lead's
+    U.bus.on('permission.prompt', p => { if (p && p.workerAgentId) { enterCrewAwait(Object.assign({}, p, { agentId: p.workerAgentId })); return; } if (p && (!p.agentId || (agent && p.agentId === agent.id))) enterAwait({ promptId: p.promptId || '', agentId: p.agentId || (agent && agent.id) }); else enterCrewAwait(p); });
     U.bus.on('permission.response', p => {
       if (p && awaitPrompt && (!p.promptId || p.promptId === awaitPrompt.promptId)) clearAwait();
       if (p && p.promptId) for (const b of crew) clearCrewAwait(b, p.promptId, true);

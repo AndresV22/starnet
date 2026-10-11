@@ -97,6 +97,20 @@ const { makeSubagentManager } = require('../sidecar/subagents.js');
     assert.equal(fs.readFileSync(corruptPath, 'utf8'), '{broken', 'damaged state is retained for recovery');
     saved.deletedIds.push(child.id); saved.workstreams = saved.workstreams.filter(w => w.id !== child.id);
     assert.throws(() => manager.resolve(child.id), /no such/, 'deleted threads stay deleted');
+    // a brand-new conversation the page has not saved yet: its delegating run files it, then its worker threads
+    assert.throws(() => manager.create({ title: 'Too early', parentStreamId: 'ws_fresh', agentId: 'researcher' }), /no such session/);
+    const fresh = manager.ensure({ id: 'ws_fresh', title: '', agentId: 'agent', projectRoot: '' });
+    assert.equal(fresh.id, 'ws_fresh', 'the asking run files its own conversation');
+    assert.equal(manager.create({ title: 'Scan competitors', parentStreamId: 'ws_fresh', agentId: 'researcher', requestId: 'r:c:0' }).parentStreamId, 'ws_fresh', 'so the first ask in a new chat still gets its worker threads');
+    assert.equal(manager.ensure({ id: 'ws_fresh', agentId: 'agent' }).id, 'ws_fresh', 'filing it again is a no-op');
+    const workerRow = manager.create({ title: 'Worker thread', parentStreamId: 'ws_fresh', agentId: 'researcher', requestId: 'r:c:1', worker: true });
+    const madeRow = manager.create({ title: 'A session the agent opened', parentStreamId: 'ws_fresh', agentId: 'agent', requestId: 'r:made' });
+    const snap = manager.snapshot().threads;
+    assert.equal(snap.find(t => t.id === workerRow.id).worker, true, 'a delegated worker thread is marked a worker');
+    assert.equal(snap.find(t => t.id === madeRow.id).worker, false, 'a session.create session is not (it keeps its own row on the page)');
+    saved.workstreams.push({ id: 'ws_fresh', title: 'Launch prep', agentId: 'agent' });
+    assert.equal(manager.resolve('ws_fresh').title, 'Launch prep', 'once the page saves it, the page copy wins');
+    assert.throws(() => manager.ensure({ id: child.id, agentId: 'agent' }), /no such session/, 'a deleted conversation is never brought back');
     console.log('overseer: durable identity, deduplication, restart, rename, tombstones and turn serialization PASS');
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 })().catch(e => { console.error(e); process.exitCode = 1; });

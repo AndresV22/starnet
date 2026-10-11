@@ -1,0 +1,81 @@
+'use strict';
+/* node test/needs-you.test.js — NEEDS YOU (2026-10-11): every ask and failure on the station in ONE list atop SESSIONS.
+   GENUINE: NeedsYou.items reads only provable state (open asks per conversation incl. a delegated worker's stamped ask,
+   group chats waiting, the overseer ledger's failed workers, unread failed routines), orders it (asks oldest first,
+   then failures newest first), gives each kind its real action, and forgets a failure once dismissed or stale.
+   SOURCE-LOCKED: the rail renders it in place of the retired "Waiting for you" filter, and the page loads it. */
+const A = require('./_assert.js');
+const fs = require('fs');
+const path = require('path');
+
+const NOW = 10 * 86400000;
+const store = new Map();
+global.localStorage = { getItem: k => (store.has(k) ? store.get(k) : null), setItem: (k, v) => store.set(k, String(v)) };
+const sessions = new Map([
+  ['home', { id: 'home', title: null, agentId: 'agent' }],
+  ['proj', { id: 'proj', title: 'Launch prep', agentId: 'agent' }],
+  ['grp', { id: 'grp', title: 'War room', agentId: 'agent', conversationMode: 'group' }],
+  ['cron-r1', { id: 'cron-r1', title: 'Inbox sweep', agentId: 'writer', lastRunOk: false, lastActiveAt: NOW - 60000, automation: { kind: 'routine', id: 'job1', name: 'Inbox sweep' } }],
+  ['cron-r2', { id: 'cron-r2', title: 'Morning news', agentId: 'agent', lastRunOk: true, lastActiveAt: NOW - 60000 }]
+]);
+const unread = new Set(['cron-r1', 'cron-r2']);
+global.Workstreams = { get: id => sessions.get(id) || null, list: () => [...sessions.values()], unread: w => unread.has(w.id), generalId: () => 'home', markRead: id => unread.delete(id) };
+const pend = [
+  { wsId: 'home', p: { promptId: 'p2', tool: 'mcp__gmail__send', agentId: 'agent', workerAgentId: 'writer', workerStreamId: 'thread_vex', askedAt: NOW - 120000 } },
+  { wsId: 'proj', p: { promptId: 'p1', tool: 'brief.ask', agentId: 'agent', argsSummary: JSON.stringify({ question: 'Which price tier should lead?' }), askedAt: NOW - 600000 } },
+  { wsId: 'gone', p: { promptId: 'p9', tool: 'fs.write', askedAt: 1 } }
+];
+global.Channels = { allPending: () => pend };
+global.GroupChat = { attentionIds: () => ['grp'], stateOf: () => ({ approvals: 1 }) };
+global.Overseer = { snapshot: () => ({ workers: [
+  { runId: 'wr1', status: 'error', reason: 'timeout', agentId: 'researcher', parentStreamId: 'home', streamId: 'thread_mira', completedAt: NOW - 300000 },
+  { runId: 'wr2', status: 'done', agentId: 'researcher', parentStreamId: 'home', completedAt: NOW - 1000 },
+  { runId: 'wr3', status: 'stale', agentId: 'designer', parentStreamId: 'proj', completedAt: 0, startedAt: NOW - 3600000 },
+  { runId: 'wr4', status: 'error', agentId: 'designer', parentStreamId: 'home', completedAt: NOW - 5 * 86400000 },
+  { runId: 'wr5', status: 'interrupted', agentId: 'designer', parentStreamId: 'home', completedAt: NOW - 1000 }
+] }) };
+global.App = { agentName: id => ({ agent: 'NOVA', writer: 'VEX', researcher: 'MIRA', designer: 'ROOK' })[id] || id };
+global.Chat = { consentPhrase: p => p.tool === 'mcp__gmail__send' ? 'send an email to beta@list' : String(p.tool) };
+global.document = undefined;
+const NY = require('../frontend/app/needsyou.js');
+
+{
+  const list = NY.items(NOW);
+  A.eq(list.map(i => i.key).join(' '), 'group:grp ask:p1 ask:p2 routine:cron-r1 worker:wr1 worker:wr3',
+    'asks first (oldest waiting first; a group with no age leads), then failures newest first');
+  const ask = list.find(i => i.key === 'ask:p2');
+  A.eq(ask.who + ' | ' + ask.what + ' | ' + ask.where + ' | ' + ask.workerWsId, 'VEX | send an email to beta@list | General | thread_vex', 'a delegated worker\'s ask names the WORKER, says exactly what, and where');
+  A.eq(list.find(i => i.key === 'ask:p1').what, 'Which price tier should lead?', 'a question shows the question itself');
+  A.ok(!list.some(i => i.key === 'ask:p9'), 'an ask in a conversation this page does not hold is not listed');
+  A.ok(!list.some(i => /wr2|wr5/.test(i.key)), 'finished work and work the Commander stopped never need you');
+  A.ok(!list.some(i => i.key === 'worker:wr4'), 'a failure older than three days is history, not a to-do');
+  A.eq(list.find(i => i.key === 'worker:wr3').what, 'stopped when the station restarted', 'a restart-stopped worker says so');
+  A.ok(!list.some(i => i.key === 'routine:cron-r2'), 'a routine that ran fine is not a to-do');
+  const k = NY._internals.keysFor;
+  A.ok(/data-ny-act="once"[^>]*>Approve/.test(k(ask)) && /data-ny-act="deny"[^>]*>Deny/.test(k(ask)), 'an approval: Approve / Deny right there');
+  A.ok(!/data-ny-act="(always|full|session)"/.test(k(ask)), 'never a standing or lead-wide grant from the list');
+  A.ok(/data-ny-act="open"[^>]*>Answer/.test(k(list.find(i => i.key === 'ask:p1'))), 'a question: Answer opens it');
+  A.ok(/data-ny-act="retry"[^>]*>Retry/.test(k(list.find(i => i.key === 'routine:cron-r1'))), 'a failed routine: Retry');
+  A.ok(/data-ny-act="dismiss"/.test(k(list.find(i => i.key === 'worker:wr1'))), 'failed delegated work: Open or Dismiss');
+  const h = NY._internals.html(list, NOW);
+  A.ok(/<span class="ny-title">Needs you<\/span><span class="ny-count">6<\/span>/.test(h), 'labeled: "Needs you" and how many, never a bare number');
+  A.eq((h.match(/class="ny-item /g) || []).length, 3, 'three rows, the rest behind one fold');
+  A.ok(/data-ny-act="more"[^>]*>3 more</.test(h), '"3 more" says how many are folded');
+  A.eq(NY._internals.age(NOW - 120000, NOW) + ',' + NY._internals.age(NOW - 7200000, NOW) + ',' + NY._internals.age(0, NOW), '2m,2h,', 'age reads in plain units; unknown age shows nothing');
+  global.localStorage.setItem('skynet.needs-dismissed', JSON.stringify(['worker:wr1']));
+  A.ok(!NY.items(NOW).some(i => i.key === 'worker:wr1'), 'a dismissed failure leaves the list');
+  unread.delete('cron-r1');
+  A.ok(!NY.items(NOW).some(i => i.key === 'routine:cron-r1'), 'a failed routine you have opened (read) leaves it too');
+}
+{
+  const app = fs.readFileSync(path.join(__dirname, '..', 'frontend', 'app', 'app.js'), 'utf8');
+  const html = fs.readFileSync(path.join(__dirname, '..', 'frontend', 'index.html'), 'utf8');
+  A.ok(!/railAttentionOnly|ws-attention/.test(app) && !/id="ws-attention"/.test(html), 'the "Waiting for you" filter is retired');
+  A.ok(/<section id="ws-needs" class="ws-needs" aria-label="Needs you" hidden><\/section>/.test(html) && html.indexOf('app/needsyou.js') > 0, 'the page has the NEEDS YOU section and loads its module');
+  A.ok(/if \(railView !== 'sessions'\) \{ host\.hidden = true; return; \}\s*\n\s*if \(typeof NeedsYou !== 'undefined' && NeedsYou\.render\) NeedsYou\.render\(\);/.test(app), 'the rail renders it (SESSIONS view only)');
+  A.ok(/NeedsYou\.render\(\);   \/\/ ages tick, failures arrive/.test(app), 'and the 1s rail heartbeat keeps it current');
+  const ny = fs.readFileSync(path.join(__dirname, '..', 'frontend', 'app', 'needsyou.js'), 'utf8');
+  A.ok(/Chat\.answerConsent\(i\.p, Workstreams\.get\(i\.wsId\), kind\)/.test(ny), 'Approve / Deny answer through the approval card\'s own path');
+  A.ok(/fetch\('\/api\/cron\/run', \{ method: 'POST'[^\n]*detach: true/.test(ny), 'Retry reruns the routine for real (detached)');
+}
+A.report('needs-you.test');

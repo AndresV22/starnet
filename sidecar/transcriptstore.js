@@ -244,6 +244,9 @@
       // Recovery provenance is deliberately an opaque run id, never tool arguments. It lets boot reconciliation
       // prove that a journal's final rows already reached durable transcript storage before retiring the journal.
       if (e.sourceRunId != null) { const id = str(e.sourceRunId).slice(0, 200); if (id) entry.sourceRunId = id; }
+      // WHO wrote a user-role row that the Commander did not type: the agent that delegated this run (display only —
+      // the row stays a user turn for the model). Absent on every Commander turn.
+      if (e.from != null) { const f = str(e.from).slice(0, 80); if (f) entry.from = f; }
       // UNTRUSTED-CONTENT TAINT (additive, sec-taint 09-25): the writing run's taint source at the moment this row
       // was written. A later run that REPLAYS this row replays untrusted content, so it must start tainted (taintOf).
       if (e.taint) { const t = str(e.taint).slice(0, 200); if (t) entry.taint = t; }

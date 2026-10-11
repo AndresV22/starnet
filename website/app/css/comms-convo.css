@@ -91,6 +91,17 @@ body #chat-panel :is(#chat-log, #gc-log) .cmsg.user > .body::before { content: '
 body #chat-panel :is(#chat-log, #gc-log) .cmsg.user .chat-attach-view { justify-content: flex-end; }
 /* the ⧉ rides the header line on the stamp's side (the reserved lane in comms.css / glass-comms.css) */
 body #chat-panel :is(#chat-log, #gc-log) .cmsg.user > .cmsg-copy { top: -2px; }
+/* a worker thread's brief (chat.js addUser brief): written by the agent that delegated it, so it sits on the AGENT
+   side in that agent's phosphor — never on the Commander's right-hand gold input line with its `>` prompt (2026-10-10
+   blind test: on the right it read as the Commander's own words) */
+body #chat-panel #chat-log .cmsg.user.brief { align-self: flex-start; }
+body #chat-panel #chat-log .cmsg.user.brief > .cmsg-head { flex-direction: row; padding-left: 0; padding-right: 28px; }
+body #chat-panel #chat-log .cmsg.user.brief > .cmsg-copy { left: auto; right: 5px; }
+body #chat-panel #chat-log .cmsg.user.brief > .body {
+  --rail: rgba(var(--ph-rgb), .5); padding: 4px 10px 5px 12px; border-right: 0; border-left: 2px solid var(--rail); color: var(--text);
+}
+body #chat-panel #chat-log .cmsg.user.brief > .body::before { content: none; }
+body #chat-panel #chat-log .cmsg.user.brief .who { color: var(--ph-bright); text-align: left; margin-right: 0; }
 
 /* ---- THE AGENT — the Commander's line, mirrored: callsign + stamp above, the text on the phosphor rail. No face, no box
    (Andrew 10-03: "keep the name as is without the pfp"). ---- */
@@ -235,3 +246,4 @@ body #chat-panel :is(#chat-log, #gc-log) > .cmsg.work-rate.rate-inline .consent-
 body #chat-panel :is(#chat-log, #gc-log) > .cmsg.work-rate.rate-inline .consent-btn.thumb-down:is(:hover, :focus-visible) { border-color: var(--bad); }
 body #chat-panel :is(#chat-log, #gc-log) > .cmsg.work-rate.rate-inline .thumb-px { width: 13px; height: 13px; filter: none; }
 body #chat-panel :is(#chat-log, #gc-log) > .cmsg.work-rate.rate-inline .consent-result { font-size: var(--sn-type-meta, 13px) !important; letter-spacing: 1px; opacity: .8; }
+

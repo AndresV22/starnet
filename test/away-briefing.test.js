@@ -74,4 +74,27 @@ const ctx = B.contextBlock(b);
 A.ok(ctx.indexOf('workshop/b-new/') !== -1 && ctx.indexOf('job news') !== -1, 'context block tells the agent where each briefed thing lives');
 A.eq(B.contextBlock({ items: [] }), '', 'no items → no context block');
 
+// ---- delegated work (2026-10-09): briefed as the CONVERSATION's work, never as loose child runs ----
+{
+  const threads = [{ id: 'home', title: 'Launch planning' }, { id: 'k1', parentStreamId: 'home', title: 'Competitor scan' },
+    { id: 'k2', parentStreamId: 'home', title: 'Pricing page' }, { id: 'k3', parentStreamId: 'home', title: 'Email' }];
+  const d = B.compose({ since: SINCE, now: NOW, threads, runs: [
+    run({ streamId: 'k1', parentRunId: 'lead', delegatedBy: 'agent', deliveryText: 'Two competitors undercut us.' }),
+    run({ streamId: 'k2', parentRunId: 'lead', delegatedBy: 'agent', endedAt: 1600000, ts: 1600000 }),
+    run({ streamId: 'k3', parentRunId: 'lead', delegatedBy: 'agent', reason: 'error', failureCode: 'timeout', endedAt: 1700000, ts: 1700000 }),
+    run({ streamId: 'home', parentRunId: 'k1run' }),                                        // the overseer's own review: not a worker
+    run({ streamId: 'k1', parentRunId: 'lead', delegatedBy: 'agent', surface: 'interactive' }), // the Commander in that thread
+    run({ streamId: 'orphan', parentRunId: 'lead', delegatedBy: 'agent' })                   // a thread this station doesn't know
+  ] });
+  const g = d.items.filter(i => i.kind === 'delegated');
+  A.eq(g.length, 1, 'one row per conversation, not per worker');
+  A.eq(g[0].name + '|' + g[0].runs + '|' + g[0].failed + '|' + g[0].open, 'Launch planning|3|1|home', 'counts its workers and opens at the conversation');
+  A.eq(d.counts.delegated, 3, 'counted');
+  A.ok(/1 delegated job in “Launch planning” didn’t finish: timeout/.test(d.text), 'a failed worker is waiting on you');
+  A.ok(/“Launch planning”: 2 delegated jobs finished/.test(d.text), 'the finished ones are done');
+  A.ok(/conversation "Launch planning" \(home\): 3 delegated job\(s\)/.test(B.contextBlock(d)), 'the reply context says where the threads live');
+  A.ok(!B.compose({ since: SINCE, now: NOW, runs: [run({ streamId: 'k1', parentRunId: 'lead', delegatedBy: 'agent' })] }).items.length,
+    'without its thread map, a worker run is never briefed loose');
+}
+
 A.report('away-briefing');

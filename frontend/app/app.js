@@ -3984,7 +3984,6 @@ const App = (() => {
   let railTicker = 0;
   let railShowArchived = false;   // when true the rail also lists archived (put-away) sessions, dimmed
   let railFocusId = null;         // roving-tabindex cursor: one rail stop regardless of session count
-  let railAttentionOnly = false;
   let railAttentionKey = '';
   // PER-AGENT THREADS: a crew-row click narrows the rail to that agent's sessions — the streams bound to it
   // plus every group chat it sits in (so a group lists under each member). The SESSIONS tab, the chip's ✕,
@@ -3998,7 +3997,6 @@ const App = (() => {
     if (id && id === railAgentFilter) id = null;   // the same crew row again = back to every session
     railAgentFilter = id;
     if (id && railView !== 'sessions') setRailView('sessions', { keepAgentFilter: true });
-    if (id) railAttentionOnly = false;
     renderSessionSearch();   // a typed search re-scopes to (or back out of) the chosen agent
     renderRail();
     if (typeof StationUI !== 'undefined' && StationUI.refreshCrew) StationUI.refreshCrew();
@@ -4008,7 +4006,7 @@ const App = (() => {
   function syncRailAgentChip(count) {
     let chip = el('ws-agent-filter');
     if (!chip) {
-      const anchor = el('ws-attention'); if (!anchor) return;
+      const anchor = el('ws-needs'); if (!anchor) return;
       chip = document.createElement('button');
       chip.id = 'ws-agent-filter'; chip.type = 'button'; chip.className = 'ws-agent-filter';
       chip.onclick = () => { SFX.click(); setRailAgentFilter(null); };
@@ -4036,20 +4034,26 @@ const App = (() => {
     if (typeof GroupChat !== 'undefined' && GroupChat.attentionIds) for (const id of GroupChat.attentionIds()) if (Workstreams.get(id) && !ids.includes(id)) ids.push(id);
     return new Set(ids);
   }
+  /* where an agent is WAITING on the Commander (an approval or a question) — the crew card's "needs your OK" opens
+     it in one click instead of narrowing the rail and leaving you to find it (2026-10-09). The pending prompt names
+     its agent (a delegated worker's ask can surface in the conversation that dispatched it); else the session's own
+     agent/members. null = nothing waiting for that agent. */
+  function waitingSessionOf(agentId) {
+    if (!agentId || typeof Workstreams === 'undefined') return null;
+    for (const id of railPendingIds()) {
+      const w = Workstreams.get(id); if (!w) continue;
+      const p = typeof Channels !== 'undefined' && Channels.pendingOf ? Channels.pendingOf(id) : null;
+      if ((p && p.agentId === agentId) || railHasAgent(w, agentId)) return id;
+    }
+    return null;
+  }
+  // NEEDS YOU (needsyou.js, 2026-10-11) replaced the "Waiting for you" filter: one pinned list of every ask and failure
+  // on the station, each with its own action. It lives in the SESSIONS view only.
   function syncRailAttention(pending) {
     railAttentionKey = [...pending].sort().join('\n');
-    if (!pending.size) railAttentionOnly = false;
-    const btn = el('ws-attention'); if (!btn) return;
-    const hide = !pending.size || railView !== 'sessions';
-    if (hide && document.activeElement === btn) el('ws-search')?.focus();
-    if (btn.hidden !== hide) btn.hidden = hide;
-    const pressed = String(railAttentionOnly);
-    if (btn.getAttribute('aria-pressed') !== pressed) btn.setAttribute('aria-pressed', pressed);
-    const label = 'Waiting for you · ' + pending.size + ' session' + (pending.size === 1 ? '' : 's') + ' waiting for your response. ' + (railAttentionOnly ? 'Show all sessions' : 'Show waiting sessions');
-    if (btn.getAttribute('aria-label') !== label) btn.setAttribute('aria-label', label);
-    const count = el('ws-attention-count'), clear = el('ws-attention-clear');
-    if (count && count.textContent !== String(pending.size)) count.textContent = pending.size;
-    if (clear) clear.hidden = !railAttentionOnly;
+    const host = el('ws-needs'); if (!host) return;
+    if (railView !== 'sessions') { host.hidden = true; return; }
+    if (typeof NeedsYou !== 'undefined' && NeedsYou.render) NeedsYou.render();
   }
   let railKind = 'all';
   const railExpanded = new Set();
@@ -4102,6 +4106,11 @@ const App = (() => {
       const started = Channels.startedAtOf(w.id);
       return { dot: 'ws-dot working', meta: started ? railFmtElapsed(Channels.elapsedOf(w.id, Date.now())) : '…', busy: true, attn: false, status };
     }
+    // its delegated crew still at work (a background worker outlives the reply that started it). Workers' own threads
+    // are not in SESSIONS, so the asking conversation's lamp carries it — from the durable ledger, never a guess.
+    const ov = typeof Overseer !== 'undefined' && Overseer.snapshot ? Overseer.snapshot() : null;
+    const crew = ((ov && ov.workers) || []).filter(x => x && x.status === 'running' && x.parentStreamId === w.id).length;
+    if (crew) return { dot: 'ws-dot working', meta: crew + ' working', busy: true, attn: false, status: crew + ' of the crew working on what you delegated' };
     // A settled failure uses the crossed lamp; only a live approval/question earns the action row.
     if (w.lastRunOk === false) return { dot: 'ws-dot failed', meta: railRelTime(w.lastActiveAt), busy: false, attn: false, status: 'last run failed — open to inspect' };
     // a DELIVERY session ('workshop-<runId>' — idle-built work) that hasn't been reviewed is a decision the
@@ -4198,31 +4207,36 @@ const App = (() => {
     if (railAgentFilter && !agents.has(railAgentFilter)) railAgentFilter = null;   // that agent left the station
     const allRows = Workstreams.list({ includeArchived: true }).filter(w =>
       (!railAgentFilter || railHasAgent(w, railAgentFilter))
-      && (railAttentionOnly ? pending.has(w.id) : (!w.archived || railShowArchived || pending.has(w.id))));
+      && (!w.archived || railShowArchived || pending.has(w.id)));
     syncRailAgentChip(allRows.length);
-    const grouped = railAttentionOnly ? allRows.map(w => ({ type: 'session', w })) : Workstreams.railGroups(allRows, { view: railKind, activeId, expanded: [...railExpanded], urgent: allRows.filter(w => railRowState(w).busy || pending.has(w.id)).map(w => w.id) });
+    const grouped = Workstreams.railGroups(allRows, { view: railKind, activeId, expanded: [...railExpanded], urgent: allRows.filter(w => railRowState(w).busy || pending.has(w.id)).map(w => w.id) });
     const headers = new Map();
-    const rows = grouped.flatMap(item => {
+    const flat = grouped.flatMap(item => {
       if (item.type === 'session') return [item.w];
       headers.set(item.visible[0].id, item);
       return item.visible;
     });
+    // delegated workers' threads are never rows (Workstreams.list hides them): their work is on the asking
+    // conversation's delegation card, and a running crew shows on that conversation's own lamp (railRowState reads the ledger)
+    const rows = flat;
     const filters = el('ws-kind-filter');
-    if (filters) filters.hidden = railAttentionOnly;
+    if (filters) filters.hidden = false;
     if (filters) filters.querySelectorAll('[data-ws-kind]').forEach(button => {
       button.setAttribute('aria-pressed', String(button.dataset.wsKind === railKind));
-      button.onclick = () => { railAttentionOnly = false; railKind = button.dataset.wsKind; saveRailView(); renderRail(); };
+      button.onclick = () => { railKind = button.dataset.wsKind; saveRailView(); renderRail(); };
     });
     if (!rows.some(w => w.id === railFocusId)) railFocusId = rows.some(w => w.id === activeId) ? activeId : (rows[0] && rows[0].id);
     ul.setAttribute('role', 'listbox');
     ul.setAttribute('aria-label', 'Sessions');
-    ul.innerHTML = rows.map((w, index) => {
+    let index = 0;
+    ul.innerHTML = rows.map(w => {
+      index++;
       const title = w.title || 'General';
       const st = railRowState(w);
       const group = headers.get(w.id);
       const groupHead = group ? '<li class="ws-auto-group" role="presentation"><button type="button" data-ws-group="' + U.esc(group.key) + '" aria-expanded="' + railExpanded.has(group.key) + '"><span>' + U.esc(group.name) + '</span><small>' + U.esc(railAgentName(w)) + ' · ' + group.rows.length + ' run' + (group.rows.length === 1 ? '' : 's') + ' · ' + (railExpanded.has(group.key) ? 'collapse' : 'show history') + '</small></button></li>' : '';
       const tip = railRowTip(w, st);
-      return groupHead + '<li class="' + rowClass(w, st, activeId) + '" data-id="' + U.esc(w.id) + '" tabindex="' + (w.id === railFocusId ? '0' : '-1') + '" role="option" aria-selected="' + (w.id === activeId ? 'true' : 'false') + '" aria-posinset="' + (index + 1) + '" aria-setsize="' + rows.length + '" aria-label="' + U.esc(railRowLabel(w, st)) + '" aria-keyshortcuts="Shift+F10" title="' + U.esc(tip) + '">' +
+      return groupHead + '<li class="' + rowClass(w, st, activeId) + '" data-id="' + U.esc(w.id) + '" tabindex="' + (w.id === railFocusId ? '0' : '-1') + '" role="option" aria-selected="' + (w.id === activeId ? 'true' : 'false') + '" aria-posinset="' + index + '" aria-setsize="' + rows.length + '" aria-label="' + U.esc(railRowLabel(w, st)) + '" aria-keyshortcuts="Shift+F10" title="' + U.esc(tip) + '">' +
         '<span class="' + st.dot + '" aria-hidden="true"></span>' +
         (w.pinned ? '<span class="ws-pin" aria-hidden="true">★</span>' : '') +
         '<span class="ws-agent" aria-hidden="true"' + railAgentColorAttr(w) + '>' + U.esc(railAgentName(w)) + '</span>' +
@@ -4233,7 +4247,7 @@ const App = (() => {
         '<button class="ws-kebab" tabindex="-1" aria-label="session actions" title="session actions">⋯</button>' +
         '</li>';
     }).join('');
-    if (!rows.length && railAgentFilter && !railAttentionOnly) {
+    if (!rows.length && railAgentFilter) {
       const a = agents.get(railAgentFilter), name = U.esc((a && (a.name || a.id)) || railAgentFilter);
       // an agent whose sessions are all ARCHIVED has had sessions: never "yet" above "▸ 2 archived" (QA 2026-10-02)
       let archivedHere = 0; for (const w of Workstreams.list({ includeArchived: true })) if (w.archived && railHasAgent(w, railAgentFilter)) archivedHere++;
@@ -4241,11 +4255,11 @@ const App = (() => {
         + (railKind === 'automated' ? 'automation ' : '') + (archivedHere ? 'open sessions with ' + name + ' — ' + archivedHere + ' archived below.' : 'sessions with ' + name + ' yet.') + '</span>'
         + '<button type="button" class="btn ws-agent-start">START ONE</button></li>';
       const start = ul.querySelector('.ws-agent-start'); if (start) start.onclick = () => newWorkstream();
-    } else if (!rows.length && railKind === 'automated' && !railAttentionOnly) {
+    } else if (!rows.length && railKind === 'automated') {
       ul.innerHTML = '<li class="proj-empty" role="presentation"><span role="status">No automation sessions yet.</span></li>';
     }
     ul.querySelectorAll('[data-ws-group]').forEach(button => {
-      button.onclick = () => {
+      button.onclick = (e) => {
         const key = button.dataset.wsGroup;
         if (railExpanded.has(key)) railExpanded.delete(key); else railExpanded.add(key);
         saveRailView();
@@ -4304,6 +4318,7 @@ const App = (() => {
     if (!ul || typeof Workstreams === 'undefined' || !game || !game.classList.contains('active')) { stopRailTicker(); return; }
     const pending = railPendingIds();
     if ([...pending].sort().join('\n') !== railAttentionKey) { renderRail(); return; }
+    if (railView === 'sessions' && typeof NeedsYou !== 'undefined' && NeedsYou.render) NeedsYou.render();   // ages tick, failures arrive
     const activeId = Workstreams.activeId();
     document.querySelectorAll('#workstreams .ws-row,#projects .proj-sess-full').forEach(li => {
       if (li.querySelector('.ws-rename')) return;   // leave a row alone while its title is being edited in place
@@ -4342,6 +4357,10 @@ const App = (() => {
   // Chat.load re-renders the in-flight stream on switch — the run you left keeps streaming in the background.
   function switchWorkstream(id) {
     if (typeof StationUI !== 'undefined' && StationUI.seenSession) StationUI.seenSession(id);   // you're in it now: its notifications are read
+    // a delegated worker's thread is not a conversation: opening it (a search hit, a deliverable, a desk screen) lands on
+    // the conversation that asked, with that worker's work unfolded on its card
+    const home = Workstreams.homeOf ? Workstreams.homeOf(id) : id;
+    if (home !== id) { switchWorkstream(home); if (typeof Delegated !== 'undefined' && Delegated.reveal) Delegated.reveal(id); return; }
     if (typeof ProjectHome !== 'undefined') ProjectHome.onSession(id);
     if (id === Workstreams.activeId()) return;
     const ws = Workstreams.switch(id); if (!ws) return;
@@ -4398,10 +4417,12 @@ const App = (() => {
     const hits = Workstreams.search(q).filter(hit => { if (!railAgentFilter) return true; const w = Workstreams.get(hit.id); return !!(w && railHasAgent(w, railAgentFilter)); });
     for (const hit of hits) {
       const li = document.createElement('li'); li.className = 'ws-search-hit'; li.tabIndex = 0; li.dataset.id = hit.id;
-      const title = document.createElement('b'); title.textContent = hit.title || 'General';
+      // a delegated worker's words are found in its CONVERSATION: say whose work it was, and open it unfolded there
+      const worker = hit.match === 'delegated' && hit.workerId ? Workstreams.get(hit.workerId) : null;
+      const title = document.createElement('b'); title.textContent = (hit.title || 'General') + (worker ? ' · ' + (((agents.get(worker.agentId) || {}).name) || worker.agentId) + '\'s work' : '');
       const snippet = document.createElement('small'); snippet.textContent = hit.snippet;
       li.append(title, snippet);
-      const open = () => { switchWorkstream(hit.id); input.value = ''; renderSessionSearch(); };
+      const open = () => { switchWorkstream(hit.id); if (worker && typeof Delegated !== 'undefined' && Delegated.reveal) Delegated.reveal(worker.id); input.value = ''; renderSessionSearch(); };
       li.onclick = open; li.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); } };
       out.appendChild(li);
     }
@@ -4412,16 +4433,8 @@ const App = (() => {
   function wireRailSearch() {
     const q = el('ws-search'); if (!q || q.__wired) return;
     q.__wired = true;
-    q.oninput = () => { if (railAttentionOnly) { railAttentionOnly = false; renderRail(); } renderSessionSearch(); };
+    q.oninput = () => { renderSessionSearch(); };
     q.onkeydown = e => { if (e.key === 'Escape') { e.preventDefault(); q.value = ''; renderSessionSearch(); q.blur(); } };
-    const attention = el('ws-attention');
-    if (attention) attention.onclick = () => {
-      railAttentionOnly = !railAttentionOnly;
-      // the count is station-wide, so its list must be too: kept narrowed to one agent, "Waiting for you · 2" for
-      // another agent's sessions opened a BLANK rail with no empty-state line (sweep 2026-10-01)
-      if (railAttentionOnly && railAgentFilter) { railAgentFilter = null; if (typeof StationUI !== 'undefined' && StationUI.refreshCrew) StationUI.refreshCrew(); }
-      q.value = ''; renderSessionSearch(); renderRail(); SFX.click();
-    };
   }
   // COMMS AGENT SELECTOR: put the Commander on the line with agent <agentId>. Selecting an agent must never
   // silently rebind an existing conversation to a different agent (that would corrupt whose transcript it is);
@@ -4662,7 +4675,6 @@ const App = (() => {
   function updateArchivedToggle() {
     const ul = el('workstreams'); if (!ul) return;
     const old = ul.querySelector('.ws-arch-row'); if (old) old.remove();
-    if (railAttentionOnly) return;
     // narrowed to one agent, count only that agent's archived sessions — "1 archived" must open onto one
     let n = 0; for (const w of Workstreams.list({ includeArchived: true })) if (w.archived && (!railAgentFilter || railHasAgent(w, railAgentFilter))) n++;
     if (!n) { if (!railAgentFilter) railShowArchived = false; return; }
@@ -5840,7 +5852,7 @@ const App = (() => {
   // (never an id in the UI) and keys its standing candidates against the focused hero.
   // currentAgent/agents/applyConfig (slash-plan): the slash-command suite reads/writes the live roster
   // and per-agent config (/agents, /model, /personality, …).
-  return { show, refreshUsage, persist, pushRoster, refreshRail: renderRail, openWorkstream, launchRecipe, summonAgent, summonForRequest, crewCount: () => agents.size,
+  return { show, refreshUsage, persist, pushRoster, refreshRail: renderRail, openWorkstream, waitingSessionOf, launchRecipe, summonAgent, summonForRequest, crewCount: () => agents.size,
     agentName: id => { const a = agents.get(id); return a ? (a.name || a.id) : null; },
     // WORK LINES: a downstream stage runs as ANOTHER agent, so the chat host needs THAT agent's composed
     // prompt — never the focused one's. Read-only; null for an id that is not on the live roster.

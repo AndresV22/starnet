@@ -56,9 +56,12 @@ const rd = p => fs.readFileSync(path.join(__dirname, '..', p), 'utf8');
   A.ok(/if \(!waiting\) \{ if \(StationUI\.settleNotifs\) StationUI\.settleNotifs\('extensions-pending'\); return; \}/.test(app), 'boot settles extensions-pending when nothing waits any more');
   // R9: a notification for a deleted session keeps the bell and says so
   A.ok(/if \(go\.ws && typeof Workstreams !== 'undefined' && Workstreams\.get && !Workstreams\.get\(go\.ws\)\) \{ toast\('that session was deleted', 'warn'\); return false; \}/.test(su), 'a deleted session: the bell stays and says so');
-  // B6: a routine completing opens where its result is (the routine's HISTORY), never TO REVIEW
+  // B6: a routine completing opens where its result is, never TO REVIEW — since 2026-10-09 that is the run's OWN
+  // session (one click to the result, and opening it settles the bell via seenSession); AUTOMATE › ROUTINES only when
+  // the event names no run
   const wd = rd('frontend/app/world.js');
-  A.ok(/hudNote\('◷ routine completed', 'good', \{ go: \{ term: 'automation', section: 'routines' \} \}, 'cronDigest'\)/.test(wd), '"routine completed" opens AUTOMATE › ROUTINES');
+  A.ok(/const ses = p\.runId \? \{ ws: 'cron-' \+ p\.runId \} : \{ term: 'automation', section: 'routines' \};/.test(wd)
+    && /hudNote\('◷ routine completed', 'good', \{ go: ses \}, 'cronDigest'\)/.test(wd), '"routine completed" opens that run\'s own session');
 
   A.report('bell-settles.test');
 })().catch(e => { console.error(e); process.exit(1); });
