@@ -69,6 +69,17 @@ const { FORMAT } = require('../sidecar/connector-vault.js');
     const reset = await app.json('POST', '/api/config/reset', { section: 'connectors' });
     assert.equal(reset.status, 200, 'Settings reset of a locked store starts fresh: ' + JSON.stringify(reset.body));
     assert.equal((await storage()).error, null);
+    await app.stop();
+    // Interrupted reset recovery remains visible after a real sidecar restart, even with a readable active file.
+    const savedBytes = fs.readFileSync(file, 'utf8');
+    fs.writeFileSync(file + '.reset-pending', JSON.stringify({ movedTo: path.join(app.workspace, 'connectors/unreadable-interrupted') }));
+    await app.start({ STARNET_CONNECTOR_ENCRYPTION_KEY: K1, STARNET_CONNECTOR_KEY_ERROR: '' });
+    assert.equal((await storage()).reason, 'unreadable', 'incomplete reset cannot boot as an empty store');
+    const incomplete = await app.json('POST', '/api/connectors/storage/start-fresh', { confirm: true });
+    assert.equal(incomplete.status, 500);
+    assert.match(incomplete.body.error, /incomplete from a previous attempt/);
+    assert.ok(!incomplete.body.error.includes('nothing was changed'), 'failure message does not claim a rollback it did not prove');
+    assert.equal(fs.readFileSync(file, 'utf8'), savedBytes, 'retry leaves the active recovery data unchanged');
     console.log('connector-storage-start-fresh.http: PASS (fresh-install fallback + reason, seal on keyed launch, key-mismatch lock, confirmed START FRESH keeps old files, restart, Settings reset exit)');
   } finally { await app.dispose(); }
 })().catch(error => { console.error(error); process.exitCode = 1; });

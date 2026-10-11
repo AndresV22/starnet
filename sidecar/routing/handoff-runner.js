@@ -69,7 +69,7 @@ function makeHandoffRunner(deps) {
 
   const lineRec = (plan, id) => ((plan && Array.isArray(plan.lines)) ? plan.lines : []).find(l => l && String(l.lineId) === String(id)) || null;
   const nameOf = (plan, id) => { const l = lineRec(plan, id); return (l && typeof l.name === 'string') ? l.name : ''; };
-  const say = (plan, id) => { const n = nameOf(plan, id); return n ? 'LINE ' + n.toUpperCase() : 'the next line'; };
+  const say = (plan, id) => { const n = nameOf(plan, id); return Pipeline.lineWord(n, 'the next line'); };
   function stateOf(line) {
     let s = live.get(line);
     if (!s) { s = { queue: [], busy: false, hub: null, current: null }; live.set(line, s); }
@@ -258,7 +258,7 @@ function makeHandoffRunner(deps) {
       // the crate lands — never "the line's newest", which a queued hand-off or a refusal can already have replaced
       emit('workitem.placed', { workitemId, queueId: agentId, agentId, kind: 'handoff', lineId: info.lineId || item.toLine, dockId: info.dockId || undefined,
         fromLine: item.fromLine, fromOutbox: item.fromOutbox, toIntake: item.toIntake, jobId: yj ? yj.id : undefined, streamId,
-        preview: ('FROM ' + (item.fromName ? 'LINE ' + item.fromName.toUpperCase() : 'ANOTHER LINE')).slice(0, 40), queueDepth: depth, ts: startedAt });
+        preview: ('FROM ' + Pipeline.lineWord(item.fromName, 'ANOTHER LINE')).slice(0, 40), queueDepth: depth, ts: startedAt });
       emit('queue.status', { queueId: agentId, depth, maxCapacity: d.queueCap || 64, nextAdvanceAt: 0 });
     }
     const threw = await settled;
