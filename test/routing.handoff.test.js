@@ -243,6 +243,8 @@ function station(n) {
   // a burst: one in flight + MAX_PENDING waiting, the rest refused; E-STOP drops the waiting ones
   hang = new Promise(() => {});
   const burst = [];
+  // (each sending job keeps its own record, as the sample route's does — so E-STOP's drop can be read back on it)
+  for (let i = 0; i < MAX_PENDING + 3; i++) J.start({ id: 'job-burst' + i + 'aaaa', line: LA, name: 'A', text: 'burst ' + i, streamId: 'sample-b' + i, at: clock });
   for (let i = 0; i < MAX_PENDING + 3; i++) burst.push(R.onShipped(fresh('sample-b' + i, LA, lastA)));
   await tick();
   A.eq(burst.filter(x => x.ok).length, MAX_PENDING + 1, 'a burst admits one in flight + ' + MAX_PENDING + ' waiting');
@@ -251,6 +253,16 @@ function station(n) {
   A.ok(R.status().lines.some(l => l.line === LB && l.running && l.queued === MAX_PENDING), 'status: B running with ' + MAX_PENDING + ' waiting');
   A.ok(R.inflights().length >= 1, 'E-STOP can reach the target line’s hub');
   A.eq(R.haltAll(), MAX_PENDING, 'E-STOP drops every waiting hand-off');
+  /* (fix-runtime 24) …and SAYS so on both lines: the dropped jobs never vanish. LINE B's newest record is ONE failed "not sent on"
+     record counting every dropped hand-off; every dropped sending job reads NOT sent on — E-STOP (never "delivered" with no word) */
+  const esB = jobs.jobs.filter(j => j.line === LB).pop();
+  A.ok(esB && esB.status === 'failed' && /^not sent on: .*E-STOP/.test(esB.error) && esB.repeats === MAX_PENDING, 'E-STOP: LINE B gets one failed record for the dropped hand-offs, counting all ' + MAX_PENDING + ' — ' + JSON.stringify(esB && { status: esB.status, error: esB.error, repeats: esB.repeats }));
+  const dropped = [];
+  for (let i = 1; i <= MAX_PENDING; i++) dropped.push(LineJobs.get(jobs, 'job-burst' + i + 'aaaa'));
+  A.ok(dropped.every(j => j && j.sentTo && j.sentTo.line === LB && /E-STOP/.test(j.sentTo.refused || '')), 'every dropped sending job says NOT sent on — E-STOP — ' + JSON.stringify(dropped.map(j => j && j.sentTo)));
+  A.ok(LineJobs.get(jobs, 'job-burst0aaaa').sentTo && !LineJobs.get(jobs, 'job-burst0aaaa').sentTo.refused, '…the one already running was sent on (its own record says STOPPED when E-STOP kills it)');
+  A.ok(R.status().refused.filter(x => /E-STOP/.test(x.error)).length >= MAX_PENDING, 'the status read lists the dropped hand-offs as refused');
+  A.ok(R.status().lines.some(l => l.line === LB && l.queued === 0), '…and nothing waits any more');
   hang = null;
   // a SEND TO changed while a hand-off waited — dispatch re-reads the plan
   const R2 = makeHandoffRunner({ makeHub: () => ({ onInbound: () => new Promise(() => {}) }), plan: () => plan, jobs: J, runsFor: sid => runsByStream[sid] || [],
@@ -264,6 +276,37 @@ function station(n) {
   const res = await R2._internals.dispatch(pend.queue.shift(), pend);
   A.ok(res && !res.ok && /SEND TO changed/.test(res.error), 'a hand-off whose SEND TO changed while it waited is dropped with the reason');
   plan = was;
+  /* (fix-runtime 54) THE TARGET LINE WAS DELETED while a hand-off waited (DELETE LINE prunes A's pointer and re-posts the plan):
+     refused with the TRUE reason — the line is gone, never "the SEND TO changed" — and the record lands on the SENDER only: a
+     failed record keyed by B's dead lineId would sit in line-jobs.json where no window ever shows it */
+  {
+    const R7 = makeHandoffRunner({ makeHub: () => ({ onInbound: () => new Promise(() => {}) }), plan: () => plan, jobs: J, runsFor: sid => runsByStream[sid] || [],
+      now: () => clock, newId: () => 'id' + (++n) + 'abcdef0123456789', warn: () => {} });
+    J.start({ id: 'job-gone0001', line: LA, name: 'A', text: 'first', streamId: 'sample-g1', at: clock });
+    J.start({ id: 'job-gone0002', line: LA, name: 'A', text: 'waits for B', streamId: 'sample-g2', at: clock });
+    R7.onShipped(fresh('sample-g1', LA, lastA));
+    A.ok(R7.onShipped(fresh('sample-g2', LA, lastA)).queued === 2, 'a hand-off waits for LINE B');
+    await tick();
+    const keep = plan, onB = jobs.jobs.filter(j => j.line === LB).length;
+    plan = JSON.parse(JSON.stringify(plan)); plan.lines = plan.lines.filter(l => l.lineId !== LB); delete plan.sendTo[a.outbox];
+    const pg = R7._internals.live.get(LB);
+    const gone = await R7._internals.dispatch(pg.queue.shift(), pg);
+    A.ok(gone && !gone.ok && /no longer on the floor/.test(gone.error) && !/SEND TO changed/.test(gone.error), 'a hand-off whose TARGET line was deleted says so — ' + JSON.stringify(gone));
+    const g2 = LineJobs.get(jobs, 'job-gone0002');
+    A.ok(g2.sentTo && g2.sentTo.line === LB && g2.sentTo.jobId === null && /no longer on the floor/.test(g2.sentTo.refused || ''), '…the sending job reads NOT sent on, with why, and no job to open — ' + JSON.stringify(g2.sentTo));
+    A.eq(jobs.jobs.filter(j => j.line === LB).length, onB, '…and NO record is written on the dead line');
+    // the target line still stands but was REBUILT (its oldest machine went, so its key moved): the pointer follows the INBOX, the
+    // waiting hand-off's line key is dead — refused as rebuilt, never "the SEND TO changed", never a record on the dead key
+    plan = JSON.parse(JSON.stringify(keep));
+    const reb = plan.lines.find(l => l.lineId === LB); reb.lineId = 'p_rebuilt'; plan.sendTo[a.outbox].toLine = 'p_rebuilt';
+    J.start({ id: 'job-gone0003', line: LA, name: 'A', text: 'waits again', streamId: 'sample-g3', at: clock });
+    pg.queue.push({ rec: { lineId: LA, dockId: lastA, streamId: 'sample-g3' }, fromLine: LA, toLine: LB, fromOutbox: a.outbox, toIntake: b.intake, fromName: 'A', toName: 'B',
+      fromJobId: 'job-gone0003', lines: [LA], depth: 1, at: clock, files: [], input: '', original: 'waits again', output: 'x' });
+    const rb = await R7._internals.dispatch(pg.queue.shift(), pg);
+    A.ok(rb && !rb.ok && /rebuilt/.test(rb.error) && /LINE B/.test(rb.error), 'a target line rebuilt while the hand-off waited says so — ' + JSON.stringify(rb));
+    A.ok(/rebuilt/.test((LineJobs.get(jobs, 'job-gone0003').sentTo || {}).refused || '') && jobs.jobs.filter(j => j.line === LB).length === onB && !jobs.jobs.some(j => j.line === 'p_rebuilt'), '…said on the sender, with no record on the dead key (nor on the new one: nothing ran there)');
+    plan = keep;
+  }
   A.ok(R.onShipped({ lineId: LC, agentId: 'x', dockId: c.bays[1], text: 'x', streamId: 's' }).code === 'none', 'a line that sends nowhere: nothing (the common case)');
   A.eq(R.onShipped({ agentId: 'x', text: 'x' }).code, 'none', 'no line: nothing');
 
