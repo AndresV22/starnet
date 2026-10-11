@@ -136,6 +136,66 @@ const routerFor = s => { const r = makeRouter(), plan = P.compileRoutingPlan(s.p
   A.ok(an4 && /2 of 3 branches delivered/.test(an4.text) && /1 branch failed and sent nothing/.test(an4.text), 'the joiner sends on 2 of 3, naming the failed one');
   delete script.r2;
 
+  /* ---------- PARALLEL BRANCHES: with the non-advancing peek wired (as the sidecar wires it), branches that each hand straight
+     to the JOINER run AT ONCE ---------- */
+  {
+    let inflight = 0, peak = 0; const plog = [];
+    const slow = async ({ agentId, text }) => {
+      plog.push({ agentId, text });
+      if (agentId === 'analyst') return { text: 'combined', usd: 0.01 };
+      if (/^r\d$/.test(agentId)) { inflight++; peak = Math.max(peak, inflight); await new Promise(r => setTimeout(r, 5)); inflight--; }
+      return { text: agentId + ' did ' + ((/YOUR PART:\n([^\n]*)/.exec(text) || [])[1] || 'the job'), usd: 0.01 };
+    };
+    const mk = () => makeChainRunner({
+      nextAgent: (a, ctx) => router.chainNext(a, ctx), stepAgent: (a, ctx) => router.chainStep(a, ctx),
+      stepDock: (d, ctx) => router.chainStepDock(d, ctx), peekDock: (d, ctx) => router.chainPeekDock(d, ctx), entryDockOf: a => router.entryDockOf(a),
+      fanSiblings: a => router.fanSiblings(a), fanSiblingsDock: d => router.fanSiblingsDock(d),
+      lineOfAgent: (a, d) => router.lineOfAgent(a, d), stageBrief: (a, d) => router.stageBrief(a, d),
+      runAgent: slow, emit: () => {}, now: (() => { let t = 0; return () => (t += 10); })(), setTimer: () => 0
+    });
+    const pc = mk();
+    const rp = await pc.advance({ agentId: 'planner', dockId: planner.id, text: '1. a\n2. b\n3. c', originalText: 'do X', lineId, runId: 'p1' });
+    A.eq(rp.stopped, null, 'the parallel divided line runs to its end (' + rp.stopped + ')');
+    A.eq(peak, 3, 'all three branches were in flight at once');
+    A.eq(plog.filter(l => /^r\d$/.test(l.agentId)).map(l => (/YOUR PART:\n([^\n]*)/.exec(l.text) || [])[1]).sort(), ['1. a', '2. b', '3. c'], 'each with its own part');
+    const an = plog.find(l => l.agentId === 'analyst');
+    A.ok(an && /JOINED OUTPUT — 3 of 3/.test(an.text), 'the joiner combined all three');
+    A.eq(rp.hops.filter(h => /^r\d$/.test(h.agentId)).length, 3, 'three branch hops are recorded');
+    A.ok(Math.abs(rp.usd - 0.04) < 1e-9, 'every branch is paid for once (' + rp.usd + ')');
+    A.eq(pc._barrier.size(), 0, 'nothing is left at the barrier');
+
+    // a failing branch in a parallel batch: the others deliver and the joiner names it
+    peak = 0; plog.length = 0;
+    const failing = async (c0) => (c0.agentId === 'r2' ? { error: 'boom' } : slow(c0));
+    const pf = makeChainRunner({ nextAgent: (a, ctx) => router.chainNext(a, ctx),
+      stepDock: (d, ctx) => router.chainStepDock(d, ctx), peekDock: (d, ctx) => router.chainPeekDock(d, ctx), entryDockOf: a => router.entryDockOf(a),
+      fanSiblingsDock: d => router.fanSiblingsDock(d), lineOfAgent: (a, d) => router.lineOfAgent(a, d), stageBrief: (a, d) => router.stageBrief(a, d),
+      runAgent: failing, emit: () => {}, now: () => 0, setTimer: () => 0
+    });
+    const rf = await pf.advance({ agentId: 'planner', dockId: planner.id, text: '1. a\n2. b\n3. c', originalText: 'do X', lineId, runId: 'p2' });
+    A.eq(rf.stopped, null, 'a failed parallel branch does not end the job (' + rf.stopped + ')');
+    const anf = plog.find(l => l.agentId === 'analyst');
+    A.ok(anf && /2 of 3 branches delivered/.test(anf.text) && /r2 failed/.test(anf.text), 'the joiner sends on 2 of 3 and names r2');
+    A.eq(pf._barrier.size(), 0, 'nothing stranded');
+
+    // ENTRY fan-out (INBOX ▸ SPLITTER directly): the entry dock already ran; its siblings run at once
+    const sw = stamp('swarm_synthesis', (i, b) => b.role === 'ANALYST' ? 'analyst' : 'r' + i);
+    const { r: rr } = routerFor(sw);
+    const entry = rr.resolveDock({ tag: 'general' });
+    peak = 0; plog.length = 0;
+    const pe = makeChainRunner({ nextAgent: (a, ctx) => rr.chainNext(a, ctx),
+      stepDock: (d, ctx) => rr.chainStepDock(d, ctx), peekDock: (d, ctx) => rr.chainPeekDock(d, ctx), entryDockOf: a => rr.entryDockOf(a),
+      fanSiblingsDock: d => rr.fanSiblingsDock(d), lineOfAgent: (a, d) => rr.lineOfAgent(a, d), stageBrief: (a, d) => rr.stageBrief(a, d),
+      runAgent: slow, emit: () => {}, now: () => 0, setTimer: () => 0
+    });
+    const re = await pe.advance({ agentId: entry.agentId, dockId: entry.dockId, text: 'entry findings', originalText: 'research X', lineId: rr.lineOfAgent(entry.agentId, entry.dockId), runId: 'p3' });
+    A.eq(re.stopped, null, 'the entry fan-out runs to its end (' + re.stopped + ')');
+    A.eq(peak, 2, 'the two siblings ran at once');
+    const ane = plog.find(l => l.agentId === 'analyst');
+    A.ok(ane && /JOINED OUTPUT — 3 of 3/.test(ane.text), 'and the joiner combined all three');
+    A.ok(plog.filter(l => /^r\d$/.test(l.agentId)).every(l => l.text === 'research X'), 'an entry sibling gets the original request, as before');
+  }
+
   // turning it off restores COPY TO EACH
   A.ok(s.setSplitDivide(split.id, false).ok, 'off again');
   const plan2 = P.compileRoutingPlan(s.projectGeometry());

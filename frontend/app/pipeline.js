@@ -1944,7 +1944,7 @@
   /* the hand-off a dividing split gives branch i: its OWN part, plus the step's whole plan for context only */
   function partTurn(plan, part, i, k) {
     return 'THE JOB IS DIVIDED INTO ' + k + ' PARTS. You have PART ' + (i + 1) + ' of ' + k + ' — do ONLY this part. Other agents are '
-      + 'doing the other parts at the same time, and a JOINER puts every part together after.\n\n'
+      + 'doing the other parts, and a JOINER puts every part together after.\n\n'
       + 'YOUR PART:\n' + String(part || '').trim() + '\n\n'
       + 'THE WHOLE PLAN (context only — do not do the other parts):\n' + String(plan || '').trim().slice(0, 6000);
   }

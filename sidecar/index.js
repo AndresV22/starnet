@@ -5217,6 +5217,7 @@ const chainRunner = makeChainRunner({
   // THE DOCK KEY (multi-bay agents, 2026-09-22): the runner walks DOCKS — writer@A → editor@B → writer@C is three
   // stages — so a seed's dock (or the agent's entry dock) is where the walk starts and every hop names its bay.
   stepDock: (dockId, ctx) => router.chainStepDock(dockId, ctx),
+  peekDock: (dockId, ctx) => router.chainPeekDock(dockId, ctx),   // the same step, no splitter moves: branches that all hand straight to one JOINER run at once (2026-10-10)
   fanSiblingsDock: (dockId) => router.fanSiblingsDock(dockId),
   entryDockOf: (agentId) => router.entryDockOf(agentId),
   // LOOP VERDICTS (2026-08-22): a dock whose lane meets a verdict-keyed LOOP gate is told to end with the VERDICT line

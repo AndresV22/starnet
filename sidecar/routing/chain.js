@@ -270,6 +270,9 @@ function makeChainRunner(o) {
   const stepDock = typeof o.stepDock === 'function' ? o.stepDock : null;
   const fanSiblingsDock = typeof o.fanSiblingsDock === 'function' ? o.fanSiblingsDock : null;
   const entryDockOf = typeof o.entryDockOf === 'function' ? o.entryDockOf : null;
+  // the NON-ADVANCING step read (router.chainPeekDock): lets the runner see that a fan's branches all hand straight to one
+  // JOINER — the shape it may run at once (PARALLEL BRANCHES below). Absent = branches run one after another, as before.
+  const peekDock = typeof o.peekDock === 'function' ? o.peekDock : null;
 
   /* THE JOIN BARRIER — in-memory, keyed "joinTile|runId". A branch DELIVERS its output; the barrier releases
      when `expect` deliveries are in, or when a waiter's timeout (the joiner's timeoutMin) fires with fewer —
@@ -422,6 +425,74 @@ function makeChainRunner(o) {
     // a branch that ends (terminal / parked at the joiner) hands the loop to the next queued branch
     const nextPending = () => { const b = pending.shift(); if (!b) return false; cur = b.from || cur; out.text = b.text; branchMode = true; return b; };
     let forced = null;   // a queued branch's node, run on this hop in place of the walk's answer
+    /* PARALLEL BRANCHES (2026-10-10 — "split the workload"). Branches that are each ONE step handing straight to the SAME
+       JOINER never depended on each other, yet ran one after another: three agents on a split took three agents' time. Now
+       they run AT ONCE. Only that shape (checked on the non-advancing peek, for every task type a FILTER could route by) —
+       a branch with more steps, a loop or a sorter inside still runs in turn. Every guard runs BEFORE any of them is paid
+       for, the line's remaining $ ceiling is shared between them, each is placed / delivered / superseded on the floor like
+       any hop, and each one that delivers parks at the barrier the way a sequential branch does. */
+    const joinOfAll = (items) => {
+      if (!peekDock || !dockMode || items.length < 2) return null;
+      let js = null;
+      for (const b of items) {
+        if (!b.node || !b.node.dockId) return null;
+        for (const tag of ['general', 'code', 'research']) {
+          let st = null; try { st = peekDock(b.node.dockId, { tag, lineId }); } catch (_) { st = null; }
+          if (!st || !st.join || (js && st.join !== js.join)) return null;
+          js = js || st;
+        }
+      }
+      return js;
+    };
+    async function runBatch(items, hop0) {
+      for (let i = 0; i < items.length; i++) {
+        const b = items[i], k = nodeKey(b.node);
+        if (visited[k]) return { refused: 'the line loops back to ' + b.node.agentId };
+        const refused = preHopRefusal({ visited, target: b.node.agentId, targetKey: k, loopHop: true, hop: hop0 + i, loopHops, lim, spent, dayLedger, lineId, text: b.text, cur: (b.from || cur).agentId });
+        if (refused) return { refused };
+      }
+      for (const b of items) visited[nodeKey(b.node)] = true;
+      const share = Math.max(0, lim.maxUsd - spent) / items.length;
+      const results = await Promise.all(items.map(async (b, i) => {
+        const t = b.node, from = b.entry ? null : (b.from || cur), workitemId = newId(), t0 = now();
+        const placed = { workitemId, queueId: t.agentId, agentId: t.agentId, kind: 'chain', from: from ? from.agentId : undefined, lineId: lineId || undefined, preview: preview(b.text), ts: t0 };
+        if (t.dockId) placed.dockId = t.dockId;
+        if (from && from.dockId) placed.fromDock = from.dockId;
+        say('workitem.placed', placed);
+        const turn = b.entry ? String(originalText || '') : hopTurn({ handoffText, stageBrief, loopGateAfter, lastStage, originalText, from: from.agentId, upstream: b.text, hop: hop0 + i, target: t.agentId, targetDock: t.dockId, lineId });
+        const call = { agentId: t.agentId, text: turn, hop: hop0 + i, from: from ? from.agentId : null, signal: s.signal, workitemId, ceilingUsd: share };
+        if (t.dockId) { call.dockId = t.dockId; call.fromDock = from ? from.dockId : null; }
+        if (lineId) call.lineId = lineId;
+        let r = null;
+        try { r = await runAgent(call); } catch (e) { r = { error: (e && e.message) || String(e || 'stage failed') }; }
+        r = r || {};
+        const usd = (typeof r.usd === 'number' && isFinite(r.usd) && r.usd > 0) ? r.usd : 0;
+        if (r.error || !String(r.text || '').trim()) {
+          say('workitem.superseded', withDock({ workitemId, agentId: t.agentId, ts: now() }, t.dockId));
+          return { node: t, usd, error: r.error ? t.agentId + ' failed' : t.agentId + ' returned nothing' };
+        }
+        say('workitem.delivered', withDock({ workitemId, finalQueueId: t.agentId, agentId: t.agentId, box: '', ms: now() - t0, ts: now() }, t.dockId));
+        return { node: t, usd, text: r.text, ms: now() - t0 };
+      }));
+      for (const x of results) {
+        out.usd += x.usd; spent += x.usd;
+        if (dayLedger && x.usd) { try { dayLedger.note(lineId, x.usd); } catch (e) { failNote('chain.dayLedger.batch', e); } }
+        if (!x.error) { const rec = { agentId: x.node.agentId, usd: x.usd, ms: x.ms }; if (x.node.dockId) rec.dockId = x.node.dockId; out.hops.push(rec); }
+      }
+      return { results };
+    }
+    /* the batch's parts into the barrier (or, when some failed, what came in) — returns the released set, or null */
+    function batchToBarrier(results, bk, jstep) {
+      let rel = null;
+      for (const x of results) {
+        if (x.error) { if (fan) fan.failed.push(x.error); continue; }
+        const fw = fan ? Math.max(1, fan.width - fan.failed.length) : 0;
+        const d = barrier.deliver(bk, fw ? Math.min(jstep.expect || fw, fw) : jstep.expect, x.node.agentId, x.text, jstep.timeoutMin, x.node.dockId);
+        cur = { agentId: x.node.agentId, dockId: x.node.dockId || null };
+        if (d.released) rel = d;
+      }
+      return rel || barrier.release(bk);
+    }
     for (let hop = 1; hop <= 400; hop++) {
       if (s.signal && s.signal.aborted) { out.stopped = 'stopped'; return out; }
       // the tag is derived from the OUTPUT of the stage that just ran — this is what makes a FILTER downstream
@@ -447,6 +518,24 @@ function makeChainRunner(o) {
             else { const note = '(This job was meant to be split between ' + br.length + ' agents, but the step before the splitter gave no numbered parts — so every branch has the whole job.)\n\n'; texts = br.map(() => note + out.text); out.divided = 0; }
           }
           if (br.length) fan = { width: br.length, failed: [], joinKey: null, joinStep: null };
+          const allAt = joinOfAll(br.map(n => ({ node: n })));
+          if (allAt) {
+            const items = br.map((n, i) => ({ node: n, text: texts ? texts[i] : out.text, from: cur }));
+            const leadText = out.text, bk = allAt.join + '|' + runId;
+            fan.joinKey = bk; fan.joinStep = allAt;
+            const b = await runBatch(items, hop);
+            if (b.refused) { out.stopped = b.refused; return out; }
+            hop += items.length - 1;
+            const rel = batchToBarrier(b.results, bk, allAt);
+            if (!rel || !rel.parts.length) { out.text = leadText; out.stopped = (fan.failed[0] || 'every branch failed'); return out; }
+            const last = rel.parts[rel.parts.length - 1];
+            out.text = Pipeline.joinPayload(rel.parts, [], fan.failed);
+            out.agentId = last.agentId; if (last.dockId) out.dockId = last.dockId;
+            say('workitem.delivered', withDock({ workitemId: newId(), finalQueueId: last.agentId, agentId: last.agentId, box: 'join:' + allAt.join, ms: 0, ts: now() }, last.dockId));
+            branchMode = false; fan = null; fromTile = tileOf(allAt.join);
+            if (!allAt.next) { out.stopped = null; return out; }
+            continue;
+          }
           if (texts) out.text = texts[0];
           target = br.shift() || null;
           br.forEach((n, i) => pending.push({ node: n, text: texts ? texts[i + 1] : out.text, from: cur }));
@@ -457,6 +546,20 @@ function makeChainRunner(o) {
           const r = barrier.deliver(bk, fw ? Math.min(step.expect || fw, fw) : step.expect, cur.agentId, out.text, step.timeoutMin, cur.dockId);
           if (fan) { fan.joinKey = bk; fan.joinStep = step; }
           const failedNames = fan ? fan.failed.slice() : [];
+          if (!r.released && pending.length > 1 && joinOfAll(pending) && joinOfAll(pending).join === step.join) {
+            const items = pending.splice(0);
+            const b = await runBatch(items, hop);
+            if (b.refused) { barrier.release(bk); out.stopped = b.refused; return out; }
+            hop += items.length - 1;
+            const rel = batchToBarrier(b.results, bk, step);
+            out.text = Pipeline.joinPayload(rel.parts, [], fan ? fan.failed : []);
+            const last = rel.parts[rel.parts.length - 1];
+            out.agentId = last.agentId; if (last.dockId) out.dockId = last.dockId;
+            say('workitem.delivered', withDock({ workitemId: newId(), finalQueueId: last.agentId, agentId: last.agentId, box: 'join:' + step.join, ms: 0, ts: now() }, last.dockId));
+            branchMode = false; fan = null; fromTile = tileOf(step.join);
+            if (!step.next) { out.stopped = null; return out; }
+            continue;
+          }
           if (!r.released) {
             if (pending.length) { forced = nextPending(); hop--; continue; }   // run the next branch; it may fill the barrier
             // nothing left to run in THIS call: wait for another deliverer (same run) or the joiner's timeout
