@@ -29,8 +29,12 @@ const staleTokenRecovery = new Function(factorySrc + '\nreturn staleTokenRecover
 
 // The page the sidecar serves carries the token in EXACTLY this shape (sidecar/index.js serveStatic). Lock the
 // producer so a format change there cannot silently blind the recovery.
-A.ok(sidecar.includes("'<script>window.__STARNET_API_TOKEN__=' + JSON.stringify(API_TOKEN) + ';'"),
+// The boot script now opens with a per-response CSP nonce (<script nonce="…">) and carries the token only for the
+// same-user owner (peerOwnerCheck); the recovery's TOKEN_RE matches the assignment itself, whatever the tag carries.
+A.ok(sidecar.includes("'window.__STARNET_API_TOKEN__=' + JSON.stringify(API_TOKEN) + ';'"),
   'serveStatic still injects window.__STARNET_API_TOKEN__=<json>; into the page');
+A.ok(sidecar.includes("(scriptNonce ? '<script nonce=\"' + scriptNonce + '\">' : '<script>')"),
+  'serveStatic opens the boot script with its per-response nonce');
 A.ok(/res\.writeHead\(403\); res\.end\('forbidden token'\); return true;/.test(sidecar),
   "rejectBadApiToken still answers the stale-token case with the exact body 'forbidden token'");
 const pageWith = tok => '<html><head><script>window.__STARNET_API_TOKEN__=' + JSON.stringify(tok) + ';</script>\n</head><body></body></html>';
@@ -83,6 +87,20 @@ const forbiddenToken = () => new Response('forbidden token', { status: 403 });
     A.eq(st.token, 'NEW', 'the fresh token from the served page is adopted');
     A.eq(st.replays.join(','), 'NEW', 'exactly one replay, carrying the fresh token');
     A.ok(st.recovered === 1 && st.stale === 0, 'recovery is reported once, not staleness');
+  }
+  // 3b. the page the sidecar serves today: a nonce'd boot script — recovery reads the token all the same.
+  {
+    const { st, rec, replay } = rig({ page: '<html><head><script nonce="b64Nonce+/==">window.__STARNET_API_TOKEN__=' + JSON.stringify('NEW') + ';</script>\n</head><body></body></html>' });
+    const out = await rec.settle(forbiddenToken(), 'OLD', replay());
+    A.eq(out.status, 200, 'a nonce-tagged boot script still yields the fresh token and one replay');
+    A.eq(st.token, 'NEW', 'the fresh token is adopted from the nonce-tagged page');
+  }
+  // 3c. a page served to a different OS user withholds the token: nothing to adopt, the 403 stands.
+  {
+    const { st, rec, replay } = rig({ page: '<html><head><script nonce="n">window.__STARNET_TOKEN_WITHHELD__="not-owner";</script></head></html>' });
+    const res = forbiddenToken();
+    const out = await rec.settle(res, 'OLD', replay());
+    A.ok(out === res && st.replays.length === 0 && st.stale === 1, 'a withheld-token page is not a rotation: 403 stands, stale reported');
   }
   // 4. the served page carries the SAME token → no rotation proven → no replay; staleness reported.
   {

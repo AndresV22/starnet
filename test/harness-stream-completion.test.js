@@ -112,7 +112,8 @@ async function exercise(source, wire, options = {}) {
         Workstreams: { noteRunEnd: (...args) => calls.push(args) },
         armReconnectWatch: () => calls.push('journal'), isActiveWs: () => active,
         activeLiveRow: { error: () => calls.push('render-error') }, resolvePresence: () => calls.push('presence'),
-        offerRetry: () => calls.push('retry-control'), StationUI: { clearRunning: () => calls.push('clear') }
+        offerRetry: () => calls.push('retry-control'), StationUI: { clearRunning: () => calls.push('clear') },
+        errorHistoryLine: v => '⚠ ' + v.userMessage, stopSource: new Map()
       };
       await vm.runInNewContext('(async function(e) {' + body + '\n})', sandbox)(new Error('stream disconnected'));
       A.eq(calls.slice(0, 2), ['partial', 'health'], 'partial output persists before asynchronous health check');

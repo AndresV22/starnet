@@ -188,4 +188,52 @@ A.eq(new Set(fixed.dims.identity.map(b => b.id)).size, 4, 'a post-hydrate add ne
   A.eq(h.dims.stack[0].weight, 'observed', 'hydrate infers observed for a legacy study record');
 }
 
+/* ---------- memory-truth (2026-10-11): an EDITED doc reaches its still-untouched seed ----------
+   The standing_orders seed was copied from operating-manual.md ONCE, so after the Commander edited the manual every
+   prompt carried both the new "STANDING ORDERS" and the dossier's old "Standing orders" line — an old instruction
+   recalled beside the new one. */
+{
+  const manualOf = d => D.beliefs(d, 'standing_orders').map(b => b.text).join(' | ');
+  const r1 = D.fresh();
+  D.seedFromDocs(r1, { manual: 'Reply in long paragraphs' }, 100, { resync: true });
+  const id = r1.dims.standing_orders[0].id;
+  D.seedFromDocs(r1, { manual: 'Reply in short bullet points' }, 200, { resync: true });
+  A.eq(manualOf(r1), 'Reply in short bullet points', 'an edited Overseer manual replaces its untouched seed — the old order is gone from the prompt');
+  A.eq(r1.dims.standing_orders[0].id, id, '…in place (same belief, no duplicate)');
+  A.ok(r1.dims.standing_orders[0].source === 'onboarding' && r1.dims.standing_orders[0].weight === 'seed', '…still a mechanical seed (it never starts counting toward readiness)');
+  A.ok(D.composeBlock(r1).indexOf('long paragraphs') < 0 && D.composeBlock(r1).indexOf('short bullet points') > 0, 'the composed COMMANDER block carries only the current order');
+  // negative: a seed the Commander EDITED is theirs — a later manual change never overwrites it
+  const r2 = D.fresh();
+  D.seedFromDocs(r2, { manual: 'Be concise' }, 100, { resync: true });
+  D.upsert(r2, 'standing_orders', { id: r2.dims.standing_orders[0].id, text: 'Be concise, and cite sources' }, 150);
+  D.seedFromDocs(r2, { manual: 'Be verbose' }, 200, { resync: true });
+  A.eq(manualOf(r2), 'Be concise, and cite sources', 'negative: a Commander-edited seed belief is never rewritten by the doc');
+  // negative: a forgotten seed stays forgotten even when the doc changes
+  const r3 = D.fresh();
+  D.seedFromDocs(r3, { manual: 'Be concise' }, 100, { resync: true });
+  D.forget(r3, 'standing_orders', r3.dims.standing_orders[0].id, 150);
+  D.seedFromDocs(r3, { manual: 'Be verbose' }, 200, { resync: true });
+  A.eq(r3.dims.standing_orders.length, 0, 'negative: a forgotten seed never comes back on a doc edit');
+  // negative: a non-canonical caller (a specialist's own docs) never rewrites the station's seeds
+  const r4 = D.fresh();
+  D.seedFromDocs(r4, { manual: 'Station order' }, 100, { resync: true });
+  D.seedFromDocs(r4, { manual: 'Specialist order' }, 200);
+  A.eq(manualOf(r4), 'Station order', 'negative: without resync (another agent\'s docs) the seed is untouched');
+  // negative: an empty doc is not treated as a deletion (unloaded and cleared look the same)
+  D.seedFromDocs(r4, { manual: '' }, 300, { resync: true });
+  A.eq(manualOf(r4), 'Station order', 'negative: an empty doc never wipes the seed');
+  // the record of what was copied survives a save/reload
+  const back = D.hydrate(JSON.parse(JSON.stringify(r1)));
+  A.eq(back.seedText.manual, 'Reply in short bullet points', 'hydrate keeps what each seed copied');
+  D.seedFromDocs(back, { manual: 'Reply in one line' }, 300, { resync: true });
+  A.eq(manualOf(back), 'Reply in one line', 'and the resync keeps working after a reload');
+  // LEGACY dossier (seeded before this fix — no seedText): the untouched seed (updatedAt === createdAt) is adopted
+  const legacy = D.hydrate({ dims: { standing_orders: [{ id: 'cd_1', text: 'Old manual', source: 'onboarding', weight: 'seed', createdAt: 5, updatedAt: 5 }] }, seededFrom: { manual: true } });
+  D.seedFromDocs(legacy, { manual: 'New manual' }, 400, { resync: true });
+  A.eq(manualOf(legacy), 'New manual', 'a legacy stale seed is refreshed when it was never touched');
+  const legacyEdited = D.hydrate({ dims: { standing_orders: [{ id: 'cd_1', text: 'My own words', source: 'onboarding', weight: 'seed', createdAt: 5, updatedAt: 9 }] }, seededFrom: { manual: true } });
+  D.seedFromDocs(legacyEdited, { manual: 'New manual' }, 400, { resync: true });
+  A.eq(manualOf(legacyEdited), 'My own words', 'negative: a legacy seed edited since (updatedAt moved) is left alone');
+}
+
 A.report('dossier.test');

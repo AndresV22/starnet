@@ -79,12 +79,12 @@ const feedbackRecs = async () => ((await api('/api/memory/records?agent=agent'))
     const r2 = await run('Summarize these customer call notes.');
     A.ok(r2.prompt.indexOf('way too long, give me 3 bullet points max') >= 0, 'unrelated next run carries the correction in its prompt');
     A.ok(r2.prompt.indexOf('Commander\'s own verdicts on past work') >= 0, 'under the taste header');
-    A.ok(r2.prompt.indexOf('[user-confirmed reference] Preference') >= 0, 'marked as the Commander\'s confirmed preference');
+    A.ok(/\[note_\d+\] REJECTED \d{4}-\d{2}-\d{2}: Write the weekly status report/.test(r2.prompt), 'marked as the Commander\'s own verdict, dated, on the work it was about (renderTaste)');
 
     // 3b. station-wide: a DIFFERENT agent's next run carries the Commander's correction too (no foreign note id)
     const rs = await run('Compose a short poem about autumn leaves.', 'scribe');
     A.ok(rs.prompt.indexOf('way too long, give me 3 bullet points max') >= 0, 'another agent\'s run carries the correction (taste is about the Commander)');
-    A.ok(!/\[note_\d+\] \[user-confirmed reference\] Preference — DISLIKED/.test(rs.prompt), 'the foreign record shows no note id in the other agent\'s prompt');
+    A.ok(/• REJECTED \d{4}-/.test(rs.prompt) && !/\[note_\d+\] REJECTED/.test(rs.prompt), 'the foreign record shows no note id in the other agent\'s prompt');
 
     // 4. a like with words adds a second belief
     const liked = await api('/api/growth/ratings', {runId: r2.runId, verdict: 'great', epoch: 1, correction: 'perfect length, keep the bold headers'});

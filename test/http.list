@@ -2,6 +2,7 @@
 test/provider-recovery.e2e.test.js
 test/computer-control.http.test.js
 test/memory-corrections.http.test.js
+test/memory-truth.http.test.js
 test/seam-audit-recovery.http.test.js
 test/customer-journey.e2e.test.js
 test/group-sessions.http.test.js
@@ -154,6 +155,8 @@ test/task-conversation.http.test.js
 test/emergency-recovery.http.test.js
 test/growth-rating-upgrade.e2e.test.js
 test/feedbackmemory.http.test.js
+test/earlier-conversation.http.test.js
+test/tasteref.http.test.js
 test/verdictpackets.http.test.js
 test/managed-image.e2e.test.js
 test/transparent-image.e2e.test.js

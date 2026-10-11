@@ -31,8 +31,9 @@ const VERBATIM_LEAD = 'The user\'s own messages from the folded part of this con
 const PER_MESSAGE_MAX_CHARS = 4000;
 const SCREEN_CAPTURE_PREFIX = '[BEGIN EXTERNAL SCREEN CAPTURE';
 const STEER_RE = /^<steering_note>([\s\S]*)<\/steering_note>$/;
-const LABEL = { user: 'user message', steer: 'steering note' };
-const ITEM_HEAD = /^\[(user message|steering note): (?:first (\d+) of (\d+)|(\d+)) chars\]\n/;
+const LABEL = { user: 'user message', steer: 'steering note', task: 'current task' };
+const KIND_OF = { 'user message': 'user', 'steering note': 'steer', 'current task': 'task' };
+const ITEM_HEAD = /^\[(user message|steering note|current task): (?:first (\d+) of (\d+)|(\d+)) chars\]\n/;
 const OMITTED_LINE = /^\[(\d+) earlier user messages? omitted\]\n/;
 
 // character budget for the verbatim section: ~5% of the window (4 chars/token), floor 2k, ceiling 24k (Hermes' cap)
@@ -78,14 +79,17 @@ function userText(content) {
   return images ? t + '\n[' + images + ' image' + (images === 1 ? '' : 's') + ' attached - not carried]' : t;
 }
 
-// the user/steering words inside a slice about to be folded, oldest first
-function collectUserMessages(older) {
+// the user/steering words inside a slice about to be folded, oldest first. opts.pinned = the run's own request
+// (loop.js runRequest): matched by identity or by its exact text, it is carried as the 'current task'.
+function collectUserMessages(older, opts) {
   const out = [];
+  const pinned = opts && opts.pinned && typeof opts.pinned === 'object' ? opts.pinned : null;
+  const pinnedText = pinned && pinned.role === 'user' ? userText(pinned.content) : '';
   for (const m of (Array.isArray(older) ? older : [])) {
     if (!m || typeof m !== 'object') continue;
     if (m.role === 'user') {
       const t = userText(m.content);
-      if (t) out.push({ kind: 'user', text: t, fullChars: t.length });
+      if (t) out.push({ kind: (pinned && (m === pinned || (pinnedText && t === pinnedText))) ? 'task' : 'user', text: t, fullChars: t.length });
     } else if (m.role === 'system' && typeof m.content === 'string') {
       const s = STEER_RE.exec(m.content);
       if (s && s[1].trim()) out.push({ kind: 'steer', text: s[1], fullChars: s[1].length });
@@ -105,8 +109,42 @@ function capItem(it, max) {
    behind 2,200-char notes). Now every carried message gets an equal share of the budget — a short one is kept
    whole, a long one is cut to its share and says so — and only when even SHARE_FLOOR chars each would not fit are
    the OLDEST messages dropped (counted in the omitted line). An identical text repeated ("continue") is carried
-   once, at its newest position. */
+   once, at its newest position.
+
+   INSTRUCTIONS FIRST, ACKNOWLEDGEMENTS LAST (consistency audit 2026-10-11). Fair share still cut a 1,500-char
+   spec to ~480 chars once fifty folded messages shared the budget, and a long chat dropped its OLDEST messages
+   first — which is exactly where the Commander's standing instructions live ("always…", "never…", "from now
+   on…"). Each carried message now has a priority (messagePriority): an instruction-shaped message is dropped
+   only after every ordinary one, a bare acknowledgement ("ok", "thanks", "continue") goes first, and the
+   instructions are water-filled first with up to RULE_SHARE of the budget before ordinary messages share the
+   rest. With no instruction-shaped message the allocation is exactly the fair share above. The run's OWN request
+   (loop.js runRequest, collected with `pinned`) rides as the "current task": allocated before everything else (up
+   to TASK_SHARE of the budget when others share it) and never dropped — a long agentic run that folds its own task
+   keeps it word for word. */
 const SHARE_FLOOR = 240;
+const RULE_SHARE = 0.6;
+const TASK_SHARE = 0.7;
+const RULE_RE = /\b(?:always|never|don['’]?t|do not|doesn['’]?t|must(?:n['’]?t)?|make sure|ensure|from now on|going forward|in (?:the )?future|next time|every time|remember|keep (?:it|them|this|that|the|using|to)|stop (?:doing|using|adding|making|saying)|no more|only (?:use|ever)|use only|instead of|rather than|prefer(?:s|red)?|i (?:want|need|like|hate|dislike|don['’]?t like)|avoid|(?:the )?rule|requirement|style|approved)\b/i;
+const ACK_RE = /^(?:ok(?:ay)?|k|thanks?(?: you)?|thx|ty|cool|nice|great|good|perfect|awesome|yes|yep|yeah|yup|no|nope|sure|continue|go(?: on| ahead)?|do it|proceed|next|lol|haha|done|got it|sounds good|looks good|lgtm)[\s.!?,]*$/i;
+// 2 = an instruction the Commander gave, 0 = a bare acknowledgement, 1 = everything else
+function messagePriority(text) {
+  const t = String(text == null ? '' : text).trim();
+  if (!t) return 0;
+  if (RULE_RE.test(t)) return 2;
+  if (ACK_RE.test(t)) return 0;
+  return 1;
+}
+// water-fill `budget` across `idx` (indexes into items): smallest first, each takes min(its cap, an equal share)
+function waterFill(items, idx, budget, cap, alloc) {
+  const order = idx.slice().sort((a, b) => cap(items[a]) - cap(items[b]));
+  let remaining = Math.max(0, budget);
+  for (let k = 0; k < order.length; k++) {
+    const i = order[k];
+    alloc[i] = Math.max(1, Math.min(cap(items[i]), Math.floor(remaining / (order.length - k))));
+    remaining -= alloc[i];
+  }
+  return remaining;
+}
 function mergeUserMessages(prev, fresh, budgetChars) {
   const p = prev || {};
   const all = (Array.isArray(p.items) ? p.items : []).concat(Array.isArray(fresh) ? fresh : []);
@@ -122,22 +160,42 @@ function mergeUserMessages(prev, fresh, budgetChars) {
   }
   const budget = Math.max(1, Math.floor(Number(budgetChars) || 0) || userBudgetChars(0));
   const cap = (it) => Math.min(it.text.length, PER_MESSAGE_MAX_CHARS);
-  // how many (newest) messages can each keep at least min(own length, SHARE_FLOOR)?
-  let n = uniq.length, need = 0;
+  // the run's own request (kind 'task') outranks everything and is never dropped
+  const prio = uniq.map(it => it.kind === 'task' ? 3 : messagePriority(it.text));
+  // which messages can each keep at least min(own length, SHARE_FLOOR)? Drop the lowest priority first, oldest first
+  // within a priority (uniq is newest first, so the oldest is the highest index), and always keep at least one.
+  const dropped = new Set();
+  let need = 0;
   for (let k = 0; k < uniq.length; k++) need += Math.min(cap(uniq[k]), SHARE_FLOOR);
-  while (n > 1 && need > budget) { n--; need -= Math.min(cap(uniq[n]), SHARE_FLOOR); }
-  // water-fill the budget across those n: smallest first, each takes min(its length, an equal share of what is left)
-  const keep = uniq.slice(0, n);
-  const order = keep.map((_, i) => i).sort((a, b) => cap(keep[a]) - cap(keep[b]));
+  for (let level = 0; level <= 2 && need > budget; level++) {   // level 3 (the current task) is never dropped
+    for (let k = uniq.length - 1; k >= 0 && need > budget; k--) {
+      if (prio[k] !== level || dropped.has(k) || dropped.size >= uniq.length - 1) continue;
+      dropped.add(k); need -= Math.min(cap(uniq[k]), SHARE_FLOOR);
+    }
+  }
+  const keepIdx = [];
+  for (let k = 0; k < uniq.length; k++) if (!dropped.has(k)) keepIdx.push(k);
+  const keep = keepIdx.map(k => uniq[k]);
+  const keepPrio = keepIdx.map(k => prio[k]);
   const alloc = new Array(keep.length);
+  const tasks = [], rules = [], rest = [];
+  for (let i = 0; i < keep.length; i++) (keepPrio[i] === 3 ? tasks : keepPrio[i] === 2 ? rules : rest).push(i);
   let remaining = budget;
-  for (let k = 0; k < order.length; k++) {
-    const i = order[k];
-    alloc[i] = Math.max(1, Math.min(cap(keep[i]), Math.floor(remaining / (order.length - k))));
-    remaining -= alloc[i];
+  // the current task takes what it needs first (up to TASK_SHARE of the budget when other messages share it)
+  if (tasks.length) {
+    const taskBudget = (rules.length || rest.length) ? Math.floor(remaining * TASK_SHARE) : remaining;
+    remaining = remaining - taskBudget + waterFill(keep, tasks, taskBudget, cap, alloc);
+  }
+  if (rules.length && rest.length) {
+    // instructions next: up to RULE_SHARE of what is left (never less than the floor each of them is owed)
+    const ruleBudget = Math.max(Math.min(remaining, rules.length * SHARE_FLOOR), Math.floor(remaining * RULE_SHARE));
+    const left = waterFill(keep, rules, ruleBudget, cap, alloc);
+    waterFill(keep, rest, remaining - ruleBudget + left, cap, alloc);
+  } else if (rules.length || rest.length) {
+    waterFill(keep, rules.length ? rules : rest, remaining, cap, alloc);
   }
   const kept = keep.map((it, i) => capItem(it, alloc[i]));
-  return { items: kept.reverse(), omitted: (Math.max(0, Math.floor(Number(p.omitted) || 0))) + (uniq.length - n) };
+  return { items: kept.reverse(), omitted: (Math.max(0, Math.floor(Number(p.omitted) || 0))) + dropped.size };
 }
 
 function renderUserSection(sec) {
@@ -171,7 +229,7 @@ function parseSection(body) {
     const text = body.slice(pos, pos + n);
     if (text.length !== n || body.charAt(pos + n) !== '\n') return null;
     pos += n + 1;
-    items.push({ kind: h[1] === 'steering note' ? 'steer' : 'user', text, fullChars: h[3] ? Number(h[3]) : n });
+    items.push({ kind: KIND_OF[h[1]] || 'user', text, fullChars: h[3] ? Number(h[3]) : n });
   }
   return { items, omitted };
 }
@@ -268,7 +326,7 @@ function contentText(content, imageLabel) {
 }
 
 module.exports = {
-  userBudgetChars, collectUserMessages, mergeUserMessages, renderUserSection, splitSummary, joinSummary,
+  userBudgetChars, collectUserMessages, mergeUserMessages, messagePriority, renderUserSection, splitSummary, joinSummary,
   usageAnchor, reportedWindow, projectAfterFold, contentText, scrubBinary, isScreenCapture,
   VERBATIM_OPEN, VERBATIM_CLOSE, PER_MESSAGE_MAX_CHARS
 };

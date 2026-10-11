@@ -67,6 +67,8 @@
   else { (root.SK = root.SK || {}).loopjobDriver = api; }
 })(typeof globalThis !== 'undefined' ? globalThis : this, function (LJ, store) {
   'use strict';
+  // plain words for an unclean end, the machine reason kept in brackets (sidecar/stop-reason.js)
+  const incompleteRunMessage = (typeof require === 'function') ? require('./stop-reason.js').incompleteRunMessage : (r) => 'run ended without completion: ' + (r || 'missing terminal outcome');
 
   const DEFAULT_MAX_PARALLEL = 0;          // unlimited; positive values opt into a ceiling
   const DEFAULT_MAX_RUN_MS = 900000;      // 15 min — the zombie-claim ceiling, extended by live heartbeats
@@ -412,7 +414,7 @@
             if (terminalReason !== 'done') {
               return settle(loop.id, runId, {
                 status: 'error', cancelled: terminalReason === 'cancelled',
-                error: 'run ended without completion: ' + (terminalReason || 'missing terminal outcome')
+                error: incompleteRunMessage(terminalReason)
               });
             }
             // hand the harvest the run result WITH the streamed text folded in (runOnce doesn't carry it).

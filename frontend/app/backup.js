@@ -159,11 +159,15 @@ const Backup = (() => {
   // push the bundle's memory snapshot back to the sidecar so a restored/moved agent isn't amnesiac. The route
   // merges additively (existing notes win), so this is safe to call even over an agent that already has memory.
   // Best-effort: a UI-only preview or unreachable sidecar just yields 0 restored.
+  // memory-truth: the sidecar skips a note the Commander FORGOT (its text is on the declined list) and reports how many
+  // in `forgotten` — kept on the side so the status line can say so instead of a silent shortfall.
+  let lastForgotten = 0;
   function restoreNotebook(notes) {
+    lastForgotten = 0;
     return fetch('/api/notebook/restore', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ agent: 'agent', notes: notes })
-    }).then(r => r.ok ? r.json() : null).then(j => (j && j.ok) ? (j.added || 0) : 0).catch(() => 0);
+    }).then(r => r.ok ? r.json() : null).then(j => { if (j && j.ok) { lastForgotten = Number(j.forgotten) || 0; return j.added || 0; } return 0; }).catch(() => 0);
   }
 
   async function importFile(file) {
@@ -197,6 +201,7 @@ const Backup = (() => {
     }
     if (res.ok && Array.isArray(doc.notebook) && doc.notebook.length) {
       res.memoriesRestored = await restoreNotebook(doc.notebook);   // fold memory back into the sidecar
+      if (lastForgotten) res.memoriesForgotten = lastForgotten;   // forgotten memories stayed forgotten
     }
     return res;
   }

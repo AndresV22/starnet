@@ -119,6 +119,42 @@ const usage = (input, output) => ({ type: 'usage', usage: { prompt_tokens: input
     A.eq(res.reason, 'done', 'the reissued complete call and final answer finish normally');
   }
 
+  // A TOO-LARGE tool call (2026-10-11): the same oversized fs_write cut off again and again never ran and the run ended
+  // a bare 'empty'. Each cut now tells the model to SPLIT using the write tools it has; after TOOL_CUT_MAX (2) nudges
+  // the run ends 'error' saying exactly why nothing was written.
+  {
+    const { seq, emit } = setup();
+    const requests = [];
+    const cut = [{ type: 'tool_start', index: 0, id: 'big', name: 'fs_write' }, { type: 'tool_args', index: 0, chunk: '{"path":"page.html","content":"<html>' }, usage(3, 3), { type: 'done', finishReason: 'length' }];
+    const provider = scripted([cut, cut, cut, cut, cut], (req) => requests.push(req.messages.map(m => String(m.content || '')).join('\n')));
+    let ran = 0;
+    const res = await runAgentLoop({ messages: [{ role: 'user', content: 'write a big page' }], provider, emit, cost: makeCost(), model: 'm', agentId: 'a', runId: 'r',
+      tools: [{ type: 'function', function: { name: 'fs.write', parameters: {} } }, { type: 'function', function: { name: 'fs.append', parameters: {} } }],
+      dispatch: async () => { ran++; return { ok: true, isError: false, content: 'ok' }; }, capCtx: openCtx() });
+    A.eq(ran, 0, 'a cut-off call is never dispatched');
+    A.eq(provider.callCount(), 3, 'initial cut + exactly two split nudges, not four blind reissues');
+    A.ok(/too large to fit in one reply/.test(requests[1]) && /fs_append/.test(requests[1]), 'the first nudge says split it, naming fs_append (a tool this run has)');
+    A.ok(/cut off 2 times in a row/.test(requests[2]), 'the second nudge says the same oversized call was cut off again');
+    A.eq(res.reason, 'error', 'the run does not pass off a never-written file as done or a bare empty');
+    A.eq(res.failureCode, 'output_limit_tool_cut', 'durable failure code names the cause');
+    const err = seq.find(e => e.name === 'agent.run.error');
+    A.ok(err && /hit the model's output limit while writing a large fs_write call/.test(err.payload.message), 'the user-facing stop says exactly what happened');
+    A.ok(err && /smaller parts/.test(err.payload.message), 'and what to do');
+  }
+  // …and when the model DOES split after the first cut, the work lands normally.
+  {
+    const { emit } = setup();
+    const cut = [{ type: 'tool_start', index: 0, id: 'big', name: 'fs_write' }, { type: 'tool_args', index: 0, chunk: '{"path":"page.html","content":"<html>' }, usage(3, 3), { type: 'done', finishReason: 'length' }];
+    const part = (id, name) => [{ type: 'tool_start', index: 0, id, name }, { type: 'tool_args', index: 0, chunk: '{"path":"page.html","content":"x"}' }, usage(3, 3), { type: 'done', finishReason: 'tool_calls' }];
+    const provider = scripted([cut, part('p1', 'fs_write'), part('p2', 'fs_append'), [{ type: 'text', delta: 'Wrote page.html in two parts.' }, usage(1, 1), { type: 'done', finishReason: 'stop' }]]);
+    let ran = 0;
+    const res = await runAgentLoop({ messages: [{ role: 'user', content: 'write a big page' }], provider, emit, cost: makeCost(), model: 'm', agentId: 'a', runId: 'r',
+      tools: [{ type: 'function', function: { name: 'fs_write', parameters: {} } }, { type: 'function', function: { name: 'fs_append', parameters: {} } }],
+      dispatch: async () => { ran++; return { ok: true, isError: false, content: 'ok' }; }, capCtx: openCtx() });
+    A.eq(ran, 2, 'both split writes ran');
+    A.eq(res.reason, 'done', 'a split write finishes normally');
+  }
+
   // Policy stops are terminal, never continued.
   {
     const { emit } = setup();
