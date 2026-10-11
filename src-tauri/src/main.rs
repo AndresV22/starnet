@@ -1884,14 +1884,19 @@ fn set_sidecar_branded_env<V: AsRef<OsStr>>(cmd: &mut Command, legacy_name: &str
 fn sidecar_command(state: &AppState, entry: &Path, node: &Path) -> Command {
     let mut cmd = Command::new(node);
     // Clear inherited material: only this OS account's verified keychain entry
-    // may unlock connector credentials. Missing/locked keychain fails closed.
+    // may unlock connector credentials. Sealed data without its key stays locked; with
+    // nothing sealed yet, the sidecar runs unencrypted and says so (connector-vault.js).
     cmd.env_remove("STARNET_CONNECTOR_ENCRYPTION_KEY");
+    cmd.env_remove("STARNET_CONNECTOR_KEY_ERROR");
     match credentials::connector_encryption_key() {
         Ok(key) => {
             cmd.env("STARNET_CONNECTOR_ENCRYPTION_KEY", key);
         }
         Err(error) => {
+            // The reason is non-secret; the sidecar shows it in Connectors so the user (and support)
+            // can see WHY sign-ins are unencrypted or locked instead of a bare "locked".
             eprintln!("[connectors] {error}");
+            cmd.env("STARNET_CONNECTOR_KEY_ERROR", &error);
         }
     }
     cmd.arg(entry)

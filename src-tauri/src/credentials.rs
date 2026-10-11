@@ -14,13 +14,13 @@ pub(crate) const KEYCHAIN_ACCOUNT: &str = "openrouter";
 /// value: doing so would permanently strand the encrypted connector state.
 pub(crate) fn connector_encryption_key() -> Result<String, String> {
     let entry = keyring::Entry::new(KEYCHAIN_SERVICE, "connectors:encryption:v1")
-        .map_err(|_| "Connector credential store is unavailable".to_string())?;
+        .map_err(|e| format!("the system credential store is unavailable ({e})"))?;
     match entry.get_password() {
         Ok(value) => {
             if valid_connector_key(&value) {
                 Ok(value)
             } else {
-                Err("Connector encryption key is invalid; original key was preserved".into())
+                Err("the saved connector key in the system credential store is malformed; it was left untouched".into())
             }
         }
         Err(keyring::Error::NoEntry) => {
@@ -31,17 +31,17 @@ pub(crate) fn connector_encryption_key() -> Result<String, String> {
                 .collect();
             entry
                 .set_password(&value)
-                .map_err(|_| "Connector encryption key could not be saved".to_string())?;
+                .map_err(|e| format!("the system credential store refused to save the key ({e})"))?;
             let saved = entry
                 .get_password()
-                .map_err(|_| "Connector encryption key could not be verified".to_string())?;
+                .map_err(|e| format!("the system credential store could not read back the key ({e})"))?;
             if saved == value {
                 Ok(saved)
             } else {
-                Err("Connector encryption key read-back failed".into())
+                Err("the system credential store returned a different key than it saved".into())
             }
         }
-        Err(_) => Err("Connector credential store is locked or unavailable".into()),
+        Err(e) => Err(format!("the system credential store is locked or refused access ({e})")),
     }
 }
 
