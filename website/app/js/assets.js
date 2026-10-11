@@ -487,10 +487,20 @@ const SPRITES = (() => {
     return tweenCanvas;
   }
 
+  /* STRAINED DETAIL (2026-10-10, "1 frame per hour — can't navigate"). On a weak or GPU-less machine a big crew
+     costs the floor 80+ ms a draw and the frame budget parks it at its 5 fps floor; every pan and zoom then lands
+     five times a second. Per body, the cost is the extra passes, not the drawing: the walk in-between (two lit
+     frames composed through one shared scratch canvas), the pose dissolve (a second body) and the local light
+     (a re-lit copy of every frame). A/B on a 26-agent station at CPU×4: dropping them cut the floor draw ~2.5×.
+     world.js turns this on only for a draw whose pacer says the floor can't hold its budget; while it is on,
+     a body draws its plain master — same pose, same frame, same anchor — and a healthy machine never sees it. */
+  let strained = false;
+  function setStrained(on) { strained = !!on; }
+
   /* main draw: foot-anchored at (x, y) */
   function drawBody(ctx, b, nowMs, appearance) {
     const reduced = !!(appearance && appearance.reducedMotion);
-    const light = bodyLight(appearance && appearance.light);
+    const light = strained ? null : bodyLight(appearance && appearance.light);
     const set = setForBody(b);
     if (!loadedSets.has(set)) { loadSet(set); return null; }
     const glancing = b.state !== 'walk' && b.glance && b.glance.until > nowMs;   // brief look-up: overrides facing & typing
@@ -642,7 +652,7 @@ const SPRITES = (() => {
       : (b.odo != null && stride > 0) ? b.odo / stride + aph : null;
     const frac = phase == null ? 0 : phase - Math.floor(phase);
     const tween = frac * frac * (3 - 2 * frac);
-    const fNext = tween > 0.02 ? fr[(b._renderFrame + 1) % fr.length] : null;
+    const fNext = !strained && tween > 0.02 ? fr[(b._renderFrame + 1) % fr.length] : null;
     b._renderWalkTween = fNext ? +tween.toFixed(3) : null;
     // footprint = native master × per-set scale → identical on-floor size as before, but f is now the
     // full-resolution master. Draw it DOWN to that size with smoothing ON so the detail survives (and
@@ -746,7 +756,7 @@ const SPRITES = (() => {
       // drawings. The outgoing pose now fades out beneath the incoming one for POSE_FADE_MS,
       // riding the body's position, so a turn reads as a rotation instead of a swap. Frames
       // WITHIN one walk cycle never dissolve (that smears the legs); reduced motion never fades.
-      const prev = b._poseLast, fadeable = !reduced && !b.noShadow && prev && prev.key !== key
+      const prev = b._poseLast, fadeable = !strained && !reduced && !b.noShadow && prev && prev.key !== key
         && nowMs - prev.at < 200 && Math.hypot(b.px - prev.px, b.py - prev.py) < 6;
       if (fadeable) b._poseFade = { f: prev.f, ox: prev.x - prev.px, oy: prev.y - prev.py, w: prev.w, h: prev.h, at: nowMs };
       const fade = b._poseFade, ft = fade && !reduced ? (nowMs - fade.at) / POSE_FADE_MS : 1;
@@ -848,6 +858,6 @@ const SPRITES = (() => {
     finally { loading = false; }
   }
 
-  return { init, drawBody, groundShadow, ensureSkin, isSkinReady, bodyScale, bodyAppearanceStats, setForBody,
+  return { init, drawBody, setStrained, groundShadow, ensureSkin, isSkinReady, bodyScale, bodyAppearanceStats, setForBody,
     get ready() { return ready; }, get loading() { return loading; } };
 })();
