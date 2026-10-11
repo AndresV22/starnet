@@ -7,7 +7,7 @@ severity: P1
 status: fixed
 found: 2026-10-11
 lane: issue-triage-1011
-fix: b387d48ab
+fix: 7680f00da
 origin: customer
 report: https://github.com/androoAGI/starnet/issues/107
 affected: v0.13.2 macOS Apple Silicon
