@@ -422,8 +422,10 @@ function makeMediaService(options) {
       // than substitute a different speaker for just that chunk.
       if (localEngine === 'edge') return serveEdge(localVoice.edgeVoiceFor(localVoiceId), '');
       try {
-        const localSpeed = Number(body.speed) || 1;
-        const cacheKey = crypto.createHash('sha1').update(`local-kokoro/q4|${localVoiceId}|${localSpeed}|${text}`).digest('hex');
+        // v2 = sentence pieces + trimmed edges + punctuation pauses + 16-bit (local-voice.js renderSpeech); a v1
+        // (q4, one call, float32) clip in the cache must never answer for it.
+        const localSpeed = Math.max(0.5, Math.min(2, Number(body.speed) || 1));
+        const cacheKey = crypto.createHash('sha1').update(`local-kokoro/v2|${localVoiceId}|${localSpeed}|${text}`).digest('hex');
         const cachePath = path.join(voiceCacheDir, `local-${cacheKey}.wav`);
         try {
           const cached = await fsp.readFile(cachePath);

@@ -7266,7 +7266,17 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
         present.map(a => '<option value="' + esc(a.id) + '">' + esc(a.name || a.id) + '</option>').join('') + '</select></div>' +
       '<button class="bb sm" id="set-lv-inherit" hidden>USE STATION DEFAULT</button>' +
       '<p id="set-lv-msg" class="msg" aria-live="polite"></p>' +
-      '<div class="set-themes" id="set-lv-voices"><span class="dim">reading the built-in voice list…</span></div>';
+      '<div class="set-themes" id="set-lv-voices"><span class="dim">reading the built-in voice list…</span></div>' +
+      // EFFECT — what the voice is played through. One choice for every voice; AUTO lets each wear its own.
+      '<h4 class="ms-h">VOICE EFFECT</h4>' +
+      '<div class="set-themes" id="set-lv-effect">' +
+        [['', 'AUTO', 'Each voice wears its own effect: built-in voices sound natural, the Ultron station voice keeps its machine shell.'],
+         ['natural', 'NATURAL', 'The voice itself, with a light room around it.'],
+         ['comms', 'COMMS', 'A subtle station comms-channel colour.'],
+         ['machine', 'MACHINE', 'The Ultron machine shell: metallic, digitized, robotic.']]
+          .map(([v, label, tip]) => '<button type="button" class="set-theme" data-lv-effect="' + v + '" aria-pressed="false" title="' + esc(tip) + '">' + label + '</button>').join('') +
+      '</div>' +
+      '<p id="set-lv-effect-msg" class="msg" aria-live="polite"></p>';
 
     const secAppearance =
       '<h4 class="ms-h">PHOSPHOR THEME</h4><div class="set-themes">' +
@@ -7520,6 +7530,28 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       target.onchange = () => { message.textContent = ''; refresh(); };
       inherit.onclick = () => save('');
       refresh();
+      const effects = host.querySelector('#set-lv-effect');
+      const effectMsg = host.querySelector('#set-lv-effect-msg');
+      const paintEffect = () => {
+        const cur = (typeof Voice !== 'undefined' && Voice.voiceEffect) ? Voice.voiceEffect() : '';
+        effects.querySelectorAll('[data-lv-effect]').forEach(btn => {
+          const on = btn.getAttribute('data-lv-effect') === cur;
+          btn.classList.toggle('sel', on); btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+        });
+      };
+      if (effects) {
+        effects.querySelectorAll('[data-lv-effect]').forEach(btn => {
+          btn.onclick = () => {
+            try {
+              Voice.setVoiceEffect(btn.getAttribute('data-lv-effect'));
+              effectMsg.textContent = 'Effect saved. Applies to the next spoken reply.';
+              try { SFX.click(); } catch (_) {}
+            } catch (_) { effectMsg.textContent = 'Effect could not be saved. Please try again.'; }
+            paintEffect();
+          };
+        });
+        paintEffect();
+      }
     }
 
     /* the backdrop swatches are painted by the REAL world renderer, which costs a full sky/ground build

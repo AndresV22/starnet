@@ -1028,6 +1028,91 @@ async function opensWithin(t, ms) {
     A.eq(muted.opened, true, 'the mic RE-OPENS after muting mid-reply (no wedge)');
   }
 
+  // --- VOICE EFFECT: a clip plays through the chain its ENGINE and the setting call for ------------------
+  // The Ultron machine shell (bit-crusher, ring-mod, comb resonators) was tuned for the keyed Algenib recipe
+  // and used to wrap EVERY voice — it is what made the built-in voices robotic (2026-10-10). AUTO: built-in
+  // engines (Kokoro, the Edge floor) play natural; the keyed recipe keeps its locked shell.
+  {
+    const node = () => new Proxy({ connect() {}, disconnect() {}, start() {} }, {
+      get(target, key) { return key in target ? target[key] : (target[key] = { value: 0 }); }
+    });
+    class FxAC extends MockAC {
+      createGain() { return node(); } createBiquadFilter() { return node(); } createWaveShaper() { return node(); }
+      createDelay() { return node(); } createDynamicsCompressor() { return node(); } createOscillator() { return node(); }
+      createConvolver() { return node(); } createBuffer(_c, length) { return { getChannelData: () => new Float32Array(length) }; }
+      createMediaElementSource() { return node(); }
+      resume() { return Promise.resolve(); }
+    }
+    let served = 'local-kokoro';
+    const bodies = [], audios = [];
+    class RateAudio extends AutoEndAudio { constructor(src) { super(src); audios.push(this); } }
+    const fetch = (url, o) => {
+      if (url !== '/api/tts') return Promise.resolve({ ok: true, json: async () => ({}) });
+      bodies.push(JSON.parse(o.body));
+      const by = served;   // the engine that answers THIS request
+      return Promise.resolve({ ok: true, status: 200, blob: async () => ({ size: 64 }),
+        headers: { get: n => n.toLowerCase() === 'content-type' ? 'audio/wav' : (n.toLowerCase() === 'x-voice-provider' ? by : '') } });
+    };
+    const t = boot({ audio: true, Audio: RateAudio, AudioContext: FxAC, fetch });
+    t.Voice.setSpeakReplies(true);
+    const say = async (text, opts) => {
+      const n = bodies.length;
+      t.Voice.speakChunk(text, 'agent', opts || {}); t.Voice.endReply();
+      await until(() => bodies.length > n && !t.Voice.isReplyPending(), 1000);
+      return { chain: t.Voice.playbackChain(), body: bodies[bodies.length - 1], audio: audios[audios.length - 1] };
+    };
+    A.eq(t.Voice.voiceEffect(), '', 'effect: unset by default (AUTO)');
+    t.Voice.setVoiceChoice('am_michael', 'agent');
+    A.eq((await say('A built-in voice speaks.')).chain, 'natural', 'AUTO: a Kokoro clip plays NATURAL, never through the machine shell');
+    served = 'edge:en-US-GuyNeural';
+    A.eq((await say('The mapped Edge floor speaks.')).chain, 'natural', 'AUTO: the built-in Edge floor plays natural too');
+    t.Voice.setVoiceChoice('', 'agent');
+    served = '';
+    A.eq((await say('The keyed station voice speaks.')).chain, 'machine', 'AUTO: the keyed station recipe keeps its locked machine shell');
+    A.eq(t.Voice.setVoiceEffect('natural').effect, 'natural', 'effect: a choice is saved');
+    A.eq(t.sandbox.localStorage.getItem('starnet.voice.effect.v1'), 'natural', 'effect: the choice persists in app storage');
+    A.eq((await say('Natural for every voice now.')).chain, 'natural', 'a chosen effect applies to the keyed voice too');
+    t.Voice.setVoiceEffect('comms');
+    A.eq((await say('Over the comms channel.')).chain, 'comms', 'COMMS routes through the transmission chain');
+    t.Voice.setVoiceEffect('machine'); served = 'local-kokoro'; t.Voice.setVoiceChoice('am_michael', 'agent');
+    A.eq((await say('A built-in voice as a machine.')).chain, 'machine', 'MACHINE wraps a built-in voice in the shell when asked');
+    t.Voice.setVoiceEffect('');
+    A.eq(t.sandbox.localStorage.getItem('starnet.voice.effect.v1'), null, 'effect: AUTO clears the stored choice');
+
+    // pacing: a built-in voice is slowed BY THE ENGINE, never time-stretched in the browser
+    const slow = await say('A quiet aside.', { speedMul: 0.88 });
+    A.ok(Math.abs(slow.body.speed - 0.88) < 1e-9, 'a built-in voice asks the engine for the slower pace');
+    A.eq(slow.audio.playbackRate, 1, 'a Kokoro clip plays at 1x — no browser time-stretch smear');
+    t.Voice.setVoiceChoice('', 'agent'); served = '';
+    const keyed = await say('A keyed aside.', { speedMul: 0.88 });
+    A.eq(keyed.body.speed, 1, 'a keyed voice is not asked for a speed it cannot take');
+    A.ok(Math.abs(keyed.audio.playbackRate - 0.88) < 1e-9, 'a keyed clip is still paced on playback');
+
+    // a reply is pinned to one chain: a blip onto the Edge floor mid-reply must not change the effect
+    served = '';
+    const played = audios.length;
+    t.Voice.speakChunk('Keyed first sentence.', 'agent', {});
+    await until(() => audios.length > played, 1000);
+    A.eq(t.Voice.playbackChain(), 'machine', 'the reply opens on the keyed engine (machine shell)');
+    served = 'edge:en-US-ChristopherNeural';
+    t.Voice.speakChunk('Floor second sentence.', 'agent', {}); t.Voice.endReply();
+    await until(() => !t.Voice.isReplyPending(), 1000);
+    A.eq(t.Voice.playbackChain(), 'machine', 'one reply keeps one effect across an engine blip');
+
+    // read-aloud prosody: a bulleted line ends a sentence instead of running into the next
+    await say('Here is what changed:\n- fixed the voice\n- added tests');
+    A.eq(bodies[bodies.length - 1].text, 'Here is what changed: fixed the voice. added tests', 'a line with no punctuation ends a spoken sentence');
+  }
+  {
+    // natural playback whose chain cannot wire plays DRY — never through a harsher chain it did not ask for
+    const t = boot({ audio: true, Audio: AutoEndAudio, fetch: (url, o) => Promise.resolve({ ok: true, status: 200, blob: async () => ({ size: 64 }),
+      headers: { get: n => n.toLowerCase() === 'content-type' ? 'audio/wav' : 'local-kokoro' } }) });
+    t.Voice.setSpeakReplies(true);
+    t.Voice.setVoiceChoice('am_michael', 'agent');
+    t.Voice.speak('No audio graph here.', 'agent');
+    await until(() => !t.Voice.isReplyPending(), 1000);
+    A.eq(t.Voice.playbackChain(), 'dry', 'natural falls back to dry playback when WebAudio cannot route');
+  }
   {
     const t = boot({recorder:true, ttsKey:true});
     const token = t.Voice.replyToken();
