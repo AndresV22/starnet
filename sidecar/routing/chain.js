@@ -178,8 +178,8 @@ function lineRefusalNote(lineOfAgent, dock, lineId, dockId) {
   if (!own || String(own) === String(lineId)) return null;
   // plain language, no ids, no belt vocabulary — the same voice the floor speaks (build.js step card). It says the one thing
   // the Commander can act on (2026-10-09 P0: "did not come in through this line's door" read as jargon to a user chaining
-  // three lines): the job belongs to another line, and one line does not hand work on to another.
-  return 'this job started on a different line, and lines can’t hand work to each other yet, so it stopped at ' + dock;
+  // three lines): the job belongs to another line, and work crosses to another line only by SEND TO (2026-10-10).
+  return 'this job started on a different line, so it stopped at ' + dock + ' — a line hands its work to another line only by SEND TO (drag its OUTBOX onto that line’s INBOX)';
 }
 
 function makeChainRunner(o) {

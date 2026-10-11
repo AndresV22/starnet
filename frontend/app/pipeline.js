@@ -993,7 +993,45 @@
       let stages = 0;
       for (const s of sources) if (rec.intakes.indexOf(s.propId) >= 0) stages = Math.max(stages, jobStages(plan, srcTiles(s)));
       const maxHops = rec.limits ? rec.limits.maxHops : LINE_LIMIT_DEFAULTS.maxHops;
+      // (the counts ride the line record too — the INBOX's stages n/max reads THESE, never a second count; absent under a loop)
+      rec.stages = stages; rec.maxHops = maxHops;
       if (stages > maxHops + 1) errors.push({ code: 'LINE_TOO_LONG', propId: budgetIntake[rec.lineId] || rec.intakes[0], lineId: rec.lineId, stages, maxHops, warn: true });
+    }
+    // a line's name (its first named INBOX's label) — legibility only, so the sidecar can say "from LINE A" on a hand-off
+    for (const rec of lines) for (const iid of rec.intakes) { const ip = props.find(q => q.id === iid); if (ip && typeof ip.label === 'string' && ip.label.trim()) { rec.name = ip.label.trim().slice(0, 48); break; } }
+    /* SEND TO (2026-10-10) — one line hands its finished work on to another. The OUTBOX carries `sendTo` = the target INBOX's
+       prop id (worldmodel setSendTo — a pointer, never a belt: belts joining two lines make ONE line). Compiled here into
+       plan.sendTo = { [outboxId]: { intakeId, fromLine, toLine } } — keyed by OUTBOX, so two OUTBOXes on one line may send to
+       two lines — and onto each line record as rec.sendTo. Only a pointer with a live line at BOTH ends is kept; the rest are
+       WARNINGS, never blockers (a blocking code turns routing off for the whole station): SEND_TO_MISSING (that INBOX is gone,
+       or starts no line yet), SEND_TO_SELF (it starts this same line), SEND_TO_LOOP (the pointers send work round in a
+       circle — every pointer on the circle is off until it is broken; the sidecar refuses a cycle again at run time).
+       OUTSIDE plan.hash — dispatch topology is unchanged, and a hash move resets every SPLITTER's round robin. Absent when no
+       OUTBOX sends anywhere, so every existing floor compiles byte-identically. */
+    const sendTo = {};
+    for (const ob of props) {
+      if (!ob || ob.t !== 'outbox' || typeof ob.sendTo !== 'string' || !ob.sendTo || ob.id == null) continue;
+      const from = lineOfProp[ob.id];
+      if (!from) continue;   // an OUTBOX on no line ships nothing, so it sends nothing
+      const tgt = props.find(q => q && q.id === ob.sendTo && q.t === 'intake');
+      const to = tgt ? lineOfProp[tgt.id] : null;
+      if (!to) { errors.push({ code: 'SEND_TO_MISSING', propId: ob.id, lineId: from, warn: true }); continue; }
+      if (to === from) { errors.push({ code: 'SEND_TO_SELF', propId: ob.id, lineId: from, warn: true }); continue; }
+      sendTo[ob.id] = { intakeId: tgt.id, fromLine: from, toLine: to };
+    }
+    const sendEdges = {};
+    for (const k in sendTo) (sendEdges[sendTo[k].fromLine] = sendEdges[sendTo[k].fromLine] || []).push(sendTo[k].toLine);
+    const sendReaches = (a, b) => { const seen = {}, q = [a]; seen[a] = true; while (q.length) { const x = q.shift(); if (x === b) return true; for (const n of (sendEdges[x] || [])) if (!seen[n]) { seen[n] = true; q.push(n); } } return false; };
+    const onCircle = Object.keys(sendTo).filter(k => sendReaches(sendTo[k].toLine, sendTo[k].fromLine)).sort(propIdCmp);
+    for (const k of onCircle) { errors.push({ code: 'SEND_TO_LOOP', propId: k, lineId: sendTo[k].fromLine, toLine: sendTo[k].toLine, warn: true }); delete sendTo[k]; }
+    const sendKeys = Object.keys(sendTo).sort(propIdCmp);
+    if (sendKeys.length) {
+      plan.sendTo = {};
+      for (const k of sendKeys) plan.sendTo[k] = sendTo[k];
+      for (const rec of lines) {
+        const mine = sendKeys.filter(k => sendTo[k].fromLine === rec.lineId);
+        if (mine.length) rec.sendTo = mine.map(k => ({ outboxId: k, intakeId: sendTo[k].intakeId, toLine: sendTo[k].toLine }));
+      }
     }
     plan.lines = lines;
     plan.lineLimits = lineLimits;     // lineId -> normalized { maxHops, maxUsdPerMessage, maxUsdPerDay, clamped? } (only lines that set one)
@@ -1951,7 +1989,52 @@
     return rec && typeof rec === 'object' ? rec : null;
   }
 
-  return { rejoinOf, deriveLinks, reconcileLinks, compileRoutingPlan, composeStageBrief, HANDS_LEAD, resolveTarget, lineOf, lineOriginOf, lineLimitsOf, normalizeLineLimits, LINE_LIMIT_DEFAULTS, LINE_LIMIT_CEILINGS, sourceFor, ok, liveTiles, routeFrom, junctionLaneOwners, chainNext, chainStep, fanSiblings, handoffPrompt, parseHandoff, isHandoff, stripVerdictLine, joinPayload, lineComponents, LOOP_MAX_DEFAULT, LOOP_MAX_CEILING,
+  /* ---------- SEND TO at run time (2026-10-10) — pure readers the sidecar's handoff runner asks ----------
+     sendToOf(plan, lineId, dockId) -> { outboxId, intakeId, fromLine, toLine } | null: where a job that finished CLEAN on this
+     line — its last stage at `dockId` — is sent on to. One OUTBOX sending: that one. Several on the line: the one this
+     dock's own lane ships into (walked like chainWalk, stopping at any other dock), else the oldest. */
+  function outboxesReached(plan, dockId) {
+    const L = hasDockLayer(plan) ? dockLayer(plan) : null, dr = L && L.dockChains ? L.dockChains[String(dockId)] : null;
+    if (!dr || !dr.tile || !plan.belts) return [];
+    const map = plan.belts, junctions = plan.junctions || {}, dockAt = plan.bayTileToDock || {}, outAt = {};
+    for (const o of (plan.outs || [])) if (o && o.tile) (outAt[key(o.tile.x, o.tile.y)] = outAt[key(o.tile.x, o.tile.y)] || []).push(String(o.propId));
+    const found = [], seen = {}, q = [dr.tile];
+    seen[key(dr.tile.x, dr.tile.y)] = true;
+    while (q.length) {
+      const t = q.shift(), k = key(t.x, t.y), owner = dockAt[k];
+      if (owner && String(owner) !== String(dockId)) continue;
+      for (const id of (outAt[k] || [])) if (found.indexOf(id) < 0) found.push(id);
+      for (const nt of nextTiles(map, junctions, t)) { const nk = key(nt.x, nt.y); if (!seen[nk]) { seen[nk] = true; q.push(nt); } }
+    }
+    return found;
+  }
+  function sendToOf(plan, lineId, dockId) {
+    const st = plan && plan.sendTo && typeof plan.sendTo === 'object' ? plan.sendTo : null;
+    if (!st || lineId == null) return null;
+    const mine = Object.keys(st).filter(k => st[k] && String(st[k].fromLine) === String(lineId) && st[k].toLine != null).sort(propIdCmp);
+    if (!mine.length) return null;
+    let pick = mine[0];
+    if (mine.length > 1 && dockId != null) { const r = outboxesReached(plan, dockId); pick = mine.find(k => r.indexOf(k) >= 0) || mine[0]; }
+    return { outboxId: pick, intakeId: String(st[pick].intakeId), fromLine: String(st[pick].fromLine), toLine: String(st[pick].toLine) };
+  }
+  /* handoffInput({ fromName, original, output, files }) -> the work a SEND TO hand-off drops into the next line's INBOX: the job as
+     it first arrived, what the sending line delivered, and the files it made (paths only — nothing is copied; a line working in
+     another project folder may not reach them). Pure and bounded (the job record keeps 12000 chars of output). */
+  function handoffInput(o) {
+    const x = o || {};
+    const nm = String(x.fromName == null ? '' : x.fromName).replace(/\s+/g, ' ').trim().slice(0, 48);
+    const who = nm ? 'LINE ' + nm.toUpperCase() : 'the line before this one';
+    const original = String(x.original == null ? '' : x.original).trim().slice(0, 4000);
+    const output = String(x.output == null ? '' : x.output).trim().slice(0, 12000);
+    const files = (Array.isArray(x.files) ? x.files : []).map(f => String(f == null ? '' : f).trim()).filter((f, i, a) => f && a.indexOf(f) === i).slice(0, 20);
+    const parts = ['[HAND-OFF — ' + who + ' finished its part of this job and sent its result on to this line. Do this line’s part of the job, working from that result.]'];
+    if (original) parts.push('THE JOB AS IT FIRST ARRIVED:\n' + original);
+    parts.push('WHAT ' + who.toUpperCase() + ' DELIVERED:\n' + (output || '(no text came back)'));
+    if (files.length) parts.push('FILES IT MADE (paths on this machine):\n' + files.map(f => '- ' + f).join('\n'));
+    return parts.join('\n\n');
+  }
+
+  return { rejoinOf, deriveLinks, reconcileLinks, compileRoutingPlan, sendToOf, handoffInput, composeStageBrief, HANDS_LEAD, resolveTarget, lineOf, lineOriginOf, lineLimitsOf, normalizeLineLimits, LINE_LIMIT_DEFAULTS, LINE_LIMIT_CEILINGS, sourceFor, ok, liveTiles, routeFrom, junctionLaneOwners, chainNext, chainStep, fanSiblings, handoffPrompt, parseHandoff, isHandoff, stripVerdictLine, joinPayload, lineComponents, LOOP_MAX_DEFAULT, LOOP_MAX_CEILING,
     // THE DOCK LAYER (multi-bay agents, 2026-09-22) — the dock-keyed truth the agent readings above are views of
     resolveDock, chainNextDock, chainStepDock, fanSiblingsDock, junctionLaneDocks, lineOfDock, lineOriginOfDock, entryDockOf, docksOf, dockOf, agentOfDock: agentOfDockIn, deriveDockLayer, dockLayer, hasDockLayer, stepToAgents, propIdCmp,
     _internals: { DIRV, OPP, LANE_ORDER, key, buildBeltMap, outLanes, inLanes, loopLanes, beltTileNear, ringBelts, junctionAnchor, dirBetween, linkTilesByProp, linkedBeltMap, nextTiles, detectCycle, hashStr, compileChains, compileDockChains, chainCycle, shipFrom, propIdCmp, entryDocksOf, agentChainsView } };

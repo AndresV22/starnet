@@ -8172,7 +8172,9 @@ const World = (() => {
     JOIN_ONE_LANE: 'JOINER — NEEDS 2 BELTS IN', LOOP_NO_DONE: 'LOOP — NO DONE LANE OUT', LOOP_NO_BACK: 'LOOP — NO BACK LANE',
     BELT_BURIED: 'PROP ON THE LINE — MOVE IT',
     ORPHAN_JUNCTION: 'NOT ON A BELT — MOVE IT',
-    LINE_TOO_LONG: 'TOO LONG — RAISE THE LINE BUDGET'
+    LINE_TOO_LONG: 'TOO LONG — RAISE THE LINE BUDGET',
+    SEND_TO_MISSING: 'SENDS NOWHERE — PICK A LINE', SEND_TO_SELF: 'SENDS TO ITSELF — PICK ANOTHER LINE',
+    SEND_TO_LOOP: 'SENDS IN A CIRCLE — CUT ONE SEND TO'
   };
   // project the compiled plan's error list onto floor rectangles once per recompile (zero per-frame walk)
   function buildRoutingNags() {
@@ -9087,7 +9089,10 @@ const World = (() => {
       + '|' + (plan.dockBays || []).map(b => b.propId + ':' + (b.brief || '')).join(';')
       // LINE BUDGET rides the key too (2026-08-21): limits live on `lines`, outside plan.hash (policy, not
       // topology — splitter balance must survive a cap edit), but the sidecar's copy must re-read them.
-      + '|' + JSON.stringify(plan.lineLimits || {}) + '|' + JSON.stringify((plan.lines || []).map(l => [l.lineId, l.projectRoot || '']))) : '';
+      + '|' + JSON.stringify(plan.lineLimits || {}) + '|' + JSON.stringify((plan.lines || []).map(l => [l.lineId, l.projectRoot || '', l.name || '']))
+      // SEND TO rides the key too (2026-10-10): plan.sendTo is outside plan.hash (a hand-off is not dispatch topology), but the
+      // sidecar's handoff runner reads the posted copy — an edited SEND TO that never re-posted would hand work to the old line
+      + '|' + JSON.stringify(plan.sendTo || {})) : '';
     planPoster.offer(plan, hash);
   }
   // junction props (splitter/filter/merger) keyed by tile — derived from the compiled plan so the VISUAL engine

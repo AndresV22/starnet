@@ -1,11 +1,13 @@
-/* test/conveyor-no-handoff.test.js — A BELT NEVER RUNS OUT OF AN OUTBOX OR INTO AN INBOX (2026-10-09 P0).
+/* test/conveyor-no-handoff.test.js — A BELT NEVER RUNS OUT OF AN OUTBOX OR INTO AN INBOX (2026-10-09 P0; SEND TO 2026-10-10).
 
-   Lines do not hand work to each other (dispatch never routes THROUGH an OUTBOX; an INBOX is where a line starts). A real user
+   A belt never hands work between lines (dispatch never routes THROUGH an OUTBOX; an INBOX is where a line starts) — lines hand
+   work on by SEND TO, a pointer on the OUTBOX (test/line-sendto.test.js), never a belt. A real user
    lost three days to the floor accepting a belt from one line's OUTBOX into the next line's INBOX: it chimed "CONNECTED · N belts
    laid themselves" and fused the two lines into one jumbled line. Locked here, on a real station:
      THE BELT TOOL   — connectBelt refuses OUTBOX → anything and anything → INBOX: a code, a plain reason that says what to do
                        instead, nothing laid, no undo slot used; the lane preview (previewBelt) refuses the same, with the floor
-                       caption; connectRefusal answers the BELT tool's FIRST click (an OUTBOX is never a start).
+                       caption; connectRefusal answers the BELT tool's clicks (an OUTBOX may be armed: its one destination,
+                       another line's INBOX, is a SEND TO — never a belt).
      A HAND-DRAWN RUN — placeBeltRun / canPlaceBeltRun (the ghost) refuse a run the floor would read as a link out of an OUTBOX
                        or into an INBOX; a run between two steps is still laid.
      THE WIRING      — REFIT says it where the click was (first click, hover caption, the drag ghost). */
@@ -17,8 +19,8 @@ const P = require('../frontend/app/pipeline.js');
 const WM = require('../frontend/app/worldmodel.js');
 const LE = require('../frontend/app/lineedit.js');
 
-const FROM_OUTBOX = 'An OUTBOX ends its line. Lines can’t hand work to each other yet — to chain them, belt this line’s last BAY into the next line’s first BAY.';
-const INTO_INBOX = 'An INBOX is where a line starts — nothing can belt into it.';
+const FROM_OUTBOX = 'An OUTBOX ends its line — no belt leaves it. To hand this line’s finished work to another line, drag the OUTBOX onto that line’s INBOX (SEND TO).';
+const INTO_INBOX = 'An INBOX is where a line starts — no belt runs into it. To feed it another line’s finished work, drag that line’s OUTBOX onto it (SEND TO).';
 
 function twoLines() {
   const d = WM.starterDoc();
@@ -52,7 +54,9 @@ const snap = st => JSON.stringify({ props: st.props(), belts: st.belts(), links:
   }
   A.eq(snap(st), s0, 'nothing was laid: props, belts and links exactly as before');
   A.eq(st.canUndo(), undo0, 'and no undo slot was used');
-  A.eq((st.connectRefusal(a.outbox, null) || {}).error, 'FROM_OUTBOX', 'the BELT tool\'s FIRST click on an OUTBOX is refused (it is never where a belt starts)');
+  A.eq(st.connectRefusal(a.outbox, null), null, 'the BELT tool\'s FIRST click may arm an OUTBOX (its second click on another line\'s INBOX is a SEND TO)');
+  A.eq(st.connectRefusal(a.outbox, b.intake), null, '…and that INBOX is a fine SEND TO (never a belt: connectBelt above still refuses it)');
+  A.eq((st.connectRefusal(a.outbox, b.bays[0]) || {}).error, 'FROM_OUTBOX', '…but an OUTBOX to a BAY is refused at the second click');
   A.eq(st.connectRefusal(a.bays[0], null), null, '…a BAY is a fine start');
   A.eq((st.connectRefusal(a.bays[0], b.intake) || {}).error, 'INTO_INBOX', '…and an INBOX is never a destination');
   // the way the message says to chain two lines still works: the last BAY into the next line's first BAY
