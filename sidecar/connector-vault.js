@@ -139,8 +139,14 @@ function makeConnectorVault({ fs, path, keyHex = '', required = false, writeDura
       if (sources.length) fs.mkdirSync(dir, { recursive: true });
       // Durable intent precedes the first move. A crash leaves a visible locked store, never an empty one.
       writeDurable({ fs, path }, marker, JSON.stringify({ movedTo: dir, sources: sources.map(src => path.basename(src)) }));
+      // Verify every preserved copy before removing any original credential file.
       for (const src of sources) {
-        fs.renameSync(src, path.join(dir, path.basename(src)));
+        const dest = path.join(dir, path.basename(src));
+        fs.copyFileSync(src, dest, fs.constants.COPYFILE_EXCL);
+        if (!fs.readFileSync(dest).equals(fs.readFileSync(src))) throw new Error('Recovery copy could not be verified: ' + path.basename(src));
+      }
+      for (const src of sources) {
+        fs.unlinkSync(src);
         moved.push(path.basename(src));
       }
       resetInProgress = true;
@@ -152,14 +158,18 @@ function makeConnectorVault({ fs, path, keyHex = '', required = false, writeDura
     } catch (error) {
       locked = true; lockReason = oldReason;
       let restored = true;
-      // Only remove files created by this attempt where no original existed; originals are renamed back.
+      // Only remove files created by this attempt where no original existed; originals are copied back from verified recovery files.
       if (writing) for (const target of [file, file + '.bak']) {
         if (sources.includes(target)) continue;
         try { fs.unlinkSync(target); } catch (e) { if (e.code !== 'ENOENT') restored = false; }
       }
       for (const name of moved.slice().reverse()) {
         const src = sources.find(candidate => path.basename(candidate) === name);
-        try { fs.renameSync(path.join(dir, name), src); } catch (_) { restored = false; }
+        try {
+          const saved = path.join(dir, name);
+          fs.copyFileSync(saved, src);
+          if (!fs.readFileSync(src).equals(fs.readFileSync(saved))) restored = false;
+        } catch (_) { restored = false; }
       }
       if (restored) try { fs.unlinkSync(marker); } catch (e) { if (e.code !== 'ENOENT') restored = false; }
       const detail = restored ? 'The original files were restored and storage remains locked.'

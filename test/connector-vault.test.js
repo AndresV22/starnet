@@ -127,8 +127,16 @@ try {
   }
   failedReset('second-move', f => {
     const brokenFs = Object.create(fs);
-    brokenFs.renameSync = (from, to) => { if (from === f + '.bak') throw Error('busy'); return fs.renameSync(from, to); };
+    brokenFs.unlinkSync = target => { if (target === f + '.bak') throw Error('busy'); return fs.unlinkSync(target); };
     return { fs: brokenFs };
+  });
+  failedReset('copy-readback', f => {
+    const corruptFs = Object.create(fs);
+    corruptFs.copyFileSync = (from, to, flags) => {
+      fs.copyFileSync(from, to, flags);
+      if (to.includes('unreadable-copy-readback')) fs.writeFileSync(to, 'corrupt copy');
+    };
+    return { fs: corruptFs };
   });
   failedReset('new-write', f => ({ writeDurable(io, target, data) {
     if (target === f + '.bak') throw Error('disk full');
@@ -138,7 +146,7 @@ try {
   make().write(stuckFile, state);
   const stuckBytes = fs.readFileSync(stuckFile, 'utf8');
   const stuckFs = Object.create(fs);
-  stuckFs.renameSync = (from, to) => { if (from.includes('unreadable-rollback-blocked')) throw Error('restore busy'); return fs.renameSync(from, to); };
+  stuckFs.copyFileSync = (from, to, flags) => { if (from.includes('unreadable-rollback-blocked')) throw Error('restore busy'); return fs.copyFileSync(from, to, flags); };
   const stuck = make({ keyHex: 'e5'.repeat(32), fs: stuckFs, writeDurable(io, target, data) {
     if (target === stuckFile) throw Error('disk full');
     fs.writeFileSync(target, data);
