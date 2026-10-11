@@ -596,11 +596,15 @@ const StationCommands = (() => {
     if (typeof World === 'undefined' || typeof World.syncPlan !== 'function') return unconfirmed(unknown);
     let timer = null;
     try {
+      const pending = World.syncPlan(); // rederive is synchronous; pin exactly the floor this build offered
+      const offered = typeof World.planStatus === 'function' ? World.planStatus() : null;
+      const expectedHash = offered && offered.hash, expectedKey = offered && (offered.pendingHash || offered.lastHash);
       const s = await Promise.race([
-        Promise.resolve().then(() => World.syncPlan()),
+        pending,
         new Promise(resolve => { timer = setTimeout(() => resolve(null), 3500); })
       ]);
-      if (!s || !s.hash || !s.lastHash || String(s.lastHash).split('|')[0] !== s.hash) return unconfirmed(unknown);
+      if (!s || !expectedHash || !expectedKey || s.hash !== expectedHash || s.lastHash !== expectedKey
+        || String(s.lastHash).split('|')[0] !== s.hash) return unconfirmed(unknown);
       const current = typeof World.planStatus === 'function' ? World.planStatus() : s;
       for (const state of [s, current]) {
         if (!state) return unconfirmed(unknown);

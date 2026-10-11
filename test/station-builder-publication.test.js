@@ -14,7 +14,7 @@ function boot(options = {}) {
   const result = options.result || line();
   const world = {
     syncPlan: () => { syncs++; return options.sync ? options.sync() : Promise.resolve(Object.assign({}, LIVE, options.state)); },
-    planStatus: () => Object.assign({ station: true, pending: false }, LIVE, options.state, options.current)
+    planStatus: () => Object.assign({ station: true, pending: false }, LIVE, options.state, typeof options.current === 'function' ? options.current() : options.current)
   };
   const context = {
     App: { station: () => st, agents: () => [], heroId: () => null }, WorldModel: {}, Pipeline: {}, WorkflowLine: {}, Build: { isOpen: () => false },
@@ -55,7 +55,17 @@ function boot(options = {}) {
   const again = await held.call('station.build', { planId: id });
   A.ok(!again.ok && held.counts().applies === 1, 'a consumed plan cannot duplicate a build');
 
+  let offered = LIVE;
+  const superseded = { sync: () => Promise.resolve().then(() => {
+    offered = Object.assign({}, LIVE, { hash: 'newfloor', lastHash: 'newfloor|newcaps' }); return offered;
+  }), current: () => offered };
+  let caps = LIVE;
+  const changedCaps = { sync: () => Promise.resolve().then(() => {
+    caps = Object.assign({}, LIVE, { lastHash: 'floor|changedcaps' }); return caps;
+  }), current: () => caps };
   const failures = [
+    ['newer floor acknowledged during await', superseded],
+    ['capabilities changed during await', changedCaps],
     ['stale', { state: { stale: true } }], ['inflight', { state: { inflight: true } }],
     ['retry', { state: { retryPending: true } }], ['pending delivery', { state: { pendingHash: 'next' } }],
     ['refused', { state: { refusedHash: LIVE.lastHash } }],
