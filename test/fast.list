@@ -405,6 +405,7 @@ test/computer-control.test.js
 test/win32desktop.test.js
 test/inputpolicy.test.js
 test/image.test.js
+test/image-reference.test.js
 test/image-task.test.js
 test/voice-tool.test.js
 test/media-project-placement.test.js
