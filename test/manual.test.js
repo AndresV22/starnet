@@ -89,7 +89,9 @@ const { starnetManual } = require('../sidecar/manual.js');
   A.ok(/not connected YET/.test(m), 'separates "cannot reach" from "not connected yet"');
 
   // hygiene: no template leakage
-  A.ok(!/undefined|null|\[object/.test(m), 'no junk leaks into the manual');
+  const clearSendTo = 'to:null clears it';
+  A.ok(m.includes(clearSendTo), 'documents the intentional empty SEND TO destination');
+  A.ok(!/undefined|null|\[object/.test(m.replace(clearSendTo, 'clearing the destination clears it')), 'no junk leaks outside the documented reset literal');
 
   A.report('manual.test');
 })();
