@@ -305,3 +305,102 @@ body .toast .toast-lamp { font-size: var(--sn-type-meta); }
   body #chat-panel .receipts .receipt-text { grid-column: 1; }
   body #chat-panel .receipts .receipt-veto { grid-column: 2; grid-row: 1 / span 2; }
 }
+
+/* ============================================================
+   DELEGATED WORK (2026-10-10, delegated.js). The decision-card material (--beat-*): a dispatch is the same kind of
+   object as an approval or a turn-in, a live status you can act on. Andrew 10-10 on the first calm pass (a bare rule,
+   14-15px type, underlined "stop" / "back to" links): "ugly like the old version of starnet, cheap looking". One card
+   per dispatch: a head that says who has the work and where it stands, then (while it runs, or on a click) one row
+   per worker with ONE real key, Stop while it runs, Open after. Matte: state is a lamp / edge / fill, never a glow.
+   ============================================================ */
+body #chat-panel #chat-log > .dg-line {
+  min-width: 0; margin: 10px 0 12px; overflow: hidden;
+  border: 1px solid var(--beat-edge); border-left: 2px solid rgba(var(--ph-rgb), .55); border-radius: 10px;
+  background: var(--beat-face); box-shadow: inset 0 1px 0 var(--beat-light), 0 4px 16px rgba(0,0,0,.18);
+  color: var(--text); text-shadow: none;
+}
+body #chat-panel #chat-log > .dg-line:has(.dg-line-sum.waiting) { border-left-color: rgba(var(--gold-rgb), .75); }
+body #chat-panel #chat-log > .dg-line .dg-line-head {
+  display: flex; align-items: center; gap: 10px; width: 100%; min-width: 0; min-height: 46px; padding: 10px 14px;
+  font: inherit; font-size: var(--sn-type-control) !important; line-height: 1.3; letter-spacing: .2px; text-align: left; color: var(--text);
+  background: transparent; border: 0; border-radius: 0; box-shadow: none; text-shadow: none; cursor: pointer;
+  transition: background-color var(--t-fast) var(--ease-soft);
+}
+body #chat-panel #chat-log > .dg-line .dg-line-head:hover { background: var(--beat-hover); }
+body #chat-panel #chat-log > .dg-line .dg-line-head:focus-visible { outline: 2px solid var(--ph); outline-offset: -2px; }
+body #chat-panel #chat-log > .dg-line .dg-line-text { flex: 1 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+body #chat-panel #chat-log > .dg-line .dg-line-text b { font-weight: normal; color: var(--ph-bright); letter-spacing: .6px; }
+body #chat-panel #chat-log > .dg-line .dg-line-sum { flex: none; font-size: var(--sn-type-compact) !important; color: var(--text); }
+body #chat-panel #chat-log > .dg-line .dg-line-sum.working { color: var(--ph-bright); }
+body #chat-panel #chat-log > .dg-line .dg-line-sum.waiting { color: var(--gold); }
+body #chat-panel #chat-log > .dg-line .dg-line-sum.failed { color: var(--bad); }
+/* a drawn chevron (never a fallback-font glyph): right when folded, down when the rows show */
+body #chat-panel #chat-log > .dg-line .dg-caret {
+  flex: none; width: 8px; height: 8px; margin: 0 3px; border-right: 2px solid var(--ph); border-bottom: 2px solid var(--ph);
+  transform: rotate(-45deg); transition: transform var(--t-fast) var(--ease-soft);
+}
+body #chat-panel #chat-log > .dg-line .dg-line-head[aria-expanded="true"] .dg-caret { transform: translateY(-2px) rotate(45deg); }
+/* the housed lamp (Workflow panel / crew lamp recipe): a lit square in a dark ring with a top light */
+body #chat-panel #chat-log > .dg-line .dg-lamp {
+  flex: none; width: 10px; height: 10px; border-radius: 2px; background: rgba(var(--ph-rgb), .22);
+  box-shadow: 0 0 0 1px rgba(0,0,0,.55), inset 0 1px 0 rgba(255,255,255,.3);
+}
+body #chat-panel #chat-log > .dg-line .dg-lamp.working { background: var(--ph); animation: dg-breathe 1.6s ease-in-out infinite; }
+body #chat-panel #chat-log > .dg-line .dg-lamp.queued { background: rgba(var(--ph-rgb), .45); }
+body #chat-panel #chat-log > .dg-line .dg-lamp.waiting { background: var(--gold); }
+body #chat-panel #chat-log > .dg-line .dg-lamp.done { background: var(--ok); }
+body #chat-panel #chat-log > .dg-line .dg-lamp:is(.failed, .stopped) { background: var(--bad); }
+@keyframes dg-breathe { 50% { opacity: .5; } }
+@media (prefers-reduced-motion: reduce) { body #chat-panel #chat-log > .dg-line .dg-lamp { animation: none !important; } }
+/* one row per worker: who + task, then where it stands under the task; its one key spans both lines */
+/* the rows share ONE set of columns (subgrid), so every task starts at the same x whatever the worker's name */
+body #chat-panel #chat-log > .dg-line .dg-line-list {
+  display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto; column-gap: 10px; border-top: 1px solid var(--beat-edge);
+}
+body #chat-panel #chat-log > .dg-line .dg-li {
+  grid-column: 1 / -1; display: grid; grid-template-columns: 10px auto minmax(0, 1fr) auto; grid-template-columns: subgrid;
+  align-items: center; column-gap: 10px; row-gap: 2px;
+  padding: 9px 12px 9px 14px; cursor: pointer; transition: background-color var(--t-fast) var(--ease-soft);
+}
+body #chat-panel #chat-log > .dg-line .dg-li + .dg-li { border-top: 1px solid rgba(var(--ph-rgb), .08); }
+body #chat-panel #chat-log > .dg-line .dg-li:hover { background: rgba(var(--ph-rgb), .06); }
+body #chat-panel #chat-log > .dg-line .dg-li:focus-visible { outline: 2px solid var(--ph); outline-offset: -2px; }
+body #chat-panel #chat-log > .dg-line .dg-li > .dg-lamp { grid-column: 1; grid-row: 1; }
+body #chat-panel #chat-log > .dg-line .dg-li-who { grid-column: 2; grid-row: 1; font-size: var(--sn-type-control) !important; letter-spacing: 1px; color: var(--ph); }
+body #chat-panel #chat-log > .dg-line .dg-li-task {
+  grid-column: 3; grid-row: 1; min-width: 0; font-size: var(--sn-type-control) !important; color: var(--ph-bright);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+body #chat-panel #chat-log > .dg-line .dg-li-st {
+  grid-column: 3; grid-row: 2; min-width: 0; font-size: var(--sn-type-meta) !important; color: var(--text); opacity: .8;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+body #chat-panel #chat-log > .dg-line .dg-li.waiting .dg-li-st { color: var(--gold); opacity: 1; }
+body #chat-panel #chat-log > .dg-line .dg-li:is(.failed, .stopped) .dg-li-st { color: var(--bad); opacity: 1; }
+body #chat-panel #chat-log > .dg-line .dg-li > .dg-key { grid-column: 4; grid-row: 1 / span 2; margin-left: 4px; }
+/* the key: the Build Library / Workflow panel glass key, at COMMS's 34px */
+body #chat-panel #chat-log :is(.dg-line, .dg-from) .dg-key {
+  min-height: 34px; padding: 6px 14px; font-family: inherit; font-size: var(--sn-type-control) !important; line-height: 1.15; letter-spacing: .4px;
+  color: var(--ph); border: 1px solid rgba(var(--ph-rgb), .2); border-radius: 8px; white-space: nowrap; cursor: pointer;
+  background: linear-gradient(125deg, rgba(var(--ph-bright-rgb), .09), rgba(var(--ph-rgb), .045) 48%, rgba(var(--ph-rgb), .015));
+  box-shadow: inset 0 1px 0 rgba(var(--ph-bright-rgb), .07); text-shadow: none;
+  transition: background-color var(--t-fast) var(--ease-soft), border-color var(--t-fast) var(--ease-soft), color var(--t-fast) var(--ease-soft);
+}
+body #chat-panel #chat-log :is(.dg-line, .dg-from) .dg-key:hover:not(:disabled) { color: var(--ph-bright); border-color: rgba(var(--ph-rgb), .45); background: rgba(var(--ph-rgb), .1); }
+body #chat-panel #chat-log :is(.dg-line, .dg-from) .dg-key:active:not(:disabled) { box-shadow: inset 0 2px 4px rgba(0,0,0,.35); }
+body #chat-panel #chat-log :is(.dg-line, .dg-from) .dg-key:focus-visible { outline: 2px solid var(--ph-bright); outline-offset: 2px; }
+body #chat-panel #chat-log :is(.dg-line, .dg-from) .dg-key.deny {
+  color: var(--bad); border-color: color-mix(in srgb, var(--bad) 35%, transparent); background: color-mix(in srgb, var(--bad) 5%, transparent);
+}
+body #chat-panel #chat-log :is(.dg-line, .dg-from) .dg-key.deny:hover:not(:disabled) { color: var(--bad); border-color: var(--bad); background: color-mix(in srgb, var(--bad) 12%, transparent); }
+body #chat-panel #chat-log :is(.dg-line, .dg-from) .dg-key:disabled { opacity: .55; cursor: default; }
+/* inside a worker thread: one slim glass bar, who sent this work and from where, and a real key back */
+body #chat-panel #chat-log > .dg-from {
+  display: flex; align-items: center; gap: 12px; min-width: 0; margin: 4px 0 12px; padding: 7px 7px 7px 14px;
+  border: 1px solid var(--beat-edge); border-left: 2px solid rgba(var(--ph-rgb), .55); border-radius: 10px;
+  background: var(--beat-face); box-shadow: inset 0 1px 0 var(--beat-light);
+  font-size: var(--sn-type-control) !important; line-height: 1.3; color: var(--text); text-shadow: none;
+}
+body #chat-panel #chat-log > .dg-from .dg-from-text { flex: 1 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+body #chat-panel #chat-log > .dg-from b { font-weight: normal; color: var(--ph-bright); }
+body #chat-panel #chat-log > .dg-from .dg-key { flex: none; }
