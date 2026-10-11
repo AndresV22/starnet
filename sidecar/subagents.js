@@ -129,6 +129,7 @@
         parentStreamId: r.parentStreamId || '', streamId: r.streamId || '',
         generation: Math.max(1, Math.floor(Number(r.generation) || 1)),
         resultSchema: r.resultSchema || null, structuredResult: r.structuredResult == null ? null : r.structuredResult,
+        builder: r.builder === true,
         validation: r.validation || null, repairRunId: r.repairRunId || '',
         // the worker run's host-proven untrusted-content taint ('' = clean). team.subagents relays it with the
         // result text so the polling lead latches it too (sec-taint 09-25)
@@ -268,6 +269,8 @@
         confirmedAt: 0,
         destination: String(meta.destination || (old && old.destination) || ('lead:' + safeId(meta.leadId || 'agent', 'leadId'))),
         resultSchema: meta.resultSchema != null ? clone(meta.resultSchema) : ((old && old.resultSchema) || null),
+        // the LENT BUILDER (team.dispatch builder:true): sticky, so team.resume restarts it with the same kit
+        builder: meta.builder != null ? meta.builder === true : !!(old && old.builder === true),
         structuredResult: old && old.structuredResult != null ? clone(old.structuredResult) : null,
         validation: old && old.validation ? clone(old.validation) : null,
         repairRunId: '',

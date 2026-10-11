@@ -662,6 +662,7 @@ test/desk-one-per-agent.test.js
 test/recruit-identity-ui.test.js
 test/subagents.test.js
 test/orchestration.test.js
+test/builder-lend.test.js
 test/domain-terminal.test.js
 test/worker-iteration-cap.test.js
 test/channels.test.js

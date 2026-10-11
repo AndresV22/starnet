@@ -432,6 +432,18 @@
       if (has('line') || has('shape') || has('purpose')) return { verb: 'station.plan_line', request: a };
       return { error: PLAN_HOW };
     }
+    /* THE LENT BUILDER (team.dispatch builder:true): a delegated run plans and builds the floor, but what grants tools or
+       adds crew stays with the lead who lent it. Binding a connector portal or plugin terminal hands its room live tools,
+       so it is refused here; recruiting ("new") is refused by the page's own planner (delegated: true below). Host-minted
+       from the run (deps.delegatedBy), never from the model's arguments. */
+    const lentBy = String(deps.delegatedBy || '');
+    function lentRefusal(a) {
+      if (!lentBy) return null;
+      const ops = Array.isArray(a.refit) ? a.refit : [];
+      if (ops.some(o => o && typeof o.op === 'string' && o.op.toLowerCase().trim() === 'bind'))
+        return 'binding a connector portal or plugin terminal grants live tools, so it stays with ' + lentBy + ', who lent you the builder: plan the rest without the bind and name the portal to bind in your result';
+      return null;
+    }
     const planTool = {
       name: 'station.plan', capability: 'orchestrator', scope: 'read', requiresConsent: false,
       get description() {
@@ -467,7 +479,9 @@
         const a = args && typeof args === 'object' && !Array.isArray(args) ? args : {};
         const route = planVerb(a);
         if (route.error) return refuse(route.error);
-        const out = await ask(route.verb, { request: route.request });
+        const lent = lentRefusal(a);
+        if (lent) return refuse(lent);
+        const out = await ask(route.verb, lentBy ? { request: route.request, delegated: true } : { request: route.request });
         if (!out.ok) return refuse(out.error);
         const p = out.result || {};
         remember(p);
@@ -486,7 +500,8 @@
       schema: { type: 'object', properties: { planId: { type: 'string' } }, required: ['planId'] },
       run: async (args) => {
         const planId = String((args && args.planId) || '').trim().slice(0, 60);
-        const out = await ask('station.build', { planId });
+        // a lent build names its real builder on the page's toast, never the lead who lent the kit
+        const out = await ask('station.build', lentBy && deps.agentId ? { planId, by: String(deps.agentId) } : { planId });
         if (!out.ok) return refuse(out.error);
         planMemo.delete(planId);
         const r = out.result || {};

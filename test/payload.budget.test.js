@@ -54,10 +54,14 @@ const HOST = '127.0.0.1';
    files land in a project-scoped conversation and why an ASK-mode worker has no shell (+570), image tools name the
    absolute location (+~130): trunk measured 65,999 tool bytes, over the 65,300 budget, and the HTTP gate went red.
    Intended growth: the byte budget moves to 66,100. station.status (#55) is DEFERRED for exactly this reason — it
-   adds no schema, only ", station_status" (+16) to the deferred index: 24,694 / 24,915. System budgets move by 50. */
+   adds no schema, only ", station_status" (+16) to the deferred index: 24,694 / 24,915. System budgets move by 50.
+   THE LENT BUILDER 2026-10-11: team_dispatch takes builder:true on a worker (a delegated Build Manager gets the lead's
+   station.map/plan/build for one job) — the schema field (+29) and one sentence saying what it lends (+121): trunk
+   measured 66,073, the lane 66,223. Intended growth, kept to that one sentence (the limits ride the worker's own
+   note and the planner's refusals, not this schema): the byte budget moves to 66,250. */
 const BUDGET = {
-  'default-new-install': { systemChars: 24750, tools: 84, toolBytes: 66100 },
-  'fully-granted-floor': { systemChars: 24950, tools: 84, toolBytes: 66100 }
+  'default-new-install': { systemChars: 24750, tools: 84, toolBytes: 66250 },
+  'fully-granted-floor': { systemChars: 24950, tools: 84, toolBytes: 66250 }
 };
 
 (async () => {

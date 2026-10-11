@@ -19353,6 +19353,8 @@ async function runOnceCore(o) {
   // worker can never open or steal the Commander's sessions. Only visual actions require a live page.
   makeStationTools({ station: require('./overseer.js').isCoordinatorRun({ ...o, agentId, surface })
     ? overseerStation(o.streamId, runId) : stationBridge, scanText: t => cronGuard.scanRoutinePrompt(t), now: () => Date.now(),
+    // THE LENT BUILDER: a delegated run's planner refuses binds and recruits, and its builds carry its own name
+    agentId, delegatedBy: o.delegatedBy || '',
     planMemo: stationPlanMemo, lineMenu: stationLineMenu, kitMenu: stationKitMenu, presetMenu: stationPresetMenu, styleMenu: stationStyleMenu, roomMenu: stationRoomMenu,
     userProps,   // MAKE A PROP: the station's own prop maker (StarNet credits), for station.make_prop
     // TEST A LINE: the very job SEND A JOB sends, for station.test_line. A stopped lead run (or the tool's own timeout)
@@ -19677,10 +19679,11 @@ async function runOnceCore(o) {
   // family and every configured connector; unavailable external services still report their real prerequisite.
   // Keep the pre-existing LEAD-ONLY orchestration invariant: a delegated worker gets the whole computer but not
   // another team.dispatch tool, preventing recursive worker trees while leaving the Commander-facing lead able
-  // to accept every user task (including delegation).
+  // to accept every user task (including delegation). The BUILDER is never swept in: it is the lead's to lend, one
+  // worker and one job at a time (team.dispatch builder:true), and the lead already holds it inside the orchestrator.
   if (unrestrictedHostNow()) {
     for (const objectType of Object.keys(CAP_REGISTRY)) {
-      if (objectType !== 'orchestrator' || o.lead || ownerTrusted) station = stationWithObject(station, agentId, objectType);
+      if (objectType !== 'builder' && (objectType !== 'orchestrator' || o.lead || ownerTrusted)) station = stationWithObject(station, agentId, objectType);
     }
     station = stationWithConnectors(station, agentId, connectors.ids());
   }
@@ -20989,6 +20992,14 @@ async function runOnceCore(o) {
       + 'read it first with session_peek — NEVER answer from memory or assumption. Your own thread does not show other '
       + 'sessions\' turns, so without peeking you would be guessing, and a guessed "nothing happened" about real finished '
       + 'work is a lie the Commander will catch.';
+  } else if (isTask && o.delegatedBy && resolved.tools.includes('station.build')) {
+    // THE LENT BUILDER (team.dispatch builder:true): this worker holds the floor tools for this job only. Without this
+    // line a Build Manager handed "rebuild the lab" has deferred tools it never searches for, and says it cannot build.
+    const lender = String((agentRoster.get(o.delegatedBy) || {}).name || o.delegatedBy);
+    teamNote = '\n\n[STATION BUILDER — lent by ' + lender + ' for this job] You can change the station floor: tool_search "station builder" '
+      + 'for station.map (see it), station.plan (plan on a copy) and station.build (build a plan; the Commander approves each build). '
+      + 'Claim only what station.build reports. Recruiting new crew, binding connector portals or plugin terminals, making new props, '
+      + 'and testing or starting lines stay with ' + lender + ': name what is needed in your result instead.';
   }
   // INSTALLED SKILLS (bundled recipe library): inject the bodies of the recipes the Commander ENABLED whose
   // required objects are actually on THIS agent's floor (object = capability — the same gate the tools use). Empty
