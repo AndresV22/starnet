@@ -79,6 +79,15 @@
     phone: '9:16', mobile: '9:16', vertical: '9:16', horizontal: '16:9', post: '4:5', instagram: '4:5'
   };
   const MAX_OUTPUT_PX = 8192;   // hard cap on a requested width/height
+  /* REFERENCE IMAGE (design anchor, 2026-10-11 — "say I approve one, the next comes out with a complete off-the-wall style
+     and concept"): args.reference names an image in the workspace/project (the same jail as image_analyze) that the render
+     must match. Every route can carry one: OpenRouter chat-completions takes an image_url part beside the text, the Codex
+     Responses wire an input_image part (the hosted image_generation tool reads the conversation's images), and the OpenAI
+     Images API its /images/edits endpoint (multipart, gpt-image models). Where a connection cannot (DALL-E, an edits
+     endpoint the base URL does not serve, a format that route refuses), the image is rendered from the prompt alone and
+     the result SAYS so — never a silent drop, never a dead run. */
+  const REFERENCE_PROMPT = 'Match the attached reference image: the same art style, colour palette, lighting and overall concept. ';
+  const EDIT_MIME = /^image\/(png|jpeg|webp)$/;   // what /images/edits accepts for gpt-image models
 
   // Any shape the caller asks for -> the provider ratio that matches it best, plus exact pixel dims
   // when the caller gave them. Accepts '16:9', '16/9', '1920x1080', '1920×1080', '1.777', 'landscape',
@@ -346,6 +355,7 @@
     const orBaseUrl = String(or.baseUrl || deps.baseUrl || '').trim().replace(/\/+$/, '');
     const orUrl = orBaseUrl ? orBaseUrl + '/chat/completions' : DEFAULT_OR_URL;
     const openAIImageUrl = orBaseUrl ? orBaseUrl + '/images/generations' : DEFAULT_OPENAI_IMAGE_URL;
+    const openAIEditUrl = openAIImageUrl.replace(/\/images\/generations$/, '/images/edits');
     const codexUrl = (isCodex && orBaseUrl ? orBaseUrl : DEFAULT_CODEX_URL) + '/responses';
     const fsp = deps.fsp, P = deps.pathMod, ROOT = deps.root;
     if (!fsp || !P || !ROOT) throw new Error('image.js requires { fsp, pathMod, root }');
@@ -366,6 +376,22 @@
     // project-scoped run lands IN the project (where the lead's fs.read and the shell look), and an absolute path
     // inside a trusted project is allowed; without it (tests, bare rigs) every path stays in the private jail.
     const jail = fsMod.makeFsTools({ fsp, pathMod: P, root: ROOT, pathTrust: typeof deps.pathTrust === 'function' ? deps.pathTrust : undefined })._internals;
+
+    // args.reference -> { rel, mime, buffer, url } (null when none). A workspace/project image only — the image_analyze
+    // jail, read scope — never a URL: every route needs the bytes, and an outside URL is not the Commander's approved work.
+    async function readReference(aid, reference, ctx) {
+      const s = String(reference == null ? '' : reference).trim();
+      if (!s) return null;
+      if (/^(?:https?|data|file|ftp):/i.test(s)) throw new Error('reference must be an image file in your workspace or project (a path like "images/hero.png"), not a URL; no image was produced.');
+      const { abs } = await jail.resolveInside(aid, s, { scope: 'read', ctx });
+      const mime = MIME_BY_EXT[extOf(P, abs)];
+      if (!mime) throw new Error('reference must be a PNG, JPEG, WEBP or GIF image: ' + s + '; no image was produced.');
+      let buf;
+      try { buf = await fsp.readFile(abs); }
+      catch (e) { if (e && e.code === 'ENOENT') throw new Error('reference image not found: ' + s + ' (looked at ' + abs + '); no image was produced.'); throw e; }
+      if (buf.length > MAX_IMAGE_BYTES) throw new Error('reference image too large (' + buf.length + ' bytes, max ' + MAX_IMAGE_BYTES + '); no image was produced.');
+      return { rel: s, mime, buffer: buf, url: 'data:' + mime + ';base64,' + buf.toString('base64') };
+    }
 
     function emitDeliverable(ctx, aid, rel) {
       if (!ctx || typeof ctx.emit !== 'function') return;
@@ -418,15 +444,42 @@
       return res.json || {};
     }
 
+    // the OpenAI Images API with a REFERENCE: /images/edits is multipart (the reference rides as the `image` file).
+    // A non-2xx carries its status on the error so the caller can tell "this connection has no edits endpoint" apart.
+    async function openAIEditPost(fields, ref, timeoutMs, parentSignal) {
+      checkCancelled(parentSignal);
+      if (!apiKey) throw new Error('STUDIO image generation is unavailable: no media connection is configured. Open SETTINGS and connect an OpenAI or OpenRouter API key for image generation, or link this station to your StarNet account, then retry; no image was produced.');
+      const res = await withTimeout(signal => {
+        const form = new FormData();
+        for (const k of Object.keys(fields)) if (fields[k] != null) form.append(k, String(fields[k]));
+        form.append('image', new Blob([ref.buffer], { type: ref.mime }), 'reference' + (EXT_BY_MIME[ref.mime] || '.png'));
+        return doFetch(openAIEditUrl, { method: 'POST', headers: { 'Authorization': 'Bearer ' + apiKey }, body: form, signal }).then(async r => {
+          const json = await r.json().catch(require('../../failopen.js').swallow('image.openai-edit.response-json', null));
+          if (typeof deps.onUsage === 'function' && (r.status >= 200 && r.status < 300 || json && json.usage)) deps.onUsage(json && json.usage, fields.model);
+          return { status: r.status, json };
+        });
+      }, timeoutMs, parentSignal || deps.signal);
+      if (res.status < 200 || res.status >= 300) {
+        const errMsg = res.json && res.json.error && (res.json.error.message || res.json.error) || ('http ' + res.status);
+        const err = new Error('OpenAI ' + res.status + ': ' + (typeof errMsg === 'string' ? errMsg : JSON.stringify(errMsg)));
+        err.status = res.status;
+        throw err;
+      }
+      return res.json || {};
+    }
+
     // One image_generation call on the ChatGPT plan. Returns the Images-API response shape ({ data:[{ b64_json }] }) so
     // the publish path below stays one path. No usage is booked: the plan is flat-rate, and the host chat model's
-    // token counts would otherwise be priced at API rates the user never pays.
-    async function codexImagePost(tool, prompt, timeoutMs, parentSignal) {
+    // token counts would otherwise be priced at API rates the user never pays. refUrl: a reference image (data URL)
+    // rides the user turn as an input_image part.
+    async function codexImagePost(tool, prompt, timeoutMs, parentSignal, refUrl) {
       checkCancelled(parentSignal);
       if (!getCodexToken) throw new Error('STUDIO image generation is unavailable: the ChatGPT sign-in is not connected. Open SETTINGS and sign in to ChatGPT, or connect an OpenAI or OpenRouter API key, then retry; no image was produced.');
+      const userContent = [{ type: 'input_text', text: prompt }];
+      if (refUrl) userContent.push({ type: 'input_image', image_url: refUrl });
       const body = {
         model: CODEX_HOST_MODEL, store: false, stream: true, instructions: CODEX_INSTRUCTIONS,
-        input: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: prompt }] }],
+        input: [{ type: 'message', role: 'user', content: userContent }],
         tools: [Object.assign({ type: 'image_generation', output_format: 'png', partial_images: 1 }, tool)]
         // no tool_choice: see DEFAULT_CODEX_URL above
       };
@@ -471,19 +524,21 @@
           ? 'it asks ' + (isCodex ? 'gpt-image' : 'the Images API') + ' for a real alpha channel '
           : 'Gemini image models cannot make one (they paint a checkerboard), so it switches to ' + TRANSPARENT_IMAGE_MODEL + ' ') +
         'and verifies the saved file, and the result says plainly if the image came back opaque. ' +
+        'Optional "reference": an image file (e.g. an APPROVED one) whose style, palette and concept to match. ' +
         'Optional "aspect_ratio" sets the image shape — ANY ratio or size works: "16:9", "4:3", "1920x1080", "1.5", ' +
         'or a word like "landscape"/"portrait"/"wide"/"tall"/"banner"/"story" (default 1:1; the provider renders the nearest of ' +
         ASPECT_RATIOS.join(', ') + '). Optional "width"+"height" (pixels, max ' + MAX_OUTPUT_PX + ') deliver an EXACT resolution — ' +
-        'the image is generated at the nearest ratio then fitted to those pixels. Use 16:9 for widescreen/banner/desktop-wallpaper ' +
-        'requests, 9:16 for phone/story formats, and width/height when the user names a resolution.',
+        'the image is generated at the nearest ratio then fitted to those pixels. Use 16:9 for widescreen, 9:16 for phone/story, ' +
+        'width/height for a named resolution.',
       schema: { type: 'object', required: ['prompt'], properties: {
         prompt: { type: 'string' },
         model: { type: 'string' },
         path: { type: 'string' },
-        aspect_ratio: { type: 'string', description: 'any W:H ratio, WxH pixel size, or shape word (landscape, portrait, wide, tall, banner, story, square)' },
+        aspect_ratio: { type: 'string', description: 'W:H, WxH pixels or a shape word' },
         width: { type: 'integer', minimum: 16, maximum: MAX_OUTPUT_PX },
         height: { type: 'integer', minimum: 16, maximum: MAX_OUTPUT_PX },
-        transparent: { type: 'boolean', description: 'true = a real transparent background (alpha channel), verified in the saved file' }
+        transparent: { type: 'boolean', description: 'true = a real transparent background (alpha channel), verified in the saved file' },
+        reference: { type: 'string' }
       } },
       run: async (args, ctx) => {
         const signal = ctx && ctx.signal;
@@ -517,19 +572,35 @@
             'a WxH size like 1920x1080, a word like landscape/portrait, or both width and height (16..' + MAX_OUTPUT_PX + 'px); no image was produced.');
         }
         const aspect = shape.ratio;
-        const baseBody = { messages: [{ role: 'user', content: genPrompt }], modalities: ['image', 'text'] };
+        // the reference is read BEFORE anything is spent: a missing / escaping / non-image path is the caller's to fix
+        const ref = await readReference(aid, args.reference, ctx);
+        let refNote = '';   // set when this route could not carry the reference (rendered from the prompt alone)
+        const refPrompt = ref ? REFERENCE_PROMPT + genPrompt : genPrompt;
+        const baseBody = { messages: [{ role: 'user', content: ref ? [{ type: 'text', text: refPrompt }, { type: 'image_url', image_url: { url: ref.url } }] : genPrompt }], modalities: ['image', 'text'] };
         if (aspect) baseBody.image_config = { aspect_ratio: aspect };
         let data;
         if (isCodex) {
           // the hosted tool takes the Images API's own parameters; quality is pinned (see CODEX_IMAGE_QUALITY)
           data = await codexImagePost({ model, size: openAIImageSize(shape), quality: CODEX_IMAGE_QUALITY, background: transparent ? 'transparent' : 'opaque' },
-            genPrompt, GEN_TIMEOUT_MS, signal);
+            refPrompt, GEN_TIMEOUT_MS, signal, ref ? ref.url : '');
         } else if (protocol === 'openai-images') {
           const body = { model, prompt: genPrompt, size: openAIImageSize(shape) };
           // gpt-image models take transparency as a parameter (gpt-image-2: preview since 2026-08-20). Alpha needs
           // a format that can carry it, so the output format is pinned to PNG.
           if (transparent) { body.background = 'transparent'; body.output_format = 'png'; }
-          data = await openAIImagePost(body, GEN_TIMEOUT_MS, signal);
+          if (ref && /^dall-e-/i.test(model)) refNote = model + ' cannot take a reference image';
+          else if (ref && !EDIT_MIME.test(ref.mime)) refNote = 'the OpenAI Images API takes a PNG, JPEG or WEBP reference, not ' + ref.mime;
+          else if (ref) {
+            try { data = await openAIEditPost(Object.assign({}, body, { prompt: refPrompt }), ref, GEN_TIMEOUT_MS, signal); }
+            catch (e) {
+              checkCancelled(signal);
+              // only a MISSING endpoint falls back (a custom OpenAI-compatible base may not serve /images/edits); a
+              // refusal, rate limit or bad key propagates like any generation failure
+              if (!(e && (e.status === 404 || e.status === 405))) throw e;
+              refNote = 'this connection has no image-edit endpoint (http ' + e.status + ')';
+            }
+          }
+          if (!data) data = await openAIImagePost(body, GEN_TIMEOUT_MS, signal);
         } else try {
           data = await orPost(Object.assign({ model }, baseBody), GEN_TIMEOUT_MS, signal);
         } catch (e) {
@@ -630,9 +701,13 @@
         const viewer = where.viewer;
         const caption = textFromResponse(data);
         const kb = (buffer.length / 1024).toFixed(0) + ' KB';
+        // truthful: "sent as the style to match" (the harness cannot prove the model honoured it), or plainly NOT used
+        const referenceNote = !ref ? '' : refNote
+          ? '\nReference NOT used: ' + refNote + ', so this image was rendered from the prompt alone. Do not describe it as matching ' + ref.rel + '.'
+          : '\nReference: ' + ref.rel + ' was sent to the model as the style to match.';
         return {
           content: 'Generated and saved ' + rel + ' (' + kb + ', ' + mime + ', model ' + model + shapeNote + sizeNote + ').' +
-            (switchNote ? '\nModel: ' + switchNote + '.' : '') + alphaNote +
+            (switchNote ? '\nModel: ' + switchNote + '.' : '') + alphaNote + referenceNote +
             '\n' + where.line +
             (viewer ? '\nView: ' + viewer : '') + (caption ? '\nModel note: ' + caption : ''),
           summary: 'image → ' + rel

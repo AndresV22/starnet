@@ -186,6 +186,7 @@ const { readBody, readBodyBuffer } = require('./http-body.js');
 const { MIME, CHANNEL_UPLOAD_MAX_BYTES, mimeForPath, safeDownloadName, isActiveDeliverable, parseRange } = require('./file-response.js');
 const { reflect, reflectSalient, recordFromProposal, feedbackFor, highStakes } = require('./reflect.js');
 const FeedbackMemory = require('./feedbackmemory.js');   // THE COMMANDER'S TASTE: verdicts + corrections -> durable like/dislike memory
+const TasteRef = require('./tasteref.js');   // DESIGN ANCHOR: the rated run's real files / palette / fonts / image args / method, captured on a verdict
 const Failreview = require('./failreview.js');   // failure-review aux pass: PURE lesson producer for FAILED runs (reflect.js mold)
 const Embed = require('./embed.js');              // memory-compound: the embedding lane of hybrid recall (BM25 + vectors over a configured provider)
 const { swallow, note: failNote, summary: failopenSummary, setClock: failopenSetClock } = require('./failopen.js');    // tagged fail-open: a swallowed error stays visible (throttled warn + counter + diagnostics summary)
@@ -11469,6 +11470,7 @@ const ROUTES = [
   // request its explicit ceiling instead of receiving a misleading static 404 before the handler is reached.
   { m: 'GET', qsplit: '/api/run-recoveries', h: serveRunRecoveries },
   { m: 'POST', exact: '/api/growth/ratings/correction', h: handleGrowthRatingCorrection },   // consistency loop: the Commander's words after a short-of-the-mark verdict
+  { m: 'POST', exact: '/api/taste/keep-style', h: handleTasteKeepStyle },   // DESIGN ANCHOR: ★ KEEP THIS STYLE -> station-wide taste with the run's real reference
   { m: ['GET', 'POST'], qsplit: '/api/growth/ratings', h: handleGrowthRatings },
   { m: 'GET', prefix: '/api/runs', h: serveRuns },
   { m: 'GET', qsplit: '/api/recipes/drift', h: serveRecipeDrift },   // qsplit: ?recipeId= narrows
@@ -19336,7 +19338,7 @@ async function runOnceCore(o) {
       const tasteIds = new Set(tasteRecs.map(r => r.id).filter(Boolean));
       const pinned = Array.isArray(notes) ? notes.filter(r => r && r.pinned && !tasteIds.has(r.id) && !(tasteWithheld && r.origin === FeedbackMemory.ORIGIN) && !r.taintedBy) : [];
       const recalled = renderRecall(rank(pinned, recentUserText(messages), { now: Date.now(), streamId, projectRoot: o.projectRoot || null }), { limit: 1500 });
-      const taste = renderRecall(tasteRecs, { limit: FeedbackMemory.TASTE_CHARS, header: FeedbackMemory.TASTE_HEADER });
+      const taste = FeedbackMemory.renderTaste(tasteRecs, renderRecall);
       return settled + (recalled.text ? '\n\n' + redact(recalled.text) : '') + (taste.text ? '\n\n' + redact(taste.text) : '');
     },
     // A worker shares the LEAD's consent broker (see the `consent` note below), so its own roster APPROVAL clause is
@@ -21318,7 +21320,7 @@ async function runOnceCore(o) {
     const hv = recs.length ? await hybridVectors({ agentId, recs, query: q, run: { providerId, key: runKey, baseUrl }, runId, cost, unmetered: providerUnmetered }) : null;
     const ranked = rank(recs, q, { now: Date.now(), streamId, projectRoot: o.projectRoot || null, vectors: hv && hv.vectors, queryVec: hv && hv.queryVec });   // M-mem.2b stream boost · project tier: only THIS project's lessons
     const recalled = renderRecall(ranked, { limit: 1500 });
-    const taste = renderRecall(tasteRecs, { limit: FeedbackMemory.TASTE_CHARS, header: FeedbackMemory.TASTE_HEADER });
+    const taste = FeedbackMemory.renderTaste(tasteRecs, renderRecall, { agentId });
     const recall = {
       text: [recalled.text, taste.text].filter(Boolean).join('\n'),
       count: recalled.count + taste.count,
@@ -25012,7 +25014,8 @@ async function handleGrowthRatings(req, res) {
   if (!result.duplicate) {
     const fbPacket = verdictReview.peek(runId);
     const directive = FeedbackMemory.directiveFor([lead.deliveryPrompt, lead.title], fbPacket && fbPacket.messages);
-    feedbackMemory = await recordFeedbackMemory({ agentId: lead.agentId || 'agent', runId, verdict: canonical.verdict, words: String(body.correction || ''), directive });
+    // run: the DESIGN ANCHOR — the record also carries what this run really made (files, palette, fonts, image args, tools)
+    feedbackMemory = await recordFeedbackMemory({ agentId: lead.agentId || 'agent', runId, verdict: canonical.verdict, words: String(body.correction || ''), directive, run: lead });
   }
   let skillReviewArmed = false;
   if (!result.duplicate && process.env.SKYNET_SKILL_REVIEW !== '0') {
@@ -25057,6 +25060,36 @@ async function handleGrowthRatingCorrection(req, res) {
   } catch (e) { failNote('feedback.correction', e); }
   if (!r.ok) return json(200, { ok: true, held: false, fired: false, reason: r.reason, feedbackMemory });
   return json(200, { ok: true, held: true, fired: !!r.fired, feedbackMemory });
+}
+// POST /api/taste/keep-style { runId } — ★ KEEP THIS STYLE (Workflows window) / ★ KEEP AS THE EXAMPLE (Workflow panel):
+// the Commander approves the STYLE of the run that delivered a line's result. Besides the example the page writes into
+// that step's instructions (which only that step reads, and only as text), the approval becomes station-wide taste
+// with the run's real reference (DESIGN ANCHOR), so every agent's next similar work matches it. Same consent rules as a
+// verdict: the personalization pause stops it (reported), self-talk runs are refused. No XP: this is not a rating.
+async function handleTasteKeepStyle(req, res) {
+  const json = (code, obj) => respondJson(res, code, obj);
+  let body;
+  try { body = JSON.parse(await readBody(req, 16 << 10)) || {}; }
+  catch (_) { return json(400, { ok: false, error: 'bad json' }); }
+  const runId = String(body.runId || '').trim();
+  if (!runId) return json(400, { ok: false, error: 'runId required' });
+  const lead = runStore.all().find(r => r && r.runId === runId);
+  if (!lead) return json(404, { ok: false, error: 'run not found' });
+  if (lead.internal) return json(409, { ok: false, error: 'internal run cannot be kept' });
+  // { undo: true } — PUT IT BACK / the panel's UNDO: the approval goes too (always allowed, even while learning is paused)
+  if (body.undo === true) {
+    const agentId = String(lead.agentId || 'agent');
+    let out = null;
+    try {
+      await notebookStore.update('notebook:' + agentId, (stored) => { const r = FeedbackMemory.unkeep(stored, runId); if (!r) return undefined; out = r; return r.list; });
+    } catch (e) { failNote('taste.unkeep', e); return json(200, { ok: false, error: 'the kept style could not be taken back' }); }
+    if (out) chanEmit(out.removed ? 'memory.forget' : 'memory.write', out.removed ? { agentId, id: out.rec.id } : { agentId, runId, id: out.rec.id, kind: out.rec.kind, scope: out.rec.scope });
+    return json(200, { ok: true, undone: !!out, removed: !!(out && out.removed) });
+  }
+  const packet = verdictReview.peek(runId);
+  const directive = FeedbackMemory.directiveFor([lead.deliveryPrompt, lead.title], packet && packet.messages);
+  const feedbackMemory = await recordFeedbackMemory({ agentId: lead.agentId || 'agent', runId, verdict: 'great', kept: true, directive, run: lead });
+  return json(200, { ok: true, feedbackMemory });
 }
 // GET /api/runs?agent=<id>&limit=<n>&since=<ms>[&runId=<id>] — the agent's run history (M-save P4), newest-first.
 // Rows carry the run's `artifacts` ledger (work-visibility); an explicit runId narrows to that single run's
@@ -25852,14 +25885,68 @@ function otherAgentNotebooks(agentId) {
   }
   return out;
 }
+/* DESIGN ANCHOR (tasteref.js): the rated run's own reference, read from its durable record — the runstore row's artifacts
+   + toolTrace, its transcript rows (image_generate arguments paired with their results; the parked review packet when
+   the transcript has none), and the design deliverables themselves (palette + fonts). Every file goes through the same
+   gates the DELIVERABLES viewer uses: a project run's file only inside a currently BLESSED project root, never a
+   protected file; a workspace file only through the agent's jail. Returns null when the run left nothing to point at;
+   never throws (a capture failure must never cost the Commander their verdict). */
+async function tasteRefFileAbs(agentId, projectRoot, p) {
+  const rel = String(p || '');
+  if (!rel || rel.indexOf('\0') >= 0 || /^[\\/]{2}/.test(rel)) return null;
+  if (projectRoot && !/^[\\/]{2}/.test(String(projectRoot))) {
+    try {
+      const root = fs.realpathSync(String(projectRoot));
+      if (isBlessedRoot(root)) {
+        const real = fs.realpathSync(path.isAbsolute(rel) ? rel : path.resolve(root, rel));
+        const relOut = path.relative(root, real);
+        if (relOut && !relOut.startsWith('..') && !path.isAbsolute(relOut) && !pathTrustCore._internals.hardlineReason(real, real)) return real;
+      }
+    } catch (e) { if (!e || e.code !== 'ENOENT') failNote('taste.ref.project-path', e); }
+  }
+  if (path.isAbsolute(rel) || /^[A-Za-z]:/.test(rel)) return null;
+  try { return (await fsJail.resolveInside(agentId, rel)).abs; }
+  catch (e) { if (!/escape|illegal|bad agentId/.test(String(e && e.message))) failNote('taste.ref.workspace-path', e); return null; }
+}
+async function captureTasteRef(lead) {
+  try {
+    if (!lead || !lead.runId) return null;
+    const agentId = String(lead.agentId || 'agent');
+    let rows = [];
+    try { rows = transcriptStore.history(lead.streamId || '', { sourceRunId: lead.runId, limit: 600 }) || []; }
+    catch (e) { failNote('taste.ref.transcript', e); }
+    if (!TasteRef.imageCalls(rows).length) {
+      const packet = verdictReview.peek(lead.runId);
+      if (packet && Array.isArray(packet.messages)) rows = rows.concat(packet.messages);
+    }
+    // a PROJECT run's files are named absolute (any run trusted for that project can open them); a workspace run's stay
+    // relative to the rated agent's private jail, and the reference names that agent
+    const proj = lead.projectRoot ? String(lead.projectRoot) : '';
+    const shown = (Array.isArray(lead.artifacts) ? lead.artifacts : []).map(a => (a && proj && a.path && !path.isAbsolute(String(a.path))) ? Object.assign({}, a, { path: path.join(proj, String(a.path)) }) : a);
+    const files = [];
+    for (const a of (Array.isArray(lead.artifacts) ? lead.artifacts : [])) {
+      if (files.length >= 6) break;
+      if (!a || a.kind !== 'file' || !TasteRef.isDesignPath(a.path)) continue;
+      const abs = await tasteRefFileAbs(agentId, lead.projectRoot || '', a.path);
+      if (!abs) continue;
+      try {
+        const st = await fsp.stat(abs);
+        if (st.isFile() && st.size <= 512 * 1024) files.push({ path: a.path, text: await fsp.readFile(abs, 'utf8') });
+      } catch (e) { if (!e || e.code !== 'ENOENT') failNote('taste.ref.read', e); }
+    }
+    return TasteRef.buildRef({ artifacts: shown, toolTrace: lead.toolTrace, rows, files, tainted: !!lead.taintedBy, redact: (t) => redact(t), agentId: proj ? '' : agentId });
+  } catch (e) { failNote('taste.ref', e); return null; }
+}
 async function recordFeedbackMemory(o) {
   o = o || {};
   const agentId = String(o.agentId || 'agent');
   try {
     if (!personalizationStore.read().enabled) return { stored: false, reason: 'personalization-paused' };
+    // the reference is read only for a verdict that is about to be stored (never while learning is paused)
+    const ref = o.run ? await captureTasteRef(o.run) : null;
     let out = null;
     await notebookStore.update('notebook:' + agentId, (stored) => {
-      const r = FeedbackMemory.apply(stored, { runId: o.runId, verdict: o.verdict, words: redact(String(o.words || '')), directive: redact(String(o.directive || '')) },
+      const r = FeedbackMemory.apply(stored, { runId: o.runId, verdict: o.verdict, words: redact(String(o.words || '')), directive: redact(String(o.directive || '')), ref, kept: o.kept === true },
         { now: Date.now(), nextId: memcore.nextNoteId, nextTrust: memcore.nextTrust, trustDelta: 2 });
       if (!r) return undefined;
       out = r;
@@ -25868,8 +25955,11 @@ async function recordFeedbackMemory(o) {
     if (!out) return { stored: false, reason: 'nothing to learn' };
     chanEmit('memory.write', { agentId, runId: String(o.runId || ''), id: out.rec.id, kind: out.rec.kind, scope: out.rec.scope });
     try { hookSpine.invoke('on_memory_write', { session_id: String(o.runId || ''), extra: { agent_id: agentId, id: out.rec.id, kind: out.rec.kind, scope: out.rec.scope, source: 'feedback' } }); } catch (e) { failNote('feedback.hook', e); }
-    console.log('[memory] feedback ' + (out.created ? 'saved' : 'updated') + ' run=' + o.runId + ' agent=' + agentId + ' id=' + out.rec.id + ' verdict=' + o.verdict);
-    return { stored: true, id: out.rec.id, created: out.created };
+    const refNow = out.rec.feedbackRef || null;
+    console.log('[memory] feedback ' + (out.created ? 'saved' : 'updated') + ' run=' + o.runId + ' agent=' + agentId + ' id=' + out.rec.id + ' verdict=' + o.verdict + (o.kept ? ' kept=style' : '')
+      + (refNow ? ' ref=' + ((refNow.paths || []).length) + 'f/' + ((refNow.palette || []).length) + 'c/' + ((refNow.images || []).length) + 'i' : ''));
+    // truthful: the response names the reference the record actually carries (null = none could be read from the run)
+    return { stored: true, id: out.rec.id, created: out.created, reference: refNow };
   } catch (e) {
     failNote('feedback.memory', e);
     return { stored: false, reason: 'could not save' };

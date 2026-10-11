@@ -258,6 +258,7 @@ test/recruiterstore-readiness.test.js
 test/auxgovernor.test.js
 test/failreview.test.js
 test/feedbackmemory.test.js
+test/tasteref.test.js
 test/embed.test.js
 test/threadstore.test.js
 test/autopilot-threads.test.js
@@ -405,6 +406,7 @@ test/computer-control.test.js
 test/win32desktop.test.js
 test/inputpolicy.test.js
 test/image.test.js
+test/image-reference.test.js
 test/image-task.test.js
 test/voice-tool.test.js
 test/media-project-placement.test.js

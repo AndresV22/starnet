@@ -1851,7 +1851,7 @@ const WorkflowPanel = (() => {
       + ln.notes.map(t => '<div class="wf-warnline">⚠ ' + esc(t) + '</div>').join('')
       + (v.ok || shown.trim() ? '<div class="wf-from"><span>' + (v.ok ? 'THE RESULT' : 'WHAT CAME OUT') + '</span></div><div class="wf-io out wf-job-out">' + esc(shown.trim() || '(the line delivered an empty reply)') + '</div>' : '')
       + (!v.ok ? '' : '<div class="wf-row">' + (S.exampleStamp === mine.stamp && exampleKept(mine) ? '<span class="wf-tag">★ THE LINE’S EXAMPLE</span>'
-        : '<button type="button" class="bb sm" id="wf-keep-ex" data-tip="The step that wrote this result will match its format, length and tone every time: the result is added to that step’s instructions as its example. UNDO takes it back.">★ KEEP AS THE EXAMPLE</button>') + '</div>')
+        : '<button type="button" class="bb sm" id="wf-keep-ex" data-tip="The step that wrote this result will match its format, length and tone every time: the result is added to that step’s instructions as its example, and the whole crew matches its style in similar work. UNDO takes it back.">★ KEEP AS THE EXAMPLE</button>') + '</div>')
       // the same job run again after a fix: what it gave LAST time stays one click away, to see the change
       + (prev ? '<details class="wf-more wf-lasttime"><summary>Last time, before your fix</summary><div class="wf-io">' + esc(loopNotes(P && P.stripVerdictLine ? P.stripVerdictLine(prev.output) : prev.output).rest.trim() || '(empty)') + '</div></details>' : '')
       + (runs.length ? '<div class="wf-from"><span>HOW EACH STEP DID IT</span><span class="src">open a step to read its reply</span></div><div class="wf-steps">' + steps + '</div>' : '')
@@ -1939,8 +1939,31 @@ const WorkflowPanel = (() => {
     if (!next) { H.sfx('bad'); H.flashTip('this step’s instructions are too long to hold an example — shorten them first', false); return; }
     const r = H.station().setPropBrief(dockId, next);
     if (!r || !r.ok) { H.sfx('bad'); H.flashTip('the example could not be saved', false); return; }
-    S.exampleStamp = mine.stamp; H.sfx('chime'); H.flashTip((p.role || 'the last step') + ' will match this example · UNDO takes it back', true);
+    S.exampleStamp = mine.stamp; H.sfx('chime'); H.flashTip((p.role || 'the last step') + ' will match this example · the crew learns its style · UNDO takes it back', true);
+    keepTaste(mine, last.runId);
     paint(false);
+  }
+  /* DESIGN ANCHOR (2026-10-11): the example in the step's DOES is text only that step reads. The same approval becomes the
+     Commander's station-wide taste with the delivered run's REAL reference (files, palette, fonts, image prompt — read by the
+     sidecar from the run, POST /api/taste/keep-style), so every crew member's similar work matches it. The panel's UNDO
+     takes the example out of the step; wireJob() sees that on the next paint and takes the crew's copy back too (after the
+     keep itself has landed, so the two can never cross). A failure is said, never hidden. */
+  function keepTaste(mine, runId) {
+    if (!runId) return;
+    const sent = api('/api/taste/keep-style', 'POST', { runId }).then(({ status, j }) => {
+      if (status !== 200 || !(j && j.ok)) { H.flashTip('kept for this step, but the crew could not learn the style: ' + ((j && j.error) || 'http ' + status), false); return false; }
+      if (j.feedbackMemory && j.feedbackMemory.reason === 'personalization-paused') H.flashTip('kept for this step — learning is paused, so the rest of the crew will not learn this style', false);
+      return true;
+    }, () => { H.flashTip('kept for this step — the crew could not learn the style (is the station running?)', false); return false; });
+    S.tasteKept = { stamp: mine.stamp, runId, sent };
+  }
+  function unkeepTasteIfUndone(mine) {
+    const k = S.tasteKept;
+    if (!k || k.stamp !== mine.stamp || exampleKept(mine)) return;
+    S.tasteKept = null;
+    k.sent.then(stored => stored && api('/api/taste/keep-style', 'POST', { runId: k.runId, undo: true }).then(({ status, j }) => {
+      if (status !== 200 || !(j && j.ok)) H.flashTip('the example is out of the step, but the crew still remembers its style: ' + ((j && j.error) || 'http ' + status), false);
+    }, () => H.flashTip('the example is out of the step, but the crew’s copy of its style could not be taken back', false)));
   }
   // after a job's card is painted: read each step's reply, and wire NOT RIGHT?
   function wireJob() {
@@ -1948,6 +1971,7 @@ const WorkflowPanel = (() => {
     const sr = H.sampleState ? H.sampleState() : null, c = comp();
     const mine = sr && c && sr.key === c.key && sr.view && !sr.view.stopped && (sr.view.ok || (sr.runs || []).length) ? sr : null;
     if (!mine) return;
+    unkeepTasteIfUndone(mine);
     const inp = $('#wf-nr-in'), go = $('#wf-nr-go');
     if (inp) inp.addEventListener('input', () => { if (S.fix && S.fix.stamp === mine.stamp) S.fix.complaint = inp.value; else S.fixDraft = inp.value; });
     if (go) go.onclick = () => askFixes(mine, ((inp && inp.value) || '').trim());
