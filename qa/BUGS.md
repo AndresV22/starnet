@@ -4,11 +4,11 @@
 One tracked file per bug under `qa/bugs/`; this is only the index. File a new bug with
 `node scripts/qa/bugs.mjs --new --title "..." --surface <surface>`.
 
-**10** open (open+claimed) of 221 total — 0 P0 · 0 P1 · 10 P2
+**10** open (open+claimed) of 222 total — 0 P0 · 0 P1 · 10 P2
 
 Engineering status is separate from delivery and customer recovery. Legacy rows without origin are not a customer census.
 
-User/owner reports: **100** · source fixed: **90** · installer verified: **6** · customer confirmed: **1** · still reported failing: **2** · recovery unconfirmed: **97**.
+User/owner reports: **101** · source fixed: **91** · installer verified: **6** · customer confirmed: **1** · still reported failing: **2** · recovery unconfirmed: **98**.
 
 | Report | Family | Source | Installer | Customer |
 | --- | --- | --- | --- | --- |
@@ -38,6 +38,7 @@ User/owner reports: **100** · source fixed: **90** · installer verified: **6**
 | [Local model small talk carries excessive context and produces prolonged replies](bugs/a76b93c4-local-model-small-talk-overload.md) | local-model-conversation-latency | fixed | unverified | unconfirmed |
 | [Managed chat can use a stale request endpoint](bugs/3195ab5a-managed-chat-can-use-a-stale-request-endpoint.md) | managed-routing | fixed | unverified | unconfirmed |
 | [Managed model selection retains the wrong provider identity](bugs/7ed4a93c-managed-selection-keeps-wrong-provider.md) | catalog-truth | fixed | unverified | unconfirmed |
+| [Ollama strict templates reject late host system messages](bugs/4a1447ff-ollama-strict-templates-reject-late-host-system.md) | local-provider-system-projection | fixed | unverified | unconfirmed |
 | [Routed OpenRouter conversation fails on orphan tool results](bugs/112199f5-openrouter-orphan-tool-results.md) | tool-history | fixed | unverified | unconfirmed |
 | [Ordinary wording incorrectly requires image generation](bugs/b0431c24-ordinary-wording-incorrectly-requires-image-gene.md) | image-intent | fixed | unverified | unconfirmed |
 | [Doctor works but sample ignores the saved provider](bugs/c978e7b7-sample-ignores-saved-provider.md) | execution-configuration | fixed | unverified | unconfirmed |
@@ -174,6 +175,7 @@ User/owner reports: **100** · source fixed: **90** · installer verified: **6**
 | P1 | fixed | providers | [Managed image charge is omitted from run cost receipts](bugs/79867817-managed-image-charge-missing-from-run-cost.md) | audit-0112-0910 | d503f00c5 |
 | P1 | fixed | providers | [Managed model selection retains the wrong provider identity](bugs/7ed4a93c-managed-selection-keeps-wrong-provider.md) | reliability-followup | 17b9e1341 |
 | P1 | fixed | providers | [No quota-exhaustion error class exists: a 429 from a spent Codex/subscription weekly quota renders as 'the provider is busy — wait a few seconds' and burns up t](bugs/e89317af-no-quota-exhaustion-error-class-exists.md) | sweep/providers | fdbb12a2 |
+| P1 | fixed | providers | [Ollama strict templates reject late host system messages](bugs/4a1447ff-ollama-strict-templates-reject-late-host-system.md) | agent/provider-triage-1011 | d3e708cb0 |
 | P1 | fixed | providers | [Routed OpenRouter conversation fails on orphan tool results](bugs/112199f5-openrouter-orphan-tool-results.md) | reliability-followup | 14f34372a |
 | P1 | fixed | providers | [Ordinary wording incorrectly requires image generation](bugs/b0431c24-ordinary-wording-incorrectly-requires-image-gene.md) | image-intent-0909 | e6cdd0f1a |
 | P1 | fixed | providers | [Routine form provider overrides its selected agent provider](bugs/a496d1c7-routine-form-provider-overrides-its-selected-age.md) | agent/seam-audit-0912-b | b5c5cba75 |
