@@ -704,6 +704,26 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
   // P2: re-clamp every open (non-minimized) window back inside the viewport on a browser resize, so a panel
   // dragged to a corner can't be stranded off-screen when the window shrinks. CSS-centered consoles are skipped
   // by fitTermInViewport (they stay centered); only explicitly-moved windows are pulled back into view.
+  /* TEXT SIZE from the keyboard (2026-10-11 user report: "I wish I could change the text"): Ctrl/Cmd with = + - 0
+     steps the SAME TEXT SIZE dial as SETTINGS › LOOK & SOUND. The desktop shell has no zoom hotkeys of its own, so the
+     keys people try first did nothing. Steps are the fixed chips; from AUTO it moves from the size AUTO resolved to,
+     and Ctrl+0 returns to AUTO. The toast names the setting so the keys teach where it lives. */
+  window.addEventListener('keydown', ev => {
+    if (!(ev.ctrlKey || ev.metaKey) || ev.altKey || ev.defaultPrevented) return;
+    const dir = (ev.key === '=' || ev.key === '+') ? 1 : (ev.key === '-' || ev.key === '_') ? -1 : ev.key === '0' ? 0 : null;
+    if (dir === null) return;
+    ev.preventDefault();
+    const steps = TEXT_SCALES.map(([v]) => v).filter(v => v > 0);
+    const cur = resolveTextScale(store.settings.textScale);
+    let next = 0;
+    if (dir > 0) next = steps.find(v => v > cur) || steps[steps.length - 1];
+    else if (dir < 0) next = steps.slice().reverse().find(v => v < cur) || steps[0];
+    store.settings.textScale = next;
+    applySettings(); save();
+    try { rerender('settings'); } catch (_) {}
+    const name = next === 0 ? 'AUTO · ' + autoTextScale() + '%' : (TEXT_SCALES.find(([v]) => v === next) || [0, ''])[1] + ' · ' + next + '%';
+    notify('TEXT SIZE ' + name + '. Ctrl + and Ctrl − change it, Ctrl 0 resets. Also in SETTINGS › LOOK & SOUND.', '', undefined, { transient: true });
+  });
   let resizeClampTimer = 0;
   window.addEventListener('resize', () => {
     // AUTO text size re-resolves here so dragging the app to a different monitor picks up that
@@ -7516,7 +7536,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       { id: 'budget', label: 'SPENDING LIMITS', glyph: '$', desc: 'Set spending limits and review recorded usage.', build: frag(secBudget) },
       // build, not frag: the pane is created lazily when the section is opened, so wiring at MOUNT time
       // ran before this element existed and left the list stuck on its placeholder. Paint it when it is born.
-      { id: 'appearance', label: 'LOOK & SOUND', glyph: '☀', desc: 'Room lighting, phosphor colour, CRT effects, terminal sound, and your agents’ spoken voices.', build: el => { el.innerHTML = secAppearance + secLiveVoice; arrangeSettingsPane(el); wireLiveVoice(el); }, onShow: () => paintBackdropSwatches() },
+      { id: 'appearance', label: 'LOOK & SOUND', glyph: '☀', desc: 'Text size, room lighting, phosphor colour, CRT effects, terminal sound, and your agents’ spoken voices.', build: el => { el.innerHTML = secAppearance + secLiveVoice; arrangeSettingsPane(el); wireLiveVoice(el); }, onShow: () => paintBackdropSwatches() },
       // NAV CONDENSE (2026-08-04) — two label renames, ids untouched (remembered-section keys + wiring
       // bind to the id): 'NOTIFICATIONS' collided with the SYSTEM-dock NOTIFICATIONS panel (inbox vs
       // preferences — same word, two doors), and a 'SYSTEM' section inside SETTINGS inside the SYSTEM
