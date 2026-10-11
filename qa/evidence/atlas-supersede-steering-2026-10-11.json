@@ -1,0 +1,62 @@
+{
+  "date": "2026-10-11",
+  "scope": "Correct the existing Atlas emit-seam fixture to distinguish same-run owner steering from genuine forwarded-task replacement. Test/evidence only; no production or shared contract changes.",
+  "sourceCandidate": "79a0592c767a0b89cae23296c2024b47465d9ab0",
+  "behaviorCommit": "d489326f0",
+  "before": {
+    "command": "node scripts/run-test-list.mjs test/http.list atlas-events.emit.e2e",
+    "exitCode": 1,
+    "outcome": "timed out waiting for workitem.superseded for run #1",
+    "location": "test/atlas-events.emit.e2e.test.js:127",
+    "cause": "The old fixture sent a plain owner DM while its first model completion was held. The current live-steering branch accepts that DM into the same run before onResolved, so there is no new crate and correctly no workitem.superseded event."
+  },
+  "after": {
+    "command": "node scripts/run-test-list.mjs test/http.list atlas-events.emit.e2e",
+    "exitCode": 0,
+    "assertions": 25,
+    "gate": "Only a provider request whose last user text exactly matches the original synthetic task is held; unrelated auxiliary requests cannot steal the gate.",
+    "plainOwnerFollowup": {
+      "acknowledgedAsSteering": true,
+      "runStarts": 1,
+      "runEnds": 0,
+      "workitemPlacements": 1,
+      "falseSupersede": false
+    },
+    "actualReplacement": {
+      "ingress": "Same paired owner and chat, but Bot API forward_origin identifies third-party authorship.",
+      "originalRunId": "74c67190-e16f-47a7-8ab1-ebf5713ea973",
+      "replacementRunId": "38274101-af05-42d0-8d28-3ef8af1000df",
+      "originalRunEnd": "cancelled",
+      "replacementRunEnd": "done",
+      "priorWorkitemId": "3cf310b8-5994-4d66-ba77-6f23591787b1",
+      "replacementWorkitemId": "508b705c-e37e-4403-ae01-de68ed68f516",
+      "supersededEvent": {
+        "workitemId": "3cf310b8-5994-4d66-ba77-6f23591787b1",
+        "agentId": "tg_5555",
+        "ts": 1791757767044
+      },
+      "providerWire": {
+        "forwardedContentIsUserTurn": true,
+        "forwardedContentIsOwnerSystemSteering": false,
+        "probe": "shell_exec with echo ATLAS_TAINT_MUST_NOT_EXECUTE",
+        "observedToolResponse": "BLOCKED: shell_exec is no longer available on this run; the refusal states that the run started with outside content via forwarded message.",
+        "taintRefusalAsserted": true
+      },
+      "distinctAnswer": "ATLAS_FORWARDED_ANSWER",
+      "distinctAnswerDelivered": true,
+      "misleadingSteeringAcknowledgement": false
+    },
+    "otherEventCoverage": "Existing workshop.decided event-by-name and decision/agentId/runId payload checks all passed unchanged."
+  },
+  "verification": [
+    "node --check test/atlas-events.emit.e2e.test.js passed",
+    "git diff --check passed",
+    "No node.exe command line containing the provider-triage-1011 worktree remained after the focused runner exited."
+  ],
+  "limitations": [
+    "Actual local sidecar with synthetic loopback Telegram and OpenRouter services; no live external accounts or provider spend.",
+    "A fresh run/security context is proved, not an empty conversation history.",
+    "This test alignment proves the current source behavior. It does not establish installer or customer recovery.",
+    "Full aggregate gates remain owned by the parent integration lane."
+  ]
+}
