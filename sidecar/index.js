@@ -12473,9 +12473,10 @@ handoffRunner = makeHandoffRunner({
     return { cap: lim.maxUsdPerDay, spent: lineSpend.spentToday(lineId) };
   },
   halted: () => cronHalted === true || processFaultQuiesced === true,
+  workspaceOf: (agentId) => executionEnvironment.forAgent(agentId).workspaceRoot(agentId),
   runsFor: (streamId) => (runStore.list(null, { streamId: streamId, limit: 200 }) || []).filter(r => r && String(r.streamId || '') === streamId)
     .map(r => ({ runId: r.runId, agentId: r.agentId, dockId: r.dockId || null, lineId: r.lineId || null, reason: r.reason, usd: r.usd, streamId: r.streamId,
-      startedAt: r.startedAt, artifacts: Array.isArray(r.artifacts) ? r.artifacts.filter(a => a && a.kind === 'file' && a.path).map(a => ({ kind: 'file', path: a.path })) : [] })),
+      projectRoot: r.projectRoot || '', startedAt: r.startedAt, artifacts: Array.isArray(r.artifacts) ? r.artifacts.filter(a => a && a.kind === 'file' && a.path).map(a => ({ kind: 'file', path: a.path })) : [] })),
   jobs: {
     byStream: (streamId) => LineJobs.byStream(lineJobs, streamId),
     start: (rec) => lineJobsSet(LineJobs.start(lineJobs, rec)),
