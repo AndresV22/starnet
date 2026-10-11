@@ -131,18 +131,25 @@ const Delegated = (() => {
       .filter(Boolean).join(' · ');
     const live = count('working') + count('waiting') + count('queued') > 0;
     const open = opened.has(b.lead) || (live && !closed.has(b.lead));
+    // the batch lamp: the most urgent worker state (needs you > working > failed > done)
+    const tone = count('waiting') ? 'waiting' : (count('working') || count('queued')) ? 'working' : (count('failed') || count('stopped')) ? 'failed' : 'done';
     const head = '<button type="button" class="dg-line-head" data-dg-toggle="' + esc(b.lead) + '" aria-expanded="' + open + '">'
-      + '<span class="dg-caret" aria-hidden="true"></span><span class="dg-line-text">Delegated to ' + esc(names(rows.map(x => x.a))) + '</span>'
-      + '<span class="dg-line-sum' + (count('waiting') ? ' waiting' : '') + '">' + esc(sum) + '</span></button>';
+      + '<span class="dg-lamp ' + tone + '" aria-hidden="true"></span>'
+      + '<span class="dg-line-text">Delegated to <b>' + esc(names(rows.map(x => x.a))) + '</b></span>'
+      + '<span class="dg-line-sum ' + tone + '">' + esc(sum) + '</span><span class="dg-caret" aria-hidden="true"></span></button>';
     if (!open) return head;
+    const cap = s => String(s || '').charAt(0).toUpperCase() + String(s || '').slice(1);
     return head + '<div class="dg-line-list">' + rows.map(({ r, st, a }) => {
-      const task = r.ws.title || 'Delegated task';
-      const status = st.cls === 'working' ? st.live + (st.t ? ' · ' + st.t : '') : WORD[st.cls] + (st.t && st.cls === 'done' ? ' · ' + st.t : '');
-      // the whole line opens the worker's thread (keyboard too); stop is a quiet word, only while it runs
+      // the thread's " (2)" is only there to keep rail titles unique; the card says the task in its own words
+      const task = String(r.ws.title || 'Delegated task').replace(/ \(\d+\)$/, '');
+      const status = cap(st.cls === 'working' ? st.live + (st.t ? ' · ' + st.t : '') : WORD[st.cls] + (st.t && st.cls === 'done' ? ' · ' + st.t : ''));
+      // the whole row opens the worker's thread (keyboard too); its one key is STOP while it runs, OPEN otherwise
+      const key = st.stop
+        ? '<button type="button" class="dg-key deny" data-dg-stop="' + esc(st.worker.id) + '" data-tip="Stop this worker">Stop</button>'
+        : '<button type="button" class="dg-key" data-dg-open="' + esc(r.ws.id) + '" data-tip="Open ' + esc(a.name || a.id) + '\'s thread">Open</button>';
       return '<div class="dg-li ' + st.cls + '" data-dg-open="' + esc(r.ws.id) + '" role="button" tabindex="0" aria-label="' + esc((a.name || a.id) + ': ' + task + ' — ' + WORD[st.cls] + '. Open its thread') + '">'
-        + '<span class="dg-li-lamp" aria-hidden="true"></span><span class="dg-li-who">' + esc(a.name || a.id) + '</span>'
-        + '<span class="dg-li-task">' + esc(task) + '</span><span class="dg-li-st">' + esc(status) + '</span>'
-        + (st.stop ? '<button type="button" class="dg-li-stop" data-dg-stop="' + esc(st.worker.id) + '" data-tip="Stop this worker">stop</button>' : '')
+        + '<span class="dg-lamp ' + st.cls + '" aria-hidden="true"></span><span class="dg-li-who">' + esc(a.name || a.id) + '</span>'
+        + '<span class="dg-li-task">' + esc(task) + '</span><span class="dg-li-st">' + esc(status) + '</span>' + key
         + '</div>';
     }).join('') + '</div>';
   }
@@ -192,21 +199,21 @@ const Delegated = (() => {
     if (!parent) { if (el) el.remove(); return; }
     if (!el) { el = document.createElement('div'); el.className = 'dg-from'; log.insertBefore(el, log.firstChild); }
     const lead = agentOf(parent.agentId || 'agent');
-    // calm: one slim line, not a card — who sent this work and from where, and the way back
-    const html = '<span class="dg-from-text">Delegated by ' + esc(lead.name || lead.id) + ' from <b>' + esc(parent.title || 'General') + '</b></span>'
-      + '<button type="button" class="dg-from-back" data-dg-open="' + esc(parent.id) + '">back to ' + esc(parent.title || 'General') + '</button>';
+    // one slim glass bar: who sent this work and from where, and a real key back
+    const html = '<span class="dg-from-text">Delegated by <b>' + esc(lead.name || lead.id) + '</b> from <b>' + esc(parent.title || 'General') + '</b></span>'
+      + '<button type="button" class="dg-key" data-dg-open="' + esc(parent.id) + '">Back to ' + esc(parent.title || 'General') + '</button>';
     if (el.dataset.dgHtml !== html) { el.innerHTML = html; el.dataset.dgHtml = html; }
     if (log.firstChild !== el) log.insertBefore(el, log.firstChild);
   }
 
   async function stop(id, key) {
-    key.disabled = true; key.textContent = 'STOPPING';
+    key.disabled = true; key.textContent = 'Stopping…';
     try {
       const r = await fetch('/api/subagents/interrupt', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) });
       let j = null; try { j = await r.json(); } catch (_) { j = null; }
       if (!r.ok || (j && j.ok === false)) throw new Error((j && j.error) || ('HTTP ' + r.status));
     } catch (e) {
-      key.disabled = false; key.textContent = 'stop';
+      key.disabled = false; key.textContent = 'Stop';
       if (typeof StationUI !== 'undefined' && StationUI.notify) StationUI.notify('Could not stop that worker: ' + e.message, 'warn', undefined, { kind: 'alert' });
     }
     if (typeof Overseer !== 'undefined' && Overseer.refresh) Overseer.refresh();
