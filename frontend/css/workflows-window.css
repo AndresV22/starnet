@@ -66,6 +66,7 @@ textarea.wfw-field { min-height: 76px; }
 .wfw-bad { margin: 0; font-size: 16px; line-height: 1.4; color: var(--warn); }
 .wfw-okline { margin: 0; font-size: 16px; line-height: 1.4; color: var(--ok); }
 .wfw-why { margin: 0; font-size: 17px; line-height: 1.45; color: var(--text); }
+.wfw-why.warn { color: var(--gold); }   /* a SEND TO hand-off that was NOT sent on */
 .wfw-k { font-size: 15px; letter-spacing: 1.2px; color: var(--ph-dim); text-transform: uppercase; }
 .wfw-empty { padding: 24px 6px; color: var(--ph-dim); }
 

@@ -1234,6 +1234,7 @@ const WorldModel = (() => {
         const [x, y] = key.split(',').map(Number);
         if (rm.rects.some(r => x >= r.x1 && x <= r.x2 && y >= r.y1 && y <= r.y2)) delete doc.belts[key];
       }
+      pruneSendTo();
       emit(dirty);
       return { ok: true };
     }
@@ -1700,6 +1701,7 @@ const WorldModel = (() => {
       snapshot();
       const p = doc.props[i];
       doc.props.splice(i, 1);
+      if (p.t === 'intake') pruneSendTo();   // an OUTBOX that sent work to this INBOX now sends it nowhere (one undo with the delete)
       emit([propFootprint(p)], { staticBakeUnchanged: p.t !== 'airlock' });
       return { ok: true };
     }
@@ -2087,6 +2089,7 @@ const WorldModel = (() => {
         const p = propById(id), n = { id, t: p.t, w: p.w || 1, h: p.h || 1, pin: { x: p.x, y: p.y } };
         if (p.role) n.role = p.role;
         if (p.agentId) n.agentId = p.agentId;
+        if (p.t === 'outbox' && p.sendTo) n.sendTo = p.sendTo;   // SEND TO rides the graph (a re-laid line keeps where it sends)
         return n;
       });
       const links = line.links.map(l => {
@@ -2172,6 +2175,7 @@ const WorldModel = (() => {
         if (gone.length) {
           for (const id of gone) { const p = propById(id); if (p) dirty.push(propFootprint(p)); }
           doc.props = doc.props.filter(p => gone.indexOf(p.id) < 0);
+          pruneSendTo();
           dropRoomIdx();
         }
         // 3. new machines placed, existing ones moved where the layout put them
@@ -2193,6 +2197,7 @@ const WorldModel = (() => {
               if (nl) p.limits = { maxHops: nl.maxHops, maxUsdPerMessage: nl.maxUsdPerMessage, maxUsdPerDay: nl.maxUsdPerDay };
             }
             applyJunctionCfg(p, n.cfg || {});
+            if (n.t === 'outbox' && typeof n.sendTo === 'string' && n.sendTo) p.sendTo = n.sendTo.slice(0, 64);   // (a new OUTBOX keeps its SEND TO; pruned below if its INBOX is gone)
             doc.props.push(p);
           } else if (p.x !== at.x || p.y !== at.y) {
             dirty.push(propFootprint(p));
@@ -2226,6 +2231,7 @@ const WorldModel = (() => {
         doc.links = links;
         // 6. a junction's compass config follows its lanes (a FILTER's routes, a LOOP's done / escape)
         for (const n of graph.nodes) { const p = propById(idOf[n.id]); if (p && isJunction(p)) syncJunctionCfg(p); }
+        pruneSendTo();
         emit(dirty, { staticBakeUnchanged: true });
         return { ok: true, ids: idOf, links: placed.map(l => l.id), removed: gone };
       });
@@ -2261,14 +2267,16 @@ const WorldModel = (() => {
          · no tile but the lane's own two ends touches a junction's tile, or that junction would read it as a lane;
          · a third machine's ring is skirted on the first pass for tidiness only — passing it hooks nothing.
        A floor whose links were never adopted keeps the ring-rule behaviour (TOO CLOSE included), unchanged. */
-    /* LINES DO NOT HAND WORK TO EACH OTHER — YET (2026-10-09 P0). Dispatch never routes THROUGH an OUTBOX (a line's finished
-       work lands there) and an INBOX is where a line STARTS, so a belt out of an OUTBOX or into an INBOX carries no job. Live,
-       one was accepted with "CONNECTED · N belts laid themselves" and fused two lines into one jumbled line, and a user lost
-       three days to it. Every way the Commander lays a belt — the BELT tool's two clicks, the lane it previews, a hand-drawn
-       run — refuses both: no chime, nothing laid, and words that say what to do instead (`short` is the floor's caption). */
+    /* NO BELT OUT OF AN OUTBOX OR INTO AN INBOX (2026-10-09 P0) — LINES HAND WORK ON BY SEND TO (2026-10-10). Dispatch never
+       routes THROUGH an OUTBOX (a line's finished work lands there) and an INBOX is where a line STARTS, so a belt out of an
+       OUTBOX or into an INBOX carries no job. Live, one was accepted with "CONNECTED · N belts laid themselves" and fused two
+       lines into one jumbled line (one lineId, one budget), and a user lost three days to it. Every way the Commander lays a
+       belt — the BELT tool's two clicks, the lane it previews, a hand-drawn run — still refuses both: no chime, nothing laid.
+       The words now say the one way two lines DO chain: the OUTBOX dropped on the next line's INBOX is a SEND TO (below) — a
+       pointer on the OUTBOX, never a belt, so the two lines keep their own identities and budgets. */
     const HANDOFF_WORDS = {
-      FROM_OUTBOX: { msg: 'An OUTBOX ends its line. Lines can’t hand work to each other yet — to chain them, belt this line’s last BAY into the next line’s first BAY.', short: 'AN OUTBOX ENDS ITS LINE — BELT FROM ITS LAST BAY' },
-      INTO_INBOX: { msg: 'An INBOX is where a line starts — nothing can belt into it.', short: 'AN INBOX STARTS A LINE — NOTHING BELTS INTO IT' }
+      FROM_OUTBOX: { msg: 'An OUTBOX ends its line — no belt leaves it. To hand this line’s finished work to another line, drag the OUTBOX onto that line’s INBOX (SEND TO).', short: 'AN OUTBOX ENDS ITS LINE — DROP IT ON AN INBOX TO SEND TO' },
+      INTO_INBOX: { msg: 'An INBOX is where a line starts — no belt runs into it. To feed it another line’s finished work, drag that line’s OUTBOX onto it (SEND TO).', short: 'AN INBOX STARTS A LINE — DROP AN OUTBOX ON IT TO SEND TO' }
     };
     const handoffFail = code => Object.assign(fail(code, HANDOFF_WORDS[code].msg), { short: HANDOFF_WORDS[code].short });
     function beltEndRefusal(A, B) {
@@ -2276,11 +2284,122 @@ const WorldModel = (() => {
       if (B && B.t === 'intake') return handoffFail('INTO_INBOX');
       return null;
     }
-    // the BELT tool asks before its FIRST click arms a machine (an OUTBOX is never a start) and before its second (an INBOX is
-    // never a destination): null = fine, else the refusal
+    // the BELT tool asks before its FIRST click arms a machine and before its second: null = fine, else the refusal. An OUTBOX
+    // may be armed — its only destination is another line's INBOX, which is a SEND TO (answered by sendToRefusal), never a belt.
     function connectRefusal(fromId, toId) {
       const A = fromId != null ? doc.props.find(p => p.id === fromId) : null, B = toId != null ? doc.props.find(p => p.id === toId) : null;
+      if (A && A.t === 'outbox' && !B) return null;
+      if (A && A.t === 'outbox' && B && B.t === 'intake') return sendToRefusal(A.id, B.id);
       return beltEndRefusal(A, B);
+    }
+
+    /* ---------- SEND TO (2026-10-10) — one line hands its finished work on to another ----------
+       The OUTBOX carries `sendTo` = the target INBOX's prop id. A prop id, never a lineId: a lineId is the line's OLDEST
+       member and re-keys when that prop goes; the INBOX the Commander pointed at does not. Never a belt or a link: the
+       compiler joins whatever belts connect into ONE line (Pipeline.lineComponents), and two lines fused into one is the
+       10-09 P0. The compiler turns the pointers into plan.sendTo (outside plan.hash), and the sidecar's handoff runner starts
+       the target line's own job — its own crew, its own budget — when this line's job reaches the OUTBOX clean.
+       Refused here, at the edit: an INBOX of this same line, and a pointer that would send work round in a circle (the
+       sidecar refuses a cycle again at run time — the plan can be re-posted mid-run). */
+    const sendMemo = { k: null, v: null };
+    function sendGraph() {
+      if (sendMemo.k === seq) return sendMemo.v;
+      const P = pipelineModule();
+      let v = null;
+      if (P && typeof P.lineComponents === 'function') {
+        try {
+          const props = [], belts = [];
+          for (const p of doc.props) if (LINK_MACHINES[p.t]) props.push({ id: p.id, t: p.t, x: p.x, y: p.y, w: p.w || 1, h: p.h || 1, agentId: p.agentId || null });
+          for (const k in doc.belts) { const q = k.split(','); belts.push({ x: +q[0], y: +q[1], dir: doc.belts[k] }); }
+          const L = currentLinks(), comps = P.lineComponents(Array.isArray(L) ? { props, belts, links: L } : { props, belts });
+          const lineOfProp = {}, edges = {};
+          for (const c of comps) for (const id of c.props) lineOfProp[id] = c.key;
+          for (const p of doc.props) {
+            if (p.t !== 'outbox' || !p.sendTo) continue;
+            const a = lineOfProp[p.id], b = lineOfProp[p.sendTo];
+            if (a && b && a !== b) (edges[a] = edges[a] || []).push(b);
+          }
+          v = { comps, lineOfProp, edges };
+        } catch (e) { v = null; }   // (a floor the compiler cannot read refuses nothing on a guess — the compile warns)
+      }
+      sendMemo.k = seq; sendMemo.v = v;
+      return v;
+    }
+    // a line as the floor names it: its INBOX's label, else plainly "another line"
+    function lineWord(g, key) {
+      const c = g && g.comps.find(x => x.key === key);
+      for (const iid of (c ? c.intakes : [])) { const ip = propById(iid); if (ip && ip.label) return 'LINE ' + String(ip.label).toUpperCase(); }
+      return null;
+    }
+    // does line `from` reach line `to` through the floor's SEND TO pointers (transitively)?
+    function sendReaches(g, from, to) {
+      if (!g || !from || !to) return false;
+      const seen = new Set([from]), q = [from];
+      while (q.length) {
+        const k = q.shift();
+        if (k === to) return true;
+        for (const n of (g.edges[k] || [])) if (!seen.has(n)) { seen.add(n); q.push(n); }
+      }
+      return false;
+    }
+    const sendFail = (code, msg, short) => Object.assign(fail(code, msg), { short });
+    // null = this OUTBOX may send to this INBOX, else the refusal (with the floor's caption in `short`)
+    function sendToRefusal(outboxId, intakeId) {
+      const O = propById(outboxId), I = propById(intakeId);
+      if (!O || !I) return fail('NOT_FOUND', 'no such prop');
+      if (O.t !== 'outbox') return sendFail('BAD_TYPE', 'Only an OUTBOX sends its line’s finished work on.', 'ONLY AN OUTBOX SENDS WORK ON');
+      if (I.t !== 'intake') return sendFail('NOT_INBOX', 'An OUTBOX hands its work on only to another line’s INBOX — drop it on one.', 'DROP THE OUTBOX ON ANOTHER LINE’S INBOX');
+      const g = sendGraph();
+      const a = g && g.lineOfProp[O.id], b = g && g.lineOfProp[I.id];
+      // (10-11) both ends must be on a line, or the compiler drops the pointer: never a green ghost + a chime for a hand-off it won't make
+      if (g && !a) return sendFail('NO_LINE', 'This OUTBOX ends no line yet — belt the last BAY of a line into it first.', 'THIS OUTBOX ENDS NO LINE YET');
+      if (g && !b) return sendFail('NO_LINE', 'That INBOX starts no line yet — belt it to a BAY first.', 'THAT INBOX STARTS NO LINE YET');
+      if (a && b && a === b) return sendFail('SAME_LINE', 'That INBOX starts this same line — pick another line’s INBOX.', 'THAT INBOX STARTS THIS SAME LINE');
+      if (a && b && sendReaches(g, b, a)) {
+        const nm = lineWord(g, b);
+        return sendFail('SEND_LOOP', 'That would send work round in a circle — ' + (nm || 'that line') + ' already sends its work on, back to this line.', 'A LOOP — ' + (nm || 'THAT LINE') + ' ALREADY SENDS WORK BACK HERE');
+      }
+      return null;
+    }
+    /* setSendTo(outboxId, intakeId | null) — point an OUTBOX at another line's INBOX (or, null, at nowhere). One undo slot;
+       a no-op burns none. */
+    function setSendTo(outboxId, intakeId) {
+      const O = propById(outboxId);
+      if (!O) return fail('NOT_FOUND', 'no such prop');
+      if (O.t !== 'outbox') return sendFail('BAD_TYPE', 'Only an OUTBOX sends its line’s finished work on.', 'ONLY AN OUTBOX SENDS WORK ON');
+      if (intakeId == null || intakeId === '') {
+        if (!O.sendTo) return { ok: true, id: O.id, sendTo: null };
+        snapshot();
+        delete O.sendTo;
+        emit([propFootprint(O)], { staticBakeUnchanged: true });
+        return { ok: true, id: O.id, sendTo: null };
+      }
+      const no = sendToRefusal(outboxId, intakeId);
+      if (no) return no;
+      const g = sendGraph(), toLine = (g && g.lineOfProp[intakeId]) || null;
+      if (O.sendTo === intakeId) return { ok: true, id: O.id, sendTo: intakeId, toLine, name: lineWord(g, toLine) };
+      const I = propById(intakeId);
+      snapshot();
+      O.sendTo = intakeId;
+      emit([propFootprint(O), propFootprint(I)], { staticBakeUnchanged: true });
+      return { ok: true, id: O.id, sendTo: intakeId, toLine, name: lineWord(g, toLine) };
+    }
+    /* sendToChoices(outboxId) — every OTHER line this OUTBOX could send to, for the Workflow panel's SEND TO chips:
+       [{ intakeId, lineId, name, on, refusal }] (one per line: its first INBOX), refusal = the reason a chip is disabled. */
+    function sendToChoices(outboxId) {
+      const O = propById(outboxId), g = sendGraph();
+      if (!O || O.t !== 'outbox' || !g) return [];
+      const mine = g.lineOfProp[O.id], out = [];
+      for (const c of g.comps) {
+        if (c.key === mine || !c.intakes.length) continue;
+        const on = c.intakes.indexOf(O.sendTo) >= 0, intakeId = on ? O.sendTo : c.intakes[0];
+        out.push({ intakeId, lineId: c.key, name: lineWord(g, c.key), on, refusal: sendToRefusal(O.id, intakeId) });
+      }
+      return out;
+    }
+    // a pointer whose INBOX is gone points nowhere — dropped with the edit that removed it (same undo slot)
+    function pruneSendTo() {
+      for (const p of doc.props) if (p.sendTo && !doc.props.some(q => q.id === p.sendTo && q.t === 'intake')) delete p.sendTo;
     }
     /* …and a HAND-DRAWN run is judged by what a floor built by links would make of it: reconcileLinks joins a loose run that
        runs out of one machine and into another, so the run is refused when it would add a link out of an OUTBOX or into an
@@ -2954,6 +3073,7 @@ const WorldModel = (() => {
         if (p.brief) lp.brief = p.brief;   // a dock's standing job brief -> the compiled plan (step editor; prompt text only)
         if (p.hands) lp.hands = p.hands;   // a dock's HANDS OFF phrase -> composed into that brief by the compiler (workflow panel)
         if (p.label) lp.label = p.label;   // an INTAKE's line name (step editor; legibility only, never routing)
+        if (p.t === 'outbox' && p.sendTo) lp.sendTo = p.sendTo;   // SEND TO: the INBOX this OUTBOX hands its line's finished work on to -> plan.sendTo
         if (p.t === 'intake' && p.projectRoot) lp.projectRoot = p.projectRoot;
         if (p.limits) lp.limits = p.limits;   // an INTAKE's LINE BUDGET -> the compiled plan (pipeline normalizes; chain executor reads)
         if (p.routes) lp.routes = p.routes; if (p.def) lp.def = p.def; if (p.bufferSize) lp.bufferSize = p.bufferSize;   // junction config -> the bake/pipeline
@@ -3613,7 +3733,7 @@ const WorldModel = (() => {
       },
       // mutations
       addRoom, placeHallway, removeRoom, moveRoom, moveRooms, resizeRoom, setRoomKind, setFloor, setMaterial, setDeck, setWalls, setHull, paintTiles, renameRoom,
-      addProp, removeProp, moveProp, moveProps, rotateProp, faceProp, mirrorProp, assignPropAgent, assignDesk, ensureWorkstation, configureJunction, swapJoinerMerger, bindConnector, bindPlugin, placePluginTerminal, setDoorState, setPropProject, setPropBrief, setPropRole, setPropHands, setPropLabel, setPropLimits,
+      addProp, removeProp, moveProp, moveProps, rotateProp, faceProp, mirrorProp, assignPropAgent, assignDesk, ensureWorkstation, configureJunction, swapJoinerMerger, bindConnector, bindPlugin, placePluginTerminal, setDoorState, setPropProject, setPropBrief, setPropRole, setPropHands, setPropLabel, setPropLimits, setSendTo, sendToRefusal, sendToChoices,
       setBelt, removeBelt, removeBelts, placeBeltRun, connectBelt, connectionPreview, hookedBelts, stampBlueprint, insertBayBetween, canInsertBayBetween, transact, lineGraph, applyLineLayout, blueprintGraph,
       // agent-bay binding queries
       propsByType, propsByAgent, pipelineEdges, setPipelineEdges, addPipelineEdge, removePipelineEdge, agentRoomId, bayObjects,
@@ -3677,7 +3797,7 @@ const WorldModel = (() => {
     // lookup is installed (i.e. a real client with the catalog); plain node tests keep every prop.
     if (propRules) doc.props = doc.props.filter(p => !(p && typeof p.t === 'string') || !!propRules(p.t));
     doc.props = doc.props.filter(p => p && typeof p === 'object' && typeof p.t === 'string')
-      .map(p => { const o = { id: p.id || null, t: p.t, x: p.x | 0, y: p.y | 0, w: Math.max(1, p.w | 0 || 1), h: Math.max(1, p.h | 0 || 1) }; if (p.block === false && !LEGACY_WALKABLE_DOCKS[p.t]) o.block = false; if (typeof p.agentId === 'string' && p.agentId) o.agentId = p.agentId; const r0 = cleanRot(p.r); if (r0) o.r = r0; if (p.m) o.m = 1; if (typeof p.role === 'string' && p.role) o.role = p.role.slice(0, 24); if (typeof p.brief === 'string' && p.brief.trim()) o.brief = p.brief.slice(0, 2000); if (p.t === 'bay' && typeof p.hands === 'string' && p.hands.trim()) o.hands = p.hands.slice(0, 160); if (typeof p.label === 'string' && p.label.trim()) o.label = p.label.slice(0, 48); if (p.t === 'intake' && typeof p.projectRoot === 'string' && p.projectRoot.trim()) o.projectRoot = p.projectRoot.trim().slice(0, 4096); if (p.t === 'intake' && p.limits && typeof p.limits === 'object') { const nl = normalizeLimits(p.limits); if (nl) o.limits = { maxHops: nl.maxHops, maxUsdPerMessage: nl.maxUsdPerMessage, maxUsdPerDay: nl.maxUsdPerDay }; } applyJunctionCfg(o, p); if (cleanDoor(p.door)) o.door = p.door; if (typeof p.connectorId === 'string' && p.connectorId.trim()) o.connectorId = p.connectorId.trim(); if (p.t === 'plugin_terminal' && typeof p.pluginId === 'string' && /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(p.pluginId.trim())) o.pluginId = p.pluginId.trim(); return o; });
+      .map(p => { const o = { id: p.id || null, t: p.t, x: p.x | 0, y: p.y | 0, w: Math.max(1, p.w | 0 || 1), h: Math.max(1, p.h | 0 || 1) }; if (p.block === false && !LEGACY_WALKABLE_DOCKS[p.t]) o.block = false; if (typeof p.agentId === 'string' && p.agentId) o.agentId = p.agentId; const r0 = cleanRot(p.r); if (r0) o.r = r0; if (p.m) o.m = 1; if (typeof p.role === 'string' && p.role) o.role = p.role.slice(0, 24); if (typeof p.brief === 'string' && p.brief.trim()) o.brief = p.brief.slice(0, 2000); if (p.t === 'bay' && typeof p.hands === 'string' && p.hands.trim()) o.hands = p.hands.slice(0, 160); if (typeof p.label === 'string' && p.label.trim()) o.label = p.label.slice(0, 48); if (p.t === 'outbox' && typeof p.sendTo === 'string' && p.sendTo.trim()) o.sendTo = p.sendTo.trim().slice(0, 64); if (p.t === 'intake' && typeof p.projectRoot === 'string' && p.projectRoot.trim()) o.projectRoot = p.projectRoot.trim().slice(0, 4096); if (p.t === 'intake' && p.limits && typeof p.limits === 'object') { const nl = normalizeLimits(p.limits); if (nl) o.limits = { maxHops: nl.maxHops, maxUsdPerMessage: nl.maxUsdPerMessage, maxUsdPerDay: nl.maxUsdPerDay }; } applyJunctionCfg(o, p); if (cleanDoor(p.door)) o.door = p.door; if (typeof p.connectorId === 'string' && p.connectorId.trim()) o.connectorId = p.connectorId.trim(); if (p.t === 'plugin_terminal' && typeof p.pluginId === 'string' && /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(p.pluginId.trim())) o.pluginId = p.pluginId.trim(); return o; });
     // Explicit, pack-owned shrinking only. Keep the rendered centre and floor line;
     // never enlarge obstacles or reinterpret a custom saved size. Idempotent on reload.
     for (const p of doc.props) {

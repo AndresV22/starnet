@@ -120,7 +120,10 @@ const Build = (() => {
     // the docks feed each OTHER: no belt loop anywhere, but the work line would run forever, paying each lap
     CHAIN_CYCLE: 'WORK LINE LOOPS — CUT ONE HANDOFF',
     // one job here runs more stages than its stage ceiling: every job would stop part-way (2026-10-09 P0) — said on its INBOX
-    LINE_TOO_LONG: 'TOO LONG — RAISE THE LINE BUDGET'
+    LINE_TOO_LONG: 'TOO LONG — RAISE THE LINE BUDGET',
+    // SEND TO (2026-10-10) — said on the OUTBOX whose hand-off is off; advice, never a blocker
+    SEND_TO_MISSING: 'SENDS NOWHERE — PICK A LINE', SEND_TO_SELF: 'SENDS TO ITSELF — PICK ANOTHER LINE',
+    SEND_TO_LOOP: 'SENDS IN A CIRCLE — CUT ONE SEND TO'
   };
   /* THE FULL SENTENCE for a finding whose floor label had to be cut short (2026-09-23 playtest: the NOT FED nag
      ran wider than the room). The floor keeps the short label; the machine's HOVER CARD and the Workflow panel's
@@ -133,7 +136,10 @@ const Build = (() => {
     JOIN_ONE_LANE: 'This JOINER needs two in-lanes — run a second belt INTO its tile.',
     LOOP_NO_DONE: 'This LOOP has no DONE lane — run a belt OUT of its tile onward (the first exit, in E/S/W/N order, is DONE unless you choose one).',
     LOOP_NO_BACK: 'This LOOP has no BACK lane — run a second belt OUT of its tile back to an earlier BAY.',
-    LINE_TOO_LONG: 'Too long — one job on this line runs more stages than its LINE BUDGET allows, so every job would stop part-way (the stages that ran are still paid for). Raise “max stages after the first” in this INBOX’s Workflow card › Optional limits · LINE BUDGET (24 at most), or shorten the line.'
+    LINE_TOO_LONG: 'Too long — one job on this line runs more stages than its LINE BUDGET allows, so every job would stop part-way (the stages that ran are still paid for). Raise “max stages after the first” in this INBOX’s Workflow card › Optional limits · LINE BUDGET (24 at most), or shorten the line.',
+    SEND_TO_MISSING: 'This OUTBOX sends to an INBOX that is gone or starts no line yet (or the OUTBOX itself ends no line), so nothing is sent on. Click the OUTBOX and pick a line under SEND TO (or NOWHERE).',
+    SEND_TO_SELF: 'This OUTBOX sends its work back into its own line’s INBOX, so nothing is sent on. Click it and pick another line under SEND TO (or NOWHERE).',
+    SEND_TO_LOOP: 'These lines send their work round in a circle, so every SEND TO on the circle is off — a job would never stop. Click one OUTBOX on the circle and set its SEND TO to NOWHERE or another line.'
   };
   const valWhy = code => VAL_WHY[code] || VAL_LABEL[code] || code;
   // a finding's full sentence for THIS machine — with its own numbers where the finding carries them (LINE_TOO_LONG)
@@ -4615,9 +4621,13 @@ const Build = (() => {
           // an OUTBOX ends its line: it is never where a belt starts (worldmodel HANDOFF_WORDS) — said on the first click, not the second
           const no = station.connectRefusal ? station.connectRefusal(pid, null) : null;
           if (no) { sfx('bad'); flashTip(ev, no.msg, false); return; }
-          connectFrom = pid; sfx('click'); flashTip(ev, 'FROM ▸ ' + (propSpec(pp.t).label || pp.t).toUpperCase() + ' — now click a destination', true); return;
+          // (an OUTBOX arms a SEND TO: its one destination is another line's INBOX — never a belt)
+          connectFrom = pid; sfx('click'); flashTip(ev, pp.t === 'outbox' ? 'SEND TO — now click another line’s INBOX: every job that lands in this OUTBOX rides on to it' : 'FROM ▸ ' + (propSpec(pp.t).label || pp.t).toUpperCase() + ' — now click a destination', true); return;
         }
         if (connectFrom === pid) { connectFrom = null; hideTip(); return; }
+        // the armed OUTBOX's second click on an INBOX: SEND TO (refused in its own words — this same line, a circle)
+        const fo = station.propById(connectFrom);
+        if (fo && fo.t === 'outbox' && pp.t === 'intake') { connectFrom = null; commitSendTo(fo.id, pid, ev); return; }
         const res = station.connectBelt(connectFrom, pid);
         connectFrom = null;
         if (res && res.ok) {
@@ -5564,6 +5574,9 @@ const Build = (() => {
   function commitPropMove(d, ev) {
     let dx = d.cur.tx - d.start.tx, dy = d.cur.ty - d.start.ty;
     if (!dx && !dy) { hideTip(); return; }
+    // SEND TO: an OUTBOX let go on another line's INBOX points at it and stays where it stands (the ghost showed the arc)
+    const so = station.propById(d.propId), si = so && so.t === 'outbox' ? intakeAt(d.cur.tx, d.cur.ty) : null;
+    if (si) { commitSendTo(so.id, si.id, ev); return; }
     // JUNCTION SNAP on MOVE — the same rule placement (commitPropStamp) already applies: a filter/
     // splitter/merger dropped NEXT to a line snaps onto the nearest belt tile. Without this, a moved
     // filter one tile off its belt still compiled (ring-attached) while reading as misplaced — or, two
@@ -6111,6 +6124,9 @@ const Build = (() => {
     if (drag.mode === 'propmove') {
       const p = station.propById(drag.propId); if (!p) return null;
       const dx = drag.cur.tx - drag.start.tx, dy = drag.cur.ty - drag.start.ty;
+      // SEND TO: an OUTBOX dragged onto another line's INBOX points at it (it stays where it stands — no belt, no move)
+      const sendTo = p.t === 'outbox' && (dx || dy) ? intakeAt(drag.cur.tx, drag.cur.ty) : null;
+      if (sendTo) { const pv = sendToPv(p.id, sendTo.id) || { ok: false, short: 'CANNOT SEND THERE' }; return { sendTo: true, from: p, to: sendTo, rects: [propRect(sendTo)], v: pv }; }
       const nx = p.x + dx, ny = p.y + dy;
       const rect = { x1: nx, y1: ny, x2: nx + p.w - 1, y2: ny + p.h - 1 };
       const links = isWorkflowType(p.t) && (dx || dy) ? ghostLinks({ props: [{ t: p.t, x: nx, y: ny, w: p.w, h: p.h }], ignoreId: p.id }) : [];
@@ -6340,6 +6356,7 @@ const Build = (() => {
       }
     });
     if (!nextLight) drawLayer('glows', () => drawGlows(now));
+    drawLayer('sendTo', () => drawSendLinks(t, now));   // SEND TO: each OUTBOX's dashed arc to the INBOX it feeds (an editing instrument, above the light)
     drawLayer('flashes', () => drawFlashes(now, t));
     drawLayer('validation', () => drawRoutingValidation(t, now));
     drawLayer('junctionTags', () => drawJunctionTags(t));   // what each 1×1 junction IS and will DO, under its tile (Conveyors tab)
@@ -7152,6 +7169,111 @@ const Build = (() => {
     }
     ctx.restore();
   }
+  /* ---------- SEND TO (2026-10-10) — one line hands its finished work on to another ----------
+     The OUTBOX carries `sendTo` (worldmodel setSendTo): a POINTER to the next line's INBOX, never a belt — belts joining two
+     lines make one line (the 10-09 P0). Three ways to set it, ONE verdict (station.sendToRefusal — the same words on the ghost
+     and at the drop): drag the OUTBOX onto another line's INBOX (SELECT), the BELT tool's two clicks (the OUTBOX, then that
+     INBOX), or the Workflow panel's SEND TO chips. On the floor it is a dashed arc from the OUTBOX to the INBOX it feeds — green
+     while the compiled plan carries it, red while a finding has it off (the nag says why); its words only on hover/selection. */
+  let sendPvKey = null, sendPvMemo = null;
+  function sendToPv(fromId, toId) {
+    if (!station || typeof station.sendToRefusal !== 'function') return null;
+    const k = geoVer + '|' + fromId + '|' + toId;
+    if (k === sendPvKey) return sendPvMemo;
+    let r = null;
+    try { const no = station.sendToRefusal(fromId, toId); r = no || { ok: true, name: sendName(toId) }; } catch (_) { r = null; }
+    sendPvKey = k; sendPvMemo = r;
+    return r;
+  }
+  // a line as the floor names it, by its INBOX (the line's name rides the INBOX label)
+  function sendName(intakeId) {
+    const c = lineOfProp(intakeId), nm = c ? lineNameOf(c) : null, ip = station.propById(intakeId);
+    const label = nm || (ip && ip.label) || '';
+    return label ? 'LINE ' + String(label).toUpperCase() : 'AN UNNAMED LINE';
+  }
+  function intakeAt(tx, ty) { const id = station.propAt(tx, ty), p = id && station.propById(id); return p && p.t === 'intake' ? p : null; }
+  function commitSendTo(outboxId, intakeId, ev) {
+    const r = typeof station.setSendTo === 'function' ? station.setSendTo(outboxId, intakeId) : null;
+    const o = station.propById(outboxId), ip = intakeId ? station.propById(intakeId) : null;
+    if (r && r.ok) {
+      sfx('chime');
+      flashTip(ev, ip ? 'SENDS TO ' + sendName(ip.id) + ' — every job that lands in this OUTBOX rides on to it' : 'SENDS NOWHERE — this line’s work stops at its OUTBOX', true);
+      if (o) pushFlash([propRect(o)].concat(ip ? [propRect(ip)] : []), false);
+      if (o) { selectedPropId = o.id; renderSelection(); }
+    } else { sfx('bad'); flashTip(ev, (r && r.msg) || 'an OUTBOX sends only to another line’s INBOX', false); }
+    return r;
+  }
+  // the arc from an OUTBOX to the INBOX it sends to: world px, curving below the lower of the two (prototype's tube)
+  function sendArc(t, a, b) {
+    const ax = (a.x + (a.w || 1) / 2) * t, ay = (a.y + (a.h || 1) / 2) * t, bx = (b.x + (b.w || 1) / 2) * t, by = (b.y + (b.h || 1) / 2) * t;
+    return { ax, ay, bx, by, mx: (ax + bx) / 2, my: Math.max(ay, by) + 1.6 * t };
+  }
+  function strokeSendArc(arc, col, now, alpha) {
+    ctx.save();
+    ctx.globalAlpha = alpha; ctx.strokeStyle = col; ctx.lineWidth = 1.6 / zoom;
+    ctx.setLineDash([4 / zoom, 3 / zoom]); ctx.lineDashOffset = -((now / 60) % 7) / zoom;
+    ctx.beginPath(); ctx.moveTo(arc.ax, arc.ay); ctx.quadraticCurveTo(arc.mx, arc.my, arc.bx, arc.by); ctx.stroke();
+    ctx.setLineDash([]);
+    // the arrowhead at the INBOX: along the curve's last tangent
+    const dx = arc.bx - arc.mx, dy = arc.by - arc.my, L = Math.hypot(dx, dy) || 1, ux = dx / L, uy = dy / L, r = 4 / zoom + 2;
+    ctx.beginPath();
+    ctx.moveTo(arc.bx - ux * r - uy * r * 0.7, arc.by - uy * r + ux * r * 0.7); ctx.lineTo(arc.bx, arc.by); ctx.lineTo(arc.bx - ux * r + uy * r * 0.7, arc.by - uy * r - ux * r * 0.7);
+    ctx.stroke();
+    ctx.restore();
+  }
+  // every SEND TO on the floor, rebuilt only when the floor or the plan changes (never per frame)
+  let sendLinksGeo = null, sendLinksPlan = null, sendLinksMemo = [];
+  function sendLinks() {
+    if (sendLinksGeo === geoVer && sendLinksPlan === valPlan) return sendLinksMemo;   // (valPlan is rebuilt only when the floor changes)
+    const out = [];
+    for (const p of station.props()) {
+      if (p.t !== 'outbox' || !p.sendTo) continue;
+      const ip = station.propById(p.sendTo);
+      if (!ip) continue;
+      out.push({ from: p, to: ip, live: !!(valPlan && valPlan.sendTo && valPlan.sendTo[p.id]), name: sendName(ip.id) });
+    }
+    sendLinksGeo = geoVer; sendLinksPlan = valPlan; sendLinksMemo = out;
+    return out;
+  }
+  function drawSendLinks(t, now) {
+    if (!station) return;
+    const links = sendLinks();
+    if (!links.length) return;
+    for (const s of links) {
+      if (drag && drag.mode === 'propmove' && drag.propId === s.from.id) continue;   // the drag ghost draws the one being re-aimed
+      const arc = sendArc(t, s.from, s.to);
+      strokeSendArc(arc, s.live ? '#57bd8b' : '#d2684c', now, s.live ? 0.7 : 0.8);
+      const near = [hoverPropId, selectedPropId].some(id => id && (id === s.from.id || id === s.to.id));
+      if (!near) continue;   // ONE-VOICE LAW: the arc alone at rest; its words when you look at either end
+      const txt = s.live ? 'SENDS TO ' + s.name : 'SEND TO ' + s.name + ' IS OFF';
+      ctx.save(); ctx.font = VAL_FONT();
+      const tw = ctx.measureText(txt).width, lh = Math.max(9, 11 / zoom) + 2 / zoom;
+      ctx.restore();
+      const cx = 0.25 * arc.ax + 0.5 * arc.mx + 0.25 * arc.bx, cy = 0.25 * arc.ay + 0.5 * arc.my + 0.25 * arc.by;
+      const col = s.live ? '#57bd8b' : '#d2684c';
+      voiceSay('hover', { x: cx - tw / 2, y: cy, w: tw, h: lh }, { x: cx - tw / 2, y: cy + 2 / zoom, w: tw, h: lh }, (c) => {
+        c.save(); c.font = VAL_FONT(); c.textAlign = 'center'; c.textBaseline = 'top';
+        c.shadowBlur = 3; c.shadowColor = col; c.fillStyle = col; c.fillText(txt, cx, cy + 2 / zoom);
+        c.restore();
+      });
+    }
+  }
+  // the SELECT drag of an OUTBOX over another line's INBOX: the arc it would make, the INBOX outlined, the verdict
+  function drawSendGhost(t, now, g) {
+    const ok = !!(g.v && g.v.ok);
+    strokeSendArc(sendArc(t, g.from, g.to), ok ? '#57bd8b' : '#d2684c', now, 0.95);
+    drawPropSelection(g.to, t, ok ? 'rgba(120,255,170,0.95)' : 'rgba(255,120,110,0.95)', false);
+    ghostBadge(t, ok ? ['SEND TO ' + (g.v.name || sendName(g.to.id)), 'RELEASE: WORK THAT LANDS HERE RIDES ON'] : [placementReason(g)], ok, g.rects[0]);
+  }
+  // the BELT tool armed on an OUTBOX: its one destination is another line's INBOX (a SEND TO) — what each hovered target says
+  function sendRole(isFrom, p) {
+    const from = connectFrom && !connectTo ? station.propById(connectFrom) : null;
+    if (!from || from.t !== 'outbox') return null;
+    if (isFrom) return 'SEND TO — NOW CLICK ANOTHER LINE’S INBOX';
+    if (p.t !== 'intake') return null;
+    const pv = sendToPv(from.id, p.id);
+    return pv ? (pv.ok ? 'CLICK TO SEND TO ' + pv.name : (pv.short || pv.msg)) : null;
+  }
   function drawBeltEndpointGlow(t, now) {
     if (tool !== 'belt' || !station) return;
     // the armed machine: a FROM — or, JOIN A LINE, the destination BAY (the lane then runs from the hovered machine INTO it)
@@ -7159,6 +7281,9 @@ const Build = (() => {
     if (armed && hoverPropId && hoverPropId !== armed) {
       const hp = station.propById(hoverPropId), pv = hp && CONNECT_TYPES[hp.t] ? (connectTo ? beltPreview(hoverPropId, connectTo) : beltPreview(connectFrom, hoverPropId)) : null;
       if (pv && pv.ok) drawBeltPreview(t, pv, '#7ee2a8');
+      // an armed OUTBOX over another line's INBOX: the SEND TO arc it would make (no belt is ever laid between lines)
+      const fo = connectFrom && !connectTo ? station.propById(connectFrom) : null;
+      if (fo && fo.t === 'outbox' && hp && hp.t === 'intake') { const sp = sendToPv(fo.id, hp.id); strokeSendArc(sendArc(t, fo, hp), sp && sp.ok ? '#57bd8b' : '#d2684c', now, 0.95); }
     }
     const pulse = 0.45 + 0.3 * Math.sin(now / 260);
     const placed = [];
@@ -7184,7 +7309,8 @@ const Build = (() => {
       if (!isFrom && hoverPropId !== p.id) continue;
       const pv = isFrom ? null : connectTo ? beltPreview(p.id, connectTo) : beltPreview(connectFrom, p.id);
       const role = isFrom ? (connectTo ? 'TO ▸ NOW CLICK THE MACHINE THAT HANDS IT WORK' : 'FROM ▸ NOW CLICK A DESTINATION') : (pv && !pv.ok) ? (pv.short || 'NO ROUTE — ' + (NO_ROUTE[pv.error] || 'NO CLEAR PATH')) : 'CLICK TO CONNECT';
-      const tw = ctx.measureText(role).width;
+      const said = sendRole(isFrom, p) || role;   // an armed OUTBOX speaks SEND TO (its one destination is another line's INBOX)
+      const tw = ctx.measureText(said).width;
       // baseline-top label below the prop: colliders step DOWN (dir +1), away from the machinery
       const lh = Math.max(9, 11 / zoom) + 2 / zoom;
       const ly = placeLabel(placed, X + Wd / 2, Y + Hd + 2 / zoom, tw, lh, 1);
@@ -7193,7 +7319,7 @@ const Build = (() => {
         c.font = VAL_FONT(); c.textAlign = 'center'; c.textBaseline = 'top';
         c.globalAlpha = isFrom ? 0.95 : pulse;
         c.shadowBlur = 3; c.shadowColor = col; c.fillStyle = col;
-        c.fillText(role, X + Wd / 2, ly);
+        c.fillText(said, X + Wd / 2, ly);
         c.restore();
       });
     }
@@ -7591,6 +7717,7 @@ const Build = (() => {
     const g = ghostInfo();
     if (!g) return;
     if (g.group) { drawGroupGhost(t, now, g); return; }
+    if (g.sendTo) { drawSendGhost(t, now, g); return; }
     if (g.row) { drawRowGhost(t, now, g); return; }
     // Show the actual art at the exact candidate footprint, including its facing
     // and tabletop lift. The outline still communicates the model's occupied tiles.
