@@ -87,6 +87,37 @@ const now = 1_000_000;
   A.ok(/2 agents/.test(U.installBlockReason('2', false) || ''), 'numeric-string count still guards');
 }
 
+// ---- a found update survives a restart: the next launch re-arms it instead of waiting out the interval ----
+// (0.13.1 → 0.13.2 report: the toast fires once per version and the native pending update lives only in memory,
+//  so a restart inside CHECK_INTERVAL_MS showed "no update" while the station already knew one existed.)
+{
+  let s = U.recordCheckResult({}, { checkedAt: now, update: { version: '0.13.2' } }, now);
+  A.eq(s.availableVersion, '0.13.2', 'a check that finds an update remembers its version');
+  s = U.recordNotified(s, '0.13.2');
+  const later = now + HOUR;   // well inside the 6h interval
+  const a = U.nextAction({ settings: s, runtime: { desktop: true, phase: 'idle', hasUpdate: false, currentVersion: '0.13.1' }, now: later });
+  A.eq(a.action, 'check', 'a relaunch that knows of a newer version checks at once');
+  A.eq(a.reason, 'known-update', 'the reason names the remembered update');
+  A.eq(U.nextAction({ settings: s, runtime: { desktop: true, phase: 'available', hasUpdate: true, currentVersion: '0.13.1' }, now: later }).reason,
+    'waiting-interval', 'once re-armed, the steady interval resumes');
+  A.eq(U.nextAction({ settings: s, runtime: { desktop: true, phase: 'idle', hasUpdate: false, currentVersion: '0.13.2' }, now: later }).reason,
+    'waiting-interval', 'after the update landed, the remembered version is the running one: no forced check');
+  A.eq(U.nextAction({ settings: U.ignoreVersion(s, '0.13.2'), runtime: { desktop: true, phase: 'idle', currentVersion: '0.13.1' }, now: later }).reason,
+    'waiting-interval', 'a skipped version never forces a check');
+  A.eq(U.nextAction({ settings: Object.assign({}, s, { autoCheck: false }), runtime: { desktop: true, phase: 'idle', currentVersion: '0.13.1' }, now: later }).reason,
+    'auto-disabled', 'AUTO-CHECK off still means no automatic request');
+  s = U.recordCheckResult(s, { checkedAt: later, update: null }, later);
+  A.eq(s.availableVersion, '', 'a check that finds nothing forgets the version');
+  A.eq(U.hydrateSettings({ availableVersion: 7 }).availableVersion, '', 'a non-string remembered version is dropped');
+}
+
+// ---- opening the Update Center re-checks unless this launch checked recently ----
+{
+  A.ok(U.shouldCheckOnOpen(0, now), 'no check yet this launch: opening checks');
+  A.ok(!U.shouldCheckOnOpen(now, now + U.OPEN_RECHECK_MS - 1), 'a fresh check this launch is reused');
+  A.ok(U.shouldCheckOnOpen(now, now + U.OPEN_RECHECK_MS), 'a stale answer is re-checked');
+}
+
 // ---- public privacy claims follow the real first-run default and plaintext OAuth inventory ----
 {
   const ROOT = path.resolve(__dirname, '..');

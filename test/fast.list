@@ -317,6 +317,7 @@ test/update-continuity.test.js
 test/update-preparation.test.js
 test/update-drain-wiring.test.js
 test/updates-install.test.js
+test/update-center-truth.test.js
 test/future-gate-update-door.test.js
 test/roster-clause.test.js
 test/agent-config-target.test.js
