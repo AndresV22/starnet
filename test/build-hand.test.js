@@ -270,6 +270,23 @@ const frozen = s => JSON.stringify(s.serialize()) + '|' + s.getSeq() + '|' + s.c
   const tut = fs.readFileSync(path.join(__dirname, '..', 'frontend', 'app', 'tutorial.js'), 'utf8'), qs = fs.readFileSync(path.join(__dirname, '..', 'frontend', 'app', 'quests.js'), 'utf8');
   A.ok(/In the <b>Conveyors<\/b> tab, <kbd>1<\/kbd>–<kbd>8<\/kbd> pick a conveyor piece from its hotbar instead/.test(tut) && !/press <kbd>1<\/kbd> and drag out a room\. Press <kbd>6<\/kbd>/.test(tut), 'the Field Manual says 1–8 pick hotbar pieces in the Conveyors tab (and its mission names tabs, not numbers)');
   A.ok(!/drag a BELT \(7\)/.test(qs) && /drag from the INBOX onto the BAY to lay a belt/.test(qs), 'the belt quest teaches the drag, not key 7');
+  // the hand × SEND TO join (integration merge 10-11): dragging an OUTBOX onto another line's INBOX asks the ONE SEND TO verdict
+  // (worldmodel sendToRefusal via sendToPv) before the ghost goes green — never green for a loop / no-line drop setSendTo refuses
+  const sendAt = build.indexOf("kind: 'send', to: T");
+  const sendBranch = build.slice(build.lastIndexOf("if (A.t === 'outbox' && T.t === 'intake'", sendAt), sendAt);
+  A.ok(sendAt > 0 && /const sv = sendToPv\(A\.id, T\.id\);/.test(sendBranch) && /if \(sv && sv\.ok === false\) return \{ ok: false, to: T, why: sv\.short/.test(sendBranch),
+    'the hand’s SEND TO ghost reads sendToRefusal (loop, no line) — the ghost is the commit');
+}
+{
+  // and the verdict it reads refuses the loop the ghost must show red: A sends to B, so B's OUTBOX may not send back to A
+  const s = fresh();
+  const IA = add(s, 'intake', 32, 4), BA = add(s, 'bay', 40, 4), OA = add(s, 'outbox', 48, 4);
+  const IB = add(s, 'intake', 32, 14), BB = add(s, 'bay', 40, 14), OB = add(s, 'outbox', 48, 14);
+  for (const [a, b] of [[IA, BA], [BA, OA], [IB, BB], [BB, OB]]) A.ok(s.connectBelt(a, b).ok, 'line belt ' + a + '→' + b);
+  A.ok(s.setSendTo(OA, IB).ok, 'LINE A sends to LINE B');
+  const back = s.sendToRefusal(OB, IA);
+  A.ok(back && back.error === 'SEND_LOOP' && /LOOP/.test(back.short || ''), 'B → A is refused as a loop, with a floor caption the ghost shows');
+  A.ok(s.sendToRefusal(OB, IB) && s.sendToRefusal(OB, IB).error === 'SAME_LINE', 'an OUTBOX onto its own line’s INBOX is refused');
 }
 
 A.report('build-hand.test');
