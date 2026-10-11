@@ -43,8 +43,8 @@ function startMockOpenRouter() {
   // agent.run.start has fired and the hub run is registered in inflight) then AWAITS release() before the finishing
   // chunk. Default = not armed (instant reply) so every other flow is unchanged. `started` resolves when a held
   // completion has emitted its first delta — the point at which the run is provably in-flight.
-  const gate = { armed: false, _release: null, _startedResolve: null, started: null };
-  gate.arm = () => { gate.armed = true; gate.started = new Promise(r => { gate._startedResolve = r; }); };
+  const gate = { armed: false, userText: null, request: null, _release: null, _startedResolve: null, started: null };
+  gate.arm = (userText) => { gate.armed = true; gate.userText = userText; gate.request = null; gate.started = new Promise(r => { gate._startedResolve = r; }); };
   gate.release = () => { const r = gate._release; gate._release = null; if (r) r(); };
   return new Promise(resolve => {
     const server = http.createServer((req, res) => {
@@ -106,10 +106,15 @@ function startMockOpenRouter() {
             res.end();
             return;
           }
-          const answer = parityWorker ? 'WORKER_PARITY_OK' : parityTask ? 'DELEGATION_PARITY_DONE' : 'Telegram answer';
+          // Only a real host steering note can produce this reply; the initial turn and acknowledgement cannot.
+          const appliedFollowup = msgs.some(m => m && m.role === 'system' && /<steering_note>/.test(String(m.content || ''))
+            && String(m.content || '').includes('TELEGRAM_FOLLOWUP_APPLIED'));
+          const answer = appliedFollowup ? 'Follow-up applied: TELEGRAM_FOLLOWUP_APPLIED'
+            : parityWorker ? 'WORKER_PARITY_OK' : parityTask ? 'DELEGATION_PARITY_DONE' : 'Telegram answer';
           res.write('data: ' + JSON.stringify({ choices: [{ delta: { content: answer } }] }) + '\n\n');
-          if (gate.armed) {
-            gate.armed = false;   // hold only the FIRST completion after arming
+          if (gate.armed && lastUser && lastUser.content === gate.userText) {
+            gate.armed = false;   // auxiliary requests cannot steal another task's gate
+            gate.request = parsed;
             await new Promise(r => { gate._release = r; if (gate._startedResolve) gate._startedResolve(); });
           }
           res.write('data: ' + JSON.stringify({ choices: [{ delta: {}, finish_reason: 'stop' }], usage: { prompt_tokens: 5, completion_tokens: 3, total_tokens: 8 } }) + '\n\n');
@@ -594,7 +599,7 @@ async function waitUntil(fn, ms, label) {
     const base = await snapshot();
     A.ok(Array.isArray(base.runs) && !base.runs.some(x => x && x.agentId === 'tg_4243'), 'snapshot has no tg_4243 run before the second message');
 
-    llm.gate.arm();                                  // the NEXT completion holds after its first delta
+    llm.gate.arm('hold this run please');             // only this exact task holds after its first delta
     tg.pushText(4243, 99, 'hold this run please');   // a fresh chat -> agentId tg_4243, its own run
     await llm.gate.started;                           // resolves once the held completion emitted its first delta (run is provably in-flight)
     await sse.waitFor(events => events.some(e => e.name === 'agent.run.start' && e.payload && e.payload.agentId === 'tg_4243'), 5000, 'second SSE run start');
@@ -612,50 +617,55 @@ async function waitUntil(fn, ms, label) {
     // AFTER IT ENDS: the run drops out of the snapshot (inflight cleared in the hub's finally) — no phantom clock.
     await waitUntil(async () => { const s = await snapshot(); return !(s.runs || []).some(x => x && x.agentId === 'tg_4243'); }, 5000, 'tg_4243 run leaves the snapshot after it ends');
 
-    // ---- P2 supersede race: a SECOND message to the SAME busy chat must NOT be silently dropped on the transient
-    // "already running a task" refusal. Repro: HOLD run #1 for chat 5555 in-flight (slot held), then send message #2
-    // to 5555 — the hub aborts #1 and immediately starts #2, which loses the same-agent workspace-mutex race in the
-    // host (index.js concurrencyGate.inFlight>0) and is refused TRANSIENTLY. The hub must RETRY with backoff until
-    // #1's aborted run releases the slot, then deliver #2's real answer — never the raw mutex refusal to the user. --
-    const sendsToChatBefore = tg.sends.filter(s => String(s.chat_id) === '5555').length;
-    A.eq(sendsToChatBefore, 0, 'no prior reply to chat 5555');
+    // ---- A plain owner follow-up joins the SAME active task (d489326f0), without aborting/restarting it. ----
+    // The old supersede fixture left this gate closed and expected message #2 to abort it; current production
+    // correctly steers that message instead. Prove acknowledgement, live identity, actual provider consumption
+    // and a distinct final answer. Mutex-refusal retry/exhaustion remains covered by channels.hub.test.js L-L3.
+    const replies5555 = () => tg.sends.filter(s => String(s.chat_id) === '5555');
+    const starts5555 = () => sse.events.filter(e => e.name === 'agent.run.start' && e.payload && e.payload.agentId === 'tg_5555');
+    const ends5555 = () => sse.events.filter(e => e.name === 'agent.run.end' && e.payload && e.payload.agentId === 'tg_5555');
+    A.eq(replies5555().length, 0, 'no prior reply to chat 5555');
 
-    llm.gate.arm();                                  // run #1 will HOLD after its first delta (keeps its slot)
-    tg.pushText(5555, 99, 'first message — will be held and superseded');
-    await llm.gate.started;                           // run #1 is provably in-flight (slot held) now
-    await sse.waitFor(events => events.some(e => e.name === 'agent.run.start' && e.payload && e.payload.agentId === 'tg_5555'), 5000, 'run #1 start (tg_5555)');
+    const original5555 = 'first message — keep working while I add a note';
+    llm.gate.arm(original5555);
+    tg.pushText(5555, 99, original5555);
+    await waitUntil(() => !!llm.gate._release, 8000, 'the exact original task reaches the fixture gate');
+    A.ok(llm.gate.request && llm.gate.request.messages.some(m => m && m.role === 'user' && m.content === original5555),
+      'the held provider request is the original task, not an auxiliary completion');
+    await sse.waitFor(() => starts5555().length === 1, 5000, 'held run start (tg_5555)');
+    const heldRunId = starts5555()[0].payload.runId;
+    const followup5555 = 'also include TELEGRAM_FOLLOWUP_APPLIED in the answer';
+    tg.pushText(5555, 99, followup5555);
+    await waitUntil(() => replies5555().some(s => /Added to the task that is already running/.test(rendered(s.text))),
+      8000, 'owner follow-up acknowledged into the held run');
 
-    // SECOND message to the SAME chat: aborts #1, then races the still-held workspace slot -> transient refusal ->
-    // the hub's bounded retry recovers once #1's abort frees the slot.
-    tg.pushText(5555, 99, 'second message — should supersede and still get answered');
+    const held5555 = (await snapshot()).runs.find(r => r && r.agentId === 'tg_5555');
+    A.ok(held5555 && held5555.runId === heldRunId, 'the acknowledged follow-up leaves the original run live');
+    A.eq(starts5555().length, 1, 'acknowledgement does not start a replacement run');
+    A.eq(ends5555().length, 0, 'the held run was not aborted or ended');
+    A.ok(!!llm.gate._release, 'the original model response is still held by the fixture');
+    A.ok(!replies5555().some(s => /Follow-up applied: TELEGRAM_FOLLOWUP_APPLIED/.test(rendered(s.text))),
+      'the acknowledgement is not mistaken for a completed answer');
 
-    // the user's SECOND message must EVENTUALLY get a real answer delivered to chat 5555 (the whole point of the fix).
-    await waitUntil(() => tg.sends.some(s => String(s.chat_id) === '5555' && String(s.text || '').indexOf('Telegram answer') >= 0), 12000, 'chat 5555 eventually gets the real answer for message #2');
+    llm.gate.release();
+    const appliedRequest = () => llm.requests.find(r => (r.messages || []).some(m => m && m.role === 'system'
+      && /<steering_note>/.test(String(m.content || '')) && String(m.content || '').includes(followup5555)));
+    await waitUntil(() => !!appliedRequest(), 8000, 'the follow-up reaches the production provider as a steering note');
+    A.ok(appliedRequest().messages.some(m => m && m.role === 'user' && m.content === original5555),
+      'the provider receives the follow-up with the original task still in context');
+    await waitUntil(() => replies5555().some(s => /Follow-up applied: TELEGRAM_FOLLOWUP_APPLIED/.test(rendered(s.text))),
+      12000, 'the provider answer that applied the follow-up is delivered');
+    await sse.waitFor(() => ends5555().some(e => e.payload.runId === heldRunId && e.payload.reason === 'done'),
+      5000, 'the same held run finishes successfully after applying the follow-up');
+    A.eq(starts5555().length, 1, 'one task handled both messages without restart');
+    A.ok(!ends5555().some(e => e.payload.reason === 'cancelled'), 'no cancellation was hidden by the final answer');
+    A.ok(replies5555().every(s => !/already running a task|Stopped the earlier task/.test(rendered(s.text))),
+      'neither a mutex refusal nor a false supersede notice is sent');
+    console.log('telegram-followup-proof: ' + JSON.stringify({ chatId: '5555', runId: heldRunId,
+      acknowledged: true, gateMatchedOriginalTask: true, sameRunLiveWhileHeld: !!held5555 && held5555.runId === heldRunId,
+      providerSawSteering: !!appliedRequest(), originalTaskRetained: true, distinctAnswerDelivered: true,
+      starts: starts5555().length, endReasons: ends5555().map(e => e.payload.reason) }));
 
-    // TRUTHFUL TELEMETRY: the raw internal mutex message ("already running a task") must NEVER be delivered to the
-    // user on ANY reply to chat 5555 — the fix converts that transient refusal into a retry (or, if it truly never
-    // frees, an honest "still busy" reply), never a leaked internal string.
-    const chat5555Replies = tg.sends.filter(s => String(s.chat_id) === '5555');
-    A.ok(chat5555Replies.length >= 1, 'chat 5555 received at least one reply');
-    A.ok(chat5555Replies.every(s => String(s.text || '').indexOf('already running a task') === -1), 'no reply to chat 5555 leaked the internal "already running a task" mutex message');
-
-    // Prove the RETRY PATH actually engaged (not merely that the race happened not to fire): the transient
-    // "already running a task" refusal is teed whole to the channels SSE feed (sse.js runTeeView), and it must be
-    // FOLLOWED by a successful run.end for the same agent — i.e. the hub retried and recovered rather than giving up.
-    const sawTransientRefusal = sse.events.some(e => e.name === 'agent.run.error' && e.payload
-      && e.payload.agentId === 'tg_5555' && e.payload.transient === true
-      && String(e.payload.message || '').indexOf('already running a task') >= 0);
-    if (sawTransientRefusal) {
-      await sse.waitFor(events => {
-        // a run.end for tg_5555 that is NOT the aborted/error one: the recovered retry's clean finish.
-        return events.some(e => e.name === 'agent.run.end' && e.payload && e.payload.agentId === 'tg_5555' && e.payload.reason && e.payload.reason !== 'error');
-      }, 8000, 'tg_5555 recovered with a successful run after the transient refusal (retry worked)');
-      console.log('  · supersede race reproduced AND recovered (transient refusal -> retry -> real answer)');
-    } else {
-      // The race is timing-sensitive; if the slot happened to free before #2's admission, the message still got its
-      // real answer above (the invariant that matters). Note it so the run log is honest about what was exercised.
-      console.log('  · supersede race did not fire this run; #2 still delivered its real answer (invariant holds)');
-    }
     /* ---- ONE CONNECT SURVIVES A PROCESS RESTART -----------------------------------------------------
        Remove BOTH token env aliases before reboot. The only possible source is the durable channel record the
        first process wrote. A successful poll and configured+durable status prove the user is not asked again. */
