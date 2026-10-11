@@ -63,6 +63,8 @@
 })(typeof globalThis !== 'undefined' ? globalThis : this, function (cron, cronStore) {
   'use strict';
   // failopen.note — the tagged SYNC swallow (per-tag count + throttled warn): a fail-open catch must never be invisible.
+  // plain words for an unclean end ("the model sent back an empty reply…"), the machine reason kept in brackets
+  const incompleteRunMessage = (typeof require === 'function') ? require('./stop-reason.js').incompleteRunMessage : (r) => 'run ended without completion: ' + (r || 'missing terminal outcome');
   const { note: failNote } = (typeof require === 'function') ? require('./failopen.js') : { note: function (tag, e) { console.warn('[failopen] ' + tag + ':', (e && e.message) || e); } };
 
   const SILENT_MARKER = '[SILENT]';
@@ -271,7 +273,7 @@
       const terminalReason = String(state.reason || '');
       const errMsg = state.errMsg
         || (threw ? ('run failed: ' + ((threw && threw.message) || threw)) : null)
-        || (terminalReason === 'done' ? null : ('run ended without completion: ' + (terminalReason || 'missing terminal outcome')));
+        || (terminalReason === 'done' ? null : incompleteRunMessage(terminalReason));
       const ok = !errMsg;
       const transient = !!(state.transient || (threw && threw.transient));
       // GENERATION FENCE (2026-07-15 reliability audit): only the run that STILL OWNS the job's lease may

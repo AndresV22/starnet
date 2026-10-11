@@ -987,6 +987,9 @@ const Harness = (() => {
     let buf = '', full = '', lastUsage = null, runId = null, errMsg = null, endReason = null, finishReason = null, completionVerdict = 'not_assessed', effectVerdict = 'no_observed_effects';
     let budgetScope = null, budgetCapUsd = null;   // additive: WHICH spend cap ended a 'budget' run (+ its $ cap)
     let budgetCapIsBalance = false;   // additive: that per-run ceiling was the StarNet balance (sidecar admission clamp)
+    // additive: a 'budget' stop at the per-run TOKEN ceiling for a model with no known price (loop.js maxUnpricedTokens).
+    // The $ cap never governed it, so COMMS must name the real limit instead of "raise your spend cap".
+    let unpricedModel = null, unpricedCapTokens = 0;
     let sawLeadEnd = false;
 
     try {
@@ -1067,6 +1070,8 @@ const Harness = (() => {
               budgetScope = payload.budgetScope || null;
               budgetCapUsd = (typeof payload.budgetCapUsd === 'number' && isFinite(payload.budgetCapUsd)) ? payload.budgetCapUsd : null;
               budgetCapIsBalance = payload.budgetCapIsBalance === true;
+              unpricedModel = payload.unpricedModel ? String(payload.unpricedModel) : null;
+              unpricedCapTokens = Number(payload.unpricedCapTokens) || 0;
             }
             break;   // the lead's own end, not a forwarded worker's
         }
@@ -1084,8 +1089,8 @@ const Harness = (() => {
     if (!sawLeadEnd && !errMsg) throw new Error('Reply stream disconnected before completion was confirmed.');
     // surface the error to the caller (do NOT swallow it just because some text streamed first) —
     // a network/fetch failure still throws below; this is for in-band run errors / capdenied.
-    if (errMsg) return { text: full, usage: lastUsage, runId, error: errMsg, endReason, finishReason, completionVerdict, effectVerdict, budgetScope, budgetCapUsd, budgetCapIsBalance };
-    return { text: full, usage: lastUsage, runId, endReason, finishReason, completionVerdict, effectVerdict, budgetScope, budgetCapUsd, budgetCapIsBalance };
+    if (errMsg) return { text: full, usage: lastUsage, runId, error: errMsg, endReason, finishReason, completionVerdict, effectVerdict, budgetScope, budgetCapUsd, budgetCapIsBalance, unpricedModel, unpricedCapTokens };
+    return { text: full, usage: lastUsage, runId, endReason, finishReason, completionVerdict, effectVerdict, budgetScope, budgetCapUsd, budgetCapIsBalance, unpricedModel, unpricedCapTokens };
   }
 
   /* Read-only fetch of an agent's notebook (its memory.md) from the sidecar. The agent writes these notes

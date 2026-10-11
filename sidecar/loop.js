@@ -414,15 +414,53 @@
   // "Reading the file now", "Fixing all three now." Deliberately conservative — "let me know…" (a closing
   // pleasantry) never matches. A false positive costs one bounded extra turn; a false negative just keeps
   // today's behavior. Only the tail is scanned: intent that ends a message is what signals a premature stop.
-  const CG_VERBS = 'read|re-?read|check|look|open|find|fix|run|apply|write|patch|search|scan|inspect|start|create|update|edit|trace|dig|verify|test|grep|examine|review|implement|investigate|continue|proceed|execute|analy[sz]e|debug|work(?:\\s+on)?|handle|finish|complete';
-  const CG_GERUNDS = 'reading|checking|looking|opening|finding|fixing|running|applying|writing|patching|searching|scanning|inspecting|starting|creating|updating|editing|tracing|digging|verifying|testing|examining|reviewing|implementing|investigating|proceeding|executing|analy[sz]ing|debugging';
+  /* WIDENED 2026-10-11 (user report: "they start a task and then stop repeatedly with no explanation"). The verb list
+     only knew investigation/debug verbs, so the commonest MAKING announcements — "I'll build the page", "I'm going to
+     go ahead and create…", "I'll get started", "Working on it now", "On it!" — ended the run 'done' and COMMS showed a
+     bare RUN COMPLETE. The list now covers making/shipping verbs, and the scan works SENTENCE BY SENTENCE so the
+     endings that legitimately wait on the Commander never fire: a reply that ENDS in a question ("Want me to build
+     it?"), a sentence conditioned on them ("…once you confirm", "if you'd like", "when you're ready"), an offer ("I can
+     build…"), a lesson/preference ("next time I'll…", "from now on…" — the memory guard owns those), and talking verbs
+     ("let me explain/summarize"). Code blocks are stripped first (a "// let me check" comment is data). */
+  const CG_VERBS = 'read|re-?read|check|look|open|find|fix|run|apply|write|patch|search|scan|inspect|start|create|update|edit|trace|dig|verify|test|grep|examine|review|implement|investigate|continue|proceed|execute|analy[sz]e|debug|work(?:\\s+on)?|handle|finish|complete'
+    + '|build|make|design|generate|add|set\\s*up|draft|install|deploy|render|produce|prepare|compose|code|refactor|rewrite|redesign|restyle|move|rename|remove|delete|clean\\s+up|configure|connect|download|save|send|put\\s+together'
+    + '|go\\s+ahead|get\\s+(?:started|going|to\\s+work|on\\s+(?:it|this|that))|kick\\s+off|begin|research|fetch|pull|look\\s+into|dive\\s+into|tackle|wire\\s+up|hook\\s+up|integrate|migrate|upload|convert|organi[sz]e|assemble|whip\\s+up|spin\\s+up|try|do\\s+(?:it|that|this|so|the|a|an|some)';
+  const CG_GERUNDS = 'reading|checking|looking|opening|finding|fixing|running|applying|writing|patching|searching|scanning|inspecting|starting|creating|updating|editing|tracing|digging|verifying|testing|examining|reviewing|implementing|investigating|proceeding|executing|analy[sz]ing|debugging'
+    + '|working|building|making|designing|generating|adding|setting\\s+up|drafting|installing|deploying|rendering|producing|preparing|composing|coding|refactoring|rewriting|redesigning|restyling|moving|renaming|removing|deleting|cleaning\\s+up|configuring|connecting|downloading|saving|sending|putting\\s+together|researching|fetching|pulling|getting\\s+started|kicking\\s+off|beginning|tackling|integrating|migrating|uploading|converting|organi[sz]ing';
+  // "let me" + a TALKING verb introduces content in this same reply (a summary, an explanation) — not a tool action.
+  const CG_LET_ME_TALK = 'know|explain|summari[sz]e|recap|clarify|be\\b|walk\\s+you|break\\s+(?:it|this|that)\\s+down|put\\s+it|say|point\\s+out|reiterate|repeat|stress|emphasi[sz]e|answer|address|share|outline|describe|elaborate|illustrate|show\\s+you|think|note|mention|suggest|offer|ask|propose|lay\\s+out';
+  // first person only: "we'll add a route:" / "let's create…" is how-to prose in an ANSWER, not a promise to act
+  const CG_SUBJ = '(?:i\'?ll|i\\s+will|i\'?m\\s+(?:now\\s+)?going\\s+to|i\\s+am\\s+(?:now\\s+)?going\\s+to|i\'?m\\s+about\\s+to|about\\s+to|now\\s+i(?:\'?ll|\\s+will)?)';
   const CG_PATTERNS = [
-    new RegExp('\\blet me\\s+(?!know\\b)[a-z]', 'i'),                                                       // "Let me read the file"
-    new RegExp('\\b(i\'?ll|i\\s+will|i\'?m\\s+going\\s+to|about\\s+to|now\\s+i(?:\'?ll|\\s+will)?)\\s+(now\\s+)?(' + CG_VERBS + ')\\b', 'i'),  // "I'll fix all three"
-    new RegExp('\\b(i\'?ll|i\\s+will|i\'?m\\s+going\\s+to)\\s+(?:take\\s+care\\s+of|(?:get|have)\\s+(?:this|that|it|the\\s+(?:task|work|job))\\s+done)\\b', 'i'), // "I'll take care of it" / "I'll get this done"
-    new RegExp('\\b(' + CG_GERUNDS + ')\\b[^.!?\\n]{0,80}\\bnow\\b', 'i'),                                  // "Reading the full main.js now"
-    new RegExp('\\bnow\\b[^.!?\\n]{0,40}\\b(' + CG_GERUNDS + ')\\b', 'i')                                   // "now fixing the death path"
+    new RegExp('\\blet me\\s+(?!(?:' + CG_LET_ME_TALK + ')\\b)[a-z]', 'i'),                                    // "Let me read the file"
+    new RegExp('\\b' + CG_SUBJ + '\\s+(?:now\\s+|just\\s+|quickly\\s+|first\\s+|then\\s+|also\\s+)?(?:' + CG_VERBS + ')\\b', 'i'),  // "I'll fix all three" / "I'm going to go ahead and create…"
+    new RegExp('\\b(i\'?ll|i\\s+will|i\'?m\\s+going\\s+to|i\\s+am\\s+going\\s+to)\\s+(?:take\\s+care\\s+of|(?:get|have)\\s+(?:this|that|it|the\\s+(?:task|work|job))\\s+done)\\b', 'i'), // "I'll take care of it" / "I'll get this done"
+    new RegExp('^(?:(?:ok(?:ay)?|sure|alright|right|great|perfect|got\\s+it|understood|on\\s+it|will\\s+do)[,!.\\s—–-]+)?(?:i\'?m\\s+|i\\s+am\\s+|we\'?re\\s+)?(?:now\\s+)?(?:' + CG_GERUNDS + ')\\b(?:[^.!?\\n]|\\.(?=\\w)){0,80}\\bnow\\b', 'i'),   // "Reading the full main.js now" / "Working on it now"
+    new RegExp('(?:^|[,;:—–-]\\s*)(?:and\\s+)?now\\s+(?:i\'?m\\s+|i\\s+am\\s+)?(?:' + CG_GERUNDS + ')\\b', 'i'),                          // "now fixing the death path" (NOT "the login is now working")
+    new RegExp('\\b(?:i\'?m|i\\s+am)\\s+(?:now\\s+|currently\\s+|still\\s+)?(?!looking\\s+forward)(?:' + CG_GERUNDS + ')\\b', 'i'),     // "I'm building the page"
+    new RegExp('^(?:(?:ok(?:ay)?|sure|alright|yes|yep|absolutely|got\\s+it|great|perfect)[,!.\\s—–-]+)?(?:on\\s+it|will\\s+do|working\\s+on\\s+(?:it|this|that)|consider\\s+it\\s+done)\\b', 'i'),   // "On it!" / "Will do." / "Working on it."
+    new RegExp('\\b(?:stand\\s+by|hang\\s+tight|bear\\s+with\\s+me|one\\s+(?:moment|sec(?:ond)?|minute)|give\\s+me\\s+(?:a|one)\\s+(?:moment|minute|sec(?:ond)?|bit)|be\\s+right\\s+back)\\b', 'i')   // "Give me a moment to put it together"
   ];
+  // A sentence that WAITS on the Commander (a question, an offer, a condition on their answer) or states a lesson/
+  // preference for later is not a premature stop — ending the run there is correct.
+  const CG_WAITS = [
+    /\?\s*[)"'”’*_]*\s*$/,                                                                                       // a question
+    /^(?:if|once|when|whenever|after|as\s+soon\s+as|should|unless|in\s+case|whether)\b/i,                       // "If it recurs, I'll dig deeper"
+    /\b(?:if|once|when|whenever|after|as\s+soon\s+as|until|unless|before)\s+(?:you|you'?re|you'?ve|you'?d|you'?ll|your|u)\b/i,  // "…once you confirm"
+    /\bif\s+(?:that|this|so|desired|wanted|preferred|needed|necessary|helpful|useful|interested|any|ok|okay|approved|it\s+helps)\b/i,
+    /\b(?:your|the)\s+(?:go-?ahead|ok|okay|approval|confirmation|say-?so|green\s+light|answer|reply|decision)\b/i,
+    /\b(?:want|would\s+you\s+like|do\s+you\s+want|shall|should)\s+(?:me|i)\b/i,                                // "Want me to build it"
+    /\b(?:i|we)\s+(?:can|could)\b|\bhappy\s+to\b|\b(?:i'?d|i\s+would)\s+be\s+(?:happy|glad)\b/i,                // an offer
+    /\blet\s+me\s+know\b|\bjust\s+(?:say|tell\s+me|reply)\b|\bsay\s+the\s+word\b|\b(?:waiting|wait)\s+(?:for|on)\s+(?:you|your)\b|\bawaiting\s+your\b/i,
+    /\bnext\s+time\b|\bin\s+(?:the\s+)?future\b|\bgoing\s+forward\b|\bfrom\s+now\s+on\b|\bmoving\s+forward\b/i      // a lesson/preference (the memory guard owns these)
+  ];
+  const CG_LIST_ITEM = /^(?:[-*•–]\s|\d+[.)]\s|[a-z][.)]\s)/i;
+  const CG_CODE = '[[code]]';   // a stripped fenced block stays one "sentence" so an intro before it can be recognised
+  function cgSentences(text) {
+    const noCode = String(text).replace(/```[\s\S]*?(?:```|$)/g, '\n' + CG_CODE + '\n').replace(/`[^`\n]*`/g, 'x');
+    const tail = noCode.slice(-1200);
+    return tail.split(/\n+|(?<=[.!?…])\s+(?=\S)/).map(s => s.trim()).filter(s => /[a-z]/i.test(s));
+  }
   /* VERIFY-ON-STOP (2026-07-27). The station's whole promise is that nothing is claimed unless it is proven,
      and "fake done" — an edit shipped as finished without a single check run against it — is the failure this
      project pays for most. The system prompt already INSTRUCTS the model to verify after editing; nothing
@@ -677,12 +715,58 @@
     return key + '\u0000' + canonicalJson(call.args || {});
   }
 
+  // The announcement must be how the reply ENDS: within its last three sentences, or followed only by the plan's list
+  // items ("I'll build it with:\n- a hero\n- pricing…"). A first-person intro to content delivered in this same reply
+  // ("I'll show the config:" + a code block) is not a stop. Waiting/offer/lesson sentences never count (CG_WAITS).
   function announcesIntent(text) {
     const t = String(text == null ? '' : text).trim();
     if (!t) return false;
-    const tail = t.slice(-600);
-    for (const re of CG_PATTERNS) if (re.test(tail)) return true;
+    const sents = cgSentences(t);
+    if (!sents.length) return false;
+    if (CG_WAITS[0].test(sents[sents.length - 1])) return false;   // the reply ENDS on a question: it waits on the Commander
+    for (let i = 0; i < sents.length; i++) {
+      if (sents[i] === CG_CODE) continue;
+      const s = sents[i].replace(/^[^a-z0-9'"]+/i, '');
+      if (!CG_PATTERNS.some(re => re.test(s))) continue;
+      if (CG_WAITS.some(re => re.test(s))) continue;
+      const rest = sents.slice(i + 1);
+      if (/:\s*$/.test(s) && rest[0] === CG_CODE) continue;
+      if (rest.length <= 2 || rest.every(r => CG_LIST_ITEM.test(r))) return true;
+    }
     return false;
+  }
+
+  /* MEMORY CLAIM / PROMISE (widened 2026-10-11 — the user's #1 complaint is "it forgets"). The receipt guard only knew
+     the PAST-TENSE claim "I've saved your preference", so a model that answered a correction with "Got it, I'll
+     remember that" / "Noted — from now on I'll…" / "I'll keep that in mind" wrote nothing and the NEXT run forgot.
+     Returns 'claim' (says it already saved/noted something), 'promise' (says it WILL remember / will do it from now
+     on), or null. Conservative on task narration: "I'll remember to run the tests" is a step, not a preference, and
+     never fires; a quoted example ("…says \"I saved…\"") never fires (the subject must open a sentence/clause). A bare
+     "Saved!"/"Noted!" reply only counts when the run made NO tool call — after a file write it means the file. */
+  const MEM_LEAD = '(?:^|\\n|[.!?]\\s+|[—–:;]\\s*|,\\s+|\\b(?:and|so|ok(?:ay)?|sure|thanks)\\s+)\\s*';
+  const MEM_FUTURE = '(?:from\\s+now\\s+on|from\\s+here\\s+on(?:\\s+out)?|going\\s+forward|moving\\s+forward|in\\s+(?:the\\s+)?future|next\\s+time|for\\s+(?:all\\s+)?future\\s+\\w+)';
+  const MEM_CLAIM_RES = [
+    new RegExp(MEM_LEAD + '(?:Done[ —:,.-]+)?I(?:[\'’]ve| have)?\\s+(?:saved|stored|remembered|updated|noted|recorded|written\\s+down|jotted\\s+down|taken\\s+note\\s+of|made\\s+a\\s+note\\s+of)\\b[^.!?\\n]{0,100}\\b(?:preference|instruction|correction|requirement|memory|memories|design\\s+style)s?\\b', 'i'),
+    new RegExp(MEM_LEAD + 'I(?:[\'’]ve| have)\\s+(?:made|taken)\\s+(?:a\\s+)?note\\b', 'i'),
+    new RegExp(MEM_LEAD + 'I(?:[\'’]ve| have)\\s+noted\\s+(?:that|this|it|your\\s+\\w+)\\s*(?:[.!]|$)', 'i'),
+    new RegExp(MEM_LEAD + '(?:it[\'’]s|that[\'’]s|this\\s+is)\\s+(?:now\\s+)?(?:saved|stored|noted)\\s+(?:to|in)\\s+(?:my\\s+)?(?:memory|notebook|notes)\\b', 'i')
+  ];
+  const MEM_PROMISE_RES = [
+    new RegExp(MEM_LEAD + 'I(?:[\'’]ll| will)\\s+(?:definitely\\s+|be\\s+sure\\s+to\\s+|make\\s+sure\\s+to\\s+|always\\s+)?remember\\b(?!\\s+to\\s+(?!always\\b|never\\b|use\\b|keep\\b|avoid\\b|prefer\\b|stick\\b)\\w)', 'i'),
+    new RegExp(MEM_LEAD + 'I(?:[\'’]ll| will)\\s+(?:definitely\\s+)?keep\\s+(?:that|this|it|those|these|your\\s+\\w+(?:\\s+\\w+)?\\s+)?\\s*in\\s+mind\\b', 'i'),
+    new RegExp(MEM_LEAD + 'I(?:[\'’]ll| will)\\s+(?:make|take)\\s+(?:a\\s+)?note\\b', 'i'),
+    new RegExp('\\b' + MEM_FUTURE + ',?\\s+I(?:[\'’]ll| will|[\'’]m going to| am going to)\\b', 'i'),
+    new RegExp(MEM_LEAD + 'I(?:[\'’]ll| will)\\b[^.!?\\n]{0,80}\\b' + MEM_FUTURE + '\\b', 'i'),
+    new RegExp(MEM_LEAD + 'I(?:[\'’]ll| will)\\s+(?:always|never)\\s+(?!be\\b|have\\b|get\\b|know\\b)\\w', 'i')
+  ];
+  const MEM_BARE_ACK = /^(?:saved|noted|remembered|got\s+it[,.!—–-]*\s*(?:saved|noted|remembered))\b[\s!.—–-]*(?:[^\n]{0,140})$/i;
+  function memorySaveClaim(text, ranTools) {
+    const t = String(text == null ? '' : text).replace(/```[\s\S]*?(?:```|$)/g, ' ').trim();
+    if (!t) return null;
+    if (MEM_CLAIM_RES.some(re => re.test(t))) return 'claim';
+    if (MEM_PROMISE_RES.some(re => re.test(t))) return 'promise';
+    if (!ranTools && t.length <= 160 && MEM_BARE_ACK.test(t)) return 'claim';
+    return null;
   }
 
   // A recovery ladder must never turn into a consent-bypass ladder. These are terminal human/host
@@ -859,6 +943,7 @@
     const CG_MAX = (_cg === false) ? 0 : (_cg && _cg.max != null ? _cg.max : 2);
     let cgUsed = 0;
     let memorySaveNudges = 0, memoryWrites = 0, configurationWrites = 0;
+    let toolTurnsRun = 0;   // tool turns this run actually dispatched (a bare "Saved!" after one means a file, not memory)
     // Companion nudge budgets (same disable knob as the continuation guard — they are one family):
     //  · markup nudge — the turn's TEXT carried tool-call markup (scrubbed above; NEVER executed). Tell the
     //    model once that text markup is data and to make a REAL call. Bounded like CG.
@@ -867,6 +952,13 @@
     //    instead of ending the run 'empty' on the first silence.
     let mkUsed = 0;
     let emptyNudgeUsed = false;
+    // EMPTY REPLY RETRY: one re-ask when a turn comes back with nothing at all and no tool result preceded it (the
+    // after-tools case above has its own nudge). limits.emptyRetry === false (or continueGuard:false, the family knob) disables.
+    let emptyRetryUsed = false;
+    // OUTPUT-LIMIT TOOL CUT: consecutive turns whose tool call was cut off by the output limit. Each one is told to
+    // SPLIT the content; past TOOL_CUT_MAX the run ends saying exactly why nothing was written.
+    const TOOL_CUT_MAX = 2;
+    let toolCutStreak = 0;
     // FAILURE RECOVERY GUARD: the first failed tool must not become an immediate "you do the setup"
     // final. A compact host-enforced ladder buys up to two materially-different attempts. The bound is
     // deliberate: persistence must crawl toward completion without turning a real outage into infinite spend.
@@ -1004,6 +1096,16 @@
 
     // Only called when no further model call will consume the messages. It turns a multi-call text continuation
     // back into one assistant turn for durable transcript/delivery consumers; internal continuation prompts vanish.
+    // How to get a too-large tool call under the output limit, naming only write tools this run actually has.
+    function splitAdvice(name, streak) {
+      const have = new Set(tools.map(t => wireKey(t && ((t.function && t.function.name) || t.name))));
+      const ways = [];
+      if (have.has('fs_append')) ways.push('write the first part, then add the rest with fs_append in further calls');
+      if (have.has('fs_edit') || have.has('fs_patch')) ways.push('change an existing file with targeted ' + (have.has('fs_edit') ? 'fs_edit' : 'fs_patch') + ' calls instead of rewriting it whole');
+      ways.push('split it into several smaller files or calls');
+      return ' The cut-off call (' + wireKey(name) + ') is too large to fit in one reply' + (streak > 1 ? ' — the same oversized call has now been cut off ' + streak + ' times in a row' : '')
+        + '. Do NOT re-send it whole: ' + ways.join('; or ') + '. Keep each call\'s arguments well under the output limit.';
+    }
     function collapseContinuation(finalPart) {
       const parts = continuationParts.slice();
       if (finalPart) parts.push(finalPart);
@@ -1929,9 +2031,17 @@
         if (checkpointEnd) return checkpointEnd;
         continuationParts.push(partial);
         continuationText += String(acc.text || '');
-        if (continuation.shouldContinue(lastFinishReason, outputContinuesUsed, OUTPUT_CONTINUE_MAX)) {
+        /* A CUT TOOL CALL IS TOO BIG, NOT UNFINISHED (2026-10-11). A large fs_write's arguments hit the output limit,
+           the call never ran, and "reissue the complete call" made the model re-emit the SAME oversized call into the
+           same wall until the run ended 'empty' — and "continue" repeated it. Each cut now tells the model to SPLIT the
+           content using the write tools it actually has; past TOOL_CUT_MAX consecutive cuts the run ends saying
+           exactly that, instead of a bare stop. */
+        const cutTool = calls.length > 0 ? String(calls[0].name || 'tool') : '';
+        if (cutTool) toolCutStreak++;
+        const cutExhausted = !!cutTool && toolCutStreak > TOOL_CUT_MAX;
+        if (!cutExhausted && continuation.shouldContinue(lastFinishReason, outputContinuesUsed, OUTPUT_CONTINUE_MAX)) {
           outputContinuesUsed++;
-          const nudge = { role: 'system', content: continuation.prompt(calls.length > 0) };
+          const nudge = { role: 'system', content: continuation.prompt(calls.length > 0) + (cutTool ? splitAdvice(cutTool, toolCutStreak) : '') };
           messages.push(nudge);
           continuationPrompts.push(nudge);
           dedupeAgainst = continuationText;
@@ -1939,6 +2049,14 @@
           continue;
         }
         collapseContinuation();
+        if (cutTool) {
+          const explanation = 'The reply hit the model\'s output limit while writing a large ' + wireKey(cutTool) + ' call: it was cut off '
+            + toolCutStreak + ' time' + (toolCutStreak === 1 ? '' : 's') + ' in a row and never ran, so nothing from it was saved. Ask for it in smaller parts (for example "write it section by section"), or switch to a model with a larger output limit.';
+          const tailTurn = messages[messages.length - 1];
+          if (tailTurn && tailTurn.role === 'assistant' && !tailTurn.tool_calls) tailTurn.content = String(tailTurn.content || '') + (String(tailTurn.content || '').trim() ? '\n\n' : '') + '[' + explanation + ']';
+          emit('agent.run.error', { agentId, runId, message: explanation, transient: false });
+          return end('error', { failureStage: 'provider_output', failureCode: 'output_limit_tool_cut' });
+        }
         return end(String(acc.text || '').trim() || continuationText.trim() ? 'done' : 'empty');
       }
 
@@ -1992,7 +2110,8 @@
         const text = String(acc.text || '');
         const empty = !text.trim();                                   // nothing usable produced
         const duplicate = !empty && priorAssistantText != null && text === priorAssistantText;   // a re-emitted prior turn
-        const claimsMemorySave = /(?:^|\n)\s*(?:Done[ —:,.-]+)?I(?:['’]ve| have)?\s+(?:saved|stored|remembered|updated)\b[^.!?\n]{0,100}\b(?:preference|instruction|correction|requirement|memory|design style)s?\b/i.test(text);
+        const memoryClaimKind = memorySaveClaim(text, toolTurnsRun > 0);   // 'claim' | 'promise' | null
+        const claimsMemorySave = !!memoryClaimKind;
         const canSaveMemory = tools.some(t => wireKey(t && ((t.function && t.function.name) || t.name)) === 'notebook_write');
         // A verified Dossier edit is an instruction save, not a notebook mutation. Explicit
         // memory/preference claims still require a notebook receipt, even in the same run.
@@ -2000,10 +2119,16 @@
         if (claimsMemorySave && canSaveMemory && memoryWrites === 0 && !verifiedConfigurationSave) {
           if (!graceUsed && memorySaveNudges < 2) {
             memorySaveNudges++;
-            messages.push({ role: 'system', content: '<memory_receipt>You claimed a preference or correction was saved, but this run has no successful notebook write receipt. Use notebook_read and notebook_write to save or update the actual requirement now. For corrections use replaceId and previousBody; for approved reusable requirements pin within the intended scope. If it was already saved, verify it with a read and say it was already present; otherwise explicitly say it has not been saved. Do not repeat an unsupported save claim.</memory_receipt>' });
+            // a PROMISE ("I'll remember that") names what actually goes wrong: the next run starts without it
+            const premise = memoryClaimKind === 'promise'
+              ? 'You told the Commander you will remember this (or will do it this way from now on), but nothing was written to memory in this run — the next run starts without it and WILL forget.'
+              : 'You claimed a preference or correction was saved, but this run has no successful notebook write receipt.';
+            messages.push({ role: 'system', content: '<memory_receipt>' + premise + ' Use notebook_read and notebook_write to save or update the actual requirement now. For corrections use replaceId and previousBody; for approved reusable requirements pin within the intended scope. If it was already saved, verify it with a read and say it was already present; otherwise explicitly say it has not been saved. Do not repeat an unsupported save claim.</memory_receipt>' });
             continue;
           }
-          const explanation = 'The requested memory update is unverified: this run produced no successful notebook write receipt. The save claim above is not confirmed.';
+          const explanation = memoryClaimKind === 'promise'
+            ? 'The promise to remember above is unverified: this run wrote nothing to memory, so a later run will not know it. Ask again (e.g. "save this to memory: …") to retry the save.'
+            : 'The requested memory update is unverified: this run produced no successful notebook write receipt. The save claim above is not confirmed.';
           assistant.content = text + '\n\n' + explanation;
           emit('agent.token', {agentId,runId,delta:'\n\n'+explanation});
           emit('agent.run.error', {agentId,runId,message:explanation,transient:false});
@@ -2029,6 +2154,16 @@
             emit('iteration.refunded', { agentId, runId, turn: turnStart, reason: 'empty', refundsUsed });
           }
           messages.push({ role: 'system', content: '<continue_after_tools>You returned an empty reply after tool results. Process the tool results above and continue the task now; if the task is fully complete, give your final answer.</continue_after_tools>' });
+          continue;
+        }
+        /* EMPTY REPLY RETRY (2026-10-11). An empty FIRST reply (no text, no tool call, nothing before it to process) is
+           almost always a provider hiccup, but it ended the run 'empty' on the spot and COMMS/Telegram said only
+           "stopped (empty)". One bounded re-ask; the retry does not spend the Commander's step budget, and a second
+           empty reply still ends 'empty' (every surface now says what that means). */
+        if (empty && !graceUsed && !emptyRetryUsed && CG_MAX > 0 && !continuationParts.length && limits.emptyRetry !== false) {
+          emptyRetryUsed = true;
+          turns = turnStart;
+          messages.push({ role: 'system', content: '<empty_reply>Your last reply was empty — no text and no tool call. Respond to the Commander\'s latest message now: make the tool call(s) the task needs, or give your answer.</empty_reply>' });
           continue;
         }
         // CONTINUATION GUARD: an announce-without-acting final turn ("Reading main.js now…" + zero tool calls)
@@ -2177,6 +2312,8 @@
       let results;
       // a VISIBLE tool call resets the page's reply (agent.tool_call) — only hidden-only turns need a TURN BREAK next
       if (calls.some(c => (o.hiddenTools || []).indexOf(c.name) < 0)) spokeSinceReset = false;
+      toolTurnsRun++;
+      toolCutStreak = 0;   // a complete call got through: the next cut is a new problem, with its own advice
       try {
         results = await executeCalls(calls, dispatch, capCtx, emit, { agentId, runId, clock, signal, hiddenTools: new Set(o.hiddenTools || []), parallelSafe: (typeof o.parallelSafe === 'function') ? o.parallelSafe : null, turnOutputMax: turnOutputMaxNow() });
         assertPaired(calls, results); // (7) HARD INVARIANT
@@ -2385,5 +2522,5 @@
     }
   }
 
-  return { runAgentLoop, _internals: { parseCall, repairCalls, normalizeBatch, uniqueCallIds, dropDuplicateCalls, assistantTurn, toolResultMsg, assertPaired, executeCalls, announcesIntent, terminalHumanDecision, scrubTextToolCallMarkup, vosIsCodePath, vosIsCheckCommand, vosKey, vosExternalRole, vosExternalArtifactMutation, vosExternalSourceRole, sourceGroundingRequested, explicitNonzeroExit, vosCheckPassed, failedCheckRepairNote, deterministicCheckSignature, parallelizable, applyTurnBudget, squeeze, turnAllowances, parkForTurnBudget, evictStaleScreenshots, isScreenCapture } };
+  return { runAgentLoop, _internals: { parseCall, repairCalls, normalizeBatch, uniqueCallIds, dropDuplicateCalls, assistantTurn, toolResultMsg, assertPaired, executeCalls, announcesIntent, memorySaveClaim, terminalHumanDecision, scrubTextToolCallMarkup, vosIsCodePath, vosIsCheckCommand, vosKey, vosExternalRole, vosExternalArtifactMutation, vosExternalSourceRole, sourceGroundingRequested, explicitNonzeroExit, vosCheckPassed, failedCheckRepairNote, deterministicCheckSignature, parallelizable, applyTurnBudget, squeeze, turnAllowances, parkForTurnBudget, evictStaleScreenshots, isScreenCapture } };
 });

@@ -164,6 +164,125 @@ const run = (provider, extra) => runAgentLoop(Object.assign({
     if (scenario.reason === 'done') A.eq(provider.callCount(), 2, 'saved Dossier instructions need no notebook nudge');
     else A.eq(res.failureCode, 'memory_write_unverified', 'unverified memory claims remain blocked');
   }
+  // ---- G. WIDENED announce detection (2026-10-11 user report: "they start a task and then stop repeatedly with no
+  //         explanation"). Making/shipping announcements used to end the run 'done'; endings that WAIT on the
+  //         Commander (a question, a condition on their answer, an offer, a lesson) must still never nudge. ----
+  {
+    const { announcesIntent } = require('../sidecar/loop.js')._internals;
+    for (const p of [
+      "I'll build the page.",
+      "I'm going to go ahead and create the landing page with a hero section.",
+      "I'll get started.",
+      'Working on it now.',
+      'On it!',
+      "Sure — I'll set up the project structure and draft the README.",
+      "Now I'll deploy it to the server.",
+      'I am going to refactor the module.',
+      'Okay, building the dashboard now.',
+      'Give me a moment to put together the report.',
+      "I'll design the logo with these elements:\n- a star\n- a ring\n- dark palette\n- pixel font\n- glow",
+      'Will do!',
+      'Consider it done.',
+      "Great idea. I'll make the header sticky and add a footer. Let me know if you want changes.",
+      "I'm building the page now — it'll have a hero, pricing and a footer."
+    ]) A.ok(announcesIntent(p), 'announce-then-stop is caught: ' + p);
+    for (const n of [
+      'Want me to build it?',
+      "I'll build it once you confirm.",
+      "I'll build it if you want.",
+      "When you're ready, I'll deploy it.",
+      "After you send the API key, I'll set up the integration.",
+      "I can build the page if you'd like.",
+      'Let me know if you want me to add a footer.',
+      'Done — the page is built and the server is now running.',
+      'The login is now working.',
+      "I'll build the page. Should the header be blue or black?",
+      "Next time, I'll check the logs first.",
+      "From now on I'll use the dark palette.",
+      'Let me summarize: the bug was a stale cache and it is fixed.',
+      "Here's the fix:\n```js\n// let me check this\nconst a = 1;\n```\nThat resolves it.",
+      "If the error comes back, I'll dig deeper.",
+      "I'm looking forward to seeing it live!",
+      "Now let's add a route:\n```js\napp.get('/')\n```\nThat's it.",
+      "First, I'll create the file.\nThen the server starts on port 8080. You can open the page at localhost. The tests cover login and logout. All green."
+    ]) A.ok(!announcesIntent(n), 'a reply that waits on the Commander or delivers is never nudged: ' + n);
+  }
+  // end to end: the commonest making-announcement now buys a nudge and the real work; a question still ends the run
+  {
+    const provider = scripted([textTurn("Sure — I'll build the landing page now."), toolTurn(0), textTurn('The page is built: index.html.')]);
+    const res = await run(provider);
+    A.eq(res.reason, 'done', '"I\'ll build…" is nudged into real work, then delivers');
+    A.eq(provider.callCount(), 3, 'announce + tool + delivery');
+  }
+  {
+    const provider = scripted([textTurn('I can build it with a dark hero and a pricing table. Want me to go ahead?')]);
+    const res = await run(provider);
+    A.eq(res.reason, 'done', 'a question that waits on the Commander ends the run cleanly');
+    A.eq(provider.callCount(), 1, 'no nudge on a question');
+  }
+
+  // ---- H. MEMORY PROMISES need a receipt too: "I'll remember that" with nothing written means the next run forgets ----
+  {
+    const { memorySaveClaim } = require('../sidecar/loop.js')._internals;
+    for (const [t, ran, want] of [
+      ["I've saved your design preferences.", false, 'claim'],
+      ["Got it, I'll remember that.", false, 'promise'],
+      ['I will remember your preference for dark mode.', false, 'promise'],
+      ["Thanks! I'll keep that in mind.", false, 'promise'],
+      ["Noted — from now on I'll use the blue palette.", false, 'promise'],
+      ["Got it, going forward I'll keep replies short.", false, 'promise'],
+      ["From now on, I'll write tests first.", false, 'promise'],
+      ["I've noted your preference.", false, 'claim'],
+      ["I've made a note of that.", false, 'claim'],
+      ['Saved!', false, 'claim'],
+      ["I'll always use tabs.", false, 'promise'],
+      ["I'll remember to always run the tests first.", false, 'promise'],
+      // task narration, quotes and file saves are not memory claims
+      ["I'll remember to run the tests after this edit.", false, null],
+      ['The example says "I saved your preferences." It is quoted text.', false, null],
+      ['Saved! The file is at out/index.html.', true, null],
+      ["I've updated the build script and saved the file.", false, null],
+      ["I'll always be here if you need anything.", false, null],
+      ["I've noted that the tests are flaky on CI and retried them.", false, null],
+      ["I'll build the page now.", false, null]
+    ]) A.eq(memorySaveClaim(t, ran), want, 'memory claim kind of: ' + t);
+  }
+  {
+    // a promise with no notebook write gets the receipt nudge; writing the note settles it as done
+    const nbTurn = toolTurn('nb').map(e => e.type === 'tool_start' ? { ...e, name: 'notebook_write' } : e);
+    const provider = scripted([textTurn("Got it — from now on I'll use the dark palette."), nbTurn, textTurn('Saved to memory: dark palette by default.')]);
+    const res = await run(provider, {
+      tools: [{ name: 'notebook_write', schema: { type: 'object' } }],
+      dispatch: async () => ({ ok: true, isError: false, content: 'Saved note "palette"', summary: 'ok' })
+    });
+    A.eq(res.reason, 'done', 'a kept promise (real notebook write) ends done');
+    const nudge = res.messages.find(m => m.role === 'system' && /<memory_receipt>/.test(m.content));
+    A.ok(nudge && /WILL forget/.test(nudge.content), 'the promise nudge says the next run would forget');
+  }
+  {
+    const provider = scripted([textTurn("Got it, I'll remember that.")]);
+    const res = await run(provider, { tools: [{ name: 'notebook_write', schema: { type: 'object' } }] });
+    A.eq(res.reason, 'error', 'an unkept memory promise cannot pass as done');
+    A.eq(res.failureCode, 'memory_write_unverified', 'same failure code as an unverified save claim');
+    A.ok(/promise to remember above is unverified/.test(res.text), 'the final reply says the promise was not saved');
+  }
+
+  // ---- I. EMPTY FIRST REPLY gets one bounded re-ask (a provider hiccup must not end the run on the spot) ----
+  {
+    const emptyTurn = [{ type: 'usage', usage: { prompt_tokens: 1, completion_tokens: 0, total_tokens: 1 } }, { type: 'done', finishReason: 'stop' }];
+    const provider = scripted([emptyTurn, textTurn('Here is the answer.')]);
+    const res = await run(provider, { tools: [] });
+    A.eq(res.reason, 'done', 'an empty first reply is re-asked once and the run delivers');
+    A.eq(provider.callCount(), 2, 'exactly one re-ask');
+    A.ok(res.messages.some(m => m.role === 'system' && /<empty_reply>/.test(m.content)), 'the re-ask names the empty reply');
+    const twice = scripted([emptyTurn]);
+    const res2 = await run(twice, { tools: [] });
+    A.eq(res2.reason, 'empty', 'a second empty reply still ends empty (bounded)');
+    A.eq(twice.callCount(), 2, 'never more than one re-ask');
+    const off = scripted([emptyTurn]);
+    await run(off, { tools: [], limits: { continueGuard: false } });
+    A.eq(off.callCount(), 1, 'continueGuard:false disables the re-ask with the rest of the nudge family');
+  }
   console.log('continuation-guard.test: OK');
   // report() settles the assertion counter. The .catch below only fires on a THROWN error, so
   // without this every one of the assertions above could fail and the file would still exit 0.
