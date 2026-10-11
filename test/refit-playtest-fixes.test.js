@@ -101,6 +101,7 @@ const tutorialSrc = read('tutorial.js');
   const between = (a, b) => build.slice(build.indexOf(a), build.indexOf(b, build.indexOf(a)));
   const s = { tool: 'select', buildGroup: 'workflow', drag: null, dragPid: null, connectFrom: null, connectTo: null, dupe: null, selectedPropId: null, movingPropId: null, groupIds: [], selectedRoomId: null, closed: 0, tipped: '',
     hand: null, touchArm: null, dropPick: null, altHeld: false, hoverPropId: null, HOTBAR: [], setHand() {}, toggleHand() {}, flipCorner() {}, pipette() {}, floatHistory() {}, orientEv: () => ({}),   // THE HAND's state (2026-10-10)
+    selBelts: null, setSelection() {}, turnClip() {}, cutSelected() {}, holdClip() {}, deleteGroup() {},   // THE HAND part 2 (2026-10-11): the belts a box took, the clip keys
     root: { querySelector: () => null, querySelectorAll: () => [] }, cardTop: () => null, WorkflowPanel: { isOpen: () => false },
     performance: { now: () => s.now }, now: 1000, tipTimer: 0,
     showTip: t => { s.tipped = t; }, hideTip() {}, setTimeout: () => 0, clearTimeout() {}, sfx() {}, selectTool() {}, deselectTool() {}, fitCamera() {},

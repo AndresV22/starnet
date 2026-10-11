@@ -92,6 +92,36 @@ const WorldModel = (() => {
     if (typeof src.when === 'string' && /^[A-Za-z0-9_.:-]{1,40}$/.test(src.when)) dst.when = src.when;
     return dst;
   }
+  /* a CLIP (station.copyLines) a quarter turn clockwise: tile (x, y) of a clip H tall goes to (H-1-y, x), every belt's
+     heading and every junction's compass lane turns with it (E→S→W→N→E), a machine marked `turns` faces one step round.
+     Pure. A clip holding a machine that is not square cannot turn (its box would change) — the caller asks clipTurns. */
+  const TURN_CW = { E: 'S', S: 'W', W: 'N', N: 'E' };
+  const clipTurns = clip => !!clip && Array.isArray(clip.nodes) && clip.nodes.every(n => (n.w | 0 || 1) === (n.h | 0 || 1));
+  function rotateClip(clip, turns) {
+    let c = clip;
+    const k = ((((turns == null ? 1 : turns) | 0) % 4) + 4) % 4;
+    for (let i = 0; i < k && clipTurns(c); i++) {
+      const H = c.h, rd = d => TURN_CW[d] || d;
+      const rcfg = cfg => {
+        const o = Object.assign({}, cfg);
+        if (o.routes && typeof o.routes === 'object') { const r = {}; for (const tag in o.routes) r[tag] = rd(o.routes[tag]); o.routes = r; }
+        for (const f of ['def', 'done', 'esc']) if (o[f]) o[f] = rd(o[f]);
+        return o;
+      };
+      c = Object.assign({}, c, {
+        w: c.h, h: c.w, rot: (((c.rot | 0) + 1) & 3),
+        nodes: c.nodes.map(n => {
+          const o = Object.assign({}, n, { x: H - n.y - (n.h || 1), y: n.x });
+          if (n.cfg) o.cfg = rcfg(n.cfg);
+          if (n.turns) { const r = ((n.r | 0) + 1) & 3; if (r) o.r = r; else delete o.r; }
+          return o;
+        }),
+        links: (c.links || []).map(l => Object.assign({}, l, { path: (l.path || []).map(t => ({ x: H - 1 - t.y, y: t.x, d: rd(t.d) })) })),
+        belts: (c.belts || []).map(t => ({ x: H - 1 - t.y, y: t.x, d: rd(t.d) }))
+      });
+    }
+    return c;
+  }
 
   /* Airlock door state — a SPATIAL room-seal mechanic, carried on an 'airlock' prop exactly like a BAY
      carries agentId. A room containing a SEALING airlock (closed|jammed) is cut off ON THE FLOOR:
@@ -2944,6 +2974,272 @@ const WorldModel = (() => {
       return out;
     }
 
+    /* ---------- COPY / PASTE / WHOLE LINES (THE HAND, part 2 — 2026-10-11, Andrew's prototype) ----------
+       A CLIP is a piece of floor in your hand: its machines (each with what makes it THAT machine — a BAY's role, crew, brief
+       and hand-off phrase, an INBOX's name and budget, a junction's routes / passes / verdict / wait, a facing, a door's seal)
+       and the belts between them (every link whose two ends are both in it, with the tiles it rides, and the belt under each
+       junction), all relative to the clip's top-left tile. What never travels: a connector or plugin bind (a live server
+       relationship), an INBOX's project folder, its triggers and webhook secrets (those live in the sidecar, keyed by the old
+       INBOX), and a SEND TO that points outside the clip (counted in `dropped`; one that points inside it is re-pointed on
+       paste). Crew travels only where the caller's `o.agent(id)` says that agent is on this station.
+       pasteLines lays a clip EXACTLY as drawn — every machine where the clip says, every belt tile on clear floor (never over
+       another belt, never touching a junction already here), then asks the floor's own reconcile whether every pasted belt
+       still joins the two machines it joined and nothing already here was joined into the copy — one undo, all-or-nothing.
+       pasteLinesLaid is the fallback: the same clip as a graph, laid out by the layout engine near the spot (LineEdit). */
+    const CLIP_CFG_DIRS = ['def', 'done', 'esc'];
+    const intakeLabelTaken = (label, except) => doc.props.some(q => q.t === 'intake' && !(except && except.has(q.id)) && typeof q.label === 'string' && q.label.trim().toUpperCase() === label.trim().toUpperCase());
+    // a pasted INBOX keeps its line's name, numbered when that name is already a line here ("RESEARCH" → "RESEARCH 2")
+    function freshIntakeLabel(label, except) {
+      const base = String(label || '').trim().slice(0, 48);
+      if (!base || !intakeLabelTaken(base, except)) return base;
+      const stem = base.replace(/\s+\d+$/, '');
+      for (let n = 2; n < 100; n++) { const nm = (stem.slice(0, 44) + ' ' + n); if (!intakeLabelTaken(nm, except)) return nm; }
+      return base;
+    }
+    function lineMembers(propId) {
+      const line = lineOf(propId);
+      return line ? { ids: line.ids.slice(), links: line.links.map(l => l.id) } : null;
+    }
+    function copyLines(ids, o) {
+      const opt = o || {}, set = new Set((ids || []).filter(id => propById(id)));
+      if (!set.size) return fail('NOTHING', 'select something to copy first');
+      const ps = doc.props.filter(p => set.has(p.id));
+      const L = Array.isArray(currentLinks()) ? currentLinks() : [];
+      const ls = L.filter(l => l && l.from && l.to && l.from.prop !== l.to.prop && set.has(l.from.prop) && set.has(l.to.prop));
+      const tiles = new Map();
+      for (const l of ls) for (const t of (l.path || [])) { const k = beltKey(t.x, t.y); if (doc.belts[k]) tiles.set(k, { x: t.x, y: t.y, d: doc.belts[k] }); }
+      for (const p of ps) if (isJunction(p)) { const k = beltKey(p.x, p.y); if (doc.belts[k]) tiles.set(k, { x: p.x, y: p.y, d: doc.belts[k] }); }
+      let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+      const grow = (ax, ay, bx, by) => { x0 = Math.min(x0, ax); y0 = Math.min(y0, ay); x1 = Math.max(x1, bx); y1 = Math.max(y1, by); };
+      for (const p of ps) grow(p.x, p.y, p.x + (p.w || 1) - 1, p.y + (p.h || 1) - 1);
+      for (const t of tiles.values()) grow(t.x, t.y, t.x, t.y);
+      let dropped = 0, crewLeft = 0;
+      const nodes = ps.map(p => {
+        const n = { oid: p.id, t: p.t, x: p.x - x0, y: p.y - y0, w: p.w || 1, h: p.h || 1 };
+        if (p.block === false) n.block = false;
+        const r0 = cleanRot(p.r); if (r0) n.r = r0;
+        if (p.m) n.m = 1;
+        if (typeof opt.turns === 'function' && opt.turns(p.t)) n.turns = 1;
+        if (p.t === 'bay') {
+          if (p.role && BAY_ROLES[p.role]) n.role = p.role;
+          if (typeof p.agentId === 'string' && p.agentId) { if (typeof opt.agent !== 'function' || opt.agent(p.agentId)) n.agentId = p.agentId; else crewLeft++; }
+          if (typeof p.brief === 'string' && p.brief.trim()) n.brief = p.brief.slice(0, 2000);
+          if (typeof p.hands === 'string' && p.hands.trim()) n.hands = p.hands.slice(0, 160);
+        }
+        if (p.t === 'intake') {
+          if (typeof p.label === 'string' && p.label.trim()) n.label = p.label.trim().slice(0, 48);
+          if (p.limits && typeof p.limits === 'object') n.limits = Object.assign({}, p.limits);
+        }
+        const cfg = applyJunctionCfg({}, p); if (Object.keys(cfg).length) n.cfg = cfg;
+        if (cleanDoor(p.door)) n.door = p.door;
+        if (p.t === 'outbox' && typeof p.sendTo === 'string' && p.sendTo) { if (set.has(p.sendTo)) n.sendTo = p.sendTo; else dropped++; }
+        return n;
+      });
+      const links = ls.map(l => {
+        const from = { node: l.from.prop, port: l.from.port || 'out' };
+        if (Array.isArray(l.from.tags) && l.from.tags.length) from.tags = l.from.tags.slice();
+        if (l.from.else) from.else = true;
+        return { id: l.id, from, to: { node: l.to.prop }, path: (l.path || []).map(t => ({ x: t.x - x0, y: t.y - y0, d: t.d })) };
+      });
+      const belts = Array.from(tiles.values()).map(t => ({ x: t.x - x0, y: t.y - y0, d: t.d }));
+      return { ok: true, clip: { v: 1, w: x1 - x0 + 1, h: y1 - y0 + 1, x0, y0, n: nodes.length, nb: links.length, nodes, links, belts, dropped, crewLeft } };
+    }
+    /* may clip go down with its top-left on tile (ax, ay)? Pure (reads the floor, writes nothing): every machine and every belt
+       tile is asked of the floor, and EVERY spot that will not take its piece is reported (the ghost paints those red) —
+       { ok, error, msg, short, badNodes:[index], badTiles:['x,y'] }. The floor's reconcile is asked by probePaste. */
+    function checkPaste(clip, ax, ay) {
+      if (!clip || !Array.isArray(clip.nodes) || !clip.nodes.length) return Object.assign(fail('NOTHING', 'there is nothing in hand to paste'), { badNodes: [], badTiles: [] });
+      ax |= 0; ay |= 0;
+      const badNodes = [], badTiles = [], clipTiles = new Set();
+      let first = null;
+      const why = (code, msg, short) => { if (!first) first = Object.assign(fail(code, msg), { short }); };
+      for (const b of (clip.belts || [])) clipTiles.add(beltKey(ax + b.x, ay + b.y));
+      const surfaces = clip.nodes.filter(n => ruleOf(n.t).surface).map(n => ({ x1: ax + n.x, y1: ay + n.y, x2: ax + n.x + n.w - 1, y2: ay + n.y + n.h - 1 }));
+      clip.nodes.forEach((n, i) => {
+        const f = { x1: ax + n.x, y1: ay + n.y, x2: ax + n.x + n.w - 1, y2: ay + n.y + n.h - 1 };
+        let v = checkProp(f, null, n.t);
+        if (!v.ok && v.error === 'NEEDS_SURFACE' && surfaces.some(s => f.x1 >= s.x1 && f.x2 <= s.x2 && f.y1 >= s.y1 && f.y2 <= s.y2)) v = { ok: true };   // its table comes with it
+        if (!v.ok) {
+          badNodes.push(i);
+          if (v.error === 'OVERLAP') why('OVERLAP', v.msg, 'SOMETHING ALREADY STANDS WHERE A PIECE GOES');
+          else if (v.error === 'OFF_DECK') why('OFF_DECK', v.msg, 'PART OF IT IS OFF THE STATION FLOOR');
+          else why(v.error, v.msg, String(v.msg || v.error).toUpperCase());
+          return;
+        }
+        for (let y = f.y1; y <= f.y2; y++) for (let x = f.x1; x <= f.x2; x++) if (doc.belts[beltKey(x, y)]) { badNodes.push(i); why('ON_BELT', 'a belt already runs where a piece of the copy goes', 'A BELT ALREADY RUNS WHERE A PIECE GOES'); return; }
+        if (isJunction(n)) for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+          const k = beltKey(f.x1 + dx, f.y1 + dy);
+          if (doc.belts[k] && !clipTiles.has(k)) { badNodes.push(i); why('JUNCTION_TOUCH', 'a belt already here would touch a junction of the copy', 'A BELT HERE TOUCHES A JUNCTION OF THE COPY'); return; }
+        }
+      });
+      for (const b of (clip.belts || [])) {
+        const x = ax + b.x, y = ay + b.y, k = beltKey(x, y);
+        let bad = null;
+        if (!roomAt(x, y)) bad = ['OFF_DECK', 'belts must sit on a deck', 'PART OF IT IS OFF THE STATION FLOOR'];
+        else if (doc.belts[k]) bad = ['ON_BELT', 'a belt is already here', 'A BELT IS ALREADY HERE'];
+        else {
+          const pid = propAt(x, y), p = pid && propById(pid);
+          if (p && (p.block !== false || isJunction(p))) bad = ['ON_PROP', 'something stands where a belt of the copy runs', 'SOMETHING STANDS WHERE A BELT RUNS'];
+          else for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {   // (a junction already here would read the tile as one of its lanes)
+            const q = propAt(x + dx, y + dy), qp = q && propById(q);
+            if (qp && isJunction(qp)) { bad = ['NEAR_JUNCTION', 'a belt of the copy would touch a junction already here', 'A BELT WOULD TOUCH A JUNCTION HERE']; break; }
+          }
+        }
+        if (bad) { badTiles.push(k); why(bad[0], bad[1], bad[2]); }
+      }
+      if (first) return Object.assign(first, { badNodes, badTiles });
+      return { ok: true, badNodes, badTiles };
+    }
+    // lay one clip node down (no snapshot, no emit): its id, everything it carries, sanitized the way every setter sanitizes it
+    function clipProp(n, ax, ay, o, newLabels) {
+      const p = { id: 'p' + (doc._nid++), t: n.t, x: (ax | 0) + n.x, y: (ay | 0) + n.y, w: Math.max(1, n.w | 0 || 1), h: Math.max(1, n.h | 0 || 1) };
+      clipExtras(p, n, o, newLabels);
+      return p;
+    }
+    function clipExtras(p, n, o, newLabels) {
+      if (n.block === false) p.block = false;
+      const r0 = cleanRot(n.r); if (r0) p.r = r0; else delete p.r;
+      if (n.m) p.m = 1;
+      if (p.t === 'bay') {
+        if (n.role && BAY_ROLES[n.role]) p.role = n.role;
+        if (typeof n.agentId === 'string' && n.agentId && (!o || typeof o.agent !== 'function' || o.agent(n.agentId))) p.agentId = n.agentId; else delete p.agentId;
+        if (typeof n.brief === 'string' && n.brief.trim()) p.brief = n.brief.slice(0, 2000);
+        if (typeof n.hands === 'string' && n.hands.trim()) p.hands = n.hands.replace(/\s+/g, ' ').trim().slice(0, 160);
+      }
+      if (p.t === 'intake') {
+        if (typeof n.label === 'string' && n.label.trim()) { const nm = freshIntakeLabel(n.label, newLabels); if (nm) p.label = nm; }
+        if (n.limits && typeof n.limits === 'object') { const nl = normalizeLimits(n.limits); if (nl) p.limits = { maxHops: nl.maxHops, maxUsdPerMessage: nl.maxUsdPerMessage, maxUsdPerDay: nl.maxUsdPerDay }; }
+      }
+      if (n.cfg) applyJunctionCfg(p, n.cfg);
+      if (cleanDoor(n.door)) p.door = n.door;
+    }
+    // the clip's machines, mounted ones last (a lamp goes down after the table it stands on)
+    const clipOrder = clip => clip.nodes.map((n, i) => i).sort((a, b) => { const ma = ruleOf(clip.nodes[a].t), mb = ruleOf(clip.nodes[b].t); return ((ma.mount === 'surface' || ma.stack) ? 1 : 0) - ((mb.mount === 'surface' || mb.stack) ? 1 : 0) || a - b; });
+    function pasteLines(clip, ax, ay, o) {
+      const c = checkPaste(clip, ax, ay);
+      if (!c.ok) return c;
+      ax |= 0; ay |= 0;
+      const linked = Array.isArray(currentLinks());
+      return transact(() => {
+        const map = {}, made = [], dirty = [], cell = (x, y) => ({ x1: x, y1: y, x2: x, y2: y }), fresh = new Set();
+        for (const i of clipOrder(clip)) {
+          const n = clip.nodes[i], p = clipProp(n, ax, ay, o, fresh);
+          const v = checkProp(propFootprint(p), null, p.t);
+          if (!v.ok) return Object.assign(v, { short: 'A PIECE OF THE COPY CANNOT STAND THERE' });
+          doc.props.push(p); dropRoomIdx(); fresh.add(p.id);
+          map[n.oid] = p.id; made.push(p.id); dirty.push(propFootprint(p));
+        }
+        for (const b of (clip.belts || [])) {
+          if (!DIRS[b.d]) return fail('BAD_DIR', 'bad belt direction');
+          const x = ax + b.x, y = ay + b.y, k = beltKey(x, y);
+          if (doc.belts[k]) return Object.assign(fail('ON_BELT', 'a belt is already here'), { short: 'A BELT IS ALREADY HERE' });
+          doc.belts[k] = b.d; dirty.push(cell(x, y));
+        }
+        const placed = [];
+        if (linked) {
+          const links = Array.isArray(doc.links) ? doc.links.slice() : [];
+          for (const l of (clip.links || [])) {
+            const from = { prop: map[l.from.node], port: l.from.port || 'out' };
+            if (Array.isArray(l.from.tags) && l.from.tags.length) from.tags = l.from.tags.slice();
+            if (l.from.else) from.else = true;
+            const link = { id: nextLinkId(links), from, to: { prop: map[l.to.node], port: 'in' }, path: (l.path || []).map(t => ({ x: ax + t.x, y: ay + t.y, d: t.d })) };
+            if (!link.from.prop || !link.to.prop) return fail('BAD_CLIP', 'a belt of the copy has lost an end');
+            links.push(link); placed.push(link);
+          }
+          doc.links = links;
+          // the floor's own judge: every pasted belt still joins its two machines, and nothing already here joined the copy
+          const after = currentLinks() || [], mine = new Set(made);
+          for (const l of placed) {
+            const k = after.find(q => q.id === l.id);
+            if (!k || k.from.prop !== l.from.prop || k.to.prop !== l.to.prop) return Object.assign(fail('BELT_LOST', 'a belt of the copy would not hold here'), { short: 'A BELT OF THE COPY WOULD NOT HOLD HERE' });
+          }
+          const ours = new Set(placed.map(l => l.id));
+          if (after.some(q => !ours.has(q.id) && (mine.has(q.from.prop) || mine.has(q.to.prop)))) return Object.assign(fail('JOINS_FLOOR', 'the copy would join a belt already here'), { short: 'IT WOULD JOIN A BELT ALREADY HERE' });
+          for (const id of made) { const J = propById(id); if (J && isJunction(J)) syncJunctionCfg(J); }
+        }
+        // SEND TO inside the copy points at the copy's own INBOX
+        for (const n of clip.nodes) if (n.sendTo && map[n.sendTo] && map[n.oid]) { const P = propById(map[n.oid]); if (P && P.t === 'outbox') P.sendTo = map[n.sendTo]; }
+        emit(dirty, { staticBakeUnchanged: !clip.nodes.some(n => n.t === 'airlock') });
+        return { ok: true, ids: made, map, links: placed.map(l => l.id), belts: (clip.belts || []).length };
+      }, 'PASTE');
+    }
+    // the full verdict on a probe copy (the real paste, thrown away) — the ghost asks this only when checkPaste said yes
+    function probePaste(clip, ax, ay) {
+      try {
+        const probe = makeStation(clone(doc));
+        const r = probe.pasteLines(clip, ax, ay);
+        return r && r.ok ? { ok: true } : { ok: false, error: r && r.error, msg: r && r.msg, short: r && r.short };
+      } catch (e) { return { ok: false, error: 'THREW', msg: String((e && e.message) || e) }; }
+    }
+    /* the clip as the layout engine's graph (workflow machines only — a lamp has no lane to lay out): fresh node ids no prop
+       can hold, every link without its drawn path. pasteLinesLaid writes the engine's layout of it, one undo. */
+    function clipGraph(clip, o) {
+      if (!clip || !Array.isArray(clip.nodes) || !clip.nodes.length) return fail('NOTHING', 'there is nothing in hand');
+      if (clip.nodes.some(n => !LINK_MACHINES[n.t])) return fail('NOT_LINE', 'only conveyor pieces can be laid out to fit');
+      const idOf = oid => 'clip:' + clip.nodes.findIndex(n => n.oid === oid);
+      const nodes = clip.nodes.map((n, i) => {
+        const g = { id: 'clip:' + i, t: n.t, w: n.w, h: n.h };
+        if (n.block === false) g.block = false;
+        if (n.role && BAY_ROLES[n.role]) g.role = n.role;
+        if (typeof n.agentId === 'string' && n.agentId && (!o || typeof o.agent !== 'function' || o.agent(n.agentId))) g.agentId = n.agentId;
+        if (n.t === 'intake' && n.label) g.label = n.label;
+        if (n.t === 'intake' && n.limits) g.limits = Object.assign({}, n.limits);
+        if (n.cfg) g.cfg = Object.assign({}, n.cfg);
+        return g;
+      });
+      const links = (clip.links || []).map(l => ({ id: l.id, from: Object.assign({}, l.from, { node: idOf(l.from.node) }), to: { node: idOf(l.to.node) } }));
+      return { ok: true, graph: { nodes, links } };
+    }
+    function pasteLinesLaid(clip, L, o) {
+      const g = clipGraph(clip, o);
+      if (!g.ok) return g;
+      return transact(() => {
+        const r = applyLineLayout(g.graph, L);
+        if (!r || !r.ok) return r || fail('NOT_APPLIED', 'the copy could not be laid out');
+        const map = {}, made = [], fresh = new Set();
+        clip.nodes.forEach((n, i) => { const id = r.ids['clip:' + i]; if (id) { map[n.oid] = id; made.push(id); fresh.add(id); } });
+        clip.nodes.forEach(n => {
+          const p = propById(map[n.oid]); if (!p) return;
+          const keep = { x: p.x, y: p.y, w: p.w, h: p.h };
+          clipExtras(p, n, o, fresh);
+          Object.assign(p, keep);   // (a laid-out machine keeps the spot the engine gave it)
+          if (n.sendTo && map[n.sendTo] && p.t === 'outbox') p.sendTo = map[n.sendTo];
+        });
+        emit(made.map(id => propFootprint(propById(id))), { staticBakeUnchanged: true });
+        return { ok: true, ids: made, map, laid: true };
+      }, 'PASTE');
+    }
+    /* DELETE LINE: every machine of the line holding propId, every belt between them (the tiles no other line rides) and the
+       belts under its junctions — one undo. Any SEND TO pointing into the line's INBOXes is let go (its target is gone). */
+    function removeLine(propId) {
+      const line = lineOf(propId);
+      if (!line) return fail('NOT_LINKED', 'this machine is not on a line that builds by links');
+      return transact(() => {
+        const dirty = [], mine = new Set(line.ids);
+        for (const l of line.links) for (const d of liftLink(l)) dirty.push(d);
+        const others = Array.isArray(doc.links) ? doc.links : [];
+        const ridden = new Set(); for (const l of others) for (const t of (l.path || [])) ridden.add(beltKey(t.x, t.y));
+        for (const id of line.ids) { const p = propById(id); if (p && isJunction(p)) { const k = beltKey(p.x, p.y); if (doc.belts[k] && !ridden.has(k)) { delete doc.belts[k]; dirty.push({ x1: p.x, y1: p.y, x2: p.x, y2: p.y }); } } }
+        for (const id of line.ids) { const p = propById(id); if (p) dirty.push(propFootprint(p)); }
+        doc.props = doc.props.filter(p => !mine.has(p.id));
+        for (const p of doc.props) if (p.sendTo && mine.has(p.sendTo)) delete p.sendTo;
+        dropRoomIdx();
+        emit(dirty, { staticBakeUnchanged: true });
+        return { ok: true, ids: line.ids.slice(), links: line.links.map(l => l.id) };
+      }, 'LINE');
+    }
+    /* take these belts up whole (box select's belts, a selection's DELETE): each link by id, with every tile no other link
+       rides, plus any loose belt tiles named — no snapshot of its own (call it inside a transact, or it takes one) */
+    function removeLinks(linkIds, tiles) {
+      const want = new Set(linkIds || []);
+      if (!batchDepth) snapshot((want.size + (tiles || []).length) === 1 ? 'BELT' : 'BELTS');
+      const L = Array.isArray(currentLinks()) ? currentLinks() : [], dirty = [];
+      for (const l of L.filter(q => want.has(q.id))) for (const d of liftLink(l)) dirty.push(d);
+      for (const t of (tiles || [])) { const k = beltKey(t.x, t.y); if (doc.belts[k]) { delete doc.belts[k]; dirty.push({ x1: t.x | 0, y1: t.y | 0, x2: t.x | 0, y2: t.y | 0 }); } }
+      emit(dirty, { staticBakeUnchanged: true });
+      return { ok: true, tiles: dirty.length };
+    }
+
     /* ---------- STARTER-LINE BLUEPRINTS (the beginner onramp, 2026-08-04) ----------
        A blueprint stamps a whole pre-wired conveyor layout — machines + belts — as ONE mutation
        behind ONE snapshot, so a single UNDO removes the entire line (per-piece stamping would
@@ -3927,6 +4223,10 @@ const WorldModel = (() => {
       // THE HAND (2026-10-10): the drag gestures — previews are pure, each mutation is one undo
       previewBeltTo, previewBranch, previewRelink, junctionOnBeltRefusal, junctionOnBelt, mergeBelt, branchBelt, dropFrom, probeDrop, relinkTo, removeLinkAt,
       linkAt: (x, y) => { const at = linkAtTile(x, y); return at ? Object.assign(clone(at.link), { at: at.i }) : null; },
+      // THE HAND part 2 (2026-10-11): copy / paste a piece of floor with its belts, and the whole-line ops — checks are pure,
+      // each mutation is one undo
+      lineMembers, copyLines: (ids, o) => { const r = copyLines(ids, o); return r.ok ? { ok: true, clip: clone(r.clip) } : r; },
+      checkPaste, probePaste, pasteLines, clipGraph, pasteLinesLaid, removeLine, removeLinks,
     };
   }
 
@@ -4053,6 +4353,8 @@ const WorldModel = (() => {
     BLUEPRINTS,
     // bay-role catalog (guided workflows): placard copy + summon-class wiring for role-carrying docks
     BAY_ROLES, bayRoleInfo: r => BAY_ROLES[r] || null,
+    // a clip (station.copyLines) turned a quarter turn clockwise per turn — pure (THE HAND part 2: R turns a paste in hand)
+    rotateClip, clipTurns,
   };
 })();
 

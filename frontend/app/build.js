@@ -156,6 +156,7 @@ const Build = (() => {
   // interaction state
   let tool = 'select', kind = 'hab', style = 'cobalt', mat = 'plate', hallWidth = 2, propType = 'war_intelcab', propCat = 'all', propTier = 'functional';
   let selectedPropId=null, movingPropId=null, positionOpen=false, groupIds=[];   // groupIds: a selection of two or more (MANY AT ONCE)
+  let selBelts=null;   // THE HAND part 2: the belts a box (or a whole line) took with the selection — { key, links:[id], tiles:[{x,y}] } (see beltSel)
   let selectedRoomId=null, furnishOpen=false, roomDelArmedAt=0, hoverHandle=-1;   // a selected ROOM (THE ROOM CARD); its hovered edge handle
   let roomAsk=null;   // a furnish / clear that would take equipment out, waiting on FURNISH ANYWAY (THE ROOM CARD)
   let propSection = 'decoration', propAbility = '', equipmentAgentId = '';
@@ -498,6 +499,7 @@ const Build = (() => {
     cv.addEventListener('pointerdown', onDown);
     cv.addEventListener('pointermove', onMove);
     cv.addEventListener('pointerup', onUp);
+    cv.addEventListener('dblclick', onDblClick);   // THE HAND part 2: a double-click on a conveyor piece takes its whole line
     cv.addEventListener('pointercancel', onCancel);
     cv.addEventListener('pointerleave', () => { hoverRoomId = null; hoverPropId = null; hoverTile = null; if (!drag) hideTip(); hidePropCard(); });
     cv.addEventListener('wheel', onWheel, { passive: false });
@@ -1232,8 +1234,8 @@ const Build = (() => {
       paletteLabel = 'INSPECT';
       const note = document.createElement('div');
       note.className = 'refit-selectnote refit-keycard';
-      const KEYS = [['Click', 'select it'], ['Drag a box', 'select several'], ['Shift + click', 'add or drop one'], ['Drag it', 'move it · a machine: belt'], ['Shift + drag', 'move a machine'], ['Right-click', 'remove a piece'], ['Q · Alt', 'pick up · every setting'],
-        ['Arrows', 'nudge · Shift: 5'], ['R · M', 'turn · flip'], ['Ctrl + D', 'duplicate'], ['Ctrl + C · V', 'copy · paste'], ['Del', 'delete'], ['Ctrl + Z', 'undo'],
+      const KEYS = [['Click', 'select it'], ['Drag a box', 'select several'], ['Double-click', 'a whole line'], ['Shift + click', 'add or drop one'], ['Drag it', 'move it · a machine: belt'], ['Shift + drag', 'move a machine'], ['Right-click', 'remove a piece'], ['Q · Alt', 'pick up · every setting'],
+        ['Arrows', 'nudge · Shift: 5'], ['R · M', 'turn · flip'], ['Ctrl + D', 'duplicate'], ['Ctrl + C · X · V', 'copy · cut · paste'], ['Del', 'delete'], ['Ctrl + Z', 'undo'],
         ['Click a room', 'resize · furnish']];
       note.innerHTML = '<b>Click anything to edit</b><div class="refit-keyrows">' + KEYS.map(([k, v]) => '<span class="refit-keyrow"><kbd>' + esc(k) + '</kbd><span>' + esc(v) + '</span></span>').join('') + '</div>';
       pal.appendChild(note);
@@ -1766,7 +1768,7 @@ const Build = (() => {
       propType = next.t;
       propRot = next.r != null && canTurn(next.t) ? (next.r & 3) : 0;
       propMir = next.m && canFlip(next.t) ? 1 : 0;
-      if (selectedPropId || groupIds.length) { selectedPropId = null; groupIds = []; }
+      if (selectedPropId || groupIds.length || selBelts) { selectedPropId = null; groupIds = []; selBelts = null; }
     }
     propHoverMemo = null;
     if (root) { root.dataset.hand = next ? next.t : ''; paintHandKeys(); renderSelection(); }
@@ -2539,7 +2541,7 @@ const Build = (() => {
 
   function selectTool(id, o) {
     const wasSelect = tool === 'select';
-    movingPropId=null;selectedPropId=null;groupIds=[];selectedRoomId=null;renderSelection();
+    selBelts=null;movingPropId=null;selectedPropId=null;groupIds=[];selectedRoomId=null;renderSelection();
     if (drag || dragPid != null) releaseDrag();
     tool = id; drag = null; connectFrom = null; connectTo = null; dupe = null; hideTip(); hidePropCard();
     hand = null; touchArm = null; dropPick = null;   // arming any tool (or a bare deselect) puts down what was in hand
@@ -2594,6 +2596,7 @@ const Build = (() => {
     if (tool === 'select' && buildGroup === 'workflow') verb = 'Drag from a machine to lay a belt · drag a belt to branch it · 1–8 pick a piece · Q picks up the one under the pointer · right-click removes · hold Alt to see every setting';
     // THE HAND: what is held, what a click does with it, and how to put it down (or what the armed dock key's next tap does)
     if (tool === 'select' && hand) verb = 'Holding ' + propLabel(hand.t) + (hand.agentId ? ' (crewed by ' + agentLabel(hand.agentId) + ')' : '') + ' · click to place it' + (JUNCTION_TAG_TYPES[hand.t] ? ' · click a belt to put it on that line' : '') + ' · right-click or Esc puts it down';
+    if (tool === 'dupe' && dupe && dupe.type === 'lines') verb = 'Holding ' + dupe.label + ' · click to place a copy (it stays in hand) · R turns it · right-click or Esc puts it down';   // THE HAND part 2
     if (tool === 'select' && touchArm === 'remove') verb = 'REMOVE · tap a conveyor piece or a belt to remove it · tap REMOVE again to stop';
     if (tool === 'select' && touchArm === 'pipette') verb = 'PICK UP · tap a piece to hold one like it · tap PICK UP again to stop';
     if (tool === 'select' && buildGroup === 'rooms') verb = 'Pick a room type, then drag on the grid · click a room to resize or furnish it';
@@ -2630,7 +2633,7 @@ const Build = (() => {
         belt: 'Click a machine, then the next one: the belt lays itself. Or drag to lay belt by hand.',
         line: 'Choose a conveyor line, then click clear floor to place it. Assign agents after placing.'
       };
-      help.querySelector('span').textContent = msg || guidance[tool] || verb;
+      help.querySelector('span').textContent = msg || ((tool === 'dupe' && dupe && dupe.type === 'lines') ? verb : guidance[tool]) || verb;
       help.querySelector('button').textContent = 'CANCEL';
     }
   }
@@ -2991,7 +2994,7 @@ const Build = (() => {
           </div>
         </div>
         <p class="refit-guide-foot">For a head start, open <b>${esc(G.tab)} › ${esc(G.lines)}</b> (${G.lineCount} ready-made layouts), stamp one, then assign its bays. <b>${esc(G.preview)}</b> animates the routing and runs no AI job. To test for real, click any machine on a line and use <b>STEP TEST</b> in its Workflow panel: it runs the real agents one step at a time and pauses at every hand-off so you can read or edit what moves on.</p>
-        <div class="refit-guide-shortcuts"><span><b>Wheel</b> Zoom</span><span><b>Space + drag</b> Pan</span><span><b>Ctrl + Z</b> Undo</span><span><b>Drag a box</b> Select several</span><span><b>SAVE &amp; EXIT</b> Leave (or Esc twice)</span></div><button class="btn-sm refit-primary" id="refit-guide-go">START BUILDING</button>
+        <div class="refit-guide-shortcuts"><span><b>Wheel</b> Zoom</span><span><b>Space + drag</b> Pan</span><span><b>Ctrl + Z</b> Undo</span><span><b>Drag a box</b> Select several</span><span><b>Ctrl + C · V</b> Copy · paste</span><span><b>SAVE &amp; EXIT</b> Leave (or Esc twice)</span></div><button class="btn-sm refit-primary" id="refit-guide-go">START BUILDING</button>
       </div>`;
     root.appendChild(g);
     g.querySelectorAll('.refit-step').forEach(s => {
@@ -3384,7 +3387,7 @@ const Build = (() => {
   function openWorkstationPicker(propId) {
     const p = station.propById(propId); if (!p || !WORKSTATION_TYPES[p.t]) return;
     cardCloseAll();
-    groupIds = []; selectedRoomId = null; selectedPropId = propId; renderSelection();
+    selBelts = null; groupIds = []; selectedRoomId = null; selectedPropId = propId; renderSelection();
     setHint('Selected ' + propLabel(p.t) + ' · pick who sits here');
   }
   /* PLACE ITS DESK (the deskless-agent door in COMMS → App.openDeskPlacement). It used to drive the palette by clicking
@@ -4977,8 +4980,10 @@ const Build = (() => {
      the routing INSIDE this function; callers never fan out on prop type themselves. */
   function onInspect(p,ev) {
     if(!p)return;
+    // THE HAND part 2: a double-TAP on a conveyor piece takes its whole line (a mouse's double-click is onDblClick)
+    if(ev&&ev.pointerType==='touch'&&CONNECT_TYPES[p.t]&&tool==='select'){const tNow=performance.now();if(lastTap&&lastTap.id===p.id&&tNow-lastTap.t<380){lastTap=null;selectWholeLine(p.id,ev);return;}lastTap={id:p.id,t:tNow};}
     if(ev&&ev.detail>=2&&isEditableProp(p.t))return configureProp(p,ev);
-    groupIds=[];selectedRoomId=null;selectedPropId=p.id;renderSelection();
+    selBelts=null;groupIds=[];selectedRoomId=null;selectedPropId=p.id;renderSelection();
     // an UNBOUND connector/plugin terminal says "CLICK TO BIND" on the floor and in its hover card — so one click
     // opens the bind editor (it only selected it, and members reported "no bind option": only unbind/cancel showed)
     if((p.t==='connector_portal'&&!p.connectorId)||(p.t==='plugin_terminal'&&!p.pluginId))return configureProp(p,ev);
@@ -4999,6 +5004,8 @@ const Build = (() => {
       if(ps.length>1){host.hidden=false;root.classList.add('has-selection');return renderGroupCard(host,ps);}
       groupIds=[];if(ps.length===1)selectedPropId=ps[0].id;   // an undo took the rest away: one is just a selection
     }
+    // THE HAND part 2: a selection that took BELTS (a box across them, a whole line) is a group card even with one machine or none
+    if(selBelts&&!selectedRoomId){const bs=beltSel();if(bs){host.hidden=false;root.classList.add('has-selection');return renderGroupCard(host,selectionIds().map(id=>station.propById(id)).filter(Boolean));}}
     if(selectedRoomId){
       const rm=station&&station.roomById(selectedRoomId);
       if(rm){host.hidden=false;root.classList.add('has-selection');return renderRoomCard(host,rm);}
@@ -5019,6 +5026,8 @@ const Build = (() => {
     if(canFlip(p.t))addKey('FLIP','M',()=>{feedback(station.mirrorProp(p.id),orientEv(),'flipped');renderSelection();});
     addKey('DUPLICATE','Ctrl+D',()=>duplicateSelected(orientEv()));
     addKey('COPY','Ctrl+C',()=>copySelected(orientEv()));
+    // a conveyor piece on a line: its WHOLE LINE in one press (what a double-click / double-tap does) — then COPY LINE / DELETE LINE
+    if(CONNECT_TYPES[p.t]&&typeof station.lineMembers==='function'){const lm=station.lineMembers(p.id);if(lm&&lm.ids.length>1)addKey('WHOLE LINE','dbl-click',()=>selectWholeLine(p.id,orientEv()));}
     // a MADE prop carries its library controls right here: SIZE (free) and its side view, like the MAKE A PROP panel
     const made=(typeof UserProps!=='undefined'&&UserProps.get&&typeof PropSprites!=='undefined'&&PropSprites.isUserProp&&PropSprites.isUserProp(p.t))?UserProps.get(p.t):null;
     if(made){
@@ -5043,8 +5052,9 @@ const Build = (() => {
   /* ---------- THE EDITOR KEYS (2026-10-01 build-mode upgrade) ----------
      What every editor does, on the SELECTED object: Delete/Backspace removes it, Ctrl+D drops a copy beside it (the copy is then
      the selection, so Ctrl+D again makes a row), Ctrl+C picks it up as a stamp (every click places a copy; Ctrl+V picks the last one
-     up again), the arrows nudge it a tile (Shift: five). Each is one ordinary edit — one UNDO. A copy is the COPY tool's own pickup:
-     orientation, a filter's routes, a door's seal travel with it; an agent binding never does. */
+     up again), the arrows nudge it a tile (Shift: five). Each is one ordinary edit — one UNDO. A lone prop's copy is the COPY tool's
+     own pickup: orientation, a filter's routes, a door's seal travel with it; an agent binding never does. A conveyor piece, a group
+     or a line copies as a CLIP (THE HAND part 2) — its belts, settings, names, briefs and the crew this station has. */
   function copySpecOf(p) {
     const s = propSpec(p.t), cfg = {};
     if (p.r) cfg.r = p.r;
@@ -5066,6 +5076,7 @@ const Build = (() => {
   }
   function deleteSelected(ev) {
     if (groupIds.length) return deleteGroup(ev);
+    if (beltSel()) return deleteGroup(ev);   // (THE HAND part 2: the belts it took go too)
     const p = station.propById(selectedPropId); if (!p) return false;
     const had = linkedFloor() && isWorkflowType(p.t) && (station.links() || []).some(l => l.from.prop === p.id || l.to.prop === p.id);
     const was = Object.assign({}, p);
@@ -5077,6 +5088,7 @@ const Build = (() => {
   }
   function duplicateSelected(ev) {
     if (groupIds.length) return duplicateGroup(ev);
+    if (beltSel() || clipWorthy()) return duplicateClip(ev);   // (THE HAND part 2: a conveyor piece comes with its crew, brief and settings)
     const p = station.propById(selectedPropId); if (!p) return false;
     const spec = copySpecOf(p), at = freeSpotNear(spec, p.x, p.y);
     if (!at) { sfx('bad'); flashTip(ev, 'no clear floor beside it for a copy — clear some space, or COPY it to place one anywhere'); return true; }
@@ -5091,9 +5103,11 @@ const Build = (() => {
     feedback(res, ev, 'duplicated · the copy is selected · Ctrl+D again for another');
     return true;
   }
-  let lastCopy = null;   // the last prop picked up with Ctrl+C / COPY — Ctrl+V picks it up again
+  let lastCopy = null;   // the last thing picked up with Ctrl+C / COPY (a prop, a room, or a CLIP of floor) — Ctrl+V picks it up again
+  /* COPY: a lone piece of furniture is the COPY tool's own pickup (a stamp, as it always was); a group, a conveyor piece or a
+     selection with belts is a CLIP — the machines with their belts, settings, names, briefs and crew (THE HAND part 2) */
   function copySelected(ev) {
-    if (groupIds.length) { sfx('bad'); flashTip(ev, 'COPY holds one thing at a time — Ctrl+D duplicates the whole group'); return true; }
+    if (groupIds.length || beltSel() || clipWorthy()) return copyClip(ev, false);
     const p = station.propById(selectedPropId); if (!p) return false;
     selectTool('dupe', { keepGroup: true, silent: true });
     pickupDupe({ tx: p.x, ty: p.y }, ev, p.id);
@@ -5114,13 +5128,17 @@ const Build = (() => {
      all-or-nothing (station.transact puts back anything half-done). A plain click on empty floor lets go of a selection; with
      nothing selected it still opens that room's card. */
   const selectionIds = () => groupIds.length ? groupIds.slice() : (selectedPropId ? [selectedPropId] : []);
-  function setSelection(ids) {
+  function setSelection(ids, belts) {
     const live = [...new Set(ids)].filter(id => station.propById(id));
     groupIds = live.length > 1 ? live : [];
     selectedPropId = live.length === 1 ? live[0] : null;
     movingPropId = null; positionOpen = false; selectedRoomId = null;
+    // the belts it took (a box across them, a whole line) ride with exactly THIS selection — any other selection lets them go
+    selBelts = belts && ((belts.links && belts.links.length) || (belts.tiles && belts.tiles.length)) ? { key: live.join(','), links: (belts.links || []).slice(), tiles: (belts.tiles || []).slice() } : null;
     renderSelection();
-    if (live.length > 1) setHint(live.length + ' selected · drag any of them to move them together · Ctrl+D duplicates · Delete removes');
+    const bs = beltSel(), nb = bs ? bs.links.length + bs.tiles.length : 0;
+    if (!live.length && nb) setHint(nb + (nb === 1 ? ' belt' : ' belts') + ' selected · Delete removes ' + (nb === 1 ? 'it' : 'them'));
+    else if (live.length > 1 || (live.length && nb)) setHint(live.length + ' selected' + (nb ? ' with ' + nb + (nb === 1 ? ' belt' : ' belts') : '') + ' · drag any of them to move them together · Ctrl+C copies · Ctrl+D duplicates · Delete removes');
     else if (live.length === 1) setHint('Selected ' + propLabel(station.propById(live[0]).t) + ' · choose an action in the build kit');
     else setHint();
   }
@@ -5133,10 +5151,12 @@ const Build = (() => {
     return boxMemo.ids;
   }
   function commitBox(d, ev) {
-    const ids = propsInBox(norm(d.start, d.cur));
-    if (!ids.length) { if (!d.add) setSelection([]); return; }   // an empty box lets go quietly — its badge already said what a box does
+    const r = norm(d.start, d.cur), ids = propsInBox(r);
+    const all = d.add ? selectionIds().concat(ids) : ids, bb = beltsInBox(r, all);
+    if (!ids.length && !bb.n) { if (!d.add) setSelection([]); return; }   // an empty box lets go quietly — its badge already said what a box does
     sfx('click');
-    setSelection(d.add ? selectionIds().concat(ids) : ids);
+    const prev = d.add ? beltSel() : null;
+    setSelection(all, { links: [...new Set((prev ? prev.links : []).concat(bb.links))], tiles: (prev ? prev.tiles : []).concat(bb.tiles) });   // (the belts it crossed come too)
   }
   // a plain click on empty floor: lets go of a selection; with nothing selected, a ROOM opens its own sheet (as it always has)
   function clickEmptyFloor(d, ev) {
@@ -5145,14 +5165,16 @@ const Build = (() => {
     if (selectedRoomId) { selectRoom(null); sfx('click'); }
   }
   function toggleInSelection(id) {
-    const ids = selectionIds(), i = ids.indexOf(id);
+    const ids = selectionIds(), i = ids.indexOf(id), bs = beltSel();
     if (i >= 0) ids.splice(i, 1); else ids.push(id);
-    sfx('click'); setSelection(ids);
+    sfx('click'); setSelection(ids, bs);   // (Shift+click keeps the belts the box took)
   }
   function selectAllProps(ev) {
     const ids = station.props().map(p => p.id);
     if (!ids.length) { sfx('bad'); flashTip(ev, 'nothing on the floor to select yet'); return; }
-    sfx('click'); setSelection(ids);
+    const onLink = new Set(); for (const l of linksMemoed()) for (const q of (l.path || [])) onLink.add(q.x + ',' + q.y);
+    const junc = new Set(station.props().filter(p => JUNCTION_TAG_TYPES[p.t]).map(p => p.x + ',' + p.y));
+    sfx('click'); setSelection(ids, { links: linksMemoed().map(l => l.id), tiles: beltsMemoed().filter(b => !onLink.has(b.x + ',' + b.y) && !junc.has(b.x + ',' + b.y)).map(b => ({ x: b.x, y: b.y })) });   // the whole floor — its belts too
   }
   /* move every member by (dx, dy) as ONE edit. Members go front-first along the motion, and one that would step into another's
      spot waits for it (pass after pass). Anything that cannot move — or a belt link that would be taken up on the way — puts
@@ -5219,48 +5241,211 @@ const Build = (() => {
     const fit = groupFit(ids.map(id => station.propById(id)).filter(Boolean), dx, dy);
     return fit && !fit.ok && fit.msg ? fit : res;
   }
-  function deleteGroup(ev) {
-    const was = groupIds.map(id => station.propById(id)).filter(Boolean).map(p => Object.assign({}, p));
-    if (!was.length) return false;
-    const res = station.transact(() => { for (const p of was) { const r = station.removeProp(p.id); if (!r || !r.ok) return r; } return { ok: true }; });
-    if (res && res.ok) { pushFlash(was.map(p => propRect(p)), true); was.forEach(p => vanishProp(p)); setSelection([]); flashUndo(); }
-    feedback(res, ev, 'removed ' + was.length + ' things · Undo restores them');
+  /* Delete on a group: every member — and every belt the box took with it (whole: each link with every tile no other link rides,
+     taken up FIRST, while both its ends still stand) — in ONE transact, one UNDO */
+  function deleteGroup(ev, verb) {
+    const was = selectionIds().map(id => station.propById(id)).filter(Boolean).map(p => Object.assign({}, p)), bs = beltSel();
+    if (!was.length && !bs) return false;
+    const nb = bs ? bs.links.length + bs.tiles.length : 0;
+    const res = station.transact(() => {
+      if (bs && typeof station.removeLinks === 'function') { const rb = station.removeLinks(bs.links, bs.tiles); if (!rb || !rb.ok) return rb; }
+      for (const p of was) { const r = station.removeProp(p.id); if (!r || !r.ok) return r; }
+      return { ok: true };
+    }, verb === 'CUT' ? 'CUT' : (!was.length ? (nb === 1 ? 'BELT' : 'BELTS') : undefined));
+    if (res && res.ok) { pushFlash(was.map(p => propRect(p)).concat(bs ? bs.cells.map(q => ({ x1: q.x, y1: q.y, x2: q.x, y2: q.y })) : []), true); was.forEach(p => vanishProp(p)); if (!was.length) sfxVanish(); setSelection([]); flashUndo(); }
+    const what = (was.length ? was.length + (was.length === 1 ? ' thing' : ' things') : '') + (was.length && nb ? ' and ' : '') + (nb ? nb + (nb === 1 ? ' belt' : ' belts') : '');
+    if (verb !== 'CUT') feedback(res, ev, 'removed ' + what + ' · Undo restores ' + (was.length + nb === 1 ? 'it' : 'them'));
+    else if (!(res && res.ok)) feedback(res, ev, '');
+    return !!(res && res.ok);
+  }
+  /* Ctrl+D on a group: the whole arrangement again — WITH the belts between its machines, their settings, names, briefs and crew
+     (THE HAND part 2: it is a clip, laid beside itself) — and the copies become the selection, so Ctrl+D again lays the next one */
+  function duplicateGroup(ev) {
+    if (groupIds.length < 2 && !beltSel()) return false;
+    return duplicateClip(ev);
+  }
+  /* ---------- THE HAND, part 2 (2026-10-11 — Andrew: "fully polish and integrate this into starnet", from his prototype) ----------
+     BELTS IN THE BOX: a box takes the belts it crosses as well as the machines it touches — every link with a tile inside it,
+     every loose belt tile, and every link whose two ends it took — and they are part of the selection: drawn gold, gone with
+     DELETE (whole, every tile no other link rides), carried by COPY. A WHOLE LINE: a double-click (a double-tap, or the card's
+     WHOLE LINE key) on a conveyor piece takes the line its belts join; its card offers COPY LINE / DELETE LINE.
+     A PIECE OF FLOOR IN YOUR HAND: COPY / CUT put a CLIP in hand (station.copyLines — the machines with everything that makes
+     each one THAT machine, a LOOP's passes and verdict, a BAY's role, brief and crew (only agents on this station), an INBOX's
+     name and budget, and the belts between them; never a connector bind, a project folder, triggers or a SEND TO pointing out).
+     It rides the COPY tool's own stamp (dupe.type 'lines'): the ghost follows the pointer, every piece and belt tile green where
+     it fits and red where it does not, with the reason; R turns it a quarter; a click lays it EXACTLY (one undo, a pasted INBOX
+     starts a new line) and it stays in hand; Esc or right-click puts it down. Where the drawn shape will not go a line is laid
+     out to fit near the click (LineEdit.layoutGraphNear) — or refused, said. Ctrl+D lays the selection again beside itself.
+     Every check is the model's, memoized per edit + spot + turn; nothing is written while you aim (H9). */
+  let selBeltVer = -1, selBeltRef = null, selBeltMemo = null;
+  // the belts selected right now (links that still exist, loose tiles still on the floor) + every tile they cover — or null
+  function beltSel() {
+    if (!selBelts || !station) return null;
+    if (selBelts.key !== selectionIds().join(',')) { selBelts = null; return null; }   // the selection moved on without them
+    if (selBeltVer === geoVer && selBeltRef === selBelts) return selBeltMemo;
+    const have = new Map(linksMemoed().map(l => [l.id, l]));
+    const links = selBelts.links.filter(id => have.has(id)), tiles = selBelts.tiles.filter(q => station.beltAt(q.x, q.y));
+    const cells = [];
+    for (const id of links) for (const q of (have.get(id).path || [])) cells.push({ x: q.x, y: q.y });
+    for (const q of tiles) cells.push({ x: q.x, y: q.y });
+    selBeltVer = geoVer; selBeltRef = selBelts;
+    selBeltMemo = (links.length || tiles.length) ? { links, tiles, cells } : null;
+    return selBeltMemo;
+  }
+  // the belts a box takes: every link with a tile inside it or whose two ends are both selected, every loose belt tile inside it
+  let beltBoxMemo = null;
+  function beltsInBox(r, ids) {
+    const key = [geoVer, r.x1, r.y1, r.x2, r.y2, (ids || []).join(',')].join('|');
+    if (beltBoxMemo && beltBoxMemo.key === key) return beltBoxMemo.v;
+    const inR = (x, y) => x >= r.x1 && x <= r.x2 && y >= r.y1 && y <= r.y2, sel = new Set(ids || []);
+    const links = [], onLink = new Set(), cells = [];
+    for (const l of linksMemoed()) {
+      const path = l.path || [];
+      for (const q of path) onLink.add(q.x + ',' + q.y);
+      if (path.some(q => inR(q.x, q.y)) || (l.from && l.to && sel.has(l.from.prop) && sel.has(l.to.prop))) { links.push(l.id); for (const q of path) cells.push({ x: q.x, y: q.y }); }
+    }
+    const junc = new Set(station.props().filter(p => JUNCTION_TAG_TYPES[p.t]).map(p => p.x + ',' + p.y)), tiles = [];
+    for (const b of beltsMemoed()) if (inR(b.x, b.y) && !onLink.has(b.x + ',' + b.y) && !junc.has(b.x + ',' + b.y)) { tiles.push({ x: b.x, y: b.y }); cells.push({ x: b.x, y: b.y }); }
+    const v = { links, tiles, cells, n: links.length + tiles.length };
+    beltBoxMemo = { key, v };
+    return v;
+  }
+  // the selection is EXACTLY one whole line (every machine its belts join, nothing else) → { id, name, links } — else null
+  function wholeLineOf(ps) {
+    if (!ps || !ps.length || typeof station.lineMembers !== 'function' || ps.some(p => !CONNECT_TYPES[p.t])) return null;
+    const m = station.lineMembers(ps[0].id);
+    if (!m || m.ids.length < 2 || m.ids.length !== ps.length) return null;
+    const set = new Set(ps.map(p => p.id));
+    if (!m.ids.every(id => set.has(id))) return null;
+    const nm = lineNameOf(lineOfProp(ps[0].id));
+    return { id: ps[0].id, name: nm ? 'LINE ' + String(nm).toUpperCase() : 'THIS LINE', links: m.links.length };
+  }
+  // a double-click (double-tap, the card's WHOLE LINE) on a conveyor piece: every machine its belts join, and those belts
+  function selectWholeLine(pid, ev) {
+    const p = station.propById(pid), m = p && typeof station.lineMembers === 'function' ? station.lineMembers(pid) : null;
+    if (!p || !m || m.ids.length < 2) { sfx('bad'); flashTip(ev, 'THIS PIECE IS ON NO LINE YET — BELT IT TO ANOTHER FIRST', false); return false; }
+    setSelection(m.ids, { links: m.links, tiles: [] });
+    sfx('click');
+    const line = wholeLineOf(m.ids.map(id => station.propById(id)).filter(Boolean));
+    floatAt({ x: p.x + (p.w || 1) / 2, y: p.y }, 'SELECTED · ' + (line ? line.name : 'THE LINE') + ' · ' + m.ids.length + ' PIECES', 'note');
     return true;
   }
-  /* Ctrl+D on a group: the whole arrangement again, beside itself — right, below, left, above, then a tile further out each
-     time — and the copies become the selection, so Ctrl+D again lays the next one. What stands on a table goes down after its
-     table. A quick look at the floor first; the real lay-down (one transact, all-or-nothing) only where that look says yes. */
-  function duplicateGroup(ev) {
-    const ps = groupIds.map(id => station.propById(id)).filter(Boolean);
-    if (ps.length < 2) return false;
-    const x1 = Math.min(...ps.map(p => p.x)), y1 = Math.min(...ps.map(p => p.y));
-    const W = Math.max(...ps.map(p => p.x + (p.w || 1))) - x1, H = Math.max(...ps.map(p => p.y + (p.h || 1))) - y1;
-    const onTable = p => (station.mountOf && station.mountOf(p)) ? 1 : 0;
-    const plan = ps.slice().sort((a, b) => onTable(a) - onTable(b)).map(p => ({ p, spec: copySpecOf(p) }));
-    const looksClear = (dx, dy) => plan.every(({ p, spec }) => onTable(p) || (station.canPlaceProp(spec.t, p.x + dx, p.y + dy, spec.w, spec.h) || {}).ok);
+  let lastTap = null;   // a touch tap on a conveyor piece — a second one on the same piece inside 380ms is a double-tap
+  function onDblClick(ev) {
+    if (tool !== 'select' || hand || touchArm || dropPick || drag) return;
+    const pid = propAtEvent(ev), p = pid && station.propById(pid);
+    if (!p || !CONNECT_TYPES[p.t]) return;
+    if (ev.preventDefault) ev.preventDefault();
+    selectWholeLine(p.id, ev);
+  }
+  // DELETE LINE: every machine of it and every belt between them — one undo; a SEND TO pointing into it is let go (the model's)
+  function deleteLine(pid, ev) {
+    const m = typeof station.lineMembers === 'function' ? station.lineMembers(pid) : null;
+    if (!m || typeof station.removeLine !== 'function') return false;
+    const was = m.ids.map(id => station.propById(id)).filter(Boolean).map(p => Object.assign({}, p));
+    const line = wholeLineOf(was), name = line ? line.name : 'THE LINE';
+    const res = station.removeLine(pid);
+    if (res && res.ok) {
+      pushFlash(was.map(p => propRect(p)), true); was.forEach(p => vanishProp(p)); setSelection([]); flashUndo();
+      const c = was[0]; if (c) floatAt({ x: c.x + (c.w || 1) / 2, y: c.y }, 'REMOVED · ' + name + ' · CTRL+Z', 'bad');
+    }
+    feedback(res, ev, 'removed ' + name.toLowerCase() + ' — ' + was.length + ' pieces and their belts · Undo restores it');
+    return true;
+  }
+  // a lone CONVEYOR piece copies as a clip too (its crew, brief and settings with it); lone furniture stays the COPY tool's stamp
+  const clipWorthy = () => { const p = selectedPropId && station.propById(selectedPropId); return !!(p && CONNECT_TYPES[p.t]); };
+  function clipOfSelection() {
+    const ids = selectionIds();
+    if (!ids.length || typeof station.copyLines !== 'function') return null;
+    const r = station.copyLines(ids, { agent: agentHere, turns: t => canTurn(t) });
+    return r && r.ok ? r.clip : null;
+  }
+  let clipSeq = 0;
+  const clipWord = c => c.n + (c.n === 1 ? ' PIECE' : ' PIECES') + (c.nb ? ' · ' + c.nb + (c.nb === 1 ? ' BELT' : ' BELTS') : '');
+  function holdClip(held, ev, said) {
+    selectTool('dupe', { keepGroup: true, silent: true }); dupe = held; clipGhostMemo = null; sfx('click');
+    flashTip(ev, said || ('HOLDING ' + held.label + ' — click to place · R turns it · right-click to drop'), true);
+    setHint('holding ' + held.label + ' — click to place a copy (it stays in hand) · R turns it · right-click / Esc puts it down');
+  }
+  // COPY (cut: CUT) → a CLIP in hand, the ghost under the pointer; Ctrl+V picks the last one up again
+  function copyClip(ev, cut) {
+    const ps = selectionIds().map(id => station.propById(id)).filter(Boolean), line = wholeLineOf(ps), c = clipOfSelection();
+    if (!c) { sfx('bad'); flashTip(ev, 'SELECT MACHINES TO COPY — DRAG A BOX ACROSS THEM, OR DOUBLE-CLICK A LINE', false); return true; }
+    const held = { type: 'lines', clip: c, rot: 0, cid: ++clipSeq, label: line ? line.name : clipWord(c) };
+    const notes = [];
+    if (c.dropped) notes.push(c.dropped + ' SEND TO LEFT OUT (IT POINTS OUTSIDE THE COPY)');
+    if (c.crewLeft) notes.push(c.crewLeft + ' CREW LEFT OUT (NOT ON THIS STATION)');
+    if (cut && !deleteGroup(ev, 'CUT')) return true;   // (refused: nothing was taken, nothing is held)
+    lastCopy = held;
+    holdClip(held, ev, (cut ? 'CUT · ' : 'COPIED · ') + held.label + (notes.length ? ' · ' + notes.join(' · ') : '') + ' — click to place · R turns it');
+    return true;
+  }
+  function cutSelected(ev) {
+    if (!selectionIds().length) { sfx('bad'); flashTip(ev, 'SELECT SOMETHING TO CUT FIRST', false); return true; }
+    return copyClip(ev, true);
+  }
+  // Ctrl+D: the selection laid again beside itself (right, below, left, above — further out each time), the copies selected
+  function duplicateClip(ev) {
+    const c = clipOfSelection();
+    if (!c) { sfx('bad'); flashTip(ev, 'select something to duplicate', false); return true; }
     const tries = [];
-    for (let gap = 0; gap <= 6; gap++) tries.push([W + gap, 0], [0, H + gap], [-(W + gap), 0], [0, -(H + gap)]);
-    for (const [dx, dy] of tries) {
-      if (!looksClear(dx, dy)) continue;
-      const made = [];
-      const res = station.transact(() => {
-        for (const { p, spec } of plan) {
-          const r = station.addProp(Object.assign({ t: spec.t, x: p.x + dx, y: p.y + dy, w: spec.w, h: spec.h, block: spec.block }, spec.cfg));
-          if (!r || !r.ok) return r || { ok: false };
-          made.push(r.id);
-        }
-        return { ok: true };
-      });
+    for (let gap = 0; gap <= 8; gap++) for (const s of [0, 1, -1, 2, -2]) tries.push([c.x0 + c.w + gap, c.y0 + s], [c.x0 + s, c.y0 + c.h + gap], [c.x0 - c.w - gap, c.y0 + s], [c.x0 + s, c.y0 - c.h - gap]);
+    for (const [ax, ay] of tries) {
+      if (!(station.checkPaste(c, ax, ay) || {}).ok || !(station.probePaste(c, ax, ay) || {}).ok) continue;   // (asked first: a refused paste re-bakes the floor)
+      const res = station.pasteLines(c, ax, ay, { agent: agentHere });
       if (!res || !res.ok) continue;
-      pushFlash(plan.map(({ p }) => propRect(p, dx, dy)), false);
-      landProps(made, 40);
+      const made = res.ids.map(id => station.propById(id)).filter(Boolean);
+      pushFlash(made.map(p => propRect(p)), false);
+      landProps(made.slice().sort((a, b) => a.x - b.x || a.y - b.y).map(p => p.id), 40);
       if (typeof StationUI !== 'undefined' && StationUI.pokeQuests) { try { StationUI.pokeQuests(); } catch (_) {} }
-      setSelection(made);
-      flashTip(ev, 'duplicated ' + made.length + ' · the copies are selected · Ctrl+D again for another', true);
+      setSelection(res.ids, { links: res.links || [], tiles: [] });
+      flashTip(ev, 'duplicated · ' + clipWord(c).toLowerCase() + ' · the copies are selected · Ctrl+D again for another', true);
       return true;
     }
-    sfx('bad'); flashTip(ev, 'no clear floor beside them for a copy of all ' + ps.length + ' — clear some space, or select fewer');
+    sfx('bad'); flashTip(ev, 'no clear floor beside it for a copy — Ctrl+C, then click where there is room', false);
     return true;
+  }
+  // the paste is centred on the pointer (the prototype's anchor), so turning it keeps it under the hand
+  const clipAnchor = (c, tx, ty) => ({ ax: tx - Math.floor((c.w - 1) / 2), ay: ty - Math.floor((c.h - 1) / 2) });
+  let clipGhostMemo = null;
+  // the paste ghost at a pointer tile — the model's pure check, then (only when that says yes) its probe; memoized per edit + spot + turn
+  function clipGhost(tx, ty) {
+    const c = dupe.clip, { ax, ay } = clipAnchor(c, tx, ty), key = [geoVer, dupe.cid, dupe.rot | 0, ax, ay].join('|');
+    if (clipGhostMemo && clipGhostMemo.key === key) return clipGhostMemo.g;
+    let v = station.checkPaste(c, ax, ay);
+    if (v && v.ok) { const pr = station.probePaste(c, ax, ay); if (!pr || !pr.ok) v = Object.assign({ badNodes: [], badTiles: [] }, pr || { ok: false }, { whole: true }); }
+    const rects = c.nodes.map(n => ({ x1: ax + n.x, y1: ay + n.y, x2: ax + n.x + n.w - 1, y2: ay + n.y + n.h - 1 }));
+    const g = { clip: true, kind: 'dupe', ax, ay, rects, v: v || { ok: false }, badNodes: new Set((v && v.badNodes) || []), badTiles: new Set((v && v.badTiles) || []) };
+    clipGhostMemo = { key, g };
+    return g;
+  }
+  // a click with a clip in hand: lay it EXACTLY where the ghost was green — else, a line laid out to fit near the click — else, said
+  function pasteClipAt(w, ev) {
+    const c = dupe.clip, { ax, ay } = clipAnchor(c, w.tx, w.ty), g = clipGhost(w.tx, w.ty);
+    let res = g.v && g.v.ok ? station.pasteLines(c, ax, ay, { agent: agentHere }) : g.v, laid = false;
+    if (!(res && res.ok) && typeof LineEdit !== 'undefined' && LineEdit.layoutGraphNear && typeof station.clipGraph === 'function') {
+      const gr = station.clipGraph(c, { agent: agentHere });
+      if (gr && gr.ok) {
+        const L = LineEdit.layoutGraphNear(station, gr.graph, { x: w.tx, y: w.ty });
+        if (L && L.ok) { const r2 = station.pasteLinesLaid(c, L, { agent: agentHere }); if (r2 && r2.ok) { res = r2; laid = true; } }
+      }
+    }
+    if (!(res && res.ok)) { sfx('bad'); flashTip(ev, 'CAN’T PASTE HERE — ' + String((res && (res.short || res.msg)) || 'it does not fit').toUpperCase(), false); return; }
+    const made = (res.ids || []).map(id => station.propById(id)).filter(Boolean);
+    pushFlash(made.map(p => propRect(p)), false);
+    landProps(made.slice().sort((a, b) => a.x - b.x || a.y - b.y).map(p => p.id), 40);
+    if (made.length) floatAt({ x: (Math.min(...made.map(p => p.x)) + Math.max(...made.map(p => p.x + (p.w || 1)))) / 2, y: Math.min(...made.map(p => p.y)) }, 'PASTED · ' + dupe.label + (laid ? ' · LAID OUT TO FIT' : ''), 'ok');
+    if (typeof StationUI !== 'undefined' && StationUI.pokeQuests) { try { StationUI.pokeQuests(); } catch (_) {} }
+    if (made.some(p => p.t === 'intake') && typeof Tutorial !== 'undefined' && Tutorial.onBeltPlaced) Tutorial.onBeltPlaced();
+    setHint('placed · click again for another (it stays in hand) · R turns it · right-click / Esc puts it down');
+  }
+  // R with a clip in hand: a quarter turn clockwise (Shift+R: back) — a clip holding a piece that only stands one way does not turn
+  function turnClip(n, ev) {
+    if (!dupe || dupe.type !== 'lines') return;
+    if (!WorldModel.clipTurns || !WorldModel.clipTurns(dupe.clip)) { sfx('bad'); flashTip(ev, 'THIS COPY CAN’T TURN — A PIECE IN IT ONLY STANDS ONE WAY', false); return; }
+    dupe = Object.assign({}, dupe, { clip: WorldModel.rotateClip(dupe.clip, n), rot: ((dupe.rot | 0) + n) & 3 });
+    clipGhostMemo = null; sfx('click');
+    flashTip(ev, 'TURNED · ' + (dupe.rot * 90) + ' DEGREES', true);
   }
   // the group's card: up to three of them in the art well, how many and what, then the three things a group can do
   /* ---------- THE ROOM CARD (2026-10-01 build-mode upgrade, phase 2) ----------
@@ -5271,7 +5456,7 @@ const Build = (() => {
      one undo), CLEAR (its furniture goes; lines and desks stay) and DELETE (the spawn room is protected). */
   function selectRoom(rid) {
     const rm = rid ? station.roomById(rid) : null;
-    selectedPropId = null; groupIds = []; movingPropId = null; positionOpen = false; furnishOpen = false; roomDelArmedAt = 0; roomAsk = null;
+    selectedPropId = null; groupIds = []; selBelts = null; movingPropId = null; positionOpen = false; furnishOpen = false; roomDelArmedAt = 0; roomAsk = null;
     selectedRoomId = rm ? rm.id : null;
     renderSelection();
     if (rm) { setHint('Selected ' + (rm.name || 'the room') + ' · drag a gold handle to resize it · arrows move it · Del deletes'); sfx('click'); }
@@ -5495,21 +5680,32 @@ const Build = (() => {
       host.appendChild(grid);
     }
   }
+  /* the group's card: up to three of them in the art well, how many and what (and the belts it took), then what a group can do —
+     MOVE / DUPLICATE / COPY / CUT / DELETE; a selection that is exactly ONE WHOLE LINE is named for its line and offers
+     COPY LINE / DELETE LINE (THE HAND part 2) */
   function renderGroupCard(host, ps) {
     const count = {};
     for (const p of ps) { const l = propLabel(p.t); count[l] = (count[l] || 0) + 1; }
-    const kinds = Object.keys(count);
+    const kinds = Object.keys(count), bs = beltSel(), nb = bs ? bs.links.length + bs.tiles.length : 0, line = wholeLineOf(ps);
     const names = kinds.slice(0, 3).map(l => count[l] > 1 ? l + ' ×' + count[l] : l).join(' · ') + (kinds.length > 3 ? ' · +' + (kinds.length - 3) + ' more' : '');
-    host.innerHTML = '<div class="refit-sel-head"><span class="refit-sel-art is-group" aria-hidden="true"></span><span class="refit-sel-name"><b>' + ps.length + ' SELECTED</b><small>' + esc(names) + '</small></span>'
+    const beltWord = nb ? nb + (nb === 1 ? ' belt' : ' belts') : '';
+    const title = line ? line.name : ps.length ? ps.length + ' SELECTED' : beltWord.toUpperCase() + ' SELECTED';
+    const sub = line ? 'whole line · ' + ps.length + ' pieces' + (beltWord ? ' · ' + beltWord : '') : [names, beltWord].filter(Boolean).join(' · ');
+    host.innerHTML = '<div class="refit-sel-head"><span class="refit-sel-art is-group" aria-hidden="true"></span><span class="refit-sel-name"><b>' + esc(title) + '</b><small>' + esc(sub) + '</small></span>'
       + '<button class="bb sm refit-sel-x" type="button" aria-label="Deselect all" data-tip="Let go of all of them · Esc">✕</button></div><div class="refit-selection-actions"></div>';
     const art = host.querySelector('.refit-sel-art');
     ps.slice(0, 3).forEach(p => propArtInto(art, p));
     host.querySelector('.refit-sel-x').onclick = () => { setSelection([]); sfx('click'); };
     const actions = host.querySelector('.refit-selection-actions');
     const key = (label, k, fn, cls) => { const b = document.createElement('button'); b.className = 'bb sm refit-sel-act' + (cls ? ' ' + cls : ''); b.type = 'button'; b.innerHTML = '<span>' + esc(label) + '</span><kbd>' + esc(k) + '</kbd>'; b.onclick = fn; actions.appendChild(b); };
-    key('MOVE', 'drag', () => { sfx('click'); flashTip(orientEv(), 'drag any of them — they all move together · the arrows nudge them a tile', true); });
-    key('DUPLICATE', 'Ctrl+D', () => duplicateGroup(orientEv()));
-    key('DELETE', 'Del', () => deleteGroup(orientEv()), 'refit-sel-del');
+    if (ps.length) {
+      key('MOVE', 'drag', () => { sfx('click'); flashTip(orientEv(), 'drag any of them — they all move together' + (nb ? ', their belts follow' : '') + ' · the arrows nudge them a tile', true); });
+      key('DUPLICATE', 'Ctrl+D', () => duplicateGroup(orientEv()));
+      key(line ? 'COPY LINE' : 'COPY', 'Ctrl+C', () => copySelected(orientEv()));
+      key('CUT', 'Ctrl+X', () => cutSelected(orientEv()));
+    }
+    if (line) key('DELETE LINE', 'Del', () => deleteLine(line.id, orientEv()), 'refit-sel-del');
+    else key('DELETE', 'Del', () => deleteGroup(orientEv()), 'refit-sel-del');
   }
   function configureProp(p, ev) {
     if (!p) return;
@@ -5776,7 +5972,10 @@ const Build = (() => {
   /* ---------- DUPE tool: copy a room or prop, then stamp repeats — the symmetry workflow.
      Props copy their type/footprint + carried config (filter routes, airlock seal) but NEVER an
      agent/connector binding: crewing a bay is a deliberate choice (one agent may crew many — 2026-09-22) and a portal bind is a
-     live server relationship, not geometry. Rooms copy their full multi-rect shape + kind + deck style. */
+     live server relationship, not geometry. Rooms copy their full multi-rect shape + kind + deck style.
+     (THE HAND part 2, 2026-10-11 — Andrew approved copying a line WITH its crew, in his prototype: a conveyor piece, a group or a
+     whole line is a CLIP instead — dupe.type 'lines', see copyClip — whose BAYs keep their crew when that agent is on this
+     station. A lone piece of furniture is still this pickup, and still never carries a binding.) */
   function pickupDupe(w, ev, pickedId) {
     const pid = pickedId || propAtEvent(ev);
     if (pid) {
@@ -5807,6 +6006,7 @@ const Build = (() => {
   }
   function dupeRectsAt(tx, ty) { return dupe.rects.map(r => ({ x1: r.x1 + tx, y1: r.y1 + ty, x2: r.x2 + tx, y2: r.y2 + ty })); }
   function stampDupe(w, ev) {
+    if (dupe.type === 'lines') return pasteClipAt(w, ev);   // THE HAND part 2: lay the clip (one undo) — it stays in hand
     if (dupe.type === 'prop') {
       const placement = Object.assign({ t: dupe.t, x: w.tx, y: w.ty, w: dupe.w, h: dupe.h, block: dupe.block }, dupe.cfg);
       const res = station.addProp(placement);
@@ -5827,6 +6027,7 @@ const Build = (() => {
   }
   // validate the armed copy at a tile (the ghost's green/red) — same checks a hand placement runs
   function dupeGhost(tx, ty) {
+    if (dupe.type === 'lines') return clipGhost(tx, ty);   // THE HAND part 2: a CLIP of floor (its machines and belts) in hand
     const rects = dupeRectsAt(tx, ty);
     const v = dupe.type === 'prop'
       ? station.canPlaceProp(dupe.t, tx, ty, dupe.w, dupe.h)
@@ -6178,6 +6379,7 @@ const Build = (() => {
       if (!drag && (hand || touchArm || dropPick)) { setHand(null); return; }   // THE HAND: put down what is held (or the unanswered picker)
       if (drag || connectFrom || connectTo || dupe) { selectTool('select'); return; }
       if (selectedPropId || movingPropId || groupIds.length || selectedRoomId) { selectTool('select'); return; }
+      if (selBelts) { setSelection([]); return; }   // (a box that took only belts lets go too)
       if (typeof WorkflowPanel !== 'undefined' && WorkflowPanel.isOpen()) { WorkflowPanel.close(); return; }   // the docked panel closes (saving) before BUILD MODE does
       if (tool !== 'select') { deselectTool(); return; }                 // then the armed tool → SELECT
       /* LEAVING IS ITS OWN, EXPLICIT PRESS (2026-09-23 playtest). A bare select-mode ESC used to close BUILD MODE
@@ -6202,6 +6404,8 @@ const Build = (() => {
     // THE HAND: R mid-drag flips the belt's corner; Q picks up one like the piece under the pointer (Q again puts it down)
     if ((ev.key === 'r' || ev.key === 'R') && drag && (drag.mode === 'handbelt' || drag.mode === 'handbranch')) { ev.preventDefault(); flipCorner(); return; }
     if ((ev.key === 'q' || ev.key === 'Q') && tool === 'select' && !(ev.ctrlKey || ev.metaKey)) { ev.preventDefault(); pipette(orientEv(), hoverPropId); return; }
+    // THE HAND part 2: R with a CLIP in hand turns the paste a quarter (Shift+R: back)
+    if ((ev.key === 'r' || ev.key === 'R') && tool === 'dupe' && dupe && dupe.type === 'lines' && !(ev.ctrlKey || ev.metaKey)) { ev.preventDefault(); turnClip(ev.shiftKey ? 3 : 1, orientEv()); return; }
     // R/M belong to pending prop placement, or to hovered furniture while browsing.
     // Both are no-ops with a reason on art that cannot turn/flip.
     if (ev.key === 'r' || ev.key === 'R') { ev.preventDefault(); turnUnderCursor(ev.shiftKey ? -1 : 1); return; }
@@ -6213,17 +6417,21 @@ const Build = (() => {
       const RA = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[ev.key];
       if (RA) { ev.preventDefault(); const n = ev.shiftKey ? 5 : 1; nudgeRoom(RA[0] * n, RA[1] * n, orientEv()); return; }
     }
+    // a box that took only BELTS: Delete takes them up (THE HAND part 2)
+    if (!selectedPropId && !groupIds.length && selBelts && tool === 'select' && (ev.key === 'Delete' || ev.key === 'Backspace')) { ev.preventDefault(); deleteGroup(orientEv()); return; }
     // EDITOR KEYS on the selected object — or the selected group (MANY AT ONCE); with nothing selected they do nothing, quietly
     if ((selectedPropId || groupIds.length) && tool === 'select') {
       if (ev.key === 'Delete' || ev.key === 'Backspace') { ev.preventDefault(); deleteSelected(orientEv()); return; }
       if ((ev.ctrlKey || ev.metaKey) && (ev.key === 'd' || ev.key === 'D')) { ev.preventDefault(); duplicateSelected(orientEv()); return; }
       if ((ev.ctrlKey || ev.metaKey) && (ev.key === 'c' || ev.key === 'C')) { ev.preventDefault(); copySelected(orientEv()); return; }
+      if ((ev.ctrlKey || ev.metaKey) && (ev.key === 'x' || ev.key === 'X')) { ev.preventDefault(); cutSelected(orientEv()); return; }   // CUT: copy, then take it up (one undo)
       const ARROW = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[ev.key];
       if (ARROW) { ev.preventDefault(); const n = ev.shiftKey ? 5 : 1; nudgeSelected(ARROW[0] * n, ARROW[1] * n, orientEv()); return; }
     }
     if ((ev.ctrlKey || ev.metaKey) && (ev.key === 'v' || ev.key === 'V') && lastCopy) {
       ev.preventDefault();
       const held = lastCopy;
+      if (held.type === 'lines') { holdClip(held, orientEv()); return; }   // a CLIP of floor: the paste ghost (R turns it)
       selectTool('dupe', { keepGroup: true, silent: true }); dupe = held; sfx('click');
       flashTip(orientEv(), 'HOLDING ' + held.label + ' — click to place copies · right-click to drop', true);
       setHint('holding ' + held.label + ' — click to stamp copies · right-click / Esc to drop');
@@ -7784,6 +7992,7 @@ const Build = (() => {
       drawPropSelection(selected,t,'rgba(244,200,112,.9)');
     }
     for(const id of groupIds){const gp=station.propById(id);if(gp)drawPropSelection(gp,t,'rgba(244,200,112,.9)',false);}
+    if(selBelts){const bs=beltSel();if(bs)drawBeltCells(t,bs.cells,'rgba(244,200,112,.85)');}   // the belts the selection took (THE HAND part 2)
     if (selectedRoomId && !(drag && drag.mode === 'roomresize')) drawRoomSelection(t);
     if (drag) return;
     // a hovered prop (select/move/reclaim) outlines on top of any room outline
@@ -8041,15 +8250,51 @@ const Build = (() => {
   }
   // the selection box (SELECT, a drag across empty floor): the tiles it covers, and a cyan outline on everything it will take
   function drawSelectBox(t) {
-    const r = norm(drag.start, drag.cur), ids = propsInBox(r);
+    const r = norm(drag.start, drag.cur), ids = propsInBox(r), bb = beltsInBox(r, drag.add ? selectionIds().concat(ids) : ids);
     for (const id of ids) { const p = station.propById(id); if (p) drawPropSelection(p, t, 'rgba(120,220,255,0.95)', false); }
+    drawBeltCells(t, bb.cells, 'rgba(120,220,255,0.85)');   // the belts it will take with them (THE HAND part 2)
     const X = r.x1 * t, Y = r.y1 * t, W = (r.x2 - r.x1 + 1) * t, H = (r.y2 - r.y1 + 1) * t;
     ctx.save();
     ctx.fillStyle = 'rgba(120,220,255,0.06)'; ctx.fillRect(X, Y, W, H);
     ctx.strokeStyle = 'rgba(120,220,255,0.85)'; ctx.lineWidth = 1.2 / zoom; ctx.setLineDash([4 / zoom, 3 / zoom]);
     ctx.strokeRect(X + 0.5 / zoom, Y + 0.5 / zoom, W - 1 / zoom, H - 1 / zoom);
     ctx.restore();
-    ghostBadge(t, ids.length ? [ids.length + (ids.length === 1 ? ' THING' : ' THINGS'), drag.add ? 'RELEASE TO ADD THEM' : 'RELEASE TO SELECT'] : ['DRAG ACROSS WHAT YOU WANT'], ids.length > 0, r);
+    const nb = bb.n, what = [ids.length ? ids.length + (ids.length === 1 ? ' THING' : ' THINGS') : '', nb ? nb + (nb === 1 ? ' BELT' : ' BELTS') : ''].filter(Boolean).join(' · ');
+    ghostBadge(t, what ? [what, drag.add ? 'RELEASE TO ADD THEM' : 'RELEASE TO SELECT'] : ['DRAG ACROSS WHAT YOU WANT'], !!what, r);
+  }
+  // belt tiles outlined (a selection's belts in gold, the box's in cyan) — dashed, drawn geometry (never convey.drawBelts, H9)
+  function drawBeltCells(t, cells, col) {
+    if (!cells || !cells.length) return;
+    ctx.save(); ctx.strokeStyle = col; ctx.lineWidth = 1.3 / zoom; ctx.setLineDash([3 / zoom, 2 / zoom]);
+    for (const q of cells) ctx.strokeRect(q.x * t + 2 / zoom, q.y * t + 2 / zoom, t - 4 / zoom, t - 4 / zoom);
+    ctx.restore();
+  }
+  /* THE PASTE GHOST (THE HAND part 2): the clip's machines in their own art where they would land, each footprint green where it
+     fits and red where it does not, every belt tile dashed with a chevron the way it flows (green / red per tile — drawn
+     geometry, never convey.drawBelts: a second belt array per frame drops the atlas, H9), and on the badge what is held and
+     why not. All of it read off the memoized clipGhost — nothing here asks the model. */
+  function drawClipGhost(t, now, g) {
+    if (!dupe || !dupe.clip) return;
+    const c = dupe.clip, ok = !!(g.v && g.v.ok), whole = !ok && !!g.v.whole;
+    const GOOD = 'rgba(120,255,170,0.95)', BAD = 'rgba(255,120,110,0.95)';
+    const ps = c.nodes.map((n, i) => ({ i, p: { id: '__clip' + i, t: n.t, x: g.ax + n.x, y: g.ay + n.y, w: n.w, h: n.h, r: n.r, m: n.m } }))
+      .sort((a, b) => (a.p.y + a.p.h) - (b.p.y + b.p.h));
+    ctx.save(); ctx.globalAlpha = 0.6; PropSprites.setCtx(ctx); PropSprites.setNow(now);
+    try { for (const q of ps) PropSprites.draw(q.p, false); } finally { ctx.restore(); }
+    for (const q of ps) {
+      const bad = !ok && (whole || g.badNodes.has(q.i)), r = propRect(q.p);
+      ctx.fillStyle = bad ? 'rgba(255,90,80,0.18)' : 'rgba(80,255,140,0.12)'; ctx.fillRect(r.x1 * t, r.y1 * t, (r.x2 - r.x1 + 1) * t, (r.y2 - r.y1 + 1) * t);
+      drawPropSelection(q.p, t, bad ? BAD : GOOD, false);
+    }
+    const good = [], badT = [];
+    for (const b of (c.belts || [])) { const x = g.ax + b.x, y = g.ay + b.y; ((!ok && (whole || g.badTiles.has(x + ',' + y))) ? badT : good).push({ x, y, d: b.d }); }
+    if (good.length) drawBeltPreview(t, { path: good }, GOOD);
+    if (badT.length) drawBeltPreview(t, { path: badT }, BAD);
+    const bb = { x1: g.ax, y1: g.ay, x2: g.ax + c.w - 1, y2: g.ay + c.h - 1 };
+    const lines = ['PASTE · ' + String(dupe.label || '').toUpperCase() + (dupe.rot ? ' · TURNED ' + dupe.rot * 90 : '')];
+    if (ok) lines.push('CLICK TO PLACE · R TURNS IT');
+    else { lines.push(String(g.v.short || g.v.msg || 'IT DOES NOT FIT HERE').toUpperCase()); if (c.nodes.every(n => CONNECT_TYPES[n.t])) lines.push('A CLICK LAYS IT OUT TO FIT NEAR HERE'); }
+    ghostBadge(t, lines, ok, bb);
   }
   // a group being dragged: every member's art at its new spot, outlined green (it fits) or red (something outside the group is in the way)
   function drawGroupGhost(t, now, g) {
@@ -8090,6 +8335,7 @@ const Build = (() => {
     const g = ghostInfo();
     if (!g) return;
     if (g.group) { drawGroupGhost(t, now, g); return; }
+    if (g.clip) { drawClipGhost(t, now, g); return; }
     if (g.row) { drawRowGhost(t, now, g); return; }
     // Show the actual art at the exact candidate footprint, including its facing
     // and tabletop lift. The outline still communicates the model's occupied tiles.
@@ -8354,6 +8600,16 @@ const Build = (() => {
     feel: () => ({ landing: [...landings.keys()], vanishing: vanishing.length, selected: selectedPropId }),
     // MANY AT ONCE: the ids selected right now (one, a group, or none)
     selection: () => selectionIds(),
+    /* THE HAND part 2: the belts the selection took, what is in hand to paste (and its ghost verdict at a tile), and a REAL
+       double-click on a tile (onDblClick — the handler the canvas's dblclick runs) */
+    selectionBelts: () => { const b = beltSel(); return b ? { links: b.links.slice(), tiles: b.tiles.length, cells: b.cells.length } : null; },
+    clip: (tile) => {
+      if (!(tool === 'dupe' && dupe && dupe.type === 'lines')) return lastCopy && lastCopy.type === 'lines' ? { held: false, label: lastCopy.label, n: lastCopy.clip.n, nb: lastCopy.clip.nb } : null;
+      const g = tile ? clipGhost(tile[0], tile[1]) : null;
+      return { held: true, label: dupe.label, n: dupe.clip.n, nb: dupe.clip.nb, rot: dupe.rot | 0, w: dupe.clip.w, h: dupe.clip.h, ghost: g && { ok: !!g.v.ok, short: g.v.short || g.v.msg || null, ax: g.ax, ay: g.ay, badNodes: g.badNodes.size, badTiles: g.badTiles.size } };
+    },
+    dblClick: (tile) => { onDblClick(Object.assign(__test__._tileEvent(tile), { preventDefault() {} })); return { selection: selectionIds(), belts: (beltSel() || { links: [] }).links.length }; },
+    click: (tile, o) => { const e = Object.assign(__test__._tileEvent(tile), o || {}); onDown(e); onUp(e); return { tool, selection: selectionIds() }; },
     // the armed tool (select = nothing armed) — CDP proof scripts assert the deselect gestures on this
     tool: () => tool,
     // the live WorldModel — for CDP verify scripts to lay a floor through the REAL validated
