@@ -7551,7 +7551,7 @@ function standingWorkNotice(brief, agentId, o) {
     const saved = saveStore.load('agent') || null;
     const epoch = Math.max(1, Math.floor(Number(saved && saved.agent && saved.agent.createdAt) || 1));
     const n = WorkflowTakeover.notice({ directive: brief.originalDirective, agentId, projectRoot: (o && o.projectRoot) || '',
-      briefs: TrustedLearning.ownedBriefs(taskBriefStore.list({ limit: 500 }), transcriptStore.all()).filter(b => b.id !== brief.id), runs: runStore.all(), jobs: cronJobs,
+      briefs: TrustedLearning.ownedBriefs(taskBriefStore.list({ limit: 500 }), transcriptStore.all(), runStore.all()).filter(b => b.id !== brief.id), runs: runStore.all(), jobs: cronJobs,
       ratings: growthRatings.list({ limit: 500, epoch }), state: workflowTakeoverStore.read(), enabled: true, now: Date.now(), redact });
     if (!n) return null;
     workflowTakeoverStore.decide(n.id, 'shown', Date.now(), n.core).catch(e => console.warn('[workflow-takeover] notice impression not saved:', (e && e.message) || e));
@@ -7562,7 +7562,7 @@ function workflowTakeoverCandidates(ignoreOffers) {
   const state = workflowTakeoverStore.read();
   const saved = saveStore.load('agent') || null;
   const epoch = Math.max(1, Math.floor(Number(saved && saved.agent && saved.agent.createdAt) || 1));
-  return WorkflowTakeover.candidates({ briefs: TrustedLearning.ownedBriefs(taskBriefStore.list({ limit: 500 }), transcriptStore.all()), runs: runStore.all(), jobs: cronJobs,
+  return WorkflowTakeover.candidates({ briefs: TrustedLearning.ownedBriefs(taskBriefStore.list({ limit: 500 }), transcriptStore.all(), runStore.all()), runs: runStore.all(), jobs: cronJobs,
     ratings: growthRatings.list({ limit: 500, epoch }),
     state: ignoreOffers ? Object.assign({}, state, { decisions: state.decisions.filter(d => d.never) }) : state,
     enabled: personalizationStore.read().enabled, now: Date.now(), redact });
@@ -7711,7 +7711,7 @@ function nightshiftContextPack() {
   // its first line; a harmless heading cannot launder a quoted document below it. Bound the source window first.
   let cleanOwnerChats = [], chats = [];
   try {
-    cleanOwnerChats = TrustedLearning.cleanOwnerRows(transcriptStore.all());
+    cleanOwnerChats = TrustedLearning.cleanOwnerRows(transcriptStore.all(), runStore.all());
     chats = cleanOwnerChats.map(m => ({ role: m.role, content: m.content, ts: m.ts, streamId: m.streamId }));
   } catch (_) { cleanOwnerChats = []; chats = []; }
   // Briefs have no independent provenance stamp. Match their exact stored directive to a proven clean owner turn

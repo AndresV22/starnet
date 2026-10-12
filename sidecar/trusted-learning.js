@@ -15,12 +15,21 @@ function quotedMaterial(text) {
 }
 // Ambient activity and repeat-work claims require the original owner text, not the completion run's later
 // provenance. Bound before filtering; legacy rows without an explicit clean stamp cannot supply that proof.
-function cleanOwnerRows(rows) {
-  return (Array.isArray(rows) ? rows : []).slice(-400).filter(m => m && m.role === 'user' && m.taintKnown === true && !m.taint && !m.from &&
-    typeof m.content === 'string' && m.content.trim() && !quotedMaterial(m.content));
+function cleanOwnerRows(rows, runRecords) {
+  const origins = runRecords === undefined ? null : new Map((Array.isArray(runRecords) ? runRecords : []).filter(r => r && r.runId).map(r => [r.runId, r]));
+  return (Array.isArray(rows) ? rows : []).slice(-400).filter(m => {
+    if (!m || m.role !== 'user' || m.taintKnown !== true || m.taint || m.from ||
+      typeof m.content !== 'string' || !m.content.trim() || quotedMaterial(m.content)) return false;
+    if (!origins) return true;
+    // A clean row can still be station self-talk. Resolve its original run independently of the recent
+    // title window; missing origin or an unknown internal flag is not evidence of an owner request.
+    const r = origins.get(m.sourceRunId);
+    return !!(r && r.internal === false && !r.parentRunId && !r.delegatedBy && !r.cronJobId && !r.recoveryOf &&
+      r.agentId === m.agentId && (r.streamId || 'global') === m.streamId && !/^(?:nightshift-|cron-|workshop-)/i.test(r.streamId || ''));
+  });
 }
-function ownedBriefs(briefs, transcriptRows) {
-  const clean = cleanOwnerRows(transcriptRows), seen = new Set();
+function ownedBriefs(briefs, transcriptRows, runRecords) {
+  const clean = cleanOwnerRows(transcriptRows, runRecords), seen = new Set();
   return (Array.isArray(briefs) ? briefs : []).filter(b => {
     if (!b || !b.agentId || !b.originalDirective) return false;
     // New briefs retain an immutable originalRunId. Older host briefs already encode that identity in
