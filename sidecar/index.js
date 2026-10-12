@@ -3466,26 +3466,19 @@ function persistSkillNudge() {
   try { saveResilient(SKILL_NUDGE_FILE, { v: 1, counts: Object.fromEntries(skillNudge) }); }
   catch (e) { failNote('skill.nudge.persist', e); }
 }
-// The parked review packets are DURABLE (verdict.packets.json, provider-free + compacted): a verdict the Commander
-// gives after a restart still reaches its review. Writes are coalesced (one per second at most) because every task
-// run's end stashes a packet. TTL 72h (was 6h): a rating from the OUTBOX the next day still teaches.
+// Parked and armed review jobs are durably acknowledged before scheduling or dispatch.
 const VERDICT_PACKETS_FILE = path.join(WORKSPACES, 'verdict.packets.json');
-let _verdictPersistTimer = null, _verdictPersistRows = null;
-function flushVerdictPackets() {
-  if (!_verdictPersistTimer) return;
-  clearTimeout(_verdictPersistTimer); _verdictPersistTimer = null;
-  try { saveResilient(VERDICT_PACKETS_FILE, { v: 1, rows: _verdictPersistRows || [] }); }
-  catch (e) { failNote('verdict.packets.flush', e); }
-}
+function flushVerdictPackets() { /* Every transition is already synchronous and verified. */ }
 function persistVerdictPackets(rows) {
-  _verdictPersistRows = rows;
-  if (_verdictPersistTimer) return;
-  _verdictPersistTimer = setTimeout(() => {
-    _verdictPersistTimer = null;
-    try { saveResilient(VERDICT_PACKETS_FILE, { v: 1, rows: _verdictPersistRows || [] }); }
-    catch (e) { failNote('verdict.packets.persist', e); }
-  }, 1000);
-  if (_verdictPersistTimer.unref) _verdictPersistTimer.unref();
+  const value = { v: 2, rows: rows || [] };
+  saveResilient(VERDICT_PACKETS_FILE, value);
+  const proven = loadResilient(VERDICT_PACKETS_FILE, 'verdict-packets');
+  if (JSON.stringify(proven) !== JSON.stringify(value)) throw new Error('verdict review persistence could not be verified');
+  return true;
+}
+function launchVerdictReview(job) {
+  console.log('[skills] verdict-triggered review fired run=' + job.runId + ' verdict=' + job.verdict + ' by=' + job.firedBy);
+  return rehydrateReviewJob(job).then(runBackgroundSkillReview);
 }
 const verdictReview = makeVerdictReview({ cap: num(process.env.SKYNET_VERDICT_REVIEW_CAP, 40), ttlMs: num(process.env.SKYNET_VERDICT_REVIEW_TTL_MS, 72 * 60 * 60 * 1000), graceMs: num(process.env.SKYNET_VERDICT_REVIEW_GRACE_MS, 90 * 1000), now: () => Date.now(), onChange: persistVerdictPackets, redact: (t) => redact(t) });
 try {
@@ -3512,18 +3505,18 @@ const SKILL_CURATOR_MAX_COST_USD = num(process.env.SKYNET_SKILL_CURATOR_MAX_USD,
 const skillCuratorLastRun = new Map();
 async function runBackgroundSkillReview(o) {
   const { agentId, runId, messages, provider, model, cost, loadedSkills, managedSkills, verdict, correction } = o || {};
-  if (!LearningEvidence.buildLearningEvidence(o, redact).eligible) { console.log('[skills] review skipped run=' + String(runId || '') + ': no trusted learning evidence'); return null; }
+  if (!LearningEvidence.buildLearningEvidence(o, redact).eligible) { console.log('[skills] review skipped run=' + String(runId || '') + ': no trusted learning evidence'); return true; }
   const unmetered = !!(o && o.unmetered);   // Codex/unmetered parity: mirror reflection/study so a Codex-only user's budget isn't drained by phantom aux spend
   // a spending cap that is reached stops this paid pass too: a thumbs-down after the daily cap used to fire a review call
   // anyway (one per rating) — the verdict path reaches here with no budget check of its own (QA 2026-10-02)
   if (!unmetered) {
     let blocked = null;
     try { blocked = budget.check(null, String(agentId || 'agent'), 0, Date.now(), null); } catch (_) { blocked = null; }
-    if (blocked) { console.log('[skills] review skipped run=' + String(runId || '') + ': ' + (blocked.unknown ? 'spend history is unavailable' : 'the spending cap is reached')); return null; }
+    if (blocked) { console.log('[skills] review skipped run=' + String(runId || '') + ': ' + (blocked.unknown ? 'spend history is unavailable' : 'the spending cap is reached')); return false; }
   }
   const ac = new AbortController();
   const timer = setTimeout(() => { try { ac.abort(); } catch (_) {} }, SKILL_REVIEW_TIMEOUT_MS);
-  const reviewRunId = String(runId || 'run') + '_skill_review';
+  const reviewRunId = String(runId || 'run') + '_skill_review_' + crypto.randomUUID();
   let result = null;
   try {
     const registry = makeRegistry();
@@ -3566,7 +3559,7 @@ async function runBackgroundSkillReview(o) {
     };
     const reviewNotebook = notebookStore.get('notebook:' + agentId);
     const prompt = skillReview.buildPrompt({
-      agentId, runId, messages, verdict, correction, correctionSource: o && o.correctionSource, learningEvidence: o && o.learningEvidence, toolTrace: o && o.toolTrace, completionEvidence: o && o.completionEvidence, reason: o && o.reason, failed: !!(o && o.failed),
+      agentId, runId, messages, verdict, correction, correctionSource: o && o.correctionSource, correctionOriginalChars: o && o.correctionOriginalChars, correctionTruncated: o && o.correctionTruncated, learningEvidence: o && o.learningEvidence, toolTrace: o && o.toolTrace, completionEvidence: o && o.completionEvidence, reason: o && o.reason, failed: !!(o && o.failed),
       loadedSkills: loadedSkills || [],
       managedSkills: managedSkills || [],
       // top-12 by rank() against the run's directive (was: last 12 in raw store order) — the reviewer sees the
@@ -3584,13 +3577,14 @@ async function runBackgroundSkillReview(o) {
       signal: ac.signal, clock: { now: () => Date.now() },
       agentId, runId: reviewRunId, model, trigger: 'event'
     });
-  } catch (e) { console.warn('[skills] background review failed:', (e && e.message) || e); }
+  } catch (e) { console.warn('[skills] background review failed:', (e && e.message) || e); throw e; }
   finally {
     clearTimeout(timer);
     if (result && result.usd) {
       try { ledger.record({ runId: reviewRunId, agentId, turns: result.turns || 0, usd: result.usd || 0, tokens: result.tokens || 0, unmetered }); } catch (_) {}
     }
   }
+  return !!(result && result.reason === 'done');
 }
 
 // auxCuratorDue — is the skill curator's 24h interval elapsed for this agent? Hoisted for the aux governor so
@@ -11795,6 +11789,7 @@ server.on('error', (e) => {
   process.exit(1);
 });
 server.listen(PORT, '127.0.0.1', () => {
+  verdictReview.resumeHeld(launchVerdictReview);
   const url = 'http://127.0.0.1:' + PORT;
   const bar = '═'.repeat(58);
   console.log('\n' + bar);
@@ -25563,10 +25558,7 @@ async function handleGrowthRatings(req, res) {
   if (!result.duplicate && process.env.SKYNET_SKILL_REVIEW !== '0') {
     // ARM, don't fire (slice 2): hold the review for a grace window so the Commander's correction — a follow-up
     // chip or the next typed message (POST /api/growth/ratings/correction) — rides into the prompt in their words.
-    skillReviewArmed = verdictReview.arm(runId, canonical.verdict, (job) => {
-      console.log('[skills] verdict-triggered review fired run=' + runId + ' verdict=' + job.verdict + ' by=' + job.firedBy + (job.correction ? ' correction=' + JSON.stringify(job.correction.slice(0, 80)) : ''));
-      rehydrateReviewJob(job).then(runBackgroundSkillReview).catch(swallow('aux.skillreview.verdict'));
-    }, String(body.correction || ''));
+    skillReviewArmed = verdictReview.arm(runId, canonical.verdict, launchVerdictReview, String(body.correction || ''));
     if (skillReviewArmed) console.log('[skills] verdict-triggered review armed run=' + runId + ' verdict=' + canonical.verdict + ' grace=' + verdictReview.graceMs + 'ms');
   }
   return json(200, { ok: true, duplicate: !!result.duplicate, rating: result.rating, skillReviewArmed, goldensMinted, feedbackMemory });

@@ -4344,7 +4344,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
             receipt = r.receipt;
             note.textContent = 'Task family: ' + (suite.description || suite.id) + ' · result: ' + String(receipt && receipt.status || 'unconfirmed') + '. Approval remains a separate action.';
             const details = mkEl('pre', ''); details.textContent = JSON.stringify(receipt, null, 2); note.appendChild(details);
-            approve.disabled = !(receipt && receipt.status === 'pass' && receipt.receiptId);
+            approve.disabled = !(receipt && receipt.status === 'passed' && receipt.receiptId);
           } catch (e) { note.textContent = e.message; }
           finally { busy = false; run.disabled = false; }
         };

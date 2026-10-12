@@ -83,7 +83,7 @@ async function checkCandidateReview() {
   }
   const postSource = source.slice(source.indexOf('  async function skillReviewPost('), source.indexOf('  function loadAgentSkills('));
   const renderSource = source.slice(source.indexOf('  function renderSkillCandidates('), source.indexOf('  function renderAgentSkills('));
-  const requests = [], reloads = [], host = element(); let status = 'pass';
+  const requests = [], reloads = [], host = element(); let status = 'passed';
   const ctx = { host, esc: String, mkEl: element, loadAgentSkills: id => reloads.push(id),
     Harness: { api: { post: async (path, body) => { requests.push({ path, body }); return { ok: true, j: { ok: true, receipt: { receiptId: 'host-receipt', status } } }; } } },
     review: { candidates: [{ candidateId: 'candidate-3', candidateDigest: 'exact-sha', revision: 3,
