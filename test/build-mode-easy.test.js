@@ -309,7 +309,7 @@ A.ok(/const res = pre && pre\.ok \? keepsHalls\(\(\) => station\.resizeRoom\(rm\
 A.ok(/if \(g\.kind === 'resize'\) return/.test(fn('placementReason')), 'a resize refusal says the room\'s own reason (never "Blocked by" a prop inside it)');
 A.ok(/station\.moveRoom\(rm\.id, dx, dy\)/.test(fn('nudgeRoom')) && /deleteSelectedRoom\(orientEv\(\)\)/.test(key) && /nudgeRoom\(RA\[0\] \* n, RA\[1\] \* n, orientEv\(\)\)/.test(key),
   'with a room selected the arrows nudge it (its contents ride) and Delete deletes it');
-A.ok(/press Delete again to delete/.test(fn('deleteSelectedRoom')) && /now - roomDelArmedAt > 2500/.test(fn('deleteSelectedRoom')), '…on the SECOND press (a room takes everything on it)');
+A.ok(/press Delete again to delete/.test(fn('deleteSelectedRoom')) && /now - roomDelArmedAt > \(sendCutArm \? 6000 : 2500\)/.test(fn('deleteSelectedRoom')), '…on the SECOND press within 2.5 s (a room takes everything on it) — or anywhere in a standing SEND TO cut warning’s 6 s window (final floor lane M15)');
 A.ok(/on\.forEach\(p => vanishProp\(p\)\)/.test(fn('doDeleteRoom')), 'a deleted room\'s contents dissolve');
 const re = fn('runRoomEdit');
 A.ok(/StationBuilder\.planEdit\(station\.serialize\(\), req, env\)/.test(re) && /StationBuilder\.apply\(station, r\.plan, env\)/.test(re), 'FURNISH / CLEAR are the station builder\'s own planned edit, applied as planned (one undo)');
