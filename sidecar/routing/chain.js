@@ -518,13 +518,18 @@ function makeChainRunner(o) {
       return js;
     };
     async function runBatch(items, hop0) {
+      /* INSIDE A LOOP PASS every branch is a re-visit by design — the same reading the one-after-another hop takes (`if (looping)
+         loopHop = true` below), so a COPY section a review loop sends work back through runs its second pass instead of stopping on
+         "the line loops back to …" (wave 2 review, conveyor-backend-01). Those hops count off the stage ceiling like any loop hop. */
+      const lp = looping;
       for (let i = 0; i < items.length; i++) {
         const b = items[i], k = nodeKey(b.node);
-        if (visited[k]) return { refused: 'the line loops back to ' + b.node.agentId };
-        const refused = preHopRefusal({ visited, target: b.node.agentId, targetKey: k, loopHop: true, hop: hop0 + i, loopHops, lim, spent, dayLedger, lineId, text: b.text, cur: (b.from || cur).agentId });
+        if (visited[k] && !lp) return { refused: 'the line loops back to ' + b.node.agentId };
+        const refused = preHopRefusal({ visited, target: b.node.agentId, targetKey: k, loopHop: true, hop: hop0 + i, loopHops: loopHops + (lp ? i + 1 : 0), lim, spent, dayLedger, lineId, text: b.text, cur: (b.from || cur).agentId });
         if (refused) return { refused };
       }
-      for (const b of items) visited[nodeKey(b.node)] = true;
+      if (lp) loopHops += items.length;
+      else for (const b of items) visited[nodeKey(b.node)] = true;
       const share = Math.max(0, lim.maxUsd - spent) / items.length;
       const results = await Promise.all(items.map(async (b, i) => {
         const t = b.node, from = b.entry ? null : (b.from || cur), workitemId = newId(), t0 = now();

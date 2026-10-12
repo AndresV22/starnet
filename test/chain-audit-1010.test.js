@@ -273,5 +273,50 @@ const belt = (x, y, dir) => ({ x, y, dir });
     }
   }
 
+  /* ---- 6. a COPY split inside a review loop's pass (wave 2 review, conveyor-backend-01): INBOX ▸ drafter ▸ COPY split ▸
+     [factcheck] + [style] ▸ JOINER ▸ editor ▸ LOOP (back lane to the drafter) ▸ OUTBOX. The parallel batch ignored the loop pass:
+     on the second pass it found factcheck already visited and stopped with "the line loops back to …", where the one-after-another
+     walk (no peek) honours the pass and finishes. Both must run the second review, and the pass's hops count off the ceiling. ---- */
+  {
+    const s = WM.create(), z = s.rooms()[0].rects[0];
+    s.addRoom({ kind: 'hab', rect: { x1: z.x2 + 1, y1: z.y1, x2: z.x2 + 50, y2: z.y1 + 40 } });
+    const near = { x: z.x2 + 10, y: z.y1 + 6 };
+    const nl = LE.run(s, null, 'newLine', { role: 'WRITER' }, { near });
+    A.ok(nl.ok, 'a one-step line (' + JSON.stringify(nl.error || '') + ')');
+    const drafter = s.props().find(p => p.t === 'bay' && p.role === 'WRITER');
+    let r = LE.run(s, drafter.id, 'addLoop', { around: drafter.id, max: 3 }, { near });
+    if (!r.ok) r = LE.run(s, drafter.id, 'addLoop', { around: drafter.id, max: 3 }, { near, tidy: true });
+    A.ok(r.ok, 'a review loop round the drafter (' + JSON.stringify(r.error || '') + ')');
+    const editor = s.props().find(p => p.t === 'bay' && p.role === 'REVIEWER');
+    r = LE.run(s, drafter.id, 'addBranch', { from: drafter.id, to: editor.id, mode: 'copy', n: 2 }, { near });
+    if (!r.ok) r = LE.run(s, drafter.id, 'addBranch', { from: drafter.id, to: editor.id, mode: 'copy', n: 2 }, { near, tidy: true });
+    A.ok(r.ok, 'a COPY section between the drafter and the editor (' + JSON.stringify(r.error || '') + ')');
+    const branches = s.props().filter(p => p.t === 'bay' && p.id !== drafter.id && p.id !== editor.id);
+    A.eq(branches.length, 2, 'two branch steps');
+    s.assignPropAgent(drafter.id, 'drafter'); s.assignPropAgent(editor.id, 'editor');
+    s.assignPropAgent(branches[0].id, 'factcheck'); s.assignPropAgent(branches[1].id, 'style');
+    const plan = P.compileRoutingPlan(s.projectGeometry());
+    A.eq(plan.errors.filter(e => !e.warn).length, 0, 'the looped COPY floor compiles (' + JSON.stringify(plan.errors) + ')');
+    const router = makeRouter(); A.ok(router.setPlan(plan).ok, 'and deploys');
+    const lineId = router.lineOfAgent('drafter', drafter.id);
+    for (const peek of [true, false]) {
+      let editorN = 0; const ran = [];
+      const c = makeChainRunner(Object.assign({ nextAgent: (a, x) => router.chainNext(a, x), stepAgent: (a, x) => router.chainStep(a, x),
+        stepDock: (d, x) => router.chainStepDock(d, x), entryDockOf: a => router.entryDockOf(a), fanSiblingsDock: d => router.fanSiblingsDock(d),
+        lineOfAgent: (a, d) => router.lineOfAgent(a, d), lastStage: (a, d) => router.chainShipsToOutbox(a, d), setTimer: () => 0 },
+        peek ? { peekDock: (d, x) => router.chainPeekDock(d, x) } : {}));
+      const out = await c.advance({ agentId: 'drafter', dockId: drafter.id, text: 'draft v1', originalText: 'write X', lineId,
+        runAgent: async h => { ran.push(h.agentId);
+          if (h.agentId === 'editor') return { text: (++editorN === 1) ? 'needs work\nVERDICT: revise' : 'good\nVERDICT: approved' };
+          return { text: h.agentId + ' out' }; } });
+      const order = ran.map(a => (a === 'factcheck' || a === 'style') ? 'branch' : a).join(' > ');
+      const label = peek ? 'parallel' : 'one after another';
+      A.eq(out.stopped, null, label + ': the second review pass runs through the COPY section (' + out.stopped + ')');
+      A.eq(order, 'branch > branch > editor > drafter > branch > branch > editor', label + ': drafter, both branches, editor — twice');
+      A.eq(out.agentId, 'editor', label + ': the editor has the last word');
+      A.ok(/^good/.test(String(out.text)) && !/VERDICT/.test(String(out.text)), label + ': the approved review leaves on DONE (' + JSON.stringify(String(out.text).slice(0, 60)) + ')');
+    }
+  }
+
   A.report('chain-audit-1010');
 })();
