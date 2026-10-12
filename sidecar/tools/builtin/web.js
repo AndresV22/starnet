@@ -116,6 +116,16 @@
      a key. Same shape as telegram.transport.js errOf. Returns e. */
   function nameTransport(e, host) {
     const c = e && e.cause;
+    // A response body can fail after headers arrived. Keep its distinct prefix;
+    // append only bounded machine metadata, never decoder text or cause URLs.
+    if (c && e instanceof Error && e.name !== 'AbortError' && e.message === 'terminated') {
+      const code = typeof c.code === 'string' && /^[A-Z][A-Z0-9_]{0,63}$/.test(c.code) ? c.code : '';
+      const h = typeof host === 'string' ? host : '';
+      const ip = h.startsWith('[') && h.endsWith(']') ? h.slice(1, -1) : h;
+      const hostname = h.length <= 253 && (/^[A-Za-z0-9.-]+$/.test(h) || net.isIP(ip)) ? h : '';
+      if (code) e.message += ' (' + [code, hostname].filter(Boolean).join(' ') + ')';
+      return e;
+    }
     if (c && e instanceof Error && /^fetch failed$/.test(e.message)) {
       const detail = [c.code || c.name || '', c.hostname || c.address || host || ''].filter(Boolean).join(' ');
       if (detail) e.message = 'fetch failed (' + detail + ')';

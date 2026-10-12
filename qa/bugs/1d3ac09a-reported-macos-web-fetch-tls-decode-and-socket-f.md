@@ -63,3 +63,9 @@ TLS/socket failure has not been reproduced locally or retested on the affected i
 Recovered the exact existing fingerprint and original investigation from commit 17c3aeb9253b88bb5dcae60a55b7af819415031d (October 3, 2026). The October 11 email intake E23 had missed that earlier record; the October 12 residual audit recovered the Git object after the old worktree was no longer present. This is a chronological evidence correction, not a new incident or source fix. The original investigation above remains historical: its source/release observations are not claims about the current tree.
 
 The report remains open, installer unverified and customer recovery unconfirmed. Later host/cause diagnostics or DNS callback repairs do not establish recovery of the reported Mac TLS/socket symptom. Still missing are a newly failed expanded tool result and the same-Mac/network comparison.
+
+## Related diagnostic improvement on October 12, 2026
+
+A separate registered-tool reproduction showed post-header decoding/socket errors losing their cause code and hostname when serialized as `terminated`. The source now appends bounded code/final-hop host while preserving the original error classification, cancellation, TLS and SSRF policy. Real loopback registered-tool checks cover malformed gzip, after-header socket loss, redirects and metadata redaction; 88 assertions plus 49 SSRF and 36 calm-fetch assertions pass. See `qa/evidence/customer-release-1011/web-body-diagnostics.json`.
+
+This repairs support diagnostics, not the customer's unidentified macOS TLS failure. The report remains open with installer unverified and recovery unconfirmed; fresh expanded tool evidence and a same-Mac/network comparison are still required.

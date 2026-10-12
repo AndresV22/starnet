@@ -109,11 +109,15 @@
       },
       "demonstratedGap": "Body-read errors use the message terminated; current enrichment targets fetch failed only. Registered tool result therefore loses the cause code and host for post-header decode/socket failures.",
       "next": [
-        "Preserve cause code and hostname in bounded diagnostic failure output without changing transport policy",
         "Obtain a fresh expanded tool failure with timestamp/destination/cause/status on the exact Mac installer",
         "Compare the same URL on the same Mac/network and verify any demonstrated repair there"
       ],
-      "distinctFrom": "051f8c3b DNS callback-shape incident"
+      "distinctFrom": "051f8c3b DNS callback-shape incident",
+      "diagnosticRepair": {
+        "status": "source repaired and registered-tool checked",
+        "evidence": "web-body-diagnostics.json",
+        "customerCause": "not established"
+      }
     }
   ]
 }
