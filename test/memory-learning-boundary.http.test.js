@@ -16,7 +16,7 @@ const server=http.createServer((req,res)=>{
   if(!req.url.includes('/chat/completions')) {res.writeHead(200,{'Content-Type':'application/json'}); return res.end(JSON.stringify({data:[{id:'audit/model',context_length:64000,supported_parameters:['tools'],pricing:{prompt:'0',completion:'0'}}]}));}
   const body=JSON.parse(raw), msgs=body.messages||[], sys=String(msgs[0]?.content||'');
   const main=sys.includes('[RUNTIME]'); const review=sys.includes('skillbase maintenance worker');
-  requests.push({phase,main,review,attachmentPoisonReceived:main&&JSON.stringify(msgs.filter(m=>m.role==='user')).includes(ATTACHMENT_POISON),reviewText:review?JSON.stringify(msgs):'',system:sys,fixtureReadReceived:msgs.some(m=>m.role==='tool' && String(m.content).includes('Deployment notes: use the staging environment')),tools:(body.tools||[]).map(t=>t.function.name)});
+  requests.push({phase,main,review,attachmentPoisonReceived:main&&JSON.stringify(msgs.filter(m=>m.role==='user')).includes(ATTACHMENT_POISON),reviewText:review?JSON.stringify(msgs):'',system:msgs.filter(m=>m.role==='system').map(m=>String(m.content||'')).join('\n\n'),fixtureReadReceived:msgs.some(m=>m.role==='tool' && String(m.content).includes('Deployment notes: use the staging environment')),tools:(body.tools||[]).map(t=>t.function.name)});
   const lastUser=msgs.map(m=>m.role).lastIndexOf('user');
   const called=name=>msgs.slice(lastUser+1).some(m=>(m.tool_calls||[]).some(t=>t.function?.name===name));
   let delta,finish='stop';
@@ -130,10 +130,11 @@ const server=http.createServer((req,res)=>{
   await run('attachment-recall','uploaded-fresh-recall','upload_typed');
   const recalled=requests.filter(r=>r.phase==='attachment-recall'&&r.main);
   assert.ok(recalled.some(r=>r.system.includes(TYPED_PREFERENCE)),'typed preference is recalled after a real restart in a clean stream');
+  assert.ok(recalled.some(r=>(r.system.match(/<recalled-memory>[\s\S]*?<\/recalled-memory>/g)||[]).some(block=>block.includes(TYPED_PREFERENCE))),'typed preference is present in the actual recalled-memory fence, not merely an activity preview');
   const poisonContext=[...new Set(recalled.filter(r=>forbiddenMemory.test(r.system)).map(r=>{const at=r.system.search(forbiddenMemory);return r.system.slice(Math.max(0,at-900),at+700);} ))];
   assert.deepEqual(poisonContext,[],'raw attachment or forged preferences never reach recalled authority: '+JSON.stringify(poisonContext));
   assert.equal((await memoryOf('upload_file')).length,0);assert.equal((await memoryOf('upload_typed')).length,1);assert.equal((await memoryOf('upload_quoted')).length,0);
-  result.push({phase:'attachment-learning-proof',fileOnly:fileReceipt,textAndFile:typedReceipt,quoted:quotedReceipt,typedPreferenceRecalled:true,poisonSavedOrRecalled:false});
+  result.push({phase:'attachment-learning-proof',fileOnly:fileReceipt,textAndFile:typedReceipt,quoted:quotedReceipt,typedPreferenceRecalled:true,poisonSavedOrRecalled:false,restoredTypedRecords:(await memoryOf('upload_typed')).map(r=>({id:r.id,body:r.body,scope:r.scope,projectRoot:r.projectRoot,streamId:r.streamId,confirmation:r.confirmation,statedQuote:r.statedQuote})),recallMemoryBlocks:[...new Set(recalled.flatMap(r=>r.system.match(/<recalled-memory>[\s\S]*?<\/recalled-memory>/g)||[]))]});
   const failures=fixture.output().match(/\[failopen\] (?:learning\.|skill-candidate\.)[^\n]*/g)||[];assert.deepEqual(failures,[],'learning has no silent persistence failure');
   console.log(JSON.stringify({status:'PASS',source:'memory-learning-execution',kind:'real sidecar, scripted local provider, no quality benchmark',rows:result},null,2));
  }catch(e){console.error(JSON.stringify({status:'FAIL',rows:result,error:e.stack,sidecarTail:fixture.output().slice(-5000)},null,2));process.exitCode=1;}
