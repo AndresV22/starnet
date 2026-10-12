@@ -278,7 +278,9 @@
   const utcDay = s => !!(s && s.spendDay === 'utc');
   /* SHIPPED UNKNOWN (runtime audit 2026-10-12): the server answers shipped:null when the shipment history could not be read — an
      unknown count, never a 0 ("(null | 0)" printed 0 SHIPPED, the very lie the server stopped telling). ? at rest, why on the glance. */
-  const shippedText = s => (s.shipped == null ? '?' : String(s.shipped | 0));
+  /* AT LEAST (runtime repair 2026-10-12): shippedAtLeast = the saved history may be missing jobs from today (more than it keeps, or
+     shipped while it could not be read) — the count is a lower bound, read N+. */
+  const shippedText = s => (s.shipped == null ? '?' : String(s.shipped | 0) + (s.shippedAtLeast ? '+' : ''));
   function plateLines(s) {
     if (!s || typeof s !== 'object') return null;
     const a = (s.runs | 0) + ' RUN' + ((s.runs | 0) === 1 ? '' : 'S') + ((s.tests | 0) > 0 ? ' · ' + (s.tests | 0) + ' TEST' + ((s.tests | 0) === 1 ? '' : 'S') : '') + ' · ' + shippedText(s) + ' SHIPPED · ' + (s.failed | 0) + ' FAILED';

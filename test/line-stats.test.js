@@ -157,8 +157,12 @@ if (store && store.record) {
   fail = true;
   A.ok(!ledger.record(Object.assign({}, rec, { entryRunId: 'fresh' })), 'failed durable save refuses the count');
   A.eq(ledger.snapshot().length, 2, 'failed save does not publish an in-memory shipment');
+  // (runtime repair 2026-10-12) …it is held instead of dropped, and while it waits SHIPPED reads as a lower bound
+  A.ok(ledger.held() === 1 && ledger.missedAt() === clock, 'the unsaved receipt is held and marks the count a lower bound (missedAt ' + ledger.missedAt() + ')');
+  A.ok(lineStats({ lines: [{ lineId: 'L1' }], shipments: ledger.snapshot(), since: 0, shipmentsMissedAt: ledger.missedAt() }).lines[0].shippedAtLeast === true, '…which line-stats reports as N+');
   fail = false;
   A.ok(ledger.record(Object.assign({}, rec, { entryRunId: 'fresh' })), 'retry can record a proven artifact after storage recovers');
+  A.ok(ledger.held() === 0 && ledger.missedAt() === null && ledger.snapshot().length === 3, 'the held receipt is written once, and the count is exact again');
 }
 // The host must preserve domain-store provenance instead of reading .value alone.
 {
@@ -188,7 +192,10 @@ if (store && store.record) {
   A.ok(!ledger.record(fresh), 'unreadable prior history refuses receipt writes');
   A.eq(writes, 0, 'no write occurs while the load authority is unavailable');
   blocked = false;
-  A.eq(ledger.snapshot(), [original], 'next stats read retries and recovers the previous receipt');
+  // (runtime repair 2026-10-12) the job that shipped while the history was unreadable is HELD, no longer dropped: the first read
+  // after recovery restores the old receipt exactly and writes the held one beside it
+  A.eq(ledger.snapshot(), [original, { lineId: 'L1', entryRunId: 'new', terminalRunId: 'new', outboxId: 'o', at: 200 }], 'next stats read retries, recovers the previous receipt and writes the held one');
+  A.eq(writes, 1, 'one write, only after the history read valid');
   A.ok(ledger.record(fresh), 'after recovery a real new receipt may be saved');
   A.eq(disk.map(r => r.entryRunId), ['old', 'new'], 'recovered history and new shipment both survive');
 }
@@ -275,7 +282,8 @@ if (store && store.record) {
       const file = path.join(dir, 'line-shipments.json'); fs.writeFileSync(file, bytes);
       let writes = 0;
       const domain = makeHostStore(makeDomainStore, fs, path, dir, (deps, target, data) => { writes++; writeFileDurable(deps, target, data); }, validateShipments, { warn: () => {} });
-      const ledger = makeLineShipments({ now: () => 200, load: () => loadShipmentReceipts(domain), save: value => domain.save(value),
+      let saves = 0;
+      const ledger = makeLineShipments({ now: () => 200, load: () => loadShipmentReceipts(domain), save: value => { saves++; domain.save(value); },
         runsFor: () => [{ runId: 'new', lineId: 'L1', streamId: 's', agentId: 'a', dockId: 'd', reason: 'done', toolsOk: 1 }] });
       const rec = { lineId: 'L1', entryRunId: 'new', streamId: 's', agentId: 'a', dockId: 'd', outboxId: 'o' };
       A.throws(() => ledger.snapshot(), name + ': first poll is unavailable');
@@ -284,7 +292,9 @@ if (store && store.record) {
       A.eq(writes, 0, name + ': no attempted save');
       A.eq(fs.readFileSync(file, 'utf8'), bytes, name + ': forensic bytes remain at the authoritative path');
       fs.writeFileSync(file, JSON.stringify({ version: 1, value: [original, Object.assign({}, original)] }));
-      A.eq(ledger.snapshot(), [original], name + ': restoring valid duplicate copies recovers one exact old receipt');
+      // (runtime repair 2026-10-12) the productive job refused above is HELD, no longer dropped: written once the history reads valid
+      A.eq(ledger.snapshot(), [original, { lineId: 'L1', entryRunId: 'new', terminalRunId: 'new', outboxId: 'o', at: 200 }], name + ': restoring valid duplicate copies recovers one exact old receipt, then writes the job held while it was unreadable');
+      A.eq(saves, 1, name + ': one save, only after the restored history read valid');
       A.ok(ledger.record(rec), name + ': restored authority accepts the next real shipment');
       A.eq(JSON.parse(fs.readFileSync(file, 'utf8')).value.map(r => r.entryRunId), ['old', 'new'], name + ': next save retains old history exactly once');
     });
@@ -387,6 +397,65 @@ const asyncChecks = [];   // the world.js poll check is async: A.report waits fo
   A.eq(disk.map(r => r.entryRunId), ['today-1', 'today-2', 'job-3'], 'the saved history drops every receipt past the retention window');
   A.eq(lineStats({ lines: [{ lineId: 'L1' }], shipments: disk, since: midnight }).lines[0].shipped, before + 1, 'today\'s SHIPPED is unchanged by the prune (+ the new job)');
   A.eq(ledger.snapshot().length, 3, 'the cache matches what was saved');
+}
+/* BOUNDED BY COUNT TOO (runtime repair 2026-10-12): an age window alone still let a busy line keep ~50 000 receipts in it, every one
+   re-validated and rewritten per job. A save keeps at most the newest SHIPMENT_KEEP_MAX; when that cap bound inside a stats window,
+   SHIPPED there is a LOWER BOUND (shippedAtLeast, N+ on the page) — never a count that quietly lost jobs. */
+{
+  const { SHIPMENT_KEEP_MS, SHIPMENT_KEEP_MAX } = require('../sidecar/routing/line-shipments.js');
+  A.ok(SHIPMENT_KEEP_MS <= 2 * 24 * 60 * 60 * 1000 && SHIPMENT_KEEP_MAX > 0 && SHIPMENT_KEEP_MAX <= 5000, 'the history is bounded by age (48 h) AND by count (' + SHIPMENT_KEEP_MAX + ')');
+  const DAY = 24 * 60 * 60 * 1000, midnight = 200 * DAY;
+  let now = midnight + 60 * 1000;
+  // a high-volume day: the history already holds the cap, every receipt from today
+  let disk = [];
+  for (let i = 0; i < SHIPMENT_KEEP_MAX; i++) disk.push(receipt('L1', 'busy-' + i, midnight + 1000 + i));
+  let writes = 0, biggest = 0;
+  const ledger = makeLineShipments({ now: () => now, load: () => disk, save: v => { writes++; disk = v.slice(); biggest = Math.max(biggest, disk.length); },
+    runsFor: sid => [{ runId: sid, lineId: 'L1', streamId: sid, agentId: 'a', dockId: 'd', reason: 'done', toolsOk: 1 }] });
+  for (let i = 0; i < 40; i++) { now += 10; A.ok(ledger.record({ lineId: 'L1', entryRunId: 'more-' + i, streamId: 'more-' + i, agentId: 'a', dockId: 'd', outboxId: 'o' }), i ? null : 'more jobs record past the cap'); }
+  A.eq(writes, 40, 'one write per job');
+  A.ok(biggest === SHIPMENT_KEEP_MAX && disk.length === SHIPMENT_KEEP_MAX, 'the saved history never holds more than the cap (' + biggest + ')');
+  A.ok(disk.every(r => r.entryRunId !== 'busy-0' && r.entryRunId !== 'busy-39') && disk.some(r => r.entryRunId === 'busy-40') && disk[disk.length - 1].entryRunId === 'more-39', 'the OLDEST receipts are the ones dropped');
+  A.ok(JSON.stringify(disk).length < 200 * SHIPMENT_KEEP_MAX, 'so the file stays bounded: ' + JSON.stringify(disk).length + ' bytes');
+  const capped = lineStats({ lines: [{ lineId: 'L1' }, { lineId: 'L2' }], shipments: ledger.snapshot(), since: midnight });
+  A.ok(capped.lines[0].shipped === SHIPMENT_KEEP_MAX && capped.lines[0].shippedAtLeast === true && capped.shippedAtLeast === true && capped.lines[1].shippedAtLeast === true,
+    'a window the cap cut into answers a LOWER BOUND, on every line (which line lost a job is not known): ' + JSON.stringify(capped.lines[0]));
+  const inside = lineStats({ lines: [{ lineId: 'L1' }], shipments: disk, since: disk[0].at });
+  A.ok(!('shippedAtLeast' in inside.lines[0]) && !('shippedAtLeast' in inside), 'a window that starts after everything the cap dropped is exact');
+  const LWa = require('../frontend/app/linewatch.js');
+  A.ok(/ 5000\+ SHIPPED /.test(LWa.plateLines(capped.lines[0])[0].replace(/^/, ' ').replace(/ · /g, '  ')) || / 5000\+ SHIPPED/.test(' ' + LWa.plateLines(capped.lines[0])[0]), 'the plate reads N+ SHIPPED: ' + LWa.plateLines(capped.lines[0])[0]);
+  A.eq(LWa.statsRow(capped.lines[0]).find(c => c[0] === 'SHIPPED'), ['SHIPPED', SHIPMENT_KEEP_MAX + '+'], 'and the TODAY row N+');
+}
+/* HELD, NOT DROPPED (runtime repair 2026-10-12): a productive job that shipped while the history could not be read was refused for
+   good, so once the file was readable again SHIPPED showed a definite number that left it out. Its receipt is held and written by
+   the first snapshot()/record() after a validated read — never over the unreadable bytes. */
+{
+  const DAY = 24 * 60 * 60 * 1000, midnight = 300 * DAY, now = midnight + 5000;
+  let disk = [receipt('L1', 'before', midnight + 10)], broken = true, writes = 0;
+  const runs = sid => [{ runId: sid, lineId: 'L1', streamId: sid, agentId: 'a', dockId: 'd', reason: 'done', toolsOk: 1 }];
+  const ledger = makeLineShipments({ now: () => now, load: () => { if (broken) throw new Error('shipment history could not be read (corrupt)'); return disk; },
+    save: v => { if (broken) throw new Error('never written over unreadable bytes'); writes++; disk = v.slice(); }, runsFor: runs });
+  const job = id => ({ lineId: 'L1', entryRunId: id, streamId: id, agentId: 'a', dockId: 'd', outboxId: 'o' });
+  A.eq(ledger.record(job('during-1')), false, 'a job that ships while the history is unreadable is not persisted (false)');
+  A.eq(ledger.record(job('during-1')), false, '…the same job again holds once');
+  A.eq([ledger.held(), writes], [1, 0], 'its receipt is held, nothing was written');
+  A.ok((() => { try { ledger.snapshot(); return false; } catch (_) { return true; } })(), 'SHIPPED stays unknown while the history is unreadable');
+  broken = false;   // the user restores the file
+  const snap = ledger.snapshot();
+  A.eq([snap.map(r => r.entryRunId), ledger.held(), writes], [['before', 'during-1'], 0, 1], 'the first read after it is readable writes the held receipt');
+  A.eq(lineStats({ lines: [{ lineId: 'L1' }], shipments: snap, since: midnight }).lines[0].shipped, 2, 'SHIPPED counts the job that shipped while it was unreadable');
+  // held + a new job: one write carries both
+  broken = true; ledger.record(job('during-2'));
+  const r2 = (() => { broken = false; return ledger.record(job('after-1')); })();
+  A.ok(r2 && disk.map(r => r.entryRunId).join() === 'before,during-1,during-2,after-1' && ledger.held() === 0, 'a record() after recovery writes what was held first: ' + disk.map(r => r.entryRunId).join());
+  // past the hold bound: the jobs are not counted, and SHIPPED says it is a lower bound from then on
+  broken = true;
+  for (let i = 0; i < 520; i++) ledger.record(job('flood-' + i));
+  A.ok(ledger.held() === 500 && ledger.missedAt() === now, 'the hold is bounded (500) and remembers when a job went uncounted');
+  broken = false;
+  const flood = lineStats({ lines: [{ lineId: 'L1' }], shipments: ledger.snapshot(), since: midnight, shipmentsMissedAt: ledger.missedAt() });
+  A.ok(flood.lines[0].shipped === 504 && flood.lines[0].shippedAtLeast === true, 'what was held counts, and SHIPPED is a lower bound: ' + JSON.stringify(flood.lines[0]));
+  A.ok(!('shippedAtLeast' in lineStats({ lines: [{ lineId: 'L1' }], shipments: disk, since: now, shipmentsMissedAt: ledger.missedAt() }).lines[0]), 'a window that starts after the missed job is exact');
 }
 /* A PARTIAL JOINED JOB IS NOT A SHIPMENT (runtime repair 2026-10-12): a COPY branch the host refused before it ran writes no run row,
    so every row that exists ended done — the chain's own mark (rec.partial) is what refuses it */

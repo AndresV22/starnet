@@ -103,6 +103,11 @@ A.ok(/'<span data-tip="' \+ esc\(todayTip\(c\[0\], c\[1\]\)\) \+ '">/.test(panel
 const unknownTip = todayTip('SHIPPED', '?');
 A.ok(/unknown right now/.test(unknownTip) && /shipment history can't be read/.test(unknownTip) && !/recorded jobs that reached the OUTBOX/.test(unknownTip), 'an unknown SHIPPED says why it is unknown');
 A.eq(todayTip('SHIPPED', '3'), todayTip('SHIPPED'), 'a known SHIPPED keeps its meaning');
+// (runtime repair 2026-10-12) the ? tip promised "the number comes back" — a job that shipped while the history was unreadable is
+// held in memory only, so the tip names the restart that loses it; and a LOWER BOUND (N+) says the real number is higher
+A.ok(/counted once it can be read again, unless the station restarts first/.test(unknownTip) && !/the number comes back when/.test(unknownTip), 'the ? tip never promises the whole count back: ' + unknownTip);
+const atLeastTip = todayTip('SHIPPED', '5000+');
+A.ok(/^SHIPPED\nat least this many/.test(atLeastTip) && /the real number is higher/.test(atLeastTip) && !/recorded jobs that reached the OUTBOX/.test(atLeastTip), 'a lower-bound SHIPPED says it is at least that many: ' + atLeastTip);
 for (const key of ['RUNS', 'SHIPPED', 'FAILED', 'TESTS', 'MEDIAN', '$ TODAY (UTC)']) {
   A.ok(todayTip(key).length > key.length, 'a meaning is available for the ' + key + ' number');
 }

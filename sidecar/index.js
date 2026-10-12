@@ -13169,7 +13169,8 @@ function lineStatsSnapshot(since) {
     rows: runStore.list(null, { limit: 1000 }) || [], lines, since,
     spentToday: id => lineSpend.spentToday(id),
     capOf: id => chainEffectiveLimits(router.lineLimits(id), {}, pool).maxUsdPerDay,
-    shipments, shippedUnknown
+    shipments, shippedUnknown,
+    shipmentsMissedAt: lineShipments.missedAt()   // a job that shipped past the hold while the history was unreadable: SHIPPED at least
   });
 }
 /* GET /api/routing/lines/stats?since=<ms> — LINE WATCH. `since` is the caller's local midnight (the same window the

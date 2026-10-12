@@ -280,6 +280,8 @@
           L.today = { runs: t.runs, shipped: t.shipped, failed: t.failed, tests: t.tests, usd: t.usdToday, capUsdPerDay: t.capUsdPerDay, medianMs: t.medianMs, day: t.spendDay === 'utc' ? 'UTC day' : 'local day' };
           // shipped null = UNKNOWN (the shipment history could not be read) — said, so the lead never reports it as nothing shipped
           if (t.shipped == null && t.shippedUnknown) L.today.shippedUnknown = String(t.shippedUnknown);
+          // a LOWER BOUND (some of today's jobs have no saved record): said, so the lead never reports it as the exact count
+          if (t.shipped != null && t.shippedAtLeast) L.today.shippedAtLeast = true;
         } else if (today) L.today = null;   // the router runs no such line (routing off, or edits not sent): no numbers to claim
         for (const s of (L.steps || [])) { const d = docks[s.propId]; if (d) s.lastRun = lastRun(d, now); }
       }

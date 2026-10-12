@@ -9,7 +9,9 @@
                   Every job counts once; later floor edits cannot rewrite its history. No receipt = no claim. Receipts
                   are kept for the retention window (line-shipments SHIPMENT_KEEP_MS): SHIPPED counts those inside it.
                   An unreadable receipt history makes it null (unknown, never 0) with shippedUnknown = why, on the answer
-                  and on each line; every other number still counts.
+                  and on each line; every other number still counts. A window the history may be missing jobs from (the
+                  newest-SHIPMENT_KEEP_MAX cap bound inside it, or a job shipped past the in-memory hold while the history
+                  was unreadable — o.shipmentsMissedAt) answers its count with shippedAtLeast: true — a lower bound.
      • failed   — reason error / refusal / max_iters / budget (the same dead-run set the floor turns into slag).
      • medianMs — the median recorded durationMs of those runs (null with no timed run).
      • tests    — step-through test / try-this-step hops (run rows the host stamped stepTest). A test is NOT a job:
@@ -26,7 +28,7 @@
    the ledger/limits readers. Never throws on a malformed row; a row it cannot read is skipped, never guessed. */
 'use strict';
 
-const { cleanShipments } = require('./line-shipments.js');
+const { cleanShipments, SHIPMENT_KEEP_MAX } = require('./line-shipments.js');
 const FAILED_REASONS = ['error', 'refusal', 'max_iters', 'budget'];
 const FAILED = new Set(FAILED_REASONS);
 
@@ -41,7 +43,8 @@ function median(xs) {
   return s.length % 2 ? s[m] : Math.round((s[m - 1] + s[m]) / 2);
 }
 
-/* lineStats({ rows, lines, since, spentToday(lineId)->$, capOf(lineId)->$|null, shipments:[terminal-job receipts], shippedUnknown?:why })
+/* lineStats({ rows, lines, since, spentToday(lineId)->$, capOf(lineId)->$|null, shipments:[terminal-job receipts], shippedUnknown?:why,
+               shipmentsMissedAt?:ms — the newest time a productive job shipped without a receipt (line-shipments missedAt) })
      rows  — run rows NEWEST-FIRST (runStore.list order); may span more than `since` (older rows only feed `docks`)
      lines — the compiled plan's line list ([{ lineId, propIds? }]); a line with no runs still answers zeros
    -> { since, spendDay: 'utc', lines: [{ lineId, runs, shipped, failed, tests, medianMs, usdToday, capUsdPerDay, spendDay }], docks } */
@@ -77,11 +80,20 @@ function lineStats(o) {
      Then SHIPPED is null on every line, with the reason — never 0 (that is "no receipts", a different fact) — and every other
      number still counts: none of them depends on the receipts. Absent shipments without the flag answer 0, as before. */
   const unknown = (typeof o.shippedUnknown === 'string' && o.shippedUnknown.trim()) ? o.shippedUnknown.trim().slice(0, 240) : null;
+  /* AT LEAST (runtime repair 2026-10-12): a receipt that may be missing from this window makes every line's SHIPPED a lower bound —
+     the history at its count cap whose oldest receipt is newer than `since` (anything the cap dropped is older than that receipt,
+     maybe still inside the window), or a job that shipped past the hold while the history could not be read, inside the window.
+     Which line it belonged to is not known, so every line says so; the count itself is still every receipt that IS there. */
+  let atLeast = false;
   if (!unknown) {
-    for (const receipt of cleanShipments(o.shipments)) {
+    const list = cleanShipments(o.shipments);
+    for (const receipt of list) {
       const L = byLine.get(receipt.lineId);
       if (L && receipt.at > since) L.shipped++;
     }
+    const oldest = list.reduce((m, r) => (m == null || r.at < m ? r.at : m), null);
+    const missed = fin(o.shipmentsMissedAt);
+    atLeast = (list.length >= SHIPMENT_KEEP_MAX && oldest != null && oldest > since) || (missed != null && missed > since);
   }
   const lines = [];
   for (const L of byLine.values()) {
@@ -90,10 +102,12 @@ function lineStats(o) {
     try { const c = fin(capOf(L.lineId)); cap = (c != null && c > 0) ? c : null; } catch (_) { cap = null; }
     const line = { lineId: L.lineId, runs: L.runs, shipped: unknown ? null : L.shipped, failed: L.failed, tests: L.tests, medianMs: median(L._ms), usdToday: Math.round(usd * 1e6) / 1e6, capUsdPerDay: cap, spendDay: 'utc' };
     if (unknown) line.shippedUnknown = unknown;   // on each line too, the way spendDay rides both: a consumer holding one line knows why
+    if (atLeast) line.shippedAtLeast = true;
     lines.push(line);
   }
   const answer = { since, spendDay: 'utc', lines, docks };
   if (unknown) answer.shippedUnknown = unknown;
+  if (atLeast) answer.shippedAtLeast = true;
   return answer;
 }
 
