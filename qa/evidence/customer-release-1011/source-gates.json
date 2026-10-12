@@ -30,7 +30,13 @@
       },
       "log": ".handoff/customer-c0-http.log",
       "logSha256": "8685636851ebe737c1046c746ffd7fc4ec8e052d67c2a98125229f833b88ebf5",
-      "scope": "Failed source gate, not accepted for integration. No initial failure or assertion suppressed."
+      "scope": "Failed source gate, not accepted for integration. No initial failure or assertion suppressed.",
+      "followUp": {
+        "fixtureIsolationCommit": "f912479f02ade7ece5c4ba37c2c992a42d251146",
+        "evidence": "quest-fixture-race.json",
+        "finding": "Controlled delayed foreground request reproduces quest-refresh consumption of the shared mock counter and the original assertion mismatch. Scoped fixture opt-out passes with original assertions.",
+        "limit": "Original failed run did not capture the extra request; its identity is not retrospectively established. No production quest behavior changed."
+      }
     },
     {
       "candidate": "fbeb93bd7cfa35704bc4417874d447fea9e0f249",

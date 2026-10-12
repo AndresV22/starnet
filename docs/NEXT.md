@@ -18,28 +18,34 @@ The owner requested focused sessions, an organized codebase, the complete update
 | Evidence / symptom | Next concrete action | Owner boundary |
 | --- | --- | --- |
 | E07 private Windows cross-user authorization report | Review exact installed cross-user acceptance plan; preserve detailed evidence privately. Candidate socket fixes do not prove affected-user recovery. | Review open StarNet issues; coordination owns final installed acceptance |
-| `d688ea20`: seven independent spend-history reports; `a5060cc3`: funded-account recurrence | The current source now preserves unknown legacy billing provenance and labels it explicitly. Correlate each customer receipt/provider/trigger/refusal; investigate the initial unexplained append-fault test dispatch. No historical charge, cap or source is inferred, and the customer reports remain open. | Review Claude session context; no billing/account mutation |
+| `d688ea20`: seven independent spend-history reports; `a5060cc3`: funded-account recurrence | The current source now preserves unknown legacy billing provenance and labels it explicitly. Correlate each customer receipt/provider/trigger/refusal; preserve the initial append-fault test dispatch as unattributed. A controlled quest race explains a possible fixture mechanism, not the identity of that original dispatch. No historical charge, cap or source is inferred, and the customer reports remain open. | Review Claude session context; no billing/account mutation |
 | `85f602c4`: Windows 0.13.2 backend startup | Collect exact installer/reference and selected installed-file bytes with the new read-only inspector, complete sanitized stack and actual resource root. Cause remains unverified. | Review StarNet handoff process; coordination owns original private source mapping |
-| `e7b2ffcd`: credential recovery loses sign-in | Reproduce locked-store recovery, reconnect, quit/restart and write failure on the applicable native credential backend; retain original/recovery secrets. | Coordinated native acceptance after artifact selection |
-| `f702f2f6`: approved skill denied to worker | Compare approved skill version and authority through watched lead, fresh worker and restart; distinguish intended policy from projection loss. | Next bounded skills/capabilities slice |
-| `082ee8e5`: shell approval/history clipping | Verify complete redacted request/copy on current candidate and exact installer; historical unretained bytes remain unrecoverable. | Next bounded consent/visibility acceptance slice |
+| `e7b2ffcd`: credential recovery loses sign-in | Reproduce locked-store recovery, reconnect, quit/restart and write failure using synthetic profiles; retain original/recovery secrets. Applicable native acceptance remains separate. | Review StarNet handoff process |
+| `f702f2f6`: approved skill denied to worker | Compare approved skill version/content digest and authority through watched lead, fresh worker and restart; distinguish intended policy from projection loss. | Investigate StarNet memory gaps |
+| `082ee8e5`: shell approval/history clipping | Verify complete redacted request/copy on current candidate and exact installer; historical unretained bytes remain unrecoverable. | Review thread UX changes; preserve request ownership |
+| `4c0efd8c` / E09: saved station blocked despite health response | Reproduce save list/read/bootstrap boundary with synthetic data; alternate install drive is context, not a proven cause. | Review Claude session context |
+| `f2ac6356` / E08: Google Drive authorization hard block | Separate source flow, OAuth publishing/configuration and account restriction using original evidence. | Investigate Google Drive authorization block |
+| `1d3ac09a` / E23: Mac web-fetch TLS/decode/socket failure | Trace transport and decoding; preserve TLS/SSRF protections and require affected-platform acceptance. | Investigate Mac web fetch failures |
+| GitHub #99 / `5274c7b7`: local Ollama COMMS never finishes | Trace wire, first-token and terminal/cancellation behavior for the distinct reported configurations. Excludes the graphics lane's allocation-error retry. | Review open StarNet issues |
 
-These six canonical customer records remain open P1; related source repairs do not close them. Current combined register: 248 records, 16 open (6 P1, 10 P2). The private authorization acceptance queue is separate. Older Mac startup recovery is recorded per customer without closing its Windows sibling or the separate billing concern. A temporary credit recovery followed by recurrence remains unresolved.
+The six customer records above and the three recovered records below remain open P1; related source repairs do not close them. After independent review and evidence merge 4a37ba87c, the current combined register has 251 records, 19 open (9 P1, 10 P2). The three additional P1 records recover previously missing saved-station, Drive authorization and Mac web-fetch reports; they are not newly established regressions. The private authorization acceptance queue is separate. Older Mac startup recovery is recorded per customer without closing its Windows sibling or the separate billing concern. A temporary credit recovery followed by recurrence remains unresolved.
 
 ### Active chats and integration ownership
 
 | Existing chat | Delivered / ongoing responsibility |
 | --- | --- |
-| Review Claude session context | Completed email intake, five precise incident records and later Mac outcome; owns private source-to-case joins and spending-recovery investigation |
-| Review open StarNet issues | Completed GitHub refresh and reviewed ten-fix batch plus crew-intent follow-up; owns public issue correlation and scoped authorization review |
-| Review StarNet handoff process | Completed process analysis and tested read-only installation inspector; owns packaging evidence collection and acceptance design |
+| Review Claude session context | Completed email intake and precise incident reconciliation; owns private source-to-case joins and now the E09 saved-station investigation |
+| Review open StarNet issues | Completed GitHub refresh and reviewed repair batch; owns public issue correlation, authorization acceptance mapping and now the #99 local-model investigation |
+| Review StarNet handoff process | Completed process analysis and read-only installation inspector; owns packaging evidence and now isolated credential-store recovery |
 | Coordination | Cross-channel deduplication, current queue, change inventory, independent review, final combined gates and serialized integration |
 | Investigate StarNet memory gaps | New owner-requested memory/capability implementation; inspect reviewed memory/crew delta before overlapping edits |
 | Review thread UX changes | New owner-requested chat/delegation/consent polish; preserve reviewed approval ownership and link command-visibility report 082ee8e5 |
-| Finish the conveyor system | New reproduced conveyor repairs on agent/conveyor-finish-1012; isolated source/live receipts and lane gates pending, not yet included in this candidate |
-| Fix StarNet prop and texture bugs | New owner-reported graphics-loss recovery slice; cause and exact live acceptance remain with its isolated lane |
+| Finish the conveyor system | Independent review held candidate 61a4c3022 for duplicate terminal-event product loss and durable shipment read-back/corruption loss; owner is repairing and proving them live before a new freeze |
+| Fix StarNet prop and texture bugs | Owner-reported graphics-loss recovery and explicit local-model allocation-error handling; exact live acceptance remains with its isolated lane |
+| Investigate Google Drive authorization block | New focused E08 investigation, initially read-only under disk pressure; external OAuth publishing state is not inferred |
+| Investigate Mac web fetch failures | New focused E23 investigation, initially read-only; preserve TLS and network boundary protections |
 
-The four newer implementation chats were discovered and coordinated on 2026-10-12; their ongoing work is not silently included in the pinned inventories or source gates above. Serialize all trunk integration. Disk pressure is observed on this host; preserve other worktrees and avoid broad cleanup or concurrent large copies.
+The four newer implementation chats were discovered and coordinated on 2026-10-12. After the owner explicitly requested as many focused chats as needed, two additional investigations were created and three existing owners continued bounded customer cases. Their ongoing work is not silently included in the pinned inventories or source gates above. Serialize all trunk integration. Disk pressure is observed on this host; preserve other worktrees and avoid broad cleanup or concurrent large copies.
 
 Each accepted slice names its source paths, an isolated owning worktree, a customer action and live acceptance condition. Shared contracts remain owner-controlled. Merge live Codex history; never rebase it. Preserve existing dirty trunk docs. Check path ownership and reparse points before Git/sparse/generator/cleanup operations.
 
@@ -56,7 +62,8 @@ Canonical defects remain in `qa/bugs/*.md`; regenerate `qa/BUGS.md`. Raw mail/co
 
 ### Release and access gates still open
 
-- The combined `c0e169414` HTTP gate is RED: four steps passed, then step 5/211 (`seam-audit-recovery.http.test.js:44`) returned Isolated answer 2 where the global mock counter expected Isolated answer 1. The requested run ID matched. One independent instrumented replay passed; no cause is established and the assertion is unchanged. [Revision-bound gate receipts](../qa/evidence/customer-release-1011/source-gates.json).
+- The historical `c0e169414` HTTP gate remains RED at step 5/211: the first foreground run returned Isolated answer 2 rather than 1. A controlled replay then reproduced the identical failure when the independently scheduled quest refresh consumed the global mock counter first. Commit `f912479f0`, now included, disables quest refresh only in the two request-counter fixtures; production behavior and assertions are unchanged. The original failed run did not capture the extra request, so its identity remains unproven. [Deterministic replay](../qa/evidence/customer-release-1011/quest-fixture-race.json).
+- The `fbeb93bd7` fast run was intentionally cancelled to combine reviewed repairs before one final gate set; it is neither green nor a product failure. No full fast/HTTP pass covers current source. [Revision-bound gate receipts](../qa/evidence/customer-release-1011/source-gates.json).
 
 - The pinned `qa:ready` result is NOT READY: three blocking detector findings, RED Guardian, stale beginner and installed-source receipts. The newly registered customer P1 records are additional explicit work. [Readiness snapshot](../qa/evidence/customer-release-1011/readiness-snapshot.json).
 - A focused layout replay passed with publication/acknowledgement capture; the earlier mismatch remains unexplained. Only the visually reviewed deliverables baseline was refreshed; no threshold or detector suppression was changed.
