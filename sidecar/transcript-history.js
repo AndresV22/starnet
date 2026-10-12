@@ -108,11 +108,11 @@ function makeSegmentedTranscriptIo(opts) {
       ids.push(id);
     }
   }
-  function readRows(n) {
+  function readRows(n, strict) {
     const file = segFile(n);
     let text;
     try { text = fs.readFileSync(file, 'utf8'); }
-    catch (e) { warning('segment ' + n + ' unreadable: ' + ((e && e.message) || e)); return []; }
+    catch (e) { if (strict) throw e; warning('segment ' + n + ' unreadable: ' + ((e && e.message) || e)); return []; }
     const rows = [];
     let bad = 0;
     for (const line of text.split(/\r?\n/)) {
@@ -123,6 +123,7 @@ function makeSegmentedTranscriptIo(opts) {
         else bad++;
       } catch (_) { bad++; }
     }
+    if (bad && strict) throw new Error('segment ' + n + ' contains unreadable transcript evidence');
     if (bad) warning('segment ' + n + ' isolated ' + bad + ' corrupt line(s)');
     return rows;
   }
@@ -414,8 +415,8 @@ function makeSegmentedTranscriptIo(opts) {
     const runId = String((options && options.sourceRunId) || '');
     const out = [];
     for (const meta of relevantSegments(streamId, true)) {
-      const rows = readRows(meta.number);
-      for (let i = rows.length - 1; i >= 0 && out.length < limit; i--) if (rows[i].streamId === streamId && (!runId || rows[i].sourceRunId === runId)) out.push(rows[i]);
+      const rows = readRows(meta.number, options && options.strict);
+      for (let i = rows.length - 1; i >= 0 && out.length < limit; i--) if (rows[i].streamId === streamId && (!runId || rows[i].sourceRunId === runId) && (!(options && options.dispatchState) || rows[i].dispatchState === options.dispatchState)) out.push(rows[i]);
       if (out.length >= limit) break;
     }
     return out.reverse().map(publicRow);

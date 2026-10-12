@@ -1417,9 +1417,9 @@ const runsIo = {
   readAll() {
     try { return readBoundedJsonl(RUNS_FILE); } catch (e) { return []; }   // P3: bounded boot-load
   },
-  append(entry) {
+  append(entry, options) {
     try { appendJsonlDurable({ fs: fs, note: failNote }, RUNS_FILE, entry); }
-    catch (e) { console.warn('[runs] append failed:', (e && e.message) || e); }
+    catch (e) { console.warn('[runs] append failed:', (e && e.message) || e); if (options && options.strict) throw e; }
     rotateJsonl(RUNS_FILE);   // P3: roll to <file>.1 once the live segment passes the cap (bounds disk)
   }
 };
@@ -1620,6 +1620,11 @@ const transcriptIo = makeSegmentedTranscriptIo({
   onWarning: (message) => console.warn('[transcript] ' + message)
 });
 const transcriptStore = makeTranscriptStore({ io: transcriptIo, clock: { now: () => Date.now() }, redact });
+const dispatchDeliveryStore = require('./dispatch-delivery.js');
+const dispatchDeliveryDeps = { runStore, transcriptStore, redact,
+  hash: text => crypto.createHash('sha256').update(text, 'utf8').digest('hex'),
+  onFailure: error => failNote('dispatch.delivery-recovery', error) };
+dispatchDeliveryStore.recoverPendingDeliveries(dispatchDeliveryDeps);
 /* H2: runs whose transcript rows are being written per turn RIGHT NOW (runTranscript start → run-end drain). The rows
    are durable the moment they land (a crash keeps them), but GET /api/transcript keeps the browser's pre-H2 view — a
    run's rows appear when it ends — because COMMS already renders the live run from its own stream, and its canonical
@@ -5152,6 +5157,7 @@ const overseer = require('./overseer.js').makeOverseer({ fs, path, writeDurable:
   file: path.join(WORKSPACES, 'overseer.json'), now: () => Date.now(),
   newId: () => 'ws_' + crypto.randomUUID().replace(/-/g, ''),
   sessions: () => saveStore.load('agent') || {}, hasAgent: id => id === 'agent' || agentRoster.has(id),
+  isRunActive: id => runs.has(id),
   // how long one hand-off's report waits on a straggler before NOVA reports the finished part (env OVERSEER_REPORT_CEILING_MS)
   reportCeilingMs: Math.max(30000, Number(process.env.OVERSEER_REPORT_CEILING_MS) || 600000) });
 
@@ -5214,7 +5220,7 @@ async function tickOverseer() {
   overseerTickRunning = true;
   try {
     overseer.collect(subagents.list());
-    for (const review of overseer.snapshot().reviews) {
+    for (let review of overseer.snapshot().reviews) {
       if (review.agentId !== 'agent') {
         if (review.status === 'pending' || review.status === 'reviewing') overseer.patchReview(review.id, {
           status: 'cancelled', error: 'Automatic coordination belongs to the station orchestrator.' });
@@ -5251,6 +5257,7 @@ async function tickOverseer() {
         if (updateHolding() || overseer.snapshot().paused || !overseer.snapshot().reviews.some(r => r.id === review.id && r.status === 'pending')) return;
         try { parent = overseer.resolve(review.parentStreamId); }
         catch (_) { overseer.patchReview(review.id, { status: 'cancelled', error: 'Parent conversation is no longer available.' }); return; }
+        review = overseer.refreshReview(review.id, subagents.list()) || review;
         members = liveOf(review);
         if (!members.length) {
           overseer.patchReview(review.id, { status: 'superseded', error: 'Every worker in this request has a newer attempt.' }); return;
@@ -5267,7 +5274,8 @@ async function tickOverseer() {
         };
         runs.set(runId, reviewAbort);
         runsMeta.set(runId, { agentId: review.agentId, startedAt: Date.now(), source: 'overseer', streamId: parent.id });
-        const waiting = (review.waitingOn || []).map(m => subagents.get(m.workerId)).filter(Boolean);
+        const waiting = (review.waitingOn || []).map(m => subagents.get(m.workerId))
+          .filter((w, i) => w && w.runId === review.waitingOn[i].workerRunId && w.status === 'running');
         const instruction = delegatedReportPrompt(members, waiting, review.followUp === true);
         try {
           await runOnceCoreCounted({ agentId: review.agentId, key, provider, baseUrl, model: ident.model,
@@ -19882,6 +19890,7 @@ async function runOnceCore(o) {
   // THIS SAME runOnce per worker; the roster supplies each worker's composed identity (system prompt + model).
   makeOrchestrationTools({
     runOnce, roster: () => agentRoster, key: runKey, model, provider: providerId, baseUrl, reasoningEffort, subagents,
+    finalizeDispatchDelivery: (id, envelope) => dispatchDeliveryStore.finalizeDispatchDelivery(dispatchDeliveryDeps, id, envelope),
     runRecord: (id) => runStore.latest(id),   // team.subagents {runId}: verify a foreground dispatch against run history (#57)
     coordinateResults: require('./overseer.js').isCoordinatorRun({ ...o, agentId, surface }),
     // every coordinator worker is filed in its own thread under the conversation that delegated it (orchestration.js
@@ -20891,7 +20900,7 @@ async function runOnceCore(o) {
      dispatch, the results after), the compaction tiers' strict drain, and run end — which then appends only what
      is left. Directive text is captured pre-loop (runTranscript.setDirective below). */
   const runTranscript = makeRunTranscript({
-    store: transcriptStore, streamId: o.streamId, agentId, runId, from: o.delegatedBy || '',
+    store: transcriptStore, streamId: o.streamId, agentId, runId, from: o.delegatedBy || '', dispatchState: o.dispatchDelivery && o.dispatchDelivery.state,
     // rows written after untrusted content entered this run carry its taint source (sec-taint 09-25)
     taint: () => execution.taintedBy() || (typeof o.connectorAuthority?.taintedBy === 'function' ? o.connectorAuthority.taintedBy() : null),
     // mid-run write failures never kill the run or reorder dialogue: the rows stay pending (and in the run journal)
@@ -22350,7 +22359,7 @@ async function runOnceCore(o) {
         }
       }
       const runEndedAt = Date.now();
-      runStore.record({ runId, parentRunId: o.parentRunId || '', delegatedBy: o.delegatedBy || '', agentId, provider: activeProviderId, reason: ((result && result.reason) || 'done'), clarifying: taskQuestionAsked, turns: finalTurns, tokens: finalTokens, usd: finalUsd, title: title, streamId: o.streamId || '', sessionTitle: o.sessionTitle || '', deliveryPrompt: o.syntheticTrigger ? '' : (o.sessionPrompt || ''), deliveryText, recipeId: o.recipeId || '', projectRoot: o.projectRoot || '', deliverable: deliverableNotes.take(runId), model: finalModel, reasoningEffort, unmetered: runUnmetered && mediaUsd === 0, artifacts: execution.artifactList(), toolsOk: execution.toolsOk(), toolTrace: execution.toolTraceList(), failureStage: execution.failureStage(), failureCode: execution.failureCode(), uncertainMutations: execution.uncertainMutations(), completionEvidence: finalCompletionEvidence, recoveryAttempts: execution.recoveryAttempts(), startedAt: runStartedAt, endedAt: runEndedAt, durationMs: runEndedAt - runStartedAt, identityFallback, internal, surface, recoveryOf: o.recovery ? String(o.recovery.sourceRunId || '') : '', handoffEdited: o.handoffEdited === true, stepTest: o.stepTest === true, lineId: o.lineId || '', dockId: o.dockId || '', cronJobId: trigger === 'schedule' ? String(o.cronJobId || '') : '', taintedBy: execution.taintedBy() || '' });   // execution terminal stays separate from the neutral Task Brief outcome used by progression; recoveryOf links a continuation to the interrupted run it resumed
+      runStore.record({ runId, parentRunId: o.parentRunId || '', delegatedBy: o.delegatedBy || '', agentId, provider: activeProviderId, reason: ((result && result.reason) || 'done'), clarifying: taskQuestionAsked, turns: finalTurns, tokens: finalTokens, usd: finalUsd, title: title, streamId: o.streamId || '', sessionTitle: o.sessionTitle || '', deliveryPrompt: o.syntheticTrigger ? '' : (o.sessionPrompt || ''), deliveryText, dispatchDelivery: o.dispatchDelivery, recipeId: o.recipeId || '', projectRoot: o.projectRoot || '', deliverable: deliverableNotes.take(runId), model: finalModel, reasoningEffort, unmetered: runUnmetered && mediaUsd === 0, artifacts: execution.artifactList(), toolsOk: execution.toolsOk(), toolTrace: execution.toolTraceList(), failureStage: execution.failureStage(), failureCode: execution.failureCode(), uncertainMutations: execution.uncertainMutations(), completionEvidence: finalCompletionEvidence, recoveryAttempts: execution.recoveryAttempts(), startedAt: runStartedAt, endedAt: runEndedAt, durationMs: runEndedAt - runStartedAt, identityFallback, internal, surface, recoveryOf: o.recovery ? String(o.recovery.sourceRunId || '') : '', handoffEdited: o.handoffEdited === true, stepTest: o.stepTest === true, lineId: o.lineId || '', dockId: o.dockId || '', cronJobId: trigger === 'schedule' ? String(o.cronJobId || '') : '', taintedBy: execution.taintedBy() || '' });   // execution terminal stays separate from the neutral Task Brief outcome used by progression; recoveryOf links a continuation to the interrupted run it resumed
 
       // P0.1/H1.1: persist the full DIALOGUE (not just the outcome) — a durable server-side transcript for EVERY
       // run, incl. headless ones (cron/Telegram/delegated). Append the triggering user directive, then EVERY new
@@ -22376,8 +22385,8 @@ async function runOnceCore(o) {
           console.warn('[run-journal] retained unsettled run for review:', runId, retirement.state && retirement.state.status);
         }
       } else {
-        if (title && !retryDirective && !o.syntheticTrigger && !runTranscript.directiveWritten()) transcriptStore.append({ streamId: o.streamId, agentId, role: 'user', content: title, from: o.delegatedBy || undefined });
-        if (result && Array.isArray(result.messages)) transcriptStore.appendNew(o.streamId, agentId, result.messages, { taint: execution.taintedBy() });
+        if (title && !retryDirective && !o.syntheticTrigger && !runTranscript.directiveWritten()) transcriptStore.append({ streamId: o.streamId, agentId, role: 'user', content: title, from: o.delegatedBy || undefined, sourceRunId: o.dispatchDelivery ? runId : undefined, dispatchState: o.dispatchDelivery && o.dispatchDelivery.state });
+        if (result && Array.isArray(result.messages)) transcriptStore.appendNew(o.streamId, agentId, result.messages, { taint: execution.taintedBy(), sourceRunId: o.dispatchDelivery ? runId : undefined, dispatchState: o.dispatchDelivery && o.dispatchDelivery.state });
       }
     } catch (_) {}
     transcriptLiveRuns.delete(runId);   // H2: settled (or retained in the journal) — its rows are ordinary history now
@@ -26238,9 +26247,14 @@ function serveTranscript(req, res) {
     const limit = Math.max(1, Math.min(500, Number(u.searchParams.get('limit')) || 200));
     const sourceRunId = u.searchParams.get('runId') || '';
     // H2: a run still writing per turn stays out of the stream view until it ends (see transcriptLiveRuns).
-    const turns = sourceRunId || !transcriptLiveRuns.size
-      ? transcriptStore.history(stream, { limit, sourceRunId })
-      : transcriptStore.history(stream, { limit: limit + 500 }).filter(r => !transcriptLiveRuns.has(String(r.sourceRunId || ''))).slice(-limit);
+    const hashText = text => crypto.createHash('sha256').update(text, 'utf8').digest('hex');
+    // Explicit delivery reads return only the full accepted projection. The ordinary exact-run view stays raw.
+    const finalDelivery = sourceRunId && u.searchParams.get('delivery') === '1';
+    const raw = transcriptStore.history(stream, { limit: limit + 500, sourceRunId, dispatchState: finalDelivery ? 'final' : undefined });
+    const turns = sourceRunId
+      ? raw.filter(r => finalDelivery ? transcriptStoreModule.isFinalDeliveryRow(r, hashText, (runStore.latest(r.sourceRunId) || {}).dispatchDelivery) : r.dispatchState !== 'final').slice(-limit)
+      : transcriptStoreModule.projectConversation(raw.filter(r => !transcriptLiveRuns.has(String(r.sourceRunId || ''))),
+        id => runStore.latest(id), hashText).slice(-limit);
     json(200, { stream, turns });
   } catch (e) { json(500, readRouteFailure('transcript', e)); }   // broken ≠ empty: every reader gates on r.ok (autosessions/chat/returnstore)
 }

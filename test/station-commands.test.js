@@ -27,7 +27,7 @@ function boot(opts) {
   const Channels = require('../frontend/app/channels.js');
   Workstreams.reset();
   Channels.reset();
-  const page = { rail: 0, persisted: 0, loaded: [], acks: [], save: null };
+  const page = { rail: 0, persisted: 0, loaded: [], delivered: [], repainted: 0, acks: [], save: null };
   const sandbox = {
     Workstreams, Channels,
     App: {
@@ -39,11 +39,13 @@ function boot(opts) {
       flush: async () => opts.saveFails ? false : true,
       pull: async () => opts.readBackFails ? null : page.save
     },
-    Chat: { load: ws => page.loaded.push(ws.id), canFocusSession: opts.canFocusSession || (() => true) },
+    Delegated: { repaint: () => page.repainted++ },
+    Chat: { deliverTurns: (ws, turns) => page.delivered.push({ id: ws.id, turns }), load: ws => page.loaded.push(ws.id), canFocusSession: opts.canFocusSession || (() => true) },
     U: { bus: { on: () => {} } },
     VoiceLive: opts.voiceLive,
     fetch: async (url, init) => {
       if (String(url).indexOf('/api/runs') === 0) return { ok: true, json: async () => ({ runs: opts.runs || [] }) };
+      if (String(url).indexOf('/api/transcript') === 0) return { ok: opts.transcriptUnavailable !== true, json: async () => ({ turns: opts.deliveryTurns || [] }) };
       page.acks.push(JSON.parse(init.body)); return { ok: true };
     },
     document: { addEventListener: () => {} },
@@ -111,6 +113,184 @@ async function call(env, verb, args) {
   A.ok(env.W.unread(ws.id), 'the rail flags it unread — the Commander has genuinely not seen this yet');
   A.ok(env.page.rail > before && env.page.persisted > 0, 'the rail re-renders and the save is written');
   A.eq(env.page.loaded.length, 0, 'a session that is NOT open is not force-rendered');
+}
+
+// A foreground worker's text is not proof of completion: keep the actual terminal reason live and after recovery.
+for (const reason of ['done', 'budget', 'max_iters', 'aborted', 'error']) {
+  const env = boot();
+  const worker = env.W.adopt({ id: 'worker-outcome', title: 'Worker outcome', agentId: 'researcher', worker: true, parentStreamId: env.W.generalId() });
+  await call(env, 'station.deliver', { streamId: worker.id, agentId: 'researcher', runId: 'outcome-' + reason, text: 'The recorded work so far.', reason });
+  A.eq(worker.lastRunReason, reason, 'live worker delivery preserves ' + reason);
+  A.eq(worker.lastRunOk, reason === 'done', 'only a completed worker is successful: ' + reason);
+  env.W.init(JSON.parse(JSON.stringify(env.W.serialize())));
+  A.eq(env.W.get(worker.id).lastRunReason, reason, 'worker outcome survives page restart: ' + reason);
+}
+{
+  const env = boot({ runs: [{ runId: 'partial-run', streamId: 'partial-worker', sessionTitle: 'Partial worker',
+    agentId: 'researcher', reason: 'max_iters', deliveryText: 'Partial findings.', ts: 1000 }] });
+  const worker = env.W.adopt({ id: 'partial-worker', title: 'Partial worker', worker: true, parentStreamId: env.W.generalId() });
+  await call(env, 'station.deliver', { streamId: worker.id, runId: 'partial-run', text: 'Partial findings.' });
+  A.eq(worker.lastRunReason, '', 'a legacy delivery without outcome never guesses completion');
+  A.eq(await env.S.reconcile(worker.id), 0, 'learning an outcome does not duplicate an already delivered answer');
+  A.eq(worker.lastRunReason, 'max_iters', 'recovery heals an older delivery that lost its iteration-limit reason');
+  A.eq(worker.history.length, 1, 'the partial answer remains single');
+  env.W.appendRun(worker.id, 'newer-run', 2000); env.W.noteRunEnd(worker.id, 'newer-run', true, 'done');
+  await env.S.reconcile(worker.id);
+  A.eq(worker.lastRunReason, 'done', 'an older recovered outcome cannot replace the newest run result');
+}
+{
+  const env = boot({ runs: [{ runId: 'empty-error', streamId: 'failed-worker', sessionTitle: 'Failed worker',
+    agentId: 'researcher', reason: 'error', deliveryText: '', ts: 1000 }] });
+  const worker = env.W.adopt({ id: 'failed-worker', title: 'Failed worker', worker: true, parentStreamId: env.W.generalId() });
+  await call(env, 'station.dispatch_start', { streamId: worker.id, runId: 'empty-error' });
+  const ended = await call(env, 'station.dispatch_end', { streamId: worker.id, runId: 'empty-error' });
+  A.eq(ended.ok, true, 'dispatch end reconciles the foreground worker record');
+  A.eq(worker.lastRunReason, 'error', 'a worker that failed without text still retains its actual reason');
+  A.eq(worker.history.length, 0, 'recovering an empty failure invents no assistant answer');
+  A.eq(worker.runIds[0], 'empty-error', 'the failed run can still be inspected from its card');
+  A.eq(env.page.save.workstreams.find(w => w.id === worker.id).lastRunReason, 'error', 'empty failure outcome is persisted');
+}
+
+// Execution output is provisional until structured-result validation finalizes delivery.
+{
+  const runs = [{ runId: 'raw-run', streamId: 'structured-worker', sessionTitle: 'Structured worker',
+    agentId: 'researcher', reason: 'done', deliveryText: 'not valid JSON', ts: 1000, dispatchDelivery: { state: 'pending' } },
+    { runId: 'repair-run', streamId: 'structured-worker', sessionTitle: 'Structured worker',
+    reason: 'done', deliveryText: '{"ok":true}', ts: 2000, dispatchDelivery: { state: 'internal' } }];
+  const env = boot({ runs });
+  const worker = env.W.adopt({ id: 'structured-worker', title: 'Structured worker', worker: true, parentStreamId: env.W.generalId() });
+  await call(env, 'station.dispatch_start', { streamId: worker.id, runId: 'raw-run' });
+  A.eq(await env.S.reconcile(worker.id), 0, 'recovery waits for structured repair');
+  A.eq(worker.history.length, 0, 'raw and repair execution text is never an accepted answer');
+  A.eq(worker.runIds.length, 0, 'provisional records cannot deduplicate final delivery');
+  A.eq(env.C.isBusy(worker.id), true, 'provisional recovery cannot settle live dispatch');
+  runs[0].dispatchDelivery = { state: 'final', text: '{"ok":true}', reason: 'done', repairRunId: 'repair-run' };
+  const out = await call(env, 'station.deliver', { streamId: worker.id, runId: 'raw-run', text: runs[0].dispatchDelivery.text, reason: 'done' });
+  A.eq(out.result.folded, true, 'the authoritative repaired result is accepted under the original run');
+  A.eq(worker.history.map(m => m.content), ['{"ok":true}'], 'only the validated answer is visible');
+  A.eq(await env.S.reconcile(worker.id), 0, 'final delivery recovery is idempotent');
+  // Recreate page storage without the live bridge delivery, as after a missed ACK/restart.
+  env.W.init({ generalId: 'general', activeId: 'general', workstreams: [{ id: 'general' },
+    { id: worker.id, title: worker.title, worker: true, parentStreamId: 'general' }] });
+  A.eq(await env.S.reconcile(), 1, 'restart recovers the validated envelope once');
+  A.eq(env.W.get(worker.id).history.map(m => m.content), ['{"ok":true}'], 'restart never replays raw output or a second repair answer');
+  runs[0].dispatchDelivery = { state: 'final', text: '', reason: 'invalid-result' };
+  env.W.init({ generalId: 'general', activeId: 'general', workstreams: [{ id: 'general' },
+    { id: worker.id, title: worker.title, worker: true, parentStreamId: 'general' }] });
+  await env.S.reconcile();
+  A.eq(env.W.get(worker.id).lastRunReason, 'invalid-result', 'execution done never overrides rejected structured delivery');
+  A.eq(env.W.get(worker.id).lastRunOk, false, 'invalid structured delivery is not successful');
+  A.eq(env.W.get(worker.id).history.length, 0, 'invalid structured delivery has no raw-text fallback');
+}
+
+// A bounded run-index preview must never lock out the complete validated answer.
+for (const unavailable of [false, true]) {
+  const full = JSON.stringify({ answer: 'validated '.repeat(2600) + 'COMPLETE_TAIL' });
+  const opts = { transcriptUnavailable: unavailable, deliveryTurns: [{ role: 'assistant', dispatchState: 'final', streamId: 'long-worker', sourceRunId: 'long-run', content: full }],
+    runs: [{ runId: 'long-run', streamId: 'long-worker', sessionTitle: 'Long worker', reason: 'done', deliveryText: 'not valid JSON',
+      dispatchDelivery: { state: 'final', text: full.slice(0, 24000), reason: 'done', repairRunId: 'long-repair' } }] };
+  const env = boot(opts), worker = env.W.adopt({ id: 'long-worker', title: 'Long worker', worker: true, parentStreamId: env.W.generalId() });
+  A.eq(await env.S.reconcile(worker.id), unavailable ? 0 : 1, 'only a complete final projection may be recovered');
+  if (unavailable) {
+    A.eq(worker.runIds.length, 0, 'unavailable full output cannot reserve delivery deduplication');
+    await call(env, 'station.deliver', { streamId: worker.id, runId: 'long-run', text: full, reason: 'done' });
+  }
+  A.eq(worker.history[0].content, full, 'the entire accepted answer is retained');
+  A.eq(JSON.parse(worker.history[0].content).answer.endsWith('COMPLETE_TAIL'), true, 'structured output remains valid and complete');
+  A.eq(await env.S.reconcile(worker.id), 0, 'the complete answer remains single');
+}
+
+// New final envelopes prove complete content at preview/storage boundaries; failed reads stay retryable.
+for (const size of [23999, 24000, 24001, 199999, 200000, 200001, 210026, 1048576]) {
+  const full = JSON.stringify({ answer: 'x'.repeat(size - 26) + 'COMPLETE_TAIL' });
+  A.eq(full.length, size, 'fixture hits the exact boundary');
+  const textSha256 = require('node:crypto').createHash('sha256').update(full).digest('hex');
+  const row = { runId: 'boundary-run', streamId: 'boundary-worker', sessionTitle: 'Boundary worker', reason: 'done',
+    dispatchDelivery: { state: 'final', text: full.slice(0, 24000), textLength: full.length, textSha256, reason: 'done' } };
+  const opts = { runs: [row], deliveryTurns: [{ role: 'assistant', dispatchState: 'final', sourceRunId: row.runId,
+    streamId: row.streamId, content: full, textLength: full.length, textSha256 }] };
+  const env = boot(opts), w = env.W.adopt({ id: row.streamId, title: row.sessionTitle, worker: true, parentStreamId: env.W.generalId() });
+  A.eq(await env.S.reconcile(w.id), 1, 'complete output recovers at ' + size);
+  A.eq(w.history[0].content, full, 'full tail and JSON survive at ' + size);
+  A.eq(await env.S.reconcile(w.id), 0, 'complete output is idempotent at ' + size);
+}
+for (const corrupt of ['truncated', 'changed-tail', 'wrong-run', 'wrong-stream', 'raw', 'missing-length', 'wrong-hash', 'legacy-cap', 'short-preview']) {
+  const full = JSON.stringify({ answer: 'validated '.repeat(21000) + 'COMPLETE_TAIL' });
+  const textSha256 = require('node:crypto').createHash('sha256').update(full).digest('hex');
+  const row = { runId: 'integrity-run', streamId: 'integrity-worker', sessionTitle: 'Integrity worker', reason: 'done',
+    dispatchDelivery: { state: 'final', text: full.slice(0, 24000), textLength: full.length, textSha256, reason: 'done' } };
+  const good = { role: 'assistant', dispatchState: 'final', sourceRunId: row.runId, streamId: row.streamId,
+    content: full, textLength: full.length, textSha256 };
+  const bad = { ...good };
+  if (corrupt === 'short-preview') { row.dispatchDelivery.text = full.slice(0, 23999); bad.content = full.slice(0, 200000); }
+  if (corrupt === 'truncated') bad.content = full.slice(0, 200000);
+  if (corrupt === 'changed-tail') bad.content = full.slice(0, -3) + 'X"}';
+  if (corrupt === 'wrong-run') bad.sourceRunId = 'repair-run';
+  if (corrupt === 'wrong-stream') bad.streamId = 'other-worker';
+  if (corrupt === 'raw') bad.dispatchState = 'pending';
+  if (corrupt === 'missing-length') delete bad.textLength;
+  if (corrupt === 'wrong-hash') bad.textSha256 = '0'.repeat(64);
+  if (corrupt === 'legacy-cap') { delete row.dispatchDelivery.textLength; delete row.dispatchDelivery.textSha256; bad.content = full.slice(0, 200000); }
+  const opts = { runs: [row], deliveryTurns: [bad] }, env = boot(opts);
+  const w = env.W.adopt({ id: row.streamId, title: row.sessionTitle, worker: true, parentStreamId: env.W.generalId() });
+  A.eq(await env.S.reconcile(w.id), 0, corrupt + ' cannot masquerade as a complete answer');
+  A.eq(w.runIds.length, 0, corrupt + ' cannot reserve deduplication');
+  A.eq(w.history.length, 0, corrupt + ' never borrows rejected output');
+  Object.assign(row.dispatchDelivery, { textLength: full.length, textSha256 }); opts.deliveryTurns = [good];
+  A.eq(await env.S.reconcile(w.id), 1, corrupt + ' can retry with the full authoritative payload');
+  A.eq(w.history[0].content, full, corrupt + ' retry retains the full answer');
+}
+
+// Recovering hidden worker state must not reconstruct the unrelated chat the reader is using.
+for (const text of ['', 'Final worker answer.']) {
+  const env = boot({ runs: [{ runId: 'hidden-result', streamId: 'hidden-worker', sessionTitle: 'Hidden worker',
+    reason: 'error', deliveryText: text, ts: 1000 }] });
+  const worker = env.W.adopt({ id: 'hidden-worker', title: 'Hidden worker', worker: true, parentStreamId: env.W.generalId() });
+  const reading = env.W.create('Reading another conversation');
+  reading.history.push({ role: 'assistant', content: 'Keep this reading position.', ts: 500 });
+  await call(env, 'station.dispatch_end', { streamId: worker.id, runId: 'hidden-result' });
+  A.eq(env.page.loaded.length, 0, 'hidden worker recovery never reloads the active chat');
+  A.eq(env.page.delivered.length, 0, 'hidden worker recovery never appends to an unrelated chat');
+  A.eq(env.W.activeId(), reading.id, 'reader focus stays in the unrelated chat');
+  A.ok(env.page.repainted > 0 && env.page.persisted > 0, 'worker state and durable save still refresh');
+}
+
+// Healing a missed older attempt must never make it the worker's newest result or stop a newer live retry.
+for (const text of ['', 'Older partial work.']) {
+  const runs = [
+    { runId: 'new-result', streamId: 'healed-worker', sessionTitle: 'Healed worker', reason: 'done', deliveryText: 'New result.', ts: 2000 },
+    { runId: 'missed-attempt', streamId: 'healed-worker', sessionTitle: 'Healed worker', reason: 'error', deliveryText: text, ts: 1000 }
+  ];
+  const env = boot({ runs });
+  const worker = env.W.adopt({ id: 'healed-worker', title: 'Healed worker', worker: true, parentStreamId: env.W.generalId() });
+  await call(env, 'station.deliver', { ...runs[0], text: runs[0].deliveryText });
+  await call(env, 'station.dispatch_start', { streamId: worker.id, runId: 'live-retry' });
+  const healed = await env.S.reconcile(worker.id);
+  A.eq(worker.runIds.join(','), 'missed-attempt,new-result', 'recovered older attempt stays before the known newer result');
+  A.eq(worker.lastRunReason, 'done', 'older recovery preserves the newest measured outcome');
+  A.eq(worker.lastRunOk, true, 'older recovery preserves the newest success flag');
+  A.eq(worker.lastActiveAt, 2000, 'older recovery does not move activity backwards');
+  A.eq(env.C.runIdOf(worker.id), 'live-retry', 'older recovery does not clear a newer live channel');
+  A.eq(env.C.isBusy(worker.id), true, 'the newer retry remains busy');
+  A.eq(healed, text ? 1 : 0, 'only a recovered answer counts as delivered');
+  A.eq(worker.history.at(-1).content, 'New result.', 'recovery keeps the newest answer last');
+  A.eq(env.page.save.workstreams.find(w => w.id === worker.id).runIds.join(','), 'missed-attempt,new-result', 'recovery persists the corrected run order even for an empty failure');
+  const staleEnd = await call(env, 'station.dispatch_end', { streamId: worker.id, runId: 'missed-attempt' });
+  A.eq(staleEnd.result.settled, false, 'a delayed old end event does not claim to settle the newer channel');
+  A.eq(env.C.runIdOf(worker.id), 'live-retry', 'a delayed old end event cannot clear the retry');
+  await call(env, 'station.deliver', { ...runs[0], text: runs[0].deliveryText });
+  A.eq(env.C.runIdOf(worker.id), 'live-retry', 'a duplicate prior delivery cannot clear the retry');
+}
+
+{
+  const env = boot({ runs: [{ runId: 'missed-before-live', streamId: 'active-worker', sessionTitle: 'Active worker', reason: 'error', deliveryText: '', ts: 1000 }] });
+  const worker = env.W.adopt({ id: 'active-worker', title: 'Active worker', worker: true, parentStreamId: env.W.generalId() });
+  env.W.appendRun(worker.id, 'live-not-recorded-yet', 2000);
+  await call(env, 'station.dispatch_start', { streamId: worker.id, runId: 'live-not-recorded-yet' });
+  await env.S.reconcile(worker.id);
+  A.eq(worker.runIds.join(','), 'missed-before-live,live-not-recorded-yet', 'the current channel anchors recovery before its run reaches the server record');
+  A.eq(worker.lastRunReason, '', 'a live unconfirmed outcome stays unknown while an old failure is recovered');
+  A.eq(worker.lastRunOk, null, 'a live unconfirmed success flag stays unknown');
 }
 
 // ---- task board verbs: canonical kind:'task' Workstreams, durable read-back, and semantic idempotency ----
@@ -215,7 +395,8 @@ async function call(env, verb, args) {
   const env = boot();
   const ws = env.W.create('research');       // create() activates it
   await call(env, 'station.deliver', { streamId: ws.id, agentId: 'researcher', runId: 'run-1', text: 'done' });
-  A.eq(env.page.loaded[0], ws.id, 'the open session is reloaded so the answer appears at once');
+  A.eq(env.page.delivered[0].id, ws.id, 'the open session receives the new turns without a reload');
+  A.eq(env.page.loaded.length, 0, 'delivery preserves existing reader DOM');
   A.ok(!env.W.unread(ws.id), 'and it is not marked unread — it is on screen');
 }
 

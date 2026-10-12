@@ -3986,7 +3986,7 @@ const App = (() => {
   let railFocusId = null;         // roving-tabindex cursor: one rail stop regardless of session count
   let railAttentionKey = '';
   // PER-AGENT THREADS: a crew-row click narrows the rail to that agent's sessions — the streams bound to it
-  // plus every group chat it sits in (so a group lists under each member). The SESSIONS tab, the chip's ✕,
+  // plus group chats and conversations holding its delegated work. The SESSIONS tab, the chip's ✕,
   // or the same crew row again clears it. View state only: never persisted, never touches a stream.
   let railAgentFilter = null;
   function railHasAgent(w, id) {
@@ -4042,8 +4042,10 @@ const App = (() => {
     if (!agentId || typeof Workstreams === 'undefined') return null;
     for (const id of railPendingIds()) {
       const w = Workstreams.get(id); if (!w) continue;
-      const p = typeof Channels !== 'undefined' && Channels.pendingOf ? Channels.pendingOf(id) : null;
-      if ((p && p.agentId === agentId) || railHasAgent(w, agentId)) return id;
+      const asks = typeof Channels === 'undefined' ? [] : (Channels.pendingAllOf ? Channels.pendingAllOf(id) : [Channels.pendingOf ? Channels.pendingOf(id) : null]).filter(Boolean);
+      // Participation finds past work, but an attention shortcut must name the agent who is asking now.
+      if (asks.some(p => (p.workerAgentId || p.agentId || w.agentId) === agentId)) return id;
+      if (!asks.length && w.conversationMode === 'group' && railHasAgent(w, agentId)) return id;
     }
     return null;
   }

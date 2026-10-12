@@ -217,4 +217,26 @@ function ioAt(base, extra) {
   } finally { remove(dir); }
 }
 
+
+// Accepted output remains lossless at the validator's maximum even when JSON escaping exceeds segment target.
+{
+  const dir = temp('history-full-accepted');
+  const hash = text => require('crypto').createHash('sha256').update(text, 'utf8').digest('hex');
+  try {
+    const content = '{"answer":"' + '\ud800'.repeat(1048576 - 13) + '"}';
+    A.eq(content.length, 1048576, 'large accepted text reaches the exact JS-character contract limit');
+    A.ok(require('../sidecar/result-contract.js').inspect({ type: 'object' }, content).ok, 'max-size escaped Unicode JSON is accepted by the real validator');
+    let store = makeTranscriptStore({ io: ioAt(dir, { segmentBytes: 4 * 1024 * 1024 }), clock: { now: () => 1 } });
+    store.appendStrict({ streamId: 'full', sourceRunId: 'original', role: 'assistant', dispatchState: 'final', content, textLength: content.length, textSha256: hash(content), dispatchReason: 'done' });
+    A.ok(fs.statSync(path.join(dir, 'history', 'segment-000001.jsonl')).size > 4 * 1024 * 1024, 'escaped durable row exceeds segment roll target without being cut');
+    store = makeTranscriptStore({ io: ioAt(dir, { segmentBytes: 4 * 1024 * 1024 }), clock: { now: () => 2 } });
+    const restored = store.history('full', { sourceRunId: 'original', dispatchState: 'final', strict: true, limit: 1 })[0];
+    A.eq(restored.content.length, content.length, 'restarted segmented history preserves maximum full length');
+    A.eq(hash(restored.content), hash(content), 'restarted segmented history preserves maximum full UTF-8 hash');
+    A.ok(restored.content === content, 'restarted segmented history preserves exact surrogate code units too');
+    // A corrupt disk read must not become an empty first-acceptance lookup, even with a good RAM copy.
+    fs.appendFileSync(path.join(dir, 'history', 'segment-000001.jsonl'), '{bad line}\n');
+    A.throws(() => store.history('full', { sourceRunId: 'original', dispatchState: 'final', strict: true }), 'strict acceptance lookup rejects corrupt segment rather than falling back to RAM');
+  } finally { remove(dir); }
+}
 A.report('transcript-history-v2.test');

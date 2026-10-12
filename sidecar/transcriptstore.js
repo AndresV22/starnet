@@ -37,6 +37,7 @@
   // silently admits every Object.prototype key — and these keys come off persisted/model-supplied data.
   const ROLES = new Set(['user', 'assistant', 'tool', 'system']);
   const DEFAULT_LIMIT = 400;        // a sane cap so history() never returns an unbounded transcript
+  const FINAL_CONTENT_MAX = 1048576; // matches the structured result validator; final writes reject oversize, never truncate
   const CONTENT_MAX = 200000;       // per-turn guard against a pathological payload bloating the file
   const RAM_ROWS_MAX = 3000;        // global ceiling across many short streams; disk keeps lifetime truth
   function num(v) { return (typeof v === 'number' && isFinite(v)) ? v : 0; }
@@ -74,6 +75,50 @@
       catch (_) { /* frozen/sealed message: it just stays eligible — a duplicate row beats a lost transcript */ }
     }
     return n;
+  }
+
+  // Conversation display uses the finalized dispatch answer; run-specific reads keep raw execution evidence.
+  // Durable row markers stay authoritative after the bounded run log expires. A final transcript projection
+  // retains the complete answer, independently of the run envelope's 24k delivery-text cap.
+  function isFinalDeliveryRow(row, hash, expected) {
+    if (!row || row.dispatchState !== 'final' || row.role !== 'assistant' || !row.sourceRunId || typeof row.content !== 'string') return false;
+    const hasIntegrity = row.textLength != null || row.textSha256 != null;
+    const verified = hasIntegrity ? Number.isSafeInteger(row.textLength) && row.textLength === row.content.length
+      && /^[a-f0-9]{64}$/.test(String(row.textSha256 || '')) && (typeof hash !== 'function' || hash(row.content) === row.textSha256)
+      : row.content.length < CONTENT_MAX; // old rows at the historical cap may be truncated
+    if (!verified) return false;
+    if (expected && expected.state === 'final') {
+      if (!row.content.startsWith(String(expected.text || '')) || row.dispatchReason !== expected.reason
+          || (row.dispatchRepairRunId != null && row.dispatchRepairRunId !== expected.repairRunId)) return false;
+      if (hasIntegrity || expected.textLength != null || expected.textSha256 != null) {
+        if (row.textLength !== expected.textLength || row.textSha256 !== expected.textSha256) return false;
+      }
+    }
+    return true;
+  }
+  function projectConversation(turns, readRun, hash) {
+    const rows = Array.isArray(turns) ? turns : [];
+    const finals = new Map(), records = new Map(), prompts = new Set(), emitted = new Set();
+    const record = id => { if (!records.has(id)) records.set(id, typeof readRun === 'function' ? readRun(id) : null); return records.get(id); };
+    for (const row of rows) {
+      const id = String(row.sourceRunId || '');
+      if (row.dispatchState === 'final') { if (!finals.has(id)) finals.set(id, row); }
+    }
+    const out = [];
+    for (const row of rows) {
+      const id = String(row.sourceRunId || '');
+      if (row.dispatchState === 'final') { if (isFinalDeliveryRow(row, hash, (record(id) || {}).dispatchDelivery) && !emitted.has(id)) { out.push(row); emitted.add(id); } continue; }
+      const run = id ? record(id) : null, delivery = run && run.dispatchDelivery;
+      const state = row.dispatchState || (delivery && delivery.state);
+      if (!state) { out.push(row); continue; } // pre-envelope history keeps its exact existing shape
+      if (state === 'internal') continue;
+      const final = finals.get(id);
+      const finalPrompt = final ? final.dispatchPrompt : delivery && delivery.state === 'final' && run.deliveryPrompt;
+      if (row.role === 'user' && finalPrompt && !prompts.has(id)) {
+        out.push(Object.assign({}, row, { content: finalPrompt })); prompts.add(id);
+      }
+    }
+    return out;
   }
 
   function makeTranscriptStore(opts) {
@@ -227,8 +272,11 @@
 
     function buildEntry(e) {
       e = e || {};
-      let content = str(e.content).slice(0, CONTENT_MAX);
-      try { content = str(redact(content)).slice(0, CONTENT_MAX); } catch (e) { failNote('transcript.redact', e); }
+      const final = e.dispatchState === 'final';
+      let content = final ? str(e.content) : str(e.content).slice(0, CONTENT_MAX);
+      try { content = str(redact(content)); } catch (error) { if (final) throw error; failNote('transcript.redact', error); }
+      if (final && content.length > FINAL_CONTENT_MAX) throw new Error('Final dispatch transcript exceeds the 1 MiB persistence limit');
+      if (!final) content = content.slice(0, CONTENT_MAX);
       const entry = {
         streamId: normStream(e.streamId),
         agentId: str(e.agentId),
@@ -247,6 +295,15 @@
       // Recovery provenance is deliberately an opaque run id, never tool arguments. It lets boot reconciliation
       // prove that a journal's final rows already reached durable transcript storage before retiring the journal.
       if (e.sourceRunId != null) { const id = str(e.sourceRunId).slice(0, 200); if (id) entry.sourceRunId = id; }
+      if (['pending', 'internal', 'final'].includes(e.dispatchState)) entry.dispatchState = e.dispatchState;
+      if (e.dispatchState === 'final') {
+        entry.dispatchPrompt = str(redact(str(e.dispatchPrompt))).slice(0, 4000);
+        entry.dispatchReason = str(e.dispatchReason).slice(0, 80);
+        entry.dispatchRepairRunId = str(e.dispatchRepairRunId).slice(0, 100);
+        if (Number.isSafeInteger(e.textLength) && /^[a-f0-9]{64}$/.test(str(e.textSha256))) {
+          entry.textLength = e.textLength; entry.textSha256 = e.textSha256;
+        }
+      }
       // WHO wrote a user-role row that the Commander did not type: the agent that delegated this run (display only —
       // the row stays a user turn for the model). Absent on every Commander turn.
       if (e.from != null) { const f = str(e.from).slice(0, 80); if (f) entry.from = f; }
@@ -307,7 +364,7 @@
         if (!m || typeof m !== 'object' || m[PERSISTED]) continue;
         markPersisted([m]);                                    // mark BEFORE the role filter so fences aren't re-checked
         if (!ROLES.has(m.role) || m.role === 'system') continue;
-        append({ streamId: streamId, agentId: agentId, role: m.role, content: flattenContent(m.content), toolCalls: m.tool_calls, toolCallId: m.tool_call_id, taint: taint });
+        append({ streamId: streamId, agentId: agentId, role: m.role, content: flattenContent(m.content), toolCalls: m.tool_calls, toolCallId: m.tool_call_id, taint: taint, sourceRunId: opts && opts.sourceRunId, dispatchState: opts && opts.dispatchState });
         n++;
       }
       return n;
@@ -323,7 +380,7 @@
       for (const m of messages) {
         if (!m || typeof m !== 'object' || m[PERSISTED]) continue;
         if (!ROLES.has(m.role) || m.role === 'system') { markPersisted([m]); continue; }
-        appendStrict({ streamId: streamId, agentId: agentId, role: m.role, content: flattenContent(m.content), toolCalls: m.tool_calls, toolCallId: m.tool_call_id, sourceRunId: opts.sourceRunId, taint: opts.taint || null });
+        appendStrict({ streamId: streamId, agentId: agentId, role: m.role, content: flattenContent(m.content), toolCalls: m.tool_calls, toolCallId: m.tool_call_id, sourceRunId: opts.sourceRunId, dispatchState: opts.dispatchState, taint: opts.taint || null });
         markPersisted([m]);
         n++;
       }
@@ -419,13 +476,13 @@
       // durable index/segments first so an old, idle conversation still resumes exactly.
       if (typeof io.history === 'function') {
         try {
-          const found = io.history(want, { limit, sourceRunId });
+          const found = io.history(want, { limit, sourceRunId, dispatchState: o.dispatchState, strict: o.strict });
           if (Array.isArray(found)) return found.map(r => Object.assign({}, r));
-        } catch (e) { failNote('transcript.io', e); }
+        } catch (e) { if (o.strict) throw e; failNote('transcript.io', e); }
       }
       const out = [];
       for (let i = rows.length - 1; i >= 0 && out.length < limit; i--) {
-        if (rows[i].streamId === want && (!sourceRunId || rows[i].sourceRunId === sourceRunId)) out.push(Object.assign({}, rows[i]));
+        if (rows[i].streamId === want && (!sourceRunId || rows[i].sourceRunId === sourceRunId) && (!o.dispatchState || rows[i].dispatchState === o.dispatchState)) out.push(Object.assign({}, rows[i]));
       }
       out.reverse();   // newest-first scan -> chronological for replay
       return out;
@@ -439,6 +496,7 @@
       const rows = history(streamId, o);   // chronological, capped
       const out = [];
       for (const r of rows) {
+        if (r.dispatchState === 'final') continue; // display projection; the execution already appears above
         if (r.role === 'user') out.push({ role: 'user', content: r.content });
         else if (r.role === 'assistant') {
           const m = { role: 'assistant', content: r.content || '' };
@@ -462,5 +520,5 @@
     };
   }
 
-  return { makeTranscriptStore, markPersisted, _internals: { SID_RE, ROLES, PERSISTED, flattenContent } };
+  return { makeTranscriptStore, projectConversation, isFinalDeliveryRow, markPersisted, _internals: { SID_RE, ROLES, PERSISTED, flattenContent } };
 });

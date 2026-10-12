@@ -514,32 +514,49 @@ const GroupChat = (() => {
     e.append(document.createTextNode('to'), h('span', { class: 'gc-to' }, selected.map(name).join(', ')));
     e.append(button('✕', () => { selected = []; replyTo = null; recipientLabel(); }));
   }
-  /* A FILE THE AGENT NAMES IN ITS MESSAGE ("[the review](review/x/index.html)", "![preview](review/x/final.jpg)") opens the
-     group's SHARED copy when one was published from that path — the exact bytes every member sees — and otherwise the
-     speaking agent's own workspace file (Chat's default resolver: the same jailed open + lightbox as every deliverable). */
+  /* Inline files belong to the message's author and version. Prefer its run's published copy, otherwise the
+     newest copy that author had shared when the message was written. An old reply must never open a later
+     revision or another agent's same-named file. If no unambiguous shared version exists, use that author's
+     workspace file through Chat's normal file resolver. */
   const sharedBlobs = new Map();   // artifact id -> Promise<blob url> (immutable versions: safe to keep)
-  function sharedFor(groupId, p) {
-    const g = group && group.id === groupId ? group : null; if (!g) return null;
+  function sharedFor(groupId, p, agentId, messageId) {
+    const g = group && group.id === groupId ? group : null; if (!g || !agentId) return null;
+    const m = (g.messages || []).find(x => x.id === messageId && x.author === agentId);
+    if (!m) return null;
     const clean = v => String(v || '').replace(/\\/g, '/').replace(/^\.\//, '');
-    const want = clean(p), base = want.split('/').pop();
-    const norm = a => clean(a.sourcePath);
-    return g.artifacts.find(a => norm(a) === want) || g.artifacts.find(a => norm(a).endsWith('/' + want)) || g.artifacts.find(a => a.name === base) || null;
+    const want = clean(p);
+    const available = (g.artifacts || []).filter(a => {
+      if (a.agentId !== agentId) return false;
+      if ((m.artifactIds || []).includes(a.id) || (m.runId && a.runId === m.runId)) return true;
+      if (Number.isFinite(m.seq) && Number.isFinite(a.messageSeq)) return a.messageSeq < m.seq;
+      return Number.isFinite(m.at) && Number.isFinite(a.createdAt) && a.createdAt <= m.at;
+    });
+    let matching = available.filter(a => clean(a.sourcePath) === want);
+    if (!matching.length) matching = available.filter(a => clean(a.sourcePath).endsWith('/' + want));
+    // A bare filename may identify a single authored path; two different paths are ambiguous.
+    if (!matching.length && !want.includes('/')) matching = available.filter(a => a.name === want);
+    if (!matching.length || new Set(matching.map(a => clean(a.sourcePath) || a.name)).size !== 1) return null;
+    const attached = matching.filter(a => (m.artifactIds || []).includes(a.id));
+    const fromRun = m.runId && matching.filter(a => a.runId === m.runId);
+    const versions = attached.length ? attached : (fromRun && fromRun.length ? fromRun : matching);
+    // The ledger appends immutable versions in publication order (including equal timestamps).
+    return versions[versions.length - 1];
   }
   function fileRefs(groupId, agentId, messageId) {
     const own = (typeof Chat !== 'undefined' && Chat.workspaceFileRefs) ? Chat.workspaceFileRefs(agentId, 'group:' + groupId + ':' + messageId) : null;
     return {
-      // decided at CLICK time: a message rendered before the file was shared must still open the shared copy afterwards
-      // (capture on the link itself runs before the workspace opener's own listeners, so it can take the click over)
+      // Resolve against the latest ledger at click time, while retaining this message's author/version.
+      // Capture runs before the workspace opener, so a published immutable copy takes precedence.
       wire: (a, p) => {
         a.addEventListener('click', ev => {
-          const art = sharedFor(groupId, p); if (!art) return;
+          const art = sharedFor(groupId, p, agentId, messageId); if (!art) return;
           ev.preventDefault(); ev.stopImmediatePropagation();
           openFile(groupId, art).catch(showError);
         }, true);
         if (own) own.wire(a, p);
       },
       image: p => {
-        const art = sharedFor(groupId, p);
+        const art = sharedFor(groupId, p, agentId, messageId);
         if (!art) return own ? own.image(p) : Promise.reject(new Error('no file'));
         if (!sharedBlobs.has(art.id)) sharedBlobs.set(art.id, Chat.imageBlobUrl('/api/groups?id=' + encodeURIComponent(groupId) + '&file=' + encodeURIComponent(art.id), art.sourcePath || art.name));
         return sharedBlobs.get(art.id);

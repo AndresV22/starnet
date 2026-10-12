@@ -237,12 +237,33 @@ const StationCommands = (() => {
     throw new Error('there is no session with id ' + (id || '(none given)') + ' on this station');
   }
 
-  function refreshAndPersist(ws, quiet) {
-    if (quiet) return;
+  function refreshAndPersist(ws, quiet, turns) {
     const isOpen = Workstreams.activeId && Workstreams.activeId() === ws.id;
-    if (isOpen && typeof Chat !== 'undefined' && Chat.load) { try { Chat.load(ws); } catch (_) {} }
+    if (isOpen && turns && typeof Chat !== 'undefined' && Chat.deliverTurns) { try { Chat.deliverTurns(ws, turns); } catch (_) {} }
+    if (quiet) return;
+    try { if (typeof Delegated !== 'undefined' && Delegated.repaint) Delegated.repaint(); } catch (_) {}
     try { if (typeof App !== 'undefined' && App.refreshRail) App.refreshRail(); } catch (_) {}
     try { if (typeof App !== 'undefined' && App.persist) App.persist(); } catch (_) {}
+  }
+
+  // A delivered answer can be partial (budget/iteration/stop). Preserve the recorded terminal reason;
+  // the presence of text or a run id alone never establishes that a worker completed its task.
+  function noteOutcome(ws, runId, reason) {
+    const why = typeof reason === 'string' ? reason.trim().slice(0, 80) : '';
+    if (!why || !runId || !Workstreams.noteRunEnd) return false;
+    if (ws.lastRunReason === why && ws.lastRunOk === (why === 'done')) return false;
+    return Workstreams.noteRunEnd(ws.id, runId, why === 'done', why);
+  }
+
+  // Recovery and delayed bridge messages may concern an older attempt on this same thread.
+  // Only the run that owns the live channel may settle it; an idle channel is safe to clear.
+  function endDeliveredRun(ws, runId) {
+    if (typeof Channels === 'undefined' || !Channels.end) return false;
+    const busy = Channels.isBusy && Channels.isBusy(ws.id);
+    const current = Channels.runIdOf && Channels.runIdOf(ws.id);
+    if (busy && (!runId || String(current || '') !== String(runId))) return false;
+    Channels.end(ws.id);
+    return true;
   }
 
   function foldDelivery(a, opts) {
@@ -253,7 +274,8 @@ const StationCommands = (() => {
     if (!text) throw new Error('nothing to deliver — the worker returned no text');
     const runId = String((a && a.runId) || '');
     if (runId && (ws.runIds || []).indexOf(runId) >= 0) {
-      try { if (typeof Channels !== 'undefined' && Channels.end) Channels.end(ws.id); } catch (_) {}
+      if (noteOutcome(ws, runId, a.reason)) refreshAndPersist(ws, !!opts.quiet);
+      try { endDeliveredRun(ws, runId); } catch (_) {}
       return { folded: false, reason: 'already delivered', session: ws.title || 'General', resolvedBy: hit.resolvedBy };
     }
     const who = String((a && a.agentId) || 'agent');
@@ -264,13 +286,17 @@ const StationCommands = (() => {
        chat.js excludes sys lines from historyWindow() so it is never replayed to the model as if they had. */
     // a worker's OWN thread (filed under its parent) already holds the brief as its first durable turn, named for the
     // agent that wrote it — the marker would say the same thing twice
-    if (prompt && !ws.worker) ws.history.push({ role: 'system', sys: true, content: '— delegated to ' + who + ': ' + prompt.slice(0, 400) + ' —', ts });
-    ws.history.push({ role: 'assistant', content: text, agentId: who, ts });
-    if (runId && Workstreams.appendRun) Workstreams.appendRun(ws.id, runId, ts);
+    const turns = [];
+    if (prompt && !ws.worker) turns.push({ role: 'system', sys: true, content: '— delegated to ' + who + ': ' + prompt.slice(0, 400) + ' —', ts });
+    turns.push({ role: 'assistant', content: text, agentId: who, ts });
+    const beforeTurn = opts.recover || opts.beforeRunId ? ws.history.findIndex(m => Number(m && m.ts) > ts) : -1;
+    ws.history.splice(beforeTurn < 0 ? ws.history.length : beforeTurn, 0, ...turns);
+    if (runId && Workstreams.appendRun) Workstreams.appendRun(ws.id, runId, ts, opts.beforeRunId);
     else if (Workstreams.touch) Workstreams.touch(ws.id);
+    noteOutcome(ws, runId, a.reason);
     if (Workstreams.markUnread && !ws.worker) Workstreams.markUnread(ws.id);   // a worker's thread is hidden: the asking conversation gets the one report
-    try { if (typeof Channels !== 'undefined' && Channels.end) Channels.end(ws.id); } catch (_) {}
-    refreshAndPersist(ws, !!opts.quiet);
+    try { endDeliveredRun(ws, runId); } catch (_) {}
+    refreshAndPersist(ws, !!opts.quiet, turns);
     return { folded: true, session: ws.title || 'General', agentId: who, resolvedBy: hit.resolvedBy };
   }
 
@@ -1008,11 +1034,14 @@ const StationCommands = (() => {
       return { started: true, session: ws.title || 'General', runId, resolvedBy: hit.resolvedBy };
     },
 
-    'station.dispatch_end': (a) => {
+    'station.dispatch_end': async (a) => {
       const hit = resolveDelivery(a);
-      if (typeof Channels !== 'undefined' && Channels.end) Channels.end(hit.w.id);
+      const settled = endDeliveredRun(hit.w, a && a.runId);
+      // The producer ends dispatch only after validating/finalizing its delivery. Recovery ignores provisional
+      // execution rows, including a repair run, so run termination alone can never publish raw output.
+      await reconcile(hit.w.id);
       try { if (typeof App !== 'undefined' && App.refreshRail) App.refreshRail(); } catch (_) {}
-      return { settled: true, session: hit.w.title || 'General', resolvedBy: hit.resolvedBy };
+      return { settled, session: hit.w.title || 'General', resolvedBy: hit.resolvedBy };
     },
 
     /* STATION CONTROL (2026-10-02, "the agent can do anything the Commander asks"): what the Dossier CONFIG card, the
@@ -1108,29 +1137,61 @@ const StationCommands = (() => {
         if (!r.ok) return 0;
         rows = ((await r.json()) || {}).runs || [];
       } catch (_) { return 0; }
-      let folded = 0;
+      let folded = 0, outcomes = 0;
+      const rank = new Map(rows.filter(r => r && r.runId).map((r, i) => [String(r.runId), i]));
       // /api/runs is newest-first. Fold oldest-first so multiple missed answers preserve conversation order.
       for (const row of rows.slice().reverse()) {
-        if (!row || ['done', 'max_iters', 'budget'].indexOf(String(row.reason || 'done')) < 0) continue;
-        if (!String(row.sessionTitle || '').trim() || !String(row.deliveryText || '').trim()) continue;
+        if (!row || !String(row.sessionTitle || '').trim()) continue;
+        const delivery = row.dispatchDelivery;
+        if (delivery && delivery.state !== 'final') continue;
+        const reason = delivery ? delivery.reason : row.reason;
+        let text = delivery ? delivery.text : row.deliveryText;
         const args = {
           streamId: row.streamId, sessionTitle: row.sessionTitle, agentId: row.agentId,
-          runId: row.runId, prompt: row.deliveryPrompt, text: row.deliveryText, ts: row.ts
+          runId: row.runId, prompt: row.deliveryPrompt, text, reason, ts: row.ts
         };
         let hit;
         try { hit = resolveDelivery(args); } catch (_) { continue; }
         if (target && hit.w.id !== target) continue;
-        if (row.runId && (hit.w.runIds || []).indexOf(String(row.runId)) >= 0) continue;
+        // Ordinary conversations retain their existing recovery policy. A worker's record also retains failed
+        // or interrupted attempts: even an empty result needs its truthful outcome and inspection link.
+        if (!hit.w.worker && ['done', 'max_iters', 'budget'].indexOf(String(reason || 'done')) < 0) continue;
+        if (row.runId && (hit.w.runIds || []).indexOf(String(row.runId)) >= 0) {
+          if (noteOutcome(hit.w, String(row.runId), reason)) outcomes++;
+          continue;
+        }
+        // The run index stores a bounded preview. Do not let that preview deduplicate the complete answer.
+        // Read only the finalized delivery projection; exact execution transcripts may contain rejected output.
+        if (delivery && (String(text || '').length >= 24000 || (delivery.textLength != null && delivery.textLength !== String(text || '').length))) {
+          try {
+            const response = await fetch('/api/transcript?stream=' + encodeURIComponent(row.streamId || '') + '&runId=' + encodeURIComponent(row.runId || '') + '&delivery=1&limit=1', { cache: 'no-store' });
+            if (!response.ok) continue;
+            const result = await response.json();
+            const full = await Workstreams.finalDeliveryText(row, result.turns);
+            if (full == null) continue;
+            text = full;
+          } catch (_) { continue; }
+        }
+        args.text = text;
+        // An earlier missed attempt can be recovered after a newer answer was already filed locally.
+        // Use the server's run order to insert it before that known successor, preserving current truth.
+        const liveRunId = typeof Channels !== 'undefined' && Channels.isBusy && Channels.isBusy(hit.w.id) && Channels.runIdOf && Channels.runIdOf(hit.w.id);
+        const beforeRunId = (hit.w.runIds || []).find(id => rank.has(String(id)) && rank.get(String(id)) < rank.get(String(row.runId)))
+          || (liveRunId && liveRunId !== row.runId && (hit.w.runIds || []).includes(liveRunId) ? liveRunId : undefined);
+        if (!String(text || '').trim()) {
+          if (hit.w.worker && row.runId && reason && Workstreams.appendRun) {
+            if (Workstreams.appendRun(hit.w.id, String(row.runId), row.ts, beforeRunId)) outcomes++;
+            noteOutcome(hit.w, String(row.runId), reason);
+          }
+          continue;
+        }
         try {
-          const out = foldDelivery(args, { quiet: true });
+          const out = foldDelivery(args, { quiet: true, beforeRunId, recover: true });
           if (out && out.folded) folded++;
         } catch (_) {}
       }
-      if (folded) {
-        try {
-          const active = Workstreams.activeId && Workstreams.get(Workstreams.activeId());
-          if (active && typeof Chat !== 'undefined' && Chat.load) Chat.load(active);
-        } catch (_) {}
+      if (folded || outcomes) {
+        try { if (typeof Delegated !== 'undefined' && Delegated.repaint) Delegated.repaint(); } catch (_) {}
         try { if (typeof App !== 'undefined' && App.refreshRail) App.refreshRail(); } catch (_) {}
         try { if (typeof App !== 'undefined' && App.persist) App.persist(); } catch (_) {}
       }
