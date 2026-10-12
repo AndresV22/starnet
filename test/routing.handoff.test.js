@@ -78,8 +78,7 @@ function station(n) {
     const st2 = WM.create(d);
     const so = LE.placeBlueprint(st2, 'sorting_office', { x: 8, y: 4 });
     const sb = so.ids.filter(id => st2.propById(id).t === 'bay');
-    const o1 = st2.addProp({ t: 'outbox', x: 16, y: 1, w: 2, h: 2 }).id, o2 = st2.addProp({ t: 'outbox', x: 16, y: 6, w: 2, h: 2 }).id;
-    st2.connectBelt(sb[0], o1); st2.connectBelt(sb[1], o2);
+    const [o1, o2] = so.ids.filter(id => st2.propById(id).t === 'outbox');
     const rb = LE.placeBlueprint(st2, 'research_line', { x: 8, y: 24 });
     const bIn = rb.ids.find(id => st2.propById(id).t === 'intake');
     for (const p of st2.props()) if (p.t === 'bay' && !p.agentId) st2.assignPropAgent(p.id, 'ag_' + p.id);
