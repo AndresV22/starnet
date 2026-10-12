@@ -422,5 +422,46 @@ const settle = async (R, id) => { for (let i = 0; i < 50; i++) { await R.st.sett
     A.eq(s2.hops[0].denied, [], 'a clean step records none');
   }
 
+  /* ---- TWO REVIEW LOOPS IN A ROW (wave 2 review, conveyor-backend-02): drafter ▸ factcheck ▸ LOOP1 ▸ style ▸ LOOP2 ▸ publisher ▸
+     OUTBOX, both back lanes to the drafter (chain-audit-1010's floor). LOOP2 says revise; on the re-run LOOP1 approves and used to
+     lower the ONE looping flag while LOOP2's pass was still open, so the visited style read as a loop-back and STEP THROUGH stopped
+     "before style" on a line RUN ONE REAL JOB finishes. A gate closes only its own pass (chain.js openLoops, 2026-10-10). ---- */
+  {
+    const belts = [belt(1, 4, 'E'), belt(2, 4, 'E'), belt(5, 4, 'E'), belt(6, 4, 'E'), belt(7, 4, 'E'), belt(10, 4, 'E'), belt(11, 4, 'E'), belt(12, 4, 'E'),
+      belt(13, 4, 'E'), belt(14, 4, 'E'), belt(12, 3, 'N'), belt(12, 2, 'N'), belt(12, 1, 'W')];
+    for (let x = 11; x >= 6; x--) belts.push(belt(x, 1, 'W'));
+    belts.push(belt(5, 1, 'S'), belt(5, 2, 'S'));
+    belts.push(belt(17, 4, 'E'), belt(18, 4, 'E'), belt(19, 4, 'E'), belt(20, 4, 'E'), belt(21, 4, 'E'));
+    belts.push(belt(19, 3, 'N'), belt(19, 2, 'N'), belt(19, 1, 'N'), belt(19, 0, 'W'));
+    for (let x = 18; x >= 5; x--) belts.push(belt(x, 0, 'W'));
+    belts.push(belt(4, 0, 'S'), belt(4, 1, 'S'), belt(4, 2, 'S'), belt(24, 4, 'E'));
+    const floor = { props: [
+      { id: 'p1', t: 'intake', x: 0, y: 4, w: 1, h: 1 },
+      { id: 'p2', t: 'bay', x: 3, y: 3, w: 2, h: 2, agentId: 'drafter' },
+      { id: 'p3', t: 'bay', x: 8, y: 3, w: 2, h: 2, agentId: 'factcheck' },
+      { id: 'p5', t: 'loop', x: 12, y: 4, w: 1, h: 1, done: 'E', when: 'approved', maxIter: 3 },
+      { id: 'p6', t: 'bay', x: 15, y: 3, w: 2, h: 2, agentId: 'style' },
+      { id: 'p7', t: 'loop', x: 19, y: 4, w: 1, h: 1, done: 'E', when: 'approved', maxIter: 3 },
+      { id: 'p8', t: 'bay', x: 22, y: 3, w: 2, h: 2, agentId: 'publisher' },
+      { id: 'p9', t: 'outbox', x: 25, y: 4, w: 1, h: 1 }], belts };
+    let styleN = 0;
+    const R = rig(floor, {
+      factcheck: () => ({ text: 'facts ok\nVERDICT: approved', usd: 0.01 }),
+      style: () => ({ text: (++styleN === 1) ? 'tone off\nVERDICT: revise' : 'good\nVERDICT: approved', usd: 0.01 })
+    });
+    A.eq(R.plan.errors.filter(e => !e.warn).length, 0, 'two gates: the floor compiles');
+    const r = R.st.start({ line: R.lineId, text: 'write X', pause: 'none' });
+    A.ok(r.ok, 'two gates: STEP THROUGH starts (' + r.error + ')');
+    const s = await settle(R, r.session.id);
+    A.eq(s.hops.map(h => h.agentId).join(' > '), 'drafter > factcheck > style > drafter > factcheck > style > publisher', 'two gates: the outer gate sends it round once, then on to the publisher');
+    A.eq(s.state, 'done', 'two gates: the test finishes (' + s.error + ')');
+    A.ok(s.final != null && !s.error, 'two gates: the publisher\'s work reaches the OUTBOX');
+    // a session persisted before the gates were tracked (no openLoops) keeps reading its old single flag
+    const R2 = rig(loopFloor({ maxIter: 3, when: 'approved' }), { reviewer: (h, calls) => ({ text: calls.filter(c => c.agentId === 'reviewer').length === 1 ? 'x\nVERDICT: revise' : 'y\nVERDICT: approved', usd: 0.01 }) });
+    const s2 = await settle(R2, R2.st.start({ line: R2.lineId, text: 'go', pause: 'none' }).session.id);
+    A.eq(s2.hops.map(h => h.agentId).join(' > '), 'drafter > reviewer > drafter > reviewer > publisher', 'one gate: unchanged');
+    A.eq(s2.state, 'done', 'one gate: finishes');
+  }
+
   A.report('routing.steptest');
 })().catch(e => { console.log('FAIL: ' + (e && e.stack || e)); process.exit(1); });

@@ -199,11 +199,18 @@ function makeStepTest(o) {
     const step = (curDock && typeof dockFn === 'function') ? call(dockFn, curDock, ctx) : call(advance ? plan.step : plan.peek, cur, ctx);
     if (step && step.branches) return { next: { kind: 'end', reason: FANOUT }, text: raw, halt: FANOUT };
     if (step && step.join) return { next: { kind: 'end', reason: JOINER }, text: raw, halt: JOINER };
-    let target = null, text = raw, again = false, loopKey = null, n = 0, exhausted = false, looping = W.looping;
+    /* THE OPEN GATES (wave 2 review, conveyor-backend-02 — chain.js openLoops, 2026-10-10): two review loops in a row stopped the
+       test on the outer gate's second pass, because the inner gate letting work out lowered the ONE looping flag while the outer
+       gate's re-run was still under way. A gate closes only its own pass. Kept as a plain object: _w is JSON-cloned and persisted
+       (a Set would not survive). A session persisted before this (no openLoops) keeps reading its old single flag. */
+    const open = Object.assign({}, W.openLoops || {});
+    let target = null, text = raw, again = false, loopKey = null, n = 0, exhausted = false, looping = W.openLoops ? Object.keys(open).length > 0 : W.looping;
     if (step && step.loop) {
       loopKey = step.loop; n = W.iter[step.loop] || 0;
       const d = loopDecision(step, ctx, n, W.visited, raw);
-      target = asNode(d.target); text = d.text; again = d.again; exhausted = d.exhausted; looping = d.again;
+      target = asNode(d.target); text = d.text; again = d.again; exhausted = d.exhausted;
+      if (d.again) open[step.loop] = true; else delete open[step.loop];
+      looping = Object.keys(open).length > 0;
     } else if (step && (step.dockId || step.agentId)) target = asNode(step);
     if (!target) {
       if (curDock ? call(plan.shipsToOutbox, cur, curDock) : call(plan.shipsToOutbox, cur)) return { next: { kind: 'outbox' }, text };
@@ -219,7 +226,7 @@ function makeStepTest(o) {
     const next = { kind: 'agent', agentId: target.agentId, back: !!again };
     if (target.dockId) next.dockId = target.dockId;   // additive: WHICH bay the crate goes to (multi-bay)
     if (refusal) next.blocked = refusal;   // additive: continuing here will stop, and this is why
-    return { next, text, target: target.agentId, targetDock: target.dockId || null, targetKey, again, loopKey, n, exhausted, looping, loopHop, refusal };
+    return { next, text, target: target.agentId, targetDock: target.dockId || null, targetKey, again, loopKey, n, exhausted, looping, openLoops: open, loopHop, refusal };
   }
 
   /* advanceFrom(s, editedText) — CONTINUE: resolve the real next step, stamp the last hop's handoff, commit the
@@ -243,6 +250,7 @@ function makeStepTest(o) {
     if (nx.loopHop) W.loopHops += 1; else W.visited[nx.targetKey] = true;
     if (nx.again) W.iter[nx.loopKey] = nx.n + 1;
     W.looping = nx.looping;
+    W.openLoops = nx.openLoops;
     if (nx.exhausted) W.loopExhausted = true;
     const job = { agentId: nx.target, input: last.sent, entry: false, from: W.cur, hop: W.hop, edited, rerun: false };
     if (nx.targetDock) { job.dockId = nx.targetDock; job.fromDock = W.curDock || null; }
@@ -397,7 +405,7 @@ function makeStepTest(o) {
       hops: [], running: null, paused: null, preview: null, final: null, ended: null,
       totalUsd: 0, droppedUsd: 0, limits: null, error: null, streamId: 'steptest-' + id,
       _spent: 0,
-      _w: { cur: null, curDock: null, out: null, visited: { [dockId || agentId]: true }, iter: {}, looping: false, loopHops: 0, hop: entry ? 0 : 1, original, loopExhausted: false }
+      _w: { cur: null, curDock: null, out: null, visited: { [dockId || agentId]: true }, iter: {}, looping: false, openLoops: {}, loopHops: 0, hop: entry ? 0 : 1, original, loopExhausted: false }
     };
     limitsNow(s);
     sessions.push(s); trim();
