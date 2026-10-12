@@ -69,7 +69,7 @@ A.ok(/new Blob\(\[b\], \{ type: 'image\/svg\+xml' \}\)/.test(chat), 'an .svg ser
 A.ok(/\.md-img\[data-ready\]/.test(chat), 'a loaded image is carried across streaming re-renders (no per-frame rebuild)');
 A.ok(/userScrollHeld \|\| Date\.now\(\) - userScrollAt < 1200\) stick = false/.test(chat) && /else if \(stick\) log\.scrollTop = log\.scrollHeight/.test(chat),
   'only a real scroll gesture stops the follow; layout moving under a follower re-pins');
-A.ok(/wire: \(a, p\) => \{\s*a\.addEventListener\('click', ev => \{\s*const art = sharedFor\(groupId, p\)/.test(gc), "a group link resolves the shared copy at CLICK time");
+A.ok(/wire: \(a, p\) => \{\s*a\.addEventListener\('click', ev => \{\s*const art = sharedFor\(groupId, p, agentId, messageId\)/.test(gc), "a group link resolves its author and message version at CLICK time");
 A.ok(/class: 'gc-message cmsg agent gc-doc'/.test(gc), 'a previewed .md file wears the transcript markdown styles');
 const comms = read('frontend/css/comms.css');
 A.ok(/\.chat-attach-strip:not\(\[hidden\]\) \{ max-height: 124px; overflow-y: auto/.test(comms) && /\.chat-queued:not\(:empty\) \{ max-height: 104px; overflow-y: auto/.test(comms),
