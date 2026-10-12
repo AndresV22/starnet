@@ -995,6 +995,7 @@ const { note: failNote } = require('../../failopen');
         // An unstattable path stays a folder search, whose own scan reports the real error.
         const startStat = await fsp.stat(abs).catch((e) => { failNote('fs.search.start.stat', e); return null; });
         if (startStat && startStat.isFile()) { onlyName = P.basename(abs); abs = P.dirname(abs); }
+        const onlyRel = onlyName ? P.relative(base, resolved.abs).split(P.sep).join('/') : null;
         const startPrefix = P.relative(base, abs).split(P.sep).join('/');     // '' when searching from the root
         const ic = !!args.ignoreCase;
         const limit = Math.max(1, Math.min(1000, Number(args.limit) || 50));
@@ -1019,7 +1020,12 @@ const { note: failNote } = require('../../failopen');
           }
         }
         const baseReal = await realpathOrSelf(base);
-        async function walkAll() { const all = []; await collectFiles(abs, startPrefix, all, stats, baseReal, ancestors); return all; }
+        async function walkAll() {
+          // The named file already passed resolveInside. Do not enumerate its parent: same-name descendants
+          // are different files, and unrelated siblings must not consume this one-file scan's budget.
+          if (onlyName) { stats.files = 1; return [{ rel: onlyRel, abs: resolved.abs, mtimeMs: startStat.mtimeMs || 0 }]; }
+          const all = []; await collectFiles(abs, startPrefix, all, stats, baseReal, ancestors); return all;
+        }
         const rg = await rgBinary();
         const rgCommon = ['--no-require-git', '--no-messages', '--max-filesize', String(SEARCH_MAX_FILE_BYTES), '-g', '!node_modules', '--sort', 'path'];
         if (!stats.gitignore) rgCommon.push('--no-ignore');
@@ -1030,11 +1036,11 @@ const { note: failNote } = require('../../failopen');
           const hasSlash = q.indexOf('/') >= 0;
           const re = globToRe((!hasSlash && q.charAt(0) !== '*') ? ('*' + q) : q, ic);   // bare name -> suffix match (rg --files -g *name)
           const nameOf = (rel) => hasSlash ? rel : rel.split('/').pop();
-          const wanted = (rel) => (!onlyName || rel.split('/').pop() === onlyName) && re.test(nameOf(rel));
+          const wanted = (rel) => (!onlyName || rel === onlyRel) && re.test(nameOf(rel));
           let hits = null;
           if (rg) {
             const rels = [];
-            const r = await runRg(rg, rgCommon.concat(['--files']), abs, (line) => { rels.push(line); if (rels.length >= maxFiles) { stats.truncated = true; return false; } }, SEARCH_TIME_BUDGET_MS, signal);
+            const r = await runRg(rg, rgCommon.concat(['--files'], onlyName ? ['--', onlyName] : []), abs, (line) => { rels.push(line); if (!onlyName && rels.length >= maxFiles) { stats.truncated = true; return false; } }, SEARCH_TIME_BUDGET_MS, signal);
             if (r.ok) {
               stats.files = rels.length; stats.engine = 'rg';
               if (r.timedOut) stats.truncated = true;
@@ -1095,6 +1101,7 @@ const { note: failNote } = require('../../failopen');
              .gitignored files the walker skips. Both engines now apply the same globRe in JS: a path glob against the
              WORKSPACE-relative path (the base every result path uses), a name glob against the basename. */
           argv.push('-e', q);
+          if (onlyName) argv.push('--', onlyName);
           const byFile = new Map();   // rel -> hit
           let searched = null;
           const r = await runRg(rg, argv, abs, (line) => {
@@ -1105,6 +1112,7 @@ const { note: failNote } = require('../../failopen');
             if (msg.type !== 'match' && msg.type !== 'context') return;
             if (!d.path || typeof d.path.text !== 'string' || !d.lines || typeof d.lines.text !== 'string') return;
             const rel = rgRel(d.path.text), idx = Number(d.line_number) - 1;
+            if (onlyRel && rel !== onlyRel) return;
             if (!(idx >= 0)) return;
             if (globRe && !globRe.test(globPath ? rel : rel.split('/').pop())) return;
             let h = byFile.get(rel);
