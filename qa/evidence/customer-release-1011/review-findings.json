@@ -228,21 +228,35 @@
       "id": "R21",
       "lane": "memory/persisted topic evidence",
       "candidate": "caae8e0f879dd8ca10d9b3e66d8b154d44e441f6",
-      "status": "held-for-owner-repair",
+      "status": "accepted-pending-final-owner-import",
       "observation": "Previously derived Interests evidence survives JSON restart and enters TOPIC context independently of the newly filtered activity pack.",
       "requiredBehavior": "Prevent unverifiable cached summaries from regaining owner authority; preserve data and prove clean/current evidence and restart controls.",
       "evidence": "Independent exact host and real Interests parse/fold/normalize probe with synthetic extraction reply; personalization-off and empty-cache controls exclude the marker.",
-      "limits": "Reachable synthetic dataflow; no real model, customer cache or installed profile inspected."
+      "limits": "Reachable synthetic dataflow; no real model, customer cache or installed profile inspected.",
+      "acceptedOwnerSlice": "236c16de702bfd0bff5f67d9705f56c664970e00",
+      "note": "Independent exact-source controls accepted; final source assembly and combined gates remain pending."
     },
     {
       "id": "R22",
       "lane": "memory/repeated-work attribution",
       "candidate": "1143ee67de3449eac06f23ba3a0fffb969873e57",
-      "status": "held-for-owner-repair",
+      "status": "accepted-pending-final-owner-import",
       "observation": "A later clean same-text owner turn authenticates multiple earlier unknown brief occurrences by agent/stream/text alone.",
       "requiredBehavior": "Bind each retained brief to its own original owner occurrence; mutable completion runId alone is insufficient.",
       "evidence": "Independent exact-host probe: three repeated briefs with only newest known-clean turn were all accepted; all-unknown and all-clean controls distinguish the gap.",
-      "limits": "Owner proposal is not imported; synthetic module proof only."
+      "limits": "Owner proposal is not imported; synthetic module proof only.",
+      "acceptedOwnerSlice": "236c16de702bfd0bff5f67d9705f56c664970e00",
+      "note": "Independent exact-source controls accepted; final source assembly and combined gates remain pending."
+    },
+    {
+      "id": "R23",
+      "lane": "memory/internal activity origin",
+      "candidate": "236c16de702bfd0bff5f67d9705f56c664970e00",
+      "status": "held-for-owner-repair",
+      "observation": "An internal run falls outside the latest sixty title markers while its clean-stamped user-role transcript remains in the latest four hundred rows, allowing station self-talk into newly trusted activity.",
+      "requiredBehavior": "Prove original source-run owner/internal attribution independently of the recent-title window; unknown origin must not mint trusted owner activity.",
+      "evidence": "Independent exact-host bounded-window probe and confirmed internal retitle/OK producers; no app/provider/customer-state test.",
+      "limits": "Separate from the accepted immutable brief occurrence join. Owner final source guard and focused proof pending."
     }
   ],
   "limits": [
@@ -251,5 +265,5 @@
     "R08 is a supported-module edge; the reviewed module commits did not yet include final host wiring.",
     "An existing review-window restart gap was also reported to the memory owner; it was not attributed as a new regression."
   ],
-  "updatedAt": "2026-10-12T10:25:10.824Z"
+  "updatedAt": "2026-10-12T10:34:07.710Z"
 }
