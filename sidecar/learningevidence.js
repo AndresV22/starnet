@@ -85,7 +85,8 @@ function buildLearningEvidence(input, redact) {
     return boundedPacket(clean);
   }
   const host = p.learningEvidence && p.learningEvidence.version === 1 && p.learningEvidence.source === 'host' ? p.learningEvidence : null;
-  const trustedOnly = !!(p.trustedOnly || (host && host.tainted));
+  // host.trustedOnly: the owner typed quoted material. The run is not tainted, but its transcript is not owner evidence.
+  const trustedOnly = !!(p.trustedOnly || (host && (host.tainted || host.trustedOnly)));
   const messages = trustedOnly ? [] : (Array.isArray(p.messages) ? p.messages : []);
   const hostMessages = host && Array.isArray(host.trustedUserMessages) ? host.trustedUserMessages : [];
   const verifiedMessages = hostMessages.filter(m => m && ['interactive-owner', 'channel-owner'].includes(m.source));

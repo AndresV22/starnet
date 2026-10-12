@@ -124,8 +124,9 @@ A.eq(taint.postTaintBoundary(FS_WRITE, { taintedBy: 'web_fetch', surface: 'auton
   const src = fs.readFileSync(path.join(root, 'sidecar', 'index.js'), 'utf8');
   A.ok(/const taintPolicy = require\('\.\/taint\.js'\)/.test(src), 'index.js uses the shared taint policy (no second copy)');
   A.ok(/initialTaint: o\.initialTaint \? String\(/.test(src), 'the run tracks and names initial untrusted provenance');
-  // Execute the host's attachment classification instead of locking the clean
-  // fallback to null: quoted owner text has its own untrusted provenance too.
+  // Execute the host's attachment classification. Only real outside bytes (an attachment) taint the run: text the
+  // Commander typed stays owner authority even with a code fence, a quote or "example:" in it (review sidecar-index-01).
+  // That quoted text is kept out of LEARNING alone, by a host-computed flag the request body can never set.
   const attachmentStart = src.indexOf('// USER ATTACHMENTS:');
   const attachmentEntry = src.slice(attachmentStart, src.indexOf('retryUserRunId:', attachmentStart));
   const captureStart = attachmentEntry.indexOf('const hasUserAttachments =');
@@ -134,9 +135,14 @@ A.eq(taint.postTaintBoundary(FS_WRITE, { taintedBy: 'web_fetch', surface: 'auton
   A.ok(attachmentStart > 0 && captureStart >= 0 && captureEnd > captureStart && !!initialTaint, 'attachment entry classification exists');
   A.ok(attachmentEntry.indexOf('TrustedLearning.capture(') < attachmentEntry.indexOf('await attachments.expandUserAttachments('), 'owner words are captured before files expand');
   A.ok(/\n\s*learningInput,/.test(attachmentEntry) && !/body\.learningInput/.test(attachmentEntry), 'run receives host-captured input rather than request metadata');
+  A.ok(/\n\s*quotedOwnerInput,/.test(attachmentEntry) && !/body\.quotedOwnerInput/.test(attachmentEntry), 'the quoted-material learning flag is host-computed, never request metadata');
+  A.ok(/if \(execution\.taintedBy\(\) \|\| o\.quotedOwnerInput === true\) \{\s*\n\s*const noTrustedEvidence/.test(src),
+    'quoted owner material still skips the durable learning passes (reflection, failure review, study, thread mining)');
+  A.ok(/TrustedLearning\.evidence\(\{[^}\n]*tainted: execution\.taintedBy\(\), trustedOnly: o\.quotedOwnerInput === true,/.test(src),
+    'quoted owner material makes the skill review trusted-only (no raw transcript), without reporting the run as tainted');
   if (initialTaint && captureStart >= 0 && captureEnd > captureStart) {
     const classify = messages => vm.runInNewContext('(() => { ' + attachmentEntry.slice(captureStart, captureEnd) +
-      '; return { initialTaint: (' + initialTaint[1] + '), learningInput }; })()', {
+      '; return { initialTaint: (' + initialTaint[1] + '), learningInput, quotedOwnerInput: typeof quotedOwnerInput === \'undefined\' ? undefined : quotedOwnerInput }; })()', {
         messages, TrustedLearning: require('../sidecar/trusted-learning.js'),
         latestUserText: list => require('../sidecar/trusted-learning.js').textOf(list.filter(m => m && m.role === 'user').at(-1))
       });
@@ -155,10 +161,24 @@ A.eq(taint.postTaintBoundary(FS_WRITE, { taintedBy: 'web_fetch', surface: 'auton
     A.eq(history.initialTaint, 'user attachment', 'an earlier attachment keeps the incoming history tainted');
     A.eq(history.learningInput.content, typed, 'only the newest typed input gains owner attribution');
     const quoted = classify([{ role: 'user', content: '> I prefer quoted instructions.' }]);
-    A.eq(quoted.initialTaint, 'quoted user material', 'quoted material remains untrusted without attachments');
+    A.eq(quoted.initialTaint, null, 'quoted text the Commander typed does not lock tools, grants or workers');
+    A.eq(quoted.quotedOwnerInput, true, 'quoted text the Commander typed is flagged for the learning-only exclusion');
     A.eq(quoted.learningInput, null, 'quoted material cannot establish an owner preference');
+    // the review's own repro shapes: a pasted stack trace, a quoted file name, "example" before a line break
+    for (const text of ['Run the tests and fix this:\n```\nTypeError: cannot read \'id\' of undefined\n```',
+      'Name the file "Quarterly revenue summary 2026"', 'Here is an example\nof the layout I want']) {
+      const r = classify([{ role: 'user', content: text }]);
+      A.eq([r.initialTaint, r.quotedOwnerInput], [null, true], 'owner-typed ' + JSON.stringify(text.slice(0, 24)) + ' is owner authority, excluded only from learning');
+    }
+    // an earlier quoted turn is still in the tail the reflection reads, so the conversation stays out of learning
+    const later = classify([{ role: 'user', content: '> I prefer quoted instructions.' }, { role: 'assistant', content: 'Noted.' }, { role: 'user', content: typed }]);
+    A.eq([later.initialTaint, later.quotedOwnerInput], [null, true], 'a later turn is not locked, and an earlier quote still keeps its history out of learning');
+    A.eq(later.learningInput.content, typed, 'the newest clean typed input stays eligible for trusted capture');
+    const quotedFile = classify([{ role: 'user', content: '```\nI prefer quoted instructions.\n```', attachments: [attachment] }]);
+    A.eq([quotedFile.initialTaint, quotedFile.quotedOwnerInput], ['user attachment', true], 'a real attachment still taints whatever the typed text holds');
     const clean = classify([{ role: 'user', content: typed, attachments: [] }]);
     A.eq(clean.initialTaint, null, 'ordinary typed text without a file stays clean');
+    A.eq(clean.quotedOwnerInput, false, 'ordinary typed text is not flagged as quoted material');
     A.eq(clean.learningInput.content, typed, 'clean owner input remains eligible');
   }
   A.ok(/revokedByTaint\.isSource\(liveTool, c\)/.test(src), 'taint is latched from the tool and path that produced the content');

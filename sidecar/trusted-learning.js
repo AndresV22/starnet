@@ -95,7 +95,10 @@ function checks(evidence) {
 }
 function evidence(input) {
   const o = input || {};
+  // trustedOnly: quoted material the owner typed. Not taint (tools keep owner authority), but learning reads only
+  // the captured directive and host checks, never the raw transcript. Present only when set: clean shape unchanged.
   return { version: 1, source: 'host', runId: String(o.runId || ''), trigger: String(o.trigger || ''), tainted: !!o.tainted,
+    ...(o.trustedOnly ? { trustedOnly: true } : {}),
     trustedUserMessages: o.trustedInput ? [o.trustedInput] : [], checks: checks(o.completion), loadedSkills: o.loadedSkills || [] };
 }
 module.exports = { textOf, quotedMaterial, cleanOwnerRows, ownedBriefs, capture, eligible, preferences, checks, evidence };

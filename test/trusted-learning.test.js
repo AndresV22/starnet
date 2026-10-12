@@ -25,4 +25,8 @@ for (const content of ['Never again.', 'Never ever again.', 'Never once.', 'Neve
 for (const content of ['Never again push to main.', 'Never again delete my files without asking.', 'Always before committing, run the linter.', 'Always before you commit, run the linter.', 'Never once skip the tests.', 'Always mind the 80-column limit.', 'Never again do that.', 'Always tabs, never spaces.', 'Never emojis in commit messages.', 'Always signed commits.', 'Never made-up numbers in reports.']) assert.deepEqual(L.preferences(input(content)).map(p => p.content), [content], content);
 const evidence=L.evidence({runId:'r',tainted:'web',trustedInput:input('I prefer concise replies.'),completion:{contract:{requirements:[{id:'test',type:'verification_passed',command:'npm test'}]},checks:[{id:'test',type:'verification_passed',status:'passed',code:'matching_verification_passed',arbitrary:'INJECT'}]}});
 assert.equal(evidence.tainted,true); assert.equal(evidence.checks[0].command,'npm test'); assert.equal(JSON.stringify(evidence).includes('INJECT'),false);
+// Quoted owner material (review sidecar-index-01) is learning-only: trusted-only evidence, but never reported as tainted.
+const quotedEvidence=L.evidence({runId:'q',tainted:null,trustedOnly:true});
+assert.deepEqual([quotedEvidence.tainted,quotedEvidence.trustedOnly],[false,true]);
+assert.equal('trustedOnly' in L.evidence({runId:'c'}),false,'a clean run keeps the exact evidence shape');
 console.log('trusted-learning: provenance, preference polarity, scope, external input and verification checks PASS');

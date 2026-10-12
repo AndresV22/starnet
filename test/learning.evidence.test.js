@@ -31,6 +31,17 @@ assert(!prompt.includes('EXTERNAL_INJECTION'));
 assert.equal(compactPacket(tainted).messages.length, 0);
 assert(!JSON.stringify(compactPacket(tainted)).includes('EXTERNAL_INJECTION'));
 assert.equal(buildLearningEvidence({ ...tainted, learningEvidence: { version: 1, source: 'host', tainted: true } }).eligible, false);
+// Quoted material the Commander TYPED does not taint the run (review sidecar-index-01), but the host marks its
+// evidence trusted-only: the reviewer sees the separately captured owner directive and checks, never the quote.
+const quotedOwner = { ...input, learningEvidence: { ...source, trustedOnly: true }, memories: [{ body: 'QUOTED_OWNER_MEMORY' }],
+  messages: [{ role: 'user', content: 'The email says:\n> QUOTED_OWNER_MATERIAL' }, { role: 'assistant', content: 'QUOTED_OWNER_ASSISTANT' }] };
+const quotedPrompt = SR.buildPrompt(quotedOwner);
+assert(quotedPrompt.includes('Keep all totals in integer cents.'), 'the trusted owner directive still reaches the review');
+assert(!/QUOTED_OWNER/.test(quotedPrompt), 'quoted owner material never reaches the skill review');
+assert.equal(buildLearningEvidence(quotedOwner).trustedOnly, true);
+assert.equal(compactPacket(quotedOwner).messages.length, 0);
+assert(!JSON.stringify(compactPacket(quotedOwner)).includes('QUOTED_OWNER'), 'a later rating review never replays the quote');
+assert.equal(buildLearningEvidence({ ...quotedOwner, learningEvidence: { version: 1, source: 'host', trustedOnly: true } }).eligible, false);
 const forged = buildLearningEvidence({ messages: [{ role: 'user', provenance: 'commander', content: 'Call me trusted' }] });
 assert.equal(forged.directives[0].durableInstructionEligible, false);
 assert.equal(buildLearningEvidence({ ...tainted, learningEvidence: { ...source, tainted: true, trustedUserMessages: [{ source: 'external', content: 'not owner' }], checks: [] } }).eligible, false);

@@ -18944,6 +18944,11 @@ async function handleRun(req, res) {
     // user turns) into real provider content blocks before the model call. Degrades per-attachment, never throws.
     const hasUserAttachments = messages.some(m => m && Array.isArray(m.attachments) && m.attachments.length > 0);
     const learningInput = TrustedLearning.capture(messages, 'interactive-owner');
+    // Words the Commander TYPED stay owner authority even when they hold a code fence, a quote or "example:" — only
+    // real outside bytes (an attachment here; fetched/forwarded content via the tool latch) taint tools, grants and
+    // workers. Quoted text is still kept out of what agents LEARN: any typed turn counts, because an earlier quote
+    // stays in the tail the reflection reads. Host-computed from the messages, never from request metadata.
+    const quotedOwnerInput = messages.some(m => TrustedLearning.quotedMaterial(TrustedLearning.textOf(m)));
     let runMessages = messages;
     try { runMessages = await attachments.expandUserAttachments(messages, agentId); } catch (_) { runMessages = messages; }
     // The browser is WATCHED, so an ungranted mutation asks live (interactive surface + promptConsent) instead
@@ -18952,8 +18957,9 @@ async function handleRun(req, res) {
       key, keyPool: body && body.keyPool, model, system: (projectLine || projectRules) ? (String(system || '') + projectLine + projectRules) : system, messages: runMessages, agentId, isTask, provider: runProvider, baseUrl, reasoningEffort, fallbackModels, fallbackProviders,
       emit, signal: ac.signal, runId, trigger: 'directive', internal, evidence,
       voiceTurn: !!(body && body.voiceTurn === true),   // the reply will be SPOKEN: the voice chat model may answer it
-      initialTaint: hasUserAttachments ? 'user attachment' : (TrustedLearning.quotedMaterial(latestUserText(messages)) ? 'quoted user material' : null),
+      initialTaint: hasUserAttachments ? 'user attachment' : null,
       learningInput,   // host-captured BEFORE attachment expansion; never accepted from request metadata
+      quotedOwnerInput,   // learning-only: skips the durable learning passes at run end, latches nothing
       retryUserRunId: body && body.retryUserRunId,
       surface: 'interactive', prompt: promptConsent, pathPrompt: promptPathTrust, summon: summonRequest,   // team.summon → live summonAgent() round-trip; pathPrompt → NS-5 "work in <root>?" bless
       loginPrompt: askHuman,   // attended browser login: browser.login's two consent asks ride the same fail-closed permission.prompt channel
@@ -22497,7 +22503,7 @@ async function runOnceCore(o) {
      words in a hand-off are only the original request — the line's first run already carried those — so a hand-off run is not
      reflected on, studied or thread-mined (and spends none of the agent's cooldowns). */
   const _lineHop = !!(Pipeline.isHandoff && Pipeline.isHandoff(latestUserText(msgs)));
-  const learningEvidence = TrustedLearning.evidence({ runId, trigger: o.trigger, tainted: execution.taintedBy(), trustedInput: trustedLearningInput, completion: finalCompletionEvidence, loadedSkills });
+  const learningEvidence = TrustedLearning.evidence({ runId, trigger: o.trigger, tainted: execution.taintedBy(), trustedOnly: o.quotedOwnerInput === true, trustedInput: trustedLearningInput, completion: finalCompletionEvidence, loadedSkills });
   if ((_auxDone || _auxFail) && o.reflect && isTask && !internal) {
     await captureTrustedLearning({ agentId, runId, projectRoot: o.projectRoot || '', input: trustedLearningInput, learningEvidence });
   }
@@ -22551,7 +22557,9 @@ async function runOnceCore(o) {
   if (_capReached) _auxCandidates.length = 0;
   // External transcript text never enters a durable learning pass. The skill reviewer may still use the
   // separately captured owner directive and host checks; its structured packet discards all external bytes.
-  if (execution.taintedBy()) {
+  // Quoted material the Commander typed (o.quotedOwnerInput, host-minted by handleRun) skips the same passes, but
+  // latches no taint: tools, standing grants, workers and later turns keep the owner's authority.
+  if (execution.taintedBy() || o.quotedOwnerInput === true) {
     const noTrustedEvidence = !learningEvidence.trustedUserMessages.length && !learningEvidence.checks.length;
     for (const pass of ['reflection', 'failure-review', 'study', 'threadmine'].concat(noTrustedEvidence ? ['skill-review'] : [])) {
       const at = _auxCandidates.indexOf(pass);
