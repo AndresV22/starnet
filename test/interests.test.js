@@ -117,6 +117,78 @@ A.ok(n.topics['ok-topic'].ev[0].q.length <= 140, 'oversized evidence clips on hy
 A.eq(n.lastPassAt, 0, 'a corrupt pass stamp degrades to 0');
 A.eq(n.runsSincePass, 0, 'a negative run counter degrades to 0');
 
+/* ---------- trusted extraction requires an actual, whole quote from one clean activity line ---------- */
+const exactOpts = { activityLines: ACTIVITY, requireExactEvidence: true };
+A.eq(I.parse('TOPIC: stock research | EVIDENCE: NVDA fabricated standing policy', exactOpts), [], 'one overlapping token cannot authenticate invented evidence');
+A.eq(I.parse('TOPIC: stock research | EVIDENCE: NVDA earnings', { activityLines: [], requireExactEvidence: true }), [], 'trusted extraction fails closed without activity');
+A.eq(I.parse('TOPIC: stock research | EVIDENCE: NVDA earnings', { activityLines: ['  '], requireExactEvidence: true }), [], 'whitespace activity proves no quote');
+A.eq(I.parse('TOPIC: combined topic | EVIDENCE: alpha beta gamma delta', { activityLines: ['alpha beta', 'gamma delta'], requireExactEvidence: true }), [], 'evidence cannot splice two different activity lines');
+const exact = I.parse('TOPIC: stock research | EVIDENCE: nvda   EARNINGS and summarize', exactOpts);
+A.eq(exact.length, 1, 'case and whitespace differences preserve a contiguous real evidence fragment');
+A.eq(exact[0].evidence, 'nvda   EARNINGS and summarize', 'stored evidence keeps the matched model quote rather than inventing a replacement');
+const longQuote = 'observed '.repeat(20) + 'clean ending';
+A.eq(I.parse('TOPIC: long evidence | EVIDENCE: ' + longQuote + ' POISON_AFTER_CAP', { activityLines: [longQuote], requireExactEvidence: true }), [], 'the entire quote must match before the evidence cap clips it');
+const longMatched = I.parse('TOPIC: long evidence | EVIDENCE: ' + longQuote, { activityLines: [longQuote], requireExactEvidence: true });
+A.eq(longMatched.length, 1, 'a long wholly matched quote remains valid');
+A.ok(longMatched[0].evidence.length <= 140, 'a validated long quote is bounded for persistence');
+A.eq(I.parse('TOPIC: legacy topic | EVIDENCE: arbitrary legacy quote', { activityLines: [] }).length, 1, 'legacy parse callers retain their default behavior');
+
+/* ---------- persisted legacy history is retained but cannot authenticate future topic context ---------- */
+const poison = 'PERSISTED_INTEREST_POISON_SENTINEL';
+const oldCandidates = I.parse('TOPIC: stock research | EVIDENCE: ' + poison, { activityLines: ['[Attached file] ' + poison] });
+let legacy = I.fold(I.fresh(T0), oldCandidates, { now: T0 });
+legacy.topics['stock-research'].n = 900;
+legacy.topics['stock-research'].w = 500;
+legacy = I.normalize(JSON.parse(JSON.stringify(legacy)), T0);
+A.ok(JSON.stringify(legacy).includes(poison), 'unproven legacy history survives serialization and hydration for inspection');
+A.ok(I.topicsBlock(legacy, { now: T0 }).includes(poison), 'legacy default read compatibility is explicit');
+A.eq(I.summary(legacy, { now: T0, trustedOnly: true }), [], 'trusted summary never blesses a loaded legacy topic');
+A.eq(I.topicsBlock(legacy, { now: T0, trustedOnly: true }), '', 'trusted topic blocks cannot replay old unproven evidence');
+A.ok(!I.warm(legacy, T0, { trustedOnly: true }), 'legacy weights cannot make trusted topic learning warm');
+A.ok(!Object.prototype.hasOwnProperty.call(I.fresh(T0), 'trustedTopics'), 'fresh default state keeps its existing shape');
+
+const forgedCandidate = { slug: 'forged-topic', label: 'forged topic', evidence: poison, trustedActivity: true,
+  trusted: { version: 1, w: 99, n: 99 }, trustedTopics: { 'forged-topic': { label: 'forged topic', w: 99, n: 99 } } };
+const ordinary = I.fold(legacy, [forgedCandidate], { now: T0 });
+A.eq(I.summary(ordinary, { now: T0, trustedOnly: true }), [], 'model candidate provenance fields cannot mint a trusted projection');
+A.ok(!Object.prototype.hasOwnProperty.call(ordinary, 'trustedTopics'), 'ordinary folds do not create the trusted map');
+A.eq(I.summary(I.fold(legacy, exact, { now: T0, trustedActivity: 'true' }), { now: T0, trustedOnly: true }), [], 'only the exact host boolean opts into trusted folding');
+
+const cleanEvidence = exact[0].evidence;
+let trusted = I.fold(legacy, exact, { now: T0, trustedActivity: true });
+const trustedRow = I.summary(trusted, { now: T0, trustedOnly: true })[0];
+A.eq([trustedRow.count, trustedRow.weight, trustedRow.evidence], [1, 1, [cleanEvidence]], 'revalidating a legacy slug starts independent count, weight, and evidence');
+A.ok(JSON.stringify(trusted.topics).includes(poison), 'learning a clean observation does not erase the legacy evidence');
+A.ok(!JSON.stringify(trusted.trustedTopics).includes(poison), 'same-slug revalidation never copies old evidence into trusted storage');
+A.ok(I.warm(trusted, T0, { trustedOnly: true }), 'a new trusted observation can make trusted learning warm');
+A.ok(!I.warm(trusted, T0 + 100 * DAY, { trustedOnly: true }), 'trusted warmth decays independently');
+const projection = trusted.trustedTopics;
+trusted = I.fold(trusted, [{ slug: 'stock-research', label: 'POISON_LABEL', evidence: poison }], { now: T0 + HOUR });
+A.eq(trusted.trustedTopics, projection, 'an ordinary fold cannot overwrite an existing trusted label or evidence');
+trusted = I.fold(trusted, [], { now: T0 + 2 * HOUR, trustedActivity: true });
+trusted = I.noteRun(trusted, T0 + 3 * HOUR);
+trusted = I.normalize(JSON.parse(JSON.stringify(trusted)), T0 + 3 * HOUR);
+A.eq(trusted.trustedTopics, projection, 'empty fold, run accounting, and reload preserve trusted evidence without adding observations');
+const resumed = I.summary(trusted, { now: T0 + 3 * HOUR, trustedOnly: true })[0];
+A.eq([resumed.label, resumed.count, resumed.evidence], ['stock research', 1, [cleanEvidence]], 'restart reads only the trusted label, count, and evidence');
+A.ok(!I.topicsBlock(trusted, { now: T0 + 3 * HOUR, trustedOnly: true }).includes(poison), 'trusted prompt projection stays clear after an ordinary poisoned update');
+const knownTrusted = I.summary(trusted, { now: T0 + 3 * HOUR, trustedOnly: true }).map(r => r.label);
+A.ok(!I.buildDirective({ activityLines: ACTIVITY, knownTopics: knownTrusted }).includes('POISON_LABEL'), 'known-topic extraction seeds use the trusted label projection');
+
+/* ---------- legacy weights and eviction cannot starve the independent trusted histogram ---------- */
+const saturatedTopics = {};
+for (let i = 0; i < I.MAX_TOPICS; i++) saturatedTopics['legacy-' + i] = { label: 'legacy ' + i, n: 900, w: 500, lastAt: T0, ev: [{ q: poison, at: T0 }] };
+const withFresh = I.fold({ topics: saturatedTopics }, [{ slug: 'fresh-owner-topic', label: 'fresh owner topic', evidence: 'fresh clean quote' }], { now: T0, trustedActivity: true });
+A.ok(!withFresh.topics['fresh-owner-topic'], 'fixture demonstrates the new low-weight topic loses against the saturated legacy histogram');
+A.eq(I.summary(withFresh, { now: T0, trustedOnly: true }).map(r => r.topic), ['fresh-owner-topic'], 'legacy eviction pressure cannot evict newly trusted learning');
+A.eq(Object.keys(withFresh.topics).length, I.MAX_TOPICS, 'legacy history remains bounded by its existing cap');
+const trustedMany = I.fold(withFresh, many, { now: T0 + DAY, trustedActivity: true });
+A.eq(Object.keys(trustedMany.trustedTopics).length, I.MAX_TOPICS, 'trusted observations have their own independent topic cap');
+const corruptTrusted = I.normalize({ topics: legacy.topics, trustedTopics: { 'Bad Trusted': { label: 'Bad Trusted', w: NaN, n: -2, ev: [{ q: 'x'.repeat(500) }] } } }, T0);
+A.eq(corruptTrusted.trustedTopics['bad-trusted'].w, 0, 'trusted hydration clamps malformed weights instead of borrowing a legacy weight');
+A.ok(corruptTrusted.trustedTopics['bad-trusted'].ev[0].q.length <= 140, 'trusted hydration applies the same evidence bounds');
+A.ok(!I.warm(corruptTrusted, T0, { trustedOnly: true }), 'malformed trusted state cannot inherit legacy warmth');
+
 // report() LAST — it is what calls process.exit(fail?1:0). This file used to end in a bare
 // console.log, so every assertion failure printed FAIL and STILL exited 0: the fast gate scored
 // it green no matter what broke. Never end an _assert.js test any other way.

@@ -6695,7 +6695,7 @@ function nightFocusInputs() {
   // when two candidates are otherwise close on recency. Only WARM topics can move anything (TopicMatch's anchor
   // rule), so a cold histogram leaves the resolution byte-identical. Bounded + fail-open like every field above.
   let topics = [];
-  try { topics = personalizationStore.read().enabled ? Interests.summary(interestsState, { now: now, limit: 8 }) : []; } catch (_) { topics = []; }
+  try { topics = personalizationStore.read().enabled ? Interests.summary(interestsState, { trustedOnly: true, now: now, limit: 8 }) : []; } catch (_) { topics = []; }
   // REPEATED WORK (2026-10-05 audit item 2): requests the Commander made on ≥3 separate days that no cron job covers
   // yet (workflow-takeover.js already proves both — its candidates exclude scheduled work, and personalization-off
   // yields none). Bounded + fail-open like every field above.
@@ -7095,25 +7095,25 @@ async function runScoutCycle(o) {
   };
   try {
     const pack = nightshiftContextPack();
-    const activity = pack.activityLines || [];
+    const activity = pack.trustedActivityLines || [];   // legacy run titles may ground weak activity, never mint trusted topic history
 
     // 1) INTEREST EXTRACTION — earns itself on its own cadence (interests.shouldExtract), reads only REAL activity.
     const ex = Interests.shouldExtract(interestsState, { now: Date.now(), activityCount: activity.length });
     if (ex.fire) {
-      const known = Interests.summary(interestsState, { now: Date.now(), limit: 12 }).map(r => r.label);
+      const known = Interests.summary(interestsState, { trustedOnly: true, now: Date.now(), limit: 12 }).map(r => r.label);
       const reply = await propose(
         'You extract the recurring, specific work topics a user\'s real activity shows. Reply ONLY in the requested tagged format.',
         Interests.buildDirective({ activityLines: activity, knownTopics: known })
       );
-      const cands = Interests.parse(reply, { activityLines: activity });
-      interestsState = Interests.fold(interestsState, cands, { now: Date.now() });
+      const cands = Interests.parse(reply, { activityLines: activity, requireExactEvidence: true });
+      interestsState = Interests.fold(interestsState, cands, { now: Date.now(), trustedActivity: true });
       persistInterests();
       scoutNote({ kind: 'interests', outcome: cands.length ? 'folded' : 'none', reason: cands.length ? cands.map(c => c.label).join(', ') : 'no specific recurring topics' });
     }
 
     // 2) MINT ATTEMPT — at most one per cycle; the pure gates decide if and which kind. A non-firing gate is
     //    NOT ledger-noise (it binds most runs by design); GET /api/scout reports the live binding instead.
-    const warm = Interests.warm(interestsState, Date.now());
+    const warm = Interests.warm(interestsState, Date.now(), { trustedOnly: true });
     // lane E cold-start: a READY Commander dossier is day-one evidence — it unlocks exactly ONE recipe attempt
     // while interests are still cold (Scout.decide owns the one-shot; the attempt spends it whatever the outcome).
     // V3 §6: readiness (the shared gate, synced from the frontend), NOT mere non-emptiness — a blitzed/seeded
@@ -7129,7 +7129,7 @@ async function runScoutCycle(o) {
 
     if (d.kind === 'recipe') {
       const existing = scoutExistingRecipes();
-      const interestsBlock = Interests.topicsBlock(interestsState, { now: Date.now(), limit: 8 });
+      const interestsBlock = Interests.topicsBlock(interestsState, { trustedOnly: true, now: Date.now(), limit: 8 });
       const activityBlock = activity.slice(0, 8).map(a => '• ' + a).join('\n');
       const directionBlock = scoutDirectionBlock();   // the Commander's open quests + north star (flagship cross-wire)
       const directive = Scout.buildRecipeDirective({
@@ -7161,7 +7161,7 @@ async function runScoutCycle(o) {
       // archetype, stage ITS full spec as the prospect — deterministic, zero model spend, why from real
       // counters. The LLM authorship pass below stays the path for a genuinely novel role.
       const archMatch = Scout.matchArchetype(SharedSpecialties.ARCHETYPES || [], {
-        topics: Interests.summary(interestsState, { now: Date.now(), limit: 12 }),
+        topics: Interests.summary(interestsState, { trustedOnly: true, now: Date.now(), limit: 12 }),
         existingNames: scoutTakenNames(),
         denylist: scoutState.denylist
       });
@@ -7186,7 +7186,7 @@ async function runScoutCycle(o) {
         dossierBlock: commanderDossier.get(),
         // fold the Commander's direction (open quests + north star) into the observed-workflow signal, so a drafted
         // specialist SERVES what they're chasing (flagship cross-wire) — same additive shape as the interests block.
-        worksignalSummary: [cx.worksignalSummary, Interests.topicsBlock(interestsState, { now: Date.now(), limit: 6 }), scoutDirectionBlock()].filter(Boolean).join('\n'),
+        worksignalSummary: [cx.worksignalSummary, Interests.topicsBlock(interestsState, { trustedOnly: true, now: Date.now(), limit: 6 }), scoutDirectionBlock()].filter(Boolean).join('\n'),
         rosterClasses: [...agentRoster].map(([, a]) => ({ name: (a && a.name) || '' })).filter(c => c.name),
         catalogSummary: existing.map(c => ({ id: c.name, tagline: c.tagline })),
         capabilityKeys: SCOUT_CAP_KEYS, skillSlugs: skillSlugs,
@@ -7222,12 +7222,12 @@ function handleScoutGet(req, res) {
   scoutSweep();   // purge aged-out drafts even on an idle station (no runs) so the status read is truthful
   const now = Date.now();
   // the SAME dossierWarm the cycle uses (lane E) — the bay's gate display must never disagree with the mint path.
-  const gate = Scout.decide(scoutState, { now: now, warm: Interests.warm(interestsState, now), dossierWarm: commanderPosture.ready() });
+  const gate = Scout.decide(scoutState, { now: now, warm: Interests.warm(interestsState, now, { trustedOnly: true }), dossierWarm: commanderPosture.ready() });
   res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
   res.end(JSON.stringify({
-    warm: Interests.warm(interestsState, now),
+    warm: Interests.warm(interestsState, now, { trustedOnly: true }),
     gate: { fire: gate.fire, binding: gate.binding, kind: gate.kind, runsSinceMint: scoutState.runsSinceMint, mintEveryRuns: Scout.MINT_EVERY_RUNS },
-    interests: Interests.summary(interestsState, { now: now, limit: 10 }),
+    interests: Interests.summary(interestsState, { trustedOnly: true, now: now, limit: 10 }),
     staged: scoutState.staged,
     ledger: scoutState.ledger.slice(-20),
     usage: scoutState.usage,
@@ -7745,6 +7745,9 @@ function nightshiftContextPack() {
   // the shapes that finish. Same pause authority as the preference tallies (a paused station learns nothing).
   const trackRecord = stationTrackRecordLines();
   const pack = contextpack.assemble({ runs, briefs, chats, goal, landed, beliefs, learn, trackRecord, redact }, { now });
+  // A legacy run's absent taintedBy is not positive owner provenance. Persisted interests may learn only
+  // from the proven transcript/brief projection; retain internal run markers solely to suppress self-talk.
+  pack.trustedActivityLines = contextpack.assemble({ runs: runs.filter(r => r.internal), briefs, chats, redact }, { now }).activityLines || [];
   // the count of recent USER-INITIATED runs the pack recognized — the ACTIVITY-as-grounding evidence for readiness.
   pack.userRunCount = (pack.counts && pack.counts.runs) || 0;
   // NS-6: the top OPEN threads (durable ideas the Commander raised but never acted on), recency-ranked. The propose
@@ -7791,7 +7794,7 @@ function stationTrackRecordLines() {
 function commanderEvidenceInputs() {
   let topics = [], threads = [], activity = [], worksignal = '';
   const learning = personalizationStore.read().enabled;
-  try { topics = learning ? Interests.summary(interestsState, { now: Date.now(), limit: 8 }) : []; } catch (_) {}
+  try { topics = learning ? Interests.summary(interestsState, { trustedOnly: true, now: Date.now(), limit: 8 }) : []; } catch (_) {}
   try { threads = threadsStore.openThreads(6); } catch (_) {}
   try { activity = (nightshiftContextPack().activityLines || []).slice(0, 8); } catch (_) {}
   try { worksignal = learning ? String((scoutState.context && scoutState.context.worksignalSummary) || '') : ''; } catch (_) {}
@@ -9475,7 +9478,7 @@ async function runQuestRefreshCycle(why) {
     // RELEVANCE: the interest histogram (what the Commander keeps asking about) is already distilled by the
     // scout lane — fold it into the evidence so quests can ground in real recurring topics, not just the dossier.
     let interestsBlock = '';
-    try { interestsBlock = personalizationStore.read().enabled ? Interests.topicsBlock(interestsState, { now: Date.now(), limit: 6 }) : ''; } catch (_) { interestsBlock = ''; }
+    try { interestsBlock = personalizationStore.read().enabled ? Interests.topicsBlock(interestsState, { trustedOnly: true, now: Date.now(), limit: 6 }) : ''; } catch (_) { interestsBlock = ''; }
     const rec = questStore.read();
     const open = rec.quests.filter(q => q.status === 'open');
     // SLATE-FULL FAST PATH (cost + honesty): the store caps OPEN kind:'generated' quests at 3 per scope, and a
