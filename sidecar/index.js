@@ -21529,9 +21529,10 @@ async function runOnceCore(o) {
   let taskIntentNote = '';
   if (taskBrief) taskIntentNote = '\n\n' + TaskIntent.directive(taskContextBlock);
   // CREW CALL (crew-call.js): a request that names a crew member gets one closing line naming them and the exact
-  // team.dispatch call. Same grant gate as the [ORCHESTRATION] note: never ask for a tool this run does not have.
+  // team.dispatch call. Only host-attested owner input may produce this directive; handoffs/workers are data.
+  // Same grant gate as the [ORCHESTRATION] note: never ask for a tool this run does not have.
   let crewCallNote = '';
-  if (!internal && isTask && resolved && Array.isArray(resolved.tools) && resolved.tools.includes('team.dispatch')) {
+  if (commanderWords && !internal && isTask && resolved && Array.isArray(resolved.tools) && resolved.tools.includes('team.dispatch')) {
     try { crewCallNote = CrewCall.crewCallNote(latestUserText(messages), agentRoster, agentId); } catch (e) { failNote('crew-call', e); }
   }
   // SERVICE KEYS (KEYS tab): advertise the env-var NAMES of the Commander's connected platform keys — value never
