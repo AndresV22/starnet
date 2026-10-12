@@ -237,12 +237,8 @@ if (store && store.record) {
   const original = receipt('L1', 'entry', 100);
   A.eq(validateShipments([original, Object.assign({}, original)]), [original], 'identical receipt copies count once');
   A.eq(validateShipments([original, Object.assign({}, original, { lineId: 'L2' })]).length, 2, 'same entry identity on distinct lines remains distinct');
-  for (const patch of [{ lineId: 'line:alpha', outboxId: 'out.alpha' }, { lineId: 'L'.repeat(120), outboxId: 'o:1' }]) {
-    const accepted = Object.assign({}, original, patch);
-    A.eq(validateShipments([accepted]), [accepted], 'line-job key grammar remains valid shipment evidence');
-  }
   for (const patch of [
-    { lineId: '../line' }, { lineId: 'L'.repeat(121) }, { outboxId: 'o/1' },
+    { lineId: '../line' }, { lineId: 'L'.repeat(81) }, { outboxId: 'o/1' },
     { entryRunId: 42 }, { entryRunId: '' }, { entryRunId: '   ' }, { entryRunId: 'r\n1' },
     { terminalRunId: null }, { terminalRunId: 'r'.repeat(257) }, { at: '100' }, { at: -1 }, { at: Infinity }
   ]) A.throws(() => validateShipments([Object.assign({}, original, patch)]), 'reject invalid stored fields: ' + JSON.stringify(patch));

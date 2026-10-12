@@ -5,8 +5,8 @@
 'use strict';
 const { note: failNote } = require('../failopen.js');
 const id = v => typeof v === 'string' && v.trim().length > 0 && v.length <= 256 && !/[\x00-\x1f\x7f]/.test(v) ? v : null;
-// Match line-jobs' accepted line/dock keys, including existing dotted and namespaced IDs.
-const propId = v => typeof v === 'string' && /^[A-Za-z0-9_.:-]{1,120}$/.test(v);
+// Match the floor identity grammar persisted by runstore, the receipt's proof authority.
+const propId = v => typeof v === 'string' && /^[A-Za-z0-9_-]{1,80}$/.test(v);
 const time = v => typeof v === 'number' && Number.isFinite(v) && v >= 0;
 const keyOf = r => JSON.stringify([r.lineId, r.entryRunId]);
 const validReceipt = r => !!r && typeof r === 'object' && !Array.isArray(r) && propId(r.lineId) && id(r.entryRunId) && id(r.terminalRunId) && propId(r.outboxId) && time(r.at);
