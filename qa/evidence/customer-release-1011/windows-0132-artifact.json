@@ -13,7 +13,9 @@
   "authenticode": {
     "status": "Valid",
     "signer": "Andrew Sims",
-    "certificateThumbprint": "9D58F67122799D9BDE5F776DD8DE77F6767DEFA4"
+    "certificateThumbprint": "9D58F67122799D9BDE5F776DD8DE77F6767DEFA4",
+    "checkedAt": "2026-10-12T08:55:46.7327045Z",
+    "receiptSha256": "df3d5c5eb5efa24cd1f416ab9f05a959de57b26071b89036bdee956a02a22485"
   },
   "decoder": {
     "name": "7-Zip",
@@ -63,5 +65,6 @@
     "These checks do not establish installed startup or customer recovery",
     "This inspects three selected archive entries, not all installer contents or a resulting installation.",
     "The NSIS decoder reported BadCmd=13 in listing metadata; selected extraction returned exit 0, expected lengths, and source matches."
-  ]
+  ],
+  "retention": "Verified compressed download removed after selective extraction and receipt preservation; the three selected files remain private. No installed files changed."
 }
