@@ -14,6 +14,7 @@
 const A = require('./_assert.js');
 const fs = require('fs');
 const path = require('path');
+const vm = require('node:vm');
 const read = p => fs.readFileSync(path.join(__dirname, '..', p), 'utf8').replace(/\r\n/g, '\n');
 const panel = read('frontend/app/workflowpanel.js'), build = read('frontend/app/build.js'), css = read('frontend/css/workflow-panel.css'), sidecar = read('sidecar/index.js');
 const at = (src, from, to) => { const a = src.indexOf(from); return a < 0 ? '' : src.slice(a, to ? src.indexOf(to, a) : a + 4000); };
@@ -94,9 +95,19 @@ A.ok(/S\.exampleStamp === mine\.stamp && exampleKept\(mine\)/.test(panel) && /St
 A.ok(/if \(!el \|\| !sr \|\| !sr\.pending\) \{ clearInterval\(liveTimer\); liveTimer = 0; markWorking\(null\); return; \}/.test(panel) && /if \(n\) n\.textContent = now\.text;/.test(panel) && (panel.match(/startLive\(\);/g) || []).length >= 4,
   'the live read-out runs while a job is out whatever card is open, so the diagram\'s working lamp stays true');
 /* ---------- the header's numbers say what they count; the line sentence names the way to run it ---------- */
-const tips = at(panel, '  function todayTip(k) {', '  let todayTimer');
-A.ok(/'<span data-tip="' \+ esc\(todayTip\(c\[0\]\)\) \+ '">/.test(panel) && /one job through a 3-step line is 3 runs/.test(tips) && /A text-only answer is still delivered to the OUTBOX, but it is not counted here/.test(tips),
-  'each TODAY number has a tip saying what it counts (RUNS are step runs; SHIPPED is proven work — a text answer is delivered, not counted)');
+const tipSource = A.fnBody(panel, 'function todayTip(k)');
+A.ok(tipSource.length > 0 && tipSource.length < 2200, 'load the actual bounded TODAY tooltip helper');
+const todayTip = vm.runInNewContext(tipSource + '\ntodayTip');
+A.ok(/'<span data-tip="' \+ esc\(todayTip\(c\[0\]\)\) \+ '">/.test(panel), 'each TODAY number renders its own escaped tooltip');
+for (const key of ['RUNS', 'SHIPPED', 'FAILED', 'TESTS', 'MEDIAN', '$ TODAY (UTC)']) {
+  A.ok(todayTip(key).length > key.length, 'a meaning is available for the ' + key + ' number');
+}
+const shippedTip = todayTip('SHIPPED');
+A.ok(/step of this line ran today/.test(todayTip('RUNS')) && /one job through a 3-step line is 3 runs/.test(todayTip('RUNS')), 'RUNS counts step runs today, not whole jobs');
+A.ok(/recorded jobs that reached the OUTBOX/.test(shippedTip) && /tool succeeded or a file was saved/.test(shippedTip), 'SHIPPED requires recorded delivery plus productive proof');
+A.ok(/Earlier deliveries without a saved shipment record are not included/.test(shippedTip), 'SHIPPED explicitly excludes unrecorded history');
+A.ok(/Text-only answers still reach the OUTBOX, but do not count here/.test(shippedTip), 'plain answers are delivered but excluded from productive shipments');
+A.ok(/step run today/.test(todayTip('MEDIAN')) && /spent today, against its daily cap/.test(todayTip('$ TODAY (UTC)')), 'time and spending tips retain their daily scope');
 A.ok(/; it runs when you send it a job\. /.test(read('frontend/app/workflowline.js')) && !/runs when you test it/.test(read('frontend/app/workflowline.js') + panel),
   'a line nothing starts by itself "runs when you send it a job" (the INBOX card sends one), not only "when you test it"');
 /* ---------- a job whose steps ran but did not all finish clean (a real model: a RESEARCHER answered, then its model sent empty
