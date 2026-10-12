@@ -203,8 +203,59 @@
         "logSha256": "1de50307903122701db57c8d50e9df70427ba840d415355759857d4ebf48abd5"
       },
       "followUp": "Three thread tests require extraction/acknowledgment updates and independent review found background sibling prompts never cleared (R19). Attachment trust/learned lookup and new silent catches are assigned to their owners. No assertions or ratchet limits weakened."
+    },
+    {
+      "candidate": "2c366fd8ffbf18a40cdec41db09986ac022aef6c",
+      "startedAt": "2026-10-12T09:55:31.062Z",
+      "finishedAt": "2026-10-12T10:19:57.591Z",
+      "testedSteps": 217,
+      "failures": [
+        {
+          "originalStep": 39,
+          "test": "test/failreview.e2e.test.js",
+          "exit": 1
+        },
+        {
+          "originalStep": 144,
+          "test": "test/routing.sample.e2e.test.js",
+          "exit": 1
+        },
+        {
+          "originalStep": 192,
+          "test": "test/payload.budget.test.js",
+          "exit": 1
+        }
+      ],
+      "sourceUnchanged": true,
+      "fullGatePass": false,
+      "scope": "Diagnostic serial manifest traversal, not the final-candidate acceptance gate.",
+      "command": "Serial diagnostic traversal of test/http.list",
+      "log": ".handoff/customer-2c-http-diagnostic.log",
+      "logSha256": "6b3afc4d5d45f28f26f1487d41f68e99126b2ef8b845045e925ed4345f5bec3d",
+      "followUp": [
+        {
+          "step": 39,
+          "kind": "stale semantic-only expectation",
+          "ownerCommit": "9e93b6cba",
+          "status": "Reviewed in memory lane; final source import pending"
+        },
+        {
+          "step": 144,
+          "kind": "wrong event identity in fixture",
+          "source": "dd74c386f671afe16a6a746061063aa4db2ada36",
+          "integratedAt": "6f0c44c9f995e892b7955064a14d1993aadf3f72",
+          "status": "Original marker/schema assertions preserved; owner actual-sidecar105 pass and independent exact-event review"
+        },
+        {
+          "step": 192,
+          "kind": "tool schema payload exceeds existing budget",
+          "observedBytes": 66672,
+          "budgetBytes": 66250,
+          "status": "Description-only reduction proposed to owner; unchanged HTTP budget must pass"
+        }
+      ]
     }
   ],
   "scope": "Revision-bound source gates, including failures. Later evidence-only changes do not establish the cause of a failed run. These receipts do not establish installed/customer acceptance or release readiness.",
-  "updatedAt": "2026-10-12T09:54:26.768Z"
+  "updatedAt": "2026-10-12T10:25:10.824Z"
 }

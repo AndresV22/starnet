@@ -204,10 +204,45 @@
       "id": "R19",
       "lane": "threads/background prompt settlement",
       "candidate": "845239d700929d12067dd506111ea275a81acab2",
-      "status": "held-for-owner-repair",
+      "status": "resolved-in-source",
       "observation": "Background sibling requests render no cards. The global confirmed-response listener refreshes notifications without clearing the matching channel prompt, so answering Mira then Rook leaves both pending and re-notifies the previously answered prompt.",
       "requiredBehavior": "Clear only the confirmed matching prompt in its original parent channel before selecting remaining notification; preserve siblings, failed/unknown/foreign responses and duplicate idempotency.",
-      "evidence": "Independent exact-source Channels plus chat helper/listener module reproduction; actual host background no-card path; seeded browser proof owed."
+      "evidence": "qa/evidence/thread-ux-1012/response-ownership-verification.json",
+      "resolvedBy": "fcd8007ca473d52488986537e304370c37f7f9a0",
+      "integratedAt": "367860fc9",
+      "note": "Independent exact-source prompt/voice controls and owner seeded-browser checks pass. Four focused merged thread suites pass. No microphone or installed acceptance."
+    },
+    {
+      "id": "R20",
+      "lane": "memory/recent activity",
+      "candidate": "2c366fd8ffbf18a40cdec41db09986ac022aef6c",
+      "status": "accepted-pending-final-owner-import",
+      "observation": "Run, transcript and completed-brief projection drops provenance, allowing uploaded or quoted text into a fresh run system context while replay taint remains clear.",
+      "requiredBehavior": "Filter source provenance before activity projection and preserve genuine owner evidence; verify actual provider context after restart.",
+      "canonicalBug": "qa/bugs/6e750350-recent-activity-drops-source-provenance.md",
+      "acceptedOwnerSlice": "caae8e0f879dd8ca10d9b3e66d8b154d44e441f6",
+      "evidence": "Owner real-sidecar restart receipt plus independent exact-host three-source probe; final owner slice still includes held sibling repairs.",
+      "limits": "Synthetic reproduction, no customer incident attribution. Legacy run rows without a provenance stamp remain an explicit compatibility boundary."
+    },
+    {
+      "id": "R21",
+      "lane": "memory/persisted topic evidence",
+      "candidate": "caae8e0f879dd8ca10d9b3e66d8b154d44e441f6",
+      "status": "held-for-owner-repair",
+      "observation": "Previously derived Interests evidence survives JSON restart and enters TOPIC context independently of the newly filtered activity pack.",
+      "requiredBehavior": "Prevent unverifiable cached summaries from regaining owner authority; preserve data and prove clean/current evidence and restart controls.",
+      "evidence": "Independent exact host and real Interests parse/fold/normalize probe with synthetic extraction reply; personalization-off and empty-cache controls exclude the marker.",
+      "limits": "Reachable synthetic dataflow; no real model, customer cache or installed profile inspected."
+    },
+    {
+      "id": "R22",
+      "lane": "memory/repeated-work attribution",
+      "candidate": "1143ee67de3449eac06f23ba3a0fffb969873e57",
+      "status": "held-for-owner-repair",
+      "observation": "A later clean same-text owner turn authenticates multiple earlier unknown brief occurrences by agent/stream/text alone.",
+      "requiredBehavior": "Bind each retained brief to its own original owner occurrence; mutable completion runId alone is insufficient.",
+      "evidence": "Independent exact-host probe: three repeated briefs with only newest known-clean turn were all accepted; all-unknown and all-clean controls distinguish the gap.",
+      "limits": "Owner proposal is not imported; synthetic module proof only."
     }
   ],
   "limits": [
@@ -216,5 +251,5 @@
     "R08 is a supported-module edge; the reviewed module commits did not yet include final host wiring.",
     "An existing review-window restart gap was also reported to the memory owner; it was not attributed as a new regression."
   ],
-  "updatedAt": "2026-10-12T09:54:26.770Z"
+  "updatedAt": "2026-10-12T10:25:10.824Z"
 }
