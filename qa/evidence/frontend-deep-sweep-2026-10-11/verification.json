@@ -1,0 +1,137 @@
+{
+  "baseline": "a20ffa71fd04691805ea55c7d08165438dd7ac6f",
+  "sourceTip": "444bfa1248caf786aab9ed53924969bddbd90916",
+  "fixes": {
+    "style": "bf756e00e85172c01c9fc336bd9da69c8183864c",
+    "question": "444bfa1248caf786aab9ed53924969bddbd90916"
+  },
+  "date": "2026-10-11",
+  "scope": "frontend deep sweep against combined post-v0.13.2 source; focused lane proof only",
+  "syntax": "All six changed source/test JavaScript files pass node --check; generated mirrors agree.",
+  "before": {
+    "test/workflows-window.test.js": "New regression against unchanged a20 source: 5 failed assertions, 51 passed. Keep/undo requests committed undo/keep and resurrected feedbackKept after local style was removed.",
+    "test/consent-full-request.test.js": "New regression against unchanged a20 source: 3 failed tests, 7 passed. Choice, conversation and other-surface responses cleared all pending prompts.",
+    "frontend/app/delegated.js": "Production lineHtml with attributed brief.ask rendered Approve/Deny. This is a controlled defensive UI case; natural autonomous-worker questions are intentionally unsupported."
+  },
+  "focused": [
+    {
+      "test": "test/workflows-window.test.js",
+      "result": "PASS",
+      "count": 56,
+      "unit": "assertions"
+    },
+    {
+      "test": "test/consent-full-request.test.js",
+      "result": "PASS",
+      "count": 10,
+      "unit": "tests"
+    },
+    {
+      "test": "test/delegated-threads.test.js",
+      "result": "PASS",
+      "count": 92,
+      "unit": "assertions"
+    },
+    {
+      "test": "test/conveyor-ease.test.js",
+      "result": "PASS",
+      "count": 63,
+      "unit": "assertions"
+    },
+    {
+      "test": "test/build-hand.test.js",
+      "result": "PASS",
+      "count": 137,
+      "unit": "assertions"
+    },
+    {
+      "test": "test/build-hand-circle.test.js",
+      "result": "PASS",
+      "count": 141,
+      "unit": "assertions"
+    },
+    {
+      "test": "test/build-clip.test.js",
+      "result": "PASS",
+      "count": 178,
+      "unit": "assertions"
+    },
+    {
+      "test": "test/line-sendto.test.js",
+      "result": "PASS",
+      "count": 92,
+      "unit": "assertions"
+    },
+    {
+      "test": "test/conveyor-floor-integrity.test.js",
+      "result": "PASS",
+      "count": 82,
+      "unit": "assertions"
+    },
+    {
+      "test": "test/g1bprops.test.js",
+      "result": "PASS",
+      "count": 43,
+      "unit": "assertions"
+    },
+    {
+      "test": "test/declutter-recovery.test.js",
+      "result": "PASS",
+      "count": 19,
+      "unit": "assertions"
+    },
+    {
+      "test": "test/declutter-strips.test.js",
+      "result": "PASS",
+      "count": 52,
+      "unit": "assertions"
+    },
+    {
+      "test": "test/render-pacing.test.js",
+      "result": "PASS",
+      "count": 63,
+      "unit": "assertions"
+    },
+    {
+      "test": "test/static-bake-guard.test.js",
+      "result": "PASS",
+      "count": 13,
+      "unit": "assertions"
+    },
+    {
+      "test": "test/voice.button.test.js",
+      "result": "PASS",
+      "count": 185,
+      "unit": "assertions"
+    },
+    {
+      "test": "test/needs-you.test.js",
+      "result": "PASS",
+      "count": 25,
+      "unit": "assertions"
+    },
+    {
+      "test": "test/website-app-sync.test.js",
+      "result": "PASS",
+      "count": 8,
+      "unit": "assertions"
+    }
+  ],
+  "live": {
+    "receipt": "qa/evidence/frontend-deep-sweep-2026-10-11/live.json",
+    "fixture": "qa/evidence/frontend-deep-sweep-2026-10-11/probe.mjs",
+    "result": "8 checks PASS",
+    "surface": "real seeded Chromium and real sidecar with local synthetic provider",
+    "cleanup": "Owned Chromium, sidecar fixture and mock server closed; heavy slot yielded.",
+    "subsequentChange": "Question conversation cards also receive tabIndex -1 at creation; focused unit verifies this final detail. Choice-card live focus already passed."
+  },
+  "aggregate": "Not run in this lane; root coordinates aggregate gates on the merged candidate.",
+  "limitations": [
+    "See live.json for exact scope and exclusions."
+  ],
+  "peerReview": {
+    "reviewer": "runtime triage lane",
+    "result": "No blocking finding on exact source commits bf756e00e and 444bfa124; all three mirrors independently compare equal.",
+    "scope": "Read-only source review; reviewer did not repeat focused tests or live fixture."
+  }
+}

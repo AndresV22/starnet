@@ -1,0 +1,178 @@
+{
+  "baseline": "a20ffa71fd04691805ea55c7d08165438dd7ac6f",
+  "sourceTip": "444bfa1248caf786aab9ed53924969bddbd90916",
+  "authority": "docs/DECISIONS.md:186-190 and docs/STARNET_BEHAVIOR_CONTRACT.md",
+  "areas": [
+    {
+      "area": "SELECT MOVES and THE HAND",
+      "review": [
+        "frontend/app/build.js:4728 onDown, :4874 onMove, :6249 selected drop behavior and :6953 authoritative move preview",
+        "frontend/app/worldmodel.js:1769 canMoveProps and :1818 atomic moveProps rollback"
+      ],
+      "evidence": [
+        "test/build-hand.test.js 137 assertions",
+        "test/build-hand-circle.test.js 141 assertions"
+      ],
+      "conclusion": "Focused tests pass; existing real gesture hooks preserve click/select, selected floor move, machine-to-machine connection, unselected floor belt and Shift move. Circle refusal follows authoritative model. No additional reproduced defect.",
+      "gaps": [
+        "No new physical touch/stylus or installed WebView2 gesture proof."
+      ]
+    },
+    {
+      "area": "Copy/paste and room/line authority",
+      "review": [
+        "frontend/app/build.js:5541 cut warning and :5552 cutLeavesBehind",
+        "frontend/app/worldmodel.js:995 persisted-link reconciliation, :1330 moveRoom and :1818 moveProps"
+      ],
+      "evidence": [
+        "test/build-clip.test.js 178 assertions",
+        "test/g1bprops.test.js 43 assertions",
+        "test/conveyor-floor-integrity.test.js 82 assertions"
+      ],
+      "conclusion": "Focused tests pass. Internal crew and settings copy; external SEND TO, project folders and triggers intentionally do not. Reconciliation explains moved physical belts; suspected stale link path was not a reproduced bug.",
+      "gaps": [
+        "No installed restore of paid custom assets or private preset shelf roundtrip.",
+        "No new live multi-agent room relocation/equipment authority acceptance."
+      ]
+    },
+    {
+      "area": "SEND TO, splits, JOINER and independent department jobs",
+      "review": [
+        "docs/DECISIONS.md:186 SEND TO starts a separate job with separate crew/budget",
+        "frontend/app/workflowpanel.js:1116 Working folder, :1426 same-job JOINER and :1519 SEND TO",
+        "081aecd06 and a783de82e are ancestors of a20"
+      ],
+      "evidence": [
+        "test/line-sendto.test.js 92 assertions",
+        "test/conveyor-floor-integrity.test.js 82 assertions"
+      ],
+      "conclusion": "Focused tests pass: refusal of transitive cycles, explicit legacy handoff conversion/undo/reload and neighboring line separation. Same-job branches combine; independent departmental completion does not imply a JOINER barrier.",
+      "gaps": [
+        "Original #81 file-location complaint and real departmental project receipts remain unverified.",
+        "Original #28 Telegram-to-line then Drive/PDF delivery has no external acceptance proof."
+      ]
+    },
+    {
+      "area": "Worker threads, simultaneous asks and delegated truth",
+      "review": [
+        "frontend/app/channels.js pendingAllOf/clearPending semantics",
+        "frontend/app/chat.js:3343 clarifyRow and three question-resolution paths",
+        "frontend/app/delegated.js:158 lineHtml, :345 answer and :361 exact question navigation",
+        "sidecar/index.js:19394 allows askCommander only on interactive surface"
+      ],
+      "evidence": [
+        "test/delegated-threads.test.js 92 assertions",
+        "test/consent-full-request.test.js 10 tests",
+        "test/needs-you.test.js 25 assertions",
+        "live.json checks 5-8"
+      ],
+      "conclusion": "Found and repaired prompt loss in 444bfa124. Actual lead question and worker approval coexist, answer independently and settle. Controlled attributed question uses Answer and exact DOM focus. Dispatch display uses observed run IDs; no unsupported run receipt is added.",
+      "gaps": [
+        "Native autonomous-worker interactive questions are intentionally unsupported, not a backend defect.",
+        "Original #57 Telegram returned run IDs and customer Dossier visibility still require exact reconciliation.",
+        "Fresh scoped builder lending through foreground/background/resume with live Commander approvals is not exercised by this frontend fixture."
+      ]
+    },
+    {
+      "area": "Workflow style controls, memory and user intent ordering",
+      "review": [
+        "frontend/app/windows/workflows.js:310 keptTaste and :335 putStyleBack",
+        "frontend/app/workflowpanel.js keep-style waits for persistence before undo",
+        "sidecar/index.js keep route waits for reference capture before notebook update"
+      ],
+      "evidence": [
+        "test/workflows-window.test.js 56 assertions",
+        "test/conveyor-ease.test.js 63 assertions",
+        "live.json checks 1-4"
+      ],
+      "conclusion": "Found and repaired keep/undo race in bf756e00e. Per-run ordering survives view changes, repeated actions and lost responses; real store agrees with immediate local undo.",
+      "gaps": [
+        "Real provider design fidelity and general memory quality not inferred from synthetic store proof.",
+        "No restart test for this UI-only ordering repair; backend sequential verdict issue is a distinct provider-lane repair."
+      ]
+    },
+    {
+      "area": "Declutter, stop and truthful recovery displays",
+      "review": [
+        "frontend/app/chat.js image cache/scroll recovery, frontend/app/group-chat.js immutable shared references, frontend/app/windows/outbox.js clear and restore actions",
+        "Needs You derives real pending asks and routes Answer separately from consent",
+        "Current source stop and memory UI changes reviewed for state transitions; backend stop ownership belongs to runtime/root"
+      ],
+      "evidence": [
+        "test/declutter-recovery.test.js 19 assertions",
+        "test/declutter-strips.test.js 52 assertions",
+        "test/needs-you.test.js 25 assertions"
+      ],
+      "conclusion": "Focused display/recovery tests pass; no additional reproduced defect in this slice.",
+      "gaps": [
+        "No new installed Escape/E-STOP acceptance in this deep frontend fixture.",
+        "Prior root stop proof remains tied to its recorded candidate, not automatically reclassified as a new installed proof."
+      ]
+    },
+    {
+      "area": "Render pacing, nav lag and static cache",
+      "review": [
+        "frontend/app/world.js paced scheduling, focus wake and cache behavior",
+        "7688999fa, 37b595d21 and b38ef4cf6 are all integrated ancestors of a20"
+      ],
+      "evidence": [
+        "test/render-pacing.test.js 63 assertions",
+        "test/static-bake-guard.test.js 13 assertions"
+      ],
+      "conclusion": "Current source includes previously pending nav-lag work. Focused timing/cache tests pass; this addresses pacing mechanisms only.",
+      "gaps": [
+        "No 24-hour installed WebView2 GPU/private-memory soak for #69.",
+        "No claim that reduced latency repairs the original alleged memory growth."
+      ]
+    },
+    {
+      "area": "Voice button and speech interaction",
+      "review": [
+        "Voice controls onSpeakStart/onSpeakEnd coordination, echo guards and timer cleanup"
+      ],
+      "evidence": [
+        "test/voice.button.test.js 185 assertions"
+      ],
+      "conclusion": "Current-source deterministic voice-button lifecycle checks pass; no additional reproduced defect.",
+      "gaps": [
+        "No physical microphone, audible audio or OS permission-dialog acceptance."
+      ]
+    },
+    {
+      "area": "Templates, borrowed builder and shared layouts",
+      "review": [
+        "86b1ddc9c and 691aa23b5 are integrated; lead-owned per-job builder lending is present",
+        "05a5fe757/e0d1161af build-share are not ancestors of a20; read as pending Git objects only",
+        "Root independently reviewed the unmerged shared-layout importer, which strips work/project/crew authority"
+      ],
+      "evidence": [
+        "Existing source and committed contract review; this lane did not rerun builder-lend live acceptance"
+      ],
+      "conclusion": "Prior pending wording is stale for borrowed builder and worker threads, but remains correct for shared-layout exchange. Gallery and private presets are separate unfinished requests.",
+      "gaps": [
+        "Full current-source builder-lending live matrix not established by this lane.",
+        "Fresh compatibility review and live validation required before old shared-layout branch integration.",
+        "Persistent private preset shelf and community browser remain broader product scope."
+      ]
+    },
+    {
+      "area": "Website mirror",
+      "review": [
+        "Generated frontend mirror for workflows.js, chat.js and delegated.js"
+      ],
+      "evidence": [
+        "node scripts/sync-website-app.mjs completed",
+        "test/website-app-sync.test.js 8 assertions"
+      ],
+      "conclusion": "Current tracked website mirrors match source; runtime peer review independently compared all three.",
+      "gaps": [
+        "No website deployment/redirect/account success proof."
+      ]
+    }
+  ],
+  "excludedClaims": [
+    "No installed artifact or customer recovery is inferred from code ancestry or focused tests.",
+    "No aggregate fast/http gate run in this lane.",
+    "The deep sweep is a scoped review, not an exhaustive product-perfect or release-ready claim."
+  ]
+}
