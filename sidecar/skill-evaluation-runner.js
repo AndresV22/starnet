@@ -58,6 +58,33 @@ function makeAgentLoopCaseRunner(options) {
     // The parent host must decide whether spending is allowed; this callback can
     // deny for budget/paused policy, but never expands the supplied tool surface.
     if (typeof o.authorize === 'function' && await o.authorize({ runId, taskId: task.id, phase }) !== true) return { reason: 'policy-denied' };
+    const streamAttempts = [];
+    const accountableProvider = Object.create(o.provider);
+    accountableProvider.stream = async function* trackedStream(request) {
+      const attempt = { attempt: streamAttempts.length + 1, usageObserved: false, done: false, truncated: false,
+        exhausted: false, errored: false, aborted: false };
+      streamAttempts.push(attempt);
+      try {
+        // The outer loop owns retries. Disabling the adapter's documented hidden
+        // pre-stream retry ladder makes each attempt visible to this accounting boundary.
+        for await (const event of o.provider.stream({ ...request, preStreamRetries: 0 })) {
+          if (event && event.type === 'usage') {
+            const usage = event.usage;
+            const nonnegative = n => typeof n === 'number' && Number.isFinite(n) && n >= 0;
+            attempt.usageObserved = !!(usage && ((nonnegative(usage.prompt_tokens) && nonnegative(usage.completion_tokens)) ||
+              nonnegative(usage.cost) || nonnegative(usage.cost_in_usd_ticks))) || attempt.usageObserved;
+          }
+          if (event && event.type === 'done') { attempt.done = true; attempt.truncated = attempt.truncated || event.truncated === true; }
+          if (event && event.type === 'error') attempt.errored = true;
+          yield event;
+        }
+        attempt.exhausted = true;
+      } catch (error) { attempt.errored = true; throw error; }
+      finally {
+        attempt.aborted = !!(request && request.signal && request.signal.aborted) || !attempt.exhausted;
+        attempt.complete = attempt.exhausted && attempt.done && !attempt.truncated && !attempt.errored && !attempt.aborted;
+      }
+    };
     const files = new Map(Object.entries(task.fixtures || {}));
     const writable = new Set(task.writablePaths || []), toolCalls = [];
     const dispatch = async call => {
@@ -81,7 +108,7 @@ function makeAgentLoopCaseRunner(options) {
     let result;
     try { result = await loop({
       messages: [{ role: 'system', content: 'Complete the task using the isolated workspace tools when needed. Report only work actually completed. The task supplies the required output contract.' + skillContext }, { role: 'user', content: task.prompt }],
-      provider: o.provider, model: o.model, cost: o.cost, clock, signal, tools: tools.map(copy), dispatch,
+      provider: accountableProvider, model: o.model, cost: o.cost, clock, signal, tools: tools.map(copy), dispatch,
       capCtx: { signal }, limits: { maxIters: 8, grace: false, ...(o.limits || {}) }, emit: o.emit || (() => {}),
       agentId: 'skill-evaluation', runId, trigger: 'event'
     }); } catch (error) {
@@ -89,6 +116,10 @@ function makeAgentLoopCaseRunner(options) {
       // throws still produce an attributable failed run; no zero-spend claim is made.
       result = { reason: 'runner-error', messages: [], error: String(error && error.message || error), accountingIncomplete: true };
     }
+    const uncertainAttempts = streamAttempts.filter(attempt => !attempt.complete || !attempt.usageObserved);
+    result.accountingIncomplete = result.accountingIncomplete === true || uncertainAttempts.length > 0 || (result.reason === 'done' && streamAttempts.length === 0);
+    result.accountingStreams = { attempted: streamAttempts.length, complete: streamAttempts.filter(attempt => attempt.complete && attempt.usageObserved).length,
+      uncertain: uncertainAttempts.slice(0, 128), omitted: Math.max(0, uncertainAttempts.length - 128) };
     if (typeof o.onRun === 'function') await o.onRun({ result, runId, taskId: task.id, phase });
     let value;
     const final = (result.messages || []).filter(m => m.role === 'assistant' && typeof m.content === 'string').at(-1);
