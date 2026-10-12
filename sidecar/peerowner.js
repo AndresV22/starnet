@@ -113,31 +113,23 @@ function parseLsofOwners(text, selfPid, q) {
 }
 
 /* deps: { platform, run(exe, args) -> Promise<{ ok, stdout }>, readFile(path) -> Promise<string>, selfPid, uid,
-           winUser, winSystemDir, trustAll, now, cacheMs }
-   A positive verdict is cached per client PID for cacheMs (a page load fetches `/` more than once) — never a
-   negative one, so a refused stranger cannot poison the owner's next load. */
+           winUser, winSystemDir, trustAll }
+   Check ownership for every request: a PID may be recycled for another user, so even a short-lived positive
+   PID cache is not evidence about the current socket owner. */
 function makePeerOwnerCheck(deps) {
   const d = deps || {};
   const platform = d.platform || process.platform;
-  // the clock is injected (index.js passes the host's): without one there is no cache — every load is checked
-  const now = typeof d.now === 'function' ? d.now : null;
-  const cacheMs = !now ? 0 : (d.cacheMs == null ? 15000 : d.cacheMs);
-  const okPids = new Map();
-  function remember(pid) { if (cacheMs > 0 && pid) okPids.set(pid, now() + cacheMs); }
-  function cached(pid) { const t = okPids.get(pid); if (t && t > now()) return true; if (t) okPids.delete(pid); return false; }
-
   async function win(q) {
     const sys = d.winSystemDir || 'C:\\Windows\\System32';
     const ns = await d.run(sys + '\\netstat.exe', ['-ano']);
     if (!ns || !ns.ok) return { ok: false, reason: 'lookup-failed' };
     const pid = parseNetstatPid(ns.stdout, q);
     if (!pid) return { ok: false, reason: 'peer-not-found' };
-    if (pid === Number(d.selfPid) || cached(pid)) return { ok: true, reason: 'same-user', pid };
+    if (pid === Number(d.selfPid)) return { ok: true, reason: 'same-user', pid };
     if (!d.winUser) return { ok: false, reason: 'lookup-failed', pid };
     const tl = await d.run(sys + '\\tasklist.exe', ['/FI', 'PID eq ' + pid, '/FI', 'USERNAME eq ' + d.winUser, '/FO', 'CSV', '/NH']);
     if (!tl || !tl.ok) return { ok: false, reason: 'lookup-failed', pid };
     if (!tasklistListsPid(tl.stdout, pid)) return { ok: false, reason: 'other-user', pid };
-    remember(pid);
     return { ok: true, reason: 'same-user', pid };
   }
   async function linux(q) {
