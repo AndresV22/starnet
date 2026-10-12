@@ -276,6 +276,7 @@
     process.once('exit', () => {
       const cp = require('node:child_process');
       for (const c of LIVE) {
+        if (c.exitCode != null || c.signalCode != null) continue;   // observed exit: its pid may already be reused
         try {
           if (process.platform === 'win32' && c instanceof cp.ChildProcess && c.pid && c.exitCode == null) {
             require('../child-env.js').guardChildProcess(cp).spawnSync('taskkill', ['/pid', String(c.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true });
@@ -586,14 +587,26 @@
     function killDirect(child) {
       try { child.kill(); } catch (e) { failNote('claudecli.kill', e); }
     }
-    function killTree(child) {
-      if (!child || child.exitCode != null) return;
+    function killTree(child, onAttemptDone) {
+      let reported = false;
+      const report = error => { if (!reported) { reported = true; if (onAttemptDone) onAttemptDone(error || null); } };
+      if (!child || child.exitCode != null || child.signalCode != null) { report(null); return; }
       try {
         if (platform === 'win32' && child.pid) {
           const k = spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true });
-          if (k && typeof k.on === 'function') k.on('error', () => killDirect(child));
-        } else child.kill('SIGTERM');
-      } catch (e) { failNote('claudecli.killtree', e); killDirect(child); }
+          if (k && typeof k.on === 'function') {
+            k.on('error', e => { killDirect(child); report(e); });
+            k.on('close', (code, signal) => {
+              const error = code === 0 ? null : new Error('Claude Code taskkill failed: ' + (signal || code));
+              if (error) failNote('claudecli.killtree', error);
+              report(error);
+            });
+          } else report(new Error('Claude Code taskkill returned no observable process'));
+        } else {
+          const sent = child.kill('SIGTERM');
+          report(sent === false ? new Error('Claude Code termination signal was not sent') : null);
+        }
+      } catch (e) { failNote('claudecli.killtree', e); killDirect(child); report(e); }
     }
     /* `claude auth status` is a free, local check (no model call). Resolves the proven state, never throws:
        { installed, loggedIn, authMethod, email?, subscription?, error? } — booleans/labels only, never a token. */
@@ -958,6 +971,7 @@
     const persistIdleMs = Number(opts.persistIdleMs) > 0 ? Number(opts.persistIdleMs) : (Number(envOf('STARNET_CLAUDE_CLI_PERSIST_IDLE_MS')) > 0 ? Number(envOf('STARNET_CLAUDE_CLI_PERSIST_IDLE_MS')) : 300000);
     const endGraceMs = Number(opts.persistEndGraceMs) > 0 ? Number(opts.persistEndGraceMs) : 3000;   // a reply's own end_turn after its block
     let session = null, sessionSeq = 0;
+    const ownedSessions = new Set();   // includes non-reusable children whose exit is still unconfirmed
     const stats = { spawned: 0, reused: 0, fresh: {}, closed: {} };   // what the persistent path did (tests, the live proof)
     const bump = (o, k) => { o[k] = (o[k] || 0) + 1; };
     const sha1 = s => require('crypto').createHash('sha1').update(s).digest('hex');
@@ -977,8 +991,8 @@
         throw notInstalled();
       }
       const s = { child, key, runId, model: String(req.model || ''), effort: effortOf(req), tools: toolMap(req.tools), signal: req.signal || null, sysFile, alive: true, closed: false, busy: false, covered: [], pending: null,
-        costSeen: 0, stderr: '', exitCode: null, error: null, sink: null, onData: null, idleTimer: null, onRunAbort: null, primed: false, systemHash: sha1(system) };
-      LIVE.add(child); hookExit();
+        costSeen: 0, apiKeySource: null, stderr: '', exitCode: null, error: null, sink: null, onData: null, idleTimer: null, onRunAbort: null, primed: false, systemHash: sha1(system), closing: false, killPending: false, cleanupError: null, closeReason: null, processExited: false };
+      ownedSessions.add(s); LIVE.add(child); hookExit();
       let buf = '';
       child.stdout.setEncoding('utf8'); child.stderr.setEncoding('utf8');
       child.stdout.on('data', d => {
@@ -988,34 +1002,56 @@
         while ((nl = buf.indexOf('\n')) >= 0) {
           const line = buf.slice(0, nl).trim();
           buf = buf.slice(nl + 1);
-          if (line && s.sink) s.sink(line);   // a parked child says nothing; a stray line between turns is dropped
+          if (line) {
+            // Initialization belongs to this exact child, including a warm child before any turn has a sink.
+            let metadata;
+            try { metadata = JSON.parse(line); } catch (_) { metadata = null; }
+            if (metadata && metadata.type === 'system' && metadata.subtype === 'init')
+              s.apiKeySource = metadata.apiKeySource == null ? null : String(metadata.apiKeySource);
+            if (s.sink) s.sink(line);
+          }
         }
       });
       child.stderr.on('data', d => { s.stderr = (s.stderr + d).slice(-4000); });
       child.on('error', e => { s.error = (e && e.code === 'ENOENT') ? notInstalled() : e; s.alive = false; if (s.sink) s.sink(null); closeSession(s, 'crash'); });
-      child.on('close', code => { s.exitCode = code; s.alive = false; if (buf.trim() && s.sink) s.sink(buf.trim()); buf = ''; if (s.sink) s.sink(null); closeSession(s, 'exit'); });
+      child.on('exit', () => { s.processExited = true; closeSession(s, 'exit'); });
+      child.on('close', code => { s.exitCode = code; s.alive = false; if (buf.trim() && s.sink) s.sink(buf.trim()); buf = ''; if (s.sink) s.sink(null); finishSession(s); });
       child.stdin.on('error', e => failNote('claudecli.persist.stdin', e));
       // Stop ends the child even between turns (while the loop runs the tools it asked for)
       if (s.signal && typeof s.signal.addEventListener === 'function') {
-        s.onRunAbort = () => closeSession(s, 'stop');
+        s.onRunAbort = () => closeSession(s, 'stop', true);
         s.signal.addEventListener('abort', s.onRunAbort, { once: true });
       }
       stats.spawned++;
       session = s;
       return s;
     }
-    function closeSession(s, why) {
-      if (!s || s.closed) return;
-      s.closed = true; s.alive = false;
+    function finishSession(s) {
+      if (s.closed) return;
+      s.closed = true; s.alive = false; s.killPending = false;
       if (session === s) session = null;
       if (s.idleTimer) { clearTimeout(s.idleTimer); s.idleTimer = null; }
       if (s.onRunAbort && s.signal && typeof s.signal.removeEventListener === 'function') s.signal.removeEventListener('abort', s.onRunAbort);
-      LIVE.delete(s.child);
-      bump(stats.closed, why || 'closed');
-      plog('child ' + (s.child && s.child.pid) + ' closed: ' + (why || 'closed'));
-      try { s.child.stdin.end(); } catch (e) { failNote('claudecli.persist.stdin', e); }
-      killTree(s.child);
+      ownedSessions.delete(s); LIVE.delete(s.child);
+      bump(stats.closed, s.closeReason || 'exit');
+      plog('child ' + (s.child && s.child.pid) + ' exited: ' + (s.closeReason || 'exit'));
       removeFile(s.sysFile);
+    }
+    function closeSession(s, why, retry) {
+      if (!s || s.closed || (s.closing && (!retry || s.killPending))) return;
+      // Unavailable for reuse is not proof of process exit. Only the child's close event releases ownership.
+      s.closing = true; s.alive = false; s.closeReason = s.closeReason || why || 'closed';
+      if (session === s) session = null;
+      if (s.idleTimer) { clearTimeout(s.idleTimer); s.idleTimer = null; }
+      s.onData = null;
+      if (s.sink) s.sink(null);
+      try { s.child.stdin.end(); } catch (e) { failNote('claudecli.persist.stdin', e); }
+      if (s.closed || s.processExited) return;
+      s.killPending = true; s.cleanupError = null;
+      killTree(s.child, error => {
+        if (s.closed) return;
+        s.killPending = false; s.cleanupError = error;
+      });
     }
     /* WARM REPLACEMENT. A child closed at the end of a CALL turn (it wrote past its block, or never ended) is replaced at
        once with the same flags and system prompt, while the loop runs the tools: the next turn then gives it the whole
@@ -1096,6 +1132,7 @@
 
       const turn = ++seq;
       const T = makeTurn(req, turn);
+      T.apiKeySource = s.apiKeySource;   // init is session-scoped, not repeated for every user turn
       const queue = [];
       let wake = null, failure = null, clean = false, finished = false, idleTimer = null;
       const push = (item) => { queue.push(item); if (wake) { const w = wake; wake = null; w(); } };
@@ -1167,10 +1204,19 @@
                 if (tail.trim()) break;
               } else if (j.type === 'stream_event' && j.event && j.event.type === 'message_delta' && j.event.usage) T.streamUsage = Object.assign(T.streamUsage || {}, j.event.usage);
               else if (j.type === 'system' && j.subtype === 'compact_boundary') T.compacted = true;
+              else if (j.type === 'assistant' && j.error) T.apiError = String(j.error);
               else if (j.type === 'result') { ended = j; break; }
             }
           } finally { clearTimeout(grace); }
           if (signal && signal.aborted) return;
+          if (ended && (ended.is_error || (ended.subtype && ended.subtype !== 'success'))) {
+            T.result = ended;
+            const cost = costOf(s, ended);
+            settle(); closeSession(s, 'error');
+            // Calls have already streamed. Reuse only the existing failure/usage settlement, never their deltas.
+            yield* T.finish({ code: s.exitCode, stderr: s.stderr }, cost);
+            return;
+          }
           const inSync = !!ended && !tail.trim() && !ended.is_error && ended.subtype === 'success' && !T.compacted &&
             String(ended.result == null ? '' : ended.result).trim() === T.raw.trim();
           let out;
@@ -1210,14 +1256,18 @@
     // The run is over: its persistent child goes now instead of idling out (loop.js calls this as the run ends).
     function release(runId) {
       const id = runId == null ? '' : String(runId);
-      if (session && session.runId === id) closeSession(session, 'run_end');
+      for (const s of Array.from(ownedSessions)) if (s.runId === id) closeSession(s, 'run_end', true);
     }
 
     return {
       stream,
       listModels,
       release,
-      persistStats() { return JSON.parse(JSON.stringify(Object.assign({ enabled: persistOn, live: !!session }, stats))); },
+      persistStats() {
+        const closing = Array.from(ownedSessions).filter(s => s.closing);
+        return JSON.parse(JSON.stringify(Object.assign({ enabled: persistOn, live: ownedSessions.size > 0,
+          reusable: !!session, cleanupPending: closing.length, cleanupFailures: closing.filter(s => s.cleanupError).length }, stats)));
+      },
       contextLimit(id) { return contextOf(id); },
       // The CLI reports its own billed cost per turn (see COST TRUTH above); there is no list-rate table here.
       priceOf() { return null; },
