@@ -1,7 +1,7 @@
 # Qwen allocation failure and station graphics recovery
 
 Source repair: `agent/qwen-render-loss-1012`, based on `a20ffa71f`.
-Production changes end at `bc5ed0c6e`; the final tested source candidate is `bb380c04720083c31eb5f84b6cb1c36ddfc5e6a5`.
+Graphics changes end at `bc5ed0c6e`; the tested graphics candidate is `bb380c04720083c31eb5f84b6cb1c36ddfc5e6a5`. The subsequent run-postmortem integration fix is `0b49c64a0c96568adbc59d6a13af56857177d84e`, documented below.
 Integration and installer verification remain pending. This lane has not merged, rebuilt or replaced the installed app.
 
 Frozen candidate path map (`a20ffa71f..bb380c047`):
@@ -78,3 +78,15 @@ The source fix does not guarantee prevention of the first OS/GPU exhaustion. Rec
 The installed 0.13.1 binary remains unchanged and owner recovery is unconfirmed. The durable P1 remains open at `qa/bugs/0db3e69c-gpu-loss-replaces-authored-props-with-legacy-art.md` pending integration/release acceptance.
 
 Storage constraints also affected verification: an earlier customer-journey run stopped at step 2 because its isolated recovery journal could not be persisted (ENOSPC). The sparse checkout now explicitly retains only its independently checked-out runtime asset subset; it does not contain all historical asset/evidence archives. A failed browser rerun after cherry-pick exposed that excluded assets were pruned by Git; retaining the subset fixed the fixture failure, and the final five-suite graphics gate passed. No shared asset directory was modified for this repair.
+
+## Integration follow-up: explicit memory postmortem
+
+The integration owner reported that combined candidate `6f7361a721bbd932d14f23e5a28117e120b4ebf4` passed its first 598 fast steps, then failed `test/slag-known-error-kinds.test.js` because the new Friendly kind lacked a decided postmortem bucket. This lane independently reproduced the missing-kind failure before editing.
+
+Source fix `0b49c64a0c96568adbc59d6a13af56857177d84e` changes only `frontend/app/slaglog.js`, its exact website mirror `website/app/app/slaglog.js`, and `test/slag-known-error-kinds.test.js`. `local_model_memory` is now NAMED: title remains `errored out`, and the actual Friendly guidance is preserved. Its specific cause states that the model could not allocate enough memory and directs freeing memory or choosing a smaller model. It never claims that no earlier work occurred. Unknown errors and timeouts keep their existing generic behavior; provider loading/placement logic is unchanged.
+
+Focused gate passed all four suites: native Ollama 168 assertions, Friendly 330, SlagLog 37, exhaustive known-kind/stalled-build contract 153. The new coverage exercises a two-turn allocation failure through actual Friendly and SlagLog, preserves unknown/timeout reporting, and drives the real WorkQuestStore event-to-notification path. Independent read-only review found no concrete defect.
+
+Live visible proof used a fresh seeded sidecar and browser profile with injected `agent.run.start`, explicit allocation `agent.run.error`, and two-turn `agent.run.end` events. The real World postmortem retained the specific allocation cause. The visible stalled-build notification said to close competing local models/apps or choose a smaller model in COMMS, with conditional restart guidance; it did not substitute generic reporting advice. The toast was on-screen at `(11, 301)` with size `409 × 278`; browser exceptions were empty. No real model request or installed-app mutation occurred. Evidence: `.dogfood/slag-before.log`, `.dogfood/slag-focused.log`, `.dogfood/slag-live.log`, `.dogfood/slag-memory-live.png`; reproducible isolated probe `.dogfood/slag-memory-live.mjs`.
+
+No further broad gate ran in this lane. The integration owner must include this source commit in the next frozen candidate and rerun the required combined gates; the installed incident remains open.
