@@ -106,6 +106,8 @@ test('a job that ships on LINE A rides on to LINE B by SEND TO', async () => {
     assert.ok(bRow && bRow.lineId === LB && bRow.dockId === 'p5' && bRow.reason === 'done', 'B’s run row is stamped with LINE B: ' + JSON.stringify(bRow && { lineId: bRow.lineId, dockId: bRow.dockId, streamId: bRow.streamId }));
     assert.ok(calls.some(c => c.handoff && /WHAT LINE A DELIVERED:\nTwo facts about the moon\./.test(c.user)), 'B’s agent was handed A’s result');
 
+    assert.equal((await fixture.json('GET', '/api/routing/lines/stats?since=1')).body.lines.find(l => l.lineId === LA).shipped, 0, 'talk-only job is not proven productive work');
+
     // SEND TO nowhere: the same job stops at A
     await arm(geoOf(null));
     const again = await fixture.json('POST', '/api/routing/sample', { line: LA, text: 'Two more facts.', name: 'A' });
@@ -139,6 +141,15 @@ test('a job that ships on LINE A rides on to LINE B by SEND TO', async () => {
     assert.ok(fileDownstream && fileDownstream.status === 'delivered', 'file handoff reaches downstream terminal state: ' + JSON.stringify(fileDownstream));
     assert.ok(calls.some(c => c.handoff && c.user.includes(produced)), 'downstream receives the exact absolute producer path');
     assert.ok(!calls.some(c => c.handoff && c.user.includes(path.join(fixture.workspace, 'beta', 'handoff-note.txt'))), 'handoff never invents a path under the receiver');
+    const shipped = async () => (await fixture.json('GET', '/api/routing/lines/stats?since=1')).body.lines.find(l => l.lineId === LA).shipped;
+    assert.equal(await shipped(), 1, 'one productive completed job is one durable shipment');
+    const disconnected = geoOf(null);
+    disconnected.props = disconnected.props.filter(p => p.id !== 'p3');
+    await arm(disconnected);
+    assert.equal(await shipped(), 1, 'removing its OUTBOX cannot rewrite the previous shipment');
+    await fixture.restart();
+    assert.equal(await shipped(), 1, 'terminal-job receipt survives a real sidecar restart');
+
 
   } finally {
     await fixture.dispose();

@@ -279,7 +279,7 @@ function makeChainRunner(o) {
      (a direct order never ships anywhere), the line did not stop (stopped == null: no refusal, no failed or empty stage, no hop
      or $ ceiling, no STOP), and the stage that produced the answer is one whose lane ships to an OUTBOX (lastStage). Never
      awaited and never thrown through — A CHAIN NEVER GATES THE REPLY (law 1): the hand-off is queued, the reply goes now.
-     rec = { lineId, agentId, dockId, outboxId, text, originalText, usd, streamId, since } (streamId / since from the seed, when
+     rec = { lineId, entryRunId, agentId, dockId, outboxId, text, originalText, usd, streamId, since } (streamId / since from the seed, when
      the caller has them: the job's own stream and the time its entry run started, so the runner reads back exactly its runs;
      outboxId = the OUTBOX the job's last walk landed in — a line with two OUTBOXes hands on only from the one that sends). */
   const onShipped = typeof o.onShipped === 'function' ? o.onShipped : null;
@@ -383,7 +383,7 @@ function makeChainRunner(o) {
     let ships = false;
     try { ships = !!(lastStage && (out.dockId ? lastStage(out.agentId, out.dockId) : lastStage(out.agentId))); } catch (e) { failNote('chain.onShipped.lastStage', e); ships = false; }
     if (!ships) return;
-    const rec = { lineId, agentId: out.agentId, dockId: out.dockId || null, outboxId: out.outboxId || null, text: String(out.text), originalText: String(s.originalText != null ? s.originalText : (s.text || '')),
+    const rec = { lineId, entryRunId: (s.runId != null && String(s.runId)) || null, agentId: out.agentId, dockId: out.dockId || null, outboxId: out.outboxId || null, text: String(out.text), originalText: String(s.originalText != null ? s.originalText : (s.text || '')),
       usd: ((typeof s.entryUsd === 'number' && isFinite(s.entryUsd) && s.entryUsd > 0) ? s.entryUsd : 0) + (out.usd || 0),
       streamId: (s.streamId != null && String(s.streamId)) || null, since: (typeof s.since === 'number' && isFinite(s.since)) ? s.since : null };
     try { const r = onShipped(rec); if (r && typeof r.then === 'function') r.then(null, e => failNote('chain.onShipped', e)); }

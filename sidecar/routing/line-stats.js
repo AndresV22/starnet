@@ -4,11 +4,9 @@
      • runs     — run rows stamped with this line (runstore `lineId`, set by the host that dispatched the run: hub
                   entry/hop, routine entry/hop, step test) that FINISHED since the caller's `since` (its local
                   midnight — the same window the station's SHIPPED TODAY counter polls /api/runs with).
-     • shipped  — JOBS that left through the line's OUTBOX (2026-09-24): of those runs, reason 'done' with PROVEN
-                  work (≥1 successful tool result or ≥1 artifact — the station SHIPPED predicate) AND run at a dock
-                  whose outbound lane reaches the OUTBOX (the injected shipsToOutbox(agentId, dockId) — the router's
-                  chainShipsToOutbox). A mid-line stage finishing is a RUN, not a shipment: counting every done
-                  stage made a 3-stage line claim 3 shipped for one job. No reader = nothing is claimed shipped.
+     • shipped  — durable terminal-job receipts minted when the chain actually reaches its OUTBOX.
+                  Productive work (successful tools/artifacts) and clean run outcomes are checked at that moment.
+                  Every job counts once; later floor edits cannot rewrite its history. No receipt = no claim.
      • failed   — reason error / refusal / max_iters / budget (the same dead-run set the floor turns into slag).
      • medianMs — the median recorded durationMs of those runs (null with no timed run).
      • tests    — step-through test / try-this-step hops (run rows the host stamped stepTest). A test is NOT a job:
@@ -25,6 +23,7 @@
    the ledger/limits readers. Never throws on a malformed row; a row it cannot read is skipped, never guessed. */
 'use strict';
 
+const { cleanShipments } = require('./line-shipments.js');
 const FAILED_REASONS = ['error', 'refusal', 'max_iters', 'budget'];
 const FAILED = new Set(FAILED_REASONS);
 
@@ -39,7 +38,7 @@ function median(xs) {
   return s.length % 2 ? s[m] : Math.round((s[m - 1] + s[m]) / 2);
 }
 
-/* lineStats({ rows, lines, since, spentToday(lineId)->$, capOf(lineId)->$|null, shipsToOutbox(agentId, dockId)->bool })
+/* lineStats({ rows, lines, since, spentToday(lineId)->$, capOf(lineId)->$|null, shipments:[terminal-job receipts] })
      rows  — run rows NEWEST-FIRST (runStore.list order); may span more than `since` (older rows only feed `docks`)
      lines — the compiled plan's line list ([{ lineId, propIds? }]); a line with no runs still answers zeros
    -> { since, spendDay: 'utc', lines: [{ lineId, runs, shipped, failed, tests, medianMs, usdToday, capUsdPerDay, spendDay }], docks } */
@@ -49,8 +48,6 @@ function lineStats(o) {
   const since = fin(o.since) || 0;
   const spentToday = typeof o.spentToday === 'function' ? o.spentToday : () => 0;
   const capOf = typeof o.capOf === 'function' ? o.capOf : () => null;
-  const shipsToOutbox = typeof o.shipsToOutbox === 'function' ? o.shipsToOutbox : () => false;
-  const ships = r => { try { return !!shipsToOutbox(r.agentId || null, r.dockId || null); } catch (e) { void e; return false; } };   // cannot prove -> not shipped
   const byLine = new Map();
   for (const l of (Array.isArray(o.lines) ? o.lines : [])) {
     const id = l && l.lineId != null ? String(l.lineId) : '';
@@ -69,10 +66,13 @@ function lineStats(o) {
     if (!L) continue;   // a line that is no longer on the floor has no plate to feed
     if (r.stepTest === true) { L.tests++; continue; }   // a test hop is not a job the line ran, shipped or failed
     L.runs++;
-    if (shippedRow(r) && ships(r)) L.shipped++;
     if (failedRow(r)) L.failed++;
     const ms = fin(r.durationMs);
     if (ms != null && ms > 0) L._ms.push(ms);
+  }
+  for (const receipt of cleanShipments(o.shipments)) {
+    const L = byLine.get(receipt.lineId);
+    if (L && receipt.at > since) L.shipped++;
   }
   const lines = [];
   for (const L of byLine.values()) {
