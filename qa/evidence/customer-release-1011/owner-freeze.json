@@ -1,0 +1,69 @@
+{
+  "schemaVersion": 1,
+  "checkedAt": "2026-10-12T09:21:43.462Z",
+  "integration": "54f4ae0164776dd2bde0b5ad8fd117f9a833d878",
+  "method": "Live worktree registry and read-only Git ancestry/dirty tracked-file checks with optional locks disabled",
+  "acceptedOwners": [
+    {
+      "lane": "memory-harness-audit-1011",
+      "commit": "77c22eb4906159c2ccdf23f9291c7b18124cb111",
+      "isAncestor": true,
+      "tipMatches": true,
+      "dirtyTrackedRelevantFiles": []
+    },
+    {
+      "lane": "conveyor-finish",
+      "commit": "ab8d27672656c3bc85b04c276f1c3ee473a04df3",
+      "isAncestor": true,
+      "tipMatches": true,
+      "dirtyTrackedRelevantFiles": []
+    },
+    {
+      "lane": "qwen-render-loss",
+      "commit": "5312aa66546d4fff85fd005bee203d1a84498b97",
+      "isAncestor": true,
+      "tipMatches": true,
+      "dirtyTrackedRelevantFiles": []
+    },
+    {
+      "lane": "reliability-review",
+      "commit": "cbd030178715cb6b9a64c18984e3fc77148be0f8",
+      "isAncestor": true,
+      "tipMatches": true,
+      "dirtyTrackedRelevantFiles": []
+    },
+    {
+      "lane": "issue-triage",
+      "commit": "f5dfae5546f479613293af7a0ba97a38b3b8471e",
+      "isAncestor": true,
+      "tipMatches": true,
+      "dirtyTrackedRelevantFiles": []
+    },
+    {
+      "lane": "saved-station/E09 memory-proof",
+      "commit": "98a498638c3d04b9f2250fbe8f2be15f4ad29907",
+      "isAncestor": true,
+      "tipMatches": true,
+      "dirtyTrackedRelevantFiles": []
+    }
+  ],
+  "supplementalContributors": [
+    {
+      "lane": "conveyor agentops",
+      "commit": "07b522235"
+    },
+    {
+      "lane": "conveyor floor",
+      "commit": "f912479f0"
+    },
+    {
+      "lane": "conveyor UI",
+      "commit": "bf887a287"
+    }
+  ],
+  "outcome": "No returned implementation drift found; thread saved-history repair remains separately owned and pending final acceptance.",
+  "limits": [
+    "Asset trees, private untracked artifacts and unrelated historical worktrees were excluded.",
+    "Clean owner handoff and ancestry do not prove final source gates, installed acceptance or customer recovery."
+  ]
+}
