@@ -164,10 +164,10 @@
         const tf = {}; for (const t of tokenize(r.content)) tf[t] = (tf[t] || 0) + 1;
         let distinct = 0, freq = 0;
         for (const t of terms) { if (tf[t]) { distinct++; freq += tf[t]; } }
-        if (distinct) scored.push({ idx: i, streamId: r.streamId, role: r.role, content: r.content, ts: r.ts, score: distinct * 1000 + freq });
+        if (distinct) scored.push({ idx: i, streamId: r.streamId, role: r.role, content: r.content, ts: r.ts, score: distinct * 1000 + freq, taint: r.taint || '', taintKnown: r.taintKnown === true || !!r.taint });
       }
       scored.sort((a, b) => (b.score - a.score) || (b.ts - a.ts) || (b.idx - a.idx));
-      return scored.slice(0, limit).map(x => ({ streamId: x.streamId, role: x.role, content: x.content, ts: x.ts, score: x.score }));
+      return scored.slice(0, limit).map(x => ({ streamId: x.streamId, role: x.role, content: x.content, ts: x.ts, score: x.score, taint: x.taint, taintKnown: x.taintKnown }));
     }
 
     // BROWSE (reference-harness parity: "list recent sessions"): every workstream present in the transcript, with its
@@ -189,7 +189,10 @@
         e.turns++;
         if (r.ts >= e.lastAt) e.lastAt = r.ts;
         // last USER line wins the preview — the assistant's reply is the answer, the user's line is the topic.
-        if (r.role === 'user' && r.content) e.preview = str(r.content).replace(/\s+/g, ' ').trim().slice(0, previewMax);
+        if (r.role === 'user' && r.content) {
+          e.preview = str(r.content).replace(/\s+/g, ' ').trim().slice(0, previewMax);
+          e.previewTaint = r.taint || ''; e.previewTaintKnown = r.taintKnown === true || !!r.taint;
+        }
       }
       const out = Array.from(by.values());
       out.sort((a, b) => (b.lastAt - a.lastAt) || (a.streamId < b.streamId ? -1 : a.streamId > b.streamId ? 1 : 0));
@@ -250,6 +253,9 @@
       // UNTRUSTED-CONTENT TAINT (additive, sec-taint 09-25): the writing run's taint source at the moment this row
       // was written. A later run that REPLAYS this row replays untrusted content, so it must start tainted (taintOf).
       if (e.taint) { const t = str(e.taint).slice(0, 200); if (t) entry.taint = t; }
+      // Distinguish the host explicitly checking a clean row from legacy/missing provenance.
+      // Never infer clean merely because old storage omitted its taint field.
+      if (Object.prototype.hasOwnProperty.call(e, 'taint')) entry.taintKnown = true;
       return entry;
     }
 
