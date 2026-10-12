@@ -281,6 +281,22 @@
       "note": "Independent exact-source controls accepted; owner live/focused proof records are revision-bound and final combined gates remain pending.",
       "finalExecutionEvidence": "qa/evidence/memory-harness-audit-1011/coordinator-followups.json",
       "finalOwnerTip": "ff3476e478a00f7564ca2936bc376bd65008c49d"
+    },
+    {
+      "id": "R24",
+      "lane": "world/render-only publication",
+      "candidate": "ccd24082bedef13422740e011728ceecdfe59a38",
+      "status": "resolved-in-source",
+      "observation": "Render-only rebake, full still and cropped still can rederive unpublished Build geometry. Recompilation posts routing and clears pending-edit state.",
+      "requiredBehavior": "Render refreshes and read-only stills preserve Build-held edits until explicit publication.",
+      "resolvedBy": "f90409837a5a69faf32ca3bf2e918bed8c508d4a",
+      "canonicalBug": "qa/bugs/b5c41b7c-render-refresh-publishes-held-build-edits.md",
+      "evidence": "qa/evidence/customer-release-1011/build-render-publication.json",
+      "limits": [
+        "The original full-HTTP49 failure did not record its callback. The controlled actual callback proves this defect, not the identity of every historical failure.",
+        "The full fast pass on ccd is historical after this production repair. Complete new-source gates, installed acceptance and customer recovery remain pending.",
+        "Topology confirmation is not promoted to full publication confirmation; existing conservative guards remain."
+      ]
     }
   ],
   "limits": [
@@ -289,5 +305,5 @@
     "R08 is a supported-module edge; the reviewed module commits did not yet include final host wiring.",
     "An existing review-window restart gap was also reported to the memory owner; it was not attributed as a new regression."
   ],
-  "updatedAt": "2026-10-12T10:47:39.249Z"
+  "updatedAt": "2026-10-12T12:32:45.659Z"
 }

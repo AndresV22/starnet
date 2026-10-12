@@ -302,8 +302,67 @@
         "logSha256": "92ba400212398a8fa7122b8ca0a1c5f26702e326528f3cd63132c7e83fd4b4e4"
       },
       "scope": "Failed complete gate plus unchanged-source remainder with no additional failure. This is not a full pass; the corrected candidate must restart complete gates."
+    },
+    {
+      "candidate": "ccd24082bedef13422740e011728ceecdfe59a38",
+      "startedAt": "2026-10-12T11:11:57.240Z",
+      "finishedAt": "2026-10-12T11:24:40.472Z",
+      "steps": 1154,
+      "exitCode": 0,
+      "sourceUnchanged": true,
+      "error": null,
+      "logSha256": "13dd567fc5e41dc4a979c090b3c82887de4545e1b2e8a717efeb6a264c4ddea4",
+      "command": "npm run test:fast",
+      "log": ".handoff/customer-final-fast.log",
+      "scope": "Exact historical source gate; superseded by production repair f90409837a5a69faf32ca3bf2e918bed8c508d4a. No installed/customer acceptance."
+    },
+    {
+      "candidate": "ccd24082bedef13422740e011728ceecdfe59a38",
+      "startedAt": "2026-10-12T11:24:40.588Z",
+      "finishedAt": "2026-10-12T11:45:56.307Z",
+      "steps": 217,
+      "exitCode": 1,
+      "sourceUnchanged": true,
+      "error": null,
+      "logSha256": "7c04fb630e8200160ee7fe61e788e7fa218b13e1a058e837f7b3f215b44cf829",
+      "command": "npm run test:http",
+      "log": ".handoff/customer-ccd-http-first.log",
+      "failedStep": 184,
+      "failure": {
+        "test": "test/connector-storage-start-fresh.http.test.js",
+        "detail": "First startup exits73 WORKSPACE_OWNER_UNAVAILABLE; secondary crash-ledger open ENOSPC. Owner I/O syscall missing. Ordered focused replay passed without ENOSPC; original cause remains unresolved."
+      },
+      "scope": "Exact historical source gate; superseded by production repair f90409837a5a69faf32ca3bf2e918bed8c508d4a. No installed/customer acceptance."
+    },
+    {
+      "candidate": "ccd24082bedef13422740e011728ceecdfe59a38",
+      "startedAt": "2026-10-12T11:53:51.046Z",
+      "finishedAt": "2026-10-12T11:58:11.449Z",
+      "steps": 217,
+      "exitCode": 1,
+      "signal": null,
+      "error": null,
+      "sourceUnchanged": true,
+      "logSha256": "4c770ec0985a2768c88be3e2012fb2a2f98bc6851f6bf6181619257e245b1163",
+      "diskSamples": ".handoff/customer-final-http.disk-samples.json",
+      "minimumObservedAvailableBytes": 556920832,
+      "diskSamplingMs": 100,
+      "diskSamplesCount": 2385,
+      "originalFailedAttempt": ".handoff/customer-ccd-http-first.receipt.json",
+      "scope": "Exact historical source gate; superseded by production repair f90409837a5a69faf32ca3bf2e918bed8c508d4a. No installed/customer acceptance.",
+      "command": "npm run test:http",
+      "log": ".handoff/customer-ccd-http-second.log",
+      "failedStep": 49,
+      "failure": {
+        "test": "test/station-layout.e2e.test.mjs",
+        "detail": "Build edit loses pending state and reads unconfirmed with matching backend topology. Controlled real delayed artwork callback proves unintended publication; exact original callback unrecorded."
+      },
+      "followUp": {
+        "fix": "f90409837a5a69faf32ca3bf2e918bed8c508d4a",
+        "evidence": "qa/evidence/customer-release-1011/build-render-publication.json"
+      }
     }
   ],
   "scope": "Revision-bound source gates, including failures. Later evidence-only changes do not establish the cause of a failed run. These receipts do not establish installed/customer acceptance or release readiness.",
-  "updatedAt": "2026-10-12T11:10:19.523Z"
+  "updatedAt": "2026-10-12T12:32:45.681Z"
 }
