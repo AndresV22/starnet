@@ -18,43 +18,47 @@
 'use strict';
 const A = require('./_assert.js');
 const http = require('http');
-const path = require('path');
-const os = require('os');
-const fs = require('fs');
-const { bootToken } = require('./_httpToken.js');
-const { spawn } = require('child_process');
+const { SidecarFixture } = require('./helpers/sidecar-fixture.js');
 const HOST = '127.0.0.1';
-const INDEX = path.resolve(__dirname, '..', 'sidecar', 'index.js');
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+async function waitFor(check, label) {
+  const deadline = Date.now() + 20000;
+  while (Date.now() < deadline) { if (await check()) return; await sleep(25); }
+  throw new Error('Timed out waiting for ' + label);
+}
 
 const WORKER_TEXT = 'Phobos and Deimos, both captured asteroids.';
 
 /* The mock model. The LEAD's first call delegates; the WORKER's own agent loop then hits this same server and
    answers as itself; the lead's follow-up wraps up. Keyed on the agent the request is for rather than a call
    counter, because the worker's run is interleaved with the lead's and a counter would be order-fragile. */
-function startMockOpenRouter(dispatchArgs) {
+function startMockOpenRouter(dispatchArgs, options) {
+  options = options || {};
   const requests = [];
   const leadSeen = () => requests.filter(r => r.__lead).length;
   return new Promise((resolve) => {
     const server = http.createServer((req, res) => {
       if (req.url.indexOf('/models') >= 0) {
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ data: [{ id: 'test/model', context_length: 8000, pricing: { prompt: '0', completion: '0' }, supported_parameters: ['tools'] }] }));
+        res.end(JSON.stringify({ data: [{ id: 'test/model', context_length: 8000, pricing: options.pricing || { prompt: '0', completion: '0' }, supported_parameters: ['tools'] }] }));
         return;
       }
       if (req.url.indexOf('/chat/completions') >= 0) {
-        let body = ''; req.on('data', d => { body += d; }); req.on('end', () => {
+        let body = ''; req.on('data', d => { body += d; }); req.on('end', async () => {
           let parsed = {};
           try { parsed = JSON.parse(body); } catch (_) {}
           // the WORKER is the run whose tools do NOT include team_dispatch (a worker can never re-delegate)
           const isLead = JSON.stringify(parsed.tools || []).indexOf('team_dispatch') >= 0;
           parsed.__lead = isLead;
+          parsed.__repair = !isLead && (parsed.messages || []).some(m => m.role === 'user' && String(m.content).includes('[STRUCTURED RESULT REPAIR]'));
           requests.push(parsed);
+          if (parsed.__repair && options.beforeRepair) await options.beforeRepair(parsed);
           res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache' });
           if (isLead && leadSeen() === 1) {
             res.write('data: ' + JSON.stringify({ choices: [{ delta: { tool_calls: [{ index: 0, id: 'call_dispatch', type: 'function', function: { name: 'team_dispatch', arguments: JSON.stringify(dispatchArgs) } }] } }] }) + '\n\n');
             res.write('data: ' + JSON.stringify({ choices: [{ finish_reason: 'tool_calls', delta: {} }], usage: { prompt_tokens: 10, completion_tokens: 4, total_tokens: 14 } }) + '\n\n');
           } else {
-            const text = isLead ? 'Handed off.' : WORKER_TEXT;
+            const text = isLead ? 'Handed off.' : parsed.__repair ? (options.repairText || WORKER_TEXT) : (options.workerText || WORKER_TEXT);
             res.write('data: ' + JSON.stringify({ choices: [{ delta: { content: text } }] }) + '\n\n');
             res.write('data: ' + JSON.stringify({ choices: [{ delta: {}, finish_reason: 'stop' }], usage: { prompt_tokens: 12, completion_tokens: 6, total_tokens: 18 } }) + '\n\n');
           }
@@ -66,24 +70,6 @@ function startMockOpenRouter(dispatchArgs) {
       res.writeHead(404); res.end();
     });
     server.listen(0, HOST, () => resolve({ server, requests, base: 'http://' + HOST + ':' + server.address().port + '/api/v1' }));
-  });
-}
-
-function boot(port, env, attemptsLeft) {
-  return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [INDEX], {
-      env: Object.assign({}, process.env, env, { SKYNET_PORT: String(port) }), stdio: ['ignore', 'pipe', 'pipe']
-    });
-    let out = '', settled = false;
-    const onData = d => {
-      out += d.toString();
-      if (!settled && out.indexOf('http://' + HOST + ':' + port) >= 0) { settled = true; resolve({ child, port }); }
-      else if (!settled && /already in use/i.test(out)) { settled = true; try { child.kill(); } catch (_) {}
-        if (attemptsLeft > 0) resolve(boot(port + 1, env, attemptsLeft - 1)); else reject(new Error('no free port')); }
-    };
-    child.stdout.on('data', onData); child.stderr.on('data', onData);
-    child.on('error', e => { if (!settled) { settled = true; reject(e); } });
-    setTimeout(() => { if (!settled) { settled = true; try { child.kill(); } catch (_) {} reject(new Error('boot timeout:\n' + out)); } }, 9000);
   });
 }
 
@@ -152,15 +138,20 @@ async function drive(B, token, prompt) {
   return events;
 }
 
-async function run(label, dispatchArgs, sessions, body) {
-  const mock = await startMockOpenRouter(dispatchArgs);
-  const ws = fs.mkdtempSync(path.join(os.tmpdir(), 'sk-dispatch-'));
-  const env = { SKYNET_WORKSPACES: ws, SKYNET_OPENROUTER_BASE: mock.base, SKYNET_FULL_ACCESS: '1' };
-  const { child, port } = await boot(8940 + (process.pid % 40), env, 20);
-  const B = 'http://' + HOST + ':' + port;
+async function run(label, dispatchArgs, sessions, body, options) {
+  options = options || {};
+  const mock = await startMockOpenRouter(dispatchArgs, options);
+  const fixture = SidecarFixture.create({ prefix: 'sk-dispatch-', env: {
+    SKYNET_OPENROUTER_BASE: mock.base, STARNET_OPENROUTER_BASE: mock.base,
+    SKYNET_OPENROUTER_KEY: 'sk-or-v1-local-proof', STARNET_OPENROUTER_KEY: 'sk-or-v1-local-proof',
+    SKYNET_DEFAULT_MODEL: 'test/model', STARNET_DEFAULT_MODEL: 'test/model',
+    SKYNET_FULL_ACCESS: '1', STARNET_FULL_ACCESS: '1'
+  } });
   const page = { close: () => {} };
+  let running = null;
   try {
-    const token = await bootToken(B, B);
+    await fixture.start();
+    const B = fixture.baseUrl, token = fixture.token;
     const H = { 'Content-Type': 'application/json', 'X-StarNet-Token': token, Origin: B };
     // the crew the lead can address — pushed exactly as the browser's pushRoster() does
     const roster = await fetch(B + '/api/roster', { method: 'POST', headers: H, body: JSON.stringify({ agents: [
@@ -171,13 +162,23 @@ async function run(label, dispatchArgs, sessions, body) {
     const attached = attachStationPage(B, token, sessions);
     Object.assign(page, attached);
     await attached.ready;
-    await new Promise(r => setTimeout(r, 250));   // let the hub register this client before the run emits
-    const events = await drive(B, token, 'have the researcher summarise the moons of Mars in the research session');
-    await body({ B, H, token, events, station: attached.seen, mock, label });
+    await sleep(250);   // let the hub register this client before the run emits
+    const context = { B, H, token, station: attached.seen, mock, fixture, label,
+      restart: async () => { page.close(); await fixture.restart(); } };
+    running = drive(B, token, 'have the researcher summarise the moons of Mars in the research session');
+    if (options.during) await options.during(context);
+    const events = await running;
+    await body({ ...context, events });
+  } catch (e) {
+    e.message += '\nsidecar output:\n' + fixture.output();
+    throw e;
   } finally {
+    if (options.release) options.release();
     page.close();
-    try { child.kill(); } catch (_) {}
-    try { mock.server.close(); } catch (_) {}
+    await fixture.dispose();
+    if (running) await running.catch(() => {});
+    if (mock.server.closeAllConnections) mock.server.closeAllConnections();
+    await new Promise(resolve => mock.server.close(resolve));
   }
 }
 
@@ -260,6 +261,103 @@ await run('unknown-session',
     A.ok(seen.indexOf('research') >= 0, label + ': and is shown the sessions that DO exist, so it can correct itself');
     A.ok(/did NOT run/.test(seen), label + ': and told plainly that no work happened');
   });
+
+// ---- FINAL DELIVERY AUTHORITY: raw output cannot win a race against its bounded result repair. ----
+for (const validRepair of [true, false]) {
+  const label = validRepair ? 'validated-repair' : 'invalid-result';
+  let releaseRepair;
+  const repairGate = new Promise(resolve => { releaseRepair = resolve; });
+  const repairedText = validRepair ? JSON.stringify({ answer: 'Phobos and Deimos. '.repeat(1600) }) : 'still invalid JSON';
+  const expectedReason = validRepair ? 'done' : 'invalid-result';
+  let originalId = '';
+  await run(label,
+    { workers: [{ agentId: 'researcher', prompt: 'summarise the moons of Mars', session: 'research',
+      resultSchema: { type: 'object', required: ['answer'], properties: { answer: { type: 'string' } }, additionalProperties: false } }] },
+    [{ id: 'ws_r1', title: 'research', agentId: 'researcher' }, { id: 'ws_gen', title: 'General', agentId: 'agent' }],
+    async ({ fixture, station, mock, restart }) => {
+      const response = await fixture.json('GET', '/api/runs?agent=researcher&limit=20');
+      A.eq(response.status, 200, label + ': completed runs are available over the real API');
+      const runs = response.body.runs || [];
+      const original = runs.find(r => r.runId === originalId);
+      const repair = runs.find(r => r.runId !== originalId);
+      A.eq(runs.length, 2, label + ': one original and one repair are exactly two executions');
+      A.eq(new Set(runs.map(r => r.runId)).size, 2, label + ': finalization does not append a duplicate execution');
+      A.eq(original.reason, 'done', label + ': execution outcome remains immutable after dispatch validation');
+      A.eq(original.deliveryText, 'raw invalid JSON', label + ': original output remains execution evidence');
+      A.eq(original.dispatchDelivery.state, 'final', label + ': original dispatch is finalized');
+      A.eq(original.dispatchDelivery.reason, expectedReason, label + ': dispatch outcome comes from validation');
+      A.eq(original.dispatchDelivery.repairRunId, repair.runId, label + ': final delivery links the real repair execution');
+      A.eq(repair.dispatchDelivery.state, 'internal', label + ': repair is never an independent conversation delivery');
+      A.eq(repair.deliveryText, repairedText.slice(0, 24000), label + ': repair execution retains its bounded preview');
+      A.eq(mock.requests.filter(r => r.__repair).length, 1, label + ': exactly one bounded repair ran');
+      const end = station.filter(c => c.verb === 'station.dispatch_end');
+      A.eq(end.length, 1, label + ': dispatch ends once after validation');
+      A.eq(end[0].args.runId, originalId, label + ': settlement retains the original dispatch identity');
+      A.eq(end[0].args.reason, expectedReason, label + ': live settlement matches persisted dispatch outcome');
+      A.eq({ ...end[0].args.dispatchDelivery, text: end[0].args.dispatchDelivery.text.slice(0, 24000) }, original.dispatchDelivery, label + ': live and recovered settlement share one final envelope with a bounded stored preview');
+      const deliveries = station.filter(c => c.verb === 'station.deliver');
+      if (validRepair) {
+        A.eq(original.dispatchDelivery.text, repairedText.slice(0, 24000), label + ': only the repaired valid answer is final');
+        A.ok(repairedText.length > 24000, label + ': recovery exercises an answer larger than the run preview');
+        A.eq(deliveries.length, 1, label + ': one validated answer is delivered');
+        A.eq(deliveries[0].args.runId, originalId, label + ': repair preserves the delivery idempotency key');
+        A.eq(deliveries[0].args.text, repairedText, label + ': the live delivery contains repaired text');
+      } else {
+        A.eq(deliveries.length, 0, label + ': invalid output is never delivered as a completed answer');
+        A.ok(/No completion was accepted/.test(original.dispatchDelivery.text), label + ': finalized failure explains that validation failed');
+      }
+      const acceptedText = validRepair ? repairedText : original.dispatchDelivery.text;
+      const canonicalRoute = '/api/transcript?agent=researcher&stream=ws_r1&limit=200';
+      const finalRoute = '/api/transcript?stream=ws_r1&runId=' + encodeURIComponent(originalId) + '&delivery=1&limit=1';
+      const canonical = await fixture.json('GET', canonicalRoute);
+      A.eq(canonical.body.turns.filter(t => t.role === 'assistant').map(t => t.content), [acceptedText], label + ': conversation contains one full accepted answer without raw output or repair duplicates');
+      A.eq(canonical.body.turns.filter(t => t.role === 'user').map(t => t.content), ['summarise the moons of Mars'], label + ': conversation keeps the original human-readable handoff');
+      A.ok(canonical.body.turns.every(t => t.sourceRunId === originalId), label + ': displayed conversation belongs to original dispatch identity');
+      const finalView = await fixture.json('GET', finalRoute);
+      A.eq(finalView.body.turns.map(t => ({ role: t.role, sourceRunId: t.sourceRunId, content: t.content })), [{ role: 'assistant', sourceRunId: originalId, content: acceptedText }], label + ': exact finalized delivery view returns full authoritative text');
+      const rawOriginal = await fixture.json('GET', '/api/transcript?stream=ws_r1&runId=' + encodeURIComponent(originalId));
+      A.eq(rawOriginal.body.turns.filter(t => t.role === 'assistant').map(t => t.content), ['raw invalid JSON'], label + ': ordinary exact original read keeps raw execution evidence');
+      const rawRepair = await fixture.json('GET', '/api/transcript?stream=ws_r1&runId=' + encodeURIComponent(repair.runId));
+      A.eq(rawRepair.body.turns.filter(t => t.role === 'assistant').map(t => t.content), [repairedText], label + ': exact internal repair read retains full execution evidence in its worker stream');
+      const internalFinal = await fixture.json('GET', '/api/transcript?stream=ws_r1&runId=' + encodeURIComponent(repair.runId) + '&delivery=1');
+      A.eq(internalFinal.body.turns, [], label + ': internal repair has no independently finalized delivery');
+      const beforeSpend = runs.reduce((sum, row) => sum + row.usd, 0);
+      A.ok(beforeSpend > 0, label + ': deterministic mock pricing measures nonzero spend for duplicate detection');
+      const before = runs.map(row => ({ runId: row.runId, ts: row.ts, usd: row.usd, reason: row.reason, dispatchDelivery: row.dispatchDelivery }));
+      const requestCount = mock.requests.length;
+      await restart();
+      const replay = await fixture.json('GET', '/api/runs?agent=researcher&limit=20');
+      const replayed = replay.body.runs || [];
+      A.eq(replayed.map(row => ({ runId: row.runId, ts: row.ts, usd: row.usd, reason: row.reason, dispatchDelivery: row.dispatchDelivery })), before,
+        label + ': a real sidecar restart preserves exactly the original and internal repair rows');
+      A.eq(replayed.reduce((sum, row) => sum + row.usd, 0), beforeSpend, label + ': restart does not duplicate execution spend');
+      A.eq(mock.requests.length, requestCount, label + ': restart does not rerun completed dispatch work');
+      A.eq((await fixture.json('GET', canonicalRoute)).body.turns, canonical.body.turns, label + ': reopening after real restart keeps only the full finalized conversation');
+      A.eq((await fixture.json('GET', finalRoute)).body.turns, finalView.body.turns, label + ': exact authoritative delivery survives real restart without truncation');
+    },
+    { workerText: 'raw invalid JSON', repairText: repairedText, pricing: { prompt: '0.000001', completion: '0.000002' },
+      beforeRepair: () => repairGate, release: releaseRepair,
+      during: async ({ fixture, station, mock }) => {
+        await waitFor(() => mock.requests.some(r => r.__repair), label + ' repair request');
+        const pending = await fixture.json('GET', '/api/runs?agent=researcher&limit=20');
+        const runs = pending.body.runs || [];
+        A.eq(runs.length, 1, label + ': while repair is blocked only the original execution has ended');
+        originalId = runs[0].runId;
+        A.eq(runs[0].dispatchDelivery.state, 'pending', label + ': the real API keeps raw output provisional during repair');
+        A.eq(runs[0].deliveryText, 'raw invalid JSON', label + ': the held test reaches the formerly unsafe raw-output window');
+        A.eq(station.filter(c => c.verb === 'station.dispatch_end').length, 0, label + ': no end is emitted before validation');
+        A.eq(station.filter(c => c.verb === 'station.deliver').length, 0, label + ': no raw answer is delivered while repair is in flight');
+        A.eq(station.filter(c => c.verb === 'station.dispatch_start').length, 1, label + ': original dispatch activity remains the live owner');
+        const conversation = await fixture.json('GET', '/api/transcript?stream=ws_r1&limit=200');
+        A.eq(conversation.body.turns, [], label + ': pending raw output and internal repair cannot leak through conversation history');
+        const raw = await fixture.json('GET', '/api/transcript?stream=ws_r1&runId=' + encodeURIComponent(originalId));
+        A.eq(raw.body.turns.filter(t => t.role === 'assistant').map(t => t.content), ['raw invalid JSON'], label + ': pending execution remains inspectable by exact original run');
+        const final = await fixture.json('GET', '/api/transcript?stream=ws_r1&runId=' + encodeURIComponent(originalId) + '&delivery=1&limit=1');
+        A.eq(final.body.turns, [], label + ': pending original has no finalized delivery to recover');
+        releaseRepair();
+      }
+    });
+}
 
 A.report('e2e.dispatch-session.test');
 

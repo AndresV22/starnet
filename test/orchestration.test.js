@@ -314,6 +314,31 @@ const tick = () => new Promise(resolve => setImmediate(resolve));
   }
 }
 
+// Resumed structured repair keeps worker-stream identity for exact evidence and finalized long-answer recovery.
+{
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'sk-orch-resume-repair-'));
+  try {
+    const subagents = makeSubagentManager({ fs, pathMod: path, file: path.join(root, 'subagents.json'), clock: { now: () => 1000 }, emit: () => {}, newId: counter() });
+    const first = subagents.start({ leadId: 'lead', agentId: 'researcher', prompt: 'retry', runId: 'run_before', streamId: 'research', parentStreamId: 'home', resultSchema: { type: 'object' } }, async () => new Promise(() => {}));
+    await tick(); subagents.interrupt(first.id, 'lead');
+    const repaired = JSON.stringify({ answer: 'long result '.repeat(2500) });
+    const ro = fakeRunOnce(async o => ({ reason: 'done', messages: [{ role: 'assistant', content: o.outputOnly ? repaired : 'invalid JSON' }], usd: 0 }));
+    const finalized = [];
+    const { resumeTool } = makeOrchestrationTools({ runOnce: ro, roster: () => new Map([['researcher', { system: 'R' }]]), key: 'k', model: 'm', newId: counter(), subagents,
+      sessionContext: id => ({ title: 'Research title', messages: [] }), finalizeDispatchDelivery: (id, envelope) => finalized.push({ id, envelope }) });
+    await resumeTool.run({ id: first.id }, { agentId: 'lead', emit: () => {} });
+    await tick(); await tick();
+    A.eq(ro.calls.length, 2, 'resumed structured result performs one bounded repair');
+    A.eq(ro.calls.map(o => o.streamId), ['research', 'research'], 'resumed original and repair share the worker stream');
+    A.eq(ro.calls.map(o => o.sessionTitle), ['Research title', 'Research title'], 'resumed repair retains the stable session title');
+    A.eq(ro.calls[1].dispatchDelivery.state, 'internal', 'resumed repair remains internal execution evidence');
+    A.eq(finalized.length, 1, 'resumed repaired dispatch finalizes once');
+    A.eq(finalized[0].id, ro.calls[0].runId, 'resumed repair finalizes original generation identity');
+    A.eq(finalized[0].envelope.repairRunId, ro.calls[1].runId, 'resumed final envelope links exact repair evidence');
+    A.eq(finalized[0].envelope.text, repaired, 'resumed finalization receives full validated answer beyond 24k preview');
+  } finally { try { fs.rmSync(root, { recursive: true, force: true }); } catch (_) {} }
+}
+
 // ---- (sweep 2026-10-02) team.resume NEVER WIDENS: a worker started under restrictions (phone / non-owner / payload)
 // resumed later by an UNRESTRICTED lead keeps them — its stored prompt never runs with Full Access ----
 {

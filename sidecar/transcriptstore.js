@@ -76,6 +76,43 @@
     return n;
   }
 
+  // Conversation display uses the finalized dispatch answer; run-specific reads keep raw execution evidence.
+  // Durable row markers stay authoritative after the bounded run log expires. A final transcript projection
+  // retains the complete answer, independently of the run envelope's 24k delivery-text cap.
+  function projectConversation(turns, readRun) {
+    const rows = Array.isArray(turns) ? turns : [];
+    const finals = new Map(), last = new Map(), records = new Map(), prompts = new Set(), emitted = new Set();
+    const record = id => { if (!records.has(id)) records.set(id, typeof readRun === 'function' ? readRun(id) : null); return records.get(id); };
+    for (const row of rows) {
+      const id = String(row.sourceRunId || '');
+      if (row.dispatchState === 'final') { if (!finals.has(id)) finals.set(id, row); }
+      else if (id) last.set(id, row);
+    }
+    const out = [];
+    for (const row of rows) {
+      const id = String(row.sourceRunId || '');
+      if (row.dispatchState === 'final') { if (!emitted.has(id)) { out.push(row); emitted.add(id); } continue; }
+      const run = id ? record(id) : null, delivery = run && run.dispatchDelivery;
+      const state = row.dispatchState || (delivery && delivery.state);
+      if (!state) { out.push(row); continue; } // pre-envelope history keeps its exact existing shape
+      if (state === 'internal') continue;
+      const final = finals.get(id);
+      const finalPrompt = final ? final.dispatchPrompt : delivery && delivery.state === 'final' && run.deliveryPrompt;
+      if (row.role === 'user' && finalPrompt && !prompts.has(id)) {
+        out.push(Object.assign({}, row, { content: finalPrompt })); prompts.add(id);
+      }
+      // A transient transcript projection write failure can recover from the durable run envelope; never
+      // fall back to raw text or a possibly truncated 24k preview. Once the projection exists it is the sole
+      // display row, including after restart.
+      if (!final && delivery && delivery.state === 'final' && last.get(id) === row && delivery.text && delivery.text.length < 24000 && !emitted.has(id)) {
+        out.push({ streamId: row.streamId, agentId: row.agentId, role: 'assistant', content: delivery.text,
+          ts: row.ts, rowId: row.rowId, sourceRunId: id, dispatchState: 'final', dispatchReason: delivery.reason });
+        emitted.add(id);
+      }
+    }
+    return out;
+  }
+
   function makeTranscriptStore(opts) {
     opts = opts || {};
     const io = opts.io || { readAll() { return []; }, append() {} };
@@ -244,6 +281,11 @@
       // Recovery provenance is deliberately an opaque run id, never tool arguments. It lets boot reconciliation
       // prove that a journal's final rows already reached durable transcript storage before retiring the journal.
       if (e.sourceRunId != null) { const id = str(e.sourceRunId).slice(0, 200); if (id) entry.sourceRunId = id; }
+      if (['pending', 'internal', 'final'].includes(e.dispatchState)) entry.dispatchState = e.dispatchState;
+      if (e.dispatchState === 'final') {
+        entry.dispatchPrompt = str(redact(str(e.dispatchPrompt))).slice(0, 4000);
+        entry.dispatchReason = str(e.dispatchReason).slice(0, 80);
+      }
       // WHO wrote a user-role row that the Commander did not type: the agent that delegated this run (display only —
       // the row stays a user turn for the model). Absent on every Commander turn.
       if (e.from != null) { const f = str(e.from).slice(0, 80); if (f) entry.from = f; }
@@ -301,7 +343,7 @@
         if (!m || typeof m !== 'object' || m[PERSISTED]) continue;
         markPersisted([m]);                                    // mark BEFORE the role filter so fences aren't re-checked
         if (!ROLES.has(m.role) || m.role === 'system') continue;
-        append({ streamId: streamId, agentId: agentId, role: m.role, content: flattenContent(m.content), toolCalls: m.tool_calls, toolCallId: m.tool_call_id, taint: taint });
+        append({ streamId: streamId, agentId: agentId, role: m.role, content: flattenContent(m.content), toolCalls: m.tool_calls, toolCallId: m.tool_call_id, taint: taint, sourceRunId: opts && opts.sourceRunId, dispatchState: opts && opts.dispatchState });
         n++;
       }
       return n;
@@ -317,7 +359,7 @@
       for (const m of messages) {
         if (!m || typeof m !== 'object' || m[PERSISTED]) continue;
         if (!ROLES.has(m.role) || m.role === 'system') { markPersisted([m]); continue; }
-        appendStrict({ streamId: streamId, agentId: agentId, role: m.role, content: flattenContent(m.content), toolCalls: m.tool_calls, toolCallId: m.tool_call_id, sourceRunId: opts.sourceRunId, taint: opts.taint || null });
+        appendStrict({ streamId: streamId, agentId: agentId, role: m.role, content: flattenContent(m.content), toolCalls: m.tool_calls, toolCallId: m.tool_call_id, sourceRunId: opts.sourceRunId, dispatchState: opts.dispatchState, taint: opts.taint || null });
         markPersisted([m]);
         n++;
       }
@@ -433,6 +475,7 @@
       const rows = history(streamId, o);   // chronological, capped
       const out = [];
       for (const r of rows) {
+        if (r.dispatchState === 'final') continue; // display projection; the execution already appears above
         if (r.role === 'user') out.push({ role: 'user', content: r.content });
         else if (r.role === 'assistant') {
           const m = { role: 'assistant', content: r.content || '' };
@@ -456,5 +499,5 @@
     };
   }
 
-  return { makeTranscriptStore, markPersisted, _internals: { SID_RE, ROLES, PERSISTED, flattenContent } };
+  return { makeTranscriptStore, projectConversation, markPersisted, _internals: { SID_RE, ROLES, PERSISTED, flattenContent } };
 });

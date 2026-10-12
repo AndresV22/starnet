@@ -5,7 +5,7 @@
    into a fresh store so a SIDECAR RESTART does not wipe the dialogue. Pure + deterministic. */
 'use strict';
 const A = require('./_assert.js');
-const { makeTranscriptStore } = require('../sidecar/transcriptstore.js');
+const { makeTranscriptStore, projectConversation } = require('../sidecar/transcriptstore.js');
 
 // in-memory io mirroring the host's JSONL adapter (readAll + append).
 function memIo() {
@@ -269,5 +269,33 @@ const redact = (s) => String(s).replace(/sk-[A-Za-z0-9]{8,}/g, '[redacted]');
   for (let n = 0; n < 60; n++) s.append({ streamId: 'shared', role: 'assistant', content: 'answer B ' + n, sourceRunId: 'B' });
   A.eq(s.history('shared', { limit: 2, sourceRunId: 'A' }).map(r => r.content), ['request A', 'answer A'], 'run filter precedes limit in RAM history');
   A.eq(s.history('shared', { sourceRunId: 'missing' }).length, 0, 'unknown run never falls back to unrelated session turns');
+}
+
+// Dispatch conversation projection is durable independently of the bounded execution ledger.
+{
+  const io = memIo(); io.appendDurable = io.append;
+  let s = makeTranscriptStore({ io, clock, redact });
+  const common = { streamId: 'dispatch', agentId: 'worker', sourceRunId: 'original', dispatchState: 'pending' };
+  s.append({ streamId: 'dispatch', role: 'user', content: 'legacy question' });
+  s.appendStrict({ ...common, role: 'user', content: 'contracted machine instruction' });
+  s.appendNewStrict('dispatch', 'worker', [{ role: 'assistant', content: 'raw invalid' }], { sourceRunId: 'original', dispatchState: 'pending' });
+  s.appendNew('dispatch', 'worker', [{ role: 'assistant', content: 'repair evidence' }], { sourceRunId: 'repair', dispatchState: 'internal' });
+  A.eq(projectConversation(s.history('dispatch'), () => null).map(t => t.content), ['legacy question'], 'pending and internal turn markers suppress raw output even after run ledger eviction');
+  const full = 'accepted '.repeat(4000);
+  s.appendStrict({ ...common, role: 'assistant', content: full, dispatchState: 'final', dispatchPrompt: 'original request', dispatchReason: 'done', taint: 'web_fetch' });
+  s.append({ streamId: 'dispatch', role: 'assistant', content: 'legacy answer' });
+  s = makeTranscriptStore({ io, clock, redact });
+  const raw = s.history('dispatch');
+  A.eq(projectConversation(raw, () => null).map(t => t.content), ['legacy question', 'original request', full, 'legacy answer'], 'restart projection retains one full accepted answer and original prompt without execution ledger');
+  A.eq(projectConversation(raw, () => null).filter(t => t.dispatchState === 'final')[0].sourceRunId, 'original', 'final answer retains original dispatch identity');
+  A.eq(projectConversation(raw, () => null).find(t => t.dispatchState === 'final').taint, 'web_fetch', 'accepted projection retains untrusted-output provenance after restart');
+  A.ok(s.history('dispatch', { sourceRunId: 'repair' }).every(t => t.dispatchState === 'internal'), 'output-only repair append stamps exact run provenance and internal visibility');
+  A.ok(raw.some(t => t.content === 'raw invalid') && raw.some(t => t.content === 'repair evidence'), 'raw history retains original and repair evidence');
+  A.ok(!s.reconstruct('dispatch').some(t => t.content === full), 'display projection does not duplicate execution in reconstructed model context');
+  const withoutFinal = raw.filter(t => t.dispatchState !== 'final');
+  const recovered = projectConversation(withoutFinal, id => id === 'original' ? { deliveryPrompt: 'original request', dispatchDelivery: { state: 'final', reason: 'invalid-result', text: 'No completion accepted' } } : null);
+  A.eq(recovered.map(t => t.content), ['legacy question', 'original request', 'No completion accepted', 'legacy answer'], 'transient final transcript write failure projects only the authoritative envelope, never raw text');
+  A.eq(projectConversation(withoutFinal, id => id === 'original' ? { dispatchDelivery: { state: 'final', reason: 'done', text: 'x'.repeat(24000) } } : null).filter(t => t.sourceRunId === 'original'), [], 'missing full projection never publishes a possibly truncated delivery preview');
+  A.eq(projectConversation([{ role: 'assistant', content: 'legacy' }], () => null), [{ role: 'assistant', content: 'legacy' }], 'legacy unmarked conversations keep their existing shape');
 }
 A.report('transcript.test');

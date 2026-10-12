@@ -1299,6 +1299,7 @@
             messages: [{ role: 'user', content: contractedPrompt }, { role: 'assistant', content: firstText },
               { role: 'user', content: '[STRUCTURED RESULT REPAIR] The prior result failed host validation:\n- ' + errors.slice(0, 20).join('\n- ') + '\nReturn ONLY strict JSON matching: ' + JSON.stringify(rec.resultSchema) }],
             agentId: rec.agentId, isTask: true, emit: h.emit, signal: h.signal, runId: repairRunId,
+            streamId: rec.streamId || undefined, sessionTitle: resumedSession && resumedSession.title,
             dispatchDelivery: { state: 'internal' },
             parentRunId: ctx && ctx.runId, delegatedBy: (ctx && ctx.agentId) || '', trigger: 'directive', surface: 'autonomous',
             consent: ctx && ctx.consent, extraObjects: WORKER_KIT,
