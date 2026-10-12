@@ -118,6 +118,13 @@ const roster = new Map([['researcher', { system: 'R', name: 'MIRA' }], ['writer'
   A.eq(done.cls + '|' + done.live + '|' + done.t, 'done|Found|0:12', 'a finished worker quotes the first line it delivered, with its real run time');
   A.eq(st({ ws: ws(), worker: { status: 'error', reason: 'timeout' } }).live, 'failed · timeout', 'a failed worker says why');
   A.eq(st({ ws: ws(), worker: { status: 'stale' } }).live, 'stopped when the station restarted', 'a stale worker is honest about it');
+  const stale = { ws: ws({ runIds: ['r1', 'r2'], lastRunReason: 'done' }), worker: { status: 'done', reason: 'budget', runId: 'r1' } };
+  A.eq(st(stale).cls, 'done', 'an older capped ledger run cannot override the newer completed run');
+  A.eq(D._internals.workerRunOf(stale), 'r2', 'the receipt follows the newer recorded run');
+  busy.add('k'); runOf.set('k', 'r3'); stale.worker.status = 'running'; stale.worker.canInterrupt = true;
+  A.ok(st(stale).cls === 'working' && !st(stale).stop, 'an old running ledger cannot offer Stop for a newer live run');
+  A.eq(D._internals.workerRunOf(stale), 'r3', 'the receipt follows the current live run ahead of polling');
+  busy.delete('k'); runOf.delete('k');
   // a worker's ask rides the lead's channel stamped with the worker that asked: matched EXACTLY, never by agent id
   pend.set('home', [{ promptId: 'p1', tool: 'fs.write', agentId: 'agent', workerStreamId: 'k1', workerRunId: 'r1', workerAgentId: 'researcher' }]);
   A.eq(st({ ws: ws({ id: 'k1', agentId: 'researcher' }), worker: { status: 'running', startedAt: Date.now(), id: 'w1', runId: 'r1' } }).cls, 'waiting', 'the worker that asked reads as waiting on you');

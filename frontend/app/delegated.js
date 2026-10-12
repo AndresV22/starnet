@@ -89,9 +89,19 @@ const Delegated = (() => {
     return arg && arg !== '.' ? verb + ' · ' + arg : verb;
   }
 
+  // Polling can lag behind a newer run on this thread. Never use the old ledger's state, Stop, or receipt.
+  function currentWorker(r) {
+    const w = r.worker, C = typeof Channels !== 'undefined' ? Channels : null;
+    if (!w || !w.runId) return w;
+    const live = C && C.isBusy && C.isBusy(r.ws.id) && C.runIdOf && C.runIdOf(r.ws.id);
+    if (live && String(live) !== String(w.runId)) return null;
+    const ids = (r.ws.runIds || []).map(String), i = ids.indexOf(String(w.runId));
+    return i >= 0 && i < ids.length - 1 ? null : w;
+  }
+
   /* the row's state, in priority order. `parentLive` = the lead run that dispatched it is still running on this page. */
   function stateOf(r, parentId, lead) {
-    const k = r.ws, w = r.worker, C = typeof Channels !== 'undefined' ? Channels : null;
+    const k = r.ws, w = currentWorker(r), C = typeof Channels !== 'undefined' ? Channels : null;
     // a worker's approval or question is raised on the conversation that dispatched it (the lead's consent broker),
     // stamped with the worker that asked — the row matches it EXACTLY by that worker's thread or run, never by agent
     const pend = askOf(r, parentId);
@@ -193,7 +203,9 @@ const Delegated = (() => {
   /* ---------------- SEE WORK: the worker's own answer and receipt, unfolded in place ---------------- */
   function workerRunOf(r) {
     const C = typeof Channels !== 'undefined' ? Channels : null;
-    return String((r.worker && r.worker.runId) || (r.ws.runIds || []).slice(-1)[0] || (C && C.runIdOf ? C.runIdOf(r.ws.id) : '') || '');
+    const live = C && C.isBusy && C.isBusy(r.ws.id) && C.runIdOf && C.runIdOf(r.ws.id);
+    const worker = currentWorker(r);
+    return String(live || (worker && worker.runId) || (r.ws.runIds || []).slice(-1)[0] || (C && C.runIdOf ? C.runIdOf(r.ws.id) : '') || '');
   }
   const fmtMs = ms => { const s = Math.round((Number(ms) || 0) / 1000); return s < 60 ? s + 's' : Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
   function costOf(row) {
@@ -326,14 +338,16 @@ const Delegated = (() => {
       const html = lineHtml(b, parentId);
       if (card.dataset.dgHtml !== html) {
         // keep the key the Commander is on (the 1s clock repaints a live card)
-        const focusKey = document.activeElement && card.contains(document.activeElement) ? keyOf(document.activeElement) : '';
+        const focused = document.activeElement && card.contains(document.activeElement) ? document.activeElement : null;
+        const focusKey = focused ? keyOf(focused) : '';
         const retained = new Map(Array.from(card.querySelectorAll('[data-dg-inspect], [data-dg-answer]')).map(n => [n.hasAttribute('data-dg-inspect') ? 'ask:' + n.dataset.dgPrompt : 'answer:' + n.dataset.dgAnswer, n]));
         card.innerHTML = html; card.dataset.dgHtml = html;
         card.querySelectorAll('[data-dg-inspect], [data-dg-answer]').forEach(n => {
           const old = retained.get(n.hasAttribute('data-dg-inspect') ? 'ask:' + n.dataset.dgPrompt : 'answer:' + n.dataset.dgAnswer);
           if (old) n.replaceWith(old);
         });
-        if (focusKey) { const again = card.querySelector(focusKey); if (again && again.focus) again.focus({ preventScroll: true }); }
+        if (focused && card.contains(focused) && focused.focus) focused.focus({ preventScroll: true });
+        else if (focusKey) { const again = card.querySelector(focusKey); if (again && again.focus) again.focus({ preventScroll: true }); }
       }
       // Clock-only ticks never replace the reader's disclosure, text selection, images or focused controls.
       hydrate(card); hydrateInspectors(card, parentId);
@@ -384,7 +398,7 @@ const Delegated = (() => {
     stopping.delete(id); repaint();
   }
   // answer a worker's ask from its row: the SAME answer path as the approval card (Chat.answerConsent), once or deny only
-  // (Always / Full access are station- or lead-wide grants — they stay on the full approval card, never a worker row)
+  // (Always / Full access are standing grants; a worker row grants only this request)
   function answer(wsId, decision, key) {
     const r = findRow(wsId); if (!r) return;
     const p = askOf(r, Workstreams.activeId());
@@ -450,6 +464,6 @@ const Delegated = (() => {
   }
 
   if (typeof document !== 'undefined') document.addEventListener('DOMContentLoaded', wire);
-  return { presentFor, repaint, batches, stateOf, reveal, hosts, _internals: { anchorFor, excerpt, lineHtml, opened, closed, seen, receipts, foldReceipt, askOf, hydrate, loadReceipt } };
+  return { presentFor, repaint, batches, stateOf, reveal, hosts, _internals: { workerRunOf, anchorFor, excerpt, lineHtml, opened, closed, seen, receipts, foldReceipt, askOf, hydrate, loadReceipt } };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = Delegated;

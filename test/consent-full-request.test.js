@@ -111,7 +111,7 @@ test('a chat message (Telegram/Discord) fits the whole request or says it had to
 function clarificationFixture(mode) {
   const Channels = require('../frontend/app/channels.js'); Channels.reset();
   const nodes = [], listeners = new Map();
-  const element = () => ({ children: [], dataset: {}, classList: { add() {}, remove() {} }, appendChild(n) { this.children.push(n); },
+  const element = () => ({ children: [], querySelectorAll() { return this.children.filter(n => n.className && n.className.includes('consent-')); }, dataset: {}, classList: { add() {}, remove() {} }, appendChild(n) { this.children.push(n); },
     addEventListener() {}, setAttribute() {}, remove() { this.removed = true; }, focus() {} });
   const ws = { id: 'parallel-asks' };
   Channels.begin(ws.id, 1); Channels.setRunId(ws.id, 'lead');
@@ -128,12 +128,12 @@ function clarificationFixture(mode) {
     isActiveWs: () => false, renderPresence() {}, syncStatus() {}, status() {}, autoscroll() {}, announcedPrompt: () => true };
   vm.createContext(ctx); vm.runInContext(extract(chat, '  function clarifyRow(', '  // p = a consent payload'), ctx);
   ctx.clarifyRow(q, ws);
-  return { Channels, ws, q, nodes, listeners, conversationAnswer };
+  return { Channels, ws, q, nodes, listeners, conversationAnswer, ctx };
 }
-test('a choice answer preserves a parallel worker approval and its paused clock', () => {
+test('a choice answer preserves a parallel worker approval and its paused clock', async () => {
   const f = clarificationFixture('choice');
   const buttons = f.nodes[0].body.children.find(n => n.className === 'consent-btns');
-  buttons.children[0].onclick();
+  await buttons.children[0].onclick();
   assert.deepEqual(f.Channels.pendingAllOf(f.ws.id).map(p => p.promptId), ['p2']);
   assert.ok(f.Channels.peek(f.ws.id).pausedAt, 'another worker is still waiting on the Commander');
   assert.equal(f.nodes[0].d.dataset.clarifyPrompt, 'q1', 'delegation Answer targets this exact card');
@@ -167,7 +167,7 @@ test('a phone answer settles only its question and keeps a parallel approval pau
 function permissionFixture() {
   const Channels = require('../frontend/app/channels.js'); Channels.reset();
   const nodes = [], listeners = new Map();
-  const element = () => ({ children: [], dataset: {}, classList: { add() {}, remove() {} }, appendChild(n) { this.children.push(n); },
+  const element = () => ({ children: [], querySelectorAll() { return this.children.filter(n => n.className && n.className.includes('consent-')); }, dataset: {}, classList: { add() {}, remove() {} }, appendChild(n) { this.children.push(n); },
     addEventListener() {}, setAttribute() {}, remove() { this.removed = true; }, focus() {} });
   const ws = { id: 'parallel-permission-asks' }, p = { promptId: 'approval-1', tool: 'fs.read', argsSummary: 'sample.txt' };
   Channels.begin(ws.id, 10); Channels.setRunId(ws.id, 'lead');
@@ -183,7 +183,7 @@ function permissionFixture() {
     isActiveWs: () => false, renderPresence() {}, syncStatus() { synced++; }, status() {}, autoscroll() {}, announcedPrompt: () => true };
   vm.createContext(ctx); vm.runInContext(extract(chat, '  function permissionRow(', '  // EL-11 FIX 1a:'), ctx);
   ctx.permissionRow(p, ws);
-  return { Channels, ws, p, nodes, listeners, synced: () => synced };
+  return { Channels, ws, p, nodes, listeners, ctx, synced: () => synced };
 }
 for (const [decision, expired, label] of [
   ['once', false, '✓ approved once from your phone'],
@@ -212,4 +212,23 @@ for (const [decision, expired, label] of [
   response({ promptId: f.p.promptId, decision, expired });
   assert.equal(tags().length, 1, 'duplicate delivery is idempotent');
   assert.deepEqual(pending(), ['question-2', 'approval-3']);
+});
+
+for (const kind of ['question', 'approval']) test(kind + ' submission failure preserves attention and retry; phone response wins an in-flight failure', async () => {
+  const f = kind === 'question' ? clarificationFixture('choice') : permissionFixture();
+  const btns=f.nodes[0].body.children.find(n=>n.className==='consent-btns');
+  let settled=0, resolve;
+  f.ctx.StationUI={settleNotifs(){settled++;},notify(){}};
+  const reject=()=>Promise.reject(new Error('offline'));
+  if(kind==='question') f.ctx.Harness.consentAnswer=reject; else f.ctx.answerConsent=reject;
+  await btns.children[0].onclick();
+  assert.equal(settled,0);assert.equal(btns.removed,undefined);assert.ok(!btns.children[0].disabled);
+  const before=f.Channels.pendingAllOf(f.ws.id).length;
+  const wait=()=>new Promise(r=>{resolve=r;});
+  if(kind==='question') f.ctx.Harness.consentAnswer=wait; else f.ctx.answerConsent=()=>wait().then(()=>{throw new Error('offline');});
+  const pending=btns.children[0].onclick();assert.equal(btns.children[0].disabled,true);
+  f.listeners.get('permission.response')({promptId:(f.q||f.p).promptId,decision:'once'});
+  resolve({ok:false});await pending;
+  assert.equal(btns.removed,true);assert.equal(f.Channels.pendingAllOf(f.ws.id).length,before-1);
+  assert.equal(f.listeners.has('permission.response'),false);
 });

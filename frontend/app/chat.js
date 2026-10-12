@@ -3429,12 +3429,26 @@ const Chat = (() => {
     }
     const isStar = (opt) => starred.indexOf(opt) >= 0;
     const btns = document.createElement('span'); btns.className = 'consent-btns';
-    let decided = false;
-    function answer(text, doneLabel) {
-      if (ws && typeof StationUI !== 'undefined' && StationUI.settleNotifs) StationUI.settleNotifs('needs:' + ws.id);   // answered: leaves NEEDS YOU
-      if (decided) return; decided = true;
-      const rid = (ws && typeof Channels !== 'undefined') ? Channels.runIdOf(ws.id) : null;
-      Harness.consentAnswer(rid, p.promptId, text);
+    let decided = false, submitting = false, received = null, applyElsewhere = null;
+    async function answer(text, doneLabel) {
+      if (decided || submitting) return;
+      submitting = true;
+      const buttons = Array.from(btns.querySelectorAll('button')), disabled = buttons.map(b => b.disabled);
+      buttons.forEach(b => { b.disabled = true; });
+      const rid = p.runId || ((ws && typeof Channels !== 'undefined') ? Channels.runIdOf(ws.id) : null);
+      try {
+        const result = await Harness.consentAnswer(rid, p.promptId, text, true);
+        if (!(result && result.ok)) throw new Error('The station did not confirm your answer. Please try again.');
+      } catch (e) {
+        submitting = false;
+        if (received && applyElsewhere) { applyElsewhere(received); return; }
+        buttons.forEach((b, i) => { b.disabled = disabled[i]; });
+        if (typeof StationUI !== 'undefined' && StationUI.notify) StationUI.notify('Could not answer: ' + ((e && e.message) || e), 'warn');
+        return;
+      }
+      submitting = false; decided = true;
+      if (received && applyElsewhere) applyElsewhere(received);
+      if (ws && typeof StationUI !== 'undefined' && StationUI.settleNotifs) StationUI.settleNotifs('needs:' + ws.id);
       // answered: tell the bus, as the approval card does — the CREW card's "needs your OK" frame and the world's
       // AWAITING pose clear on permission.response, and a question never emitted one (sweep 2026-10-02)
       try { if (typeof U !== 'undefined' && U.bus) U.bus.emit('permission.response', { promptId: p.promptId, decision: 'once' }); } catch (_) {}
@@ -3507,8 +3521,9 @@ const Chat = (() => {
     // run's stream, as for an approval). Settle the card to what happened — it used to keep live options and "awaiting
     // your answer…" after the run had moved on, and a tap then did nothing while the card claimed it answered.
     if (typeof U !== 'undefined' && U.bus && U.bus.on && U.bus.off) {
-      const onElsewhere = (resp) => {
+      const onElsewhere = applyElsewhere = (resp) => {
         if (!resp || resp.promptId !== p.promptId) return;
+        if (submitting) { received = resp; return; }
         U.bus.off('permission.response', onElsewhere);
         if (decided) return;
         decided = true;
@@ -3595,19 +3610,21 @@ const Chat = (() => {
     r.body.appendChild(document.createTextNode('▣ ' + ((p && p.workerAgentId) ? askerName(p, ws) : name) + ' wants to ' + actionPhrase(p) + ' '));
     appendConsentDetails(r.body, p);
     const btns = document.createElement('span'); btns.className = 'consent-btns';
-    let decided = false;
+    let decided = false, submitting = false, received = null, applyElsewhere = null;
     async function decide(decision, doneLabel, isDeny) {
-      if (ws && typeof StationUI !== 'undefined' && StationUI.settleNotifs) StationUI.settleNotifs('needs:' + ws.id);   // decided: leaves NEEDS YOU
-      if (decided) return; decided = true;
+      if (decided || submitting) return; submitting = true;
       for (const b of btns.querySelectorAll('button')) b.disabled = true;
       let res;
       try { res = await answerConsent(p, ws, decision); }
       catch (e) {
-        decided = false;
+        submitting = false;
+        if (received && applyElsewhere) { applyElsewhere(received); return; }
         for (const b of btns.querySelectorAll('button')) b.disabled = false;
         if (typeof StationUI !== 'undefined' && StationUI.notify) StationUI.notify('Could not answer: ' + ((e && e.message) || e), 'warn');
         return;
       }
+      submitting = false; decided = true;
+      if (received && applyElsewhere) applyElsewhere(received);
       if (decision === 'full' && !res.fullSaved) { doneLabel = '✕ full access was not saved'; isDeny = true; }
       else if (decision !== 'full' && res.appliedDecision === 'deny' && decision !== 'deny') { doneLabel = '✕ approval was not applied'; isDeny = true; }
       btns.remove();
@@ -3648,8 +3665,9 @@ const Chat = (() => {
     // desk never keeps live buttons on a question that was already answered elsewhere. The desk's own answer
     // also emits permission.response, but by then `decided` is set and this listener just unsubscribes.
     if (typeof U !== 'undefined' && U.bus && U.bus.on && U.bus.off) {
-      const onElsewhere = (resp) => {
+      const onElsewhere = applyElsewhere = (resp) => {
         if (!resp || resp.promptId !== p.promptId) return;
+        if (submitting) { received = resp; return; }
         U.bus.off('permission.response', onElsewhere);
         if (decided) return;
         decided = true;
