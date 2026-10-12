@@ -419,6 +419,22 @@ function station(n) {
     stop = false;
   }
 
+  /* A DISPATCH THAT THROWS is said, never a console line only (wave 2 review, conveyor-backend-11): the target record it already started
+     says why instead of staying "running" */
+  {
+    const R9 = makeHandoffRunner({ makeHub: () => { throw new Error('hub down'); }, plan: () => plan, jobs: J, shipsToOutbox: () => true,
+      runsFor: sid => runsByStream[sid] || [], now: () => clock, newId: () => 'id' + (++n) + 'abcdef0123456789', warn: () => {} });
+    const onB9 = jobs.jobs.filter(j => j.line === LB).length;
+    const s9 = R9.onShipped(fresh('sample-hubdown', LA, lastA));
+    await tick(30);
+    const rec9 = jobs.jobs.filter(j => j.line === LB).pop();
+    A.ok(s9.ok && rec9 && rec9.status === 'failed' && rec9.error === 'the hand-off could not start (hub down)', 'a dispatch that threw finishes its record with why — ' + JSON.stringify(rec9 && { status: rec9.status, error: rec9.error }));
+    A.eq(jobs.jobs.filter(j => j.line === LB).length, onB9 + 1, '…on the ONE record it started (never a second refusal record, never one left "running")');
+    const after9 = R9.onShipped(fresh('sample-hubdown2', LA, lastA));
+    A.ok(after9.ok, 'the line is not wedged: the next hand-off is admitted');
+    await tick(30);
+  }
+
   /* THE CAP WON THE RACE: the hand-off passed its dispatch preflight, then LINE B's own work reached the day limit before the entry
      ran — runOnceCore refuses before any run row exists and the hub replies with the reason. The record says that reason, never
      the bare "no step ran" (the trigger runner's pattern: the hub's ⚠ reply is the only witness when no run was recorded) */

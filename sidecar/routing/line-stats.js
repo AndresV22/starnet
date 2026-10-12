@@ -28,11 +28,10 @@
    the ledger/limits readers. Never throws on a malformed row; a row it cannot read is skipped, never guessed. */
 'use strict';
 
-const { cleanShipments, SHIPMENT_KEEP_MAX } = require('./line-shipments.js');
+const { cleanShipments, provenWork, SHIPMENT_KEEP_MAX } = require('./line-shipments.js');
 const FAILED_REASONS = ['error', 'refusal', 'max_iters', 'budget'];
 const FAILED = new Set(FAILED_REASONS);
 
-const provenWork = r => (((r && r.toolsOk) | 0) > 0) || (Array.isArray(r && r.artifacts) && r.artifacts.length > 0);
 const shippedRow = r => !!r && r.reason === 'done' && provenWork(r);
 const failedRow = r => !!r && FAILED.has(r.reason);
 const fin = v => (typeof v === 'number' && isFinite(v)) ? v : null;

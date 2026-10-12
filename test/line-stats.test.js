@@ -20,6 +20,13 @@ A.ok(shippedRow({ reason: 'done', toolsOk: 1 }), 'done + a successful tool = shi
 A.ok(shippedRow({ reason: 'done', artifacts: [{ kind: 'file' }] }), 'done + an artifact = shipped');
 A.ok(!shippedRow({ reason: 'done', toolsOk: 0, artifacts: [] }), 'done with no proven work is NOT shipped (crate honesty)');
 A.ok(!shippedRow({ reason: 'error', toolsOk: 3 }), 'a failed run never ships');
+// ONE productive-work predicate (wave 2 review, conveyor-backend-11): line-stats judges a row exactly as the receipt does
+{
+  const { provenWork } = require('../sidecar/routing/line-shipments.js');
+  A.ok(typeof provenWork === 'function', 'line-shipments exports the one productive-work predicate');
+  const sample = [{ toolsOk: 1 }, { toolsOk: '2' }, { toolsOk: 0.5 }, { toolsOk: 0 }, { toolsOk: -1 }, { toolsOk: 'x' }, { artifacts: [{ kind: 'file' }] }, { artifacts: [] }, {}, { toolsOk: null, artifacts: 'no' }];
+  for (const r of sample) A.eq(shippedRow(Object.assign({ reason: 'done' }, r)), provenWork(r), 'shippedRow and the receipt agree on ' + JSON.stringify(r));
+}
 for (const r of ['error', 'refusal', 'max_iters', 'budget']) A.ok(failedRow({ reason: r }), r + ' is a failure');
 for (const r of ['done', 'cancelled', 'clarifying', 'empty', 'interrupted']) A.ok(!failedRow({ reason: r }), r + ' is not counted as failed');
 A.eq(FAILED_REASONS.slice().sort(), ['budget', 'error', 'max_iters', 'refusal'], 'the dead-run set is the slag set');

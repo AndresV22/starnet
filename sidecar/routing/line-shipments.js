@@ -9,6 +9,9 @@ const id = v => typeof v === 'string' && v.trim().length > 0 && v.length <= 256 
 const propId = v => typeof v === 'string' && /^[A-Za-z0-9_-]{1,80}$/.test(v);
 const time = v => typeof v === 'number' && Number.isFinite(v) && v >= 0;
 const keyOf = r => JSON.stringify([r.lineId, r.entryRunId]);
+/* PROVEN WORK — the one productive-work predicate (a successful tool, or an artifact): the receipt below and line-stats' shippedRow
+   read this, so the tests and the receipts can never judge "productive" two ways (wave 2 review, conveyor-backend-11) */
+const provenWork = r => Number(r && r.toolsOk) > 0 || (Array.isArray(r && r.artifacts) && r.artifacts.length > 0);
 /* RETENTION (runtime audit 2026-10-12): SHIPPED counts receipts since the caller's local midnight, yet every shipment rewrote and
    re-validated the WHOLE history inside chain.advance, and nothing pruned it (50 000 receipts = 0.4-2 s per job). A save keeps
    BOTH bounds (runtime repair 2026-10-12 — an age alone still let a busy line hold ~50 000 receipts in 7 days):
@@ -139,7 +142,7 @@ function makeLineShipments(options) {
     if (!job) return false;
     // Keep the existing productive-work rule. Talk-only answers can be delivered
     // but do not manufacture SHIPPED work; one productive job counts once.
-    if (!job.some(x => Number(x.toolsOk) > 0 || (Array.isArray(x.artifacts) && x.artifacts.length > 0))) return false;
+    if (!job.some(provenWork)) return false;
     const terminal = job.find(x => x.agentId === r.agentId && (!r.dockId || x.dockId === r.dockId));
     if (!terminal) return false;
     const receipt = { lineId: r.lineId, entryRunId: r.entryRunId, terminalRunId: terminal.runId, outboxId: r.outboxId, at };
@@ -164,4 +167,4 @@ function makeLineShipments(options) {
   }
   return { record, snapshot, held: () => held.length, missedAt: missed };
 }
-module.exports = { cleanShipments, validateShipments, makeLineShipments, loadShipmentReceipts, cleanJobRows, SHIPMENT_KEEP_MS, SHIPMENT_KEEP_MAX };
+module.exports = { cleanShipments, validateShipments, makeLineShipments, loadShipmentReceipts, cleanJobRows, provenWork, SHIPMENT_KEEP_MS, SHIPMENT_KEEP_MAX };

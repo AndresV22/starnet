@@ -35,7 +35,7 @@ const { crewedDocksOnLine } = require('./trigger-runner.js');
 
 const MAX_PENDING = 5;   // hand-offs waiting per target line behind the one in flight
 const MAX_DEPTH = 4;     // the 4th hand-off of one job is refused (a job crosses at most 4 lines: A → B → C → D)
-const MAX_REFUSALS = 20; // recent refusals kept for the status read
+const MAX_REFUSALS = 20; // recent refusals kept for status() — a diagnostic/test read only: the line-jobs records are what every surface shows
 
 function makeHandoffRunner(deps) {
   const d = deps || {};
@@ -139,9 +139,8 @@ function makeHandoffRunner(deps) {
     const item = {
       rec: r, fromLine: String(r.lineId), toLine: st.toLine, fromOutbox: st.outboxId, toIntake: st.intakeId,
       fromName: nameOf(plan, r.lineId), toName: nameOf(plan, st.toLine), fromJobId: fromJob ? fromJob.id : null,
-      lines, depth: from.depth + 1, at: now(), files: [], input: '', original, output: String(r.text == null ? '' : r.text)
+      lines, depth: from.depth + 1, at: now(), original, output: String(r.text == null ? '' : r.text)
     };
-    item.input = Pipeline.handoffInput({ fromName: item.fromName, original: item.original, output: item.output, files: [] });
     // a PARTIAL joined job (chain out.partial: a COPY branch failed or never reached the JOINER) is not handed on as a finished
     // result — said on the next line, like a job with a failed step (runtime repair 2026-10-12: a hop refused before it ran left
     // no run row, so the dispatch check below could not see it)
@@ -163,10 +162,16 @@ function makeHandoffRunner(deps) {
     if (s.busy || !s.queue.length) return;
     const item = s.queue.shift();
     s.busy = true;
+    /* a dispatch that THREW (makeHub, the hub's own entry) is said like every other drop — this module's rule (wave 2 review,
+       conveyor-backend-11: it was a console line only). A target record it already started says why instead of staying "running";
+       before that, the refusal path writes one on both lines. */
     Promise.resolve().then(() => dispatch(item, s)).catch(e => {
-      refused.push({ at: now(), fromLine: item.fromLine, toLine: item.toLine, error: 'dispatch failed: ' + ((e && e.message) || e) });
-      if (refused.length > MAX_REFUSALS) refused.shift();
+      const why = 'the hand-off could not start (' + String((e && e.message) || e).slice(0, 200) + ')';
       warn('[handoff] dispatch failed: ' + ((e && e.message) || e));
+      try {
+        if (item.startedJobId) J.finish(item.startedJobId, { at: now(), status: 'failed', usd: 0, output: '', runs: [], error: why });
+        else refuse(item, why);
+      } catch (e2) { warn('[handoff] the failed dispatch could not be recorded: ' + ((e2 && e2.message) || e2)); }
     }).then(() => { s.busy = false; s.current = null; pump(line); });
   }
 
@@ -249,6 +254,7 @@ function makeHandoffRunner(deps) {
     // whole frame, which the record's 2000 characters would cut through what was delivered
     const yj = J.start({ id: newJobId(), line: item.toLine, name: nameOf(plan, item.toLine) || item.toName, text: item.original, handedIn: item.output, streamId, at: startedAt,
       from: { line: item.fromLine, jobId: item.fromJobId, name: item.fromName } });
+    if (yj) item.startedJobId = yj.id;   // (a throw from here on finishes THIS record — pump)
     if (yj && item.fromJobId) J.link(item.fromJobId, { line: item.toLine, jobId: yj.id, name: item.toName });
 
     s.current = { streamId, routed: null, resolved: null, lineOutcome: null, replies: [], turns: {} };
@@ -317,6 +323,8 @@ function makeHandoffRunner(deps) {
     return n;
   }
   function inflights() { const out = []; for (const s of live.values()) if (s.hub && s.hub._internals && s.hub._internals.inflight) out.push(s.hub._internals.inflight); return out; }
+  /* status() — a DIAGNOSTIC / TEST read (no route or panel shows it): what waits per line and the last MAX_REFUSALS refusals. Every
+     refusal is also on the line-jobs records, which are what the Commander reads. */
   function status() {
     const lines = [];
     for (const [line, s] of live) lines.push({ line, queued: s.queue.length, running: !!s.busy, streamId: (s.current && s.current.streamId) || null });
