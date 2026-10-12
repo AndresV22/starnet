@@ -128,6 +128,16 @@ async function run(text, agentId) {
     A.ok(r6.prompt.indexOf('neon synthwave skyline, teal haze') >= 0, 'the rated approval is untouched');
     A.eq((await api('/api/taste/keep-style', {runId: r3.runId, undo: true})).body.undone, false, 'a second PUT IT BACK changes nothing');
 
+    // 5c. Keep first, then a real rejection, then PUT IT BACK: the rejection must reach the provider.
+    A.ok((await api('/api/taste/keep-style', {runId: r3.runId})).body.ok, 'keep the second style again');
+    const miss = await api('/api/growth/ratings', {runId: r3.runId, verdict: 'miss', correction: 'wrong colors', epoch: 1});
+    A.ok(miss.body.ok && miss.body.feedbackMemory && miss.body.feedbackMemory.stored, 'the real miss was stored');
+    const undoMiss = await api('/api/taste/keep-style', {runId: r3.runId, undo: true});
+    A.ok(undoMiss.body.undone && undoMiss.body.removed === false, 'unkeep retains the real verdict');
+    const r7 = await run('Plan the quarterly planning meeting.');
+    const arcadeLine = r7.prompt.split('\\n').find(line => line.includes('Design the arcade night flyer')) || '';
+    A.ok(/REJECTED .*Design the arcade night flyer.*wrong colors/.test(arcadeLine) && !/APPROVED|liked:/.test(arcadeLine), 'provider receives the rejection after unkeep: ' + arcadeLine);
+
     // 6. the personalization pause stops keep-style and says so
     A.ok((await api('/api/personalization', {enabled: false})).body.ok, 'personalization paused');
     const paused = await api('/api/taste/keep-style', {runId: r1.runId});

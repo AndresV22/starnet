@@ -139,6 +139,15 @@ const REF = T.buildRef({ artifacts: ARTS, toolTrace: TRACE, rows: ROWS, files: [
   A.ok(rated && rated.rec.feedbackKeptOnly === false && rated.rec.feedbackKept === true, 'a real verdict on a keep-only record makes it a verdict record');
   const keepRated = FM.unkeep(rated.list, 'run-k');
   A.ok(keepRated && !keepRated.removed && /love it/.test(keepRated.rec.content), '…so PUT IT BACK no longer deletes the Commander\'s verdict');
+  // A first real verdict can disagree with an earlier style-only approval. Unkeep must reveal that verdict.
+  const missed = FM.apply(fresh.list, { runId: 'run-k', verdict: 'miss', words: 'wrong colors' }, deps(70));
+  const unkeptMiss = FM.unkeep(missed.list, 'run-k');
+  A.eq(unkeptMiss.rec.feedbackVerdict, 'miss', 'a real miss replaces the synthetic keep-style verdict');
+  const missPrompt = FM.renderTaste(unkeptMiss.list, renderRecall).text.split('\n').find(line => line.startsWith('• '));
+  A.ok(/REJECTED .*write the release notes page.*wrong colors/.test(missPrompt) && !/APPROVED|liked:/.test(missPrompt), 'after unkeep the prompt retains the real rejection: ' + missPrompt);
+  const editedMiss = FM.apply(edited, { runId: 'run-k', verdict: 'miss', words: 'wrong colors' }, deps(80));
+  A.eq(editedMiss.rec.feedbackVerdict, 'miss', 'an edited note also records the real verdict without rewriting the edit');
+  A.ok(editedMiss.rec.content.startsWith('Release notes: one page, dark theme'), 'real verdict preserves the Commander edit');
   A.eq(FM.unkeep(list0(), 'run-a'), null, 'nothing kept = nothing to put back');
   A.eq(FM.unkeep(null, ''), null, 'null-safe');
 }
