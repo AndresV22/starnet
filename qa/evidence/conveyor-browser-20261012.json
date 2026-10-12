@@ -1,0 +1,161 @@
+{
+  "kind": "seeded-browser-acceptance",
+  "sourceCommit": "bff8c5030f8af7330498607e4096db731c61a348",
+  "verifiedAt": "2026-10-12T04:25:27.195Z",
+  "notes": [
+    "Real Chrome and public application interfaces; synthetic seeded station.",
+    "All four scenarios rerun after the final source changes; website mirror then synchronized to identical frontend bytes.",
+    "JOINER checks replay captured real-sidecar events through native U.bus and Conveyor handlers. They do not claim a live provider session in Chrome.",
+    "Source acceptance only; combined gates, installer and publication acceptance are separate."
+  ],
+  "stepPicker": {
+    "parallel": {
+      "off": "true",
+      "note": "TESTHow do you want to test it?WATCH IT · FREEa crate rides the belts; no agent runsSTEP THROUGH · REALpauses at every hand-off; nothing is deliveredRUN ONE REAL JOBend to end; the result lands in the OUTBOXSTEP THROUGH carries one crate at a time and cannot finish this parallel line. Use RUN ONE REAL JOB to test the whole line, or TRY THIS STEP on an individual BAY.Your test job runs through the line for real, end to end: real agents, real cost, and the result lands in the OUTBOX like any job.▶ RUN ONE REAL JOB",
+      "real": true,
+      "step": false
+    },
+    "serial": {
+      "off": null,
+      "step": true
+    },
+    "sameAgentSeparateLine": true,
+    "paint": [
+      {
+        "text": "WATCH IT · FREEa crate rides the belts; no agent runs",
+        "bg": "rgba(0, 0, 0, 0)",
+        "border": "rgba(255, 170, 51, 0.2)"
+      },
+      {
+        "text": "STEP THROUGH · REALpauses at every hand-off; nothing is deli",
+        "bg": "rgba(255, 170, 51, 0.13)",
+        "border": "rgb(255, 170, 51)"
+      },
+      {
+        "text": "RUN ONE REAL JOBend to end; the result lands in the OUTBOX",
+        "bg": "rgba(0, 0, 0, 0)",
+        "border": "rgba(255, 170, 51, 0.2)"
+      },
+      {
+        "text": "",
+        "bg": "rgba(0, 0, 0, 0.46)",
+        "border": "rgba(255, 170, 51, 0.2)"
+      },
+      {
+        "text": "PAUSE AT EVERY HANDOFF",
+        "bg": "rgba(255, 170, 51, 0.13)",
+        "border": "rgb(255, 170, 51)"
+      },
+      {
+        "text": "RUN TO THE END",
+        "bg": "rgba(0, 0, 0, 0)",
+        "border": "rgba(255, 170, 51, 0.2)"
+      },
+      {
+        "text": "▶ START STEP-THROUGH",
+        "bg": "rgba(255, 170, 51, 0.16)",
+        "border": "rgb(255, 170, 51)"
+      }
+    ],
+    "errors": []
+  },
+  "floorGestures": {
+    "proof": {
+      "drawn": [
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "circle": {
+        "ok": false,
+        "to": {
+          "id": "p68",
+          "t": "bay",
+          "x": 54,
+          "y": 12,
+          "w": 2,
+          "h": 2,
+          "agentId": "agent"
+        },
+        "why": "A CIRCLE — THAT BAY ALREADY HANDS WORK BACK TO THIS BAY · USE A LOOP TO SEND WORK BACK"
+      },
+      "refused": true,
+      "handoff": true,
+      "distinct": true,
+      "hotbar": [
+        "bay",
+        "intake",
+        "outbox",
+        "splitter",
+        "merger",
+        "joiner",
+        "filter",
+        "loop"
+      ],
+      "moved": true,
+      "undone": true,
+      "copy": true,
+      "sendRefused": true,
+      "reloadHandoff": true,
+      "blocking": []
+    },
+    "errors": []
+  },
+  "joinedProduct": {
+    "before": 0,
+    "after": 1,
+    "afterEcho": 1,
+    "products": [
+      {
+        "x": 47,
+        "y": 8,
+        "p": {
+          "outbound": true,
+          "box": "product",
+          "weight": 0,
+          "workitemId": "wi_55598c0f",
+          "agentId": "crew0",
+          "dockId": "p5",
+          "lineId": "p3"
+        }
+      }
+    ],
+    "errors": []
+  },
+  "overlappingJoinedProducts": {
+    "before": 1,
+    "after": 2,
+    "afterEcho": 2,
+    "products": [
+      {
+        "x": 47,
+        "y": 25,
+        "p": {
+          "outbound": true,
+          "box": "product",
+          "weight": 0,
+          "workitemId": "wi_ce346e1a",
+          "agentId": "other1",
+          "dockId": "p11",
+          "lineId": "p9"
+        }
+      },
+      {
+        "x": 47,
+        "y": 8,
+        "p": {
+          "outbound": true,
+          "box": "product",
+          "weight": 0,
+          "workitemId": "wi_42f8d1f8",
+          "agentId": "other0",
+          "dockId": "p5",
+          "lineId": "p3"
+        }
+      }
+    ],
+    "errors": []
+  }
+}

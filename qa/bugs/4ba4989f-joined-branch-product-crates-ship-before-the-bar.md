@@ -43,6 +43,8 @@ Final overlap review found a further pairing hazard: two runs by the same agent 
 
 The running sidecar overlap proof used a real Run Now job A and concurrent sample job B at the same agent on two independently stamped Second Opinion lines. The local provider held A while B performed fs_list and completed: one product on B, with A still running. Releasing A produced the second product on A. Actual SSE plus the synthetic station document are preserved in qa/evidence/conveyor-join-overlap-live-events-20261012.json; beforeRelease contains completed B/pending A and afterRelease contains completed A. Targeted joined-product-truth, crate-honesty (24), and LineWatch (81) passed after the fix.
 
+The final seeded Chrome replay of that overlap capture also passed: before=1 on B, after=2 on the respective OUTBOXes, afterEcho=2, errors=[]. Its portable result is qa/evidence/conveyor-browser-20261012.json.
+
 ## Verdict
 
 Source-fixed, actual-sidecar and actual-browser event-handler verified. The floor creates one product at the executor-proven OUTBOX inlet after the whole joined job arrives. It does not reconstruct unseen productivity after reconnect or claim that a stopped job delivered. This is source acceptance, not an installer/publication claim; the integration lane owns combined gates and release acceptance.

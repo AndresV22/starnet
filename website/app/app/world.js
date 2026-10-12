@@ -9203,7 +9203,7 @@ const World = (() => {
   /* (multi-bay, 2026-09-22) each entry also remembers WHICH bay the work-item landed at (the crate's additive
      dockId), so the run it pairs with ships its product from THAT bay — quill's run at bay C leaves bay C,
      not quill's first bay. */
-  const dockLineWork = new Map();   // agentId -> [{ lineId|null, dockId|null }, ...] per placed work-item, oldest first
+  const dockLineWork = new Map();   // agentId -> [{ workitemId|null, lineId|null, dockId|null }, ...] per placed work-item
   function dockLineTake(aid) {
     const q = dockLineWork.get(aid);
     if (!q || !q.length) return null;
@@ -9213,6 +9213,19 @@ const World = (() => {
   }
   const lineOfWork = w => (w && w.lineId) || null;
   function dockWorkPeek(aid) { const q = dockLineWork.get(aid); return (q && q.length) ? q[0] : null; }
+  function dockWorkForRun(p) {
+    const rec = p && p.runId && typeof watch !== 'undefined' && watch && watch.run(p.runId);
+    return rec && rec.agentId === p.agentId ? rec : dockWorkPeek(p && p.agentId);
+  }
+  function dockLineTakeMatching(aid, work) {
+    const q = dockLineWork.get(aid);
+    if (!q || !work) return;
+    const i = work.workitemId ? q.findIndex(w => w.workitemId === work.workitemId)
+      : q.findIndex(w => w === work || (w.dockId === work.dockId && lineOfWork(w) === lineOfWork(work)));
+    if (i < 0) return;   // an exact observed run must never consume an unrelated placement
+    q.splice(i, 1);
+    if (!q.length) dockLineWork.delete(aid);
+  }
   // the bay an agent's CURRENT work is at (its newest placed item), for the dock glow — null = no dock named
   const activeDock = new Map();     // agentId -> dockId
   /* conveyor stops by DOCK: { "x,y": { agentId, dockId } } — rebuilt only when the plan object changes */
@@ -9238,7 +9251,7 @@ const World = (() => {
     if (p.agentId) {
       const q = dockLineWork.get(p.agentId) || [];
       // a direct order queues lineId NULL — "this one is nobody's line"; dockId = the bay it landed at (or null)
-      q.push({ lineId: p.lineId ? String(p.lineId) : null, dockId: p.dockId ? String(p.dockId) : null });
+      q.push({ workitemId: p.workitemId ? String(p.workitemId) : null, lineId: p.lineId ? String(p.lineId) : null, dockId: p.dockId ? String(p.dockId) : null });
       if (q.length > 8) q.shift();                          // bounded like every floor latch
       dockLineWork.set(p.agentId, q);
       if (p.dockId) activeDock.set(p.agentId, String(p.dockId)); else activeDock.delete(p.agentId);
@@ -9847,8 +9860,9 @@ const World = (() => {
     }
     return false;
   }
-  function holdJoinedProduct(aid, spec, lineId, productive = true) {
-    dockLineTake(aid);
+  function holdJoinedProduct(aid, spec, work, productive = true) {
+    dockLineTakeMatching(aid, work);
+    const lineId = lineOfWork(work);
     if (!spec.runId) return;
     const usd = runUsdRecon.get(spec.runId);
     joinedProducts.set(spec.runId, { spec, lineId, productive, usd: typeof usd === 'number' && isFinite(usd) && usd > 0 ? usd : 0 });
@@ -9904,14 +9918,19 @@ const World = (() => {
     // crate mid-weight regardless of spend. Conveyor.weightForUsd maps reconciled usd -> 0..1; a run with
     // no reconciled cost ships weight 0 (the back-compat light look), never an estimate.
     const spec = productCrateSpec(p);
-    // (multi-bay) the bay THIS run was at: its oldest placement entry. A run at a terminal bay consumes its
-    // entry too, so quill's next run at bay A never inherits bay C's slot.
-    const work = dockWorkPeek(cAid);
+    // LineWatch pairs starts to their exact placement. Two runs by one agent can finish out of order;
+    // use that recorded bay/line, falling back to the legacy queue only when no run record exists.
+    const work = dockWorkForRun(p);
     const runDock = work && work.dockId ? work.dockId : null;
+    if (work && !lineOfWork(work)) {
+      dockLineTakeMatching(cAid, work);
+      emitProductCrate(cAid, spec, runDock);
+      return;
+    }
     const dch = (runDock && routingPlan && routingPlan.dockChains) ? routingPlan.dockChains[runDock] : null;
     const ch = dch || ((cAid && routingPlan && routingPlan.chains) ? routingPlan.chains[cAid] : null);
     const hasNext = !!(ch && ch.next && ch.next.length);
-    if (lineNeedsRelease(runDock, lineOfWork(work))) { holdJoinedProduct(cAid, spec, lineOfWork(work)); return; }
+    if (lineNeedsRelease(runDock, lineOfWork(work))) { holdJoinedProduct(cAid, spec, work); return; }
     // consume THIS run's placement entry (oldest first) — never cancel a sibling run's held crate
     if (hasNext && lineOfWork(dockLineTake(cAid))) {
       const q = deferredShip.get(cAid) || [];
@@ -10537,9 +10556,9 @@ const World = (() => {
       // and rides to the OUTBOX. A done-but-workless run ("I couldn't do that") ships NOTHING.
       if (r === 'done' && runWorked(p)) shipProductCrate(p);
       else if (r === 'done') {
-        const work = dockWorkPeek(p && p.agentId), lineId = lineOfWork(work);
+        const work = dockWorkForRun(p), lineId = lineOfWork(work);
         // A talk-only sibling contributes observed cost, never proof that a job produced work.
-        if (lineNeedsRelease(work && work.dockId, lineId)) holdJoinedProduct(p.agentId, productCrateSpec(p), lineId, false);
+        if (lineNeedsRelease(work && work.dockId, lineId)) holdJoinedProduct(p.agentId, productCrateSpec(p), work, false);
       }
       if (p) {                                          // the run is over — drop ITS tally (and only its), either way
         const k = runKey(p);

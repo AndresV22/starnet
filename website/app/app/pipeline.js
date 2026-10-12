@@ -2173,7 +2173,7 @@
       const ids = new Set(line.propIds || []), starts = [];
       for (const source of (plan.sources || [])) if ((line.intakes || []).indexOf(source.propId) >= 0) starts.push(...srcTiles(source));
       for (const bay of (plan.dockBays || []).concat(plan.bays || [])) if (ids.has(bay.propId)) starts.push(...(bay.tiles || []));
-      for (const agentId of (line.agents || [])) { const c = plan.chains && plan.chains[agentId]; if (c && c.tile) starts.push(c.tile); }
+      for (const agentId of (line.agents || [])) { if (!plan.lineOfAgent || String(plan.lineOfAgent[agentId]) !== String(line.lineId)) continue; const c = plan.chains && plan.chains[agentId]; if (c && c.tile) starts.push(c.tile); }
       const seen = new Set(), map = plan.belts || {}, junctions = plan.junctions || {};
       for (let i = 0; i < starts.length; i++) {
         const t = starts[i]; if (!t) continue;
