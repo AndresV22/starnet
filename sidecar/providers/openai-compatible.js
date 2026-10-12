@@ -625,7 +625,7 @@
           const err = new Error((j.error && (j.error.message || j.error.code)) || 'provider stream error');
           err.body = j;   // the structured error (code/type) — errorClass reads it
           err.ownMessage = true;
-          throw err;
+          throw localMemoryError(err);
         }
         if (j.usage) yield { type: 'usage', usage: j.usage };
         const choice = j.choices && j.choices[0];
@@ -687,6 +687,18 @@
         if (isAbort(e, req.signal)) return;
         throw e;
       }
+    }
+
+    // Local allocation failure is not a busy server. Repeating it can starve the station renderer too.
+    // Keep this scoped to the Ollama profile (including its compatible-wire fallback), not hosted 5xx.
+    function localMemoryError(err) {
+      if (opts.nativeOllama !== true || !err || (err.status && err.status !== 500)) return err;
+      const detail = String(err.message || '');
+      if (!/out[- ]of[- ]memory|failed to allocate (?:CUDA\d* buffer|buffer for kv cache)|model requires more (?:system )?memory/i.test(detail)) return err;
+      err.localModelMemory = true;
+      err.ownMessage = true;
+      err.message = 'Local model ran out of memory. Close other local models or memory-heavy apps, or choose a smaller model from the model picker in COMMS before trying again. [' + detail + ']';
+      return err;
     }
 
     async function requestWithRetry(body, signal, maxRetries, wireHeaders, wire) {
@@ -796,6 +808,7 @@
            adapter's own sentence — label + status, which the UI routes on ("Kimi For Coding http 401"); err.ownMessage tells
            errorClass so. */
         if (upstreamError.body) { err.body = upstreamError.body; err.ownMessage = true; }
+        localMemoryError(err);
         const cls = classifyApiError(err, { model: body.model });
         err.transient = cls.retryable;
         if (cls.retryable && attempt < retries) { const wait = Math.min(60000, Math.max(RETRY_DELAYS[attempt], cls.retryAfterMs || 0)); waited += wait; await delay(wait, signal); continue; }

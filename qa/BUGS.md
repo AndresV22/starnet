@@ -4,11 +4,11 @@
 One tracked file per bug under `qa/bugs/`; this is only the index. File a new bug with
 `node scripts/qa/bugs.mjs --new --title "..." --surface <surface>`.
 
-**19** open (open+claimed) of 256 total — 0 P0 · 9 P1 · 10 P2
+**20** open (open+claimed) of 257 total — 0 P0 · 10 P1 · 10 P2
 
 Engineering status is separate from delivery and customer recovery. Legacy rows without origin are not a customer census.
 
-User/owner reports: **113** · source fixed: **94** · installer verified: **6** · customer confirmed: **1** · still reported failing: **5** · recovery unconfirmed: **107**.
+User/owner reports: **114** · source fixed: **94** · installer verified: **6** · customer confirmed: **1** · still reported failing: **5** · recovery unconfirmed: **108**.
 
 | Report | Family | Source | Installer | Customer |
 | --- | --- | --- | --- | --- |
@@ -21,6 +21,7 @@ User/owner reports: **113** · source fixed: **94** · installer verified: **6**
 | [Shell approvals and history hide full command arguments](bugs/082ee8e5-shell-approvals-and-history-hide-full-command-ar.md) | shell-consent-history-visibility | open | unverified | unconfirmed |
 | [Saved station opening is blocked despite a reachable engine](bugs/4c0efd8c-saved-station-opening-is-blocked-despite-a-reach.md) | saved-station-load | open | unverified | unconfirmed |
 | [Approved skill is withheld from autonomous workers](bugs/f702f2f6-approved-skill-is-withheld-from-autonomous-worke.md) | skill-approval-worker | open | unverified | persists |
+| [GPU loss replaces authored props with legacy art and disables floor recovery](bugs/0db3e69c-gpu-loss-replaces-authored-props-with-legacy-art.md) | local-memory-graphics-recovery | open | unverified | unconfirmed |
 | [Checkpoint maintenance bypass and orphan Git pack processes](bugs/8bdf73bb-checkpoint-maintenance-bypass-and-orphan-git-pac.md) | checkpoint-maintenance | fixed | unverified | unconfirmed |
 | [Delegated specialist lacks connected MCP tools](bugs/acd9ecb4-delegated-specialist-lacks-connected-mcp-tools.md) | delegated-capabilities | fixed | verified | unconfirmed |
 | [Customer reports an ONCE routine absent from Active Routines](bugs/c2a6c3c8-once-routine-reported-missing.md) | durability-and-visibility | fixed | unverified | unconfirmed |
@@ -144,6 +145,7 @@ User/owner reports: **113** · source fixed: **94** · installer verified: **6**
 | P1 | open | safecell | [Shell approvals and history hide full command arguments](bugs/082ee8e5-shell-approvals-and-history-hide-full-command-ar.md) | memory-proof-1011 | — |
 | P1 | open | sessions | [Saved station opening is blocked despite a reachable engine](bugs/4c0efd8c-saved-station-opening-is-blocked-despite-a-reach.md) | memory-proof-1011 | — |
 | P1 | open | skills | [Approved skill is withheld from autonomous workers](bugs/f702f2f6-approved-skill-is-withheld-from-autonomous-worke.md) | memory-proof-1011 | — |
+| P1 | open | world | [GPU loss replaces authored props with legacy art and disables floor recovery](bugs/0db3e69c-gpu-loss-replaces-authored-props-with-legacy-art.md) | agent/qwen-render-loss-1012 | — |
 | P1 | fixed | autonomy | [Agent loop pause leaves cancelled iteration running and lease held](bugs/c66e8c39-agent-loop-pause-leaves-cancelled-iteration-runn.md) | agent/seam-audit-0912-b | b5c5cba75 |
 | P1 | fixed | autonomy | [Ambiguous permission and routine acknowledgements report unproven changes](bugs/95d13aaf-ambiguous-permission-and-routine-acknowledgement.md) | agent/systemic-bugs-0919 | 8eb87b0d3 |
 | P1 | fixed | autonomy | [Autonomy controls claim unconfirmed settings and overwrite server state on reload](bugs/b0349a7c-autonomy-controls-claim-unconfirmed-settings-and.md) | agent/system-polish-0920 | 4a2028759 |
@@ -396,7 +398,7 @@ User/owner reports: **113** · source fixed: **94** · installer verified: **6**
 | sessions | 1 |
 | skills | 1 |
 | onboarding | 2 |
-| world | 0 |
+| world | 1 |
 | voice | 0 |
 | release | 3 |
 

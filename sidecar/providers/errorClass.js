@@ -56,7 +56,7 @@
        Waiting never fixes a certificate, so no retry — but a DIFFERENT provider is a different host and may
        well verify, so a configured fallback is still worth taking. */
     tls_certificate:        { retryable: false, shouldRotateCredential: false, shouldFallback: true,  shouldCompress: false },
-    /* OUR OWN BUG: a TypeError/ReferenceError/SyntaxError/RangeError thrown by harness code with no HTTP status
+    /* A local failure: an adapter-proven Ollama allocation failure, or a TypeError/ReferenceError/SyntaxError/RangeError thrown by harness code with no HTTP status
        and no transport code. These were `unknown` (retryable), so one null dereference in an adapter replayed
        the same crash through the whole ~106s ladder before the user saw the real message. Deterministic code
        fails deterministically — fail fast, verbatim. */
@@ -305,6 +305,8 @@
     // 0. errors that never reached an API: a certificate the machine rejects, or a crash in our own code. First,
     //    because neither carries a status or a body — so no later rule can be describing the provider's intent.
     if (!status && isTlsFailure(err, low)) return 'tls_certificate';
+    // The Ollama adapter proves the runtime and an explicit failed allocation, even when it returns 500.
+    if (err && err.localModelMemory === true) return 'local_error';
     if (isLocalError(err, status, extractBody(err), low)) return 'local_error';
     /* 1. content / policy (most specific intent) — but a TRANSPORT status wins over a text match.
        This ran against the whole message before the status was consulted, so any retryable failure whose
@@ -391,7 +393,7 @@
     const f = REASONS[reason] || REASONS.unknown;
     const wait = extractRetryAfter(err, body, message);
     let text = annotateTransport(message, err);
-    if (reason === 'local_error') {
+    if (reason === 'local_error' && !(err && err.localModelMemory === true)) {
       // name the class so "Cannot read properties of undefined" reads as the crash it is, not a provider refusal
       const name = String((err && err.name) || 'Error');
       if (text.indexOf(name) !== 0) text = name + ': ' + text;

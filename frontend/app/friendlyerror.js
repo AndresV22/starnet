@@ -156,6 +156,7 @@
     output_limit:       { retryable: false, action: null, msg: 'The reply hit the model’s output limit while writing a large tool call, so nothing from it was saved. Ask for it in smaller parts.' },
     checkpoint_failed:  { retryable: true,  action: null, msg: 'StarNet couldn’t save this run’s progress to disk, so it stopped. Check free disk space, then try again.' },
     hook_blocked:       { retryable: false, action: null, msg: 'One of your hooks blocked this run. Change or turn off that hook to let it run.' },
+    local_model_memory: { retryable: false, action: 'settings', msg: 'The local model ran out of memory. Close other local models or memory-heavy apps, or choose a smaller model from the model picker in COMMS before trying again. If the station is still blank or disconnected, restart StarNet after freeing memory.' },
     unknown:      { retryable: true,  action: null,       msg: 'Something went wrong on that turn — try again.' }
   };
 
@@ -356,6 +357,7 @@
 
   function kindFromRaw(raw, status) {
     const low = String(raw || '').toLowerCase();
+    if (/^local model ran out of memory\./i.test(String(raw || ''))) return 'local_model_memory';
     // Harness pre-flight guards ("no API key set" / "no model selected"): a misconfig, not a fault — point at
     // Settings instead of offering a doomed retry. (Match before capdenied, which the em-dash-less strings miss.)
     if (/chatgpt.*sign-?in|sign-?in.*chatgpt|not signed in to chatgpt|codex_not_connected|codex auth|codex_auth|chatgpt subscription.*connect/.test(low)) return 'oauth';
@@ -427,6 +429,11 @@
   function friendlyError(err, status, opts) {
     const engineAlive = (opts && typeof opts.engineAlive === 'boolean') ? opts.engineAlive : null;
     const raw = rawText(err);
+    // This prefix is minted only by the Ollama adapter after a concrete allocation failure.
+    if (/^local model ran out of memory\./i.test(raw)) {
+      const k = KINDS.local_model_memory;
+      return { userMessage: k.msg, kind: 'local_model_memory', retryable: k.retryable, action: k.action, raw };
+    }
     // a StarNet-authored stop (loop guard, unkept promise, output-limit cut, hook…) leads with what happened and what
     // to do — before the user-abort test, whose /abort/ would otherwise claim a hook reason that mentions the word
     const harnessStop = (err && err.name === 'AbortError') ? null : explainStop(raw);
@@ -718,7 +725,7 @@
           return { label: label, run: () => openSettings('providers') };
         }
         // no_model: a provider is connected, only the model is missing — the model dock is the door
-        if (verdict.kind === 'no_model') return pickModelDoor();
+        if (verdict.kind === 'no_model' || verdict.kind === 'local_model_memory') return pickModelDoor();
         // other auth/no-key: if ChatGPT is already the connected brain, the honest door is still "reconnect";
         // otherwise the provider key field. Both land on the same PROVIDERS section.
         if (verdict.kind === 'auth' && codexConnected())
