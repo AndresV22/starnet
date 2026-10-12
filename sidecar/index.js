@@ -477,6 +477,9 @@ function applyApiCors(req, res) {
   }
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PATCH,DELETE,OPTIONS');   // PATCH: /api/routing/triggers/:id (line triggers)
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type,X-StarNet-Token,X-Skynet-Token');   // accept the legacy header name too (old Tauri shell)
+  // the desktop page is cross-origin: it can only read a non-safelisted header named here. voice.js picks a
+  // clip's effect + pacing from which engine spoke it; hidden, every built-in voice resolved as the keyed recipe.
+  res.setHeader('Access-Control-Expose-Headers', 'X-Voice-Provider, X-Voice-Cache');
   res.setHeader('Access-Control-Max-Age', '600');
 }
 function rejectApi(req, res) {

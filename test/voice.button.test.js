@@ -1099,6 +1099,20 @@ async function opensWithin(t, ms) {
     await until(() => !t.Voice.isReplyPending(), 1000);
     A.eq(t.Voice.playbackChain(), 'machine', 'one reply keeps one effect across an engine blip');
 
+    // a later sentence whose X-Voice-Provider is unreadable (a cross-origin desktop page sees no unexposed header)
+    // still came from the engine this reply pinned: a Kokoro clip is never re-paced as keyed on top of the engine
+    t.Voice.setVoiceChoice('am_michael', 'agent'); served = 'local-kokoro';
+    const pinnedAt = audios.length;
+    t.Voice.speakChunk('Kokoro opens this reply.', 'agent', { speedMul: 0.88 });
+    await until(() => audios.length > pinnedAt, 1000);
+    served = '';
+    t.Voice.speakChunk('This sentence lost its provider header.', 'agent', { speedMul: 0.88 }); t.Voice.endReply();
+    await until(() => !t.Voice.isReplyPending(), 1000);
+    A.eq(bodies[bodies.length - 1].localEngine, 'local-kokoro', 'the later sentence asked the pinned Kokoro engine');
+    A.eq(audios.length - pinnedAt, 2, 'both sentences played');
+    A.eq(audios[audios.length - 1].playbackRate, 1, 'a header-less clip from pinned Kokoro plays at 1x — the engine already paced it');
+    A.eq(t.Voice.playbackChain(), 'natural', 'the Kokoro reply stays on the natural chain');
+
     // read-aloud prosody: a bulleted line ends a sentence instead of running into the next
     await say('Here is what changed:\n- fixed the voice\n- added tests');
     A.eq(bodies[bodies.length - 1].text, 'Here is what changed: fixed the voice. added tests', 'a line with no punctuation ends a spoken sentence');
