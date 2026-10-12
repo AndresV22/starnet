@@ -625,7 +625,7 @@ function makeChainRunner(o) {
           const bk = step.join + '|' + runId;
           const fw = fan ? Math.max(1, fan.width - fan.failed.length) : 0;
           const r = barrier.deliver(bk, fw || step.expect, cur.agentId, out.text, step.timeoutMin, cur.dockId);
-          if (fan) { fan.joinKey = bk; fan.joinStep = step; fan.joinReach = reach.outboxId || null; }
+          if (fan) { fan.joinKey = bk; fan.joinStep = step; }
           const failedNames = fan ? fan.failed.slice() : [];
           if (!r.released && pending.length > 1 && joinOfAll(pending) && joinOfAll(pending).join === step.join) {
             const items = pending.splice(0);
@@ -637,8 +637,8 @@ function makeChainRunner(o) {
             const last = rel.parts[rel.parts.length - 1];
             out.agentId = last.agentId; if (last.dockId) out.dockId = last.dockId;
             say('workitem.delivered', withDock({ workitemId: newId(), finalQueueId: last.agentId, agentId: last.agentId, box: 'join:' + step.join, ms: 0, ts: now() }, last.dockId));
+            // the merged job walks on from the joiner's exit (see the release below), never where an arriving branch's walk ended
             branchMode = false; fan = null; fromTile = tileOf(step.join);
-            if (!step.next) { out.stopped = null; if (reach.outboxId) out.outboxId = reach.outboxId; return out; }
             continue;
           }
           if (!r.released) {
@@ -653,9 +653,11 @@ function makeChainRunner(o) {
             say('workitem.delivered', withDock({ workitemId: newId(), finalQueueId: cur.agentId, agentId: cur.agentId, box: 'join:' + step.join, ms: 0, ts: now() }, cur.dockId));
           }
           branchMode = false; fan = null;
-          // the merged crate continues from the joiner's exit; the last deliverer is its producer
+          /* the merged crate continues from the joiner's exit; the last deliverer is its producer. ALWAYS from the joiner — even
+             with no dock past it (runtime repair 2026-10-12): the arriving branch's step only LOOKED past the joiner (step.next is a
+             quiet look-ahead), so a TAKE TURNS splitter there turns once per merged job and a FILTER reads the merged job's tag; a
+             walk that ends at an OUTBOX names it (!target below) — the joiner shipping straight out, merged text as the answer. */
           fromTile = tileOf(step.join);
-          if (!step.next) { out.stopped = null; if (reach.outboxId) out.outboxId = reach.outboxId; return out; }   // the joiner ships straight out: merged text IS the answer
           hop--; continue;
         } else if (loopDone) {
           // (decided above)
@@ -730,13 +732,12 @@ function makeChainRunner(o) {
           if (pending.length) { forced = nextPending(); continue; }
           const rel = fan.joinKey ? barrier.release(fan.joinKey) : null;
           if (rel && rel.parts.length) {
-            const js = fan.joinStep, jr = fan.joinReach, last = rel.parts[rel.parts.length - 1];
+            const js = fan.joinStep, last = rel.parts[rel.parts.length - 1];
             out.text = Pipeline.joinPayload(rel.parts, [], fan.failed);
             say('workitem.delivered', withDock({ workitemId: newId(), finalQueueId: last.agentId, agentId: last.agentId, box: 'join:' + js.join, ms: 0, ts: now() }, last.dockId));
             cur = { agentId: last.agentId, dockId: dockMode ? (last.dockId || null) : null };
             out.agentId = last.agentId; if (last.dockId) out.dockId = last.dockId;
-            branchMode = false; fan = null; fromTile = tileOf(js.join);
-            if (!js.next) { out.stopped = null; if (jr) out.outboxId = jr; return out; }
+            branchMode = false; fan = null; fromTile = tileOf(js.join);   // on from the joiner's exit, like every release
             continue;
           }
         }

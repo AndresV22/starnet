@@ -173,14 +173,23 @@ const belt = (x, y, dir) => ({ x, y, dir });
      (and from its 'general' walk), so every job landed in OUTBOX A: B's SEND TO, receipts and line-output never fired, and a
      FILTER after the joiner never routed by the merged job. The merged job now walks on from the joiner's exit like any job. ---- */
   {
-    const floorAfterJoin = (junction) => {
+    // opts.crew = how many of the 3 crew bays get an agent (an unbound bay's branch never launches: an EVEN width with 2);
+    // opts.entry = the SECOND OPINION blueprint instead: INBOX ▸ COPY split ▸ 2 crew ▸ JOINER, the entry fan-out path
+    const floorAfterJoin = (junction, opts) => {
+      opts = opts || {};
       const s = WM.create(), z = s.rooms()[0].rects[0];
       s.addRoom({ kind: 'hab', rect: { x1: z.x2 + 1, y1: z.y1, x2: z.x2 + 40, y2: z.y1 + 30 } });
       let ok = null;
-      for (let y = z.y1; y < z.y1 + 25 && !ok; y++) for (let x = z.x1; x < z.x2 + 30 && !ok; x++) { const r = s.stampBlueprint('parallel_crew', x, y); if (r.ok) ok = r; }
-      const intake = s.props().find(p => p.t === 'intake'), split = s.props().find(p => p.t === 'splitter'), merger = s.props().find(p => p.t === 'merger');
-      A.ok(!!ok && LE.run(s, intake.id, 'insertStep', { from: intake.id, to: split.id, role: 'PLANNER' }, { near: { x: split.x, y: split.y } }).ok && s.swapJoinerMerger(merger.id).ok, junction + ': PARALLEL CREW with a PLANNER and a JOINER');
-      s.props().filter(p => p.t === 'bay').forEach((b, i) => s.assignPropAgent(b.id, b.role === 'PLANNER' ? 'planner' : 'c' + i));
+      for (let y = z.y1; y < z.y1 + 25 && !ok; y++) for (let x = z.x1; x < z.x2 + 30 && !ok; x++) { const r = s.stampBlueprint(opts.entry ? 'second_opinion' : 'parallel_crew', x, y); if (r.ok) ok = r; }
+      if (opts.entry) {
+        A.ok(!!ok && s.props().some(p => p.t === 'joiner'), junction + ': SECOND OPINION stamped with its JOINER');
+        s.props().filter(p => p.t === 'bay').forEach((b, i) => s.assignPropAgent(b.id, 'c' + i));
+      } else {
+        const intake = s.props().find(p => p.t === 'intake'), split = s.props().find(p => p.t === 'splitter'), merger = s.props().find(p => p.t === 'merger');
+        A.ok(!!ok && LE.run(s, intake.id, 'insertStep', { from: intake.id, to: split.id, role: 'PLANNER' }, { near: { x: split.x, y: split.y } }).ok && s.swapJoinerMerger(merger.id).ok, junction + ': PARALLEL CREW with a PLANNER and a JOINER');
+        let n = 0;
+        s.props().filter(p => p.t === 'bay').forEach((b, i) => { if (b.role === 'PLANNER') s.assignPropAgent(b.id, 'planner'); else if (n++ < (opts.crew || 3)) s.assignPropAgent(b.id, 'c' + i); });
+      }
       // the second exit is drawn by hand past the joiner (ring-rule geometry): the junction on the joiner's exit belt, a lane down to OUTBOX B
       const geo = s.projectGeometry(); delete geo.links;
       for (const b of geo.belts) if (b.d && !b.dir) b.dir = b.d;
@@ -199,17 +208,22 @@ const belt = (x, y, dir) => ({ x, y, dir });
       A.ok(j2.kind === junction.replace('turns', 'split') && !j2.fanout, junction + ': the junction after the joiner is a ' + (junction === 'filter' ? 'FILTER' : 'TAKE TURNS splitter'));
       return { plan, planner: geo.props.find(p => p.agentId === 'planner'), outA: outA.id };
     };
+    // tagged: true = every crew writes CODE; a function (agentId, isEntryRun) -> its text, for floors where only SOME branches carry the tag
     const jobs = async (f, peek, tagged) => {
       const router = makeRouter(); router.setPlan(f.plan);
-      const lineId = router.lineOfAgent('planner', f.planner.id), shipped = [], outputs = [];
+      const textOf = typeof tagged === 'function' ? tagged : a => (tagged ? 'CODE ' : '') + a + ' did it';
+      const shipped = [], outputs = [];
       for (let i = 0; i < 4; i++) {
         const c = makeChainRunner(Object.assign({ nextAgent: (a, x) => router.chainNext(a, x), stepAgent: (a, x) => router.chainStep(a, x),
           stepDock: (d, x) => router.chainStepDock(d, x), entryDockOf: a => router.entryDockOf(a), fanSiblingsDock: d => router.fanSiblingsDock(d),
           lineOfAgent: (a, d) => router.lineOfAgent(a, d), lastStage: (a, d) => router.chainShipsToOutbox(a, d), onShipped: r => shipped.push(r.outboxId),
           getTag: t => /CODE/.test(String(t)) ? 'code' : 'general', setTimer: () => 0,
           emit: (n, p) => { if (n === 'workitem.delivered' && p.box === 'line-output') outputs.push(p.outboxId); } }, peek ? { peekDock: (d, x) => router.chainPeekDock(d, x) } : {}));
-        const res = await c.advance({ agentId: 'planner', dockId: f.planner.id, text: 'plan', originalText: 'do X', lineId, runId: 'job' + i,
-          runAgent: async h => ({ text: (tagged ? 'CODE ' : '') + h.agentId + ' did it' }) });
+        // the entry fan-out (SECOND OPINION): the INBOX names ONE crew — the same resolver the hub asks — and it has run already
+        const entry = f.planner ? { agentId: 'planner', dockId: f.planner.id, text: 'plan' } : router.resolveDock({ tag: 'general' });
+        const lineId = f.planner ? router.lineOfAgent('planner', f.planner.id) : router.lineOriginFor(entry.agentId, entry.dockId);
+        const res = await c.advance({ agentId: entry.agentId, dockId: entry.dockId, text: f.planner ? 'plan' : textOf(entry.agentId, true), originalText: 'do X', lineId, runId: 'job' + i,
+          runAgent: async h => ({ text: textOf(h.agentId, false) }) });
         A.eq(res.stopped, null, 'the line ends clean (' + res.stopped + ')');
       }
       await new Promise(r => setImmediate(r));
@@ -226,6 +240,36 @@ const belt = (x, y, dir) => ({ x, y, dir });
     for (const peek of [true, false]) {
       const r = await jobs(filter, peek, true);
       A.eq(r.shipped, 'pob2 pob2 pob2 pob2', (peek ? 'parallel' : 'one after another') + ': a FILTER after the joiner routes by the merged job (code → OUTBOX B)');
+    }
+    /* EVEN widths, the entry fan-out, a tag on SOME branches (runtime repair 2026-10-12). Three crews hid the one-after-another
+       bug: every ARRIVING branch's walk went on past the joiner with the advancing pick — 3 moves of a 2-exit TAKE TURNS splitter
+       alternate by parity; 2 moves stick on one OUTBOX — and the release then shipped where the LAST branch's walk ended, by
+       that branch's tag, not the merged job's. The merged job alone walks on from the joiner, once, by its own tag. */
+    const turns2 = floorAfterJoin('turns', { crew: 2 });
+    const alternate2 = [turns2.outA, 'pob2', turns2.outA, 'pob2'].join(' ');
+    for (const peek of [true, false]) {
+      const r = await jobs(turns2, peek, false);
+      A.eq(r.shipped, alternate2, (peek ? 'parallel' : 'one after another') + ', 2 branches: TAKE TURNS after the joiner alternates the OUTBOX');
+      A.eq(r.outputs, alternate2, (peek ? 'parallel' : 'one after another') + ', 2 branches: and line-output names the same OUTBOXes');
+    }
+    for (const peek of [true, false]) {
+      // only c1 writes CODE, and it is never the last to arrive one after another — the merged job still contains CODE
+      const r = await jobs(filter, peek, a => (a === 'c1' ? 'CODE ' : '') + a + ' did it');
+      A.eq(r.shipped, 'pob2 pob2 pob2 pob2', (peek ? 'parallel' : 'one after another') + ': a FILTER after the joiner reads the merged job when only one branch wrote CODE');
+    }
+    const so = floorAfterJoin('turns', { entry: true });
+    for (const peek of [true, false]) {
+      const r = await jobs(so, peek, false);
+      const want = [so.outA, 'pob2', so.outA, 'pob2'].join(' ');
+      A.eq(r.shipped, want, 'SECOND OPINION' + (peek ? '' : ' (no peek)') + ': TAKE TURNS after the joiner alternates the OUTBOX');
+      A.eq(r.outputs, want, 'SECOND OPINION' + (peek ? '' : ' (no peek)') + ': and line-output names the same OUTBOXes');
+    }
+    const soF = floorAfterJoin('filter', { entry: true });
+    for (const peek of [true, false]) {
+      // only the crew the INBOX named (the entry run) writes CODE; its sibling runs after it and arrives last without it
+      const r = await jobs(soF, peek, (a, isEntry) => (isEntry ? 'CODE ' : '') + a + ' did it');
+      A.eq(r.shipped, 'pob2 pob2 pob2 pob2', 'SECOND OPINION' + (peek ? '' : ' (no peek)') + ': a FILTER after the joiner reads the merged job (code → OUTBOX B), not the last branch');
+      A.eq(r.outputs, 'pob2 pob2 pob2 pob2', 'SECOND OPINION' + (peek ? '' : ' (no peek)') + ': and line-output names OUTBOX B');
     }
   }
 

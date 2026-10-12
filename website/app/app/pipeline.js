@@ -1511,10 +1511,17 @@
       if (reach && rec && rec.tile) walk(rec.tile);   // terminal: only to learn which OUTBOX the job lands in
       return null;
     }
+    /* THE LOOK PAST A JOINER (runtime repair 2026-10-12): a join answer's `next` is a LOOK-AHEAD, never the merged job's walk. It
+       used to walk on with the caller's advancing pick and write ctx.reach on EVERY branch's arrival, so a TAKE TURNS splitter after
+       the joiner moved once per arriving branch (2 branches = 2 moves of a 2-exit splitter: stuck on one OUTBOX) and the OUTBOX was
+       the last branch's, by that branch's tag. The merged job walks on from the joiner itself, once, by its own tag (the runner
+       resumes at ctx.fromTile). A quiet walk reads splitters with the pick's non-advancing `peek` (lane 0 without one) and never
+       writes ctx.reach. */
+    const peekPick = (pick && typeof pick.peek === 'function') ? pick.peek : null;
     // walk one lane to the first foreign dock, honouring filters/merges; stops at a join, a loop or a fan-out split
-    function walk(start, startDir) {
+    function walk(start, startDir, quiet) {
       let t = start, forced = startDir || null, guard = 0, lastOut = null; const seen = {};
-      const ended = () => { if (reach && lastOut) reach.outboxId = lastOut; return null; };
+      const ended = () => { if (reach && lastOut && !quiet) reach.outboxId = lastOut; return null; };
       while (t && guard++ < 4096) {
         const k = key(t.x, t.y);
         if (dockAt[k] && dockAt[k] !== dockId) return nodeOf(L, dockAt[k]);
@@ -1528,7 +1535,7 @@
         else if (j && j.kind === 'join') {
           const ex = outLanes(map, t.x, t.y)[0] || here, v = DIRV[ex];
           const nt = { x: t.x + v[0], y: t.y + v[1] };
-          return { join: k, expect: j.expect || 0, timeoutMin: j.timeoutMin || 10, next: map[key(nt.x, nt.y)] ? walkNode(walk(nt)) : null };
+          return { join: k, expect: j.expect || 0, timeoutMin: j.timeoutMin || 10, next: map[key(nt.x, nt.y)] ? walkNode(walk(nt, null, true)) : null };
         } else if (j && j.kind === 'loop') {
           const ll = loopLanes(map, t.x, t.y, j), vd = ll.done ? DIRV[ll.done] : null;
           const nt = vd ? { x: t.x + vd[0], y: t.y + vd[1] } : null;
@@ -1537,7 +1544,7 @@
           // the runner sends a verdict-exhausted crate THERE instead of annotating it onto the done lane
           // a DONE lane that meets a JOINER (a reviewed branch of a COPY split, 2026-10-10 audit): the walk's join answer rides
           // as `afterJoin` — walkNode alone dropped it, so the reviewed work never reached the barrier and the joiner timed out
-          const after = (nt && map[key(nt.x, nt.y)]) ? walk(nt) : null;
+          const after = (nt && map[key(nt.x, nt.y)]) ? walk(nt, null, quiet) : null;
           const ls = { loop: k, max: j.max || LOOP_MAX_DEFAULT, backTo: gateNode(g.backTo), when: j.when || null, esc: gateNode(g.escTo), next: walkNode(after) };
           if (after && after.join) ls.afterJoin = after;
           return ls;
@@ -1550,7 +1557,7 @@
           const has = d0 => branches.some(b => b.dockId === d0);
           for (const ld of lanes) {
             const v = DIRV[ld], nt = { x: t.x + v[0], y: t.y + v[1] }; if (!map[key(nt.x, nt.y)]) continue;
-            const r = walk(nt);
+            const r = walk(nt, null, quiet);
             if (r && r.branches) { for (const b of r.branches) if (!has(b.dockId)) branches.push(b); }
             else if (r && r.dockId && !has(r.dockId)) branches.push(walkNode(r));
           }
@@ -1560,7 +1567,7 @@
           d = (want && lanes.indexOf(want) >= 0) ? want : (j.def && lanes.indexOf(j.def) >= 0) ? j.def : (lanes[0] || here);
         } else if (j && j.kind === 'split') {
           const lanes = splitLanes(map, junctions, dockAt, t.x, t.y);
-          if (lanes.length) d = pickLane(lanes, k, pick);
+          if (lanes.length) d = pickLane(lanes, k, quiet ? peekPick : pick);
         }
         const v = DIRV[d], nx = t.x + v[0], ny = t.y + v[1];
         if (!map[key(nx, ny)]) return ended();   // the belt ends: shipped out (into the OUTBOX it passed last) or sank
