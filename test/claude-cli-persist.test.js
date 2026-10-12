@@ -353,6 +353,21 @@ const tick = ms => new Promise(r => setTimeout(r, ms || 0));
     A.ok(typeof fresh === 'string' && fresh.length > 0, 'the fresh child is started with its own (new) system prompt file');
   }
 
+  // 12. A delta that carries a picture (a screen capture handed back after a tool result) sends it as a real image block.
+  {
+    const { p, spawns } = make(reader);
+    const ac = new AbortController();
+    const msgs = [SYS, { role: 'user', content: 'Read a.txt and b.txt.' }];
+    const r1 = reply(await collect(p, { model: 'sonnet', tools: TOOLS, messages: msgs.slice(), runId: 'run-12', signal: ac.signal }));
+    msgs.push(r1, ...results(r1, 'alpha'), { role: 'user', content: [{ type: 'text', text: '[BEGIN EXTERNAL SCREEN CAPTURE]' }, { type: 'image_url', image_url: { url: 'data:image/png;base64,iVBORw0KGgo=' } }] });
+    await collect(p, { model: 'sonnet', tools: TOOLS, messages: msgs.slice(), runId: 'run-12', signal: ac.signal });
+    const c = spawns[0].inputs[1].message.content;
+    A.ok(spawns.length === 1 && c[0].type === 'text' && c[0].text.includes('<tool_result') && c[0].text.includes('[image 1 — attached below]') && !c[0].text.includes('Read a.txt'),
+      'the delta text names where the picture sat');
+    A.eq(c.slice(1), [{ type: 'text', text: 'Image 1:' }, { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'iVBORw0KGgo=' } }], 'and the picture rides as an image block on the same child');
+    p.release('run-12');
+  }
+
   // 10. THE REAL LOOP drives the adapter (no hand-built replies): the reply loop.js records is exactly the one the child
   //     holds, so the next turn rides the same child, and the run's end releases it (loop.js end() -> release()).
   {
