@@ -20,9 +20,18 @@ function cleanOwnerRows(rows) {
     typeof m.content === 'string' && m.content.trim() && !quotedMaterial(m.content));
 }
 function ownedBriefs(briefs, transcriptRows) {
-  const clean = cleanOwnerRows(transcriptRows);
-  return (Array.isArray(briefs) ? briefs : []).filter(b => b && b.agentId && b.originalDirective &&
-    clean.some(m => m.agentId === b.agentId && m.streamId === (b.streamId || 'global') && m.content.trim().slice(0, 4000) === b.originalDirective));
+  const clean = cleanOwnerRows(transcriptRows), seen = new Set();
+  return (Array.isArray(briefs) ? briefs : []).filter(b => {
+    if (!b || !b.agentId || !b.originalDirective) return false;
+    // New briefs retain an immutable originalRunId. Older host briefs already encode that identity in
+    // tb_<original-run-id>; never substitute completion's mutable runId or a later identical request.
+    const original = b.originalRunId || (typeof b.id === 'string' && b.id.startsWith('tb_') ? b.id.slice(3) : '');
+    if (!original) return false;
+    const stream = b.streamId || 'global', key = JSON.stringify([b.agentId, stream, original]);
+    if (seen.has(key) || !clean.some(m => m.sourceRunId === original && m.agentId === b.agentId && m.streamId === stream &&
+      m.content.trim().slice(0, 4000) === b.originalDirective)) return false;
+    seen.add(key); return true;
+  });
 }
 function capture(messages, source) {
   const list = Array.isArray(messages) ? messages : [];

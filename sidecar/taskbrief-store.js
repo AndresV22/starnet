@@ -38,6 +38,8 @@ function normalizeBrief(b) {
   const x = b && typeof b === 'object' ? b : {};
   return {
     id: bounded(x.id, 100), key: bounded(x.key, 160), streamId: bounded(x.streamId, 80),
+    // Completion updates runId; the original owner occurrence remains immutable across clarification/recovery.
+    ...(x.originalRunId ? { originalRunId: bounded(x.originalRunId, 100) } : {}),
     agentId: bounded(x.agentId || 'agent', 40), source: bounded(x.source || 'interactive', 24),
     originalDirective: bounded(x.originalDirective, 4000), currentInput: bounded(x.currentInput, 4000),
     status: STATES.has(x.status) ? x.status : 'ready',
@@ -115,7 +117,7 @@ function makeTaskBriefStore(deps) {
             id: bounded(input.id, 100) || ('tb_' + bounded(input.runId, 80)), key,
             streamId: bounded(input.streamId, 80), agentId: bounded(input.agentId || prior.agentId || 'agent', 40),
             source: bounded(input.source || prior.source || 'interactive', 24), originalDirective: routed.text, currentInput: routed.text,
-            status: 'ready', createdAt: ts, updatedAt: ts, runId: bounded(input.runId, 100)
+            status: 'ready', createdAt: ts, updatedAt: ts, runId: bounded(input.runId, 100), originalRunId: bounded(input.runId, 100)
           });
           rec.briefs.push(out); while (rec.briefs.length > CAP) rec.briefs.shift();
           out = Object.assign({}, out, { inputAction: 'replace' }); return rec;
@@ -131,7 +133,7 @@ function makeTaskBriefStore(deps) {
           id: bounded(input.id, 100) || ('tb_' + bounded(input.runId, 80)), key,
           streamId: bounded(input.streamId, 80), agentId: bounded(input.agentId || 'agent', 40),
           source: bounded(input.source || 'interactive', 24), originalDirective: text, currentInput: text,
-          status: 'ready', createdAt: ts, updatedAt: ts, runId: bounded(input.runId, 100)
+          status: 'ready', createdAt: ts, updatedAt: ts, runId: bounded(input.runId, 100), originalRunId: bounded(input.runId, 100)
         });
         rec.briefs.push(out); while (rec.briefs.length > CAP) rec.briefs.shift();
       }
