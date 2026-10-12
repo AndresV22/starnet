@@ -259,7 +259,7 @@ const LineJobs = require('./routing/linejobs.js');   // WORKFLOWS — every job 
 const LineDraft = require('./routing/linedraft.js');   // WORKFLOWS › SET IT UP FOR ME — "what should it make?" → a starter, a name, each step's instructions (/api/routing/line-draft)
 const LineFix = require('./routing/linefix.js');   // NOT RIGHT? — a result the Commander doesn't want → fixes to the line's step instructions (/api/routing/fix-suggest)
 const { lineStats: foldLineStats } = require('./routing/line-stats.js');   // LINE WATCH: per-line runs/shipped/failed/$ + each bay's last outcome (GET /api/routing/lines/stats)
-const { makeLineShipments, validateShipments, loadShipmentReceipts } = require('./routing/line-shipments.js');
+const { makeLineShipments, validateShipments, loadShipmentReceipts, cleanJobRows } = require('./routing/line-shipments.js');
 const { makeLineSpend } = require('./routing/line-spend.js');   // per-line DAY spend ledger (LINE BUDGET maxUsdPerDay) — durable sibling of routing.plan.json
 const LineTriggers = require('./routing/triggers.js');   // LINE TRIGGERS (2026-09-23): folder/webhook events that start ONE line
 const { makeTriggerRunner, crewedDocksOnLine } = require('./routing/trigger-runner.js');
@@ -5390,6 +5390,9 @@ const chainRunner = makeChainRunner({
     lineShipments.record(rec);
     return handoffRunner ? handoffRunner.onShipped(rec) : null;
   },
+  // the floor's line-output authority follows the receipt's clean-job rule over the job's own run rows (no stream or entry run
+  // = not proven clean = nothing released; a guess here would put a product at the OUTBOX that SHIPPED and SEND TO refuse)
+  cleanJob: (k) => !!(k && k.streamId && k.entryRunId) && !!cleanJobRows(runStore.list(null, { streamId: k.streamId, limit: 200 }), k),
   barrierStore: {
     load: () => { try { return loadResilient(path.join(WORKSPACES, 'join.barriers.json'), 'join-barriers'); } catch (_) { return null; } },
     save: (v) => { try { saveResilient(path.join(WORKSPACES, 'join.barriers.json'), v); } catch (e) { failNote('chain.barriers.save', e); } }

@@ -49,6 +49,20 @@ function loadShipmentReceipts(store) {
   }
   return validateShipments(read.value);
 }
+/* THE CLEAN-JOB RULE — one predicate for the receipt below and for the chain's line-output authority (chain.js cleanJob), so
+   the floor's released product, SHIPPED and SEND TO judge a job the same way. rows: run rows of the job's stream, NEWEST-FIRST
+   (runStore order). The entry run is an exact boundary, including when adjacent jobs on the same channel started in the same
+   millisecond. Returns the job's rows (entry onward) when every one of them ended `done`, is not a step test and carries a
+   valid runId; otherwise null — never a guess (no stream, no entry row, a non-array). Pure. */
+function cleanJobRows(rows, key) {
+  const k = key || {};
+  if (!Array.isArray(rows) || !id(k.entryRunId) || !id(k.streamId) || !propId(k.lineId)) return null;
+  const entry = rows.findIndex(x => x && x.runId === k.entryRunId && x.streamId === k.streamId && x.lineId === k.lineId);
+  if (entry < 0) return null;
+  const job = rows.slice(0, entry + 1).filter(x => x && x.streamId === k.streamId && x.lineId === k.lineId);
+  if (!job.length || job.some(x => x.stepTest === true || x.reason !== 'done' || !id(x.runId))) return null;
+  return job;
+}
 function makeLineShipments(options) {
   const o = options || {}, now = typeof o.now === 'function' ? o.now : () => 0;
   const load = typeof o.load === 'function' ? o.load : () => [];
@@ -68,13 +82,9 @@ function makeLineShipments(options) {
     if (current.some(s => keyOf(s) === key)) return true;
     let rows;
     try { rows = runsFor(r.streamId); } catch (e) { failNote('line-shipments.runs', e); return false; }
-    if (!Array.isArray(rows)) return false;
-    // runStore returns newest-first. The entry run is an exact boundary, including
-    // when adjacent jobs on the same channel started in the same millisecond.
-    const entry = rows.findIndex(x => x && x.runId === r.entryRunId && x.streamId === r.streamId && x.lineId === r.lineId);
-    if (entry < 0) return false;
-    const job = rows.slice(0, entry + 1).filter(x => x && x.streamId === r.streamId && x.lineId === r.lineId);
-    if (!job.length || job.some(x => x.stepTest === true || x.reason !== 'done' || !id(x.runId))) return false;
+    // the job's own rows, every one clean (the shared rule above — the chain's line-output authority reads the same one)
+    const job = cleanJobRows(rows, r);
+    if (!job) return false;
     // Keep the existing productive-work rule. Talk-only answers can be delivered
     // but do not manufacture SHIPPED work; one productive job counts once.
     if (!job.some(x => Number(x.toolsOk) > 0 || (Array.isArray(x.artifacts) && x.artifacts.length > 0))) return false;
@@ -92,4 +102,4 @@ function makeLineShipments(options) {
   }
   return { record, snapshot: () => cleanShipments(ensure()) };
 }
-module.exports = { cleanShipments, validateShipments, makeLineShipments, loadShipmentReceipts };
+module.exports = { cleanShipments, validateShipments, makeLineShipments, loadShipmentReceipts, cleanJobRows };

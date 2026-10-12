@@ -283,6 +283,17 @@ function makeChainRunner(o) {
      the caller has them: the job's own stream and the time its entry run started, so the runner reads back exactly its runs;
      outboxId = the OUTBOX the job's last walk landed in — a line with two OUTBOXes hands on only from the one that sends). */
   const onShipped = typeof o.onShipped === 'function' ? o.onShipped : null;
+  /* cleanJob({ lineId, entryRunId, streamId }) -> bool (runtime audit 2026-10-12): did EVERY run of this job end clean? The
+     line-output authority below releases a held product on the floor; it must judge a job by the same rule the shipment receipt
+     and SEND TO do (line-shipments.cleanJobRows over the job's own run rows), or a job with a failed COPY branch, or a hop that
+     ended max_iters with some text, put a product at the OUTBOX while SHIPPED stayed 0. Absent = every job is clean (the runner
+     alone cannot see run rows); a throw = not proven clean, so nothing is released. */
+  const cleanJob = typeof o.cleanJob === 'function' ? o.cleanJob : null;
+  function provenClean(s) {
+    if (!cleanJob) return true;
+    try { return cleanJob({ lineId: String(s.lineId), entryRunId: s.runId != null ? String(s.runId) : null, streamId: s.streamId != null ? String(s.streamId) : null }) === true; }
+    catch (e) { failNote('chain.cleanJob', e); return false; }
+  }
 
   /* THE JOIN BARRIER — in-memory, keyed "joinTile|runId". A branch DELIVERS its output; the barrier releases
      when `expect` deliveries are in, or when a waiter's timeout (the joiner's timeoutMin) fires with fewer —
@@ -377,7 +388,7 @@ function makeChainRunner(o) {
     const s = seed || {};
     // Exact terminal authority for the floor: a barrier release alone may have more work after it.
     // Existing event, additive metadata (like dockId): no output text or guessed route leaves here.
-    if (s.lineId && out && out.stopped == null && out.outboxId && String(out.text || '').trim()) {
+    if (s.lineId && out && out.stopped == null && out.outboxId && String(out.text || '').trim() && provenClean(s)) {
       say('workitem.delivered', withDock({ workitemId: newId(), finalQueueId: 'outbox', agentId: out.agentId,
         box: 'line-output', lineId: String(s.lineId), outboxId: out.outboxId,
         entryRunId: s.runId ? String(s.runId) : null, workitemIds: evidence.workitemIds, ms: 0, ts: now() }, out.dockId));
