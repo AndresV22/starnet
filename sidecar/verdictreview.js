@@ -86,7 +86,7 @@ function makeVerdictReview(opts) {
     for (const [runId, h] of held) {
       const packet = compactPacket(jobFor(h, runId, 'snapshot'), opts.redact);
       const correction = packet.learningEvidence && packet.learningEvidence.correction;
-      rows.push({ runId, at: h.at, state: 'held', reviewStatus: h.status, dueAt: h.dueAt, attempts: h.attempts,
+      rows.push({ runId, at: h.at, state: 'held', reviewStatus: h.status, dueAt: h.dueAt, attempts: h.attempts, persistenceFailures: h.persistenceFailures || 0, persistenceBlocked: h.persistenceBlocked === true,
         verdict: h.verdict, correction: correction ? correction.text : '', correctionSource: h.correctionSource,
         correctionOriginalChars: correction ? correction.originalChars : 0, correctionTruncated: !!(correction && correction.truncated), packet });
     }
@@ -102,6 +102,7 @@ function makeVerdictReview(opts) {
         held.set(id, { at: r.at, packet: Object.assign({}, r.packet, { restored: true }), verdict: r.verdict,
           ...correctionParts(r.correction, r.correctionOriginalChars, r.correctionTruncated), correctionSource: String(r.correctionSource || ''),
           dueAt: r.reviewStatus === 'running' ? now() + retryMs : (Number.isFinite(r.dueAt) ? r.dueAt : now() + graceMs),
+          persistenceFailures: Math.max(0, Number(r.persistenceFailures) || 0), persistenceBlocked: r.persistenceBlocked === true,
           attempts: Math.max(0, Number(r.attempts) || 0), status: r.reviewStatus === 'retry-exhausted' ? 'retry-exhausted' : 'pending', timer: null, fire: null });
       } else packets.set(id, { at: r.at, packet: Object.assign({}, r.packet, { restored: true }) });
       n++;
@@ -167,6 +168,7 @@ function makeVerdictReview(opts) {
   const graceMs = Number.isFinite(opts.graceMs) && opts.graceMs >= 0 ? opts.graceMs : 90 * 1000;
   const retryMs = Number.isFinite(opts.retryMs) && opts.retryMs > 0 ? opts.retryMs : 60000;
   const maxAttempts = Number.isInteger(opts.maxAttempts) && opts.maxAttempts > 0 ? opts.maxAttempts : 3;
+  const maxPersistenceAttempts = Number.isInteger(opts.maxPersistenceAttempts) && opts.maxPersistenceAttempts > 0 ? opts.maxPersistenceAttempts : 3;
   function correctionParts(value, originalChars, truncated) {
     const full = String(value || '').replace(/\s+/g, ' ').trim();
     return { correction: full.slice(0, 600), correctionOriginalChars: Math.max(full.length, Number(originalChars) || 0),
@@ -179,18 +181,37 @@ function makeVerdictReview(opts) {
   }
   function scheduleHeld(id) {
     const h = held.get(id);
-    if (!h || typeof h.fire !== 'function' || h.status !== 'pending' || h.attempts >= maxAttempts) return false;
+    if (!h || typeof h.fire !== 'function' || h.status !== 'pending' || h.attempts >= maxAttempts || h.persistenceBlocked) return false;
     if (h.timer) clearT(h.timer);
     h.timer = setT(() => fireHeld(id, 'grace'), Math.max(1, h.dueAt - now()));
     if (h.timer && h.timer.unref) h.timer.unref();
     return true;
+  }
+  // Storage retries have their own bound and never count as model attempts. The
+  // continuation must re-save its state before it can dispatch or drop a review.
+  function retryPersistenceOnly(id, continuation) {
+    const h = held.get(id); if (!h) return;
+    if (h.timer) clearT(h.timer);
+    h.timer = null;
+    h.persistenceFailures = (h.persistenceFailures || 0) + 1;
+    h.persistenceBlocked = h.persistenceFailures >= maxPersistenceAttempts;
+    h.dueAt = now() + retryMs;
+    if (h.persistenceBlocked) return;
+    h.timer = setT(() => { h.timer = null; if (held.get(id) === h) continuation(); }, retryMs);
+    if (h.timer && h.timer.unref) h.timer.unref();
+  }
+  function persistenceSucceeded(h) { h.persistenceFailures = 0; h.persistenceBlocked = false; }
+  function persistRetryState(id) {
+    const h = held.get(id); if (!h) return;
+    if (changed()) { persistenceSucceeded(h); scheduleHeld(id); }
+    else retryPersistenceOnly(id, () => persistRetryState(id));
   }
   function retryHeld(id, error) {
     const h = held.get(id); if (!h) return;
     if (error) failNote('verdictreview.fire', error);
     h.status = h.attempts >= maxAttempts ? 'retry-exhausted' : 'pending';
     h.dueAt = now() + retryMs;
-    if (changed()) scheduleHeld(id);
+    persistRetryState(id);
   }
   function completeHeld(id) {
     const h = held.get(id); if (!h) return;
@@ -198,13 +219,15 @@ function makeVerdictReview(opts) {
     // recovery; the host must deduplicate side effects by runId when needed.
     h.status = 'completed';
     if (changed()) held.delete(id);
+    else retryPersistenceOnly(id, () => completeHeld(id));
   }
   function fireHeld(id, why) {
-    const h = held.get(id); if (!h || h.status === 'running' || h.status === 'completed' || typeof h.fire !== 'function') return false;
+    const h = held.get(id); if (!h || h.status === 'running' || h.status === 'completed' || h.persistenceBlocked || typeof h.fire !== 'function') return false;
     if (now() - h.at > ttlMs) { held.delete(id); changed(); return false; }
     try { clearT(h.timer); } catch (e) { failNote('verdictreview.clearTimer', e); }
     h.timer = null; h.status = 'running'; h.attempts++;
-    if (!changed()) { h.status = 'pending'; h.attempts--; return false; }
+    if (!changed()) { h.status = 'pending'; h.attempts--; retryPersistenceOnly(id, () => fireHeld(id, 'persistence-retry')); return false; }
+    persistenceSucceeded(h);
     let result;
     try { result = h.fire(jobFor(h, id, why)); }
     catch (e) { retryHeld(id, e); return false; }
@@ -218,7 +241,7 @@ function makeVerdictReview(opts) {
     if (typeof fire !== 'function' || held.has(id) || !shouldTrigger(id, verdict)) return false;
     const row = packets.get(id);
     const h = { at: row.at, packet: row.packet, verdict: String(verdict), ...correctionParts(initialCorrection),
-      correctionSource: initialCorrection ? 'verdict' : '', timer: null, fire, dueAt: now() + graceMs, attempts: 0, status: 'pending' };
+      correctionSource: initialCorrection ? 'verdict' : '', timer: null, fire, dueAt: now() + graceMs, attempts: 0, persistenceFailures: 0, persistenceBlocked: false, status: 'pending' };
     packets.delete(id); held.set(id, h);
     if (!changed()) { held.delete(id); packets.set(id, row); return false; }
     if (graceMs === 0) fireHeld(id, 'immediate'); else scheduleHeld(id);
@@ -233,7 +256,7 @@ function makeVerdictReview(opts) {
         h.correctionOriginalChars + 3 + incoming.correctionOriginalChars, h.correctionTruncated || incoming.correctionTruncated) : incoming;
       Object.assign(h, parts, { correctionSource: String(source || (final ? 'message' : 'chip')) });
     }
-    if (final) { h.attempts = 0; h.status = 'pending'; }
+    if (final) { h.attempts = 0; h.status = 'pending'; persistenceSucceeded(h); }
     if (!changed()) { Object.assign(h, previous); return { ok: false, reason: 'review correction could not be persisted' }; }
     if (final) return { ok: true, fired: fireHeld(id, 'correction') };
     return { ok: true, fired: false };
