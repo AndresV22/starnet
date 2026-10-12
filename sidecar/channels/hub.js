@@ -2022,7 +2022,8 @@
         if (onLineOutcome) {
           // a throwing outcome hook is the HOST's bug (the trigger runner records every fire's truth through it): never
           // let it abort the reply, but never swallow it silently either — the failopen ledger names it
-          try { const lo = { agentId: line.agentId, stopped: line.stopped || null, hops: line.hops.slice(), usd: line.usd }; if (line.dockId) lo.dockId = line.dockId; onLineOutcome(lo); } catch (e) { failNote('channels.hub.lineOutcome', e); }
+          // partial (additive): the JOINER sent on without every branch — the job is not clean, whatever its run rows say
+          try { const lo = { agentId: line.agentId, stopped: line.stopped || null, hops: line.hops.slice(), usd: line.usd }; if (line.dockId) lo.dockId = line.dockId; if (line.partial) lo.partial = String(line.partial); onLineOutcome(lo); } catch (e) { failNote('channels.hub.lineOutcome', e); }
         }
         if (!myRec.superseded && line.hops.length) {
           // the line's answer replaces the first stage's — and the floor/channel agree on who produced it

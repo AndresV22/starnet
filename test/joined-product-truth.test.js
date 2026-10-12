@@ -133,29 +133,36 @@ function surface(plan) {
     const { makeRunStore } = require('../sidecar/runstore.js');
     const { cleanJobRows, makeLineShipments } = require('../sidecar/routing/line-shipments.js');
     for (const id of ['second_opinion', 'swarm_synthesis']) {
-      for (const [label, bad] of [['clean', null], ['a failed COPY branch', 'error'], ['a hop that ended max_iters with text', 'max_iters']]) {
+      /* (runtime repair 2026-10-12) two partial jobs the run rows cannot see: a COPY branch the host refused BEFORE it ran (hub
+         runAgent's roster refusal, the cron seam, 'the workflow changed' — no run row), and a branch still out when the joiner timed
+         out (the entry branch parked, its sibling never came: no row either). Every row that exists ended done; the chain knows. */
+      for (const [label, bad] of [['clean', null], ['a failed COPY branch', 'error'], ['a hop that ended max_iters with text', 'max_iters'],
+        ['a COPY branch refused before it ran (no run row)', 'norow'], ['a branch still out at the joiner timeout', 'timeout']]) {
         const { plan, router } = floor(id), ui = surface(plan), events = [];
         let t = 1000;
         const runStore = makeRunStore({ clock: { now: () => ++t } });
         let saved = [];
         const receipts = makeLineShipments({ now: () => ++t, load: () => saved, save: v => { saved = v; }, runsFor: sid => runStore.list(null, { streamId: sid, limit: 200 }) });
         const entry = router.resolveDock({ tag: 'general' }), lineId = router.lineOriginFor(entry.agentId, entry.dockId);
-        const streamId = 'chat-' + id, entryRunId = 'entry-' + id + '-' + (bad || 'clean');
+        const streamId = 'chat-' + id, entryRunId = 'entry-' + id + '-' + (bad || 'clean'), shippedRecs = [];
         runStore.record({ runId: entryRunId, agentId: entry.agentId, reason: 'done', streamId, lineId, dockId: entry.dockId, toolsOk: 1 });
         ui.end(entry.agentId, entry.dockId, lineId, entryRunId);
-        const chain = makeChainRunner({
+        const chain = makeChainRunner(Object.assign({
           nextAgent: (a, c) => router.chainNext(a, c), stepDock: (d, c) => router.chainStepDock(d, c),
           peekDock: (d, c) => router.chainPeekDock(d, c), entryDockOf: a => router.entryDockOf(a),
           fanSiblingsDock: d => router.fanSiblingsDock(d), lineOfAgent: (a, d) => router.lineOfAgent(a, d),
-          lastStage: (a, d) => router.chainShipsToOutbox(a, d), onShipped: rec => receipts.record(rec),
+          lastStage: (a, d) => router.chainShipsToOutbox(a, d), onShipped: rec => { shippedRecs.push(rec); return receipts.record(rec); },
           cleanJob: k => !!(k && k.streamId && k.entryRunId) && !!cleanJobRows(runStore.list(null, { streamId: k.streamId, limit: 200 }), k),
-          emit: (name, p) => { events.push({ name, p }); if (name === 'workitem.placed') ui.placed(p); if (name === 'workitem.delivered') ui.release(p); }
-        });
+          emit: (name, p) => { events.push({ name, p }); if (name === 'workitem.placed') ui.placed(p); if (name === 'workitem.delivered') ui.release(p); },
+          // the joiner's timeout clock, fired at once: the sibling of a 'timeout' job is never launched in this call
+          setTimer: fn => { fn(); return 0; }
+        }, bad === 'timeout' ? { fanSiblingsDock: () => [] } : {}));
         let hop = 0;
         const result = await chain.advance({ ...entry, lineId, runId: entryRunId, streamId, since: 0, text: 'Entry evidence', originalText: 'Compare the evidence',
           runAgent: async h => {
             const runId = 'run-' + id + '-' + (++hop), fails = bad && hop === 1;
-            runStore.record({ runId, agentId: h.agentId, reason: fails ? bad : 'done', streamId, lineId: h.lineId, dockId: h.dockId, toolsOk: 1 });
+            if (fails && bad === 'norow') return { text: '', usd: 0, error: 'target agent ' + h.agentId + ' is not configured' };
+            runStore.record({ runId, agentId: h.agentId, reason: (fails && bad !== 'timeout') ? bad : 'done', streamId, lineId: h.lineId, dockId: h.dockId, toolsOk: 1 });
             ui.end(h.agentId, h.dockId, lineId, runId, h.workitemId);
             return fails && bad === 'error' ? { error: 'boom', usd: 0.01 } : { text: h.agentId + ' evidence', usd: 0.01 };
           } });
@@ -170,6 +177,12 @@ function surface(plan) {
           assert.equal(outputs.length, 0, id + ' / ' + label + ': no line-output for a job the receipt refuses');
           assert.equal(ui.crates.length, 0, id + ' / ' + label + ': so no product lands at the OUTBOX');
           assert.equal(saved.length, 0, id + ' / ' + label + ': exactly as SHIPPED stays 0');
+          if (bad === 'norow' || bad === 'timeout') {
+            // every run row that exists ended done — the rows alone would call this job clean; the chain's own mark refuses it
+            assert.ok(runStore.list(null, { streamId, limit: 200 }).every(r => r.reason === 'done'), id + ' / ' + label + ': every recorded row ended done');
+            assert.ok(result.partial && /PARTIAL/.test(id === 'second_opinion' ? result.text : 'PARTIAL'), id + ' / ' + label + ': the job is marked partial (' + result.partial + ')');
+            assert.ok(shippedRecs.length === 1 && shippedRecs[0].partial === result.partial, id + ' / ' + label + ': SEND TO hears of it as partial, never as clean');
+          }
         }
       }
     }

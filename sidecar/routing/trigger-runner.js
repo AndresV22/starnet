@@ -247,7 +247,8 @@ function makeTriggerRunner(deps) {
     const lo = s.current.lineOutcome;
     const onLine = !!(info && info.lineId === t.lineId);
     const allDone = runs.length > 0 && runs.every(r => r.reason === 'done');
-    const ships = !!(lo && !lo.stopped && shipsToOutbox(lo.agentId, lo.dockId));
+    // a PARTIAL joined job (chain out.partial) is not clean, even when every run row that exists ended done (runtime repair 2026-10-12)
+    const ships = !!(lo && !lo.stopped && !lo.partial && shipsToOutbox(lo.agentId, lo.dockId));
     const completed = onLine && allDone && ships;
     const usd = runs.reduce((a, r) => a + ((typeof r.usd === 'number' && isFinite(r.usd)) ? r.usd : 0), 0);
     if (workitemId) {
@@ -264,6 +265,7 @@ function makeTriggerRunner(deps) {
       else if (!runs.length) err = firstReply || 'no run was recorded for this work';
       else if (!allDone) { const bad = runs.find(r => r.reason !== 'done'); err = 'a stage (' + (bad.agentId ? nameOf(bad.agentId) : '?') + ') ended "' + (bad.reason || 'unknown') + '"' + (firstReply ? ': ' + firstReply : ''); }
       else if (lo && lo.stopped) err = 'the line stopped early: ' + lo.stopped;
+      else if (lo && lo.partial) err = 'the joiner sent on without every branch (' + lo.partial + ')';
       else err = 'the line did not reach its OUTBOX';
     }
     const outcome = { ok: completed, at: now(), streamId, runs: runs.length, usd, agentId: (lo && lo.agentId) || agentId || null, source: item.source || null };

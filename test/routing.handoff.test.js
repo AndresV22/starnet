@@ -231,6 +231,13 @@ function station(n) {
   R.onShipped(fresh('sample-mi', LA, lastA, 'max_iters'));
   await tick(30);
   A.ok(refusedOnB().some(x => /did not finish cleanly \(a step ended “max_iters”\)/.test(x)), 'a sending job with a step that did not end done is not sent on');
+  /* (runtime repair 2026-10-12) a PARTIAL joined job — a COPY branch the host refused before it ran, so it wrote NO run row and every
+     row that exists ended done — is not sent on either: the chain marks it (rec.partial) and the next line says why */
+  const hubBeforePartial = hubCalls.length;
+  const pr = R.onShipped(Object.assign(fresh('sample-pj', LA, lastA), { partial: 'crew0 failed' }));
+  A.ok(!pr.ok && /did not finish cleanly \(its joiner sent on without every branch: crew0 failed\)/.test(pr.error) && hubCalls.length === hubBeforePartial,
+    'a partial joined job is refused at once, nothing runs on the next line — ' + JSON.stringify(pr));
+  A.ok(refusedOnB().some(x => /joiner sent on without every branch: crew0 failed/.test(x)), '…and the next line\'s record says why');
   // an uncrewed target
   const unplan = plan;
   for (const id of b.bays) st.assignPropAgent(id, '');

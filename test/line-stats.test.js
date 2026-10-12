@@ -388,4 +388,14 @@ const asyncChecks = [];   // the world.js poll check is async: A.report waits fo
   A.eq(lineStats({ lines: [{ lineId: 'L1' }], shipments: disk, since: midnight }).lines[0].shipped, before + 1, 'today\'s SHIPPED is unchanged by the prune (+ the new job)');
   A.eq(ledger.snapshot().length, 3, 'the cache matches what was saved');
 }
+/* A PARTIAL JOINED JOB IS NOT A SHIPMENT (runtime repair 2026-10-12): a COPY branch the host refused before it ran writes no run row,
+   so every row that exists ended done — the chain's own mark (rec.partial) is what refuses it */
+{
+  let disk = [], writes = 0;
+  const ledger = makeLineShipments({ now: () => 5000, load: () => disk, save: v => { writes++; disk = v.slice(); },
+    runsFor: sid => [{ runId: sid, lineId: 'L1', streamId: sid, agentId: 'a', dockId: 'd', reason: 'done', toolsOk: 1 }] });
+  A.eq(ledger.record({ lineId: 'L1', entryRunId: 'pj', streamId: 'pj', agentId: 'a', dockId: 'd', outboxId: 'o', partial: 'crew0 failed' }), false, 'a partial joined job records no receipt');
+  A.eq([writes, disk.length], [0, 0], 'nothing is written');
+  A.ok(ledger.record({ lineId: 'L1', entryRunId: 'ok', streamId: 'ok', agentId: 'a', dockId: 'd', outboxId: 'o' }), 'the same job whole records');
+}
 Promise.all(asyncChecks).then(() => A.report());

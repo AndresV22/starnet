@@ -12508,8 +12508,11 @@ async function runSampleJob(readArgs) {
        only land on that line's docks, but if resolution ever fell through to a hub fallback the proof
        must fail honestly rather than 200 while claiming a line it never rode. */
     const onLine = !line || entryLineId === line;
+    // a PARTIAL joined job (a COPY branch failed or never reached the JOINER — chain out.partial) is not delivered, even when every
+    // run row that exists ended done: a hop refused before it ran writes none (runtime repair 2026-10-12)
+    const partial = (sampleLineOutcome && sampleLineOutcome.partial) ? String(sampleLineOutcome.partial) : '';
     const completed = onLine && runs.length > 0 && runs.every(r => r.reason === 'done')
-      && !!sampleLineOutcome && !sampleLineOutcome.stopped
+      && !!sampleLineOutcome && !sampleLineOutcome.stopped && !partial
       && router.chainShipsToOutbox(sampleLineOutcome.agentId, sampleLineOutcome.dockId);
     const delivered = completed ? runs[0] : null;
     const totalUsd = runs.reduce((s, r) => s + ((typeof r.usd === 'number' && isFinite(r.usd)) ? r.usd : 0), 0);
@@ -12522,7 +12525,7 @@ async function runSampleJob(readArgs) {
       const stoppedJob = !!sampleInFlight.stopRequested;
       lineJobsSet(LineJobs.finish(lineJobs, jobId, { at: Date.now(), usd: totalUsd, output: sampleReplies.join(''), runs,
         status: completed ? 'delivered' : stoppedJob ? 'stopped' : runs.length ? 'problem' : 'failed',
-        error: completed ? '' : stoppedJob ? 'you stopped this job' : !onLine ? 'the job did not enter through this line' : runs.length ? 'a step did not finish cleanly' : (firstWarn || 'no step ran') }));
+        error: completed ? '' : stoppedJob ? 'you stopped this job' : !onLine ? 'the job did not enter through this line' : (partial && runs.every(r => r.reason === 'done')) ? 'the joiner sent on without every branch (' + partial + ')' : runs.length ? 'a step did not finish cleanly' : (firstWarn || 'no step ran') }));
       sampleInFlight.jobId = null;
     }
     const recordedJob = jobId ? LineJobs.get(lineJobs, jobId) : null;
@@ -12540,6 +12543,7 @@ async function runSampleJob(readArgs) {
       return json(502, Object.assign({
         ok: false, sample: true, error: stopped ? 'stopped — you stopped this job before it reached the OUTBOX'
           : !onLine ? 'sample job did not enter through line "' + line + '"'
+          : (partial && runs.length && runs.every(r => r.reason === 'done')) ? 'sample job came out of its joiner partial (' + partial + ')'
           : runs.length ? 'sample job did not complete cleanly' : (firstWarn || 'sample job produced no durable run outcome'),
         chatId: SAMPLE_CHAT, streamId: streamId, agentId: agentId || null, isTask: isTask,
         workitemId: workitemId || null, replies: sampleReplies.slice(), runs: runs, delivered: null, totalUsd: totalUsd

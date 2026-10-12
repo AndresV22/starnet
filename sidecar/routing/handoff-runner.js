@@ -138,6 +138,10 @@ function makeHandoffRunner(deps) {
       lines, depth: from.depth + 1, at: now(), files: [], input: '', original, output: String(r.text == null ? '' : r.text)
     };
     item.input = Pipeline.handoffInput({ fromName: item.fromName, original: item.original, output: item.output, files: [] });
+    // a PARTIAL joined job (chain out.partial: a COPY branch failed or never reached the JOINER) is not handed on as a finished
+    // result — said on the next line, like a job with a failed step (runtime repair 2026-10-12: a hop refused before it ran left
+    // no run row, so the dispatch check below could not see it)
+    if (r.partial) return refuse(item, say(plan, r.lineId) + '’s job did not finish cleanly (its joiner sent on without every branch: ' + String(r.partial).slice(0, 200) + ')');
     if (lines.indexOf(st.toLine) >= 0) return refuse(item, 'this job already went through ' + say(plan, st.toLine) + ' — sending it on again would send it round in a circle');
     if (item.depth >= MAX_DEPTH) return refuse(item, 'this job has already been handed on ' + from.depth + ' times — a job crosses at most ' + MAX_DEPTH + ' lines');
     const pf = preflight(plan, st.toLine);
@@ -267,7 +271,8 @@ function makeHandoffRunner(deps) {
     const lo = s.current.lineOutcome;
     const onLine = !!(info && String(info.lineId || '') === String(item.toLine));
     const allDone = runs.length > 0 && runs.every(x => x.reason === 'done');
-    const ships = !!(lo && !lo.stopped && shipsToOutbox(lo.agentId, lo.dockId));
+    // a PARTIAL joined job (chain out.partial) is not clean, even when every run row that exists ended done (runtime repair 2026-10-12)
+    const ships = !!(lo && !lo.stopped && !lo.partial && shipsToOutbox(lo.agentId, lo.dockId));
     const completed = onLine && allDone && ships;
     const usd = runs.reduce((a, x) => a + ((typeof x.usd === 'number' && isFinite(x.usd)) ? x.usd : 0), 0);
     if (workitemId) {
@@ -288,6 +293,7 @@ function makeHandoffRunner(deps) {
       else if (!runs.length) err = (s.current.replies.find(x => /^⚠/.test(String(x).trim())) || '').trim().replace(/^⚠\s*/, '').trim() || 'no step ran';
       else if (!allDone) err = 'a step did not finish cleanly';
       else if (lo && lo.stopped) err = 'the line stopped early: ' + lo.stopped;
+      else if (lo && lo.partial) err = 'the joiner sent on without every branch (' + lo.partial + ')';
       else err = 'the line did not reach its OUTBOX';
     }
     if (yj) J.finish(yj.id, { at: now(), usd, output: s.current.replies.join(''), status: completed ? 'delivered' : stopped ? 'stopped' : runs.length ? 'problem' : 'failed', error: err,

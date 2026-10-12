@@ -82,6 +82,9 @@ function makeLineShipments(options) {
     const r = rec || {}, at = now();
     if (!propId(r.lineId) || !id(r.entryRunId) || !id(r.streamId) || !propId(r.outboxId) || !id(r.agentId)
       || (r.dockId != null && !propId(r.dockId)) || !time(at)) return false;
+    // a PARTIAL joined job (a COPY branch failed or never reached the JOINER — chain.js out.partial) is never a clean product, even
+    // when every run row that exists ended done: a hop refused before it ran writes none (runtime repair 2026-10-12)
+    if (r.partial) return false;
     let current; try { current = ensure(); } catch (_) { return false; }
     const key = keyOf(r);
     if (current.some(s => keyOf(s) === key)) return true;

@@ -281,7 +281,9 @@ function makeChainRunner(o) {
      awaited and never thrown through — A CHAIN NEVER GATES THE REPLY (law 1): the hand-off is queued, the reply goes now.
      rec = { lineId, entryRunId, agentId, dockId, outboxId, text, originalText, usd, streamId, since } (streamId / since from the seed, when
      the caller has them: the job's own stream and the time its entry run started, so the runner reads back exactly its runs;
-     outboxId = the OUTBOX the job's last walk landed in — a line with two OUTBOXes hands on only from the one that sends). */
+     outboxId = the OUTBOX the job's last walk landed in — a line with two OUTBOXes hands on only from the one that sends).
+     rec.partial (runtime repair 2026-10-12) = why a JOINER sent this job on without every branch (out.partial below): the host
+     still hears of it — so SEND TO can say on the next line why nothing came — but never counts or hands it on as a clean job. */
   const onShipped = typeof o.onShipped === 'function' ? o.onShipped : null;
   /* cleanJob({ lineId, entryRunId, streamId }) -> bool (runtime audit 2026-10-12): did EVERY run of this job end clean? The
      line-output authority below releases a held product on the floor; it must judge a job by the same rule the shipment receipt
@@ -388,7 +390,7 @@ function makeChainRunner(o) {
     const s = seed || {};
     // Exact terminal authority for the floor: a barrier release alone may have more work after it.
     // Existing event, additive metadata (like dockId): no output text or guessed route leaves here.
-    if (s.lineId && out && out.stopped == null && out.outboxId && String(out.text || '').trim() && provenClean(s)) {
+    if (s.lineId && out && out.stopped == null && !out.partial && out.outboxId && String(out.text || '').trim() && provenClean(s)) {
       say('workitem.delivered', withDock({ workitemId: newId(), finalQueueId: 'outbox', agentId: out.agentId,
         box: 'line-output', lineId: String(s.lineId), outboxId: out.outboxId,
         entryRunId: s.runId ? String(s.runId) : null, workitemIds: evidence.workitemIds, ms: 0, ts: now() }, out.dockId));
@@ -406,6 +408,8 @@ function makeChainRunner(o) {
     const rec = { lineId, entryRunId: (s.runId != null && String(s.runId)) || null, agentId: out.agentId, dockId: out.dockId || null, outboxId: out.outboxId || null, text: String(out.text), originalText: String(s.originalText != null ? s.originalText : (s.text || '')),
       usd: ((typeof s.entryUsd === 'number' && isFinite(s.entryUsd) && s.entryUsd > 0) ? s.entryUsd : 0) + (out.usd || 0),
       streamId: (s.streamId != null && String(s.streamId)) || null, since: (typeof s.since === 'number' && isFinite(s.since)) ? s.since : null };
+    // a PARTIAL joined job still reaches the host — the receipt refuses it and SEND TO says why on the next line — never as clean
+    if (out.partial) rec.partial = String(out.partial);
     try { const r = onShipped(rec); if (r && typeof r.then === 'function') r.then(null, e => failNote('chain.onShipped', e)); }
     catch (e) { failNote('chain.onShipped', e); }
   }
@@ -426,6 +430,16 @@ function makeChainRunner(o) {
     let pool = null; try { pool = poolCap(); } catch (_) { pool = null; }
     const lim = effectiveLimits(s.limits || fromPlan, { maxHops, maxUsd }, pool);
     const out = { text: s.text, agentId: startAgent, hops: [], usd: 0, stopped: null, limits: { maxHops: lim.maxHops, maxUsd: lim.maxUsd, maxUsdPerDay: lim.maxUsdPerDay, clamped: lim.clamped } };
+    /* THE PARTIAL JOB (runtime repair 2026-10-12): a JOINER that sends on without every branch — one failed, or never delivered
+       before the timeout — marks the merged crate PARTIAL in its text (Pipeline.joinPayload) and the job on `out.partial` (why, in
+       words). The job still runs to its end (law 1: the next stage gets the partial set, marked), but it never counts as a clean
+       product: no line-output, no shipment receipt, no SEND TO, no 'delivered' verdict. The run rows alone cannot tell — a hop the
+       host refused before it ran (no credential, the floor changed) writes none, and a branch still out at the timeout has none. */
+    const joined = (parts, missing, failed) => {
+      const why = (failed || []).concat((missing || []).map(m => m + ' never reached the joiner'));
+      if (why.length) out.partial = (out.partial ? out.partial + '; ' : '') + why.join(', ');
+      return Pipeline.joinPayload(parts, missing, failed);
+    };
     if (!nextAgent || !runAgent || !startAgent) return out;
     // the entry run's spend lands in the line's DAY bucket here — the caller never sees this ledger
     // (out.usd stays HOP-ONLY; the ledger is the only place entry + hops are summed across messages).
@@ -606,7 +620,7 @@ function makeChainRunner(o) {
             const rel = batchToBarrier(b.results, bk, allAt);
             if (!rel || !rel.parts.length) { out.text = leadText; out.stopped = (fan.failed[0] || 'every branch failed'); return out; }
             const last = rel.parts[rel.parts.length - 1];
-            out.text = Pipeline.joinPayload(rel.parts, [], fan.failed);
+            out.text = joined(rel.parts, [], fan.failed);
             out.agentId = last.agentId; if (last.dockId) out.dockId = last.dockId;
             say('workitem.delivered', withDock({ workitemId: newId(), finalQueueId: last.agentId, agentId: last.agentId, box: 'join:' + allAt.join, ms: 0, ts: now() }, last.dockId));
             /* the merged crate walks on from the joiner's exit — always, even when no dock is past it: the peek above never moves a
@@ -633,7 +647,7 @@ function makeChainRunner(o) {
             if (b.refused) { barrier.release(bk); out.stopped = b.refused; return out; }
             hop += items.length - 1;
             const rel = batchToBarrier(b.results, bk, step);
-            out.text = Pipeline.joinPayload(rel.parts, [], fan ? fan.failed : []);
+            out.text = joined(rel.parts, [], fan ? fan.failed : []);
             const last = rel.parts[rel.parts.length - 1];
             out.agentId = last.agentId; if (last.dockId) out.dockId = last.dockId;
             say('workitem.delivered', withDock({ workitemId: newId(), finalQueueId: last.agentId, agentId: last.agentId, box: 'join:' + step.join, ms: 0, ts: now() }, last.dockId));
@@ -646,10 +660,10 @@ function makeChainRunner(o) {
             // nothing left to run in THIS call: wait for another deliverer (same run) or the joiner's timeout
             const w = await barrier.wait(step.join + '|' + runId, step.timeoutMin, s.signal);
             if (!w) { out.stopped = (s.signal && s.signal.aborted) ? 'stopped' : 'the joiner at ' + step.join + ' lost its branches'; return out; }
-            out.text = Pipeline.joinPayload(w.parts, w.missing, failedNames);
+            out.text = joined(w.parts, w.missing, failedNames);
             say('workitem.delivered', withDock({ workitemId: newId(), finalQueueId: cur.agentId, agentId: cur.agentId, box: 'join:' + step.join, ms: 0, ts: now() }, cur.dockId));
           } else {
-            out.text = Pipeline.joinPayload(r.parts, [], failedNames);
+            out.text = joined(r.parts, [], failedNames);
             say('workitem.delivered', withDock({ workitemId: newId(), finalQueueId: cur.agentId, agentId: cur.agentId, box: 'join:' + step.join, ms: 0, ts: now() }, cur.dockId));
           }
           branchMode = false; fan = null;
@@ -733,7 +747,7 @@ function makeChainRunner(o) {
           const rel = fan.joinKey ? barrier.release(fan.joinKey) : null;
           if (rel && rel.parts.length) {
             const js = fan.joinStep, last = rel.parts[rel.parts.length - 1];
-            out.text = Pipeline.joinPayload(rel.parts, [], fan.failed);
+            out.text = joined(rel.parts, [], fan.failed);
             say('workitem.delivered', withDock({ workitemId: newId(), finalQueueId: last.agentId, agentId: last.agentId, box: 'join:' + js.join, ms: 0, ts: now() }, last.dockId));
             cur = { agentId: last.agentId, dockId: dockMode ? (last.dockId || null) : null };
             out.agentId = last.agentId; if (last.dockId) out.dockId = last.dockId;
