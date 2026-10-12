@@ -7704,7 +7704,9 @@ function nightshiftContextPack() {
   // station's own reason-only calls read as the Commander's recent work (USER-STUDY LOOP, 2026-09-28).
   // Filter provenance before projecting into the pure pack: otherwise attachment/quoted content becomes ambient
   // owner activity in a later, clean run. Run storage omits taintedBy on clean rows; legacy rows share that shape.
-  try { runs = (runStore.list(null, { limit: 60 }) || []).filter(r => r && !r.taintedBy && !TrustedLearning.quotedMaterial(r.title)).map(r => ({ title: r.title, ts: r.ts, streamId: r.streamId, reason: r.reason, internal: !!r.internal })); } catch (_) { runs = []; }
+  // Internal titles are exclusion markers only: retain them even when a later tool taints their run, so its
+  // initially clean directive cannot reappear as owner chat. The pure pack never renders an internal run title.
+  try { runs = (runStore.list(null, { limit: 60 }) || []).filter(r => r && (r.internal || (!r.taintedBy && !TrustedLearning.quotedMaterial(r.title)))).map(r => ({ title: r.title, ts: r.ts, streamId: r.streamId, reason: r.reason, internal: !!r.internal })); } catch (_) { runs = []; }
   // Only host-recorded clean owner turns can ground activity. Check the full content before the pure core takes
   // its first line; a harmless heading cannot launder a quoted document below it. Bound the source window first.
   let cleanOwnerChats = [], chats = [];
