@@ -17,6 +17,7 @@ const server=http.createServer((req,res)=>{
   let delta,finish='stop';
   const call=(name,args)=>{finish='tool_calls';return {tool_calls:[{index:0,id:'audit_'+(++seq),type:'function',function:{name,arguments:JSON.stringify(args)}}]};};
   if(!main) delta={content:'No reusable change is warranted in this controlled audit.'};
+  else if(phase==='short') delta={content:'Done.'};
   else if(requests.at(-1).tools.includes('brief_proceed')&&!called('brief_proceed')) delta=call('brief_proceed',{objective:'Inspect a benign local fixture and report the controlled result'});
   else if(phase==='read'&&!called('fs_read')) delta=call('fs_read',{path:'.attachments/benign.txt'});
   else if(phase!=='read'&&!called('skill_list')) delta=call('skill_list',{});
@@ -30,15 +31,15 @@ const server=http.createServer((req,res)=>{
  const base='http://127.0.0.1:'+server.address().port+'/v1';
  const fixture=SidecarFixture.create({prefix:'memory-harness-audit-',timeoutMs:30000,env:{SKYNET_OPENROUTER_BASE:base,STARNET_OPENROUTER_BASE:base,SKYNET_OPENROUTER_KEY:'audit-fake',STARNET_OPENROUTER_KEY:'audit-fake',SKYNET_FULL_ACCESS:'1',STARNET_FULL_ACCESS:'1',SKYNET_SKILL_REVIEW_EVERY:'1',SKYNET_SKILL_CURATOR:'0',SKYNET_SCOUT:'0',SKYNET_QUEST_REFRESH:'0',SKYNET_CRON_ENABLED:'0',STARNET_CRON_ENABLED:'0',STARNET_DEBUG_CHANNELS:'1'}});
  const result=[];
- async function run(p,streamId){
+ async function run(p,streamId,agentId='agent'){
   phase=p; const before=requests.length;
-  const r=await fixture.json('POST','/api/run',{agentId:'agent',provider:'openrouter',model:'audit/model',key:'audit-fake',isTask:true,streamId,placed:['computer','notebook','files'],messages:[{role:'user',content:p==='read'?'I prefer concise bullet summaries.\nRead .attachments/benign.txt and summarize its ordinary deployment notes.':'Inspect available saved procedures and report completion of this controlled audit.'}]});
+  const r=await fixture.json('POST','/api/run',{agentId,provider:'openrouter',model:'audit/model',key:'audit-fake',isTask:true,streamId,placed:['computer','notebook','files'],messages:[{role:'user',content:p==='short'?'I prefer plain text summaries.':p==='read'?'I prefer concise bullet summaries.\nRead .attachments/benign.txt and summarize its ordinary deployment notes.':'Inspect available saved procedures and report completion of this controlled audit.'}]});
   assert.equal(r.status,200);
   await new Promise(r=>setTimeout(r,1800));
-  const rr=await fixture.json('GET','/api/runs?agent=agent&limit=15');
+  const rr=await fixture.json('GET','/api/runs?agent='+agentId+'&limit=15');
   const rows=Array.isArray(rr.body)?rr.body:(rr.body.runs||rr.body.rows||[]);
   const row=rows.find(x=>x.streamId===streamId);
-  const nudgeFile=path.join(fixture.workspace,'skill.nudge.json'); const nudge=fs.existsSync(nudgeFile)?JSON.parse(fs.readFileSync(nudgeFile,'utf8')).counts.agent:0;
+  const nudgeFile=path.join(fixture.workspace,'skill.nudge.json'); const nudge=fs.existsSync(nudgeFile)?JSON.parse(fs.readFileSync(nudgeFile,'utf8')).counts[agentId]:0;
   const v={phase:p,streamId,fixtureReadConfirmed:requests.slice(before).some(x=>x.fixtureReadReceived),reason:row?.reason,taintedBy:row?.taintedBy||'',reviewCalls:requests.slice(before).filter(x=>x.review).length,nudge};
   result.push(v); return v;
  }
@@ -58,6 +59,11 @@ const server=http.createServer((req,res)=>{
   const after=await fixture.json('GET','/api/learning-status?agent=agent');
   assert.ok(after.body.receipts.some(r=>r.saved===1 && r.tainted), 'capture receipt survives restart');
   const fresh=await run('fresh','fresh-control');assert.equal(fresh.taintedBy,'');assert.ok(fresh.reviewCalls>0);
+  const shared=await run('shared','other-agent-control','reader');assert.equal(shared.reason,'done');
+  assert.ok(requests.filter(x=>x.phase==='shared' && x.main).some(x=>x.system.includes('concise bullet summaries')), 'explicit global owner preference reaches another agent');
+  await run('short','short-preference-control');
+  const shortStatus=await fixture.json('GET','/api/learning-status?agent=agent');assert.ok(shortStatus.body.receipts.filter(r=>r.saved===1).length>=2,'short tool-free preference is captured');
+  const failures=fixture.output().match(/\[failopen\] (?:learning\.|skill-candidate\.)[^\n]*/g)||[];assert.deepEqual(failures,[],'learning has no silent persistence failure');
   console.log(JSON.stringify({status:'PASS',source:'memory-learning-execution',kind:'real sidecar, scripted local provider, no quality benchmark',rows:result},null,2));
  }catch(e){console.error(JSON.stringify({status:'FAIL',rows:result,error:e.stack,sidecarTail:fixture.output().slice(-5000)},null,2));process.exitCode=1;}
  finally{await fixture.dispose();server.closeAllConnections();await new Promise(r=>server.close(r));}

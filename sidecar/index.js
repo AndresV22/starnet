@@ -352,6 +352,7 @@ const TrustedLearning = require('./trusted-learning.js');
 const LearningEvidence = require('./learningevidence.js');
 const SkillEvaluation = require('./skillevaluation.js');
 const SkillEvaluationRunner = require('./skill-evaluation-runner.js');
+const { makeEvaluationAccounting } = require('./skill-evaluation-accounting.js');
 const TaskPostconditions = require('./task-postconditions.js');        // SOP lane: the typed acceptance authority (mid-run probe + end-of-run verdict)
 const RecipeDrift = require('./recipe-drift.js');                      // golden-run drift: latest recipe run vs its own good history (pure, from run rows)
 const { makeProvenanceIndex } = require('./deliverable-provenance.js'); // WHO made a deliverable + WHAT project it belongs to, derived from the run log
@@ -18586,13 +18587,14 @@ async function handleSkillCandidateAction(req, res) {
     const controller = new AbortController(), timer = setTimeout(() => controller.abort(), 120000);
     const onClose = () => { if (!res.writableEnded) controller.abort(); };
     res.once('close', onClose); stationOneShots.add(controller); skillEvaluationsNow.add(agentId);
-    let spent = 0;
+    const accounting = makeEvaluationAccounting({ ledger, agentId, provider: providerId, model: cfg.model, unmetered });
     try {
       const provider = await providerForRunConfig(cfg, resolveReasoningEffort(providerId, cfg.reasoningEffort));
       const runCase = SkillEvaluationRunner.makeAgentLoopCaseRunner({ provider, model: cfg.model, cost: makeCostEngine({ priceOf: provider.priceOf }), clock: { now: () => Date.now() },
         runIdPrefix: 'skill-eval-' + crypto.randomUUID(), limits: { maxIters: 8, maxCostUsd: 0.08, grace: false },
-        authorize: async () => !controller.signal.aborted && spent < 0.40 && (unmetered || !budget.check(null, agentId, 0, Date.now(), null)),
-        onRun: async ({ result, runId }) => { if (!result) return; spent += result.usd || 0; ledger.record({ runId, agentId, turns: result.turns || 0, usd: result.usd || 0, tokens: result.tokens || 0, model: cfg.model, unmetered }); }
+        authorize: async () => !controller.signal.aborted && accounting.canContinue() && (unmetered || !budget.check(null, agentId, 0, Date.now(), null)),
+        beforeRun: accounting.beforeRun,
+        onRun: accounting.onRun
       });
       const receipt = await evaluationServiceFor(agentId, candidate.skill, cfg, runCase).evaluate({ candidate: candidate.skill, baseline, suiteId: String(body.suiteId || ''), signal: controller.signal });
       return learningJson(res, 200, { ok: true, receipt });

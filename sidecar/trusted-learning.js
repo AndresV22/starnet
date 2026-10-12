@@ -33,6 +33,8 @@ function eligible(origin) {
 function preferences(input, projectRoot) {
   if (!input || !['interactive-owner', 'channel-owner'].includes(input.source)) return [];
   const text = String(input.content || '').replace(/[‘’]/g, "'");
+  // An opt-out applies to the whole message, including a preference in an earlier sentence.
+  if (/\b(?:do not|don't|never)\s+(?:(?:automatically|ever)\s+)?(?:save|store|remember|retain|memorize)\b|\b(?:no|without)\s+(?:persistent\s+)?memor(?:y|ies)\b/i.test(text)) return [];
   // Preserve exact words; do not infer polarity or reorder a comparison. Quoted/code material and reports of
   // somebody else's instructions are data even when a user pasted them into a user-role message.
   if (/[`<>“”"]|(?:^|\n)\s*>/.test(text) || /\b(?:examples?|samples?|transcript|following|says?|said|asked|told|quotes?)[^\n]*[:\n]/i.test(text) || /\b(?:quoted?|document|attachment|website|webpage|email|message|article)\s+(?:says?|said|states?|reads?|instructs?)\b/i.test(text)) return [];

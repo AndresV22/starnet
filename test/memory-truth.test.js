@@ -217,7 +217,7 @@ function harness(at, extra) {
     A.ok(!/const lr = latestProposalRun\.get\(agent\); batch = lr/.test(idx), 'the cross-run fallback is gone');
     A.ok(/onSaved: recordRunReceipt/.test(idx), 'notebook.write reports its saves as this run\'s receipts');
     A.ok(/memcore\.mergeReceipts\(prev && prev\.agentId === agentId \? prev\.proposals : \[\], items\)/.test(idx), 'a later stash MERGES into the run\'s batch instead of overwriting it');
-    A.ok(/!o\.parentRunId && !o\.delegatedBy && !o\.groupTools && \(surface === 'interactive' \|\| ownerTrusted\)/.test(idx) && /ownerTrusted, commanderWords,/.test(idx),
+    A.ok(idx.includes('TrustedLearning.eligible(') && idx.includes('const commanderWords = trustedLearningInput ? trustedLearningInput.content') && idx.indexOf("TrustedLearning.capture(messages, 'interactive-owner')") < idx.indexOf('await attachments.expandUserAttachments(messages, agentId)') && /ownerTrusted, commanderWords,/.test(idx),
       'commanderWords reach the tool ctx only from the owner\'s own surfaces (never a worker, a group transcript or a guest)');
     // COMMS: each save renders once per run, and a later save of the same run is not swallowed
     const chat = fs.readFileSync(path.join(__dirname, '..', 'frontend', 'app', 'chat.js'), 'utf8');

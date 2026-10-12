@@ -488,8 +488,8 @@ const dcall = (name, args) => ({ id: 'c', name, args, argsRaw: JSON.stringify(ar
     // the host's post-run passes (reflection / failure-review / study / threadmine / skill-review) turn a transcript into
     // durable notes and skills — a tainted run's transcript never feeds them, and auto-recall latches a tainted note
     const idx = require('fs').readFileSync(require('path').join(__dirname, '..', 'sidecar', 'index.js'), 'utf8');
-    A.ok(/if \(execution\.taintedBy\(\)\) \{\s*for \(const pass of \['reflection', 'failure-review', 'study', 'threadmine', 'skill-review'\]\)/.test(idx),
-      'a tainted run is dropped from every memory/skill-writing post-run pass');
+    A.ok(idx.includes("['reflection', 'failure-review', 'study', 'threadmine'].concat(noTrustedEvidence ? ['skill-review'] : [])") && idx.includes('LearningEvidence.buildLearningEvidence(o, redact).eligible'),
+      'tainted transcripts cannot feed memory writers; skill review requires separately attributed evidence');
     A.ok(/latchRunTaint\('recalled memory saved by a run that read '/.test(idx), 'auto-recall of a tainted note latches the reading run');
     A.ok(/r\.pinned && !tasteIds\.has\(r\.id\) && !\(tasteWithheld && r\.origin === FeedbackMemory\.ORIGIN\) && !r\.taintedBy/.test(idx),
       'a delegated worker\'s pinned context never carries a tainted note');
