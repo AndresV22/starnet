@@ -53,7 +53,10 @@ const lineOf = (pl, id) => pl.lineOfProp[id];
   A.eq(recA.sendTo, [{ outboxId: a.outbox, intakeId: b.intake, toLine: lineOf(p1, b.intake) }], 'LINE A’s record names where it sends');
   A.ok(recA.name === 'A' && typeof recA.stages === 'number' && recA.stages >= 1 && recA.maxHops === P.LINE_LIMIT_DEFAULTS.maxHops, 'the line record carries its name and stages n / max — ' + JSON.stringify({ name: recA.name, stages: recA.stages, maxHops: recA.maxHops }));
   A.eq(p1.hash, hash0, 'plan.hash never moves with a SEND TO (dispatch topology is unchanged; SPLITTER counters keep)');
-  A.ok(P.ok(p1) && !p1.errors.some(e => /^SEND_TO_(MISSING|SELF|LOOP)$/.test(e.code)), 'a clean SEND TO has no disabling finding (private-file access may still need a shared project)');
+  // RESTORED (final floor lane M19 / M29): e2f430f6e narrowed this to /^SEND_TO_(MISSING|SELF|LOOP)$/ so a PRIVATE FILES warning
+  // could ride every default SEND TO. Whether the next crew can open this line's files is advice (Pipeline.sendToFileAdvice), never
+  // a routing finding: a clean SEND TO is no finding at all.
+  A.ok(P.ok(p1) && !p1.errors.some(e => /^SEND_TO/.test(e.code)), 'a clean SEND TO is no finding');
 
   // the same pointer again burns no undo slot
   st.undo(); A.eq(st.propById(a.outbox).sendTo, undefined, 'UNDO takes the pointer back');

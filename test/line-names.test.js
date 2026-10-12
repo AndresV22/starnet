@@ -150,6 +150,30 @@ function twoUnnamed() {
   A.ok(!/'LINE ' \+ p\.id\)|'LINE ' \+ l\.id\)|'LINE ' \+ ps\[0\]\.id\)/.test(build), 'Build never shows a raw prop id as a line name');
   A.ok(/st\.lineName\(ip\.id\)/.test(fn(sb, '  function lineWordFor(st, P, ip) {')) && !/'the unnamed line whose INBOX is at/.test(sb), 'the lead\'s cards: lineWordFor reads lineName, the doubled "(its INBOX at …)" is gone');
   A.ok(/const floorWord = id => \(typeof st\.lineName === 'function' \? st\.lineName\(id\) : null\);/.test(sc), 'station.layout names an unnamed line by lineName');
+  // PRIVATE FILES (M19 / M29): no floor nag at rest — neither nag table carries it; the OUTBOX card says it, only where it is true
+  const table = (code, name) => { const i = code.indexOf('const ' + name + ' = {'); return code.slice(i, code.indexOf('\n  };', i)); };
+  A.ok(!/SEND_TO_PRIVATE_FILES/.test(table(build, 'VAL_LABEL')) && !/SEND_TO_PRIVATE_FILES/.test(table(world, 'NAG_LABEL')), 'PRIVATE FILES is never painted on the floor at rest');
+  A.ok(/Pipeline\.sendToFileAdvice\(H\.plan\(\) \|\| \{\}\)\.find\(a => a\.propId === p\.id\)/.test(panel) && /\+ filesNote/.test(panel), 'the OUTBOX card says it, from sendToFileAdvice');
+  A.ok(/P\.sendToFileAdvice \? P\.sendToFileAdvice\(plan\) : \[\]/.test(sc), 'station.layout tells the lead, from the same advice');
+}
+
+/* ---------- G. the lead's refit card says PRIVATE FILES before approval — only where it is true (M26) ---------- */
+{
+  const { st, a, b } = twoUnnamed();
+  const same = SB.planEdit(st.serialize(), { refit: [{ op: 'send', from: a.outbox, to: b.intake }] }, env);
+  A.ok(same.ok && !/no project folder/.test(same.plan.summary), 'one agent on both lines: no files warning on the card — ' + (same.ok ? same.plan.summary.slice(0, 160) : same.error));
+  const bayB = st.props().find(p => p.t === 'bay' && P.lineComponents(st.projectGeometry()).find(c => c.key === b.key).props.includes(p.id));
+  st.assignPropAgent(bayB.id, 'rex');
+  const two = SB.planEdit(st.serialize(), { refit: [{ op: 'send', from: a.outbox, to: b.intake }] }, env);
+  const wa = 'LINE ' + st.lineLetter(a.intake);
+  A.ok(two.ok && new RegExp(wa + ' has no project folder: only the finished text rides on, and the next line’s crew cannot open the files it makes').test(two.plan.summary),
+    'a different crew next: the card warns before approval, naming the sending line — ' + (two.ok ? two.plan.summary : two.error));
+  const SV = Object.assign({}, env, { services: { projects: [{ name: 'starnet', root: 'C:/code/starnet' }] } });
+  const both = SB.planEdit(st.serialize(), { refit: [{ op: 'send', from: a.outbox, to: b.intake }, { op: 'folder', prop: a.intake, project: 'starnet' }] }, SV);
+  A.ok(both.ok && !/no project folder/.test(both.plan.summary), 'a folder op in the same refit takes the warning away — ' + (both.ok ? 'ok' : both.error));
+  st.setSendTo(a.outbox, b.intake);
+  const again = SB.planEdit(st.serialize(), { refit: [{ op: 'label', prop: b.intake, text: 'Next' }] }, env);
+  A.ok(again.ok && !/no project folder/.test(again.plan.summary), 'an existing private hand-off is not re-announced by an unrelated edit');
 }
 
 /* ---------- E. the Workflows window names a new line by the floor's own key, and says the name it STORED (M18) ---------- */

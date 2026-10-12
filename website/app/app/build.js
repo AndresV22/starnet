@@ -126,7 +126,6 @@ const Build = (() => {
     LINE_TOO_LONG: 'TOO LONG — RAISE THE LINE BUDGET',
     // SEND TO (2026-10-10) — said on the OUTBOX whose hand-off is off; advice, never a blocker
     SEND_TO_MISSING: 'SENDS NOWHERE — PICK A LINE', SEND_TO_SELF: 'SENDS TO ITSELF — PICK ANOTHER LINE',
-    SEND_TO_PRIVATE_FILES: 'PRIVATE FILES — PICK A SHARED PROJECT',
     SEND_TO_LOOP: 'SENDS IN A CIRCLE — CUT ONE SEND TO'
   };
   /* THE FULL SENTENCE for a finding whose floor label had to be cut short (2026-09-23 playtest: the NOT FED nag
@@ -143,7 +142,8 @@ const Build = (() => {
     LINE_TOO_LONG: 'Too long — one job on this line runs more stages than its LINE BUDGET allows, so every job would stop part-way (the stages that ran are still paid for). Raise “max stages after the first” in this INBOX’s Workflow card › Optional limits · LINE BUDGET (24 at most), or shorten the line.',
     SEND_TO_MISSING: 'This OUTBOX sends to an INBOX that is gone or starts no line yet (or the OUTBOX itself ends no line), so nothing is sent on. Click the OUTBOX and pick a line under SEND TO (or NOWHERE).',
     SEND_TO_SELF: 'This OUTBOX sends its work back into its own line’s INBOX, so nothing is sent on. Click it and pick another line under SEND TO (or NOWHERE).',
-    SEND_TO_PRIVATE_FILES: 'This line runs in a private workspace. Its finished text rides onward, but the next crew cannot open its private files. Choose a shared project on this line to hand files on.',
+    // (advice on the OUTBOX's card, never a floor nag — Pipeline.sendToFileAdvice says when it is true: final floor lane M19 / M29)
+    SEND_TO_PRIVATE_FILES: 'This line has no project folder, so the files its crew makes stay in each agent’s private workspace. The finished text rides on, but the next line’s crew cannot open those files. Give this line a shared project folder (on its INBOX) to hand files on.',
     SEND_TO_LOOP: 'These lines send their work round in a circle, so every SEND TO on the circle is off — a job would never stop. Click one OUTBOX on the circle and set its SEND TO to NOWHERE or another line.'
   };
   const valWhy = code => VAL_WHY[code] || VAL_LABEL[code] || code;

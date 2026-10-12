@@ -1547,6 +1547,10 @@ const WorkflowPanel = (() => {
       + choices.map((c, i) => '<button type="button" class="wf-chip' + (c.refusal ? ' off' : '') + '" data-sendto="' + esc(c.intakeId) + '" aria-pressed="' + c.on + '"'
         + (c.refusal ? ' aria-disabled="true"' : '') + '>' + esc(nameOf(c, i)) + '</button>').join('');
     const why = choices.map((c, i) => c.refusal ? '<p class="wf-help dim wf-sendwhy">' + esc(nameOf(c, i)) + ' — ' + esc(c.refusal.msg || c.refusal.error) + '</p>' : '').join('');
+    /* PRIVATE FILES (final floor lane M19 / M29): said HERE, quietly, on the OUTBOX's own card — and only when it is true (the
+       compiled SEND TO is live, this line has no project folder, and the next crew is not the same agent: Pipeline.sendToFileAdvice) */
+    const fileAdv = ss && !ss.off && typeof Pipeline !== 'undefined' && Pipeline.sendToFileAdvice ? Pipeline.sendToFileAdvice(H.plan() || {}).find(a => a.propId === p.id) : null;
+    const filesNote = fileAdv ? '<p class="wf-help dim wf-sendwhy" id="send-files">' + esc(H.valLabel('SEND_TO_PRIVATE_FILES')) + '</p>' : '';
     body.innerHTML = '<section class="wf-sec"><h3><span class="n">OUTBOX</span>Collect the finished work</h3>'
       + '<p class="wf-help">' + (f && f.outbox.reached ? 'This line’s finished work lands here — leave build mode and click it to read what came back.' : 'Drag the last BAY onto it to lay the belt (or BELT: click the BAY, then this OUTBOX).') + '</p>'
       + '<h4 class="wf-sub">SEND TO ›</h4>'
@@ -1554,7 +1558,7 @@ const WorkflowPanel = (() => {
       + (choices.length ? '<div class="wf-chips" role="group" aria-label="Where this line sends its finished work">' + chips + '</div>' + why
         : oldBelts.length ? '' : '<p class="wf-help dim">There is no other line on the floor yet. Build one, then pick it here to hand this line’s finished work on to it.</p>')
       + '<p class="wf-help' + (ss && ss.off ? ' wf-warnline' : '') + '" id="send-note">' + (ss && !ss.off && onName ? 'Every job that lands in this OUTBOX rides on to <b>' + esc(onName) + '</b> — its own crew works it, under its own budget. This line’s result stays here too.'
-        : ss ? '✕ Its SEND TO' + (onName ? ' <b>' + esc(onName) + '</b>' : '') + ' is off, so nothing is sent on — ' + esc(ss.why) + ' (Or pick NOWHERE.)' : 'This line’s work stops here.') + '</p>'
+        : ss ? '✕ Its SEND TO' + (onName ? ' <b>' + esc(onName) + '</b>' : '') + ' is off, so nothing is sent on — ' + esc(ss.why) + ' (Or pick NOWHERE.)' : 'This line’s work stops here.') + '</p>' + filesNote
       + '<p class="wf-help dim">Or drag this OUTBOX onto another line’s INBOX. One UNDO takes it back.</p></section>';
     const convert = body.querySelector('#wf-convert-sendto');
     if (convert) convert.onclick = () => { const r = H.station().convertHandoffBelt(p.id); if (r && r.ok) { H.sfx('click'); paint(true); } else { H.sfx('bad'); note((r && r.msg) || 'the old belt could not be converted', true, convert); } };

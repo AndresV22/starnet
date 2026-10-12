@@ -8275,7 +8275,6 @@ const World = (() => {
     ORPHAN_JUNCTION: 'NOT ON A BELT — MOVE IT',
     LINE_TOO_LONG: 'TOO LONG — RAISE THE LINE BUDGET',
     SEND_TO_MISSING: 'SENDS NOWHERE — PICK A LINE', SEND_TO_SELF: 'SENDS TO ITSELF — PICK ANOTHER LINE',
-    SEND_TO_PRIVATE_FILES: 'PRIVATE FILES — PICK A SHARED PROJECT',
     SEND_TO_LOOP: 'SENDS IN A CIRCLE — CUT ONE SEND TO'
   };
   // project the compiled plan's error list onto floor rectangles once per recompile (zero per-frame walk)

@@ -25,12 +25,31 @@ for(const [bp,worst] of [['revision_loop',8],['deep_dive',12]]) {
  A.ok(st.setSendTo(ob,ib).ok,'two independent lines linked by SEND TO');
  st.setPropLabel(ib,'Line B'); A.eq(st.sendToChoices(ob).find(c=>c.on).name,'LINE B','model SEND TO choices use the same normalized label');
  const p=P.compileRoutingPlan(st.projectGeometry());
- A.ok(p.errors.some(e=>e.code==='SEND_TO_PRIVATE_FILES'&&e.propId===ob&&e.warn),'private source files carry an advisory warning');
- A.ok(P.ok(p)&&!!p.sendTo[ob],'file-access warning does not disable hand-off');
+ // PRIVATE FILES is advice, never a routing finding (final floor lane M19 / M29): no floor nag at rest, and TRUE only where it is
+ A.ok(!p.errors.some(e=>/^SEND_TO/.test(e.code)),'a clean SEND TO compiles no finding (no PRIVATE FILES nag on the floor)');
+ const adv=P.sendToFileAdvice(p);
+ A.ok(adv.length===1&&adv[0].code==='SEND_TO_PRIVATE_FILES'&&adv[0].propId===ob&&adv[0].warn,'a folderless line handing on to a DIFFERENT crew: its files sit in private workspaces the next crew cannot open — advice');
+ A.ok(P.ok(p)&&!!p.sendTo[ob],'file-access advice does not disable hand-off');
  st.setPropProject(ia,'C:/projects/source'); st.setPropProject(ib,'C:/projects/target');
  const q=P.compileRoutingPlan(st.projectGeometry());
- A.ok(!q.errors.some(e=>e.code==='SEND_TO_PRIVATE_FILES'),'two named project folders need no private-workspace warning');
+ A.ok(!q.errors.some(e=>e.code==='SEND_TO_PRIVATE_FILES')&&!P.sendToFileAdvice(q).length,'two named project folders need no private-workspace warning');
  A.eq(q.hash,p.hash,'private-file legibility does not change the routing hash');
+ st.setPropProject(ib,'');
+ A.eq(P.sendToFileAdvice(P.compileRoutingPlan(st.projectGeometry())),[],'the SENDING line project folder is what makes its files reachable (the target needs none)');
+ st.setPropProject(ia,''); st.setPropProject(ib,'C:/projects/target');
+ A.eq(P.sendToFileAdvice(P.compileRoutingPlan(st.projectGeometry())).map(x=>x.propId),[ob],'…a project folder only on the receiving line does not reach the sender private files');
+}
+// one agent on both lines: its own private workspace — the files ARE reachable, so no advice (M29: the old warning was false here)
+{
+ const st=fresh(), a=LE.placeBlueprint(st,'research_line',{x:8,y:4}), b=LE.placeBlueprint(st,'research_line',{x:8,y:22});
+ for(const pr of st.props()) if(pr.t==='bay') st.assignPropAgent(pr.id,'writer');
+ const find=(r,t)=>r.ids.find(id=>st.propById(id).t===t), ob=find(a,'outbox'), ib=find(b,'intake');
+ A.ok(st.setSendTo(ob,ib).ok,'one agent, two lines, SEND TO');
+ const p=P.compileRoutingPlan(st.projectGeometry());
+ A.ok(!!p.sendTo[ob]&&!p.errors.some(e=>/^SEND_TO/.test(e.code))&&P.sendToFileAdvice(p).length===0,'the same agent on both lines opens its own files: no PRIVATE FILES advice');
+ // a second agent joins the receiving line: that crew member cannot open the writer's private files
+ const bayB=b.ids.find(id=>st.propById(id).t==='bay'); st.assignPropAgent(bayB,'coder');
+ A.eq(P.sendToFileAdvice(P.compileRoutingPlan(st.projectGeometry())).map(x=>x.propId),[ob],'…a different agent on the next line makes it true');
 }
 
 // Placement checks the complete footprint and calls the same insertion verdict as the click.

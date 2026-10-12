@@ -1081,11 +1081,7 @@
     const onCircle = Object.keys(sendTo).filter(k => sendReaches(sendTo[k].toLine, sendTo[k].fromLine)).sort(propIdCmp);
     for (const k of onCircle) { errors.push({ code: 'SEND_TO_LOOP', propId: k, lineId: sendTo[k].fromLine, toLine: sendTo[k].toLine, warn: true }); delete sendTo[k]; }
     const sendKeys = Object.keys(sendTo).sort(propIdCmp);
-    // Absolute paths identify the files, but a private agent workspace is not granted to the next line's crew.
-    for (const k of sendKeys) {
-      const source = lines.find(l => l.lineId === sendTo[k].fromLine);
-      if (!source || !source.projectRoot) errors.push({ code: 'SEND_TO_PRIVATE_FILES', propId: k, lineId: sendTo[k].fromLine, toLine: sendTo[k].toLine, warn: true });
-    }
+    // (whether the next crew can OPEN the files this line makes is advice, never a routing finding: sendToFileAdvice below)
     if (sendKeys.length) {
       plan.sendTo = {};
       for (const k of sendKeys) plan.sendTo[k] = sendTo[k];
@@ -2215,6 +2211,26 @@
     return { stages, worst, max: maxHops + 1, maxHops };
   }
 
+  /* SEND TO FILE ADVICE (final floor lane M19 / M26 / M29, 2026-10-12) — whether the next line's crew can OPEN the files this line
+     makes. Only the finished TEXT is guaranteed to ride on; a file rides as its absolute path (handoff-runner), and opening it is
+     the receiving agent's own file access (sidecar pathtrust): a line with a project folder makes its files there, a station
+     project the next crew may read; a line with none makes them in each agent's PRIVATE workspace, which only that same agent can
+     open. So the advice is TRUE only when the sending line has no project folder AND some crew member on it is not the agent the
+     next line hands the job to (any agent on either line differs) — never for the default SEND TO of one agent's own two lines, and
+     never as a floor nag at rest: it is not a routing finding (plan.errors stays clean, a clean SEND TO is no finding), it is
+     advice the OUTBOX's own card and the lead's refit card say. -> [{ code: 'SEND_TO_PRIVATE_FILES', propId: outboxId, lineId,
+     toLine, agents: [the sending line's crew] }] for the compiled SEND TOs it is true of. Pure. */
+  function sendToFileAdvice(plan) {
+    const out = [], lines = (plan && Array.isArray(plan.lines)) ? plan.lines : [], st = (plan && plan.sendTo) || {};
+    for (const k of Object.keys(st).sort(propIdCmp)) {
+      const s = st[k], src = lines.find(l => l && l.lineId === s.fromLine), dst = lines.find(l => l && l.lineId === s.toLine);
+      if (!src || src.projectRoot) continue;   // files in a project folder: the next crew can open them
+      const from = (src.agents || []).filter(Boolean), to = (dst && dst.agents || []).filter(Boolean);
+      if (from.some(a => to.some(b => b !== a))) out.push({ code: 'SEND_TO_PRIVATE_FILES', propId: k, lineId: s.fromLine, toLine: s.toLine, agents: from.slice(), warn: true });
+    }
+    return out;
+  }
+
   // Per-line evidence that an INBOX is fed: a compiled hand-off or a recorded real run, never a doc pointer.
   function fedLineIds(plan, stats) {
     const out = {};
@@ -2308,7 +2324,7 @@
     return { fromName: m[1] || '', original: orig ? orig[1] : '', output: out ? out[1] : '' };
   }
 
-  return { stepTestRefusal, lineStages, fedLineIds, rejoinOf, deriveLinks, reconcileLinks, compileRoutingPlan, sendToOf, sendsReachedOf, outboxesReached, lineWord, handoffInput, parseHandoffInput, composeStageBrief, HANDS_LEAD, resolveTarget, lineOf, lineOriginOf, lineLimitsOf, normalizeLineLimits, LINE_LIMIT_DEFAULTS, LINE_LIMIT_CEILINGS, sourceFor, ok, liveTiles, routeFrom, junctionLaneOwners, chainNext, chainStep, fanSiblings, handoffPrompt, parseHandoff, isHandoff, stripVerdictLine, joinPayload, divideJob, partTurn, partHandoff, divideBrief, divideAfterDock, splitFedByDock, lineComponents, LOOP_MAX_DEFAULT, LOOP_MAX_CEILING,
+  return { stepTestRefusal, lineStages, fedLineIds, sendToFileAdvice, rejoinOf, deriveLinks, reconcileLinks, compileRoutingPlan, sendToOf, sendsReachedOf, outboxesReached, lineWord, handoffInput, parseHandoffInput, composeStageBrief, HANDS_LEAD, resolveTarget, lineOf, lineOriginOf, lineLimitsOf, normalizeLineLimits, LINE_LIMIT_DEFAULTS, LINE_LIMIT_CEILINGS, sourceFor, ok, liveTiles, routeFrom, junctionLaneOwners, chainNext, chainStep, fanSiblings, handoffPrompt, parseHandoff, isHandoff, stripVerdictLine, joinPayload, divideJob, partTurn, partHandoff, divideBrief, divideAfterDock, splitFedByDock, lineComponents, LOOP_MAX_DEFAULT, LOOP_MAX_CEILING,
     // THE DOCK LAYER (multi-bay agents, 2026-09-22) — the dock-keyed truth the agent readings above are views of
     resolveDock, chainNextDock, chainStepDock, fanSiblingsDock, junctionLaneDocks, lineOfDock, lineOriginOfDock, entryDockOf, docksOf, dockOf, agentOfDock: agentOfDockIn, deriveDockLayer, dockLayer, hasDockLayer, stepToAgents, propIdCmp,
     _internals: { DIRV, OPP, LANE_ORDER, key, buildBeltMap, outLanes, inLanes, loopLanes, beltTileNear, ringBelts, junctionAnchor, dirBetween, linkTilesByProp, linkedBeltMap, nextTiles, splitLanes, detectCycle, hashStr, compileChains, compileDockChains, chainCycle, shipFrom, propIdCmp, entryDocksOf, agentChainsView } };
