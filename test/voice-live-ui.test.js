@@ -293,4 +293,39 @@ assert.match(bodyOf('finish'), /clearInterval\(meterClock\)/, 'leaving live voic
   );
 }
 
+// A voice fallback can answer a known prompt before its card paints. It owns only that
+// prompt, even while another worker is waiting on the same conversation.
+for (const [spoken, decision] of [['approve', 'once'], ['always allow', 'always'], ['deny', 'deny']]) {
+  const Channels = require('../frontend/app/channels.js');
+  Channels.reset();
+  const ws = { id: 'voice-parallel' };
+  Channels.begin(ws.id, 1000); Channels.setRunId(ws.id, 'lead-run');
+  Channels.setPending(ws.id, { promptId: 'worker-first', tool: 'fs.write' }, 2000);
+  Channels.setPending(ws.id, { promptId: 'worker-second', tool: 'shell.exec' }, 3000);
+  const calls = [], events = [];
+  // eslint-disable-next-line no-new-func
+  const answer = new Function('Workstreams', 'Channels', 'document', 'Harness', 'U', 'speakLocal', 'refreshTask', 'Date',
+    bodyOf('approvalCommand') + '\nreturn approvalCommand;')(
+    { active: () => ws }, Channels, { querySelectorAll: () => [] },
+    { consent: (...args) => calls.push(args) }, { bus: { emit: (...args) => events.push(args) } },
+    () => {}, () => {}, { now: () => 8000 }
+  );
+  assert.equal(answer('maybe'), false, 'unrecognized speech cannot settle a prompt');
+  assert.deepEqual(Channels.pendingAllOf(ws.id).map(p => p.promptId), ['worker-first', 'worker-second']);
+  assert.equal(answer(spoken), true);
+  assert.deepEqual(calls, [['lead-run', 'worker-second', decision]], 'voice sends only the selected prompt decision');
+  assert.deepEqual(events, [['permission.response', { promptId: 'worker-second', decision }]], 'the bus names the answered prompt');
+  assert.deepEqual(Channels.pendingAllOf(ws.id).map(p => p.promptId), ['worker-first'], 'voice answer preserves the other pending prompt');
+  assert.equal(Channels.peek(ws.id).pausedAt, 2000, 'the outstanding prompt keeps the original pause open');
+  assert.equal(Channels.statusOf(ws.id), 'awaiting your approval…', 'the channel still truthfully waits');
+  assert.equal(Channels.elapsedOf(ws.id, 9000), 1000, 'waiting on the sibling is not counted as run time');
+  assert.equal(answer(spoken), true);
+  assert.deepEqual(calls[1], ['lead-run', 'worker-first', decision], 'the next voice answer reaches the remaining prompt');
+  assert.deepEqual(Channels.pendingAllOf(ws.id), []);
+  assert.equal(Channels.peek(ws.id).pausedAt, 0, 'answering the final prompt closes the pause');
+  assert.equal(Channels.peek(ws.id).pausedMs, 6000, 'the pause closes once when all prompts settle');
+  assert.equal(Channels.statusOf(ws.id), 'working…');
+  Channels.reset();
+}
+assert.equal(source, fs.readFileSync(path.join(root, 'website', 'app', 'app', 'voice-live.js'), 'utf8'), 'the website voice controller matches the desktop');
 console.log('voice-live-ui.test.js: ok');
