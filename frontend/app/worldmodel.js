@@ -4393,8 +4393,8 @@ const WorldModel = (() => {
     }
     /* set/clear an INTAKE's LINE BUDGET (REFIT flow card, 2026-08-21): { maxHops, maxUsdPerMessage, maxUsdPerDay }.
        Normalized + clamped through the ONE shared normalizer (Pipeline.normalizeLineLimits) so the doc never
-       holds a number the executor would read differently; null/empty clears (= executor defaults). Mirrors
-       setPropLabel: only an INBOX carries it, no-op edits take no undo slot. */
+       holds a number the executor would read differently; null/empty clears (= executor defaults). Only an
+       INBOX carries it; like setPropLabel, no-op edits take no undo slot. */
     function setPropLimits(propId, limits) {
       const p = doc.props.find(q => q.id === propId);
       if (!p) return fail('NOT_FOUND', 'no such prop');
