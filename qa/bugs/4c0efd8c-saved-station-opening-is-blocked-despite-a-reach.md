@@ -47,3 +47,12 @@ _Filled in when the bug leaves the backlog: what was true, and why it is closed.
 
 
 ## Sibling coverage
+
+
+## October 12 scoped investigation
+
+Compared the save path at lane base e3e6c2ad with coordinator bbe1aa1; relevant app, cloud-save and server files matched. A seeded live browser reproduced a narrower diagnostic defect: after SAVE-NET, an explicit unreadable response changed the status text but left the screenshot code and copied report context at SAVE-NET. The repair refreshes the diagnosis on each unknown retry while preserving engine-degraded code precedence. It does not change saved-state loading, deadlines, authorization, migration or reset semantics.
+
+Live server fixtures stalled initial GET headers and response bodies while health returned 200 and diagnostics failed. Saved bytes remained unchanged during blocked states. After a readable response, retry opened NOVA; restarting the same isolated service and loading a fresh page reopened NOVA. This demonstrates bounded synthetic recovery, not the cause or recovery of the customer installation. The canonical incident remains open, installer unverified and recovery unconfirmed.
+
+Evidence: [before](../evidence/e09-save-recovery-1012/before.json), [after](../evidence/e09-save-recovery-1012/after.json), [verification](../evidence/e09-save-recovery-1012/verification.json), and [replay](../evidence/e09-save-recovery-1012/live-probe.mjs). The first before-run restart observation was excluded because it raced page navigation. Registered gate behavior coverage is test/save-recovery-diagnosis.test.js; test/cloudsave-timeout.test.js now includes initial GET header/body stalls and successful retry. Adjacent unreadable-file, diagnostics, link recovery, unknown-save and fresh-start checks passed; the full integration gate was outside this lane scope.
