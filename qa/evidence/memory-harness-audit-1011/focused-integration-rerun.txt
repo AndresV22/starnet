@@ -1,0 +1,6 @@
+context.test: OK (205 assertions)
+memory-truth: OK (101 assertions)
+feedbackmemory.test: OK (86 assertions)
+FAIL: a tainted run is dropped from every memory/skill-writing post-run pass
+notebook.test: 1 problem(s), 146 ok
+run-fast-tests: FAILED at step 4/9: node test/notebook.test.js (exit 1)

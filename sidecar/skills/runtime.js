@@ -28,6 +28,7 @@
   /* gateOf — the guard decision for one skill, from an injected gate (skills/gate.js). No gate
      injected = everything visible, which is exactly how this file behaved before the gate existed. */
   function gateOf(s, gate) {
+    if (s && s.pendingCandidate) return { visible: false, reason: 'proposed skill awaits behavior evaluation and Commander approval' };
     if (typeof gate !== 'function') return { visible: true, reason: '' };
     try { const d = gate(s) || {}; return { visible: d.visible !== false, reason: str(d.reason) }; }
     catch (_) { return { visible: true, reason: '' };  /* a gate hiccup must never empty the index */ }
@@ -86,7 +87,8 @@
 
     const parts = [];
     const ids = [];
-    let used = 0, omitted = 0, withheld = 0;
+    let used = 0, omitted = 0, withheld = 0, compacted = 0;
+    const overflow = [];
     for (const s of ordered) {
       const bits = [];
       bits.push('- ' + cleanLine(s.name || s.id || 'Skill'));
@@ -98,7 +100,7 @@
       if (!g.visible) {
         withheld++;
         const line = bits[0] + ' [WITHHELD: ' + cleanLine(g.reason || 'held by the skill guard') + ' - do not recreate it]';
-        if (parts.length && used + line.length > budget) { omitted++; continue; }
+        if (parts.length && used + line.length > budget) { overflow.push({ skill: s, held: true }); continue; }
         parts.push(line); used += line.length;
         continue;
       }
@@ -110,11 +112,26 @@
       if (s.platforms && s.platforms.length) meta.push('platforms: ' + s.platforms.join('/'));
       if (s.files && s.files.length) meta.push(String(s.files.length) + ' support file' + (s.files.length === 1 ? '' : 's'));
       if (meta.length) bits.push(' [' + meta.join(', ') + ']');
+      if (s.agentId) bits.push(' [owner: ' + cleanLine(s.agentId) + ', scope: ' + cleanLine(s.scope || 'agent') + ']');
       if (s.id) bits.push(' (id: ' + cleanLine(s.id) + ')');
       const line = bits.join('');
-      if (parts.length && used + line.length > budget) { omitted++; continue; }
+      if (parts.length && used + line.length > budget) { overflow.push({ skill: s, held: false }); continue; }
       parts.push(line); used += line.length; if (s.id) ids.push(s.id);
     }
+    // Keep a bounded names-only overflow, including owner identity for shared skills.
+    // Anything still too large remains discoverable through paginated skill.list.
+    const overflowBudget = opts.overflowBudget > 0 ? opts.overflowBudget : 2000;
+    let overflowUsed = 0;
+    const compact = [];
+    for (const row of overflow) {
+      const s = row.skill;
+      const line = '- ' + cleanLine(s.name || s.id) + (s.agentId ? ' [owner: ' + cleanLine(s.agentId) + ']' : '')
+        + (row.held ? ' [WITHHELD]' : '');
+      if (overflowUsed + line.length > overflowBudget) { omitted++; continue; }
+      compact.push(line); overflowUsed += line.length; compacted++;
+      if (!row.held && s.id) ids.push(s.id);
+    }
+    if (compact.length) parts.push('\nAdditional saved skills (names only; load with skill.view):\n' + compact.join('\n'));
     if (!parts.length) return { text: '', ids: [], omitted: live.length, withheld };
 
     const manage = canManage
@@ -123,8 +140,8 @@
     const head = '\n\n## SAVED AGENT SKILLS (mandatory)\n'
       + 'Before replying, scan this skill index. If any saved skill is even partly relevant, call skill.view with its name before acting. '
       + 'Do not infer the procedure from the summary alone; load the full body first. ' + manage + '\n\n';
-    const tail = omitted ? ('\n\n(' + omitted + ' more saved skill' + (omitted === 1 ? ' was' : 's were') + ' omitted to keep the prompt lean.)') : '';
-    return { text: head + parts.join('\n') + tail, ids, omitted, withheld };
+    const tail = omitted ? ('\n\n(' + omitted + ' more saved skill' + (omitted === 1 ? ' is' : 's are') + ' not shown. Search all accessible skills with skill.list {query, offset, limit}; page until exhausted before concluding no skill exists.)') : '';
+    return { text: head + parts.join('\n') + tail, ids, omitted, withheld, compacted };
   }
 
   function extractInvocations(messages) {
@@ -145,7 +162,7 @@
      the gate matters here even more than in the index. The caller already filters, and `withheld`
      is checked again here: this is the last seam before the bytes enter the system prompt. */
   function composeLoaded(skills) {
-    const live = (Array.isArray(skills) ? skills : []).filter(s => s && s.body && s.state !== 'archived' && !s.withheld);
+    const live = (Array.isArray(skills) ? skills : []).filter(s => s && s.body && s.state !== 'archived' && !s.withheld && !s.pendingCandidate);
     if (!live.length) return '';
     return '\n\n## PRELOADED SKILLS\n'
       + 'The Commander explicitly loaded these skills for this run. Follow them where applicable.\n\n'
@@ -155,5 +172,11 @@
       ).join('\n\n');
   }
 
-  return { composeIndex, extractInvocations, composeLoaded };
+  function searchIndex(skills, query) {
+    const list = Array.isArray(skills) ? skills : [];
+    if (!str(query).trim()) return list.slice();
+    const rel = context.bm25(list.map(s => ({ title: s.name, body: s.summary || s.description || '' })), str(query));
+    return orderByQuery(list.filter((s, i) => rel.scores[i] > 0 || cleanLine(s.name).toLowerCase().includes(str(query).toLowerCase())), str(query), context);
+  }
+  return { composeIndex, extractInvocations, composeLoaded, searchIndex };
 });

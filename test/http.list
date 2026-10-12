@@ -215,3 +215,8 @@ test/legacy-spend-provenance.http.test.js
 test/connector-recovery-reconnect.http.test.js
 
 test/connector-reset-runtime.http.test.js
+
+# Customer-backed memory and evaluated skill recovery
+test/memory-learning-boundary.http.test.js
+test/skills.candidate-lifecycle.http.test.js
+test/skills.evaluation-spend.http.test.js

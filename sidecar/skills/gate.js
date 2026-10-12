@@ -90,7 +90,7 @@
     function keyFor(agentId, id) { return str(agentId || 'agent') + '\x00' + str(id); }
     function approvalFor(skill) {
       if (!approvals || typeof approvals.get !== 'function' || !skill) return null;
-      try { return approvals.get(str(skill.agentId || 'agent'), str(skill.id)) || null; } catch (_) { return null; }
+      try { return approvals.get(str(skill.agentId || 'agent'), str(skill.id), stampOf(skill)) || null; } catch (_) { return null; }
     }
     /* A stamped digest is what list() can carry (metadata only — no body). When the store had no
        digest stamper, fall back to the lifecycle stamp so an approval still expires on the next
@@ -115,6 +115,8 @@
       try { return str(guard.actionFor(skill, verdict)); } catch (_) { return ''; }
     }
     function decide(skill) {
+      if (skill && skill.pendingCandidate) return { action: 'ask', visible: false, approvable: false,
+        categories: categoriesOf(skill), reason: 'proposed revision awaits behavior evaluation and Commander approval; the active version is unchanged' };
       const stamped = str(skill && skill.guardAction).trim().toLowerCase();
       const rule = ruleAction(skill);
       const action = rule ? worseAction(stamped, rule) : stamped;
@@ -203,12 +205,21 @@
         });
       });
     }
+    // Reviewers may inspect their clean draft to continue editing it. This does not
+    // grant foreground delivery or waive a content finding / blocked origin.
+    function verifyDraft(skill) {
+      if (!skill || !skill.pendingCandidate) return verify(skill);
+      const live = liveScan(skill);
+      if (!live || live.action !== 'allow') return { action: (live && live.action) || 'ask', visible: false,
+        approvable: false, categories: categoriesOf(skill), reason: 'pending draft must pass the content guard before a reviewer can load it' };
+      return { action: 'allow', visible: true, approvable: false, categories: [], reason: 'review draft only; not an active skill' };
+    }
     function pending(skills) {
       return annotate(skills).filter(s => s.withheld && s.guardApprovable)
         .map(s => ({ id: s.id, agentId: s.agentId, name: s.name, action: s.guardDecision, categories: s.guardCategories, digest: stampOf(s) }));
     }
 
-    return { decide, verify, annotate, pending, keyFor, stampOf, isApproved, digestOf };
+    return { decide, verify, verifyDraft, annotate, pending, keyFor, stampOf, isApproved, digestOf };
   }
 
   return { makeSkillGate, digestOf, worseAction };

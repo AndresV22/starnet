@@ -1,0 +1,4 @@
+context.test: OK (205 assertions)
+FAIL: commanderWords reach the tool ctx only from the owner's own surfaces (never a worker, a group transcript or a guest)
+memory-truth: 1 problem(s), 100 ok
+run-fast-tests: FAILED at step 2/9: node test/memory-truth.test.js (exit 1)

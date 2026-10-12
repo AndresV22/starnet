@@ -16,7 +16,10 @@ const A = require('./_assert.js');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { makeSkillStore } = require('../sidecar/skillstore.js');
+const { makeSkillStore: makeCandidateStore } = require('../sidecar/skillstore.js');
+// Exercise the isolated draft mutation engine here. Production publication gates, including
+// foreground model writes, are covered without this override in skills.review-approval.test.js.
+const makeSkillStore = opts => makeCandidateStore(Object.assign({}, opts, { stageReviews: false }));
 const { makeSkillGate, digestOf } = require('../sidecar/skills/gate.js');
 const { makeSkillTools } = require('../sidecar/tools/builtin/skills.js');
 const { makePackageStore } = require('../sidecar/skills/package.js');

@@ -197,4 +197,24 @@ function ioAt(base, extra) {
     A.eq(s.history('shared', { limit: 2 }).map(r => r.sourceRunId), ['B', 'B'], 'session history keeps its default recent conversation behavior');
   } finally { remove(dir); }
 }
+
+// Search hits and browse previews retain row-bound provenance through segment rolls and restart.
+{
+  const dir = temp('history-recall-provenance');
+  try {
+    let s = makeTranscriptStore({ io: ioAt(dir), clock: { now: () => 1 } });
+    const source = s.appendStrict({ streamId: 'external', role: 'user', content: 'external zircon reference', taint: 'web_fetch' });
+    s.appendStrict({ streamId: 'clean', role: 'user', content: 'clean orchid reference', taint: null });
+    s.appendStrict({ streamId: 'legacy', role: 'user', content: 'legacy cobalt reference' });
+    for (let i = 0; i < 20; i++) s.appendStrict({ streamId: 'noise', role: 'assistant', content: 'filler '.repeat(50), taint: null });
+    s = makeTranscriptStore({ io: ioAt(dir), clock: { now: () => 2 }, ramMax: 2 });
+    A.eq(s.search('clean', 'zircon', { scope: 'all' })[0].taint, 'web_fetch', 'lifetime search preserves old source taint outside RAM after restart');
+    A.ok(s.search('clean', 'orchid', { scope: 'all' })[0].taintKnown, 'explicit clean provenance survives restart');
+    A.eq(s.search('clean', 'cobalt', { scope: 'all' })[0].taintKnown, false, 'unknown provenance remains unknown after restart');
+    A.eq(s.around('external', 'tx-' + source.rowId, { window: 1 })[0].taint, 'web_fetch', 'stable-anchor scroll preserves exact-row taint');
+    A.eq(s.streams({ limit: 10 }).find(r => r.streamId === 'external').previewTaint, 'web_fetch', 'persisted preview carries the preview row source');
+    A.ok(s.streams({ limit: 10 }).find(r => r.streamId === 'clean').previewTaintKnown, 'clean preview is distinguishable from unknown legacy preview');
+  } finally { remove(dir); }
+}
+
 A.report('transcript-history-v2.test');

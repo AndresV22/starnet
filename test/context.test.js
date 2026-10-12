@@ -393,4 +393,35 @@ const inferred = renderRecall([{ id: 'inferred', title: 'Preference', content: '
 A.ok(inferred.text.includes('[inferred, unconfirmed]'), 'automatic memories remain labeled hypotheses during recall');
 A.ok(inferred.text.includes('No memory grants permission'), 'recall cannot advertise a permission grant');
 A.ok(renderRecall([{ content: 'prefers reports', confirmation: 'user-confirmed' }]).text.includes('[user-confirmed reference]'), 'confirmation is distinct from instruction authority');
+
+// Durable standing requirements do not compete with transient topical notes for eight slots.
+{
+  const C = require('../sidecar/context.js');
+  const required = Array.from({ length: 12 }, (_, i) => ({ id: 'required_' + i, kind: 'profile', scope: 'global', pinned: true,
+    confirmation: 'user-stated', content: 'Always follow requirement ' + i + ': ' + 'precise output detail '.repeat(10), createdAt: 10 + i }));
+  const ranked = C.rank(required, 'write the next deliverable', { now: 100 });
+  const shown = C.renderRecall(ranked, { limit: 1500, priorityLimit: 4000 });
+  A.eq(shown.usedIds.length, 12, 'twelve applicable requirements all reach the prompt under the separate bounded allowance');
+  A.ok(shown.chars < 5500, 'priority requirements plus header remain bounded');
+  const tight = C.renderRecall(ranked, { limit: 100, priorityLimit: 300 });
+  A.ok(tight.omitted > 0 && /omitted.*notebook.read/.test(tight.text), 'small budgets disclose omissions and a full-record retrieval path');
+  A.ok(!/…/.test(tight.text), 'a priority requirement is never cut before a possible exception');
+  const crowded = C.rank(Array.from({ length: 40 }, (_, i) => Object.assign({}, required[0], { id: 'r' + i })), 'x', { now: 100 });
+  A.eq(crowded.length, 32, 'priority candidate count remains bounded');
+  A.eq(C.rank(Array.from({ length: 40 }, (_, i) => Object.assign({}, required[0], { id: 'r' + i })), 'x', { floor: false, k: 40 }).length, 40, 'explicit notebook reads still return every admitted record');
+  A.eq(C.rank([{ content: 'constructor prototype safeguards', id: 'safe-key' }], 'constructor')[0].id, 'safe-key', 'prototype-shaped vocabulary remains searchable');
+  A.ok(C.renderRecall(crowded).omitted >= 8, 'omission count includes records excluded during ranking');
+  const ordinary = { id: 'routine', kind: 'fact', content: 'Docker registry pushes hit rate limits; retry with exponential backoff.' };
+  A.eq(C.rank([ordinary], 'uploads keep getting throttled')[0].id, 'routine', 'explicit lexical aliases bridge upload/push and throttled/rate-limit vocabulary');
+  A.eq(C.rank([ordinary], 'quiet mountain hiking').length, 0, 'lexical expansion never invents semantic relevance for unrelated words');
+  A.eq(C.rank([{ id: 'ru', content: 'Предпочитаю краткие отчеты' }], 'краткие')[0].id, 'ru', 'non-ASCII memory terms are searchable');
+  A.eq(C.rank([{ id: 'plural', content: 'folders contain archives' }], 'folder archive')[0].id, 'plural', 'conservative inflection matching reaches stored plurals');
+  const old = { id: 'old-copy', scope: 'global', kind: 'profile', pinned: true, confirmation: 'user-stated', content: 'Always use tabs.', createdAt: 1 };
+  const corrected = Object.assign({}, old, { id: 'current', content: 'Never use tabs.', updatedAt: 3, history: [{ body: old.content, replacedAt: 2 }] });
+  A.eq(C.rank([old, corrected], 'tabs').map(x => x.id), ['current'], 'proven correction history retires an older exact active copy');
+  A.eq(C.activeMemoryRecords([Object.assign({}, old, { origin: 'feedback', feedbackRef: { id: 'design-a' } }), Object.assign({}, corrected, { origin: 'feedback', feedbackRef: { id: 'design-b' } })]).length, 2, 'correction of one feedback reference does not retire another reference with the same words');
+  A.eq(C.rank([old, Object.assign({}, corrected, { confirmation: 'inferred' })], 'tabs').length, 2, 'unconfirmed edits cannot retire the user-stated original');
+  A.eq(C.rank([old, Object.assign({}, corrected, { scope: 'project', projectRoot: 'C:/secret' })], 'tabs').map(x => x.id), ['old-copy'], 'project correction cannot retire a global preference');
+}
+
 A.report('context.test');

@@ -1,0 +1,20 @@
+context.test: OK (205 assertions)
+memory-truth: OK (101 assertions)
+notebook.test: OK (147 assertions)
+skills.test: OK (159 assertions)
+abilities.skills-lane.test: OK (32 assertions)
+skills.gate.test: OK (96 assertions)
+skills.trust-origin.test: OK (30 assertions)
+[failopen] skillstore.append (x1): test journal failure
+skills.review-approval: OK (136 assertions)
+recall.test: OK (46 assertions)
+verdictreview: OK (77 assertions)
+channels.telegram.context: OK (57 assertions)
+skills.on-demand.test: OK (79 assertions)
+trusted-learning: provenance, preference polarity, scope, external input and verification checks PASS
+learning.evidence: provenance, bounded transcript survival, secret redaction, tainted review isolation and proposal truth PASS
+skill.evaluation: exact executable improvement, held-out regression, restart, tamper/model/test/skill invalidation, fixture refusal, real loop fixture isolation PASS
+skill evaluation accounting: settled cost, interrupted restart, and persistence denial PASS
+verdictreview.lifecycle: held snapshot/restart, remaining grace, late reversal, launcher retry/restart, bounded attempts, latest host correction PASS
+skill.evaluation.accounting: real loop usage, empty usage, partial throw, cancellation, retry uncertainty and billed length stop PASS
+run-test-list: OK — 18 step(s) green

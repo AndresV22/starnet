@@ -1,0 +1,61 @@
+{
+  "status": "PASS",
+  "source": "memory-learning-execution",
+  "kind": "real sidecar, scripted local provider, no quality benchmark",
+  "rows": [
+    {
+      "phase": "clean",
+      "streamId": "clean-control",
+      "fixtureReadConfirmed": false,
+      "reason": "done",
+      "taintedBy": "",
+      "reviewCalls": 1,
+      "nudge": 0
+    },
+    {
+      "phase": "read",
+      "streamId": "read-conversation",
+      "fixtureReadConfirmed": true,
+      "reason": "done",
+      "taintedBy": "fs.read",
+      "reviewCalls": 1,
+      "nudge": 0
+    },
+    {
+      "phase": "followup",
+      "streamId": "read-conversation",
+      "fixtureReadConfirmed": true,
+      "reason": "done",
+      "taintedBy": "replayed history (tainted by fs.read)",
+      "reviewCalls": 1,
+      "nudge": 0
+    },
+    {
+      "phase": "fresh",
+      "streamId": "fresh-control",
+      "fixtureReadConfirmed": false,
+      "reason": "done",
+      "taintedBy": "",
+      "reviewCalls": 1,
+      "nudge": 0
+    },
+    {
+      "phase": "shared",
+      "streamId": "other-agent-control",
+      "fixtureReadConfirmed": false,
+      "reason": "done",
+      "taintedBy": "",
+      "reviewCalls": 1,
+      "nudge": 0
+    },
+    {
+      "phase": "short",
+      "streamId": "short-preference-control",
+      "fixtureReadConfirmed": false,
+      "reason": "done",
+      "taintedBy": "",
+      "reviewCalls": 1,
+      "nudge": 0
+    }
+  ]
+}

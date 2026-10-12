@@ -1,0 +1,83 @@
+TEST test/verdictpackets.http.test.js EXIT 0
+verdictpackets.http: OK (14 assertions)
+TEST test/memory-learning-boundary.http.test.js EXIT 0
+{
+  "status": "PASS",
+  "source": "memory-learning-execution",
+  "kind": "real sidecar, scripted local provider, no quality benchmark",
+  "rows": [
+    {
+      "phase": "clean",
+      "streamId": "clean-control",
+      "fixtureReadConfirmed": false,
+      "reason": "done",
+      "taintedBy": "",
+      "reviewCalls": 1,
+      "nudge": 0
+    },
+    {
+      "phase": "read",
+      "streamId": "read-conversation",
+      "fixtureReadConfirmed": true,
+      "reason": "done",
+      "taintedBy": "fs.read",
+      "reviewCalls": 1,
+      "nudge": 0
+    },
+    {
+      "phase": "followup",
+      "streamId": "read-conversation",
+      "fixtureReadConfirmed": true,
+      "reason": "done",
+      "taintedBy": "replayed history (tainted by fs.read)",
+      "reviewCalls": 1,
+      "nudge": 0
+    },
+    {
+      "phase": "fresh",
+      "streamId": "fresh-control",
+      "fixtureReadConfirmed": false,
+      "reason": "done",
+      "taintedBy": "",
+      "reviewCalls": 1,
+      "nudge": 0
+    },
+    {
+      "phase": "shared",
+      "streamId": "other-agent-control",
+      "fixtureReadConfirmed": false,
+      "reason": "done",
+      "taintedBy": "",
+      "reviewCalls": 1,
+      "nudge": 0
+    },
+    {
+      "phase": "short",
+      "streamId": "short-preference-control",
+      "fixtureReadConfirmed": false,
+      "reason": "done",
+      "taintedBy": "",
+      "reviewCalls": 1,
+      "nudge": 0
+    }
+  ]
+}
+TEST test/skills.candidate-lifecycle.http.test.js EXIT 0
+{
+  "status": "PASS",
+  "test": "skills.candidate-lifecycle.http",
+  "proof": "real sidecar and agent loops; scripted loopback provider; no model-quality claim",
+  "phases": [
+    "proposal/restart/rejection preserve approved active bytes",
+    "real isolated tool loop: exact artifact checks, held-out case, forged/stale receipt refusal",
+    "actual journal append refusal leaves approved active bytes unchanged in RAM and after restart",
+    "durable evaluation receipt, separate active/future approvals, promotion survives restart",
+    "new skill: null baseline evaluated, durable receipt approved after restart",
+    "owner-only sharing; private/station/project boundaries, restart, and withdrawal on fresh runs"
+  ],
+  "modelCalls": 72
+}
+TEST test/spend-authority.http.test.js EXIT 0
+spend HTTP: unreadable history, zero paid dispatch, failed append, restart settlement, exact-once replay uncertain receipt and real hard-crash recovery PASS
+spend HTTP: interrupted run listed, refused bad settles, Commander settle + limit settle, idempotent across restart PASS
+spend HTTP: a graceful Quit books the aborted run before exit PASS

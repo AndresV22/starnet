@@ -1145,3 +1145,11 @@ test/run-stop-handles.test.js
 
 test/installation-integrity.test.js
 test/save-recovery-diagnosis.test.js
+
+# Customer-backed memory and evaluated skill recovery
+test/trusted-learning.test.js
+test/learning.evidence.test.js
+test/skill.evaluation.test.js
+test/skill.evaluation-accounting.test.js
+test/verdictreview.lifecycle.test.js
+test/skill.evaluation.accounting.test.js

@@ -152,4 +152,41 @@ A.eq(block.usedIds.length, 2, 'both count as used');
     'QA 10-02: a withheld worker\'s pinned recall drops feedback records too');
 }
 
+
+// Only proven global standing preferences can be shared; private and inferred notes remain local.
+{
+  const base = { id: 'foreign', kind: 'profile', scope: 'global', confirmation: 'user-stated', content: 'I prefer concise reports.', createdAt: 1 };
+  const unsafe = [
+    Object.assign({}, base, { id: 'inferred', confirmation: 'inferred' }),
+    Object.assign({}, base, { id: 'project', projectRoot: 'C:/private' }),
+    Object.assign({}, base, { id: 'stream', scope: 'stream', streamId: 'private' }),
+    Object.assign({}, base, { id: 'tainted', taintedBy: 'web_fetch' }),
+    Object.assign({}, base, { id: 'biography', content: 'The Commander lives in York.' }),
+    Object.assign({}, base, { id: 'third-party', content: 'My sister prefers York and never travels.' }),
+    Object.assign({}, base, { id: 'habit', content: 'I always travel to York for Christmas.' }),
+    Object.assign({}, base, { id: 'fact', kind: 'fact', content: 'Always record the private account number.' })
+  ];
+  const shared = FM.stationStanding([], [[base].concat(unsafe)]);
+  A.eq(shared.length, 1, 'only a proven preference passes station sharing');
+  A.eq(shared[0].id, '', 'foreign notebook ids cannot mutate a same-numbered local note');
+  A.ok(shared[0].foreign, 'shared provenance is explicit');
+  A.eq(FM.stationStanding([base], [[base]]).length, 1, 'same standing preference is not injected twice');
+  A.eq(base.id, 'foreign', 'sharing does not mutate the owning notebook');
+  const corrected = Object.assign({}, base, { id: 'new', content: 'I prefer detailed reports.', updatedAt: 3, history: [{ body: base.content, replacedAt: 2 }] });
+  A.eq(FM.stationStanding([base], [[corrected]]).map(r => r.content), [corrected.content], 'sharing never resurrects an older exact copy retired by a proven correction');
+}
+{
+  const old = FM.apply([], { runId: 'standing', verdict: 'miss', words: 'Always use concise reports.', directive: 'write reports' }, deps(1)).rec;
+  const topical = FM.apply([], { runId: 'old-database', verdict: 'miss', words: 'include query plans', directive: 'postgres database performance' }, deps(2)).rec;
+  const recent = Array.from({ length: 10 }, (_, i) => FM.apply([], { runId: 'new' + i, verdict: 'great', directive: 'unrelated artwork ' + i }, deps(10 + i)).rec);
+  const selected = FM.stationTaste([], [[old, topical].concat(recent)], { query: 'postgres database query performance' });
+  A.eq(selected.length, FM.TASTE_LIMIT, 'feedback stays bounded');
+  A.ok(selected.some(r => r.sourceRunId === 'standing'), 'older explicit standing feedback survives newer bare approvals');
+  A.ok(selected.some(r => r.sourceRunId === 'old-database'), 'relevant older feedback competes with current verdicts');
+  A.eq(selected[0].sourceRunId, 'new9', 'newest verdict remains first when older feedback is selected');
+  const rendered = FM.renderTaste(selected, renderRecall);
+  A.ok(rendered.omitted > 0 && /omitted/.test(rendered.text), 'feedback selection discloses omitted stored records');
+  A.eq(FM.stationTaste([], [[Object.assign({}, old, { projectRoot: 'C:/private' })]]).length, 0, 'project-private feedback cannot enter the station taste block');
+}
+
 A.report("feedbackmemory.test");

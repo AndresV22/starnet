@@ -1,0 +1,14 @@
+contract.test: OK (107 assertions)
+events-contract.test: OK (9 assertions)
+clock-rng.test: OK (14 assertions)
+memory-corrections.test: PASS (corrections, stale writes, failed persistence, review, scope, compaction)
+desktop-fresh-start-contract.test: OK (19 assertions)
+tests: OK (45 assertions)
+feedbackmemory.test: OK (86 assertions)
+embed.test: OK (42 assertions)
+transcript-history-v2.test: OK (43 assertions)
+capprop-map.contract: OK (107 assertions)
+result-contract: six positive/negative schema pairs, whole-JSON parsing, remote/cyclic refs, unsafe pattern and unsupported format checks passed
+result-contract: propertyNames, schema dependencies and additionalItems safety traversal passed
+prop-remaster-contract: OK (730 assertions)
+run-test-list: OK — 12 step(s) green

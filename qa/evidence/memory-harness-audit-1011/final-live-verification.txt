@@ -1,0 +1,77 @@
+verdictpackets.http: OK (14 assertions)
+{
+  "status": "PASS",
+  "source": "memory-learning-execution",
+  "kind": "real sidecar, scripted local provider, no quality benchmark",
+  "rows": [
+    {
+      "phase": "clean",
+      "streamId": "clean-control",
+      "fixtureReadConfirmed": false,
+      "reason": "done",
+      "taintedBy": "",
+      "reviewCalls": 1,
+      "nudge": 0
+    },
+    {
+      "phase": "read",
+      "streamId": "read-conversation",
+      "fixtureReadConfirmed": true,
+      "reason": "done",
+      "taintedBy": "fs.read",
+      "reviewCalls": 1,
+      "nudge": 0
+    },
+    {
+      "phase": "followup",
+      "streamId": "read-conversation",
+      "fixtureReadConfirmed": true,
+      "reason": "done",
+      "taintedBy": "replayed history (tainted by fs.read)",
+      "reviewCalls": 1,
+      "nudge": 0
+    },
+    {
+      "phase": "fresh",
+      "streamId": "fresh-control",
+      "fixtureReadConfirmed": false,
+      "reason": "done",
+      "taintedBy": "",
+      "reviewCalls": 1,
+      "nudge": 0
+    },
+    {
+      "phase": "shared",
+      "streamId": "other-agent-control",
+      "fixtureReadConfirmed": false,
+      "reason": "done",
+      "taintedBy": "",
+      "reviewCalls": 1,
+      "nudge": 0
+    },
+    {
+      "phase": "short",
+      "streamId": "short-preference-control",
+      "fixtureReadConfirmed": false,
+      "reason": "done",
+      "taintedBy": "",
+      "reviewCalls": 1,
+      "nudge": 0
+    }
+  ]
+}
+{
+  "status": "PASS",
+  "test": "skills.candidate-lifecycle.http",
+  "proof": "real sidecar and agent loops; scripted loopback provider; no model-quality claim",
+  "phases": [
+    "proposal/restart/rejection preserve approved active bytes",
+    "real isolated tool loop: exact artifact checks, held-out case, forged/stale receipt refusal",
+    "actual journal append refusal leaves approved active bytes unchanged in RAM and after restart",
+    "durable evaluation receipt, separate active/future approvals, promotion survives restart",
+    "new skill: null baseline evaluated, durable receipt approved after restart",
+    "owner-only sharing; private/station/project boundaries, restart, and withdrawal on fresh runs"
+  ],
+  "modelCalls": 72
+}
+run-test-list: OK — 3 step(s) green
