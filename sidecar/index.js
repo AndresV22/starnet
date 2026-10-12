@@ -7546,12 +7546,12 @@ function handleRecommendationsEval(req, res) {
    Commander ignores stops after MAX_OFFERS. Fails open to no notice. */
 function standingWorkNotice(brief, agentId, o) {
   try {
-    if (!brief || brief.status === 'cancelled' || (o && o.recovery) || !['interactive', 'channel'].includes(brief.source)) return null;
+    if (!brief || brief.status === 'cancelled' || (o && o.recovery) || !['interactive', 'channel'].includes(brief.source) || TrustedLearning.quotedMaterial(brief.originalDirective)) return null;
     if (!personalizationStore.read().enabled) return null;
     const saved = saveStore.load('agent') || null;
     const epoch = Math.max(1, Math.floor(Number(saved && saved.agent && saved.agent.createdAt) || 1));
     const n = WorkflowTakeover.notice({ directive: brief.originalDirective, agentId, projectRoot: (o && o.projectRoot) || '',
-      briefs: taskBriefStore.list({ limit: 500 }).filter(b => b.id !== brief.id), runs: runStore.all(), jobs: cronJobs,
+      briefs: TrustedLearning.ownedBriefs(taskBriefStore.list({ limit: 500 }), transcriptStore.all()).filter(b => b.id !== brief.id), runs: runStore.all(), jobs: cronJobs,
       ratings: growthRatings.list({ limit: 500, epoch }), state: workflowTakeoverStore.read(), enabled: true, now: Date.now(), redact });
     if (!n) return null;
     workflowTakeoverStore.decide(n.id, 'shown', Date.now(), n.core).catch(e => console.warn('[workflow-takeover] notice impression not saved:', (e && e.message) || e));
@@ -7562,7 +7562,7 @@ function workflowTakeoverCandidates(ignoreOffers) {
   const state = workflowTakeoverStore.read();
   const saved = saveStore.load('agent') || null;
   const epoch = Math.max(1, Math.floor(Number(saved && saved.agent && saved.agent.createdAt) || 1));
-  return WorkflowTakeover.candidates({ briefs: taskBriefStore.list({ limit: 500 }), runs: runStore.all(), jobs: cronJobs,
+  return WorkflowTakeover.candidates({ briefs: TrustedLearning.ownedBriefs(taskBriefStore.list({ limit: 500 }), transcriptStore.all()), runs: runStore.all(), jobs: cronJobs,
     ratings: growthRatings.list({ limit: 500, epoch }),
     state: ignoreOffers ? Object.assign({}, state, { decisions: state.decisions.filter(d => d.never) }) : state,
     enabled: personalizationStore.read().enabled, now: Date.now(), redact });
@@ -7711,16 +7711,14 @@ function nightshiftContextPack() {
   // its first line; a harmless heading cannot launder a quoted document below it. Bound the source window first.
   let cleanOwnerChats = [], chats = [];
   try {
-    cleanOwnerChats = (transcriptStore.all() || []).slice(-400).filter(m => m && m.role === 'user' && m.taintKnown === true && !m.taint && !m.from &&
-      typeof m.content === 'string' && m.content.trim() && !TrustedLearning.quotedMaterial(m.content));
+    cleanOwnerChats = TrustedLearning.cleanOwnerRows(transcriptStore.all());
     chats = cleanOwnerChats.map(m => ({ role: m.role, content: m.content, ts: m.ts, streamId: m.streamId }));
   } catch (_) { cleanOwnerChats = []; chats = []; }
   // Briefs have no independent provenance stamp. Match their exact stored directive to a proven clean owner turn
   // in the same agent/stream; completion's runId may belong to a later turn and is not an authorship proof.
   let briefs = [];
   try {
-    briefs = (taskBriefStore.list({ status: 'done', limit: 30 }) || []).filter(b => b && b.agentId && b.originalDirective &&
-      cleanOwnerChats.some(m => m.agentId === b.agentId && m.streamId === (b.streamId || 'global') && m.content.trim().slice(0, 4000) === b.originalDirective))
+    briefs = TrustedLearning.ownedBriefs(taskBriefStore.list({ status: 'done', limit: 30 }), cleanOwnerChats)
       .map(b => ({ originalDirective: b.originalDirective, ts: b.completedAt || b.updatedAt }));
   } catch (_) { briefs = []; }
   // the active GOAL ARC (single object or null).
