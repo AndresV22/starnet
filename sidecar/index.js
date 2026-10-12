@@ -11485,14 +11485,14 @@ const ROUTES = [
   { m: 'POST', exact: '/api/agent-skills/manage', h: handleAgentSkillManage },
   { m: 'GET', prefix: '/api/agent-skills/goldens', h: serveSkillGoldens },   // consistency loop: the great-rated references per skill (before the bare prefix route)
   { m: 'POST', exact: '/api/agent-skills/allow', h: handleAgentSkillAllow },   // the Commander's review decision on a guard-withheld skill
-  { m: 'GET', exact: '/api/agent-skills/candidates', h: serveSkillCandidates },
-  { m: 'GET', exact: '/api/agent-skills/candidate', h: serveSkillCandidates },
+  { m: 'GET', qsplit: '/api/agent-skills/candidates', h: serveSkillCandidates },
+  { m: 'GET', qsplit: '/api/agent-skills/candidate', h: serveSkillCandidates },
   { m: 'POST', exact: '/api/agent-skills/evaluate-candidate', h: handleSkillCandidateAction },
   { m: 'POST', exact: '/api/agent-skills/approve-candidate', h: handleSkillCandidateAction },
   { m: 'POST', exact: '/api/agent-skills/reject-candidate', h: handleSkillCandidateAction },
   { m: 'POST', exact: '/api/agent-skills/evaluation-suite', h: handleSkillCandidateAction },
   { m: 'POST', exact: '/api/agent-skills/share', h: handleSkillCandidateAction },
-  { m: 'GET', exact: '/api/learning-status', h: serveLearningStatus },
+  { m: 'GET', qsplit: '/api/learning-status', h: serveLearningStatus },
   { m: 'GET', prefix: '/api/agent-skills', h: serveAgentSkills },
   { m: 'GET', prefix: '/api/skills', h: serveSkills },
   { m: 'POST', exact: '/api/spotify/auth/start', h: handleSpotifyStart },
@@ -19734,7 +19734,7 @@ async function runOnceCore(o) {
     unrestrictedHost: unrestrictedHostNow()
   });
   makeFsTools({ fsp, pathMod: path, root: WORKSPACES, environment: executionEnvironment, limits: { writeBytes: 1 << 20, readReturn: 24000 }, redact, pathTrust: runPathTrust, docExtract, imageWire, editDiagnostics: lspManager, spawn: childSpawn }).register(registry);   // redact: scrub secrets out of surfaced fs.search lines (§5.6); baseline-before-edit LSP feedback; spawn: lets fs.search use `rg` when the machine has it
-  makeNotebookTools({ store: notebookStore, clock: { now: () => Date.now() }, redact, rank, nextTrust: memcore.nextTrust, findSimilar: memcore.findSimilar, similarity: memcore.tokenJaccard, onSaved: recordRunReceipt }).register(registry);   // §5.6: scrub secrets at the write boundary; rank: explicit read shares auto-recall's relevance order; nextTrust: notebook.feedback rating fold; findSimilar: near-dupe guard so the same belief can't accumulate in N phrasings; similarity: the same-subject listing; onSaved: this run's COMMS receipt
+  makeNotebookTools({ store: notebookStore, clock: { now: () => Date.now() }, redact, rank, nextTrust: memcore.nextTrust, findSimilar: memcore.findSimilar, similarity: memcore.tokenJaccard, onSaved: recordRunReceipt, sharedStanding: () => (tasteWithheld || !personalizationStore.read().enabled) ? [] : FeedbackMemory.stationStanding(notebookStore.get('notebook:' + agentId), otherAgentNotebooks(agentId)).filter(r => r.foreign) }).register(registry);   // §5.6: scrub secrets at the write boundary; rank: explicit read shares auto-recall's relevance order; nextTrust: notebook.feedback rating fold; findSimilar: near-dupe guard so the same belief can't accumulate in N phrasings; similarity: the same-subject listing; onSaved: this run's COMMS receipt
   widgetTools.register(registry);   // WIDGET RAILS Phase 2: widget.set — agent-fed rail readouts (memory capability: sandboxed local write, no consent, no network)
   makeRecallTool({ transcriptStore }).register(registry);   // H1.3: recall_conversation — agent searches its own past dialogue (transcriptstore); joins the NOTEBOOK (memory) capability
   makeSkillTools({
@@ -19839,10 +19839,11 @@ async function runOnceCore(o) {
       const settled = taskBriefState ? commanderEvidenceContext(system || '', Object.assign({},taskContextInputs,{brief:taskBriefState.brief})) : taskContextBlock;
       const notes = notebookStore.get('notebook:' + agentId);
       // the Commander's taste rides into delegated work too: a worker writes the deliverable the Commander rates
-      const tasteRecs = (personalizationStore.read().enabled && !tasteWithheld) ? FeedbackMemory.stationTaste(notes, otherAgentNotebooks(agentId)) : [];
+      const tasteRecs = (personalizationStore.read().enabled && !tasteWithheld) ? FeedbackMemory.stationTaste(notes, otherAgentNotebooks(agentId), { query: recentUserText(messages), projectRoot: o.projectRoot || '' }) : [];
       const tasteIds = new Set(tasteRecs.map(r => r.id).filter(Boolean));
       const pinned = Array.isArray(notes) ? notes.filter(r => r && r.pinned && !tasteIds.has(r.id) && !(tasteWithheld && r.origin === FeedbackMemory.ORIGIN) && !r.taintedBy) : [];
-      const recalled = renderRecall(rank(pinned, recentUserText(messages), { now: Date.now(), streamId, projectRoot: o.projectRoot || null }), { limit: 1500 });
+      const standing = (personalizationStore.read().enabled && !tasteWithheld) ? FeedbackMemory.stationStanding(notes, otherAgentNotebooks(agentId)).filter(r => !pinned.some(p => p.id && p.id === r.id)) : [];
+      const recalled = renderRecall(rank(pinned.concat(standing), recentUserText(messages), { now: Date.now(), streamId, projectRoot: o.projectRoot || null }), { limit: 1500 });
       const taste = FeedbackMemory.renderTaste(tasteRecs, renderRecall);
       return settled + (recalled.text ? '\n\n' + redact(recalled.text) : '') + (taste.text ? '\n\n' + redact(taste.text) : '');
     },
@@ -21841,7 +21842,7 @@ async function runOnceCore(o) {
     // decide whether it surfaces. Those records leave the ranked pool so they never take a recall slot twice.
     // station-wide: a correction given to ANY agent is about the Commander, so it shapes this agent's work too
     // (recovery runs inject nothing at all — see the note above msgs).
-    const tasteRecs = (o.recovery || tasteWithheld || !personalizationStore.read().enabled) ? [] : FeedbackMemory.stationTaste(all, otherAgentNotebooks(agentId));
+    const tasteRecs = (o.recovery || tasteWithheld || !personalizationStore.read().enabled) ? [] : FeedbackMemory.stationTaste(all, otherAgentNotebooks(agentId), { query: recentUserText(convo), projectRoot: o.projectRoot || '' });
     const tasteIds = new Set(tasteRecs.map(r => r.id).filter(Boolean));
     // withheld: EVERY feedback record leaves the recall pool, not just the selected taste — a verdict record carries the
     // Commander's past request ('(on: …)') and ordinary BM25 recall would hand it to a channel guest (QA 2026-10-02)
@@ -21849,8 +21850,9 @@ async function runOnceCore(o) {
     const q = recentUserText(convo);   // include restored conversation context on terse post-restart follow-ups
     // memory-compound: the embedding lane (BM25 + vectors) — null => pure BM25, byte-identical to before
     const hv = recs.length ? await hybridVectors({ agentId, recs, query: q, run: { providerId, key: runKey, baseUrl }, runId, cost, unmetered: providerUnmetered }) : null;
-    const ranked = rank(recs, q, { now: Date.now(), streamId, projectRoot: o.projectRoot || null, vectors: hv && hv.vectors, queryVec: hv && hv.queryVec });   // M-mem.2b stream boost · project tier: only THIS project's lessons
-    const recalled = renderRecall(ranked, { limit: 1500 });
+    const standingRecs = (o.recovery || tasteWithheld || !personalizationStore.read().enabled) ? [] : FeedbackMemory.stationStanding(all, otherAgentNotebooks(agentId)).filter(r => r.foreign);
+    const ranked = rank(recs.concat(standingRecs), q, { now: Date.now(), streamId, projectRoot: o.projectRoot || null, vectors: hv && hv.vectors, queryVec: hv && hv.queryVec });   // M-mem.2b stream boost · project tier: only THIS project's lessons
+    const recalled = renderRecall(ranked, { limit: 1500, priorityLimit: Math.min(4000, Math.max(800, Math.floor((provider.contextLimit(model) || COLD_CATALOG_CONTEXT_TOKENS) * 0.12))) });
     const taste = FeedbackMemory.renderTaste(tasteRecs, renderRecall, { agentId });
     const recall = {
       text: [recalled.text, taste.text].filter(Boolean).join('\n'),
@@ -26423,7 +26425,7 @@ function otherAgentNotebooks(agentId) {
   const out = [];
   for (const id of ids) {
     if (!/^[A-Za-z0-9_-]{1,40}$/.test(String(id))) continue;
-    try { const l = notebookStore.get('notebook:' + id); if (Array.isArray(l) && l.length) out.push(l); }
+    try { const l = notebookStore.get('notebook:' + id); if (Array.isArray(l) && l.length) out.push({ agentId: String(id), records: l }); }
     catch (e) { failNote('feedback.taste.read', e); }
   }
   return out;
@@ -26548,8 +26550,8 @@ async function writeMemoryRecord(agentId, prop, opts) {
     try { r = skillStore.write({ agentId, name: skillName, summary, body: skillBody, createdBy: opts.source || 'reflection', sourceRunId: runId || (prop && prop.sourceRunId) }); }
     catch (e) { return { ok: false, error: (e && e.message) || 'could not save skill' }; }
     if (!r.ok) return { ok: false, error: r.error || 'could not save skill' };
-    chanEmit('deliverable', { id: r.skill.id, agentId, kind: 'skill', title: r.skill.name });
-    return { ok: true, id: r.skill.id, kind: 'skill', skill: r.skill };
+    chanEmit('deliverable', { id: r.skill.id, agentId, kind: 'skill', title: r.pending ? 'Proposed revision: ' + r.skill.name : r.skill.name });
+    return { ok: true, id: r.skill.id, kind: 'skill', pending: !!r.pending, skill: r.skill };
   }
   // P1: write the notebook record under the per-agent lock, RE-READING the list so the id (positional) is minted
   // against the current notebook and a concurrent run's memory.write isn't clobbered by this whole-array set.
