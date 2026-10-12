@@ -388,10 +388,143 @@
       "followUp": {
         "fix": "513cf8817a3515a5e147ebd28196344156848c0f",
         "change": "Final strict assertion reads shared failure counter, preserving all original assertions and lint.",
-        "sourceReview": "worktree_audit accepted exact one-line diff; runtime controls pending."
+        "sourceReview": "worktree_audit accepted exact one-line diff; runtime controls pending.",
+        "runtimeControls": {
+          "candidate": "4e56787fda05c2bfdcc3a6127a293eeb7eafba4f",
+          "passed": 7,
+          "total": 7,
+          "receipt": ".handoff/refit-reporting-controls-4e56787fda05/receipt.json",
+          "scope": "Seven actual controls passed; original full failure remains retained."
+        }
+      }
+    },
+    {
+      "candidate": "4e56787fda05c2bfdcc3a6127a293eeb7eafba4f",
+      "label": "refit-reporting",
+      "startedAt": "2026-10-12T13:42:51.068Z",
+      "finishedAt": "2026-10-12T13:43:00.287Z",
+      "status": 0,
+      "signal": null,
+      "exitCode": 0,
+      "sourceUnchanged": true,
+      "availableBytesAfter": 798695424,
+      "diskReserveMet": true,
+      "logSha256": "7f6add7c9aa9ebfa9305d64b4264d34749eef8e2077e6371da59771a59542c57",
+      "scope": "Historical focused source validation on exact 4e56787f; not a complete gate, deployment, installed-app or customer acceptance.",
+      "command": "node .handoff/check-refit-reporting-controls.cjs",
+      "controls": 7,
+      "log": ".handoff/customer-4e56787fda05-refit-reporting.log",
+      "receipt": ".handoff/customer-4e56787fda05-refit-reporting.receipt.json"
+    },
+    {
+      "candidate": "4e56787fda05c2bfdcc3a6127a293eeb7eafba4f",
+      "label": "website-docs",
+      "startedAt": "2026-10-12T13:43:00.372Z",
+      "finishedAt": "2026-10-12T13:43:00.661Z",
+      "status": 0,
+      "signal": null,
+      "exitCode": 0,
+      "sourceUnchanged": true,
+      "availableBytesAfter": 798695424,
+      "diskReserveMet": true,
+      "logSha256": "bbe525f423172d4835607fef321295f622ef680f0bed608cebdb405abcfb1265",
+      "scope": "Historical focused source validation on exact 4e56787f; not a complete gate, deployment, installed-app or customer acceptance.",
+      "command": "node test/website-docs-navigation.test.js",
+      "assertions": 1375,
+      "checkedInternalLinks": 1134,
+      "log": ".handoff/customer-4e56787fda05-website-docs.log",
+      "receipt": ".handoff/customer-4e56787fda05-website-docs.receipt.json"
+    },
+    {
+      "candidate": "4e56787fda05c2bfdcc3a6127a293eeb7eafba4f",
+      "label": "website-stage",
+      "startedAt": "2026-10-12T13:43:00.736Z",
+      "finishedAt": "2026-10-12T13:43:01.428Z",
+      "status": 0,
+      "signal": null,
+      "exitCode": 0,
+      "sourceUnchanged": true,
+      "availableBytesAfter": 798654464,
+      "diskReserveMet": true,
+      "logSha256": "601e540d0f8ef5f16456633be2db38acd6573e3db30b94d0e7f22b812b88c165",
+      "scope": "Historical focused source validation on exact 4e56787f; not a complete gate, deployment, installed-app or customer acceptance.",
+      "command": "node scripts/stage-website-deploy.mjs --check",
+      "deployment": false,
+      "log": ".handoff/customer-4e56787fda05-website-stage.log",
+      "receipt": ".handoff/customer-4e56787fda05-website-stage.receipt.json"
+    },
+    {
+      "candidate": "4e56787fda05c2bfdcc3a6127a293eeb7eafba4f",
+      "startedAt": "2026-10-12T13:43:01.51Z",
+      "finishedAt": "2026-10-12T13:45:46.452Z",
+      "steps": 1154,
+      "exitCode": 1,
+      "commandExitCode": 1,
+      "signal": null,
+      "error": null,
+      "sourceUnchanged": true,
+      "fullVerdict": false,
+      "expectedMarker": "run-fast-tests: OK — 1154 step(s) green",
+      "completionMarkerCount": 0,
+      "logSha256": "cf7c05ce42ef75f402a037892eb13955a6194f152ec6a5cac679e34b199794e1",
+      "diskSamples": ".handoff/customer-4e56787f-fast-first.disk-samples.json",
+      "minimumObservedAvailableBytes": 0,
+      "diskReserveMet": false,
+      "scope": "Historical failed full source gate during measured volume exhaustion. No current-candidate, installed-app or customer acceptance.",
+      "command": "npm run test:fast",
+      "status": "FAIL",
+      "failedStep": 284,
+      "completedSteps": 283,
+      "log": ".handoff/customer-4e56787f-fast-first.log",
+      "receipt": ".handoff/customer-4e56787f-fast-first.receipt.json",
+      "archiveManifest": {
+        "path": ".handoff/customer-4e56787f-fast-first.archive.json",
+        "sha256": "0d6ceca5bd8facc42a42d47fbce412f9679b604ddaaa54ff5ef340d43ebf6163",
+        "receiptBytesPreserved": true,
+        "interpretation": "The original receipt diskSamples path is historical. Resolve all prior-attempt artifacts using this immutable mapping, never a live customer-final path."
+      },
+      "failure": {
+        "test": "test/browser-install.test.js",
+        "detail": "Full gate failed during measured volume exhaustion. Browser-install fixture emits at most3000 archive bytes plus six-byte executable and never launches Chrome. Its expected injected ENOSPC is distinct from measured zero free space; the raw printed error alone does not identify the failing filesystem operation or storage consumer. No customer/product failure cause inferred."
+      },
+      "disk": {
+        "sampleCount": 638,
+        "startAvailableBytes": 798736384,
+        "firstBelowReserveAt": "2026-10-12T13:45:19.605Z",
+        "firstBelowReserveBytes": 535175168,
+        "firstZeroAt": "2026-10-12T13:45:44.439Z",
+        "zeroSamples": 9,
+        "minimumAvailableBytes": 0,
+        "reserveBytes": 536870912,
+        "currentAvailableBytes": 811937792
+      },
+      "lease": {
+        "path": ".handoff/guardian-lease-1791812569852-30fa3f28",
+        "ownerPid": 35600,
+        "guard": {
+          "candidate": "4e56787fda05c2bfdcc3a6127a293eeb7eafba4f",
+          "leaseId": "c4801795-cdd0-4c68-adb5-1e4efc749ef4",
+          "guardPid": 60388,
+          "childPid": 61860,
+          "finishedAt": "2026-10-12T13:45:46.6676408Z",
+          "exitCode": 1,
+          "error": null,
+          "activeProcessesAtRelease": 0,
+          "lockReleased": true
+        },
+        "supervisorReceiptPresent": false,
+        "supervisorReceiptFailure": "ENOSPC while creating supervisor.receipt.json; preserve missing receipt rather than manufacturing a successful one",
+        "execSession": 49980,
+        "execExitCode": 1
+      },
+      "httpStarted": false,
+      "sourceCampaignStarted": false,
+      "followUp": {
+        "scope": "Restore substantial capacity, then reprepare and serialize complete gates for the new exact candidate. The prepared 4e-only retry is superseded and was never launched.",
+        "watchdog": "Owned-job disk cancellation now independently reviewed with ten pure controls; no live watchdog execution yet."
       }
     }
   ],
   "scope": "Revision-bound source gates, including failures. Later evidence-only changes do not establish the cause of a failed run. These receipts do not establish installed/customer acceptance or release readiness.",
-  "updatedAt": "2026-10-12T13:15:00.026Z"
+  "updatedAt": "2026-10-12T15:43:53.330Z"
 }

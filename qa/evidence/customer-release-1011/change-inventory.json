@@ -23381,33 +23381,63 @@
     }
   ],
   "reviewCandidateFollowUp": {
-    "head": "080c1f50c9cada59f37f3f04b8e2c99a3f7b6590",
-    "baseSnapshot": "f90409837a5a69faf32ca3bf2e918bed8c508d4a",
+    "head": "52cdb7fd209e2ebe24236568359eeabe8b457a80",
+    "baseSnapshot": "080c1f50c9cada59f37f3f04b8e2c99a3f7b6590",
     "scope": "Incremental committed path inventory after retained full snapshot. Path/history classification is not independent semantic/live/installed/customer acceptance.",
-    "wholeUpdateFileCount": 704,
-    "deltaFromIntegratedFileCount": 391,
+    "wholeUpdateFileCount": 709,
+    "deltaFromIntegratedFileCount": 397,
     "pathsChangedSinceSnapshot": [
+      ".github/workflows/connector-keychain-acceptance.yml",
       "docs/NEXT.md",
       "docs/releases/next/NOTES_DRAFT.md",
-      "frontend/app/tutorial.js",
-      "qa/BUGS.md",
-      "qa/bugs/b5c41b7c-render-refresh-publishes-held-build-edits.md",
+      "qa/evidence/credential-recovery-e7b2ffcd/README.md",
       "qa/evidence/customer-release-1011/build-render-publication.json",
       "qa/evidence/customer-release-1011/change-inventory.json",
+      "qa/evidence/customer-release-1011/intake-delta-1012.json",
       "qa/evidence/customer-release-1011/readiness-review.md",
-      "qa/evidence/customer-release-1011/review-findings.json",
       "qa/evidence/customer-release-1011/source-gates.json",
       "qa/product-perfect/claims.json",
-      "test/refit-bake-reuse.test.js",
-      "website/app/app/tutorial.js",
-      "website/docs/guides/first-line.html",
-      "website/docs/providers.html",
-      "website/docs/search-index.js"
+      "src-tauri/src/credentials.rs",
+      "test/native-connector-keychain/README.md",
+      "test/native-connector-keychain/src/main.rs",
+      "test/native-connector-keychain/vault-check.cjs"
     ],
     "sourceChanges": [
-      "One-line helper-counter settlement513cf8817, independently accepted in source",
-      "Customer-question-driven documentation1e9e00fb9, workstation-manual correctionda237c1ec and explicit-limit qualifier080c1f50c; independently accepted in source"
+      "Prepared isolated native Windows credential persistence acceptance through 52cdb7fd; both independent source reviews accepted. No compile/native/installed/customer proof.",
+      "Retained previous reporting and customer-question documentation fixes; three focused 4e checks passed, then full fast failed during measured disk exhaustion."
     ],
-    "newEvidenceFilesInLaterCommits": "Not part of this pinned snapshot; inspect final revision before release."
-  }
+    "newEvidenceFilesInLaterCommits": "This reconciliation and native review receipt are not included in this pinned 52cdb7fd snapshot; inspect the final revision before release."
+  },
+  "reviewCandidateFollowUpHistory": [
+    {
+      "head": "080c1f50c9cada59f37f3f04b8e2c99a3f7b6590",
+      "baseSnapshot": "f90409837a5a69faf32ca3bf2e918bed8c508d4a",
+      "scope": "Incremental committed path inventory after retained full snapshot. Path/history classification is not independent semantic/live/installed/customer acceptance.",
+      "wholeUpdateFileCount": 704,
+      "deltaFromIntegratedFileCount": 391,
+      "pathsChangedSinceSnapshot": [
+        "docs/NEXT.md",
+        "docs/releases/next/NOTES_DRAFT.md",
+        "frontend/app/tutorial.js",
+        "qa/BUGS.md",
+        "qa/bugs/b5c41b7c-render-refresh-publishes-held-build-edits.md",
+        "qa/evidence/customer-release-1011/build-render-publication.json",
+        "qa/evidence/customer-release-1011/change-inventory.json",
+        "qa/evidence/customer-release-1011/readiness-review.md",
+        "qa/evidence/customer-release-1011/review-findings.json",
+        "qa/evidence/customer-release-1011/source-gates.json",
+        "qa/product-perfect/claims.json",
+        "test/refit-bake-reuse.test.js",
+        "website/app/app/tutorial.js",
+        "website/docs/guides/first-line.html",
+        "website/docs/providers.html",
+        "website/docs/search-index.js"
+      ],
+      "sourceChanges": [
+        "One-line helper-counter settlement513cf8817, independently accepted in source",
+        "Customer-question-driven documentation1e9e00fb9, workstation-manual correctionda237c1ec and explicit-limit qualifier080c1f50c; independently accepted in source"
+      ],
+      "newEvidenceFilesInLaterCommits": "Not part of this pinned snapshot; inspect final revision before release."
+    }
+  ]
 }

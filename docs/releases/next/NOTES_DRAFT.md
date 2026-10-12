@@ -1,6 +1,6 @@
 # StarNet — next release (draft)
 
-DRAFT updated 2026-10-12 for the release after v0.13.2. This describes the combined isolated candidate through `080c1f50c`, extending integrated source `a20ffa71f`; it is not a published or installed-verified release. Reconcile the final candidate before copying these notes. `release:bump` replaces root `RELEASE_NOTES.md` with a scaffold; keep the current public release notes intact until the cut.
+DRAFT updated 2026-10-12 for the release after v0.13.2. This describes the combined isolated candidate through `52cdb7fd`, extending integrated source `a20ffa71f`; it is not a published or installed-verified release. Reconcile the final candidate before copying these notes. `release:bump` replaces root `RELEASE_NOTES.md` with a scaffold; keep the current public release notes intact until the cut.
 
 ## Update Center summary draft
 
@@ -52,7 +52,8 @@ Local authorization and instruction-provenance hardening is included in source. 
 ## Before the cut
 
 - Resolve the explicit acceptance gaps from the reviewed issue batch and email/GitHub intake; complete the still-missing Whop intake. The Windows 0.13.2 packaged-backend startup report `85f602c4` remains open; no repair or customer recovery is claimed.
-- Complete exact-candidate source gates, Guardian/readiness, installed first use and upgrade/data continuity, native lifecycle, and the required product acceptance waves. Current source test passes do not authorize release.
+- Complete exact-candidate source gates, Guardian/readiness, installed first use and upgrade/data continuity, native lifecycle, and the required product acceptance waves. Current source test passes do not authorize release. The 4e56787f full fast run failed during measured disk exhaustion; complete gates must restart on the final candidate after capacity is restored.
+- Compile and run the newly prepared isolated Windows/macOS native credential acceptance. Source review and nine mocked refusal controls do not establish native persistence, installed reconnect/relaunch or affected-customer recovery.
 - Verify physical companion audio, real connector accounts and affected provider/platform cases where those claims are included; retain explicit limits otherwise.
 - Confirm an unused next version, run the ordered release cut, move all five pins together and re-lock source claims. Replace the scaffold with reviewed notes only at that point.
 - Ship website documentation with the matching app release. Do not deploy these unreleased instructions independently.
