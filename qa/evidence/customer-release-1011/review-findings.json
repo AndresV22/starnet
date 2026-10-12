@@ -85,23 +85,27 @@
       "id": "R09",
       "lane": "threads",
       "candidate": "09e6afba0179fe4aa6930fa5fe5b68a433d4934d",
-      "status": "repaired-in-owner-awaiting-integration",
+      "status": "resolved-in-source",
       "observation": "Execution-end recovery files raw output before structured-result repair, then rejects the accepted delivery as duplicate.",
       "requiredBehavior": "Respect final delivery authority and test invalid-to-repaired structured output.",
       "evidence": "frontend/app/stationcommands.js",
       "reviewedOwnerSource": "a69664135e4983fe624ec11bea6b2bd4666ee651",
-      "note": "Original repro passes; complete lane remains held for R12/R13."
+      "note": "Independent complete-output, write-failure/restart, exact-once and reader-state checks pass. Separate saved-history reconciliation finding R18 remains held.",
+      "resolvedBy": "d7d865f217d0088ab43b8717f3d9fc4cd5acde52",
+      "integratedAt": "8d3e47afb59976870643c1085d39eb6ccea942cf"
     },
     {
       "id": "R10",
       "lane": "threads",
       "candidate": "09e6afba0179fe4aa6930fa5fe5b68a433d4934d",
-      "status": "repaired-in-owner-awaiting-integration",
+      "status": "resolved-in-source",
       "observation": "Unrelated worker completion reloads the reader's active conversation and discards navigation/inspector state.",
       "requiredBehavior": "Refresh only affected state and preserve explicit reader intent.",
       "evidence": "frontend/app/stationcommands.js",
       "reviewedOwnerSource": "a69664135e4983fe624ec11bea6b2bd4666ee651",
-      "note": "Original repro passes; complete lane remains held for R12/R13."
+      "note": "Independent complete-output, write-failure/restart, exact-once and reader-state checks pass. Separate saved-history reconciliation finding R18 remains held.",
+      "resolvedBy": "d7d865f217d0088ab43b8717f3d9fc4cd5acde52",
+      "integratedAt": "8d3e47afb59976870643c1085d39eb6ccea942cf"
     },
     {
       "id": "R11",
@@ -118,19 +122,25 @@
       "id": "R12",
       "lane": "threads",
       "candidate": "a69664135e4983fe624ec11bea6b2bd4666ee651",
-      "status": "held-for-owner-repair",
+      "status": "resolved-in-source",
       "observation": "Accepted delivery first truncated at24,000 characters; the repair moved truncation to the200,000-character transcript cap. Supported210,026-character validated JSON then loses its tail and is accepted by readers as complete.",
       "requiredBehavior": "Persist and recover complete supported finalized output; verify full content/hash and restart at actual size boundaries.",
-      "evidence": "sidecar/transcriptstore.js"
+      "evidence": "sidecar/transcriptstore.js",
+      "resolvedBy": "d7d865f217d0088ab43b8717f3d9fc4cd5acde52",
+      "integratedAt": "8d3e47afb59976870643c1085d39eb6ccea942cf",
+      "note": "Independent complete-output, write-failure/restart, exact-once and reader-state checks pass. Separate saved-history reconciliation finding R18 remains held."
     },
     {
       "id": "R13",
       "lane": "threads",
       "candidate": "a69664135e4983fe624ec11bea6b2bd4666ee651",
-      "status": "held-for-owner-repair",
+      "status": "resolved-in-source",
       "observation": "Final run state is persisted before full delivery projection. Projection append failure leaves no restart repair; offline delivery can overwrite the failure note with a false durability promise.",
       "requiredBehavior": "Acknowledge final delivery only with durable complete authority; retain explicit failure and a supported retry without raw or preview substitution.",
-      "evidence": "sidecar/index.js; sidecar/tools/builtin/orchestration.js"
+      "evidence": "sidecar/index.js; sidecar/tools/builtin/orchestration.js",
+      "resolvedBy": "d7d865f217d0088ab43b8717f3d9fc4cd5acde52",
+      "integratedAt": "8d3e47afb59976870643c1085d39eb6ccea942cf",
+      "note": "Independent complete-output, write-failure/restart, exact-once and reader-state checks pass. Separate saved-history reconciliation finding R18 remains held."
     },
     {
       "id": "R14",
@@ -192,5 +202,5 @@
     "R08 is a supported-module edge; the reviewed module commits did not yet include final host wiring.",
     "An existing review-window restart gap was also reported to the memory owner; it was not attributed as a new regression."
   ],
-  "updatedAt": "2026-10-12T09:10:53.119Z"
+  "updatedAt": "2026-10-12T09:12:04.618Z"
 }
