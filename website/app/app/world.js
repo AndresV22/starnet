@@ -784,7 +784,11 @@ const World = (() => {
   function recordBakeProbe() {
     bakeProbe = null;
     bakeProbePending = false;
-    if (typeof geo !== 'undefined' && geo && geo.zoneGrid) bakeExpected = geo.zoneGrid.some(z => z != null);
+    const g = typeof geo !== 'undefined' && geo;
+    const tile = g && g.TILE, cols = g && g.COLS;
+    const occupied = g && g.zoneGrid && tile > 0 && cols > 0 ? g.zoneGrid.findIndex(z => z != null) : -1;
+    const floorPoint = occupied >= 0 ? { x: Math.floor((occupied % cols + .5) * tile), y: Math.floor((Math.floor(occupied / cols) + .5) * tile) } : null;
+    if (g && g.zoneGrid && tile > 0 && cols > 0) bakeExpected = !!floorPoint;
     else bakeExpected = !!cache && cache.baseCv === bakeProbeSource && bakeExpected;
     bakeProbeSource = cache && cache.baseCv;
     probeBatch = null; // a newly painted bake must never inherit pre-recovery samples
@@ -795,6 +799,9 @@ const World = (() => {
     if (W < 2 || H < 2) return;
     const pts = [[0.5, 0.5], [0.5, 0.32], [0.5, 0.68], [0.3, 0.5], [0.7, 0.5],
                  [0.3, 0.3], [0.7, 0.3], [0.3, 0.7], [0.7, 0.7]];
+    // Thin or disconnected stations can miss every coarse sample. An actual
+    // occupied tile supplies a floor witness; nine misses alone prove nothing.
+    if (floorPoint && floorPoint.x < W && floorPoint.y < H) pts.unshift([floorPoint.x / W, floorPoint.y / H]);
     try {
       for (const [fx, fy] of pts) {
         const x = Math.min(W - 1, Math.max(0, Math.round(W * fx)));

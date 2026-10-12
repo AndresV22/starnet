@@ -1,8 +1,6 @@
-/* A real-Chromium regression for the long-running black camera feed.
-
-   The production WebGL warp owns an offscreen canvas, so the test asks its existing debug surface
-   to invoke WEBGL_lose_context on that exact context. The visible 2D feed must remain lit on the
-   same page because drawCurve() falls through to its CPU warp before clearing the source frame. */
+/* Real seeded-app regression for authored prop and station cache loss. Clear the
+   prepared prop's actual canvas and dispatch contextlost, then verify same-page
+   authored pixels and floor recovery. No real model or driver crash is needed. */
 import { spawn } from 'node:child_process';
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';

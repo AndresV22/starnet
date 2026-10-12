@@ -195,6 +195,7 @@ const PropRemaster = (() => {
       // MAX_PIXELS (at most 48 MiB, including the whole catalog's fitted bodies).
       entry.recoveryPixels=body.getContext('2d').getImageData(0,0,pw,ph);
       entry.foregroundPixels=foreground?foreground.getContext('2d').getImageData(0,0,pw,ph):null;
+      entry.offPixels=screen?screen.off.getContext('2d').getImageData(0,0,pw,ph):null;
       const pickPixels=entry.recoveryPixels.data;
       entry.pickAlpha=new Uint8Array(pw*ph);
       for(let i=0;i<entry.pickAlpha.length;i++)entry.pickAlpha[i]=pickPixels[i*4+3];
@@ -206,7 +207,7 @@ const PropRemaster = (() => {
         watchPlane(key,entry,plane);
       pixelBudget+=cost-(replacing?.cost||0);entries.set(key,entry);revision++;
       return true;
-    }catch(e){failures.push({view:key,reason:String(e.message||e)});}
+    }catch(e){const reason=String(e.message||e);if(!failures.some(f=>f.view===key&&f.reason===reason))failures.push({view:key,reason});}
     return false;
   }
   const repairQueue=new Set(),repairing=new Set(),repairWaiters=[];
@@ -218,7 +219,7 @@ const PropRemaster = (() => {
     },{once:true});
   }
   function loseEntry(key,entry){
-    entry.lost=true;entry.generation++;entry.retryAt=0;entry.recoveryBody=entry.recoveryForeground=null;
+    entry.lost=true;entry.generation++;entry.retryAt=0;entry.recoveryBody=entry.recoveryForeground=entry.recoveryOff=entry.recoveryComposed=null;
     repairQueue.add(key);pumpRepairs();
   }
   function queueRepair(key,entry){
@@ -243,8 +244,8 @@ const PropRemaster = (() => {
       repairNotice=false;
       // Silhouette, picking and lighting consumers must stop using pre-loss
       // canvas caches too. One notification per bounded repair batch.
-      if(typeof PropSprites!=='undefined'&&PropSprites.userArtChanged)PropSprites.userArtChanged();
-      if(typeof window!=='undefined'&&typeof CustomEvent!=='undefined')window.dispatchEvent(new CustomEvent('starnet:prop-art-ready',{detail:{revision}}));
+      try{if(typeof PropSprites!=='undefined'&&PropSprites.userArtChanged)PropSprites.userArtChanged();}catch(_){}
+      try{if(typeof window!=='undefined'&&typeof CustomEvent!=='undefined')window.dispatchEvent(new CustomEvent('starnet:prop-art-ready',{detail:{revision}}));}catch(_){}
     }
     while(repairWaiters.length)repairWaiters.shift()();
   }
@@ -253,20 +254,23 @@ const PropRemaster = (() => {
     // silently discard pixels without dispatching individual canvas events.
     for(const [key,entry]of entries){
       if(entry.lost)continue; // repeated global signals share the in-flight repair
-      entry.lost=true;entry.generation++;entry.retryAt=0;entry.recoveryBody=entry.recoveryForeground=null;repairQueue.add(key);
+      entry.lost=true;entry.generation++;entry.retryAt=0;entry.recoveryBody=entry.recoveryForeground=entry.recoveryOff=entry.recoveryComposed=null;repairQueue.add(key);
     }
     pumpRepairs();return whenRecovered();
   }
   function whenRecovered(){return repairing.size||repairQueue.size?new Promise(resolve=>repairWaiters.push(resolve)):Promise.resolve();}
   function recoveryBody(key,entry,foreground=false){
     queueRepair(key,entry);
-    const field=foreground?'recoveryForeground':'recoveryBody';
+    const field=foreground==='off'?'recoveryOff':foreground?'recoveryForeground':'recoveryBody';
     if(!entry[field]){
-      const pixels=foreground?entry.foregroundPixels:entry.recoveryPixels;if(!pixels)return null;
-      const c=document.createElement('canvas');c.width=pixels.width;c.height=pixels.height;
-      // CPU-backed during recovery: this copy must survive a still-resetting GPU.
-      const g=c.getContext('2d',{willReadFrequently:true});if(!g)return null;
-      g.putImageData(pixels,0,0);entry[field]=c;watchPlane(key,entry,c);
+      if(performance.now()<(entry.bodyRetryAt||0))return null;
+      try{
+        const pixels=foreground==='off'?entry.offPixels:foreground?entry.foregroundPixels:entry.recoveryPixels;if(!pixels)return null;
+        const c=document.createElement('canvas');c.width=pixels.width;c.height=pixels.height;
+        // CPU-backed during recovery: this copy must survive a still-resetting GPU.
+        const g=c.getContext('2d',{willReadFrequently:true});if(!g)throw Error('recovery canvas unavailable');
+        g.putImageData(pixels,0,0);entry[field]=c;watchPlane(key,entry,c);
+      }catch(_){entry.bodyRetryAt=performance.now()+3000;return null;}
     }
     return entry[field];
   }
@@ -363,24 +367,22 @@ const PropRemaster = (() => {
     if(w!==v.footprint.w*12||h!==v.footprint.h*12||
       (v.nativeFallbackWhen||[]).some(k=>state&&state[k]))return false;
     const f=e.frame;
-    if(e.lost){
-      const body=recoveryBody(id+':'+view,e);
-      if(body){ctx.save();try{ctx.imageSmoothingEnabled=true;ctx.imageSmoothingQuality='high';ctx.drawImage(body,x+f.x,y+f.y,body.width/DENSITY,body.height/DENSITY);}finally{ctx.restore();}}
-      return true; // known authored art never routes a graphics outage to legacy art
-    }
+    const body=e.lost?recoveryBody(id+':'+view,e):e.body;
+    if(!body)return true; // known authored art never routes a graphics outage to legacy art
     if(e.composed){
-      const g=e.composed.getContext('2d');g.save();
+      if(e.lost&&!e.recoveryComposed){e.recoveryComposed=canvas(body.width,body.height);watchPlane(id+':'+view,e,e.recoveryComposed);}
+      const composed=e.lost?e.recoveryComposed:e.composed,g=composed.getContext('2d');g.save();
       try{
-        g.setTransform(1,0,0,1,0,0);g.globalAlpha=1;g.globalCompositeOperation='source-over';g.clearRect(0,0,e.composed.width,e.composed.height);g.drawImage(e.body,0,0);
+        g.setTransform(1,0,0,1,0,0);g.globalAlpha=1;g.globalCompositeOperation='source-over';g.clearRect(0,0,composed.width,composed.height);g.drawImage(body,0,0);
         g.scale(DENSITY,DENSITY);g.translate(-f.x,-f.y);
         if(v.mode==='content')AuthoredPropContent.draw(g,id,{...e.box,crop:e.crop},state||{});
-        if(v.mode==='machine')AuthoredPropMotion.draw(g,id,{...e.box,crop:e.crop},state||{});
+        if(v.mode==='machine'&&!e.lost)AuthoredPropMotion.draw(g,id,{...e.box,crop:e.crop},state||{});
         if(v.mode==='service')AuthoredServiceContent.draw(g,id,{...e.box,crop:e.crop},state||{});
       }finally{g.restore();}
-      ctx.save();try{ctx.imageSmoothingEnabled=true;ctx.imageSmoothingQuality='high';ctx.drawImage(e.composed,x+f.x,y+f.y,e.composed.width/DENSITY,e.composed.height/DENSITY);}finally{ctx.restore();}
+      ctx.save();try{ctx.imageSmoothingEnabled=true;ctx.imageSmoothingQuality='high';ctx.drawImage(composed,x+f.x,y+f.y,composed.width/DENSITY,composed.height/DENSITY);}finally{ctx.restore();}
       return true;
     }
-    if(e.live){
+    if(e.live&&!e.lost){
       const g=e.live.getContext('2d');g.save();
       try{
         g.setTransform(1,0,0,1,0,0);g.clearRect(0,0,e.live.width,e.live.height);
@@ -395,9 +397,10 @@ const PropRemaster = (() => {
       ctx.imageSmoothingEnabled=true;ctx.imageSmoothingQuality='high';
       const baseAlpha=ctx.globalAlpha;
       const occupied=v.screenPower==='ambient'?true:v.screenPower==='connected'?!!state?.live:v.screenPower==='bound'?!!state?.bound&&state.state==='online':state&&typeof state.occupied==='boolean'?state.occupied:!!(state&&state.work);
-      ctx.drawImage(e.screen&&!occupied?e.screen.off:e.body,x+f.x,y+f.y,e.body.width/DENSITY,e.body.height/DENSITY);
-      if(e.live)ctx.drawImage(e.live,x+f.x,y+f.y,e.live.width/DENSITY,e.live.height/DENSITY);
-      if(e.screen&&occupied&&!(state&&state.still)){
+      const paint=e.screen&&!occupied?(e.lost?recoveryBody(id+':'+view,e,'off'):e.screen.off):body;
+      if(paint)ctx.drawImage(paint,x+f.x,y+f.y,e.body.width/DENSITY,e.body.height/DENSITY);
+      if(e.live&&!e.lost)ctx.drawImage(e.live,x+f.x,y+f.y,e.live.width/DENSITY,e.live.height/DENSITY);
+      if(e.screen&&!e.lost&&occupied&&!(state&&state.still)){
         const phase=Math.floor((Math.max(0,Number(state&&state.now)||0)%2800)/350);
         ctx.globalCompositeOperation='source-atop';
         ctx.globalAlpha *= .65 + .2 * Math.max(0,Math.min(1,Number(state&&state.heat)||0));
@@ -409,7 +412,7 @@ const PropRemaster = (() => {
       const fired=v.mode==='pulse'&&v.motion.trigger==='fired';
       const active=fired?!!(state&&state.fired):v.mode==='scanner'?!!(state&&state.scanning):v.mode==='pool'||['pulse','steam'].includes(v.mode)&&v.motion.trigger==='work'?!!(state&&state.work):true;
       const moving=!(state&&state.still)&&active;
-      if(e.motion&&(moving||v.mode==='pool'||fired&&active)){
+      if(e.motion&&!e.lost&&(moving||v.mode==='pool'||fired&&active)){
         const period=v.mode==='scanner'?900:4800,phase=moving?Math.floor((Math.max(0,Number(state&&state.now)||0)%period)/period*e.motion.length):fired?6:0;
         ctx.globalCompositeOperation=v.mode==='steam'?'source-over':'source-atop';
         if(fired&&state.bad&&v.motion.failureColour){
@@ -419,11 +422,11 @@ const PropRemaster = (() => {
       }
       if(v.mode==='approved'){
         ctx.globalCompositeOperation='source-over';ctx.globalAlpha=baseAlpha;
-        if(e.approved&&typeof ApprovedSheetEffects!=='undefined')ApprovedSheetEffects.draw(ctx,id,{x:x+e.box.x,y:y+e.box.y,width:e.box.width,height:e.box.height,crop:e.crop,sourceWidth:v.sourceWidth,sourceHeight:v.sourceHeight},{...state,prepared:e.approved});
+        if(e.approved&&typeof ApprovedSheetEffects!=='undefined')ApprovedSheetEffects.draw(ctx,id,{x:x+e.box.x,y:y+e.box.y,width:e.box.width,height:e.box.height,crop:e.crop,sourceWidth:v.sourceWidth,sourceHeight:v.sourceHeight},{...state,prepared:e.lost?null:e.approved});
         approvedState(ctx,id,e,x,y,state||{});
       }
       if(e.projectionHandled){ctx.globalAlpha=baseAlpha;ctx.globalCompositeOperation='source-over';
-        ProjectionPropEffects.draw(ctx,id,view,{x:x+e.box.x,y:y+e.box.y,width:e.box.width,height:e.box.height,crop:e.crop,sourceWidth:v.sourceWidth,sourceHeight:v.sourceHeight},state||{},e.projection);}
+        ProjectionPropEffects.draw(ctx,id,view,{x:x+e.box.x,y:y+e.box.y,width:e.box.width,height:e.box.height,crop:e.crop,sourceWidth:v.sourceWidth,sourceHeight:v.sourceHeight},state||{},e.lost?null:e.projection);}
     }finally{ctx.restore();}
     return true;
   }
@@ -437,7 +440,7 @@ const PropRemaster = (() => {
     if(id==='airlock'&&state.door)label=String(state.door).slice(0,16);
     if(label){ctx.font='3px VT323,monospace';ctx.textAlign='center';ctx.fillStyle='#cbb985';ctx.fillText(label,x+e.spec.footprint.w*6,y+e.box.y+e.box.height+3);}
     const trigger=e.spec.activity,amount=trigger==='fired'?Math.max(0,Math.min(1,+state.fired||0)):trigger==='work'&&state.work?1:trigger==='ambient'?.3:0;
-    if(amount&&!e.approved&&e.indicators){ctx.globalAlpha*=amount*(state.still?.45:.35+.15*Math.sin((+state.now||0)/280));ctx.drawImage(e.indicators[state.bad?1:0],x+e.frame.x,y+e.frame.y,e.body.width/DENSITY,e.body.height/DENSITY);}
+    if(amount&&!e.lost&&!e.approved&&e.indicators){ctx.globalAlpha*=amount*(state.still?.45:.35+.15*Math.sin((+state.now||0)/280));ctx.drawImage(e.indicators[state.bad?1:0],x+e.frame.x,y+e.frame.y,e.body.width/DENSITY,e.body.height/DENSITY);}
   }
   const ready=(async()=>{
     if(typeof document==='undefined'||typeof Image==='undefined'||typeof fetch!=='function')return;
@@ -466,13 +469,13 @@ const PropRemaster = (() => {
   })();
   function emitter(id,view='s',w,h){
     const e=enabled(id,view)&&entries.get(id+':'+view),p=e&&e.screen&&e.screen.centroid;
-    if(e&&(e.lost||(w!=null&&w!==e.spec.footprint.w*12)||(h!=null&&h!==e.spec.footprint.h*12)))return null;
+    if(e&&((w!=null&&w!==e.spec.footprint.w*12)||(h!=null&&h!==e.spec.footprint.h*12)))return null;
     if(e?.projectionEmitter)return {...e.projectionEmitter};
     return p?{x:e.frame.x+p.x,y:e.frame.y+p.y}:null;
   }
   function screenEmission(id,view='s',w,h,state={}){
     const e=enabled(id,view)&&entries.get(id+':'+view);
-    if(!e||e.lost||!e.projectionHandled||w!==e.spec.footprint.w*12||h!==e.spec.footprint.h*12)return null;
+    if(!e||!e.projectionHandled||w!==e.spec.footprint.w*12||h!==e.spec.footprint.h*12)return null;
     const p=ProjectionPropEffects.screenEmission(id,view,state);if(!p)return null;
     return {...p,screenEmission:true,x:e.box.x+(p.x*e.spec.sourceWidth-e.crop.x)/e.crop.width*e.box.width,
       y:e.box.y+(p.y*e.spec.sourceHeight-e.crop.y)/e.crop.height*e.box.height};
@@ -512,7 +515,7 @@ const PropRemaster = (() => {
   }
   return Object.freeze({ready,enabled,draw,registerRuntime,restore,whenRecovered,drawForeground,emitter,screenEmission,viewGeometry,hitTest,isProjection:()=>projectionReview,revision:()=>revision,
     status:()=>({views:Array.from(entries.keys()),failures:failures.slice(),pixels:pixelBudget,lost:[...entries.values()].filter(e=>e.lost).length,recovering:repairing.size+repairQueue.size,
-      recoveryBytes:[...entries.values()].reduce((n,e)=>n+e.recoveryPixels.data.byteLength+(e.foregroundPixels?.data.byteLength||0),0)}),
+      recoveryBytes:[...entries.values()].reduce((n,e)=>n+e.recoveryPixels.data.byteLength+(e.foregroundPixels?.data.byteLength||0)+(e.offPixels?.data.byteLength||0),0)}),
     // Pure contracts exposed for deterministic headless geometry validation.
     validate,fit});
 })();

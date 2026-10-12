@@ -83,6 +83,15 @@ async function materials(){
   base.getContext('2d').clearRect(0,0,64,64);lossScope.recordBakeProbe();
   assert.equal(lossScope.blank(),true,'blank rebuild of a previously occupied floor is not accepted as empty');
   lossScope.watch(5900);assert.equal(lossScope.blank(),false,'blank rebuild can recover on the next watchdog check');
+  const sparse=Canvas.createCanvas(256,256),sparseCtx=sparse.getContext('2d');
+  sparseCtx.fillRect(20,20,8,8);sparseCtx.fillRect(212,212,8,8);
+  lossScope.cache.baseCv=sparse;lossScope.geo={COLS:16,TILE:16,zoneGrid:Array(256).fill(null)};
+  lossScope.geo.zoneGrid[17]='room';lossScope.geo.zoneGrid[221]='room';
+  lossScope.recordBakeProbe();const beforeSparse=rebuilt;
+  for(const now of [6300,10000,14000])lossScope.watch(now);
+  assert.equal(lossScope.blank(),false,'occupied tile witnesses sparse healthy floors that all nine coarse points miss');
+  assert.equal(rebuilt,beforeSparse,'healthy sparse floors never trigger recovery or prop reload storms');
+  delete lossScope.geo;
   // Browser async path: no GPU readback inside the frame, stale snapshots cannot
   // invalidate a fresh bake, and a stuck encoder retains a bounded backstop.
   let fakeNow=100,closedBitmaps=0;const callbacks=[];
