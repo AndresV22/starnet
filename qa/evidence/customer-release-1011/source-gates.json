@@ -136,7 +136,75 @@
         }
       ],
       "followUp": "Repairs returned to owning lanes; a new complete fast/HTTP/customer-journey gate is required on the final combined candidate."
+    },
+    {
+      "candidate": "845239d700929d12067dd506111ea275a81acab2",
+      "startedAt": "2026-10-12T09:37:27.532Z",
+      "finishedAt": "2026-10-12T09:37:32.407Z",
+      "steps": 1154,
+      "exitCode": 1,
+      "sourceUnchanged": true,
+      "error": null,
+      "logSha256": "9390f075a66993cff0957f0dde2661fcebe0bfecd0e47d4c8485acf4662ee599",
+      "command": "npm run test:fast",
+      "completedSteps": 28,
+      "failedStep": 29,
+      "manifestSteps": 1154,
+      "log": ".handoff/customer-845-fast.log",
+      "failure": {
+        "test": "test/report-0110-regressions.test.js",
+        "detail": "Source assertion required null after blocked skill review; current retry contract returns false. Reviewed behavioral replacement d9e37d4c9 queued then independently passed after merge."
+      },
+      "scope": "Failed full gate. Complete diagnostic traversal of the remainder does not convert it into a pass.",
+      "diagnosticRemainder": {
+        "candidate": "845239d700929d12067dd506111ea275a81acab2",
+        "startedAt": "2026-10-12T09:39:14.120Z",
+        "finishedAt": "2026-10-12T09:51:30.280Z",
+        "originalRange": [
+          30,
+          1154
+        ],
+        "testedSteps": 1125,
+        "failures": [
+          {
+            "originalStep": 586,
+            "test": "test/comms-deliverable-replay.test.js",
+            "exit": 1
+          },
+          {
+            "originalStep": 615,
+            "test": "test/notifications-useful.test.js",
+            "exit": 1
+          },
+          {
+            "originalStep": 616,
+            "test": "test/bell-settles.test.js",
+            "exit": 1
+          },
+          {
+            "originalStep": 653,
+            "test": "test/untrusted-taint.test.js",
+            "exit": 1
+          },
+          {
+            "originalStep": 834,
+            "test": "test/browser-workflow.test.js",
+            "exit": 1
+          },
+          {
+            "originalStep": 952,
+            "test": "test/failopen-ratchet.test.js",
+            "exit": 1
+          }
+        ],
+        "sourceUnchanged": true,
+        "fullGatePass": false,
+        "log": ".handoff/customer-845-remainder.log",
+        "logSha256": "1de50307903122701db57c8d50e9df70427ba840d415355759857d4ebf48abd5"
+      },
+      "followUp": "Three thread tests require extraction/acknowledgment updates and independent review found background sibling prompts never cleared (R19). Attachment trust/learned lookup and new silent catches are assigned to their owners. No assertions or ratchet limits weakened."
     }
   ],
-  "scope": "Revision-bound source gates, including failures. Later evidence-only changes do not establish the cause of a failed run. These receipts do not establish installed/customer acceptance or release readiness."
+  "scope": "Revision-bound source gates, including failures. Later evidence-only changes do not establish the cause of a failed run. These receipts do not establish installed/customer acceptance or release readiness.",
+  "updatedAt": "2026-10-12T09:54:26.768Z"
 }
