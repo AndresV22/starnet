@@ -9,6 +9,11 @@ const id = v => typeof v === 'string' && v.trim().length > 0 && v.length <= 256 
 const propId = v => typeof v === 'string' && /^[A-Za-z0-9_-]{1,80}$/.test(v);
 const time = v => typeof v === 'number' && Number.isFinite(v) && v >= 0;
 const keyOf = r => JSON.stringify([r.lineId, r.entryRunId]);
+/* RETENTION (runtime audit 2026-10-12): SHIPPED counts receipts since the caller's local midnight, yet every shipment rewrote and
+   re-validated the WHOLE history inside chain.advance, and nothing pruned it (50 000 receipts = 0.4-2 s per job). A save keeps the
+   last 7 days - any local midnight, timezone slack included; the stats route never reads a window older than this. Pruning runs
+   only after ensure() read a valid history, so an unreadable, corrupt or invalid file still refuses every write. */
+const SHIPMENT_KEEP_MS = 7 * 24 * 60 * 60 * 1000;
 const validReceipt = r => !!r && typeof r === 'object' && !Array.isArray(r) && propId(r.lineId) && id(r.entryRunId) && id(r.terminalRunId) && propId(r.outboxId) && time(r.at);
 const receiptView = r => ({ lineId: r.lineId, entryRunId: r.entryRunId, terminalRunId: r.terminalRunId, outboxId: r.outboxId, at: r.at });
 function cleanShipments(value) {
@@ -91,7 +96,7 @@ function makeLineShipments(options) {
     const terminal = job.find(x => x.agentId === r.agentId && (!r.dockId || x.dockId === r.dockId));
     if (!terminal) return false;
     const receipt = { lineId: r.lineId, entryRunId: r.entryRunId, terminalRunId: terminal.runId, outboxId: r.outboxId, at };
-    const next = current.concat([receipt]);
+    const next = current.filter(x => x.at >= at - SHIPMENT_KEEP_MS).concat([receipt]);
     try { save(next); } catch (e) {
       // Main may already contain next even though its read-back failed. Re-load
       // authority before another write; an old cache could erase that commit.
@@ -102,4 +107,4 @@ function makeLineShipments(options) {
   }
   return { record, snapshot: () => cleanShipments(ensure()) };
 }
-module.exports = { cleanShipments, validateShipments, makeLineShipments, loadShipmentReceipts, cleanJobRows };
+module.exports = { cleanShipments, validateShipments, makeLineShipments, loadShipmentReceipts, cleanJobRows, SHIPMENT_KEEP_MS };

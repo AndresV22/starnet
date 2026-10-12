@@ -6,7 +6,8 @@
                   midnight — the same window the station's SHIPPED TODAY counter polls /api/runs with).
      • shipped  — durable terminal-job receipts minted when the chain actually reaches its OUTBOX.
                   Productive work (successful tools/artifacts) and clean run outcomes are checked at that moment.
-                  Every job counts once; later floor edits cannot rewrite its history. No receipt = no claim.
+                  Every job counts once; later floor edits cannot rewrite its history. No receipt = no claim. Receipts
+                  are kept for the retention window (line-shipments SHIPMENT_KEEP_MS): SHIPPED counts those inside it.
      • failed   — reason error / refusal / max_iters / budget (the same dead-run set the floor turns into slag).
      • medianMs — the median recorded durationMs of those runs (null with no timed run).
      • tests    — step-through test / try-this-step hops (run rows the host stamped stepTest). A test is NOT a job:

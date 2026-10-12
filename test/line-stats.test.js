@@ -314,4 +314,24 @@ if (store && store.record) {
   A.ok(rows.every(r => !router.chainShipsToOutbox(r.agentId, r.dockId)), 'edited topology no longer reaches OUTBOX');
   A.eq(lineStats(input).lines.find(l => l.lineId === lineId).shipped, 1, 'floor edit cannot erase the real past shipment');
 }
+// BOUNDED HISTORY (runtime audit 2026-10-12): every shipment rewrote and re-validated the WHOLE history synchronously inside
+// chain.advance, and nothing pruned it — 50 000 receipts blocked a job's hand-back 0.4–2 s. Receipts older than the retention
+// window are dropped on the next save; today's SHIPPED is unchanged (it only counts receipts since local midnight).
+{
+  const { SHIPMENT_KEEP_MS } = require('../sidecar/routing/line-shipments.js');
+  A.ok(typeof SHIPMENT_KEEP_MS === 'number' && SHIPMENT_KEEP_MS >= 2 * 24 * 60 * 60 * 1000, 'the retention window is exported and covers any local midnight');
+  const DAY = 24 * 60 * 60 * 1000, now = 100 * DAY, midnight = now - 6 * 60 * 60 * 1000;
+  const old = [];
+  for (let i = 0; i < 500; i++) old.push(receipt('L1', 'old-' + i, now - SHIPMENT_KEEP_MS - DAY - i));
+  const today = [receipt('L1', 'today-1', midnight + 1000), receipt('L1', 'today-2', midnight + 2000)];
+  let disk = old.concat(today), writes = 0;
+  const before = lineStats({ lines: [{ lineId: 'L1' }], shipments: disk, since: midnight }).lines[0].shipped;
+  const ledger = makeLineShipments({ now: () => now, load: () => disk, save: v => { writes++; disk = JSON.parse(JSON.stringify(v)); },
+    runsFor: () => [{ runId: 'job-3', lineId: 'L1', streamId: 's', agentId: 'a', dockId: 'd', reason: 'done', toolsOk: 1 }] });
+  A.ok(ledger.record({ lineId: 'L1', entryRunId: 'job-3', streamId: 's', agentId: 'a', dockId: 'd', outboxId: 'o' }), 'a new job records');
+  A.eq(writes, 1, 'one write');
+  A.eq(disk.map(r => r.entryRunId), ['today-1', 'today-2', 'job-3'], 'the saved history drops every receipt past the retention window');
+  A.eq(lineStats({ lines: [{ lineId: 'L1' }], shipments: disk, since: midnight }).lines[0].shipped, before + 1, 'today\'s SHIPPED is unchanged by the prune (+ the new job)');
+  A.eq(ledger.snapshot().length, 3, 'the cache matches what was saved');
+}
 A.report();

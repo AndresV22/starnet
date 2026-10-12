@@ -259,7 +259,7 @@ const LineJobs = require('./routing/linejobs.js');   // WORKFLOWS — every job 
 const LineDraft = require('./routing/linedraft.js');   // WORKFLOWS › SET IT UP FOR ME — "what should it make?" → a starter, a name, each step's instructions (/api/routing/line-draft)
 const LineFix = require('./routing/linefix.js');   // NOT RIGHT? — a result the Commander doesn't want → fixes to the line's step instructions (/api/routing/fix-suggest)
 const { lineStats: foldLineStats } = require('./routing/line-stats.js');   // LINE WATCH: per-line runs/shipped/failed/$ + each bay's last outcome (GET /api/routing/lines/stats)
-const { makeLineShipments, validateShipments, loadShipmentReceipts, cleanJobRows } = require('./routing/line-shipments.js');
+const { makeLineShipments, validateShipments, loadShipmentReceipts, cleanJobRows, SHIPMENT_KEEP_MS } = require('./routing/line-shipments.js');
 const { makeLineSpend } = require('./routing/line-spend.js');   // per-line DAY spend ledger (LINE BUDGET maxUsdPerDay) — durable sibling of routing.plan.json
 const LineTriggers = require('./routing/triggers.js');   // LINE TRIGGERS (2026-09-23): folder/webhook events that start ONE line
 const { makeTriggerRunner, crewedDocksOnLine } = require('./routing/trigger-runner.js');
@@ -5337,7 +5337,9 @@ const lineSpend = makeLineSpend({
   save: v => { try { lineSpendStore.save(v); } catch (e) { console.warn('[line-spend] persist failed:', (e && e.message) || e); } }
 });
 /* SHIPPED is durable terminal-job evidence, independent of later floor edits.
-   Older runs have no receipt and are never reconstructed into guessed shipments. */
+   Older runs have no receipt and are never reconstructed into guessed shipments. Receipts are kept for the retention
+   window (line-shipments SHIPMENT_KEEP_MS, 7 days): SHIPPED counts the receipts inside it, and the stats route never asks
+   for an older window. */
 const lineShipmentStore = makeDomainStore({
   fs, path, file: path.join(WORKSPACES, 'line-shipments.json'), version: 1, writeDurable: writeFileDurable,
   defaults: () => [], normalize: validateShipments,
@@ -13171,7 +13173,9 @@ function handleLineStats(req, res) {
     const nowMs = Date.now();
     const q = Number(u.searchParams.get('since'));
     const utcDay = nowMs - (nowMs % (24 * 60 * 60 * 1000));
-    const since = (isFinite(q) && q > 0 && q <= nowMs) ? q : utcDay;
+    // never older than the shipment retention window: a range whose receipts were pruned would under-count SHIPPED (the answer
+    // carries the window it really read in `since`)
+    const since = Math.max((isFinite(q) && q > 0 && q <= nowMs) ? q : utcDay, nowMs - SHIPMENT_KEEP_MS);
     return json(200, Object.assign({ ok: true }, lineStatsSnapshot(since)));
   } catch (e) {
     return json(500, { ok: false, error: 'line stats unreadable: ' + String((e && e.message) || e).slice(0, 200) });
