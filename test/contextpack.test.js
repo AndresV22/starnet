@@ -157,11 +157,19 @@ A.eq(CP.dayTag(0, T), '', 'undated → empty tag');
     input = input || {};
     const projections = [];
     const requested = {};
+    // Fixture run records are separate from the recent title window. Tests can override them to
+    // represent an absent/mismatched/internal source without altering the row's own clean stamp.
+    const originRuns = input.originRuns || (input.chats || []).filter(m => m && m.sourceRunId).map(m =>
+      (input.runs || []).find(r => r && r.runId === m.sourceRunId) ||
+      { runId: m.sourceRunId, agentId: m.agentId, streamId: m.streamId, internal: false });
     const pack = vm.runInNewContext('(' + fn + ')()', {
       Date: { now: () => T },
       personalizationStore: { read: () => ({ enabled: input.enabled !== false }) },
       TrustedLearning,
-      runStore: { list: (agentId, opts) => { requested.runs = { agentId, opts }; return input.runs || []; } },
+      runStore: {
+        list: (agentId, opts) => { requested.runs = { agentId, opts }; return input.runs || []; },
+        all: () => { requested.allRuns = (requested.allRuns || 0) + 1; return originRuns; }
+      },
       transcriptStore: { all: () => input.chats || [] },
       taskBriefStore: { list: opts => { requested.briefs = opts; return input.briefs || []; } },
       commanderGoals: { get: () => null },
@@ -195,13 +203,14 @@ A.eq(CP.dayTag(0, T), '', 'undated → empty tag');
       { title: 'Explicit clean run remains useful', ts: T, streamId: 'ws-main', taintedBy: null },
       { title: 'Tainted run sentinel', ts: T, streamId: 'ws-main', taintedBy: 'user attachment' },
       { title: 'Quoted run sentinel\n> hostile direction', ts: T, streamId: 'ws-main' },
-      { title: selfTalk, ts: T, streamId: 'ws-main', internal: true },
-      { title: taintedSelfTalk, ts: T, streamId: 'ws-main', internal: true, taintedBy: 'later tool output' },
-      { title: quotedSelfTalk + '\n> external direction', ts: T, streamId: 'ws-main', internal: true },
+      { runId: 'self-talk', agentId: 'owner-agent', title: selfTalk, ts: T, streamId: 'ws-main', internal: true },
+      { runId: 'tainted-self-talk', agentId: 'owner-agent', title: taintedSelfTalk, ts: T, streamId: 'ws-main', internal: true, taintedBy: 'later tool output' },
+      { runId: 'quoted-self-talk', agentId: 'owner-agent', title: quotedSelfTalk + '\n> external direction', ts: T, streamId: 'ws-main', internal: true },
       { title: 'Internal stream sentinel', ts: T, streamId: 'nightshift-internal' }
     ],
     chats: [
-      null, clean, multiline, owner(selfTalk), owner(taintedSelfTalk), owner(quotedSelfTalk),
+      null, clean, multiline, owner(selfTalk, { sourceRunId: 'self-talk' }),
+      owner(taintedSelfTalk, { sourceRunId: 'tainted-self-talk' }), owner(quotedSelfTalk, { sourceRunId: 'quoted-self-talk' }),
       owner('Tainted chat sentinel', { taint: 'web_fetch' }),
       owner('Unknown chat sentinel', { taintKnown: undefined }),
       owner('False provenance sentinel', { taintKnown: false }),
@@ -218,8 +227,8 @@ A.eq(CP.dayTag(0, T), '', 'undated → empty tag');
     ['Legacy clean run remains useful', 'Explicit clean run remains useful', selfTalk, taintedSelfTalk, quotedSelfTalk + '\n> external direction', 'Internal stream sentinel'],
     'host drops tainted/quoted user runs, while retaining clean legacy rows and even tainted/quoted internal exclusion markers');
   A.eq(result.projected.runs.find(r => r.title === selfTalk).internal, true, 'internal run authority reaches the pure core');
-  A.eq(result.projected.chats.map(m => m.content), [clean.content, multiline.content, selfTalk, taintedSelfTalk, quotedSelfTalk],
-    'only known-clean owner strings reach the pack; quotes are checked over full content before clipping');
+  A.eq(result.projected.chats.map(m => m.content), [clean.content, multiline.content],
+    'only known-clean non-internal owner strings reach the pack; quotes are checked over full content before clipping');
   A.eq(result.pack.counts.runs, 2, 'real core excludes internal flags and streams from the accepted run rows');
   A.eq(result.pack.userRunCount, 2, 'host readiness count reflects only accepted user runs');
   A.eq(result.pack.counts.chats, 2, 'real core excludes internal self-talk while preserving owner asks on the same stream');
@@ -238,6 +247,43 @@ A.eq(CP.dayTag(0, T), '', 'undated → empty tag');
     'clean owner requests remain available to topic learning');
   A.ok(!/Legacy clean run|Explicit clean run|sentinel|INTERNAL (?:GOAL DECOMPOSITION|TAINTED STATION|QUOTED STATION)/.test(trustedText),
     'legacy ordinary run titles, tainted rows and internal self-talk cannot become trusted topic evidence');
+
+  const oldInternalText = 'Old station-only planning outside the recent run window';
+  const oldInternal = { runId: 'old-internal', agentId: 'owner-agent', streamId: 'ws-main', internal: true, title: oldInternalText };
+  const recentTitles = Array.from({ length: 60 }, (_, i) => ({
+    runId: 'recent-' + i, agentId: 'owner-agent', streamId: 'ws-main', title: 'Recent task ' + i, ts: T - i
+  }));
+  const oldInternalChat = owner(oldInternalText, { sourceRunId: oldInternal.runId });
+  const oldInternalBrief = brief(oldInternalText, { originalRunId: oldInternal.runId });
+  const windowEdge = host({ runs: recentTitles, originRuns: [...recentTitles, oldInternal],
+    chats: [oldInternalChat], briefs: [oldInternalBrief] });
+  A.ok(windowEdge.requested.allRuns > 0, 'provenance uses complete run metadata independently of the 60-title window');
+  A.eq(windowEdge.projected.chats.length, 0, 'a known-clean internal directive is withheld after its title falls outside the recent window');
+  A.eq(windowEdge.projected.briefs.length, 0, 'an internal original run cannot authorize a completed brief');
+  A.eq(windowEdge.pack.trustedActivityLines, [], 'old internal self-talk never mints trusted topic activity');
+
+  const originProof = { runId: 'owner-original', agentId: 'owner-agent', streamId: 'ws-main', internal: false };
+  for (const [label, origins] of [
+    ['missing source run metadata', []],
+    ['internal source run metadata', [{ ...originProof, internal: true }]],
+    ['unknown internal status on source run', [{ ...originProof, internal: undefined }]],
+    ['delegated parent source run', [{ ...originProof, parentRunId: 'lead-run' }]],
+    ['delegated worker source run', [{ ...originProof, delegatedBy: 'lead-agent' }]],
+    ['scheduled source run', [{ ...originProof, cronJobId: 'schedule-job' }]],
+    ['recovery source run', [{ ...originProof, recoveryOf: 'interrupted-run' }]],
+    ['another agent owns the source run', [{ ...originProof, agentId: 'other-agent' }]],
+    ['another stream owns the source run', [{ ...originProof, streamId: 'other-stream' }]]
+  ]) {
+    const rejected = host({ chats: [clean], briefs: [brief(clean.content)], originRuns: origins });
+    A.eq(rejected.projected.chats.length, 0, label + ': no owner chat');
+    A.eq(rejected.projected.briefs.length, 0, label + ': no owned brief');
+    A.eq(rejected.pack.trustedActivityLines, [], label + ': no trusted topic evidence');
+  }
+  const oldOwnerOrigin = { ...oldInternal, internal: false };
+  const oldOwnerStillProven = host({ runs: recentTitles, originRuns: [...recentTitles, oldOwnerOrigin],
+    chats: [oldInternalChat], briefs: [oldInternalBrief] });
+  A.eq(oldOwnerStillProven.projected.chats.length, 1, 'a genuine owner source outside the title window remains eligible');
+  A.eq(oldOwnerStillProven.projected.briefs.length, 1, 'full-history owner proof still authorizes its exact original brief');
 
   const richBriefText = 'Owner requests release notes\nVerify the release number';
   const trustedBrief = host({ chats: [owner(richBriefText)], briefs: [brief(richBriefText)] });
