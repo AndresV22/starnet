@@ -132,6 +132,14 @@ const Chat = (() => {
      so it rides a one- or multi-line composer instead of a magic offset. Click jumps down + re-arms stickiness. */
   function jumpToBottom() { if (log) { log.scrollTop = log.scrollHeight; stick = true; hideNewPill(); } }
   function cancelHistoryPin() { historyPinPending = 0; }
+  // An explicit search/attention/result jump is reading intent, including when a session load still owes its pin.
+  function revealHistory(target) {
+    if (!log || !target || !log.contains(target)) return false;
+    cancelHistoryPin(); stick = false; userScrollAt = Date.now();
+    target.scrollIntoView({ block: 'center' });
+    showNewPill(false);
+    return true;
+  }
   function pinLoadedHistoryAfterLayout(seq) {
     const pin = () => {
       if (!log || historyPinPending !== seq) return;
@@ -765,11 +773,11 @@ const Chat = (() => {
     return fetch(url, { cache: 'no-store' }).then(r => { if (!r.ok) throw new Error('file HTTP ' + r.status); return r.blob(); })
       .then(b => URL.createObjectURL(/\.svg$/i.test(String(path || '')) && b.type !== 'image/svg+xml' ? new Blob([b], { type: 'image/svg+xml' }) : b));
   }
-  function workspaceFileRefs(agentId, messageKey) {
+  function workspaceFileRefs(agentId, messageKey, projectRoot) {
     const scope = messageKey == null ? 'body:' + (++fileRefScope) : String(messageKey);
     return {
-      wire: (a, path) => wireFileOpen(a, path, agentId || attachAgentId()),
-      image: path => { const aid = agentId || attachAgentId(); return cachedBlob(scope + '|' + aid + '|' + path, () => imageBlobUrl(fileUrl(path, aid), path)); }
+      wire: (a, path) => wireFileOpen(a, path, agentId || attachAgentId(), projectRoot),
+      image: path => { const aid = agentId || attachAgentId(); return cachedBlob(scope + '|' + aid + '|' + (projectRoot || '') + '|' + path, () => imageBlobUrl(fileUrl(path, aid, projectRoot), path)); }
     };
   }
   function hydrateFileRefs(bodyEl) {
@@ -2795,14 +2803,23 @@ const Chat = (() => {
   // prose-link handler in init), so hand the saved path to the OS default app. If native opening rejects
   // the path or file type, the jailed browser preview remains a safe fallback. stopPropagation prevents
   // the delegated prose-link handler from opening it a second time.
-  function wireFileOpen(a, title, agentId) {
-    a.href = fileUrl(title, agentId);
+  function wireFileOpen(a, title, agentId, projectRoot) {
+    a.href = fileUrl(title, agentId, projectRoot);
     a.target = '_blank'; a.rel = 'noopener';
     // the rendered ticket lives minutes, the row lives forever: re-mint right before any use of the href
     // (capture-phase listeners run before the native navigation / the context menu's copy-link reads it).
-    const refresh = () => { try { a.href = fileUrl(title, agentId); } catch (_) {} };
+    const refresh = () => { try { a.href = fileUrl(title, agentId, projectRoot); } catch (_) {} };
     a.addEventListener('click', refresh, true); a.addEventListener('auxclick', refresh, true);
     a.addEventListener('contextmenu', refresh, true); a.addEventListener('focus', refresh, true);
+    // Project-relative worker links use the same canonical project/host routing as their receipt's Open key.
+    if (projectRoot) {
+      a.addEventListener('click', ev => {
+        ev.preventDefault(); ev.stopPropagation();
+        if (window.getSelection && String(window.getSelection())) return;
+        openFile(title, agentId, projectRoot);
+      });
+      return;
+    }
     // A web page opens RUNNING, in the station's BROWSER window (the window has OPEN OUTSIDE for the OS browser).
     // /api/file would hand the same .html over as an inert download.
     if (typeof OutputBrowser !== 'undefined' && OutputBrowser.isHtml && OutputBrowser.isHtml(title)) {
@@ -3041,7 +3058,7 @@ const Chat = (() => {
     if (!rel) return;
     const isAbs = /^([A-Za-z]:[\\/]|[\\/])/.test(rel), root = projectRoot && !isAbs ? String(projectRoot).replace(/[\\/]+$/, '') : '';
     if (!root && typeof OutputBrowser !== 'undefined' && OutputBrowser.isHtml && OutputBrowser.isHtml(rel)) { OutputBrowser.open({ agentId: aid, path: rel }); return; }
-    const url = fileUrl(rel, aid) + (root ? '&project=' + encodeURIComponent(root) : '');
+    const url = fileUrl(rel, aid, root);
     const core = tauriCore();
     if (core && core.invoke) {
       Promise.resolve(core.invoke('starnet_open_artifact', { path: root ? root + '/' + rel : rel, agentId: aid }))
@@ -3054,11 +3071,12 @@ const Chat = (() => {
     }
     try { window.open(url, '_blank', 'noopener'); } catch (e) { if (typeof StationUI !== 'undefined' && StationUI.notify) StationUI.notify('could not open that file: ' + ((e && e.message) || e), 'warn'); }
   }
-  function fileUrl(title, agentId) {
-    if (typeof ApiTicket !== 'undefined' && ApiTicket.fileUrl) return ApiTicket.fileUrl(agentId || 'agent', String(title));
+  function fileUrl(title, agentId, projectRoot) {
+    const project = projectRoot && !/^([A-Za-z]:[\\/]|[\\/])/.test(String(title)) ? '&project=' + encodeURIComponent(String(projectRoot).replace(/[\\/]+$/, '')) : '';
+    if (typeof ApiTicket !== 'undefined' && ApiTicket.fileUrl) return ApiTicket.fileUrl(agentId || 'agent', String(title)) + project;
     let base = '';
     try { base = (typeof window !== 'undefined' && window.__STARNET_API__) ? String(window.__STARNET_API__) : ''; } catch (_) {}
-    return base + '/api/file?agent=' + encodeURIComponent(agentId || 'agent') + '&path=' + encodeURIComponent(title);
+    return base + '/api/file?agent=' + encodeURIComponent(agentId || 'agent') + '&path=' + encodeURIComponent(title) + project;
   }
   // append a small "open in a new tab" fallback link — shown when an inline player can't decode the file
   // (e.g. an .mkv/.avi the browser won't play), mirroring the reference harness's OpenMediaButton.
@@ -3262,6 +3280,36 @@ const Chat = (() => {
     const command = /^(?:shell|terminal)[._]/.test(t) ? [o.cmd, o.command, o.input, o.data].find(v => typeof v === 'string' && v) : '';
     return command ? { label, text, copy: command, copyLabel: 'COPY COMMAND' } : { label, text };
   }
+  // Shared by ordinary approvals and delegated rows; all disclose the same redacted request and build steps.
+  function appendConsentDetails(host, p) {
+    // INSPECT: an approval carries the request it approves, every character of it, one click away (user report 10-08:
+    // a long shell command showed 77 chars and a "…", and nothing on the card held the rest)
+    const inspect = consentInspect(p);
+    if (inspect) {
+      const detail = document.createElement('details'); detail.className = 'consent-payload';
+      const label = document.createElement('summary'); label.textContent = inspect.label;
+      const payload = document.createElement('pre'); payload.textContent = inspect.text;
+      const idle = inspect.copyLabel || 'COPY';
+      const copy = document.createElement('button'); copy.type = 'button'; copy.className = 'consent-btn quiet consent-copy'; copy.textContent = idle;
+      copy.onclick = () => copyText(inspect.copy || inspect.text).then(ok => {
+        copy.textContent = ok ? '✓ COPIED' : 'COPY FAILED: select the text above';
+        clearTimeout(copy.__t); copy.__t = setTimeout(() => { copy.textContent = idle; }, 1400);
+      });
+      detail.appendChild(label); detail.appendChild(payload); detail.appendChild(copy); host.appendChild(detail);
+    }
+    // the station builder's card: every step's instructions, one click away (the summary line is in the phrase above)
+    if (/^station[._]build$/.test(String(p.tool || '')) && String(p.argsSummary || '').indexOf('\n') > 0) {
+      const detail = document.createElement('details'); detail.className = 'consent-payload';
+      const label = document.createElement('summary'); label.textContent = 'What each step will be told';
+      const payload = document.createElement('pre'); payload.textContent = String(p.argsSummary).split('\n').slice(1).join('\n');
+      detail.appendChild(label); detail.appendChild(payload); host.appendChild(detail);
+    }
+    // …and draws the plan: where it goes and what goes where, before anything is built (the page's own parked plan)
+    if (/^station[._]build$/.test(String(p.tool || '')) && typeof StationCommands !== 'undefined' && StationCommands.previewFor && typeof PlanPreview !== 'undefined') {
+      const fig = PlanPreview.el(StationCommands.previewFor(String(p.argsSummary || '').split('\n')[0]));
+      if (fig) host.appendChild(fig);
+    }
+  }
   function actionPhrase(ev) {
     const t = ev.tool || 'act';
     // a PLUGIN tool (plugin__<id>__<tool>): say whose code it is before what it does — checked first, so a plugin
@@ -3344,6 +3392,7 @@ const Chat = (() => {
     let q = { question: '', options: [], recommended: '', reason: '', multiSelect: false, ordinal: 0, total: 0 };
     try { q = Object.assign(q, JSON.parse(p.argsSummary || '{}')); } catch (_) {}
     const r = row('agent'); r.d.classList.add('tool'); r.d.classList.add('consent');
+    r.d.dataset.clarifyPrompt = String(p.promptId || ''); r.d.tabIndex = -1;
     if(q.mode==='conversation' && typeof TaskConversation!=='undefined') {
       const rid=ws && Channels.runIdOf(ws.id);
       TaskConversation.mount(r.body,q,async text=>{
@@ -3351,7 +3400,7 @@ const Chat = (() => {
         if(!result || !result.ok)return false;
         // the question is answered: say so on the bus like the approval card does, or the CREW card and the world pose stay "needs your OK"
         try{if(typeof U!=='undefined'&&U.bus)U.bus.emit('permission.response',{promptId:p.promptId,decision:'once'});}catch(_){}
-        if(ws)Channels.clearPending(ws.id,Date.now());
+        if(ws)Channels.clearPending(ws.id,Date.now(),p.promptId);
         if(isActiveWs(ws)){renderPresence();syncStatus();}
         return true;
       });
@@ -3360,7 +3409,7 @@ const Chat = (() => {
     // A batched ask shows its place ("asks (2 of 3)") so the Commander knows one more tap ends it —
     // three unannounced sequential cards would read as an interrogation with no visible bottom.
     const seq = (Number(q.total) > 1 && Number(q.ordinal) > 0) ? ' (' + q.ordinal + ' of ' + q.total + ')' : '';
-    r.body.appendChild(document.createTextNode('▣ ' + name + ' asks' + seq + ': ' + (q.question || 'which way should this go?') + ' '));
+    r.body.appendChild(document.createTextNode('▣ ' + askerName(p, ws) + ' asks' + seq + ': ' + (q.question || 'which way should this go?') + ' '));
     // TWO KINDS of suggestion, and the same law the end-run card obeys: GROUNDED comes from the
     // Commander's own answered history (>=2 times) and is PROVABLE, so it outranks the model's guess and
     // states its count; `recommended` is a guess with a rationale and stands only when nothing was observed.
@@ -3389,7 +3438,7 @@ const Chat = (() => {
       // answered: tell the bus, as the approval card does — the CREW card's "needs your OK" frame and the world's
       // AWAITING pose clear on permission.response, and a question never emitted one (sweep 2026-10-02)
       try { if (typeof U !== 'undefined' && U.bus) U.bus.emit('permission.response', { promptId: p.promptId, decision: 'once' }); } catch (_) {}
-      if (ws && typeof Channels !== 'undefined') Channels.clearPending(ws.id, Date.now());   // the wait never counts as run time
+      if (ws && typeof Channels !== 'undefined') Channels.clearPending(ws.id, Date.now(), p.promptId);   // the wait never counts as run time
       if (isActiveWs(ws)) renderPresence();
       btns.remove();
       const tag = document.createElement('span'); tag.className = 'consent-result'; tag.textContent = doneLabel;
@@ -3463,7 +3512,7 @@ const Chat = (() => {
         U.bus.off('permission.response', onElsewhere);
         if (decided) return;
         decided = true;
-        if (ws && typeof Channels !== 'undefined') Channels.clearPending(ws.id, Date.now());
+        if (ws && typeof Channels !== 'undefined') Channels.clearPending(ws.id, Date.now(), p.promptId);
         if (isActiveWs(ws)) renderPresence();
         btns.remove();
         const tag = document.createElement('span');
@@ -3493,9 +3542,10 @@ const Chat = (() => {
      the bus (every rendered card of that ask settles), the channel (THIS ask only: a crewmate's open ask stays open), NEEDS
      YOU and the presence card. Returns what the sidecar actually applied (fullSaved: a "full" that really persisted). */
   async function answerConsent(p, ws, decision) {
-    if (ws && typeof StationUI !== 'undefined' && StationUI.settleNotifs) StationUI.settleNotifs('needs:' + ws.id);
     const rid = (p && p.runId) || ((ws && typeof Channels !== 'undefined') ? Channels.runIdOf(ws.id) : null);
     const answer = await Harness.consent(rid, p.promptId, decision);
+    if (!(answer && answer.ok)) throw new Error((answer && answer.error) || 'The station did not confirm that answer. Please try again.');
+    if (ws && typeof StationUI !== 'undefined' && StationUI.settleNotifs) StationUI.settleNotifs('needs:' + ws.id);
     const appliedDecision = (answer && answer.decision) || 'deny';
     let fullSaved = true;
     if (decision === 'full') {
@@ -3543,40 +3593,21 @@ const Chat = (() => {
     }
     const r = row('agent'); r.d.classList.add('tool'); r.d.classList.add('consent');
     r.body.appendChild(document.createTextNode('▣ ' + ((p && p.workerAgentId) ? askerName(p, ws) : name) + ' wants to ' + actionPhrase(p) + ' '));
-    // INSPECT: an approval carries the request it approves, every character of it, one click away (user report 10-08:
-    // a long shell command showed 77 chars and a "…", and nothing on the card held the rest)
-    const inspect = consentInspect(p);
-    if (inspect) {
-      const detail = document.createElement('details'); detail.className = 'consent-payload';
-      const label = document.createElement('summary'); label.textContent = inspect.label;
-      const payload = document.createElement('pre'); payload.textContent = inspect.text;
-      const idle = inspect.copyLabel || 'COPY';
-      const copy = document.createElement('button'); copy.type = 'button'; copy.className = 'consent-btn quiet consent-copy'; copy.textContent = idle;
-      copy.onclick = () => copyText(inspect.copy || inspect.text).then(ok => {
-        copy.textContent = ok ? '✓ COPIED' : 'COPY FAILED: select the text above';
-        clearTimeout(copy.__t); copy.__t = setTimeout(() => { copy.textContent = idle; }, 1400);
-      });
-      detail.appendChild(label); detail.appendChild(payload); detail.appendChild(copy); r.body.appendChild(detail);
-    }
-    // the station builder's card: every step's instructions, one click away (the summary line is in the phrase above)
-    if (/^station[._]build$/.test(String(p.tool || '')) && String(p.argsSummary || '').indexOf('\n') > 0) {
-      const detail = document.createElement('details'); detail.className = 'consent-payload';
-      const label = document.createElement('summary'); label.textContent = 'What each step will be told';
-      const payload = document.createElement('pre'); payload.textContent = String(p.argsSummary).split('\n').slice(1).join('\n');
-      detail.appendChild(label); detail.appendChild(payload); r.body.appendChild(detail);
-    }
-    // …and draws the plan: where it goes and what goes where, before anything is built (the page's own parked plan)
-    if (/^station[._]build$/.test(String(p.tool || '')) && typeof StationCommands !== 'undefined' && StationCommands.previewFor && typeof PlanPreview !== 'undefined') {
-      const fig = PlanPreview.el(StationCommands.previewFor(String(p.argsSummary || '').split('\n')[0]));
-      if (fig) r.body.appendChild(fig);
-    }
+    appendConsentDetails(r.body, p);
     const btns = document.createElement('span'); btns.className = 'consent-btns';
     let decided = false;
     async function decide(decision, doneLabel, isDeny) {
       if (ws && typeof StationUI !== 'undefined' && StationUI.settleNotifs) StationUI.settleNotifs('needs:' + ws.id);   // decided: leaves NEEDS YOU
       if (decided) return; decided = true;
       for (const b of btns.querySelectorAll('button')) b.disabled = true;
-      const res = await answerConsent(p, ws, decision);
+      let res;
+      try { res = await answerConsent(p, ws, decision); }
+      catch (e) {
+        decided = false;
+        for (const b of btns.querySelectorAll('button')) b.disabled = false;
+        if (typeof StationUI !== 'undefined' && StationUI.notify) StationUI.notify('Could not answer: ' + ((e && e.message) || e), 'warn');
+        return;
+      }
       if (decision === 'full' && !res.fullSaved) { doneLabel = '✕ full access was not saved'; isDeny = true; }
       else if (decision !== 'full' && res.appliedDecision === 'deny' && decision !== 'deny') { doneLabel = '✕ approval was not applied'; isDeny = true; }
       btns.remove();
@@ -3623,7 +3654,7 @@ const Chat = (() => {
         if (decided) return;
         decided = true;
         const denied = resp.decision === 'deny';
-        if (ws && typeof Channels !== 'undefined') Channels.clearPending(ws.id, Date.now());
+        if (ws && typeof Channels !== 'undefined') Channels.clearPending(ws.id, Date.now(), p.promptId);
         if (isActiveWs(ws)) renderPresence();
         btns.remove();
         const tag = document.createElement('span');
@@ -10157,5 +10188,5 @@ const Chat = (() => {
   // only" gate maybeStandaloneRate uses — so a pure-chat run is never bottle-offered. Used by App.runBottleInfo (R5).
   function runDidWork(id) { const w = id ? runWork.get(id) : null; return !!(w && ((w.toolsOk || 0) >= 1 || (w.delivered || 0) >= 1)); }
 
-  return { init, load, send, consentInspect, copyText, continuityDiagnostics, refreshStarters, sendOrQueue, continueConnectorTask, stopActive, status, localLine, broadcast, renderProse, openFile, answerConsent, consentPhrase: actionPhrase, setSystem, getHistory, contextRef, abort, isBusy, beatBusy: skillBeatBusy, beginInterview, endInterview, echoUser, prefill, autoGrowInput, choices, clearChoices, retireDeskPrompt, typeLine, nudge, clearNudge, offerCuriosity, offerFork, planGoalPath, briefingReceipt, isComposerEngaged, canFocusSession, runMeta, runDidWork, awayDigest, awayReview, awayRate, sampleCard, workshopReturn, refreshIdBar: renderIdBar, refreshGroupControls: updateControls, refreshAgentIdentity, setRosterStatus, askBudgetSpent, spendAsk, clockLabel: fmtClock, breakLabel: fmtBreak, workspaceFileRefs, imageBlobUrl };
+  return { init, load, send, consentInspect, appendConsentDetails, revealHistory, copyText, continuityDiagnostics, refreshStarters, sendOrQueue, continueConnectorTask, stopActive, status, localLine, broadcast, renderProse, openFile, answerConsent, consentPhrase: actionPhrase, setSystem, getHistory, contextRef, abort, isBusy, beatBusy: skillBeatBusy, beginInterview, endInterview, echoUser, prefill, autoGrowInput, choices, clearChoices, retireDeskPrompt, typeLine, nudge, clearNudge, offerCuriosity, offerFork, planGoalPath, briefingReceipt, isComposerEngaged, canFocusSession, runMeta, runDidWork, awayDigest, awayReview, awayRate, sampleCard, workshopReturn, refreshIdBar: renderIdBar, refreshGroupControls: updateControls, refreshAgentIdentity, setRosterStatus, askBudgetSpent, spendAsk, clockLabel: fmtClock, breakLabel: fmtBreak, workspaceFileRefs, imageBlobUrl };
 })();

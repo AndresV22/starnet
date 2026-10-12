@@ -427,3 +427,22 @@ body #chat-panel #chat-log > .dg-line .dg-receipt-row {
 }
 body #chat-panel #chat-log > .dg-line .dg-receipt-row .k { font-size: var(--sn-type-meta) !important; letter-spacing: 1.2px; text-transform: uppercase; color: var(--ph); }
 body #chat-panel #chat-log > .dg-line .dg-receipt-row .v { min-width: 0; overflow-wrap: anywhere; }
+
+/* Delegated details stay readable inside a resized COMMS panel, using the shared consent disclosure. */
+body #chat-panel #chat-log > .dg-line { container-type: inline-size; container-name: delegated; }
+body #chat-panel #chat-log > .dg-line .dg-inspect { grid-column: 1 / -1; min-width: 0; padding: 0 14px 8px 34px; }
+body #chat-panel #chat-log > .dg-line .dg-inspect:empty { display: none; }
+body #chat-panel #chat-log > .dg-line .dg-inspect summary { color: var(--gold); font-size: var(--sn-type-meta); overflow-wrap: anywhere; }
+body #chat-panel #chat-log > .dg-line .dg-inspect pre { max-height: 240px; padding: 10px; border: 1px solid var(--beat-edge); background: rgba(0,0,0,.2); font-size: var(--sn-type-meta); }
+body #chat-panel #chat-log > .dg-line .dg-inspect .consent-copy { min-height: 34px; }
+body #chat-panel #chat-log > .dg-line .dg-li { cursor: default; }
+@container delegated (max-width: 420px) {
+  body #chat-panel #chat-log > .dg-line .dg-line-head { flex-wrap: wrap; }
+  body #chat-panel #chat-log > .dg-line .dg-line-text { white-space: normal; }
+  body #chat-panel #chat-log > .dg-line .dg-line-sum { flex-basis: 100%; margin-left: 20px; }
+  body #chat-panel #chat-log > .dg-line .dg-line-list { grid-template-columns: 10px auto minmax(0, 1fr); }
+  body #chat-panel #chat-log > .dg-line .dg-li { grid-template-columns: 10px auto minmax(0, 1fr); }
+  body #chat-panel #chat-log > .dg-line .dg-li-st { grid-column: 2 / -1; white-space: normal; overflow-wrap: anywhere; }
+  body #chat-panel #chat-log > .dg-line .dg-li > :is(.dg-key, .dg-keys) { grid-column: 2 / -1; grid-row: 3; margin: 4px 0 0; justify-self: start; }
+  body #chat-panel #chat-log > .dg-line .dg-work, body #chat-panel #chat-log > .dg-line .dg-inspect { padding-left: 14px; }
+}

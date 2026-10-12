@@ -106,3 +106,110 @@ test('a chat message (Telegram/Discord) fits the whole request or says it had to
     else { assert.match(ask.t, /more characters: open StarNet to read the whole request/); assert.ok(ask.t.length < 4096, 'under a Telegram message: ' + ask.t.length); }
   }
 });
+
+// Parallel workers can ask on the same lead channel. Answering one question must leave all other asks waiting.
+function clarificationFixture(mode) {
+  const Channels = require('../frontend/app/channels.js'); Channels.reset();
+  const nodes = [], listeners = new Map();
+  const element = () => ({ children: [], dataset: {}, classList: { add() {}, remove() {} }, appendChild(n) { this.children.push(n); },
+    addEventListener() {}, setAttribute() {}, remove() { this.removed = true; }, focus() {} });
+  const ws = { id: 'parallel-asks' };
+  Channels.begin(ws.id, 1); Channels.setRunId(ws.id, 'lead');
+  const q = { promptId: 'q1', tool: 'brief.ask', argsSummary: JSON.stringify({ question: 'Which color?', options: ['Blue', 'Green'], mode }) };
+  const other = { promptId: 'p2', tool: 'fs.write' };
+  Channels.setPending(ws.id, q, 1); Channels.setPending(ws.id, other, 2);
+  let conversationAnswer = null;
+  const ctx = { Channels, JSON, Date, name: 'NOVA', input: null, askerName: () => 'NOVA',
+    document: { createElement: element, createTextNode: textContent => ({ textContent }) },
+    row: () => { const r = { d: element(), body: element() }; nodes.push(r); return r; },
+    Harness: { consentAnswer: () => Promise.resolve({ ok: true }) },
+    TaskConversation: { mount: (el, question, cb) => { conversationAnswer = cb; } },
+    U: { bus: { emit() {}, on: (name, fn) => listeners.set(name, fn), off: (name, fn) => { if (listeners.get(name) === fn) listeners.delete(name); } } },
+    isActiveWs: () => false, renderPresence() {}, syncStatus() {}, status() {}, autoscroll() {}, announcedPrompt: () => true };
+  vm.createContext(ctx); vm.runInContext(extract(chat, '  function clarifyRow(', '  // p = a consent payload'), ctx);
+  ctx.clarifyRow(q, ws);
+  return { Channels, ws, q, nodes, listeners, conversationAnswer };
+}
+test('a choice answer preserves a parallel worker approval and its paused clock', () => {
+  const f = clarificationFixture('choice');
+  const buttons = f.nodes[0].body.children.find(n => n.className === 'consent-btns');
+  buttons.children[0].onclick();
+  assert.deepEqual(f.Channels.pendingAllOf(f.ws.id).map(p => p.promptId), ['p2']);
+  assert.ok(f.Channels.peek(f.ws.id).pausedAt, 'another worker is still waiting on the Commander');
+  assert.equal(f.nodes[0].d.dataset.clarifyPrompt, 'q1', 'delegation Answer targets this exact card');
+});
+test('a conversation answer preserves a parallel worker approval', async () => {
+  const f = clarificationFixture('conversation');
+  assert.equal(f.nodes[0].d.tabIndex, -1, 'conversation cards can receive delegated Answer focus too');
+  assert.equal(await f.conversationAnswer('Use blue.'), true);
+  assert.deepEqual(f.Channels.pendingAllOf(f.ws.id).map(p => p.promptId), ['p2']);
+});
+test('a phone answer settles only its question and keeps a parallel approval paused', () => {
+  const f = clarificationFixture('choice');
+  const response = f.listeners.get('permission.response');
+  const buttons = f.nodes[0].body.children.find(n => n.className === 'consent-btns');
+  response({ promptId: 'unrelated', decision: 'deny' });
+  assert.deepEqual(f.Channels.pendingAllOf(f.ws.id).map(p => p.promptId), ['q1', 'p2']);
+  assert.equal(buttons.removed, undefined, 'unrelated responses keep the choices usable');
+  assert.equal(f.listeners.get('permission.response'), response, 'unrelated responses do not remove the listener');
+  response({ promptId: 'q1', decision: 'once' });
+  assert.deepEqual(f.Channels.pendingAllOf(f.ws.id).map(p => p.promptId), ['p2']);
+  assert.equal(f.Channels.peek(f.ws.id).pausedAt, 1, 'another pending approval keeps the original pause open');
+  assert.equal(f.Channels.peek(f.ws.id).pausedMs, 0, 'the open span was not prematurely accumulated');
+  assert.equal(buttons.removed, true, 'answered choices are removed');
+  const tags = () => f.nodes[0].body.children.filter(n => n.className === 'consent-result');
+  assert.equal(tags()[0].textContent, '✓ answered from your phone');
+  assert.equal(f.listeners.has('permission.response'), false, 'settled listener is released');
+  response({ promptId: 'q1', decision: 'once' });
+  assert.equal(tags().length, 1, 'duplicate delivery cannot append a second receipt');
+});
+
+function permissionFixture() {
+  const Channels = require('../frontend/app/channels.js'); Channels.reset();
+  const nodes = [], listeners = new Map();
+  const element = () => ({ children: [], dataset: {}, classList: { add() {}, remove() {} }, appendChild(n) { this.children.push(n); },
+    addEventListener() {}, setAttribute() {}, remove() { this.removed = true; }, focus() {} });
+  const ws = { id: 'parallel-permission-asks' }, p = { promptId: 'approval-1', tool: 'fs.read', argsSummary: 'sample.txt' };
+  Channels.begin(ws.id, 10); Channels.setRunId(ws.id, 'lead');
+  Channels.setPending(ws.id, p, 100);
+  Channels.setPending(ws.id, { promptId: 'question-2', tool: 'brief.ask' }, 110);
+  Channels.setPending(ws.id, { promptId: 'approval-3', tool: 'fs.write' }, 120);
+  let synced = 0;
+  const ctx = { Channels, Date: { now: () => 200 }, name: 'NOVA', input: null,
+    document: { createElement: element, createTextNode: textContent => ({ textContent }) },
+    row: () => { const r = { d: element(), body: element() }; nodes.push(r); return r; },
+    actionPhrase: card.actionPhrase, consentInspect: card.consentInspect, appendConsentDetails: () => {},
+    U: { bus: { on: (name, fn) => listeners.set(name, fn), off: (name, fn) => { if (listeners.get(name) === fn) listeners.delete(name); } } },
+    isActiveWs: () => false, renderPresence() {}, syncStatus() { synced++; }, status() {}, autoscroll() {}, announcedPrompt: () => true };
+  vm.createContext(ctx); vm.runInContext(extract(chat, '  function permissionRow(', '  // EL-11 FIX 1a:'), ctx);
+  ctx.permissionRow(p, ws);
+  return { Channels, ws, p, nodes, listeners, synced: () => synced };
+}
+for (const [decision, expired, label] of [
+  ['once', false, '✓ approved once from your phone'],
+  ['session', false, '✓ approved for this session from your phone'],
+  ['deny', false, '✕ denied from your phone'],
+  ['deny', true, '✕ no answer in time — denied']
+]) test('phone permission ' + (expired ? 'expiry' : decision) + ' settles one card and preserves sibling asks', () => {
+  const f = permissionFixture(), response = f.listeners.get('permission.response');
+  const pending = () => f.Channels.pendingAllOf(f.ws.id).map(p => p.promptId);
+  const buttons = f.nodes[0].body.children.find(n => n.className === 'consent-btns');
+  response({ promptId: 'unrelated', decision, expired });
+  assert.deepEqual(pending(), ['approval-1', 'question-2', 'approval-3']);
+  assert.equal(buttons.removed, undefined, 'unrelated response keeps this card active');
+  assert.equal(f.listeners.get('permission.response'), response);
+  response({ promptId: f.p.promptId, decision, expired });
+  assert.deepEqual(pending(), ['question-2', 'approval-3'], 'a sibling question AND approval must survive');
+  const c = f.Channels.peek(f.ws.id);
+  assert.equal(c.pausedAt, 100, 'the original pause stays open');
+  assert.equal(c.pausedMs, 0, 'waiting time is not charged to run time');
+  assert.equal(buttons.removed, true, 'settled grades are removed');
+  const tags = () => f.nodes[0].body.children.filter(n => /^consent-result/.test(n.className || ''));
+  assert.equal(tags()[0].textContent, label, 'receipt reflects the actual remote decision');
+  assert.equal(tags()[0].className, 'consent-result' + (decision === 'deny' ? ' err' : ''));
+  assert.equal(f.listeners.has('permission.response'), false, 'settled listener is released');
+  assert.equal(f.synced(), 1);
+  response({ promptId: f.p.promptId, decision, expired });
+  assert.equal(tags().length, 1, 'duplicate delivery is idempotent');
+  assert.deepEqual(pending(), ['question-2', 'approval-3']);
+});
