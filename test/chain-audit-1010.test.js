@@ -168,5 +168,66 @@ const belt = (x, y, dir) => ({ x, y, dir });
     }
   }
 
+  /* ---- 5. what comes AFTER a JOINER decides the OUTBOX (runtime audit 2026-10-12): PLANNER ▸ COPY split ▸ 3 crew ▸ JOINER ▸
+     TAKE TURNS splitter ▸ OUTBOX A | OUTBOX B. The parallel batch took the merged job's OUTBOX from the NON-ADVANCING peek
+     (and from its 'general' walk), so every job landed in OUTBOX A: B's SEND TO, receipts and line-output never fired, and a
+     FILTER after the joiner never routed by the merged job. The merged job now walks on from the joiner's exit like any job. ---- */
+  {
+    const floorAfterJoin = (junction) => {
+      const s = WM.create(), z = s.rooms()[0].rects[0];
+      s.addRoom({ kind: 'hab', rect: { x1: z.x2 + 1, y1: z.y1, x2: z.x2 + 40, y2: z.y1 + 30 } });
+      let ok = null;
+      for (let y = z.y1; y < z.y1 + 25 && !ok; y++) for (let x = z.x1; x < z.x2 + 30 && !ok; x++) { const r = s.stampBlueprint('parallel_crew', x, y); if (r.ok) ok = r; }
+      const intake = s.props().find(p => p.t === 'intake'), split = s.props().find(p => p.t === 'splitter'), merger = s.props().find(p => p.t === 'merger');
+      A.ok(!!ok && LE.run(s, intake.id, 'insertStep', { from: intake.id, to: split.id, role: 'PLANNER' }, { near: { x: split.x, y: split.y } }).ok && s.swapJoinerMerger(merger.id).ok, junction + ': PARALLEL CREW with a PLANNER and a JOINER');
+      s.props().filter(p => p.t === 'bay').forEach((b, i) => s.assignPropAgent(b.id, b.role === 'PLANNER' ? 'planner' : 'c' + i));
+      // the second exit is drawn by hand past the joiner (ring-rule geometry): the junction on the joiner's exit belt, a lane down to OUTBOX B
+      const geo = s.projectGeometry(); delete geo.links;
+      for (const b of geo.belts) if (b.d && !b.dir) b.dir = b.d;
+      const J = geo.props.find(p => p.t === 'joiner'), outA = geo.props.find(p => p.t === 'outbox');
+      const beltAt = (x, y) => geo.belts.find(b => b.x === x && b.y === y);
+      const used = (x, y) => !!beltAt(x, y) || geo.props.some(p => x >= p.x && x < p.x + (p.w || 1) && y >= p.y && y < p.y + (p.h || 1));
+      const lane = [[J.x + 1, J.y + 1, 'S'], [J.x + 1, J.y + 2, 'S'], [J.x + 1, J.y + 3, 'S'], [J.x + 1, J.y + 4, 'E'], [J.x + 2, J.y + 4, 'E']];
+      const box = [[0, 0], [1, 0], [0, 1], [1, 1]].map(([dx, dy]) => [J.x + 3 + dx, J.y + 4 + dy]);
+      A.ok(beltAt(J.x + 1, J.y) && beltAt(J.x + 1, J.y).dir === 'E' && lane.concat(box).every(([x, y]) => !used(x, y)), junction + ': the joiner exits east onto free floor');
+      geo.props.push(junction === 'filter' ? { id: 'pj2', t: 'filter', x: J.x + 1, y: J.y, w: 1, h: 1, routes: { code: 'S' }, def: 'E' } : { id: 'pj2', t: 'splitter', x: J.x + 1, y: J.y, w: 1, h: 1 });
+      geo.props.push({ id: 'pob2', t: 'outbox', x: J.x + 3, y: J.y + 4, w: 2, h: 2 });
+      for (const [x, y, dir] of lane) geo.belts.push({ x, y, dir });
+      const plan = P.compileRoutingPlan(geo);
+      A.eq(plan.errors.filter(e => !e.warn).length, 0, junction + ': compiles');
+      const j2 = plan.junctions[(J.x + 1) + ',' + J.y] || {};
+      A.ok(j2.kind === junction.replace('turns', 'split') && !j2.fanout, junction + ': the junction after the joiner is a ' + (junction === 'filter' ? 'FILTER' : 'TAKE TURNS splitter'));
+      return { plan, planner: geo.props.find(p => p.agentId === 'planner'), outA: outA.id };
+    };
+    const jobs = async (f, peek, tagged) => {
+      const router = makeRouter(); router.setPlan(f.plan);
+      const lineId = router.lineOfAgent('planner', f.planner.id), shipped = [], outputs = [];
+      for (let i = 0; i < 4; i++) {
+        const c = makeChainRunner(Object.assign({ nextAgent: (a, x) => router.chainNext(a, x), stepAgent: (a, x) => router.chainStep(a, x),
+          stepDock: (d, x) => router.chainStepDock(d, x), entryDockOf: a => router.entryDockOf(a), fanSiblingsDock: d => router.fanSiblingsDock(d),
+          lineOfAgent: (a, d) => router.lineOfAgent(a, d), lastStage: (a, d) => router.chainShipsToOutbox(a, d), onShipped: r => shipped.push(r.outboxId),
+          getTag: t => /CODE/.test(String(t)) ? 'code' : 'general', setTimer: () => 0,
+          emit: (n, p) => { if (n === 'workitem.delivered' && p.box === 'line-output') outputs.push(p.outboxId); } }, peek ? { peekDock: (d, x) => router.chainPeekDock(d, x) } : {}));
+        const res = await c.advance({ agentId: 'planner', dockId: f.planner.id, text: 'plan', originalText: 'do X', lineId, runId: 'job' + i,
+          runAgent: async h => ({ text: (tagged ? 'CODE ' : '') + h.agentId + ' did it' }) });
+        A.eq(res.stopped, null, 'the line ends clean (' + res.stopped + ')');
+      }
+      await new Promise(r => setImmediate(r));
+      return { shipped: shipped.join(' '), outputs: outputs.join(' ') };
+    };
+    const turns = floorAfterJoin('turns');
+    const alternate = [turns.outA, 'pob2', turns.outA, 'pob2'].join(' ');
+    for (const peek of [true, false]) {
+      const r = await jobs(turns, peek, false);
+      A.eq(r.shipped, alternate, (peek ? 'parallel' : 'one after another') + ': TAKE TURNS after the joiner alternates the OUTBOX SEND TO is told about');
+      A.eq(r.outputs, alternate, (peek ? 'parallel' : 'one after another') + ': and the floor\'s line-output names the same OUTBOXes');
+    }
+    const filter = floorAfterJoin('filter');
+    for (const peek of [true, false]) {
+      const r = await jobs(filter, peek, true);
+      A.eq(r.shipped, 'pob2 pob2 pob2 pob2', (peek ? 'parallel' : 'one after another') + ': a FILTER after the joiner routes by the merged job (code → OUTBOX B)');
+    }
+  }
+
   A.report('chain-audit-1010');
 })();

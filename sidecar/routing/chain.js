@@ -485,10 +485,9 @@ function makeChainRunner(o) {
       for (const b of items) {
         if (!b.node || !b.node.dockId) return null;
         for (const tag of ['general', 'code', 'research']) {
-          const rch = {};
-          let st = null; try { st = peekDock(b.node.dockId, { tag, lineId, reach: rch }); } catch (_) { st = null; }
+          let st = null; try { st = peekDock(b.node.dockId, { tag, lineId }); } catch (_) { st = null; }
           if (!st || !st.join || (js && st.join !== js.join)) return null;
-          if (!js) { js = st; js.reach = rch; }   // SEND TO: the OUTBOX the merged job lands in (Pipeline.chainStepDock ctx.reach)
+          if (!js) js = st;   // only "can these branches batch?" — where the merged job goes is walked after the release
         }
       }
       return js;
@@ -599,8 +598,11 @@ function makeChainRunner(o) {
             out.text = Pipeline.joinPayload(rel.parts, [], fan.failed);
             out.agentId = last.agentId; if (last.dockId) out.dockId = last.dockId;
             say('workitem.delivered', withDock({ workitemId: newId(), finalQueueId: last.agentId, agentId: last.agentId, box: 'join:' + allAt.join, ms: 0, ts: now() }, last.dockId));
+            /* the merged crate walks on from the joiner's exit — always, even when no dock is past it: the peek above never moves a
+               splitter and only read the 'general' route, so its answer must not pick the OUTBOX (a TAKE TURNS splitter after the
+               joiner stuck on one exit, a FILTER never read the merged job; runtime audit 2026-10-12). The next pass walks with the
+               advancing pick and the merged job's tag, and a walk that ends at an OUTBOX names it there (!target below). */
             branchMode = false; fan = null; fromTile = tileOf(allAt.join);
-            if (!allAt.next) { out.stopped = null; if (allAt.reach && allAt.reach.outboxId) out.outboxId = allAt.reach.outboxId; return out; }
             continue;
           }
           if (texts) out.text = texts[0];
