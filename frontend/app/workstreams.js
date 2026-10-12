@@ -423,11 +423,16 @@
   // `at` (optional, epoch ms): the run's REAL event time. A live caller omits it (now IS the event); a
   // backfill/heal caller that learned about an already-finished run passes the run record's end time, so
   // the rail's "last worked" stamp never reads as boot/poll time (timestamp-honesty law, 2026-07-19).
-  function appendRun(id, runId, at) {
+  // Recovery may insert an older run before a known newer one; that history cannot change current activity or outcome.
+  function appendRun(id, runId, at, beforeRunId) {
     const w = find(id); if (!w || !runId) return false;
     // tolerate dup / no-op runs (e.g. the no-tool-support early error); only a NEW run resets the
     // outcome to unknown — a dup re-file of an already-settled run must not erase its truth.
-    if (w.runIds.indexOf(runId) < 0) { w.runIds.push(runId); w.lastRunOk = null; w.lastRunReason = ''; }
+    if (w.runIds.indexOf(runId) < 0) {
+      const before = beforeRunId ? w.runIds.indexOf(beforeRunId) : -1;
+      if (before >= 0) { w.runIds.splice(before, 0, runId); return true; }
+      w.runIds.push(runId); w.lastRunOk = null; w.lastRunReason = '';
+    }
     if (w.lane === 'todo') w.lane = 'active';                // hybrid-honest: a REAL run fired
     w.lastActiveAt = Number(at) > 0 ? Number(at) : now();
     if (id === activeId) w.lastReadAt = w.lastActiveAt;      // the open stream is being watched, not unread
