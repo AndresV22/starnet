@@ -133,6 +133,11 @@ const P = require('../frontend/app/pipeline.js'), Chain = require('../sidecar/ro
 const mid = P.handoffPrompt('3 AI stories, keep it short', 'researcher', 'the notes', 1, 'Write it up.');
 const last = P.handoffPrompt('3 AI stories, keep it short', 'researcher', 'the notes', 1, 'Write it up.', '', true);
 A.ok(/produce the output for the next stage/.test(mid) && !/LAST stage/.test(mid), 'a middle stage keeps its hand-off (and every old caller composes byte-identical turns)');
+/* R27 (live, real model, 2026-10-12): a 4-step line of un-instructed bays handed a two-sentence fun fact LOST it — stage 2, told
+   "Do not restate the upstream output — build on it", answered with only its own new facts, and the next stage is handed nothing
+   but that reply, so the line's result held none of the work that came in. A middle stage hands on the whole work so far. */
+A.ok(/your reply is all the next stage receives/i.test(mid) && /whole work so far with your part done/.test(mid) && /never only your own addition/.test(mid) && !/Do not restate the upstream output/.test(mid),
+  'a middle stage hands on the whole work so far, never only its addition: ' + JSON.stringify(mid.slice(mid.lastIndexOf('\n\n') + 2)));
 A.ok(/You are the LAST stage: your reply is the finished result the requester receives\. Give them exactly what the original request asks for — its format, length and tone/.test(last) && !/next stage|build on it/.test(last),
   'the stage whose reply leaves the line is told it IS the result: the request\'s format, length and tone, never "for the next stage"');
 A.ok(P.parseHandoff(last) && P.parseHandoff(last).original === '3 AI stories, keep it short', '…and the OUTBOX still reads the original request out of it');

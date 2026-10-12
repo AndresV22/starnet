@@ -171,7 +171,18 @@ const lineOf = (pl, id) => pl.lineOfProp[id];
   A.eq(P.sendToOf(pl, null, last), null, 'no line, no hand-off (a direct order)');
   const txt = P.handoffInput({ fromName: 'research', original: 'Find three facts.', output: 'Fact 1. Fact 2. Fact 3.', files: ['C:/w/a.md', 'C:/w/a.md', ''] });
   A.ok(/^\[HAND-OFF — LINE RESEARCH finished its part/.test(txt) && /THE JOB AS IT FIRST ARRIVED:\nFind three facts\./.test(txt) && /WHAT LINE RESEARCH DELIVERED:\nFact 1\./.test(txt), 'handoffInput: who, the job, what came back — ' + JSON.stringify(txt));
-  A.ok(/FILES IT MADE \(paths on this machine\):\n- C:\/w\/a\.md$/.test(txt), '…and each file once');
+  A.ok(/FILES IT MADE \(paths on this machine\):\n- C:\/w\/a\.md\n\n\[THIS LINE’S PART — /.test(txt) && (txt.match(/C:\/w\/a\.md/g) || []).length === 1, '…and each file once');
+  /* R27 (live, real model, 2026-10-12): an un-instructed line handed "a two-sentence fun fact" wrote a NEW fact of its own on every
+     line (A's fact → B's different fact → C's third one), so the end of the chain held none of the work that was sent on. The frame
+     says what was delivered IS the work so far, and CLOSES (after the job and the work — an instruction read before the job lost to
+     it on a small model) with what this line does: build on it, never start the job over; its brief, or with none hand the work on;
+     the finished work itself, never a note on whether the job is done (the earlier rubber stamp). */
+  const head = txt.slice(0, txt.indexOf('\n\n')), tail = txt.slice(txt.lastIndexOf('\n\n') + 2);
+  A.ok(/work so far/.test(head), 'the frame opens: what was delivered is the work so far — ' + JSON.stringify(head));
+  A.ok(/^\[THIS LINE’S PART — build on the work LINE RESEARCH delivered above, never start the job over/.test(tail) && /with no brief, hand that work on as the finished result/.test(tail)
+    && /full finished work itself/.test(tail) && /never a note on whether the job is done\.\]$/.test(tail),
+    'the frame closes with this line\'s part: build on it, never start over, the finished work — ' + JSON.stringify(tail));
+  A.ok(/\[THIS LINE’S PART — build on the work the line before this one delivered above/.test(P.handoffInput({ output: 'x' })), '…naming an unnamed sender in words');
   A.ok(P.handoffInput({ output: 'x'.repeat(20000) }).length < 12400, 'bounded');
   A.eq(P.parseHandoffInput(P.handoffInput({ fromName: 'a', original: 'Find facts.\nTwo.', output: 'F1\n\nF2', files: ['x'] })), { fromName: 'A', original: 'Find facts.\nTwo.', output: 'F1\n\nF2' }, 'parseHandoffInput reads the frame back (the OUTBOX titles a handed-on job by the job as it first arrived)');
   A.eq(P.parseHandoffInput('[LOOP — pass 2] x'), null, '…and nothing else');
