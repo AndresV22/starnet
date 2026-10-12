@@ -6,7 +6,7 @@
 'use strict';
 const A = require('./_assert.js');
 const { lineStats, median, shippedRow, failedRow, FAILED_REASONS } = require('../sidecar/routing/line-stats.js');
-const { makeLineShipments, cleanShipments } = require('../sidecar/routing/line-shipments.js');
+const { makeLineShipments, cleanShipments, loadShipmentReceipts } = require('../sidecar/routing/line-shipments.js');
 const receipt = (lineId, runId, at) => ({ lineId, entryRunId: runId, terminalRunId: runId, outboxId: 'outbox', at });
 
 // ---- median ----
@@ -159,6 +159,38 @@ if (store && store.record) {
   A.eq(ledger.snapshot().length, 2, 'failed save does not publish an in-memory shipment');
   fail = false;
   A.ok(ledger.record(Object.assign({}, rec, { entryRunId: 'fresh' })), 'retry can record a proven artifact after storage recovers');
+}
+// The host must preserve domain-store provenance instead of reading .value alone.
+{
+  for (const status of ['ok', 'recovered', 'absent']) {
+    A.eq(loadShipmentReceipts({ load: () => ({ status, value: [] }) }), [], status + ' receipt store may be read');
+  }
+  for (const status of ['unreadable', 'corrupt', 'invalid', 'unknown']) {
+    let failed = false;
+    try { loadShipmentReceipts({ load: () => ({ status, value: [] }) }); } catch (_) { failed = true; }
+    A.ok(failed, status + ' default value must never be mistaken for a new empty history');
+  }
+}
+// A temporarily unreadable store is not an empty history. A failed first stats
+// poll must leave loading retryable, and no later save may replace old receipts.
+{
+  const original = receipt('L1', 'old', 100);
+  let disk = [original], blocked = true, writes = 0;
+  const fresh = { lineId: 'L1', entryRunId: 'new', streamId: 's', agentId: 'a', dockId: 'd', outboxId: 'o' };
+  const ledger = makeLineShipments({
+    now: () => 200,
+    load: () => { if (blocked) throw new Error('locked'); return disk; },
+    save: value => { writes++; disk = JSON.parse(JSON.stringify(value)); },
+    runsFor: () => [{ runId: 'new', lineId: 'L1', streamId: 's', agentId: 'a', dockId: 'd', reason: 'done', toolsOk: 1 }]
+  });
+  let failed = false; try { ledger.snapshot(); } catch (_) { failed = true; }
+  A.ok(failed, 'first failed stats read does not assert an empty shipment history');
+  A.ok(!ledger.record(fresh), 'unreadable prior history refuses receipt writes');
+  A.eq(writes, 0, 'no write occurs while the load authority is unavailable');
+  blocked = false;
+  A.eq(ledger.snapshot(), [original], 'next stats read retries and recovers the previous receipt');
+  A.ok(ledger.record(fresh), 'after recovery a real new receipt may be saved');
+  A.eq(disk.map(r => r.entryRunId), ['old', 'new'], 'recovered history and new shipment both survive');
 }
 // Actual PARALLEL CREW switched to COPY/JOINER: three productive branches,
 // one terminal job. Removing the OUTBOX cannot alter its historical receipt.

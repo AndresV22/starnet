@@ -18,6 +18,15 @@ function cleanShipments(value) {
   }
   return out;
 }
+// Domain-store defaults are legitimate only for an absent file. Unreadable,
+// corrupt and invalid reads carry [] too, but never authorize a replacement.
+function loadShipmentReceipts(store) {
+  const read = store.load();
+  if (!read || !['ok', 'recovered', 'absent'].includes(read.status) || !Array.isArray(read.value)) {
+    throw new Error('shipment history could not be read (' + ((read && read.status) || 'unknown') + ')');
+  }
+  return read.value;
+}
 function makeLineShipments(options) {
   const o = options || {}, now = typeof o.now === 'function' ? o.now : () => 0;
   const load = typeof o.load === 'function' ? o.load : () => [];
@@ -25,13 +34,14 @@ function makeLineShipments(options) {
   const runsFor = typeof o.runsFor === 'function' ? o.runsFor : () => [];
   let receipts = null;
   function ensure() {
-    if (!receipts) { try { receipts = cleanShipments(load()); } catch (e) { failNote('line-shipments.load', e); receipts = []; } }
+    if (!receipts) { try { receipts = cleanShipments(load()); } catch (e) { failNote('line-shipments.load', e); throw e; } }
     return receipts;
   }
   function record(rec) {
     const r = rec || {}, at = now();
     if (!id(r.lineId) || !id(r.entryRunId) || !id(r.streamId) || !id(r.outboxId) || !time(at)) return false;
-    const current = ensure(), key = keyOf(r);
+    let current; try { current = ensure(); } catch (_) { return false; }
+    const key = keyOf(r);
     if (current.some(s => keyOf(s) === key)) return true;
     let rows;
     try { rows = runsFor(r.streamId); } catch (e) { failNote('line-shipments.runs', e); return false; }
@@ -55,4 +65,4 @@ function makeLineShipments(options) {
   }
   return { record, snapshot: () => cleanShipments(ensure()) };
 }
-module.exports = { cleanShipments, makeLineShipments };
+module.exports = { cleanShipments, makeLineShipments, loadShipmentReceipts };
