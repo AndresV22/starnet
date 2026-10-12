@@ -95,10 +95,14 @@ A.ok(/S\.exampleStamp === mine\.stamp && exampleKept\(mine\)/.test(panel) && /St
 A.ok(/if \(!el \|\| !sr \|\| !sr\.pending\) \{ clearInterval\(liveTimer\); liveTimer = 0; markWorking\(null\); return; \}/.test(panel) && /if \(n\) n\.textContent = now\.text;/.test(panel) && (panel.match(/startLive\(\);/g) || []).length >= 4,
   'the live read-out runs while a job is out whatever card is open, so the diagram\'s working lamp stays true');
 /* ---------- the header's numbers say what they count; the line sentence names the way to run it ---------- */
-const tipSource = A.fnBody(panel, 'function todayTip(k)');
+const tipSource = A.fnBody(panel, 'function todayTip(k, v)');
 A.ok(tipSource.length > 0 && tipSource.length < 2200, 'load the actual bounded TODAY tooltip helper');
 const todayTip = vm.runInNewContext(tipSource + '\ntodayTip');
-A.ok(/'<span data-tip="' \+ esc\(todayTip\(c\[0\]\)\) \+ '">/.test(panel), 'each TODAY number renders its own escaped tooltip');
+A.ok(/'<span data-tip="' \+ esc\(todayTip\(c\[0\], c\[1\]\)\) \+ '">/.test(panel), 'each TODAY number renders its own escaped tooltip, from its label and its value');
+// (runtime audit 2026-10-12) an unreadable shipment history reads ? — its tip says the count is unknown, never that nothing shipped
+const unknownTip = todayTip('SHIPPED', '?');
+A.ok(/unknown right now/.test(unknownTip) && /shipment history can't be read/.test(unknownTip) && !/recorded jobs that reached the OUTBOX/.test(unknownTip), 'an unknown SHIPPED says why it is unknown');
+A.eq(todayTip('SHIPPED', '3'), todayTip('SHIPPED'), 'a known SHIPPED keeps its meaning');
 for (const key of ['RUNS', 'SHIPPED', 'FAILED', 'TESTS', 'MEDIAN', '$ TODAY (UTC)']) {
   A.ok(todayTip(key).length > key.length, 'a meaning is available for the ' + key + ' number');
 }

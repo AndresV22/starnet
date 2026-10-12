@@ -8,6 +8,8 @@
                   Productive work (successful tools/artifacts) and clean run outcomes are checked at that moment.
                   Every job counts once; later floor edits cannot rewrite its history. No receipt = no claim. Receipts
                   are kept for the retention window (line-shipments SHIPMENT_KEEP_MS): SHIPPED counts those inside it.
+                  An unreadable receipt history makes it null (unknown, never 0) with shippedUnknown = why, on the answer
+                  and on each line; every other number still counts.
      • failed   — reason error / refusal / max_iters / budget (the same dead-run set the floor turns into slag).
      • medianMs — the median recorded durationMs of those runs (null with no timed run).
      • tests    — step-through test / try-this-step hops (run rows the host stamped stepTest). A test is NOT a job:
@@ -39,7 +41,7 @@ function median(xs) {
   return s.length % 2 ? s[m] : Math.round((s[m - 1] + s[m]) / 2);
 }
 
-/* lineStats({ rows, lines, since, spentToday(lineId)->$, capOf(lineId)->$|null, shipments:[terminal-job receipts] })
+/* lineStats({ rows, lines, since, spentToday(lineId)->$, capOf(lineId)->$|null, shipments:[terminal-job receipts], shippedUnknown?:why })
      rows  — run rows NEWEST-FIRST (runStore.list order); may span more than `since` (older rows only feed `docks`)
      lines — the compiled plan's line list ([{ lineId, propIds? }]); a line with no runs still answers zeros
    -> { since, spendDay: 'utc', lines: [{ lineId, runs, shipped, failed, tests, medianMs, usdToday, capUsdPerDay, spendDay }], docks } */
@@ -71,18 +73,28 @@ function lineStats(o) {
     const ms = fin(r.durationMs);
     if (ms != null && ms > 0) L._ms.push(ms);
   }
-  for (const receipt of cleanShipments(o.shipments)) {
-    const L = byLine.get(receipt.lineId);
-    if (L && receipt.at > since) L.shipped++;
+  /* SHIPPED UNKNOWN (runtime audit 2026-10-12): the host says the receipt history could not be read (o.shippedUnknown = why).
+     Then SHIPPED is null on every line, with the reason — never 0 (that is "no receipts", a different fact) — and every other
+     number still counts: none of them depends on the receipts. Absent shipments without the flag answer 0, as before. */
+  const unknown = (typeof o.shippedUnknown === 'string' && o.shippedUnknown.trim()) ? o.shippedUnknown.trim().slice(0, 240) : null;
+  if (!unknown) {
+    for (const receipt of cleanShipments(o.shipments)) {
+      const L = byLine.get(receipt.lineId);
+      if (L && receipt.at > since) L.shipped++;
+    }
   }
   const lines = [];
   for (const L of byLine.values()) {
     let usd = 0, cap = null;
     try { usd = fin(spentToday(L.lineId)) || 0; } catch (_) { usd = 0; }
     try { const c = fin(capOf(L.lineId)); cap = (c != null && c > 0) ? c : null; } catch (_) { cap = null; }
-    lines.push({ lineId: L.lineId, runs: L.runs, shipped: L.shipped, failed: L.failed, tests: L.tests, medianMs: median(L._ms), usdToday: Math.round(usd * 1e6) / 1e6, capUsdPerDay: cap, spendDay: 'utc' });
+    const line = { lineId: L.lineId, runs: L.runs, shipped: unknown ? null : L.shipped, failed: L.failed, tests: L.tests, medianMs: median(L._ms), usdToday: Math.round(usd * 1e6) / 1e6, capUsdPerDay: cap, spendDay: 'utc' };
+    if (unknown) line.shippedUnknown = unknown;   // on each line too, the way spendDay rides both: a consumer holding one line knows why
+    lines.push(line);
   }
-  return { since, spendDay: 'utc', lines, docks };
+  const answer = { since, spendDay: 'utc', lines, docks };
+  if (unknown) answer.shippedUnknown = unknown;
+  return answer;
 }
 
 module.exports = { lineStats, median, shippedRow, failedRow, FAILED_REASONS };

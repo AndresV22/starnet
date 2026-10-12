@@ -13155,11 +13155,17 @@ function lineStatsSnapshot(since) {
   const plan = router.getPlan();
   const lines = (plan && Array.isArray(plan.lines)) ? plan.lines : [];
   const pool = linePoolCap();
+  /* an unreadable / invalid shipment history makes SHIPPED unknown on every line (null + why) — it no longer takes the whole
+     answer down: RUNS, FAILED, $ against the cap, the median, the tests and the bay lamps never depended on the receipts
+     (runtime audit 2026-10-12). Never an empty list in its place: that would read as "nothing shipped". */
+  let shipments = null, shippedUnknown = null;
+  try { shipments = lineShipments.snapshot(); }
+  catch (e) { failNote('line-stats.shipments', e); shippedUnknown = 'shipment history unreadable: ' + String((e && e.message) || e).slice(0, 160); }
   return foldLineStats({
     rows: runStore.list(null, { limit: 1000 }) || [], lines, since,
     spentToday: id => lineSpend.spentToday(id),
     capOf: id => chainEffectiveLimits(router.lineLimits(id), {}, pool).maxUsdPerDay,
-    shipments: lineShipments.snapshot()
+    shipments, shippedUnknown
   });
 }
 /* GET /api/routing/lines/stats?since=<ms> — LINE WATCH. `since` is the caller's local midnight (the same window the

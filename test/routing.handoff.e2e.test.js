@@ -159,7 +159,16 @@ test('a job that ships on LINE A rides on to LINE B by SEND TO', async () => {
     const invalidReceipts = JSON.stringify({ version: 1, value: { invalid: true } });
     fs.writeFileSync(receiptFile, invalidReceipts);
     await fixture.start();
-    assert.equal((await fixture.json('GET', '/api/routing/lines/stats?since=1')).status, 500, 'unreadable history is not reported as zero shipments');
+    /* (runtime audit 2026-10-12) an unreadable shipment history makes SHIPPED unknown — never zero — and takes nothing else down:
+       it used to answer 500, so RUNS / FAILED / $ against the cap / the bay lamps all went dark (and the page kept showing the
+       last numbers it had while jobs and spend went on) */
+    const unread = await fixture.json('GET', '/api/routing/lines/stats?since=1');
+    assert.equal(unread.status, 200, 'the line numbers stay readable when only the shipment history is not: ' + unread.text.slice(0, 300));
+    const unreadLA = unread.body.lines.find(l => l.lineId === LA);
+    assert.equal(unreadLA.shipped, null, 'SHIPPED is unknown, not reported as zero shipments');
+    assert.ok(/shipment history/.test(String(unread.body.shippedUnknown || '')) && unreadLA.shippedUnknown === unread.body.shippedUnknown, 'the answer and the line say why: ' + JSON.stringify(unread.body.shippedUnknown));
+    assert.ok(typeof unreadLA.runs === 'number' && unreadLA.runs > 0 && typeof unreadLA.failed === 'number' && typeof unreadLA.usdToday === 'number', 'runs, failed and $ today still count: ' + JSON.stringify(unreadLA));
+    assert.ok(unread.body.docks && Object.keys(unread.body.docks).length > 0, 'the bay lamps keep their last outcomes');
     assert.equal((await fixture.json('POST', '/api/routing/sample', { line: LA, text: 'Another short answer.', name: 'A' })).status, 200, 'receipt storage failure does not block actual work');
     assert.equal(fs.readFileSync(receiptFile, 'utf8'), invalidReceipts, 'a completed job cannot overwrite an unreadable prior history');
     fs.writeFileSync(receiptFile, savedReceipts);

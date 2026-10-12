@@ -314,6 +314,60 @@ if (store && store.record) {
   A.ok(rows.every(r => !router.chainShipsToOutbox(r.agentId, r.dockId)), 'edited topology no longer reaches OUTBOX');
   A.eq(lineStats(input).lines.find(l => l.lineId === lineId).shipped, 1, 'floor edit cannot erase the real past shipment');
 }
+const asyncChecks = [];   // the world.js poll check is async: A.report waits for it
+// SHIPPED UNKNOWN (runtime audit 2026-10-12): an unreadable shipment history makes SHIPPED unknown on every line — null with the
+// reason, never 0 — and every other number keeps counting. Absent shipments WITHOUT that flag still answer 0 (no receipts yet).
+{
+  const rows = [{ runId: 'u1', lineId: 'L1', dockId: 'd1', agentId: 'a', reason: 'done', toolsOk: 1, ts: 50, durationMs: 1000 },
+    { runId: 'u2', lineId: 'L1', dockId: 'd2', agentId: 'b', reason: 'error', ts: 40, durationMs: 3000 }];
+  const why = 'shipment history unreadable: shipment history could not be read (invalid)';
+  const st = lineStats({ rows, lines: [{ lineId: 'L1' }, { lineId: 'L2' }], since: 0, spentToday: () => 0.25, capOf: () => 1, shipments: [receipt('L1', 'u1', 60)], shippedUnknown: why });
+  const L1 = st.lines.find(l => l.lineId === 'L1'), L2 = st.lines.find(l => l.lineId === 'L2');
+  A.ok(L1.shipped === null && L2.shipped === null, 'SHIPPED is null on every line while the history is unreadable');
+  A.ok(st.shippedUnknown === why && L1.shippedUnknown === why && L2.shippedUnknown === why, 'the answer and each line carry the reason');
+  A.eq([L1.runs, L1.failed, L1.medianMs, L1.usdToday, L1.capUsdPerDay], [2, 1, 2000, 0.25, 1], 'runs, failed, median, $ today and the cap still count');
+  A.ok(st.docks.d1 && st.docks.d2 && st.docks.d2.failed === true, 'the bay lamps keep their last outcomes');
+  const known = lineStats({ rows, lines: [{ lineId: 'L1' }], since: 0, shipments: [receipt('L1', 'u1', 60)] });
+  A.ok(known.lines[0].shipped === 1 && !('shippedUnknown' in known) && !('shippedUnknown' in known.lines[0]), 'a readable history answers a number and no reason');
+  A.eq(lineStats({ rows, lines: [{ lineId: 'L1' }], since: 0 }).lines[0].shipped, 0, 'no shipments and no flag is still 0 — no receipts yet');
+  // the page never turns unknown into a number
+  const LWu = require('../frontend/app/linewatch.js');
+  const plate = LWu.plateLines(L1), row = LWu.statsRow(L1);
+  A.ok(/^2 RUNS · \? SHIPPED · 1 FAILED$/.test(plate[0]), 'the INBOX plate reads ? SHIPPED: ' + plate[0]);
+  A.ok(/SHIPMENT HISTORY UNREADABLE/.test(plate[2]) && !/SHIPMENT HISTORY UNREADABLE/.test(LWu.plateLines(known.lines[0])[2]), 'the hover glance names why, only while it is unknown: ' + plate[2]);
+  A.eq(row.find(c => c[0] === 'SHIPPED'), ['SHIPPED', '?'], 'the Workflow panel TODAY row reads ?');
+  A.eq(LWu.statsRow(known.lines[0]).find(c => c[0] === 'SHIPPED'), ['SHIPPED', '1'], 'and a number when it is known');
+  // world.js: an HTTP failure clears the floor's numbers (a network drop keeps them, dimmed as last-known); an unknown SHIPPED
+  // holds the OUTBOX pallet instead of drawing a count
+  const vm = require('node:vm'), fs = require('node:fs'), path = require('node:path');
+  const world = fs.readFileSync(path.join(__dirname, '../frontend/app/world.js'), 'utf8');
+  const poll = world.slice(world.indexOf('  function pollLineStats() {'), world.indexOf('  function lineStatsSoon() {'));
+  const pallet = world.slice(world.indexOf('  function drawShippedPallet(now) {'), world.indexOf('  function drawPallet('));
+  A.ok(poll.length > 100 && pallet.length > 100, 'the real world.js poll and pallet functions are loaded');
+  const runPoll = async (response) => {
+    const ctx = vm.createContext({ LineWatch: LWu, apiUrl: u => u, pollLineJobStreams: () => {}, buildRoutingNags: () => ['nags'], routingNags: null,
+      lineWatch: () => ({ seedOutcomes: () => {} }), lineStats: { known: true, byLine: { L1: { runs: 9, shipped: 4 } }, since: 1 },
+      fetch: () => (response instanceof Error ? Promise.reject(response) : Promise.resolve(response)), Date });
+    vm.runInContext(poll + '\nglobalThis.go = pollLineStats; globalThis.read = () => lineStats;', ctx);
+    ctx.go(); for (let i = 0; i < 5; i++) await new Promise(r => setImmediate(r));
+    return ctx.read();
+  };
+  asyncChecks.push((async () => {
+    const after500 = await runPoll({ ok: false, status: 500, json: async () => ({ ok: false }) });
+    A.ok(after500.known === false && Object.keys(after500.byLine).length === 0, 'a 500 never leaves the last numbers standing: ' + JSON.stringify(after500));
+    const afterDrop = await runPoll(new Error('offline'));
+    A.ok(afterDrop.known === true && afterDrop.byLine.L1.runs === 9, 'a network drop keeps the last server answer (the link-down dim marks it last-known)');
+    const fresh = await runPoll({ ok: true, json: async () => ({ ok: true, lines: [{ lineId: 'L1', runs: 2, shipped: null, shippedUnknown: why }], docks: {} }) });
+    A.ok(fresh.known === true && fresh.byLine.L1.shipped === null, 'an unknown SHIPPED is kept as unknown');
+    const drawn = [];
+    const pctx = vm.createContext({ lineStats: { known: true, byLine: { L1: { runs: 2, shipped: null }, L2: { runs: 1, shipped: 3 } } },
+      routingPlan: { lineOfProp: { o1: 'L1', o2: 'L2' } }, geo: { props: [{ id: 'o1', t: 'outbox', x: 0, y: 0 }, { id: 'o2', t: 'outbox', x: 5, y: 0 }] },
+      palletSeen: new Map(), drawPallet: (ob, done) => drawn.push(ob.id + ':' + done) });
+    vm.runInContext(pallet + '\nglobalThis.draw = drawShippedPallet;', pctx);
+    pctx.draw(1000);
+    A.eq(drawn, ['o2:3'], 'an unknown SHIPPED draws no pallet count (never a 0, never the stale one); a known line still does');
+  })().catch(e => A.ok(false, 'world.js poll/pallet check threw: ' + (e && e.stack || e))));
+}
 // BOUNDED HISTORY (runtime audit 2026-10-12): every shipment rewrote and re-validated the WHOLE history synchronously inside
 // chain.advance, and nothing pruned it — 50 000 receipts blocked a job's hand-back 0.4–2 s. Receipts older than the retention
 // window are dropped on the next save; today's SHIPPED is unchanged (it only counts receipts since local midnight).
@@ -334,4 +388,4 @@ if (store && store.record) {
   A.eq(lineStats({ lines: [{ lineId: 'L1' }], shipments: disk, since: midnight }).lines[0].shipped, before + 1, 'today\'s SHIPPED is unchanged by the prune (+ the new job)');
   A.eq(ledger.snapshot().length, 3, 'the cache matches what was saved');
 }
-A.report();
+Promise.all(asyncChecks).then(() => A.report());
