@@ -7,7 +7,7 @@ severity: P1
 status: fixed
 found: 2026-10-12
 lane: agent/memory-harness-audit-1011
-fix: 13357b5ac41a2d4311d84b6ed458ef93a2605174
+fix: 6421e4c857a6f885d0c437e9e4d01168f92ba7db
 origin: audit
 installer: unverified
 recovery: unconfirmed
@@ -29,17 +29,16 @@ Before: test commit 7e23fda402382f025881d46443b515e57d2e5d94 failed with UPLOADE
 
 ## Verdict
 
-Source repaired and focused live behavior verified. Known-tainted and quoted ordinary run titles are withheld. Chats require explicit clean provenance and exclude delegated/quoted material. Briefs require an exact bounded directive match on the same agent and stream to an eligible chat. Internal run titles remain negative matching metadata and are never rendered as activity. Trusted typed preference capture remains separate and survives restart. Full combined gates and installed acceptance are owned by the release coordinator and remain pending; no customer recovery or competitor quality win is claimed.
+Source repaired and focused live behavior verified. Known-tainted and quoted ordinary run titles are withheld. Chats require explicit clean transcript provenance plus matching original run metadata: explicit non-internal owner origin, matching agent/stream, and no delegation, cron or recovery origin. This lookup uses durable runStore.all(), independent of the latest 60 run-title window. Briefs additionally require immutable original occurrence identity and are deduplicated by that identity. Internal titles remain exclusion metadata. Trusted typed preference capture survives restart. Full combined gates and installed acceptance remain coordinator-owned and pending.
 
 ## Regression
 
-The unchanged broad poison exclusion and typed-preference assertion pass after fixing the test observer to inspect every system message; a stronger assertion requires the typed preference inside recalled-memory. Final live receipt is bound to tested commit 856bb6026c45a1b7afaf22308efbba9fa24cd690, containing both production fixes: 10 completed runs, 2 actual uploads, 2 restarts, 3 attachment/quote learning receipts, no forged capture, no poisoned notebook or recalled system context. test/contextpack.test.js passes 104 assertions; test/nightshift-contextpack.e2e.test.js passes 19 assertions including six contamination sentinels and clean grounding. Root reran contextpack 104, untrusted-taint 86 and trusted-learning after integration.
+Final unchanged attachment/restart proof is bound to tested production source 6421e4c857a6f885d0c437e9e4d01168f92ba7db in qa/evidence/memory-harness-audit-1011/r20-attachment-context-live.json, evidence commit 07effc497e46d8ceed2a4169e9241d7a62fa160f. The test inspects every system-role message and requires the legitimate typed preference inside recalled-memory. It covers 10 completed HTTP phases, 2 actual uploads, 2 sidecar restarts and 3 attachment/quote learning receipts. test/contextpack.test.js passes 164 assertions, including internal origin outside the latest 60 runs, genuine older owner activity, missing/wrong-origin exclusions and later completion taint. test/nightshift-contextpack.e2e.test.js passes 19 assertions with real sidecar/provider requests. Current exact source and test hashes are recorded in coordinator-followups.json.
 
 ## Sibling coverage
 
-All three host inputs are behaviorally exercised against the actual extracted host function and real pure context pack. commanderEvidenceInputs consumes the filtered pack with personalization on and off; same-stream clean rows, exact agent/stream joins, completed-run ID changes, ordering, section caps and the bounded 400-row source window are covered. Ordinary task/restart and nightshift propose are exercised through real sidecar/provider wires. Delegated getTaskContext, internal evidence mode, quest and scout share this host pack by source inspection; each was not separately executed live.
+The actual extracted host function and real context pack exercise all three activity sources. commanderEvidenceInputs consumes the filtered pack with personalization on and off. Ordinary task/restart and nightshift propose use real sidecar/provider wires. Scout HTTP and end-to-end tests also exercise the independent trustedActivityLines learning projection and durable trusted topic cache. Other shared consumers (delegated/internal evidence and quest) are verified by source inspection, not each separately executed live.
 
 ## Limits
 
-Legacy run rows without taintedBy remain compatible because run storage omits that field on clean records; this is not proof of historical owner authorship. Unknown-provenance transcript rows and unsupported completed briefs are withheld from ambient activity, not deleted from storage. The local scripted provider establishes harness boundary behavior, not real-model compliance or general learning quality. This patch does not claim all historical sources or unrelated evidence sections are sanitized.
-
+Ordinary activity retains legacy run rows without taintedBy for compatibility; absence of taint is not historical owner proof. Such ordinary run titles are excluded from the separate trustedActivityLines projection used to learn new interests. Unknown original-run metadata is conservatively withheld from owner chat/brief projections, not deleted from storage. See canonical cache finding 31042fab and repeat-work finding 2b0d8101. Scripted local providers prove harness boundary behavior, not real-model quality, installed customer recovery or sanitation of every unrelated evidence section.

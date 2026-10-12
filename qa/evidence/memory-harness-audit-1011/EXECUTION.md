@@ -142,3 +142,15 @@ test/verdictreview.lifecycle.test.js
 test/verdictreview.test.js
 website/app/app/stationui.js
 ```
+
+## Final coordinated follow-ups — 2026-10-12
+
+The initial five-part implementation above is preserved as historical evidence. Final production follow-up source is 6421e4c857a6f885d0c437e9e4d01168f92ba7db; assembled source/fixtures/evidence before this documentation commit is a009fa6fb0743f69c988b0f7682c91695ec0b402. The final handoff tip also includes evidence-only updates. See coordinator-followups.json for exact commands, hashes and the complete follow-up map, and r20-attachment-context-live.json for the unchanged final attachment/restart proof.
+
+The follow-ups repair three demonstrated gaps: attachment/quote provenance lost in ambient activity; repeated-work history attributed to the wrong original owner occurrence; and old unproven interests regaining prompt authority through durable cache state. Original-run proof is now independent of the latest 60 run titles. The interest-learning projection excludes compatible-but-unproven legacy ordinary run titles. New evidence cannot inherit old labels, counts or quotes.
+
+Focused final-source checks pass: contextpack164, interests76, taint86, Scout HTTP61, Scout E2E29, payload17, nightshift contextpack19, trusted-learning and all eight workflow unit/lifecycle sections plus real workflow HTTP lifecycle. Counts are assertions only where the test emits that unit. The final unchanged attachment boundary test covers 10 completed phases, two real uploads and two restarts. Scout and attachment tests use real local sidecars/restarts with scripted loopback providers; they do not establish broad real-model self-improvement.
+
+Other coordinated diagnostics were fixed without weakening ceilings: metered report-cap expectations, behavioral attachment fixtures, pending browser skill state after restart, updated lexical-vs-semantic failreview expectations, observable fail-closed recall lookup and a shorter recall tool description. The provider tool payload is 66238 bytes against the unchanged 66250-byte ceiling.
+
+All edits stayed in isolated owner worktrees; shared events/schema and trunk were not edited. Full combined fast/HTTP gates, source/docs reconciliation and installed-release acceptance belong to the release coordinator and remain pending at this handoff. No REA execution or competitor quality win is claimed.

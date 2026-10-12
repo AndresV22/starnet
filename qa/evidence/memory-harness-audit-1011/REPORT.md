@@ -1,5 +1,7 @@
 # StarNet memory, learning, and tool-use audit — 2026-10-11
 
+Historical initial audit: the findings below describe the pre-fix source. The subsequently authorized five-part implementation and final provenance follow-ups are recorded in [EXECUTION.md](EXECUTION.md) and [coordinator-followups.json](coordinator-followups.json).
+
 The strongest explanation is a broken chain between capture, retrieval, sharing, and reuse. StarNet has substantial memory and learning code. It nevertheless has concrete paths where a successful save never influences the next task, a useful session never triggers learning, or a learned skill becomes unavailable.
 
 This is an investigation, not a product fix or a comparative model benchmark. Source candidate: `a20ffa71fd04691805ea55c7d08165438dd7ac6f`. Audit branch: `agent/memory-harness-audit-1011`. Trunk was still at that SHA on final source verification. No application code, user station, running session, shared contract, release, or remote repository was changed.
