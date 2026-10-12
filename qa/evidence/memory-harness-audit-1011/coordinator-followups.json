@@ -1,14 +1,14 @@
 {
-  "capturedAtUtc": "2026-10-12T10:11:31.083Z",
-  "implementationHead": "343fecc2f49fb256de53b7de79b61bfdf39dd67b",
-  "status": "focused-followups-verified; combined gates and installed acceptance pending",
+  "capturedAtUtc": "2026-10-12T10:44:33.091Z",
+  "implementationHead": "a009fa6fb0743f69c988b0f7682c91695ec0b402",
+  "status": "focused-final-source-verified; combined gates and installed acceptance pending",
   "coordinatorFrozenDiagnostic": "2c366fd8ffbf18a40cdec41db09986ac022aef6c",
   "fixes": [
     {
       "commit": "d9e37d4c9f529b6a2a8ba7f5537afbd453ddef6e",
       "kind": "stale test expectation",
       "path": "test/report-0110-regressions.test.js",
-      "proof": "8 assertions; metered cap and unknown spend return false before provider setup; unmetered bypass and pending retries preserved"
+      "proof": "8 tests; metered cap and unknown spend return false before provider setup; unmetered bypass and pending retries preserved"
     },
     {
       "commit": "3379ec70447bf7413ffd08dd3249cabcc3a751d2",
@@ -36,19 +36,63 @@
       "proof": "87 assertions; old alias query now positive, genuinely nonmatching negative becomes semantic positive; project isolation, embedding-off, durable vectors, query cache and pause preserved"
     },
     {
-      "commit": "13357b5ac41a2d4311d84b6ed458ef93a2605174",
+      "commit": "6421e4c857a6f885d0c437e9e4d01168f92ba7db",
       "requires": "2d865ad7cea185c6db187d8002d09c2e05364388",
       "kind": "independent production provenance leak",
       "canonicalBug": "qa/bugs/6e750350-recent-activity-drops-source-provenance.md",
-      "proof": "r20-attachment-context-live.json; contextpack104 and nightshift-contextpack19; root integrated taint86 and trusted-learning passed"
+      "proof": "Final R20 receipt; contextpack164 and nightshift-contextpack19; original run metadata independent of recent run title window; typed preference restart recall remains separate"
+    },
+    {
+      "commit": "63bd35532",
+      "kind": "immutable original occurrence and deduplication",
+      "canonicalBug": "qa/bugs/2b0d8101-repeat-work-attributes-untrusted-briefs-to-owner.md"
+    },
+    {
+      "commit": "e0a57f1bcb75facb7bd593fe0830da367c7da94d",
+      "requires": [
+        "2298d7a2c",
+        "55c618f6b74c152f93ebbdee20a54e5feaa36d96"
+      ],
+      "kind": "independent exact-evidence trusted interest cache",
+      "canonicalBug": "qa/bugs/31042fab-persisted-interest-cache-loses-evidence-provenance.md"
+    },
+    {
+      "commit": "6421e4c857a6f885d0c437e9e4d01168f92ba7db",
+      "kind": "durable original-run metadata independent of latest60; explicit owner identity and origin controls"
+    },
+    {
+      "commit": "20a032d6658550e19d9ede8fb78764ffc7159340",
+      "kind": "concise recall tool description within unchanged payload ceiling",
+      "proof": "84 tools, 66238 tool bytes vs66250; system24671/24892 within original ceilings; no schema or budget change"
+    },
+    {
+      "commit": "5b0ee506e",
+      "original": "897ec85212314750a9cd9ba1ae6f990b5c6ef005",
+      "kind": "real trusted warm fixtures plus legacy restart controls"
+    },
+    {
+      "commit": "ef6a7bc2fd02544e488bcb4b878800473f59fa1b",
+      "kind": "four explicit original-run provenance fixtures"
+    },
+    {
+      "commit": "07effc497e46d8ceed2a4169e9241d7a62fa160f",
+      "kind": "final unchanged attachment restart evidence on production6421"
     }
   ],
   "sourceHashes": {
-    "sidecar/index.js": "edd0412d05ae75421dadc4ad10cbe8dbf6d2a1036bb57945628fa8e7c9d827be",
-    "sidecar/tools/builtin/recall.js": "65bd8b273dc714f56fe42c38530947effd5137b2ed9fc680db2124e8bb5e857d",
+    "sidecar/index.js": "166f239ffdc03c8dbbf178d0beb9363fa59ec334195d0f6b371e908a36dda6f6",
+    "sidecar/trusted-learning.js": "9e7d9769da3fb50744ec50efd21ac5e4ad6e0e9bf2b1ce22e2dc6b9be1f2f00b",
+    "sidecar/interests.js": "316551bbb497a81ff15a68c5a6422d166d9eb407374a47e79ca5bc0ef530005f",
+    "sidecar/taskbrief-store.js": "6e7749af252da473529c57b59e3ae0c0852a606e11622a7ee38548843d94d53e",
+    "sidecar/tools/builtin/recall.js": "4e334a48e9a1cdd7dea84e7cea6365663e7dbdf789f6c8c575b15629a5e40336",
+    "test/contextpack.test.js": "aeb2e401250300de4adb0aa5a7156a3cb4e8236f82e65395aa4ab801e4124fdd",
+    "test/interests.test.js": "a33c8ba33865d8ac9c98ccffce726060d91519a6258a47805b7907fc32c87874",
     "test/memory-learning-boundary.http.test.js": "f222b83ddcce9fefc11008a2126ec809891b5e057845e0b19ada9abb55186ee2",
-    "test/contextpack.test.js": "18b3e8a7211b768645b8e403cfb434a9ccb607f8996eb4a09e34d2e03c63e7e6",
-    "test/nightshift-contextpack.e2e.test.js": "14baeac933050b84d4b2432d7d4ae4c7659b4fa806440c104e34e52cd36ee041"
+    "test/workflow-takeover.test.js": "2c04da143c96751954d6b6217ce0d5dc6ed3c70853106554287ec923633d8d11",
+    "test/workflow-takeover.http.test.js": "f7794a86b9c354163c7df15ba17c257156b0d42220d97375965b0996d8587c6d",
+    "test/nightshift-contextpack.e2e.test.js": "54e0d338e139ed3538e35b3a03a4bcab3a21ced85476a519431f14c5cbd88cf3",
+    "test/scout.http.test.js": "b82e939a19a474ef044b465bd674333190febe579fef867423b304f2e26cbaf3",
+    "test/scout.e2e.test.js": "e73418cd83e2eccd3658f0ce2203c368ba2bd784513d0906d9fe52363f0a9487"
   },
   "concurrency": "All edits and focused checks in isolated owner worktrees. No shared trunk edits, broad gate duplication, shared-contract changes or ratchet baseline adjustments.",
   "limitations": [
@@ -56,5 +100,103 @@
     "No installed release acceptance or customer recovery claimed.",
     "No REA execution: manual local harness comparison remains the audit evidence.",
     "No general real-model self-improvement benchmark."
-  ]
+  ],
+  "previousImplementationHead": "343fecc2f49fb256de53b7de79b61bfdf39dd67b",
+  "productionHead": "6421e4c857a6f885d0c437e9e4d01168f92ba7db",
+  "focusedFinalChecks": [
+    {
+      "command": "node scripts/run-test-list.mjs test/http.list scout.http",
+      "source": "6421e4c857a6f885d0c437e9e4d01168f92ba7db",
+      "exitCode": 0,
+      "assertions": 61,
+      "observed": "four real boots, four fresh local provider calls; legacy/mixed/paused/empty controls"
+    },
+    {
+      "command": "node scripts/run-test-list.mjs test/http.list scout.e2e",
+      "source": "6421e4c857a6f885d0c437e9e4d01168f92ba7db",
+      "exitCode": 0,
+      "assertions": 29
+    },
+    {
+      "command": "node scripts/run-test-list.mjs test/http.list payload.budget",
+      "source": "6421e4c857a6f885d0c437e9e4d01168f92ba7db",
+      "exitCode": 0,
+      "assertions": 17,
+      "systemChars": [
+        24671,
+        24892
+      ],
+      "tools": 84,
+      "toolBytes": 66238
+    },
+    {
+      "command": "node test/interests.test.js",
+      "source": "6421e4c857a6f885d0c437e9e4d01168f92ba7db",
+      "exitCode": 0,
+      "assertions": 76
+    },
+    {
+      "command": "node test/trusted-learning.test.js",
+      "source": "6421e4c857a6f885d0c437e9e4d01168f92ba7db",
+      "exitCode": 0,
+      "observed": "provenance, preference polarity, scope, external input and verification checks PASS; no assertion counter emitted"
+    },
+    {
+      "command": "node test/untrusted-taint.test.js",
+      "source": "6421e4c857a6f885d0c437e9e4d01168f92ba7db",
+      "exitCode": 0,
+      "assertions": 86
+    },
+    {
+      "command": "node test/contextpack.test.js",
+      "source": "6421e4c857a6f885d0c437e9e4d01168f92ba7db",
+      "fixtureHead": "686e8262e9dc7edfda08238eb685504b6a0977ee",
+      "exitCode": 0,
+      "assertions": 164
+    },
+    {
+      "command": "node test/workflow-takeover.test.js",
+      "source": "6421e4c857a6f885d0c437e9e4d01168f92ba7db",
+      "fixtureHead": "686e8262e9dc7edfda08238eb685504b6a0977ee",
+      "exitCode": 0,
+      "reportedSections": 8
+    },
+    {
+      "command": "node test/workflow-takeover.http.test.js",
+      "source": "6421e4c857a6f885d0c437e9e4d01168f92ba7db",
+      "fixtureHead": "ef6a7bc2fd02544e488bcb4b878800473f59fa1b",
+      "exitCode": 0,
+      "runner": "isolated review lane; process NODE_PATH to existing dependencies",
+      "observed": "authenticated provenance filtering, clean positive, review, concurrent create, pause, forget and restart passed; no assertion counter emitted"
+    },
+    {
+      "command": "node test/nightshift-contextpack.e2e.test.js",
+      "source": "6421e4c857a6f885d0c437e9e4d01168f92ba7db",
+      "fixtureHead": "ef6a7bc2fd02544e488bcb4b878800473f59fa1b",
+      "exitCode": 0,
+      "runner": "isolated review lane; process NODE_PATH to existing dependencies",
+      "assertions": 19
+    },
+    {
+      "command": "node scripts/run-test-list.mjs test/http.list memory-learning-boundary.http.test.js",
+      "source": "6421e4c857a6f885d0c437e9e4d01168f92ba7db",
+      "evidenceCommit": "07effc497e46d8ceed2a4169e9241d7a62fa160f",
+      "exitCode": 0,
+      "runner": "isolated memory lane; process NODE_PATH to existing dependencies",
+      "completedHttpPhases": 10,
+      "uploads": 2,
+      "restarts": 2,
+      "learningReceipts": 3,
+      "typedMemoriesAfterRestart": 1
+    }
+  ],
+  "liveBoundaryReceipt": "qa/evidence/memory-harness-audit-1011/r20-attachment-context-live.json",
+  "reviewBoundary": "Coordinator independently accepted reviewed source through productionHead. Root did not duplicate full fast/HTTP gates or modify baseline ratchets. No installed acceptance or provider/model quality comparison is implied.",
+  "finalValidation": {
+    "javascriptSyntaxFiles": 18,
+    "sourceHashesVerified": 13,
+    "canonicalBugRecordsParsed": 3,
+    "diffCheck": "PASS",
+    "scope": "No source changes after productionHead; subsequent commits contain focused fixture updates and evidence only."
+  }
 }
