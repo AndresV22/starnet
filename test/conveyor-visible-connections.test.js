@@ -39,9 +39,21 @@ const add = (s, t, x, y, w, h) => { const q = s.addProp({ t, x, y, w, h, block: 
   const Ba = add(s, 'bay', 39, 6, 2, 2), Bb = add(s, 'bay', 39, 8, 2, 2);   // TOUCHING: Ba's bottom edge meets Bb's top edge
   const O = add(s, 'outbox', 45, 7, 2, 2);
   s.assignPropAgent(Ba, 'writer'); s.assignPropAgent(Bb, 'researcher');
+  const ring = p => { const o = new Set(); for (let y = p.y - 1; y <= p.y + p.h; y++) for (let x = p.x - 1; x <= p.x + p.w; x++) if (!(x >= p.x && x < p.x + p.w && y >= p.y && y < p.y + p.h)) o.add(x + ',' + y); return o; };
   for (const [a, b] of [[I, S], [S, Ba], [S, Bb], [Ba, O], [Bb, O]]) {
+    const before = s.serialize(), preview = s.previewBelt(a, b);
+    A.ok(preview.ok, 'the visible belt preview accepts ' + a + ' -> ' + b);
+    A.eq(s.serialize(), before, 'preview leaves the floor unchanged');
+    const goal = preview.path && preview.path[preview.path.length - 1];
+    A.ok(goal && ![I, S, Ba, Bb, O].filter(id => id !== a && id !== b)
+      .some(id => ring(s.propById(id)).has(goal.x + ',' + goal.y)), 'the visible arrival tile touches no third machine when a clean goal exists');
     const c = s.connectBelt(a, b);
     A.ok(c && c.ok, 'BELT connects ' + a + ' -> ' + b + (c && c.msg ? ' (' + c.msg + ')' : ''));
+    const placed = s.belts();
+    A.eq((preview.path || []).map(t => {
+      const belt = placed.find(q => q.x === t.x && q.y === t.y);
+      return { x: t.x, y: t.y, d: belt ? belt.dir : null };
+    }), preview.path, 'the committed visible belt exactly matches its preview tiles and directions');
   }
   const plan = P.compileRoutingPlan(s.projectGeometry());
   const dc = plan.dockChains || {};
@@ -52,7 +64,6 @@ const add = (s, t, x, y, w, h) => { const q = s.addProp({ t, x, y, w, h, block: 
   A.eq(plan.errors.filter(e => !e.warn).length, 0, 'no blocking finding on the parallel floor');
   A.ok(!plan.errors.some(e => e.code === 'BAY_NOT_FED'), 'no bay is shamed NOT FED');
   // the laid lanes never end/start on a tile inside the OTHER bay's ring
-  const ring = p => { const o = new Set(); for (let y = p.y - 1; y <= p.y + p.h; y++) for (let x = p.x - 1; x <= p.x + p.w; x++) if (!(x >= p.x && x < p.x + p.w && y >= p.y && y < p.y + p.h)) o.add(x + ',' + y); return o; };
   const ra = ring(s.propById(Ba)), rb = ring(s.propById(Bb));
   const shared = s.belts().filter(b => ra.has(b.x + ',' + b.y) && rb.has(b.x + ',' + b.y));
   A.eq(shared.length, 0, 'no belt tile sits in BOTH stacked bays\' rings (the tile that made the hidden chain)');
@@ -120,7 +131,6 @@ const add = (s, t, x, y, w, h) => { const q = s.addProp({ t, x, y, w, h, block: 
   const build = fs.readFileSync(path.join(__dirname, '..', 'frontend', 'app', 'build.js'), 'utf8');
   const wm = fs.readFileSync(path.join(__dirname, '..', 'frontend', 'app', 'worldmodel.js'), 'utf8');
   A.ok(/connectBelt, connectionPreview, hookedBelts,/.test(wm), 'the model exports connectionPreview + hookedBelts');
-  A.ok(/const cleanGoals = /.test(wm) && /want\.has\(tk\)/.test(wm), 'connectBelt prefers a goal tile no third machine touches');
   const gi = build.slice(build.indexOf('function ghostInfo()'), build.indexOf('/* ---------- render loop ---------- */'));
   A.ok((gi.match(/ghostLinks\(/g) || []).length >= 3, 'the prop hover, prop drag-stamp and prop MOVE ghosts all ask connectionPreview');
   const lg = build.slice(build.indexOf('function lineGhost('), build.indexOf('function stampLine('));
