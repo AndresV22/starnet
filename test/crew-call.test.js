@@ -42,6 +42,8 @@ for (const text of [
   "Use Night Shift's report.", 'Use night-shift’s report.',
   "Use Ada-Aux's draft.", 'Use Ada-Aux’s draft.',
   'Have Ada-Lovelace review it.',
+  'Have Ada and Unknown review it.', 'Have Ada AND Unknown review it.',
+  'Have Ada And Quill-Lovelace review it.',
   'Ada: no delegation; answer yourself.', 'Ask Ada? No, answer yourself.',
   'Have Ada review it. Cancel that; answer yourself.', 'Have Ada review it. No need to delegate.'
 ]) A.eq(crewCallNote(text, crew, 'chiefops'), '', 'no invented delegation for a target reference or reversal: ' + text);
@@ -50,6 +52,7 @@ for (const [text, expected] of [
   ['Ada, review Quill’s report.', ['researcher']],
   ['Use Ada as the reviewer.', ['researcher']],
   ['Have Ada and Quill review it.', ['researcher', 'writer']],
+  ['Have Ada AND Quill review it.', ['researcher', 'writer']],
   ['Have Ada-Aux review the plan.', ['ada-aux']],
   ['Have Ada and Ada-Aux review the plan.', ['researcher', 'ada-aux']],
   ['Ask the night-shift to review it.', ['night-shift']]

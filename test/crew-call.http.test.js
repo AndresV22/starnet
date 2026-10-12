@@ -38,6 +38,8 @@ const Pipeline = require('../frontend/app/pipeline.js');
       ["Have Ada review Quill's report.",['researcher'],'possession in the work object'],
       ['Have Ada-Aux review the plan.',['ada-aux'],'exact hyphenated target'],
       ['Have Ada-Lovelace review it.',[],'unknown hyphenated target'],
+      ['Have Ada AND Unknown review it.',[],'uppercase incomplete target list'],
+      ['Have Ada And Quill-Lovelace review it.',[],'mixed-case incomplete target list'],
       ['Have Ada review it. Cancel that; answer yourself.',[],'explicit retraction']
     ]) {
       const from=wire.length;
