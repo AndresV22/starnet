@@ -7095,7 +7095,7 @@ async function runScoutCycle(o) {
   };
   try {
     const pack = nightshiftContextPack();
-    const activity = pack.activityLines || [];
+    const activity = pack.trustedActivityLines || [];   // legacy run titles may ground weak activity, never mint trusted topic history
 
     // 1) INTEREST EXTRACTION — earns itself on its own cadence (interests.shouldExtract), reads only REAL activity.
     const ex = Interests.shouldExtract(interestsState, { now: Date.now(), activityCount: activity.length });
@@ -7745,6 +7745,9 @@ function nightshiftContextPack() {
   // the shapes that finish. Same pause authority as the preference tallies (a paused station learns nothing).
   const trackRecord = stationTrackRecordLines();
   const pack = contextpack.assemble({ runs, briefs, chats, goal, landed, beliefs, learn, trackRecord, redact }, { now });
+  // A legacy run's absent taintedBy is not positive owner provenance. Persisted interests may learn only
+  // from the proven transcript/brief projection; retain internal run markers solely to suppress self-talk.
+  pack.trustedActivityLines = contextpack.assemble({ runs: runs.filter(r => r.internal), briefs, chats, redact }, { now }).activityLines || [];
   // the count of recent USER-INITIATED runs the pack recognized — the ACTIVITY-as-grounding evidence for readiness.
   pack.userRunCount = (pack.counts && pack.counts.runs) || 0;
   // NS-6: the top OPEN threads (durable ideas the Commander raised but never acted on), recency-ranked. The propose
