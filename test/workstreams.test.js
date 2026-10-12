@@ -431,4 +431,23 @@ A.eq(idleDeletion.events.filter(e => e === 'del:work-1').length, 1, 'idle path d
 A.eq(idleDeletion.events.filter(e => e === 'persist').length, 1, 'idle deletion persists exactly once');
 A.eq(idleDeletion.events.filter(e => e === 'loadActiveStream').length, 1, 'deleting the open idle stream reloads General');
 
+/* A terminal reason is durable and belongs only to the most recent actual run. */
+W.init({}); W.adopt({ id: 'outcome', agentId: 'nova' });
+W.appendRun('outcome', 'run1'); W.noteRunEnd('outcome', 'run1', true, 'budget');
+A.eq(W.get('outcome').lastRunReason, 'budget', 'completed transport retains the actual budget outcome');
+W.appendRun('outcome', 'run1'); W.noteRunEnd('outcome', 'run1', true);
+A.eq(W.get('outcome').lastRunReason, 'budget', 'duplicate filing and old callers cannot erase a measured reason');
+W.init(JSON.parse(JSON.stringify(W.serialize())));
+A.eq(W.get('outcome').lastRunReason, 'budget', 'reason survives reload');
+W.appendRun('outcome', 'run2');
+A.eq(W.get('outcome').lastRunReason, '', 'a new run starts without a stale reason');
+A.ok(!W.noteRunEnd('outcome', 'run1', false, 'error'), 'an old run cannot settle a newer run');
+A.eq(W.get('outcome').lastRunReason, '', 'stale outcome left current reason unknown');
+W.noteRunEnd('outcome', 'run2', false, ' error ');
+A.eq(W.get('outcome').lastRunReason, 'error', 'reason is normalized');
+W.noteRunEnd('outcome', 'run2', false, 'x'.repeat(200));
+A.eq(W.get('outcome').lastRunReason.length, 80, 'saved reasons are bounded');
+W.adopt({ id: 'legacy' });
+A.eq(W.get('legacy').lastRunReason, '', 'old saves default to unknown');
+
 A.report('workstreams.test');
