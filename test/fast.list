@@ -1157,3 +1157,4 @@ test/skill.evaluation.accounting.test.js
 test/thread-ux-regressions.test.js
 
 test/thread-flow-navigation.test.js
+test/remote-dispatch-history.test.js
