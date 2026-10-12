@@ -3781,7 +3781,12 @@ const Chat = (() => {
   }
   if (typeof U !== 'undefined' && U.bus && U.bus.on) U.bus.on('permission.response', (resp) => {
     const key = resp && resp.promptId != null ? promptNeeds.get(String(resp.promptId)) : null;
-    if (key) settlePromptNotice(key.slice('needs:'.length), resp.promptId);
+    if (!key) return; // an unknown response cannot claim another conversation's pending state
+    const wsId = key.slice('needs:'.length);
+    // Background/delegated asks may have no mounted card to clear their channel record.
+    // Remove only this confirmed response before choosing the sibling that still needs attention.
+    if (typeof Channels !== 'undefined' && Channels.clearPending) Channels.clearPending(wsId, Date.now(), resp.promptId);
+    settlePromptNotice(wsId, resp.promptId);
   });
   function backgroundPermissionNotify(ev, ws) {
     // the AGENT that asks — a delegated worker's ask names the worker, never the lead it rode in on

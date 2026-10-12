@@ -1,6 +1,6 @@
 # Thread UX handoff — 2026-10-12
 
-Frozen source/test candidate: 4c3d9c3019f8475eae283c62757d7e94a9296fdc on agent/thread-ux-review-1011, based on trunk a20ffa71f. All product edits are isolated. No trunk merge. This includes the saved-history correction after 18c1ec59f and supersedes a69664135, which had confirmed large-output truncation and final-write ordering defects.
+Frozen source/test candidate: fcd8007ca473d52488986537e304370c37f7f9a0 on agent/thread-ux-review-1011, based on trunk a20ffa71f. All product edits are isolated. No trunk merge. This includes the saved-history correction after 18c1ec59f, background response ownership in 049e6ff7e, and confirmed spoken approvals in fcd8007ca and supersedes a69664135, which had confirmed large-output truncation and final-write ordering defects.
 
 ## User-facing changes
 
@@ -13,7 +13,19 @@ Frozen source/test candidate: 4c3d9c3019f8475eae283c62757d7e94a9296fdc on agent/
 - Saved rejected output is superseded only by a canonical final with the same explicit run ownership. Duplicate copies preserve their attachments and taint; previous failure flags remain separate evidence. Newly delivered replies keep run/conversation identity, so reopening does not duplicate them.
 - Desktop and phone history/continuation share the same accepted-answer projection. Phone previews exclude repair instructions. Old closed indexes without preview provenance omit their preview until normal rebuild; the underlying history remains accessible.
 
-## Latest verification
+## Latest response-ownership follow-up
+
+The combined gate exposed three stale fixtures and one real background-prompt defect. Source commit 049e6ff7e7c92b7b0f38ab34ce1eeb9ae30c7833 fixes known remote responses leaving background/delegated prompts pending. It also replaces stale file-replay and eager-notification source assertions with executable behavioral tests and negative controls. No file-rendering production change was needed.
+
+Adjacent source audit commit fcd8007ca473d52488986537e304370c37f7f9a0 routes spoken approvals through confirmed Chat.answerConsent rather than clearing sibling prompts optimistically. It guards duplicate submissions, actual applied outcomes, call/chat rebinding, and a remote response winning a failed local request. These are separate, reviewable commits; no original customer causality is inferred.
+
+[Response ownership verification](response-ownership-verification.json) binds all eight changed JavaScript files and served chat/voice bytes to fcd8007ca. Replay 27, useful notifications 46, bell 34, remote sessions 30, voice UI and 35 UX/consent cases pass. Both website mirrors match. Five replay mutation controls reject missing sort, missing trailing files, wrong workspace ownership, duplicate incremental files and missing exception cleanup.
+
+Live seeded proof: no consent cards were mounted in the viewed chat; two worker prompts belonged to a background parent. The first remote response left only the second worker pending and waiting in the bell; duplicate/unknown responses changed nothing; the last response cleared the original parent bell. A different conversation's prompt remained. Replayed files appeared before/after their associated reply, the clicked link navigated to the original Mira workspace/path, and incremental insertion retained exactly two file rows. Zero page exceptions. Model/permission events and file contents were controlled fixtures. No microphone/live voice-call acceptance was tested.
+
+Canonical records: 402ce8f7 for background prompt ownership and 35c720c1 for the adjacent spoken-approval issue. Customer record 082ee8e5 remains OPEN. No full gates or root mutations were performed; release coordination owns the combined gates and fast.list union.
+
+## Saved-history verification
 
 [Saved-history verification](saved-history-verification.json) is bound to 4c3d9c3019f8475eae283c62757d7e94a9296fdc. Eight focused suites pass 518 assertions, and UX/consent passes 34 cases. All nine JavaScript files changed since 18c1ec59f pass syntax checks; desktop/website bundles and desktop/phone reconciliation match. The diff is whitespace-clean.
 
