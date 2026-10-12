@@ -78,8 +78,8 @@ for (const [scope, cap, want] of [
   } finally { globalThis.StationUI = prevUI; }
   // the flag rides from the stream to the stop line and the door
   const harness = read('frontend/app/harness.js');
-  A.ok(/budgetCapIsBalance = payload\.budgetCapIsBalance === true;/.test(harness) && /budgetScope, budgetCapUsd, budgetCapIsBalance, unpricedModel, unpricedCapTokens \};\n    return \{ text: full,[^\n]*budgetCapIsBalance, unpricedModel, unpricedCapTokens \};/.test(harness), 'Harness.chat latches the lead end\'s budgetCapIsBalance (and the unpriced ceiling) and returns them');
-  A.ok(/budgetStopLine\(budgetScope, budgetCapUsd, budgetCapIsBalance, unpriced\)/.test(chat) && /offerBudgetDoor\(budgetCapIsBalance\)/.test(chat), 'COMMS passes it to the stop line and the door');
+  A.ok(/budgetCapIsBalance = payload\.budgetCapIsBalance === true;/.test(harness) && /budgetScope, budgetCapUsd, budgetCapIsBalance, unpricedModel, unpricedCapTokens, subscriptionModel, subscriptionCapTokens \};\n    return \{ text: full,[^\n]*budgetCapIsBalance, unpricedModel, unpricedCapTokens, subscriptionModel, subscriptionCapTokens \};/.test(harness), 'Harness.chat latches the lead end\'s budgetCapIsBalance (and the unpriced ceiling) and returns them');
+  A.ok(/budgetStopLine\(budgetScope, budgetCapUsd, budgetCapIsBalance, unpriced, subscription\)/.test(chat) && /offerBudgetDoor\(budgetCapIsBalance\)/.test(chat), 'COMMS passes it to the stop line and the door');
 }
 
 // ---- the UNPRICED-model TOKEN ceiling is not a $ cap (2026-10-11) ----
@@ -96,6 +96,12 @@ for (const [scope, cap, want] of [
   const note = endNote('budget', { budgetScope: 'run', unpricedModel: 'x/mystery', unpricedCapTokens: 2000000 });
   A.ok(/2,000,000-token safety ceiling/.test(note) && !/SPENDING LIMITS/.test(note), 'channels name the token ceiling too: ' + note);
   const { stopSentence } = require('../sidecar/stop-reason.js');
+  // the SUBSCRIPTION-token ceiling (2026-10-12): a Claude Code sign-in books $0 per turn, so its run is bounded in tokens
+  const sub = budgetStopLine('run', null, false, null, { model: 'claude-opus-5-5', capTokens: 2000000 });
+  A.ok(/2,000,000-token per-run ceiling on your Claude subscription \(claude-opus-5-5\)/.test(sub) && /Runtime limits/.test(sub) && !/SPENDING LIMITS/.test(sub), 'COMMS names the subscription ceiling and its real lever: ' + sub);
+  A.ok(/subscriptionModel = payload\.subscriptionModel/.test(harness) && /else if \(endReason === 'budget' && !subscription\) offerBudgetDoor/.test(chat), 'the subscription stop rides to COMMS and never offers the $ door');
+  const subNote = endNote('budget', { budgetScope: 'run', subscriptionModel: 'claude-opus-5-5', subscriptionCapTokens: 2000000 });
+  A.ok(/2,000,000-token per-run ceiling/.test(subNote) && /STARNET_MAX_SUBSCRIPTION_TOKENS/.test(subNote) && !/SPENDING LIMITS/.test(subNote), 'channels name the subscription ceiling too: ' + subNote);
   A.ok(/STARNET_MAX_UNPRICED_TOKENS/.test(stopSentence('budget', { unpricedModel: 'x/mystery', unpricedCapTokens: 2000000 })), 'and the server-side sentence names the real knob');
   // the sidecar owns the fact: admission's clamp sets it, the lead's own per-run stop at that ceiling carries it
   const idx = read('sidecar/index.js');
