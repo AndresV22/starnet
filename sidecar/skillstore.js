@@ -57,7 +57,7 @@
     const s = str(v || 'active').toLowerCase();
     return STATES.has(s) ? s : 'active';
   }
-  const REVIEW_ACTORS = new Set(['background-review', 'skill-review']);   // autonomous writers whose versions must be approved (the 24h curator is deliberately NOT here: it archives narrow siblings into a widened umbrella, and withholding the umbrella would leave the Commander with neither until they clicked)
+  const REVIEW_ACTORS = new Set(['background-review', 'skill-review', 'curator']);   // autonomous revisions are proposed separately from the active skill
   function trustSource(createdBy) {
     const source = str(createdBy).trim().toLowerCase();
     if (source === 'user') return 'user';
@@ -126,6 +126,10 @@
       id: str(r.id || slug(n.name)),
       agentId: str(r.agentId) || 'agent',
       name: n.name,
+      scope: ['agent', 'project', 'station'].includes(r.scope) ? r.scope : 'agent',
+      projectRoot: str(r.projectRoot),
+      promotionReceiptId: str(r.promotionReceiptId),
+      canonicalRevision: bool(r.canonicalRevision),
       summary: str(r.summary).slice(0, SUMMARY_MAX),
       description: str(r.description || r.summary).slice(0, SUMMARY_MAX),
       body: str(r.body).slice(0, BODY_MAX),
@@ -174,6 +178,8 @@
     const out = {
       id: s.id, agentId: s.agentId, name: s.name, summary: s.summary, description: s.description || s.summary || '',
       category: s.category, setup: s.setup || '',
+      scope: s.scope || 'agent', projectRoot: s.projectRoot || '',
+      promotionReceiptId: s.promotionReceiptId || '', canonicalRevision: !!s.canonicalRevision,
       requires: (s.requires || []).slice(), platforms: (s.platforms || []).slice(), state: s.state, pinned: !!s.pinned,
       createdBy: s.createdBy, writtenBy: s.writtenBy || s.createdBy, sourceRunId: s.sourceRunId || null,
       sourceUrl: s.sourceUrl || '', sourceDigest: s.sourceDigest || '', sourceFetchedAt: s.sourceFetchedAt || 0,
@@ -207,9 +213,30 @@
     const maxPackageBytes = opts.maxPackageBytes > 0 ? opts.maxPackageBytes : DEFAULT_MAX_PACKAGE_BYTES;
 
     const latest = new Map();
+    const candidateRows = new Map();
+    // Receipts must come from the host evaluator's durable authority, not model-submitted JSON.
+    const validatePromotionReceipt = typeof opts.validatePromotionReceipt === 'function' ? opts.validatePromotionReceipt : null;
+    const digestCandidate = typeof opts.digestCandidate === 'function' ? opts.digestCandidate : (s) => {
+      const f = require('./skills/gate.js').digestOf;
+      return f({ body: JSON.stringify([s.name, s.summary, s.description, s.body, s.setup, s.category,
+        s.requires, s.platforms, s.scope || 'agent', s.projectRoot || '', s.state, s.pinned, s.absorbedInto]), files: s.files || [] });
+    };
+    function revisionDigest(entry) { return entry ? str(digestCandidate(projectSkill(entry, true))) : ''; }
+    function restoreCandidate(r) {
+      if (!r || r.recordType !== 'skill-candidate' || !r.candidateId || !r.skill) return;
+      const skill = normalizeEntry(r.skill);
+      if (!skill || skill.agentId !== str(r.agentId) || skill.name !== r.name) return;
+      candidateRows.set(keyOf(skill.agentId, skill.name), Object.assign({}, r, { skill }));
+    }
     try {
       const raw = io.readAll();
       if (Array.isArray(raw)) for (const r of raw) {
+        if (r && r.recordType === 'skill-candidate') { restoreCandidate(r); continue; }
+        if (r && r.recordType === 'skill-promotion') {
+          const active = normalizeEntry(r.entry);
+          if (active) latest.set(keyOf(active.agentId, active.name), active);
+          restoreCandidate(r.candidate); continue;
+        }
         const n = normalizeEntry(r);
         if (n) latest.set(keyOf(n.agentId, n.name), n);
       }
@@ -230,7 +257,7 @@
       latest.set(keyOf(entry.agentId, entry.name), clone(entry));
       return entry;
     }
-    function persist(entry) {
+    function persist(entry, promotion) {
       const projected = projectSkill(entry, true);
       try {
         if (guard && typeof guard.scanSkillRecord === 'function') {
@@ -265,16 +292,23 @@
       // never disagree about which bytes they describe.
       try { if (digest) entry.contentDigest = str(digest(projected)); } catch (_) {}
       try {
-        if (packageStore && typeof packageStore.writePackage === 'function') {
+        if (!promotion && packageStore && typeof packageStore.writePackage === 'function') {
           const dir = packageStore.writePackage(projectSkill(entry, true));
           if (dir) entry.packagePath = dir;
         }
       } catch (e) { failNote('skillstore.package.write', e); }
-      try { io.append(clone(entry)); }
+      try { io.append(clone(promotion ? { recordType: 'skill-promotion', entry, candidate: promotion } : entry)); }
       catch (e) { failNote('skillstore.append', e); throw e; }
       // Publish to RAM only after the durable event was accepted. Otherwise manage() reports
       // success for a skill that vanishes on the next sidecar restart.
       latest.set(keyOf(entry.agentId, entry.name), clone(entry));
+      if (promotion) {
+        candidateRows.set(keyOf(entry.agentId, entry.name), clone(promotion));
+        // The durable entry is authoritative. A failed mirror update cannot make a new
+        // candidate overwrite the previously approved package before publication commits.
+        try { if (packageStore && typeof packageStore.writePackage === 'function') packageStore.writePackage(projectSkill(entry, true)); }
+        catch (e) { failNote('skillstore.package.promotion', e); }
+      }
       return entry;
     }
     function mine(agentId, opts2) {
@@ -314,6 +348,9 @@
         id: existing ? existing.id : slug(n.name),
         agentId: str(e.agentId || (existing && existing.agentId) || 'agent'),
         name: n.name,
+        scope: existing ? existing.scope || 'agent' : 'agent',
+        projectRoot: existing ? existing.projectRoot || '' : '',
+        promotionReceiptId: '', canonicalRevision: false,
         summary: e.summary != null ? red(e.summary, SUMMARY_MAX) : (existing ? existing.summary : ''),
         description: e.description != null ? red(e.description, SUMMARY_MAX) : (existing ? (existing.description || existing.summary) : red(e.summary, SUMMARY_MAX)),
         body,
@@ -370,6 +407,7 @@
 
     function write(e) {
       e = e || {};
+      if (shouldStage(e, true)) return stageMutation(e, true);
       const agentId = str(e.agentId) || 'agent';
       const n = cleanName(e.name);
       if (!n.ok) return { ok: false, error: n.error };
@@ -401,6 +439,7 @@
 
     function manage(e) {
       e = e || {};
+      if (shouldStage(e, false)) return stageMutation(e, false);
       const agentId = str(e.agentId) || 'agent';
       const action = str(e.action || 'create').toLowerCase();
       const target = e.target != null ? e.target : (e.id != null ? e.id : e.name);
@@ -436,7 +475,7 @@
       if (action === 'patch') {
         p = patchBody(existing.body, e.find, e.replace);
         if (!p.ok) return p;
-        made = makeEntry(Object.assign({}, existing, { agentId, name: existing.name, body: p.body }), existing);
+        made = makeEntry(Object.assign({}, existing, { agentId, name: existing.name, body: p.body, createdBy: e.createdBy || 'agent', sourceRunId: e.sourceRunId }), existing);
         made.entry.patchCount = (made.entry.patchCount || 0) + 1;
         made.entry.packageDiverged = !!made.entry.packageDigest;
         entry = persist(made.entry);
@@ -519,6 +558,141 @@
       return { ok: false, error: 'unknown skill action: ' + action };
     }
 
+    // A review edits an isolated draft using the same validation as foreground writes.
+    // It never publishes into latest or the package mirror. Multiple calls in one review
+    // build on its pending draft; every revision invalidates previous evaluation receipts.
+    function shouldStage(e, legacyWrite) {
+      if (opts.stageReviews === false) return false;   // private isolated draft constructor
+      if (REVIEW_ACTORS.has(str(e.createdBy))) return true;
+      if (!legacyWrite && ['pin', 'unpin'].includes(str(e.action))) return false;
+      const target = legacyWrite ? e.name : (e.target != null ? e.target : (e.id != null ? e.id : e.name));
+      return trustSource(e.createdBy || 'agent') === 'agent-created'
+        && !!find(str(e.agentId) || 'agent', target, { includeArchived: true });
+    }
+    function stageMutation(e, legacyWrite) {
+      const aid = str(e.agentId) || 'agent';
+      const seeds = Array.from(latest.values()).map(clone);
+      for (const row of candidateRows.values()) if (row.agentId === aid && row.status === 'pending'
+        && row.baseDigest === revisionDigest(latest.get(keyOf(row.agentId, row.name)) || null)) {
+        const i = seeds.findIndex(s => keyOf(s.agentId, s.name) === keyOf(row.agentId, row.name));
+        if (i >= 0) seeds[i] = clone(row.skill); else seeds.push(clone(row.skill));
+      }
+      const draft = makeSkillStore(Object.assign({}, opts, { stageReviews: false, packageStore: null, packages: null,
+        io: { readAll: () => seeds, append() {} } }));
+      const r = legacyWrite ? draft.write(e) : draft.manage(e);
+      if (!r.ok) return r;
+      const entry = normalizeEntry(r.skill);
+      entry.writtenBy = str(e.createdBy);
+      entry.packagePath = ''; entry.canonicalRevision = false;
+      if (entry.guardAction !== 'block') entry.guardAction = 'ask';
+      const key = keyOf(aid, entry.name), active = latest.get(key) || null, prior = candidateRows.get(key);
+      const revision = prior ? (Number(prior.revision) || 0) + 1 : 1;
+      const row = { recordType: 'skill-candidate', candidateId: entry.id + '-candidate-' + revision,
+        agentId: aid, name: entry.name, status: 'pending', revision,
+        baseDigest: revisionDigest(active), candidateDigest: revisionDigest(entry),
+        createdAt: prior && prior.status === 'pending' ? prior.createdAt : now(), updatedAt: now(),
+        action: r.action || (r.edited ? 'edit' : 'create'), skill: entry };
+      try { io.append(clone(row)); } catch (err) { failNote('skillstore.candidate.append', err); throw err; }
+      candidateRows.set(key, clone(row));
+      return Object.assign({}, r, { pending: true, candidate: projectCandidate(row, true),
+        skill: Object.assign(projectSkill(entry, true), { pendingCandidate: true, candidateId: row.candidateId }) });
+    }
+    function projectCandidate(row, includeBody) {
+      const out = clone(row); out.skill = projectSkill(row.skill, !!includeBody);
+      return out;
+    }
+    function candidates(agentId, options) {
+      const o = options || {};
+      return Array.from(candidateRows.values()).filter(r => r.agentId === str(agentId)
+        && (o.includeResolved || r.status === 'pending')).map(r => projectCandidate(r, !!o.includeBody));
+    }
+    function candidate(agentId, id) {
+      const row = Array.from(candidateRows.values()).find(r => r.agentId === str(agentId) && r.candidateId === str(id));
+      return row ? projectCandidate(row, true) : null;
+    }
+    function pendingView(agentId, target) {
+      const row = Array.from(candidateRows.values()).find(r => r.agentId === str(agentId) && r.status === 'pending'
+        && r.baseDigest === revisionDigest(latest.get(keyOf(r.agentId, r.name)) || null)
+        && (r.skill.id === str(target) || r.name.toLowerCase() === str(target).toLowerCase() || r.candidateId === str(target)));
+      return row ? Object.assign(projectSkill(row.skill, true), { pendingCandidate: true, candidateId: row.candidateId }) : null;
+    }
+    function candidateDecision(e) {
+      const row = Array.from(candidateRows.values()).find(r => r.agentId === str(e.agentId) && r.candidateId === str(e.candidateId));
+      if (!row || row.status !== 'pending') return { error: 'no pending candidate with that id' };
+      if (!e.candidateDigest || str(e.candidateDigest) !== row.candidateDigest || revisionDigest(row.skill) !== row.candidateDigest)
+        return { error: 'candidate changed; read and evaluate its current revision first' };
+      return { row, active: latest.get(keyOf(row.agentId, row.name)) || null };
+    }
+    function approveCandidate(e) {
+      e = e || {};
+      if (e.approvedBy !== 'user') return { ok: false, error: 'only the Commander may promote a candidate' };
+      const found = candidateDecision(e);
+      if (found.error) return { ok: false, error: found.error };
+      const { row, active } = found;
+      if (revisionDigest(active) !== row.baseDigest) return { ok: false, error: 'active skill changed; regenerate and evaluate the candidate against it' };
+      if (row.skill.guardAction === 'block') return { ok: false, error: 'candidate is blocked by the skill guard' };
+      if (!validatePromotionReceipt) return { ok: false, error: 'candidate needs a host-verified behavior evaluation before promotion' };
+      let checked;
+      try { checked = validatePromotionReceipt(e.evaluation, { candidateDigest: row.candidateDigest, baselineDigest: row.baseDigest,
+        candidate: projectSkill(row.skill, true), baseline: active ? projectSkill(active, true) : null, agentId: row.agentId }); }
+      catch (_) { checked = null; }
+      if (!checked || checked.ok !== true || (checked.status && checked.status !== 'pass'))
+        return { ok: false, error: (checked && checked.error) || 'evaluation is missing, stale, insufficient, or regressed' };
+      const entry = clone(row.skill);
+      // Pinned content cannot be changed by proposing a revision before it was pinned.
+      if (active && active.pinned) return { ok: false, error: 'the active skill is pinned; unpin it before promotion' };
+      entry.canonicalRevision = true; entry.updatedAt = now();
+      entry.promotionReceiptId = str(checked.receiptId || (e.evaluation && (e.evaluation.receiptId || e.evaluation.id)));
+      const resolved = Object.assign({}, clone(row), { status: 'promoted', resolvedAt: now(), evaluation: clone(e.evaluation) });
+      // Active content and resolution are one append; restart cannot observe half a promotion.
+      persist(entry, resolved);
+      return { ok: true, skill: projectSkill(entry, true), candidate: projectCandidate(resolved, false) };
+    }
+    function rejectCandidate(e) {
+      e = e || {};
+      const found = candidateDecision(e);
+      if (found.error) return { ok: false, error: found.error };
+      const row = Object.assign({}, clone(found.row), { status: 'rejected', resolvedAt: now() });
+      io.append(clone(row)); candidateRows.set(keyOf(row.agentId, row.name), row);
+      return { ok: true, candidate: projectCandidate(row, false) };
+    }
+    function projectKey(root) {
+      const s = str(root).trim().replace(/\\/g, '/').replace(/\/+$/, '');
+      return /^[A-Za-z]:\//.test(s) ? s.toLowerCase() : s;
+    }
+    function isAccessible(s, agentId, projectRoot) {
+      if (s.scope === 'station') return true;
+      if (s.scope === 'project') return !!projectKey(projectRoot) && projectKey(projectRoot) === projectKey(s.projectRoot);
+      return s.agentId === str(agentId);
+    }
+    function listAccessible(agentId, options) {
+      const o = options || {};
+      return Array.from(latest.values()).filter(s => isAccessible(s, agentId, o.projectRoot)
+        && (o.includeArchived || s.state !== 'archived')).map(s => projectSkill(s, false))
+        .sort((a, b) => (Number(b.agentId === str(agentId)) - Number(a.agentId === str(agentId))) || a.name.localeCompare(b.name));
+    }
+    function viewAccessible(agentId, target, options) {
+      const o = options || {};
+      let matches = listAccessible(agentId, o).filter(s => (!o.ownerAgentId || s.agentId === str(o.ownerAgentId))
+        && (s.id === str(target) || s.name.toLowerCase() === str(target).toLowerCase()));
+      if (!o.ownerAgentId && matches.some(s => s.agentId === str(agentId))) matches = matches.filter(s => s.agentId === str(agentId));
+      if (matches.length !== 1) return null;   // never choose an arbitrary owner's same-name skill
+      return view(matches[0].agentId, matches[0].id, o);
+    }
+    function share(e) {
+      e = e || {};
+      if (e.actor !== 'user') return { ok: false, error: 'only the Commander may change skill sharing' };
+      const existing = find(e.agentId, e.target, { includeArchived: true });
+      if (!existing) return { ok: false, error: 'no such owned skill' };
+      if (!['agent', 'project', 'station'].includes(e.scope)) return { ok: false, error: 'choose agent, project, or station scope' };
+      const root = str(e.projectRoot).trim();
+      if (e.scope === 'project' && (!/^(?:[A-Za-z]:[\\/]|\/)/.test(root) || root.split(/[\\/]/).includes('..') || /[\x00-\x1f]/.test(root)))
+        return { ok: false, error: 'project sharing requires an absolute project root' };
+      const entry = Object.assign(clone(existing), { scope: e.scope, projectRoot: e.scope === 'project' ? root : '', updatedAt: now() });
+      persist(entry);
+      return { ok: true, skill: projectSkill(entry, true) };
+    }
+
     function list(agentId, opts2) {
       return mine(agentId, opts2).map(s => projectSkill(s, false));
     }
@@ -527,7 +701,7 @@
       const s = find(agentId, idOrName, { includeArchived: !!opts2.includeArchived });
       if (!s) return null;
       let out = s;
-      if (packageStore && typeof packageStore.hydrate === 'function' && opts2.hydrate !== false) {
+      if (!s.canonicalRevision && packageStore && typeof packageStore.hydrate === 'function' && opts2.hydrate !== false) {
         try {
           const h = packageStore.hydrate(projectSkill(s, true));
           if (h) out = Object.assign(clone(s), {
@@ -583,7 +757,7 @@
        (the bounded-read boot loader still keeps memory sane) — reported via `ok:false, reason`. Never throws:
        a compaction failure must never crash a run (the RAM mirror still answers). Returns counts for tests. */
     function compact() {
-      const entries = Array.from(latest.values()).map(e => clone(e));
+      const entries = Array.from(latest.values()).concat(Array.from(candidateRows.values())).map(e => clone(e));
       if (!io || typeof io.rewrite !== 'function') return { ok: false, reason: 'io has no rewrite', kept: entries.length };
       try { io.rewrite(entries); return { ok: true, kept: entries.length }; }
       catch (e) { return { ok: false, reason: (e && e.message) || 'rewrite failed', kept: entries.length }; }
@@ -615,6 +789,7 @@
 
     return {
       write, manage, list, view, markUsed, curate, compact,
+      candidates, candidate, pendingView, approveCandidate, rejectCandidate, share, listAccessible, viewAccessible,
       all() { return Array.from(latest.values()).map(s => projectSkill(s, true)); },
       count() { return latest.size; },
       _internals: { slug, keyOf, supportPath, cleanName, normalizeEntry, bumpView, trustSource }
