@@ -1,53 +1,62 @@
 ## IN PROGRESS — Customer-driven release polish — 2026-10-11
 
-Owner: `agent/session-handoff-1011` (StarNet customer-driven release coordination). This is the current coordination queue. Earlier entries below are dated snapshots; they do not establish current ownership, defects, or readiness.
+Owner: `agent/session-handoff-1011` (StarNet customer-driven release coordination). This is the current queue. Historical entries below do not establish present ownership, defects or readiness.
 
-The owner requested focused sessions, a breakdown of the whole update, organized code, and polishing through release. Priority must come from customer reports in email, Whop and GitHub, with current reproductions and explicit coverage gaps. Do not start speculative feature or performance work because an old audit suggested it.
+The owner requested focused sessions, an organized codebase, the complete update breakdown and polishing through release. Customer reports determine priority. A source association is not a reproduction, and a passing source gate is not customer recovery.
 
-### Current source and release status
+### Evidence collected and source boundaries
 
-- Integrated recovery: `a20ffa71f`; complete fast 1,138/1,138 and HTTP 209/209 passed on that exact commit. This is source acceptance, not installed acceptance.
-- Pending issue-derived batch: `agent/issue-triage-1011` at `9fc40b386`, based on `a20ffa71f`. Its source candidate `a75a09e3e` passed fast 1,139, HTTP 210, 139 browser assertions and six UI-only beginner steps. Coordination owns independent review and any serialized integration; preserve existing dirty trunk documentation.
-- Readiness readback at `2026-10-12T03:03:41Z`: **NOT READY**. Three blocking detector findings, RED Guardian, beginner proof on a different source, and installed smoke on a different source. Do not replace this with a lane-green claim.
-- The update baseline is released source `54899e5ff3f2b002b457757916b3977818db6fc1` (0.13.2); the 292-file recovery batch is only one part of that update. Verify public release/version collisions before choosing the next version.
+- Integrated trunk at intake: `a20ffa71f`, with fast 1,138/1,138 and HTTP 209/209 receipts. Whole update since released 0.13.2 source `54899e5ff`: 409 paths; the recovered-session subset is 292. [Complete pinned inventory](../qa/evidence/customer-release-1011/change-inventory.json).
+- Reviewed issue repairs, the residual possessive-delegation correction, installation inspector, six fresh incident records and recovery reconciliation are combined in the isolated coordination branch through `b622d2c00`. Full combined gates and serialized trunk integration are owed for the final frozen candidate. Earlier full gates on `a75a09e3e` do not cover the later crew-intent correction.
+- Email: 122 complete selected threads / 246 messages across 73 intake groups. Search pagination completed; this is query-complete, not every conceivable mailbox report. Attachment and generic-subject gaps are explicit. [Sanitized intake](../qa/evidence/customer-release-1011/email-intake.md).
+- GitHub: 70 issues (48 open / 22 closed), 53 comments and 216 issue events through 2026-10-12T03:22:01Z. Closure is not customer recovery. [Issue dispositions](../qa/evidence/customer-release-1011/github-intake.json).
+- Whop remains unreviewed: community/channel identity and usable read access are missing. The browser helper failed; no current export was found. Existing references to Whop navigation/crossposts do not establish community intake.
+- Product-wide review maps 21 areas to source paths, registered tests and acceptance gaps. [Coverage map](../qa/evidence/customer-release-1011/product-coverage.json). [Expanded next-release draft](releases/next/NOTES_DRAFT.md) covers the included areas and upgrade warnings; no version bump or publication.
 
-### Active owners
+### Current priority queue
 
-| Existing chat / owner | Bounded assignment | Deliverable |
+| Evidence / symptom | Next concrete action | Owner boundary |
 | --- | --- | --- |
-| Review Claude session context | Read and deduplicate customer email threads, including follow-ups | Private complete source references; sanitized symptom-to-bug map with search scope and recovery evidence |
-| Review open StarNet issues | Refresh GitHub reports/comments and preserve the ten-fix candidate | Exact report/fix/coverage map; source versus installer/customer outcomes; frozen merge receipt |
-| Review StarNet handoff process | Diagnose repeated customer failure families and process escape points | Ranked evidence-backed causes and concrete regression/acceptance changes |
-| Coordination | Whop access/intake, cross-channel deduplication, change inventory, ownership and integration | One current priority queue linked to `qa/bugs`, exact source map and readiness receipts |
+| E07 private Windows cross-user authorization report | Review exact installed cross-user acceptance plan; preserve detailed evidence privately. Candidate socket fixes do not prove affected-user recovery. | Review open StarNet issues; coordination owns final installed acceptance |
+| `d688ea20`: seven independent spend-history reports; `a5060cc3`: funded-account recurrence | Correlate the specific receipt, provider, trigger and refusal; reproduce the supported recovery path without inventing zero spend or bypassing the guard. | Review Claude session context; no billing/account mutation |
+| `85f602c4`: Windows 0.13.2 backend startup | Collect exact installer/reference and selected installed-file bytes with the new read-only inspector, complete sanitized stack and actual resource root. Cause remains unverified. | Review StarNet handoff process; coordination owns original private source mapping |
+| `e7b2ffcd`: credential recovery loses sign-in | Reproduce locked-store recovery, reconnect, quit/restart and write failure on the applicable native credential backend; retain original/recovery secrets. | Coordinated native acceptance after artifact selection |
+| `f702f2f6`: approved skill denied to worker | Compare approved skill version and authority through watched lead, fresh worker and restart; distinguish intended policy from projection loss. | Next bounded skills/capabilities slice |
+| `082ee8e5`: shell approval/history clipping | Verify complete redacted request/copy on current candidate and exact installer; historical unretained bytes remain unrecoverable. | Next bounded consent/visibility acceptance slice |
 
-Raw mailbox/community content, identities, private URLs, diagnostics and private submissions stay outside tracked files. Existing `qa/bugs/*.md` remains the durable symptom register; `qa/BUGS.md` is generated. Do not create a competing bug tracker or close reports from commit ancestry.
+These six canonical customer records remain open P1; related source repairs do not close them. Current combined register: 248 records, 16 open (6 P1, 10 P2). The private authorization acceptance queue is separate. Older Mac startup recovery is recorded per customer without closing its Windows sibling or the separate billing concern. A temporary credit recovery followed by recurrence remains unresolved.
+
+### Active chats and integration ownership
+
+| Existing chat | Delivered / ongoing responsibility |
+| --- | --- |
+| Review Claude session context | Completed email intake, five precise incident records and later Mac outcome; owns private source-to-case joins and spending-recovery investigation |
+| Review open StarNet issues | Completed GitHub refresh and reviewed ten-fix batch plus crew-intent follow-up; owns public issue correlation and scoped authorization review |
+| Review StarNet handoff process | Completed process analysis and tested read-only installation inspector; owns packaging evidence collection and acceptance design |
+| Coordination | Cross-channel deduplication, current queue, change inventory, independent review, final combined gates and serialized integration |
+
+Each accepted slice names its source paths, an isolated owning worktree, a customer action and live acceptance condition. Shared contracts remain owner-controlled. Merge live Codex history; never rebase it. Preserve existing dirty trunk docs. Check path ownership and reparse points before Git/sparse/generator/cleanup operations.
 
 ### Customer evidence loop
 
-1. Record the original symptom, date, affected build/platform/provider, entrypoint, impact, attempts and later replies. Distinguish a bug, a feature request, a how-to question and a confirmed recovery.
-2. Collapse duplicate messages and cross-posts into the same symptom without collapsing independent affected users. Preserve source coverage and unknowns; report counts are not incidence rates.
-3. Reproduce against current source and the relevant installed artifact. Attribute the failure to its actual boundary before selecting the smallest repair.
-4. Write the before/after regression and cover relevant **adapters, entrypoints, displays and lifecycle** paths. Record blocked siblings explicitly.
-5. Verify the customer action in the live app, including restart/upgrade where relevant. Bind installer evidence to the exact executable/source/hash.
-6. Keep `status: fixed`, `installer: verified`, and `recovery: confirmed|persists` separate. A silent customer is unconfirmed; passing source gates are not proof that a customer received the repair.
-7. For recurring families, add the missing development/release check at the boundary that escaped. Measure its result; do not add broad prompt text or a large refactor without a demonstrated need.
+1. Preserve symptom, date, affected build/platform/provider, entrypoint, impact, attempts and later replies. Separate bug, request, how-to and recovery.
+2. Deduplicate messages/crossposts by symptom without erasing independent reports. Report counts are not incidence rates.
+3. Reproduce at the actual failure boundary before selecting a repair. If evidence is missing, name the exact evidence needed.
+4. Cover adapters, entrypoints, displays and lifecycle, including failure, late reply, restart/upgrade and relevant siblings. Reuse existing journey tests; do not invent a parallel framework.
+5. Keep source-fixed, exact-installer-verified and customer-confirmed/persists outcomes separate. Silence remains unconfirmed; missing replies alone are not a desktop release blocker.
+6. Turn demonstrated recurring escape points into specific checks. Avoid speculative performance work, blanket refactors and duplicate fixes from old audit proposals.
 
-### Prioritization and controlled work
+Canonical defects remain in `qa/bugs/*.md`; regenerate `qa/BUGS.md`. Raw mail/community content, identities, private links and diagnostics stay outside tracked files. [Measured process analysis](../qa/evidence/customer-process-1011/report.md) and [readiness investigation](../qa/evidence/customer-release-1011/readiness-review.md) explain evidence limits.
 
-Finish intake reconciliation before expanding code scope. Prioritize demonstrated data loss, authority/approval violations, blocked first use and blocked core work, then recurrent workflow failures and usability friction. Track workaround quality, affected releases and independent reports alongside severity. Product requests remain distinct from defects.
+### Release and access gates still open
 
-Each accepted slice gets one owning chat, one isolated worktree, named source paths, a reproducible customer action and a live acceptance condition. Shared contracts remain owner-controlled. Merge one reviewed slice at a time. Full combined gates run after source freezes; exact installed acceptance, Guardian, `qa:ready` and candidate-bound product waves remain separate requirements.
-
-### Current evidence/access gaps
-
-- Email and GitHub intake are active; the September intake snapshot is not a current census.
-- Whop community/channel identification and current read access remain unverified. A Whop campaign-navigation report is not proof of community-wide intake.
-- Private native-integration mail now names two source packages and a newer scoped request. Connected Drive metadata returned NOT_FOUND for both; source review is blocked on readable packages. This is a private proposal, not authority to run its scripts, merge it, sign, install or publish it.
-- The customer/owner register on `a20ffa71f` contains 104 reports, 94 source-fixed; 85 source-fixed records lack installer verification and 93 lack customer confirmation. These are evidence gaps, not proof that all those customers remain affected.
-- No mailbox/community replies, issue closures, account/role changes, publication, version bump, source-history rewriting or worktree deletion is part of intake. Release actions require the concrete candidate and applicable authority at that stage.
+- The pinned `qa:ready` result is NOT READY: three blocking detector findings, RED Guardian, stale beginner and installed-source receipts. The newly registered customer P1 records are additional explicit work. [Readiness snapshot](../qa/evidence/customer-release-1011/readiness-snapshot.json).
+- A focused layout replay passed with publication/acknowledgement capture; the earlier mismatch remains unexplained. Only the visually reviewed deliverables baseline was refreshed; no threshold or detector suppression was changed.
+- Final combined source gates, exact candidate first use, signed artifact identity, Windows/macOS upgrade/data continuity, native lifecycle and required candidate-bound product waves remain owed. Do not turn a lane-green receipt into READY or PRODUCT PERFECT.
+- Private native-integration package links were located, but connected Drive metadata returned NOT_FOUND. Source review remains blocked on readable packages; this is a private proposal, not an approved implementation.
+- No customer messages, issue closures, account/role changes, publication, destructive cleanup or source-history rewriting has been performed as part of intake. Release actions require the concrete candidate and applicable authority at that stage.
 
 ---
-
 
 ## MAC BOOT COMPATIBILITY MERGED — 2026-09-18 (agent/mac-boot-compat-0918)
 

@@ -9326,5 +9326,403 @@
     "releaseDraftSummaryCharacters": 439,
     "releaseDraftLinksValid": 4,
     "inventoryScope": "Diff/history classification, not universal semantic or live acceptance."
+  },
+  "reviewCandidate": {
+    "head": "b622d2c0091d723331d3c702a23a7565851dc01c",
+    "integratedTrunk": "a20ffa71fd04691805ea55c7d08165438dd7ac6f",
+    "state": "Combined isolated review branch; full final-candidate fast/HTTP gates and trunk integration still owed at this snapshot.",
+    "wholeUpdateFileCount": 470,
+    "deltaFromIntegrated": [
+      {
+        "path": "docs/BRAIN.md",
+        "role": "documentation"
+      },
+      {
+        "path": "docs/NEXT.md",
+        "role": "documentation"
+      },
+      {
+        "path": "docs/releases/next/NOTES_DRAFT.md",
+        "role": "documentation"
+      },
+      {
+        "path": "frontend/app/chat.js",
+        "role": "production_source"
+      },
+      {
+        "path": "frontend/app/delegated.js",
+        "role": "production_source"
+      },
+      {
+        "path": "frontend/app/updatecore.js",
+        "role": "production_source"
+      },
+      {
+        "path": "frontend/app/voice-live.js",
+        "role": "production_source"
+      },
+      {
+        "path": "frontend/app/windows/workflows.js",
+        "role": "production_source"
+      },
+      {
+        "path": "qa/BUGS.md",
+        "role": "qa_evidence_or_register"
+      },
+      {
+        "path": "qa/STATUS.md",
+        "role": "qa_evidence_or_register"
+      },
+      {
+        "path": "qa/bugs/082ee8e5-shell-approvals-and-history-hide-full-command-ar.md",
+        "role": "qa_evidence_or_register"
+      },
+      {
+        "path": "qa/bugs/1df2d6f8-peer-owner-matches-unrelated-loopback-sockets.md",
+        "role": "qa_evidence_or_register"
+      },
+      {
+        "path": "qa/bugs/1ee46ab1-workflow-style-undo-can-be-overwritten-by-a-dela.md",
+        "role": "qa_evidence_or_register"
+      },
+      {
+        "path": "qa/bugs/2f156837-mac-boot-guard-reports-shared-specialty-catalog.md",
+        "role": "qa_evidence_or_register"
+      },
+      {
+        "path": "qa/bugs/436ab17d-design-references-assert-requested-image-propert.md",
+        "role": "qa_evidence_or_register"
+      },
+      {
+        "path": "qa/bugs/47c3a845-answering-one-clarification-clears-other-paralle.md",
+        "role": "qa_evidence_or_register"
+      },
+      {
+        "path": "qa/bugs/4fca711c-revoked-speech-synthesis-publishes-stale-audio.md",
+        "role": "qa_evidence_or_register"
+      },
+      {
+        "path": "qa/bugs/5929d898-crew-directives-promote-negation-and-upstream-da.md",
+        "role": "qa_evidence_or_register"
+      },
+      {
+        "path": "qa/bugs/85f602c4-windows-0132-packaged-backend-startup.md",
+        "role": "qa_evidence_or_register"
+      },
+      {
+        "path": "qa/bugs/a5060cc3-funded-account-runs-fail-again-after-a-credit-li.md",
+        "role": "qa_evidence_or_register"
+      },
+      {
+        "path": "qa/bugs/ab2fdd8c-remembered-update-bypasses-retry-backoff-after-a.md",
+        "role": "qa_evidence_or_register"
+      },
+      {
+        "path": "qa/bugs/abc6edf6-named-file-search-returns-nested-namesakes.md",
+        "role": "qa_evidence_or_register"
+      },
+      {
+        "path": "qa/bugs/d688ea20-unavailable-spend-history-blocks-work-without-us.md",
+        "role": "qa_evidence_or_register"
+      },
+      {
+        "path": "qa/bugs/db8f361d-kept-style-masks-a-later-real-rejection-after-un.md",
+        "role": "qa_evidence_or_register"
+      },
+      {
+        "path": "qa/bugs/e7b2ffcd-connector-sign-in-is-lost-after-credential-store.md",
+        "role": "qa_evidence_or_register"
+      },
+      {
+        "path": "qa/bugs/ecd03ee7-token-overlap-attests-inverted-memory-as-owner-i.md",
+        "role": "qa_evidence_or_register"
+      },
+      {
+        "path": "qa/bugs/f702f2f6-approved-skill-is-withheld-from-autonomous-worke.md",
+        "role": "qa_evidence_or_register"
+      },
+      {
+        "path": "qa/digests/2026-10-11-deep-sweep.md",
+        "role": "qa_evidence_or_register"
+      },
+      {
+        "path": "qa/evidence/customer-process-1011/reconciliation.json",
+        "role": "qa_evidence_or_register"
+      },
+      {
+        "path": "qa/evidence/customer-process-1011/register-snapshot.json",
+        "role": "qa_evidence_or_register"
+      },
+      {
+        "path": "qa/evidence/customer-process-1011/report.md",
+        "role": "qa_evidence_or_register"
+      },
+      {
+        "path": "qa/evidence/customer-release-1011/change-inventory.json",
+        "role": "qa_evidence_or_register"
+      },
+      {
+        "path": "qa/evidence/customer-release-1011/email-intake.json",
+        "role": "qa_evidence_or_register"
+      },
+      {
+        "path": "qa/evidence/customer-release-1011/email-intake.md",
+        "role": "qa_evidence_or_register"
+      },
+      {
+        "path": "qa/evidence/customer-release-1011/product-coverage.json",
+        "role": "qa_evidence_or_register"
+      },
+      {
+        "path": "qa/evidence/customer-release-1011/readiness-review.md",
+        "role": "qa_evidence_or_register"
+      },
+      {
+        "path": "qa/evidence/customer-release-1011/readiness-snapshot.json",
+        "role": "qa_evidence_or_register"
+      },
+      {
+        "path": "qa/evidence/deep-sweep-2026-10-11/beginner-timings.json",
+        "role": "qa_evidence_or_register"
+      },
+      {
+        "path": "qa/evidence/deep-sweep-2026-10-11/crew-possessive-followup.json",
+        "role": "qa_evidence_or_register"
+      },
+      {
+        "path": "qa/evidence/deep-sweep-2026-10-11/deep-sweep.html",
+        "role": "qa_evidence_or_register"
+      },
+      {
+        "path": "qa/evidence/deep-sweep-2026-10-11/deep-sweep.json",
+        "role": "qa_evidence_or_register"
+      },
+      {
+        "path": "qa/evidence/deep-sweep-2026-10-11/journeys-report.json",
+        "role": "qa_evidence_or_register"
+      },
+      {
+        "path": "qa/evidence/deep-sweep-2026-10-11/update-backoff-after.json",
+        "role": "qa_evidence_or_register"
+      },
+      {
+        "path": "qa/evidence/deep-sweep-2026-10-11/update-backoff-before.json",
+        "role": "qa_evidence_or_register"
+      },
+      {
+        "path": "qa/evidence/deep-sweep-2026-10-11/update-backoff-live.mjs",
+        "role": "qa_evidence_or_register"
+      },
+      {
+        "path": "qa/evidence/deep-sweep-2026-10-11/verification.json",
+        "role": "qa_evidence_or_register"
+      },
+      {
+        "path": "qa/evidence/frontend-deep-sweep-2026-10-11/coverage.json",
+        "role": "qa_evidence_or_register"
+      },
+      {
+        "path": "qa/evidence/frontend-deep-sweep-2026-10-11/issue-status-updates.json",
+        "role": "qa_evidence_or_register"
+      },
+      {
+        "path": "qa/evidence/frontend-deep-sweep-2026-10-11/live.json",
+        "role": "qa_evidence_or_register"
+      },
+      {
+        "path": "qa/evidence/frontend-deep-sweep-2026-10-11/phone-voice-first-attempt.json",
+        "role": "qa_evidence_or_register"
+      },
+      {
+        "path": "qa/evidence/frontend-deep-sweep-2026-10-11/phone-voice-live.json",
+        "role": "qa_evidence_or_register"
+      },
+      {
+        "path": "qa/evidence/frontend-deep-sweep-2026-10-11/phone-voice-probe.mjs",
+        "role": "qa_evidence_or_register"
+      },
+      {
+        "path": "qa/evidence/frontend-deep-sweep-2026-10-11/probe.mjs",
+        "role": "qa_evidence_or_register"
+      },
+      {
+        "path": "qa/evidence/frontend-deep-sweep-2026-10-11/verification.json",
+        "role": "qa_evidence_or_register"
+      },
+      {
+        "path": "qa/evidence/provider-deep-sweep-2026-10-11.json",
+        "role": "qa_evidence_or_register"
+      },
+      {
+        "path": "qa/evidence/runtime-sweep-2026-10-11/coverage.json",
+        "role": "qa_evidence_or_register"
+      },
+      {
+        "path": "qa/evidence/runtime-sweep-2026-10-11/http-lifecycle-preload.cjs",
+        "role": "qa_evidence_or_register"
+      },
+      {
+        "path": "qa/evidence/runtime-sweep-2026-10-11/issues.json",
+        "role": "qa_evidence_or_register"
+      },
+      {
+        "path": "qa/evidence/runtime-sweep-2026-10-11/lifecycle-observation.json",
+        "role": "qa_evidence_or_register"
+      },
+      {
+        "path": "qa/product-perfect/claims.json",
+        "role": "qa_evidence_or_register"
+      },
+      {
+        "path": "scripts/goldens.json",
+        "role": "verification_tooling"
+      },
+      {
+        "path": "scripts/qa/installation-integrity.cjs",
+        "role": "verification_tooling"
+      },
+      {
+        "path": "scripts/qa/installation-integrity.md",
+        "role": "verification_tooling"
+      },
+      {
+        "path": "sidecar/crew-call.js",
+        "role": "production_source"
+      },
+      {
+        "path": "sidecar/feedbackmemory.js",
+        "role": "production_source"
+      },
+      {
+        "path": "sidecar/index.js",
+        "role": "production_source"
+      },
+      {
+        "path": "sidecar/peerowner.js",
+        "role": "production_source"
+      },
+      {
+        "path": "sidecar/remote/voice.js",
+        "role": "production_source"
+      },
+      {
+        "path": "sidecar/tasteref.js",
+        "role": "production_source"
+      },
+      {
+        "path": "sidecar/tools/builtin/fs.js",
+        "role": "production_source"
+      },
+      {
+        "path": "sidecar/tools/builtin/notebook.js",
+        "role": "production_source"
+      },
+      {
+        "path": "test/consent-full-request.test.js",
+        "role": "test_or_manifest"
+      },
+      {
+        "path": "test/crew-call.http.test.js",
+        "role": "test_or_manifest"
+      },
+      {
+        "path": "test/crew-call.test.js",
+        "role": "test_or_manifest"
+      },
+      {
+        "path": "test/delegated-threads.test.js",
+        "role": "test_or_manifest"
+      },
+      {
+        "path": "test/fast.list",
+        "role": "test_or_manifest"
+      },
+      {
+        "path": "test/fs.search-gitignore.test.js",
+        "role": "test_or_manifest"
+      },
+      {
+        "path": "test/http.list",
+        "role": "test_or_manifest"
+      },
+      {
+        "path": "test/image-reference.test.js",
+        "role": "test_or_manifest"
+      },
+      {
+        "path": "test/installation-integrity.test.js",
+        "role": "test_or_manifest"
+      },
+      {
+        "path": "test/memory-truth.http.test.js",
+        "role": "test_or_manifest"
+      },
+      {
+        "path": "test/memory-truth.test.js",
+        "role": "test_or_manifest"
+      },
+      {
+        "path": "test/peerowner.test.js",
+        "role": "test_or_manifest"
+      },
+      {
+        "path": "test/project-parked-output.e2e.test.js",
+        "role": "test_or_manifest"
+      },
+      {
+        "path": "test/remote-sessions.test.js",
+        "role": "test_or_manifest"
+      },
+      {
+        "path": "test/remote-voice-ownership.test.js",
+        "role": "test_or_manifest"
+      },
+      {
+        "path": "test/tasteref.http.test.js",
+        "role": "test_or_manifest"
+      },
+      {
+        "path": "test/tasteref.test.js",
+        "role": "test_or_manifest"
+      },
+      {
+        "path": "test/update-center-truth.test.js",
+        "role": "test_or_manifest"
+      },
+      {
+        "path": "test/updatecore.test.js",
+        "role": "test_or_manifest"
+      },
+      {
+        "path": "test/voice-live-ui.test.js",
+        "role": "test_or_manifest"
+      },
+      {
+        "path": "test/workflows-window.test.js",
+        "role": "test_or_manifest"
+      },
+      {
+        "path": "website/app/app/chat.js",
+        "role": "generated_mirror"
+      },
+      {
+        "path": "website/app/app/delegated.js",
+        "role": "generated_mirror"
+      },
+      {
+        "path": "website/app/app/updatecore.js",
+        "role": "generated_mirror"
+      },
+      {
+        "path": "website/app/app/voice-live.js",
+        "role": "generated_mirror"
+      },
+      {
+        "path": "website/app/app/windows/workflows.js",
+        "role": "generated_mirror"
+      }
+    ],
+    "newDiagnostic": "scripts/qa/installation-integrity.cjs reads selected explicit installation/reference files without executing app code; it does not establish or fix the reported startup cause.",
+    "customerRecords": "Six fresh open P1 incidents and a qualified later Mac recovery; no source/installer/customer outcome inferred from related commits."
   }
 }
