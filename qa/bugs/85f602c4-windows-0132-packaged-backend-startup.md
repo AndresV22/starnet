@@ -45,3 +45,9 @@ Open: startup-blocking customer report; cause and artifact reproduction unverifi
 ## Required acceptance
 
 Identify the failing file/path boundary; demonstrate the repair on a disposable installation of the exact affected artifact, then on the release candidate. Verify startup, a real local task, restart, and upgrade/reinstall continuity of existing station data. If the original report cannot be reproduced, retain that limitation and the specific evidence request. A successful source checkout run cannot close installed acceptance.
+
+## Public artifact inspection — 2026-10-12
+
+The official public `StarNet_0.13.2_x64-setup.exe` (457,888,688 bytes, SHA-256 `f8ce564ffe5d420efd1d8efb35c796d73bfd4baae00444c61a82bbc268371cdd`) has a valid Authenticode signature. Read-only selective NSIS extraction found nonempty `sidecar/tools/builtin/shell.js` (90,354 bytes), `sidecar/index.js` (2,007,111 bytes), and `sidecar/loop.js` (184,069 bytes). All three match released source after CRLF-to-LF normalization; their raw installed-archive hashes and method limits are recorded in [the artifact receipt](../evidence/customer-release-1011/windows-0132-artifact.json). The installer and extracted code were never executed.
+
+This establishes the selected public archive contents only. It does not identify the customer's installer, installed file bytes, startup resource root, exception stack, or failure cause, and does not prove installed startup or recovery. The report remains open; no source repair is justified by this inspection alone.
