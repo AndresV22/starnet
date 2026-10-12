@@ -1,6 +1,6 @@
 # Thread UX handoff — 2026-10-12
 
-Frozen source/test candidate: fcd8007ca473d52488986537e304370c37f7f9a0 on agent/thread-ux-review-1011, based on trunk a20ffa71f. All product edits are isolated. No trunk merge. This includes the saved-history correction after 18c1ec59f, background response ownership in 049e6ff7e, and confirmed spoken approvals in fcd8007ca and supersedes a69664135, which had confirmed large-output truncation and final-write ordering defects.
+Frozen source/test candidate: 7dd049d134b61262baedca859f6cfb9e1671d327 (product source unchanged from fcd8007ca473d52488986537e304370c37f7f9a0) on agent/thread-ux-review-1011, based on trunk a20ffa71f. All product edits are isolated. No trunk merge. This includes the saved-history correction after 18c1ec59f, background response ownership in 049e6ff7e, and confirmed spoken approvals in fcd8007ca and supersedes a69664135, which had confirmed large-output truncation and final-write ordering defects.
 
 ## User-facing changes
 
@@ -12,6 +12,14 @@ Frozen source/test candidate: fcd8007ca473d52488986537e304370c37f7f9a0 on agent/
 - Complete accepted answers persist before final status. Recovery verifies final identity, exact length and SHA256. Truncation/corruption remains retryable without reserving delivery IDs. A saved answer whose status write was interrupted finalizes on restart without a model rerun or duplicate spend. A failed answer write retains its failure diagnostic, including while the page is offline.
 - Saved rejected output is superseded only by a canonical final with the same explicit run ownership. Duplicate copies preserve their attachments and taint; previous failure flags remain separate evidence. Newly delivered replies keep run/conversation identity, so reopening does not duplicate them.
 - Desktop and phone history/continuation share the same accepted-answer projection. Phone previews exclude repair instructions. Old closed indexes without preview provenance omit their preview until normal rebuild; the underlying history remains accessible.
+
+## Final voice fixture correction
+
+The combined candidate baa58078b5784670e4dd199549b8ac6b6b8b58f7 stopped at fast step311 because its appended voice test still called the old eager fallback contract. The exact candidate fixture was reproduced in this isolated tree: line316 expected a Harness call but observed none. It omitted Chat, so the current controller correctly took its cannot-submit branch. The fixture also lacked module submission/call state, asserted synchronous effects, and returned an array length rather than an acknowledgement.
+
+Test-only commit 7dd049d134b61262baedca859f6cfb9e1671d327 executes the real approvalCommand and Chat.answerConsent with real Channels and awaited acknowledgements. It retains the complete existing test prefix and original three-decision routing, sibling, elapsed-time and pause-close assertions, plus negative controls for in-flight/deduplication, refusal/rejection/retry, stamped run ownership, applied denial, questions, call generation/rebinding and a remote answer winning local failure. Production code did not change; desktop and website voice source are identical to the reported combined candidate.
+
+[Voice fixture verification](voice-fixture-verification.json) records exact before/after blobs and source identity. Voice UI passes, bell34 and useful-notifications46 pass, and thread UX passes16 cases. Syntax/diff checks pass. No full gates, seeded runtime, microphone or installed acceptance were run for this test-only correction. Release coordination owns the final combined gates. If merging the appended fixture conflicts, preserve its full behavioral block rather than restoring the eager fallback test; any newer unrelated test additions still belong to their owner.
 
 ## Latest response-ownership follow-up
 
