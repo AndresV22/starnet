@@ -13,8 +13,8 @@ report: support-2026-09-10-mac-shared-specialties
 affected: Installed Mac app confirmed in September 16 follow-up; reported latest public update but exact version and failed resource response remain unverified
 family: boot-integrity
 installer: unverified
-recovery: persists
-recoveryEvidence: September 18 owner-supplied diagnostics show all five catalog retries exhausted in the installed Mac app; affected-machine recovery remains unproven.
+recovery: unconfirmed
+recoveryEvidence: September 21 Mac reporter says 0.12.4 now works; aggregate recovery remains unconfirmed because this does not resolve the separate Windows report or prove source causality. Per-customer outcomes below supersede older pending-recovery prose.
 ---
 
 # Mac boot guard reports shared specialty catalog load failure
@@ -52,3 +52,11 @@ No exact before/after customer reproduction yet. Current Windows module loading 
 ## Sibling coverage
 
 {"adapters":[{"target":"affected Mac WebKit script request","state":"blocked","reason":"The report omits the actual origin, build and failed resource response."}],"entrypoints":[{"target":"native app or website entry","state":"blocked","reason":"A pathname of / does not identify the full page origin; obtain the original entry point."}],"displays":[{"target":"boot-guard diagnostic","state":"covered","test":"test/bootguard.test.js","scenario":"station-owned shared script failures remain fatal","gate":"fast"}],"lifecycle":[{"target":"affected Mac restart and resource loading","state":"blocked","reason":"No affected installer, startup log or successful restart was supplied."}]}
+
+## October 11 reconciliation of later customer replies
+
+The September 21 reply in the original Mac support thread reports installing 0.12.4 and says the application now appears to work correctly. This is a positive customer-reported Mac outcome, later than the September 18 failure and September 20 disposition. Earlier statements that this reporter has no observed recovery are historical and superseded by that reply; no independent installed reproduction, artifact hash or exact causal attribution was obtained.
+
+The customer could not continue because the account had no remaining tokens and separately followed up on billing on September 25. That is not a fresh boot-failure report. Keep the credit-usage question separate under abd75bb4; this reply does not establish a refund, reconcile usage or close that record.
+
+The September 13 Windows Edge sibling has no corresponding successful retest and remains unconfirmed. Existing status wontfix still records the September 20 owner acceptance; it is not promoted to source-fixed by this customer report. Aggregate recovery is unconfirmed rather than the outdated blanket persists claim: the schema requires source-fixed status for confirmed recovery and cannot represent this mixed per-customer outcome. The positive September 21 Mac outcome is preserved here without closing the Windows sibling or asserting an independently verified installer.
