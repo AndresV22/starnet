@@ -1,0 +1,10 @@
+context.test: OK (205 assertions)
+memory-truth: OK (101 assertions)
+feedbackmemory.test: OK (86 assertions)
+notebook.test: OK (147 assertions)
+recall.test: OK (46 assertions)
+channels.telegram.context: OK (57 assertions)
+trusted-learning: provenance, preference polarity, scope, external input and verification checks PASS
+learning.evidence: provenance, bounded transcript survival, secret redaction, tainted review isolation and proposal truth PASS
+skill.evaluation: exact executable improvement, held-out regression, restart, tamper/model/test/skill invalidation, fixture refusal, real loop fixture isolation PASS
+run-fast-tests: OK — 9 step(s) green
