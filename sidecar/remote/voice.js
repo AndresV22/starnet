@@ -278,11 +278,13 @@ function makeRemoteVoice(deps) {
 
   const utterances = new Map();   // deviceId -> { utt, next, frames, bytes, frameMs, at }
   const replies = new Map();      // deviceId -> { id, buf, mime, provider, at }
+  const pendingReplies = new Map(); // deviceId -> first-chunk owner, installed before awaiting synthesis
 
   function sweep() {
     const t = now();
     for (const [k, u] of utterances) if (t - u.at > VOICE_TTL_MS) utterances.delete(k);
     for (const [k, r] of replies) if (t - r.at > VOICE_TTL_MS) replies.delete(k);
+    for (const [k, r] of pendingReplies) if (t - r.at > VOICE_TTL_MS) pendingReplies.delete(k);
   }
 
   async function hear(deviceId, a) {
@@ -364,7 +366,17 @@ function makeRemoteVoice(deps) {
     if (text.length > MAX_SPEAK_TEXT) return { ok: false, error: 'that is too long to say in one reply (' + MAX_SPEAK_TEXT + ' characters max)' };
     if (typeof synthesize !== 'function') return { ok: false, error: 'this station has no voice' };
     const sentences = splitSentences(text);
+    // Ownership starts at admission. An older first chunk may finish after a replacement or device revocation;
+    // it must never publish audio or start synthesising the rest of that now-abandoned reply.
+    const pending = { at: now() };
+    pendingReplies.set(deviceId, pending);
+    replies.delete(deviceId);
     const first = await synthOne(sentences[0]);
+    if (pendingReplies.get(deviceId) !== pending || now() - pending.at > VOICE_TTL_MS) {
+      if (pendingReplies.get(deviceId) === pending) pendingReplies.delete(deviceId);
+      return { ok: false, error: 'that reply was replaced, forgotten, or expired' };
+    }
+    pendingReplies.delete(deviceId);
     if (!first.ok) return { ok: false, error: 'the station could not speak that (' + first.reason.slice(0, 160) + ')' };
     const firstMime = String(first.mime || '');
     const rec = { id: String(newId()).replace(/[^A-Za-z0-9_-]/g, '').slice(0, 40), mime: /wav/.test(firstMime) ? ADPCM_MIME : firstMime,
@@ -377,6 +389,10 @@ function makeRemoteVoice(deps) {
       for (let i = 1; i < sentences.length; i++) {
         if (replies.get(deviceId) !== rec) return;   // replaced or forgotten: stop spending on it
         const r = await synthOne(sentences[i]);
+        if (replies.get(deviceId) !== rec || now() - rec.at > VOICE_TTL_MS) {
+          if (replies.get(deviceId) === rec) replies.delete(deviceId);
+          return;
+        }
         if (!r.ok) { rec.error = r.reason.slice(0, 160); break; }
         const e = append(rec, r);
         if (e) { rec.error = e; break; }
@@ -403,7 +419,7 @@ function makeRemoteVoice(deps) {
     return { ok: true, data: { id: r.id, offset, bytes: r.buf.length, data: chunk.toString('base64url'), done, pending: !done && !chunk.length, error: r.error || undefined } };
   }
 
-  function forget(deviceId) { utterances.delete(deviceId); replies.delete(deviceId); }
+  function forget(deviceId) { utterances.delete(deviceId); replies.delete(deviceId); pendingReplies.delete(deviceId); }
 
   return { hear, speak, speech, forget, _sizes: () => ({ utterances: utterances.size, replies: replies.size }) };
 }
