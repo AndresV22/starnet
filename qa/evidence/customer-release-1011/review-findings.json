@@ -52,55 +52,129 @@
       "id": "R06",
       "lane": "memory/skills",
       "candidate": "301192710bed3e9e497a1a5eae34f17854c6ee4a",
-      "status": "held-for-owner-repair",
+      "status": "resolved-in-source",
       "observation": "New-skill baseline uses an empty digest while evaluator hashes null, preventing genuine receipt approval.",
       "requiredBehavior": "Unify canonical absent-baseline digest and prove evaluate-to-promote flow.",
-      "evidence": "sidecar/skillstore.js"
+      "evidence": "sidecar/skillstore.js",
+      "resolvedBy": "77c22eb4906159c2ccdf23f9291c7b18124cb111",
+      "integratedAt": "844bee9bb96bf9d784fe9054334e9fd260f57a18"
     },
     {
       "id": "R07",
       "lane": "memory/learning",
       "candidate": "747d73bffa55cf0709d37c7c31c0618e6f8ada76",
-      "status": "held-for-owner-repair",
+      "status": "resolved-in-source",
       "observation": "Corrections are cut before completeness is measured, so an incomplete prefix can be marked eligible for durable learning.",
       "requiredBehavior": "Carry original truncation metadata through arm/correct and test a later reversal.",
-      "evidence": "sidecar/verdictreview.js"
+      "evidence": "sidecar/verdictreview.js",
+      "resolvedBy": "77c22eb4906159c2ccdf23f9291c7b18124cb111",
+      "integratedAt": "844bee9bb96bf9d784fe9054334e9fd260f57a18"
     },
     {
       "id": "R08",
       "lane": "memory/learning",
       "candidate": "747d73bffa55cf0709d37c7c31c0618e6f8ada76",
-      "status": "held-for-owner-repair",
+      "status": "resolved-in-source",
       "observation": "First-40 selection can drop the newest attributed owner correction in trusted-only evidence.",
       "requiredBehavior": "Retain bounded beginning and newest instructions; bind the final host projection limit.",
-      "evidence": "sidecar/learningevidence.js"
+      "evidence": "sidecar/learningevidence.js",
+      "resolvedBy": "77c22eb4906159c2ccdf23f9291c7b18124cb111",
+      "integratedAt": "844bee9bb96bf9d784fe9054334e9fd260f57a18"
     },
     {
       "id": "R09",
       "lane": "threads",
       "candidate": "09e6afba0179fe4aa6930fa5fe5b68a433d4934d",
-      "status": "held-for-owner-repair",
+      "status": "repaired-in-owner-awaiting-integration",
       "observation": "Execution-end recovery files raw output before structured-result repair, then rejects the accepted delivery as duplicate.",
       "requiredBehavior": "Respect final delivery authority and test invalid-to-repaired structured output.",
-      "evidence": "frontend/app/stationcommands.js"
+      "evidence": "frontend/app/stationcommands.js",
+      "reviewedOwnerSource": "a69664135e4983fe624ec11bea6b2bd4666ee651",
+      "note": "Original repro passes; complete lane remains held for R12/R13."
     },
     {
       "id": "R10",
       "lane": "threads",
       "candidate": "09e6afba0179fe4aa6930fa5fe5b68a433d4934d",
-      "status": "held-for-owner-repair",
+      "status": "repaired-in-owner-awaiting-integration",
       "observation": "Unrelated worker completion reloads the reader's active conversation and discards navigation/inspector state.",
       "requiredBehavior": "Refresh only affected state and preserve explicit reader intent.",
-      "evidence": "frontend/app/stationcommands.js"
+      "evidence": "frontend/app/stationcommands.js",
+      "reviewedOwnerSource": "a69664135e4983fe624ec11bea6b2bd4666ee651",
+      "note": "Original repro passes; complete lane remains held for R12/R13."
     },
     {
       "id": "R11",
       "lane": "credentials",
       "candidate": "fd368c510f890384f4c86e4f299f41d27681e0ea",
-      "status": "held-for-owner-repair",
+      "status": "resolved-in-source",
       "observation": "Newly exposed runtime-lock START FRESH clears durable configuration while existing connector clients can still call tools.",
       "requiredBehavior": "Invalidate runtime clients and pending authorization after durable reset succeeds; preserve them when reset fails.",
-      "evidence": "sidecar/index.js"
+      "evidence": "sidecar/index.js",
+      "resolvedBy": "cbd030178715cb6b9a64c18984e3fc77148be0f8",
+      "integratedAt": "71b02dc"
+    },
+    {
+      "id": "R12",
+      "lane": "threads",
+      "candidate": "a69664135e4983fe624ec11bea6b2bd4666ee651",
+      "status": "held-for-owner-repair",
+      "observation": "Accepted delivery first truncated at24,000 characters; the repair moved truncation to the200,000-character transcript cap. Supported210,026-character validated JSON then loses its tail and is accepted by readers as complete.",
+      "requiredBehavior": "Persist and recover complete supported finalized output; verify full content/hash and restart at actual size boundaries.",
+      "evidence": "sidecar/transcriptstore.js"
+    },
+    {
+      "id": "R13",
+      "lane": "threads",
+      "candidate": "a69664135e4983fe624ec11bea6b2bd4666ee651",
+      "status": "held-for-owner-repair",
+      "observation": "Final run state is persisted before full delivery projection. Projection append failure leaves no restart repair; offline delivery can overwrite the failure note with a false durability promise.",
+      "requiredBehavior": "Acknowledge final delivery only with durable complete authority; retain explicit failure and a supported retry without raw or preview substitution.",
+      "evidence": "sidecar/index.js; sidecar/tools/builtin/orchestration.js"
+    },
+    {
+      "id": "R14",
+      "lane": "memory/evaluation",
+      "candidate": "cd20bdad6bf2d443dd2965f56f40a09a80c4bdaa",
+      "status": "resolved-in-source",
+      "observation": "Unpriced evaluation attempts only mark their local accounting instance uncertain, so a fresh evaluation bypasses the selected strict station budget before restart.",
+      "requiredBehavior": "Publish shared unsettled accounting immediately and check each provider attempt while preserving default soft-budget semantics.",
+      "resolvedBy": "77c22eb4906159c2ccdf23f9291c7b18124cb111",
+      "integratedAt": "844bee9bb96bf9d784fe9054334e9fd260f57a18",
+      "evidence": "test/skills.evaluation-spend.http.test.js"
+    },
+    {
+      "id": "R15",
+      "lane": "memory/review",
+      "candidate": "cd20bdad6bf2d443dd2965f56f40a09a80c4bdaa",
+      "status": "resolved-in-source",
+      "observation": "A snapshot failure after the grace timer is cleared strands a held review after storage recovers.",
+      "requiredBehavior": "Retry persistence within a bound; never dispatch before durable running state, or redispatch when only completion persistence failed.",
+      "resolvedBy": "77c22eb4906159c2ccdf23f9291c7b18124cb111",
+      "integratedAt": "844bee9bb96bf9d784fe9054334e9fd260f57a18",
+      "evidence": "test/verdictreview.lifecycle.test.js"
+    },
+    {
+      "id": "R16",
+      "lane": "conveyor",
+      "candidate": "6f7361a721bbd932d14f23e5a28117e120b4ebf4",
+      "status": "resolved-in-source",
+      "observation": "An unavailable step-test endpoint sends test view to the editor instead of rendering the supported real-job and watch alternatives.",
+      "requiredBehavior": "Keep the valid compiled-line guard while rendering supported, unsupported and absent-endpoint choices from actual state.",
+      "resolvedBy": "ab8d27672656c3bc85b04c276f1c3ee473a04df3",
+      "integratedAt": "b218f95e7e790e88ac311a3065d627f864a09618",
+      "evidence": "qa/evidence/conveyor-browser-20261012.json"
+    },
+    {
+      "id": "R17",
+      "lane": "graphics/local-model errors",
+      "candidate": "6f7361a721bbd932d14f23e5a28117e120b4ebf4",
+      "status": "resolved-in-source",
+      "observation": "New local-model memory error is absent from the exhaustive post-mortem decision; the generic named-error wording would falsely assert no prior work.",
+      "requiredBehavior": "Retain failed-run status and explicit memory recovery guidance without claiming zero earlier work.",
+      "resolvedBy": "5312aa66546d4fff85fd005bee203d1a84498b97",
+      "integratedAt": "3548b7d",
+      "evidence": "qa/audits/2026-10-12-qwen-render-loss.md"
     }
   ],
   "limits": [
@@ -108,5 +182,6 @@
     "R05 affects supported renderer modes absent from current shipped manifests; it is not the established cause of the default-art incident.",
     "R08 is a supported-module edge; the reviewed module commits did not yet include final host wiring.",
     "An existing review-window restart gap was also reported to the memory owner; it was not attributed as a new regression."
-  ]
+  ],
+  "updatedAt": "2026-10-12T08:39:23.882Z"
 }
