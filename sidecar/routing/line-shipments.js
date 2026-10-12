@@ -4,17 +4,38 @@
    Clock and persistence are injected; failed persistence never publishes a count. */
 'use strict';
 const { note: failNote } = require('../failopen.js');
-const id = v => typeof v === 'string' && v.length > 0 && v.length <= 256 && !/[\x00-\x1f]/.test(v) ? v : null;
+const id = v => typeof v === 'string' && v.trim().length > 0 && v.length <= 256 && !/[\x00-\x1f\x7f]/.test(v) ? v : null;
+const propId = v => typeof v === 'string' && /^[A-Za-z0-9_-]{1,80}$/.test(v);
 const time = v => typeof v === 'number' && Number.isFinite(v) && v >= 0;
 const keyOf = r => JSON.stringify([r.lineId, r.entryRunId]);
+const validReceipt = r => !!r && typeof r === 'object' && !Array.isArray(r) && propId(r.lineId) && id(r.entryRunId) && id(r.terminalRunId) && propId(r.outboxId) && time(r.at);
+const receiptView = r => ({ lineId: r.lineId, entryRunId: r.entryRunId, terminalRunId: r.terminalRunId, outboxId: r.outboxId, at: r.at });
 function cleanShipments(value) {
   const out = [], seen = new Set();
   for (const r of Array.isArray(value) ? value : []) {
-    if (!r || !id(r.lineId) || !id(r.entryRunId) || !id(r.terminalRunId) || !id(r.outboxId) || !time(r.at)) continue;
+    if (!validReceipt(r)) continue;
     const key = keyOf(r);
     if (seen.has(key)) continue;
     seen.add(key);
-    out.push({ lineId: r.lineId, entryRunId: r.entryRunId, terminalRunId: r.terminalRunId, outboxId: r.outboxId, at: r.at });
+    out.push(receiptView(r));
+  }
+  return out;
+}
+// Persistence must not discard malformed evidence and later overwrite it with a
+// guessed repair. Exact duplicate copies mean one receipt; conflicting copies
+// of the same job cannot choose their own OUTBOX, terminal run or timestamp.
+function validateShipments(value) {
+  if (!Array.isArray(value)) throw new Error('shipment history is not an array');
+  const out = [], seen = new Map();
+  for (let i = 0; i < value.length; i++) {
+    const r = value[i];
+    if (!validReceipt(r)) throw new Error('shipment history has an invalid receipt at row ' + i);
+    const clean = receiptView(r), key = keyOf(clean), previous = seen.get(key);
+    if (previous) {
+      if (JSON.stringify(previous) !== JSON.stringify(clean)) throw new Error('shipment history has conflicting duplicate receipts at row ' + i);
+      continue;
+    }
+    seen.set(key, clean); out.push(clean);
   }
   return out;
 }
@@ -25,7 +46,7 @@ function loadShipmentReceipts(store) {
   if (!read || !['ok', 'recovered', 'absent'].includes(read.status) || !Array.isArray(read.value)) {
     throw new Error('shipment history could not be read (' + ((read && read.status) || 'unknown') + ')');
   }
-  return read.value;
+  return validateShipments(read.value);
 }
 function makeLineShipments(options) {
   const o = options || {}, now = typeof o.now === 'function' ? o.now : () => 0;
@@ -34,12 +55,13 @@ function makeLineShipments(options) {
   const runsFor = typeof o.runsFor === 'function' ? o.runsFor : () => [];
   let receipts = null;
   function ensure() {
-    if (!receipts) { try { receipts = cleanShipments(load()); } catch (e) { failNote('line-shipments.load', e); throw e; } }
+    if (!receipts) { try { receipts = validateShipments(load()); } catch (e) { failNote('line-shipments.load', e); throw e; } }
     return receipts;
   }
   function record(rec) {
     const r = rec || {}, at = now();
-    if (!id(r.lineId) || !id(r.entryRunId) || !id(r.streamId) || !id(r.outboxId) || !time(at)) return false;
+    if (!propId(r.lineId) || !id(r.entryRunId) || !id(r.streamId) || !propId(r.outboxId) || !id(r.agentId)
+      || (r.dockId != null && !propId(r.dockId)) || !time(at)) return false;
     let current; try { current = ensure(); } catch (_) { return false; }
     const key = keyOf(r);
     if (current.some(s => keyOf(s) === key)) return true;
@@ -59,10 +81,14 @@ function makeLineShipments(options) {
     if (!terminal) return false;
     const receipt = { lineId: r.lineId, entryRunId: r.entryRunId, terminalRunId: terminal.runId, outboxId: r.outboxId, at };
     const next = current.concat([receipt]);
-    try { save(next); } catch (e) { failNote('line-shipments.persist', e); return false; }
+    try { save(next); } catch (e) {
+      // Main may already contain next even though its read-back failed. Re-load
+      // authority before another write; an old cache could erase that commit.
+      receipts = null; failNote('line-shipments.persist', e); return false;
+    }
     receipts = next;
     return true;
   }
   return { record, snapshot: () => cleanShipments(ensure()) };
 }
-module.exports = { cleanShipments, makeLineShipments, loadShipmentReceipts };
+module.exports = { cleanShipments, validateShipments, makeLineShipments, loadShipmentReceipts };
