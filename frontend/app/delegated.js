@@ -266,6 +266,9 @@ const Delegated = (() => {
       if (!row && !['working', 'waiting', 'queued'].includes(stateOf(r, r.ws.parentStreamId, r.lead).cls)) throw new Error('The run record is unavailable. Try again to retrieve its work.');
       let deliveryTurns;
       const delivery = row && row.dispatchDelivery;
+      if (delivery && delivery.state === 'pending' && !['working', 'waiting', 'queued'].includes(stateOf(r, r.ws.parentStreamId, r.lead).cls)) {
+        throw new Error('This worker ended, but its finalized result could not be recovered. Try again to retrieve its work.');
+      }
       if (delivery && delivery.state === 'final' && delivery.reason === 'done' && String(delivery.text || '').length >= 24000) {
         const sourceRun = delivery.repairRunId || runId;
         const full = sourceRun === runId ? tr : await read('/api/transcript?agent=' + agent + '&stream=' + encodeURIComponent(id) + '&runId=' + encodeURIComponent(sourceRun) + '&limit=500');

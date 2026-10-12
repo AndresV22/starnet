@@ -7334,7 +7334,7 @@ const Chat = (() => {
     const pinned = stick, top = log.scrollTop;
     const viewport = log.getBoundingClientRect();
     const scale = viewport.height / log.offsetHeight || 1;
-    const anchor = !pinned && Array.from(log.children).find(n => n.getBoundingClientRect().bottom > viewport.top);
+    const anchor = !pinned && Array.from(log.children).find(n => !n.classList.contains('cmsg-timebreak') && n.getBoundingClientRect().bottom > viewport.top);
     const anchorTop = anchor && anchor.getBoundingClientRect().top;
     if (!pinned) cancelHistoryPin();
     insertingDelivery = true;

@@ -149,3 +149,23 @@ test('reader anchoring composes with browser anchoring and scaled UI coordinates
   c.deliverTurns(ws,[{role:'assistant',content:'Earlier scaled insertion',ts:first-86400000}]);
   assert.ok(Math.abs(anchor.getBoundingClientRect().top-before)<0.001);
 });
+
+test('a finished worker with a failed finalization write shows retry instead of working forever',async()=>{
+  const c=ctx(part(delegated,'  async function loadReceipt(', '  function workHtml('),{
+    findRow:()=>({ws:{agentId:'mira',parentStreamId:'home'},lead:'lead'}),workerRunOf:()=> 'run-pending',
+    loadingReceipts:new Set(),receipts:new Map(),repaint(){},stateOf:()=>({cls:'done'}),foldReceipt:()=>({live:true}),
+    fetch:async(url)=>({ok:true,json:async()=>url.startsWith('/api/runs')?{runs:[{runId:'run-pending',dispatchDelivery:{state:'pending'}}]}:{turns:[]}})
+  });
+  await c.loadReceipt('worker');assert.equal(c.receipts.get('worker').status,'err');
+  assert.match(c.receipts.get('worker').error,/ended.*finalized result.*Try again/);
+});
+
+test('reader anchor survives reassignment of a time separator',()=>{
+  const {c,log,ws,original,first}=deliveryDom();
+  original[1].dataset.ts=String(first+3600000);original[2].dataset.ts=String(first+3660000);original[3].dataset.ts=String(first+3720000);
+  c.syncTimeBreaks();const divider=original[1].previousElementSibling;log.scrollTop=log.children.indexOf(divider)*20;
+  const before=original[1].getBoundingClientRect().top;
+  c.deliverTurns(ws,[{role:'assistant',content:'Recovered within the gap',ts:first+2700000}]);
+  assert.equal(divider.children[0].textContent,new Date(first+2700000).toISOString(),'the separator now belongs to the recovered earlier message');
+  assert.equal(original[1].getBoundingClientRect().top,before,'the persistent message remains anchored');
+});
