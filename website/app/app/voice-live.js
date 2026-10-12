@@ -538,7 +538,7 @@ const VoiceLive = (() => {
     else {
       const runId = Channels.runIdOf(ws.id) || pending.runId;
       if (typeof Harness !== 'undefined' && Harness.consent) Harness.consent(runId, pending.promptId, decision);
-      Channels.clearPending(ws.id, Date.now());
+      Channels.clearPending(ws.id, Date.now(), pending.promptId);
       try { if (typeof U !== 'undefined' && U.bus) U.bus.emit('permission.response', { promptId: pending.promptId, decision }); } catch (_) {}
     }
     speakLocal(decision === 'deny' ? 'Denied.' : decision === 'always' ? 'Always allowed.' : 'Approved once.');
