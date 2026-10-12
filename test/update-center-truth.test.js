@@ -17,11 +17,14 @@ function launch(store, opts) {
   const o = opts || {};
   const checks = [];
   const toasts = [];
+  const timers = new Map();
+  let timerId = 0;
   const badge = { textContent: '', style: { display: 'none' } };
   const invoke = async cmd => {
     if (cmd === 'starnet_update_status') return { desktop: true, currentVersion: o.current || '0.13.1', pending: null };
     if (cmd === 'starnet_update_check') {
       checks.push(Date.now());
+      if (o.error) throw new Error(o.error);
       const v = o.latest || '0.13.2';
       return v === (o.current || '0.13.1')
         ? { available: false, checkedAt: Date.now() }
@@ -38,14 +41,15 @@ function launch(store, opts) {
       getItem(k) { return store.has(k) ? store.get(k) : null; }, setItem(k, v) { store.set(k, String(v)); }
     },
     console,
-    setTimeout: () => 1, clearTimeout: () => {},
+    setTimeout: (fn, delay) => { const id = ++timerId; timers.set(id, { fn, delay }); return id; },
+    clearTimeout: id => timers.delete(id),
     Date, JSON, Promise, Math, String, Number, Object, Array, RegExp, Error
   };
   vm.createContext(context);
   vm.runInContext(source, context, { filename: 'updates.js' });
   const updates = context.__Updates;
   return {
-    updates, checks, toasts, badge,
+    updates, checks, toasts, badge, timers,
     init: () => updates.init({ notify: msg => toasts.push(msg) }),
     open() { const body = { innerHTML: '', querySelector: () => null }; updates.render(body); return body; }
   };
@@ -105,6 +109,24 @@ function launch(store, opts) {
     await k.init(); await tick();
     const kb = k.open(); await tick();
     A.ok(/The last check found v0\.13\.2/.test(kb.innerHTML), 'a remembered update is named, with CHECK NOW to arm it');
+  }
+
+  // Failed native rearming must honor the retry deadline, including after restarting.
+  {
+    const store = new Map([['starnet.updates.v1', JSON.stringify({ autoCheck: true, availableVersion: '0.13.2', nextCheckAt: Date.now() + 3600000 })]]);
+    const first = launch(store, { error: 'offline fixture' });
+    await first.init(); await tick();
+    A.eq(first.checks.length, 1, 'remembered update initially re-arms immediately');
+    A.eq(first.updates.phase(), 'error', 'failed native rearming is visible');
+    A.ok([...first.timers.values()].some(t => t.delay >= UpdateCore.RETRY_BASE_MS - 1000), 'automatic retry waits for the first backoff deadline');
+    A.ok(![...first.timers.values()].some(t => t.delay === 1000), 'no one-second check loop remains');
+    await first.updates.check(true, 'manual'); await tick();
+    A.eq(first.checks.length, 2, 'manual CHECK NOW remains immediate during backoff');
+    A.ok([...first.timers.values()].some(t => t.delay >= UpdateCore.RETRY_BASE_MS * 2 - 1000), 'second failure doubles the automatic retry deadline');
+    const restarted = launch(store, { error: 'offline fixture' });
+    await restarted.init(); await tick();
+    A.eq(restarted.checks.length, 0, 'restart respects the stored failure deadline');
+    A.ok([...restarted.timers.values()].some(t => t.delay >= UpdateCore.RETRY_BASE_MS * 2 - 1000), 'restart schedules the remaining backoff');
   }
 
   A.report('update-center-truth');

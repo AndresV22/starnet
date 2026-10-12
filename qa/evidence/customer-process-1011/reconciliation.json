@@ -1,0 +1,1179 @@
+{
+  "baseline": "a20ffa71fd04691805ea55c7d08165438dd7ac6f",
+  "candidateReport": "9fc40b386",
+  "testedCandidate": "a75a09e3ebc588ec087de195d420fccef4d6ee7b",
+  "scope": "All 127 candidates accounted for; targeted disposition updates are documentary reconciliation, not 127 fresh reproductions.",
+  "counts": {
+    "replace-with-pinned-recovery-census": 4,
+    "prior-evidence-only-not-reproved-current": 94,
+    "process-risk-not-measured-regression-rate": 4,
+    "existing-repairs-require-installed-acceptance": 2,
+    "partly-superseded-new-candidate-fix": 3,
+    "partly-superseded-new-candidate-fixes": 1,
+    "source-repaired-and-owned-verification": 3,
+    "source-repaired-in-trunk": 6,
+    "measurement-needed-existing-pr-review": 3,
+    "absolute-claim-rejected": 4,
+    "hypothesis-not-customer-cause": 3
+  },
+  "findings": [
+    {
+      "key": "user-voice:UV1",
+      "previousDisposition": "not-independently-reverified",
+      "disposition": "replace-with-pinned-recovery-census",
+      "evidence": [
+        "register-snapshot.json"
+      ],
+      "reason": "104 registered owner/customer records; 101 unconfirmed recovery. Old open-issue/comment counts are not refreshed and must not be reused."
+    },
+    {
+      "key": "user-voice:UV2",
+      "previousDisposition": "overstated",
+      "disposition": "prior-evidence-only-not-reproved-current",
+      "evidence": [
+        "qa/digests/2026-10-11-reliability-findings.json"
+      ],
+      "reason": "Retain prior qualifications. No new reproduction or source claim in this bounded process review; requires owner-selected customer evidence before implementation."
+    },
+    {
+      "key": "user-voice:UV3",
+      "previousDisposition": "overstated-owned-elsewhere",
+      "disposition": "prior-evidence-only-not-reproved-current",
+      "evidence": [
+        "qa/digests/2026-10-11-reliability-findings.json"
+      ],
+      "reason": "Retain prior qualifications. No new reproduction or source claim in this bounded process review; requires owner-selected customer evidence before implementation."
+    },
+    {
+      "key": "user-voice:UV4",
+      "previousDisposition": "superseded-in-part",
+      "disposition": "prior-evidence-only-not-reproved-current",
+      "evidence": [
+        "qa/digests/2026-10-11-reliability-findings.json"
+      ],
+      "reason": "Retain prior qualifications. No new reproduction or source claim in this bounded process review; requires owner-selected customer evidence before implementation."
+    },
+    {
+      "key": "user-voice:UV5",
+      "previousDisposition": "source-present-with-corrections",
+      "disposition": "prior-evidence-only-not-reproved-current",
+      "evidence": [
+        "qa/digests/2026-10-11-reliability-findings.json"
+      ],
+      "reason": "Retain prior qualifications. No new reproduction or source claim in this bounded process review; requires owner-selected customer evidence before implementation."
+    },
+    {
+      "key": "user-voice:UV6",
+      "previousDisposition": "not-independently-reverified",
+      "disposition": "process-risk-not-measured-regression-rate",
+      "evidence": [
+        "qa/digests/2026-10-11-deep-sweep.md"
+      ],
+      "reason": "299 commits/409 changed paths since release is measured churn; no causal rate or universal every-update regression claim follows."
+    },
+    {
+      "key": "user-voice:UV7",
+      "previousDisposition": "overstated",
+      "disposition": "prior-evidence-only-not-reproved-current",
+      "evidence": [
+        "qa/digests/2026-10-11-reliability-findings.json"
+      ],
+      "reason": "Retain prior qualifications. No new reproduction or source claim in this bounded process review; requires owner-selected customer evidence before implementation."
+    },
+    {
+      "key": "user-voice:UV8",
+      "previousDisposition": "not-independently-reverified",
+      "disposition": "prior-evidence-only-not-reproved-current",
+      "evidence": [
+        "qa/digests/2026-10-11-reliability-findings.json"
+      ],
+      "reason": "Retain prior qualifications. No new reproduction or source claim in this bounded process review; requires owner-selected customer evidence before implementation."
+    },
+    {
+      "key": "user-voice:UV9",
+      "previousDisposition": "not-independently-reverified",
+      "disposition": "prior-evidence-only-not-reproved-current",
+      "evidence": [
+        "qa/digests/2026-10-11-reliability-findings.json"
+      ],
+      "reason": "Retain prior qualifications. No new reproduction or source claim in this bounded process review; requires owner-selected customer evidence before implementation."
+    },
+    {
+      "key": "user-voice:UV10",
+      "previousDisposition": "historical-not-current-proof",
+      "disposition": "existing-repairs-require-installed-acceptance",
+      "evidence": [
+        "qa/digests/2026-10-11-deep-sweep.md"
+      ],
+      "reason": "Navigation/floor recovery is integrated; historical timings are not current benchmark evidence."
+    },
+    {
+      "key": "memory:memory-1",
+      "previousDisposition": "superseded-in-part",
+      "disposition": "prior-evidence-only-not-reproved-current",
+      "evidence": [
+        "qa/digests/2026-10-11-reliability-findings.json"
+      ],
+      "reason": "Retain prior qualifications. No new reproduction or source claim in this bounded process review; requires owner-selected customer evidence before implementation."
+    },
+    {
+      "key": "memory:memory-2",
+      "previousDisposition": "source-present-owned-elsewhere",
+      "disposition": "prior-evidence-only-not-reproved-current",
+      "evidence": [
+        "qa/digests/2026-10-11-reliability-findings.json"
+      ],
+      "reason": "Retain prior qualifications. No new reproduction or source claim in this bounded process review; requires owner-selected customer evidence before implementation."
+    },
+    {
+      "key": "memory:memory-3",
+      "previousDisposition": "superseded-in-part",
+      "disposition": "partly-superseded-new-candidate-fix",
+      "evidence": [
+        "ecd03ee7",
+        "f97e73fb"
+      ],
+      "reason": "Merged memory work does not eliminate semantic provenance defects: inversion repair exists in 9fc40b386 candidate. Do not duplicate."
+    },
+    {
+      "key": "memory:memory-4",
+      "previousDisposition": "superseded-in-part",
+      "disposition": "partly-superseded-new-candidate-fix",
+      "evidence": [
+        "ecd03ee7",
+        "f97e73fb"
+      ],
+      "reason": "Merged memory work does not eliminate semantic provenance defects: inversion repair exists in 9fc40b386 candidate. Do not duplicate."
+    },
+    {
+      "key": "memory:memory-5",
+      "previousDisposition": "not-reverified",
+      "disposition": "prior-evidence-only-not-reproved-current",
+      "evidence": [
+        "qa/digests/2026-10-11-reliability-findings.json"
+      ],
+      "reason": "Retain prior qualifications. No new reproduction or source claim in this bounded process review; requires owner-selected customer evidence before implementation."
+    },
+    {
+      "key": "memory:memory-6",
+      "previousDisposition": "superseded-in-part",
+      "disposition": "partly-superseded-new-candidate-fixes",
+      "evidence": [
+        "436ab17d",
+        "db8f361d",
+        "1ee46ab1"
+      ],
+      "reason": "Design anchors already exist; requested-versus-observed and delayed keep/unkeep fixes are candidate work."
+    },
+    {
+      "key": "memory:memory-7",
+      "previousDisposition": "source-present-owned-elsewhere",
+      "disposition": "prior-evidence-only-not-reproved-current",
+      "evidence": [
+        "qa/digests/2026-10-11-reliability-findings.json"
+      ],
+      "reason": "Retain prior qualifications. No new reproduction or source claim in this bounded process review; requires owner-selected customer evidence before implementation."
+    },
+    {
+      "key": "memory:memory-8",
+      "previousDisposition": "source-repaired-awaiting-owner-proof",
+      "disposition": "source-repaired-and-owned-verification",
+      "evidence": [
+        "qa/evidence/memory-continuation-1011/verification.md"
+      ],
+      "reason": "Use memory/stop lane evidence; old blanket claims are obsolete."
+    },
+    {
+      "key": "reliability:REL-1",
+      "previousDisposition": "owned-elsewhere",
+      "disposition": "source-repaired-in-trunk",
+      "evidence": [
+        "4a1447ff",
+        "test/ollama-system.e2e.test.js"
+      ],
+      "reason": "Strict Ollama SYSTEM projection is repaired; actual Qwen/WSL installed acceptance remains open."
+    },
+    {
+      "key": "reliability:REL-2",
+      "previousDisposition": "superseded-in-part",
+      "disposition": "prior-evidence-only-not-reproved-current",
+      "evidence": [
+        "qa/digests/2026-10-11-reliability-findings.json"
+      ],
+      "reason": "Retain prior qualifications. No new reproduction or source claim in this bounded process review; requires owner-selected customer evidence before implementation."
+    },
+    {
+      "key": "reliability:REL-3",
+      "previousDisposition": "superseded-in-part",
+      "disposition": "prior-evidence-only-not-reproved-current",
+      "evidence": [
+        "qa/digests/2026-10-11-reliability-findings.json"
+      ],
+      "reason": "Retain prior qualifications. No new reproduction or source claim in this bounded process review; requires owner-selected customer evidence before implementation."
+    },
+    {
+      "key": "reliability:REL-4",
+      "previousDisposition": "source-repaired-awaiting-owner-proof",
+      "disposition": "source-repaired-and-owned-verification",
+      "evidence": [
+        "qa/evidence/memory-continuation-1011/verification.md"
+      ],
+      "reason": "Use memory/stop lane evidence; old blanket claims are obsolete."
+    },
+    {
+      "key": "reliability:REL-5",
+      "previousDisposition": "source-repaired-awaiting-owner-proof",
+      "disposition": "source-repaired-and-owned-verification",
+      "evidence": [
+        "qa/evidence/memory-continuation-1011/verification.md"
+      ],
+      "reason": "Use memory/stop lane evidence; old blanket claims are obsolete."
+    },
+    {
+      "key": "reliability:REL-6",
+      "previousDisposition": "not-independently-reverified",
+      "disposition": "prior-evidence-only-not-reproved-current",
+      "evidence": [
+        "qa/digests/2026-10-11-reliability-findings.json"
+      ],
+      "reason": "Retain prior qualifications. No new reproduction or source claim in this bounded process review; requires owner-selected customer evidence before implementation."
+    },
+    {
+      "key": "reliability:REL-7",
+      "previousDisposition": "not-independently-reverified",
+      "disposition": "prior-evidence-only-not-reproved-current",
+      "evidence": [
+        "qa/digests/2026-10-11-reliability-findings.json"
+      ],
+      "reason": "Retain prior qualifications. No new reproduction or source claim in this bounded process review; requires owner-selected customer evidence before implementation."
+    },
+    {
+      "key": "reliability:REL-8",
+      "previousDisposition": "owned-elsewhere",
+      "disposition": "source-repaired-in-trunk",
+      "evidence": [
+        "d9a3499f"
+      ],
+      "reason": "Upload selection and path proof repaired; original customer attachment and destination receipt remain required."
+    },
+    {
+      "key": "speed:speed-1",
+      "previousDisposition": "source-present-impact-not-remeasured",
+      "disposition": "measurement-needed-existing-pr-review",
+      "evidence": [
+        "qa/digests/2026-10-11-deep-sweep.md"
+      ],
+      "reason": "PR103 and issue105 already owned; no new persistent-child implementation. Need same-model cache/call/output receipts."
+    },
+    {
+      "key": "speed:speed-2",
+      "previousDisposition": "superseded-in-part",
+      "disposition": "prior-evidence-only-not-reproved-current",
+      "evidence": [
+        "qa/digests/2026-10-11-reliability-findings.json"
+      ],
+      "reason": "Retain prior qualifications. No new reproduction or source claim in this bounded process review; requires owner-selected customer evidence before implementation."
+    },
+    {
+      "key": "speed:speed-3",
+      "previousDisposition": "superseded-in-part",
+      "disposition": "prior-evidence-only-not-reproved-current",
+      "evidence": [
+        "qa/digests/2026-10-11-reliability-findings.json"
+      ],
+      "reason": "Retain prior qualifications. No new reproduction or source claim in this bounded process review; requires owner-selected customer evidence before implementation."
+    },
+    {
+      "key": "speed:speed-4",
+      "previousDisposition": "source-present-existing-lane",
+      "disposition": "existing-repairs-require-installed-acceptance",
+      "evidence": [
+        "qa/digests/2026-10-11-deep-sweep.md"
+      ],
+      "reason": "Navigation/floor recovery is integrated; historical timings are not current benchmark evidence."
+    },
+    {
+      "key": "speed:speed-5",
+      "previousDisposition": "source-present-impact-unverified",
+      "disposition": "prior-evidence-only-not-reproved-current",
+      "evidence": [
+        "qa/digests/2026-10-11-reliability-findings.json"
+      ],
+      "reason": "Retain prior qualifications. No new reproduction or source claim in this bounded process review; requires owner-selected customer evidence before implementation."
+    },
+    {
+      "key": "speed:speed-6",
+      "previousDisposition": "not-independently-reverified",
+      "disposition": "prior-evidence-only-not-reproved-current",
+      "evidence": [
+        "qa/digests/2026-10-11-reliability-findings.json"
+      ],
+      "reason": "Retain prior qualifications. No new reproduction or source claim in this bounded process review; requires owner-selected customer evidence before implementation."
+    },
+    {
+      "key": "speed:speed-7",
+      "previousDisposition": "overstated",
+      "disposition": "absolute-claim-rejected",
+      "evidence": [
+        "test/customer-journeys.list",
+        "scripts/qa/installed-customer-regressions.cjs"
+      ],
+      "reason": "Existing wire, restart, static, installed and performance tooling exists. Test coverage limits are the narrower concern."
+    },
+    {
+      "key": "speed:speed-8",
+      "previousDisposition": "not-independently-reverified",
+      "disposition": "prior-evidence-only-not-reproved-current",
+      "evidence": [
+        "qa/digests/2026-10-11-reliability-findings.json"
+      ],
+      "reason": "Retain prior qualifications. No new reproduction or source claim in this bounded process review; requires owner-selected customer evidence before implementation."
+    },
+    {
+      "key": "speed:speed-9",
+      "previousDisposition": "not-independently-reverified",
+      "disposition": "prior-evidence-only-not-reproved-current",
+      "evidence": [
+        "qa/digests/2026-10-11-reliability-findings.json"
+      ],
+      "reason": "Retain prior qualifications. No new reproduction or source claim in this bounded process review; requires owner-selected customer evidence before implementation."
+    },
+    {
+      "key": "prompt-sprawl:PS-1",
+      "previousDisposition": "not-independently-reverified",
+      "disposition": "prior-evidence-only-not-reproved-current",
+      "evidence": [
+        "qa/digests/2026-10-11-reliability-findings.json"
+      ],
+      "reason": "Retain prior qualifications. No new reproduction or source claim in this bounded process review; requires owner-selected customer evidence before implementation."
+    },
+    {
+      "key": "prompt-sprawl:PS-2",
+      "previousDisposition": "not-independently-reverified",
+      "disposition": "prior-evidence-only-not-reproved-current",
+      "evidence": [
+        "qa/digests/2026-10-11-reliability-findings.json"
+      ],
+      "reason": "Retain prior qualifications. No new reproduction or source claim in this bounded process review; requires owner-selected customer evidence before implementation."
+    },
+    {
+      "key": "prompt-sprawl:PS-3",
+      "previousDisposition": "not-independently-reverified",
+      "disposition": "prior-evidence-only-not-reproved-current",
+      "evidence": [
+        "qa/digests/2026-10-11-reliability-findings.json"
+      ],
+      "reason": "Retain prior qualifications. No new reproduction or source claim in this bounded process review; requires owner-selected customer evidence before implementation."
+    },
+    {
+      "key": "prompt-sprawl:PS-4",
+      "previousDisposition": "not-independently-reverified",
+      "disposition": "prior-evidence-only-not-reproved-current",
+      "evidence": [
+        "qa/digests/2026-10-11-reliability-findings.json"
+      ],
+      "reason": "Retain prior qualifications. No new reproduction or source claim in this bounded process review; requires owner-selected customer evidence before implementation."
+    },
+    {
+      "key": "prompt-sprawl:PS-5",
+      "previousDisposition": "not-independently-reverified",
+      "disposition": "prior-evidence-only-not-reproved-current",
+      "evidence": [
+        "qa/digests/2026-10-11-reliability-findings.json"
+      ],
+      "reason": "Retain prior qualifications. No new reproduction or source claim in this bounded process review; requires owner-selected customer evidence before implementation."
+    },
+    {
+      "key": "prompt-sprawl:PS-6",
+      "previousDisposition": "not-independently-reverified",
+      "disposition": "prior-evidence-only-not-reproved-current",
+      "evidence": [
+        "qa/digests/2026-10-11-reliability-findings.json"
+      ],
+      "reason": "Retain prior qualifications. No new reproduction or source claim in this bounded process review; requires owner-selected customer evidence before implementation."
+    },
+    {
+      "key": "prompt-sprawl:PS-7",
+      "previousDisposition": "not-independently-reverified",
+      "disposition": "prior-evidence-only-not-reproved-current",
+      "evidence": [
+        "qa/digests/2026-10-11-reliability-findings.json"
+      ],
+      "reason": "Retain prior qualifications. No new reproduction or source claim in this bounded process review; requires owner-selected customer evidence before implementation."
+    },
+    {
+      "key": "prompt-sprawl:PS-8",
+      "previousDisposition": "not-independently-reverified",
+      "disposition": "prior-evidence-only-not-reproved-current",
+      "evidence": [
+        "qa/digests/2026-10-11-reliability-findings.json"
+      ],
+      "reason": "Retain prior qualifications. No new reproduction or source claim in this bounded process review; requires owner-selected customer evidence before implementation."
+    },
+    {
+      "key": "prompt-sprawl:PS-9",
+      "previousDisposition": "not-independently-reverified",
+      "disposition": "prior-evidence-only-not-reproved-current",
+      "evidence": [
+        "qa/digests/2026-10-11-reliability-findings.json"
+      ],
+      "reason": "Retain prior qualifications. No new reproduction or source claim in this bounded process review; requires owner-selected customer evidence before implementation."
+    },
+    {
+      "key": "prompt-sprawl:PS-10",
+      "previousDisposition": "not-independently-reverified",
+      "disposition": "prior-evidence-only-not-reproved-current",
+      "evidence": [
+        "qa/digests/2026-10-11-reliability-findings.json"
+      ],
+      "reason": "Retain prior qualifications. No new reproduction or source claim in this bounded process review; requires owner-selected customer evidence before implementation."
+    },
+    {
+      "key": "tokens:tokens-1",
+      "previousDisposition": "source-present-impact-not-remeasured",
+      "disposition": "measurement-needed-existing-pr-review",
+      "evidence": [
+        "qa/digests/2026-10-11-deep-sweep.md"
+      ],
+      "reason": "PR103 and issue105 already owned; no new persistent-child implementation. Need same-model cache/call/output receipts."
+    },
+    {
+      "key": "tokens:tokens-2",
+      "previousDisposition": "source-present-impact-not-remeasured",
+      "disposition": "prior-evidence-only-not-reproved-current",
+      "evidence": [
+        "qa/digests/2026-10-11-reliability-findings.json"
+      ],
+      "reason": "Retain prior qualifications. No new reproduction or source claim in this bounded process review; requires owner-selected customer evidence before implementation."
+    },
+    {
+      "key": "tokens:tokens-3",
+      "previousDisposition": "not-independently-reverified",
+      "disposition": "prior-evidence-only-not-reproved-current",
+      "evidence": [
+        "qa/digests/2026-10-11-reliability-findings.json"
+      ],
+      "reason": "Retain prior qualifications. No new reproduction or source claim in this bounded process review; requires owner-selected customer evidence before implementation."
+    },
+    {
+      "key": "tokens:tokens-4",
+      "previousDisposition": "not-independently-reverified",
+      "disposition": "hypothesis-not-customer-cause",
+      "evidence": [
+        "f8d479d9",
+        "acb47320"
+      ],
+      "reason": "Aux cold-call behavior is a lead, not an explanation of affected-account charges without correlated ledgers."
+    },
+    {
+      "key": "tokens:tokens-5",
+      "previousDisposition": "superseded-in-part",
+      "disposition": "prior-evidence-only-not-reproved-current",
+      "evidence": [
+        "qa/digests/2026-10-11-reliability-findings.json"
+      ],
+      "reason": "Retain prior qualifications. No new reproduction or source claim in this bounded process review; requires owner-selected customer evidence before implementation."
+    },
+    {
+      "key": "tokens:tokens-6",
+      "previousDisposition": "source-present-impact-unverified",
+      "disposition": "prior-evidence-only-not-reproved-current",
+      "evidence": [
+        "qa/digests/2026-10-11-reliability-findings.json"
+      ],
+      "reason": "Retain prior qualifications. No new reproduction or source claim in this bounded process review; requires owner-selected customer evidence before implementation."
+    },
+    {
+      "key": "tokens:tokens-7",
+      "previousDisposition": "not-independently-reverified",
+      "disposition": "prior-evidence-only-not-reproved-current",
+      "evidence": [
+        "qa/digests/2026-10-11-reliability-findings.json"
+      ],
+      "reason": "Retain prior qualifications. No new reproduction or source claim in this bounded process review; requires owner-selected customer evidence before implementation."
+    },
+    {
+      "key": "tokens:tokens-8",
+      "previousDisposition": "not-independently-reverified",
+      "disposition": "prior-evidence-only-not-reproved-current",
+      "evidence": [
+        "qa/digests/2026-10-11-reliability-findings.json"
+      ],
+      "reason": "Retain prior qualifications. No new reproduction or source claim in this bounded process review; requires owner-selected customer evidence before implementation."
+    },
+    {
+      "key": "tokens:tokens-9",
+      "previousDisposition": "not-independently-reverified",
+      "disposition": "prior-evidence-only-not-reproved-current",
+      "evidence": [
+        "qa/digests/2026-10-11-reliability-findings.json"
+      ],
+      "reason": "Retain prior qualifications. No new reproduction or source claim in this bounded process review; requires owner-selected customer evidence before implementation."
+    },
+    {
+      "key": "learning-curve:LC-1",
+      "previousDisposition": "not-independently-reverified",
+      "disposition": "prior-evidence-only-not-reproved-current",
+      "evidence": [
+        "qa/digests/2026-10-11-reliability-findings.json"
+      ],
+      "reason": "Retain prior qualifications. No new reproduction or source claim in this bounded process review; requires owner-selected customer evidence before implementation."
+    },
+    {
+      "key": "learning-curve:LC-2",
+      "previousDisposition": "not-independently-reverified",
+      "disposition": "prior-evidence-only-not-reproved-current",
+      "evidence": [
+        "qa/digests/2026-10-11-reliability-findings.json"
+      ],
+      "reason": "Retain prior qualifications. No new reproduction or source claim in this bounded process review; requires owner-selected customer evidence before implementation."
+    },
+    {
+      "key": "learning-curve:LC-3",
+      "previousDisposition": "not-independently-reverified",
+      "disposition": "prior-evidence-only-not-reproved-current",
+      "evidence": [
+        "qa/digests/2026-10-11-reliability-findings.json"
+      ],
+      "reason": "Retain prior qualifications. No new reproduction or source claim in this bounded process review; requires owner-selected customer evidence before implementation."
+    },
+    {
+      "key": "learning-curve:LC-4",
+      "previousDisposition": "not-independently-reverified",
+      "disposition": "prior-evidence-only-not-reproved-current",
+      "evidence": [
+        "qa/digests/2026-10-11-reliability-findings.json"
+      ],
+      "reason": "Retain prior qualifications. No new reproduction or source claim in this bounded process review; requires owner-selected customer evidence before implementation."
+    },
+    {
+      "key": "learning-curve:LC-5",
+      "previousDisposition": "not-independently-reverified",
+      "disposition": "prior-evidence-only-not-reproved-current",
+      "evidence": [
+        "qa/digests/2026-10-11-reliability-findings.json"
+      ],
+      "reason": "Retain prior qualifications. No new reproduction or source claim in this bounded process review; requires owner-selected customer evidence before implementation."
+    },
+    {
+      "key": "learning-curve:LC-6",
+      "previousDisposition": "not-independently-reverified",
+      "disposition": "prior-evidence-only-not-reproved-current",
+      "evidence": [
+        "qa/digests/2026-10-11-reliability-findings.json"
+      ],
+      "reason": "Retain prior qualifications. No new reproduction or source claim in this bounded process review; requires owner-selected customer evidence before implementation."
+    },
+    {
+      "key": "learning-curve:LC-7",
+      "previousDisposition": "not-independently-reverified",
+      "disposition": "prior-evidence-only-not-reproved-current",
+      "evidence": [
+        "qa/digests/2026-10-11-reliability-findings.json"
+      ],
+      "reason": "Retain prior qualifications. No new reproduction or source claim in this bounded process review; requires owner-selected customer evidence before implementation."
+    },
+    {
+      "key": "learning-curve:LC-8",
+      "previousDisposition": "not-independently-reverified",
+      "disposition": "replace-with-pinned-recovery-census",
+      "evidence": [
+        "register-snapshot.json"
+      ],
+      "reason": "104 registered owner/customer records; 101 unconfirmed recovery. Old open-issue/comment counts are not refreshed and must not be reused."
+    },
+    {
+      "key": "hermes-delta:HD-1",
+      "previousDisposition": "superseded-in-part",
+      "disposition": "prior-evidence-only-not-reproved-current",
+      "evidence": [
+        "qa/digests/2026-10-11-reliability-findings.json"
+      ],
+      "reason": "Retain prior qualifications. No new reproduction or source claim in this bounded process review; requires owner-selected customer evidence before implementation."
+    },
+    {
+      "key": "hermes-delta:HD-2",
+      "previousDisposition": "not-independently-reverified",
+      "disposition": "prior-evidence-only-not-reproved-current",
+      "evidence": [
+        "qa/digests/2026-10-11-reliability-findings.json"
+      ],
+      "reason": "Retain prior qualifications. No new reproduction or source claim in this bounded process review; requires owner-selected customer evidence before implementation."
+    },
+    {
+      "key": "hermes-delta:HD-3",
+      "previousDisposition": "not-independently-reverified",
+      "disposition": "prior-evidence-only-not-reproved-current",
+      "evidence": [
+        "qa/digests/2026-10-11-reliability-findings.json"
+      ],
+      "reason": "Retain prior qualifications. No new reproduction or source claim in this bounded process review; requires owner-selected customer evidence before implementation."
+    },
+    {
+      "key": "hermes-delta:HD-4",
+      "previousDisposition": "not-independently-reverified",
+      "disposition": "prior-evidence-only-not-reproved-current",
+      "evidence": [
+        "qa/digests/2026-10-11-reliability-findings.json"
+      ],
+      "reason": "Retain prior qualifications. No new reproduction or source claim in this bounded process review; requires owner-selected customer evidence before implementation."
+    },
+    {
+      "key": "hermes-delta:HD-5",
+      "previousDisposition": "overstated",
+      "disposition": "absolute-claim-rejected",
+      "evidence": [
+        "test/customer-journeys.list",
+        "scripts/qa/installed-customer-regressions.cjs"
+      ],
+      "reason": "Existing wire, restart, static, installed and performance tooling exists. Test coverage limits are the narrower concern."
+    },
+    {
+      "key": "hermes-delta:HD-6",
+      "previousDisposition": "not-independently-reverified",
+      "disposition": "prior-evidence-only-not-reproved-current",
+      "evidence": [
+        "qa/digests/2026-10-11-reliability-findings.json"
+      ],
+      "reason": "Retain prior qualifications. No new reproduction or source claim in this bounded process review; requires owner-selected customer evidence before implementation."
+    },
+    {
+      "key": "hermes-delta:HD-7",
+      "previousDisposition": "superseded-in-part",
+      "disposition": "partly-superseded-new-candidate-fix",
+      "evidence": [
+        "ecd03ee7",
+        "f97e73fb"
+      ],
+      "reason": "Merged memory work does not eliminate semantic provenance defects: inversion repair exists in 9fc40b386 candidate. Do not duplicate."
+    },
+    {
+      "key": "hermes-delta:HD-8",
+      "previousDisposition": "not-independently-reverified",
+      "disposition": "prior-evidence-only-not-reproved-current",
+      "evidence": [
+        "qa/digests/2026-10-11-reliability-findings.json"
+      ],
+      "reason": "Retain prior qualifications. No new reproduction or source claim in this bounded process review; requires owner-selected customer evidence before implementation."
+    },
+    {
+      "key": "hermes-delta:HD-9",
+      "previousDisposition": "not-independently-reverified",
+      "disposition": "prior-evidence-only-not-reproved-current",
+      "evidence": [
+        "qa/digests/2026-10-11-reliability-findings.json"
+      ],
+      "reason": "Retain prior qualifications. No new reproduction or source claim in this bounded process review; requires owner-selected customer evidence before implementation."
+    },
+    {
+      "key": "hermes-delta:HD-10",
+      "previousDisposition": "not-independently-reverified",
+      "disposition": "prior-evidence-only-not-reproved-current",
+      "evidence": [
+        "qa/digests/2026-10-11-reliability-findings.json"
+      ],
+      "reason": "Retain prior qualifications. No new reproduction or source claim in this bounded process review; requires owner-selected customer evidence before implementation."
+    },
+    {
+      "key": "integrations:INT-1",
+      "previousDisposition": "owned-elsewhere",
+      "disposition": "source-repaired-in-trunk",
+      "evidence": [
+        "4a1447ff",
+        "test/ollama-system.e2e.test.js"
+      ],
+      "reason": "Strict Ollama SYSTEM projection is repaired; actual Qwen/WSL installed acceptance remains open."
+    },
+    {
+      "key": "integrations:INT-2",
+      "previousDisposition": "not-independently-reverified",
+      "disposition": "prior-evidence-only-not-reproved-current",
+      "evidence": [
+        "qa/digests/2026-10-11-reliability-findings.json"
+      ],
+      "reason": "Retain prior qualifications. No new reproduction or source claim in this bounded process review; requires owner-selected customer evidence before implementation."
+    },
+    {
+      "key": "integrations:INT-3",
+      "previousDisposition": "not-independently-reverified",
+      "disposition": "prior-evidence-only-not-reproved-current",
+      "evidence": [
+        "qa/digests/2026-10-11-reliability-findings.json"
+      ],
+      "reason": "Retain prior qualifications. No new reproduction or source claim in this bounded process review; requires owner-selected customer evidence before implementation."
+    },
+    {
+      "key": "integrations:INT-4",
+      "previousDisposition": "not-independently-reverified",
+      "disposition": "prior-evidence-only-not-reproved-current",
+      "evidence": [
+        "qa/digests/2026-10-11-reliability-findings.json"
+      ],
+      "reason": "Retain prior qualifications. No new reproduction or source claim in this bounded process review; requires owner-selected customer evidence before implementation."
+    },
+    {
+      "key": "integrations:INT-5",
+      "previousDisposition": "not-independently-reverified",
+      "disposition": "prior-evidence-only-not-reproved-current",
+      "evidence": [
+        "qa/digests/2026-10-11-reliability-findings.json"
+      ],
+      "reason": "Retain prior qualifications. No new reproduction or source claim in this bounded process review; requires owner-selected customer evidence before implementation."
+    },
+    {
+      "key": "integrations:INT-6",
+      "previousDisposition": "not-independently-reverified",
+      "disposition": "prior-evidence-only-not-reproved-current",
+      "evidence": [
+        "qa/digests/2026-10-11-reliability-findings.json"
+      ],
+      "reason": "Retain prior qualifications. No new reproduction or source claim in this bounded process review; requires owner-selected customer evidence before implementation."
+    },
+    {
+      "key": "integrations:INT-7",
+      "previousDisposition": "not-independently-reverified",
+      "disposition": "prior-evidence-only-not-reproved-current",
+      "evidence": [
+        "qa/digests/2026-10-11-reliability-findings.json"
+      ],
+      "reason": "Retain prior qualifications. No new reproduction or source claim in this bounded process review; requires owner-selected customer evidence before implementation."
+    },
+    {
+      "key": "integrations:INT-8",
+      "previousDisposition": "not-independently-reverified",
+      "disposition": "replace-with-pinned-recovery-census",
+      "evidence": [
+        "register-snapshot.json"
+      ],
+      "reason": "104 registered owner/customer records; 101 unconfirmed recovery. Old open-issue/comment counts are not refreshed and must not be reused."
+    },
+    {
+      "key": "integrations:INT-9",
+      "previousDisposition": "owned-elsewhere",
+      "disposition": "source-repaired-in-trunk",
+      "evidence": [
+        "d9a3499f"
+      ],
+      "reason": "Upload selection and path proof repaired; original customer attachment and destination receipt remain required."
+    },
+    {
+      "key": "integrations:INT-10",
+      "previousDisposition": "owned-elsewhere",
+      "disposition": "source-repaired-in-trunk",
+      "evidence": [
+        "5451970e"
+      ],
+      "reason": "Erase authority repaired and real sidecar restart tested; native installed erase/restore remains separate."
+    },
+    {
+      "key": "peers:peers-1",
+      "previousDisposition": "not-independently-reverified",
+      "disposition": "prior-evidence-only-not-reproved-current",
+      "evidence": [
+        "qa/digests/2026-10-11-reliability-findings.json"
+      ],
+      "reason": "Retain prior qualifications. No new reproduction or source claim in this bounded process review; requires owner-selected customer evidence before implementation."
+    },
+    {
+      "key": "peers:peers-2",
+      "previousDisposition": "not-independently-reverified",
+      "disposition": "prior-evidence-only-not-reproved-current",
+      "evidence": [
+        "qa/digests/2026-10-11-reliability-findings.json"
+      ],
+      "reason": "Retain prior qualifications. No new reproduction or source claim in this bounded process review; requires owner-selected customer evidence before implementation."
+    },
+    {
+      "key": "peers:peers-3",
+      "previousDisposition": "not-independently-reverified",
+      "disposition": "prior-evidence-only-not-reproved-current",
+      "evidence": [
+        "qa/digests/2026-10-11-reliability-findings.json"
+      ],
+      "reason": "Retain prior qualifications. No new reproduction or source claim in this bounded process review; requires owner-selected customer evidence before implementation."
+    },
+    {
+      "key": "peers:peers-4",
+      "previousDisposition": "repaired-in-this-lane",
+      "disposition": "source-repaired-in-trunk",
+      "evidence": [
+        "81da21e4",
+        "f0a53efb0"
+      ],
+      "reason": "Guessed interior refusal repaired; do not implement again."
+    },
+    {
+      "key": "peers:peers-5",
+      "previousDisposition": "not-independently-reverified",
+      "disposition": "measurement-needed-existing-pr-review",
+      "evidence": [
+        "qa/digests/2026-10-11-deep-sweep.md"
+      ],
+      "reason": "PR103 and issue105 already owned; no new persistent-child implementation. Need same-model cache/call/output receipts."
+    },
+    {
+      "key": "peers:peers-6",
+      "previousDisposition": "not-independently-reverified",
+      "disposition": "prior-evidence-only-not-reproved-current",
+      "evidence": [
+        "qa/digests/2026-10-11-reliability-findings.json"
+      ],
+      "reason": "Retain prior qualifications. No new reproduction or source claim in this bounded process review; requires owner-selected customer evidence before implementation."
+    },
+    {
+      "key": "peers:peers-7",
+      "previousDisposition": "not-independently-reverified",
+      "disposition": "prior-evidence-only-not-reproved-current",
+      "evidence": [
+        "qa/digests/2026-10-11-reliability-findings.json"
+      ],
+      "reason": "Retain prior qualifications. No new reproduction or source claim in this bounded process review; requires owner-selected customer evidence before implementation."
+    },
+    {
+      "key": "architecture:ARCH-1",
+      "previousDisposition": "not-independently-reverified",
+      "disposition": "prior-evidence-only-not-reproved-current",
+      "evidence": [
+        "qa/digests/2026-10-11-reliability-findings.json"
+      ],
+      "reason": "Retain prior qualifications. No new reproduction or source claim in this bounded process review; requires owner-selected customer evidence before implementation."
+    },
+    {
+      "key": "architecture:ARCH-2",
+      "previousDisposition": "overstated",
+      "disposition": "absolute-claim-rejected",
+      "evidence": [
+        "test/customer-journeys.list",
+        "scripts/qa/installed-customer-regressions.cjs"
+      ],
+      "reason": "Existing wire, restart, static, installed and performance tooling exists. Test coverage limits are the narrower concern."
+    },
+    {
+      "key": "architecture:ARCH-3",
+      "previousDisposition": "not-independently-reverified",
+      "disposition": "prior-evidence-only-not-reproved-current",
+      "evidence": [
+        "qa/digests/2026-10-11-reliability-findings.json"
+      ],
+      "reason": "Retain prior qualifications. No new reproduction or source claim in this bounded process review; requires owner-selected customer evidence before implementation."
+    },
+    {
+      "key": "architecture:ARCH-4",
+      "previousDisposition": "not-independently-reverified",
+      "disposition": "prior-evidence-only-not-reproved-current",
+      "evidence": [
+        "qa/digests/2026-10-11-reliability-findings.json"
+      ],
+      "reason": "Retain prior qualifications. No new reproduction or source claim in this bounded process review; requires owner-selected customer evidence before implementation."
+    },
+    {
+      "key": "architecture:ARCH-5",
+      "previousDisposition": "not-independently-reverified",
+      "disposition": "prior-evidence-only-not-reproved-current",
+      "evidence": [
+        "qa/digests/2026-10-11-reliability-findings.json"
+      ],
+      "reason": "Retain prior qualifications. No new reproduction or source claim in this bounded process review; requires owner-selected customer evidence before implementation."
+    },
+    {
+      "key": "architecture:ARCH-6",
+      "previousDisposition": "not-independently-reverified",
+      "disposition": "prior-evidence-only-not-reproved-current",
+      "evidence": [
+        "qa/digests/2026-10-11-reliability-findings.json"
+      ],
+      "reason": "Retain prior qualifications. No new reproduction or source claim in this bounded process review; requires owner-selected customer evidence before implementation."
+    },
+    {
+      "key": "architecture:ARCH-7",
+      "previousDisposition": "not-independently-reverified",
+      "disposition": "prior-evidence-only-not-reproved-current",
+      "evidence": [
+        "qa/digests/2026-10-11-reliability-findings.json"
+      ],
+      "reason": "Retain prior qualifications. No new reproduction or source claim in this bounded process review; requires owner-selected customer evidence before implementation."
+    },
+    {
+      "key": "architecture:ARCH-8",
+      "previousDisposition": "not-independently-reverified",
+      "disposition": "prior-evidence-only-not-reproved-current",
+      "evidence": [
+        "qa/digests/2026-10-11-reliability-findings.json"
+      ],
+      "reason": "Retain prior qualifications. No new reproduction or source claim in this bounded process review; requires owner-selected customer evidence before implementation."
+    },
+    {
+      "key": "architecture:ARCH-9",
+      "previousDisposition": "not-independently-reverified",
+      "disposition": "prior-evidence-only-not-reproved-current",
+      "evidence": [
+        "qa/digests/2026-10-11-reliability-findings.json"
+      ],
+      "reason": "Retain prior qualifications. No new reproduction or source claim in this bounded process review; requires owner-selected customer evidence before implementation."
+    },
+    {
+      "key": "architecture:ARCH-10",
+      "previousDisposition": "not-independently-reverified",
+      "disposition": "prior-evidence-only-not-reproved-current",
+      "evidence": [
+        "qa/digests/2026-10-11-reliability-findings.json"
+      ],
+      "reason": "Retain prior qualifications. No new reproduction or source claim in this bounded process review; requires owner-selected customer evidence before implementation."
+    },
+    {
+      "key": "wire:wire-1",
+      "previousDisposition": "not-independently-reverified",
+      "disposition": "prior-evidence-only-not-reproved-current",
+      "evidence": [
+        "qa/digests/2026-10-11-reliability-findings.json"
+      ],
+      "reason": "Retain prior qualifications. No new reproduction or source claim in this bounded process review; requires owner-selected customer evidence before implementation."
+    },
+    {
+      "key": "wire:wire-2",
+      "previousDisposition": "not-independently-reverified",
+      "disposition": "prior-evidence-only-not-reproved-current",
+      "evidence": [
+        "qa/digests/2026-10-11-reliability-findings.json"
+      ],
+      "reason": "Retain prior qualifications. No new reproduction or source claim in this bounded process review; requires owner-selected customer evidence before implementation."
+    },
+    {
+      "key": "wire:wire-3",
+      "previousDisposition": "superseded-in-part",
+      "disposition": "prior-evidence-only-not-reproved-current",
+      "evidence": [
+        "qa/digests/2026-10-11-reliability-findings.json"
+      ],
+      "reason": "Retain prior qualifications. No new reproduction or source claim in this bounded process review; requires owner-selected customer evidence before implementation."
+    },
+    {
+      "key": "wire:wire-4",
+      "previousDisposition": "overstated",
+      "disposition": "prior-evidence-only-not-reproved-current",
+      "evidence": [
+        "qa/digests/2026-10-11-reliability-findings.json"
+      ],
+      "reason": "Retain prior qualifications. No new reproduction or source claim in this bounded process review; requires owner-selected customer evidence before implementation."
+    },
+    {
+      "key": "wire:wire-5",
+      "previousDisposition": "source-present-impact-not-remeasured",
+      "disposition": "hypothesis-not-customer-cause",
+      "evidence": [
+        "f8d479d9",
+        "acb47320"
+      ],
+      "reason": "Aux cold-call behavior is a lead, not an explanation of affected-account charges without correlated ledgers."
+    },
+    {
+      "key": "wire:wire-6",
+      "previousDisposition": "not-independently-reverified",
+      "disposition": "prior-evidence-only-not-reproved-current",
+      "evidence": [
+        "qa/digests/2026-10-11-reliability-findings.json"
+      ],
+      "reason": "Retain prior qualifications. No new reproduction or source claim in this bounded process review; requires owner-selected customer evidence before implementation."
+    },
+    {
+      "key": "wire:wire-7",
+      "previousDisposition": "not-independently-reverified",
+      "disposition": "prior-evidence-only-not-reproved-current",
+      "evidence": [
+        "qa/digests/2026-10-11-reliability-findings.json"
+      ],
+      "reason": "Retain prior qualifications. No new reproduction or source claim in this bounded process review; requires owner-selected customer evidence before implementation."
+    },
+    {
+      "key": "wire:wire-8",
+      "previousDisposition": "not-independently-reverified",
+      "disposition": "prior-evidence-only-not-reproved-current",
+      "evidence": [
+        "qa/digests/2026-10-11-reliability-findings.json"
+      ],
+      "reason": "Retain prior qualifications. No new reproduction or source claim in this bounded process review; requires owner-selected customer evidence before implementation."
+    },
+    {
+      "key": "wire:wire-9",
+      "previousDisposition": "not-independently-reverified",
+      "disposition": "prior-evidence-only-not-reproved-current",
+      "evidence": [
+        "qa/digests/2026-10-11-reliability-findings.json"
+      ],
+      "reason": "Retain prior qualifications. No new reproduction or source claim in this bounded process review; requires owner-selected customer evidence before implementation."
+    },
+    {
+      "key": "wire:wire-10",
+      "previousDisposition": "not-independently-reverified",
+      "disposition": "prior-evidence-only-not-reproved-current",
+      "evidence": [
+        "qa/digests/2026-10-11-reliability-findings.json"
+      ],
+      "reason": "Retain prior qualifications. No new reproduction or source claim in this bounded process review; requires owner-selected customer evidence before implementation."
+    },
+    {
+      "key": "hermes-wire:HW-1",
+      "previousDisposition": "not-independently-reverified",
+      "disposition": "prior-evidence-only-not-reproved-current",
+      "evidence": [
+        "qa/digests/2026-10-11-reliability-findings.json"
+      ],
+      "reason": "Retain prior qualifications. No new reproduction or source claim in this bounded process review; requires owner-selected customer evidence before implementation."
+    },
+    {
+      "key": "hermes-wire:HW-2",
+      "previousDisposition": "source-present-owned-elsewhere",
+      "disposition": "prior-evidence-only-not-reproved-current",
+      "evidence": [
+        "qa/digests/2026-10-11-reliability-findings.json"
+      ],
+      "reason": "Retain prior qualifications. No new reproduction or source claim in this bounded process review; requires owner-selected customer evidence before implementation."
+    },
+    {
+      "key": "hermes-wire:HW-3",
+      "previousDisposition": "source-present-owned-elsewhere",
+      "disposition": "prior-evidence-only-not-reproved-current",
+      "evidence": [
+        "qa/digests/2026-10-11-reliability-findings.json"
+      ],
+      "reason": "Retain prior qualifications. No new reproduction or source claim in this bounded process review; requires owner-selected customer evidence before implementation."
+    },
+    {
+      "key": "hermes-wire:HW-4",
+      "previousDisposition": "not-independently-reverified",
+      "disposition": "hypothesis-not-customer-cause",
+      "evidence": [
+        "f8d479d9",
+        "acb47320"
+      ],
+      "reason": "Aux cold-call behavior is a lead, not an explanation of affected-account charges without correlated ledgers."
+    },
+    {
+      "key": "hermes-wire:HW-5",
+      "previousDisposition": "not-independently-reverified",
+      "disposition": "prior-evidence-only-not-reproved-current",
+      "evidence": [
+        "qa/digests/2026-10-11-reliability-findings.json"
+      ],
+      "reason": "Retain prior qualifications. No new reproduction or source claim in this bounded process review; requires owner-selected customer evidence before implementation."
+    },
+    {
+      "key": "hermes-wire:HW-6",
+      "previousDisposition": "not-independently-reverified",
+      "disposition": "prior-evidence-only-not-reproved-current",
+      "evidence": [
+        "qa/digests/2026-10-11-reliability-findings.json"
+      ],
+      "reason": "Retain prior qualifications. No new reproduction or source claim in this bounded process review; requires owner-selected customer evidence before implementation."
+    },
+    {
+      "key": "hermes-wire:HW-7",
+      "previousDisposition": "not-independently-reverified",
+      "disposition": "prior-evidence-only-not-reproved-current",
+      "evidence": [
+        "qa/digests/2026-10-11-reliability-findings.json"
+      ],
+      "reason": "Retain prior qualifications. No new reproduction or source claim in this bounded process review; requires owner-selected customer evidence before implementation."
+    },
+    {
+      "key": "hermes-wire:HW-8",
+      "previousDisposition": "not-independently-reverified",
+      "disposition": "prior-evidence-only-not-reproved-current",
+      "evidence": [
+        "qa/digests/2026-10-11-reliability-findings.json"
+      ],
+      "reason": "Retain prior qualifications. No new reproduction or source claim in this bounded process review; requires owner-selected customer evidence before implementation."
+    },
+    {
+      "key": "regressions:R1",
+      "previousDisposition": "not-independently-reverified",
+      "disposition": "absolute-claim-rejected",
+      "evidence": [
+        "test/customer-journeys.list",
+        "scripts/qa/installed-customer-regressions.cjs"
+      ],
+      "reason": "Existing wire, restart, static, installed and performance tooling exists. Test coverage limits are the narrower concern."
+    },
+    {
+      "key": "regressions:R2",
+      "previousDisposition": "not-independently-reverified",
+      "disposition": "process-risk-not-measured-regression-rate",
+      "evidence": [
+        "qa/digests/2026-10-11-deep-sweep.md"
+      ],
+      "reason": "299 commits/409 changed paths since release is measured churn; no causal rate or universal every-update regression claim follows."
+    },
+    {
+      "key": "regressions:R3",
+      "previousDisposition": "not-independently-reverified",
+      "disposition": "process-risk-not-measured-regression-rate",
+      "evidence": [
+        "qa/digests/2026-10-11-deep-sweep.md"
+      ],
+      "reason": "299 commits/409 changed paths since release is measured churn; no causal rate or universal every-update regression claim follows."
+    },
+    {
+      "key": "regressions:R4",
+      "previousDisposition": "not-independently-reverified",
+      "disposition": "prior-evidence-only-not-reproved-current",
+      "evidence": [
+        "qa/digests/2026-10-11-reliability-findings.json"
+      ],
+      "reason": "Retain prior qualifications. No new reproduction or source claim in this bounded process review; requires owner-selected customer evidence before implementation."
+    },
+    {
+      "key": "regressions:R5",
+      "previousDisposition": "not-independently-reverified",
+      "disposition": "prior-evidence-only-not-reproved-current",
+      "evidence": [
+        "qa/digests/2026-10-11-reliability-findings.json"
+      ],
+      "reason": "Retain prior qualifications. No new reproduction or source claim in this bounded process review; requires owner-selected customer evidence before implementation."
+    },
+    {
+      "key": "regressions:R6",
+      "previousDisposition": "not-independently-reverified",
+      "disposition": "prior-evidence-only-not-reproved-current",
+      "evidence": [
+        "qa/digests/2026-10-11-reliability-findings.json"
+      ],
+      "reason": "Retain prior qualifications. No new reproduction or source claim in this bounded process review; requires owner-selected customer evidence before implementation."
+    },
+    {
+      "key": "regressions:R7",
+      "previousDisposition": "not-independently-reverified",
+      "disposition": "process-risk-not-measured-regression-rate",
+      "evidence": [
+        "qa/digests/2026-10-11-deep-sweep.md"
+      ],
+      "reason": "299 commits/409 changed paths since release is measured churn; no causal rate or universal every-update regression claim follows."
+    },
+    {
+      "key": "regressions:R8",
+      "previousDisposition": "not-independently-reverified",
+      "disposition": "prior-evidence-only-not-reproved-current",
+      "evidence": [
+        "qa/digests/2026-10-11-reliability-findings.json"
+      ],
+      "reason": "Retain prior qualifications. No new reproduction or source claim in this bounded process review; requires owner-selected customer evidence before implementation."
+    },
+    {
+      "key": "regressions:R9",
+      "previousDisposition": "not-independently-reverified",
+      "disposition": "prior-evidence-only-not-reproved-current",
+      "evidence": [
+        "qa/digests/2026-10-11-reliability-findings.json"
+      ],
+      "reason": "Retain prior qualifications. No new reproduction or source claim in this bounded process review; requires owner-selected customer evidence before implementation."
+    },
+    {
+      "key": "regressions:R10",
+      "previousDisposition": "not-independently-reverified",
+      "disposition": "replace-with-pinned-recovery-census",
+      "evidence": [
+        "register-snapshot.json"
+      ],
+      "reason": "104 registered owner/customer records; 101 unconfirmed recovery. Old open-issue/comment counts are not refreshed and must not be reused."
+    }
+  ]
+}

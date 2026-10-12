@@ -1,0 +1,166 @@
+{
+  "baseline": "a20ffa71fd04691805ea55c7d08165438dd7ac6f",
+  "sourceTip": "444bfa1248caf786aab9ed53924969bddbd90916",
+  "fixes": {
+    "style": "bf756e00e85172c01c9fc336bd9da69c8183864c",
+    "question": "444bfa1248caf786aab9ed53924969bddbd90916"
+  },
+  "date": "2026-10-11",
+  "scope": "frontend deep sweep against combined post-v0.13.2 source; focused lane proof only",
+  "syntax": "All six changed source/test JavaScript files pass node --check; generated mirrors agree.",
+  "before": {
+    "test/workflows-window.test.js": "New regression against unchanged a20 source: 5 failed assertions, 51 passed. Keep/undo requests committed undo/keep and resurrected feedbackKept after local style was removed.",
+    "test/consent-full-request.test.js": "New regression against unchanged a20 source: 3 failed tests, 7 passed. Choice, conversation and other-surface responses cleared all pending prompts.",
+    "frontend/app/delegated.js": "Production lineHtml with attributed brief.ask rendered Approve/Deny. This is a controlled defensive UI case; natural autonomous-worker questions are intentionally unsupported."
+  },
+  "focused": [
+    {
+      "test": "test/workflows-window.test.js",
+      "result": "PASS",
+      "count": 56,
+      "unit": "assertions"
+    },
+    {
+      "test": "test/consent-full-request.test.js",
+      "result": "PASS",
+      "count": 10,
+      "unit": "tests"
+    },
+    {
+      "test": "test/delegated-threads.test.js",
+      "result": "PASS",
+      "count": 92,
+      "unit": "assertions"
+    },
+    {
+      "test": "test/conveyor-ease.test.js",
+      "result": "PASS",
+      "count": 63,
+      "unit": "assertions"
+    },
+    {
+      "test": "test/build-hand.test.js",
+      "result": "PASS",
+      "count": 137,
+      "unit": "assertions"
+    },
+    {
+      "test": "test/build-hand-circle.test.js",
+      "result": "PASS",
+      "count": 141,
+      "unit": "assertions"
+    },
+    {
+      "test": "test/build-clip.test.js",
+      "result": "PASS",
+      "count": 178,
+      "unit": "assertions"
+    },
+    {
+      "test": "test/line-sendto.test.js",
+      "result": "PASS",
+      "count": 92,
+      "unit": "assertions"
+    },
+    {
+      "test": "test/conveyor-floor-integrity.test.js",
+      "result": "PASS",
+      "count": 82,
+      "unit": "assertions"
+    },
+    {
+      "test": "test/g1bprops.test.js",
+      "result": "PASS",
+      "count": 43,
+      "unit": "assertions"
+    },
+    {
+      "test": "test/declutter-recovery.test.js",
+      "result": "PASS",
+      "count": 19,
+      "unit": "assertions"
+    },
+    {
+      "test": "test/declutter-strips.test.js",
+      "result": "PASS",
+      "count": 52,
+      "unit": "assertions"
+    },
+    {
+      "test": "test/render-pacing.test.js",
+      "result": "PASS",
+      "count": 63,
+      "unit": "assertions"
+    },
+    {
+      "test": "test/static-bake-guard.test.js",
+      "result": "PASS",
+      "count": 13,
+      "unit": "assertions"
+    },
+    {
+      "test": "test/voice.button.test.js",
+      "result": "PASS",
+      "count": 185,
+      "unit": "assertions"
+    },
+    {
+      "test": "test/needs-you.test.js",
+      "result": "PASS",
+      "count": 25,
+      "unit": "assertions"
+    },
+    {
+      "test": "test/website-app-sync.test.js",
+      "result": "PASS",
+      "count": 8,
+      "unit": "assertions"
+    }
+  ],
+  "live": {
+    "receipt": "qa/evidence/frontend-deep-sweep-2026-10-11/live.json",
+    "fixture": "qa/evidence/frontend-deep-sweep-2026-10-11/probe.mjs",
+    "result": "8 checks PASS",
+    "surface": "real seeded Chromium and real sidecar with local synthetic provider",
+    "cleanup": "Owned Chromium, sidecar fixture and mock server closed; heavy slot yielded.",
+    "subsequentChange": "Question conversation cards also receive tabIndex -1 at creation; focused unit verifies this final detail. Choice-card live focus already passed."
+  },
+  "aggregate": "Not run in this lane; root coordinates aggregate gates on the merged candidate.",
+  "limitations": [
+    "See live.json for exact scope and exclusions."
+  ],
+  "peerReview": {
+    "reviewer": "runtime triage lane",
+    "result": "No blocking finding on exact source commits bf756e00e and 444bfa124; all three mirrors independently compare equal.",
+    "scope": "Read-only source review; reviewer did not repeat focused tests or live fixture."
+  },
+  "promptIsolationFollowup": {
+    "source": "5e45ea3796846480b4712210b07f68576e02bcdc",
+    "phoneFix": "ced84e2f04e4a94a77f04cac97f7f469d4f4c336",
+    "voiceFix": "52dc95fff1ff492ef29492eceb0f863e281e7928",
+    "before": {
+      "permissionVm": "4 failed / 10 passed on unchanged9d5c10c1d",
+      "remoteSourceLock": "1 stale assertion failed /29 passed",
+      "voiceVm": "Real approvalCommand plus real Channels cleared both asks instead of preserving worker-first; provider lane reproduced before repair"
+    },
+    "focused": {
+      "test/consent-full-request.test.js": "14 tests PASS",
+      "test/remote-sessions.test.js": "30 assertions PASS",
+      "test/voice-live-ui.test.js": "PASS after combined merge"
+    },
+    "live": {
+      "receipt": "qa/evidence/frontend-deep-sweep-2026-10-11/phone-voice-live.json",
+      "fixture": "qa/evidence/frontend-deep-sweep-2026-10-11/phone-voice-probe.mjs",
+      "result": "8 checks PASS",
+      "initialAttempt": "qa/evidence/frontend-deep-sweep-2026-10-11/phone-voice-first-attempt.json",
+      "initialFailure": "Five phone checks passed; fixture-only COPY-button guard stopped voice phase. Corrected selector matched production voice decision labels; no source change.",
+      "limitations": [
+        "Phone coverage is an injected desktop permission.response after actual backend consent, not a paired-phone gateway or physical device proof.",
+        "Voice coverage calls an exposed private production handler in the real loaded module with controlled pending asks and consent/speech spies; no microphone, STT, TTS or permission-dialog proof.",
+        "Synthetic local model only; no external accounts or customer station."
+      ],
+      "cleanup": "Owned Chromium, sidecar fixture and mock server closed."
+    },
+    "aggregate": "Root owns rerun on merged candidate. Earlier suites above retain their original source attribution."
+  }
+}

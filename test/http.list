@@ -208,3 +208,5 @@ test/subscription-stacking-oauth.e2e.test.js
 test/apps.http.test.js
 test/checkpoint-git.test.js
 test/checkpoint-maintenance.e2e.test.js
+test/crew-call.http.test.js
+test/legacy-spend-provenance.http.test.js

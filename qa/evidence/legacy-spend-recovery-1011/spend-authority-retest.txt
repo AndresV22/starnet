@@ -1,0 +1,3 @@
+spend HTTP: unreadable history, zero paid dispatch, failed append, restart settlement, exact-once replay uncertain receipt and real hard-crash recovery PASS
+spend HTTP: interrupted run listed, refused bad settles, Commander settle + limit settle, idempotent across restart PASS
+spend HTTP: a graceful Quit books the aborted run before exit PASS

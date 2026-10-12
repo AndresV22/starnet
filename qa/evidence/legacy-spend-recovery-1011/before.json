@@ -1,0 +1,155 @@
+{
+  "label": "before",
+  "scope": "Real seeded sidecar and Chromium UI, five synthetic receipts; legacy origins are fixture labels only, not stored billing evidence. No live provider or customer account.",
+  "initial": {
+    "rows": [
+      {
+        "text": "INTERRUPTED — known-managed · Oct 11, 11:45 PMSETTLECOUNT AS $0.50",
+        "tip": "This run stopped before StarNet recorded what it spent (it ran on your StarNet credits). Enter what StarNet charged for it — SETTINGS → AI & MODELS › STORE › RECENT ACTIVITY lists those charges as run known-ma: StarNet books it once and your spending limits can be checked again.",
+        "label": "what StarNet charged for this run, in USD",
+        "buttons": [
+          "SETTLE",
+          "COUNT AS $0.50"
+        ]
+      },
+      {
+        "text": "INTERRUPTED — legacy-byok · Oct 11, 11:45 PMSETTLE",
+        "tip": "This run stopped before StarNet recorded what it spent. Enter the charge your provider dashboard shows for it: StarNet books it once and your spending limits can be checked again.",
+        "label": "what your provider charged for this run, in USD",
+        "buttons": [
+          "SETTLE"
+        ]
+      },
+      {
+        "text": "INTERRUPTED — legacy-unknown · Oct 11, 11:45 PMSETTLE",
+        "tip": "This run stopped before StarNet recorded what it spent. Enter the charge your provider dashboard shows for it: StarNet books it once and your spending limits can be checked again.",
+        "label": "what your provider charged for this run, in USD",
+        "buttons": [
+          "SETTLE"
+        ]
+      },
+      {
+        "text": "INTERRUPTED — legacy-managed · Oct 11, 11:45 PMSETTLE",
+        "tip": "This run stopped before StarNet recorded what it spent. Enter the charge your provider dashboard shows for it: StarNet books it once and your spending limits can be checked again.",
+        "label": "what your provider charged for this run, in USD",
+        "buttons": [
+          "SETTLE"
+        ]
+      },
+      {
+        "text": "INTERRUPTED — known-byok · Oct 11, 11:45 PMSETTLECOUNT AS $0.50",
+        "tip": "This run stopped before StarNet recorded what it spent (it started on openrouter). Enter the charge your provider dashboard shows for it: StarNet books it once and your spending limits can be checked again.",
+        "label": "what your provider charged for this run, in USD",
+        "buttons": [
+          "SETTLE",
+          "COUNT AS $0.50"
+        ]
+      }
+    ],
+    "spend": "Spend history unavailable — 5 interrupted runs never recorded what they spent, so your spending limits can’t be checked. Settle each below. At least $0.00 today."
+  },
+  "status": {
+    "caps": {
+      "perRun": 0,
+      "perAgent": 0,
+      "perDay": 5,
+      "global": 0
+    },
+    "overrides": {
+      "run": 0,
+      "agent": 0,
+      "day": 0,
+      "global": 0
+    },
+    "live": 0,
+    "day": {
+      "usd": null,
+      "cap": 5,
+      "base": 5
+    },
+    "global": null,
+    "accounting": {
+      "complete": false,
+      "durable": true,
+      "readError": "UNSETTLED_SPEND",
+      "writeError": null,
+      "unsettledRuns": 5
+    },
+    "pools": {
+      "agent": 0,
+      "day": 5,
+      "global": 0
+    },
+    "saved": {},
+    "envDefaults": {
+      "perRun": 0,
+      "perAgent": 0,
+      "perDay": 5,
+      "global": 0
+    },
+    "perRun": 0,
+    "managedRunDefaultUsd": null,
+    "spentToday": null,
+    "lifetime": null,
+    "totalUsd": null,
+    "runs": null,
+    "unsettled": [
+      {
+        "runId": "known-managed",
+        "agentId": "known-managed",
+        "ts": 1791776740225,
+        "title": "",
+        "provider": "starnet",
+        "model": null,
+        "managed": true,
+        "runCapUsd": 0.5
+      },
+      {
+        "runId": "legacy-byok",
+        "agentId": "legacy-byok",
+        "ts": 1791776740225,
+        "title": "",
+        "provider": null,
+        "model": null,
+        "managed": false,
+        "runCapUsd": null
+      },
+      {
+        "runId": "legacy-unknown",
+        "agentId": "legacy-unknown",
+        "ts": 1791776740225,
+        "title": "",
+        "provider": null,
+        "model": null,
+        "managed": false,
+        "runCapUsd": null
+      },
+      {
+        "runId": "legacy-managed",
+        "agentId": "legacy-managed",
+        "ts": 1791776740225,
+        "title": "",
+        "provider": null,
+        "model": null,
+        "managed": false,
+        "runCapUsd": null
+      },
+      {
+        "runId": "known-byok",
+        "agentId": "known-byok",
+        "ts": 1791776740225,
+        "title": "",
+        "provider": "openrouter",
+        "model": null,
+        "managed": false,
+        "runCapUsd": 0.5
+      }
+    ],
+    "atLeast": {
+      "today": 0,
+      "lifetime": 0,
+      "runs": 0
+    }
+  },
+  "pass": true
+}

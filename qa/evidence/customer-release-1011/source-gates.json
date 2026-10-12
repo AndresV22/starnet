@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "records": [
+    {
+      "candidate": "b2cdcb2f2ed550475426cb38b3e5de2798e3ab1e",
+      "command": "npm run test:fast",
+      "startedAt": "2026-10-12T03:36:11Z",
+      "observedCompletedAt": "2026-10-12T04:01:20.3271438Z",
+      "exitCode": 0,
+      "steps": 1140,
+      "log": ".handoff/customer-release-fast.log",
+      "logSha256": "952a4da57dfbb2adef3dcac94d4ed41bbfd7e2e5e7d6432aef3bd18c17516ddc",
+      "scope": "Source gate on this candidate only; no installed/customer acceptance",
+      "supersededByPendingSource": "1b03394db43c67cd79eb9b423e5c6e63f57868d1"
+    }
+  ],
+  "scope": "Historical source gates are revision-bound. The later provenance repair is not covered by this fast receipt. This file is not release readiness or installed/customer acceptance."
+}

@@ -113,8 +113,9 @@ Build-mode gestures and onward routing are locked in [DECISIONS.md](DECISIONS.md
    (frontend/backend), `starnet-verify` before claiming done, `starnet-merge-ritual` to
    integrate. They encode the locked judgment; they win over anything conflicting in older
    docs.
-3. **Gate:** `npm run test:fast` (509 manifest-owned steps as of 2026-08-03) green before merge. Sidecar/route
-   changes also owe the 56-suite `npm run test:http`. Live-app verification via
+3. **Gate:** `npm run test:fast` green before merge. The current step lists live in
+   `test/fast.list` and `test/http.list`; do not copy changing counts into this orientation.
+   Sidecar/route changes also owe the complete `npm run test:http`. Live-app verification via
    `node dev/seed.js --keep` (pre-onboarded workspace, no ceremony) + preview/CDP DOM
    round-trips (canvas screenshots time out — see MISTAKES.md).
 4. Read [DECISIONS.md](DECISIONS.md) (locked, don't re-litigate) and
@@ -129,8 +130,8 @@ Build-mode gestures and onward routing are locked in [DECISIONS.md](DECISIONS.md
 | Is trunk green / app healthy | `npm run qa:guardian` · dashboard `qa/STATUS.md` |
 | Known/suppressed defects | `qa/KNOWN_ISSUES.md` (fingerprint ledger) |
 | Open findings | `node scripts/qa/ledger.mjs --status` |
-| Who is working where | `git worktree list` (18+ unmerged `agent/*` branches exist; many are parked) |
-| Current priorities | [NEXT.md](NEXT.md) — reconciled 2026-07-06; re-verify by grep before building |
+| Who is working where | `git worktree list` plus the current owner assignments in NEXT.md; a parked tree is not an active claim |
+| Current priorities | The current campaign at the top of [NEXT.md](NEXT.md); re-verify old entries against source and customer evidence |
 | What the user saw break | `docs/GROUND_UP_AUDIT_2026-07-06.md` + the two UPDATE_*_AUDIT docs |
 
 **Doc-trust rule:** any doc older than ~a day is a hypothesis. This project merges many

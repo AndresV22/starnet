@@ -97,8 +97,9 @@ function apply(list, input, deps) {
   // a NEW reference or a new ★ KEEP THIS STYLE is something to write even when no new words came with it
   // (a real verdict on a record that only ★ KEEP THIS STYLE made turns it into a verdict record: PUT IT BACK must not delete it)
   const verdictOnKept = !kept && !!(prev && prev.feedbackKeptOnly);
-  const extra = !!(ref && (!prev || JSON.stringify(prev.feedbackRef || null) !== JSON.stringify(ref))) || (kept && !(prev && prev.feedbackKept)) || verdictOnKept;
-  const refFields = Object.assign({}, ref ? { feedbackRef: ref } : null, kept ? { feedbackKept: true } : null, verdictOnKept ? { feedbackKeptOnly: false } : null);
+  const extra = !!(ref && (!prev || JSON.stringify(prev.feedbackRef || null) !== JSON.stringify(ref))) || (kept && !(prev && prev.feedbackKept)) || verdictOnKept || (!kept && !!prev && prev.feedbackVerdict !== verdict);
+  // A real verdict replaces the synthetic keep-style approval; keeping a style never replaces a real verdict.
+  const refFields = Object.assign({}, !kept ? { feedbackVerdict: verdict } : null, ref ? { feedbackRef: ref } : null, kept ? { feedbackKept: true } : null, verdictOnKept ? { feedbackKeptOnly: false } : null);
   const words = (prev && Array.isArray(prev.feedbackWords) ? prev.feedbackWords : []).slice();
   let add = clean(input.words, WORDS_CHARS);
   if (add && prev && words.indexOf(add) >= 0) { if (!extra) return null; add = ''; }   // a repeated chip/message teaches nothing new

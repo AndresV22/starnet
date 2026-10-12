@@ -1,0 +1,201 @@
+{
+  "finding": "5929d898",
+  "origin": "audit",
+  "source": "4ecafe317790da208051f43515e322a044f43401",
+  "previousFrozenCandidate": "9fc40b3868fda17fd449c92f96b2573f60e43c69",
+  "recordedAt": "2026-10-12T03:21:59.015Z",
+  "scope": "Residual crew-target ownership repair requested by independent frozen-source review. No new customer issue closure.",
+  "repair": [
+    "After greedily matching the full target list, reject straight/curly apostrophes immediately after the target span, avoiding partial-list backtracking.",
+    "Reject incomplete continued lists and whole-token mismatches; hyphens belong to agent IDs.",
+    "Resolve exact captured display-name/agent-ID cues instead of rescanning substrings, so Ada-Aux does not also select Ada.",
+    "Suppress unconditional host directives for explicit no/cancel reversals; original input and granted tools remain available.",
+    "Apply the same case-insensitive recognition to refusing incomplete target-list tails."
+  ],
+  "before": {
+    "source": "9fc40b3868fda17fd449c92f96b2573f60e43c69",
+    "results": [
+      {
+        "name": "unit-before",
+        "file": "test/crew-call.test.js",
+        "startedAt": "2026-10-12T03:16:13.447Z",
+        "finishedAt": "2026-10-12T03:16:13.568Z",
+        "exitCode": 1,
+        "signal": null,
+        "error": null,
+        "summary": "crew-call.test: 24 problem(s), 28 ok",
+        "log": ".bugloops/deep-sweep-2026-10-11/crew-possessive-followup/unit-before.log",
+        "sha256": "040b0f5f53f16e71d1d0650350bc0d9bf01b2a905bcbb4a4ac931f9b97a5c833"
+      },
+      {
+        "name": "http-before",
+        "file": "test/crew-call.http.test.js",
+        "startedAt": "2026-10-12T03:16:13.577Z",
+        "finishedAt": "2026-10-12T03:16:19.283Z",
+        "exitCode": 1,
+        "signal": null,
+        "error": null,
+        "summary": "crew-call.http: 12 problem(s), 105 ok",
+        "log": ".bugloops/deep-sweep-2026-10-11/crew-possessive-followup/http-before.log",
+        "sha256": "8c5879b866f1a135fa73267d01de38b506a28b33c923628c38250bd8aa354c6c"
+      }
+    ],
+    "unitFailureCount": 24,
+    "httpFailureCount": 12,
+    "liveRuns": 17
+  },
+  "after": {
+    "base": "9a4beb98195288b5691f10cf9fa482ffa31c7795",
+    "syntaxChecks": 3,
+    "sourceFiles": [
+      {
+        "file": "sidecar/crew-call.js",
+        "sha256": "7855d486244523051d9f58a4576cd41c04c861ac1f95337da9790de027563f01"
+      },
+      {
+        "file": "test/crew-call.test.js",
+        "sha256": "a39ec84dfffbb8a18c00a7af2df6f704107ae0196dad42886a49af19ff71147a"
+      },
+      {
+        "file": "test/crew-call.http.test.js",
+        "sha256": "fb8189bdc960d9031bdec9bc32105b3c64ae24f3371b179131bf5fc4ce3a5c0c"
+      }
+    ],
+    "results": [
+      {
+        "name": "unit-after-final",
+        "file": "test/crew-call.test.js",
+        "startedAt": "2026-10-12T03:21:12.845Z",
+        "finishedAt": "2026-10-12T03:21:12.928Z",
+        "exitCode": 0,
+        "summary": "crew-call.test: OK (56 assertions)",
+        "log": ".bugloops/deep-sweep-2026-10-11/crew-possessive-followup/unit-after-final.log",
+        "sha256": "037bd8ff40e8f49109174ac7b522343208843259d93c67947424dda33cb4acc8"
+      },
+      {
+        "name": "http-after-final",
+        "file": "test/crew-call.http.test.js",
+        "startedAt": "2026-10-12T03:21:12.929Z",
+        "finishedAt": "2026-10-12T03:21:16.507Z",
+        "exitCode": 0,
+        "summary": "crew-call.http: OK (131 assertions)",
+        "log": ".bugloops/deep-sweep-2026-10-11/crew-possessive-followup/http-after-final.log",
+        "sha256": "25d69efe36f227c1a9690d0d660a02fe16f3c76fcb36a28cb89ec8787162497b"
+      }
+    ],
+    "source": "4ecafe317790da208051f43515e322a044f43401",
+    "unitAssertions": 56,
+    "httpAssertions": 131,
+    "liveRuns": 19,
+    "liveMeaning": "Actual sidecar /api/run requests reached the local synthetic provider. All runs ended done without agent.run.error; team_dispatch remained granted; exact SYSTEM directive target IDs were asserted and negative-case original user text retained."
+  },
+  "positiveControls": [
+    "Have Ada research three facts about the synthetic project.",
+    "Have Ada review Quill's report.",
+    "Have Ada-Aux review the plan.",
+    "Have Ada and Quill review it.",
+    "Ada, review Quill’s report."
+  ],
+  "negativeFamilies": [
+    "straight/curly possessives on display names and IDs",
+    "singular/plural possessives, optional the, multiword/hyphenated cues",
+    "first/last targets in and/comma/ampersand lists",
+    "unknown hyphenated targets",
+    "no/cancel reversals",
+    "existing negation and upstream handoff data"
+  ],
+  "limits": [
+    "No real model compliance, actual team.dispatch worker execution, external side effect, installed build or customer recovery claimed.",
+    "Conservative advisory recognition is not a complete natural-language parser; rejected wording remains in original user context with its granted tools.",
+    "The earlier aggregate fast1139, HTTP210, journeys139 and beginner UI-only receipts are bound to a75a09e3ebc588ec087de195d420fccef4d6ee7b, not this changed source.",
+    "Per coordination, no new broad gates were run here. Coordinator owns required fast/HTTP merge gates and dirty shared-doc preservation.",
+    "No source or git changes were made in shared trunk."
+  ],
+  "registeredTests": [
+    "test/crew-call.test.js",
+    "test/crew-call.http.test.js"
+  ],
+  "sourceCommitChain": [
+    "9a4beb98195288b5691f10cf9fa482ffa31c7795",
+    "4ecafe317790da208051f43515e322a044f43401"
+  ],
+  "firstPass": {
+    "base": "9fc40b3868fda17fd449c92f96b2573f60e43c69",
+    "sourceFiles": [
+      {
+        "file": "sidecar/crew-call.js",
+        "sha256": "44d4ac1bc10730b77cdcf817366156aecaf77cb620917cf29f8be0a70f4ec499"
+      },
+      {
+        "file": "test/crew-call.test.js",
+        "sha256": "1173c61cd54c75a7ccd897a6270ad83e9a17b2010d4e6dca558294f7562ed6a3"
+      },
+      {
+        "file": "test/crew-call.http.test.js",
+        "sha256": "b29feb59c9d96c2a0557c6bdbe991f14f9a432f8bfa69fcbd508b7c62a669bb4"
+      }
+    ],
+    "syntaxChecks": 3,
+    "results": [
+      {
+        "name": "unit-after",
+        "file": "test/crew-call.test.js",
+        "startedAt": "2026-10-12T03:18:28.239Z",
+        "finishedAt": "2026-10-12T03:18:28.581Z",
+        "exitCode": 0,
+        "signal": null,
+        "error": null,
+        "summary": "crew-call.test: OK (52 assertions)",
+        "log": ".bugloops/deep-sweep-2026-10-11/crew-possessive-followup/unit-after.log",
+        "sha256": "8a101d3984775c57ab98542e0d022a3b915b64ad61e862c4802b7f12713260bd"
+      },
+      {
+        "name": "http-after",
+        "file": "test/crew-call.http.test.js",
+        "startedAt": "2026-10-12T03:18:28.584Z",
+        "finishedAt": "2026-10-12T03:18:39.887Z",
+        "exitCode": 0,
+        "signal": null,
+        "error": null,
+        "summary": "crew-call.http: OK (117 assertions)",
+        "log": ".bugloops/deep-sweep-2026-10-11/crew-possessive-followup/http-after.log",
+        "sha256": "f951b437cb9e602acb4c2d537e2b0698565948cd03bbd8b32888d9935d99d971"
+      }
+    ],
+    "source": "9a4beb98195288b5691f10cf9fa482ffa31c7795",
+    "unitAssertions": 52,
+    "httpAssertions": 117,
+    "liveRuns": 17,
+    "liveMeaning": "Actual sidecar /api/run requests reached the local synthetic provider. All runs ended done without agent.run.error; team_dispatch remained granted; exact SYSTEM directive target IDs were asserted and negative-case original user text retained."
+  },
+  "independentReview": {
+    "finding": "Incomplete-list tail refusal omitted case-insensitive flag, allowing uppercase AND or mixed And with an unknown target.",
+    "before": {
+      "source": "9a4beb98195288b5691f10cf9fa482ffa31c7795",
+      "results": [
+        {
+          "name": "casing-unit-before",
+          "file": "test/crew-call.test.js",
+          "startedAt": "2026-10-12T03:20:48.891Z",
+          "finishedAt": "2026-10-12T03:20:49.018Z",
+          "exitCode": 1,
+          "summary": "crew-call.test: 2 problem(s), 54 ok",
+          "log": ".bugloops/deep-sweep-2026-10-11/crew-possessive-followup/casing-unit-before.log",
+          "sha256": "5a04765814e6fa48e3cdbc34134adbdb91bb19a4dd7951b7195bf2e75d86bcf8"
+        },
+        {
+          "name": "casing-http-before",
+          "file": "test/crew-call.http.test.js",
+          "startedAt": "2026-10-12T03:20:49.020Z",
+          "finishedAt": "2026-10-12T03:20:54.164Z",
+          "exitCode": 1,
+          "summary": "crew-call.http: 2 problem(s), 129 ok",
+          "log": ".bugloops/deep-sweep-2026-10-11/crew-possessive-followup/casing-http-before.log",
+          "sha256": "4dba64f4adbbc32e7c3bb9d659649f3b69276b5c2188a3920da8641dd708827a"
+        }
+      ]
+    },
+    "resolution": "Added /i and unit/HTTP case regressions; unknown lists refuse a directive while uppercase known targets remain accepted.",
+    "finalVerdict": "Independent committed-diff review confirms 4ecafe317 addresses the casing blocker; no further blocker in the scoped diff. Reviewer did not start tests or live processes."
+  }
+}

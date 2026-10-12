@@ -1,0 +1,96 @@
+{
+  "mode": "ui-only",
+  "port": 8950,
+  "stamp": "2026-10-12T02-31-07",
+  "url": "http://127.0.0.1:8950/",
+  "total": 39173,
+  "budget": 600000,
+  "ok": true,
+  "overTotal": false,
+  "stalledStep": null,
+  "steps": [
+    {
+      "id": "boot",
+      "label": "sidecar up + page loaded",
+      "ms": 1865,
+      "budgetMs": 90000,
+      "ok": true,
+      "overBudget": false,
+      "boundary": false
+    },
+    {
+      "id": "title",
+      "label": "CREATE YOUR OVERSEER screen reached",
+      "ms": 2436,
+      "budgetMs": 30000,
+      "ok": true,
+      "overBudget": false,
+      "boundary": false
+    },
+    {
+      "id": "connect",
+      "label": "name + key + model entered",
+      "ms": 210,
+      "budgetMs": 30000,
+      "ok": true,
+      "overBudget": false,
+      "boundary": false
+    },
+    {
+      "id": "create-agent",
+      "label": "WAKE OVERSEER accepted",
+      "ms": 1290,
+      "budgetMs": 30000,
+      "ok": true,
+      "overBudget": false,
+      "boundary": false
+    },
+    {
+      "id": "awakening",
+      "label": "in-game floor + awakening began",
+      "ms": 25293,
+      "budgetMs": 90000,
+      "ok": true,
+      "overBudget": false,
+      "boundary": false
+    },
+    {
+      "id": "first-directive",
+      "label": "first directive interaction reached",
+      "ms": 8070,
+      "budgetMs": 180000,
+      "ok": true,
+      "overBudget": false,
+      "boundary": true
+    }
+  ],
+  "screenshots": [
+    {
+      "step": "boot",
+      "path": ".bugloops\\beginner-2026-10-12T02-31-07\\01-boot.png"
+    },
+    {
+      "step": "title",
+      "path": ".bugloops\\beginner-2026-10-12T02-31-07\\02-title.png"
+    },
+    {
+      "step": "connect",
+      "path": ".bugloops\\beginner-2026-10-12T02-31-07\\03-connect.png"
+    },
+    {
+      "step": "create-agent",
+      "path": ".bugloops\\beginner-2026-10-12T02-31-07\\04-create-agent.png"
+    },
+    {
+      "step": "awakening",
+      "path": ".bugloops\\beginner-2026-10-12T02-31-07\\05-awakening.png"
+    },
+    {
+      "step": "first-directive",
+      "path": ".bugloops\\beginner-2026-10-12T02-31-07\\06-first-directive.png"
+    }
+  ],
+  "capturedAt": "2026-10-12T02:31:46.870Z",
+  "console": [],
+  "exceptions": []
+}

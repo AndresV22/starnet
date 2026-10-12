@@ -1,0 +1,1503 @@
+{
+  "schemaVersion": 1,
+  "fetchCompletedAt": "2026-10-12T03:22:01.620Z",
+  "frozenSnapshotCutoff": "2026-10-12T02:37:13.153Z",
+  "scope": "Read-only GitHub refresh plus coordinator-requested narrow crew-intent residual source repair. No broad gates, merge, push, public replies, paid calls or issue state changes.",
+  "coverage": {
+    "issueCount": 70,
+    "open": 48,
+    "closed": 22,
+    "comments": 53,
+    "maxCommentsInAnyIssue": 9,
+    "listLimit": 500,
+    "issueLimitReached": false,
+    "commentLimitReached": false,
+    "eventsAll": 295,
+    "issueEvents": 216,
+    "prEventsExcluded": 79,
+    "newestIssueEvent": "2026-10-11T19:17:38Z",
+    "rawFiles": [
+      {
+        "file": "issues-all.json",
+        "bytes": 265109,
+        "sha256": "36bc983490d977b1c3d3db0c281dde5484d74ed013e50d03c64eea74f93b8142"
+      },
+      {
+        "file": "issue-events-pages.json",
+        "bytes": 1851945,
+        "sha256": "006524dc166285e45c279a371048a17b702003688dae325741cae8fa44cb6e85"
+      },
+      {
+        "file": "release.json",
+        "bytes": 166,
+        "sha256": "d3e93aba32911d979c3bc3f6d2165c81fc93745f30fc2cd5db64c04bb00300b6"
+      },
+      {
+        "file": "release-0130.json",
+        "bytes": 125,
+        "sha256": "f55ff7cd37580cc7ac222c6d0577c38ba2ca8eb02440cf6590d265a60b267217"
+      }
+    ],
+    "followupRawFiles": [
+      {
+        "file": "issues-all-followup.json",
+        "bytes": 265110,
+        "sha256": "37435cf0392e33809a0539fe608a34e2d6c201b8ffedc4ce88c8ed45ec39a81c"
+      },
+      {
+        "file": "issue-events-followup.json",
+        "bytes": 1851947,
+        "sha256": "ff4df6af69bca60bf83e265cd88dba837b8b4ba4be20c0c5b586fe3e664921db"
+      }
+    ]
+  },
+  "delta": {
+    "issuesUpdatedSinceFrozenSnapshot": [],
+    "issueEventsSinceFrozenSnapshot": [],
+    "openAdded": [],
+    "openRemoved": [],
+    "reopenedEventsInFetchedHistory": [],
+    "closedSince0130": [],
+    "conclusion": "Latest follow-up refresh again found no issue/comment/state updates or reopenings since the original frozen snapshot."
+  },
+  "openDispositions": [
+    {
+      "number": 107,
+      "title": "[Bug]: StarNet checkpoint packfile leak — disk exhaustion from `tmp_pack_*` accumulation",
+      "url": "https://github.com/androoAGI/starnet/issues/107",
+      "category": "Repair candidate",
+      "status": "Source repair candidate for reproduced lifecycle gaps",
+      "assessment": "The report describes 41 GB of temporary checkpoint pack files. Before the repair, real-Git probes reproduced skipped maintenance on unchanged snapshots and misleading cleanup success. The candidate serializes checkpoint operations, supervises owned Git descendants, checks maintenance results and preserves rollback until the replacement index is durable. The size ceiling remains best effort; the reported macOS growth rate is not yet reproduced.",
+      "evidence": [
+        "Before repair (investigation at f2e1e91bb): sidecar/checkpoint-store.js:45-46 — keep=50 and default maxRepoBytes=500 MB",
+        "Before repair (investigation at f2e1e91bb): sidecar/checkpoint-store.js:285-298 — best-effort GC/reinitialize; GC exit code is not examined",
+        "Before repair (investigation at f2e1e91bb): sidecar/checkpoint-store.js:377-384 — unchanged content returns before size enforcement at line 422",
+        "Before repair (investigation at f2e1e91bb): sidecar/index.js:9502 — Git subprocess timeout is 15 seconds",
+        "Before repair (investigation at f2e1e91bb): sidecar/index.js:20575-20591 and 17294-17304 — normal mutation/restore entrypoints hold workspace leases; reported concurrent-process explanation remains unproven",
+        ".investigation/checkpoint-probe.json — 65,536-byte tmp_pack fixture retained above a 32,768-byte test limit, unchanged snapshot gcCalls=0; simulated maintenance failure also retains garbage",
+        "Focused existing tests PASS: checkpoint-store 59 assertions; checkpoint-default-on 14; checkpoint-restore-undoable 45",
+        "Before repair (investigation at f2e1e91bb): git diff v0.13.2 -- sidecar/checkpoint-store.js is empty",
+        "Source b387d48ab +7680f00da; checkpoint23, subprocess14, prior checkpoint118 and environment134 assertions pass.",
+        "Real seeded sidecar maintenance/list/restore/restart-undo passed. Independent review addressed output bounds and index-persistence rollback."
+      ],
+      "nextAction": "Run the macOS installed-app soak against the reported growth rate. Combined fast/HTTP gates passed, including checkpoint maintenance and restart undo; retain truthful disk-failure pressure reporting because the cap is best effort.",
+      "limitations": "This is a source and real-Git module reproduction, not the reported macOS installed-app session or 12 GB/hour leak reproduction. The simulated failures demonstrate a gap but do not establish why the customer's packfiles accumulated. Do not blindly delete packfiles or turn on competing Git maintenance.",
+      "dispositionRefreshed": false,
+      "githubStateAtRefresh": "OPEN",
+      "githubUpdatedAt": "2026-10-11T19:17:37Z",
+      "githubComments": 0,
+      "sourceDispositionReevaluatedAgainstNewCustomerEvidence": false,
+      "refreshMeaning": "Fresh GitHub metadata/comment review; no new updates since frozen snapshot. Existing source assessment preserved with scoped confirmation notes below."
+    },
+    {
+      "number": 106,
+      "title": "[Bug]: API KEYS NOT WORKING",
+      "url": "https://github.com/androoAGI/starnet/issues/106",
+      "category": "Unresolved investigation",
+      "status": "Insufficient report details",
+      "assessment": "No source finding from this sweep identifies the provider/model/version or exact failing wake stage for the customer. Connector secret repairs cannot establish resolution.",
+      "evidence": [
+        "GitHub #106: opened 2026-10-10, 0 comments, version field says only Genesis; no diagnostics.",
+        "frontend/app/app.js:3139 validates/stores the candidate, then app.js:3152 performs the live provider/model wake preflight.",
+        "sidecar/index.js:24021 validates provider credentials; a successful key check alone is not proof that model inference can run.",
+        "Claude connector-vault/reset repairs concern MCP secrets, not Genesis provider API-key validation; no matching overlap found."
+      ],
+      "nextAction": "Obtain sanitized exact WAKE error and provider/model/version, then reproduce that validation/inference door without requesting secrets.",
+      "limitations": "No affected installation or usable reproduction details. Do not assume #90/#62 repair resolves this new report.",
+      "dispositionRefreshed": true,
+      "githubStateAtRefresh": "OPEN",
+      "githubUpdatedAt": "2026-10-10T18:53:22Z",
+      "githubComments": 0,
+      "sourceDispositionReevaluatedAgainstNewCustomerEvidence": false,
+      "refreshMeaning": "Fresh GitHub metadata/comment review; no new updates since frozen snapshot. Existing source assessment preserved with scoped confirmation notes below."
+    },
+    {
+      "number": 105,
+      "title": "[Feature]: claude-cli subscription overhead — 89-tool prompt, learned blocks inside the cached prefix, post-reply aux calls (measurements)",
+      "url": "https://github.com/androoAGI/starnet/issues/105",
+      "category": "Feature / optimization",
+      "status": "Open subscription overhead investigation; worker-review batching integrated",
+      "assessment": "The previous pending-component wording is stale. Commit312499626 is an ancestor of a20ffa71f and of this candidate, including batched handoff review/no duplicate foreground clone review. This is source inclusion, not measured subscription savings.",
+      "evidence": [
+        "git merge-base --is-ancestor 312499626 HEAD: exit0",
+        "frontend/app/app.js:394 and :401 retain learned dossier/fork inside persona",
+        "sidecar/index.js:2961 auxiliary model defaults remain",
+        "sidecar/index.js:22296 reserves skill-review outside the normal auxiliary count",
+        "sidecar/index.js:21938 keeps subscription/unmetered runs outside maxUnpricedTokens"
+      ],
+      "nextAction": "Measure complete main/auxiliary/frontend-internal call inventory on this integrated candidate before optimizing remaining cache placement and auxiliary-budget contributors; no fresh paid runs or customer quota measurements performed.",
+      "limitations": "No new paid/subscription measurements; proxy weighted tokens do not prove actual subscription billing.",
+      "dispositionRefreshed": true,
+      "githubStateAtRefresh": "OPEN",
+      "githubUpdatedAt": "2026-10-10T17:45:02Z",
+      "githubComments": 0,
+      "sourceDispositionReevaluatedAgainstNewCustomerEvidence": false,
+      "refreshMeaning": "Fresh GitHub metadata/comment review; no new updates since frozen snapshot. Existing source assessment preserved with scoped confirmation notes below."
+    },
+    {
+      "number": 104,
+      "title": "[Bug]: v0.13.2 browser.upload reports success but Etsy listing photo remains empty",
+      "url": "https://github.com/androoAGI/starnet/issues/104",
+      "category": "Repair candidate",
+      "status": "source-repaired-local-browser-and-native-tool-proven",
+      "assessment": "Upload authority and precise input/readback receipts now integrated; file selection proof is not remote site acceptance.",
+      "evidence": [
+        "611176616",
+        "qa/evidence/browser-upload-104/receipts.json",
+        "test/browser-upload.test.js",
+        "sidecar/tools/builtin/browser-upload.js"
+      ],
+      "nextAction": "Verify original unsaved Etsy flow against intended input and remote attachment receipt; no publish action is implied.",
+      "limitations": "Installed artifact acceptance and customer recovery remain unverified; GitHub issue remains open.",
+      "dispositionRefreshed": true,
+      "githubStateAtRefresh": "OPEN",
+      "githubUpdatedAt": "2026-10-10T14:54:22Z",
+      "githubComments": 0,
+      "sourceDispositionReevaluatedAgainstNewCustomerEvidence": false,
+      "refreshMeaning": "Fresh GitHub metadata/comment review; no new updates since frozen snapshot. Existing source assessment preserved with scoped confirmation notes below."
+    },
+    {
+      "number": 102,
+      "title": "[Bug]: Ollama / Qwen3.8 fails with Jinja error: \"System message must be at the beginning",
+      "url": "https://github.com/androoAGI/starnet/issues/102",
+      "category": "Repair candidate",
+      "status": "Source repair integrated; actual Qwen/customer acceptance still unverified",
+      "assessment": "Previously tested source repair d3e708cb0 and QA6363184b4 are included in a20ff; no new customer/installer proof. Native and compatible-fallback strict-template fixtures remain the evidence boundary.",
+      "evidence": [
+        "Before repair (investigation at f2e1e91bb): sidecar/loop.js:2012,2026,2042 append system nudges after conversation messages (also steering, compaction and other continuation paths).",
+        "Before repair (investigation at f2e1e91bb): sidecar/providers/openai-compatible.js:481 calls preserveClaudeContinuations; sidecar/providers/provider.js:526 limits that normalization to Claude/Anthropic model names.",
+        "Before repair (investigation at f2e1e91bb): sidecar/providers/ollama-native.js:77 preserves each message role; :106 uses those messages on /api/chat.",
+        "2026-10-11 production-adapter probe captured roles [system,user,assistant,system] at /v1/chat/completions and /api/chat. Strict-template local HTTP fixture rejected both with 'Jinja Exception: System message must be at the beginning'.",
+        "Before repair (investigation at f2e1e91bb): No #102 repair found in current source history; test/provider.ollama-native.test.js has no late-system case.",
+        "Source d3e708cb0; record6363184b4. Seeded native and /v1 fallback runs completed real fs_read, usage and run-correlated diagnostics.",
+        "Candidate9f7ab4b4c includes leadingSystemMessages in ollama-native.js and openai-compatible.js plus registered provider.ollama-system and ollama-system.e2e regressions."
+      ],
+      "nextAction": "Exact Qwen template, WSL endpoint and installed-build acceptance; full combined fast and HTTP source gates passed in this sweep.",
+      "limitations": "Confirmed source-wire incompatibility against a local strict-template fixture. Real Qwen model, WSL endpoint and customer desktop not exercised; the exact first late-system producer in the reported run is unknown.",
+      "dispositionRefreshed": true,
+      "githubStateAtRefresh": "OPEN",
+      "githubUpdatedAt": "2026-10-10T01:31:00Z",
+      "githubComments": 0,
+      "sourceDispositionReevaluatedAgainstNewCustomerEvidence": false,
+      "refreshMeaning": "Fresh GitHub metadata/comment review; no new updates since frozen snapshot. Existing source assessment preserved with scoped confirmation notes below."
+    },
+    {
+      "number": 101,
+      "title": "[Bug]: ERASE EVERYTHING is undone on next boot (Windows): auto-recovery restores %LOCALAPPDATA%\\StarNet\\workspaces, which erase skips as install folder",
+      "url": "https://github.com/androoAGI/starnet/issues/101",
+      "category": "Repair candidate",
+      "status": "source-repaired-live-synthetic-recovery-proven",
+      "assessment": "553cfa55 repairs erase marker authority; a20 retains it. Native install-root deletion policy intentionally unchanged.",
+      "evidence": [
+        "553cfa55d45afca1b588cb0b82219d6bb5673cab",
+        "test/workspace-recovery-fresh-start.test.js: 59 assertions",
+        "test/workspace-recovery-fresh-start.http.test.js: 18 live synthetic boot/restart/explicit restore assertions",
+        "qa/bugs/5451970e-erase-everything-resurrects-an-acknowledged-lega.md"
+      ],
+      "nextAction": "Verify exact Windows installer erase and restart with retained legacy data, then obtain reporter retest.",
+      "limitations": "Installed artifact acceptance and customer recovery remain unverified; GitHub issue remains open.",
+      "dispositionRefreshed": true,
+      "githubStateAtRefresh": "OPEN",
+      "githubUpdatedAt": "2026-10-10T00:11:20Z",
+      "githubComments": 0,
+      "sourceDispositionReevaluatedAgainstNewCustomerEvidence": false,
+      "refreshMeaning": "Fresh GitHub metadata/comment review; no new updates since frozen snapshot. Existing source assessment preserved with scoped confirmation notes below."
+    },
+    {
+      "number": 99,
+      "title": "[Bug]: Ollama agent chat remains stuck on “Working…” in StarNet 0.13.2",
+      "url": "https://github.com/androoAGI/starnet/issues/99",
+      "category": "Unresolved investigation",
+      "status": "Long pre-header retry path remains measured; customer cause unconfirmed",
+      "assessment": "The custom-localhost native Ollama profile change9aace0349 is now integrated, no longer pending. The earlier e91f3231e truthful timeout wording repair is also included. Neither changes the measured seven-connect/two-idle/one-cancel policy or proves original customer causality.",
+      "evidence": [
+        "git merge-base --is-ancestor 9aace0349 HEAD: exit0",
+        "sidecar/providers/factory.js:184 respects wire.nativeOllama",
+        "Existing issue99-connect-silence receipt remains synthetic with shortened timers and captured backoff projection, not real elapsed cold-start proof"
+      ],
+      "nextAction": "Correlate exact customer duration/native request/tools/num_ctx/loading facts; choose and verify cold-start-safe retry limits only with evidence.",
+      "limitations": "Synthetic local endpoint, no affected Ollama model/hardware or installed UI. Loop backoffs were injected immediately and captured;36.76min is an arithmetic projection, not measured elapsed time. Customer causality and cold-start-safe retry limits remain unproven.",
+      "dispositionRefreshed": true,
+      "githubStateAtRefresh": "OPEN",
+      "githubUpdatedAt": "2026-10-09T10:04:34Z",
+      "githubComments": 0,
+      "sourceDispositionReevaluatedAgainstNewCustomerEvidence": false,
+      "refreshMeaning": "Fresh GitHub metadata/comment review; no new updates since frozen snapshot. Existing source assessment preserved with scoped confirmation notes below."
+    },
+    {
+      "number": 98,
+      "title": "[Bug]: [Bug]: Native Gemini selection still routes through OpenRouter; tool runs stop empty",
+      "url": "https://github.com/androoAGI/starnet/issues/98",
+      "category": "Unresolved investigation",
+      "status": "Routing mismatch remains unproven",
+      "assessment": "Catalog-equivalent code still has no routed Google-to-native Gemini mapping. The source gap remains; actual Settings reversion and empty response are not causally reproduced. No speculative source edit.",
+      "evidence": [
+        "frontend/app/modeldock.js:294 catalogEquivalent handles managed/bare and direct Anthropic, no direct Gemini equivalent"
+      ],
+      "nextAction": "Capture selected provider/model at Settings, catalog reconciliation, saved station identity and actual inference wire on the affected station.",
+      "limitations": "No customer station/key or original wire capture. The missing mapping is source-proven, but the reported reversion to OpenRouter and empty response are not reproduced. An early isolated reconciliation test timed out; model-provider-reconcile.test.js subsequently passed within the complete1121-step fast gate.",
+      "dispositionRefreshed": true,
+      "githubStateAtRefresh": "OPEN",
+      "githubUpdatedAt": "2026-10-09T09:03:07Z",
+      "githubComments": 0,
+      "sourceDispositionReevaluatedAgainstNewCustomerEvidence": false,
+      "refreshMeaning": "Fresh GitHub metadata/comment review; no new updates since frozen snapshot. Existing source assessment preserved with scoped confirmation notes below."
+    },
+    {
+      "number": 97,
+      "title": "[Feature]: line-trigger webhook — add an idempotency key, return a run id, and support external cancel",
+      "url": "https://github.com/androoAGI/starnet/issues/97",
+      "category": "Feature / optimization",
+      "status": "open-webhook-lifecycle-contract",
+      "assessment": "a20 still returns queued admission with durable:false. In-memory queue and dispatch-created stream identity remain.",
+      "evidence": [
+        "sidecar/index.js:12780",
+        "sidecar/routing/trigger-runner.js"
+      ],
+      "nextAction": "Define trigger-scoped durable job identity, bounded idempotency retention/conflicting payload behavior, authenticated status/cancel and restart semantics, then test duplicate/concurrent/restart delivery.",
+      "limitations": "Source contract gap confirmed; no new external webhook effects or reporter reproduction.",
+      "dispositionRefreshed": true,
+      "githubStateAtRefresh": "OPEN",
+      "githubUpdatedAt": "2026-10-08T23:49:30Z",
+      "githubComments": 0,
+      "sourceDispositionReevaluatedAgainstNewCustomerEvidence": false,
+      "refreshMeaning": "Fresh GitHub metadata/comment review; no new updates since frozen snapshot. Existing source assessment preserved with scoped confirmation notes below."
+    },
+    {
+      "number": 96,
+      "title": "[Bug]: /v1 and ACP never advertise tools to the model — no supported route into the tool-bearing task path",
+      "url": "https://github.com/androoAGI/starnet/issues/96",
+      "category": "Fix present; retest needed",
+      "status": "source-present-in-published-ancestry",
+      "assessment": "Existing /v1 and ACP task-tool repair remains; no a20 adapter change implies additional acceptance.",
+      "evidence": [
+        "6f2c1dc41",
+        "8a768f580",
+        "sidecar/openai-compat.js",
+        "sidecar/acp/serve.js"
+      ],
+      "nextAction": "Run installed sync/stream/roster and ACP permitted tool/default-deny matrix.",
+      "limitations": "Installed artifact acceptance and customer recovery remain unverified; GitHub issue remains open.",
+      "dispositionRefreshed": true,
+      "githubStateAtRefresh": "OPEN",
+      "githubUpdatedAt": "2026-10-08T23:49:29Z",
+      "githubComments": 0,
+      "sourceDispositionReevaluatedAgainstNewCustomerEvidence": false,
+      "refreshMeaning": "Fresh GitHub metadata/comment review; no new updates since frozen snapshot. Existing source assessment preserved with scoped confirmation notes below."
+    },
+    {
+      "number": 95,
+      "title": "[Feature]: Add a Codex CLI provider using existing ChatGPT browser login",
+      "url": "https://github.com/androoAGI/starnet/issues/95",
+      "category": "Feature / optimization",
+      "status": "new provider proposal; no codex-cli profile found in current trunk",
+      "assessment": "The existing codex provider uses device-code OAuth. The reporter's macOS CLI prototype proposes a genuinely different login and execution authority boundary; it is not implemented by the current provider.",
+      "evidence": [
+        "GitHub #95 has 0 comments and describes a local prototype; GitHub PR search for codex-cli returned no matches.",
+        "sidecar/providers/registry.js:61 registers current Codex as oauth_device_code; sidecar/providers/codex-auth.js:91/:114 implement device-code initiation/poll.",
+        "Current sidecar/providers contains claude-cli.js and codex.js but no codex-cli adapter; the existing Claude CLI architecture is a relevant design precedent (PR #41).",
+        "GitHub #95 reports prototype on macOS Codex CLI 0.144.1 but has no linked PR/code or follow-up.",
+        "ddd4cbcfa:sidecar/providers/codex-auth.js:3-12 and :31-32 implement device code and device callback.",
+        "Targeted current-trunk registry/source search finds no codex-cli profile; sidecar/providers/claude-cli.js and docs/CLAUDE_CLI_PROVIDER.md show the nearest existing architecture."
+      ],
+      "nextAction": "Review a narrow opt-in codex-cli provider candidate, following the existing Claude CLI provider boundary rather than replacing codex. First validate the proposed CLI version, current commands/protocol and ability to disable all native tools. Require CLI-owned credentials, API-key-session rejection (or explicit metered semantics), dynamic model/readiness proof, normal StarNet capability/consent dispatch, abort/process cleanup, quota and malformed-output tests, and Windows/macOS acceptance. Preserve plan-limit wording; do not call it unlimited or generally free.",
+      "limitations": "Reporter prototype and proposed CLI flags not independently verified. This is implementation scope, not a claim that managed-workspace policy can or should be bypassed.",
+      "dispositionRefreshed": false,
+      "githubStateAtRefresh": "OPEN",
+      "githubUpdatedAt": "2026-10-08T22:43:07Z",
+      "githubComments": 0,
+      "sourceDispositionReevaluatedAgainstNewCustomerEvidence": false,
+      "refreshMeaning": "Fresh GitHub metadata/comment review; no new updates since frozen snapshot. Existing source assessment preserved with scoped confirmation notes below."
+    },
+    {
+      "number": 94,
+      "title": "[Bug]: Anthropic thinking block signature mismatch breaks existing StarNet conversations",
+      "url": "https://github.com/androoAGI/starnet/issues/94",
+      "category": "Fix present; retest needed",
+      "status": "duplicate family; source fix present in v0.13.2",
+      "assessment": "Fable 5.1 signature mismatch is the same preserved-thinking family as #73. Current source explicitly includes Fable and pairs drop_block with the beta header plus a bounded strip-and-retry fallback.",
+      "evidence": [
+        "sidecar/providers/anthropic.js:111 includes claude-fable-5-1 and the Opus/Sonnet/Haiku variants; :116 defines the matching beta; :586/:617 provide bounded rescue.",
+        "Commit 214d74e9c is in v0.13.2 ancestry; RELEASE_NOTES.md:39 explicitly names #73 and #94.",
+        "test/provider.anthropic.thinking-binding.test.js passed (exit 0) in this investigation."
+      ],
+      "nextAction": "Group support handling with #73; ask reporter to retest v0.13.2 on the existing conversation and capture the sanitized outcome. Close only on adequate reproduction/installed recovery evidence.",
+      "limitations": "Source fix and release-tag inclusion verified; no installed desktop or live Anthropic/customer recovery verified.",
+      "dispositionRefreshed": false,
+      "githubStateAtRefresh": "OPEN",
+      "githubUpdatedAt": "2026-10-08T15:56:42Z",
+      "githubComments": 0,
+      "sourceDispositionReevaluatedAgainstNewCustomerEvidence": false,
+      "refreshMeaning": "Fresh GitHub metadata/comment review; no new updates since frozen snapshot. Existing source assessment preserved with scoped confirmation notes below."
+    },
+    {
+      "number": 93,
+      "title": "[Bug]: StarNet Managed linked but no models available — GPT-5.5 shown as unavailable",
+      "url": "https://github.com/androoAGI/starnet/issues/93",
+      "category": "Fix present; retest needed",
+      "status": "source fix present in v0.13.2",
+      "assessment": "Managed models unavailable had three concrete source defects: bare model IDs failed catalog mapping, the opening click closed CHOOSE MODEL, and desktop keychain initialization erased the Managed configured flag. All have source repairs in v0.13.2.",
+      "evidence": [
+        "Commits aaae9e8d7 and 96eb04808 are ancestors of v0.13.2.",
+        "frontend/app/modeldock.js:294 maps a bare ID only to a unique vendor/catalog row; source probe maps gpt-5.5 to openai/gpt-5.5.",
+        "frontend/app/harness.js:331/:338 preserve the sidecar's starnet configured state during desktop keychain rebuild.",
+        "test/managed-model-93.test.js passed 30 assertions; RELEASE_NOTES.md:31-32 describes both link persistence and catalog/picker repairs."
+      ],
+      "nextAction": "Verify the reporter's Intel Mac on v0.13.2 across restart: LINKED and balance present, managed provider selectable, CHOOSE MODEL remains open and one managed turn succeeds.",
+      "limitations": "No installed Intel Mac, funded account or customer recovery tested. Tag inclusion and source tests do not prove deployment or account health.",
+      "dispositionRefreshed": false,
+      "githubStateAtRefresh": "OPEN",
+      "githubUpdatedAt": "2026-10-08T07:33:58Z",
+      "githubComments": 0,
+      "sourceDispositionReevaluatedAgainstNewCustomerEvidence": false,
+      "refreshMeaning": "Fresh GitHub metadata/comment review; no new updates since frozen snapshot. Existing source assessment preserved with scoped confirmation notes below."
+    },
+    {
+      "number": 92,
+      "title": "[Bug]: ChatAPI Key won't reconnect",
+      "url": "https://github.com/androoAGI/starnet/issues/92",
+      "category": "Fix present; retest needed",
+      "status": "source fix present in v0.13.2",
+      "assessment": "This is expired ChatGPT sign-in, not a Chat API key failure. The reporter clarified that RECONNECT was text only; current source renders a reconnect button for a known-dead sign-in and directs recovery to StarNet instead of requiring Codex CLI.",
+      "evidence": [
+        "GitHub #92 comment identifies missing RECONNECT button and says Codex CLI is not installed; copying the station to another computer is only the reporter's refresh-token-reuse hypothesis.",
+        "frontend/app/stationui.js:5281/:5298 keeps OAuth sign-in available and labels dead state RECONNECT.",
+        "sidecar/providers/codex-auth-state.js:54 rewrites legacy guidance; sidecar/providers/codex-auth.js:216 uses in-app recovery.",
+        "78603dd51 is in v0.13.2 ancestry; codex-auth-state.test.js passed 34 assertions and settings-oauth-rows.test.js passed 55."
+      ],
+      "nextAction": "Have the affected user retest Settings > AI & MODELS > ChatGPT RECONNECT on v0.13.2, complete the in-app sign-in, restart and make a real turn; separately trace the SSH-target unhandledRejection only if it persists.",
+      "limitations": "Token reuse origin is unverified. No actual login, token refresh, desktop or customer recovery performed.",
+      "dispositionRefreshed": false,
+      "githubStateAtRefresh": "OPEN",
+      "githubUpdatedAt": "2026-10-08T20:37:01Z",
+      "githubComments": 1,
+      "sourceDispositionReevaluatedAgainstNewCustomerEvidence": false,
+      "refreshMeaning": "Fresh GitHub metadata/comment review; no new updates since frozen snapshot. Existing source assessment preserved with scoped confirmation notes below."
+    },
+    {
+      "number": 91,
+      "title": "[Bug] Windows 0.13.1 whole-station recovery capture aborts on unreadable shadow-Git reparse entry",
+      "url": "https://github.com/androoAGI/starnet/issues/91",
+      "category": "Partly addressed / mitigation",
+      "status": "partial-capture-source-present-complete-preservation-unproved",
+      "assessment": "Unreadable-entry skip/manifest remains. a20 connector fsync and preserved credential copies are a different store lifecycle; issue101/107 repairs do not restore unreadable checkpoint bytes.",
+      "evidence": [
+        "fd953e9d9",
+        "f9ff069b7",
+        "10a98eb44",
+        "test/station-recovery-unreadable.test.js: earlier 36 assertions",
+        "sidecar/station-recovery.js"
+      ],
+      "nextAction": "Use read-only diagnosis and nondestructive preservation of original checkpoint data; enumerate original/restored refs and records in isolated restore. Supply truthful partial-capture runbook.",
+      "limitations": "Original Windows reparse entry not inspected; no full-history or installed recovery claim. Do not prescribe GC/reinitialization/deletion as its resolution.",
+      "dispositionRefreshed": true,
+      "githubStateAtRefresh": "OPEN",
+      "githubUpdatedAt": "2026-10-08T01:51:30Z",
+      "githubComments": 0,
+      "sourceDispositionReevaluatedAgainstNewCustomerEvidence": false,
+      "refreshMeaning": "Fresh GitHub metadata/comment review; no new updates since frozen snapshot. Existing source assessment preserved with scoped confirmation notes below."
+    },
+    {
+      "number": 90,
+      "title": "Connecting Starnet to Claude",
+      "url": "https://github.com/androoAGI/starnet/issues/90",
+      "category": "Unresolved investigation",
+      "status": "Source diagnostic repair present; account rejection remains unresolved",
+      "assessment": "Existing error-cause preservation remains present. No real Anthropic account or model entitlement tested; do not interpret diagnostic repair as successful key acceptance.",
+      "evidence": [
+        "sidecar/providers/anthropic.js:161/:167 constructs x-api-key with no prefix allowlist; sidecar/index.js:23946 only strips whitespace/zero-width characters.",
+        "sidecar/index.js:24050 distinguishes model-list rejection status and :24056 handles fetch failure.",
+        "1fed42814 and b748ea005 repair status/cause reporting; 1fed42814 verified in v0.13.2 ancestry; RELEASE_NOTES.md:45 cites #90.",
+        "test/provider-key-check.test.js passed 29 assertions; the report itself says Anthropic directly rejected some keys with 401.",
+        "Existing1fed42814 and b748ea005 preserve401/403, network and other HTTP failures; provider-validate-rejected.http.test.js covers these source paths."
+      ],
+      "nextAction": "Retest installed validation; independently investigate manual-model gap only if /models succeeds empty while /messages actually succeeds.",
+      "limitations": "No affected key/account or live Anthropic call; successful model permissions remain provider/account-specific. Reporter app version unknown.",
+      "dispositionRefreshed": true,
+      "githubStateAtRefresh": "OPEN",
+      "githubUpdatedAt": "2026-10-08T01:46:15Z",
+      "githubComments": 0,
+      "sourceDispositionReevaluatedAgainstNewCustomerEvidence": false,
+      "refreshMeaning": "Fresh GitHub metadata/comment review; no new updates since frozen snapshot. Existing source assessment preserved with scoped confirmation notes below."
+    },
+    {
+      "number": 89,
+      "title": "[Bug]: Routine cannot use openrouter, complains about starnet provider instead (archlinux)",
+      "url": "https://github.com/androoAGI/starnet/issues/89",
+      "category": "Fix present; retest needed",
+      "status": "source fix present in v0.13.2",
+      "assessment": "Confirmed browser/Linux seam: chat sent the browser-local key per request while unattended routines resolved only station-held credentials. The fix stores a durable station copy and uses one credential resolver/error message across routines, Run Now and autonomy.",
+      "evidence": [
+        "sidecar/engine-credential.js:1 documents exact gap and durable WORKSPACES/.secrets/provider-keys.json store with readback, revision protection and removal tombstones.",
+        "sidecar/index.js:13790 implements /api/providers/engine-key; :2495 reads station-held page credentials.",
+        "dc2a6676b (and follow-up 11b963f4d) included in v0.13.2; dc2a6676b ancestry verified.",
+        "engine-credential.test.js passed 111 assertions; engine-key-sync.test.js passed 49; RELEASE_NOTES.md:50 cites #89."
+      ],
+      "nextAction": "Retest affected Linux browser station on 0.13.2, re-save key if needed, close browser, fire scheduled routine, restart sidecar and repeat. Verify removal actually revokes the unattended copy.",
+      "limitations": "No affected Arch/Linux installation or real OpenRouter call/restart recovery tested in this investigation.",
+      "dispositionRefreshed": false,
+      "githubStateAtRefresh": "OPEN",
+      "githubUpdatedAt": "2026-10-08T03:39:26Z",
+      "githubComments": 0,
+      "sourceDispositionReevaluatedAgainstNewCustomerEvidence": false,
+      "refreshMeaning": "Fresh GitHub metadata/comment review; no new updates since frozen snapshot. Existing source assessment preserved with scoped confirmation notes below."
+    },
+    {
+      "number": 88,
+      "title": "[Bug]: Image tools do not resolve against trusted project context, breaking cross-agent image hand-off",
+      "url": "https://github.com/androoAGI/starnet/issues/88",
+      "category": "Fix present; retest needed",
+      "status": "source-present-in-published-ancestry",
+      "assessment": "Project media resolver remains; a20 producer-location handoff 1428c8b11 strengthens line-to-line file references.",
+      "evidence": [
+        "63607af5c",
+        "694fbb880",
+        "127b6efc5",
+        "1428c8b11",
+        "test/media-project-placement.test.js: earlier 22 assertions",
+        "test/conveyor-image-handoff.test.js: earlier 14 assertions"
+      ],
+      "nextAction": "Retest original Creator to shared project to QA flow and cross-line producer path on installed app with read/write trust.",
+      "limitations": "Installed artifact acceptance and customer recovery remain unverified; GitHub issue remains open.",
+      "dispositionRefreshed": true,
+      "githubStateAtRefresh": "OPEN",
+      "githubUpdatedAt": "2026-10-07T20:43:27Z",
+      "githubComments": 0,
+      "sourceDispositionReevaluatedAgainstNewCustomerEvidence": false,
+      "refreshMeaning": "Fresh GitHub metadata/comment review; no new updates since frozen snapshot. Existing source assessment preserved with scoped confirmation notes below."
+    },
+    {
+      "number": 87,
+      "title": "[Bug]: Workflow and agent output is rendered as non-selectable text",
+      "url": "https://github.com/androoAGI/starnet/issues/87",
+      "category": "Fix present; retest needed",
+      "status": "release-fix-present; affected-user retest pending",
+      "assessment": "Selectable workflow/deliverable/dossier text and the no-op full-conversation button have direct fixes in v0.13.2. 'No files' remains valid when a workflow produced text only; this fix does not promise automatic report-file creation.",
+      "evidence": [
+        "GitHub #87: Windows v0.13.1, reported 2026-10-07, no later comments.",
+        "Commit bba85b23a changes frontend/css/app.css and frontend/app/deliverables.js; verified ancestor of v0.13.2.",
+        "frontend/css/app.css:635-640 restores user-select:text on terminal body prose while controls stay unselectable.",
+        "frontend/app/deliverables.js:467-479 uses ReturnStore.openWork to adopt an otherwise unknown workflow stream before opening it.",
+        "v0.13.2 release notes explicitly list #87.",
+        "Commit 3fb526707 adds source regression checks for selectable window prose and ReturnStore.openWork routing; covered by the earlier passing aggregate fast gate on 79a0592c; final candidate gate reported below.",
+        "test/selectable-windows-87.test.js is registered in fast.list; earlier full fast gate 79a0592c passed. No issue-specific installed/customer retest."
+      ],
+      "nextAction": "Retest the original Deep Dive + Review result in the installed v0.13.2 build: copy text in all three views, open its exact conversation, and distinguish rendered output from an explicitly saved file.",
+      "limitations": "Source and release ancestry checked; no fresh live app, installer, or reporter recovery proof.",
+      "dispositionRefreshed": false,
+      "githubStateAtRefresh": "OPEN",
+      "githubUpdatedAt": "2026-10-07T15:36:06Z",
+      "githubComments": 0,
+      "sourceDispositionReevaluatedAgainstNewCustomerEvidence": false,
+      "refreshMeaning": "Fresh GitHub metadata/comment review; no new updates since frozen snapshot. Existing source assessment preserved with scoped confirmation notes below."
+    },
+    {
+      "number": 86,
+      "title": "[Feature]: requesting ui upgrades",
+      "url": "https://github.com/androoAGI/starnet/issues/86",
+      "category": "Partly addressed / feature scope remains",
+      "status": "Desk assignment released and broader build UI integrated; shared-layout exchange and persistent personal presets still pending",
+      "assessment": "SELECT MOVES, THE HAND, copy/paste and declutter are integrated current behaviors. Unmerged portable shared-layout exchange deliberately omits authority and paid user assets; it is not the requested private preset shelf.",
+      "evidence": [
+        "fffbea9a2 desk assignment is in v0.13.2",
+        "docs/DECISIONS.md:186-190 current build contract",
+        "test/build-hand.test.js 137 and test/build-clip.test.js 178 assertions pass",
+        "05a5fe757/e0d1161af are not ancestors of a20"
+      ],
+      "nextAction": "Review old build-share against current combined-source import, room and line authority, then verify its limited file interchange behavior before integration. Define private named presets separately with own agent assignments and custom-asset references, missing-dependency preview and durable undo/backup. A community browser remains separate.",
+      "limitations": "No personal preset or paid asset restore live proof; do not equate portable layout sharing with the broader feature request.",
+      "dispositionRefreshed": true,
+      "githubStateAtRefresh": "OPEN",
+      "githubUpdatedAt": "2026-10-07T15:29:19Z",
+      "githubComments": 0,
+      "sourceDispositionReevaluatedAgainstNewCustomerEvidence": false,
+      "refreshMeaning": "Fresh GitHub metadata/comment review; no new updates since frozen snapshot. Existing source assessment preserved with scoped confirmation notes below."
+    },
+    {
+      "number": 85,
+      "title": "[Bug]: Quests",
+      "url": "https://github.com/androoAGI/starnet/issues/85",
+      "category": "Partly addressed / mitigation",
+      "status": "Release Quest Log mitigation present; affected station and history continuity retest still pending",
+      "assessment": "Quest Log recursion repair remains present. New declutter/work-thread behavior does not prove that the original history-unavailable symptom recovered.",
+      "evidence": [
+        "ee3d5853a release mechanism retained",
+        "test/declutter-recovery.test.js 19 and test/declutter-strips.test.js 52 pass for their display scenarios only"
+      ],
+      "nextAction": "Retest populated Quest Log while switching and sending in COMMS on the actual supported installed build. If history remains unavailable, capture its exact failing request/status after responsiveness is restored and investigate continuity separately.",
+      "limitations": "No customer station or original long-uptime trace; focused declutter checks do not reproduce #85.",
+      "dispositionRefreshed": true,
+      "githubStateAtRefresh": "OPEN",
+      "githubUpdatedAt": "2026-10-07T15:27:17Z",
+      "githubComments": 0,
+      "sourceDispositionReevaluatedAgainstNewCustomerEvidence": false,
+      "refreshMeaning": "Fresh GitHub metadata/comment review; no new updates since frozen snapshot. Existing source assessment preserved with scoped confirmation notes below."
+    },
+    {
+      "number": 84,
+      "title": "[Bug]: bug Copy  report",
+      "url": "https://github.com/androoAGI/starnet/issues/84",
+      "category": "Partly addressed / mitigation",
+      "status": "Related release mitigation retained; original copy-report/history failure remains uncorrelated",
+      "assessment": "Historic model/billing errors were classified and retired after clean runs. No new evidence links every history-loading failure to Quest Log recursion.",
+      "evidence": [
+        "Original #84/#85 shared-session correlation and ee3d5853a source evidence remain unchanged"
+      ],
+      "nextAction": "Retest alongside #85 without blind duplicate closure. Confirm obsolete quests clear after a clean run and read the actual history request status before changing provider behavior.",
+      "limitations": "No fresh failing endpoint or customer recovery evidence.",
+      "dispositionRefreshed": true,
+      "githubStateAtRefresh": "OPEN",
+      "githubUpdatedAt": "2026-10-07T15:21:37Z",
+      "githubComments": 0,
+      "sourceDispositionReevaluatedAgainstNewCustomerEvidence": false,
+      "refreshMeaning": "Fresh GitHub metadata/comment review; no new updates since frozen snapshot. Existing source assessment preserved with scoped confirmation notes below."
+    },
+    {
+      "number": 82,
+      "title": "[Bug]: web_fetch always fails with \"fetch failed\" (pinned DNS lookup ignores options.all)",
+      "url": "https://github.com/androoAGI/starnet/issues/82",
+      "category": "Fix present; retest needed",
+      "status": "source-present-in-published-ancestry",
+      "assessment": "options.all DNS callback behavior remains correct at a20; no new web-tool repair required.",
+      "evidence": [
+        "d1e3d43f3 ancestor of54899e5ff",
+        "sidecar/tools/builtin/web.js:484"
+      ],
+      "nextAction": "Run representative direct fetch/request with bundled Node on affected network, including IPv6-unavailable fallback.",
+      "limitations": "Installed artifact acceptance and customer recovery remain unverified; GitHub issue remains open.",
+      "dispositionRefreshed": true,
+      "githubStateAtRefresh": "OPEN",
+      "githubUpdatedAt": "2026-10-07T09:21:39Z",
+      "githubComments": 0,
+      "sourceDispositionReevaluatedAgainstNewCustomerEvidence": false,
+      "refreshMeaning": "Fresh GitHub metadata/comment review; no new updates since frozen snapshot. Existing source assessment preserved with scoped confirmation notes below."
+    },
+    {
+      "number": 81,
+      "title": "[Bug]: How should separate departmental Conveyors report to a central Overseer?",
+      "url": "https://github.com/androoAGI/starnet/issues/81",
+      "category": "Partly addressed / investigation remains",
+      "status": "Same-job aggregation and inter-line SEND TO integrated; independent department aggregation and customer file-scope report remain unproved",
+      "assessment": "JOINER combines one job; SEND TO starts another line job with its own crew/budget. Runtime SEND TO stop/drop/deleted-target receipts and worker parent-run batching are now integrated, not pending.",
+      "evidence": [
+        "081aecd06 and a783de82e are ancestors of a20",
+        "312499626/c6e6f5f0c batching is integrated",
+        "test/line-sendto.test.js 92 and test/conveyor-floor-integrity.test.js 82 assertions pass",
+        "frontend/app/workflowpanel.js:1116 and :1426"
+      ],
+      "nextAction": "Use COPY TO EACH plus JOINER for a single executive report; use SEND TO for sequential departments. For the missing file, set the INBOX Working folder and correlate actual fs.write and fs.read absolute-location receipts in the same trusted project. Verify late worker batching separately from conveyor aggregation.",
+      "limitations": "No customer departmental station or file receipts reproduced; source is not installer release or arbitrary independent-job aggregation proof.",
+      "dispositionRefreshed": true,
+      "githubStateAtRefresh": "OPEN",
+      "githubUpdatedAt": "2026-10-08T20:14:47Z",
+      "githubComments": 1,
+      "sourceDispositionReevaluatedAgainstNewCustomerEvidence": false,
+      "refreshMeaning": "Fresh GitHub metadata/comment review; no new updates since frozen snapshot. Existing source assessment preserved with scoped confirmation notes below."
+    },
+    {
+      "number": 79,
+      "title": "[Feature]: HINTS switch for the glossary hover bubbles; glossary-only hovers",
+      "url": "https://github.com/androoAGI/starnet/issues/79",
+      "category": "Fix present; retest needed",
+      "status": "merged and release-fix-present; retest pending",
+      "assessment": "The requested HINTS toggle and single glossary hover behavior are implemented, with backup persistence and agent settings support.",
+      "evidence": [
+        "PR #80 merged 2026-10-09 as 03f2cd14b; verified ancestor of v0.13.2.",
+        "frontend/app/stationui.js:114 defaults hints:true, :440-441 applies no-hints, :6951 exports it in backup, :7317 renders the checkbox.",
+        "frontend/app/hint.js:111 suppresses glossary display while no-hints is set.",
+        "frontend/app/tooltip.js:140-141 refuses a second station tip for data-hint controls.",
+        "Commit 6ced0f45d exposes preference to chat; v0.13.2 release notes explicitly list #79."
+      ],
+      "nextAction": "Ask for/update internal retest evidence covering immediate dismissal, restart persistence, backup round-trip and plain icon tooltips before closing.",
+      "limitations": "No fresh UI retest or customer confirmation.",
+      "dispositionRefreshed": false,
+      "githubStateAtRefresh": "OPEN",
+      "githubUpdatedAt": "2026-10-07T01:44:46Z",
+      "githubComments": 0,
+      "sourceDispositionReevaluatedAgainstNewCustomerEvidence": false,
+      "refreshMeaning": "Fresh GitHub metadata/comment review; no new updates since frozen snapshot. Existing source assessment preserved with scoped confirmation notes below."
+    },
+    {
+      "number": 77,
+      "title": "[Bug]:  Delegated agent cannot access shell execution after Workbench placement, blocking image transfer to trusted project",
+      "url": "https://github.com/androoAGI/starnet/issues/77",
+      "category": "Partly addressed / mitigation",
+      "status": "media-source-repair-shell-policy-gap",
+      "assessment": "Media authority remains repaired. New delegated builder lending enables one worker map/plan/build; it does not grant autonomous Ask-mode shell.",
+      "evidence": [
+        "63607af5c",
+        "c9724adbd",
+        "86b1ddc9c",
+        "sidecar/tools/builtin/orchestration.js"
+      ],
+      "nextAction": "Verify truthful withheld-shell explanation and project media handoff; explicit product decision required to change autonomous shell policy.",
+      "limitations": "Requested worker shell authority is intentionally absent. Builder lending does not satisfy that request.",
+      "dispositionRefreshed": true,
+      "githubStateAtRefresh": "OPEN",
+      "githubUpdatedAt": "2026-10-06T18:41:23Z",
+      "githubComments": 0,
+      "sourceDispositionReevaluatedAgainstNewCustomerEvidence": false,
+      "refreshMeaning": "Fresh GitHub metadata/comment review; no new updates since frozen snapshot. Existing source assessment preserved with scoped confirmation notes below."
+    },
+    {
+      "number": 76,
+      "title": "[Bug]: Resume Station doesnt work | Cant check account credit on website",
+      "url": "https://github.com/androoAGI/starnet/issues/76",
+      "category": "Partly addressed / mitigation",
+      "status": "Released Resume/link repairs and redirect source retained; deployment and account recovery unverified",
+      "assessment": "The deep frontend pass found no new proof of the affected account resuming or of deployed website sign-in aliases succeeding. Updater changes reviewed by root are distinct from managed-account Resume.",
+      "evidence": [
+        "5ed6e143b/36bbe8f8c Resume retry and link state fixes are release ancestors",
+        "website/_redirects contains sign-in/account aliases"
+      ],
+      "nextAction": "Retest installed Resume with the affected account and capture the precise failing sign-in URL and HTTP outcome. Verify deployed website aliases separately from desktop source ancestry; use official support channels for the community-support request.",
+      "limitations": "No affected-account access, successful deployment request or customer recovery proof in this lane.",
+      "dispositionRefreshed": true,
+      "githubStateAtRefresh": "OPEN",
+      "githubUpdatedAt": "2026-10-06T17:04:51Z",
+      "githubComments": 1,
+      "sourceDispositionReevaluatedAgainstNewCustomerEvidence": false,
+      "refreshMeaning": "Fresh GitHub metadata/comment review; no new updates since frozen snapshot. Existing source assessment preserved with scoped confirmation notes below."
+    },
+    {
+      "number": 73,
+      "title": "[Bug]: Anthropic 400 \"Invalid signature in thinking block\" on Sonnet 5.5 / Opus 5.5 (Haiku 4.5 unaffected)",
+      "url": "https://github.com/androoAGI/starnet/issues/73",
+      "category": "Fix present; retest needed",
+      "status": "source fix present in v0.13.2",
+      "assessment": "Preserved thinking binds to earlier context/tool definitions, which StarNet can change between turns. Source now pairs drop_block with the required beta, rescues mismatches once, preserves thinking order and uses Sonnet 5.5's between_tools OFF form. #94 is the same family.",
+      "evidence": [
+        "GitHub #73 comment adds distinct Sonnet OFF failure; sidecar/providers/anthropic.js:529 sends bare between_tools for Sonnet 5.5 OFF.",
+        "sidecar/providers/anthropic.js:111/:116 defines binding models/beta, :586/:617 handles one strip-and-retry rescue.",
+        "214d74e9c plus Haiku follow-up 9789f8a90 are ancestors of v0.13.2; RELEASE_NOTES.md:39 cites #73/#94.",
+        "test/provider.anthropic.thinking-binding.test.js passed (exit 0), covering binding mismatch and OFF behavior."
+      ],
+      "nextAction": "Retest original fresh-chat/tool and existing-conversation cases on installed v0.13.2 with Sonnet/Opus, including effort OFF where supported.",
+      "limitations": "No live Anthropic/customer installation tested; source tests and release ancestry are not customer recovery.",
+      "dispositionRefreshed": false,
+      "githubStateAtRefresh": "OPEN",
+      "githubUpdatedAt": "2026-10-06T12:44:45Z",
+      "githubComments": 1,
+      "sourceDispositionReevaluatedAgainstNewCustomerEvidence": false,
+      "refreshMeaning": "Fresh GitHub metadata/comment review; no new updates since frozen snapshot. Existing source assessment preserved with scoped confirmation notes below."
+    },
+    {
+      "number": 72,
+      "title": "[Feature]: StarNet for Android — pocket station for handhelds (AYN Thor, etc.)",
+      "url": "https://github.com/androoAGI/starnet/issues/72",
+      "category": "Feature / optimization",
+      "status": "Remote mobile slice exists; Android-local handheld product remains unimplemented",
+      "assessment": "v0.13.2 ancestry includes a Remote station/crew/session phone view and standalone PWA manifest. The requested local-first Android handheld harness, offline workspace/provider host and handheld-specific UI are broader than that companion.",
+      "evidence": [
+        "GitHub #72 requests an Android handheld build, local-first operation and core touch views.",
+        "README.md:67-79 and INSTALL.md:3-11 support public Windows/macOS installers only; Linux artifacts are internal/unofficial.",
+        "No Android target was found in the inspected package/desktop configuration.",
+        "GitHub #72 explicitly prioritizes core station/crew/COMMS before builder and offers AYN Thor testing.",
+        "ff50ad735 is an ancestor of v0.13.2; frontend/app/remoteview.js uses the desktop renderer and labels picture age.",
+        "ddd4cbcfa:relay/app/manifest.webmanifest has standalone portrait presentation; relay/README.md describes relay/phone separation.",
+        "ddd4cbcfa:INSTALL.md has no Android public target."
+      ],
+      "nextAction": "Use the contributor's offered AYN Thor testing to evaluate the current companion first: pairing, station pinch/zoom, crew, sessions/COMMS, touch text input and sleep/reconnect. Keep local Android execution as a separate design/implementation lane covering sidecar/runtime support, private local storage, process/tool authority and offline behavior; do not claim a Remote relay client satisfies 'no new cloud dependency' or local execution.",
+      "limitations": "No Android native/runtime prototype or actual handheld validation; remote access and local execution remain distinct.",
+      "dispositionRefreshed": false,
+      "githubStateAtRefresh": "OPEN",
+      "githubUpdatedAt": "2026-10-05T19:12:35Z",
+      "githubComments": 0,
+      "sourceDispositionReevaluatedAgainstNewCustomerEvidence": false,
+      "refreshMeaning": "Fresh GitHub metadata/comment review; no new updates since frozen snapshot. Existing source assessment preserved with scoped confirmation notes below."
+    },
+    {
+      "number": 70,
+      "title": "[Bug]: Kimi login only supports mainland China accounts",
+      "url": "https://github.com/androoAGI/starnet/issues/70",
+      "category": "Fix present; retest needed",
+      "status": "source fix present in v0.13.2",
+      "assessment": "Kimi previously hardcoded mainland OAuth/API hosts. Region-aware credentials now keep Global or China consistent across login, refresh, model catalog and inference while preserving legacy China sign-ins.",
+      "evidence": [
+        "sidecar/providers/kimi-region.js:19 defines both deployments; :35 reads persisted credential region and :51 aligns inference URL.",
+        "sidecar/index.js:24173 chooses region for a new sign-in; :24228 carries it in the credential; extra accounts keep their own region at :4643.",
+        "b84c9c3f0 is in v0.13.2 ancestry; test/kimi-region.test.js passed 48 assertions; RELEASE_NOTES.md:45 cites #70."
+      ],
+      "nextAction": "Retest Global region sign-in and a real tool turn on reporter's Apple Silicon Mac, restart and refresh to verify retained region.",
+      "limitations": "No affected global account, login, installed Mac or customer recovery exercised.",
+      "dispositionRefreshed": false,
+      "githubStateAtRefresh": "OPEN",
+      "githubUpdatedAt": "2026-10-05T15:32:42Z",
+      "githubComments": 0,
+      "sourceDispositionReevaluatedAgainstNewCustomerEvidence": false,
+      "refreshMeaning": "Fresh GitHub metadata/comment review; no new updates since frozen snapshot. Existing source assessment preserved with scoped confirmation notes below."
+    },
+    {
+      "number": 69,
+      "title": "[Bug]: Windows laggy after leaving starnet open",
+      "url": "https://github.com/androoAGI/starnet/issues/69",
+      "category": "Partly addressed / soak required",
+      "status": "Released pacing and additional nav-lag/cache work integrated; reported 24-hour memory growth still unproved",
+      "assessment": "The formerly pending nav-lag feature commits are all integrated. Focused current-source frame and static-cache checks pass, without proving the overnight WebView2 allocation complaint.",
+      "evidence": [
+        "7688999fa/37b595d21/b38ef4cf6 ancestors of a20",
+        "test/render-pacing.test.js 63 assertions",
+        "test/static-bake-guard.test.js 13 assertions"
+      ],
+      "nextAction": "Run a controlled installed WebView2 24-hour soak matching seven agents/eight routines, focused and unfocused, recording frame pace, private bytes, dedicated/shared GPU memory, resource counts and input latency. Correlate growth before proposing another pacing edit.",
+      "limitations": "No overnight native soak or customer profile; original memory-growth causality remains a reporter hypothesis.",
+      "dispositionRefreshed": true,
+      "githubStateAtRefresh": "OPEN",
+      "githubUpdatedAt": "2026-10-04T20:53:58Z",
+      "githubComments": 0,
+      "sourceDispositionReevaluatedAgainstNewCustomerEvidence": false,
+      "refreshMeaning": "Fresh GitHub metadata/comment review; no new updates since frozen snapshot. Existing source assessment preserved with scoped confirmation notes below."
+    },
+    {
+      "number": 68,
+      "title": "[Bug]: claudecode provider: per-run IDs in the system prompt defeat prompt caching, so ~40k tokens are re-written on every message",
+      "url": "https://github.com/androoAGI/starnet/issues/68",
+      "category": "Partly addressed / mitigation",
+      "status": "cache-prefix-source-present-persistent-cli-pr-open",
+      "assessment": "a20 keeps stable-prefix split, but still spawns CLI child per stream and replays growing transcript. PR103 remains unintegrated per root refresh.",
+      "evidence": [
+        "b6a9a5cfa",
+        "sidecar/providers/claude-cli.js",
+        "PR103 head9a1cd208cd523971812239db92270b6678aab68a"
+      ],
+      "nextAction": "Review PR103 session identity, cancellation, child lifetime, model/tool changes and delta usage accounting; compare identical cold/warm/multi-tool workloads.",
+      "limitations": "No new subscription measurements; reporter already tested PR103 for105, so it cannot close105.",
+      "dispositionRefreshed": true,
+      "githubStateAtRefresh": "OPEN",
+      "githubUpdatedAt": "2026-10-06T12:41:59Z",
+      "githubComments": 3,
+      "sourceDispositionReevaluatedAgainstNewCustomerEvidence": false,
+      "refreshMeaning": "Fresh GitHub metadata/comment review; no new updates since frozen snapshot. Existing source assessment preserved with scoped confirmation notes below."
+    },
+    {
+      "number": 67,
+      "title": "[Feature]: Available on ChromeOS",
+      "url": "https://github.com/androoAGI/starnet/issues/67",
+      "category": "Feature / optimization",
+      "status": "unsupported native platform request; existing remote client is a possible partial route",
+      "assessment": "ChromeOS remains outside the public Windows/macOS support matrix. The existing browser-based Remote companion is a candidate for access to an already-running desktop station, not a ChromeOS-local harness.",
+      "evidence": [
+        "GitHub #67 asks for a ChromeOS version with no failure reproduction.",
+        "README.md:74-79 and INSTALL.md:3-11 constrain supported public desktop targets to Windows/macOS.",
+        "GitHub #67 asks only for ChromeOS availability and provides no failing reproduction.",
+        "ddd4cbcfa:INSTALL.md:3-9 limits public installers to Windows and macOS.",
+        "ddd4cbcfa:relay/app/index.html and manifest.webmanifest provide the existing phone/browser client; sidecar/remote/host.js keeps work on the station."
+      ],
+      "nextAction": "Separate the two acceptance targets: first test current Remote pairing, station/sessions/COMMS and reconnect on a real Chromebook; independently scope a local ChromeOS/Linux-container host only if that is required. Record keyboard/touch, WebCrypto/secure origin, sleep/reconnect and file-opening results before naming ChromeOS supported.",
+      "limitations": "No Chromebook or container test; browser rendering does not establish device support.",
+      "dispositionRefreshed": false,
+      "githubStateAtRefresh": "OPEN",
+      "githubUpdatedAt": "2026-10-04T18:27:18Z",
+      "githubComments": 0,
+      "sourceDispositionReevaluatedAgainstNewCustomerEvidence": false,
+      "refreshMeaning": "Fresh GitHub metadata/comment review; no new updates since frozen snapshot. Existing source assessment preserved with scoped confirmation notes below."
+    },
+    {
+      "number": 66,
+      "title": "[Feature]: Scoop installer for Windows",
+      "url": "https://github.com/androoAGI/starnet/issues/66",
+      "category": "Feature / optimization",
+      "status": "existing community manifest; official package ownership remains open",
+      "assessment": "The linked Scoop manifest currently targets official v0.13.2 x64 installer with a hash and autoupdate template. No official Scoop workflow was found in current release/install sources.",
+      "evidence": [
+        "GitHub #66 links https://github.com/halr9000/scoop-bucket/blob/main/bucket/starnet.json .",
+        "Read-only GitHub API fetch shows manifest version 0.13.2, 64-bit official release installer URL, pinned hash and autoupdate URL.",
+        "Manifest install script removes HKCU/HKLM StarNet uninstall registration before invoking the NSIS installer with /S and /D; uninstall invokes bundled uninstall.exe.",
+        "No Scoop reference found in README.md, INSTALL.md, package.json or inspected release config.",
+        "GitHub #66 explicitly offers halr9000/scoop-bucket/bucket/starnet.json for use.",
+        "Read-only fresh GitHub content fetch on 2026-10-11: version 0.13.2; URL and hash pinned; installer script removes both StarNet registry uninstall keys then launches /S /D.",
+        "ddd4cbcfa:INSTALL.md:38 and :88 document Windows installer/upgrade path; targeted official README/INSTALL/workflow searches show no Scoop integration."
+      ],
+      "nextAction": "Review/adopt the existing manifest in an isolated Windows installation matrix: clean install, standalone-NSIS-to-Scoop migration, Scoop upgrade, in-app update coexistence, uninstall and preserved workspace data. Resolve its unconditional HKCU/HKLM StarNet uninstall-registration deletion before official ownership; tie any migration to the proven installation it owns. Verify downloaded signature and hash against the release. Do not run it on the user's current installation.",
+      "limitations": "Manifest inspected, never installed or executed; no official endorsement or compatibility proof.",
+      "dispositionRefreshed": false,
+      "githubStateAtRefresh": "OPEN",
+      "githubUpdatedAt": "2026-10-04T15:47:28Z",
+      "githubComments": 0,
+      "sourceDispositionReevaluatedAgainstNewCustomerEvidence": false,
+      "refreshMeaning": "Fresh GitHub metadata/comment review; no new updates since frozen snapshot. Existing source assessment preserved with scoped confirmation notes below."
+    },
+    {
+      "number": 65,
+      "title": "[Bug]: Restart from scratch",
+      "url": "https://github.com/androoAGI/starnet/issues/65",
+      "category": "Partly addressed / mitigation",
+      "status": "Reset feature released; recovery source repair awaiting native acceptance",
+      "assessment": "Desktop ERASE EVERYTHING supplies the requested reset action; ordinary uninstall intentionally leaves user data. The later Windows recovery regression #101 now has a source repair candidate with production-mode boot/restart proof. The original macOS packaged reset and cross-platform erase acceptance remain unverified.",
+      "evidence": [
+        "GitHub #65 reports reinstall preserving state on Apple Silicon macOS.",
+        "Commit cf36f21e6 adds frontend/app/datareset.js and src-tauri/src/erase_all.rs plus fresh-start host wiring; v0.13.2 ancestor.",
+        "frontend/app/stationui.js Settings App & Backup includes datareset control.",
+        "Commit 651dfed96 documents data locations and reset; release notes explicitly list #65."
+      ],
+      "nextAction": "Direct retest/documentation to desktop Settings -> App & Backup -> ERASE EVERYTHING. Verify the original Apple Silicon packaged build using a disposable station and confirm restart reaches first run while unrelated files remain untouched. Track #101 separately and verify legacy-data recovery cannot defeat the erase marker.",
+      "limitations": "No native erase action or macOS installer flow was performed. Synthetic production recovery and real isolated sidecar boot/restart proof for #101 do not establish native macOS or Windows erase UI acceptance.",
+      "dispositionRefreshed": false,
+      "githubStateAtRefresh": "OPEN",
+      "githubUpdatedAt": "2026-10-03T23:04:51Z",
+      "githubComments": 0,
+      "sourceDispositionReevaluatedAgainstNewCustomerEvidence": false,
+      "refreshMeaning": "Fresh GitHub metadata/comment review; no new updates since frozen snapshot. Existing source assessment preserved with scoped confirmation notes below."
+    },
+    {
+      "number": 62,
+      "title": "[Bug]: OpenRouter key never verifies, no error surfaced anywhere.",
+      "url": "https://github.com/androoAGI/starnet/issues/62",
+      "category": "Fix present; retest needed",
+      "status": "source fix present in v0.13.2",
+      "assessment": "The tunnel symptom has a specific source explanation: fixed server-port Origin validation rejected the browser's forwarded loopback port with a silent 403. Source admits the exact same loopback Origin/Host pair, exposes sanitized key-check failures and cleans pasted whitespace.",
+      "evidence": [
+        "sidecar/apiauth.js:38 explains forwarded localhost:9000 vs sidecar port mismatch; :44 isSameLoopbackOrigin requires exact Origin/Host match.",
+        "sidecar/index.js:463 logs refused API calls without secrets; :23946 cleans keys; :23947 logs validation failure cause.",
+        "99be50565 is in v0.13.2 ancestry; RELEASE_NOTES.md:45 cites #62.",
+        "test/provider-key-check.test.js passed 29 assertions; test/apiauth.test.js contains explicit port-forwarded regression coverage (not rerun in this lane)."
+      ],
+      "nextAction": "Retest the original Debian systemd/SSH-tunnel setup on 0.13.2, record /api/providers/validate HTTP status and sanitized result, then restart and confirm provider remains available.",
+      "limitations": "No original tunnel or account reproduced here. User's actual cause remains inferred from matching setup, not captured original request.",
+      "dispositionRefreshed": false,
+      "githubStateAtRefresh": "OPEN",
+      "githubUpdatedAt": "2026-10-02T10:22:29Z",
+      "githubComments": 0,
+      "sourceDispositionReevaluatedAgainstNewCustomerEvidence": false,
+      "refreshMeaning": "Fresh GitHub metadata/comment review; no new updates since frozen snapshot. Existing source assessment preserved with scoped confirmation notes below."
+    },
+    {
+      "number": 61,
+      "title": "[Bug]: Failed to connect to web during bot runs for verifications on tasks",
+      "url": "https://github.com/androoAGI/starnet/issues/61",
+      "category": "Fix present; retest needed",
+      "status": "release recovery implementation present; original incident unreproduced",
+      "assessment": "Station-owned orphan cleanup, temporary-profile fallback, explicit reset and better navigation-error classification now exist. The reporter's orphan/proxy failure was not reproduced and cannot be treated as definitively recovered.",
+      "evidence": [
+        "GitHub #61: v0.12.5 Windows, orphaned headless browser with non-listening proxy; original repro unavailable.",
+        "Commit 7d9b63d56 adds sidecar/tools/builtin/browser-orphans.js and healing in browser.js; v0.13.2 ancestor.",
+        "Commit 672a2fe98 exposes POST /api/browser/reset; aff855781 avoids falsely reporting a closed browser when none was open.",
+        "Commit 651dfed96 documents supported reset; v0.13.2 release notes explicitly list #61.",
+        "test/browser-orphans.test.js is included in the complete1121-step fast gate that passed on9f7ab4b4c."
+      ],
+      "nextAction": "Retest on installed v0.13.2 using the supported Reset Station Browser action; capture new launch/proxy/navigation failure cause if it persists. Never reuse historical PID4444 as current ownership proof.",
+      "limitations": "The original customer orphan state is unavailable. Focused fixtures cleaned only their own processes; the affected installed browser/proxy and customer recovery remain unverified.",
+      "dispositionRefreshed": false,
+      "githubStateAtRefresh": "OPEN",
+      "githubUpdatedAt": "2026-10-02T20:06:17Z",
+      "githubComments": 0,
+      "sourceDispositionReevaluatedAgainstNewCustomerEvidence": false,
+      "refreshMeaning": "Fresh GitHub metadata/comment review; no new updates since frozen snapshot. Existing source assessment preserved with scoped confirmation notes below."
+    },
+    {
+      "number": 60,
+      "title": "[Bug]: Project-scoped fs.write files are not visible to shell/Windows filesystem",
+      "url": "https://github.com/androoAGI/starnet/issues/60",
+      "category": "Fix present; retest needed",
+      "status": "project-binding-source-present-with-additional-parked-path-repair",
+      "assessment": "Earlier project-root writes/guidance remain. a20 contains4a4dc6908 parked output pointer and file-path search repair (gauntlet G1); current15c01f97b closes nested same-name exact-file edge.",
+      "evidence": [
+        "a4d99ad63",
+        "af5559568",
+        "4a4dc6908",
+        "test/project-parked-output.e2e.test.js",
+        "15c01f97bc930032f7a4e17c79d7481fa1be4ac8",
+        "test/fs.search-gitignore.test.js:77 assertions"
+      ],
+      "nextAction": "Verify saved INBOX/conversation project binding, shell/fs/downstream matching paths and exact-file search in installed workflow. Folder trust alone is not project binding.",
+      "limitations": "Installed artifact acceptance and customer recovery remain unverified; GitHub issue remains open.",
+      "dispositionRefreshed": true,
+      "githubStateAtRefresh": "OPEN",
+      "githubUpdatedAt": "2026-10-08T20:20:15Z",
+      "githubComments": 2,
+      "sourceDispositionReevaluatedAgainstNewCustomerEvidence": false,
+      "refreshMeaning": "Fresh GitHub metadata/comment review; no new updates since frozen snapshot. Existing source assessment preserved with scoped confirmation notes below."
+    },
+    {
+      "number": 59,
+      "title": "[Feature]: Delete Agent UI Improvement",
+      "url": "https://github.com/androoAGI/starnet/issues/59",
+      "category": "Fix present; retest needed",
+      "status": "source/release feature already present; retest pending",
+      "assessment": "DELETE AGENT is already a separate row at the bottom of CONFIG, outside collapsed APPEARANCE, matching the request.",
+      "evidence": [
+        "Commit d71530470 (2026-10-01) moves deletion to its own row; verified ancestor of v0.13.2.",
+        "frontend/app/stationui.js:2040-2056 defines agDeleteRow with visible deletion action and reason when disabled.",
+        "frontend/app/stationui.js:2616 documents deletion outside all groups; :3272 wires two-step confirmation.",
+        "GitHub #59 has no report of testing this newer placement."
+      ],
+      "nextAction": "Retest discoverability on the reporter's current version and close only once the separate CONFIG row is verified as visible. Preserve the overseer/last-agent restriction and archived-work semantics.",
+      "limitations": "No installed UI/reporter retest; author request may have been filed from an older build.",
+      "dispositionRefreshed": false,
+      "githubStateAtRefresh": "OPEN",
+      "githubUpdatedAt": "2026-10-01T17:03:08Z",
+      "githubComments": 0,
+      "sourceDispositionReevaluatedAgainstNewCustomerEvidence": false,
+      "refreshMeaning": "Fresh GitHub metadata/comment review; no new updates since frozen snapshot. Existing source assessment preserved with scoped confirmation notes below."
+    },
+    {
+      "number": 58,
+      "title": "[Bug]: Scheduled routine does not receive web_request despite Web & Browser being enabled",
+      "url": "https://github.com/androoAGI/starnet/issues/58",
+      "category": "Fix present; retest needed",
+      "status": "source-present-in-published-ancestry",
+      "assessment": "Toolset normalization/load-time repair and direct-domain web_request advertisement remain.",
+      "evidence": [
+        "44284394f",
+        "3e6587990",
+        "24cc5b60f",
+        "ed3efc9b0",
+        "6fb908d15",
+        "test/routine-toolsets.test.js: earlier52 assertions"
+      ],
+      "nextAction": "Retest pre-upgrade saved routine via Run Now and scheduler with both execution profiles.",
+      "limitations": "Installed artifact acceptance and customer recovery remain unverified; GitHub issue remains open.",
+      "dispositionRefreshed": true,
+      "githubStateAtRefresh": "OPEN",
+      "githubUpdatedAt": "2026-09-29T04:15:46Z",
+      "githubComments": 0,
+      "sourceDispositionReevaluatedAgainstNewCustomerEvidence": false,
+      "refreshMeaning": "Fresh GitHub metadata/comment review; no new updates since frozen snapshot. Existing source assessment preserved with scoped confirmation notes below."
+    },
+    {
+      "number": 57,
+      "title": "[Bug]: team_dispatch returns well-formed success results (runId, cost, duration, tokens) for calls that never reach the target agent",
+      "url": "https://github.com/androoAGI/starnet/issues/57",
+      "category": "Partly addressed / investigation remains",
+      "status": "Worker session and parent evidence UI integrated; original returned run IDs still need reconciliation",
+      "assessment": "Per-worker threads/evidence and foreground/background distinctions are implemented in current source. This pass also repaired parallel prompt loss, but did not correlate the customer run receipts.",
+      "evidence": [
+        "720f5438d/e0c115ac0/e30096700/9965269cd/c6e6f5f0c integrated in a20",
+        "test/delegated-threads.test.js 92 assertions",
+        "Real local lead question plus background worker approval passed; this is not original Telegram execution proof"
+      ],
+      "nextAction": "Replay exact Telegram lead -> named Strategist dispatch and match each returned runId to durable history, bound worker session, target Dossier and parent evidence. Preserve execution versus visibility distinctions and source versus installed-release status.",
+      "limitations": "Original absence of background registry entries never proved fabricated execution; exact customer receipt/dossier data remains unavailable.",
+      "dispositionRefreshed": true,
+      "githubStateAtRefresh": "OPEN",
+      "githubUpdatedAt": "2026-09-28T21:46:12Z",
+      "githubComments": 0,
+      "sourceDispositionReevaluatedAgainstNewCustomerEvidence": false,
+      "refreshMeaning": "Fresh GitHub metadata/comment review; no new updates since frozen snapshot. Existing source assessment preserved with scoped confirmation notes below."
+    },
+    {
+      "number": 55,
+      "title": "Expose live station status to the lead through the station bridge",
+      "url": "https://github.com/androoAGI/starnet/issues/55",
+      "category": "Fix present; retest needed",
+      "status": "independently implemented in release; PR reconciliation needed",
+      "assessment": "Read-only lead-only station.status now exposes the existing page snapshot with explicit refusal when no live page answers. PR56 is still open despite equivalent implementation landing separately.",
+      "evidence": [
+        "GitHub PR #56 remains OPEN as of investigation.",
+        "Commit dc9633bb0 implements #55 and credits contributor; verified ancestor of v0.13.2.",
+        "sidecar/tools/builtin/station.js:130-142 calls existing station.status bridge and returns REFUSED on unsuccessful answer.",
+        "sidecar/capability/registry.js:299-301 registers orchestrator, read, consent-free and deferred metadata.",
+        "v0.13.2 release notes explicitly say lead can read which sessions are busy (#55)."
+      ],
+      "nextAction": "Compare PR56 against dc9633bb0/current tool behavior and reconcile the stale PR without duplicating code. Retest lead call, no-page refusal and specialist exclusion.",
+      "limitations": "Relevant capability suites passed within the full fast gate. No issue-specific installed lead-to-page bridge acceptance or customer recovery was established; deferred tools still require discovery as intended.",
+      "dispositionRefreshed": false,
+      "githubStateAtRefresh": "OPEN",
+      "githubUpdatedAt": "2026-09-28T20:27:15Z",
+      "githubComments": 1,
+      "sourceDispositionReevaluatedAgainstNewCustomerEvidence": false,
+      "refreshMeaning": "Fresh GitHub metadata/comment review; no new updates since frozen snapshot. Existing source assessment preserved with scoped confirmation notes below."
+    },
+    {
+      "number": 53,
+      "title": "[Bug]: Credit Over Consumption On Simple Tasks",
+      "url": "https://github.com/androoAGI/starnet/issues/53",
+      "category": "Partly addressed / mitigation",
+      "status": "mitigation-source-present-original-charge-unexplained",
+      "assessment": "a20 retains default2USD managed per-run reserve; no budgetcaps adapter change resolves original charge accounting.",
+      "evidence": [
+        "65e281d15",
+        "sidecar/budgetcaps.js",
+        "test/budget-caps.test.js: earlier77 assertions"
+      ],
+      "nextAction": "Reconcile original sanitized run/provider/reservation/settlement/refund rows; test successful/error/cancel/restart settlement before accounting claims.",
+      "limitations": "No account data, paid calls, financial conclusion or customer recovery proof.",
+      "dispositionRefreshed": true,
+      "githubStateAtRefresh": "OPEN",
+      "githubUpdatedAt": "2026-09-27T22:36:20Z",
+      "githubComments": 0,
+      "sourceDispositionReevaluatedAgainstNewCustomerEvidence": false,
+      "refreshMeaning": "Fresh GitHub metadata/comment review; no new updates since frozen snapshot. Existing source assessment preserved with scoped confirmation notes below."
+    },
+    {
+      "number": 46,
+      "title": "Proposal: opt-in \"Claude Crew\" — Claude Code CLI sessions as floor crew (+ opt-in remote hosts for phone access)",
+      "url": "https://github.com/androoAGI/starnet/issues/46",
+      "category": "Feature / optimization",
+      "status": "partially-superseded-feature-proposal",
+      "assessment": "Claude CLI provider exists. a20 adds companion hear/speak/speech and relay reconnect behavior; this is distinct from original external Claude-session floor crew and arbitrary remote-host proposal.",
+      "evidence": [
+        "sidecar/providers/claude-cli.js",
+        "ddb6d413c",
+        "8509b61f1",
+        "sidecar/remote/host.js",
+        "sidecar/remote/voice.js"
+      ],
+      "nextAction": "Reconcile provider portion/stale PR41 separately; specify external crew and remote-host authority/security scope before treating original proposal implemented.",
+      "limitations": "No external crew fork integration or native phone/device acceptance. Companion source does not prove original proposal complete.",
+      "dispositionRefreshed": true,
+      "githubStateAtRefresh": "OPEN",
+      "githubUpdatedAt": "2026-10-02T04:03:20Z",
+      "githubComments": 4,
+      "sourceDispositionReevaluatedAgainstNewCustomerEvidence": false,
+      "refreshMeaning": "Fresh GitHub metadata/comment review; no new updates since frozen snapshot. Existing source assessment preserved with scoped confirmation notes below."
+    },
+    {
+      "number": 39,
+      "title": "[Bug]: after a sidecar restart the page keeps a stale API token — start-fresh button greys forever, and 403s surface as 'catalog offline' / 'Failed to fetch'",
+      "url": "https://github.com/androoAGI/starnet/issues/39",
+      "category": "Fix present; retest needed",
+      "status": "source/release fix present; PR superseded; recovery unconfirmed",
+      "assessment": "Stale-token failures now recover in place only for the exact forbidden-token response, replay once, and surface reload guidance if recovery fails. Start-fresh polling and the minor no-recovery retry path are also handled.",
+      "evidence": [
+        "PR #45 is CLOSED without merge, so its state is not evidence of incorporation.",
+        "Commit 92e76760a independently implements #39; merge 0c03a81d9; verified v0.13.2 ancestry.",
+        "frontend/app/harness.js:221-311 only matches exact forbidden token, shares one token refresh and bounds replay, otherwise notifies reload.",
+        "frontend/app/app.js:5573-5575 and :5661-5665 reload when a stale 403 survives recovery during recovery/start-fresh polling.",
+        "frontend/app/app.js:5601-5626 rechecks /api/lineage and says nothing recoverable instead of blindly reloading.",
+        "test/stale-token-recovery.test.js is included in the complete1121-step fast gate that passed on9f7ab4b4c."
+      ],
+      "nextAction": "Retest browser/manual sidecar restart, fresh start, save mutation, provider catalog and zero-recoverable state; preserve genuine authorization refusals unchanged. Then reconcile issue/closed PR with source fix.",
+      "limitations": "No fresh live restart, Linux container repro or customer recovery confirmation.",
+      "dispositionRefreshed": false,
+      "githubStateAtRefresh": "OPEN",
+      "githubUpdatedAt": "2026-09-23T10:10:02Z",
+      "githubComments": 0,
+      "sourceDispositionReevaluatedAgainstNewCustomerEvidence": false,
+      "refreshMeaning": "Fresh GitHub metadata/comment review; no new updates since frozen snapshot. Existing source assessment preserved with scoped confirmation notes below."
+    },
+    {
+      "number": 28,
+      "title": "[Bug]: Poor integration between main agent and updating summoned agent's instructions and also poor support for configuring bays via agent chat",
+      "url": "https://github.com/androoAGI/starnet/issues/28",
+      "category": "Unresolved customer-path investigation",
+      "status": "Builder lending, publication and routing repairs integrated; original Telegram line and Drive/PDF delivery still require replay",
+      "assessment": "The formerly pending builder-lend/runtime/worker-session changes now exist in a20, including exact-floor publication. These mechanisms do not establish the original external Telegram-to-conveyor-to-Drive path.",
+      "evidence": [
+        "691aa23b5/a783de82e/720f5438d ancestors of a20",
+        "dd731e1a1 exact built-floor publication repair included in combined baseline",
+        "Current frontend line and copy checks pass as listed in coverage.json"
+      ],
+      "nextAction": "Replay Telegram -> INBOX -> named bays against the current combined candidate, distinguishing team.dispatch from actual conveyor execution. Trace actual Drive/PDF delivery separately. Validate summoned-agent instructions and per-job builder authority at the exact failing handoff.",
+      "limitations": "No external Telegram message, Drive upload or original customer station tested.",
+      "dispositionRefreshed": true,
+      "githubStateAtRefresh": "OPEN",
+      "githubUpdatedAt": "2026-10-06T12:29:03Z",
+      "githubComments": 3,
+      "sourceDispositionReevaluatedAgainstNewCustomerEvidence": false,
+      "refreshMeaning": "Fresh GitHub metadata/comment review; no new updates since frozen snapshot. Existing source assessment preserved with scoped confirmation notes below."
+    },
+    {
+      "number": 20,
+      "title": "[Bug]: Ollama agent runs complete with 0 tool calls despite File Cabinet tools being available",
+      "url": "https://github.com/androoAGI/starnet/issues/20",
+      "category": "Fix present; retest needed",
+      "status": "source fix present in v0.13.0; independent reporter confirms",
+      "assessment": "The silent context truncation defect was fixed by native Ollama /api/chat with request-sized num_ctx and truncate:false. An independent issue commenter measured no truncation and fs tool calls on v0.13.0; original reporter recovery remains unconfirmed.",
+      "evidence": [
+        "0e25b955f is an ancestor of v0.13.0; qa/bugs/678ac951-ollama-task-runs-finish-without-reported-filesys.md records before/after live Ollama proof.",
+        "sidecar/providers/registry.js:579 enables nativeOllama; sidecar/providers/ollama-native.js:106 requests truncate:false and options.num_ctx.",
+        "GitHub #20 comment: v0.12.5 default prompt truncation 70/70 and fs calls 0/30; v0.13.0 prompt truncation 0/194 and fs calls 30/30, completed files 22/30.",
+        "test/provider.ollama-native.test.js passed 80 assertions in this investigation; PR #30 earlier added mock-provider projection coverage without claiming original recovery."
+      ],
+      "nextAction": "Record independent confirmation in the durable bug record; request original reporter retest before treating their station as recovered. Keep #99 separate. Investigate residual llama3.1 template/tool-result limitations as a separate issue if reproduced.",
+      "limitations": "Independent test used its own Windows/Ollama setup; original customer's installer/run not inspected. Correct tool delivery does not guarantee every small-model task succeeds.",
+      "dispositionRefreshed": false,
+      "githubStateAtRefresh": "OPEN",
+      "githubUpdatedAt": "2026-10-05T15:39:32Z",
+      "githubComments": 1,
+      "sourceDispositionReevaluatedAgainstNewCustomerEvidence": false,
+      "refreshMeaning": "Fresh GitHub metadata/comment review; no new updates since frozen snapshot. Existing source assessment preserved with scoped confirmation notes below."
+    },
+    {
+      "number": 15,
+      "title": "[Feature]: Station Templates, Community Gallery & AI-Assisted Station Building",
+      "url": "https://github.com/androoAGI/starnet/issues/15",
+      "category": "Partly addressed / feature scope remains",
+      "status": "Released lead builder plus integrated scoped worker lending; broader gallery and area authority remain partial",
+      "assessment": "a20 includes the formerly pending builder-lend and worker-thread branches. Per-job station.map/plan/build lending is implemented; unmerged layout exchange, persistent area construction and community gallery remain distinct.",
+      "evidence": [
+        "86b1ddc9c and 691aa23b5 are ancestors of a20",
+        "312499626/c6e6f5f0c worker-attributed/shared-broker asks are ancestors of a20",
+        "05a5fe757/e0d1161af build-share are not ancestors of a20"
+      ],
+      "nextAction": "Validate current combined-source specialist discovery, foreground/background/resume, Commander approval attribution and refusal when the lead lacks builder authority. Keep the grant one worker/one job. Reconcile the old shared-layout branch against current authority before integration; scope gallery, persistent area authority and private presets separately.",
+      "limitations": "No new natural borrowed-builder live acceptance in this frontend fixture; controlled question navigation does not prove autonomous questions or installed delivery.",
+      "dispositionRefreshed": true,
+      "githubStateAtRefresh": "OPEN",
+      "githubUpdatedAt": "2026-10-11T05:36:37Z",
+      "githubComments": 3,
+      "sourceDispositionReevaluatedAgainstNewCustomerEvidence": false,
+      "refreshMeaning": "Fresh GitHub metadata/comment review; no new updates since frozen snapshot. Existing source assessment preserved with scoped confirmation notes below."
+    }
+  ],
+  "openDispositionCategoryCounts": {
+    "Repair candidate": 4,
+    "Unresolved investigation": 4,
+    "Feature / optimization": 7,
+    "Fix present; retest needed": 19,
+    "Partly addressed / mitigation": 8,
+    "Partly addressed / feature scope remains": 2,
+    "Partly addressed / investigation remains": 2,
+    "Partly addressed / soak required": 1,
+    "Unresolved customer-path investigation": 1
+  },
+  "closedIssueReview": [
+    {
+      "number": 50,
+      "url": "https://github.com/androoAGI/starnet/issues/50",
+      "classification": "maintainer-shipment-claim",
+      "evidence": "69e230908 / v0.12.5 claimed; no reporter retest.",
+      "relatedIssues": [
+        77
+      ],
+      "retest": "Routine comment false-positive and worker shell authority differ.",
+      "evidenceUrl": "https://github.com/androoAGI/starnet/issues/50#issuecomment-5903878483",
+      "originalDefectShippedFixRecoveryConfirmed": false,
+      "title": "[Bug]: Windows 0.12.4 rejects Node routine when source comment contains \"write\"",
+      "closedAt": "2026-09-30T04:11:46Z",
+      "stateReason": "COMPLETED"
+    },
+    {
+      "number": 49,
+      "url": "https://github.com/androoAGI/starnet/issues/49",
+      "classification": "declined-feature",
+      "evidence": "NOT_PLANNED; custom MCP suggested.",
+      "relatedIssues": [],
+      "retest": "Product decision, not customer recovery.",
+      "evidenceUrl": "https://github.com/androoAGI/starnet/issues/49#issuecomment-5903884785",
+      "originalDefectShippedFixRecoveryConfirmed": false,
+      "title": "Idea: optional Adam Network channel for agent-to-agent messaging",
+      "closedAt": "2026-09-30T04:12:24Z",
+      "stateReason": "NOT_PLANNED"
+    },
+    {
+      "number": 40,
+      "url": "https://github.com/androoAGI/starnet/issues/40",
+      "classification": "test-only-fix-claim",
+      "evidence": "4847acd67 claimed; no contributor retest.",
+      "relatedIssues": [],
+      "retest": "Missing-Python test gate is not installed macOS failure.",
+      "evidenceUrl": "https://github.com/androoAGI/starnet/issues/40#issuecomment-5859844605",
+      "originalDefectShippedFixRecoveryConfirmed": false,
+      "title": "[Bug]: desktop-build-macos-notarization fails as 'expected 0, got null' when python3 is absent instead of host-gating",
+      "closedAt": "2026-09-27T21:08:51Z",
+      "stateReason": "COMPLETED"
+    },
+    {
+      "number": 38,
+      "url": "https://github.com/androoAGI/starnet/issues/38",
+      "classification": "test-only-fix-claim",
+      "evidence": "PR52 controllable-clock fix claimed; no reporter retest.",
+      "relatedIssues": [],
+      "retest": "No microphone or speech recovery established.",
+      "evidenceUrl": "https://github.com/androoAGI/starnet/issues/38#issuecomment-5903879742",
+      "originalDefectShippedFixRecoveryConfirmed": false,
+      "title": "[Bug]: voice.button.test is flaky under suite load — 4200ms wall-clock wait against a 4s cool-off",
+      "closedAt": "2026-09-30T04:11:53Z",
+      "stateReason": "COMPLETED"
+    },
+    {
+      "number": 32,
+      "url": "https://github.com/androoAGI/starnet/issues/32",
+      "classification": "reporter-confirmed-workaround",
+      "evidence": "Reporter says OFF to LOW makes agent run normally; no shipped-fix confirmation.",
+      "relatedIssues": [
+        73,
+        94
+      ],
+      "retest": "Retest supported effort settings; later signature failures are not established duplicates.",
+      "evidenceUrl": "https://github.com/androoAGI/starnet/issues/32#issuecomment-5784843077",
+      "originalDefectShippedFixRecoveryConfirmed": false,
+      "title": "[Bug]: \"thinking.type.disabled\" not supported for Claude Opus 5.5 (persists on v0.12.4)",
+      "closedAt": "2026-09-23T17:40:20Z",
+      "stateReason": "COMPLETED"
+    },
+    {
+      "number": 31,
+      "url": "https://github.com/androoAGI/starnet/issues/31",
+      "classification": "reporter-confirmed-workaround",
+      "evidence": "Ordinary reinstall/cache rename failed; administrator launch worked (body). No fix explanation.",
+      "relatedIssues": [
+        69
+      ],
+      "retest": "Historical Windows startup overlap; ordinary-user installed acceptance needed. Long-uptime #69 differs.",
+      "evidenceUrl": "https://github.com/androoAGI/starnet/issues/31",
+      "originalDefectShippedFixRecoveryConfirmed": false,
+      "title": "[Bug]: Silent startup freeze, fixed only by running as administrator (WebView2 Manager spins, no window ever appears)",
+      "closedAt": "2026-09-23T17:40:34Z",
+      "stateReason": "COMPLETED"
+    },
+    {
+      "number": 27,
+      "url": "https://github.com/androoAGI/starnet/issues/27",
+      "classification": "documentation-correction-claim",
+      "evidence": "Maintainer says release description corrected.",
+      "relatedIssues": [
+        67,
+        72
+      ],
+      "retest": "Not Linux platform support.",
+      "evidenceUrl": "https://github.com/androoAGI/starnet/issues/27#issuecomment-5903890074",
+      "originalDefectShippedFixRecoveryConfirmed": false,
+      "title": "[Bug]: starnet-releases description advertises Linux, but no Linux assets or linux-x86_64 updater entry exist",
+      "closedAt": "2026-09-30T04:12:55Z",
+      "stateReason": "COMPLETED"
+    },
+    {
+      "number": 26,
+      "url": "https://github.com/androoAGI/starnet/issues/26",
+      "classification": "no-recovery-evidence",
+      "evidence": "Detailed v0.12.4 packaging measurements; no comments or fix claim.",
+      "relatedIssues": [],
+      "retest": "Current installer duplicate-resource acceptance remains separate from startup.",
+      "evidenceUrl": "https://github.com/androoAGI/starnet/issues/26",
+      "originalDefectShippedFixRecoveryConfirmed": false,
+      "title": "[Bug]: Staged frontend art appears to ship twice in the installer (~280 MB duplicated)",
+      "closedAt": "2026-09-23T17:40:39Z",
+      "stateReason": "COMPLETED"
+    },
+    {
+      "number": 25,
+      "url": "https://github.com/androoAGI/starnet/issues/25",
+      "classification": "closed-feature-no-acceptance",
+      "evidence": "No explanatory comment or reporter acceptance.",
+      "relatedIssues": [
+        60,
+        81
+      ],
+      "retest": "Retest persisted Working folder and actual cross-stage paths.",
+      "evidenceUrl": "https://github.com/androoAGI/starnet/issues/25",
+      "originalDefectShippedFixRecoveryConfirmed": false,
+      "title": "[Feature]: Workflow in Trusted Project",
+      "closedAt": "2026-09-22T19:56:47Z",
+      "stateReason": "COMPLETED"
+    },
+    {
+      "number": 24,
+      "url": "https://github.com/androoAGI/starnet/issues/24",
+      "classification": "maintainer-shipment-claim",
+      "evidence": "Reporter extended failure to direct Media Studio; maintainer claims stale-provider fix in v0.12.5; no subsequent recovery.",
+      "relatedIssues": [
+        98,
+        53
+      ],
+      "retest": "Compare effective provider across direct/delegated/media/workflow/restored runs; no charge-causality proof.",
+      "evidenceUrl": "https://github.com/androoAGI/starnet/issues/24#issuecomment-5903879012",
+      "originalDefectShippedFixRecoveryConfirmed": false,
+      "title": "[Bug]: BYOK OpenRouter works for direct agent calls but delegated runs fail “Out of managed credit”",
+      "closedAt": "2026-09-30T04:11:48Z",
+      "stateReason": "COMPLETED"
+    },
+    {
+      "number": 19,
+      "url": "https://github.com/androoAGI/starnet/issues/19",
+      "classification": "maintainer-shipment-claim",
+      "evidence": "Reporter switched to OpenRouter; no successful Gemini retest. v0.12.5 catalog fix claimed.",
+      "relatedIssues": [
+        98
+      ],
+      "retest": "Catalog availability and runtime routing differ.",
+      "evidenceUrl": "https://github.com/androoAGI/starnet/issues/19#issuecomment-5903879307",
+      "originalDefectShippedFixRecoveryConfirmed": false,
+      "title": "[Feature]: Support models/gemini-3.1-pro-preview",
+      "closedAt": "2026-09-30T04:11:50Z",
+      "stateReason": "COMPLETED"
+    },
+    {
+      "number": 18,
+      "url": "https://github.com/androoAGI/starnet/issues/18",
+      "classification": "source-ancestry-and-shipment-claim",
+      "evidence": "Independent commenter verifies source ancestry; v0.12.4 shipment claimed. No original reporter recovery.",
+      "relatedIssues": [],
+      "retest": "Retest interactive continuations vs scheduled origin; separate from current style-memory ordering.",
+      "evidenceUrl": "https://github.com/androoAGI/starnet/issues/18#issuecomment-5859844407",
+      "originalDefectShippedFixRecoveryConfirmed": false,
+      "title": "[Bug]: Cannot rate interactive replies in a conversation containing scheduled routine activity",
+      "closedAt": "2026-09-27T21:08:50Z",
+      "stateReason": "COMPLETED"
+    },
+    {
+      "number": 17,
+      "url": "https://github.com/androoAGI/starnet/issues/17",
+      "classification": "maintainer-shipment-claim",
+      "evidence": "Reporter thanks peer advice; no measured recovery. 5acf4640f / v0.12.4 claimed.",
+      "relatedIssues": [
+        99,
+        20,
+        105
+      ],
+      "retest": "Retest actual model/hardware; prompt limits do not establish all latency/spending outcomes.",
+      "evidenceUrl": "https://github.com/androoAGI/starnet/issues/17#issuecomment-5859844248",
+      "originalDefectShippedFixRecoveryConfirmed": false,
+      "title": "[Bug]: Main agent: complex overuse of information",
+      "closedAt": "2026-09-27T21:08:48Z",
+      "stateReason": "COMPLETED"
+    },
+    {
+      "number": 14,
+      "url": "https://github.com/androoAGI/starnet/issues/14",
+      "classification": "closed-without-explanation",
+      "evidence": "NOT_PLANNED; no comment or rationale. Direct delegation worked, Telegram did not.",
+      "relatedIssues": [
+        57,
+        28
+      ],
+      "retest": "Retest current owner-channel capability contract; closure proves neither intentional current policy nor fix.",
+      "evidenceUrl": "https://github.com/androoAGI/starnet/issues/14",
+      "originalDefectShippedFixRecoveryConfirmed": false,
+      "title": "[Bug]: Telegram-bound orchestrator does not expose `team.dispatch`",
+      "closedAt": "2026-09-11T21:22:02Z",
+      "stateReason": "NOT_PLANNED"
+    },
+    {
+      "number": 13,
+      "url": "https://github.com/androoAGI/starnet/issues/13",
+      "classification": "no-recovery-evidence",
+      "evidence": "Direct specialist CRM read/write worked; delegated MCP tools absent. No comments.",
+      "relatedIssues": [
+        77,
+        58
+      ],
+      "retest": "Skill approval, MCP discovery and shell authority are distinct contexts; compare direct/delegated capabilities.",
+      "evidenceUrl": "https://github.com/androoAGI/starnet/issues/13",
+      "originalDefectShippedFixRecoveryConfirmed": false,
+      "title": "[Bug]: Delegated agent cannot access MCP connector tools available in live session",
+      "closedAt": "2026-09-11T20:18:08Z",
+      "stateReason": "COMPLETED"
+    },
+    {
+      "number": 12,
+      "url": "https://github.com/androoAGI/starnet/issues/12",
+      "classification": "reporter-confirmed-workaround",
+      "evidence": "Manual OpenRouter selection worked; automatic fallback failed. No comments or fix claim.",
+      "relatedIssues": [
+        98
+      ],
+      "retest": "Retest quota-triggered provider/model/credential consistency and downstream calls.",
+      "evidenceUrl": "https://github.com/androoAGI/starnet/issues/12",
+      "originalDefectShippedFixRecoveryConfirmed": false,
+      "title": "[Bug]: Cross-provider fallback keeps Codex provider when switching to OpenRouter model",
+      "closedAt": "2026-09-11T20:18:07Z",
+      "stateReason": "COMPLETED"
+    },
+    {
+      "number": 11,
+      "url": "https://github.com/androoAGI/starnet/issues/11",
+      "classification": "reporter-confirmed-feature-discovery",
+      "evidence": "Reporter discovered existing /steer command.",
+      "relatedIssues": [],
+      "retest": "Does not verify pending/delivered steering telemetry or delegated steering.",
+      "evidenceUrl": "https://github.com/androoAGI/starnet/issues/11#issuecomment-5575627980",
+      "originalDefectShippedFixRecoveryConfirmed": false,
+      "title": "[Feature]: Allow steering prompts while the commander is working",
+      "closedAt": "2026-09-07T21:05:42Z",
+      "stateReason": "COMPLETED"
+    },
+    {
+      "number": 10,
+      "url": "https://github.com/androoAGI/starnet/issues/10",
+      "classification": "superseded-feature-claim",
+      "evidence": "Maintainer says built-in OAuth client superseded pasted credentials since v0.11.0; no reporter retest.",
+      "relatedIssues": [],
+      "retest": "Check legacy custom-credential migration; not proof of connector calls.",
+      "evidenceUrl": "https://github.com/androoAGI/starnet/issues/10#issuecomment-5903880911",
+      "originalDefectShippedFixRecoveryConfirmed": false,
+      "title": "[Feature]: Make google email API keys removeable",
+      "closedAt": "2026-09-30T04:12:00Z",
+      "stateReason": "COMPLETED"
+    },
+    {
+      "number": 6,
+      "url": "https://github.com/androoAGI/starnet/issues/6",
+      "classification": "maintainer-shipment-claim-with-persistent-followups",
+      "evidence": "BYOK credit-gate v0.10.13 fix claimed; later key/provider errors remain. Thank-you replies are not recovery.",
+      "relatedIssues": [
+        76,
+        90,
+        62,
+        98
+      ],
+      "retest": "Split original credit gate from validation/routing symptoms; not charge proof.",
+      "evidenceUrl": "https://github.com/androoAGI/starnet/issues/6#issuecomment-5903877990",
+      "originalDefectShippedFixRecoveryConfirmed": false,
+      "title": "[Bug]: Stuck on agent resume screen",
+      "closedAt": "2026-09-30T04:11:43Z",
+      "stateReason": "COMPLETED"
+    },
+    {
+      "number": 5,
+      "url": "https://github.com/androoAGI/starnet/issues/5",
+      "classification": "maintainer-shipment-claim",
+      "evidence": "v0.10.13 OAuth/transport fixes claimed; no live Wix account test or reporter recovery.",
+      "relatedIssues": [],
+      "retest": "Actual connector read and reauthentication remain separate; no established Higgsfield match.",
+      "evidenceUrl": "https://github.com/androoAGI/starnet/issues/5#issuecomment-5532080134",
+      "originalDefectShippedFixRecoveryConfirmed": false,
+      "title": "[Bug]: Gmail OAuth reports connected but tool calls return 401; Wix OAuth times out on tools/list",
+      "closedAt": "2026-08-27T06:29:34Z",
+      "stateReason": "COMPLETED"
+    },
+    {
+      "number": 2,
+      "url": "https://github.com/androoAGI/starnet/issues/2",
+      "classification": "maintainer-shipment-claim",
+      "evidence": "v0.10.13 restart/link recovery claimed; limited Apple Silicon coverage admitted; no reporter retest.",
+      "relatedIssues": [
+        76,
+        101,
+        65
+      ],
+      "retest": "Preserve data; different platform/trigger from Windows empty-shell startup.",
+      "evidenceUrl": "https://github.com/androoAGI/starnet/issues/2#issuecomment-5532080331",
+      "originalDefectShippedFixRecoveryConfirmed": false,
+      "title": "[Bug]:",
+      "closedAt": "2026-08-27T06:29:29Z",
+      "stateReason": "COMPLETED"
+    },
+    {
+      "number": 1,
+      "url": "https://github.com/androoAGI/starnet/issues/1",
+      "classification": "closed-feature-no-acceptance",
+      "evidence": "No comments, implementation claim or reporter acceptance.",
+      "relatedIssues": [
+        5,
+        13
+      ],
+      "retest": "Custom MCP OAuth discovery/login/refresh requires separate acceptance.",
+      "evidenceUrl": "https://github.com/androoAGI/starnet/issues/1",
+      "originalDefectShippedFixRecoveryConfirmed": false,
+      "title": "[Feature]:",
+      "closedAt": "2026-08-27T06:29:37Z",
+      "stateReason": "COMPLETED"
+    }
+  ],
+  "scopedPositiveEvidence": [
+    {
+      "number": 20,
+      "url": "https://github.com/androoAGI/starnet/issues/20#issuecomment-5997806336",
+      "type": "Independent installed-version experiment",
+      "claim": "On Windows 11, RX 9070 XT 16 GB, Ollama 0.35.1 and qwen3:8b Q4_K_M, independent contributor measured v0.13.0 default: 0/194 truncated prompts, 30/30 file-task tool calls and 22/30 completed file tasks. v0.12.5 default measured 70/70 truncation and 0/30 tool calls/file completions.",
+      "limit": "Prompt truncation/tool availability recovery for this setup only; not all file tasks, original reporter recovery, or resolution of #99/#102."
+    },
+    {
+      "number": 46,
+      "url": "https://github.com/androoAGI/starnet/issues/46#issuecomment-5945387986",
+      "type": "Contributor-installed fork evidence",
+      "claim": "Contributor reports own merged v0.12.5 fork retains Claude CLI provider/settings over relaunch and completes text/tool turns.",
+      "limit": "Own fork, not official 0.13.x release recovery or Android handheld product acceptance."
+    }
+  ],
+  "channelCoverage": {
+    "github": "70 issue bodies and all returned comments; paginated lifecycle events reviewed.",
+    "gmail": {
+      "ownerThread": "01a12ce1-53da-7a50-a7f8-12fccba769e6",
+      "status": "Full mailbox intake owned by separate chat; this handoff uses coordinator-provided provisional families only."
+    },
+    "whop": {
+      "ownerThread": "01a12ce2-3a44-7550-ad58-becef25f2099",
+      "status": "Coordinator owns access/intake; no Whop coverage claimed here."
+    },
+    "privateNativeHandoff": "Reserved to coordinator; attachments neither read nor executed."
+  }
+}
