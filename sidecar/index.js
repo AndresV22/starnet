@@ -259,6 +259,7 @@ const LineJobs = require('./routing/linejobs.js');   // WORKFLOWS — every job 
 const LineDraft = require('./routing/linedraft.js');   // WORKFLOWS › SET IT UP FOR ME — "what should it make?" → a starter, a name, each step's instructions (/api/routing/line-draft)
 const LineFix = require('./routing/linefix.js');   // NOT RIGHT? — a result the Commander doesn't want → fixes to the line's step instructions (/api/routing/fix-suggest)
 const { lineStats: foldLineStats } = require('./routing/line-stats.js');   // LINE WATCH: per-line runs/shipped/failed/$ + each bay's last outcome (GET /api/routing/lines/stats)
+const { makeLineShipments, validateShipments, loadShipmentReceipts } = require('./routing/line-shipments.js');
 const { makeLineSpend } = require('./routing/line-spend.js');   // per-line DAY spend ledger (LINE BUDGET maxUsdPerDay) — durable sibling of routing.plan.json
 const LineTriggers = require('./routing/triggers.js');   // LINE TRIGGERS (2026-09-23): folder/webhook events that start ONE line
 const { makeTriggerRunner, crewedDocksOnLine } = require('./routing/trigger-runner.js');
@@ -5288,6 +5289,25 @@ const lineSpend = makeLineSpend({
   load: () => lineSpendStore.load().value,
   save: v => { try { lineSpendStore.save(v); } catch (e) { console.warn('[line-spend] persist failed:', (e && e.message) || e); } }
 });
+/* SHIPPED is durable terminal-job evidence, independent of later floor edits.
+   Older runs have no receipt and are never reconstructed into guessed shipments. */
+const lineShipmentStore = makeDomainStore({
+  fs, path, file: path.join(WORKSPACES, 'line-shipments.json'), version: 1, writeDurable: writeFileDurable,
+  defaults: () => [], normalize: validateShipments,
+  decode: envelope => envelope && Array.isArray(envelope.value) ? envelope.value : undefined,
+  // Diagnostics must preserve corrupt bytes: quarantining main would make the
+  // next load appear absent and authorize an empty replacement history.
+  onIssue: (status, detail) => {
+    const file = detail && detail.file;
+    if (status === 'recovered') console.warn('[line-shipments] recovered ' + file + ' from .bak last-known-good.');
+    else console.warn('[line-shipments] history unavailable (' + status + '): ' + file + '; preserving stored bytes.');
+  }
+});
+const lineShipments = makeLineShipments({
+  now: () => Date.now(), load: () => loadShipmentReceipts(lineShipmentStore),
+  save: value => lineShipmentStore.save(value),
+  runsFor: streamId => runStore.list(null, { streamId, limit: 200 })
+});
 /* SEND TO (2026-10-10): the handoff runner is built with the line triggers far below (it reuses their hub); the chain runner
    reaches it late-bound, so a job that leaves its line clean before then (never, in practice — nothing runs during boot) hands
    nothing on rather than throwing. */
@@ -5319,7 +5339,10 @@ const chainRunner = makeChainRunner({
   loopGateAfter: (agentId, lineId, dockId) => router.loopGateAfter(agentId, lineId, dockId),
   lastStage: (agentId, dockId) => router.chainShipsToOutbox(agentId, dockId),   // the stage whose reply leaves the line is told it IS the result
   // SEND TO: a job that left its line clean at the OUTBOX — the handoff runner decides whether it goes on (never awaited)
-  onShipped: (rec) => (handoffRunner ? handoffRunner.onShipped(rec) : null),
+  onShipped: (rec) => {
+    lineShipments.record(rec);
+    return handoffRunner ? handoffRunner.onShipped(rec) : null;
+  },
   barrierStore: {
     load: () => { try { return loadResilient(path.join(WORKSPACES, 'join.barriers.json'), 'join-barriers'); } catch (_) { return null; } },
     save: (v) => { try { saveResilient(path.join(WORKSPACES, 'join.barriers.json'), v); } catch (e) { failNote('chain.barriers.save', e); } }
@@ -6458,7 +6481,7 @@ const cronDriver = makeCronDriver({
      no chat transcript; its hops ride the routine's own stream so the session shows the whole line). */
   advanceChain: (o) => chainRunner.advance({
     agentId: o.agentId, dockId: o.dockId ? (router.dockOf(o.agentId, o.dockId) || undefined) : undefined, text: o.text, originalText: o.originalText, signal: o.signal,
-    streamId: o.streamId || undefined,   // the fire's own stream ('cron-<runId>'): a SEND TO hand-off reads back exactly this fire's runs
+    runId: o.runId, streamId: o.streamId || undefined,   // the fire's own stream ('cron-<runId>'): a SEND TO hand-off reads back exactly this fire's runs
     // the entry run's reconciled spend: MAX_CHAIN_USD bounds the WHOLE chain, and stage one is part of the
     // chain (2026-08-10 audit — the entry run rode outside its own line's $ ceiling on every path).
     entryUsd: o.entryUsd,
@@ -13032,8 +13055,7 @@ function lineStatsSnapshot(since) {
     rows: runStore.list(null, { limit: 1000 }) || [], lines, since,
     spentToday: id => lineSpend.spentToday(id),
     capOf: id => chainEffectiveLimits(router.lineLimits(id), {}, pool).maxUsdPerDay,
-    // SHIPPED = a job that left through the OUTBOX: only a run at a dock whose lane reaches it (never a mid-line stage)
-    shipsToOutbox: (agentId, dockId) => router.chainShipsToOutbox(agentId, dockId)
+    shipments: lineShipments.snapshot()
   });
 }
 /* GET /api/routing/lines/stats?since=<ms> — LINE WATCH. `since` is the caller's local midnight (the same window the
@@ -15728,7 +15750,7 @@ async function handleCronRun(req, res) {
           text: state.buf, originalText: String(job.prompt || ''), signal: ac.signal,
           // the fire's own stream, exactly as the scheduled fire passes it: a SEND TO hand-off reads back THIS run's rows (the
           // every-step-ended-done check and the files it made) — without it Run Now handed on half-finished work the schedule refuses
-          streamId: 'cron-' + runId,
+          runId, streamId: 'cron-' + runId,
           entryUsd: state.usd,   // stage one is part of the chain — its spend counts against MAX_CHAIN_USD (2026-08-10)
           // SAME ORIGIN AS THE SCHEDULED FIRE (work belongs to a line, 2026-08-07): Run Now is this routine's
           // own trigger pressed by hand, so it carries the dock's lineId and the line runs — but ONLY for a
@@ -19189,6 +19211,22 @@ async function runOnceCore(o) {
         if (view) { try { sse.broadcast(name, redact(view)); } catch (_) {} }
       }
     : rawEmit;
+
+  // A LINE BUDGET applies before the FIRST stage as well as between hops. Samples, channel messages and
+  // routines all reach this host-derived origin; checking only chain.advance let every new job buy its
+  // entry run after the day limit, and a one-step line never checked the cap at all. Re-read at admission
+  // (including queued turns), before a routine script or provider can run. Direct orders carry no origin.
+  if (workflowLine) {
+    const lim = chainEffectiveLimits(router.lineLimits(workflowLine), {},
+      (typeof effectiveCaps.global === 'number' && effectiveCaps.global > 0) ? effectiveCaps.global : null);
+    if (lim.maxUsdPerDay != null && lineSpend.spentToday(workflowLine) >= lim.maxUsdPerDay) {
+      emit('agent.run.start', { agentId, runId, trigger, model: o.noAgent ? '' : model, ...runStartExtra });
+      emit('agent.run.error', { agentId, runId, transient: false,
+        message: 'The line reached its $' + lim.maxUsdPerDay.toFixed(2) + ' daily limit — raise its LINE BUDGET or try again tomorrow.' });
+      emit('agent.run.end', { agentId, runId, reason: 'budget', turns: 0, usd: 0 });
+      return;
+    }
+  }
 
   // A routine script is a host-executed pre-check. It runs through shell.exec's complete safety scanner,
   // timeout, sanitized environment and process-tree kill. Script-only runs return before provider admission.

@@ -91,6 +91,45 @@ function rig(floor, script, opts) {
 const settle = async (R, id) => { for (let i = 0; i < 50; i++) { await R.st.settled(id); const s = R.st.get(id).session; if (s.state !== 'running') return s; } return R.st.get(id).session; };
 
 (async () => {
+  /* Whole-line testing refuses parallel topology BEFORE launching; an individual BAY remains testable. */
+  {
+    const WM = require('../frontend/app/worldmodel.js'), LE = require('../frontend/app/lineedit.js');
+    const station = WM.create(); station.projectGeometry();
+    station.addRoom({ kind: 'hab', rect: { x1: 30, y1: 0, x2: 100, y2: 60 } });
+    A.ok(LE.placeBlueprint(station, 'parallel_crew', { x: 50, y: 20 }).ok, 'place real parallel template');
+    for (const b of station.props().filter(p => p.t === 'bay')) station.assignPropAgent(b.id, 'crew' + b.id);
+    let floor = station.projectGeometry(), rr = rig(floor, {});
+    A.eq(P.stepTestRefusal(rr.plan, rr.lineId), null, 'TAKE TURNS remains step-testable');
+    const merger = station.props().find(p => p.t === 'merger'); station.swapJoinerMerger(merger.id);
+    floor = station.projectGeometry(); rr = rig(floor, {});
+    A.ok(/parallel/.test(P.stepTestRefusal(rr.plan, rr.lineId)), 'compiled COPY topology reports its limitation');
+    const refused = rr.st.start({ line: rr.lineId, text: 'test all branches', pause: 'none' });
+    A.ok(!refused.ok && /RUN ONE REAL JOB/.test(refused.error), 'whole-line test points to the existing action');
+    A.eq(rr.calls.length, 0, 'no paid stage starts before refusing parallel step-through');
+    A.eq(rr.st.get().session, null, 'a refusal creates no session');
+    const legacy = JSON.parse(JSON.stringify(rr.plan)); for (const l of legacy.lines) delete l.stepTestBarrier;
+    rr.router.setPlan(legacy);
+    A.ok(!rr.st.start({ line: rr.lineId, text: 'legacy saved plan', pause: 'none' }).ok, 'persisted plans without the new marker refuse too');
+    A.eq(rr.calls.length, 0, 'legacy-plan refusal also spends nothing');
+    const one = rr.st.start({ line: rr.lineId, text: 'test one branch', startAt: rr.plan.bays[0].agentId, single: true });
+    A.ok(one.ok, 'TRY THIS STEP is still available on a parallel line');
+    await settle(rr, one.session.id);
+    A.eq(rr.calls.length, 1, 'single-step test runs exactly one BAY');
+    const sibling = LE.placeBlueprint(station, 'parallel_crew', { x: 80, y: 40 });
+    A.ok(sibling.ok, 'place separate TAKE TURNS line beside the parallel line');
+    const siblingBays = sibling.ids.map(id => station.propById(id)).filter(p => p.t === 'bay');
+    for (let i = 0; i < siblingBays.length; i++) station.assignPropAgent(siblingBays[i].id, i ? 'sibling' + i : rr.plan.bays[0].agentId);
+    const together = P.compileRoutingPlan(station.projectGeometry());
+    const siblingLine = together.lineOfProp[siblingBays[0].id];
+    A.eq(P.stepTestRefusal(together, siblingLine), null, 'sharing an agent with a parallel line does not disable TAKE TURNS');
+    for (const l of together.lines) delete l.stepTestBarrier;
+    A.ok(P.stepTestRefusal(together, rr.lineId), 'saved-plan topology still finds its own parallel branch');
+    A.eq(P.stepTestRefusal(together, siblingLine), null, 'saved-plan topology never borrows another line through its shared agent');
+    station.swapJoinerMerger(merger.id);
+    A.eq(P.stepTestRefusal(P.compileRoutingPlan(station.projectGeometry()), rr.lineId), null, 'changing back to TAKE TURNS removes the limitation');
+    A.eq(P.stepTestRefusal(rr.plan, 'other-line'), null, 'another line is not blocked');
+  }
+
   /* ---- pause rule normalization ---- */
   A.eq(normPause(undefined), 'every', 'default pause rule is every');
   A.eq(normPause(['a>b', 'a>b', 'b>outbox']), ['a>b', 'b>outbox'], 'an edge list is deduped');

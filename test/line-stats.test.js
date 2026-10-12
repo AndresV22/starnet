@@ -1,11 +1,13 @@
 /* node test/line-stats.test.js — LINE WATCH per-line stats fold (sidecar/routing/line-stats.js) + the run-row
    stamp it depends on (runstore records lineId/dockId only when present and well-formed).
    Laws under test: numbers come ONLY from rows stamped with the line; "shipped" is the station SHIPPED predicate
-   (done + proven work) AND a dock whose lane reaches the OUTBOX (a job shipped, not a stage done); failed is the dead-run set; a line with no runs answers zeros (never absent, never a guess);
+   (clean job + proven work) AND a durable terminal receipt (a job shipped, not a stage done); failed is the dead-run set; a line with no runs answers zeros (never absent, never a guess);
    the $ ledger + cap are read through the injected readers; each bay's LAST outcome is its newest row. */
 'use strict';
 const A = require('./_assert.js');
 const { lineStats, median, shippedRow, failedRow, FAILED_REASONS } = require('../sidecar/routing/line-stats.js');
+const { makeLineShipments, cleanShipments, validateShipments, loadShipmentReceipts } = require('../sidecar/routing/line-shipments.js');
+const receipt = (lineId, runId, at) => ({ lineId, entryRunId: runId, terminalRunId: runId, outboxId: 'outbox', at });
 
 // ---- median ----
 A.eq(median([]), null, 'median of nothing is null (no fabricated time)');
@@ -38,13 +40,13 @@ const spend = { L1: 0.0125, L2: 0 };
 const caps = { L1: 5, L2: null };
 const out = lineStats({ rows, lines: [{ lineId: 'L1' }, { lineId: 'L2' }, { lineId: 'L3' }], since: SINCE,
   spentToday: id => spend[id] || 0, capOf: id => caps[id] == null ? null : caps[id],
-  shipsToOutbox: (agentId, dockId) => dockId === 'bB' || dockId === 'bC' });   // bB + bC reach the OUTBOX; bA is a mid-line stage
+  shipments: [receipt('L1', 'r8', 8000)] });   // only r8 has a terminal receipt
 const L = id => out.lines.find(l => l.lineId === id);
 A.eq(out.since, SINCE, 'answers the window it folded');
 A.eq(out.spendDay, 'utc', 'says the $ ledger keeps the UTC day');
 A.eq(out.lines.map(l => l.lineId), ['L1', 'L2', 'L3'], 'one entry per plan line, in plan order');
 A.eq(L('L1').runs, 3, 'L1: only its stamped rows since the window (the pre-window row is excluded)');
-A.eq(L('L1').shipped, 1, 'L1: only done + proven work at an OUTBOX-reaching dock ships');
+A.eq(L('L1').shipped, 1, 'L1: only the durable terminal-job receipt ships');
 A.eq(L('L1').failed, 1, 'L1: the error run is failed');
 A.eq(L('L1').medianMs, 1000, 'L1: median of 900/3000/1000');
 A.eq(L('L1').usdToday, 0.0125, 'L1: $ today from the ledger reader');
@@ -59,12 +61,11 @@ A.ok(!out.lines.some(l => l.lineId === 'GONE'), 'a line no longer on the floor g
     { runId: 'j2', agentId: 'mid', lineId: 'LJ', dockId: 'd2', reason: 'done', toolsOk: 1, ts: 3002 },
     { runId: 'j1', agentId: 'w', lineId: 'LJ', dockId: 'd1', reason: 'done', toolsOk: 1, ts: 3001 }
   ];
-  const asked = [];
-  const one = lineStats({ rows: job, lines: [{ lineId: 'LJ' }], since: 0, shipsToOutbox: (a, d) => { asked.push(a + '@' + d); return d === 'd3'; } }).lines[0];
+  const one = lineStats({ rows: job, lines: [{ lineId: 'LJ' }], since: 0, shipments: [receipt('LJ', 'j1', 3003)] }).lines[0];
   A.eq([one.runs, one.shipped], [3, 1], 'three done stage runs, ONE job shipped (was: 3 shipped)');
-  A.ok(asked.indexOf('ed@d3') >= 0, 'the OUTBOX question is asked per row with its agent AND dock (multi-bay)');
-  A.eq(lineStats({ rows: job, lines: [{ lineId: 'LJ' }], since: 0 }).lines[0].shipped, 0, 'no OUTBOX reader -> nothing is claimed shipped');
-  A.eq(lineStats({ rows: job, lines: [{ lineId: 'LJ' }], since: 0, shipsToOutbox: () => { throw new Error('x'); } }).lines[0].shipped, 0, 'a throwing reader cannot prove a shipment');
+  A.eq(lineStats({ rows: job, lines: [{ lineId: 'LJ' }], shipments: [receipt('LJ', 'j1', 3003), receipt('LJ', 'j1', 3004)] }).lines[0].shipped, 1, 'a duplicate receipt never counts the same job twice');
+  A.eq(lineStats({ rows: job, lines: [{ lineId: 'LJ' }], since: 0 }).lines[0].shipped, 0, 'no receipt -> historical run rows never become guessed shipments');
+  A.eq(lineStats({ rows: job, lines: [{ lineId: 'LJ' }], since: 0, shipments: [receipt('LJ', 'j1', 3003)], shipsToOutbox: () => { throw new Error('x'); } }).lines[0].shipped, 1, 'later floor edits never rewrite recorded shipments');
 }
 // the bays' LAST outcome = newest stamped row (any day)
 A.eq(out.docks.bC, { runId: 'r9', agentId: 'ada', reason: 'error', failed: true, ts: 9000 }, 'bay C: the newest row (the failure) wins over the older success');
@@ -86,7 +87,7 @@ A.eq(lineStats(null).lines, [], 'no input -> no lines');
     { runId: 't2', agentId: 'ada', lineId: 'L1', dockId: 'bC', reason: 'error', durationMs: 60, ts: 9400, stepTest: true },
     { runId: 'j1', agentId: 'mira', lineId: 'L1', dockId: 'bB', reason: 'done', toolsOk: 1, durationMs: 4000, ts: 9300 }
   ];
-  const t = lineStats({ rows: trows, lines: [{ lineId: 'L1' }], since: SINCE, shipsToOutbox: (a, d) => d === 'bB' || d === 'bC' }).lines[0];
+  const t = lineStats({ rows: trows, lines: [{ lineId: 'L1' }], since: SINCE, shipments: [receipt('L1', 'j1', 9300)] }).lines[0];
   A.eq([t.runs, t.shipped, t.failed, t.tests], [1, 1, 0, 2], 'test hops count as TESTS, never as runs / shipped / failed: ' + JSON.stringify(t));
   A.eq(t.medianMs, 4000, 'the median is the real jobs\' time only');
   const LW = require('../frontend/app/linewatch.js');
@@ -114,4 +115,203 @@ if (store && store.record) {
   A.ok(false, 'runstore exposes makeRunStore().record');
 }
 
+// Terminal-job evidence: loop revisits and parallel productive branches still ship once.
+{
+  let disk = [], writes = 0, clock = 9000, fail = false;
+  const base = { streamId: 'channel-1', lineId: 'L1', reason: 'done', toolsOk: 1, ts: 8000, startedAt: 7000 };
+  let rows = [
+    Object.assign({}, base, { runId: 'last', agentId: 'reviewer', dockId: 'd3' }),
+    Object.assign({}, base, { runId: 'branch', agentId: 'branch', dockId: 'd2' }),
+    Object.assign({}, base, { runId: 'earlier-pass', agentId: 'reviewer', dockId: 'd3' }),
+    Object.assign({}, base, { runId: 'entry', agentId: 'planner', dockId: 'd1' }),
+    Object.assign({}, base, { runId: 'previous-job', agentId: 'planner', dockId: 'd1', reason: 'error' })
+  ];
+  const options = { now: () => clock, load: () => disk,
+    save: value => { if (fail) throw new Error('disk full'); disk = JSON.parse(JSON.stringify(value)); writes++; },
+    runsFor: () => rows };
+  const ledger = makeLineShipments(options);
+  const rec = { entryRunId: 'entry', streamId: 'channel-1', lineId: 'L1', agentId: 'reviewer', dockId: 'd3', outboxId: 'o1' };
+  A.ok(ledger.record(rec), 'clean productive job at its exact OUTBOX records a shipment');
+  A.eq(ledger.snapshot().length, 1, 'four productive runs including a repeated loop bay are one shipped job');
+  A.eq(ledger.snapshot()[0].terminalRunId, 'last', 'receipt names the final run at the terminal dock');
+  A.ok(ledger.record(rec), 'duplicate callback is idempotent');
+  A.eq(writes, 1, 'duplicate does not rewrite persistence');
+  A.eq(makeLineShipments(options).snapshot(), ledger.snapshot(), 'receipt survives a fresh ledger load');
+  A.eq(lineStats({ rows: [], lines: [{ lineId: 'L1' }], shipments: disk, since: 0 }).lines[0].shipped, 1, 'receipt outlives the run-list query horizon');
+  A.eq(lineStats({ lines: [{ lineId: 'L1' }], shipments: disk, since: clock }).lines[0].shipped, 0, 'shipment time obeys the requested window');
+  A.eq(cleanShipments([{}, receipt('L1', 'entry', 9000), receipt('L1', 'entry', 9001)]).length, 1, 'malformed and duplicate stored receipts are normalized');
+  const changed = Object.assign({}, rec, { entryRunId: 'next', agentId: 'planner', dockId: 'd1' });
+  rows.unshift(Object.assign({}, base, { runId: 'next', agentId: 'planner', dockId: 'd1' }));
+  A.ok(ledger.record(changed), 'second job with identical timestamps has its own exact entry boundary');
+  A.eq(ledger.snapshot().length, 2, 'same-stream adjacent jobs do not collapse');
+  A.ok(ledger.record(rec), 'late duplicate cannot borrow later jobs');
+  A.eq(ledger.snapshot().length, 2, 'late duplicate stays deduplicated');
+  for (const patch of [{ entryRunId: 'missing' }, { outboxId: null }, { streamId: null }, { dockId: 'missing', entryRunId: 'branch' }]) {
+    A.ok(!ledger.record(Object.assign({}, rec, patch)), 'unknown shipment evidence is refused: ' + JSON.stringify(patch));
+  }
+  for (const patch of [{ reason: 'error' }, { reason: 'budget' }, { reason: 'max_iters' }, { stepTest: true }, { toolsOk: 0, artifacts: [] }]) {
+    rows = [Object.assign({}, base, patch, { runId: 'fresh', agentId: 'reviewer', dockId: 'd3' })];
+    A.ok(!ledger.record(Object.assign({}, rec, { entryRunId: 'fresh' })), 'unclean/test/workless run cannot mint a shipment: ' + JSON.stringify(patch));
+  }
+  rows = [Object.assign({}, base, { runId: 'fresh', agentId: 'reviewer', dockId: 'd3', toolsOk: 0, artifacts: [{ kind: 'file' }] })];
+  fail = true;
+  A.ok(!ledger.record(Object.assign({}, rec, { entryRunId: 'fresh' })), 'failed durable save refuses the count');
+  A.eq(ledger.snapshot().length, 2, 'failed save does not publish an in-memory shipment');
+  fail = false;
+  A.ok(ledger.record(Object.assign({}, rec, { entryRunId: 'fresh' })), 'retry can record a proven artifact after storage recovers');
+}
+// The host must preserve domain-store provenance instead of reading .value alone.
+{
+  for (const status of ['ok', 'recovered', 'absent']) {
+    A.eq(loadShipmentReceipts({ load: () => ({ status, value: [] }) }), [], status + ' receipt store may be read');
+  }
+  for (const status of ['unreadable', 'corrupt', 'invalid', 'unknown']) {
+    let failed = false;
+    try { loadShipmentReceipts({ load: () => ({ status, value: [] }) }); } catch (_) { failed = true; }
+    A.ok(failed, status + ' default value must never be mistaken for a new empty history');
+  }
+}
+// A temporarily unreadable store is not an empty history. A failed first stats
+// poll must leave loading retryable, and no later save may replace old receipts.
+{
+  const original = receipt('L1', 'old', 100);
+  let disk = [original], blocked = true, writes = 0;
+  const fresh = { lineId: 'L1', entryRunId: 'new', streamId: 's', agentId: 'a', dockId: 'd', outboxId: 'o' };
+  const ledger = makeLineShipments({
+    now: () => 200,
+    load: () => { if (blocked) throw new Error('locked'); return disk; },
+    save: value => { writes++; disk = JSON.parse(JSON.stringify(value)); },
+    runsFor: () => [{ runId: 'new', lineId: 'L1', streamId: 's', agentId: 'a', dockId: 'd', reason: 'done', toolsOk: 1 }]
+  });
+  let failed = false; try { ledger.snapshot(); } catch (_) { failed = true; }
+  A.ok(failed, 'first failed stats read does not assert an empty shipment history');
+  A.ok(!ledger.record(fresh), 'unreadable prior history refuses receipt writes');
+  A.eq(writes, 0, 'no write occurs while the load authority is unavailable');
+  blocked = false;
+  A.eq(ledger.snapshot(), [original], 'next stats read retries and recovers the previous receipt');
+  A.ok(ledger.record(fresh), 'after recovery a real new receipt may be saved');
+  A.eq(disk.map(r => r.entryRunId), ['old', 'new'], 'recovered history and new shipment both survive');
+}
+// A durable write can succeed before its read-back fails. Reload before B.
+{
+  const fs = require('node:fs'), os = require('node:os'), path = require('node:path');
+  const { makeDomainStore } = require('../sidecar/domain-store.js');
+  const { writeFileDurable } = require('../sidecar/durable-write.js');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'starnet-shipment-readback-'));
+  const file = path.join(dir, 'line-shipments.json');
+  let blocked = false, failReadback = false, writes = 0;
+  const faultFs = Object.create(fs);
+  faultFs.readFileSync = (target, ...args) => {
+    if (target === file && blocked) throw Object.assign(new Error('read-back locked'), { code: 'EACCES' });
+    return fs.readFileSync(target, ...args);
+  };
+  const domain = makeDomainStore({ fs: faultFs, path, file, version: 1, defaults: () => [], normalize: validateShipments,
+    decode: envelope => envelope && Array.isArray(envelope.value) ? envelope.value : undefined,
+    writeDurable: (deps, target, data) => {
+      writeFileDurable(deps, target, data);
+      if (target === file) { writes++; if (failReadback) { failReadback = false; blocked = true; } }
+    }
+  });
+  const rec = runId => ({ lineId: 'L1', entryRunId: runId, streamId: runId, agentId: 'a', dockId: 'd', outboxId: 'o' });
+  const options = { now: () => 300, load: () => loadShipmentReceipts(domain), save: value => domain.save(value),
+    runsFor: runId => [{ runId, lineId: 'L1', streamId: runId, agentId: 'a', dockId: 'd', reason: 'done', toolsOk: 1 }] };
+  try {
+    const ledger = makeLineShipments(options);
+    A.eq(ledger.snapshot(), [], 'absent receipt file starts empty');
+    failReadback = true;
+    A.ok(!ledger.record(rec('A')), 'post-commit read-back error does not claim save success');
+    A.eq(JSON.parse(fs.readFileSync(file, 'utf8')).value.map(r => r.entryRunId), ['A'], 'A reached durable main before read-back failed');
+    A.throws(() => ledger.snapshot(), 'ambiguous save invalidates cache; unreadable authority is not stale zero');
+    A.ok(!ledger.record(rec('B')), 'B refuses while committed authority remains unreadable');
+    A.eq(writes, 1, 'no write while authoritative reload is blocked');
+    blocked = false;
+    A.ok(ledger.record(rec('B')), 'B records after committed main becomes readable');
+    A.eq(JSON.parse(fs.readFileSync(file, 'utf8')).value.map(r => r.entryRunId), ['A', 'B'], 'B appends to durable A instead of the pre-save cache');
+    A.eq(makeLineShipments(options).snapshot().map(r => r.entryRunId), ['A', 'B'], 'both receipts survive a restarted ledger');
+    A.ok(ledger.record(rec('A')), 'callback retry recognizes committed A');
+    A.eq(writes, 2, 'retry of A does not write a duplicate');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+}
+// Persisted identities are exact; malformed evidence cannot be silently dropped.
+{
+  const original = receipt('L1', 'entry', 100);
+  A.eq(validateShipments([original, Object.assign({}, original)]), [original], 'identical receipt copies count once');
+  A.eq(validateShipments([original, Object.assign({}, original, { lineId: 'L2' })]).length, 2, 'same entry identity on distinct lines remains distinct');
+  for (const patch of [
+    { lineId: '../line' }, { lineId: 'L'.repeat(81) }, { outboxId: 'o/1' },
+    { entryRunId: 42 }, { entryRunId: '' }, { entryRunId: '   ' }, { entryRunId: 'r\n1' },
+    { terminalRunId: null }, { terminalRunId: 'r'.repeat(257) }, { at: '100' }, { at: -1 }, { at: Infinity }
+  ]) A.throws(() => validateShipments([Object.assign({}, original, patch)]), 'reject invalid stored fields: ' + JSON.stringify(patch));
+  for (const patch of [{ terminalRunId: 'other' }, { outboxId: 'other' }, { at: 101 }]) {
+    A.throws(() => validateShipments([original, Object.assign({}, original, patch)]), 'conflicting duplicate job receipt is unavailable: ' + JSON.stringify(patch));
+  }
+  A.throws(() => loadShipmentReceipts({ load: () => ({ status: 'ok', value: [null] }) }), 'successful storage status cannot authorize an invalid receipt row');
+}
+// Exercise the actual host store initializer, including its diagnostic handler.
+// Repeated polls and a productive callback must not rename, repair or overwrite
+// corrupt/invalid authority, and restoration must recover without a restart.
+{
+  const fs = require('node:fs'), os = require('node:os'), path = require('node:path');
+  const { makeDomainStore } = require('../sidecar/domain-store.js');
+  const { writeFileDurable } = require('../sidecar/durable-write.js');
+  const source = fs.readFileSync(path.join(__dirname, '../sidecar/index.js'), 'utf8');
+  const start = source.indexOf('const lineShipmentStore = makeDomainStore(');
+  const end = source.indexOf('const lineShipments = makeLineShipments(', start);
+  const initializer = source.slice(start, end);
+  A.ok(start >= 0 && end > start && initializer.length < 1800, 'bounded actual host receipt-store initializer is available');
+  const makeHostStore = new Function('makeDomainStore', 'fs', 'path', 'WORKSPACES', 'writeFileDurable', 'validateShipments', 'console', initializer + '\nreturn lineShipmentStore;');
+  const original = receipt('L1', 'old', 100);
+  const samples = [
+    ['invalid row', JSON.stringify({ version: 1, value: [original, {}] })],
+    ['invalid identity', JSON.stringify({ version: 1, value: [Object.assign({}, original, { entryRunId: 42 })] })],
+    ['conflicting duplicate', JSON.stringify({ version: 1, value: [original, Object.assign({}, original, { outboxId: 'other' })] })],
+    ['corrupt main without backup', '{"version":1,"value":'],
+    ['empty main without backup', '']
+  ];
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'starnet-shipment-invalid-'));
+  try {
+    samples.forEach(([name, bytes], i) => {
+      const dir = path.join(root, String(i)); fs.mkdirSync(dir);
+      const file = path.join(dir, 'line-shipments.json'); fs.writeFileSync(file, bytes);
+      let writes = 0;
+      const domain = makeHostStore(makeDomainStore, fs, path, dir, (deps, target, data) => { writes++; writeFileDurable(deps, target, data); }, validateShipments, { warn: () => {} });
+      const ledger = makeLineShipments({ now: () => 200, load: () => loadShipmentReceipts(domain), save: value => domain.save(value),
+        runsFor: () => [{ runId: 'new', lineId: 'L1', streamId: 's', agentId: 'a', dockId: 'd', reason: 'done', toolsOk: 1 }] });
+      const rec = { lineId: 'L1', entryRunId: 'new', streamId: 's', agentId: 'a', dockId: 'd', outboxId: 'o' };
+      A.throws(() => ledger.snapshot(), name + ': first poll is unavailable');
+      A.throws(() => ledger.snapshot(), name + ': second poll stays unavailable');
+      A.ok(!ledger.record(rec), name + ': productive callback cannot replace unknown history');
+      A.eq(writes, 0, name + ': no attempted save');
+      A.eq(fs.readFileSync(file, 'utf8'), bytes, name + ': forensic bytes remain at the authoritative path');
+      fs.writeFileSync(file, JSON.stringify({ version: 1, value: [original, Object.assign({}, original)] }));
+      A.eq(ledger.snapshot(), [original], name + ': restoring valid duplicate copies recovers one exact old receipt');
+      A.ok(ledger.record(rec), name + ': restored authority accepts the next real shipment');
+      A.eq(JSON.parse(fs.readFileSync(file, 'utf8')).value.map(r => r.entryRunId), ['old', 'new'], name + ': next save retains old history exactly once');
+    });
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+}
+// Actual PARALLEL CREW switched to COPY/JOINER: three productive branches,
+// one terminal job. Removing the OUTBOX cannot alter its historical receipt.
+{
+  const WM = require('../frontend/app/worldmodel.js'), P = require('../frontend/app/pipeline.js');
+  const { makeRouter } = require('../sidecar/routing/router.js');
+  const doc = WM.starterDoc();
+  for (const room of Object.values(doc.rooms)) for (const rect of room.rects) { rect.x2 = 55; rect.y2 = 35; }
+  const station = WM.create(doc), placed = station.stampBlueprint('parallel_crew', 10, 10);
+  A.ok(placed.ok, 'parallel blueprint stamps for shipment proof');
+  station.props().filter(p => p.t === 'bay').forEach((p, i) => station.assignPropAgent(p.id, 'a' + i));
+  A.ok(station.swapJoinerMerger(station.props().find(p => p.t === 'merger').id).ok, 'branches meet at JOINER');
+  const router = makeRouter(), plan = P.compileRoutingPlan(station.projectGeometry());
+  A.ok(router.setPlan(plan).ok, 'joined floor deploys');
+  const bays = station.props().filter(p => p.t === 'bay'), lineId = plan.lineOfProp[bays[0].id];
+  const rows = bays.map((p, i) => ({ runId: 'branch-' + i, lineId, dockId: p.id, agentId: p.agentId, reason: 'done', toolsOk: 1, ts: 100 + i }));
+  A.ok(rows.every(r => router.chainShipsToOutbox(r.agentId, r.dockId)), 'old topology predicate incorrectly qualified every branch');
+  const done = Object.assign(receipt(lineId, 'branch-0', 104), { outboxId: station.props().find(p => p.t === 'outbox').id });
+  const input = { rows, lines: plan.lines, since: 0, shipments: [done], shipsToOutbox: (a, d) => router.chainShipsToOutbox(a, d) };
+  A.eq(lineStats(input).lines.find(l => l.lineId === lineId).shipped, 1, 'three joined branch runs ship one job');
+  station.removeProp(done.outboxId);
+  router.setPlan(P.compileRoutingPlan(station.projectGeometry()));
+  A.ok(rows.every(r => !router.chainShipsToOutbox(r.agentId, r.dockId)), 'edited topology no longer reaches OUTBOX');
+  A.eq(lineStats(input).lines.find(l => l.lineId === lineId).shipped, 1, 'floor edit cannot erase the real past shipment');
+}
 A.report();

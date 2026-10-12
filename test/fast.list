@@ -721,12 +721,14 @@ test/pipeline.test.js
 test/pipeline.multibay.test.js
 test/pipeline.join-loop.test.js
 test/blueprints.test.js
+test/blueprint-completion.test.js
 test/guidedline.test.js
 test/ghostline.test.js
 test/routing.b5.test.js
 test/routing.multibay.test.js
 test/routing-nag-parity.test.js
 test/crate-honesty.test.js
+test/joined-product-truth.test.js
 test/plan-poster.test.js
 test/chain.test.js
 test/chain.join-loop.test.js

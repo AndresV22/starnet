@@ -4,7 +4,7 @@
 One tracked file per bug under `qa/bugs/`; this is only the index. File a new bug with
 `node scripts/qa/bugs.mjs --new --title "..." --surface <surface>`.
 
-**19** open (open+claimed) of 251 total — 0 P0 · 9 P1 · 10 P2
+**19** open (open+claimed) of 256 total — 0 P0 · 9 P1 · 10 P2
 
 Engineering status is separate from delivery and customer recovery. Legacy rows without origin are not a customer census.
 
@@ -149,10 +149,12 @@ User/owner reports: **113** · source fixed: **94** · installer verified: **6**
 | P1 | fixed | autonomy | [Autonomy controls claim unconfirmed settings and overwrite server state on reload](bugs/b0349a7c-autonomy-controls-claim-unconfirmed-settings-and.md) | agent/system-polish-0920 | 4a2028759 |
 | P1 | fixed | autonomy | [Checkpoint maintenance bypass and orphan Git pack processes](bugs/8bdf73bb-checkpoint-maintenance-bypass-and-orphan-git-pac.md) | issue-triage-1011 | 7680f00da |
 | P1 | fixed | autonomy | [Concurrency-limited routines starve later due jobs in store order](bugs/0cfef8af-concurrency-limited-routines-starve-later-due-jo.md) | reliability-audit-0919 | b651a8f5d |
+| P1 | fixed | autonomy | [Conveyor SHIPPED counts stages and changes with floor edits](bugs/2d0597b0-conveyor-shipped-counts-stages-and-changes-with.md) | agent/conveyor-stats-1012 | c342c7ae7 |
 | P1 | fixed | autonomy | [Crew directives promote negation and upstream data to owner intent](bugs/5929d898-crew-directives-promote-negation-and-upstream-da.md) | agent/provider-triage-1011 | 4ecafe317790da208051f43515e322a044f43401 |
 | P1 | fixed | autonomy | [cron-store's armAt never receives the host defaultTz, so a tz-less cron routine's FIRST nextRunAt is UTC-anchored while every later advance uses local — the mar](bugs/f47a1e3a-cron-store-s-armat-never-receives-the-host-defau.md) | sweep/autonomy | 226cec3c |
 | P1 | fixed | autonomy | [Cron writes bypass a live lock after contention](bugs/0506aabf-cron-writes-bypass-a-live-lock-after-contention.md) | agent/cron-reliability-0921 | 0f881f44afde73e79de13f0117cf0dd9f2771ff9 |
 | P1 | fixed | autonomy | [Delegated specialist lacks connected MCP tools](bugs/acd9ecb4-delegated-specialist-lacks-connected-mcp-tools.md) | release-0112-finalprep-0911 | 44c6b4952cd1e468f7caaf4d7ead804dc280cc40 |
+| P1 | fixed | autonomy | [Exhausted line daily cap permits another entry run](bugs/f60170b7-exhausted-line-daily-cap-permits-another-entry-r.md) | conveyor-finish-1012 | 43e48a086 |
 | P1 | fixed | autonomy | [Failed scheduled routines rearm in UTC instead of host timezone](bugs/cdb44116-failed-scheduled-routines-rearm-in-utc-instead-o.md) | agent/cron-reliability-0921 | 0f881f44afde73e79de13f0117cf0dd9f2771ff9 |
 | P1 | fixed | autonomy | [Idle empty quest slate re-buys a paid planning call every hour](bugs/d986f0a1-idle-empty-quest-slate-re-buys-a-paid-planning-c.md) | sweep/autonomy | cba0e52f5 |
 | P1 | fixed | autonomy | [Late cancelled loop settlement strands the resumed iteration](bugs/24b375c9-late-cancelled-loop-settlement-strands-the-resum.md) | release-blockers-0907 | 035513a6d |
@@ -357,9 +359,12 @@ User/owner reports: **113** · source fixed: **94** · installer verified: **6**
 | P2 | fixed | world | [Custom phosphor theme desaturates approved room lighting](bugs/850fdcfa-custom-phosphor-theme-desaturates-approved-room.md) | agent/room-lighting-strip | ba3e66447 |
 | P2 | fixed | world | [DELETE announces success on a failed request and leaves the row — same missing `resp.ok` check in ROUTINES, LOOPS and CONNECTORS](bugs/aa9cd1cd-delete-announces-success-on-a-failed-request-and.md) | sweep/world | 8e68bf5c |
 | P2 | fixed | world | [Deleted rooms leave floating furniture](bugs/72da34d7-deleted-rooms-leave-floating-furniture.md) | doorway-occlusion-0910 | 35d255dbd |
+| P2 | fixed | world | [Finished sorter starters leave valid jobs without an OUTBOX](bugs/e5d8daf5-finished-sorter-starters-leave-valid-jobs-withou.md) | conveyor-caps-1012 | 9ac0faeec |
 | P2 | fixed | world | [Glass panel height resets after closing and reopening](bugs/12203375-glass-panel-height-resets-on-reopen.md) | audit-0112-0910 | 871561348 |
+| P2 | fixed | world | [Joined branch product crates ship before the barrier releases](bugs/4ba4989f-joined-branch-product-crates-ship-before-the-bar.md) | conveyor-caps-1012 | f88c461fb |
 | P2 | fixed | world | [Local settings save failure still permits saved confirmation](bugs/476c4f01-local-settings-save-failure-still-permits-saved.md) | agent/seam-audit-0912-b | b5c5cba75 |
 | P2 | fixed | world | [`open()` has no `if (chanES) return` guard, so a re-entry (DATA › IMPORT → reentry → enterGame → resumeBridge) inside an SSE retry backoff leaves two live Event](bugs/d459160f-open.md) | sweep/world | f4d03511 |
+| P2 | fixed | world | [Parallel line offers a step-through test that cannot finish](bugs/1f4c3e40-parallel-line-offers-a-step-through-test-that-ca.md) | conveyor-finish-1012 | 30cbb0420 |
 | P2 | fixed | world | [Prop details crowd out the build catalog at larger UI scales](bugs/e1d9f470-prop-details-crowd-out-the-build-catalog-at-larg.md) | prop-panel-0907 | c6f77fff4 |
 | P2 | fixed | world | [Quest log tiny text and undifferentiated card grid](bugs/74be01cc-quest-log-tiny-text-and-undifferentiated-card-gr.md) | agent/quest-journal-revamp | 55a30d5d7 |
 | P2 | fixed | world | [Raised room corners excluded from interior lighting](bugs/52397fc0-raised-room-corners-excluded-from-interior-light.md) | agent/room-lighting-strip | 624e58ede |
