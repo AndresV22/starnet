@@ -13,7 +13,7 @@ function createArtifactWorkflowSuite(skillName) {
     checks: [
       { id: 'accurate-report', kind: 'artifact_json_equal', path: 'report.json', expected },
       { id: 'source-preserved', kind: 'artifact_json_equal', path: 'input.json', expected: rows },
-      { id: 'verified-saved-report', kind: 'tool_call', name: 'fs.read', arguments: { path: 'report.json' } }
+      { id: 'verified-saved-report', kind: 'tool_call', name: 'fs.read', arguments: { path: 'report.json' }, afterLastWriteTo: 'report.json' }
     ]
   });
   return { id: 'artifact-workflow:' + skillName, skillName, version: 1,

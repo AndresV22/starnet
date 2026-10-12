@@ -68,6 +68,9 @@ async function main() {
   assert.equal(observation.artifacts['C:/outside.json'], undefined);
   assert.equal(observation.toolCalls[0].ok, false);
   assert.equal(E.assessCase(task, observation).pass, true);
+  const staleVerification = clone(observation);
+  staleVerification.toolCalls.push({ name: 'fs.write', arguments: { path: 'report.json', content: report }, ok: true });
+  assert.equal(E.assessCase(task, staleVerification).pass, false, 'read before final write cannot verify the current saved output');
   assert.equal(recorded, 1);
   const denied = R.makeAgentLoopCaseRunner({ provider, authorize: async () => false });
   assert.equal((await denied({ task, skill: candidate, phase: 'after' })).reason, 'policy-denied');

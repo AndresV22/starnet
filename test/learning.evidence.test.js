@@ -53,3 +53,6 @@ assert.ok(Buffer.byteLength(JSON.stringify(crowded)) <= 32768);
 assert.match(crowded.directives[0].text, /instruction-0 /);
 assert.match(crowded.directives.at(-1).text, /instruction-299 /);
 assert.ok(crowded.omissions.directives > 0);
+
+const correctionPrompt = SR.buildPrompt({ verdict: 'miss', correction: 'Do not use api_key=sk_sensitive1234567890', correctionSource: 'message' });
+assert.ok(!correctionPrompt.includes('sk_sensitive1234567890'), 'verdict block uses the scrubbed correction too');
