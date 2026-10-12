@@ -217,15 +217,37 @@
     }
     return '';
   }
-  async function responseErrorDetail(res) {
+  async function responseErrorDetail(res, signal, url) {
     let data = null;
     let text = '';
+    let readStream = false;
     try {
-      text = typeof res.text === 'function' ? await res.text() : '';
+      // Error headers disarm the connect guard too. An unfinished error body must retain the
+      // same idle watchdog and caller cancellation as a successful stream, including local loads.
+      if (res.body && typeof res.body.getReader === 'function') {
+        readStream = true;
+        const raw = res.body.getReader();
+        const reader = timeouts.idleGuardedReader(raw, { signal, url });
+        const decoder = new TextDecoder();
+        try {
+          for (;;) {
+            const chunk = await reader.read();
+            if (chunk.done) break;
+            text += decoder.decode(chunk.value, { stream: true });
+          }
+          text += decoder.decode();
+        } finally { try { raw.releaseLock(); } catch (_) {} }
+      } else text = typeof res.text === 'function' ? await res.text() : '';
       if (text) { try { data = JSON.parse(text); } catch (_) { data = null; } }
-    } catch (_) { text = ''; data = null; }
-    if (!data && !text && typeof res.json === 'function') {
-      try { data = await res.json(); } catch (_) { data = null; }
+    } catch (e) {
+      if (isAbort(e, signal) || (e && e.code === 'PROVIDER_STREAM_TIMEOUT')) throw e;
+      text = ''; data = null;
+    }
+    if (!readStream && !data && !text && typeof res.json === 'function') {
+      try { data = await res.json(); } catch (e) {
+        if (isAbort(e, signal)) throw e;
+        data = null;
+      }
     }
     const e = data && data.error;
     const message = safeErrorField((e && e.message) || (data && data.message) || text || res.statusText || ('HTTP ' + res.status), 500);
@@ -730,7 +752,7 @@
           if (native) noteOllamaWindow(nativeBase, body.model, wire.numCtx);
           return res;
         }
-        const upstreamError = await responseErrorDetail(res);
+        const upstreamError = await responseErrorDetail(res, signal, native ? nativeBase + '/api/chat' : baseUrl + chatPath);
         let detail = upstreamError.detail;
         if (native) {
           // No /api/chat behind this URL (a proxy that only forwards /v1): the /v1 wire, for the rest of this
