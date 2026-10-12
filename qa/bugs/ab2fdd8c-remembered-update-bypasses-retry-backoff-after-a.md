@@ -4,11 +4,11 @@ slug: remembered-update-bypasses-retry-backoff-after-a
 title: Remembered update bypasses retry backoff after a failed native check
 surface: release
 severity: P2
-status: open
+status: fixed
 found: 2026-10-12
 lane: agent/issue-triage-1011
-fix:
-origin: unknown
+fix: 927ffb908
+origin: audit
 ---
 
 # Remembered update bypasses retry backoff after a failed native check
@@ -27,4 +27,4 @@ Committed receipts: `qa/evidence/deep-sweep-2026-10-11/update-backoff-before.jso
 
 ## Verdict
 
-_Filled in when the bug leaves the backlog: what was true, and why it is closed._
+Verified in the running seeded app and real Chromium with failed updater IPC only. This proves retry scheduling, persistence, and manual checks; it does not claim an installed binary or signed upgrade test.
