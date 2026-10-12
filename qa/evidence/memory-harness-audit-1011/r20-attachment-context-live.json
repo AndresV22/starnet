@@ -2,7 +2,7 @@
   "findingId": "R20",
   "title": "Attachment and quoted content leaked through ambient recent activity",
   "classification": "Independent synthetic fixture finding; no customer incident attribution",
-  "capturedAtUtc": "2026-10-12T10:09:36.747Z",
+  "capturedAtUtc": "2026-10-12T10:18:18.756Z",
   "status": "PASS",
   "reproduction": {
     "cwd": "C:\\Users\\andro\\gen-trees\\memory-audit-loop-1011",
@@ -60,8 +60,8 @@
     "change": "Keep first-system main/review classification, but observe all system-role content. Retain both original assertions and additionally require the typed preference inside an actual <recalled-memory> block."
   },
   "after": {
-    "productionFixCommit": "13357b5ac41a2d4311d84b6ed458ef93a2605174",
-    "testedCommit": "856bb6026c45a1b7afaf22308efbba9fa24cd690",
+    "productionFixCommit": "1143ee67de3449eac06f23ba3a0fffb969873e57",
+    "testedCommit": "1143ee67de3449eac06f23ba3a0fffb969873e57",
     "exitCode": 0,
     "status": "PASS",
     "counts": {
@@ -92,7 +92,7 @@
         {
           "phase": "clean",
           "streamId": "clean-control",
-          "runId": "6d98932e-6eec-4a6c-9c3c-c42f1f4b19c0",
+          "runId": "5dd49151-6a24-4f47-8f49-d42465336f64",
           "attachmentPoisonReceived": false,
           "fixtureReadConfirmed": false,
           "reason": "done",
@@ -103,7 +103,7 @@
         {
           "phase": "read",
           "streamId": "read-conversation",
-          "runId": "53ccc247-9052-4b33-8c75-6aa0c2bf8339",
+          "runId": "22110f07-fa81-4bfa-95d7-33729e8854ea",
           "attachmentPoisonReceived": false,
           "fixtureReadConfirmed": true,
           "reason": "done",
@@ -114,7 +114,7 @@
         {
           "phase": "followup",
           "streamId": "read-conversation",
-          "runId": "429bd049-fc05-414e-9e47-339cdbdbd671",
+          "runId": "c3fc8271-c144-4bf9-b19d-c81e587b3d54",
           "attachmentPoisonReceived": false,
           "fixtureReadConfirmed": true,
           "reason": "done",
@@ -125,7 +125,7 @@
         {
           "phase": "fresh",
           "streamId": "fresh-control",
-          "runId": "b3c1c6d9-5ce4-49a4-a39a-2be7e6963b69",
+          "runId": "7003d383-1be2-41f2-ae5b-0162c8c2b55d",
           "attachmentPoisonReceived": false,
           "fixtureReadConfirmed": false,
           "reason": "done",
@@ -136,7 +136,7 @@
         {
           "phase": "shared",
           "streamId": "other-agent-control",
-          "runId": "98d5086b-9a13-42ba-9ba2-90cd49862fe2",
+          "runId": "7d76eeb7-92e6-4d56-9537-7e4523abf286",
           "attachmentPoisonReceived": false,
           "fixtureReadConfirmed": false,
           "reason": "done",
@@ -147,7 +147,7 @@
         {
           "phase": "short",
           "streamId": "short-preference-control",
-          "runId": "bec3599e-336e-4bc7-b11a-46fad36c7d60",
+          "runId": "b7a6c361-4328-4f5e-98a2-50f75a226ebc",
           "attachmentPoisonReceived": false,
           "fixtureReadConfirmed": false,
           "reason": "done",
@@ -158,7 +158,7 @@
         {
           "phase": "attachment-file-only",
           "streamId": "uploaded-file-only",
-          "runId": "d12d631c-5fef-4e22-8a88-ef4935a319e6",
+          "runId": "2cf29e87-1ef5-486c-b613-59eb8bbd1715",
           "attachmentPoisonReceived": true,
           "fixtureReadConfirmed": false,
           "reason": "done",
@@ -169,7 +169,7 @@
         {
           "phase": "attachment-text-and-file",
           "streamId": "uploaded-text-and-file",
-          "runId": "75b11b1d-7149-451b-9282-62d1ec637897",
+          "runId": "44593072-dbea-4417-ac3f-78edfb2dbc37",
           "attachmentPoisonReceived": true,
           "fixtureReadConfirmed": false,
           "reason": "done",
@@ -179,7 +179,7 @@
         {
           "phase": "quoted-control",
           "streamId": "quoted-control",
-          "runId": "f40e87af-ce36-42a4-ad8b-3e39b044b83f",
+          "runId": "e3da78b8-9ced-4868-9091-b64bf72144b3",
           "attachmentPoisonReceived": false,
           "fixtureReadConfirmed": false,
           "reason": "done",
@@ -190,7 +190,7 @@
         {
           "phase": "attachment-recall",
           "streamId": "uploaded-fresh-recall",
-          "runId": "9f6fa6d0-9c6e-40e0-b59b-c495d20c9325",
+          "runId": "ec02f082-e6c0-4304-a932-ecd9dcac9328",
           "attachmentPoisonReceived": false,
           "fixtureReadConfirmed": false,
           "reason": "done",
@@ -200,8 +200,8 @@
         {
           "phase": "attachment-learning-proof",
           "fileOnly": {
-            "runId": "d12d631c-5fef-4e22-8a88-ef4935a319e6",
-            "at": 1791799718532,
+            "runId": "2cf29e87-1ef5-486c-b613-59eb8bbd1715",
+            "at": 1791800266987,
             "tainted": true,
             "saved": 0,
             "trustedDirectives": 0,
@@ -209,8 +209,8 @@
             "reason": "no_trusted_owner_input"
           },
           "textAndFile": {
-            "runId": "75b11b1d-7149-451b-9282-62d1ec637897",
-            "at": 1791799720541,
+            "runId": "44593072-dbea-4417-ac3f-78edfb2dbc37",
+            "at": 1791800269007,
             "tainted": true,
             "saved": 1,
             "trustedDirectives": 1,
@@ -218,8 +218,8 @@
             "reason": "owner_preference_saved"
           },
           "quoted": {
-            "runId": "f40e87af-ce36-42a4-ad8b-3e39b044b83f",
-            "at": 1791799722533,
+            "runId": "e3da78b8-9ced-4868-9091-b64bf72144b3",
+            "at": 1791800271030,
             "tainted": true,
             "saved": 0,
             "trustedDirectives": 0,
@@ -247,16 +247,19 @@
     },
     "productionFixCommits": [
       "2d865ad7cea185c6db187d8002d09c2e05364388",
-      "13357b5ac41a2d4311d84b6ed458ef93a2605174"
+      "13357b5ac41a2d4311d84b6ed458ef93a2605174",
+      "1143ee67de3449eac06f23ba3a0fffb969873e57"
     ],
     "testRecorderCommit": "2ef4b8b48cfedf49f5885274e28097f708f9f1e2",
     "testUnchangedSinceRecorderCommit": true,
-    "followupScope": "Retain internal run titles as exclusion markers even when later tool output taints the run; the pure activity pack excludes these titles from rendered owner activity."
+    "followupScope": "Retain internal run titles as exclusion markers even when later tool output taints the run; the pure activity pack excludes these titles from rendered owner activity.",
+    "productionRefinement": "Shared cleanOwnerRows and ownedBriefs predicates in TrustedLearning are reused by the activity context pack; standing-work notices and workflow takeover candidates require the original directive to match proven owner transcript content."
   },
   "limitations": [
     "This proves execution, provenance, persistence and context composition under a deterministic local provider; it is not a model-quality benchmark.",
     "No full test gates were run by this lane for this focused verification.",
-    "The finding is synthetic and is not attributed to any customer incident."
+    "The finding is synthetic and is not attributed to any customer incident.",
+    "This final focused rerun is a regression check of attachment learning and activity context; it does not separately exercise every standing-work notice or workflow takeover branch added in the production refinement."
   ],
   "verificationHistory": [
     {
@@ -267,6 +270,20 @@
       "completedHttpRunPhases": 10,
       "completeReceiptCommit": "8a986cd0fe8e2ab53698942801fc946fad5aa448",
       "note": "First green verification. Final verification additionally includes the internal activity exclusion marker follow-up."
+    },
+    {
+      "testedCommit": "856bb6026c45a1b7afaf22308efbba9fa24cd690",
+      "productionFixCommit": "13357b5ac41a2d4311d84b6ed458ef93a2605174",
+      "productionFixCommits": [
+        "2d865ad7cea185c6db187d8002d09c2e05364388",
+        "13357b5ac41a2d4311d84b6ed458ef93a2605174",
+        "1143ee67de3449eac06f23ba3a0fffb969873e57"
+      ],
+      "status": "PASS",
+      "exitCode": 0,
+      "completedHttpRunPhases": 10,
+      "completeReceiptCommit": "443dee111c809dafbdd96f2034945fe78fa5e846",
+      "note": "Green combined activity filtering and internal exclusion marker verification before the shared owner-directive predicate refinement."
     }
   ]
 }
