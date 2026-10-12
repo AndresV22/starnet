@@ -18,7 +18,7 @@
   "expectedClaimCount": 37,
   "releaseSurface": {
     "algorithm": "sha256",
-    "sourceCommit": "27d9d5451d8645ea15eda4b1911dce6cd5797301",
+    "sourceCommit": "e28dcc434c424ee81865c5ad74a9be1ab6658da2",
     "pathSetSha256": "e4cf2ec7f6a313f096915edc1eea9291b5f6ab7782c1784d289af5ac2f76084d",
     "files": [
       {
@@ -653,8 +653,8 @@
       },
       {
         "path": "frontend/app/linewatch.js",
-        "bytes": 20885,
-        "sha256": "a0e453b0bdc3f04ea9e3a41afadbb18423c5fd6d30a673f24fb16a7f4d28b50f"
+        "bytes": 21288,
+        "sha256": "11e95804f7c707e47aeb6e81281d9c139979f5a3c1fb680ac37f72daa2196ae8"
       },
       {
         "path": "frontend/app/logoclip.js",
@@ -763,8 +763,8 @@
       },
       {
         "path": "frontend/app/pipeline.js",
-        "bytes": 162913,
-        "sha256": "71644e471bff5a7e995bedb52d2919821225ae1e65cb04ec6c7fb182a1333e7f"
+        "bytes": 164678,
+        "sha256": "5a5f63f35a3140b481080e2435abb9d922d72311fe07441f304bd21c161c8e14"
       },
       {
         "path": "frontend/app/pitch.js",
@@ -1403,8 +1403,8 @@
       },
       {
         "path": "frontend/app/workflowpanel.js",
-        "bytes": 200460,
-        "sha256": "cc66ea85fdd1db1be9a1c08d867fbdff062e4067331f5f13f3054ee0ba7fd644"
+        "bytes": 200807,
+        "sha256": "7c9b8c6451ff9ba4a7972926a30e3153ae1458b65a47927363a438e17473fa56"
       },
       {
         "path": "frontend/app/workflowtakeoverstore.js",
@@ -1453,8 +1453,8 @@
       },
       {
         "path": "frontend/app/world.js",
-        "bytes": 861927,
-        "sha256": "427c522a12a9c296a0f8c6942232826f248d20fa6c5548bfd1d4083cb80ea468"
+        "bytes": 862679,
+        "sha256": "63ded5db857762cdf3ffe72f30cd45cb27f8c5eac238ac6fff587e755b558d2d"
       },
       {
         "path": "frontend/app/worldlab.js",
