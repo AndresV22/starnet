@@ -83,18 +83,23 @@ async function checkCandidateReview() {
   }
   const postSource = source.slice(source.indexOf('  async function skillReviewPost('), source.indexOf('  function loadAgentSkills('));
   const renderSource = source.slice(source.indexOf('  function renderSkillCandidates('), source.indexOf('  function renderAgentSkills('));
-  const requests = [], reloads = [], host = element(); let status = 'passed';
+  const requests = [], reloads = [], host = element(); let status = 'passed', extra = {};
   const ctx = { host, esc: String, mkEl: element, loadAgentSkills: id => reloads.push(id),
-    Harness: { api: { post: async (path, body) => { requests.push({ path, body }); return { ok: true, j: { ok: true, receipt: { receiptId: 'host-receipt', status } } }; } } },
+    ArmConfirm: { wire(btn, opts) { btn.armed = opts; } },
+    Harness: { api: { post: async (path, body) => { requests.push({ path, body }); return { ok: true, j: { ok: true, receipt: Object.assign({ receiptId: 'host-receipt', status }, extra) } }; } } },
     review: { candidates: [{ candidateId: 'candidate-3', candidateDigest: 'exact-sha', revision: 3,
       skill: { id: 'brief', name: 'Brief', body: 'Proposed instructions', scope: 'agent', files: [] } }],
-      evaluationSuites: [{ id: 'brief-checks', skillId: 'brief', description: 'Weekly brief checks' }] }
+      evaluationSuites: [{ id: 'brief-checks', skillId: 'brief', description: 'Weekly brief checks' },
+        { id: 'task-handoff:Brief', skillId: 'brief', description: 'Structured continuation handoff.', generic: true }] }
   };
   vm.runInNewContext(postSource + renderSource + '\nrenderSkillCandidates(host, "agent", review);', ctx);
   const card = host.children[0], approve = card.querySelector('[data-candidate-approve]');
   // Fake DOM does not parse disabled attributes, but the actual markup must start disabled.
   A.ok(card.html.includes('data-candidate-approve disabled'), 'pending approval starts disabled');
   A.ok(card.html.includes('does not prove improvement for every use'), 'UI states evaluation scope honestly');
+  A.ok(card.html.includes('data-candidate-acknowledge hidden disabled'), 'no-improvement approval starts hidden and disabled');
+  A.ok(card.querySelector('[data-evaluation-suites]').children[2].textContent.includes('generic check (not specific to this skill)'), 'built-in suite is labeled a generic check');
+  A.ok(!card.querySelector('[data-evaluation-suites]').children[0].textContent.includes('generic check'), 'owner task checks are not labeled generic');
   const run = card.querySelector('[data-evaluation-suites]').children[1];
   await run.onclick();
   A.eq(requests[0].body.candidateDigest, 'exact-sha', 'evaluation request binds displayed revision');
@@ -110,8 +115,34 @@ async function checkCandidateReview() {
   const card2 = host2.children[0];
   await card2.querySelector('[data-evaluation-suites]').children[1].onclick();
   A.eq(card2.querySelector('[data-candidate-approve]').disabled, true, 'regressed proposal cannot be approved from panel');
+  A.eq(card2.querySelector('[data-candidate-acknowledge]').disabled, true, 'regressed proposal cannot be acknowledged from panel');
   await card2.querySelector('[data-candidate-reject]').onclick();
   A.ok(requests.at(-1).path.endsWith('/reject-candidate'), 'reject has a separate server decision');
+  // A complete tie (every candidate case passed, no regression) offers ONLY the armed owner acknowledgement,
+  // and the panel says plainly that the evaluation showed no improvement.
+  const tieCases = [{ before: { completed: true, pass: true }, after: { completed: true, pass: true } }];
+  const host4 = element(); ctx.host = host4; status = 'insufficient_evidence';
+  extra = { allCandidatePassed: true, regressions: [], improvements: [], cases: tieCases };
+  vm.runInNewContext('renderSkillCandidates(host, "agent", review);', ctx);
+  const card4 = host4.children[0], ack = card4.querySelector('[data-candidate-acknowledge]');
+  await card4.querySelector('[data-evaluation-suites]').children[1].onclick();
+  A.eq(card4.querySelector('[data-candidate-approve]').disabled, true, 'a tie never enables the measured-improvement approval');
+  A.eq(ack.hidden, false, 'a complete tie shows the acknowledgement');
+  A.eq(ack.disabled, false, 'a complete tie enables the acknowledgement');
+  A.ok(/no improvement/i.test(card4.querySelector('[data-evaluation-result]').textContent), 'panel says the evaluation showed no improvement');
+  A.ok(ack.armed && typeof ack.armed.onConfirm === 'function', 'acknowledgement is an armed two-step confirm');
+  await ack.armed.onConfirm();
+  A.eq(requests.at(-1).body.acknowledgeNoImprovement, true, 'acknowledgement is sent explicitly');
+  A.eq(requests.at(-1).body.evaluation, 'host-receipt', 'acknowledgement still names the host receipt');
+  A.eq(requests.at(-1).body.candidateDigest, 'exact-sha', 'acknowledgement stays bound to the displayed revision');
+  const host5 = element(); ctx.host = host5;
+  extra = { allCandidatePassed: true, regressions: [], improvements: [], cases: [{ before: { completed: false, pass: false }, after: { completed: true, pass: true } }] };
+  vm.runInNewContext('renderSkillCandidates(host, "agent", review);', ctx);
+  const card5 = host5.children[0];
+  await card5.querySelector('[data-evaluation-suites]').children[1].onclick();
+  A.eq(card5.querySelector('[data-candidate-acknowledge]').disabled, true, 'an incomplete evaluation cannot be acknowledged');
+  A.eq(card5.querySelector('[data-candidate-acknowledge]').hidden, true, 'an incomplete evaluation hides the acknowledgement');
+  status = 'passed'; extra = {};
   const host3 = element(); ctx.host = host3;
   vm.runInNewContext('renderSkillCandidates(host, "agent", review);', ctx);
   const card3 = host3.children[0];

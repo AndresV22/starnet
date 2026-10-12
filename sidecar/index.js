@@ -1775,7 +1775,9 @@ function verifySkillPromotion(receipt, expected) {
   return Object.assign({}, result, { error: result.reason });
 }
 function evaluationSuiteMetadata(agentId, skills) {
-  return skills.flatMap(skill => evaluationSuitesFor(agentId, skill).map(s => ({ id: s.id, skillId: skill.id, skillName: skill.name, description: s.description || '', cases: s.cases.length })));
+  // generic: a built-in suite tests a fixed task family, not what this particular skill is for (owner suites are `owner:`).
+  return skills.flatMap(skill => evaluationSuitesFor(agentId, skill).map(s => ({ id: s.id, skillId: skill.id, skillName: skill.name, description: s.description || '', cases: s.cases.length,
+    generic: !String(s.id).startsWith('owner:') })));
 }
 
 // SKILL EXCHANGE: the existing web guard owns public-host validation; the exchange adds HTTPS-only,
@@ -18646,7 +18648,9 @@ async function handleSkillCandidateAction(req, res) {
     if (guard.action === 'block') return learningJson(res, 400, { ok: false, error: 'the skill guard blocks this revision; edit the flagged content first' });
     if (action === 'approve-candidate') {
       const baseline = skillStore.view(agentId, candidate.skill.id, { bump: false, includeArchived: true });
-      const expected = { candidate: candidate.skill, baseline, agentId, candidateDigest: candidate.candidateDigest, baselineDigest: candidate.baseDigest };
+      // Only a literal true from the Commander's panel accepts a complete tie ("no measurable improvement").
+      const acknowledgedNoImprovement = body.acknowledgeNoImprovement === true;
+      const expected = { candidate: candidate.skill, baseline, agentId, candidateDigest: candidate.candidateDigest, baselineDigest: candidate.baseDigest, acknowledgedNoImprovement };
       const checked = verifySkillPromotion(body.receiptId || body.evaluation, expected);
       if (!checked.ok) return learningJson(res, 409, { ok: false, error: checked.error || 'behavior evaluation has not passed' });
       if (SkillEvaluation.digestSkill(baseline) !== candidate.baseDigest) return learningJson(res, 409, { ok: false, error: 'active skill changed since the candidate was proposed' });
@@ -18654,7 +18658,7 @@ async function handleSkillCandidateAction(req, res) {
       // If promotion append fails, the old skill remains active; this unused candidate approval is harmless.
       const key = agentId + '\x00' + candidate.skill.id + '\x00' + skillGate.digestOf(candidate.skill);
       persistSkillApprovals(Object.assign({}, skillApprovals, { [key]: { digest: skillGate.digestOf(candidate.skill), action: 'allow', at: Date.now(), name: candidate.name } }));
-      const result = skillStore.approveCandidate({ agentId, candidateId: candidate.candidateId, candidateDigest: candidate.candidateDigest, evaluation: checked.receiptId, approvedBy: 'user' });
+      const result = skillStore.approveCandidate({ agentId, candidateId: candidate.candidateId, candidateDigest: candidate.candidateDigest, evaluation: checked.receiptId, acknowledgedNoImprovement, approvedBy: 'user' });
       if (result.ok) chanEmit('deliverable', { agentId, id: result.skill.id, kind: 'skill', title: result.skill.name });
       return learningJson(res, result.ok ? 200 : 409, result);
     }
