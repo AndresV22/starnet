@@ -7702,15 +7702,25 @@ function nightshiftContextPack() {
   let runs = [];
   // `internal` rides through: the pure core's `!r.internal` filter was dead because this map dropped the flag, so the
   // station's own reason-only calls read as the Commander's recent work (USER-STUDY LOOP, 2026-09-28).
-  try { runs = (runStore.list(null, { limit: 60 }) || []).map(r => ({ title: r.title, ts: r.ts, streamId: r.streamId, reason: r.reason, internal: !!r.internal })); } catch (_) { runs = []; }
-  // recent CHATS: all transcript rows (the store already redacted content on write); the core filters role:'user',
-  // excludes internal streams, takes first-lines, re-redacts as a backstop. Bound the tail we hand over (RAM-safe).
-  let chats = [];
-  try { const all = transcriptStore.all() || []; chats = all.slice(-400).map(m => ({ role: m.role, content: m.content, ts: m.ts, streamId: m.streamId })); } catch (_) { chats = []; }
-  // Completed task briefs retain the full original directive (bounded by the pure pack), so topic extraction and
-  // grounding can see durable evidence that did not happen to fit in a generated title or chat first line.
+  // Filter provenance before projecting into the pure pack: otherwise attachment/quoted content becomes ambient
+  // owner activity in a later, clean run. Run storage omits taintedBy on clean rows; legacy rows share that shape.
+  try { runs = (runStore.list(null, { limit: 60 }) || []).filter(r => r && !r.taintedBy && !TrustedLearning.quotedMaterial(r.title)).map(r => ({ title: r.title, ts: r.ts, streamId: r.streamId, reason: r.reason, internal: !!r.internal })); } catch (_) { runs = []; }
+  // Only host-recorded clean owner turns can ground activity. Check the full content before the pure core takes
+  // its first line; a harmless heading cannot launder a quoted document below it. Bound the source window first.
+  let cleanOwnerChats = [], chats = [];
+  try {
+    cleanOwnerChats = (transcriptStore.all() || []).slice(-400).filter(m => m && m.role === 'user' && m.taintKnown === true && !m.taint && !m.from &&
+      typeof m.content === 'string' && m.content.trim() && !TrustedLearning.quotedMaterial(m.content));
+    chats = cleanOwnerChats.map(m => ({ role: m.role, content: m.content, ts: m.ts, streamId: m.streamId }));
+  } catch (_) { cleanOwnerChats = []; chats = []; }
+  // Briefs have no independent provenance stamp. Match their exact stored directive to a proven clean owner turn
+  // in the same agent/stream; completion's runId may belong to a later turn and is not an authorship proof.
   let briefs = [];
-  try { briefs = (taskBriefStore.list({ status: 'done', limit: 30 }) || []).map(b => ({ originalDirective: b.originalDirective, ts: b.completedAt || b.updatedAt })); } catch (_) { briefs = []; }
+  try {
+    briefs = (taskBriefStore.list({ status: 'done', limit: 30 }) || []).filter(b => b && b.agentId && b.originalDirective &&
+      cleanOwnerChats.some(m => m.agentId === b.agentId && m.streamId === (b.streamId || 'global') && m.content.trim().slice(0, 4000) === b.originalDirective))
+      .map(b => ({ originalDirective: b.originalDirective, ts: b.completedAt || b.updatedAt }));
+  } catch (_) { briefs = []; }
   // the active GOAL ARC (single object or null).
   let goal = null;
   try { goal = commanderGoals.get() || null; } catch (_) { goal = null; }
