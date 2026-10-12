@@ -44,8 +44,11 @@ function startMock() {
       let raw = ''; req.on('data', d => { raw += d; }); req.on('end', () => {
         let body = {}; try { body = JSON.parse(raw); } catch (_) {}
         const msgs = Array.isArray(body.messages) ? body.messages : [];
-        const sys = String((msgs[0] && msgs[0].content) || '');
-        const isMain = sys.indexOf('[RUNTIME]') >= 0;
+        // every system-role message: the run's own skill index is ranked by THIS message, so since lean-prompt (2026-10-12)
+        // it rides the per-run <run_context> system note placed with the newest user turn, not the cached system prompt
+        const sys = msgs.filter(m => m && m.role === 'system').map(m => String(m.content || '')).join('\n\n');
+        // the MAIN run carries [RUNTIME] - since lean-prompt (2026-10-12) in its <run_context> system note
+        const isMain = msgs.some(m => m && m.role === 'system' && String(m.content || '').indexOf('[RUNTIME]') >= 0);
         const tools = (Array.isArray(body.tools) ? body.tools : []).map(t => t && t.function && t.function.name);
         state.requests.push({ sys, isMain, tools });
         res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache' });

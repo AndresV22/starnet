@@ -43,7 +43,8 @@ function startMock() {
       let raw = ''; req.on('data', d => { raw += d; }); req.on('end', () => {
         let body = {}; try { body = JSON.parse(raw); } catch (_) {}
         const sys = String(((body.messages || [])[0] || {}).content || '');
-        state.requests.push({ sys, isMain: sys.indexOf('[RUNTIME]') >= 0 });
+        // the MAIN run carries [RUNTIME] — since lean-prompt (2026-10-12) in its <run_context> system note
+        state.requests.push({ sys, isMain: (body.messages || []).some(m => m && m.role === 'system' && String(m.content || '').indexOf('[RUNTIME]') >= 0) });
         res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache' });
         res.write('data: ' + JSON.stringify({ choices: [{ delta: { content: 'ok' } }] }) + '\n\n');
         res.write('data: ' + JSON.stringify({ choices: [{ delta: {}, finish_reason: 'stop' }], usage: { prompt_tokens: 4, completion_tokens: 1, total_tokens: 5 } }) + '\n\n');

@@ -120,7 +120,9 @@ function seed(ws) {
       const rd = r.body.getReader(); while (true) { const { done } = await rd.read(); if (done) break; }   // drain
       await new Promise(res => setTimeout(res, 250));   // let any aux call land so the window is complete
       const window = mock.requests.slice(start);
-      const systems = window.map(q => ((((q || {}).messages || [])[0] || {}).content) || '');
+      // every system-role message of a request: the run's skill index + any /skill preload are per-message, so since
+      // lean-prompt (2026-10-12) they ride the <run_context> system note with [RUNTIME], not the cached system prompt
+      const systems = window.map(q => ((q || {}).messages || []).filter(m => m && m.role === 'system').map(m => String(m.content || '')).join('\n\n'));
       const main = systems.filter(s => s.indexOf('[RUNTIME]') >= 0).sort((a, b) => b.length - a.length)[0] || systems.sort((a, b) => b.length - a.length)[0] || '';
       return { system: main, all: JSON.stringify(window) };
     };

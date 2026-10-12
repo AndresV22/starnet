@@ -15,7 +15,8 @@ const server=http.createServer((req,res)=>{
  let raw=''; req.on('data',d=>raw+=d); req.on('end',()=>{
   if(!req.url.includes('/chat/completions')) {res.writeHead(200,{'Content-Type':'application/json'}); return res.end(JSON.stringify({data:[{id:'audit/model',context_length:64000,supported_parameters:['tools'],pricing:{prompt:'0',completion:'0'}}]}));}
   const body=JSON.parse(raw), msgs=body.messages||[], sys=String(msgs[0]?.content||'');
-  const main=sys.includes('[RUNTIME]'); const review=sys.includes('skillbase maintenance worker');
+  // the MAIN run carries [RUNTIME] — since lean-prompt (2026-10-12) in its <run_context> system note, not the system prompt
+  const review=sys.includes('skillbase maintenance worker'); const main=!review&&msgs.some(m=>m.role==='system'&&String(m.content||'').includes('[RUNTIME]'));
   requests.push({phase,main,review,attachmentPoisonReceived:main&&JSON.stringify(msgs.filter(m=>m.role==='user')).includes(ATTACHMENT_POISON),reviewText:review?JSON.stringify(msgs):'',system:msgs.filter(m=>m.role==='system').map(m=>String(m.content||'')).join('\n\n'),fixtureReadReceived:msgs.some(m=>m.role==='tool' && String(m.content).includes('Deployment notes: use the staging environment')),tools:(body.tools||[]).map(t=>t.function.name)});
   const lastUser=msgs.map(m=>m.role).lastIndexOf('user');
   const called=name=>msgs.slice(lastUser+1).some(m=>(m.tool_calls||[]).some(t=>t.function?.name===name));

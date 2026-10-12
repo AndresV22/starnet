@@ -6,8 +6,9 @@
      - the greeting carries NO operator manual, NO skill recipes, NO [ORCHESTRATION] briefing (it has no tools
        on the wire, so those blocks described capabilities it did not have and cost ~25KB of prefill);
      - the task turn still carries all of them (the diet must never starve real work);
-     - both carry the [RUNTIME] block, and on the task turn it rides AFTER the byte-stable blocks so a
-       provider's prefix cache survives the per-run 'Run id:' line.
+     - both carry the [RUNTIME] block — since lean-prompt (2026-10-12) in the per-run <run_context> note placed
+       with the newest user turn, never in the system prompt, so a provider's prefix cache survives the per-run
+       'Run id:' line across messages.
    Zero real network, zero spend. */
 'use strict';
 const A = require('./_assert.js');
@@ -99,7 +100,12 @@ function boot(port, env, attemptsLeft) {
       // the run's own request is the longest system prompt in the window (aux passes are shorter or absent)
       const system = systems.sort((a, b) => b.length - a.length)[0] || '';
       const tools = reqs.map(q => (q && Array.isArray(q.tools)) ? q.tools.length : 0);
-      return { system, events, requests: reqs, tools: Math.max.apply(null, tools.concat([0])) };
+      // the per-run <run_context> note (lean-prompt 2026-10-12) of that same request: the system message just before its newest user turn
+      const main = reqs.find(q => (((q || {}).messages || [])[0] || {}).content === system) || { messages: [] };
+      const lastUser = main.messages.map(m => m.role).lastIndexOf('user');
+      const before = main.messages[lastUser - 1];
+      const note = before && before.role === 'system' && String(before.content).indexOf('<run_context>') === 0 ? String(before.content) : '';
+      return { system, note, events, requests: reqs, tools: Math.max.apply(null, tools.concat([0])) };
     };
 
     const chat = await run(false, 'hello');
@@ -118,7 +124,7 @@ function boot(port, env, attemptsLeft) {
     // ...but it never says "You CAN" on a turn with no tools attached: it states the station grant and that this reply has none
     A.ok(chat.system.indexOf('NONE of these tools are attached to THIS reply') >= 0 && !/- You CAN: (?!think and reply)/.test(chat.system), 'greeting: the ground truth says no tools are attached to this reply');
     A.ok(task.system.indexOf('NONE of these tools are attached to THIS reply') < 0 && task.system.indexOf('- You CAN: ') >= 0, 'task: the ground truth still says what it CAN do');
-    A.ok(chat.system.indexOf('[RUNTIME]') >= 0 && chat.system.indexOf('Run id:') >= 0, 'greeting: the runtime identity block STAYS');
+    A.ok(chat.note.indexOf('[RUNTIME]') >= 0 && chat.note.indexOf('Run id:') >= 0, 'greeting: the runtime identity block STAYS (in the per-run note)');
     A.ok(chat.system.length < task.system.length * 0.4, 'greeting prompt is under 40% of the task prompt (' + chat.system.length + ' vs ' + task.system.length + ' chars)');
 
     /* ---- real work is never starved ---- */
@@ -128,13 +134,13 @@ function boot(port, env, attemptsLeft) {
     A.ok(task.system.indexOf('[HARNESS]') >= 0, 'task: tool note present');
     A.ok(task.system.indexOf('<capabilities_ground_truth>') >= 0, 'task: capabilities ground truth present');
 
-    /* ---- prefix-cache order: the per-run line rides after the byte-stable blocks ---- */
-    const iRuntime = task.system.indexOf('[RUNTIME]');
-    A.ok(iRuntime > task.system.indexOf('[ORCHESTRATION]'), 'task: [RUNTIME] comes after the [ORCHESTRATION] briefing');
-    A.ok(iRuntime > task.system.indexOf('<starnet_operator_manual>'), 'task: [RUNTIME] comes after the manual');
-    A.ok(iRuntime > task.system.indexOf('<capabilities_ground_truth>'), 'task: [RUNTIME] comes after the capabilities block');
-    A.ok(iRuntime > task.system.lastIndexOf('### '), 'task: [RUNTIME] comes after the last skill recipe');
-    A.eq((task.system.match(/Run id: /g) || []).length, 1, 'task: exactly one run id line');
+    /* ---- prefix-cache order: the per-run line rides after the byte-stable blocks ----
+       lean-prompt (2026-10-12): it used to close the system prompt (after [ORCHESTRATION], the manual, the capabilities
+       block and the skill recipes). It now rides the <run_context> note placed with the newest user turn, so the
+       system prompt carries no per-run bytes at all — strictly stronger than "after the stable blocks". */
+    A.ok(task.system.indexOf('[RUNTIME]') < 0 && task.system.indexOf('Run id:') < 0, 'task: no per-run line anywhere in the system prompt');
+    A.ok(chat.system.indexOf('Run id:') < 0, 'greeting: no per-run line in the system prompt either');
+    A.eq((task.note.match(/Run id: /g) || []).length, 1, 'task: exactly one run id line (in the per-run note)');
 
     // A per-request ceiling must not trigger four more generations of a greeting. Real tasks still
     // need semantic continuation to finish an answer or reissue a cut-off tool call.
