@@ -1,0 +1,61 @@
+{
+  "label": "after",
+  "at": "2026-10-12T01:03:49.129Z",
+  "limits": "Actual seeded sidecar and Chromium page; only the native updater IPC is stubbed. No installer, network update or customer acceptance claim.",
+  "liveFloor": true,
+  "automatic": {
+    "calls": [
+      1791767031952
+    ],
+    "phase": "error",
+    "prefs": {
+      "v": 1,
+      "autoCheck": true,
+      "lastCheckAt": 1791763431667,
+      "nextCheckAt": 1791767931952,
+      "remindAfter": 0,
+      "ignoredVersion": "",
+      "notifiedVersion": "",
+      "availableVersion": "99.0.0",
+      "failureCount": 1
+    },
+    "hero": "agent"
+  },
+  "manual": {
+    "calls": [
+      1791767031952,
+      1791767037608
+    ],
+    "phase": "error",
+    "prefs": {
+      "v": 1,
+      "autoCheck": true,
+      "lastCheckAt": 1791763431667,
+      "nextCheckAt": 1791768837609,
+      "remindAfter": 0,
+      "ignoredVersion": "",
+      "notifiedVersion": "",
+      "availableVersion": "99.0.0",
+      "failureCount": 2
+    }
+  },
+  "restart": {
+    "calls": [],
+    "phase": "idle",
+    "prefs": {
+      "v": 1,
+      "autoCheck": true,
+      "lastCheckAt": 1791763431667,
+      "nextCheckAt": 1791768837609,
+      "remindAfter": 0,
+      "ignoredVersion": "",
+      "notifiedVersion": "",
+      "availableVersion": "99.0.0",
+      "failureCount": 2
+    }
+  },
+  "exceptions": [],
+  "pass": true,
+  "sourceCommit": "927ffb908",
+  "fixture": "qa/evidence/deep-sweep-2026-10-11/update-backoff-live.mjs"
+}
