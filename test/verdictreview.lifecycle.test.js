@@ -57,6 +57,47 @@ async function main() {
   const mixed = buildLearningEvidence({ learningEvidence: { version: 1, source: 'host', trustedUserMessages: Array.from({ length: 70 }, (_, i) => ({ source: 'interactive-owner', index: i, content: 'trusted-' + i })) },
     messages: Array.from({ length: 100 }, (_, i) => ({ role: 'user', content: 'unattributed-' + i })) });
   assert.equal(mixed.directives.at(-1).text, 'trusted-69', 'unattributed messages cannot evict the newest host correction');
+  // A failed state save retries persistence before any provider dispatch.
+  timers = [];
+  let savesFail = false, failedSaves = 0, recoveredLaunches = 0, recoveryDisk = [];
+  const recovery = makeVerdictReview({ ...opts, maxPersistenceAttempts: 3, onChange: rows => {
+    if (savesFail) { failedSaves++; throw new Error('expected temporary persistence failure'); }
+    recoveryDisk = clone(rows);
+  } });
+  recovery.stash('recover', packet);
+  recovery.arm('recover', 'miss', () => {
+    assert.equal(recoveryDisk.find(r => r.runId === 'recover').reviewStatus, 'running');
+    recoveredLaunches++; return true;
+  });
+  savesFail = true; time += 5000; await runTimers();
+  assert.equal(recoveredLaunches, 0);
+  assert.equal(recovery.snapshot()[0].attempts, 0, 'persistence failure does not consume a model attempt');
+  assert.equal(timers.filter(h => h.live).length, 1, 'temporary storage failure keeps a bounded retry scheduled');
+  savesFail = false; time += 100; await runTimers();
+  assert.equal(recoveredLaunches, 1, 'recovery launches only after a durable running acknowledgment');
+  assert.equal(recovery.holding('recover'), false);
+  assert.equal(failedSaves, 1);
+  timers = []; failedSaves = 0;
+  recovery.stash('blocked', packet); recovery.arm('blocked', 'miss', () => { recoveredLaunches++; return true; });
+  savesFail = true;
+  for (let i = 0; i < 8; i++) { time += 5000; await runTimers(); }
+  assert.equal(failedSaves, 3, 'persistent storage failure stops after three save attempts');
+  assert.equal(recoveredLaunches, 1, 'persistent failure dispatches no review');
+  assert.equal(timers.filter(h => h.live).length, 0, 'no runaway retry timer remains');
+  assert.equal(recovery.snapshot()[0].persistenceBlocked, true);
+  savesFail = false;
+  assert.equal(recovery.correct('blocked', 'Use verified output.', true, 'message').fired, true, 'an explicit new correction can retry after storage recovery');
+  assert.equal(recoveredLaunches, 2);
+  // Completion persistence retries save only the receipt, never rerun the model.
+  timers = []; let completionFailure = true, completionLaunches = 0;
+  const completing = makeVerdictReview({ ...opts, onChange: rows => {
+    if (rows.some(r => r.runId === 'complete-save' && r.reviewStatus === 'completed') && completionFailure) throw new Error('expected completion persistence failure');
+  } });
+  completing.stash('complete-save', packet); completing.arm('complete-save', 'miss', () => { completionLaunches++; return true; });
+  time += 5000; await runTimers();
+  assert.equal(completionLaunches, 1); assert.equal(completing.holding('complete-save'), true);
+  completionFailure = false; time += 100; await runTimers();
+  assert.equal(completionLaunches, 1); assert.equal(completing.holding('complete-save'), false);
   console.log('verdictreview.lifecycle: held snapshot/restart, remaining grace, late reversal, launcher retry/restart, bounded attempts, latest host correction PASS');
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });
