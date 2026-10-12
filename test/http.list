@@ -214,3 +214,4 @@ test/legacy-spend-provenance.http.test.js
 test/memory-learning-boundary.http.test.js
 
 test/skills.candidate-lifecycle.http.test.js
+test/skills.evaluation-spend.http.test.js

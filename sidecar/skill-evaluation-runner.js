@@ -70,6 +70,11 @@ function makeAgentLoopCaseRunner(options) {
         throw Object.assign(new Error('evaluation spending policy refused another provider attempt'), { status: 403 });
       }
       let lastUsage = null;
+      let liveAttemptUsd = 0;
+      const reconcile = usage => {
+        try { return o.cost && o.cost.reconcile(usage, request.model || o.model); } catch (_) { return null; }
+      };
+      const priced = charge => charge && !charge.unpriced && Number.isFinite(charge.usd) && charge.usd >= 0;
       const attempt = { attempt: streamAttempts.length + 1, usageObserved: false, done: false, truncated: false,
         exhausted: false, errored: false, aborted: false };
       streamAttempts.push(attempt);
@@ -80,8 +85,16 @@ function makeAgentLoopCaseRunner(options) {
           if (event && event.type === 'usage') {
             const usage = event.usage; lastUsage = usage;
             const nonnegative = n => typeof n === 'number' && Number.isFinite(n) && n >= 0;
+            // Settlement depends on the final snapshot, not any earlier valid one.
             attempt.usageObserved = !!(usage && ((nonnegative(usage.prompt_tokens) && nonnegative(usage.completion_tokens)) ||
-              nonnegative(usage.cost) || nonnegative(usage.cost_in_usd_ticks))) || attempt.usageObserved;
+              nonnegative(usage.cost) || nonnegative(usage.cost_in_usd_ticks)));
+            const charge = attempt.usageObserved && reconcile(usage);
+            if (priced(charge)) {
+              // Publish known accrued usage while the request is still streaming so
+              // concurrent station admissions see it. Final reconciliation may replace it.
+              liveAttemptUsd = Math.max(liveAttemptUsd, charge.usd);
+              if (typeof o.onStream === 'function') await o.onStream({ runId, spentUsd: streamSpent + liveAttemptUsd, accountingIncomplete: false });
+            }
           }
           if (event && event.type === 'done') { attempt.done = true; attempt.truncated = attempt.truncated || event.truncated === true; }
           if (event && event.type === 'error') attempt.errored = true;
@@ -92,12 +105,10 @@ function makeAgentLoopCaseRunner(options) {
       finally {
         attempt.aborted = !!(request && request.signal && request.signal.aborted) || !attempt.exhausted;
         attempt.complete = attempt.exhausted && attempt.done && !attempt.truncated && !attempt.errored && !attempt.aborted;
-        let charge = null;
-        try { charge = o.cost && o.cost.reconcile(lastUsage, request.model || o.model); } catch (_) {}
+        const charge = reconcile(lastUsage);
         // The same reconciler used by the loop supplies totals. Unknown pricing or
         // partial streams cannot authorize another attempt using guessed headroom.
-        const priced = charge && !charge.unpriced && Number.isFinite(charge.usd) && charge.usd >= 0;
-        attempt.accounted = !!(attempt.complete && attempt.usageObserved && priced);
+        attempt.accounted = !!(attempt.complete && attempt.usageObserved && priced(charge));
         if (attempt.accounted) streamSpent += charge.usd;
         else streamUncertain = true;
         if (typeof o.onStream === 'function') await o.onStream({ runId, spentUsd: streamSpent, accountingIncomplete: streamUncertain });

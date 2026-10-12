@@ -2,6 +2,8 @@
 const assert = require('node:assert/strict');
 const { makeAgentLoopCaseRunner } = require('../sidecar/skill-evaluation-runner.js');
 const { makeCostEngine } = require('../sidecar/cost.js');
+const { makeLedger } = require('../sidecar/ledger.js');
+const { makeBudget } = require('../sidecar/budget.js');
 const usage = { type: 'usage', usage: { prompt_tokens: 12, completion_tokens: 4, cost: 0.01 } };
 const text = { type: 'text', delta: '{"answer":42}' };
 const done = { type: 'done', finishReason: 'stop' };
@@ -25,6 +27,16 @@ async function main() {
   assert.equal(missing.result.accountingIncomplete, true, 'a clean answer without usage cannot settle as zero');
   const emptyUsage = await execute(async function* () { yield text; yield { type: 'usage', usage: {} }; yield done; });
   assert.equal(emptyUsage.result.accountingIncomplete, true);
+  const invalidFinal = await execute(async function* () { yield text; yield usage; yield { type: 'usage', usage: {} }; yield done; });
+  assert.equal(invalidFinal.result.accountingIncomplete, true, 'earlier valid usage cannot authorize a malformed final snapshot');
+  const shared = makeBudget({ ledger: makeLedger(), caps: { day: 0.005 }, clock: { now: () => 1 } });
+  let concurrentAdmission;
+  await execute(async function* () {
+    yield usage;
+    concurrentAdmission = shared.check('another-run', 'another-agent', 0);
+    yield text; yield done;
+  }, undefined, { onStream: ({ runId, spentUsd }) => shared.noteLive(runId, spentUsd) });
+  assert.equal(concurrentAdmission.scope, 'day', 'observed usage blocks concurrent paid entry before the current stream ends');
   const broken = await execute(async function* () { yield text; throw new Error('invalid request after partial output'); });
   assert.equal(broken.result.accountingIncomplete, true);
   assert.equal(broken.result.accountingStreams.uncertain[0].errored, true);
