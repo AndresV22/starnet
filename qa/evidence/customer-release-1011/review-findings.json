@@ -1,0 +1,112 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-10-12",
+  "scope": "Independent review of incoming isolated lanes. Resolved-in-source means accepted into the coordinator checkout; it does not mean full gates, trunk integration, installed acceptance or customer recovery. Held findings were sent to their owners and are excluded from the accepted batch until reviewed.",
+  "findings": [
+    {
+      "id": "R01",
+      "lane": "conveyor",
+      "candidate": "67c3ad5f1d83cc394a0776b23fa9772541cb7646",
+      "status": "resolved-in-source",
+      "observation": "A duplicate completion overwrote held productive work after its tallies were cleared.",
+      "requiredBehavior": "Retain first completion evidence for the exact run.",
+      "evidence": "qa/evidence/conveyor-browser-20261012.json"
+    },
+    {
+      "id": "R02",
+      "lane": "conveyor",
+      "candidate": "67c3ad5f1d83cc394a0776b23fa9772541cb7646",
+      "status": "resolved-in-source",
+      "observation": "Durable receipt write followed by failed read-back left a stale cache that later erased the receipt.",
+      "requiredBehavior": "Invalidate cache after ambiguous persistence and reload authoritative history before any next write.",
+      "evidence": "qa/evidence/conveyor-shipment-recovery-20261012.json"
+    },
+    {
+      "id": "R03",
+      "lane": "conveyor",
+      "candidate": "67c3ad5f1d83cc394a0776b23fa9772541cb7646",
+      "status": "resolved-in-source",
+      "observation": "Malformed receipt rows and conflicting duplicates were normalized away, allowing overwrite of unknown history.",
+      "requiredBehavior": "Strictly validate stored evidence separately from tolerant display folding.",
+      "evidence": "qa/evidence/conveyor-shipment-recovery-20261012.json"
+    },
+    {
+      "id": "R04",
+      "lane": "conveyor",
+      "candidate": "67c3ad5f1d83cc394a0776b23fa9772541cb7646",
+      "status": "resolved-in-source",
+      "observation": "Quarantine during a read made corrupt history look absent on the next poll.",
+      "requiredBehavior": "Preserve corrupt main bytes and unavailable authority until explicit valid restoration.",
+      "evidence": "qa/evidence/conveyor-shipment-recovery-20261012.json"
+    },
+    {
+      "id": "R05",
+      "lane": "graphics",
+      "candidate": "bb380c04720083c31eb5f84b6cb1c36ddfc5e6a5",
+      "status": "resolved-in-source",
+      "observation": "Supported composed-prop recovery could throw when default canvas allocation failed despite retained CPU pixels.",
+      "requiredBehavior": "Guard CPU composition, retain authored body and bound retry frequency. The affected modes are absent from current shipped manifests.",
+      "evidence": "test/prop-remaster-recovery.test.js"
+    },
+    {
+      "id": "R06",
+      "lane": "memory/skills",
+      "candidate": "301192710bed3e9e497a1a5eae34f17854c6ee4a",
+      "status": "held-for-owner-repair",
+      "observation": "New-skill baseline uses an empty digest while evaluator hashes null, preventing genuine receipt approval.",
+      "requiredBehavior": "Unify canonical absent-baseline digest and prove evaluate-to-promote flow.",
+      "evidence": "sidecar/skillstore.js"
+    },
+    {
+      "id": "R07",
+      "lane": "memory/learning",
+      "candidate": "747d73bffa55cf0709d37c7c31c0618e6f8ada76",
+      "status": "held-for-owner-repair",
+      "observation": "Corrections are cut before completeness is measured, so an incomplete prefix can be marked eligible for durable learning.",
+      "requiredBehavior": "Carry original truncation metadata through arm/correct and test a later reversal.",
+      "evidence": "sidecar/verdictreview.js"
+    },
+    {
+      "id": "R08",
+      "lane": "memory/learning",
+      "candidate": "747d73bffa55cf0709d37c7c31c0618e6f8ada76",
+      "status": "held-for-owner-repair",
+      "observation": "First-40 selection can drop the newest attributed owner correction in trusted-only evidence.",
+      "requiredBehavior": "Retain bounded beginning and newest instructions; bind the final host projection limit.",
+      "evidence": "sidecar/learningevidence.js"
+    },
+    {
+      "id": "R09",
+      "lane": "threads",
+      "candidate": "09e6afba0179fe4aa6930fa5fe5b68a433d4934d",
+      "status": "held-for-owner-repair",
+      "observation": "Execution-end recovery files raw output before structured-result repair, then rejects the accepted delivery as duplicate.",
+      "requiredBehavior": "Respect final delivery authority and test invalid-to-repaired structured output.",
+      "evidence": "frontend/app/stationcommands.js"
+    },
+    {
+      "id": "R10",
+      "lane": "threads",
+      "candidate": "09e6afba0179fe4aa6930fa5fe5b68a433d4934d",
+      "status": "held-for-owner-repair",
+      "observation": "Unrelated worker completion reloads the reader's active conversation and discards navigation/inspector state.",
+      "requiredBehavior": "Refresh only affected state and preserve explicit reader intent.",
+      "evidence": "frontend/app/stationcommands.js"
+    },
+    {
+      "id": "R11",
+      "lane": "credentials",
+      "candidate": "fd368c510f890384f4c86e4f299f41d27681e0ea",
+      "status": "held-for-owner-repair",
+      "observation": "Newly exposed runtime-lock START FRESH clears durable configuration while existing connector clients can still call tools.",
+      "requiredBehavior": "Invalidate runtime clients and pending authorization after durable reset succeeds; preserve them when reset fails.",
+      "evidence": "sidecar/index.js"
+    }
+  ],
+  "limits": [
+    "Findings include live application reproductions and narrower in-memory module reproductions; inspect the linked lane evidence for the exact proof boundary.",
+    "R05 affects supported renderer modes absent from current shipped manifests; it is not the established cause of the default-art incident.",
+    "R08 is a supported-module edge; the reviewed module commits did not yet include final host wiring.",
+    "An existing review-window restart gap was also reported to the memory owner; it was not attributed as a new regression."
+  ]
+}
