@@ -18,7 +18,7 @@
   "expectedClaimCount": 37,
   "releaseSurface": {
     "algorithm": "sha256",
-    "sourceCommit": "fd0250c2d60ffe2444dd2154d582f0e39d30572a",
+    "sourceCommit": "7f0e739557448972d6d93c826eed80eab438d254",
     "pathSetSha256": "e4cf2ec7f6a313f096915edc1eea9291b5f6ab7782c1784d289af5ac2f76084d",
     "files": [
       {
@@ -333,8 +333,8 @@
       },
       {
         "path": "frontend/app/build.js",
-        "bytes": 691127,
-        "sha256": "598b1f633568ba9a15c97b81af555c3fb44983ef5684926e282a8a43cbf68805"
+        "bytes": 693201,
+        "sha256": "e4013eefec70ce6aff3e2aed5e6b137213171927b037eae027b1e05823e4269d"
       },
       {
         "path": "frontend/app/channels.js",
@@ -1373,8 +1373,8 @@
       },
       {
         "path": "frontend/app/windows/outbox.js",
-        "bytes": 24139,
-        "sha256": "4efb522f4e3252de30c91215263f84a18fa7efeab24d15198c792068824a4eea"
+        "bytes": 24174,
+        "sha256": "7fc25646d6191e6ab7dcca75b013e6100b143ccafdccfa46b5388dfe3ea524ed"
       },
       {
         "path": "frontend/app/windows/rewind.js",
@@ -1453,8 +1453,8 @@
       },
       {
         "path": "frontend/app/world.js",
-        "bytes": 864494,
-        "sha256": "96e346ae95f82535bd3b0ad238946bc1edee7a16c1037815c800351a149f854c"
+        "bytes": 870219,
+        "sha256": "ffea305eb7ab799e07fd55923b2197c07eec540b6eb95000d65429cb080ec51a"
       },
       {
         "path": "frontend/app/worldlab.js",
