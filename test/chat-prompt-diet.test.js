@@ -23,7 +23,7 @@ once("    : (isTask && ownerTrusted && coreNames.indexOf('manual.read') >= 0) ? 
 once("skillBlock = isTask", 'the skill recipe block is gated on isTask');
 once("if (isTask && resolved.tools.indexOf('skill.view') >= 0) {", 'the runtime skill index is gated on isTask');
 A.ok(src.indexOf("(system || '') + runtimeBlock + toolNote") < 0, 'the runtime block no longer leads the appended payload');
-once("+ deliverableNote + runtimeBlock, { isTask, internal, tools: resolved.tools });", 'the runtime block rides LAST in the appended payload');
+once("+ deliverableNote + crewCallNote + runtimeBlock, { isTask, internal, tools: resolved.tools });", 'the runtime block rides LAST in the appended payload');
 // The explicit skill PRELOAD ("/skill Name" or body.preloadSkills) is a Commander request and stays ungated.
 once("    if (resolved.tools.indexOf('skill.view') >= 0) {", 'explicit skill preload keeps its own (isTask-free) gate');
 
