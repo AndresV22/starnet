@@ -1950,6 +1950,11 @@ const agentRosterRaw = new Map();
 // push/load — a legacy on-disk { version:1, agents } (no updatedAt) loads as 0, so any first write is accepted.
 let agentRosterUpdatedAt = 0;
 const AGENT_ROSTER_FILE = path.join(WORKSPACES, 'agent.roster.json');
+// CREW = every roster agent other than the one running — the same rows the [ORCHESTRATION] "YOUR TEAM" list renders.
+function crewCountFor(agentId) { let n = 0; for (const aid of agentRoster.keys()) if (aid !== agentId) n++; return n; }
+// The crew kit a crewless lead keeps GRANTED but unadvertised (runOnceCore ZERO-CREW DIET). team.summon is not here:
+// recruiting is the one crew action that needs no crew.
+const CREW_KIT_DEFERRED = Object.freeze(['team.dispatch', 'team.spawn', 'team.subagents', 'team.steer', 'team.interrupt', 'team.resume', 'team.config', 'team.configure']);
 function replaceAgentRoster(list) {
   agentRoster.clear();
   agentRosterRaw.clear();
@@ -20465,6 +20470,15 @@ async function runOnceCore(o) {
      Declared before the deferred pool is settled so tool.search can never offer — and announce as "Now available"
      — a name the loop will not reveal and dispatch would refuse. */
   const directDomainWithheld = (name) => !!directDomainTask && (/^team\./.test(name) || name === 'web_search');
+  /* ZERO-CREW DIET (lean-prompt, 2026-10-12). A lead whose live roster holds no crew still paid for the whole crew kit
+     on every task request: 8 team_* schemas (~7.5 KB) plus a ~5 KB [ORCHESTRATION] briefing about a team that does
+     not exist (measured on the default new-install floor: 88 tools / 108 KB per "tell me a joke"). With no crew, the
+     kit is DEFERRED — still granted, dispatchable and findable through tool_search, exactly like the station builder —
+     and only team.summon stays advertised, because recruiting is the one crew action that needs no crew (its result
+     reveals team.dispatch, so "summon a researcher and have it look into X" never has to search). With any crew the
+     request is byte-identical to before. KILL SWITCH: STARNET_LEAN_CREW=0 (and SKYNET_TOOL_SEARCH=0) advertise it all. */
+  const crewless = isTask && !deferralOff && String(ENV('LEAN_CREW') || '').trim() !== '0'
+    && resolved.tools.indexOf('team.dispatch') >= 0 && crewCountFor(agentId) === 0;
   let connectorDeferral = { deferred: [], servers: [] };
   let unavailable = { byTool: {}, bySignal: {} };
   {
@@ -20502,7 +20516,7 @@ async function runOnceCore(o) {
         routineRun: !!(surface === 'autonomous' && trigger === 'schedule' && String(o.cronJobId || ''))
       }, granted);
     }
-    const extra = connectorDeferral.deferred.concat(Object.keys(unavailable.byTool));
+    const extra = connectorDeferral.deferred.concat(Object.keys(unavailable.byTool), crewless ? CREW_KIT_DEFERRED : []);
     resolved.deferred = deferred.concat(extra.filter(n => granted.has(n) && deferred.indexOf(n) < 0 && !directDomainWithheld(n)));
     resolved.unavailable = unavailable.byTool;
     const footprintSig = JSON.stringify([connectorDeferral.servers, unavailable.bySignal]);
@@ -21560,7 +21574,30 @@ async function runOnceCore(o) {
   // have this turn. It also cost ~2.6KB of prefill on every greeting — on a 3B local model that is real seconds.
   // Describe the granted tools, not the caller's desktop-only lead flag. Trusted owner
   // channel tasks receive orchestration above; workers and disabled toolsets do not.
-  if (isTask && resolved.tools.includes('team.dispatch')) {
+  // Two rule sets hold with or without crew, so both briefings carry them verbatim (crew > 0 stays byte-identical).
+  const stationPointers = 'A Dossier or notebook edit changes no Bay, brief or floor; to change the floor, tool_search "station builder" and claim only what station.build reports. To change any setting the Commander asks for, tool_search "station settings". '
+    + 'To explain or troubleshoot Bays and assembly lines (what runs, in what order, what starts a line, why a step is not running), read station.layout first and quote its status; never answer from memory.';
+  /* SESSIONS (2026-07-30): the lead can also RUN the station's sessions — and the peek rule exists because
+     of a live failure: asked "what did the researcher do?", a lead with no way to read the other session
+     GUESSED, and told the Commander their agent had done nothing when the work was sitting right there.
+     An agent that can check and doesn't is lying by negligence; truthful telemetry applies to prose too. */
+  const sessionsNote = '\n• SESSIONS: session_list shows every open session by title; session_create makes a named one '
+    + '("make a session called research"); session_focus opens one for the Commander; and passing session:"<title>" '
+    + 'on a team.dispatch worker runs and files that work INSIDE that session. '
+    + '⛔ To answer ANY question about another session\'s work ("what did the researcher do?", "did anything finish?"), '
+    + 'read it first with session_peek — NEVER answer from memory or assumption. Your own thread does not show other '
+    + 'sessions\' turns, so without peeking you would be guessing, and a guessed "nothing happened" about real finished '
+    + 'work is a lie the Commander will catch.';
+  if (crewless) {
+    // ZERO-CREW DIET (see `crewless`): no team to list, coordinate or configure — one recruit line, one pointer to the
+    // deferred kit, and the crew-independent station + session rules. The deferred names are also in [HARNESS]'s list.
+    teamNote = '\n\n[ORCHESTRATION] You are the lead orchestrator. You have no crew yet. When the Commander wants a new agent '
+      + '("create a research agent for me"), actually DO it with team.summon — don\'t just describe it or claim you cannot; '
+      + 'it returns the new agentId, and team.dispatch becomes callable to hand it work. The rest of the crew kit is granted but '
+      + 'not loaded: tool_search "delegate subtasks" for team.dispatch and team.spawn (temporary same-identity subagents for '
+      + 'parallel work) with their background controls, or "agent dossier" for team.config / team.configure.'
+      + '\n• STATION: ' + stationPointers + sessionsNote;
+  } else if (isTask && resolved.tools.includes('team.dispatch')) {
     let projectConversation = false;
     try { projectConversation = !!(o.streamId && overseer.resolve(o.streamId).projectHome); }
     catch (error) {
@@ -21619,19 +21656,8 @@ async function runOnceCore(o) {
     teamNote += '\n• CREW CONFIGURATION: use team.config to read Dossier documents, then team.configure to edit the requested agent by exact ID. '
       + 'A notebook entry does not update another agent\'s Purpose or standing orders. Report a change only after the tool confirms it was saved. '
       + 'Dossier Purpose and standing orders describe the ongoing role; Bay briefs add the workflow-stage job. '
-      + 'A Dossier or notebook edit changes no Bay, brief or floor; to change the floor, tool_search "station builder" and claim only what station.build reports. To change any setting the Commander asks for, tool_search "station settings". '
-      + 'To explain or troubleshoot Bays and assembly lines (what runs, in what order, what starts a line, why a step is not running), read station.layout first and quote its status; never answer from memory.';
-    /* SESSIONS (2026-07-30): the lead can also RUN the station's sessions — and the peek rule exists because
-       of a live failure: asked "what did the researcher do?", a lead with no way to read the other session
-       GUESSED, and told the Commander their agent had done nothing when the work was sitting right there.
-       An agent that can check and doesn't is lying by negligence; truthful telemetry applies to prose too. */
-    teamNote += '\n• SESSIONS: session_list shows every open session by title; session_create makes a named one '
-      + '("make a session called research"); session_focus opens one for the Commander; and passing session:"<title>" '
-      + 'on a team.dispatch worker runs and files that work INSIDE that session. '
-      + '⛔ To answer ANY question about another session\'s work ("what did the researcher do?", "did anything finish?"), '
-      + 'read it first with session_peek — NEVER answer from memory or assumption. Your own thread does not show other '
-      + 'sessions\' turns, so without peeking you would be guessing, and a guessed "nothing happened" about real finished '
-      + 'work is a lie the Commander will catch.';
+      + stationPointers;
+    teamNote += sessionsNote;
   } else if (isTask && o.delegatedBy && resolved.tools.includes('station.build')) {
     // THE LENT BUILDER (team.dispatch builder:true): this worker holds the floor tools for this job only. Without this
     // line a Build Manager handed "rebuild the lab" has deferred tools it never searches for, and says it cannot build.

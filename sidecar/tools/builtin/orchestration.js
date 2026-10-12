@@ -1173,7 +1173,10 @@
         // Worded "workstation is in X", not "placed": the station may have bound a free desk it already had.
         const out = { agentId: newId, name: spec.name || spec.specId };
         if (desk) out.workstation = desk;
-        return { content: JSON.stringify(out), summary: 'summoned ' + newId + (desk ? ' (workstation in ' + desk + ')' : '') + ' — now delegate work to it with team.dispatch' };
+        // revealTools: a crewless lead holds team.dispatch DEFERRED (index.js ZERO-CREW DIET) — the agent it just summoned must
+        // be one call away, not one search away. A no-op wherever team.dispatch is already advertised (loop.js reveal).
+        return { content: JSON.stringify(out), summary: 'summoned ' + newId + (desk ? ' (workstation in ' + desk + ')' : '') + ' — now delegate work to it with team.dispatch',
+          control: { revealTools: ['team.dispatch'] } };
       }
     };
 

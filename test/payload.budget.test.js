@@ -58,10 +58,17 @@ const HOST = '127.0.0.1';
    THE LENT BUILDER 2026-10-11: team_dispatch takes builder:true on a worker (a delegated Build Manager gets the lead's
    station.map/plan/build for one job) — the schema field (+29) and one sentence saying what it lends (+121): trunk
    measured 66,073, the lane 66,223. Intended growth, kept to that one sentence (the limits ride the worker's own
-   note and the planner's refusals, not this schema): the byte budget moves to 66,250. */
+   note and the planner's refusals, not this schema): the byte budget moves to 66,250.
+   LEAN PROMPT 2026-10-12 (agent/lean-prompt-1012) — RATCHET DOWN. This probe's lead has no crew (no roster), so the
+   ZERO-CREW DIET applies: team.summon stays advertised, the other 8 team_* tools are deferred (named in [HARNESS],
+   found by tool_search) and [ORCHESTRATION] shrinks to the recruit line + the crew-independent station/session rules.
+   Measured base 04ce1fcb8 -> lane: default-new-install 24,672 -> 21,265 system chars | 84 -> 76 tools | 66,238 -> 58,822
+   tool bytes; fully-granted-floor 24,893 -> 21,486 | 84 -> 76 | 66,238 -> 58,822. (systemChars sums EVERY system-role
+   message, so the per-run <run_context> note the CACHE-STABLE PREFIX moved out of the system prompt is still counted
+   here: this custom model keeps it a system message.) Budgets = measurement + ~0.3% (the date line varies in length). */
 const BUDGET = {
-  'default-new-install': { systemChars: 24750, tools: 84, toolBytes: 66250 },
-  'fully-granted-floor': { systemChars: 24950, tools: 84, toolBytes: 66250 }
+  'default-new-install': { systemChars: 21330, tools: 76, toolBytes: 58850 },
+  'fully-granted-floor': { systemChars: 21550, tools: 76, toolBytes: 58850 }
 };
 
 (async () => {
