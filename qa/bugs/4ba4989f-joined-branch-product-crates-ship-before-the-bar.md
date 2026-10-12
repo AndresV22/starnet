@@ -50,3 +50,9 @@ A second integration review reproduced a duplicate-completion hazard: the first 
 ## Verdict
 
 Source-fixed, actual-sidecar and actual-browser event-handler verified. The floor creates one product at the executor-proven OUTBOX inlet after the whole joined job arrives. It does not reconstruct unseen productivity after reconnect or claim that a stopped job delivered. This is source acceptance, not an installer/publication claim; the integration lane owns combined gates and release acceptance.
+
+## Sample completion identity coverage (2026-10-12)
+
+The combined HTTP diagnostic at2c366fd8 found test/routing.sample.e2e.test.js selecting the new line-output authority receipt as if it were the sample crate completion. Actual sidecar proof reproduced1 failure/98 pass: the selector chose the first OUTBOX event, whose workitemId is intentionally distinct. The original sample completion still arrives with its exact entry workitemId and sample:true.
+
+Test-only commitdd74c386f671afe16a6a746061063aa4db2ada36 selects by the response's exact workitemId and retains the original sample:true and frozen-schema assertions unchanged. Six additional checks cover the matching placed crate, one completion, distinct terminal authority identity, exact line/OUTBOX, successful downstream work item and independent schema validity. The full focused real-sidecar sample suite now passes105 assertions. The event trace in qa/evidence/conveyor-sample-delivery-20261012.json confirms authority first, sample completion second. There is no product/shared-contract change. Fresh combined gates remain owned by the release coordinator.
