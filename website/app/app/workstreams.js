@@ -708,6 +708,29 @@
   }
 
 
+  // A run preview cannot prove the end of a recovered answer. Both conversation recovery and
+  // delegated receipts use this identity/completeness check before reserving its run id.
+  async function finalDeliveryText(row, turns) {
+    const d = row && row.dispatchDelivery;
+    if (!d || d.state !== 'final') return null;
+    const preview = String(d.text || '');
+    const t = (turns || []).find(t => t && t.role === 'assistant' && t.dispatchState === 'final'
+      && t.sourceRunId === row.runId && t.streamId === row.streamId && typeof t.content === 'string');
+    if (!t || !t.content.startsWith(preview)) return null;
+    if (d.textLength == null && d.textSha256 == null) {
+      // Older projections were silently capped here; they cannot prove completion at that boundary.
+      return t.content.length < 200000 ? t.content : null;
+    }
+    if (!Number.isSafeInteger(d.textLength) || t.content.length !== d.textLength
+      || !/^[a-f0-9]{64}$/.test(d.textSha256 || '')
+      || t.textLength !== d.textLength || t.textSha256 !== d.textSha256) return null;
+    try {
+      const digest = await globalThis.crypto.subtle.digest('SHA-256', new TextEncoder().encode(t.content));
+      const hash = Array.from(new Uint8Array(digest), b => b.toString(16).padStart(2, '0')).join('');
+      return hash === d.textSha256 ? t.content : null;
+    } catch (_) { return null; }
+  }
+
   return {
     init, reset, serialize, all, list, search, setConnectorHandoff, connectorHandoff, automationOf, railGroups,
     exportConversation, parseConversationExport, clearConversation,
@@ -715,7 +738,7 @@
     create, startSession, adopt, get, active, activeId: getActiveId, generalId: getGeneralId, isHidden, homeOf,
     switch: switchTo, rename, setAgent, setLane, setProjectRoot, pin, archive, del, removeByAgent, isDeleted, touch, markUnread, markRead, unread: isUnread,
     autoTitle, retitle, deriveTitle, needsModelTitle, isLowSignal, titleBasis,
-    appendRun, noteRunEnd, recordDeliverable, addCost, costOf, noteModel, modelOf,
+    finalDeliveryText, appendRun, noteRunEnd, recordDeliverable, addCost, costOf, noteModel, modelOf,
     // the rail's INBOX row reads these directly: the same sys/hidden/internal filter search and
     // export already trust, so the count and the preview can never surface machine chatter.
     visibleMessages, latestVisibleMessage, hasAgent,

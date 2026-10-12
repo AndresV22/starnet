@@ -1167,9 +1167,9 @@ const StationCommands = (() => {
             const response = await fetch('/api/transcript?stream=' + encodeURIComponent(row.streamId || '') + '&runId=' + encodeURIComponent(row.runId || '') + '&delivery=1&limit=1', { cache: 'no-store' });
             if (!response.ok) continue;
             const result = await response.json();
-            const full = (result.turns || []).find(t => t && t.role === 'assistant' && t.sourceRunId === row.runId && typeof t.content === 'string');
-            if (!full || full.content.length < String(text).length) continue;
-            text = full.content;
+            const full = await Workstreams.finalDeliveryText(row, result.turns);
+            if (full == null) continue;
+            text = full;
           } catch (_) { continue; }
         }
         args.text = text;

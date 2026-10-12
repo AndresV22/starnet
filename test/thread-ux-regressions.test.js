@@ -169,3 +169,24 @@ test('reader anchor survives reassignment of a time separator',()=>{
   assert.equal(divider.children[0].textContent,new Date(first+2700000).toISOString(),'the separator now belongs to the recovered earlier message');
   assert.equal(original[1].getBoundingClientRect().top,before,'the persistent message remains anchored');
 });
+
+
+test('delegated receipts reject a truncated or changed final projection and retry the full Unicode result',async()=>{
+  const Workstreams=require('../frontend/app/workstreams.js'), {createHash}=require('node:crypto');
+  const full=JSON.stringify({answer:'\u{1f680}redacted '.repeat(24000)+'COMPLETE_TAIL'});
+  const hash=createHash('sha256').update(full).digest('hex');
+  const row={runId:'receipt-integrity',streamId:'worker',dispatchDelivery:{state:'final',text:full.slice(0,24000),textLength:full.length,textSha256:hash,reason:'done'}};
+  const good={role:'assistant',dispatchState:'final',streamId:'worker',sourceRunId:row.runId,content:full,textLength:full.length,textSha256:hash};
+  let projection={...good,content:full.slice(0,200000)};
+  const c=ctx(part(delegated,'  async function loadReceipt(', '  function workHtml('),{
+    Workstreams,findRow:()=>({ws:{agentId:'mira',parentStreamId:'home'},lead:'lead'}),workerRunOf:()=>row.runId,
+    loadingReceipts:new Set(),receipts:new Map(),repaint(){},stateOf:()=>({cls:'done'}),foldReceipt:(r,t,text)=>({answer:text}),
+    fetch:async(url)=>({ok:true,json:async()=>url.startsWith('/api/runs')?{runs:[row]}:{turns:url.includes('delivery=1')?[projection]:[{role:'assistant',content:'rejected original'}]}})
+  });
+  await c.loadReceipt('worker');assert.equal(c.receipts.get('worker').status,'err');
+  assert.match(c.receipts.get('worker').error,/complete finalized result is unavailable/);
+  projection={...good,content:full.slice(0,-3)+'X"}'};
+  await c.loadReceipt('worker');assert.equal(c.receipts.get('worker').status,'err');
+  projection=good;await c.loadReceipt('worker');assert.equal(c.receipts.get('worker').status,'ok');
+  assert.equal(c.receipts.get('worker').data.answer,full);assert.equal(JSON.parse(full).answer.endsWith('COMPLETE_TAIL'),true);
+});

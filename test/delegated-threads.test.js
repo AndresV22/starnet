@@ -218,8 +218,8 @@ const roster = new Map([['researcher', { system: 'R', name: 'MIRA' }], ['writer'
   A.eq(finalized.answer, '{"ok":true}', 'receipt uses validated delivery instead of original transcript');
   const fullRepaired = '{"answer":"' + 'validated '.repeat(3000) + '"}';
   const capped = { ...row, dispatchDelivery: { state: 'final', text: fullRepaired.slice(0,24000), reason: 'done', repairRunId: 'repair' } };
-  A.eq(L.foldReceipt(capped, turns, [{ role: 'assistant', content: fullRepaired }]).answer, fullRepaired, 'long repaired answers expand only from their own validated transcript');
-  A.eq(L.foldReceipt(capped, turns).answer, capped.dispatchDelivery.text, 'a capped repaired answer never borrows raw execution prose');
+  A.eq(L.foldReceipt(capped, turns, fullRepaired).answer, fullRepaired, 'long repaired answers expand only from their own validated transcript');
+  A.eq(L.foldReceipt(capped, turns).answer, '', 'an unverified capped answer is never displayed as complete');
   const rejected = L.foldReceipt({ ...row, dispatchDelivery: { state: 'final', text: '', reason: 'invalid-result' } }, turns);
   A.eq(rejected.answer, '', 'rejected output cannot fall back to raw transcript');
   A.eq(L.foldReceipt({ ...row, dispatchDelivery: { state: 'internal' } }, turns).answer, '', 'repair execution has no independent receipt answer');

@@ -186,7 +186,7 @@ for (const reason of ['done', 'budget', 'max_iters', 'aborted', 'error']) {
 // A bounded run-index preview must never lock out the complete validated answer.
 for (const unavailable of [false, true]) {
   const full = JSON.stringify({ answer: 'validated '.repeat(2600) + 'COMPLETE_TAIL' });
-  const opts = { transcriptUnavailable: unavailable, deliveryTurns: [{ role: 'assistant', sourceRunId: 'long-run', content: full }],
+  const opts = { transcriptUnavailable: unavailable, deliveryTurns: [{ role: 'assistant', dispatchState: 'final', streamId: 'long-worker', sourceRunId: 'long-run', content: full }],
     runs: [{ runId: 'long-run', streamId: 'long-worker', sessionTitle: 'Long worker', reason: 'done', deliveryText: 'not valid JSON',
       dispatchDelivery: { state: 'final', text: full.slice(0, 24000), reason: 'done', repairRunId: 'long-repair' } }] };
   const env = boot(opts), worker = env.W.adopt({ id: 'long-worker', title: 'Long worker', worker: true, parentStreamId: env.W.generalId() });
@@ -198,6 +198,46 @@ for (const unavailable of [false, true]) {
   A.eq(worker.history[0].content, full, 'the entire accepted answer is retained');
   A.eq(JSON.parse(worker.history[0].content).answer.endsWith('COMPLETE_TAIL'), true, 'structured output remains valid and complete');
   A.eq(await env.S.reconcile(worker.id), 0, 'the complete answer remains single');
+}
+
+// New final envelopes prove complete content at preview/storage boundaries; failed reads stay retryable.
+for (const size of [23999, 24000, 24001, 199999, 200000, 200001, 210026, 1048576]) {
+  const full = JSON.stringify({ answer: 'x'.repeat(size - 26) + 'COMPLETE_TAIL' });
+  A.eq(full.length, size, 'fixture hits the exact boundary');
+  const textSha256 = require('node:crypto').createHash('sha256').update(full).digest('hex');
+  const row = { runId: 'boundary-run', streamId: 'boundary-worker', sessionTitle: 'Boundary worker', reason: 'done',
+    dispatchDelivery: { state: 'final', text: full.slice(0, 24000), textLength: full.length, textSha256, reason: 'done' } };
+  const opts = { runs: [row], deliveryTurns: [{ role: 'assistant', dispatchState: 'final', sourceRunId: row.runId,
+    streamId: row.streamId, content: full, textLength: full.length, textSha256 }] };
+  const env = boot(opts), w = env.W.adopt({ id: row.streamId, title: row.sessionTitle, worker: true, parentStreamId: env.W.generalId() });
+  A.eq(await env.S.reconcile(w.id), 1, 'complete output recovers at ' + size);
+  A.eq(w.history[0].content, full, 'full tail and JSON survive at ' + size);
+  A.eq(await env.S.reconcile(w.id), 0, 'complete output is idempotent at ' + size);
+}
+for (const corrupt of ['truncated', 'changed-tail', 'wrong-run', 'wrong-stream', 'raw', 'missing-length', 'wrong-hash', 'legacy-cap']) {
+  const full = JSON.stringify({ answer: 'validated '.repeat(21000) + 'COMPLETE_TAIL' });
+  const textSha256 = require('node:crypto').createHash('sha256').update(full).digest('hex');
+  const row = { runId: 'integrity-run', streamId: 'integrity-worker', sessionTitle: 'Integrity worker', reason: 'done',
+    dispatchDelivery: { state: 'final', text: full.slice(0, 24000), textLength: full.length, textSha256, reason: 'done' } };
+  const good = { role: 'assistant', dispatchState: 'final', sourceRunId: row.runId, streamId: row.streamId,
+    content: full, textLength: full.length, textSha256 };
+  const bad = { ...good };
+  if (corrupt === 'truncated') bad.content = full.slice(0, 200000);
+  if (corrupt === 'changed-tail') bad.content = full.slice(0, -3) + 'X"}';
+  if (corrupt === 'wrong-run') bad.sourceRunId = 'repair-run';
+  if (corrupt === 'wrong-stream') bad.streamId = 'other-worker';
+  if (corrupt === 'raw') bad.dispatchState = 'pending';
+  if (corrupt === 'missing-length') delete bad.textLength;
+  if (corrupt === 'wrong-hash') bad.textSha256 = '0'.repeat(64);
+  if (corrupt === 'legacy-cap') { delete row.dispatchDelivery.textLength; delete row.dispatchDelivery.textSha256; bad.content = full.slice(0, 200000); }
+  const opts = { runs: [row], deliveryTurns: [bad] }, env = boot(opts);
+  const w = env.W.adopt({ id: row.streamId, title: row.sessionTitle, worker: true, parentStreamId: env.W.generalId() });
+  A.eq(await env.S.reconcile(w.id), 0, corrupt + ' cannot masquerade as a complete answer');
+  A.eq(w.runIds.length, 0, corrupt + ' cannot reserve deduplication');
+  A.eq(w.history.length, 0, corrupt + ' never borrows rejected output');
+  Object.assign(row.dispatchDelivery, { textLength: full.length, textSha256 }); opts.deliveryTurns = [good];
+  A.eq(await env.S.reconcile(w.id), 1, corrupt + ' can retry with the full authoritative payload');
+  A.eq(w.history[0].content, full, corrupt + ' retry retains the full answer');
 }
 
 // Recovering hidden worker state must not reconstruct the unrelated chat the reader is using.
