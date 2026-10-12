@@ -30,5 +30,14 @@
     "Focused checks are not complete source gates.",
     "No customer recovery, native microphone or installed acceptance is inferred.",
     "Combined release surface requires a fresh lock after final source imports."
-  ]
+  ],
+  "focusedSampleHttp": {
+    "candidate": "6f0c44c9f995e892b7955064a14d1993aadf3f72",
+    "test": "test/routing.sample.e2e.test.js",
+    "assertions": 105,
+    "exitCode": 0,
+    "log": ".handoff/accepted-sample-http.log",
+    "logSha256": "1a703fdbf00251b5d3ae5bcec9a2a041a209aed1ee495ed909f18300b66cf105",
+    "scope": "One real-sidecar suite with local scripted provider; no full gate or customer acceptance."
+  }
 }
