@@ -100,10 +100,16 @@ function station() {
   const build = fs.readFileSync(path.join(__dirname, '..', 'frontend', 'app', 'build.js'), 'utf8');
   const body = A.fnBody(build, 'function addOwnedDesk(');
   A.ok(body.length > 30 && body.length < 1500, 'build.js addOwnedDesk located (length guard)');
-  /* (THE HAND, 2026-10-11: the click grew two branches BETWEEN the owned desk and the plain addProp — a junction held over a belt goes
-     ON it through junctionOnBelt, a held BAY lands with its role/brief/hand-off in one transact. The pin keeps both ends: an owner
-     still goes FIRST through addOwnedDesk, and the plain case still ends in station.addProp.) */
-  A.ok(/const res = owner\s*\? addOwnedDesk\(placement, owner\)\s*: onBelt \? station\.junctionOnBelt\([\s\S]*?: station\.addProp\(placement\);/.test(build), 'the floor click drops an owned desk through addOwnedDesk');
+  // Belt insertion now precedes the owned-desk branch. Prove it cannot intercept a workstation,
+  // then keep the owned-desk and ordinary placement wiring pinned without freezing unrelated BAY logic.
+  const types = ['CONNECT_TYPES', 'WORKSTATION_TYPES', 'JUNCTION_TAG_TYPES'].map(name =>
+    build.match(new RegExp('const ' + name + ' = \\{[^\\n]+\\};'))[0]).join('\n');
+  const beltFoot = A.fnBody(build, 'function beltUnderFoot(');
+  const desksSkipBelt = new Function('linkedFloor', 'station', 'linksMemoed', types + '\n' + beltFoot +
+    '\nreturn Object.keys(WORKSTATION_TYPES).every(t => beltUnderFoot(t, 0, 0, {w:2,h:1}) === null);');
+  A.ok(desksSkipBelt(() => true, { beltAt: () => true }, () => []), 'no workstation can enter the earlier belt-insertion branch');
+  const click = A.fnBody(build, 'function commitPropStamp(');
+  A.ok(/: owner\s*\? addOwnedDesk\(placement, owner\)\s*: onBelt \? station\.junctionOnBelt\([\s\S]*?: station\.addProp\(placement\);/.test(click), 'the floor click drops an owned desk through addOwnedDesk');
   A.ok(/station\.assignDesk\(/.test(body) && !/assignPropAgent/.test(body), 'PLACE ITS DESK binds through station.assignDesk — no third copy of the unbind loop');
   const { st, old } = station(), before = snap(st);
   let spot = null;
