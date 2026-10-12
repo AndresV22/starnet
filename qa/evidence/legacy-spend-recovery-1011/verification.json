@@ -68,5 +68,11 @@
   },
   "gates": "No full fast/http suites per bounded next-wave instruction; coordinator owns combined gates.",
   "safety": "No customer account or ledger modified, no live provider/billing calls; HTTP tests use a loopback mock. Live seed fetches are restricted to loopback. No merge into trunk or push.",
-  "date": "2026-10-12T03:53:34.914Z"
+  "date": "2026-10-12T03:53:34.914Z",
+  "diagnosticFollowup": {
+    "date": "2026-10-12",
+    "evidence": "http-diagnostic.json",
+    "result": "Instrumented original test passed with unchanged assertions; actual OpenRouter adapter correlates all observed calls to foreground runAgentLoop. Original extra request remains unexplained; auxiliary lead not demonstrated.",
+    "provenance": "provenance-rerun.json: new seeded after/restart run at frozen product SHA with served JS and backend hashes plus command/exit stamps. Original before capture lacks contemporaneous served hashes."
+  }
 }

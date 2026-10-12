@@ -1,0 +1,293 @@
+{
+  "sourceFreeze": "1b03394db43c67cd79eb9b423e5c6e63f57868d1",
+  "originalFailure": {
+    "expectedMockRequests": 1,
+    "observed": 2,
+    "assertion": "a failed durable append blocks subsequent capped dispatch",
+    "classification": "Still unexplained. This diagnostic did not reproduce the extra request; no evidence warrants calling it unrelated or attributing it to auxiliary work."
+  },
+  "diagnostic": {
+    "scope": "One bounded diagnostic, with a second instrumented execution solely to correct the provider hook from openai-compatible to the actual OpenRouter adapter. No changed assertions, counters, guard, fault behavior or product files.",
+    "firstExecution": {
+      "exit": {
+        "at": 1791777745711,
+        "kind": "exit",
+        "code": 0
+      },
+      "correlationLimitation": "Admission/API and mock timeline captured; wrong adapter hook emitted no provider-stream events."
+    },
+    "correlatedExecution": {
+      "command": "node .tmp/spend-http-diagnostic/run-correlated.cjs",
+      "start": {
+        "at": 1791777835685,
+        "kind": "start",
+        "git": "1b03394db43c67cd79eb9b423e5c6e63f57868d1",
+        "originalSha256": "5b92c70ceea4b4b990aa6051dce0e56cef8c22f149aea4a988bad7cdac4d6ba5",
+        "assertionLinesUnchanged": true
+      },
+      "exit": {
+        "at": 1791777856194,
+        "kind": "exit",
+        "code": 0
+      },
+      "mockRequestCount": 5,
+      "mockPaths": [
+        "/api/v1/chat/completions",
+        "/api/v1/chat/completions",
+        "/api/v1/chat/completions",
+        "/api/v1/chat/completions",
+        "/api/v1/chat/completions"
+      ],
+      "providerCalls": [
+        {
+          "runId": "c20ac87f-237e-4e76-9ed2-863a6e5686cf",
+          "model": "test/spend",
+          "caller": "    at runAgentLoop ([repo]\\sidecar\\loop.js:1726:43)"
+        },
+        {
+          "runId": "bf3f9463-2da9-4c19-9d92-2ba06250fd0a",
+          "model": "test/spend",
+          "caller": "    at runAgentLoop ([repo]\\sidecar\\loop.js:1726:43)"
+        },
+        {
+          "runId": "abd73008-29ed-4a80-9d59-c7509e083ab6",
+          "model": "test/spend",
+          "caller": "    at runAgentLoop ([repo]\\sidecar\\loop.js:1726:43)"
+        },
+        {
+          "runId": "fd595acd-cc97-4745-90f6-9a3afe47045e",
+          "model": "test/spend",
+          "caller": "    at runAgentLoop ([repo]\\sidecar\\loop.js:1726:43)"
+        },
+        {
+          "runId": "a621b1c8-ac7a-47b5-b778-0d1e461736f7",
+          "model": "test/spend",
+          "caller": "    at runAgentLoop ([repo]\\sidecar\\loop.js:1726:43)"
+        }
+      ],
+      "assertionsUnchanged": true
+    },
+    "leadAssessment": "The test increments calls for every non-/models request. SKYNET_AUX_BUDGET=0 means unlimited/off. All five observed requests in the correlated execution were foreground runAgentLoop calls; no auxiliary request appeared. This cannot identify the original extra request.",
+    "pairFinding": "One allowed run issued one mock chat request; its ledger append injected ENOSPC. The status became durable=false/writeError=ENOSPC. The next distinct run was refused with cause=write before provider.stream; no extra mock request in this pair.",
+    "timeline": [
+      {
+        "at": 1791777838856,
+        "kind": "fault-control",
+        "value": "{\"mode\":\"write\"}"
+      },
+      {
+        "at": 1791777838856,
+        "kind": "api-start",
+        "path": "/api/run",
+        "seq": 2
+      },
+      {
+        "at": 1791777839233,
+        "kind": "budget-check",
+        "runId": "c20ac87f-237e-4e76-9ed2-863a6e5686cf",
+        "agentId": "agent",
+        "spent": 0,
+        "result": null,
+        "health": {
+          "complete": true,
+          "durable": true,
+          "readError": null,
+          "writeError": null,
+          "unsettledRuns": 0
+        }
+      },
+      {
+        "at": 1791777839234,
+        "kind": "budget-check",
+        "runId": "c20ac87f-237e-4e76-9ed2-863a6e5686cf",
+        "agentId": "agent",
+        "spent": 0,
+        "result": null,
+        "health": {
+          "complete": true,
+          "durable": true,
+          "readError": null,
+          "writeError": null,
+          "unsettledRuns": 0
+        }
+      },
+      {
+        "at": 1791777839237,
+        "kind": "provider-stream",
+        "runId": "c20ac87f-237e-4e76-9ed2-863a6e5686cf",
+        "model": "test/spend",
+        "keys": [
+          "model",
+          "messages",
+          "tools",
+          "signal",
+          "stream",
+          "isTask",
+          "runId",
+          "cacheSystemPrefix"
+        ],
+        "stack": [
+          "    at runAgentLoop ([repo]\\sidecar\\loop.js:1726:43)",
+          "    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)",
+          "    at async runOnceCore ([repo]\\sidecar\\index.js:21896:16)",
+          "    at async runOnceCoreCounted ([repo]\\sidecar\\index.js:18968:16)",
+          "    at async runOnceTrackedBelt ([repo]\\sidecar\\index.js:18949:16)"
+        ]
+      },
+      {
+        "at": 1791777839242,
+        "kind": "mock-request",
+        "path": "/api/v1/chat/completions",
+        "model": "test/spend",
+        "bodySha256": "7481067893c7d633191d0601225f1ede7076e69a7d4456155ab9dbdb1fc28b2c",
+        "syntheticPromptObserved": true
+      },
+      {
+        "at": 1791777839252,
+        "kind": "ledger-io",
+        "mode": "write",
+        "flags": "a+",
+        "willInject": true
+      },
+      {
+        "at": 1791777839272,
+        "kind": "budget-check",
+        "runId": null,
+        "agentId": "agent",
+        "spent": 0,
+        "result": {
+          "scope": "day",
+          "unknown": true,
+          "code": "spend_history_unavailable",
+          "cause": "write"
+        },
+        "health": {
+          "complete": true,
+          "durable": false,
+          "readError": null,
+          "writeError": "ENOSPC",
+          "unsettledRuns": 0
+        }
+      },
+      {
+        "at": 1791777839275,
+        "kind": "api-end",
+        "path": "/api/run",
+        "seq": 2,
+        "status": 200,
+        "events": [
+          {
+            "name": "agent.run.start",
+            "runId": "c20ac87f-237e-4e76-9ed2-863a6e5686cf"
+          },
+          {
+            "name": "agent.run.end",
+            "runId": "c20ac87f-237e-4e76-9ed2-863a6e5686cf",
+            "reason": "done"
+          }
+        ]
+      },
+      {
+        "at": 1791777839275,
+        "kind": "api-start",
+        "path": "/api/budget/status",
+        "seq": null
+      },
+      {
+        "at": 1791777839291,
+        "kind": "api-end",
+        "path": "/api/budget/status",
+        "seq": null,
+        "status": 200,
+        "health": {
+          "complete": true,
+          "durable": false,
+          "readError": null,
+          "writeError": "ENOSPC",
+          "unsettledRuns": 0
+        }
+      },
+      {
+        "at": 1791777839291,
+        "kind": "api-start",
+        "path": "/api/run",
+        "seq": 3
+      },
+      {
+        "at": 1791777839330,
+        "kind": "budget-check",
+        "runId": "e17fd388-709c-4e9d-820e-1fd2be74305c",
+        "agentId": "agent",
+        "spent": 0,
+        "result": {
+          "scope": "day",
+          "unknown": true,
+          "code": "spend_history_unavailable",
+          "cause": "write"
+        },
+        "health": {
+          "complete": true,
+          "durable": false,
+          "readError": null,
+          "writeError": "ENOSPC",
+          "unsettledRuns": 0
+        }
+      },
+      {
+        "at": 1791777839345,
+        "kind": "ledger-io",
+        "mode": "write",
+        "flags": "a+",
+        "willInject": true
+      },
+      {
+        "at": 1791777839358,
+        "kind": "budget-check",
+        "runId": null,
+        "agentId": "agent",
+        "spent": 0,
+        "result": {
+          "scope": "day",
+          "unknown": true,
+          "code": "spend_history_unavailable",
+          "cause": "write"
+        },
+        "health": {
+          "complete": true,
+          "durable": false,
+          "readError": null,
+          "writeError": "ENOSPC",
+          "unsettledRuns": 0
+        }
+      },
+      {
+        "at": 1791777839359,
+        "kind": "api-end",
+        "path": "/api/run",
+        "seq": 3,
+        "status": 200,
+        "events": [
+          {
+            "name": "agent.run.start",
+            "runId": "e17fd388-709c-4e9d-820e-1fd2be74305c"
+          },
+          {
+            "name": "agent.run.error",
+            "runId": "e17fd388-709c-4e9d-820e-1fd2be74305c",
+            "message": "Spend history could not be saved to disk, so the spending limits you set can’t be checked. Restart StarNet to recover it."
+          },
+          {
+            "name": "agent.run.end",
+            "runId": "e17fd388-709c-4e9d-820e-1fd2be74305c",
+            "reason": "error"
+          }
+        ]
+      }
+    ]
+  },
+  "limitations": [
+    "Instrumentation can change scheduling; a passing diagnostic is not proof the earlier failure is harmless.",
+    "Private fixture copies and complete raw traces remain under .tmp/spend-http-diagnostic/. Only sanitized evidence is committed.",
+    "No broad gates, product edits, customer accounts or live provider calls."
+  ]
+}

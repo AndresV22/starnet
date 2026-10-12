@@ -1,0 +1,147 @@
+{
+  "provenance": {
+    "startedAt": "2026-10-12T04:02:49.566Z",
+    "command": "node qa/evidence/legacy-spend-recovery-1011/live-probe.mjs after",
+    "gitSha": "1b03394db43c67cd79eb9b423e5c6e63f57868d1",
+    "files": {
+      "sidecar/index.js": {
+        "diskSha256": "81b317a22b56df8f0174650684642975d12e805ebae4f17a17422ab073e9be56",
+        "gitSha256": "81b317a22b56df8f0174650684642975d12e805ebae4f17a17422ab073e9be56"
+      },
+      "sidecar/ledger.js": {
+        "diskSha256": "b584aee5d696d373e7b9817f33726f9225b2401fd1e3b49ba1367ab60cfc6c6f",
+        "gitSha256": "b584aee5d696d373e7b9817f33726f9225b2401fd1e3b49ba1367ab60cfc6c6f"
+      },
+      "frontend/app/stationui.js": {
+        "diskSha256": "4e232d97fdb5e007dd821fdebb71d4046cde72ae0d7aec8f0d33c2da2f04cefc",
+        "gitSha256": "4e232d97fdb5e007dd821fdebb71d4046cde72ae0d7aec8f0d33c2da2f04cefc"
+      },
+      "website/app/app/stationui.js": {
+        "diskSha256": "4e232d97fdb5e007dd821fdebb71d4046cde72ae0d7aec8f0d33c2da2f04cefc",
+        "gitSha256": "4e232d97fdb5e007dd821fdebb71d4046cde72ae0d7aec8f0d33c2da2f04cefc"
+      }
+    },
+    "scope": "Seeded browser/API evidence, not installed artifact or customer acceptance",
+    "servedStationUi": {
+      "status": 200,
+      "sha256": "4e232d97fdb5e007dd821fdebb71d4046cde72ae0d7aec8f0d33c2da2f04cefc"
+    },
+    "finishedAt": "2026-10-12T04:03:34.292Z",
+    "exitCode": 0,
+    "filesUnchanged": true
+  },
+  "pass": true,
+  "initial": {
+    "rows": [
+      {
+        "text": "INTERRUPTED — known-managed · Oct 12, 12:01 AMSETTLECOUNT AS $0.50",
+        "tip": "This run stopped before StarNet recorded what it spent (it ran on your StarNet credits). Enter what StarNet charged for it — SETTINGS → AI & MODELS › STORE › RECENT ACTIVITY lists those charges as run known-ma: StarNet books it once and your spending limits can be checked again.",
+        "label": "what StarNet charged for this run, in USD",
+        "buttons": [
+          "SETTLE",
+          "COUNT AS $0.50"
+        ]
+      },
+      {
+        "text": "INTERRUPTED — legacy-byok · Oct 12, 12:01 AM · BILLING SOURCE UNKNOWNSETTLE",
+        "tip": "This run stopped before StarNet recorded what it spent. The billing source was not recorded. Match this run to StarNet Recent Activity or the original provider billing records, then enter only its verified charge: StarNet books it once and your spending limits can be checked again.",
+        "label": "the verified charge for this run, in USD",
+        "buttons": [
+          "SETTLE"
+        ]
+      },
+      {
+        "text": "INTERRUPTED — legacy-unknown · Oct 12, 12:01 AM · BILLING SOURCE UNKNOWNSETTLE",
+        "tip": "This run stopped before StarNet recorded what it spent. The billing source was not recorded. Match this run to StarNet Recent Activity or the original provider billing records, then enter only its verified charge: StarNet books it once and your spending limits can be checked again.",
+        "label": "the verified charge for this run, in USD",
+        "buttons": [
+          "SETTLE"
+        ]
+      },
+      {
+        "text": "INTERRUPTED — legacy-managed · Oct 12, 12:01 AM · BILLING SOURCE UNKNOWNSETTLE",
+        "tip": "This run stopped before StarNet recorded what it spent. The billing source was not recorded. Match this run to StarNet Recent Activity or the original provider billing records, then enter only its verified charge: StarNet books it once and your spending limits can be checked again.",
+        "label": "the verified charge for this run, in USD",
+        "buttons": [
+          "SETTLE"
+        ]
+      },
+      {
+        "text": "INTERRUPTED — known-byok · Oct 12, 12:01 AMSETTLECOUNT AS $0.50",
+        "tip": "This run stopped before StarNet recorded what it spent (it started on openrouter). Enter the charge your provider dashboard shows for it: StarNet books it once and your spending limits can be checked again.",
+        "label": "what your provider charged for this run, in USD",
+        "buttons": [
+          "SETTLE",
+          "COUNT AS $0.50"
+        ]
+      }
+    ],
+    "spend": "Spend history unavailable — 5 interrupted runs never recorded what they spent, so your spending limits can’t be checked. Settle each below. At least $0.00 today."
+  },
+  "restart": {
+    "rows": [
+      {
+        "text": "INTERRUPTED — known-managed · Oct 12, 12:01 AMSETTLECOUNT AS $0.50",
+        "tip": "This run stopped before StarNet recorded what it spent (it ran on your StarNet credits). Enter what StarNet charged for it — SETTINGS → AI & MODELS › STORE › RECENT ACTIVITY lists those charges as run known-ma: StarNet books it once and your spending limits can be checked again.",
+        "label": "what StarNet charged for this run, in USD",
+        "buttons": [
+          "SETTLE",
+          "COUNT AS $0.50"
+        ]
+      },
+      {
+        "text": "INTERRUPTED — legacy-byok · Oct 12, 12:01 AM · BILLING SOURCE UNKNOWNSETTLE",
+        "tip": "This run stopped before StarNet recorded what it spent. The billing source was not recorded. Match this run to StarNet Recent Activity or the original provider billing records, then enter only its verified charge: StarNet books it once and your spending limits can be checked again.",
+        "label": "the verified charge for this run, in USD",
+        "buttons": [
+          "SETTLE"
+        ]
+      },
+      {
+        "text": "INTERRUPTED — legacy-unknown · Oct 12, 12:01 AM · BILLING SOURCE UNKNOWNSETTLE",
+        "tip": "This run stopped before StarNet recorded what it spent. The billing source was not recorded. Match this run to StarNet Recent Activity or the original provider billing records, then enter only its verified charge: StarNet books it once and your spending limits can be checked again.",
+        "label": "the verified charge for this run, in USD",
+        "buttons": [
+          "SETTLE"
+        ]
+      },
+      {
+        "text": "INTERRUPTED — legacy-managed · Oct 12, 12:01 AM · BILLING SOURCE UNKNOWNSETTLE",
+        "tip": "This run stopped before StarNet recorded what it spent. The billing source was not recorded. Match this run to StarNet Recent Activity or the original provider billing records, then enter only its verified charge: StarNet books it once and your spending limits can be checked again.",
+        "label": "the verified charge for this run, in USD",
+        "buttons": [
+          "SETTLE"
+        ]
+      },
+      {
+        "text": "INTERRUPTED — known-byok · Oct 12, 12:01 AMSETTLECOUNT AS $0.50",
+        "tip": "This run stopped before StarNet recorded what it spent (it started on openrouter). Enter the charge your provider dashboard shows for it: StarNet books it once and your spending limits can be checked again.",
+        "label": "what your provider charged for this run, in USD",
+        "buttons": [
+          "SETTLE",
+          "COUNT AS $0.50"
+        ]
+      }
+    ],
+    "spend": "Spend history unavailable — 5 interrupted runs never recorded what they spent, so your spending limits can’t be checked. Settle each below. At least $0.00 today."
+  },
+  "accounting": {
+    "initial": {
+      "complete": false,
+      "durable": true,
+      "readError": "UNSETTLED_SPEND",
+      "writeError": null,
+      "unsettledRuns": 5
+    },
+    "restart": {
+      "complete": false,
+      "durable": true,
+      "readError": "UNSETTLED_SPEND",
+      "writeError": null,
+      "unsettledRuns": 5
+    },
+    "initialSpentToday": null,
+    "restartSpentToday": null
+  },
+  "provenanceLimit": "This is a new after-fix rerun. Original before.json remains historical before-fix evidence; it did not record contemporaneous served-file hashes and is not retroactively promoted to exact-source provenance."
+}
