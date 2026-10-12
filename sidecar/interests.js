@@ -22,6 +22,9 @@
      { v, topics: { slug: { label, w, n, lastAt, ev: [{ q, at }] } }, lastPassAt, runsSincePass }
    w = EWMA-style decayed weight (half-life DECAY_HALF_LIFE_MS, applied lazily at fold/read time);
    n = lifetime observation count; ev = the evidence quotes (EVIDENCE_CAP, newest first).
+   Optional trustedTopics is an independent histogram minted only by the host after extraction from
+   proven clean activity. Old topics remain inspectable; their counts and evidence never become trusted
+   merely because a matching topic is observed again. Each histogram has its own eviction budget.
 
    UMD: (root.SK).interests in a browser-ish global, module.exports under node. */
 'use strict';
@@ -85,6 +88,11 @@
           };
         }
       }
+    }
+    if (raw && raw.trustedTopics && typeof raw.trustedTopics === 'object' && !Array.isArray(raw.trustedTopics)) {
+      // Reuse the same bounded field hydration without promoting the legacy histogram. The recursive
+      // input contains only topics, so it cannot recurse through arbitrary persisted trusted fields.
+      s.trustedTopics = normalize({ topics: raw.trustedTopics }, now).topics;
     }
     return s;
   }
@@ -152,19 +160,28 @@
     const raw = str(text);
     if (/^\s*NONE\s*$/im.test(raw) && !LINE.test(raw)) return [];
     const activityBlob = (opts.activityLines || []).map(a => str(a).toLowerCase()).join('\n');
+    const exactEvidence = opts.requireExactEvidence === true;
+    const quoteKey = value => str(value).replace(/\s+/g, ' ').trim().toLowerCase();
+    const activityLines = exactEvidence ? (opts.activityLines || []).map(quoteKey).filter(Boolean) : [];
     const out = [];
     const seen = new Set();
     for (const ln of raw.split('\n')) {
       const m = LINE.exec(ln);
       if (!m) continue;
       const label = m[1].trim().slice(0, LABEL_MAX);
-      const evidence = m[2].trim().slice(0, EVIDENCE_MAX);
+      const fullEvidence = m[2].trim();
+      const evidence = fullEvidence.slice(0, EVIDENCE_MAX);
       const slug = slugOf(label);
       if (!slug || slug.length < 3) continue;
       if (GENERIC.has(slug) || GENERIC.has(label.toLowerCase())) continue;
       if (!evidence) continue;
-      if (activityBlob) {
-        // grounding check: at least one significant evidence token must appear in the real activity.
+      if (exactEvidence) {
+        // Match the WHOLE quote in one clean source line before clipping for storage. A matching
+        // prefix, one shared token, or a splice across two lines cannot authenticate invented text.
+        const quote = quoteKey(fullEvidence);
+        if (!quote || !activityLines.some(line => line.includes(quote))) continue;
+      } else if (activityBlob) {
+        // legacy grounding check: at least one significant evidence token must appear in the real activity.
         const toks = evidence.toLowerCase().split(/[^a-z0-9]+/).filter(t => t.length >= 4);
         if (toks.length && !toks.some(t => activityBlob.indexOf(t) !== -1)) continue;
       }
@@ -207,7 +224,16 @@
       keys.sort((a, b) => (decayedWeight(topics[b], now) - decayedWeight(topics[a], now)) || ((topics[b].lastAt || 0) - (topics[a].lastAt || 0)));
       for (const k of keys.slice(MAX_TOPICS)) delete topics[k];
     }
-    return { v: STATE_VERSION, topics: topics, lastPassAt: now, runsSincePass: 0 };
+    const out = { v: STATE_VERSION, topics: topics, lastPassAt: now, runsSincePass: 0 };
+    if (s.trustedTopics) out.trustedTopics = s.trustedTopics;
+    if (opts && opts.trustedActivity === true) {
+      // This option is host-only, never read from candidate/model fields. The host calls it only after
+      // exact-evidence parsing against proven clean activity. The isolated fold starts from ONLY
+      // prior trusted observations: legacy labels, weights, counts and evidence cannot leak across,
+      // and a saturated old histogram cannot evict a fresh trusted observation.
+      out.trustedTopics = fold({ topics: s.trustedTopics || {} }, candidates, { now: now }).topics;
+    }
+    return out;
   }
 
   // summary — the read every consumer uses: topics ranked by live decayed weight, evidence included.
@@ -215,8 +241,9 @@
     const now = Number(opts && opts.now) || 0;
     const limit = Number(opts && opts.limit) || 8;
     const s = normalize(state, now);
-    const rows = Object.keys(s.topics).map(slug => {
-      const t = s.topics[slug];
+    const topics = opts && opts.trustedOnly === true ? (s.trustedTopics || {}) : s.topics;
+    const rows = Object.keys(topics).map(slug => {
+      const t = topics[slug];
       return { topic: slug, label: t.label, weight: Math.round(decayedWeight(t, now) * 100) / 100, count: t.n, lastAt: t.lastAt, evidence: t.ev.map(e => e.q) };
     }).filter(r => r.weight > 0.05);
     rows.sort((a, b) => (b.weight - a.weight) || (b.lastAt - a.lastAt));
@@ -224,9 +251,10 @@
   }
 
   // warm — does the station KNOW at least one real interest yet? (the scout's warm floor reads this).
-  function warm(state, now) {
+  function warm(state, now, opts) {
     const s = normalize(state, now);
-    for (const slug of Object.keys(s.topics)) if (decayedWeight(s.topics[slug], now) >= WARM_WEIGHT) return true;
+    const topics = opts && opts.trustedOnly === true ? (s.trustedTopics || {}) : s.topics;
+    for (const slug of Object.keys(topics)) if (decayedWeight(topics[slug], now) >= WARM_WEIGHT) return true;
     return false;
   }
 
