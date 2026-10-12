@@ -9,6 +9,7 @@
   'use strict';
 
   const normalizeFinish = provider.normalizeFinish;
+  const { note: failNote } = (typeof require === 'function') ? require('../failopen.js') : { note: function (tag, e) { console.warn('[failopen] ' + tag + ':', (e && e.message) || e); } };
   const classifyApiError = errorClass.classifyApiError;
   const timeouts = provider.timeouts;
   const isAbort = provider.runtime.isAbort;
@@ -236,7 +237,7 @@
             text += decoder.decode(chunk.value, { stream: true });
           }
           text += decoder.decode();
-        } finally { try { raw.releaseLock(); } catch (_) {} }
+        } finally { try { raw.releaseLock(); } catch (_) { failNote('providers.openai_compatible.error_reader_release', 'error response reader release failed'); } }
       } else text = typeof res.text === 'function' ? await res.text() : '';
       if (text) { try { data = JSON.parse(text); } catch (_) { data = null; } }
     } catch (e) {
