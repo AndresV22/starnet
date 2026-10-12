@@ -19,3 +19,11 @@ Only the `work-deliverables` 64x40 signature was refreshed from the reviewed ima
 Three machine-local P1 detector findings remain distinct from tracked customer bugs. Exact-a20 journey runs at 01:00 and 02:00 both passed 139 assertions, including the relevant reload/toggle scenarios. Earlier J3 negative-card output is an exception sentinel after a CDP read failure, not a measured negative card count; the J2 check also substitutes a failure value if reading fails. Those facts support investigation, not a fabricated repair or permanent suppression. No detector evidence was deleted or dismissed by this review.
 
 The beginner receipt and installed smoke previously inspected target older sources; installed smoke identifies 0.12.5. Fresh exact-candidate installed first use, upgrade/data continuity, lifecycle and required product acceptance remain owed. A customer-confirmed recovery is recorded separately and is not inferred from gate success.
+
+## October 12 observation and artifact follow-up
+
+The three retained machine P1s were read independently. `7f25ecb7` records a CDP evaluation timeout; `fd87bfd9` is its subsequent `-1` fallback, not a measured stuck-card count. `dd2fd9c0` conflates a failed evaluation with busy state, while its next parity observation shows no busy or RUNNING rows. Later a20 journey passes do not establish their original cause or a current-candidate repair. No finding was closed or suppressed.
+
+The coordinator now records evaluation failure separately from measured state in the affected J2/J3 checks and retains the actual idle-wait result. Fourteen negative controls pass; the isolated seeded J2c/J3 replay passes 35/35 with idle observed. [Revision and method receipt](journey-observation-diagnostics.json). This focused replay does not replace full final-candidate journeys, Guardian or installed acceptance.
+
+Read-only inspection of the exact signed public Windows 0.13.2 installer found three nonempty source-equivalent modules; see [artifact receipt](windows-0132-artifact.json). Customer installation identity, installed bytes/path, full stack and startup recovery remain unknown.
