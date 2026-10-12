@@ -2,6 +2,7 @@
    in-memory workspace. No host files, shell, network tools, or approval bypass. */
 'use strict';
 const { runAgentLoop: defaultLoop } = require('./loop.js');
+const { randomUUID } = require('node:crypto');
 const { digestSkill } = require('./skillevaluation.js');
 const copy = v => JSON.parse(JSON.stringify(v));
 function createArtifactWorkflowSuite(skillName) {
@@ -45,6 +46,8 @@ function makeAgentLoopCaseRunner(options) {
   const o = options || {};
   if (!o.provider || typeof o.provider.stream !== 'function') throw new Error('evaluation provider required');
   const loop = o.runAgentLoop || defaultLoop;
+  const runIdPrefix = String(o.runIdPrefix || randomUUID()).replace(/[^a-zA-Z0-9_.-]/g, '-').slice(0, 80);
+  let runSerial = 0;
   const clock = o.clock || { now: () => 0 };
   const tools = [
     { type: 'function', function: { name: 'fs_read', description: 'Read a file in the isolated evaluation workspace.', parameters: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'], additionalProperties: false } } },
@@ -71,13 +74,18 @@ function makeAgentLoopCaseRunner(options) {
     const supportFiles = activeSkill && activeSkill.files ? (Array.isArray(activeSkill.files) ? activeSkill.files : Object.values(activeSkill.files)) : [];
     const skillContext = activeSkill ? '\nProcedure under evaluation:\n' + (activeSkill.body || '') + '\n' + (activeSkill.setup || '') +
       supportFiles.filter(f => f.encoding !== 'base64').map(f => '\nSupporting file ' + f.path + ':\n' + f.content).join('') : '';
-    const runId = 'skill-eval-' + task.id + '-' + phase + '-' + digestSkill(skill).slice(0, 12);
-    const result = await loop({
+    const runId = 'skill-eval-' + runIdPrefix + '-' + (++runSerial) + '-' + phase + '-' + digestSkill(skill).slice(0, 12);
+    let result;
+    try { result = await loop({
       messages: [{ role: 'system', content: 'Complete the task using the isolated workspace tools when needed. Report only work actually completed. The task supplies the required output contract.' + skillContext }, { role: 'user', content: task.prompt }],
       provider: o.provider, model: o.model, cost: o.cost, clock, signal, tools: tools.map(copy), dispatch,
       capCtx: { signal }, limits: { maxIters: 8, grace: false, ...(o.limits || {}) }, emit: o.emit || (() => {}),
       agentId: 'skill-evaluation', runId, trigger: 'event'
-    });
+    }); } catch (error) {
+      // The real loop returns billing even on provider failures. Unexpected runner
+      // throws still produce an attributable failed run; no zero-spend claim is made.
+      result = { reason: 'runner-error', messages: [], error: String(error && error.message || error), accountingIncomplete: true };
+    }
     if (typeof o.onRun === 'function') await o.onRun({ result, runId, taskId: task.id, phase });
     let value;
     const final = (result.messages || []).filter(m => m.role === 'assistant' && typeof m.content === 'string').at(-1);

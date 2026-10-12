@@ -6,6 +6,24 @@ const { isDeepStrictEqual } = require('node:util');
 const SCHEMA = 'starnet.skill-evaluation.v1';
 const KEY = 'skill-evaluation-receipts';
 const MAX_CASES = 12, MAX_CHECKS = 24, MAX_RECEIPTS = 200;
+const MAX_SUITE_BYTES = 262144, MAX_OBSERVATION_BYTES = 524288, MAX_RECEIPT_BYTES = 524288, MAX_STORE_BYTES = 8388608;
+const unsafeKeys = new Set(['__proto__', 'prototype', 'constructor']);
+function jsonSize(value) { try { const json = JSON.stringify(value); return typeof json === 'string' ? Buffer.byteLength(json) : Infinity; } catch (_) { return Infinity; } }
+function validJson(value, depth = 0) {
+  if (depth > 16) return false;
+  if (value === null || typeof value === 'string' || typeof value === 'boolean') return true;
+  if (typeof value === 'number') return Number.isFinite(value);
+  if (!value || typeof value !== 'object') return false;
+  if (Array.isArray(value)) return value.length <= 4096 && value.every(v => validJson(v, depth + 1));
+  if (![Object.prototype, null].includes(Object.getPrototypeOf(value))) return false;
+  return Object.keys(value).length <= 1024 && Object.keys(value).every(k => !unsafeKeys.has(k) && validJson(value[k], depth + 1));
+}
+function safePath(value) {
+  return typeof value === 'string' && value.length > 0 && value.length <= 240 && !/[\\:\x00-\x1f]/.test(value) && !value.startsWith('/') &&
+    value.split('/').every(part => part && part !== '.' && part !== '..' && !unsafeKeys.has(part));
+}
+function identifier(value) { return typeof value === 'string' && /^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,119}$/.test(value); }
+function nonemptyText(value, max) { return typeof value === 'string' && !!value.trim() && Buffer.byteLength(value) <= max; }
 const clone = value => JSON.parse(JSON.stringify(value));
 function canonical(value) {
   if (Array.isArray(value)) return value.map(canonical);
@@ -27,22 +45,29 @@ function digestSkill(skill) {
   });
 }
 function validateSuite(suite) {
-  if (!suite || typeof suite.id !== 'string' || !suite.id || typeof suite.skillName !== 'string' || !suite.skillName.trim()) throw new Error('evaluation suite must identify its task family and skillName');
+  if (jsonSize(suite) > MAX_SUITE_BYTES || !validJson(suite)) throw new Error('evaluation suite must be bounded safe JSON');
+  if (!suite || !nonemptyText(suite.id, 256) || /[\x00-\x1f]/.test(suite.id) || !nonemptyText(suite.skillName, 200)) throw new Error('evaluation suite must identify its task family and skillName');
+  if (!Number.isInteger(suite.version) || suite.version < 1) throw new Error('evaluation suite requires a positive integer version');
   if (!Array.isArray(suite.cases) || suite.cases.length < 2 || suite.cases.length > MAX_CASES) throw new Error('evaluation needs 2 to 12 independently declared cases');
-  if (!suite.cases.some(c => c.heldOut === true)) throw new Error('evaluation needs a held-out case');
+  if (!suite.cases.some(c => c && c.heldOut === true)) throw new Error('evaluation needs a held-out case');
   const ids = new Set();
   for (const c of suite.cases) {
-    if (!c.id || ids.has(c.id) || typeof c.prompt !== 'string' || !c.prompt.trim()) throw new Error('invalid or duplicate evaluation case');
+    if (!c || !identifier(c.id) || ids.has(c.id) || !nonemptyText(c.prompt, 16384) || (c.heldOut != null && typeof c.heldOut !== 'boolean')) throw new Error('invalid or duplicate evaluation case');
     ids.add(c.id);
+    if (c.fixtures != null && (!c.fixtures || Array.isArray(c.fixtures) || typeof c.fixtures !== 'object' || Object.keys(c.fixtures).length > 16 ||
+      Object.entries(c.fixtures).some(([path, content]) => !safePath(path) || typeof content !== 'string' || Buffer.byteLength(content) > 65536))) throw new Error('invalid or oversized evaluation fixtures');
+    if (c.writablePaths != null && (!Array.isArray(c.writablePaths) || c.writablePaths.length > 16 || c.writablePaths.some(path => !safePath(path)) || new Set(c.writablePaths).size !== c.writablePaths.length)) throw new Error('invalid evaluation writable paths');
     if (!Array.isArray(c.checks) || !c.checks.length || c.checks.length > MAX_CHECKS) throw new Error('each case needs bounded independent task checks');
     const checkIds = new Set();
     for (const check of c.checks) {
-      if (!check.id || checkIds.has(check.id) || !['json_equal', 'artifact_json_equal', 'artifact_sha256', 'tool_call', 'process_exit'].includes(check.kind)) throw new Error('invalid task check');
+      if (!check || !identifier(check.id) || checkIds.has(check.id) || !['json_equal', 'artifact_json_equal', 'artifact_sha256', 'tool_call', 'process_exit'].includes(check.kind)) throw new Error('invalid task check');
       checkIds.add(check.id);
-      if (check.kind.endsWith('equal') && !Object.hasOwn(check, 'expected')) throw new Error('task equality check needs a declared expected value');
-      if (check.kind === 'artifact_sha256' && !/^[a-f0-9]{64}$/.test(check.expected)) throw new Error('artifact check needs a SHA-256 digest');
-      if (check.kind === 'process_exit' && !Number.isInteger(check.expected)) throw new Error('process check needs a declared exit code');
-      if (check.kind === 'tool_call' && (!check.name || !Object.hasOwn(check, 'arguments'))) throw new Error('tool check needs exact arguments');
+      if (check.kind.endsWith('equal') && (!Object.hasOwn(check, 'expected') || jsonSize(check.expected) > 8192)) throw new Error('task equality check needs a bounded declared expected value');
+      if (check.kind === 'json_equal' && check.path != null && (!Array.isArray(check.path) || check.path.length > 16 || check.path.some(p => !(typeof p === 'string' && p.length <= 120 && !unsafeKeys.has(p)) && !(Number.isInteger(p) && p >= 0)))) throw new Error('invalid JSON check path');
+      if (check.kind.startsWith('artifact_') && !safePath(check.path)) throw new Error('invalid artifact check path');
+      if (check.kind === 'artifact_sha256' && (typeof check.expected !== 'string' || !/^[a-f0-9]{64}$/.test(check.expected))) throw new Error('artifact check needs a SHA-256 digest');
+      if (check.kind === 'process_exit' && (!Number.isInteger(check.expected) || !identifier(check.executionId))) throw new Error('process check needs a declared execution and exit code');
+      if (check.kind === 'tool_call' && (!identifier(check.name) || !check.arguments || Array.isArray(check.arguments) || typeof check.arguments !== 'object' || jsonSize(check.arguments) > 8192)) throw new Error('tool check needs bounded exact arguments');
     }
   }
   return clone(suite);
@@ -69,15 +94,18 @@ function assessCheck(check, observation) {
     actual = execution && execution.exitCode; present = !!execution;
   } else if (check.kind === 'tool_call') {
     actual = (observation.toolCalls || []).some(call => call.name === check.name && call.ok === true && isDeepStrictEqual(call.arguments, check.arguments));
-    return { id: check.id, kind: check.kind, pass: actual, observed: actual, expected: true };
+    return { id: check.id, kind: check.kind, pass: actual, present: true, observedDigest: digest(actual), expectedDigest: digest(true) };
   }
   if (actual === undefined) present = false;
-  return { id: check.id, kind: check.kind, pass: present && isDeepStrictEqual(actual, check.expected), observed: present ? actual : null, expected: check.expected, present };
+  return { id: check.id, kind: check.kind, pass: present && isDeepStrictEqual(actual, check.expected), observedDigest: present ? digest(actual) : null, expectedDigest: digest(check.expected), present };
 }
 function assessCase(c, observation) {
   if (!observation || observation.reason !== 'done') return { caseId: c.id, completed: false, pass: false, checks: [], reason: observation && observation.reason || 'missing-observation' };
-  const checks = c.checks.map(check => assessCheck(check, observation));
-  return { caseId: c.id, completed: true, pass: checks.every(check => check.pass), checks };
+  if (jsonSize(observation) > MAX_OBSERVATION_BYTES || !validJson(JSON.parse(JSON.stringify(observation)))) return { caseId: c.id, completed: false, pass: false, checks: [], reason: 'observation-limit' };
+  try {
+    const checks = c.checks.map(check => assessCheck(check, observation));
+    return { caseId: c.id, completed: true, pass: checks.every(check => check.pass), checks };
+  } catch (_) { return { caseId: c.id, completed: false, pass: false, checks: [], reason: 'invalid-observation' }; }
 }
 function compareCases(cases) {
   const incomplete = cases.some(c => !c.before.completed || !c.after.completed);
@@ -90,6 +118,7 @@ function compareCases(cases) {
 }
 function validatePromotionReceipt(receipt, options) {
   const o = options || {};
+  if (jsonSize(receipt) > MAX_RECEIPT_BYTES || !validJson(receipt)) return { ok: false, reason: 'invalid or oversized evaluation receipt' };
   if (!receipt || receipt.schemaVersion !== SCHEMA || receipt.status !== 'passed') return { ok: false, reason: 'behavioral evaluation has not passed' };
   if (!o.suite) return { ok: false, reason: 'trusted evaluation test set is unavailable' };
   let suite;
@@ -103,17 +132,17 @@ function validatePromotionReceipt(receipt, options) {
   for (let i = 0; i < suite.cases.length; i++) {
     const c = suite.cases[i], saved = receipt.cases[i];
     if (!saved || saved.caseId !== c.id || saved.heldOut !== !!c.heldOut) return { ok: false, reason: 'evaluation case mismatch' };
-    if (!saved.before || !saved.after || saved.before.checks.length !== c.checks.length || saved.after.checks.length !== c.checks.length) return { ok: false, reason: 'incomplete evaluation checks' };
+    if (!saved.before || !saved.after || !Array.isArray(saved.before.checks) || !Array.isArray(saved.after.checks) || saved.before.checks.length !== c.checks.length || saved.after.checks.length !== c.checks.length) return { ok: false, reason: 'incomplete evaluation checks' };
     for (const phase of ['before', 'after']) {
       const result = saved[phase];
       for (let j = 0; j < c.checks.length; j++) {
         const expected = c.checks[j].kind === 'tool_call' ? true : c.checks[j].expected;
         const observed = result.checks[j];
-        if (observed.id !== c.checks[j].id || observed.kind !== c.checks[j].kind || !isDeepStrictEqual(observed.expected, expected)) return { ok: false, reason: 'evaluation check mismatch' };
-        const pass = observed.present !== false && isDeepStrictEqual(observed.observed, expected);
+        if (!observed || observed.id !== c.checks[j].id || observed.kind !== c.checks[j].kind || observed.expectedDigest !== digest(expected) || (observed.observedDigest !== null && !/^[a-f0-9]{64}$/.test(observed.observedDigest))) return { ok: false, reason: 'evaluation check mismatch' };
+        const pass = observed.present === true && observed.observedDigest === digest(expected);
         if (observed.pass !== pass) return { ok: false, reason: 'evaluation check verdict mismatch' };
       }
-      if (result.pass !== (result.completed && result.checks.every(check => check.pass))) return { ok: false, reason: 'evaluation case verdict mismatch' };
+      if (typeof result.completed !== 'boolean' || result.pass !== (result.completed && result.checks.every(check => check.pass))) return { ok: false, reason: 'evaluation case verdict mismatch' };
     }
     rebuilt.push(saved);
   }
@@ -133,7 +162,8 @@ function makeSkillEvaluator(options) {
   async function evaluate(input) {
     const p = input || {}, suite = suites.get(p.suiteId);
     if (!suite) throw new Error('unknown host evaluation suite');
-    const candidate = clone(p.candidate && (p.candidate.skill || p.candidate)), baseline = p.baseline ? clone(p.baseline.skill || p.baseline) : null;
+    if (!p.candidate) throw new Error('candidate required');
+    const candidate = clone(p.candidate.skill || p.candidate), baseline = p.baseline ? clone(p.baseline.skill || p.baseline) : null;
     if (!candidate || candidate.name !== suite.skillName || (baseline && baseline.name !== candidate.name)) throw new Error('test set does not govern this skill');
     const candidateDigest = digestSkill(candidate), baselineDigest = digestSkill(baseline), testSetDigest = digest(suite);
     const key = candidateDigest + ':' + testSetDigest;
@@ -157,11 +187,14 @@ function makeSkillEvaluator(options) {
       const comparison = compareCases(cases);
       const receipt = { schemaVersion: SCHEMA, suiteId: suite.id, skillName: candidate.name, candidateDigest, baselineDigest, testSetDigest,
         evidenceClass, runnerIdentity, runnerDigest, createdAt: now(), cases, ...comparison };
+      if (jsonSize(receipt) > MAX_RECEIPT_BYTES) throw new Error('evaluation receipt exceeds the evidence size limit');
       receipt.receiptId = 'eval-' + digest(receipt).slice(0, 32);
       // Synchronous durable get/set keeps concurrent evaluations from losing receipts.
       const rows = o.io.get(KEY) || [];
       if (!Array.isArray(rows)) throw new Error('evaluation receipt store is invalid');
-      o.io.set(KEY, rows.filter(r => r.receiptId !== receipt.receiptId).concat([receipt]).slice(-MAX_RECEIPTS));
+      const retained = rows.filter(r => r && r.receiptId !== receipt.receiptId && jsonSize(r) <= MAX_RECEIPT_BYTES).concat([receipt]).slice(-MAX_RECEIPTS);
+      while (retained.length > 1 && jsonSize(retained) > MAX_STORE_BYTES) retained.shift();
+      o.io.set(KEY, retained);
       return clone(receipt);
     } finally { active.delete(key); }
   }
