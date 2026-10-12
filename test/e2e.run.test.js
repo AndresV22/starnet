@@ -179,8 +179,11 @@ function boot(port, env, attemptsLeft) {
     A.eq(ends.length, 1, 'exactly one agent.run.end');
     A.eq(ends[0].payload.reason, 'done', 'the run completes with reason done');
     const firstReq = mock.requests[0] || {};
-    const firstSystem = (((firstReq.messages || [])[0] || {}).content) || '';
-    A.ok(firstSystem.indexOf('[RUNTIME]') >= 0, 'runtime identity block reaches the provider system prompt');
+    // lean-prompt (2026-10-12): [RUNTIME] rides the per-run <run_context> system note placed with the newest user turn,
+    // so the system prompt (messages[0]) stays byte-identical across a conversation's messages
+    const firstSystem = (firstReq.messages || []).filter(m => m && m.role === 'system' && String(m.content || '').indexOf('<run_context>') === 0).map(m => m.content).join('\n');
+    A.ok(String((((firstReq.messages || [])[0] || {}).content) || '').indexOf('[RUNTIME]') < 0, 'the system prompt itself carries no per-run block');
+    A.ok(firstSystem.indexOf('[RUNTIME]') >= 0, 'runtime identity block reaches the provider (run-context note)');
     A.ok(firstSystem.indexOf('Provider: openrouter') >= 0, 'runtime block names the selected provider');
     A.ok(firstSystem.indexOf('Requested model at run start: test/model') >= 0, 'runtime block names the requested model');
     A.ok(firstSystem.indexOf('If the Commander asks what StarNet build, model, provider') >= 0, 'runtime block tells the agent to answer build/model/provider questions from host state');

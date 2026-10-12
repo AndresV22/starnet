@@ -420,8 +420,10 @@ async function waitUntil(fn, ms, label) {
     A.ok(shellWire.indexOf('shell_exec') >= 0, 'owner Telegram run advertises shell_exec to the provider');
     A.ok(shellWire.indexOf('verify_run') >= 0, 'owner Telegram run advertises verify_run to the provider');
     A.ok(shellWire.indexOf('spotify_play') >= 0, 'owner Telegram run advertises media control to the provider');
-    A.ok(shellWire.indexOf('team_dispatch') >= 0, 'owner Telegram run advertises task delegation to the provider');
     const shellSystem = String((shellReqs[0].messages.find(m => m.role === 'system') || {}).content || '');
+    // the station has no crew yet: the lean-prompt diet (2026-10-12) advertises team_summon and keeps the rest of the crew
+    // kit GRANTED but deferred (named in the prompt, revealed by tool_search) until a crew exists
+    A.ok(shellWire.indexOf('team_summon') >= 0 && /These exist and you CAN use them: [^\n]*team_dispatch/.test(shellSystem), 'owner Telegram run advertises task delegation to the provider (crewless: summon on the wire, dispatch granted + named)');
     A.ok(shellSystem.includes('[ORCHESTRATION]'), 'owner Telegram task receives the crew briefing for its advertised delegation tools');
     // the owner away from the station (self-driving lane 2): a pointer to manual.read — never the ~6K index, never nothing
     const Manual = require('../sidecar/manual.js');
@@ -442,7 +444,8 @@ async function waitUntil(fn, ms, label) {
     const checkParity = (start, label) => {
       const reqs = llm.requests.slice(start);
       const leads = reqs.filter(r => String((r.messages.find(m => m.role === 'system') || {}).content || '').includes('[ORCHESTRATION]'));
-      A.ok(leads.some(r => String(r.messages[0].content).includes('Agent id: parity_lead')), label + ': the same saved lead identity handles the task');
+      // [RUNTIME] (Agent id) rides the per-run <run_context> system note since lean-prompt (2026-10-12), not messages[0]
+      A.ok(leads.some(r => r.messages.some(m => m.role === 'system' && String(m.content).includes('Agent id: parity_lead'))), label + ': the same saved lead identity handles the task');
       A.ok(leads.some(r => JSON.stringify(r.messages[0]).includes('parity_worker (Parity Worker)')), label + ': briefing names the saved specialist');
       A.ok(reqs.some(r => (r.messages || []).some(m => m.role === 'tool' && /WORKER_PARITY_OK/.test(JSON.stringify(m)))), label + ': worker result returned through the real tool loop');
       const worker = reqs.find(r => (r.messages || []).some(m => m.role === 'user' && /return worker parity proof/i.test(String(m.content))));

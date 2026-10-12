@@ -19,7 +19,8 @@ const INDEX = path.resolve(__dirname, '..', 'sidecar', 'index.js');
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
 function agentIdFrom(messages) {
-  const sys = (messages[0] && messages[0].role === 'system') ? String(messages[0].content || '') : '';
+  // [RUNTIME] (Agent id) rides the per-run <run_context> system note since lean-prompt (2026-10-12), not messages[0]
+  const sys = (messages || []).filter(m => m && m.role === 'system').map(m => String(m.content || '')).join('\n');
   const m = sys.match(/Agent id:\s*([^\n]+)/);
   return m ? m[1].trim() : '';
 }
