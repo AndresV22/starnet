@@ -63,6 +63,8 @@ function seedSkills(ws) {
   const lines = [];
   const io = { readAll() { return []; }, append(e) { lines.push(JSON.stringify(e)); } };
   const store = makeSkillStore({
+    // Fixture only: represent previously active authored versions; production model writes still stage.
+    stageReviews: false,
     io, clock: { now: () => Date.now() }, guard: skillGuard, digest: digestOf,
     packageStore: skillPackages.makePackageStore({ fs, pathMod: path, root: path.join(ws, 'skill-packages') })
   });
