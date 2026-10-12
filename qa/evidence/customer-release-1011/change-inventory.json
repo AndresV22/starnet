@@ -9328,10 +9328,10 @@
     "inventoryScope": "Diff/history classification, not universal semantic or live acceptance."
   },
   "reviewCandidate": {
-    "head": "3bfb026e66902b129211c03993175d984fab34fb",
+    "head": "5227bb1178c6ba58c93d55065671a050b014089d",
     "integratedTrunk": "a20ffa71fd04691805ea55c7d08165438dd7ac6f",
-    "state": "Independently accepted source and fixtures combined in the isolated candidate. Final owner receipt, full source gates, serialized trunk integration and installed/customer acceptance remain pending.",
-    "wholeUpdateFileCount": 696,
+    "state": "All returned source, fixtures and final execution evidence are independently reviewed and combined in the isolated candidate. Full source gates, serialized trunk integration and installed/customer acceptance remain pending.",
+    "wholeUpdateFileCount": 698,
     "wholeUpdateFiles": [
       {
         "path": "dev/computer-eval/cua-driver.js",
@@ -9694,6 +9694,10 @@
         "role": "qa_tracking"
       },
       {
+        "path": "qa/bugs/2b0d8101-repeat-work-attributes-untrusted-briefs-to-owner.md",
+        "role": "qa_tracking"
+      },
+      {
         "path": "qa/bugs/2d0597b0-conveyor-shipped-counts-stages-and-changes-with.md",
         "role": "qa_tracking"
       },
@@ -9707,6 +9711,10 @@
       },
       {
         "path": "qa/bugs/2f156837-mac-boot-guard-reports-shared-specialty-catalog.md",
+        "role": "qa_tracking"
+      },
+      {
+        "path": "qa/bugs/31042fab-persisted-interest-cache-loses-evidence-provenance.md",
         "role": "qa_tracking"
       },
       {
@@ -12272,6 +12280,10 @@
         "role": "qa_tracking"
       },
       {
+        "path": "qa/bugs/2b0d8101-repeat-work-attributes-untrusted-briefs-to-owner.md",
+        "role": "qa_tracking"
+      },
+      {
         "path": "qa/bugs/2d0597b0-conveyor-shipped-counts-stages-and-changes-with.md",
         "role": "qa_tracking"
       },
@@ -12285,6 +12297,10 @@
       },
       {
         "path": "qa/bugs/2f156837-mac-boot-guard-reports-shared-specialty-catalog.md",
+        "role": "qa_tracking"
+      },
+      {
+        "path": "qa/bugs/31042fab-persisted-interest-cache-loses-evidence-provenance.md",
         "role": "qa_tracking"
       },
       {
@@ -13640,7 +13656,7 @@
         "role": "generated_mirror"
       }
     ],
-    "customerRecords": "273 total, 20 open (10 P1, 10 P2); mixed origins, not customer incidence.",
+    "customerRecords": "275 total,20 open (10 P1,10 P2); mixed origins, not customer incidence.",
     "acceptedLaneCommits": [
       "67c3ad5f1d83cc394a0776b23fa9772541cb7646",
       "bb380c04720083c31eb5f84b6cb1c36ddfc5e6a5",
@@ -13655,9 +13671,10 @@
       "c5024ae57127fdcf79407c905cbfb1aa30c53ad2",
       "fcd8007ca473d52488986537e304370c37f7f9a0",
       "9c465103f5b686abe1ca2c36518a20770faeedae",
-      "686e8262e9dc7edfda08238eb685504b6a0977ee"
+      "686e8262e9dc7edfda08238eb685504b6a0977ee",
+      "ff3476e478a00f7564ca2936bc376bd65008c49d"
     ],
-    "updatedAt": "2026-10-12T10:43:33.269Z"
+    "updatedAt": "2026-10-12T10:47:39.243Z"
   },
   "reviewCandidateHistory": [
     {

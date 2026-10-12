@@ -1,6 +1,6 @@
 # StarNet — next release (draft)
 
-DRAFT updated 2026-10-12 for the release after v0.13.2. This describes the combined isolated candidate through `3bfb026e6`, extending integrated source `a20ffa71f`; it is not a published or installed-verified release. Reconcile the final candidate before copying these notes. `release:bump` replaces root `RELEASE_NOTES.md` with a scaffold; keep the current public release notes intact until the cut.
+DRAFT updated 2026-10-12 for the release after v0.13.2. This describes the combined isolated candidate through `5227bb117`, extending integrated source `a20ffa71f`; it is not a published or installed-verified release. Reconcile the final candidate before copying these notes. `release:bump` replaces root `RELEASE_NOTES.md` with a scaffold; keep the current public release notes intact until the cut.
 
 ## Update Center summary draft
 

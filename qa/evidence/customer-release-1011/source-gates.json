@@ -237,25 +237,27 @@
           "step": 39,
           "kind": "stale semantic-only expectation",
           "ownerCommit": "9e93b6cba",
-          "status": "Reviewed in memory lane; final source import pending"
+          "status": "Reviewed behavioral lexical/semantic fixture repair imported; owner87 assertions pass",
+          "integratedAt": "5227bb1178c6ba58c93d55065671a050b014089d"
         },
         {
           "step": 144,
           "kind": "wrong event identity in fixture",
           "source": "dd74c386f671afe16a6a746061063aa4db2ada36",
-          "integratedAt": "6f0c44c9f995e892b7955064a14d1993aadf3f72",
-          "status": "Original marker/schema assertions preserved; owner actual-sidecar105 pass and independent exact-event review"
+          "integratedAt": "5227bb1178c6ba58c93d55065671a050b014089d",
+          "status": "Exact-identity fixture imported; original assertions preserved; merged105 assertions pass"
         },
         {
           "step": 192,
           "kind": "tool schema payload exceeds existing budget",
           "observedBytes": 66672,
           "budgetBytes": 66250,
-          "status": "Description-only reduction proposed to owner; unchanged HTTP budget must pass"
+          "status": "Description-only reduction imported; owner unchanged HTTP17 assertions pass at66238 bytes/84 tools. Full final gates pending.",
+          "integratedAt": "5227bb1178c6ba58c93d55065671a050b014089d"
         }
       ]
     }
   ],
   "scope": "Revision-bound source gates, including failures. Later evidence-only changes do not establish the cause of a failed run. These receipts do not establish installed/customer acceptance or release readiness.",
-  "updatedAt": "2026-10-12T10:25:10.824Z"
+  "updatedAt": "2026-10-12T10:47:39.254Z"
 }

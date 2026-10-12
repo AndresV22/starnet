@@ -226,7 +226,9 @@
       "resolvedBy": "6421e4c857a6f885d0c437e9e4d01168f92ba7db",
       "integratedAt": "3ce9cf9379daf334f2e53186c58a4e0bf9f45197",
       "finalReviewedFixtures": "686e8262e9dc7edfda08238eb685504b6a0977ee",
-      "note": "Independent exact-source controls accepted; owner live/focused proof records are revision-bound and final combined gates remain pending."
+      "note": "Independent exact-source controls accepted; owner live/focused proof records are revision-bound and final combined gates remain pending.",
+      "finalExecutionEvidence": "qa/evidence/memory-harness-audit-1011/coordinator-followups.json",
+      "finalOwnerTip": "ff3476e478a00f7564ca2936bc376bd65008c49d"
     },
     {
       "id": "R21",
@@ -241,7 +243,10 @@
       "note": "Independent exact-source controls accepted; owner live/focused proof records are revision-bound and final combined gates remain pending.",
       "resolvedBy": "6421e4c857a6f885d0c437e9e4d01168f92ba7db",
       "integratedAt": "3ce9cf9379daf334f2e53186c58a4e0bf9f45197",
-      "finalReviewedFixtures": "686e8262e9dc7edfda08238eb685504b6a0977ee"
+      "finalReviewedFixtures": "686e8262e9dc7edfda08238eb685504b6a0977ee",
+      "canonicalBug": "qa/bugs/31042fab-persisted-interest-cache-loses-evidence-provenance.md",
+      "finalExecutionEvidence": "qa/evidence/memory-harness-audit-1011/coordinator-followups.json",
+      "finalOwnerTip": "ff3476e478a00f7564ca2936bc376bd65008c49d"
     },
     {
       "id": "R22",
@@ -256,7 +261,10 @@
       "note": "Independent exact-source controls accepted; owner live/focused proof records are revision-bound and final combined gates remain pending.",
       "resolvedBy": "6421e4c857a6f885d0c437e9e4d01168f92ba7db",
       "integratedAt": "3ce9cf9379daf334f2e53186c58a4e0bf9f45197",
-      "finalReviewedFixtures": "686e8262e9dc7edfda08238eb685504b6a0977ee"
+      "finalReviewedFixtures": "686e8262e9dc7edfda08238eb685504b6a0977ee",
+      "canonicalBug": "qa/bugs/2b0d8101-repeat-work-attributes-untrusted-briefs-to-owner.md",
+      "finalExecutionEvidence": "qa/evidence/memory-harness-audit-1011/coordinator-followups.json",
+      "finalOwnerTip": "ff3476e478a00f7564ca2936bc376bd65008c49d"
     },
     {
       "id": "R23",
@@ -270,7 +278,9 @@
       "resolvedBy": "6421e4c857a6f885d0c437e9e4d01168f92ba7db",
       "integratedAt": "3ce9cf9379daf334f2e53186c58a4e0bf9f45197",
       "finalReviewedFixtures": "686e8262e9dc7edfda08238eb685504b6a0977ee",
-      "note": "Independent exact-source controls accepted; owner live/focused proof records are revision-bound and final combined gates remain pending."
+      "note": "Independent exact-source controls accepted; owner live/focused proof records are revision-bound and final combined gates remain pending.",
+      "finalExecutionEvidence": "qa/evidence/memory-harness-audit-1011/coordinator-followups.json",
+      "finalOwnerTip": "ff3476e478a00f7564ca2936bc376bd65008c49d"
     }
   ],
   "limits": [
@@ -279,5 +289,5 @@
     "R08 is a supported-module edge; the reviewed module commits did not yet include final host wiring.",
     "An existing review-window restart gap was also reported to the memory owner; it was not attributed as a new regression."
   ],
-  "updatedAt": "2026-10-12T10:43:33.269Z"
+  "updatedAt": "2026-10-12T10:47:39.249Z"
 }

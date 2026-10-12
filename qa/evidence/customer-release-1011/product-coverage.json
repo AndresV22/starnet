@@ -1653,8 +1653,8 @@
     "method": "Filesystem existence and literal fast/http manifest membership; no tests run."
   },
   "currentSourceSupplement": {
-    "candidate": "3bfb026e66902b129211c03993175d984fab34fb",
-    "reviewedAt": "2026-10-12T10:43:33.269Z",
+    "candidate": "5227bb1178c6ba58c93d55065671a050b014089d",
+    "reviewedAt": "2026-10-12T10:47:39.247Z",
     "scope": "Reconcile path existence and registered tests on the final combined source. Original area evidence remains pinned to a20ffa71f; registration is not a test pass or installed/customer acceptance.",
     "manifestSteps": {
       "fast": 1154,
