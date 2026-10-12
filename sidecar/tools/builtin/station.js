@@ -627,8 +627,20 @@
             note: send.refused ? 'The downstream hand-off was refused: ' + send.refused
               : 'A separate downstream job was created. Its current state, result and cost are on its own job record; this cost covers only the tested line.' };
           if (send.refused) out.sentOnTo.refused = send.refused;
-        } else if (Array.isArray(o.onwardDestinations) && o.onwardDestinations.length) {
-          out.sentOnTo = { destinations: o.onwardDestinations, state: 'unconfirmed',
+        } else if (o.ok && Array.isArray(o.onwardDestinations) && o.onwardDestinations.length) {
+          /* (wave 2 review, conveyor-backend-10) only a job that reached its OUTBOX is ever handed on: a failed or stopped test claims
+             no onward hand-off, not even an unconfirmed one. Each destination is named the way this tool names a line (station.line_ref,
+             the page's own rule), so the lead can tell the Commander WHICH line — never a bare machine id. */
+          const destinations = [];
+          for (const d of o.onwardDestinations.slice(0, 8)) {
+            if (!d || d.lineId == null || !String(d.lineId)) continue;
+            const named = await ask('station.line_ref', { line: String(d.lineId).slice(0, 80) });
+            const dest = { lineId: String(d.lineId) };
+            if (named.ok && named.result && named.result.name) dest.line = String(named.result.name);
+            if (d.outboxId != null && String(d.outboxId)) dest.outboxId = String(d.outboxId);
+            destinations.push(dest);
+          }
+          out.sentOnTo = { destinations, state: 'unconfirmed',
             note: 'SEND TO is configured, but no downstream job link was recorded when this reply was read. Check this job again; no downstream start or completion is claimed.' };
         }
         const shown = said.length > 6000 ? said.slice(0, 6000) + ' …(' + (said.length - 6000) + ' more characters in the OUTBOX)' : said;
