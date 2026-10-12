@@ -9930,21 +9930,35 @@ const World = (() => {
     convey.enqueueAt(out.tile.x, out.tile.y, { outbound: true, box: 'product', weight,
       workitemId: p.workitemId, agentId: p.agentId || '', dockId: p.dockId || null, lineId: p.lineId });
   }
-  /* FIRST SHIP (2026-10-12): the gold toast, the milestone and the line's pulse ride the executor's exact terminal receipt — a
-     clean job of THAT line reached THAT OUTBOX (box 'line-output', the proof SHIPPED counts) — never a crate sinking at a chute,
-     which a direct COMMS order to a line's agent rides too. Once per receipt (the SSE echo delivers it twice); Build says first. */
+  /* FIRST SHIP (2026-10-12): the gold toast, the milestone and the line's pulse say a line SHIPPED for the first time, so they
+     answer to the proof the plate's SHIPPED counts: the sidecar's shipment receipt (line-shipments — a clean, PRODUCTIVE job of
+     that line reached its OUTBOX, counted once). The executor's terminal receipt (workitem.delivered box 'line-output': THAT line
+     reached THAT OUTBOX) asks; the line's SHIPPED count, read fresh after it, answers. A talk-only job reaches the OUTBOX and
+     ships nothing (its plate stays SHIPPED 0, so no toast either); a crate sinking at a chute — a direct COMMS order to a line's
+     agent rides one too — never asks at all. Once per receipt (the SSE echo delivers it twice); Build says first; a stats read
+     that fails announces nothing. Returns the check's promise (null when the event is no receipt) for the test seam. */
   const firstShipSeen = new Set();
   function noteFirstShip(p) {
-    if (!p || p.box !== 'line-output' || !p.lineId || !p.outboxId || !p.workitemId || firstShipSeen.has(p.workitemId)) return;
+    if (!p || p.box !== 'line-output' || !p.lineId || !p.outboxId || !p.workitemId || firstShipSeen.has(p.workitemId)) return null;
     firstShipSeen.add(p.workitemId);
     if (firstShipSeen.size > 400) firstShipSeen.delete(firstShipSeen.values().next().value);
-    if (typeof Build === 'undefined' || !Build.noteLineShipped) return;
-    let receipt = null;
-    try { receipt = Build.noteLineShipped(p.outboxId, p.lineId); } catch (e) { receipt = null; }
-    if (!receipt || !receipt.first) return;
-    firstShipPulse = { at: fnow, tiles: receipt.tiles };
-    if (typeof StationUI !== 'undefined' && StationUI.notify) StationUI.notify('FIRST SHIP · ' + receipt.name, 'gold');
-    if (typeof SFX !== 'undefined' && SFX.milestone) SFX.milestone();
+    if (typeof Build === 'undefined' || !Build.noteLineShipped || typeof fetch === 'undefined' || typeof LineWatch === 'undefined') return null;
+    // the count this line had before the receipt (same local day, or 0): the job minted a shipment only if SHIPPED grew past it
+    const since = LineWatch.localMidnight(Date.now());
+    const had = lineStats && lineStats.known && lineStats.since === since && lineStats.byLine ? lineStats.byLine[p.lineId] : null;
+    const was = had ? (had.shipped | 0) : 0;
+    return fetch(apiUrl('/api/routing/lines/stats?since=' + since), { cache: 'no-store' })
+      .then(r => (r && r.ok ? r.json() : null))
+      .then(j => {
+        const l = j && Array.isArray(j.lines) ? j.lines.find(x => x && x.lineId === p.lineId) : null;
+        if (!l || !((l.shipped | 0) > was)) return;   // nothing was minted: no claim
+        const receipt = Build.noteLineShipped(p.outboxId, p.lineId);
+        if (!receipt || !receipt.first) return;
+        firstShipPulse = { at: fnow, tiles: receipt.tiles };
+        if (typeof StationUI !== 'undefined' && StationUI.notify) StationUI.notify('FIRST SHIP · ' + receipt.name, 'gold');
+        if (typeof SFX !== 'undefined' && SFX.milestone) SFX.milestone();
+      })
+      .catch(() => {});   // (offline / a refused read: SHIPPED is unknown, so nothing is announced)
   }
   // the crate's MASS must be read NOW: run.end drops runUsdRecon the instant this returns, so a deferred
   // ship that re-read it later would weigh every crate 0 (crate-mass honesty).

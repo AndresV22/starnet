@@ -2,8 +2,9 @@
 
    The gold 'FIRST SHIP · LINE X' toast and the milestone sound used to fire from world.js onWorkitemDeliver — a crate sinking at
    a chute. A direct COMMS order to the agent crewing a line's last BAY rides a crate down that BAY's belt too, so a line that never
-   ran a job "shipped" while its plate read SHIPPED 0. The only proof of a shipment is chain.js's workitem.delivered
-   { box: 'line-output', lineId, outboxId } — the same terminal receipt line-shipments mints SHIPPED from.
+   ran a job "shipped" while its plate read SHIPPED 0. Now chain.js's terminal receipt workitem.delivered { box: 'line-output',
+   lineId, outboxId } asks, and the line's SHIPPED count (line-shipments: a clean PRODUCTIVE job, once) answers — a talk-only job
+   reaches the OUTBOX too, but mints no shipment, so it earns no FIRST SHIP either.
 
    Runs the REAL world.js noteFirstShip and the REAL build.js noteLineShipped / noteLineDelivered (source slices in a vm) against a
    real WorldModel station. */
@@ -15,29 +16,47 @@ const world = fs.readFileSync(path.join(__dirname, '../frontend/app/world.js'), 
 const build = fs.readFileSync(path.join(__dirname, '../frontend/app/build.js'), 'utf8');
 const slice = (src, from, to) => { const a = src.indexOf(from), b = src.indexOf(to, a + 1); A.ok(a >= 0 && b > a, 'source slice ' + from.trim().slice(0, 40)); return src.slice(a, b); };
 
-/* ---------- 1. the world: only a line-output receipt can announce, once per receipt ---------- */
-{
-  const calls = [], notes = [], sounds = [];
-  let first = true;
-  const ctx = vm.createContext({ fnow: 123, firstShipPulse: null,
+/* ---------- 1. the world: only a line-output receipt can ask, and only a minted shipment (SHIPPED grew) answers ---------- */
+const section1 = (async () => {
+  const calls = [], notes = [], sounds = [], asked = [];
+  let first = true, server = { L1: 0 }, down = false;
+  const DAY = 1000;
+  const ctx = vm.createContext({ fnow: 123, firstShipPulse: null, Date, Promise,
+    lineStats: { known: true, since: DAY, byLine: { L1: { lineId: 'L1', shipped: 0 } } },
+    LineWatch: { localMidnight: () => DAY }, apiUrl: p => p,
+    fetch: async url => { asked.push(url); if (down) throw new Error('offline'); return { ok: true, json: async () => ({ ok: true, lines: Object.keys(server).map(k => ({ lineId: k, shipped: server[k] })) }) }; },
     Build: { noteLineShipped: (o, l) => { calls.push([o, l]); const r = first ? { first: true, name: 'LINE RESEARCH', tiles: { '1,1': 1 } } : null; first = false; return r; } },
     StationUI: { notify: (t, k) => notes.push([t, k]) }, SFX: { milestone: () => sounds.push(1) } });
   vm.runInContext(slice(world, '  const firstShipSeen = new Set();', '  // the crate\'s MASS must be read NOW') + '; globalThis.note = noteFirstShip; globalThis.pulse = () => firstShipPulse;', ctx);
   // a direct COMMS order's delivery (chat.js: box '') and a crate animation's payload (box 'product') announce nothing
-  ctx.note({ workitemId: 'wi_direct', finalQueueId: 'outbox', agentId: 'nova', box: '' });
-  ctx.note({ workitemId: 'wi_crate', box: 'product', lineId: 'L1', outboxId: 'o1' });
-  ctx.note({ workitemId: 'wi_half', box: 'line-output', lineId: 'L1' });   // a receipt with no OUTBOX proves nothing
-  A.eq(calls.length + notes.length + sounds.length, 0, 'no receipt, no FIRST SHIP (direct order, crate payload, partial receipt)');
-  ctx.note({ workitemId: 'wi_1', box: 'line-output', lineId: 'L1', outboxId: 'o1', entryRunId: 'r1' });
-  A.eq(calls, [['o1', 'L1']], 'the receipt asks Build with its exact OUTBOX and line');
-  A.eq(notes, [['FIRST SHIP · LINE RESEARCH', 'gold']], 'the first receipt shows the gold toast');
+  await ctx.note({ workitemId: 'wi_direct', finalQueueId: 'outbox', agentId: 'nova', box: '' });
+  await ctx.note({ workitemId: 'wi_crate', box: 'product', lineId: 'L1', outboxId: 'o1' });
+  await ctx.note({ workitemId: 'wi_half', box: 'line-output', lineId: 'L1' });   // a receipt with no OUTBOX proves nothing
+  A.eq(calls.length + notes.length + sounds.length + asked.length, 0, 'no receipt, no FIRST SHIP (direct order, crate payload, partial receipt)');
+  // a TALK-ONLY job reaches the OUTBOX (the receipt fires) but mints no shipment: the plate stays SHIPPED 0, so no toast — and the
+  // line keeps its FIRST SHIP for the job that really ships (live 2026-10-12: a one-sentence job toasted while its plate read 0)
+  await ctx.note({ workitemId: 'wi_talk', box: 'line-output', lineId: 'L1', outboxId: 'o1', entryRunId: 'r0' });
+  A.eq(asked, ['/api/routing/lines/stats?since=' + DAY], 'the receipt reads the line\'s SHIPPED count fresh');
+  A.eq(calls.length + notes.length + sounds.length, 0, 'SHIPPED did not grow: no FIRST SHIP, and the line\'s first is not spent');
+  server.L1 = 1;
+  await ctx.note({ workitemId: 'wi_1', box: 'line-output', lineId: 'L1', outboxId: 'o1', entryRunId: 'r1' });
+  A.eq(calls, [['o1', 'L1']], 'a receipt whose job minted a shipment asks Build with its exact OUTBOX and line');
+  A.eq(notes, [['FIRST SHIP · LINE RESEARCH', 'gold']], 'the first shipment shows the gold toast');
   A.eq(sounds.length, 1, '…and plays the milestone once');
   A.ok(ctx.pulse() && ctx.pulse().at === 123, '…and pulses the line');
-  ctx.note({ workitemId: 'wi_1', box: 'line-output', lineId: 'L1', outboxId: 'o1', entryRunId: 'r1' });
-  A.eq(calls.length, 1, 'the SSE echo of the same receipt is ignored');
-  ctx.note({ workitemId: 'wi_2', box: 'line-output', lineId: 'L1', outboxId: 'o1', entryRunId: 'r2' });
+  A.eq(await ctx.note({ workitemId: 'wi_1', box: 'line-output', lineId: 'L1', outboxId: 'o1', entryRunId: 'r1' }), null, 'the SSE echo of the same receipt is ignored');
+  A.eq(asked.length, 2, '…it reads nothing');
+  server.L1 = 2;
+  await ctx.note({ workitemId: 'wi_2', box: 'line-output', lineId: 'L1', outboxId: 'o1', entryRunId: 'r2' });
   A.eq([calls.length, notes.length, sounds.length], [2, 1, 1], 'a later shipment of the same line is not a first');
-}
+  // a read that fails proves nothing; another day's count is no baseline (a shipment today is measured from 0)
+  first = true; down = true;
+  await ctx.note({ workitemId: 'wi_3', box: 'line-output', lineId: 'L1', outboxId: 'o1', entryRunId: 'r3' });
+  A.eq([calls.length, notes.length], [2, 1], 'a failed stats read announces nothing');
+  down = false; ctx.lineStats = { known: true, since: DAY - 1, byLine: { L1: { lineId: 'L1', shipped: 9 } } }; server = { L1: 1 };
+  await ctx.note({ workitemId: 'wi_4', box: 'line-output', lineId: 'L1', outboxId: 'o1', entryRunId: 'r4' });
+  A.eq(calls.length, 3, 'yesterday\'s count is no baseline: today\'s first shipment counts from 0');
+})();
 /* ---------- 2. source locks: the crate seam is silent; the receipt is the only announcer ---------- */
 {
   const deliver = slice(world, '  function onWorkitemDeliver(bx) {', '\n  }\n');
@@ -72,4 +91,4 @@ const slice = (src, from, to) => { const a = src.indexOf(from), b = src.indexOf(
   const rb = ctx.shipped(of(b, 'outbox'), cb.key);
   A.ok(rb && rb.first && /^LINE [A-Z]+$/.test(rb.name), 'another line ships its own first (an unnamed line by its letter): ' + (rb && rb.name));
 }
-A.report('first-ship-receipt');
+section1.then(() => A.report('first-ship-receipt'), e => { console.error(e); process.exit(1); });

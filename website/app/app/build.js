@@ -4546,9 +4546,9 @@ const Build = (() => {
       return;   // a SILENT retirement: a crate at a chute proves no shipment (a direct COMMS order rides one too) — FIRST SHIP is noteLineShipped's
     }
   }
-  /* FIRST SHIP (2026-10-12): the gold toast + milestone a line earns the first time it SHIPS — driven by the sidecar's terminal
-     receipt (chain.js workitem.delivered { box: 'line-output', lineId, outboxId }: a clean job of THAT line reached THAT OUTBOX, the
-     same proof the plate's SHIPPED count is minted from), never by a crate animation. world.js calls this from the receipt with
+  /* FIRST SHIP (2026-10-12): the gold toast + milestone a line earns the first time it SHIPS — never a crate animation. world.js
+     calls this from the executor's terminal receipt (chain.js workitem.delivered { box: 'line-output', lineId, outboxId }: a clean
+     job of THAT line reached THAT OUTBOX) once the line's SHIPPED count shows the job minted a shipment (noteFirstShip), with
      BUILD MODE closed, so it resolves the live station like noteLineDelivered; its flag (reg[key].shipped) is its own, apart from
      the finish card's done. -> { first: true, name, tiles } once per line, else null (a line no longer on the floor, a receipt
      whose OUTBOX is now on another line, a line that already shipped). */
