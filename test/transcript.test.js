@@ -364,4 +364,18 @@ const redact = (s) => String(s).replace(/sk-[A-Za-z0-9]{8,}/g, '[redacted]');
   const raw = transcriptStore.appendStrict({ streamId: 'S', sourceRunId: 'repair', dispatchState: 'internal', role: 'assistant', content: text });
   A.eq(raw.content.length, 200000, 'ordinary raw execution transcript retains its existing cap');
 }
+
+{
+  const store = makeTranscriptStore({ io: memIo(), clock });
+  store.append({ streamId: 'preview', role: 'user', content: 'Visible topic', taint: null });
+  store.append({ streamId: 'preview', role: 'user', content: 'Hidden contract', dispatchState: 'pending' });
+  store.append({ streamId: 'preview', role: 'user', content: 'Hidden repair', dispatchState: 'internal' });
+  A.eq(store.streams()[0].preview, 'Visible topic', 'RAM preview excludes pending and internal prompts');
+  store.append({ streamId: 'preview', role: 'assistant', content: 'answer', dispatchState: 'final', dispatchPrompt: 'Accepted request', taint: 'web_fetch' });
+  A.eq(store.streams()[0].preview, 'Accepted request', 'RAM preview mirrors accepted projection topic');
+  A.eq(store.streams()[0].previewTaint, 'web_fetch', 'RAM preview uses accepted source provenance');
+  store.append({ streamId: 'preview', role: 'user', content: 'New clean topic', taint: null });
+  A.eq(store.streams()[0].previewTaint, '', 'new clean visible prompt clears prior tainted preview metadata');
+  A.ok(store.streams()[0].previewTaintKnown, 'new clean visible prompt retains known-clean provenance');
+}
 A.report('transcript.test');

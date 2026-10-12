@@ -11008,7 +11008,7 @@ const remoteHost = require('./remote/host.js').makeRemoteHost({
   },
   transcript: {
     streams: (o) => transcriptStore.streams(o),
-    history: (sid, o) => transcriptStore.history(sid, o),
+    history: (sid, o) => conversationTranscript(sid, o),
     reconstruct: (sid, o) => transcriptStore.reconstruct(sid, o)
   },
   // the same resolution a scheduled routine uses (roster model/provider, runtime key), minus the routine note
@@ -26237,6 +26237,14 @@ function serveInsights(req, res) {
 // GET /api/transcript?stream=<id>&agent=<id>&limit=<n> — the durable per-workstream conversation transcript
 // (P0.1), chronological. Feeds a server-side autopsy/replay view and recovers headless-run dialogue (the
 // browser's own COMMS history persists via the save-envelope mirror). Read-only; fail-open, never a 500.
+// Desktop history, phone reading, and phone continuation share one accepted-answer projection.
+// Exact execution reads and model reconstruction retain their separate raw evidence semantics.
+function conversationTranscript(stream, options) {
+  const limit = Math.max(1, Number(options && options.limit) || 200);
+  return transcriptStoreModule.projectConversation(
+    transcriptStore.history(stream, { limit: limit + 500 }).filter(r => !transcriptLiveRuns.has(String(r.sourceRunId || ''))),
+    id => runStore.latest(id), dispatchDeliveryDeps.hash).slice(-limit);
+}
 function serveTranscript(req, res) {
   const json = (code, obj) => respondJson(res, code, obj);   // canonical helper (sidecar/respond.js)
   try {
@@ -26250,11 +26258,10 @@ function serveTranscript(req, res) {
     const hashText = text => crypto.createHash('sha256').update(text, 'utf8').digest('hex');
     // Explicit delivery reads return only the full accepted projection. The ordinary exact-run view stays raw.
     const finalDelivery = sourceRunId && u.searchParams.get('delivery') === '1';
-    const raw = transcriptStore.history(stream, { limit: limit + 500, sourceRunId, dispatchState: finalDelivery ? 'final' : undefined });
+    const raw = sourceRunId ? transcriptStore.history(stream, { limit: limit + 500, sourceRunId, dispatchState: finalDelivery ? 'final' : undefined }) : [];
     const turns = sourceRunId
       ? raw.filter(r => finalDelivery ? transcriptStoreModule.isFinalDeliveryRow(r, hashText, (runStore.latest(r.sourceRunId) || {}).dispatchDelivery) : r.dispatchState !== 'final').slice(-limit)
-      : transcriptStoreModule.projectConversation(raw.filter(r => !transcriptLiveRuns.has(String(r.sourceRunId || ''))),
-        id => runStore.latest(id), hashText).slice(-limit);
+      : conversationTranscript(stream, { limit });
     json(200, { stream, turns });
   } catch (e) { json(500, readRouteFailure('transcript', e)); }   // broken ≠ empty: every reader gates on r.ok (autosessions/chat/returnstore)
 }

@@ -80,6 +80,11 @@
   // Conversation display uses the finalized dispatch answer; run-specific reads keep raw execution evidence.
   // Durable row markers stay authoritative after the bounded run log expires. A final transcript projection
   // retains the complete answer, independently of the run envelope's 24k delivery-text cap.
+  function conversationPreview(row) {
+    if (!row) return '';
+    if (row.dispatchState === 'final') return str(row.dispatchPrompt);
+    return !row.dispatchState && row.role === 'user' ? str(row.content) : '';
+  }
   function isFinalDeliveryRow(row, hash, expected) {
     if (!row || row.dispatchState !== 'final' || row.role !== 'assistant' || !row.sourceRunId || typeof row.content !== 'string') return false;
     const hasIntegrity = row.textLength != null || row.textSha256 != null;
@@ -233,9 +238,9 @@
         if (!e) { e = { streamId: r.streamId, turns: 0, lastAt: 0, preview: '' }; by.set(r.streamId, e); }
         e.turns++;
         if (r.ts >= e.lastAt) e.lastAt = r.ts;
-        // last USER line wins the preview — the assistant's reply is the answer, the user's line is the topic.
-        if (r.role === 'user' && r.content) {
-          e.preview = str(r.content).replace(/\s+/g, ' ').trim().slice(0, previewMax);
+        const preview = conversationPreview(r);
+        if (preview) {
+          e.preview = preview.replace(/\s+/g, ' ').trim().slice(0, previewMax);
           e.previewTaint = r.taint || ''; e.previewTaintKnown = r.taintKnown === true || !!r.taint;
         }
       }
@@ -520,5 +525,5 @@
     };
   }
 
-  return { makeTranscriptStore, projectConversation, isFinalDeliveryRow, markPersisted, _internals: { SID_RE, ROLES, PERSISTED, flattenContent } };
+  return { makeTranscriptStore, projectConversation, conversationPreview, isFinalDeliveryRow, markPersisted, _internals: { SID_RE, ROLES, PERSISTED, flattenContent } };
 });
