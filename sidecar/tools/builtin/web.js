@@ -948,6 +948,35 @@
       }
       return { ok: true, text: JSON.stringify(out, (k, v) => (v === MISSING ? null : v)), missed };
     }
+    /* THE NEXT MOVE, AT THE MOMENT OF BLOCKAGE. A live A/B run (haiku-4.5, 2026-10-12) showed a model handed the whole
+       1.4 MB body (head + tail in view, the rest parked) still never thought of `select` — it paged the parked file and
+       guessed. So when a JSON body is bigger than this result can show, the host names the document's shape and a
+       ready select for it, in front of the body where no cut can reach. */
+    function jsonShapeHint(text, budget) {
+      if (!(text.length > budget)) return '';
+      let data; try { data = JSON.parse(text); } catch (_) { return ''; }
+      const objOf = arr => arr.find(x => x && typeof x === 'object' && !Array.isArray(x));
+      const keysOf = o => { const k = Object.keys(o).filter(x => !UNSAFE_KEY.has(x)); return k.slice(0, 20).join(', ') + (k.length > 20 ? ', …' : ''); };
+      let shape, example = [];
+      if (Array.isArray(data)) {
+        const el = objOf(data);
+        shape = 'an array of ' + data.length + ' items' + (el ? ' shaped {' + keysOf(el) + '}' : '');
+        if (el) example = Object.keys(el).filter(x => !UNSAFE_KEY.has(x)).slice(0, 2).map(k => '[].' + k);
+      } else if (data && typeof data === 'object') {
+        const keys = Object.keys(data).filter(x => !UNSAFE_KEY.has(x));
+        shape = 'an object with ' + keys.slice(0, 20).map(k => {
+          if (!Array.isArray(data[k])) return k;
+          const el = objOf(data[k]);
+          return k + ' (array of ' + data[k].length + (el ? ' {' + keysOf(el) + '}' : '') + ')';
+        }).join('; ');
+        example = keys.filter(k => !Array.isArray(data[k]) && (data[k] === null || typeof data[k] !== 'object')).slice(0, 2);
+        const arrKey = keys.find(k => Array.isArray(data[k]) && objOf(data[k]));
+        if (arrKey) example = example.concat(Object.keys(objOf(data[arrKey])).filter(x => !UNSAFE_KEY.has(x)).slice(0, 2).map(k => arrKey + '[].' + k));
+      } else return '';
+      return 'this JSON response is ' + text.length + ' characters, more than this result can show, so part of it is cut below '
+        + '(the whole body is saved to the file named at the cut). It is ' + shape + '. To get exactly the fields you need from the '
+        + 'WHOLE response, call web_request again with select' + (example.length ? ', e.g. "select": ' + JSON.stringify(example) : '') + '.';
+    }
     const SAFE_METHODS = new Set(['GET', 'HEAD']);
     const ALL_METHODS = new Set(['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE']);
 
@@ -1190,7 +1219,12 @@
         // cut of a large selection can never eat it.
         const paths = selectPaths(args && args.select);
         let shown = bodyText, note = '';
-        if (paths.length) {
+        if (!paths.length && res.status >= 200 && res.status < 300) {
+          let budget = ctx ? ctx.outputMax : null;
+          if (typeof budget === 'function') { try { budget = budget(); } catch (_) { budget = null; } }
+          budget = Number(budget) > 0 ? Number(budget) : 80000;   // registry OUTPUT_MAX when no host budget was passed
+          note = jsonShapeHint(bodyText, budget);
+        } else if (paths.length) {
           if (res.status < 200 || res.status >= 300) {
             note = 'select was not applied: the call failed with HTTP ' + res.status + ', so the whole error body follows.';
           } else {

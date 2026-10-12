@@ -415,6 +415,14 @@ const OK = [{ status: 200, headers: { 'content-type': 'application/json' }, body
     A.ok(parked[0].content.indexOf('"id":10400') >= 0, 'the parked file holds the COMPLETE body');
     A.ok(res.content.indexOf('.output/untrusted-web_request-r1-0') >= 0 && /read that file/i.test(res.content), 'the visible result points at the file and says to read it: ' + JSON.stringify(res.content.slice(-400)));
     A.ok(res.content.length < BIG.length, 'what the model sees still fits the window-scaled cap');
+    // live-caught: a model handed the cut body never thought of select — the host names the shape + a ready select, up front
+    A.ok(res.content.indexOf('[this JSON response is ' + BIG.length + ' characters') === 0, 'the shape hint leads the result, where no cut can reach it');
+    A.ok(/variants \(array of 400 \{id, sku, price, is_enabled, options, title\}\)/.test(res.content), 'the hint names the array, its length and its element keys');
+    A.ok(res.content.indexOf('"select": ["id","title","variants[].id","variants[].sku"]') >= 0, 'and gives a ready-to-use select: ' + JSON.stringify(res.content.slice(0, 600)));
+  }
+  {
+    const small = await tools('interactive', recorder(OK).impl).run({ url: 'https://api.x.com/v1/shops.json' }, Object.assign(ctx(), { outputMax: 12000 }));
+    A.ok(small.content.indexOf('[BEGIN EXTERNAL WEB CONTENT') === 0, 'a body that fits gets no hint — byte-identical to before');
   }
 
   // ---- M. select: just the fields a step needs, extracted host-side from the WHOLE body ----
