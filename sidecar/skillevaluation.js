@@ -67,6 +67,7 @@ function validateSuite(suite) {
       if (check.kind.startsWith('artifact_') && !safePath(check.path)) throw new Error('invalid artifact check path');
       if (check.kind === 'artifact_sha256' && (typeof check.expected !== 'string' || !/^[a-f0-9]{64}$/.test(check.expected))) throw new Error('artifact check needs a SHA-256 digest');
       if (check.kind === 'process_exit' && (!Number.isInteger(check.expected) || !identifier(check.executionId))) throw new Error('process check needs a declared execution and exit code');
+      if (check.afterLastWriteTo != null && (check.kind !== 'tool_call' || !safePath(check.afterLastWriteTo))) throw new Error('invalid verification ordering path');
       if (check.kind === 'tool_call' && (!identifier(check.name) || !check.arguments || Array.isArray(check.arguments) || typeof check.arguments !== 'object' || jsonSize(check.arguments) > 8192)) throw new Error('tool check needs bounded exact arguments');
     }
   }
@@ -93,7 +94,9 @@ function assessCheck(check, observation) {
     const execution = (observation.executions || []).find(e => e.id === check.executionId && e.completed === true);
     actual = execution && execution.exitCode; present = !!execution;
   } else if (check.kind === 'tool_call') {
-    actual = (observation.toolCalls || []).some(call => call.name === check.name && call.ok === true && isDeepStrictEqual(call.arguments, check.arguments));
+    const calls = observation.toolCalls || [];
+    const finalWrite = check.afterLastWriteTo ? calls.findLastIndex(call => call.name === 'fs.write' && call.ok === true && call.arguments && call.arguments.path === check.afterLastWriteTo) : -1;
+    actual = (!check.afterLastWriteTo || finalWrite >= 0) && calls.some((call, i) => i > finalWrite && call.name === check.name && call.ok === true && isDeepStrictEqual(call.arguments, check.arguments));
     return { id: check.id, kind: check.kind, pass: actual, present: true, observedDigest: digest(actual), expectedDigest: digest(true) };
   }
   if (actual === undefined) present = false;

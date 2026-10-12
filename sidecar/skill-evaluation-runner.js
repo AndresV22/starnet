@@ -2,7 +2,6 @@
    in-memory workspace. No host files, shell, network tools, or approval bypass. */
 'use strict';
 const { runAgentLoop: defaultLoop } = require('./loop.js');
-const { randomUUID } = require('node:crypto');
 const { digestSkill } = require('./skillevaluation.js');
 const copy = v => JSON.parse(JSON.stringify(v));
 function createArtifactWorkflowSuite(skillName) {
@@ -13,7 +12,7 @@ function createArtifactWorkflowSuite(skillName) {
     checks: [
       { id: 'accurate-report', kind: 'artifact_json_equal', path: 'report.json', expected },
       { id: 'source-preserved', kind: 'artifact_json_equal', path: 'input.json', expected: rows },
-      { id: 'verified-saved-report', kind: 'tool_call', name: 'fs.read', arguments: { path: 'report.json' } }
+      { id: 'verified-saved-report', kind: 'tool_call', name: 'fs.read', arguments: { path: 'report.json' }, afterLastWriteTo: 'report.json' }
     ]
   });
   return { id: 'artifact-workflow:' + skillName, skillName, version: 1,
@@ -46,7 +45,8 @@ function makeAgentLoopCaseRunner(options) {
   const o = options || {};
   if (!o.provider || typeof o.provider.stream !== 'function') throw new Error('evaluation provider required');
   const loop = o.runAgentLoop || defaultLoop;
-  const runIdPrefix = String(o.runIdPrefix || randomUUID()).replace(/[^a-zA-Z0-9_.-]/g, '-').slice(0, 80);
+  if (typeof o.runIdPrefix !== 'string' || !/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,79}$/.test(o.runIdPrefix)) throw new Error('evaluation requires a bounded host runIdPrefix');
+  const runIdPrefix = o.runIdPrefix;
   let runSerial = 0;
   const clock = o.clock || { now: () => 0 };
   const tools = [
@@ -54,9 +54,10 @@ function makeAgentLoopCaseRunner(options) {
     { type: 'function', function: { name: 'fs_write', description: 'Write an allowed output in the isolated evaluation workspace.', parameters: { type: 'object', properties: { path: { type: 'string' }, content: { type: 'string' } }, required: ['path', 'content'], additionalProperties: false } } }
   ];
   return async function runCase({ task, skill, phase, signal }) {
+    const runId = 'skill-eval-' + runIdPrefix + '-' + (++runSerial) + '-' + phase + '-' + digestSkill(skill).slice(0, 12);
     // The parent host must decide whether spending is allowed; this callback can
     // deny for budget/paused policy, but never expands the supplied tool surface.
-    if (typeof o.authorize === 'function' && await o.authorize({ taskId: task.id, phase }) !== true) return { reason: 'policy-denied' };
+    if (typeof o.authorize === 'function' && await o.authorize({ runId, taskId: task.id, phase }) !== true) return { reason: 'policy-denied' };
     const files = new Map(Object.entries(task.fixtures || {}));
     const writable = new Set(task.writablePaths || []), toolCalls = [];
     const dispatch = async call => {
@@ -74,7 +75,9 @@ function makeAgentLoopCaseRunner(options) {
     const supportFiles = activeSkill && activeSkill.files ? (Array.isArray(activeSkill.files) ? activeSkill.files : Object.values(activeSkill.files)) : [];
     const skillContext = activeSkill ? '\nProcedure under evaluation:\n' + (activeSkill.body || '') + '\n' + (activeSkill.setup || '') +
       supportFiles.filter(f => f.encoding !== 'base64').map(f => '\nSupporting file ' + f.path + ':\n' + f.content).join('') : '';
-    const runId = 'skill-eval-' + runIdPrefix + '-' + (++runSerial) + '-' + phase + '-' + digestSkill(skill).slice(0, 12);
+    // The host commits its dispatch receipt before spend. A rejected/failed write
+    // must stop here so interrupted or unpriced runs remain durably unsettled.
+    if (typeof o.beforeRun === 'function' && await o.beforeRun({ runId, taskId: task.id, phase }) !== true) throw new Error('evaluation dispatch receipt was not accepted');
     let result;
     try { result = await loop({
       messages: [{ role: 'system', content: 'Complete the task using the isolated workspace tools when needed. Report only work actually completed. The task supplies the required output contract.' + skillContext }, { role: 'user', content: task.prompt }],
