@@ -53,9 +53,12 @@ const Pipeline = require('../frontend/app/pipeline.js');
     assert.equal(calls.length, count, label + ': the exhausted line must make zero provider calls');
     assert.equal(result.body.ok, false, result.text);
     assert.ok(capText.test(JSON.stringify(result.body.replies)), label + ': the reply names the line daily cap: ' + result.text);
+    // the refusal's REASON is the route's error (the panel / FINISH card / station.test_line read it) — never only "no durable run outcome"
+    assert.ok(capText.test(String(result.body.error || '')) && /raise its LINE BUDGET or try again tomorrow/.test(result.body.error) && !/^⚠/.test(result.body.error), label + ': the error says the daily limit and how to raise it: ' + result.body.error);
     assert.equal(result.body.delivered, null, 'the refused job never claims delivery');
     const job = await fixture.json('GET', '/api/line-jobs/' + result.body.jobId);
     assert.equal(job.body.job.status, 'failed', 'the line history keeps the refused job');
+    assert.ok(capText.test(String(job.body.job.error || '')), label + ': the job record says why it did not run (WORKFLOWS shows it): ' + job.body.job.error);
     return result;
   }
   try {
