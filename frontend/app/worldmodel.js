@@ -559,19 +559,23 @@ const WorldModel = (() => {
         { x: 4, y: 0, d: 'W' },
         { x: 3, y: 0, d: 'S' }, { x: 3, y: 1, d: 'S' }, { x: 3, y: 2, d: 'S' }, { x: 3, y: 3, d: 'S' },
       ] },
-    { id: 'sorting_office', grp: 'sort', label: 'SORTING OFFICE', w: 9, h: 5,
-      desc: 'INBOX ▸ FILTER ▸ two BAYs — the filter reads each job and sends code one way, everything else the other.',
+    { id: 'sorting_office', grp: 'sort', label: 'SORTING OFFICE', w: 13, h: 5,
+      desc: 'INBOX ▸ FILTER ▸ two BAYs ▸ two OUTBOXes — the filter sends code one way, everything else the other; each lane ships its result.',
       props: [
         { t: 'intake', x: 0, y: 0, w: 2, h: 2 },
         // pre-configured so a fresh stamp never nags FILTER_NO_DEFAULT: code → east lane, everything else → south
         { t: 'filter', x: 4, y: 1, w: 1, h: 1, block: false, routes: { code: 'E' }, def: 'S' },
         { t: 'bay', x: 7, y: 0, w: 2, h: 2, role: 'ENGINEER' },     // the filter's `code -> E` lane lands here
         { t: 'bay', x: 7, y: 3, w: 2, h: 2, role: 'GENERALIST' },   // the default (everything-else) lane
+        { t: 'outbox', x: 11, y: 0, w: 2, h: 2 },
+        { t: 'outbox', x: 11, y: 3, w: 2, h: 2 },
       ],
       belts: [
         { x: 2, y: 1, d: 'E' }, { x: 3, y: 1, d: 'E' }, { x: 4, y: 1, d: 'E' },
         { x: 5, y: 1, d: 'E' }, { x: 6, y: 1, d: 'E' },
         { x: 4, y: 2, d: 'S' }, { x: 4, y: 3, d: 'S' }, { x: 4, y: 4, d: 'E' }, { x: 5, y: 4, d: 'E' }, { x: 6, y: 4, d: 'E' },
+        { x: 9, y: 1, d: 'E' }, { x: 10, y: 1, d: 'E' },
+        { x: 9, y: 4, d: 'E' }, { x: 10, y: 4, d: 'E' },
       ] },
     /* FULL TRIAGE. The filter's THREE lanes are exactly Classify.getTag's three tags (code /
        research / general) — a routes map naming a tag the classifier never emits would leave a dock
@@ -770,7 +774,7 @@ const WorldModel = (() => {
         { x: 7, y: 0, d: 'W' }, { x: 6, y: 0, d: 'W' }, { x: 5, y: 0, d: 'S' }, { x: 5, y: 1, d: 'S' },
       ] },
     { id: 'code_foundry', grp: 'gate', label: 'CODE FOUNDRY', w: 19, h: 7,
-      desc: 'INBOX ▸ FILTER ▸ ENGINEER ▸ REVIEWER ▸ LOOP GATE ▸ OUTBOX — code work is built, reviewed, and sent back round until the verdict is APPROVED; everything else takes the generalist lane.',
+      desc: 'INBOX ▸ FILTER ▸ ENGINEER ▸ REVIEWER ▸ LOOP GATE ▸ OUTBOX — code work is built, reviewed, and sent back round until the verdict is APPROVED; everything else takes the generalist lane to its own OUTBOX.',
       props: [
         { t: 'intake', x: 0, y: 2, w: 2, h: 2 },
         { t: 'filter', x: 4, y: 3, w: 1, h: 1, block: false, routes: { code: 'E' }, def: 'S' },
@@ -779,6 +783,7 @@ const WorldModel = (() => {
         { t: 'loop', x: 14, y: 3, w: 1, h: 1, block: false, done: 'E', when: 'approved', maxIter: 3 },
         { t: 'outbox', x: 17, y: 2, w: 2, h: 2 },
         { t: 'bay', x: 7, y: 5, w: 2, h: 2, role: 'GENERALIST' },
+        { t: 'outbox', x: 11, y: 5, w: 2, h: 2 },
       ],
       belts: [
         { x: 2, y: 3, d: 'E' }, { x: 3, y: 3, d: 'E' }, { x: 4, y: 3, d: 'E' },
@@ -794,6 +799,7 @@ const WorldModel = (() => {
         // the default (everything-else) lane south to the generalist
         { x: 4, y: 4, d: 'S' }, { x: 4, y: 5, d: 'S' }, { x: 4, y: 6, d: 'E' },
         { x: 5, y: 6, d: 'E' }, { x: 6, y: 6, d: 'E' },
+        { x: 9, y: 6, d: 'E' }, { x: 10, y: 6, d: 'E' },
       ] },
     /* EVERY MECHANIC ON ONE FLOOR: fan-out ▸ barrier ▸ synthesis ▸ review ▸ verdict-gated loop.
        The gate's back lane re-enters at the ANALYST — a failed review redoes the synthesis from

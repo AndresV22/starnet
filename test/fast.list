@@ -721,6 +721,7 @@ test/pipeline.test.js
 test/pipeline.multibay.test.js
 test/pipeline.join-loop.test.js
 test/blueprints.test.js
+test/blueprint-completion.test.js
 test/guidedline.test.js
 test/ghostline.test.js
 test/routing.b5.test.js
