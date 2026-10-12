@@ -29,6 +29,7 @@
 
   // ---------- internal store (the single source of truth for sessions) ----------
   let ws = [];          // Workstream[]
+  let delegatedAgents = null;   // parent id -> participating agent ids; rebuilt only when thread identity changes
   let activeId = null;
   let generalId = null;
   let undoCheckpoint = null;   // one durable, bounded recovery point for clear/bulk archive
@@ -88,6 +89,8 @@
       // run yet, a run currently in flight (appendRun resets it), or a pre-upgrade save. The board's DONE
       // chip reads this so a run that died can never wear "DONE — REVIEW & SHIP" (truthful telemetry).
       lastRunOk: opts.lastRunOk === true ? true : (opts.lastRunOk === false ? false : null),
+      // The backend's terminal reason is stronger evidence than a completed transport or a filed run id.
+      lastRunReason: typeof opts.lastRunReason === 'string' ? clamp(opts.lastRunReason.trim(), 80) : '',
       // the model id the SIDECAR reported for this stream's most recent run (harness usage payload,
       // not local config) — the only model claim about a session this app can actually prove. '' = we
       // have never measured one here: no run yet, or a save written before this field existed. The
@@ -157,6 +160,7 @@
   function init(slice) {
     slice = slice || {};
     ws = Array.isArray(slice.workstreams) ? slice.workstreams.map(make) : [];
+    delegatedAgents = null;
     tombs = Array.isArray(slice.deletedIds) ? slice.deletedIds.filter(x => typeof x === 'string' && x).slice(-MAX_TOMBS) : [];
     generalId = (slice.generalId && find(slice.generalId)) ? slice.generalId : null;
     ensureGeneral();
@@ -169,7 +173,7 @@
   }
 
   // wipe to a single fresh General (NEW AGENT clears everything).
-  function reset() { ws = []; activeId = generalId = null; undoCheckpoint = null; tombs = []; const g = ensureGeneral(); activeId = g.id; return active(); }
+  function reset() { ws = []; delegatedAgents = null; activeId = generalId = null; undoCheckpoint = null; tombs = []; const g = ensureGeneral(); activeId = g.id; return active(); }
 
   // the persisted slice — App.persist() serializes this alongside { agent, usage }.
   function serialize() { return { workstreams: ws, activeId, generalId, sessionUndo: undoCheckpoint, deletedIds: tombs }; }
@@ -241,7 +245,7 @@
     return create(null, opts);
   }
   // ADOPT a workstream with a CALLER-CHOSEN id (idempotent): if one already exists with opts.id it is
-  // returned untouched; otherwise a new record is minted from opts and inserted WITHOUT stealing the active
+  // keeps its content and adopts only missing thread metadata; otherwise a new record is minted WITHOUT stealing the active
   // stream (never sets activeId — the caller decides whether to focus it). This is the seam the autosessions
   // layer uses to surface an unattended cron run as a session keyed by its own 'cron-<runId>' stream id, so
   // the rail row and the durable server transcript share one identity. Returns the (existing or new) record.
@@ -250,6 +254,13 @@
     if (opts.id) {
       const ex = find(opts.id); if (ex) {
         if (opts.automation) ex.automation = make(opts).automation;
+        // A run can be reconciled before the overseer files its thread metadata. Adopt those
+        // additive links here, so the participation index follows the same store mutation.
+        let threadChanged = false;
+        if (!ex.parentStreamId && opts.parentStreamId) { ex.parentStreamId = String(opts.parentStreamId); threadChanged = true; }
+        if (opts.worker === true && ex.worker !== true) { ex.worker = true; threadChanged = true; }
+        if (!ex.projectRoot && opts.projectRoot) ex.projectRoot = String(opts.projectRoot);
+        if (threadChanged) delegatedAgents = null;
         return ex;
       }
       // a DELETED id stays deleted: the boot-time resurrection paths (workshop pending poll, cron
@@ -262,6 +273,7 @@
     }
     const w = make(opts);
     ws.push(w);
+    if (w.worker) delegatedAgents = null;
     return w;
   }
   function isDeleted(id) { return !!id && tombs.indexOf(String(id)) >= 0; }
@@ -274,7 +286,9 @@
     const w = find(id); if (!w) return false;
     agentId = String(agentId == null ? '' : agentId);
     if (!/^[A-Za-z0-9_-]{1,40}$/.test(agentId)) return false;
-    w.agentId = agentId; return true;
+    w.agentId = agentId;
+    if (w.worker) delegatedAgents = null;
+    return true;
   }
   function setLane(id, lane) { const w = find(id); if (!w || LANES.indexOf(lane) < 0) return false; w.lane = lane; return true; }
   // anchor (or re-anchor) a session to a blessed project root — the Projects rail's "Work here" stamps the
@@ -307,6 +321,7 @@
     const i = ws.findIndex(w => w.id === id);
     if (i < 0) return false;
     ws.splice(i, 1);
+    delegatedAgents = null;
     if (tombs.indexOf(id) < 0) { tombs.push(id); if (tombs.length > MAX_TOMBS) tombs = tombs.slice(-MAX_TOMBS); }
     if (activeId === id) activeId = generalId;
     // its delegated workers' threads were its record: they go with it (never left behind, unreachable)
@@ -408,11 +423,16 @@
   // `at` (optional, epoch ms): the run's REAL event time. A live caller omits it (now IS the event); a
   // backfill/heal caller that learned about an already-finished run passes the run record's end time, so
   // the rail's "last worked" stamp never reads as boot/poll time (timestamp-honesty law, 2026-07-19).
-  function appendRun(id, runId, at) {
+  // Recovery may insert an older run before a known newer one; that history cannot change current activity or outcome.
+  function appendRun(id, runId, at, beforeRunId) {
     const w = find(id); if (!w || !runId) return false;
     // tolerate dup / no-op runs (e.g. the no-tool-support early error); only a NEW run resets the
     // outcome to unknown — a dup re-file of an already-settled run must not erase its truth.
-    if (w.runIds.indexOf(runId) < 0) { w.runIds.push(runId); w.lastRunOk = null; }
+    if (w.runIds.indexOf(runId) < 0) {
+      const before = beforeRunId ? w.runIds.indexOf(beforeRunId) : -1;
+      if (before >= 0) { w.runIds.splice(before, 0, runId); return true; }
+      w.runIds.push(runId); w.lastRunOk = null; w.lastRunReason = '';
+    }
     if (w.lane === 'todo') w.lane = 'active';                // hybrid-honest: a REAL run fired
     w.lastActiveAt = Number(at) > 0 ? Number(at) : now();
     if (id === activeId) w.lastReadAt = w.lastActiveAt;      // the open stream is being watched, not unread
@@ -422,10 +442,11 @@
   // when the run errored in flight, ok=true when the stream completed. Only the stream's CURRENT (last-filed)
   // run may settle the flag — a stale callback from an older run is refused so it can never overwrite the
   // newer run's truth, and an outcome with no filed run is unanchored and refused too.
-  function noteRunEnd(id, runId, ok) {
+  function noteRunEnd(id, runId, ok, reason) {
     const w = find(id); if (!w || !runId) return false;
     if (!w.runIds.length || w.runIds[w.runIds.length - 1] !== runId) return false;
     w.lastRunOk = ok === true;
+    if (typeof reason === 'string' && reason.trim()) w.lastRunReason = clamp(reason.trim(), 80);
     return true;
   }
   function recordDeliverable(id, d) {
@@ -455,12 +476,21 @@
   }
   function modelOf(id) { const w = find(id); return w ? (w.lastModel || '') : ''; }
 
-  // PER-AGENT THREADS: is this session one of <agentId>'s? A direct session is its bound agent's; a group
-  // session belongs to EVERY member (membersOf(id) → the backend's member ids, or null when not yet known),
-  // so a group lists under each of them. The record only stores the lead, never the members.
+  // A conversation belongs to its lead, group members, and the workers whose work it holds. Worker
+  // records stay hidden: CREW and search show their parent conversation, with the parent's archive state.
+  // Historical participation remains after a run settles; deleting the worker record removes that link.
   function hasAgent(w, agentId, membersOf) {
     if (!w || !agentId) return false;
     if ((w.agentId || 'agent') === agentId) return true;
+    if (!delegatedAgents) {
+      delegatedAgents = new Map();
+      for (const child of ws) {
+        if (child.worker !== true || !child.parentStreamId || child.parentStreamId === child.id) continue;
+        if (!delegatedAgents.has(child.parentStreamId)) delegatedAgents.set(child.parentStreamId, new Set());
+        delegatedAgents.get(child.parentStreamId).add(child.agentId || 'agent');
+      }
+    }
+    if (delegatedAgents.get(w.id)?.has(agentId)) return true;
     if (w.conversationMode !== 'group' || typeof membersOf !== 'function') return false;
     const members = membersOf(w.id);
     return Array.isArray(members) && members.includes(agentId);

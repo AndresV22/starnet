@@ -119,7 +119,7 @@ function clarificationFixture(mode) {
   const other = { promptId: 'p2', tool: 'fs.write' };
   Channels.setPending(ws.id, q, 1); Channels.setPending(ws.id, other, 2);
   let conversationAnswer = null;
-  const ctx = { Channels, JSON, Date, name: 'NOVA', input: null, askerName: () => 'NOVA',
+  const ctx = { Channels, JSON, Date, name: 'NOVA', input: null, settlePromptNotice() {}, askerName: () => 'NOVA',
     document: { createElement: element, createTextNode: textContent => ({ textContent }) },
     row: () => { const r = { d: element(), body: element() }; nodes.push(r); return r; },
     Harness: { consentAnswer: () => Promise.resolve({ ok: true }) },
@@ -175,7 +175,7 @@ function permissionFixture() {
   Channels.setPending(ws.id, { promptId: 'question-2', tool: 'brief.ask' }, 110);
   Channels.setPending(ws.id, { promptId: 'approval-3', tool: 'fs.write' }, 120);
   let synced = 0;
-  const ctx = { Channels, Date: { now: () => 200 }, name: 'NOVA', input: null,
+  const ctx = { Channels, Date: { now: () => 200 }, name: 'NOVA', input: null, settlePromptNotice() {},
     document: { createElement: element, createTextNode: textContent => ({ textContent }) },
     row: () => { const r = { d: element(), body: element() }; nodes.push(r); return r; },
     actionPhrase: card.actionPhrase, consentInspect: card.consentInspect, appendConsentDetails: () => {},

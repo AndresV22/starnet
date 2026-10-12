@@ -449,7 +449,7 @@ const Delegated = (() => {
       U.bus.on('agent.run.end', p => { if (p && p.runId) steps.delete(String(p.runId)); });
       // a worker's ask arrives or is answered (here, on the phone, or by its timeout): its row changes state now
       U.bus.on('permission.prompt', () => repaint());
-      U.bus.on('permission.response', () => repaint());
+      U.bus.on('permission.response', () => Promise.resolve().then(repaint)); // pending-state listeners settle first
     }
   }
 

@@ -439,7 +439,7 @@ body #chat-panel #chat-log > .dg-line .dg-li { cursor: default; }
 @container delegated (max-width: 420px) {
   body #chat-panel #chat-log > .dg-line .dg-line-head { flex-wrap: wrap; }
   body #chat-panel #chat-log > .dg-line .dg-line-text { white-space: normal; }
-  body #chat-panel #chat-log > .dg-line .dg-line-sum { flex-basis: 100%; margin-left: 20px; }
+  body #chat-panel #chat-log > .dg-line .dg-line-sum { flex: 0 1 calc(100% - 20px); min-width: 0; margin-left: 20px; white-space: normal; overflow-wrap: anywhere; }
   body #chat-panel #chat-log > .dg-line .dg-line-list { grid-template-columns: 10px auto minmax(0, 1fr); }
   body #chat-panel #chat-log > .dg-line .dg-li { grid-template-columns: 10px auto minmax(0, 1fr); }
   body #chat-panel #chat-log > .dg-line .dg-li-st { grid-column: 2 / -1; white-space: normal; overflow-wrap: anywhere; }

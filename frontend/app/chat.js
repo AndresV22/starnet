@@ -3448,7 +3448,7 @@ const Chat = (() => {
       }
       submitting = false; decided = true;
       if (received && applyElsewhere) applyElsewhere(received);
-      if (ws && typeof StationUI !== 'undefined' && StationUI.settleNotifs) StationUI.settleNotifs('needs:' + ws.id);
+      if (ws) settlePromptNotice(ws.id, p.promptId);
       // answered: tell the bus, as the approval card does — the CREW card's "needs your OK" frame and the world's
       // AWAITING pose clear on permission.response, and a question never emitted one (sweep 2026-10-02)
       try { if (typeof U !== 'undefined' && U.bus) U.bus.emit('permission.response', { promptId: p.promptId, decision: 'once' }); } catch (_) {}
@@ -3556,11 +3556,23 @@ const Chat = (() => {
      (2026-10-11): one path. The sidecar's consent route (the lead's run is the one that holds the ask, also for a worker's),
      the bus (every rendered card of that ask settles), the channel (THIS ask only: a crewmate's open ask stays open), NEEDS
      YOU and the presence card. Returns what the sidecar actually applied (fullSaved: a "full" that really persisted). */
+  const settledPromptNotices = new Set();
+  function settlePromptNotice(wsId, promptId) {
+    if (!wsId || typeof StationUI === 'undefined') return;
+    const id = String(promptId || '');
+    if (id && settledPromptNotices.has(id)) return;
+    if (id) { settledPromptNotices.add(id); if (settledPromptNotices.size > 200) settledPromptNotices.delete(settledPromptNotices.values().next().value); }
+    const pending = typeof Channels !== 'undefined' && Channels.pendingAllOf ? Channels.pendingAllOf(wsId).filter(p => String(p.promptId) !== id) : [];
+    if (pending.length) {
+      const next = pending[0], ws = (typeof Workstreams !== 'undefined' && Workstreams.get && Workstreams.get(wsId)) || { id: wsId, agentId: next.agentId };
+      if (StationUI.notify) StationUI.notify(askerName(next, ws) + (next.tool === 'brief.ask' ? ' still needs your answer' : ' still needs approval to ' + actionPhrase(next)), 'warn', 'needsApproval', { kind: 'needs', go: { ws: wsId }, key: 'needs:' + wsId, prompt: next.promptId });
+    } else if (StationUI.settleNotifs) StationUI.settleNotifs('needs:' + wsId);
+  }
   async function answerConsent(p, ws, decision) {
     const rid = (p && p.runId) || ((ws && typeof Channels !== 'undefined') ? Channels.runIdOf(ws.id) : null);
     const answer = await Harness.consent(rid, p.promptId, decision);
     if (!(answer && answer.ok)) throw new Error((answer && answer.error) || 'The station did not confirm that answer. Please try again.');
-    if (ws && typeof StationUI !== 'undefined' && StationUI.settleNotifs) StationUI.settleNotifs('needs:' + ws.id);
+    if (ws) settlePromptNotice(ws.id, p.promptId);
     const appliedDecision = (answer && answer.decision) || 'deny';
     let fullSaved = true;
     if (decision === 'full') {
@@ -3721,7 +3733,7 @@ const Chat = (() => {
   }
   if (typeof U !== 'undefined' && U.bus && U.bus.on) U.bus.on('permission.response', (resp) => {
     const key = resp && resp.promptId != null ? promptNeeds.get(String(resp.promptId)) : null;
-    if (key && typeof StationUI !== 'undefined' && StationUI.settleNotifs) StationUI.settleNotifs(key);
+    if (key) settlePromptNotice(key.slice('needs:'.length), resp.promptId);
   });
   function backgroundPermissionNotify(ev, ws) {
     // the AGENT that asks — a delegated worker's ask names the worker, never the lead it rode in on

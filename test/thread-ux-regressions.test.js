@@ -34,7 +34,7 @@ test('worker prose uses the worker and project for both links and images; cache 
 test('approval failure leaves pending state intact; a confirmed answer settles only that prompt',async()=>{
   const effects=[], p={promptId:'mira-ask',runId:'lead-run',tool:'shell.exec'}, ws={id:'home',agentId:'lead'};
   let reply={ok:false,error:'temporarily unavailable'};
-  const c=ctx(part(chat,'  async function answerConsent(', '  // the channel\'s record'),{
+  const c=ctx(part(chat,'  const settledPromptNotices', '  // the channel\'s record'),{
     Harness:{consent:async()=>reply},StationUI:{settleNotifs:id=>effects.push(['notice',id])},
     Channels:{clearPending:(id,at,pid)=>effects.push(['clear',id,pid])},U:{bus:{emit:(name,data)=>effects.push(['event',name,data.promptId])}},
     isActiveWs:()=>false,renderPresence(){},syncStatus(){}
@@ -79,4 +79,19 @@ test('receipt prose refreshes on changed content without reparsing unchanged con
   rec.data.answer='second';c.hydrate(card);assert.equal(renders.length,2);assert.equal(renders[1].text,'second');
   rec.data.agentId='mira';rec.data.projectRoot='C:/original';c.hydrate(card);assert.equal(renders.length,3);assert.equal(renders[2].files[0],'mira');assert.equal(renders[2].files[2],'C:/original');
   rec.data.projectRoot='';c.hydrate(card);assert.equal(renders[3].files[2],'','finished run without a project never borrows a newer project');
+});
+
+test('answering one worker keeps the remaining worker in the bell; duplicate responses do not repeat notices',()=>{
+  const effects=[], pending=[{promptId:'mira',workerAgentId:'mira',tool:'brief.ask'},{promptId:'rook',workerAgentId:'rook',tool:'fs.write'}];
+  const c=ctx(part(chat,'  const settledPromptNotices', '  async function answerConsent('),{Channels:{pendingAllOf:()=>pending},StationUI:{notify:(text,cls,category,opts)=>effects.push(['pending',opts.prompt]),settleNotifs:key=>effects.push(['done',key])},askerName:p=>p.workerAgentId,actionPhrase:()=> 'write a file'});
+  c.settlePromptNotice('home','mira');assert.deepEqual(effects,[['pending','rook']]);
+  c.settlePromptNotice('home','mira');assert.equal(effects.length,1);
+  pending.shift();c.settlePromptNotice('home','rook');assert.deepEqual(effects[1],['done','needs:home']);
+});
+
+test('delegated response repaint waits for the prompt-state listeners',async()=>{
+  const listeners=new Map(),observed=[];let pending=true;
+  ctx(delegated,{document:{addEventListener:(event,fn)=>{if(event==='DOMContentLoaded')fn();},getElementById:()=>{observed.push(pending);return null;}},U:{bus:{on:(event,fn)=>listeners.set(event,fn)}},setInterval,clearInterval});
+  observed.length=0;listeners.get('permission.response')({promptId:'p'});pending=false;
+  assert.deepEqual(observed,[]);await Promise.resolve();assert.deepEqual(observed,[false]);
 });
