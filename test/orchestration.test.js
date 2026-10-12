@@ -291,8 +291,9 @@ const tick = () => new Promise(resolve => setImmediate(resolve));
     subagents.interrupt(first.id, 'lead');
     const reloaded = makeSubagentManager({ fs, pathMod: path, file: path.join(root, 'subagents.json'), clock: { now: () => 1001 }, emit: () => {}, newId: counter() });
     const ro = fakeRunOnce(async () => ({ reason: 'done', messages: [{ role: 'assistant', content: 'resumed' }], usd: 0 }));
+    const finalized = [];
     const roster = new Map([['researcher', { system: 'R' }]]);
-    const { resumeTool } = makeOrchestrationTools({ runOnce: ro, roster: () => roster, key: 'k', model: 'm', newId: counter(), subagents: reloaded, workerMaxIters: 7 });
+    const { resumeTool } = makeOrchestrationTools({ runOnce: ro, roster: () => roster, key: 'k', model: 'm', newId: counter(), subagents: reloaded, workerMaxIters: 7, finalizeDispatchDelivery: (id, envelope) => finalized.push({ id, envelope }) });
     A.eq(resumeTool.preconditions[0].requiredTool, 'team.subagents', 'team.resume declares inspection as a machine-readable precondition');
     let missing = null;
     try { await resumeTool.run({ id: 'missing' }, { agentId: 'lead', emit: () => {} }); } catch (e) { missing = e; }
@@ -301,6 +302,10 @@ const tick = () => new Promise(resolve => setImmediate(resolve));
     A.eq(out.summary, 'resumed', 'team.resume restarts the interrupted worker');
     await tick(); await tick();
     A.eq(ro.calls[0].maxIters, 7, 'resumed worker receives the configured iteration cap');
+    A.eq(ro.calls[0].dispatchDelivery.state, 'pending', 'resumed execution is provisional until validated');
+    A.eq(finalized.length, 1, 'resumed worker finalizes once');
+    A.eq(finalized[0].id, ro.calls[0].runId, 'resumed finalization belongs to the current generation run');
+    A.eq(finalized[0].envelope.text, 'resumed', 'resume persists the validated answer');
     A.ok(!ro.calls[0].resumedTaint, 'a clean stored task carries no resumed taint');
     A.eq(ro.calls[0].projectRoot, '/original/project', 'resume retains the original project from its durable record');
     A.eq(ro.calls[0].workdir, '/original/project/package', 'resume retains the original execution directory');
@@ -674,7 +679,7 @@ const tick = () => new Promise(resolve => setImmediate(resolve));
 //      the Commander had paid for all of them. Now: one worker's slice ends ALONE, its siblings' work survives,
 //      and the row says so. Driven through the REAL registry (which owns the outer timeout). ----
 {
-  const finished = [];
+  const finished = [], finalized = [];
   let clock = 0;
   const runOnce = async (o) => {
     const slow = o.agentId === 'analyst';
@@ -688,7 +693,7 @@ const tick = () => new Promise(resolve => setImmediate(resolve));
   const roster = new Map([['researcher', {}], ['scribe', {}], ['analyst', {}]]);
   const tools = makeOrchestrationTools({
     runOnce, roster: () => roster, key: 'k', model: 'm', newId: counter(),
-    dispatchTimeoutMs: 600, now: () => clock
+    dispatchTimeoutMs: 600, now: () => clock, finalizeDispatchDelivery: (id, envelope) => finalized.push({ id, envelope })
   });
   const reg = makeRegistry();
   tools.register(reg);
@@ -704,6 +709,8 @@ const tick = () => new Promise(resolve => setImmediate(resolve));
   A.ok(/REAL WORK from researcher/.test(rows[0].result), "the finished worker's actual output SURVIVES the straggler (the escape)");
   A.ok(/REAL WORK from scribe/.test(rows[1].result), 'the second finished worker survives too');
   A.eq(rows[2].reason, 'timeout', 'the worker that blew its slice is reported as timeout, not as done');
+  A.eq(finalized.find(x => x.id === rows[2].runId).envelope.reason, 'timeout', 'the durable delivery keeps the timeout even if execution returned done');
+  A.eq(finalized.length, 3, 'each completed or timed-out worker finalizes exactly once');
   A.ok(/STOPPED/.test(rows[2].result) && /do not present it as complete/i.test(rows[2].result),
     'the timeout row tells the lead not to pass the unfinished part off as complete');
   A.ok(/out of time/.test(r.summary), 'the summary names the timeout so the model sees it before reading rows');
@@ -998,7 +1005,7 @@ for (const reason of ['done', 'budget', 'max_iters', 'aborted']) {
   A.ok(/'station\.sessions'/.test(page), 'the page can list its sessions');
   A.ok(/'station\.deliver'/.test(page), 'the page can fold a delegated answer into a session');
   A.ok(/indexOf\(runId\) >= 0/.test(page), 'delivery is idempotent by runId (no double-posting)');
-  A.ok(/history\.push/.test(page) && !/ws\.history = next/.test(page), 'delivery APPENDS — it never replaces a session\'s existing thread');
+  A.ok(/history\.(?:push|splice)/.test(page) && !/ws\.history = next/.test(page), 'delivery APPENDS — it never replaces a session\'s existing thread');
   const mirror = fs.readFileSync(path.join(__dirname, '..', 'website', 'app', 'app', 'stationcommands.js'), 'utf8');
   A.eq(mirror, page, 'the website mirror of stationcommands.js is in sync');
 }
@@ -1031,6 +1038,80 @@ for (const reason of ['done', 'budget', 'max_iters', 'aborted']) {
   A.eq(ro.calls.length, 2, 'an invalid result is never repaired more than once');
   A.eq(row.reason, 'invalid-result', 'invalid output after repair is not accepted as done');
   A.eq(row.validation.state, 'invalid', 'the terminal validation state is explicit');
+}
+
+// The execution ending is provisional until structured-result validation (including repair) finishes.
+{
+  const { makeRunStore } = require('../sidecar/runstore.js');
+  const lines = [], io = { readAll: () => lines.slice(), append: row => lines.push(row) };
+  const store = makeRunStore({ io, clock: { now: () => 1000 } });
+  let releaseRepair, calls = 0;
+  const ro = fakeRunOnce(async o => {
+    const first = ++calls === 1;
+    if (!first) await new Promise(resolve => { releaseRepair = resolve; });
+    const text = first ? 'not JSON' : '{"answer":"validated"}';
+    store.record({ ...o, reason: 'done', usd: first ? 0.2 : 0.1, deliveryText: text });
+    return { reason: 'done', messages: [{ role: 'assistant', content: text }], usd: first ? 0.2 : 0.1 };
+  });
+  const station = fakeStation(SESSIONS), timeline = [];
+  const request = station.request;
+  station.request = async (verb, args) => { timeline.push(verb); return request(verb, args); };
+  const roster = new Map([['researcher', { system: 'R' }]]);
+  const tools = makeOrchestrationTools({ runOnce: ro, roster: () => roster, key: 'k', model: 'm', newId: counter(), station,
+    runRecord: id => store.latest(id), finalizeDispatchDelivery: (id, envelope) => { timeline.push('persist-final'); return store.finalizeDelivery(id, envelope); } });
+  const context = { agentId: 'lead', runId: 'lead-run', emit: () => {} };
+  const running = tools.dispatchTool.run({ workers: [{ agentId: 'researcher', prompt: 'answer', session: 'research',
+    resultSchema: { type: 'object', required: ['answer'], properties: { answer: { type: 'string' } }, additionalProperties: false } }] }, context);
+  await tick();
+  A.ok(typeof releaseRepair === 'function', 'the structured repair is deliberately held in flight');
+  A.eq(store.latest(ro.calls[0].runId).dispatchDelivery.state, 'pending', 'raw output is durably provisional while repair is running');
+  A.eq(station.seen.filter(x => x.verb === 'station.dispatch_end').length, 0, 'no dispatch end is emitted before result validation');
+  A.eq(station.seen.filter(x => x.verb === 'station.deliver').length, 0, 'raw output is never delivered as the answer');
+  A.ok(/delivery pending/.test((await tools.subagentsTool.run({ runId: ro.calls[0].runId }, context)).summary), 'foreground verification does not call provisional delivery done');
+  releaseRepair();
+  const row = JSON.parse((await running).content)[0];
+  const final = store.latest(row.runId);
+  A.eq(final.dispatchDelivery.text, '{"answer":"validated"}', 'the original dispatch records only the validated answer as its final delivery');
+  A.eq(final.dispatchDelivery.reason, 'done', 'finalized dispatch stores the verified completion reason');
+  A.eq(store.latest(row.repairRunId).dispatchDelivery.state, 'internal', 'repair execution is marked as never independently deliverable');
+  A.eq(store.count(), 2, 'original plus repair remain exactly two real executions');
+  A.ok(Math.abs(store.all().reduce((sum, r) => sum + r.usd, 0) - 0.3) < 1e-9, 'delivery patch cannot double-count original or repair spend');
+  A.ok(timeline.indexOf('persist-final') < timeline.indexOf('station.dispatch_end'), 'durable finalization precedes live settlement');
+  const ended = station.seen.find(x => x.verb === 'station.dispatch_end');
+  A.eq(ended.args.runId, row.runId, 'validated settlement keeps the original run identity');
+  A.eq(ended.args.dispatchDelivery.text, final.dispatchDelivery.text, 'settlement and durable recovery share the same answer authority');
+  const delivered = station.seen.find(x => x.verb === 'station.deliver');
+  A.eq(delivered.args.text, final.dispatchDelivery.text, 'live delivery uses the same validated answer as recovery');
+  A.eq(delivered.args.runId, row.runId, 'repair never changes the delivery idempotency key');
+  const restarted = makeRunStore({ io, clock: { now: () => 2000 } });
+  A.eq(restarted.latest(row.runId).dispatchDelivery, final.dispatchDelivery, 'a headless/restarted reader recovers the final envelope');
+}
+
+// Invalid output, empty failures, and pre-run refusals settle truthfully without inventing a completed answer.
+for (const mode of ['invalid', 'error', 'refused']) {
+  const { makeRunStore } = require('../sidecar/runstore.js');
+  const store = makeRunStore({ clock: { now: () => 1000 } });
+  const ro = fakeRunOnce(async o => {
+    if (mode === 'refused') return null;
+    store.record({ ...o, reason: mode === 'error' ? 'error' : 'done', deliveryText: 'invalid' });
+    if (mode === 'error') throw new Error('provider failed');
+    return { reason: 'done', messages: [{ role: 'assistant', content: 'invalid' }], usd: 0 };
+  });
+  const station = fakeStation(SESSIONS), finals = [];
+  const tools = makeOrchestrationTools({ runOnce: ro, roster: () => new Map([['researcher', { system: 'R' }]]), key: 'k', model: 'm', newId: counter(), station,
+    finalizeDispatchDelivery: (id, envelope) => { finals.push({ id, envelope }); return store.finalizeDelivery(id, envelope); } });
+  const result = JSON.parse((await tools.dispatchTool.run({ workers: [{ agentId: 'researcher', prompt: 'answer', session: 'research', resultSchema: { type: 'object' } }] }, leadCtx())).content)[0];
+  const expected = mode === 'invalid' ? 'invalid-result' : mode;
+  A.eq(result.reason, expected, mode + ' returns the real dispatch terminal');
+  const attempts = mode === 'refused' ? 2 : 1; // a saturated admission gate retries once, with a fresh run id
+  A.eq(finals.length, attempts, mode + ' finalizes each real attempt once');
+  A.eq(new Set(finals.map(x => x.id)).size, attempts, mode + ' retries retain distinct attempt identities');
+  A.eq(finals[0].envelope.reason, expected, mode + ' finalization never promotes a failure to done');
+  A.eq(station.seen.filter(x => x.verb === 'station.dispatch_end').length, attempts, mode + ' settles each attempt once after finalization');
+  A.eq(station.seen.find(x => x.verb === 'station.dispatch_end').args.reason, expected, mode + ' live end carries its explicit outcome');
+  A.eq(station.seen.filter(x => x.verb === 'station.deliver').length, 0, mode + ' never delivers raw output as completed work');
+  if (mode === 'refused') A.eq(store.count(), 0, 'a pre-run refusal never fabricates an execution/spend row');
+  else A.eq(store.latest(result.runId).dispatchDelivery.reason, expected, mode + ' durable outcome matches the live dispatch');
 }
 
 // ---- G6 spawn quality gate and generation-bound steering tool ----

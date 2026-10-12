@@ -582,6 +582,7 @@
       const args = {
         streamId: job.streamId, sessionTitle: job.sessionTitle || job.session || '',
         agentId: job.agentId, runId: row.runId || '', prompt: job.prompt, text: row.result, reason: row.reason || '',
+        dispatchDelivery: { state: 'final', text: row.result || '', reason: row.reason || 'error', repairRunId: row.repairRunId || '' },
         parentStreamId: job.parentStreamId || undefined   // a fresh child thread the page may not have adopted yet
       };
       try { out = await station.request('station.deliver', args); }
@@ -592,14 +593,24 @@
         + '. The completed run is durable and will be reconciled when that session is opened.';
     }
 
+    async function finalizeWorkerDelivery(runId, row) {
+      const envelope = { state: 'final', text: row.result || '', reason: row.reason || 'error', repairRunId: row.repairRunId || '' };
+      if (typeof deps.finalizeDispatchDelivery === 'function') {
+        try { await deps.finalizeDispatchDelivery(runId, envelope); }
+        catch (e) { failNote('dispatch.finalize-delivery', e); row.sessionNote = 'The result is available now, but its recovery record could not be saved.'; }
+      }
+      return envelope;
+    }
+
     // Busy state belongs to the TARGET session, not whichever session the Commander is currently viewing.
     // This is intentionally best-effort: a missing page must never delay or cancel paid worker work.
-    function noteSessionActivity(verb, job, runId) {
+    function noteSessionActivity(verb, job, runId, delivery) {
       if (!station || !job.streamId) return;
       try {
         const pending = station.request(verb, {
           streamId: job.streamId, sessionTitle: job.sessionTitle || job.session || '',
-          agentId: job.agentId, runId: runId || '', parentStreamId: job.parentStreamId || undefined
+          agentId: job.agentId, runId: runId || '', parentStreamId: job.parentStreamId || undefined,
+          ...(delivery ? { reason: delivery.reason, dispatchDelivery: delivery } : {})
         });
         if (pending && typeof pending.catch === 'function') pending.catch(() => {});
       } catch (_) {}
@@ -705,6 +716,21 @@
           // minted up front (not inline in the runOnce call) so the row can carry the SAME id the run was filed
           // under — the page's delivery uses it to append the run to the session and to stay idempotent.
           const workerRunId = o2.runId || newId();
+          const finish = async (row, deliver) => {
+            row.runId = workerRunId;
+            const envelope = await finalizeWorkerDelivery(workerRunId, row);
+            // The execution loop ending is not completion: validation and any bounded repair finish first.
+            noteSessionActivity('station.dispatch_end', job, workerRunId, envelope);
+            if (deliver) {
+              if (job.parentStreamId) {
+                row.session = job.sessionTitle || job.streamId;
+                const p = deliverToSession(job, Object.assign({}, row));
+                if (p && typeof p.catch === 'function') p.catch(e => failNote('dispatch.thread-delivery', e));
+              } else await deliverToSession(job, row);
+            }
+            if (job.threadNote) row.sessionNote = job.threadNote;
+            return row;
+          };
           const allottedWallMs = (typeof o2.wallMs === 'number' && isFinite(o2.wallMs) && o2.wallMs > 0) ? o2.wallMs : 0;
           // A one-host inspection is never a ten-minute autonomous research job. Even if a lead explicitly
           // delegates one (non-interactive callers can still do so), bind all three dimensions: turns, tools,
@@ -752,6 +778,7 @@
               // the pre-2026-07-30 call. This is the DURABLE half; deliverToSession is the visible one.
               streamId: job.streamId || undefined,
               coordinatedSession: deps.coordinateResults === true,
+              dispatchDelivery: { state: 'pending' },
               sessionTitle: job.streamId ? (job.sessionTitle || job.session || '') : undefined,
               sessionPrompt: job.streamId ? job.prompt : undefined,
               // Share the lead's consent broker so a worker's WRITES follow the lead's APPROVAL posture
@@ -769,16 +796,14 @@
               steer: typeof o2.steer === 'function' ? o2.steer : undefined
             });
           } catch (e) {
-            noteSessionActivity('station.dispatch_end', job, workerRunId);
-            if (timedOut) return timeoutRow(null);   // the abort we fired surfaced as a throw — still an honest timeout
-            return { agentId: job.agentId, reason: 'error', result: 'worker run failed: ' + ((e && e.message) || e), usd: 0 };
+            if (timedOut) return finish(timeoutRow(null));   // the abort we fired surfaced as a throw — still an honest timeout
+            return finish({ agentId: job.agentId, reason: 'error', result: 'worker run failed: ' + ((e && e.message) || e), usd: 0 });
           } finally {
             if (timer) clearTimeout(timer);
             if (child) child.detach();
           }
-          noteSessionActivity('station.dispatch_end', job, workerRunId);
-          if (timedOut) return timeoutRow(result);   // keep whatever partial text the aborted run did produce
-          if (!result) return { agentId: job.agentId, reason: 'refused', result: 'worker could not start — the station\'s concurrent-agent cap was full at that instant, or a provider sign-in is needed. A parallel dispatch already runs in waves sized to the free capacity and retries a refusal once, so a refusal that survives means the cap is genuinely saturated: raise MAX_CONCURRENT_AGENTS in SETTINGS, or dispatch these workers in a follow-up call.', usd: 0 };
+          if (timedOut) return finish(timeoutRow(result));   // keep whatever partial text the aborted run did produce
+          if (!result) return finish({ agentId: job.agentId, reason: 'refused', result: 'worker could not start — the station\'s concurrent-agent cap was full at that instant, or a provider sign-in is needed. A parallel dispatch already runs in waves sized to the free capacity and retries a refusal once, so a refusal that survives means the cap is genuinely saturated: raise MAX_CONCURRENT_AGENTS in SETTINGS, or dispatch these workers in a follow-up call.', usd: 0 });
           const firstText = lastAssistant(result.messages) || '(the worker returned no text)';
           const contract = await enforceStructured(job.resultSchema, firstText, async (errors) => {
             const spent = Number(result.usd) || 0;
@@ -797,6 +822,7 @@
               signal: ac ? ac.signal : parentSignal, runId: repairRunId, trigger: 'directive', surface: 'autonomous',
               parentRunId: ctx && ctx.runId, delegatedBy: (ctx && ctx.agentId) || '', streamId: job.streamId || undefined,
               sessionTitle: job.streamId ? (job.sessionTitle || job.session || '') : undefined,
+              dispatchDelivery: { state: 'internal' },
               consent: ctx && ctx.consent, extraObjects: WORKER_KIT,
               maxCostUsd: perWorker > 0 ? remaining : 0,
               maxIters: lowerPositive(4, bounded ? lowerPositive(workerMaxIters, bounded.workerMaxIters) : workerMaxIters),
@@ -808,12 +834,12 @@
           const repaired = contract.repairResult || null;
           const totalUsd = (Number(result.usd) || 0) + (Number(repaired && repaired.usd) || 0);
           const artifacts = [].concat(Array.isArray(result.artifacts) ? result.artifacts : [], Array.isArray(repaired && repaired.artifacts) ? repaired.artifacts : []);
-          if (job.resultSchema && !contract.ok) return {
+          if (job.resultSchema && !contract.ok) return finish({
             agentId: job.agentId, reason: 'invalid-result',
             result: 'Worker output failed its result schema after one bounded repair attempt. No completion was accepted.',
             usd: totalUsd, runId: workerRunId, repairRunId: contract.repairRunId || '', validation: contract.validation,
             artifacts: artifacts.map(a => Object.assign({}, a, { agentId: job.agentId, workspace: job.agentId }))
-          };
+          });
           const effective = repaired || result;
           const row = {
             agentId: job.agentId,
@@ -833,18 +859,6 @@
           const rowTaint = taintOfRun(result, repaired);
           if (rowTaint) row.taintedBy = rowTaint;
           if (wire.note) row.note = wire.note;   // honest credential-fallback disclosure (never silent)
-          /* Show it where the Commander asked for it. Only a COMPLETED worker delivers: every other outcome
-             (error / refused / timeout) returned above, so a partial or failed run is reported to the lead but
-             never folded into a session as though it were finished work. */
-          if (job.parentStreamId) {
-            // a worker's OWN thread: the run is already filed there durably, and the page reconciles it on its next
-            // poll — so the live fold is best-effort and never waits (a headless lead, e.g. the overseer's automatic
-            // review, has no page to answer the bridge and would otherwise lose ~6s of wall clock per worker)
-            row.session = job.sessionTitle || job.streamId;
-            const p = deliverToSession(job, Object.assign({}, row));
-            if (p && typeof p.catch === 'function') p.catch(e => failNote('dispatch.thread-delivery', e));
-          } else await deliverToSession(job, row);
-          if (job.threadNote) row.sessionNote = job.threadNote;
           // WORK VISIBILITY (ghost-file fix): what the worker PROVABLY produced (its runOnce artifact ledger),
           // stamped with the OWNING agentId. Files live in the WORKER's private workspace — the lead cannot
           // fs.read them and must reference them as the worker's (they are already shown to the Commander as
@@ -852,7 +866,7 @@
           if (artifacts.length) {
             row.artifacts = artifacts.map(a => Object.assign({}, a, { agentId: job.agentId, workspace: job.agentId }));
           }
-          return row;
+          return finish(row, true);
         };
 
         if (args.background) {
@@ -1180,7 +1194,11 @@
       const pick = ['runId', 'agentId', 'delegatedBy', 'parentRunId', 'reason', 'model', 'usd', 'tokens', 'turns', 'toolsOk', 'durationMs', 'startedAt', 'endedAt', 'streamId', 'sessionTitle'];
       const out = { recorded: true };
       for (const k of pick) if (row[k] !== undefined && row[k] !== '') out[k] = row[k];
-      return { content: JSON.stringify(out), summary: 'recorded: ' + (row.agentId || 'worker') + ' ' + (row.reason || 'done') };
+      if (row.dispatchDelivery) out.dispatchDelivery = { state: row.dispatchDelivery.state, reason: row.dispatchDelivery.reason, repairRunId: row.dispatchDelivery.repairRunId };
+      const outcome = row.dispatchDelivery
+        ? (row.dispatchDelivery.state === 'final' ? row.dispatchDelivery.reason : 'delivery ' + row.dispatchDelivery.state)
+        : (row.reason || 'done');
+      return { content: JSON.stringify(out), summary: 'recorded: ' + (row.agentId || 'worker') + ' ' + outcome };
     }
 
     const subagentsTool = {
@@ -1231,6 +1249,7 @@
         const crew = roster() || new Map();
         const ident = crew.get(rec.agentId);
         if (!ident) return { status: 'error', reason: 'error', result: 'worker is no longer in the live roster', usd: 0 };
+        const finish = async row => { await finalizeWorkerDelivery(h.runId, row); return row; };
         const wire = workerWire(ident);   // same cross-provider resolution as a fresh dispatch
         let result;
         const bounded = boundedDomainTask(rec.prompt || '');
@@ -1247,6 +1266,7 @@
             messages: ((resumedSession && resumedSession.messages) || []).concat([{ role: 'user', content: contractedPrompt }]),
             streamId: rec.streamId || undefined, sessionTitle: resumedSession && resumedSession.title,
             coordinatedSession: !!rec.parentStreamId,
+            dispatchDelivery: { state: 'pending' },
             sessionPrompt: rec.streamId ? rec.prompt : undefined,
             agentId: rec.agentId, isTask: true,
             emit: h.emit, signal: h.signal, runId: h.runId,
@@ -1261,9 +1281,9 @@
             steer: h.steer
           });
         } catch (e) {
-          return { status: 'error', reason: 'error', result: 'worker run failed: ' + ((e && e.message) || e), usd: 0 };
+          return finish({ status: 'error', reason: 'error', result: 'worker run failed: ' + ((e && e.message) || e), usd: 0 });
         }
-        if (!result) return { status: 'error', reason: 'refused', result: 'worker could not restart', usd: 0 };
+        if (!result) return finish({ status: 'error', reason: 'refused', result: 'worker could not restart', usd: 0 });
         const firstText = lastAssistant(result.messages) || '(the worker returned no text)';
         const contract = await enforceStructured(rec.resultSchema, firstText, async (errors) => {
           const spent = Number(result.usd) || 0;
@@ -1279,6 +1299,7 @@
             messages: [{ role: 'user', content: contractedPrompt }, { role: 'assistant', content: firstText },
               { role: 'user', content: '[STRUCTURED RESULT REPAIR] The prior result failed host validation:\n- ' + errors.slice(0, 20).join('\n- ') + '\nReturn ONLY strict JSON matching: ' + JSON.stringify(rec.resultSchema) }],
             agentId: rec.agentId, isTask: true, emit: h.emit, signal: h.signal, runId: repairRunId,
+            dispatchDelivery: { state: 'internal' },
             parentRunId: ctx && ctx.runId, delegatedBy: (ctx && ctx.agentId) || '', trigger: 'directive', surface: 'autonomous',
             consent: ctx && ctx.consent, extraObjects: WORKER_KIT,
             maxCostUsd: perWorker > 0 ? remaining : 0,
@@ -1290,7 +1311,7 @@
         const repaired = contract.repairResult || null;
         const artifacts = [].concat(Array.isArray(result.artifacts) ? result.artifacts : [], Array.isArray(repaired && repaired.artifacts) ? repaired.artifacts : []);
         const invalid = !!(rec.resultSchema && !contract.ok);
-        return {
+        return finish({
           status: invalid ? 'error' : (((repaired || result).reason || 'done') === 'done' ? 'done' : 'error'),
           reason: invalid ? 'invalid-result' : ((repaired || result).reason || 'done'),
           result: invalid ? 'Worker output failed its result schema after one bounded repair attempt. No completion was accepted.' : contract.text,
@@ -1299,7 +1320,7 @@
           usd: (Number(result.usd) || 0) + (Number(repaired && repaired.usd) || 0),
           artifacts: artifacts.map(a => Object.assign({}, a, { agentId: rec.agentId, workspace: rec.agentId })),
           taintedBy: taintOfRun(result, repaired)
-        };
+        });
       };
     }
 

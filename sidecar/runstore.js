@@ -69,6 +69,15 @@
   const DELIVERABLE_KINDS = new Set(['doc', 'data', 'page', 'patch', 'image', 'files']);   // mirrors tools/builtin/deliverable.js
   const DELIVERY_PROMPT_MAX = 4000;
   const DELIVERY_TEXT_MAX = 24000;
+  // Dispatch completion is assessed AFTER the execution loop (including one optional result repair).
+  // Its envelope is separate from the immutable execution outcome and spend.
+  const DELIVERY_PATCH_KIND = 'dispatch-delivery';
+  function dispatchDelivery(v) {
+    if (!v || !['pending', 'internal', 'final'].includes(v.state)) return null;
+    if (v.state !== 'final') return { state: v.state };
+    return { state: 'final', text: str(v.text).slice(0, DELIVERY_TEXT_MAX),
+      reason: str(v.reason).trim().slice(0, 80) || 'error', repairRunId: str(v.repairRunId).slice(0, 100) };
+  }
   const TOOL_TRACE_MAX = 200;
   const TOOL_SUMMARY_MAX = 240;
   const FAILURE_FIELD_MAX = 80;
@@ -232,19 +241,33 @@
     // `updates` holds the later rows of those chains, which are never served on their own (see header).
     let chains = new Map();
     let updates = new Set();
+    let deliveries = new Map();
+    const unpersisted = new Set();
     function track(r) {
       const id = r && r.runId;
       if (!id) return;
+      if (r.kind === DELIVERY_PATCH_KIND) {
+        updates.add(r);
+        const envelope = dispatchDelivery(r.dispatchDelivery);
+        if (envelope && envelope.state === 'final' && !deliveries.has(id)) deliveries.set(id, envelope);
+        return;
+      }
       const c = chains.get(id);
       if (c) { c.latest = r; updates.add(r); return; }
       if (r.reason === 'interrupted') chains.set(id, { first: r, latest: r });
     }
-    function reindex() { chains = new Map(); updates = new Set(); for (const r of rows) track(r); }
+    function reindex() {
+      chains = new Map(); updates = new Set(); deliveries = new Map(); for (const r of rows) track(r);
+      if (unpersisted.size) { const retained = new Set(rows.map(r => r.runId)); for (const id of unpersisted) if (!retained.has(id)) unpersisted.delete(id); }
+    }
     reindex();
     function view(r) {
       const c = r.runId ? chains.get(r.runId) : null;
-      if (!c || c.first !== r || c.latest === r) return Object.assign({}, r);
-      return Object.assign({}, c.latest, { ts: r.ts });
+      const out = !c || c.first !== r || c.latest === r ? Object.assign({}, r) : Object.assign({}, c.latest, { ts: r.ts });
+      const final = deliveries.get(r.runId);
+      if (out.dispatchDelivery && out.dispatchDelivery.state === 'pending' && final) out.dispatchDelivery = Object.assign({}, final);
+      else if (out.dispatchDelivery) out.dispatchDelivery = Object.assign({}, out.dispatchDelivery);
+      return out;
     }
 
     function record(e) {
@@ -261,6 +284,7 @@
         sessionTitle: str(e.sessionTitle).trim().slice(0, SESSION_TITLE_MAX),
         deliveryPrompt: str(e.deliveryPrompt).slice(0, DELIVERY_PROMPT_MAX),
         deliveryText: str(e.deliveryText).slice(0, DELIVERY_TEXT_MAX),
+        ...(dispatchDelivery(e.dispatchDelivery) ? { dispatchDelivery: dispatchDelivery(e.dispatchDelivery) } : {}),
         recipeId: str(e.recipeId).slice(0, 60),   // provenance spine (additive): WHICH recipe launched this run ('' for non-recipe runs; old rows lack it and default '')
         projectRoot: str(e.projectRoot).slice(0, PROJECT_ROOT_MAX),   // deliverable organization (additive): the BLESSED project folder this run was scoped to ('' when unscoped/unblessed)
         deliverable: deliverableNote(e.deliverable),                  // deliverable organization (additive): the agent's own PROSE name for the work (null when it never named it)
@@ -333,7 +357,8 @@
       // query horizon (≤1000), so no list()/insights query is ever short-changed within the window it reads.
       if (rows.length > ramMax) { rows.splice(0, rows.length - ramMax); reindex(); }
       else track(entry);
-      try { io.append(entry); } catch (e) { failNote('runstore.append', e); }
+      try { io.append(entry, entry.dispatchDelivery ? { strict: true } : undefined); }
+      catch (e) { if (entry.dispatchDelivery) unpersisted.add(entry.runId); failNote('runstore.append', e); }
       return entry;
     }
 
@@ -371,8 +396,24 @@
       if (!id) return null;
       const c = chains.get(id);
       if (c) return view(c.first);
-      for (let i = rows.length - 1; i >= 0; i--) if (rows[i].runId === id) return Object.assign({}, rows[i]);
+      for (let i = rows.length - 1; i >= 0; i--) if (rows[i].runId === id && !updates.has(rows[i])) return view(rows[i]);
       return null;
+    }
+
+    // Append a final dispatch envelope without adding a second execution/spend row. Only the host-created
+    // pending original is eligible; an internal repair or missing run can never become a new execution here.
+    // Persist first: a failed append leaves the provisional state honest and can be retried safely.
+    function finalizeDelivery(runId, value) {
+      const row = latest(runId), envelope = dispatchDelivery(Object.assign({}, value, { state: 'final' }));
+      if (!row || !row.dispatchDelivery || row.dispatchDelivery.state === 'internal') return null;
+      if (row.dispatchDelivery.state === 'final') return row;
+      if (unpersisted.has(row.runId)) throw new Error('The original dispatch run was not durably recorded.');
+      const patch = { kind: DELIVERY_PATCH_KIND, runId: row.runId, dispatchDelivery: envelope, ts: clock.now() };
+      io.append(patch, { strict: true });
+      rows.push(patch);
+      if (rows.length > ramMax) { rows.splice(0, rows.length - ramMax); reindex(); }
+      else track(patch);
+      return latest(runId);
     }
 
     /* settleSpend(runId, usd, how) — the Commander settled an interrupted run's unknown spend (POST /api/budget/settle,
@@ -390,7 +431,7 @@
     }
 
     return {
-      record, list, latest, settleSpend,
+      record, list, latest, settleSpend, finalizeDelivery,
       all() { return rows.filter(r => !updates.has(r)).map(view); },
       count() { return rows.length - updates.size; }
     };
