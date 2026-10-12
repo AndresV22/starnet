@@ -20,7 +20,7 @@ const between = (start, end) => {
   if (i < 0 || j < 0) throw new Error('build.js seam moved: ' + start + ' … ' + end);
   return src.slice(i, j);
 };
-const CODE = between('function warnSendCuts(', 'function deleteSelected(ev)')
+const CODE = between('const cutArmFor = ', 'function deleteSelected(ev)')
   + between('function doDeleteRoom(', 'function openDoorPicker(')
   + between('function deleteSelectedRoom(', 'function nudgeRoom(');
 
@@ -79,5 +79,28 @@ function rig() {
   R2.ctx.selectedRoomId = R2.rb;
   R2.ctx.deleteSelectedRoom({}); R2.tick(300); R2.ctx.deleteSelectedRoom({}); R2.tick(7000); R2.ctx.deleteSelectedRoom({});
   A.ok(!!R2.s.roomById(R2.rb) && /press Delete again/.test(R2.said[R2.said.length - 1]), 'past the 6 s window the warning has lapsed: Delete arms afresh (never a silent delete)');
+}
+{
+  // REPAIR: the 6 s window belongs to the room the cut warning was FOR. An old, unconfirmed warning (a prop whose delete would cut
+  // a SEND TO) stretched every later room's 2.5 s confirm: a second Delete 4 s later deleted a room it should have re-armed.
+  const R = rig(), { s, ctx, said } = R;
+  const target = s.props().find(p => p.t === 'intake' && s.props().some(o => o.t === 'outbox' && o.sendTo === p.id));
+  A.ok(ctx.warnSendCuts([target.id], {}), 'a prop delete warns that it cuts a SEND TO — and is never confirmed');
+  ctx.selectedRoomId = R.ra;   // room A: no SEND TO points into it
+  R.tick(300); ctx.deleteSelectedRoom({});
+  A.ok(/press Delete again/.test(said[said.length - 1]), 'room A arms');
+  R.tick(4000); ctx.deleteSelectedRoom({});
+  A.ok(!!s.roomById(R.ra) && /press Delete again/.test(said[said.length - 1]), 'a Delete 4 s later re-arms room A (its own 2.5 s confirm) — never a delete on an unrelated warning\'s window — ' + said[said.length - 1]);
+  R.tick(500); ctx.deleteSelectedRoom({});
+  A.ok(!s.roomById(R.ra), '…and the next quick Delete deletes it, as for any room');
+}
+{
+  // …and a room's OWN cut warning still gets its 6 s window when another room was warned first
+  const R = rig(), { s, ctx } = R;
+  ctx.selectedRoomId = R.ra; ctx.deleteSelectedRoom({}); R.tick(300);   // room A armed, never confirmed
+  ctx.selectedRoomId = R.rb; ctx.roomDelArmedAt = 0;
+  ctx.deleteSelectedRoom({}); R.tick(300); ctx.deleteSelectedRoom({});   // room B: arm, then the cut warning
+  R.tick(4200); ctx.deleteSelectedRoom({});
+  A.ok(!s.roomById(R.rb), 'room B\'s own warning: the repeat 4 s later deletes it');
 }
 A.report('build-room-delete-sendto.test');

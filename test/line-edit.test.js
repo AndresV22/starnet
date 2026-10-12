@@ -424,6 +424,11 @@ const run = (st, id, op, args, opts) => LE.run(st, id, op, args, Object.assign({
   for (let i = 0; i < 12; i++) { const lb = tail(); r = LE.run(st, lb, 'appendStep', { after: lb, role: 'WRITER' }, { near }); if (!r.ok && r.canTidy) r = LE.run(st, lb, 'appendStep', { after: lb, role: 'WRITER' }, { near, tidy: true }); if (!r.ok) break; }
   A.ok(r && !r.ok && /^NO_(FIT|SPACE)$/.test(r.error), 'a line that fills the starter room runs out of floor — ' + (r && r.error));
   A.ok(/grow its room \(click the room, then drag a gold handle on its edge out\)/.test(r.msg) && /move the whole line \(double-click it, then drag it to clear floor\)/.test(r.msg) && !/bigger room/.test(r.msg), 'the refusal names the two moves that work, with the gesture for each — ' + r.msg);
+  // the LEAD (stationbuilder's refit edit, opts.agent) cannot click or drag: the same refusal names its own ops (repair)
+  const lt = tail(), ag = LE.run(st, lt, 'appendStep', { after: lt, role: 'WRITER' }, { near, tidy: true, agent: true });
+  A.ok(!ag.ok && /^NO_(FIT|SPACE)$/.test(ag.error) && /\{ op: "resize", room, x, y, w, h \}/.test(ag.msg) && !/click|drag/i.test(ag.msg), 'the lead\'s refusal says { op: "resize" }, never a click or a drag — ' + ag.msg);
+  const SBsrc = require('fs').readFileSync(require('path').join(__dirname, '..', 'frontend', 'app', 'stationbuilder.js'), 'utf8');
+  A.ok(/env\.LineEdit\.run\(st, t\.p\.id, String\(o\.edit \|\| ''\), args, \{ sizes: sizesOf\(env\), tidy: !!o\.tidy, agent: true \}\)/.test(SBsrc), '…and the refit edit asks for that wording');
   const rm = st.rooms()[0], R = rm.rects[0];
   A.ok(st.resizeRoom(rm.id, { x1: R.x1, y1: R.y1, x2: R.x2 + 12, y2: R.y2 + 8 }).ok, 'the room is grown');
   const lb = tail(); let again = LE.run(st, lb, 'appendStep', { after: lb, role: 'WRITER' }, { near });

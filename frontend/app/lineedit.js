@@ -400,6 +400,10 @@
   /* the two moves that DO make room (R25 walkthrough: "give it a bigger room" sent the Commander to build a new room the line never
      moved into): grow the room the line stands in, or carry the whole line to clear floor — said with the gesture for each */
   const GROW_HOW = 'grow its room (click the room, then drag a gold handle on its edge out), or move the whole line (double-click it, then drag it to clear floor)';
+  /* …and the same advice in the lead's own ops (opts.agent — stationbuilder's refit edit): it cannot click or drag, it resizes a room
+     with { op: "resize" } (repair: the gesture wording sent the lead to UI moves, or to telling the Commander to do it by hand) */
+  const GROW_OPS = 'grow the room it stands in ({ op: "resize", room, x, y, w, h }: its whole new footprint, edges moved out)';
+  const growHow = opts => (opts && opts.agent) ? GROW_OPS : GROW_HOW;
   function run(station, propId, op, args, opts) {
     const LL = layoutModule();
     if (!LL) return fail('NO_ENGINE', 'the layout engine is not loaded');
@@ -448,10 +452,10 @@
     if (!graph) {
       /* say what would actually help: TIDY LINE only when the same edit fits with the line laid out afresh; when even that
          cannot fit, the floor is too small for this line — a bigger room is the answer, never "tidy it" in a circle */
-      if (op === 'tidy' || op === 'newLine') return op === 'tidy' ? fail('NO_FIT', 'this whole line does not fit here laid out afresh — ' + GROW_HOW + ', or keep it as it is') : why(L);
+      if (op === 'tidy' || op === 'newLine') return op === 'tidy' ? fail('NO_FIT', 'this whole line does not fit here laid out afresh — ' + growHow(opts) + ', or keep it as it is') : why(L);
       const t = OPS.tidy(clone(e.graph));
       const T = t.ok ? LL.layout(t.graph, g.floor, { near: opts && opts.near }) : null;
-      if (!(T && T.ok)) return fail(L.error === 'NO_SPACE' || L.error === 'NO_ROOM' ? L.error : 'NO_FIT', 'there is not enough clear floor round this line for that — ' + GROW_HOW + ', or clear some space');
+      if (!(T && T.ok)) return fail(L.error === 'NO_SPACE' || L.error === 'NO_ROOM' ? L.error : 'NO_FIT', 'there is not enough clear floor round this line for that — ' + growHow(opts) + ', or clear some space' + (opts && opts.agent ? ' round it ({ op: "move" } or { op: "delete" } on the pieces in the way)' : ''));
       // it fits with the line laid out afresh: that moves every machine of the line, so it is done only when asked (opts.tidy —
       // the panel's armed second click), never on the first
       if (!(opts && opts.tidy)) return Object.assign(fail('NEEDS_TIDY', 'there is no room for that with the line where it stands — TIDY LINE first, then try again'), { canTidy: true });

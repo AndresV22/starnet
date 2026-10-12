@@ -31,20 +31,29 @@
   const refuse = (error, extra) => Object.assign({ ok: false, error }, extra || {});
   const titleCase = s => String(s || '').toLowerCase().replace(/\b\w/g, c => c.toUpperCase());
   // Match WorldModel.setPropLabel's INBOX name key: the word the floor SHOWS (WM.lineNameKey — 'Line: X' and 'X' are both LINE X),
-  // and an unnamed INBOX's own LINE <letter> is taken too (WM.lineLetterOf). Allocate on the planning copy, before the
-  // approval summary is written, so applying the plan never changes an existing line's name.
+  // judged per LINE exactly as the floor's rename judges it (station.lineNameTaken: a line's shown name, an unnamed line's LINE
+  // <letter>, never a hidden second INBOX's letter - repair). Allocate on the planning copy, before the approval summary is written,
+  // so applying the plan never changes an existing line's name. `src` = the floor (a station; a page without lineNameTaken, or a
+  // bare props list, falls back to every INBOX's own word); `given` = names this same plan already gave out.
   const lineKeyOf = WM => (WM && typeof WM.lineNameKey === 'function') ? WM.lineNameKey
-    : (v => { const t = String(v == null ? '' : v).replace(/\s+/g, ' ').trim(); return t ? 'LINE ' + (t.replace(/^line[\s:·.\-–—]*/i, '').trim() || t).toUpperCase() : ''; });
-  function uniqueLineLabel(props, wanted, WM) {
-    const key = lineKeyOf(WM), letter = WM && typeof WM.lineLetterOf === 'function' ? WM.lineLetterOf : null;
-    const used = new Set((props || []).filter(p => p && p.t === 'intake').map(p => (typeof p.label === 'string' && p.label.trim()) ? key(p.label) : (letter && p.id != null ? 'LINE ' + letter(p.id) : '')).filter(Boolean));
-    const base = String(wanted || '').trim().slice(0, 48);
-    if (!used.has(key(base))) return base;
-    for (let n = 2; n <= used.size + 2; n++) {
-      const tail = ' ' + n, label = base.slice(0, 48 - tail.length).trimEnd() + tail;
-      if (!used.has(key(label))) return label;
+    : (v => { const t = String(v == null ? '' : v).replace(/\s+/g, ' ').trim(); return t ? 'LINE ' + (t.replace(/^line\b[\s:·.\-–—]*/i, '').trim() || t).toUpperCase() : ''; });
+  function uniqueLineLabel(src, wanted, WM, given) {
+    const key = lineKeyOf(WM), extra = new Set((given || []).map(key).filter(Boolean));
+    let taken;
+    if (src && typeof src.lineNameTaken === 'function') taken = v => extra.has(key(v)) || src.lineNameTaken(v);
+    else {
+      const props = Array.isArray(src) ? src : (src && typeof src.props === 'function' ? src.props() : []);
+      const letter = WM && typeof WM.lineLetterOf === 'function' ? WM.lineLetterOf : null;
+      const used = new Set(props.filter(p => p && p.t === 'intake').map(p => (typeof p.label === 'string' && p.label.trim()) ? key(p.label) : (letter && p.id != null ? 'LINE ' + letter(p.id) : '')).filter(Boolean));
+      taken = v => used.has(key(v)) || extra.has(key(v));
     }
-    return base; // the finite occupied-name set cannot exhaust the candidates above
+    const base = String(wanted || '').trim().slice(0, 48);
+    if (!taken(base)) return base;
+    for (let n = 2; n < 1000; n++) {
+      const tail = ' ' + n, label = base.slice(0, 48 - tail.length).trimEnd() + tail;
+      if (!taken(label)) return label;
+    }
+    return base; // (a floor holds far fewer lines than the candidates above)
   }
 
   /* a floor fingerprint over what an edit can change (never meta or derived links), in CANONICAL form: object keys
@@ -394,7 +403,7 @@
     }
     if (!bp) return refuse((req.line ? 'There is no line called "' + String(req.line).slice(0, 60) + '".' : 'Choose a line, or give its purpose in the Commander\'s words.') + ' The lines are: ' + lineList(WM) + '.', lines);
     const plain = bp.plain || bp.label;
-    const label = uniqueLineLabel(doc.props, (typeof req.name === 'string' ? req.name : '').replace(/\s+/g, ' ').trim().slice(0, 48) || plain.toUpperCase(), WM);
+    const label = uniqueLineLabel(WM.create(clone(doc)), (typeof req.name === 'string' ? req.name : '').replace(/\s+/g, ' ').trim().slice(0, 48) || plain.toUpperCase(), WM);
     const notes = [];
 
     // daily cap: undefined keeps the line's own, null/"none"/0 is no cap, a positive dollar amount caps it
@@ -598,7 +607,7 @@
     return out;
   }
   // a kit's own line, with the kit's written steps (its briefs, by role) and nobody assigned yet
-  function kitLine(env, kit, x0, y0, props) {
+  function kitLine(env, kit, x0, y0, floor) {
     if (!kit.line) return null;
     const bp = (env.WorldModel.BLUEPRINTS || []).find(b => b.id === kit.line.bp);
     if (!bp) return null;
@@ -608,7 +617,7 @@
       const st = env.WorkflowLine.starters ? env.WorkflowLine.starters(p.role) : [];
       steps.push({ propIndex: i, brief: (kit.line.briefs && kit.line.briefs[p.role]) || (st[0] && st[0].does) || '', agentId: '' });
     });
-    return { bpId: bp.id, ox: x0 + kit.line.x, oy: y0 + kit.line.y, opts: {}, label: uniqueLineLabel(props, kit.line.label || '', env.WorldModel), steps };
+    return { bpId: bp.id, ox: x0 + kit.line.x, oy: y0 + kit.line.y, opts: {}, label: uniqueLineLabel(floor, kit.line.label || '', env.WorldModel), steps };
   }
   // the tiles a room's doorways need clear: each door tile inside the room and the one tile past it
   function landingTiles(st, g, roomId) {
@@ -770,7 +779,7 @@
         const x0 = R.x1 + ((Wd - KIT_W) >> 1), y0 = R.y1 + ((Hd - KIT_H) >> 1);
         for (const mirror of mirrors) {
           const props = kitProps(env, kit, x0, y0, mirror); if (!props) return refuse('this page is missing the furniture for ' + kit.name);
-          const part = { room: null, roomId: target.id, props, line: kitLine(env, kit, x0, y0, live.props()), meta: { kit: kit.id, name: target.name, about: kit.about, existing: true } };
+          const part = { room: null, roomId: target.id, props, line: kitLine(env, kit, x0, y0, live), meta: { kit: kit.id, name: target.name, about: kit.about, existing: true } };
           if (tryKit(doc, { kind: 'rooms', parts: parts.concat([part]) }, env, before).ok) { found = part; break; }
         }
         if (!found) return refuse(kit.name + ' does not fit in ' + target.name + ': every piece needs clear floor, a way to walk up to it, and its doorways open. Use "new room".');
@@ -786,7 +795,7 @@
         outer: for (const cand of grid.concat(pl.ok ? pl.list : [])) for (const mirror of mirrors) {
           const rect = cand.rect, props = kitProps(env, kit, rect.x1, rect.y1, mirror); if (!props) return refuse('this page is missing the furniture for ' + kit.name);
           const part = { hall: cand.hall, room: { kind: kit.kind, name: roomName, floorStyle: style.floorStyle || kit.floorStyle, floorMat: style.floorMat || kit.floorMat, rect },
-            props, line: kitLine(env, kit, rect.x1, rect.y1, sofar.props()), meta: { kit: kit.id, name: roomName, about: kit.about, existing: false, placed: { side: cand.side, target: cand.target, len: cand.len } } };
+            props, line: kitLine(env, kit, rect.x1, rect.y1, sofar), meta: { kit: kit.id, name: roomName, about: kit.about, existing: false, placed: { side: cand.side, target: cand.target, len: cand.len } } };
           Object.assign(part, gridHallTrim(env.WorldModel, env, sofar, cand, kit.kind));
           if (tryKit(doc, { kind: 'rooms', parts: parts.concat([part]) }, env, before).ok) { found = part; break outer; }
         }
@@ -1075,8 +1084,9 @@
     const key = v => norm(String(v == null ? '' : v).replace(/&|\+/g, ' and ')).replace(/^the /, '').replace(/ (line|workflow|conveyor)$/, '');
     let room = null; if (roomRaw != null) { const t = roomNamed(live, roomRaw); if (!t.ok) return t; room = t.room; }
     const named = live.props().filter(p => p.t === 'intake' && (!room || live.roomAt(p.x, p.y) === room.id));
-    // every line by the name the floor shows it under — an unnamed one is LINE <its letter> on the plate, so it is here too (M25)
-    const all = [...new Set(named.map(p => p.label || lineWordFor(live, P, p)))];
+    // every line ONCE, by the name the floor shows it under — an unnamed one is LINE <its letter> on the plate, so it is here too
+    // (M25); a line with two INBOXes is one line, never 'Research, LINE RESEARCH' (repair)
+    const all = [...new Map(named.map(p => { const l = lineOfIntake(live, P, comps, p); return [l.key, l.label]; })).values()];
     // a line is found by ITS name: an unnamed line never answers to a name (an empty label is inside every string)
     if (!key(raw)) return refuse('Say which line: its name (or the id of any machine on it). Lines: ' + (all.length ? all.join(', ') : 'none') + '.');
     let hits = named.filter(p => key(p.label) && key(p.label) === key(raw));
@@ -1088,14 +1098,14 @@
     const words = v => ' ' + key(v) + ' ';
     if (!hits.length) hits = named.filter(p => key(p.label) && (words(p.label).indexOf(words(raw)) >= 0 || words(raw).indexOf(words(p.label)) >= 0));
     if (!hits.length) return refuse('There is no line called "' + String(raw).slice(0, 40) + '"' + (room ? ' in ' + room.name : '') + '. Lines: ' + (all.length ? all.join(', ') : 'none') + '.');
-    const lineKeyOfIntake = p => { const c = comps.find(k => (k.intakes || []).indexOf(p.id) >= 0); return c ? c.key : p.id; };
+    const lineKeyOfIntake = p => lineOfIntake(live, P, comps, p).key;
     hits = hits.filter((p, i) => hits.findIndex(q => lineKeyOfIntake(q) === lineKeyOfIntake(p)) === i);
     if (hits.length > 1) return refuse('More than one line is called ' + (hits[0].label || '"' + raw + '"') + ': say which room it is in (' + hits.map(p => (live.rooms().find(r => r.id === live.roomAt(p.x, p.y)) || {}).name).join(', ') + ').');
     const intake = hits[0], comp = comps.find(c => (c.intakes || []).indexOf(intake.id) >= 0);
     if (!comp) return refuse('the line ' + (intake.label || '') + ' could not be read');
     const tiles = Object.keys(comp.tiles || {}).map(k => { const [x, y] = k.split(',').map(Number); return [x + ox, y + oy]; });
     const inRoom = live.rooms().find(r => r.id === live.roomAt(intake.x, intake.y));
-    return { ok: true, intake, comp, tiles, room: inRoom, label: intake.label || lineWordFor(live, P, intake) };
+    return { ok: true, intake, comp, tiles, room: inRoom, label: lineOfIntake(live, P, comps, intake).label };
   }
   /* A LINE BY ITS NAME, OR BY ANY MACHINE ON IT (station.test_line, 2026-10-01): the compiled line id (the component key,
      which is the routing plan's lineId), its name and room, and its steps in order with who works each. */
@@ -1130,6 +1140,13 @@
     const ins = c ? (c.intakes || []).map(id => st.propById(id)).filter(Boolean) : [], named = ins.find(p => p.label);
     // the floor's own name for it (LINE RESEARCH, or LINE F for an unnamed line — the plate's word: final floor lane M25)
     return (named || ins[0]) ? lineWordFor(st, env.Pipeline, named || ins[0]) : 'a line';
+  }
+  /* a line ONCE, by one of its INBOXes: its key (the compiled lineId; an INBOX on no line keys itself) and its name in the lead's
+     words — its first named INBOX's own words, else the floor's LINE <letter> (lineWordFor) */
+  function lineOfIntake(st, P, comps, ip) {
+    const c = (comps || []).find(k => (k.intakes || []).indexOf(ip.id) >= 0);
+    const named = (c ? (c.intakes || []).map(id => st.propById(id)) : [ip]).find(q => q && typeof q.label === 'string' && q.label.trim());
+    return { key: c ? c.key : ip.id, label: named ? named.label : lineWordFor(st, P, ip) };
   }
   /* a line by one of its INBOXes, as the FLOOR names it (worldmodel.lineName: its first named INBOX, else LINE <its first INBOX's
      letter>) — the one name the plates, the SEND TO chips, the Workflows window and these cards share */
@@ -1487,6 +1504,7 @@
         const left = [];
         if (c.clip.crewLeft) left.push(c.clip.crewLeft + (c.clip.crewLeft === 1 ? ' step\'s agent (not on the crew)' : ' steps\' agents (not on the crew)'));
         if (c.clip.dropped) left.push('its SEND TO (the copy sends nowhere; set one with op send)');
+        if (c.clip.oldBelts) left.push(c.clip.oldBelts === 1 ? 'an old hand-off belt (a hand-off is a SEND TO: set one with op send)' : c.clip.oldBelts + ' old hand-off belts (a hand-off is a SEND TO: set one with op send)');
         if (srcIn.some(p => typeof p.projectRoot === 'string' && p.projectRoot.trim())) left.push('its project folder');
         return { ok: true, text: 'a copy of ' + word + ' at ' + at(q.x, q.y) + inRoom(q.x, q.y) + (laid ? ' (laid out to fit near there: ' + laid + ')' : '') + ': ' + made.length + ' pieces and ' + (r.links || []).length + ' belts, each step with its role, crew and instructions'
           + (inbox && inbox.label ? '; the copy is ' + lineWordOf(st, env, inbox.id) : '') + ', its own line with its own jobs and budget' + (left.length ? '; not copied: ' + left.join(', ') : '') + (o.as && inbox ? ' (' + o.as + ' names its INBOX)' : '') };
@@ -1529,7 +1547,7 @@
         return did(st[fn](t.p.id, res.id), 'the ' + nm(t.p.t) + ' at ' + at(t.p.x, t.p.y) + (res.id ? ' gives its room\'s agents ' + res.name + '\'s tools' : ' is unbound')); }
       case 'stamp': { const bp = resolveLine(WM, o.line); if (!bp) return refuse('there is no line called "' + String(o.line).slice(0, 40) + '" (lines: ' + lineList(WM) + ')'); const q = tileOf(o); if (!q) return refuse('stamp needs the line\'s top-left x and y'); const r = st.stampBlueprint(bp.id, q.x, q.y, {}); if (!r || !r.ok) return refuse(wmMsg(r)); if (o.as) names[o.as] = r.ids[0]; return { ok: true, text: 'the line ' + (bp.plain || bp.label) + ' laid at ' + at(q.x, q.y) + inRoom(q.x, q.y) }; }
       case 'edit': { const t = propRef(o.prop); if (!t.ok) return t; if (!env.LineEdit || !env.LineEdit.run) return refuse('line edits are not loaded on this page'); const args = Object.assign({}, o.args || {}); for (const k of ['from', 'to', 'after', 'around', 'id', 'split', 'head']) if (args[k] != null && names[args[k]]) args[k] = names[args[k]];
-        const r = env.LineEdit.run(st, t.p.id, String(o.edit || ''), args, { sizes: sizesOf(env), tidy: !!o.tidy }); if (!r || !r.ok) return refuse(wmMsg(r)); if (o.as && r.focus) names[o.as] = r.focus; return { ok: true, text: 'the line at ' + at(t.p.x, t.p.y) + ' edited: ' + o.edit + (args.role ? ' (' + titleCase(String(args.role)) + ')' : '') }; }
+        const r = env.LineEdit.run(st, t.p.id, String(o.edit || ''), args, { sizes: sizesOf(env), tidy: !!o.tidy, agent: true }); if (!r || !r.ok) return refuse(wmMsg(r)); if (o.as && r.focus) names[o.as] = r.focus; return { ok: true, text: 'the line at ' + at(t.p.x, t.p.y) + ' edited: ' + o.edit + (args.role ? ' (' + titleCase(String(args.role)) + ')' : '') }; }
       default: return refuse('there is no op "' + op.slice(0, 20) + '" (ops: ' + REFIT_OPS + ')');
     }
   }
@@ -1860,7 +1878,7 @@
   const plannedLabels = new WeakMap();   // a plan's `live` copy -> the INBOX names this plan already gave out
   function planLineLabel(live, WM, wanted) {
     const given = plannedLabels.get(live) || []; plannedLabels.set(live, given);
-    const label = uniqueLineLabel(live.props().concat(given.map(l => ({ t: 'intake', label: l }))), wanted, WM);
+    const label = uniqueLineLabel(live, wanted, WM, given);
     given.push(label); return label;
   }
   function zoneLine(live, env, z, notes) {
@@ -3725,7 +3743,8 @@
       const seen = new Set(), queue = halls.filter(h => touching(r, h));
       while (queue.length) { const h = queue.shift(); if (seen.has(h)) continue; seen.add(h); for (const n of halls) if (!seen.has(n) && touching(h, n)) queue.push(n); }
       for (const h of seen) for (const o of rooms) if (o !== r && touching(h, o)) joined.add(o.name + ' (through a hallway)');
-      const lineLabels = props.filter(p => p.t === 'intake').map(p => p.label || lineWordFor(st, env.Pipeline, p));
+      // each line once (a two-INBOX line is one line), by its own words or its plate's LINE <letter> (repair)
+      const lineLabels = [...new Map(props.filter(p => p.t === 'intake').map(p => { const l = lineOfIntake(st, env.Pipeline, comps, p); return [l.key, l.label]; })).values()];
       const tiles = r.rects.reduce((s, q) => s + (q.x2 - q.x1 + 1) * (q.y2 - q.y1 + 1), 0), usedTiles = props.filter(p => p.block !== false).reduce((s, p) => s + (p.w || 1) * (p.h || 1), 0);
       const fits = {};
       for (const side of ['north', 'south', 'east', 'west']) fits[side] = Object.keys(SIZES).filter(k => placementsOn(st, r, side, SIZES[k][0], SIZES[k][1], HALL_LEN, null, 'hab', hangsOf(env)).list.length);

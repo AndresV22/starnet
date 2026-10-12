@@ -369,7 +369,8 @@
         const fitted = fitLayout(shaped, Math.max(2000, max - 64), !!line);
         const lines = r.lines || [];
         const routing = r.routing && r.routing.state ? 'routing ' + r.routing.state : 'routing unknown';
-        const head = lines.length === 1 ? '"' + (lines[0].name || 'unnamed line') + '": ' + (lines[0].status || '?') : lines.length + ' line(s)';
+        // (an unnamed line by the word its plate shows — LINE F — the same word the result carries; repair: 'unnamed line')
+        const head = lines.length === 1 ? '"' + (lines[0].name || lines[0].word || 'unnamed line') + '": ' + (lines[0].status || '?') : lines.length + ' line(s)';
         return { content: JSON.stringify(fitted), summary: head + ' · ' + routing };
       }
     };

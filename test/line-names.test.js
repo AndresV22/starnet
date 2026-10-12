@@ -146,8 +146,9 @@ function twoUnnamed() {
   A.ok(/station\.lineName\(lineId\)/.test(lw) && /'UNNAMED LINE'/.test(lw) && !/lineLetter\(lineId\)/.test(lw) && !/ip\.label/.test(lw), 'LINE WATCH / crate cards: lwLineName is station.lineName (never lineLetter of the key prop, never its label: M17 / M23)');
   A.ok(/'SENDS TO ' \+ \(\(station && station\.lineName \? station\.lineName\(st\.toLine\)/.test(world), 'the OUTBOX SENDS TO plate names its target by lineName');
   A.ok(/const incomingNames = incoming\.map\(s => \{ const st = H\.station\(\); return \(st && st\.lineName \? st\.lineName\(s\.fromLine\) : null\) \|\| 'another line'; \}\);/.test(panel) && !/'LINE ' \+ s\.fromLine/.test(panel), 'the INBOX FED text names the sending line by lineName, never "LINE p3"');
-  A.ok(/function sendName\(intakeId\) \{\s*const ip = station\.propById\(intakeId\);\s*return ip \? lineWordOf\(ip\) : 'A REMOVED LINE';/.test(build) && /station\.lineName\(ip\.id\)/.test(fn(build, '  function lineWordOf(ip) {')), 'Build: the SEND TO name and an INBOX\'s machine name read lineName');
-  A.ok(!/'LINE ' \+ p\.id\)|'LINE ' \+ l\.id\)|'LINE ' \+ ps\[0\]\.id\)/.test(build), 'Build never shows a raw prop id as a line name');
+  A.ok(/function sendName\(intakeId\) \{\s*const ip = station\.propById\(intakeId\);\s*return ip \? lineWordOf\(ip\) : 'A REMOVED LINE';/.test(build) && /station\.lineName\(id\)/.test(fn(build, '  function lineWordOf(ip) {')), 'Build: the SEND TO name and an INBOX\'s machine name read lineName');
+  // (repair: lineWordOf takes the prop, its id or a preview entry's propId — `id` — so the lock reads lineName(id))
+  A.ok(!/'LINE ' \+ p\.id\)|'LINE ' \+ l\.id\)|'LINE ' \+ ps\[0\]\.id\)|'LINE '\s*\+\s*c\.key/.test(build), 'Build never shows a raw prop id or line key as a line name');
   A.ok(/st\.lineName\(ip\.id\)/.test(fn(sb, '  function lineWordFor(st, P, ip) {')) && !/'the unnamed line whose INBOX is at/.test(sb), 'the lead\'s cards: lineWordFor reads lineName, the doubled "(its INBOX at …)" is gone');
   A.ok(/const floorWord = id => \(typeof st\.lineName === 'function' \? st\.lineName\(id\) : null\);/.test(sc), 'station.layout names an unnamed line by lineName');
   // PRIVATE FILES (M19 / M29): no floor nag at rest — neither nag table carries it; the OUTBOX card says it, only where it is true
@@ -174,6 +175,93 @@ function twoUnnamed() {
   st.setSendTo(a.outbox, b.intake);
   const again = SB.planEdit(st.serialize(), { refit: [{ op: 'label', prop: b.intake, text: 'Next' }] }, env);
   A.ok(again.ok && !/no project folder/.test(again.plan.summary), 'an existing private hand-off is not re-announced by an unrelated edit');
+}
+
+/* ---------- H. REPAIR: no two lines ever SHOW the same name, and a name is judged per LINE ----------
+   (1) A line named 'F' — the letter the next INBOX gets — and then a new line left unnamed: both read LINE F, and the lead's
+   lineRef said 'More than one line is called F' even by room. The unnamed one is LINE F 2 (Pipeline.lineNames, the floor's and the
+   sidecar's one rule). (2) Clearing a name skipped the check. (3) A hidden second INBOX's letter refused a name no plate showed,
+   and the lead's lists named a two-INBOX line twice. */
+{
+  const E2 = Object.assign({}, env);
+  const st = WM.create(); const z = st.rooms()[0].rects[0];
+  A.ok(st.addRoom({ kind: 'hab', rect: { x1: z.x2 + 1, y1: z.y1, x2: z.x2 + 50, y2: z.y1 + 40 } }).ok, 'a hall for lines');
+  const mk = (s, i) => { const r = LE.run(s, null, 'newLine', { role: 'WRITER' }, { near: { x: z.x2 + 8, y: z.y1 + 4 + i * 12 } }); A.ok(r.ok, 'a new line ' + i); const c = P.lineComponents(s.projectGeometry()).find(k => k.props.includes(r.focus)); s.setPropLabel(c.intakes[0], ''); return c; };
+  const c1 = mk(st, 0);
+  const probe = WM.deserialize(JSON.parse(JSON.stringify(st.serialize()))), next = mk(probe, 1).intakes[0], L = WM.lineLetterOf(next);
+  A.ok(st.setPropLabel(c1.intakes[0], L).ok, 'line 1 is named "' + L + '" — the letter the next INBOX (' + next + ') will get');
+  const c2 = mk(st, 1);
+  A.eq(c2.intakes[0], next, 'rig: line 2\'s INBOX is ' + next + ' (letter ' + L + ')');
+  A.eq([st.lineName(c1.key), st.lineName(c2.key)], ['LINE ' + L, 'LINE ' + L + ' 2'], 'the unnamed line is LINE ' + L + ' 2, never a second LINE ' + L);
+  A.eq(st.lineName(c2.intakes[0]), 'LINE ' + L + ' 2', '…by its INBOX the same');
+  const pl = plan(st), side = P.lineNames(pl.lines);
+  for (const r of pl.lines) A.eq(side[r.lineId], st.lineName(r.lineId), 'the sidecar\'s words (Pipeline.lineNames over the compiled plan) = the floor\'s for ' + r.lineId);
+  const r1 = SB.lineRef(st.serialize(), E2, 'LINE ' + L), r2 = SB.lineRef(st.serialize(), E2, 'line ' + L.toLowerCase() + ' 2');
+  A.ok(r1.ok && r1.lineId === c1.key, 'the lead\'s "LINE ' + L + '" is the line named ' + L + ' — ' + JSON.stringify(r1).slice(0, 140));
+  A.ok(r2.ok && r2.lineId === c2.key && r2.name === 'LINE ' + L + ' 2', '…and "line ' + L.toLowerCase() + ' 2" is the unnamed one, called as its plate calls it — ' + JSON.stringify(r2).slice(0, 140));
+  const ch = st.sendToChoices(c1.outboxes[0]).map(c => c.name);
+  A.ok(ch.indexOf('LINE ' + L + ' 2') >= 0, 'the SEND TO chip says LINE ' + L + ' 2 — ' + JSON.stringify(ch));
+  A.eq(st.setPropLabel(c2.intakes[0], L + ' 2').ok, true, 'the unnamed line may take its own shown name');
+  A.ok(st.setPropLabel(c2.intakes[0], '').ok && st.setPropLabel(c1.intakes[0], '').ok, 'both names cleared');
+  A.eq([st.lineName(c1.key), st.lineName(c2.key)], ['LINE ' + WM.lineLetterOf(c1.intakes[0]), 'LINE ' + L], 'cleared, each line is its own letter again');
+}
+{
+  // (2) clearing a name: I1 'Research', I2 named I1's own letter (allowed: no plate shows it), then I1 cleared
+  const s5 = fresh(), I1 = add(s5, 'intake', 32, 4), B1 = add(s5, 'bay', 42, 4), O1 = add(s5, 'outbox', 56, 4), I2 = add(s5, 'intake', 32, 20), B2 = add(s5, 'bay', 42, 20), O2 = add(s5, 'outbox', 56, 20);
+  A.ok(s5.connectBelt(I1, B1).ok && s5.connectBelt(B1, O1).ok && s5.connectBelt(I2, B2).ok && s5.connectBelt(B2, O2).ok, 'two lines');
+  const l1 = s5.lineLetter(I1);
+  A.ok(s5.setPropLabel(I1, 'Research').ok && s5.setPropLabel(I2, l1).ok, 'I1 is Research, I2 takes I1\'s letter ' + l1);
+  A.ok(s5.setPropLabel(I1, '').ok, 'I1\'s name is cleared');
+  A.ok(s5.lineName(I1) !== s5.lineName(I2), 'the two lines never show the same name — ' + s5.lineName(I1) + ' / ' + s5.lineName(I2));
+  A.eq(s5.lineName(I1), 'LINE ' + l1 + ' 2', '…the cleared line steps past the named LINE ' + l1);
+}
+{
+  // (3) one line, two INBOXes, only the first named: the second's letter is no one's name, and the line is listed once
+  const s6 = fresh(), I1 = add(s6, 'intake', 32, 4), I2 = add(s6, 'intake', 32, 14), B = add(s6, 'bay', 44, 8), O = add(s6, 'outbox', 58, 8);
+  s6.assignPropAgent(B, 'agent');
+  A.ok(s6.connectBelt(I1, B).ok && s6.connectBelt(I2, B).ok && s6.connectBelt(B, O).ok && s6.setPropLabel(I1, 'Research').ok, 'Research, with a second unnamed INBOX');
+  const L2 = add(s6, 'intake', 32, 40), B2 = add(s6, 'bay', 44, 40), O2 = add(s6, 'outbox', 58, 40); s6.assignPropAgent(B2, 'agent');
+  A.ok(s6.connectBelt(L2, B2).ok && s6.connectBelt(B2, O2).ok, 'a second line');
+  const hidden = s6.lineLetter(I2);
+  A.eq(s6.lineName(I2), 'LINE RESEARCH', 'the second INBOX shows its line\'s name, never LINE ' + hidden);
+  A.ok(!s6.lineNameTaken(hidden), 'so "' + hidden + '" is no one\'s name');
+  const nm = s6.setPropLabel(L2, hidden);
+  A.ok(nm.ok, 'the other line may be called "' + hidden + '" (it was refused: "Another line is already called LINE ' + hidden + '") — ' + (nm.msg || ''));
+  A.ok(s6.setPropLabel(L2, '').ok, '(cleared again)');
+  const miss = SB.lineRef(s6.serialize(), env, 'Newsletter');
+  A.ok(!miss.ok && /Lines: Research, LINE [A-Z]+\.$/.test(miss.error) && !/LINE RESEARCH/.test(miss.error), 'the lead\'s list names the two-INBOX line once — ' + miss.error);
+  const m = SB.mapOf(s6.serialize(), env), room = m.ok && m.map.rooms.find(r => (r.lines || []).indexOf('Research') >= 0);
+  A.ok(room && room.lines.filter(x => /RESEARCH/i.test(x)).length === 1, 'station.map lists it once in its room — ' + JSON.stringify(room && room.lines));
+}
+{
+  // (4) the placement ghost: connectionPreview entries carry propId, not id — "WILL CONNECT TO LINE null" (M17's symptom)
+  const build = src('build.js'), grab = head => { const i = build.indexOf(head); return build.slice(i, build.indexOf('\n  }', i) + 4); };
+  const s7 = fresh(), I = add(s7, 'intake', 32, 4);
+  A.ok(s7.placeBeltRun({ tx: 34, ty: 4 }, { tx: 40, ty: 4 }).ok, 'a loose belt out of an unnamed INBOX');
+  const links = s7.connectionPreview({ props: [{ t: 'bay', x: 41, y: 4, w: 2, h: 2 }] });
+  A.ok(links.length === 1 && links[0].propId === I && links[0].id === undefined, 'rig: the preview names the INBOX by propId');
+  const ctx = vm.createContext({ station: s7, Pipeline: P, agentLabelFor: a => a, propLabel: t => t });
+  vm.runInContext(grab('  function lineWordOf(ip) {') + '\n' + grab('  function linkNames(links) {'), ctx);
+  A.eq(ctx.linkNames(links), s7.lineName(I), 'the ghost says WILL CONNECT TO ' + s7.lineName(I) + ' — never LINE null');
+  A.eq(ctx.lineWordOf(I), s7.lineName(I), '…lineWordOf takes a bare INBOX id too');
+  // FIRST SHIP: the toast names the line by lineName (its first NAMED INBOX), never the first INBOX in geo order or a raw key
+  const s8 = fresh(), J1 = add(s8, 'intake', 32, 4), J2 = add(s8, 'intake', 32, 14), JB = add(s8, 'bay', 44, 8), JO = add(s8, 'outbox', 58, 8);
+  A.ok(s8.connectBelt(J1, JB).ok && s8.connectBelt(J2, JB).ok && s8.connectBelt(JB, JO).ok && s8.setPropLabel(J2, 'Second door').ok, 'a line whose SECOND INBOX is named');
+  const fin = {}, nctx = vm.createContext({ station: null, opts: { getStation: () => s8 }, Pipeline: P, finRead: () => fin, finMark: (st, k) => { fin[k] = { done: true }; }, running: false, renderFinCard() {} });
+  vm.runInContext(grab('  function noteLineDelivered(wtx, wty) {'), nctx);
+  const geo = s8.projectGeometry(), c = P.lineComponents(geo)[0], tk = Object.keys(c.tiles)[0].split(',').map(Number);
+  const rec = nctx.noteLineDelivered(tk[0] + geo.origin.tx, tk[1] + geo.origin.ty);
+  A.ok(rec && rec.first && rec.name === 'LINE SECOND DOOR', 'FIRST SHIP · LINE SECOND DOOR (it said LINE <the first INBOX\'s letter>) — ' + JSON.stringify(rec && rec.name));
+  A.ok(!/'LINE '\s*\+\s*c\.key/.test(grab('  function noteLineDelivered(wtx, wty) {')), '…and never a raw line key');
+}
+{
+  // (5) a job's FROM / SENT ON TO end ({ line, jobId, name } — no lineId) is named by the floor: Workflows window, DELIVERABLES, the crate
+  const wfw = fs.readFileSync(path.join(__dirname, '..', 'frontend', 'app', 'windows', 'workflows.js'), 'utf8');
+  const ob = fs.readFileSync(path.join(__dirname, '..', 'frontend', 'app', 'windows', 'outbox.js'), 'utf8');
+  const hr = fs.readFileSync(path.join(__dirname, '..', 'sidecar', 'routing', 'handoff-runner.js'), 'utf8');
+  A.ok(/const lineWord = e => \{ const st = stationOf\(\), w = e && e\.line != null && st && st\.lineName \? st\.lineName\(e\.line\) : null; return w \|\| P\(\)\.lineWord\(e && e\.name, 'another line'\); \};/.test(wfw) && !/e\.lineId/.test(wfw), 'Workflows window: a job end by st.lineName(e.line) (e.lineId never existed)');
+  A.ok(/const w = e && e\.line != null && st && typeof st\.lineName === 'function' \? st\.lineName\(e\.line\) : null;/.test(ob) && /word = e => lineOfEnd\(e\)/.test(ob) && !/e\.lineId/.test(ob), 'DELIVERABLES: FROM / SENT ON TO by the floor\'s line name');
+  A.ok(/preview: \('FROM ' \+ \(floorWord\(plan, item\.fromLine\) \|\| Pipeline\.lineWord\(item\.fromName, 'ANOTHER LINE'\)\)\)/.test(hr) && /P?ipeline\.lineNames\(/.test(hr), 'the hand-off crate says FROM <the floor\'s word> (Pipeline.lineNames over the plan)');
 }
 
 /* ---------- E. the Workflows window names a new line by the floor's own key, and says the name it STORED (M18) ---------- */

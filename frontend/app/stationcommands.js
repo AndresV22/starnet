@@ -363,8 +363,11 @@ const StationCommands = (() => {
     const lower = want.toLowerCase();
     const byId = lines.filter(l => l.lineId === want);
     // …or by the word the floor shows it under (LINE F for an unnamed line, LINE RESEARCH for 'Research' — final floor lane M25)
+    // An exact NAME speaks before a shown word (repair: a line named 'F' and an unnamed line both matched "F", one by name and one
+    // by word; the floor now shows the unnamed one as LINE F 2, and its own name is asked first all the same).
     const shown = typeof Pipeline !== 'undefined' && Pipeline.lineWord ? Pipeline.lineWord(want) : null;
-    const byName = lines.filter(l => (l.name && l.name.toLowerCase() === lower) || (shown && l.word && l.word === shown));
+    const byLabel = lines.filter(l => l.name && l.name.toLowerCase() === lower);
+    const byName = byLabel.length ? byLabel : lines.filter(l => shown && l.word && l.word === shown);
     const byPart = lines.filter(l => l.name && l.name.toLowerCase().indexOf(lower) >= 0);
     const hits = byId.length ? byId : (byName.length ? byName : byPart);
     if (hits.length === 1) return hits[0];
@@ -434,7 +437,7 @@ const StationCommands = (() => {
        plates and the SEND TO chips say), with its lineId when unnamed so station.layout line= can still take it (final floor lane
        M25 / R62: 'an unnamed line' named no line the Commander could see) */
     const floorWord = id => (typeof st.lineName === 'function' ? st.lineName(id) : null);
-    const lineName = id => { const cc = comps.find(x => x.key === id), l = cc ? (cc.intakes.map(i => propOf(i)).find(p => p && p.label) || {}).label : null; if (l) return P.lineWord ? P.lineWord(l) : 'LINE ' + String(l).replace(/^line[\s:·-]*/i, '').toUpperCase(); const w = floorWord(id); return (w || 'an unnamed line') + ' (lineId ' + id + ')'; };
+    const lineName = id => { const cc = comps.find(x => x.key === id), l = cc ? (cc.intakes.map(i => propOf(i)).find(p => p && p.label) || {}).label : null; if (l) return P.lineWord ? P.lineWord(l) : 'LINE ' + String(l).replace(/^line\b[\s:·-]*/i, '').toUpperCase(); const w = floorWord(id); return (w || 'an unnamed line') + ' (lineId ' + id + ')'; };
     // the SEND TOs a step's own lane can ship into (a line with two OUTBOXes hands on only from the one that sends — 10-11 repair)
     const sendsOf = (lineId, pid) => (P.sendsReachedOf ? P.sendsReachedOf(plan, lineId, pid) : []);
     const reachedOf = pid => (P.outboxesReached ? P.outboxesReached(plan, pid) : []);

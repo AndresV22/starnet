@@ -2300,6 +2300,35 @@
     const bare = raw.replace(/^line\b[\s:·.\-–—]*/i, '').trim() || raw;
     return 'LINE ' + bare.toUpperCase();
   }
+  /* lineLetterOf(intakeId) -> 'N' — an unnamed line's LETTER, from its INBOX's persistent id (p14 -> N), never its index among
+     surviving lines (worldmodel.lineLetter is this, for an INBOX). Pure. */
+  function lineLetterOf(id) {
+    const digits = /^p([1-9][0-9]*)$/.exec(String(id));
+    let n = digits ? Number(digits[1]) : 0;
+    if (!Number.isSafeInteger(n) || n <= 0) { n = 0; for (const c of String(id)) n = (Math.imul(n, 31) + c.charCodeAt(0)) >>> 0; n++; }
+    let name = ''; do { n--; name = String.fromCharCode(65 + n % 26) + name; n = Math.floor(n / 26); } while (n > 0);
+    return name;
+  }
+  /* lineNames(lines) -> { [lineId]: 'LINE …' } — THE LINE NAME every surface shows (final floor lane, 2026-10-12 repair), from
+     line records { lineId, intakes, name } (the compiled plan's own lines, or worldmodel's components): a line is called by its
+     first NAMED INBOX (lineWord of `name`), else LINE <the letter of its first INBOX> — and no two lines share a name: an unnamed
+     line whose LINE <letter> a named line already shows (a line called 'F', then a new INBOX p6 = F) is LINE F 2, the next free
+     number, never a second LINE F that neither the Commander nor the lead can tell apart. A line with no INBOX has no name here.
+     Pure — the floor (worldmodel.lineName) and the sidecar (the hand-off runner's words) name a line by this one rule. */
+  function lineNames(lines) {
+    const out = {}, taken = new Set(), unnamed = [];
+    for (const l of lines || []) {
+      if (!l || l.lineId == null || !Array.isArray(l.intakes) || !l.intakes.length) continue;
+      const nm = typeof l.name === 'string' ? l.name.trim() : '';
+      if (nm) { const w = lineWord(nm); out[l.lineId] = w; taken.add(w); } else unnamed.push(l);
+    }
+    for (const l of unnamed) {
+      const base = 'LINE ' + lineLetterOf(l.intakes[0]);
+      let w = base; for (let n = 2; taken.has(w); n++) w = base + ' ' + n;
+      out[l.lineId] = w; taken.add(w);
+    }
+    return out;
+  }
   function handoffInput(o) {
     const x = o || {};
     const nm = String(x.fromName == null ? '' : x.fromName).replace(/\s+/g, ' ').trim().slice(0, 48);
@@ -2324,7 +2353,7 @@
     return { fromName: m[1] || '', original: orig ? orig[1] : '', output: out ? out[1] : '' };
   }
 
-  return { stepTestRefusal, lineStages, fedLineIds, sendToFileAdvice, rejoinOf, deriveLinks, reconcileLinks, compileRoutingPlan, sendToOf, sendsReachedOf, outboxesReached, lineWord, handoffInput, parseHandoffInput, composeStageBrief, HANDS_LEAD, resolveTarget, lineOf, lineOriginOf, lineLimitsOf, normalizeLineLimits, LINE_LIMIT_DEFAULTS, LINE_LIMIT_CEILINGS, sourceFor, ok, liveTiles, routeFrom, junctionLaneOwners, chainNext, chainStep, fanSiblings, handoffPrompt, parseHandoff, isHandoff, stripVerdictLine, joinPayload, divideJob, partTurn, partHandoff, divideBrief, divideAfterDock, splitFedByDock, lineComponents, LOOP_MAX_DEFAULT, LOOP_MAX_CEILING,
+  return { stepTestRefusal, lineStages, fedLineIds, sendToFileAdvice, rejoinOf, deriveLinks, reconcileLinks, compileRoutingPlan, sendToOf, sendsReachedOf, outboxesReached, lineWord, lineLetterOf, lineNames, handoffInput, parseHandoffInput, composeStageBrief, HANDS_LEAD, resolveTarget, lineOf, lineOriginOf, lineLimitsOf, normalizeLineLimits, LINE_LIMIT_DEFAULTS, LINE_LIMIT_CEILINGS, sourceFor, ok, liveTiles, routeFrom, junctionLaneOwners, chainNext, chainStep, fanSiblings, handoffPrompt, parseHandoff, isHandoff, stripVerdictLine, joinPayload, divideJob, partTurn, partHandoff, divideBrief, divideAfterDock, splitFedByDock, lineComponents, LOOP_MAX_DEFAULT, LOOP_MAX_CEILING,
     // THE DOCK LAYER (multi-bay agents, 2026-09-22) — the dock-keyed truth the agent readings above are views of
     resolveDock, chainNextDock, chainStepDock, fanSiblingsDock, junctionLaneDocks, lineOfDock, lineOriginOfDock, entryDockOf, docksOf, dockOf, agentOfDock: agentOfDockIn, deriveDockLayer, dockLayer, hasDockLayer, stepToAgents, propIdCmp,
     _internals: { DIRV, OPP, LANE_ORDER, key, buildBeltMap, outLanes, inLanes, loopLanes, beltTileNear, ringBelts, junctionAnchor, dirBetween, linkTilesByProp, linkedBeltMap, nextTiles, splitLanes, detectCycle, hashStr, compileChains, compileDockChains, chainCycle, shipFrom, propIdCmp, entryDocksOf, agentChainsView } };

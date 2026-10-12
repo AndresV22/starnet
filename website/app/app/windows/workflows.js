@@ -85,7 +85,7 @@ const WorkflowsWindow = (() => {
       lines.push({ key: c.key, name: named ? named.label.trim() : ((st.lineName && st.lineName(c.key)) || (st.lineLetter ? 'LINE ' + st.lineLetter(intake.id) : 'LINE ' + c.key)), intakeId: c.intakes[0], flow, ready, steps,
         loops: (flow.gates || []).some(g => g.kind === 'loop'), outbox: flow.outbox && flow.outbox.propId, outboxes: (c.outboxes || []).slice(), sends: Object.values(plan.sendTo || {}).filter(s => s.fromLine === c.key) });
     });
-    for (const l of lines) { l.sendNames = [...new Set(l.sends.map(s => { const to = lines.find(x => x.key === s.toLine); return Pp.lineWord(to && to.name, 'LINE ' + s.toLine); }))]; l.sendsAll = l.outboxes.length > 0 && l.outboxes.length <= l.sends.length; }
+    for (const l of lines) { l.sendNames = [...new Set(l.sends.map(s => { const to = lines.find(x => x.key === s.toLine); return Pp.lineWord(to && to.name, (st.lineName && st.lineName(s.toLine)) || 'ANOTHER LINE'); }))]; l.sendsAll = l.outboxes.length > 0 && l.outboxes.length <= l.sends.length; }
     return { st, lines };
   }
   const lineOf = (f, key) => (f && f.lines.find(l => l.key === key)) || null;
@@ -112,8 +112,10 @@ const WorkflowsWindow = (() => {
      ON (SEND TO, `from`) is not it: it holds no sample lock, the sample STOP cannot stop it, and it never blocks sending (10-11) */
   const runningJob = () => (S.jobs || []).find(j => j.status === 'running' && !j.from) || null;
   const runningHandoff = key => (S.jobs || []).find(j => j.status === 'running' && j.from && (key == null || j.line === key)) || null;
-  // the words a SEND TO end is said in
-  const lineWord = e => P().lineWord(e && e.name, e && e.lineId ? 'LINE ' + e.lineId : 'another line');
+  /* the words a SEND TO end is said in: the floor's own name for that line (worldmodel.lineName — the plates and this window's
+     list say LINE N for an unnamed line), else the name the job recorded. A job end is { line, jobId, name } (linejobs normEnd):
+     it never carried a lineId, so every unnamed line read 'another line' here while its plate said LINE N (repair). */
+  const lineWord = e => { const st = stationOf(), w = e && e.line != null && st && st.lineName ? st.lineName(e.line) : null; return w || P().lineWord(e && e.name, 'another line'); };
   function loadJob(id) {
     return getJSON('/api/line-jobs/' + encodeURIComponent(id)).then(({ status, j }) => (status === 200 && j && j.ok && j.job) ? j.job : null, () => null);
   }

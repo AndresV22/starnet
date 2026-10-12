@@ -476,6 +476,9 @@ const detail = async (o, line) => (await layout(o, { line: line || 'draft & revi
     A.ok(target && target.name === null && target.word === shown, 'each line carries the floor word for it (name stays the INBOX label, null here)');
     const picked = (await layout({ app: app(s, []) }, { line: shown.toLowerCase() })).r;
     A.ok(picked && picked.line && picked.line.lineId === ids[1].key, 'station.layout line="' + shown.toLowerCase() + '" resolves the unnamed line the floor calls ' + shown + ' — ' + JSON.stringify(picked && picked.line && picked.line.lineId));
+    // the tool's own summary line names it the same way (repair: its head said '"unnamed line": …' while its word said LINE F)
+    const said = (await layout({ app: app(s, []) }, { line: shown.toLowerCase() })).out.summary;
+    A.ok(said.indexOf('"' + shown + '": ') === 0, 'the one-line summary names the unnamed line ' + shown + ' — ' + said);
   }
 
   A.report('station-layout');

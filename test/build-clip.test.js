@@ -268,6 +268,61 @@ const lineOfIntake = (s, id) => plan(s).lines.find(l => l.intakes.includes(id));
   A.ok(pp.sendTo && pp.sendTo[newO] && pp.sendTo[newO].intakeId === newI, '…joined by a compiled SEND TO');
   A.ok(s.undo().ok && JSON.stringify(s.serialize()) === before, 'one undo; the original floor (old belt and all) is untouched');
 }
+/* ---------- E5. REPAIR (M30 follow-up): an old hand-off belt that runs THROUGH A JUNCTION is never pasted back either ----------
+   OUTBOX → MERGER → INBOX on an old save: the copy kept OUTBOX>MERGER and MERGER>INBOX (only a direct OUTBOX → INBOX belt was
+   caught) and the paste fused the two copied lines into ONE. Every link the clip carries is judged by the floor's own end rule
+   (no belt out of an OUTBOX, none into an INBOX); the junction left with no way through stays behind; the hand-off travels as
+   that OUTBOX's SEND TO. Old belts that reach two INBOXes cannot be one SEND TO: they are left out, and counted. */
+{
+  const big = () => { const s = WM.create(); s.projectGeometry(); s.addRoom({ kind: 'hab', rect: { x1: 30, y1: 0, x2: 140, y2: 80 } }); return s; };
+  const add2 = (s, t, x, y) => s.addProp({ t, x, y, w: 2, h: 2, block: true }).id;
+  function oldSave(targets) {
+    const s0 = big();
+    const A0 = [add2(s0, 'intake', 32, 4), add2(s0, 'bay', 42, 4), add2(s0, 'bay', 56, 4)];
+    const Bs = targets.map((_, k) => [add2(s0, 'bay', 32, 24 + k * 14), add2(s0, 'bay', 42, 24 + k * 14), add2(s0, 'outbox', 56, 24 + k * 14)]);
+    for (const L of [A0].concat(Bs)) for (let i = 1; i < 3; i++) A.ok(s0.connectBelt(L[i - 1], L[i]).ok, 'old-save fixture: a belt');
+    for (const B of Bs) A.ok(s0.connectBelt(A0[2], B[0]).ok, 'old-save fixture: the pre-SEND TO belt');
+    const l = s0.links().find(q => q.from.prop === A0[2] && q.to.prop === Bs[0][0]), t = l.path[Math.floor(l.path.length / 2)];
+    const j = s0.junctionOnBelt(t.x, t.y, targets.length > 1 ? 'splitter' : 'merger', {});
+    A.ok(j.ok, 'old-save fixture: a ' + (targets.length > 1 ? 'SPLITTER' : 'MERGER') + ' stands on the old belt — ' + (j.error || ''));
+    const d = JSON.parse(JSON.stringify(s0.serialize()));
+    for (const p of d.props) { if (p.id === A0[2]) p.t = 'outbox'; if (Bs.some(B => B[0] === p.id)) p.t = 'intake'; }
+    const s = WM.deserialize(d); for (const p of s.props()) if (p.t === 'bay') s.assignPropAgent(p.id, 'ag_' + p.id);
+    return { s, O: A0[2], I0: A0[0], Is: Bs.map(B => B[0]), J: j.id };
+  }
+  const ty = (s, id) => (s.propById(id) || {}).t;
+  {
+    const { s, O, I0, Is, J } = oldSave([0]);
+    A.ok(s.links().some(q => q.from.prop === O && q.to.prop === J) && s.links().some(q => q.from.prop === J && q.to.prop === Is[0]), 'the old save: OUTBOX → MERGER → INBOX');
+    const before = JSON.stringify(s.serialize());
+    const c = s.copyLines(s.props().filter(p => /intake|bay|outbox|merger/.test(p.t)).map(p => p.id));
+    A.ok(c.ok, 'it copies');
+    const node = oid => c.clip.nodes.find(n => n.oid === oid);
+    A.ok(!c.clip.links.some(l => (node(l.from.node) || {}).t === 'outbox' || (node(l.to.node) || {}).t === 'intake'), 'the clip carries no belt out of an OUTBOX and none into an INBOX');
+    A.ok(!node(J), '…the MERGER left with no way through stays behind');
+    A.eq((node(O) || {}).sendTo, Is[0], '…and the hand-off travels as that OUTBOX\'s SEND TO');
+    A.eq(c.clip.oldBelts, 0, '(nothing left out: the old belt reached exactly one INBOX)');
+    let r = null; for (let y = 50; y <= 66 && !r; y += 2) for (let x = 32; x <= 70 && !r; x += 2) if (s.checkPaste(c.clip, x, y).ok) { const q = s.pasteLines(c.clip, x, y); if (q.ok) r = q; }
+    A.ok(!!r, 'the copy pastes');
+    const mine = new Set(r.ids);
+    A.ok(!s.links().some(q => (mine.has(q.from.prop) && ty(s, q.from.prop) === 'outbox') || (mine.has(q.to.prop) && ty(s, q.to.prop) === 'intake')), 'no pasted belt leaves an OUTBOX or enters an INBOX');
+    const nO = r.map[O], nI = r.map[Is[0]], nFirst = r.map[I0], pl = plan(s);
+    A.ok(pl.lineOfProp[nFirst] && pl.lineOfProp[nI] && pl.lineOfProp[nFirst] !== pl.lineOfProp[nI], 'the two pasted lines are two lines (were fused: one lineId)');
+    A.ok(s.propById(nO).sendTo === nI && pl.sendTo && pl.sendTo[nO] && pl.sendTo[nO].intakeId === nI, '…joined by a compiled SEND TO');
+    A.ok(s.undo().ok && JSON.stringify(s.serialize()) === before, 'one undo; the original floor (old belt, merger and all) is untouched');
+  }
+  {
+    const { s, O, Is, J } = oldSave([0, 1]);
+    const c = s.copyLines(s.props().filter(p => /intake|bay|outbox|splitter/.test(p.t)).map(p => p.id));
+    const node = oid => c.clip.nodes.find(n => n.oid === oid);
+    A.ok(c.ok && !node(J) && !(node(O) || {}).sendTo, 'old belts from one OUTBOX that reach two INBOXes (one through a SPLITTER) cannot be one SEND TO: the copy sends nowhere, the SPLITTER stays behind');
+    A.eq(c.clip.oldBelts, 1, '…and the clip counts the old hand-off it left out (said on the COPY toast and the lead\'s card)');
+    A.ok(!c.clip.links.some(l => (node(l.from.node) || {}).t === 'outbox' || (node(l.to.node) || {}).t === 'intake'), '…and carries none of it as a belt');
+    const build = fs.readFileSync(path.join(__dirname, '..', 'frontend', 'app', 'build.js'), 'utf8'), sb = fs.readFileSync(path.join(__dirname, '..', 'frontend', 'app', 'stationbuilder.js'), 'utf8');
+    A.ok(/if \(c\.oldBelts\) notes\.push\(/.test(build) && /if \(c\.clip\.oldBelts\) left\.push\(/.test(sb), 'the COPY toast and the lead\'s copy card say it');
+    void Is;
+  }
+}
 /* ---------- E4. final floor lane M32 / R30: one line-name key — a paste never makes two lines that SHOW the same name ----------
    setPropLabel refused 'Alpha 2' next to 'Line Alpha 2' (both show LINE ALPHA 2), but the paste numbered by raw labels and made
    exactly that pair. Every naming path now compares what the floor SHOWS (Pipeline.lineWord). */

@@ -3099,10 +3099,15 @@ const Build = (() => {
   }
   // a line's saved display name: the intake's `label` (line naming rides the INTAKE prop), or null
   /* a line as every surface names it, by one of its INBOXes (worldmodel.lineName — its first named INBOX, else LINE <its first
-     INBOX's letter>: final floor lane, one name everywhere). An INBOX on no line yet keeps its own label / letter. */
+     INBOX's letter>: final floor lane, one name everywhere). An INBOX on no line yet keeps its own label / letter. Takes the INBOX
+     prop, its id, or a connectionPreview / ring-rule entry ({ propId, label } — repair: the placement ghost read entry.id, which
+     those entries do not carry, and said "WILL CONNECT TO LINE null"). */
   function lineWordOf(ip) {
-    const nm = ip && station && station.lineName ? station.lineName(ip.id) : null;
-    return nm || Pipeline.lineWord(ip && ip.label, ip && station && station.lineLetter ? 'LINE ' + station.lineLetter(ip.id) : 'THIS LINE');
+    const id = ip == null ? null : typeof ip === 'object' ? (ip.id != null ? ip.id : ip.propId) : ip;
+    const nm = id != null && station && station.lineName ? station.lineName(id) : null;
+    if (nm) return nm;
+    const lt = id != null && station && station.lineLetter ? station.lineLetter(id) : null;
+    return Pipeline.lineWord(ip && typeof ip === 'object' ? ip.label : null, lt ? 'LINE ' + lt : 'THIS LINE');
   }
   function lineNameOf(c) {
     if (!c) return null;
@@ -4551,8 +4556,9 @@ const Build = (() => {
       const first=!(reg[c.key] && reg[c.key].done);
       if (first) finMark(st, c.key, 'done');
       if (running) renderFinCard();
-      const ip=(geo.props||[]).find(p=>c.intakes.includes(p.id));
-      return first ? {first:true,name:Pipeline.lineWord(ip&&ip.label,ip&&st.lineLetter?'LINE '+st.lineLetter(ip.id):'LINE '+c.key),tiles:c.tiles} : null;
+      // (the one line name — worldmodel.lineName: its first NAMED INBOX, else its letter; repair: the first INBOX in geo order
+      // toasted 'FIRST SHIP · LINE C' for LINE SECOND DOOR, and an INBOX-less line its raw key 'LINE p19')
+      return first ? {first:true,name:(st.lineName&&st.lineName(c.key))||'THIS LINE',tiles:c.tiles} : null;
     }
   }
 
@@ -4594,7 +4600,7 @@ const Build = (() => {
   function doDeleteRoom(roomId, ev) {
     const rm = station.roomById(roomId);
     const on = rm ? station.props().filter(p => rm.rects.some(r => p.x <= r.x2 && p.x + (p.w || 1) - 1 >= r.x1 && p.y <= r.y2 && p.y + (p.h || 1) - 1 >= r.y1)).map(p => Object.assign({}, p)) : [];
-    if(warnSendCuts(on.map(p=>p.id),ev)) return false;   // (the room stays selected: "repeat DELETE" means the very next Delete)
+    if(warnSendCuts(on.map(p=>p.id),ev,roomId)) return false;   // (the room stays selected: "repeat DELETE" means the very next Delete)
     const res = keepsHalls(() => station.removeRoom(roomId));
     if (res && res.ok) { if (rm) pushFlash(rm.rects, true); on.forEach(p => vanishProp(p)); flashUndo(); flashTip(ev, 'deleted — UNDO to restore', true); sfx('click'); }
     else if (res && res.error === 'SPAWN_ROOM') { flashTip(ev, 'spawn room — can’t delete (select it and drag it to move it)'); sfx('bad'); }
@@ -5205,13 +5211,17 @@ const Build = (() => {
     }
     return null;
   }
+  /* the SEND TO cut warning's arm: { key, t, room } — `room` = the room a room delete warned for (doDeleteRoom), so only THAT
+     room's repeat DELETE gets the warning's 6 s window (repair: an old, unconfirmed warning stretched every later room's 2.5 s
+     confirm to 6 s); a new selection lets it go (selectRoom) */
   let sendCutArm = null;
-  function warnSendCuts(ids, ev) {
+  const cutArmFor = roomId => !!(sendCutArm && roomId != null && sendCutArm.room === roomId && performance.now() - sendCutArm.t < 6000);
+  function warnSendCuts(ids, ev, roomId) {
     const gone = new Set(ids), cuts = station.props().filter(p => p.t==='outbox' && p.sendTo && gone.has(p.sendTo) && !gone.has(p.id));
     if (!cuts.length) { sendCutArm=null; return false; }
     const key = ids.slice().sort().join(',')+'|'+cuts.map(p=>p.id+':'+p.sendTo).sort().join(',');
     if (sendCutArm && sendCutArm.key===key && performance.now()-sendCutArm.t<6000) { sendCutArm=null; return false; }
-    sendCutArm={key,t:performance.now()};
+    sendCutArm={key,t:performance.now(),room:roomId==null?null:roomId};
     const names=cuts.map(p=>(station.lineNameAt&&station.lineNameAt(p.id))||'A LINE');   // (the one line name: worldmodel.lineName)
     sfx('tick'); flashTip(ev,'THIS CUTS '+cuts.length+' SEND TO'+(cuts.length===1?'':'S')+' FROM '+Array.from(new Set(names)).join(', ')+' — repeat DELETE / REMOVE to continue · Undo restores them',false); return true;
   }
@@ -5546,6 +5556,7 @@ const Build = (() => {
     const held = { type: 'lines', clip: c, rot: 0, cid: ++clipSeq, label: line ? line.name : clipWord(c) };
     const notes = [];
     if (c.dropped) notes.push(c.dropped + ' SEND TO LEFT OUT (IT POINTS OUTSIDE THE COPY)');
+    if (c.oldBelts) notes.push(c.oldBelts + ' OLD HAND-OFF BELT' + (c.oldBelts === 1 ? '' : 'S') + ' LEFT OUT (A HAND-OFF IS SEND TO)');
     if (c.crewLeft) notes.push(c.crewLeft + ' CREW LEFT OUT (NOT ON THIS STATION)');
     const lost = cut ? cutLeavesBehind(ps) : [];
     const whole = cut ? lineSelectionOf(ps) : null;
@@ -5646,7 +5657,7 @@ const Build = (() => {
      one undo), CLEAR (its furniture goes; lines and desks stay) and DELETE (the spawn room is protected). */
   function selectRoom(rid) {
     const rm = rid ? station.roomById(rid) : null;
-    selectedPropId = null; groupIds = []; selBelts = null; positionOpen = false; furnishOpen = false; roomDelArmedAt = 0; roomAsk = null;
+    selectedPropId = null; groupIds = []; selBelts = null; positionOpen = false; furnishOpen = false; roomDelArmedAt = 0; roomAsk = null; sendCutArm = null;
     selectedRoomId = rm ? rm.id : null;
     renderSelection();
     if (rm) { setHint('Selected ' + (rm.name || 'the room') + ' · drag inside it to move it · drag a gold handle to resize it · arrows nudge it · Del deletes'); sfx('click'); }
@@ -5721,12 +5732,13 @@ const Build = (() => {
     const rm = station.roomById(selectedRoomId); if (!rm) return;
     if (rm.id === station.spawnRoomId()) { sfx('bad'); flashTip(ev, 'the spawn room can’t be deleted — drag it to move it instead'); return; }
     const now = performance.now();
-    // (after a SEND TO cut warning the repeat confirms anywhere in its own 6 s window — reading it took longer than the 2.5 s arm, live 10-12)
-    if (!roomDelArmedAt || now - roomDelArmedAt > (sendCutArm ? 6000 : 2500)) { roomDelArmedAt = now; sfx('tick'); flashTip(ev, 'press Delete again to delete ' + (rm.name || 'this room') + ' — everything on it goes (one Undo brings it back)'); return; }
+    // (after a SEND TO cut warning FOR THIS ROOM the repeat confirms anywhere in its own 6 s window — reading it took longer than
+    // the 2.5 s arm, live 10-12; any other room, or a lapsed warning, keeps the 2.5 s confirm)
+    if (!roomDelArmedAt || now - roomDelArmedAt > (cutArmFor(rm.id) ? 6000 : 2500)) { roomDelArmedAt = now; sfx('tick'); flashTip(ev, 'press Delete again to delete ' + (rm.name || 'this room') + ' — everything on it goes (one Undo brings it back)'); return; }
     /* deselect only once the room is GONE (final floor lane M15): after a SEND TO cut warning ("repeat DELETE / REMOVE to continue")
        the room stays selected and armed, so the next Delete goes straight through; a refused delete leaves a room that still stands */
     roomDelArmedAt = 0;
-    if (doDeleteRoom(rm.id, ev)) selectedRoomId = null; else if (sendCutArm) roomDelArmedAt = performance.now();
+    if (doDeleteRoom(rm.id, ev)) selectedRoomId = null; else if (cutArmFor(rm.id)) roomDelArmedAt = performance.now();
     renderSelection(); setHint();
   }
   function nudgeRoom(dx, dy, ev) {
