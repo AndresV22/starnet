@@ -120,6 +120,19 @@ const tick = () => new Promise(r => setTimeout(r, 15));
     S.jobs = []; S.out = null;
   }
 
+  /* ---------- a REFUSED hand-off says "not sent on" once (wave 2 review, conveyor-backend-09): the card's first line says it was
+     not sent on, so the reason follows bare — never "not sent on: automation is stopped (E-STOP) — nothing was sent on" after it ---------- */
+  {
+    const refused = { id: 'job-0123456789bb', line: line.key, name: 'B', text: 'the first job', status: 'failed', error: 'not sent on: automation is stopped (E-STOP)',
+      from: { line: 'p998', jobId: null, name: 'A' }, runs: [], usd: 0, startedAt: 5, endedAt: 5, repeats: 3, notes: [], output: '' };
+    const html = WW._resultHTML(line, refused), plain = html.replace(/<[^>]+>/g, ' ').replace(/&[a-z#0-9]+;/gi, ' ');
+    A.ok(plain.includes('LINE A tried to send its result on to this line — it was not sent on, so nothing ran here.'), 'the card says once that it was not sent on — ' + plain.slice(0, 240));
+    A.ok(plain.includes('Automation is stopped (E-STOP). (3 hand-offs from LINE A were refused like this'), '…then the bare reason, and how many were refused like this');
+    A.eq((plain.match(/not sent on/gi) || []).length, 1, '"not sent on" appears once on the card, not three times');
+    const old = WW._resultHTML(line, Object.assign({}, refused, { error: 'not sent on: automation is stopped (E-STOP) — nothing was sent on', repeats: 1 })).replace(/<[^>]+>/g, ' ');
+    A.ok(old.includes('Automation is stopped (E-STOP) — nothing was sent on.') && (old.match(/not sent on/gi) || []).length === 1, 'an older record keeps its own words, without the repeated prefix');
+  }
+
   /* ---------- NEEDS CHANGES → USE THIS / PUT IT BACK: each field's note keeps its OWN before and after ---------- */
   {
     const step = WW._floor().lines[0].steps[1], dockId = step.id, wasDoes = st.propById(dockId).brief || '', wasHands = st.propById(dockId).hands || '';

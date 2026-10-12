@@ -83,7 +83,8 @@ function makeHandoffRunner(deps) {
 
   /* can the TARGET line take work right now? (no side effects) — the trigger preflight's questions, asked of the target */
   function preflight(plan, toLine) {
-    if (halted()) return faulted() ? 'the station hit an internal fault and stopped its background work — nothing was sent on' : 'automation is stopped (E-STOP) — nothing was sent on';
+    // (bare reasons — wave 2 review, conveyor-backend-09: the record's 'not sent on: ' and every sender surface already say it was not sent)
+    if (halted()) return faulted() ? 'the station hit an internal fault and stopped its background work' : 'automation is stopped (E-STOP)';
     if (!plan) return 'no work line is armed';
     if (!lineRec(plan, toLine)) return 'the line it sends to is no longer on the floor — set its SEND TO again';
     if (!crewedDocksOnLine(plan, toLine).length) return say(plan, toLine) + ' routes work to no crewed dock — assign an agent to its first step';
@@ -310,7 +311,7 @@ function makeHandoffRunner(deps) {
      "not sent on" record (a burst counted on ONE record, the standing-refusal rule) and every dropped sending job reads NOT sent
      on, with why. `why` names a stop that was not the Commander's E-STOP (the process-fault containment says its own). */
   function haltAll(why) {
-    const reason = (typeof why === 'string' && why.trim()) ? why.trim() : 'automation is stopped (E-STOP) — nothing was sent on';
+    const reason = (typeof why === 'string' && why.trim()) ? why.trim() : 'automation is stopped (E-STOP)';
     let n = 0;
     for (const s of live.values()) { const q = s.queue.splice(0); n += q.length; for (const it of q) refuse(it, reason); }
     return n;

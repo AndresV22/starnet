@@ -217,6 +217,9 @@ function station(n) {
   J.start({ id: 'job-eeee5555', line: LA, name: 'A', text: 'A job E-STOP catches', streamId: 'sample-es', at: clock });
   const es = R.onShipped(fresh('sample-es', LA, lastA));
   A.ok(!es.ok && /E-STOP/.test(es.error) && hubCalls.length === callsBefore, 'E-STOP: nothing is sent on, nothing runs');
+  // (wave 2 review, conveyor-backend-09) the reason is bare: the record's 'not sent on: ' and every sender surface already say it
+  A.eq(es.error, 'automation is stopped (E-STOP)', 'E-STOP: the reason never repeats "nothing was sent on"');
+  A.eq(LineJobs.get(jobs, es.jobId).error, 'not sent on: automation is stopped (E-STOP)', 'E-STOP: the target record says "not sent on" once');
   const esA = LineJobs.get(jobs, 'job-eeee5555');
   A.ok(esA.sentTo && esA.sentTo.line === LB && /E-STOP/.test(esA.sentTo.refused || ''), 'the sending job says it was NOT sent on, and why (a plain sentTo reads as "SENT ON TO LINE B") — ' + JSON.stringify(esA.sentTo));
   const es2 = R.onShipped(fresh('sample-es2', LA, lastA));
@@ -263,6 +266,7 @@ function station(n) {
   /* (fix-runtime 24) …and SAYS so on both lines: the dropped jobs never vanish. LINE B's newest record is ONE failed "not sent on"
      record counting every dropped hand-off; every dropped sending job reads NOT sent on — E-STOP (never "delivered" with no word) */
   const esB = jobs.jobs.filter(j => j.line === LB).pop();
+  A.eq(esB && esB.error, 'not sent on: automation is stopped (E-STOP)', 'E-STOP drop: the default reason is bare too');
   A.ok(esB && esB.status === 'failed' && /^not sent on: .*E-STOP/.test(esB.error) && esB.repeats === MAX_PENDING, 'E-STOP: LINE B gets one failed record for the dropped hand-offs, counting all ' + MAX_PENDING + ' — ' + JSON.stringify(esB && { status: esB.status, error: esB.error, repeats: esB.repeats }));
   const dropped = [];
   for (let i = 1; i <= MAX_PENDING; i++) dropped.push(LineJobs.get(jobs, 'job-burst' + i + 'aaaa'));
