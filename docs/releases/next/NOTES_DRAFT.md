@@ -4,29 +4,32 @@ DRAFT updated 2026-10-12 for the release after v0.13.2. This describes the combi
 
 ## Update Center summary draft
 
-Conveyors can now hand finished work to another line, building is click-and-drag, and chat, voice, local models and recovery get fixes. MOVE is gone and key 4 is free: drag a selected piece to move it, Shift+drag moves anything, dragging an unselected machine lays a belt, keys 1-8 pick conveyor pieces and right-click removes. SEND TO can start paid jobs on the next line, on its own budget. Back up your station before downgrading: older builds do not understand onward routing.
+Conveyors can now hand finished work to another line, building is click-and-drag, and chat, voice, local models and recovery get fixes. MOVE is gone: drag a selected piece to move it, Shift+drag moves anything, dragging an unselected machine lays a belt, right-click removes, and on the Conveyors tab keys 1-8 pick pieces (elsewhere key 4 is free). SEND TO can start paid jobs on the next line, on its own budget. Back up your station before downgrading: older builds do not understand onward routing.
 
-The summary above is 480 characters, under the Update Center's 520-character limit. Keep the MOVE/key change, the downstream-cost warning and the downgrade warning inside the first 520 characters of the final notes.
+The summary above is 501 characters, under the Update Center's 520-character limit. The Update Center shows only the first 520 characters of RELEASE_NOTES.md, version heading included, as plain text, so the paste-ready notes below OPEN with the downgrade warning, the downstream-cost warning and the MOVE/key change: 509 characters with `# StarNet v0.13.3` and two newlines (510 for a two-digit patch). Re-measure if the opening changes.
 
 ## Release notes draft (paste over the `release:bump` scaffold at the cut)
 
-Written in the public RELEASE_NOTES voice. Everything below is in source on this candidate; reconcile it against the final candidate's change inventory and drop any line whose acceptance did not land. The version heading is set by `release:bump`.
+Written in the public RELEASE_NOTES voice. Everything below the version heading `release:bump` sets is meant to be pasted, starting with the two opening paragraphs. Everything is in source on this candidate; reconcile it against the final candidate's change inventory and drop any line whose acceptance did not land.
 
-> Conveyors grow up. Lines hand their finished work to each other with SEND TO, building is one hand you drag with, and whole lines copy, paste and delete in one move. Plus fixes across chat, voice, delegated work, local models and recovery.
->
-> **Before you downgrade:** back up your station first. Older builds don't understand SEND TO or the new conveyor records.
+**Before you downgrade:** back up your station; older builds don't understand SEND TO or the new conveyor records.
+
+**SEND TO can start paid work:** a line can now hand each finished job to another line, whose crew works it at that line's own cost and budget, even one started with RUN ONE REAL JOB. **MOVE is gone:** drag a selected piece to move it, Shift+drag moves anything, dragging an unselected machine lays a belt. On the Conveyors tab keys 1-8 pick pieces; elsewhere key 4 is free.
+
+Conveyors grow up. Lines hand their finished work to each other with SEND TO, building is one hand you drag with, and whole lines copy, paste and delete in one move. Plus fixes across chat, voice, delegated work, local models and recovery.
 
 ### Behavior changes
 
-- **MOVE is gone, and key 4 does nothing now.** Click a piece to select it, then drag it onto open floor to move it. Shift+drag moves any piece. Dragging a machine you haven't selected lays a belt from it instead of moving it; drop it on another machine to belt the two.
-- **On the Conveyors tab, keys 1-8 pick pieces:** BAY, INBOX, OUTBOX, SPLITTER, MERGER, JOINER, FILTER, LOOP. ROOM, HALL, SURFACE, DELETE, PROP, BELT and DUPE keep their keys on the other tabs; 0 (SELECT) and 9 (LINES) work everywhere.
+- **MOVE is gone.** Click a piece to select it, then drag it onto open floor to move it. Shift+drag moves any piece. Dragging a machine you haven't selected lays a belt from it instead of moving it; drop it on another machine to belt the two. Outside the Conveyors tab key 4 is free now; on that tab it picks the SPLITTER.
+- **On the Conveyors tab, keys 1-8 pick pieces:** BAY, INBOX, OUTBOX, SPLITTER, MERGER, JOINER, FILTER, LOOP. ROOM, HALLWAY, SURFACE, DELETE, PROPS, BELT and COPY keep their keys on the other tabs; 0 (SELECT) and 9 (CONVEYOR LINES) work everywhere.
 - **Right-click removes** a machine or a belt, or drops the piece in your hand.
 - **Del on a whole selected line deletes the line,** every machine and belt of it. Ctrl+Z brings it all back.
 - **No more belts out of an OUTBOX or into an INBOX.** Lines chain with SEND TO instead. A save with an old OUTBOX-to-INBOX belt shows MAKE IT A SEND TO in that OUTBOX's Workflow panel.
 - **A belt can't close a circle** unless it is a LOOP's back lane.
 - **SEND TO can start paid work.** When a line sends its result on, the next line's crew works it at that line's own cost and budget, and that includes a job you start with RUN ONE REAL JOB.
-- **NO FEED stays until something actually starts the line.** Sending a line a sample job or testing it no longer clears NO FEED or ticks "what starts this line" on the finish card. A channel, a routine, a watched folder, a webhook or another line's SEND TO does.
+- **NO FEED clears only when something can start work.** Sending a line a sample job or testing it no longer clears NO FEED or ticks "what starts this line" on the finish card. What clears it is either floor-wide (any configured channel, armed routine, watched folder or webhook on the station clears it on every line) or a SEND TO into that line.
 - **SHIPPED counts jobs with a saved shipment record.** Deliveries from before this release are not reconstructed into it.
+- **A follow-up in Telegram or Discord joins the running task.** A message sent while an agent is still working on your last one now steers that task instead of replacing it. "stop", "cancel" or /stop still stops it.
 
 ### New
 
@@ -41,19 +44,21 @@ Written in the public RELEASE_NOTES voice. Everything below is in source on this
 
 - **Long lines say why they stop.** A line longer than its stage budget shows TOO LONG — RAISE THE LINE BUDGET, and its Workflow panel offers ▲ ALLOW N STAGES.
 - **A BAY that isn't on a line says so** (NOT ON A LINE — BELT INTO IT) and offers JOIN A LINE.
-- **SHIPPED is a real count:** clean jobs that actually reached the OUTBOX, once each. Branches and loops don't inflate it, and it survives restarts and floor edits.
-- **FIRST SHIP only fires when a line really ships a job.** It used to go off when a chat order to a line's agent sent its crate down that line's belt.
+- **SHIPPED is a real count:** clean jobs that did real work (a tool call or a file) and reached the OUTBOX, once each. A job that only answers in words reaches the OUTBOX but isn't counted. Branches and loops don't inflate it, and it survives restarts and floor edits.
+- **FIRST SHIP only fires when a line really ships its first job.** It used to go off when a chat order to a line's agent sent its crate down that line's belt, and a line that had already shipped could get it again.
+- **The finish-the-line card keeps "what starts this line" until something does.** A chat order's crate at the OUTBOX no longer makes the card disappear for good.
 - **JOINER lines never lose or double a finished job,** even when one branch finishes long after the other or the same completion arrives twice.
 - **An exhausted LINE BUDGET stops a line before it spends,** whether the job came from a sample, Run Now, a schedule or a restart.
 - **Parallel and JOINER lines explain why whole-line STEP THROUGH isn't available,** and single-step tests still work.
 - **SORTING OFFICE and CODE FOUNDRY route every tag** instead of failing after the work was already done.
-- **Hand-offs name the line the way the floor does.** A line without a name reads LINE C in WORKFLOWS and TO REVIEW, never "another line".
+- **Hand-offs name the line the way the floor does.** A line without a name reads LINE C in WORKFLOWS, in TO REVIEW and on the crate that carries its work over, never "another line".
 - **Lead-built floors:** asking the lead to take up one line in a room no longer removes the whole room; a SEND TO made by connecting an OUTBOX to an INBOX always shows on the approval card; the lead can turn an old belt between two lines into a SEND TO; and a copied line's card says where it really landed and how many belts it has.
 
 #### Everything else
 
 - **Delegated work is easier to follow.** A conversation shows each worker it sent out, with its work, its report and anything that needs you. Finished worker answers survive failed writes and restarts.
 - **Chat:** long conversations keep your messages and the current task when they're compacted, recall reaches older conversations, file and review trays keep their context, and the stop reason stays visible after a reload.
+- **Files:** a file edit that doesn't match the file exactly is refused before anything is written, instead of landing where it was guessed, and edits keep the file's line endings.
 - **Voice:** a better local voice, a separate model for spoken turns, and spoken approvals that wait for you to confirm.
 - **Local models:** Ollama works with strict system-message templates, and timeouts say what StarNet actually saw.
 - **Skills:** a proposed change stays separate from the approved skill until you approve it.
