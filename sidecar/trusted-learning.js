@@ -10,13 +10,16 @@ function textOf(message) {
   if (!Array.isArray(message.content)) return '';
   return message.content.filter(p => p && p.type === 'text' && typeof p.text === 'string').map(p => p.text).join('\n');
 }
+function quotedMaterial(text) {
+  return /```|~~~|(?:^|\n)\s*>|<\/?(?:document|email|untrusted|script)\b|[“"][^“”"]{20,}[”"]/i.test(String(text || '')) || /\b(?:examples?|samples?|transcript|following (?:document|email|message)|(?:document|attachment|website|webpage|email|message|article)\s+(?:says?|said|states?|reads?|instructs?))[^\n]*[:\n]/i.test(String(text || ''));
+}
 function capture(messages, source) {
   const list = Array.isArray(messages) ? messages : [];
   for (let i = list.length - 1; i >= 0; i--) {
     if (!list[i] || list[i].role !== 'user') continue;
     const content = textOf(list[i]);
     // Do not silently truncate a directive and mistake its incomplete prefix for the owner's instruction.
-    if (!content.trim() || content.length > 16000) return null;
+    if (!content.trim() || content.length > 16000 || quotedMaterial(content)) return null;
     return { index: i, role: 'user', source: source || 'interactive-owner', content };
   }
   return null;
@@ -59,4 +62,4 @@ function evidence(input) {
   return { version: 1, source: 'host', runId: String(o.runId || ''), trigger: String(o.trigger || ''), tainted: !!o.tainted,
     trustedUserMessages: o.trustedInput ? [o.trustedInput] : [], checks: checks(o.completion), loadedSkills: o.loadedSkills || [] };
 }
-module.exports = { textOf, capture, eligible, preferences, checks, evidence };
+module.exports = { textOf, quotedMaterial, capture, eligible, preferences, checks, evidence };

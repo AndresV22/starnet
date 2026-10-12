@@ -349,6 +349,9 @@ const { makeDeliverableStore } = require('./deliverable-store.js'); // durable k
 const { makeSteerBuffers } = require('./steer-buffer.js'); // h1: live-steer buffers + the run-end close (an honest 409 once a run can no longer apply a note)
 const { makeIdempotencyLedger } = require('./idempotency-ledger.js'); // SOP lane: durable connector-WRITE idempotency (no double-send on retry/resume)
 const TrustedLearning = require('./trusted-learning.js');
+const LearningEvidence = require('./learningevidence.js');
+const SkillEvaluation = require('./skillevaluation.js');
+const SkillEvaluationRunner = require('./skill-evaluation-runner.js');
 const TaskPostconditions = require('./task-postconditions.js');        // SOP lane: the typed acceptance authority (mid-run probe + end-of-run verdict)
 const RecipeDrift = require('./recipe-drift.js');                      // golden-run drift: latest recipe run vs its own good history (pure, from run rows)
 const { makeProvenanceIndex } = require('./deliverable-provenance.js'); // WHO made a deliverable + WHAT project it belongs to, derived from the run log
@@ -1683,7 +1686,8 @@ const skillsIo = {
 };
 const SKILL_PACKAGES_DIR = path.join(WORKSPACES, 'skill-packages');
 const skillPackageStore = skillPackages.makePackageStore({ fs, pathMod: path, root: SKILL_PACKAGES_DIR, now: () => Date.now() });
-const skillStore = makeSkillStore({ io: skillsIo, clock: { now: () => Date.now() }, redact, packageStore: skillPackageStore, guard: skillGuard, digest: skillDigestOf });
+const skillStore = makeSkillStore({ io: skillsIo, clock: { now: () => Date.now() }, redact, packageStore: skillPackageStore, guard: skillGuard, digest: skillDigestOf,
+  digestCandidate: SkillEvaluation.digestSkill, validatePromotionReceipt: verifySkillPromotion });
 /* SKILL GUARD APPROVALS — the Commander's per-skill "I read this and it's fine", keyed to a digest
    of the exact content that was reviewed, exactly as plugins-allowed.json keys a plugin to its code
    hash: edit the skill and it asks again. Held in memory (this file is small, read once at boot) and
@@ -1723,8 +1727,46 @@ function goldensFor(agentId, skillId) { const l = goldensByKey[String(agentId ||
 function persistGoldens(next) { saveResilient(SKILL_GOLDENS_FILE, next); goldensByKey = next; }
 const skillGate = makeSkillGate({
   guard: skillGuard,
-  approvals: { get: (agentId, id) => skillApprovals[String(agentId) + '\x00' + String(id)] || null }
+  approvals: { get: (agentId, id, digest) => skillApprovals[String(agentId) + '\x00' + String(id) + '\x00' + String(digest)] || skillApprovals[String(agentId) + '\x00' + String(id)] || null }
 });
+// Behavioral comparisons use their own bounded, durable host store. Candidate content never defines
+// its own checks. Owners may register an independent task suite; built-ins disclose their narrow domains.
+const SKILL_EVALUATIONS_FILE = path.join(WORKSPACES, 'skill-evaluations.json');
+let skillEvaluationData = loadResilient(SKILL_EVALUATIONS_FILE, 'skill evaluations') || {};
+if (typeof skillEvaluationData !== 'object' || Array.isArray(skillEvaluationData)) skillEvaluationData = {};
+const skillEvaluationsNow = new Set();
+const skillEvaluationIo = {
+  get(key) { return skillEvaluationData[key]; },
+  set(key, value) {
+    const next = Object.assign({}, skillEvaluationData, { [key]: value });
+    saveResilient(SKILL_EVALUATIONS_FILE, next);
+    const proven = loadResilient(SKILL_EVALUATIONS_FILE, 'skill evaluations');
+    if (JSON.stringify(proven) !== JSON.stringify(next)) throw new Error('evaluation persistence could not be verified');
+    skillEvaluationData = next;
+  }
+};
+function evaluationSuitesFor(agentId, skill) {
+  const custom = (skillEvaluationData.suites || []).filter(s => s.agentId === agentId && s.skillId === skill.id).map(s => s.suite);
+  return [SkillEvaluationRunner.createArtifactWorkflowSuite(skill.name), SkillEvaluationRunner.createTaskHandoffSuite(skill.name)].concat(custom);
+}
+function evaluationServiceFor(agentId, skill, cfg, runCase) {
+  const providerId = normalizeProvider(cfg && cfg.provider);
+  return SkillEvaluation.makeSkillEvaluator({ suites: evaluationSuitesFor(agentId, skill), io: skillEvaluationIo, clock: () => Date.now(),
+    evidenceClass: providerId === 'replay' ? 'fixture' : 'provider',
+    runnerIdentity: { provider: providerId, model: String(cfg && cfg.model || 'unconfigured'), reasoningEffort: String(cfg && cfg.reasoningEffort || ''),
+      endpoint: crypto.createHash('sha256').update(String(cfg && cfg.baseUrl || '')).digest('hex'), implementation: 'isolated-agent-loop-v1' },
+    runCase: runCase || (async () => { throw new Error('evaluation runner was not configured'); }) });
+}
+function verifySkillPromotion(receipt, expected) {
+  const cfg = sampleRunConfigFor(expected.agentId);
+  if (!cfg || cfg.ok === false || !cfg.model) return { ok: false, error: 'configure the evaluated provider and model before promotion' };
+  const result = evaluationServiceFor(expected.agentId, expected.candidate, cfg).verifyReceipt(receipt, expected);
+  return Object.assign({}, result, { error: result.reason });
+}
+function evaluationSuiteMetadata(agentId, skills) {
+  return skills.flatMap(skill => evaluationSuitesFor(agentId, skill).map(s => ({ id: s.id, skillId: skill.id, skillName: skill.name, description: s.description || '', cases: s.cases.length })));
+}
+
 // SKILL EXCHANGE: the existing web guard owns public-host validation; the exchange adds HTTPS-only,
 // bounded markdown fetching and an inspect-before-install stage. No external bytes enter skillStore
 // until the Commander has received the exact digest + body + guard verdict.
@@ -3470,6 +3512,7 @@ const SKILL_CURATOR_MAX_COST_USD = num(process.env.SKYNET_SKILL_CURATOR_MAX_USD,
 const skillCuratorLastRun = new Map();
 async function runBackgroundSkillReview(o) {
   const { agentId, runId, messages, provider, model, cost, loadedSkills, managedSkills, verdict, correction } = o || {};
+  if (!LearningEvidence.buildLearningEvidence(o, redact).eligible) { console.log('[skills] review skipped run=' + String(runId || '') + ': no trusted learning evidence'); return null; }
   const unmetered = !!(o && o.unmetered);   // Codex/unmetered parity: mirror reflection/study so a Codex-only user's budget isn't drained by phantom aux spend
   // a spending cap that is reached stops this paid pass too: a thumbs-down after the daily cap used to fire a review call
   // anyway (one per rating) — the verdict path reaches here with no budget check of its own (QA 2026-10-02)
@@ -3523,7 +3566,7 @@ async function runBackgroundSkillReview(o) {
     };
     const reviewNotebook = notebookStore.get('notebook:' + agentId);
     const prompt = skillReview.buildPrompt({
-      agentId, runId, messages, verdict, correction, correctionSource: o && o.correctionSource, learningEvidence: o && o.learningEvidence, failed: !!(o && o.failed),
+      agentId, runId, messages, verdict, correction, correctionSource: o && o.correctionSource, learningEvidence: o && o.learningEvidence, toolTrace: o && o.toolTrace, completionEvidence: o && o.completionEvidence, reason: o && o.reason, failed: !!(o && o.failed),
       loadedSkills: loadedSkills || [],
       managedSkills: managedSkills || [],
       // top-12 by rank() against the run's directive (was: last 12 in raw store order) — the reviewer sees the
@@ -11442,6 +11485,14 @@ const ROUTES = [
   { m: 'POST', exact: '/api/agent-skills/manage', h: handleAgentSkillManage },
   { m: 'GET', prefix: '/api/agent-skills/goldens', h: serveSkillGoldens },   // consistency loop: the great-rated references per skill (before the bare prefix route)
   { m: 'POST', exact: '/api/agent-skills/allow', h: handleAgentSkillAllow },   // the Commander's review decision on a guard-withheld skill
+  { m: 'GET', exact: '/api/agent-skills/candidates', h: serveSkillCandidates },
+  { m: 'GET', exact: '/api/agent-skills/candidate', h: serveSkillCandidates },
+  { m: 'POST', exact: '/api/agent-skills/evaluate-candidate', h: handleSkillCandidateAction },
+  { m: 'POST', exact: '/api/agent-skills/approve-candidate', h: handleSkillCandidateAction },
+  { m: 'POST', exact: '/api/agent-skills/reject-candidate', h: handleSkillCandidateAction },
+  { m: 'POST', exact: '/api/agent-skills/evaluation-suite', h: handleSkillCandidateAction },
+  { m: 'POST', exact: '/api/agent-skills/share', h: handleSkillCandidateAction },
+  { m: 'GET', exact: '/api/learning-status', h: serveLearningStatus },
   { m: 'GET', prefix: '/api/agent-skills', h: serveAgentSkills },
   { m: 'GET', prefix: '/api/skills', h: serveSkills },
   { m: 'POST', exact: '/api/spotify/auth/start', h: handleSpotifyStart },
@@ -18399,7 +18450,8 @@ function serveAgentSkills(req, res) {
        exact content" is printed, and only a re-digest of the delivered bytes can tell whether that is
        still true. Without it the card blesses a package whose SKILL.md was rewritten after review. */
     skills = skillGate.annotate(skills, { verify: includeBody }).map(s => Object.assign({}, s, { guardDigest: skillGate.stampOf(s), goldens: goldensFor(agentId, s.id).length }));
-    json(200, { agentId, skills, withheld: skills.filter(s => s.withheld).length });
+    const candidates = skillStore.candidates(agentId, { includeBody });
+    json(200, { ok: true, agentId, skills, candidates, evaluationSuites: evaluationSuiteMetadata(agentId, candidates.map(c => c.skill)), withheld: skills.filter(s => s.withheld).length });
   } catch (e) { json(500, readRouteFailure('agent-skills', e)); }   // harness.agentSkillsRead maps !ok to { ok:false } — never a confirmed empty
 }
 
@@ -18432,6 +18484,7 @@ async function handleAgentSkillAllow(req, res) {
   const key = agentId + '\x00' + skill.id;
   if (body.allow === false) {
     const next = Object.assign({}, skillApprovals); delete next[key];
+    for (const candidateKey of Object.keys(next)) if (candidateKey.startsWith(key + '\x00')) delete next[candidateKey];
     try { persistSkillApprovals(next); }
     catch (e) { console.warn('[skills] approval revoke persist failed:', (e && e.message) || e); return json(507, { ok: false, approved: true, error: 'approval change could not be persisted; the existing decision was kept' }); }
     return json(200, { ok: true, approved: false, skill: skillGate.annotate([skill])[0] });
@@ -18444,11 +18497,107 @@ async function handleAgentSkillAllow(req, res) {
      stamp-keyed approval could never clear the drift. Fall back to the lifecycle stamp only when there is
      no body to digest. */
   const digest = typeof skill.body === 'string' ? skillGate.digestOf(skill) : skillGate.stampOf(skill);
+  if (body.digest && String(body.digest) !== digest) return json(409, { error: 'skill changed since it was reviewed; read it again' });
   const next = Object.assign({}, skillApprovals, { [key]: { digest, action: 'allow', at: Date.now(), name: skill.name } });
   try { persistSkillApprovals(next); }
   catch (e) { console.warn('[skills] approval persist failed:', (e && e.message) || e); return json(507, { ok: false, approved: false, error: 'approval could not be persisted; the skill remains withheld' }); }
   const after = skillGate.annotate([skillStore.view(agentId, skill.id, { includeArchived: true, bump: false }) || skill])[0];
   json(200, { ok: true, approved: true, digest, skill: after });
+}
+
+function learningJson(res, code, value) {
+  if (res.headersSent) return;
+  res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(value));
+}
+function serveLearningStatus(req, res) {
+  const u = new URL(req.url, 'http://localhost'), agentId = String(u.searchParams.get('agent') || 'agent');
+  if (!isAgentId(agentId)) return learningJson(res, 403, { error: 'forbidden' });
+  const rows = skillEvaluationIo.get('learning:' + agentId) || [];
+  const runId = u.searchParams.get('runId');
+  learningJson(res, 200, { agentId, receipts: runId ? rows.filter(r => r.runId === runId) : rows });
+}
+function serveSkillCandidates(req, res) {
+  try {
+    const u = new URL(req.url, 'http://localhost'), agentId = String(u.searchParams.get('agent') || 'agent');
+    if (!isAgentId(agentId)) return learningJson(res, 403, { ok: false, error: 'forbidden' });
+    const id = String(u.searchParams.get('candidateId') || u.searchParams.get('id') || '');
+    if (id) {
+      const candidate = skillStore.candidate(agentId, id);
+      if (!candidate) return learningJson(res, 404, { ok: false, error: 'no such candidate' });
+      return learningJson(res, 200, { ok: true, candidate, active: skillStore.view(agentId, candidate.skill.id, { bump: false, includeArchived: true }), evaluationSuites: evaluationSuiteMetadata(agentId, [candidate.skill]) });
+    }
+    const candidates = skillStore.candidates(agentId, { includeBody: u.searchParams.get('body') === '1', includeResolved: u.searchParams.get('resolved') === '1' });
+    return learningJson(res, 200, { ok: true, agentId, candidates, evaluationSuites: evaluationSuiteMetadata(agentId, candidates.map(c => c.skill)) });
+  } catch (e) { return learningJson(res, 500, readRouteFailure('skill-candidates', e)); }
+}
+async function handleSkillCandidateAction(req, res) {
+  let body;
+  try { body = JSON.parse(await readBody(req, 256 * 1024, res)) || {}; }
+  catch (_) { return learningJson(res, 400, { ok: false, error: 'bad json' }); }
+  const agentId = String(body.agentId || 'agent');
+  if (!isAgentId(agentId)) return learningJson(res, 403, { ok: false, error: 'forbidden' });
+  const action = new URL(req.url, 'http://localhost').pathname.split('/').pop();
+  try {
+    if (action === 'share') {
+      if (body.scope === 'project' && !isBlessedRoot(String(body.projectRoot || ''))) return learningJson(res, 400, { ok: false, error: 'choose a currently trusted project folder' });
+      const result = skillStore.share({ agentId, target: body.target || body.id, scope: body.scope, projectRoot: body.projectRoot, actor: 'user' });
+      return learningJson(res, result.ok ? 200 : 400, result);
+    }
+    if (action === 'evaluation-suite') {
+      const skill = skillStore.view(agentId, body.skillId, { bump: false, includeArchived: true }) || skillStore.candidates(agentId, { includeBody: true }).map(c => c.skill).find(c => c.id === body.skillId);
+      if (!skill) return learningJson(res, 404, { ok: false, error: 'no such owned skill' });
+      const suite = SkillEvaluation.validateSuite(Object.assign({}, body.suite, { skillName: skill.name }));
+      if (!/^owner:[A-Za-z0-9_-]{1,60}$/.test(suite.id)) return learningJson(res, 400, { ok: false, error: 'custom suite id must start with owner: followed by a short name' });
+      const prior = (skillEvaluationData.suites || []).filter(s => !(s.agentId === agentId && s.skillId === skill.id && s.suite.id === suite.id));
+      if (prior.length >= 40) return learningJson(res, 400, { ok: false, error: 'the station already has 40 custom suites; update an existing one' });
+      skillEvaluationIo.set('suites', prior.concat([{ agentId, skillId: skill.id, suite }]));
+      return learningJson(res, 200, { ok: true, evaluationSuites: evaluationSuiteMetadata(agentId, [skill]) });
+    }
+    const candidate = skillStore.candidate(agentId, String(body.candidateId || ''));
+    if (!candidate || candidate.status !== 'pending') return learningJson(res, 404, { ok: false, error: 'no pending candidate with that id' });
+    if (String(body.candidateDigest || '') !== candidate.candidateDigest) return learningJson(res, 409, { ok: false, error: 'candidate changed; read its current revision' });
+    if (action === 'reject-candidate') {
+      const result = skillStore.rejectCandidate({ agentId, candidateId: candidate.candidateId, candidateDigest: candidate.candidateDigest });
+      return learningJson(res, result.ok ? 200 : 409, result);
+    }
+    const guard = skillGate.verify(candidate.skill);
+    if (guard.action === 'block') return learningJson(res, 400, { ok: false, error: 'the skill guard blocks this revision; edit the flagged content first' });
+    if (action === 'approve-candidate') {
+      const baseline = skillStore.view(agentId, candidate.skill.id, { bump: false, includeArchived: true });
+      const expected = { candidate: candidate.skill, baseline, agentId, candidateDigest: candidate.candidateDigest, baselineDigest: candidate.baseDigest };
+      const checked = verifySkillPromotion(body.receiptId || body.evaluation, expected);
+      if (!checked.ok) return learningJson(res, 409, { ok: false, error: checked.error || 'behavior evaluation has not passed' });
+      if (SkillEvaluation.digestSkill(baseline) !== candidate.baseDigest) return learningJson(res, 409, { ok: false, error: 'active skill changed since the candidate was proposed' });
+      // Precommit a digest-specific approval. It cannot revoke the old active approval or approve different bytes.
+      // If promotion append fails, the old skill remains active; this unused candidate approval is harmless.
+      const key = agentId + '\x00' + candidate.skill.id + '\x00' + skillGate.digestOf(candidate.skill);
+      persistSkillApprovals(Object.assign({}, skillApprovals, { [key]: { digest: skillGate.digestOf(candidate.skill), action: 'allow', at: Date.now(), name: candidate.name } }));
+      const result = skillStore.approveCandidate({ agentId, candidateId: candidate.candidateId, candidateDigest: candidate.candidateDigest, evaluation: checked.receiptId, approvedBy: 'user' });
+      if (result.ok) chanEmit('deliverable', { agentId, id: result.skill.id, kind: 'skill', title: result.skill.name });
+      return learningJson(res, result.ok ? 200 : 409, result);
+    }
+    if (action !== 'evaluate-candidate') return learningJson(res, 400, { ok: false, error: 'unknown candidate action' });
+    if (skillEvaluationsNow.has(agentId)) return learningJson(res, 409, { ok: false, error: 'an evaluation is already running for this agent' });
+    const cfg = sampleRunConfigFor(agentId);
+    if (!cfg || cfg.ok === false || !cfg.model || (!cfg.configured && !cfg.key)) return learningJson(res, 409, { ok: false, error: 'configure a model for this agent before evaluation' });
+    const baseline = skillStore.view(agentId, candidate.skill.id, { bump: false, includeArchived: true });
+    if (SkillEvaluation.digestSkill(baseline) !== candidate.baseDigest) return learningJson(res, 409, { ok: false, error: 'active skill changed; regenerate the candidate before evaluating' });
+    const providerId = normalizeProvider(cfg.provider), unmetered = !!((getProviderProfile(providerId) || {}).unmetered);
+    const controller = new AbortController(), timer = setTimeout(() => controller.abort(), 120000);
+    const onClose = () => { if (!res.writableEnded) controller.abort(); };
+    res.once('close', onClose); stationOneShots.add(controller); skillEvaluationsNow.add(agentId);
+    let spent = 0;
+    try {
+      const provider = await providerForRunConfig(cfg, resolveReasoningEffort(providerId, cfg.reasoningEffort));
+      const runCase = SkillEvaluationRunner.makeAgentLoopCaseRunner({ provider, model: cfg.model, cost: makeCostEngine({ priceOf: provider.priceOf }), clock: { now: () => Date.now() },
+        runIdPrefix: 'skill-eval-' + crypto.randomUUID(), limits: { maxIters: 8, maxCostUsd: 0.08, grace: false },
+        authorize: async () => !controller.signal.aborted && spent < 0.40 && (unmetered || !budget.check(null, agentId, 0, Date.now(), null)),
+        onRun: async ({ result, runId }) => { if (!result) return; spent += result.usd || 0; ledger.record({ runId, agentId, turns: result.turns || 0, usd: result.usd || 0, tokens: result.tokens || 0, model: cfg.model, unmetered }); }
+      });
+      const receipt = await evaluationServiceFor(agentId, candidate.skill, cfg, runCase).evaluate({ candidate: candidate.skill, baseline, suiteId: String(body.suiteId || ''), signal: controller.signal });
+      return learningJson(res, 200, { ok: true, receipt });
+    } finally { clearTimeout(timer); res.removeListener('close', onClose); stationOneShots.delete(controller); skillEvaluationsNow.delete(agentId); }
+  } catch (e) { failNote('skill-candidate.' + action, e); return learningJson(res, 400, { ok: false, error: String(e && e.message || 'candidate action failed').slice(0, 300) }); }
 }
 
 /* ------------------------------- the run endpoint ------------------------------- */
@@ -18717,7 +18866,7 @@ async function handleRun(req, res) {
       key, keyPool: body && body.keyPool, model, system: (projectLine || projectRules) ? (String(system || '') + projectLine + projectRules) : system, messages: runMessages, agentId, isTask, provider: runProvider, baseUrl, reasoningEffort, fallbackModels, fallbackProviders,
       emit, signal: ac.signal, runId, trigger: 'directive', internal, evidence,
       voiceTurn: !!(body && body.voiceTurn === true),   // the reply will be SPOKEN: the voice chat model may answer it
-      initialTaint: hasUserAttachments ? 'user attachment' : null,
+      initialTaint: hasUserAttachments ? 'user attachment' : (TrustedLearning.quotedMaterial(latestUserText(messages)) ? 'quoted user material' : null),
       learningInput,   // host-captured BEFORE attachment expansion; never accepted from request metadata
       retryUserRunId: body && body.retryUserRunId,
       surface: 'interactive', prompt: promptConsent, pathPrompt: promptPathTrust, summon: summonRequest,   // team.summon → live summonAgent() round-trip; pathPrompt → NS-5 "work in <root>?" bless
@@ -19592,9 +19741,9 @@ async function runOnceCore(o) {
     store: skillStore,
     gate: skillGate,   // guard verdict enforcement: a withheld skill lists as withheld and refuses to load its body
     onView: (skill) => {
-      if (!skill || seenLoadedSkills.has(skill.id)) return;
-      seenLoadedSkills.add(skill.id);
-      loadedSkills.push({ id: skill.id, name: skill.name, summary: skill.summary, state: skill.state });
+      if (!skill || seenLoadedSkills.has(skill.agentId + ':' + skill.id)) return;
+      seenLoadedSkills.add(skill.agentId + ':' + skill.id);
+      loadedSkills.push({ id: skill.id, agentId: skill.agentId, name: skill.name, summary: skill.summary, state: skill.state, contentDigest: skill.contentDigest });
     },
     onManage: (skill, ctx, action) => {
       if (skill) managedSkills.push({ id: skill.id, name: skill.name, action: action || 'manage' });
@@ -21449,7 +21598,7 @@ async function runOnceCore(o) {
     if (isTask && resolved.tools.indexOf('skill.view') >= 0) {
       // WITH archived rows: composeIndex drops them from the index, but counts them so an all-archived skillbase is
       // never told "you have no saved skills yet"
-      const rs = runtimeSkills.composeIndex(skillStore.list(agentId, { includeArchived: true }), {
+      const rs = runtimeSkills.composeIndex(skillStore.listAccessible(agentId, { projectRoot: o.projectRoot || '', includeArchived: true }), {
         budget: 6000,
         platform: process.platform,
         canManage: resolved.tools.indexOf('skill.manage') >= 0,
@@ -21483,7 +21632,7 @@ async function runOnceCore(o) {
         const key = String(name || '').toLowerCase();
         if (!key || seenNames.has(key)) continue;
         seenNames.add(key);
-        const v = skillStore.view(agentId, name);
+        const v = skillStore.viewAccessible(agentId, name, { projectRoot: o.projectRoot || '' });
         if (!v) continue;
         // A NAMED PRELOAD IS STILL GATED. This path injects the FULL body, so a withheld skill
         // invoked by /skill must not slip in ahead of the index's check. verify() (not decide())
@@ -21491,9 +21640,9 @@ async function runOnceCore(o) {
         const pd = skillGate.verify(v);
         if (pd && pd.visible === false) { withheldPreloads.push({ name: v.name, reason: pd.reason || 'held by the skill guard' }); continue; }
         loaded.push(v);
-        if (!seenLoadedSkills.has(v.id)) {
-          seenLoadedSkills.add(v.id);
-          loadedSkills.push({ id: v.id, name: v.name, summary: v.summary, state: v.state });
+        if (!seenLoadedSkills.has(v.agentId + ':' + v.id)) {
+          seenLoadedSkills.add(v.agentId + ':' + v.id);
+          loadedSkills.push({ id: v.id, agentId: v.agentId, name: v.name, summary: v.summary, state: v.state, contentDigest: v.contentDigest });
         }
       }
       preloadedSkillBlock = runtimeSkills.composeLoaded(loaded);
@@ -22184,7 +22333,7 @@ async function runOnceCore(o) {
     // run that throws still counts what it loaded; markUsed persists, so the count and the aging clock survive a restart
     // (a view alone bumps RAM only).
     if (loadedSkills.length) {
-      try { skillStore.markUsed(agentId, loadedSkills.map(s => s.id)); } catch (e) { failNote('skill.markUsed', e); }
+      try { for (const owner of new Set(loadedSkills.map(s => s.agentId || agentId))) skillStore.markUsed(owner, loadedSkills.filter(s => (s.agentId || agentId) === owner).map(s => s.id)); } catch (e) { failNote('skill.markUsed', e); }
     }
     budget.clearLive(runId);
   }
@@ -22354,7 +22503,7 @@ async function runOnceCore(o) {
   }
   if (_auxSpend.has('skill-review')) {
     skillReviewingNow.add(agentId);
-    runBackgroundSkillReview({ agentId, runId, messages: result.messages.slice(), learningEvidence, projectRoot: o.projectRoot || '', provider, model: _auxSkillModel, cost, loadedSkills, managedSkills, unmetered: providerUnmetered }).catch(swallow('aux.skillreview.envelope')).finally(() => { skillReviewingNow.delete(agentId); });
+    runBackgroundSkillReview({ agentId, runId, messages: result.messages.slice(), learningEvidence, toolTrace: execution.toolTraceList(), completionEvidence: finalCompletionEvidence, reason: result.reason, projectRoot: o.projectRoot || '', provider, model: _auxSkillModel, cost, loadedSkills, managedSkills, unmetered: providerUnmetered }).catch(swallow('aux.skillreview.envelope')).finally(() => { skillReviewingNow.delete(agentId); });
   }
   if (process.env.SKYNET_SKILL_REVIEW !== '0' && (_auxDone || _auxFail) && isTask && !internal) {
     // CONSISTENCY LOOP (2026-08-22): park this real task run's review packet (a FAILED one too, 2026-10-01: the
@@ -22363,7 +22512,7 @@ async function runOnceCore(o) {
     // Parked even when the nudge review above already fired: that pass ran before the verdict existed and is
     // blind to it. The verdict pass is the one that knows the work fell short. Bounded LRU + TTL in verdictreview.js;
     // `great` never spends it; taken once; one extra aux pass per rated-short run, a Commander-initiated signal.
-    verdictReview.stash(runId, { agentId, messages: result.messages.slice(), learningEvidence, projectRoot: o.projectRoot || '', provider, model: _auxSkillModel, cost, loadedSkills, managedSkills, unmetered: providerUnmetered, failed: !_auxDone });
+    verdictReview.stash(runId, { agentId, messages: result.messages.slice(), learningEvidence, toolTrace: execution.toolTraceList(), completionEvidence: finalCompletionEvidence, reason: result.reason, projectRoot: o.projectRoot || '', provider, model: _auxSkillModel, cost, loadedSkills, managedSkills, unmetered: providerUnmetered, failed: !_auxDone });
   }
   if (_auxSpend.has('skill-curator')) {
     runSkillCurator({ agentId, runId, provider, model: _auxSkillModel, cost, unmetered: providerUnmetered }).catch(swallow('aux.skillcurator.envelope'));
@@ -26379,7 +26528,7 @@ async function captureTrustedLearning(o) {
     }
     if (status.saved) status.reason = 'owner_preference_saved';
   }
-  try { await notebookStore.update('learning:' + o.agentId, rows => (Array.isArray(rows) ? rows : []).filter(r => r.runId !== o.runId).concat([status]).slice(-100)); }
+  try { const rows = skillEvaluationIo.get('learning:' + o.agentId); skillEvaluationIo.set('learning:' + o.agentId, (Array.isArray(rows) ? rows : []).filter(r => r.runId !== o.runId).concat([status]).slice(-100)); }
   catch (e) { failNote('learning.status', e); }
   console.log('[learning] run=' + o.runId + ' agent=' + o.agentId + ' reason=' + status.reason + ' saved=' + status.saved + ' trusted=' + status.trustedDirectives + ' checks=' + status.verifiedChecks + ' tainted=' + status.tainted);
 }
