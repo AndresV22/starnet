@@ -90,7 +90,7 @@
     function keyFor(agentId, id) { return str(agentId || 'agent') + '\x00' + str(id); }
     function approvalFor(skill) {
       if (!approvals || typeof approvals.get !== 'function' || !skill) return null;
-      try { return approvals.get(str(skill.agentId || 'agent'), str(skill.id)) || null; } catch (_) { return null; }
+      try { return approvals.get(str(skill.agentId || 'agent'), str(skill.id), stampOf(skill)) || null; } catch (_) { return null; }
     }
     /* A stamped digest is what list() can carry (metadata only — no body). When the store had no
        digest stamper, fall back to the lifecycle stamp so an approval still expires on the next

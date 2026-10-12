@@ -28,6 +28,7 @@
   /* gateOf — the guard decision for one skill, from an injected gate (skills/gate.js). No gate
      injected = everything visible, which is exactly how this file behaved before the gate existed. */
   function gateOf(s, gate) {
+    if (s && s.pendingCandidate) return { visible: false, reason: 'proposed skill awaits behavior evaluation and Commander approval' };
     if (typeof gate !== 'function') return { visible: true, reason: '' };
     try { const d = gate(s) || {}; return { visible: d.visible !== false, reason: str(d.reason) }; }
     catch (_) { return { visible: true, reason: '' };  /* a gate hiccup must never empty the index */ }
@@ -161,7 +162,7 @@
      the gate matters here even more than in the index. The caller already filters, and `withheld`
      is checked again here: this is the last seam before the bytes enter the system prompt. */
   function composeLoaded(skills) {
-    const live = (Array.isArray(skills) ? skills : []).filter(s => s && s.body && s.state !== 'archived' && !s.withheld);
+    const live = (Array.isArray(skills) ? skills : []).filter(s => s && s.body && s.state !== 'archived' && !s.withheld && !s.pendingCandidate);
     if (!live.length) return '';
     return '\n\n## PRELOADED SKILLS\n'
       + 'The Commander explicitly loaded these skills for this run. Follow them where applicable.\n\n'
