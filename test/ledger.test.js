@@ -140,4 +140,73 @@ const clock = { now: () => t };
   A.ok(!v || v.ok !== false, 'a day cap of $0.30 is NOT tripped by $0.42 of subscription spend');
 }
 
+// ---- an ended dispatch with unknown price can be settled in this process, without a new receipt ----
+{
+  const { makeBudget } = require('../sidecar/budget.js');
+  const saved = [], receipts = new Map(); let starts = 0, finishes = 0;
+  const io = {
+    readAll: () => saved.map(r => Object.assign({}, r)),
+    unsettled: () => [...receipts.values()].filter(r => !saved.some(e => e.runId === r.runId)),
+    beginRun(r) { starts++; receipts.set(r.runId, JSON.parse(JSON.stringify(r))); },
+    append(r) { saved.push(JSON.parse(JSON.stringify(r))); },
+    finishRun(r) { finishes++; receipts.delete(r.runId); }
+  };
+  const L = makeLedger({ io, clock });
+  const meta = { provider: 'openrouter', model: 'example/model', managed: false, runCapUsd: 0.75, key: 'never-store-this' };
+  A.eq(L.markUnsettled('unknown'), false, 'no receipt means no new accounting claim');
+  A.eq(L.beginRun('ended', 'owner', () => meta), true, 'dispatch receipt is durable before work');
+  const expected = { runId: 'ended', agentId: 'owner', ts: t, provider: 'openrouter', model: 'example/model', managed: false, runCapUsd: 0.75 };
+  meta.model = 'later/model'; meta.runCapUsd = 900;
+  A.eq(L.pendingRuns(), 1, 'started receipt remains pending until result or explicit unknown transition');
+  A.throws(() => L.settleUnsettled('ended', 0.2), 'live pending receipt cannot be manually settled');
+  A.eq(L.markUnsettled('ended'), true, 'ended unknown result becomes unsettled without reboot');
+  A.eq([L.pendingRuns(), L.health().complete, L.health().durable, L.health().readError], [0, false, true, 'UNSETTLED_SPEND'], 'health immediately exposes incomplete spend without inventing a write failure');
+  A.eq(L.unsettledRuns(), [expected], 'original dispatch time, model, cap and explicit BYOK provenance are retained');
+  A.eq(L.markUnsettled('ended'), true, 'repeat unknown notification is idempotent');
+  A.eq([starts, saved.length, finishes], [1, 0, 0], 'marking does not append a new receipt, amount, or settlement');
+  const exposed = L.unsettledRuns()[0]; exposed.model = 'tampered';
+  A.eq(L.unsettledRuns()[0].model, 'example/model', 'returned receipt cannot mutate the recovery authority');
+  const reboot = makeLedger({ io, clock });
+  A.eq(reboot.unsettledRuns(), [expected], 'the already-durable receipt reconstructs identical unknown spend after restart');
+  A.eq(makeBudget({ ledger: L, clock, caps: { day: 5 } }).check('blocked', 'owner', 0).cause, 'unsettled', 'strict configured cap blocks immediately');
+  A.eq(makeBudget({ ledger: L, clock, caps: { day: 5 }, strictScope: () => false }).check(null, 'owner', 0), null, 'the shipped soft-cap policy is unchanged');
+  A.eq(makeBudget({ ledger: L, clock, caps: {} }).check(null, 'owner', 0), null, 'unconfigured quotas remain opt-in');
+  const settled = L.settleUnsettled('ended', 0.2);
+  A.eq([settled.usd, settled.agentId, settled.model, settled.ts, settled.attested, settled.attestedAs], [0.2, 'owner', 'example/model', expected.ts, true, 'entered'], 'existing settlement path records only the owner-supplied amount with original provenance');
+  A.eq([L.pendingRuns(), L.unsettledRuns().length, L.health().complete, saved.length, finishes], [0, 0, true, 1, 1], 'one durable settlement clears in-process unknown status');
+  A.eq(L.markUnsettled('ended'), false, 'finished receipt cannot be resurrected');
+  const settledReboot = makeLedger({ io, clock });
+  A.eq([settledReboot.health().complete, settledReboot.totalUsd()], [true, 0.2], 'settlement survives restart without duplicate or missing charge');
+}
+
+// ---- a known charge whose append failed is a recovery-journal problem, never a second manual booking ----
+{
+  const { makeBudget } = require('../sidecar/budget.js');
+  const failure = Object.assign(new Error('disk full'), { code: 'ENOSPC' });
+  const L = makeLedger({ clock, io: { readAll: () => [], beginRun() {}, append() { throw failure; } } });
+  L.beginRun('known', 'owner', { model: 'paid/model', managed: true });
+  let thrown;
+  try { L.recordStrict({ runId: 'known', agentId: 'owner', usd: 0.4 }); } catch (e) { thrown = e; }
+  A.eq(thrown, failure, 'strict append failure preserves the original thrown error');
+  A.eq([L.count(), L.health().durable, L.health().writeError], [0, false, 'ENOSPC'], 'strict failure is globally unhealthy before the caller catches it');
+  A.eq(L.markUnsettled('known'), false, 'known but unsaved charge cannot become another manual booking');
+  A.eq(L.unsettledRuns(), [], 'known append failure offers no settlement receipt');
+  A.throws(() => L.settleUnsettled('known', 0.4), 'manual booking remains unavailable after failed strict record');
+  A.eq(makeBudget({ ledger: L, clock, caps: { day: 5 } }).check('next', 'owner', 0).cause, 'write', 'strict cap sees the failed write in the same process');
+  const earlier = makeLedger({ clock, io: { readAll: () => [], unsettled: () => [{ runId: 'earlier', agentId: 'owner' }], append() { throw failure; } } });
+  A.throws(() => earlier.recordStrict({ runId: 'earlier', agentId: 'owner', usd: 0.4 }), 'late measured settlement also fails closed');
+  A.eq(earlier.unsettledRuns(), [], 'a later known charge removes the prior manual-settlement option after failed append');
+  A.throws(() => earlier.settleUnsettled('earlier', 0.4), 'failed known settlement cannot be booked twice');
+  const soft = makeLedger({ clock, io: { readAll: () => [], beginRun() {}, append() { throw failure; } } });
+  soft.beginRun('soft-known', 'owner'); soft.record({ runId: 'soft-known', usd: 0.3 });
+  A.eq([soft.totalUsd(), soft.markUnsettled('soft-known'), soft.health().durable], [0.3, false, false], 'legacy soft record keeps observed RAM spend without offering a duplicate manual charge');
+}
+
+// ---- durable rows finish pending metadata even when optional receipt cleanup fails ----
+for (const finishRun of [undefined, () => { throw new Error('cleanup unavailable'); }]) {
+  const L = makeLedger({ clock, io: { readAll: () => [], beginRun() {}, append() {}, finishRun } });
+  L.beginRun('complete', 'owner'); L.recordStrict({ runId: 'complete', usd: 0.1 });
+  A.eq([L.pendingRuns(), L.markUnsettled('complete'), L.health().durable], [0, false, true], 'durable charge proves completion even without successful receipt cleanup');
+}
+
 A.report('ledger.test');
