@@ -334,7 +334,7 @@ User/owner reports: **104** · source fixed: **94** · installer verified: **6**
 | P2 | fixed | world | [Deleted rooms leave floating furniture](bugs/72da34d7-deleted-rooms-leave-floating-furniture.md) | doorway-occlusion-0910 | 35d255dbd |
 | P2 | fixed | world | [Finished sorter starters leave valid jobs without an OUTBOX](bugs/e5d8daf5-finished-sorter-starters-leave-valid-jobs-withou.md) | conveyor-caps-1012 | 9ac0faeec |
 | P2 | fixed | world | [Glass panel height resets after closing and reopening](bugs/12203375-glass-panel-height-resets-on-reopen.md) | audit-0112-0910 | 871561348 |
-| P2 | fixed | world | [Joined branch product crates ship before the barrier releases](bugs/4ba4989f-joined-branch-product-crates-ship-before-the-bar.md) | conveyor-caps-1012 | bd4de9ae2 |
+| P2 | fixed | world | [Joined branch product crates ship before the barrier releases](bugs/4ba4989f-joined-branch-product-crates-ship-before-the-bar.md) | conveyor-caps-1012 | 781cafc7c |
 | P2 | fixed | world | [Local settings save failure still permits saved confirmation](bugs/476c4f01-local-settings-save-failure-still-permits-saved.md) | agent/seam-audit-0912-b | b5c5cba75 |
 | P2 | fixed | world | [`open()` has no `if (chanES) return` guard, so a re-entry (DATA › IMPORT → reentry → enterGame → resumeBridge) inside an SSE retry backoff leaves two live Event](bugs/d459160f-open.md) | sweep/world | f4d03511 |
 | P2 | fixed | world | [Parallel line offers a step-through test that cannot finish](bugs/1f4c3e40-parallel-line-offers-a-step-through-test-that-ca.md) | conveyor-finish-1012 | 30cbb0420 |
