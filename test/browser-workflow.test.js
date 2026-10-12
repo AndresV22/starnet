@@ -40,22 +40,50 @@ assert.equal(deriveReadClient([row]).candidates[0].verified, false);
       const ledger = path.join(root, 'skills.jsonl');
       const io = { readAll: () => fs.existsSync(ledger) ? fs.readFileSync(ledger, 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse) : [], append: entry => fs.appendFileSync(ledger, JSON.stringify(entry) + '\n') };
       const store = makeSkillStore({ io, packageStore: makePackageStore({ fs, pathMod: path, root }) });
-      const manage = makeSkillTools({ store }).manageTool;
+      const tools = makeSkillTools({ store });
+      const manage = tools.manageTool;
       const ctx = { agentId: 'lookup-proof' };
       const source = deriveReadClient([{ ...row, url: base + '/items' }]).candidates[0].source;
-      await manage.run({ action: 'create', name: 'Verified item lookup', body: 'GET the observed endpoint. Verified count=2, items=one,two against the browser fixture. Return to browser if the response changes.' }, ctx);
-      await manage.run({ action: 'write_file', target: 'Verified item lookup', path: 'scripts/lookup.mjs', content: source }, ctx);
+      const created = await manage.run({ action: 'create', name: 'Verified item lookup', body: 'GET the observed endpoint. Verified count=2, items=one,two against the browser fixture. Return to browser if the response changes.' }, ctx);
+      assert.equal(created.summary, 'proposed', created.content);
+      const written = await manage.run({ action: 'write_file', target: 'Verified item lookup', path: 'scripts/lookup.mjs', content: source }, ctx);
+      assert.equal(written.summary, 'proposed', written.content);
+      // Executing this observed GET verifies the client, but does not approve a
+      // model-authored skill. Its procedure and file must survive as a proposal.
+      assert.equal(store.view(ctx.agentId, 'Verified item lookup', { bump: false }), null);
+      const candidates = store.candidates(ctx.agentId, { includeBody: true });
+      assert.equal(candidates.length, 1, 'file write updates the existing candidate rather than creating a duplicate');
+      const candidate = candidates[0];
+      assert.equal(candidate.status, 'pending');
+      assert.equal(candidate.revision, 2, 'create and support-file write each persist a candidate revision');
+      assert.equal(candidate.skill.files.find(f => f.path === 'scripts/lookup.mjs').content, source);
+      const withheld = await tools.viewTool.run({ name: 'Verified item lookup' }, ctx);
+      assert.equal(withheld.summary, 'withheld', withheld.content);
+      assert.ok(!withheld.content.includes(source), 'ordinary tool reads cannot load the pending client');
       const child = spawnSync(process.execPath, ['-e', `
-        const fs=require('node:fs'), path=require('node:path');
+        const assert=require('node:assert/strict'), fs=require('node:fs'), path=require('node:path');
         const {makeSkillStore}=require('./sidecar/skillstore.js');
         const {makePackageStore}=require('./sidecar/skills/package.js');
+        const {makeSkillTools}=require('./sidecar/tools/builtin/skills.js');
         const root=process.argv[1];
         const store=makeSkillStore({io:{readAll:()=>fs.readFileSync(path.join(root,'skills.jsonl'),'utf8').trim().split('\\n').map(JSON.parse)},packageStore:makePackageStore({fs,pathMod:path,root})});
-        const skill=store.view('lookup-proof','Verified item lookup',{bump:false});
-        process.stdout.write(JSON.stringify(skill.files.find(f=>f.path==='scripts/lookup.mjs').content));
+        assert.equal(store.view('lookup-proof','Verified item lookup',{bump:false}),null,'restart cannot activate an unapproved proposal');
+        const candidates=store.candidates('lookup-proof',{includeBody:true});
+        assert.equal(candidates.length,1);
+        const candidate=candidates[0];
+        assert.equal(candidate.status,'pending');
+        const draft=store.pendingView('lookup-proof','Verified item lookup');
+        assert.ok(draft && draft.pendingCandidate,'the owner review draft remains available after restart');
+        const read=makeSkillTools({store}).viewTool.run({name:'Verified item lookup'},{agentId:'lookup-proof'});
+        assert.equal(read.summary,'withheld','restart cannot bypass evaluation and approval');
+        const file=draft.files.find(f=>f.path==='scripts/lookup.mjs');
+        assert.ok(file,'persisted pending draft includes the generated client');
+        process.stdout.write(JSON.stringify({content:file.content,candidateId:candidate.candidateId,candidateDigest:candidate.candidateDigest,revision:candidate.revision}));
       `, root], { cwd: path.resolve(__dirname, '..'), encoding: 'utf8' });
       assert.equal(child.status, 0, child.stderr);
-      assert.equal(JSON.parse(child.stdout), source, 'verified client survives a fresh process through real skill.manage/package storage');
+      assert.deepEqual(JSON.parse(child.stdout), {
+        content: source, candidateId: candidate.candidateId, candidateDigest: candidate.candidateDigest, revision: candidate.revision
+      }, 'verified client and exact candidate identity survive a fresh process through real skill.manage storage');
     } finally { fs.rmSync(root, { recursive: true, force: true }); }
     for (const path of ['/redirect', '/html', '/denied']) await assert.rejects(execute(path));
     assert.equal(requests, 4, 'redirect target was never followed');
