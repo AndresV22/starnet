@@ -159,7 +159,9 @@ console.log('workflow-takeover: repeat sense (paraphrase, guards, notice, cadenc
       agentId: 'agent', streamId: 'owner-stream-' + i, source: 'interactive', status: 'done',
       originalDirective: text, completedAt: now - (4 - i) * DAY }));
     return { briefs, runs: briefs.map(b => ({ runId: b.runId, agentId: b.agentId, streamId: b.streamId,
-      reason: 'done', toolsOk: 1, projectRoot: PROJECT })),
+      reason: 'done', toolsOk: 1, projectRoot: PROJECT, internal: false })).concat(briefs.map(b => ({
+        runId: b.originalRunId, agentId: b.agentId, streamId: b.streamId, reason: 'done', toolsOk: 0, projectRoot: PROJECT, internal: false
+      }))),
       rows: briefs.map((b, i) => ({ agentId: b.agentId, streamId: b.streamId, role: 'user',
         content: text, ts: b.completedAt - 1000, sourceRunId: 'original-r' + i, taintKnown: true, taint: '' })) };
   }
@@ -202,25 +204,26 @@ console.log('workflow-takeover: repeat sense (paraphrase, guards, notice, cadenc
   const occurrences = history();
   occurrences.briefs.forEach(b => { b.streamId = 'same-stream'; });
   occurrences.rows.forEach(row => { row.streamId = 'same-stream'; });
+  occurrences.runs.forEach(row => { row.streamId = 'same-stream'; });
   const latestOnly = { ...occurrences, rows: occurrences.rows.slice(-1) };
-  assert.equal(TrustedLearning.ownedBriefs(latestOnly.briefs, latestOnly.rows).length, 1);
+  assert.equal(TrustedLearning.ownedBriefs(latestOnly.briefs, latestOnly.rows, latestOnly.runs).length, 1);
   denied(latestOnly, 'one newly clean identical occurrence cannot authorize older identical requests');
   const allUnknown = { ...occurrences, rows: occurrences.rows.map(row => ({ ...row, taintKnown: undefined })) };
-  assert.equal(TrustedLearning.ownedBriefs(allUnknown.briefs, allUnknown.rows).length, 0);
+  assert.equal(TrustedLearning.ownedBriefs(allUnknown.briefs, allUnknown.rows, allUnknown.runs).length, 0);
   denied(allUnknown, 'every original occurrence lacks proof');
-  assert.equal(TrustedLearning.ownedBriefs(occurrences.briefs, occurrences.rows).length, 3);
+  assert.equal(TrustedLearning.ownedBriefs(occurrences.briefs, occurrences.rows, occurrences.runs).length, 3);
   assert.equal(host(occurrences).candidates()[0].count, 3, 'three independently clean identical originals remain three occasions');
   assert.equal(host(occurrences).notice().count, 4, 'proven older occurrences still support the current fourth request');
 
   const completionBorrow = { ...latestOnly, rows: latestOnly.rows.concat(occurrences.briefs.slice(0, 2).map(b => ({
     role: 'user', agentId: b.agentId, streamId: b.streamId, content: b.originalDirective, sourceRunId: b.runId, taintKnown: true
   }))) };
-  assert.equal(TrustedLearning.ownedBriefs(completionBorrow.briefs, completionBorrow.rows).length, 1);
+  assert.equal(TrustedLearning.ownedBriefs(completionBorrow.briefs, completionBorrow.rows, completionBorrow.runs).length, 1);
   denied(completionBorrow, 'clean exact completion text cannot replace missing original-run proof');
   const duplicates = history();
   duplicates.briefs = [0, 1, 2].map(i => ({ ...duplicates.briefs[0], id: 'duplicate-' + i, runId: duplicates.runs[i].runId,
     completedAt: now - (4 - i) * DAY }));
-  assert.equal(TrustedLearning.ownedBriefs(duplicates.briefs, duplicates.rows).length, 1);
+  assert.equal(TrustedLearning.ownedBriefs(duplicates.briefs, duplicates.rows, duplicates.runs).length, 1);
   denied(duplicates, 'multiple completion records for one original run count only once');
   const legacyHostIds = history();
   legacyHostIds.briefs.forEach(b => { b.id = 'tb_' + b.originalRunId; delete b.originalRunId; });
@@ -248,6 +251,29 @@ console.log('workflow-takeover: repeat sense (paraphrase, guards, notice, cadenc
   denied(delegated, 'delegated user-role rows are not owner requests');
   const noOriginal = history(); noOriginal.rows = [];
   denied(noOriginal, 'completed briefs without recorded original text');
+
+  const missingSourceMetadata = history();
+  missingSourceMetadata.runs = missingSourceMetadata.runs.filter(r => !r.runId.startsWith('original-'));
+  denied(missingSourceMetadata, 'clean transcript stamps without source run metadata');
+  for (const [label, patch] of [
+    ['internal original runs', { internal: true }],
+    ['unknown internal status on original runs', { internal: undefined }],
+    ['delegated original run parents', { parentRunId: 'lead-run' }],
+    ['delegated original workers', { delegatedBy: 'lead-agent' }],
+    ['scheduled original runs', { cronJobId: 'schedule-job' }],
+    ['recovery original runs', { recoveryOf: 'interrupted-run' }],
+    ['source runs belonging to another agent', { agentId: 'another-agent' }],
+    ['source runs belonging to another stream', { streamId: 'another-stream' }]
+  ]) {
+    const badOrigin = history();
+    badOrigin.runs.filter(r => r.runId.startsWith('original-')).forEach(r => Object.assign(r, patch));
+    denied(badOrigin, label);
+  }
+  const internalOriginStream = history();
+  internalOriginStream.briefs.forEach(b => { b.streamId = 'nightshift-old'; });
+  internalOriginStream.rows.forEach(r => { r.streamId = 'nightshift-old'; });
+  internalOriginStream.runs.filter(r => r.runId.startsWith('original-')).forEach(r => { r.streamId = 'nightshift-old'; });
+  denied(internalOriginStream, 'an internal stream cannot serve as owner provenance');
 
   const laterClean = history(CANARY);
   laterClean.rows.forEach(r => { r.taint = 'user attachment'; });

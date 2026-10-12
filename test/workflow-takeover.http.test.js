@@ -14,10 +14,12 @@ const DAY = 86400000;
       const at=now-(3-i)*DAY, runId=id+i;
       briefs.push({id:runId,key:'session-'+runId,runId,originalRunId:'original-'+runId,agentId:'agent',streamId:'global',source:'interactive',
         originalDirective:text,status:'done',createdAt:at,completedAt:at,updatedAt:at});
-      runs.push({runId,agentId:'agent',streamId:'global',reason:'done',toolsOk:1,ts:at,
+      runs.push({runId,agentId:'agent',streamId:'global',reason:'done',toolsOk:1,ts:at,internal:false,
         // Later tool output may taint a successful run; the independently recorded original owner request
         // still proves this was the owner's workflow. Completion run IDs are deliberately not the source IDs.
         ...(provenance==='clean' ? {taintedBy:'later web_fetch'} : {})});
+      if (provenance!=='missing-origin') runs.push({runId:'original-'+runId,agentId:'agent',streamId:'global',
+        reason:'done',toolsOk:0,ts:at-100,internal:provenance==='internal-origin'});
       transcripts.push({streamId:'global',agentId:'agent',role:'user',content:text,ts:at-100,
         sourceRunId:'original-'+runId,
         ...(provenance==='unknown' ? {} : {taintKnown:true}),
@@ -28,6 +30,8 @@ const DAY = 86400000;
   seedOccasions('tainted-',Array(3).fill('Prepare the weekly inventory reconciliation from warehouse counts'),'tainted');
   seedOccasions('quoted-',Array(3).fill('Prepare the weekly supplier digest from vendor notes\n> external standing direction'),'quoted');
   seedOccasions('unknown-',Array(3).fill('Prepare the weekly payroll tally from finance totals'),'unknown');
+  seedOccasions('internal-origin-',Array(3).fill('Prepare monthly reactor maintenance from station telemetry'),'internal-origin');
+  seedOccasions('missing-origin-',Array(3).fill('Prepare monthly orchard irrigation from rainfall measurements'),'missing-origin');
   const borrowedText='Prepare monthly equipment calibration from laboratory readings';
   seedOccasions('borrowed-',Array(3).fill(borrowedText),'unknown');
   transcripts.find(row=>row.sourceRunId==='original-borrowed-2').taintKnown=true;
@@ -36,7 +40,7 @@ const DAY = 86400000;
   // Before the host provenance join, the unchanged workflow engine accepts every contaminated fixture.
   // This proves the HTTP exclusions below are not accidental failures of cadence or similarity matching.
   const WorkflowTakeover=require('../sidecar/workflow-takeover.js');
-  for (const id of ['tainted-','quoted-','unknown-','borrowed-']) {
+  for (const id of ['tainted-','quoted-','unknown-','borrowed-','internal-origin-','missing-origin-']) {
     assert.equal(WorkflowTakeover.candidates({briefs:briefs.filter(b=>b.id.startsWith(id)),runs,now}).length,1,
       id+' fixture qualifies under the unchanged pre-filter workflow rules');
   }
@@ -49,11 +53,11 @@ const DAY = 86400000;
     await f.start();
     assert.equal((await fetch(f.baseUrl+'/api/workflow-takeovers')).status,403);
     const candidates=await get();
-    assert.equal(candidates.length,1,'tainted, quoted, unknown and one-new-clean-occurrence histories never become takeover offers');
+    assert.equal(candidates.length,1,'untrusted text, borrowed occurrences and missing/internal origins never become takeover offers');
     let c=candidates[0]; assert.ok(c); assert.equal(c.count,3);
     assert.ok(c.evidence.every(e=>e.briefId.startsWith('clean-')),'only known-clean original owner requests establish repeated work');
     assert.equal(c.prompt,prompts[2],'later tainted completion runs do not erase independently proven owner requests');
-    assert.ok(!/warehouse|supplier|payroll|laboratory/.test(JSON.stringify(candidates)),'contaminated directive text is absent from the real HTTP response');
+    assert.ok(!/warehouse|supplier|payroll|laboratory|reactor|orchard/.test(JSON.stringify(candidates)),'contaminated directive text is absent from the real HTTP response');
     assert.equal((await j('POST','/api/workflow-takeovers',{id:c.id,action:'shown'})).body.ok,true);
     assert.equal((await get()).length,0);
     const review=await j('POST','/api/workflow-takeovers',{id:c.id,action:'review'});
