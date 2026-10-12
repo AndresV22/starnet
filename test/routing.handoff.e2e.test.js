@@ -179,3 +179,96 @@ test('a job that ships on LINE A rides on to LINE B by SEND TO', async () => {
     await new Promise(resolve => server.close(resolve));
   }
 });
+
+/* (wave 2 review, conveyor-backend-03) SEND TO hand-offs WAITING in a line's queue when the station quits are said on their records:
+   LINE B is busy with one hand-off while two more wait behind it; a graceful Quit (the desktop shell's POST /api/lifecycle/quit, the
+   same gracefulShutdown a SIGTERM runs) drops the waiting ones through the refusal path. After the restart LINE B has ONE failed
+   "not sent on" record counting both, and each sending job on LINE A reads NOT sent on, with why — they used to vanish with no record
+   anywhere (A's jobs read DELIVERED with no "sent on" and no "NOT sent on"). The one that was running is said as interrupted. */
+test('hand-offs waiting when the station quits are said, never lost', async () => {
+  const held = [];
+  const server = http.createServer((req, res) => {
+    if (req.url.includes('/chat/completions')) {
+      let raw = ''; req.on('data', d => { raw += d; });
+      req.on('end', () => {
+        const body = JSON.parse(raw);
+        const user = (body.messages || []).filter(m => m && m.role === 'user').map(m => String(m.content || '')).join('\n');
+        const reply = text => {
+          if (res.writableEnded || res.destroyed) return;
+          res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+          res.end('data: ' + JSON.stringify({ choices: [{ delta: { content: text }, finish_reason: 'stop' }], usage: { prompt_tokens: 40, completion_tokens: 20 } }) + '\n\ndata: [DONE]\n\n');
+        };
+        if (user.indexOf('[HAND-OFF') >= 0) { held.push(() => reply('B is still working.')); return; }   // LINE B never finishes: it stays busy
+        reply('An answer from A.');
+      });
+      return;
+    }
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(req.url.includes('/models') ? { data: [{ id: 'handoff-model', context_length: 8000 }] } : { ok: true }));
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  const base = 'http://127.0.0.1:' + server.address().port;
+  const fixture = SidecarFixture.create({ prefix: 'handoff-quit-', timeoutMs: 20000, env: {
+    STARNET_DEFAULT_MODEL: '', SKYNET_DEFAULT_MODEL: '',
+    STARNET_OPENROUTER_KEY: '', SKYNET_OPENROUTER_KEY: '',
+    SKYNET_FULL_ACCESS: '1', STARNET_FULL_ACCESS: '1',
+    CUSTOM_OPENAI_KEY: 'direct-fixture', CUSTOM_OPENAI_BASE_URL: base + '/v1'
+  } });
+  try {
+    await fixture.start();
+    const agents = [
+      { agentId: 'alpha', name: 'Alpha', system: 'Line A', provider: 'custom', model: 'handoff-model' },
+      { agentId: 'beta', name: 'Beta', system: 'Line B', provider: 'custom', model: 'handoff-model' }
+    ];
+    assert.equal((await fixture.json('POST', '/api/roster', { agents, updatedAt: Date.now() })).status, 200);
+    const plan = Pipeline.compileRoutingPlan({ props: [
+      { id: 'p1', t: 'intake', x: 0, y: 0, w: 1, h: 1, label: 'A' },
+      { id: 'p2', t: 'bay', x: 3, y: 0, w: 1, h: 1, agentId: 'alpha', role: 'WRITER', brief: 'Answer briefly.' },
+      { id: 'p3', t: 'outbox', x: 6, y: 0, w: 1, h: 1, sendTo: 'p4' },
+      { id: 'p4', t: 'intake', x: 0, y: 4, w: 1, h: 1, label: 'B' },
+      { id: 'p5', t: 'bay', x: 3, y: 4, w: 1, h: 1, agentId: 'beta', role: 'WRITER', brief: 'Work on what you are handed.' },
+      { id: 'p6', t: 'outbox', x: 6, y: 4, w: 1, h: 1 }
+    ], belts: [1, 2, 4, 5].map(x => ({ x, y: 0, dir: 'E' })).concat([1, 2, 4, 5].map(x => ({ x, y: 4, dir: 'E' }))) });
+    for (const bay of plan.bays.concat(plan.dockBays)) bay.objects = ['computer', 'workbench'];
+    assert.equal((await fixture.json('POST', '/api/routing', plan)).body.ok, true);
+    const LA = plan.lineOfProp.p1, LB = plan.lineOfProp.p4;
+    const onB = async () => (await fixture.json('GET', '/api/line-jobs?line=' + encodeURIComponent(LB))).body.jobs;
+    const sent = [];
+    for (let i = 0; i < 3; i++) {
+      const r = await fixture.json('POST', '/api/routing/sample', { line: LA, text: 'Job ' + (i + 1) + ' for A.', name: 'A' });
+      assert.equal(r.status, 200, JSON.stringify(r.body));
+      sent.push(r.body.jobId);
+      if (i === 0) { for (let k = 0; k < 100 && !held.length; k++) await sleep(50); assert.equal(held.length, 1, 'LINE B is working on the first hand-off'); }
+    }
+    await sleep(200);
+    const before = await onB();
+    assert.equal(before.length, 1, 'one hand-off runs on B, two wait behind it: ' + JSON.stringify(before.map(j => j.status)));
+    assert.equal(before[0].status, 'running');
+    const exited = new Promise(r => fixture.child.once('exit', r));
+    assert.equal((await fixture.json('POST', '/api/lifecycle/quit')).status, 202);
+    await exited;
+    await fixture.stop();
+    for (const f of held.splice(0)) f();
+    await fixture.start();
+    const after = await onB();
+    const refused = after.find(j => j.status === 'failed');
+    assert.ok(refused, 'LINE B has a record of the hand-offs that never ran: ' + JSON.stringify(after.map(j => ({ status: j.status, error: j.error }))));
+    const rec = (await fixture.json('GET', '/api/line-jobs/' + refused.id)).body.job;
+    assert.equal(rec.error, 'not sent on: the station stopped before this hand-off ran — send the job again', 'it says why');
+    assert.equal(rec.repeats, 2, 'one record counts both waiting hand-offs');
+    assert.deepEqual(rec.from && rec.from.line, LA, 'from LINE A');
+    for (const id of sent.slice(1)) {
+      const x = (await fixture.json('GET', '/api/line-jobs/' + id)).body.job;
+      assert.ok(x.sentTo && x.sentTo.line === LB && /station stopped before this hand-off ran/.test(x.sentTo.refused || ''), 'each sending job reads NOT sent on, with why: ' + JSON.stringify(x.sentTo));
+    }
+    const first = (await fixture.json('GET', '/api/line-jobs/' + sent[0])).body.job;
+    assert.ok(first.sentTo && first.sentTo.line === LB && !first.sentTo.refused, 'the first job was sent on (its B job ran)');
+    const ran = after.find(j => j.id === first.sentTo.jobId);
+    assert.ok(ran && ran.status === 'interrupted', 'the hand-off that was running is said as interrupted: ' + JSON.stringify(ran && ran.status));
+  } finally {
+    for (const f of held.splice(0)) f();
+    await fixture.dispose();
+    server.closeAllConnections();
+    await new Promise(resolve => server.close(resolve));
+  }
+});

@@ -12078,6 +12078,11 @@ function gracefulShutdown(signal) {
   const deadline = setTimeout(() => { try { console.warn('  · shutdown deadline hit — forcing exit'); } catch (_) {} process.exit(0); }, 3000);
   if (deadline.unref) deadline.unref();
   try { flushVerdictPackets(); } catch (e) { failNote('verdict.packets.shutdown', e); }   // a rating after the restart must still find its packet
+  // SEND TO hand-offs still WAITING in a line's queue live only in memory: each goes through the refusal path NOW, before the runs
+  // are aborted, so the target line gets its "not sent on" record and every sending job reads NOT sent on, with why (wave 2 review,
+  // conveyor-backend-03 — they used to vanish on a restart or an update). lineJobsSet saves synchronously, so the records are on disk
+  // before exit. The one RUNNING is said as interrupted at the next boot (LineJobs.boot). A hard kill skips this path entirely.
+  try { if (handoffRunner) handoffRunner.haltAll('the station stopped before this hand-off ran — send the job again'); } catch (e) { failNote('shutdown.handoffs', e); }
   try { if (typeof cronTimer !== 'undefined' && cronTimer) { clearInterval(cronTimer); } } catch (_) {}
   try { if (typeof nightshiftTimer !== 'undefined' && nightshiftTimer) { clearInterval(nightshiftTimer); } } catch (_) {}   // NS-1: stop the night-shift ticker on shutdown
   try { if (typeof connectorLifecycleTimer !== 'undefined' && connectorLifecycleTimer) { clearInterval(connectorLifecycleTimer); } } catch (_) {}
