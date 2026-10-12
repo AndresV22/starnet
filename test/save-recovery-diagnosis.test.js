@@ -1,6 +1,7 @@
 'use strict';
 const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm');
-const {fnBody}=require('./_assert.js');
+const A=require('./_assert.js');
+const {fnBody}=A;
 const source=fnBody(fs.readFileSync('frontend/app/app.js','utf8'),'function showSaveUnreachableGate');
 const tick=()=>new Promise(r=>setImmediate(r));
 (async()=>{
@@ -16,9 +17,9 @@ const tick=()=>new Promise(r=>setImmediate(r));
  degraded='degraded: crash-loop';next={unknown:true,reason:'unreadable'};
  for(let i=0;i<2;i++){el('btn-unreachable-retry').onclick();await tick();await tick();assert.match(el('unreachable-code').innerHTML,/SAVE-LOOP/,'unchanged authoritative degraded reason still overrides refreshed request diagnosis');}
  for(const [reason,code] of [['degraded: crash-loop <probe> &lt; literal','SAVE-LOOP'],['degraded: owner unavailable <workspace>','SAVE-OWNER'],['degraded: fixture hold','SAVE-DEGRADED']]){
- degraded=reason;el('btn-unreachable-retry').onclick();await tick();await tick();el('btn-unreachable-report').onclick();assert.match(report.kind,new RegExp(code));assert.equal(report.error,reason,'copy receives exact measured reason');assert.ok(!el('unreachable-code').innerHTML.includes('<probe>'),'reason is not interpreted as markup');assert.ok(el('unreachable-code').innerHTML.includes(reason.replace(/&/g,'&amp;').replace(/</g,'&lt;')),'HTML entities remain literal');
+ degraded=reason;el('btn-unreachable-retry').onclick();await tick();await tick();el('btn-unreachable-report').onclick();assert.match(report.kind,new RegExp(code));assert.equal(report.error,reason,'copy receives exact measured reason');A.ok(!el('unreachable-code').innerHTML.includes('<probe>'),'reason is not interpreted as markup');A.ok(el('unreachable-code').innerHTML.includes(reason.replace(/&/g,'&amp;').replace(/</g,'&lt;')),'HTML entities remain literal');
  }
  degraded='';el('btn-unreachable-retry').onclick();await tick();await tick();assert.match(el('unreachable-code').innerHTML,/SAVE-READ/,'cleared degradation reveals latest save result');el('btn-unreachable-report').onclick();assert.match(report.kind,/SAVE-READ/,'copy clears prior degraded diagnosis');
  next={schema:'starnet.save'};el('btn-unreachable-retry').onclick();await tick();assert.equal(reloads,1,'definitive recovered save reloads once');
- console.log('save recovery diagnosis: retry codes, report context, degraded precedence and successful recovery PASS');
+ A.report('save recovery diagnosis: retry codes, report context, degraded precedence and successful recovery');
 })().catch(e=>{console.error(e);process.exitCode=1});
