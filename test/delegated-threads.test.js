@@ -164,6 +164,20 @@ const roster = new Map([['researcher', { system: 'R', name: 'MIRA' }], ['writer'
   const asking = L.lineHtml(running, 'home');
   A.ok(/aria-expanded="true"/.test(asking) && /data-dg-consent="once" data-dg-ws="k1"/.test(asking) && /data-dg-consent="deny" data-dg-ws="k1"/.test(asking), 'a worker waiting on you shows even folded, with Approve and Deny on its row');
   A.ok(!/data-dg-consent="(always|full|session)"/.test(asking), 'a worker row never offers a lead- or station-wide grant');
+  pend.set('home', [{ promptId: 'question-1', tool: 'brief.ask', agentId: 'agent', workerStreamId: 'k1', argsSummary: JSON.stringify({ question: 'Which palette?', options: ['Blue', 'Green'] }) }]);
+  const question = L.lineHtml(running, 'home');
+  A.ok(/data-dg-question="question-1"[^>]*>Answer/.test(question), 'a delegated question links to its exact question card');
+  A.ok(!/data-dg-consent=/.test(question), 'a question never offers approval grades that would discard its answer');
+  let click = null, focused = 0, scrolled = 0;
+  global.document = { addEventListener: (name, fn) => { if (name === 'click') click = fn; }, getElementById: () => null };
+  D.presentFor(); // wire the real delegation click handler without creating a second rendered card
+  const exact = { dataset: { clarifyPrompt: 'question-1' }, scrollIntoView: () => scrolled++, focus: () => focused++ };
+  const unrelated = { dataset: { clarifyPrompt: 'question-2' }, scrollIntoView: () => { throw new Error('wrong question'); } };
+  global.document.getElementById = () => ({ querySelectorAll: () => [unrelated, exact] });
+  const answerKey = { dataset: { dgQuestion: 'question-1' } };
+  click({ target: { closest: selector => selector === '#chat-log [data-dg-question]' ? answerKey : null }, preventDefault() {} });
+  A.eq([scrolled, focused], [1, 1], 'Answer focuses only the exact existing question card and does not submit an approval');
+  global.document = undefined;
   pend.clear(); L.closed.clear(); L.opened.add('b2');
   A.ok(/aria-expanded="true"/.test(L.lineHtml({ lead: 'b2', rows: [running.rows[1]] }, 'home')), 'and opening a settled one too');
   L.seen.add('k2'); L.receipts.set('k2', { status: 'loading', at: Date.now() });

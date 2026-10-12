@@ -22,7 +22,7 @@ const lines = r => r.content.split('\n').filter(Boolean);
 async function fixture() {
   await fsp.mkdir(path.join(WS, 'src', 'gen'), { recursive: true });
   await fsp.mkdir(path.join(WS, 'dist'), { recursive: true });
-  await fsp.mkdir(path.join(WS, 'docs'), { recursive: true });
+  await fsp.mkdir(path.join(WS, 'docs', 'a-first'), { recursive: true });
   await fsp.mkdir(path.join(WS, 'node_modules', 'dep'), { recursive: true });
   await fsp.mkdir(path.join(WS, 'vendor', 'keep'), { recursive: true });
   await fsp.writeFile(path.join(WS, '.gitignore'), [
@@ -37,7 +37,8 @@ async function fixture() {
   await fsp.writeFile(path.join(WS, 'top-only.txt'), 'NEEDLE top\n');
   await fsp.writeFile(path.join(WS, 'docs', 'top-only.txt'), 'NEEDLE nested top-only survives\n');
   await fsp.writeFile(path.join(WS, 'docs', 'scratch.tmp'), 'NEEDLE tmp\n');
-  await fsp.writeFile(path.join(WS, 'docs', 'guide.md'), 'NEEDLE guide\n');
+  await fsp.writeFile(path.join(WS, 'docs', 'guide.md'), 'NEEDLE guide\nSCOPE_MARK requested\n');
+  await fsp.writeFile(path.join(WS, 'docs', 'a-first', 'guide.md'), 'SCOPE_MARK unrelated\n');
   await fsp.writeFile(path.join(WS, 'vendor', 'lib.js'), 'NEEDLE vendored\n');
   await fsp.writeFile(path.join(WS, 'vendor', 'keep', 'ok.js'), 'NEEDLE kept\n');
   await fsp.writeFile(path.join(WS, 'secret1.txt'), 'NEEDLE secret\n');
@@ -71,6 +72,10 @@ async function contract(tools, label) {
   // a FILE as `path` searches exactly that file (the clamp notes say "search" the saved output file) — it used to ENOTDIR
   const one = await tools.searchTool.run({ query: 'NEEDLE', path: 'docs/guide.md', output_mode: 'files_only', limit: 100 }, ctx);
   A.eq(lines(one), ['docs/guide.md'], label + ': a file path searches only that file, never its siblings');
+  const exact = await tools.searchTool.run({ query: 'SCOPE_MARK', path: 'docs/guide.md', output_mode: 'files_only', limit: 100 }, ctx);
+  A.eq(lines(exact), ['docs/guide.md'], label + ': a nested same-name file never contaminates a named-file search');
+  const exactCapped = await tools.searchTool.run({ query: 'SCOPE_MARK', path: 'docs/guide.md', output_mode: 'files_only', max_files: 1 }, ctx);
+  A.eq(lines(exactCapped), ['docs/guide.md'], label + ': unrelated earlier files cannot consume the named-file scan budget');
   const named = await tools.searchTool.run({ query: 'NEEDLE', path: 'build.log', limit: 100 }, ctx);
   A.ok(/NEEDLE logged/.test(named.content), label + ': naming a .gitignored file searches it anyway');
   const oneFiles = await tools.searchTool.run({ query: '*.md', target: 'files', path: 'docs/guide.md', limit: 100 }, ctx);

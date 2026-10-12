@@ -30,6 +30,10 @@ function stubFetch(handler) {
 const jsonResp = (obj, status) => ({ status: status || 200, json: async () => obj, text: async () => JSON.stringify(obj), arrayBuffer: async () => Buffer.alloc(0), headers: { get: () => 'application/json' } });
 const orImage = () => jsonResp({ choices: [{ message: { images: [{ image_url: { url: DATA_URL } }] } }] });
 const oaImage = () => jsonResp({ data: [{ b64_json: PNG_B64 }] });
+const anchorFor = (args, out) => TasteRef.buildRef({ rows: [
+  {role:'assistant',tool_calls:[{id:'anchor',type:'function',function:{name:'image_generate',arguments:JSON.stringify(args)}}]},
+  {role:'tool',tool_call_id:'anchor',content:out.content}
+] });
 const rejects = async (p, re, msg) => { let m = ''; try { await p; } catch (e) { m = String(e && e.message || e); } A.ok(re.test(m), msg + ' (got: ' + m + ')'); };
 
 (async () => {
@@ -65,6 +69,10 @@ const rejects = async (p, re, msg) => { let m = ''; try { await p; } catch (e) {
     // the design anchor reads the call back: the reference arg is captured with the render
     const rows = [{ role: 'assistant', tool_calls: [{ id: 'c1', type: 'function', function: { name: 'image_generate', arguments: JSON.stringify({ prompt: 'a candle shop banner', reference: 'images/approved.png', aspect_ratio: '16:9' }) } }] }, { role: 'tool', tool_call_id: 'c1', content: out.content }];
     A.eq(TasteRef.imageCalls(rows)[0].reference, 'images/approved.png', 'tasteref pairs the reference with the saved render');
+    const actual = anchorFor({prompt:'a candle shop banner',reference:'images/approved.png',aspect_ratio:'16:9'}, out);
+    A.eq(actual.images[0].aspect, '1x1', 'the anchor records the saved square bytes, not the requested wide shape');
+    A.ok(!/matching images/.test(TasteRef.refLine(actual,0)), 'sending a reference does not prove the model matched it');
+
     // a GIF is fine on this route
     const g = stubFetch(() => orImage());
     await makeImageTools({ openrouter: { apiKey: 'sk' }, fsp, pathMod: path, root: ROOT, fetchImpl: g }).generateTool.run({ prompt: 'x', reference: 'images/anim.gif' }, ctx);
@@ -118,12 +126,18 @@ const rejects = async (p, re, msg) => { let m = ''; try { await p; } catch (e) {
     const img = form.get('image');
     A.ok(img && img.type === 'image/png' && img.size === refBytes.length && img.name === 'reference.png', 'the reference file is the image part');
     A.ok(/Reference: images\/approved\.png was sent/.test(out.content), 'reported as sent');
+    const opaque = anchorFor({prompt:'a fox logo',reference:'images/approved.png',transparent:true,aspect_ratio:'portrait'},out);
+    A.ok(/NOT TRANSPARENT|Transparency NOT verified/.test(out.content), 'the saved bytes do not prove transparent output');
+    A.ok(!opaque.images[0].transparent && !/, transparent/.test(TasteRef.refLine(opaque,0)), 'the design anchor does not promote the transparency request into an observed property');
+
     // a base URL that does not serve /images/edits: rendered from the prompt alone, and said so
     const g = stubFetch(url => url.endsWith('/images/edits') ? jsonResp({ error: { message: 'Not found' } }, 404) : oaImage());
     const fb = await makeImageTools({ openrouter: { apiKey: 'oa-key', provider: 'openai', protocol: 'openai-images', baseUrl: 'http://127.0.0.1:9/v1' }, fsp, pathMod: path, root: ROOT, fetchImpl: g }).generateTool.run({ prompt: 'a fox logo', reference: 'images/approved.png' }, ctx);
     A.eq(g.calls.map(c => c.url.replace(/^.*\/images\//, '')), ['edits', 'generations'], 'edits 404 -> one plain generation');
     A.eq(g.calls[1].body, { model: 'gpt-image-2', prompt: 'a fox logo', size: '1024x1024' }, 'the fallback is the ordinary request (no reference text pretending)');
     A.ok(/\nReference NOT used: this connection has no image-edit endpoint \(http 404\), so this image was rendered from the prompt alone\. Do not describe it as matching images\/approved\.png\./.test(fb.content), 'the result says the reference was NOT used: ' + fb.content);
+    const dropped = anchorFor({prompt:'a fox logo',reference:'images/approved.png'},fb);
+    A.ok(!dropped.images[0].reference && !/approved.png|matching/.test(TasteRef.refLine(dropped,0)), 'the saved anchor omits a reference the route could not send');
     // a refusal is not a missing endpoint: it fails like any render
     const h = stubFetch(url => url.endsWith('/images/edits') ? jsonResp({ error: { message: 'content policy' } }, 400) : oaImage());
     await rejects(makeImageTools({ openrouter: { apiKey: 'oa-key', provider: 'openai', protocol: 'openai-images' }, fsp, pathMod: path, root: ROOT, fetchImpl: h }).generateTool.run({ prompt: 'x', reference: 'images/approved.png' }, ctx), /OpenAI 400: content policy/, 'an edits refusal propagates');

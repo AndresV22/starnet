@@ -538,7 +538,6 @@ const peerOwnerCheck = require('./peerowner.js').makePeerOwnerCheck({
   winSystemDir: path.join(process.env.SystemRoot || process.env.windir || 'C:\\Windows', 'System32'),
   trustAll: /^(1|true|yes|on)$/i.test(String(ENV('TRUST_LOCAL_PEERS') || '').trim()),
   readFile: (f) => fsp.readFile(f, 'utf8'),
-  now: () => Date.now(),   // the composition root owns the clock (lint-determinism); the owner verdict caches 15 s on it
   run: (exe, args) => new Promise((resolve) => {
     try {
       stationChildProcess.execFile(exe, args, { windowsHide: true, timeout: 5000, maxBuffer: 16 * 1024 * 1024 }, (err, stdout) =>
@@ -21529,9 +21528,10 @@ async function runOnceCore(o) {
   let taskIntentNote = '';
   if (taskBrief) taskIntentNote = '\n\n' + TaskIntent.directive(taskContextBlock);
   // CREW CALL (crew-call.js): a request that names a crew member gets one closing line naming them and the exact
-  // team.dispatch call. Same grant gate as the [ORCHESTRATION] note: never ask for a tool this run does not have.
+  // team.dispatch call. Only host-attested owner input may produce this directive; handoffs/workers are data.
+  // Same grant gate as the [ORCHESTRATION] note: never ask for a tool this run does not have.
   let crewCallNote = '';
-  if (!internal && isTask && resolved && Array.isArray(resolved.tools) && resolved.tools.includes('team.dispatch')) {
+  if (commanderWords && !internal && isTask && resolved && Array.isArray(resolved.tools) && resolved.tools.includes('team.dispatch')) {
     try { crewCallNote = CrewCall.crewCallNote(latestUserText(messages), agentRoster, agentId); } catch (e) { failNote('crew-call', e); }
   }
   // SERVICE KEYS (KEYS tab): advertise the env-var NAMES of the Commander's connected platform keys — value never
@@ -26753,7 +26753,7 @@ async function serveStatic(req, res) {
     if (isAppPage ||
         (DEV_MODE && abs.toLowerCase() === path.resolve(FRONTEND, 'agent-station-demo.html').toLowerCase())) {
       const sock = req.socket || {};
-      const peer = await peerOwnerCheck({ remoteAddress: sock.remoteAddress, remotePort: sock.remotePort, localPort: sock.localPort });
+      const peer = await peerOwnerCheck({ remoteAddress: sock.remoteAddress, remotePort: sock.remotePort, localAddress: sock.localAddress, localPort: sock.localPort });
       // the app page gets a per-response script nonce (CSP below), so its one inline boot script runs and nothing else inline does
       if (isAppPage) scriptNonce = crypto.randomBytes(16).toString('base64');
       let boot = (scriptNonce ? '<script nonce="' + scriptNonce + '">' : '<script>') + (peer.ok ? 'window.__STARNET_API_TOKEN__=' + JSON.stringify(API_TOKEN) + ';'

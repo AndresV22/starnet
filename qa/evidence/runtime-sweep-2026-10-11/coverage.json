@@ -1,0 +1,224 @@
+{
+  "date": "2026-10-11",
+  "lane": "agent/runtime-triage-1011",
+  "lineage": {
+    "releasedSource": "54899e5ff3f2b002b457757916b3977818db6fc1",
+    "priorTrunk": "ddd4cbcfa66f496960d57a0b8b64390d08442d92",
+    "alignedBaseline": "a20ffa71fd04691805ea55c7d08165438dd7ac6f",
+    "candidate": "f7553cd3e19a00873cf702913da85358e2181303",
+    "note": "The a20 snapshot contains 175 commits beyond the previous efed candidate. Existing fixes were reconciled by Git objects; no other agent worktree was opened or edited.",
+    "liveFixtureCommit": "961f3ea2525b13040a46a4ece618ad6f27db2fc8",
+    "rootIntegratedCandidateAtFirstReview": "dc891445d"
+  },
+  "findings": [
+    {
+      "severity": "P1",
+      "slug": "peer-owner-matches-unrelated-loopback-sockets",
+      "fix": "f7553cd3e19a00873cf702913da85358e2181303",
+      "proof": "Injected production owner factory and OS row parsers; Linux stage 6 failures, Darwin/Windows stage 5 failures before repair; final 45 injected assertions pass. Post-fix complete Windows test passes46 including real OS child-process ownership. Real production sidecar page/API security suite passes35. Independent review then reproduced positive Windows PID-cache reuse: exact new socket mapped to a recycled4242 PID and incorrectly inherited prior same-user verdict within15s. New tests fail4/45pass before the cache repair; after removing the cache all49 pass including native Windows child. Real sidecar security35 passes again.",
+      "source": [
+        "sidecar/peerowner.js:45",
+        "sidecar/peerowner.js:79",
+        "sidecar/peerowner.js:109",
+        "sidecar/peerowner.js:123",
+        "sidecar/index.js:26755"
+      ],
+      "limitations": [
+        "No native Linux: WSL not installed. No native macOS or cross-user token-page attack performed.",
+        "No installed artifact acceptance.",
+        "OS PID reuse was simulated with injected production lookups; no native cross-user PID-recycling exploit attempted."
+      ],
+      "fixChain": [
+        "9aee8e7fcd8a27f57ceb3900af8c8eace55d5f3c",
+        "f7553cd3e19a00873cf702913da85358e2181303"
+      ]
+    },
+    {
+      "severity": "P2",
+      "slug": "named-file-search-returns-nested-namesakes",
+      "fix": "15c01f97bc930032f7a4e17c79d7481fa1be4ac8",
+      "proof": "Actual filesystem walker and ripgrep 15.1: 6 assertions failed before, 77 pass after. Jail 125 and pathtrust 73 pass. Extended project-parked-output.e2e uses real sidecar, native tool registry, trusted project and mock provider: final fixture fails3 with historical fs.js, passes15 with repaired source.",
+      "source": [
+        "sidecar/tools/builtin/fs.js:998",
+        "sidecar/tools/builtin/fs.js:1026",
+        "sidecar/tools/builtin/fs.js:1043",
+        "sidecar/tools/builtin/fs.js:1104",
+        "sidecar/tools/builtin/fs.js:1115"
+      ],
+      "limitations": [
+        "Installed native app and customer workflow acceptance remain unverified; real sidecar proof uses synthetic data and a mock provider."
+      ]
+    },
+    {
+      "severity": "P2",
+      "slug": "revoked-speech-synthesis-publishes-stale-audio",
+      "fix": "1d1a89980717271a2dbbc627088dca2f1c25c1ba",
+      "proof": "Full regression replay against baseline module: 9 fail / 19 pass; fixed module: 28 pass. Root ran existing broad voice suite on dc891445d: 103 pass.",
+      "source": [
+        "sidecar/remote/voice.js:281",
+        "sidecar/remote/voice.js:372",
+        "sidecar/remote/voice.js:375",
+        "sidecar/remote/voice.js:394",
+        "sidecar/remote/voice.js:422"
+      ],
+      "limitations": [
+        "Already-started provider synthesis cannot be retroactively cancelled/unbilled by this module.",
+        "No native audio or physical companion device acceptance."
+      ]
+    }
+  ],
+  "focusedTests": [
+    {
+      "test": "test/peerowner.test.js",
+      "assertions": 49,
+      "scope": "All injected cases, recycled-PID refusal and real Windows loopback child process on f7553cd3e; no cross-user session available."
+    },
+    {
+      "test": "test/fs.search-gitignore.test.js",
+      "assertions": 77,
+      "scope": "Actual temporary files, actual ripgrep and walker"
+    },
+    {
+      "test": "test/fs.jail.test.js",
+      "assertions": 125
+    },
+    {
+      "test": "test/pathtrust.test.js",
+      "assertions": 73
+    },
+    {
+      "test": "test/remote-voice-ownership.test.js",
+      "assertions": 28
+    },
+    {
+      "test": "test/remote-voice.test.js",
+      "assertions": 103,
+      "source": "dc891445d",
+      "runner": "root lane",
+      "log": ".deep-sweep/remote-voice-broad.log"
+    },
+    {
+      "test": "test/routing.handoff.test.js",
+      "assertions": 75
+    },
+    {
+      "test": "test/chain-audit-1010.test.js",
+      "assertions": 43
+    },
+    {
+      "test": "test/overseer-batch.test.js",
+      "assertions": 20
+    },
+    {
+      "test": "test/consentwait.test.js",
+      "assertions": 27
+    },
+    {
+      "test": "test/sidecar.security.test.js",
+      "assertions": 35,
+      "scope": "Real isolated sidecar page/token/API boundary on Windows, repeated after cache removal on f7553cd3e."
+    },
+    {
+      "test": "test/project-parked-output.e2e.test.js",
+      "assertions": 15,
+      "scope": "Real sidecar/provider/native tool project run; 3 failures/12 passes with historical fs.js, repaired source15pass; fixture commit961f3ea2525b13040a46a4ece618ad6f27db2fc8."
+    },
+    {
+      "test": "test/loops-endurance.e2e.test.js",
+      "assertions": 27,
+      "scope": "Observer-preloaded run; original12second startup threshold unchanged."
+    },
+    {
+      "test": "test/loops-stall.e2e.test.js",
+      "assertions": 38,
+      "scope": "Observer-preloaded run; all original thresholds and behavior unchanged."
+    }
+  ],
+  "reviewedSeams": [
+    {
+      "paths": [
+        "sidecar/routing/chain.js",
+        "sidecar/routing/handoff-runner.js",
+        "sidecar/routing/linejobs.js",
+        "sidecar/routing/router.js"
+      ],
+      "alignment": "Integrated Claude splitter, SEND TO and stop/deleted-target receipts: a783de82e, 9696a762d, 387c73fef, 1428c8b11. No duplicate implementation. Focused chain/handoff tests passed; full live matrix still owned by root."
+    },
+    {
+      "paths": [
+        "sidecar/consentwait.js",
+        "sidecar/index.js",
+        "sidecar/tools/builtin/orchestration.js"
+      ],
+      "alignment": "Delegated worker thread work and builder lending now integrated: 9aace0349, 86b1ddc9c, e0c115ac0, 312499626. Interactive-only askCommander injection is intentional; autonomous worker brief.ask has durable fallback, not an independently established missing-hook bug."
+    },
+    {
+      "paths": [
+        "sidecar/peerowner.js",
+        "sidecar/pathtrust.js",
+        "sidecar/tools/builtin/fs.js",
+        "sidecar/lsp-manager.js",
+        "sidecar/configexport.js"
+      ],
+      "alignment": "Reviewed current authority boundaries and changes, including existing Rust analyzer watched-run restriction 189b16f9a; repaired exact socket ownership and exact file search only. Native security matrix remains incomplete."
+    },
+    {
+      "paths": [
+        "sidecar/remote/voice.js",
+        "sidecar/remote/gateway.js",
+        "sidecar/remote/host.js",
+        "sidecar/remote/relay-client.js"
+      ],
+      "alignment": "New companion speech/breath synthesis and relay reconnect source recovered in a20. Stale async voice ownership repaired; no physical relay/device claim."
+    },
+    {
+      "paths": [
+        "sidecar/workspace-recovery.js",
+        "sidecar/station-recovery.js",
+        "sidecar/checkpoint-store.js",
+        "sidecar/checkpoint-git.js"
+      ],
+      "alignment": "Existing issue101/107 candidates remain in ancestry. Connector fsync/preserved-copy repairs in a20 are distinct from complete checkpoint-history preservation. Native update/reset/packaging review belongs to root."
+    }
+  ],
+  "coverageGaps": [
+    {
+      "area": "SEND TO sender terminal proof",
+      "status": "Review hypothesis only",
+      "detail": "Missing/throwing run-history lookup and an empty sender run set merit explicit fail-closed contract review. No normal live path reproduced; do not claim a confirmed defect."
+    },
+    {
+      "area": "Line job persistence under disk failure",
+      "status": "Unproven fault boundary",
+      "detail": "In-memory job/update handling can outlive persistence failure. Requires controlled disk-failure and restart proof before selecting a repair."
+    },
+    {
+      "area": "Webhook and queued handoff durability",
+      "status": "Known contract gap / product scope",
+      "detail": "Webhook queue explicitly returns durable:false. SEND TO pending handoff restart semantics require a separate product contract; not silently promoted to durable."
+    },
+    {
+      "area": "Native peer ownership",
+      "status": "Windows same-user path verified; cross-platform/cross-user pending",
+      "detail": "49assertions include real Windows owner child and injected recycled-PID refusal;35real sidecar page/API assertions pass after cache removal. Linux/macOS OS visibility and foreign-user/PID-reuse behavior need native acceptance."
+    },
+    {
+      "area": "HTTP lifecycle gate",
+      "status": "Failed/incomplete earlier run, cause unproved",
+      "detail": "loops-endurance readiness timed out at explicit12s before behavior; loops-stall fetch failed after admission with cause omitted. Unchanged focused reruns passed27 and38 but do not establish cause or whole-gate success. Host memory pressure was observed afterward, not proved causal. New controlled observer runs passed27/38 with all boot-ready observations below1second and no non-health fetch errors. These are isolated runs under different host conditions, not proof of the original failure cause or a full gate pass."
+    },
+    {
+      "area": "Full combined verification",
+      "status": "Root-owned pending",
+      "detail": "No full fast/http rerun from this lane. No installer, customer recovery, destructive user-station reset or paid provider acceptance claim."
+    }
+  ],
+  "diagnosticObserver": {
+    "file": "qa/evidence/runtime-sweep-2026-10-11/http-lifecycle-preload.cjs",
+    "status": "Syntax checked and executed for both focused fixtures; original thresholds unchanged.",
+    "usage": "Set STARNET_TEST_DIAG_FILE to an owned JSONL output, then node --require ./qa/evidence/runtime-sweep-2026-10-11/http-lifecycle-preload.cjs test/loops-stall.e2e.test.js (or loops-endurance).",
+    "scope": "Records child spawn/exit/output milestones, nested fetch cause, monotonic timing and memory. No deadlines, retries, new requests, child cleanup, or production behavior changes.",
+    "results": "qa/evidence/runtime-sweep-2026-10-11/lifecycle-observation.json"
+  },
+  "issueReconciliation": "qa/evidence/runtime-sweep-2026-10-11/issues.json"
+}

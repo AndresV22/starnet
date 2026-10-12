@@ -1,0 +1,231 @@
+{
+  "baseline": "a20ffa71fd04691805ea55c7d08165438dd7ac6f",
+  "issueState": "All GitHub issues remain open and unchanged per root refresh; no GitHub writes.",
+  "rows": [
+    {
+      "number": 101,
+      "status": "source-repaired-live-synthetic-recovery-proven",
+      "alignedDelta": "553cfa55 repairs erase marker authority; a20 retains it. Native install-root deletion policy intentionally unchanged.",
+      "evidence": [
+        "553cfa55d45afca1b588cb0b82219d6bb5673cab",
+        "test/workspace-recovery-fresh-start.test.js: 59 assertions",
+        "test/workspace-recovery-fresh-start.http.test.js: 18 live synthetic boot/restart/explicit restore assertions",
+        "qa/bugs/5451970e-erase-everything-resurrects-an-acknowledged-lega.md"
+      ],
+      "nextAction": "Verify exact Windows installer erase and restart with retained legacy data, then obtain reporter retest.",
+      "limitations": "Installed artifact acceptance and customer recovery remain unverified; GitHub issue remains open."
+    },
+    {
+      "number": 104,
+      "status": "source-repaired-local-browser-and-native-tool-proven",
+      "alignedDelta": "Upload authority and precise input/readback receipts now integrated; file selection proof is not remote site acceptance.",
+      "evidence": [
+        "611176616",
+        "qa/evidence/browser-upload-104/receipts.json",
+        "test/browser-upload.test.js",
+        "sidecar/tools/builtin/browser-upload.js"
+      ],
+      "nextAction": "Verify original unsaved Etsy flow against intended input and remote attachment receipt; no publish action is implied.",
+      "limitations": "Installed artifact acceptance and customer recovery remain unverified; GitHub issue remains open."
+    },
+    {
+      "number": 105,
+      "status": "open-subscription-overhead",
+      "alignedDelta": "a20 did not change the Claude CLI adapter; learned dossier/fork prefix and auxiliary admission mechanisms remain. Related comparison audit is not a remediation.",
+      "evidence": [
+        "sidecar/providers/claude-cli.js:174",
+        "frontend/app/app.js:394",
+        "frontend/app/app.js:401",
+        "sidecar/index.js:2961",
+        "sidecar/index.js:21937",
+        "sidecar/index.js:22294"
+      ],
+      "nextAction": "Measure per-parent main/aux/internal cache read/write/output tokens, then implement bounded token-based background budgets and cache stability without reducing capabilities. Keep PR103 separate.",
+      "limitations": "No new paid/subscription measurements; proxy weighted tokens do not prove actual subscription billing."
+    },
+    {
+      "number": 97,
+      "status": "open-webhook-lifecycle-contract",
+      "alignedDelta": "a20 still returns queued admission with durable:false. In-memory queue and dispatch-created stream identity remain.",
+      "evidence": [
+        "sidecar/index.js:12780",
+        "sidecar/routing/trigger-runner.js"
+      ],
+      "nextAction": "Define trigger-scoped durable job identity, bounded idempotency retention/conflicting payload behavior, authenticated status/cancel and restart semantics, then test duplicate/concurrent/restart delivery.",
+      "limitations": "Source contract gap confirmed; no new external webhook effects or reporter reproduction."
+    },
+    {
+      "number": 96,
+      "status": "source-present-in-published-ancestry",
+      "alignedDelta": "Existing /v1 and ACP task-tool repair remains; no a20 adapter change implies additional acceptance.",
+      "evidence": [
+        "6f2c1dc41",
+        "8a768f580",
+        "sidecar/openai-compat.js",
+        "sidecar/acp/serve.js"
+      ],
+      "nextAction": "Run installed sync/stream/roster and ACP permitted tool/default-deny matrix.",
+      "limitations": "Installed artifact acceptance and customer recovery remain unverified; GitHub issue remains open."
+    },
+    {
+      "number": 91,
+      "status": "partial-capture-source-present-complete-preservation-unproved",
+      "alignedDelta": "Unreadable-entry skip/manifest remains. a20 connector fsync and preserved credential copies are a different store lifecycle; issue101/107 repairs do not restore unreadable checkpoint bytes.",
+      "evidence": [
+        "fd953e9d9",
+        "f9ff069b7",
+        "10a98eb44",
+        "test/station-recovery-unreadable.test.js: earlier 36 assertions",
+        "sidecar/station-recovery.js"
+      ],
+      "nextAction": "Use read-only diagnosis and nondestructive preservation of original checkpoint data; enumerate original/restored refs and records in isolated restore. Supply truthful partial-capture runbook.",
+      "limitations": "Original Windows reparse entry not inspected; no full-history or installed recovery claim. Do not prescribe GC/reinitialization/deletion as its resolution."
+    },
+    {
+      "number": 88,
+      "status": "source-present-in-published-ancestry",
+      "alignedDelta": "Project media resolver remains; a20 producer-location handoff 1428c8b11 strengthens line-to-line file references.",
+      "evidence": [
+        "63607af5c",
+        "694fbb880",
+        "127b6efc5",
+        "1428c8b11",
+        "test/media-project-placement.test.js: earlier 22 assertions",
+        "test/conveyor-image-handoff.test.js: earlier 14 assertions"
+      ],
+      "nextAction": "Retest original Creator to shared project to QA flow and cross-line producer path on installed app with read/write trust.",
+      "limitations": "Installed artifact acceptance and customer recovery remain unverified; GitHub issue remains open."
+    },
+    {
+      "number": 82,
+      "status": "source-present-in-published-ancestry",
+      "alignedDelta": "options.all DNS callback behavior remains correct at a20; no new web-tool repair required.",
+      "evidence": [
+        "d1e3d43f3 ancestor of54899e5ff",
+        "sidecar/tools/builtin/web.js:484"
+      ],
+      "nextAction": "Run representative direct fetch/request with bundled Node on affected network, including IPv6-unavailable fallback.",
+      "limitations": "Installed artifact acceptance and customer recovery remain unverified; GitHub issue remains open."
+    },
+    {
+      "number": 77,
+      "status": "media-source-repair-shell-policy-gap",
+      "alignedDelta": "Media authority remains repaired. New delegated builder lending enables one worker map/plan/build; it does not grant autonomous Ask-mode shell.",
+      "evidence": [
+        "63607af5c",
+        "c9724adbd",
+        "86b1ddc9c",
+        "sidecar/tools/builtin/orchestration.js"
+      ],
+      "nextAction": "Verify truthful withheld-shell explanation and project media handoff; explicit product decision required to change autonomous shell policy.",
+      "limitations": "Requested worker shell authority is intentionally absent. Builder lending does not satisfy that request."
+    },
+    {
+      "number": 68,
+      "status": "cache-prefix-source-present-persistent-cli-pr-open",
+      "alignedDelta": "a20 keeps stable-prefix split, but still spawns CLI child per stream and replays growing transcript. PR103 remains unintegrated per root refresh.",
+      "evidence": [
+        "b6a9a5cfa",
+        "sidecar/providers/claude-cli.js",
+        "PR103 head9a1cd208cd523971812239db92270b6678aab68a"
+      ],
+      "nextAction": "Review PR103 session identity, cancellation, child lifetime, model/tool changes and delta usage accounting; compare identical cold/warm/multi-tool workloads.",
+      "limitations": "No new subscription measurements; reporter already tested PR103 for105, so it cannot close105."
+    },
+    {
+      "number": 60,
+      "status": "project-binding-source-present-with-additional-parked-path-repair",
+      "alignedDelta": "Earlier project-root writes/guidance remain. a20 contains4a4dc6908 parked output pointer and file-path search repair (gauntlet G1); current15c01f97b closes nested same-name exact-file edge.",
+      "evidence": [
+        "a4d99ad63",
+        "af5559568",
+        "4a4dc6908",
+        "test/project-parked-output.e2e.test.js",
+        "15c01f97bc930032f7a4e17c79d7481fa1be4ac8",
+        "test/fs.search-gitignore.test.js:77 assertions"
+      ],
+      "nextAction": "Verify saved INBOX/conversation project binding, shell/fs/downstream matching paths and exact-file search in installed workflow. Folder trust alone is not project binding.",
+      "limitations": "Installed artifact acceptance and customer recovery remain unverified; GitHub issue remains open."
+    },
+    {
+      "number": 58,
+      "status": "source-present-in-published-ancestry",
+      "alignedDelta": "Toolset normalization/load-time repair and direct-domain web_request advertisement remain.",
+      "evidence": [
+        "44284394f",
+        "3e6587990",
+        "24cc5b60f",
+        "ed3efc9b0",
+        "6fb908d15",
+        "test/routine-toolsets.test.js: earlier52 assertions"
+      ],
+      "nextAction": "Retest pre-upgrade saved routine via Run Now and scheduler with both execution profiles.",
+      "limitations": "Installed artifact acceptance and customer recovery remain unverified; GitHub issue remains open."
+    },
+    {
+      "number": 57,
+      "status": "source-present-plus-new-delegation-and-thread-repairs",
+      "alignedDelta": "Beyond published durable subagent history, a20 adds named-agent dispatch, durable worker conversations, one report per dispatch and worker attribution. These were previously pending Claude work.",
+      "evidence": [
+        "cd3920185",
+        "9aace0349",
+        "720f5438d",
+        "e0c115ac0",
+        "e30096700",
+        "9965269cd",
+        "312499626",
+        "test/delegated-threads.test.js",
+        "test/threads.e2e.test.js"
+      ],
+      "nextAction": "Replay Telegram lead to named Strategist; correlate returned runId, durable worker thread, lead session, target Dossier and parent attribution after restart.",
+      "limitations": "New source/tests do not establish reporter recovery. Background registry absence alone is not proof no foreground dispatch ran."
+    },
+    {
+      "number": 53,
+      "status": "mitigation-source-present-original-charge-unexplained",
+      "alignedDelta": "a20 retains default2USD managed per-run reserve; no budgetcaps adapter change resolves original charge accounting.",
+      "evidence": [
+        "65e281d15",
+        "sidecar/budgetcaps.js",
+        "test/budget-caps.test.js: earlier77 assertions"
+      ],
+      "nextAction": "Reconcile original sanitized run/provider/reservation/settlement/refund rows; test successful/error/cancel/restart settlement before accounting claims.",
+      "limitations": "No account data, paid calls, financial conclusion or customer recovery proof."
+    },
+    {
+      "number": 46,
+      "status": "partially-superseded-feature-proposal",
+      "alignedDelta": "Claude CLI provider exists. a20 adds companion hear/speak/speech and relay reconnect behavior; this is distinct from original external Claude-session floor crew and arbitrary remote-host proposal.",
+      "evidence": [
+        "sidecar/providers/claude-cli.js",
+        "ddb6d413c",
+        "8509b61f1",
+        "sidecar/remote/host.js",
+        "sidecar/remote/voice.js"
+      ],
+      "nextAction": "Reconcile provider portion/stale PR41 separately; specify external crew and remote-host authority/security scope before treating original proposal implemented.",
+      "limitations": "No external crew fork integration or native phone/device acceptance. Companion source does not prove original proposal complete."
+    },
+    {
+      "number": 69,
+      "status": "pacing-and-navigation-source-present-overnight-growth-unproved",
+      "alignedDelta": "All previously pending nav-lag commits7688999fa/37b595d21/b38ef4cf6 are ancestors ofa20, alongside30fps/5fps pacing.",
+      "evidence": [
+        "b61d37a9d",
+        "8337026c2",
+        "d53fa997f",
+        "7688999fa",
+        "37b595d21",
+        "b38ef4cf6",
+        "test/render-pacing.test.js"
+      ],
+      "nextAction": "Run installed WebView2 24-hour controlled7-agent/8-routine soak with focused/unfocused rendering, GPU/private memory, resource counts and input latency.",
+      "limitations": "No native soak or retained-resource cause proved; pacing/latency repairs do not prove overnight memory growth fixed."
+    }
+  ],
+  "gauntlet": {
+    "G1": "Parked path source repair4a4dc6908 and project-parked-output.e2e already integrated; exact-file namesake edge additionally repaired15c01f97b.",
+    "G2": "Measurements remain separate; no new performance billing/soak proof.",
+    "G3": "Product decision remains separate; no scope silently declared implemented."
+  }
+}

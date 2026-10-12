@@ -50,6 +50,23 @@ const now = 1_000_000;
   A.eq(s.nextCheckAt, now + U.RETRY_MAX_MS, 'retry delay caps');
 }
 
+// A remembered update may bypass the steady interval, never a failed-check retry deadline.
+{
+  let s = U.recordCheckResult({}, { update: { version: '0.13.2' } }, now);
+  const runtime = { desktop: true, phase: 'error', hasUpdate: false, currentVersion: '0.13.1' };
+  for (let attempt = 1; attempt <= 7; attempt++) {
+    s = U.recordCheckError(s, now);
+    const waiting = U.nextAction({ settings: s, runtime, now: s.nextCheckAt - 1 });
+    A.eq(waiting.action, 'noop', 'known update respects retry deadline on failure ' + attempt);
+    A.eq(waiting.nextAt, s.nextCheckAt, 'retry preserves exponential deadline ' + attempt);
+    A.eq(U.nextAction({ settings: s, runtime, now: s.nextCheckAt }).action, 'check', 'retry resumes exactly at deadline ' + attempt);
+  }
+  A.eq(U.nextAction({ settings: U.hydrateSettings(JSON.parse(JSON.stringify(s))), runtime: { ...runtime, phase: 'idle' }, now }).action,
+    'noop', 'restart preserves failed-check backoff');
+  s = U.recordCheckResult(s, { update: { version: '0.13.2' } }, now);
+  A.eq(U.nextAction({ settings: s, runtime, now }).reason, 'known-update', 'successful checks permit immediate rearming again');
+}
+
 // ---- notification loop: once per version, critical bypasses skips/reminders ----
 {
   let s = U.hydrateSettings(null);

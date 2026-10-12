@@ -7,7 +7,7 @@
 
      paths    the deliverables the run wrote / edited / generated (runstore `artifacts`, harness-observed)
      images   each SUCCESSFUL image_generate call: its prompt, the model that RENDERED it (read back from the tool's own
-              "Generated and saved … model X" line, never the requested one), the shape asked for, transparency, and
+              "Generated and saved … model X" line, never the requested one), the reported saved shape, verified transparency, and
               any reference image it matched (the run's transcript rows: tool_call arguments paired with the result)
      palette  the dominant colours IN the deliverable files (hex / rgb() / hsl(); a CSS custom property counts extra,
               it is a design token), by frequency
@@ -144,7 +144,7 @@ function contentText(c) {
   if (Array.isArray(c)) return c.map(p => (p && typeof p.text === 'string') ? p.text : '').join(' ');
   return '';
 }
-const SAVED = /Generated and saved (.+?) \(\d+ KB, [^,]+, model ([^,)\s]+)/;
+const SAVED = /^Generated and saved (.+?) \(\d+ KB, [^,]+, model ([^,)\s]+)([^\n]*)/;
 // -> [{ path, prompt, model, aspect, transparent, reference }] for every image_generate call whose result says it SAVED
 function imageCalls(rows) {
   const byId = new Map(), order = [];
@@ -172,10 +172,15 @@ function imageCalls(rows) {
     const m = SAVED.exec(str(rec.result));
     if (!m) continue;   // failed / refused / unanswered: it made nothing
     const a = rec.args;
-    const w = Number(a.width) || 0, h = Number(a.height) || 0;
-    const aspect = clean(a.aspect_ratio, 20) || (w && h ? w + 'x' + h : '');
-    const transparent = a.transparent === true || /Transparent background verified/.test(str(rec.result));
-    out.push({ path: clean(m[1], PATH_CHARS), prompt: clean(a.prompt, PROMPT_CHARS), model: clean(m[2], 60), aspect, transparent, reference: clean(a.reference, PATH_CHARS) });
+    // Receipt fields describe the saved output. Args describe intentions that a provider may ignore.
+    // A model's optional caption is not a host receipt and cannot attest these properties.
+    const receipt = str(rec.result).split('\nModel note:')[0];
+    const fitted = / fitted to (\d+x\d+)/.exec(m[3]);
+    const shape = /^, (\d+(?::|x)\d+)/.exec(m[3]);
+    const aspect = fitted ? fitted[1] : shape ? shape[1] : '';
+    const transparent = /^Transparent background verified in the saved file:/m.test(receipt);
+    const reference = /^Reference: (.+) was sent to the model as the style to match\.$/m.exec(receipt);
+    out.push({ path: clean(m[1], PATH_CHARS), prompt: clean(a.prompt, PROMPT_CHARS), model: clean(m[2], 60), aspect, transparent, reference: reference ? clean(reference[1], PATH_CHARS) : '' });
   }
   return out;
 }
@@ -220,7 +225,8 @@ function buildRef(input) {
   const style = styleSpec(input.files);
   const tools = methodOf(input.toolTrace);
   if (!paths.length && !images.length && !style.palette.length && !style.fonts.length && !tools) return null;
-  const ref = { v: 1 };
+  // v1 copied requested shape/alpha/reference. v2 derives those fields from the saved receipt.
+  const ref = { v: 2 };
   if (paths.length) ref.paths = paths;
   if (images.length) ref.images = images;
   if (style.palette.length) ref.palette = style.palette;
@@ -235,8 +241,9 @@ function buildRef(input) {
    agent whose prompt this is: files in ANOTHER agent's private workspace are tagged [<agent> workspace] — that agent's
    jail, which this one cannot open, so it matches them from the line instead of failing a read. */
 function tailClip(p, n) { const t = str(p); return t.length > n ? '…' + t.slice(t.length - n + 1) : t; }
-function imageBit(im) {
-  const how = [im.model, im.aspect, im.transparent ? 'transparent' : '', im.reference ? 'matching ' + im.reference : ''].filter(Boolean).join(', ');
+function imageBit(im, receiptBacked) {
+  // Old records still point to useful files/prompts, but their requested-only properties are unproved.
+  const how = [im.model, receiptBacked ? im.aspect : '', receiptBacked && im.transparent ? 'transparent' : '', receiptBacked && im.reference ? 'reference sent: ' + im.reference : ''].filter(Boolean).join(', ');
   return 'image' + (im.prompt ? ' "' + im.prompt + '"' : '') + (how ? ' (' + how + ')' : '');
 }
 function refLine(ref, level, viewer) {
@@ -261,7 +268,7 @@ function refLine(ref, level, viewer) {
   }
   if (palette.length) bits.push('palette ' + palette.join(' '));
   if (fonts.length) bits.push('fonts ' + fonts.join(', '));
-  for (const im of images) bits.push(imageBit(im));
+  for (const im of images) bits.push(imageBit(im, ref.v >= 2));
   if (tools) bits.push('via ' + tools);
   return (paths.length ? ' → ' + where + paths.join(', ') : '') + (bits.length ? ' · ' + bits.join(' · ') : '');
 }
