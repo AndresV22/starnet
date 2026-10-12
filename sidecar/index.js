@@ -189,6 +189,7 @@ const kimiRegion = require('./providers/kimi-region.js');
 const { effectiveModel: resolveEffectiveModel, effectiveUsd, effectiveRunUsd } = require('./spend.js');
 const { makeEmitter } = require('../shared/emitter.js');
 const { redact, setKnownSecretSource, renderRecall, injectRecall, rank, makeContext, compactionMemoryBlock, compactionSummaryPrompt, RUN_CONTEXT_DEFAULTS, foldFreedEnough } = require('./context.js');
+const { runContextNote } = require('./providers/provider.js');   // lean-prompt: the per-run <run_context> note (adapters share its predicate)
 const { makeSummarizer } = require('./compaction-summarizer.js');   // chunked context-compaction fold (Lane A)
 const EarlierConversation = require('./earlier-conversation.js');     // the turns COMMS's history window dropped, carried verbatim
 const { setStationSecretSource } = require('./child-env.js');   // station-secret-free env for every helper process
@@ -21851,12 +21852,28 @@ async function runOnceCore(o) {
     + summarizeCapabilities((resolved.unavailable && Object.keys(resolved.unavailable).length)
         ? Object.assign({}, resolved, { tools: resolved.tools.filter(n => !Object.prototype.hasOwnProperty.call(resolved.unavailable, n)) })
         : resolved, { surface, ownerTrusted, unrestrictedHost: unrestrictedHostNow(), delegatedBy: o.delegatedBy || '', toolless: !isTask }) + skillBlock;
-  const taskSystem = FinishLine.append(cacheSystemPrefix + runtimeSkillBlock
-    + preloadedSkillBlock + serviceKeysBlock + taskIntentNote + awayBriefingNote + directDomainBlock + journeyBlock
-    + deliverableNote + crewCallNote + runtimeBlock, { isTask, internal, tools: resolved.tools });
+  /* CACHE-STABLE PREFIX (lean-prompt, 2026-10-12). Everything below that changes per MESSAGE — the run's skill index
+     (ranked by this message), a /skill preload, the Task Brief (its id is the run's), the away briefing, a one-host
+     check, the crew call, [RUNTIME] (run id, today) and the open quests — used to close the system prompt, so the
+     system differed on every message and the conversation behind it was never read from any provider's prefix cache
+     (measured 2026-10-11: system part 1 diverged at char 4,819 on every message; ~50 KB of history re-sent uncached).
+     It now rides ONE fenced <run_context> note placed with the newest user message, exactly where <recalled-memory>
+     goes (injected below), so the system prompt + tools are byte-identical across a conversation's messages and its
+     tool iterations. Same text, same order — moved, not rewritten; the per-conversation blocks (service keys, journey
+     adaptation, the deliverable clause, FINISH THE JOB) stay in the system. Internal self-talk and recovery
+     continuations are untouched. KILL SWITCH: STARNET_STABLE_PREFIX=0 restores the old single system prompt. */
+  const stablePrefix = !internal && !o.recovery && String(ENV('STABLE_PREFIX') || '').trim() !== '0';
+  const perRunBlocks = runtimeSkillBlock + preloadedSkillBlock + taskIntentNote + awayBriefingNote + directDomainBlock + crewCallNote + runtimeBlock;
+  const taskSystem = stablePrefix
+    ? FinishLine.append(cacheSystemPrefix + serviceKeysBlock + journeyBlock + deliverableNote, { isTask, internal, tools: resolved.tools })
+    : FinishLine.append(cacheSystemPrefix + runtimeSkillBlock
+      + preloadedSkillBlock + serviceKeysBlock + taskIntentNote + awayBriefingNote + directDomainBlock + journeyBlock
+      + deliverableNote + crewCallNote + runtimeBlock, { isTask, internal, tools: resolved.tools });
   const sys = internal
     ? (String(system || '') + evidenceBlock)
-    : withQuests(taskSystem, questsBlock);   // ground-truth caps + task-context doctrine share the one final prompt seam
+    : stablePrefix ? taskSystem
+      : withQuests(taskSystem, questsBlock);   // ground-truth caps + task-context doctrine share the one final prompt seam
+  const runContext = stablePrefix ? runContextNote(withQuests(perRunBlocks, questsBlock)) : '';
   // H1.2: bulletproof resume — if this run arrives with NO prior history (a fresh restart whose browser save was
   // wiped, or any caller that only sent the new directive) AND it names an explicit workstream, seed the
   // conversation from the durable server transcript so the agent remembers the dialogue. Never overrides real
@@ -21924,6 +21941,10 @@ async function runOnceCore(o) {
       }
     } catch (e) { failNote('run.earlierConversation', e); }
   }
+  // CACHE-STABLE PREFIX: the per-run <run_context> note (see `stablePrefix`) takes the <recalled-memory> seam — a system
+  // note immediately before the newest user message, so the request still ends on that user turn. Injected FIRST, so
+  // recall (below) lands between it and the user turn: the same order the two had when the block closed the system.
+  if (runContext) msgs = injectRecall(msgs, runContext);
   // Cortex (M-mem.3): surface the agent's OWN memory in-prompt — RANK it by relevance to this message
   // (BM25 + recency/trust/pin), inject the top few as a recalled-memory fence before the triggering user
   // message, and emit memory.used per surfaced record (-> useCount/trust + the XP reuse path). The recency
