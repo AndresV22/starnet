@@ -1,13 +1,13 @@
-/* sidecar/verdictreview.js — VERDICT-TRIGGERED SKILL REVIEW (consistency loop, slice 1, 2026-08-22).
+/* sidecar/verdictreview.js â€” VERDICT-TRIGGERED SKILL REVIEW (consistency loop, slice 1, 2026-08-22).
 
-   The background skill review (skillreview.js) fires on run SIZE — ≥4 tool calls, ≥8 turns, ≥5000 chars. The
+   The background skill review (skillreview.js) fires on run SIZE â€” â‰¥4 tool calls, â‰¥8 turns, â‰¥5000 chars. The
    Commander's own verdict on the work was never an input: a small run rated `miss` taught the skillbase nothing,
    which is exactly the consistency complaint ("it did it wrong, and next week it does it wrong again").
 
    This module is the pure half of the fix. At run end, a run that did NOT earn a size-review gets a compact
    REVIEW PACKET parked here (the transcript + the aux provider handles the review would need). When a verdict
    arrives on POST /api/growth/ratings and it is `ok` or `miss`, the packet is TAKEN (once) and index.js runs the
-   same quiet review loop with the verdict in the prompt. `great` never triggers — praise is not a lesson.
+   same quiet review loop with the verdict in the prompt. `great` never triggers â€” praise is not a lesson.
 
    Bounded by construction: a capped LRU (oldest evicted), a TTL so a stale packet never reviews a run the
    Commander rated long after against a skillbase that has since moved, and take() deletes. Durable since
@@ -21,7 +21,7 @@ const { note: failNote } = require('./failopen.js');   // a swallowed error stay
 
 const VERDICTS_THAT_TEACH = new Set(['ok', 'miss']);
 
-// compactPacket — the persistable half of a review packet: no provider/cost objects (they are live handles, and a
+// compactPacket â€” the persistable half of a review packet: no provider/cost objects (they are live handles, and a
 // provider can carry a credential), and only the transcript the review prompt can actually read (skillreview's
 // transcript() tail-caps at 12k chars) plus the run's directive, so a packet on disk stays a few KB.
 const PERSIST_CHARS = 16000;
@@ -29,7 +29,7 @@ const PER_MESSAGE_CHARS = 4000;
 // the FINAL answer is kept whole (up to this cap): a `great` rating after a restart mints a golden from it, and a
 // golden measured against a truncated output would flag every faithful later run as off-length.
 const FINAL_CHARS = 60000;
-// redact (optional): the host's secret scrub — a tool that read a .env or an API response put that text in the
+// redact (optional): the host's secret scrub â€” a tool that read a .env or an API response put that text in the
 // transcript, and a packet on disk must never hold it in cleartext (every other durable transcript store redacts).
 function compactPacket(p, redact) {
   p = p || {};
@@ -70,18 +70,26 @@ function makeVerdictReview(opts) {
   const cap = Number.isFinite(opts.cap) && opts.cap > 0 ? Math.floor(opts.cap) : 40;
   const ttlMs = Number.isFinite(opts.ttlMs) && opts.ttlMs > 0 ? opts.ttlMs : 6 * 60 * 60 * 1000;
   const now = typeof opts.now === 'function' ? opts.now : () => 0;   // clock is INJECTED (repo determinism law); index.js passes the real one
+  const held = new Map();
   const packets = new Map();   // runId -> { at, packet }  (Map keeps insertion order = LRU by arrival)
   // DURABILITY (2026-10-01): a verdict given after a restart used to find no packet and teach nothing. onChange
   // hands the caller a compacted, provider-free snapshot to persist; restore() reloads it on boot. A restored
   // packet has no live provider: the caller rebuilds one for the agent when the review fires.
   const onChange = typeof opts.onChange === 'function' ? opts.onChange : null;
   function changed() {
-    if (!onChange) return;
-    try { onChange(snapshot()); } catch (e) { failNote('verdictreview.persist', e); }
+    if (!onChange) return true;
+    try { const result = onChange(snapshot()); if (result === false || (result && typeof result.then === 'function')) throw new Error('review persistence must complete synchronously'); return true; } catch (e) { failNote('verdictreview.persist', e); return false; }
   }
   function snapshot() {
     const rows = [];
     for (const [runId, row] of packets) rows.push({ runId, at: row.at, packet: compactPacket(row.packet, opts.redact) });
+    for (const [runId, h] of held) {
+      const packet = compactPacket(jobFor(h, runId, 'snapshot'), opts.redact);
+      const correction = packet.learningEvidence && packet.learningEvidence.correction;
+      rows.push({ runId, at: h.at, state: 'held', reviewStatus: h.status, dueAt: h.dueAt, attempts: h.attempts,
+        verdict: h.verdict, correction: correction ? correction.text : '', correctionSource: h.correctionSource,
+        correctionOriginalChars: correction ? correction.originalChars : 0, correctionTruncated: !!(correction && correction.truncated), packet });
+    }
     return rows;
   }
   function restore(rows) {
@@ -89,7 +97,13 @@ function makeVerdictReview(opts) {
     for (const r of (Array.isArray(rows) ? rows : [])) {
       const id = String((r && r.runId) || '').trim();
       if (!id || !r.packet || typeof r.packet !== 'object' || !Number.isFinite(r.at)) continue;
-      packets.set(id, { at: r.at, packet: Object.assign({}, r.packet, { restored: true }) });
+      if (r.state === 'held') {
+        if (!VERDICTS_THAT_TEACH.has(r.verdict) || r.reviewStatus === 'completed') continue;
+        held.set(id, { at: r.at, packet: Object.assign({}, r.packet, { restored: true }), verdict: r.verdict,
+          ...correctionParts(r.correction, r.correctionOriginalChars, r.correctionTruncated), correctionSource: String(r.correctionSource || ''),
+          dueAt: r.reviewStatus === 'running' ? now() + retryMs : (Number.isFinite(r.dueAt) ? r.dueAt : now() + graceMs),
+          attempts: Math.max(0, Number(r.attempts) || 0), status: r.reviewStatus === 'retry-exhausted' ? 'retry-exhausted' : 'pending', timer: null, fire: null });
+      } else packets.set(id, { at: r.at, packet: Object.assign({}, r.packet, { restored: true }) });
       n++;
     }
     sweep();
@@ -98,17 +112,22 @@ function makeVerdictReview(opts) {
 
   function sweep() {
     const t = now();
-    const before = packets.size;
+    const before = packets.size + held.size;
     for (const [id, row] of packets) if (t - row.at > ttlMs) packets.delete(id);
-    while (packets.size > cap) packets.delete(packets.keys().next().value);
-    return packets.size !== before;
+    for (const [id, row] of held) if (t - row.at > ttlMs && row.status !== 'running') { clearT(row.timer); held.delete(id); }
+    while (packets.size + held.size > cap) {
+      const candidates = [...packets].map(([id, r]) => ({ id, at: r.at, held: false })).concat([...held].filter(([, r]) => r.status !== 'running').map(([id, r]) => ({ id, at: r.at, held: true }))).sort((a, b) => a.at - b.at);
+      const oldest = candidates[0]; if (!oldest) break;
+      if (oldest.held) { clearT(held.get(oldest.id).timer); held.delete(oldest.id); } else packets.delete(oldest.id);
+    }
+    return packets.size + held.size !== before;
   }
 
   // park a run's review packet. Only runs that were NOT already reviewed belong here (the caller decides);
   // a second stash for the same runId replaces the first (latest state wins).
   function stash(runId, packet) {
     const id = String(runId || '').trim();
-    if (!id || !packet || typeof packet !== 'object') return false;
+    if (!id || !packet || typeof packet !== 'object' || held.has(id)) return false;
     packets.delete(id);
     packets.set(id, { at: now(), packet });
     sweep();
@@ -140,51 +159,99 @@ function makeVerdictReview(opts) {
   /* ---- CORRECTION GRACE (slice 2, 2026-08-22) ----
      A verdict alone says "this fell short"; the Commander's NEXT words say HOW. Firing the review the instant the
      verdict lands threw those words away. arm() takes the packet and holds it for `graceMs`; correct() attaches
-     the Commander's correction — a chip tap (final:false) keeps waiting for the typed message, a typed message
+     the Commander's correction â€” a chip tap (final:false) keeps waiting for the typed message, a typed message
      (final:true) fires the review NOW with their words; the timer fires with whatever arrived. One review per
      run either way (held map is keyed by runId; fire is single-shot). Timers are INJECTED (determinism law). */
   const setT = typeof opts.setTimeout === 'function' ? opts.setTimeout : (fn, ms) => setTimeout(fn, ms);
   const clearT = typeof opts.clearTimeout === 'function' ? opts.clearTimeout : (h) => clearTimeout(h);
   const graceMs = Number.isFinite(opts.graceMs) && opts.graceMs >= 0 ? opts.graceMs : 90 * 1000;
-  const held = new Map();   // runId -> { packet, verdict, correction, timer, fire }
-
-  function fireHeld(id, why) {
-    const h = held.get(id); if (!h) return false;
-    held.delete(id);
-    try { clearT(h.timer); } catch (e) { failNote('verdictreview.clearTimer', e); }
-    // the fire fn is the caller's review launcher; an exception here is a lost review — noted, never silent
-    try { h.fire(Object.assign({}, h.packet, { runId: id, verdict: h.verdict, correction: h.correction, correctionSource: h.correctionSource || '', firedBy: why })); } catch (e) { failNote('verdictreview.fire', e); }
+  const retryMs = Number.isFinite(opts.retryMs) && opts.retryMs > 0 ? opts.retryMs : 60000;
+  const maxAttempts = Number.isInteger(opts.maxAttempts) && opts.maxAttempts > 0 ? opts.maxAttempts : 3;
+  function correctionParts(value, originalChars, truncated) {
+    const full = String(value || '').replace(/\s+/g, ' ').trim();
+    return { correction: full.slice(0, 600), correctionOriginalChars: Math.max(full.length, Number(originalChars) || 0),
+      correctionTruncated: truncated === true || full.length > 600 || (Number(originalChars) || 0) > full.length };
+  }
+  function jobFor(h, id, why) {
+    return Object.assign({}, h.packet, { runId: id, verdict: h.verdict, correction: h.correction,
+      correctionOriginalChars: h.correctionOriginalChars, correctionTruncated: h.correctionTruncated,
+      correctionSource: h.correctionSource || '', firedBy: why, reviewAttempt: h.attempts });
+  }
+  function scheduleHeld(id) {
+    const h = held.get(id);
+    if (!h || typeof h.fire !== 'function' || h.status !== 'pending' || h.attempts >= maxAttempts) return false;
+    if (h.timer) clearT(h.timer);
+    h.timer = setT(() => fireHeld(id, 'grace'), Math.max(1, h.dueAt - now()));
+    if (h.timer && h.timer.unref) h.timer.unref();
     return true;
   }
-  // arm: take the packet for this verdict and hold it for the grace window. Returns false when nothing to review.
-  //   fire(job) — the caller's review launcher; job = packet + { runId, verdict, correction, firedBy }
+  function retryHeld(id, error) {
+    const h = held.get(id); if (!h) return;
+    if (error) failNote('verdictreview.fire', error);
+    h.status = h.attempts >= maxAttempts ? 'retry-exhausted' : 'pending';
+    h.dueAt = now() + retryMs;
+    if (changed()) scheduleHeld(id);
+  }
+  function completeHeld(id) {
+    const h = held.get(id); if (!h) return;
+    // Persist completion before dropping the in-memory job. This is at-least-once
+    // recovery; the host must deduplicate side effects by runId when needed.
+    h.status = 'completed';
+    if (changed()) held.delete(id);
+  }
+  function fireHeld(id, why) {
+    const h = held.get(id); if (!h || h.status === 'running' || h.status === 'completed' || typeof h.fire !== 'function') return false;
+    if (now() - h.at > ttlMs) { held.delete(id); changed(); return false; }
+    try { clearT(h.timer); } catch (e) { failNote('verdictreview.clearTimer', e); }
+    h.timer = null; h.status = 'running'; h.attempts++;
+    if (!changed()) { h.status = 'pending'; h.attempts--; return false; }
+    let result;
+    try { result = h.fire(jobFor(h, id, why)); }
+    catch (e) { retryHeld(id, e); return false; }
+    if (result && typeof result.then === 'function') result.then(value => value === false ? retryHeld(id) : completeHeld(id), error => retryHeld(id, error));
+    else if (result === false) retryHeld(id);
+    else completeHeld(id);
+    return true;
+  }
   function arm(runId, verdict, fire, initialCorrection) {
     const id = String(runId || '').trim();
-    if (typeof fire !== 'function') return false;
-    if (held.has(id)) return false;   // already armed (a duplicate verdict never double-arms)
-    const packet = take(id, verdict);
-    if (!packet) return false;
-    const h = { packet, verdict: String(verdict), correction: String(initialCorrection || '').slice(0, 600), correctionSource: initialCorrection ? 'verdict' : '', timer: null, fire };
-    held.set(id, h);
-    if (graceMs === 0) { fireHeld(id, 'immediate'); return true; }
-    h.timer = setT(() => fireHeld(id, 'grace'), graceMs);
+    if (typeof fire !== 'function' || held.has(id) || !shouldTrigger(id, verdict)) return false;
+    const row = packets.get(id);
+    const h = { at: row.at, packet: row.packet, verdict: String(verdict), ...correctionParts(initialCorrection),
+      correctionSource: initialCorrection ? 'verdict' : '', timer: null, fire, dueAt: now() + graceMs, attempts: 0, status: 'pending' };
+    packets.delete(id); held.set(id, h);
+    if (!changed()) { held.delete(id); packets.set(id, row); return false; }
+    if (graceMs === 0) fireHeld(id, 'immediate'); else scheduleHeld(id);
     return true;
   }
-  // correct: attach the Commander's words. final=true (a typed message) fires now; final=false (a chip) keeps waiting.
   function correct(runId, text, final, source) {
-    const id = String(runId || '').trim();
-    const h = held.get(id); if (!h) return { ok: false, reason: 'nothing held for this run' };
-    const t = String(text || '').replace(/\s+/g, ' ').trim().slice(0, 600);
-    if (t) { h.correction = h.correction && !final ? (h.correction + ' · ' + t).slice(0, 600) : t; h.correctionSource = String(source || (final ? 'message' : 'chip')); }
-    if (final) { fireHeld(id, 'correction'); return { ok: true, fired: true }; }
+    const id = String(runId || '').trim(), h = held.get(id);
+    if (!h || h.status === 'running' || h.status === 'completed') return { ok: false, reason: 'nothing held for this run' };
+    const previous = { ...h }, incoming = correctionParts(text);
+    if (incoming.correction) {
+      const parts = h.correction && !final ? correctionParts(h.correction + ' · ' + incoming.correction,
+        h.correctionOriginalChars + 3 + incoming.correctionOriginalChars, h.correctionTruncated || incoming.correctionTruncated) : incoming;
+      Object.assign(h, parts, { correctionSource: String(source || (final ? 'message' : 'chip')) });
+    }
+    if (final) { h.attempts = 0; h.status = 'pending'; }
+    if (!changed()) { Object.assign(h, previous); return { ok: false, reason: 'review correction could not be persisted' }; }
+    if (final) return { ok: true, fired: fireHeld(id, 'correction') };
     return { ok: true, fired: false };
+  }
+  // Restore stores held jobs without dispatching during module construction. The
+  // composition root supplies its current promise-returning launcher after boot.
+  function resumeHeld(fire) {
+    if (typeof fire !== 'function') return 0;
+    sweep(); let count = 0;
+    for (const [id, h] of held) { h.fire = fire; if (scheduleHeld(id)) count++; }
+    return count;
   }
   function holding(runId) { return held.has(String(runId || '').trim()); }
   // peek: read a parked packet WITHOUT consuming it (slice 4: a `great` verdict reads which skills the run loaded
-  // to mint a golden; it never spends the packet — praise is not a review).
+  // to mint a golden; it never spends the packet â€” praise is not a review).
   function peek(runId) { sweep(); const row = packets.get(String(runId || '').trim()); return row ? row.packet : null; }
 
-  return { stash, shouldTrigger, take, size, has, cap, ttlMs, arm, correct, holding, peek, graceMs, snapshot, restore };
+  return { stash, shouldTrigger, take, size, has, cap, ttlMs, arm, correct, holding, peek, graceMs, snapshot, restore, resumeHeld };
 }
 
 module.exports = { makeVerdictReview, VERDICTS_THAT_TEACH, compactPacket };

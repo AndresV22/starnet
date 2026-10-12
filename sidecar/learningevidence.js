@@ -97,14 +97,15 @@ function buildLearningEvidence(input, redact) {
   // Only host-supplied attribution grants commander provenance. Text markers and
   // message.role are deliberately ignored for the authority decision.
   const trusted = new Set((Array.isArray(p.trustedUserMessageIndices) ? p.trustedUserMessageIndices : []).filter(Number.isInteger));
-  const directives = verifiedMessages.slice(0, MAX_ITEMS).map(m => Object.assign({ messageIndex: m.index,
+  const directives = [];
+  for (const m of verifiedMessages) appendBounded(directives, Object.assign({ messageIndex: m.index,
     provenance: 'commander', source: m.source, durableInstructionEligible: true }, bounded(m.content, MAX_TEXT, scrub)));
-  const calls = [], results = [];
+  const calls = [], results = [], unattributedDirectives = [];
   const observed = new Map((Array.isArray(p.toolTrace) ? p.toolTrace : []).filter(Boolean).map(t => [string(t.callId), t]));
   for (let index = 0; index < messages.length; index++) {
     const m = messages[index];
     if (!m) continue;
-    if (m.role === 'user') appendBounded(directives, Object.assign({
+    if (m.role === 'user') appendBounded(trusted.has(index) ? directives : unattributedDirectives, Object.assign({
       messageIndex: index, provenance: trusted.has(index) ? 'commander' : 'unattributed-input', durableInstructionEligible: trusted.has(index)
     }, bounded(m.content, MAX_TEXT, scrub)));
     if (m.role === 'assistant' && Array.isArray(m.tool_calls)) {
@@ -125,6 +126,7 @@ function buildLearningEvidence(input, redact) {
       }, bounded(m.content, MAX_TEXT, scrub)));
     }
   }
+  for (const directive of unattributedDirectives) if (directives.length < MAX_ITEMS) directives.push(directive);
   const correction = correctionEvidence(p, scrub);
   return boundedPacket({
     schemaVersion: SCHEMA, runId: string(p.runId || (host && host.runId)).slice(0, 160), agentId: string(p.agentId).slice(0, 160),
@@ -145,7 +147,10 @@ function correctionEvidence(p, scrub) {
   if (!p.correction) return null;
   const source = string(p.correctionSource);
   const trusted = ['message', 'chip', 'verdict'].includes(source);
-  return Object.assign({ provenance: trusted ? 'commander-correction' : 'unattributed-correction', source, durableInstructionEligible: trusted }, bounded(p.correction, 600, scrub));
+  const value = bounded(p.correction, 600, scrub);
+  value.originalChars = Math.max(value.originalChars, Number(p.correctionOriginalChars) || 0);
+  value.truncated = value.truncated || p.correctionTruncated === true || value.originalChars > string(p.correction).length;
+  return Object.assign({ provenance: trusted ? 'commander-correction' : 'unattributed-correction', source, durableInstructionEligible: trusted && !value.truncated }, value);
 }
 function renderLearningEvidence(input, redact) {
   return [
