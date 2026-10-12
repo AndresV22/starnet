@@ -196,5 +196,91 @@
       "height": 218.15625
     },
     "errors": []
+  },
+  "unavailableStepEndpoint": {
+    "sourceCommit": "8d8cc5e4a",
+    "rejectedSource": "67c3ad5f1",
+    "verifiedAt": "2026-10-12T08:20:44.919Z",
+    "method": "Actual seeded Chrome at port18971, with GET /api/routing/steptest explicitly intercepted as HTTP404 to model an older sidecar; a crewed TAKE TURNS line opens TEST with explicit step mode. No paid provider job was started.",
+    "before": {
+      "seam": false,
+      "view": "test",
+      "real": false,
+      "step": false,
+      "stepDisabled": null,
+      "text": "INBOX\nSend it a job\n▶ SEND IT DOWN THE LINE\n\nThe whole line works on it for real — real agents, real cost — and the result lands in the OUTBOX.\n\nOr start it automatically\n\nAny of these runs the whole line by itself. A direct COMMS message only runs the agent you message.\n\nA schedule\nnone yet\n⊕ ADD A SCHEDULE\nMANAGE\nA channel message\nnone connected\nCONNECT A CHANNEL ▸\nA file lands in a folder\nnone watched\n⊕ WATCH A FOLDER\nA webhook is called\nnone yet\n⊕ ADD A WEBHOOK\n\nNO FEED — nothing is wired to drop work on this floor yet.\n\nWorking folder\nTrusted project\nAgent workspace (default)\n\nAll workflow stages use this folder. Add trusted folders in Projects.\n\nOptional limits · LINE BUDGET",
+      "errors": []
+    },
+    "after": {
+      "seam": false,
+      "view": "test",
+      "real": true,
+      "step": false,
+      "stepDisabled": "true",
+      "text": "TEST\nHow do you want to test it?\nWATCH IT · FREE\na crate rides the belts; no agent runs\nSTEP THROUGH · REAL\npauses at every hand-off; nothing is delivered\nRUN ONE REAL JOB\nend to end; the result lands in the OUTBOX\n\nYour test job runs through the line for real, end to end: real agents, real cost, and the result lands in the OUTBOX like any job.\n\n▶ RUN ONE REAL JOB",
+      "errors": []
+    },
+    "watchButtonClickPassed": true,
+    "behavioralRegression": {
+      "before": {
+        "failures": 14,
+        "passes": 118
+      },
+      "after": {
+        "failures": 0,
+        "passes": 132
+      }
+    },
+    "supportedAndComplexLineRecheck": {
+      "parallel": {
+        "off": "true",
+        "note": "TESTHow do you want to test it?WATCH IT · FREEa crate rides the belts; no agent runsSTEP THROUGH · REALpauses at every hand-off; nothing is deliveredRUN ONE REAL JOBend to end; the result lands in the OUTBOXSTEP THROUGH carries one crate at a time and cannot finish this parallel line. Use RUN ONE REAL JOB to test the whole line, or TRY THIS STEP on an individual BAY.Your test job runs through the line for real, end to end: real agents, real cost, and the result lands in the OUTBOX like any job.▶ RUN ONE REAL JOB",
+        "real": true,
+        "step": false
+      },
+      "serial": {
+        "off": null,
+        "step": true
+      },
+      "sameAgentSeparateLine": true,
+      "paint": [
+        {
+          "text": "WATCH IT · FREEa crate rides the belts; no agent runs",
+          "bg": "rgba(0, 0, 0, 0)",
+          "border": "rgba(255, 170, 51, 0.2)"
+        },
+        {
+          "text": "STEP THROUGH · REALpauses at every hand-off; nothing is deli",
+          "bg": "rgba(255, 170, 51, 0.13)",
+          "border": "rgb(255, 170, 51)"
+        },
+        {
+          "text": "RUN ONE REAL JOBend to end; the result lands in the OUTBOX",
+          "bg": "rgba(0, 0, 0, 0)",
+          "border": "rgba(255, 170, 51, 0.2)"
+        },
+        {
+          "text": "",
+          "bg": "rgba(0, 0, 0, 0.46)",
+          "border": "rgba(255, 170, 51, 0.2)"
+        },
+        {
+          "text": "PAUSE AT EVERY HANDOFF",
+          "bg": "rgba(255, 170, 51, 0.13)",
+          "border": "rgb(255, 170, 51)"
+        },
+        {
+          "text": "RUN TO THE END",
+          "bg": "rgba(0, 0, 0, 0)",
+          "border": "rgba(255, 170, 51, 0.2)"
+        },
+        {
+          "text": "▶ START STEP-THROUGH",
+          "bg": "rgba(255, 170, 51, 0.16)",
+          "border": "rgb(255, 170, 51)"
+        }
+      ],
+      "errors": []
+    }
   }
 }

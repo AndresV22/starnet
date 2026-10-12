@@ -32,3 +32,13 @@ Release coordination explicitly owns one combined broad gate set after importing
 ## Evidence limits
 
 Provider-driven acceptance uses a deterministic local provider against the real sidecar. Seeded browser checks verify the running web app. No fresh installer was built, no installed-desktop acceptance was performed, and no release or publication claim is made. Shared event/schema files, credentials, dependencies and package versions are unchanged.
+
+## Combined-gate follow-up (2026-10-12)
+
+The coordinator's combined candidate6f7361a72 failed full-fast at599/1145 on a graphics-owned classifier. Diagnostic continuation of that unchanged candidate found two conveyor assertions at751 and1110. Neither continuation nor the focused repairs is a combined PASS.
+
+At751, the old regex obscured a real missing-endpoint UI gap. Source8d8cc5e4a lets the test picker render its truthful REAL/WATCH alternatives when the step endpoint is absent; the compiled-line guard stays. Actual helper/picker/dispatch tests failed14 before and pass132 after. Live Chrome with an explicit404 endpoint fixture changed from the INBOX editor to RUN ONE REAL JOB, disabled STEP, clickable WATCH, no errors. Supported simple and TAKE TURNS lines remain steppable, parallel/JOINER remains refused, and same-agent separate-line behavior remains correct. Panel-source57, routing.steptest168 and website-sync8 pass. The new portable before/after evidence is appended to qa/evidence/conveyor-browser-20261012.json.
+
+At1110, only the old exact tooltip wording was stale. Existing accepted live-hover text already distinguishes productive recorded delivery, unrecorded history and plain answers correctly. Test-only sourcefcb6feb8d evaluates the actual tooltip helper, keeps the render-wiring check, and asserts those meanings plus daily RUNS/time/spend scope. conveyor-ease passes75. Independent review found no product copy or counting change needed.
+
+The serialized coordinator still owns the fresh1145-suite fast run,212-suite HTTP run and customer journeys after importing these fixes and refreshing its combined surface lock. This lane has not advanced trunk or started duplicate broad gates.
