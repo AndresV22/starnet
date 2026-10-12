@@ -1,0 +1,1250 @@
+{
+  "title": "Customer email intake — sanitized aggregate",
+  "baselines": {
+    "trunk": "a20ffa71f",
+    "issue_triage": "9fc40b386"
+  },
+  "coverage": {
+    "queries": [
+      {
+        "query": "-in:spam -in:trash -in:sent -in:drafts {starnet \"Star Net\" starnetos}",
+        "pages": 2,
+        "matches": 166,
+        "exhausted": true
+      },
+      {
+        "query": "-in:spam -in:trash -in:sent -in:drafts -{starnet \"Star Net\" starnetos} {\"spend history\" \"station failed\" \"link down\" \"overseer\" \"Higgsfield\" \"shell.exec\"}",
+        "pages": 1,
+        "matches": 3,
+        "exhausted": true
+      },
+      {
+        "query": "-in:spam -in:trash -in:sent -in:drafts -{starnet \"Star Net\" starnetos} {subject:bug subject:troubleshooting subject:startup subject:credits subject:agents subject:station subject:workflow subject:splitter}",
+        "pages": 1,
+        "matches": 16,
+        "exhausted": true
+      }
+    ],
+    "unique_search_messages": 184,
+    "selected_threads": 122,
+    "thread_messages": 246,
+    "maximum_thread_messages": 10,
+    "limits": [
+      "Query-complete, not proof of mailbox-wide completeness: generic/no-brand mail outside these phrases may be missed.",
+      "All returned relevant thread bodies read including sent replies; attachments not exhaustively reviewed.",
+      "One screenshot attachment returned no extracted image or text. Attachment-only reports remain unresolved.",
+      "Unsupported security ZIP not opened; reserved integration thread skipped.",
+      "Whop/GitHub cross-source identity correlation limited to explicit email references; parent owns direct source intake.",
+      "No live reproduction, installer test, account ledger access or recovery action performed."
+    ]
+  },
+  "meaning": "Reported symptoms and source associations, not independently reproduced defects or release acceptance. A source candidate listed here does not imply the affected installer includes it or the customer recovered.",
+  "records": [
+    {
+      "id": "E02",
+      "kind": "bug",
+      "title": "Approved skill withheld from autonomous worker",
+      "recovery": "persists",
+      "existing_fingerprints": [],
+      "source_candidates": [],
+      "assessment": "0.13.0 macOS; watched lead loads skill, fresh worker denies the identical approved skill after full restart, no image calls/output. Missing exact customer record; approval scope/version projection needs inspection.",
+      "thread_count": 1,
+      "priority": "owner-triage-first",
+      "mapping_relationship": "no matching fingerprint found",
+      "record_action": "add customer incident record or link a more precise existing record",
+      "customer_reporters": 1
+    },
+    {
+      "id": "E03",
+      "kind": "bug",
+      "title": "Connector credential lock and Higgsfield sign-in lost after restart",
+      "recovery": "persists",
+      "existing_fingerprints": [
+        "50c75ec3"
+      ],
+      "source_candidates": [
+        "2982146cd",
+        "abd291449"
+      ],
+      "assessment": "0.13.2 Windows standard account; restart/admin attempt failed; renaming app-data allowed temporary connection only. Source lock/recovery and reset-durability fixes are present. Audit fingerprint is related, not the original customer persistence incident; installer/customer recovery unverified.",
+      "thread_count": 1,
+      "priority": "owner-triage-first",
+      "mapping_relationship": "related only; exact incident record not established",
+      "record_action": "add customer incident record or link a more precise existing record",
+      "customer_reporters": 1
+    },
+    {
+      "id": "E04",
+      "kind": "bug",
+      "title": "Unknown spend history blocks interactive, scheduled and specialist work without usable recovery",
+      "recovery": "persists",
+      "existing_fingerprints": [
+        "1746d326"
+      ],
+      "source_candidates": [
+        "0893f19cb",
+        "d5af7c27f",
+        "353fd91fe",
+        "eed3c5c4a",
+        "f24467d49"
+      ],
+      "assessment": "Seven threads across Windows, Apple Silicon and Intel Mac; 0.12.5–0.13.1 where stated, several providers. Oct 7 update-to-0.13.1 advice followed by repeated Oct 9 failure. One known unsettled receipt; do not infer all ledgers share that cause. Guard audit 1746d326 is not a customer-recovery record. Add symptom record plus per-account recovery evidence; never infer zero historical spend.",
+      "thread_count": 7,
+      "priority": "owner-triage-first",
+      "mapping_relationship": "related only; exact incident record not established",
+      "record_action": "add customer incident record or link a more precise existing record",
+      "customer_reporters": 7
+    },
+    {
+      "id": "E05",
+      "kind": "bug",
+      "title": "Funded managed account reports out of credits and fails runs after temporary workaround",
+      "recovery": "persists",
+      "existing_fingerprints": [
+        "72af29f4"
+      ],
+      "source_candidates": [
+        "2c1d1a764",
+        "0e49521c0",
+        "f3f56b18d"
+      ],
+      "assessment": "0.13.1 Windows. Lowering per-run limit produced an Oct 7 working confirmation; Oct 8 reports recurrence with funded balance and multiple lower limits, retries cost credits. Latest failure supersedes recovery. Related old false-zero warning is not exact matching cause.",
+      "thread_count": 1,
+      "priority": "owner-triage-first",
+      "mapping_relationship": "related only; exact incident record not established",
+      "record_action": "add customer incident record or link a more precise existing record",
+      "customer_reporters": 1
+    },
+    {
+      "id": "E06",
+      "kind": "bug",
+      "title": "Shell approvals and execution history hide full command arguments",
+      "recovery": "unconfirmed",
+      "existing_fingerprints": [
+        "48c51661"
+      ],
+      "source_candidates": [
+        "4c89890bc",
+        "80e56c7cb"
+      ],
+      "assessment": "Two reporters, three threads; same-sender Oct 9 copies deduplicated. 0.13.1 Windows, Ask enabled. Full-request approval source repair present. Older fingerprint covers file edits, not shell/history; historical missing bytes cannot be reconstructed. Outside-content execution refusal is a separate policy question.",
+      "thread_count": 3,
+      "priority": "owner-triage-first",
+      "mapping_relationship": "related only; exact incident record not established",
+      "record_action": "add customer incident record or link a more precise existing record",
+      "customer_reporters": 2
+    },
+    {
+      "id": "E07",
+      "kind": "security-report",
+      "title": "Cross-user local station isolation report",
+      "recovery": "unconfirmed",
+      "existing_fingerprints": [
+        "1df2d6f8"
+      ],
+      "source_candidates": [
+        "45fd059b7",
+        "f7553cd3e"
+      ],
+      "assessment": "Private customer report on Windows 11 / 0.13.1; source candidate contains boundary repair and exact-peer follow-up. Existing fingerprint is audit-origin and related. No foreign-user installer proof or customer retest. Detailed evidence remains private.",
+      "thread_count": 1,
+      "priority": "owner-triage-first",
+      "mapping_relationship": "related only; exact incident record not established",
+      "record_action": "add customer incident record or link a more precise existing record",
+      "customer_reporters": 1
+    },
+    {
+      "id": "E08",
+      "kind": "bug",
+      "title": "Google blocks Drive or Gmail OAuth authorization",
+      "recovery": "unconfirmed",
+      "existing_fingerprints": [
+        "e5d4b743"
+      ],
+      "source_candidates": [],
+      "assessment": "Drive explicitly 0.13.1, fresh personal Google account also blocked; Gmail version unknown. Earlier developer-credential onboarding bug is related only. Missing precise Google app-blocked record; OAuth deployment/verification state must be checked independently.",
+      "thread_count": 2,
+      "priority": "owner-triage-first",
+      "mapping_relationship": "related only; exact incident record not established",
+      "record_action": "add customer incident record or link a more precise existing record",
+      "customer_reporters": 2
+    },
+    {
+      "id": "E09",
+      "kind": "bug",
+      "title": "Saved station request is lost although health endpoint answers",
+      "recovery": "unconfirmed",
+      "existing_fingerprints": [
+        "25de9a74",
+        "34c58f4f"
+      ],
+      "source_candidates": [],
+      "assessment": "0.13.1 Windows, alternate install disk, SAVE-NET/SAVE REQUEST LOST; diagnostics API returned nothing. Related save-integrity fingerprints do not establish cause. Missing exact record and affected logs.",
+      "thread_count": 1,
+      "priority": "owner-triage-first",
+      "mapping_relationship": "related only; exact incident record not established",
+      "record_action": "add customer incident record or link a more precise existing record",
+      "customer_reporters": 1
+    },
+    {
+      "id": "E10",
+      "kind": "bug",
+      "title": "Strict provider schema rejects internal transcript fields",
+      "recovery": "unconfirmed",
+      "existing_fingerprints": [],
+      "source_candidates": [
+        "4e79cec1c",
+        "03ad7ccf7"
+      ],
+      "assessment": "0.12.5–0.13.1 Windows/macOS reports Groq/Cerebras HTTP400 and Mistral422 naming agentId/streamId/ts. Source whitelist repair directly references Mistral report; no customer retest or corresponding qa fingerprint located.",
+      "thread_count": 3,
+      "priority": "normal-intake",
+      "mapping_relationship": "no matching fingerprint found",
+      "record_action": "add customer incident record or link a more precise existing record",
+      "customer_reporters": 3
+    },
+    {
+      "id": "E11",
+      "kind": "bug",
+      "title": "Groq intermittent provider_stream format_error with zero tokens",
+      "recovery": "unconfirmed",
+      "existing_fingerprints": [],
+      "source_candidates": [
+        "aa8826f9a"
+      ],
+      "assessment": "0.13.1 Windows, gpt-oss-120b; separate from unsupported agentId failure. Source retry handles tool_use_failed; exact failure correlation and customer recovery not proven.",
+      "thread_count": 1,
+      "priority": "normal-intake",
+      "mapping_relationship": "no matching fingerprint found",
+      "record_action": "add customer incident record or link a more precise existing record",
+      "customer_reporters": 1
+    },
+    {
+      "id": "E12",
+      "kind": "bug",
+      "title": "Older Mac WebKit cannot boot modern frontend",
+      "recovery": "unconfirmed",
+      "existing_fingerprints": [
+        "5308fc67"
+      ],
+      "source_candidates": [],
+      "assessment": "Recent 0.13.1 report lists regex, assignment syntax and missing DOM APIs; architecture and download filename conflict. Older report says Monterey while UA says 10.15.7. Preserve uncertainty; old Chat compatibility fix alone does not close new workflowline/world errors.",
+      "thread_count": 2,
+      "priority": "owner-triage-first",
+      "mapping_relationship": "related only; exact incident record not established",
+      "record_action": "add customer incident record or link a more precise existing record",
+      "customer_reporters": 2
+    },
+    {
+      "id": "E13",
+      "kind": "bug",
+      "title": "Modified Windows runtime works for chat but ticket SSE returns 403 and LINK DOWN",
+      "recovery": "unconfirmed",
+      "existing_fingerprints": [],
+      "source_candidates": [],
+      "assessment": "0.13.1 Windows after customer-applied runtime patches. Snapshot200, ticket SSE403, legacy query-token200 reported. Baseline modified; missing incident record; do not relax authentication to fix telemetry.",
+      "thread_count": 1,
+      "priority": "normal-intake",
+      "mapping_relationship": "no matching fingerprint found",
+      "record_action": "add customer incident record or link a more precise existing record",
+      "customer_reporters": 1
+    },
+    {
+      "id": "E14",
+      "kind": "bug",
+      "title": "Opening Quests stalls entire app for 10–20 seconds",
+      "recovery": "unconfirmed",
+      "existing_fingerprints": [
+        "74be01cc"
+      ],
+      "source_candidates": [
+        "ee3d5853a"
+      ],
+      "assessment": "Duplicate same-reporter 0.13.0 Windows reports. Source synchronous-rerender fix found; old quest readability fingerprint is not same defect. Missing exact customer record; reported historical provider errors are separate from lag.",
+      "thread_count": 2,
+      "priority": "normal-intake",
+      "mapping_relationship": "related only; exact incident record not established",
+      "record_action": "add customer incident record or link a more precise existing record",
+      "customer_reporters": 1
+    },
+    {
+      "id": "E15",
+      "kind": "how-to-or-policy",
+      "title": "Delegated read-only API worker inherits attachment taint and cannot use credentials",
+      "recovery": "unconfirmed",
+      "existing_fingerprints": [],
+      "source_candidates": [
+        "83e04e8ae"
+      ],
+      "assessment": "0.13.1 Windows Codex. Need supported scoped flow; report does not establish a security-gate bug. Source improves unverified-replay explanation. Separate unhandled SSH-target errors occur in diagnostics.",
+      "thread_count": 1,
+      "priority": "normal-intake",
+      "mapping_relationship": "no matching fingerprint found",
+      "record_action": "triage support/policy versus new symptom record",
+      "customer_reporters": 1
+    },
+    {
+      "id": "E16",
+      "kind": "bug",
+      "title": "Unconfigured SSH target produces process unhandledRejection",
+      "recovery": "unconfirmed",
+      "existing_fingerprints": [],
+      "source_candidates": [],
+      "assessment": "Secondary diagnostic symptom across two reports; no full repro. Missing specific record; should remain separate from ledger and taint.",
+      "thread_count": 2,
+      "priority": "normal-intake",
+      "mapping_relationship": "no matching fingerprint found",
+      "record_action": "add customer incident record or link a more precise existing record",
+      "customer_reporters": 2
+    },
+    {
+      "id": "E17",
+      "kind": "bug",
+      "title": "Anthropic thinking signature rejected after conversation binding",
+      "recovery": "persists",
+      "existing_fingerprints": [],
+      "source_candidates": [
+        "214d74e9c",
+        "9789f8a90"
+      ],
+      "assessment": "0.13.1 Windows explicitly persists Oct 6 in fresh Sonnet chat; Haiku unaffected. Earlier 0.12.5 diagnostic includes signature error. Source binding repair present; no later customer recovery. GitHub #73 source correlation, not independently read here.",
+      "thread_count": 2,
+      "priority": "normal-intake",
+      "mapping_relationship": "no matching fingerprint found",
+      "record_action": "add customer incident record or link a more precise existing record",
+      "customer_reporters": 2
+    },
+    {
+      "id": "E18",
+      "kind": "bug",
+      "title": "Windows Chromium exits before CDP ownership",
+      "recovery": "recovered",
+      "existing_fingerprints": [],
+      "source_candidates": [
+        "9ba20588e"
+      ],
+      "assessment": "0.13.1 Windows10 report Oct7; customer explicitly says update fixed issues Oct9. Updated version unspecified. Recovery can be recorded for this customer, not used as installer acceptance or universal browser repair.",
+      "thread_count": 1,
+      "priority": "normal-intake",
+      "mapping_relationship": "no matching fingerprint found",
+      "record_action": "add customer incident record or link a more precise existing record",
+      "customer_reporters": 1
+    },
+    {
+      "id": "E19",
+      "kind": "bug",
+      "title": "Browser session is closed with stale Session ID",
+      "recovery": "unconfirmed",
+      "existing_fingerprints": [],
+      "source_candidates": [
+        "672a2fe98",
+        "ca4e87660"
+      ],
+      "assessment": "0.13.1 macOS; healthy engine, existing signed-in browser inaccessible. Related reset/profile source candidates; no exact affected-machine proof. Missing fingerprint.",
+      "thread_count": 1,
+      "priority": "normal-intake",
+      "mapping_relationship": "no matching fingerprint found",
+      "record_action": "add customer incident record or link a more precise existing record",
+      "customer_reporters": 1
+    },
+    {
+      "id": "E20",
+      "kind": "bug-or-how-to",
+      "title": "Browser tools disappear across runs and listing popup cannot be found",
+      "recovery": "unconfirmed",
+      "existing_fingerprints": [
+        "432df352"
+      ],
+      "source_candidates": [],
+      "assessment": "0.13.0 Apple Silicon, Codex; discovery/policy and new-tab handling are distinct leads. Signed-in eval refusal is intentional restriction, not itself a defect. Missing precise record; cannot merge into old equipment projection without tool logs.",
+      "thread_count": 1,
+      "priority": "normal-intake",
+      "mapping_relationship": "related only; exact incident record not established",
+      "record_action": "triage support/policy versus new symptom record",
+      "customer_reporters": 1
+    },
+    {
+      "id": "E21",
+      "kind": "bug",
+      "title": "Startup or post-update failure lacks sufficient diagnosis",
+      "recovery": "unconfirmed",
+      "existing_fingerprints": [],
+      "source_candidates": [],
+      "assessment": "Windows engine exits code1 before listening despite reinstall (detailed report); Mac unable to launch, missing script unspecified, post-update Windows sluggish/blocked, and incomplete report are separate unknown-cause cases. No common root cause asserted. Support requested version/platform/logs in some threads.",
+      "thread_count": 5,
+      "priority": "normal-intake",
+      "mapping_relationship": "no matching fingerprint found",
+      "record_action": "add customer incident record or link a more precise existing record",
+      "customer_reporters": 5
+    },
+    {
+      "id": "E22",
+      "kind": "bug",
+      "title": "Native web_request fails before HTTP while external clients succeed",
+      "recovery": "persists",
+      "existing_fingerprints": [],
+      "source_candidates": [
+        "d1e3d43f3"
+      ],
+      "assessment": "0.12.5–0.13.0 Windows and Apple Silicon. Source DNS-pinned lookup fix directly matches request class. Latest reported failures precede candidate; source presence does not prove recovery. Missing customer fingerprint.",
+      "thread_count": 3,
+      "priority": "normal-intake",
+      "mapping_relationship": "no matching fingerprint found",
+      "record_action": "add customer incident record or link a more precise existing record",
+      "customer_reporters": 3
+    },
+    {
+      "id": "E23",
+      "kind": "bug",
+      "title": "macOS web_fetch transport reports TLS decode error or socket close",
+      "recovery": "persists",
+      "existing_fingerprints": [],
+      "source_candidates": [
+        "86921e195",
+        "a2fd53f44"
+      ],
+      "assessment": "0.12.5 Apple Silicon persists after restart; no proxy. Diagnostic source changes identify host/cause; they do not prove a transport fix. Keep distinct from DNS lookup shape until correlated.",
+      "thread_count": 1,
+      "priority": "normal-intake",
+      "mapping_relationship": "no matching fingerprint found",
+      "record_action": "add customer incident record or link a more precise existing record",
+      "customer_reporters": 1
+    },
+    {
+      "id": "E24",
+      "kind": "bug",
+      "title": "Intel Mac installer signature verification fails on hash-matched download",
+      "recovery": "unconfirmed",
+      "existing_fingerprints": [],
+      "source_candidates": [],
+      "assessment": "0.12.5 Intel macOS15.7.5; codesign fails and user stops without bypass. Missing specific record; artifact-level verification required.",
+      "thread_count": 1,
+      "priority": "owner-triage-first",
+      "mapping_relationship": "no matching fingerprint found",
+      "record_action": "add customer incident record or link a more precise existing record",
+      "customer_reporters": 1
+    },
+    {
+      "id": "E25",
+      "kind": "bug",
+      "title": "Valid OpenRouter key remains saved but not verified",
+      "recovery": "persists",
+      "existing_fingerprints": [],
+      "source_candidates": [
+        "99be50565",
+        "121e18b6c"
+      ],
+      "assessment": "0.12.5 Windows11; key verified directly after old key cap reached, replacement/restart unsuccessful. Source key verification candidates present, no customer retest. GitHub #62 related by fix description.",
+      "thread_count": 1,
+      "priority": "normal-intake",
+      "mapping_relationship": "no matching fingerprint found",
+      "record_action": "add customer incident record or link a more precise existing record",
+      "customer_reporters": 1
+    },
+    {
+      "id": "E26",
+      "kind": "how-to-or-bug",
+      "title": "Custom STDIO MCP available interactively but absent from scheduled Run Now",
+      "recovery": "unconfirmed",
+      "existing_fingerprints": [
+        "acd9ecb4",
+        "4a19c050"
+      ],
+      "source_candidates": [],
+      "assessment": "0.12.5 Windows Safe Cell/Docker; eight Gmail tools work with approval. Missing exact unattended connector policy/projection record; neither delegated MCP nor Workbench standing-grant fingerprints prove this resolved.",
+      "thread_count": 1,
+      "priority": "normal-intake",
+      "mapping_relationship": "related only; exact incident record not established",
+      "record_action": "triage support/policy versus new symptom record",
+      "customer_reporters": 1
+    },
+    {
+      "id": "E27",
+      "kind": "bug",
+      "title": "Managed calls consume purchased balance without useful answer, later app will not launch",
+      "recovery": "persists",
+      "existing_fingerprints": [
+        "acb47320",
+        "812c3bfb"
+      ],
+      "source_candidates": [],
+      "assessment": "0.12.4 reported. Prior support records 129 calls/$22.32, 51 interrupted streams; causal explanation unresolved. Latest Sep29 cannot launch after macOS update, blocking diagnostics. Related spend/completion records do not replace account-specific incident.",
+      "thread_count": 1,
+      "priority": "normal-intake",
+      "mapping_relationship": "related only; exact incident record not established",
+      "record_action": "add customer incident record or link a more precise existing record",
+      "customer_reporters": 1
+    },
+    {
+      "id": "E28",
+      "kind": "bug",
+      "title": "Screenshots reportedly cause expensive context shrinking and failed task",
+      "recovery": "unconfirmed",
+      "existing_fingerprints": [],
+      "source_candidates": [],
+      "assessment": "Prior support acknowledged bug in0.12.4, claimed $34 credit restored and0.12.5 repair shipped. Customer expressed relief before update; no post-update successful run or credit confirmation. Missing exact customer recovery record.",
+      "thread_count": 1,
+      "priority": "normal-intake",
+      "mapping_relationship": "no matching fingerprint found",
+      "record_action": "add customer incident record or link a more precise existing record",
+      "customer_reporters": 1
+    },
+    {
+      "id": "E29",
+      "kind": "bug-or-how-to",
+      "title": "BYOK customer reports managed charges and failed connector setup",
+      "recovery": "unconfirmed",
+      "existing_fingerprints": [
+        "2b6d70fb",
+        "acb47320"
+      ],
+      "source_candidates": [],
+      "assessment": "Version unknown; Composio/Gmail deferred and charges reported. No ledger or effective-provider correlation. Do not assume paid charges were erroneous or match old idle-spend case.",
+      "thread_count": 1,
+      "priority": "normal-intake",
+      "mapping_relationship": "related only; exact incident record not established",
+      "record_action": "triage support/policy versus new symptom record",
+      "customer_reporters": 1
+    },
+    {
+      "id": "E30",
+      "kind": "how-to",
+      "title": "Funded balance refused because configured spending limits were reached",
+      "recovery": "recovered",
+      "existing_fingerprints": [],
+      "source_candidates": [],
+      "assessment": "Customer explicitly self-resolved Sep27 by correcting limits. Separate from Oct8 recurring failure in E05.",
+      "thread_count": 1,
+      "priority": "normal-intake",
+      "mapping_relationship": "no matching fingerprint found",
+      "record_action": "triage support/policy versus new symptom record",
+      "customer_reporters": 1
+    },
+    {
+      "id": "E31",
+      "kind": "bug-or-model-limitation",
+      "title": "Ollama produces tool-like prose without web execution",
+      "recovery": "unconfirmed",
+      "existing_fingerprints": [
+        "678ac951"
+      ],
+      "source_candidates": [
+        "0e25b955f"
+      ],
+      "assessment": "Windows llama3.1/qwen2.5:7b; explicitly references GitHub #20. Related fingerprint involves qwen3 filesystem task and real context-window repair; actual model/customer recovery not demonstrated. Do not dismiss all local-model failures by model size.",
+      "thread_count": 1,
+      "priority": "normal-intake",
+      "mapping_relationship": "related only; exact incident record not established",
+      "record_action": "add customer incident record or link a more precise existing record",
+      "customer_reporters": 1
+    },
+    {
+      "id": "E32",
+      "kind": "bug",
+      "title": "Station renders but remains LINK DOWN and feed reconnecting",
+      "recovery": "persists",
+      "existing_fingerprints": [],
+      "source_candidates": [],
+      "assessment": "Apple Silicon0.12.5 survives reinstall; separate Windows report after quota exhaustion. No proven shared cause or exact fingerprint. Keep provider quota separate from local telemetry outage.",
+      "thread_count": 2,
+      "priority": "normal-intake",
+      "mapping_relationship": "no matching fingerprint found",
+      "record_action": "add customer incident record or link a more precise existing record",
+      "customer_reporters": 2
+    },
+    {
+      "id": "E33",
+      "kind": "bug-or-how-to",
+      "title": "Account link or email sign-in cannot complete",
+      "recovery": "unconfirmed",
+      "existing_fingerprints": [
+        "eaaa3ec8",
+        "99a1517b"
+      ],
+      "source_candidates": [],
+      "assessment": "Multiple sparse reports; some Mac. Support asked restart/browser-account test/diagnostics. Generic email login does not establish Google OAuth app blocking or engine failure.",
+      "thread_count": 4,
+      "priority": "normal-intake",
+      "mapping_relationship": "related only; exact incident record not established",
+      "record_action": "triage support/policy versus new symptom record",
+      "customer_reporters": 4
+    },
+    {
+      "id": "E34",
+      "kind": "how-to-or-bug",
+      "title": "Provider selection or Wake fails with insufficient error evidence",
+      "recovery": "unconfirmed",
+      "existing_fingerprints": [],
+      "source_candidates": [],
+      "assessment": "Retry fails/agent idle, model missing per prior support, Grok connection error with subscription. Screenshots not inspected; no exact cause or paid-plan/API entitlement conclusion.",
+      "thread_count": 3,
+      "priority": "normal-intake",
+      "mapping_relationship": "no matching fingerprint found",
+      "record_action": "triage support/policy versus new symptom record",
+      "customer_reporters": 3
+    },
+    {
+      "id": "E35",
+      "kind": "bug",
+      "title": "ChatGPT sign-in verified but Codex runs reject service-key credential",
+      "recovery": "persists",
+      "existing_fingerprints": [
+        "f46a1875"
+      ],
+      "source_candidates": [
+        "78603dd51"
+      ],
+      "assessment": "0.12.4 Intel Mac; reconnect/restart and environment-key check unsuccessful. Stored-key precedence record is a related candidate only; reconnect-copy change is not a verified credential repair.",
+      "thread_count": 1,
+      "priority": "normal-intake",
+      "mapping_relationship": "related only; exact incident record not established",
+      "record_action": "add customer incident record or link a more precise existing record",
+      "customer_reporters": 1
+    },
+    {
+      "id": "E36",
+      "kind": "how-to",
+      "title": "Device-code sign-in setting cannot be found",
+      "recovery": "unconfirmed",
+      "existing_fingerprints": [],
+      "source_candidates": [],
+      "assessment": "Mac ChatGPT connection; support gave settings guidance, customer could not find option. Last terse response is not recovery evidence.",
+      "thread_count": 1,
+      "priority": "normal-intake",
+      "mapping_relationship": "no matching fingerprint found",
+      "record_action": "triage support/policy versus new symptom record",
+      "customer_reporters": 1
+    },
+    {
+      "id": "E37",
+      "kind": "bug",
+      "title": "Mac shared-specialties boot failure later recovers",
+      "recovery": "recovered",
+      "existing_fingerprints": [
+        "2f156837"
+      ],
+      "source_candidates": [
+        "14c6a69a8"
+      ],
+      "assessment": "Sep21 customer explicitly says installed0.12.4 now looks working. Register at both baselines still says persists from Sep18. Update customer-specific recovery evidence; linked billing problem remains open as E38.",
+      "thread_count": 1,
+      "priority": "normal-intake",
+      "mapping_relationship": "matching existing record(s)",
+      "record_action": "reconcile latest evidence without broad closure",
+      "customer_reporters": 1
+    },
+    {
+      "id": "E38",
+      "kind": "billing-investigation",
+      "title": "Credits unavailable after Mac startup recovery",
+      "recovery": "persists",
+      "existing_fingerprints": [
+        "abd75bb4"
+      ],
+      "source_candidates": [],
+      "assessment": "Sep21 balance0 prevents continued use; Sep25 reminder. Purchased through StarNet website confirmed. Startup repair does not explain charges or establish credit restoration.",
+      "thread_count": 1,
+      "priority": "owner-triage-first",
+      "mapping_relationship": "matching existing record(s)",
+      "record_action": "reconcile latest evidence without broad closure",
+      "customer_reporters": 1
+    },
+    {
+      "id": "E39",
+      "kind": "security-report",
+      "title": "Historical private security reports with attachment-based evidence",
+      "recovery": "unconfirmed",
+      "existing_fingerprints": [],
+      "source_candidates": [
+        "56f259466",
+        "2ea9ed25e"
+      ],
+      "assessment": "0.12.4/f00aa04 reported; plaintext overviews read for filesystem containment and DNS validation. Unsupported ZIP and remaining technical attachments not exhaustively inspected; no code executed. Keep details private; source candidates are not verified reporter recovery.",
+      "thread_count": 2,
+      "priority": "normal-intake",
+      "mapping_relationship": "no matching fingerprint found",
+      "record_action": "add customer incident record or link a more precise existing record",
+      "customer_reporters": 2
+    },
+    {
+      "id": "E40",
+      "kind": "bug",
+      "title": "Zoho bootstrap tool requires account identifier it should discover",
+      "recovery": "unconfirmed",
+      "existing_fingerprints": [
+        "54564ff9"
+      ],
+      "source_candidates": [],
+      "assessment": "0.11.2 Windows; remote connector connects with14 tools but getMailAccounts requires account. Existing open record matches. Secondary wrong-provider model errors need separate correlation.",
+      "thread_count": 1,
+      "priority": "normal-intake",
+      "mapping_relationship": "matching existing record(s)",
+      "record_action": "reconcile latest evidence without broad closure",
+      "customer_reporters": 1
+    },
+    {
+      "id": "E41",
+      "kind": "bug",
+      "title": "Managed provider route fails through multiple versions and wrong provider selection",
+      "recovery": "mixed-unconfirmed",
+      "existing_fingerprints": [
+        "fd9c4b4d",
+        "3195ab5a",
+        "7ed4a93c",
+        "a9374d2c"
+      ],
+      "source_candidates": [
+        "177a9384e",
+        "17b9e1341",
+        "05fbfbd28"
+      ],
+      "assessment": "Same customer across three threads and explicitly identified external crosspost; deduplicate. 0.6.6→0.10.13→0.11.0→0.11.1. Localhost route superseded by missing credential issue; later thanks suggests progress but does not explicitly verify all symptoms. Subsequent spend loop remains separate E42.",
+      "thread_count": 3,
+      "priority": "normal-intake",
+      "mapping_relationship": "related only; exact incident record not established",
+      "record_action": "add customer incident record or link a more precise existing record",
+      "customer_reporters": 1
+    },
+    {
+      "id": "E42",
+      "kind": "bug",
+      "title": "Overnight repeated verification consumes balance without progress",
+      "recovery": "persists",
+      "existing_fingerprints": [
+        "f8d479d9"
+      ],
+      "source_candidates": [],
+      "assessment": "Sep17 reports98 recursive runs/$98 and subscription paused. Existing open record matches; earlier positive reply does not close this later incident.",
+      "thread_count": 1,
+      "priority": "owner-triage-first",
+      "mapping_relationship": "matching existing record(s)",
+      "record_action": "reconcile latest evidence without broad closure",
+      "customer_reporters": 1
+    },
+    {
+      "id": "E43",
+      "kind": "bug",
+      "title": "Ollama chat HTTP request never sent after successful model discovery",
+      "recovery": "persists",
+      "existing_fingerprints": [
+        "5274c7b7"
+      ],
+      "source_candidates": [],
+      "assessment": "0.11.2 Windows/Ollama0.5.7 qwen2.5:7b, tool-free STARTEST, direct request works. Existing open record matches. Prior response about small model did not address observed transport failure.",
+      "thread_count": 1,
+      "priority": "normal-intake",
+      "mapping_relationship": "matching existing record(s)",
+      "record_action": "reconcile latest evidence without broad closure",
+      "customer_reporters": 1
+    },
+    {
+      "id": "E44",
+      "kind": "bug",
+      "title": "Unlink claims success but does not expose account relink",
+      "recovery": "persists",
+      "existing_fingerprints": [
+        "99a1517b"
+      ],
+      "source_candidates": [
+        "02332ee85"
+      ],
+      "assessment": "Separate account used to purchase credits; customer Sep15 says unlink failed. Payment and account-switch issues deduplicated within thread; no recovery confirmation.",
+      "thread_count": 1,
+      "priority": "normal-intake",
+      "mapping_relationship": "matching existing record(s)",
+      "record_action": "reconcile latest evidence without broad closure",
+      "customer_reporters": 1
+    },
+    {
+      "id": "E45",
+      "kind": "how-to-or-policy",
+      "title": "Product Line Workbench unavailable despite standing grant",
+      "recovery": "unconfirmed",
+      "existing_fingerprints": [
+        "4a19c050"
+      ],
+      "source_candidates": [],
+      "assessment": "0.11.2 Windows; exact existing wontfix policy-scope record. Wontfix is not customer recovery; needs supported scoped configuration answer.",
+      "thread_count": 1,
+      "priority": "normal-intake",
+      "mapping_relationship": "matching existing record(s)",
+      "record_action": "reconcile latest evidence without broad closure",
+      "customer_reporters": 1
+    },
+    {
+      "id": "E46",
+      "kind": "bug",
+      "title": "Windows shared-specialties script fails at boot",
+      "recovery": "unconfirmed",
+      "existing_fingerprints": [
+        "2f156837"
+      ],
+      "source_candidates": [],
+      "assessment": "Same resource name as Mac issue but WindowsEdge origin/build unknown. Existing record explicitly distinguishes this sibling; Mac recovery cannot close it.",
+      "thread_count": 1,
+      "priority": "normal-intake",
+      "mapping_relationship": "matching existing record(s)",
+      "record_action": "reconcile latest evidence without broad closure",
+      "customer_reporters": 1
+    },
+    {
+      "id": "E47",
+      "kind": "bug",
+      "title": "Mac installation unsupported",
+      "recovery": "unconfirmed",
+      "existing_fingerprints": [
+        "ff3fb4cb"
+      ],
+      "source_candidates": [],
+      "assessment": "Exact existing open fingerprint; version/architecture uncorrelated.",
+      "thread_count": 1,
+      "priority": "normal-intake",
+      "mapping_relationship": "matching existing record(s)",
+      "record_action": "reconcile latest evidence without broad closure",
+      "customer_reporters": 1
+    },
+    {
+      "id": "E48",
+      "kind": "bug",
+      "title": "Placed capabilities absent from model and toolset diagnostics",
+      "recovery": "unconfirmed",
+      "existing_fingerprints": [
+        "432df352"
+      ],
+      "source_candidates": [
+        "3c95b184f"
+      ],
+      "assessment": "0.11.0 Windows Ollama; exact customer report mapped. Source fixed, no customer retest.",
+      "thread_count": 1,
+      "priority": "normal-intake",
+      "mapping_relationship": "matching existing record(s)",
+      "record_action": "reconcile latest evidence without broad closure",
+      "customer_reporters": 1
+    },
+    {
+      "id": "E49",
+      "kind": "bug",
+      "title": "Doctor reasoning override, feedback wrong-run attribution, file approval clipping and unsolicited deliverable action",
+      "recovery": "unconfirmed",
+      "existing_fingerprints": [
+        "2a9cb952",
+        "c7fa86fc",
+        "48c51661",
+        "5a35bcfe"
+      ],
+      "source_candidates": [
+        "72a8a3043"
+      ],
+      "assessment": "One customer thread with four independently tracked symptoms; explicit run IDs supplied. State/permissions survival is positive evidence but not recovery of these issues. Approval refusal worked; do not call it approval bypass.",
+      "thread_count": 1,
+      "priority": "normal-intake",
+      "mapping_relationship": "matching existing record(s)",
+      "record_action": "reconcile latest evidence without broad closure",
+      "customer_reporters": 1
+    },
+    {
+      "id": "E50",
+      "kind": "bug",
+      "title": "Persisted emergency stop cannot be resumed",
+      "recovery": "persists",
+      "existing_fingerprints": [
+        "8f911536"
+      ],
+      "source_candidates": [
+        "acdf5160c"
+      ],
+      "assessment": "0.10.13 Windows with ineffective local patch. Exact mapped symptom; source fixed but affected recovery not confirmed. Whop mention in mail is crosspost anchor, not another independent customer.",
+      "thread_count": 1,
+      "priority": "normal-intake",
+      "mapping_relationship": "matching existing record(s)",
+      "record_action": "reconcile latest evidence without broad closure",
+      "customer_reporters": 1
+    },
+    {
+      "id": "E51",
+      "kind": "bug",
+      "title": "Test sample ignores provider and tiers show models missing",
+      "recovery": "unconfirmed",
+      "existing_fingerprints": [
+        "c978e7b7",
+        "ddea3c5d"
+      ],
+      "source_candidates": [
+        "e33914cb2"
+      ],
+      "assessment": "Doctor passed normal managed round-trip; customer thanked explanation, not a post-fix sample retest.",
+      "thread_count": 1,
+      "priority": "normal-intake",
+      "mapping_relationship": "matching existing record(s)",
+      "record_action": "reconcile latest evidence without broad closure",
+      "customer_reporters": 1
+    },
+    {
+      "id": "E52",
+      "kind": "bug",
+      "title": "Routed OpenRouter orphan tool result and missing ONCE routine",
+      "recovery": "persists",
+      "existing_fingerprints": [
+        "112199f5",
+        "c2a6c3c8"
+      ],
+      "source_candidates": [
+        "14f34372a",
+        "2b976f5f3"
+      ],
+      "assessment": "Version corrected by reporter from0.9.0 to0.10.12. Two symptoms; no recovery confirmation.",
+      "thread_count": 1,
+      "priority": "normal-intake",
+      "mapping_relationship": "matching existing record(s)",
+      "record_action": "reconcile latest evidence without broad closure",
+      "customer_reporters": 1
+    },
+    {
+      "id": "E53",
+      "kind": "how-to-or-bug",
+      "title": "Provider subscription quota confused with station credits or link state",
+      "recovery": "unconfirmed",
+      "existing_fingerprints": [
+        "6c54d22e",
+        "e89317af"
+      ],
+      "source_candidates": [
+        "756ebec88"
+      ],
+      "assessment": "0.10.12 diagnostic has Codex429/xAI402; other report shows proper provider-plan-exhausted message but billing confusion. Do not equate provider quota with managed balance.",
+      "thread_count": 2,
+      "priority": "normal-intake",
+      "mapping_relationship": "related only; exact incident record not established",
+      "record_action": "triage support/policy versus new symptom record",
+      "customer_reporters": 2
+    },
+    {
+      "id": "E54",
+      "kind": "bug",
+      "title": "Managed model catalog empty and invalid model ID after previously working setup",
+      "recovery": "persists",
+      "existing_fingerprints": [
+        "7ed4a93c",
+        "ddea3c5d",
+        "fd9c4b4d"
+      ],
+      "source_candidates": [],
+      "assessment": "0.10.10 Windows, source association only; exact account entitlement/catalog request unresolved.",
+      "thread_count": 1,
+      "priority": "normal-intake",
+      "mapping_relationship": "related only; exact incident record not established",
+      "record_action": "add customer incident record or link a more precise existing record",
+      "customer_reporters": 1
+    },
+    {
+      "id": "E55",
+      "kind": "bug",
+      "title": "Viewport blacks out after idle while agents continue and false zero-credit warning repeats",
+      "recovery": "persists",
+      "existing_fingerprints": [
+        "9256a771",
+        "72af29f4"
+      ],
+      "source_candidates": [],
+      "assessment": "Windows Aug24; reset instructions preceded symptom, restart gives only10–20min relief. Separate visual and credit warning fingerprints; source fixed status does not prove recovery.",
+      "thread_count": 1,
+      "priority": "normal-intake",
+      "mapping_relationship": "matching existing record(s)",
+      "record_action": "reconcile latest evidence without broad closure",
+      "customer_reporters": 1
+    },
+    {
+      "id": "E56",
+      "kind": "bug",
+      "title": "First Wake and reset recover but false no-credit notice remains",
+      "recovery": "partially-recovered",
+      "existing_fingerprints": [
+        "72af29f4"
+      ],
+      "source_candidates": [],
+      "assessment": "Aug23 customer explicitly says tasks run and credits debit correctly after new installer; false notice remains. Preserve per-symptom partial recovery.",
+      "thread_count": 1,
+      "priority": "normal-intake",
+      "mapping_relationship": "related only; exact incident record not established",
+      "record_action": "add customer incident record or link a more precise existing record",
+      "customer_reporters": 1
+    },
+    {
+      "id": "E57",
+      "kind": "bug-or-feature",
+      "title": "Splitter choices disabled and cross-line data handoff unclear",
+      "recovery": "persists",
+      "existing_fingerprints": [
+        "58136a6a",
+        "cc760146",
+        "39136a7a"
+      ],
+      "source_candidates": [
+        "8980d84fe",
+        "387c73fef",
+        "649ff8d86",
+        "b47749059"
+      ],
+      "assessment": "Oct9 update guidance then Oct10 latest-version failure; exact version not explicitly named by customer. Source splitter/handoff repairs present; existing fingerprints are related, not exact disabled-choice incident. Missing customer record.",
+      "thread_count": 1,
+      "priority": "owner-triage-first",
+      "mapping_relationship": "related only; exact incident record not established",
+      "record_action": "add customer incident record or link a more precise existing record",
+      "customer_reporters": 1
+    },
+    {
+      "id": "E58",
+      "kind": "bug",
+      "title": "Funded Wake reports no credits after top-up",
+      "recovery": "unconfirmed",
+      "existing_fingerprints": [
+        "72af29f4"
+      ],
+      "source_candidates": [
+        "2c1d1a764"
+      ],
+      "assessment": "Oct10 report; support asked version, no reply observed. Cannot infer same cause as E05.",
+      "thread_count": 1,
+      "priority": "normal-intake",
+      "mapping_relationship": "related only; exact incident record not established",
+      "record_action": "add customer incident record or link a more precise existing record",
+      "customer_reporters": 1
+    },
+    {
+      "id": "E59",
+      "kind": "bug",
+      "title": "Build-mode pointer offset on Apple Silicon",
+      "recovery": "unconfirmed",
+      "existing_fingerprints": [
+        "26433ecb"
+      ],
+      "source_candidates": [],
+      "assessment": "MacM2/version unknown; pointer requires large left/up compensation. Existing CRT agent hit-target record is related only; no native build-mode repro.",
+      "thread_count": 1,
+      "priority": "normal-intake",
+      "mapping_relationship": "related only; exact incident record not established",
+      "record_action": "add customer incident record or link a more precise existing record",
+      "customer_reporters": 1
+    },
+    {
+      "id": "E60",
+      "kind": "bug",
+      "title": "OpenRouter work-line run rejects missing authentication header",
+      "recovery": "unconfirmed",
+      "existing_fingerprints": [
+        "0e3d3914",
+        "8b22d414"
+      ],
+      "source_candidates": [],
+      "assessment": "Sep17 version/platform unknown. Prior advice reselect model, no recovery. Related saved-provider/fallback records not definitive.",
+      "thread_count": 1,
+      "priority": "normal-intake",
+      "mapping_relationship": "related only; exact incident record not established",
+      "record_action": "add customer incident record or link a more precise existing record",
+      "customer_reporters": 1
+    },
+    {
+      "id": "H01",
+      "kind": "how-to-or-feature",
+      "title": "Model setup, costs, local harness distinction and subscription compatibility",
+      "recovery": "unconfirmed",
+      "existing_fingerprints": [],
+      "source_candidates": [],
+      "assessment": "Questions about Hermes vs model, local memory tools/Linux, cheaper workflows, Gemini subscription support. No unsupported blanket compatibility or pricing promise should be inferred.",
+      "thread_count": 4,
+      "priority": "normal-intake",
+      "mapping_relationship": "no matching fingerprint found",
+      "record_action": "triage support/policy versus new symptom record",
+      "customer_reporters": 4
+    },
+    {
+      "id": "H02",
+      "kind": "how-to-or-feature",
+      "title": "Beginner guides, workflow recipes, backups, multi-machine sharing and platform capabilities",
+      "recovery": "unconfirmed",
+      "existing_fingerprints": [],
+      "source_candidates": [],
+      "assessment": "Recurring onboarding/documentation demand; separate from defects. Backup/migration and collaboration are asked explicitly. Some community interest and implementation questions are informational.",
+      "thread_count": 15,
+      "priority": "normal-intake",
+      "mapping_relationship": "no matching fingerprint found",
+      "record_action": "triage support/policy versus new symptom record",
+      "customer_reporters": 15
+    },
+    {
+      "id": "H03",
+      "kind": "how-to-or-feature",
+      "title": "Hardware and iPad support questions",
+      "recovery": "unconfirmed",
+      "existing_fingerprints": [],
+      "source_candidates": [],
+      "assessment": "M5 support and iPad availability requested; prior future-app promise is not shipped support.",
+      "thread_count": 2,
+      "priority": "normal-intake",
+      "mapping_relationship": "no matching fingerprint found",
+      "record_action": "triage support/policy versus new symptom record",
+      "customer_reporters": 2
+    },
+    {
+      "id": "H04",
+      "kind": "how-to",
+      "title": "Subscription cancellation portal is hard to discover",
+      "recovery": "mixed",
+      "existing_fingerprints": [],
+      "source_candidates": [],
+      "assessment": "One customer found cancellation under website pricing; another needed portal navigation instructions with no final confirmation.",
+      "thread_count": 2,
+      "priority": "normal-intake",
+      "mapping_relationship": "no matching fingerprint found",
+      "record_action": "triage support/policy versus new symptom record",
+      "customer_reporters": 2
+    },
+    {
+      "id": "H05",
+      "kind": "how-to-or-feature",
+      "title": "Enforced isolation between business workspaces, credentials and browser sessions",
+      "recovery": "unconfirmed",
+      "existing_fingerprints": [],
+      "source_candidates": [],
+      "assessment": "Same reporter as private OS-user security finding, but a separate supported-product-boundary question. Instructions in manuals are not enforcement.",
+      "thread_count": 1,
+      "priority": "normal-intake",
+      "mapping_relationship": "no matching fingerprint found",
+      "record_action": "triage support/policy versus new symptom record",
+      "customer_reporters": 1
+    },
+    {
+      "id": "H06",
+      "kind": "documentation",
+      "title": "Repository and website terms disagree",
+      "recovery": "unconfirmed",
+      "existing_fingerprints": [],
+      "source_candidates": [],
+      "assessment": "Customer asks which terms apply and whether branding restrictions change MIT permissions. Record discrepancy for owner review; no legal conclusion.",
+      "thread_count": 1,
+      "priority": "normal-intake",
+      "mapping_relationship": "no matching fingerprint found",
+      "record_action": "triage support/policy versus new symptom record",
+      "customer_reporters": 1
+    },
+    {
+      "id": "H07",
+      "kind": "feature-or-usability",
+      "title": "Station remains too dark at high lighting",
+      "recovery": "unconfirmed",
+      "existing_fingerprints": [
+        "741832d8",
+        "52397fc0"
+      ],
+      "source_candidates": [],
+      "assessment": "Oct10 platform/version unspecified, screenshot unreviewed. Prior lighting fixes are related; current readability complaint not confirmed resolved.",
+      "thread_count": 1,
+      "priority": "normal-intake",
+      "mapping_relationship": "related only; exact incident record not established",
+      "record_action": "triage support/policy versus new symptom record",
+      "customer_reporters": 1
+    },
+    {
+      "id": "U01",
+      "kind": "bug-unknown",
+      "title": "Application error visible only in screenshot",
+      "recovery": "unconfirmed",
+      "existing_fingerprints": [],
+      "source_candidates": [],
+      "assessment": "Mail body has no error text. Connector attachment read returned file URL but no image/text content; visual review remains pending.",
+      "thread_count": 1,
+      "priority": "normal-intake",
+      "mapping_relationship": "no matching fingerprint found",
+      "record_action": "add customer incident record or link a more precise existing record",
+      "customer_reporters": 1
+    },
+    {
+      "id": "X01",
+      "kind": "non-support",
+      "title": "Promotional outreach and test-mode billing notifications",
+      "recovery": "not-applicable",
+      "existing_fingerprints": [],
+      "source_candidates": [],
+      "assessment": "Excluded from customer bug counts. Stripe messages explicitly test-mode and do not establish live payment failures.",
+      "thread_count": 5,
+      "priority": "normal-intake",
+      "mapping_relationship": "no matching fingerprint found",
+      "record_action": "exclude from bug register",
+      "customer_reporters": 4
+    },
+    {
+      "id": "U02",
+      "kind": "unverified-complaint",
+      "title": "Visibility complaint later disowned by sender",
+      "recovery": "unconfirmed",
+      "existing_fingerprints": [
+        "6bb9d2a1"
+      ],
+      "source_candidates": [],
+      "assessment": "No diagnostics; later says original message was not theirs. Preserve source uncertainty, not a verified visual defect.",
+      "thread_count": 1,
+      "priority": "normal-intake",
+      "mapping_relationship": "matching existing record(s)",
+      "record_action": "reconcile latest evidence without broad closure",
+      "customer_reporters": 1
+    },
+    {
+      "id": "H08",
+      "kind": "how-to",
+      "title": "Prompt/personality customization and agent deletion are hard to find",
+      "recovery": "unconfirmed",
+      "existing_fingerprints": [],
+      "source_candidates": [],
+      "assessment": "One asks where conversational behavior is configured; another cannot find deletion and receives UI navigation. No confirmed defect or completion.",
+      "thread_count": 2,
+      "priority": "normal-intake",
+      "mapping_relationship": "no matching fingerprint found",
+      "record_action": "triage support/policy versus new symptom record",
+      "customer_reporters": 2
+    },
+    {
+      "id": "E61",
+      "kind": "bug",
+      "title": "OpenAI tool-array length and reasoning/API compatibility fail",
+      "recovery": "unconfirmed",
+      "existing_fingerprints": [],
+      "source_candidates": [],
+      "assessment": "0.12.4 Apple Silicon; 135 tools exceed maximum128 and function-tools/reasoning rejected on Chat Completions. Update-to0.12.5 advice followed by installation question, not recovery. Missing exact fingerprint; distinct from Doctor unsupported-none bug.",
+      "thread_count": 1,
+      "priority": "normal-intake",
+      "mapping_relationship": "no matching fingerprint found",
+      "record_action": "add customer incident record or link a more precise existing record",
+      "customer_reporters": 1
+    },
+    {
+      "id": "E01",
+      "kind": "bug",
+      "title": "Windows 0.13.2 packaged backend fails with reported empty shell.js",
+      "recovery": "unconfirmed",
+      "existing_fingerprints": [
+        "85f602c4"
+      ],
+      "source_candidates": [],
+      "assessment": "Windows10/0.13.2 customer claims zero-byte shell.js and MODULE_NOT_FOUND; reinstall did not help. Parent registered open P1 85f602c4 (support-2026-10-11-windows-packaged-backend-startup). Parent packaging check found nonempty source blob but no affected artifact/full stack; cause unverified. Do not merge with Mac package growth #107.",
+      "thread_count": 1,
+      "priority": "owner-triage-first",
+      "mapping_relationship": "matching new owner record, added after intake baselines",
+      "record_action": "append evidence to 85f602c4; do not duplicate",
+      "customer_reporters": 1
+    },
+    {
+      "id": "E62",
+      "thread_count": 1,
+      "customer_reporters": 1,
+      "kind": "bug",
+      "title": "Windows startup fails after antivirus quarantines shell.js",
+      "recovery": "unconfirmed",
+      "existing_fingerprints": [],
+      "source_candidates": [],
+      "priority": "normal-intake",
+      "mapping_relationship": "no matching fingerprint found; distinct from E01",
+      "record_action": "retain separate incident unless common cause is proven",
+      "assessment": "0.12.4 Windows11 report names RAV quarantine detection Risk.PowerShell.Script.Gen.D!YST. No affected artifact review or recovery confirmation. This does not establish why E01 reports a zero-byte file."
+    }
+  ]
+}

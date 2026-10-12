@@ -1,0 +1,47 @@
+---
+fingerprint: 85f602c4
+slug: windows-0132-packaged-backend-startup
+title: Windows 0.13.2 startup fails loading a packaged backend module
+surface: release
+severity: P1
+status: open
+found: 2026-10-11
+lane: agent/session-handoff-1011
+fix:
+origin: customer
+report: support-2026-10-11-windows-packaged-backend-startup
+affected: Windows 10, reported StarNet 0.13.2; exact installer hash and installed bytes unverified
+family: packaged-backend-integrity
+installer: unverified
+recovery: unconfirmed
+---
+
+# Windows 0.13.2 startup fails loading a packaged backend module
+
+## Symptom
+
+A customer reports that the local engine fails to start after installing 0.13.2 on Windows 10. The message quotes `Cannot find module './tools/builtin/shell.js'`, says the installed `sidecar/tools/builtin/shell.js` is zero bytes while `index.js` and `node.exe` exist, and says downloading again did not resolve startup. The customer wants recovery without deleting station data. These are reported observations; the complete original stack and exact installed bytes have not been independently inspected.
+
+## Repro
+
+Reported sequence: install 0.13.2, launch StarNet, observe local-engine startup failure, download again and observe continued failure. No controlled reproduction of the affected artifact exists yet.
+
+Next reproduction must identify the installer hash/signature, actual startup resource root and complete sanitized exception stack. Read existence, size and SHA-256 of `index.js`, `shell.js`, neighboring modules and `node.exe`; compare against files extracted from that exact verified installer in an isolated directory. Record disk space and read errors. Do not execute supplied customer files or replace/delete the existing station as a diagnostic step.
+
+An existing empty CommonJS module normally resolves and exports an empty object. Therefore the reported size alone does not explain `MODULE_NOT_FOUND`; path identity, timing, missing dependencies and the full stack remain to be reconciled.
+
+## Evidence
+
+- Fresh support email dated 2026-10-11, read in full during customer-driven intake. Private source identifiers and original text remain in the private intake mapping, outside tracked files.
+- Released tag `v0.13.2` resolves to `54899e5ff3f2b002b457757916b3977818db6fc1`. Its LF Git blob `sidecar/tools/builtin/shell.js` is 89,158 bytes, SHA-256 `794cde0f88e1ca4c77dff336248896749ecf96f19f7783ba940d2262f52ef685`. This proves source content only; it is not an installed-file checksum and checkout line endings may differ.
+- Startup resource selection at `src-tauri/src/main.rs:1529` checks for `sidecar/index.js`; Tauri resource configuration copies the sidecar directory. The inspected packaging paths are unchanged between that tag and `a20ffa71f`.
+- `test/source-text-integrity.test.js` rejects NUL bytes, not empty JavaScript. Node staging verifies the runtime archive checksum. Existing release provenance, signing and `scripts/qa/installed-smoke.mjs` checks do not by themselves establish every loose installed JavaScript file's identity.
+- No exact installed 0.13.2 per-file manifest/hash receipt was found in the inspected tracked release evidence. This is a bounded evidence search, not proof that the public installer is corrupt.
+
+## Verdict
+
+Open: startup-blocking customer report; cause and artifact reproduction unverified. Keep separate from macOS checkpoint-growth report #107/8bdf73bb and older frontend/WebKit boot-integrity records. Disk pressure is a hypothesis to check, not an established common cause. No installer repair, source fix or customer recovery is claimed.
+
+## Required acceptance
+
+Identify the failing file/path boundary; demonstrate the repair on a disposable installation of the exact affected artifact, then on the release candidate. Verify startup, a real local task, restart, and upgrade/reinstall continuity of existing station data. If the original report cannot be reproduced, retain that limitation and the specific evidence request. A successful source checkout run cannot close installed acceptance.
