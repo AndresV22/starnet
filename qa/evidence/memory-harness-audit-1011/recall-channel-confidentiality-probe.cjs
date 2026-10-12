@@ -35,11 +35,17 @@ function load(file) {
     ['explicit-all', { query: 'SYNTHETIC_PRIVATE_COBALT', scope: 'all' }],
     ['foreign-scroll', { around: 100, stream: 'owner-private' }],
     ['browse', {}],
-    ['authorized-local', { query: 'Public', scope: 'stream' }]
+    ['authorized-local', { query: 'Public', scope: 'stream' }],
+    ['restricted-default-with-local-hit', { query: 'update deployment' }],
+    ['restricted-missing-stream', { query: 'SYNTHETIC_PRIVATE_COBALT' }, { connectorAuthority: { withholdTaste: true } }],
+    ['simulated-restricted-worker-foreign-stream', { query: 'SYNTHETIC_PRIVATE_COBALT', scope: 'stream' }, { streamId: 'owner-private', connectorAuthority: { withholdTaste: true } }],
+    ['owner-cross-stream', { query: 'SYNTHETIC_PRIVATE_COBALT', scope: 'all' }, { streamId: 'owner-active', connectorAuthority: { withholdTaste: false } }],
+    ['owner-foreign-scroll', { around: 100, stream: 'owner-private' }, { streamId: 'owner-active', connectorAuthority: { withholdTaste: false } }],
+    ['owner-browse', {}, { streamId: 'owner-active', connectorAuthority: { withholdTaste: false } }]
   ];
   const results = [];
-  for (const [mode, args] of cases) {
-    const r = await tool.run(args, ctx);
+  for (const [mode, args, callContext] of cases) {
+    const r = await tool.run(args, callContext || ctx);
     results.push({ mode, privateSentinelReturned: r.content.includes('SYNTHETIC_PRIVATE_COBALT'), publicControlReturned: r.content.includes('Public group update'), taintedBy: r.taintedBy || null });
   }
   const blobs = {};
