@@ -3624,7 +3624,7 @@ const Chat = (() => {
         if (decided) return;
         decided = true;
         const denied = resp.decision === 'deny';
-        if (ws && typeof Channels !== 'undefined') Channels.clearPending(ws.id, Date.now());
+        if (ws && typeof Channels !== 'undefined') Channels.clearPending(ws.id, Date.now(), p.promptId);
         if (isActiveWs(ws)) renderPresence();
         btns.remove();
         const tag = document.createElement('span');
