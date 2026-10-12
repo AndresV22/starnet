@@ -132,6 +132,9 @@ function validatePromotionReceipt(receipt, options) {
   if (receipt.testSetDigest !== digest(suite) || receipt.suiteId !== suite.id) return { ok: false, reason: 'evaluation test set changed' };
   if (!['provider', 'executable'].includes(receipt.evidenceClass)) return { ok: false, reason: 'fixture evidence cannot authorize promotion' };
   if (!Array.isArray(receipt.cases) || receipt.cases.length !== suite.cases.length) return { ok: false, reason: 'incomplete evaluation cases' };
+  // An unfinished run has no checks to compare; refuse it for what it is before the check-level validation.
+  if (receipt.status === 'insufficient_evidence' && receipt.cases.some(c => c && c.before && c.after && (c.before.completed !== true || c.after.completed !== true)))
+    return { ok: false, reason: 'not every evaluation run finished; evaluate again' };
   const rebuilt = [];
   for (let i = 0; i < suite.cases.length; i++) {
     const c = suite.cases[i], saved = receipt.cases[i];

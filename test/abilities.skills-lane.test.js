@@ -98,6 +98,9 @@ async function checkCandidateReview() {
   A.ok(card.html.includes('data-candidate-approve disabled'), 'pending approval starts disabled');
   A.ok(card.html.includes('does not prove improvement for every use'), 'UI states evaluation scope honestly');
   A.ok(card.html.includes('data-candidate-acknowledge hidden disabled'), 'no-improvement approval starts hidden and disabled');
+  // The header states the gate the station enforces: a passing evaluation, or a complete no-improvement one the owner confirms.
+  A.ok(!card.html.includes('needs a passing task evaluation'), 'header does not claim a pass is the only way through');
+  A.ok(card.html.includes('needs a task evaluation and your approval. If a complete evaluation shows no improvement but the proposal passed every check, you can still approve it by confirming that.'), 'header names the confirmed no-improvement exit');
   A.ok(card.querySelector('[data-evaluation-suites]').children[2].textContent.includes('generic check (not specific to this skill)'), 'built-in suite is labeled a generic check');
   A.ok(!card.querySelector('[data-evaluation-suites]').children[0].textContent.includes('generic check'), 'owner task checks are not labeled generic');
   const run = card.querySelector('[data-evaluation-suites]').children[1];
@@ -130,6 +133,11 @@ async function checkCandidateReview() {
   A.eq(ack.hidden, false, 'a complete tie shows the acknowledgement');
   A.eq(ack.disabled, false, 'a complete tie enables the acknowledgement');
   A.ok(/no improvement/i.test(card4.querySelector('[data-evaluation-result]').textContent), 'panel says the evaluation showed no improvement');
+  // The owner already registered these checks: the advice is to add one that separates the versions.
+  const ownerTieText = card4.querySelector('[data-evaluation-result]').textContent;
+  A.ok(!ownerTieText.includes('Register task checks'), 'an owner-suite tie does not ask for checks the owner already registered');
+  A.ok(ownerTieText.includes('Add a check that fails without the proposal to measure the difference.'), 'an owner-suite tie says how to measure the difference');
+  A.ok(ownerTieText.includes('and so did the run without it'), 'tie copy holds for a new skill as well as a revision');
   A.ok(ack.armed && typeof ack.armed.onConfirm === 'function', 'acknowledgement is an armed two-step confirm');
   await ack.armed.onConfirm();
   A.eq(requests.at(-1).body.acknowledgeNoImprovement, true, 'acknowledgement is sent explicitly');
@@ -142,6 +150,13 @@ async function checkCandidateReview() {
   await card5.querySelector('[data-evaluation-suites]').children[1].onclick();
   A.eq(card5.querySelector('[data-candidate-acknowledge]').disabled, true, 'an incomplete evaluation cannot be acknowledged');
   A.eq(card5.querySelector('[data-candidate-acknowledge]').hidden, true, 'an incomplete evaluation hides the acknowledgement');
+  // A tie on a built-in generic suite points the owner at registering checks for this skill.
+  const host6 = element(); ctx.host = host6; extra = { allCandidatePassed: true, regressions: [], improvements: [], cases: tieCases };
+  vm.runInNewContext('renderSkillCandidates(host, "agent", review);', ctx);
+  const card6 = host6.children[0];
+  await card6.querySelector('[data-evaluation-suites]').children[3].onclick();
+  A.eq(requests.at(-1).body.suiteId, 'task-handoff:Brief', 'generic suite is the one evaluated');
+  A.ok(card6.querySelector('[data-evaluation-result]').textContent.includes('Register task checks for this skill to measure it.'), 'a generic-suite tie suggests registering task checks');
   status = 'passed'; extra = {};
   const host3 = element(); ctx.host = host3;
   vm.runInNewContext('renderSkillCandidates(host, "agent", review);', ctx);

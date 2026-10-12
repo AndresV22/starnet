@@ -61,6 +61,7 @@ async function main() {
   assert.equal(incomplete.status, 'insufficient_evidence');
   assert.equal(incomplete.allCandidatePassed, true);
   assert.equal(halfRun.verifyReceipt(incomplete, { ...tieExpected, acknowledgedNoImprovement: true }).ok, false, 'acknowledgement never accepts an incomplete evaluation');
+  assert.equal(halfRun.verifyReceipt(incomplete, { ...tieExpected, acknowledgedNoImprovement: true }).reason, 'not every evaluation run finished; evaluate again', 'an unfinished run is refused for what it is');
   const broken = E.makeSkillEvaluator({ ...options, runCase: async () => { throw new Error('runner unavailable'); } });
   assert.equal((await broken.evaluate({ candidate, baseline, suiteId: suite.id })).status, 'insufficient_evidence');
   const fixture = E.makeSkillEvaluator({ ...options, evidenceClass: 'fixture' });

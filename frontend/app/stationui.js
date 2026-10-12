@@ -4321,7 +4321,9 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     const candidateResultText = (r, suite, tie) => {
       const status = r && r.status;
       if (status === 'passed') return 'Passed: the proposal passed every check and did better than without it on at least one' + (suite.generic ? ', on a generic check (not specific to this skill).' : '.');
-      if (tie) return 'No improvement shown: both versions passed every check, so this suite cannot show what the revision adds. Register task checks for this skill to measure it.';
+      // "Without it" holds for a revision (the current version) and a new skill (no skill); owner checks already exist.
+      if (tie) return 'No improvement shown: the proposal passed every check, and so did the run without it, so this suite cannot show what the proposal adds. ' +
+        (suite.generic ? 'Register task checks for this skill to measure it.' : 'Add a check that fails without the proposal to measure the difference.');
       if (status === 'regression') return 'Regression: the proposal failed a check the current version passed.';
       if (status === 'failed') return 'Failed: the proposal did not pass every check.';
       if (status === 'insufficient_evidence') return 'No result: not every run finished.';
@@ -4331,7 +4333,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       const skill = candidate.skill || {};
       const card = mkEl('div', 'sk-card want open'); host.appendChild(card);
       card.dataset.skillCandidate = candidate.candidateId;
-      card.innerHTML = '<div class="sk-card-head"><div class="sk-card-main"><div class="sk-name-row"><span class="sk-name">' + esc(skill.name || candidate.name) + '</span><span class="sk-badge want">PROPOSED REVISION</span></div><div class="sk-desc">Any existing active version stays available. This proposal needs a passing task evaluation and your approval.</div></div></div>' +
+      card.innerHTML = '<div class="sk-card-head"><div class="sk-card-main"><div class="sk-name-row"><span class="sk-name">' + esc(skill.name || candidate.name) + '</span><span class="sk-badge want">PROPOSED REVISION</span></div><div class="sk-desc">Any existing active version stays available. This proposal needs a task evaluation and your approval. If a complete evaluation shows no improvement but the proposal passed every check, you can still approve it by confirming that.</div></div></div>' +
         '<div class="sk-body"><div class="sk-attr">Proposed scope: ' + esc(skill.scope || 'agent') + ' · revision ' + esc(candidate.revision) + '</div><pre>' + esc(skill.body || '') + '</pre>' +
         '<details><summary>Proposed metadata and package files</summary><pre>' + esc(JSON.stringify({ candidateDigest: candidate.candidateDigest, baseDigest: candidate.baseDigest, summary: skill.summary, description: skill.description, setup: skill.setup, category: skill.category, requires: skill.requires, platforms: skill.platforms, state: skill.state, scope: skill.scope, projectRoot: skill.projectRoot, packageFiles: skill.packageFiles }, null, 2)) + '</pre></details>' +
         (skill.files || []).map(f => '<details><summary>' + esc(f.path) + '</summary><pre>' + esc(f.content || '') + '</pre></details>').join('') +
