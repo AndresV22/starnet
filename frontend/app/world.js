@@ -9847,11 +9847,11 @@ const World = (() => {
     }
     return false;
   }
-  function holdJoinedProduct(aid, spec, lineId) {
+  function holdJoinedProduct(aid, spec, lineId, productive = true) {
     dockLineTake(aid);
     if (!spec.runId) return;
     const usd = runUsdRecon.get(spec.runId);
-    joinedProducts.set(spec.runId, { spec, lineId, usd: typeof usd === 'number' && isFinite(usd) && usd > 0 ? usd : 0 });
+    joinedProducts.set(spec.runId, { spec, lineId, productive, usd: typeof usd === 'number' && isFinite(usd) && usd > 0 ? usd : 0 });
     if (joinedProducts.size > 400) joinedProducts.delete(joinedProducts.keys().next().value);
   }
   function releaseJoinedProduct(p) {
@@ -9863,7 +9863,7 @@ const World = (() => {
     let worked = false, usd = 0;
     for (const [runId, rec] of joinedProducts) {
       if (rec.lineId !== p.lineId || (runId !== p.entryRunId && !ids.has(rec.spec.workitemId))) continue;
-      worked = true; usd += rec.usd; joinedProducts.delete(runId);
+      worked = worked || rec.productive; usd += rec.usd; joinedProducts.delete(runId);
     }
     if (!worked || !convey || !routingPlan) return;   // unseen/talk-only jobs never invent product
     const out = (routingPlan.outs || []).find(o => o.propId === p.outboxId);
@@ -10520,7 +10520,7 @@ const World = (() => {
     // THROUGHPUT + DWELL: pair each work-item's placement with its delivery (a reliable Date.now() clock,
     // since the box's belt-ride spans real wall-clock seconds) to fold items/min + time-on-line.
     U.bus.on('workitem.placed', p => { if (floor) floor.onEvent('workitem.placed', p, Date.now()); });
-    U.bus.on('workitem.delivered', p => { if (floor && (!p || p.box !== 'line-output')) floor.onEvent('workitem.delivered', p, Date.now()); });
+    U.bus.on('workitem.delivered', p => { if (floor) floor.onEvent('workitem.delivered', p, Date.now()); });
     // the run's own error text (agent.run.error lands before its run.end), so the post-mortem can name a KNOWN
     // cause (empty provider wallet, unavailable model, …) instead of "send it again, report it if it repeats".
     U.bus.on('agent.run.error', p => {
@@ -10536,6 +10536,11 @@ const World = (() => {
       // A clean finish that PROVABLY WORKED ships: one product crate leaves the producing agent's bay
       // and rides to the OUTBOX. A done-but-workless run ("I couldn't do that") ships NOTHING.
       if (r === 'done' && runWorked(p)) shipProductCrate(p);
+      else if (r === 'done') {
+        const work = dockWorkPeek(p && p.agentId), lineId = lineOfWork(work);
+        // A talk-only sibling contributes observed cost, never proof that a job produced work.
+        if (lineNeedsRelease(work && work.dockId, lineId)) holdJoinedProduct(p.agentId, productCrateSpec(p), lineId, false);
+      }
       if (p) {                                          // the run is over — drop ITS tally (and only its), either way
         const k = runKey(p);
         runWork.delete(k);
