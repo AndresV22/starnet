@@ -177,10 +177,10 @@ A.eq(CP.dayTag(0, T), '', 'undated → empty tag');
     return { pack, projected, requested };
   }
   const owner = (content, over) => Object.assign({
-    agentId: 'owner-agent', streamId: 'ws-main', role: 'user', content, taintKnown: true, ts: T
+    agentId: 'owner-agent', streamId: 'ws-main', sourceRunId: 'owner-original', role: 'user', content, taintKnown: true, ts: T
   }, over || {});
   const brief = (originalDirective, over) => Object.assign({
-    agentId: 'owner-agent', streamId: 'ws-main', originalDirective, completedAt: T
+    id: 'tb_owner-original', originalRunId: 'owner-original', agentId: 'owner-agent', streamId: 'ws-main', originalDirective, completedAt: T
   }, over || {});
 
   const selfTalk = 'INTERNAL GOAL DECOMPOSITION fixture for the station';
@@ -280,6 +280,12 @@ A.eq(CP.dayTag(0, T), '', 'undated → empty tag');
   const directive = 'Finish the release checklist\nVerify the version number';
   const cases = [
     ['same owner and stream', owner(directive), brief(directive), 1],
+    ['different original occurrence cannot borrow identical words', owner(directive, { sourceRunId: 'other-original' }), brief(directive), 0],
+    ['missing transcript source run cannot prove an occurrence', owner(directive, { sourceRunId: undefined }), brief(directive), 0],
+    ['host brief ID supplies the legacy original identity', owner(directive), brief(directive, { originalRunId: undefined }), 1],
+    ['arbitrary legacy ID and no original identity fail closed', owner(directive), brief(directive, { id: 'legacy-brief', originalRunId: undefined }), 0],
+    ['explicit original identity outranks a conflicting legacy ID', owner(directive), brief(directive, { id: 'tb_wrong-origin' }), 1],
+    ['completion ID cannot substitute for original identity', owner(directive, { sourceRunId: 'completion-run' }), brief(directive, { runId: 'completion-run' }), 0],
     ['different completion run IDs are not required to match', owner(directive, { runId: 'owner-run' }), brief(directive, { runId: 'later-run' }), 1],
     ['different agent cannot borrow the directive', owner(directive), brief(directive, { agentId: 'other-agent' }), 0],
     ['different stream cannot borrow the directive', owner(directive), brief(directive, { streamId: 'other-stream' }), 0],
@@ -304,6 +310,22 @@ A.eq(CP.dayTag(0, T), '', 'undated → empty tag');
     A.eq(r.projected.briefs.length, expected, label + ' at the host boundary');
     A.eq(r.pack.counts.briefs, expected, label + ' in the real evidence pack');
   }
+  const repeatedText = 'Prepare an identical report on three separate days';
+  const repeatedBriefs = [0, 1, 2].map(i => brief(repeatedText, {
+    id: 'tb_repeat-' + i, originalRunId: 'repeat-' + i, runId: 'completion-' + i, completedAt: ago(3 - i)
+  }));
+  const repeatedRows = repeatedBriefs.map(b => owner(repeatedText, { sourceRunId: b.originalRunId }));
+  A.eq(host({ briefs: repeatedBriefs, chats: repeatedRows.slice(-1) }).projected.briefs.length, 1,
+    'one newly proven identical request authorizes only its own historical occurrence');
+  A.eq(host({ briefs: repeatedBriefs, chats: repeatedRows.map(r => ({ ...r, taintKnown: undefined })) }).projected.briefs.length, 0,
+    'three identical unknown occurrences yield no proven brief');
+  A.eq(host({ briefs: repeatedBriefs, chats: repeatedRows }).projected.briefs.length, 3,
+    'independent clean original rows prove all three identical occurrences');
+  A.eq(host({ briefs: [repeatedBriefs[0], { ...repeatedBriefs[0], id: 'duplicate-brief', runId: 'another-completion' }], chats: repeatedRows }).projected.briefs.length, 1,
+    'duplicate briefs with different finishing IDs count one original occurrence');
+  A.eq(host({ briefs: repeatedBriefs.map(b => ({ ...b, runId: 'repeat-2' })), chats: repeatedRows.slice(-1) }).projected.briefs.length, 1,
+    'rewritten completion IDs cannot launder earlier identical occurrences');
+
   const longDirective = 'Long direct owner request ' + 'x'.repeat(4500);
   const clipped = longDirective.trim().slice(0, 4000);
   A.eq(host({ chats: [owner(' \n' + longDirective)], briefs: [brief(clipped)] }).projected.briefs.length, 1,
