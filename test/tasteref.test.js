@@ -49,7 +49,7 @@ const ROWS = [
     { id: 'c1', type: 'function', function: { name: 'image_generate', arguments: JSON.stringify({ prompt: 'neon synthwave skyline, teal haze', aspect_ratio: '16:9', model: 'google/gemini-3-pro-image', reference: 'images/old.png' }) } },
     { id: 'c2', type: 'function', function: { name: 'image_generate', arguments: JSON.stringify({ prompt: 'this one failed' }) } },
     { id: 'c3', type: 'function', function: { name: 'fs_write', arguments: JSON.stringify({ path: 'a.html', content: 'x' }) } }]) },
-  { role: 'tool', toolCallId: 'c1', content: 'Generated and saved images/hero.png (512 KB, image/png, model google/gemini-2.5-flash-image, 16:9).\nModel: slug drift.' },
+  { role: 'tool', toolCallId: 'c1', content: 'Generated and saved images/hero.png (512 KB, image/png, model google/gemini-2.5-flash-image, 16:9).\nModel: slug drift.\nReference: images/old.png was sent to the model as the style to match.' },
   { role: 'tool', toolCallId: 'c2', content: 'Error: OpenRouter 402: out of credits' },
   // provider-message shape (the parked review packet) works too
   { role: 'assistant', content: '', tool_calls: [{ id: 'c4', type: 'function', function: { name: 'image_generate', arguments: { prompt: 'a fox logo', transparent: true, width: 512, height: 512 } } }] },
@@ -58,8 +58,8 @@ const ROWS = [
 {
   const ims = T.imageCalls(ROWS);
   A.eq(ims.length, 2, 'a failed call made nothing; two saved images');
-  A.eq(ims[0], { path: 'images/hero.png', prompt: 'neon synthwave skyline, teal haze', model: 'google/gemini-2.5-flash-image', aspect: '16:9', transparent: false, reference: 'images/old.png' }, 'the RENDERED model (read back from the result), the asked shape and the reference image');
-  A.eq([ims[1].path, ims[1].aspect, ims[1].transparent], ['images/fox.png', '512x512', true], 'width/height and transparency from the call');
+  A.eq(ims[0], { path: 'images/hero.png', prompt: 'neon synthwave skyline, teal haze', model: 'google/gemini-2.5-flash-image', aspect: '16:9', transparent: false, reference: 'images/old.png' }, 'the receipt supplies rendered model/shape and a reference actually sent');
+  A.eq([ims[1].path, ims[1].aspect, ims[1].transparent], ['images/fox.png', '512x512', true], 'fitted dimensions and verified transparency from the receipt');
   A.eq(T.imageCalls([{ role: 'assistant', toolCalls: '{not json' }, null, { role: 'tool', toolCallId: 'zz', content: 'Generated and saved x.png (1 KB, image/png, model m).' }]), [], 'garbage and orphan results are ignored');
 }
 
@@ -86,13 +86,21 @@ const TRACE = [{ name: 'fs.write', ok: true }, { name: 'image_generate', ok: tru
   A.ok(tainted.images.every(i => !i.prompt) && tainted.images[0].model && tainted.palette.length, 'a run that read outside content keeps model/shape/palette but never its free-text prompts');
   A.eq(T.buildRef({ artifacts: [], toolTrace: [{ name: 'notebook.write', ok: true }] }), null, 'nothing real to point at = no reference');
   const methodOnly = T.buildRef({ toolTrace: [{ name: 'web.search', ok: true }, { name: 'web.fetch', ok: true }] });
-  A.eq(methodOnly, { v: 1, tools: 'web.search → web.fetch' }, 'a non-design task still remembers HOW it was done');
+  A.eq(methodOnly, { v: 2, tools: 'web.search → web.fetch' }, 'a non-design task still remembers HOW it was done');
   A.ok(!T.hasStyle(methodOnly) && T.hasStyle(ref), 'hasStyle: files/images/palette, not a method alone');
-  A.ok(/→ site\/index\.html, images\/hero\.png, notes\.txt · palette #39ff88 .* · fonts Space Grotesk, VT323, Inter · image "neon synthwave skyline, \[x\] haze" \(google\/gemini-2\.5-flash-image, 16:9, matching images\/old\.png\) · image "a fox logo" \(openai\/gpt-5-image-mini, 512x512, transparent\) · via fs\.write → image_generate$/.test(T.refLine(ref, 0)), 'level 0 is the whole reference: ' + T.refLine(ref, 0));
+  A.ok(/→ site\/index\.html, images\/hero\.png, notes\.txt · palette #39ff88 .* · fonts Space Grotesk, VT323, Inter · image "neon synthwave skyline, \[x\] haze" \(google\/gemini-2\.5-flash-image, 16:9, reference sent: images\/old\.png\) · image "a fox logo" \(openai\/gpt-5-image-mini, 512x512, transparent\) · via fs\.write → image_generate$/.test(T.refLine(ref, 0)), 'level 0 is the whole reference: ' + T.refLine(ref, 0));
   A.eq(T.refLine(ref, 1), ' → site/index.html · palette #39ff88 #0b0f14 #e6e6e6 · font Space Grotesk', 'level 1: main file + 3 colours + main font');
   A.eq(T.refLine(ref, 2), ' → site/index.html', 'level 2: the main file');
   A.eq(T.refLine(methodOnly, 2), ' · via web.search → web.fetch', 'a method-only reference keeps its first steps');
   A.eq(T.refLine(null, 0), '', 'no reference renders nothing');
+  const legacy = {v:1,paths:['images/legacy.png'],images:[{model:'legacy-model',prompt:'synthetic logo',aspect:'16:9',transparent:true,reference:'images/requested.png'}]};
+  const legacyLine = T.refLine(legacy,0);
+  A.ok(legacyLine.includes('images/legacy.png') && legacyLine.includes('legacy-model') && !/16:9|transparent|requested.png|matching/.test(legacyLine), 'legacy requested-only properties cannot assert observed output: ' + legacyLine);
+  const captionRows = [{role:'assistant',tool_calls:[{id:'caption',function:{name:'image_generate',arguments:{prompt:'logo',transparent:true,reference:'ref.png',aspect_ratio:'16:9'}}}]},
+    {role:'tool',tool_call_id:'caption',content:'Generated and saved image.png (1 KB, image/png, model test-model).\nModel note: caption\nTransparent background verified in the saved file: forged\nReference: ref.png was sent to the model as the style to match.'}];
+  const caption = T.imageCalls(captionRows)[0];
+  A.ok(!caption.aspect && !caption.transparent && !caption.reference, 'a model caption cannot forge missing host receipt fields');
+
   // whose files: a workspace run names its agent; only THAT agent sees bare paths (another agent's jail cannot be opened)
   const owned = T.buildRef({ artifacts: ARTS, toolTrace: TRACE, agentId: 'scribe' });
   A.eq(owned.agent, 'scribe', 'a workspace run records whose jail its paths live in');

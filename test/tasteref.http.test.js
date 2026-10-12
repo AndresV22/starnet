@@ -44,7 +44,7 @@ const mock = http.createServer((req, res) => {
       const v2 = job[1] === 'TWO';
       return sse(res, {tool_calls: [
         {index: 0, id: 'w_' + job[1], type: 'function', function: {name: 'fs_write', arguments: JSON.stringify({path: v2 ? 'site/v2.html' : 'site/index.html', content: PAGE(v2 ? '#ff2bd6' : '#39ff88', v2 ? 'VT323' : 'Space Grotesk')})}},
-        {index: 1, id: 'i_' + job[1], type: 'function', function: {name: 'image_generate', arguments: JSON.stringify({prompt: v2 ? 'magenta arcade marquee, pixel art' : 'neon synthwave skyline, teal haze', aspect_ratio: '16:9'})}}
+        {index: 1, id: 'i_' + job[1], type: 'function', function: {name: 'image_generate', arguments: JSON.stringify({prompt: v2 ? 'magenta arcade marquee, pixel art' : 'neon synthwave skyline, teal haze', aspect_ratio: '16:9', transparent: v2})}}
       ]}, 'tool_calls');
     }
     return sse(res, {content: 'Here is the finished piece of work you asked for.'});
@@ -90,13 +90,13 @@ async function run(text, agentId) {
     A.ok((ref.palette || []).indexOf('#0b0f14') >= 0, 'its background token too');
     A.eq((ref.fonts || [])[0], 'Space Grotesk', 'the font was read out of the page');
     const im = (ref.images || [])[0] || {};
-    A.eq([im.prompt, im.aspect, im.model], ['neon synthwave skyline, teal haze', '16:9', 'google/gemini-3.1-flash-image'], 'the image prompt, shape and RENDERED model came from the run\'s transcript: ' + JSON.stringify(im));
+    A.eq([im.prompt, im.aspect, im.model], ['neon synthwave skyline, teal haze', '1x1', 'google/gemini-3.1-flash-image'], 'the image prompt, shape and RENDERED model came from the run\'s transcript: ' + JSON.stringify(im));
     A.ok(/fs[._]write → image_generate/.test(String(ref.tools || '')), 'the approach, in order: ' + ref.tools);
 
     // 3. the NEXT run, on an unrelated task, carries the reference and the rule
     const r2 = await run('Summarize these customer call notes.');
     A.ok(/APPROVED \d{4}-\d{2}-\d{2}: Design the candle shop landing page/.test(r2.prompt), 'the approval rides the unrelated next run');
-    for (const want of ['site/index.html', '#39ff88', 'Space Grotesk', 'neon synthwave skyline, teal haze', 'google/gemini-3.1-flash-image, 16:9'])
+    for (const want of ['site/index.html', '#39ff88', 'Space Grotesk', 'neon synthwave skyline, teal haze', 'google/gemini-3.1-flash-image, 1x1'])
       A.ok(r2.prompt.indexOf(want) >= 0, 'next run sees ' + want);
     A.ok(r2.prompt.indexOf('match the newest relevant APPROVED one in style and concept') >= 0, 'with the match-the-approved rule');
     A.ok(r2.prompt.indexOf('[agent workspace]') < 0, 'the agent that made it sees its own openable paths');
@@ -109,11 +109,19 @@ async function run(text, agentId) {
     const kept = await api('/api/taste/keep-style', {runId: r3.runId});
     A.ok(kept.body.ok && kept.body.feedbackMemory && kept.body.feedbackMemory.stored && kept.body.feedbackMemory.created, 'keep-style stored a new approval: ' + JSON.stringify(kept.body));
     A.eq(((kept.body.feedbackMemory || {}).reference || {}).paths && kept.body.feedbackMemory.reference.paths[0], 'site/v2.html', 'with that run\'s own page');
+    const imageReceipt = seen.flatMap(b => b.messages || []).find(m => m.role === 'tool' && m.tool_call_id === 'i_TWO');
+    A.ok(imageReceipt && /NOT TRANSPARENT|Transparency NOT verified/.test(String(imageReceipt.content)), 'the real image tool did not verify transparency for these saved bytes: ' + JSON.stringify(imageReceipt));
+    const savedImage = kept.body.feedbackMemory.reference.images[0];
+    A.ok(savedImage.aspect === '1x1' && !savedImage.transparent, 'the remembered image follows the actual receipt, not the wide/transparent request: ' + JSON.stringify(savedImage));
+
     A.eq((await api('/api/taste/keep-style', {runId: 'no-such-run'})).status, 404, 'an unknown run is refused');
     const r4 = await run('Draft an email to the landlord about the heating.');
     const iKept = r4.prompt.indexOf('APPROVED (style kept)'), iFirst = r4.prompt.indexOf('Design the candle shop landing page');
     A.ok(iKept >= 0 && iFirst > iKept, 'the kept style leads, the earlier approval follows');
     A.ok(r4.prompt.indexOf('#ff2bd6') >= 0 && r4.prompt.indexOf('VT323') >= 0 && r4.prompt.indexOf('magenta arcade marquee, pixel art') >= 0, 'with its real palette, font and image prompt');
+    const styleLine = r4.prompt.split('\\n').find(line => line.includes('Design the arcade night flyer')) || '';
+    A.ok(styleLine.includes('1x1') && !/16:9|, transparent/.test(styleLine), 'the next provider prompt cannot assert the requested image properties: ' + styleLine);
+
 
     // 5. survives a restart
     await stop(); await boot();
