@@ -19191,6 +19191,22 @@ async function runOnceCore(o) {
       }
     : rawEmit;
 
+  // A LINE BUDGET applies before the FIRST stage as well as between hops. Samples, channel messages and
+  // routines all reach this host-derived origin; checking only chain.advance let every new job buy its
+  // entry run after the day limit, and a one-step line never checked the cap at all. Re-read at admission
+  // (including queued turns), before a routine script or provider can run. Direct orders carry no origin.
+  if (workflowLine) {
+    const lim = chainEffectiveLimits(router.lineLimits(workflowLine), {},
+      (typeof effectiveCaps.global === 'number' && effectiveCaps.global > 0) ? effectiveCaps.global : null);
+    if (lim.maxUsdPerDay != null && lineSpend.spentToday(workflowLine) >= lim.maxUsdPerDay) {
+      emit('agent.run.start', { agentId, runId, trigger, model: o.noAgent ? '' : model, ...runStartExtra });
+      emit('agent.run.error', { agentId, runId, transient: false,
+        message: 'The line reached its $' + lim.maxUsdPerDay.toFixed(2) + ' daily limit — raise its LINE BUDGET or try again tomorrow.' });
+      emit('agent.run.end', { agentId, runId, reason: 'budget', turns: 0, usd: 0 });
+      return;
+    }
+  }
+
   // A routine script is a host-executed pre-check. It runs through shell.exec's complete safety scanner,
   // timeout, sanitized environment and process-tree kill. Script-only runs return before provider admission.
   if (o.cronScript) {

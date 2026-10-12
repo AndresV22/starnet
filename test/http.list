@@ -143,6 +143,7 @@ test/credits-heal-join.e2e.test.js
 test/routing.persist.e2e.test.js
 test/run-recovery.api.test.js
 test/routing.sample.e2e.test.js
+test/routing.line-admission.e2e.test.js
 test/routing.sample-provider.e2e.test.js
 test/routing.fix-suggest.e2e.test.js
 test/routing.line-jobs.e2e.test.js
