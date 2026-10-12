@@ -175,13 +175,18 @@ function permissionFixture() {
   Channels.setPending(ws.id, { promptId: 'question-2', tool: 'brief.ask' }, 110);
   Channels.setPending(ws.id, { promptId: 'approval-3', tool: 'fs.write' }, 120);
   let synced = 0;
-  const ctx = { Channels, Date: { now: () => 200 }, name: 'NOVA', input: null, settlePromptNotice() {},
+  const ctx = { Channels, Date: { now: () => 200 }, name: 'NOVA', input: null,
     document: { createElement: element, createTextNode: textContent => ({ textContent }) },
     row: () => { const r = { d: element(), body: element() }; nodes.push(r); return r; },
     actionPhrase: card.actionPhrase, consentInspect: card.consentInspect, appendConsentDetails: () => {},
-    U: { bus: { on: (name, fn) => listeners.set(name, fn), off: (name, fn) => { if (listeners.get(name) === fn) listeners.delete(name); } } },
+    Harness: { consent: async (_run, _prompt, decision) => ({ ok: true, decision }) },
+    U: { bus: { on: (name, fn) => listeners.set(name, fn), off: (name, fn) => { if (listeners.get(name) === fn) listeners.delete(name); },
+      emit: (name, value) => { const fn = listeners.get(name); if (fn) fn(value); } } },
     isActiveWs: () => false, renderPresence() {}, syncStatus() { synced++; }, status() {}, autoscroll() {}, announcedPrompt: () => true };
-  vm.createContext(ctx); vm.runInContext(extract(chat, '  function permissionRow(', '  // EL-11 FIX 1a:'), ctx);
+  vm.createContext(ctx);
+  // the card and the shared answer path live side by side in chat.js: an answer from any surface reaches the card on the bus
+  vm.runInContext(extract(chat, '  const settledPromptNotices = new Set();', '  // the channel\'s record'), ctx);
+  vm.runInContext(extract(chat, '  function permissionRow(', '  // EL-11 FIX 1a:'), ctx);
   ctx.permissionRow(p, ws);
   return { Channels, ws, p, nodes, listeners, ctx, synced: () => synced };
 }
@@ -231,4 +236,35 @@ for (const kind of ['question', 'approval']) test(kind + ' submission failure pr
   resolve({ok:false});await pending;
   assert.equal(btns.removed,true);assert.equal(f.Channels.pendingAllOf(f.ws.id).length,before-1);
   assert.equal(f.listeners.has('permission.response'),false);
+});
+
+/* A SPOKEN ANSWER IS NOT A PHONE ANSWER (review app-shell-ui-02). Live Voice answers through the same Chat.answerConsent,
+   whose bus echo settled the visible card through its phone branch: a spoken "always allow" stored a standing grant while
+   the transcript read "✓ approved once from your phone". The card now names the grade the station applied and who
+   answered on this page; only an answer that arrived from elsewhere still reads "from your phone". */
+const voice = fs.readFileSync(require.resolve('../frontend/app/voice-live.js'), 'utf8');
+for (const [said, applied, label] of [
+  ['always allow', 'always', '✓ always allowed by voice'],
+  ['approve', 'once', '✓ approved once by voice'],
+  ['deny', 'deny', '✕ denied by voice']
+]) test('a spoken "' + said + '" settles the visible card as the grade the station applied, by voice', async () => {
+  const f = permissionFixture(), spoken = [];
+  f.Channels.clearPending(f.ws.id, 150, 'question-2'); f.Channels.clearPending(f.ws.id, 150, 'approval-3');
+  f.ctx.Harness = { consent: async () => ({ ok: true, decision: applied }) };
+  const call = vm.createContext({ active: true, sessionSeq: 1, boundWsId: f.ws.id, Channels: f.Channels, Workstreams: { active: () => f.ws },
+    Chat: { answerConsent: f.ctx.answerConsent }, speakLocal: text => spoken.push(text), refreshTask() {} });
+  vm.runInContext(extract(voice, '  const approvalSubmissions = new Set();', '  /* THE CALL IS BOUND'), call);
+  assert.equal(call.approvalCommand(said), true);
+  for (let i = 0; i < 12; i++) await Promise.resolve();
+  const buttons = f.nodes[0].body.children.find(n => n.className === 'consent-btns');
+  const tags = f.nodes[0].body.children.filter(n => /^consent-result/.test(n.className || ''));
+  assert.equal(buttons.removed, true, 'the answered card loses its buttons');
+  assert.equal(tags.length, 1);
+  assert.equal(tags[0].textContent, label, 'the receipt names the applied grade and the surface that answered');
+  assert.equal(tags[0].className, 'consent-result' + (applied === 'deny' ? ' err' : ''));
+  assert.deepEqual(f.Channels.pendingAllOf(f.ws.id), []);
+  // a later answer from the phone, on another card, still says so
+  const g = permissionFixture();
+  g.listeners.get('permission.response')({ promptId: g.p.promptId, decision: 'once' });
+  assert.equal(g.nodes[0].body.children.filter(n => /^consent-result/.test(n.className || ''))[0].textContent, '✓ approved once from your phone');
 });

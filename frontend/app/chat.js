@@ -3616,7 +3616,10 @@ const Chat = (() => {
       if (StationUI.notify) StationUI.notify(askerName(next, ws) + (next.tool === 'brief.ask' ? ' still needs your answer' : ' still needs approval to ' + actionPhrase(next)), 'warn', 'needsApproval', { kind: 'needs', go: { ws: wsId }, key: 'needs:' + wsId, prompt: next.promptId });
     } else if (StationUI.settleNotifs) StationUI.settleNotifs('needs:' + wsId);
   }
-  async function answerConsent(p, ws, decision) {
+  // an ask answered on THIS page (voice, NEEDS YOU, a worker row): its card settles from the bus echo below, so it must
+  // read the grade the station applied and who answered here — never "from your phone" (review app-shell-ui-02)
+  const localAnswers = new Map();   // promptId -> { decision, via }
+  async function answerConsent(p, ws, decision, via) {
     const rid = (p && p.runId) || ((ws && typeof Channels !== 'undefined') ? Channels.runIdOf(ws.id) : null);
     const answer = await Harness.consent(rid, p.promptId, decision);
     if (!(answer && answer.ok)) throw new Error((answer && answer.error) || 'The station did not confirm that answer. Please try again.');
@@ -3632,6 +3635,8 @@ const Chat = (() => {
     }
     // surface the decision on the bus (schema: permission.response) so listeners — e.g. the first-run tutorial —
     // can tell an approve from a deny and narrate the consent loop honestly. Additive; the run resumes via Harness.consent.
+    localAnswers.set(String(p.promptId), { decision: appliedDecision, via: via || '' });
+    if (localAnswers.size > 200) localAnswers.delete(localAnswers.keys().next().value);
     try { if (typeof U !== 'undefined' && U.bus) U.bus.emit('permission.response', { promptId: p.promptId, decision: appliedDecision }); } catch (_) {}
     // NS conversational anchor: "Always" — and now "Full access" — on a path.trust card IS the project bless
     // (a standing path grant + known-projects row land on the sidecar). Stamp the origin session's projectRoot
@@ -3723,7 +3728,8 @@ const Chat = (() => {
     // STARNET REMOTE: a paired phone can answer this same prompt. The sidecar then puts permission.response on
     // this run's own stream (harness re-emits it on U.bus). Settle the card to what actually happened, so the
     // desk never keeps live buttons on a question that was already answered elsewhere. The desk's own answer
-    // also emits permission.response, but by then `decided` is set and this listener just unsubscribes.
+    // also emits permission.response, but by then `decided` is set and this listener just unsubscribes. An answer from
+    // another surface on this page (voice) arrives the same way, recorded in localAnswers by answerConsent.
     if (typeof U !== 'undefined' && U.bus && U.bus.on && U.bus.off) {
       const onElsewhere = applyElsewhere = (resp) => {
         if (!resp || resp.promptId !== p.promptId) return;
@@ -3737,7 +3743,10 @@ const Chat = (() => {
         btns.remove();
         const tag = document.createElement('span');
         tag.className = 'consent-result' + (denied ? ' err' : '');
-        tag.textContent = resp.expired ? '✕ no answer in time — denied' : denied ? '✕ denied from your phone' : (resp.decision === 'session' ? '✓ approved for this session from your phone' : '✓ approved once from your phone');
+        // the grade the station applied; an answer given on this page (voice) names its own surface, not the phone
+        const local = localAnswers.get(String(p.promptId));
+        const grade = denied ? '✕ denied' : resp.decision === 'always' ? '✓ always allowed' : resp.decision === 'full' ? '✓ full access' : resp.decision === 'session' ? '✓ approved for this session' : '✓ approved once';
+        tag.textContent = resp.expired ? '✕ no answer in time — denied' : grade + (local ? (local.via ? ' ' + local.via : '') : ' from your phone');
         r.body.appendChild(tag);
         syncStatus();
       };
