@@ -3699,7 +3699,9 @@ const Chat = (() => {
       r.body.appendChild(tag);
       syncStatus();
     }
+    const labels = {};   // decision -> this card's own receipt: an answer from another surface settles in the card's words
     const mk = (text, decision, cls, doneLabel, isDeny) => {
+      labels[decision] = doneLabel;
       const b = document.createElement('button');
       b.className = 'consent-btn' + (cls ? ' ' + cls : '');
       b.textContent = text;
@@ -3743,9 +3745,11 @@ const Chat = (() => {
         btns.remove();
         const tag = document.createElement('span');
         tag.className = 'consent-result' + (denied ? ' err' : '');
-        // the grade the station applied; an answer given on this page (voice) names its own surface, not the phone
+        // the grade the station applied, in this card's own words: a card with no Always key (station.power, the login
+        // window) grants this one call whatever grade another surface sent. An answer given on this page (voice) names
+        // its own surface, not the phone
         const local = localAnswers.get(String(p.promptId));
-        const grade = denied ? '✕ denied' : resp.decision === 'always' ? '✓ always allowed' : resp.decision === 'full' ? '✓ full access' : resp.decision === 'session' ? '✓ approved for this session' : '✓ approved once';
+        const grade = denied ? labels.deny : labels[resp.decision] || (resp.decision === 'session' && labels.always ? '✓ approved for this session' : labels.once);
         tag.textContent = resp.expired ? '✕ no answer in time — denied' : grade + (local ? (local.via ? ' ' + local.via : '') : ' from your phone');
         r.body.appendChild(tag);
         syncStatus();

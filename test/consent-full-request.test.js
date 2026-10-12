@@ -164,12 +164,12 @@ test('a phone answer settles only its question and keeps a parallel approval pau
   assert.equal(tags().length, 1, 'duplicate delivery cannot append a second receipt');
 });
 
-function permissionFixture() {
+function permissionFixture(tool) {
   const Channels = require('../frontend/app/channels.js'); Channels.reset();
   const nodes = [], listeners = new Map();
   const element = () => ({ children: [], querySelectorAll() { return this.children.filter(n => n.className && n.className.includes('consent-')); }, dataset: {}, classList: { add() {}, remove() {} }, appendChild(n) { this.children.push(n); },
     addEventListener() {}, setAttribute() {}, remove() { this.removed = true; }, focus() {} });
-  const ws = { id: 'parallel-permission-asks' }, p = { promptId: 'approval-1', tool: 'fs.read', argsSummary: 'sample.txt' };
+  const ws = { id: 'parallel-permission-asks' }, p = { promptId: 'approval-1', tool: tool || 'fs.read', argsSummary: 'sample.txt' };
   Channels.begin(ws.id, 10); Channels.setRunId(ws.id, 'lead');
   Channels.setPending(ws.id, p, 100);
   Channels.setPending(ws.id, { promptId: 'question-2', tool: 'brief.ask' }, 110);
@@ -267,4 +267,40 @@ for (const [said, applied, label] of [
   const g = permissionFixture();
   g.listeners.get('permission.response')({ promptId: g.p.promptId, decision: 'once' });
   assert.equal(g.nodes[0].body.children.filter(n => /^consent-result/.test(n.className || ''))[0].textContent, '✓ approved once from your phone');
+});
+
+/* A CARD WITH NO ALWAYS KEY NEVER SETTLES AS A STANDING GRANT (review app-shell-ui-02 follow-up). Widening the leash
+   (station.power) is answered fresh every time and the login window cards are one-shot, so their cards offer only a
+   yes and a no. Voice still accepted "always allow" there and the sidecar echoes it back unchanged (only "full" is
+   downgraded on a fresh ask), so the card read "✓ always allowed by voice" and voice said "Always allowed." while the
+   station granted this one call. Voice now answers these once, and the card settles any yes with its own yes receipt. */
+for (const [tool, said, sent, label, heard] of [
+  ['station.power', 'always allow', 'once', '✓ approved once by voice', 'Approved once.'],
+  ['browser.login', 'always allow', 'once', '✓ window opened by voice', 'Approved once.'],
+  ['browser.login.done', 'always allow', 'once', '✓ done by voice', 'Approved once.'],
+  ['browser.login.done', 'deny', 'deny', '✕ cancelled by voice', 'Denied.']
+]) test('a spoken "' + said + '" on a ' + tool + ' card (no Always key) answers once and settles with the card\'s own receipt', async () => {
+  const f = permissionFixture(tool), spoken = [], sentDecisions = [];
+  f.Channels.clearPending(f.ws.id, 150, 'question-2'); f.Channels.clearPending(f.ws.id, 150, 'approval-3');
+  // the real handleConsent echoes a non-"full" grade unchanged, even on a fresh ask
+  f.ctx.Harness = { consent: async (_run, _prompt, decision) => { sentDecisions.push(decision); return { ok: true, decision }; } };
+  const call = vm.createContext({ active: true, sessionSeq: 1, boundWsId: f.ws.id, Channels: f.Channels, Workstreams: { active: () => f.ws },
+    Chat: { answerConsent: f.ctx.answerConsent }, speakLocal: text => spoken.push(text), refreshTask() {} });
+  vm.runInContext(extract(voice, '  const approvalSubmissions = new Set();', '  /* THE CALL IS BOUND'), call);
+  assert.equal(call.approvalCommand(said), true);
+  for (let i = 0; i < 12; i++) await Promise.resolve();
+  assert.deepEqual(sentDecisions, [sent], 'voice sends a grade this card offers');
+  const tags = f.nodes[0].body.children.filter(n => /^consent-result/.test(n.className || ''));
+  assert.equal(tags.length, 1);
+  assert.equal(tags[0].textContent, label, 'the receipt claims no standing grant the card cannot give');
+  assert.deepEqual(spoken, [heard], 'voice says what the station applied');
+});
+
+test('a phone answer graded "always" on a station.power card still settles as approved once', () => {
+  const f = permissionFixture('station.power');
+  f.listeners.get('permission.response')({ promptId: f.p.promptId, decision: 'always' });
+  assert.equal(f.nodes[0].body.children.filter(n => /^consent-result/.test(n.className || ''))[0].textContent, '✓ approved once from your phone');
+  const g = permissionFixture('browser.login.done');
+  g.listeners.get('permission.response')({ promptId: g.p.promptId, decision: 'deny' });
+  assert.equal(g.nodes[0].body.children.filter(n => /^consent-result/.test(n.className || ''))[0].textContent, '✕ cancelled from your phone');
 });

@@ -519,6 +519,9 @@ const VoiceLive = (() => {
   }
 
   const approvalSubmissions = new Set();
+  // the cards with no Always key (chat.js permissionRow): widening the leash and the login window are answered fresh
+  // every time, so a spoken "always allow" there approves this one call, never a standing grant (review app-shell-ui-02)
+  const ONCE_ONLY = new Set(['station.power', 'browser.login', 'browser.login.done']);
   function approvalCommand(lower) {
     if (typeof Workstreams === 'undefined' || typeof Channels === 'undefined') return false;
     const ws = Workstreams.active();
@@ -529,6 +532,7 @@ const VoiceLive = (() => {
     else if (/^(?:always allow|approve always|always approve)$/.test(lower)) decision = 'always';
     else if (/^(?:deny|deny it|do not allow|don't allow|reject)$/.test(lower)) decision = 'deny';
     if (!decision) return false;
+    if (decision === 'always' && ONCE_ONLY.has(pending.tool)) decision = 'once';
     if (typeof Chat === 'undefined' || !Chat.answerConsent) {
       speakLocal('I could not submit that answer. Please use the approval card.');
       return true;
