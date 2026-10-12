@@ -41,6 +41,10 @@ function startProvider() {
         else if (results.length === 2 && seen.parked) call = { id: 'readback', name: 'fs_read', args: { path: seen.parked } };
         else if (results.length === 3 && seen.parked) call = { id: 'page', name: 'fs_read', args: { path: seen.parked, offset: 74990, limit: 100 } };   // fs.read pages by CHARACTER: the marker sits at 75010
         else if (results.length === 4 && seen.parked) call = { id: 'search', name: 'fs_search', args: { query: 'PARK_MIDDLE_MARKER', path: seen.parked } };
+        // An explicit project file must not silently widen to nested files with the same basename.
+        else if (results.length === 5) call = { id: 'exact-content', name: 'fs_search', args: { query: 'SCOPE_MARK', path: 'exact.txt' } };
+        else if (results.length === 6) call = { id: 'exact-files', name: 'fs_search', args: { query: 'exact.txt', path: 'exact.txt', target: 'files' } };
+        else if (results.length === 7) call = { id: 'exact-budget', name: 'fs_search', args: { query: 'SCOPE_MARK', path: 'exact.txt', max_files: 1 } };
 
         res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache' });
         if (call) {
@@ -61,6 +65,9 @@ function startProvider() {
   const provider = await startProvider();
   const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'starnet-parked-project-'));
   fs.writeFileSync(path.join(projectRoot, 'README.md'), 'a project with no .output folder of its own\n', 'utf8');
+  fs.mkdirSync(path.join(projectRoot, 'a-first'));
+  fs.writeFileSync(path.join(projectRoot, 'exact.txt'), 'SCOPE_MARK requested\n', 'utf8');
+  fs.writeFileSync(path.join(projectRoot, 'a-first', 'exact.txt'), 'SCOPE_MARK unrelated\n', 'utf8');
   const fixture = SidecarFixture.create({
     prefix: 'starnet-parked-output-sidecar-', timeoutMs: 15000,
     env: {
@@ -107,6 +114,13 @@ function startProvider() {
     A.ok(page && /PARK_MIDDLE_MARKER/.test(page.content), 'paging the pointer with offset/limit reaches the elided middle: ' + (page && String(page.content).slice(0, 200)));
     const search = results.find(message => message.tool_call_id === 'search');
     A.ok(search && /PARK_MIDDLE_MARKER/.test(search.content) && !/ERROR|ENOTDIR|no match/i.test(search.content),'fs.search on the pointer finds the elided middle: ' + (search && String(search.content).slice(0, 200)));
+    const exactContent = results.find(message => message.tool_call_id === 'exact-content');
+    A.ok(exactContent && /SCOPE_MARK requested/.test(exactContent.content), 'the real run searches the requested project file');
+    A.ok(exactContent && !/unrelated|a-first/.test(exactContent.content), 'content results exclude its nested namesake');
+    const exactFiles = results.find(message => message.tool_call_id === 'exact-files');
+    A.ok(exactFiles && /exact\.txt/.test(exactFiles.content) && !/a-first/.test(exactFiles.content), 'file-name results stay within the explicit file: ' + (exactFiles && String(exactFiles.content).slice(0, 350)));
+    const exactBudget = results.find(message => message.tool_call_id === 'exact-budget');
+    A.ok(exactBudget && /SCOPE_MARK requested/.test(exactBudget.content) && !/unrelated|a-first/.test(exactBudget.content), 'max_files one still finds the requested file rather than a traversed sibling');
   } finally {
     await fixture.dispose();
     await new Promise(resolve => provider.server.close(resolve));
