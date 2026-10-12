@@ -321,12 +321,11 @@ const WorkflowPanel = (() => {
     if (!cells || quiet) { row.innerHTML = ''; return; }
     row.innerHTML = '<span class="wf-today-l">TODAY</span>' + cells.map(c => '<span data-tip="' + esc(todayTip(c[0])) + '"><span class="k">' + esc(c[0]) + '</span> <b' + (c[0] === 'FAILED' && c[1] !== '0' ? ' class="bad"' : '') + '>' + esc(c[1]) + '</b></span>').join('');
   }
-  /* WHAT EACH TODAY NUMBER COUNTS (2026-09-30 — ease of use): the numbers are the line's run rows (line-stats.js), not jobs, and
-     SHIPPED is the station's proven-work count (the 2026-07-05 crate-honesty law) — so "RUNS 68 · SHIPPED 0" on a line that
-     delivered every job read as "nothing ever shipped". Each number's tip says what it counts. */
+  /* WHAT EACH TODAY NUMBER COUNTS: RUNS counts stages; SHIPPED counts recorded productive OUTBOX jobs.
+     Older runs without shipment receipts cannot prove a historic delivery total. Each tip names its scope. */
   function todayTip(k) {
     if (k === 'RUNS') return 'RUNS\nevery time a step of this line ran today: one job through a 3-step line is 3 runs';
-    if (k === 'SHIPPED') return 'SHIPPED\njobs that left through the OUTBOX having made something real (a tool used or a file saved). A text-only answer is still delivered to the OUTBOX, but it is not counted here';
+    if (k === 'SHIPPED') return 'SHIPPED\nrecorded jobs that reached the OUTBOX after a tool succeeded or a file was saved. Earlier deliveries without a saved shipment record are not included. Text-only answers still reach the OUTBOX, but do not count here';
     if (k === 'FAILED') return 'FAILED\nstep runs that ended in an error, a refusal, a budget stop or too many turns';
     if (k === 'TESTS') return 'TESTS\nstep tests (TEST THIS STEP, STEP THROUGH): not jobs, but their cost is in $ TODAY';
     if (k === 'MEDIAN') return 'MEDIAN\nthe middle time of a step run today';
