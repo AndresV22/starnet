@@ -4,6 +4,7 @@ const vm = require('node:vm');
 const E = require('../sidecar/skillevaluation.js');
 const R = require('../sidecar/skill-evaluation-runner.js');
 const { makeReplayProvider } = require('../sidecar/providers/replay.js');
+const { makeCostEngine } = require('../sidecar/cost.js');
 const clone = v => JSON.parse(JSON.stringify(v));
 function store() { const rows = new Map(); return { get: k => clone(rows.get(k) || null), set: (k, v) => rows.set(k, clone(v)) }; }
 const suite = { id: 'signed-totals', version: 1, skillName: 'Signed totals', cases: [
@@ -59,10 +60,11 @@ async function main() {
   // not model quality. The receipt classifier above prevents it authorizing promotion.
   const artifactSuite = R.createArtifactWorkflowSuite('Accounting');
   const task = artifactSuite.cases[0], report = JSON.stringify(task.checks[0].expected);
-  const turn = (id, name, args) => [{ type: 'tool_start', index: 0, id, name }, { type: 'tool_args', index: 0, chunk: JSON.stringify(args) }, { type: 'done', finishReason: 'tool_calls' }];
-  const provider = makeReplayProvider({ turns: [turn('outside', 'fs_write', { path: 'C:/outside.json', content: 'forbidden' }), turn('save', 'fs_write', { path: 'report.json', content: report }), turn('verify', 'fs_read', { path: 'report.json' }), [{ type: 'text', delta: 'Verified the report.' }, { type: 'done', finishReason: 'stop' }]] });
+  const usage = { type: 'usage', usage: { prompt_tokens: 10, completion_tokens: 5, cost: 0 } };
+  const turn = (id, name, args) => [{ type: 'tool_start', index: 0, id, name }, { type: 'tool_args', index: 0, chunk: JSON.stringify(args) }, usage, { type: 'done', finishReason: 'tool_calls' }];
+  const provider = makeReplayProvider({ turns: [turn('outside', 'fs_write', { path: 'C:/outside.json', content: 'forbidden' }), turn('save', 'fs_write', { path: 'report.json', content: report }), turn('verify', 'fs_read', { path: 'report.json' }), [{ type: 'text', delta: 'Verified the report.' }, usage, { type: 'done', finishReason: 'stop' }]] });
   let recorded = 0;
-  const run = R.makeAgentLoopCaseRunner({ provider, runIdPrefix: 'replay-test', model: 'replay/model', clock: { now: () => 1 }, onRun: () => { recorded++; } });
+  const run = R.makeAgentLoopCaseRunner({ provider, runIdPrefix: 'replay-test', model: 'replay/model', cost: makeCostEngine(), clock: { now: () => 1 }, onRun: ({ result }) => { assert.equal(result.accountingIncomplete, false); recorded++; } });
   const observation = await run({ task, skill: { name: 'Accounting', body: 'Use integer cents.' }, phase: 'after' });
   assert.equal(observation.reason, 'done');
   assert.equal(observation.artifacts['C:/outside.json'], undefined);

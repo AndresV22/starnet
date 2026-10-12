@@ -18581,13 +18581,16 @@ async function handleSkillCandidateAction(req, res) {
     const controller = new AbortController(), timer = setTimeout(() => controller.abort(), 120000);
     const onClose = () => { if (!res.writableEnded) controller.abort(); };
     res.once('close', onClose); stationOneShots.add(controller); skillEvaluationsNow.add(agentId);
-    const accounting = makeEvaluationAccounting({ ledger, agentId, provider: providerId, model: cfg.model, unmetered });
+    const accounting = makeEvaluationAccounting({ ledger, budget, agentId, provider: providerId, model: cfg.model, unmetered });
     try {
       const provider = await providerForRunConfig(cfg, resolveReasoningEffort(providerId, cfg.reasoningEffort));
       const runCase = SkillEvaluationRunner.makeAgentLoopCaseRunner({ provider, model: cfg.model, cost: makeCostEngine({ priceOf: provider.priceOf }), clock: { now: () => Date.now() },
         runIdPrefix: 'skill-eval-' + crypto.randomUUID(), limits: { maxIters: 8, maxCostUsd: 0.08, grace: false },
         authorize: async () => !controller.signal.aborted && accounting.canContinue() && (unmetered || !budget.check(null, agentId, 0, Date.now(), null)),
         beforeRun: accounting.beforeRun,
+        beforeStream: ({ runId, spentUsd }) => !controller.signal.aborted && accounting.canContinue(spentUsd) &&
+          (unmetered || !budget.check(runId, agentId, spentUsd, Date.now(), null)),
+        onStream: accounting.onStream,
         onRun: accounting.onRun
       });
       const receipt = await evaluationServiceFor(agentId, candidate.skill, cfg, runCase).evaluate({ candidate: candidate.skill, baseline, suiteId: String(body.suiteId || ''), signal: controller.signal });

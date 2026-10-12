@@ -6,12 +6,12 @@ const usage = { type: 'usage', usage: { prompt_tokens: 12, completion_tokens: 4,
 const text = { type: 'text', delta: '{"answer":42}' };
 const done = { type: 'done', finishReason: 'stop' };
 const task = { id: 'accounting', prompt: 'Return only JSON {"answer":42}.' };
-async function execute(stream, signal) {
+async function execute(stream, signal, options = {}) {
   let result, count = 0;
   const provider = { async *stream(request) { count++; assert.equal(request.preStreamRetries, 0); yield* stream(request, count); }, contextLimit: () => 8000 };
   const runner = makeAgentLoopCaseRunner({ provider, model: 'scripted/accounting', runIdPrefix: 'stream-accounting', clock: { now: () => 1 },
     cost: makeCostEngine({ priceOf: () => ({ in: 1, out: 1 }) }), limits: { maxIters: 2, grace: false, continueGuard: false, emptyRetry: false },
-    beforeRun: async () => true, onRun: async row => { result = row.result; } });
+    ...options, beforeRun: async () => true, onRun: async row => { result = row.result; } });
   const observation = await runner({ task, skill: null, phase: 'after', signal });
   return { result, count, observation };
 }
@@ -37,12 +37,27 @@ async function main() {
     if (attempt === 1) { const error = new Error('temporary connection reset'); error.code = 'ECONNRESET'; throw error; }
     yield usage; yield done;
   });
-  assert.ok(retry.count >= 2, 'real loop retried the failed stream');
-  assert.equal(retry.result.reason, 'done', 'later stream completed successfully');
-  assert.equal(retry.result.accountingIncomplete, true, 'successful retry cannot settle unknown first-attempt spend');
+  assert.equal(retry.count, 1, 'unknown spend prevents the loop from dispatching another paid retry');
+  assert.equal(retry.result.reason, 'policy-denied');
+  assert.equal(retry.result.accountingIncomplete, true, 'unknown first-attempt spend stays unsettled');
   assert.ok(retry.result.accountingStreams.uncertain.some(row => row.attempt === 1 && !row.usageObserved));
   const length = await execute(async function* (_, attempt) { yield text; yield usage; yield { type: 'done', finishReason: attempt === 1 ? 'length' : 'stop' }; });
   assert.equal(length.result.accountingIncomplete, false, 'output length stop with complete usage is accounted');
+  const entries = [], observed = [];
+  const capped = await execute(async function* () {
+    yield { type: 'tool_start', index: 0, id: 'read', name: 'fs_read' };
+    yield { type: 'tool_args', index: 0, chunk: '{"path":"input.json"}' };
+    yield usage; yield { type: 'done', finishReason: 'tool_calls' };
+  }, undefined, {
+    beforeStream: async ({ spentUsd }) => { entries.push(spentUsd); return spentUsd < 0.005; },
+    onStream: async row => { observed.push(row); }
+  });
+  assert.deepEqual(entries, [0, 0.01], 'spending guard sees reconciled cost before each actual provider entry');
+  assert.equal(capped.count, 1, 'policy stops the second tool-loop call');
+  assert.equal(capped.result.reason, 'policy-denied');
+  assert.equal(capped.result.accountingIncomplete, false, 'known charge is still safe to settle');
+  assert.equal(capped.result.usd, 0.01);
+  assert.equal(observed[0].spentUsd, 0.01);
   console.log('skill.evaluation.accounting: real loop usage, empty usage, partial throw, cancellation, retry uncertainty and billed length stop PASS');
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });

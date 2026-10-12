@@ -59,8 +59,17 @@ function makeAgentLoopCaseRunner(options) {
     // deny for budget/paused policy, but never expands the supplied tool surface.
     if (typeof o.authorize === 'function' && await o.authorize({ runId, taskId: task.id, phase }) !== true) return { reason: 'policy-denied' };
     const streamAttempts = [];
+    let streamSpent = 0, streamUncertain = false, streamDenied = false;
     const accountableProvider = Object.create(o.provider);
     accountableProvider.stream = async function* trackedStream(request) {
+      // This is the paid entry, including retries and continuation calls inside one loop turn.
+      const limit = Number(o.limits && o.limits.maxCostUsd) || 0.08;
+      if (streamUncertain || streamSpent >= limit || (typeof o.beforeStream === 'function' &&
+          await o.beforeStream({ runId, taskId: task.id, phase, spentUsd: streamSpent }) !== true)) {
+        streamDenied = true;
+        throw Object.assign(new Error('evaluation spending policy refused another provider attempt'), { status: 403 });
+      }
+      let lastUsage = null;
       const attempt = { attempt: streamAttempts.length + 1, usageObserved: false, done: false, truncated: false,
         exhausted: false, errored: false, aborted: false };
       streamAttempts.push(attempt);
@@ -69,7 +78,7 @@ function makeAgentLoopCaseRunner(options) {
         // pre-stream retry ladder makes each attempt visible to this accounting boundary.
         for await (const event of o.provider.stream({ ...request, preStreamRetries: 0 })) {
           if (event && event.type === 'usage') {
-            const usage = event.usage;
+            const usage = event.usage; lastUsage = usage;
             const nonnegative = n => typeof n === 'number' && Number.isFinite(n) && n >= 0;
             attempt.usageObserved = !!(usage && ((nonnegative(usage.prompt_tokens) && nonnegative(usage.completion_tokens)) ||
               nonnegative(usage.cost) || nonnegative(usage.cost_in_usd_ticks))) || attempt.usageObserved;
@@ -83,6 +92,15 @@ function makeAgentLoopCaseRunner(options) {
       finally {
         attempt.aborted = !!(request && request.signal && request.signal.aborted) || !attempt.exhausted;
         attempt.complete = attempt.exhausted && attempt.done && !attempt.truncated && !attempt.errored && !attempt.aborted;
+        let charge = null;
+        try { charge = o.cost && o.cost.reconcile(lastUsage, request.model || o.model); } catch (_) {}
+        // The same reconciler used by the loop supplies totals. Unknown pricing or
+        // partial streams cannot authorize another attempt using guessed headroom.
+        const priced = charge && !charge.unpriced && Number.isFinite(charge.usd) && charge.usd >= 0;
+        attempt.accounted = !!(attempt.complete && attempt.usageObserved && priced);
+        if (attempt.accounted) streamSpent += charge.usd;
+        else streamUncertain = true;
+        if (typeof o.onStream === 'function') await o.onStream({ runId, spentUsd: streamSpent, accountingIncomplete: streamUncertain });
       }
     };
     const files = new Map(Object.entries(task.fixtures || {}));
@@ -116,9 +134,10 @@ function makeAgentLoopCaseRunner(options) {
       // throws still produce an attributable failed run; no zero-spend claim is made.
       result = { reason: 'runner-error', messages: [], error: String(error && error.message || error), accountingIncomplete: true };
     }
-    const uncertainAttempts = streamAttempts.filter(attempt => !attempt.complete || !attempt.usageObserved);
+    if (streamDenied) result.reason = 'policy-denied';
+    const uncertainAttempts = streamAttempts.filter(attempt => !attempt.accounted);
     result.accountingIncomplete = result.accountingIncomplete === true || uncertainAttempts.length > 0 || (result.reason === 'done' && streamAttempts.length === 0);
-    result.accountingStreams = { attempted: streamAttempts.length, complete: streamAttempts.filter(attempt => attempt.complete && attempt.usageObserved).length,
+    result.accountingStreams = { attempted: streamAttempts.length, complete: streamAttempts.filter(attempt => attempt.accounted).length,
       uncertain: uncertainAttempts.slice(0, 128), omitted: Math.max(0, uncertainAttempts.length - 128) };
     if (typeof o.onRun === 'function') await o.onRun({ result, runId, taskId: task.id, phase });
     let value;
