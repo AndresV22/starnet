@@ -25,7 +25,22 @@ const make=()=>makeTaskBriefStore({fs,path,workspaces:'/conversation-proof',writ
   const id=state.brief.questions[0].id;
   const facts=[{dimension:'sources',text:'Collect from Slack',quote:'I check Slack',sourceId:id},{dimension:'deliverable',text:'Prepare a Google Doc',quote:'write a Google Doc',sourceId:id},{dimension:'safety',text:'User reviews before sending',quote:'Never send updates without my review.',sourceId:id}];
   const update={through:id,facts,assumptions:['Start with one client'],unknowns:['Reminder timing'],nextStep:'Draft an update structure for review'};
-  assert.equal((await call('brief.update',{...update,facts:[{...facts[0],quote:'Send everything automatically'}]})).ok,false,'fabricated quote rejected');
+  // A fabricated quote is never stored as the Commander's words — and never blocks the run either (2026-10-12 user
+  // report: one paraphrase re-rejected the whole snapshot, proceed stayed locked, every authorized write was refused).
+  const fab=await call('brief.update',{...update,facts:[{...facts[0],quote:'Send everything automatically'}]});
+  assert.ok(fab.ok,'a fabricated quote no longer fails the update');
+  assert.equal(state.brief.context.facts.length,0,'fabricated quote is NOT stored as user evidence');
+  assert.ok(state.brief.context.assumptions.includes(Context.UNCONFIRMED+'Collect from Slack'),'it is kept as a labelled unconfirmed assumption');
+  assert.match(fab.content,/1 item\(s\) had no matching quote/,'the model is told what happened and that it does not block');
+  // Re-typed quotes anchor: curly quotes, case, edge punctuation, an elided middle, the wrong sourceId.
+  const retyped=[{dimension:'sources',text:'Collect from Slack',quote:'“i CHECK slack,”',sourceId:id},
+    {dimension:'deliverable',text:'Prepare a Google Doc',quote:'chase missing details… write a Google Doc.',sourceId:'request'},
+    {dimension:'objective',text:'Automate client updates',quote:'help me automate my client updates',sourceId:id}];
+  assert.ok((await call('brief.update',{...update,facts:retyped})).ok);
+  assert.deepEqual(state.brief.context.facts.map(f=>f.sourceId),[id,id,'request'],'all three anchor; a wrong sourceId is corrected to the source that holds the words');
+  assert.ok(!state.brief.context.assumptions.some(a=>a.startsWith(Context.UNCONFIRMED)),'nothing demoted when every quote anchors');
+  assert.equal(Context.anchored('chase... Go',reply),false,'a fragment under 3 chars is not evidence');
+  assert.equal(Context.anchored('write a Google Doc ... I check Slack',reply),false,'elided fragments must appear in order');
   assert.ok((await call('brief.update',update)).ok);
   store=make();const restored=store.active('stream:one');assert.equal(restored.context.facts.length,3);assert.ok(Context.current(restored));
   assert.match(Commander.compose({brief:restored}),/Never send updates without my review/);

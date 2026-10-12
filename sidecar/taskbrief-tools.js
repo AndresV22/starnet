@@ -1,5 +1,6 @@
 'use strict';
 const Policy = require('./taskbrief-policy.js');
+const Context = require('./taskbrief-context.js');
 
 // The batch-wide escape hatch the card sends for "use your judgment for the rest". Anchored and exact:
 // a deferral that carries a real constraint ("use your judgment for the rest, but keep it short") must
@@ -136,7 +137,7 @@ function registerTaskBriefTools(registry, store, state, deps) {
   });
   registry.register({
     name:'brief.update',scope:'read',readOnly:true,capability:'taskbrief',
-    description:'Update the task-local working understanding from the whole request and all answers. Replace the snapshot, preserve relevant earlier details, and remove corrected interpretations. Every fact needs a verbatim user quote and sourceId (request or question id). Put assumptions and remaining unknowns separately. This is not long-term memory. Call after each conversational answer before asking again or proceeding.',
+    description:'Update the task-local working understanding from the whole request and all answers. Replace the snapshot, preserve relevant earlier details, and remove corrected interpretations. Every fact needs a verbatim user quote and sourceId (request or question id); an item whose quote matches none of the user words is kept as an unconfirmed assumption, never refused. Put assumptions and remaining unknowns separately. This is not long-term memory. Call after each conversational answer before asking again or proceeding.',
     schema:{type:'object',required:['through','facts','nextStep'],properties:{
       through:{type:'string'},facts:{type:'array',items:{type:'object',required:['dimension','text','quote','sourceId'],properties:{
         dimension:{type:'string',enum:Array.from(Policy.DIMENSIONS)},text:{type:'string'},quote:{type:'string'},sourceId:{type:'string'} }}},
@@ -146,7 +147,12 @@ function registerTaskBriefTools(registry, store, state, deps) {
       const saved=await store.updateContext(state.brief.id,args,now());
       if(!saved) throw new Error('Task context cannot be updated while waiting or after completion.');
       state.brief=saved;
-      return {content:'Working understanding saved for this task only.\n'+JSON.stringify(saved.context),summary:'task context updated'};
+      // Items whose quote matched none of the Commander's words were kept as labelled assumptions, not refused
+      // (taskbrief-context QUOTE ANCHORING). Say so, so the model neither re-sends them nor treats them as quoted.
+      const sent=Array.isArray(args && args.assumptions) ? args.assumptions.map(a=>String(a).trim()) : [];
+      const demoted=((saved.context && saved.context.assumptions) || []).filter(a=>a.indexOf(Context.UNCONFIRMED)===0 && sent.indexOf(a)<0);
+      const note=demoted.length ? '\n'+demoted.length+' item(s) had no matching quote from the Commander and were saved as unconfirmed assumptions instead. That does not block the task: continue (brief.proceed when ready) and state them as assumptions.' : '';
+      return {content:'Working understanding saved for this task only.'+note+'\n'+JSON.stringify(saved.context),summary:'task context updated'};
     }
   });
   registry.register({
