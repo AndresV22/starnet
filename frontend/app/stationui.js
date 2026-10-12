@@ -6551,12 +6551,12 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
         // WHERE the charge is: a run on StarNet credits (receipt managed:true) was billed to the managed account, so its
         // charge is in the STORE's RECENT ACTIVITY (AI & MODELS), which lists each charge with its run id — on a linked
         // station and an operator (env) one alike — not on a provider dashboard the user never had.
-        const managed = r.managed === true;
-        const chargedBy = managed ? 'what StarNet charged' : 'what your provider charged';
+        const managed = r.managed === true, byok = r.managed === false;
+        const chargedBy = managed ? 'what StarNet charged' : byok ? 'what your provider charged' : 'the verified charge';
         row.setAttribute('data-tip', 'This run stopped before StarNet recorded what it spent' +
           (managed ? ' (it ran on your StarNet credits' + (r.model ? ', ' + r.model : '') + ')' : (where ? ' (it started on ' + where + ')' : '')) +
           (managed ? '. Enter what StarNet charged for it — SETTINGS → AI & MODELS › STORE › RECENT ACTIVITY lists those charges as run ' + String(r.runId).slice(0, 8)
-            : '. Enter the charge your provider dashboard shows for it') + ': StarNet books it once and your spending limits can be checked again.');
+            : byok ? '. Enter the charge your provider dashboard shows for it' : '. The billing source was not recorded. Match this run to StarNet Recent Activity or the original provider billing records, then enter only its verified charge') + ': StarNet books it once and your spending limits can be checked again.');
         const what = document.createElement('span');
         what.className = 'bg-un-what';
         const name = document.createElement('b');
@@ -6564,6 +6564,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
         what.appendChild(document.createTextNode('INTERRUPTED — '));
         what.appendChild(name);
         what.appendChild(document.createTextNode(' · ' + whenOf(r.ts)));
+        if (!managed && !byok) what.appendChild(document.createTextNode(' · BILLING SOURCE UNKNOWN'));
         const usd = document.createElement('input');
         usd.className = 'key-input bg-cap bg-un-usd';
         usd.type = 'number'; usd.min = '0'; usd.step = '0.01'; usd.placeholder = '$ charged';
@@ -6577,7 +6578,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
         if (typeof r.runCapUsd === 'number' && Number.isFinite(r.runCapUsd) && r.runCapUsd > 0) {
           capBtn = document.createElement('button');
           capBtn.className = 'bb xs'; capBtn.textContent = 'COUNT AS ' + fmtUsd(r.runCapUsd);
-          capBtn.setAttribute('data-tip', 'book it at the ' + fmtUsd(r.runCapUsd) + ' per-run limit it started with — its last call can run past that limit, so ' + (managed ? 'the STORE’s RECENT ACTIVITY' : 'your provider dashboard') + ' has the exact charge');
+          capBtn.setAttribute('data-tip', 'book it at the ' + fmtUsd(r.runCapUsd) + ' per-run limit it started with — its last call can run past that limit, so ' + (managed ? 'the STORE’s RECENT ACTIVITY has the exact charge' : byok ? 'your provider dashboard has the exact charge' : 'verify the exact charge in the original billing records'));
           btns.push(capBtn);
         }
         btn.addEventListener('click', () => {

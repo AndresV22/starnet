@@ -1116,7 +1116,7 @@ function unsettledReceiptOf(receipt) {
   if (typeof receipt.ts === 'number' && Number.isFinite(receipt.ts) && receipt.ts > 0) r.ts = receipt.ts;
   if (typeof receipt.provider === 'string' && receipt.provider.trim()) r.provider = receipt.provider.trim().slice(0, 40);
   if (typeof receipt.model === 'string' && receipt.model.trim()) r.model = receipt.model.trim().slice(0, 80);
-  if (receipt.managed === true) r.managed = true;
+  if (typeof receipt.managed === 'boolean') r.managed = receipt.managed;
   if (typeof receipt.runCapUsd === 'number' && Number.isFinite(receipt.runCapUsd) && receipt.runCapUsd > 0) r.runCapUsd = receipt.runCapUsd;
   return r;
 }
@@ -13113,7 +13113,7 @@ function budgetUnsettledRuns() {
     try { const row = runStore.latest(r.runId); title = String((row && row.title) || ''); } catch (e) { failNote('budget.unsettled.title', e); }
     return {
       runId: r.runId, agentId: r.agentId || '', ts: r.ts || null, title: title.slice(0, 120),
-      provider: r.provider || null, model: r.model || null, managed: r.managed === true,
+      provider: r.provider || null, model: r.model || null, managed: typeof r.managed === 'boolean' ? r.managed : null,
       runCapUsd: (typeof r.runCapUsd === 'number' && r.runCapUsd > 0) ? r.runCapUsd : null
     };
   });
@@ -13448,7 +13448,7 @@ async function handleBudgetSettle(req, res) {
   let usd;
   if (body.mode === 'limit') {
     // a StarNet-credit receipt's charge is in the STORE's RECENT ACTIVITY (listed by run id), not on a provider dashboard
-    if (!(typeof open.runCapUsd === 'number' && Number.isFinite(open.runCapUsd) && open.runCapUsd > 0)) return json(400, { error: open.managed === true ? 'this run recorded no per-run limit — enter what StarNet charged for it (SETTINGS → AI & MODELS › STORE › RECENT ACTIVITY lists each charge with its run id)' : 'this run recorded no per-run limit — enter the charge from your provider dashboard' });
+    if (!(typeof open.runCapUsd === 'number' && Number.isFinite(open.runCapUsd) && open.runCapUsd > 0)) return json(400, { error: open.managed === true ? 'this run recorded no per-run limit — enter what StarNet charged for it (SETTINGS → AI & MODELS › STORE › RECENT ACTIVITY lists each charge with its run id)' : open.managed === false ? 'this run recorded no per-run limit — enter the charge from your provider dashboard' : 'this run recorded no per-run limit or billing source — verify its charge in StarNet Recent Activity or the original provider billing records before entering it' });
     usd = open.runCapUsd;
   } else {
     usd = (typeof body.usd === 'string' && body.usd.trim() !== '') ? Number(body.usd) : body.usd;

@@ -56,3 +56,11 @@ _Filled in when the bug leaves the backlog: what was true, and why it is closed.
 
 
 ## Sibling coverage
+
+## Narrow legacy-receipt guidance repair
+
+A disposable current-app reproduction found that old pending receipts without billing metadata were projected as managed=false and directed to a provider dashboard, including a synthetic old managed run. The repair preserves explicit true/false metadata and exposes absent provenance as null. The settlement panel visibly labels that case BILLING SOURCE UNKNOWN and asks for a verified charge without assuming a provider or inventing a historical cap. No attempt is made to infer billing from the current account/provider configuration.
+
+Live before/after and restart evidence: qa/evidence/legacy-spend-recovery-1011/before.json and qa/evidence/legacy-spend-recovery-1011/after.json. Registered regressions: test/settle-managed-copy.test.js, test/spend-authority.test.js and test/legacy-spend-provenance.http.test.js. The latter checks real API projection, no-limit refusal, untouched ledger, unknown totals and the unchanged resume guard over two boots.
+
+This is a source-level recovery-guidance improvement only. It neither establishes the receipt cause for all seven customer reports nor reconciles their historical charges. The report stays open, installer unverified, and per-customer recovery unchanged. The funded-account October 8 recurrence a5060cc3 remains unresolved and outside this repair. Full focused validation details, including the initial spend HTTP failure, are retained in qa/evidence/legacy-spend-recovery-1011/verification.json.

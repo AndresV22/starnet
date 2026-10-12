@@ -67,7 +67,7 @@
       if (!meta || typeof meta !== 'object') return out;
       if (str(meta.provider).trim()) out.provider = str(meta.provider).trim().slice(0, 40);
       if (str(meta.model).trim()) out.model = modelName(meta.model);
-      if (meta.managed === true) out.managed = true;
+      if (typeof meta.managed === 'boolean') out.managed = meta.managed; // absent legacy provenance stays unknown
       if (typeof meta.runCapUsd === 'number' && isFinite(meta.runCapUsd) && meta.runCapUsd > 0) out.runCapUsd = meta.runCapUsd;
       return out;
     }

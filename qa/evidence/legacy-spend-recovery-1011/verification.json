@@ -1,0 +1,72 @@
+{
+  "base": "b2cdcb2f2",
+  "scope": "Legacy pending receipt provenance and settlement guidance only. d688ea20 stays open; a5060cc3 October 8 recurrence unresolved.",
+  "sourceChange": [
+    "Preserve explicit managed false as well as true in newly written receipts and receipt reload",
+    "Project absent billing provenance as null instead of false",
+    "Show BILLING SOURCE UNKNOWN and neutral verified-charge guidance; no current-account inference",
+    "No-limit API refusal uses the same three-way distinction; amounts and caps unchanged",
+    "Desktop and website stationui mirrors are byte-identical"
+  ],
+  "before": {
+    "live": "before.json: three metadata-free legacy receipts received provider-dashboard guidance and managed=false",
+    "registeredRegression": "test/settle-managed-copy.test.js failed before repair: expected billing source was not recorded; received provider dashboard guidance"
+  },
+  "after": {
+    "live": "after.json: same five disposable fixture cases, including sidecar restart; legacy origins unknown, managed/BYOK controls retain their guidance, exact totals remain null",
+    "limitation": "Legacy-managed and legacy-BYOK are fixture labels. Their old receipts are intentionally indistinguishable; no historical provenance is invented. No installer or customer retest."
+  },
+  "focusedChecks": [
+    {
+      "test": "test/settle-managed-copy.test.js",
+      "result": "PASS",
+      "gate": "fast"
+    },
+    {
+      "test": "test/budget-authority-ui.test.js",
+      "result": "PASS",
+      "gate": "fast"
+    },
+    {
+      "test": "test/budget-caps.test.js",
+      "result": "PASS 77 assertions",
+      "gate": "fast"
+    },
+    {
+      "test": "test/spend-authority.test.js",
+      "result": "PASS including explicit true/false/absent serialization and reload",
+      "gate": "fast"
+    },
+    {
+      "test": "test/legacy-spend-provenance.http.test.js",
+      "result": "PASS four receipt origins over two boots; no-limit refusal; unknown totals; resume guard; unchanged ledger",
+      "gate": "http"
+    },
+    {
+      "test": "test/spend-authority.http.test.js",
+      "result": "Latest changed-backend rerun PASS; initial failure retained below",
+      "gate": "http"
+    },
+    {
+      "test": "bug register",
+      "result": "248 records valid; index regenerated with no index diff"
+    },
+    {
+      "test": "syntax and diff whitespace",
+      "result": "PASS"
+    }
+  ],
+  "initialHttpFailure": {
+    "test": "test/spend-authority.http.test.js:28",
+    "assertion": "a failed durable append blocks subsequent capped dispatch",
+    "expectedCalls": 1,
+    "actualCalls": 2,
+    "stage": "First changed-backend run; before any new provenance-specific checks",
+    "baseline": "Unchanged b2cdcb2f2 sidecar/index.js and sidecar/ledger.js loaded under original paths by baseline loader; full same test PASS",
+    "retest": "Full original test on changed backend PASS without changing the test or fault helper",
+    "classification": "Non-reproduced intermittent failure; root cause unresolved. Not established as baseline failure or unrelated. No guard/oracle weakened. A later pass does not explain the first failure."
+  },
+  "gates": "No full fast/http suites per bounded next-wave instruction; coordinator owns combined gates.",
+  "safety": "No customer account or ledger modified, no live provider/billing calls; HTTP tests use a loopback mock. Live seed fetches are restricted to loopback. No merge into trunk or push.",
+  "date": "2026-10-12T03:53:34.914Z"
+}

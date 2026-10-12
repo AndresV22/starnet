@@ -110,3 +110,16 @@ console.log('spend admission: receipt failure, repeated checks, independent sett
   assert.equal(soft[0].provider,'p','the soft-unknown path forwards the receipt meta too');
 }
 console.log('spend recovery: kept rows, strict refusal, Commander settle, live-run guard, write failure, receipt meta PASS');
+
+// Dispatch receipts preserve explicit BYOK as well as managed; absence is not false.
+for (const managed of [true, false, undefined]) {
+  let receipt;
+  const L = makeLedger({clock,io:{readAll:()=>[],append(){},beginRun(r){receipt=JSON.parse(JSON.stringify(r));}}});
+  assert.equal(L.beginRun('provenance','a',{provider:'test',managed}),true);
+  assert.equal(receipt.managed,managed);
+  assert.equal(Object.hasOwn(receipt,'managed'),typeof managed==='boolean');
+  const reboot = makeLedger({clock,io:{readAll:()=>[],unsettled:()=>[receipt],append(){}}});
+  assert.equal(reboot.unsettledRuns()[0].managed,managed);
+  assert.equal(reboot.health().complete,false,'provenance never settles unknown spend');
+}
+console.log('spend receipt provenance: managed, BYOK and absent survive serialization/restart PASS');
