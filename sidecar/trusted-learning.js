@@ -13,6 +13,36 @@ function textOf(message) {
 function quotedMaterial(text) {
   return /```|~~~|(?:^|\n)\s*>|<\/?(?:document|email|untrusted|script)\b|[“"][^“”"]{20,}[”"]/i.test(String(text || '')) || /\b(?:examples?|samples?|transcript|following (?:document|email|message)|(?:document|attachment|website|webpage|email|message|article)\s+(?:says?|said|states?|reads?|instructs?))[^\n]*[:\n]/i.test(String(text || ''));
 }
+// LEARNING TAIL: the most transcript any durable learning pass can read, counted back from the newest turn. The review
+// stash (verdictreview.js PERSIST_CHARS, each turn clipped to PER_MESSAGE_CHARS) is the widest; reflection, study,
+// thread mining, failure review and the skill review's raw transcript all read a shorter tail (its structured evidence
+// leaves quoted turns out on its own: learningevidence.js). test/trusted-learning.test.js locks these bounds.
+const LEARNING_TAIL_CHARS = 16000;
+const LEARNING_TAIL_MESSAGE_CHARS = 4000;
+const RECALL_FENCE = /<recalled-memory>[\s\S]*?<\/recalled-memory>|<\/?recalled-memory>/gi;
+// quotedInLearningTail: is there quoted material in a user turn a learning pass can still read? A quote that scrolled
+// past every pass's tail must not keep learning off for the rest of a long conversation. Each later turn counts the
+// LEAST any pass would count it, so a quote is never called out of reach too early: tool and block-content turns
+// count nothing (reflection reads string user/agent text only), recalled-memory fences count nothing (stripped),
+// a turn counts at most its per-turn clip, and the newest agent answer counts nothing (the stash keeps it whole).
+// The newest user turn is always read (reflection and the stash keep the directive even when the tail cut it).
+function quotedInLearningTail(messages) {
+  const list = Array.isArray(messages) ? messages : [];
+  let used = 0, sawUser = false, sawAnswer = false;
+  for (let i = list.length - 1; i >= 0; i--) {
+    const m = list[i];
+    if (!m || (m.role !== 'user' && m.role !== 'assistant')) continue;
+    if (sawUser && used >= LEARNING_TAIL_CHARS) return false;
+    if (m.role === 'user') {
+      if (quotedMaterial(textOf(m))) return true;
+      sawUser = true;
+    }
+    const raw = typeof m.content === 'string' ? m.content : '';
+    if (m.role === 'assistant' && !sawAnswer && raw.trim()) { sawAnswer = true; continue; }
+    used += Math.min(raw.replace(RECALL_FENCE, '').length, LEARNING_TAIL_MESSAGE_CHARS);
+  }
+  return false;
+}
 // Ambient activity and repeat-work claims require the original owner text, not the completion run's later
 // provenance. Bound before filtering; legacy rows without an explicit clean stamp cannot supply that proof.
 function cleanOwnerRows(rows, runRecords) {
@@ -101,4 +131,4 @@ function evidence(input) {
     ...(o.trustedOnly ? { trustedOnly: true } : {}),
     trustedUserMessages: o.trustedInput ? [o.trustedInput] : [], checks: checks(o.completion), loadedSkills: o.loadedSkills || [] };
 }
-module.exports = { textOf, quotedMaterial, cleanOwnerRows, ownedBriefs, capture, eligible, preferences, checks, evidence };
+module.exports = { textOf, quotedMaterial, quotedInLearningTail, LEARNING_TAIL_CHARS, LEARNING_TAIL_MESSAGE_CHARS, cleanOwnerRows, ownedBriefs, capture, eligible, preferences, checks, evidence };

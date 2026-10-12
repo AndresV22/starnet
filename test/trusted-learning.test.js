@@ -29,4 +29,26 @@ assert.equal(evidence.tainted,true); assert.equal(evidence.checks[0].command,'np
 const quotedEvidence=L.evidence({runId:'q',tainted:null,trustedOnly:true});
 assert.deepEqual([quotedEvidence.tainted,quotedEvidence.trustedOnly],[false,true]);
 assert.equal('trustedOnly' in L.evidence({runId:'c'}),false,'a clean run keeps the exact evidence shape');
+// sidecar-index-01 follow-up: the quoted-owner learning skip covers only the tail a learning pass can still read.
+// Each later turn counts the LEAST any pass could count it, so "out of reach" is never claimed too early.
+{
+  const Q={role:'user',content:'> I prefer QUOTED instructions.'}, now={role:'user',content:'Run the next check.'};
+  const say=(role,n)=>({role,content:'y'.repeat(n)});
+  assert.equal(L.quotedInLearningTail([now]),false);
+  assert.equal(L.quotedInLearningTail([Q]),true,'the newest turn is always read');
+  assert.equal(L.quotedInLearningTail([Q,say('assistant',L.LEARNING_TAIL_CHARS*3)]),true,'the newest answer is kept whole by the review stash: it pushes nothing out');
+  assert.equal(L.quotedInLearningTail([Q,...Array(5).fill(say('assistant',4000)),now]),false,'past the tail once five clipped answers sit between');
+  assert.equal(L.quotedInLearningTail([Q,say('user',L.LEARNING_TAIL_CHARS*2),say('assistant',10),now]),true,'one huge turn counts only its per-turn clip');
+  assert.equal(L.quotedInLearningTail([Q,...Array(9).fill(say('tool',4000)),say('assistant',10),now]),true,'tool turns never push a quote out: reflection skips them');
+  assert.equal(L.quotedInLearningTail([Q,...Array(9).fill({role:'user',content:[{type:'text',text:'y'.repeat(4000)}]}),say('assistant',10),now]),true,'block-content turns count nothing (the passes read string content only)');
+  assert.equal(L.quotedInLearningTail([Q,...Array(9).fill({role:'assistant',content:'<recalled-memory>'+'y'.repeat(4000)+'</recalled-memory>'}),now]),true,'recalled-memory fences count nothing (the passes strip them)');
+  assert.equal(L.quotedInLearningTail([...Array(9).fill(say('assistant',4000)),Q]),true,'a quote in the newest turn is read whatever came before');
+  // drift lock: the bound must cover every pass that reads a transcript tail, and match the stash it mirrors
+  const cap=(file,re)=>Number((require('node:fs').readFileSync(require('node:path').join(__dirname,'..',file),'utf8').match(re)||[])[1]);
+  assert.equal(L.LEARNING_TAIL_CHARS,cap('sidecar/verdictreview.js',/const PERSIST_CHARS = (\d+);/),'tail bound = the review stash budget');
+  assert.equal(L.LEARNING_TAIL_MESSAGE_CHARS,cap('sidecar/verdictreview.js',/const PER_MESSAGE_CHARS = (\d+);/),'per-turn clip = the review stash clip');
+  for(const [file,re] of [['sidecar/reflect.js',/const PROMPT_CAP = (\d+);/],['sidecar/threadmine.js',/const PROMPT_CAP = (\d+);/],['frontend/app/study.js',/const PROMPT_CAP = (\d+);/],['sidecar/failreview.js',/const TRANSCRIPT_CAP = (\d+);/],['sidecar/skillreview.js',/cap = cap \|\| (\d+);/]]){
+    const n=cap(file,re);assert.ok(n>0&&n<=L.LEARNING_TAIL_CHARS,file+' reads a tail inside the learning bound ('+n+')');
+  }
+}
 console.log('trusted-learning: provenance, preference polarity, scope, external input and verification checks PASS');

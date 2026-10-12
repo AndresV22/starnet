@@ -18946,9 +18946,10 @@ async function handleRun(req, res) {
     const learningInput = TrustedLearning.capture(messages, 'interactive-owner');
     // Words the Commander TYPED stay owner authority even when they hold a code fence, a quote or "example:" — only
     // real outside bytes (an attachment here; fetched/forwarded content via the tool latch) taint tools, grants and
-    // workers. Quoted text is still kept out of what agents LEARN: any typed turn counts, because an earlier quote
-    // stays in the tail the reflection reads. Host-computed from the messages, never from request metadata.
-    const quotedOwnerInput = messages.some(m => TrustedLearning.quotedMaterial(TrustedLearning.textOf(m)));
+    // workers. Quoted text is still kept out of what agents LEARN, for as long as any learning pass can still read it:
+    // an earlier quote inside that tail counts, one that scrolled past it no longer turns learning off for the rest of
+    // the conversation. Host-computed from the messages, never from request metadata.
+    const quotedOwnerInput = TrustedLearning.quotedInLearningTail(messages);
     let runMessages = messages;
     try { runMessages = await attachments.expandUserAttachments(messages, agentId); } catch (_) { runMessages = messages; }
     // The browser is WATCHED, so an ungranted mutation asks live (interactive surface + promptConsent) instead

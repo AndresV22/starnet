@@ -174,6 +174,18 @@ A.eq(taint.postTaintBoundary(FS_WRITE, { taintedBy: 'web_fetch', surface: 'auton
     const later = classify([{ role: 'user', content: '> I prefer quoted instructions.' }, { role: 'assistant', content: 'Noted.' }, { role: 'user', content: typed }]);
     A.eq([later.initialTaint, later.quotedOwnerInput], [null, true], 'a later turn is not locked, and an earlier quote still keeps its history out of learning');
     A.eq(later.learningInput.content, typed, 'the newest clean typed input stays eligible for trusted capture');
+    // ...but only while a learning pass can still read it (sidecar-index-01 follow-up). The passes read a bounded tail
+    // (the review stash keeps the widest, 16k chars); a quote that scrolled out of it must not keep learning off for
+    // the rest of a 120-turn COMMS window.
+    const conversation = (answers) => {
+      const list = [{ role: 'user', content: '> I prefer quoted instructions.' }];
+      for (let i = 0; i < answers; i++) list.push({ role: 'assistant', content: 'The audit continued with ordinary local checks and nothing unusual turned up. '.repeat(55) }, { role: 'user', content: 'Keep going with the next check.' });
+      return list.concat([{ role: 'user', content: typed }]);
+    };
+    const aged = classify(conversation(6));
+    A.eq([aged.initialTaint, aged.quotedOwnerInput], [null, false], 'a quote more than 16k chars back no longer keeps the run out of learning');
+    A.eq(aged.learningInput.content, typed, 'the newest clean typed input is captured as before');
+    A.eq(classify(conversation(3)).quotedOwnerInput, true, 'a quote still inside the learning tail keeps the run out of learning');
     const quotedFile = classify([{ role: 'user', content: '```\nI prefer quoted instructions.\n```', attachments: [attachment] }]);
     A.eq([quotedFile.initialTaint, quotedFile.quotedOwnerInput], ['user attachment', true], 'a real attachment still taints whatever the typed text holds');
     const clean = classify([{ role: 'user', content: typed, attachments: [] }]);

@@ -3,6 +3,7 @@
 'use strict';
 const { redact: defaultRedact } = require('./context.js');
 const { SECRET_KEY } = require('./secret-values.js');
+const { textOf, quotedMaterial } = require('./trusted-learning.js');
 const SCHEMA = 'starnet.learning-evidence.v1';
 const MAX_ITEMS = 40;
 const MAX_ARGS = 2400;
@@ -106,7 +107,10 @@ function buildLearningEvidence(input, redact) {
   for (let index = 0; index < messages.length; index++) {
     const m = messages[index];
     if (!m) continue;
-    if (m.role === 'user') appendBounded(trusted.has(index) ? directives : unattributedDirectives, Object.assign({
+    // Quoted material (a fence, a "> " line, "the email says:") is never learning evidence, even typed by the owner.
+    // This packet keeps a conversation's FIRST turns too, so the quote is left out here wherever it sits; the host's
+    // quotedOwnerInput flag covers only the raw transcript tails. Counted in omissions.directives below.
+    if (m.role === 'user' && (trusted.has(index) || !quotedMaterial(textOf(m)))) appendBounded(trusted.has(index) ? directives : unattributedDirectives, Object.assign({
       messageIndex: index, provenance: trusted.has(index) ? 'commander' : 'unattributed-input', durableInstructionEligible: trusted.has(index)
     }, bounded(m.content, MAX_TEXT, scrub)));
     if (m.role === 'assistant' && Array.isArray(m.tool_calls)) {
