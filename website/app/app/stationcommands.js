@@ -245,6 +245,15 @@ const StationCommands = (() => {
     try { if (typeof App !== 'undefined' && App.persist) App.persist(); } catch (_) {}
   }
 
+  // A delivered answer can be partial (budget/iteration/stop). Preserve the recorded terminal reason;
+  // the presence of text or a run id alone never establishes that a worker completed its task.
+  function noteOutcome(ws, runId, reason) {
+    const why = typeof reason === 'string' ? reason.trim().slice(0, 80) : '';
+    if (!why || !runId || !Workstreams.noteRunEnd) return false;
+    if (ws.lastRunReason === why && ws.lastRunOk === (why === 'done')) return false;
+    return Workstreams.noteRunEnd(ws.id, runId, why === 'done', why);
+  }
+
   function foldDelivery(a, opts) {
     opts = opts || {};
     const hit = resolveDelivery(a);
@@ -253,6 +262,7 @@ const StationCommands = (() => {
     if (!text) throw new Error('nothing to deliver — the worker returned no text');
     const runId = String((a && a.runId) || '');
     if (runId && (ws.runIds || []).indexOf(runId) >= 0) {
+      if (noteOutcome(ws, runId, a.reason)) refreshAndPersist(ws, !!opts.quiet);
       try { if (typeof Channels !== 'undefined' && Channels.end) Channels.end(ws.id); } catch (_) {}
       return { folded: false, reason: 'already delivered', session: ws.title || 'General', resolvedBy: hit.resolvedBy };
     }
@@ -268,6 +278,7 @@ const StationCommands = (() => {
     ws.history.push({ role: 'assistant', content: text, agentId: who, ts });
     if (runId && Workstreams.appendRun) Workstreams.appendRun(ws.id, runId, ts);
     else if (Workstreams.touch) Workstreams.touch(ws.id);
+    noteOutcome(ws, runId, a.reason);
     if (Workstreams.markUnread && !ws.worker) Workstreams.markUnread(ws.id);   // a worker's thread is hidden: the asking conversation gets the one report
     try { if (typeof Channels !== 'undefined' && Channels.end) Channels.end(ws.id); } catch (_) {}
     refreshAndPersist(ws, !!opts.quiet);
@@ -1008,9 +1019,12 @@ const StationCommands = (() => {
       return { started: true, session: ws.title || 'General', runId, resolvedBy: hit.resolvedBy };
     },
 
-    'station.dispatch_end': (a) => {
+    'station.dispatch_end': async (a) => {
       const hit = resolveDelivery(a);
       if (typeof Channels !== 'undefined' && Channels.end) Channels.end(hit.w.id);
+      // Foreground workers have no subagent ledger. Their completed run record is now authoritative, including
+      // an error or stop with no deliverable; recover it before the card settles to an unproven generic status.
+      await reconcile(hit.w.id);
       try { if (typeof App !== 'undefined' && App.refreshRail) App.refreshRail(); } catch (_) {}
       return { settled: true, session: hit.w.title || 'General', resolvedBy: hit.resolvedBy };
     },
@@ -1108,25 +1122,37 @@ const StationCommands = (() => {
         if (!r.ok) return 0;
         rows = ((await r.json()) || {}).runs || [];
       } catch (_) { return 0; }
-      let folded = 0;
+      let folded = 0, outcomes = 0;
       // /api/runs is newest-first. Fold oldest-first so multiple missed answers preserve conversation order.
       for (const row of rows.slice().reverse()) {
-        if (!row || ['done', 'max_iters', 'budget'].indexOf(String(row.reason || 'done')) < 0) continue;
-        if (!String(row.sessionTitle || '').trim() || !String(row.deliveryText || '').trim()) continue;
+        if (!row || !String(row.sessionTitle || '').trim()) continue;
         const args = {
           streamId: row.streamId, sessionTitle: row.sessionTitle, agentId: row.agentId,
-          runId: row.runId, prompt: row.deliveryPrompt, text: row.deliveryText, ts: row.ts
+          runId: row.runId, prompt: row.deliveryPrompt, text: row.deliveryText, reason: row.reason, ts: row.ts
         };
         let hit;
         try { hit = resolveDelivery(args); } catch (_) { continue; }
         if (target && hit.w.id !== target) continue;
-        if (row.runId && (hit.w.runIds || []).indexOf(String(row.runId)) >= 0) continue;
+        // Ordinary conversations retain their existing recovery policy. A worker's record also retains failed
+        // or interrupted attempts: even an empty result needs its truthful outcome and inspection link.
+        if (!hit.w.worker && ['done', 'max_iters', 'budget'].indexOf(String(row.reason || 'done')) < 0) continue;
+        if (row.runId && (hit.w.runIds || []).indexOf(String(row.runId)) >= 0) {
+          if (noteOutcome(hit.w, String(row.runId), row.reason)) outcomes++;
+          continue;
+        }
+        if (!String(row.deliveryText || '').trim()) {
+          if (hit.w.worker && row.runId && row.reason && Workstreams.appendRun) {
+            Workstreams.appendRun(hit.w.id, String(row.runId), row.ts);
+            if (noteOutcome(hit.w, String(row.runId), row.reason)) outcomes++;
+          }
+          continue;
+        }
         try {
           const out = foldDelivery(args, { quiet: true });
           if (out && out.folded) folded++;
         } catch (_) {}
       }
-      if (folded) {
+      if (folded || outcomes) {
         try {
           const active = Workstreams.activeId && Workstreams.get(Workstreams.activeId());
           if (active && typeof Chat !== 'undefined' && Chat.load) Chat.load(active);

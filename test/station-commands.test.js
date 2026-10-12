@@ -113,6 +113,42 @@ async function call(env, verb, args) {
   A.eq(env.page.loaded.length, 0, 'a session that is NOT open is not force-rendered');
 }
 
+// A foreground worker's text is not proof of completion: keep the actual terminal reason live and after recovery.
+for (const reason of ['done', 'budget', 'max_iters', 'aborted', 'error']) {
+  const env = boot();
+  const worker = env.W.adopt({ id: 'worker-outcome', title: 'Worker outcome', agentId: 'researcher', worker: true, parentStreamId: env.W.generalId() });
+  await call(env, 'station.deliver', { streamId: worker.id, agentId: 'researcher', runId: 'outcome-' + reason, text: 'The recorded work so far.', reason });
+  A.eq(worker.lastRunReason, reason, 'live worker delivery preserves ' + reason);
+  A.eq(worker.lastRunOk, reason === 'done', 'only a completed worker is successful: ' + reason);
+  env.W.init(JSON.parse(JSON.stringify(env.W.serialize())));
+  A.eq(env.W.get(worker.id).lastRunReason, reason, 'worker outcome survives page restart: ' + reason);
+}
+{
+  const env = boot({ runs: [{ runId: 'partial-run', streamId: 'partial-worker', sessionTitle: 'Partial worker',
+    agentId: 'researcher', reason: 'max_iters', deliveryText: 'Partial findings.', ts: 1000 }] });
+  const worker = env.W.adopt({ id: 'partial-worker', title: 'Partial worker', worker: true, parentStreamId: env.W.generalId() });
+  await call(env, 'station.deliver', { streamId: worker.id, runId: 'partial-run', text: 'Partial findings.' });
+  A.eq(worker.lastRunReason, '', 'a legacy delivery without outcome never guesses completion');
+  A.eq(await env.S.reconcile(worker.id), 0, 'learning an outcome does not duplicate an already delivered answer');
+  A.eq(worker.lastRunReason, 'max_iters', 'recovery heals an older delivery that lost its iteration-limit reason');
+  A.eq(worker.history.length, 1, 'the partial answer remains single');
+  env.W.appendRun(worker.id, 'newer-run', 2000); env.W.noteRunEnd(worker.id, 'newer-run', true, 'done');
+  await env.S.reconcile(worker.id);
+  A.eq(worker.lastRunReason, 'done', 'an older recovered outcome cannot replace the newest run result');
+}
+{
+  const env = boot({ runs: [{ runId: 'empty-error', streamId: 'failed-worker', sessionTitle: 'Failed worker',
+    agentId: 'researcher', reason: 'error', deliveryText: '', ts: 1000 }] });
+  const worker = env.W.adopt({ id: 'failed-worker', title: 'Failed worker', worker: true, parentStreamId: env.W.generalId() });
+  await call(env, 'station.dispatch_start', { streamId: worker.id, runId: 'empty-error' });
+  const ended = await call(env, 'station.dispatch_end', { streamId: worker.id, runId: 'empty-error' });
+  A.eq(ended.ok, true, 'dispatch end reconciles the foreground worker record');
+  A.eq(worker.lastRunReason, 'error', 'a worker that failed without text still retains its actual reason');
+  A.eq(worker.history.length, 0, 'recovering an empty failure invents no assistant answer');
+  A.eq(worker.runIds[0], 'empty-error', 'the failed run can still be inspected from its card');
+  A.eq(env.page.save.workstreams.find(w => w.id === worker.id).lastRunReason, 'error', 'empty failure outcome is persisted');
+}
+
 // ---- task board verbs: canonical kind:'task' Workstreams, durable read-back, and semantic idempotency ----
 {
   const env = boot({ agents: () => [{ id: 'builder', name: 'BUILDER' }] });
