@@ -504,7 +504,8 @@
     // belts that already reach the OUTBOX once every bay is crewed are not a belt problem: the uncrewed bays' own
     // "needs an agent" items above are what is missing (sweep 2026-09-25)
     else if (!cyclic && !flow.outbox.reached && !(flow.outbox.reachedOnceCrewed && flow.order.some(pid => !flow.docks[pid].agentId))) blocking.push({ what: flow.outbox.propId ? 'connect the last step to the OUTBOX' : 'add an OUTBOX', propId: flow.outbox.propId });
-    // a line one job would run past its stage ceiling stops EVERY job part-way (chain.js preHopRefusal): not ready to run
+    // a line whose longest way runs past its stage ceiling stops a job that goes that way part-way (chain.js preHopRefusal): not
+    // ready to run — one key raises the ceiling to fit (a FILTER / TAKE TURNS line's short ways would finish: the words say so)
     if (flow.tooLong && !cyclic) blocking.push({ what: tooLongText(flow.tooLong), propId: flow.tooLong.propId, code: 'LINE_TOO_LONG' });
     const seenCodes = {};
     for (const e of (f.errors || [])) {
@@ -527,7 +528,7 @@
   function tooLongFix(tl) { const need = Math.max(0, ((tl && tl.stages) | 0) - 1); return need <= HOPS_CEILING ? need : null; }
   function tooLongText(tl) {
     const s = (tl && tl.stages) | 0, m = (tl && tl.maxHops) | 0;
-    return 'too long: one job runs ' + s + ' stages, the LINE BUDGET allows ' + (m + 1) + (tooLongFix(tl) == null ? ' — shorten the line' : '');
+    return 'too long: the longest way runs ' + s + ' stages, the LINE BUDGET allows ' + (m + 1) + (tooLongFix(tl) == null ? ' — shorten the line' : '');
   }
   function pillText(r) {
     if (r.ready) return 'READY TO RUN';

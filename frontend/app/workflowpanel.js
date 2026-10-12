@@ -281,8 +281,9 @@ const WorkflowPanel = (() => {
     if (p && sc && sc.contains(p)) { const r = p.getBoundingClientRect(), b = sc.getBoundingClientRect(); if (r.bottom > b.bottom) sc.scrollTop += r.bottom - b.bottom + 8; }
   }
 
-  /* TOO LONG, SAID BEFORE A JOB IS PAID FOR (2026-10-09 P0). A line whose jobs run more stages than its LINE BUDGET allows stops
-     every job part-way (chain.js preHopRefusal) — the compiler's LINE_TOO_LONG (flow.tooLong) is said here, under the pill, with
+  /* TOO LONG, SAID BEFORE A JOB IS PAID FOR (2026-10-09 P0). A line whose longest way runs more stages than its LINE BUDGET allows
+     stops a job that goes that way part-way (chain.js preHopRefusal; on a FILTER or TAKE TURNS line the short ways still finish — so
+     the row says "the longest way", never "every job": conveyor-ui-06) — the compiler's LINE_TOO_LONG (flow.tooLong) is said here, under the pill, with
      the numbers and ONE key that raises this line's "max stages after the first" to fit: the INBOX's own LINE BUDGET setter, its
      $ limits kept, one UNDO. Past the ceiling (24 after the first) no budget fits — the row says to shorten the line instead. */
   function paintTooLong(f) {
@@ -295,7 +296,7 @@ const WorkflowPanel = (() => {
     if (!tl) { row.innerHTML = ''; row.dataset.sig = ''; return; }
     if (row.dataset.sig === sig) return;
     row.dataset.sig = sig;
-    row.innerHTML = '<b>TOO LONG</b> — one job on this line runs <b>' + tl.stages + ' stages</b>, but its LINE BUDGET allows <b>' + (tl.maxHops + 1) + '</b> (the first + ' + tl.maxHops + ' more), so every job would stop at stage ' + (tl.maxHops + 2) + '. '
+    row.innerHTML = '<b>TOO LONG</b> — the longest way through this line runs <b>' + tl.stages + ' stages</b>, but its LINE BUDGET allows <b>' + (tl.maxHops + 1) + '</b> (the first + ' + tl.maxHops + ' more), so a job that goes that way would stop at stage ' + (tl.maxHops + 2) + '. '
       + (to != null && ip && typeof H.station().setPropLimits === 'function'
         ? '<button type="button" class="bb sm refit-primary" id="wf-raise" data-tip="sets this INBOX’s LINE BUDGET › max stages after the first to ' + to + ' — its $ limits stay as they are · one UNDO">▲ ALLOW ' + tl.stages + ' STAGES</button>'
         : 'No LINE BUDGET allows that many (25 stages at most): shorten the line.');
@@ -429,7 +430,7 @@ const WorkflowPanel = (() => {
       nodes.push({ kind: 'outbox', propId: f.outbox.propId, mach: 'outbox', addAfter: !f.outbox.propId && endId && H.lineEdit ? endId : null, cls: 'wf-term', ok: f.outbox.reached, name: 'OUTBOX',
         meta: f.outbox.reached ? (sendsTo ? 'sends to ' + sendsTo.name + (sendsTo.off ? ' · OFF' : '') : 'the result') : f.outbox.reachedOnceCrewed ? 'needs crew' : 'not connected',
         warn: (!f.outbox.reached && !f.outbox.reachedOnceCrewed) || !!(sendsTo && sendsTo.off),
-        tip: 'OUTBOX\n' + (f.outbox.reached ? (sendsTo ? (sendsTo.off ? 'the line ends here — its SEND TO ' + sendsTo.name + ' is off: nothing is sent on' : 'the line ends here — every job that lands in it rides on to ' + sendsTo.name) : 'the line ends here') : f.outbox.propId ? (f.outbox.reachedOnceCrewed ? 'connected · waiting on agents' : 'not connected yet') : 'no OUTBOX') });
+        tip: 'OUTBOX\n' + (f.outbox.reached ? (sendsTo ? (sendsTo.off ? 'the line ends here — its SEND TO ' + sendsTo.name + ' is off: nothing is sent on' : 'the line ends here — every job that finishes cleanly is sent on to ' + sendsTo.name) : 'the line ends here') : f.outbox.propId ? (f.outbox.reachedOnceCrewed ? 'connected · waiting on agents' : 'not connected yet') : 'no OUTBOX') });
     } else if (S.lone) {
       nodes.push({ kind: 'col', col: { docks: [{ propId: S.lone, agentId: (prop(S.lone) || {}).agentId || null, role: (prop(S.lone) || {}).role || null, routed: false }], mode: 'single' }, ok: false });
     }
@@ -1545,6 +1546,34 @@ const WorkflowPanel = (() => {
     const on = sendChoices(outboxId).find(c => c.on);
     return { name: on ? Pipeline.lineWord(on.name, H.station().lineLetter ? 'LINE ' + H.station().lineLetter(on.intakeId) : 'LINE ' + on.intakeId) : 'an INBOX', off: s.off };
   }
+  /* A JOB SENT HERE STARTS ANOTHER LINE'S PAID JOB (conveyor-ui-01): the line's SEND TO, said where a job is sent (SEND IT DOWN
+     THE LINE, RUN ONE REAL JOB) — from the compiled plan's live pointers on THIS line (plan.sendTo), named as the OUTBOX card names
+     them (sendTarget). A line with an OUTBOX that sends nowhere hands on only the jobs that land in the one that sends. */
+  function onwardNote() {
+    const c = comp(), plan = (H && H.plan && H.plan()) || {}, st = plan.sendTo || {};
+    if (!c) return '';
+    const sends = Object.keys(st).filter(k => st[k] && st[k].fromLine === c.key).map(k => sendTarget(k)).filter(t => t && !t.off);
+    if (!sends.length) return '';
+    const names = [...new Set(sends.map(t => t.name))].map(n => '<b>' + esc(n) + '</b>').join(' and ');
+    return (sends.length >= (c.outboxes || []).length ? ' When it finishes cleanly it is sent on to ' : ' When it finishes cleanly in an OUTBOX that sends on, it goes on to ')
+      + names + ': that line’s crew starts a job of its own on the result, at its own cost.';
+  }
+  /* A HAND-OFF THE STATION WOULD REFUSE IS SAID BEFORE ANY JOB (conveyor-ui-05): the hand-off runner refuses a target line with no
+     crewed entry dock, or whose daily limit is spent (handoff-runner preflight). The OUTBOX card reads the same floor facts — the
+     compiled plan's crewed docks on that line (the question trigger-runner crewedDocksOnLine asks) and the line's TODAY spend
+     against its cap (World.lineStatsFor, the LINE BUDGET ledger) — so it never promises a hand-off that would be refused. A spend
+     the floor has not read yet says nothing. */
+  function sendBlocked(outboxId, name) {
+    const plan = (H.plan && H.plan()) || {}, rec = (plan.sendTo || {})[outboxId], to = rec && rec.toLine;
+    if (!to || typeof Pipeline === 'undefined' || !Pipeline.dockLayer) return '';
+    const L = Pipeline.dockLayer(plan), reach = L.reachDock || {};
+    if (!Object.keys(reach).some(d => reach[d] && (L.agentOfDock || {})[d] && (L.lineOfDock || {})[d] === to))
+      return '<p class="wf-warnline" id="send-blocked">' + esc(name) + ' has no agent on its first BAY yet — nothing is sent on until it has one.</p>';
+    const ls = typeof World !== 'undefined' && World.lineStatsFor ? World.lineStatsFor(to) : null;
+    if (ls && ls.capUsdPerDay != null && +ls.capUsdPerDay > 0 && +ls.usdToday >= +ls.capUsdPerDay)
+      return '<p class="wf-warnline" id="send-blocked">' + esc(name) + ' has spent its $' + (+ls.capUsdPerDay).toFixed(2) + ' daily limit — nothing is sent on until tomorrow, or until its LINE BUDGET is raised.</p>';
+    return '';
+  }
   function paintOutbox(body, f, p) {
     const choices = sendChoices(p.id), on = choices.find(c => c.on), ss = sendState(p.id);
     const nameOf = c => Pipeline.lineWord(c.name, H.station().lineLetter ? 'LINE ' + H.station().lineLetter(c.intakeId) : 'LINE ' + c.intakeId);
@@ -1554,16 +1583,27 @@ const WorkflowPanel = (() => {
     const chips = '<button type="button" class="wf-chip" data-sendto="" aria-pressed="' + !ss + '">NOWHERE</button>'
       + choices.map((c, i) => '<button type="button" class="wf-chip' + (c.refusal ? ' off' : '') + '" data-sendto="' + esc(c.intakeId) + '" aria-pressed="' + c.on + '"'
         + (c.refusal ? ' aria-disabled="true"' : '') + '>' + esc(nameOf(c, i)) + '</button>').join('');
-    const why = choices.map((c, i) => c.refusal ? '<p class="wf-help dim wf-sendwhy">' + esc(nameOf(c, i)) + ' — ' + esc(c.refusal.msg || c.refusal.error) + '</p>' : '').join('');
+    /* AN OUTBOX ON NO LINE (conveyor-ui-16) refuses every line for the one same reason: no chip per line, one sentence (NOWHERE
+       stays while a stale pointer is there to clear). Any other reason shared by several lines is said once, naming them. */
+    const endsNoLine = !(H.lineOfProp && H.lineOfProp(p.id));
+    const whyBy = new Map();
+    choices.forEach((c, i) => { if (!c.refusal) return; const m = c.refusal.msg || c.refusal.error; if (!whyBy.has(m)) whyBy.set(m, []); whyBy.get(m).push(nameOf(c, i)); });
+    const why = [...whyBy].map(([m, names]) => '<p class="wf-help dim wf-sendwhy">' + esc(names.join(', ')) + ' — ' + esc(m) + '</p>').join('');
+    const blocked = ss && !ss.off && on ? sendBlocked(p.id, onName) : '';
     body.innerHTML = '<section class="wf-sec"><h3><span class="n">OUTBOX</span>Collect the finished work</h3>'
       + '<p class="wf-help">' + (f && f.outbox.reached ? 'This line’s finished work lands here — leave build mode and click it to read what came back.' : 'Drag the last BAY onto it to lay the belt (or BELT: click the BAY, then this OUTBOX).') + '</p>'
       + '<h4 class="wf-sub">SEND TO ›</h4>'
       + (oldBelts.length ? '<p class="wf-warnline">An old belt joins these lines into one.</p><button type="button" class="bb sm" id="wf-convert-sendto">MAKE IT A SEND TO</button>' : '')
-      + (choices.length ? '<div class="wf-chips" role="group" aria-label="Where this line sends its finished work">' + chips + '</div>' + why
+      + (choices.length && endsNoLine
+          ? (ss ? '<div class="wf-chips" role="group" aria-label="Where this line sends its finished work"><button type="button" class="wf-chip" data-sendto="" aria-pressed="false">NOWHERE</button></div>' : '')
+            + '<p class="wf-help dim" id="send-noline">Once this OUTBOX ends a line, pick the line its finished work goes on to.</p>'
+        : choices.length ? '<div class="wf-chips" role="group" aria-label="Where this line sends its finished work">' + chips + '</div>' + why
         : oldBelts.length ? '' : '<p class="wf-help dim">There is no other line on the floor yet. Build one, then pick it here to hand this line’s finished work on to it.</p>')
-      + '<p class="wf-help' + (ss && ss.off ? ' wf-warnline' : '') + '" id="send-note">' + (ss && !ss.off && onName ? 'Every job that lands in this OUTBOX rides on to <b>' + esc(onName) + '</b> — its own crew works it, under its own budget. This line’s result stays here too.'
-        : ss ? '✕ Its SEND TO' + (onName ? ' <b>' + esc(onName) + '</b>' : '') + ' is off, so nothing is sent on — ' + esc(ss.why) + ' (Or pick NOWHERE.)' : 'This line’s work stops here.') + '</p>'
-      + '<p class="wf-help dim">Or drag this OUTBOX onto another line’s INBOX. One UNDO takes it back.</p></section>';
+      // (a job is handed on only when it finishes CLEAN — handoff-runner — and only while the target line can take it: sendBlocked)
+      + (ss || !endsNoLine ? '<p class="wf-help' + (ss && ss.off ? ' wf-warnline' : '') + '" id="send-note">' + (ss && !ss.off && onName ? 'Every job that finishes cleanly here is sent on to <b>' + esc(onName) + '</b> — that line’s crew works it next, under its own budget. This line’s result stays here too.'
+        : ss ? '✕ Its SEND TO' + (onName ? ' <b>' + esc(onName) + '</b>' : '') + ' is off, so nothing is sent on — ' + esc(ss.why) + ' (Or pick NOWHERE.)' : 'This line’s work stops here.') + '</p>' : '')
+      + blocked
+      + (endsNoLine ? '' : '<p class="wf-help dim">Or drag this OUTBOX onto another line’s INBOX. One UNDO takes it back.</p>') + '</section>';
     const convert = body.querySelector('#wf-convert-sendto');
     if (convert) convert.onclick = () => { const r = H.station().convertHandoffBelt(p.id); if (r && r.ok) { H.sfx('click'); paint(true); } else { H.sfx('bad'); note((r && r.msg) || 'the old belt could not be converted', true, convert); } };
     body.querySelectorAll('[data-sendto]').forEach(b => { b.onclick = () => {
@@ -1831,7 +1871,7 @@ const WorkflowPanel = (() => {
       + (mine && mine.pending ? (mine.phase === 'post' ? 'POSTING LINE…' : 'THE JOB IS RIDING THE LINE…') : '▶ SEND IT DOWN THE LINE') + '</button>'
       + (mine && mine.pending && mine.phase === 'run' && H.stopSample ? '<button type="button" class="bb sm" id="wf-send-stop"' + (mine.stopping ? ' disabled' : '') + ' data-tip="stop this job: the running step is cut off and nothing more runs — what already ran is counted">' + (mine.stopping ? 'STOPPING…' : '■ STOP') + '</button>' : '')
       + '</div>' + (mine && mine.pending && mine.phase === 'run' ? '<p class="wf-help wf-live" id="wf-send-live" role="status">' + esc(liveText(f)) + '</p>' : '')
-      + '<p class="wf-help dim">The whole line works on it for real — real agents, real cost — and the result lands in the OUTBOX.</p>'
+      + '<p class="wf-help dim">The whole line works on it for real — real agents, real cost — and the result lands in the OUTBOX.' + onwardNote() + '</p>'
       + (mine && mine.view ? jobResultHTML(mine, f) : '');
   }
   // wire the SEND box's keys (again after paintLive rebuilt the region: one wiring per element)
@@ -1886,9 +1926,19 @@ const WorkflowPanel = (() => {
     const badLine = v.ok ? '' : bad
       ? (() => { const pr = bad.dockId ? prop(bad.dockId) : null, nm = pr && (pr.label || pr.role); return 'The ' + (nm ? nm + ' step' : 'step') + ' (' + String(nameOf(bad.agentId)).toUpperCase() + ') ' + runEnd(bad.reason) + ', so this job did not finish cleanly and was not put in the OUTBOX. Sending it again often works.'; })()
       : String(v.reason || 'the job did not finish cleanly');
+    /* WHERE IT WENT ON TO (conveyor-ui-01): the job's own record (sample answer `sentTo`) says SENT ON / NOT SENT ON, in the words
+       WORKFLOWS uses; a record the hand-off runner has not written yet (it links the two jobs on its own) says only what is proven
+       — that this line sends on, and where to see what happened. The line's name: the record's, else the floor's (World.lineName). */
+    const endWord = e => Pipeline.lineWord(String((e && e.name) || '').trim() || (e && e.line != null && typeof World !== 'undefined' && World.lineName ? World.lineName(String(e.line)) : '') || '', 'another line');
+    const onward = !v.ok ? '' : mine.sentTo
+      ? (mine.sentTo.refused ? '<div class="wf-warnline wf-sent">NOT sent on to ' + esc(endWord(mine.sentTo)) + ' — ' + esc(mine.sentTo.refused) + '.</div>'
+        : '<p class="wf-help wf-sent">Sent on to <b>' + esc(endWord(mine.sentTo)) + '</b> — that line works on this result next, at its own cost.'
+          + (mine.sentTo.jobId ? ' <button type="button" class="wf-link" data-open-job="' + esc(mine.sentTo.jobId) + '">OPEN ITS JOB</button>' : '') + '</p>')
+      : (mine.onward || []).length ? '<p class="wf-help wf-sent">This line sends its finished work on to <b>' + esc([...new Set(mine.onward.map(d => endWord({ line: d.lineId })))].join(' and ')) + '</b> (SEND TO) — WORKFLOWS › LAST JOBS shows that line’s job, or why it was not sent.</p>' : '';
     return '<div class="wf-job' + (v.ok ? '' : ' problem') + '">'
       + (v.ok ? '<div class="wf-job-h"><b>✓ DELIVERED</b> · ' + runs.length + ' step' + (runs.length === 1 ? '' : 's') + (v.usd != null ? ' · $' + v.usd.toFixed(4) : '') + (mine.folded ? ' · in the OUTBOX' : '') + '</div>'
         : '<div class="wf-job-h"><b class="warn">⚠ FINISHED WITH A PROBLEM</b> · ' + runs.length + ' step' + (runs.length === 1 ? '' : 's') + (v.usd != null ? ' · $' + v.usd.toFixed(4) : '') + '</div><div class="wf-warnline">' + esc(badLine) + '</div>')
+      + onward
       + ln.notes.map(t => '<div class="wf-warnline">⚠ ' + esc(t) + '</div>').join('')
       + (v.ok || shown.trim() ? '<div class="wf-from"><span>' + (v.ok ? 'THE RESULT' : 'WHAT CAME OUT') + '</span></div><div class="wf-io out wf-job-out">' + esc(shown.trim() || '(the line delivered an empty reply)') + '</div>' : '')
       + (!v.ok ? '' : '<div class="wf-row">' + (S.exampleStamp === mine.stamp && exampleKept(mine) ? '<span class="wf-tag">★ THE LINE’S EXAMPLE</span>'
@@ -2024,6 +2074,8 @@ const WorkflowPanel = (() => {
     if (go) go.onclick = () => askFixes(mine, ((inp && inp.value) || '').trim());
     $$('[data-fix-use]').forEach(b => { b.onclick = () => useFix(+b.dataset.fixUse); });
     const kx = $('#wf-keep-ex'); if (kx) kx.onclick = () => keepExample(mine);
+    // OPEN ITS JOB: the next line's job record, in WORKFLOWS (Build Mode steps aside, as for every window the panel opens)
+    $$('[data-open-job]').forEach(b => { b.onclick = () => { H.sfx('click'); saveOpenFields(); H.openTerm('workflows'); if (typeof WorkflowsWindow !== 'undefined' && WorkflowsWindow.showJob) WorkflowsWindow.showJob(b.dataset.openJob); }; });
     // the job's words drawn as a reply (the card painted them as plain text)
     const P = typeof Pipeline !== 'undefined' ? Pipeline : null, clean = t => loopNotes(P && P.stripVerdictLine ? P.stripVerdictLine(t || '') : (t || '')).rest.trim();
     proseInto(el && el.querySelector('.wf-job-out'), clean(mine.output) || '(the line delivered an empty reply)');
@@ -2060,7 +2112,7 @@ const WorkflowPanel = (() => {
         + '<div class="wf-row"><button type="button" class="bb sm refit-primary" id="wf-st-go"' + (S.busy ? ' disabled' : '') + '>▶ START STEP-THROUGH</button></div>';
     } else {
       const sr = H.sampleState ? H.sampleState() : null, mine = sr && c && sr.key === c.key ? sr : null;   // the server's own verdict on the job, here
-      body = '<p class="wf-help">Your test job runs through the line for real, end to end: real agents, real cost, and the result lands in the <b>OUTBOX</b> like any job.</p>'
+      body = '<p class="wf-help">Your test job runs through the line for real, end to end: real agents, real cost, and the result lands in the <b>OUTBOX</b> like any job.' + onwardNote() + '</p>'
         + input
         + '<div class="wf-row"><button type="button" class="bb sm refit-primary" id="wf-real"' + (mine && mine.pending ? ' disabled' : '') + '>'
         + (mine && mine.pending ? (mine.phase === 'post' ? 'POSTING LINE…' : 'THE JOB IS RIDING THE LINE…') : '▶ RUN ONE REAL JOB') + '</button>'

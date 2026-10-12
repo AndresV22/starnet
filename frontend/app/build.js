@@ -122,7 +122,7 @@ const Build = (() => {
     BELT_BURIED: 'A PROP SITS ON THIS LINE — MOVE IT',
     // the docks feed each OTHER: no belt loop anywhere, but the work line would run forever, paying each lap
     CHAIN_CYCLE: 'WORK LINE LOOPS — CUT ONE HANDOFF',
-    // one job here runs more stages than its stage ceiling: every job would stop part-way (2026-10-09 P0) — said on its INBOX
+    // the longest way through this line runs more stages than its stage ceiling: a job that goes that way stops part-way (2026-10-09 P0) — said on its INBOX
     LINE_TOO_LONG: 'TOO LONG — RAISE THE LINE BUDGET',
     // SEND TO (2026-10-10) — said on the OUTBOX whose hand-off is off; advice, never a blocker
     SEND_TO_MISSING: 'SENDS NOWHERE — PICK A LINE', SEND_TO_SELF: 'SENDS TO ITSELF — PICK ANOTHER LINE',
@@ -140,7 +140,7 @@ const Build = (() => {
     JOIN_ONE_LANE: 'This JOINER needs two in-lanes — run a second belt INTO its tile.',
     LOOP_NO_DONE: 'This LOOP has no DONE lane — run a belt OUT of its tile onward (the first exit, in E/S/W/N order, is DONE unless you choose one).',
     LOOP_NO_BACK: 'This LOOP has no BACK lane — run a second belt OUT of its tile back to an earlier BAY.',
-    LINE_TOO_LONG: 'Too long — one job on this line runs more stages than its LINE BUDGET allows, so every job would stop part-way (the stages that ran are still paid for). Raise “max stages after the first” in this INBOX’s Workflow card › Optional limits · LINE BUDGET (24 at most), or shorten the line.',
+    LINE_TOO_LONG: 'Too long — the longest way through this line runs more stages than its LINE BUDGET allows, so a job that goes the longest way would stop part-way (the stages that ran are still paid for). Raise “max stages after the first” in this INBOX’s Workflow card › Optional limits · LINE BUDGET (24 at most), or shorten the line.',
     SEND_TO_MISSING: 'This OUTBOX sends to an INBOX that is gone or starts no line yet (or the OUTBOX itself ends no line), so nothing is sent on. Click the OUTBOX and pick a line under SEND TO (or NOWHERE).',
     SEND_TO_SELF: 'This OUTBOX sends its work back into its own line’s INBOX, so nothing is sent on. Click it and pick another line under SEND TO (or NOWHERE).',
     SEND_TO_PRIVATE_FILES: 'This line runs in a private workspace. Its finished text rides onward, but the next crew cannot open its private files. Choose a shared project on this line to hand files on.',
@@ -151,7 +151,7 @@ const Build = (() => {
   function findingWhy(e) {
     if (e && e.code === 'LINE_TOO_LONG' && e.stages > 0) {
       const fits = e.stages - 1 <= 24;
-      return 'Too long — one job on this line runs ' + e.stages + ' stages, but its LINE BUDGET allows ' + (e.maxHops + 1) + ' (the first + ' + e.maxHops + ' more), so every job would stop at stage ' + (e.maxHops + 2) + ' (the stages that ran are still paid for). '
+      return 'Too long — the longest way through this line runs ' + e.stages + ' stages, but its LINE BUDGET allows ' + (e.maxHops + 1) + ' (the first + ' + e.maxHops + ' more), so a job that goes that way would stop at stage ' + (e.maxHops + 2) + ' (the stages that ran are still paid for). '
         + (fits ? 'Raise “max stages after the first” to ' + (e.stages - 1) + ' in this INBOX’s Workflow card › Optional limits · LINE BUDGET, or shorten the line.' : 'No LINE BUDGET allows that many (25 stages at most): shorten the line.');
     }
     return VAL_WHY[e && e.code] || null;
@@ -4428,7 +4428,9 @@ const Build = (() => {
       let folded = false;
       if (view.ok && response && response.delivered && response.delivered.reason === 'done') { try { if (typeof ReturnStore !== 'undefined' && ReturnStore.foldRow) folded = !!ReturnStore.foldRow(response.delivered); } catch (_) {} }
       finSampleRes = { key, stamp: Date.now(), view, exampleSignature:options.exampleSignature, output: Array.isArray(response?.replies) ? response.replies.join('') : '',
-        runs: Array.isArray(response?.runs) ? response.runs : [], streamId: response?.streamId || null, folded, text: options.text || '' };
+        runs: Array.isArray(response?.runs) ? response.runs : [], streamId: response?.streamId || null, folded, text: options.text || '',
+        // SEND TO (conveyor-ui-01): the job's own link to the next line's job (sentTo), else the line's live SEND TOs — the panel says which
+        sentTo: (response && response.sentTo && typeof response.sentTo === 'object') ? response.sentTo : null, onward: Array.isArray(response?.onwardDestinations) ? response.onwardDestinations : [] };
       finSig = ''; if (running) renderFinCard(); options.onUpdate?.(); sfx(view.ok ? 'chime' : 'bad');
     };
     const bad = reason => ({ ok: false, stages: [], usd: null, reply: '', reason });

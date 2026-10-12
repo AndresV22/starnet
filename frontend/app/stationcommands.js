@@ -509,7 +509,7 @@ const StationCommands = (() => {
         // which steps ship into each sending OUTBOX: only THOSE jobs ride on (a line with two OUTBOXes hands on from the one that sends)
         const afterOf = k => flow.order.filter(pid => reachedOf(pid).indexOf(k) >= 0).map(pid => step[pid]).filter(Boolean);
         out.sendsWorkTo = outs.map(k => ({ lineId: st[k].toLine, name: lineName(st[k].toLine), outboxPropId: k, afterSteps: afterOf(k) }));
-        if (c.outboxes.length <= 1) out.howItRuns += ' Then every job it finishes is sent on to ' + out.sendsWorkTo.map(x => x.name).join(' and ') + ' (SEND TO), whose own crew works it next.';
+        if (c.outboxes.length <= 1) out.howItRuns += ' Then every job it finishes cleanly is sent on to ' + out.sendsWorkTo.map(x => x.name).join(' and ') + ' (SEND TO), whose own crew works it next.';
         else out.howItRuns += ' Then ' + out.sendsWorkTo.map(x => 'a job that lands in its OUTBOX ' + x.outboxPropId + (x.afterSteps.length ? ' (after step ' + x.afterSteps.join(' or ') + ')' : '') + ' is sent on to ' + x.name).join('; ')
           + ' (SEND TO), whose own crew works it next' + (outs.length < c.outboxes.length ? '; a job that lands in another of its ' + c.outboxes.length + ' OUTBOXes stops there.' : '.');
       }
