@@ -1653,8 +1653,8 @@
     "method": "Filesystem existence and literal fast/http manifest membership; no tests run."
   },
   "currentSourceSupplement": {
-    "candidate": "fa12f8a0186e18e9f95a93a56f1b2bfb2a12c595",
-    "reviewedAt": "2026-10-12T09:34:55.483Z",
+    "candidate": "3bfb026e66902b129211c03993175d984fab34fb",
+    "reviewedAt": "2026-10-12T10:43:33.269Z",
     "scope": "Reconcile path existence and registered tests on the final combined source. Original area evidence remains pinned to a20ffa71f; registration is not a test pass or installed/customer acceptance.",
     "manifestSteps": {
       "fast": 1154,
@@ -2841,7 +2841,7 @@
         ]
       }
     ],
-    "sourceAcceptance": "All returned implementation lanes combined and all 18 independent review findings resolved in source. Complete combined gates are pending.",
+    "sourceAcceptance": "All 23 independent source-review findings have accepted repairs in the isolated candidate; full combined gates and live/installed acceptance remain separate.",
     "remaining": "Exact installed first use/upgrade/native lifecycle, affected platform/provider and customer acceptance, direct Whop review, readiness and required product waves."
   }
 }
