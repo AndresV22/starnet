@@ -16,6 +16,7 @@
    (node-testable); index.js owns the provider objects and the loop. */
 'use strict';
 
+const { buildLearningEvidence } = require('./learningevidence.js');
 const { note: failNote } = require('./failopen.js');   // a swallowed error stays visible (repo fail-open ratchet)
 
 const VERDICTS_THAT_TEACH = new Set(['ok', 'miss']);
@@ -33,7 +34,8 @@ const FINAL_CHARS = 60000;
 function compactPacket(p, redact) {
   p = p || {};
   const scrub = typeof redact === 'function' ? (t) => { try { return String(redact(t)); } catch (_) { return ''; } } : (t) => t;
-  const msgs = Array.isArray(p.messages) ? p.messages : [];
+  const learningEvidence = buildLearningEvidence(p, redact);
+  const msgs = learningEvidence.trustedOnly ? [] : (Array.isArray(p.messages) ? p.messages : []);
   let finalAt = -1;
   for (let i = msgs.length - 1; i >= 0; i--) { const m = msgs[i]; if (m && m.role === 'assistant' && typeof m.content === 'string' && m.content.trim()) { finalAt = i; break; } }
   const keep = [];
@@ -56,8 +58,10 @@ function compactPacket(p, redact) {
   }
   const skillRefs = list => (Array.isArray(list) ? list : []).map(s => s && ({ id: s.id, target: s.target, name: s.name, summary: s.summary, action: s.action })).filter(Boolean);
   return {
+    learningEvidence,
     agentId: String(p.agentId || 'agent'), messages: keep, model: p.model ? String(p.model) : '',
-    loadedSkills: skillRefs(p.loadedSkills), managedSkills: skillRefs(p.managedSkills), unmetered: !!p.unmetered, failed: !!p.failed
+    loadedSkills: skillRefs(p.loadedSkills), managedSkills: skillRefs(p.managedSkills), unmetered: !!p.unmetered, failed: !!p.failed,
+    reason: String(p.reason || ''), correctionSource: String(p.correctionSource || '')
   };
 }
 
