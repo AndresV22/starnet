@@ -8,6 +8,7 @@ const vm = require('node:vm');
 const WM = require('../frontend/app/worldmodel.js');
 const P = require('../frontend/app/pipeline.js');
 const Conveyor = require('../frontend/app/conveyor.js');
+const LineWatch = require('../frontend/app/linewatch.js');
 const { makeRouter } = require('../sidecar/routing/router.js');
 const { makeChainRunner } = require('../sidecar/routing/chain.js');
 const source = fs.readFileSync(path.join(__dirname, '../frontend/app/world.js'), 'utf8');
@@ -26,7 +27,7 @@ function floor(id) {
 }
 function surface(plan) {
   const crates = [], timers = [];
-  const context = vm.createContext({ routingPlan: plan, Pipeline: P, Conveyor, runUsdRecon: new Map(), shippedRunIds: new Set(), runWork: new Map(), runKey: p => p.runId,
+  const context = vm.createContext({ routingPlan: plan, Pipeline: P, Conveyor, watch: LineWatch.create(), runUsdRecon: new Map(), shippedRunIds: new Set(), runWork: new Map(), runKey: p => p.runId,
     convey: { enqueueAt: (x, y, payload) => crates.push({ x, y, payload }) },
     outboundBeltTile: (aid, dockId) => (plan.dockChains[dockId] || plan.chains[aid] || {}).tile,
     setTimeout: (fn, ms) => { const t = { fn, ms, active: true }; timers.push(t); return t; },
@@ -37,8 +38,20 @@ function surface(plan) {
         runWork.set(runId, { workitemId }); runUsdRecon.set(runId, usd);
         const q = dockLineWork.get(aid) || []; q.push({ dockId, lineId }); dockLineWork.set(aid, q);
         if (productive) shipProductCrate({ agentId: aid, runId });
-        else holdJoinedProduct(aid, productCrateSpec({ agentId: aid, runId }), lineId, false);
+        else holdJoinedProduct(aid, productCrateSpec({ agentId: aid, runId }), { lineId, dockId }, false);
       },
+      place(aid, dockId, lineId, workitemId, runId) {
+        const p = { agentId: aid, dockId, lineId, workitemId };
+        const q = dockLineWork.get(aid) || []; q.push(p); dockLineWork.set(aid, q);
+        watch.onEvent('workitem.placed', p, 1);
+        watch.onEvent('agent.run.start', { ...p, runId }, 2);
+        runWork.set(runId, { workitemId }); runUsdRecon.set(runId, 0.01);
+      },
+      finish(aid, runId) {
+        watch.onEvent('agent.run.end', { agentId: aid, runId, reason: 'done' }, 3);
+        shipProductCrate({ agentId: aid, runId });
+      },
+      queued(aid) { return (dockLineWork.get(aid) || []).length; },
       placed(p) { if (p.kind === 'chain' && p.from) { cancelDeferredShip(p.from); } },
       release: releaseJoinedProduct,
       clear: clearDeferredShips
@@ -127,6 +140,45 @@ function surface(plan) {
     const result = await chain.advance({ agentId: 'a', dockId: 'b', lineId, runId: 'filter-general', text: 'General result', runAgent: async () => { throw Error('direct route must not run another dock'); } });
     assert.equal(result.outboxId, 'direct'); assert.equal(ui.crates.length, 1);
     assert.deepEqual([ui.crates[0].x, ui.crates[0].y], [9, 0], 'general output reaches its own direct OUTBOX despite code JOINER route');
+  }
+  // The same agent may run two distinct lines simultaneously, and B may finish before A.
+  // Placements must happen at admission, not at completion, to reproduce the real overlap.
+  {
+    const geometry = (suffix, y0) => ({
+      props: [['i', 'intake', 0, 0], ['b', 'bay', 3, 0], ['f', 'filter', 6, 0], ['o', 'outbox', 10, 0],
+        ['i2', 'intake', 0, 4], ['b2', 'bay', 3, 4], ['j', 'joiner', 6, 4], ['o2', 'outbox', 10, 4]]
+        .map(([id, t, x, y]) => ({ id: id + suffix, t, x, y: y + y0, w: 1, h: 1,
+          ...(t === 'bay' ? { agentId: id === 'b' ? 'same' : 'other' + suffix } : {}),
+          ...(t === 'filter' ? { routes: { code: 'S' }, def: 'E' } : {}) })),
+      belts: [...[0, 4].flatMap(y => [1, 2, 4, 5, 6, 7, 8, 9].map(x => ({ x, y: y + y0, dir: 'E' }))),
+        ...[1, 2, 3].map(y => ({ x: 6, y: y + y0, dir: 'S' }))]
+    });
+    const a = geometry('A', 0), b = geometry('B', 10), plan = P.compileRoutingPlan({ props: [...a.props, ...b.props], belts: [...a.belts, ...b.belts] });
+    assert.deepEqual(plan.errors, []);
+    const ui = surface(plan), router = makeRouter(); router.setPlan(plan);
+    const lineA = plan.lineOfProp.bA, lineB = plan.lineOfProp.bB;
+    assert.notEqual(lineA, lineB);
+    ui.place('same', 'bA', lineA, 'wi-A', 'run-A');
+    ui.place('same', 'bB', lineB, 'wi-B', 'run-B');
+    const chain = makeChainRunner({ nextAgent: (a, c) => router.chainNext(a, c), stepDock: (d, c) => router.chainStepDock(d, c),
+      lineOfAgent: (a, d) => router.lineOfAgent(a, d), getTag: () => 'general',
+      emit: (n, p) => { if (n === 'workitem.delivered') ui.release(p); } });
+    for (const suffix of ['B', 'A']) {
+      ui.finish('same', 'run-' + suffix);
+      assert.equal(ui.queued('same'), suffix === 'B' ? 1 : 0, 'only the ending run consumes its own placement');
+      await chain.advance({ agentId: 'same', dockId: 'b' + suffix, lineId: suffix === 'A' ? lineA : lineB,
+        runId: 'run-' + suffix, text: 'General result', runAgent: async () => { throw Error('unexpected hop'); } });
+    }
+    assert.equal(ui.crates.length, 2, 'out-of-order completion on two lines loses no productive run');
+    assert.deepEqual(ui.crates.map(c => [c.x, c.y]), [[9, 10], [9, 0]], 'each run ships at its own line OUTBOX');
+    ui.place('same', 'bA', lineA, 'wi-C', 'run-C');
+    ui.place('same', 'bB', null, 'wi-direct', 'direct-overlap');
+    ui.finish('same', 'direct-overlap');
+    assert.equal(ui.crates.length, 3, 'a watched direct order keeps its explicit null line under overlap');
+    assert.equal(ui.queued('same'), 1, 'the direct order cannot consume the pending line placement');
+    ui.finish('same', 'run-C');
+    await chain.advance({ agentId: 'same', dockId: 'bA', lineId: lineA, runId: 'run-C', text: 'C result', runAgent: async () => ({}) });
+    assert.equal(ui.crates.length, 4); assert.equal(ui.queued('same'), 0);
   }
   // The new receipt authorizes rendering only. Existing delivery events own durable credit.
   {
