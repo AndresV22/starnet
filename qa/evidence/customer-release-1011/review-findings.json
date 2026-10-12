@@ -175,6 +175,15 @@
       "resolvedBy": "5312aa66546d4fff85fd005bee203d1a84498b97",
       "integratedAt": "3548b7d",
       "evidence": "qa/audits/2026-10-12-qwen-render-loss.md"
+    },
+    {
+      "id": "R18",
+      "lane": "threads/phone saved-history recovery",
+      "candidate": "5513ad4871f14478bed84e43a0b97dbbb3685581",
+      "status": "held-for-owner-repair",
+      "observation": "A rejected worker answer already saved in desktop history with the original sourceRunId survives phone mergeCanonical reconciliation and enters follow-up model context alongside the authoritative accepted answer.",
+      "requiredBehavior": "Reconcile saved dispatch rows against verified final delivery identity while preserving ordinary legacy history, stream ownership and provenance; prove restart and follow-up context.",
+      "evidence": "sidecar/remote/host.js mergeCanonical; independent exact-module reproduction; no live customer cause claimed"
     }
   ],
   "limits": [
@@ -183,5 +192,5 @@
     "R08 is a supported-module edge; the reviewed module commits did not yet include final host wiring.",
     "An existing review-window restart gap was also reported to the memory owner; it was not attributed as a new regression."
   ],
-  "updatedAt": "2026-10-12T08:39:23.882Z"
+  "updatedAt": "2026-10-12T09:10:53.119Z"
 }
