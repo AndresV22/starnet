@@ -158,7 +158,9 @@ const Delegated = (() => {
       const who = a.name || a.id, id = r.ws.id, shown = seen.has(id);
       const status = st.cls === 'waiting' ? askLine(st.pend) : cap(st.cls === 'working' ? st.live + (st.t ? ' · ' + st.t : '') : WORD[st.cls] + (st.t && st.cls === 'done' ? ' · ' + st.t : ''));
       // ONE way to act per state: answer its ask, stop it while it runs, else see its work
-      const key = st.cls === 'waiting'
+      const key = st.cls === 'waiting' && st.pend.tool === 'brief.ask'
+        ? '<button type="button" class="dg-key primary" data-dg-question="' + esc(st.pend.promptId) + '">Answer</button>'
+        : st.cls === 'waiting'
         ? '<span class="dg-keys"><button type="button" class="dg-key primary" data-dg-consent="once" data-dg-ws="' + esc(id) + '">Approve</button>'
           + '<button type="button" class="dg-key deny" data-dg-consent="deny" data-dg-ws="' + esc(id) + '">Deny</button></span>'
         : st.stop
@@ -309,7 +311,7 @@ const Delegated = (() => {
     if (!anyLive && ticker) { clearInterval(ticker); ticker = 0; }
   }
   function keyOf(el) {
-    for (const a of ['data-dg-see', 'data-dg-stop', 'data-dg-toggle', 'data-dg-file']) if (el.hasAttribute && el.hasAttribute(a)) return '[' + a + '="' + String(el.getAttribute(a)).replace(/["\\]/g, '\\$&') + '"]';
+    for (const a of ['data-dg-see', 'data-dg-stop', 'data-dg-toggle', 'data-dg-file', 'data-dg-question']) if (el.hasAttribute && el.hasAttribute(a)) return '[' + a + '="' + String(el.getAttribute(a)).replace(/["\\]/g, '\\$&') + '"]';
     if (el.hasAttribute && el.hasAttribute('data-dg-consent')) return '[data-dg-consent="' + el.getAttribute('data-dg-consent') + '"][data-dg-ws="' + String(el.getAttribute('data-dg-ws')).replace(/["\\]/g, '\\$&') + '"]';
     return '';
   }
@@ -343,7 +345,7 @@ const Delegated = (() => {
   function answer(wsId, decision, key) {
     const r = findRow(wsId); if (!r) return;
     const p = askOf(r, Workstreams.activeId());
-    if (!p || typeof Chat === 'undefined' || !Chat.answerConsent) return;
+    if (!p || p.tool === 'brief.ask' || typeof Chat === 'undefined' || !Chat.answerConsent) return;
     key.disabled = true;
     Promise.resolve(Chat.answerConsent(p, Workstreams.get(Workstreams.activeId()), decision === 'deny' ? 'deny' : 'once'))
       .catch(e => { key.disabled = false; if (typeof StationUI !== 'undefined' && StationUI.notify) StationUI.notify('Could not send that answer: ' + ((e && e.message) || e), 'warn'); })
@@ -356,6 +358,15 @@ const Delegated = (() => {
       const t = e.target && e.target.closest ? e.target : null; if (!t) return;
       const s = t.closest('#chat-log [data-dg-stop]');
       if (s) { e.preventDefault(); stop(s.dataset.dgStop, s); return; }
+      const q = t.closest('#chat-log [data-dg-question]');
+      if (q) {
+        e.preventDefault();
+        // A question already has its real choices/free-text card in COMMS. Approve/Deny would resolve
+        // its waiter without an answer; this key only brings that exact card into view.
+        const log = $log(), card = log && Array.from(log.querySelectorAll('[data-clarify-prompt]')).find(n => n.dataset.clarifyPrompt === q.dataset.dgQuestion);
+        if (card) { card.scrollIntoView({ block: 'center' }); if (card.focus) card.focus({ preventScroll: true }); }
+        return;
+      }
       const c = t.closest('#chat-log [data-dg-consent]');
       if (c) { e.preventDefault(); answer(c.dataset.dgWs, c.dataset.dgConsent, c); return; }
       const f = t.closest('#chat-log [data-dg-file]');
