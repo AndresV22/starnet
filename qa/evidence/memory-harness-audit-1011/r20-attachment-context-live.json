@@ -2,7 +2,7 @@
   "findingId": "R20",
   "title": "Attachment and quoted content leaked through ambient recent activity",
   "classification": "Independent synthetic fixture finding; no customer incident attribution",
-  "capturedAtUtc": "2026-10-12T10:07:58.613Z",
+  "capturedAtUtc": "2026-10-12T10:09:36.747Z",
   "status": "PASS",
   "reproduction": {
     "cwd": "C:\\Users\\andro\\gen-trees\\memory-audit-loop-1011",
@@ -60,8 +60,8 @@
     "change": "Keep first-system main/review classification, but observe all system-role content. Retain both original assertions and additionally require the typed preference inside an actual <recalled-memory> block."
   },
   "after": {
-    "productionFixCommit": "2d865ad7cea185c6db187d8002d09c2e05364388",
-    "testedCommit": "2ef4b8b48cfedf49f5885274e28097f708f9f1e2",
+    "productionFixCommit": "13357b5ac41a2d4311d84b6ed458ef93a2605174",
+    "testedCommit": "856bb6026c45a1b7afaf22308efbba9fa24cd690",
     "exitCode": 0,
     "status": "PASS",
     "counts": {
@@ -92,7 +92,7 @@
         {
           "phase": "clean",
           "streamId": "clean-control",
-          "runId": "e47c0e50-1e2b-4110-9aa7-e46379e929ec",
+          "runId": "6d98932e-6eec-4a6c-9c3c-c42f1f4b19c0",
           "attachmentPoisonReceived": false,
           "fixtureReadConfirmed": false,
           "reason": "done",
@@ -103,7 +103,7 @@
         {
           "phase": "read",
           "streamId": "read-conversation",
-          "runId": "ca8bfdee-0fca-4ff2-905b-e9dcaea0c1f7",
+          "runId": "53ccc247-9052-4b33-8c75-6aa0c2bf8339",
           "attachmentPoisonReceived": false,
           "fixtureReadConfirmed": true,
           "reason": "done",
@@ -114,7 +114,7 @@
         {
           "phase": "followup",
           "streamId": "read-conversation",
-          "runId": "7118bdec-1ab5-4477-ac54-211d8649453a",
+          "runId": "429bd049-fc05-414e-9e47-339cdbdbd671",
           "attachmentPoisonReceived": false,
           "fixtureReadConfirmed": true,
           "reason": "done",
@@ -125,7 +125,7 @@
         {
           "phase": "fresh",
           "streamId": "fresh-control",
-          "runId": "9ad5ced0-354a-4782-8f79-166abe211df5",
+          "runId": "b3c1c6d9-5ce4-49a4-a39a-2be7e6963b69",
           "attachmentPoisonReceived": false,
           "fixtureReadConfirmed": false,
           "reason": "done",
@@ -136,7 +136,7 @@
         {
           "phase": "shared",
           "streamId": "other-agent-control",
-          "runId": "19e19b28-c695-4662-80cf-5bce6e252411",
+          "runId": "98d5086b-9a13-42ba-9ba2-90cd49862fe2",
           "attachmentPoisonReceived": false,
           "fixtureReadConfirmed": false,
           "reason": "done",
@@ -147,7 +147,7 @@
         {
           "phase": "short",
           "streamId": "short-preference-control",
-          "runId": "2969733f-4933-4d51-9180-a70df46eefc4",
+          "runId": "bec3599e-336e-4bc7-b11a-46fad36c7d60",
           "attachmentPoisonReceived": false,
           "fixtureReadConfirmed": false,
           "reason": "done",
@@ -158,7 +158,7 @@
         {
           "phase": "attachment-file-only",
           "streamId": "uploaded-file-only",
-          "runId": "4d5f24c5-9820-47a1-a470-d17953a4efd8",
+          "runId": "d12d631c-5fef-4e22-8a88-ef4935a319e6",
           "attachmentPoisonReceived": true,
           "fixtureReadConfirmed": false,
           "reason": "done",
@@ -169,7 +169,7 @@
         {
           "phase": "attachment-text-and-file",
           "streamId": "uploaded-text-and-file",
-          "runId": "e3f7bb79-fe21-456c-a505-317a5e42b036",
+          "runId": "75b11b1d-7149-451b-9282-62d1ec637897",
           "attachmentPoisonReceived": true,
           "fixtureReadConfirmed": false,
           "reason": "done",
@@ -179,7 +179,7 @@
         {
           "phase": "quoted-control",
           "streamId": "quoted-control",
-          "runId": "63ded0da-4e29-4fa0-be20-cd4f196cae3c",
+          "runId": "f40e87af-ce36-42a4-ad8b-3e39b044b83f",
           "attachmentPoisonReceived": false,
           "fixtureReadConfirmed": false,
           "reason": "done",
@@ -190,7 +190,7 @@
         {
           "phase": "attachment-recall",
           "streamId": "uploaded-fresh-recall",
-          "runId": "951378b9-1f82-4385-a49b-40e6d477baa2",
+          "runId": "9f6fa6d0-9c6e-40e0-b59b-c495d20c9325",
           "attachmentPoisonReceived": false,
           "fixtureReadConfirmed": false,
           "reason": "done",
@@ -200,8 +200,8 @@
         {
           "phase": "attachment-learning-proof",
           "fileOnly": {
-            "runId": "4d5f24c5-9820-47a1-a470-d17953a4efd8",
-            "at": 1791799585366,
+            "runId": "d12d631c-5fef-4e22-8a88-ef4935a319e6",
+            "at": 1791799718532,
             "tainted": true,
             "saved": 0,
             "trustedDirectives": 0,
@@ -209,8 +209,8 @@
             "reason": "no_trusted_owner_input"
           },
           "textAndFile": {
-            "runId": "e3f7bb79-fe21-456c-a505-317a5e42b036",
-            "at": 1791799587357,
+            "runId": "75b11b1d-7149-451b-9282-62d1ec637897",
+            "at": 1791799720541,
             "tainted": true,
             "saved": 1,
             "trustedDirectives": 1,
@@ -218,8 +218,8 @@
             "reason": "owner_preference_saved"
           },
           "quoted": {
-            "runId": "63ded0da-4e29-4fa0-be20-cd4f196cae3c",
-            "at": 1791799589323,
+            "runId": "f40e87af-ce36-42a4-ad8b-3e39b044b83f",
+            "at": 1791799722533,
             "tainted": true,
             "saved": 0,
             "trustedDirectives": 0,
@@ -244,11 +244,29 @@
           ]
         }
       ]
-    }
+    },
+    "productionFixCommits": [
+      "2d865ad7cea185c6db187d8002d09c2e05364388",
+      "13357b5ac41a2d4311d84b6ed458ef93a2605174"
+    ],
+    "testRecorderCommit": "2ef4b8b48cfedf49f5885274e28097f708f9f1e2",
+    "testUnchangedSinceRecorderCommit": true,
+    "followupScope": "Retain internal run titles as exclusion markers even when later tool output taints the run; the pure activity pack excludes these titles from rendered owner activity."
   },
   "limitations": [
     "This proves execution, provenance, persistence and context composition under a deterministic local provider; it is not a model-quality benchmark.",
     "No full test gates were run by this lane for this focused verification.",
     "The finding is synthetic and is not attributed to any customer incident."
+  ],
+  "verificationHistory": [
+    {
+      "testedCommit": "2ef4b8b48cfedf49f5885274e28097f708f9f1e2",
+      "productionFixCommit": "2d865ad7cea185c6db187d8002d09c2e05364388",
+      "status": "PASS",
+      "exitCode": 0,
+      "completedHttpRunPhases": 10,
+      "completeReceiptCommit": "8a986cd0fe8e2ab53698942801fc946fad5aa448",
+      "note": "First green verification. Final verification additionally includes the internal activity exclusion marker follow-up."
+    }
   ]
 }
