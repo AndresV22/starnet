@@ -101,10 +101,18 @@
        undocumented), non-blank text only (Anthropic 400s an empty text block), and copies — never stamps a
        caller's message or part in place. Anthropic-through-OpenRouter only (supportsExplicitCache above);
        every other upstream sees the exact prior wire shape. */
+    /* ONE ANCHOR PER USER TURN (lean-prompt, 2026-10-12). Consecutive user messages are ONE turn upstream, and the newest
+       one is now routinely preceded by host notes made user-side for Claude (the per-run <run_context>, recall). Stamping
+       those notes spent the two tail anchors on bytes no later request repeats, so the PREVIOUS assistant reply — the
+       last thing the next message's request shares — was never written, and history was never read back. Only the last
+       message of a consecutive user run is stamped; the next anchor slides back to that reply. */
+    // KILL SWITCH: STARNET_STABLE_PREFIX=0 (the run-context switch, index.js) restores per-message stamping.
+    const oneAnchorPerTurn = String((typeof process !== 'undefined' && process.env && (process.env.STARNET_STABLE_PREFIX != null ? process.env.STARNET_STABLE_PREFIX : process.env.SKYNET_STABLE_PREFIX)) || '').trim() !== '0';
     let stamped = 0;
     for (let i = out.length - 1; i > idx && stamped < 4 - systemAnchors; i--) {
       const m = out[i];
       if (!m || m.role === 'system') continue;
+      if (oneAnchorPerTurn && m.role === 'user' && out[i + 1] && out[i + 1].role === 'user') continue;
       if (typeof m.content === 'string' && m.content.trim()) {
         out[i] = Object.assign({}, m, { content: [{ type: 'text', text: m.content, cache_control: { type: 'ephemeral' } }] });
         stamped++;

@@ -520,19 +520,40 @@
     return changed ? out : messages;
   }
 
+  /* RUN CONTEXT NOTE (lean-prompt, 2026-10-12). The per-run block (task brief, runtime identity, quests, crew call, the
+     run's own skill index) used to ride the END of the system prompt, so the system differed on every message and no
+     provider could reuse the conversation behind it from cache. runOnceCore now sends it as ONE fenced system note
+     placed with the newest user message — the <recalled-memory> seam. An adapter that hoists LEADING system messages
+     into a provider system field must stop at this note: on a conversation's first message nothing precedes it but
+     the system prompt, and hoisting it there would make message 1's system differ from message 2's. */
+  const RUN_CONTEXT_OPEN = '<run_context>';
+  const RUN_CONTEXT_CLOSE = '</run_context>';
+  function runContextNote(text) {
+    const t = String(text == null ? '' : text).trim();
+    return t ? RUN_CONTEXT_OPEN + '\n' + t + '\n' + RUN_CONTEXT_CLOSE : '';
+  }
+  function isRunContextNote(message) {
+    if (!message || message.role !== 'system') return false;
+    const c = message.content;
+    const head = typeof c === 'string' ? c : (Array.isArray(c) && c[0] && typeof c[0].text === 'string' ? c[0].text : '');
+    return head.indexOf(RUN_CONTEXT_OPEN) === 0;
+  }
+
   // Claude has one leading system block. Keep later host reminders in the
   // conversation, as the native Anthropic adapter does, so gateways cannot hoist
   // them and turn the preceding assistant answer into unsupported prefill.
+  // The run-context note ends the leading block even when nothing but the system prompt precedes it (see above).
   function preserveClaudeContinuations(messages, model) {
     if (!Array.isArray(messages) || !/anthropic\/|claude/i.test(String(model || ''))) return messages;
     let leading = true;
     return messages.map(message => {
-      if (!message || message.role !== 'system') leading = false;
+      if (!message || message.role !== 'system' || isRunContextNote(message)) leading = false;
       return !leading && message && message.role === 'system'
         ? Object.assign({}, message, { role: 'user' }) : message;
     });
   }
 
   return { EVENT_TYPES, FINISH, normalizeFinish, timeouts, runtime, repairToolPairs, preserveClaudeContinuations,
+    RUN_CONTEXT_OPEN, RUN_CONTEXT_CLOSE, runContextNote, isRunContextNote,
     prepareWireMessages, remapToolCallIds, ANTHROPIC_TOOL_ID, chatWireMessages, CHAT_WIRE_KEYS };
 });

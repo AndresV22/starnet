@@ -50,6 +50,14 @@
     } catch (_) { return false; }
   })();
   const cacheControl = () => (CACHE_TTL_1H ? { type: 'ephemeral', ttl: '1h' } : { type: 'ephemeral' });
+  // TOOL ANCHOR kill switch (see buildBody): STARNET_ANTHROPIC_TOOL_ANCHOR=0 restores the system-only anchor layout.
+  const TOOL_ANCHOR = (function () {
+    try {
+      const env = (typeof process !== 'undefined' && process.env) ? process.env : {};
+      const raw = env.STARNET_ANTHROPIC_TOOL_ANCHOR != null ? env.STARNET_ANTHROPIC_TOOL_ANCHOR : env.SKYNET_ANTHROPIC_TOOL_ANCHOR;
+      return String(raw == null ? '' : raw).trim() !== '0';
+    } catch (_) { return true; }
+  })();
   // the block kinds Anthropic documents as legal carriers of cache_control (plus schema-less tool defs)
   const CACHEABLE_BLOCK = { text: 1, image: 1, tool_use: 1, tool_result: 1, document: 1 };
 
@@ -249,7 +257,7 @@
     let i = 0;
     for (; i < (messages || []).length; i++) {
       const msg = messages[i];
-      if (!msg || msg.role !== 'system') break;
+      if (!msg || msg.role !== 'system' || provider.isRunContextNote(msg)) break;   // the run-context note rides the user side (provider.js)
       const text = textFromContent(msg.content).trim();
       if (text) system.push(text);
     }
@@ -556,8 +564,22 @@
         const prefix = typeof req.cacheSystemPrefix === 'string' ? req.cacheSystemPrefix.trim() : '';
         const split = prefix && converted.system.startsWith(prefix) && converted.system.slice(prefix.length).trim();
         const texts = split ? [prefix, converted.system.slice(prefix.length)] : [converted.system];
-        systemAnchors = texts.length;
-        body.system = texts.map(text => breakpoint([{ type: 'text', text }])[0]);
+        if (tools && TOOL_ANCHOR) {
+          /* TOOL ANCHOR (lean-prompt, 2026-10-12). With a system prompt the tool array carried no breakpoint, so ANY
+             system change — a Dossier edit, a persona toggle, a new connector line — re-wrote the ~19k-token catalogue
+             sitting in front of it (issue #105: the first message after a relaunch read 0 and wrote 42k). The last tool
+             now anchors the catalogue on its own. Budget (the API allows 4): tools 1 + ONE system anchor + the 2 newest
+             messages — two message anchors are the minimum that lets the next message READ the previous one's history
+             (its last anchor sits on the turn the next request no longer ends with). The one system anchor is the
+             STABLE prefix: with the per-run block now on the user side the tail is small, and the prefix is the part
+             a new conversation can reuse. */
+          breakpoint(tools);
+          body.system = texts.map((text, i) => (i === 0 ? breakpoint([{ type: 'text', text }])[0] : { type: 'text', text }));
+          systemAnchors = 2;
+        } else {
+          systemAnchors = texts.length;
+          body.system = texts.map(text => breakpoint([{ type: 'text', text }])[0]);
+        }
       } else if (tools) breakpoint(tools);
       /* SLIDING TAIL ANCHORS: up to THREE messages (TWO with a split system) each carry a
          breakpoint — with the static-prefix anchor above, exactly the API's 4-breakpoint maximum.
