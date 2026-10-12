@@ -4,7 +4,7 @@
 One tracked file per bug under `qa/bugs/`; this is only the index. File a new bug with
 `node scripts/qa/bugs.mjs --new --title "..." --surface <surface>`.
 
-**10** open (open+claimed) of 237 total — 0 P0 · 0 P1 · 10 P2
+**10** open (open+claimed) of 242 total — 0 P0 · 0 P1 · 10 P2
 
 Engineering status is separate from delivery and customer recovery. Legacy rows without origin are not a customer census.
 
@@ -207,6 +207,7 @@ User/owner reports: **104** · source fixed: **94** · installer verified: **6**
 | P1 | fixed | safecell | [Interrupted connector reset can hide preserved credentials](bugs/50c75ec3-interrupted-connector-reset-can-hide-preserved-c.md) | agent/session-handoff-1011 | abd2914492ca6cfe4db818bb67a872098d4edb56 |
 | P1 | fixed | safecell | [Late permission responses replace newer authority and survive store reinitialization](bugs/dde8e66f-late-permission-responses-replace-newer-authorit.md) | agent/systemic-bugs-0919 | 8eb87b0d3 |
 | P1 | fixed | safecell | [Patch guesses an unmatched block interior and corrupts source](bugs/81da21e4-patch-guesses-an-unmatched-block-interior-and-co.md) | reliability-review-1011 | f0a53efb0 |
+| P1 | fixed | safecell | [Local peer ownership can match an unrelated loopback socket](bugs/1df2d6f8-peer-owner-matches-unrelated-loopback-sockets.md) | agent/runtime-triage-1011 | 9aee8e7fcd8a27f57ceb3900af8c8eace55d5f3c |
 | P1 | fixed | safecell | [The Projects rail's ADD doorway records a NON-canonical path grant, so blessing a folder reached through a junction/symlink reports success and grants nothing](bugs/cf0cd4cd-the-projects-rail-s-add-doorway-records-a-non-ca.md) | sweep/safecell | 226cec3c |
 | P1 | fixed | safecell | [Token overlap attests inverted memory as owner instruction](bugs/ecd03ee7-token-overlap-attests-inverted-memory-as-owner-i.md) | agent/provider-triage-1011 | 05618ec62 |
 | P1 | fixed | sessions | [Add agents silently fails when group backend is unavailable](bugs/0245a284-add-agents-silently-fails-when-group-backend-is.md) | comms-add-agents-0906 | cf6b3ca03c372c404bcb46997a56d570d7747d70 |
@@ -275,6 +276,7 @@ User/owner reports: **104** · source fixed: **94** · installer verified: **6**
 | P2 | fixed | autonomy | [routine.create's default `arm:true` bypasses the documented single resume seam and clears the durable cron E-STOP — the workshop auto-arm path at index.js:8214](bugs/300b34ab-routine-create-s-default-arm.md) | sweep/autonomy | 6afeb9ee |
 | P2 | fixed | autonomy | [Routine schedule preview races newer input and stalls after failures](bugs/eba7e8aa-routine-schedule-preview-races-newer-input-and-s.md) | agent/system-polish-0920 | 4a2028759 |
 | P2 | fixed | autonomy | [Unique line names block multi-inbox and repeated template builds](bugs/58136a6a-unique-line-names-block-multi-inbox-and-repeated.md) | agent/session-handoff-1011 | 07b522235232032e2b85a4cf201937fc85ebf1f0 |
+| P2 | fixed | channels | [Answering one clarification clears other parallel approvals](bugs/47c3a845-answering-one-clarification-clears-other-paralle.md) | agent/ux-triage-1011 | 444bfa1248caf786aab9ed53924969bddbd90916 |
 | P2 | fixed | channels | [COMMS report lists lose plus and tab-separated markers](bugs/3ad3e2b8-comms-report-lists-lose-plus-and-tab-separated-m.md) | agent/release-0112-audit-0910 | cb6c30b4d |
 | P2 | fixed | channels | [Dense service cards squeeze technical prose into tiny columns](bugs/734b469e-dense-service-cards-squeeze-technical-prose-into.md) | agent/ui-density-audit | 221775a85 |
 | P2 | fixed | channels | [E-STOP silences the channel reply path via the supersede flag, so a deliberately stopped run is indistinguishable from a crashed bot on the phone](bugs/600f4982-e-stop-silences-the-channel-reply-path-via-the-s.md) | sweep/channels | 96fe108d |
@@ -306,6 +308,7 @@ User/owner reports: **104** · source fixed: **94** · installer verified: **6**
 | P2 | fixed | release | [Update canary uses obsolete saves and snapshots the startup WebView](bugs/050da842-update-canary-uses-obsolete-saves-and-snapshots.md) | agent/release-0112-audit-0910 | bed625bdd |
 | P2 | fixed | safecell | [A mid-run "Full access" click writes a per-agent '*' wildcard with no readout and no revoke anywhere, and the same wildcard is read by that agent's UNATTENDED r](bugs/13646d93-a-mid-run-full-access-click-writes-a-per-agent-w.md) | sweep/safecell | 226cec3c |
 | P2 | fixed | safecell | [Browser upload resolves wrong project file and claims success without selection proof](bugs/d9a3499f-browser-upload-resolves-wrong-project-file-and-c.md) | ux-triage-1011 | 61117661631fb4e2be6450d100354f8a4cb05c72 |
+| P2 | fixed | safecell | [A named-file search also returns nested files with the same name](bugs/abc6edf6-named-file-search-returns-nested-namesakes.md) | agent/runtime-triage-1011 | 15c01f97bc930032f7a4e17c79d7481fa1be4ac8 |
 | P2 | fixed | safecell | [Windows child tools lose required runtime environment and launch directory](bugs/08802e9f-windows-child-tools-lose-required-runtime-enviro.md) | agent/session-handoff-1011 | fc3c9132a |
 | P2 | fixed | sessions | [Agent work rating fails with a generic not saved message](bugs/1fc69e6a-agent-work-rating-fails-with-a-generic-not-saved.md) | agent/rating-repair-0908 | a55a1ed07 |
 | P2 | fixed | sessions | [COMMS starters suggest arbitrary tasks and lose session context](bugs/e84d1dfd-comms-starters-suggest-arbitrary-tasks-and-lose.md) | agent/useful-starters-0906 | 33d995fed |
@@ -325,6 +328,7 @@ User/owner reports: **104** · source fixed: **94** · installer verified: **6**
 | P2 | fixed | skills | [Design references assert requested image properties as observed](bugs/436ab17d-design-references-assert-requested-image-propert.md) | agent/provider-triage-1011 | 2e9c7ffb4 |
 | P2 | fixed | voice | [Failed Live Voice startup leaves a user mute force-enabled](bugs/d02d029b-failed-live-voice-startup-leaves-a-user-mute-for.md) | agent/voice-release-sweep | 8bc9ff9a |
 | P2 | fixed | voice | [Muting the speaker mid-reply in hands-free nulls the only surviving rearm heartbeat — the mic never re-opens while the mode button still reads 'hands-free ON'](bugs/2f7b280c-muting-the-speaker-mid-reply-in-hands-free-nulls.md) | sweep/voice | 50a8b07b |
+| P2 | fixed | voice | [Revoked or replaced speech synthesis can publish stale audio](bugs/4fca711c-revoked-speech-synthesis-publishes-stale-audio.md) | agent/runtime-triage-1011 | 1d1a89980717271a2dbbc627088dca2f1c25c1ba |
 | P2 | fixed | voice | [The /api/stt degrade reason is written to the status line then overwritten by endListening()'s restore in the same synchronous block, so it is never painted](bugs/562b14a5-the-api-stt-degrade-reason-is-written-to-the-sta.md) | sweep/voice | 50a8b07b |
 | P2 | fixed | world | [Agent look-back flicker and waypoint stutter](bugs/e356ce13-agent-look-back-flicker-and-waypoint-stutter.md) | skin-motion-0910 | 75a814c18 |
 | P2 | fixed | world | [Backdrop preview baking stalls settings interaction](bugs/63f08158-backdrop-preview-baking-stalls-settings-interact.md) | agent/glass-demo-0909 | db3ae6bb4 |
@@ -355,6 +359,7 @@ User/owner reports: **104** · source fixed: **94** · installer verified: **6**
 | P2 | fixed | world | [Station tooltip: pointerout during the 320ms show delay cannot clear the pending timer (`if (!anchor) return` runs before hide()), so a ghost card pops up besid](bugs/01caed27-station-tooltip.md) | sweep/world | f4d03511 |
 | P2 | fixed | world | [Turtle rear walk faces forward and wizard staff flickers](bugs/20a0796e-turtle-rear-walk-faces-forward-and-wizard-staff.md) | skin-motion-0910 | 734063b21 |
 | P2 | fixed | world | [Website preview applies retired rendering effects and implies live work](bugs/d0904df1-website-preview-applies-retired-rendering-effect.md) | agent/website-demo-0921 | 8be5cf230 |
+| P2 | fixed | world | [Workflow style undo can be overwritten by a delayed keep](bugs/1ee46ab1-workflow-style-undo-can-be-overwritten-by-a-dela.md) | agent/ux-triage-1011 | bf756e00e85172c01c9fc336bd9da69c8183864c |
 | P2 | wontfix | autonomy | [Product Line Workbench access differs from a direct interactive run](bugs/4a19c050-product-line-workbench-standing-grant-scope.md) | release-0120-prep-0915 | — |
 
 ## Open by surface
