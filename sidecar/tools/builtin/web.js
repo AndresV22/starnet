@@ -884,7 +884,70 @@
       webp: 'image/webp', svg: 'image/svg+xml', pdf: 'application/pdf', json: 'application/json',
       txt: 'text/plain', csv: 'text/csv', zip: 'application/zip', mp4: 'video/mp4', mp3: 'audio/mpeg' };
     const guessMime = (name) => MIME_BY_EXT[String(name).replace(/^.*\./, '').toLowerCase()] || 'application/octet-stream';
-    const REQUEST_MAX_CHARS = 8000;
+    /* NO TOOL-LEVEL CLAMP ON THE RESPONSE (2026-10-12, user report: an Etsy-factory Publisher could not configure a
+       Printify product). The body used to be cut to 8,000 characters right here, the rest destroyed and nothing
+       parked. A commerce API answers in documents far past that — a Printify product with its variants and print
+       areas runs 50-200 KB, a blueprint's variant catalog the same — so the agent saw a third of a product, could not
+       build a valid PUT (Printify wants EVERY variant when variants are sent), could not read back its own write,
+       and either looped on "cannot verify" or guessed ids. The whole body now goes to the registry, whose
+       window-scaled cap shows what fits and PARKS the rest to a file the agent reads in ranges (registry.js
+       PARKING). `select` below asks for just the fields a step needs, extracted host-side from the whole body. */
+    const SELECT_MAX_PATHS = 40;
+    const UNSAFE_KEY = new Set(['__proto__', 'constructor', 'prototype']);
+    const MISSING = Symbol('missing');
+    const own = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
+    function selectPaths(raw) {
+      const list = Array.isArray(raw) ? raw : (raw == null ? [] : String(raw).split(','));
+      return list.map(s => String(s == null ? '' : s).trim()).filter(Boolean).slice(0, SELECT_MAX_PATHS);
+    }
+    // "variants[].id" -> ['variants','[]','id'] · "[].id" -> ['[]','id'] · jq-ish "$.data[*].title" / "data.*.title" too
+    function pathSegments(p) {
+      return String(p).replace(/^\$?\.?/, '').replace(/\[\*?\]|\.\*(?=\.|$)/g, '.[].').split('.').filter(Boolean);
+    }
+    // The selected sub-tree of `node`, nesting kept, or MISSING. Arrays map element-wise, so paths that share an
+    // array ("variants[].id" + "variants[].price") merge back into one row per element.
+    function pickPath(node, segs) {
+      if (!segs.length) return node;
+      const head = segs[0], rest = segs.slice(1);
+      if (head === '[]') {
+        if (!Array.isArray(node)) return MISSING;
+        const arr = node.map(x => pickPath(x, rest));
+        return arr.some(x => x !== MISSING) ? arr : MISSING;
+      }
+      if (UNSAFE_KEY.has(head) || !node || typeof node !== 'object' || Array.isArray(node) || !own(node, head)) return MISSING;
+      const v = pickPath(node[head], rest);
+      if (v === MISSING) return MISSING;
+      const o = {}; o[head] = v; return o;
+    }
+    function mergePicked(a, b) {
+      if (a === MISSING) return b;
+      if (b === MISSING) return a;
+      if (Array.isArray(a) && Array.isArray(b)) return a.map((x, i) => mergePicked(x, i < b.length ? b[i] : MISSING));
+      if (a && b && typeof a === 'object' && typeof b === 'object' && !Array.isArray(a) && !Array.isArray(b)) {
+        const o = {};
+        for (const k of Object.keys(a)) if (!UNSAFE_KEY.has(k)) o[k] = a[k];
+        for (const k of Object.keys(b)) if (!UNSAFE_KEY.has(k)) o[k] = own(o, k) ? mergePicked(o[k], b[k]) : b[k];
+        return o;
+      }
+      return b;
+    }
+    function projectJson(text, paths) {
+      let data;
+      try { data = JSON.parse(text); } catch (_) { return { ok: false, why: 'the response is not JSON' }; }
+      let out = MISSING; const missed = [];
+      for (const p of paths) {
+        const segs = pathSegments(p);
+        const v = segs.length ? pickPath(data, segs) : MISSING;
+        if (v === MISSING) missed.push(p); else out = mergePicked(out, v);
+      }
+      if (out === MISSING) {
+        // name the real shape so the next call can fix its paths instead of guessing again
+        const shape = Array.isArray(data) ? 'a JSON array of ' + data.length + ' items (start paths with [] , e.g. "[].id")'
+          : (data && typeof data === 'object' ? 'an object with keys: ' + Object.keys(data).slice(0, 30).join(', ') : 'a JSON ' + typeof data);
+        return { ok: false, why: 'none of the selected fields exist; the response is ' + shape };
+      }
+      return { ok: true, text: JSON.stringify(out, (k, v) => (v === MISSING ? null : v)), missed };
+    }
     const SAFE_METHODS = new Set(['GET', 'HEAD']);
     const ALL_METHODS = new Set(['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE']);
 
@@ -921,11 +984,20 @@
         'e.g. headers {"Authorization": "Bearer ${PRINTIFY_API_KEY}"}. The host substitutes the real value at send time; ' +
         'you never see it and must never ask the user for it. Placeholders work in headers only, never in the url. ' +
         'For upload endpoints, attach workspace files host-side instead of pasting bytes: ${file:relative/path} in the ' +
-        'body inserts the file as base64, and the multipart parameter sends real multipart/form-data.',
+        'body inserts the file as base64, and the multipart parameter sends real multipart/form-data. ' +
+        'Responses are never silently cut: a body too large to show is saved whole to a file you can read in ranges. ' +
+        'For a large JSON document, pass select with only the fields you need and the host extracts them from the whole response.',
       schema: {
         type: 'object', required: ['url'],
         properties: {
           url: { type: 'string', description: 'Full https URL of the API endpoint.' },
+          select: {
+            type: 'array', items: { type: 'string' },
+            description: 'Optional, for JSON responses: field paths to return instead of the whole document, extracted ' +
+              'host-side from the COMPLETE response. "[]" walks an array: ["id","title","variants[].id","variants[].is_enabled",' +
+              '"images[].src"], or ["[].id","[].title"] when the response itself is an array. Nesting is kept. ' +
+              'The whole response is still saved to a file. Ignored for error responses (you see the full error).'
+          },
           method: { type: 'string', description: 'GET (default), HEAD, POST, PUT, PATCH or DELETE.' },
           headers: { type: 'object', description: 'Request headers. Use ${KEY_NAME} to reference a stored key.' },
           body: {
@@ -1110,13 +1182,35 @@
         // The response is UNTRUSTED third-party data — fenced like every other external content path so a
         // hostile API body cannot issue instructions. redact() strips any secret that echoed back.
         const scrub = typeof deps.redact === 'function' ? deps.redact : (s => s);
-        const bodyText = clamp(scrub(String(res.body || '')), REQUEST_MAX_CHARS);
+        const bodyText = scrub(String(res.body || ''));
         const label = method + ' ' + u.origin + u.pathname + ' -> HTTP ' + res.status
           + (used.length ? ' (authenticated with ' + used.join(', ') + ')' : '')
           + (sentFiles.length ? ' (sent ' + Math.ceil(payloadBytes / 1024) + 'KB from workspace file' + (sentFiles.length > 1 ? 's' : '') + ': ' + sentFiles.join(', ') + ')' : '');
+        // The host's note rides OUTSIDE the fence (it is ours, not the third party's) and BEFORE it, so a head+tail
+        // cut of a large selection can never eat it.
+        const paths = selectPaths(args && args.select);
+        let shown = bodyText, note = '';
+        if (paths.length) {
+          if (res.status < 200 || res.status >= 300) {
+            note = 'select was not applied: the call failed with HTTP ' + res.status + ', so the whole error body follows.';
+          } else {
+            const p = projectJson(bodyText, paths);
+            if (p.ok) {
+              shown = p.text;
+              note = 'selected ' + (paths.length - p.missed.length) + ' of ' + paths.length + ' field path(s) from the whole '
+                + bodyText.length + '-character response' + (p.missed.length ? '; not present: ' + p.missed.join(', ') : '')
+                + '. The complete response is saved too; its file is named below.';
+            } else {
+              note = 'select was not applied: ' + p.why + '. The whole response follows.';
+            }
+          }
+        }
+        const fenced = fenceExternal(bodyText || '(empty response body)', label);
+        if (shown === bodyText) return { content: (note ? '[' + note + ']\n' : '') + fenced, summary: method + ' ' + hostOf(u) + ' ' + res.status };
         return {
-          content: fenceExternal(bodyText || '(empty response body)', label),
-          summary: method + ' ' + hostOf(u) + ' ' + res.status
+          content: '[' + note + ']\n' + fenceExternal(shown, label + ' (selected fields)'),
+          fullContent: fenced,   // the registry parks this whole body and names the file in the result
+          summary: method + ' ' + hostOf(u) + ' ' + res.status + ' (select)'
         };
       }
     };

@@ -386,5 +386,77 @@ const OK = [{ status: 200, headers: { 'content-type': 'application/json' }, body
     }
   }
 
+  // ---- L. LARGE RESPONSES ARE NEVER DESTROYED (2026-10-12 user report: an Etsy-factory Publisher could not configure
+  //      a Printify product). The body was clamped to 8,000 chars inside the tool with nothing parked, so a 100 KB product
+  //      reached the model as its first third: no full variant list for the PUT, no way to read back the write. ----
+  const variants = [];
+  for (let i = 1; i <= 400; i++) variants.push({ id: 10000 + i, sku: 'SKU-' + i, price: 2000 + i, is_enabled: i % 2 === 0, options: [i % 7, i % 3], title: 'Size ' + i + ' / Color ' + (i % 9) });
+  const product = { id: '5de6593ebff03b5313567d22', title: 'Coffee Break Cat', variants,
+    print_areas: [{ variant_ids: variants.map(v => v.id), placeholders: [{ position: 'front', images: [{ id: 'img-1', x: 0.5, y: 0.5, scale: 1, angle: 0 }] }] }],
+    images: [{ src: 'https://images.printify.com/mockup/a.png', variant_ids: [10002], position: 'front', is_default: true }] };
+  const BIG = JSON.stringify(product);
+  A.ok(BIG.length > 40000, 'fixture is a realistic large product document (' + BIG.length + ' chars)');
+  const BIG_OK = [{ status: 200, headers: { 'content-type': 'application/json' }, body: BIG }];
+  {
+    const out = await tools('interactive', recorder(BIG_OK).impl).run({ url: 'https://api.printify.com/v1/shops/1/products/5de6593ebff03b5313567d22.json', headers: { Authorization: 'Bearer ${PRINTIFY_API_KEY}' } }, ctx());
+    A.ok(out.content.indexOf('"id":10400') >= 0, 'THE CORE FIX: the LAST variant reaches the tool result — the tool no longer clamps the body itself');
+    A.ok(out.content.indexOf(SECRET) < 0, 'the secret still never appears');
+  }
+  // ...and through the real registry, an over-cap body is PARKED whole and the result names the file
+  {
+    const { makeRegistry } = require('../sidecar/tools/registry.js');
+    const reg = makeRegistry();
+    reg.register(tools('interactive', recorder(BIG_OK).impl));
+    const parked = [];
+    const res = await reg.dispatch({ name: 'web_request', args: { url: 'https://api.printify.com/v1/shops/1/products/5de6593ebff03b5313567d22.json' }, argsRaw: '{}' },
+      { agentId: 'a1', outputMax: 12000, parkOutput: async (content, meta) => { parked.push({ content, meta }); return { path: '.output/untrusted-web_request-r1-0' }; } });
+    A.ok(res.ok, 'the call succeeds');
+    A.eq(parked.length, 1, 'the over-cap body was parked once');
+    A.ok(parked[0].content.indexOf('"id":10400') >= 0, 'the parked file holds the COMPLETE body');
+    A.ok(res.content.indexOf('.output/untrusted-web_request-r1-0') >= 0 && /read that file/i.test(res.content), 'the visible result points at the file and says to read it: ' + JSON.stringify(res.content.slice(-400)));
+    A.ok(res.content.length < BIG.length, 'what the model sees still fits the window-scaled cap');
+  }
+
+  // ---- M. select: just the fields a step needs, extracted host-side from the WHOLE body ----
+  {
+    const out = await tools('interactive', recorder(BIG_OK).impl).run({ url: 'https://api.printify.com/v1/shops/1/products/p.json',
+      select: ['id', 'variants[].id', 'variants[].is_enabled', 'images[].src', 'nope.missing'] }, ctx());
+    const m = /BEGIN EXTERNAL WEB CONTENT[^\n]*\n([\s\S]*?)\n[^\n]*END EXTERNAL WEB CONTENT/.exec(out.content);
+    A.ok(!!m, 'the selection is fenced like any third-party body: ' + JSON.stringify(out.content.slice(0, 300)));
+    const picked = JSON.parse(m[1].trim());
+    A.eq(picked.id, '5de6593ebff03b5313567d22', 'a top-level field is selected');
+    A.eq(picked.variants.length, 400, 'EVERY variant is present — the selection reads the whole body, not a prefix');
+    A.eq(JSON.stringify(picked.variants[399]), '{"id":10400,"is_enabled":true}', 'paths sharing an array merge into one row per element, other fields dropped');
+    A.eq(picked.images[0].src, 'https://images.printify.com/mockup/a.png', 'a second array path is selected');
+    A.ok(picked.title === undefined && out.content.indexOf('"sku"') < 0, 'unselected fields are not shown');
+    A.ok(/selected 4 of 5 field path/.test(out.content) && /not present: nope\.missing/.test(out.content), 'the host note says what was found and what was not');
+    A.ok(typeof out.fullContent === 'string' && out.fullContent.indexOf('"sku":"SKU-400"') >= 0, 'the WHOLE body rides fullContent, so the registry parks it');
+  }
+  {
+    const arr = [{ status: 200, body: JSON.stringify([{ id: 1, title: 'a', body: 'x'.repeat(50) }, { id: 2, title: 'b', body: 'y' }]) }];
+    const out = await tools('interactive', recorder(arr).impl).run({ url: 'https://api.x.com/v1/items', select: '[].id, $.[*].title' }, ctx());
+    A.ok(out.content.indexOf('[{"id":1,"title":"a"},{"id":2,"title":"b"}]') >= 0, 'a root array, a comma string and jq-ish spellings all select: ' + JSON.stringify(out.content.slice(0, 400)));
+  }
+  {
+    const out = await tools('interactive', recorder(BIG_OK).impl).run({ url: 'https://api.x.com/v1/p', select: ['variant[].id'] }, ctx());
+    A.ok(/select was not applied/.test(out.content) && /keys: id, title, variants, print_areas, images/.test(out.content), 'a wrong path names the real top-level keys so the next call can fix it');
+    A.ok(out.content.indexOf('"id":10400') >= 0 && out.fullContent === undefined, 'and the whole body follows instead of nothing');
+  }
+  {
+    const err = [{ status: 400, body: '{"status":"error","code":8251,"message":"Validation failed.","errors":{"reason":"variants missing"}}' }];
+    const out = await tools('interactive', recorder(err).impl).run({ url: 'https://api.x.com/v1/p', method: 'PUT', body: '{}', select: ['id'] }, ctx());
+    A.ok(/not applied: the call failed with HTTP 400/.test(out.content) && /variants missing/.test(out.content), 'an error response is shown whole, never filtered away');
+  }
+  {
+    const html = [{ status: 200, body: '<html>not json</html>' }];
+    const out = await tools('interactive', recorder(html).impl).run({ url: 'https://api.x.com/v1/p', select: ['id'] }, ctx());
+    A.ok(/not applied: the response is not JSON/.test(out.content) && /not json/.test(out.content), 'non-JSON: the note says so and the body is shown');
+  }
+  {
+    const evil = [{ status: 200, body: '{"__proto__":{"polluted":true},"constructor":{"x":1},"ok":1}' }];
+    const out = await tools('interactive', recorder(evil).impl).run({ url: 'https://api.x.com/v1/p', select: ['__proto__.polluted', 'constructor.x', 'ok'] }, ctx());
+    A.ok(/not present: __proto__\.polluted, constructor\.x/.test(out.content) && ({}).polluted === undefined, 'prototype keys are never selected or merged');
+  }
+
   A.report('web-request.test.js');
 })().catch(e => { console.log('FAIL: web-request.test.js threw — ' + (e && e.stack || e)); process.exit(1); });
