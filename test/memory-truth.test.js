@@ -132,6 +132,9 @@ function harness(at, extra) {
     ['If I prefer spaces for indentation, ask me first.', 'User prefers spaces for indentation'],
     ['I prefer spaces only for Python indentation.', 'User prefers spaces for Python indentation'],
     ['I prefer spaces or tabs for indentation.', 'User prefers spaces and tabs for indentation'],
+    ['I prefer spaces for indentation.', 'User always prefers spaces for indentation'],
+    ['I prefer spaces for indentation.', 'User prefers spaces for indentation now'],
+    ['I prefer spaces for indentation.', 'From now on, use spaces for indentation'],
     ['Someone said "I prefer spaces for indentation".', 'User prefers spaces for indentation']
   ]) {
     const h = harness(T1);

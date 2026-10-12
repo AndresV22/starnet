@@ -74,13 +74,16 @@
   }
   // Deliberately conservative: a bag of words cannot prove a relation or a qualifier. Keep every word and
   // its order except these explicit preference/instruction frames. Unsupported paraphrases stay inferred.
-  function proofForm(s) {
+  function proofForm(s, weaken) {
     let t = norm(s).toLowerCase().trim().replace(/[.!?;]+$/, '').trim();
     if (/["“”`]/.test(t)) return '';   // quoted material is not attested as the speaker's own preference
-    t = t.replace(/^actually[\s,]+/, '').replace(/^(?:from now on|going forward|by default|in (?:the )?future)[\s,:]+/, '');
-    t = t.replace(/\s+now$/, '');
-    t = t.replace(/^(?:i|we|(?:the )?(?:user|commander))\s+(?:always\s+)?prefers?\s+/, 'prefer ');
-    t = t.replace(/^(?:always\s+)?use\s+/, 'prefer ');
+    t = t.replace(/^actually[\s,]+/, '');
+    // Only the source may lose standing/time framing to prove a weaker paraphrase. Never erase a
+    // qualifier from the note: that would let an ordinary preference attest an invented always/now.
+    if (weaken) t = t.replace(/^(?:from now on|going forward|by default|in (?:the )?future)[\s,:]+/, '').replace(/\s+now$/, '');
+    t = t.replace(/^(?:i|we|(?:the )?(?:user|commander))\s+(always\s+)?prefers?\s+/, '$1prefer ');
+    t = t.replace(/^(always\s+)?use\s+/, '$1prefer ');
+    if (weaken) t = t.replace(/^always (?=prefer )/, '');
     return t.replace(/\binstead of\b/g, 'over').replace(/\s+/g, ' ');
   }
   // -> the Commander's sentence that proves body, or '' when there is no such sentence.
@@ -91,7 +94,7 @@
     for (const raw of norm(words).split(/[.!?;\n]+/)) {
       const sentence = raw.trim();
       if (!sentence || !PROOF_SHAPE.test(sentence) || PROOF_NEG.test(sentence) !== neg) continue;
-      if (proofForm(sentence) === want) return sentence;
+      if (proofForm(sentence) === want || proofForm(sentence, true) === want) return sentence;
     }
     return '';
   }
