@@ -14,6 +14,9 @@ const { makeChainRunner } = require('../sidecar/routing/chain.js');
 const source = fs.readFileSync(path.join(__dirname, '../frontend/app/world.js'), 'utf8');
 const pairing = source.slice(source.indexOf('  const dockLineWork = new Map();'), source.indexOf('  // the bay an agent\'s CURRENT work'));
 const shipping = source.slice(source.indexOf('  const HANDOFF_GRACE_MS = 8000;'), source.indexOf('  function enqueueSlag'));
+const worked = source.slice(source.indexOf('  function runWorked(p)'), source.indexOf('  /* NEVER NEITHER'));
+const ending = source.slice(source.indexOf("    U.bus.on('agent.run.end', p => {\n      if (floor)"), source.indexOf('    // Stage 2: WATCH the lead delegate.'));
+assert.ok(ending.includes('runWork.delete(k)'), 'the real completion listener includes tally cleanup');
 
 function floor(id) {
   const s = WM.create();
@@ -26,13 +29,14 @@ function floor(id) {
   return { plan, router };
 }
 function surface(plan) {
-  const crates = [], timers = [];
+  const crates = [], timers = [], handlers = {};
   const context = vm.createContext({ routingPlan: plan, Pipeline: P, Conveyor, watch: LineWatch.create(), runUsdRecon: new Map(), shippedRunIds: new Set(), runWork: new Map(), runKey: p => p.runId,
+    U: { bus: { on: (n, fn) => { handlers[n] = fn; }, emitEnd: p => handlers['agent.run.end'](p) } }, floor: null, slagErrText: new Map(), liveRunOrder: new Map(),
     convey: { enqueueAt: (x, y, payload) => crates.push({ x, y, payload }) },
     outboundBeltTile: (aid, dockId) => (plan.dockChains[dockId] || plan.chains[aid] || {}).tile,
     setTimeout: (fn, ms) => { const t = { fn, ms, active: true }; timers.push(t); return t; },
     clearTimeout: t => { if (t) t.active = false; } });
-  vm.runInContext(pairing + shipping + `
+  vm.runInContext(pairing + worked + shipping + ending + `
     globalThis.proof = {
       end(aid, dockId, lineId, runId, workitemId, usd = 0.01, productive = true) {
         runWork.set(runId, { workitemId }); runUsdRecon.set(runId, usd);
@@ -50,6 +54,11 @@ function surface(plan) {
       finish(aid, runId) {
         watch.onEvent('agent.run.end', { agentId: aid, runId, reason: 'done' }, 3);
         shipProductCrate({ agentId: aid, runId });
+      },
+      tally(runId, productive, usd) { const r = runWork.get(runId); r.tools = productive ? 1 : 0; r.dels = 0; runUsdRecon.set(runId, usd); },
+      complete(aid, runId) {
+        const p = { agentId: aid, runId, reason: 'done' };
+        watch.onEvent('agent.run.end', p, 3); U.bus.emitEnd(p);
       },
       queued(aid) { return (dockLineWork.get(aid) || []).length; },
       placed(p) { if (p.kind === 'chain' && p.from) { cancelDeferredShip(p.from); } },
@@ -179,6 +188,27 @@ function surface(plan) {
     ui.finish('same', 'run-C');
     await chain.advance({ agentId: 'same', dockId: 'bA', lineId: lineA, runId: 'run-C', text: 'C result', runAgent: async () => ({}) });
     assert.equal(ui.crates.length, 4); assert.equal(ui.queued('same'), 0);
+  }
+  // Local completion and its SSE echo can both arrive before the terminal receipt. Run cleanup
+  // removes the original tally/cost, so an echo must not replace held evidence with a workless zero.
+  {
+    const { plan, router } = floor('second_opinion'), ui = surface(plan);
+    const entry = router.resolveDock({ tag: 'general' }), lineId = router.lineOriginFor(entry.agentId, entry.dockId);
+    ui.place(entry.agentId, entry.dockId, lineId, 'echo-entry-wi', 'echo-entry');
+    ui.tally('echo-entry', true, 0.02);
+    ui.complete(entry.agentId, 'echo-entry'); ui.complete(entry.agentId, 'echo-entry');
+    assert.equal(ui.crates.length, 0, 'duplicate completion cannot bypass terminal authority');
+    const chain = makeChainRunner({ nextAgent: (a, c) => router.chainNext(a, c), stepDock: (d, c) => router.chainStepDock(d, c),
+      fanSiblingsDock: d => router.fanSiblingsDock(d), lineOfAgent: (a, d) => router.lineOfAgent(a, d),
+      emit: (n, p) => { if (n === 'workitem.delivered') ui.release(p); } });
+    await chain.advance({ ...entry, lineId, runId: 'echo-entry', text: 'Entry evidence', originalText: 'Compare', runAgent: async h => {
+      ui.place(h.agentId, h.dockId, lineId, h.workitemId, 'echo-talk');
+      ui.tally('echo-talk', false, 0.03);
+      ui.complete(h.agentId, 'echo-talk'); ui.complete(h.agentId, 'echo-talk');
+      return { text: 'Talk-only sibling', usd: 0.03 };
+    } });
+    assert.equal(ui.crates.length, 1, 'productive completion evidence survives its workless echo');
+    assert.equal(ui.crates[0].payload.weight, Conveyor.weightForUsd(0.05), 'productive and talk-only captured spend both survive completion echoes');
   }
   // The new receipt authorizes rendering only. Existing delivery events own durable credit.
   {

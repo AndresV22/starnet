@@ -9861,9 +9861,11 @@ const World = (() => {
     return false;
   }
   function holdJoinedProduct(aid, spec, work, productive = true) {
+    // The completion listener clears its tally/cost. Its later SSE echo is not new evidence and
+    // must never replace the first completion's productive flag, work-item identity or spend.
+    if (!spec.runId || joinedProducts.has(spec.runId)) return;
     dockLineTakeMatching(aid, work);
     const lineId = lineOfWork(work);
-    if (!spec.runId) return;
     const usd = runUsdRecon.get(spec.runId);
     joinedProducts.set(spec.runId, { spec, lineId, productive, usd: typeof usd === 'number' && isFinite(usd) && usd > 0 ? usd : 0 });
     if (joinedProducts.size > 400) joinedProducts.delete(joinedProducts.keys().next().value);
