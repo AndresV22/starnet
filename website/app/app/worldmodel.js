@@ -1205,6 +1205,7 @@ const WorldModel = (() => {
       const nested = batchDepth > 0;
       const inner = nested ? snap() : null;
       const redoKept = nested ? null : redoStack.slice();
+      const seqAtStart = seq;
       snapshot(label);
       batchDepth++;
       let r;
@@ -1213,7 +1214,10 @@ const WorldModel = (() => {
       if (!r || !r.ok) {
         if (nested) restore(inner);
         else { restore(undoStack.pop()); redoStack.length = 0; Array.prototype.push.apply(redoStack, redoKept); }
-        emit([], { global: true });
+        /* a refused batch that never emitted was never SEEN half-done: the restored doc has the same value, so the static bake
+           still holds — re-derive navigation/routing (restore hands in new prop objects), never re-bake the whole station
+           (~2.5 s on a big one) for a move or a nudge the floor refused. One whose inner edits did emit stays global. */
+        emit([], seq === seqAtStart ? { staticBakeUnchanged: true } : { global: true });
       }
       return r;
     }
@@ -1772,11 +1776,16 @@ const WorldModel = (() => {
       return null;
     }
     const moveMemo = { k: null, v: null };
+    /* the route BEFORE a move is the same for every tile of one drag: compiled once per edit on the live floor and handed to
+       each probe copy (final floor lane M13 — a drag on a big station compiled it twice per tile crossed, 60-170 ms each) */
+    const routeMemo = { k: null, v: null };
+    function liveMoveRouting() { if (routeMemo.k !== seq) { routeMemo.v = moveRouting(); routeMemo.k = seq; } return routeMemo.v; }
     function canMoveProps(ids, dx, dy) {
       const k = JSON.stringify([seq, ids, dx, dy]);
       if (moveMemo.k !== k) {
+        const conv = (ids || []).some(id => { const q = propById(id); return !!(q && CONNECTABLE[q.t]); });
         const probe = makeStation(clone(doc));
-        moveMemo.v = probe.moveProps(ids, dx, dy); moveMemo.k = k;
+        moveMemo.v = probe.moveProps(ids, dx, dy, conv ? { routeBefore: liveMoveRouting() } : null); moveMemo.k = k;
       }
       return clone(moveMemo.v);
     }
@@ -1786,11 +1795,11 @@ const WorldModel = (() => {
       const k = JSON.stringify([seq, id, x, y]);
       if (moveMemo.k !== k) {
         const probe = makeStation(clone(doc));
-        moveMemo.v = probe.moveProp(id, x - p.x, y - p.y); moveMemo.k = k;
+        moveMemo.v = probe.moveProp(id, x - p.x, y - p.y, CONNECTABLE[p.t] ? { routeBefore: liveMoveRouting() } : null); moveMemo.k = k;
       }
       return clone(moveMemo.v);
     }
-    function moveProp(id, dTx, dTy) {
+    function moveProp(id, dTx, dTy, o) {
       const p = propById(id);
       if (!p) return fail('NOT_FOUND', 'no such prop');
       if (!dTx && !dTy) return { ok: true };
@@ -1798,7 +1807,7 @@ const WorldModel = (() => {
       const v = checkProp({ x1: nx, y1: ny, x2: nx + p.w - 1, y2: ny + p.h - 1 }, id, p.t);
       if (!v.ok) return v;
       const linked = CONNECTABLE[p.t] && Array.isArray(currentLinks());
-      const links = linked ? clone(currentLinks()) : [], route = linked ? moveRouting() : null;
+      const links = linked ? clone(currentLinks()) : [], route = linked ? ((o && o.routeBefore) || moveRouting()) : null;
       if (linked && isJunction(p) && links.some(l => l.from.prop !== id && l.to.prop !== id && (l.path || []).some(t => t.x === nx && t.y === ny)))
         return sendFail('ON_BELT', 'A junction cannot move onto another belt: it would take that line. Choose clear floor.', 'ANOTHER BELT RUNS HERE');
       return transact(() => {
@@ -1821,11 +1830,14 @@ const WorldModel = (() => {
        after ALL have moved. Members never block each other: the group moves rigidly, so what overlapped before (a lamp on its
        table) overlaps the same way after. Member by member, a table was refused by its own lamp, and a link re-laid against a
        neighbour that had not moved yet was lost, depending on the order. One undo; refused, nothing changes. */
-    function moveProps(ids, dTx, dTy) {
+    function moveProps(ids, dTx, dTy, o) {
       const ps = Array.from(new Set(ids || [])).map(propById).filter(Boolean);
       if (!ps.length) return fail('NOT_FOUND', 'no such prop');
       if (!dTx && !dTy) return { ok: true };
-      const linksBefore = clone(currentLinks() || []), routeBefore = moveRouting();
+      // the route can only change when a conveyor piece moves (the links and the compiler read LINK_MACHINES and belts only):
+      // a group of plants and lamps never pays for a compile (final floor lane M13)
+      const conv = ps.some(q => CONNECTABLE[q.t]);
+      const linksBefore = conv ? clone(currentLinks() || []) : null, routeBefore = conv ? ((o && o.routeBefore) || moveRouting()) : null;
       return transact(() => {
         const set = new Set(ps.map(q => q.id)), dirty = ps.map(propFootprint);
         const L = Array.isArray(doc.links) ? doc.links : [];
@@ -1854,7 +1866,7 @@ const WorldModel = (() => {
         }
         if (lost.length) return { ok: false, error: 'LINK_LOST', msg: 'moving these together would take up a belt link — move those machines one at a time (their belts follow)', lost };
         for (const id of ends) { const J = propById(id); if (J && isJunction(J)) syncJunctionCfg(J); }
-        const no = moveRouteRefusal(routeBefore, linksBefore); if (no) return no;
+        if (conv) { const no = moveRouteRefusal(routeBefore, linksBefore); if (no) return no; }
         emit(dirty, { staticBakeUnchanged: !ps.some(q => q.t === 'airlock') });
         return { ok: true, relaid };
       });
@@ -2462,10 +2474,13 @@ const WorldModel = (() => {
       if (!A || toId == null) return null;
       const handoff = sendMergeRefusal(A.id, toId); if (handoff) return handoff;
       const L = currentLinks();
-      if (!Array.isArray(L) || !handsOnTo(handOffs(L, doc.belts, o && o.skip), toId, A.id)) return null;
+      const next = Array.isArray(L) ? handOffs(L, doc.belts, o && o.skip) : null;
+      if (!next || !handsOnTo(next, toId, A.id)) return null;
       if (A.t === 'loop' && !(o && o.strict)) {
+        // an exit counts as the LOOP's back lane only when it really hands work round to the LOOP: an ESCAPE lane laid before
+        // the back lane is read as "back" by the lane-order guess (it runs nowhere upstream), and must not block the real one
         const outs = L.filter(l => l.from && l.from.prop === A.id), back = loopBackLinks(L, doc.belts);
-        if (outs.length && (!outs.some(l => back.has(l.id)) || (o && back.has(o.skip)))) return null;
+        if (outs.length && (!outs.some(l => back.has(l.id) && handsOnTo(next, l.to.prop, A.id)) || (o && back.has(o.skip)))) return null;
         return sendFail('CIRCLE', outs.length ? 'This LOOP already has its back lane. Another upstream exit would close a circle.' : 'Connect the LOOP’s done lane downstream before adding its back lane.', outs.length ? 'LOOP ALREADY HAS A BACK LANE' : 'DRAW THE LOOP DONE LANE FIRST');
       }
       return circleFail((o && o.here) || 'THIS ' + machineWord(A), (o && o.there) || 'THAT ' + machineWord(propById(toId)), A.id, toId);
@@ -2676,6 +2691,16 @@ const WorldModel = (() => {
       const r = planBelt(A, B, linked, o);
       if (!r.ok) return r;
       snapshot();   // one undo slot for the whole connection
+      // a LOOP's real back lane, drawn after its escape lane: the lane-order guess took that escape for the back lane, so name
+      // it as the escape (its port, and the gate's compass config) before the back lane goes down — same undo slot
+      if (A.t === 'loop' && linked) {
+        const L0 = currentLinks(), bk = loopBackLinks(L0, doc.belts), nx = handOffs(L0, doc.belts, null), I = (pipelineModule() || {})._internals;
+        const fake = L0.find(l => l.from && l.from.prop === A.id && bk.has(l.id) && !handsOnTo(nx, l.to.prop, A.id));
+        if (fake && I && typeof I.dirBetween === 'function' && handsOnTo(nx, B.id, A.id)) {
+          const d = I.dirBetween({ x: A.x, y: A.y }, fake.path && fake.path[0]);
+          if (d) { fake.from = Object.assign({}, fake.from, { port: 'esc' }); A.esc = d; }
+        }
+      }
       emit(layBelt(A, B, r, linked, null));
       return { ok: true, count: r.path.length, from: A.t, to: B.t };
     }
@@ -3113,7 +3138,7 @@ const WorldModel = (() => {
        link's id), and a FILTER's EVERYTHING ELSE lane / a LOOP's DONE lane is the lane the belt already runs on, so the
        line keeps flowing exactly as before (a filter with no default lane is a finding). `o.cfg` = settings carried in
        hand (a pipette / a copy): passes, verdict, wait — never a compass lane from somewhere else. One undo. */
-    const HAND_CFG = ['maxIter', 'when', 'timeoutMin', 'bufferSize'];
+    const HAND_CFG = ['maxIter', 'when', 'timeoutMin', 'bufferSize', 'divide'];   // (+divide: a SPLIT THE JOB splitter picked up keeps dividing — applyJunctionCfg writes it only when literally true)
     function junctionOnBelt(x, y, t, o) {
       if (!JUNCTION[t]) return fail('NOT_JUNCTION', 'only a 1×1 junction goes on a belt');
       const no = junctionOnBeltRefusal(x, y);
@@ -3331,7 +3356,7 @@ const WorldModel = (() => {
     function reshapeLink(linkId, x, y, o) {
       const links = clone(currentLinks() || []), l = links.find(q => q.id === linkId);
       if (!l) return fail('NOT_FOUND', 'no such belt');
-      const before = moveRouting();
+      const before = (o && o.routeBefore) || moveRouting();
       return transact(() => {
         const r = relinkTo(linkId, l.to.prop, Object.assign({}, o, { via: { x, y } })); if (!r.ok) return r;
         const after = (currentLinks() || []).find(q => q.id === linkId);
@@ -3344,7 +3369,7 @@ const WorldModel = (() => {
     function canReshapeLink(linkId, x, y, o) {
       const k = JSON.stringify([seq, linkId, x, y, !!(o && o.flip)]);
       if (reshapeMemo.k !== k) {
-        const probe = makeStation(clone(doc)), r = probe.reshapeLink(linkId, x, y, o);
+        const probe = makeStation(clone(doc)), r = probe.reshapeLink(linkId, x, y, Object.assign({}, o, { routeBefore: liveMoveRouting() }));
         const l = r.ok && (probe.links() || []).find(q => q.id === linkId);
         reshapeMemo.v = l ? Object.assign({}, r, { path: l.path }) : r; reshapeMemo.k = k;
       }

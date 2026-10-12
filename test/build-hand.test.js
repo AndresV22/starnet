@@ -72,6 +72,12 @@ const frozen = s => JSON.stringify(s.serialize()) + '|' + s.getSeq() + '|' + s.c
   A.ok(lr.ok && s.propById(lr.id).done === lt.d && s.propById(lr.id).maxIter === 3 && s.propById(lr.id).when === 'APPROVED', 'a LOOP keeps the belt\'s lane as DONE and carries passes + verdict from the hand — never a compass lane from elsewhere');
   // removing a 1-in / 1-out junction rejoins the belt it sat on (the floor's own reconcile)
   A.ok(s.removeProp(lr.id).ok && linkOf(s, L.B2, L.O), 'removing a junction that sat on one belt rejoins that belt');
+  // a SPLIT THE JOB splitter picked up (Q) and clicked onto a belt — the normal way a splitter goes down — keeps dividing
+  // (final floor lane M16 / R22: the PICK UP key promises "its settings … too")
+  const sp = linkOf(s, L.B1, L.B2), st = sp.path[Math.floor(sp.path.length / 2)], sr = s.junctionOnBelt(st.x, st.y, 'splitter', { cfg: { divide: true, bufferSize: 3 } });
+  A.ok(sr.ok && s.propById(sr.id).divide === true && s.propById(sr.id).bufferSize === 3, 'a SPLIT THE JOB splitter in hand keeps its divide mode on a belt — ' + JSON.stringify(sr.ok ? s.propById(sr.id) : sr));
+  const plain = s.junctionOnBelt(linkOf(s, L.B2, L.O).path[3].x, linkOf(s, L.B2, L.O).path[3].y, 'splitter', { cfg: { divide: 'yes' } });
+  A.ok(plain.ok && !s.propById(plain.id).divide, '…and only a literal true divides (the held value stays sanitized)');
 }
 
 /* ---------- A2. connect / merge / branch / re-route / drop: one undo each, the preview IS the commit ---------- */

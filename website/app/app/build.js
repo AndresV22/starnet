@@ -6269,12 +6269,27 @@ const Build = (() => {
   }
   const refusalWords = pv => String((pv && (pv.short || NO_ROUTE[pv.error] || pv.msg)) || 'NO CLEAR ROUTE').toUpperCase();
   const mName = id => String(machineName(id)).toUpperCase();
+  /* SETTLE (final floor lane M13): a conveyor piece's full MOVE / RESHAPE verdict copies the floor and compiles its route — tens
+     of ms each on a big station, and a drag asked it on every tile it crossed (a stall per tile at the 5 fps floor). A tile the
+     pointer only CROSSES shows the footprint verdict: red is already the truth there, and a fit is drawn amber CHECKING THE ROUTE
+     — never green for what was not judged. Once the pointer RESTS on a tile the full verdict is asked (memoized per edit). The
+     release re-judges with the real edit whatever the ghost showed. */
+  const SETTLE_MS = 140;
+  let settleKey = '', settleAt = 0;
+  function settled(key) {
+    const now = performance.now();
+    if (settleKey !== key) { settleKey = key; settleAt = now; return false; }
+    return now - settleAt >= SETTLE_MS;
+  }
+  const CHECKING_ROUTE = 'CHECKING THE ROUTE';
   let handPvKey = '', handPvMemo = null;
-  function handPlan(d) {
+  function handPlan(d, force) {
     if (!d || !d.moved || !station) return null;
     const src = d.mode === 'beltreshape' ? 'l'+d.linkId : d.mode === 'handbranch' ? 'b' + d.from.x + ',' + d.from.y : 'p' + d.propId;
     const k = geoVer + '|' + src + '|' + d.cur.tx + ',' + d.cur.ty + '|' + (flipPref ? 1 : 0);
     if (k === handPvKey) return handPvMemo;
+    // a reshape's verdict is a probe copy + a route compile: asked once the pointer rests (or at the release), never per tile crossed
+    if (d.mode === 'beltreshape' && !force && !settled('r|' + k)) return { ok: true, checking: true, kind: 'reshape', link: d.linkId, why: CHECKING_ROUTE };
     let plan = null;
     try { plan = planHandGesture(d, d.cur.tx, d.cur.ty); } catch (e) { plan = { ok: false, why: 'THAT DID NOT WORK OUT — ' + String((e && e.message) || e).toUpperCase() }; }
     handPvKey = k; handPvMemo = plan;
@@ -6337,7 +6352,7 @@ const Build = (() => {
   }
   const pathRects = path => (path || []).map(q => ({ x1: q.x, y1: q.y, x2: q.x, y2: q.y }));
   function commitHandGesture(d, ev) {
-    const plan = handPlan(d);
+    const plan = handPlan(d, true);   // (the release judges for real, even where the ghost was still CHECKING THE ROUTE)
     hideTip();
     if (!plan) return;                                   // let go where it started: nothing happened
     if (!plan.ok) { sfx('bad'); flashTip(ev, plan.why, false); return; }
@@ -6872,6 +6887,20 @@ const Build = (() => {
     if (relaid) return okMsg.replace(/ · Undo restores the previous position$/, '') + ' · its belt' + (relaid === 1 ? '' : 's') + ' came with it';
     return left ? 'moved — its belts stayed behind · reconnect with BELT (Undo puts it back)' : okMsg;
   }
+  // a move ghost's verdict (SETTLE above): furniture is judged at once (no compile); a conveyor piece shows its footprint
+  // verdict on the tiles it crosses and its full route verdict where the pointer rests
+  function moveVerdict(p, nx, ny, dx, dy) {
+    const full = () => station.canMoveProp ? station.canMoveProp(p.id, nx, ny) : station.canPlaceProp(p.t, nx, ny, p.w, p.h, p.id);
+    if (!(dx || dy) || !station.canMoveProp || !isConveyorPiece(p) || settled('m|' + geoVer + '|' + p.id + '|' + nx + ',' + ny)) return full();
+    const cheap = station.canPlaceProp(p.t, nx, ny, p.w, p.h, p.id);
+    return cheap && cheap.ok ? { ok: true, checking: true } : cheap;
+  }
+  function groupMoveVerdict(ps, dx, dy) {
+    const full = () => station.canMoveProps ? station.canMoveProps(ps.map(p => p.id), dx, dy) : groupFit(ps, dx, dy);
+    if (!(dx || dy) || !station.canMoveProps || !ps.some(isConveyorPiece) || settled('g|' + geoVer + '|' + ps.map(p => p.id).join(',') + '|' + dx + ',' + dy)) return full();
+    const cheap = groupFit(ps, dx, dy);
+    return cheap && cheap.ok ? { ok: true, checking: true } : cheap;
+  }
   function ghostInfo() {
     if (!drag) {
       // DUPE armed: the copy ghosts under the cursor with no drag — every click stamps
@@ -6941,7 +6970,7 @@ const Build = (() => {
       const nx = p.x + dx, ny = p.y + dy;
       const rect = { x1: nx, y1: ny, x2: nx + p.w - 1, y2: ny + p.h - 1 };
       const links = isWorkflowType(p.t) && (dx || dy) ? ghostLinks({ props: [{ t: p.t, x: nx, y: ny, w: p.w, h: p.h }], ignoreId: p.id }) : [];
-      return { rects: [rect], v: station.canMoveProp ? station.canMoveProp(p.id, nx, ny) : station.canPlaceProp(p.t, nx, ny, p.w, p.h, p.id), move: true, dx, dy, preview:{...p,x:nx,y:ny}, links, leftBehind: (dx || dy) ? beltsLeftBehind(p, nx, ny) : 0 };
+      return { rects: [rect], v: moveVerdict(p, nx, ny, dx, dy), move: true, dx, dy, preview:{...p,x:nx,y:ny}, links, leftBehind: (dx || dy) ? beltsLeftBehind(p, nx, ny) : 0 };
     }
     if (drag.mode === 'roomresize') {
       const rm = station.roomById(drag.roomId), nr = rm && resizedRect(drag); if (!nr) return null;
@@ -6950,7 +6979,7 @@ const Build = (() => {
     if (drag.mode === 'groupmove') {
       const ps = groupIds.map(id => station.propById(id)).filter(Boolean); if (!ps.length) return null;
       const dx = drag.cur.tx - drag.start.tx, dy = drag.cur.ty - drag.start.ty;
-      return { rects: ps.map(p => propRect(p, dx, dy)), v: station.canMoveProps ? station.canMoveProps(ps.map(p => p.id), dx, dy) : groupFit(ps, dx, dy), move: true, dx, dy, group: ps.map(p => ({ ...p, x: p.x + dx, y: p.y + dy })) };
+      return { rects: ps.map(p => propRect(p, dx, dy)), v: groupMoveVerdict(ps, dx, dy), move: true, dx, dy, group: ps.map(p => ({ ...p, x: p.x + dx, y: p.y + dy })) };
     }
     if (drag.mode === 'move') {
       const rm = station.roomById(drag.roomId); if (!rm) return null;
@@ -8210,7 +8239,7 @@ const Build = (() => {
     const A = drag.mode === 'handbelt' ? station.propById(drag.propId) : null;
     if (A) drawPropSelection(A, t, 'rgba(255,217,74,.95)', false);
     if (!plan) return;
-    const ok = !!plan.ok, col = ok ? '#7ee2a8' : '#ff8f80';
+    const ok = !!plan.ok, col = plan.checking ? '#ffd24a' : ok ? '#7ee2a8' : '#ff8f80';
     if (plan.kind === 'send' && A && plan.to) drawSendArc(A, plan.to, t, col, null);
     else if (plan.path && plan.path.length) drawBeltPreview(t, { path: plan.path }, col);
     else {   // no route to draw: a straight dashed line from where it started to the pointer says where you are aiming
@@ -8702,7 +8731,8 @@ const Build = (() => {
   }
   // a group being dragged: every member's art at its new spot, outlined green (it fits) or red (something outside the group is in the way)
   function drawGroupGhost(t, now, g) {
-    const ok = !!(g.v && g.v.ok), line = ok ? 'rgba(120,255,170,0.95)' : 'rgba(255,120,110,0.95)', fill = ok ? 'rgba(80,255,140,0.12)' : 'rgba(255,90,80,0.16)';
+    const ok = !!(g.v && g.v.ok), checking = !!(ok && g.v.checking);
+    const line = checking ? 'rgba(255,200,90,0.95)' : ok ? 'rgba(120,255,170,0.95)' : 'rgba(255,120,110,0.95)', fill = checking ? 'rgba(255,190,60,0.12)' : ok ? 'rgba(80,255,140,0.12)' : 'rgba(255,90,80,0.16)';
     const ps = g.group.slice().sort((a, b) => (a.y + (a.h || 1)) - (b.y + (b.h || 1)));
     ctx.save(); ctx.globalAlpha = 0.65; PropSprites.setCtx(ctx); PropSprites.setNow(now);
     try { for (const p of ps) { const mount = station.mountOf ? station.mountOf(p) : null; PropSprites.draw(mount ? { ...p, mount } : p, false); } } finally { ctx.restore(); }
@@ -8711,7 +8741,8 @@ const Build = (() => {
     for (const r of g.rects) bb = { x1: Math.min(bb.x1, r.x1), y1: Math.min(bb.y1, r.y1), x2: Math.max(bb.x2, r.x2), y2: Math.max(bb.y2, r.y2) };
     const lines = ['MOVE ' + (g.dx >= 0 ? '+' : '') + g.dx + ', ' + (g.dy >= 0 ? '+' : '') + g.dy + ' · ' + ps.length + ' THINGS'];
     if (!ok) lines.push(String((g.v && g.v.msg) || 'blocked').toUpperCase());
-    ghostBadge(t, lines, ok, bb);
+    else if (checking) lines.push(CHECKING_ROUTE);
+    ghostBadge(t, lines, ok, bb, checking);
   }
   function drawGhost(t, now) {
     // paint brush: tint the crossed tiles with the chosen deck colour
@@ -8756,7 +8787,7 @@ const Build = (() => {
     // AMBER = legal, but it will CONNECT to something already on the floor (or leave its belts behind) —
     // said on the ghost BEFORE the click, never discovered afterwards (2026-09-23 playtest)
     const links = ok && g.links && g.links.length ? g.links : null;
-    const warn = !!(ok && (links || g.leftBehind));
+    const warn = !!(ok && (links || g.leftBehind || (g.v && g.v.checking)));
     // a HOVER PREVIEW is quieter than a live gesture — it is showing you an option, not a commitment,
     // and at full strength it read as "you are already dragging" every time the pointer crossed the floor
     // ...and an INVALID preview is quieter still: with ROOM armed, every pass of the pointer over
@@ -8812,6 +8843,7 @@ const Build = (() => {
       if (near) lines.push('CLOSE TO THE ' + String(propLabel(near.t)).toUpperCase() + ' — LEAVE 2 TILES OR THEIR BELTS TOUCH');
     }
     if (links) lines.push('WILL CONNECT TO ' + linkNames(links));
+    if (ok && g.v && g.v.checking) lines.push(CHECKING_ROUTE);   // (SETTLE: the route is judged once the pointer rests)
     if (ok && g.leftBehind) lines.push('ITS BELTS STAY HERE — RECONNECT WITH BELT');
     if (g.kind === 'prop' && canTurn(propType) && !propSpec(propType).flat) {
       const r = propFacing(propType), v = [[0,1],[-1,0],[0,-1],[1,0]][r];
