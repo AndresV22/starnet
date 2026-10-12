@@ -15,11 +15,10 @@
 // "have Ada …", "ask the researcher to …", "get Quill on this", "delegate to Ada", "loop in the analyst".
 const ASK = '(?:have|ask|get|tell|let|send|use|put|dispatch|task|loop in|bring in|(?:delegate|assign|hand|give)(?:\\s+(?:this|it|the task))?\\s+to)';
 // This note is an unconditional SYSTEM directive. Negated, conditional and quoted requests cannot prove it.
-const QUALIFIED = /\b(?:not|never|don['’]?t|doesn['’]?t|won['’]?t|without|unless|if|maybe|perhaps)\b|["“”`]/i;
+const QUALIFIED = /\b(?:no|not|never|cancel(?:led|ed)?|don['’]?t|doesn['’]?t|won['’]?t|without|unless|if|maybe|perhaps)\b|["“”`]/i;
 // Ids that are ordinary words in a sentence, never on their own a reference to one agent ("ask an agent").
 const GENERIC_IDS = new Set(['agent']);
 const esc = s => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-const wordRe = s => new RegExp('(^|[^A-Za-z0-9_])' + esc(s) + '($|[^A-Za-z0-9_])', 'i');
 
 /* crewMentions(text, crew, leadId) -> [{ agentId, name }]
    crew: Map/iterable of [agentId, { name }]. A member counts when its display name or (non-generic) agentId
@@ -38,12 +37,19 @@ function crewMentions(text, crew, leadId) {
   }
   if (!members.length) return [];
   const names = members.flatMap(m => m.cues).sort((a,b) => b.length-a.length).map(esc).join('|');
-  const target = '(?:the\\s+)?(?:' + names + ')';
-  const list = target + '(?:\\s*(?:,|and|&)\\s*' + target + ')*';
-  // The action must directly name its targets. An unrelated "use bullets" elsewhere is not delegation.
-  const action = new RegExp('^(?:please\\s+)?' + ASK + '\\s+(' + list + ')(?=$|[^A-Za-z0-9_])', 'i').exec(t);
+  const target = '(?:the\\s+)?(' + names + ')(?=$|[^A-Za-z0-9_-])';
+  const separator = '\\s*(?:,|and|&)\\s*';
+  const list = target + '(?:' + separator + target + ')*';
+  // Match the whole target span before rejecting possession, so regex backtracking cannot
+  // turn "Have Ada and Quill's report" into a directive for just Ada.
+  const action = new RegExp('^(?:please\\s+)?' + ASK + '\\s+(' + list + ')', 'i').exec(t);
+  const tail = action ? t.slice(action[0].length) : '';
+  const targets = new Set(action && !/^(?:['’]|\s*(?:,|&|and\b))/.test(tail)
+    ? Array.from(action[1].matchAll(new RegExp('(?:^|' + separator + ')' + target, 'ig')), m => m[1].toLowerCase())
+    : []);
+  // Resolve exact captured cues: Ada is not the Ada prefix inside another member's Ada-Aux name.
   return members.filter(m => m.cues.some(c =>
-    (action && wordRe(c).test(action[1])) || new RegExp('^' + esc(c) + '\\s*[,:]\\s*\\S', 'i').test(t)
+    targets.has(c.toLowerCase()) || new RegExp('^' + esc(c) + '\\s*[,:]\\s*\\S', 'i').test(t)
   )).map(({agentId, name}) => ({agentId, name}));
 }
 
