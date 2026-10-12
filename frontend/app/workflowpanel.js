@@ -1711,6 +1711,8 @@ const WorkflowPanel = (() => {
   }
   function startSession(text, pause) {
     const c = comp(); if (!c) return;
+    const issue = stepTestUnavailable();
+    if (issue) { S.sessionErr = issue; paint(true); return; }
     saveOpenFields();
     S.busy = true; S.sessionErr = null; S.hop = null; paint(true);
     H.planGate(c).then(gate => {
@@ -2011,16 +2013,20 @@ const WorkflowPanel = (() => {
     const again = $('#wf-nr-again');
     if (again) again.onclick = () => { const cc = comp(); if (!cc) return; H.sfx('click'); S.fixDraft = ''; liveSeen = false; S.prevJob = { text: mine.text, output: mine.output, stamp: mine.stamp }; H.runSample(cc, { text: mine.text || (S.testJob[S.lineKey] || '').trim() || undefined, onUpdate: () => paint(false) }); startLive(); };
   }
+  function stepTestUnavailable() {
+    if (S.seam !== true) return 'this station cannot pause a line between steps — RUN ONE REAL JOB runs it end to end';
+    return typeof Pipeline !== 'undefined' && Pipeline.stepTestRefusal ? Pipeline.stepTestRefusal(H.plan(), S.lineKey) : null;
+  }
   function testModeNow() {
     const m = S.testMode || (S.seam === true ? 'step' : 'real');
-    return m === 'step' && S.seam !== true ? 'real' : m;
+    return m === 'step' && stepTestUnavailable() ? 'real' : m;
   }
   function testPickerHTML(s) {
-    const mode = testModeNow(), c = comp();
+    const mode = testModeNow(), c = comp(), stepIssue = stepTestUnavailable();
     const chips = TEST_MODES.map(([m, label, sub]) => {
-      const off = m === 'step' && S.seam !== true;
+      const off = m === 'step' && !!stepIssue;
       return '<button type="button" class="wf-chip wf-modepick' + (off ? ' off' : '') + '" data-tmode="' + m + '" aria-pressed="' + (mode === m) + '"'
-        + (off ? ' aria-disabled="true" data-tip="this station cannot pause a line between steps — RUN ONE REAL JOB runs it end to end"' : '')
+        + (off ? ' aria-disabled="true" data-tip="' + esc(stepIssue) + '"' : '')
         + '><b>' + label + '</b><small>' + esc(sub) + '</small></button>';
     }).join('');
     const input = '<textarea id="wf-st-in" data-keep="stin" class="wf-io" rows="3" aria-label="Test job" placeholder="What should the line work on?">' + esc(S.testJob[S.lineKey] || '') + '</textarea>';
@@ -2046,7 +2052,8 @@ const WorkflowPanel = (() => {
         + (mine && mine.view ? jobResultHTML(mine, flow()) : '');
     }
     return '<section class="wf-sec"><h3><span class="n">TEST</span>' + (s ? 'Test it again' : 'How do you want to test it?') + '</h3>'
-      + '<div class="wf-modepicks wf-modepicks-3" role="group" aria-label="How to test">' + chips + '</div>' + body + '</section>';
+      + '<div class="wf-modepicks wf-modepicks-3" role="group" aria-label="How to test">' + chips + '</div>'
+      + (stepIssue && S.seam === true ? '<p class="wf-help">' + esc(stepIssue) + '</p>' : '') + body + '</section>';
   }
   function showTest(mode) {   // the top bar's TEST opens this view on the panel's line (build.js openTest)
     if (!el) return false;

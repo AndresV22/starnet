@@ -1014,6 +1014,10 @@
     const lines = [], lineOfProp = {}, lineOfAgent = {}, lineLimits = {}, budgetIntake = {};
     for (const c of lineComponents(geo)) {
       const lineId = c.key, rec = { lineId, propIds: c.props.slice(), intakes: c.intakes.slice(), outboxes: c.outboxes.slice(), agents: [] };
+      // The step tester carries one crate. Advertise its limitation before any paid step starts.
+      const gates = Object.keys(junctionProp).filter(k => c.props.indexOf(junctionProp[k]) >= 0).map(k => junctions[k]);
+      if (gates.some(j => j.kind === 'split' && j.fanout)) rec.stepTestBarrier = 'fanout';
+      else if (gates.some(j => j.kind === 'join')) rec.stepTestBarrier = 'join';
       for (const pid of c.props) lineOfProp[pid] = lineId;
       // an agent is on EVERY line it crews a dock of (multi-bay): rec.agents lists each crew member once
       for (const b of c.bays) if (b.agentId) { if (!lineOfAgent[b.agentId]) lineOfAgent[b.agentId] = lineId; if (rec.agents.indexOf(b.agentId) < 0) rec.agents.push(b.agentId); }
@@ -2163,6 +2167,12 @@
      LINE_TOO_LONG makes (jobStages from every INBOX feed mouth of the line), for a line that is NOT over budget too, so the
      floor can say n/max on every INBOX. Pure over a compiled plan; null for a line it cannot count (no INBOX on it, or routing
      off under a belt / work-line loop, where LINE_TOO_LONG is silent too). Outside the hash — nothing dispatch reads. */
+  function stepTestRefusal(plan, lineId) {
+    const line = plan && Array.isArray(plan.lines) ? plan.lines.find(l => l && String(l.lineId) === String(lineId)) : null;
+    if (!line || !line.stepTestBarrier) return null;
+    return 'STEP THROUGH carries one crate at a time and cannot finish this ' + (line.stepTestBarrier === 'fanout' ? 'parallel' : 'joined')
+      + ' line. Use RUN ONE REAL JOB to test the whole line, or TRY THIS STEP on an individual BAY.';
+  }
   function lineStages(plan, lineId) {
     const rec = plan && Array.isArray(plan.lines) ? plan.lines.find(l => l && l.lineId === lineId) : null;
     if (!rec || !rec.intakes || !rec.intakes.length) return null;
@@ -2279,7 +2289,7 @@
     return { fromName: m[1] || '', original: orig ? orig[1] : '', output: out ? out[1] : '' };
   }
 
-  return { lineStages, fedLineIds, rejoinOf, deriveLinks, reconcileLinks, compileRoutingPlan, sendToOf, sendsReachedOf, outboxesReached, lineWord, handoffInput, parseHandoffInput, composeStageBrief, HANDS_LEAD, resolveTarget, lineOf, lineOriginOf, lineLimitsOf, normalizeLineLimits, LINE_LIMIT_DEFAULTS, LINE_LIMIT_CEILINGS, sourceFor, ok, liveTiles, routeFrom, junctionLaneOwners, chainNext, chainStep, fanSiblings, handoffPrompt, parseHandoff, isHandoff, stripVerdictLine, joinPayload, divideJob, partTurn, partHandoff, divideBrief, divideAfterDock, splitFedByDock, lineComponents, LOOP_MAX_DEFAULT, LOOP_MAX_CEILING,
+  return { stepTestRefusal, lineStages, fedLineIds, rejoinOf, deriveLinks, reconcileLinks, compileRoutingPlan, sendToOf, sendsReachedOf, outboxesReached, lineWord, handoffInput, parseHandoffInput, composeStageBrief, HANDS_LEAD, resolveTarget, lineOf, lineOriginOf, lineLimitsOf, normalizeLineLimits, LINE_LIMIT_DEFAULTS, LINE_LIMIT_CEILINGS, sourceFor, ok, liveTiles, routeFrom, junctionLaneOwners, chainNext, chainStep, fanSiblings, handoffPrompt, parseHandoff, isHandoff, stripVerdictLine, joinPayload, divideJob, partTurn, partHandoff, divideBrief, divideAfterDock, splitFedByDock, lineComponents, LOOP_MAX_DEFAULT, LOOP_MAX_CEILING,
     // THE DOCK LAYER (multi-bay agents, 2026-09-22) — the dock-keyed truth the agent readings above are views of
     resolveDock, chainNextDock, chainStepDock, fanSiblingsDock, junctionLaneDocks, lineOfDock, lineOriginOfDock, entryDockOf, docksOf, dockOf, agentOfDock: agentOfDockIn, deriveDockLayer, dockLayer, hasDockLayer, stepToAgents, propIdCmp,
     _internals: { DIRV, OPP, LANE_ORDER, key, buildBeltMap, outLanes, inLanes, loopLanes, beltTileNear, ringBelts, junctionAnchor, dirBetween, linkTilesByProp, linkedBeltMap, nextTiles, splitLanes, detectCycle, hashStr, compileChains, compileDockChains, chainCycle, shipFrom, propIdCmp, entryDocksOf, agentChainsView } };

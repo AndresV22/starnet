@@ -46,6 +46,7 @@
      getTag(text)   now()   newId()   label(agentId) -> display name|null */
 'use strict';
 const Verdict = require('./verdict.js');
+const Pipeline = require('../../frontend/app/pipeline.js');
 const { effectiveLimits, loopDecision, preHopRefusal, hopTurn, lineRefusalNote, asNode, nodeKey } = require('./chain.js');
 const { note: failNote } = require('../failopen.js');
 
@@ -53,8 +54,8 @@ const KEEP = 10;                // sessions kept on disk (active + most recent f
 const TEXT_MAX = 4000;          // the job a session starts with (same bound as the sample hub's messages)
 const EDIT_MAX = 200000;        // an owner-edited handoff (a dock's output can be long; this is a sanity bound)
 const PAUSE_EDGES_MAX = 64;
-const FANOUT = 'this line fans out into parallel branches here — the step-through test carries one crate at a time, so it stops before the split (use RUN SAMPLE to prove a fan-out line)';
-const JOINER = 'this line meets a joiner here — the step-through test carries one crate at a time, so it stops before the join (use RUN SAMPLE to prove a joined line)';
+const FANOUT = 'this line fans out into parallel branches here — the step-through test carries one crate at a time, so it stops before the split (use RUN ONE REAL JOB to prove a fan-out line)';
+const JOINER = 'this line meets a joiner here — the step-through test carries one crate at a time, so it stops before the join (use RUN ONE REAL JOB to prove a joined line)';
 const ACTIVE = { running: true, paused: true };
 
 const clone = v => JSON.parse(JSON.stringify(v));
@@ -364,6 +365,8 @@ function makeStepTest(o) {
     if (!((Array.isArray(p.lines) ? p.lines : []).some(l => l && String(l.lineId) === line))) {
       return refuse('no armed work line is named "' + line + '" — the floor changed since this panel was drawn; re-open the line and try again.');
     }
+    const topologyRefusal = !single && Pipeline.stepTestRefusal(p, line);
+    if (topologyRefusal) return refuse(topologyRefusal);
     let agentId = null, dockId = null, entry = true;
     if (b.startAt != null && String(b.startAt).trim()) {
       /* startAt names a DOCK or an AGENT (multi-bay). dockRef resolves either: a dockId is that bay; an agentId
