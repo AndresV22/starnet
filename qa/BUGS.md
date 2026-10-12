@@ -4,19 +4,22 @@
 One tracked file per bug under `qa/bugs/`; this is only the index. File a new bug with
 `node scripts/qa/bugs.mjs --new --title "..." --surface <surface>`.
 
-**16** open (open+claimed) of 248 total — 0 P0 · 6 P1 · 10 P2
+**19** open (open+claimed) of 251 total — 0 P0 · 9 P1 · 10 P2
 
 Engineering status is separate from delivery and customer recovery. Legacy rows without origin are not a customer census.
 
-User/owner reports: **110** · source fixed: **94** · installer verified: **6** · customer confirmed: **1** · still reported failing: **5** · recovery unconfirmed: **104**.
+User/owner reports: **113** · source fixed: **94** · installer verified: **6** · customer confirmed: **1** · still reported failing: **5** · recovery unconfirmed: **107**.
 
 | Report | Family | Source | Installer | Customer |
 | --- | --- | --- | --- | --- |
+| [Google Drive authorization is hard blocked for a fresh personal account](bugs/f2ac6356-google-drive-authorization-is-hard-blocked-for-a.md) | google-drive-oauth-block | open | unverified | unconfirmed |
 | [Connector sign-in is lost after credential-store recovery](bugs/e7b2ffcd-connector-sign-in-is-lost-after-credential-store.md) | connector-credential-persistence | open | unverified | persists |
 | [Funded account runs fail again after a credit-limit workaround](bugs/a5060cc3-funded-account-runs-fail-again-after-a-credit-li.md) | funded-account-run-refusal | open | unverified | persists |
+| [Reported macOS web fetch TLS decode and socket failures](bugs/1d3ac09a-reported-macos-web-fetch-tls-decode-and-socket-f.md) | outbound-transport | open | unverified | unconfirmed |
 | [Unavailable spend history blocks work without usable recovery](bugs/d688ea20-unavailable-spend-history-blocks-work-without-us.md) | spend-history-blocking | open | unverified | persists |
 | [Windows 0.13.2 startup fails loading a packaged backend module](bugs/85f602c4-windows-0132-packaged-backend-startup.md) | packaged-backend-integrity | open | unverified | unconfirmed |
 | [Shell approvals and history hide full command arguments](bugs/082ee8e5-shell-approvals-and-history-hide-full-command-ar.md) | shell-consent-history-visibility | open | unverified | unconfirmed |
+| [Saved station opening is blocked despite a reachable engine](bugs/4c0efd8c-saved-station-opening-is-blocked-despite-a-reach.md) | saved-station-load | open | unverified | unconfirmed |
 | [Approved skill is withheld from autonomous workers](bugs/f702f2f6-approved-skill-is-withheld-from-autonomous-worke.md) | skill-approval-worker | open | unverified | persists |
 | [Checkpoint maintenance bypass and orphan Git pack processes](bugs/8bdf73bb-checkpoint-maintenance-bypass-and-orphan-git-pac.md) | checkpoint-maintenance | fixed | unverified | unconfirmed |
 | [Delegated specialist lacks connected MCP tools](bugs/acd9ecb4-delegated-specialist-lacks-connected-mcp-tools.md) | delegated-capabilities | fixed | verified | unconfirmed |
@@ -132,11 +135,14 @@ User/owner reports: **110** · source fixed: **94** · installer verified: **6**
 | P0 | fixed | safecell | [The Permissions panel's normalizeGrants regex drops every path: and mcp: standing grant — the ledger prints "No standing approvals yet" while the backend holds](bugs/7274ff21-the-permissions-panel-s-normalizegrants-regex-dr.md) | sweep/safecell | 6afeb9ee |
 | P0 | fixed | sessions | [An attachment-bearing user turn is dropped from the durable transcript and the PREVIOUS turn is written in its place — the string-only scan at index.js:11299 fa](bugs/e7dcb889-an-attachment-bearing-user-turn-is-dropped-from.md) | sweep/sessions | 6afeb9ee |
 | P0 | fixed | skills | [skill.view's hydrate-then-bump stores the RENDERED SKILL.md as the skill's body, so every view→persist cycle re-appends '## Setup' and '## Support Files' — unbo](bugs/c70f8965-skill-view-s-hydrate-then-bump-stores-the-render.md) | sweep/skills | 598ab4a4 |
+| P1 | open | onboarding | [Google Drive authorization is hard blocked for a fresh personal account](bugs/f2ac6356-google-drive-authorization-is-hard-blocked-for-a.md) | memory-proof-1011 | — |
 | P1 | open | providers | [Connector sign-in is lost after credential-store recovery](bugs/e7b2ffcd-connector-sign-in-is-lost-after-credential-store.md) | memory-proof-1011 | — |
 | P1 | open | providers | [Funded account runs fail again after a credit-limit workaround](bugs/a5060cc3-funded-account-runs-fail-again-after-a-credit-li.md) | memory-proof-1011 | — |
+| P1 | open | providers | [Reported macOS web fetch TLS decode and socket failures](bugs/1d3ac09a-reported-macos-web-fetch-tls-decode-and-socket-f.md) | mac-fetch-investigation-1003 | — |
 | P1 | open | providers | [Unavailable spend history blocks work without usable recovery](bugs/d688ea20-unavailable-spend-history-blocks-work-without-us.md) | memory-proof-1011 | — |
 | P1 | open | release | [Windows 0.13.2 startup fails loading a packaged backend module](bugs/85f602c4-windows-0132-packaged-backend-startup.md) | agent/session-handoff-1011 | — |
 | P1 | open | safecell | [Shell approvals and history hide full command arguments](bugs/082ee8e5-shell-approvals-and-history-hide-full-command-ar.md) | memory-proof-1011 | — |
+| P1 | open | sessions | [Saved station opening is blocked despite a reachable engine](bugs/4c0efd8c-saved-station-opening-is-blocked-despite-a-reach.md) | memory-proof-1011 | — |
 | P1 | open | skills | [Approved skill is withheld from autonomous workers](bugs/f702f2f6-approved-skill-is-withheld-from-autonomous-worke.md) | memory-proof-1011 | — |
 | P1 | fixed | autonomy | [Agent loop pause leaves cancelled iteration running and lease held](bugs/c66e8c39-agent-loop-pause-leaves-cancelled-iteration-runn.md) | agent/seam-audit-0912-b | b5c5cba75 |
 | P1 | fixed | autonomy | [Ambiguous permission and routine acknowledgements report unproven changes](bugs/95d13aaf-ambiguous-permission-and-routine-acknowledgement.md) | agent/systemic-bugs-0919 | 8eb87b0d3 |
@@ -380,11 +386,11 @@ User/owner reports: **110** · source fixed: **94** · installer verified: **6**
 | --- | --- |
 | channels | 1 |
 | autonomy | 3 |
-| providers | 5 |
+| providers | 6 |
 | safecell | 2 |
-| sessions | 0 |
+| sessions | 1 |
 | skills | 1 |
-| onboarding | 1 |
+| onboarding | 2 |
 | world | 0 |
 | voice | 0 |
 | release | 3 |
