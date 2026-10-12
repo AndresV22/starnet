@@ -76,16 +76,22 @@ try {
   await evalJS(cdp, 'PropRemaster.ready');
   const before=await evalJS(cdp, `(()=>{const key=PropRemaster.status().views.find(k=>k.endsWith(':s'));const [id,view]=key.split(':');const geo=PropRemaster.viewGeometry(id,view);const c=document.createElement('canvas');c.width=c.height=512;const g=c.getContext('2d');const sources=[];const draw=g.drawImage.bind(g);g.drawImage=(im,...args)=>{sources.push(im);return draw(im,...args);};const paint=()=>{g.clearRect(0,0,512,512);const ok=PropRemaster.draw(g,id,view,120,120,geo.spec.footprint.w*12,geo.spec.footprint.h*12,{still:true},()=>{});const px=g.getImageData(0,0,512,512).data;return {ok,alpha:px.reduce((a,v,i)=>a+(i%4===3?v:0),0)};};const initial=paint();window.__lossProof={paint,body:sources[0],geo,id,view};return {key,...initial,status:PropRemaster.status()};})()`);
   check('authored prop starts with visible pixels',before.ok&&before.alpha>0,JSON.stringify({key:before.key,alpha:before.alpha,pixels:before.status.pixels}));
-  await evalJS(cdp, `(()=>{const c=__lossProof.body,g=c.getContext('2d');g.setTransform(1,0,0,1,0,0);g.clearRect(0,0,c.width,c.height);c.dispatchEvent(new Event('contextlost',{cancelable:true}));})()`);
-  const immediate=await evalJS(cdp,'__lossProof.paint()');
-  check('loss preserves authored pixels instead of legacy fallback',immediate.ok&&immediate.alpha===before.alpha,JSON.stringify(immediate));
+  const immediate=await evalJS(cdp, `(()=>{const c=__lossProof.body,g=c.getContext('2d');g.setTransform(1,0,0,1,0,0);g.clearRect(0,0,c.width,c.height);c.dispatchEvent(new Event('contextlost',{cancelable:true}));return {...__lossProof.paint(),lost:PropRemaster.status().lost};})()`);
+  check('loss preserves authored pixels instead of legacy fallback',immediate.ok&&immediate.alpha===before.alpha&&immediate.lost>0,JSON.stringify(immediate));
   await evalJS(cdp,'PropRemaster.whenRecovered?.()');
-  const after=await evalJS(cdp,'__lossProof.paint()');
-  check('authored artwork recovers on same page',after.ok&&after.alpha===before.alpha,JSON.stringify(after));
+  const after=await evalJS(cdp,'({...__lossProof.paint(),lost:PropRemaster.status().lost,recovering:PropRemaster.status().recovering})');
+  check('authored artwork recovers on same page',after.ok&&after.alpha===before.alpha&&after.lost===0&&after.recovering===0,JSON.stringify(after));
   const floor=await evalJS(cdp,'World._dbgLoseCanvases(); World._dbgCanvasLoss()');
-  await sleep(1500);
-  const recovered=await evalJS(cdp,'World._dbgCanvasLoss()');
-  check('station floor recovers after cache loss',recovered.recoveries>floor.recoveries,JSON.stringify(recovered));
+  // Software rendering under the full gate can take longer than one fixed delay.
+  // Wait for proven recovered pixels, retaining a hard deadline for real failures.
+  const floorDeadline=Date.now()+15000;
+  let recovered=floor;
+  while(Date.now()<floorDeadline){
+    await sleep(250);
+    recovered=await evalJS(cdp,'World._dbgCanvasLoss()');
+    if(recovered.recoveries>floor.recoveries&&recovered.blank===false&&recovered.probeOff===false&&recovered.probe!=null)break;
+  }
+  check('station floor recovers after cache loss',recovered.recoveries>floor.recoveries&&recovered.blank===false&&recovered.probeOff===false&&recovered.probe!=null,JSON.stringify(recovered));
   check('graphics recovery has no uncaught errors',diagnostics.exceptions.length===0,JSON.stringify(diagnostics.exceptions));
 
 } catch (error) {

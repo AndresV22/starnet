@@ -33,7 +33,7 @@ After talking to a Qwen3 8B agent, the owner saw missing floor/wall surfaces, pr
 
 Owner screenshots dated 2026-10-12 00:00:26 and 00:00:55 EDT. Local runtime audit correlated Ollama allocation errors, Windows Resource-Exhaustion-Detector Event 2004 at 00:00:05, WebView GPU-process exit, and sidecar restart at 00:00:10. Internal session-recommendation work had loaded Llama 3.1 8B immediately before the Qwen request. This supports resource pressure as the incident trigger; the controlled regression isolates the subsequent rendering defect without reproducing a driver crash.
 
-Old-renderer live proof: authored prop alpha 128578 before loss; immediately after loss and after waiting, draw=false and alpha=0. Candidate live proof: alpha 115661 before/immediately after/after recovery; draw=true; floor watchdog blank=false; zero uncaught exceptions. Different automatically loaded first prop keys account for the differing pre-loss alpha totals. Logs are retained in the owning lane's .dogfood/render-baseline.log and .dogfood/render-after.log.
+Old-renderer live proof: authored prop alpha 128578 before loss; immediately after loss and after waiting, draw=false and alpha=0. Final candidate live proof: alpha 128578 before/immediately after/after recovery; draw=true. Loss dispatch and immediate paint run in one synchronous browser evaluation, with lost=1 proving the retained CPU pixels rendered before asynchronous recovery. Afterwards lost=0 and recovering=0 prove reconstruction finished. Floor watchdog has a valid occupied-tile probe, probeOff=false and blank=false; zero uncaught exceptions. Logs are retained in the owning lane's .dogfood/render-baseline.log and .dogfood/render-strict-live-final.log. The live test waits up to 15 seconds for actual recovered floor pixels; a fixed 1.5-second sleep was insufficient under concurrent software-rendering gate load.
 
 Machine-checkable anchors: test/prop-remaster-recovery.test.js, test/projection-depth-rendering.test.js, test/prop-recovery-live.e2e.test.mjs. The source defect was the permanent `if(e.lost)return false` path and blanket `probeOff = true` exception handling.
 
@@ -45,7 +45,7 @@ No installer was rebuilt or installed, and the owner has not retested the repair
 
 ## Regression
 
-Before: real-canvas prop lifecycle tests fail 0/6, and the live original renderer loses authored pixels permanently. After: six real-canvas lifecycle cases and the real seeded-app check pass. Floor regressions cover transient readback failure, later loss, failed probe registration, blank rebuild, sparse healthy layouts, and permanent taint. Ollama regression covers HTTP, stream and compatible fallback memory errors reaching the actual agent loop after one POST without retry waits; hosted errors retain existing retry behavior.
+Before: all six original real-canvas lifecycle cases fail, and the live original renderer loses authored pixels permanently. After: seven real-canvas lifecycle cases and the real seeded-app check pass. The seventh case proves that pure status overlays and idle screen state remain truthful while the authored body recovers. Floor regressions cover transient readback failure, later loss, failed probe registration, blank rebuild, sparse healthy layouts, and permanent taint. Ollama regression covers HTTP, stream and compatible fallback memory errors reaching the actual agent loop after one POST without retry waits; hosted errors retain existing retry behavior.
 
 
 ## Sibling coverage
