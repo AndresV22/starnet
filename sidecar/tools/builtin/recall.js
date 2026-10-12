@@ -29,6 +29,8 @@
 })(typeof globalThis !== 'undefined' ? globalThis : this, function (retrieval) {
   'use strict';
 
+  const { note: failNote } = (typeof require === 'function') ? require('../../failopen.js') : { note: function (tag, code) { console.warn('[failopen] ' + tag + ':', code); } };
+
   const SNIPPET = 600;   // per-turn clip in a result list — enough to judge relevance, not a transcript dump
 
   // YYYY-MM-DD for a stamp the model can reason about ("that was three weeks ago"). PURE: formats the PASSED ts,
@@ -60,7 +62,10 @@
           try {
             const known = transcriptStore.taintOf(r.streamId, [{ role: preview ? 'user' : r.role, content: preview ? r.preview : r.content }]);
             if (known) return String(known).slice(0, 200);
-          } catch (_) { /* unknown remains fail closed */ }
+          } catch (_) {
+            // Store failures may contain private transcript bytes; report only a fixed diagnostic.
+            failNote('recall.taint-provenance', 'TAINT_LOOKUP_FAILED');
+          }
         }
       }
       return unknown ? 'historical conversation (taint unverifiable: missing row provenance)' : null;

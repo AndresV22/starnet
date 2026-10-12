@@ -165,5 +165,52 @@ let clk = 1000; const clock = { now: () => clk };
     A.ok(relay && !policy.postTaintBoundary({ name: 'shell.exec', capability: 'terminal', impact: 'workspace-process' }, { taintedBy: relay, surface: 'autonomous' }).allow, 'the existing dispatch boundary consumes recalled taint');
   }
 
+  // Failed provenance lookup is observable without disclosing exception/row bytes, and stays untrusted.
+  {
+    const failopen = require('../sidecar/failopen.js');
+    const policy = require('../sidecar/taint.js');
+    const tag = 'recall.taint-provenance';
+    const before = failopen.counts()[tag] || 0;
+    const privateText = 'private-cobalt-transcript';
+    const row = { streamId: 'private-stream', role: 'user', content: privateText, ts: 7000 };
+    const preview = { streamId: row.streamId, preview: privateText, turns: 1, lastAt: row.ts };
+    let lookups = 0;
+    const store = {
+      search: () => [row], around: () => [row], streams: () => [preview],
+      taintOf: () => {
+        lookups++;
+        const e = new Error('private-exception C:/private/history: ' + privateText);
+        e.code = 'private-error-code';
+        throw e;
+      }
+    };
+    const { recallTool } = makeRecallTool({ transcriptStore: store });
+    const calls = [{ query: 'cobalt', scope: 'stream' }, { around: 7000 }, {}];
+    const warnings = [], originalWarn = console.warn;
+    console.warn = (...args) => warnings.push(args.join(' '));
+    try {
+      for (const args of calls) {
+        const result = await recallTool.run(args, { streamId: row.streamId });
+        A.ok(result.content.includes(privateText), 'provenance failure preserves the requested recall result');
+        A.ok(/unverifiable/.test(result.taintedBy), 'provenance lookup failure remains untrusted in every recall shape');
+        const relay = policy.relayedTaint(result);
+        A.ok(relay && !policy.postTaintBoundary({ name: 'shell.exec', capability: 'terminal', impact: 'workspace-process' },
+          { taintedBy: relay, surface: 'autonomous' }).allow, 'failed historical provenance still blocks autonomous shell');
+      }
+      A.eq(lookups, 3, 'search, scroll and browse each attempted provenance resolution');
+      A.eq(failopen.counts()[tag], before + 3, 'every failed provenance lookup is counted');
+      A.eq(warnings, [1, 2, 3].map(n => '[failopen] ' + tag + ' (x' + (before + n) + '): TAINT_LOOKUP_FAILED'),
+        'diagnostics contain only the fixed category/code, never private errors, paths, rows or streams');
+
+      row.taintKnown = true; preview.previewTaintKnown = true;
+      for (const args of calls) {
+        A.eq((await recallTool.run(args, { streamId: row.streamId })).taintedBy, null,
+          'explicit host-proven clean provenance remains clean');
+      }
+      A.eq(lookups, 3, 'known provenance needs no fallback lookup');
+      A.eq(failopen.counts()[tag], before + 3, 'known provenance adds no false failure diagnostic');
+    } finally { console.warn = originalWarn; }
+  }
+
   A.report('recall.test');
 })();
