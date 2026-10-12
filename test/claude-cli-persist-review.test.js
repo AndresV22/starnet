@@ -58,7 +58,7 @@ function reply(events) {
   return r;
 }
 const startMessages = () => [{ role: 'system', content: 'Review fixture' }, { role: 'user', content: 'Read a' }];
-const spent = r => r.events.find(e => e.type === 'usage').usage.cost;
+const spent = r => { const event = r.events.find(e => e.type === 'usage'); return event && event.usage.cost; };
 (async () => {
   // Initialization may be emitted only once; cost provenance stays with this child/account.
   for (const source of ['none', 'ANTHROPIC_API_KEY']) {
@@ -143,6 +143,57 @@ const spent = r => r.events.find(e => e.type === 'usage').usage.cost;
       A.eq(out.events.filter(e => e.type === 'tool_start').length, 1, 'R3 parsed call is not emitted twice');
       A.eq(out.events.filter(e => e.type === 'done').length, 0, 'R3 failure never reports successful done');
       A.eq(r.children.length, 1, 'R3 terminal failure never prewarms a replacement');
+    } finally { r.dispose(); }
+  }
+  for (const mode of ['plain-success', 'tool-success', 'tool-error']) {
+    const text = mode === 'plain-success' ? 'done' : block;
+    const r = rig(c => {
+      setImmediate(() => {
+        c.child.exitCode = 0; c.child.emit('exit', 0);
+        setImmediate(() => {
+          if (mode === 'tool-error') c.emit({ type: 'assistant', error: 'rate_limit' });
+          c.emit(result(mode === 'tool-error' ? 'rejected' : text, 0.25, mode === 'tool-error' ? { is_error: true } : {}));
+          c.exit(0);
+        });
+      });
+      return [init('ANTHROPIC_API_KEY'), delta(text)];
+    }, { keepAliveOnEnd: true });
+    try {
+      const out = await collect(r.provider, r.request(startMessages()));
+      A.eq(spent(out), 0.25, 'R2 late stdout after exit retains exact result cost: ' + mode);
+      A.eq(out.events.filter(e => e.type === 'done').length, mode === 'tool-error' ? 0 : 1, 'R2 late terminal controls success/failure: ' + mode);
+      A.eq(out.error && out.error.code, mode === 'tool-error' ? 'usage_limit_reached' : undefined, 'R2 late result remains authoritative: ' + mode);
+      A.eq(r.children.length, 1, 'R2 exit before stdout never causes a false no_end prewarm');
+      A.eq(r.kills.length, 0, 'R2 draining stdout never kills an exited PID');
+    } finally { r.dispose(); }
+  }
+  for (const tag of ['authentication_failed', 'rate_limit']) for (const end of ['eof', 'timeout']) {
+    const r = rig(c => {
+      if (end === 'eof') setImmediate(() => c.exit(0));
+      return [init('ANTHROPIC_API_KEY'), { type: 'stream_event', event: { type: 'message_start', message: { usage } } }, delta(block), { type: 'assistant', error: tag }];
+    });
+    try {
+      const out = await collect(r.provider, r.request(startMessages()));
+      A.eq(out.error && out.error.code, tag === 'rate_limit' ? 'usage_limit_reached' : 'provider_not_configured', 'R3 observed ' + tag + ' survives missing result/' + end);
+      A.eq(out.events.filter(e => e.type === 'done').length, 0, 'R3 missing result cannot turn observed failure into done');
+      A.eq(out.events.filter(e => e.type === 'usage').length, 1, 'R3 missing result preserves one available usage snapshot');
+      A.eq(out.events.find(e => e.type === 'usage').usage.prompt_tokens, 120, 'R3 partial usage preserves observed input/cache tokens');
+      A.ok(spent(out) > 0 && spent(out) !== 0.25, 'R3 no result uses existing partial estimate, not invented actual billed cost');
+      A.eq(out.events.filter(e => e.type === 'tool_start').length, 1, 'R3 missing result never re-emits tool deltas');
+      A.eq(r.children.length, 1, 'R3 missing-result failure never prewarms');
+    } finally { r.dispose(); }
+  }
+  {
+    const r = rig(() => [init('none'), delta('done'), result('done', 0)], { keepAliveOnEnd: true, failKill: true });
+    try {
+      await collect(r.provider, r.request(startMessages()));
+      r.provider.release('review-run'); await tick();
+      await collect(r.provider, { ...r.request(startMessages()), runId: 'next-run' });
+      A.eq(r.children.length, 2, 'R2 a new turn uses a new child while old cleanup remains owned');
+      r.provider.release('review-run'); await tick();
+      A.eq(r.children[1].exited, false, 'R2 old-run cleanup never terminates the replacement');
+      A.eq(r.provider.persistStats().reusable, true, 'R2 old close does not clear the replacement session');
+      A.eq(r.provider.persistStats().cleanupPending, 0, 'R2 confirmed old cleanup removes only its pending owner');
     } finally { r.dispose(); }
   }
   A.report('claude-cli-persist-review.test');

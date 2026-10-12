@@ -812,6 +812,23 @@
         su.output_tokens = Math.max(Number(su.output_tokens) || 0, Math.ceil(t.outChars / 4));
         return [t.usageChunk({ usage: su, total_cost_usd: t.apiKeySource === 'none' ? NaN : estimateUsd(su, model) }), { type: 'done', finishReason: 'tool_calls', truncated: false }];
       };
+      t.failureError = function (message) {
+        // The CLI tags a lost sign-in on its assistant line ("error":"authentication_failed"). Carry it as a 401 so
+        // errorClass files it as `auth` (fail now, say why) instead of `unknown`, which the loop retries for ~105s.
+        if (t.apiError === 'authentication_failed') {
+          const e = new Error('Claude Code is not signed in (' + String(message || 'authentication failed').slice(0, 200) + ') — press SIGN IN on the CLAUDE CODE card (Settings → PROVIDERS), then retry');
+          e.status = 401; e.code = 'provider_not_configured';
+          return e;
+        }
+        // A spent subscription window ("You've hit your limit · resets 5pm …"): a 429 usage_limit_reached is
+        // quota_exhausted — no retry on this sign-in, rotate to the next connected account (or fall back).
+        if (t.apiError === 'rate_limit') {
+          const e = new Error('Claude Code usage limit reached: ' + String(message || 'rate limited').slice(0, 300));
+          e.status = 429; e.code = 'usage_limit_reached';
+          return e;
+        }
+        return new Error('Claude Code error: ' + String(message || 'unknown error').slice(0, 400));
+      };
       // The turn's end from its result line: a failure is thrown (after booking what it was billed); a success yields
       // the rest of the reply, its usage and exactly one done. `cost` overrides the line's total_cost_usd.
       t.finish = function* (exit, cost) {
@@ -825,21 +842,7 @@
           // a failed turn can still have been BILLED (an API-key sign-in pays for the tokens it used): report what the
           // CLI's result line says it cost before failing, so the ledger and the caps see it (sweep 2026-10-02)
           if (result.usage || isFinite(Number(billed.total_cost_usd))) yield t.usageChunk(billed);
-          // The CLI tags a lost sign-in on its assistant line ("error":"authentication_failed"). Carry it as a 401 so
-          // errorClass files it as `auth` (fail now, say why) instead of `unknown`, which the loop retries for ~105s.
-          if (t.apiError === 'authentication_failed') {
-            const e = new Error('Claude Code is not signed in (' + String(result.result || 'authentication failed').slice(0, 200) + ') — press SIGN IN on the CLAUDE CODE card (Settings → PROVIDERS), then retry');
-            e.status = 401; e.code = 'provider_not_configured';
-            throw e;
-          }
-          // A spent subscription window ("You've hit your limit · resets 5pm …"): a 429 usage_limit_reached is
-          // quota_exhausted — no retry on this sign-in, rotate to the next connected account (or fall back).
-          if (t.apiError === 'rate_limit') {
-            const e = new Error('Claude Code usage limit reached: ' + String(result.result || 'rate limited').slice(0, 300));
-            e.status = 429; e.code = 'usage_limit_reached';
-            throw e;
-          }
-          throw new Error('Claude Code error: ' + String(result.result || result.subtype || 'unknown error').slice(0, 400));
+          throw t.failureError(result.result || result.subtype);
         }
         if (!t.sawText && t.callIndex === 0 && typeof result.result === 'string') yield* emitSplit(splitter.push(result.result), []);
         yield* emitSplit(splitter.end(), []);
@@ -1068,6 +1071,7 @@
     }
     // What the child now holds: the request it answered + the reply it wrote. It waits, parked, for the next turn.
     function parkSession(s, rest, T, req) {
+      if (s.closed || s.closing) return;   // a drained final result cannot revive an exited child
       s.tools = toolMap(req.tools);   // every tool the child has now been told about (its system prompt + any announced since)
       s.covered = rest.map(fingerprint);
       s.pending = { text: T.shown, calls: T.calls.filter(Boolean).map(c => ({ id: c.id, name: c.name, args: c.args })) };
@@ -1150,7 +1154,8 @@
       };
       const nextLine = async () => {   // undefined = the child is gone; null = a wake-up (stop, watchdog, exit)
         while (!queue.length) {
-          if (!s.alive) return undefined;
+          // exit is not stdout EOF: a final result/usage line can arrive before close.
+          if (s.closed || (!s.alive && !s.processExited)) return undefined;
           await new Promise(r => { wake = r; });
         }
         return queue.shift();
@@ -1216,6 +1221,13 @@
             // Calls have already streamed. Reuse only the existing failure/usage settlement, never their deltas.
             yield* T.finish({ code: s.exitCode, stderr: s.stderr }, cost);
             return;
+          }
+          if (T.apiError) {
+            settle(); closeSession(s, 'error');
+            // No terminal result proves billed cost here. Retain the same explicitly estimated partial
+            // accounting used for an interrupted tool turn, then surface the observed auth/quota failure.
+            yield T.stopChunks(req.model)[0];
+            throw T.failureError(T.apiError);
           }
           const inSync = !!ended && !tail.trim() && !ended.is_error && ended.subtype === 'success' && !T.compacted &&
             String(ended.result == null ? '' : ended.result).trim() === T.raw.trim();
