@@ -7,7 +7,7 @@ severity: P2
 status: fixed
 found: 2026-10-12
 lane: conveyor-caps-1012
-fix: bd4de9ae2
+fix: 781cafc7c
 origin: audit
 affected: 0.13.2 source a20ffa71f
 ---
@@ -38,6 +38,10 @@ The integration lane then loaded that captured station through public World.load
 The registered fast regression uses actual stamped Second Opinion and Swarm Synthesis floors, the compiler, router, executor and production world shipping functions. It covers slow sequential/parallel siblings, a downstream analyst, exact job IDs under overlap, productive job A while independent talk-only job B completes first, duplicate SSE receipts, reconnect without observed work, direct-order isolation and cost aggregation with talk-only siblings. A real compiled FILTER sends general output directly to one OUTBOX and code output toward a JOINER, proving that the general path still releases correctly. The same test exercises actual FloorStats, Pride, XP and ProfileStore consumers to prevent duplicate credit.
 
 Focused verification passed: joined-product-truth, crate-honesty (24 assertions), chain-audit-1010 (43), floorstats (66), pride (26), XP (284). Shared event/schema files were unchanged; the existing workitem.delivered event accepts the same additive metadata pattern already used for dock identity.
+
+Final overlap review found a further pairing hazard: two runs by the same agent on different JOINER lines can finish in reverse placement order. The initial FIFO attribution mislabeled both held runs and both exact receipts then released no product. Commit 781cafc7c uses the existing LineWatch run record for the recorded dock and line, and consumes only its matching work-item placement. An explicit watched null line remains a direct order. The regression places A and B before either finishes, ends B then A, and checks two correct OUTBOX products plus exact queue removal.
+
+The running sidecar overlap proof used a real Run Now job A and concurrent sample job B at the same agent on two independently stamped Second Opinion lines. The local provider held A while B performed fs_list and completed: one product on B, with A still running. Releasing A produced the second product on A. Actual SSE plus the synthetic station document are preserved in qa/evidence/conveyor-join-overlap-live-events-20261012.json; beforeRelease contains completed B/pending A and afterRelease contains completed A. Targeted joined-product-truth, crate-honesty (24), and LineWatch (81) passed after the fix.
 
 ## Verdict
 
