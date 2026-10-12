@@ -6925,7 +6925,8 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     { key: 'maxIters', label: 'MAX ITERATIONS', hint: 'optional tool-turn ceiling for one run. 0 = unlimited (default).', min: 0, max: 200, step: 1 },
     { key: 'maxConcurrentAgents', label: 'MAX CONCURRENT AGENTS', hint: 'optional simultaneous-agent ceiling. 0 = unlimited (default).', min: 0, max: 32, step: 1 },
     { key: 'consentTimeoutMs', label: 'CONSENT TIMEOUT (MS)', hint: 'how long a permission prompt waits for your answer before auto-denying (so a run never hangs).', min: 5000, max: 600000, step: 1000 },
-    { key: 'cronTickMs', label: 'ROUTINE TICK (MS)', hint: 'how often the scheduler checks for due routines.', min: 5000, max: 600000, step: 1000 }
+    { key: 'cronTickMs', label: 'ROUTINE TICK (MS)', hint: 'how often the scheduler checks for due routines.', min: 5000, max: 600000, step: 1000 },
+    { key: 'maxSubscriptionTokens', label: 'CLAUDE CODE TOKEN CEILING', hint: 'tokens one run may use on a Claude subscription sign-in (cache re-reads count 1/10). 0 = no ceiling.', min: 0, max: 100000000, step: 100000 }
   ];
   function wireAdvanced(body) {
     const form = body.querySelector('#adv-form');
