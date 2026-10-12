@@ -22,7 +22,7 @@
      ARM 7 — PROJECT TIER (memory-compound lane): a lesson learned inside blessed project A is scoped to A —
              it is injected back inside A and NEVER into project B or an unscoped run.
      ARM 8 — HYBRID RECALL (memory-compound lane): with no embedding model the lane makes NO provider call and
-             a lexically-unrelated task does NOT recall the lesson (BM25 only); once `embedModel` is configured
+             known vocabulary aliases recall the lesson but a nonmatching paraphrase does NOT; once `embedModel` is configured
              the SAME task recalls it through the mock /embeddings wire, the vectors persist (a repeat costs no
              new call), and the personalization PAUSE silences the lane (no embedding call while paused).
 
@@ -339,24 +339,31 @@ async function settle(state, stableMs, maxMs) {
       A.eq(frCalls().length - before, 1, 'still exactly one failure-review pass for fr-proj (cooldown held across the probes)');
     }
 
-    // ---- ARM 8 — HYBRID RECALL: the embedding lane surfaces a lesson BM25 alone cannot -------------------------
+    // ---- ARM 8 — HYBRID RECALL: embeddings surface a lesson beyond the bounded lexical alias lane -------------
     {
       const embedCalls = () => mock.state.calls.filter(c => c.embed);
       const mainsSince = (n) => mock.state.calls.filter(c => c.main).slice(n);
-      // a task with ZERO lexical overlap with the lesson ("Registry pushes rate-limit after repeated attempts; batch
-      // retries with exponential backoff before the next push") — no shared significant token.
-      const PARAPHRASE = FAIL_MARK + ' inspect the station; our uploads to the package index keep getting throttled';
+      // uploads/pushes and throttled/rate-limit are now intentional lexical aliases. Keep that improvement
+      // as a positive control, then use a paraphrase outside the alias lexicon for the semantic-only proof.
+      const ALIASED_QUERY = FAIL_MARK + ' inspect the station; our uploads to the package index keep getting throttled';
+      const PARAPHRASE = FAIL_MARK + ' inspect the station; publishing artifacts to the package index returns HTTP 429';
       const before = frCalls().length;
       const ev0 = await driveRun(fixture, 'fr-sem', FAIL_MARK + ' inspect the station then push the registry update');
       A.eq(endReason(ev0), 'error', 'the semantic-arm seed run ended error');
       await settle(mock.state);
       A.eq(frCalls().length - before, 1, 'the seed failure fired one failure-review pass (the lesson exists)');
-      A.eq(embedCalls().length, 0, 'no embedding model configured -> NO embedding call was ever made (BM25 only, zero spend)');
-      // probe 1 — lane OFF: BM25 finds nothing for the paraphrase
+      A.eq(embedCalls().length, 0, 'no embedding model configured -> NO embedding call was ever made (lexical recall only, zero spend)');
+      // positive control — lane OFF: the bounded local alias map covers the formerly missed wording.
       let n = mock.state.calls.filter(c => c.main).length;
+      const evAlias = await driveRun(fixture, 'fr-sem', ALIASED_QUERY);
+      A.eq(endReason(evAlias), 'error', 'the alias probe ended error (cooldown: no new lesson)');
+      A.ok(mainsSince(n).length >= 1 && mainsSince(n).every(c => c.recall.indexOf('Registry pushes rate-limit') >= 0), 'bounded lexical aliases recall uploads/throttled without embeddings');
+      A.eq(embedCalls().length, 0, 'local lexical aliases make NO embedding provider call');
+      // probe 1 — lane OFF: neither exact terms nor known aliases match the HTTP 429 paraphrase.
+      n = mock.state.calls.filter(c => c.main).length;
       const ev1 = await driveRun(fixture, 'fr-sem', PARAPHRASE);
       A.eq(endReason(ev1), 'error', 'probe 1 ended error (cooldown: no new lesson)');
-      A.ok(mainsSince(n).length >= 1 && mainsSince(n).every(c => c.recall.indexOf('Registry pushes rate-limit') < 0), 'BM25 alone: the paraphrased task does NOT recall the lesson (the gap)');
+      A.ok(mainsSince(n).length >= 1 && mainsSince(n).every(c => c.recall.indexOf('Registry pushes rate-limit') < 0), 'lexical recall alone: the HTTP 429 paraphrase does NOT recall the lesson (semantic-only control)');
       A.eq(embedCalls().length, 0, 'still no embedding call with the lane off');
       // turn the lane on through the persisted memory config (the same live-config seam as reflectEnabled)
       const cfg = await fixture.json('POST', '/api/memory/config', { embedModel: 'openai/text-embedding-3-small' });
@@ -373,7 +380,7 @@ async function settle(state, stableMs, maxMs) {
       const ec = embedCalls();
       A.ok(ec.length >= 1 && ec.length <= 2, 'the lane made 1–2 bounded embedding calls (record backfill + query), got ' + ec.length);
       A.ok(ec.some(c => c.inputs.some(t => /Registry pushes rate-limit/.test(t))), 'the lesson text was embedded (record backfill)');
-      A.ok(ec.some(c => c.inputs.some(t => /throttled/.test(t))), 'the query text was embedded');
+      A.ok(ec.some(c => c.inputs.some(t => /publishing artifacts.*HTTP 429/.test(t))), 'the nonmatching lexical control was embedded as the semantic query');
       A.ok(ec.every(c => c.model === 'openai/text-embedding-3-small'), 'every embedding call rode the configured embed model');
       A.ok(fs.existsSync(path.join(fixture.workspace, 'fr-sem.embed.json')), 'the vectors persisted to the durable embed:<agent> sibling store');
       // probe 3 — vectors persisted + query cached: the SAME task recalls again with NO new embedding call

@@ -13,6 +13,35 @@ function textOf(message) {
 function quotedMaterial(text) {
   return /```|~~~|(?:^|\n)\s*>|<\/?(?:document|email|untrusted|script)\b|[“"][^“”"]{20,}[”"]/i.test(String(text || '')) || /\b(?:examples?|samples?|transcript|following (?:document|email|message)|(?:document|attachment|website|webpage|email|message|article)\s+(?:says?|said|states?|reads?|instructs?))[^\n]*[:\n]/i.test(String(text || ''));
 }
+// Ambient activity and repeat-work claims require the original owner text, not the completion run's later
+// provenance. Bound before filtering; legacy rows without an explicit clean stamp cannot supply that proof.
+function cleanOwnerRows(rows, runRecords) {
+  const origins = runRecords === undefined ? null : new Map((Array.isArray(runRecords) ? runRecords : []).filter(r => r && r.runId).map(r => [r.runId, r]));
+  return (Array.isArray(rows) ? rows : []).slice(-400).filter(m => {
+    if (!m || m.role !== 'user' || m.taintKnown !== true || m.taint || m.from ||
+      typeof m.content !== 'string' || !m.content.trim() || quotedMaterial(m.content)) return false;
+    if (!origins) return true;
+    // A clean row can still be station self-talk. Resolve its original run independently of the recent
+    // title window; missing origin or an unknown internal flag is not evidence of an owner request.
+    const r = origins.get(m.sourceRunId);
+    return !!(r && r.internal === false && !r.parentRunId && !r.delegatedBy && !r.cronJobId && !r.recoveryOf &&
+      r.agentId === m.agentId && (r.streamId || 'global') === m.streamId && !/^(?:nightshift-|cron-|workshop-)/i.test(r.streamId || ''));
+  });
+}
+function ownedBriefs(briefs, transcriptRows, runRecords) {
+  const clean = cleanOwnerRows(transcriptRows, runRecords), seen = new Set();
+  return (Array.isArray(briefs) ? briefs : []).filter(b => {
+    if (!b || !b.agentId || !b.originalDirective) return false;
+    // New briefs retain an immutable originalRunId. Older host briefs already encode that identity in
+    // tb_<original-run-id>; never substitute completion's mutable runId or a later identical request.
+    const original = b.originalRunId || (typeof b.id === 'string' && b.id.startsWith('tb_') ? b.id.slice(3) : '');
+    if (!original) return false;
+    const stream = b.streamId || 'global', key = JSON.stringify([b.agentId, stream, original]);
+    if (seen.has(key) || !clean.some(m => m.sourceRunId === original && m.agentId === b.agentId && m.streamId === stream &&
+      m.content.trim().slice(0, 4000) === b.originalDirective)) return false;
+    seen.add(key); return true;
+  });
+}
 function capture(messages, source) {
   const list = Array.isArray(messages) ? messages : [];
   for (let i = list.length - 1; i >= 0; i--) {
@@ -64,4 +93,4 @@ function evidence(input) {
   return { version: 1, source: 'host', runId: String(o.runId || ''), trigger: String(o.trigger || ''), tainted: !!o.tainted,
     trustedUserMessages: o.trustedInput ? [o.trustedInput] : [], checks: checks(o.completion), loadedSkills: o.loadedSkills || [] };
 }
-module.exports = { textOf, quotedMaterial, capture, eligible, preferences, checks, evidence };
+module.exports = { textOf, quotedMaterial, cleanOwnerRows, ownedBriefs, capture, eligible, preferences, checks, evidence };

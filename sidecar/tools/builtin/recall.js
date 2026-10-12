@@ -29,6 +29,8 @@
 })(typeof globalThis !== 'undefined' ? globalThis : this, function (retrieval) {
   'use strict';
 
+  const { note: failNote } = (typeof require === 'function') ? require('../../failopen.js') : { note: function (tag, code) { console.warn('[failopen] ' + tag + ':', code); } };
+
   const SNIPPET = 600;   // per-turn clip in a result list — enough to judge relevance, not a transcript dump
 
   // YYYY-MM-DD for a stamp the model can reason about ("that was three weeks ago"). PURE: formats the PASSED ts,
@@ -60,7 +62,10 @@
           try {
             const known = transcriptStore.taintOf(r.streamId, [{ role: preview ? 'user' : r.role, content: preview ? r.preview : r.content }]);
             if (known) return String(known).slice(0, 200);
-          } catch (_) { /* unknown remains fail closed */ }
+          } catch (_) {
+            // Store failures may contain private transcript bytes; report only a fixed diagnostic.
+            failNote('recall.taint-provenance', 'TAINT_LOOKUP_FAILED');
+          }
         }
       }
       return unknown ? 'historical conversation (taint unverifiable: missing row provenance)' : null;
@@ -68,13 +73,7 @@
 
     const recallTool = {
       name: 'recall_conversation', capability: 'memory', scope: 'read', requiresConsent: false,
-      description: 'Search your OWN earlier conversation by keyword and get the most relevant past messages back — ' +
-        'use it to remember what was discussed earlier (days/weeks ago) that has scrolled out of context. ' +
-        'Three ways to call it: (1) `query` combines current and earlier workstreams, ranking relevant matches — ' +
-        'pass scope:"stream" to search only this workstream; (2) `around` (a t= stamp from a result) reads the turns ' +
-        'surrounding that moment, so you can see a match in context; (3) no arguments lists your workstreams with a ' +
-        'topic preview, for when you do not know where to look. Not the same as notebook (durable facts you chose to ' +
-        'save) — this searches the raw dialogue history.',
+      description: 'Search your OWN earlier dialogue by keyword (not saved notebook facts). query ranks current and earlier workstreams; scope:"stream" stays local. anchor or around reads surrounding turns; no arguments lists workstreams with topic previews.',
       schema: {
         type: 'object',
         properties: {

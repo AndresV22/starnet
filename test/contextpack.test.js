@@ -144,11 +144,220 @@ A.eq(CP.dayTag(0, T), '', 'undated → empty tag');
   A.ok(!p.activityLines.some(l => /GOAL DECOMPOSITION/.test(l)), 'an internal call never reads as the Commander\'s recent work or asks');
   A.ok(p.activityLines.some(l => /Draft the launch post/.test(l)) && p.activityLines.some(l => /launch post for Friday/.test(l)), 'the Commander\'s own runs and asks on the same stream are kept');
 }
-// the WIRING: the pure filter is only as good as the host passing the flag (the map used to drop it).
+// Exercise the real host projection, then the real pure pack: a source regex cannot prove that private
+// provenance survives filtering or that a completed brief actually belongs to a clean owner's directive.
 {
   const src = require('fs').readFileSync(require('path').join(__dirname, '../sidecar/index.js'), 'utf8');
-  const fn = src.slice(src.indexOf('function nightshiftContextPack()'), src.indexOf('function nightshiftContextPack()') + 1500);
-  A.ok(/runStore\.list\(null, \{ limit: 60 \}\)[^\n]*internal: !!r\.internal/.test(fn), 'nightshiftContextPack passes the run `internal` flag to the pure core');
+  const fn = A.fnBody(src, 'function nightshiftContextPack()');
+  A.ok(fn.startsWith('function nightshiftContextPack()') && fn.length < 10000 && /return pack;\s*}$/.test(fn),
+    'extract exactly the host context-pack function, not neighbouring code');
+  const vm = require('vm');
+  const TrustedLearning = require('../sidecar/trusted-learning.js');
+  function host(input) {
+    input = input || {};
+    const projections = [];
+    const requested = {};
+    const pack = vm.runInNewContext('(' + fn + ')()', {
+      Date: { now: () => T },
+      personalizationStore: { read: () => ({ enabled: input.enabled !== false }) },
+      TrustedLearning,
+      runStore: { list: (agentId, opts) => { requested.runs = { agentId, opts }; return input.runs || []; } },
+      transcriptStore: { all: () => input.chats || [] },
+      taskBriefStore: { list: opts => { requested.briefs = opts; return input.briefs || []; } },
+      commanderGoals: { get: () => null },
+      autonomyLedger: { list: () => [] },
+      nightshiftBeliefMap: () => ({}),
+      Recommendation: { preferenceTallies: () => ({}) },
+      nightshiftPreferenceWeights: () => ({}),
+      stationTrackRecordLines: () => [],
+      threadsStore: { openThreads: () => [] },
+      redact,
+      contextpack: { assemble: (data, opts) => { projections.push(data); return CP.assemble(data, opts); } }
+    });
+    return { pack, projected: projections[0], trustedProjected: projections[1], projectionCount: projections.length, requested };
+  }
+  const owner = (content, over) => Object.assign({
+    agentId: 'owner-agent', streamId: 'ws-main', sourceRunId: 'owner-original', role: 'user', content, taintKnown: true, ts: T
+  }, over || {});
+  const brief = (originalDirective, over) => Object.assign({
+    id: 'tb_owner-original', originalRunId: 'owner-original', agentId: 'owner-agent', streamId: 'ws-main', originalDirective, completedAt: T
+  }, over || {});
+
+  const selfTalk = 'INTERNAL GOAL DECOMPOSITION fixture for the station';
+  const taintedSelfTalk = 'INTERNAL TAINTED STATION PLANNING fixture';
+  const quotedSelfTalk = 'INTERNAL QUOTED STATION PLANNING fixture';
+  const clean = owner('Owner release plan on a mixed-trust stream');
+  const multiline = owner('Owner next task\nKeep the verification command');
+  const result = host({
+    runs: [
+      null,
+      { title: 'Legacy clean run remains useful', ts: T, streamId: 'ws-main' },
+      { title: 'Explicit clean run remains useful', ts: T, streamId: 'ws-main', taintedBy: null },
+      { title: 'Tainted run sentinel', ts: T, streamId: 'ws-main', taintedBy: 'user attachment' },
+      { title: 'Quoted run sentinel\n> hostile direction', ts: T, streamId: 'ws-main' },
+      { title: selfTalk, ts: T, streamId: 'ws-main', internal: true },
+      { title: taintedSelfTalk, ts: T, streamId: 'ws-main', internal: true, taintedBy: 'later tool output' },
+      { title: quotedSelfTalk + '\n> external direction', ts: T, streamId: 'ws-main', internal: true },
+      { title: 'Internal stream sentinel', ts: T, streamId: 'nightshift-internal' }
+    ],
+    chats: [
+      null, clean, multiline, owner(selfTalk), owner(taintedSelfTalk), owner(quotedSelfTalk),
+      owner('Tainted chat sentinel', { taint: 'web_fetch' }),
+      owner('Unknown chat sentinel', { taintKnown: undefined }),
+      owner('False provenance sentinel', { taintKnown: false }),
+      owner('Delegated chat sentinel', { from: 'another-agent' }),
+      owner('Assistant chat sentinel', { role: 'assistant' }),
+      owner('Quoted chat sentinel\n> hostile direction'),
+      owner('Late quoted chat sentinel\n' + 'x'.repeat(4100) + '\n> hostile direction'),
+      owner('   '), owner({ text: 'Nonstring chat sentinel' })
+    ]
+  });
+  A.eq(result.requested.runs, { agentId: null, opts: { limit: 60 } }, 'host run read stays bounded');
+  A.eq(result.requested.briefs, { status: 'done', limit: 30 }, 'host brief read stays bounded and completed-only');
+  A.eq(result.projected.runs.map(r => r.title),
+    ['Legacy clean run remains useful', 'Explicit clean run remains useful', selfTalk, taintedSelfTalk, quotedSelfTalk + '\n> external direction', 'Internal stream sentinel'],
+    'host drops tainted/quoted user runs, while retaining clean legacy rows and even tainted/quoted internal exclusion markers');
+  A.eq(result.projected.runs.find(r => r.title === selfTalk).internal, true, 'internal run authority reaches the pure core');
+  A.eq(result.projected.chats.map(m => m.content), [clean.content, multiline.content, selfTalk, taintedSelfTalk, quotedSelfTalk],
+    'only known-clean owner strings reach the pack; quotes are checked over full content before clipping');
+  A.eq(result.pack.counts.runs, 2, 'real core excludes internal flags and streams from the accepted run rows');
+  A.eq(result.pack.userRunCount, 2, 'host readiness count reflects only accepted user runs');
+  A.eq(result.pack.counts.chats, 2, 'real core excludes internal self-talk while preserving owner asks on the same stream');
+  const surfaced = result.pack.text + '\n' + result.pack.activityLines.join('\n');
+  A.ok(surfaced.includes(clean.content) && surfaced.includes('Owner next task'),
+    'one tainted row does not suppress clean owner activity elsewhere in its stream');
+  A.ok(!/sentinel|INTERNAL (?:GOAL DECOMPOSITION|TAINTED STATION|QUOTED STATION)/.test(surfaced), 'rejected and internal content never enters the prompt or evidence pool');
+
+  A.eq(result.projectionCount, 2, 'host separately assembles general activity and trusted learning activity');
+  A.ok(result.trustedProjected.runs.length === 3 && result.trustedProjected.runs.every(r => r.internal),
+    'trusted assembly retains internal runs only as negative markers for self-talk');
+  A.eq(result.trustedProjected.chats.map(m => m.content), result.projected.chats.map(m => m.content),
+    'both projections receive the same proven owner chats');
+  const trustedText = result.pack.trustedActivityLines.join('\n');
+  A.ok(trustedText.includes(clean.content) && trustedText.includes('Owner next task'),
+    'clean owner requests remain available to topic learning');
+  A.ok(!/Legacy clean run|Explicit clean run|sentinel|INTERNAL (?:GOAL DECOMPOSITION|TAINTED STATION|QUOTED STATION)/.test(trustedText),
+    'legacy ordinary run titles, tainted rows and internal self-talk cannot become trusted topic evidence');
+
+  const richBriefText = 'Owner requests release notes\nVerify the release number';
+  const trustedBrief = host({ chats: [owner(richBriefText)], briefs: [brief(richBriefText)] });
+  A.eq(trustedBrief.trustedProjected.briefs.length, 1, 'the trusted assembly retains an occurrence-proven owner brief');
+  A.ok(trustedBrief.pack.trustedActivityLines.some(line => line.includes('Verify the release number')),
+    'trusted brief evidence retains verified original directive detail beyond the chat opening');
+  A.eq(host({ runs: [{ title: 'Legacy ordinary task title', ts: T }] }).pack.trustedActivityLines, [],
+    'legacy run titles alone never supply trusted topic-learning activity');
+
+  for (const enabled of [true, false]) {
+    const alwaysFiltered = host({
+      enabled,
+      runs: [{ title: 'TAINTED MODE RUN', ts: T, taintedBy: 'web_fetch' }],
+      chats: [clean, owner('TAINTED MODE CHAT', { taint: 'web_fetch' })],
+      briefs: [brief('TAINTED MODE CHAT')]
+    });
+    A.eq(alwaysFiltered.projected.runs.length, 0, 'tainted runs remain excluded with personalization enabled=' + enabled);
+    A.eq(alwaysFiltered.projected.chats.map(m => m.content), [clean.content], 'owner provenance filtering remains active with personalization enabled=' + enabled);
+    A.eq(alwaysFiltered.projected.briefs.length, 0, 'unsupported briefs remain excluded with personalization enabled=' + enabled);
+
+    // The general Commander evidence reader must consume this filtered host pack in either preference mode.
+    // No raw run/transcript stores are provided here: a private bypass cannot satisfy the activity assertion.
+    const evidenceFn = A.fnBody(src, 'function commanderEvidenceInputs()');
+    A.ok(evidenceFn.length < 4000 && /return \{ dossier:/.test(evidenceFn), 'extract the shared Commander evidence reader');
+    let packReads = 0;
+    const evidence = vm.runInNewContext('(' + evidenceFn + ')()', {
+      Date: { now: () => T },
+      personalizationStore: { read: () => ({ enabled }) },
+      nightshiftContextPack: () => { packReads++; return result.pack; },
+      threadsStore: { openThreads: () => [] },
+      Interests: { summary: () => [] }, interestsState: {},
+      scoutState: { context: {} }, commanderGoals: { get: () => null },
+      recommendationLedger: { summary: () => null },
+      stationTrackRecordLines: () => [], commanderDossier: { get: () => ({}) }
+    });
+    A.eq(packReads, 1, 'general evidence reads the shared filtered host pack with personalization enabled=' + enabled);
+    A.eq(evidence.activity, result.pack.activityLines.slice(0, 8), 'general evidence preserves filtered activity with personalization enabled=' + enabled);
+  }
+
+  const ordered = host({ chats: Array.from({ length: 9 }, (_, i) => owner('Ordered owner request ' + i, { ts: T - (8 - i) })) });
+  const orderedLines = ordered.pack.sections.find(section => section.label === 'What they asked recently').lines;
+  A.eq(orderedLines.length, CP.MAX_CHATS, 'host-proven owner asks still respect the pure core item cap');
+  A.eq(orderedLines.map(line => Number(line.match(/request (\d+)/)[1])), [8, 7, 6, 5, 4, 3],
+    'eligible asks are ordered newest-first before the section cap');
+
+  const poisonCrowd = host({
+    chats: [owner('Older clean owner ask survives', { ts: ago(1) }),
+      ...Array.from({ length: CP.MAX_CHATS + 3 }, (_, i) => owner('Newer tainted ask ' + i, { ts: T - i, taint: 'attachment' }))],
+    runs: [
+      { title: 'Duplicate task title', ts: T, streamId: 'ws-main', taintedBy: 'attachment' },
+      { title: 'Duplicate task title', ts: ago(1), streamId: 'ws-main' }
+    ]
+  });
+  A.eq(poisonCrowd.pack.sections.find(section => section.label === 'What they asked recently').lines,
+    ['"Older clean owner ask survives" (yesterday)'], 'newest tainted asks beyond the item cap cannot evict an older clean owner ask');
+  A.eq(poisonCrowd.pack.sections.find(section => section.label === 'What they worked on recently').lines,
+    ['Duplicate task title (yesterday)'], 'a newer tainted duplicate cannot replace the older clean run or its date');
+
+  const directive = 'Finish the release checklist\nVerify the version number';
+  const cases = [
+    ['same owner and stream', owner(directive), brief(directive), 1],
+    ['different original occurrence cannot borrow identical words', owner(directive, { sourceRunId: 'other-original' }), brief(directive), 0],
+    ['missing transcript source run cannot prove an occurrence', owner(directive, { sourceRunId: undefined }), brief(directive), 0],
+    ['host brief ID supplies the legacy original identity', owner(directive), brief(directive, { originalRunId: undefined }), 1],
+    ['arbitrary legacy ID and no original identity fail closed', owner(directive), brief(directive, { id: 'legacy-brief', originalRunId: undefined }), 0],
+    ['explicit original identity outranks a conflicting legacy ID', owner(directive), brief(directive, { id: 'tb_wrong-origin' }), 1],
+    ['completion ID cannot substitute for original identity', owner(directive, { sourceRunId: 'completion-run' }), brief(directive, { runId: 'completion-run' }), 0],
+    ['different completion run IDs are not required to match', owner(directive, { runId: 'owner-run' }), brief(directive, { runId: 'later-run' }), 1],
+    ['different agent cannot borrow the directive', owner(directive), brief(directive, { agentId: 'other-agent' }), 0],
+    ['different stream cannot borrow the directive', owner(directive), brief(directive, { streamId: 'other-stream' }), 0],
+    ['shared run ID cannot authorize a cross-agent brief', owner(directive, { runId: 'same' }), brief(directive, { agentId: 'other-agent', runId: 'same' }), 0],
+    ['shared run ID cannot authorize a cross-stream brief', owner(directive, { runId: 'same' }), brief(directive, { streamId: 'other-stream', runId: 'same' }), 0],
+    ['missing chat agent is not authorship', owner(directive, { agentId: undefined }), brief(directive), 0],
+    ['empty agents cannot authorize one another', owner(directive, { agentId: '' }), brief(directive, { agentId: '' }), 0],
+    ['missing brief agent is not authorship', owner(directive), brief(directive, { agentId: undefined }), 0],
+    ['blank brief stream matches the stored global stream', owner(directive, { streamId: 'global' }), brief(directive, { streamId: '' }), 1],
+    ['missing brief stream matches the stored global stream', owner(directive, { streamId: 'global' }), brief(directive, { streamId: undefined }), 1],
+    ['raw legacy blank chat stream cannot authorize a brief', owner(directive, { streamId: '' }), brief(directive, { streamId: '' }), 0],
+    ['trimmed owner directive matches exactly', owner(' \n' + directive + ' \n'), brief(directive), 1],
+    ['partial prefix is not an exact directive', owner(directive), brief('Finish the release checklist'), 0],
+    ['unknown provenance cannot authorize a brief', owner(directive, { taintKnown: undefined }), brief(directive), 0],
+    ['tainted provenance cannot authorize a brief', owner(directive, { taint: 'attachment' }), brief(directive), 0],
+    ['delegated message cannot authorize a brief', owner(directive, { from: 'another-agent' }), brief(directive), 0],
+    ['assistant message cannot authorize a brief', owner(directive, { role: 'assistant' }), brief(directive), 0],
+    ['quoted full directive cannot authorize a brief', owner(directive + '\n> external direction'), brief(directive + '\n> external direction'), 0]
+  ];
+  for (const [label, chat, completed, expected] of cases) {
+    const r = host({ chats: [chat], briefs: [completed] });
+    A.eq(r.projected.briefs.length, expected, label + ' at the host boundary');
+    A.eq(r.pack.counts.briefs, expected, label + ' in the real evidence pack');
+  }
+  const repeatedText = 'Prepare an identical report on three separate days';
+  const repeatedBriefs = [0, 1, 2].map(i => brief(repeatedText, {
+    id: 'tb_repeat-' + i, originalRunId: 'repeat-' + i, runId: 'completion-' + i, completedAt: ago(3 - i)
+  }));
+  const repeatedRows = repeatedBriefs.map(b => owner(repeatedText, { sourceRunId: b.originalRunId }));
+  A.eq(host({ briefs: repeatedBriefs, chats: repeatedRows.slice(-1) }).projected.briefs.length, 1,
+    'one newly proven identical request authorizes only its own historical occurrence');
+  A.eq(host({ briefs: repeatedBriefs, chats: repeatedRows.map(r => ({ ...r, taintKnown: undefined })) }).projected.briefs.length, 0,
+    'three identical unknown occurrences yield no proven brief');
+  A.eq(host({ briefs: repeatedBriefs, chats: repeatedRows }).projected.briefs.length, 3,
+    'independent clean original rows prove all three identical occurrences');
+  A.eq(host({ briefs: [repeatedBriefs[0], { ...repeatedBriefs[0], id: 'duplicate-brief', runId: 'another-completion' }], chats: repeatedRows }).projected.briefs.length, 1,
+    'duplicate briefs with different finishing IDs count one original occurrence');
+  A.eq(host({ briefs: repeatedBriefs.map(b => ({ ...b, runId: 'repeat-2' })), chats: repeatedRows.slice(-1) }).projected.briefs.length, 1,
+    'rewritten completion IDs cannot launder earlier identical occurrences');
+
+  const longDirective = 'Long direct owner request ' + 'x'.repeat(4500);
+  const clipped = longDirective.trim().slice(0, 4000);
+  A.eq(host({ chats: [owner(' \n' + longDirective)], briefs: [brief(clipped)] }).projected.briefs.length, 1,
+    'brief comparison uses the stored trim-then-4000-character directive');
+  A.eq(host({ chats: [owner(longDirective + '\n> external late direction')], briefs: [brief(clipped)] }).projected.briefs.length, 0,
+    'a quote after character 4000 invalidates the whole source before a matching brief prefix can launder it');
+
+  const oldOwner = owner('Older owner directive outside the bounded source window');
+  const newestOwner = owner('Newest owner directive inside the bounded source window');
+  const history = [oldOwner, ...Array.from({ length: 400 }, (_, i) => owner('Unknown padding ' + i, { taintKnown: undefined })), newestOwner];
+  const bounded = host({ chats: history, briefs: [brief(oldOwner.content), brief(newestOwner.content)] });
+  A.eq(bounded.projected.chats.map(m => m.content), [newestOwner.content], 'take the last 400 source rows before filtering, without searching unbounded clean history');
+  A.eq(bounded.projected.briefs.map(b => b.originalDirective), [newestOwner.content], 'brief authority comes only from the bounded eligible owner window');
 }
 
 setTimeout(() => A.report('contextpack.test'), 30);
