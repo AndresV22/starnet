@@ -136,7 +136,10 @@ A.eq(taint.postTaintBoundary(FS_WRITE, { taintedBy: 'web_fetch', surface: 'auton
   A.ok(/taintedBy: taintSource, surface: effectSurface, hasPrompt:/.test(src),
     'the dispatch gate applies on every surface and does not exempt owner identity');
   A.ok(/postTaint = revokedByTaint\.boundary/.test(src), 'dispatch uses the pure temporal confirmation state machine');
-  A.ok(/decision = await effectPrompt\(c, liveTool\)/.test(src), 'the recovery decision is obtained after taint at the exact call');
+  const confirmation = src.slice(src.indexOf('if (postTaint.needsConfirmation)'), src.indexOf('const postTaintConfirmed'));
+  A.ok(/const askEffect = \(\) => effectPrompt\(c, liveTool\);/.test(confirmation)
+    && /decision = await \(o\.delegatedBy \? askedBy\.run\(\{ agentId, runId, streamId: streamId \|\| '', signal \}, askEffect\) : askEffect\(\)\)/.test(confirmation),
+    'the recovery decision awaits the exact post-taint call, with worker attribution only for delegation');
   A.ok(/fresh post-taint one-call confirmation/.test(src), 'the recovered permission is explicitly one-call');
   A.ok(/summary: 'untrusted-content-lockout'/.test(src), 'the refusal is telemetered distinctly');
   A.ok(/outside content \(via ' \+ taintSource \+ '\)/.test(src),
