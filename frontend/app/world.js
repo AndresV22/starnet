@@ -727,7 +727,14 @@ const World = (() => {
     }
     return k;
   }
+  // Build holds unpublished geometry. Render-only work (late art, lighting or a still) must not
+  // rederive it: that also posts routing and clears the pending-edit truth. Explicit syncPlan and
+  // closing Build still publish through their existing paths.
+  function buildHoldsFloor() {
+    return !!(station && (geoDirty || !geo) && typeof Build !== 'undefined' && Build.isOpen());
+  }
   function rebake() {
+    if (buildHoldsFloor()) { bakeDirty = true; return; }
     if (geoDirty || !geo) rederive();
     if (!geo) return;
     cache = StationBake.bake(geo);
@@ -7003,6 +7010,7 @@ const World = (() => {
      when there is no honest picture to give (no bake yet, the awakening is still playing). */
   let stillPass = null;
   function renderStill(maxPx, opts) {
+    if (buildHoldsFloor()) return null;
     // A window that has not drawn a frame yet (opened behind other tabs: the browser runs no frames there) has not
     // built its station either. Build it here, exactly as the first frame would, so the phone still gets a picture.
     if (!stillPass && station && geo !== undefined) {
@@ -7058,6 +7066,7 @@ const World = (() => {
   /* A STILL OF SOME OF THE STATION'S OWN TILES (the lead builder's station.map { look: a room }): renderStill cropped to
      world tiles x1..x2, y1..y2, one tile of margin round them and the wall faces above the top row. Null when no still. */
   function renderStillOfTiles(t, maxPx, opts) {
+    if (buildHoldsFloor()) return null;
     if (!t || !station) return null;
     try { if (geoDirty) rederive(); if (bakeDirty || !cache) rebake(); } catch (_) { return null; }
     if (!geo || !geo.origin) return null;

@@ -140,6 +140,22 @@ try {
   cdp.timeoutMs = 45000;
   await cdp.send('Page.enable'); await cdp.send('Runtime.enable');
   const diagnostics = collectDiagnostics(cdp);
+  // Resolve the real artwork request only after an edit is held by Build. Slow image readiness
+  // used to call World.rebake(), publish that unfinished floor and silently clear pending edits.
+  await cdp.send('Page.addScriptToEvaluateOnNewDocument', { source: `(() => {
+    const original = window.fetch;
+    const held = new Promise(resolve => { window.__releaseLayoutArt = resolve; });
+    window.__layoutArtHeld = false;
+    window.__layoutRoutingPosts = 0;
+    window.fetch = function(input, init) {
+      const url = new URL(typeof input === 'string' ? input : input.url, location.href);
+      if (url.pathname === '/api/routing' && init && init.method === 'POST') window.__layoutRoutingPosts++;
+      const response = original.apply(this, arguments);
+      if (url.pathname !== '/assets/industrial/projection-correction/manifest.json') return response;
+      window.__layoutArtHeld = true;
+      return response.then(async value => { await held; return value; });
+    };
+  })();` });
   // a throttled frame pump: the world still recompiles + posts, without a software canvas starving every evaluate
   await cdp.send('Page.addScriptToEvaluateOnNewDocument', { source: 'window.requestAnimationFrame = cb => setTimeout(() => cb(performance.now()), 60); window.cancelAnimationFrame = id => clearTimeout(id);' });
   await cdp.send('Page.navigate', { url: base + '/' });
@@ -201,13 +217,43 @@ try {
 
   // 4. Build mode holds the world: an unsent edit reads as pending, and the answer never says the router runs it
   await evalJS(cdp, `(() => { App.station().assignPropAgent(${JSON.stringify(setup.bays[1])}, ''); return true; })()`);
-  await sleep(1000);
+  const heldBefore = await evalJS(cdp, '({ build: Build.isOpen(), held: window.__layoutArtHeld, posts: window.__layoutRoutingPosts, sync: World.planStatus() })');
+  check('Build holds the edit before artwork finishes', heldBefore.build && heldBefore.held && heldBefore.sync.pending, JSON.stringify(heldBefore));
+  const heldAfter = await evalJS(cdp, `(async () => {
+    window.__releaseLayoutArt(); await PropRemaster.ready;
+    World.rebake(); // lighting/user-art refresh shares the public invalidation path
+    const full = World.renderStill(320);
+    const cropped = World.renderStillOfTiles(App.station().rooms()[0].rects[0], 320);
+    return { build: Build.isOpen(), revision: PropRemaster.revision(), full: full === null, cropped: cropped === null,
+      posts: window.__layoutRoutingPosts, sync: World.planStatus() };
+  })()`);
+  check('late artwork and still reads preserve the unpublished Build floor', heldAfter.build && heldAfter.revision > 0
+    && heldAfter.full && heldAfter.cropped && heldAfter.sync.pending
+    && heldAfter.sync.hash === heldBefore.sync.hash && heldAfter.sync.lastHash === heldBefore.sync.lastHash
+    && !heldAfter.sync.inflight && heldAfter.posts === heldBefore.posts, JSON.stringify(heldAfter));
   const run3 = await leadRun(base, token, 'why is step 2 not running?');
   const result3 = layoutResult(mock, run3, leadRequest(mock, run3));
   let P = null; try { P = JSON.parse(result3); } catch (_) { P = null; }
   check('an edit held by Build mode reads as pending', !!P && P.routing.pendingEdits === true && /running the floor as last sent/.test(P.routing.note), JSON.stringify(P && P.routing));
   const PL = P && (P.lines || []).find(l => l.name === 'RESEARCH DESK');
   check('and the drawn floor says what is missing', !!PL && /NEEDS AN AGENT/.test(PL.status), PL && PL.status);
+  // The explicit run boundary can still publish while Build stays open; closing Build publishes the next edit.
+  const published = await evalJS(cdp, '(async () => { await World.syncPlan(); World.rebake(); return {build:Build.isOpen(),sync:World.planStatus()}; })()');
+  check('explicit plan sync still publishes a held edit', published.build && !published.sync.pending && !published.sync.inflight
+    && !published.sync.stale && published.sync.hash !== heldBefore.sync.hash, JSON.stringify(published));
+  await evalJS(cdp, `(() => { App.station().assignPropAgent(${JSON.stringify(setup.bays[1])}, ${JSON.stringify(setup.hero)}); Build.close(); return true; })()`);
+  let closed = null;
+  for (let i = 0; i < 40; i++) {
+    closed = await evalJS(cdp, '({build:Build.isOpen(),sync:World.planStatus()})');
+    if (!closed.build && !closed.sync.pending && !closed.sync.inflight && !closed.sync.stale && closed.sync.hash === heldBefore.sync.hash) break;
+    await sleep(250);
+  }
+  check('closing Build publishes the next floor', closed && !closed.build && !closed.sync.pending && !closed.sync.inflight
+    && !closed.sync.stale && closed.sync.hash === heldBefore.sync.hash, JSON.stringify(closed));
+  const run4 = await leadRun(base, token, 'read the line after I close Build');
+  const finalLayout = JSON.parse(layoutResult(mock, run4, leadRequest(mock, run4)));
+  check('the real router confirms the floor published on close', finalLayout.routing.state === 'live' && finalLayout.routing.confirmed === true
+    && !finalLayout.routing.pendingEdits && finalLayout.lines.some(l => l.name === 'RESEARCH DESK' && l.ready), JSON.stringify(finalLayout.routing));
   check('the mock carried every model call (no real provider)', mock.requests.length >= 6, String(mock.requests.length));
   check('no page exceptions', diagnostics.exceptions.length === 0, JSON.stringify(diagnostics.exceptions.slice(0, 3)));
 } catch (error) {
