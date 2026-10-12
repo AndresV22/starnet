@@ -9829,13 +9829,57 @@ const World = (() => {
     const q = aid && deferredShip.get(aid);
     if (q && q.length) { clearTimeout(q.shift().t); if (!q.length) deferredShip.delete(aid); }
   }
-  function clearDeferredShips() { for (const q of deferredShip.values()) for (const e of q) clearTimeout(e.t); deferredShip.clear(); }
+  function clearDeferredShips() { for (const q of deferredShip.values()) for (const e of q) clearTimeout(e.t); deferredShip.clear(); joinedProducts.clear(); releasedJoinItems.clear(); }
+  // A JOINER-capable line can choose different paths through a FILTER. Hold its productive runs
+  // until the executor names the actual OUTBOX and the exact runs/work-items in that completed job.
+  // Wall-clock time, another job at the same join, and a guessed content tag prove no delivery.
+  const joinedProducts = new Map();   // runId -> captured productive work
+  const releasedJoinItems = new Set();
+  function lineNeedsRelease(dockId, lineId) {
+    const plan = routingPlan;
+    if (!dockId || !lineId || !plan || typeof Pipeline === 'undefined' || !Pipeline.chainStepDock) return false;
+    for (const d of Object.keys(plan.lineOfDock || {})) {
+      if (plan.lineOfDock[d] !== lineId) continue;
+      for (const tag of ['general', 'code', 'research']) {
+        const step = Pipeline.chainStepDock(plan, d, { lineId, tag }, () => 0);
+        if (step && (step.join || step.afterJoin)) return true;
+      }
+    }
+    return false;
+  }
+  function holdJoinedProduct(aid, spec, lineId, productive = true) {
+    dockLineTake(aid);
+    if (!spec.runId) return;
+    const usd = runUsdRecon.get(spec.runId);
+    joinedProducts.set(spec.runId, { spec, lineId, productive, usd: typeof usd === 'number' && isFinite(usd) && usd > 0 ? usd : 0 });
+    if (joinedProducts.size > 400) joinedProducts.delete(joinedProducts.keys().next().value);
+  }
+  function releaseJoinedProduct(p) {
+    if (!p || p.box !== 'line-output' || !p.workitemId || !p.outboxId || !p.lineId) return;
+    if (releasedJoinItems.has(p.workitemId)) return;
+    releasedJoinItems.add(p.workitemId);
+    if (releasedJoinItems.size > 400) releasedJoinItems.delete(releasedJoinItems.values().next().value);
+    const ids = new Set(Array.isArray(p.workitemIds) ? p.workitemIds : []);
+    let worked = false, usd = 0;
+    for (const [runId, rec] of joinedProducts) {
+      if (rec.lineId !== p.lineId || (runId !== p.entryRunId && !ids.has(rec.spec.workitemId))) continue;
+      worked = worked || rec.productive; usd += rec.usd; joinedProducts.delete(runId);
+    }
+    if (!worked || !convey || !routingPlan) return;   // unseen/talk-only jobs never invent product
+    const out = (routingPlan.outs || []).find(o => o.propId === p.outboxId);
+    if (!out || !out.tile || (routingPlan.lineOfProp || {})[p.outboxId] !== p.lineId) return;
+    const weight = typeof Conveyor !== 'undefined' && Conveyor.weightForUsd ? Conveyor.weightForUsd(usd) : 0;
+    // Start at the proven OUTBOX inlet: replaying a guessed route from the last bay can take the
+    // other FILTER exit or pass a JOINER twice. The receipt proves this final belt tile was reached.
+    convey.enqueueAt(out.tile.x, out.tile.y, { outbound: true, box: 'product', weight,
+      workitemId: p.workitemId, agentId: p.agentId || '', dockId: p.dockId || null, lineId: p.lineId });
+  }
   // the crate's MASS must be read NOW: run.end drops runUsdRecon the instant this returns, so a deferred
   // ship that re-read it later would weigh every crate 0 (crate-mass honesty).
   function productCrateSpec(p) {
     const w = (typeof Conveyor !== 'undefined' && Conveyor.weightForUsd) ? Conveyor.weightForUsd(runUsdRecon.get((p && p.runId) || '')) : 0;
     // LINE WATCH (additive): the run it came from, so the crate card can show its recorded outcome
-    return { outbound: true, box: 'product', weight: w, workitemId: (p && p.workitemId) || '', runId: (p && p.runId) || '', agentId: (p && p.agentId) || '' };
+    return { outbound: true, box: 'product', weight: w, workitemId: (p && p.workitemId) || (runWork.get(runKey(p)) || {}).workitemId || '', runId: (p && p.runId) || '', agentId: (p && p.agentId) || '' };
   }
   function emitProductCrate(aid, spec, dockId) {
     if (!convey) return;
@@ -9867,6 +9911,7 @@ const World = (() => {
     const dch = (runDock && routingPlan && routingPlan.dockChains) ? routingPlan.dockChains[runDock] : null;
     const ch = dch || ((cAid && routingPlan && routingPlan.chains) ? routingPlan.chains[cAid] : null);
     const hasNext = !!(ch && ch.next && ch.next.length);
+    if (lineNeedsRelease(runDock, lineOfWork(work))) { holdJoinedProduct(cAid, spec, lineOfWork(work)); return; }
     // consume THIS run's placement entry (oldest first) — never cancel a sibling run's held crate
     if (hasNext && lineOfWork(dockLineTake(cAid))) {
       const q = deferredShip.get(cAid) || [];
@@ -10402,7 +10447,7 @@ const World = (() => {
     U.bus.on('agent.run.start', p => {
       if (!p || !p.agentId) return;
       const k = runKey(p);
-      runWork.set(k, { agentId: p.agentId, tools: 0, dels: 0 });
+      runWork.set(k, { agentId: p.agentId, workitemId: p.workitemId || '', tools: 0, dels: 0 });
       if (runWork.size > 200) runWork.delete(runWork.keys().next().value);   // bounded (a missed run.end must not leak forever)
       const l = liveRunOrder.get(p.agentId) || [];
       if (l.indexOf(k) < 0) l.push(k);
@@ -10432,8 +10477,9 @@ const World = (() => {
     U.bus.on('workitem.placed', p => intakeMessage(p));
     // LINE WATCH: the bay lamps + crate cards fold the same run/crate events the floor animates (linewatch.js)
     for (const n of ['workitem.placed', 'workitem.superseded', 'agent.run.start', 'agent.cost', 'agent.run.error', 'agent.run.end']) U.bus.on(n, p => watchEvent(n, p));
-    // (workitem.delivered no longer spawns a crate — the run.end 'done' handler below is the single
-    //  crate source, so channel replies can't double-crate. delivered still feeds the floor stats fold.)
+    // Ordinary stage deliveries do not spawn duplicates. The executor's exact terminal receipt
+    // releases productive work held for a JOINER-capable line, once the job reached its OUTBOX.
+    U.bus.on('workitem.delivered', p => releaseJoinedProduct(p));
     U.bus.on('workitem.superseded', p => { if (p && p.workitemId && convey) convey.dropWorkitem(p.workitemId); });
     // queue.status drives BOTH the numeric backpressure gauge (chanQueues) and the FloorStats backlog fold.
     U.bus.on('queue.status', p => { if (p && p.queueId != null) chanQueues.set(p.queueId, Math.max(0, p.depth | 0)); if (floor) floor.onEvent('queue.status', p); });
@@ -10490,6 +10536,11 @@ const World = (() => {
       // A clean finish that PROVABLY WORKED ships: one product crate leaves the producing agent's bay
       // and rides to the OUTBOX. A done-but-workless run ("I couldn't do that") ships NOTHING.
       if (r === 'done' && runWorked(p)) shipProductCrate(p);
+      else if (r === 'done') {
+        const work = dockWorkPeek(p && p.agentId), lineId = lineOfWork(work);
+        // A talk-only sibling contributes observed cost, never proof that a job produced work.
+        if (lineNeedsRelease(work && work.dockId, lineId)) holdJoinedProduct(p.agentId, productCrateSpec(p), lineId, false);
+      }
       if (p) {                                          // the run is over — drop ITS tally (and only its), either way
         const k = runKey(p);
         runWork.delete(k);
