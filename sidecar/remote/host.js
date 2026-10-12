@@ -86,6 +86,26 @@ function makeRemoteHost(d) {
      order, a station turn with a twin enriches it, and a turn the desk never saw is inserted after the last row a
      station turn matched. Nothing is dropped and nothing is reordered. */
   function mergeCanonical(local, turns) {
+    // Only the canonical final row can supersede saved prose, and only by explicit run identity.
+    const finals = new Map(), finalSlots = new Map();
+    const sameRun = (a, b) => !!a.sourceRunId && String(a.sourceRunId) === String(b.sourceRunId)
+      && (!a.agentId || !b.agentId || a.agentId === b.agentId)
+      && (!a.streamId || !b.streamId || a.streamId === b.streamId);
+    const withFinal = (prior, canonical) => {
+      const row = Object.assign({}, prior, canonical);
+      if (canonical.taint || prior.taint) row.taint = canonical.taint || prior.taint;
+      const attachments = [], seen = new Set();
+      for (const item of [].concat(prior.attachments || [], canonical.attachments || [])) {
+        const key = JSON.stringify(item);
+        if (!seen.has(key)) { seen.add(key); attachments.push(item); }
+      }
+      if (attachments.length) row.attachments = attachments;
+      return row;
+    };
+    for (const turn of Array.isArray(turns) ? turns : []) {
+      if (turn && !turn.sys && turn.role === 'assistant' && turn.dispatchState === 'final'
+          && turn.sourceRunId && String(turn.content || '').trim() && !finals.has(String(turn.sourceRunId))) finals.set(String(turn.sourceRunId), turn);
+    }
     const runParts = new Map();
     for (const turn of Array.isArray(turns) ? turns : []) {
       if (!turn || turn.role !== 'assistant' || !turn.sourceRunId) continue;
@@ -110,9 +130,20 @@ function makeRemoteHost(d) {
     };
     const kept = [], buckets = new Map();
     let userRunId = '';
-    for (const row of Array.isArray(local) ? local : []) {
+    for (let row of Array.isArray(local) ? local : []) {
       if (row && row.sys) { if (!row.transcriptPending) kept.push({ row, key: null }); continue; }
       if (!row || (row.role !== 'user' && row.role !== 'assistant')) continue;
+      const final = row.role === 'assistant' && finals.get(String(row.sourceRunId || ''));
+      if (final && sameRun(row, final)) {
+        const id = String(final.sourceRunId);
+        if (finalSlots.has(id)) {
+          const keptRow = kept[finalSlots.get(id)];
+          keptRow.row = withFinal(row, keptRow.row);
+          continue;
+        }
+        row = withFinal(row, final);
+        finalSlots.set(id, kept.length);
+      }
       if (row.role === 'user') userRunId = String(row.sourceRunId || '');
       if (committedAggregate(row, String(row.sourceRunId || userRunId))) continue;
       if (row.role === 'assistant' && !String(row.content == null ? '' : row.content).trim()) continue;
@@ -128,10 +159,14 @@ function makeRemoteHost(d) {
       const content = String(turn.content == null ? '' : turn.content);
       if (turn.role === 'assistant' && !content.trim()) continue;
       const key = turn.role + '\u0000' + content;
-      const q = buckets.get(key), idx = (q && q.length) ? q.shift() : -1;
+      const q = buckets.get(key), authoritative = turn.role === 'assistant' && turn.dispatchState === 'final' && finals.get(String(turn.sourceRunId || '')) === turn;
+      // A matching sentence from another run must never acquire this dispatch's identity.
+      const at = q ? q.findIndex(i => authoritative ? sameRun(kept[i].row, turn)
+        : finalSlots.get(String(kept[i].row.sourceRunId || '')) !== i) : -1;
+      const idx = at >= 0 ? q.splice(at, 1)[0] : -1;
       if (idx >= 0) {
         const prior = kept[idx].row;
-        kept[idx].row = Object.assign({}, turn, prior, { role: turn.role, content, ts: turn.ts != null ? turn.ts : prior.ts });
+        kept[idx].row = authoritative ? withFinal(prior, turn) : Object.assign({}, turn, prior, { role: turn.role, content, ts: turn.ts != null ? turn.ts : prior.ts });
         anchor = idx;
         continue;
       }
