@@ -7,7 +7,7 @@ The owner requested focused sessions, an organized codebase, the complete update
 ### Evidence collected and source boundaries
 
 - Integrated trunk at intake: `a20ffa71f`, with fast 1,138/1,138 and HTTP 209/209 receipts. Whole update since released 0.13.2 source `54899e5ff`: 409 paths; the recovered-session subset is 292. [Complete pinned inventory](../qa/evidence/customer-release-1011/change-inventory.json).
-- Reviewed issue repairs, the residual possessive-delegation correction, installation inspector, six fresh incident records and recovery reconciliation passed the full 1,140-step fast gate on `b2cdcb2f2`. The independently reviewed legacy-spend provenance repair is now combined through `1b03394db`; it requires new final-candidate gates. Serialized trunk integration remains owed. Earlier full gates on `a75a09e3e` do not cover the later crew-intent correction.
+- Reviewed issue repairs, the residual possessive-delegation correction, installation inspector, six fresh incident records and recovery reconciliation passed the full 1,140-step fast gate on `b2cdcb2f2`. The independently reviewed legacy-spend provenance repair, recovered incident records, quest fixture isolation, conveyor shipment/accounting repairs, graphics recovery and saved-station retry/copy diagnostics are now combined through `002068e56`. Full final-candidate gates remain owed; the memory, thread UX, credential runtime-reset and web-body diagnostic follow-ups are outside this bounded batch. Serialized trunk integration remains owed. Earlier full gates on `a75a09e3e` do not cover the later crew-intent correction.
 - Email: 122 complete selected threads / 246 messages across 73 intake groups. Search pagination completed; this is query-complete, not every conceivable mailbox report. Attachment and generic-subject gaps are explicit. [Sanitized intake](../qa/evidence/customer-release-1011/email-intake.md).
 - GitHub: 70 issues (48 open / 22 closed), 53 comments and 216 issue events through 2026-10-12T03:22:01Z. Closure is not customer recovery. [Issue dispositions](../qa/evidence/customer-release-1011/github-intake.json).
 - Whop remains unreviewed: community/channel identity and usable read access are missing. The browser helper failed; no current export was found. Existing references to Whop navigation/crossposts do not establish community intake.
@@ -28,22 +28,22 @@ The owner requested focused sessions, an organized codebase, the complete update
 | `1d3ac09a` / E23: Mac web-fetch TLS/decode/socket failure | Trace transport and decoding; preserve TLS/SSRF protections and require affected-platform acceptance. | Investigate Mac web fetch failures |
 | GitHub #99 / `5274c7b7`: local Ollama COMMS never finishes | Trace wire, first-token and terminal/cancellation behavior for the distinct reported configurations. Excludes the graphics lane's allocation-error retry. | Review open StarNet issues |
 
-The six customer records above and the three recovered records below remain open P1; related source repairs do not close them. After independent review and evidence merge 4a37ba87c, the current combined register has 251 records, 19 open (9 P1, 10 P2). The three additional P1 records recover previously missing saved-station, Drive authorization and Mac web-fetch reports; they are not newly established regressions. The private authorization acceptance queue is separate. Older Mac startup recovery is recorded per customer without closing its Windows sibling or the separate billing concern. A temporary credit recovery followed by recurrence remains unresolved.
+The six customer records above and the three recovered records below remain open P1; related source repairs do not close them. At evidence merge 4a37ba87c the register had 251 records, 19 open (9 P1, 10 P2). With five conveyor records and the still-open owner graphics incident, the current combined register has 257 records, 20 open (10 P1, 10 P2). The three additional P1 records recover previously missing saved-station, Drive authorization and Mac web-fetch reports; they are not newly established regressions. The private authorization acceptance queue is separate. Older Mac startup recovery is recorded per customer without closing its Windows sibling or the separate billing concern. A temporary credit recovery followed by recurrence remains unresolved.
 
 ### Active chats and integration ownership
 
 | Existing chat | Delivered / ongoing responsibility |
 | --- | --- |
-| Review Claude session context | Completed email intake and precise incident reconciliation; owns private source-to-case joins and now the E09 saved-station investigation |
+| Review Claude session context | Completed intake and E09 diagnostic follow-ups through 762b729cd, now combined; original saved-station cause/customer recovery remain unconfirmed |
 | Review open StarNet issues | Completed GitHub refresh and reviewed repair batch; owns public issue correlation, authorization acceptance mapping and now the #99 local-model investigation |
-| Review StarNet handoff process | Completed process analysis and read-only installation inspector; owns packaging evidence and now isolated credential-store recovery |
+| Review StarNet handoff process | Runtime vault-lock reporting candidate fd368c510 held: newly reachable START FRESH leaves live connector clients and pending authorization active; owner must prove post-durable-reset invalidation |
 | Coordination | Cross-channel deduplication, current queue, change inventory, independent review, final combined gates and serialized integration |
-| Investigate StarNet memory gaps | New owner-requested memory/capability implementation; inspect reviewed memory/crew delta before overlapping edits |
-| Review thread UX changes | New owner-requested chat/delegation/consent polish; preserve reviewed approval ownership and link command-visibility report 082ee8e5 |
-| Finish the conveyor system | Independent review held candidate 61a4c3022 for duplicate terminal-event product loss and durable shipment read-back/corruption loss; owner is repairing and proving them live before a new freeze |
-| Fix StarNet prop and texture bugs | Owner-reported graphics-loss recovery and explicit local-model allocation-error handling; exact live acceptance remains with its isolated lane |
-| Investigate Google Drive authorization block | New focused E08 investigation, initially read-only under disk pressure; external OAuth publishing state is not inferred |
-| Investigate Mac web fetch failures | New focused E23 investigation, initially read-only; preserve TLS and network boundary protections |
+| Investigate StarNet memory gaps | Implementation under repair after independent review: new-skill null-baseline digest, correction truncation metadata and newest trusted instruction retention; final host wiring and acceptance remain owed |
+| Review thread UX changes | Candidate 09e6afba0 held for premature raw dispatch-result recovery and unrelated conversation reload; owner repair/live acceptance pending, including command-visibility report 082ee8e5 |
+| Finish the conveyor system | Repaired candidate 67c3ad5f1 accepted into this isolated batch after live completion/storage proofs. Combined targeted line admission, sample-provider and onward-handoff HTTP checks pass; broad gates remain owed |
+| Fix StarNet prop and texture bugs | Candidate bb380c047 accepted into this isolated batch; combined 13 pixel scenarios, 44 canvas and 168 native-Ollama assertions pass. Broad and installed acceptance remain separate |
+| Investigate Google Drive authorization block | Source request/denial checks completed; no causal source defect established. Current exact-client publisher state and real broad-Drive authorization remain unverified |
+| Investigate Mac web fetch failures | Synthetic transport checks identify a separate post-header diagnostic gap; source repair proposal deferred until its registered-tool fixture works. Actual Mac transport cause remains unknown |
 
 The four newer implementation chats were discovered and coordinated on 2026-10-12. After the owner explicitly requested as many focused chats as needed, two additional investigations were created and three existing owners continued bounded customer cases. Their ongoing work is not silently included in the pinned inventories or source gates above. Serialize all trunk integration. Disk pressure is observed on this host; preserve other worktrees and avoid broad cleanup or concurrent large copies.
 
@@ -57,6 +57,8 @@ Each accepted slice names its source paths, an isolated owning worktree, a custo
 4. Cover adapters, entrypoints, displays and lifecycle, including failure, late reply, restart/upgrade and relevant siblings. Reuse existing journey tests; do not invent a parallel framework.
 5. Keep source-fixed, exact-installer-verified and customer-confirmed/persists outcomes separate. Silence remains unconfirmed; missing replies alone are not a desktop release blocker.
 6. Turn demonstrated recurring escape points into specific checks. Avoid speculative performance work, blanket refactors and duplicate fixes from old audit proposals.
+
+[Independent review findings](../qa/evidence/customer-release-1011/review-findings.json) track accepted repairs and held source candidates. [Drive and Mac investigation boundaries](../qa/evidence/customer-release-1011/follow-up-investigations.json) prevent repeated speculative fixes.
 
 Canonical defects remain in `qa/bugs/*.md`; regenerate `qa/BUGS.md`. Raw mail/community content, identities, private links and diagnostics stay outside tracked files. [Measured process analysis](../qa/evidence/customer-process-1011/report.md) and [readiness investigation](../qa/evidence/customer-release-1011/readiness-review.md) explain evidence limits.
 

@@ -1,6 +1,6 @@
 # StarNet — next release (draft)
 
-DRAFT updated 2026-10-12 for the release after v0.13.2. This describes the combined isolated candidate through `1b03394db`, extending integrated source `a20ffa71f`; it is not a published or installed-verified release. Reconcile the final candidate before copying these notes. `release:bump` replaces root `RELEASE_NOTES.md` with a scaffold; keep the current public release notes intact until the cut.
+DRAFT updated 2026-10-12 for the release after v0.13.2. This describes the combined isolated candidate through `002068e56`, extending integrated source `a20ffa71f`; it is not a published or installed-verified release. Reconcile the final candidate before copying these notes. `release:bump` replaces root `RELEASE_NOTES.md` with a scaffold; keep the current public release notes intact until the cut.
 
 ## Update Center summary draft
 
@@ -11,18 +11,21 @@ The summary above is under the Update Center's 520-character limit. Retain the i
 ## User-facing changes included in source
 
 - **Conveyors and onward work.** Build lines by dragging between machines. SEND TO passes an OUTBOX's finished job to another line's INBOX while preserving the producing workspace and the target line's own crew, job record and budget. COPY, TAKE TURNS and SPLIT THE JOB retain their distinct routing behavior.
+- **Conveyor completion and budgets.** Parallel/JOINER lines explain why whole-line STEP THROUGH is unavailable; individual-step tests remain available. Entry paths respect exhausted daily line budgets. SHIPPED counts recorded productive OUTBOX jobs once, survives restart and floor edits, and reports unavailable history when durable records cannot be read. Duplicate completion events retain the original joined work.
 - **Floor editing.** Box-select or double-click a whole line; copy, cut, paste and duplicate with Ctrl+C/X/V/D. Line cards include COPY LINE and DELETE LINE. R flips a belt corner, Q copies the piece under the pointer, and Alt shows settings.
 - **Agent-built floors.** Agents can plan onward connections, line copies and whole-line removal. Plans disclose removed connections, repeated templates receive distinct line names, and readiness follows the published floor.
 - **Delegated work.** A parent conversation shows each dispatched worker's work and report, including requests that need your attention. Worker files keep their project identity. Scoped builder lending lets an approved worker carry out its assigned floor-building job.
 - **Conversation files and review.** File and review trays retain context, completed items can be cleared and restored, and unresolved items remain visible. Streaming scroll, long composer behavior and image loading receive fixes.
 - **Voice and paired devices.** Local speech uses an improved synthesis/effect path with saved choices. A separate spoken-turn model can be selected without changing typed-chat routing. Paired-device audio transport receives reliability improvements; device acceptance remains listed below.
 - **Display controls and rendering.** Lighting has a persistent 0-100 control, keyboard text-size controls are available, and unchanged or offscreen scene work is reduced. No universal performance or memory-usage guarantee is implied.
+- **Graphics recovery.** Authored prop pixels remain available during canvas loss, repair retries are bounded, and floor read failures can recover. Explicit local-model allocation failures stop blind retries and show the observed error; this does not resolve every local-model startup delay.
 - **Memory and feedback.** Saved-memory and design-reference handling distinguishes the owner's intent from inverted relations, upstream instructions and properties requested but not observed. Stop explanations and channel steering receive improvements. These changes still require candidate-bound installed acceptance.
 - **Connectors and channels.** Connector storage distinguishes locked encrypted data from an empty fallback store; starting fresh preserves verified recovery copies. Discord and Signal setup guidance covers additional failure and private-recipient cases.
 - **Local models.** Ollama request formatting accommodates strict system-message templates. Timeout messages describe what StarNet observed. The separately reported long wait before an Ollama chat request is still under investigation.
 - **Files and child tools.** Browser uploads resolve the current project's file and verify what was selected. Ambiguous file patches are refused before writing; Windows child tools retain their required runtime environment. Selecting an upload is not proof that the destination website accepted it.
 - **Spending review.** Old pending receipts whose billing source was not recorded now say BILLING SOURCE UNKNOWN. Recorded managed and BYOK receipts retain their distinct guidance. Historical charges, caps and billing sources are not guessed; unresolved spend still blocks capped work. This improves the guidance but does not reconcile affected customer accounts.
 - **Fresh start and recovery.** Automatic legacy recovery respects an explicit erase/fresh start while preserving deliberate restore options.
+- **Saved-station diagnostics.** Recovery codes and copied fallback reports follow the latest retry and measured engine failure. These changes preserve save bytes and improve support evidence; they do not establish the cause of the original customer loading report.
 - **Checkpoint maintenance.** Maintenance also runs for unchanged snapshots, supervises Git work, and preserves recoverable history during replacement. The original customer's multi-hour macOS disk-growth scenario still needs affected-platform acceptance.
 
 ## Security
@@ -35,6 +38,7 @@ Local authorization and instruction-provenance hardening is included in source. 
 - Right-click removes a machine or belt. Delete on a whole-line selection removes that line; Undo restores it.
 - An OUTBOX hands work to an INBOX through SEND TO, never through a belt. A belt cannot close a circle except a LOOP's valid back lane.
 - RUN ONE REAL JOB can start downstream paid jobs when SEND TO is set. The target line has its own cost and budget.
+- SHIPPED excludes older deliveries without saved shipment records; it is not a reconstructed lifetime total.
 - Keep a station backup before downgrading: older builds do not understand onward routing.
 
 ## Before the cut
