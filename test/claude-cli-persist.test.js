@@ -1,0 +1,336 @@
+/* node test/claude-cli-persist.test.js — the Claude Code provider keeps ONE `claude` child per run (2026-10-12).
+
+   Before: every model turn spawned a fresh `claude -p` and re-sent the whole history as one text block (CLI start-up
+   on every turn; a block that grows never hits the previous turn's prompt cache). Now an agent-loop turn rides one
+   persistent `--input-format stream-json` child and sends only what StarNet added since the last turn — and falls back
+   to a fresh child with the full history whenever what the child holds is not provably StarNet's history.
+   A fake CLI stands in for `claude` (no real process is spawned); it speaks the stream-json protocol the real CLI
+   2.1.284 was observed to speak (scratchpad cli-persist/exp-*.log): one `result` line per user line, usage per turn,
+   total_cost_usd as a running total, exit when stdin closes. */
+'use strict';
+const A = require('./_assert.js');
+const { EventEmitter } = require('events');
+const { makeClaudeCliProvider } = require('../sidecar/providers/claude-cli.js');
+
+function fakeCli(script) {
+  const spawns = [];
+  function spawn(file, args, opts) {
+    const child = new EventEmitter();
+    const pipe = () => { const s = new EventEmitter(); s.setEncoding = () => {}; return s; };
+    child.stdout = pipe(); child.stderr = pipe();
+    child.pid = 7000 + spawns.length; child.exitCode = null;
+    const exit = code => { if (child.exitCode != null) return; child.exitCode = code; child.emit('exit', code); child.emit('close', code); };
+    if (file === 'taskkill') {
+      const target = spawns.find(r => String(r.child.pid) === args[1]);
+      if (target) { target.treeKilled = true; target.child.kill(); }
+      setImmediate(() => exit(0));
+      child.kill = () => exit(null);
+      return child;
+    }
+    const rec = { file, args, opts, inputs: [], killed: false, treeKilled: false, ended: false, child };
+    spawns.push(rec);
+    child.kill = () => { rec.killed = true; exit(null); };
+    const emit = l => { if (child.exitCode == null) child.stdout.emit('data', (typeof l === 'string' ? l : JSON.stringify(l)) + '\n'); };
+    const answer = (n, msg) => setImmediate(() => {
+      if (child.exitCode != null) return;
+      const s = script(rec, n, msg) || {};
+      for (const l of s.lines || []) emit(l);
+      if (s.crash != null) { if (s.stderr) child.stderr.emit('data', s.stderr); exit(s.crash); }
+    });
+    child.stdin = {
+      on() {},
+      write(line) { const msg = JSON.parse(line); rec.inputs.push(msg); answer(rec.inputs.length, msg); return true; },
+      // one-shot (kill switch off): the whole prompt arrives on stdin, then the child answers once and exits
+      end(text) {
+        rec.ended = true;
+        if (text) { rec.stdinText = text; const s = script(rec, 1, { text }) || {}; setImmediate(() => { for (const l of s.lines || []) emit(l); exit(0); }); }
+        else setImmediate(() => exit(0));
+      }
+    };
+    return child;
+  }
+  return { spawn, spawns };
+}
+const fakeFs = { statSync() { return { isFile: () => true }; }, writeFileSync() {}, unlinkSync() {} };
+const make = (script, extra) => {
+  const f = fakeCli(script);
+  const p = makeClaudeCliProvider(Object.assign({ spawn: f.spawn, fs: fakeFs, bin: 'claude.exe', env: { PATH: '' }, platform: 'win32', persistEndGraceMs: 200 }, extra || {}));
+  return { p, spawns: f.spawns };
+};
+const init = src => ({ type: 'system', subtype: 'init', apiKeySource: src || 'none', tools: [] });
+const delta = text => ({ type: 'stream_event', event: { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text } } });
+const start = usage => ({ type: 'stream_event', event: { type: 'message_start', message: { usage } } });
+const result = (text, extra) => Object.assign({ type: 'result', subtype: 'success', is_error: false, result: text, stop_reason: 'end_turn', total_cost_usd: 0,
+  usage: { input_tokens: 10, cache_creation_input_tokens: 5, cache_read_input_tokens: 20, output_tokens: 7 } }, extra || {});
+const block = path => '<function_calls>\n<invoke name="fs_read">\n<parameter name="path">' + path + '</parameter>\n</invoke>\n</function_calls>';
+// a model that asks for a file, then (once it has a result) answers: it ends its own reply right after the block
+const reader = (rec, n) => {
+  const text = n === 1 ? 'Reading.\n\n' + block('a.txt') : (n === 2 ? block('b.txt') : 'Both files read.');
+  return { lines: [init(), start({ input_tokens: 3 }), delta(text), result(text)] };
+};
+const TOOLS = [{ type: 'function', function: { name: 'fs_read', description: 'read a file', parameters: { type: 'object', properties: { path: { type: 'string' } } } } }];
+const SYS = { role: 'system', content: 'You are the test agent.' };
+
+async function collect(p, req) { const out = []; for await (const e of p.stream(req)) out.push(e); return out; }
+// the reply as loop.js records it (assistantTurn): the streamed text + the calls in index order
+function reply(evs) {
+  const calls = {};
+  for (const e of evs) {
+    if (e.type === 'tool_start') calls[e.index] = { id: e.id, type: 'function', function: { name: e.name, arguments: '' } };
+    else if (e.type === 'tool_args') calls[e.index].function.arguments += e.chunk;
+  }
+  const m = { role: 'assistant', content: evs.filter(e => e.type === 'text').map(e => e.delta).join('') };
+  const tc = Object.keys(calls).sort((a, b) => a - b).map(k => calls[k]);
+  if (tc.length) m.tool_calls = tc;
+  return m;
+}
+const results = (m, body) => m.tool_calls.map(c => ({ role: 'tool', tool_call_id: c.id, content: body }));
+const textIn = msg => (msg.message ? msg.message.content : []).filter(b => b.type === 'text').map(b => b.text).join('');
+const tick = ms => new Promise(r => setTimeout(r, ms || 0));
+
+(async () => {
+  // 1. REUSE + DELTA-ONLY: three loop turns ride ONE child; the 2nd and 3rd send only the new tool results.
+  {
+    const { p, spawns } = make(reader);
+    const ac = new AbortController();
+    const req = msgs => ({ model: 'sonnet', tools: TOOLS, messages: msgs.slice(), runId: 'run-1', signal: ac.signal });
+    const msgs = [SYS, { role: 'user', content: 'Read a.txt and b.txt.' }];
+    const t1 = await collect(p, req(msgs));
+    A.eq(t1.filter(e => e.type === 'tool_start').map(e => e.name), ['fs_read'], 'turn 1 asks for a tool');
+    A.eq(t1.find(e => e.type === 'done').finishReason, 'tool_calls', 'turn 1 ends as tool_calls');
+    const r1 = reply(t1); msgs.push(r1, ...results(r1, 'alpha'));
+    const t2 = await collect(p, req(msgs));
+    const r2 = reply(t2); msgs.push(r2, ...results(r2, 'beta'));
+    const t3 = await collect(p, req(msgs));
+    A.eq(t3.filter(e => e.type === 'text').map(e => e.delta).join(''), 'Both files read.', 'turn 3 answers');
+    A.eq(spawns.length, 1, 'three turns, ONE claude child (it used to be three)');
+    const args = spawns[0].args;
+    A.ok(args.join(' ').includes('--input-format stream-json') && args.indexOf('--no-session-persistence') >= 0, 'the child reads stream-json and still keeps no session file');
+    A.eq(args.slice(args.indexOf('--tools'), args.indexOf('--tools') + 2), ['--tools', ''], 'every CLI tool stays off');
+    A.ok(args.indexOf('--strict-mcp-config') >= 0 && args[args.indexOf('--mcp-config') + 1] === '{"mcpServers":{}}' && args.indexOf('--disable-slash-commands') >= 0 &&
+      args[args.indexOf('--setting-sources') + 1] === '', 'the same isolation flags as a one-shot turn');
+    A.eq(spawns[0].opts.env.CLAUDE_CODE_DISABLE_AUTO_MEMORY, '1', 'auto-memory stays off');
+    const ins = spawns[0].inputs.map(textIn);
+    A.eq(ins.length, 3, 'one user line per turn');
+    A.eq(ins[0], 'Read a.txt and b.txt.', 'turn 1 sends the opening request');
+    A.eq(ins[1], '<tool_result id="' + r1.tool_calls[0].id + '">\nalpha\n</tool_result>', 'turn 2 sends ONLY the new tool result');
+    A.ok(!ins[2].includes('Read a.txt') && !ins[2].includes('alpha') && ins[2].includes('beta'), 'turn 3 sends only what turn 2 added');
+    A.eq(p.persistStats().reused, 2, 'stats: two turns reused the child');
+    A.ok(!spawns[0].killed && spawns[0].child.exitCode == null, 'the child is parked between turns, not killed');
+    p.release('other-run');
+    A.ok(spawns[0].child.exitCode == null, 'release() for another run leaves this child alone');
+    p.release('run-1');
+    A.ok(spawns[0].treeKilled, 'release() at run end kills the child\'s process tree');
+    A.eq(p.persistStats().live, false, 'no child is left after the run');
+  }
+
+  // 2. FALLBACK ON A HISTORY MISMATCH: an edited earlier message (compaction), an edited reply (a call the loop
+  //    dropped), and a model switch each close the child and start a fresh one from the WHOLE history.
+  {
+    const { p, spawns } = make(reader);
+    const ac = new AbortController();
+    const req = (msgs, model) => ({ model: model || 'sonnet', tools: TOOLS, messages: msgs.slice(), runId: 'run-2', signal: ac.signal });
+    const msgs = [SYS, { role: 'user', content: 'Read a.txt and b.txt.' }];
+    const r1 = reply(await collect(p, req(msgs))); msgs.push(r1, ...results(r1, 'alpha'));
+    const r2 = reply(await collect(p, req(msgs))); msgs.push(r2, ...results(r2, 'beta'));
+    A.eq(spawns.length, 1, 'turn 2 rode the child');
+    // micro-compaction cleared the oldest tool result in place
+    msgs[3] = Object.assign({}, msgs[3], { content: '[older tool result cleared to save context]' });
+    await collect(p, req(msgs));
+    A.eq(spawns.length, 2, 'an edited earlier message starts a fresh child');
+    A.ok(spawns[0].treeKilled, 'the stale child is killed (tree)');
+    const fresh = textIn(spawns[1].inputs[0]);
+    A.ok(fresh.startsWith('<conversation>') && fresh.includes('Read a.txt and b.txt.') && fresh.includes('cleared to save context') && !fresh.includes('alpha') &&
+      fresh.includes('beta') && fresh.includes('<invoke name="fs_read">'), 'the fresh child gets the whole (edited) history as one transcript, exactly like a one-shot turn');
+    A.eq(p.persistStats().fresh.history, 1, 'stats name the reason: history');
+    // a fold that adds a leading summary note changes the system prompt the child was started with
+    await collect(p, req([SYS, { role: 'system', content: '<conversation_summary>asked for two files</conversation_summary>' }, { role: 'user', content: 'and now?' }]));
+    A.eq([spawns.length, p.persistStats().fresh.prompt], [3, 1], 'a summary folded into the system prompt starts a fresh child (reason: prompt)');
+
+    // the loop recorded the reply without its call (a duplicate-check stop) and moved on
+    const p2 = make(reader);
+    const m2 = [SYS, { role: 'user', content: 'Read a.txt and b.txt.' }];
+    const rr = reply(await collect(p2.p, req(m2)));
+    m2.push({ role: 'assistant', content: rr.content }, { role: 'system', content: '<note>no call this time</note>' });
+    await collect(p2.p, req(m2));
+    A.eq([p2.spawns.length, p2.p.persistStats().fresh.reply], [2, 1], 'a reply the loop edited is not what the child holds: fresh child');
+
+    // a model switch mid-run
+    const p3 = make(reader);
+    const m3 = [SYS, { role: 'user', content: 'Read a.txt and b.txt.' }];
+    const r3 = reply(await collect(p3.p, req(m3))); m3.push(r3, ...results(r3, 'alpha'));
+    await collect(p3.p, req(m3, 'opus'));
+    A.eq([p3.spawns.length, p3.p.persistStats().fresh.prompt], [2, 1], 'a model switch starts a fresh child');
+    A.eq(p3.spawns[1].args[p3.spawns[1].args.indexOf('--model') + 1], 'opus', 'on the new model');
+
+    // steering / a system note appended after the results is NOT a mismatch: it rides the delta
+    const p4 = make(reader);
+    const m4 = [SYS, { role: 'user', content: 'Read a.txt and b.txt.' }];
+    const r4 = reply(await collect(p4.p, req(m4))); m4.push(r4, ...results(r4, 'alpha'), { role: 'system', content: '<steering_note>also check c.txt</steering_note>' });
+    await collect(p4.p, req(m4));
+    const sent = textIn(p4.spawns[0].inputs[1]);
+    A.ok(p4.spawns.length === 1 && sent.includes('<tool_result') && sent.includes('<system_note>\n<steering_note>also check c.txt</steering_note>\n</system_note>'),
+      'a steering note appended after the results rides the same child');
+  }
+
+  // 3. A REPLY THAT RUNS ON PAST ITS BLOCK: the child's history now holds the guess, so it is closed (never reused).
+  {
+    const { p, spawns } = make((rec, n) => {
+      if (n > 1) return { lines: [init(), delta('done'), result('done')] };
+      const text = block('a.txt') + '\n\n<function_results>made up</function_results>';
+      return { lines: [init(), delta(block('a.txt')), delta('\n\n<function_results>made up</function_results>'), result(text)] };
+    });
+    const ac = new AbortController();
+    const req = msgs => ({ model: 'sonnet', tools: TOOLS, messages: msgs.slice(), runId: 'run-3', signal: ac.signal });
+    const msgs = [SYS, { role: 'user', content: 'Read a.txt.' }];
+    const t1 = await collect(p, req(msgs));
+    A.eq(t1.filter(e => e.type === 'tool_start').length, 1, 'the call still runs');
+    A.ok(!t1.some(e => e.type === 'text' && /made up/.test(e.delta)), 'the guess never reaches the loop');
+    A.ok(spawns[0].treeKilled, 'the child that kept the guess is killed at once');
+    A.eq(p.persistStats().closed.overrun, 1, 'stats: closed for overrun');
+    const r1 = reply(t1); msgs.push(r1, ...results(r1, 'real contents'));
+    await collect(p, req(msgs));
+    A.ok(spawns.length === 2 && textIn(spawns[1].inputs[0]).startsWith('<conversation>'), 'the next turn starts a fresh child from StarNet\'s history');
+
+    // the block arrives in the SAME delta as text past it: the stop delta's rest counts too
+    const same = make(rec => ({ lines: [init(), delta(block('a.txt') + '\nThe file says hi.'), result(block('a.txt') + '\nThe file says hi.')] }));
+    await collect(same.p, req([SYS, { role: 'user', content: 'Read a.txt.' }]));
+    A.ok(same.spawns[0].treeKilled, 'text past the block inside the stopping delta also closes the child');
+
+    // whitespace after the block, then the model's own end: in sync, kept
+    const ws = make(rec => ({ lines: [init(), delta(block('a.txt')), delta('\n'), result(block('a.txt') + '\n')] }));
+    await collect(ws.p, req([SYS, { role: 'user', content: 'Read a.txt.' }]));
+    A.ok(!ws.spawns[0].killed && ws.p.persistStats().live, 'trailing whitespace before the natural end keeps the child');
+
+    // the model goes quiet after its block and never ends: closed after the grace window, the turn still completes
+    const quiet = make(rec => ({ lines: [init(), delta(block('a.txt'))] }));
+    const qt = await collect(quiet.p, req([SYS, { role: 'user', content: 'Read a.txt.' }]));
+    A.ok(qt.some(e => e.type === 'done' && e.finishReason === 'tool_calls') && quiet.spawns[0].treeKilled && quiet.p.persistStats().closed.no_end === 1,
+      'a reply that never ends is closed after the grace window; the turn still hands over its call');
+  }
+
+  // 4. STOP: mid-turn (no events, child killed) and between turns (a parked child dies with the run signal).
+  {
+    const { p, spawns } = make((rec, n) => (n === 1 ? { lines: [init()] } : {}));   // turn 1 hangs
+    const ac = new AbortController();
+    setTimeout(() => ac.abort(), 20);
+    const evs = await collect(p, { model: 'sonnet', tools: TOOLS, messages: [SYS, { role: 'user', content: 'x' }], runId: 'run-4', signal: ac.signal });
+    A.eq(evs.length, 0, 'a cancelled turn emits nothing');
+    A.ok(spawns[0].treeKilled, 'Stop mid-turn kills the child tree');
+
+    const parked = make(reader);
+    const ac2 = new AbortController();
+    await collect(parked.p, { model: 'sonnet', tools: TOOLS, messages: [SYS, { role: 'user', content: 'Read a.txt and b.txt.' }], runId: 'run-4b', signal: ac2.signal });
+    A.ok(parked.spawns[0].child.exitCode == null, 'parked while the loop runs the tool');
+    ac2.abort();
+    A.ok(parked.spawns[0].treeKilled && parked.p.persistStats().closed.stop === 1, 'Stop between turns kills the parked child');
+    const after = await collect(parked.p, { model: 'sonnet', tools: TOOLS, messages: [SYS, { role: 'user', content: 'x' }], runId: 'run-4b', signal: ac2.signal });
+    A.eq([after.length, parked.spawns.length], [0, 1], 'a request on a stopped run spawns nothing');
+  }
+
+  // 5. THE CHILD CRASHES MID-TURN: the turn fails loudly (the loop retries it), and the retry starts a fresh child.
+  {
+    const { p, spawns } = make((rec, n) => {
+      if (spawns.indexOf(rec) === 0 && n === 2) return { lines: [init(), delta('Thinking about'), ], crash: 3, stderr: 'segfault in child' };
+      return reader(rec, spawns.indexOf(rec) === 0 ? n : 2);
+    });
+    const ac = new AbortController();
+    const req = msgs => ({ model: 'sonnet', tools: TOOLS, messages: msgs.slice(), runId: 'run-5', signal: ac.signal });
+    const msgs = [SYS, { role: 'user', content: 'Read a.txt and b.txt.' }];
+    const r1 = reply(await collect(p, req(msgs))); msgs.push(r1, ...results(r1, 'alpha'));
+    let err = null;
+    try { await collect(p, req(msgs)); } catch (e) { err = e; }
+    A.ok(err && /exited with code 3/.test(err.message) && /segfault/.test(err.message), 'a crash mid-turn throws with the exit code and stderr: ' + (err && err.message));
+    const retry = await collect(p, req(msgs));   // the loop's retry ladder re-sends the same turn
+    A.ok(retry.some(e => e.type === 'tool_start') && spawns.length === 2, 'the retry runs on a fresh child');
+    A.ok(textIn(spawns[1].inputs[0]).includes('<tool_result id="' + r1.tool_calls[0].id + '">\nalpha'), 'which gets the whole history, results included');
+  }
+
+  // 6. COST: an API-key sign-in's result line carries a RUNNING total; each turn books only its own share.
+  {
+    let total = 0;
+    const { p } = make((rec, n) => {
+      total += n === 1 ? 0.25 : 0.1;
+      const text = n === 1 ? block('a.txt') : 'ok';
+      return { lines: [init('ANTHROPIC_API_KEY'), delta(text), result(text, { total_cost_usd: total })] };
+    });
+    const ac = new AbortController();
+    const req = msgs => ({ model: 'sonnet', tools: TOOLS, messages: msgs.slice(), runId: 'run-6', signal: ac.signal });
+    const msgs = [SYS, { role: 'user', content: 'Read a.txt.' }];
+    const t1 = await collect(p, req(msgs));
+    const r1 = reply(t1); msgs.push(r1, ...results(r1, 'alpha'));
+    const t2 = await collect(p, req(msgs));
+    A.eq([t1.find(e => e.type === 'usage').usage.cost, Math.round(t2.find(e => e.type === 'usage').usage.cost * 1000) / 1000], [0.25, 0.1], 'turn 2 books $0.10, not the running $0.35');
+    A.eq(t1.find(e => e.type === 'usage').usage.completion_tokens, 7, 'a call turn that ended on its own books its real result usage');
+    const sub = make(reader);
+    const su = await collect(sub.p, req([SYS, { role: 'user', content: 'Read a.txt.' }]));
+    A.eq(su.find(e => e.type === 'usage').usage.cost, 0, 'a subscription turn still books $0');
+  }
+
+  // 7. A SIDE CALL (no tools: a summary, a vision call, a wire test) never touches the parked child.
+  {
+    const { p, spawns } = make((rec, n, msg) => (msg && msg.text != null ? { lines: [init(), result('summary')] } : reader(rec, n)));
+    const ac = new AbortController();
+    const msgs = [SYS, { role: 'user', content: 'Read a.txt and b.txt.' }];
+    const r1 = reply(await collect(p, { model: 'sonnet', tools: TOOLS, messages: msgs.slice(), runId: 'run-7', signal: ac.signal }));
+    const side = await collect(p, { model: 'sonnet', messages: [{ role: 'system', content: 'Summarize.' }, { role: 'user', content: 'stuff' }], runId: 'run-7', signal: ac.signal });
+    A.ok(side.some(e => e.type === 'text' && e.delta === 'summary') && spawns.length === 2 && spawns[1].ended && spawns[0].child.exitCode == null, 'the side call ran its own one-shot child; the parked one lives');
+    msgs.push(r1, ...results(r1, 'alpha'));
+    await collect(p, { model: 'sonnet', tools: TOOLS, messages: msgs.slice(), runId: 'run-7', signal: ac.signal });
+    A.eq([spawns.length, spawns[0].inputs.length], [2, 2], 'the next loop turn still rides the original child');
+    p.release('run-7');
+  }
+
+  // 8. IDLE: a parked child that nobody uses again is closed after STARNET_CLAUDE_CLI_PERSIST_IDLE_MS.
+  {
+    const { p, spawns } = make(reader, { env: { PATH: '', STARNET_CLAUDE_CLI_PERSIST_IDLE_MS: '30' } });
+    await collect(p, { model: 'sonnet', tools: TOOLS, messages: [SYS, { role: 'user', content: 'Read a.txt and b.txt.' }], runId: 'run-8', signal: new AbortController().signal });
+    await tick(80);
+    A.ok(spawns[0].treeKilled && p.persistStats().closed.idle === 1, 'the idle timeout closes a parked child');
+  }
+
+  // 9. KILL SWITCH: STARNET_CLAUDE_CLI_PERSIST=0 is today's behaviour, one `claude -p` per turn with the whole history.
+  {
+    const { p, spawns } = make((rec, n, msg) => {
+      const text = /alpha/.test(msg.text || '') ? 'done' : block('a.txt');
+      return { lines: [init(), delta(text), result(text)] };
+    }, { env: { PATH: '', STARNET_CLAUDE_CLI_PERSIST: '0' } });
+    const ac = new AbortController();
+    const msgs = [SYS, { role: 'user', content: 'Read a.txt.' }];
+    const r1 = reply(await collect(p, { model: 'sonnet', tools: TOOLS, messages: msgs.slice(), runId: 'run-9', signal: ac.signal }));
+    msgs.push(r1, ...results(r1, 'alpha'));
+    await collect(p, { model: 'sonnet', tools: TOOLS, messages: msgs.slice(), runId: 'run-9', signal: ac.signal });
+    A.eq(spawns.length, 2, 'kill switch off: a fresh child per turn');
+    A.ok(spawns.every(s => s.args.indexOf('--input-format') < 0 && s.inputs.length === 0 && s.ended), 'each one reads plain text stdin, then ends');
+    A.ok(spawns[1].stdinText.startsWith('<conversation>') && spawns[1].stdinText.includes('Read a.txt.') && spawns[1].stdinText.includes('alpha'), 'and gets the whole history');
+    A.eq(p.persistStats().enabled, false, 'stats say persistence is off');
+  }
+
+  // 10. THE REAL LOOP drives the adapter (no hand-built replies): the reply loop.js records is exactly the one the child
+  //     holds, so the next turn rides the same child, and the run's end releases it (loop.js end() -> release()).
+  {
+    const { makeEmitter } = require('../shared/emitter.js');
+    const { makeCostEngine } = require('../sidecar/cost.js');
+    const { runAgentLoop } = require('../sidecar/loop.js');
+    const { makeRegistry } = require('../sidecar/tools/registry.js');
+    const { p, spawns } = make(reader);
+    const reg = makeRegistry();
+    const read = [];
+    reg.register({ name: 'fs_read', schema: TOOLS[0].function.parameters, run: async (a) => { read.push(a.path); return 'contents of ' + a.path; } });
+    const ac = new AbortController();
+    const res = await runAgentLoop({
+      messages: [SYS, { role: 'user', content: 'Read a.txt and b.txt.' }], provider: p, emit: makeEmitter(A.makeBus(), () => {}),
+      cost: makeCostEngine({ priceOf: () => null }), model: 'sonnet', agentId: 'a', runId: 'run-10', tools: TOOLS,
+      limits: { maxIters: 6, grace: false }, signal: ac.signal, dispatch: (c, ctx) => reg.dispatch(c, ctx),
+      capCtx: { canRun: () => true, canUse: () => ({ ok: true }), agentId: 'a', room: 'office', signal: ac.signal }, clock: { now: () => 0 }
+    });
+    A.eq([res.reason, read], ['done', ['a.txt', 'b.txt']], 'the loop ran both reads and finished: ' + res.reason);
+    A.eq(spawns.length, 1, 'three loop turns rode ONE child: the loop recorded each reply exactly as the child holds it');
+    A.eq(p.persistStats().reused, 2, 'turns 2 and 3 were deltas');
+    A.ok(textIn(spawns[0].inputs[1]).startsWith('<tool_result id="call_cli_') && textIn(spawns[0].inputs[1]).includes('contents of a.txt') &&
+      !textIn(spawns[0].inputs[1]).includes('Read a.txt'), 'turn 2 sent only the tool result the loop produced');
+    A.ok(spawns[0].treeKilled && p.persistStats().closed.run_end === 1, 'the run\'s end released the child (loop.js end -> release)');
+  }
+
+  A.report('claude-cli-persist.test');
+})().catch(e => { console.log('FAIL: claude-cli-persist.test threw -- ' + (e && e.stack || e)); process.exit(1); });
