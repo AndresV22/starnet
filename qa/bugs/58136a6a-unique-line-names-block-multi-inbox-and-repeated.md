@@ -4,10 +4,10 @@ slug: unique-line-names-block-multi-inbox-and-repeated
 title: Unique line names block multi-inbox and repeated template builds
 surface: autonomy
 severity: P2
-status: claimed
+status: fixed
 found: 2026-10-12
 lane: agent/session-handoff-1011
-fix:
+fix: 07b522235232032e2b85a4cf201937fc85ebf1f0
 origin: audit
 ---
 
@@ -27,4 +27,4 @@ The full remaining-fast diagnostic failed this suite with 2 failures and 5504 pa
 
 ## Verdict
 
-Recovery owner is repairing canonical same-line labels and deterministic unique names for distinct new lines. Existing lines must never be renamed. Focused and seeded live acceptance remain required.
+Canonical naming now reserves one name per derived line and deterministic unique names for repeated templates without renaming existing lines. Focused suites passed 5563 + 63 + 73 assertions. Seeded model-to-tool-to-browser verification passed 11 checks on exact served source f51eedfc391f5ec4f87d986adae79cdc984c3e97872c72901719552c596958e3: two_doors published one line with two intakes and ready true, repeated software published a unique BUILD & TEST 2 label and truthfully reported two missing crew, and both single Undos restored exact floors. Private receipts: conveyor-agentops-codex-1011/.dogfood/builder-naming-live-receipt.json. Full combined gates remain pending.

@@ -30,6 +30,19 @@
   const clone = o => JSON.parse(JSON.stringify(o));
   const refuse = (error, extra) => Object.assign({ ok: false, error }, extra || {});
   const titleCase = s => String(s || '').toLowerCase().replace(/\b\w/g, c => c.toUpperCase());
+  // Match WorldModel.setPropLabel's INBOX name key. Allocate on the planning copy, before the
+  // approval summary is written, so applying the plan never changes an existing line's name.
+  function uniqueLineLabel(props, wanted) {
+    const key = v => String(v || '').trim().replace(/^line\s+/i, '').replace(/\s+/g, ' ').toUpperCase();
+    const used = new Set((props || []).filter(p => p.t === 'intake').map(p => key(p.label)).filter(Boolean));
+    const base = String(wanted || '').trim().slice(0, 48);
+    if (!used.has(key(base))) return base;
+    for (let n = 2; n <= used.size + 2; n++) {
+      const tail = ' ' + n, label = base.slice(0, 48 - tail.length).trimEnd() + tail;
+      if (!used.has(key(label))) return label;
+    }
+    return base; // the finite occupied-name set cannot exhaust the candidates above
+  }
 
   /* a floor fingerprint over what an edit can change (never meta or derived links), in CANONICAL form: object keys
      sorted, because a live prop that gained agentId after role and the same prop read back from a save (migrate
@@ -252,11 +265,11 @@
     const s = st.stampBlueprint(bp.id, spec.ox, spec.oy, spec.opts || {});
     if (!s || !s.ok) return refuse('the line could not be placed there' + (s && s.msg ? ' (' + s.msg + ')' : ''));
     for (const d of spec.desks || []) { const r = st.addProp({ t: d.t, x: d.x, y: d.y, w: d.w, h: d.h, r: 0, block: true }); if (!r || !r.ok) return refuse('a desk could not be placed by the line'); }
-    let intakeId = null;
-    for (let i = 0; i < s.ids.length; i++) if (bp.props[i].t === 'intake') {
-      intakeId = intakeId || s.ids[i];
-      if (spec.label) { const r = st.setPropLabel(s.ids[i], spec.label); if (!r || !r.ok) return refuse('the line could not be named'); }
-    }
+    // A shelf blueprint is one compiled line, even two_doors with its two entrances. The first
+    // INBOX carries its canonical name; naming every entrance would collide with that same name.
+    const intakeIndex = bp.props.findIndex(p => p.t === 'intake');
+    const intakeId = intakeIndex < 0 ? null : s.ids[intakeIndex];
+    if (intakeId && spec.label) { const r = st.setPropLabel(intakeId, spec.label); if (!r || !r.ok) return refuse('the line could not be named' + (r && r.msg ? ' (' + r.msg + ')' : '')); }
     for (const step of (spec.steps || [])) {
       const pid = s.ids[step.propIndex];
       if (!pid) return refuse('a step is missing');
@@ -376,7 +389,7 @@
     }
     if (!bp) return refuse((req.line ? 'There is no line called "' + String(req.line).slice(0, 60) + '".' : 'Choose a line, or give its purpose in the Commander\'s words.') + ' The lines are: ' + lineList(WM) + '.', lines);
     const plain = bp.plain || bp.label;
-    const label = (typeof req.name === 'string' ? req.name : '').replace(/\s+/g, ' ').trim().slice(0, 48) || plain.toUpperCase();
+    const label = uniqueLineLabel(doc.props, (typeof req.name === 'string' ? req.name : '').replace(/\s+/g, ' ').trim().slice(0, 48) || plain.toUpperCase());
     const notes = [];
 
     // daily cap: undefined keeps the line's own, null/"none"/0 is no cap, a positive dollar amount caps it
@@ -580,7 +593,7 @@
     return out;
   }
   // a kit's own line, with the kit's written steps (its briefs, by role) and nobody assigned yet
-  function kitLine(env, kit, x0, y0) {
+  function kitLine(env, kit, x0, y0, props) {
     if (!kit.line) return null;
     const bp = (env.WorldModel.BLUEPRINTS || []).find(b => b.id === kit.line.bp);
     if (!bp) return null;
@@ -590,7 +603,7 @@
       const st = env.WorkflowLine.starters ? env.WorkflowLine.starters(p.role) : [];
       steps.push({ propIndex: i, brief: (kit.line.briefs && kit.line.briefs[p.role]) || (st[0] && st[0].does) || '', agentId: '' });
     });
-    return { bpId: bp.id, ox: x0 + kit.line.x, oy: y0 + kit.line.y, opts: {}, label: kit.line.label || '', steps };
+    return { bpId: bp.id, ox: x0 + kit.line.x, oy: y0 + kit.line.y, opts: {}, label: uniqueLineLabel(props, kit.line.label || ''), steps };
   }
   // the tiles a room's doorways need clear: each door tile inside the room and the one tile past it
   function landingTiles(st, g, roomId) {
@@ -752,7 +765,7 @@
         const x0 = R.x1 + ((Wd - KIT_W) >> 1), y0 = R.y1 + ((Hd - KIT_H) >> 1);
         for (const mirror of mirrors) {
           const props = kitProps(env, kit, x0, y0, mirror); if (!props) return refuse('this page is missing the furniture for ' + kit.name);
-          const part = { room: null, roomId: target.id, props, line: kitLine(env, kit, x0, y0), meta: { kit: kit.id, name: target.name, about: kit.about, existing: true } };
+          const part = { room: null, roomId: target.id, props, line: kitLine(env, kit, x0, y0, live.props()), meta: { kit: kit.id, name: target.name, about: kit.about, existing: true } };
           if (tryKit(doc, { kind: 'rooms', parts: parts.concat([part]) }, env, before).ok) { found = part; break; }
         }
         if (!found) return refuse(kit.name + ' does not fit in ' + target.name + ': every piece needs clear floor, a way to walk up to it, and its doorways open. Use "new room".');
@@ -768,7 +781,7 @@
         outer: for (const cand of grid.concat(pl.ok ? pl.list : [])) for (const mirror of mirrors) {
           const rect = cand.rect, props = kitProps(env, kit, rect.x1, rect.y1, mirror); if (!props) return refuse('this page is missing the furniture for ' + kit.name);
           const part = { hall: cand.hall, room: { kind: kit.kind, name: roomName, floorStyle: style.floorStyle || kit.floorStyle, floorMat: style.floorMat || kit.floorMat, rect },
-            props, line: kitLine(env, kit, rect.x1, rect.y1), meta: { kit: kit.id, name: roomName, about: kit.about, existing: false, placed: { side: cand.side, target: cand.target, len: cand.len } } };
+            props, line: kitLine(env, kit, rect.x1, rect.y1, sofar.props()), meta: { kit: kit.id, name: roomName, about: kit.about, existing: false, placed: { side: cand.side, target: cand.target, len: cand.len } } };
           Object.assign(part, gridHallTrim(env.WorldModel, env, sofar, cand, kit.kind));
           if (tryKit(doc, { kind: 'rooms', parts: parts.concat([part]) }, env, before).ok) { found = part; break outer; }
         }
