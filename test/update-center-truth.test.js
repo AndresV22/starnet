@@ -30,12 +30,14 @@ function launch(store, opts) {
   const invoke = async cmd => {
     if (cmd === 'starnet_update_status') return { desktop: true, currentVersion: o.current || '0.13.1', pending: o.pending || null };
     if (cmd === 'starnet_update_check') {
-      checks.push(Date.now());
+      // The native check stamps the same clock updates.js reads, so a controlled clock moves nextCheckAt too.
+      const now = clock ? clock.t : Date.now();
+      checks.push(now);
       if (o.error) throw new Error(o.error);
       const v = o.latest || '0.13.2';
       return v === (o.current || '0.13.1')
-        ? { available: false, checkedAt: Date.now() }
-        : { available: true, checkedAt: Date.now(), update: { version: v, body: '' } };
+        ? { available: false, checkedAt: now }
+        : { available: true, checkedAt: now, update: { version: v, body: '' } };
     }
     return {};
   };
@@ -171,7 +173,9 @@ function launch(store, opts) {
     A.ok(/UPDATE SKIPPED/.test(body.innerHTML), 'the status label says skipped, not up to date');
 
     clock.t += 20 * 60 * 1000;                       // a later open still may look for something newer...
+    const beforeOpen = s.checks.length;
     s.open(); await tick(); await tick();
+    A.eq(s.checks.length, beforeOpen + 1, 'a later open of a skipped window still checks for a newer release');
     A.eq(s.updates.phase(), 'skipped', '...but finding the skipped version again leaves it skipped');
     A.eq(s.badge.style.display, 'none', 'no NEW chip after a later open-check');
 
@@ -187,6 +191,7 @@ function launch(store, opts) {
     // a webview reload keeps the native pending update in memory: refreshStatus must not re-arm a skipped one
     const reload = launch(store, { clock, current: '0.13.2', latest: '0.13.3', pending: { version: '0.13.3', body: '' } });
     await reload.init(); await tick();
+    A.eq(reload.checks.length, 0, 'the reload does not re-check inside the interval (only refreshStatus decides)');
     A.eq(reload.badge.style.display, 'none', 'a reload with the skipped version pending does not light the NEW chip');
     A.eq(reload.updates.phase(), 'skipped', 'a reload with the skipped version pending stays skipped');
 
@@ -195,6 +200,37 @@ function launch(store, opts) {
     await newer.init(); await newer.updates.check(false, 'due'); await tick();
     A.eq(newer.updates.phase(), 'available', 'a version newer than the skipped one is offered');
     A.eq(newer.badge.style.display, 'inline-block', 'and lights the NEW chip');
+  }
+
+  // ---- REMIND TOMORROW on a skipped version that CHECK NOW brought back: the reminder arrives (review app-shell-ui-01) ----
+  {
+    const clock = { t: Date.now() };
+    const store = new Map();
+    const s = launch(store, { clock, current: '0.13.2', latest: '0.13.3' });
+    await s.init(); await tick();
+    const body = s.open(); await tick();
+    body.click('#up-ignore'); await tick();
+    A.eq(s.updates.phase(), 'skipped', 'SKIP VERSION skips 0.13.3');
+    await s.updates.check(true, 'manual'); await tick();
+    A.eq(s.updates.phase(), 'available', 'CHECK NOW shows the skipped version again');
+    A.ok(/id="up-remind"/.test(body.innerHTML), 'the card offers REMIND TOMORROW');
+    body.click('#up-remind'); await tick();
+    A.ok(s.toasts.includes('Update reminder moved to tomorrow'), 'REMIND TOMORROW promises a reminder');
+    A.eq(s.updates.prefs().ignoredVersion, '', 'choosing a reminder cancels the skip of that version');
+
+    const pending = [...s.timers.values()];
+    A.eq(pending.length, 1, 'one automatic timer is scheduled');
+    A.ok(pending[0] && pending[0].delay >= UpdateCore.REMIND_LATER_MS - 1000, 'the next automatic step waits for the reminder');
+    const before = s.checks.length;
+    const readyToasts = () => s.toasts.filter(t => /StarNet update v0\.13\.3 is ready in Update Center/.test(t)).length;
+    const toastsBefore = readyToasts();
+    clock.t += 25 * 60 * 60 * 1000;                  // the timer fires a day later
+    if (pending[0]) pending[0].fn();
+    await tick(); await tick();
+    A.eq(s.checks.length, before + 1, 'the reminder runs an automatic check');
+    A.eq(s.updates.phase(), 'available', 'the reminded version is offered again, not skipped');
+    A.eq(s.badge.style.display, 'inline-block', 'the NEW chip is lit for the reminder');
+    A.eq(readyToasts(), toastsBefore + 1, 'the reminder toast arrives');
   }
 
   A.report('update-center-truth');

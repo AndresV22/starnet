@@ -390,6 +390,9 @@ const Updates = (() => {
   }
   function remindLater() {
     if (!state.update) return;
+    // REMIND TOMORROW on the version the Commander skipped (CHECK NOW brought it back) is the newer choice: cancel the
+    // skip, or the automatic check a day later would find it still skipped and the promised reminder never arrives.
+    if (prefs.ignoredVersion && prefs.ignoredVersion === String(state.update.version)) prefs = CORE.ignoreVersion(prefs, '');
     prefs = CORE.remindLater(prefs, state.update.version, Date.now());
     savePrefs();
     notify('Update reminder moved to tomorrow', '');
