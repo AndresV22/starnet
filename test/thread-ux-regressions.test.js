@@ -95,3 +95,57 @@ test('delegated response repaint waits for the prompt-state listeners',async()=>
   observed.length=0;listeners.get('permission.response')({promptId:'p'});pending=false;
   assert.deepEqual(observed,[]);await Promise.resolve();assert.deepEqual(observed,[false]);
 });
+
+
+// Minimal layout-backed DOM double: exercise actual insertion/separator/pruning logic without replacing old nodes.
+function deliveryDom(pinned=false, count=4, scale=1, nativeAnchor=false) {
+  let log;
+  class Node {
+    constructor(){this.children=[];this.dataset={};this.className='';this.textContent='';this.parentNode=null;this.classList={contains:x=>this.className.split(' ').includes(x),remove:x=>{this.className=this.className.split(' ').filter(c=>c!==x).join(' ');}};}
+    appendChild(n){return this.insertBefore(n,null);}
+    insertBefore(n,b){if(b&&!this.children.includes(b))throw Error('detached insertion target');if(n.parentNode)n.remove();const i=b?this.children.indexOf(b):this.children.length;this.children.splice(i,0,n);n.parentNode=this;return n;}
+    remove(){if(this.parentNode){const a=this.parentNode.children;a.splice(a.indexOf(this),1);this.parentNode=null;}}
+    get previousElementSibling(){return this.parentNode?.children[this.parentNode.children.indexOf(this)-1]||null;}
+    get firstElementChild(){return this.children[0]||null;}
+    setAttribute(){}
+    contains(n){return this.children.includes(n);}
+    querySelector(s){return s==='.tb-when'?this.children.find(n=>n.className==='tb-when'):null;}
+    getBoundingClientRect(){const top=this===log?0:(log.children.indexOf(this)*20-log.scrollTop)*scale;return {top,bottom:top+20*scale,height:100*scale};}
+  }
+  log=new Node();log.scrollTop=40;log.offsetHeight=100;
+  const first=Date.UTC(2026,9,12,12);
+  for(let i=0;i<count;i++){const n=new Node();n.dataset.ts=String(first+i*1000);n.textContent='original '+i;log.appendChild(n);}
+  const ws={id:'read'}, original=log.children.slice();
+  const code=part(chat,'  function syncTimeBreaks()', '  // stamp: omitted')+part(chat,'  function pruneLog()', '  function row(')+part(chat,'  function deliverTurns(', '  // SWITCH-SURVIVAL:');
+  const c=ctx(code,{log,stick:pinned,insertingDelivery:false,LOG_DOM_CAP:400,TIME_BREAK_MS:1800000,document:{createElement:()=>new Node()},fmtBreak:at=>at.toISOString(),isActiveWs:w=>w===ws,cancelHistoryPin(){},autoscroll(){},Set,Array,Number,Date});
+  c.renderHistory=turns=>{for(const m of turns){const n=new Node();n.dataset.ts=String(m.ts);n.textContent=m.content;log.appendChild(n);if(nativeAnchor)log.scrollTop+=20;c.pruneLog();}};
+  c.syncTimeBreaks();return {c,log,ws,original,first};
+}
+
+test('recovered history preserves existing nodes and reading anchor while correcting date ownership',()=>{
+  const {c,log,ws,original,first}=deliveryDom();
+  const anchor=log.children.find(n=>n.getBoundingClientRect().bottom>0), before=anchor.getBoundingClientRect().top;
+  assert.equal(c.deliverTurns(ws,[{role:'assistant',content:'Yesterday answer',ts:first-86400000}]),true);
+  assert.ok(original.every(n=>log.contains(n)),'reader selection and controls retain their original nodes');
+  assert.equal(anchor.getBoundingClientRect().top,before,'earlier insertion keeps the same row at the same screen position');
+  const breaks=log.children.filter(n=>n.className==='cmsg-timebreak');
+  assert.deepEqual(breaks.map(n=>n.children[0].textContent),[new Date(first-86400000).toISOString(),new Date(first).toISOString()]);
+  assert.equal(log.children[log.children.indexOf(breaks[1])+1],original[0],'Today separator still belongs to Today');
+  const snapshot=log.children.slice();assert.equal(c.deliverTurns({id:'other'},[{ts:first,content:'unrelated'}]),false);assert.deepEqual(log.children,snapshot);
+});
+
+test('history insertion suspends pruning until the recovered message reaches its chronological position',()=>{
+  const {c,log,ws,first}=deliveryDom(true,400);
+  assert.doesNotThrow(()=>c.deliverTurns(ws,[{role:'assistant',content:'Recovered',ts:first+500}]));
+  const stamps=log.children.filter(n=>n.dataset.ts).map(n=>Number(n.dataset.ts));
+  assert.deepEqual(stamps,stamps.slice().sort((a,b)=>a-b),'pruning cannot strand older recovery at the tail');
+  assert.ok(log.children.length<=400,'normal DOM cap still applies after insertion');
+  assert.equal(c.insertingDelivery,false);
+});
+
+test('reader anchoring composes with browser anchoring and scaled UI coordinates',()=>{
+  const {c,log,ws,original,first}=deliveryDom(false,4,1.15,true);
+  const anchor=original[2], before=anchor.getBoundingClientRect().top;
+  c.deliverTurns(ws,[{role:'assistant',content:'Earlier scaled insertion',ts:first-86400000}]);
+  assert.ok(Math.abs(anchor.getBoundingClientRect().top-before)<0.001);
+});

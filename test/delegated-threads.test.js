@@ -211,6 +211,14 @@ const roster = new Map([['researcher', { system: 'R', name: 'MIRA' }], ['writer'
   A.eq(rec.files.map(f => f.name + '@' + f.agentId).join(','), 'competitors.md@researcher', 'the files it saved, opened from the WORKER\'s workspace (a sent message is not a file)');
   A.eq(rec.ms + '|' + rec.cost, '41000|$0.03', 'its own time and cost');
   A.eq(L.foldReceipt({ ...row, unmetered: true }, []).cost, 'subscription', 'a subscription run never shows a fake price');
+  const provisional = L.foldReceipt({ ...row, deliveryText: 'invalid raw output', dispatchDelivery: { state: 'pending' } }, turns);
+  A.eq(provisional.answer, '', 'receipt never promotes provisional execution text');
+  A.eq(provisional.live, true, 'pending validation keeps an open receipt refreshing');
+  const finalized = L.foldReceipt({ ...row, dispatchDelivery: { state: 'final', text: '{"ok":true}', reason: 'done' } }, turns);
+  A.eq(finalized.answer, '{"ok":true}', 'receipt uses validated delivery instead of original transcript');
+  const rejected = L.foldReceipt({ ...row, dispatchDelivery: { state: 'final', text: '', reason: 'invalid-result' } }, turns);
+  A.eq(rejected.answer, '', 'rejected output cannot fall back to raw transcript');
+  A.eq(L.foldReceipt({ ...row, dispatchDelivery: { state: 'internal' } }, turns).answer, '', 'repair execution has no independent receipt answer');
   A.eq(L.foldReceipt(null, turns).live, true, 'no run record yet = still working (never "no work")');
   delete global.DeskScreen;
 }

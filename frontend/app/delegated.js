@@ -230,13 +230,14 @@ const Delegated = (() => {
       const raw = url ? pageOf(url) : argOf(a), arg = /^\.[\\/]?$/.test(raw) ? 'the workspace' : raw;   // a bare "." reads as nothing
       stepsOut.push({ verb: verbOf(s.name, true), arg, ok: !s.isError, done: s.done !== false });
     }
-    let answer = String((row && row.deliveryText) || '');
-    if (!answer || answer.length >= 24000) {   // the run record caps its delivery: the transcript has the whole answer
+    const delivery = row && row.dispatchDelivery;
+    let answer = String(delivery ? (delivery.state === 'final' ? delivery.text || '' : '') : (row && row.deliveryText) || '');
+    if (!delivery && (!answer || answer.length >= 24000)) {   // the run record caps its delivery: the transcript has the whole answer
       for (let i = (turns || []).length - 1; i >= 0; i--) { const t = turns[i]; if (t && t.role === 'assistant' && typeof t.content === 'string' && t.content.trim()) { answer = t.content; break; } }
     }
     const files = ((row && row.artifacts) || []).filter(x => x && x.path && (!x.kind || x.kind === 'file' || x.kind === 'image'))
       .map(x => ({ name: String(x.path).split(/[\\/]/).pop(), path: String(x.path), agentId: row.agentId || 'agent', projectRoot: row.projectRoot || '' }));
-    return { answer, agentId: (row && row.agentId) || '', projectRoot: row ? (row.projectRoot || '') : null, steps: stepsOut, sites, searches, files, ms: row ? Number(row.durationMs) || 0 : 0, cost: costOf(row), live: !row };
+    return { answer, agentId: (row && row.agentId) || '', projectRoot: row ? (row.projectRoot || '') : null, steps: stepsOut, sites, searches, files, ms: row ? Number(row.durationMs) || 0 : 0, cost: costOf(row), live: !row || !!(delivery && delivery.state === 'pending') };
   }
   async function loadReceipt(id) {
     const r = findRow(id); if (!r) return;

@@ -27,7 +27,7 @@ function boot(opts) {
   const Channels = require('../frontend/app/channels.js');
   Workstreams.reset();
   Channels.reset();
-  const page = { rail: 0, persisted: 0, loaded: [], acks: [], save: null };
+  const page = { rail: 0, persisted: 0, loaded: [], delivered: [], repainted: 0, acks: [], save: null };
   const sandbox = {
     Workstreams, Channels,
     App: {
@@ -39,7 +39,8 @@ function boot(opts) {
       flush: async () => opts.saveFails ? false : true,
       pull: async () => opts.readBackFails ? null : page.save
     },
-    Chat: { load: ws => page.loaded.push(ws.id), canFocusSession: opts.canFocusSession || (() => true) },
+    Delegated: { repaint: () => page.repainted++ },
+    Chat: { deliverTurns: (ws, turns) => page.delivered.push({ id: ws.id, turns }), load: ws => page.loaded.push(ws.id), canFocusSession: opts.canFocusSession || (() => true) },
     U: { bus: { on: () => {} } },
     VoiceLive: opts.voiceLive,
     fetch: async (url, init) => {
@@ -147,6 +148,52 @@ for (const reason of ['done', 'budget', 'max_iters', 'aborted', 'error']) {
   A.eq(worker.history.length, 0, 'recovering an empty failure invents no assistant answer');
   A.eq(worker.runIds[0], 'empty-error', 'the failed run can still be inspected from its card');
   A.eq(env.page.save.workstreams.find(w => w.id === worker.id).lastRunReason, 'error', 'empty failure outcome is persisted');
+}
+
+// Execution output is provisional until structured-result validation finalizes delivery.
+{
+  const runs = [{ runId: 'raw-run', streamId: 'structured-worker', sessionTitle: 'Structured worker',
+    agentId: 'researcher', reason: 'done', deliveryText: 'not valid JSON', ts: 1000, dispatchDelivery: { state: 'pending' } },
+    { runId: 'repair-run', streamId: 'structured-worker', sessionTitle: 'Structured worker',
+    reason: 'done', deliveryText: '{"ok":true}', ts: 2000, dispatchDelivery: { state: 'internal' } }];
+  const env = boot({ runs });
+  const worker = env.W.adopt({ id: 'structured-worker', title: 'Structured worker', worker: true, parentStreamId: env.W.generalId() });
+  await call(env, 'station.dispatch_start', { streamId: worker.id, runId: 'raw-run' });
+  A.eq(await env.S.reconcile(worker.id), 0, 'recovery waits for structured repair');
+  A.eq(worker.history.length, 0, 'raw and repair execution text is never an accepted answer');
+  A.eq(worker.runIds.length, 0, 'provisional records cannot deduplicate final delivery');
+  A.eq(env.C.isBusy(worker.id), true, 'provisional recovery cannot settle live dispatch');
+  runs[0].dispatchDelivery = { state: 'final', text: '{"ok":true}', reason: 'done', repairRunId: 'repair-run' };
+  const out = await call(env, 'station.deliver', { streamId: worker.id, runId: 'raw-run', text: runs[0].dispatchDelivery.text, reason: 'done' });
+  A.eq(out.result.folded, true, 'the authoritative repaired result is accepted under the original run');
+  A.eq(worker.history.map(m => m.content), ['{"ok":true}'], 'only the validated answer is visible');
+  A.eq(await env.S.reconcile(worker.id), 0, 'final delivery recovery is idempotent');
+  // Recreate page storage without the live bridge delivery, as after a missed ACK/restart.
+  env.W.init({ generalId: 'general', activeId: 'general', workstreams: [{ id: 'general' },
+    { id: worker.id, title: worker.title, worker: true, parentStreamId: 'general' }] });
+  A.eq(await env.S.reconcile(), 1, 'restart recovers the validated envelope once');
+  A.eq(env.W.get(worker.id).history.map(m => m.content), ['{"ok":true}'], 'restart never replays raw output or a second repair answer');
+  runs[0].dispatchDelivery = { state: 'final', text: '', reason: 'invalid-result' };
+  env.W.init({ generalId: 'general', activeId: 'general', workstreams: [{ id: 'general' },
+    { id: worker.id, title: worker.title, worker: true, parentStreamId: 'general' }] });
+  await env.S.reconcile();
+  A.eq(env.W.get(worker.id).lastRunReason, 'invalid-result', 'execution done never overrides rejected structured delivery');
+  A.eq(env.W.get(worker.id).lastRunOk, false, 'invalid structured delivery is not successful');
+  A.eq(env.W.get(worker.id).history.length, 0, 'invalid structured delivery has no raw-text fallback');
+}
+
+// Recovering hidden worker state must not reconstruct the unrelated chat the reader is using.
+for (const text of ['', 'Final worker answer.']) {
+  const env = boot({ runs: [{ runId: 'hidden-result', streamId: 'hidden-worker', sessionTitle: 'Hidden worker',
+    reason: 'error', deliveryText: text, ts: 1000 }] });
+  const worker = env.W.adopt({ id: 'hidden-worker', title: 'Hidden worker', worker: true, parentStreamId: env.W.generalId() });
+  const reading = env.W.create('Reading another conversation');
+  reading.history.push({ role: 'assistant', content: 'Keep this reading position.', ts: 500 });
+  await call(env, 'station.dispatch_end', { streamId: worker.id, runId: 'hidden-result' });
+  A.eq(env.page.loaded.length, 0, 'hidden worker recovery never reloads the active chat');
+  A.eq(env.page.delivered.length, 0, 'hidden worker recovery never appends to an unrelated chat');
+  A.eq(env.W.activeId(), reading.id, 'reader focus stays in the unrelated chat');
+  A.ok(env.page.repainted > 0 && env.page.persisted > 0, 'worker state and durable save still refresh');
 }
 
 // Healing a missed older attempt must never make it the worker's newest result or stop a newer live retry.
@@ -289,7 +336,8 @@ for (const text of ['', 'Older partial work.']) {
   const env = boot();
   const ws = env.W.create('research');       // create() activates it
   await call(env, 'station.deliver', { streamId: ws.id, agentId: 'researcher', runId: 'run-1', text: 'done' });
-  A.eq(env.page.loaded[0], ws.id, 'the open session is reloaded so the answer appears at once');
+  A.eq(env.page.delivered[0].id, ws.id, 'the open session receives the new turns without a reload');
+  A.eq(env.page.loaded.length, 0, 'delivery preserves existing reader DOM');
   A.ok(!env.W.unread(ws.id), 'and it is not marked unread — it is on screen');
 }
 
