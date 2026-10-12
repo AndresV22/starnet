@@ -49,8 +49,9 @@ function station(n) {
       lastStage: a => a === 'writer', onShipped: r => { fired.push(r); }, now: () => 0
     }, extra || {}));
     const c = mk();
-    const res = await c.advance({ agentId: 'researcher', text: 'notes', originalText: 'the job', lineId: 'L1', entryUsd: 0.02, streamId: 'sample-1', since: 5 });
+    const res = await c.advance({ agentId: 'researcher', text: 'notes', originalText: 'the job', lineId: 'L1', entryUsd: 0.02, streamId: 'sample-1', since: 5, runId: 'entry-proof' });
     A.eq(res.stopped, null, 'the line ran to its end');
+    A.eq(fired[0].entryRunId, 'entry-proof', 'shipment callback carries exact entry-run identity');
     A.eq(fired.length, 1, 'onShipped fired once for a job that left its line clean at the OUTBOX stage');
     A.ok(fired[0] && fired[0].lineId === 'L1' && fired[0].agentId === 'writer' && fired[0].text === 'writer work' && fired[0].originalText === 'the job' && fired[0].streamId === 'sample-1' && fired[0].since === 5 && Math.abs(fired[0].usd - 0.03) < 1e-9, '…with the line, the producer, the answer, the job as it arrived, its stream and its whole spend — ' + JSON.stringify(fired[0]));
     fired.length = 0;

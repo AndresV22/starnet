@@ -57,6 +57,7 @@ async function fireAndSettle(s, reply) {
     A.eq(s.chainCalls[0].text, 'raw findings about the thing', "handed stage one's real output");
     A.eq(s.chainCalls[0].originalText, 'research the thing', "and the routine's own prompt as the original ask");
     A.eq(s.chainCalls[0].streamId, 'cron-run-1', "hops ride the ROUTINE's stream so its session shows the whole line");
+    A.eq(s.chainCalls[0].runId, 'run-1', 'shipment identity is the exact scheduled entry run');
     A.eq(lastOf(s.events, 'cron.result').outcome, 'ok', 'the routine settles ok');
     A.eq(s.getJob('j1').lastStatus, 'ok', 'and its durable record is clean');
   }

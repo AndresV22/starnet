@@ -554,7 +554,7 @@
           // the lease — a line that outran the heartbeat would be declared a zombie and re-fired mid-work.
           Promise.resolve(advanceChain({
             agentId: job.agentId, dockId: job.dockId || undefined, text: state.buf, originalText: String(job.prompt || ''),
-            signal: ac.signal, streamId: 'cron-' + runId, key: key, model: model, provider: provider,
+            signal: ac.signal, runId: runId, streamId: 'cron-' + runId, key: key, model: model, provider: provider,
             // the entry run's reconciled spend: the chain's $ ceiling covers the WHOLE line, stage one
             // included (2026-08-10 audit — the entry run rode outside its own line's cap on every path).
             entryUsd: state.usd,
