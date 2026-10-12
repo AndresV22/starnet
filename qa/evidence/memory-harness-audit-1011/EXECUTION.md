@@ -1,6 +1,6 @@
 # Memory and learning execution — 2026-10-12
 
-Owning branch: agent/memory-harness-audit-1011. Frozen implementation: 815f2e6640405249087750eec313859353cc2697.
+Owning branch: agent/memory-harness-audit-1011. Frozen implementation: 7a3f03b7c817146daac3e80bfa6afa293d5cca44.
 Integration dependency already merged into this branch: 8c2b8c547. Trunk remains feat/harness-backend at a20ffa71f; this lane did not merge or edit it.
 
 The five implementation areas are integrated and focused/live checks pass. The complete fast and HTTP gates remain outstanding in the coordinator's complete checkout. This is not a release-ready or product-perfection claim.
@@ -17,13 +17,26 @@ The browser was the real dev-seeded app, launched with node dev/seed.js --keep i
 
 ## Verification receipts
 
-- Syntax: node --check passed all49 changed JavaScript files relative to8c2b8c547. git diff --check passed.
+- Syntax: node --check passed all51 changed JavaScript files relative to8c2b8c547 on the final implementation. git diff --check passed.
 - focused-final.txt:18 focused suites passed, including capture, evidence, bounded recall, scoped skill publication, UI state, restart lifecycle and accounting.
 - contract-retrieval-final.txt:12 selected suites passed, including event/contracts, injected clock/RNG, corrections, feedback, embedding selection and transcript provenance.
 - final-live-verification.txt:3 actual sidecar suites passed. Verdict packet lifecycle14 assertions; memory learning6 phases; candidate lifecycle6 phases/72 local model calls.
 - existing-skill-http-final.txt:5 existing sidecar suites passed: guard37, exchange40, prompt22, learning35, trust-origin11 assertions.
 - browser-ui-proof.json: actual browser actions plus backend confirmation of promoted/rejected state.
 - Failed attempts are retained. Initial live wiring exposed a forbidden persistence key and query-route mismatch; both were fixed. The first armed-job completion assertion incorrectly expected the durable completed tombstone to disappear; it now requires no unfinished job and verifies no re-dispatch after another restart.
+
+## Recovery review follow-up
+
+The integration source review of cd20bdad6 found two remaining faults: a failed review snapshot could strand an armed job without a timer, and uncertain evaluator spend became station-wide authority only after restart. Both are fixed in the frozen implementation above.
+
+- Review storage failures now use a separate, bounded persistence retry (three attempts by default). No model launch occurs without durable acknowledgment. Retrying a completed-job snapshot cannot rerun the model. Focused tests cover transient recovery, persistent refusal, explicit correction after recovery, and completion-save recovery.
+- ledger.markUnsettled moves the existing durable dispatch receipt into the current process's recovery list. Unknown charges immediately make health incomplete; recordStrict failures make durability unhealthy and cannot expose a second manual booking for a potentially journaled charge.
+- Every evaluator provider entry, including loop retries and continuation calls, rechecks current per-case, request and station spending policy. An incomplete attempt stops further paid retries. Known usage is published while streaming so concurrent admissions see accrued spend. A malformed final usage event cannot inherit validity from an earlier snapshot and settle as zero.
+- Strict user-selected caps refuse a fresh evaluation while accounting is unknown. Existing default soft-only policy is preserved and still reports unknown totals. Explicit settlement uses the existing owner recovery route; no guessed charge or automatic settlement was added.
+- recovery-focused.txt: eight focused suites passed (ledger78, budget56, existing verdictreview77 assertions plus new lifecycle/accounting cases).
+- recovery-live.txt: four actual sidecar suites passed for review/restart, trusted learning/recall, candidate lifecycle and existing spend authority.
+- evaluation-recovery-final.txt: three evaluator suites and two real sidecar suites passed on7a3f03b7c. The new spend regression proves a missing-usage response creates one unsettled receipt, a second HTTP evaluation makes zero provider calls, Resume is refused, explicit fixture attestation restores evaluation in the same process, and four observed charges are booked exactly once. Five local provider calls total; no external spend.
+- A final independent source review of7a3f03b7c found no remaining concrete accounting issue. This is a source review, not a substitute for the outstanding full gates.
 
 ## Gate status and practical limits
 
@@ -39,7 +52,7 @@ The browser was the real dev-seeded app, launched with node dev/seed.js --keep i
 
 ## Integration map
 
-Import the owning branch above, not the individual child lanes independently. Child contributions are already merged:15f06def retrieval;72b9139d skills;ea365043 and a899f08b evidence/lifecycle/accounting;521bc637 live lifecycle;8d825804 legacy fixture compatibility. Shared events/schema were not modified by this lane.
+Import the owning branch above, not the individual child lanes independently. Child contributions are already merged:15f06def retrieval;72b9139d skills;ea365043 and a899f08b evidence/lifecycle/accounting;521bc637 live lifecycle;8d825804 legacy fixture compatibility;714683e25 bounded review persistence recovery;005879349 immediate ledger recovery;9e0c49721 real HTTP evaluation spend regression. Shared events/schema were not modified by this lane.
 
 Principal ownership: root sidecar/index.js, trusted-learning.js, skill-evaluation-accounting.js, manifests and live host tests; retrieval lane context/feedback/notebook/recall/transcript modules; skills lane skillstore/gate/runtime/tools and stationui; review lane learningevidence/skillreview/verdictreview/skillevaluation/runner.
 
@@ -50,7 +63,24 @@ frontend/app/stationui.js
 qa/evidence/memory-harness-audit-1011/EXECUTION.md
 qa/evidence/memory-harness-audit-1011/REPORT.md
 qa/evidence/memory-harness-audit-1011/approval-check.txt
+qa/evidence/memory-harness-audit-1011/browser-ui-proof.json
+qa/evidence/memory-harness-audit-1011/contract-retrieval-final.txt
+qa/evidence/memory-harness-audit-1011/existing-skill-http-final.txt
+qa/evidence/memory-harness-audit-1011/fast-gate-initial.txt
+qa/evidence/memory-harness-audit-1011/fast-gate-source-complete.txt
+qa/evidence/memory-harness-audit-1011/fast-gate-source.txt
+qa/evidence/memory-harness-audit-1011/final-live-verification.txt
+qa/evidence/memory-harness-audit-1011/focused-final.txt
+qa/evidence/memory-harness-audit-1011/focused-integration-rerun.txt
+qa/evidence/memory-harness-audit-1011/focused-integration-verified.txt
+qa/evidence/memory-harness-audit-1011/focused-integration.txt
+qa/evidence/memory-harness-audit-1011/frozen-implementation.json
 qa/evidence/memory-harness-audit-1011/goldens-check.txt
+qa/evidence/memory-harness-audit-1011/learning-after-live-rerun.txt
+qa/evidence/memory-harness-audit-1011/learning-after-live-verified.txt
+qa/evidence/memory-harness-audit-1011/learning-after-live.txt
+qa/evidence/memory-harness-audit-1011/learning-expanded-live.txt
+qa/evidence/memory-harness-audit-1011/learning-verdict-final-live.txt
 qa/evidence/memory-harness-audit-1011/skills-learning-live-retry.txt
 qa/evidence/memory-harness-audit-1011/skills-learning-live.txt
 qa/evidence/memory-harness-audit-1011/source-probes.cjs
@@ -63,6 +93,7 @@ sidecar/context.js
 sidecar/feedbackmemory.js
 sidecar/index.js
 sidecar/learningevidence.js
+sidecar/ledger.js
 sidecar/skill-evaluation-accounting.js
 sidecar/skill-evaluation-runner.js
 sidecar/skillevaluation.js
@@ -84,6 +115,7 @@ test/fast.list
 test/feedbackmemory.test.js
 test/http.list
 test/learning.evidence.test.js
+test/ledger.test.js
 test/memory-learning-boundary.http.test.js
 test/memory-truth.test.js
 test/notebook.test.js
@@ -93,6 +125,7 @@ test/skill.evaluation-accounting.test.js
 test/skill.evaluation.accounting.test.js
 test/skill.evaluation.test.js
 test/skills.candidate-lifecycle.http.test.js
+test/skills.evaluation-spend.http.test.js
 test/skills.gate.http.test.js
 test/skills.gate.prompt.e2e.test.js
 test/skills.gate.test.js
@@ -109,3 +142,4 @@ test/verdictreview.lifecycle.test.js
 test/verdictreview.test.js
 website/app/app/stationui.js
 ```
+
