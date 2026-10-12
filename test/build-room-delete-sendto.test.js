@@ -65,4 +65,19 @@ function rig() {
   ctx.deleteSelectedRoom({}); R.tick(300); ctx.deleteSelectedRoom({});
   A.ok(!s.roomById(R.rb) && ctx.selectedRoomId === null, 'a room no SEND TO points into deletes on the second Delete, as before');
 }
+{
+  // LIVE-FOUND (final floor lane, 2026-10-12 CDP run): reading the warning took ~4 s, and the "repeat DELETE" re-armed with
+  // "press Delete again" — the room arm (2.5 s) ran out inside the SEND TO cut window (6 s). The repeat confirms anywhere in it.
+  const R = rig(), { s, ctx, said } = R;
+  ctx.selectedRoomId = R.rb;
+  ctx.deleteSelectedRoom({}); R.tick(300); ctx.deleteSelectedRoom({});
+  A.ok(/THIS CUTS 1 SEND TO/.test(said[said.length - 1]), 'the cut warning');
+  R.tick(4200);   // the Commander reads it
+  ctx.deleteSelectedRoom({});
+  A.ok(!s.roomById(R.rb) && ctx.selectedRoomId === null, 'a repeat DELETE 4 s after the warning deletes the room — ' + said[said.length - 1]);
+  const R2 = rig();
+  R2.ctx.selectedRoomId = R2.rb;
+  R2.ctx.deleteSelectedRoom({}); R2.tick(300); R2.ctx.deleteSelectedRoom({}); R2.tick(7000); R2.ctx.deleteSelectedRoom({});
+  A.ok(!!R2.s.roomById(R2.rb) && /press Delete again/.test(R2.said[R2.said.length - 1]), 'past the 6 s window the warning has lapsed: Delete arms afresh (never a silent delete)');
+}
 A.report('build-room-delete-sendto.test');

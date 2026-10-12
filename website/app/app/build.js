@@ -5721,7 +5721,8 @@ const Build = (() => {
     const rm = station.roomById(selectedRoomId); if (!rm) return;
     if (rm.id === station.spawnRoomId()) { sfx('bad'); flashTip(ev, 'the spawn room can’t be deleted — drag it to move it instead'); return; }
     const now = performance.now();
-    if (!roomDelArmedAt || now - roomDelArmedAt > 2500) { roomDelArmedAt = now; sfx('tick'); flashTip(ev, 'press Delete again to delete ' + (rm.name || 'this room') + ' — everything on it goes (one Undo brings it back)'); return; }
+    // (after a SEND TO cut warning the repeat confirms anywhere in its own 6 s window — reading it took longer than the 2.5 s arm, live 10-12)
+    if (!roomDelArmedAt || now - roomDelArmedAt > (sendCutArm ? 6000 : 2500)) { roomDelArmedAt = now; sfx('tick'); flashTip(ev, 'press Delete again to delete ' + (rm.name || 'this room') + ' — everything on it goes (one Undo brings it back)'); return; }
     /* deselect only once the room is GONE (final floor lane M15): after a SEND TO cut warning ("repeat DELETE / REMOVE to continue")
        the room stays selected and armed, so the next Delete goes straight through; a refused delete leaves a room that still stands */
     roomDelArmedAt = 0;
