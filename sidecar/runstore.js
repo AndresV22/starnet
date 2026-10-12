@@ -75,8 +75,12 @@
   function dispatchDelivery(v) {
     if (!v || !['pending', 'internal', 'final'].includes(v.state)) return null;
     if (v.state !== 'final') return { state: v.state };
-    return { state: 'final', text: str(v.text).slice(0, DELIVERY_TEXT_MAX),
+    const out = { state: 'final', text: str(v.text).slice(0, DELIVERY_TEXT_MAX),
       reason: str(v.reason).trim().slice(0, 80) || 'error', repairRunId: str(v.repairRunId).slice(0, 100) };
+    if (Number.isSafeInteger(v.textLength) && v.textLength >= out.text.length && /^[a-f0-9]{64}$/.test(str(v.textSha256))) {
+      out.textLength = v.textLength; out.textSha256 = v.textSha256;
+    }
+    return out;
   }
   const TOOL_TRACE_MAX = 200;
   const TOOL_SUMMARY_MAX = 240;
@@ -403,11 +407,16 @@
     // Append a final dispatch envelope without adding a second execution/spend row. Only the host-created
     // pending original is eligible; an internal repair or missing run can never become a new execution here.
     // Persist first: a failed append leaves the provisional state honest and can be retried safely.
-    function finalizeDelivery(runId, value) {
-      const row = latest(runId), envelope = dispatchDelivery(Object.assign({}, value, { state: 'final' }));
+    function deliverySource(runId) {
+      const row = latest(runId);
       if (!row || !row.dispatchDelivery || row.dispatchDelivery.state === 'internal') return null;
-      if (row.dispatchDelivery.state === 'final') return row;
       if (unpersisted.has(row.runId)) throw new Error('The original dispatch run was not durably recorded.');
+      return row;
+    }
+    function finalizeDelivery(runId, value) {
+      const row = deliverySource(runId), envelope = dispatchDelivery(Object.assign({}, value, { state: 'final' }));
+      if (!row) return null;
+      if (row.dispatchDelivery.state === 'final') return row;
       const patch = { kind: DELIVERY_PATCH_KIND, runId: row.runId, dispatchDelivery: envelope, ts: clock.now() };
       io.append(patch, { strict: true });
       rows.push(patch);
@@ -431,7 +440,7 @@
     }
 
     return {
-      record, list, latest, settleSpend, finalizeDelivery,
+      record, list, latest, settleSpend, finalizeDelivery, deliverySource,
       all() { return rows.filter(r => !updates.has(r)).map(view); },
       count() { return rows.length - updates.size; }
     };

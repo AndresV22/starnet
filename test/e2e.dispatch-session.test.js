@@ -18,6 +18,9 @@
 'use strict';
 const A = require('./_assert.js');
 const http = require('http');
+const fs = require('fs');
+const path = require('path');
+const hash = text => require('crypto').createHash('sha256').update(text, 'utf8').digest('hex');
 const { SidecarFixture } = require('./helpers/sidecar-fixture.js');
 const HOST = '127.0.0.1';
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -75,7 +78,7 @@ function startMockOpenRouter(dispatchArgs, options) {
 
 /* BE THE PAGE. Hold the real SSE hub open and answer station.command exactly as stationcommands.js would —
    the same verbs, the same /api/station/ack route. `sessions` is the live list a name is resolved against. */
-function attachStationPage(B, token, sessions) {
+function attachStationPage(B, token, sessions, options) {
   const seen = [];
   const ctrl = new AbortController();
   const ready = fetch(B + '/api/channels/events?' + require('./_httpToken.js').sseQuery(token), { signal: ctrl.signal }).then(async res => {
@@ -97,7 +100,7 @@ function attachStationPage(B, token, sessions) {
             const p = ev.payload || {};
             seen.push(p);
             const out = p.verb === 'station.sessions' ? { ok: true, result: { sessions: sessions } }
-              : p.verb === 'station.deliver' ? { ok: true, result: { folded: true, session: 'research' } }
+              : p.verb === 'station.deliver' ? (options && options.deliverError ? { ok: false, error: options.deliverError } : { ok: true, result: { folded: true, session: 'research' } })
                 : (p.verb === 'station.dispatch_start' || p.verb === 'station.dispatch_end')
                   ? { ok: true, result: { session: 'research' } }
                   : { ok: false, error: 'unknown station verb: ' + p.verb };
@@ -150,6 +153,7 @@ async function run(label, dispatchArgs, sessions, body, options) {
   const page = { close: () => {} };
   let running = null;
   try {
+    if (options.configureFixture) options.configureFixture(fixture);
     await fixture.start();
     const B = fixture.baseUrl, token = fixture.token;
     const H = { 'Content-Type': 'application/json', 'X-StarNet-Token': token, Origin: B };
@@ -159,7 +163,7 @@ async function run(label, dispatchArgs, sessions, body, options) {
       { agentId: 'researcher', system: 'You research things.', name: 'RESEARCHER', model: 'test/model' }
     ] }) });
     A.eq(roster.status, 200, label + ': the researcher is on the roster');
-    const attached = attachStationPage(B, token, sessions);
+    const attached = attachStationPage(B, token, sessions, options);
     Object.assign(page, attached);
     await attached.ready;
     await sleep(250);   // let the hub register this client before the run emits
@@ -267,7 +271,7 @@ for (const validRepair of [true, false]) {
   const label = validRepair ? 'validated-repair' : 'invalid-result';
   let releaseRepair;
   const repairGate = new Promise(resolve => { releaseRepair = resolve; });
-  const repairedText = validRepair ? JSON.stringify({ answer: 'Phobos and Deimos. '.repeat(1600) }) : 'still invalid JSON';
+  const repairedText = validRepair ? JSON.stringify({ answer: 'x'.repeat(250000) + '\u{1F680}\u5B87\u5B99COMPLETE_TAIL' }) : 'still invalid JSON';
   const expectedReason = validRepair ? 'done' : 'invalid-result';
   let originalId = '';
   await run(label,
@@ -294,11 +298,11 @@ for (const validRepair of [true, false]) {
       A.eq(end.length, 1, label + ': dispatch ends once after validation');
       A.eq(end[0].args.runId, originalId, label + ': settlement retains the original dispatch identity');
       A.eq(end[0].args.reason, expectedReason, label + ': live settlement matches persisted dispatch outcome');
-      A.eq({ ...end[0].args.dispatchDelivery, text: end[0].args.dispatchDelivery.text.slice(0, 24000) }, original.dispatchDelivery, label + ': live and recovered settlement share one final envelope with a bounded stored preview');
+      A.eq({ ...end[0].args.dispatchDelivery, text: end[0].args.dispatchDelivery.text.slice(0, 24000), textLength: original.dispatchDelivery.textLength, textSha256: original.dispatchDelivery.textSha256 }, original.dispatchDelivery, label + ': live and recovered settlement share one final envelope with a bounded stored preview');
       const deliveries = station.filter(c => c.verb === 'station.deliver');
       if (validRepair) {
         A.eq(original.dispatchDelivery.text, repairedText.slice(0, 24000), label + ': only the repaired valid answer is final');
-        A.ok(repairedText.length > 24000, label + ': recovery exercises an answer larger than the run preview');
+        A.ok(repairedText.length > 200000, label + ': recovery exercises an accepted answer larger than the historical transcript cap');
         A.eq(deliveries.length, 1, label + ': one validated answer is delivered');
         A.eq(deliveries[0].args.runId, originalId, label + ': repair preserves the delivery idempotency key');
         A.eq(deliveries[0].args.text, repairedText, label + ': the live delivery contains repaired text');
@@ -315,10 +319,18 @@ for (const validRepair of [true, false]) {
       A.ok(canonical.body.turns.every(t => t.sourceRunId === originalId), label + ': displayed conversation belongs to original dispatch identity');
       const finalView = await fixture.json('GET', finalRoute);
       A.eq(finalView.body.turns.map(t => ({ role: t.role, sourceRunId: t.sourceRunId, content: t.content })), [{ role: 'assistant', sourceRunId: originalId, content: acceptedText }], label + ': exact finalized delivery view returns full authoritative text');
+      A.eq(original.dispatchDelivery.textLength, acceptedText.length, label + ': durable envelope proves full accepted length');
+      A.eq(original.dispatchDelivery.textSha256, hash(acceptedText), label + ': durable envelope proves full accepted UTF-8 digest');
+      A.eq(finalView.body.turns[0].textLength, acceptedText.length, label + ': full projection carries the same exact length');
+      A.eq(finalView.body.turns[0].textSha256, hash(acceptedText), label + ': full projection carries the same exact digest');
+      if (validRepair) {
+        A.ok(JSON.parse(finalView.body.turns[0].content).answer.endsWith('COMPLETE_TAIL'), label + ': complete valid JSON tail survives authoritative read');
+        console.log('delivery proof: ' + JSON.stringify({ characters: acceptedText.length, sha256: hash(acceptedText), originalId, repairId: repair.runId, tail: 'COMPLETE_TAIL' }));
+      }
       const rawOriginal = await fixture.json('GET', '/api/transcript?stream=ws_r1&runId=' + encodeURIComponent(originalId));
       A.eq(rawOriginal.body.turns.filter(t => t.role === 'assistant').map(t => t.content), ['raw invalid JSON'], label + ': ordinary exact original read keeps raw execution evidence');
       const rawRepair = await fixture.json('GET', '/api/transcript?stream=ws_r1&runId=' + encodeURIComponent(repair.runId));
-      A.eq(rawRepair.body.turns.filter(t => t.role === 'assistant').map(t => t.content), [repairedText], label + ': exact internal repair read retains full execution evidence in its worker stream');
+      A.eq(rawRepair.body.turns.filter(t => t.role === 'assistant').map(t => t.content), [repairedText.slice(0, 200000)], label + ': exact internal repair read retains bounded raw execution evidence in its worker stream');
       const internalFinal = await fixture.json('GET', '/api/transcript?stream=ws_r1&runId=' + encodeURIComponent(repair.runId) + '&delivery=1');
       A.eq(internalFinal.body.turns, [], label + ': internal repair has no independently finalized delivery');
       const beforeSpend = runs.reduce((sum, row) => sum + row.usd, 0);
@@ -359,6 +371,87 @@ for (const validRepair of [true, false]) {
     });
 }
 
+
+// The real composition root must not publish final recovery when saving its complete payload fails.
+await run('projection-write-failure',
+  { workers: [{ agentId: 'researcher', prompt: 'answer', session: 'research', resultSchema: { type: 'object' } }] },
+  [{ id: 'ws_r1', title: 'research', agentId: 'researcher' }],
+  async ({ fixture, mock, station, restart }) => {
+    const rows = (await fixture.json('GET', '/api/runs?agent=researcher&limit=20')).body.runs;
+    const original = rows.find(r => r.dispatchDelivery.state === 'pending');
+    const repair = rows.find(r => r.dispatchDelivery.state === 'internal');
+    A.eq(rows.length, 2, 'failed projection still records exactly original and repair executions');
+    A.ok(original && repair, 'failed projection never upgrades the original run to recoverable final');
+    const finalRoute = '/api/transcript?stream=ws_r1&runId=' + original.runId + '&delivery=1';
+    A.eq((await fixture.json('GET', finalRoute)).body.turns, [], 'failed projection has no full accepted recovery payload');
+    A.eq((await fixture.json('GET', '/api/transcript?stream=ws_r1')).body.turns, [], 'failed projection never substitutes original or repaired raw text into chat');
+    const follow = mock.requests.filter(r => r.__lead).pop();
+    const toolResult = JSON.stringify((follow.messages || []).filter(m => m.role === 'tool'));
+    A.ok(/recovery record could not be saved/.test(toolResult), 'lead receives the persistence failure diagnosis');
+    A.ok(/could not show it there/.test(toolResult), 'lead also receives the page delivery failure');
+    A.ok(!/completed run is durable and will be reconciled/.test(toolResult), 'offline delivery cannot overwrite failed persistence with a false recovery promise');
+    A.eq(station.filter(c => c.verb === 'station.deliver').length, 1, 'accepted result is still offered live despite storage failure');
+    const spend = rows.reduce((n, r) => n + r.usd, 0);
+    await restart();
+    const replayed = (await fixture.json('GET', '/api/runs?agent=researcher&limit=20')).body.runs;
+    A.eq(replayed.find(r => r.runId === original.runId).dispatchDelivery.state, 'pending', 'restart preserves unconfirmed recovery after failed projection');
+    A.eq((await fixture.json('GET', finalRoute)).body.turns, [], 'restart cannot invent a missing full recovery payload');
+    A.eq((await fixture.json('GET', '/api/transcript?stream=ws_r1')).body.turns, [], 'restart never displays raw invalid or internal repair output');
+    A.eq(replayed.reduce((n, r) => n + r.usd, 0), spend, 'projection failure and restart do not duplicate spend');
+  },
+  { workerText: 'raw invalid JSON', repairText: JSON.stringify({ answer: 'x'.repeat(26000) + 'TAIL' }),
+    deliverError: 'page unavailable', pricing: { prompt: '0.000001', completion: '0.000002' },
+    configureFixture: fixture => {
+      // Test-only process entry injects exactly the production append boundary; all HTTP/run/storage code remains real.
+      const storeFile = path.resolve(__dirname, '../sidecar/transcriptstore.js');
+      const entryFile = path.resolve(__dirname, '../sidecar/index.js');
+      fixture.entry = path.join(fixture.profile, 'projection-fault.cjs');
+      fs.writeFileSync(fixture.entry, 'const store = require(' + JSON.stringify(storeFile) + ');\n'
+        + 'const make = store.makeTranscriptStore; store.makeTranscriptStore = o => { const s = make(o), append = s.appendStrict; s.appendStrict = row => { if (row.dispatchState === "final") throw new Error("injected projection write failure"); return append(row); }; return s; };\n'
+        + 'require(' + JSON.stringify(entryFile) + ');\n');
+    }
+  });
+
+// The second write can fail after complete acceptance; restart finishes only the run envelope, without rerunning work.
+await run('run-final-patch-failure',
+  { workers: [{ agentId: 'researcher', prompt: 'answer', session: 'research', resultSchema: { type: 'object' } }] },
+  [{ id: 'ws_r1', title: 'research', agentId: 'researcher' }],
+  async ({ fixture, mock, restart }) => {
+    const rows = (await fixture.json('GET', '/api/runs?agent=researcher&limit=20')).body.runs;
+    A.eq(rows.length, 1, 'failed run patch keeps one real execution');
+    const original = rows[0];
+    A.eq(original.dispatchDelivery.state, 'pending', 'failed run patch does not claim persisted final acknowledgement');
+    const finalRoute = '/api/transcript?stream=ws_r1&runId=' + original.runId + '&delivery=1&limit=1';
+    const accepted = (await fixture.json('GET', finalRoute)).body.turns[0];
+    A.ok(accepted && accepted.content.endsWith('COMPLETE_TAIL"}'), 'full accepted payload is already recoverable before its run patch');
+    const requests = mock.requests.length;
+    fs.unlinkSync(path.join(fixture.profile, 'fail-run-patch'));
+    await restart();
+    const replay = (await fixture.json('GET', '/api/runs?agent=researcher&limit=20')).body.runs;
+    A.eq(replay.length, 1, 'boot recovery never duplicates original execution');
+    A.eq(replay[0].runId, original.runId, 'boot recovery retains original run identity');
+    A.eq(replay[0].dispatchDelivery.state, 'final', 'boot completes interrupted run finalization from accepted payload');
+    A.eq(replay[0].dispatchDelivery.textSha256, hash(accepted.content), 'recovered run envelope proves exact accepted payload');
+    A.eq(replay[0].dispatchDelivery.textLength, accepted.content.length, 'recovered run envelope proves exact accepted length');
+    A.eq(replay[0].usd, original.usd, 'recovering an interrupted patch preserves execution spend');
+    A.eq(mock.requests.length, requests, 'boot finalization recovery never starts another model run');
+    A.eq((await fixture.json('GET', finalRoute)).body.turns, [accepted], 'boot recovery retains exactly one first accepted projection');
+    await restart();
+    A.eq((await fixture.json('GET', '/api/runs?agent=researcher&limit=20')).body.runs[0].dispatchDelivery, replay[0].dispatchDelivery, 'repeated restart is idempotent after final patch recovery');
+  },
+  { workerText: JSON.stringify({ answer: 'x'.repeat(210000) + 'COMPLETE_TAIL' }),
+    deliverError: 'page unavailable', pricing: { prompt: '0.000001', completion: '0.000002' },
+    configureFixture: fixture => {
+      const storeFile = path.resolve(__dirname, '../sidecar/runstore.js');
+      const entryFile = path.resolve(__dirname, '../sidecar/index.js');
+      const marker = path.join(fixture.profile, 'fail-run-patch');
+      fs.writeFileSync(marker, 'fault');
+      fixture.entry = path.join(fixture.profile, 'run-patch-fault.cjs');
+      fs.writeFileSync(fixture.entry, 'const fs = require("fs"), store = require(' + JSON.stringify(storeFile) + ');\n'
+        + 'const make = store.makeRunStore; store.makeRunStore = o => { const s = make(o), finalize = s.finalizeDelivery; s.finalizeDelivery = (id, value) => { if (fs.existsSync(' + JSON.stringify(marker) + ')) throw new Error("injected run patch failure"); return finalize(id, value); }; return s; };\n'
+        + 'require(' + JSON.stringify(entryFile) + ');\n');
+    }
+  });
 A.report('e2e.dispatch-session.test');
 
 })().catch(e => { console.error(e); process.exit(1); });

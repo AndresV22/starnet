@@ -1615,6 +1615,11 @@ const transcriptIo = makeSegmentedTranscriptIo({
   onWarning: (message) => console.warn('[transcript] ' + message)
 });
 const transcriptStore = makeTranscriptStore({ io: transcriptIo, clock: { now: () => Date.now() }, redact });
+const dispatchDeliveryStore = require('./dispatch-delivery.js');
+const dispatchDeliveryDeps = { runStore, transcriptStore, redact,
+  hash: text => crypto.createHash('sha256').update(text, 'utf8').digest('hex'),
+  onFailure: error => failNote('dispatch.delivery-recovery', error) };
+dispatchDeliveryStore.recoverPendingDeliveries(dispatchDeliveryDeps);
 /* H2: runs whose transcript rows are being written per turn RIGHT NOW (runTranscript start → run-end drain). The rows
    are durable the moment they land (a crash keeps them), but GET /api/transcript keeps the browser's pre-H2 view — a
    run's rows appear when it ends — because COMMS already renders the live run from its own stream, and its canonical
@@ -19658,17 +19663,7 @@ async function runOnceCore(o) {
   // THIS SAME runOnce per worker; the roster supplies each worker's composed identity (system prompt + model).
   makeOrchestrationTools({
     runOnce, roster: () => agentRoster, key: runKey, model, provider: providerId, baseUrl, reasoningEffort, subagents,
-    finalizeDispatchDelivery: (id, envelope) => {
-      const row = runStore.finalizeDelivery(id, { ...envelope, text: redact(envelope.text || '') });
-      if (row && row.streamId) {
-        const last = transcriptStore.history(row.streamId, { sourceRunId: id, limit: 1 })[0];
-        const repair = row.dispatchDelivery.repairRunId && runStore.latest(row.dispatchDelivery.repairRunId);
-        if (!last || last.dispatchState !== 'final') transcriptStore.appendStrict({ streamId: row.streamId, agentId: row.agentId,
-          role: 'assistant', sourceRunId: id, content: envelope.text || '', dispatchState: 'final',
-          dispatchPrompt: row.deliveryPrompt, dispatchReason: row.dispatchDelivery.reason, taint: row.taintedBy || (repair && repair.taintedBy) || undefined });
-      }
-      return row;
-    },
+    finalizeDispatchDelivery: (id, envelope) => dispatchDeliveryStore.finalizeDispatchDelivery(dispatchDeliveryDeps, id, envelope),
     runRecord: (id) => runStore.latest(id),   // team.subagents {runId}: verify a foreground dispatch against run history (#57)
     coordinateResults: require('./overseer.js').isCoordinatorRun({ ...o, agentId, surface }),
     // every coordinator worker is filed in its own thread under the conversation that delegated it (orchestration.js
@@ -26018,13 +26013,14 @@ function serveTranscript(req, res) {
     const limit = Math.max(1, Math.min(500, Number(u.searchParams.get('limit')) || 200));
     const sourceRunId = u.searchParams.get('runId') || '';
     // H2: a run still writing per turn stays out of the stream view until it ends (see transcriptLiveRuns).
-    const raw = transcriptStore.history(stream, { limit: limit + 500, sourceRunId });
+    const hashText = text => crypto.createHash('sha256').update(text, 'utf8').digest('hex');
     // Explicit delivery reads return only the full accepted projection. The ordinary exact-run view stays raw.
     const finalDelivery = sourceRunId && u.searchParams.get('delivery') === '1';
+    const raw = transcriptStore.history(stream, { limit: limit + 500, sourceRunId, dispatchState: finalDelivery ? 'final' : undefined });
     const turns = sourceRunId
-      ? raw.filter(r => finalDelivery ? r.dispatchState === 'final' : r.dispatchState !== 'final').slice(-limit)
+      ? raw.filter(r => finalDelivery ? transcriptStoreModule.isFinalDeliveryRow(r, hashText, (runStore.latest(r.sourceRunId) || {}).dispatchDelivery) : r.dispatchState !== 'final').slice(-limit)
       : transcriptStoreModule.projectConversation(raw.filter(r => !transcriptLiveRuns.has(String(r.sourceRunId || ''))),
-        id => runStore.latest(id)).slice(-limit);
+        id => runStore.latest(id), hashText).slice(-limit);
     json(200, { stream, turns });
   } catch (e) { json(500, readRouteFailure('transcript', e)); }   // broken ≠ empty: every reader gates on r.ok (autosessions/chat/returnstore)
 }

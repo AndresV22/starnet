@@ -588,9 +588,12 @@
       try { out = await station.request('station.deliver', args); }
       catch (e) { out = { ok: false, error: String((e && e.message) || e) }; }
       if (out && out.ok) row.session = job.sessionTitle || job.streamId;
-      else row.sessionNote = 'the work ran and is filed under the "' + (job.sessionTitle || job.streamId)
-        + '" session, but the station could not show it there: ' + String((out && out.error) || 'no answer')
-        + '. The completed run is durable and will be reconciled when that session is opened.';
+      else {
+        const failure = 'The result targets the "' + (job.sessionTitle || job.streamId)
+          + '" session, but the station could not show it there: ' + String((out && out.error) || 'no answer') + '.';
+        row.sessionNote = row.sessionNote ? row.sessionNote + ' ' + failure
+          : failure + ' The completed run is durable and will be reconciled when that session is opened.';
+      }
     }
 
     async function finalizeWorkerDelivery(runId, row) {
