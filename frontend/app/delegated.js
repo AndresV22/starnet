@@ -218,7 +218,7 @@ const Delegated = (() => {
   const hostOf = u => { try { return new URL(String(u)).host.replace(/^www\./, ''); } catch (_) { return String(u || '').slice(0, 40); } };
   const pageOf = u => { try { const x = new URL(String(u)); return (x.host.replace(/^www\./, '') + x.pathname.replace(/\/$/, '')).slice(0, 60); } catch (_) { return String(u || '').slice(0, 60); } };
   // fold the run record + its transcript rows into what the receipt shows. Pure: the tests drive it directly.
-  function foldReceipt(row, turns) {
+  function foldReceipt(row, turns, deliveryTurns) {
     const parsed = typeof DeskScreen !== 'undefined' && DeskScreen.parseScreens ? DeskScreen.parseScreens(turns || []) : [];
     const list = parsed.length ? parsed : ((row && row.toolTrace) || []).map(t => ({ name: t.name, args: {}, isError: !!t.isError || t.ok === false, done: true }));
     const stepsOut = [], sites = [], searches = [], seenUrl = new Set();
@@ -234,6 +234,13 @@ const Delegated = (() => {
     let answer = String(delivery ? (delivery.state === 'final' ? delivery.text || '' : '') : (row && row.deliveryText) || '');
     if (!delivery && (!answer || answer.length >= 24000)) {   // the run record caps its delivery: the transcript has the whole answer
       for (let i = (turns || []).length - 1; i >= 0; i--) { const t = turns[i]; if (t && t.role === 'assistant' && typeof t.content === 'string' && t.content.trim()) { answer = t.content; break; } }
+    }
+    // A repaired result has a different authoritative transcript. Never expand a capped final answer
+    // from the original failed execution; the caller supplies only the final result's own turns.
+    if (delivery && delivery.state === 'final' && delivery.reason === 'done' && answer.length >= 24000 && deliveryTurns) {
+      for (let i = deliveryTurns.length - 1; i >= 0; i--) {
+        const t = deliveryTurns[i]; if (t && t.role === 'assistant' && typeof t.content === 'string' && t.content.trim()) { answer = t.content; break; }
+      }
     }
     const files = ((row && row.artifacts) || []).filter(x => x && x.path && (!x.kind || x.kind === 'file' || x.kind === 'image'))
       .map(x => ({ name: String(x.path).split(/[\\/]/).pop(), path: String(x.path), agentId: row.agentId || 'agent', projectRoot: row.projectRoot || '' }));
@@ -257,8 +264,15 @@ const Delegated = (() => {
       ]);
       const row = ((runs && runs.runs) || []).find(x => x && x.runId === runId) || null;
       if (!row && !['working', 'waiting', 'queued'].includes(stateOf(r, r.ws.parentStreamId, r.lead).cls)) throw new Error('The run record is unavailable. Try again to retrieve its work.');
+      let deliveryTurns;
+      const delivery = row && row.dispatchDelivery;
+      if (delivery && delivery.state === 'final' && delivery.reason === 'done' && String(delivery.text || '').length >= 24000) {
+        const sourceRun = delivery.repairRunId || runId;
+        const full = sourceRun === runId ? tr : await read('/api/transcript?agent=' + agent + '&stream=' + encodeURIComponent(id) + '&runId=' + encodeURIComponent(sourceRun) + '&limit=500');
+        deliveryTurns = (full && full.turns) || [];
+      }
       if (receipts.get(id) && receipts.get(id).runId !== runId) return; // a newer run owns this receipt now
-      receipts.set(id, { status: 'ok', data: foldReceipt(row, (tr && tr.turns) || []), at: Date.now(), runId });
+      receipts.set(id, { status: 'ok', data: foldReceipt(row, (tr && tr.turns) || [], deliveryTurns), at: Date.now(), runId });
     } catch (e) {
       if (!receipts.get(id) || receipts.get(id).runId === runId) receipts.set(id, { status: 'err', error: String((e && e.message) || e), at: Date.now(), runId });
     } finally { loadingReceipts.delete(requestKey); }
