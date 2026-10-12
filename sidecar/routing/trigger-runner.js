@@ -59,6 +59,8 @@ function makeTriggerRunner(deps) {
   const emit = typeof d.emit === 'function' ? d.emit : function () {};
   const bumpQueue = typeof d.bumpQueue === 'function' ? d.bumpQueue : function () { return 0; };
   const halted = typeof d.halted === 'function' ? d.halted : function () { return false; };
+  // the halt is the station's own process-fault containment, not the Commander's E-STOP: only the words differ (see handoff-runner)
+  const faulted = typeof d.faulted === 'function' ? d.faulted : function () { return false; };
   const dayCap = typeof d.dayCap === 'function' ? d.dayCap : function () { return { cap: null, spent: 0 }; };
   const runsFor = typeof d.runsFor === 'function' ? d.runsFor : function () { return []; };
   const shipsToOutbox = typeof d.shipsToOutbox === 'function' ? d.shipsToOutbox : function () { return false; };
@@ -113,7 +115,7 @@ function makeTriggerRunner(deps) {
 
   /* ---- preflight: can THIS line take work right now? (no side effects) ---- */
   function preflight(t) {
-    if (halted()) return 'automation is stopped (E-STOP) — resume it and this trigger fires again';
+    if (halted()) return faulted() ? 'the station hit an internal fault and stopped its background work — restart StarNet and this trigger fires again' : 'automation is stopped (E-STOP) — resume it and this trigger fires again';
     const plan = planOf();
     if (!plan) return 'no work line is armed — the floor has no complete line to run';
     if (!(Array.isArray(plan.lines) ? plan.lines : []).some(l => l && String(l.lineId) === t.lineId)) return 'its line is no longer on the floor (the line changed or was removed) — delete this trigger or re-create it on the line';

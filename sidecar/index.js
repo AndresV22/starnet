@@ -12697,6 +12697,8 @@ const triggerRunner = makeTriggerRunner({
   },
   // the durable automation E-STOP, OR a process fault that quiesced this torn process (no new fire may start)
   halted: () => cronHalted === true || processFaultQuiesced === true,
+  // the halt is the station's own fault containment (never the Commander's E-STOP, which wins when both are set): only the words differ
+  faulted: () => processFaultQuiesced === true && cronHalted !== true,
   runsFor: (streamId) => (runStore.list(null, { streamId: streamId, limit: 200 }) || []).filter(r => r && String(r.streamId || '') === streamId)
     .map(r => ({ runId: r.runId, agentId: r.agentId, reason: r.reason, usd: r.usd, streamId: r.streamId })),
   emit: chanEmit, bumpQueue: bumpQueue, queueCap: QUEUE_CAP,
@@ -12722,6 +12724,8 @@ handoffRunner = makeHandoffRunner({
     return { cap: lim.maxUsdPerDay, spent: lineSpend.spentToday(lineId) };
   },
   halted: () => cronHalted === true || processFaultQuiesced === true,
+  // the halt is the station's own fault containment (never the Commander's E-STOP, which wins when both are set): only the words differ
+  faulted: () => processFaultQuiesced === true && cronHalted !== true,
   workspaceOf: (agentId) => executionEnvironment.forAgent(agentId).workspaceRoot(agentId),
   runsFor: (streamId) => (runStore.list(null, { streamId: streamId, limit: 200 }) || []).filter(r => r && String(r.streamId || '') === streamId)
     .map(r => ({ runId: r.runId, agentId: r.agentId, dockId: r.dockId || null, lineId: r.lineId || null, reason: r.reason, usd: r.usd, streamId: r.streamId,

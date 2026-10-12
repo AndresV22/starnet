@@ -46,6 +46,9 @@ function makeHandoffRunner(deps) {
   const emit = typeof d.emit === 'function' ? d.emit : function () {};
   const bumpQueue = typeof d.bumpQueue === 'function' ? d.bumpQueue : function () { return 0; };
   const halted = typeof d.halted === 'function' ? d.halted : function () { return false; };
+  /* faulted() -> the halt is the station's OWN process-fault containment, not the Commander's E-STOP (wave 2 review,
+     conveyor-backend-08): halted() stays the one gate, this only picks the words — a record never blames an E-STOP nobody pressed */
+  const faulted = typeof d.faulted === 'function' ? d.faulted : function () { return false; };
   const dayCap = typeof d.dayCap === 'function' ? d.dayCap : function () { return { cap: null, spent: 0 }; };
   const runsFor = typeof d.runsFor === 'function' ? d.runsFor : function () { return []; };
   const workspaceOf = typeof d.workspaceOf === 'function' ? d.workspaceOf : function () { return null; };
@@ -80,7 +83,7 @@ function makeHandoffRunner(deps) {
 
   /* can the TARGET line take work right now? (no side effects) — the trigger preflight's questions, asked of the target */
   function preflight(plan, toLine) {
-    if (halted()) return 'automation is stopped (E-STOP) — nothing was sent on';
+    if (halted()) return faulted() ? 'the station hit an internal fault and stopped its background work — nothing was sent on' : 'automation is stopped (E-STOP) — nothing was sent on';
     if (!plan) return 'no work line is armed';
     if (!lineRec(plan, toLine)) return 'the line it sends to is no longer on the floor — set its SEND TO again';
     if (!crewedDocksOnLine(plan, toLine).length) return say(plan, toLine) + ' routes work to no crewed dock — assign an agent to its first step';
@@ -281,9 +284,10 @@ function makeHandoffRunner(deps) {
       emit('queue.status', { queueId: agentId, depth: dep, maxCapacity: d.queueCap || 64, nextAdvanceAt: 0 });
     }
     let err = '';
-    // E-STOP killed it: the Commander stopped this job (the sample route's STOPPED), never "a step did not finish cleanly"
+    // E-STOP killed it: the Commander stopped this job (the sample route's STOPPED), never "a step did not finish cleanly" — or the
+    // station's own fault containment did, which says so rather than naming an E-STOP nobody pressed
     const stopped = !completed && halted();
-    if (stopped) err = 'E-STOP stopped this job';
+    if (stopped) err = faulted() ? 'the station hit an internal fault and stopped this job' : 'E-STOP stopped this job';
     else if (!completed) {
       if (threw && threw.error) err = 'the line failed: ' + threw.error;
       else if (!info || !info.agentId || !s.current.routed || s.current.routed.agentId !== info.agentId) err = 'the line routed this work to no dock';

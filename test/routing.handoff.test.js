@@ -392,6 +392,29 @@ function station(n) {
     A.ok(rec6 && rec6.status === 'stopped' && /E-STOP/.test(rec6.error), 'E-STOP: the hand-off’s record is STOPPED — ' + JSON.stringify(rec6 && { status: rec6.status, error: rec6.error }));
   }
 
+  /* THE STATION'S OWN FAULT (wave 2 review, conveyor-backend-08): a process-fault containment quiesced the station while LINE B ran a
+     handed-on job — its record says the station's fault stopped it, never an E-STOP the Commander did not press; and a hand-off refused
+     while the station is quiesced says the same */
+  {
+    let release = null, stop = false;
+    const R7 = makeHandoffRunner({ makeHub: (hooks) => ({ onInbound() {
+        const docks = crewedDocksOnLine(plan, hooks.lineId()).sort(P.propIdCmp), agentId = plan.agentOfDock[docks[0]];
+        hooks.onRouted({ agentId, dockId: docks[0] }); hooks.onResolved({ agentId, lineId: hooks.lineId(), dockId: docks[0] });
+        const sid = hooks.streamId();
+        return new Promise(res => { release = () => { runsByStream[sid] = [{ runId: 'q' + (++n), agentId, dockId: docks[0], reason: 'cancelled', usd: 0.002, streamId: sid, startedAt: clock }]; res(); }; });
+      } }), plan: () => plan, jobs: J, shipsToOutbox: () => true, halted: () => stop, faulted: () => stop, runsFor: sid => runsByStream[sid] || [], now: () => clock,
+      newId: () => 'id' + (++n) + 'abcdef0123456789', warn: () => {} });
+    const s7 = R7.onShipped(fresh('sample-fault', LA, lastA));
+    await tick();
+    A.ok(s7.ok && typeof release === 'function', 'fault: the hand-off is running on LINE B');
+    stop = true; release(); await tick(30);
+    const rec7 = jobs.jobs.filter(j => j.line === LB).pop();
+    A.ok(rec7 && rec7.status === 'stopped' && /internal fault/.test(rec7.error) && !/E-STOP/.test(rec7.error), 'fault: the record says the station stopped it, not E-STOP — ' + JSON.stringify(rec7 && { status: rec7.status, error: rec7.error }));
+    const f2 = R7.onShipped(fresh('sample-fault2', LA, lastA));
+    A.ok(!f2.ok && /internal fault/.test(f2.error) && !/E-STOP/.test(f2.error), 'fault: a hand-off refused meanwhile says the fault, not E-STOP — ' + f2.error);
+    stop = false;
+  }
+
   /* THE CAP WON THE RACE: the hand-off passed its dispatch preflight, then LINE B's own work reached the day limit before the entry
      ran — runOnceCore refuses before any run row exists and the hub replies with the reason. The record says that reason, never
      the bare "no step ran" (the trigger runner's pattern: the hub's ⚠ reply is the only witness when no run was recorded) */
