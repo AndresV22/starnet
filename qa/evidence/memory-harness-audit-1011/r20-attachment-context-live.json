@@ -2,11 +2,11 @@
   "findingId": "R20",
   "title": "Attachment and quoted content leaked through ambient recent activity",
   "classification": "Independent synthetic fixture finding; no customer incident attribution",
-  "capturedAtUtc": "2026-10-12T10:29:27.116Z",
+  "capturedAtUtc": "2026-10-12T10:42:43.258Z",
   "status": "PASS",
   "reproduction": {
     "cwd": "C:\\Users\\andro\\gen-trees\\memory-audit-loop-1011",
-    "command": "$env:NODE_PATH='C:\\Users\\andro\\Desktop\\gen\\node_modules'; node test/memory-learning-boundary.http.test.js",
+    "command": "$env:NODE_PATH='C:\\Users\\andro\\Desktop\\gen\\node_modules'; node scripts/run-test-list.mjs test/http.list memory-learning-boundary.http.test.js",
     "test": "test/memory-learning-boundary.http.test.js",
     "provider": "Scripted HTTP provider on 127.0.0.1, fake model audit/model, fake key audit-fake",
     "providerSpend": "No external model provider spend",
@@ -19,6 +19,20 @@
       "freshProjectRoot": null,
       "typedStream": "uploaded-text-and-file",
       "freshStream": "uploaded-fresh-recall"
+    },
+    "runner": {
+      "path": "scripts/run-test-list.mjs",
+      "manifest": "test/http.list",
+      "filter": "memory-learning-boundary.http.test.js",
+      "selectedSteps": [
+        "test/memory-learning-boundary.http.test.js"
+      ],
+      "profileIsolation": [
+        "APPDATA",
+        "LOCALAPPDATA",
+        "XDG_DATA_HOME"
+      ],
+      "note": "The runner assigns a fresh temporary profile to its single child step; SidecarFixture also uses an isolated scratch workspace and profile."
     }
   },
   "before": {
@@ -60,8 +74,8 @@
     "change": "Keep first-system main/review classification, but observe all system-role content. Retain both original assertions and additionally require the typed preference inside an actual <recalled-memory> block."
   },
   "after": {
-    "productionFixCommit": "55c618f6b74c152f93ebbdee20a54e5feaa36d96",
-    "testedCommit": "55c618f6b74c152f93ebbdee20a54e5feaa36d96",
+    "productionFixCommit": "6421e4c857a6f885d0c437e9e4d01168f92ba7db",
+    "testedCommit": "6421e4c857a6f885d0c437e9e4d01168f92ba7db",
     "exitCode": 0,
     "status": "PASS",
     "counts": {
@@ -72,7 +86,8 @@
       "sidecarRestarts": 2,
       "attachmentOrQuoteLearningReceipts": 3,
       "typedMemoriesAfterRestart": 1,
-      "assertionCount": null
+      "assertionCount": null,
+      "hermeticRunnerStepsPassed": 1
     },
     "countNote": "The standalone test does not emit an assertion counter. Counts above are observed HTTP phases and explicitly executed fixture operations, not inferred unit-test counts.",
     "boundaryChecks": [
@@ -92,7 +107,7 @@
         {
           "phase": "clean",
           "streamId": "clean-control",
-          "runId": "d2a15355-8c29-4808-8f48-8b2d8a4a6717",
+          "runId": "bdf6d276-86e2-4c95-a01f-a8f5e847179d",
           "attachmentPoisonReceived": false,
           "fixtureReadConfirmed": false,
           "reason": "done",
@@ -103,7 +118,7 @@
         {
           "phase": "read",
           "streamId": "read-conversation",
-          "runId": "1f2474ce-610e-4671-b334-d2020f0cb89d",
+          "runId": "685cc64d-09cf-4c61-b7bf-c3fc2f0e6892",
           "attachmentPoisonReceived": false,
           "fixtureReadConfirmed": true,
           "reason": "done",
@@ -114,7 +129,7 @@
         {
           "phase": "followup",
           "streamId": "read-conversation",
-          "runId": "69a9bf0e-7782-42ed-b63a-2a6135cac7f2",
+          "runId": "9e1cef65-63d5-47e0-9b00-7792a1b2d57d",
           "attachmentPoisonReceived": false,
           "fixtureReadConfirmed": true,
           "reason": "done",
@@ -125,7 +140,7 @@
         {
           "phase": "fresh",
           "streamId": "fresh-control",
-          "runId": "7b27f99a-5240-4bd8-b082-496797f9c059",
+          "runId": "3fe07859-57d1-4c8a-9de0-62bb54a9291c",
           "attachmentPoisonReceived": false,
           "fixtureReadConfirmed": false,
           "reason": "done",
@@ -136,7 +151,7 @@
         {
           "phase": "shared",
           "streamId": "other-agent-control",
-          "runId": "b359b6a1-46ae-429a-8f79-8f779e802c07",
+          "runId": "3f1ce5c9-e3cf-4af2-9ce3-88f974f06c43",
           "attachmentPoisonReceived": false,
           "fixtureReadConfirmed": false,
           "reason": "done",
@@ -147,7 +162,7 @@
         {
           "phase": "short",
           "streamId": "short-preference-control",
-          "runId": "1c0dcf5e-eaa2-4f60-bfe6-2ebaf180cd64",
+          "runId": "b31c5298-85ff-4949-980b-2747fcb47a1f",
           "attachmentPoisonReceived": false,
           "fixtureReadConfirmed": false,
           "reason": "done",
@@ -158,7 +173,7 @@
         {
           "phase": "attachment-file-only",
           "streamId": "uploaded-file-only",
-          "runId": "1ef9ff58-2e4b-4077-9da6-a46af72cd656",
+          "runId": "5edac012-a79c-4db4-9357-61f6c2819651",
           "attachmentPoisonReceived": true,
           "fixtureReadConfirmed": false,
           "reason": "done",
@@ -169,7 +184,7 @@
         {
           "phase": "attachment-text-and-file",
           "streamId": "uploaded-text-and-file",
-          "runId": "ed86593f-c8c8-4062-982f-2d760b98d549",
+          "runId": "aed43b53-75df-4490-be3b-f24356b4384a",
           "attachmentPoisonReceived": true,
           "fixtureReadConfirmed": false,
           "reason": "done",
@@ -179,7 +194,7 @@
         {
           "phase": "quoted-control",
           "streamId": "quoted-control",
-          "runId": "caf1b021-52ad-4905-a93a-6c87a27b430e",
+          "runId": "7069ceca-8bc9-454b-9b0c-212e35b65353",
           "attachmentPoisonReceived": false,
           "fixtureReadConfirmed": false,
           "reason": "done",
@@ -190,7 +205,7 @@
         {
           "phase": "attachment-recall",
           "streamId": "uploaded-fresh-recall",
-          "runId": "a9560d8c-d1da-400d-9898-36d3931d38c1",
+          "runId": "7681bbf8-b7a7-41c9-aa00-8a8e06521a61",
           "attachmentPoisonReceived": false,
           "fixtureReadConfirmed": false,
           "reason": "done",
@@ -200,8 +215,8 @@
         {
           "phase": "attachment-learning-proof",
           "fileOnly": {
-            "runId": "1ef9ff58-2e4b-4077-9da6-a46af72cd656",
-            "at": 1791800927008,
+            "runId": "5edac012-a79c-4db4-9357-61f6c2819651",
+            "at": 1791801716806,
             "tainted": true,
             "saved": 0,
             "trustedDirectives": 0,
@@ -209,8 +224,8 @@
             "reason": "no_trusted_owner_input"
           },
           "textAndFile": {
-            "runId": "ed86593f-c8c8-4062-982f-2d760b98d549",
-            "at": 1791800929031,
+            "runId": "aed43b53-75df-4490-be3b-f24356b4384a",
+            "at": 1791801718781,
             "tainted": true,
             "saved": 1,
             "trustedDirectives": 1,
@@ -218,8 +233,8 @@
             "reason": "owner_preference_saved"
           },
           "quoted": {
-            "runId": "caf1b021-52ad-4905-a93a-6c87a27b430e",
-            "at": 1791800931032,
+            "runId": "7069ceca-8bc9-454b-9b0c-212e35b65353",
+            "at": 1791801720744,
             "tainted": true,
             "saved": 0,
             "trustedDirectives": 0,
@@ -249,13 +264,16 @@
       "2d865ad7cea185c6db187d8002d09c2e05364388",
       "13357b5ac41a2d4311d84b6ed458ef93a2605174",
       "1143ee67de3449eac06f23ba3a0fffb969873e57",
-      "55c618f6b74c152f93ebbdee20a54e5feaa36d96"
+      "55c618f6b74c152f93ebbdee20a54e5feaa36d96",
+      "6421e4c857a6f885d0c437e9e4d01168f92ba7db"
     ],
     "testRecorderCommit": "2ef4b8b48cfedf49f5885274e28097f708f9f1e2",
     "testUnchangedSinceRecorderCommit": true,
     "followupScope": "Retain internal run titles as exclusion markers even when later tool output taints the run; the pure activity pack excludes these titles from rendered owner activity.",
     "productionRefinement": "Shared cleanOwnerRows and ownedBriefs predicates in TrustedLearning are reused by the activity context pack; standing-work notices and workflow takeover candidates require the original directive to match proven owner transcript content.",
-    "assembledSourceRefinement": "Final assembled source includes original-occurrence binding for owner directives plus the independent trusted-interest projection and all host interest-read wiring. This unchanged R20 fixture verifies the attachment learning/context boundary on that source."
+    "assembledSourceRefinement": "Final assembled source includes original-occurrence binding for owner directives plus the independent trusted-interest projection and all host interest-read wiring. This unchanged R20 fixture verifies the attachment learning/context boundary on that source.",
+    "runnerSummary": "run-test-list: OK — 1 step(s) green",
+    "finalVerificationNote": "Unchanged test source since 2ef4b8b48cfedf49f5885274e28097f708f9f1e2; one authorized HTTP fixture selected through the repository hermetic runner on the final production source."
   },
   "limitations": [
     "This proves execution, provenance, persistence and context composition under a deterministic local provider; it is not a model-quality benchmark.",
@@ -301,6 +319,22 @@
       "completedHttpRunPhases": 10,
       "completeReceiptCommit": "569ce71b0bd86ae08691b63bd8df35644d040d04",
       "note": "Green shared owner-directive predicate verification before original-occurrence binding and trusted persisted-interest projection were assembled."
+    },
+    {
+      "testedCommit": "55c618f6b74c152f93ebbdee20a54e5feaa36d96",
+      "productionFixCommit": "55c618f6b74c152f93ebbdee20a54e5feaa36d96",
+      "productionFixCommits": [
+        "2d865ad7cea185c6db187d8002d09c2e05364388",
+        "13357b5ac41a2d4311d84b6ed458ef93a2605174",
+        "1143ee67de3449eac06f23ba3a0fffb969873e57",
+        "55c618f6b74c152f93ebbdee20a54e5feaa36d96"
+      ],
+      "status": "PASS",
+      "exitCode": 0,
+      "command": "$env:NODE_PATH='C:\\Users\\andro\\Desktop\\gen\\node_modules'; node test/memory-learning-boundary.http.test.js",
+      "completedHttpRunPhases": 10,
+      "completeReceiptCommit": "0779e4a9799445b18e1eb0623b578f1c8864be64",
+      "note": "Green assembled-source verification before the final production freeze and hermetic selective-run receipt."
     }
   ]
 }
