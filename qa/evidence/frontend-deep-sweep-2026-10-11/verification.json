@@ -133,5 +133,34 @@
     "reviewer": "runtime triage lane",
     "result": "No blocking finding on exact source commits bf756e00e and 444bfa124; all three mirrors independently compare equal.",
     "scope": "Read-only source review; reviewer did not repeat focused tests or live fixture."
+  },
+  "promptIsolationFollowup": {
+    "source": "5e45ea3796846480b4712210b07f68576e02bcdc",
+    "phoneFix": "ced84e2f04e4a94a77f04cac97f7f469d4f4c336",
+    "voiceFix": "52dc95fff1ff492ef29492eceb0f863e281e7928",
+    "before": {
+      "permissionVm": "4 failed / 10 passed on unchanged9d5c10c1d",
+      "remoteSourceLock": "1 stale assertion failed /29 passed",
+      "voiceVm": "Real approvalCommand plus real Channels cleared both asks instead of preserving worker-first; provider lane reproduced before repair"
+    },
+    "focused": {
+      "test/consent-full-request.test.js": "14 tests PASS",
+      "test/remote-sessions.test.js": "30 assertions PASS",
+      "test/voice-live-ui.test.js": "PASS after combined merge"
+    },
+    "live": {
+      "receipt": "qa/evidence/frontend-deep-sweep-2026-10-11/phone-voice-live.json",
+      "fixture": "qa/evidence/frontend-deep-sweep-2026-10-11/phone-voice-probe.mjs",
+      "result": "8 checks PASS",
+      "initialAttempt": "qa/evidence/frontend-deep-sweep-2026-10-11/phone-voice-first-attempt.json",
+      "initialFailure": "Five phone checks passed; fixture-only COPY-button guard stopped voice phase. Corrected selector matched production voice decision labels; no source change.",
+      "limitations": [
+        "Phone coverage is an injected desktop permission.response after actual backend consent, not a paired-phone gateway or physical device proof.",
+        "Voice coverage calls an exposed private production handler in the real loaded module with controlled pending asks and consent/speech spies; no microphone, STT, TTS or permission-dialog proof.",
+        "Synthetic local model only; no external accounts or customer station."
+      ],
+      "cleanup": "Owned Chromium, sidecar fixture and mock server closed."
+    },
+    "aggregate": "Root owns rerun on merged candidate. Earlier suites above retain their original source attribution."
   }
 }

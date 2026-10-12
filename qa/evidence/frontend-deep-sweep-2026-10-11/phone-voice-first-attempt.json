@@ -1,0 +1,112 @@
+{
+  "source": "5e45ea3796846480b4712210b07f68576e02bcdc",
+  "results": [
+    {
+      "name": "real seeded station opens with one private voice proof hook",
+      "ok": true,
+      "detail": {
+        "hookCount": 1
+      }
+    },
+    {
+      "name": "actual lead permission card and independent worker permission coexist",
+      "ok": true,
+      "detail": {
+        "lead": "c67cae42-3c75-421e-a7c4-aa15aed059ab",
+        "worker": "01f1a8ed-c32d-4a4a-8621-11022a86c1a4",
+        "card": true,
+        "pausedAt": 1791769820021
+      }
+    },
+    {
+      "name": "unrelated phone event leaves the real card and both asks intact",
+      "ok": true,
+      "detail": {
+        "pending": [
+          "c67cae42-3c75-421e-a7c4-aa15aed059ab",
+          "01f1a8ed-c32d-4a4a-8621-11022a86c1a4"
+        ],
+        "buttons": true
+      }
+    },
+    {
+      "name": "controlled phone event settles the real lead card but preserves worker and pause",
+      "ok": true,
+      "detail": {
+        "receipt": {
+          "ok": true,
+          "decision": "once",
+          "agentId": "agent",
+          "approvalMode": null
+        },
+        "pending": [
+          "01f1a8ed-c32d-4a4a-8621-11022a86c1a4"
+        ],
+        "pausedAt": 1791769820021,
+        "text": "✓ approved once from your phone",
+        "buttons": false
+      }
+    },
+    {
+      "name": "independent worker permission can still be answered",
+      "ok": true
+    },
+    {
+      "name": "fixture error",
+      "ok": false,
+      "error": "eval failed: Error: painted consent buttons would bypass fallback\n    at <anonymous>:1:89\n    at <anonymous>:1:1341"
+    }
+  ],
+  "calls": [
+    {
+      "kind": "lead",
+      "tool": null
+    },
+    {
+      "kind": "lead",
+      "tool": "brief_proceed"
+    },
+    {
+      "kind": "lead",
+      "tool": "team_dispatch"
+    },
+    {
+      "kind": "worker",
+      "tool": "brief_proceed"
+    },
+    {
+      "kind": "lead",
+      "tool": "fs_write"
+    },
+    {
+      "kind": "worker",
+      "tool": "fs_write"
+    },
+    {
+      "kind": "worker",
+      "tool": null
+    },
+    {
+      "kind": "worker",
+      "tool": null
+    },
+    {
+      "kind": "lead",
+      "tool": null
+    },
+    {
+      "kind": "lead",
+      "tool": null
+    },
+    {
+      "kind": "lead",
+      "tool": null
+    }
+  ],
+  "cleanup": "Owned Chromium, sidecar fixture and mock server closed.",
+  "limitations": [
+    "Phone coverage is an injected desktop permission.response after actual backend consent, not a paired-phone gateway or physical device proof.",
+    "Voice coverage calls an exposed private production handler in the real loaded module with controlled pending asks and consent/speech spies; no microphone, STT, TTS or permission-dialog proof.",
+    "Synthetic local model only; no external accounts or customer station."
+  ]
+}

@@ -1,0 +1,162 @@
+{
+  "source": "5e45ea3796846480b4712210b07f68576e02bcdc",
+  "results": [
+    {
+      "name": "real seeded station opens with one private voice proof hook",
+      "ok": true,
+      "detail": {
+        "hookCount": 1
+      }
+    },
+    {
+      "name": "actual lead permission card and independent worker permission coexist",
+      "ok": true,
+      "detail": {
+        "lead": "58b4e18f-383a-4ef3-bdb5-43f3dbf7b9e5",
+        "worker": "38488bb9-e0d2-4870-aa70-f783a9e35873",
+        "card": true,
+        "pausedAt": 1791769868107
+      }
+    },
+    {
+      "name": "unrelated phone event leaves the real card and both asks intact",
+      "ok": true,
+      "detail": {
+        "pending": [
+          "58b4e18f-383a-4ef3-bdb5-43f3dbf7b9e5",
+          "38488bb9-e0d2-4870-aa70-f783a9e35873"
+        ],
+        "buttons": true
+      }
+    },
+    {
+      "name": "controlled phone event settles the real lead card but preserves worker and pause",
+      "ok": true,
+      "detail": {
+        "receipt": {
+          "ok": true,
+          "decision": "once",
+          "agentId": "agent",
+          "approvalMode": null
+        },
+        "pending": [
+          "38488bb9-e0d2-4870-aa70-f783a9e35873"
+        ],
+        "pausedAt": 1791769868107,
+        "text": "✓ approved once from your phone",
+        "buttons": false
+      }
+    },
+    {
+      "name": "independent worker permission can still be answered",
+      "ok": true
+    },
+    {
+      "name": "controlled voice fallback preserves the other ask and real panel waiting state",
+      "ok": true,
+      "detail": {
+        "pending": [
+          "voice-first"
+        ],
+        "pausedAt": 200,
+        "pausedMs": 0,
+        "text": "APPROVAL NEEDED · GENERAL",
+        "pendingClass": true
+      }
+    },
+    {
+      "name": "controlled final voice answer settles only the final ask and real panel resumes",
+      "ok": true,
+      "detail": {
+        "first": {
+          "pending": [
+            "voice-first"
+          ],
+          "pausedAt": 200,
+          "pausedMs": 0,
+          "text": "APPROVAL NEEDED · GENERAL",
+          "pendingClass": true
+        },
+        "last": {
+          "pending": [],
+          "pausedAt": 0,
+          "pausedMs": 1791769868650,
+          "text": "WORKING · GENERAL",
+          "pendingClass": false
+        },
+        "calls": [
+          [
+            "voice-controlled",
+            "voice-last",
+            "once"
+          ],
+          [
+            "voice-controlled",
+            "voice-first",
+            "deny"
+          ]
+        ],
+        "spoken": [
+          "Approved once.",
+          "Denied."
+        ]
+      }
+    },
+    {
+      "name": "no browser exceptions or interception errors",
+      "ok": true,
+      "detail": {
+        "exceptions": [],
+        "hookErrors": []
+      }
+    }
+  ],
+  "calls": [
+    {
+      "kind": "lead",
+      "tool": "brief_proceed"
+    },
+    {
+      "kind": "lead",
+      "tool": "team_dispatch"
+    },
+    {
+      "kind": "worker",
+      "tool": "brief_proceed"
+    },
+    {
+      "kind": "lead",
+      "tool": "fs_write"
+    },
+    {
+      "kind": "worker",
+      "tool": "fs_write"
+    },
+    {
+      "kind": "worker",
+      "tool": null
+    },
+    {
+      "kind": "worker",
+      "tool": null
+    },
+    {
+      "kind": "lead",
+      "tool": null
+    },
+    {
+      "kind": "lead",
+      "tool": null
+    },
+    {
+      "kind": "lead",
+      "tool": null
+    }
+  ],
+  "cleanup": "Owned Chromium, sidecar fixture and mock server closed.",
+  "limitations": [
+    "Phone coverage is an injected desktop permission.response after actual backend consent, not a paired-phone gateway or physical device proof.",
+    "Voice coverage calls an exposed private production handler in the real loaded module with controlled pending asks and consent/speech spies; no microphone, STT, TTS or permission-dialog proof.",
+    "Synthetic local model only; no external accounts or customer station."
+  ]
+}

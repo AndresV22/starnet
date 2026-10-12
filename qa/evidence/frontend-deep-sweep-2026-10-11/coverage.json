@@ -64,9 +64,10 @@
         "test/delegated-threads.test.js 92 assertions",
         "test/consent-full-request.test.js 10 tests",
         "test/needs-you.test.js 25 assertions",
-        "live.json checks 5-8"
+        "live.json checks 5-8",
+        "Follow-up ced84e2f0: consent-full-request14 and remote-sessions30 pass; phone-voice-live.json actual permissions plus controlled phone event"
       ],
-      "conclusion": "Found and repaired prompt loss in 444bfa124. Actual lead question and worker approval coexist, answer independently and settle. Controlled attributed question uses Answer and exact DOM focus. Dispatch display uses observed run IDs; no unsupported run receipt is added.",
+      "conclusion": "Found and repaired prompt loss in 444bfa124. Actual lead question and worker approval coexist, answer independently and settle. Controlled attributed question uses Answer and exact DOM focus. Dispatch display uses observed run IDs; no unsupported run receipt is added. Follow-up found and fixed the permissionRow remote-response sibling; matching phone decisions now preserve other asks, with actual backend permission and controlled desktop-event proof.",
       "gaps": [
         "Native autonomous-worker interactive questions are intentionally unsupported, not a backend defect.",
         "Original #57 Telegram returned run IDs and customer Dossier visibility still require exact reconciliation.",
@@ -128,12 +129,14 @@
     {
       "area": "Voice button and speech interaction",
       "review": [
-        "Voice controls onSpeakStart/onSpeakEnd coordination, echo guards and timer cleanup"
+        "Voice controls onSpeakStart/onSpeakEnd coordination, echo guards and timer cleanup",
+        "frontend/app/voice-live.js:541 approval fallback now supplies pending.promptId"
       ],
       "evidence": [
-        "test/voice.button.test.js 185 assertions"
+        "test/voice.button.test.js 185 assertions",
+        "52dc95fff voice-live-ui regression PASS; phone-voice-live.json private production handler in real module, controlled pending/consent/speech"
       ],
-      "conclusion": "Current-source deterministic voice-button lifecycle checks pass; no additional reproduced defect.",
+      "conclusion": "Voice fallback prompt loss was repaired in52dc95fff. Controlled real-page proof retains sibling/pause and truthful live panel status; deterministic button lifecycle checks retain their earlier source attribution.",
       "gaps": [
         "No physical microphone, audible audio or OS permission-dialog acceptance."
       ]
