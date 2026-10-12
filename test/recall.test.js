@@ -212,5 +212,36 @@ let clk = 1000; const clock = { now: () => clk };
     } finally { console.warn = originalWarn; }
   }
 
+  // A non-owner / group / delegated-worker run (host-minted ownStreamOnly) never reads the Commander's OTHER
+  // workstreams in ANY shape: default search, scope:'all', a zero-local-hit auto-widen, browse, scroll. Owner runs keep it.
+  {
+    const s = makeTranscriptStore({ io: memIo(), clock });
+    clk = 8000; s.append({ streamId: 'private-stream', role: 'user', content: 'the private budget is forty thousand', taint: null });
+    clk = 8001; s.append({ streamId: 'group-chat', role: 'user', content: 'what has andrew said about the budget', taint: null });
+    const owner = makeRecallTool({ transcriptStore: s, ownStreamOnly: () => false }).recallTool;
+    A.ok((await owner.run({ query: 'budget' }, { streamId: 'group-chat' })).content.includes('forty thousand'), 'an owner run keeps cross-conversation recall');
+    const { recallTool } = makeRecallTool({ transcriptStore: s, ownStreamOnly: () => true });
+    const leaks = r => r.content.includes('forty thousand') || r.content.includes('private-stream');
+    const shapes = [
+      [{ query: 'budget' }, 'default search'],
+      [{ query: 'budget', scope: 'all' }, "scope:'all'"],
+      [{ query: 'private' }, 'a zero-local-hit search (no auto-widen)'],
+      [{}, 'browse'],
+      [{ around: 8000, stream: 'private-stream' }, 'scroll into a foreign stream']
+    ];
+    for (const [args, label] of shapes) {
+      A.ok(!leaks(await recallTool.run(args, { streamId: 'group-chat' })), 'pinned run, ' + label + ': no row from the private workstream');
+      A.ok(!leaks(await recallTool.run(args, {})), 'pinned run with no chat id, ' + label + ': no row from any workstream');
+    }
+    const own = await recallTool.run({ query: 'budget', scope: 'all' }, { streamId: 'group-chat' });
+    A.ok(own.content.includes('what has andrew said'), "a pinned run still searches its own chat");
+    A.ok(/limited to this chat/i.test(own.content), 'and says recall is limited to this chat (never implies it searched everything)');
+    A.ok((await recallTool.run({}, { streamId: 'group-chat' })).content.includes('group-chat'), 'pinned browse shows only this chat');
+    A.ok((await recallTool.run({ around: 8001 }, { streamId: 'group-chat' })).content.includes('what has andrew said'), 'pinned scroll reads this chat');
+    const idx = require('fs').readFileSync(require('path').join(__dirname, '../sidecar/index.js'), 'utf8');
+    A.ok(/makeRecallTool\(\{ transcriptStore, ownStreamOnly: \(\) => tasteWithheld \}\)/.test(idx),
+      'the host pins recall to the run\'s own chat exactly when it withholds the Commander\'s taste (non-owner, group, their workers)');
+  }
+
   A.report('recall.test');
 })();
