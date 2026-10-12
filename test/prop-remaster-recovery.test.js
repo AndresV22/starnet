@@ -7,12 +7,15 @@ const source=fs.readFileSync(path.join(__dirname,'../frontend/app/propremaster.j
 const rgb=[160,90,32,255],replacementRgb=[35,170,85,255];
 const copy=value=>JSON.parse(JSON.stringify(value));
 const view=(image='sample.png')=>({image,sourceWidth:8,sourceHeight:8,footprint:{w:1,h:1},bounds:{x:0,y:0,width:12,height:12},mode:'static'});
-function solid(colour=rgb){const c=Canvas.createCanvas(8,8),g=c.getContext('2d');g.fillStyle='rgba('+colour.slice(0,3).join(',')+',1)';g.fillRect(0,0,8,8);return c;}
-async function fixture(count=1){
+function solid(colour=rgb,width=8,height=8){const c=Canvas.createCanvas(width,height),g=c.getContext('2d');g.fillStyle='rgba('+colour.slice(0,3).join(',')+',1)';g.fillRect(0,0,width,height);return c;}
+async function fixture(count=1,options={}){
   const canvases=[],pending=[],state={now:1000,failLoads:0,hold:false,blankFresh:false,requests:0,active:0,maxActive:0};
-  const ids=Array.from({length:count},(_,i)=>'sample_'+i),props={},geometry={};
-  for(const id of ids){props[id]={views:{s:view(id+'.png')}};geometry[id+':s']={image:id+'.png',width:8,height:8,crop:{x:0,y:0,width:8,height:8}};}
-  class Image {constructor(){const c=solid();Object.defineProperty(c,'src',{set(){
+  const projection=options.projection?require('../frontend/app/projection-prop-effects.js'):null;
+  const ids=projection?['console','connector_portal']:Array.from({length:count},(_,i)=>'sample_'+i),props={},geometry={};
+  for(const id of ids){const binding=projection?.classify(id)?.binding,spec={...view(id+'.png'),...(binding?{sourceWidth:binding.width,sourceHeight:binding.height}:{})};props[id]={views:{s:spec}};geometry[id+':s']={image:spec.image,width:spec.sourceWidth,height:spec.sourceHeight,crop:{x:0,y:0,width:spec.sourceWidth,height:spec.sourceHeight}};}
+  class Image {constructor(){const c=solid();Object.defineProperty(c,'src',{set(url){
+    const spec=Object.values(props).map(p=>p.views.s).find(v=>url.endsWith('/'+v.image));
+    if(spec){c.width=spec.sourceWidth;c.height=spec.sourceHeight;const g=c.getContext('2d');g.fillStyle='rgb('+rgb.slice(0,3).join(',')+')';g.fillRect(0,0,c.width,c.height);}
     state.requests++;state.active++;state.maxActive=Math.max(state.maxActive,state.active);
     const finish=()=>{state.active--;if(state.failLoads>0){state.failLoads--;c.onerror?.(Error('injected decode failure'));}else c.onload?.();};
     if(state.hold)pending.push(finish);else queueMicrotask(finish);
@@ -28,11 +31,11 @@ async function fixture(count=1){
   }};
   const scope={module:{exports:{}},console,URLSearchParams,location:{search:''},Image,ImageData:Canvas.ImageData,
     performance:{now:()=>state.now},Date,setTimeout,clearTimeout,queueMicrotask,document,
-    IndustrialTextures:{isRemaster:()=>true},fetch:async url=>({ok:true,json:async()=>url.endsWith('runtime-geometry.json')?{version:1,views:geometry}:{version:1,props}})};
+    IndustrialTextures:{isRemaster:()=>true},...(projection?{ProjectionPropEffects:projection}:{}),fetch:async url=>({ok:true,json:async()=>url.endsWith('runtime-geometry.json')?{version:1,views:geometry}:{version:1,props}})};
   vm.runInNewContext(source,scope);const api=scope.module.exports;await api.ready;
   assert.equal(api.status().failures.length,0,'fixture artwork loaded');
-  const output=Canvas.createCanvas(24,24),g=output.getContext('2d');let nativeCalls=0;
-  const draw=(id=ids[0])=>{g.clearRect(0,0,24,24);const authored=api.draw(g,id,'s',0,0,12,12,{},()=>{nativeCalls++;});return{authored,pixel:Array.from(g.getImageData(6,6,1,1).data)};};
+  const output=Canvas.createCanvas(144,144),g=output.getContext('2d');g.scale(6,6);let nativeCalls=0;
+  const draw=(id=ids[0],live={},point=[6,6])=>{g.clearRect(0,0,24,24);const authored=api.draw(g,id,'s',0,0,12,12,live,()=>{nativeCalls++;});return{authored,pixel:Array.from(g.getImageData(Math.floor(point[0]*6),Math.floor(point[1]*6),1,1).data)};};
   const wipe=c=>{const p=c.getContext('2d');p.setTransform(1,0,0,1,0,0);p.clearRect(0,0,c.width,c.height);};
   const lose=c=>{wipe(c);c.emit('contextlost');};
   const latestBody=()=>[...canvases].reverse().find(c=>c.hasLossListener()&&c.width===72&&c.height===72);
@@ -101,4 +104,18 @@ test('a blank rebuilt canvas cannot replace the last valid authored pixels',asyn
   f.state.now+=4000;sameArt(f);await f.api.whenRecovered();sameArt(f);assert.equal(f.api.status().lost,0);
 });
 
+test('recovery preserves idle screen power and live connector status overlays',async()=>{
+  const f=await fixture(2,{projection:true});recoveryAPI(f);
+  const at=(id,x,y)=>{const b=f.api.viewGeometry(id).box;return[b.x+x*b.width,b.y+y*b.height];};
+  const screen=at('console',.5,.265),socket=at('connector_portal',.292,.338);
+  const idle={occupied:false,work:false,still:true},online={bound:true,state:'online',still:true},error={bound:true,state:'error',still:true};
+  const beforeIdle=f.draw('console',idle,screen),beforeOnline=f.draw('connector_portal',online,socket),beforeError=f.draw('connector_portal',error,socket);
+  assert.notDeepEqual(beforeIdle.pixel,rgb,'the selected console pixel is inside the real idle overlay');
+  assert.notDeepEqual(beforeOnline.pixel,beforeError.pixel,'the selected socket pixel carries real connection status');
+  f.state.hold=true;for(const c of [...f.canvases])if(c.hasLossListener())f.lose(c);
+  assert.deepEqual(f.draw('console',idle,screen),beforeIdle,'an idle console cannot light up because its canvas was lost');
+  assert.deepEqual(f.draw('connector_portal',online,socket),beforeOnline,'online state survives fallback body painting');
+  assert.deepEqual(f.draw('connector_portal',error,socket),beforeError,'status changes remain live while texture repair is pending');
+  await f.drain();assert.deepEqual(f.draw('console',idle,screen),beforeIdle);
+});
 (async()=>{let failed=0;for(const [name,run]of tests){try{await run();console.log('PASS: '+name);}catch(error){failed++;console.error('FAIL: '+name+'\n'+(error.stack||error));}}console.log('prop-remaster-recovery: '+(tests.length-failed)+'/'+tests.length+' scenarios passed');if(failed)process.exitCode=1;})().catch(error=>{console.error(error);process.exitCode=1;});
