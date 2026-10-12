@@ -17,6 +17,22 @@ const { allocatePort } = require('./helpers/sidecar-fixture.js');
 const HOST = '127.0.0.1';
 const INDEX = path.resolve(__dirname, '..', 'sidecar', 'index.js');
 
+// This case stays on the real paired-owner Telegram path, with no roster seeded yet.
+const CREWLESS_REQUEST = 'Delegate one temporary subtask for the crewless Telegram proof.';
+const CREWLESS_WORKER_REQUEST = 'Return exactly CREWLESS_WORKER_OK.';
+const CREWLESS_DONE = 'CREWLESS_TELEGRAM_DONE';
+const CREWLESS_FAILED = 'CREWLESS_TELEGRAM_FAILED';
+const lastUserText = body => String(([...(body.messages || [])].reverse().find(m => m && m.role === 'user') || {}).content || '');
+function crewlessRuntime(body) {
+  const note = (body.messages || []).find(m => m && m.role === 'system' && String(m.content || '').startsWith('<run_context>'));
+  const text = String((note && note.content) || '');
+  return { agentId: (/Agent id: (\S+)/.exec(text) || [])[1] || '', runId: (/Run id: (\S+)/.exec(text) || [])[1] || '' };
+}
+function crewlessRows(messages) {
+  const result = messages.find(m => m && m.role === 'tool' && m.tool_call_id === 'crewless_spawn');
+  try { const rows = JSON.parse(result && result.content); return Array.isArray(rows) ? rows : []; } catch (_) { return []; }
+}
+
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
 /* The Telegram transport sends parse_mode:'HTML' (channels/telegram.format.js), so the WIRE text carries tags
@@ -65,6 +81,42 @@ function startMockOpenRouter() {
              messages the model answers plainly, or the run would loop forever. */
           const msgs = (parsed && parsed.messages) || [];
           const lastUser = [...msgs].reverse().find(m => m && m.role === 'user');
+          if (String((lastUser && lastUser.content) || '') === CREWLESS_REQUEST) {
+            const current = msgs.slice(msgs.lastIndexOf(lastUser) + 1);
+            const results = current.filter(m => m && m.role === 'tool');
+            const brief = results.find(m => m.tool_call_id === 'crewless_brief');
+            const search = results.find(m => m.tool_call_id === 'crewless_search');
+            const spawnResult = results.find(m => m.tool_call_id === 'crewless_spawn');
+            const wire = (parsed.tools || []).map(t => t.function && t.function.name);
+            const sameRun = crewlessRuntime(parsed).runId;
+            const attempt = requests.filter(q => lastUserText(q) === CREWLESS_REQUEST && crewlessRuntime(q).runId === sameRun).length;
+            let call = null;
+            if (sameRun && attempt <= 3 && !results.length && wire.includes('brief_proceed'))
+              call = { id: 'crewless_brief', name: 'brief_proceed', args: { objective: 'Delegate one temporary proof subtask and return its actual result.' } };
+            else if (sameRun && attempt <= 3 && brief && String(brief.content).includes('Task Brief settled.') && !search && wire.includes('tool_search'))
+              call = { id: 'crewless_search', name: 'tool_search', args: { query: 'delegate subtasks' } };
+            else if (sameRun && attempt <= 3 && search && /Now available to call/.test(String(search.content)) && /team\.spawn/.test(String(search.content)) && !spawnResult && wire.includes('team_spawn'))
+              call = { id: 'crewless_spawn', name: 'team_spawn', args: { tasks: [{ prompt: CREWLESS_WORKER_REQUEST, label: 'crewless Telegram proof' }], background: false } };
+            if (call) {
+              res.write('data: ' + JSON.stringify({ choices: [{ delta: { tool_calls: [{ index: 0, id: call.id, type: 'function', function: { name: call.name, arguments: JSON.stringify(call.args) } }] } }] }) + '\n\n');
+              res.write('data: ' + JSON.stringify({ choices: [{ delta: {}, finish_reason: 'tool_calls' }], usage: { prompt_tokens: 5, completion_tokens: 3, total_tokens: 8 } }) + '\n\n');
+            } else {
+              // A missing reveal, refusal, or worker failure terminates this bounded script honestly.
+              const rows = crewlessRows(current);
+              const complete = attempt === 4 && rows.length === 1 && rows[0].reason === 'done' && rows[0].result === 'CREWLESS_WORKER_OK';
+              const answer = complete ? CREWLESS_DONE + ': CREWLESS_WORKER_OK' : CREWLESS_FAILED;
+              res.write('data: ' + JSON.stringify({ choices: [{ delta: { content: answer } }] }) + '\n\n');
+              res.write('data: ' + JSON.stringify({ choices: [{ delta: {}, finish_reason: 'stop' }], usage: { prompt_tokens: 5, completion_tokens: 3, total_tokens: 8 } }) + '\n\n');
+            }
+            res.end('data: [DONE]\n\n');
+            return;
+          }
+          if (String((lastUser && lastUser.content) || '') === CREWLESS_WORKER_REQUEST) {
+            res.write('data: ' + JSON.stringify({ choices: [{ delta: { content: 'CREWLESS_WORKER_OK' } }] }) + '\n\n');
+            res.write('data: ' + JSON.stringify({ choices: [{ delta: {}, finish_reason: 'stop' }], usage: { prompt_tokens: 5, completion_tokens: 3, total_tokens: 8 } }) + '\n\n');
+            res.end('data: [DONE]\n\n');
+            return;
+          }
           const parityTask = /delegate telegram parity/i.test(String((lastUser && lastUser.content) || ''));
           const parityWorker = /return worker parity proof/i.test(String((lastUser && lastUser.content) || ''));
           if (parityTask) {
@@ -432,6 +484,67 @@ async function waitUntil(fn, ms, label) {
     const shellToolMessages = shellReqs.flatMap(r => (r.messages || []).filter(m => m && m.role === 'tool'));
     A.ok(shellToolMessages.some(m => /TELEGRAM_SHELL_OK/.test(JSON.stringify(m))),
       'the shell output returns through the real tool loop before the agent replies: ' + JSON.stringify(shellToolMessages));
+
+    // Crewless owner Telegram: a deferred schema must lead to real work, not merely appear in a prompt.
+    // This precedes parityRoster; use the existing local paired owner, real brief and real dispatcher.
+    {
+      const chat = 4247, agentId = 'tg_' + chat;
+      const headers = { 'X-StarNet-Token': token, Origin: B };
+      const initial = await (await fetch(B + '/api/runtime/agent', { headers })).json();
+      A.eq(initial.agents, [], 'crewless Telegram begins with no saved crew');
+      const requestFrom = llm.requests.length, eventFrom = sse.events.length, sendFrom = tg.sends.length;
+      tg.pushText(chat, 99, CREWLESS_REQUEST);
+      await waitUntil(() => tg.sends.slice(sendFrom).some(s => String(s.chat_id) === String(chat)
+        && (rendered(s.text).includes(CREWLESS_DONE) || rendered(s.text).includes(CREWLESS_FAILED))), 20000, 'crewless Telegram final outcome');
+      const leads = llm.requests.slice(requestFrom).filter(q => lastUserText(q) === CREWLESS_REQUEST && crewlessRuntime(q).agentId === agentId);
+      A.eq(leads.length, 4, 'crewless parent makes exactly brief, search, spawn and final provider requests');
+      const runId = leads.length ? crewlessRuntime(leads[0]).runId : '';
+      A.ok(!!runId && leads.every(q => crewlessRuntime(q).runId === runId), 'crewless stages keep the same parent run identity');
+      const first = leads[0] || { messages: [], tools: [] };
+      A.ok(String((first.messages[0] || {}).content).includes('You have no crew yet'), 'crewless parent receives the compact briefing');
+      A.ok(!(first.tools || []).some(t => t.function && t.function.name === 'team_spawn'), 'crewless spawn is initially deferred');
+      const revealed = (leads[2] && leads[2].tools || []).find(t => t.function && t.function.name === 'team_spawn');
+      const params = revealed && revealed.function.parameters;
+      A.ok(params && params.properties && params.properties.tasks && params.properties.tasks.type === 'array'
+        && params.properties.tasks.items && (params.properties.tasks.items.required || []).includes('prompt')
+        && params.properties.background && params.properties.background.type === 'boolean', 'tool search reveals the actual executable team_spawn schema');
+      const parentEvents = () => sse.events.slice(eventFrom).filter(e => e.payload && e.payload.agentId === agentId && e.payload.runId === runId);
+      await sse.waitFor(() => parentEvents().some(e => e.name === 'agent.run.end'), 5000, 'crewless parent end');
+      const calls = parentEvents().filter(e => e.name === 'agent.tool_call').map(e => e.payload);
+      A.eq(calls.map(c => c.name.replace('_', '.')), ['brief.proceed', 'tool.search', 'team.spawn'], 'real Task Brief precedes search and real spawn');
+      for (const callId of ['crewless_brief', 'crewless_search', 'crewless_spawn']) {
+        const outcomes = parentEvents().filter(e => e.name === 'agent.tool_result' && e.payload.callId === callId);
+        A.eq(outcomes.length, 1, callId + ' has one attributed outcome');
+        A.ok(outcomes[0] && outcomes[0].payload.ok === true && outcomes[0].payload.isError === false, callId + ' really succeeded');
+      }
+      const searchResult = (leads[2] && leads[2].messages || []).find(m => m.role === 'tool' && m.tool_call_id === 'crewless_search');
+      A.ok(searchResult && /Now available to call/.test(String(searchResult.content)) && /team\.spawn/.test(String(searchResult.content)), 'actual search result names the revealed spawn tool');
+      const rows = crewlessRows(leads[3] && leads[3].messages || []);
+      A.eq(rows.length, 1, 'one actual worker result returns to the parent');
+      const worker = rows[0] || {};
+      A.ok(worker.reason === 'done' && worker.result === 'CREWLESS_WORKER_OK' && /^sub-/.test(worker.agentId || ''), 'worker outcome identifies a completed temporary child and its marker');
+      const workerRequests = llm.requests.slice(requestFrom).filter(q => lastUserText(q) === CREWLESS_WORKER_REQUEST && crewlessRuntime(q).agentId === worker.agentId);
+      A.eq(workerRequests.length, 1, 'the identified worker really called the provider once');
+      const workerRequest = workerRequests[0] || { messages: [], tools: [] };
+      const workerRunId = crewlessRuntime(workerRequest).runId;
+      A.ok(!!workerRunId && workerRunId !== runId, 'the worker has its own run identity');
+      A.ok(!(workerRequest.tools || []).some(t => t.function && ['team_spawn', 'team_dispatch'].includes(t.function.name)), 'temporary worker cannot recursively delegate');
+      const historyResponse = await fetch(B + '/api/runs?agent=*&runId=' + encodeURIComponent(workerRunId), { headers });
+      A.eq(historyResponse.status, 200, 'identified child run history is readable');
+      const history = await historyResponse.json(), childRows = history.runs || [];
+      A.eq(childRows.length, 1, 'identified child has one durable run receipt');
+      A.ok(childRows[0] && childRows[0].parentRunId === runId && childRows[0].delegatedBy === agentId
+        && childRows[0].agentId === worker.agentId && childRows[0].reason === 'done', 'durable child receipt binds successful work to this parent and owner-agent');
+      A.eq(parentEvents().filter(e => e.name === 'agent.run.start').length, 1, 'one parent task starts');
+      A.eq(parentEvents().filter(e => e.name === 'agent.run.end').map(e => e.payload.reason), ['done'], 'the same parent task completes once');
+      await sse.waitFor(events => events.slice(eventFrom).some(e => e.name === 'channel.delivery' && e.payload
+        && e.payload.channel === 'telegram' && String(e.payload.chatId) === String(chat) && e.payload.runId === runId && e.payload.ok), 5000, 'crewless Telegram delivery receipt');
+      const completed = tg.sends.slice(sendFrom).filter(s => String(s.chat_id) === String(chat) && rendered(s.text).includes(CREWLESS_DONE));
+      A.eq(completed.length, 1, 'Telegram receives exactly one final completion marker (progress sends are allowed)');
+      A.ok(completed[0] && rendered(completed[0].text).includes('CREWLESS_WORKER_OK'), 'Telegram final carries the actual worker result');
+      const after = await (await fetch(B + '/api/runtime/agent', { headers })).json();
+      A.eq(after.agents, [], 'temporary work does not manufacture saved crew');
+    }
 
     // Same named lead and specialist through desktop and owner Telegram; a wire tool
     // alone is not proof that the worker ran or that its result reached the parent.
