@@ -48,9 +48,42 @@ for (const bp of M.BLUEPRINTS) {
   A.eq(a.ready, whole, bp.id + ': staffed, a line with an Inbox and an Outbox is ready to run (one without says what is missing)');
   if (!whole) A.ok(a.blocking.some(b => /add an (INBOX|OUTBOX)/.test(b)), bp.id + ': …and names the missing Inbox or Outbox');
   A.eq(routed(st).errs.length, 0, bp.id + ': the floor has no routing error');
+  if (bp.id === 'two_doors') {
+    const lines = P.compileRoutingPlan(st.projectGeometry()).lines;
+    A.eq(lines.length, 1, 'two_doors: both entrances belong to one compiled line');
+    A.eq(lines[0].intakes.length, 2, 'two_doors: both entrances are preserved');
+    A.eq(lines[0].name, r.plan.line.label, 'two_doors: the compiled name matches the approved plan');
+    A.eq(st.props().filter(p => p.t === 'intake' && p.label).length, 1, 'two_doors: only the canonical INBOX names the shared line');
+  }
   A.ok(st.rooms().length > M.create(JSON.parse(before)).rooms().length, bp.id + ': in a new room');
   A.ok(st.undo().ok, bp.id + ': undo');
   A.eq(snap(st), before, bp.id + ': ONE undo removes the room, the line and every setting');
+}
+
+/* Name collisions are resolved in the plan, including canonical LINE prefixes and bounded names. */
+{
+  const st = fresh();
+  for (const name of ['Line Alpha', 'alpha 2']) {
+    const p = SB.plan(st.serialize(), { line: 'front_desk', name, steps: [{ step: 1, agent: 'lead' }] }, env);
+    A.ok(p.ok && SB.apply(st, p.plan, env).ok, 'fixture: an existing line named ' + name);
+  }
+  const before = snap(st), r = SB.plan(st.serialize(), { line: 'front_desk', name: '  alpha  ', steps: [{ step: 1, agent: 'lead' }] }, env);
+  A.ok(r.ok && r.plan.line.label === 'alpha 3' && r.plan.summary.includes('("alpha 3")'), 'a canonical collision skips occupied suffixes and the approval names the chosen line');
+  A.eq(snap(st), before, 'choosing the unique name changes no existing line');
+  const a = SB.apply(st, r.plan, env);
+  A.ok(a.ok && a.ready && st.propById(a.intakeId).label === 'alpha 3', 'the approved unique name builds with truthful readiness');
+  A.ok(st.undo().ok); A.eq(snap(st), before, 'one undo removes the repeated line without renaming existing lines');
+}
+{
+  const st = fresh(), name = 'X'.repeat(48);
+  const first = SB.plan(st.serialize(), { line: 'front_desk', name }, env);
+  A.ok(first.ok && SB.apply(st, first.plan, env).ok, 'fixture: an existing maximum-length line name');
+  const before = snap(st), second = SB.plan(st.serialize(), { line: 'front_desk', name }, env);
+  const want = 'X'.repeat(46) + ' 2';
+  A.ok(second.ok && second.plan.line.label === want && second.plan.summary.includes('("' + want + '")'), 'a suffix stays within 48 characters and appears in the approved summary');
+  const a = SB.apply(st, second.plan, env);
+  A.ok(a.ok && st.propById(a.intakeId).label === want, 'the bounded planned label is applied exactly');
+  A.ok(st.undo().ok); A.eq(snap(st), before, 'undo restores the original maximum-length name');
 }
 
 /* ---- 2. add-only: an existing working line is untouched, prop for prop, and routes exactly as before ---- */
@@ -266,6 +299,13 @@ for (const c of T.catalog.filter(c => T.presetKits(c.id).length)) {
   const lined = r.plan.rooms.filter(v => v.line);
   A.ok(lined.length < 2 || r.plan.steps.every(s => lined.some(v => s.role.endsWith(' in ' + v.name))), c.id + ': with several lines, each step on the card names its room');
   A.ok(SB.apply(st, r.plan, renv).ok, c.id + ': builds');
+  const oldIds = new Set(JSON.parse(before).props.map(p => p.id));
+  const addedLabels = st.props().filter(p => p.t === 'intake' && !oldIds.has(p.id) && p.label).map(p => p.label).sort();
+  A.eq(addedLabels, r.plan.rooms.filter(v => v.line).map(v => v.line.label).sort(), c.id + ': the applied line names match the approval card');
+  const nameKey = v => String(v || '').trim().replace(/^line\s+/i, '').replace(/\s+/g, ' ').toUpperCase();
+  const keys = st.props().filter(p => p.t === 'intake' && p.label).map(p => nameKey(p.label));
+  A.eq(new Set(keys).size, keys.length, c.id + ': adding a repeated preset keeps every line name distinct');
+  if (c.id === 'software') A.ok(addedLabels.includes('SOFTWARE · BUILD & TEST 2'), 'the repeated Software Studio line receives the next free name');
   const keep = new Set(st.props().map(p => JSON.stringify(p)));
   A.ok(oldProps.every(p => keep.has(p)), c.id + ': nothing already there moved or changed');
   const now = routed(st);
