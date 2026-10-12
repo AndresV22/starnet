@@ -86,11 +86,25 @@ async function runWith(provider, extra) {
     A.eq(up.posts.length, 2, 'two silent attempts, then stop (was 7 x the idle window)');
     A.eq([res.failureStage, res.failureCode], ['provider_stream', 'provider_stalled'], 'failureCode provider_stalled');
     const err = seq.find(e => e.name === 'agent.run.error');
-    A.ok(err && /^model stalled: 2 consecutive attempts on fixture-model received no response bytes/.test(err.payload.message), 'the Commander reads that the model stopped responding: ' + (err && err.payload.message));
+    A.ok(err && /^model stalled: 2 consecutive attempts on fixture-model hit the response idle timeout/.test(err.payload.message), 'the Commander reads that the model stopped responding: ' + (err && err.payload.message));
     A.ok(/idle timed out after 40ms/.test(err.payload.message), 'with the watchdog\'s own evidence');
     A.eq(err.payload.transient, true, 'a stall is transient (try again later)');
     A.eq(waits, [400], 'one ordinary rung between the two stalls, then no further waiting');
     A.eq(recov.map(r => [r.action, r.reason]), [['retry', 'timeout']], 'recovery telemetry: one retry, no phantom ladder');
+  }
+
+  // Error bytes can arrive before the body stalls: diagnostics must not deny that observed progress.
+  {
+    const up = upstream(() => new Response(new ReadableStream({
+      start(c) { c.enqueue(new TextEncoder().encode('{"error":')); }
+    }), { status: 400 }));
+    const { res, seq } = await runWith(adapter(up.fetch));
+    A.eq(res.reason, 'error', 'a stalled partial error body never becomes a completed reply');
+    A.eq(up.posts.length, 2, 'partial error bodies use the existing two-idle-stall cutoff');
+    const err = seq.find(e => e.name === 'agent.run.error');
+    A.ok(err && !err.payload.message.includes('received no response bytes'), 'the diagnostic does not deny error bytes that arrived');
+    A.ok(err && err.payload.message.includes('idle timed out after 40ms'), 'the diagnostic states the actual watchdog result');
+    A.eq(seq.filter(e => e.name === 'agent.run.end').map(e => e.payload.reason), ['error'], 'one truthful terminal for the failed run');
   }
 
   // ---- with a fallback configured, the stall moves to it and the run completes ----
