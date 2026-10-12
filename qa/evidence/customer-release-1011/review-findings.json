@@ -89,10 +89,11 @@
       "observation": "Execution-end recovery files raw output before structured-result repair, then rejects the accepted delivery as duplicate.",
       "requiredBehavior": "Respect final delivery authority and test invalid-to-repaired structured output.",
       "evidence": "frontend/app/stationcommands.js",
-      "reviewedOwnerSource": "a69664135e4983fe624ec11bea6b2bd4666ee651",
       "note": "Independent full-output, failure/restart, exact-once and reader-state checks accepted; combined source gates remain pending.",
       "resolvedBy": "4c3d9c3019f8475eae283c62757d7e94a9296fdc",
-      "integratedAt": "fa12f8a0186e18e9f95a93a56f1b2bfb2a12c595"
+      "integratedAt": "fa12f8a0186e18e9f95a93a56f1b2bfb2a12c595",
+      "initialReviewedOwnerSource": "a69664135e4983fe624ec11bea6b2bd4666ee651",
+      "reviewedOwnerSource": "4c3d9c3019f8475eae283c62757d7e94a9296fdc"
     },
     {
       "id": "R10",
@@ -102,10 +103,11 @@
       "observation": "Unrelated worker completion reloads the reader's active conversation and discards navigation/inspector state.",
       "requiredBehavior": "Refresh only affected state and preserve explicit reader intent.",
       "evidence": "frontend/app/stationcommands.js",
-      "reviewedOwnerSource": "a69664135e4983fe624ec11bea6b2bd4666ee651",
       "note": "Independent full-output, failure/restart, exact-once and reader-state checks accepted; combined source gates remain pending.",
       "resolvedBy": "4c3d9c3019f8475eae283c62757d7e94a9296fdc",
-      "integratedAt": "fa12f8a0186e18e9f95a93a56f1b2bfb2a12c595"
+      "integratedAt": "fa12f8a0186e18e9f95a93a56f1b2bfb2a12c595",
+      "initialReviewedOwnerSource": "a69664135e4983fe624ec11bea6b2bd4666ee651",
+      "reviewedOwnerSource": "4c3d9c3019f8475eae283c62757d7e94a9296fdc"
     },
     {
       "id": "R11",
