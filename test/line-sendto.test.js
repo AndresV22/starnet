@@ -183,7 +183,15 @@ const lineOf = (pl, id) => pl.lineOfProp[id];
     && /full finished work itself/.test(tail) && /never a note on whether the job is done\.\]$/.test(tail),
     'the frame closes with this line\'s part: build on it, never start over, the finished work — ' + JSON.stringify(tail));
   A.ok(/\[THIS LINE’S PART — build on the work the line before this one delivered above/.test(P.handoffInput({ output: 'x' })), '…naming an unnamed sender in words');
-  A.ok(P.handoffInput({ output: 'x'.repeat(20000) }).length < 12400, 'bounded');
+  /* BOUNDED BY ITS PARTS (runtime repair 2026-10-12): the old "< 12400" held only for a frame with no job and no closing block — every
+     real hand-off carries the job, and R27's 11700 cut to meet it dropped 300 unmarked characters of the work the next line builds on.
+     What was delivered is cut exactly where the job record keeps it (handedIn, 12000); the job at 4000; the whole frame is those plus
+     its fixed text, with a full-size job and a long sender name present. */
+  const big = P.handoffInput({ fromName: 'N'.repeat(80), original: 'o'.repeat(5000), output: 'x'.repeat(20000) });
+  const back = P.parseHandoffInput(big);
+  A.eq([back.output.length, back.original.length], [12000, 4000], 'the work handed on is the 12000 characters the record keeps, the job its 4000');
+  A.ok(big.length > 16000 && big.length < 4000 + 12000 + 1200, 'bounded by its parts with the job present: ' + big.length);
+  A.ok(P.handoffInput({ output: 'x'.repeat(20000) }).length < 12000 + 1200, 'bounded with no job too');
   A.eq(P.parseHandoffInput(P.handoffInput({ fromName: 'a', original: 'Find facts.\nTwo.', output: 'F1\n\nF2', files: ['x'] })), { fromName: 'A', original: 'Find facts.\nTwo.', output: 'F1\n\nF2' }, 'parseHandoffInput reads the frame back (the OUTBOX titles a handed-on job by the job as it first arrived)');
   A.eq(P.parseHandoffInput('[LOOP — pass 2] x'), null, '…and nothing else');
 }

@@ -2300,9 +2300,10 @@
     const nm = String(x.fromName == null ? '' : x.fromName).replace(/\s+/g, ' ').trim().slice(0, 48);
     const who = lineWord(nm, 'the line before this one');
     const original = String(x.original == null ? '' : x.original).trim().slice(0, 4000);
-    // at most 11700 characters of what was delivered (the job record keeps 12000): with the closing THIS LINE'S PART the whole
-    // frame stays under 12400 for any sender name
-    const output = String(x.output == null ? '' : x.output).trim().slice(0, 11700);
+    /* what was delivered: the same 12000 characters the receiving job's record keeps as handedIn (linejobs MAX_OUTPUT), never fewer —
+       the next line builds on all of it (runtime repair 2026-10-12: an 11700 cut dropped 300 unmarked characters for a 12400 frame
+       bound no consumer has). The frame is bounded by its parts: name 48, the job 4000, the work 12000, 20 file paths, fixed text. */
+    const output = String(x.output == null ? '' : x.output).trim().slice(0, 12000);
     const files = (Array.isArray(x.files) ? x.files : []).map(f => String(f == null ? '' : f).trim()).filter((f, i, a) => f && a.indexOf(f) === i).slice(0, 20);
     /* R27 (live, real model, 2026-10-12): "working from that result" alone let an un-instructed line write a NEW answer of its own
        (A's fun fact → B's different fact → C's third), so the end of a chain held none of the work sent on — and an instruction
