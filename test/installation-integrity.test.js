@@ -61,6 +61,11 @@ try {
     assert.equal(signed.installer.signature.state, 'observed');
     assert.ok(['NotSigned', 'UnknownError'].includes(signed.installer.signature.status), 'non-PE fixture cannot be certified valid');
   }
+  // Cargo/NSIS ship this basename; inspect bytes without attempting native execution.
+  for (const binary of ['skynet-desktop.exe', 'skynet-desktop']) {
+    put(installed, binary, 'synthetic native executable bytes');
+    put(reference, binary, 'synthetic native executable bytes');
+  }
   const before = snapshot(root);
   const cli = spawnSync(process.execPath, [path.resolve(__dirname, '../scripts/qa/installation-integrity.cjs'), '--installation', installed, '--reference', reference, '--file', shell, '--installer', packageFile], { encoding: 'utf8', windowsHide: true });
   assert.equal(cli.status, 0, cli.stderr); report = JSON.parse(cli.stdout);
@@ -68,6 +73,11 @@ try {
   assert.equal(report.installer.state, 'present'); assert.match(report.installer.sha256, /^[a-f0-9]{64}$/);
   assert.equal(report.installer.signature.state, 'unverified');
   assert.ok(!cli.stdout.includes('PRIVATE_STATION_SENTINEL'));
+  const nativeCli = spawnSync(process.execPath, [path.resolve(__dirname, '../scripts/qa/installation-integrity.cjs'), '--installation', installed, '--reference', reference, '--file', 'skynet-desktop.exe', '--file', 'skynet-desktop'], { encoding: 'utf8', windowsHide: true });
+  assert.equal(nativeCli.status, 0, nativeCli.stderr);
+  const nativeReport = JSON.parse(nativeCli.stdout);
+  assert.deepEqual(nativeReport.files.map(row => row.relativePath), ['skynet-desktop.exe', 'skynet-desktop']);
+  assert.equal(nativeReport.summary.match, 2);
   assert.deepEqual(snapshot(root), before, 'all fixture/profile bytes and mtimes untouched');
   assert.equal(fs.existsSync(marker), false);
   const bad = spawnSync(process.execPath, [path.resolve(__dirname, '../scripts/qa/installation-integrity.cjs'), '--installation'], { encoding: 'utf8', windowsHide: true });

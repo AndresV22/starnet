@@ -43,7 +43,7 @@ function readFileEvidence(file) {
 function selectedPath(value) {
   // Explicit application files only; no arbitrary profile/config files or traversal.
   const rel = String(value).replace(/\\/g, '/');
-  if (!/^(?:node(?:\.exe)?|StarNet\.exe|sidecar\/(?:[A-Za-z0-9_-]+\/)*[A-Za-z0-9_.-]+\.(?:js|cjs|mjs))$/.test(rel)) {
+  if (!/^(?:node(?:\.exe)?|StarNet\.exe|skynet-desktop(?:\.exe)?|sidecar\/(?:[A-Za-z0-9_-]+\/)*[A-Za-z0-9_.-]+\.(?:js|cjs|mjs))$/.test(rel)) {
     throw new Error('Unsupported application file: ' + value);
   }
   return rel;

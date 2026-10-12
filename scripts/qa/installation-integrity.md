@@ -8,9 +8,17 @@ Example in PowerShell (explicit operator-selected directories):
 node scripts/qa/installation-integrity.cjs --installation 'C:\Chosen\StarNet' --reference 'C:\Chosen\ExtractedSameInstaller'
 ~~~
 
+To include the shipped Cargo/NSIS desktop binary, add explicit selections (these replace defaults):
+
+~~~powershell
+node scripts/qa/installation-integrity.cjs --installation 'C:\Chosen\StarNet' --reference 'C:\Chosen\ExtractedSameInstaller' --file skynet-desktop.exe --file node.exe --file sidecar/tools/builtin/shell.js
+~~~
+
+For a native payload use --file skynet-desktop with the directory containing that binary. Neither executable is launched.
+
 The reference must be a separate directory containing the actual extracted installer payload, with the same relative layout. Do not point it at a Git checkout: checkout newline conversion and packaging transformations can change bytes. The utility does not download, extract, run, or authenticate the reference package. Record its origin/version separately. Matching files prove byte equality to that reference, not that the reference is correct or that the application works.
 
-Default selection: node.exe, sidecar/index.js, sidecar/loop.js, and sidecar/tools/builtin/shell.js. Repeated --file options replace the default selection. Only node, node.exe, StarNet.exe and sidecar JS/CJS/MJS paths are permitted; traversal, arbitrary profile/config paths, directories and symbolic links/junctions are refused. No directory tree or user profile is enumerated. For a non-Windows payload, explicitly select its runtime name and sidecar files.
+Default selection: node.exe, sidecar/index.js, sidecar/loop.js, and sidecar/tools/builtin/shell.js. Repeated --file options replace the default selection. Only node, node.exe, skynet-desktop.exe, native skynet-desktop, StarNet.exe and sidecar JS/CJS/MJS paths are permitted; traversal, arbitrary profile/config paths, directories and symbolic links/junctions are refused. No directory tree or user profile is enumerated. For a non-Windows payload, explicitly select its runtime name and sidecar files.
 
 ~~~powershell
 node scripts/qa/installation-integrity.cjs --installation 'C:\Chosen\StarNet' --file sidecar/tools/builtin/shell.js --installer 'C:\Chosen\StarNet-setup.exe' --signature
