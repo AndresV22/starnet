@@ -47,7 +47,7 @@
      model trusted the stale one. A note can now carry the Commander's authority, but only when the HOST can show it:
      ctx.commanderWords is the text the Commander typed in this run's conversation (set by the host on the owner's
      own surfaces only — never a channel guest, a routine, a hand-off or a delegated worker), and the note must be
-     substantially THEIR words: one sentence of theirs holds >= 70% (and >= 2) of the note's content words, carries
+     THEIR words: a complete ordered sentence matches after a few explicit framing equivalences, carries
      the same polarity (a "hate tabs" sentence never proves "prefers tabs"), and is shaped like a statement about
      themselves or an instruction (a bare "make it dark" is a one-off task, not a stated preference). Anything less
      is not proof, and the note keeps its ordinary provenance. Pure + deterministic. */
@@ -72,20 +72,31 @@
     for (const t of norm(s).toLowerCase().split(/[^a-z0-9]+/)) if (t.length >= 2 && !PROOF_STOP.has(t)) out.push(stem(t));
     return out;
   }
-  // -> the Commander's sentence that proves `body`, or '' when there is no such sentence
+  // Deliberately conservative: a bag of words cannot prove a relation or a qualifier. Keep every word and
+  // its order except these explicit preference/instruction frames. Unsupported paraphrases stay inferred.
+  function proofForm(s, weaken) {
+    let t = norm(s).toLowerCase().trim().replace(/[.!?;]+$/, '').trim();
+    if (/["“”`]/.test(t)) return '';   // quoted material is not attested as the speaker's own preference
+    t = t.replace(/^actually[\s,]+/, '');
+    // Only the source may lose standing/time framing to prove a weaker paraphrase. Never erase a
+    // qualifier from the note: that would let an ordinary preference attest an invented always/now.
+    if (weaken) t = t.replace(/^(?:from now on|going forward|by default|in (?:the )?future)[\s,:]+/, '').replace(/\s+now$/, '');
+    t = t.replace(/^(?:i|we|(?:the )?(?:user|commander))\s+(always\s+)?prefers?\s+/, '$1prefer ');
+    t = t.replace(/^(always\s+)?use\s+/, '$1prefer ');
+    if (weaken) t = t.replace(/^always (?=prefer )/, '');
+    return t.replace(/\binstead of\b/g, 'over').replace(/\s+/g, ' ');
+  }
+  // -> the Commander's sentence that proves body, or '' when there is no such sentence.
   function statedSentence(body, words) {
-    const want = Array.from(new Set(proofTokens(body)));
-    if (want.length < 2) return '';
+    const want = proofForm(body);
+    if (!want || new Set(proofTokens(body)).size < 2 || /["“”`]/.test(norm(words))) return '';
     const neg = PROOF_NEG.test(norm(body));
-    let best = '', bestHit = 0;
     for (const raw of norm(words).split(/[.!?;\n]+/)) {
       const sentence = raw.trim();
       if (!sentence || !PROOF_SHAPE.test(sentence) || PROOF_NEG.test(sentence) !== neg) continue;
-      const have = new Set(proofTokens(sentence));
-      let hit = 0; for (const t of want) if (have.has(t)) hit++;
-      if (hit >= 2 && hit / want.length >= 0.7 && hit > bestHit) { best = sentence; bestHit = hit; }
+      if (proofForm(sentence) === want || proofForm(sentence, true) === want) return sentence;
     }
-    return best;
+    return '';
   }
 
   function makeNotebookTools(deps) {

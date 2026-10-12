@@ -13,7 +13,9 @@
 'use strict';
 
 // "have Ada …", "ask the researcher to …", "get Quill on this", "delegate to Ada", "loop in the analyst".
-const ASK = /\b(have|ask|get|tell|let|send|delegate|assign|hand|give|use|put|dispatch|loop in|bring in|task)\b/i;
+const ASK = '(?:have|ask|get|tell|let|send|use|put|dispatch|task|loop in|bring in|(?:delegate|assign|hand|give)(?:\\s+(?:this|it|the task))?\\s+to)';
+// This note is an unconditional SYSTEM directive. Negated, conditional and quoted requests cannot prove it.
+const QUALIFIED = /\b(?:not|never|don['’]?t|doesn['’]?t|won['’]?t|without|unless|if|maybe|perhaps)\b|["“”`]/i;
 // Ids that are ordinary words in a sentence, never on their own a reference to one agent ("ask an agent").
 const GENERIC_IDS = new Set(['agent']);
 const esc = s => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -23,21 +25,26 @@ const wordRe = s => new RegExp('(^|[^A-Za-z0-9_])' + esc(s) + '($|[^A-Za-z0-9_])
    crew: Map/iterable of [agentId, { name }]. A member counts when its display name or (non-generic) agentId
    appears as a whole word AND the request asks for work (a delegation verb, or "Name, …" / "Name: …" up front). */
 function crewMentions(text, crew, leadId) {
-  const t = String(text || '');
-  if (!t.trim() || !crew) return [];
-  const out = [];
+  const t = String(text || '').trim();
+  if (!t || !crew || QUALIFIED.test(t)) return [];
+  const members = [];
   for (const [agentId, ident] of crew) {
     if (!agentId || agentId === leadId) continue;
     const name = String((ident && ident.name) || '').trim();
     const cues = [];
     if (name.length >= 3) cues.push(name);
     if (agentId.length >= 3 && !GENERIC_IDS.has(agentId.toLowerCase()) && agentId.toLowerCase() !== name.toLowerCase()) cues.push(agentId);
-    const hit = cues.find(c => wordRe(c).test(t));
-    if (!hit) continue;
-    const addressed = new RegExp('^\\s*' + esc(hit) + '\\s*[,:]', 'i').test(t);
-    if (addressed || ASK.test(t)) out.push({ agentId, name: name || agentId });
+    if (cues.length) members.push({agentId, name: name || agentId, cues});
   }
-  return out;
+  if (!members.length) return [];
+  const names = members.flatMap(m => m.cues).sort((a,b) => b.length-a.length).map(esc).join('|');
+  const target = '(?:the\\s+)?(?:' + names + ')';
+  const list = target + '(?:\\s*(?:,|and|&)\\s*' + target + ')*';
+  // The action must directly name its targets. An unrelated "use bullets" elsewhere is not delegation.
+  const action = new RegExp('^(?:please\\s+)?' + ASK + '\\s+(' + list + ')(?=$|[^A-Za-z0-9_])', 'i').exec(t);
+  return members.filter(m => m.cues.some(c =>
+    (action && wordRe(c).test(action[1])) || new RegExp('^' + esc(c) + '\\s*[,:]\\s*\\S', 'i').test(t)
+  )).map(({agentId, name}) => ({agentId, name}));
 }
 
 /* Only a NAMED crew call gets a note. Measured 2026-10-11 on qwen3:8b (Ollama): "Have Ada research…" went from
