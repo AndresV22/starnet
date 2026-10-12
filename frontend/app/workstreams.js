@@ -725,8 +725,14 @@
       || !/^[a-f0-9]{64}$/.test(d.textSha256 || '')
       || t.textLength !== d.textLength || t.textSha256 !== d.textSha256) return null;
     try {
-      const digest = await globalThis.crypto.subtle.digest('SHA-256', new TextEncoder().encode(t.content));
-      const hash = Array.from(new Uint8Array(digest), b => b.toString(16).padStart(2, '0')).join('');
+      let hash;
+      try {
+        if (globalThis.crypto && globalThis.crypto.subtle) {
+          const digest = await globalThis.crypto.subtle.digest('SHA-256', new TextEncoder().encode(t.content));
+          hash = Array.from(new Uint8Array(digest), b => b.toString(16).padStart(2, '0')).join('');
+        }
+      } catch (_) { /* a browser without a usable native digest can use the same byte-tested JS digest */ }
+      if (!hash && typeof ApiTicket !== 'undefined' && ApiTicket.sha256Text) hash = ApiTicket.sha256Text(t.content);
       return hash === d.textSha256 ? t.content : null;
     } catch (_) { return null; }
   }

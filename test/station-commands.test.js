@@ -214,7 +214,7 @@ for (const size of [23999, 24000, 24001, 199999, 200000, 200001, 210026, 1048576
   A.eq(w.history[0].content, full, 'full tail and JSON survive at ' + size);
   A.eq(await env.S.reconcile(w.id), 0, 'complete output is idempotent at ' + size);
 }
-for (const corrupt of ['truncated', 'changed-tail', 'wrong-run', 'wrong-stream', 'raw', 'missing-length', 'wrong-hash', 'legacy-cap']) {
+for (const corrupt of ['truncated', 'changed-tail', 'wrong-run', 'wrong-stream', 'raw', 'missing-length', 'wrong-hash', 'legacy-cap', 'short-preview']) {
   const full = JSON.stringify({ answer: 'validated '.repeat(21000) + 'COMPLETE_TAIL' });
   const textSha256 = require('node:crypto').createHash('sha256').update(full).digest('hex');
   const row = { runId: 'integrity-run', streamId: 'integrity-worker', sessionTitle: 'Integrity worker', reason: 'done',
@@ -222,6 +222,7 @@ for (const corrupt of ['truncated', 'changed-tail', 'wrong-run', 'wrong-stream',
   const good = { role: 'assistant', dispatchState: 'final', sourceRunId: row.runId, streamId: row.streamId,
     content: full, textLength: full.length, textSha256 };
   const bad = { ...good };
+  if (corrupt === 'short-preview') { row.dispatchDelivery.text = full.slice(0, 23999); bad.content = full.slice(0, 200000); }
   if (corrupt === 'truncated') bad.content = full.slice(0, 200000);
   if (corrupt === 'changed-tail') bad.content = full.slice(0, -3) + 'X"}';
   if (corrupt === 'wrong-run') bad.sourceRunId = 'repair-run';

@@ -1162,7 +1162,7 @@ const StationCommands = (() => {
         }
         // The run index stores a bounded preview. Do not let that preview deduplicate the complete answer.
         // Read only the finalized delivery projection; exact execution transcripts may contain rejected output.
-        if (delivery && String(text || '').length >= 24000) {
+        if (delivery && (String(text || '').length >= 24000 || (delivery.textLength != null && delivery.textLength !== String(text || '').length))) {
           try {
             const response = await fetch('/api/transcript?stream=' + encodeURIComponent(row.streamId || '') + '&runId=' + encodeURIComponent(row.runId || '') + '&delivery=1&limit=1', { cache: 'no-store' });
             if (!response.ok) continue;

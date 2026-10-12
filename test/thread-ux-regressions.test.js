@@ -190,3 +190,18 @@ test('delegated receipts reject a truncated or changed final projection and retr
   projection=good;await c.loadReceipt('worker');assert.equal(c.receipts.get('worker').status,'ok');
   assert.equal(c.receipts.get('worker').data.answer,full);assert.equal(JSON.parse(full).answer.endsWith('COMPLETE_TAIL'),true);
 });
+
+
+test('complete output verification also works without WebCrypto',async()=>{
+  const ApiTicket=require('../frontend/app/apiticket.js'), {createHash}=require('node:crypto');
+  const full=JSON.stringify({answer:'\u{1f680}redacted '.repeat(24000)+'COMPLETE_TAIL'});
+  const hash=createHash('sha256').update(full).digest('hex');
+  const row={runId:'fallback-run',streamId:'fallback-worker',dispatchDelivery:{state:'final',text:full.slice(0,23999),textLength:full.length,textSha256:hash}};
+  const projection={role:'assistant',dispatchState:'final',streamId:row.streamId,sourceRunId:row.runId,content:full,textLength:full.length,textSha256:hash};
+  const source=fs.readFileSync('frontend/app/workstreams.js','utf8');
+  const c=ctx(part(source,'  async function finalDeliveryText(', '  return {\n    init, reset'),{crypto:{},ApiTicket});
+  assert.equal(await c.finalDeliveryText(row,[projection]),full);
+  c.crypto.subtle={digest:async()=>{throw Error('native digest unavailable');}};
+  assert.equal(await c.finalDeliveryText(row,[projection]),full);
+  projection.content=full.slice(0,-3)+'X"}';assert.equal(await c.finalDeliveryText(row,[projection]),null);
+});

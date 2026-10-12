@@ -236,7 +236,7 @@ const Delegated = (() => {
       for (let i = (turns || []).length - 1; i >= 0; i--) { const t = turns[i]; if (t && t.role === 'assistant' && typeof t.content === 'string' && t.content.trim()) { answer = t.content; break; } }
     }
     // Expand a capped answer only from the finalized delivery projection, never the original execution.
-    if (delivery && delivery.state === 'final' && answer.length >= 24000) {
+    if (delivery && delivery.state === 'final' && (answer.length >= 24000 || (delivery.textLength != null && delivery.textLength !== answer.length))) {
       answer = typeof deliveryText === 'string' ? deliveryText : '';
     }
     const files = ((row && row.artifacts) || []).filter(x => x && x.path && (!x.kind || x.kind === 'file' || x.kind === 'image'))
@@ -266,7 +266,7 @@ const Delegated = (() => {
       if (delivery && delivery.state === 'pending' && !['working', 'waiting', 'queued'].includes(stateOf(r, r.ws.parentStreamId, r.lead).cls)) {
         throw new Error('This worker ended, but its finalized result could not be recovered. Try again to retrieve its work.');
       }
-      if (delivery && delivery.state === 'final' && String(delivery.text || '').length >= 24000) {
+      if (delivery && delivery.state === 'final' && (String(delivery.text || '').length >= 24000 || (delivery.textLength != null && delivery.textLength !== String(delivery.text || '').length))) {
         const full = await read('/api/transcript?stream=' + encodeURIComponent(id) + '&runId=' + encodeURIComponent(runId) + '&delivery=1&limit=1');
         deliveryText = await Workstreams.finalDeliveryText(row, full && full.turns);
         if (deliveryText == null) throw new Error('The complete finalized result is unavailable. Try again to retrieve its work.');
