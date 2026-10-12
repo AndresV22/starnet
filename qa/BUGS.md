@@ -4,7 +4,7 @@
 One tracked file per bug under `qa/bugs/`; this is only the index. File a new bug with
 `node scripts/qa/bugs.mjs --new --title "..." --surface <surface>`.
 
-**10** open (open+claimed) of 239 total — 0 P0 · 0 P1 · 10 P2
+**10** open (open+claimed) of 241 total — 0 P0 · 0 P1 · 10 P2
 
 Engineering status is separate from delivery and customer recovery. Legacy rows without origin are not a customer census.
 
@@ -236,6 +236,7 @@ User/owner reports: **104** · source fixed: **94** · installer verified: **6**
 | P1 | fixed | sessions | [Startup history read failure skips away-work review recovery](bugs/6b655b46-startup-history-read-failure-skips-away-work-rev.md) | agent/seam-audit-0912-b | b5c5cba75 |
 | P1 | fixed | sessions | [Temporarily unreadable durable records can be quarantined or overwritten](bugs/7aeb7f9f-temporarily-unreadable-durable-records-can-be-qu.md) | agent/systemic-bugs-0919 | 8eb87b0d3 |
 | P1 | fixed | sessions | [Unknown PID probe errors authorize workspace takeover](bugs/7f19707e-unknown-pid-probe-errors-authorize-workspace-tak.md) | reliability-audit-0919 | 9cdfc0ba5 |
+| P1 | fixed | sessions | [Worker recovery can publish raw output before structured repair](bugs/113c2fa8-worker-final-delivery-authority.md) | thread-ux-review-1011 | a69664135e4983fe624ec11bea6b2bd4666ee651 |
 | P1 | fixed | sessions | [Workshop reports a completed web tool when its entry file is missing](bugs/097269b5-workshop-reports-a-completed-web-tool-when-its-e.md) | agent/release-ui-audit-0906 | 44a8c3006 |
 | P1 | fixed | skills | [Campaign cards missing from browser element discovery](bugs/305a9e3d-campaign-cards-missing-from-browser-element-disc.md) | agent/browser-campaign-navigation-0912 | dcbc2b941 |
 | P1 | fixed | skills | [gate.verify()'s tamper branch re-enters decide(), which clears the tamper against the STALE stored contentDigest — one approval permanently blesses whatever is](bugs/76d5dc8a-gate-verify.md) | sweep/skills | 598ab4a4 |
@@ -324,6 +325,7 @@ User/owner reports: **104** · source fixed: **94** · installer verified: **6**
 | P2 | fixed | sessions | [Session recommendations ignore user goals and actual work](bugs/a55c0020-session-recommendations-ignore-user-goals-and-ac.md) | agent/useful-starters-0906 | 51768e661 |
 | P2 | fixed | sessions | [Shared query refresh cannot retire a stalled predecessor](bugs/c095c750-shared-query-refresh-cannot-retire-a-stalled-pre.md) | agent/seam-audit-0912-b | b5c5cba75 |
 | P2 | fixed | sessions | [Stalled finite JSON mutations never release their callers](bugs/38aad6db-stalled-finite-json-mutations-never-release-thei.md) | agent/systemic-bugs-0919 | 8eb87b0d3 |
+| P2 | fixed | sessions | [Worker recovery rebuilds an unrelated conversation and loses reader state](bugs/abb287e8-worker-recovery-reader-state.md) | thread-ux-review-1011 | a69664135e4983fe624ec11bea6b2bd4666ee651 |
 | P2 | fixed | sessions | [Workshop Keep accepts an empty decision acknowledgement](bugs/9bc0b751-workshop-keep-accepts-an-empty-decision-acknowle.md) | agent/system-polish-0920 | 4a2028759 |
 | P2 | fixed | voice | [Failed Live Voice startup leaves a user mute force-enabled](bugs/d02d029b-failed-live-voice-startup-leaves-a-user-mute-for.md) | agent/voice-release-sweep | 8bc9ff9a |
 | P2 | fixed | voice | [Muting the speaker mid-reply in hands-free nulls the only surviving rearm heartbeat — the mic never re-opens while the mode button still reads 'hands-free ON'](bugs/2f7b280c-muting-the-speaker-mid-reply-in-hands-free-nulls.md) | sweep/voice | 50a8b07b |
