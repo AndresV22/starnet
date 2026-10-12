@@ -44,7 +44,7 @@
         "generated_documentation": 6
       },
       "binaryFiles": 0,
-      "state": "Separate pending deep-sweep target supplied by parent; not the a20 integrated tested candidate; parent reports a residual possessive-delegation repair after this snapshot"
+      "state": "Historical isolated deep-sweep snapshot, superseded by the combined reviewCandidate. This earlier 448-path target is now contained in the reviewed batch; the later possessive-delegation correction and other review additions are recorded separately."
     }
   ],
   "recoveryScope": {
@@ -9255,7 +9255,7 @@
   "releaseBaselineSummary": {
     "release": "v0.13.2",
     "base": "54899e5ff3f2b002b457757916b3977818db6fc1",
-    "warning": "292 is recovery only. Whole integrated update has 409 changed paths; pending deep-sweep target has 448. These are distinct target snapshots, not additive counts.",
+    "warning": "292 is recovery only. Integrated a20ffa71 source has 409 changed paths; the earlier isolated 9fc deep-sweep snapshot had 448. The combined reviewCandidate supersedes that isolated target. These revision-bound counts are not additive and are not current installed acceptance.",
     "earlierIntegratedThemes": [
       {
         "theme": "Memory and long-context retention",

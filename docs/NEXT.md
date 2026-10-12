@@ -34,6 +34,12 @@ These six canonical customer records remain open P1; related source repairs do n
 | Review open StarNet issues | Completed GitHub refresh and reviewed ten-fix batch plus crew-intent follow-up; owns public issue correlation and scoped authorization review |
 | Review StarNet handoff process | Completed process analysis and tested read-only installation inspector; owns packaging evidence collection and acceptance design |
 | Coordination | Cross-channel deduplication, current queue, change inventory, independent review, final combined gates and serialized integration |
+| Investigate StarNet memory gaps | New owner-requested memory/capability implementation; inspect reviewed memory/crew delta before overlapping edits |
+| Review thread UX changes | New owner-requested chat/delegation/consent polish; preserve reviewed approval ownership and link command-visibility report 082ee8e5 |
+| Finish the conveyor system | New reproduced conveyor repairs on agent/conveyor-finish-1012; isolated source/live receipts and lane gates pending, not yet included in this candidate |
+| Fix StarNet prop and texture bugs | New owner-reported graphics-loss recovery slice; cause and exact live acceptance remain with its isolated lane |
+
+The four newer implementation chats were discovered and coordinated on 2026-10-12; their ongoing work is not silently included in the pinned inventories or source gates above. Serialize all trunk integration. Disk pressure is observed on this host; preserve other worktrees and avoid broad cleanup or concurrent large copies.
 
 Each accepted slice names its source paths, an isolated owning worktree, a customer action and live acceptance condition. Shared contracts remain owner-controlled. Merge live Codex history; never rebase it. Preserve existing dirty trunk docs. Check path ownership and reparse points before Git/sparse/generator/cleanup operations.
 
@@ -49,6 +55,8 @@ Each accepted slice names its source paths, an isolated owning worktree, a custo
 Canonical defects remain in `qa/bugs/*.md`; regenerate `qa/BUGS.md`. Raw mail/community content, identities, private links and diagnostics stay outside tracked files. [Measured process analysis](../qa/evidence/customer-process-1011/report.md) and [readiness investigation](../qa/evidence/customer-release-1011/readiness-review.md) explain evidence limits.
 
 ### Release and access gates still open
+
+- The combined `c0e169414` HTTP gate is RED: four steps passed, then step 5/211 (`seam-audit-recovery.http.test.js:44`) returned Isolated answer 2 where the global mock counter expected Isolated answer 1. The requested run ID matched. One independent instrumented replay passed; no cause is established and the assertion is unchanged. [Revision-bound gate receipts](../qa/evidence/customer-release-1011/source-gates.json).
 
 - The pinned `qa:ready` result is NOT READY: three blocking detector findings, RED Guardian, stale beginner and installed-source receipts. The newly registered customer P1 records are additional explicit work. [Readiness snapshot](../qa/evidence/customer-release-1011/readiness-snapshot.json).
 - A focused layout replay passed with publication/acknowledgement capture; the earlier mismatch remains unexplained. Only the visually reviewed deliverables baseline was refreshed; no threshold or detector suppression was changed.
