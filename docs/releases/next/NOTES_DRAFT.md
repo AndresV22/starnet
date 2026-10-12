@@ -1,6 +1,6 @@
 # StarNet — next release (draft)
 
-DRAFT updated 2026-10-12 for the release after v0.13.2. This describes the combined isolated candidate through `844bee9bb`, extending integrated source `a20ffa71f`; it is not a published or installed-verified release. Reconcile the final candidate before copying these notes. `release:bump` replaces root `RELEASE_NOTES.md` with a scaffold; keep the current public release notes intact until the cut.
+DRAFT updated 2026-10-12 for the release after v0.13.2. This describes the combined isolated candidate through `fa12f8a01`, extending integrated source `a20ffa71f`; it is not a published or installed-verified release. Reconcile the final candidate before copying these notes. `release:bump` replaces root `RELEASE_NOTES.md` with a scaffold; keep the current public release notes intact until the cut.
 
 ## Update Center summary draft
 
@@ -15,6 +15,7 @@ The summary above is under the Update Center's 520-character limit. Retain the i
 - **Floor editing.** Box-select or double-click a whole line; copy, cut, paste and duplicate with Ctrl+C/X/V/D. Line cards include COPY LINE and DELETE LINE. R flips a belt corner, Q copies the piece under the pointer, and Alt shows settings.
 - **Agent-built floors.** Agents can plan onward connections, line copies and whole-line removal. Plans disclose removed connections, repeated templates receive distinct line names, and readiness follows the published floor.
 - **Delegated work.** A parent conversation shows each dispatched worker's work and report, including requests that need your attention. Worker files keep their project identity. Scoped builder lending lets an approved worker carry out its assigned floor-building job.
+- **Recovered worker answers.** Completed delegated answers retain their full redacted payload and recover after failed writes or restart. Saved desktop and paired-device conversations replace superseded worker drafts with the accepted answer once, preserve attachments and historical status, and use the accepted answer for follow-up context. Historical bytes never retained cannot be reconstructed.
 - **Conversation files and review.** File and review trays retain context, completed items can be cleared and restored, and unresolved items remain visible. Streaming scroll, long composer behavior and image loading receive fixes.
 - **Voice and paired devices.** Local speech uses an improved synthesis/effect path with saved choices. A separate spoken-turn model can be selected without changing typed-chat routing. Paired-device audio transport receives reliability improvements; device acceptance remains listed below.
 - **Display controls and rendering.** Lighting has a persistent 0-100 control, keyboard text-size controls are available, and unchanged or offscreen scene work is reduced. No universal performance or memory-usage guarantee is implied.

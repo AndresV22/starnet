@@ -90,9 +90,9 @@
       "requiredBehavior": "Respect final delivery authority and test invalid-to-repaired structured output.",
       "evidence": "frontend/app/stationcommands.js",
       "reviewedOwnerSource": "a69664135e4983fe624ec11bea6b2bd4666ee651",
-      "note": "Independent complete-output, write-failure/restart, exact-once and reader-state checks pass. Separate saved-history reconciliation finding R18 remains held.",
-      "resolvedBy": "d7d865f217d0088ab43b8717f3d9fc4cd5acde52",
-      "integratedAt": "8d3e47afb59976870643c1085d39eb6ccea942cf"
+      "note": "Independent full-output, failure/restart, exact-once and reader-state checks accepted; combined source gates remain pending.",
+      "resolvedBy": "4c3d9c3019f8475eae283c62757d7e94a9296fdc",
+      "integratedAt": "fa12f8a0186e18e9f95a93a56f1b2bfb2a12c595"
     },
     {
       "id": "R10",
@@ -103,9 +103,9 @@
       "requiredBehavior": "Refresh only affected state and preserve explicit reader intent.",
       "evidence": "frontend/app/stationcommands.js",
       "reviewedOwnerSource": "a69664135e4983fe624ec11bea6b2bd4666ee651",
-      "note": "Independent complete-output, write-failure/restart, exact-once and reader-state checks pass. Separate saved-history reconciliation finding R18 remains held.",
-      "resolvedBy": "d7d865f217d0088ab43b8717f3d9fc4cd5acde52",
-      "integratedAt": "8d3e47afb59976870643c1085d39eb6ccea942cf"
+      "note": "Independent full-output, failure/restart, exact-once and reader-state checks accepted; combined source gates remain pending.",
+      "resolvedBy": "4c3d9c3019f8475eae283c62757d7e94a9296fdc",
+      "integratedAt": "fa12f8a0186e18e9f95a93a56f1b2bfb2a12c595"
     },
     {
       "id": "R11",
@@ -126,9 +126,9 @@
       "observation": "Accepted delivery first truncated at24,000 characters; the repair moved truncation to the200,000-character transcript cap. Supported210,026-character validated JSON then loses its tail and is accepted by readers as complete.",
       "requiredBehavior": "Persist and recover complete supported finalized output; verify full content/hash and restart at actual size boundaries.",
       "evidence": "sidecar/transcriptstore.js",
-      "resolvedBy": "d7d865f217d0088ab43b8717f3d9fc4cd5acde52",
-      "integratedAt": "8d3e47afb59976870643c1085d39eb6ccea942cf",
-      "note": "Independent complete-output, write-failure/restart, exact-once and reader-state checks pass. Separate saved-history reconciliation finding R18 remains held."
+      "resolvedBy": "4c3d9c3019f8475eae283c62757d7e94a9296fdc",
+      "integratedAt": "fa12f8a0186e18e9f95a93a56f1b2bfb2a12c595",
+      "note": "Independent full-output, failure/restart, exact-once and reader-state checks accepted; combined source gates remain pending."
     },
     {
       "id": "R13",
@@ -138,9 +138,9 @@
       "observation": "Final run state is persisted before full delivery projection. Projection append failure leaves no restart repair; offline delivery can overwrite the failure note with a false durability promise.",
       "requiredBehavior": "Acknowledge final delivery only with durable complete authority; retain explicit failure and a supported retry without raw or preview substitution.",
       "evidence": "sidecar/index.js; sidecar/tools/builtin/orchestration.js",
-      "resolvedBy": "d7d865f217d0088ab43b8717f3d9fc4cd5acde52",
-      "integratedAt": "8d3e47afb59976870643c1085d39eb6ccea942cf",
-      "note": "Independent complete-output, write-failure/restart, exact-once and reader-state checks pass. Separate saved-history reconciliation finding R18 remains held."
+      "resolvedBy": "4c3d9c3019f8475eae283c62757d7e94a9296fdc",
+      "integratedAt": "fa12f8a0186e18e9f95a93a56f1b2bfb2a12c595",
+      "note": "Independent full-output, failure/restart, exact-once and reader-state checks accepted; combined source gates remain pending."
     },
     {
       "id": "R14",
@@ -190,10 +190,13 @@
       "id": "R18",
       "lane": "threads/phone saved-history recovery",
       "candidate": "5513ad4871f14478bed84e43a0b97dbbb3685581",
-      "status": "held-for-owner-repair",
+      "status": "resolved-in-source",
       "observation": "A rejected worker answer already saved in desktop history with the original sourceRunId survives phone mergeCanonical reconciliation and enters follow-up model context alongside the authoritative accepted answer.",
       "requiredBehavior": "Reconcile saved dispatch rows against verified final delivery identity while preserving ordinary legacy history, stream ownership and provenance; prove restart and follow-up context.",
-      "evidence": "sidecar/remote/host.js mergeCanonical; independent exact-module reproduction; no live customer cause claimed"
+      "evidence": "sidecar/remote/host.js mergeCanonical; independent exact-module reproduction; no live customer cause claimed",
+      "resolvedBy": "4c3d9c3019f8475eae283c62757d7e94a9296fdc",
+      "integratedAt": "fa12f8a0186e18e9f95a93a56f1b2bfb2a12c595",
+      "note": "Independent full-output, failure/restart, exact-once and reader-state checks accepted; combined source gates remain pending."
     }
   ],
   "limits": [
@@ -202,5 +205,5 @@
     "R08 is a supported-module edge; the reviewed module commits did not yet include final host wiring.",
     "An existing review-window restart gap was also reported to the memory owner; it was not attributed as a new regression."
   ],
-  "updatedAt": "2026-10-12T09:12:04.618Z"
+  "updatedAt": "2026-10-12T09:33:26.388Z"
 }
