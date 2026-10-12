@@ -7,7 +7,7 @@ severity: P2
 status: fixed
 found: 2026-10-12
 lane: conveyor-caps-1012
-fix: 781cafc7c
+fix: f88c461fb
 origin: audit
 affected: 0.13.2 source a20ffa71f
 ---
@@ -44,6 +44,8 @@ Final overlap review found a further pairing hazard: two runs by the same agent 
 The running sidecar overlap proof used a real Run Now job A and concurrent sample job B at the same agent on two independently stamped Second Opinion lines. The local provider held A while B performed fs_list and completed: one product on B, with A still running. Releasing A produced the second product on A. Actual SSE plus the synthetic station document are preserved in qa/evidence/conveyor-join-overlap-live-events-20261012.json; beforeRelease contains completed B/pending A and afterRelease contains completed A. Targeted joined-product-truth, crate-honesty (24), and LineWatch (81) passed after the fix.
 
 The final seeded Chrome replay of that overlap capture also passed: before=1 on B, after=2 on the respective OUTBOXes, afterEcho=2, errors=[]. Its portable result is qa/evidence/conveyor-browser-20261012.json.
+
+A second integration review reproduced a duplicate-completion hazard: the first agent.run.end captured productive work and spend, then cleared per-run observations; its echo replaced that held record with a talk-only zero-cost record. Commit f88c461fb preserves the first held observation before consuming any placement. The regression invokes the actual completion listener and retains one product with .05 of observed productive-plus-talk-only sibling spend. The unchanged seeded Chrome replay duplicates each real captured agent.run.end before terminal delivery: rejected source produced zero products; repaired source returned before=0, after=1, afterEcho=1, errors=[].
 
 ## Verdict
 
