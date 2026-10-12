@@ -6,7 +6,7 @@
 'use strict';
 const A = require('./_assert.js');
 const { lineStats, median, shippedRow, failedRow, FAILED_REASONS } = require('../sidecar/routing/line-stats.js');
-const { makeLineShipments, cleanShipments, loadShipmentReceipts } = require('../sidecar/routing/line-shipments.js');
+const { makeLineShipments, cleanShipments, validateShipments, loadShipmentReceipts } = require('../sidecar/routing/line-shipments.js');
 const receipt = (lineId, runId, at) => ({ lineId, entryRunId: runId, terminalRunId: runId, outboxId: 'outbox', at });
 
 // ---- median ----
@@ -191,6 +191,104 @@ if (store && store.record) {
   A.eq(ledger.snapshot(), [original], 'next stats read retries and recovers the previous receipt');
   A.ok(ledger.record(fresh), 'after recovery a real new receipt may be saved');
   A.eq(disk.map(r => r.entryRunId), ['old', 'new'], 'recovered history and new shipment both survive');
+}
+// A durable write can succeed before its read-back fails. Reload before B.
+{
+  const fs = require('node:fs'), os = require('node:os'), path = require('node:path');
+  const { makeDomainStore } = require('../sidecar/domain-store.js');
+  const { writeFileDurable } = require('../sidecar/durable-write.js');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'starnet-shipment-readback-'));
+  const file = path.join(dir, 'line-shipments.json');
+  let blocked = false, failReadback = false, writes = 0;
+  const faultFs = Object.create(fs);
+  faultFs.readFileSync = (target, ...args) => {
+    if (target === file && blocked) throw Object.assign(new Error('read-back locked'), { code: 'EACCES' });
+    return fs.readFileSync(target, ...args);
+  };
+  const domain = makeDomainStore({ fs: faultFs, path, file, version: 1, defaults: () => [], normalize: validateShipments,
+    decode: envelope => envelope && Array.isArray(envelope.value) ? envelope.value : undefined,
+    writeDurable: (deps, target, data) => {
+      writeFileDurable(deps, target, data);
+      if (target === file) { writes++; if (failReadback) { failReadback = false; blocked = true; } }
+    }
+  });
+  const rec = runId => ({ lineId: 'L1', entryRunId: runId, streamId: runId, agentId: 'a', dockId: 'd', outboxId: 'o' });
+  const options = { now: () => 300, load: () => loadShipmentReceipts(domain), save: value => domain.save(value),
+    runsFor: runId => [{ runId, lineId: 'L1', streamId: runId, agentId: 'a', dockId: 'd', reason: 'done', toolsOk: 1 }] };
+  try {
+    const ledger = makeLineShipments(options);
+    A.eq(ledger.snapshot(), [], 'absent receipt file starts empty');
+    failReadback = true;
+    A.ok(!ledger.record(rec('A')), 'post-commit read-back error does not claim save success');
+    A.eq(JSON.parse(fs.readFileSync(file, 'utf8')).value.map(r => r.entryRunId), ['A'], 'A reached durable main before read-back failed');
+    A.throws(() => ledger.snapshot(), 'ambiguous save invalidates cache; unreadable authority is not stale zero');
+    A.ok(!ledger.record(rec('B')), 'B refuses while committed authority remains unreadable');
+    A.eq(writes, 1, 'no write while authoritative reload is blocked');
+    blocked = false;
+    A.ok(ledger.record(rec('B')), 'B records after committed main becomes readable');
+    A.eq(JSON.parse(fs.readFileSync(file, 'utf8')).value.map(r => r.entryRunId), ['A', 'B'], 'B appends to durable A instead of the pre-save cache');
+    A.eq(makeLineShipments(options).snapshot().map(r => r.entryRunId), ['A', 'B'], 'both receipts survive a restarted ledger');
+    A.ok(ledger.record(rec('A')), 'callback retry recognizes committed A');
+    A.eq(writes, 2, 'retry of A does not write a duplicate');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+}
+// Persisted identities are exact; malformed evidence cannot be silently dropped.
+{
+  const original = receipt('L1', 'entry', 100);
+  A.eq(validateShipments([original, Object.assign({}, original)]), [original], 'identical receipt copies count once');
+  A.eq(validateShipments([original, Object.assign({}, original, { lineId: 'L2' })]).length, 2, 'same entry identity on distinct lines remains distinct');
+  for (const patch of [
+    { lineId: '../line' }, { lineId: 'L'.repeat(81) }, { outboxId: 'o/1' },
+    { entryRunId: 42 }, { entryRunId: '' }, { entryRunId: '   ' }, { entryRunId: 'r\n1' },
+    { terminalRunId: null }, { terminalRunId: 'r'.repeat(257) }, { at: '100' }, { at: -1 }, { at: Infinity }
+  ]) A.throws(() => validateShipments([Object.assign({}, original, patch)]), 'reject invalid stored fields: ' + JSON.stringify(patch));
+  for (const patch of [{ terminalRunId: 'other' }, { outboxId: 'other' }, { at: 101 }]) {
+    A.throws(() => validateShipments([original, Object.assign({}, original, patch)]), 'conflicting duplicate job receipt is unavailable: ' + JSON.stringify(patch));
+  }
+  A.throws(() => loadShipmentReceipts({ load: () => ({ status: 'ok', value: [null] }) }), 'successful storage status cannot authorize an invalid receipt row');
+}
+// Exercise the actual host store initializer, including its diagnostic handler.
+// Repeated polls and a productive callback must not rename, repair or overwrite
+// corrupt/invalid authority, and restoration must recover without a restart.
+{
+  const fs = require('node:fs'), os = require('node:os'), path = require('node:path');
+  const { makeDomainStore } = require('../sidecar/domain-store.js');
+  const { writeFileDurable } = require('../sidecar/durable-write.js');
+  const source = fs.readFileSync(path.join(__dirname, '../sidecar/index.js'), 'utf8');
+  const start = source.indexOf('const lineShipmentStore = makeDomainStore(');
+  const end = source.indexOf('const lineShipments = makeLineShipments(', start);
+  const initializer = source.slice(start, end);
+  A.ok(start >= 0 && end > start && initializer.length < 1800, 'bounded actual host receipt-store initializer is available');
+  const makeHostStore = new Function('makeDomainStore', 'fs', 'path', 'WORKSPACES', 'writeFileDurable', 'validateShipments', 'console', initializer + '\nreturn lineShipmentStore;');
+  const original = receipt('L1', 'old', 100);
+  const samples = [
+    ['invalid row', JSON.stringify({ version: 1, value: [original, {}] })],
+    ['invalid identity', JSON.stringify({ version: 1, value: [Object.assign({}, original, { entryRunId: 42 })] })],
+    ['conflicting duplicate', JSON.stringify({ version: 1, value: [original, Object.assign({}, original, { outboxId: 'other' })] })],
+    ['corrupt main without backup', '{"version":1,"value":'],
+    ['empty main without backup', '']
+  ];
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'starnet-shipment-invalid-'));
+  try {
+    samples.forEach(([name, bytes], i) => {
+      const dir = path.join(root, String(i)); fs.mkdirSync(dir);
+      const file = path.join(dir, 'line-shipments.json'); fs.writeFileSync(file, bytes);
+      let writes = 0;
+      const domain = makeHostStore(makeDomainStore, fs, path, dir, (deps, target, data) => { writes++; writeFileDurable(deps, target, data); }, validateShipments, { warn: () => {} });
+      const ledger = makeLineShipments({ now: () => 200, load: () => loadShipmentReceipts(domain), save: value => domain.save(value),
+        runsFor: () => [{ runId: 'new', lineId: 'L1', streamId: 's', agentId: 'a', dockId: 'd', reason: 'done', toolsOk: 1 }] });
+      const rec = { lineId: 'L1', entryRunId: 'new', streamId: 's', agentId: 'a', dockId: 'd', outboxId: 'o' };
+      A.throws(() => ledger.snapshot(), name + ': first poll is unavailable');
+      A.throws(() => ledger.snapshot(), name + ': second poll stays unavailable');
+      A.ok(!ledger.record(rec), name + ': productive callback cannot replace unknown history');
+      A.eq(writes, 0, name + ': no attempted save');
+      A.eq(fs.readFileSync(file, 'utf8'), bytes, name + ': forensic bytes remain at the authoritative path');
+      fs.writeFileSync(file, JSON.stringify({ version: 1, value: [original, Object.assign({}, original)] }));
+      A.eq(ledger.snapshot(), [original], name + ': restoring valid duplicate copies recovers one exact old receipt');
+      A.ok(ledger.record(rec), name + ': restored authority accepts the next real shipment');
+      A.eq(JSON.parse(fs.readFileSync(file, 'utf8')).value.map(r => r.entryRunId), ['old', 'new'], name + ': next save retains old history exactly once');
+    });
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
 }
 // Actual PARALLEL CREW switched to COPY/JOINER: three productive branches,
 // one terminal job. Removing the OUTBOX cannot alter its historical receipt.
