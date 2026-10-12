@@ -152,4 +152,25 @@ A.eq(rows[0].streamId, 'cron-r1', 'the digest row carries streamId (the crate→
 s = R.fold(s, rows);
 A.eq(R.hydrate(JSON.parse(JSON.stringify(s))).pending[0].streamId, 'cron-r1', 'streamId SURVIVES the persist/hydrate round trip (a reload cannot orphan a crate from its transcript)');
 
+/* ---- M28 (2026-10-12): TO REVIEW's FROM / SENT ON TO names the line the way the floor does ----
+   Job records carry from/sentTo as { line, jobId, name } — never lineId — so an unnamed sending line read FROM ANOTHER LINE while
+   its plate said LINE C. The REAL helper, against a real station. */
+{
+  const WM = require('../frontend/app/worldmodel.js'), P = require('../frontend/app/pipeline.js'), LE = require('../frontend/app/lineedit.js');
+  const st = WM.create(); st.addRoom({ kind: 'hab', rect: { x1: 30, y1: 0, x2: 90, y2: 40 } });
+  const a = LE.placeBlueprint(st, 'research_line', { x: 40, y: 4 }), b = LE.placeBlueprint(st, 'research_line', { x: 40, y: 22 });
+  A.ok(a.ok && b.ok, 'fixture: two lines');
+  const ia = a.ids.find(id => st.propById(id).t === 'intake'), ib = b.ids.find(id => st.propById(id).t === 'intake');
+  st.setPropLabel(ib, 'Editing');
+  const keyOf = iid => P.lineComponents(st.projectGeometry()).find(c => c.intakes.includes(iid)).key;
+  const at = station.indexOf('  function handoffLineWord(e) {'), end = station.indexOf('  const mounted = new Set();', at);
+  A.ok(at > 0 && end > at, 'the provenance words come from one helper');
+  const ctx = vm.createContext({ App: { station: () => st }, Pipeline: P });
+  vm.runInContext(station.slice(at, end) + '; globalThis.word = handoffLineWord;', ctx);
+  A.eq(ctx.word({ line: keyOf(ia), jobId: 'j', name: '' }), 'LINE ' + st.lineLetter(ia), 'an unnamed sending line reads by its letter (the floor plate\'s word), never ANOTHER LINE');
+  A.eq(ctx.word({ line: keyOf(ib), jobId: 'j', name: '' }), 'LINE EDITING', 'a named line with no recorded name reads by its INBOX label');
+  A.eq(ctx.word({ line: keyOf(ia), jobId: 'j', name: 'Research' }), 'LINE RESEARCH', 'a recorded name still wins');
+  A.eq(ctx.word({ line: 'p-gone', jobId: 'j', name: '' }), 'ANOTHER LINE', 'a line no longer on the floor is ANOTHER LINE');
+  A.ok(/word = handoffLineWord;/.test(station) && !/e && e\.lineId \?/.test(station), 'TO REVIEW reads the record\'s line key, never the lineId records never carry');
+}
 A.report('outbox-window.test');

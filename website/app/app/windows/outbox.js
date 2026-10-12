@@ -28,6 +28,22 @@
      deliverables and all organized output'): this list is DELIVERABLES' TO REVIEW section — finished runs waiting for
      your verdict — not a window of its own. openTerm('outbox') / the floor OUTBOX / every old door land there
      (TERM_ALIAS outbox → deliverables § review). Empty = the section hides; the library below is always there. */
+  /* a SEND TO end in the floor's words (2026-10-12): the job record's own name, else what the live floor calls that line (its
+     INBOX label, else 'LINE <letter>' — the plate's word); 'ANOTHER LINE' only for a line no longer on the floor. A record's end
+     is { line, jobId, name } — never lineId — so an unnamed line read FROM ANOTHER LINE here while the floor called it LINE C. */
+  function handoffLineWord(e) {
+    const nm = e && typeof e.name === 'string' ? e.name.trim() : '';
+    let live = '';
+    if (!nm && e && e.line) {
+      try {
+        const st = (typeof App !== 'undefined' && App.station) ? App.station() : null;
+        const comp = st && typeof st.projectGeometry === 'function' ? (Pipeline.lineComponents(st.projectGeometry()) || []).find(c => c.key === String(e.line)) : null;
+        const iid = comp && (comp.intakes || [])[0], ip = iid ? st.propById(iid) : null;
+        if (ip) live = String(ip.label || '').trim() || (st.lineLetter ? 'LINE ' + st.lineLetter(iid) : '');
+      } catch (err) { live = ''; }   // (a floor that cannot be read names no line: the record's own fallback stands)
+    }
+    return Pipeline.lineWord(nm || live, 'ANOTHER LINE');
+  }
   const mounted = new Set();
   function buildOutbox(body) {
     const RS = (typeof ReturnStore !== 'undefined') ? ReturnStore : null;
@@ -188,7 +204,7 @@
         if (jobStream) {
           try {
             const lj = await Harness.api.get('/api/line-jobs?stream=' + encodeURIComponent(rw.streamId) + '&limit=1');
-            const sj = lj && Array.isArray(lj.jobs) ? lj.jobs[0] : null, word = e => Pipeline.lineWord(e && e.name, e && e.lineId ? 'LINE ' + e.lineId : 'ANOTHER LINE');
+            const sj = lj && Array.isArray(lj.jobs) ? lj.jobs[0] : null, word = handoffLineWord;
             // (a REFUSED hand-off is NOT SENT ON, with why — never "sent on" for work the station did not send, 10-11)
             const bits = sj ? [sj.from ? 'FROM ' + word(sj.from) : '', sj.sentTo ? (sj.sentTo.refused ? 'NOT SENT ON TO ' + word(sj.sentTo) + ' — ' + sj.sentTo.refused : 'SENT ON TO ' + word(sj.sentTo)) : ''].filter(Boolean) : [];
             const pv = row.querySelector('.ob-prov');

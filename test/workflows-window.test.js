@@ -236,5 +236,18 @@ const tick = () => new Promise(r => setTimeout(r, 15));
   A.ok(/\.term\.wfw-win \.bb \{[\s\S]{0,400}min-height: 36px;[\s\S]{0,200}border-radius: 8px;/.test(css) && /--refit-glass: linear-gradient\(125deg/.test(css), 'its keys are the Build Library / Workflow panel glass key (36px, 8px), on the panel\'s own glass tokens');
   A.ok(/\.term\.wfw-win \.bb:hover::before, \.term\.wfw-win \.bb:hover::after \{ content: none; \}/.test(css), 'never the old pip-boy [ ] hover brackets');
 
+  /* ---------- M28 (2026-10-12): a hand-off end is named the way the floor names its line ---------- */
+  {
+    // job records carry from/sentTo as { line, jobId, name } (handoff-runner) — an UNNAMED sending line has name '', never a lineId
+    const placed = LE.placeBlueprint(st, 'research_line', { x: 6, y: 12 });
+    A.ok(placed.ok, 'fixture: an unnamed second line');
+    const iid = placed.ids.find(id => st.propById(id).t === 'intake');
+    const key = (P.lineComponents(st.projectGeometry()).find(c => c.intakes.includes(iid)) || {}).key, letter = st.lineLetter(iid);
+    A.ok(key && /^[A-Z]+$/.test(letter) && !st.propById(iid).label, 'fixture: the line has no name, only its letter');
+    A.eq(WW._lineWord({ line: key, jobId: 'j1', name: '' }), 'LINE ' + letter, 'an unnamed sending line reads LINE ' + letter + ', as its floor plate does — never "another line"');
+    A.eq(WW._lineWord({ line: key, jobId: 'j1', name: 'Research' }), 'LINE RESEARCH', 'a recorded name still wins');
+    A.eq(WW._lineWord({ line: 'p-gone', jobId: 'j1', name: '' }), 'another line', 'a line no longer on the floor is "another line"');
+  }
+
   A.report('workflows-window.test');
 })().catch(e => { console.error(e); process.exit(1); });

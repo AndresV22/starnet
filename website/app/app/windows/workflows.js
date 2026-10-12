@@ -110,8 +110,16 @@ const WorkflowsWindow = (() => {
      ON (SEND TO, `from`) is not it: it holds no sample lock, the sample STOP cannot stop it, and it never blocks sending (10-11) */
   const runningJob = () => (S.jobs || []).find(j => j.status === 'running' && !j.from) || null;
   const runningHandoff = key => (S.jobs || []).find(j => j.status === 'running' && j.from && (key == null || j.line === key)) || null;
-  // the words a SEND TO end is said in
-  const lineWord = e => P().lineWord(e && e.name, e && e.lineId ? 'LINE ' + e.lineId : 'another line');
+  /* the words a SEND TO end is said in: the job record's own name, else what the live floor calls that line (its INBOX label, else
+     'LINE <letter>' — the plate's word); 'another line' only for a line no longer on the floor. A record's end is { line, jobId,
+     name } — never lineId — so an unnamed line read "another line" here while the floor called it LINE C (2026-10-12). paint()
+     lends its floor so a render never compiles the plan once per mention. */
+  let paintFloor = null;
+  const lineWord = e => {
+    const nm = e && typeof e.name === 'string' ? e.name.trim() : '';
+    const l = !nm && e && e.line ? lineOf(paintFloor || floor(), String(e.line)) : null;
+    return P().lineWord(nm || (l && l.name) || '', 'another line');
+  };
   function loadJob(id) {
     return getJSON('/api/line-jobs/' + encodeURIComponent(id)).then(({ status, j }) => (status === 200 && j && j.ok && j.job) ? j.job : null, () => null);
   }
@@ -473,10 +481,13 @@ const WorkflowsWindow = (() => {
     const scroller = body.closest('.term-body') || body, top = scroller.scrollTop;
     const f = floor();
     let html;
-    if (!f) { html = '<div class="wfw-empty">The station floor is still loading…</div>'; setTimeout(() => { if (alive() && !floor()) schedule(); else if (alive()) { attachFloor(); schedule(); } }, 1000); }
-    else if (S.view === 'new' || (!f.lines.length && S.view !== 'line')) html = newHTML(f);
-    else if (S.view === 'line' && lineOf(f, S.line)) html = lineHTML(f, lineOf(f, S.line));
-    else { S.view = 'list'; html = listHTML(f); }
+    paintFloor = f;   // (lent for this render only — a render that throws still hands it back)
+    try {
+      if (!f) { html = '<div class="wfw-empty">The station floor is still loading…</div>'; setTimeout(() => { if (alive() && !floor()) schedule(); else if (alive()) { attachFloor(); schedule(); } }, 1000); }
+      else if (S.view === 'new' || (!f.lines.length && S.view !== 'line')) html = newHTML(f);
+      else if (S.view === 'line' && lineOf(f, S.line)) html = lineHTML(f, lineOf(f, S.line));
+      else { S.view = 'list'; html = listHTML(f); }
+    } finally { paintFloor = null; }
     body.innerHTML = '<div class="wfw">' + html + '</div>';
     wire(f);
     scroller.scrollTop = top;
@@ -865,6 +876,6 @@ const WorkflowsWindow = (() => {
     });
   }
   return { open, openLine: key => open({ view: 'line', line: key, job: null }), openNew: () => open({ view: 'new' }), openByStream, openOutbox, showJob,
-    _state: S, _floor: floor, _pick: pickStarter, _create: create, _send: send, _useFix: useFix, _styleKept: styleKept, _keepStyle: keepStyle, _putStyleBack: putStyleBack, _exampleBrief: exampleBrief, EX_HEAD };   // (the _ seams are test/eval reads)
+    _state: S, _floor: floor, _lineWord: lineWord, _pick: pickStarter, _create: create, _send: send, _useFix: useFix, _styleKept: styleKept, _keepStyle: keepStyle, _putStyleBack: putStyleBack, _exampleBrief: exampleBrief, EX_HEAD };   // (the _ seams are test/eval reads)
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = WorkflowsWindow;
