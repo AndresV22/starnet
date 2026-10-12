@@ -91,7 +91,9 @@ const { rank, cosine, SEMANTIC_FLOOR } = require('../sidecar/context.js');
   // ---- hybrid rank: cosine admits a zero-overlap record; no vectors => byte-identical to BM25 ----
   const lesson = { id: 'L', kind: 'fact', title: 'Fact', content: 'registry pushes rate-limit after repeated attempts; batch retries with backoff', createdAt: 1000 };
   const other = { id: 'O', kind: 'fact', title: 'Fact', content: 'the commander prefers dark mode', createdAt: 1000 };
-  const q = 'uploads to the package index keep getting throttled';
+  // The upload/push + throttle/rate-limit aliases are now explicit lexical matches.
+  // This paraphrase deliberately shares neither literal vocabulary nor those aliases.
+  const q = 'package publication is rejected by quota enforcement';
   A.eq(rank([lesson, other], q, { now: 1000 }).length, 0, 'BM25 alone: zero lexical overlap -> nothing surfaces (the gap the lane closes)');
   const vectors = { L: [1, 0], O: [0, 1] };
   A.eq(rank([lesson, other], q, { now: 1000, vectors, queryVec: [0.9, 0.1] }).map(r => r.id), ['L'], 'with vectors: the semantically-close lesson surfaces, the unrelated record does not');

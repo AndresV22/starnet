@@ -99,7 +99,10 @@ function makeSegmentedTranscriptIo(opts) {
     if (!stream) stream = index.streams[sid] = { count: 0, lastAt: 0, preview: '' };
     stream.count++;
     if (ts >= stream.lastAt) stream.lastAt = ts;
-    if (row.role === 'user' && row.content) stream.preview = str(row.content).replace(/\s+/g, ' ').trim().slice(0, 160);
+    if (row.role === 'user' && row.content) {
+      stream.preview = str(row.content).replace(/\s+/g, ' ').trim().slice(0, 160);
+      stream.previewTaint = row.taint || ''; stream.previewTaintKnown = row.taintKnown === true || !!row.taint;
+    }
     for (const term of tokenize(row.content)) {
       const ids = index.terms[term] || (index.terms[term] = []);
       ids.push(id);
@@ -437,7 +440,7 @@ function makeSegmentedTranscriptIo(opts) {
         let distinct = 0, freq = 0;
         for (const term of terms) if (tf[term]) { distinct++; freq += tf[term]; }
         if (!distinct) continue;
-        best.push({ rowId: row.rowId, streamId: row.streamId, role: row.role, content: row.content, ts: row.ts, score: distinct * 1000 + freq });
+        best.push({ rowId: row.rowId, streamId: row.streamId, role: row.role, content: row.content, ts: row.ts, score: distinct * 1000 + freq, taint: row.taint || '', taintKnown: row.taintKnown === true || !!row.taint });
         best.sort((a, b) => (b.score - a.score) || (num(b.ts) - num(a.ts)) || (num(b.rowId) - num(a.rowId)));
         if (best.length > limit) best.length = limit;
       }
@@ -453,7 +456,7 @@ function makeSegmentedTranscriptIo(opts) {
       let dst = by.get(sid);
       if (!dst) dst = { streamId: sid, turns: 0, lastAt: 0, preview: '' };
       dst.turns += num(s.count);
-      if (num(s.lastAt) >= dst.lastAt) { dst.lastAt = num(s.lastAt); if (s.preview) dst.preview = str(s.preview).slice(0, previewChars); }
+      if (num(s.lastAt) >= dst.lastAt) { dst.lastAt = num(s.lastAt); if (s.preview) { dst.preview = str(s.preview).slice(0, previewChars); dst.previewTaint = s.previewTaint || ''; dst.previewTaintKnown = s.previewTaintKnown === true || !!s.previewTaint; } }
       by.set(sid, dst);
     }
     return Array.from(by.values()).sort((a, b) => (b.lastAt - a.lastAt) || (a.streamId < b.streamId ? -1 : a.streamId > b.streamId ? 1 : 0)).slice(0, limit);

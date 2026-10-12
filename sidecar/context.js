@@ -288,7 +288,10 @@
   function recallLine(r) {
     if (!r) return '';
     const originalTitle = r.title != null ? String(r.title).trim() : '';
-    const provenance = (/^[A-Za-z0-9_-]{1,80}$/.test(String(r.id || '')) ? '[' + r.id + '] ' : '') + confirmationTag(r);
+    const key = /^[A-Za-z0-9_-]{1,80}$/.test(String(r.id || '')) ? r.id
+      : (r.foreign && /^[A-Za-z0-9_-]{1,40}$/.test(String(r.sourceAgentId || '')) && /^[A-Za-z0-9_-]{1,80}$/.test(String(r.sourceRecordId || ''))
+        ? 'shared:' + r.sourceAgentId + '/' + r.sourceRecordId : '');
+    const provenance = (key ? '[' + key + '] ' : '') + confirmationTag(r);
     const title = originalTitle;
     const raw = r.body != null ? r.body : (r.content != null ? r.content : '');
     const body = String(raw).replace(/\s+/g, ' ').trim();
@@ -304,33 +307,77 @@
     return String(r.title != null ? r.title : '') + '\n' + String(r.body != null ? r.body : '') + '\n' + String(r.content != null ? r.content : '');
   }
 
+  // Only explicit, proven standing preferences cross agent boundaries. A profile label alone can
+  // describe private biographical facts; a global scope alone says nothing about provenance.
+  function isStandingMemory(r) {
+    if (!r || r.origin === 'feedback' || r.scope !== 'global' || r.projectRoot || r.streamId || r.taintedBy) return false;
+    if (r.confirmation !== 'user-stated' && r.confirmation !== 'user-confirmed') return false;
+    const text = String(r.content != null ? r.content : r.body || '');
+    const standing = /(?:^|[.!?]\s+)(?:(?:the\s+)?(?:i|we|user|commander)\s+(?:would\s+)?prefers?\b|prefers?\b|always\b|never\b|from now on\b|going forward\b|by default\b|every time\b|whenever\b)/i.test(text.trim());
+    return standing && (r.kind === 'profile' || r.pinned === true);
+  }
+
+  // A corrected record's host-written history is evidence that an older exact copy is obsolete.
+  // Scope and timestamps must agree; unrelated project records and unconfirmed edits cannot retire it.
+  function activeMemoryRecords(records) {
+    const list = Array.isArray(records) ? records.filter(Boolean) : [];
+    const scopeKey = r => [r.scope || 'global', projectKey(r.projectRoot), r.streamId || '', r.origin || '', r.feedbackRef ? JSON.stringify(r.feedbackRef) : ''].join('\u0000');
+    const textKey = r => String(r.content != null ? r.content : r.body || '').replace(/\s+/g, ' ').trim().toLowerCase();
+    const retired = new Map();
+    for (const r of list) {
+      if (r.taintedBy || (r.confirmation !== 'user-stated' && r.confirmation !== 'user-confirmed')) continue;
+      for (const h of (Array.isArray(r.history) ? r.history : [])) {
+        const at = Number(h && h.replacedAt) || 0;
+        const text = textKey(h || {});
+        if (at > 0 && text && text !== textKey(r)) {
+          const key = scopeKey(r) + '\u0000' + text;
+          retired.set(key, Math.max(retired.get(key) || 0, at));
+        }
+      }
+    }
+    return list.filter(r => !(retired.get(scopeKey(r) + '\u0000' + textKey(r)) > writtenAt(r)));
+  }
+
   function renderRecall(records, recallOpts) {
     recallOpts = recallOpts || {};
     const limit = recallOpts.limit || 1500;
     const header = recallOpts.header != null ? recallOpts.header : RECALL_HEADER;
     const out = { text: '', count: 0, chars: 0, usedIds: [] };
     if (!Array.isArray(records) || !records.length) return out;
-    const lines = [];
-    const usedIds = [];
-    let used = 0;
+    const lines = [], usedIds = [];
+    const meta = records.recallMeta || {};
+    const priority = new Set(meta.priority || records.filter(r => r && (r.pinned || isStandingMemory(r))));
+    const priorityLimit = recallOpts.priorityLimit == null ? 4000 : Math.max(0, Math.min(8000, Number(recallOpts.priorityLimit) || 0));
+    let regularUsed = 0, priorityUsed = 0, omitted = Number(meta.omitted) || 0, shortened = 0;
+    // Priority records have a separate bounded allowance. Never clip a requirement into an apparently
+    // complete instruction: an omitted suffix may contain its exception or negation.
     for (const r of records) {
       const rendered = recallLine(r);
-      if (!rendered) continue;                          // blank record -> no slot, no "use"
-      // §5.6: a poisoned record is withheld from the prompt (shown as [blocked]) but its stored original stays
-      // intact for the Memory Core panel — and it does NOT count as used (no useCount/recency reward for it).
+      if (!rendered) continue;
       const blocked = flagInjection(fullText(r));
       let line = blocked ? BLOCKED_LINE : rendered;
-      if (line.length > limit) line = line.slice(0, limit - 1) + '…';
-      if (lines.length && used + line.length + 1 > limit) break;   // char cap (always keep at least one line)
+      const important = priority.has(r) && priorityLimit > 0;
+      if (important) {
+        if (priorityUsed + line.length + 1 > priorityLimit) { omitted++; continue; }
+        priorityUsed += line.length + 1;
+      } else {
+        if (line.length > limit && !lines.length) { line = line.slice(0, Math.max(1, limit - 1)) + '…'; shortened++; }
+        if (regularUsed + line.length + 1 > limit + 1) { omitted++; continue; }
+        regularUsed += line.length + 1;
+      }
       lines.push(line);
-      used += line.length + 1;
-      if (!blocked && r && r.id) usedIds.push(r.id);    // only truly-surfaced content is a real "use" (drives memory.used)
+      if (!blocked && r && r.id) usedIds.push(r.id);
     }
-    if (!lines.length) return out;
-    out.text = '<recalled-memory>\n' + header + '\n' + lines.join('\n') + '\n</recalled-memory>';
+    if (!lines.length && !omitted) return out;
+    const notice = omitted || shortened
+      ? '\n[' + omitted + ' matching saved memor' + (omitted === 1 ? 'y' : 'ies') + ' omitted; ' + shortened + ' shortened to fit the prompt. Use notebook.read to retrieve the full records before relying on a requirement not shown here.]'
+      : '';
+    out.text = '<recalled-memory>\n' + header + '\n' + lines.join('\n') + notice + '\n</recalled-memory>';
     out.count = lines.length;
     out.chars = out.text.length;
     out.usedIds = usedIds;
+    if (omitted || shortened) { out.omitted = omitted; out.shortened = shortened; }
+
     return out;
   }
 
@@ -370,7 +417,7 @@
   // every 2-char identifier unsearchable — a "prefers Go" belief could never match a "go" query. STOP still
   // applies after the length floor (and grew the common 2-char filler the old length gate used to eat).
   function tokenize(s) {
-    return String(s == null ? '' : s).toLowerCase().split(/[^a-z0-9]+/).filter(t => t.length >= 2 && !STOP.has(t));
+    return String(s == null ? '' : s).normalize('NFKC').toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(t => t.length >= 2 && !STOP.has(t));
   }
   function recordText(r) {
     if (!r) return '';
@@ -390,11 +437,11 @@
     if (!recs.length || !qTerms.length) return { scores, queried: qTerms.length > 0 };
     const K1 = 1.2;
     const docs = recs.map(r => tokenize(recordText(r)));
-    const df = {};
-    for (const toks of docs) { const seen = {}; for (const t of toks) { if (!seen[t]) { seen[t] = 1; df[t] = (df[t] || 0) + 1; } } }
+    const df = Object.create(null);
+    for (const toks of docs) { const seen = Object.create(null); for (const t of toks) { if (!seen[t]) { seen[t] = 1; df[t] = (df[t] || 0) + 1; } } }
     const N = recs.length;
     for (let i = 0; i < recs.length; i++) {
-      const tf = {}; for (const t of docs[i]) tf[t] = (tf[t] || 0) + 1;
+      const tf = Object.create(null); for (const t of docs[i]) tf[t] = (tf[t] || 0) + 1;
       let relevance = 0;
       for (const qt of qTerms) {
         const f = tf[qt]; if (!f) continue;
@@ -405,6 +452,53 @@
     }
     return { scores, queried: true };
   }
+  // Bounded lexical expansion, NOT a semantic model. Exact vocabulary retains full weight;
+  // inflections and a small explicit alias lexicon add a weaker retrieval lane. Embeddings remain
+  // the semantic lane. The same helper expands conversation searches and reranks their candidate union.
+  const LEXICAL_GROUPS = [
+    ['upload', 'uploads', 'uploading', 'uploaded', 'push', 'pushes', 'pushing', 'pushed'],
+    ['throttle', 'throttled', 'throttling', 'ratelimit', 'ratelimits'],
+    ['concise', 'brief', 'terse', 'succinct', 'shorter'],
+    ['verbose', 'wordy', 'longwinded'], ['javascript', 'js'], ['typescript', 'ts'],
+    ['postgres', 'postgresql'], ['colour', 'color', 'colours', 'colors'],
+    ['email', 'emails', 'mail'], ['image', 'images', 'picture', 'pictures'],
+    ['restart', 'reboot', 'restarts', 'reboots'], ['directory', 'directories', 'folder', 'folders']
+  ];
+  function lexicalForm(text) { return String(text || '').replace(/\brate[ -]?limits?\b/gi, 'ratelimit').replace(/\blong[ -]winded\b/gi, 'longwinded'); }
+  function lexicalStem(t) {
+    if (t.length > 4 && /ies$/.test(t)) return t.slice(0, -3) + 'y';
+    if (t.length > 4 && /(?:s|x|z|ch|sh)es$/.test(t)) return t.slice(0, -2);
+    if (t.length > 3 && /[^s]s$/.test(t)) return t.slice(0, -1);
+    return t;
+  }
+  function lexicalText(text) {
+    return tokenize(lexicalForm(text)).map(t => {
+      const group = LEXICAL_GROUPS.find(g => g.indexOf(t) >= 0);
+      return group ? group[0] : lexicalStem(t);
+    }).join(' ');
+  }
+  function expandRecallQuery(query) {
+    const terms = tokenize(lexicalForm(String(query || '').slice(0, 2000))).slice(0, 32);
+    const out = new Set(terms);
+    for (const t of terms) {
+      const group = LEXICAL_GROUPS.find(g => g.indexOf(t) >= 0);
+      if (group) for (const x of group) out.add(x);
+      const stem = lexicalStem(t); out.add(stem);
+    }
+    // Transcript tokenizers split rate-limit; include its ordinary written form too.
+    if (out.has('throttle') || out.has('ratelimit')) { out.add('rate'); out.add('limits'); }
+    return Array.from(out).slice(0, 96).join(' ');
+  }
+  function lexicalScores(records, query, opts) {
+    const list = Array.isArray(records) ? records : [];
+    const exact = bm25(list, query);
+    const normalized = list.map(r => ({ content: lexicalText(recordText(r)), kind: 'fact' }));
+    const expanded = bm25(normalized, lexicalText(query));
+    const variants = opts && Array.isArray(opts.queryVariants) ? opts.queryVariants.slice(0, 3).filter(q => typeof q === 'string').map(q => q.slice(0, 1000)) : [];
+    const extra = variants.map(q => bm25(normalized, lexicalText(q)).scores);
+    return { queried: exact.queried, scores: exact.scores.map((s, i) => Math.max(s, 0.65 * expanded.scores[i], ...extra.map(a => 0.5 * a[i]))) };
+  }
+
   // PROJECT SCOPE (memory-compound lane): the comparable key for a run's project root. Paths are compared
   // slash-agnostic, trailing-slash-agnostic and case-folded (a Windows root differs only by case between the
   // picker and realpath — isBlessedRoot folds case the same way). '' = no project (an unscoped run / a global record).
@@ -449,10 +543,10 @@
     // (or an unscoped run): a lesson about repo A's flaky registry must not steer work in repo B. Global records
     // (no projectRoot, or scope global/stream) always compete, exactly as before. Same-project records get the
     // same-stream boost below so a project's own lessons float up inside it.
-    const recs = (Array.isArray(records) ? records.filter(Boolean) : [])
+    const recs = activeMemoryRecords(records)
       .filter(r => !(r.scope === 'project' && projectKey(r.projectRoot) && projectKey(r.projectRoot) !== project));
     if (!recs.length) return [];
-    const rel = bm25(recs, query);   // shared lexical core — scores align with recs
+    const rel = lexicalScores(recs, query, rankOpts);   // exact and bounded lexical expansion; vectors below remain semantic
     let scored = recs.map((r, i) => {
       const relevance = rel.scores[i];
       /* RECENCY = WHEN IT WAS WRITTEN (memory-truth lane, 2026-10-11). This used to be the latest of lastUsedAt /
@@ -480,10 +574,11 @@
       const inProject = !!(project && r.projectRoot && projectKey(r.projectRoot) === project);
       const sameProject = inProject ? 0.5 : 0;   // this project's own lessons float up (memory-compound lane)
       const pinnedHere = r.pinned && (r.scope !== 'stream' || (streamId && r.streamId === streamId) || inProject);
+      const standing = isStandingMemory(r);
       const semantic = queryVec && r.id != null && vectors[r.id] ? Math.max(0, cosine(queryVec, vectors[r.id])) : 0;
       const score = relevance + SEMANTIC_WEIGHT * semantic + 0.5 * recency + 0.3 * trust - DISTRUST_WEIGHT * distrust + sameStream + sameProject + (pinnedHere ? 1000 : 0);
       const eligible = !(r.pinned && r.projectRoot) || inProject || (!project && streamId && r.streamId === streamId);
-      return { r: r, i: i, written: written, score: score, relevance: relevance, semantic: semantic, pinnedHere: pinnedHere, eligible: eligible };
+      return { r: r, i: i, written: written, score: score, relevance: relevance, semantic: semantic, pinnedHere: pinnedHere, standing: standing, eligible: eligible };
     });
     // Approved project requirements are not generic facts for another project.
     // Explicit notebook searches remain able to retrieve them (floor:false).
@@ -493,11 +588,22 @@
     // queryless turn (empty / image-only) keeps the recency+trust fallback untouched: the floor must never
     // empty recall for a legitimately generic turn. `floor:false` opts out for a caller whose own gate already
     // admitted the records (notebook.read's substring match — reordering there must never truncate).
-    if (rel.queried && rankOpts.floor !== false) scored = scored.filter(s => s.relevance > 0 || s.semantic >= semanticFloor || s.pinnedHere);
+    if (rel.queried && rankOpts.floor !== false) scored = scored.filter(s => s.relevance > 0 || s.semantic >= semanticFloor || s.pinnedHere || s.standing);
     // deterministic tiebreak: the NEWER-written record first (a tie must never hand the slot to the stale belief),
     // then store order for records written at the same instant
     scored.sort((a, b) => (b.score - a.score) || (b.written - a.written) || (a.i - b.i));
-    return scored.slice(0, k).map(s => s.r);
+    if (rankOpts.floor === false) {
+      const explicit = scored.slice(0, k);
+      const selected = explicit.map(s => s.r);
+      Object.defineProperty(selected, 'recallMeta', { value: { priority: explicit.filter(s => s.pinnedHere || s.standing).map(s => s.r), omitted: scored.length - selected.length } });
+      return selected;
+    }
+    const priority = scored.filter(s => s.pinnedHere || s.standing).slice(0, 32);
+    const ordinary = scored.filter(s => !(s.pinnedHere || s.standing)).slice(0, k);
+    const chosen = new Set(priority.concat(ordinary));
+    const selected = scored.filter(s => chosen.has(s)).map(s => s.r);
+    Object.defineProperty(selected, 'recallMeta', { value: { priority: priority.map(s => s.r), omitted: scored.length - selected.length } });
+    return selected;
   }
 
   // on_pre_compress parity (the reference harness injects relevant memory into the compaction summary so insights survive
@@ -512,7 +618,7 @@
     const ranked = rank(records, recentText || '', { now: now, k: opts.k || 5, streamId: opts.streamId || null, projectRoot: opts.projectRoot || null, vectors: opts.vectors || null, queryVec: opts.queryVec || null });
     if (!ranked.length) return '';
     const rr = renderRecall(ranked, {
-      limit: opts.limit || 800,
+      limit: opts.limit || 800, priorityLimit: 0,
       header: '[durable memory — preserve any of these still-relevant facts in the summary below]'
     });
     return rr.text || '';
@@ -722,5 +828,5 @@
     return api;
   }
 
-  return { makeContext, redact, setKnownSecretSource, renderRecall, injectRecall, rank, bm25, projectKey, cosine, SEMANTIC_FLOOR, flagInjection, stripRecallFence, compactionMemoryBlock, compactionSummaryPrompt, COMPACTION_SECTIONS, CHARS_PER_TOKEN, IMAGE_TOKENS_DEFAULT, imageTokens, estimateContentTokens, RUN_CONTEXT_DEFAULTS, REARM_MIN_FREED, foldFreedEnough };
+  return { makeContext, redact, setKnownSecretSource, renderRecall, injectRecall, rank, bm25, lexicalScores, expandRecallQuery, isStandingMemory, activeMemoryRecords, projectKey, cosine, SEMANTIC_FLOOR, flagInjection, stripRecallFence, compactionMemoryBlock, compactionSummaryPrompt, COMPACTION_SECTIONS, CHARS_PER_TOKEN, IMAGE_TOKENS_DEFAULT, imageTokens, estimateContentTokens, RUN_CONTEXT_DEFAULTS, REARM_MIN_FREED, foldFreedEnough };
 });
