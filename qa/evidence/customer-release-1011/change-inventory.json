@@ -9328,10 +9328,10 @@
     "inventoryScope": "Diff/history classification, not universal semantic or live acceptance."
   },
   "reviewCandidate": {
-    "head": "5227bb1178c6ba58c93d55065671a050b014089d",
+    "head": "dd9b5da0f620563b9a3bd3a0ccffbe4dd11d54d3",
     "integratedTrunk": "a20ffa71fd04691805ea55c7d08165438dd7ac6f",
-    "state": "All returned source, fixtures and final execution evidence are independently reviewed and combined in the isolated candidate. Full source gates, serialized trunk integration and installed/customer acceptance remain pending.",
-    "wholeUpdateFileCount": 698,
+    "state": "All returned production repairs and the independently accepted confirmed-voice fixture are combined. The previous full gate failed only at voice311;843 remaining fast suites passed diagnostically on unchanged source. Complete fast/HTTP, live source campaign, trunk integration and installed/customer acceptance remain pending.",
+    "wholeUpdateFileCount": 699,
     "wholeUpdateFiles": [
       {
         "path": "dev/computer-eval/cua-driver.js",
@@ -10467,6 +10467,10 @@
       },
       {
         "path": "qa/evidence/thread-ux-1012/verification.json",
+        "role": "verification_evidence"
+      },
+      {
+        "path": "qa/evidence/thread-ux-1012/voice-fixture-verification.json",
         "role": "verification_evidence"
       },
       {
@@ -12884,6 +12888,10 @@
         "role": "verification_evidence"
       },
       {
+        "path": "qa/evidence/thread-ux-1012/voice-fixture-verification.json",
+        "role": "verification_evidence"
+      },
+      {
         "path": "qa/product-perfect/claims.json",
         "role": "qa_tracking"
       },
@@ -13672,9 +13680,11 @@
       "fcd8007ca473d52488986537e304370c37f7f9a0",
       "9c465103f5b686abe1ca2c36518a20770faeedae",
       "686e8262e9dc7edfda08238eb685504b6a0977ee",
-      "ff3476e478a00f7564ca2936bc376bd65008c49d"
+      "ff3476e478a00f7564ca2936bc376bd65008c49d",
+      "7dd049d134b61262baedca859f6cfb9e1671d327",
+      "4a131151aaa189d643bd349af4fb576cf996d0b4"
     ],
-    "updatedAt": "2026-10-12T10:47:39.243Z"
+    "updatedAt": "2026-10-12T11:10:19.621Z"
   },
   "reviewCandidateHistory": [
     {

@@ -256,8 +256,54 @@
           "integratedAt": "5227bb1178c6ba58c93d55065671a050b014089d"
         }
       ]
+    },
+    {
+      "candidate": "baa58078b5784670e4dd199549b8ac6b6b8b58f7",
+      "startedAt": "2026-10-12T10:53:45.580Z",
+      "finishedAt": "2026-10-12T10:56:55.366Z",
+      "steps": 1154,
+      "exitCode": 1,
+      "sourceUnchanged": true,
+      "error": null,
+      "logSha256": "70bed614fc4786c597e0db884e43e3f04bd918790065d0deab1f8ac764391d01",
+      "command": "npm run test:fast",
+      "manifestSteps": 1154,
+      "completedSteps": 310,
+      "failedStep": 311,
+      "log": ".handoff/customer-baa-fast.log",
+      "failure": {
+        "test": "test/voice-live-ui.test.js:316",
+        "expected": "one exact consent submission for the selected sibling prompt",
+        "actual": "no calls",
+        "cause": "Legacy extracted approvalCommand fixture omitted Chat; the current controller deliberately refuses submission without the shared confirmed-answer handler."
+      },
+      "followUp": {
+        "fix": "7dd049d134b61262baedca859f6cfb9e1671d327",
+        "evidence": "4a131151aaa189d643bd349af4fb576cf996d0b4",
+        "merge": "dd9b5da0f620563b9a3bd3a0ccffbe4dd11d54d3",
+        "productionChanged": false,
+        "testBlob": "98f72eebfa1591a87d33c8e93330e296e2e02d87",
+        "independentReview": "Exact production input identity and original fixture prefix preserved; real controller/Chat/Channels execution retains routing, sibling pause accounting and confirmation/refusal/duplicate/generation controls.",
+        "mergedFocusedResult": "test/voice-live-ui.test.js passed on Node22.23.0",
+        "evidencePath": "qa/evidence/thread-ux-1012/voice-fixture-verification.json"
+      },
+      "diagnosticRemainder": {
+        "candidate": "baa58078b5784670e4dd199549b8ac6b6b8b58f7",
+        "startedAt": "2026-10-12T10:58:02.960Z",
+        "finishedAt": "2026-10-12T11:07:37.614Z",
+        "firstOriginalStep": 312,
+        "testedSteps": 843,
+        "manifestSha256": "769aa27593427d5b15c2617d07579bce879f9b865ba3b226463d389a7af93667",
+        "failures": [],
+        "sourceUnchanged": true,
+        "fullGatePass": false,
+        "scope": "Unchanged-source diagnostic remainder after original full gate failure311; not final acceptance.",
+        "log": ".handoff/customer-baa-fast-diagnostic.log",
+        "logSha256": "92ba400212398a8fa7122b8ca0a1c5f26702e326528f3cd63132c7e83fd4b4e4"
+      },
+      "scope": "Failed complete gate plus unchanged-source remainder with no additional failure. This is not a full pass; the corrected candidate must restart complete gates."
     }
   ],
   "scope": "Revision-bound source gates, including failures. Later evidence-only changes do not establish the cause of a failed run. These receipts do not establish installed/customer acceptance or release readiness.",
-  "updatedAt": "2026-10-12T10:47:39.254Z"
+  "updatedAt": "2026-10-12T11:10:19.523Z"
 }

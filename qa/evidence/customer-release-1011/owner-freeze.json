@@ -159,5 +159,17 @@
         "Clean owner handoff and ancestry do not prove final source gates, installed acceptance or customer recovery."
       ]
     }
+  ],
+  "followUpClosures": [
+    {
+      "lane": "thread",
+      "commit": "4a131151aaa189d643bd349af4fb576cf996d0b4",
+      "integratedAt": "dd9b5da0f620563b9a3bd3a0ccffbe4dd11d54d3",
+      "ownerThread": "01a12e1c-96b2-7d51-abde-80e33213596d",
+      "cursor": "6fea2050-b865-4ac2-b76c-e0f021362923:27",
+      "ownerDeclaration": "Clean and frozen; test-only confirmed voice fixture repair.",
+      "isAncestor": true,
+      "scope": "This follow-up supersedes only the earlier thread tip; prior worktree snapshots retain their own timestamps and limits."
+    }
   ]
 }

@@ -27,3 +27,11 @@ The three retained machine P1s were read independently. `7f25ecb7` records a CDP
 The coordinator now records evaluation failure separately from measured state in the affected J2/J3 checks and retains the actual idle-wait result. Fourteen negative controls pass; the isolated seeded J2c/J3 replay passes 35/35 with idle observed. [Revision and method receipt](journey-observation-diagnostics.json). This focused replay does not replace full final-candidate journeys, Guardian or installed acceptance.
 
 Read-only inspection of the exact signed public Windows 0.13.2 installer found three nonempty source-equivalent modules; see [artifact receipt](windows-0132-artifact.json). Customer installation identity, installed bytes/path, full stack and startup recovery remain unknown.
+
+## October 12 native acceptance preflight
+
+A bounded read-only inspection at source `baa58078b` found no candidate binary in the checked release/build locations. The present installed app and retained native receipts are historical; none attests this candidate. Full private receipt: `.handoff/release-preflight-baa58078b.json`, SHA-256 `cac07ee8284ace955f1a96e70bf1263fb7ca6351eafa1b8bba945936e8e9af6a`. No build, installation, native launch or workflow dispatch was performed.
+
+Native storage uses Tauri app-data resolution (`src-tauri/src/main.rs`); environment overrides alone do not establish profile isolation. The packaged lifecycle driver’s `--app-data` redirects driver files, and cleanup can terminate other StarNet shell processes. Use disposable Windows CI/VM without unrelated StarNet processes. The shortest prepared route is a private `desktop-build.yml` (`publish-test=false`), exact source/artifact identity plus valid Authenticode, then `t0-clean-install-proof.yml` with the build run, installer SHA and verified baseline upgrade. The private T0 path requires signing even though an internal desktop build can emit unsigned artifacts.
+
+Local disk headroom was about 0.87 GB and no usable VM was established. Apple native acceptance still needs the appropriate platform, and attended first-value/real-account/real-provider checks require their own evidence. This operational preflight is not a readiness pass or authorization to publish.
