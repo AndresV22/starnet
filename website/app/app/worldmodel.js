@@ -21,6 +21,20 @@ const WorldModel = (() => {
      is the plain-node/test case: every prop is placeable on bare deck exactly as before. */
   let propRules = null;
   function setPropRules(fn) { propRules = (typeof fn === 'function') ? fn : null; }
+  /* an unnamed line's LETTER from its INBOX's persistent id (p14 -> N), never its index among surviving lines — pure, so a plan
+     copy (stationbuilder) reserves the same LINE <letter> the floor shows (station.lineLetter is this, for an INBOX) */
+  function lineLetterOf(id) {
+    const digits = /^p([1-9][0-9]*)$/.exec(String(id));
+    let n = digits ? Number(digits[1]) : 0;
+    if (!Number.isSafeInteger(n) || n <= 0) { n = 0; for (const c of String(id)) n = (Math.imul(n, 31) + c.charCodeAt(0)) >>> 0; n++; }
+    let name = ''; do { n--; name = String.fromCharCode(65 + n % 26) + name; n = Math.floor(n / 26); } while (n > 0);
+    return name;
+  }
+  // a line name as the floor SHOWS it (Pipeline.lineWord: 'Line: Alpha 2' and 'alpha 2' are both LINE ALPHA 2) — the one duplicate key
+  function lineNameKeyOf(label) {
+    const P = pipelineModule(), s = String(label == null ? '' : label).replace(/\s+/g, ' ').trim();
+    return !s ? '' : P && P.lineWord ? P.lineWord(s, '') : 'LINE ' + (s.replace(/^line[\s:·.\-–—]*/i, '').trim() || s).toUpperCase();
+  }
   // the ONE line-budget normalizer (pipeline.js): the browser global, or the module in node tests. Absent
   // (no compiler loaded) -> limits are dropped rather than stored raw: a number no executor normalized never rides a save.
   // the ONE compiler (browser global or node require) — read lazily so load order never matters
@@ -2540,18 +2554,38 @@ const WorldModel = (() => {
     // The fallback name follows the persistent INBOX id, never its index among surviving lines.
     function lineLetter(intakeId) {
       const p = propById(intakeId); if (!p || p.t !== 'intake') return null;
-      const digits = /^p([1-9][0-9]*)$/.exec(p.id);
-      let n = digits ? Number(digits[1]) : 0;
-      if (!Number.isSafeInteger(n) || n <= 0) { n = 0; for (const c of String(p.id)) n = (Math.imul(n, 31) + c.charCodeAt(0)) >>> 0; n++; }
-      let name = ''; do { n--; name = String.fromCharCode(65 + n % 26) + name; n = Math.floor(n / 26); } while (n > 0);
-      return name;
+      return lineLetterOf(p.id);
     }
-    // a line as the floor names it: its INBOX's label, else plainly "another line"
-    function lineWord(g, key) {
-      const c = g && g.comps.find(x => x.key === key), P = pipelineModule();
-      for (const iid of (c ? c.intakes : [])) { const ip = propById(iid); if (ip) return P && P.lineWord ? P.lineWord(ip.label, 'LINE ' + lineLetter(iid)) : 'LINE ' + String(ip.label || lineLetter(iid)).toUpperCase(); }
-      return null;
+    /* THE LINE NAME (final floor lane, 2026-10-12) — the ONE rule every surface names a line by (floor plates, SEND TO chips and
+       plates, the Workflow panel, LINE WATCH and crate cards, the Workflows window, the lead's station.layout / refit cards):
+       a line is called by its first NAMED INBOX ('LINE RESEARCH' — Pipeline.lineWord, the compiled line record's own `name`),
+       else LINE <the letter of its first INBOX>. Never by a BAY's step name, never by whatever prop keys the line (a line whose
+       first-placed machine is a BAY is keyed by that BAY). `ref` = a line's id (its compiled lineId = its component key) or one of
+       its INBOXes; null when that names no line with an INBOX on this floor (the caller says so plainly). */
+    const shownWord = lineNameKeyOf;
+    function intakesOfLine(g, ref) {
+      const id = ref == null ? '' : String(ref), ip = propById(id);
+      const c = g ? (g.comps.find(x => x.key === id) || (ip && ip.t === 'intake' ? g.comps.find(x => x.key === g.lineOfProp[id]) : null)) : null;
+      return c ? c.intakes : ip && ip.t === 'intake' ? [id] : [];
     }
+    function lineName(ref) {
+      const ins = intakesOfLine(sendGraph(), ref);
+      if (!ins.length) return null;
+      const named = ins.map(propById).find(q => q && typeof q.label === 'string' && q.label.trim());
+      return named ? shownWord(named.label) : 'LINE ' + lineLetter(ins[0]);
+    }
+    // …and the name of the line any machine stands on (an OUTBOX, a BAY), by the same rule; null off every line
+    function lineNameAt(propId) { const g = sendGraph(), k = g && g.lineOfProp[propId]; return k ? lineName(k) : null; }
+    /* the duplicate-name key (the same shown word): 'Alpha 2', 'Line: Alpha 2' and 'LINE—Alpha 2' all SHOW as LINE ALPHA 2. A name is
+       taken when another INBOX shows it — its label's word, or an unnamed INBOX's own LINE <letter> (except = INBOX ids to skip). */
+    const lineNameKey = label => shownWord(label);
+    function lineNameTaken(label, except) {
+      const k = lineNameKey(label); if (!k) return false;
+      return doc.props.some(q => q.t === 'intake' && !(except && except.has(q.id))
+        && (typeof q.label === 'string' && q.label.trim() ? lineNameKey(q.label) : 'LINE ' + lineLetter(q.id)) === k);
+    }
+    // a line as the floor names it, by its component key (sendToRefusal, setSendTo, sendToChoices)
+    const lineWord = (g, key) => g && g.comps.some(x => x.key === key) ? lineName(key) : null;
     // does line `from` reach line `to` through the floor's SEND TO pointers (transitively)?
     function sendReaches(g, from, to) {
       if (!g || !from || !to) return false;
@@ -3417,13 +3451,13 @@ const WorldModel = (() => {
        still joins the two machines it joined and nothing already here was joined into the copy — one undo, all-or-nothing.
        pasteLinesLaid is the fallback: the same clip as a graph, laid out by the layout engine near the spot (LineEdit). */
     const CLIP_CFG_DIRS = ['def', 'done', 'esc'];
-    const intakeLabelTaken = (label, except) => doc.props.some(q => q.t === 'intake' && !(except && except.has(q.id)) && typeof q.label === 'string' && q.label.trim().toUpperCase() === label.trim().toUpperCase());
-    // a pasted INBOX keeps its line's name, numbered when that name is already a line here ("RESEARCH" → "RESEARCH 2")
+    /* a pasted INBOX keeps its line's name, numbered when that name is already SHOWN here ("RESEARCH" → "RESEARCH 2") — by the one
+       name key setPropLabel refuses on (final floor lane M32: 'Alpha' pasted beside 'Line Alpha 2' made a second LINE ALPHA 2) */
     function freshIntakeLabel(label, except) {
       const base = String(label || '').trim().slice(0, 48);
-      if (!base || !intakeLabelTaken(base, except)) return base;
+      if (!base || !lineNameTaken(base, except)) return base;
       const stem = base.replace(/\s+\d+$/, '');
-      for (let n = 2; n < 100; n++) { const nm = (stem.slice(0, 44) + ' ' + n); if (!intakeLabelTaken(nm, except)) return nm; }
+      for (let n = 2; n < 100; n++) { const nm = (stem.slice(0, 44) + ' ' + n); if (!lineNameTaken(nm, except)) return nm; }
       return base;
     }
     function lineMembers(propId) {
@@ -3435,7 +3469,13 @@ const WorldModel = (() => {
       if (!set.size) return fail('NOTHING', 'select something to copy first');
       const ps = doc.props.filter(p => set.has(p.id));
       const L = Array.isArray(currentLinks()) ? currentLinks() : [];
-      const ls = L.filter(l => l && l.from && l.to && l.from.prop !== l.to.prop && set.has(l.from.prop) && set.has(l.to.prop));
+      const inClip = L.filter(l => l && l.from && l.to && l.from.prop !== l.to.prop && set.has(l.from.prop) && set.has(l.to.prop));
+      /* an OLD SAVE's OUTBOX → INBOX belt never travels as a belt (final floor lane M30 — a hand-off is SEND TO, never a belt: a
+         pasted one fused the two copied lines into ONE line, one budget). It travels as what convertHandoffBelt makes of it: that
+         OUTBOX's SEND TO (one old belt only — several are ambiguous, as convertHandoffBelt says), and its tiles stay behind. */
+      const oldBelt = l => (propById(l.from.prop) || {}).t === 'outbox' && (propById(l.to.prop) || {}).t === 'intake';
+      const oldSend = {}; for (const l of inClip) if (oldBelt(l)) (oldSend[l.from.prop] = oldSend[l.from.prop] || []).push(l.to.prop);
+      const ls = inClip.filter(l => !oldBelt(l));
       const tiles = new Map();
       for (const l of ls) for (const t of (l.path || [])) { const k = beltKey(t.x, t.y); if (doc.belts[k]) tiles.set(k, { x: t.x, y: t.y, d: doc.belts[k] }); }
       for (const p of ps) if (isJunction(p)) { const k = beltKey(p.x, p.y); if (doc.belts[k]) tiles.set(k, { x: p.x, y: p.y, d: doc.belts[k] }); }
@@ -3463,7 +3503,8 @@ const WorldModel = (() => {
         }
         const cfg = applyJunctionCfg({}, p); if (Object.keys(cfg).length) n.cfg = cfg;
         if (cleanDoor(p.door)) n.door = p.door;
-        if (p.t === 'outbox' && typeof p.sendTo === 'string' && p.sendTo) { if (set.has(p.sendTo)) n.sendTo = p.sendTo; else dropped++; }
+        const sendTo = p.t === 'outbox' ? ((typeof p.sendTo === 'string' && p.sendTo) || (oldSend[p.id] && oldSend[p.id].length === 1 ? oldSend[p.id][0] : null)) : null;
+        if (sendTo) { if (set.has(sendTo)) n.sendTo = sendTo; else dropped++; }
         return n;
       });
       const links = ls.map(l => {
@@ -3540,6 +3581,7 @@ const WorldModel = (() => {
       if (p.t === 'bay' && typeof n.label === 'string' && n.label.trim()) p.label = n.label.trim().slice(0, 48);
       if (p.t === 'intake') {
         if (typeof n.label === 'string' && n.label.trim()) { const nm = freshIntakeLabel(n.label, newLabels); if (nm) p.label = nm; }
+        if (newLabels) newLabels.delete(p.id);   // (named now: the next pasted INBOX's name is judged against this one's)
         if (n.limits && typeof n.limits === 'object') { const nl = normalizeLimits(n.limits); if (nl) p.limits = { maxHops: nl.maxHops, maxUsdPerMessage: nl.maxUsdPerMessage, maxUsdPerDay: nl.maxUsdPerDay }; }
       }
       if (n.cfg) applyJunctionCfg(p, n.cfg);
@@ -3555,7 +3597,7 @@ const WorldModel = (() => {
       return transact(() => {
         const map = {}, made = [], dirty = [], cell = (x, y) => ({ x1: x, y1: y, x2: x, y2: y }), fresh = new Set();
         for (const i of clipOrder(clip)) {
-          const n = clip.nodes[i], p = clipProp(n, ax, ay, o, fresh);
+          const n = clip.nodes[i], p = clipProp(n, ax, ay, o, null);   // (each piece is named before it goes down: the copy's earlier INBOXes already count)
           const v = checkProp(propFootprint(p), null, p.t);
           if (!v.ok) return Object.assign(v, { short: 'A PIECE OF THE COPY CANNOT STAND THERE' });
           doc.props.push(p); propIdx = null; propIdIdx = null; fresh.add(p.id);
@@ -4395,9 +4437,12 @@ const WorldModel = (() => {
       if (p.t !== 'intake' && p.t !== 'bay') return fail('BAD_TYPE', 'only an INBOX or BAY has a name');
       const l = (label == null ? '' : String(label)).trim().slice(0, 48);
       if ((p.label || '') === l || (!p.label && !l)) return { ok: true, id: propId, label: p.label || null };
-      const nameKey = v => String(v || '').trim().replace(/^line\s+/i, '').replace(/\s+/g, ' ').toUpperCase();
-      if (p.t === 'intake' && nameKey(l) && doc.props.some(q => q.id !== p.id && q.t === 'intake' && nameKey(q.label) === nameKey(l)))
-        return sendFail('DUPLICATE_NAME', 'Another INBOX already uses that line name. Choose a distinct name.', 'THAT LINE NAME IS ALREADY IN USE');
+      // one name per line, judged by what the floor SHOWS (lineNameTaken — 'Line: Alpha 2' is LINE ALPHA 2, and an unnamed line
+      // shows LINE <its letter>); this INBOX and the others of its own line never block it (final floor lane M32 / R30)
+      if (p.t === 'intake' && l) {
+        const own = new Set([p.id].concat(intakesOfLine(sendGraph(), p.id)));
+        if (lineNameTaken(l, own)) return sendFail('DUPLICATE_NAME', 'Another line is already called ' + lineNameKey(l) + '. Choose a distinct name.', 'THAT LINE NAME IS ALREADY IN USE');
+      }
       snapshot();
       if (l) p.label = l; else delete p.label;
       emit([{ x1: p.x, y1: p.y, x2: p.x + (p.w || 1) - 1, y2: p.y + (p.h || 1) - 1 }]);
@@ -4681,7 +4726,7 @@ const WorldModel = (() => {
       },
       // mutations
       addRoom, placeHallway, removeRoom, moveRoom, moveRooms, resizeRoom, setRoomKind, setFloor, setMaterial, setDeck, setWalls, setHull, paintTiles, renameRoom,
-      addProp, removeProp, moveProp, moveProps, canMoveProp, canMoveProps, rotateProp, faceProp, mirrorProp, assignPropAgent, assignDesk, ensureWorkstation, configureJunction, swapJoinerMerger, setSplitDivide, bindConnector, bindPlugin, placePluginTerminal, setDoorState, setPropProject, setPropBrief, setPropRole, setPropHands, setPropLabel, setPropLimits, setSendTo, sendToRefusal, sendToChoices, lineLetter, oldHandoffBelts, convertHandoffBelt,
+      addProp, removeProp, moveProp, moveProps, canMoveProp, canMoveProps, rotateProp, faceProp, mirrorProp, assignPropAgent, assignDesk, ensureWorkstation, configureJunction, swapJoinerMerger, setSplitDivide, bindConnector, bindPlugin, placePluginTerminal, setDoorState, setPropProject, setPropBrief, setPropRole, setPropHands, setPropLabel, setPropLimits, setSendTo, sendToRefusal, sendToChoices, lineLetter, lineName, lineNameAt, lineNameKey, lineNameTaken, oldHandoffBelts, convertHandoffBelt,
       setBelt, removeBelt, removeBelts, placeBeltRun, connectBelt, connectionPreview, hookedBelts, stampBlueprint, insertBayBetween, canInsertBayBetween, transact, lineGraph, applyLineLayout, blueprintGraph,
       // agent-bay binding queries
       propsByType, propsByAgent, pipelineEdges, setPipelineEdges, addPipelineEdge, removePipelineEdge, agentRoomId, bayObjects,
@@ -4830,6 +4875,8 @@ const WorldModel = (() => {
     BAY_ROLES, bayRoleInfo: r => BAY_ROLES[r] || null,
     // a clip (station.copyLines) turned a quarter turn clockwise per turn — pure (THE HAND part 2: R turns a paste in hand)
     rotateClip, clipTurns,
+    // an unnamed line's letter from its INBOX id (pure — station.lineLetter for an INBOX)
+    lineLetterOf, lineNameKey: lineNameKeyOf,
   };
 })();
 

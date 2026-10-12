@@ -80,7 +80,9 @@ const WorkflowsWindow = (() => {
       try { flow = Wl.lineFlow(plan, c, Pp, geo.props); ready = Wl.readiness(flow, c, { hasCompute, errors: plan.errors || [], labelOf, isCrew, briefOf }); } catch (e) { return; }
       const intake = st.propById(c.intakes[0]) || {};
       const steps = flow.order.map((pid, k) => { const p = st.propById(pid) || {}; return { id: pid, n: k + 1, label: p.label || '', role: p.role || '', agentId: p.agentId || '', brief: p.brief || '', hands: p.hands || '', desk: hasCompute(p.agentId, pid) }; });
-      lines.push({ key: c.key, name: String(intake.label || '').trim() || (st.lineLetter ? 'LINE ' + st.lineLetter(intake.id) : 'LINE ' + c.key), intakeId: c.intakes[0], flow, ready, steps,
+      // its name: the first NAMED INBOX's own words (the compiled record's name), else the floor's LINE <letter> (worldmodel.lineName)
+      const named = (c.intakes || []).map(id => st.propById(id)).find(p => p && typeof p.label === 'string' && p.label.trim());
+      lines.push({ key: c.key, name: named ? named.label.trim() : ((st.lineName && st.lineName(c.key)) || (st.lineLetter ? 'LINE ' + st.lineLetter(intake.id) : 'LINE ' + c.key)), intakeId: c.intakes[0], flow, ready, steps,
         loops: (flow.gates || []).some(g => g.kind === 'loop'), outbox: flow.outbox && flow.outbox.propId, outboxes: (c.outboxes || []).slice(), sends: Object.values(plan.sendTo || {}).filter(s => s.fromLine === c.key) });
     });
     for (const l of lines) { l.sendNames = [...new Set(l.sends.map(s => { const to = lines.find(x => x.key === s.toLine); return Pp.lineWord(to && to.name, 'LINE ' + s.toLine); }))]; l.sendsAll = l.outboxes.length > 0 && l.outboxes.length <= l.sends.length; }
@@ -430,9 +432,6 @@ const WorkflowsWindow = (() => {
     const pk = S.pick, st = stationOf(), bp = pk && bpOf(pk.bp);
     if (!pk || !st || !bp || typeof LineEdit === 'undefined' || !LineEdit.placeBlueprint) { sfx('bad'); return; }
     const base = String(S.draft.name == null ? pk.name : S.draft.name).replace(/\s+/g, ' ').trim().slice(0, 40) || plainName(pk.bp);
-    // one name per workflow: a second "Research + write" is "Research + write 2" (the list and the OUTBOX tell them apart)
-    const taken = new Set(((floor() || { lines: [] }).lines).map(l => l.name.toLowerCase()));
-    let name = base; for (let n = 2; taken.has(name.toLowerCase()) && n < 100; n++) name = base.slice(0, 37) + ' ' + n;
     let near = null;
     try { const b = st.bounds(); near = { x: (b.minTx + b.maxTx) >> 1, y: (b.minTy + b.maxTy) >> 1 }; } catch (_) { near = null; }
     const r = LineEdit.placeBlueprint(st, pk.bp, near, { stamp: { briefs: pk.briefs } });
@@ -445,7 +444,15 @@ const WorkflowsWindow = (() => {
     const ids = r.ids || [], bays = ids.map(id => st.propById(id)).filter(p => p && p.t === 'bay');
     const intake = ids.map(id => st.propById(id)).find(p => p && p.t === 'intake');
     bays.forEach((p, i) => { const aid = pk.agents[i] || pk.agents[0]; if (aid) st.assignPropAgent(p.id, aid); });
-    if (intake && st.setPropLabel) st.setPropLabel(intake.id, name);
+    /* one name per workflow, judged by what the floor SHOWS (worldmodel.lineNameTaken — the key setPropLabel refuses on): a second
+       "Research + write" is "Research + write 2", "Line Research" beside "Research" is "Line Research 2", and an unnamed line's
+       LINE <letter> is taken too. Then the window says the name the floor STORED, never the one it asked for (final floor lane M18:
+       a refused name left the line unnamed while the window said "✓ Line Research is on your floor"). */
+    const own = new Set(intake ? [intake.id] : []);
+    const taken = v => st.lineNameTaken ? st.lineNameTaken(v, own) : ((floor() || { lines: [] }).lines).some(l => l.name.toLowerCase() === v.toLowerCase());
+    let name = base; for (let n = 2; taken(name) && n < 100; n++) name = base.slice(0, 37) + ' ' + n;
+    const lr = intake && st.setPropLabel ? st.setPropLabel(intake.id, name) : null;
+    const kept = intake && st.propById(intake.id), shown = (kept && kept.label) || (intake && st.lineName ? st.lineName(intake.id) : null) || name;   // (the row's own words: the stored name, else the floor's LINE <letter>)
     // a step with no workstation in reach gets one (the agent's own desk first)
     for (const p of bays) { const q = st.propById(p.id); if (q && q.agentId) { let ok = false; try { ok = (st.bayObjects(q.agentId, q.id) || []).indexOf('computer') >= 0; } catch (_) {} if (!ok) giveDesk({ id: q.id, agentId: q.agentId }); } }
     syncSoon();
@@ -455,7 +462,7 @@ const WorkflowsWindow = (() => {
     S.pick = null; S.drafting = null; S.made = null; S.draft.name = ''; S.draft.describe = '';
     S.view = made ? 'line' : 'list'; S.line = made ? made.key : null; S.job = null; S.step = null;
     // said in the window, under the job box — a toast would sit over the SEND key
-    S.msg = made ? { text: '✓ ' + name + ' is on your floor' + (pk.job ? ', with a first job written for you' : '') + '. Send it a job whenever you like.' } : null;
+    S.msg = made ? { text: '✓ ' + shown + ' is on your floor' + (lr && !lr.ok ? ' (not named ' + name + ' — ' + String(lr.short || lr.msg || 'that name was refused').toLowerCase() + ')' : '') + (pk.job ? ', with a first job written for you' : '') + '. Send it a job whenever you like.' } : null;
     paint();
     focusIn('#wfw-job');
   }

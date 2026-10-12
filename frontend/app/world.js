@@ -9576,9 +9576,10 @@ const World = (() => {
     const who = (b && b.name) ? String(b.name).toUpperCase() : (aid ? String(aid).toUpperCase() : 'NO AGENT');
     return (p && (p.label || p.role) ? String(p.label || p.role).toUpperCase() : 'BAY') + ' · ' + who;
   }
+  // a line as every surface names it (worldmodel.lineName: its first named INBOX, else LINE <its first INBOX's letter>) — never the
+  // label of whichever prop keys the line (a BAY placed first keyed it: 'LINE null', or its step name — final floor lane M17 / M23)
   function lwLineName(lineId) {
-    const ip = geo && geo.props ? geo.props.find(q => q.id === lineId) : null;
-    return Pipeline.lineWord(ip && ip.label, station && station.lineLetter ? 'LINE ' + station.lineLetter(lineId) : 'LINE ' + lineId);   // the Workflow panel names a line; an unnamed one says so
+    return (station && station.lineName ? station.lineName(lineId) : null) || 'UNNAMED LINE';
   }
   function lwAgentName(aid) { const b = bodyForAgent(aid); return (b && b.name) ? String(b.name).toUpperCase() : String(aid || '?').toUpperCase(); }
   function crateCtx(payload) {
@@ -9692,8 +9693,7 @@ const World = (() => {
     for (const obId of Object.keys(routingPlan.sendTo)) {
       const st = routingPlan.sendTo[obId], ob = geo.props.find(q => q.id === obId);
       if (!st || !ob) continue;
-      const rec = routingPlan.lines.find(l => l && l.lineId === st.toLine), nm = rec && rec.name ? String(rec.name).toUpperCase() : '';
-      const text = 'SENDS TO ' + Pipeline.lineWord(nm, station && station.lineLetter ? 'LINE ' + station.lineLetter(st.intakeId) : 'LINE ' + st.toLine);
+      const text = 'SENDS TO ' + ((station && station.lineName ? station.lineName(st.toLine) || station.lineName(st.intakeId) : null) || 'ANOTHER LINE');   // (the one line name)
       const w = ctx.measureText(text).width + 6, h = 8, cx = (ob.x + (ob.w || 1) / 2) * T;
       const room = lwRoomBox(ob.x, ob.y);
       const clampX = x => room ? Math.max(room.x, Math.min(room.x + room.w - w, x)) : x;

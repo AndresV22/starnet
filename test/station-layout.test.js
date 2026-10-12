@@ -467,7 +467,15 @@ const detail = async (o, line) => (await layout(o, { line: line || 'draft & revi
     s.setSendTo(ids[0].outboxes[0], ids[1].intakes[0]);
     const result = (await layout({ app: app(s, []) })).r;
     const source = result.lines.find(l => l.sendsWorkTo);
-    A.ok(source && source.sendsWorkTo[0] === 'an unnamed line (lineId ' + ids[1].key + ')', 'unlabeled SEND TO keeps its actionable lineId');
+    // final floor lane M25 / R62: the unnamed target is named as the floor's plate and SEND TO chip name it (LINE <its INBOX letter>,
+    // worldmodel.lineName), and keeps its actionable lineId — 'an unnamed line' named nothing the Commander could see
+    const shown = 'LINE ' + s.lineLetter(ids[1].intakes[0]);
+    A.ok(source && source.sendsWorkTo[0] === shown + ' (lineId ' + ids[1].key + ')', 'unlabeled SEND TO says the floor name and keeps its actionable lineId — ' + JSON.stringify(source && source.sendsWorkTo));
+    A.ok(source && new RegExp('sent on to ' + shown + ' [(]lineId ').test(source.howItRuns), '…and so does howItRuns — ' + (source && source.howItRuns));
+    const target = result.lines.find(l => l.lineId === ids[1].key);
+    A.ok(target && target.name === null && target.word === shown, 'each line carries the floor word for it (name stays the INBOX label, null here)');
+    const picked = (await layout({ app: app(s, []) }, { line: shown.toLowerCase() })).r;
+    A.ok(picked && picked.line && picked.line.lineId === ids[1].key, 'station.layout line="' + shown.toLowerCase() + '" resolves the unnamed line the floor calls ' + shown + ' — ' + JSON.stringify(picked && picked.line && picked.line.lineId));
   }
 
   A.report('station-layout');

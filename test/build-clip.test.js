@@ -241,6 +241,57 @@ const lineOfIntake = (s, id) => plan(s).lines.find(l => l.intakes.includes(id));
   A.ok(rb.ok && s.undo().label === 'BELT', 'outside a transact removeLinks takes its own undo slot (UNDID · BELT)');
 }
 
+/* ---------- E3. final floor lane M30: an OLD SAVE's OUTBOX → INBOX belt is never pasted back as a belt ----------
+   (DECISIONS: a hand-off is SEND TO, never a belt — a pasted one fused the two copied lines into ONE line, one budget.) The copy
+   carries it the way convertHandoffBelt would: as that OUTBOX's SEND TO, re-pointed at the copy's own INBOX. */
+{
+  const s0 = fresh();
+  const pl = [0, 1].map(i => { const r = LE.placeBlueprint(s0, 'research_line', { x: 34, y: 2 + i * 10 }); if (!r.ok) throw Error(JSON.stringify(r)); const of = t => r.ids.filter(id => s0.propById(id).t === t); return { I: of('intake')[0], O: of('outbox')[0], ids: r.ids }; });
+  const d = JSON.parse(JSON.stringify(s0.serialize()));
+  for (const p of d.props) if (p.id === pl[0].O || p.id === pl[1].I) p.t = 'bay';
+  const ob = WM.deserialize(d); A.ok(ob.connectBelt(pl[0].O, pl[1].I).ok, 'old-save fixture: the pre-SEND TO belt');
+  const saved = JSON.parse(JSON.stringify(ob.serialize())); for (const p of saved.props) { if (p.id === pl[0].O) p.t = 'outbox'; if (p.id === pl[1].I) p.t = 'intake'; }
+  const s = WM.deserialize(saved); for (const p of s.props()) if (p.t === 'bay' && !p.agentId) s.assignPropAgent(p.id, 'ag_' + p.id);
+  A.eq(s.oldHandoffBelts(pl[0].O).length, 1, 'the old OUTBOX → INBOX belt is on the floor');
+  const before = JSON.stringify(s.serialize());
+  const c = s.copyLines(pl[0].ids.concat(pl[1].ids));
+  A.ok(c.ok && !c.clip.links.some(l => { const f = c.clip.nodes.find(n => n.oid === l.from.node), t = c.clip.nodes.find(n => n.oid === l.to.node); return f && t && f.t === 'outbox' && t.t === 'intake'; }), 'the clip carries no OUTBOX → INBOX belt');
+  A.eq((c.clip.nodes.find(n => n.oid === pl[0].O) || {}).sendTo, pl[1].I, '…it carries that hand-off as the OUTBOX\'s SEND TO');
+  let r = null; for (let y = 22; y <= 30 && !r; y++) for (let x = 32; x <= 50 && !r; x++) if (s.checkPaste(c.clip, x, y).ok) { const q = s.pasteLines(c.clip, x, y); if (q.ok) r = q; }
+  A.ok(!!r, 'the two lines paste');
+  const newO = r.ids.find(id => s.propById(id).t === 'outbox' && s.propById(id).sendTo), newI = r.ids.find(id => s.propById(id).t === 'intake' && s.propById(newO).sendTo === id);
+  A.ok(!!newO && !!newI, 'the pasted OUTBOX sends to the pasted INBOX (SEND TO, re-pointed inside the copy)');
+  A.ok(!(s.links() || []).some(l => r.ids.includes(l.from.prop) && s.propById(l.from.prop).t === 'outbox' && r.ids.includes(l.to.prop) && s.propById(l.to.prop).t === 'intake'), 'no new OUTBOX → INBOX belt was laid');
+  A.eq(s.oldHandoffBelts(newO), [], 'oldHandoffBelts(pasted OUTBOX) is empty');
+  const pp = plan(s);
+  A.ok(pp.lineOfProp[newO] && pp.lineOfProp[newI] && pp.lineOfProp[newO] !== pp.lineOfProp[newI], 'the two pasted lines are two lines (two lineIds, two budgets)');
+  A.ok(pp.sendTo && pp.sendTo[newO] && pp.sendTo[newO].intakeId === newI, '…joined by a compiled SEND TO');
+  A.ok(s.undo().ok && JSON.stringify(s.serialize()) === before, 'one undo; the original floor (old belt and all) is untouched');
+}
+/* ---------- E4. final floor lane M32 / R30: one line-name key — a paste never makes two lines that SHOW the same name ----------
+   setPropLabel refused 'Alpha 2' next to 'Line Alpha 2' (both show LINE ALPHA 2), but the paste numbered by raw labels and made
+   exactly that pair. Every naming path now compares what the floor SHOWS (Pipeline.lineWord). */
+{
+  const s = fresh(), X = line(s);
+  const Y = add(s, 'intake', 32, 20), YB = add(s, 'bay', 40, 20), YO = add(s, 'outbox', 50, 20);
+  s.assignPropAgent(YB, 'nova'); A.ok(s.connectBelt(Y, YB).ok && s.connectBelt(YB, YO).ok, 'a second line');
+  A.ok(s.setPropLabel(X.I, 'Alpha').ok && s.setPropLabel(Y, 'Line Alpha 2').ok, 'lines named Alpha and Line Alpha 2');
+  A.eq(s.setPropLabel(X.I, 'Alpha 2').error, 'DUPLICATE_NAME', 'renaming Alpha to Alpha 2 is refused (it would show LINE ALPHA 2 twice)');
+  A.eq(s.setPropLabel(X.I, 'Line: Alpha 2').error, 'DUPLICATE_NAME', '…and so is "Line: Alpha 2" (the shown word drops any "line" prefix)');
+  A.eq(s.setPropLabel(X.I, 'LINE—Alpha 2').error, 'DUPLICATE_NAME', '…and "LINE—Alpha 2"');
+  const c = s.copyLines(s.lineMembers(X.I).ids).clip;
+  let r = null; for (let y = 28; y <= 36 && !r; y++) for (let x = 32; x <= 50 && !r; x++) if (s.checkPaste(c, x, y).ok) { const q = s.pasteLines(c, x, y); if (q.ok) r = q; }
+  A.ok(!!r, 'the line pastes');
+  const shown = s.props().filter(p => p.t === 'intake').map(p => P.lineWord(p.label, 'LINE ' + s.lineLetter(p.id)));
+  A.eq(new Set(shown).size, shown.length, 'every line SHOWS a different name — ' + JSON.stringify(shown));
+  A.eq(s.propById(r.ids.find(id => s.propById(id).t === 'intake')).label, 'Alpha 3', '…the paste is numbered past the shown LINE ALPHA 2');
+  // an unnamed line SHOWS its letter: no typed name may take it
+  const Z = add(s, 'intake', 70, 4), ZB = add(s, 'bay', 78, 4); s.assignPropAgent(ZB, 'atlas'); A.ok(s.connectBelt(Z, ZB).ok, 'an unnamed line');
+  const letter = s.lineLetter(Z);
+  A.eq(s.setPropLabel(Y, letter).error, 'DUPLICATE_NAME', 'naming a line "' + letter + '" while an unnamed line shows LINE ' + letter + ' is refused');
+  A.eq(s.setPropLabel(Y, 'Line ' + letter).error, 'DUPLICATE_NAME', '…"Line ' + letter + '" too');
+  A.ok(s.setPropLabel(Z, letter).ok, 'the unnamed line itself may take its own letter as its name');
+}
 /* ---------- F. the build.js wiring (source locks) ---------- */
 {
   const build = fs.readFileSync(path.join(__dirname, '..', 'frontend', 'app', 'build.js'), 'utf8');

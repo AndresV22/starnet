@@ -1,0 +1,185 @@
+/* test/line-names.test.js — ONE line name everywhere (final floor lane, 2026-10-12).
+
+   A line is called by its first NAMED INBOX (Pipeline.lineWord: 'LINE RESEARCH'), else LINE <the letter of its first INBOX> —
+   never by a BAY's step name, never by whichever prop keys the line (a line whose first-placed machine is a BAY is keyed by that
+   BAY: 'LINE null' / 'LINE DRAFT REVIEW' on LINE WATCH, 'LINE p3' on the FED text). worldmodel.lineName is that rule; every
+   surface that names a line reads it, and the duplicate check judges the same shown word (lineNameKey / lineNameTaken). */
+'use strict';
+const A = require('./_assert.js');
+const fs = require('fs');
+const path = require('path');
+const vm = require('vm');
+const WM = require('../frontend/app/worldmodel.js');
+const P = require('../frontend/app/pipeline.js');
+const LE = require('../frontend/app/lineedit.js');
+
+const plan = s => P.compileRoutingPlan(s.projectGeometry());
+function fresh() { const s = WM.create(); s.projectGeometry(); s.addRoom({ kind: 'hab', rect: { x1: 30, y1: 0, x2: 110, y2: 50 } }); return s; }
+const add = (s, t, x, y) => s.addProp({ t, x, y, w: 2, h: 2, block: true }).id;
+const src = f => fs.readFileSync(path.join(__dirname, '..', 'frontend', 'app', f), 'utf8');
+
+/* ---------- A. the model rule ---------- */
+// a BAY placed first keys the line; its INBOX names it
+const s = fresh();
+const B = add(s, 'bay', 42, 4), I = add(s, 'intake', 32, 4), O = add(s, 'outbox', 56, 4);
+s.assignPropAgent(B, 'nova');
+A.ok(s.connectBelt(I, B).ok && s.connectBelt(B, O).ok, 'a line whose BAY went down first');
+const p0 = plan(s), rec = p0.lines[0];
+A.eq(rec.lineId, B, 'rig: the line is keyed by its BAY (the oldest machine), not its INBOX');
+const letter = s.lineLetter(I);
+A.ok(/^[A-Z]+$/.test(letter), 'the INBOX has a letter');
+A.eq(s.lineName(rec.lineId), 'LINE ' + letter, 'an unnamed line by its lineId is LINE <its INBOX letter> — never "LINE null"');
+A.eq(s.lineName(I), 'LINE ' + letter, '…and by its INBOX the same');
+A.eq(s.lineLetter(rec.lineId), null, '(lineLetter of the key BAY is null: the bug every surface hit)');
+A.ok(s.setPropLabel(B, 'Draft review').ok, 'the BAY gets a step name');
+A.eq(s.lineName(rec.lineId), 'LINE ' + letter, 'a BAY\'s step name never becomes the line\'s name');
+A.ok(s.setPropLabel(I, 'Research').ok, 'the INBOX gets a name');
+A.eq(s.lineName(rec.lineId), 'LINE RESEARCH', 'a named INBOX names the line');
+A.eq(s.lineName('nope'), null, 'an id that names no line is null (the caller says so plainly)');
+A.eq(s.lineName(O), null, 'an OUTBOX id is not a line ref (lineName takes a lineId or an INBOX)');
+// a second INBOX on the same line: the first NAMED one speaks (the compiled record's own name)
+{
+  const s2 = fresh(), I1 = add(s2, 'intake', 32, 4), I2 = add(s2, 'intake', 32, 14), B2 = add(s2, 'bay', 44, 8), O2 = add(s2, 'outbox', 58, 8);
+  s2.assignPropAgent(B2, 'atlas');
+  A.ok(s2.connectBelt(I1, B2).ok && s2.connectBelt(I2, B2).ok && s2.connectBelt(B2, O2).ok, 'a line with two INBOXes');
+  A.eq(s2.lineName(I1), 'LINE ' + s2.lineLetter(I1), 'unnamed: the first INBOX\'s letter, from either INBOX');
+  A.eq(s2.lineName(I2), 'LINE ' + s2.lineLetter(I1), '…the same line, the same name');
+  A.ok(s2.setPropLabel(I2, 'Second door').ok, 'only the second INBOX is named');
+  const r2 = plan(s2).lines.find(l => l.intakes.includes(I1));
+  A.eq(s2.lineName(I1), 'LINE SECOND DOOR', 'the first NAMED INBOX names the line');
+  A.eq(s2.lineName(r2.lineId), P.lineWord(r2.name), '…exactly as the compiled line record names it');
+}
+// every compiled line: the plan record and lineName agree
+{
+  const s3 = fresh();
+  for (let i = 0; i < 3; i++) A.ok(LE.placeBlueprint(s3, 'research_line', { x: 34, y: 2 + i * 14 }).ok, 'line ' + i);
+  const ins = s3.props().filter(p => p.t === 'intake');
+  s3.setPropLabel(ins[1].id, 'Line: two');
+  const pl = plan(s3);
+  for (const r of pl.lines) A.eq(s3.lineName(r.lineId), P.lineWord(r.name, 'LINE ' + s3.lineLetter(r.intakes[0])), 'lineName(' + r.lineId + ') = the record\'s name, else its first INBOX letter');
+  const ob = s3.props().find(p => p.t === 'outbox').id;
+  for (const c of s3.sendToChoices(ob)) A.eq(c.name, s3.lineName(c.lineId), 'the SEND TO chip names ' + c.lineId + ' by lineName');
+  A.eq(s3.lineNameKey('line — Two '), 'LINE TWO', 'lineNameKey is the shown word');
+  A.ok(s3.lineNameTaken('two') && s3.lineNameTaken('LINE TWO'), 'a name another INBOX shows is taken');
+  A.ok(s3.lineNameTaken(s3.lineLetter(ins[0].id)), 'an unnamed line\'s letter is taken');
+  A.ok(!s3.lineNameTaken(s3.lineLetter(ins[1].id)), '…a NAMED line\'s letter is not (it shows its name)');
+}
+/* ---------- B. paste numbering by the shown word ---------- */
+{
+  const s4 = fresh();
+  const r1 = LE.placeBlueprint(s4, 'research_line', { x: 34, y: 2 }), r2 = LE.placeBlueprint(s4, 'research_line', { x: 34, y: 16 });
+  A.ok(r1.ok && r2.ok, 'two lines');
+  const i1 = r1.ids.find(id => s4.propById(id).t === 'intake'), i2 = r2.ids.find(id => s4.propById(id).t === 'intake');
+  A.ok(s4.setPropLabel(i1, 'Line Alpha').ok && s4.setPropLabel(i2, 'Alpha 2').ok, 'lines named Line Alpha and Alpha 2');
+  const c = s4.copyLines(r1.ids.concat(r2.ids)).clip;
+  let r = null; for (let y = 30; y <= 40 && !r; y++) for (let x = 32; x <= 60 && !r; x++) if (s4.checkPaste(c, x, y).ok) { const q = s4.pasteLines(c, x, y); if (q.ok) r = q; }
+  A.ok(!!r, 'both lines paste together');
+  const shown = s4.props().filter(p => p.t === 'intake').map(p => s4.lineName(p.id));
+  A.eq(new Set(shown).size, shown.length, 'every INBOX on the floor shows a different line name — ' + JSON.stringify(shown));
+  const pasted = r.ids.filter(id => s4.propById(id).t === 'intake').map(id => s4.propById(id).label);
+  A.eq(pasted, ['Line Alpha 3', 'Alpha 4'], '\'Line Alpha\' pasted beside \'Alpha 2\' is Line Alpha 3, and the pasted \'Alpha 2\' steps past the copy\'s own LINE ALPHA 3');
+}
+
+/* ---------- C. the lead's words (stationbuilder): an unnamed line is LINE <its letter>, and that resolves (M25 / R62) ---------- */
+const SB = require('../frontend/app/stationbuilder.js'), W = require('../frontend/app/workflowline.js'), S = require('../frontend/app/propsprites.js');
+WM.setPropRules(t => { const sp = S.spec(t); return sp ? { mount: sp.mount || null, stack: !!sp.stack, surface: !!sp.surface, flat: !!sp.flat } : null; });
+const env = { WorldModel: WM, Pipeline: P, WorkflowLine: W, LineEdit: LE, PropSprites: S, crew: [{ id: 'agent', name: 'NOVA' }], heroId: 'agent' };
+function twoUnnamed() {
+  const st = WM.create(); const z = st.rooms()[0].rects[0];
+  A.ok(st.addRoom({ kind: 'hab', rect: { x1: z.x2 + 1, y1: z.y1, x2: z.x2 + 50, y2: z.y1 + 40 } }).ok, 'a hall for two lines');
+  const L = [];
+  for (const i of [0, 1]) {
+    const r = LE.run(st, null, 'newLine', { role: 'WRITER' }, { near: { x: z.x2 + 8, y: z.y1 + 4 + i * 12 } });
+    A.ok(r.ok, 'line ' + i); const c = P.lineComponents(st.projectGeometry()).find(k => k.props.includes(r.focus));
+    st.setPropLabel(c.intakes[0], ''); st.assignPropAgent(c.bays[0].propId, 'agent');
+    L.push({ key: c.key, intake: c.intakes[0], outbox: c.outboxes[0] });
+  }
+  st.ensureWorkstation('agent');
+  return { st, a: L[0], b: L[1] };
+}
+{
+  const { st, a, b } = twoUnnamed(), wa = 'LINE ' + st.lineLetter(a.intake), wb = 'LINE ' + st.lineLetter(b.intake);
+  A.ok(!st.propById(a.intake).label && !st.propById(b.intake).label && wa !== wb, 'two unnamed lines: ' + wa + ', ' + wb);
+  const send = SB.planEdit(st.serialize(), { refit: [{ op: 'send', from: a.outbox, to: b.intake }] }, env);
+  A.ok(send.ok, 'the SEND TO plans: ' + (send.error || ''));
+  const sum = send.ok ? send.plan.summary : '';
+  A.ok(sum.split(wb).length - 1 === 1 && !/unnamed line whose INBOX/.test(sum), 'the card names the target ' + wb + ' exactly once, never "the unnamed line whose INBOX is at" — ' + sum.slice(0, 220));
+  const ref = SB.lineRef(st.serialize(), env, wb.toLowerCase());
+  A.ok(ref.ok && ref.lineId === b.key && ref.name === wb, 'lineRef("' + wb.toLowerCase() + '") is that line, named as its plate says — ' + JSON.stringify(ref).slice(0, 160));
+  A.ok(SB.lineRef(st.serialize(), env, st.lineLetter(b.intake)).ok, '…and its bare letter finds it too');
+  const miss = SB.lineRef(st.serialize(), env, 'Newsletter');
+  A.ok(!miss.ok && miss.error.indexOf('Lines: ' + wa + ', ' + wb) >= 0, 'a name no line has is refused, listing the lines as the floor names them — ' + miss.error);
+  const del = SB.planEdit(st.serialize(), { refit: [{ op: 'delete', line: wb }] }, env);
+  A.ok(del.ok, 'refit delete by "' + wb + '" resolves: ' + (del.error || ''));
+  if (del.ok) { const before = new Set(st.props().map(p => p.id)); A.ok(SB.apply(st, del.plan, env).ok && !st.propById(b.intake) && st.propById(a.intake), '…and takes up exactly that line'); A.ok(before.size > st.props().length && st.undo().ok, '(undo)'); }
+}
+/* ---------- D. zone lines get unique names when the plan is made (M22) ---------- */
+{
+  const RS = require('../frontend/app/roomstyles.js'), LL = require('../frontend/app/linelayout.js'), T = require('../frontend/app/stationtemplates.js');
+  const E = Object.assign({}, env, { StationTemplates: T, EquipmentHelp: require('../frontend/app/equipmenthelp.js'), RoomStyles: RS, LineLayout: LL });
+  const st = WM.create(WM.starterDoc()); st.ensureWorkstation('agent');
+  const one = SB.plan(st.serialize(), { line: 'build_test' }, E);
+  A.ok(one.ok && SB.apply(st, one.plan, E).ok, 'BUILD + TEST is on the floor: ' + (one.error || ''));
+  const keys = () => st.props().filter(p => p.t === 'intake').map(p => WM.lineNameKey(p.label) || 'LINE ' + st.lineLetter(p.id));
+  const zr = SB.planRoom(st.serialize(), { zones: [{ area: 'left side', style: RS.ORDER[0] }, { area: 'right side', line: 'build_test' }] }, E);
+  A.ok(zr.ok, 'a room with a build_test zone plans: ' + (zr.error || ''));
+  if (zr.ok) {
+    A.ok(/BUILD \+ TEST 2/.test(zr.plan.summary), 'the card says the name the zone line will have (BUILD + TEST 2) — ' + zr.plan.summary.slice(0, 200));
+    A.ok(SB.apply(st, zr.plan, E).ok, '…and builds');
+    A.eq(new Set(keys()).size, keys().length, 'every line shows a different name — ' + JSON.stringify(keys()));
+    const rm = SB.planEdit(st.serialize(), { remove: { line: 'BUILD + TEST' } }, E);
+    A.ok(rm.ok, 'remove { line: "BUILD + TEST" } resolves exactly one line: ' + (rm.error || ''));
+  }
+  const two = SB.planRoom(st.serialize(), { zones: [{ area: 'left side', line: 'build_test' }, { area: 'right side', line: 'build_test', name: 'line build + test' }] }, E);
+  A.ok(two.ok, 'two build_test zones in one room plan: ' + (two.error || ''));
+  if (two.ok) {
+    A.ok(SB.apply(st, two.plan, E).ok, '…and build');
+    A.eq(new Set(keys()).size, keys().length, 'two zones of one plan never share a name, and "line build + test" is suffixed past BUILD + TEST — ' + JSON.stringify(keys()));
+  }
+}
+
+/* ---------- F. every surface reads the one name (source locks: these live inside the page IIFEs) ---------- */
+{
+  const world = src('world.js'), panel = src('workflowpanel.js'), build = src('build.js'), sb = src('stationbuilder.js'), sc = src('stationcommands.js');
+  const fn = (code, head) => { const i = code.indexOf(head); return i < 0 ? '' : code.slice(i, code.indexOf('\n  }', i) + 4); };
+  const lw = fn(world, '  function lwLineName(lineId) {');
+  A.ok(/station\.lineName\(lineId\)/.test(lw) && /'UNNAMED LINE'/.test(lw) && !/lineLetter\(lineId\)/.test(lw) && !/ip\.label/.test(lw), 'LINE WATCH / crate cards: lwLineName is station.lineName (never lineLetter of the key prop, never its label: M17 / M23)');
+  A.ok(/'SENDS TO ' \+ \(\(station && station\.lineName \? station\.lineName\(st\.toLine\)/.test(world), 'the OUTBOX SENDS TO plate names its target by lineName');
+  A.ok(/const incomingNames = incoming\.map\(s => \{ const st = H\.station\(\); return \(st && st\.lineName \? st\.lineName\(s\.fromLine\) : null\) \|\| 'another line'; \}\);/.test(panel) && !/'LINE ' \+ s\.fromLine/.test(panel), 'the INBOX FED text names the sending line by lineName, never "LINE p3"');
+  A.ok(/function sendName\(intakeId\) \{\s*const ip = station\.propById\(intakeId\);\s*return ip \? lineWordOf\(ip\) : 'A REMOVED LINE';/.test(build) && /station\.lineName\(ip\.id\)/.test(fn(build, '  function lineWordOf(ip) {')), 'Build: the SEND TO name and an INBOX\'s machine name read lineName');
+  A.ok(!/'LINE ' \+ p\.id\)|'LINE ' \+ l\.id\)|'LINE ' \+ ps\[0\]\.id\)/.test(build), 'Build never shows a raw prop id as a line name');
+  A.ok(/st\.lineName\(ip\.id\)/.test(fn(sb, '  function lineWordFor(st, P, ip) {')) && !/'the unnamed line whose INBOX is at/.test(sb), 'the lead\'s cards: lineWordFor reads lineName, the doubled "(its INBOX at …)" is gone');
+  A.ok(/const floorWord = id => \(typeof st\.lineName === 'function' \? st\.lineName\(id\) : null\);/.test(sc), 'station.layout names an unnamed line by lineName');
+}
+
+/* ---------- E. the Workflows window names a new line by the floor's own key, and says the name it STORED (M18) ---------- */
+(async () => {
+  const st = WM.create(WM.starterDoc()), z = st.rooms()[0].rects[0];
+  A.ok(st.addRoom({ kind: 'hab', rect: { x1: z.x2 + 1, y1: z.y1, x2: z.x2 + 70, y2: z.y1 + 50 } }).ok, 'room for several lines');
+  const ctx = vm.createContext({
+    console, setTimeout, clearTimeout, setInterval, clearInterval, Promise, JSON, Math, Date, Set, Map, encodeURIComponent,
+    U: { bus: { on: () => {} } }, module: { exports: {} }, window: {}, document: { activeElement: null, querySelector: () => null },
+    StationUI: { registerWindow: () => {}, openTerm: () => {}, h: { present: [{ id: 'nova', name: 'NOVA' }], sfx() {}, notify() {}, navigateWork() {} } },
+    App: { station: () => st }, Pipeline: P, WorkflowLine: W, LineEdit: LE, WorldModel: WM,
+    Build: { nagWhy: c => c, lineSchematic: () => null, machineStill: () => '', lineWords: () => ({ plain: { research_line: 'Research + write' }, purpose: {} }) },
+    World: { syncPlan: () => Promise.resolve({ errors: [] }), bayLive: () => null },
+    ReturnStore: { foldRow: () => true, pendingRows: () => [] },
+    fetch: () => Promise.resolve({ status: 200, json: () => Promise.resolve({ ok: true, jobs: [] }) }),
+  });
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'frontend', 'app', 'windows', 'workflows.js'), 'utf8'), ctx, { filename: 'workflows.js' });
+  const WW = ctx.module.exports, S = WW._state;
+  const make = name => { WW._pick('research_line'); S.draft.name = name; const had = new Set(st.props().map(p => p.id)); WW._create(); return st.props().find(p => p.t === 'intake' && !had.has(p.id)); };
+  const r1 = make('Research');
+  A.ok(r1 && r1.label === 'Research', 'a line called Research');
+  const r2 = make('Line Research');
+  A.ok(r2 && r2.label === 'Line Research 2', '"Line Research" beside Research is Line Research 2 (both would SHOW as LINE RESEARCH) — ' + (r2 && r2.label));
+  A.ok(S.msg && /^✓ Line Research 2 is on your floor/.test(S.msg.text), '…and the window says the name the floor stored — ' + (S.msg && S.msg.text));
+  const r3 = make('Spare'); A.ok(r3 && st.setPropLabel(r3.id, '').ok, 'a line left unnamed');
+  const letter = st.lineLetter(r3.id);
+  const r4 = make(letter);
+  A.ok(r4 && r4.label === letter + ' 2', 'a new workflow named "' + letter + '" beside the unnamed LINE ' + letter + ' is ' + letter + ' 2 — ' + (r4 && r4.label));
+  const shown = st.props().filter(p => p.t === 'intake').map(p => st.lineName(p.id));
+  A.eq(new Set(shown).size, shown.length, 'every line shows a different name — ' + JSON.stringify(shown));
+  A.report('line-names.test');
+})().catch(e => { console.error(e); process.exit(1); });
+

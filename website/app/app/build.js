@@ -3098,6 +3098,12 @@ const Build = (() => {
     return (valComps && valComps.find(c => c.props.indexOf(propId) >= 0)) || null;
   }
   // a line's saved display name: the intake's `label` (line naming rides the INTAKE prop), or null
+  /* a line as every surface names it, by one of its INBOXes (worldmodel.lineName — its first named INBOX, else LINE <its first
+     INBOX's letter>: final floor lane, one name everywhere). An INBOX on no line yet keeps its own label / letter. */
+  function lineWordOf(ip) {
+    const nm = ip && station && station.lineName ? station.lineName(ip.id) : null;
+    return nm || Pipeline.lineWord(ip && ip.label, ip && station && station.lineLetter ? 'LINE ' + station.lineLetter(ip.id) : 'THIS LINE');
+  }
   function lineNameOf(c) {
     if (!c) return null;
     for (const iid of c.intakes) { const ip = station.propById(iid); if (ip && ip.label) return ip.label; }
@@ -3648,7 +3654,7 @@ const Build = (() => {
     const p = station.propById(id);
     if (!p) return 'a removed machine';
     if (p.t === 'bay') return p.label ? String(p.label).toUpperCase() + (p.agentId ? ' · ' + String(agentLabelFor(p.agentId)).toUpperCase() : '') : p.agentId ? String(agentLabelFor(p.agentId)).toUpperCase() : 'AN EMPTY BAY';
-    if (p.t === 'intake') return Pipeline.lineWord(p.label, station.lineLetter ? 'LINE ' + station.lineLetter(p.id) : 'LINE ' + p.id);
+    if (p.t === 'intake') return lineWordOf(p);
     if (p.t === 'outbox') return 'THE OUTBOX';
     return 'THE ' + String(propLabel(p.t)).toUpperCase();
   }
@@ -5206,7 +5212,7 @@ const Build = (() => {
     const key = ids.slice().sort().join(',')+'|'+cuts.map(p=>p.id+':'+p.sendTo).sort().join(',');
     if (sendCutArm && sendCutArm.key===key && performance.now()-sendCutArm.t<6000) { sendCutArm=null; return false; }
     sendCutArm={key,t:performance.now()};
-    const names=cuts.map(p=>{const c=lineOfProp(p.id);return Pipeline.lineWord(c&&lineNameOf(c),c&&c.intakes[0]&&station.lineLetter?'LINE '+station.lineLetter(c.intakes[0]):'LINE '+p.id);});
+    const names=cuts.map(p=>(station.lineNameAt&&station.lineNameAt(p.id))||'A LINE');   // (the one line name: worldmodel.lineName)
     sfx('tick'); flashTip(ev,'THIS CUTS '+cuts.length+' SEND TO'+(cuts.length===1?'':'S')+' FROM '+Array.from(new Set(names)).join(', ')+' — repeat DELETE / REMOVE to continue · Undo restores them',false); return true;
   }
   function deleteSelected(ev) {
@@ -5467,9 +5473,8 @@ const Build = (() => {
     const set = new Set(ps.map(p => p.id));
     if (!m.ids.every(id => set.has(id))) return null;
     // its name rides its INBOX (read off the props, not the compiled lines — a line pasted a moment ago is not compiled yet)
-    const ip = ps.find(p => p.t === 'intake' && p.label), nm = ip ? ip.label : lineNameOf(lineOfProp(ps[0].id));
     const inbox = ps.find(p => p.t === 'intake');
-    return { id: ps[0].id, name: Pipeline.lineWord(nm, inbox && station.lineLetter ? 'LINE ' + station.lineLetter(inbox.id) : 'LINE ' + ps[0].id), links: m.links.length };
+    return { id: ps[0].id, name: (station.lineNameAt && station.lineNameAt(ps[0].id)) || (inbox ? lineWordOf(inbox) : 'THIS LINE'), links: m.links.length };
   }
   // exactly one whole line: Del is the card's DELETE LINE (removeLine — every belt, the tiles under its junctions, a SEND TO into it)
   function deleteGroupOrLine(ev) {
@@ -6880,7 +6885,7 @@ const Build = (() => {
     const names = [];
     for (const l of links || []) {
       const n = l.t === 'bay' ? (l.label ? String(l.label).toUpperCase() : l.agentId ? String(agentLabelFor(l.agentId)).toUpperCase() : 'AN EMPTY BAY')
-        : l.t === 'intake' ? Pipeline.lineWord(l.label, station.lineLetter ? 'LINE ' + station.lineLetter(l.id) : 'LINE ' + l.id)
+        : l.t === 'intake' ? lineWordOf(l)
         : l.t === 'outbox' ? 'AN OUTBOX' : 'A ' + propLabel(l.t);
       if (names.indexOf(n) < 0) names.push(n);
     }
@@ -8068,9 +8073,8 @@ const Build = (() => {
   }
   // a line as the floor names it, by its INBOX (the line's name rides the INBOX label)
   function sendName(intakeId) {
-    const c = lineOfProp(intakeId), nm = c ? lineNameOf(c) : null, ip = station.propById(intakeId);
-    const label = nm || (ip && ip.label) || '';
-    return Pipeline.lineWord(label, station.lineLetter ? 'LINE ' + station.lineLetter(intakeId) : 'LINE ' + intakeId);
+    const ip = station.propById(intakeId);
+    return ip ? lineWordOf(ip) : 'A REMOVED LINE';
   }
   function intakeAt(tx, ty) { const id = station.propAt(tx, ty), p = id && station.propById(id); return p && p.t === 'intake' ? p : null; }
   function commitSendTo(outboxId, intakeId, ev) {
@@ -8377,7 +8381,7 @@ const Build = (() => {
     const bound = isIntake ? true : !!p.agentId;
     // a role-carrying dock's glance names the role it wants while unbound ("BAY · needs a RESEARCHER")
     const ri = (!bound && p.role && typeof WorldModel !== 'undefined' && WorldModel.bayRoleInfo) ? WorldModel.bayRoleInfo(p.role) : null;
-    const txt = isIntake ? Pipeline.lineWord(p.label, station.lineLetter ? 'LINE ' + station.lineLetter(p.id) : 'LINE ' + p.id)
+    const txt = isIntake ? lineWordOf(p)
       : (isPc ? 'PC · ' : (p.label || 'BAY') + ' · ') + (bound ? String(p.agentId).replace(/^tg_/, '') : (ri ? 'needs a ' + p.role + ' — ' + ri.desc : 'unassigned'));
     // dock→dock affordance: a BOUND bay's glance also says where its OUTPUT goes — read from the compiled
     // plan's chain record (valPlan.chains — the same fact the sidecar routes by), so the tag can never

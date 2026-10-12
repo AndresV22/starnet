@@ -995,7 +995,8 @@ const WorkflowPanel = (() => {
         + (r.connected ? '' : ' · <span class="trg-warn">not connected</span>') + '</div></div>').join('');
     const feed = H.feedState(), feedPlan = H.plan() || {};
     const incoming = Object.values(feedPlan.sendTo || {}).filter(s => s.intakeId === p.id);
-    const incomingNames = incoming.map(s => { const l = (feedPlan.lines || []).find(x => x.lineId === s.fromLine); return Pipeline.lineWord(l && l.name, 'LINE ' + s.fromLine); });
+    // the sending line by the one line name (worldmodel.lineName) — never 'LINE p3', the raw key of a line whose BAY went down first
+    const incomingNames = incoming.map(s => { const st = H.station(); return (st && st.lineName ? st.lineName(s.fromLine) : null) || 'another line'; });
     // a schedule SAVED for this line while scheduling is off is not "nothing wired" (2026-09-28 retest) — the switch is right above
     const feedTxt = incomingNames.length ? '✓ FED — ' + [...new Set(incomingNames)].join(' / ') + ' sends its finished work here.' : !feed.known ? 'Checking what feeds this floor…' : feed.fed ? '✓ FED — a channel, an armed routine, a watched folder or a webhook is wired to drop work on this floor.'
       : (tr.offSchedules || []).length ? 'SCHEDULE OFF — this line’s schedule is saved, but scheduling is off for the whole station, so nothing starts it yet. Turn it on above.'
@@ -1529,14 +1530,16 @@ const WorkflowPanel = (() => {
     const no = typeof st.sendToRefusal === 'function' ? st.sendToRefusal(o.id, o.sendTo) : null;
     return { to: o.sendTo, off: !!no, why: no ? (no.msg || no.error || 'it cannot send there') : '' };
   }
+  // a SEND TO chip's line: sendToChoices names it by the one line name (worldmodel.lineName) already
+  const sendChipName = c => c.name || Pipeline.lineWord('', H.station().lineLetter ? 'LINE ' + H.station().lineLetter(c.intakeId) : 'ANOTHER LINE');
   function sendTarget(outboxId) {
     const s = sendState(outboxId); if (!s) return null;
     const on = sendChoices(outboxId).find(c => c.on);
-    return { name: on ? Pipeline.lineWord(on.name, H.station().lineLetter ? 'LINE ' + H.station().lineLetter(on.intakeId) : 'LINE ' + on.intakeId) : 'an INBOX', off: s.off };
+    return { name: on ? sendChipName(on) : 'an INBOX', off: s.off };
   }
   function paintOutbox(body, f, p) {
     const choices = sendChoices(p.id), on = choices.find(c => c.on), ss = sendState(p.id);
-    const nameOf = c => Pipeline.lineWord(c.name, H.station().lineLetter ? 'LINE ' + H.station().lineLetter(c.intakeId) : 'LINE ' + c.intakeId);
+    const nameOf = sendChipName;
     const oldBelts = H.station().oldHandoffBelts ? H.station().oldHandoffBelts(p.id) : [];
     const onName = on ? nameOf(on, choices.indexOf(on)) : null;
     // NOWHERE is pressed only when the OUTBOX points nowhere — a pointer the compiler turned off is still a pointer NOWHERE clears
