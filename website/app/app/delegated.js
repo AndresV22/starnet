@@ -235,9 +235,8 @@ const Delegated = (() => {
     if (!delivery && (!answer || answer.length >= 24000)) {   // the run record caps its delivery: the transcript has the whole answer
       for (let i = (turns || []).length - 1; i >= 0; i--) { const t = turns[i]; if (t && t.role === 'assistant' && typeof t.content === 'string' && t.content.trim()) { answer = t.content; break; } }
     }
-    // A repaired result has a different authoritative transcript. Never expand a capped final answer
-    // from the original failed execution; the caller supplies only the final result's own turns.
-    if (delivery && delivery.state === 'final' && delivery.reason === 'done' && answer.length >= 24000 && deliveryTurns) {
+    // Expand a capped answer only from the finalized delivery projection, never the original execution.
+    if (delivery && delivery.state === 'final' && answer.length >= 24000 && deliveryTurns) {
       for (let i = deliveryTurns.length - 1; i >= 0; i--) {
         const t = deliveryTurns[i]; if (t && t.role === 'assistant' && typeof t.content === 'string' && t.content.trim()) { answer = t.content; break; }
       }
@@ -269,10 +268,10 @@ const Delegated = (() => {
       if (delivery && delivery.state === 'pending' && !['working', 'waiting', 'queued'].includes(stateOf(r, r.ws.parentStreamId, r.lead).cls)) {
         throw new Error('This worker ended, but its finalized result could not be recovered. Try again to retrieve its work.');
       }
-      if (delivery && delivery.state === 'final' && delivery.reason === 'done' && String(delivery.text || '').length >= 24000) {
-        const sourceRun = delivery.repairRunId || runId;
-        const full = sourceRun === runId ? tr : await read('/api/transcript?agent=' + agent + '&stream=' + encodeURIComponent(id) + '&runId=' + encodeURIComponent(sourceRun) + '&limit=500');
-        deliveryTurns = (full && full.turns) || [];
+      if (delivery && delivery.state === 'final' && String(delivery.text || '').length >= 24000) {
+        const full = await read('/api/transcript?stream=' + encodeURIComponent(id) + '&runId=' + encodeURIComponent(runId) + '&delivery=1&limit=1');
+        deliveryTurns = ((full && full.turns) || []).filter(t => t && t.role === 'assistant' && t.sourceRunId === runId && typeof t.content === 'string');
+        if (!deliveryTurns.length || deliveryTurns[0].content.length < String(delivery.text).length) throw new Error('The complete finalized result is unavailable. Try again to retrieve its work.');
       }
       if (receipts.get(id) && receipts.get(id).runId !== runId) return; // a newer run owns this receipt now
       receipts.set(id, { status: 'ok', data: foldReceipt(row, (tr && tr.turns) || [], deliveryTurns), at: Date.now(), runId });

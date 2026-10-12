@@ -45,6 +45,7 @@ function boot(opts) {
     VoiceLive: opts.voiceLive,
     fetch: async (url, init) => {
       if (String(url).indexOf('/api/runs') === 0) return { ok: true, json: async () => ({ runs: opts.runs || [] }) };
+      if (String(url).indexOf('/api/transcript') === 0) return { ok: opts.transcriptUnavailable !== true, json: async () => ({ turns: opts.deliveryTurns || [] }) };
       page.acks.push(JSON.parse(init.body)); return { ok: true };
     },
     document: { addEventListener: () => {} },
@@ -180,6 +181,23 @@ for (const reason of ['done', 'budget', 'max_iters', 'aborted', 'error']) {
   A.eq(env.W.get(worker.id).lastRunReason, 'invalid-result', 'execution done never overrides rejected structured delivery');
   A.eq(env.W.get(worker.id).lastRunOk, false, 'invalid structured delivery is not successful');
   A.eq(env.W.get(worker.id).history.length, 0, 'invalid structured delivery has no raw-text fallback');
+}
+
+// A bounded run-index preview must never lock out the complete validated answer.
+for (const unavailable of [false, true]) {
+  const full = JSON.stringify({ answer: 'validated '.repeat(2600) + 'COMPLETE_TAIL' });
+  const opts = { transcriptUnavailable: unavailable, deliveryTurns: [{ role: 'assistant', sourceRunId: 'long-run', content: full }],
+    runs: [{ runId: 'long-run', streamId: 'long-worker', sessionTitle: 'Long worker', reason: 'done', deliveryText: 'not valid JSON',
+      dispatchDelivery: { state: 'final', text: full.slice(0, 24000), reason: 'done', repairRunId: 'long-repair' } }] };
+  const env = boot(opts), worker = env.W.adopt({ id: 'long-worker', title: 'Long worker', worker: true, parentStreamId: env.W.generalId() });
+  A.eq(await env.S.reconcile(worker.id), unavailable ? 0 : 1, 'only a complete final projection may be recovered');
+  if (unavailable) {
+    A.eq(worker.runIds.length, 0, 'unavailable full output cannot reserve delivery deduplication');
+    await call(env, 'station.deliver', { streamId: worker.id, runId: 'long-run', text: full, reason: 'done' });
+  }
+  A.eq(worker.history[0].content, full, 'the entire accepted answer is retained');
+  A.eq(JSON.parse(worker.history[0].content).answer.endsWith('COMPLETE_TAIL'), true, 'structured output remains valid and complete');
+  A.eq(await env.S.reconcile(worker.id), 0, 'the complete answer remains single');
 }
 
 // Recovering hidden worker state must not reconstruct the unrelated chat the reader is using.

@@ -1145,7 +1145,7 @@ const StationCommands = (() => {
         const delivery = row.dispatchDelivery;
         if (delivery && delivery.state !== 'final') continue;
         const reason = delivery ? delivery.reason : row.reason;
-        const text = delivery ? delivery.text : row.deliveryText;
+        let text = delivery ? delivery.text : row.deliveryText;
         const args = {
           streamId: row.streamId, sessionTitle: row.sessionTitle, agentId: row.agentId,
           runId: row.runId, prompt: row.deliveryPrompt, text, reason, ts: row.ts
@@ -1160,6 +1160,19 @@ const StationCommands = (() => {
           if (noteOutcome(hit.w, String(row.runId), reason)) outcomes++;
           continue;
         }
+        // The run index stores a bounded preview. Do not let that preview deduplicate the complete answer.
+        // Read only the finalized delivery projection; exact execution transcripts may contain rejected output.
+        if (delivery && String(text || '').length >= 24000) {
+          try {
+            const response = await fetch('/api/transcript?stream=' + encodeURIComponent(row.streamId || '') + '&runId=' + encodeURIComponent(row.runId || '') + '&delivery=1&limit=1', { cache: 'no-store' });
+            if (!response.ok) continue;
+            const result = await response.json();
+            const full = (result.turns || []).find(t => t && t.role === 'assistant' && t.sourceRunId === row.runId && typeof t.content === 'string');
+            if (!full || full.content.length < String(text).length) continue;
+            text = full.content;
+          } catch (_) { continue; }
+        }
+        args.text = text;
         // An earlier missed attempt can be recovered after a newer answer was already filed locally.
         // Use the server's run order to insert it before that known successor, preserving current truth.
         const liveRunId = typeof Channels !== 'undefined' && Channels.isBusy && Channels.isBusy(hit.w.id) && Channels.runIdOf && Channels.runIdOf(hit.w.id);
