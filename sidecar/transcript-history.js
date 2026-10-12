@@ -11,6 +11,7 @@
 const { writeFileDurable } = require('./durable-write.js');
 const { note: failNote } = require('./failopen.js');   // a new catch here is never silent (fail-open ratchet)
 const crypto = require('node:crypto');
+const { conversationPreview } = require('./transcriptstore.js');
 
 const VERSION = 2;
 const DEFAULT_SEGMENT_BYTES = 4 * 1024 * 1024;
@@ -96,10 +97,11 @@ function makeSegmentedTranscriptIo(opts) {
     else if (Object.getPrototypeOf(index.terms) !== null) index.terms = Object.assign(Object.create(null), index.terms);
     const sid = str(row.streamId) || 'global';
     let stream = index.streams[sid];
-    if (!stream) stream = index.streams[sid] = { count: 0, lastAt: 0, preview: '' };
+    if (!stream) stream = index.streams[sid] = { count: 0, lastAt: 0, preview: '', previewVersion: 1 };
     stream.count++;
     if (ts >= stream.lastAt) stream.lastAt = ts;
-    if (row.role === 'user' && row.content) stream.preview = str(row.content).replace(/\s+/g, ' ').trim().slice(0, 160);
+    const preview = conversationPreview(row);
+    if (preview) stream.preview = preview.replace(/\s+/g, ' ').trim().slice(0, 160);
     for (const term of tokenize(row.content)) {
       const ids = index.terms[term] || (index.terms[term] = []);
       ids.push(id);
@@ -454,7 +456,9 @@ function makeSegmentedTranscriptIo(opts) {
       let dst = by.get(sid);
       if (!dst) dst = { streamId: sid, turns: 0, lastAt: 0, preview: '' };
       dst.turns += num(s.count);
-      if (num(s.lastAt) >= dst.lastAt) { dst.lastAt = num(s.lastAt); if (s.preview) dst.preview = str(s.preview).slice(0, previewChars); }
+      // Older closed indexes lack visibility provenance; omit their preview until a normal index rebuild.
+      // Never scan every conversation body merely to list threads.
+      if (num(s.lastAt) >= dst.lastAt) { dst.lastAt = num(s.lastAt); if (s.previewVersion === 1 && s.preview) dst.preview = str(s.preview).slice(0, previewChars); }
       by.set(sid, dst);
     }
     return Array.from(by.values()).sort((a, b) => (b.lastAt - a.lastAt) || (a.streamId < b.streamId ? -1 : a.streamId > b.streamId ? 1 : 0)).slice(0, limit);

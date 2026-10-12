@@ -219,4 +219,36 @@ function ioAt(base, extra) {
     A.throws(() => store.history('full', { sourceRunId: 'original', dispatchState: 'final', strict: true }), 'strict acceptance lookup rejects corrupt segment rather than falling back to RAM');
   } finally { remove(dir); }
 }
+
+// Conversation previews use indexed visible prompts, never internal repair instructions, without per-thread scans.
+{
+  const dir = temp('history-conversation-preview');
+  try {
+    let reads = 0, tick = 1;
+    const countedFs = Object.create(fs); countedFs.readFileSync = (...args) => { reads++; return fs.readFileSync(...args); };
+    let io = ioAt(dir, { fs: countedFs, segmentBytes: 500 });
+    let store = makeTranscriptStore({ io, clock: { now: () => tick++ } });
+    store.appendStrict({ streamId: 'chat', role: 'user', content: 'Original visible question' });
+    store.appendStrict({ streamId: 'chat', sourceRunId: 'original', dispatchState: 'pending', role: 'user', content: 'RAW CONTRACT' });
+    store.appendStrict({ streamId: 'chat', sourceRunId: 'repair', dispatchState: 'internal', role: 'user', content: 'INTERNAL REPAIR PROMPT' });
+    A.eq(store.streams().find(r => r.streamId === 'chat').preview, 'Original visible question', 'pending/internal rows never replace indexed visible preview');
+    store.appendStrict({ streamId: 'chat', sourceRunId: 'original', dispatchState: 'final', role: 'assistant', content: 'accepted', dispatchPrompt: 'Accepted work request', dispatchReason: 'done' });
+    store.appendStrict({ streamId: 'chat', sourceRunId: 'repair', dispatchState: 'internal', role: 'user', content: 'LATE INTERNAL PROMPT' });
+    const before = reads;
+    A.eq(store.streams().find(r => r.streamId === 'chat').preview, 'Accepted work request', 'accepted projection supplies the original visible work request as preview');
+    A.eq(reads, before, 'indexed stream previews require no transcript body reads');
+    store = makeTranscriptStore({ io: ioAt(dir, { segmentBytes: 500 }), clock: { now: () => tick++ } });
+    A.eq(store.streams().find(r => r.streamId === 'chat').preview, 'Accepted work request', 'safe preview survives segmented restart');
+    A.ok(store.history('chat', { sourceRunId: 'repair' }).some(r => r.content === 'INTERNAL REPAIR PROMPT'), 'preview filtering never removes raw execution evidence');
+    // Old closed-segment summaries have no visibility provenance; omit their preview until normal index rebuild.
+    const manifestFile = path.join(dir, 'history', 'manifest.json');
+    const manifest = JSON.parse(fs.readFileSync(manifestFile, 'utf8'));
+    for (const segment of manifest.segments) if (segment.number !== manifest.activeSegment && segment.streams.chat) {
+      delete segment.streams.chat.previewVersion; segment.streams.chat.preview = 'UNVERIFIED OLD REPAIR PREVIEW';
+    }
+    fs.writeFileSync(manifestFile, JSON.stringify(manifest));
+    store = makeTranscriptStore({ io: ioAt(dir, { segmentBytes: 500 }), clock: { now: () => tick++ } });
+    A.ok(!/UNVERIFIED/.test(store.streams().find(r => r.streamId === 'chat').preview), 'unversioned closed preview metadata is not trusted as visible conversation text');
+  } finally { remove(dir); }
+}
 A.report('transcript-history-v2.test');
