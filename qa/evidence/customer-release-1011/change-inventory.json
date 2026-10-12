@@ -23379,5 +23379,35 @@
       ],
       "updatedAt": "2026-10-12T11:10:19.621Z"
     }
-  ]
+  ],
+  "reviewCandidateFollowUp": {
+    "head": "080c1f50c9cada59f37f3f04b8e2c99a3f7b6590",
+    "baseSnapshot": "f90409837a5a69faf32ca3bf2e918bed8c508d4a",
+    "scope": "Incremental committed path inventory after retained full snapshot. Path/history classification is not independent semantic/live/installed/customer acceptance.",
+    "wholeUpdateFileCount": 704,
+    "deltaFromIntegratedFileCount": 391,
+    "pathsChangedSinceSnapshot": [
+      "docs/NEXT.md",
+      "docs/releases/next/NOTES_DRAFT.md",
+      "frontend/app/tutorial.js",
+      "qa/BUGS.md",
+      "qa/bugs/b5c41b7c-render-refresh-publishes-held-build-edits.md",
+      "qa/evidence/customer-release-1011/build-render-publication.json",
+      "qa/evidence/customer-release-1011/change-inventory.json",
+      "qa/evidence/customer-release-1011/readiness-review.md",
+      "qa/evidence/customer-release-1011/review-findings.json",
+      "qa/evidence/customer-release-1011/source-gates.json",
+      "qa/product-perfect/claims.json",
+      "test/refit-bake-reuse.test.js",
+      "website/app/app/tutorial.js",
+      "website/docs/guides/first-line.html",
+      "website/docs/providers.html",
+      "website/docs/search-index.js"
+    ],
+    "sourceChanges": [
+      "One-line helper-counter settlement513cf8817, independently accepted in source",
+      "Customer-question-driven documentation1e9e00fb9, workstation-manual correctionda237c1ec and explicit-limit qualifier080c1f50c; independently accepted in source"
+    ],
+    "newEvidenceFilesInLaterCommits": "Not part of this pinned snapshot; inspect final revision before release."
+  }
 }

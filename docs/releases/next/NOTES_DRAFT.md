@@ -1,6 +1,6 @@
 # StarNet — next release (draft)
 
-DRAFT updated 2026-10-12 for the release after v0.13.2. This describes the combined isolated candidate through `f90409837`, extending integrated source `a20ffa71f`; it is not a published or installed-verified release. Reconcile the final candidate before copying these notes. `release:bump` replaces root `RELEASE_NOTES.md` with a scaffold; keep the current public release notes intact until the cut.
+DRAFT updated 2026-10-12 for the release after v0.13.2. This describes the combined isolated candidate through `080c1f50c`, extending integrated source `a20ffa71f`; it is not a published or installed-verified release. Reconcile the final candidate before copying these notes. `release:bump` replaces root `RELEASE_NOTES.md` with a scaffold; keep the current public release notes intact until the cut.
 
 ## Update Center summary draft
 
@@ -10,6 +10,7 @@ The summary above is under the Update Center's 520-character limit. Retain the i
 
 ## User-facing changes included in source
 
+- **Setup guidance.** The provider reference explains account pairing, per-agent models, reasoning effort and account plans. The first-workflow guide uses current controls, distinguishes preview from real jobs and asks users to check readiness and final output. Unknown billing receipts remain explicitly unresolved.
 - **Conveyors and onward work.** Build lines by dragging between machines. SEND TO passes an OUTBOX's finished job to another line's INBOX while preserving the producing workspace and the target line's own crew, job record and budget. COPY, TAKE TURNS and SPLIT THE JOB retain their distinct routing behavior.
 - **Conveyor completion and budgets.** Parallel/JOINER lines explain why whole-line STEP THROUGH is unavailable; individual-step tests remain available. Entry paths respect exhausted daily line budgets. SHIPPED counts recorded productive OUTBOX jobs once, survives restart and floor edits, and reports unavailable history when durable records cannot be read. Duplicate completion events retain the original joined work.
 - **Pending floor edits.** Late artwork, lighting refreshes and still-image reads preserve unpublished Build edits. Closing Build or explicitly starting a line publishes through the existing path.
@@ -29,7 +30,7 @@ The summary above is under the Update Center's 520-character limit. Retain the i
 - **Local models.** Ollama request formatting accommodates strict system-message templates. Unfinished HTTP error bodies remain cancellable and use the existing idle watchdog. Timeout messages describe what StarNet observed. The separately reported long wait before an Ollama chat request is still under investigation.
 - **Web diagnostics.** Post-header decoding and socket failures retain bounded cause codes and hostnames without including page contents or URL secrets. This does not establish a fix for the reported Mac transport incident.
 - **Files and child tools.** Browser uploads resolve the current project's file and verify what was selected. Ambiguous file patches are refused before writing; Windows child tools retain their required runtime environment. Selecting an upload is not proof that the destination website accepted it.
-- **Spending review.** Old pending receipts whose billing source was not recorded now say BILLING SOURCE UNKNOWN. Recorded managed and BYOK receipts retain their distinct guidance. Historical charges, caps and billing sources are not guessed; unresolved spend still blocks capped work. This improves the guidance but does not reconcile affected customer accounts.
+- **Spending review.** Old pending receipts whose billing source was not recorded now say BILLING SOURCE UNKNOWN. Recorded managed and BYOK receipts retain their distinct guidance. Historical charges, caps and billing sources are not guessed; unresolved spending can block work under explicitly configured spending limits. This improves the guidance but does not reconcile affected customer accounts.
 - **Update Center.** A known available update survives restart, opening the panel triggers a fresh check, and last-check state is shown separately from whether an update is available.
 - **Fresh start and recovery.** Automatic legacy recovery respects an explicit erase/fresh start while preserving deliberate restore options.
 - **Saved-station diagnostics.** Recovery codes and copied fallback reports follow the latest retry and measured engine failure. These changes preserve save bytes and improve support evidence; they do not establish the cause of the original customer loading report.

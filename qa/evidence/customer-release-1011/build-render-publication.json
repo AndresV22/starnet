@@ -148,5 +148,13 @@
     "The original full-HTTP49 failure did not record its callback. The controlled actual callback proves this defect, not the identity of every historical failure.",
     "The full fast pass on ccd is historical after this production repair. Complete new-source gates, installed acceptance and customer recovery remain pending.",
     "Topology confirmation is not promoted to full publication confirmation; existing conservative guards remain."
-  ]
+  ],
+  "testReportingFollowUp": {
+    "source": "513cf8817a3515a5e147ebd28196344156848c0f",
+    "reason": "Fullfast9350 failed922 static helper-settlement lint. Existing strict assertions already throw; only fnBody was imported.",
+    "change": "Read/assert shared helper failure counter after existing assertions. Production and lint unchanged.",
+    "sourceReview": "worktree_audit accepted exact one-line diff.",
+    "validation": "Syntax and diff checks PASS; runtime/mutation controls prepared but deferred during scheduled Guardian.",
+    "testSha256": "14c1a26eb2932d1d9bca6f2aad746e8e591ba89185621daaa308374bb023dbdf"
+  }
 }

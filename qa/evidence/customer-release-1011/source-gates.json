@@ -313,7 +313,7 @@
       "error": null,
       "logSha256": "13dd567fc5e41dc4a979c090b3c82887de4545e1b2e8a717efeb6a264c4ddea4",
       "command": "npm run test:fast",
-      "log": ".handoff/customer-final-fast.log",
+      "log": ".handoff/customer-ccd-fast.log",
       "scope": "Exact historical source gate; superseded by production repair f90409837a5a69faf32ca3bf2e918bed8c508d4a. No installed/customer acceptance."
     },
     {
@@ -344,7 +344,7 @@
       "error": null,
       "sourceUnchanged": true,
       "logSha256": "4c770ec0985a2768c88be3e2012fb2a2f98bc6851f6bf6181619257e245b1163",
-      "diskSamples": ".handoff/customer-final-http.disk-samples.json",
+      "diskSamples": ".handoff/customer-ccd-http-second.disk-samples.json",
       "minimumObservedAvailableBytes": 556920832,
       "diskSamplingMs": 100,
       "diskSamplesCount": 2385,
@@ -361,8 +361,37 @@
         "fix": "f90409837a5a69faf32ca3bf2e918bed8c508d4a",
         "evidence": "qa/evidence/customer-release-1011/build-render-publication.json"
       }
+    },
+    {
+      "candidate": "9350db92c0ed71814d69abc39483ed72b91332cc",
+      "startedAt": "2026-10-12T12:50:08.814Z",
+      "finishedAt": "2026-10-12T12:59:54.288Z",
+      "steps": 1154,
+      "exitCode": 1,
+      "commandExitCode": 1,
+      "signal": null,
+      "error": null,
+      "sourceUnchanged": true,
+      "logSha256": "c9f524e6698ddff621ef98a55f41b3b0f673aa0ef7273bb917a5666d91b80b5d",
+      "diskSamples": ".handoff/customer-9350-fast.disk-samples.json",
+      "minimumObservedAvailableBytes": 552857600,
+      "diskReserveMet": true,
+      "scope": "Full source gate failed before HTTP/campaign. Guard drained owned descendants and released lease. No installed/customer acceptance.",
+      "command": "npm run test:fast",
+      "log": ".handoff/customer-9350-fast.log",
+      "failedStep": 922,
+      "completedSteps": 921,
+      "failure": {
+        "test": "test/lint-gate-can-fail.js",
+        "detail": "Static helper-settlement lint mistakes node:assert/strict calls for counter assertions because the file imports _assert.fnBody. Existing assertions already throw; no inability to fail was demonstrated."
+      },
+      "followUp": {
+        "fix": "513cf8817a3515a5e147ebd28196344156848c0f",
+        "change": "Final strict assertion reads shared failure counter, preserving all original assertions and lint.",
+        "sourceReview": "worktree_audit accepted exact one-line diff; runtime controls pending."
+      }
     }
   ],
   "scope": "Revision-bound source gates, including failures. Later evidence-only changes do not establish the cause of a failed run. These receipts do not establish installed/customer acceptance or release readiness.",
-  "updatedAt": "2026-10-12T12:32:45.681Z"
+  "updatedAt": "2026-10-12T13:15:00.026Z"
 }
