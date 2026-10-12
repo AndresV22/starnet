@@ -168,6 +168,11 @@ for (const reason of ['done', 'budget', 'max_iters', 'aborted', 'error']) {
   const out = await call(env, 'station.deliver', { streamId: worker.id, runId: 'raw-run', text: runs[0].dispatchDelivery.text, reason: 'done' });
   A.eq(out.result.folded, true, 'the authoritative repaired result is accepted under the original run');
   A.eq(worker.history.map(m => m.content), ['{"ok":true}'], 'only the validated answer is visible');
+  A.eq([worker.history[0].sourceRunId, worker.history[0].streamId], ['raw-run', worker.id], 'folded answer retains exact run and conversation ownership');
+  const chatSource = fs.readFileSync(path.join(__dirname, '../frontend/app/chat.js'), 'utf8');
+  const merge = new Function('return (' + A.fnBody(chatSource, 'function mergeCanonicalHistory(local, turns)') + ')')();
+  const canonicalFinal = { ...worker.history[0], dispatchState: 'final', dispatchReason: 'done', rowId: 12 };
+  A.eq(merge(JSON.parse(JSON.stringify(worker.history)), [canonicalFinal]).length, 1, 'newly folded answer is not duplicated by canonical restoration');
   A.eq(await env.S.reconcile(worker.id), 0, 'final delivery recovery is idempotent');
   // Recreate page storage without the live bridge delivery, as after a missed ACK/restart.
   env.W.init({ generalId: 'general', activeId: 'general', workstreams: [{ id: 'general' },

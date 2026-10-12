@@ -36,6 +36,9 @@ A.eq(JSON.stringify(local), original, 'merging does not mutate the saved desktop
 A.eq(merged.filter(r => r.dispatchState === 'final').length, 1, 'same-text ordinary row cannot consume or duplicate final identity');
 const noTaint = Object.assign({}, final); delete noTaint.taint;
 A.eq(merge(local, [question, noTaint])[1].taint, 'saved-source', 'saved taint survives when canonical adds none');
+const healedFailure = merge([question, { ...local[1], error: true, stopped: true, stopNote: 'original failed' }], canonical)[1];
+A.ok(!healedFailure.error && !healedFailure.stopped && !healedFailure.stopNote, 'accepted answer does not inherit obsolete failure flags');
+A.eq(healedFailure.supersededStatus, { error: true, stopped: true, stopNote: 'original failed' }, 'superseded status remains available as separate evidence');
 A.eq(merge([{ role: 'assistant', content: 'unfinalized', sourceRunId: 'p' }], [{ role: 'assistant', content: 'raw', sourceRunId: 'p', dispatchState: 'pending' }]).map(r => r.content), ['raw', 'unfinalized'], 'unfinalized canonical rows do not gain replacement authority');
 const collision = merge([{ role: 'assistant', content: final.content, sourceRunId: 'ordinary' }, local[1]], [{ role: 'assistant', content: final.content, sourceRunId: 'ordinary' }, final]);
 A.eq(collision.map(r => r.sourceRunId), ['ordinary', 'original'], 'ordinary canonical text cannot consume the reserved final slot');

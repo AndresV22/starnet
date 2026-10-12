@@ -1611,6 +1611,35 @@ const Chat = (() => {
   }
 
   function mergeCanonicalHistory(local, turns) {
+    // Only the canonical final row can supersede saved prose, and only by explicit run identity.
+    const finals = new Map(), finalSlots = new Map();
+    const sameRun = (a, b) => !!a.sourceRunId && String(a.sourceRunId) === String(b.sourceRunId)
+      && (!a.agentId || !b.agentId || a.agentId === b.agentId)
+      && (!a.streamId || !b.streamId || a.streamId === b.streamId);
+    const withFinal = (prior, canonical) => {
+      const row = Object.assign({}, prior, canonical);
+      // A rejected attempt's failure flags are evidence, not the accepted answer's status.
+      // In particular, error:true would exclude this accepted answer from the next model turn.
+      const supersededStatus = Object.assign({}, prior.supersededStatus, canonical.supersededStatus);
+      for (const key of ['error', 'stopped', 'stopNote']) {
+        if (prior[key] != null) supersededStatus[key] = prior[key];
+        delete row[key];
+        if (Object.prototype.hasOwnProperty.call(canonical, key)) row[key] = canonical[key];
+      }
+      if (Object.keys(supersededStatus).length) row.supersededStatus = supersededStatus;
+      if (canonical.taint || prior.taint) row.taint = canonical.taint || prior.taint;
+      const attachments = [], seen = new Set();
+      for (const item of [].concat(prior.attachments || [], canonical.attachments || [])) {
+        const key = JSON.stringify(item);
+        if (!seen.has(key)) { seen.add(key); attachments.push(item); }
+      }
+      if (attachments.length) row.attachments = attachments;
+      return row;
+    };
+    for (const turn of Array.isArray(turns) ? turns : []) {
+      if (turn && !turn.sys && turn.role === 'assistant' && turn.dispatchState === 'final'
+          && turn.sourceRunId && String(turn.content || '').trim() && !finals.has(String(turn.sourceRunId))) finals.set(String(turn.sourceRunId), turn);
+    }
     const runParts = new Map();
     for (const turn of Array.isArray(turns) ? turns : []) {
       if (!turn || turn.role !== 'assistant' || !turn.sourceRunId) continue;
@@ -1619,10 +1648,6 @@ const Chat = (() => {
       const parts = runParts.get(String(turn.sourceRunId)) || [];
       parts.push(text); runParts.set(String(turn.sourceRunId), parts);
     }
-    // Streaming can combine several provider turns into one local reply. Prefer
-    // their durable turns only when the run identity AND exact contiguous bytes
-    // prove that the entire aggregate is already committed. This also heals old
-    // saves, whose assistant row inherited identity only from its preceding user.
     const committedAggregate = (row, runId) => {
       if (row.role !== 'assistant' || row.rowId || row.stopped || row.error || (row.attachments && row.attachments.length)) return false;
       const parts = runParts.get(runId) || [], text = String(row.content || '');
@@ -1637,23 +1662,22 @@ const Chat = (() => {
       }
       return false;
     };
-    // THE LOCAL THREAD OWNS ITS ORDER (2026-09-13). The durable transcript is NOT a byte-exact superset of what
-    // the Commander saw: a group/@mention run records its user turn as a "Shared conversation context…" packet,
-    // a screen capture is journaled as a synthetic user turn, and error / stopped / delegated / retried rows only
-    // ever exist locally. The old merge emitted the server's turns first and pushed every unmatched local row to
-    // the END — so a user's own questions slid to the bottom, internal prompts surfaced as their messages, and
-    // App.persist() made the scramble permanent on every open ("history disappears"). Now: walk the local rows in
-    // their own order and keep every one in place; a durable turn with an exact local twin ENRICHES that row
-    // (ts / rowId / sourceRunId); a durable turn the local thread never saw (headless cron / channel / page-closed
-    // completion) is INSERTED right after the last row a durable turn anchored to. Nothing is ever reordered.
-    const kept = [];   // { row, key } — the surviving local rows, original order
-    const buckets = new Map();   // role\0content -> queue of kept indices (occurrence-aware, like before)
+    const kept = [], buckets = new Map();
     let userRunId = '';
-    for (const row of Array.isArray(local) ? local : []) {
-      // settled local status lines (failed / silent / nothing-to-report) stay exactly where they were. A pending
-      // transcript warning is rebuilt from the latest read below, so it vanishes as soon as canonical prose lands.
+    for (let row of Array.isArray(local) ? local : []) {
       if (row && row.sys) { if (!row.transcriptPending) kept.push({ row, key: null }); continue; }
       if (!row || (row.role !== 'user' && row.role !== 'assistant')) continue;
+      const final = row.role === 'assistant' && finals.get(String(row.sourceRunId || ''));
+      if (final && sameRun(row, final)) {
+        const id = String(final.sourceRunId);
+        if (finalSlots.has(id)) {
+          const keptRow = kept[finalSlots.get(id)];
+          keptRow.row = withFinal(row, keptRow.row);
+          continue;
+        }
+        row = withFinal(row, final);
+        finalSlots.set(id, kept.length);
+      }
       if (row.role === 'user') userRunId = String(row.sourceRunId || '');
       if (committedAggregate(row, String(row.sourceRunId || userRunId))) continue;
       if (row.role === 'assistant' && !String(row.content == null ? '' : row.content).trim()) continue;
@@ -1661,12 +1685,7 @@ const Chat = (() => {
       const q = buckets.get(key) || []; q.push(kept.length); buckets.set(key, q);
       kept.push({ row, key });
     }
-    // User-role rows the sidecar journals that were never typed by the Commander: the group-session context packet
-    // (sidecar/group-sessions.js) and the screen-capture injection (sidecar/loop.js). Prefix-matched on purpose —
-    // both are fixed harness strings, and a real message that merely mentions them does not START with them.
     const internalTranscriptPrompt = text => /^Shared conversation context \(/.test(text) || /^\[BEGIN EXTERNAL SCREEN CAPTURE/.test(text);
-    // Durable-only turns, keyed by the kept index they follow (-1 = before the first local row). Occurrence queues,
-    // rather than a Set, keep two identical user turns distinct while still preventing a duplicate final answer.
     const inserts = new Map();
     let anchor = -1;
     for (const turn of Array.isArray(turns) ? turns : []) {
@@ -1674,14 +1693,18 @@ const Chat = (() => {
       const content = String(turn.content == null ? '' : turn.content);
       if (turn.role === 'assistant' && !content.trim()) continue;
       const key = turn.role + '\u0000' + content;
-      const q = buckets.get(key), idx = (q && q.length) ? q.shift() : -1;
+      const q = buckets.get(key), authoritative = turn.role === 'assistant' && turn.dispatchState === 'final' && finals.get(String(turn.sourceRunId || '')) === turn;
+      // A matching sentence from another run must never acquire this dispatch's identity.
+      const at = q ? q.findIndex(i => authoritative ? sameRun(kept[i].row, turn)
+        : finalSlots.get(String(kept[i].row.sourceRunId || '')) !== i) : -1;
+      const idx = at >= 0 ? q.splice(at, 1)[0] : -1;
       if (idx >= 0) {
         const prior = kept[idx].row;
-        kept[idx].row = Object.assign({}, turn, prior, { role: turn.role, content, ts: turn.ts != null ? turn.ts : prior.ts });
+        kept[idx].row = authoritative ? withFinal(prior, turn) : Object.assign({}, turn, prior, { role: turn.role, content, ts: turn.ts != null ? turn.ts : prior.ts });
         anchor = idx;
         continue;
       }
-      if (turn.role === 'user' && internalTranscriptPrompt(content)) continue;   // harness packets are not Commander speech
+      if (turn.role === 'user' && internalTranscriptPrompt(content)) continue;
       const list = inserts.get(anchor) || []; list.push(Object.assign({}, turn, { role: turn.role, content })); inserts.set(anchor, list);
     }
     const merged = [];

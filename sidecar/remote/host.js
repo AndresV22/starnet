@@ -93,6 +93,15 @@ function makeRemoteHost(d) {
       && (!a.streamId || !b.streamId || a.streamId === b.streamId);
     const withFinal = (prior, canonical) => {
       const row = Object.assign({}, prior, canonical);
+      // A rejected attempt's failure flags are evidence, not the accepted answer's status.
+      // In particular, error:true would exclude this accepted answer from the next model turn.
+      const supersededStatus = Object.assign({}, prior.supersededStatus, canonical.supersededStatus);
+      for (const key of ['error', 'stopped', 'stopNote']) {
+        if (prior[key] != null) supersededStatus[key] = prior[key];
+        delete row[key];
+        if (Object.prototype.hasOwnProperty.call(canonical, key)) row[key] = canonical[key];
+      }
+      if (Object.keys(supersededStatus).length) row.supersededStatus = supersededStatus;
       if (canonical.taint || prior.taint) row.taint = canonical.taint || prior.taint;
       const attachments = [], seen = new Set();
       for (const item of [].concat(prior.attachments || [], canonical.attachments || [])) {
