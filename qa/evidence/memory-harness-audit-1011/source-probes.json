@@ -1,0 +1,49 @@
+{
+  "sha": "a20ffa71fd04691805ea55c7d08165438dd7ac6f",
+  "kind": "deterministic production-module probes, not live app/customer proof",
+  "lexical": {
+    "paraphraseIds": [],
+    "exactIds": [
+      "note_1"
+    ],
+    "syntheticSemanticIds": [
+      "note_1"
+    ]
+  },
+  "pinned": {
+    "stored": 12,
+    "ranked": 8,
+    "rendered": 4,
+    "renderedIds": [
+      "note_12",
+      "note_11",
+      "note_10",
+      "note_9"
+    ]
+  },
+  "taste": {
+    "stored": 9,
+    "alwaysIncluded": 8,
+    "olderGlobalPreferenceIncluded": false,
+    "foreignOrdinaryGlobalIncluded": 0
+  },
+  "capture": {
+    "shortUntooledPreferenceEligible": false,
+    "earlierPreferenceInReflection": false
+  },
+  "skills": {
+    "writerCount": 1,
+    "overseerCount": 0,
+    "stored": 60,
+    "visible": 27,
+    "omitted": 33,
+    "earlyCorrectionInReview": false,
+    "toolNameInReview": true,
+    "toolArgumentsInReview": false
+  },
+  "taintSources": {
+    "web": true,
+    "mcp": true,
+    "attachment": true
+  }
+}

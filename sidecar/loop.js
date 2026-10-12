@@ -1966,11 +1966,11 @@
           continue;
         }
         if (decision.reason === 'provider_stalled') {
-          // Name the stall honestly — which model, how many silent attempts, what the watchdog saw — so the
+          // Name the stall honestly — which model, how many idle expiries, what the watchdog saw — so the
           // Commander reads "the model stopped responding", not a generic timeout after half an hour.
           fatal = Object.assign({}, cls, {
             reason: 'provider_stalled', retryable: true,
-            message: 'model stalled: ' + idleStalls + ' consecutive attempts on ' + model + ' received no response bytes ('
+            message: 'model stalled: ' + idleStalls + ' consecutive attempts on ' + model + ' hit the response idle timeout ('
               + String((streamErr && streamErr.message) || 'idle timeout') + ') — stopped instead of waiting out the rest of the retry ladder. The provider may be down or overloaded; try again later or switch models.'
           });
         } else fatal = cls;                          // unrecoverable / chain exhausted / retries spent

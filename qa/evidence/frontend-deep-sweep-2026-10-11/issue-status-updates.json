@@ -1,0 +1,117 @@
+[
+  {
+    "number": 15,
+    "status": "Released lead builder plus integrated scoped worker lending; broader gallery and area authority remain partial",
+    "category": "Partly addressed / feature scope remains",
+    "summary": "a20 includes the formerly pending builder-lend and worker-thread branches. Per-job station.map/plan/build lending is implemented; unmerged layout exchange, persistent area construction and community gallery remain distinct.",
+    "evidence": [
+      "86b1ddc9c and 691aa23b5 are ancestors of a20",
+      "312499626/c6e6f5f0c worker-attributed/shared-broker asks are ancestors of a20",
+      "05a5fe757/e0d1161af build-share are not ancestors of a20"
+    ],
+    "nextAction": "Validate current combined-source specialist discovery, foreground/background/resume, Commander approval attribution and refusal when the lead lacks builder authority. Keep the grant one worker/one job. Reconcile the old shared-layout branch against current authority before integration; scope gallery, persistent area authority and private presets separately.",
+    "limitations": "No new natural borrowed-builder live acceptance in this frontend fixture; controlled question navigation does not prove autonomous questions or installed delivery."
+  },
+  {
+    "number": 81,
+    "status": "Same-job aggregation and inter-line SEND TO integrated; independent department aggregation and customer file-scope report remain unproved",
+    "category": "Partly addressed / investigation remains",
+    "summary": "JOINER combines one job; SEND TO starts another line job with its own crew/budget. Runtime SEND TO stop/drop/deleted-target receipts and worker parent-run batching are now integrated, not pending.",
+    "evidence": [
+      "081aecd06 and a783de82e are ancestors of a20",
+      "312499626/c6e6f5f0c batching is integrated",
+      "test/line-sendto.test.js 92 and test/conveyor-floor-integrity.test.js 82 assertions pass",
+      "frontend/app/workflowpanel.js:1116 and :1426"
+    ],
+    "nextAction": "Use COPY TO EACH plus JOINER for a single executive report; use SEND TO for sequential departments. For the missing file, set the INBOX Working folder and correlate actual fs.write and fs.read absolute-location receipts in the same trusted project. Verify late worker batching separately from conveyor aggregation.",
+    "limitations": "No customer departmental station or file receipts reproduced; source is not installer release or arbitrary independent-job aggregation proof."
+  },
+  {
+    "number": 86,
+    "status": "Desk assignment released and broader build UI integrated; shared-layout exchange and persistent personal presets still pending",
+    "category": "Partly addressed / feature scope remains",
+    "summary": "SELECT MOVES, THE HAND, copy/paste and declutter are integrated current behaviors. Unmerged portable shared-layout exchange deliberately omits authority and paid user assets; it is not the requested private preset shelf.",
+    "evidence": [
+      "fffbea9a2 desk assignment is in v0.13.2",
+      "docs/DECISIONS.md:186-190 current build contract",
+      "test/build-hand.test.js 137 and test/build-clip.test.js 178 assertions pass",
+      "05a5fe757/e0d1161af are not ancestors of a20"
+    ],
+    "nextAction": "Review old build-share against current combined-source import, room and line authority, then verify its limited file interchange behavior before integration. Define private named presets separately with own agent assignments and custom-asset references, missing-dependency preview and durable undo/backup. A community browser remains separate.",
+    "limitations": "No personal preset or paid asset restore live proof; do not equate portable layout sharing with the broader feature request."
+  },
+  {
+    "number": 69,
+    "status": "Released pacing and additional nav-lag/cache work integrated; reported 24-hour memory growth still unproved",
+    "category": "Partly addressed / soak required",
+    "summary": "The formerly pending nav-lag feature commits are all integrated. Focused current-source frame and static-cache checks pass, without proving the overnight WebView2 allocation complaint.",
+    "evidence": [
+      "7688999fa/37b595d21/b38ef4cf6 ancestors of a20",
+      "test/render-pacing.test.js 63 assertions",
+      "test/static-bake-guard.test.js 13 assertions"
+    ],
+    "nextAction": "Run a controlled installed WebView2 24-hour soak matching seven agents/eight routines, focused and unfocused, recording frame pace, private bytes, dedicated/shared GPU memory, resource counts and input latency. Correlate growth before proposing another pacing edit.",
+    "limitations": "No overnight native soak or customer profile; original memory-growth causality remains a reporter hypothesis."
+  },
+  {
+    "number": 85,
+    "status": "Release Quest Log mitigation present; affected station and history continuity retest still pending",
+    "category": "Partly addressed / mitigation",
+    "summary": "Quest Log recursion repair remains present. New declutter/work-thread behavior does not prove that the original history-unavailable symptom recovered.",
+    "evidence": [
+      "ee3d5853a release mechanism retained",
+      "test/declutter-recovery.test.js 19 and test/declutter-strips.test.js 52 pass for their display scenarios only"
+    ],
+    "nextAction": "Retest populated Quest Log while switching and sending in COMMS on the actual supported installed build. If history remains unavailable, capture its exact failing request/status after responsiveness is restored and investigate continuity separately.",
+    "limitations": "No customer station or original long-uptime trace; focused declutter checks do not reproduce #85."
+  },
+  {
+    "number": 84,
+    "status": "Related release mitigation retained; original copy-report/history failure remains uncorrelated",
+    "category": "Partly addressed / mitigation",
+    "summary": "Historic model/billing errors were classified and retired after clean runs. No new evidence links every history-loading failure to Quest Log recursion.",
+    "evidence": [
+      "Original #84/#85 shared-session correlation and ee3d5853a source evidence remain unchanged"
+    ],
+    "nextAction": "Retest alongside #85 without blind duplicate closure. Confirm obsolete quests clear after a clean run and read the actual history request status before changing provider behavior.",
+    "limitations": "No fresh failing endpoint or customer recovery evidence."
+  },
+  {
+    "number": 76,
+    "status": "Released Resume/link repairs and redirect source retained; deployment and account recovery unverified",
+    "category": "Partly addressed / mitigation",
+    "summary": "The deep frontend pass found no new proof of the affected account resuming or of deployed website sign-in aliases succeeding. Updater changes reviewed by root are distinct from managed-account Resume.",
+    "evidence": [
+      "5ed6e143b/36bbe8f8c Resume retry and link state fixes are release ancestors",
+      "website/_redirects contains sign-in/account aliases"
+    ],
+    "nextAction": "Retest installed Resume with the affected account and capture the precise failing sign-in URL and HTTP outcome. Verify deployed website aliases separately from desktop source ancestry; use official support channels for the community-support request.",
+    "limitations": "No affected-account access, successful deployment request or customer recovery proof in this lane."
+  },
+  {
+    "number": 28,
+    "status": "Builder lending, publication and routing repairs integrated; original Telegram line and Drive/PDF delivery still require replay",
+    "category": "Unresolved customer-path investigation",
+    "summary": "The formerly pending builder-lend/runtime/worker-session changes now exist in a20, including exact-floor publication. These mechanisms do not establish the original external Telegram-to-conveyor-to-Drive path.",
+    "evidence": [
+      "691aa23b5/a783de82e/720f5438d ancestors of a20",
+      "dd731e1a1 exact built-floor publication repair included in combined baseline",
+      "Current frontend line and copy checks pass as listed in coverage.json"
+    ],
+    "nextAction": "Replay Telegram -> INBOX -> named bays against the current combined candidate, distinguishing team.dispatch from actual conveyor execution. Trace actual Drive/PDF delivery separately. Validate summoned-agent instructions and per-job builder authority at the exact failing handoff.",
+    "limitations": "No external Telegram message, Drive upload or original customer station tested."
+  },
+  {
+    "number": 57,
+    "status": "Worker session and parent evidence UI integrated; original returned run IDs still need reconciliation",
+    "category": "Partly addressed / investigation remains",
+    "summary": "Per-worker threads/evidence and foreground/background distinctions are implemented in current source. This pass also repaired parallel prompt loss, but did not correlate the customer run receipts.",
+    "evidence": [
+      "720f5438d/e0c115ac0/e30096700/9965269cd/c6e6f5f0c integrated in a20",
+      "test/delegated-threads.test.js 92 assertions",
+      "Real local lead question plus background worker approval passed; this is not original Telegram execution proof"
+    ],
+    "nextAction": "Replay exact Telegram lead -> named Strategist dispatch and match each returned runId to durable history, bound worker session, target Dossier and parent evidence. Preserve execution versus visibility distinctions and source versus installed-release status.",
+    "limitations": "Original absence of background registry entries never proved fabricated execution; exact customer receipt/dossier data remains unavailable."
+  }
+]

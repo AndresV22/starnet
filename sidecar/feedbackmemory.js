@@ -25,6 +25,7 @@
 'use strict';
 
 const TasteRef = require('./tasteref.js');
+const Retrieval = require('./context.js');
 
 const ORIGIN = 'feedback';
 const DIRECTIVE_CHARS = 120;
@@ -97,8 +98,9 @@ function apply(list, input, deps) {
   // a NEW reference or a new ★ KEEP THIS STYLE is something to write even when no new words came with it
   // (a real verdict on a record that only ★ KEEP THIS STYLE made turns it into a verdict record: PUT IT BACK must not delete it)
   const verdictOnKept = !kept && !!(prev && prev.feedbackKeptOnly);
-  const extra = !!(ref && (!prev || JSON.stringify(prev.feedbackRef || null) !== JSON.stringify(ref))) || (kept && !(prev && prev.feedbackKept)) || verdictOnKept;
-  const refFields = Object.assign({}, ref ? { feedbackRef: ref } : null, kept ? { feedbackKept: true } : null, verdictOnKept ? { feedbackKeptOnly: false } : null);
+  const extra = !!(ref && (!prev || JSON.stringify(prev.feedbackRef || null) !== JSON.stringify(ref))) || (kept && !(prev && prev.feedbackKept)) || verdictOnKept || (!kept && !!prev && prev.feedbackVerdict !== verdict);
+  // A real verdict replaces the synthetic keep-style approval; keeping a style never replaces a real verdict.
+  const refFields = Object.assign({}, !kept ? { feedbackVerdict: verdict } : null, ref ? { feedbackRef: ref } : null, kept ? { feedbackKept: true } : null, verdictOnKept ? { feedbackKeptOnly: false } : null);
   const words = (prev && Array.isArray(prev.feedbackWords) ? prev.feedbackWords : []).slice();
   let add = clean(input.words, WORDS_CHARS);
   if (add && prev && words.indexOf(add) >= 0) { if (!extra) return null; add = ''; }   // a repeated chip/message teaches nothing new
@@ -177,7 +179,7 @@ function directiveFor(candidates, messages) {
 /* TASTE IS THE COMMANDER'S OWN WORDS (sweep 2026-10-02). notebook.write { replaceId } keeps a record's origin, so an
    agent (or a page it read) could rewrite a feedback record and have it injected into EVERY agent's runs as "the
    Commander's own verdicts". A revision the Commander did not confirm is 'inferred': it is not taste. */
-function isTaste(r) { return !!(r && r.origin === ORIGIN && r.confirmation === 'user-confirmed' && String(r.content || r.body || '').trim()); }
+function isTaste(r) { return !!(r && r.origin === ORIGIN && r.confirmation === 'user-confirmed' && !r.taintedBy && !r.projectRoot && r.scope !== 'project' && r.scope !== 'stream' && String(r.content || r.body || '').trim()); }
 // "the same belief" = the same words AND the same reference: two approvals of "design the landing page" on two different
 // designs are two references, and deduping them on the words alone dropped the newer design.
 function tasteKey(r) { return String(r.content || r.body || '').trim() + (r.feedbackRef ? '\u0000' + JSON.stringify(r.feedbackRef) : ''); }
@@ -185,11 +187,42 @@ function tasteKey(r) { return String(r.content || r.body || '').trim() + (r.feed
 // selectTaste(records, opts) -> the newest feedback records (most recently given or updated first), capped.
 function selectTaste(records, opts) {
   opts = opts || {};
-  const limit = opts.limit || TASTE_LIMIT;
-  // newest VERDICT first: feedbackAt is written only by apply(); lastFeedbackAt/updatedAt also move when an agent rates
-  // or touches a memory, which pushed the Commander's newest verdict out of the capped block (older records: createdAt)
+  const limit = Math.max(1, Math.min(32, Number(opts.limit) || TASTE_LIMIT));
   const at = r => Number(r.feedbackAt) || Number(r.createdAt || r.ts) || 0;
-  return (Array.isArray(records) ? records : []).filter(isTaste).slice().sort((a, b) => at(b) - at(a)).slice(0, limit);
+  const all = Retrieval.activeMemoryRecords(records).filter(isTaste).slice().sort((a, b) => at(b) - at(a));
+  const query = typeof opts.query === 'string' ? opts.query : '';
+  const relevance = Retrieval.lexicalScores(all, query).scores;
+  const standing = r => /\b(?:always|never|from now on|going forward|by default|every time|whenever|(?:i|we) (?:would )?prefer)\b/i.test(
+    Array.isArray(r.feedbackWords) ? r.feedbackWords.join(' ') : r.feedbackEdited ? String(r.content || r.body || '') : '');
+  // Keep the newest verdict visible, then let applicable older corrections and explicit standing
+  // preferences compete. A stream of bare approvals must not flush every durable correction.
+  const chosen = new Set(all.slice(0, Math.min(2, limit)));
+  const candidates = all.map((r, i) => ({ r, i, score: (standing(r) ? 8 : 0) + 2 * relevance[i]
+    + (Array.isArray(r.feedbackWords) && r.feedbackWords.length ? 1 : 0) + 1 / (i + 1) }));
+  candidates.sort((a, b) => b.score - a.score || a.i - b.i);
+  for (const row of candidates) { if (chosen.size >= limit) break; chosen.add(row.r); }
+  const selected = all.filter(r => chosen.has(r));   // render newest first, so conflicts retain temporal authority
+  Object.defineProperty(selected, 'recallMeta', { value: { omitted: all.length - selected.length } });
+  return selected;
+}
+
+// Ordinary global standing preferences share the same owner-only boundary as taste. Never lift
+// inferred notes, project requirements, biography, or tainted observations into station authority.
+// Foreign ids are notebook-local: remove them so a local feedback/update cannot hit the wrong note.
+function stationStanding(own, others) {
+  const mine = Array.isArray(own) ? own : [];
+  const foreign = [];
+  for (const entry of (Array.isArray(others) ? others : [])) {
+    const list = Array.isArray(entry) ? entry : entry && entry.records;
+    const owner = entry && /^[A-Za-z0-9_-]{1,40}$/.test(String(entry.agentId || '')) ? String(entry.agentId) : '';
+    for (const r of (Array.isArray(list) ? list : [])) {
+      if (Retrieval.isStandingMemory(r)) foreign.push(Object.assign({}, r, { id: '', foreign: true, sourceAgentId: owner, sourceRecordId: String(r.id || '') }));
+    }
+  }
+  const all = Retrieval.activeMemoryRecords(mine.concat(foreign)).filter(Retrieval.isStandingMemory);
+  const key = r => String(r.content || r.body || '').replace(/\s+/g, ' ').trim().toLowerCase();
+  const seen = new Set();
+  return all.filter(r => { const k = key(r); if (seen.has(k)) return false; seen.add(k); return true; });
 }
 
 // stationTaste(own, others, opts) — the Commander's taste is about THE COMMANDER, not one agent: a correction given
@@ -201,7 +234,8 @@ function stationTaste(own, others, opts) {
   const mine = (Array.isArray(own) ? own : []).filter(isTaste);
   const seen = new Set(mine.map(tasteKey));
   const foreign = [];
-  for (const list of (Array.isArray(others) ? others : [])) {
+  for (const entry of (Array.isArray(others) ? others : [])) {
+    const list = Array.isArray(entry) ? entry : entry && entry.records;
     for (const r of (Array.isArray(list) ? list : [])) {
       if (!isTaste(r)) continue;
       const key = tasteKey(r);
@@ -273,7 +307,8 @@ function renderTaste(records, renderRecall, opts) {
   const lines = recs.map((r, i) => ({ id: r.id, title: '', body: tasteLine(r, levels[i], viewer), content: String(r.content || r.body || '') + TasteRef.refLine(r.feedbackRef, 0, viewer) }));
   const header = TASTE_HEADER + (recs.some(r => r.feedbackRef) ? '\n' + TASTE_REF_RULE : '');
   // the levels above already fit the budget; the slack only absorbs a recall-line format change, never drops a record
-  return renderRecall(lines, { limit: budget + 400, header });
+  Object.defineProperty(lines, 'recallMeta', { value: { omitted: (records.recallMeta && records.recallMeta.omitted) || 0, priority: [] } });
+  return renderRecall(lines, { limit: budget + 400, priorityLimit: 0, header });
 }
 
-module.exports = { ORIGIN, TASTE_HEADER, TASTE_REF_RULE, TASTE_LIMIT, TASTE_CHARS, content, apply, directiveFor, looksLikeFeedback, isTaste, selectTaste, stationTaste, adoptTaste, renderTaste, unkeep };
+module.exports = { ORIGIN, TASTE_HEADER, TASTE_REF_RULE, TASTE_LIMIT, TASTE_CHARS, content, apply, directiveFor, looksLikeFeedback, isTaste, selectTaste, stationTaste, stationStanding, adoptTaste, renderTaste, unkeep };

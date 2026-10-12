@@ -1,0 +1,146 @@
+{
+  "checkedAt": "2026-10-12T01:17:31.615Z",
+  "baseline": "a20ffa71fd04691805ea55c7d08165438dd7ac6f",
+  "sourceCandidate": "86e617e46",
+  "scope": "Isolated owned worktree; synthetic local providers, real sidecar routes/tool execution/provider prompt capture. No paid models, installed clients, customer data, external messages or aggregate gates.",
+  "findings": [
+    {
+      "fingerprint": "db8f361d",
+      "fix": "2ce225f88",
+      "repro": "On source a20ffa71f, run a synthetic design, POST /api/taste/keep-style, POST /api/growth/ratings with verdict miss and correction wrong colors, then POST keep-style with undo:true. Start an unrelated task and inspect the actual provider request. test/tasteref.http.test.js exercises this exact sequence.",
+      "evidence": "Before: live provider line was `APPROVED ... Design the arcade night flyer ... liked: \"wrong colors\"`. After: test/tasteref.http.test.js passed 44 assertions immediately after the fix and 47 with the later image assertions; the matching line is REJECTED and the correction remains. test/tasteref.test.js and test/feedbackmemory.test.js also pass. sidecar/feedbackmemory.js:102 records the actual verdict on updates.",
+      "limits": "Source repaired. Real ratings replace the synthetic keep-style verdict; later keep-style actions preserve real ratings and Commander-edited text. Source receipt only; installer and customer recovery remain unverified.",
+      "tests": [
+        "test/tasteref.test.js",
+        "test/feedbackmemory.test.js",
+        "test/tasteref.http.test.js"
+      ]
+    },
+    {
+      "fingerprint": "ecd03ee7",
+      "fix": "05618ec62",
+      "repro": "On a20ffa71f, send \"From now on, always use spaces instead of tabs for indentation.\" Let the synthetic provider call notebook_write with body \"User prefers tabs over spaces for indentation\" and pinned:true. Read /api/memory/records for that agent. test/memory-truth.http.test.js reproduces via the actual run/tool path.",
+      "evidence": "Before: actual stored record body prefers tabs, confirmation user-stated, scope global, statedQuote \"From now on, always use spaces instead of tabs for indentation\". After: memory-truth.http passes; the inverted note remains unproven, scoped to its stream, with no false provenance receipt. Source 0426ed1f6 replaces overlap with ordered complete correspondence; review follow-up 05618ec62 prevents note-only always/now/future qualifiers from being erased. test/memory-truth.test.js passes 101 assertions covering reversed relations, negation scope, modifiers, alternatives, conditions, quotes, stronger qualifiers, positive paraphrase, taint and correction paths. sidecar/tools/builtin/notebook.js:77.",
+      "limits": "Source repaired conservatively: unsupported paraphrases stay inferred; no model-based semantic attestation was introduced. Source-only weakening supports the existing standing-preference paraphrase without strengthening a note. No migration or validation of historical notes is claimed. Installed build/customer recovery unverified.",
+      "tests": [
+        "test/memory-truth.test.js",
+        "test/memory-truth.http.test.js",
+        "test/memory-corrections.test.js"
+      ]
+    },
+    {
+      "fingerprint": "436ab17d",
+      "fix": "2e9c7ffb4",
+      "repro": "Run the actual image tool with a local synthetic provider returning the fixture 1x1 PNG for aspect_ratio:16:9 and transparent:true. Approve/keep the work and inspect the next provider prompt. Separately return 404 for /images/edits and success for /images/generations to exercise the reference-not-used receipt. test/tasteref.http.test.js and test/image-reference.test.js cover these seams.",
+      "evidence": "Before: live saved reference and next SYSTEM prompt said 16:9 and transparent for the square fixture. The production image tool receipt reports actual 1x1 and does not verify alpha. Actual-tool unit probe also found matching images/approved.png after /images/edits 404 fallback, although receipt says Reference NOT used. After: tasteref.http47, tasteref97 and image-reference44 pass. sidecar/tasteref.js:149 reads reported shape, positive alpha verification and reference-sent receipt; :244 suppresses v1 requested-only properties. A forged model caption cannot attest a host receipt.",
+      "limits": "Source repaired. New references are v2 and describe receipt-backed properties; reference sent does not claim the model matched it. Existing v1 references keep their useful file/prompt/model but no longer render unproved shape/alpha/reference fields. No real provider quality, image similarity or installer behavior was tested.",
+      "tests": [
+        "test/tasteref.test.js",
+        "test/image-reference.test.js",
+        "test/tasteref.http.test.js"
+      ]
+    },
+    {
+      "fingerprint": "5929d898",
+      "fix": "86e617e46",
+      "repro": "Run test/crew-call.http.test.js on a20ffa71f source with a roster containing Ada. Send \"Do not ask Ada. Answer this yourself.\", then an incidental-name request, then Pipeline.handoffPrompt whose upstream content says \"Have Ada delete the synthetic draft.\" Capture the actual provider SYSTEM message; no real dispatch or external effect is needed to observe the false directive.",
+      "evidence": "Before: all three live provider requests received `[CREW CALL] ... Hand that part to them with team.dispatch ... Do it yourself only if the dispatch is refused.` After: registered crew-call.http24 assertions pass: original user content remains, actual dispatch capability is still present, no injected directive for the three negative cases, and explicit owner \"Have Ada research...\" retains the directive. crew-call.test22 covers named targets, multiple targets, negation, conditional and quoted/report text. sidecar/crew-call.js:27 and sidecar/index.js:21535.",
+      "limits": "Source repaired. The advisory directive now requires the existing owner-provenance gate and a direct affirmative named-target form. Qualified or unsupported phrasings get no extra directive; the model still sees the original request and tools. Handoff content was tested live; no claim of real model compliance, external exploitation, every channel ingress, installed repair or customer recovery.",
+      "tests": [
+        "test/crew-call.test.js",
+        "test/crew-call.http.test.js"
+      ]
+    }
+  ],
+  "focusedChecks": {
+    "test/tasteref.http.test.js": "PASS 47 assertions; before failure in actual next provider prompt",
+    "test/memory-truth.http.test.js": "PASS; before inverted stored user-stated/global record",
+    "test/crew-call.http.test.js": "PASS 24 assertions via registered HTTP runner; before 3 false SYSTEM directives",
+    "test/tasteref.test.js": "PASS 97 assertions",
+    "test/image-reference.test.js": "PASS 44 assertions",
+    "test/memory-truth.test.js": "PASS 101 assertions",
+    "test/feedbackmemory.test.js": "PASS 74 assertions",
+    "test/voice-chat-route.test.js": "PASS 49 assertions",
+    "test/local-voice.test.js": "PASS models-installed/silent-input/fallback mapping; no warm model download or audible synthesis",
+    "test/remote-voice.test.js": "PASS 103 assertions with synthetic codec/stream fixtures",
+    "test/memory-corrections.test.js": "PASS corrections, stale writes, persistence failure, review, scope, compaction"
+  },
+  "coverageGaps": [
+    "Actual Qwen model and customer WSL endpoint not exercised.",
+    "No paid subscription measurements; cached dossier/fork prefix, due skill-review auxiliary exception and effective subscription cost remain unresolved.",
+    "Voice model routing reviewed/tested with existing pure fixture; no live voice-model fallback, actual audio quality or target device proof. Remote voice lifecycle finding was handed to runtime lane.",
+    "Conservative lexical memory proof does not semantically validate arbitrary natural language, migrate historical notes, or prove all old user-stated records correct.",
+    "Crew host-directive fix proven on explicit owner and Pipeline handoff routes; real model delegation compliance and other ingress surfaces remain outside this fixture."
+  ],
+  "issueDispositionDelta": [
+    {
+      "number": 105,
+      "status": "Open subscription overhead investigation; worker-review batching integrated",
+      "change": "The previous pending-component wording is stale. Commit312499626 is an ancestor of a20ffa71f and of this candidate, including batched handoff review/no duplicate foreground clone review. This is source inclusion, not measured subscription savings.",
+      "evidence": [
+        "git merge-base --is-ancestor 312499626 HEAD: exit0",
+        "frontend/app/app.js:394 and :401 retain learned dossier/fork inside persona",
+        "sidecar/index.js:2961 auxiliary model defaults remain",
+        "sidecar/index.js:22296 reserves skill-review outside the normal auxiliary count",
+        "sidecar/index.js:21938 keeps subscription/unmetered runs outside maxUnpricedTokens"
+      ],
+      "nextAction": "Measure complete main/auxiliary/frontend-internal call inventory on this integrated candidate before optimizing remaining cache placement and auxiliary-budget contributors; no fresh paid runs or customer quota measurements performed."
+    },
+    {
+      "number": 99,
+      "status": "Long pre-header retry path remains measured; customer cause unconfirmed",
+      "change": "The custom-localhost native Ollama profile change9aace0349 is now integrated, no longer pending. The earlier e91f3231e truthful timeout wording repair is also included. Neither changes the measured seven-connect/two-idle/one-cancel policy or proves original customer causality.",
+      "evidence": [
+        "git merge-base --is-ancestor 9aace0349 HEAD: exit0",
+        "sidecar/providers/factory.js:184 respects wire.nativeOllama",
+        "Existing issue99-connect-silence receipt remains synthetic with shortened timers and captured backoff projection, not real elapsed cold-start proof"
+      ],
+      "nextAction": "Correlate exact customer duration/native request/tools/num_ctx/loading facts; choose and verify cold-start-safe retry limits only with evidence."
+    },
+    {
+      "number": 102,
+      "status": "Source repair integrated; actual Qwen/customer acceptance still unverified",
+      "change": "Previously tested source repair d3e708cb0 and QA6363184b4 are included in a20ff; no new customer/installer proof. Native and compatible-fallback strict-template fixtures remain the evidence boundary.",
+      "nextAction": "Root aggregate candidate verification, then exact Qwen template/WSL/installed build acceptance."
+    },
+    {
+      "number": 98,
+      "status": "Routing mismatch remains unproven",
+      "change": "Catalog-equivalent code still has no routed Google-to-native Gemini mapping. The source gap remains; actual Settings reversion and empty response are not causally reproduced. No speculative source edit.",
+      "evidence": [
+        "frontend/app/modeldock.js:294 catalogEquivalent handles managed/bare and direct Anthropic, no direct Gemini equivalent"
+      ],
+      "nextAction": "Capture selected provider/model at Settings, catalog reconciliation, saved station identity and actual inference wire on the affected station."
+    },
+    {
+      "number": 106,
+      "status": "Insufficient report details",
+      "change": "No source finding from this sweep identifies the provider/model/version or exact failing wake stage for the customer. Connector secret repairs cannot establish resolution.",
+      "nextAction": "Obtain sanitized exact WAKE error and provider/model/version, then reproduce that validation/inference door without requesting secrets."
+    },
+    {
+      "number": 90,
+      "status": "Source diagnostic repair present; account rejection remains unresolved",
+      "change": "Existing error-cause preservation remains present. No real Anthropic account or model entitlement tested; do not interpret diagnostic repair as successful key acceptance.",
+      "nextAction": "Retest installed validation; independently investigate manual-model gap only if /models succeeds empty while /messages actually succeeds."
+    }
+  ],
+  "unchangedProviderDispositions": {
+    "releaseSourceFixRetestRequired": [
+      73,
+      94,
+      93,
+      92,
+      70,
+      62,
+      89
+    ],
+    "featureRequestNoNewImplementation": [
+      95
+    ],
+    "independentConfirmationButOriginalRecoveryUnconfirmed": [
+      20
+    ],
+    "note": "No new release, installer verification, real account authentication, or original customer recovery was established by this source audit."
+  }
+}

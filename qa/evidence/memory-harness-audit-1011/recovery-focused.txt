@@ -1,0 +1,24 @@
+TEST test/ledger.test.js EXIT 0
+ledger.test: OK (78 assertions)
+TEST test/budget.test.js EXIT 0
+budget.test: OK (56 assertions)
+TEST test/spend-authority.test.js EXIT 0
+spend authority: unreadable history, configured scopes, opt-in policy, failed append, missing file and truncated history PASS
+spend admission: receipt failure, repeated checks, independent settlement identity and Unicode bounds PASS
+spend recovery: kept rows, strict refusal, Commander settle, live-run guard, write failure, receipt meta PASS
+spend receipt provenance: managed, BYOK and absent survive serialization/restart PASS
+TEST test/skill.evaluation-accounting.test.js EXIT 0
+skill evaluation accounting: settled cost, interrupted restart, and persistence denial PASS
+TEST test/skill.evaluation.accounting.test.js EXIT 0
+skill.evaluation.accounting: real loop usage, empty usage, partial throw, cancellation, retry uncertainty and billed length stop PASS
+TEST test/skill.evaluation.test.js EXIT 0
+skill.evaluation: exact executable improvement, held-out regression, restart, tamper/model/test/skill invalidation, fixture refusal, real loop fixture isolation PASS
+TEST test/verdictreview.test.js EXIT 0
+verdictreview: OK (77 assertions)
+TEST test/verdictreview.lifecycle.test.js EXIT 0
+[failopen] verdictreview.persist (x1): expected temporary persistence failure
+[failopen] verdictreview.persist (x2): expected temporary persistence failure
+[failopen] verdictreview.persist (x3): expected temporary persistence failure
+[failopen] verdictreview.persist (x4): expected temporary persistence failure
+[failopen] verdictreview.persist (x5): expected completion persistence failure
+verdictreview.lifecycle: held snapshot/restart, remaining grace, late reversal, launcher retry/restart, bounded attempts, latest host correction PASS

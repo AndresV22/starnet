@@ -17,7 +17,7 @@ A.eq(SR.shouldReviewRun({ reason: 'error', turns: 1, messages: [] }, { verdict: 
 A.eq(SR.shouldReviewRun(tiny, { verdict: 'miss', enabled: false }), false, 'the enabled=false kill switch still wins');
 
 /* ---------- the prompt: verdict + correction ride in ---------- */
-const p = SR.buildPrompt({ verdict: 'miss', correction: '  shorter,   bullets only  ', messages: tiny.messages });
+const p = SR.buildPrompt({ verdict: 'miss', correction: '  shorter,   bullets only  ', correctionSource: 'message', messages: tiny.messages });
 A.ok(p.indexOf('COMMANDER VERDICT ON THIS RUN: MISSED the mark') !== -1, 'a miss is named as a miss');
 A.ok(p.indexOf('in their words: "shorter, bullets only"') !== -1, 'the correction is quoted verbatim, whitespace collapsed');
 A.ok(p.indexOf('NEXT run of this class of task does not repeat') !== -1, 'the reviewer is given the one job');
@@ -111,7 +111,7 @@ A.ok(VERDICTS_THAT_TEACH.has('ok') && VERDICTS_THAT_TEACH.has('miss') && !VERDIC
   const provider = { stream() {}, key: 'sk-or-v1-SECRET' };
   const c = compactPacket({ agentId: 'nova', messages: big, provider, cost: {}, model: 'm/x', loadedSkills: [{ id: 's1', name: 'Brief', body: 'long body' }], unmetered: true, failed: true });
   A.ok(!('provider' in c) && !('cost' in c), 'no live provider/cost handle is persisted');
-  A.ok(JSON.stringify(c).indexOf('SECRET') < 0 && JSON.stringify(c).indexOf('sk-live') < 0, 'no credential or tool-call arguments reach disk');
+  A.ok(JSON.stringify(c).indexOf('SECRET') < 0 && JSON.stringify(c).indexOf('sk-live') < 0, 'no credential reaches disk; safe structured arguments remain available');
   A.ok(JSON.stringify(c.messages).length < 25000, 'transcript is compacted (' + JSON.stringify(c.messages).length + ' chars)');
   A.ok(c.messages.every(m => m.role !== 'system'), 'the system prompt is not persisted');
   A.eq(c.messages[0].role, 'user', 'the directive is kept even when the tail cut it off');

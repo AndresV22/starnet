@@ -4290,18 +4290,90 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     });
   }
 
+  let skillPanelLoad = 0;
+  async function skillReviewPost(action, body) {
+    const r = await Harness.api.post('/api/agent-skills/' + action, body, { timeoutMs: action === 'evaluate-candidate' ? 180000 : 60000 });
+    if (!r.ok || !r.j || !r.j.ok) throw new Error((r.j && r.j.error) || 'The station refused this change.');
+    return r.j;
+  }
   function loadAgentSkills(agentId) {
     const host = $('#sk-agent'); if (!host) return;
+    const load = ++skillPanelLoad;
     if (!(typeof Harness === 'object' && Harness.agentSkills)) {
       host.innerHTML = '<div class="sk-loading">Agent skillbase unavailable.</div>'; return;
     }
-    Harness.agentSkills(agentId, { archived: true, body: true })
-      .then(skills => { const h = $('#sk-agent'); if (h) renderAgentSkills(h, skills || [], agentId); })
-      .catch(() => { const h = $('#sk-agent'); if (h) h.innerHTML = '<div class="sk-loading">Could not load agent skills.</div>'; });
+    Promise.all([
+      Harness.agentSkills(agentId, { archived: true, body: true }),
+      Harness.api.get('/api/agent-skills/candidates?agent=' + encodeURIComponent(agentId) + '&body=1')
+        .catch(e => ({ candidates: [], evaluationSuites: [], error: e.message || 'Could not load proposed revisions.' }))
+    ]).then(([skills, review]) => {
+      const h = $('#sk-agent'); if (h && load === skillPanelLoad) renderAgentSkills(h, skills || [], agentId, review);
+    }).catch(() => { const h = $('#sk-agent'); if (h && load === skillPanelLoad) h.innerHTML = '<div class="sk-loading">Could not load agent skills.</div>'; });
   }
 
-  function renderAgentSkills(host, skills, agentId) {
-    if (!skills.length) {
+  function renderSkillCandidates(host, agentId, review) {
+    const rows = Array.isArray(review.candidates) ? review.candidates : [];
+    const suites = Array.isArray(review.evaluationSuites) ? review.evaluationSuites : [];
+    for (const candidate of rows) {
+      const skill = candidate.skill || {};
+      const card = mkEl('div', 'sk-card want open'); host.appendChild(card);
+      card.dataset.skillCandidate = candidate.candidateId;
+      card.innerHTML = '<div class="sk-card-head"><div class="sk-card-main"><div class="sk-name-row"><span class="sk-name">' + esc(skill.name || candidate.name) + '</span><span class="sk-badge want">PROPOSED REVISION</span></div><div class="sk-desc">Any existing active version stays available. This proposal needs a passing task evaluation and your approval.</div></div></div>' +
+        '<div class="sk-body"><div class="sk-attr">Proposed scope: ' + esc(skill.scope || 'agent') + ' · revision ' + esc(candidate.revision) + '</div><pre>' + esc(skill.body || '') + '</pre>' +
+        '<details><summary>Proposed metadata and package files</summary><pre>' + esc(JSON.stringify({ candidateDigest: candidate.candidateDigest, baseDigest: candidate.baseDigest, summary: skill.summary, description: skill.description, setup: skill.setup, category: skill.category, requires: skill.requires, platforms: skill.platforms, state: skill.state, scope: skill.scope, projectRoot: skill.projectRoot, packageFiles: skill.packageFiles }, null, 2)) + '</pre></details>' +
+        (skill.files || []).map(f => '<details><summary>' + esc(f.path) + '</summary><pre>' + esc(f.content || '') + '</pre></details>').join('') +
+        '<div class="sk-attr">Evaluation checks only the selected task family. A passing result does not prove improvement for every use.</div><div data-evaluation-suites></div>' +
+        '<div class="sk-attr" data-evaluation-result>No evaluation run from this panel yet.</div><div class="consent-btns mc-acts"><button class="consent-btn" data-candidate-approve disabled>Approve evaluated revision</button><button class="consent-btn" data-candidate-reject>Reject proposal</button></div>' +
+        '<details><summary>Register task checks (JSON)</summary><div class="sk-attr">Declare repeatable tasks and exact checks, including a held-out case. The station validates and runs this suite before approval.</div><textarea class="cf-ta mc-edit" data-suite-json spellcheck="false" aria-label="Evaluation suite JSON"></textarea><button class="consent-btn" data-suite-register>Register task checks</button></details></div>';
+      const suiteHost = card.querySelector('[data-evaluation-suites]');
+      const note = card.querySelector('[data-evaluation-result]');
+      const approve = card.querySelector('[data-candidate-approve]');
+      const reject = card.querySelector('[data-candidate-reject]');
+      let receipt = null, busy = false;
+      const request = { agentId, candidateId: candidate.candidateId, candidateDigest: candidate.candidateDigest };
+      const matching = suites.filter(s => s.skillId === skill.id || (!s.skillId && s.skillName === skill.name));
+      if (!matching.length) suiteHost.textContent = 'No task checks registered for this skill yet.';
+      for (const suite of matching) {
+        const label = mkEl('div', 'sk-attr'); label.textContent = suite.description || suite.skillName || suite.id; suiteHost.appendChild(label);
+        const run = mkEl('button', 'consent-btn'); run.textContent = 'Evaluate: ' + suite.id; suiteHost.appendChild(run);
+        run.onclick = async () => {
+          if (busy) return; busy = true; run.disabled = true; approve.disabled = true; receipt = null;
+          note.textContent = 'Running baseline and proposal against ' + suite.id + '…';
+          try {
+            const r = await skillReviewPost('evaluate-candidate', Object.assign({}, request, { suiteId: suite.id }));
+            receipt = r.receipt;
+            note.textContent = 'Task family: ' + (suite.description || suite.id) + ' · result: ' + String(receipt && receipt.status || 'unconfirmed') + '. Approval remains a separate action.';
+            const details = mkEl('pre', ''); details.textContent = JSON.stringify(receipt, null, 2); note.appendChild(details);
+            approve.disabled = !(receipt && receipt.status === 'passed' && receipt.receiptId);
+          } catch (e) { note.textContent = e.message; }
+          finally { busy = false; run.disabled = false; }
+        };
+      }
+      approve.onclick = async () => {
+        if (busy || !receipt) return; busy = true; approve.disabled = true;
+        try { await skillReviewPost('approve-candidate', Object.assign({}, request, { evaluation: receipt.receiptId })); loadAgentSkills(agentId); }
+        catch (e) { note.textContent = e.message; busy = false; approve.disabled = false; }
+      };
+      reject.onclick = async () => {
+        if (busy) return; busy = true; reject.disabled = true;
+        try { await skillReviewPost('reject-candidate', request); loadAgentSkills(agentId); }
+        catch (e) { note.textContent = e.message; busy = false; reject.disabled = false; }
+      };
+      const register = card.querySelector('[data-suite-register]');
+      register.onclick = async () => {
+        if (busy) return;
+        try {
+          const suite = JSON.parse(card.querySelector('[data-suite-json]').value);
+          busy = true; register.disabled = true;
+          await skillReviewPost('evaluation-suite', { agentId, skillId: skill.id, suite }); loadAgentSkills(agentId);
+        } catch (e) { note.textContent = e.message; busy = false; register.disabled = false; }
+      };
+    }
+  }
+
+  function renderAgentSkills(host, skills, agentId, review) {
+    review = review || {};
+    if (!skills.length && !(review.candidates || []).length && !review.error) {
       host.innerHTML = '<div class="sk-loading">No agent-created skills yet.</div>'; return;
     }
     const active = skills.filter(s => s.state !== 'archived').length;
@@ -4310,7 +4382,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     skills.forEach(s => { byId[s.id] = s; });
     const sorted = skills.slice().sort((a, b) =>
       (!!b.pinned - !!a.pinned) || ((a.state === 'archived') - (b.state === 'archived')) || ((b.updatedAt || 0) - (a.updatedAt || 0)));
-    let html = '<div class="sk-lib-sum">' + active + ' active' + (archived ? ' - ' + archived + ' archived' : '') + '</div>';
+    let html = (review.error ? '<div class="sk-attr sk-held">Proposed revisions unavailable: ' + esc(review.error) + '</div>' : '') + '<div class="sk-lib-sum">' + active + ' active' + (archived ? ' - ' + archived + ' archived' : '') + '</div>';
     for (const s of sorted) {
       const state = s.state === 'archived' ? 'off' : (s.state === 'stale' ? 'want' : 'on');
       const when = s.updatedAt ? new Date(s.updatedAt).toLocaleDateString() : 'unknown';
@@ -4355,11 +4427,12 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
             '</div>' +
             '<button class="sk-expand" data-ag-act="expand" title="Read the skill">&gt;</button>' +
           '</div>' +
-          '<div class="sk-body">' + heldBlock + '<pre>' + esc(s.body || '') + '</pre>' + files + absorbed + packageState +
+          '<div class="sk-body">' + heldBlock + '<div class="sk-attr">Shared with: ' + esc(s.scope || 'agent') + (s.projectRoot ? ' · ' + esc(s.projectRoot) : '') + '</div><pre>' + esc(s.body || '') + '</pre>' + files + absorbed + packageState +
             '<div class="consent-btns mc-acts">' +
               heldBtn +
               packageButtons +
               '<button class="consent-btn" data-ag-act="edit">Edit</button>' +
+              '<button class="consent-btn" data-ag-act="sharing">Change sharing</button>' +
               '<button class="consent-btn" data-ag-act="archive">' + (s.state === 'archived' ? 'Restore' : 'Archive') + '</button>' +
             '</div>' +
           '</div>' +
@@ -4374,6 +4447,22 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
         const opened = card.classList.toggle('open'); btn.textContent = opened ? 'v' : '>'; sfx('click'); return;
       }
       if (act === 'edit') { editAgentSkill(card, skill, agentId); return; }
+      if (act === 'sharing') {
+        const body = card.querySelector('.sk-body');
+        if (body.querySelector('[data-skill-sharing]')) return;
+        const panel = mkEl('div', ''); panel.dataset.skillSharing = '1'; body.appendChild(panel);
+        const input = mkEl('input', 'key-input'); input.value = skill.projectRoot || ''; input.placeholder = 'Absolute project path for project sharing'; input.setAttribute('aria-label', 'Project sharing path'); panel.appendChild(input);
+        const note = mkEl('div', 'sk-attr'); note.textContent = 'Agent is private to this owner. Project shares only in this project. Station shares with all station agents.'; panel.appendChild(note);
+        for (const scope of ['agent', 'project', 'station']) {
+          const button = mkEl('button', 'consent-btn'); button.textContent = 'Share: ' + scope; panel.appendChild(button);
+          button.onclick = async () => {
+            button.disabled = true;
+            try { await skillReviewPost('share', { agentId, target: skill.id, scope, projectRoot: input.value }); loadAgentSkills(agentId); }
+            catch (e) { note.textContent = e.message; button.disabled = false; }
+          };
+        }
+        return;
+      }
       if (act === 'check') {
         btn.classList.add('busy');
         const r = await Harness.skillExchangeCheck({ agentId, id: skill.id }); btn.classList.remove('busy');
@@ -4417,7 +4506,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       }
       if (act === 'allow' || act === 'revoke') {
         btn.classList.add('busy');
-        const r = await Harness.agentSkillAllow({ agentId, id: skill.id, allow: act === 'allow' });
+        const r = await Harness.agentSkillAllow({ agentId, id: skill.id, digest: skill.guardDigest || skill.contentDigest, allow: act === 'allow' });
         if (r && r.ok) { sfx('click'); loadAgentSkills(agentId); }
         else {
           // Say what the station said. A silently dead button on a security decision is worse
@@ -4437,6 +4526,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       const r = await Harness.agentSkillManage({ agentId, action, target: skill.id, force: true });
       if (r && r.ok) { sfx('click'); loadAgentSkills(agentId); } else btn.classList.remove('busy');
     }));
+    renderSkillCandidates(host, agentId, review);
   }
 
   function editAgentSkill(card, skill, agentId) {
@@ -6551,12 +6641,12 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
         // WHERE the charge is: a run on StarNet credits (receipt managed:true) was billed to the managed account, so its
         // charge is in the STORE's RECENT ACTIVITY (AI & MODELS), which lists each charge with its run id — on a linked
         // station and an operator (env) one alike — not on a provider dashboard the user never had.
-        const managed = r.managed === true;
-        const chargedBy = managed ? 'what StarNet charged' : 'what your provider charged';
+        const managed = r.managed === true, byok = r.managed === false;
+        const chargedBy = managed ? 'what StarNet charged' : byok ? 'what your provider charged' : 'the verified charge';
         row.setAttribute('data-tip', 'This run stopped before StarNet recorded what it spent' +
           (managed ? ' (it ran on your StarNet credits' + (r.model ? ', ' + r.model : '') + ')' : (where ? ' (it started on ' + where + ')' : '')) +
           (managed ? '. Enter what StarNet charged for it — SETTINGS → AI & MODELS › STORE › RECENT ACTIVITY lists those charges as run ' + String(r.runId).slice(0, 8)
-            : '. Enter the charge your provider dashboard shows for it') + ': StarNet books it once and your spending limits can be checked again.');
+            : byok ? '. Enter the charge your provider dashboard shows for it' : '. The billing source was not recorded. Match this run to StarNet Recent Activity or the original provider billing records, then enter only its verified charge') + ': StarNet books it once and your spending limits can be checked again.');
         const what = document.createElement('span');
         what.className = 'bg-un-what';
         const name = document.createElement('b');
@@ -6564,6 +6654,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
         what.appendChild(document.createTextNode('INTERRUPTED — '));
         what.appendChild(name);
         what.appendChild(document.createTextNode(' · ' + whenOf(r.ts)));
+        if (!managed && !byok) what.appendChild(document.createTextNode(' · BILLING SOURCE UNKNOWN'));
         const usd = document.createElement('input');
         usd.className = 'key-input bg-cap bg-un-usd';
         usd.type = 'number'; usd.min = '0'; usd.step = '0.01'; usd.placeholder = '$ charged';
@@ -6577,7 +6668,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
         if (typeof r.runCapUsd === 'number' && Number.isFinite(r.runCapUsd) && r.runCapUsd > 0) {
           capBtn = document.createElement('button');
           capBtn.className = 'bb xs'; capBtn.textContent = 'COUNT AS ' + fmtUsd(r.runCapUsd);
-          capBtn.setAttribute('data-tip', 'book it at the ' + fmtUsd(r.runCapUsd) + ' per-run limit it started with — its last call can run past that limit, so ' + (managed ? 'the STORE’s RECENT ACTIVITY' : 'your provider dashboard') + ' has the exact charge');
+          capBtn.setAttribute('data-tip', 'book it at the ' + fmtUsd(r.runCapUsd) + ' per-run limit it started with — its last call can run past that limit, so ' + (managed ? 'the STORE’s RECENT ACTIVITY has the exact charge' : byok ? 'your provider dashboard has the exact charge' : 'verify the exact charge in the original billing records'));
           btns.push(capBtn);
         }
         btn.addEventListener('click', () => {

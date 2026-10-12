@@ -1,0 +1,25 @@
+{
+  "status": "FAIL",
+  "rows": [
+    {
+      "phase": "clean",
+      "streamId": "clean-control",
+      "fixtureReadConfirmed": false,
+      "reason": "done",
+      "taintedBy": "",
+      "reviewCalls": 1,
+      "nudge": 0
+    },
+    {
+      "phase": "read",
+      "streamId": "read-conversation",
+      "fixtureReadConfirmed": true,
+      "reason": "done",
+      "taintedBy": "fs.read",
+      "reviewCalls": 1,
+      "nudge": 0
+    }
+  ],
+  "error": "TypeError: Cannot read properties of undefined (reading 'some')\n    at C:\\Users\\andro\\gen-trees\\memory-harness-audit-1011\\test\\memory-learning-boundary.http.test.js:54:34\n    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)",
+  "sidecarTail": "[recovery] auto station recovery SKIPPED: target workspace is a scratch root (C:\\Users\\andro\\AppData\\Local\\Temp\\memory-harness-audit-pSdNd9 is under C:\\Users\\andro\\AppData\\Local\\Temp); a real station is never ingested into a temp workspace. Explicit recovery (request file / CLI restore) is unaffected.\n[recovery] auto recovery skipped (AUTO_RECOVERY_TARGET_IS_SCRATCH): this workspace is a scratch/temp root, so no real station was ingested.\n[exec-env] {\"backend\":\"local\",\"workspace\":\"C:\\\\Users\\\\andro\\\\AppData\\\\Local\\\\Temp\\\\memory-harness-audit-pSdNd9\",\"background\":true,\"safeCell\":{\"default\":true,\"hostileCodeSandbox\":false,\"controls\":[\"per-agent workspace\",\"fs realpath jail\",\"consent gate\",\"auto-checkpoint before execution\",\"foreground timeout/abort kill\",\"background kill/status\"]},\"routing\":{\"perAgent\":true,\"defaultBackend\":\"local\",\"availableBackends\":[\"local\",\"docker\",\"ssh\"],\"sandboxFallback\":\"refuse\"}}\n\n══════════════════════════════════════════════════════════\n  ▲ STARNET — THE FULL APP IS RUNNING (UI + agent engine).\n     Open in your browser:  http://127.0.0.1:61920\n     This one process IS the complete product — the UI you see and\n     the agents/web-search/tools behind it are all served from here.\n══════════════════════════════════════════════════════════\n\n  · /v1 OpenAI-compatible API disabled — set STARNET_API_KEY (>=16 chars) to enable external harness access\n  · environment discovery armed (15m tick, blessed roots only)\n  · model catalog warmed (1 models)\n[tools] footprint: connectors deferred none | unavailable spotify->spotify_search/spotify_now_playing/spotify_playlists/spotify_play/spotify_pause/spotify_next/spotify_previous/spotify_queue, routine-run->routine.notepad\n[learning] run=79d34349-631e-4578-8f0f-8cb45e797d36 agent=agent reason=no_explicit_standing_preference saved=0 trusted=1 checks=0 tainted=false\n[aux-governor] run=79d34349-631e-4578-8f0f-8cb45e797d36 agent=agent budget=2 spent=3[reflection,study,skill-review] RESERVED[skill-review] DEFERRED[threadmine]\n[channel] memory.write {\"agentId\":\"agent\",\"runId\":\"79cabbae-1075-4ebb-9ad7-8aedb8aca085\",\"id\":\"note_1\",\"kind\":\"profile\",\"scope\":\"global\"}\n[learning] run=79cabbae-1075-4ebb-9ad7-8aedb8aca085 agent=agent reason=owner_preference_saved saved=1 trusted=1 checks=0 tainted=true\n[aux-governor] run=79cabbae-1075-4ebb-9ad7-8aedb8aca085 agent=agent budget=2 spent=1[skill-review] RESERVED[skill-review]\n"
+}

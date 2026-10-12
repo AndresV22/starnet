@@ -27,7 +27,7 @@ const mock = http.createServer((req, res) => {
 async function boot() {
   const socket = http.createServer(); socket.listen(0, '127.0.0.1'); await once(socket, 'listening'); const port = socket.address().port; await new Promise(r => socket.close(r));
   base = 'http://127.0.0.1:' + port; out = '';
-  child = spawn(process.execPath, ['sidecar/index.js'], {cwd: root, env: {...process.env, SKYNET_WORKSPACES: workspace, SKYNET_PORT: String(port), SKYNET_OPENROUTER_BASE: 'http://127.0.0.1:' + mock.address().port + '/api/v1', SKYNET_OPENROUTER_KEY: 'sk-or-v1-packets-fixture', SKYNET_EDGE_TTS: '0', SKYNET_VERDICT_REVIEW_GRACE_MS: '0'}, stdio: ['ignore', 'pipe', 'pipe']});
+  child = spawn(process.execPath, ['sidecar/index.js'], {cwd: root, env: {...process.env, SKYNET_WORKSPACES: workspace, SKYNET_PORT: String(port), SKYNET_OPENROUTER_BASE: 'http://127.0.0.1:' + mock.address().port + '/api/v1', SKYNET_OPENROUTER_KEY: 'sk-or-v1-packets-fixture', SKYNET_EDGE_TTS: '0', SKYNET_VERDICT_REVIEW_GRACE_MS: '6000', SKYNET_SKILL_CURATOR:'0', SKYNET_SCOUT:'0', SKYNET_QUEST_REFRESH:'0'}, stdio: ['ignore', 'pipe', 'pipe']});
   await new Promise((resolve, reject) => { const timer = setTimeout(() => reject(new Error('boot timeout: ' + out.slice(-1200))), 90000); const read = d => { out += d; if (out.includes('Open in your browser:')) { clearTimeout(timer); resolve(); } }; child.stdout.on('data', read); child.stderr.on('data', read); child.once('exit', c => { clearTimeout(timer); if (c) reject(new Error('boot exit ' + c + out.slice(-1200))); }); });
   headers = {'Content-Type': 'application/json', 'X-StarNet-Token': await bootToken(base, base), Origin: base};
 }
@@ -53,11 +53,19 @@ const until = async (fn, ms) => { const end = Date.now() + ms; while (Date.now()
     const before = seen.length;
     const rated = await api('/api/growth/ratings', {runId: end.payload.runId, verdict: 'miss', epoch: 1, correction: 'three bullets, not an essay'});
     A.ok(rated.body.ok && rated.body.skillReviewArmed === true, 'the post-restart verdict armed a review: ' + JSON.stringify(rated.body));
+    const armed = JSON.parse(fs.readFileSync(file, 'utf8')).rows.find(row => row.runId === end.payload.runId);
+    A.ok(armed && armed.state === 'held' && armed.reviewStatus === 'pending', 'armed grace job is durable before HTTP acknowledges it');
+    await stop(); await boot();
+    A.ok(/\[skills\] restored 1 verdict review packet/.test(out), 'armed review job restores across a second restart');
     const reviewed = await until(() => seen.slice(before).some(b => JSON.stringify(b.messages || []).indexOf('COMMANDER VERDICT ON THIS RUN: MISSED') >= 0), 15000);
     A.ok(reviewed, 'the review ran on a rebuilt provider, with the verdict in its prompt');
     const req = seen.slice(before).find(b => JSON.stringify(b.messages || []).indexOf('COMMANDER VERDICT ON THIS RUN') >= 0);
     A.ok(req && JSON.stringify(req.messages).indexOf('three bullets, not an essay') >= 0, 'and the Commander\'s correction');
     A.ok(req && JSON.stringify(req.messages).indexOf('Write the weekly status report') >= 0, 'over the restored transcript');
+    A.ok(await until(() => !JSON.parse(fs.readFileSync(file, 'utf8')).rows.some(row => row.runId === end.payload.runId && row.state === 'held' && row.reviewStatus !== 'completed'), 5000), 'successful review durably leaves the held queue');
+    const completedCalls=seen.length; await stop(); await boot();
+    await new Promise(resolve=>setTimeout(resolve,300));
+    A.eq(seen.length,completedCalls,'completed review is not re-dispatched after another restart');
   } finally { await stop(); await new Promise(r => mock.close(r)); fs.rmSync(workspace, {recursive: true, force: true}); }
   A.report('verdictpackets.http');
 })().catch(e => { console.error(e); process.exit(1); });

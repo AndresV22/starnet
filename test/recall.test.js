@@ -132,5 +132,85 @@ let clk = 1000; const clock = { now: () => clk };
     A.ok(/t=/.test(bad.content), 'a bad anchor explains the t= stamp instead of crashing');
   }
 
+
+  // A weak local hit cannot hide a strong historical one, even at limit=1.
+  {
+    const s = makeTranscriptStore({ io: memIo(), clock });
+    s.append({ streamId: 'old', role: 'user', content: 'postgres database query performance needs indexes', taint: null });
+    s.append({ streamId: 'here', role: 'user', content: 'the database is open', taint: null });
+    const { recallTool } = makeRecallTool({ transcriptStore: s });
+    const found = await recallTool.run({ query: 'postgres database query performance', limit: 1 }, { streamId: 'here' });
+    A.ok(found.content.includes('[old') && found.content.includes('indexes'), 'joint ranking finds the strongest historical match despite local overlap');
+    A.eq(found.taintedBy, null, 'host-proven clean historical rows stay clean');
+    const scoped = await recallTool.run({ query: 'postgres database query performance', scope: 'stream' }, { streamId: 'here' });
+    A.ok(!scoped.content.includes('indexes'), 'explicit stream scope never searches another stream');
+    s.append({ streamId: 'old', role: 'user', content: 'registry pushes hit rate limits; retry later', taint: null });
+    const alias = await recallTool.run({ query: 'uploads getting throttled' }, { streamId: 'here' });
+    A.ok(alias.content.includes('rate limits'), 'bounded lexical expansion retrieves paraphrased historical vocabulary');
+  }
+  // Returned search/scroll/preview bytes relay their own taint; legacy unknown is conservative.
+  {
+    const s = makeTranscriptStore({ io: memIo(), clock });
+    s.append({ streamId: 'bad', role: 'user', content: 'hostile pumpkin preview', ts: 1, taint: 'web_fetch' });
+    s.append({ streamId: 'safe', role: 'user', content: 'clean orchid preview', ts: 2, taint: null });
+    const { recallTool } = makeRecallTool({ transcriptStore: s });
+    A.eq((await recallTool.run({ query: 'pumpkin' }, { streamId: 'safe' })).taintedBy, 'web_fetch', 'historical search relays source taint');
+    A.eq((await recallTool.run({ around: 1, stream: 'bad' }, { streamId: 'safe' })).taintedBy, 'web_fetch', 'scroll relays source taint');
+    A.eq((await recallTool.run({}, { streamId: 'safe' })).taintedBy, 'web_fetch', 'browse relays displayed preview taint');
+    A.eq((await recallTool.run({ query: 'orchid', scope: 'stream' }, { streamId: 'safe' })).taintedBy, null, 'unreturned hostile history cannot taint a clean search result');
+    s.append({ streamId: 'legacy', role: 'user', content: 'unproven cobalt', ts: 3 });
+    A.ok(/unverifiable/.test((await recallTool.run({ query: 'cobalt' }, { streamId: 'safe' })).taintedBy), 'missing historical provenance never silently becomes clean');
+    const policy = require('../sidecar/taint.js');
+    const relay = policy.relayedTaint(await recallTool.run({ query: 'pumpkin' }, { streamId: 'safe' }));
+    A.ok(relay && !policy.postTaintBoundary({ name: 'shell.exec', capability: 'terminal', impact: 'workspace-process' }, { taintedBy: relay, surface: 'autonomous' }).allow, 'the existing dispatch boundary consumes recalled taint');
+  }
+
+  // Failed provenance lookup is observable without disclosing exception/row bytes, and stays untrusted.
+  {
+    const failopen = require('../sidecar/failopen.js');
+    const policy = require('../sidecar/taint.js');
+    const tag = 'recall.taint-provenance';
+    const before = failopen.counts()[tag] || 0;
+    const privateText = 'private-cobalt-transcript';
+    const row = { streamId: 'private-stream', role: 'user', content: privateText, ts: 7000 };
+    const preview = { streamId: row.streamId, preview: privateText, turns: 1, lastAt: row.ts };
+    let lookups = 0;
+    const store = {
+      search: () => [row], around: () => [row], streams: () => [preview],
+      taintOf: () => {
+        lookups++;
+        const e = new Error('private-exception C:/private/history: ' + privateText);
+        e.code = 'private-error-code';
+        throw e;
+      }
+    };
+    const { recallTool } = makeRecallTool({ transcriptStore: store });
+    const calls = [{ query: 'cobalt', scope: 'stream' }, { around: 7000 }, {}];
+    const warnings = [], originalWarn = console.warn;
+    console.warn = (...args) => warnings.push(args.join(' '));
+    try {
+      for (const args of calls) {
+        const result = await recallTool.run(args, { streamId: row.streamId });
+        A.ok(result.content.includes(privateText), 'provenance failure preserves the requested recall result');
+        A.ok(/unverifiable/.test(result.taintedBy), 'provenance lookup failure remains untrusted in every recall shape');
+        const relay = policy.relayedTaint(result);
+        A.ok(relay && !policy.postTaintBoundary({ name: 'shell.exec', capability: 'terminal', impact: 'workspace-process' },
+          { taintedBy: relay, surface: 'autonomous' }).allow, 'failed historical provenance still blocks autonomous shell');
+      }
+      A.eq(lookups, 3, 'search, scroll and browse each attempted provenance resolution');
+      A.eq(failopen.counts()[tag], before + 3, 'every failed provenance lookup is counted');
+      A.eq(warnings, [1, 2, 3].map(n => '[failopen] ' + tag + ' (x' + (before + n) + '): TAINT_LOOKUP_FAILED'),
+        'diagnostics contain only the fixed category/code, never private errors, paths, rows or streams');
+
+      row.taintKnown = true; preview.previewTaintKnown = true;
+      for (const args of calls) {
+        A.eq((await recallTool.run(args, { streamId: row.streamId })).taintedBy, null,
+          'explicit host-proven clean provenance remains clean');
+      }
+      A.eq(lookups, 3, 'known provenance needs no fallback lookup');
+      A.eq(failopen.counts()[tag], before + 3, 'known provenance adds no false failure diagnostic');
+    } finally { console.warn = originalWarn; }
+  }
+
   A.report('recall.test');
 })();

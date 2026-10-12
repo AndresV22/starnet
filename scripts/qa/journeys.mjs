@@ -441,10 +441,26 @@ const PARITY_PROBE = `(() => {
   return out;
 })()`;
 
-async function parityCheck(cdp, A, step) {
-  const res = await evalJS(cdp, PARITY_PROBE).catch((e) => ({ checks: [{ name: 'parity/probe', ok: false, detail: 'threw: ' + e.message }], snap: {} }));
+// Keep a failed CDP read separate from the state it was meant to observe.
+async function observeJS(cdp, expression) {
+  const started = performance.now();
+  try {
+    const value = await evalJS(cdp, expression);
+    return { ok: true, value, elapsedMs: Math.round(performance.now() - started) };
+  } catch (error) {
+    return { ok: false, error: String(error && error.message || error), elapsedMs: Math.round(performance.now() - started) };
+  }
+}
+function observationFailure(observation) {
+  return `observation failed after ${observation.elapsedMs}ms: ${observation.error}`;
+}
+
+async function parityCheck(cdp, A, step, { observation, detailPrefix = '' } = {}) {
+  const res = observation
+    ? (observation.ok ? observation.value : { checks: [{ name: 'parity/probe', ok: false, detail: observationFailure(observation) }], snap: {} })
+    : await evalJS(cdp, PARITY_PROBE).catch((e) => ({ checks: [{ name: 'parity/probe', ok: false, detail: 'threw: ' + e.message }], snap: {} }));
   const checks = (res && Array.isArray(res.checks)) ? res.checks : [{ name: 'parity/probe', ok: false, detail: 'no checks returned' }];
-  for (const c of checks) A.ok(`${step}::${c.name}`, c.ok, c.detail);
+  for (const c of checks) A.ok(`${step}::${c.name}`, c.ok, detailPrefix ? detailPrefix + '; ' + c.detail : c.detail);
   return res;
 }
 
@@ -662,14 +678,14 @@ async function journeyInterruptReload(cdp, A, mock) {
   const testReady = ready && await evalJS(cdp, '!!(window.__SKYNET_TEST__ && window.__SKYNET_TEST__.ready())').catch(() => false);
   A.ok('J2/reload/floor-back', !!testReady, testReady ? 'floor + testapi ready after reload' : 'never came back in-game after reload');
   if (!testReady) return;
-  const anyBusy = await evalJS(cdp, "(typeof Channels!=='undefined' && Channels.anyBusy && Channels.anyBusy())").catch(() => true);
-  A.ok('J2/reload/nothing-busy-after-reload', !anyBusy, anyBusy ? 'a channel is busy after a fresh reload (impossible truthfully)' : 'no transient run survived the reload');
+  const anyBusy = await observeJS(cdp, "(typeof Channels!=='undefined' && Channels.anyBusy && Channels.anyBusy())");
+  A.ok('J2/reload/nothing-busy-after-reload', anyBusy.ok && !anyBusy.value, anyBusy.ok ? (anyBusy.value ? 'a channel is busy after a fresh reload (impossible truthfully)' : 'no transient run survived the reload') : observationFailure(anyBusy));
   await openBoard(cdp);
   await parityCheck(cdp, A, 'J2.reload-after');
   // the task the run was on persisted (Workstreams IS persisted), but its card must NOT claim RUNNING.
   if (tid && tid.indexOf && tid.indexOf('ws_') === 0) {
-    const running = await evalJS(cdp, `!!document.querySelector('.kb-card[data-id="${tid}"] .kb-state.running')`).catch(() => false);
-    A.ok('J2/reload/no-running-chip-after-reload', !running, running ? 'card still shows RUNNING after reload' : 'reloaded card shows an honest (non-running) state');
+    const running = await observeJS(cdp, `!!document.querySelector('.kb-card[data-id="${tid}"] .kb-state.running')`);
+    A.ok('J2/reload/no-running-chip-after-reload', running.ok && !running.value, running.ok ? (running.value ? 'card still shows RUNNING after reload' : 'reloaded card shows an honest (non-running) state') : observationFailure(running));
   }
 }
 
@@ -701,11 +717,12 @@ async function journeyDoubleSend(cdp, A, mock, diag) {
   A.ok('J3/no-duplicate-board-rows', dupCount === 0, dupCount ? dupCount + ' duplicate card id(s): ' + boardIds.join(',') : boardIds.length + ' unique card(s)');
 
   // let both runs finish, then assert no stuck RUNNING + still no dupes.
-  await waitIdle(cdp, 60);
+  const idle = await waitIdle(cdp, 60);
+  const idleDetail = 'waitIdle=' + idle + (idle ? ' (idle observed)' : ' (idle not observed within polling window)');
   await openBoard(cdp);
-  await parityCheck(cdp, A, 'J3.settled');
-  const stuck = await evalJS(cdp, "Array.from(document.querySelectorAll('.kb-card .kb-state.running')).length").catch(() => -1);
-  A.ok('J3/no-stuck-running', stuck === 0, stuck + ' card(s) still RUNNING after both runs settled');
+  await parityCheck(cdp, A, 'J3.settled', { observation: await observeJS(cdp, PARITY_PROBE), detailPrefix: idleDetail });
+  const stuck = await observeJS(cdp, "Array.from(document.querySelectorAll('.kb-card .kb-state.running')).length");
+  A.ok('J3/no-stuck-running', stuck.ok && stuck.value === 0, idleDetail + '; ' + (stuck.ok ? stuck.value + ' card(s) RUNNING' : observationFailure(stuck)));
 
   // exactly two NEW workstreams were created (no phantom extra rows from the rapid fire).
   const afterIds = await evalJS(cdp, "(typeof Workstreams!=='undefined') ? Workstreams.all().map(w=>w.id) : []").catch(() => []);

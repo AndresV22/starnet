@@ -55,10 +55,27 @@ const harness = (status) => {
   bUsd.value = ''; bSettle.click(); await tick();
   assert.match(node('#budget-msg').textContent, /what your provider charged/);
   // the server's own refusal for a limit-less managed receipt names the same place (index.js handleBudgetSettle)
+  // Legacy receipts cannot identify who billed the run, even if a provider label survives.
+  for (const managed of [undefined, null, 'false']) {
+    const unknown = {runId:'legacy', agentId:'legacy', provider:'starnet', managed, runCapUsd:null};
+    const h = harness({...st, unsettled:[unknown]}); await tick();
+    const row = h.node('#budget-unsettled').children[0];
+    assert.match(row.attrs['data-tip'], /billing source was not recorded/);
+    assert.doesNotMatch(row.attrs['data-tip'], /Enter the charge your provider dashboard|it ran on your StarNet credits/);
+    assert.match(row.children[1].attrs['aria-label'], /verified charge/);
+    assert.match(row.children[0].textContent, /BILLING SOURCE UNKNOWN/);
+    assert.equal(row.children.length, 3, 'missing cap is never invented');
+    row.children[2].click(); await tick();
+    assert.equal(h.posts.length,0,'blank unknown charge must not become zero');
+  }
+  const cappedUnknown = harness({...st,unsettled:[{runId:'unknown-cap',agentId:'agent',managed:null,runCapUsd:1}]}); await tick();
+  const unknownCount=cappedUnknown.node('#budget-unsettled').children[0].children[3];
+  assert.match(unknownCount.attrs['data-tip'],/verify the exact charge in the original billing records/);
+  assert.doesNotMatch(unknownCount.attrs['data-tip'],/provider dashboard|STORE/,'recorded cap cannot establish billing provenance');
   const idx = fs.readFileSync(path.join(__dirname, '..', 'sidecar/index.js'), 'utf8');
   const settle = idx.slice(idx.indexOf('async function handleBudgetSettle('), idx.indexOf('async function warmModelCatalogSet('));
   assert.ok(settle.length > 200 && settle.length < 6000, 'handleBudgetSettle found');
-  assert.match(settle, /open\.managed === true \? 'this run recorded no per-run limit — enter what StarNet charged for it \(SETTINGS → AI & MODELS › STORE › RECENT ACTIVITY lists each charge with its run id\)' : 'this run recorded no per-run limit — enter the charge from your provider dashboard'/,
+  assert.match(settle, /open\.managed === true \? 'this run recorded no per-run limit — enter what StarNet charged for it \(SETTINGS → AI & MODELS › STORE › RECENT ACTIVITY lists each charge with its run id\)' : open\.managed === false \? 'this run recorded no per-run limit — enter the charge from your provider dashboard'/,
     'a limit-less managed receipt is pointed at the STORE’s RECENT ACTIVITY');
   // the door exists: the configured STORE renders a RECENT ACTIVITY list whose rows carry the run id
   assert.match(text, /<h4 class="ms-h">STORE /, 'the STORE heading exists under AI & MODELS');

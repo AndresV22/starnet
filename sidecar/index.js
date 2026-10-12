@@ -259,6 +259,7 @@ const LineJobs = require('./routing/linejobs.js');   // WORKFLOWS — every job 
 const LineDraft = require('./routing/linedraft.js');   // WORKFLOWS › SET IT UP FOR ME — "what should it make?" → a starter, a name, each step's instructions (/api/routing/line-draft)
 const LineFix = require('./routing/linefix.js');   // NOT RIGHT? — a result the Commander doesn't want → fixes to the line's step instructions (/api/routing/fix-suggest)
 const { lineStats: foldLineStats } = require('./routing/line-stats.js');   // LINE WATCH: per-line runs/shipped/failed/$ + each bay's last outcome (GET /api/routing/lines/stats)
+const { makeLineShipments, validateShipments, loadShipmentReceipts } = require('./routing/line-shipments.js');
 const { makeLineSpend } = require('./routing/line-spend.js');   // per-line DAY spend ledger (LINE BUDGET maxUsdPerDay) — durable sibling of routing.plan.json
 const LineTriggers = require('./routing/triggers.js');   // LINE TRIGGERS (2026-09-23): folder/webhook events that start ONE line
 const { makeTriggerRunner, crewedDocksOnLine } = require('./routing/trigger-runner.js');
@@ -348,6 +349,11 @@ const { makeWorkshopStore } = require('./workshop-store.js'); // durable per-age
 const { makeDeliverableStore } = require('./deliverable-store.js'); // durable kept/discarded/failed Workshop lifecycle index
 const { makeSteerBuffers } = require('./steer-buffer.js'); // h1: live-steer buffers + the run-end close (an honest 409 once a run can no longer apply a note)
 const { makeIdempotencyLedger } = require('./idempotency-ledger.js'); // SOP lane: durable connector-WRITE idempotency (no double-send on retry/resume)
+const TrustedLearning = require('./trusted-learning.js');
+const LearningEvidence = require('./learningevidence.js');
+const SkillEvaluation = require('./skillevaluation.js');
+const SkillEvaluationRunner = require('./skill-evaluation-runner.js');
+const { makeEvaluationAccounting } = require('./skill-evaluation-accounting.js');
 const TaskPostconditions = require('./task-postconditions.js');        // SOP lane: the typed acceptance authority (mid-run probe + end-of-run verdict)
 const RecipeDrift = require('./recipe-drift.js');                      // golden-run drift: latest recipe run vs its own good history (pure, from run rows)
 const { makeProvenanceIndex } = require('./deliverable-provenance.js'); // WHO made a deliverable + WHAT project it belongs to, derived from the run log
@@ -538,7 +544,6 @@ const peerOwnerCheck = require('./peerowner.js').makePeerOwnerCheck({
   winSystemDir: path.join(process.env.SystemRoot || process.env.windir || 'C:\\Windows', 'System32'),
   trustAll: /^(1|true|yes|on)$/i.test(String(ENV('TRUST_LOCAL_PEERS') || '').trim()),
   readFile: (f) => fsp.readFile(f, 'utf8'),
-  now: () => Date.now(),   // the composition root owns the clock (lint-determinism); the owner verdict caches 15 s on it
   run: (exe, args) => new Promise((resolve) => {
     try {
       stationChildProcess.execFile(exe, args, { windowsHide: true, timeout: 5000, maxBuffer: 16 * 1024 * 1024 }, (err, stdout) =>
@@ -1119,7 +1124,7 @@ function unsettledReceiptOf(receipt) {
   if (typeof receipt.ts === 'number' && Number.isFinite(receipt.ts) && receipt.ts > 0) r.ts = receipt.ts;
   if (typeof receipt.provider === 'string' && receipt.provider.trim()) r.provider = receipt.provider.trim().slice(0, 40);
   if (typeof receipt.model === 'string' && receipt.model.trim()) r.model = receipt.model.trim().slice(0, 80);
-  if (receipt.managed === true) r.managed = true;
+  if (typeof receipt.managed === 'boolean') r.managed = receipt.managed;
   if (typeof receipt.runCapUsd === 'number' && Number.isFinite(receipt.runCapUsd) && receipt.runCapUsd > 0) r.runCapUsd = receipt.runCapUsd;
   return r;
 }
@@ -1414,9 +1419,9 @@ const runsIo = {
   readAll() {
     try { return readBoundedJsonl(RUNS_FILE); } catch (e) { return []; }   // P3: bounded boot-load
   },
-  append(entry) {
+  append(entry, options) {
     try { appendJsonlDurable({ fs: fs, note: failNote }, RUNS_FILE, entry); }
-    catch (e) { console.warn('[runs] append failed:', (e && e.message) || e); }
+    catch (e) { console.warn('[runs] append failed:', (e && e.message) || e); if (options && options.strict) throw e; }
     rotateJsonl(RUNS_FILE);   // P3: roll to <file>.1 once the live segment passes the cap (bounds disk)
   }
 };
@@ -1617,6 +1622,11 @@ const transcriptIo = makeSegmentedTranscriptIo({
   onWarning: (message) => console.warn('[transcript] ' + message)
 });
 const transcriptStore = makeTranscriptStore({ io: transcriptIo, clock: { now: () => Date.now() }, redact });
+const dispatchDeliveryStore = require('./dispatch-delivery.js');
+const dispatchDeliveryDeps = { runStore, transcriptStore, redact,
+  hash: text => crypto.createHash('sha256').update(text, 'utf8').digest('hex'),
+  onFailure: error => failNote('dispatch.delivery-recovery', error) };
+dispatchDeliveryStore.recoverPendingDeliveries(dispatchDeliveryDeps);
 /* H2: runs whose transcript rows are being written per turn RIGHT NOW (runTranscript start → run-end drain). The rows
    are durable the moment they land (a crash keeps them), but GET /api/transcript keeps the browser's pre-H2 view — a
    run's rows appear when it ends — because COMMS already renders the live run from its own stream, and its canonical
@@ -1675,17 +1685,17 @@ const skillsIo = {
     try { return readBoundedJsonl(SKILLS_FILE); } catch (e) { return []; }
   },
   append(entry) {
-    let fd = null;
-    try { fd = fs.openSync(SKILLS_FILE, 'a'); fs.writeSync(fd, JSON.stringify(entry) + '\n'); fs.fsyncSync(fd); }
-    catch (e) { console.warn('[skills] append failed:', (e && e.message) || e); }
-    finally { if (fd != null) { try { fs.closeSync(fd); } catch (_) {} } }
-    rotateJsonl(SKILLS_FILE);   // roll to <file>.1 once the live segment passes the cap (bounds disk; compaction keeps the set intact)
+    // The skill store publishes to RAM only after this durable write returns.
+    // Never swallow a failure and claim a proposal, rejection, or promotion survived it.
+    appendJsonlDurable({ fs, note: failNote }, SKILLS_FILE, entry);
+    rotateJsonl(SKILLS_FILE);
   },
   rewrite(entries) { rewriteJsonlDurable(SKILLS_FILE, entries); }   // compaction full-replace
 };
 const SKILL_PACKAGES_DIR = path.join(WORKSPACES, 'skill-packages');
 const skillPackageStore = skillPackages.makePackageStore({ fs, pathMod: path, root: SKILL_PACKAGES_DIR, now: () => Date.now() });
-const skillStore = makeSkillStore({ io: skillsIo, clock: { now: () => Date.now() }, redact, packageStore: skillPackageStore, guard: skillGuard, digest: skillDigestOf });
+const skillStore = makeSkillStore({ io: skillsIo, clock: { now: () => Date.now() }, redact, packageStore: skillPackageStore, guard: skillGuard, digest: skillDigestOf,
+  digestCandidate: SkillEvaluation.digestSkill, validatePromotionReceipt: verifySkillPromotion });
 /* SKILL GUARD APPROVALS — the Commander's per-skill "I read this and it's fine", keyed to a digest
    of the exact content that was reviewed, exactly as plugins-allowed.json keys a plugin to its code
    hash: edit the skill and it asks again. Held in memory (this file is small, read once at boot) and
@@ -1725,8 +1735,46 @@ function goldensFor(agentId, skillId) { const l = goldensByKey[String(agentId ||
 function persistGoldens(next) { saveResilient(SKILL_GOLDENS_FILE, next); goldensByKey = next; }
 const skillGate = makeSkillGate({
   guard: skillGuard,
-  approvals: { get: (agentId, id) => skillApprovals[String(agentId) + '\x00' + String(id)] || null }
+  approvals: { get: (agentId, id, digest) => skillApprovals[String(agentId) + '\x00' + String(id) + '\x00' + String(digest)] || skillApprovals[String(agentId) + '\x00' + String(id)] || null }
 });
+// Behavioral comparisons use their own bounded, durable host store. Candidate content never defines
+// its own checks. Owners may register an independent task suite; built-ins disclose their narrow domains.
+const SKILL_EVALUATIONS_FILE = path.join(WORKSPACES, 'skill-evaluations.json');
+let skillEvaluationData = loadResilient(SKILL_EVALUATIONS_FILE, 'skill evaluations') || {};
+if (typeof skillEvaluationData !== 'object' || Array.isArray(skillEvaluationData)) skillEvaluationData = {};
+const skillEvaluationsNow = new Set();
+const skillEvaluationIo = {
+  get(key) { return skillEvaluationData[key]; },
+  set(key, value) {
+    const next = Object.assign({}, skillEvaluationData, { [key]: value });
+    saveResilient(SKILL_EVALUATIONS_FILE, next);
+    const proven = loadResilient(SKILL_EVALUATIONS_FILE, 'skill evaluations');
+    if (JSON.stringify(proven) !== JSON.stringify(next)) throw new Error('evaluation persistence could not be verified');
+    skillEvaluationData = next;
+  }
+};
+function evaluationSuitesFor(agentId, skill) {
+  const custom = (skillEvaluationData.suites || []).filter(s => s.agentId === agentId && s.skillId === skill.id).map(s => s.suite);
+  return [SkillEvaluationRunner.createArtifactWorkflowSuite(skill.name), SkillEvaluationRunner.createTaskHandoffSuite(skill.name)].concat(custom);
+}
+function evaluationServiceFor(agentId, skill, cfg, runCase) {
+  const providerId = normalizeProvider(cfg && cfg.provider);
+  return SkillEvaluation.makeSkillEvaluator({ suites: evaluationSuitesFor(agentId, skill), io: skillEvaluationIo, clock: () => Date.now(),
+    evidenceClass: providerId === 'replay' ? 'fixture' : 'provider',
+    runnerIdentity: { provider: providerId, model: String(cfg && cfg.model || 'unconfigured'), reasoningEffort: String(cfg && cfg.reasoningEffort || ''),
+      endpoint: crypto.createHash('sha256').update(String(cfg && cfg.baseUrl || '')).digest('hex'), implementation: 'isolated-agent-loop-v1' },
+    runCase: runCase || (async () => { throw new Error('evaluation runner was not configured'); }) });
+}
+function verifySkillPromotion(receipt, expected) {
+  const cfg = sampleRunConfigFor(expected.agentId);
+  if (!cfg || cfg.ok === false || !cfg.model) return { ok: false, error: 'configure the evaluated provider and model before promotion' };
+  const result = evaluationServiceFor(expected.agentId, expected.candidate, cfg).verifyReceipt(receipt, expected);
+  return Object.assign({}, result, { error: result.reason });
+}
+function evaluationSuiteMetadata(agentId, skills) {
+  return skills.flatMap(skill => evaluationSuitesFor(agentId, skill).map(s => ({ id: s.id, skillId: skill.id, skillName: skill.name, description: s.description || '', cases: s.cases.length })));
+}
+
 // SKILL EXCHANGE: the existing web guard owns public-host validation; the exchange adds HTTPS-only,
 // bounded markdown fetching and an inspect-before-install stage. No external bytes enter skillStore
 // until the Commander has received the exact digest + body + guard verdict.
@@ -3426,26 +3474,19 @@ function persistSkillNudge() {
   try { saveResilient(SKILL_NUDGE_FILE, { v: 1, counts: Object.fromEntries(skillNudge) }); }
   catch (e) { failNote('skill.nudge.persist', e); }
 }
-// The parked review packets are DURABLE (verdict.packets.json, provider-free + compacted): a verdict the Commander
-// gives after a restart still reaches its review. Writes are coalesced (one per second at most) because every task
-// run's end stashes a packet. TTL 72h (was 6h): a rating from the OUTBOX the next day still teaches.
+// Parked and armed review jobs are durably acknowledged before scheduling or dispatch.
 const VERDICT_PACKETS_FILE = path.join(WORKSPACES, 'verdict.packets.json');
-let _verdictPersistTimer = null, _verdictPersistRows = null;
-function flushVerdictPackets() {
-  if (!_verdictPersistTimer) return;
-  clearTimeout(_verdictPersistTimer); _verdictPersistTimer = null;
-  try { saveResilient(VERDICT_PACKETS_FILE, { v: 1, rows: _verdictPersistRows || [] }); }
-  catch (e) { failNote('verdict.packets.flush', e); }
-}
+function flushVerdictPackets() { /* Every transition is already synchronous and verified. */ }
 function persistVerdictPackets(rows) {
-  _verdictPersistRows = rows;
-  if (_verdictPersistTimer) return;
-  _verdictPersistTimer = setTimeout(() => {
-    _verdictPersistTimer = null;
-    try { saveResilient(VERDICT_PACKETS_FILE, { v: 1, rows: _verdictPersistRows || [] }); }
-    catch (e) { failNote('verdict.packets.persist', e); }
-  }, 1000);
-  if (_verdictPersistTimer.unref) _verdictPersistTimer.unref();
+  const value = { v: 2, rows: rows || [] };
+  saveResilient(VERDICT_PACKETS_FILE, value);
+  const proven = loadResilient(VERDICT_PACKETS_FILE, 'verdict-packets');
+  if (JSON.stringify(proven) !== JSON.stringify(value)) throw new Error('verdict review persistence could not be verified');
+  return true;
+}
+function launchVerdictReview(job) {
+  console.log('[skills] verdict-triggered review fired run=' + job.runId + ' verdict=' + job.verdict + ' by=' + job.firedBy);
+  return rehydrateReviewJob(job).then(runBackgroundSkillReview);
 }
 const verdictReview = makeVerdictReview({ cap: num(process.env.SKYNET_VERDICT_REVIEW_CAP, 40), ttlMs: num(process.env.SKYNET_VERDICT_REVIEW_TTL_MS, 72 * 60 * 60 * 1000), graceMs: num(process.env.SKYNET_VERDICT_REVIEW_GRACE_MS, 90 * 1000), now: () => Date.now(), onChange: persistVerdictPackets, redact: (t) => redact(t) });
 try {
@@ -3472,17 +3513,18 @@ const SKILL_CURATOR_MAX_COST_USD = num(process.env.SKYNET_SKILL_CURATOR_MAX_USD,
 const skillCuratorLastRun = new Map();
 async function runBackgroundSkillReview(o) {
   const { agentId, runId, messages, provider, model, cost, loadedSkills, managedSkills, verdict, correction } = o || {};
+  if (!LearningEvidence.buildLearningEvidence(o, redact).eligible) { console.log('[skills] review skipped run=' + String(runId || '') + ': no trusted learning evidence'); return true; }
   const unmetered = !!(o && o.unmetered);   // Codex/unmetered parity: mirror reflection/study so a Codex-only user's budget isn't drained by phantom aux spend
   // a spending cap that is reached stops this paid pass too: a thumbs-down after the daily cap used to fire a review call
   // anyway (one per rating) — the verdict path reaches here with no budget check of its own (QA 2026-10-02)
   if (!unmetered) {
     let blocked = null;
     try { blocked = budget.check(null, String(agentId || 'agent'), 0, Date.now(), null); } catch (_) { blocked = null; }
-    if (blocked) { console.log('[skills] review skipped run=' + String(runId || '') + ': ' + (blocked.unknown ? 'spend history is unavailable' : 'the spending cap is reached')); return null; }
+    if (blocked) { console.log('[skills] review skipped run=' + String(runId || '') + ': ' + (blocked.unknown ? 'spend history is unavailable' : 'the spending cap is reached')); return false; }
   }
   const ac = new AbortController();
   const timer = setTimeout(() => { try { ac.abort(); } catch (_) {} }, SKILL_REVIEW_TIMEOUT_MS);
-  const reviewRunId = String(runId || 'run') + '_skill_review';
+  const reviewRunId = String(runId || 'run') + '_skill_review_' + crypto.randomUUID();
   let result = null;
   try {
     const registry = makeRegistry();
@@ -3516,6 +3558,7 @@ async function runBackgroundSkillReview(o) {
       runId: reviewRunId,
       signal: ac.signal,
       skillReview: true,
+      projectRoot: o.projectRoot || '',
       createdBy: 'background-review'
     });
     const dispatch = async (c, ctx) => {
@@ -3524,12 +3567,12 @@ async function runBackgroundSkillReview(o) {
     };
     const reviewNotebook = notebookStore.get('notebook:' + agentId);
     const prompt = skillReview.buildPrompt({
-      agentId, runId, messages, verdict, correction, failed: !!(o && o.failed),
+      agentId, runId, messages, verdict, correction, correctionSource: o && o.correctionSource, correctionOriginalChars: o && o.correctionOriginalChars, correctionTruncated: o && o.correctionTruncated, learningEvidence: o && o.learningEvidence, toolTrace: o && o.toolTrace, completionEvidence: o && o.completionEvidence, reason: o && o.reason, failed: !!(o && o.failed),
       loadedSkills: loadedSkills || [],
       managedSkills: managedSkills || [],
       // top-12 by rank() against the run's directive (was: last 12 in raw store order) — the reviewer sees the
       // memories RELEVANT to what this run did; on a queryless run rank degrades to recency+trust, still 12.
-      memories: rank(Array.isArray(reviewNotebook) ? reviewNotebook : [], latestUserText(messages), { now: Date.now(), k: 12 }),
+      memories: (o.learningEvidence && (o.learningEvidence.tainted || o.learningEvidence.trustedOnly)) ? [] : rank(Array.isArray(reviewNotebook) ? reviewNotebook : [], latestUserText(messages), { now: Date.now(), k: 12 }),
       skills: skillStore.list(agentId, { includeArchived: true })
     });
     result = await runAgentLoop({
@@ -3542,13 +3585,14 @@ async function runBackgroundSkillReview(o) {
       signal: ac.signal, clock: { now: () => Date.now() },
       agentId, runId: reviewRunId, model, trigger: 'event'
     });
-  } catch (e) { console.warn('[skills] background review failed:', (e && e.message) || e); }
+  } catch (e) { console.warn('[skills] background review failed:', (e && e.message) || e); throw e; }
   finally {
     clearTimeout(timer);
     if (result && result.usd) {
       try { ledger.record({ runId: reviewRunId, agentId, turns: result.turns || 0, usd: result.usd || 0, tokens: result.tokens || 0, unmetered }); } catch (_) {}
     }
   }
+  return !!(result && result.reason === 'done');
 }
 
 // auxCuratorDue — is the skill curator's 24h interval elapsed for this agent? Hoisted for the aux governor so
@@ -5115,6 +5159,7 @@ const overseer = require('./overseer.js').makeOverseer({ fs, path, writeDurable:
   file: path.join(WORKSPACES, 'overseer.json'), now: () => Date.now(),
   newId: () => 'ws_' + crypto.randomUUID().replace(/-/g, ''),
   sessions: () => saveStore.load('agent') || {}, hasAgent: id => id === 'agent' || agentRoster.has(id),
+  isRunActive: id => runs.has(id),
   // how long one hand-off's report waits on a straggler before NOVA reports the finished part (env OVERSEER_REPORT_CEILING_MS)
   reportCeilingMs: Math.max(30000, Number(process.env.OVERSEER_REPORT_CEILING_MS) || 600000) });
 
@@ -5177,7 +5222,7 @@ async function tickOverseer() {
   overseerTickRunning = true;
   try {
     overseer.collect(subagents.list());
-    for (const review of overseer.snapshot().reviews) {
+    for (let review of overseer.snapshot().reviews) {
       if (review.agentId !== 'agent') {
         if (review.status === 'pending' || review.status === 'reviewing') overseer.patchReview(review.id, {
           status: 'cancelled', error: 'Automatic coordination belongs to the station orchestrator.' });
@@ -5214,6 +5259,7 @@ async function tickOverseer() {
         if (updateHolding() || overseer.snapshot().paused || !overseer.snapshot().reviews.some(r => r.id === review.id && r.status === 'pending')) return;
         try { parent = overseer.resolve(review.parentStreamId); }
         catch (_) { overseer.patchReview(review.id, { status: 'cancelled', error: 'Parent conversation is no longer available.' }); return; }
+        review = overseer.refreshReview(review.id, subagents.list()) || review;
         members = liveOf(review);
         if (!members.length) {
           overseer.patchReview(review.id, { status: 'superseded', error: 'Every worker in this request has a newer attempt.' }); return;
@@ -5230,7 +5276,8 @@ async function tickOverseer() {
         };
         runs.set(runId, reviewAbort);
         runsMeta.set(runId, { agentId: review.agentId, startedAt: Date.now(), source: 'overseer', streamId: parent.id });
-        const waiting = (review.waitingOn || []).map(m => subagents.get(m.workerId)).filter(Boolean);
+        const waiting = (review.waitingOn || []).map(m => subagents.get(m.workerId))
+          .filter((w, i) => w && w.runId === review.waitingOn[i].workerRunId && w.status === 'running');
         const instruction = delegatedReportPrompt(members, waiting, review.followUp === true);
         try {
           await runOnceCoreCounted({ agentId: review.agentId, key, provider, baseUrl, model: ident.model,
@@ -5291,6 +5338,25 @@ const lineSpend = makeLineSpend({
   load: () => lineSpendStore.load().value,
   save: v => { try { lineSpendStore.save(v); } catch (e) { console.warn('[line-spend] persist failed:', (e && e.message) || e); } }
 });
+/* SHIPPED is durable terminal-job evidence, independent of later floor edits.
+   Older runs have no receipt and are never reconstructed into guessed shipments. */
+const lineShipmentStore = makeDomainStore({
+  fs, path, file: path.join(WORKSPACES, 'line-shipments.json'), version: 1, writeDurable: writeFileDurable,
+  defaults: () => [], normalize: validateShipments,
+  decode: envelope => envelope && Array.isArray(envelope.value) ? envelope.value : undefined,
+  // Diagnostics must preserve corrupt bytes: quarantining main would make the
+  // next load appear absent and authorize an empty replacement history.
+  onIssue: (status, detail) => {
+    const file = detail && detail.file;
+    if (status === 'recovered') console.warn('[line-shipments] recovered ' + file + ' from .bak last-known-good.');
+    else console.warn('[line-shipments] history unavailable (' + status + '): ' + file + '; preserving stored bytes.');
+  }
+});
+const lineShipments = makeLineShipments({
+  now: () => Date.now(), load: () => loadShipmentReceipts(lineShipmentStore),
+  save: value => lineShipmentStore.save(value),
+  runsFor: streamId => runStore.list(null, { streamId, limit: 200 })
+});
 /* SEND TO (2026-10-10): the handoff runner is built with the line triggers far below (it reuses their hub); the chain runner
    reaches it late-bound, so a job that leaves its line clean before then (never, in practice — nothing runs during boot) hands
    nothing on rather than throwing. */
@@ -5322,7 +5388,10 @@ const chainRunner = makeChainRunner({
   loopGateAfter: (agentId, lineId, dockId) => router.loopGateAfter(agentId, lineId, dockId),
   lastStage: (agentId, dockId) => router.chainShipsToOutbox(agentId, dockId),   // the stage whose reply leaves the line is told it IS the result
   // SEND TO: a job that left its line clean at the OUTBOX — the handoff runner decides whether it goes on (never awaited)
-  onShipped: (rec) => (handoffRunner ? handoffRunner.onShipped(rec) : null),
+  onShipped: (rec) => {
+    lineShipments.record(rec);
+    return handoffRunner ? handoffRunner.onShipped(rec) : null;
+  },
   barrierStore: {
     load: () => { try { return loadResilient(path.join(WORKSPACES, 'join.barriers.json'), 'join-barriers'); } catch (_) { return null; } },
     save: (v) => { try { saveResilient(path.join(WORKSPACES, 'join.barriers.json'), v); } catch (e) { failNote('chain.barriers.save', e); } }
@@ -5496,6 +5565,8 @@ function persistConnectorState(nextConfigs, nextOauth) {
     load: () => connectorVault.load(CONNECTORS_STATE_FILE),
     proof: raw => connectorStateMod.same(raw, intended)
   });
+  // A read failure can lock the vault after boot; keep the public storage state in sync.
+  if (!r.ok && connectorVault.locked) lockConnectorStorage(connectorVault.lockReason || 'unreadable');
   if (!r.ok) console.warn('[connectors] transactional persist UNVERIFIED after retry (' + (r.error || '?') + ')');
   return r.ok;
 }
@@ -5503,7 +5574,10 @@ function persistConnectorRemoval(nextConfigs, nextOauth) {
   if (connectorStorageError) return false;
   const intended = connectorStateMod.envelope(nextConfigs, nextOauth);
   try { return connectorVault.write(CONNECTORS_STATE_FILE, intended, { removal: true }); }
-  catch (_) { console.warn('[connectors] removal could not be verified'); return false; }
+  catch (_) {
+    if (connectorVault.locked) lockConnectorStorage(connectorVault.lockReason || 'unreadable');
+    console.warn('[connectors] removal could not be verified'); return false;
+  }
 }
 function adoptConnectorState(next) {
   connectorState = connectorStateMod.normalize(next);
@@ -5514,19 +5588,20 @@ function adoptConnectorState(next) {
    into connectors/unreadable-<time>/ (never deleted) and a new empty store is written, sealed when the OS key
    exists. Only offered while the store is locked: a readable store is reset through /api/config/reset. */
 const connectorStorageCanStartFresh = () => !!connectorStorageReason;
-function startFreshConnectorStorage() {
+async function startFreshConnectorStorage() {
   if (!connectorStorageCanStartFresh()) return { ok: false, status: 409, error: 'Connector storage is not locked; nothing to start fresh from.' };
   let result;
   try { result = connectorVault.startFresh(CONNECTORS_STATE_FILE, [CONNECTORS_FILE, CONNECTORS_OAUTH_FILE], { stamp: new Date().toISOString() }); }
   catch (e) { console.error('[connectors] START FRESH failed: ' + ((e && e.message) || e)); return { ok: false, status: 500, error: (e && e.message) || 'START FRESH failed; connector storage remains locked and recovery files were preserved.' }; }
   connectorStorageError = ''; connectorStorageReason = '';
   adoptConnectorState(result.state);
+  await invalidateConnectorRuntime();
   console.log('[connectors] START FRESH: kept ' + (result.moved.join(', ') || 'nothing') + (result.movedTo ? ' in ' + result.movedTo : '') + '; new store ' + (connectorVault.protected ? 'encrypted' : 'NOT encrypted'));
   return { ok: true, movedTo: result.movedTo, moved: result.moved };
 }
 // Settings' connector reset of a LOCKED store IS start fresh: a removal write can never verify against a store it can't open.
-function resetLockedConnectors(json, section) {
-  const fresh = startFreshConnectorStorage();
+async function resetLockedConnectors(json, section) {
+  const fresh = await startFreshConnectorStorage();
   return fresh.ok ? json(200, { ok: true, section }) : json(fresh.status || 500, { ok: false, section, error: fresh.error });
 }
 function connectorStorageSnapshot() {
@@ -5723,14 +5798,29 @@ function forgetOauthClient(authServer) {
 }
 const connectorOauthPending = new Map();   // csrf state -> { id, attemptId, label, verifier, client credentials, tokenEndpoint, authorizationServer, resource, serverUrl, redirectUri, at }
 const connectorOauthAttempts = new Map();  // attemptId -> { id, controller }; cancellable discovery/registration work
+// Advanced only AFTER a durable all-connector reset. Old asynchronous work must never
+// restore a client, cached registration, or grant into the new store, even for the same id.
+let connectorResetGeneration = 0;
+function invalidateConnectorRuntime() {
+  connectorResetGeneration++;
+  for (const a of connectorOauthAttempts.values()) a.controller.abort();
+  connectorOauthAttempts.clear();
+  connectorOauthPending.clear();
+  githubDeviceFlow.cancelAll();
+  connectorOauthRefreshInFlight.clear();
+  connectorOauthRefreshBackoff.clear();
+  // remove() tears down synchronously; dispatch every removal before yielding to new work.
+  return Promise.all(connectors.ids().map(id => connectors.remove(id)));
+}
 const CONNECTOR_OAUTH_LEG_MS = 15000;
 const CONNECTOR_OAUTH_FLOW_MS = 60000;
 const githubDeviceFlow = require('./mcp/github-device.js').createDeviceFlow({
   fetchImpl: connectorOauthFetch,
   now: () => Date.now(),
-  snapshot: id => JSON.stringify([connectorConfigs.find(c => c && c.id === id) || null, connectorOauth.byId[id] || null]),
+  snapshot: id => JSON.stringify([connectorResetGeneration, connectorConfigs.find(c => c && c.id === id) || null, connectorOauth.byId[id] || null]),
   complete: async (id, grant, active) => {
     if (!active()) throw new Error('This connection changed while sign-in was open.');
+    const generation = connectorResetGeneration;
     const current = connectorConfigs.find(c => c && c.id === id);
     const entry = connectorCatalog.get(id);
     const missingFields = ((current && current.missingFields) || []).filter(f => f !== 'oauth' && f !== 'token');
@@ -5741,6 +5831,7 @@ const githubDeviceFlow = require('./mcp/github-device.js').createDeviceFlow({
     if (!persistConnectorState(next.configs, next.oauth)) throw new Error('GitHub authorized, but sign-in could not be saved. Your existing connection was kept.');
     adoptConnectorState(next);
     const result = await configureConnectorCfg(cfg);
+    if (generation !== connectorResetGeneration) throw new Error('This connection changed while sign-in was open.');
     const status = connectors.status(id);
     return { state: result && result.ok && status.state === 'up' ? 'connected' : 'error', saved: true,
       login: grant.account.login, toolCount: status.toolCount || 0,
@@ -5767,6 +5858,7 @@ function classifyOauthRefreshError(msg) {
   return 'network';   // fetch failed / timed out / DNS / connection reset / private-host refusal — the AS never answered
 }
 async function ensureConnectorOauthToken(id, force) {
+  const generation = connectorResetGeneration;
   const deferredCfg = connectorConfigs.find(c => c && c.id === id);
   if (googleConnectorDeferred(deferredCfg)) {
     return { token: '', refreshError: { kind: 'unavailable', message: googleDeferredMessage(deferredCfg) } };
@@ -5796,6 +5888,7 @@ async function ensureConnectorOauthToken(id, force) {
         const nt = await mcpOauth.refreshTokens({ fetchImpl: connectorOauthFetch, tokenEndpoint: cur.tokenEndpoint, refreshToken: cur.refreshToken,
           clientId: cur.clientId, clientSecret: cur.clientSecret, tokenEndpointAuthMethod: cur.tokenEndpointAuthMethod,
           resource: cur.resource, now: Date.now(), timeoutMs: CONNECTOR_OAUTH_LEG_MS });
+        if (generation !== connectorResetGeneration) return { token: '', refreshError: null };
         const currentCfg = connectorConfigs.find(c => c && c.id === id);
         const currentGrant = connectorOauth.byId[id];
         // A refresh belongs to the exact connector + grant generation that started it. An edit, import, remove,
@@ -5812,6 +5905,7 @@ async function ensureConnectorOauthToken(id, force) {
         connectorOauthRefreshBackoff.delete(id);
         return { token: nt.accessToken, refreshError: null };
       } catch (e) {
+        if (generation !== connectorResetGeneration) return { token: '', refreshError: null };
         const message = (e && e.message) || String(e);
         const kind = classifyOauthRefreshError(message);
         console.warn('[connectors] oauth refresh failed for ' + id + ' (' + kind + '):', message);
@@ -5823,7 +5917,7 @@ async function ensureConnectorOauthToken(id, force) {
         const after = connectorOauth.byId[id];          // hand back the freshest token we still have
         return { token: (after && after.accessToken) || cur.accessToken, refreshError: { kind, message } };
       }
-    })().finally(() => { connectorOauthRefreshInFlight.delete(id); });
+    })().finally(() => { if (connectorOauthRefreshInFlight.get(id) === flight) connectorOauthRefreshInFlight.delete(id); });
     connectorOauthRefreshInFlight.set(id, flight);
     return flight;
   }
@@ -5831,6 +5925,7 @@ async function ensureConnectorOauthToken(id, force) {
 }
 // configure a connector, injecting a fresh OAuth bearer for oauth connectors (kept out of the persisted config).
 async function configureConnectorCfg(cfg, options) {
+  const generation = connectorResetGeneration;
   if (connectorStorageError) {
     await connectors.configure(cfg.id, Object.assign({}, cfg, { enabled: false, token: '', tokenProvider: null }), options);
     return { ok: false, state: 'down', toolCount: 0, error: connectorStorageError };
@@ -5850,6 +5945,7 @@ async function configureConnectorCfg(cfg, options) {
       try { await executionEnvironment.ensureReady(aid); } catch (_) {}
     }
   }
+  if (generation !== connectorResetGeneration) return { ok: false, state: 'down', toolCount: 0, superseded: true };
   if (cfg && cfg.oauth) {
     // Pass a tokenProvider (NOT a frozen token) so the manager fetches a FRESH bearer on every connect / auto-
     // reconnect / Reload — an oauth connector no longer dies ~1h in when the access token expires. We ALWAYS
@@ -6461,7 +6557,7 @@ const cronDriver = makeCronDriver({
      no chat transcript; its hops ride the routine's own stream so the session shows the whole line). */
   advanceChain: (o) => chainRunner.advance({
     agentId: o.agentId, dockId: o.dockId ? (router.dockOf(o.agentId, o.dockId) || undefined) : undefined, text: o.text, originalText: o.originalText, signal: o.signal,
-    streamId: o.streamId || undefined,   // the fire's own stream ('cron-<runId>'): a SEND TO hand-off reads back exactly this fire's runs
+    runId: o.runId, streamId: o.streamId || undefined,   // the fire's own stream ('cron-<runId>'): a SEND TO hand-off reads back exactly this fire's runs
     // the entry run's reconciled spend: MAX_CHAIN_USD bounds the WHOLE chain, and stage one is part of the
     // chain (2026-08-10 audit — the entry run rode outside its own line's $ ceiling on every path).
     entryUsd: o.entryUsd,
@@ -6659,7 +6755,7 @@ function nightFocusInputs() {
   // when two candidates are otherwise close on recency. Only WARM topics can move anything (TopicMatch's anchor
   // rule), so a cold histogram leaves the resolution byte-identical. Bounded + fail-open like every field above.
   let topics = [];
-  try { topics = personalizationStore.read().enabled ? Interests.summary(interestsState, { now: now, limit: 8 }) : []; } catch (_) { topics = []; }
+  try { topics = personalizationStore.read().enabled ? Interests.summary(interestsState, { trustedOnly: true, now: now, limit: 8 }) : []; } catch (_) { topics = []; }
   // REPEATED WORK (2026-10-05 audit item 2): requests the Commander made on ≥3 separate days that no cron job covers
   // yet (workflow-takeover.js already proves both — its candidates exclude scheduled work, and personalization-off
   // yields none). Bounded + fail-open like every field above.
@@ -7059,25 +7155,25 @@ async function runScoutCycle(o) {
   };
   try {
     const pack = nightshiftContextPack();
-    const activity = pack.activityLines || [];
+    const activity = pack.trustedActivityLines || [];   // legacy run titles may ground weak activity, never mint trusted topic history
 
     // 1) INTEREST EXTRACTION — earns itself on its own cadence (interests.shouldExtract), reads only REAL activity.
     const ex = Interests.shouldExtract(interestsState, { now: Date.now(), activityCount: activity.length });
     if (ex.fire) {
-      const known = Interests.summary(interestsState, { now: Date.now(), limit: 12 }).map(r => r.label);
+      const known = Interests.summary(interestsState, { trustedOnly: true, now: Date.now(), limit: 12 }).map(r => r.label);
       const reply = await propose(
         'You extract the recurring, specific work topics a user\'s real activity shows. Reply ONLY in the requested tagged format.',
         Interests.buildDirective({ activityLines: activity, knownTopics: known })
       );
-      const cands = Interests.parse(reply, { activityLines: activity });
-      interestsState = Interests.fold(interestsState, cands, { now: Date.now() });
+      const cands = Interests.parse(reply, { activityLines: activity, requireExactEvidence: true });
+      interestsState = Interests.fold(interestsState, cands, { now: Date.now(), trustedActivity: true });
       persistInterests();
       scoutNote({ kind: 'interests', outcome: cands.length ? 'folded' : 'none', reason: cands.length ? cands.map(c => c.label).join(', ') : 'no specific recurring topics' });
     }
 
     // 2) MINT ATTEMPT — at most one per cycle; the pure gates decide if and which kind. A non-firing gate is
     //    NOT ledger-noise (it binds most runs by design); GET /api/scout reports the live binding instead.
-    const warm = Interests.warm(interestsState, Date.now());
+    const warm = Interests.warm(interestsState, Date.now(), { trustedOnly: true });
     // lane E cold-start: a READY Commander dossier is day-one evidence — it unlocks exactly ONE recipe attempt
     // while interests are still cold (Scout.decide owns the one-shot; the attempt spends it whatever the outcome).
     // V3 §6: readiness (the shared gate, synced from the frontend), NOT mere non-emptiness — a blitzed/seeded
@@ -7093,7 +7189,7 @@ async function runScoutCycle(o) {
 
     if (d.kind === 'recipe') {
       const existing = scoutExistingRecipes();
-      const interestsBlock = Interests.topicsBlock(interestsState, { now: Date.now(), limit: 8 });
+      const interestsBlock = Interests.topicsBlock(interestsState, { trustedOnly: true, now: Date.now(), limit: 8 });
       const activityBlock = activity.slice(0, 8).map(a => '• ' + a).join('\n');
       const directionBlock = scoutDirectionBlock();   // the Commander's open quests + north star (flagship cross-wire)
       const directive = Scout.buildRecipeDirective({
@@ -7125,7 +7221,7 @@ async function runScoutCycle(o) {
       // archetype, stage ITS full spec as the prospect — deterministic, zero model spend, why from real
       // counters. The LLM authorship pass below stays the path for a genuinely novel role.
       const archMatch = Scout.matchArchetype(SharedSpecialties.ARCHETYPES || [], {
-        topics: Interests.summary(interestsState, { now: Date.now(), limit: 12 }),
+        topics: Interests.summary(interestsState, { trustedOnly: true, now: Date.now(), limit: 12 }),
         existingNames: scoutTakenNames(),
         denylist: scoutState.denylist
       });
@@ -7150,7 +7246,7 @@ async function runScoutCycle(o) {
         dossierBlock: commanderDossier.get(),
         // fold the Commander's direction (open quests + north star) into the observed-workflow signal, so a drafted
         // specialist SERVES what they're chasing (flagship cross-wire) — same additive shape as the interests block.
-        worksignalSummary: [cx.worksignalSummary, Interests.topicsBlock(interestsState, { now: Date.now(), limit: 6 }), scoutDirectionBlock()].filter(Boolean).join('\n'),
+        worksignalSummary: [cx.worksignalSummary, Interests.topicsBlock(interestsState, { trustedOnly: true, now: Date.now(), limit: 6 }), scoutDirectionBlock()].filter(Boolean).join('\n'),
         rosterClasses: [...agentRoster].map(([, a]) => ({ name: (a && a.name) || '' })).filter(c => c.name),
         catalogSummary: existing.map(c => ({ id: c.name, tagline: c.tagline })),
         capabilityKeys: SCOUT_CAP_KEYS, skillSlugs: skillSlugs,
@@ -7186,12 +7282,12 @@ function handleScoutGet(req, res) {
   scoutSweep();   // purge aged-out drafts even on an idle station (no runs) so the status read is truthful
   const now = Date.now();
   // the SAME dossierWarm the cycle uses (lane E) — the bay's gate display must never disagree with the mint path.
-  const gate = Scout.decide(scoutState, { now: now, warm: Interests.warm(interestsState, now), dossierWarm: commanderPosture.ready() });
+  const gate = Scout.decide(scoutState, { now: now, warm: Interests.warm(interestsState, now, { trustedOnly: true }), dossierWarm: commanderPosture.ready() });
   res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
   res.end(JSON.stringify({
-    warm: Interests.warm(interestsState, now),
+    warm: Interests.warm(interestsState, now, { trustedOnly: true }),
     gate: { fire: gate.fire, binding: gate.binding, kind: gate.kind, runsSinceMint: scoutState.runsSinceMint, mintEveryRuns: Scout.MINT_EVERY_RUNS },
-    interests: Interests.summary(interestsState, { now: now, limit: 10 }),
+    interests: Interests.summary(interestsState, { trustedOnly: true, now: now, limit: 10 }),
     staged: scoutState.staged,
     ledger: scoutState.ledger.slice(-20),
     usage: scoutState.usage,
@@ -7510,12 +7606,12 @@ function handleRecommendationsEval(req, res) {
    Commander ignores stops after MAX_OFFERS. Fails open to no notice. */
 function standingWorkNotice(brief, agentId, o) {
   try {
-    if (!brief || brief.status === 'cancelled' || (o && o.recovery) || !['interactive', 'channel'].includes(brief.source)) return null;
+    if (!brief || brief.status === 'cancelled' || (o && o.recovery) || !['interactive', 'channel'].includes(brief.source) || TrustedLearning.quotedMaterial(brief.originalDirective)) return null;
     if (!personalizationStore.read().enabled) return null;
     const saved = saveStore.load('agent') || null;
     const epoch = Math.max(1, Math.floor(Number(saved && saved.agent && saved.agent.createdAt) || 1));
     const n = WorkflowTakeover.notice({ directive: brief.originalDirective, agentId, projectRoot: (o && o.projectRoot) || '',
-      briefs: taskBriefStore.list({ limit: 500 }).filter(b => b.id !== brief.id), runs: runStore.all(), jobs: cronJobs,
+      briefs: TrustedLearning.ownedBriefs(taskBriefStore.list({ limit: 500 }), transcriptStore.all(), runStore.all()).filter(b => b.id !== brief.id), runs: runStore.all(), jobs: cronJobs,
       ratings: growthRatings.list({ limit: 500, epoch }), state: workflowTakeoverStore.read(), enabled: true, now: Date.now(), redact });
     if (!n) return null;
     workflowTakeoverStore.decide(n.id, 'shown', Date.now(), n.core).catch(e => console.warn('[workflow-takeover] notice impression not saved:', (e && e.message) || e));
@@ -7526,7 +7622,7 @@ function workflowTakeoverCandidates(ignoreOffers) {
   const state = workflowTakeoverStore.read();
   const saved = saveStore.load('agent') || null;
   const epoch = Math.max(1, Math.floor(Number(saved && saved.agent && saved.agent.createdAt) || 1));
-  return WorkflowTakeover.candidates({ briefs: taskBriefStore.list({ limit: 500 }), runs: runStore.all(), jobs: cronJobs,
+  return WorkflowTakeover.candidates({ briefs: TrustedLearning.ownedBriefs(taskBriefStore.list({ limit: 500 }), transcriptStore.all(), runStore.all()), runs: runStore.all(), jobs: cronJobs,
     ratings: growthRatings.list({ limit: 500, epoch }),
     state: ignoreOffers ? Object.assign({}, state, { decisions: state.decisions.filter(d => d.never) }) : state,
     enabled: personalizationStore.read().enabled, now: Date.now(), redact });
@@ -7666,15 +7762,25 @@ function nightshiftContextPack() {
   let runs = [];
   // `internal` rides through: the pure core's `!r.internal` filter was dead because this map dropped the flag, so the
   // station's own reason-only calls read as the Commander's recent work (USER-STUDY LOOP, 2026-09-28).
-  try { runs = (runStore.list(null, { limit: 60 }) || []).map(r => ({ title: r.title, ts: r.ts, streamId: r.streamId, reason: r.reason, internal: !!r.internal })); } catch (_) { runs = []; }
-  // recent CHATS: all transcript rows (the store already redacted content on write); the core filters role:'user',
-  // excludes internal streams, takes first-lines, re-redacts as a backstop. Bound the tail we hand over (RAM-safe).
-  let chats = [];
-  try { const all = transcriptStore.all() || []; chats = all.slice(-400).map(m => ({ role: m.role, content: m.content, ts: m.ts, streamId: m.streamId })); } catch (_) { chats = []; }
-  // Completed task briefs retain the full original directive (bounded by the pure pack), so topic extraction and
-  // grounding can see durable evidence that did not happen to fit in a generated title or chat first line.
+  // Filter provenance before projecting into the pure pack: otherwise attachment/quoted content becomes ambient
+  // owner activity in a later, clean run. Run storage omits taintedBy on clean rows; legacy rows share that shape.
+  // Internal titles are exclusion markers only: retain them even when a later tool taints their run, so its
+  // initially clean directive cannot reappear as owner chat. The pure pack never renders an internal run title.
+  try { runs = (runStore.list(null, { limit: 60 }) || []).filter(r => r && (r.internal || (!r.taintedBy && !TrustedLearning.quotedMaterial(r.title)))).map(r => ({ title: r.title, ts: r.ts, streamId: r.streamId, reason: r.reason, internal: !!r.internal })); } catch (_) { runs = []; }
+  // Only host-recorded clean owner turns can ground activity. Check the full content before the pure core takes
+  // its first line; a harmless heading cannot launder a quoted document below it. Bound the source window first.
+  let cleanOwnerChats = [], chats = [];
+  try {
+    cleanOwnerChats = TrustedLearning.cleanOwnerRows(transcriptStore.all(), runStore.all());
+    chats = cleanOwnerChats.map(m => ({ role: m.role, content: m.content, ts: m.ts, streamId: m.streamId }));
+  } catch (_) { cleanOwnerChats = []; chats = []; }
+  // Briefs have no independent provenance stamp. Match their exact stored directive to a proven clean owner turn
+  // in the same agent/stream; completion's runId may belong to a later turn and is not an authorship proof.
   let briefs = [];
-  try { briefs = (taskBriefStore.list({ status: 'done', limit: 30 }) || []).map(b => ({ originalDirective: b.originalDirective, ts: b.completedAt || b.updatedAt })); } catch (_) { briefs = []; }
+  try {
+    briefs = TrustedLearning.ownedBriefs(taskBriefStore.list({ status: 'done', limit: 30 }), cleanOwnerChats)
+      .map(b => ({ originalDirective: b.originalDirective, ts: b.completedAt || b.updatedAt }));
+  } catch (_) { briefs = []; }
   // the active GOAL ARC (single object or null).
   let goal = null;
   try { goal = commanderGoals.get() || null; } catch (_) { goal = null; }
@@ -7699,6 +7805,9 @@ function nightshiftContextPack() {
   // the shapes that finish. Same pause authority as the preference tallies (a paused station learns nothing).
   const trackRecord = stationTrackRecordLines();
   const pack = contextpack.assemble({ runs, briefs, chats, goal, landed, beliefs, learn, trackRecord, redact }, { now });
+  // A legacy run's absent taintedBy is not positive owner provenance. Persisted interests may learn only
+  // from the proven transcript/brief projection; retain internal run markers solely to suppress self-talk.
+  pack.trustedActivityLines = contextpack.assemble({ runs: runs.filter(r => r.internal), briefs, chats, redact }, { now }).activityLines || [];
   // the count of recent USER-INITIATED runs the pack recognized — the ACTIVITY-as-grounding evidence for readiness.
   pack.userRunCount = (pack.counts && pack.counts.runs) || 0;
   // NS-6: the top OPEN threads (durable ideas the Commander raised but never acted on), recency-ranked. The propose
@@ -7745,7 +7854,7 @@ function stationTrackRecordLines() {
 function commanderEvidenceInputs() {
   let topics = [], threads = [], activity = [], worksignal = '';
   const learning = personalizationStore.read().enabled;
-  try { topics = learning ? Interests.summary(interestsState, { now: Date.now(), limit: 8 }) : []; } catch (_) {}
+  try { topics = learning ? Interests.summary(interestsState, { trustedOnly: true, now: Date.now(), limit: 8 }) : []; } catch (_) {}
   try { threads = threadsStore.openThreads(6); } catch (_) {}
   try { activity = (nightshiftContextPack().activityLines || []).slice(0, 8); } catch (_) {}
   try { worksignal = learning ? String((scoutState.context && scoutState.context.worksignalSummary) || '') : ''; } catch (_) {}
@@ -9429,7 +9538,7 @@ async function runQuestRefreshCycle(why) {
     // RELEVANCE: the interest histogram (what the Commander keeps asking about) is already distilled by the
     // scout lane — fold it into the evidence so quests can ground in real recurring topics, not just the dossier.
     let interestsBlock = '';
-    try { interestsBlock = personalizationStore.read().enabled ? Interests.topicsBlock(interestsState, { now: Date.now(), limit: 6 }) : ''; } catch (_) { interestsBlock = ''; }
+    try { interestsBlock = personalizationStore.read().enabled ? Interests.topicsBlock(interestsState, { trustedOnly: true, now: Date.now(), limit: 6 }) : ''; } catch (_) { interestsBlock = ''; }
     const rec = questStore.read();
     const open = rec.quests.filter(q => q.status === 'open');
     // SLATE-FULL FAST PATH (cost + honesty): the store caps OPEN kind:'generated' quests at 3 per scope, and a
@@ -10914,7 +11023,7 @@ const remoteHost = require('./remote/host.js').makeRemoteHost({
   },
   transcript: {
     streams: (o) => transcriptStore.streams(o),
-    history: (sid, o) => transcriptStore.history(sid, o),
+    history: (sid, o) => conversationTranscript(sid, o),
     reconstruct: (sid, o) => transcriptStore.reconstruct(sid, o)
   },
   // the same resolution a scheduled routine uses (roster model/provider, runtime key), minus the routine note
@@ -11443,6 +11552,14 @@ const ROUTES = [
   { m: 'POST', exact: '/api/agent-skills/manage', h: handleAgentSkillManage },
   { m: 'GET', prefix: '/api/agent-skills/goldens', h: serveSkillGoldens },   // consistency loop: the great-rated references per skill (before the bare prefix route)
   { m: 'POST', exact: '/api/agent-skills/allow', h: handleAgentSkillAllow },   // the Commander's review decision on a guard-withheld skill
+  { m: 'GET', qsplit: '/api/agent-skills/candidates', h: serveSkillCandidates },
+  { m: 'GET', qsplit: '/api/agent-skills/candidate', h: serveSkillCandidates },
+  { m: 'POST', exact: '/api/agent-skills/evaluate-candidate', h: handleSkillCandidateAction },
+  { m: 'POST', exact: '/api/agent-skills/approve-candidate', h: handleSkillCandidateAction },
+  { m: 'POST', exact: '/api/agent-skills/reject-candidate', h: handleSkillCandidateAction },
+  { m: 'POST', exact: '/api/agent-skills/evaluation-suite', h: handleSkillCandidateAction },
+  { m: 'POST', exact: '/api/agent-skills/share', h: handleSkillCandidateAction },
+  { m: 'GET', qsplit: '/api/learning-status', h: serveLearningStatus },
   { m: 'GET', prefix: '/api/agent-skills', h: serveAgentSkills },
   { m: 'GET', prefix: '/api/skills', h: serveSkills },
   { m: 'POST', exact: '/api/spotify/auth/start', h: handleSpotifyStart },
@@ -11745,6 +11862,7 @@ server.on('error', (e) => {
   process.exit(1);
 });
 server.listen(PORT, '127.0.0.1', () => {
+  verdictReview.resumeHeld(launchVerdictReview);
   const url = 'http://127.0.0.1:' + PORT;
   const bar = '═'.repeat(58);
   console.log('\n' + bar);
@@ -13035,8 +13153,7 @@ function lineStatsSnapshot(since) {
     rows: runStore.list(null, { limit: 1000 }) || [], lines, since,
     spentToday: id => lineSpend.spentToday(id),
     capOf: id => chainEffectiveLimits(router.lineLimits(id), {}, pool).maxUsdPerDay,
-    // SHIPPED = a job that left through the OUTBOX: only a run at a dock whose lane reaches it (never a mid-line stage)
-    shipsToOutbox: (agentId, dockId) => router.chainShipsToOutbox(agentId, dockId)
+    shipments: lineShipments.snapshot()
   });
 }
 /* GET /api/routing/lines/stats?since=<ms> — LINE WATCH. `since` is the caller's local midnight (the same window the
@@ -13116,7 +13233,7 @@ function budgetUnsettledRuns() {
     try { const row = runStore.latest(r.runId); title = String((row && row.title) || ''); } catch (e) { failNote('budget.unsettled.title', e); }
     return {
       runId: r.runId, agentId: r.agentId || '', ts: r.ts || null, title: title.slice(0, 120),
-      provider: r.provider || null, model: r.model || null, managed: r.managed === true,
+      provider: r.provider || null, model: r.model || null, managed: typeof r.managed === 'boolean' ? r.managed : null,
       runCapUsd: (typeof r.runCapUsd === 'number' && r.runCapUsd > 0) ? r.runCapUsd : null
     };
   });
@@ -13451,7 +13568,7 @@ async function handleBudgetSettle(req, res) {
   let usd;
   if (body.mode === 'limit') {
     // a StarNet-credit receipt's charge is in the STORE's RECENT ACTIVITY (listed by run id), not on a provider dashboard
-    if (!(typeof open.runCapUsd === 'number' && Number.isFinite(open.runCapUsd) && open.runCapUsd > 0)) return json(400, { error: open.managed === true ? 'this run recorded no per-run limit — enter what StarNet charged for it (SETTINGS → AI & MODELS › STORE › RECENT ACTIVITY lists each charge with its run id)' : 'this run recorded no per-run limit — enter the charge from your provider dashboard' });
+    if (!(typeof open.runCapUsd === 'number' && Number.isFinite(open.runCapUsd) && open.runCapUsd > 0)) return json(400, { error: open.managed === true ? 'this run recorded no per-run limit — enter what StarNet charged for it (SETTINGS → AI & MODELS › STORE › RECENT ACTIVITY lists each charge with its run id)' : open.managed === false ? 'this run recorded no per-run limit — enter the charge from your provider dashboard' : 'this run recorded no per-run limit or billing source — verify its charge in StarNet Recent Activity or the original provider billing records before entering it' });
     usd = open.runCapUsd;
   } else {
     usd = (typeof body.usd === 'string' && body.usd.trim() !== '') ? Number(body.usd) : body.usd;
@@ -13875,9 +13992,8 @@ async function handleConfigReset(req, res) {
       if (connectorStorageReason) return resetLockedConnectors(json, section);
       const next = connectorStateMod.envelope([], { byId: {}, clients: {} });
       if (!persistConnectorRemoval(next.configs, next.oauth)) return json(500, { ok: false, section, error: 'connector reset could not be verified in both protected recovery copies; active connectors were left unchanged' });
-      const oldIds = connectorConfigs.map(c => c && c.id).filter(Boolean);
       adoptConnectorState(next);
-      for (const id of oldIds) { try { await connectors.remove(id); } catch (_) {} }
+      await invalidateConnectorRuntime();
       break;
     }
     case 'servicekeys': {
@@ -14183,7 +14299,7 @@ async function handleConnectorStorageStartFresh(req, res) {
   const json = (code, obj) => { res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(obj)); };
   let body; try { body = JSON.parse(await readBody(req, 1024)) || {}; } catch (e) { return json(400, { error: 'bad json' }); }
   if (body.confirm !== true) return json(400, { error: 'START FRESH needs { confirm: true }' });
-  const r = startFreshConnectorStorage();
+  const r = await startFreshConnectorStorage();
   if (!r.ok) return json(r.status || 500, { ok: false, error: r.error });
   return json(200, { ok: true, movedTo: r.movedTo, moved: r.moved, credentialStorage: connectorStorageSnapshot() });
 }
@@ -14546,7 +14662,12 @@ async function handleConnectorOauthStart(req, res) {
   if (connectorOauthAttempts.has(attemptId)) return json(409, { error: 'this sign-in attempt is already running', attemptId });
   const controller = new AbortController();
   const deadlineAt = Date.now() + CONNECTOR_OAUTH_FLOW_MS;
-  connectorOauthAttempts.set(attemptId, { id: entry.id, controller });
+  const generation = connectorResetGeneration;
+  const attempt = { id: entry.id, controller };
+  connectorOauthAttempts.set(attemptId, attempt);
+  const assertCurrent = () => {
+    if (generation !== connectorResetGeneration || controller.signal.aborted) throw new Error('Sign-in cancelled.');
+  };
   let completed = false;
   const abortOnClose = () => { if (!completed) controller.abort(); };
   req.once('aborted', abortOnClose);
@@ -14555,6 +14676,7 @@ async function handleConnectorOauthStart(req, res) {
   try {
     if (entry.deviceFlow) {
       const result = await githubDeviceFlow.start(attemptId, entry.id, controller.signal);
+      assertCurrent();
       completed = true;
       return json(200, result);
     }
@@ -14576,7 +14698,7 @@ async function handleConnectorOauthStart(req, res) {
       // A new attempt supersedes old links for this card. Keep callback work cancellable
       // until its durable commit, including while token exchange/userinfo is in flight.
       for (const [key, p] of connectorOauthPending) if (p.id === entry.id) connectorOauthPending.delete(key);
-      connectorOauthPending.set(state, { id: entry.id, attemptId, label: entry.name, verifier: verifier,
+      connectorOauthPending.set(state, { id: entry.id, attemptId, generation, label: entry.name, verifier: verifier,
         clientId: cached.clientId, clientSecret: cached.clientSecret || '', tokenEndpointAuthMethod: method,
         tokenEndpoint: so.tokenEndpoint, authorizationServer: as, resource: '',
         serverUrl: entry.url, redirectUri: CONNECTOR_OAUTH_REDIRECT, at: Date.now(),
@@ -14598,6 +14720,7 @@ async function handleConnectorOauthStart(req, res) {
       www = (pr.headers && pr.headers.get && pr.headers.get('www-authenticate')) || '';
     } catch (_) {}
     const disc = await mcpOauth.discover({ fetchImpl: connectorOauthFetch, serverUrl: entry.url, wwwAuthenticate: www, signal: controller.signal, timeoutMs: CONNECTOR_OAUTH_LEG_MS, deadlineAt, now: net.now });
+    assertCurrent();
     // Reuse a compatible cached client for this authorization server, else dynamically register one (RFC 7591).
     // Most MCP servers accept a public PKCE client. Supabase and monday.com currently advertise only a
     // confidential token-endpoint method, so their DCR-issued secret must survive callback + refresh + restart.
@@ -14616,6 +14739,7 @@ async function handleConnectorOauthStart(req, res) {
       const reg = await mcpOauth.registerClient({ fetchImpl: connectorOauthFetch, registrationEndpoint: disc.registrationEndpoint,
         redirectUri: CONNECTOR_OAUTH_REDIRECT, clientName: 'StarNet', tokenEndpointAuthMethod: requiredAuthMethod,
         signal: controller.signal, timeoutMs: CONNECTOR_OAUTH_LEG_MS, deadlineAt, now: net.now });
+      assertCurrent();
       clientId = reg.clientId;
       clientSecret = reg.clientSecret;
       tokenEndpointAuthMethod = reg.tokenEndpointAuthMethod;
@@ -14633,7 +14757,8 @@ async function handleConnectorOauthStart(req, res) {
     // Every discovered endpoint already passed mcpOauth's https/public-host/no-credentials check (catalog too); the
     // untrusted custom-server boundary additionally resolves DNS and fails closed on a private answer.
     if (target.custom) await connectorOauthPublicUrl(disc.authorizationEndpoint);
-    connectorOauthPending.set(state, { id: entry.id, attemptId, label: entry.name, custom: target.custom === true, verifier: verifier, clientId: clientId,
+    assertCurrent();
+    connectorOauthPending.set(state, { id: entry.id, attemptId, generation, label: entry.name, custom: target.custom === true, verifier: verifier, clientId: clientId,
       clientSecret: clientSecret, tokenEndpointAuthMethod: tokenEndpointAuthMethod,
       tokenEndpoint: disc.tokenEndpoint, authorizationServer: disc.authorizationServer, resource: disc.resource,
       serverUrl: entry.url, redirectUri: CONNECTOR_OAUTH_REDIRECT, at: Date.now() });
@@ -14647,7 +14772,7 @@ async function handleConnectorOauthStart(req, res) {
     const msg = (e && e.message) || 'oauth start failed';
     json(/cancelled/i.test(msg) ? 499 : 502, { error: msg, attemptId, cancelled: /cancelled/i.test(msg) });
   } finally {
-    connectorOauthAttempts.delete(attemptId);
+    if (connectorOauthAttempts.get(attemptId) === attempt) connectorOauthAttempts.delete(attemptId);
     req.removeListener('aborted', abortOnClose);
     res.removeListener('close', abortOnClose);
   }
@@ -14727,6 +14852,7 @@ async function handleConnectorOauthCallback(req, res) {
       redirectUri: pending.redirectUri, clientId: pending.clientId, clientSecret: pending.clientSecret,
       tokenEndpointAuthMethod: pending.tokenEndpointAuthMethod, verifier: pending.verifier, resource: pending.resource,
       now: Date.now(), timeoutMs: 30000 });
+    if (pending.generation !== connectorResetGeneration) return page('Sign-in cancelled', 'Connector storage was reset while sign-in was open. Please start again.', false);
     if (!tok.accessToken) return page('Sign-in failed', 'The provider did not return an access token.', false);
     if (pending.googleApi) {
       const granted = new Set(String(tok.scope || '').split(/\s+/));
@@ -14748,9 +14874,9 @@ async function handleConnectorOauthCallback(req, res) {
     // Picker permits drive.file alone; do not call userinfo or ask for identity scopes.
     oauthEntry.account = pending.id === 'google-files' ? null : await require('./mcp/account.js').readGoogleAccount({ authorizationServer: pending.authorizationServer,
       tokenEndpoint: pending.tokenEndpoint, accessToken: tok.accessToken, fetchImpl: connectorOauthFetch, now: Date.now() });
-    if (pending.googleApi && (connectorOauthPending.get(state) !== pending ||
+    if (pending.generation !== connectorResetGeneration || (pending.googleApi && (connectorOauthPending.get(state) !== pending ||
         JSON.stringify(connectorConfigs.find(c => c && c.id === pending.id) || null) !== pending.originalConfig ||
-        JSON.stringify(connectorOauth.byId[pending.id] || null) !== pending.originalGrant)) {
+        JSON.stringify(connectorOauth.byId[pending.id] || null) !== pending.originalGrant))) {
       return page('Sign-in cancelled', 'This connection changed while sign-in was open. Your current settings were kept.', false);
     }
     // FAIL THE SIGN-IN LOUDLY if the exchanged tokens can't be proven on disk (read-back + retry). A silent persist
@@ -14769,11 +14895,13 @@ async function handleConnectorOauthCallback(req, res) {
     }
     adoptConnectorState(next);
     const result = await configureConnectorCfg(cfg);
+    if (pending.generation !== connectorResetGeneration) return page('Sign-in cancelled', 'Connector storage was reset while sign-in was open. Please start again.', false);
     if (remainingMissing.length) return page('Sign-in saved', pending.label + ' authorized, but the connector still needs: ' + remainingMissing.join(', ') + '.', false);
     if (result && result.ok && result.state === 'up') return page(pending.label + ' connected', pending.label + ' is connected — ' + (result.toolCount || 0) + ' tool(s) now available to your agents.', true);
     return page('Almost there', pending.label + ' authorized, but the connection did not come up: ' + ((result && result.error) || 'unknown error') + '. Try Reload from the connectors panel.', false);
   } catch (e) {
     const msg = (e && e.message) || String(e);
+    if (pending.generation !== connectorResetGeneration) return page('Sign-in cancelled', 'Connector storage was reset while sign-in was open. Please start again.', false);
     if (/invalid_client|unauthorized_client/i.test(msg) && pending && pending.authorizationServer) forgetOauthClient(pending.authorizationServer);
     return page('Sign-in failed', 'Token exchange failed: ' + msg, false);
   } finally {
@@ -15732,7 +15860,7 @@ async function handleCronRun(req, res) {
           text: state.buf, originalText: String(job.prompt || ''), signal: ac.signal,
           // the fire's own stream, exactly as the scheduled fire passes it: a SEND TO hand-off reads back THIS run's rows (the
           // every-step-ended-done check and the files it made) — without it Run Now handed on half-finished work the schedule refuses
-          streamId: 'cron-' + runId,
+          runId, streamId: 'cron-' + runId,
           entryUsd: state.usd,   // stage one is part of the chain — its spend counts against MAX_CHAIN_USD (2026-08-10)
           // SAME ORIGIN AS THE SCHEDULED FIRE (work belongs to a line, 2026-08-07): Run Now is this routine's
           // own trigger pressed by hand, so it carries the dock's lineId and the line runs — but ONLY for a
@@ -18401,7 +18529,8 @@ function serveAgentSkills(req, res) {
        exact content" is printed, and only a re-digest of the delivered bytes can tell whether that is
        still true. Without it the card blesses a package whose SKILL.md was rewritten after review. */
     skills = skillGate.annotate(skills, { verify: includeBody }).map(s => Object.assign({}, s, { guardDigest: skillGate.stampOf(s), goldens: goldensFor(agentId, s.id).length }));
-    json(200, { agentId, skills, withheld: skills.filter(s => s.withheld).length });
+    const candidates = skillStore.candidates(agentId, { includeBody });
+    json(200, { ok: true, agentId, skills, candidates, evaluationSuites: evaluationSuiteMetadata(agentId, candidates.map(c => c.skill)), withheld: skills.filter(s => s.withheld).length });
   } catch (e) { json(500, readRouteFailure('agent-skills', e)); }   // harness.agentSkillsRead maps !ok to { ok:false } — never a confirmed empty
 }
 
@@ -18434,6 +18563,7 @@ async function handleAgentSkillAllow(req, res) {
   const key = agentId + '\x00' + skill.id;
   if (body.allow === false) {
     const next = Object.assign({}, skillApprovals); delete next[key];
+    for (const candidateKey of Object.keys(next)) if (candidateKey.startsWith(key + '\x00')) delete next[candidateKey];
     try { persistSkillApprovals(next); }
     catch (e) { console.warn('[skills] approval revoke persist failed:', (e && e.message) || e); return json(507, { ok: false, approved: true, error: 'approval change could not be persisted; the existing decision was kept' }); }
     return json(200, { ok: true, approved: false, skill: skillGate.annotate([skill])[0] });
@@ -18446,11 +18576,111 @@ async function handleAgentSkillAllow(req, res) {
      stamp-keyed approval could never clear the drift. Fall back to the lifecycle stamp only when there is
      no body to digest. */
   const digest = typeof skill.body === 'string' ? skillGate.digestOf(skill) : skillGate.stampOf(skill);
+  if (body.digest && String(body.digest) !== digest) return json(409, { error: 'skill changed since it was reviewed; read it again' });
   const next = Object.assign({}, skillApprovals, { [key]: { digest, action: 'allow', at: Date.now(), name: skill.name } });
   try { persistSkillApprovals(next); }
   catch (e) { console.warn('[skills] approval persist failed:', (e && e.message) || e); return json(507, { ok: false, approved: false, error: 'approval could not be persisted; the skill remains withheld' }); }
   const after = skillGate.annotate([skillStore.view(agentId, skill.id, { includeArchived: true, bump: false }) || skill])[0];
   json(200, { ok: true, approved: true, digest, skill: after });
+}
+
+function learningJson(res, code, value) {
+  if (res.headersSent) return;
+  res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(value));
+}
+function serveLearningStatus(req, res) {
+  const u = new URL(req.url, 'http://localhost'), agentId = String(u.searchParams.get('agent') || 'agent');
+  if (!isAgentId(agentId)) return learningJson(res, 403, { error: 'forbidden' });
+  const rows = skillEvaluationIo.get('learning:' + agentId) || [];
+  const runId = u.searchParams.get('runId');
+  learningJson(res, 200, { agentId, receipts: runId ? rows.filter(r => r.runId === runId) : rows });
+}
+function serveSkillCandidates(req, res) {
+  try {
+    const u = new URL(req.url, 'http://localhost'), agentId = String(u.searchParams.get('agent') || 'agent');
+    if (!isAgentId(agentId)) return learningJson(res, 403, { ok: false, error: 'forbidden' });
+    const id = String(u.searchParams.get('candidateId') || u.searchParams.get('id') || '');
+    if (id) {
+      const candidate = skillStore.candidate(agentId, id);
+      if (!candidate) return learningJson(res, 404, { ok: false, error: 'no such candidate' });
+      return learningJson(res, 200, { ok: true, candidate, active: skillStore.view(agentId, candidate.skill.id, { bump: false, includeArchived: true }), evaluationSuites: evaluationSuiteMetadata(agentId, [candidate.skill]) });
+    }
+    const candidates = skillStore.candidates(agentId, { includeBody: u.searchParams.get('body') === '1', includeResolved: u.searchParams.get('resolved') === '1' });
+    return learningJson(res, 200, { ok: true, agentId, candidates, evaluationSuites: evaluationSuiteMetadata(agentId, candidates.map(c => c.skill)) });
+  } catch (e) { return learningJson(res, 500, readRouteFailure('skill-candidates', e)); }
+}
+async function handleSkillCandidateAction(req, res) {
+  let body;
+  try { body = JSON.parse(await readBody(req, 256 * 1024, res)) || {}; }
+  catch (_) { return learningJson(res, 400, { ok: false, error: 'bad json' }); }
+  const agentId = String(body.agentId || 'agent');
+  if (!isAgentId(agentId)) return learningJson(res, 403, { ok: false, error: 'forbidden' });
+  const action = new URL(req.url, 'http://localhost').pathname.split('/').pop();
+  try {
+    if (action === 'share') {
+      if (body.scope === 'project' && !isBlessedRoot(String(body.projectRoot || ''))) return learningJson(res, 400, { ok: false, error: 'choose a currently trusted project folder' });
+      const result = skillStore.share({ agentId, target: body.target || body.id, scope: body.scope, projectRoot: body.projectRoot, actor: 'user' });
+      return learningJson(res, result.ok ? 200 : 400, result);
+    }
+    if (action === 'evaluation-suite') {
+      const skill = skillStore.view(agentId, body.skillId, { bump: false, includeArchived: true }) || skillStore.candidates(agentId, { includeBody: true }).map(c => c.skill).find(c => c.id === body.skillId);
+      if (!skill) return learningJson(res, 404, { ok: false, error: 'no such owned skill' });
+      const suite = SkillEvaluation.validateSuite(Object.assign({}, body.suite, { skillName: skill.name }));
+      if (!/^owner:[A-Za-z0-9_-]{1,60}$/.test(suite.id)) return learningJson(res, 400, { ok: false, error: 'custom suite id must start with owner: followed by a short name' });
+      const prior = (skillEvaluationData.suites || []).filter(s => !(s.agentId === agentId && s.skillId === skill.id && s.suite.id === suite.id));
+      if (prior.length >= 40) return learningJson(res, 400, { ok: false, error: 'the station already has 40 custom suites; update an existing one' });
+      skillEvaluationIo.set('suites', prior.concat([{ agentId, skillId: skill.id, suite }]));
+      return learningJson(res, 200, { ok: true, evaluationSuites: evaluationSuiteMetadata(agentId, [skill]) });
+    }
+    const candidate = skillStore.candidate(agentId, String(body.candidateId || ''));
+    if (!candidate || candidate.status !== 'pending') return learningJson(res, 404, { ok: false, error: 'no pending candidate with that id' });
+    if (String(body.candidateDigest || '') !== candidate.candidateDigest) return learningJson(res, 409, { ok: false, error: 'candidate changed; read its current revision' });
+    if (action === 'reject-candidate') {
+      const result = skillStore.rejectCandidate({ agentId, candidateId: candidate.candidateId, candidateDigest: candidate.candidateDigest });
+      return learningJson(res, result.ok ? 200 : 409, result);
+    }
+    const guard = skillGate.verify(candidate.skill);
+    if (guard.action === 'block') return learningJson(res, 400, { ok: false, error: 'the skill guard blocks this revision; edit the flagged content first' });
+    if (action === 'approve-candidate') {
+      const baseline = skillStore.view(agentId, candidate.skill.id, { bump: false, includeArchived: true });
+      const expected = { candidate: candidate.skill, baseline, agentId, candidateDigest: candidate.candidateDigest, baselineDigest: candidate.baseDigest };
+      const checked = verifySkillPromotion(body.receiptId || body.evaluation, expected);
+      if (!checked.ok) return learningJson(res, 409, { ok: false, error: checked.error || 'behavior evaluation has not passed' });
+      if (SkillEvaluation.digestSkill(baseline) !== candidate.baseDigest) return learningJson(res, 409, { ok: false, error: 'active skill changed since the candidate was proposed' });
+      // Precommit a digest-specific approval. It cannot revoke the old active approval or approve different bytes.
+      // If promotion append fails, the old skill remains active; this unused candidate approval is harmless.
+      const key = agentId + '\x00' + candidate.skill.id + '\x00' + skillGate.digestOf(candidate.skill);
+      persistSkillApprovals(Object.assign({}, skillApprovals, { [key]: { digest: skillGate.digestOf(candidate.skill), action: 'allow', at: Date.now(), name: candidate.name } }));
+      const result = skillStore.approveCandidate({ agentId, candidateId: candidate.candidateId, candidateDigest: candidate.candidateDigest, evaluation: checked.receiptId, approvedBy: 'user' });
+      if (result.ok) chanEmit('deliverable', { agentId, id: result.skill.id, kind: 'skill', title: result.skill.name });
+      return learningJson(res, result.ok ? 200 : 409, result);
+    }
+    if (action !== 'evaluate-candidate') return learningJson(res, 400, { ok: false, error: 'unknown candidate action' });
+    if (skillEvaluationsNow.has(agentId)) return learningJson(res, 409, { ok: false, error: 'an evaluation is already running for this agent' });
+    const cfg = sampleRunConfigFor(agentId);
+    if (!cfg || cfg.ok === false || !cfg.model || (!cfg.configured && !cfg.key)) return learningJson(res, 409, { ok: false, error: 'configure a model for this agent before evaluation' });
+    const baseline = skillStore.view(agentId, candidate.skill.id, { bump: false, includeArchived: true });
+    if (SkillEvaluation.digestSkill(baseline) !== candidate.baseDigest) return learningJson(res, 409, { ok: false, error: 'active skill changed; regenerate the candidate before evaluating' });
+    const providerId = normalizeProvider(cfg.provider), unmetered = !!((getProviderProfile(providerId) || {}).unmetered);
+    const controller = new AbortController(), timer = setTimeout(() => controller.abort(), 120000);
+    const onClose = () => { if (!res.writableEnded) controller.abort(); };
+    res.once('close', onClose); stationOneShots.add(controller); skillEvaluationsNow.add(agentId);
+    const accounting = makeEvaluationAccounting({ ledger, budget, agentId, provider: providerId, model: cfg.model, unmetered });
+    try {
+      const provider = await providerForRunConfig(cfg, resolveReasoningEffort(providerId, cfg.reasoningEffort));
+      const runCase = SkillEvaluationRunner.makeAgentLoopCaseRunner({ provider, model: cfg.model, cost: makeCostEngine({ priceOf: provider.priceOf }), clock: { now: () => Date.now() },
+        runIdPrefix: 'skill-eval-' + crypto.randomUUID(), limits: { maxIters: 8, maxCostUsd: 0.08, grace: false },
+        authorize: async () => !controller.signal.aborted && accounting.canContinue() && (unmetered || !budget.check(null, agentId, 0, Date.now(), null)),
+        beforeRun: accounting.beforeRun,
+        beforeStream: ({ runId, spentUsd }) => !controller.signal.aborted && accounting.canContinue(spentUsd) &&
+          (unmetered || !budget.check(runId, agentId, spentUsd, Date.now(), null)),
+        onStream: accounting.onStream,
+        onRun: accounting.onRun
+      });
+      const receipt = await evaluationServiceFor(agentId, candidate.skill, cfg, runCase).evaluate({ candidate: candidate.skill, baseline, suiteId: String(body.suiteId || ''), signal: controller.signal });
+      return learningJson(res, 200, { ok: true, receipt });
+    } finally { clearTimeout(timer); res.removeListener('close', onClose); stationOneShots.delete(controller); skillEvaluationsNow.delete(agentId); }
+  } catch (e) { failNote('skill-candidate.' + action, e); return learningJson(res, 400, { ok: false, error: String(e && e.message || 'candidate action failed').slice(0, 300) }); }
 }
 
 /* ------------------------------- the run endpoint ------------------------------- */
@@ -18710,6 +18940,7 @@ async function handleRun(req, res) {
     // USER ATTACHMENTS: expand any Commander-attached photos/files (carried as lightweight references on the
     // user turns) into real provider content blocks before the model call. Degrades per-attachment, never throws.
     const hasUserAttachments = messages.some(m => m && Array.isArray(m.attachments) && m.attachments.length > 0);
+    const learningInput = TrustedLearning.capture(messages, 'interactive-owner');
     let runMessages = messages;
     try { runMessages = await attachments.expandUserAttachments(messages, agentId); } catch (_) { runMessages = messages; }
     // The browser is WATCHED, so an ungranted mutation asks live (interactive surface + promptConsent) instead
@@ -18718,7 +18949,8 @@ async function handleRun(req, res) {
       key, keyPool: body && body.keyPool, model, system: (projectLine || projectRules) ? (String(system || '') + projectLine + projectRules) : system, messages: runMessages, agentId, isTask, provider: runProvider, baseUrl, reasoningEffort, fallbackModels, fallbackProviders,
       emit, signal: ac.signal, runId, trigger: 'directive', internal, evidence,
       voiceTurn: !!(body && body.voiceTurn === true),   // the reply will be SPOKEN: the voice chat model may answer it
-      initialTaint: hasUserAttachments ? 'user attachment' : null,
+      initialTaint: hasUserAttachments ? 'user attachment' : (TrustedLearning.quotedMaterial(latestUserText(messages)) ? 'quoted user material' : null),
+      learningInput,   // host-captured BEFORE attachment expansion; never accepted from request metadata
       retryUserRunId: body && body.retryUserRunId,
       surface: 'interactive', prompt: promptConsent, pathPrompt: promptPathTrust, summon: summonRequest,   // team.summon → live summonAgent() round-trip; pathPrompt → NS-5 "work in <root>?" bless
       loginPrompt: askHuman,   // attended browser login: browser.login's two consent asks ride the same fail-closed permission.prompt channel
@@ -19194,6 +19426,22 @@ async function runOnceCore(o) {
       }
     : rawEmit;
 
+  // A LINE BUDGET applies before the FIRST stage as well as between hops. Samples, channel messages and
+  // routines all reach this host-derived origin; checking only chain.advance let every new job buy its
+  // entry run after the day limit, and a one-step line never checked the cap at all. Re-read at admission
+  // (including queued turns), before a routine script or provider can run. Direct orders carry no origin.
+  if (workflowLine) {
+    const lim = chainEffectiveLimits(router.lineLimits(workflowLine), {},
+      (typeof effectiveCaps.global === 'number' && effectiveCaps.global > 0) ? effectiveCaps.global : null);
+    if (lim.maxUsdPerDay != null && lineSpend.spentToday(workflowLine) >= lim.maxUsdPerDay) {
+      emit('agent.run.start', { agentId, runId, trigger, model: o.noAgent ? '' : model, ...runStartExtra });
+      emit('agent.run.error', { agentId, runId, transient: false,
+        message: 'The line reached its $' + lim.maxUsdPerDay.toFixed(2) + ' daily limit — raise its LINE BUDGET or try again tomorrow.' });
+      emit('agent.run.end', { agentId, runId, reason: 'budget', turns: 0, usd: 0 });
+      return;
+    }
+  }
+
   // A routine script is a host-executed pre-check. It runs through shell.exec's complete safety scanner,
   // timeout, sanitized environment and process-tree kill. Script-only runs return before provider admission.
   if (o.cronScript) {
@@ -19585,16 +19833,16 @@ async function runOnceCore(o) {
     unrestrictedHost: unrestrictedHostNow()
   });
   makeFsTools({ fsp, pathMod: path, root: WORKSPACES, environment: executionEnvironment, limits: { writeBytes: 1 << 20, readReturn: 24000 }, redact, pathTrust: runPathTrust, docExtract, imageWire, editDiagnostics: lspManager, spawn: childSpawn }).register(registry);   // redact: scrub secrets out of surfaced fs.search lines (§5.6); baseline-before-edit LSP feedback; spawn: lets fs.search use `rg` when the machine has it
-  makeNotebookTools({ store: notebookStore, clock: { now: () => Date.now() }, redact, rank, nextTrust: memcore.nextTrust, findSimilar: memcore.findSimilar, similarity: memcore.tokenJaccard, onSaved: recordRunReceipt }).register(registry);   // §5.6: scrub secrets at the write boundary; rank: explicit read shares auto-recall's relevance order; nextTrust: notebook.feedback rating fold; findSimilar: near-dupe guard so the same belief can't accumulate in N phrasings; similarity: the same-subject listing; onSaved: this run's COMMS receipt
+  makeNotebookTools({ store: notebookStore, clock: { now: () => Date.now() }, redact, rank, nextTrust: memcore.nextTrust, findSimilar: memcore.findSimilar, similarity: memcore.tokenJaccard, onSaved: recordRunReceipt, sharedStanding: () => (tasteWithheld || !personalizationStore.read().enabled) ? [] : FeedbackMemory.stationStanding(notebookStore.get('notebook:' + agentId), otherAgentNotebooks(agentId)).filter(r => r.foreign) }).register(registry);   // §5.6: scrub secrets at the write boundary; rank: explicit read shares auto-recall's relevance order; nextTrust: notebook.feedback rating fold; findSimilar: near-dupe guard so the same belief can't accumulate in N phrasings; similarity: the same-subject listing; onSaved: this run's COMMS receipt
   widgetTools.register(registry);   // WIDGET RAILS Phase 2: widget.set — agent-fed rail readouts (memory capability: sandboxed local write, no consent, no network)
   makeRecallTool({ transcriptStore }).register(registry);   // H1.3: recall_conversation — agent searches its own past dialogue (transcriptstore); joins the NOTEBOOK (memory) capability
   makeSkillTools({
     store: skillStore,
     gate: skillGate,   // guard verdict enforcement: a withheld skill lists as withheld and refuses to load its body
     onView: (skill) => {
-      if (!skill || seenLoadedSkills.has(skill.id)) return;
-      seenLoadedSkills.add(skill.id);
-      loadedSkills.push({ id: skill.id, name: skill.name, summary: skill.summary, state: skill.state });
+      if (!skill || seenLoadedSkills.has(skill.agentId + ':' + skill.id)) return;
+      seenLoadedSkills.add(skill.agentId + ':' + skill.id);
+      loadedSkills.push({ id: skill.id, agentId: skill.agentId, name: skill.name, summary: skill.summary, state: skill.state, contentDigest: skill.contentDigest });
     },
     onManage: (skill, ctx, action) => {
       if (skill) managedSkills.push({ id: skill.id, name: skill.name, action: action || 'manage' });
@@ -19658,6 +19906,7 @@ async function runOnceCore(o) {
   // THIS SAME runOnce per worker; the roster supplies each worker's composed identity (system prompt + model).
   makeOrchestrationTools({
     runOnce, roster: () => agentRoster, key: runKey, model, provider: providerId, baseUrl, reasoningEffort, subagents,
+    finalizeDispatchDelivery: (id, envelope) => dispatchDeliveryStore.finalizeDispatchDelivery(dispatchDeliveryDeps, id, envelope),
     runRecord: (id) => runStore.latest(id),   // team.subagents {runId}: verify a foreground dispatch against run history (#57)
     coordinateResults: require('./overseer.js').isCoordinatorRun({ ...o, agentId, surface }),
     // every coordinator worker is filed in its own thread under the conversation that delegated it (orchestration.js
@@ -19690,10 +19939,11 @@ async function runOnceCore(o) {
       const settled = taskBriefState ? commanderEvidenceContext(system || '', Object.assign({},taskContextInputs,{brief:taskBriefState.brief})) : taskContextBlock;
       const notes = notebookStore.get('notebook:' + agentId);
       // the Commander's taste rides into delegated work too: a worker writes the deliverable the Commander rates
-      const tasteRecs = (personalizationStore.read().enabled && !tasteWithheld) ? FeedbackMemory.stationTaste(notes, otherAgentNotebooks(agentId)) : [];
+      const tasteRecs = (personalizationStore.read().enabled && !tasteWithheld) ? FeedbackMemory.stationTaste(notes, otherAgentNotebooks(agentId), { query: recentUserText(messages), projectRoot: o.projectRoot || '' }) : [];
       const tasteIds = new Set(tasteRecs.map(r => r.id).filter(Boolean));
       const pinned = Array.isArray(notes) ? notes.filter(r => r && r.pinned && !tasteIds.has(r.id) && !(tasteWithheld && r.origin === FeedbackMemory.ORIGIN) && !r.taintedBy) : [];
-      const recalled = renderRecall(rank(pinned, recentUserText(messages), { now: Date.now(), streamId, projectRoot: o.projectRoot || null }), { limit: 1500 });
+      const standing = (personalizationStore.read().enabled && !tasteWithheld) ? FeedbackMemory.stationStanding(notes, otherAgentNotebooks(agentId)).filter(r => !pinned.some(p => p.id && p.id === r.id)) : [];
+      const recalled = renderRecall(rank(pinned.concat(standing), recentUserText(messages), { now: Date.now(), streamId, projectRoot: o.projectRoot || null }), { limit: 1500 });
       const taste = FeedbackMemory.renderTaste(tasteRecs, renderRecall);
       return settled + (recalled.text ? '\n\n' + redact(recalled.text) : '') + (taste.text ? '\n\n' + redact(taste.text) : '');
     },
@@ -20335,8 +20585,11 @@ async function runOnceCore(o) {
      delegated worker (its "user" turn is the lead's brief), a group session (its "user" turn is the shared transcript,
      other agents' words included), a line hand-off (the previous stage's output) or harness self-talk: there, the
      "user" words are not the Commander's. */
-  const commanderWords = (!internal && !o.parentRunId && !o.delegatedBy && !o.groupTools && (surface === 'interactive' || ownerTrusted) &&
-    !(Pipeline.isHandoff && Pipeline.isHandoff(latestUserText(messages)))) ? recentUserText(messages) : '';
+  const learningSource = o.learningInput ? 'interactive-owner' : (o.channelSender === true && o.channelSenderOwner === true ? 'channel-owner' : '');
+  const trustedLearningInput = TrustedLearning.eligible(Object.assign({}, o, { internal, source: learningSource, hostPowerWithheld, untrustedEntry: untrustedEntryRun,
+    handoff: !!(Pipeline.isHandoff && Pipeline.isHandoff(latestUserText(messages))) }))
+    ? (o.learningInput || TrustedLearning.capture(messages, learningSource)) : null;
+  const commanderWords = trustedLearningInput ? trustedLearningInput.content : '';
   const capCtx = makeCapCtx(resolved, Object.assign({
     emit, consent, summon, timeoutMs: CAPS.toolTimeoutMs, runId, streamId, signal: signal, ownerTrusted, commanderWords,
     // Host-minted routine identity for routine.notepad. Interactive/model-authored runs cannot name another
@@ -20663,7 +20916,7 @@ async function runOnceCore(o) {
      dispatch, the results after), the compaction tiers' strict drain, and run end — which then appends only what
      is left. Directive text is captured pre-loop (runTranscript.setDirective below). */
   const runTranscript = makeRunTranscript({
-    store: transcriptStore, streamId: o.streamId, agentId, runId, from: o.delegatedBy || '',
+    store: transcriptStore, streamId: o.streamId, agentId, runId, from: o.delegatedBy || '', dispatchState: o.dispatchDelivery && o.dispatchDelivery.state,
     // rows written after untrusted content entered this run carry its taint source (sec-taint 09-25)
     taint: () => execution.taintedBy() || (typeof o.connectorAuthority?.taintedBy === 'function' ? o.connectorAuthority.taintedBy() : null),
     // mid-run write failures never kill the run or reorder dialogue: the rows stay pending (and in the run journal)
@@ -21446,7 +21699,7 @@ async function runOnceCore(o) {
     if (isTask && resolved.tools.indexOf('skill.view') >= 0) {
       // WITH archived rows: composeIndex drops them from the index, but counts them so an all-archived skillbase is
       // never told "you have no saved skills yet"
-      const rs = runtimeSkills.composeIndex(skillStore.list(agentId, { includeArchived: true }), {
+      const rs = runtimeSkills.composeIndex(skillStore.listAccessible(agentId, { projectRoot: o.projectRoot || '', includeArchived: true }), {
         budget: 6000,
         platform: process.platform,
         canManage: resolved.tools.indexOf('skill.manage') >= 0,
@@ -21480,7 +21733,7 @@ async function runOnceCore(o) {
         const key = String(name || '').toLowerCase();
         if (!key || seenNames.has(key)) continue;
         seenNames.add(key);
-        const v = skillStore.view(agentId, name);
+        const v = skillStore.viewAccessible(agentId, name, { projectRoot: o.projectRoot || '' });
         if (!v) continue;
         // A NAMED PRELOAD IS STILL GATED. This path injects the FULL body, so a withheld skill
         // invoked by /skill must not slip in ahead of the index's check. verify() (not decide())
@@ -21488,9 +21741,9 @@ async function runOnceCore(o) {
         const pd = skillGate.verify(v);
         if (pd && pd.visible === false) { withheldPreloads.push({ name: v.name, reason: pd.reason || 'held by the skill guard' }); continue; }
         loaded.push(v);
-        if (!seenLoadedSkills.has(v.id)) {
-          seenLoadedSkills.add(v.id);
-          loadedSkills.push({ id: v.id, name: v.name, summary: v.summary, state: v.state });
+        if (!seenLoadedSkills.has(v.agentId + ':' + v.id)) {
+          seenLoadedSkills.add(v.agentId + ':' + v.id);
+          loadedSkills.push({ id: v.id, agentId: v.agentId, name: v.name, summary: v.summary, state: v.state, contentDigest: v.contentDigest });
         }
       }
       preloadedSkillBlock = runtimeSkills.composeLoaded(loaded);
@@ -21532,9 +21785,10 @@ async function runOnceCore(o) {
   let taskIntentNote = '';
   if (taskBrief) taskIntentNote = '\n\n' + TaskIntent.directive(taskContextBlock);
   // CREW CALL (crew-call.js): a request that names a crew member gets one closing line naming them and the exact
-  // team.dispatch call. Same grant gate as the [ORCHESTRATION] note: never ask for a tool this run does not have.
+  // team.dispatch call. Only host-attested owner input may produce this directive; handoffs/workers are data.
+  // Same grant gate as the [ORCHESTRATION] note: never ask for a tool this run does not have.
   let crewCallNote = '';
-  if (!internal && isTask && resolved && Array.isArray(resolved.tools) && resolved.tools.includes('team.dispatch')) {
+  if (commanderWords && !internal && isTask && resolved && Array.isArray(resolved.tools) && resolved.tools.includes('team.dispatch')) {
     try { crewCallNote = CrewCall.crewCallNote(latestUserText(messages), agentRoster, agentId); } catch (e) { failNote('crew-call', e); }
   }
   // SERVICE KEYS (KEYS tab): advertise the env-var NAMES of the Commander's connected platform keys — value never
@@ -21688,7 +21942,7 @@ async function runOnceCore(o) {
     // decide whether it surfaces. Those records leave the ranked pool so they never take a recall slot twice.
     // station-wide: a correction given to ANY agent is about the Commander, so it shapes this agent's work too
     // (recovery runs inject nothing at all — see the note above msgs).
-    const tasteRecs = (o.recovery || tasteWithheld || !personalizationStore.read().enabled) ? [] : FeedbackMemory.stationTaste(all, otherAgentNotebooks(agentId));
+    const tasteRecs = (o.recovery || tasteWithheld || !personalizationStore.read().enabled) ? [] : FeedbackMemory.stationTaste(all, otherAgentNotebooks(agentId), { query: recentUserText(convo), projectRoot: o.projectRoot || '' });
     const tasteIds = new Set(tasteRecs.map(r => r.id).filter(Boolean));
     // withheld: EVERY feedback record leaves the recall pool, not just the selected taste — a verdict record carries the
     // Commander's past request ('(on: …)') and ordinary BM25 recall would hand it to a channel guest (QA 2026-10-02)
@@ -21696,8 +21950,9 @@ async function runOnceCore(o) {
     const q = recentUserText(convo);   // include restored conversation context on terse post-restart follow-ups
     // memory-compound: the embedding lane (BM25 + vectors) — null => pure BM25, byte-identical to before
     const hv = recs.length ? await hybridVectors({ agentId, recs, query: q, run: { providerId, key: runKey, baseUrl }, runId, cost, unmetered: providerUnmetered }) : null;
-    const ranked = rank(recs, q, { now: Date.now(), streamId, projectRoot: o.projectRoot || null, vectors: hv && hv.vectors, queryVec: hv && hv.queryVec });   // M-mem.2b stream boost · project tier: only THIS project's lessons
-    const recalled = renderRecall(ranked, { limit: 1500 });
+    const standingRecs = (o.recovery || tasteWithheld || !personalizationStore.read().enabled) ? [] : FeedbackMemory.stationStanding(all, otherAgentNotebooks(agentId)).filter(r => r.foreign);
+    const ranked = rank(recs.concat(standingRecs), q, { now: Date.now(), streamId, projectRoot: o.projectRoot || null, vectors: hv && hv.vectors, queryVec: hv && hv.queryVec });   // M-mem.2b stream boost · project tier: only THIS project's lessons
+    const recalled = renderRecall(ranked, { limit: 1500, priorityLimit: Math.min(4000, Math.max(800, Math.floor((provider.contextLimit(model) || COLD_CATALOG_CONTEXT_TOKENS) * 0.12))) });
     const taste = FeedbackMemory.renderTaste(tasteRecs, renderRecall, { agentId });
     const recall = {
       text: [recalled.text, taste.text].filter(Boolean).join('\n'),
@@ -22122,7 +22377,7 @@ async function runOnceCore(o) {
         }
       }
       const runEndedAt = Date.now();
-      runStore.record({ runId, parentRunId: o.parentRunId || '', delegatedBy: o.delegatedBy || '', agentId, provider: activeProviderId, reason: ((result && result.reason) || 'done'), clarifying: taskQuestionAsked, turns: finalTurns, tokens: finalTokens, usd: finalUsd, title: title, streamId: o.streamId || '', sessionTitle: o.sessionTitle || '', deliveryPrompt: o.syntheticTrigger ? '' : (o.sessionPrompt || ''), deliveryText, recipeId: o.recipeId || '', projectRoot: o.projectRoot || '', deliverable: deliverableNotes.take(runId), model: finalModel, reasoningEffort, unmetered: runUnmetered && mediaUsd === 0, artifacts: execution.artifactList(), toolsOk: execution.toolsOk(), toolTrace: execution.toolTraceList(), failureStage: execution.failureStage(), failureCode: execution.failureCode(), uncertainMutations: execution.uncertainMutations(), completionEvidence: finalCompletionEvidence, recoveryAttempts: execution.recoveryAttempts(), startedAt: runStartedAt, endedAt: runEndedAt, durationMs: runEndedAt - runStartedAt, identityFallback, internal, surface, recoveryOf: o.recovery ? String(o.recovery.sourceRunId || '') : '', handoffEdited: o.handoffEdited === true, stepTest: o.stepTest === true, lineId: o.lineId || '', dockId: o.dockId || '', cronJobId: trigger === 'schedule' ? String(o.cronJobId || '') : '', taintedBy: execution.taintedBy() || '' });   // execution terminal stays separate from the neutral Task Brief outcome used by progression; recoveryOf links a continuation to the interrupted run it resumed
+      runStore.record({ runId, parentRunId: o.parentRunId || '', delegatedBy: o.delegatedBy || '', agentId, provider: activeProviderId, reason: ((result && result.reason) || 'done'), clarifying: taskQuestionAsked, turns: finalTurns, tokens: finalTokens, usd: finalUsd, title: title, streamId: o.streamId || '', sessionTitle: o.sessionTitle || '', deliveryPrompt: o.syntheticTrigger ? '' : (o.sessionPrompt || ''), deliveryText, dispatchDelivery: o.dispatchDelivery, recipeId: o.recipeId || '', projectRoot: o.projectRoot || '', deliverable: deliverableNotes.take(runId), model: finalModel, reasoningEffort, unmetered: runUnmetered && mediaUsd === 0, artifacts: execution.artifactList(), toolsOk: execution.toolsOk(), toolTrace: execution.toolTraceList(), failureStage: execution.failureStage(), failureCode: execution.failureCode(), uncertainMutations: execution.uncertainMutations(), completionEvidence: finalCompletionEvidence, recoveryAttempts: execution.recoveryAttempts(), startedAt: runStartedAt, endedAt: runEndedAt, durationMs: runEndedAt - runStartedAt, identityFallback, internal, surface, recoveryOf: o.recovery ? String(o.recovery.sourceRunId || '') : '', handoffEdited: o.handoffEdited === true, stepTest: o.stepTest === true, lineId: o.lineId || '', dockId: o.dockId || '', cronJobId: trigger === 'schedule' ? String(o.cronJobId || '') : '', taintedBy: execution.taintedBy() || '' });   // execution terminal stays separate from the neutral Task Brief outcome used by progression; recoveryOf links a continuation to the interrupted run it resumed
 
       // P0.1/H1.1: persist the full DIALOGUE (not just the outcome) — a durable server-side transcript for EVERY
       // run, incl. headless ones (cron/Telegram/delegated). Append the triggering user directive, then EVERY new
@@ -22148,8 +22403,8 @@ async function runOnceCore(o) {
           console.warn('[run-journal] retained unsettled run for review:', runId, retirement.state && retirement.state.status);
         }
       } else {
-        if (title && !retryDirective && !o.syntheticTrigger && !runTranscript.directiveWritten()) transcriptStore.append({ streamId: o.streamId, agentId, role: 'user', content: title, from: o.delegatedBy || undefined });
-        if (result && Array.isArray(result.messages)) transcriptStore.appendNew(o.streamId, agentId, result.messages, { taint: execution.taintedBy() });
+        if (title && !retryDirective && !o.syntheticTrigger && !runTranscript.directiveWritten()) transcriptStore.append({ streamId: o.streamId, agentId, role: 'user', content: title, from: o.delegatedBy || undefined, sourceRunId: o.dispatchDelivery ? runId : undefined, dispatchState: o.dispatchDelivery && o.dispatchDelivery.state });
+        if (result && Array.isArray(result.messages)) transcriptStore.appendNew(o.streamId, agentId, result.messages, { taint: execution.taintedBy(), sourceRunId: o.dispatchDelivery ? runId : undefined, dispatchState: o.dispatchDelivery && o.dispatchDelivery.state });
       }
     } catch (_) {}
     transcriptLiveRuns.delete(runId);   // H2: settled (or retained in the journal) — its rows are ordinary history now
@@ -22182,7 +22437,7 @@ async function runOnceCore(o) {
     // run that throws still counts what it loaded; markUsed persists, so the count and the aging clock survive a restart
     // (a view alone bumps RAM only).
     if (loadedSkills.length) {
-      try { skillStore.markUsed(agentId, loadedSkills.map(s => s.id)); } catch (e) { failNote('skill.markUsed', e); }
+      try { for (const owner of new Set(loadedSkills.map(s => s.agentId || agentId))) skillStore.markUsed(owner, loadedSkills.filter(s => (s.agentId || agentId) === owner).map(s => s.id)); } catch (e) { failNote('skill.markUsed', e); }
     }
     budget.clearLive(runId);
   }
@@ -22239,6 +22494,10 @@ async function runOnceCore(o) {
      words in a hand-off are only the original request — the line's first run already carried those — so a hand-off run is not
      reflected on, studied or thread-mined (and spends none of the agent's cooldowns). */
   const _lineHop = !!(Pipeline.isHandoff && Pipeline.isHandoff(latestUserText(msgs)));
+  const learningEvidence = TrustedLearning.evidence({ runId, trigger: o.trigger, tainted: execution.taintedBy(), trustedInput: trustedLearningInput, completion: finalCompletionEvidence, loadedSkills });
+  if ((_auxDone || _auxFail) && o.reflect && isTask && !internal) {
+    await captureTrustedLearning({ agentId, runId, projectRoot: o.projectRoot || '', input: trustedLearningInput, learningEvidence });
+  }
   const _gateReflect = !!(o.reflect && memoryConfig.reflectEnabled && isTask && _auxDone && !_lineHop && reflectSalient(result.messages, o.recurring)
       && personalizationStore.read().enabled   // the personalization PAUSE never even offers the candidate (runReflection re-checks the same authority)
       && !reflectingNow.has(agentId) && (Date.now() - (lastReflectAt.get(agentId) || 0) >= memoryConfig.reflectCooldownMs));
@@ -22287,11 +22546,11 @@ async function runOnceCore(o) {
   let _capReached = !!(result && result.reason === 'budget');
   if (!_capReached && !providerUnmetered) { try { _capReached = !!budget.check(null, agentId, 0, Date.now(), null); } catch (e) { failNote('aux.budget', e); } }
   if (_capReached) _auxCandidates.length = 0;
-  // A TAINTED RUN TEACHES NOTHING DURABLE (2026-10-10): these passes turn the run's transcript into notes, lessons and
-  // skills that later — Full Access — runs read as trusted context, outside the per-run taint fence. Content the
-  // Commander did not author (a web page, an email, a stranger's message) must not be laundered into memory that way.
+  // External transcript text never enters a durable learning pass. The skill reviewer may still use the
+  // separately captured owner directive and host checks; its structured packet discards all external bytes.
   if (execution.taintedBy()) {
-    for (const pass of ['reflection', 'failure-review', 'study', 'threadmine', 'skill-review']) {
+    const noTrustedEvidence = !learningEvidence.trustedUserMessages.length && !learningEvidence.checks.length;
+    for (const pass of ['reflection', 'failure-review', 'study', 'threadmine'].concat(noTrustedEvidence ? ['skill-review'] : [])) {
       const at = _auxCandidates.indexOf(pass);
       if (at >= 0) _auxCandidates.splice(at, 1);
     }
@@ -22348,7 +22607,7 @@ async function runOnceCore(o) {
   }
   if (_auxSpend.has('skill-review')) {
     skillReviewingNow.add(agentId);
-    runBackgroundSkillReview({ agentId, runId, messages: result.messages.slice(), provider, model: _auxSkillModel, cost, loadedSkills, managedSkills, unmetered: providerUnmetered }).catch(swallow('aux.skillreview.envelope')).finally(() => { skillReviewingNow.delete(agentId); });
+    runBackgroundSkillReview({ agentId, runId, messages: result.messages.slice(), learningEvidence, toolTrace: execution.toolTraceList(), completionEvidence: finalCompletionEvidence, reason: result.reason, projectRoot: o.projectRoot || '', provider, model: _auxSkillModel, cost, loadedSkills, managedSkills, unmetered: providerUnmetered }).catch(swallow('aux.skillreview.envelope')).finally(() => { skillReviewingNow.delete(agentId); });
   }
   if (process.env.SKYNET_SKILL_REVIEW !== '0' && (_auxDone || _auxFail) && isTask && !internal) {
     // CONSISTENCY LOOP (2026-08-22): park this real task run's review packet (a FAILED one too, 2026-10-01: the
@@ -22357,7 +22616,7 @@ async function runOnceCore(o) {
     // Parked even when the nudge review above already fired: that pass ran before the verdict existed and is
     // blind to it. The verdict pass is the one that knows the work fell short. Bounded LRU + TTL in verdictreview.js;
     // `great` never spends it; taken once; one extra aux pass per rated-short run, a Commander-initiated signal.
-    verdictReview.stash(runId, { agentId, messages: result.messages.slice(), provider, model: _auxSkillModel, cost, loadedSkills, managedSkills, unmetered: providerUnmetered, failed: !_auxDone });
+    verdictReview.stash(runId, { agentId, messages: result.messages.slice(), learningEvidence, toolTrace: execution.toolTraceList(), completionEvidence: finalCompletionEvidence, reason: result.reason, projectRoot: o.projectRoot || '', provider, model: _auxSkillModel, cost, loadedSkills, managedSkills, unmetered: providerUnmetered, failed: !_auxDone });
   }
   if (_auxSpend.has('skill-curator')) {
     runSkillCurator({ agentId, runId, provider, model: _auxSkillModel, cost, unmetered: providerUnmetered }).catch(swallow('aux.skillcurator.envelope'));
@@ -25405,10 +25664,7 @@ async function handleGrowthRatings(req, res) {
   if (!result.duplicate && process.env.SKYNET_SKILL_REVIEW !== '0') {
     // ARM, don't fire (slice 2): hold the review for a grace window so the Commander's correction — a follow-up
     // chip or the next typed message (POST /api/growth/ratings/correction) — rides into the prompt in their words.
-    skillReviewArmed = verdictReview.arm(runId, canonical.verdict, (job) => {
-      console.log('[skills] verdict-triggered review fired run=' + runId + ' verdict=' + job.verdict + ' by=' + job.firedBy + (job.correction ? ' correction=' + JSON.stringify(job.correction.slice(0, 80)) : ''));
-      rehydrateReviewJob(job).then(runBackgroundSkillReview).catch(swallow('aux.skillreview.verdict'));
-    }, String(body.correction || ''));
+    skillReviewArmed = verdictReview.arm(runId, canonical.verdict, launchVerdictReview, String(body.correction || ''));
     if (skillReviewArmed) console.log('[skills] verdict-triggered review armed run=' + runId + ' verdict=' + canonical.verdict + ' grace=' + verdictReview.graceMs + 'ms');
   }
   return json(200, { ok: true, duplicate: !!result.duplicate, rating: result.rating, skillReviewArmed, goldensMinted, feedbackMemory });
@@ -25999,6 +26255,14 @@ function serveInsights(req, res) {
 // GET /api/transcript?stream=<id>&agent=<id>&limit=<n> — the durable per-workstream conversation transcript
 // (P0.1), chronological. Feeds a server-side autopsy/replay view and recovers headless-run dialogue (the
 // browser's own COMMS history persists via the save-envelope mirror). Read-only; fail-open, never a 500.
+// Desktop history, phone reading, and phone continuation share one accepted-answer projection.
+// Exact execution reads and model reconstruction retain their separate raw evidence semantics.
+function conversationTranscript(stream, options) {
+  const limit = Math.max(1, Number(options && options.limit) || 200);
+  return transcriptStoreModule.projectConversation(
+    transcriptStore.history(stream, { limit: limit + 500 }).filter(r => !transcriptLiveRuns.has(String(r.sourceRunId || ''))),
+    id => runStore.latest(id), dispatchDeliveryDeps.hash).slice(-limit);
+}
 function serveTranscript(req, res) {
   const json = (code, obj) => respondJson(res, code, obj);   // canonical helper (sidecar/respond.js)
   try {
@@ -26009,9 +26273,13 @@ function serveTranscript(req, res) {
     const limit = Math.max(1, Math.min(500, Number(u.searchParams.get('limit')) || 200));
     const sourceRunId = u.searchParams.get('runId') || '';
     // H2: a run still writing per turn stays out of the stream view until it ends (see transcriptLiveRuns).
-    const turns = sourceRunId || !transcriptLiveRuns.size
-      ? transcriptStore.history(stream, { limit, sourceRunId })
-      : transcriptStore.history(stream, { limit: limit + 500 }).filter(r => !transcriptLiveRuns.has(String(r.sourceRunId || ''))).slice(-limit);
+    const hashText = text => crypto.createHash('sha256').update(text, 'utf8').digest('hex');
+    // Explicit delivery reads return only the full accepted projection. The ordinary exact-run view stays raw.
+    const finalDelivery = sourceRunId && u.searchParams.get('delivery') === '1';
+    const raw = sourceRunId ? transcriptStore.history(stream, { limit: limit + 500, sourceRunId, dispatchState: finalDelivery ? 'final' : undefined }) : [];
+    const turns = sourceRunId
+      ? raw.filter(r => finalDelivery ? transcriptStoreModule.isFinalDeliveryRow(r, hashText, (runStore.latest(r.sourceRunId) || {}).dispatchDelivery) : r.dispatchState !== 'final').slice(-limit)
+      : conversationTranscript(stream, { limit });
     json(200, { stream, turns });
   } catch (e) { json(500, readRouteFailure('transcript', e)); }   // broken ≠ empty: every reader gates on r.ok (autosessions/chat/returnstore)
 }
@@ -26268,7 +26536,7 @@ function otherAgentNotebooks(agentId) {
   const out = [];
   for (const id of ids) {
     if (!/^[A-Za-z0-9_-]{1,40}$/.test(String(id))) continue;
-    try { const l = notebookStore.get('notebook:' + id); if (Array.isArray(l) && l.length) out.push(l); }
+    try { const l = notebookStore.get('notebook:' + id); if (Array.isArray(l) && l.length) out.push({ agentId: String(id), records: l }); }
     catch (e) { failNote('feedback.taste.read', e); }
   }
   return out;
@@ -26354,6 +26622,30 @@ async function recordFeedbackMemory(o) {
   }
 }
 
+// Owner statements survive research and short turns without an auxiliary model inferring their meaning.
+// The canonical writer supplies durable deduplication and receipts; declined memories remain declined.
+async function captureTrustedLearning(o) {
+  const status = { runId: o.runId, at: Date.now(), tainted: !!o.learningEvidence.tainted, saved: 0,
+    trustedDirectives: o.learningEvidence.trustedUserMessages.length, verifiedChecks: o.learningEvidence.checks.filter(c => c.status === 'passed').length,
+    reason: 'no_explicit_standing_preference' };
+  if (!personalizationStore.read().enabled || !memoryConfig.reflectEnabled) status.reason = 'learning_paused';
+  else if (!o.input) status.reason = 'no_trusted_owner_input';
+  else {
+    const declined = buildDeclinedIndex(o.agentId);
+    for (const prop of TrustedLearning.preferences(o.input, o.projectRoot)) {
+      if (declined.has(prop.content)) continue;
+      try {
+        const w = await writeMemoryRecord(o.agentId, prop, { runId: o.runId, source: 'owner-statement', origin: 'commander', trustedInput: o.input });
+        if (w.ok) { status.saved++; recordRunReceipt(o.agentId, o.runId, { id: w.id, kind: w.kind, content: prop.content, scope: prop.scope, projectRoot: prop.projectRoot, origin: 'commander', saved: true }); }
+      } catch (e) { status.reason = 'write_failed'; failNote('learning.capture', e); }
+    }
+    if (status.saved) status.reason = 'owner_preference_saved';
+  }
+  try { const rows = skillEvaluationIo.get('learning:' + o.agentId); skillEvaluationIo.set('learning:' + o.agentId, (Array.isArray(rows) ? rows : []).filter(r => r.runId !== o.runId).concat([status]).slice(-100)); }
+  catch (e) { failNote('learning.status', e); }
+  console.log('[learning] run=' + o.runId + ' agent=' + o.agentId + ' reason=' + status.reason + ' saved=' + status.saved + ' trusted=' + status.trustedDirectives + ' checks=' + status.verifiedChecks + ' tainted=' + status.tainted);
+}
+
 async function writeMemoryRecord(agentId, prop, opts) {
   opts = opts || {};
   const content = String(opts.content != null ? opts.content : (prop && prop.content) || '').trim();
@@ -26369,8 +26661,8 @@ async function writeMemoryRecord(agentId, prop, opts) {
     try { r = skillStore.write({ agentId, name: skillName, summary, body: skillBody, createdBy: opts.source || 'reflection', sourceRunId: runId || (prop && prop.sourceRunId) }); }
     catch (e) { return { ok: false, error: (e && e.message) || 'could not save skill' }; }
     if (!r.ok) return { ok: false, error: r.error || 'could not save skill' };
-    chanEmit('deliverable', { id: r.skill.id, agentId, kind: 'skill', title: r.skill.name });
-    return { ok: true, id: r.skill.id, kind: 'skill', skill: r.skill };
+    chanEmit('deliverable', { id: r.skill.id, agentId, kind: 'skill', title: r.pending ? 'Proposed revision: ' + r.skill.name : r.skill.name });
+    return { ok: true, id: r.skill.id, kind: 'skill', pending: !!r.pending, skill: r.skill };
   }
   // P1: write the notebook record under the per-agent lock, RE-READING the list so the id (positional) is minted
   // against the current notebook and a concurrent run's memory.write isn't clobbered by this whole-array set.
@@ -26391,6 +26683,10 @@ async function writeMemoryRecord(agentId, prop, opts) {
         (Array.isArray(r.history) && r.history.some(h => h && sameText(h.body)))))) return undefined;
     writtenId = memcore.nextNoteId(list);   // collision-proof (positional length reuses a slot freed by forget)
     rec = recordFromProposal(prop || {}, { now: Date.now(), runId: runId || (prop && prop.sourceRunId), id: writtenId, content, origin: opts.origin, userConfirmed: opts.userConfirmed === true });
+    if (opts.trustedInput && TrustedLearning.preferences(opts.trustedInput, prop.projectRoot).some(p => p.content === content)) {
+      rec.confirmation = 'user-stated'; rec.standing = true;
+      rec.statedBy = { runId, quote: content, source: opts.trustedInput.source };
+    }
     if (trustDelta) rec.trust = memcore.nextTrust(rec.trust, trustDelta);   // M-mem.6: keep/edit seeds real trust; silent auto-save leaves it neutral
     list.push(rec);
     return list;
@@ -26758,7 +27054,7 @@ async function serveStatic(req, res) {
     if (isAppPage ||
         (DEV_MODE && abs.toLowerCase() === path.resolve(FRONTEND, 'agent-station-demo.html').toLowerCase())) {
       const sock = req.socket || {};
-      const peer = await peerOwnerCheck({ remoteAddress: sock.remoteAddress, remotePort: sock.remotePort, localPort: sock.localPort });
+      const peer = await peerOwnerCheck({ remoteAddress: sock.remoteAddress, remotePort: sock.remotePort, localAddress: sock.localAddress, localPort: sock.localPort });
       // the app page gets a per-response script nonce (CSP below), so its one inline boot script runs and nothing else inline does
       if (isAppPage) scriptNonce = crypto.randomBytes(16).toString('base64');
       let boot = (scriptNonce ? '<script nonce="' + scriptNonce + '">' : '<script>') + (peer.ok ? 'window.__STARNET_API_TOKEN__=' + JSON.stringify(API_TOKEN) + ';'

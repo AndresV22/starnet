@@ -1,0 +1,196 @@
+{
+  "results": [
+    {
+      "name": "real seeded station opens",
+      "ok": true
+    },
+    {
+      "name": "real workflow run delivered",
+      "ok": true,
+      "detail": {
+        "id": "job-b32bd146a483",
+        "runId": "9c251273-c6ae-4574-bf38-a3a067178cfc",
+        "status": "delivered"
+      }
+    },
+    {
+      "name": "put back is immediate and its write waits for keep",
+      "ok": true,
+      "detail": {
+        "posts": [
+          {
+            "runId": "9c251273-c6ae-4574-bf38-a3a067178cfc"
+          }
+        ],
+        "kept": false
+      }
+    },
+    {
+      "name": "real store has no resurrected style after put back",
+      "ok": true,
+      "detail": {
+        "done": [
+          {
+            "undo": false,
+            "j": {
+              "ok": true,
+              "feedbackMemory": {
+                "stored": true,
+                "id": "note_1",
+                "created": true,
+                "reference": null
+              }
+            }
+          },
+          {
+            "undo": true,
+            "j": {
+              "ok": true,
+              "undone": true,
+              "removed": true
+            }
+          }
+        ],
+        "kept": false
+      }
+    },
+    {
+      "name": "real lead question and background worker approval are pending",
+      "ok": true,
+      "detail": [
+        {
+          "id": "ba7d8387-3591-4692-b636-36ba9df39a58",
+          "tool": "brief.ask",
+          "worker": ""
+        },
+        {
+          "id": "da37074c-c222-4d07-963a-0aa59ddf9ef0",
+          "tool": "fs.write",
+          "worker": "scribe"
+        }
+      ]
+    },
+    {
+      "name": "controlled worker attribution: Answer focuses exact real question card without submitting consent",
+      "ok": true,
+      "detail": {
+        "prompt": "ba7d8387-3591-4692-b636-36ba9df39a58",
+        "focus": "ba7d8387-3591-4692-b636-36ba9df39a58",
+        "grades": false,
+        "controlledAttribution": true
+      }
+    },
+    {
+      "name": "answering question retains other worker approval",
+      "ok": true,
+      "detail": [
+        {
+          "id": "da37074c-c222-4d07-963a-0aa59ddf9ef0",
+          "tool": "fs.write",
+          "worker": "scribe"
+        }
+      ]
+    },
+    {
+      "name": "the independent approval remains answerable and lead settles",
+      "ok": true,
+      "detail": {
+        "pending": 0,
+        "ends": [
+          {
+            "agentId": "color",
+            "reason": "done"
+          },
+          {
+            "agentId": "agent",
+            "reason": "done"
+          }
+        ]
+      }
+    }
+  ],
+  "calls": [
+    {
+      "phase": "taste",
+      "kind": "lead",
+      "tool": null
+    },
+    {
+      "phase": "taste",
+      "kind": "lead",
+      "tool": null
+    },
+    {
+      "phase": "taste",
+      "kind": "lead",
+      "tool": null
+    },
+    {
+      "phase": "taste",
+      "kind": "lead",
+      "tool": null
+    },
+    {
+      "phase": "delegation",
+      "kind": "lead",
+      "tool": "brief_proceed"
+    },
+    {
+      "phase": "delegation",
+      "kind": "lead",
+      "tool": "team_dispatch"
+    },
+    {
+      "phase": "delegation",
+      "kind": "color",
+      "tool": "brief_ask"
+    },
+    {
+      "phase": "delegation",
+      "kind": "save",
+      "tool": "brief_proceed"
+    },
+    {
+      "phase": "delegation",
+      "kind": "lead",
+      "tool": "brief_ask"
+    },
+    {
+      "phase": "delegation",
+      "kind": "color",
+      "tool": null
+    },
+    {
+      "phase": "delegation",
+      "kind": "save",
+      "tool": "fs_write"
+    },
+    {
+      "phase": "delegation",
+      "kind": "lead",
+      "tool": null
+    },
+    {
+      "phase": "delegation",
+      "kind": "lead",
+      "tool": null
+    },
+    {
+      "phase": "delegation",
+      "kind": "lead",
+      "tool": null
+    },
+    {
+      "phase": "delegation",
+      "kind": "save",
+      "tool": null
+    }
+  ],
+  "limitations": [
+    "The fixture uses a real dev-seeded app, real sidecar stores and a synthetic local model. It is not installed WebView2 or commercial-model proof.",
+    "Delegated Answer navigation uses controlled worker attribution on an actual interactive lead question. Native autonomous workers intentionally do not receive askCommander; no natural autonomous-worker question proof or backend defect is claimed.",
+    "The style request is held before real HTTP submission to establish ordering; the focused regression separately models asynchronous reference capture before notebook update.",
+    "No persistence schema changes; store inspection was immediate, not a restart proof.",
+    "No customer station, external account writes or installer recovery verified."
+  ]
+}

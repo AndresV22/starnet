@@ -364,7 +364,7 @@
       }
     }
     else if (name === 'memory.write') bump(s.counters, 'memWrites');
-    else if (name === 'workitem.delivered') { if (!p.sample) bump(s.counters, 'delivered'); }   // a routing-sample PROOF dispatch marks itself sample:true — never durable dossier credit
+    else if (name === 'workitem.delivered') { if (!p.sample && p.box !== 'line-output') bump(s.counters, 'delivered'); }   // a routing-sample PROOF dispatch marks itself sample:true — never durable dossier credit
     else if (name === 'channel.delivery') { if (p && p.ok === true) bump(s.counters, 'awayDelivered'); }   // a CONFIRMED send out through a channel (a failed/delayed redelivery reports ok:false)
     else if (name === 'memory.feedback') {
       const quality = turnInFeedbackQuality(feedbackReason(p));

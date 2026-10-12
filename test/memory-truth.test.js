@@ -124,6 +124,27 @@ function harness(at, extra) {
     A.eq(h2.notes()[0].scope, 'stream', 'an explicit scope always wins');
   }
 
+  // Shared vocabulary is not evidence of the same instruction. Preserve relations and qualifiers.
+  for (const [said, note] of [
+    ['From now on, use spaces instead of tabs for indentation.', 'User prefers tabs over spaces for indentation'],
+    ['I prefer small blue buttons for the settings page.', 'User prefers large blue buttons for the settings page'],
+    ['I prefer spaces, not tabs, for indentation.', 'User does not prefer spaces over tabs for indentation'],
+    ['If I prefer spaces for indentation, ask me first.', 'User prefers spaces for indentation'],
+    ['I prefer spaces only for Python indentation.', 'User prefers spaces for Python indentation'],
+    ['I prefer spaces or tabs for indentation.', 'User prefers spaces and tabs for indentation'],
+    ['I prefer spaces for indentation.', 'User always prefers spaces for indentation'],
+    ['I prefer spaces for indentation.', 'User prefers spaces for indentation now'],
+    ['I prefer spaces for indentation.', 'From now on, use spaces for indentation'],
+    ['Someone said "I prefer spaces for indentation".', 'User prefers spaces for indentation']
+  ]) {
+    const h = harness(T1);
+    const result = await h.t.writeTool.run({title:'Indentation',body:note,pinned:true},ctxA({commanderWords:said}));
+    const n = h.notes()[0];
+    A.ok(n.confirmation !== 'user-stated' && !n.statedBy, 'no user authority for an altered claim: ' + note + ' / ' + said);
+    A.eq(n.scope, 'stream', 'an unproven claim is not widened across conversations');
+    A.ok(!/Commander.s own words/.test(result.content), 'the save receipt does not claim the user stated the alteration');
+  }
+
   // ---- 2. corrections: proven words keep the Commander's authority; unproven reads as a superseding inference ----
   {
     const kept = () => [{ id: 'note_1', kind: 'note', title: 'Indentation', body: 'User prefers tabs for indentation', content: 'User prefers tabs for indentation',
@@ -196,7 +217,7 @@ function harness(at, extra) {
     A.ok(!/const lr = latestProposalRun\.get\(agent\); batch = lr/.test(idx), 'the cross-run fallback is gone');
     A.ok(/onSaved: recordRunReceipt/.test(idx), 'notebook.write reports its saves as this run\'s receipts');
     A.ok(/memcore\.mergeReceipts\(prev && prev\.agentId === agentId \? prev\.proposals : \[\], items\)/.test(idx), 'a later stash MERGES into the run\'s batch instead of overwriting it');
-    A.ok(/!o\.parentRunId && !o\.delegatedBy && !o\.groupTools && \(surface === 'interactive' \|\| ownerTrusted\)/.test(idx) && /ownerTrusted, commanderWords,/.test(idx),
+    A.ok(idx.includes('TrustedLearning.eligible(') && idx.includes('const commanderWords = trustedLearningInput ? trustedLearningInput.content') && idx.indexOf("TrustedLearning.capture(messages, 'interactive-owner')") < idx.indexOf('await attachments.expandUserAttachments(messages, agentId)') && /ownerTrusted, commanderWords,/.test(idx),
       'commanderWords reach the tool ctx only from the owner\'s own surfaces (never a worker, a group transcript or a guest)');
     // COMMS: each save renders once per run, and a later save of the same run is not swallowed
     const chat = fs.readFileSync(path.join(__dirname, '..', 'frontend', 'app', 'chat.js'), 'utf8');

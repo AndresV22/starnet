@@ -115,6 +115,33 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
     const resumed = await fixture.json('POST', '/api/halt/resume', { confirm: true });
     assert.equal(resumed.body.subsystems.overseer.halted, false, 'existing explicit resume also resumes coordination');
     assert.equal((await fixture.json('GET', '/api/overseer')).body.reviews.some(r => r.status === 'pending'), false, 'explicit resume does not revive cancelled reviews');
+    // One lead makes two background dispatch calls with a real poll interval between them. The first worker
+    // finishes before the second is assigned; the report must wait for the lead and cover both exactly once.
+    const reviewsBeforeBatch = provider.reviews();
+    const batchTurn = await fixture.json('POST', '/api/run', { model: 'test/model', agentId: 'agent', streamId: 'home', isTask: true,
+      messages: [{ role: 'user', content: 'BATCH_TIMING_PROOF: delegate two findings and report together.' }] });
+    assert.equal(batchTurn.status, 200);
+    const batchDeadline = Date.now() + 18000;
+    let batchReviews = [];
+    while (Date.now() < batchDeadline) {
+      snapshot = (await fixture.json('GET', '/api/overseer')).body;
+      const batchWorkers = snapshot.workers.filter(w => /BATCH_WORKER_/.test(w.prompt || ''));
+      const ids = new Set(batchWorkers.map(w => w.runId));
+      batchReviews = snapshot.reviews.filter(r => (r.workerRunIds || []).some(id => ids.has(id)));
+      if (batchWorkers.length === 2 && batchReviews.some(r => r.status === 'done')) break;
+      await sleep(100);
+    }
+    await sleep(2600);
+    assert.equal(batchReviews.length, 1, 'late dispatches from the same lead turn receive one report');
+    assert.equal(batchReviews[0].members.length, 2, 'the report covers the fast worker and the later dispatch');
+    assert.equal(batchReviews[0].waitingOn.length, 0, 'no finished worker is called still working');
+    assert.equal(provider.reviews(), reviewsBeforeBatch + 1, 'no redundant follow-up provider run appears');
+    await fixture.restart(); await sleep(2600);
+    const restoredBatch = (await fixture.json('GET', '/api/overseer')).body.reviews.find(r => r.id === batchReviews[0].id);
+    assert.equal(restoredBatch.members.length, 2, 'the combined report membership survives process restart');
+    assert.equal(restoredBatch.status, 'done');
+    assert.equal(provider.reviews(), reviewsBeforeBatch + 1, 'restart never re-reviews the combined hand-off');
+    console.log('e2e.overseer: delayed second dispatch -> ONE two-worker report -> restart PASS');
     await fixture.stop();
     const beforeUpdate = JSON.parse(fs.readFileSync(statePath, 'utf8'));
     beforeUpdate.value.paused = false;

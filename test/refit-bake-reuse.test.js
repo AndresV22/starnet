@@ -117,3 +117,32 @@ for(const change of [()=>st.moveProp(door.id,1,0),()=>st.rotateProp(door.id,1),
 st.setFloor(st.rooms()[0].id,'cobalt');
 assert.equal(patch.staticBakeUnchanged,undefined,'floor changes still rebake');
 console.log('refit placement: prop-only pixels, fresh geometry/routing, mixed edits, airlock and history PASS');
+
+// Render invalidation is not authorization to publish a floor held in Build.
+const fnBody=require('./_assert').fnBody;
+let buildOpen=true,derived=0,painted=0;
+const render=vm.createContext({
+  station:{},geo:{},geoDirty:true,bakeDirty:false,cache:{},bakedAnchorKey:null,
+  Build:{isOpen:()=>buildOpen},
+  StationBake:{bake(){painted++;return {}; }},fixtureAnchorKey:()=>'',recordBakeProbe(){},
+  rederive(){derived++;render.geo={};render.geoDirty=false;}
+});
+vm.runInContext(['buildHoldsFloor','rebake','renderStill','renderStillOfTiles'].map(n=>fnBody(world,'function '+n+'(')).join('\n'),render);
+render.rebake();
+assert.equal(derived,0,'art/lighting refresh cannot recompile a held edit');
+assert.equal(painted,0,'held geometry is not baked as if it were published');
+assert.equal(render.geoDirty,true,'pending edit survives refresh');
+assert.equal(render.bakeDirty,true,'visual invalidation is retained for publication');
+assert.equal(render.renderStill(320),null,'full still declines a held edit');
+assert.equal(render.renderStillOfTiles({},320),null,'cropped still declines a held edit');
+assert.equal(derived,0,'still reads cannot send the floor');
+render.geoDirty=false;render.rebake();
+assert.equal(painted,1,'clean geometry may refresh during Build');
+render.geoDirty=true;buildOpen=false;render.rebake();
+assert.equal(derived,1,'normal rendering still recompiles after Build closes');
+assert.equal(painted,2,'deferred visual work is consumed after publication');
+assert.equal(render.bakeDirty,false,'successful bake clears only visual invalidation');
+delete render.Build;render.geoDirty=true;render.rebake();
+assert.equal(derived,2,'bootstrap without Build still derives the floor');
+console.log('render-only Build publication boundaries PASS');
+assert.equal(require('./_assert').fails(),0,'shared assertion helpers have no pending failures');

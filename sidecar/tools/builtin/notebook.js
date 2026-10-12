@@ -9,10 +9,10 @@
    At call time, ctx supplies agentId / room / emit (the validated emitter) / consent. */
 'use strict';
 (function (root, factory) {
-  const api = factory();
+  const api = factory(typeof require === 'function' ? require('../../context.js') : (root.SK && root.SK.context));
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else { root.SK = root.SK || {}; root.SK.tools = root.SK.tools || {}; (root.SK.tools.builtin = root.SK.tools.builtin || {}).notebook = api; }
-})(typeof globalThis !== 'undefined' ? globalThis : this, function () {
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (retrieval) {
   'use strict';
 
   // Compare against the version the caller actually read. A later edit must never be
@@ -47,7 +47,7 @@
      model trusted the stale one. A note can now carry the Commander's authority, but only when the HOST can show it:
      ctx.commanderWords is the text the Commander typed in this run's conversation (set by the host on the owner's
      own surfaces only — never a channel guest, a routine, a hand-off or a delegated worker), and the note must be
-     substantially THEIR words: one sentence of theirs holds >= 70% (and >= 2) of the note's content words, carries
+     THEIR words: a complete ordered sentence matches after a few explicit framing equivalences, carries
      the same polarity (a "hate tabs" sentence never proves "prefers tabs"), and is shaped like a statement about
      themselves or an instruction (a bare "make it dark" is a one-off task, not a stated preference). Anything less
      is not proof, and the note keeps its ordinary provenance. Pure + deterministic. */
@@ -72,20 +72,31 @@
     for (const t of norm(s).toLowerCase().split(/[^a-z0-9]+/)) if (t.length >= 2 && !PROOF_STOP.has(t)) out.push(stem(t));
     return out;
   }
-  // -> the Commander's sentence that proves `body`, or '' when there is no such sentence
+  // Deliberately conservative: a bag of words cannot prove a relation or a qualifier. Keep every word and
+  // its order except these explicit preference/instruction frames. Unsupported paraphrases stay inferred.
+  function proofForm(s, weaken) {
+    let t = norm(s).toLowerCase().trim().replace(/[.!?;]+$/, '').trim();
+    if (/["“”`]/.test(t)) return '';   // quoted material is not attested as the speaker's own preference
+    t = t.replace(/^actually[\s,]+/, '');
+    // Only the source may lose standing/time framing to prove a weaker paraphrase. Never erase a
+    // qualifier from the note: that would let an ordinary preference attest an invented always/now.
+    if (weaken) t = t.replace(/^(?:from now on|going forward|by default|in (?:the )?future)[\s,:]+/, '').replace(/\s+now$/, '');
+    t = t.replace(/^(?:i|we|(?:the )?(?:user|commander))\s+(always\s+)?prefers?\s+/, '$1prefer ');
+    t = t.replace(/^(always\s+)?use\s+/, '$1prefer ');
+    if (weaken) t = t.replace(/^always (?=prefer )/, '');
+    return t.replace(/\binstead of\b/g, 'over').replace(/\s+/g, ' ');
+  }
+  // -> the Commander's sentence that proves body, or '' when there is no such sentence.
   function statedSentence(body, words) {
-    const want = Array.from(new Set(proofTokens(body)));
-    if (want.length < 2) return '';
+    const want = proofForm(body);
+    if (!want || new Set(proofTokens(body)).size < 2 || /["“”`]/.test(norm(words))) return '';
     const neg = PROOF_NEG.test(norm(body));
-    let best = '', bestHit = 0;
     for (const raw of norm(words).split(/[.!?;\n]+/)) {
       const sentence = raw.trim();
       if (!sentence || !PROOF_SHAPE.test(sentence) || PROOF_NEG.test(sentence) !== neg) continue;
-      const have = new Set(proofTokens(sentence));
-      let hit = 0; for (const t of want) if (have.has(t)) hit++;
-      if (hit >= 2 && hit / want.length >= 0.7 && hit > bestHit) { best = sentence; bestHit = hit; }
+      if (proofForm(sentence) === want || proofForm(sentence, true) === want) return sentence;
     }
-    return best;
+    return '';
   }
 
   function makeNotebookTools(deps) {
@@ -100,6 +111,8 @@
     // host injects it so an explicit notebook.read query orders its matches the way recall does; standalone (no
     // injection) the tool falls back to store order, staying dependency-free for the browser build + tests.
     const rank = typeof deps.rank === 'function' ? deps.rank : null;
+    // Read-only, owner/privacy-filtered by the host on each call; never part of updateNotes.
+    const sharedStanding = typeof deps.sharedStanding === 'function' ? deps.sharedStanding : null;
     // injected trust fold (memcore.nextTrust) for notebook.feedback's rating nudge; inline fallback keeps the
     // tool standalone. clamp + step (delta*0.15) MUST match memcore.nextTrust — kept in sync.
     const nextTrust = typeof deps.nextTrust === 'function' ? deps.nextTrust : (prev, delta) => {
@@ -358,15 +371,27 @@
       name: 'notebook.read', capability: 'memory', scope: 'read', requiresConsent: false,
       description: 'Read your notebook (your durable memory). Optional `query` returns the matching entries ranked by relevance (the same ' +
         'BM25 + trust + recency order auto-recall uses); omit it to list everything. Each line is prefixed with the entry id ([note_N]) ' +
-        'you can pass to notebook.feedback.',
+        'you can pass to notebook.feedback. Shared standing preferences use [shared:agent/id], are read-only, and can be found by that key.',
       schema: { type: 'object', properties: { query: { type: 'string' } } },
       run: async (args, ctx) => {
         const aid = (ctx && ctx.agentId) || 'agent';
         let list = notesOf(aid);
+        let sharedUnavailable = false;
+        if (sharedStanding && retrieval && retrieval.isStandingMemory) {
+          try {
+            const incoming = await sharedStanding(ctx || {});
+            const foreign = (Array.isArray(incoming) ? incoming : []).filter(n => n && n.foreign && retrieval.isStandingMemory(n)
+              && /^[A-Za-z0-9_-]{1,40}$/.test(String(n.sourceAgentId || '')) && n.sourceAgentId !== aid
+              && /^[A-Za-z0-9_-]{1,80}$/.test(String(n.sourceRecordId || '')))
+              .map(n => Object.assign({}, n, { id: '', title: n.title || 'Standing preference', body: String(n.content || n.body || '') }));
+            list = list.concat(foreign);
+          } catch (_) { sharedUnavailable = true; }
+        }
+        const total = list.length;
         const q = args && args.query;
         if (q) {
           const ql = String(q).toLowerCase();
-          list = list.filter(n => (n.title + ' ' + n.body).toLowerCase().indexOf(ql) >= 0);
+          list = list.filter(n => ((n.foreign ? 'shared:' + n.sourceAgentId + '/' + n.sourceRecordId + ' ' : '') + n.title + ' ' + n.body).toLowerCase().indexOf(ql) >= 0);
           // substring stays the GATE (predictable "no match"); rank() only REORDERS the matches so the most
           // relevant/trusted/pinned one leads — the explicit read now shares auto-recall's ranking, not raw
           // store order. k = list.length AND floor:false so ranking never truncates a match the gate already
@@ -376,13 +401,12 @@
           // explicit read silently lost every project lesson even inside its own project (the gate had admitted it).
           if (rank && list.length > 1) list = rank(list, String(q), { now: clock.now(), k: list.length, floor: false, projectRoot: (ctx && ctx.projectRoot) || null });
         }
-        if (!list.length) return { content: q ? 'No notes match "' + q + '".' : 'Your notebook is empty.', summary: '0 notes' };
-        const body = list.map(n => '- [' + n.id + '] ' + n.title + ': ' + n.body).join('\n');
+        if (!list.length) return { content: (q ? 'No notes match "' + q + '".' : 'Your notebook is empty.') + (sharedUnavailable ? ' Shared preferences could not be read; their absence is unverified.' : ''), summary: '0 notes' };
+        const body = list.map(n => '- [' + (n.foreign ? 'shared:' + n.sourceAgentId + '/' + n.sourceRecordId : n.id) + '] ' + n.title + (n.foreign ? ' (read-only shared preference)' : '') + ': ' + n.body).join('\n');
         // report the SIZE of the whole store on a filtered read, so the agent knows how much memory it is holding
         // (the reference harness puts a usage percentage in the system prompt; we have no cap to measure against,
         // but the count is the honest half of that signal — and it is the number a crowded notebook shows up in).
-        const total = q ? notesOf(aid).length : list.length;
-        const foot = q ? '\n\n(' + list.length + ' of ' + total + ' entries in memory)' : '';
+        const foot = (q ? '\n\n(' + list.length + ' of ' + total + ' entries in memory)' : '') + (sharedUnavailable ? '\n[Shared preferences could not be read; these results are partial.]' : '');
         // a note a tainted run saved is outside content at one remove: reading it taints this run too (2026-10-10)
         const tainted = list.find(n => n && typeof n.taintedBy === 'string' && n.taintedBy);
         return Object.assign({ content: body + foot, summary: list.length + ' note(s)' }, tainted ? { taintedBy: 'memory saved by a run that read ' + tainted.taintedBy } : {});

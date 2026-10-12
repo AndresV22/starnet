@@ -102,7 +102,7 @@ A.ok(/globalCompositeOperation = 'copy'/.test(worldSrc),
   A.ok(reads.length >= 1 && rogue.length === 0,
     'every world.js getImageData reads a dedicated probe/offscreen context — NEVER the stage or the bake plate (rogue: ' + rogue.join(', ') + ')');
 }
-A.ok(/catch \(e\) \{ probeOff = true;/.test(worldSrc),
+A.ok(/e\.name === 'SecurityError'\) (?:\{ )?probeOff = true;/.test(worldSrc),
   'an unreadable (tainted) canvas disables the probe instead of throwing every second');
 A.ok(/if \(W < 2 \|\| H < 2\) return;/.test(worldSrc),
   'a 1x1 blank bake records no sentinel — the watchdog stays inert rather than rebaking forever');

@@ -1,0 +1,36 @@
+FAIL: skills.learning.e2e.test threw - Error: sidecar exited before readiness (exit=1, signal=null)
+sidecar output:
+node:internal/modules/cjs/loader:1433
+  throw err;
+  ^
+
+Error: Cannot find module 'ajv'
+Require stack:
+- C:\Users\andro\gen-trees\memory-harness-audit-1011\sidecar\result-contract.js
+- C:\Users\andro\gen-trees\memory-harness-audit-1011\sidecar\openai-compat.js
+- C:\Users\andro\gen-trees\memory-harness-audit-1011\sidecar\index.js
+    at Function._resolveFilename (node:internal/modules/cjs/loader:1430:15)
+    at defaultResolveImpl (node:internal/modules/cjs/loader:1040:19)
+    at resolveForCJSWithHooks (node:internal/modules/cjs/loader:1045:22)
+    at Function._load (node:internal/modules/cjs/loader:1216:25)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:254:19)
+    at Module.require (node:internal/modules/cjs/loader:1527:12)
+    at require (node:internal/modules/helpers:147:16)
+    at Object.<anonymous> (C:\Users\andro\gen-trees\memory-harness-audit-1011\sidecar\result-contract.js:3:13)
+    at Module._compile (node:internal/modules/cjs/loader:1781:14)
+    at Object..js (node:internal/modules/cjs/loader:1913:10) {
+  code: 'MODULE_NOT_FOUND',
+  requireStack: [
+    'C:\\Users\\andro\\gen-trees\\memory-harness-audit-1011\\sidecar\\result-contract.js',
+    'C:\\Users\\andro\\gen-trees\\memory-harness-audit-1011\\sidecar\\openai-compat.js',
+    'C:\\Users\\andro\\gen-trees\\memory-harness-audit-1011\\sidecar\\index.js'
+  ]
+}
+
+Node.js v22.23.0
+
+    at SidecarFixture._waitUntilReady (C:\Users\andro\gen-trees\memory-harness-audit-1011\test\helpers\sidecar-fixture.js:155:15)
+    at runNextTicks (node:internal/process/task_queues:64:5)
+    at process.processTimers (node:internal/timers:518:9)
+    at async SidecarFixture.start (C:\Users\andro\gen-trees\memory-harness-audit-1011\test\helpers\sidecar-fixture.js:129:7)
+    at async C:\Users\andro\gen-trees\memory-harness-audit-1011\test\skills.learning.e2e.test.js:125:3

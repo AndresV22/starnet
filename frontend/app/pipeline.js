@@ -1014,6 +1014,10 @@
     const lines = [], lineOfProp = {}, lineOfAgent = {}, lineLimits = {}, budgetIntake = {};
     for (const c of lineComponents(geo)) {
       const lineId = c.key, rec = { lineId, propIds: c.props.slice(), intakes: c.intakes.slice(), outboxes: c.outboxes.slice(), agents: [] };
+      // The step tester carries one crate. Advertise its limitation before any paid step starts.
+      const gates = Object.keys(junctionProp).filter(k => c.props.indexOf(junctionProp[k]) >= 0).map(k => junctions[k]);
+      if (gates.some(j => j.kind === 'split' && j.fanout)) rec.stepTestBarrier = 'fanout';
+      else if (gates.some(j => j.kind === 'join')) rec.stepTestBarrier = 'join';
       for (const pid of c.props) lineOfProp[pid] = lineId;
       // an agent is on EVERY line it crews a dock of (multi-bay): rec.agents lists each crew member once
       for (const b of c.bays) if (b.agentId) { if (!lineOfAgent[b.agentId]) lineOfAgent[b.agentId] = lineId; if (rec.agents.indexOf(b.agentId) < 0) rec.agents.push(b.agentId); }
@@ -2159,6 +2163,31 @@
     const rec = m && typeof m === 'object' ? m[String(lineId)] : null;
     return rec && typeof rec === 'object' ? rec : null;
   }
+  function stepTestRefusal(plan, lineId) {
+    const line = plan && Array.isArray(plan.lines) ? plan.lines.find(l => l && String(l.lineId) === String(lineId)) : null;
+    if (!line) return null;
+    let barrier = line.stepTestBarrier;
+    // Persisted plans and older clients predate the marker. Read their existing belt
+    // topology without advancing a splitter or trusting a stale availability flag.
+    if (!barrier) {
+      const ids = new Set(line.propIds || []), starts = [];
+      for (const source of (plan.sources || [])) if ((line.intakes || []).indexOf(source.propId) >= 0) starts.push(...srcTiles(source));
+      for (const bay of (plan.dockBays || []).concat(plan.bays || [])) if (ids.has(bay.propId)) starts.push(...(bay.tiles || []));
+      for (const agentId of (line.agents || [])) { if (!plan.lineOfAgent || String(plan.lineOfAgent[agentId]) !== String(line.lineId)) continue; const c = plan.chains && plan.chains[agentId]; if (c && c.tile) starts.push(c.tile); }
+      const seen = new Set(), map = plan.belts || {}, junctions = plan.junctions || {};
+      for (let i = 0; i < starts.length; i++) {
+        const t = starts[i]; if (!t) continue;
+        const k = key(t.x, t.y); if (seen.has(k)) continue; seen.add(k);
+        const j = junctions[k];
+        if (j && j.kind === 'split' && j.fanout) { barrier = 'fanout'; break; }
+        if (j && j.kind === 'join') barrier = 'join';
+        starts.push(...nextTiles(map, junctions, t));
+      }
+    }
+    if (!barrier) return null;
+    return 'STEP THROUGH carries one crate at a time and cannot finish this ' + (barrier === 'fanout' ? 'parallel' : 'joined')
+      + ' line. Use RUN ONE REAL JOB to test the whole line, or TRY THIS STEP on an individual BAY.';
+  }
   /* THE HAND's ALT VIEW (build mode, 2026-10-10): how many stages one job on a line can run, and its ceiling — the same count
      LINE_TOO_LONG makes (jobStages from every INBOX feed mouth of the line), for a line that is NOT over budget too, so the
      floor can say n/max on every INBOX. Pure over a compiled plan; null for a line it cannot count (no INBOX on it, or routing
@@ -2279,7 +2308,7 @@
     return { fromName: m[1] || '', original: orig ? orig[1] : '', output: out ? out[1] : '' };
   }
 
-  return { lineStages, fedLineIds, rejoinOf, deriveLinks, reconcileLinks, compileRoutingPlan, sendToOf, sendsReachedOf, outboxesReached, lineWord, handoffInput, parseHandoffInput, composeStageBrief, HANDS_LEAD, resolveTarget, lineOf, lineOriginOf, lineLimitsOf, normalizeLineLimits, LINE_LIMIT_DEFAULTS, LINE_LIMIT_CEILINGS, sourceFor, ok, liveTiles, routeFrom, junctionLaneOwners, chainNext, chainStep, fanSiblings, handoffPrompt, parseHandoff, isHandoff, stripVerdictLine, joinPayload, divideJob, partTurn, partHandoff, divideBrief, divideAfterDock, splitFedByDock, lineComponents, LOOP_MAX_DEFAULT, LOOP_MAX_CEILING,
+  return { stepTestRefusal, lineStages, fedLineIds, rejoinOf, deriveLinks, reconcileLinks, compileRoutingPlan, sendToOf, sendsReachedOf, outboxesReached, lineWord, handoffInput, parseHandoffInput, composeStageBrief, HANDS_LEAD, resolveTarget, lineOf, lineOriginOf, lineLimitsOf, normalizeLineLimits, LINE_LIMIT_DEFAULTS, LINE_LIMIT_CEILINGS, sourceFor, ok, liveTiles, routeFrom, junctionLaneOwners, chainNext, chainStep, fanSiblings, handoffPrompt, parseHandoff, isHandoff, stripVerdictLine, joinPayload, divideJob, partTurn, partHandoff, divideBrief, divideAfterDock, splitFedByDock, lineComponents, LOOP_MAX_DEFAULT, LOOP_MAX_CEILING,
     // THE DOCK LAYER (multi-bay agents, 2026-09-22) — the dock-keyed truth the agent readings above are views of
     resolveDock, chainNextDock, chainStepDock, fanSiblingsDock, junctionLaneDocks, lineOfDock, lineOriginOfDock, entryDockOf, docksOf, dockOf, agentOfDock: agentOfDockIn, deriveDockLayer, dockLayer, hasDockLayer, stepToAgents, propIdCmp,
     _internals: { DIRV, OPP, LANE_ORDER, key, buildBeltMap, outLanes, inLanes, loopLanes, beltTileNear, ringBelts, junctionAnchor, dirBetween, linkTilesByProp, linkedBeltMap, nextTiles, splitLanes, detectCycle, hashStr, compileChains, compileDockChains, chainCycle, shipFrom, propIdCmp, entryDocksOf, agentChainsView } };

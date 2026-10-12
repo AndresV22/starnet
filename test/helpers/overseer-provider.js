@@ -24,6 +24,17 @@ async function startOverseerProvider(options = {}) {
     if (!parsed.tools || !parsed.tools.length) send({ content: 'Ready.' });
     else if (String(user && user.content).includes('DIRECT_PROOF')) send({ content: 'Direct specialist answer.' });
     else if (String(user && user.content).startsWith('Review the background work')) { reviews++; if (options.reviewDelay) await sleep(options.reviewDelay); send({ content: /"status"\s*:\s*"interrupted"/.test(user.content) ? 'The crew’s work was stopped. I’ll wait for your next direction.' : 'Reviewed findings: the worker returned two observations.' }); }
+    else if (String(user && user.content).startsWith('BATCH_WORKER_')) { await sleep(100); send({ content: 'BATCH_FINDING: ' + user.content.slice(0, 60) }); }
+    else if (String(user && user.content).includes('BATCH_TIMING_PROOF')) {
+      const dispatches = tools.filter(t => t === 'team_dispatch').length;
+      if (!tools.includes('brief_proceed')) call('brief_proceed', { objective: 'Delegate two findings in one turn', deliverable: 'One combined report' });
+      else if (!dispatches) call('team_dispatch', { workers: [{ agentId: workerId, prompt: 'BATCH_WORKER_FIRST: return the first finding.' }], background: true });
+      else if (dispatches === 1) {
+        // More than the real overseer poll interval: worker one settles while its lead is still assigning work.
+        await sleep(4000);
+        call('team_dispatch', { workers: [{ agentId: workerId, prompt: 'BATCH_WORKER_SECOND: return the second finding.' }], background: true });
+      } else send({ content: 'Both research tasks are assigned.' });
+    }
     else if (String(user && user.content).includes('WORKER_PROOF')) { await sleep(options.workerDelay || 800); send({ content: 'WORKER_FINDINGS: two verified observations.' }); }
     else if (String(user && user.content).startsWith('Review the project brief and identify')) { await sleep(options.workerDelay || 800); send({ content: 'The project needs a clear audience and a small first milestone. Start with the core workflow, then test it with one user.' }); }
     else if (system.includes('[PROJECT WORKSPACE]')) {

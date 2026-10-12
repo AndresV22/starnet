@@ -60,6 +60,10 @@
     if (runtime.hasUpdate && settings.remindAfter && now < settings.remindAfter) {
       return { action: 'noop', reason: 'waiting-reminder', nextAt: settings.remindAfter };
     }
+    // Re-arming a remembered update must still honor a failed check's backoff, even after a restart.
+    if (settings.failureCount > 0 && !due(settings, now)) {
+      return { action: 'noop', reason: 'waiting-retry', nextAt: settings.nextCheckAt };
+    }
     // A known newer version that this launch hasn't re-armed yet: check now, not after the interval. Not for the
     // version already running (the update landed) or one the Commander chose to skip.
     if (!runtime.hasUpdate && settings.availableVersion &&

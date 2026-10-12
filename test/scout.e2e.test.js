@@ -29,6 +29,7 @@ const fs = require('fs');
 const { spawn } = require('child_process');
 const { bootToken } = require('./_httpToken.js');
 const Specialties = require('../shared/specialties.js');
+const Interests = require('../sidecar/interests.js');
 
 const HOST = '127.0.0.1';
 const INDEX = path.resolve(__dirname, '..', 'sidecar', 'index.js');
@@ -93,6 +94,16 @@ function seedScoutState(ws) {
   fs.writeFileSync(path.join(ws, 'scout.state.json'), JSON.stringify({
     v: 1, state: { v: 1, staged, denylist: [], ledger: [], runsSinceMint: 5, lastMintAt: 0, lastKind: '', context: null }
   }));
+}
+
+// Positive persisted fixtures represent post-repair, clean observed activity. Old cache behavior
+// remains a separate negative in scout.http.test.js; do not promote legacy topics by hydration.
+function trustedInterests(label, now) {
+  const candidates = Interests.parse('TOPIC: ' + label + ' | EVIDENCE: ' + label,
+    { activityLines: ['Observed clean work: ' + label], requireExactEvidence: true });
+  let state = Interests.fresh(now);
+  for (let i = 0; i < 5; i++) state = Interests.fold(state, candidates, { now, trustedActivity: true });
+  return state;
 }
 
 async function driveRun(B, token, agentId, text) {
@@ -173,6 +184,9 @@ const QUIET = { SKYNET_THREAD_MINE: '0', SKYNET_SKILL_REVIEW: '0', SKYNET_SKILL_
       // the durable files really landed on disk (restart-safety is the point of the server-side scout).
       const onDiskInterests = JSON.parse(fs.readFileSync(path.join(ws, 'scout.interests.json'), 'utf8'));
       A.ok(onDiskInterests.state && onDiskInterests.state.topics && Object.keys(onDiskInterests.state.topics).some(k => /nvidia/.test(k)), 'scout.interests.json persisted the extracted topic');
+      const trusted = onDiskInterests.state && onDiskInterests.state.trustedTopics && onDiskInterests.state.trustedTopics['nvidia-earnings-research'];
+      A.ok(trusted && trusted.n === 1, 'live exact-evidence extraction persists an independently counted trusted topic');
+      A.eq(trusted && trusted.ev.map(e => e.q), ['nvidia earnings call'], 'trusted disk evidence is the exact clean run fragment');
       const onDiskScout = JSON.parse(fs.readFileSync(path.join(ws, 'scout.state.json'), 'utf8'));
       A.ok((onDiskScout.state.staged || []).some(it => it.kind === 'recipe'), 'scout.state.json persisted the staged draft');
     } finally {
@@ -186,8 +200,9 @@ const QUIET = { SKYNET_THREAD_MINE: '0', SKYNET_SKILL_REVIEW: '0', SKYNET_SKILL_
   /* ================= BOOT 2 — the honest-failure chain (anti-silent-no-op) ================= */
   {
     const mock = await startMock({
-      // INVENTED evidence: quotes nothing in the real activity -> the extraction grounding guard must drop it.
-      extraction: 'TOPIC: quantum basket weaving | EVIDENCE: an invented quote citing zero observed activity',
+      // INVENTED evidence shares "pipeline" with real activity, so the old overlap parser accepted it.
+      // The live exact-evidence guard must drop the full invented quote.
+      extraction: 'TOPIC: quantum basket weaving | EVIDENCE: pipeline QUANTUM_SCOUT_INVENTED use imaginary context',
       // a WELL-FORMED recipe whose WHY cites nothing the station observed -> the parseRecipe grounding
       // guard must reject it (the new anti-invented-pitch arm), visibly, via the ledger.
       recipe: [
@@ -208,7 +223,7 @@ const QUIET = { SKYNET_THREAD_MINE: '0', SKYNET_SKILL_REVIEW: '0', SKYNET_SKILL_
     // WARM is pre-seeded here (boot 1 already proved warmth is earned live) so the mint attempt fires at all;
     // lastPassAt:0 leaves the extraction pass free to fire too — both failure arms exercise in one boot.
     fs.writeFileSync(path.join(ws, 'scout.interests.json'), JSON.stringify({
-      v: 1, state: { v: 1, topics: { 'kubernetes-ops': { label: 'kubernetes ops', w: 5, n: 5, lastAt: Date.now(), ev: [{ q: 'kubernetes ops', at: Date.now() }] } }, lastPassAt: 0, runsSincePass: 0 }
+      v: 1, state: Object.assign(trustedInterests('kubernetes ops', Date.now()), { lastPassAt: 0 })
     }));
     const { child, port } = await boot(8960 + (process.pid % 25), Object.assign({ SKYNET_WORKSPACES: ws, SKYNET_OPENROUTER_BASE: mock.base }, QUIET), 20);
     const B = 'http://' + HOST + ':' + port;
@@ -259,7 +274,7 @@ const QUIET = { SKYNET_THREAD_MINE: '0', SKYNET_SKILL_REVIEW: '0', SKYNET_SKILL_
     }));
     // a WARM topic whose words hit the broker archetype's own text; lastPassAt now -> extraction gap-suppressed.
     fs.writeFileSync(path.join(ws, 'scout.interests.json'), JSON.stringify({
-      v: 1, state: { v: 1, topics: { 'gpu-price-tracking': { label: 'gpu price tracking', w: 5, n: 5, lastAt: Date.now(), ev: [{ q: 'gpu price tracking', at: Date.now() }] } }, lastPassAt: Date.now(), runsSincePass: 0 }
+      v: 1, state: trustedInterests('gpu price tracking', Date.now())
     }));
     const { child, port } = await boot(8890 + (process.pid % 25), Object.assign({ SKYNET_WORKSPACES: ws, SKYNET_OPENROUTER_BASE: mock.base }, QUIET), 20);
     const B = 'http://' + HOST + ':' + port;

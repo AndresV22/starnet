@@ -1,0 +1,395 @@
+
+> starnet-harness@0.13.2 test:fast
+> node scripts/timeout.mjs --label test:fast --timeout=3000000 -- npm run test:fast:raw
+
+
+> starnet-harness@0.13.2 test:fast:raw
+> node scripts/run-fast-tests.mjs
+
+schema.test: OK (42 assertions)
+overseer: durable identity, deduplication, restart, rename, tombstones and turn serialization PASS
+chat-file-drop: PASS (desktop + website, panel/children, mixed files, directories, text, cancellation, session re-entry, groups, native bridge)
+group session id534: injected scheduler interruption
+group-sessions: routing, idempotency, context, revision cycles, cap, artifacts, independent opinions, interruption, approvals, restart and branches PASS
+group-message-attachments: association, file bytes, isolation, validation, upload/send retries and restart PASS
+bay-name-legibility: framed two-line plates, proportional zoom/DPI, rename, binding, fixed anchors and bounded long names PASS
+group edges: restart retry, membership cancellation, question/file isolation, ambiguous names and all recipients PASS
+group-chat-picker: loading, failure, cancellation, + ADD/✕ REMOVE save at once, nothing claimed before the backend, General never converted, @ menu in a direct chat with keyboard pick, exact @handle resolution PASS
+[failopen] group.halt.read (x1): Group session storage is corrupt
+group-sessions.repair: multi-word @names, departed members + dropAgent, resume-on-send, no-worker stop, orphaned uploads, list attention, E-STOP on a corrupt store PASS
+contract.test: OK (107 assertions)
+events-contract.test: OK (9 assertions)
+clock-rng.test: OK (14 assertions)
+context.test: OK (205 assertions)
+redact.known-values.test: OK (56 assertions)
+redact.masked-keys.test: OK (34 assertions)
+runtimeinfo: OK (17 assertions)
+harness-snapshot: OK (23 assertions)
+harness-stream-completion: OK (188 assertions)
+station-inspect: OK (12 assertions)
+[failopen] aux.test.envelope (x1): aux pass died [redacted-key]
+[failopen] aux.test.envelope (x2): again
+[failopen] maint.test.loop (x1): once
+[failopen] flood.0 (x1): x
+[failopen] flood.1 (x1): x
+[failopen] flood.2 (x1): x
+[failopen] flood.3 (x1): x
+[failopen] flood.4 (x1): x
+[failopen] flood.5 (x1): x
+[failopen] flood.6 (x1): x
+[failopen] flood.7 (x1): x
+[failopen] flood.8 (x1): x
+[failopen] flood.9 (x1): x
+[failopen] flood.10 (x1): x
+[failopen] flood.11 (x1): x
+[failopen] flood.12 (x1): x
+[failopen] flood.13 (x1): x
+[failopen] flood.14 (x1): x
+[failopen] flood.15 (x1): x
+[failopen] flood.16 (x1): x
+[failopen] flood.17 (x1): x
+[failopen] flood.18 (x1): x
+[failopen] flood.19 (x1): x
+[failopen] flood.20 (x1): x
+[failopen] flood.21 (x1): x
+[failopen] flood.22 (x1): x
+[failopen] flood.23 (x1): x
+[failopen] flood.24 (x1): x
+[failopen] flood.25 (x1): x
+[failopen] flood.26 (x1): x
+[failopen] flood.27 (x1): x
+[failopen] flood.28 (x1): x
+[failopen] flood.29 (x1): x
+[failopen] flood.30 (x1): x
+[failopen] flood.31 (x1): x
+[failopen] flood.32 (x1): x
+[failopen] flood.33 (x1): x
+[failopen] flood.34 (x1): x
+[failopen] flood.35 (x1): x
+[failopen] flood.36 (x1): x
+[failopen] flood.37 (x1): x
+[failopen] flood.38 (x1): x
+[failopen] flood.39 (x1): x
+diagnostics: OK (47 assertions)
+diagnostics-support-email.test: OK (16 assertions)
+diagnostics-build.test: OK (17 assertions)
+diagnostics-dead-engine.test: OK (29 assertions)
+diagnostics-copy-gesture: OK (22 assertions)
+bootguard: OK (89 assertions)
+PASS Mac boot: legacy/native deadlines, real fetch cancellation, bundled catalog and sibling consumers
+TAP version 13
+# Subtest: live doctor refuses to probe without explicit consent
+ok 1 - live doctor refuses to probe without explicit consent
+  ---
+  duration_ms: 1.8417
+  type: 'test'
+  ...
+# Subtest: live doctor preserves truthful states, latency, ordering, and a paste-ready receipt
+ok 2 - live doctor preserves truthful states, latency, ordering, and a paste-ready receipt
+  ---
+  duration_ms: 3.5416
+  type: 'test'
+  ...
+# Subtest: receipt redacts credential-shaped detail and never promotes an unknown state
+ok 3 - receipt redacts credential-shaped detail and never promotes an unknown state
+  ---
+  duration_ms: 0.4309
+  type: 'test'
+  ...
+# Subtest: failure classifier distinguishes configuration, refusal, and reachability
+ok 4 - failure classifier distinguishes configuration, refusal, and reachability
+  ---
+  duration_ms: 0.8428
+  type: 'test'
+  ...
+# Subtest: independent probes run concurrently and keep receipt order
+ok 5 - independent probes run concurrently and keep receipt order
+  ---
+  duration_ms: 4.0931
+  type: 'test'
+  ...
+1..5
+# tests 5
+# suites 0
+# pass 5
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 18.1771
+TAP version 13
+# Subtest: browser live doctor sends the explicit consent bit and returns the receipt
+ok 1 - browser live doctor sends the explicit consent bit and returns the receipt
+  ---
+  duration_ms: 3.5258
+  type: 'test'
+  ...
+# Subtest: settings keeps live probes behind a checkbox and renders the receipt as text
+ok 2 - settings keeps live probes behind a checkbox and renders the receipt as text
+  ---
+  duration_ms: 4.5479
+  type: 'test'
+  ...
+1..2
+# tests 2
+# suites 0
+# pass 2
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 19.2273
+TAP version 13
+# Subtest: file approval preserves every mutation argument beyond the run summary cap
+ok 1 - file approval preserves every mutation argument beyond the run summary cap
+  ---
+  duration_ms: 8.977
+  type: 'test'
+  ...
+# Subtest: rating controls name the originating task and run, even when an older card is shown
+ok 2 - rating controls name the originating task and run, even when an older card is shown
+  ---
+  duration_ms: 1.5487
+  type: 'test'
+  ...
+# Subtest: deliverable naming instruction yields to explicit task limits
+ok 3 - deliverable naming instruction yields to explicit task limits
+  ---
+  duration_ms: 1.0272
+  type: 'test'
+  ...
+# Subtest: Codex probe sends Medium to Astra and completes instead of the unsupported-none 400
+ok 4 - Codex probe sends Medium to Astra and completes instead of the unsupported-none 400
+  ---
+  duration_ms: 37.3637
+  type: 'test'
+  ...
+# Subtest: follow-up keeps the selected run through another run and save hydration
+ok 5 - follow-up keeps the selected run through another run and save hydration
+  ---
+  duration_ms: 32.704
+  type: 'test'
+  ...
+# Subtest: a delayed rating for the preceding run cannot appear below newer work in the same session
+ok 6 - a delayed rating for the preceding run cannot appear below newer work in the same session
+  ---
+  duration_ms: 1.259
+  type: 'test'
+  ...
+# Subtest: delayed memory decks do not reintroduce a superseded rating
+ok 7 - delayed memory decks do not reintroduce a superseded rating
+  ---
+  duration_ms: 0.38
+  type: 'test'
+  ...
+# Subtest: QA 10-02: a skill review (also fired by a rating) checks the spending cap before it spends
+ok 8 - QA 10-02: a skill review (also fired by a rating) checks the spending cap before it spends
+  ---
+  duration_ms: 0.4357
+  type: 'test'
+  ...
+1..8
+# tests 8
+# suites 0
+# pass 8
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 93.9639
+TAP version 13
+# Subtest: shell.exec approval carries every character of the command, secrets redacted
+ok 1 - shell.exec approval carries every character of the command, secrets redacted
+  ---
+  duration_ms: 3.7562
+  type: 'test'
+  ...
+# Subtest: a path names the call only when nothing else it carries could change what is approved
+ok 2 - a path names the call only when nothing else it carries could change what is approved
+  ---
+  duration_ms: 0.345
+  type: 'test'
+  ...
+# Subtest: a pathological payload is bounded, and the text says it was cut
+ok 3 - a pathological payload is bounded, and the text says it was cut
+  ---
+  duration_ms: 1.5852
+  type: 'test'
+  ...
+# Subtest: the desk card: a glance line in the phrase, the whole request in INSPECT
+ok 4 - the desk card: a glance line in the phrase, the whole request in INSPECT
+  ---
+  duration_ms: 1.1135
+  type: 'test'
+  ...
+# Subtest: cards the sidecar words itself, and a short bare value, get no panel; file changes keep theirs
+ok 5 - cards the sidecar words itself, and a short bare value, get no panel; file changes keep theirs
+  ---
+  duration_ms: 0.3614
+  type: 'test'
+  ...
+# Subtest: group chat clips its line and carries the whole request under it
+ok 6 - group chat clips its line and carries the whole request under it
+  ---
+  duration_ms: 0.2363
+  type: 'test'
+  ...
+# Subtest: a chat message (Telegram/Discord) fits the whole request or says it had to cut
+ok 7 - a chat message (Telegram/Discord) fits the whole request or says it had to cut
+  ---
+  duration_ms: 13.5203
+  type: 'test'
+  ...
+# Subtest: a choice answer preserves a parallel worker approval and its paused clock
+ok 8 - a choice answer preserves a parallel worker approval and its paused clock
+  ---
+  duration_ms: 19.5254
+  type: 'test'
+  ...
+# Subtest: a conversation answer preserves a parallel worker approval
+ok 9 - a conversation answer preserves a parallel worker approval
+  ---
+  duration_ms: 1.3114
+  type: 'test'
+  ...
+# Subtest: a phone answer settles only its question and keeps a parallel approval paused
+ok 10 - a phone answer settles only its question and keeps a parallel approval paused
+  ---
+  duration_ms: 1.5563
+  type: 'test'
+  ...
+# Subtest: phone permission once settles one card and preserves sibling asks
+ok 11 - phone permission once settles one card and preserves sibling asks
+  ---
+  duration_ms: 1.9633
+  type: 'test'
+  ...
+# Subtest: phone permission session settles one card and preserves sibling asks
+ok 12 - phone permission session settles one card and preserves sibling asks
+  ---
+  duration_ms: 0.7608
+  type: 'test'
+  ...
+# Subtest: phone permission deny settles one card and preserves sibling asks
+ok 13 - phone permission deny settles one card and preserves sibling asks
+  ---
+  duration_ms: 0.7807
+  type: 'test'
+  ...
+# Subtest: phone permission expiry settles one card and preserves sibling asks
+ok 14 - phone permission expiry settles one card and preserves sibling asks
+  ---
+  duration_ms: 0.6516
+  type: 'test'
+  ...
+1..14
+# tests 14
+# suites 0
+# pass 14
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 60.5066
+outbound-failure-diagnosability.test: OK (38 assertions)
+reflect.test: OK (117 assertions)
+memory-corrections.test: PASS (corrections, stale writes, failed persistence, review, scope, compaction)
+memory-truth: OK (101 assertions)
+memcore.test: OK (93 assertions)
+cost.test: OK (38 assertions)
+spend.test: OK (10 assertions)
+ledger.test: OK (48 assertions)
+logbound.test: OK (23 assertions)
+budget.test: OK (56 assertions)
+budget-caps: OK (77 assertions)
+budget-stop-door: OK (59 assertions)
+fallback-chain: OK (56 assertions)
+voice-chat-route: OK (49 assertions)
+configexport.test.js OK — 80 assertions
+harness-import.test.js OK — 75 assertions
+settings-p1-backend.test.js OK — 39 assertions
+concurrency.test: OK (65 assertions)
+workspace-lease.test: OK (27 assertions)
+workspace-owner.test: OK (34 assertions)
+workspace-safety.test: OK (12 assertions)
+[recovery] auto station recovery SKIPPED: target workspace is a scratch root (C:\Users\andro\AppData\Local\Temp\starnet-fake-real-home-LocmIU\ci-scratch-qSvVod\ws is under C:\Users\andro\AppData\Local\Temp\starnet-fake-real-home-LocmIU\ci-scratch-qSvVod); a real station is never ingested into a temp workspace. Explicit recovery (request file / CLI restore) is unaffected.
+workspace-recovery.test: OK (66 assertions)
+[recovery] auto station recovery SKIPPED (AUTO_RECOVERY_ERASED): ERASE EVERYTHING selected this clean generation; no prior station was imported. Explicit recovery remains available.
+[recovery] auto station recovery SKIPPED (AUTO_RECOVERY_ERASED): ERASE EVERYTHING selected this clean generation; no prior station was imported. Explicit recovery remains available.
+[recovery] auto station recovery SKIPPED (AUTO_RECOVERY_ERASED): ERASE EVERYTHING selected this clean generation; no prior station was imported. Explicit recovery remains available.
+[recovery] auto station recovery SKIPPED (AUTO_RECOVERY_ACKNOWLEDGED): START FRESH already acknowledged these prior roots; no prior station was imported. Explicit recovery remains available.
+[recovery] auto station recovery SKIPPED (AUTO_RECOVERY_FRESH_MARKER_UNREADABLE): the fresh-start choice could not be read safely; automatic recovery preserved this workspace. Explicit recovery remains available.
+[recovery] auto station recovery SKIPPED (AUTO_RECOVERY_FRESH_MARKER_UNREADABLE): the fresh-start choice could not be read safely; automatic recovery preserved this workspace. Explicit recovery remains available.
+[recovery] auto station recovery SKIPPED (AUTO_RECOVERY_FRESH_MARKER_UNREADABLE): the fresh-start choice could not be read safely; automatic recovery preserved this workspace. Explicit recovery remains available.
+[recovery] auto station recovery SKIPPED (AUTO_RECOVERY_FRESH_MARKER_UNREADABLE): the fresh-start choice could not be read safely; automatic recovery preserved this workspace. Explicit recovery remains available.
+[recovery] auto station recovery SKIPPED (AUTO_RECOVERY_FRESH_MARKER_UNREADABLE): the fresh-start choice could not be read safely; automatic recovery preserved this workspace. Explicit recovery remains available.
+workspace-recovery-fresh-start.test: OK (59 assertions)
+workspace-lineage.test: OK (86 assertions)
+agent-lifecycle: OK (45 assertions)
+[failopen] durable-store.onCorrupt (x1): handler bug
+[failopen] durable-store.unreadable (x1): EBUSY: resource busy
+[failopen] durable-store.unreadable (x2): EBUSY: resource busy
+[failopen] durable-store.unreadable (x3): EBUSY: resource busy
+durable-store.test: OK (55 assertions)
+durable-write.mode.test: OK (6 assertions)
+secret-file-modes.test: OK (10 assertions)
+[failopen] child-env.source (x1): boom
+[failopen] child-env.source (x2): boom
+[failopen] child-env.source (x3): boom
+[failopen] child-env.source (x4): boom
+child-env.test: OK (80 assertions)
+domain-store.test: OK (10 assertions)
+provider-runtime.test: OK (8 assertions)
+run-execution-state.test: OK (59 assertions)
+tool-progress-guard.test: OK (38 assertions)
+tool-dispatch-boundary.test: OK (10 assertions)
+completion-evidence.test: OK (16 assertions)
+task-postconditions.test: OK (21 assertions)
+connector-readback: OK (28 assertions)
+recipe-drift: OK (26 assertions)
+task-postconditions-ui.test: OK (10 assertions)
+recovery-policy.test: OK (33 assertions)
+tool-recovery.test: OK (6 assertions)
+run-journal-disk-boundary.test: OK (8 assertions)
+todo.durability.test: OK (56 assertions)
+halt: OK (15 assertions)
+readbody: OK (11 assertions)
+file-response.test: OK (14 assertions)
+test-list-runner.test: OK (8 assertions)
+runroute.test: OK (13 assertions)
+checkpoint: OK (34 assertions)
+checkpoint-default-on.test: OK (14 assertions)
+module-scope-shadowing.test: OK (7 assertions)
+source-text-integrity.test: OK (2764 tracked JS/MJS files)
+verify.test: OK (17 assertions)
+lsp-edit-feedback.test: OK (38 assertions)
+provider.replay.test: OK (13 assertions)
+agent-eval.test: OK (43 assertions)
+eval-campaign-preflight.test: OK (10 assertions)
+eval-soak-receipt.test: OK (12 assertions)
+eval-same-model-receipt.test: OK (10 assertions)
+eval-acp-client.test: OK (7 assertions)
+eval-fixture-host.test: OK (33 assertions)
+eval-installed-performance.test: OK (5 assertions)
+eval-installed-provider-soak.test: OK (20 assertions)
+eval-parity-offline.test: OK (27 assertions)
+overnight-reliability-runner.test: OK (28 assertions)
+provider.openrouter.test: OK (89 assertions)
+provider.openai-compatible.test: OK (104 assertions)
+provider.ollama-native.test: OK (89 assertions)
+provider.ollama-system.test: OK (native + persistent compatible fallback; system provenance, order, tool pairing, multipart and unchanged generic wire)
+realtime-voice.test.js: ok
+native-stt.test.js: ok
+AssertionError [ERR_ASSERTION]: status().available must match whether the model packages are actually installed (expected false)
+
+true !== false
+
+    at C:\Users\andro\gen-trees\memory-harness-audit-1011\test\local-voice.test.js:32:10 {
+  generatedMessage: false,
+  code: 'ERR_ASSERTION',
+  actual: true,
+  expected: false,
+  operator: 'strictEqual',
+  diff: 'simple'
+}
+run-fast-tests: FAILED at step 102/1143: node test/local-voice.test.js (exit 1)

@@ -488,11 +488,37 @@ const dcall = (name, args) => ({ id: 'c', name, args, argsRaw: JSON.stringify(ar
     // the host's post-run passes (reflection / failure-review / study / threadmine / skill-review) turn a transcript into
     // durable notes and skills — a tainted run's transcript never feeds them, and auto-recall latches a tainted note
     const idx = require('fs').readFileSync(require('path').join(__dirname, '..', 'sidecar', 'index.js'), 'utf8');
-    A.ok(/if \(execution\.taintedBy\(\)\) \{\s*for \(const pass of \['reflection', 'failure-review', 'study', 'threadmine', 'skill-review'\]\)/.test(idx),
-      'a tainted run is dropped from every memory/skill-writing post-run pass');
+    A.ok(idx.includes("['reflection', 'failure-review', 'study', 'threadmine'].concat(noTrustedEvidence ? ['skill-review'] : [])") && idx.includes('LearningEvidence.buildLearningEvidence(o, redact).eligible'),
+      'tainted transcripts cannot feed memory writers; skill review requires separately attributed evidence');
     A.ok(/latchRunTaint\('recalled memory saved by a run that read '/.test(idx), 'auto-recall of a tainted note latches the reading run');
     A.ok(/r\.pinned && !tasteIds\.has\(r\.id\) && !\(tasteWithheld && r\.origin === FeedbackMemory\.ORIGIN\) && !r\.taintedBy/.test(idx),
       'a delegated worker\'s pinned context never carries a tainted note');
+  }
+
+
+  // Shared standing lookup is read-only, scoped by the host on every call, and uses foreign keys.
+  {
+    const FM = require('../sidecar/feedbackmemory.js');
+    const store = memStore();
+    const original = { id: 'note_1', title: 'Style', body: 'Always use British spelling.', content: 'Always use British spelling.', kind: 'profile', scope: 'global', confirmation: 'user-stated', createdAt: 1 };
+    const foreign = FM.stationStanding([], [{ agentId: 'scribe', records: [original] }]);
+    let withheld = false;
+    const { readTool, writeTool } = makeNotebookTools({ store, rank, sharedStanding: () => withheld ? [] : foreign });
+    const got = await readTool.run({ query: 'shared:scribe/note_1' }, { agentId: 'ag' });
+    A.ok(got.content.includes('[shared:scribe/note_1]') && got.content.includes('British spelling'), 'foreign standing record can be fetched in full by its provenance key');
+    A.ok(got.content.includes('read-only'), 'the foreign key never pretends to be an editable local note id');
+    A.eq(store.get('notebook:ag'), undefined, 'shared read never copies records into the local notebook');
+    const prompt = require('../sidecar/context.js').renderRecall(foreign);
+    A.ok(prompt.text.includes('[shared:scribe/note_1]'), 'prompt carries the same recoverable foreign key');
+    A.eq(prompt.usedIds, [], 'foreign recall never credits a same-numbered local note');
+    let refused = false;
+    try { await writeTool.run({ title: 'change', body: 'Use other spelling', replaceId: 'shared:scribe/note_1', previousBody: original.body }, { agentId: 'ag' }); }
+    catch (_) { refused = true; }
+    A.ok(refused, 'foreign lookup key cannot be used to overwrite another agent memory');
+    withheld = true;
+    A.ok((await readTool.run({}, { agentId: 'ag' })).content.includes('empty'), 'withheld host context reveals no shared standing preferences');
+    const privateGetter = makeNotebookTools({ store, sharedStanding: () => [Object.assign({}, foreign[0], { projectRoot: 'C:/private' })] });
+    A.ok((await privateGetter.readTool.run({}, { agentId: 'ag' })).content.includes('empty'), 'read seam independently rejects a private record even from a mistaken getter');
   }
 
   A.report('notebook.test');

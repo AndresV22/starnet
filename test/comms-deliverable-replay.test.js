@@ -2,11 +2,12 @@
    are replayed by renderHistory in time order, so a reload, stream switch or Try Again keeps the clickable
    file rows a customer relies on (2026-09-14 report: "can't send clickable files anymore, sends a text path").
    chat.js is browser/DOM flow and not require-able (see chat-stopped-retry.test.js) — the record shape is
-   exercised through Workstreams; the render seam is locked on source. */
+   exercised through Workstreams; the production render and opening functions are executed directly. */
 'use strict';
 const fs = require('node:fs');
 const path = require('node:path');
 const A = require('./_assert.js');
+const vm = require('node:vm');
 
 const src = fs.readFileSync(path.join(__dirname, '../frontend/app/chat.js'), 'utf8');
 
@@ -23,23 +24,76 @@ const src = fs.readFileSync(path.join(__dirname, '../frontend/app/chat.js'), 'ut
   A.eq(w.deliverables.map(d => d.t), [1000, 1200], 'each record carries the time the live row was painted');
 }
 
-// ---- the render seam: renderHistory replays those rows in stamp order, before the reply that followed them ----
-{
-  A.ok(/function replayableDeliverables\(ws\)[\s\S]{0,400}d\.kind === 'file' \|\| d\.kind === 'image' \|\| d\.kind === 'video' \|\| d\.kind === 'audio'/.test(src),
-    'only file/image/video/audio deliverables replay (skill/tool records keep their own surfaces)');
-  A.ok(/function replayableDeliverables\(ws\)[\s\S]{0,600}\.sort\(\(a, b\) => \(\+a\.t \|\| 0\) - \(\+b\.t \|\| 0\)\)/.test(src),
-    'replay order is the recorded time, not array order');
-  A.ok(/function replayDeliverableRow\(d, agentId\)[\s\S]{0,400}if \(mk === 'image'\) imageDeliverableLine\(d\.title, agentId\);[\s\S]{0,200}mediaPlayerLine\(d\.title, agentId, mk\);[\s\S]{0,120}else deliverableLine\(d\.title, agentId\);/.test(src),
-    'a replayed row uses the SAME renderers as the live event (thumbnail / player / ▤ saved link)');
-  const body = src.match(/function renderHistory\(\) \{([\s\S]*?)\n  \}\n/);
-  A.ok(body, 'renderHistory found');
-  const rh = body ? body[1] : '';
-  A.ok(/const delivs = replayableDeliverables\(activeWs\)/.test(rh), 'renderHistory reads the active stream\'s recorded deliverables');
-  A.ok(/if \(stamp !== false\) flushDeliverablesBefore\(stamp\);[\s\S]{0,200}const r = row\('agent'/.test(rh),
-    'files stamped at/before an assistant turn render BEFORE that reply (where the live run painted them)');
-  A.ok(/flushDeliverablesBefore\(null\);[\s\S]{0,120}finally \{ renderingHistory = false; \}/.test(rh),
-    'files newer than the last stored turn still render, after the transcript');
-  A.ok(/const delivAgent = \(activeWs && activeWs\.agentId\) \|\| 'agent'/.test(rh), 'replayed rows open through the stream\'s own agent workspace');
+// Execute the exact production render functions. Full replay and incremental insertion
+// intentionally have different deliverable/retry behavior; formatting is not their contract.
+const renderSource = ['function replayableDeliverables(ws)', 'function replayDeliverableRow(d, agentId)', 'function renderHistory(onlyTurns)']
+  .map(header => { const body = A.fnBody(src, header); A.ok(body.length > 100 && body.length < 7000, header + ' is bounded'); return body; }).join('\n');
+const fixture = {
+  id: 'worker-chat', agentId: 'vex', history: [{ role: 'user', content: 'request', ts: 1 }, { role: 'assistant', content: 'first reply', ts: 20 }, { role: 'assistant', content: 'last reply', ts: 40 }],
+  deliverables: [{ title: 'after.md', kind: 'file', t: 50 }, { title: 'clip.mp4', kind: 'file', t: 20 }, { title: 'before.md', kind: 'file', t: 10 }, { title: 'sound.wav', kind: 'audio', t: 30 }, { title: 'picture.png', kind: 'image', t: 35 }, { title: 'ignored', kind: 'skill', t: 2 }, { title: ' ', kind: 'file', t: 3 }]
+};
+function boot(code = renderSource, failProse = false) {
+  const events = [], c = vm.createContext({ activeWs: JSON.parse(JSON.stringify(fixture)), renderingHistory: false,
+    // These conflicting identities must never replace the recorded stream owner.
+    agent: { id: 'hero' }, attachAgentId: () => 'other-focused-agent',
+    mediaKindOf: title => title.endsWith('.mp4') ? 'video' : title.endsWith('.png') ? 'image' : 'file',
+    deliverableLine: (title, owner) => events.push(['file', title, owner]),
+    imageDeliverableLine: (title, owner) => events.push(['image', title, owner]),
+    mediaPlayerLine: (title, owner, kind) => events.push([kind, title, owner]),
+    addUser: text => events.push(['user', text]), toolLine: text => events.push(['status', text]), trimMarkerLine() {},
+    row: () => ({ d: { classList: { add() {} } }, body: {} }),
+    renderProse: (_body, text) => { if (failProse) throw new Error('render failed'); events.push(['reply', text]); },
+    isBusy: () => false, offerTryAgain: () => events.push(['retry']), offerRetry: () => events.push(['retry']) });
+  vm.runInContext(code, c); return { c, events };
 }
-
+const expected = [['user', 'request'], ['file', 'before.md', 'vex'], ['video', 'clip.mp4', 'vex'], ['reply', 'first reply'], ['audio', 'sound.wav', 'vex'], ['image', 'picture.png', 'vex'], ['reply', 'last reply'], ['file', 'after.md', 'vex']];
+{
+  const { c, events } = boot(), before = JSON.stringify(c.activeWs.deliverables);
+  A.eq(c.replayableDeliverables(c.activeWs).map(d => d.title), ['before.md', 'clip.mp4', 'sound.wav', 'picture.png', 'after.md'], 'eligible files replay in timestamp order and ignore blank/skill records');
+  A.eq(JSON.stringify(c.activeWs.deliverables), before, 'sorting never mutates the persisted arrival ledger');
+  c.renderHistory(); A.eq(events, expected, 'files at or before each reply render first, leftovers last, all with the stream owner');
+  A.eq(c.renderingHistory, false, 'full replay restores animation state');
+  events.length = 0; c.renderHistory([{ role: 'assistant', content: 'new reply', ts: 60, stopped: true }]);
+  A.eq(events, [['reply', 'new reply']], 'incremental insertion paints only new prose without duplicate files or stale retry controls');
+  events.length = 0; c.replayDeliverableRow({ title: 'promoted.png', kind: 'file' }, 'rook');
+  A.eq(events, [['image', 'promoted.png', 'rook']], 'recorded generic files still use the matching live media renderer');
+}
+{
+  const { c } = boot(renderSource, true);
+  A.throws(() => c.renderHistory(), 'a renderer exception is observable');
+  A.eq(c.renderingHistory, false, 'a failed replay still restores animation state');
+}
+// Mutation controls prove these observations would reject the old class of regressions.
+for (const [label, mutated] of [
+  ['missing sort', renderSource.replace('.sort((a, b) => (+a.t || 0) - (+b.t || 0))', '')],
+  ['missing final flush', renderSource.replace('flushDeliverablesBefore(null);', '')],
+  ['wrong workspace', renderSource.replace("(activeWs && activeWs.agentId) || 'agent'", "'hero'")]
+]) { const { c, events } = boot(mutated); c.renderHistory(); A.ok(JSON.stringify(events) !== JSON.stringify(expected), 'ordering/ownership fixture rejects ' + label); }
+{
+  const { c, events } = boot(renderSource.replace('onlyTurns ? [] : replayableDeliverables(activeWs)', 'replayableDeliverables(activeWs)'));
+  c.renderHistory([{ role: 'assistant', content: 'new reply', ts: 60 }]);
+  A.ok(events.length > 1, 'incremental fixture detects replayed old file rows');
+}
+{
+  const { c } = boot(renderSource.replace('finally { renderingHistory = false; }', 'finally {}'), true);
+  try { c.renderHistory(); } catch (_) {}
+  A.eq(c.renderingHistory, true, 'exception fixture detects missing state cleanup');
+}
+// Opening remains bound to the rendered file even after the user changes conversations.
+{
+  const opened = [], ticketed = [], handlers = {}, a = { addEventListener: (name, fn) => (handlers[name] ||= []).push(fn) };
+  const c = vm.createContext({ fileUrl: (title, owner, project) => { ticketed.push([title, owner, project]); return '/file/' + owner + '/' + title; },
+    tauriCore: () => ({ invoke: (name, args) => { opened.push([name, args]); return Promise.resolve(); } }), window: { getSelection: () => '' } });
+  const body = A.fnBody(src, 'function wireFileOpen(a, title, agentId, projectRoot)');
+  A.ok(body.length > 500 && body.length < 5000, 'file-opening closure is bounded'); vm.runInContext(body, c);
+  c.wireFileOpen(a, 'out/report.md', 'vex'); c.activeWs = { agentId: 'someone-else' };
+  for (const fn of handlers.pointerdown || []) fn({});
+  for (const fn of handlers.click || []) fn({ preventDefault() {}, stopPropagation() {} });
+  A.eq(opened, [['starnet_open_artifact', { path: 'out/report.md', agentId: 'vex' }]], 'click opens the original exact artifact through its owning workspace');
+  A.ok(ticketed.every(call => call[0] === 'out/report.md' && call[1] === 'vex'), 'ticket refresh keeps the original path and owner after switching');
+  A.eq([a.target, a.rel], ['_blank', 'noopener'], 'browser links retain native new-tab behavior');
+  c.window.getSelection = () => 'selected prose';
+  for (const fn of handlers.click || []) fn({ preventDefault() {}, stopPropagation() {} });
+  A.eq(opened.length, 1, 'text selection never opens the file');
+}
 A.report('comms-deliverable-replay.test');

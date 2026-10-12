@@ -22,12 +22,12 @@ const NETSTAT = [
   '  TCP    [::1]:52347            [::1]:8787             ESTABLISHED     888',
   '  UDP    127.0.0.1:52345        *:*                                    999'
 ].join('\r\n');
-A.eq(P.parseNetstatPid(NETSTAT, { clientAddress: '127.0.0.1', clientPort: 52345, serverPort: 8787 }), 4242, 'netstat: client row → its pid (localized state column ignored)');
-A.eq(P.parseNetstatPid(NETSTAT, { clientAddress: '::ffff:127.0.0.1', clientPort: 52345, serverPort: 8787 }), 4242, 'netstat: an IPv4-mapped peer address matches the IPv4 row');
-A.eq(P.parseNetstatPid(NETSTAT, { clientAddress: '127.0.0.1', clientPort: 52346, serverPort: 8787 }), null, 'netstat: a row to ANOTHER server port is not our peer');
-A.eq(P.parseNetstatPid(NETSTAT, { clientAddress: '::1', clientPort: 52347, serverPort: 8787 }), 888, 'netstat: IPv6 loopback row');
-A.eq(P.parseNetstatPid(NETSTAT, { clientAddress: '127.0.0.1', clientPort: 8787, serverPort: 52345 }), 100, 'netstat: direction matters (local column is the client side)');
-A.eq(P.parseNetstatPid('', { clientAddress: '127.0.0.1', clientPort: 1, serverPort: 2 }), null, 'netstat: empty output → no pid');
+A.eq(P.parseNetstatPid(NETSTAT, { clientAddress: '127.0.0.1', serverAddress: '127.0.0.1', clientPort: 52345, serverPort: 8787 }), 4242, 'netstat: client row → its pid (localized state column ignored)');
+A.eq(P.parseNetstatPid(NETSTAT, { clientAddress: '::ffff:127.0.0.1', serverAddress: '127.0.0.1', clientPort: 52345, serverPort: 8787 }), 4242, 'netstat: an IPv4-mapped peer address matches the IPv4 row');
+A.eq(P.parseNetstatPid(NETSTAT, { clientAddress: '127.0.0.1', serverAddress: '127.0.0.1', clientPort: 52346, serverPort: 8787 }), null, 'netstat: a row to ANOTHER server port is not our peer');
+A.eq(P.parseNetstatPid(NETSTAT, { clientAddress: '::1', serverAddress: '::1', clientPort: 52347, serverPort: 8787 }), 888, 'netstat: IPv6 loopback row');
+A.eq(P.parseNetstatPid(NETSTAT, { clientAddress: '127.0.0.1', serverAddress: '127.0.0.1', clientPort: 8787, serverPort: 52345 }), 100, 'netstat: direction matters (local column is the client side)');
+A.eq(P.parseNetstatPid('', { clientAddress: '127.0.0.1', serverAddress: '127.0.0.1', clientPort: 1, serverPort: 2 }), null, 'netstat: empty output → no pid');
 
 // ---- tasklist: a match is a CSV row whose 2nd field is exactly the pid; the INFO line (any language) is not ----
 A.eq(P.tasklistListsPid('"node.exe","4242","Console","1","50,212 K"\r\n', 4242), true, 'tasklist: CSV row with the pid → listed');
@@ -41,12 +41,12 @@ const PROC = [
   '   1: 0100007F:CD39 0100007F:2253 01 00000000:00000000 00:00000000 00000000  1001        0 2 1',
   '   2: 0100007F:2253 0100007F:CD39 01 00000000:00000000 00:00000000 00000000  1000        0 3 1'
 ].join('\n');
-A.eq(P.parseProcNetTcpUid(PROC, { clientPort: 52537, serverPort: 8787 }), 1001, '/proc/net/tcp: client socket uid (0xCD39=52537 → 0x2253=8787)');
-A.eq(P.parseProcNetTcpUid(PROC, { clientPort: 52538, serverPort: 8787 }), null, '/proc/net/tcp: unknown client port → null');
+A.eq(P.parseProcNetTcpUid(PROC, { clientAddress: '127.0.0.1', serverAddress: '127.0.0.1', clientPort: 52537, serverPort: 8787 }), 1001, '/proc/net/tcp: client socket uid (0xCD39=52537 → 0x2253=8787)');
+A.eq(P.parseProcNetTcpUid(PROC, { clientAddress: '127.0.0.1', serverAddress: '127.0.0.1', clientPort: 52538, serverPort: 8787 }), null, '/proc/net/tcp: unknown client port → null');
 const PROC6 = '  sl  local_address remote_address st tx rx tr tm retr uid\n   0: 0000000000000000FFFF00000100007F:CD39 0000000000000000FFFF00000100007F:2253 01 0:0 00:0 0 1002 0 4 1';
-A.eq(P.parseProcNetTcpUid(PROC6, { clientPort: 52537, serverPort: 8787 }), 1002, '/proc/net/tcp6: IPv4-mapped loopback client');
+A.eq(P.parseProcNetTcpUid(PROC6, { clientAddress: '127.0.0.1', serverAddress: '127.0.0.1', clientPort: 52537, serverPort: 8787 }), 1002, '/proc/net/tcp6: IPv4-mapped loopback client');
 const PROCLAN = '  sl  local_address rem_address st\n   0: 0A00000A:CD39 0100007F:2253 01 0:0 00:0 0 1003 0 5 1';
-A.eq(P.parseProcNetTcpUid(PROCLAN, { clientPort: 52537, serverPort: 8787 }), null, '/proc/net/tcp: a non-loopback local address is never our peer');
+A.eq(P.parseProcNetTcpUid(PROCLAN, { clientAddress: '127.0.0.1', serverAddress: '127.0.0.1', clientPort: 52537, serverPort: 8787 }), null, '/proc/net/tcp: a non-loopback local address is never our peer');
 
 // ---- lsof -F pu: owners other than ourselves ----
 A.eq(P.parseLsofOwners('p100\nu501\nf12\np4242\nu501\nf20\n', 100), [{ pid: 4242, uid: 501 }], 'lsof: our own server socket is dropped, the client stays');
@@ -54,7 +54,7 @@ A.eq(P.parseLsofOwners('', 100), [], 'lsof: nothing visible → no owners');
 
 // ---- the check itself, with injected lookups ----
 function fakeRun(map) { return async (exe, args) => { const k = path.basename(exe); return map[k] ? map[k](args) : { ok: false, code: -1, stdout: '' }; }; }
-const Q = { remoteAddress: '127.0.0.1', remotePort: 52345, localPort: 8787 };
+const Q = { remoteAddress: '127.0.0.1', remotePort: 52345, localAddress: '127.0.0.1', localPort: 8787 };
 
 (async () => {
   const winSame = P.makePeerOwnerCheck({ platform: 'win32', selfPid: 100, winUser: 'HOST\\owner', winSystemDir: 'C:\\W\\System32',
@@ -77,32 +77,77 @@ const Q = { remoteAddress: '127.0.0.1', remotePort: 52345, localPort: 8787 };
   const winSelf = P.makePeerOwnerCheck({ platform: 'win32', selfPid: 4242, winUser: 'HOST\\owner', run: fakeRun({ 'netstat.exe': () => ({ ok: true, stdout: NETSTAT }) }) });
   A.eq((await winSelf(Q)).ok, true, 'win32: our own process fetching / is ourselves');
 
-  let t = 1000; let calls = 0;
-  const winCache = P.makePeerOwnerCheck({ platform: 'win32', selfPid: 100, winUser: 'HOST\\owner', now: () => t, cacheMs: 15000,
-    run: fakeRun({ 'netstat.exe': () => ({ ok: true, stdout: NETSTAT }), 'tasklist.exe': () => { calls++; return { ok: true, stdout: '"chrome.exe","4242","Console","1","1 K"' }; } }) });
-  await winCache(Q); await winCache(Q);
-  A.eq(calls, 1, 'win32: a positive verdict is cached per pid');
-  t += 16000; await winCache(Q);
-  A.eq(calls, 2, 'win32: ...and expires');
-
-  // no injected clock → no cache at all (an inert clock would make a verdict immortal for a recycled PID)
-  let noClockCalls = 0;
-  const winNoClock = P.makePeerOwnerCheck({ platform: 'win32', selfPid: 100, winUser: 'HOST\\owner', cacheMs: 15000,
-    run: fakeRun({ 'netstat.exe': () => ({ ok: true, stdout: NETSTAT }), 'tasklist.exe': () => { noClockCalls++; return { ok: true, stdout: '"chrome.exe","4242","Console","1","1 K"' }; } }) });
-  const nc1 = await winNoClock(Q); const nc2 = await winNoClock(Q);
-  A.eq([nc1.ok, nc2.ok, noClockCalls], [true, true, 2], 'win32: without an injected clock every load re-checks (no cache, never a frozen one)');
+  // A PID identifies a current process, not a process generation. The OS may reuse a once-owned PID
+  // for another account before any time-based cache expires, including on a different exact socket.
+  let calls = 0, currentNetstat = NETSTAT, sameOwner = true, tasklistOk = true;
+  const winFresh = P.makePeerOwnerCheck({ platform: 'win32', selfPid: 100, winUser: 'HOST\\owner', now: () => 1000, cacheMs: 15000,
+    run: fakeRun({ 'netstat.exe': () => ({ ok: true, stdout: currentNetstat }), 'tasklist.exe': () => {
+      calls++; return { ok: tasklistOk, stdout: sameOwner ? '"chrome.exe","4242","Console","1","1 K"' : '' };
+    } }) });
+  A.eq((await winFresh(Q)).ok, true, 'win32: current owner receives the token');
+  await winFresh(Q);
+  A.eq(calls, 2, 'win32: every page checks current ownership even for the same exact connection');
+  currentNetstat = NETSTAT.replaceAll(':52345', ':52348'); sameOwner = false;
+  const reused = await winFresh({ ...Q, remotePort: 52348 });
+  A.eq([reused.ok, reused.reason], [false, 'other-user'], 'win32: recycled PID on another socket cannot borrow its previous owner verdict');
+  A.eq(calls, 3, 'win32: a recycled PID is checked with tasklist inside the former cache window');
+  sameOwner = true;
+  A.eq((await winFresh({ ...Q, remotePort: 52348 })).ok, true, 'win32: a previous refusal does not poison a later proven owner');
+  tasklistOk = false;
+  A.eq((await winFresh({ ...Q, remotePort: 52348 })).reason, 'lookup-failed', 'win32: lookup failure after prior success still fails closed');
 
   const linSame = P.makePeerOwnerCheck({ platform: 'linux', uid: 1001, readFile: async (f) => f === '/proc/net/tcp' ? PROC : '' });
-  A.eq((await linSame({ remoteAddress: '127.0.0.1', remotePort: 52537, localPort: 8787 })).ok, true, 'linux: same uid → token');
+  A.eq((await linSame({ remoteAddress: '127.0.0.1', remotePort: 52537, localAddress: '127.0.0.1', localPort: 8787 })).ok, true, 'linux: same uid → token');
   const linOther = P.makePeerOwnerCheck({ platform: 'linux', uid: 1000, readFile: async (f) => f === '/proc/net/tcp' ? PROC : '' });
-  A.eq((await linOther({ remoteAddress: '127.0.0.1', remotePort: 52537, localPort: 8787 })).reason, 'other-user', 'linux: another uid → withheld');
+  A.eq((await linOther({ remoteAddress: '127.0.0.1', remotePort: 52537, localAddress: '127.0.0.1', localPort: 8787 })).reason, 'other-user', 'linux: another uid → withheld');
 
-  const macSame = P.makePeerOwnerCheck({ platform: 'darwin', selfPid: 100, uid: 501, run: async () => ({ ok: true, code: 0, stdout: 'p100\nu501\np4242\nu501\n' }) });
+  // A local account may bind another 127/8 address with the SAME client port. The connection's complete
+  // tuple decides ownership; a same-port row belonging to us must never authorize the foreign socket.
+  const collided = PROC + '\n   3: 0200007F:CD39 0100007F:2253 01 0:0 00:0 0 1002 0 9 1';
+  const linCollision = P.makePeerOwnerCheck({ platform: 'linux', uid: 1001, readFile: async f => f === '/proc/net/tcp' ? collided : '' });
+  A.eq((await linCollision({ remoteAddress: '127.0.0.2', remotePort: 52537, localAddress: '127.0.0.1', localPort: 8787 })).reason,
+    'other-user', 'linux: a foreign loopback address cannot borrow the same-port owner row');
+  A.eq((await linCollision({ remoteAddress: '127.0.0.3', remotePort: 52537, localAddress: '127.0.0.1', localPort: 8787 })).ok,
+    false, 'linux: an absent exact client address fails closed');
+  const wrongServer = PROC.replace('0100007F:CD39 0100007F:2253', '0100007F:CD39 0200007F:2253');
+  const linWrongServer = P.makePeerOwnerCheck({ platform: 'linux', uid: 1001, readFile: async f => f === '/proc/net/tcp' ? wrongServer : '' });
+  A.eq((await linWrongServer({ remoteAddress: '127.0.0.1', remotePort: 52537, localAddress: '127.0.0.1', localPort: 8787 })).ok,
+    false, 'linux: a connection to a different server address is not our peer');
+  const closed = PROC.replace('CD39 0100007F:2253 01', 'CD39 0100007F:2253 06');
+  const linClosed = P.makePeerOwnerCheck({ platform: 'linux', uid: 1001, readFile: async f => f === '/proc/net/tcp' ? closed : '' });
+  A.eq((await linClosed({ remoteAddress: '127.0.0.1', remotePort: 52537, localAddress: '127.0.0.1', localPort: 8787 })).ok,
+    false, 'linux: a TIME_WAIT row cannot authorize an established request');
+  A.eq((await linSame({ remoteAddress: '127.0.0.1', remotePort: 52537, localPort: 8787 })).ok,
+    false, 'linux: missing server address fails closed');
+  const q6 = { clientAddress: '::1', serverAddress: '::1', clientPort: 52537, serverPort: 8787 };
+  A.eq(P.parseProcNetTcpUid(PROC6, q6), null, 'linux: IPv4-mapped row cannot authorize an IPv6 loopback client');
+  const ipv6 = PROC6.replaceAll('0000000000000000FFFF00000100007F', '00000000000000000000000001000000');
+  A.eq(P.parseProcNetTcpUid(ipv6, q6), 1002, 'linux: exact IPv6 loopback tuple remains supported');
+  A.eq(P.parseProcNetTcpUid(PROC6, { ...q6, clientAddress: '::ffff:127.0.0.1', serverAddress: '::ffff:127.0.0.1' }), 1002,
+    'linux: IPv4-mapped socket spelling matches its exact mapped proc row');
+
+  const macSame = P.makePeerOwnerCheck({ platform: 'darwin', selfPid: 100, uid: 501, run: async () => ({ ok: true, code: 0, stdout: 'p100\nu501\nf12\nn127.0.0.1:8787->127.0.0.1:52345\np4242\nu501\nf20\nn127.0.0.1:52345->127.0.0.1:8787\n' }) });
   A.eq((await macSame(Q)).ok, true, 'darwin: client of our uid → token');
   const macHidden = P.makePeerOwnerCheck({ platform: 'darwin', selfPid: 100, uid: 501, run: async () => ({ ok: false, code: 1, stdout: 'p100\nu501\n' }) });
   A.eq((await macHidden(Q)).reason, 'peer-not-found', 'darwin: a client lsof cannot see (another user) → withheld');
-  const macOther = P.makePeerOwnerCheck({ platform: 'darwin', selfPid: 100, uid: 501, run: async () => ({ ok: true, code: 0, stdout: 'p4242\nu502\n' }) });
+  const macOther = P.makePeerOwnerCheck({ platform: 'darwin', selfPid: 100, uid: 501, run: async () => ({ ok: true, code: 0, stdout: 'p4242\nu502\nf20\nn127.0.0.1:52345->127.0.0.1:8787\n' }) });
   A.eq((await macOther(Q)).reason, 'other-user', 'darwin: another uid → withheld');
+
+  const macUnrelated = P.makePeerOwnerCheck({ platform: 'darwin', selfPid: 100, uid: 501,
+    run: async () => ({ ok: true, code: 0, stdout: 'p4242\nu501\nf20\nn127.0.0.1:52345->127.0.0.1:9999\n' }) });
+  A.eq((await macUnrelated(Q)).ok, false, 'darwin: a same-port socket to another server cannot authorize the request');
+  const macUnproven = P.makePeerOwnerCheck({ platform: 'darwin', selfPid: 100, uid: 501,
+    run: async () => ({ ok: true, code: 0, stdout: 'p4242\nu501\n' }) });
+  A.eq((await macUnproven(Q)).ok, false, 'darwin: owner without the exact connection name is unproven');
+  const macMixed = P.makePeerOwnerCheck({ platform: 'darwin', selfPid: 100, uid: 501,
+    run: async () => ({ ok: true, code: 0, stdout: 'p4242\nu502\nf20\nn127.0.0.1:52345->127.0.0.1:9999\np9999\nu501\nf25\nn127.0.0.1:52345->127.0.0.1:8787\n' }) });
+  A.eq((await macMixed(Q)).ok, true, 'darwin: an unrelated foreign socket does not hide the proven owner');
+  const macOtherAddress = P.makePeerOwnerCheck({ platform: 'darwin', selfPid: 100, uid: 501,
+    run: async () => ({ ok: true, code: 0, stdout: 'p4242\nu501\nf20\nn127.0.0.2:52345->127.0.0.1:8787\n' }) });
+  A.eq((await macOtherAddress(Q)).ok, false, 'darwin: a different client address cannot authorize the request');
+  A.eq(P.parseNetstatPid(NETSTAT.replace('127.0.0.1:52345        127.0.0.1:8787', '127.0.0.1:52345        127.0.0.2:8787'),
+    { clientAddress: '127.0.0.1', clientPort: 52345, serverAddress: '127.0.0.1', serverPort: 8787 }), null,
+    'win32: a same-port socket to another server address is not the peer');
 
   A.eq((await P.makePeerOwnerCheck({ platform: 'sunos' })(Q)).ok, false, 'unknown platform → fail closed');
   A.eq((await P.makePeerOwnerCheck({ platform: 'sunos', trustAll: true })(Q)).ok, true, 'STARNET_TRUST_LOCAL_PEERS escape hatch');
@@ -121,7 +166,7 @@ const Q = { remoteAddress: '127.0.0.1', remotePort: 52345, localPort: 8787 };
     const verdict = await new Promise((resolve) => {
       const srv = http.createServer(async (req, res) => {
         const s = req.socket;
-        const v = await real({ remoteAddress: s.remoteAddress, remotePort: s.remotePort, localPort: s.localPort });
+        const v = await real({ remoteAddress: s.remoteAddress, remotePort: s.remotePort, localAddress: s.localAddress, localPort: s.localPort });
         res.end('x'); srv.close(); resolve(v);
       });
       srv.listen(0, '127.0.0.1', () => {

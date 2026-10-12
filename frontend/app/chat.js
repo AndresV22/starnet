@@ -132,6 +132,14 @@ const Chat = (() => {
      so it rides a one- or multi-line composer instead of a magic offset. Click jumps down + re-arms stickiness. */
   function jumpToBottom() { if (log) { log.scrollTop = log.scrollHeight; stick = true; hideNewPill(); } }
   function cancelHistoryPin() { historyPinPending = 0; }
+  // An explicit search/attention/result jump is reading intent, including when a session load still owes its pin.
+  function revealHistory(target) {
+    if (!log || !target || !log.contains(target)) return false;
+    cancelHistoryPin(); stick = false; userScrollAt = Date.now();
+    target.scrollIntoView({ block: 'center' });
+    showNewPill(false);
+    return true;
+  }
   function pinLoadedHistoryAfterLayout(seq) {
     const pin = () => {
       if (!log || historyPinPending !== seq) return;
@@ -765,11 +773,11 @@ const Chat = (() => {
     return fetch(url, { cache: 'no-store' }).then(r => { if (!r.ok) throw new Error('file HTTP ' + r.status); return r.blob(); })
       .then(b => URL.createObjectURL(/\.svg$/i.test(String(path || '')) && b.type !== 'image/svg+xml' ? new Blob([b], { type: 'image/svg+xml' }) : b));
   }
-  function workspaceFileRefs(agentId, messageKey) {
+  function workspaceFileRefs(agentId, messageKey, projectRoot) {
     const scope = messageKey == null ? 'body:' + (++fileRefScope) : String(messageKey);
     return {
-      wire: (a, path) => wireFileOpen(a, path, agentId || attachAgentId()),
-      image: path => { const aid = agentId || attachAgentId(); return cachedBlob(scope + '|' + aid + '|' + path, () => imageBlobUrl(fileUrl(path, aid), path)); }
+      wire: (a, path) => wireFileOpen(a, path, agentId || attachAgentId(), projectRoot),
+      image: path => { const aid = agentId || attachAgentId(); return cachedBlob(scope + '|' + aid + '|' + (projectRoot || '') + '|' + path, () => imageBlobUrl(fileUrl(path, aid, projectRoot), path)); }
     };
   }
   function hydrateFileRefs(bodyEl) {
@@ -1603,6 +1611,35 @@ const Chat = (() => {
   }
 
   function mergeCanonicalHistory(local, turns) {
+    // Only the canonical final row can supersede saved prose, and only by explicit run identity.
+    const finals = new Map(), finalSlots = new Map();
+    const sameRun = (a, b) => !!a.sourceRunId && String(a.sourceRunId) === String(b.sourceRunId)
+      && (!a.agentId || !b.agentId || a.agentId === b.agentId)
+      && (!a.streamId || !b.streamId || a.streamId === b.streamId);
+    const withFinal = (prior, canonical) => {
+      const row = Object.assign({}, prior, canonical);
+      // A rejected attempt's failure flags are evidence, not the accepted answer's status.
+      // In particular, error:true would exclude this accepted answer from the next model turn.
+      const supersededStatus = Object.assign({}, prior.supersededStatus, canonical.supersededStatus);
+      for (const key of ['error', 'stopped', 'stopNote']) {
+        if (prior[key] != null) supersededStatus[key] = prior[key];
+        delete row[key];
+        if (Object.prototype.hasOwnProperty.call(canonical, key)) row[key] = canonical[key];
+      }
+      if (Object.keys(supersededStatus).length) row.supersededStatus = supersededStatus;
+      if (canonical.taint || prior.taint) row.taint = canonical.taint || prior.taint;
+      const attachments = [], seen = new Set();
+      for (const item of [].concat(prior.attachments || [], canonical.attachments || [])) {
+        const key = JSON.stringify(item);
+        if (!seen.has(key)) { seen.add(key); attachments.push(item); }
+      }
+      if (attachments.length) row.attachments = attachments;
+      return row;
+    };
+    for (const turn of Array.isArray(turns) ? turns : []) {
+      if (turn && !turn.sys && turn.role === 'assistant' && turn.dispatchState === 'final'
+          && turn.sourceRunId && String(turn.content || '').trim() && !finals.has(String(turn.sourceRunId))) finals.set(String(turn.sourceRunId), turn);
+    }
     const runParts = new Map();
     for (const turn of Array.isArray(turns) ? turns : []) {
       if (!turn || turn.role !== 'assistant' || !turn.sourceRunId) continue;
@@ -1611,10 +1648,6 @@ const Chat = (() => {
       const parts = runParts.get(String(turn.sourceRunId)) || [];
       parts.push(text); runParts.set(String(turn.sourceRunId), parts);
     }
-    // Streaming can combine several provider turns into one local reply. Prefer
-    // their durable turns only when the run identity AND exact contiguous bytes
-    // prove that the entire aggregate is already committed. This also heals old
-    // saves, whose assistant row inherited identity only from its preceding user.
     const committedAggregate = (row, runId) => {
       if (row.role !== 'assistant' || row.rowId || row.stopped || row.error || (row.attachments && row.attachments.length)) return false;
       const parts = runParts.get(runId) || [], text = String(row.content || '');
@@ -1629,23 +1662,22 @@ const Chat = (() => {
       }
       return false;
     };
-    // THE LOCAL THREAD OWNS ITS ORDER (2026-09-13). The durable transcript is NOT a byte-exact superset of what
-    // the Commander saw: a group/@mention run records its user turn as a "Shared conversation context…" packet,
-    // a screen capture is journaled as a synthetic user turn, and error / stopped / delegated / retried rows only
-    // ever exist locally. The old merge emitted the server's turns first and pushed every unmatched local row to
-    // the END — so a user's own questions slid to the bottom, internal prompts surfaced as their messages, and
-    // App.persist() made the scramble permanent on every open ("history disappears"). Now: walk the local rows in
-    // their own order and keep every one in place; a durable turn with an exact local twin ENRICHES that row
-    // (ts / rowId / sourceRunId); a durable turn the local thread never saw (headless cron / channel / page-closed
-    // completion) is INSERTED right after the last row a durable turn anchored to. Nothing is ever reordered.
-    const kept = [];   // { row, key } — the surviving local rows, original order
-    const buckets = new Map();   // role\0content -> queue of kept indices (occurrence-aware, like before)
+    const kept = [], buckets = new Map();
     let userRunId = '';
-    for (const row of Array.isArray(local) ? local : []) {
-      // settled local status lines (failed / silent / nothing-to-report) stay exactly where they were. A pending
-      // transcript warning is rebuilt from the latest read below, so it vanishes as soon as canonical prose lands.
+    for (let row of Array.isArray(local) ? local : []) {
       if (row && row.sys) { if (!row.transcriptPending) kept.push({ row, key: null }); continue; }
       if (!row || (row.role !== 'user' && row.role !== 'assistant')) continue;
+      const final = row.role === 'assistant' && finals.get(String(row.sourceRunId || ''));
+      if (final && sameRun(row, final)) {
+        const id = String(final.sourceRunId);
+        if (finalSlots.has(id)) {
+          const keptRow = kept[finalSlots.get(id)];
+          keptRow.row = withFinal(row, keptRow.row);
+          continue;
+        }
+        row = withFinal(row, final);
+        finalSlots.set(id, kept.length);
+      }
       if (row.role === 'user') userRunId = String(row.sourceRunId || '');
       if (committedAggregate(row, String(row.sourceRunId || userRunId))) continue;
       if (row.role === 'assistant' && !String(row.content == null ? '' : row.content).trim()) continue;
@@ -1653,12 +1685,7 @@ const Chat = (() => {
       const q = buckets.get(key) || []; q.push(kept.length); buckets.set(key, q);
       kept.push({ row, key });
     }
-    // User-role rows the sidecar journals that were never typed by the Commander: the group-session context packet
-    // (sidecar/group-sessions.js) and the screen-capture injection (sidecar/loop.js). Prefix-matched on purpose —
-    // both are fixed harness strings, and a real message that merely mentions them does not START with them.
     const internalTranscriptPrompt = text => /^Shared conversation context \(/.test(text) || /^\[BEGIN EXTERNAL SCREEN CAPTURE/.test(text);
-    // Durable-only turns, keyed by the kept index they follow (-1 = before the first local row). Occurrence queues,
-    // rather than a Set, keep two identical user turns distinct while still preventing a duplicate final answer.
     const inserts = new Map();
     let anchor = -1;
     for (const turn of Array.isArray(turns) ? turns : []) {
@@ -1666,14 +1693,18 @@ const Chat = (() => {
       const content = String(turn.content == null ? '' : turn.content);
       if (turn.role === 'assistant' && !content.trim()) continue;
       const key = turn.role + '\u0000' + content;
-      const q = buckets.get(key), idx = (q && q.length) ? q.shift() : -1;
+      const q = buckets.get(key), authoritative = turn.role === 'assistant' && turn.dispatchState === 'final' && finals.get(String(turn.sourceRunId || '')) === turn;
+      // A matching sentence from another run must never acquire this dispatch's identity.
+      const at = q ? q.findIndex(i => authoritative ? sameRun(kept[i].row, turn)
+        : finalSlots.get(String(kept[i].row.sourceRunId || '')) !== i) : -1;
+      const idx = at >= 0 ? q.splice(at, 1)[0] : -1;
       if (idx >= 0) {
         const prior = kept[idx].row;
-        kept[idx].row = Object.assign({}, turn, prior, { role: turn.role, content, ts: turn.ts != null ? turn.ts : prior.ts });
+        kept[idx].row = authoritative ? withFinal(prior, turn) : Object.assign({}, turn, prior, { role: turn.role, content, ts: turn.ts != null ? turn.ts : prior.ts });
         anchor = idx;
         continue;
       }
-      if (turn.role === 'user' && internalTranscriptPrompt(content)) continue;   // harness packets are not Commander speech
+      if (turn.role === 'user' && internalTranscriptPrompt(content)) continue;
       const list = inserts.get(anchor) || []; list.push(Object.assign({}, turn, { role: turn.role, content })); inserts.set(anchor, list);
     }
     const merged = [];
@@ -2280,6 +2311,7 @@ const Chat = (() => {
   // opts.live === true marks the streaming reply row, which always pins to the BOTTOM. Every other row (tool
   // ▶/◀ lines, deliverables, consent, turn-in) inserts ABOVE the pinned reply while one is live — so the work
   // log stacks above and the message the agent is actually saying stays at the bottom, never scrolled away.
+  let insertingDelivery = false;
   let renderingHistory = false;   // true only during renderHistory: mark rows .no-anim so a full replay doesn't fire up to 120 entrance animations at once
   /* TRANSCRIPT DOM CAP (2026-08-26 lag fix). HISTORY_CAP bounds only the WIRE payload — the
      rendered #chat-log grew unpruned all session, and every autoscroll() reads scrollHeight
@@ -2291,7 +2323,7 @@ const Chat = (() => {
      belt-and-braces guard (it is always among the newest rows anyway). */
   const LOG_DOM_CAP = 400;
   function pruneLog() {
-    if (!log || !stick) return;
+    if (!log || !stick || insertingDelivery) return;
     while (log.children.length > LOG_DOM_CAP) {
       const n = log.firstElementChild;
       if (!n || n.id === 'comms-presence' || (n.querySelector && n.querySelector('#comms-presence'))) break;
@@ -2367,13 +2399,37 @@ const Chat = (() => {
     return dayName + ' · ' + clock;
   }
   function timeBreak(at) {
-    if (!log || isNaN(at.getTime())) return;
+    if (!log || insertingDelivery || isNaN(at.getTime())) return;
     const prev = lastStampMs();
     const sameDay = prev && new Date(prev).toDateString() === at.toDateString();
     if (prev && sameDay && at.getTime() - prev < TIME_BREAK_MS) return;
     const d = document.createElement('div'); d.className = 'cmsg-timebreak'; d.setAttribute('role', 'separator');
     const t = document.createElement('span'); t.className = 'tb-when'; t.textContent = fmtBreak(at);
     d.appendChild(t); log.appendChild(d);
+  }
+  // Recovery can insert earlier turns. Recompute separator ownership without replacing message nodes.
+  function syncTimeBreaks() {
+    if (!log) return;
+    let prev = 0;
+    const keep = new Set();
+    for (const n of Array.from(log.children)) {
+      const stamp = Number(n.dataset.ts);
+      if (!stamp) continue;
+      const at = new Date(stamp), sameDay = prev && new Date(prev).toDateString() === at.toDateString();
+      if (!prev || !sameDay || stamp - prev >= TIME_BREAK_MS) {
+        let divider = n.previousElementSibling;
+        if (!divider || !divider.classList.contains('cmsg-timebreak')) {
+          divider = document.createElement('div'); divider.className = 'cmsg-timebreak'; divider.setAttribute('role', 'separator');
+          const label = document.createElement('span'); label.className = 'tb-when'; divider.appendChild(label);
+          log.insertBefore(divider, n);
+        }
+        const label = divider.querySelector('.tb-when'), text = fmtBreak(at);
+        if (label.textContent !== text) label.textContent = text;
+        keep.add(divider);
+      }
+      prev = stamp;
+    }
+    for (const n of Array.from(log.children)) if (n.classList.contains('cmsg-timebreak') && !keep.has(n)) n.remove();
   }
   // stamp: omitted → live now (real); a number/Date → the turn's stored real time; false → no stamp (replay of a
   // legacy turn that carries no time — never fabricate the current clock).
@@ -2795,14 +2851,23 @@ const Chat = (() => {
   // prose-link handler in init), so hand the saved path to the OS default app. If native opening rejects
   // the path or file type, the jailed browser preview remains a safe fallback. stopPropagation prevents
   // the delegated prose-link handler from opening it a second time.
-  function wireFileOpen(a, title, agentId) {
-    a.href = fileUrl(title, agentId);
+  function wireFileOpen(a, title, agentId, projectRoot) {
+    a.href = fileUrl(title, agentId, projectRoot);
     a.target = '_blank'; a.rel = 'noopener';
     // the rendered ticket lives minutes, the row lives forever: re-mint right before any use of the href
     // (capture-phase listeners run before the native navigation / the context menu's copy-link reads it).
-    const refresh = () => { try { a.href = fileUrl(title, agentId); } catch (_) {} };
+    const refresh = () => { try { a.href = fileUrl(title, agentId, projectRoot); } catch (_) {} };
     a.addEventListener('click', refresh, true); a.addEventListener('auxclick', refresh, true);
     a.addEventListener('contextmenu', refresh, true); a.addEventListener('focus', refresh, true);
+    // Project-relative worker links use the same canonical project/host routing as their receipt's Open key.
+    if (projectRoot) {
+      a.addEventListener('click', ev => {
+        ev.preventDefault(); ev.stopPropagation();
+        if (window.getSelection && String(window.getSelection())) return;
+        openFile(title, agentId, projectRoot);
+      });
+      return;
+    }
     // A web page opens RUNNING, in the station's BROWSER window (the window has OPEN OUTSIDE for the OS browser).
     // /api/file would hand the same .html over as an inert download.
     if (typeof OutputBrowser !== 'undefined' && OutputBrowser.isHtml && OutputBrowser.isHtml(title)) {
@@ -3041,7 +3106,7 @@ const Chat = (() => {
     if (!rel) return;
     const isAbs = /^([A-Za-z]:[\\/]|[\\/])/.test(rel), root = projectRoot && !isAbs ? String(projectRoot).replace(/[\\/]+$/, '') : '';
     if (!root && typeof OutputBrowser !== 'undefined' && OutputBrowser.isHtml && OutputBrowser.isHtml(rel)) { OutputBrowser.open({ agentId: aid, path: rel }); return; }
-    const url = fileUrl(rel, aid) + (root ? '&project=' + encodeURIComponent(root) : '');
+    const url = fileUrl(rel, aid, root);
     const core = tauriCore();
     if (core && core.invoke) {
       Promise.resolve(core.invoke('starnet_open_artifact', { path: root ? root + '/' + rel : rel, agentId: aid }))
@@ -3054,11 +3119,12 @@ const Chat = (() => {
     }
     try { window.open(url, '_blank', 'noopener'); } catch (e) { if (typeof StationUI !== 'undefined' && StationUI.notify) StationUI.notify('could not open that file: ' + ((e && e.message) || e), 'warn'); }
   }
-  function fileUrl(title, agentId) {
-    if (typeof ApiTicket !== 'undefined' && ApiTicket.fileUrl) return ApiTicket.fileUrl(agentId || 'agent', String(title));
+  function fileUrl(title, agentId, projectRoot) {
+    const project = projectRoot && !/^([A-Za-z]:[\\/]|[\\/])/.test(String(title)) ? '&project=' + encodeURIComponent(String(projectRoot).replace(/[\\/]+$/, '')) : '';
+    if (typeof ApiTicket !== 'undefined' && ApiTicket.fileUrl) return ApiTicket.fileUrl(agentId || 'agent', String(title)) + project;
     let base = '';
     try { base = (typeof window !== 'undefined' && window.__STARNET_API__) ? String(window.__STARNET_API__) : ''; } catch (_) {}
-    return base + '/api/file?agent=' + encodeURIComponent(agentId || 'agent') + '&path=' + encodeURIComponent(title);
+    return base + '/api/file?agent=' + encodeURIComponent(agentId || 'agent') + '&path=' + encodeURIComponent(title) + project;
   }
   // append a small "open in a new tab" fallback link — shown when an inline player can't decode the file
   // (e.g. an .mkv/.avi the browser won't play), mirroring the reference harness's OpenMediaButton.
@@ -3262,6 +3328,36 @@ const Chat = (() => {
     const command = /^(?:shell|terminal)[._]/.test(t) ? [o.cmd, o.command, o.input, o.data].find(v => typeof v === 'string' && v) : '';
     return command ? { label, text, copy: command, copyLabel: 'COPY COMMAND' } : { label, text };
   }
+  // Shared by ordinary approvals and delegated rows; all disclose the same redacted request and build steps.
+  function appendConsentDetails(host, p) {
+    // INSPECT: an approval carries the request it approves, every character of it, one click away (user report 10-08:
+    // a long shell command showed 77 chars and a "…", and nothing on the card held the rest)
+    const inspect = consentInspect(p);
+    if (inspect) {
+      const detail = document.createElement('details'); detail.className = 'consent-payload';
+      const label = document.createElement('summary'); label.textContent = inspect.label;
+      const payload = document.createElement('pre'); payload.textContent = inspect.text;
+      const idle = inspect.copyLabel || 'COPY';
+      const copy = document.createElement('button'); copy.type = 'button'; copy.className = 'consent-btn quiet consent-copy'; copy.textContent = idle;
+      copy.onclick = () => copyText(inspect.copy || inspect.text).then(ok => {
+        copy.textContent = ok ? '✓ COPIED' : 'COPY FAILED: select the text above';
+        clearTimeout(copy.__t); copy.__t = setTimeout(() => { copy.textContent = idle; }, 1400);
+      });
+      detail.appendChild(label); detail.appendChild(payload); detail.appendChild(copy); host.appendChild(detail);
+    }
+    // the station builder's card: every step's instructions, one click away (the summary line is in the phrase above)
+    if (/^station[._]build$/.test(String(p.tool || '')) && String(p.argsSummary || '').indexOf('\n') > 0) {
+      const detail = document.createElement('details'); detail.className = 'consent-payload';
+      const label = document.createElement('summary'); label.textContent = 'What each step will be told';
+      const payload = document.createElement('pre'); payload.textContent = String(p.argsSummary).split('\n').slice(1).join('\n');
+      detail.appendChild(label); detail.appendChild(payload); host.appendChild(detail);
+    }
+    // …and draws the plan: where it goes and what goes where, before anything is built (the page's own parked plan)
+    if (/^station[._]build$/.test(String(p.tool || '')) && typeof StationCommands !== 'undefined' && StationCommands.previewFor && typeof PlanPreview !== 'undefined') {
+      const fig = PlanPreview.el(StationCommands.previewFor(String(p.argsSummary || '').split('\n')[0]));
+      if (fig) host.appendChild(fig);
+    }
+  }
   function actionPhrase(ev) {
     const t = ev.tool || 'act';
     // a PLUGIN tool (plugin__<id>__<tool>): say whose code it is before what it does — checked first, so a plugin
@@ -3344,6 +3440,7 @@ const Chat = (() => {
     let q = { question: '', options: [], recommended: '', reason: '', multiSelect: false, ordinal: 0, total: 0 };
     try { q = Object.assign(q, JSON.parse(p.argsSummary || '{}')); } catch (_) {}
     const r = row('agent'); r.d.classList.add('tool'); r.d.classList.add('consent');
+    r.d.dataset.clarifyPrompt = String(p.promptId || ''); r.d.tabIndex = -1;
     if(q.mode==='conversation' && typeof TaskConversation!=='undefined') {
       const rid=ws && Channels.runIdOf(ws.id);
       TaskConversation.mount(r.body,q,async text=>{
@@ -3351,7 +3448,7 @@ const Chat = (() => {
         if(!result || !result.ok)return false;
         // the question is answered: say so on the bus like the approval card does, or the CREW card and the world pose stay "needs your OK"
         try{if(typeof U!=='undefined'&&U.bus)U.bus.emit('permission.response',{promptId:p.promptId,decision:'once'});}catch(_){}
-        if(ws)Channels.clearPending(ws.id,Date.now());
+        if(ws)Channels.clearPending(ws.id,Date.now(),p.promptId);
         if(isActiveWs(ws)){renderPresence();syncStatus();}
         return true;
       });
@@ -3360,7 +3457,7 @@ const Chat = (() => {
     // A batched ask shows its place ("asks (2 of 3)") so the Commander knows one more tap ends it —
     // three unannounced sequential cards would read as an interrogation with no visible bottom.
     const seq = (Number(q.total) > 1 && Number(q.ordinal) > 0) ? ' (' + q.ordinal + ' of ' + q.total + ')' : '';
-    r.body.appendChild(document.createTextNode('▣ ' + name + ' asks' + seq + ': ' + (q.question || 'which way should this go?') + ' '));
+    r.body.appendChild(document.createTextNode('▣ ' + askerName(p, ws) + ' asks' + seq + ': ' + (q.question || 'which way should this go?') + ' '));
     // TWO KINDS of suggestion, and the same law the end-run card obeys: GROUNDED comes from the
     // Commander's own answered history (>=2 times) and is PROVABLE, so it outranks the model's guess and
     // states its count; `recommended` is a guess with a rationale and stands only when nothing was observed.
@@ -3380,16 +3477,30 @@ const Chat = (() => {
     }
     const isStar = (opt) => starred.indexOf(opt) >= 0;
     const btns = document.createElement('span'); btns.className = 'consent-btns';
-    let decided = false;
-    function answer(text, doneLabel) {
-      if (ws && typeof StationUI !== 'undefined' && StationUI.settleNotifs) StationUI.settleNotifs('needs:' + ws.id);   // answered: leaves NEEDS YOU
-      if (decided) return; decided = true;
-      const rid = (ws && typeof Channels !== 'undefined') ? Channels.runIdOf(ws.id) : null;
-      Harness.consentAnswer(rid, p.promptId, text);
+    let decided = false, submitting = false, received = null, applyElsewhere = null;
+    async function answer(text, doneLabel) {
+      if (decided || submitting) return;
+      submitting = true;
+      const buttons = Array.from(btns.querySelectorAll('button')), disabled = buttons.map(b => b.disabled);
+      buttons.forEach(b => { b.disabled = true; });
+      const rid = p.runId || ((ws && typeof Channels !== 'undefined') ? Channels.runIdOf(ws.id) : null);
+      try {
+        const result = await Harness.consentAnswer(rid, p.promptId, text, true);
+        if (!(result && result.ok)) throw new Error('The station did not confirm your answer. Please try again.');
+      } catch (e) {
+        submitting = false;
+        if (received && applyElsewhere) { applyElsewhere(received); return; }
+        buttons.forEach((b, i) => { b.disabled = disabled[i]; });
+        if (typeof StationUI !== 'undefined' && StationUI.notify) StationUI.notify('Could not answer: ' + ((e && e.message) || e), 'warn');
+        return;
+      }
+      submitting = false; decided = true;
+      if (received && applyElsewhere) applyElsewhere(received);
+      if (ws) settlePromptNotice(ws.id, p.promptId);
       // answered: tell the bus, as the approval card does — the CREW card's "needs your OK" frame and the world's
       // AWAITING pose clear on permission.response, and a question never emitted one (sweep 2026-10-02)
       try { if (typeof U !== 'undefined' && U.bus) U.bus.emit('permission.response', { promptId: p.promptId, decision: 'once' }); } catch (_) {}
-      if (ws && typeof Channels !== 'undefined') Channels.clearPending(ws.id, Date.now());   // the wait never counts as run time
+      if (ws && typeof Channels !== 'undefined') Channels.clearPending(ws.id, Date.now(), p.promptId);   // the wait never counts as run time
       if (isActiveWs(ws)) renderPresence();
       btns.remove();
       const tag = document.createElement('span'); tag.className = 'consent-result'; tag.textContent = doneLabel;
@@ -3458,12 +3569,13 @@ const Chat = (() => {
     // run's stream, as for an approval). Settle the card to what happened — it used to keep live options and "awaiting
     // your answer…" after the run had moved on, and a tap then did nothing while the card claimed it answered.
     if (typeof U !== 'undefined' && U.bus && U.bus.on && U.bus.off) {
-      const onElsewhere = (resp) => {
+      const onElsewhere = applyElsewhere = (resp) => {
         if (!resp || resp.promptId !== p.promptId) return;
+        if (submitting) { received = resp; return; }
         U.bus.off('permission.response', onElsewhere);
         if (decided) return;
         decided = true;
-        if (ws && typeof Channels !== 'undefined') Channels.clearPending(ws.id, Date.now());
+        if (ws && typeof Channels !== 'undefined') Channels.clearPending(ws.id, Date.now(), p.promptId);
         if (isActiveWs(ws)) renderPresence();
         btns.remove();
         const tag = document.createElement('span');
@@ -3492,10 +3604,23 @@ const Chat = (() => {
      (2026-10-11): one path. The sidecar's consent route (the lead's run is the one that holds the ask, also for a worker's),
      the bus (every rendered card of that ask settles), the channel (THIS ask only: a crewmate's open ask stays open), NEEDS
      YOU and the presence card. Returns what the sidecar actually applied (fullSaved: a "full" that really persisted). */
+  const settledPromptNotices = new Set();
+  function settlePromptNotice(wsId, promptId) {
+    if (!wsId || typeof StationUI === 'undefined') return;
+    const id = String(promptId || '');
+    if (id && settledPromptNotices.has(id)) return;
+    if (id) { settledPromptNotices.add(id); if (settledPromptNotices.size > 200) settledPromptNotices.delete(settledPromptNotices.values().next().value); }
+    const pending = typeof Channels !== 'undefined' && Channels.pendingAllOf ? Channels.pendingAllOf(wsId).filter(p => String(p.promptId) !== id) : [];
+    if (pending.length) {
+      const next = pending[0], ws = (typeof Workstreams !== 'undefined' && Workstreams.get && Workstreams.get(wsId)) || { id: wsId, agentId: next.agentId };
+      if (StationUI.notify) StationUI.notify(askerName(next, ws) + (next.tool === 'brief.ask' ? ' still needs your answer' : ' still needs approval to ' + actionPhrase(next)), 'warn', 'needsApproval', { kind: 'needs', go: { ws: wsId }, key: 'needs:' + wsId, prompt: next.promptId });
+    } else if (StationUI.settleNotifs) StationUI.settleNotifs('needs:' + wsId);
+  }
   async function answerConsent(p, ws, decision) {
-    if (ws && typeof StationUI !== 'undefined' && StationUI.settleNotifs) StationUI.settleNotifs('needs:' + ws.id);
     const rid = (p && p.runId) || ((ws && typeof Channels !== 'undefined') ? Channels.runIdOf(ws.id) : null);
     const answer = await Harness.consent(rid, p.promptId, decision);
+    if (!(answer && answer.ok)) throw new Error((answer && answer.error) || 'The station did not confirm that answer. Please try again.');
+    if (ws) settlePromptNotice(ws.id, p.promptId);
     const appliedDecision = (answer && answer.decision) || 'deny';
     let fullSaved = true;
     if (decision === 'full') {
@@ -3543,40 +3668,23 @@ const Chat = (() => {
     }
     const r = row('agent'); r.d.classList.add('tool'); r.d.classList.add('consent');
     r.body.appendChild(document.createTextNode('▣ ' + ((p && p.workerAgentId) ? askerName(p, ws) : name) + ' wants to ' + actionPhrase(p) + ' '));
-    // INSPECT: an approval carries the request it approves, every character of it, one click away (user report 10-08:
-    // a long shell command showed 77 chars and a "…", and nothing on the card held the rest)
-    const inspect = consentInspect(p);
-    if (inspect) {
-      const detail = document.createElement('details'); detail.className = 'consent-payload';
-      const label = document.createElement('summary'); label.textContent = inspect.label;
-      const payload = document.createElement('pre'); payload.textContent = inspect.text;
-      const idle = inspect.copyLabel || 'COPY';
-      const copy = document.createElement('button'); copy.type = 'button'; copy.className = 'consent-btn quiet consent-copy'; copy.textContent = idle;
-      copy.onclick = () => copyText(inspect.copy || inspect.text).then(ok => {
-        copy.textContent = ok ? '✓ COPIED' : 'COPY FAILED: select the text above';
-        clearTimeout(copy.__t); copy.__t = setTimeout(() => { copy.textContent = idle; }, 1400);
-      });
-      detail.appendChild(label); detail.appendChild(payload); detail.appendChild(copy); r.body.appendChild(detail);
-    }
-    // the station builder's card: every step's instructions, one click away (the summary line is in the phrase above)
-    if (/^station[._]build$/.test(String(p.tool || '')) && String(p.argsSummary || '').indexOf('\n') > 0) {
-      const detail = document.createElement('details'); detail.className = 'consent-payload';
-      const label = document.createElement('summary'); label.textContent = 'What each step will be told';
-      const payload = document.createElement('pre'); payload.textContent = String(p.argsSummary).split('\n').slice(1).join('\n');
-      detail.appendChild(label); detail.appendChild(payload); r.body.appendChild(detail);
-    }
-    // …and draws the plan: where it goes and what goes where, before anything is built (the page's own parked plan)
-    if (/^station[._]build$/.test(String(p.tool || '')) && typeof StationCommands !== 'undefined' && StationCommands.previewFor && typeof PlanPreview !== 'undefined') {
-      const fig = PlanPreview.el(StationCommands.previewFor(String(p.argsSummary || '').split('\n')[0]));
-      if (fig) r.body.appendChild(fig);
-    }
+    appendConsentDetails(r.body, p);
     const btns = document.createElement('span'); btns.className = 'consent-btns';
-    let decided = false;
+    let decided = false, submitting = false, received = null, applyElsewhere = null;
     async function decide(decision, doneLabel, isDeny) {
-      if (ws && typeof StationUI !== 'undefined' && StationUI.settleNotifs) StationUI.settleNotifs('needs:' + ws.id);   // decided: leaves NEEDS YOU
-      if (decided) return; decided = true;
+      if (decided || submitting) return; submitting = true;
       for (const b of btns.querySelectorAll('button')) b.disabled = true;
-      const res = await answerConsent(p, ws, decision);
+      let res;
+      try { res = await answerConsent(p, ws, decision); }
+      catch (e) {
+        submitting = false;
+        if (received && applyElsewhere) { applyElsewhere(received); return; }
+        for (const b of btns.querySelectorAll('button')) b.disabled = false;
+        if (typeof StationUI !== 'undefined' && StationUI.notify) StationUI.notify('Could not answer: ' + ((e && e.message) || e), 'warn');
+        return;
+      }
+      submitting = false; decided = true;
+      if (received && applyElsewhere) applyElsewhere(received);
       if (decision === 'full' && !res.fullSaved) { doneLabel = '✕ full access was not saved'; isDeny = true; }
       else if (decision !== 'full' && res.appliedDecision === 'deny' && decision !== 'deny') { doneLabel = '✕ approval was not applied'; isDeny = true; }
       btns.remove();
@@ -3617,13 +3725,14 @@ const Chat = (() => {
     // desk never keeps live buttons on a question that was already answered elsewhere. The desk's own answer
     // also emits permission.response, but by then `decided` is set and this listener just unsubscribes.
     if (typeof U !== 'undefined' && U.bus && U.bus.on && U.bus.off) {
-      const onElsewhere = (resp) => {
+      const onElsewhere = applyElsewhere = (resp) => {
         if (!resp || resp.promptId !== p.promptId) return;
+        if (submitting) { received = resp; return; }
         U.bus.off('permission.response', onElsewhere);
         if (decided) return;
         decided = true;
         const denied = resp.decision === 'deny';
-        if (ws && typeof Channels !== 'undefined') Channels.clearPending(ws.id, Date.now());
+        if (ws && typeof Channels !== 'undefined') Channels.clearPending(ws.id, Date.now(), p.promptId);
         if (isActiveWs(ws)) renderPresence();
         btns.remove();
         const tag = document.createElement('span');
@@ -3672,7 +3781,12 @@ const Chat = (() => {
   }
   if (typeof U !== 'undefined' && U.bus && U.bus.on) U.bus.on('permission.response', (resp) => {
     const key = resp && resp.promptId != null ? promptNeeds.get(String(resp.promptId)) : null;
-    if (key && typeof StationUI !== 'undefined' && StationUI.settleNotifs) StationUI.settleNotifs(key);
+    if (!key) return; // an unknown response cannot claim another conversation's pending state
+    const wsId = key.slice('needs:'.length);
+    // Background/delegated asks may have no mounted card to clear their channel record.
+    // Remove only this confirmed response before choosing the sibling that still needs attention.
+    if (typeof Channels !== 'undefined' && Channels.clearPending) Channels.clearPending(wsId, Date.now(), resp.promptId);
+    settlePromptNotice(wsId, resp.promptId);
   });
   function backgroundPermissionNotify(ev, ws) {
     // the AGENT that asks — a delegated worker's ask names the worker, never the lead it rode in on
@@ -7192,11 +7306,11 @@ const Chat = (() => {
     else if (mk === 'video' || mk === 'audio') mediaPlayerLine(d.title, agentId, mk);
     else deliverableLine(d.title, agentId);
   }
-  function renderHistory() {
-    const h = activeWs ? activeWs.history : [];
+  function renderHistory(onlyTurns) {
+    const h = onlyTurns || (activeWs ? activeWs.history : []);
     let lastReal = null;   // the trailing dialogue turn (for the error-recovery re-offer below)
     renderingHistory = true;   // suppress the per-row entrance animation across this bulk replay (restored below)
-    const delivs = replayableDeliverables(activeWs);
+    const delivs = onlyTurns ? [] : replayableDeliverables(activeWs);
     const delivAgent = (activeWs && activeWs.agentId) || 'agent';
     let di = 0;
     // every recorded deliverable stamped at/before `ts` lands now (ts == null flushes the rest)
@@ -7235,10 +7349,36 @@ const Chat = (() => {
     // STRANDED-USER LAW: a reload/switch onto a stream whose LAST turn failed (error:true) must not leave the
     // Commander with a dead thread and no way out — load() wiped the live recovery chips. Re-offer a plain retry
     // (offerRetry's context-aware verdict isn't stored per-turn, so the safe universal recovery is a re-run).
-    if (lastReal && lastReal.role === 'assistant' && (lastReal.error || lastReal.stopped) && !isBusy()) {
+    if (!onlyTurns && lastReal && lastReal.role === 'assistant' && (lastReal.error || lastReal.stopped) && !isBusy()) {
       if (lastReal.stopped) offerTryAgain();
       else offerRetry(null);
     }
+  }
+
+  // A delivered/recovered answer updates this conversation in place. Existing disclosures, selection,
+  // live channels and the composer remain mounted; a reader above the bottom keeps the same visible row.
+  function deliverTurns(ws, turns) {
+    if (!log || !isActiveWs(ws) || ws.conversationMode === 'group' || !Array.isArray(turns) || !turns.length) return false;
+    const pinned = stick, top = log.scrollTop;
+    const viewport = log.getBoundingClientRect();
+    const scale = viewport.height / log.offsetHeight || 1;
+    const anchor = !pinned && Array.from(log.children).find(n => !n.classList.contains('cmsg-timebreak') && n.getBoundingClientRect().bottom > viewport.top);
+    const anchorTop = anchor && anchor.getBoundingClientRect().top;
+    if (!pinned) cancelHistoryPin();
+    insertingDelivery = true;
+    try { for (const turn of turns) {
+      const existing = new Set(log.children);
+      const before = Number(turn.ts) > 0 && Array.from(log.children).find(n => Number(n.dataset.ts) > Number(turn.ts));
+      renderHistory([turn]);
+      if (before) for (const n of Array.from(log.children)) if (!existing.has(n)) {
+        n.classList.remove('ts-repeat'); log.insertBefore(n, before);
+      }
+    } } finally { insertingDelivery = false; }
+    syncTimeBreaks();
+    pruneLog();
+    if (!pinned) log.scrollTop = anchor && log.contains(anchor) ? log.scrollTop + (anchor.getBoundingClientRect().top - anchorTop) / scale : top;
+    autoscroll();
+    return true;
   }
 
   // SWITCH-SURVIVAL: re-render whatever in-flight run we left on the now-displayed stream — its streamed
@@ -10163,5 +10303,5 @@ const Chat = (() => {
   // only" gate maybeStandaloneRate uses — so a pure-chat run is never bottle-offered. Used by App.runBottleInfo (R5).
   function runDidWork(id) { const w = id ? runWork.get(id) : null; return !!(w && ((w.toolsOk || 0) >= 1 || (w.delivered || 0) >= 1)); }
 
-  return { init, load, send, consentInspect, copyText, continuityDiagnostics, refreshStarters, sendOrQueue, continueConnectorTask, stopActive, status, localLine, broadcast, renderProse, openFile, answerConsent, consentPhrase: actionPhrase, setSystem, getHistory, contextRef, abort, isBusy, beatBusy: skillBeatBusy, beginInterview, endInterview, echoUser, prefill, autoGrowInput, choices, clearChoices, retireDeskPrompt, typeLine, nudge, clearNudge, offerCuriosity, offerFork, planGoalPath, briefingReceipt, isComposerEngaged, canFocusSession, runMeta, runDidWork, awayDigest, awayReview, awayRate, sampleCard, workshopReturn, refreshIdBar: renderIdBar, refreshGroupControls: updateControls, refreshAgentIdentity, setRosterStatus, askBudgetSpent, spendAsk, clockLabel: fmtClock, breakLabel: fmtBreak, workspaceFileRefs, imageBlobUrl };
+  return { init, load, deliverTurns, send, consentInspect, appendConsentDetails, revealHistory, copyText, continuityDiagnostics, refreshStarters, sendOrQueue, continueConnectorTask, stopActive, status, localLine, broadcast, renderProse, openFile, answerConsent, consentPhrase: actionPhrase, setSystem, getHistory, contextRef, abort, isBusy, beatBusy: skillBeatBusy, beginInterview, endInterview, echoUser, prefill, autoGrowInput, choices, clearChoices, retireDeskPrompt, typeLine, nudge, clearNudge, offerCuriosity, offerFork, planGoalPath, briefingReceipt, isComposerEngaged, canFocusSession, runMeta, runDidWork, awayDigest, awayReview, awayRate, sampleCard, workshopReturn, refreshIdBar: renderIdBar, refreshGroupControls: updateControls, refreshAgentIdentity, setRosterStatus, askBudgetSpent, spendAsk, clockLabel: fmtClock, breakLabel: fmtBreak, workspaceFileRefs, imageBlobUrl };
 })();

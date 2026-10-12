@@ -11,6 +11,7 @@
 const { writeFileDurable } = require('./durable-write.js');
 const { note: failNote } = require('./failopen.js');   // a new catch here is never silent (fail-open ratchet)
 const crypto = require('node:crypto');
+const { conversationPreview } = require('./transcriptstore.js');
 
 const VERSION = 2;
 const DEFAULT_SEGMENT_BYTES = 4 * 1024 * 1024;
@@ -96,20 +97,24 @@ function makeSegmentedTranscriptIo(opts) {
     else if (Object.getPrototypeOf(index.terms) !== null) index.terms = Object.assign(Object.create(null), index.terms);
     const sid = str(row.streamId) || 'global';
     let stream = index.streams[sid];
-    if (!stream) stream = index.streams[sid] = { count: 0, lastAt: 0, preview: '' };
+    if (!stream) stream = index.streams[sid] = { count: 0, lastAt: 0, preview: '', previewVersion: 1 };
     stream.count++;
     if (ts >= stream.lastAt) stream.lastAt = ts;
-    if (row.role === 'user' && row.content) stream.preview = str(row.content).replace(/\s+/g, ' ').trim().slice(0, 160);
+    const preview = conversationPreview(row);
+    if (preview) {
+      stream.preview = preview.replace(/\s+/g, ' ').trim().slice(0, 160);
+      stream.previewTaint = row.taint || ''; stream.previewTaintKnown = row.taintKnown === true || !!row.taint;
+    }
     for (const term of tokenize(row.content)) {
       const ids = index.terms[term] || (index.terms[term] = []);
       ids.push(id);
     }
   }
-  function readRows(n) {
+  function readRows(n, strict) {
     const file = segFile(n);
     let text;
     try { text = fs.readFileSync(file, 'utf8'); }
-    catch (e) { warning('segment ' + n + ' unreadable: ' + ((e && e.message) || e)); return []; }
+    catch (e) { if (strict) throw e; warning('segment ' + n + ' unreadable: ' + ((e && e.message) || e)); return []; }
     const rows = [];
     let bad = 0;
     for (const line of text.split(/\r?\n/)) {
@@ -120,6 +125,7 @@ function makeSegmentedTranscriptIo(opts) {
         else bad++;
       } catch (_) { bad++; }
     }
+    if (bad && strict) throw new Error('segment ' + n + ' contains unreadable transcript evidence');
     if (bad) warning('segment ' + n + ' isolated ' + bad + ' corrupt line(s)');
     return rows;
   }
@@ -411,8 +417,8 @@ function makeSegmentedTranscriptIo(opts) {
     const runId = String((options && options.sourceRunId) || '');
     const out = [];
     for (const meta of relevantSegments(streamId, true)) {
-      const rows = readRows(meta.number);
-      for (let i = rows.length - 1; i >= 0 && out.length < limit; i--) if (rows[i].streamId === streamId && (!runId || rows[i].sourceRunId === runId)) out.push(rows[i]);
+      const rows = readRows(meta.number, options && options.strict);
+      for (let i = rows.length - 1; i >= 0 && out.length < limit; i--) if (rows[i].streamId === streamId && (!runId || rows[i].sourceRunId === runId) && (!(options && options.dispatchState) || rows[i].dispatchState === options.dispatchState)) out.push(rows[i]);
       if (out.length >= limit) break;
     }
     return out.reverse().map(publicRow);
@@ -437,7 +443,7 @@ function makeSegmentedTranscriptIo(opts) {
         let distinct = 0, freq = 0;
         for (const term of terms) if (tf[term]) { distinct++; freq += tf[term]; }
         if (!distinct) continue;
-        best.push({ rowId: row.rowId, streamId: row.streamId, role: row.role, content: row.content, ts: row.ts, score: distinct * 1000 + freq });
+        best.push({ rowId: row.rowId, streamId: row.streamId, role: row.role, content: row.content, ts: row.ts, score: distinct * 1000 + freq, taint: row.taint || '', taintKnown: row.taintKnown === true || !!row.taint });
         best.sort((a, b) => (b.score - a.score) || (num(b.ts) - num(a.ts)) || (num(b.rowId) - num(a.rowId)));
         if (best.length > limit) best.length = limit;
       }
@@ -453,7 +459,9 @@ function makeSegmentedTranscriptIo(opts) {
       let dst = by.get(sid);
       if (!dst) dst = { streamId: sid, turns: 0, lastAt: 0, preview: '' };
       dst.turns += num(s.count);
-      if (num(s.lastAt) >= dst.lastAt) { dst.lastAt = num(s.lastAt); if (s.preview) dst.preview = str(s.preview).slice(0, previewChars); }
+      // Older closed indexes lack visibility provenance; omit their preview until a normal index rebuild.
+      // Never scan every conversation body merely to list threads.
+      if (num(s.lastAt) >= dst.lastAt) { dst.lastAt = num(s.lastAt); if (s.previewVersion === 1 && s.preview) { dst.preview = str(s.preview).slice(0, previewChars); dst.previewTaint = s.previewTaint || ''; dst.previewTaintKnown = s.previewTaintKnown === true || !!s.previewTaint; } }
       by.set(sid, dst);
     }
     return Array.from(by.values()).sort((a, b) => (b.lastAt - a.lastAt) || (a.streamId < b.streamId ? -1 : a.streamId > b.streamId ? 1 : 0)).slice(0, limit);

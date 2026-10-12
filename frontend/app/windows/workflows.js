@@ -310,14 +310,22 @@ const WorkflowsWindow = (() => {
      Commander's station-wide taste with the delivered run's REAL reference (its files, palette, fonts, image prompt — the
      sidecar reads them from the run, POST /api/taste/keep-style), so every crew member's next similar work matches it.
      PUT IT BACK takes that approval back too. A failure says so: the key still truthfully reports the step's example. */
+  // The keep route captures the reference before writing memory. Wait for the previous operation on this
+  // run before sending its next one: a fast PUT IT BACK must not land before its delayed KEEP THIS STYLE.
+  // Keep the queue outside the view so closing/changing jobs does not lose the pending withdrawal.
+  const tasteWrites = new Map();
   function keptTaste(job, undo) {
     const run = (job && job.runs || [])[0];
     if (!run || !run.runId) return;
-    postJSON('/api/taste/keep-style', undo ? { runId: run.runId, undo: true } : { runId: run.runId }).then(({ status, j }) => {
+    const runId = run.runId;
+    const sent = (tasteWrites.get(runId) || Promise.resolve()).then(() =>
+      postJSON('/api/taste/keep-style', undo ? { runId, undo: true } : { runId })).then(({ status, j }) => {
       if (status !== 200 || !(j && j.ok)) { notify((undo ? 'the crew still remembers this style: ' : 'kept for this step, but the crew could not learn the style: ') + ((j && j.error) || 'http ' + status), 'warn'); return; }
       const fm = j.feedbackMemory;
       if (!undo && fm && fm.reason === 'personalization-paused') notify('kept for this step — learning is paused, so the rest of the crew will not learn this style', 'warn');
     }, () => notify(undo ? 'the crew’s copy of this style could not be taken back — is the station running?' : 'kept for this step — the crew could not learn the style (is the station running?)', 'warn'));
+    tasteWrites.set(runId, sent);
+    sent.then(() => { if (tasteWrites.get(runId) === sent) tasteWrites.delete(runId); });
   }
   function putStyleBack(job) {
     const st = stationOf(), d = lastDockOf(job), p = d && st ? st.propById(d) : null;

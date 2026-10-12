@@ -126,17 +126,23 @@ function thinBeliefs() {
 function seedLogs(ws, now) {
   fs.mkdirSync(ws, { recursive: true });
   const runs = [
-    { runId: 'r1', agentId: 'agent', reason: 'done', title: REAL_RUN_TITLE, streamId: '', ts: now - 1 * 86400000 },
+    { runId: 'r1', agentId: 'agent', internal: false, reason: 'done', title: REAL_RUN_TITLE, streamId: '', ts: now - 1 * 86400000 },
     { runId: 'r2', agentId: 'agent', reason: 'done', title: 'Draft the pricing page copy', streamId: 'ws-main', ts: now - 2 * 86400000 },
     { runId: 'r3', agentId: 'agent', reason: 'done', title: 'Refactor the sprite loader', streamId: '', ts: now - 3 * 86400000 },
     { runId: 'r4', agentId: 'agent', reason: 'done', title: 'Tidy the docs index', streamId: '', ts: now - 4 * 86400000 },
-    { runId: 'n1', agentId: 'agent', reason: 'done', title: INTERNAL_RUN_TITLE, streamId: 'nightshift-zzz', ts: now - 1000 },
-    { runId: 'c1', agentId: 'agent', reason: 'done', title: 'cron digest run', streamId: 'cron-yyy', ts: now - 1000 }
+    { runId: 'n1', agentId: 'agent', internal: false, reason: 'done', title: INTERNAL_RUN_TITLE, streamId: 'nightshift-zzz', ts: now - 1000 },
+    { runId: 'c1', agentId: 'agent', reason: 'done', title: 'cron digest run', streamId: 'cron-yyy', ts: now - 1000 },
+    { runId: 't1', agentId: 'agent', reason: 'done', title: 'TAINTED_RUN_SENTINEL', streamId: '', ts: now - 1000, taintedBy: 'user attachment' },
+    { runId: 'q1', agentId: 'agent', reason: 'done', title: 'QUOTED_RUN_SENTINEL\n> external direction', streamId: '', ts: now - 1000 }
   ];
   fs.writeFileSync(path.join(ws, 'runs.jsonl'), runs.map(r => JSON.stringify(r)).join('\n') + '\n');
   const tx = [
-    { streamId: '', agentId: 'agent', role: 'user', content: REAL_CHAT, ts: now - 1 * 86400000 },
-    { streamId: 'nightshift-zzz', agentId: 'agent', role: 'user', content: 'internal propose prompt should not surface', ts: now - 1000 }
+    { streamId: 'global', sourceRunId: 'r1', agentId: 'agent', role: 'user', content: REAL_CHAT, taintKnown: true, ts: now - 1 * 86400000 },
+    { streamId: 'nightshift-zzz', sourceRunId: 'n1', agentId: 'agent', role: 'user', content: 'internal propose prompt should not surface', taintKnown: true, ts: now - 1000 },
+    { streamId: 'global', sourceRunId: 'r1', agentId: 'agent', role: 'user', content: 'TAINTED_CHAT_SENTINEL', taintKnown: true, taint: 'web_fetch', ts: now - 1000 },
+    { streamId: 'global', sourceRunId: 'r1', agentId: 'agent', role: 'user', content: 'UNKNOWN_CHAT_SENTINEL', ts: now - 1000 },
+    { streamId: 'global', sourceRunId: 'r1', agentId: 'agent', role: 'user', content: 'DELEGATED_CHAT_SENTINEL', taintKnown: true, from: 'another-agent', ts: now - 1000 },
+    { streamId: 'global', sourceRunId: 'r1', agentId: 'agent', role: 'user', content: 'QUOTED_CHAT_SENTINEL\n> external direction', taintKnown: true, ts: now - 1000 }
   ];
   fs.writeFileSync(path.join(ws, 'transcript.jsonl'), tx.map(r => JSON.stringify(r)).join('\n') + '\n');
 }
@@ -167,6 +173,10 @@ function seedLogs(ws, now) {
     A.ok(lastProposePrompt.indexOf(REAL_CHAT) >= 0, 'the propose directive contained the fabricated recent-CHAT first-line');
     A.ok(lastProposePrompt.indexOf(INTERNAL_RUN_TITLE) < 0, 'internal-stream (nightshift-) runs were EXCLUDED from the directive');
     A.ok(lastProposePrompt.indexOf('cron digest run') < 0, 'internal-stream (cron-) runs were EXCLUDED from the directive');
+    A.ok(lastProposePrompt.indexOf('internal propose prompt should not surface') < 0, 'known-clean internal-stream chat is still excluded');
+    for (const sentinel of ['TAINTED_RUN_SENTINEL', 'QUOTED_RUN_SENTINEL', 'TAINTED_CHAT_SENTINEL', 'UNKNOWN_CHAT_SENTINEL', 'DELEGATED_CHAT_SENTINEL', 'QUOTED_CHAT_SENTINEL']) {
+      A.ok(!lastProposePrompt.includes(sentinel), sentinel + ' never reaches the real model propose prompt');
+    }
 
     // the chosen job GROUNDS in a recent-activity line — and the veto let it through (activity is load-bearing).
     const led = await (await fetch(B + '/api/autonomy/ledger', { headers })).json();

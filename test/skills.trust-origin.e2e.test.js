@@ -89,12 +89,18 @@ function startMock() {
     A.ok(mains.length >= 3, 'the model took all three turns (edit, view, answer), got ' + mains.length);
     const last = mains[mains.length - 1].msgs;
     const toolResults = last.filter(m => m && m.role === 'tool').map(m => String(m.content || ''));
-    A.ok(/complete/i.test(toolResults[0] || ''), 'the summary edit itself went through: ' + String(toolResults[0]).slice(0, 80));
+    A.ok(/proposed revision/i.test(toolResults[0] || ''), 'the summary edit became an unapproved proposal: ' + String(toolResults[0]).slice(0, 80));
     A.ok(/withheld/i.test(toolResults[1] || ''), 'skill.view after the edit is REFUSED as withheld: ' + String(toolResults[1]).slice(0, 100));
     A.ok(mock.state.requests.every(q => q.raw.indexOf(NEEDLE) < 0), 'the imported body never reached the model in ANY request');
     const listed = await fixture.json('GET', '/api/agent-skills?agent=trustee');
     const sk = (listed.body.skills || []).find(x => x.name === 'Helper Setup');
-    A.eq([sk && sk.createdBy, sk && sk.withheld, sk && sk.summary], ['community', true, 'tidied summary'], 'the store keeps the community origin, the skill stays withheld, the edit landed');
+    A.eq([sk && sk.createdBy, sk && sk.withheld, sk && sk.summary], ['community', true, 'installs the helper'], 'the active community version stays withheld and unchanged while the edit awaits evaluation');
+    const journal = fs.readFileSync(path.join(fixture.workspace, 'skills.jsonl'), 'utf8').trim().split(/\r?\n/).map(line => JSON.parse(line));
+    const candidate = journal.filter(row => row.recordType === 'skill-candidate' && row.agentId === 'trustee').at(-1);
+    A.ok(candidate && candidate.status === 'pending', 'the actual model edit persisted as a pending candidate');
+    A.eq(candidate && [candidate.skill.createdBy, candidate.skill.writtenBy, candidate.skill.guardAction, candidate.skill.summary],
+      ['community', 'agent', 'ask', 'tidied summary'], 'candidate keeps imported origin and strict guard while recording the model writer');
+    A.eq(candidate && candidate.skill.body, BODY, 'proposed edit preserves imported bytes without delivering them to the model');
   } finally {
     await fixture.dispose();
     try { mock.server.close(); } catch (_) {}

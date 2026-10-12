@@ -1,0 +1,79 @@
+{
+  "source": "1d1a89980717271a2dbbc627088dca2f1c25c1ba",
+  "platform": "Windows",
+  "method": "Single-heavy-run slot, serial unchanged fixtures. Observer records process/fetch/boot evidence and retains original timeout thresholds. No startup retry, sleep, process deletion, timeout weakening or production edit was added.",
+  "results": [
+    {
+      "test": "test/loops-endurance.e2e.test.js",
+      "assertions": 27,
+      "exit": 0,
+      "boots": [
+        {
+          "id": 1,
+          "spawnMs": 38.4,
+          "readyLogAfterMs": 951.0,
+          "healthReadyAfterMs": 966.9
+        },
+        {
+          "id": 2,
+          "spawnMs": 7156.4,
+          "healthReadyAfterMs": 735.1
+        },
+        {
+          "id": 3,
+          "spawnMs": 23736.3,
+          "readyLogAfterMs": 840.7,
+          "healthReadyAfterMs": 862.4
+        }
+      ],
+      "nonHealthFetchErrors": [],
+      "observerExit": [
+        {
+          "code": 0,
+          "atMs": 24889.4
+        }
+      ],
+      "minimumObservedFreeMemoryMiB": 2142,
+      "localLogs": [
+        ".dogfood/runtime-triage/loops-endurance-instrumented.jsonl",
+        ".dogfood/runtime-triage/loops-endurance-instrumented.log"
+      ]
+    },
+    {
+      "test": "test/loops-stall.e2e.test.js",
+      "assertions": 38,
+      "exit": 0,
+      "boots": [
+        {
+          "id": 1,
+          "spawnMs": 49.5,
+          "readyLogAfterMs": 730.4
+        },
+        {
+          "id": 2,
+          "spawnMs": 25607.9,
+          "readyLogAfterMs": 712.2
+        }
+      ],
+      "nonHealthFetchErrors": [],
+      "observerExit": [
+        {
+          "code": 0,
+          "atMs": 34316.2
+        }
+      ],
+      "minimumObservedFreeMemoryMiB": 2177,
+      "localLogs": [
+        ".dogfood/runtime-triage/loops-stall-instrumented.jsonl",
+        ".dogfood/runtime-triage/loops-stall-instrumented.log"
+      ]
+    }
+  ],
+  "interpretation": "Both controlled focused runs pass. Startup health ECONNREFUSED while the server has not listened is expected and explicitly retained in local logs. No non-health fetch error observed. The earlier complete gate readiness timeout and subsequent loops-stall transport failure remain cause-unproved. Host memory pressure observed after the original failures was not established causal.",
+  "limits": [
+    "Different source baseline and host conditions from original full-suite run; no full-gate equivalence claim.",
+    "Observer overhead may affect timing; passing instrumented runs do not exclude a race.",
+    "The fixtures force process exit soon after final child kill; final child exit events may not reach observer. Known fixture child PIDs were absent after completion.",
+    "Root retains original gate failure and owns final combined fast/http run."
+  ]
+}

@@ -17,7 +17,7 @@
   }
   function emitSkill(ctx, skill) {
     if (ctx && typeof ctx.emit === 'function' && skill) {
-      try { ctx.emit('deliverable', { id: skill.id, agentId: skill.agentId || ((ctx && ctx.agentId) || 'agent'), kind: 'skill', title: skill.name }); } catch (_) {}
+      try { ctx.emit('deliverable', { id: skill.id, agentId: skill.agentId || ((ctx && ctx.agentId) || 'agent'), kind: 'skill', title: (skill.pendingCandidate ? 'Proposed revision: ' : '') + skill.name }); } catch (_) {}
     }
   }
 
@@ -83,6 +83,7 @@
       };
     }
     function decideFor(skill, withBody) {
+      if (skill && skill.pendingCandidate) return { visible: false, reason: 'proposed skill awaits behavior evaluation and Commander approval' };
       if (!gate || !skill) return { visible: true };
       try {
         const d = (withBody && typeof gate.verify === 'function') ? gate.verify(skill)
@@ -92,9 +93,12 @@
     }
     /* The existing record behind a name, WITHOUT counting as a read: bump:false so an internal
        lookup can never satisfy the ledger above or inflate usage telemetry. */
+    function reviewContext(ctx) {
+      return readBeforeWrite && !!(ctx && (ctx.skillReview || ['background-review', 'skill-review', 'curator'].includes(ctx.createdBy)));
+    }
     function peek(agentId, nameOrId) {
       if (!store || typeof store.view !== 'function' || !nameOrId) return null;
-      try { return store.view(agentId, nameOrId, { bump: false, includeArchived: true, hydrate: false }); } catch (_) { return null; }
+      try { return (readBeforeWrite && store.pendingView && store.pendingView(agentId, nameOrId)) || store.view(agentId, nameOrId, { bump: false, includeArchived: true, hydrate: false }); } catch (_) { return null; }
     }
 
     const writeTool = {
@@ -127,7 +131,8 @@
         });
         if (!r.ok) return { content: 'Could not save the skill: ' + r.error, summary: 'not saved' };
         emitSkill(ctx, r.skill);
-        if (typeof onManage === 'function') { try { onManage(r.skill, ctx, r.edited ? 'edit' : 'create'); } catch (_) {} }
+        if (typeof onManage === 'function') { try { onManage(r.skill, ctx, r.pending ? 'propose' : (r.edited ? 'edit' : 'create')); } catch (_) {} }
+        if (r.pending) return { content: 'Proposed revision for skill "' + r.skill.name + '". Evaluation and Commander approval are required before use. Any existing active version is unchanged.', summary: 'proposed' };
         return { content: (r.edited ? 'Updated' : 'Saved') + ' skill "' + r.skill.name + '". Reload it anytime with skill.view.', summary: r.edited ? 'edited' : 'saved' };
       }
     };
@@ -169,7 +174,8 @@
         const r = store.manage(Object.assign(modelArgs(args), { agentId: aid, createdBy: (ctx && ctx.createdBy) || (ctx && ctx.skillReview ? 'background-review' : 'agent'), sourceRunId: ctx && ctx.runId }));
         if (!r.ok) return { content: 'Could not manage the skill: ' + r.error, summary: 'not saved' };
         emitSkill(ctx, r.skill);
-        if (typeof onManage === 'function') { try { onManage(r.skill, ctx, r.action || (args && args.action) || 'manage'); } catch (_) {} }
+        if (typeof onManage === 'function') { try { onManage(r.skill, ctx, r.pending ? 'propose' : (r.action || (args && args.action) || 'manage')); } catch (_) {} }
+        if (r.pending) return { content: 'Proposed revision for skill "' + r.skill.name + '". Evaluate and approve the candidate in ABILITIES > SKILLS before use. Any existing active version remains unchanged.', summary: 'proposed' };
         const done = r.action || (args && args.action) || 'updated';
         const path = r.path ? (' (' + r.path + ')') : '';
         const heir = r.absorbedInto ? (' Content now lives in "' + r.absorbedInto + '".') : '';
@@ -179,21 +185,31 @@
 
     const listTool = {
       name: 'skill.list', capability: 'memory', scope: 'read', requiresConsent: false,
-      description: 'List your saved skills: names, one-line summaries, state, and usage only. Load the full procedure with skill.view before using it.',
-      schema: { type: 'object', properties: { includeArchived: { type: 'boolean' } } },
+      description: 'Search or page through saved skills available to you, including explicitly shared station and project skills. Names, summaries, owners, scope and usage only. Load a procedure with skill.view; pass ownerAgentId for a shared skill.',
+      schema: { type: 'object', properties: { includeArchived: { type: 'boolean' }, query: { type: 'string' }, offset: { type: 'integer', minimum: 0 }, limit: { type: 'integer', minimum: 1, maximum: 100 } } },
       run: (args, ctx) => {
         if (!store) return { content: 'The skill library is unavailable.', summary: 'unavailable' };
-        const list = store.list((ctx && ctx.agentId) || 'agent', { includeArchived: !!(args && args.includeArchived) });
-        if (!list.length) return { content: 'No skills saved yet. Save one with skill.manage after you work out a repeatable procedure.', summary: '0 skills' };
+        const aid = (ctx && ctx.agentId) || 'agent';
+        const options = { includeArchived: !!(args && args.includeArchived), projectRoot: ctx && ctx.projectRoot };
+        let available = (!reviewContext(ctx) && store.listAccessible) ? store.listAccessible(aid, options) : store.list(aid, options);
+        if (reviewContext(ctx) && store.candidates) for (const row of store.candidates(aid, { includeBody: false })) {
+          if (!available.some(s => s.id === row.skill.id)) available.push(Object.assign({}, row.skill, { pendingCandidate: true }));
+        }
+        const query = args && args.query;
+        if (query) available = require('../../skills/runtime.js').searchIndex(available, query);
+        const offset = Math.max(0, Math.floor(Number(args && args.offset) || 0));
+        const limit = Math.min(100, Math.max(1, Math.floor(Number(args && args.limit) || 40)));
+        const list = available.slice(offset, offset + limit);
+        if (!list.length) return { content: query ? 'No accessible skills match that query. Try another query or list without a query.' : (offset ? 'No more accessible skills on this page.' : 'No skills saved yet. Save one with skill.manage after you work out a repeatable procedure.'), summary: '0 skills' };
         let held = 0;
         const lines = list.map(s => {
           const d = decideFor(s, false);
           // Same rule as the prompt index: name a withheld skill, never summarize it.
           if (d.visible === false) { held++; return '- ' + s.name + ' [WITHHELD: ' + (d.reason || 'held by the skill guard') + ']'; }
-          return '- ' + s.name + (s.summary ? ' -- ' + s.summary : '') + ' [' + (s.state || 'active') + ', used ' + (s.useCount || 0) + 'x' + fileLabel(s.files) + ']';
+          return '- ' + s.name + ' [owner: ' + s.agentId + ', scope: ' + (s.scope || 'agent') + ']' + (s.summary ? ' -- ' + s.summary : '') + ' [' + (s.state || 'active') + ', used ' + (s.useCount || 0) + 'x' + fileLabel(s.files) + ']';
         });
         return {
-          content: lines.join('\n'),
+          content: lines.join('\n') + (offset + list.length < available.length ? '\n\nMore matches: call skill.list with offset:' + (offset + list.length) + ' and the same query.' : '\n\nEnd of accessible matches.') ,
           summary: list.length + ' skill(s)' + (held ? ', ' + held + ' withheld' : '')
         };
       }
@@ -204,10 +220,13 @@
       description: bundled
         ? 'Load the full step-by-step body of one saved skill, or of an installed recipe by its library:<slug> name, by name or id. Call this whenever a saved skill or installed recipe may apply.'
         : 'Load the full step-by-step body of one saved skill by name or id. Call this whenever a saved skill may apply.',
-      schema: { type: 'object', required: ['name'], properties: { name: { type: 'string' } } },
+      schema: { type: 'object', required: ['name'], properties: { name: { type: 'string' }, ownerAgentId: { type: 'string', description: 'owner shown in skill.list; required when shared names are ambiguous' } } },
       run: (args, ctx) => {
         if (!store) return { content: 'The skill library is unavailable.', summary: 'unavailable' };
-        const v = store.view((ctx && ctx.agentId) || 'agent', args && args.name, countViews ? undefined : { bump: false });
+        const aid = (ctx && ctx.agentId) || 'agent';
+        const opts = { projectRoot: ctx && ctx.projectRoot, ownerAgentId: args && args.ownerAgentId, bump: countViews };
+        const pending = reviewContext(ctx) && store.pendingView ? store.pendingView(aid, args && args.name) : null;
+        const v = pending || (store.viewAccessible ? store.viewAccessible(aid, args && args.name, opts) : store.view(aid, args && args.name, opts));
         if (!v) {
           const recipe = bundled ? bundled(args && args.name, ctx) : null;
           if (recipe && recipe.content) return { content: recipe.content, summary: 'loaded ' + recipe.name };
@@ -218,15 +237,15 @@
            off disk and can differ from what the scanner saw). A refused view is NOT a read — it must
            not reach onView (which would list it as a loaded skill in the run's telemetry) and must
            not satisfy the read-before-write ledger. */
-        const decision = decideFor(v, true);
+        const decision = pending && gate && typeof gate.verifyDraft === 'function' ? gate.verifyDraft(v) : decideFor(v, true);
         if (decision.visible === false) return withheldRefusal(decision, v);
         markRead(v);
-        if (typeof onView === 'function') { try { onView(v, ctx); } catch (_) {} }
+        if (!pending && typeof onView === 'function') { try { onView(v, ctx); } catch (_) {} }
         const files = v.files && v.files.length
           ? '\n\nSupport files:\n' + v.files.map(f => '- ' + f.path + (f.content ? '\n' + f.content : '')).join('\n')
           : '';
         const setup = v.setup ? '\n\nSetup:\n' + v.setup : '';
-        return { content: '# ' + v.name + (v.summary ? '\n' + v.summary : '') + setup + '\n\n' + v.body + files, summary: 'loaded ' + v.name };
+        return { content: (pending ? '[Pending review draft — not active or approved]\n' : '') + '# ' + v.name + (v.summary ? '\n' + v.summary : '') + setup + '\n\n' + v.body + files, summary: 'loaded ' + v.name };
       }
     };
 

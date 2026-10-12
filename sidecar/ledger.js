@@ -10,8 +10,9 @@
    makeLedger({ io, clock, dayMs? }) -> {
      record({ runId, agentId, turns, usd, tokens }) -> entry,   // stamps ts, appends, returns it
      recordStrict({ runId, agentId, turns, usd, tokens }) -> entry, // same, but append failure throws
-     unsettledRuns() -> receipt[], settleUnsettled(runId, usd, how?) -> entry,   // interrupted runs found at boot (io.unsettled);
+     unsettledRuns() -> receipt[], settleUnsettled(runId, usd, how?) -> entry,   // ended unpriced or interrupted runs;
                                   // how = 'entered' (default: the Commander typed the charge) | 'limit' (counted at its per-run limit)
+     markUnsettled(runId) -> boolean, // move an ended, unpriced dispatch receipt into the same recovery path without writing
      pendingRuns() -> int,        // runs this process dispatched whose spend is not booked yet
      all() -> entry[],            count() -> int,
      totalUsd() -> number,                                       // every recorded run, ever
@@ -42,7 +43,8 @@
     // Failed writes stay unhealthy until restart reconciles durable settlement receipts.
     let rows = [];
     let readError = null, writeError = null;
-    const pending = new Set();
+    const pending = new Map();   // exact durable dispatch receipt, not just a live-run flag
+    const failedBookings = new Set(); // a known charge may already be journaled; never offer another manual booking
     // An interrupted run's dispatch receipt (io.unsettled) makes ONE run's spend unknown, not the whole logbook:
     // the readable rows stay, history reads incomplete until the Commander settles each run (settleUnsettled).
     const unsettled = new Map();
@@ -67,20 +69,35 @@
       if (!meta || typeof meta !== 'object') return out;
       if (str(meta.provider).trim()) out.provider = str(meta.provider).trim().slice(0, 40);
       if (str(meta.model).trim()) out.model = modelName(meta.model);
-      if (meta.managed === true) out.managed = true;
+      if (typeof meta.managed === 'boolean') out.managed = meta.managed; // absent legacy provenance stays unknown
       if (typeof meta.runCapUsd === 'number' && isFinite(meta.runCapUsd) && meta.runCapUsd > 0) out.runCapUsd = meta.runCapUsd;
       return out;
     }
     function beginRun(runId, agentId, meta) {
       const id = str(runId);
       if (!id || pending.has(id) || typeof io.beginRun !== 'function') return true;
-      try { io.beginRun(Object.assign({ runId: id, agentId: str(agentId), ts: clock.now() }, receiptMeta(meta))); pending.add(id); return true; }
+      const receipt = Object.assign({ runId: id, agentId: str(agentId), ts: clock.now() }, receiptMeta(meta));
+      try { io.beginRun(Object.assign({}, receipt)); pending.set(id, receipt); return true; }
       catch (e) { writeError = String((e && e.code) || 'ledger_write_failed'); return false; }
     }
+    // The host calls this only after dispatch ended without a trustworthy final price. The
+    // existing durable receipt already survives a crash; this exposes it for settlement now.
+    // A failed booking is different: its known charge may be in a recovery journal already.
+    function markUnsettled(runId) {
+      const id = str(runId);
+      if (!id || failedBookings.has(id)) return false;
+      const receipt = pending.get(id);
+      if (!receipt) return unsettled.has(id);
+      unsettled.set(id, Object.assign({}, receipt));
+      pending.delete(id);
+      return true;
+    }
     function finishRun(entry) {
+      pending.delete(entry.runId);
+      failedBookings.delete(entry.runId);
       unsettled.delete(entry.runId);   // called only after a durable append: that row settles the run, as the next boot would read it
       if (typeof io.finishRun !== 'function') return;
-      try { io.finishRun(entry); pending.delete(entry.runId); } catch (_) { /* durable ledger row proves settlement on next boot */ }
+      try { io.finishRun(entry); } catch (_) { /* durable ledger row proves settlement on next boot */ }
     }
 
     function makeEntry(e) {
@@ -106,21 +123,22 @@
     function record(e) {
       const entry = makeEntry(e);
       rows.push(entry);
-      try { io.append(entry); finishRun(entry); } catch (e) { writeError = String((e && e.code) || 'ledger_write_failed'); }
+      try { io.append(entry); finishRun(entry); } catch (e) { failedBookings.add(entry.runId); unsettled.delete(entry.runId); writeError = String((e && e.code) || 'ledger_write_failed'); }
       return entry;
     }
 
     function recordStrict(e) {
       const entry = makeEntry(e);
-      io.append(entry);
+      try { io.append(entry); }
+      catch (e) { failedBookings.add(entry.runId); unsettled.delete(entry.runId); writeError = String((e && e.code) || 'ledger_write_failed'); throw e; }
       rows.push(entry);
       finishRun(entry);
       return entry;
     }
 
     /* The ONE way an interrupted run's unknown spend becomes known: the Commander states what the provider charged.
-       Never automatic, never a guessed or lower-bound figure. Only a receipt found unsettled at boot qualifies — a run
-       this process dispatched is still live and books itself. The row keeps the dispatch time (its real day) and is
+       Never automatic, never a guessed or lower-bound figure. A receipt found unsettled at boot or explicitly marked
+       after an unpriced dispatch qualifies; live pending runs still book themselves. The row keeps dispatch time and is
        journaled-then-appended like any strict record; the receipt is removed once the row is durable. */
     function settleUnsettled(runId, usd, how) {
       const id = str(runId);
@@ -154,6 +172,7 @@
     return {
       health,
       beginRun,
+      markUnsettled,
       record,
       recordStrict,
       settleUnsettled,

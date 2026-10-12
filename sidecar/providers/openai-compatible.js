@@ -9,6 +9,7 @@
   'use strict';
 
   const normalizeFinish = provider.normalizeFinish;
+  const { note: failNote } = (typeof require === 'function') ? require('../failopen.js') : { note: function (tag, e) { console.warn('[failopen] ' + tag + ':', (e && e.message) || e); } };
   const classifyApiError = errorClass.classifyApiError;
   const timeouts = provider.timeouts;
   const isAbort = provider.runtime.isAbort;
@@ -217,15 +218,37 @@
     }
     return '';
   }
-  async function responseErrorDetail(res) {
+  async function responseErrorDetail(res, signal, url) {
     let data = null;
     let text = '';
+    let readStream = false;
     try {
-      text = typeof res.text === 'function' ? await res.text() : '';
+      // Error headers disarm the connect guard too. An unfinished error body must retain the
+      // same idle watchdog and caller cancellation as a successful stream, including local loads.
+      if (res.body && typeof res.body.getReader === 'function') {
+        readStream = true;
+        const raw = res.body.getReader();
+        const reader = timeouts.idleGuardedReader(raw, { signal, url });
+        const decoder = new TextDecoder();
+        try {
+          for (;;) {
+            const chunk = await reader.read();
+            if (chunk.done) break;
+            text += decoder.decode(chunk.value, { stream: true });
+          }
+          text += decoder.decode();
+        } finally { try { raw.releaseLock(); } catch (_) { failNote('providers.openai_compatible.error_reader_release', 'error response reader release failed'); } }
+      } else text = typeof res.text === 'function' ? await res.text() : '';
       if (text) { try { data = JSON.parse(text); } catch (_) { data = null; } }
-    } catch (_) { text = ''; data = null; }
-    if (!data && !text && typeof res.json === 'function') {
-      try { data = await res.json(); } catch (_) { data = null; }
+    } catch (e) {
+      if (isAbort(e, signal) || (e && e.code === 'PROVIDER_STREAM_TIMEOUT')) throw e;
+      text = ''; data = null;
+    }
+    if (!readStream && !data && !text && typeof res.json === 'function') {
+      try { data = await res.json(); } catch (e) {
+        if (isAbort(e, signal)) throw e;
+        data = null;
+      }
     }
     const e = data && data.error;
     const message = safeErrorField((e && e.message) || (data && data.message) || text || res.statusText || ('HTTP ' + res.status), 500);
@@ -625,7 +648,7 @@
           const err = new Error((j.error && (j.error.message || j.error.code)) || 'provider stream error');
           err.body = j;   // the structured error (code/type) — errorClass reads it
           err.ownMessage = true;
-          throw err;
+          throw localMemoryError(err);
         }
         if (j.usage) yield { type: 'usage', usage: j.usage };
         const choice = j.choices && j.choices[0];
@@ -689,6 +712,18 @@
       }
     }
 
+    // Local allocation failure is not a busy server. Repeating it can starve the station renderer too.
+    // Keep this scoped to the Ollama profile (including its compatible-wire fallback), not hosted 5xx.
+    function localMemoryError(err) {
+      if (opts.nativeOllama !== true || !err || (err.status && err.status !== 500)) return err;
+      const detail = String(err.message || '');
+      if (!/out[- ]of[- ]memory|failed to allocate (?:CUDA\d* buffer|buffer for kv cache)|model requires more (?:system )?memory/i.test(detail)) return err;
+      err.localModelMemory = true;
+      err.ownMessage = true;
+      err.message = 'Local model ran out of memory. Close other local models or memory-heavy apps, or choose a smaller model from the model picker in COMMS before trying again. [' + detail + ']';
+      return err;
+    }
+
     async function requestWithRetry(body, signal, maxRetries, wireHeaders, wire) {
       // maxRetries: the loop may LOWER this ladder (req.preStreamRetries = 0 once it owns the pacing — provider.js).
       // `waited` is the backoff actually spent; the exhaustion marker reports it so the loop counts it, not repeats it.
@@ -730,7 +765,7 @@
           if (native) noteOllamaWindow(nativeBase, body.model, wire.numCtx);
           return res;
         }
-        const upstreamError = await responseErrorDetail(res);
+        const upstreamError = await responseErrorDetail(res, signal, native ? nativeBase + '/api/chat' : baseUrl + chatPath);
         let detail = upstreamError.detail;
         if (native) {
           // No /api/chat behind this URL (a proxy that only forwards /v1): the /v1 wire, for the rest of this
@@ -796,6 +831,7 @@
            adapter's own sentence — label + status, which the UI routes on ("Kimi For Coding http 401"); err.ownMessage tells
            errorClass so. */
         if (upstreamError.body) { err.body = upstreamError.body; err.ownMessage = true; }
+        localMemoryError(err);
         const cls = classifyApiError(err, { model: body.model });
         err.transient = cls.retryable;
         if (cls.retryable && attempt < retries) { const wait = Math.min(60000, Math.max(RETRY_DELAYS[attempt], cls.retryAfterMs || 0)); waited += wait; await delay(wait, signal); continue; }

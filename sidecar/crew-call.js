@@ -13,31 +13,44 @@
 'use strict';
 
 // "have Ada …", "ask the researcher to …", "get Quill on this", "delegate to Ada", "loop in the analyst".
-const ASK = /\b(have|ask|get|tell|let|send|delegate|assign|hand|give|use|put|dispatch|loop in|bring in|task)\b/i;
+const ASK = '(?:have|ask|get|tell|let|send|use|put|dispatch|task|loop in|bring in|(?:delegate|assign|hand|give)(?:\\s+(?:this|it|the task))?\\s+to)';
+// This note is an unconditional SYSTEM directive. Negated, conditional and quoted requests cannot prove it.
+const QUALIFIED = /\b(?:no|not|never|cancel(?:led|ed)?|don['’]?t|doesn['’]?t|won['’]?t|without|unless|if|maybe|perhaps)\b|["“”`]/i;
 // Ids that are ordinary words in a sentence, never on their own a reference to one agent ("ask an agent").
 const GENERIC_IDS = new Set(['agent']);
 const esc = s => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-const wordRe = s => new RegExp('(^|[^A-Za-z0-9_])' + esc(s) + '($|[^A-Za-z0-9_])', 'i');
 
 /* crewMentions(text, crew, leadId) -> [{ agentId, name }]
    crew: Map/iterable of [agentId, { name }]. A member counts when its display name or (non-generic) agentId
    appears as a whole word AND the request asks for work (a delegation verb, or "Name, …" / "Name: …" up front). */
 function crewMentions(text, crew, leadId) {
-  const t = String(text || '');
-  if (!t.trim() || !crew) return [];
-  const out = [];
+  const t = String(text || '').trim();
+  if (!t || !crew || QUALIFIED.test(t)) return [];
+  const members = [];
   for (const [agentId, ident] of crew) {
     if (!agentId || agentId === leadId) continue;
     const name = String((ident && ident.name) || '').trim();
     const cues = [];
     if (name.length >= 3) cues.push(name);
     if (agentId.length >= 3 && !GENERIC_IDS.has(agentId.toLowerCase()) && agentId.toLowerCase() !== name.toLowerCase()) cues.push(agentId);
-    const hit = cues.find(c => wordRe(c).test(t));
-    if (!hit) continue;
-    const addressed = new RegExp('^\\s*' + esc(hit) + '\\s*[,:]', 'i').test(t);
-    if (addressed || ASK.test(t)) out.push({ agentId, name: name || agentId });
+    if (cues.length) members.push({agentId, name: name || agentId, cues});
   }
-  return out;
+  if (!members.length) return [];
+  const names = members.flatMap(m => m.cues).sort((a,b) => b.length-a.length).map(esc).join('|');
+  const target = '(?:the\\s+)?(' + names + ')(?=$|[^A-Za-z0-9_-])';
+  const separator = '\\s*(?:,|and|&)\\s*';
+  const list = target + '(?:' + separator + target + ')*';
+  // Match the whole target span before rejecting possession, so regex backtracking cannot
+  // turn "Have Ada and Quill's report" into a directive for just Ada.
+  const action = new RegExp('^(?:please\\s+)?' + ASK + '\\s+(' + list + ')', 'i').exec(t);
+  const tail = action ? t.slice(action[0].length) : '';
+  const targets = new Set(action && !/^(?:['’]|\s*(?:,|&|and\b))/i.test(tail)
+    ? Array.from(action[1].matchAll(new RegExp('(?:^|' + separator + ')' + target, 'ig')), m => m[1].toLowerCase())
+    : []);
+  // Resolve exact captured cues: Ada is not the Ada prefix inside another member's Ada-Aux name.
+  return members.filter(m => m.cues.some(c =>
+    targets.has(c.toLowerCase()) || new RegExp('^' + esc(c) + '\\s*[,:]\\s*\\S', 'i').test(t)
+  )).map(({agentId, name}) => ({agentId, name}));
 }
 
 /* Only a NAMED crew call gets a note. Measured 2026-10-11 on qwen3:8b (Ollama): "Have Ada research…" went from

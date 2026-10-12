@@ -727,7 +727,14 @@ const World = (() => {
     }
     return k;
   }
+  // Build holds unpublished geometry. Render-only work (late art, lighting or a still) must not
+  // rederive it: that also posts routing and clears the pending-edit truth. Explicit syncPlan and
+  // closing Build still publish through their existing paths.
+  function buildHoldsFloor() {
+    return !!(station && (geoDirty || !geo) && typeof Build !== 'undefined' && Build.isOpen());
+  }
   function rebake() {
+    if (buildHoldsFloor()) { bakeDirty = true; return; }
     if (geoDirty || !geo) rederive();
     if (!geo) return;
     cache = StationBake.bake(geo);
@@ -764,6 +771,9 @@ const World = (() => {
           without an event (and any future regression that blanks the bake).
      The probe costs one 1x1 readback a second, against a frame it saves entirely. */
   let bakeProbe = null;        // {x,y} a pixel buildBase painted opaque — the loss sentinel
+  let bakeProbePending = false; // transient read failure or an empty rebuild of a known occupied floor
+  let bakeExpected = false;
+  let bakeProbeSource = null;
   let detailProbes = new WeakMap(); // discarded on rebake; never retain obsolete LOD plates
   let lostDetailLayer = null;
   let probeOff = false;        // getImageData refused (tainted canvas): never retry, never spam
@@ -780,6 +790,14 @@ const World = (() => {
      watchdog simply stays inert rather than rebaking a legitimately empty frame forever. */
   function recordBakeProbe() {
     bakeProbe = null;
+    bakeProbePending = false;
+    const g = typeof geo !== 'undefined' && geo;
+    const tile = g && g.TILE, cols = g && g.COLS;
+    const occupied = g && g.zoneGrid && tile > 0 && cols > 0 ? g.zoneGrid.findIndex(z => z != null) : -1;
+    const floorPoint = occupied >= 0 ? { x: Math.floor((occupied % cols + .5) * tile), y: Math.floor((Math.floor(occupied / cols) + .5) * tile) } : null;
+    if (g && g.zoneGrid && tile > 0 && cols > 0) bakeExpected = !!floorPoint;
+    else bakeExpected = !!cache && cache.baseCv === bakeProbeSource && bakeExpected;
+    bakeProbeSource = cache && cache.baseCv;
     probeBatch = null; // a newly painted bake must never inherit pre-recovery samples
     probeEpoch++; completedProbeBatch = null; pendingProbe = null;
     detailProbes = new WeakMap();
@@ -788,13 +806,20 @@ const World = (() => {
     if (W < 2 || H < 2) return;
     const pts = [[0.5, 0.5], [0.5, 0.32], [0.5, 0.68], [0.3, 0.5], [0.7, 0.5],
                  [0.3, 0.3], [0.7, 0.3], [0.3, 0.7], [0.7, 0.7]];
+    // Thin or disconnected stations can miss every coarse sample. An actual
+    // occupied tile supplies a floor witness; nine misses alone prove nothing.
+    if (floorPoint && floorPoint.x < W && floorPoint.y < H) pts.unshift([floorPoint.x / W, floorPoint.y / H]);
     try {
       for (const [fx, fy] of pts) {
         const x = Math.min(W - 1, Math.max(0, Math.round(W * fx)));
         const y = Math.min(H - 1, Math.max(0, Math.round(H * fy)));
-        if (readAlpha1(c, x, y) > 0) { bakeProbe = { x, y }; detailWentBlank(); return; }   // via the probe canvas — see THE READBACK LAW below
+        if (readAlpha1(c, x, y) > 0) { bakeProbe = { x, y }; bakeExpected = true; detailWentBlank(); return; }   // via the probe canvas — see THE READBACK LAW below
       }
-    } catch (e) { probeOff = true; }
+      bakeProbePending = bakeExpected;
+    } catch (e) {
+      if (e && e.name === 'SecurityError') probeOff = true;
+      else { resetLossProbe(); bakeProbePending = true; }
+    }
   }
 
   /* THE READBACK LAW (2026-08-26, lag escape shipped in v0.10.10): NEVER getImageData a canvas
@@ -807,6 +832,10 @@ const World = (() => {
   let sentinelCv = null, sentinelCtx = null;
   let probeAtlas = null, probeAtlasCtx = null, probeBatch = null;
   let probeEpoch = 0, pendingProbe = null, completedProbeBatch = null, probeAsyncFailed = false, timedOutProbe = null;
+  function resetLossProbe() {
+    sentinelCv = sentinelCtx = probeAtlas = probeAtlasCtx = probeBatch = null;
+    probeEpoch++; pendingProbe = completedProbeBatch = null;
+  }
   function prepareProbeBatch() {
     if(completedProbeBatch){probeBatch=completedProbeBatch;completedProbeBatch=null;return;}
     const now=performance.now(),timedOut=pendingProbe&&now-pendingProbe.started>1000;
@@ -866,6 +895,7 @@ const World = (() => {
   function readAlpha1(src, x, y) {   // alpha 0-255 of src's (x,y); throws propagate to the caller's existing taint/loss handling
     const batch=probeBatch&&probeBatch.get(src),key=x+','+y;
     if(batch&&batch.has(key))return batch.get(key);
+    if (sentinelCtx && sentinelCtx.isContextLost?.()) resetLossProbe();
     if (!sentinelCtx) {
       sentinelCv = document.createElement('canvas'); sentinelCv.width = 1; sentinelCv.height = 1;
       sentinelCtx = sentinelCv.getContext('2d', { willReadFrequently: true });
@@ -899,10 +929,15 @@ const World = (() => {
   }
   function bakeWentBlank() {
     lostDetailLayer = null;
-    if (!bakeProbe || probeOff || !cache || !cache.baseCv) return false;
+    if (probeOff || !cache || !cache.baseCv) return false;
+    if (bakeProbePending) return true;
+    if (!bakeProbe) return false;
     try {
       return readAlpha1(cache.baseCv, bakeProbe.x, bakeProbe.y) === 0 || detailWentBlank();
-    } catch (e) { probeOff = true; return false; }
+    } catch (e) {
+      if (e && e.name === 'SecurityError') { probeOff = true; return false; }
+      resetLossProbe(); return true;
+    }
   }
 
   /* Rebuild everything that lives in an offscreen canvas. Only `bakeDirty` is set (never
@@ -921,7 +956,9 @@ const World = (() => {
       console.warn('[world] cached canvases lost (' + why + ') — rebuilding station + sky + ground (recovery #' + recoveries + ')');
     } catch (_) {}
     bakeDirty = true; bakeProbe = null;
+    resetLossProbe();
     try { if (typeof IndustrialTextures !== 'undefined' && IndustrialTextures.restoreMaterials) IndustrialTextures.restoreMaterials(); } catch (_) {}
+    try { if (typeof PropRemaster !== 'undefined' && PropRemaster.restore) PropRemaster.restore(); } catch (_) {}
     try { if (typeof SpaceBG !== 'undefined' && SpaceBG.invalidate) SpaceBG.invalidate(); } catch (_) {}
     try { if (typeof Terrain !== 'undefined' && Terrain.invalidate) Terrain.invalidate(); } catch (_) {}
     return true;
@@ -6973,6 +7010,7 @@ const World = (() => {
      when there is no honest picture to give (no bake yet, the awakening is still playing). */
   let stillPass = null;
   function renderStill(maxPx, opts) {
+    if (buildHoldsFloor()) return null;
     // A window that has not drawn a frame yet (opened behind other tabs: the browser runs no frames there) has not
     // built its station either. Build it here, exactly as the first frame would, so the phone still gets a picture.
     if (!stillPass && station && geo !== undefined) {
@@ -7028,6 +7066,7 @@ const World = (() => {
   /* A STILL OF SOME OF THE STATION'S OWN TILES (the lead builder's station.map { look: a room }): renderStill cropped to
      world tiles x1..x2, y1..y2, one tile of margin round them and the wall faces above the top row. Null when no still. */
   function renderStillOfTiles(t, maxPx, opts) {
+    if (buildHoldsFloor()) return null;
     if (!t || !station) return null;
     try { if (geoDirty) rederive(); if (bakeDirty || !cache) rebake(); } catch (_) { return null; }
     if (!geo || !geo.origin) return null;
@@ -9203,7 +9242,7 @@ const World = (() => {
   /* (multi-bay, 2026-09-22) each entry also remembers WHICH bay the work-item landed at (the crate's additive
      dockId), so the run it pairs with ships its product from THAT bay — quill's run at bay C leaves bay C,
      not quill's first bay. */
-  const dockLineWork = new Map();   // agentId -> [{ lineId|null, dockId|null }, ...] per placed work-item, oldest first
+  const dockLineWork = new Map();   // agentId -> [{ workitemId|null, lineId|null, dockId|null }, ...] per placed work-item
   function dockLineTake(aid) {
     const q = dockLineWork.get(aid);
     if (!q || !q.length) return null;
@@ -9213,6 +9252,19 @@ const World = (() => {
   }
   const lineOfWork = w => (w && w.lineId) || null;
   function dockWorkPeek(aid) { const q = dockLineWork.get(aid); return (q && q.length) ? q[0] : null; }
+  function dockWorkForRun(p) {
+    const rec = p && p.runId && typeof watch !== 'undefined' && watch && watch.run(p.runId);
+    return rec && rec.agentId === p.agentId ? rec : dockWorkPeek(p && p.agentId);
+  }
+  function dockLineTakeMatching(aid, work) {
+    const q = dockLineWork.get(aid);
+    if (!q || !work) return;
+    const i = work.workitemId ? q.findIndex(w => w.workitemId === work.workitemId)
+      : q.findIndex(w => w === work || (w.dockId === work.dockId && lineOfWork(w) === lineOfWork(work)));
+    if (i < 0) return;   // an exact observed run must never consume an unrelated placement
+    q.splice(i, 1);
+    if (!q.length) dockLineWork.delete(aid);
+  }
   // the bay an agent's CURRENT work is at (its newest placed item), for the dock glow — null = no dock named
   const activeDock = new Map();     // agentId -> dockId
   /* conveyor stops by DOCK: { "x,y": { agentId, dockId } } — rebuilt only when the plan object changes */
@@ -9238,7 +9290,7 @@ const World = (() => {
     if (p.agentId) {
       const q = dockLineWork.get(p.agentId) || [];
       // a direct order queues lineId NULL — "this one is nobody's line"; dockId = the bay it landed at (or null)
-      q.push({ lineId: p.lineId ? String(p.lineId) : null, dockId: p.dockId ? String(p.dockId) : null });
+      q.push({ workitemId: p.workitemId ? String(p.workitemId) : null, lineId: p.lineId ? String(p.lineId) : null, dockId: p.dockId ? String(p.dockId) : null });
       if (q.length > 8) q.shift();                          // bounded like every floor latch
       dockLineWork.set(p.agentId, q);
       if (p.dockId) activeDock.set(p.agentId, String(p.dockId)); else activeDock.delete(p.agentId);
@@ -9829,13 +9881,60 @@ const World = (() => {
     const q = aid && deferredShip.get(aid);
     if (q && q.length) { clearTimeout(q.shift().t); if (!q.length) deferredShip.delete(aid); }
   }
-  function clearDeferredShips() { for (const q of deferredShip.values()) for (const e of q) clearTimeout(e.t); deferredShip.clear(); }
+  function clearDeferredShips() { for (const q of deferredShip.values()) for (const e of q) clearTimeout(e.t); deferredShip.clear(); joinedProducts.clear(); releasedJoinItems.clear(); }
+  // A JOINER-capable line can choose different paths through a FILTER. Hold its productive runs
+  // until the executor names the actual OUTBOX and the exact runs/work-items in that completed job.
+  // Wall-clock time, another job at the same join, and a guessed content tag prove no delivery.
+  const joinedProducts = new Map();   // runId -> captured productive work
+  const releasedJoinItems = new Set();
+  function lineNeedsRelease(dockId, lineId) {
+    const plan = routingPlan;
+    if (!dockId || !lineId || !plan || typeof Pipeline === 'undefined' || !Pipeline.chainStepDock) return false;
+    for (const d of Object.keys(plan.lineOfDock || {})) {
+      if (plan.lineOfDock[d] !== lineId) continue;
+      for (const tag of ['general', 'code', 'research']) {
+        const step = Pipeline.chainStepDock(plan, d, { lineId, tag }, () => 0);
+        if (step && (step.join || step.afterJoin)) return true;
+      }
+    }
+    return false;
+  }
+  function holdJoinedProduct(aid, spec, work, productive = true) {
+    // The completion listener clears its tally/cost. Its later SSE echo is not new evidence and
+    // must never replace the first completion's productive flag, work-item identity or spend.
+    if (!spec.runId || joinedProducts.has(spec.runId)) return;
+    dockLineTakeMatching(aid, work);
+    const lineId = lineOfWork(work);
+    const usd = runUsdRecon.get(spec.runId);
+    joinedProducts.set(spec.runId, { spec, lineId, productive, usd: typeof usd === 'number' && isFinite(usd) && usd > 0 ? usd : 0 });
+    if (joinedProducts.size > 400) joinedProducts.delete(joinedProducts.keys().next().value);
+  }
+  function releaseJoinedProduct(p) {
+    if (!p || p.box !== 'line-output' || !p.workitemId || !p.outboxId || !p.lineId) return;
+    if (releasedJoinItems.has(p.workitemId)) return;
+    releasedJoinItems.add(p.workitemId);
+    if (releasedJoinItems.size > 400) releasedJoinItems.delete(releasedJoinItems.values().next().value);
+    const ids = new Set(Array.isArray(p.workitemIds) ? p.workitemIds : []);
+    let worked = false, usd = 0;
+    for (const [runId, rec] of joinedProducts) {
+      if (rec.lineId !== p.lineId || (runId !== p.entryRunId && !ids.has(rec.spec.workitemId))) continue;
+      worked = worked || rec.productive; usd += rec.usd; joinedProducts.delete(runId);
+    }
+    if (!worked || !convey || !routingPlan) return;   // unseen/talk-only jobs never invent product
+    const out = (routingPlan.outs || []).find(o => o.propId === p.outboxId);
+    if (!out || !out.tile || (routingPlan.lineOfProp || {})[p.outboxId] !== p.lineId) return;
+    const weight = typeof Conveyor !== 'undefined' && Conveyor.weightForUsd ? Conveyor.weightForUsd(usd) : 0;
+    // Start at the proven OUTBOX inlet: replaying a guessed route from the last bay can take the
+    // other FILTER exit or pass a JOINER twice. The receipt proves this final belt tile was reached.
+    convey.enqueueAt(out.tile.x, out.tile.y, { outbound: true, box: 'product', weight,
+      workitemId: p.workitemId, agentId: p.agentId || '', dockId: p.dockId || null, lineId: p.lineId });
+  }
   // the crate's MASS must be read NOW: run.end drops runUsdRecon the instant this returns, so a deferred
   // ship that re-read it later would weigh every crate 0 (crate-mass honesty).
   function productCrateSpec(p) {
     const w = (typeof Conveyor !== 'undefined' && Conveyor.weightForUsd) ? Conveyor.weightForUsd(runUsdRecon.get((p && p.runId) || '')) : 0;
     // LINE WATCH (additive): the run it came from, so the crate card can show its recorded outcome
-    return { outbound: true, box: 'product', weight: w, workitemId: (p && p.workitemId) || '', runId: (p && p.runId) || '', agentId: (p && p.agentId) || '' };
+    return { outbound: true, box: 'product', weight: w, workitemId: (p && p.workitemId) || (runWork.get(runKey(p)) || {}).workitemId || '', runId: (p && p.runId) || '', agentId: (p && p.agentId) || '' };
   }
   function emitProductCrate(aid, spec, dockId) {
     if (!convey) return;
@@ -9860,13 +9959,19 @@ const World = (() => {
     // crate mid-weight regardless of spend. Conveyor.weightForUsd maps reconciled usd -> 0..1; a run with
     // no reconciled cost ships weight 0 (the back-compat light look), never an estimate.
     const spec = productCrateSpec(p);
-    // (multi-bay) the bay THIS run was at: its oldest placement entry. A run at a terminal bay consumes its
-    // entry too, so quill's next run at bay A never inherits bay C's slot.
-    const work = dockWorkPeek(cAid);
+    // LineWatch pairs starts to their exact placement. Two runs by one agent can finish out of order;
+    // use that recorded bay/line, falling back to the legacy queue only when no run record exists.
+    const work = dockWorkForRun(p);
     const runDock = work && work.dockId ? work.dockId : null;
+    if (work && !lineOfWork(work)) {
+      dockLineTakeMatching(cAid, work);
+      emitProductCrate(cAid, spec, runDock);
+      return;
+    }
     const dch = (runDock && routingPlan && routingPlan.dockChains) ? routingPlan.dockChains[runDock] : null;
     const ch = dch || ((cAid && routingPlan && routingPlan.chains) ? routingPlan.chains[cAid] : null);
     const hasNext = !!(ch && ch.next && ch.next.length);
+    if (lineNeedsRelease(runDock, lineOfWork(work))) { holdJoinedProduct(cAid, spec, work); return; }
     // consume THIS run's placement entry (oldest first) — never cancel a sibling run's held crate
     if (hasNext && lineOfWork(dockLineTake(cAid))) {
       const q = deferredShip.get(cAid) || [];
@@ -10402,7 +10507,7 @@ const World = (() => {
     U.bus.on('agent.run.start', p => {
       if (!p || !p.agentId) return;
       const k = runKey(p);
-      runWork.set(k, { agentId: p.agentId, tools: 0, dels: 0 });
+      runWork.set(k, { agentId: p.agentId, workitemId: p.workitemId || '', tools: 0, dels: 0 });
       if (runWork.size > 200) runWork.delete(runWork.keys().next().value);   // bounded (a missed run.end must not leak forever)
       const l = liveRunOrder.get(p.agentId) || [];
       if (l.indexOf(k) < 0) l.push(k);
@@ -10432,8 +10537,9 @@ const World = (() => {
     U.bus.on('workitem.placed', p => intakeMessage(p));
     // LINE WATCH: the bay lamps + crate cards fold the same run/crate events the floor animates (linewatch.js)
     for (const n of ['workitem.placed', 'workitem.superseded', 'agent.run.start', 'agent.cost', 'agent.run.error', 'agent.run.end']) U.bus.on(n, p => watchEvent(n, p));
-    // (workitem.delivered no longer spawns a crate — the run.end 'done' handler below is the single
-    //  crate source, so channel replies can't double-crate. delivered still feeds the floor stats fold.)
+    // Ordinary stage deliveries do not spawn duplicates. The executor's exact terminal receipt
+    // releases productive work held for a JOINER-capable line, once the job reached its OUTBOX.
+    U.bus.on('workitem.delivered', p => releaseJoinedProduct(p));
     U.bus.on('workitem.superseded', p => { if (p && p.workitemId && convey) convey.dropWorkitem(p.workitemId); });
     // queue.status drives BOTH the numeric backpressure gauge (chanQueues) and the FloorStats backlog fold.
     U.bus.on('queue.status', p => { if (p && p.queueId != null) chanQueues.set(p.queueId, Math.max(0, p.depth | 0)); if (floor) floor.onEvent('queue.status', p); });
@@ -10490,6 +10596,11 @@ const World = (() => {
       // A clean finish that PROVABLY WORKED ships: one product crate leaves the producing agent's bay
       // and rides to the OUTBOX. A done-but-workless run ("I couldn't do that") ships NOTHING.
       if (r === 'done' && runWorked(p)) shipProductCrate(p);
+      else if (r === 'done') {
+        const work = dockWorkForRun(p), lineId = lineOfWork(work);
+        // A talk-only sibling contributes observed cost, never proof that a job produced work.
+        if (lineNeedsRelease(work && work.dockId, lineId)) holdJoinedProduct(p.agentId, productCrateSpec(p), work, false);
+      }
       if (p) {                                          // the run is over — drop ITS tally (and only its), either way
         const k = runKey(p);
         runWork.delete(k);

@@ -1589,7 +1589,7 @@ own runner (Q1 Guardian, Q2 Beginner Run, Q4 Janitor) or the Overseer digest; th
 | Crew member | Question it answers | Last run | Result | Open findings |
 | --- | --- | --- | --- | --- |
 | Green Guardian | Is trunk green and does the app still boot + look right? | 2026-09-17 08:26Z @ 98e70fc0 | GREEN | 1 |
-| Beginner Run | Can a brand-new user reach first value, unassisted? | 2026-09-16T19:21:09.124Z · ui-only · 52936ms | PASS | 0 |
+| Beginner Run | Can a brand-new user reach first value, unassisted? | 2026-10-12T02:31:46.882Z · ui-only · 39173ms | PASS | 0 |
 | Truth Auditor | Does the UI show what actually happened? | 2026-07-01 23:28Z (in Guardian cycle) | GREEN | 0 |
 | Visual Auditor | Is the rendered game coherent? (needs eyes) | — (local /loop; not headless) | — | 0 |
 | Overseer | What broke today, what needs Andrew? | 2026-07-01 (digest rendered) | 0 P0 · 106 P2 | — |
@@ -3064,3 +3064,8 @@ RELEASE 0.11.2 merge: agent/release-0112-finalprep-0911 -> bb9f0719d9d632575670b
 **2026-09-30 skill market sweep + polish:** agent/skill-polish -> 2e627c153 (merge, tree == checked e43ccea42; fast 979/979 + http 165/165 on 93960215b — routing.chain-seam boot-timeout passed alone, then the 100-step tail; after syncing trunk 1ef50cfae: 146 tests reading stationui/chat/market/slash/website + skill-market.e2e green, claims PASS 343). Trust: pulled rows persisted per catalog, stale cache never served, per-catalog serials, app-shipped serial floor (market-floor.json, --pin-floor after a deploy), rollback-safe install swap, bundled originals carry version:. UI: "/" follows installs and reads gear like SKILL LIBRARY (orchestrator counted for Commander-started runs), honest card states. Content: 4 false claims fixed, nine categories, plain descriptions. Website: Download .zip per skill. Catalog re-signed at serial 3; NOT deployed (rides the next release). No release or publication.
 
 **2026-09-30 skill batch 2:** agent/skill-batch-2 -> bafa61645 (merge, tree == gated 025d5202b; fast 997/997 + http 170/170 on 0566f868d; boot-timeout flakes google-files, e2e.overseer (WORKSPACE_BUSY on restart) and toolsearch.connectors-deferred each passed alone, then their tails; after syncing trunk 0b47346fb (world.js clock fix only): claims PASS 349 + skill-market, catalog, signing, tools, guard-remote-install, website-skill-market and claims tests green on 025d5202b)
+
+
+### 2026-10-12 — crew target ownership follow-up
+
+`agent/issue-triage-1011` source `4ecafe317790da208051f43515e322a044f43401` (follow-ups `9a4beb981` + `4ecafe317`) repairs residual possessive/partial crew-target directives and explicit reversals found in independent review of frozen `9fc40b386`. Focused proof: syntax3, unit56, real-sidecar HTTP131 across19 completed synthetic-provider runs. Existing aggregate gates remain historical at `a75a09e3`; full fast/HTTP gates for the updated source are pending with the serialized merge owner. No trunk merge, installed acceptance or customer recovery claimed. Receipt: `qa/evidence/deep-sweep-2026-10-11/crew-possessive-followup.json`.

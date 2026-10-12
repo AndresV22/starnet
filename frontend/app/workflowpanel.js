@@ -321,12 +321,11 @@ const WorkflowPanel = (() => {
     if (!cells || quiet) { row.innerHTML = ''; return; }
     row.innerHTML = '<span class="wf-today-l">TODAY</span>' + cells.map(c => '<span data-tip="' + esc(todayTip(c[0])) + '"><span class="k">' + esc(c[0]) + '</span> <b' + (c[0] === 'FAILED' && c[1] !== '0' ? ' class="bad"' : '') + '>' + esc(c[1]) + '</b></span>').join('');
   }
-  /* WHAT EACH TODAY NUMBER COUNTS (2026-09-30 — ease of use): the numbers are the line's run rows (line-stats.js), not jobs, and
-     SHIPPED is the station's proven-work count (the 2026-07-05 crate-honesty law) — so "RUNS 68 · SHIPPED 0" on a line that
-     delivered every job read as "nothing ever shipped". Each number's tip says what it counts. */
+  /* WHAT EACH TODAY NUMBER COUNTS: RUNS counts stages; SHIPPED counts recorded productive OUTBOX jobs.
+     Older runs without shipment receipts cannot prove a historic delivery total. Each tip names its scope. */
   function todayTip(k) {
     if (k === 'RUNS') return 'RUNS\nevery time a step of this line ran today: one job through a 3-step line is 3 runs';
-    if (k === 'SHIPPED') return 'SHIPPED\njobs that left through the OUTBOX having made something real (a tool used or a file saved). A text-only answer is still delivered to the OUTBOX, but it is not counted here';
+    if (k === 'SHIPPED') return 'SHIPPED\nrecorded jobs that reached the OUTBOX after a tool succeeded or a file was saved. Earlier deliveries without a saved shipment record are not included. Text-only answers still reach the OUTBOX, but do not count here';
     if (k === 'FAILED') return 'FAILED\nstep runs that ended in an error, a refusal, a budget stop or too many turns';
     if (k === 'TESTS') return 'TESTS\nstep tests (TEST THIS STEP, STEP THROUGH): not jobs, but their cost is in $ TODAY';
     if (k === 'MEDIAN') return 'MEDIAN\nthe middle time of a step run today';
@@ -697,7 +696,8 @@ const WorkflowPanel = (() => {
     if (wasOpen) for (const [k, d] of detailsKeys(body)) if (wasOpen.has(k) && d.open !== wasOpen.get(k)) d.open = wasOpen.get(k);
   }
   function paintBodyInner(body, f) {
-    if (S.view === 'test' && comp() && S.seam === true) { paintTest(body, f); restoreDrafts(); return; }
+    // The picker owns capability fallback; an older sidecar still offers WATCH IT and RUN ONE REAL JOB.
+    if (S.view === 'test' && comp()) { paintTest(body, f); restoreDrafts(); return; }
     const p = prop(S.sel);
     if (!p) { body.innerHTML = '<p class="wf-help">Select a part of the line.</p>'; return; }
     if (p.t === 'bay') paintBay(body, f, p);
@@ -1711,6 +1711,8 @@ const WorkflowPanel = (() => {
   }
   function startSession(text, pause) {
     const c = comp(); if (!c) return;
+    const issue = stepTestUnavailable();
+    if (issue) { S.sessionErr = issue; paint(true); return; }
     saveOpenFields();
     S.busy = true; S.sessionErr = null; S.hop = null; paint(true);
     H.planGate(c).then(gate => {
@@ -2011,16 +2013,20 @@ const WorkflowPanel = (() => {
     const again = $('#wf-nr-again');
     if (again) again.onclick = () => { const cc = comp(); if (!cc) return; H.sfx('click'); S.fixDraft = ''; liveSeen = false; S.prevJob = { text: mine.text, output: mine.output, stamp: mine.stamp }; H.runSample(cc, { text: mine.text || (S.testJob[S.lineKey] || '').trim() || undefined, onUpdate: () => paint(false) }); startLive(); };
   }
+  function stepTestUnavailable() {
+    if (S.seam !== true) return 'this station cannot pause a line between steps — RUN ONE REAL JOB runs it end to end';
+    return typeof Pipeline !== 'undefined' && Pipeline.stepTestRefusal ? Pipeline.stepTestRefusal(H.plan(), S.lineKey) : null;
+  }
   function testModeNow() {
     const m = S.testMode || (S.seam === true ? 'step' : 'real');
-    return m === 'step' && S.seam !== true ? 'real' : m;
+    return m === 'step' && stepTestUnavailable() ? 'real' : m;
   }
   function testPickerHTML(s) {
-    const mode = testModeNow(), c = comp();
+    const mode = testModeNow(), c = comp(), stepIssue = stepTestUnavailable();
     const chips = TEST_MODES.map(([m, label, sub]) => {
-      const off = m === 'step' && S.seam !== true;
+      const off = m === 'step' && !!stepIssue;
       return '<button type="button" class="wf-chip wf-modepick' + (off ? ' off' : '') + '" data-tmode="' + m + '" aria-pressed="' + (mode === m) + '"'
-        + (off ? ' aria-disabled="true" data-tip="this station cannot pause a line between steps — RUN ONE REAL JOB runs it end to end"' : '')
+        + (off ? ' aria-disabled="true" data-tip="' + esc(stepIssue) + '"' : '')
         + '><b>' + label + '</b><small>' + esc(sub) + '</small></button>';
     }).join('');
     const input = '<textarea id="wf-st-in" data-keep="stin" class="wf-io" rows="3" aria-label="Test job" placeholder="What should the line work on?">' + esc(S.testJob[S.lineKey] || '') + '</textarea>';
@@ -2046,7 +2052,8 @@ const WorkflowPanel = (() => {
         + (mine && mine.view ? jobResultHTML(mine, flow()) : '');
     }
     return '<section class="wf-sec"><h3><span class="n">TEST</span>' + (s ? 'Test it again' : 'How do you want to test it?') + '</h3>'
-      + '<div class="wf-modepicks wf-modepicks-3" role="group" aria-label="How to test">' + chips + '</div>' + body + '</section>';
+      + '<div class="wf-modepicks wf-modepicks-3" role="group" aria-label="How to test">' + chips + '</div>'
+      + (stepIssue && S.seam === true ? '<p class="wf-help">' + esc(stepIssue) + '</p>' : '') + body + '</section>';
   }
   function showTest(mode) {   // the top bar's TEST opens this view on the panel's line (build.js openTest)
     if (!el) return false;

@@ -183,11 +183,11 @@ const lineOf = (pl, id) => pl.lineOfProp[id];
   for (const id in d.rooms) for (const r of d.rooms[id].rects) { r.x2 = 60; r.y2 = 44; }
   const st = WM.create(d);
   const add = o => { const r = st.addProp(o); if (!r.ok) throw new Error('addProp ' + JSON.stringify(r)); return r.id; };
-  // a SORTING OFFICE (INBOX ▸ FILTER ▸ two BAYs), each BAY belted into its OWN OUTBOX
+  // a SORTING OFFICE, whose two finished lanes each ship into their OWN OUTBOX
   const so = LE.placeBlueprint(st, 'sorting_office', { x: 8, y: 4 });
   const sb = so.ids.filter(id => st.propById(id).t === 'bay');
-  const o1 = add({ t: 'outbox', x: 16, y: 1, w: 2, h: 2 }), o2 = add({ t: 'outbox', x: 16, y: 6, w: 2, h: 2 });
-  A.ok(st.connectBelt(sb[0], o1).ok && st.connectBelt(sb[1], o2).ok, 'two BAYs, two OUTBOXes, one line');
+  const [o1, o2] = so.ids.filter(id => st.propById(id).t === 'outbox');
+  A.ok(o1 && o2, 'two BAYs, two OUTBOXes, one line');
   const rb = LE.placeBlueprint(st, 'research_line', { x: 8, y: 24 });
   const bIn = rb.ids.find(id => st.propById(id).t === 'intake');
   for (const p of st.props()) if (p.t === 'bay' && !p.agentId) st.assignPropAgent(p.id, 'ag_' + p.id);

@@ -1,0 +1,1051 @@
+{
+  "summary": {
+    "revision": "a20ffa71fd04691805ea55c7d08165438dd7ac6f",
+    "registerRecords": 232,
+    "reports": 104,
+    "origins": {
+      "owner": 39,
+      "customer": 65
+    },
+    "status": {
+      "fixed": 94,
+      "wontfix": 2,
+      "open": 8
+    },
+    "installer": {
+      "unverified": 95,
+      "not-applicable": 3,
+      "verified": 6
+    },
+    "recovery": {
+      "unconfirmed": 101,
+      "confirmed": 1,
+      "persists": 2
+    },
+    "families": {
+      "group-chat-picker": 1,
+      "test-portability": 1,
+      "backdrop-performance": 1,
+      "work-rating-origin": 1,
+      "tool-history": 2,
+      "execution-configuration": 4,
+      "bay-labels": 1,
+      "protocol-lifecycle": 1,
+      "work-rating": 2,
+      "session-continuity": 1,
+      "projects-rendering": 1,
+      "deliverable-history-replay": 1,
+      "world-pointer": 1,
+      "hallway-traffic": 1,
+      "response-latency": 2,
+      "boot-integrity": 2,
+      "browser-card-discovery": 1,
+      "prop-selection": 1,
+      "managed-routing": 1,
+      "genesis-provider-credential-selection": 2,
+      "speech-device-recovery": 1,
+      "room-lighting": 5,
+      "capability-projection": 1,
+      "informed-approval": 1,
+      "doorway-movement": 1,
+      "packaged-runtime-asset-closure": 1,
+      "local-provider-system-projection": 1,
+      "provider-settings-presentation": 1,
+      "unattended-workbench-policy": 1,
+      "local-provider-transport": 1,
+      "erase-recovery-authority": 1,
+      "connector-schema-projection": 1,
+      "task-scope": 1,
+      "local-provider-tool-projection": 1,
+      "uncorrelated-visibility": 1,
+      "recovery-truth": 5,
+      "image-versus-chat-routing": 1,
+      "secondary-console-polish": 1,
+      "record-readability": 1,
+      "quest-journal": 1,
+      "computer-movement": 1,
+      "session-focus": 1,
+      "catalog-truth": 2,
+      "chat-response-completion": 1,
+      "production-skin-activation": 1,
+      "desktop-microphone": 1,
+      "recipe-layout": 1,
+      "provider-fallback": 1,
+      "checkpoint-maintenance": 1,
+      "emergency-stop": 1,
+      "durability-and-visibility": 2,
+      "standard-readability": 1,
+      "channel-delegation-parity": 1,
+      "station-design-persistence": 1,
+      "responsive-comms": 1,
+      "session-starters": 2,
+      "local-model-conversation-latency": 1,
+      "managed-media": 1,
+      "chat-markdown-spacing": 1,
+      "account-usage-correlation": 1,
+      "work-and-spend-truth": 1,
+      "delegated-capabilities": 1,
+      "image-intent": 1,
+      "deployment-integrity": 1,
+      "message-attachments": 2,
+      "premature-stops": 1,
+      "context-presentation": 1,
+      "refit-entry-rendering": 1,
+      "feedback-attribution": 1,
+      "onboarding-code-contrast": 1,
+      "lifecycle-truth": 1,
+      "session-status-presentation": 1,
+      "website-preview": 1,
+      "dock-style-scope": 1,
+      "browser-upload-selection-truth": 1,
+      "voice-continuity": 1,
+      "prop-catalog-layout": 1,
+      "movement-continuity": 1,
+      "google-sign-in": 1,
+      "refit-placement-performance": 1,
+      "autonomous-completion-and-cost": 1,
+      "memory-corrections": 1,
+      "production-request-truth": 1,
+      "mac-install-compatibility": 1
+    },
+    "countingNote": "Only files with bug fingerprints; qa/bugs/README.md excluded. Counts describe registered records, not unique users or incidence."
+  },
+  "reports": [
+    {
+      "fingerprint": "0245a284",
+      "origin": "owner",
+      "family": "group-chat-picker",
+      "status": "fixed",
+      "installer": "unverified",
+      "recovery": "unconfirmed",
+      "file": "qa/bugs/0245a284-add-agents-silently-fails-when-group-backend-is.md"
+    },
+    {
+      "fingerprint": "046bd4a1",
+      "origin": "customer",
+      "family": "test-portability",
+      "status": "fixed",
+      "installer": "not-applicable",
+      "recovery": "unconfirmed",
+      "file": "qa/bugs/046bd4a1-mac-receipt-test-fails-when-python-is-missing.md"
+    },
+    {
+      "fingerprint": "04ca4207",
+      "origin": "owner",
+      "family": "backdrop-performance",
+      "status": "fixed",
+      "installer": "verified",
+      "recovery": "unconfirmed",
+      "file": "qa/bugs/04ca4207-new-backdrops-stall-switching-and-zoomed-out-ter.md"
+    },
+    {
+      "fingerprint": "09f0e9fa",
+      "origin": "customer",
+      "family": "work-rating-origin",
+      "status": "fixed",
+      "installer": "unverified",
+      "recovery": "unconfirmed",
+      "file": "qa/bugs/09f0e9fa-interactive-replies-in-scheduled-conversations-c.md"
+    },
+    {
+      "fingerprint": "0d63e5d1",
+      "origin": "customer",
+      "family": "tool-history",
+      "status": "fixed",
+      "installer": "unverified",
+      "recovery": "unconfirmed",
+      "file": "qa/bugs/0d63e5d1-gemini-loses-tool-signature.md"
+    },
+    {
+      "fingerprint": "0e3d3914",
+      "origin": "customer",
+      "family": "execution-configuration",
+      "status": "fixed",
+      "installer": "unverified",
+      "recovery": "unconfirmed",
+      "file": "qa/bugs/0e3d3914-follow-station-default-retains-managed-model-pin.md"
+    },
+    {
+      "fingerprint": "0ff9dfc6",
+      "origin": "owner",
+      "family": "bay-labels",
+      "status": "fixed",
+      "installer": "verified",
+      "recovery": "confirmed",
+      "file": "qa/bugs/0ff9dfc6-bay-names-are-unreadable-at-normal-station-zoom.md"
+    },
+    {
+      "fingerprint": "112199f5",
+      "origin": "customer",
+      "family": "tool-history",
+      "status": "fixed",
+      "installer": "unverified",
+      "recovery": "unconfirmed",
+      "file": "qa/bugs/112199f5-openrouter-orphan-tool-results.md"
+    },
+    {
+      "fingerprint": "11341152",
+      "origin": "customer",
+      "family": "protocol-lifecycle",
+      "status": "fixed",
+      "installer": "unverified",
+      "recovery": "unconfirmed",
+      "file": "qa/bugs/11341152-connector-buffered-sse-times-out.md"
+    },
+    {
+      "fingerprint": "1fc69e6a",
+      "origin": "customer",
+      "family": "work-rating",
+      "status": "fixed",
+      "installer": "unverified",
+      "recovery": "unconfirmed",
+      "file": "qa/bugs/1fc69e6a-agent-work-rating-fails-with-a-generic-not-saved.md"
+    },
+    {
+      "fingerprint": "2426399e",
+      "origin": "owner",
+      "family": "session-continuity",
+      "status": "fixed",
+      "installer": "unverified",
+      "recovery": "unconfirmed",
+      "file": "qa/bugs/2426399e-reopened-conversations-send-before-history-is-re.md"
+    },
+    {
+      "fingerprint": "25120f27",
+      "origin": "customer",
+      "family": "projects-rendering",
+      "status": "fixed",
+      "installer": "unverified",
+      "recovery": "unconfirmed",
+      "file": "qa/bugs/25120f27-projects-overview-remains-loading-after-a-valid.md"
+    },
+    {
+      "fingerprint": "253e5a8e",
+      "origin": "customer",
+      "family": "deliverable-history-replay",
+      "status": "fixed",
+      "installer": "unverified",
+      "recovery": "unconfirmed",
+      "file": "qa/bugs/253e5a8e-saved-file-links-disappear-when-conversation-his.md"
+    },
+    {
+      "fingerprint": "26433ecb",
+      "origin": "owner",
+      "family": "world-pointer",
+      "status": "fixed",
+      "installer": "unverified",
+      "recovery": "unconfirmed",
+      "file": "qa/bugs/26433ecb-crt-curve-displaces-agent-hover-and-click-target.md"
+    },
+    {
+      "fingerprint": "2a9cb952",
+      "origin": "customer",
+      "family": "execution-configuration",
+      "status": "fixed",
+      "installer": "unverified",
+      "recovery": "unconfirmed",
+      "file": "qa/bugs/2a9cb952-doctor-forces-unsupported-reasoning.md"
+    },
+    {
+      "fingerprint": "2b6d70fb",
+      "origin": "customer",
+      "family": "execution-configuration",
+      "status": "fixed",
+      "installer": "unverified",
+      "recovery": "unconfirmed",
+      "file": "qa/bugs/2b6d70fb-byok-blocked-by-empty-managed-wallet.md"
+    },
+    {
+      "fingerprint": "2b7a920c",
+      "origin": "owner",
+      "family": "hallway-traffic",
+      "status": "fixed",
+      "installer": "unverified",
+      "recovery": "unconfirmed",
+      "file": "qa/bugs/2b7a920c-roaming-agents-jam-nose-to-nose-in-narrow-hallwa.md"
+    },
+    {
+      "fingerprint": "2e6344fc",
+      "origin": "customer",
+      "family": "response-latency",
+      "status": "fixed",
+      "installer": "unverified",
+      "recovery": "unconfirmed",
+      "file": "qa/bugs/2e6344fc-casual-replies-continue-after-the-local-output-c.md"
+    },
+    {
+      "fingerprint": "2f156837",
+      "origin": "customer",
+      "family": "boot-integrity",
+      "status": "wontfix",
+      "installer": "unverified",
+      "recovery": "persists",
+      "file": "qa/bugs/2f156837-mac-boot-guard-reports-shared-specialty-catalog.md"
+    },
+    {
+      "fingerprint": "305a9e3d",
+      "origin": "customer",
+      "family": "browser-card-discovery",
+      "status": "fixed",
+      "installer": "unverified",
+      "recovery": "unconfirmed",
+      "file": "qa/bugs/305a9e3d-campaign-cards-missing-from-browser-element-disc.md"
+    },
+    {
+      "fingerprint": "30c44acc",
+      "origin": "owner",
+      "family": "prop-selection",
+      "status": "fixed",
+      "installer": "unverified",
+      "recovery": "unconfirmed",
+      "file": "qa/bugs/30c44acc-remastered-prop-selection-outlines-include-trans.md"
+    },
+    {
+      "fingerprint": "3195ab5a",
+      "origin": "customer",
+      "family": "managed-routing",
+      "status": "fixed",
+      "installer": "unverified",
+      "recovery": "unconfirmed",
+      "file": "qa/bugs/3195ab5a-managed-chat-can-use-a-stale-request-endpoint.md"
+    },
+    {
+      "fingerprint": "32f959e0",
+      "origin": "owner",
+      "family": "genesis-provider-credential-selection",
+      "status": "fixed",
+      "installer": "unverified",
+      "recovery": "unconfirmed",
+      "file": "qa/bugs/32f959e0-wake-mistakes-dev-configuration-for-an-openai-ap.md"
+    },
+    {
+      "fingerprint": "3364dfb0",
+      "origin": "customer",
+      "family": "speech-device-recovery",
+      "status": "fixed",
+      "installer": "unverified",
+      "recovery": "unconfirmed",
+      "file": "qa/bugs/3364dfb0-live-spoken-replies-stall-after-the-output-audio.md"
+    },
+    {
+      "fingerprint": "3365f5ba",
+      "origin": "owner",
+      "family": "room-lighting",
+      "status": "fixed",
+      "installer": "unverified",
+      "recovery": "unconfirmed",
+      "file": "qa/bugs/3365f5ba-room-lighting-loses-colour-and-flickers-across-t.md"
+    },
+    {
+      "fingerprint": "432df352",
+      "origin": "customer",
+      "family": "capability-projection",
+      "status": "fixed",
+      "installer": "unverified",
+      "recovery": "unconfirmed",
+      "file": "qa/bugs/432df352-saved-equipment-omitted-from-interactive-tool-pr.md"
+    },
+    {
+      "fingerprint": "48c51661",
+      "origin": "customer",
+      "family": "informed-approval",
+      "status": "fixed",
+      "installer": "unverified",
+      "recovery": "unconfirmed",
+      "file": "qa/bugs/48c51661-file-approval-omits-mutation.md"
+    },
+    {
+      "fingerprint": "49192a68",
+      "origin": "owner",
+      "family": "doorway-movement",
+      "status": "fixed",
+      "installer": "unverified",
+      "recovery": "unconfirmed",
+      "file": "qa/bugs/49192a68-agents-cross-walls-beside-hallway-openings.md"
+    },
+    {
+      "fingerprint": "4a108286",
+      "origin": "owner",
+      "family": "packaged-runtime-asset-closure",
+      "status": "fixed",
+      "installer": "unverified",
+      "recovery": "unconfirmed",
+      "file": "qa/bugs/4a108286-desktop-bundle-drops-required-calibration-textur.md"
+    },
+    {
+      "fingerprint": "4a1447ff",
+      "origin": "customer",
+      "family": "local-provider-system-projection",
+      "status": "fixed",
+      "installer": "unverified",
+      "recovery": "unconfirmed",
+      "file": "qa/bugs/4a1447ff-ollama-strict-templates-reject-late-host-system.md"
+    },
+    {
+      "fingerprint": "4a151231",
+      "origin": "owner",
+      "family": "provider-settings-presentation",
+      "status": "fixed",
+      "installer": "unverified",
+      "recovery": "unconfirmed",
+      "file": "qa/bugs/4a151231-provider-card-status-alignment-and-dated-identit.md"
+    },
+    {
+      "fingerprint": "4a19c050",
+      "origin": "customer",
+      "family": "unattended-workbench-policy",
+      "status": "wontfix",
+      "installer": "unverified",
+      "recovery": "unconfirmed",
+      "file": "qa/bugs/4a19c050-product-line-workbench-standing-grant-scope.md"
+    },
+    {
+      "fingerprint": "52397fc0",
+      "origin": "owner",
+      "family": "room-lighting",
+      "status": "fixed",
+      "installer": "unverified",
+      "recovery": "unconfirmed",
+      "file": "qa/bugs/52397fc0-raised-room-corners-excluded-from-interior-light.md"
+    },
+    {
+      "fingerprint": "5274c7b7",
+      "origin": "customer",
+      "family": "local-provider-transport",
+      "status": "open",
+      "installer": "unverified",
+      "recovery": "unconfirmed",
+      "file": "qa/bugs/5274c7b7-ollama-chat-request-not-observed.md"
+    },
+    {
+      "fingerprint": "5308fc67",
+      "origin": "customer",
+      "family": "boot-integrity",
+      "status": "fixed",
+      "installer": "unverified",
+      "recovery": "unconfirmed",
+      "file": "qa/bugs/5308fc67-older-mac-webkit-cannot-initialize-chat-and-widg.md"
+    },
+    {
+      "fingerprint": "5451970e",
+      "origin": "customer",
+      "family": "erase-recovery-authority",
+      "status": "fixed",
+      "installer": "unverified",
+      "recovery": "unconfirmed",
+      "file": "qa/bugs/5451970e-erase-everything-resurrects-an-acknowledged-lega.md"
+    },
+    {
+      "fingerprint": "54564ff9",
+      "origin": "customer",
+      "family": "connector-schema-projection",
+      "status": "open",
+      "installer": "unverified",
+      "recovery": "unconfirmed",
+      "file": "qa/bugs/54564ff9-zoho-mail-bootstrap-tool-reportedly-requires-und.md"
+    },
+    {
+      "fingerprint": "5a35bcfe",
+      "origin": "customer",
+      "family": "task-scope",
+      "status": "fixed",
+      "installer": "unverified",
+      "recovery": "unconfirmed",
+      "file": "qa/bugs/5a35bcfe-deliverable-note-overrides-stop.md"
+    },
+    {
+      "fingerprint": "678ac951",
+      "origin": "customer",
+      "family": "local-provider-tool-projection",
+      "status": "fixed",
+      "installer": "unverified",
+      "recovery": "unconfirmed",
+      "file": "qa/bugs/678ac951-ollama-task-runs-finish-without-reported-filesys.md"
+    },
+    {
+      "fingerprint": "6ad254f9",
+      "origin": "customer",
+      "family": "work-rating",
+      "status": "fixed",
+      "installer": "unverified",
+      "recovery": "unconfirmed",
+      "file": "qa/bugs/6ad254f9-earned-xp-appears-frozen-or-misses-ratings-from.md"
+    },
+    {
+      "fingerprint": "6bb9d2a1",
+      "origin": "customer",
+      "family": "uncorrelated-visibility",
+      "status": "open",
+      "installer": "unverified",
+      "recovery": "unconfirmed",
+      "file": "qa/bugs/6bb9d2a1-visibility-failure-without-diagnostics.md"
+    },
+    {
+      "fingerprint": "6c54d22e",
+      "origin": "customer",
+      "family": "recovery-truth",
+      "status": "fixed",
+      "installer": "unverified",
+      "recovery": "unconfirmed",
+      "file": "qa/bugs/6c54d22e-linked-state-confused-with-quota.md"
+    },
+    {
+      "fingerprint": "6c6c34e1",
+      "origin": "customer",
+      "family": "image-versus-chat-routing",
+      "status": "fixed",
+      "installer": "unverified",
+      "recovery": "unconfirmed",
+      "file": "qa/bugs/6c6c34e1-openai-image-model-selected-for-comms.md"
+    },
+    {
+      "fingerprint": "6c91f5d9",
+      "origin": "owner",
+      "family": "secondary-console-polish",
+      "status": "fixed",
+      "installer": "unverified",
+      "recovery": "unconfirmed",
+      "file": "qa/bugs/6c91f5d9-secondary-console-layouts-lose-provider-text-and.md"
+    },
+    {
+      "fingerprint": "72af29f4",
+      "origin": "customer",
+      "family": "recovery-truth",
+      "status": "fixed",
+      "installer": "unverified",
+      "recovery": "unconfirmed",
+      "file": "qa/bugs/72af29f4-funded-station-false-zero-warning.md"
+    },
+    {
+      "fingerprint": "734b469e",
+      "origin": "owner",
+      "family": "record-readability",
+      "status": "fixed",
+      "installer": "unverified",
+      "recovery": "unconfirmed",
+      "file": "qa/bugs/734b469e-dense-service-cards-squeeze-technical-prose-into.md"
+    },
+    {
+      "fingerprint": "741832d8",
+      "origin": "owner",
+      "family": "room-lighting",
+      "status": "fixed",
+      "installer": "unverified",
+      "recovery": "unconfirmed",
+      "file": "qa/bugs/741832d8-centered-room-lighting-leaves-sides-dark-and-cre.md"
+    },
+    {
+      "fingerprint": "74be01cc",
+      "origin": "owner",
+      "family": "quest-journal",
+      "status": "fixed",
+      "installer": "unverified",
+      "recovery": "unconfirmed",
+      "file": "qa/bugs/74be01cc-quest-log-tiny-text-and-undifferentiated-card-gr.md"
+    },
+    {
+      "fingerprint": "758185bc",
+      "origin": "customer",
+      "family": "computer-movement",
+      "status": "fixed",
+      "installer": "verified",
+      "recovery": "unconfirmed",
+      "file": "qa/bugs/758185bc-windows-computer-movement-resolves-to-filesystem.md"
+    },
+    {
+      "fingerprint": "774641dc",
+      "origin": "customer",
+      "family": "session-focus",
+      "status": "fixed",
+      "installer": "unverified",
+      "recovery": "unconfirmed",
+      "file": "qa/bugs/774641dc-agent-session-focus-commands-can-unexpectedly-re.md"
+    },
+    {
+      "fingerprint": "7ed4a93c",
+      "origin": "customer",
+      "family": "catalog-truth",
+      "status": "fixed",
+      "installer": "unverified",
+      "recovery": "unconfirmed",
+      "file": "qa/bugs/7ed4a93c-managed-selection-keeps-wrong-provider.md"
+    },
+    {
+      "fingerprint": "812c3bfb",
+      "origin": "customer",
+      "family": "chat-response-completion",
+      "status": "fixed",
+      "installer": "unverified",
+      "recovery": "unconfirmed",
+      "file": "qa/bugs/812c3bfb-chat-replies-cut-off-without-confirmed-completio.md"
+    },
+    {
+      "fingerprint": "84e26970",
+      "origin": "owner",
+      "family": "production-skin-activation",
+      "status": "fixed",
+      "installer": "unverified",
+      "recovery": "unconfirmed",
+      "file": "qa/bugs/84e26970-approved-agent-sprites-remain-behind-preview-swi.md"
+    },
+    {
+      "fingerprint": "850fdcfa",
+      "origin": "owner",
+      "family": "room-lighting",
+      "status": "fixed",
+      "installer": "unverified",
+      "recovery": "unconfirmed",
+      "file": "qa/bugs/850fdcfa-custom-phosphor-theme-desaturates-approved-room.md"
+    },
+    {
+      "fingerprint": "8a553481",
+      "origin": "customer",
+      "family": "desktop-microphone",
+      "status": "fixed",
+      "installer": "unverified",
+      "recovery": "unconfirmed",
+      "file": "qa/bugs/8a553481-mac-desktop-microphone-blocked-while-browser-mir.md"
+    },
+    {
+      "fingerprint": "8ac0662a",
+      "origin": "owner",
+      "family": "recipe-layout",
+      "status": "fixed",
+      "installer": "unverified",
+      "recovery": "unconfirmed",
+      "file": "qa/bugs/8ac0662a-recipe-bay-deep-shelf-collapses-initial-cards-in.md"
+    },
+    {
+      "fingerprint": "8b22d414",
+      "origin": "customer",
+      "family": "provider-fallback",
+      "status": "fixed",
+      "installer": "verified",
+      "recovery": "unconfirmed",
+      "file": "qa/bugs/8b22d414-saved-fallback-changes-model-without-switching-p.md"
+    },
+    {
+      "fingerprint": "8bdf73bb",
+      "origin": "customer",
+      "family": "checkpoint-maintenance",
+      "status": "fixed",
+      "installer": "unverified",
+      "recovery": "unconfirmed",
+      "file": "qa/bugs/8bdf73bb-checkpoint-maintenance-bypass-and-orphan-git-pac.md"
+    },
+    {
+      "fingerprint": "8f911536",
+      "origin": "customer",
+      "family": "emergency-stop",
+      "status": "fixed",
+      "installer": "unverified",
+      "recovery": "unconfirmed",
+      "file": "qa/bugs/8f911536-persisted-e-stop-cannot-be-resumed-from-the-desk.md"
+    },
+    {
+      "fingerprint": "9256a771",
+      "origin": "customer",
+      "family": "durability-and-visibility",
+      "status": "fixed",
+      "installer": "unverified",
+      "recovery": "unconfirmed",
+      "file": "qa/bugs/9256a771-viewport-black-after-idle.md"
+    },
+    {
+      "fingerprint": "96921b22",
+      "origin": "owner",
+      "family": "standard-readability",
+      "status": "fixed",
+      "installer": "unverified",
+      "recovery": "unconfirmed",
+      "file": "qa/bugs/96921b22-standard-text-size-leaves-everyday-controls-and.md"
+    },
+    {
+      "fingerprint": "98454b83",
+      "origin": "customer",
+      "family": "channel-delegation-parity",
+      "status": "fixed",
+      "installer": "unverified",
+      "recovery": "unconfirmed",
+      "file": "qa/bugs/98454b83-telegram-lead-delegation-unavailable.md"
+    },
+    {
+      "fingerprint": "996e399b",
+      "origin": "customer",
+      "family": "station-design-persistence",
+      "status": "fixed",
+      "installer": "unverified",
+      "recovery": "unconfirmed",
+      "file": "qa/bugs/996e399b-station-design-edits-disappear-when-build-is-int.md"
+    },
+    {
+      "fingerprint": "99a1517b",
+      "origin": "customer",
+      "family": "recovery-truth",
+      "status": "fixed",
+      "installer": "unverified",
+      "recovery": "unconfirmed",
+      "file": "qa/bugs/99a1517b-unlink-failures-silently-hide-account-recovery-c.md"
+    },
+    {
+      "fingerprint": "9dc98fa0",
+      "origin": "customer",
+      "family": "recovery-truth",
+      "status": "fixed",
+      "installer": "unverified",
+      "recovery": "unconfirmed",
+      "file": "qa/bugs/9dc98fa0-connector-401-still-shows-up.md"
+    },
+    {
+      "fingerprint": "9f67d884",
+      "origin": "customer",
+      "family": "responsive-comms",
+      "status": "fixed",
+      "installer": "unverified",
+      "recovery": "unconfirmed",
+      "file": "qa/bugs/9f67d884-conversation-crowded-on-short-laptop-windows.md"
+    },
+    {
+      "fingerprint": "a55c0020",
+      "origin": "owner",
+      "family": "session-starters",
+      "status": "fixed",
+      "installer": "unverified",
+      "recovery": "unconfirmed",
+      "file": "qa/bugs/a55c0020-session-recommendations-ignore-user-goals-and-ac.md"
+    },
+    {
+      "fingerprint": "a76b93c4",
+      "origin": "customer",
+      "family": "local-model-conversation-latency",
+      "status": "fixed",
+      "installer": "unverified",
+      "recovery": "unconfirmed",
+      "file": "qa/bugs/a76b93c4-local-model-small-talk-overload.md"
+    },
+    {
+      "fingerprint": "a9374d2c",
+      "origin": "customer",
+      "family": "managed-media",
+      "status": "fixed",
+      "installer": "unverified",
+      "recovery": "unconfirmed",
+      "file": "qa/bugs/a9374d2c-linked-starnet-credits-cannot-authorize-image-ge.md"
+    },
+    {
+      "fingerprint": "a9862eb0",
+      "origin": "owner",
+      "family": "chat-markdown-spacing",
+      "status": "fixed",
+      "installer": "unverified",
+      "recovery": "unconfirmed",
+      "file": "qa/bugs/a9862eb0-chat-numbered-lists-have-excessive-vertical-spac.md"
+    },
+    {
+      "fingerprint": "abd75bb4",
+      "origin": "customer",
+      "family": "account-usage-correlation",
+      "status": "open",
+      "installer": "unverified",
+      "recovery": "unconfirmed",
+      "file": "qa/bugs/abd75bb4-credit-usage-during-mac-boot-failure.md"
+    },
+    {
+      "fingerprint": "acb47320",
+      "origin": "customer",
+      "family": "work-and-spend-truth",
+      "status": "open",
+      "installer": "unverified",
+      "recovery": "unconfirmed",
+      "file": "qa/bugs/acb47320-idle-usage-customer-unexplained.md"
+    },
+    {
+      "fingerprint": "acd9ecb4",
+      "origin": "customer",
+      "family": "delegated-capabilities",
+      "status": "fixed",
+      "installer": "verified",
+      "recovery": "unconfirmed",
+      "file": "qa/bugs/acd9ecb4-delegated-specialist-lacks-connected-mcp-tools.md"
+    },
+    {
+      "fingerprint": "b0431c24",
+      "origin": "customer",
+      "family": "image-intent",
+      "status": "fixed",
+      "installer": "unverified",
+      "recovery": "unconfirmed",
+      "file": "qa/bugs/b0431c24-ordinary-wording-incorrectly-requires-image-gene.md"
+    },
+    {
+      "fingerprint": "b3b8d28f",
+      "origin": "owner",
+      "family": "deployment-integrity",
+      "status": "fixed",
+      "installer": "not-applicable",
+      "recovery": "unconfirmed",
+      "file": "qa/bugs/b3b8d28f-website-station-preview-fails-when-hosting-beaco.md"
+    },
+    {
+      "fingerprint": "b48aa05d",
+      "origin": "owner",
+      "family": "message-attachments",
+      "status": "fixed",
+      "installer": "unverified",
+      "recovery": "unconfirmed",
+      "file": "qa/bugs/b48aa05d-files-dropped-onto-chat-do-not-attach-in-the-des.md"
+    },
+    {
+      "fingerprint": "b6f04205",
+      "origin": "customer",
+      "family": "premature-stops",
+      "status": "fixed",
+      "installer": "unverified",
+      "recovery": "unconfirmed",
+      "file": "qa/bugs/b6f04205-repeated-promises-without-tool-actions-can-end-w.md"
+    },
+    {
+      "fingerprint": "b8594ab9",
+      "origin": "owner",
+      "family": "room-lighting",
+      "status": "fixed",
+      "installer": "unverified",
+      "recovery": "unconfirmed",
+      "file": "qa/bugs/b8594ab9-room-fixture-grids-flood-edges-and-corners.md"
+    },
+    {
+      "fingerprint": "b87dbc17",
+      "origin": "owner",
+      "family": "context-presentation",
+      "status": "fixed",
+      "installer": "unverified",
+      "recovery": "unconfirmed",
+      "file": "qa/bugs/b87dbc17-context-extraction-card-uses-a-flat-surface-outs.md"
+    },
+    {
+      "fingerprint": "bf3be27e",
+      "origin": "owner",
+      "family": "refit-entry-rendering",
+      "status": "fixed",
+      "installer": "unverified",
+      "recovery": "unconfirmed",
+      "file": "qa/bugs/bf3be27e-refit-entry-freezes-the-installed-remastered-sta.md"
+    },
+    {
+      "fingerprint": "c2a6c3c8",
+      "origin": "customer",
+      "family": "durability-and-visibility",
+      "status": "fixed",
+      "installer": "unverified",
+      "recovery": "unconfirmed",
+      "file": "qa/bugs/c2a6c3c8-once-routine-reported-missing.md"
+    },
+    {
+      "fingerprint": "c7fa86fc",
+      "origin": "customer",
+      "family": "feedback-attribution",
+      "status": "fixed",
+      "installer": "unverified",
+      "recovery": "unconfirmed",
+      "file": "qa/bugs/c7fa86fc-feedback-run-reference-ambiguous.md"
+    },
+    {
+      "fingerprint": "c9201c15",
+      "origin": "owner",
+      "family": "response-latency",
+      "status": "fixed",
+      "installer": "unverified",
+      "recovery": "unconfirmed",
+      "file": "qa/bugs/c9201c15-run-metadata-invalidates-reusable-prompt-cache-a.md"
+    },
+    {
+      "fingerprint": "c978e7b7",
+      "origin": "customer",
+      "family": "execution-configuration",
+      "status": "fixed",
+      "installer": "unverified",
+      "recovery": "unconfirmed",
+      "file": "qa/bugs/c978e7b7-sample-ignores-saved-provider.md"
+    },
+    {
+      "fingerprint": "c9929ae3",
+      "origin": "owner",
+      "family": "onboarding-code-contrast",
+      "status": "fixed",
+      "installer": "unverified",
+      "recovery": "unconfirmed",
+      "file": "qa/bugs/c9929ae3-onboarding-sign-in-codes-have-dark-text-on-dark.md"
+    },
+    {
+      "fingerprint": "ce430c35",
+      "origin": "owner",
+      "family": "lifecycle-truth",
+      "status": "fixed",
+      "installer": "verified",
+      "recovery": "unconfirmed",
+      "file": "qa/bugs/ce430c35-paused-routines-falsely-keep-an-idle-desktop-arm.md"
+    },
+    {
+      "fingerprint": "d07d3a35",
+      "origin": "owner",
+      "family": "session-status-presentation",
+      "status": "fixed",
+      "installer": "unverified",
+      "recovery": "unconfirmed",
+      "file": "qa/bugs/d07d3a35-failed-session-repeats-failed-badge-and-leaves-x.md"
+    },
+    {
+      "fingerprint": "d0904df1",
+      "origin": "owner",
+      "family": "website-preview",
+      "status": "fixed",
+      "installer": "not-applicable",
+      "recovery": "unconfirmed",
+      "file": "qa/bugs/d0904df1-website-preview-applies-retired-rendering-effect.md"
+    },
+    {
+      "fingerprint": "d28ba8f4",
+      "origin": "owner",
+      "family": "dock-style-scope",
+      "status": "fixed",
+      "installer": "unverified",
+      "recovery": "unconfirmed",
+      "file": "qa/bugs/d28ba8f4-station-button-redesign-escaped-the-bottom-navig.md"
+    },
+    {
+      "fingerprint": "d9a3499f",
+      "origin": "customer",
+      "family": "browser-upload-selection-truth",
+      "status": "fixed",
+      "installer": "unverified",
+      "recovery": "unconfirmed",
+      "file": "qa/bugs/d9a3499f-browser-upload-resolves-wrong-project-file-and-c.md"
+    },
+    {
+      "fingerprint": "ddea3c5d",
+      "origin": "customer",
+      "family": "catalog-truth",
+      "status": "fixed",
+      "installer": "unverified",
+      "recovery": "unconfirmed",
+      "file": "qa/bugs/ddea3c5d-tiers-ignore-managed-catalog.md"
+    },
+    {
+      "fingerprint": "de0bb232",
+      "origin": "owner",
+      "family": "message-attachments",
+      "status": "fixed",
+      "installer": "unverified",
+      "recovery": "unconfirmed",
+      "file": "qa/bugs/de0bb232-sent-group-attachments-appear-only-in-the-shared.md"
+    },
+    {
+      "fingerprint": "e1051446",
+      "origin": "customer",
+      "family": "voice-continuity",
+      "status": "fixed",
+      "installer": "unverified",
+      "recovery": "unconfirmed",
+      "file": "qa/bugs/e1051446-spoken-replies-fragment-at-punctuation-and-omit.md"
+    },
+    {
+      "fingerprint": "e1d9f470",
+      "origin": "customer",
+      "family": "prop-catalog-layout",
+      "status": "fixed",
+      "installer": "unverified",
+      "recovery": "unconfirmed",
+      "file": "qa/bugs/e1d9f470-prop-details-crowd-out-the-build-catalog-at-larg.md"
+    },
+    {
+      "fingerprint": "e356ce13",
+      "origin": "owner",
+      "family": "movement-continuity",
+      "status": "fixed",
+      "installer": "unverified",
+      "recovery": "unconfirmed",
+      "file": "qa/bugs/e356ce13-agent-look-back-flicker-and-waypoint-stutter.md"
+    },
+    {
+      "fingerprint": "e5d4b743",
+      "origin": "owner",
+      "family": "google-sign-in",
+      "status": "fixed",
+      "installer": "unverified",
+      "recovery": "unconfirmed",
+      "file": "qa/bugs/e5d4b743-google-account-connection-asks-customers-for-dev.md"
+    },
+    {
+      "fingerprint": "e725e614",
+      "origin": "owner",
+      "family": "refit-placement-performance",
+      "status": "fixed",
+      "installer": "unverified",
+      "recovery": "unconfirmed",
+      "file": "qa/bugs/e725e614-refit-object-placement-stalls-while-rebaking-unc.md"
+    },
+    {
+      "fingerprint": "e84d1dfd",
+      "origin": "owner",
+      "family": "session-starters",
+      "status": "fixed",
+      "installer": "unverified",
+      "recovery": "unconfirmed",
+      "file": "qa/bugs/e84d1dfd-comms-starters-suggest-arbitrary-tasks-and-lose.md"
+    },
+    {
+      "fingerprint": "eaaa3ec8",
+      "origin": "customer",
+      "family": "recovery-truth",
+      "status": "fixed",
+      "installer": "unverified",
+      "recovery": "unconfirmed",
+      "file": "qa/bugs/eaaa3ec8-mac-onboarding-unreachable-after-link.md"
+    },
+    {
+      "fingerprint": "f46a1875",
+      "origin": "customer",
+      "family": "genesis-provider-credential-selection",
+      "status": "fixed",
+      "installer": "unverified",
+      "recovery": "unconfirmed",
+      "file": "qa/bugs/f46a1875-stored-openai-api-key-silently-outranks-a-live-c.md"
+    },
+    {
+      "fingerprint": "f8d479d9",
+      "origin": "customer",
+      "family": "autonomous-completion-and-cost",
+      "status": "open",
+      "installer": "unverified",
+      "recovery": "unconfirmed",
+      "file": "qa/bugs/f8d479d9-repeated-project-verification-reportedly-consume.md"
+    },
+    {
+      "fingerprint": "f97e73fb",
+      "origin": "customer",
+      "family": "memory-corrections",
+      "status": "fixed",
+      "installer": "unverified",
+      "recovery": "unconfirmed",
+      "file": "qa/bugs/f97e73fb-preference-corrections-are-discarded-or-leave-co.md"
+    },
+    {
+      "fingerprint": "fd9c4b4d",
+      "origin": "customer",
+      "family": "production-request-truth",
+      "status": "open",
+      "installer": "unverified",
+      "recovery": "persists",
+      "file": "qa/bugs/fd9c4b4d-managed-sonnet-400-unresolved.md"
+    },
+    {
+      "fingerprint": "ff3fb4cb",
+      "origin": "customer",
+      "family": "mac-install-compatibility",
+      "status": "open",
+      "installer": "unverified",
+      "recovery": "unconfirmed",
+      "file": "qa/bugs/ff3fb4cb-mac-unsupported-installation-uncorrelated.md"
+    }
+  ]
+}

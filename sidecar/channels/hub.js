@@ -1954,7 +1954,7 @@
          would be an unstoppable spend. The reply that finally leaves is the LAST stage's. */
       if (chain && !state.errMsg && !myRec.superseded && String(state.buf || '').trim()) {
         const line = await chain.advance({
-          agentId: agentId, dockId: dockId || undefined, text: state.buf, originalText: msg.text,
+          agentId: agentId, dockId: dockId || undefined, text: state.buf, originalText: msg.text, runId: myRec.runId,
           // the entry run's reconciled spend: the chain's $ ceiling covers the whole line, stage one included
           // (2026-08-10 audit). `line.usd` stays hop-only, so onLineOutcome's accounting is unchanged.
           entryUsd: state.usd || 0,

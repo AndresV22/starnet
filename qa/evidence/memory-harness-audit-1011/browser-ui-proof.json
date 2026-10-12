@@ -1,0 +1,31 @@
+{
+  "status": "PASS",
+  "kind": "real dev-seeded sidecar and in-app browser; scripted local provider",
+  "model": "lifecycle/local-script",
+  "actions": [
+    "opened CONNECT > INSTALLED > AGENT SKILLS",
+    "evaluation unavailable kept approval disabled on keyless19183 fixture",
+    "clicked Evaluate: owner:ui-copy on19185 fixture",
+    "observed result: passed and approvalEnabled:true",
+    "clicked Approve evaluated revision",
+    "clicked Reject proposal for remaining new skill",
+    "observed one ACTIVE skill and no proposed revisions"
+  ],
+  "active": {
+    "name": "Lifecycle Copy Procedure",
+    "body": "CANDIDATE_POLICY. Copy the exact JSON value from input.json to report.json and read the saved report back before reporting completion.",
+    "withheld": false
+  },
+  "decisions": [
+    {
+      "name": "Lifecycle Copy Procedure",
+      "status": "promoted",
+      "candidateId": "lifecycle-copy-procedure-candidate-1"
+    },
+    {
+      "name": "Lifecycle New Procedure",
+      "status": "rejected",
+      "candidateId": "lifecycle-new-procedure-candidate-1"
+    }
+  ]
+}

@@ -118,7 +118,9 @@ async function skillRow(fixture, agentId, name) {
   // seed ONE clean saved skill for the "use = loaded" agent, through the REAL store (guard + digest stamps)
   {
     const lines = [];
-    const store = makeSkillStore({ io: { readAll() { return []; }, append(e) { lines.push(JSON.stringify(e)); } }, clock: { now: () => Date.now() }, guard: skillGuard, digest: digestOf });
+    const store = makeSkillStore({
+      // Fixture only: represent previously active authored versions; production model writes still stage.
+      stageReviews: false, io: { readAll() { return []; }, append(e) { lines.push(JSON.stringify(e)); } }, clock: { now: () => Date.now() }, guard: skillGuard, digest: digestOf });
     store.write({ agentId: 'user-three', name: 'Deploy Site', summary: 'build test and ship the site', body: '1. npm ci\n2. npm test\n3. npm run deploy', createdBy: 'agent' });
     fs.writeFileSync(path.join(fixture.workspace, 'skills.jsonl'), lines.join('\n') + '\n', 'utf8');
   }

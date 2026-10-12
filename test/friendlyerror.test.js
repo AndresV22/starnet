@@ -454,4 +454,26 @@ for (const raw of [
   A.eq(friendlyError('the spending limit on your OpenAI account was reached').kind !== 'spend_unknown', true, 'a provider spending-limit sentence is not StarNet\'s ledger');
 }
 
+// An explicit Ollama allocation failure is terminal and points at the primary model picker.
+{
+  const raw = 'Local model ran out of memory. Close other local models. [openai-compatible http 500 - llama-server terminated: cudaMalloc failed: out of memory]';
+  for (const input of [raw, Object.assign(new Error(raw), { status: 500, localModelMemory: true })]) {
+    const verdict = friendlyError(input);
+    A.eq(verdict.kind, 'local_model_memory', 'local allocation failure has its own actionable UI kind');
+    A.eq(verdict.retryable, false, 'no blind retry button on an exhausted local runtime');
+    A.ok(/Close other local models/.test(verdict.userMessage) && /smaller model/.test(verdict.userMessage), 'the memory remedy names actual choices');
+    A.ok(/restart StarNet after freeing memory/.test(verdict.userMessage), 'restart guidance is conditional on a blank/disconnected station and freed memory');
+    A.eq(verdict.raw, raw, 'raw runtime allocation detail stays available for diagnostics');
+  }
+  A.eq(require('../frontend/app/friendlyerror.js')._internals.kindFromRaw(raw, 500), 'local_model_memory',
+    'browser fallback does not mistake the runtime termination for a network loss or generic 500');
+  const opened = [], prior = global.ModelDock, priorTimer = global.setTimeout;
+  global.ModelDock = { open() { opened.push('models'); } };
+  global.setTimeout = fn => { fn(); };
+  try { actionButton(friendlyError(raw)).run(); } finally { global.setTimeout = priorTimer; if (prior === undefined) delete global.ModelDock; else global.ModelDock = prior; }
+  A.eq(opened, ['models'], 'the action opens the primary model picker');
+  A.eq(friendlyError('openai-compatible http 500 - cudaMalloc failed: out of memory').kind, 'provider_server_error',
+    'an unmarked hosted provider allocation failure is not asserted to be local');
+}
+
 A.report('friendlyerror.test');
