@@ -264,6 +264,19 @@ A.eq(CP.dayTag(0, T), '', 'undated → empty tag');
   A.eq(orderedLines.map(line => Number(line.match(/request (\d+)/)[1])), [8, 7, 6, 5, 4, 3],
     'eligible asks are ordered newest-first before the section cap');
 
+  const poisonCrowd = host({
+    chats: [owner('Older clean owner ask survives', { ts: ago(1) }),
+      ...Array.from({ length: CP.MAX_CHATS + 3 }, (_, i) => owner('Newer tainted ask ' + i, { ts: T - i, taint: 'attachment' }))],
+    runs: [
+      { title: 'Duplicate task title', ts: T, streamId: 'ws-main', taintedBy: 'attachment' },
+      { title: 'Duplicate task title', ts: ago(1), streamId: 'ws-main' }
+    ]
+  });
+  A.eq(poisonCrowd.pack.sections.find(section => section.label === 'What they asked recently').lines,
+    ['"Older clean owner ask survives" (yesterday)'], 'newest tainted asks beyond the item cap cannot evict an older clean owner ask');
+  A.eq(poisonCrowd.pack.sections.find(section => section.label === 'What they worked on recently').lines,
+    ['Duplicate task title (yesterday)'], 'a newer tainted duplicate cannot replace the older clean run or its date');
+
   const directive = 'Finish the release checklist\nVerify the version number';
   const cases = [
     ['same owner and stream', owner(directive), brief(directive), 1],
