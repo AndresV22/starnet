@@ -9328,10 +9328,10 @@
     "inventoryScope": "Diff/history classification, not universal semantic or live acceptance."
   },
   "reviewCandidate": {
-    "head": "b622d2c0091d723331d3c702a23a7565851dc01c",
+    "head": "1b03394db43c67cd79eb9b423e5c6e63f57868d1",
     "integratedTrunk": "a20ffa71fd04691805ea55c7d08165438dd7ac6f",
     "state": "Combined isolated review branch; full final-candidate fast/HTTP gates and trunk integration still owed at this snapshot.",
-    "wholeUpdateFileCount": 470,
+    "wholeUpdateFileCount": 482,
     "deltaFromIntegrated": [
       {
         "path": "docs/BRAIN.md",
@@ -9351,6 +9351,10 @@
       },
       {
         "path": "frontend/app/delegated.js",
+        "role": "production_source"
+      },
+      {
+        "path": "frontend/app/stationui.js",
         "role": "production_source"
       },
       {
@@ -9470,6 +9474,10 @@
         "role": "qa_evidence_or_register"
       },
       {
+        "path": "qa/evidence/customer-release-1011/github-intake.json",
+        "role": "qa_evidence_or_register"
+      },
+      {
         "path": "qa/evidence/customer-release-1011/product-coverage.json",
         "role": "qa_evidence_or_register"
       },
@@ -9550,6 +9558,34 @@
         "role": "qa_evidence_or_register"
       },
       {
+        "path": "qa/evidence/legacy-spend-recovery-1011/after.json",
+        "role": "qa_evidence_or_register"
+      },
+      {
+        "path": "qa/evidence/legacy-spend-recovery-1011/baseline-entry.cjs",
+        "role": "qa_evidence_or_register"
+      },
+      {
+        "path": "qa/evidence/legacy-spend-recovery-1011/before.json",
+        "role": "qa_evidence_or_register"
+      },
+      {
+        "path": "qa/evidence/legacy-spend-recovery-1011/block-external.cjs",
+        "role": "qa_evidence_or_register"
+      },
+      {
+        "path": "qa/evidence/legacy-spend-recovery-1011/live-probe.mjs",
+        "role": "qa_evidence_or_register"
+      },
+      {
+        "path": "qa/evidence/legacy-spend-recovery-1011/spend-authority-retest.txt",
+        "role": "qa_evidence_or_register"
+      },
+      {
+        "path": "qa/evidence/legacy-spend-recovery-1011/verification.json",
+        "role": "qa_evidence_or_register"
+      },
+      {
         "path": "qa/evidence/provider-deep-sweep-2026-10-11.json",
         "role": "qa_evidence_or_register"
       },
@@ -9595,6 +9631,10 @@
       },
       {
         "path": "sidecar/index.js",
+        "role": "production_source"
+      },
+      {
+        "path": "sidecar/ledger.js",
         "role": "production_source"
       },
       {
@@ -9654,6 +9694,10 @@
         "role": "test_or_manifest"
       },
       {
+        "path": "test/legacy-spend-provenance.http.test.js",
+        "role": "test_or_manifest"
+      },
+      {
         "path": "test/memory-truth.http.test.js",
         "role": "test_or_manifest"
       },
@@ -9675,6 +9719,14 @@
       },
       {
         "path": "test/remote-voice-ownership.test.js",
+        "role": "test_or_manifest"
+      },
+      {
+        "path": "test/settle-managed-copy.test.js",
+        "role": "test_or_manifest"
+      },
+      {
+        "path": "test/spend-authority.test.js",
         "role": "test_or_manifest"
       },
       {
@@ -9707,6 +9759,10 @@
       },
       {
         "path": "website/app/app/delegated.js",
+        "role": "generated_mirror"
+      },
+      {
+        "path": "website/app/app/stationui.js",
         "role": "generated_mirror"
       },
       {

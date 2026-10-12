@@ -1,6 +1,6 @@
 # StarNet — next release (draft)
 
-DRAFT updated 2026-10-11 for the release after v0.13.2. This describes integrated source through `a20ffa71f`, not a published or installed-verified release. Reconcile the final candidate before copying these notes. `release:bump` replaces root `RELEASE_NOTES.md` with a scaffold; keep the current public release notes intact until the cut.
+DRAFT updated 2026-10-12 for the release after v0.13.2. This describes the combined isolated candidate through `1b03394db`, extending integrated source `a20ffa71f`; it is not a published or installed-verified release. Reconcile the final candidate before copying these notes. `release:bump` replaces root `RELEASE_NOTES.md` with a scaffold; keep the current public release notes intact until the cut.
 
 ## Update Center summary draft
 
@@ -17,16 +17,17 @@ The summary above is under the Update Center's 520-character limit. Retain the i
 - **Conversation files and review.** File and review trays retain context, completed items can be cleared and restored, and unresolved items remain visible. Streaming scroll, long composer behavior and image loading receive fixes.
 - **Voice and paired devices.** Local speech uses an improved synthesis/effect path with saved choices. A separate spoken-turn model can be selected without changing typed-chat routing. Paired-device audio transport receives reliability improvements; device acceptance remains listed below.
 - **Display controls and rendering.** Lighting has a persistent 0-100 control, keyboard text-size controls are available, and unchanged or offscreen scene work is reduced. No universal performance or memory-usage guarantee is implied.
-- **Memory and feedback.** Earlier post-0.13.2 source work strengthens saved-memory and approved design-reference handling, stop explanations and channel steering. The later deep-sweep refinements are still under review and are not included in this integrated snapshot.
+- **Memory and feedback.** Saved-memory and design-reference handling distinguishes the owner's intent from inverted relations, upstream instructions and properties requested but not observed. Stop explanations and channel steering receive improvements. These changes still require candidate-bound installed acceptance.
 - **Connectors and channels.** Connector storage distinguishes locked encrypted data from an empty fallback store; starting fresh preserves verified recovery copies. Discord and Signal setup guidance covers additional failure and private-recipient cases.
 - **Local models.** Ollama request formatting accommodates strict system-message templates. Timeout messages describe what StarNet observed. The separately reported long wait before an Ollama chat request is still under investigation.
 - **Files and child tools.** Browser uploads resolve the current project's file and verify what was selected. Ambiguous file patches are refused before writing; Windows child tools retain their required runtime environment. Selecting an upload is not proof that the destination website accepted it.
+- **Spending review.** Old pending receipts whose billing source was not recorded now say BILLING SOURCE UNKNOWN. Recorded managed and BYOK receipts retain their distinct guidance. Historical charges, caps and billing sources are not guessed; unresolved spend still blocks capped work. This improves the guidance but does not reconcile affected customer accounts.
 - **Fresh start and recovery.** Automatic legacy recovery respects an explicit erase/fresh start while preserving deliberate restore options.
 - **Checkpoint maintenance.** Maintenance also runs for unchanged snapshots, supervises Git work, and preserves recoverable history during replacement. The original customer's multi-hour macOS disk-growth scenario still needs affected-platform acceptance.
 
 ## Security
 
-Local authorization and instruction-provenance hardening is included in source. Final public notes must describe only the fixes accepted in the signed candidate; keep exploit details out until the corrected build is available. The pending issue batch and fresh cross-user report require separate reconciliation before the cut.
+Local authorization and instruction-provenance hardening is included in source. Final public notes must describe only the fixes accepted in the signed candidate; keep exploit details out until the corrected build is available. The reviewed issue batch is combined in this candidate; exact installed cross-user acceptance of the fresh authorization report remains outstanding.
 
 ## Heads-up for upgrades
 
@@ -38,7 +39,7 @@ Local authorization and instruction-provenance hardening is included in source. 
 
 ## Before the cut
 
-- Reconcile the pending issue batch and fresh email, GitHub and Whop intake. The Windows 0.13.2 packaged-backend startup report `85f602c4` remains open; no repair or customer recovery is claimed.
+- Resolve the explicit acceptance gaps from the reviewed issue batch and email/GitHub intake; complete the still-missing Whop intake. The Windows 0.13.2 packaged-backend startup report `85f602c4` remains open; no repair or customer recovery is claimed.
 - Complete exact-candidate source gates, Guardian/readiness, installed first use and upgrade/data continuity, native lifecycle, and the required product acceptance waves. Current source test passes do not authorize release.
 - Verify physical companion audio, real connector accounts and affected provider/platform cases where those claims are included; retain explicit limits otherwise.
 - Confirm an unused next version, run the ordered release cut, move all five pins together and re-lock source claims. Replace the scaffold with reviewed notes only at that point.
