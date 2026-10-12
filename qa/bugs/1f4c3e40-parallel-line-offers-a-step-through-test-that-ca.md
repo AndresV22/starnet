@@ -44,3 +44,9 @@ The combined gate exposed the parity harness needing to classify stepTestBarrier
 - API start, individual bay, TAKE TURNS, unrelated lines, and changing topology: test/routing.steptest.test.js (fast).
 - Multi-bay and restart behavior: test/routing.steptest.multibay.test.js and test/steptest-restart-spend.test.js (fast).
 - Installed desktop: unverified; no installer built.
+
+## Missing endpoint follow-up (2026-10-12)
+
+The combined candidate test751/1145 first exposed an obsolete source-spelling assertion, but running the actual seeded app with a404 step-test endpoint found a separate real defect: the correct fallback helper was hidden behind paintBodyInner's seam-only guard. The TEST view rendered the INBOX editor, with neither RUN ONE REAL JOB nor WATCH IT. Source8d8cc5e4a removes only that rendering guard and retains the compiled-line requirement. The actual picker owns capability refusal.
+
+The replacement conveyor-choices regression executes the actual decision, picker and panel dispatch against real compiled sequential/parallel plans. It failed14 assertions before the source repair and passes132 after. Missing/probing endpoint states now render REAL, explicit WATCH/REAL remain selectable, supported simple/TAKE TURNS lines keep STEP THROUGH, and unsupported parallel lines remain refused. Live Chrome on the same404 fixture confirms REAL visible, STEP start absent and disabled, WATCH clickable, errors empty. A second live pass confirms the parallel refusal, same-agent separate-line isolation and re-enabled TAKE TURNS behavior. Portable before/after proof is qa/evidence/conveyor-browser-20261012.json. Panel-source57, routing.steptest168 and website-sync8 also pass. The coordinator owns the fresh combined gates.

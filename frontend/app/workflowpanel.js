@@ -696,7 +696,8 @@ const WorkflowPanel = (() => {
     if (wasOpen) for (const [k, d] of detailsKeys(body)) if (wasOpen.has(k) && d.open !== wasOpen.get(k)) d.open = wasOpen.get(k);
   }
   function paintBodyInner(body, f) {
-    if (S.view === 'test' && comp() && S.seam === true) { paintTest(body, f); restoreDrafts(); return; }
+    // The picker owns capability fallback; an older sidecar still offers WATCH IT and RUN ONE REAL JOB.
+    if (S.view === 'test' && comp()) { paintTest(body, f); restoreDrafts(); return; }
     const p = prop(S.sel);
     if (!p) { body.innerHTML = '<p class="wf-help">Select a part of the line.</p>'; return; }
     if (p.t === 'bay') paintBay(body, f, p);
