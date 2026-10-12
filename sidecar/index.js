@@ -5516,19 +5516,20 @@ function adoptConnectorState(next) {
    into connectors/unreadable-<time>/ (never deleted) and a new empty store is written, sealed when the OS key
    exists. Only offered while the store is locked: a readable store is reset through /api/config/reset. */
 const connectorStorageCanStartFresh = () => !!connectorStorageReason;
-function startFreshConnectorStorage() {
+async function startFreshConnectorStorage() {
   if (!connectorStorageCanStartFresh()) return { ok: false, status: 409, error: 'Connector storage is not locked; nothing to start fresh from.' };
   let result;
   try { result = connectorVault.startFresh(CONNECTORS_STATE_FILE, [CONNECTORS_FILE, CONNECTORS_OAUTH_FILE], { stamp: new Date().toISOString() }); }
   catch (e) { console.error('[connectors] START FRESH failed: ' + ((e && e.message) || e)); return { ok: false, status: 500, error: (e && e.message) || 'START FRESH failed; connector storage remains locked and recovery files were preserved.' }; }
   connectorStorageError = ''; connectorStorageReason = '';
   adoptConnectorState(result.state);
+  await invalidateConnectorRuntime();
   console.log('[connectors] START FRESH: kept ' + (result.moved.join(', ') || 'nothing') + (result.movedTo ? ' in ' + result.movedTo : '') + '; new store ' + (connectorVault.protected ? 'encrypted' : 'NOT encrypted'));
   return { ok: true, movedTo: result.movedTo, moved: result.moved };
 }
 // Settings' connector reset of a LOCKED store IS start fresh: a removal write can never verify against a store it can't open.
-function resetLockedConnectors(json, section) {
-  const fresh = startFreshConnectorStorage();
+async function resetLockedConnectors(json, section) {
+  const fresh = await startFreshConnectorStorage();
   return fresh.ok ? json(200, { ok: true, section }) : json(fresh.status || 500, { ok: false, section, error: fresh.error });
 }
 function connectorStorageSnapshot() {
@@ -5725,14 +5726,29 @@ function forgetOauthClient(authServer) {
 }
 const connectorOauthPending = new Map();   // csrf state -> { id, attemptId, label, verifier, client credentials, tokenEndpoint, authorizationServer, resource, serverUrl, redirectUri, at }
 const connectorOauthAttempts = new Map();  // attemptId -> { id, controller }; cancellable discovery/registration work
+// Advanced only AFTER a durable all-connector reset. Old asynchronous work must never
+// restore a client, cached registration, or grant into the new store, even for the same id.
+let connectorResetGeneration = 0;
+function invalidateConnectorRuntime() {
+  connectorResetGeneration++;
+  for (const a of connectorOauthAttempts.values()) a.controller.abort();
+  connectorOauthAttempts.clear();
+  connectorOauthPending.clear();
+  githubDeviceFlow.cancelAll();
+  connectorOauthRefreshInFlight.clear();
+  connectorOauthRefreshBackoff.clear();
+  // remove() tears down synchronously; dispatch every removal before yielding to new work.
+  return Promise.all(connectors.ids().map(id => connectors.remove(id)));
+}
 const CONNECTOR_OAUTH_LEG_MS = 15000;
 const CONNECTOR_OAUTH_FLOW_MS = 60000;
 const githubDeviceFlow = require('./mcp/github-device.js').createDeviceFlow({
   fetchImpl: connectorOauthFetch,
   now: () => Date.now(),
-  snapshot: id => JSON.stringify([connectorConfigs.find(c => c && c.id === id) || null, connectorOauth.byId[id] || null]),
+  snapshot: id => JSON.stringify([connectorResetGeneration, connectorConfigs.find(c => c && c.id === id) || null, connectorOauth.byId[id] || null]),
   complete: async (id, grant, active) => {
     if (!active()) throw new Error('This connection changed while sign-in was open.');
+    const generation = connectorResetGeneration;
     const current = connectorConfigs.find(c => c && c.id === id);
     const entry = connectorCatalog.get(id);
     const missingFields = ((current && current.missingFields) || []).filter(f => f !== 'oauth' && f !== 'token');
@@ -5743,6 +5759,7 @@ const githubDeviceFlow = require('./mcp/github-device.js').createDeviceFlow({
     if (!persistConnectorState(next.configs, next.oauth)) throw new Error('GitHub authorized, but sign-in could not be saved. Your existing connection was kept.');
     adoptConnectorState(next);
     const result = await configureConnectorCfg(cfg);
+    if (generation !== connectorResetGeneration) throw new Error('This connection changed while sign-in was open.');
     const status = connectors.status(id);
     return { state: result && result.ok && status.state === 'up' ? 'connected' : 'error', saved: true,
       login: grant.account.login, toolCount: status.toolCount || 0,
@@ -5769,6 +5786,7 @@ function classifyOauthRefreshError(msg) {
   return 'network';   // fetch failed / timed out / DNS / connection reset / private-host refusal — the AS never answered
 }
 async function ensureConnectorOauthToken(id, force) {
+  const generation = connectorResetGeneration;
   const deferredCfg = connectorConfigs.find(c => c && c.id === id);
   if (googleConnectorDeferred(deferredCfg)) {
     return { token: '', refreshError: { kind: 'unavailable', message: googleDeferredMessage(deferredCfg) } };
@@ -5798,6 +5816,7 @@ async function ensureConnectorOauthToken(id, force) {
         const nt = await mcpOauth.refreshTokens({ fetchImpl: connectorOauthFetch, tokenEndpoint: cur.tokenEndpoint, refreshToken: cur.refreshToken,
           clientId: cur.clientId, clientSecret: cur.clientSecret, tokenEndpointAuthMethod: cur.tokenEndpointAuthMethod,
           resource: cur.resource, now: Date.now(), timeoutMs: CONNECTOR_OAUTH_LEG_MS });
+        if (generation !== connectorResetGeneration) return { token: '', refreshError: null };
         const currentCfg = connectorConfigs.find(c => c && c.id === id);
         const currentGrant = connectorOauth.byId[id];
         // A refresh belongs to the exact connector + grant generation that started it. An edit, import, remove,
@@ -5814,6 +5833,7 @@ async function ensureConnectorOauthToken(id, force) {
         connectorOauthRefreshBackoff.delete(id);
         return { token: nt.accessToken, refreshError: null };
       } catch (e) {
+        if (generation !== connectorResetGeneration) return { token: '', refreshError: null };
         const message = (e && e.message) || String(e);
         const kind = classifyOauthRefreshError(message);
         console.warn('[connectors] oauth refresh failed for ' + id + ' (' + kind + '):', message);
@@ -5825,7 +5845,7 @@ async function ensureConnectorOauthToken(id, force) {
         const after = connectorOauth.byId[id];          // hand back the freshest token we still have
         return { token: (after && after.accessToken) || cur.accessToken, refreshError: { kind, message } };
       }
-    })().finally(() => { connectorOauthRefreshInFlight.delete(id); });
+    })().finally(() => { if (connectorOauthRefreshInFlight.get(id) === flight) connectorOauthRefreshInFlight.delete(id); });
     connectorOauthRefreshInFlight.set(id, flight);
     return flight;
   }
@@ -5833,6 +5853,7 @@ async function ensureConnectorOauthToken(id, force) {
 }
 // configure a connector, injecting a fresh OAuth bearer for oauth connectors (kept out of the persisted config).
 async function configureConnectorCfg(cfg, options) {
+  const generation = connectorResetGeneration;
   if (connectorStorageError) {
     await connectors.configure(cfg.id, Object.assign({}, cfg, { enabled: false, token: '', tokenProvider: null }), options);
     return { ok: false, state: 'down', toolCount: 0, error: connectorStorageError };
@@ -5852,6 +5873,7 @@ async function configureConnectorCfg(cfg, options) {
       try { await executionEnvironment.ensureReady(aid); } catch (_) {}
     }
   }
+  if (generation !== connectorResetGeneration) return { ok: false, state: 'down', toolCount: 0, superseded: true };
   if (cfg && cfg.oauth) {
     // Pass a tokenProvider (NOT a frozen token) so the manager fetches a FRESH bearer on every connect / auto-
     // reconnect / Reload — an oauth connector no longer dies ~1h in when the access token expires. We ALWAYS
@@ -13877,9 +13899,8 @@ async function handleConfigReset(req, res) {
       if (connectorStorageReason) return resetLockedConnectors(json, section);
       const next = connectorStateMod.envelope([], { byId: {}, clients: {} });
       if (!persistConnectorRemoval(next.configs, next.oauth)) return json(500, { ok: false, section, error: 'connector reset could not be verified in both protected recovery copies; active connectors were left unchanged' });
-      const oldIds = connectorConfigs.map(c => c && c.id).filter(Boolean);
       adoptConnectorState(next);
-      for (const id of oldIds) { try { await connectors.remove(id); } catch (_) {} }
+      await invalidateConnectorRuntime();
       break;
     }
     case 'servicekeys': {
@@ -14184,7 +14205,7 @@ async function handleConnectorStorageStartFresh(req, res) {
   const json = (code, obj) => { res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(obj)); };
   let body; try { body = JSON.parse(await readBody(req, 1024)) || {}; } catch (e) { return json(400, { error: 'bad json' }); }
   if (body.confirm !== true) return json(400, { error: 'START FRESH needs { confirm: true }' });
-  const r = startFreshConnectorStorage();
+  const r = await startFreshConnectorStorage();
   if (!r.ok) return json(r.status || 500, { ok: false, error: r.error });
   return json(200, { ok: true, movedTo: r.movedTo, moved: r.moved, credentialStorage: connectorStorageSnapshot() });
 }
@@ -14547,7 +14568,12 @@ async function handleConnectorOauthStart(req, res) {
   if (connectorOauthAttempts.has(attemptId)) return json(409, { error: 'this sign-in attempt is already running', attemptId });
   const controller = new AbortController();
   const deadlineAt = Date.now() + CONNECTOR_OAUTH_FLOW_MS;
-  connectorOauthAttempts.set(attemptId, { id: entry.id, controller });
+  const generation = connectorResetGeneration;
+  const attempt = { id: entry.id, controller };
+  connectorOauthAttempts.set(attemptId, attempt);
+  const assertCurrent = () => {
+    if (generation !== connectorResetGeneration || controller.signal.aborted) throw new Error('Sign-in cancelled.');
+  };
   let completed = false;
   const abortOnClose = () => { if (!completed) controller.abort(); };
   req.once('aborted', abortOnClose);
@@ -14556,6 +14582,7 @@ async function handleConnectorOauthStart(req, res) {
   try {
     if (entry.deviceFlow) {
       const result = await githubDeviceFlow.start(attemptId, entry.id, controller.signal);
+      assertCurrent();
       completed = true;
       return json(200, result);
     }
@@ -14577,7 +14604,7 @@ async function handleConnectorOauthStart(req, res) {
       // A new attempt supersedes old links for this card. Keep callback work cancellable
       // until its durable commit, including while token exchange/userinfo is in flight.
       for (const [key, p] of connectorOauthPending) if (p.id === entry.id) connectorOauthPending.delete(key);
-      connectorOauthPending.set(state, { id: entry.id, attemptId, label: entry.name, verifier: verifier,
+      connectorOauthPending.set(state, { id: entry.id, attemptId, generation, label: entry.name, verifier: verifier,
         clientId: cached.clientId, clientSecret: cached.clientSecret || '', tokenEndpointAuthMethod: method,
         tokenEndpoint: so.tokenEndpoint, authorizationServer: as, resource: '',
         serverUrl: entry.url, redirectUri: CONNECTOR_OAUTH_REDIRECT, at: Date.now(),
@@ -14599,6 +14626,7 @@ async function handleConnectorOauthStart(req, res) {
       www = (pr.headers && pr.headers.get && pr.headers.get('www-authenticate')) || '';
     } catch (_) {}
     const disc = await mcpOauth.discover({ fetchImpl: connectorOauthFetch, serverUrl: entry.url, wwwAuthenticate: www, signal: controller.signal, timeoutMs: CONNECTOR_OAUTH_LEG_MS, deadlineAt, now: net.now });
+    assertCurrent();
     // Reuse a compatible cached client for this authorization server, else dynamically register one (RFC 7591).
     // Most MCP servers accept a public PKCE client. Supabase and monday.com currently advertise only a
     // confidential token-endpoint method, so their DCR-issued secret must survive callback + refresh + restart.
@@ -14617,6 +14645,7 @@ async function handleConnectorOauthStart(req, res) {
       const reg = await mcpOauth.registerClient({ fetchImpl: connectorOauthFetch, registrationEndpoint: disc.registrationEndpoint,
         redirectUri: CONNECTOR_OAUTH_REDIRECT, clientName: 'StarNet', tokenEndpointAuthMethod: requiredAuthMethod,
         signal: controller.signal, timeoutMs: CONNECTOR_OAUTH_LEG_MS, deadlineAt, now: net.now });
+      assertCurrent();
       clientId = reg.clientId;
       clientSecret = reg.clientSecret;
       tokenEndpointAuthMethod = reg.tokenEndpointAuthMethod;
@@ -14634,7 +14663,8 @@ async function handleConnectorOauthStart(req, res) {
     // Every discovered endpoint already passed mcpOauth's https/public-host/no-credentials check (catalog too); the
     // untrusted custom-server boundary additionally resolves DNS and fails closed on a private answer.
     if (target.custom) await connectorOauthPublicUrl(disc.authorizationEndpoint);
-    connectorOauthPending.set(state, { id: entry.id, attemptId, label: entry.name, custom: target.custom === true, verifier: verifier, clientId: clientId,
+    assertCurrent();
+    connectorOauthPending.set(state, { id: entry.id, attemptId, generation, label: entry.name, custom: target.custom === true, verifier: verifier, clientId: clientId,
       clientSecret: clientSecret, tokenEndpointAuthMethod: tokenEndpointAuthMethod,
       tokenEndpoint: disc.tokenEndpoint, authorizationServer: disc.authorizationServer, resource: disc.resource,
       serverUrl: entry.url, redirectUri: CONNECTOR_OAUTH_REDIRECT, at: Date.now() });
@@ -14648,7 +14678,7 @@ async function handleConnectorOauthStart(req, res) {
     const msg = (e && e.message) || 'oauth start failed';
     json(/cancelled/i.test(msg) ? 499 : 502, { error: msg, attemptId, cancelled: /cancelled/i.test(msg) });
   } finally {
-    connectorOauthAttempts.delete(attemptId);
+    if (connectorOauthAttempts.get(attemptId) === attempt) connectorOauthAttempts.delete(attemptId);
     req.removeListener('aborted', abortOnClose);
     res.removeListener('close', abortOnClose);
   }
@@ -14728,6 +14758,7 @@ async function handleConnectorOauthCallback(req, res) {
       redirectUri: pending.redirectUri, clientId: pending.clientId, clientSecret: pending.clientSecret,
       tokenEndpointAuthMethod: pending.tokenEndpointAuthMethod, verifier: pending.verifier, resource: pending.resource,
       now: Date.now(), timeoutMs: 30000 });
+    if (pending.generation !== connectorResetGeneration) return page('Sign-in cancelled', 'Connector storage was reset while sign-in was open. Please start again.', false);
     if (!tok.accessToken) return page('Sign-in failed', 'The provider did not return an access token.', false);
     if (pending.googleApi) {
       const granted = new Set(String(tok.scope || '').split(/\s+/));
@@ -14749,9 +14780,9 @@ async function handleConnectorOauthCallback(req, res) {
     // Picker permits drive.file alone; do not call userinfo or ask for identity scopes.
     oauthEntry.account = pending.id === 'google-files' ? null : await require('./mcp/account.js').readGoogleAccount({ authorizationServer: pending.authorizationServer,
       tokenEndpoint: pending.tokenEndpoint, accessToken: tok.accessToken, fetchImpl: connectorOauthFetch, now: Date.now() });
-    if (pending.googleApi && (connectorOauthPending.get(state) !== pending ||
+    if (pending.generation !== connectorResetGeneration || (pending.googleApi && (connectorOauthPending.get(state) !== pending ||
         JSON.stringify(connectorConfigs.find(c => c && c.id === pending.id) || null) !== pending.originalConfig ||
-        JSON.stringify(connectorOauth.byId[pending.id] || null) !== pending.originalGrant)) {
+        JSON.stringify(connectorOauth.byId[pending.id] || null) !== pending.originalGrant))) {
       return page('Sign-in cancelled', 'This connection changed while sign-in was open. Your current settings were kept.', false);
     }
     // FAIL THE SIGN-IN LOUDLY if the exchanged tokens can't be proven on disk (read-back + retry). A silent persist
@@ -14770,11 +14801,13 @@ async function handleConnectorOauthCallback(req, res) {
     }
     adoptConnectorState(next);
     const result = await configureConnectorCfg(cfg);
+    if (pending.generation !== connectorResetGeneration) return page('Sign-in cancelled', 'Connector storage was reset while sign-in was open. Please start again.', false);
     if (remainingMissing.length) return page('Sign-in saved', pending.label + ' authorized, but the connector still needs: ' + remainingMissing.join(', ') + '.', false);
     if (result && result.ok && result.state === 'up') return page(pending.label + ' connected', pending.label + ' is connected — ' + (result.toolCount || 0) + ' tool(s) now available to your agents.', true);
     return page('Almost there', pending.label + ' authorized, but the connection did not come up: ' + ((result && result.error) || 'unknown error') + '. Try Reload from the connectors panel.', false);
   } catch (e) {
     const msg = (e && e.message) || String(e);
+    if (pending.generation !== connectorResetGeneration) return page('Sign-in cancelled', 'Connector storage was reset while sign-in was open. Please start again.', false);
     if (/invalid_client|unauthorized_client/i.test(msg) && pending && pending.authorizationServer) forgetOauthClient(pending.authorizationServer);
     return page('Sign-in failed', 'Token exchange failed: ' + msg, false);
   } finally {

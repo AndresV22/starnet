@@ -8,7 +8,7 @@ Baseline: bbe1aa106 (coordinated source, fast-forwarded into this isolated lane;
 
 After a successful boot, a temporary EACCES reading connectors/state.json during save causes the vault to lock itself with reason unreadable. The API correctly rejects the save, but its separately cached connectorStorageError/connectorStorageReason remain empty. GET /api/connectors therefore presents no storage lock and can still mark storage encrypted/available. The new real-sidecar test failed on unchanged source with actual reason null, expected unreadable. This is a reproduced runtime-status flaw, NOT a demonstrated cause of the original customer losing sign-in.
 
-The patch synchronizes the existing public lock state after a failed credential save or removal only when connectorVault.locked is true. It keeps the vault's actual reason. A write-only ENOSPC refusal is not falsely labelled a locked store. No encryption format, key generation, credential migration, recovery deletion or runtime reconnect policy changes.
+The patch synchronizes the existing public lock state after a failed credential save or removal only when connectorVault.locked is true. It keeps the vault's actual reason. A write-only ENOSPC refusal is not falsely labelled a locked store. No encryption format, key generation, credential migration or recovery deletion changes. The follow-up reset correction below invalidates runtime connections only after the durable reset succeeds.
 
 ## Focused proof
 
@@ -17,6 +17,26 @@ The patch synchronizes the existing public lock state after a failed credential 
 - test/helpers/connector-recovery-fault-host.cjs limits injected faults to exact connector state paths under the fixture-created starnet-credential-recovery-* temporary root. The control file is synthetic and no real profile is inspected.
 - Existing connector-vault unit suite passed. The focused HTTP runner passed all three selected suites: connector-vault-invalid, connector-storage-start-fresh, connector-recovery-reconnect. Syntax checks passed. No broad gate was run.
 - Raw before/after receipts remain private in .dogfood/credential-recovery-e7b2ffcd/{before,after,vault,focused-http}.log. The registered test is the reproducible receipt; no credentials or customer transcript are committed.
+
+## START FRESH review blocker and follow-up
+
+Review of fd368c510 identified a newly reachable case: a healthy running connector can discover an unreadable vault during a later save, then use START FRESH. On fd368c510, the durable reset succeeded but the actual manager still reported the old client up, with a token and fixture_tool available. test/connector-reset-runtime.http.test.js reproduced that failure in a running production sidecar, using only a synthetic provider and temporary profile. The before receipt is .dogfood/credential-recovery-e7b2ffcd/runtime-before.log.
+
+Successful START FRESH and ordinary connector settings reset now share runtime invalidation. After durable replacement succeeds, they advance a reset generation, cancel discovery and GitHub device attempts, discard pending callback links and refresh bookkeeping, and remove every manager client before returning success. Generation checks fence delayed registration, code exchange, account lookup, refresh, and asynchronous configuration so old work cannot repopulate the new store. Old refresh completion cannot delete a newer refresh flight. Failed durable reset does not advance that generation or remove clients or pending sign-ins.
+
+The new registered HTTP regression verifies:
+
+- A healthy connector completes a real manager tool call before an injected EACCES exposes the runtime vault lock.
+- Failed START FRESH restores byte-identical primary/backup files, keeps the old tool callable, and preserves the pending OAuth/device attempts. Failed ordinary reset also preserves durable data and the live client.
+- Successful START FRESH removes runtime rows/tools; the same manager tool call then fails. A code exchange held across that reset returns cancelled and cannot recreate its grant or connector. Device polling is cancelled.
+- Ordinary settings reset invalidates an unopened callback link. Settings reset of a locked store cancels registration already in progress; its late response cannot recreate the cached client.
+- A newly saved credential connects, survives process quit/restart, and can call the synthetic tool. An expired-token refresh held across another reset cannot overwrite a newly connected successor with the same connector id.
+
+The provider and manager probe are test-only, guarded to the same temporary-root prefix as the existing fault host. The production manager, client, vault, routes and persistence run unchanged apart from this repair. Provider acceptance is simulated; no real provider account, installed native keychain, customer profile or native launch is covered. This is live sidecar/API evidence, not a UI or installed-app acceptance claim. In-flight remote effects cannot be undone by local reset.
+
+Follow-up validation passed: syntax checks for every changed JavaScript file; git diff --check; two selected fast-list suites (connector-vault and github-device); seven selected HTTP suites (connector-oauth-refresh-race, github-device.http, google-signin.e2e, connector-vault-invalid, connector-storage-start-fresh, connector-recovery-reconnect, connector-reset-runtime).
+
+Raw follow-up receipts: .dogfood/credential-recovery-e7b2ffcd/{runtime-before,runtime-after,reset-unit,reset-focused-http}.log. Broad gates and integration belong to the coordinator; no trunk changes were made. The original customer issue remains OPEN.
 
 ## Native seam and remaining acceptance
 

@@ -212,3 +212,5 @@ test/crew-call.http.test.js
 test/legacy-spend-provenance.http.test.js
 
 test/connector-recovery-reconnect.http.test.js
+
+test/connector-reset-runtime.http.test.js
