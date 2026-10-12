@@ -1,0 +1,60 @@
+{
+  "capturedAtUtc": "2026-10-12T10:11:31.083Z",
+  "implementationHead": "343fecc2f49fb256de53b7de79b61bfdf39dd67b",
+  "status": "focused-followups-verified; combined gates and installed acceptance pending",
+  "coordinatorFrozenDiagnostic": "2c366fd8ffbf18a40cdec41db09986ac022aef6c",
+  "fixes": [
+    {
+      "commit": "d9e37d4c9f529b6a2a8ba7f5537afbd453ddef6e",
+      "kind": "stale test expectation",
+      "path": "test/report-0110-regressions.test.js",
+      "proof": "8 assertions; metered cap and unknown spend return false before provider setup; unmetered bypass and pending retries preserved"
+    },
+    {
+      "commit": "3379ec70447bf7413ffd08dd3249cabcc3a751d2",
+      "kind": "stale source regex replaced with behavior",
+      "path": "test/untrusted-taint.test.js",
+      "proof": "86 assertions; file-only, typed-plus-file, historical attachments, quoted input and forged capture fields"
+    },
+    {
+      "commit": "41f0dda0566f1207b1f7779a23c69f98f80f575f",
+      "kind": "candidate policy fixture correction",
+      "path": "test/browser-workflow.test.js",
+      "proof": "fresh child process retains pending revision/digest/files; unapproved skill remains inactive"
+    },
+    {
+      "commit": "c98d09d57c6a60279728121b8b16f1fdda4cca0f",
+      "kind": "observable fail-closed provenance lookup",
+      "path": "sidecar/tools/builtin/recall.js",
+      "proof": "recall 63 and transcript-history-v2 43 assertions; fixed diagnostic without private exception content; no ratchet baseline change"
+    },
+    {
+      "commit": "9e93b6cba",
+      "original": "65a988beec708eeccf8a97ec8662a6ed4c8b6c6d",
+      "kind": "stale semantic-only expectation",
+      "path": "test/failreview.e2e.test.js",
+      "proof": "87 assertions; old alias query now positive, genuinely nonmatching negative becomes semantic positive; project isolation, embedding-off, durable vectors, query cache and pause preserved"
+    },
+    {
+      "commit": "13357b5ac41a2d4311d84b6ed458ef93a2605174",
+      "requires": "2d865ad7cea185c6db187d8002d09c2e05364388",
+      "kind": "independent production provenance leak",
+      "canonicalBug": "qa/bugs/6e750350-recent-activity-drops-source-provenance.md",
+      "proof": "r20-attachment-context-live.json; contextpack104 and nightshift-contextpack19; root integrated taint86 and trusted-learning passed"
+    }
+  ],
+  "sourceHashes": {
+    "sidecar/index.js": "edd0412d05ae75421dadc4ad10cbe8dbf6d2a1036bb57945628fa8e7c9d827be",
+    "sidecar/tools/builtin/recall.js": "65bd8b273dc714f56fe42c38530947effd5137b2ed9fc680db2124e8bb5e857d",
+    "test/memory-learning-boundary.http.test.js": "f222b83ddcce9fefc11008a2126ec809891b5e057845e0b19ada9abb55186ee2",
+    "test/contextpack.test.js": "18b3e8a7211b768645b8e403cfb434a9ccb607f8996eb4a09e34d2e03c63e7e6",
+    "test/nightshift-contextpack.e2e.test.js": "14baeac933050b84d4b2432d7d4ae4c7659b4fa806440c104e34e52cd36ee041"
+  },
+  "concurrency": "All edits and focused checks in isolated owner worktrees. No shared trunk edits, broad gate duplication, shared-contract changes or ratchet baseline adjustments.",
+  "limitations": [
+    "No complete combined fast or HTTP gate pass claimed.",
+    "No installed release acceptance or customer recovery claimed.",
+    "No REA execution: manual local harness comparison remains the audit evidence.",
+    "No general real-model self-improvement benchmark."
+  ]
+}
