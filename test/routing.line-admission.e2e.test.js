@@ -56,6 +56,9 @@ const Pipeline = require('../frontend/app/pipeline.js');
     assert.equal(result.body.delivered, null, 'the refused job never claims delivery');
     const job = await fixture.json('GET', '/api/line-jobs/' + result.body.jobId);
     assert.equal(job.body.job.status, 'failed', 'the line history keeps the refused job');
+    // no run row exists for a refused entry: the job record and the route's error carry the cap, never "no step ran"
+    assert.match(String(job.body.job.error || ''), capText, label + ': the job record says why it failed: ' + JSON.stringify(job.body.job.error));
+    assert.match(String(result.body.error || ''), capText, label + ': the route\'s error names the cap: ' + JSON.stringify(result.body.error));
     return result;
   }
   try {

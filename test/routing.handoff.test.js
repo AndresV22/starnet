@@ -384,6 +384,24 @@ function station(n) {
     const rec6 = jobs.jobs.filter(j => j.line === LB).pop();
     A.ok(rec6 && rec6.status === 'stopped' && /E-STOP/.test(rec6.error), 'E-STOP: the hand-off’s record is STOPPED — ' + JSON.stringify(rec6 && { status: rec6.status, error: rec6.error }));
   }
+
+  /* THE CAP WON THE RACE: the hand-off passed its dispatch preflight, then LINE B's own work reached the day limit before the entry
+     ran — runOnceCore refuses before any run row exists and the hub replies with the reason. The record says that reason, never
+     the bare "no step ran" (the trigger runner's pattern: the hub's ⚠ reply is the only witness when no run was recorded) */
+  {
+    const capWords = 'The line reached its $1.00 daily limit — raise its LINE BUDGET or try again tomorrow.';
+    const R8 = makeHandoffRunner({ makeHub: (hooks) => ({ onInbound() {
+        const docks = crewedDocksOnLine(plan, hooks.lineId()).sort(P.propIdCmp), agentId = plan.agentOfDock[docks[0]];
+        hooks.onRouted({ agentId, dockId: docks[0] }); hooks.onResolved({ agentId, lineId: hooks.lineId(), dockId: docks[0] });
+        hooks.send('⚠ ' + capWords);
+        return Promise.resolve();
+      } }), plan: () => plan, jobs: J, shipsToOutbox: () => true, runsFor: sid => runsByStream[sid] || [], now: () => clock,
+      newId: () => 'id' + (++n) + 'abcdef0123456789', warn: () => {} });
+    const s8 = R8.onShipped(fresh('sample-cap-race', LA, lastA));
+    await tick(30);
+    const rec8 = jobs.jobs.filter(j => j.line === LB).pop();
+    A.ok(s8.ok && rec8 && rec8.status === 'failed' && rec8.error === capWords, 'a hand-off the day cap refused at the run says the cap, not "no step ran" — ' + JSON.stringify(rec8 && { status: rec8.status, error: rec8.error }));
+  }
 }
 )().then(() => {
   /* ---------- THE RECORD (linejobs) ---------- */

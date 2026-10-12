@@ -283,7 +283,9 @@ function makeHandoffRunner(deps) {
       if (threw && threw.error) err = 'the line failed: ' + threw.error;
       else if (!info || !info.agentId || !s.current.routed || s.current.routed.agentId !== info.agentId) err = 'the line routed this work to no dock';
       else if (!onLine) err = 'the work did not enter through this line';
-      else if (!runs.length) err = 'no step ran';
+      // no run row, but the hub said why (the day cap reached between the preflight and the run): that reason, never a bare
+      // "no step ran" — the trigger runner's pattern
+      else if (!runs.length) err = (s.current.replies.find(x => /^⚠/.test(String(x).trim())) || '').trim().replace(/^⚠\s*/, '').trim() || 'no step ran';
       else if (!allDone) err = 'a step did not finish cleanly';
       else if (lo && lo.stopped) err = 'the line stopped early: ' + lo.stopped;
       else err = 'the line did not reach its OUTBOX';
