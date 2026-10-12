@@ -88,6 +88,8 @@
       // run yet, a run currently in flight (appendRun resets it), or a pre-upgrade save. The board's DONE
       // chip reads this so a run that died can never wear "DONE — REVIEW & SHIP" (truthful telemetry).
       lastRunOk: opts.lastRunOk === true ? true : (opts.lastRunOk === false ? false : null),
+      // The backend's terminal reason is stronger evidence than a completed transport or a filed run id.
+      lastRunReason: typeof opts.lastRunReason === 'string' ? clamp(opts.lastRunReason.trim(), 80) : '',
       // the model id the SIDECAR reported for this stream's most recent run (harness usage payload,
       // not local config) — the only model claim about a session this app can actually prove. '' = we
       // have never measured one here: no run yet, or a save written before this field existed. The
@@ -412,7 +414,7 @@
     const w = find(id); if (!w || !runId) return false;
     // tolerate dup / no-op runs (e.g. the no-tool-support early error); only a NEW run resets the
     // outcome to unknown — a dup re-file of an already-settled run must not erase its truth.
-    if (w.runIds.indexOf(runId) < 0) { w.runIds.push(runId); w.lastRunOk = null; }
+    if (w.runIds.indexOf(runId) < 0) { w.runIds.push(runId); w.lastRunOk = null; w.lastRunReason = ''; }
     if (w.lane === 'todo') w.lane = 'active';                // hybrid-honest: a REAL run fired
     w.lastActiveAt = Number(at) > 0 ? Number(at) : now();
     if (id === activeId) w.lastReadAt = w.lastActiveAt;      // the open stream is being watched, not unread
@@ -422,10 +424,11 @@
   // when the run errored in flight, ok=true when the stream completed. Only the stream's CURRENT (last-filed)
   // run may settle the flag — a stale callback from an older run is refused so it can never overwrite the
   // newer run's truth, and an outcome with no filed run is unanchored and refused too.
-  function noteRunEnd(id, runId, ok) {
+  function noteRunEnd(id, runId, ok, reason) {
     const w = find(id); if (!w || !runId) return false;
     if (!w.runIds.length || w.runIds[w.runIds.length - 1] !== runId) return false;
     w.lastRunOk = ok === true;
+    if (typeof reason === 'string' && reason.trim()) w.lastRunReason = clamp(reason.trim(), 80);
     return true;
   }
   function recordDeliverable(id, d) {
