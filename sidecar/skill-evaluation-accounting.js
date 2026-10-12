@@ -26,7 +26,8 @@ function makeEvaluationAccounting(options) {
       else if (o.budget) o.budget.noteLive(runId, o.unmetered ? 0 : spentUsd);
     },
     onRun({ result, runId }) {
-      if (!result || ['error', 'cancelled', 'runner-error'].includes(result.reason) || result.accountingIncomplete || !Number.isFinite(result.usd) || result.usd < 0 || !Number.isFinite(result.tokens) || result.tokens < 0 || (result.unpricedUsage || []).length) {
+      // Unpriced usage is unknown spend only on a metered provider; an unmetered run books as unmetered, out of USD caps.
+      if (!result || ['error', 'cancelled', 'runner-error'].includes(result.reason) || result.accountingIncomplete || !Number.isFinite(result.usd) || result.usd < 0 || !Number.isFinite(result.tokens) || result.tokens < 0 || (!o.unmetered && (result.unpricedUsage || []).length)) {
         unknown(runId);
         // Keep the dispatch receipt for explicit settlement, now or after restart.
         throw new Error('Evaluation spend is incomplete; its dispatch receipt remains unsettled.');

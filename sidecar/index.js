@@ -18671,7 +18671,7 @@ async function handleSkillCandidateAction(req, res) {
     const accounting = makeEvaluationAccounting({ ledger, budget, agentId, provider: providerId, model: cfg.model, unmetered });
     try {
       const provider = await providerForRunConfig(cfg, resolveReasoningEffort(providerId, cfg.reasoningEffort));
-      const runCase = SkillEvaluationRunner.makeAgentLoopCaseRunner({ provider, model: cfg.model, cost: makeCostEngine({ priceOf: provider.priceOf }), clock: { now: () => Date.now() },
+      const runCase = SkillEvaluationRunner.makeAgentLoopCaseRunner({ provider, model: cfg.model, unmetered, cost: makeCostEngine({ priceOf: provider.priceOf }), clock: { now: () => Date.now() },
         runIdPrefix: 'skill-eval-' + crypto.randomUUID(), limits: { maxIters: 8, maxCostUsd: 0.08, grace: false },
         authorize: async () => !controller.signal.aborted && accounting.canContinue() && (unmetered || !budget.check(null, agentId, 0, Date.now(), null)),
         beforeRun: accounting.beforeRun,
