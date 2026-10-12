@@ -25,7 +25,7 @@ Stamp PARALLEL CREW, crew each bay, and swap its MERGER for a JOINER. Complete a
 
 Against source a20ffa71f, the real WorldModel blueprint/compiler/router combination counted three productive branch rows as three shipments, then zero after removing its OUTBOX. The repaired fold returns one before and after. Production records a durable receipt only at the chain's actual terminal OUTBOX callback, keyed by exact line and entry run, after confirming clean productive run evidence. It never invents receipts for old runs.
 
-Focused verification: line-stats 83 assertions, routing.handoff 76, chain-audit-1010 43, splitter-divide 67, channels.hub 163, cron.chain 67, existing real-sidecar routing.linestats 23. Backend determinism and changed-file syntax passed. test/routing.handoff.e2e.test.js passed through the real sidecar: talk-only SHIPPED=0; an actual fs.write job SHIPPED=1; removing its OUTBOX leaves SHIPPED=1; restarting the sidecar retains SHIPPED=1. The fixture uses a local deterministic provider and no paid service.
+Focused verification: line-stats 96 assertions, routing.handoff 76, chain-audit-1010 43, splitter-divide 67, channels.hub 163, cron.chain 67, existing real-sidecar routing.linestats 23. Backend determinism and changed-file syntax passed. test/routing.handoff.e2e.test.js passed through the real sidecar: talk-only SHIPPED=0; an actual fs.write job SHIPPED=1; removing its OUTBOX leaves SHIPPED=1; restarting the sidecar retains SHIPPED=1. The fixture uses a local deterministic provider and no paid service.
 
 ## Regression
 
@@ -42,4 +42,4 @@ The old implementation incremented per successful productive run if the current 
 
 ## Verdict
 
-Source-fixed and real-sidecar verified. Existing history without terminal receipts is not reconstructed from today's geometry. Combined fast/HTTP gates, UI acceptance and installer verification remain separate; no publication claim.
+Source-fixed and real-sidecar verified. Existing history without terminal receipts is not reconstructed from today's geometry. Follow-up storage review found that a failed initial receipt read could cache an empty history and overwrite it after recovery. The regression failed five assertions before the repair; load status is now checked, failed loads remain retryable, and writes fail closed until existing receipts are readable. Real-sidecar fault proof returned an error rather than zero for an invalid envelope, completed work without overwriting it, and recovered the saved count on the next poll after restoration. Combined fast/HTTP gates, UI acceptance and installer verification remain separate; no publication claim.

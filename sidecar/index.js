@@ -259,7 +259,7 @@ const LineJobs = require('./routing/linejobs.js');   // WORKFLOWS — every job 
 const LineDraft = require('./routing/linedraft.js');   // WORKFLOWS › SET IT UP FOR ME — "what should it make?" → a starter, a name, each step's instructions (/api/routing/line-draft)
 const LineFix = require('./routing/linefix.js');   // NOT RIGHT? — a result the Commander doesn't want → fixes to the line's step instructions (/api/routing/fix-suggest)
 const { lineStats: foldLineStats } = require('./routing/line-stats.js');   // LINE WATCH: per-line runs/shipped/failed/$ + each bay's last outcome (GET /api/routing/lines/stats)
-const { makeLineShipments, cleanShipments } = require('./routing/line-shipments.js');
+const { makeLineShipments, cleanShipments, loadShipmentReceipts } = require('./routing/line-shipments.js');
 const { makeLineSpend } = require('./routing/line-spend.js');   // per-line DAY spend ledger (LINE BUDGET maxUsdPerDay) — durable sibling of routing.plan.json
 const LineTriggers = require('./routing/triggers.js');   // LINE TRIGGERS (2026-09-23): folder/webhook events that start ONE line
 const { makeTriggerRunner, crewedDocksOnLine } = require('./routing/trigger-runner.js');
@@ -5295,10 +5295,11 @@ const lineSpend = makeLineSpend({
 const lineShipmentStore = makeDomainStore({
   fs, path, file: path.join(WORKSPACES, 'line-shipments.json'), version: 1, writeDurable: writeFileDurable,
   defaults: () => [], normalize: cleanShipments,
+  decode: envelope => envelope && Array.isArray(envelope.value) ? envelope.value : undefined,
   onIssue: reportDomainStoreIssue('line-shipments')
 });
 const lineShipments = makeLineShipments({
-  now: () => Date.now(), load: () => lineShipmentStore.load().value,
+  now: () => Date.now(), load: () => loadShipmentReceipts(lineShipmentStore),
   save: value => lineShipmentStore.save(value),
   runsFor: streamId => runStore.list(null, { streamId, limit: 200 })
 });

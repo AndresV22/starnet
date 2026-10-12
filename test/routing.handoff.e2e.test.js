@@ -149,7 +149,21 @@ test('a job that ships on LINE A rides on to LINE B by SEND TO', async () => {
     assert.equal(await shipped(), 1, 'removing its OUTBOX cannot rewrite the previous shipment');
     await fixture.restart();
     assert.equal(await shipped(), 1, 'terminal-job receipt survives a real sidecar restart');
-
+    // A semantic read failure is not permission to replace existing history.
+    // Keep valid bytes locally, boot with an invalid envelope, then restore it
+    // while the sidecar is running: the first failed read must remain retryable.
+    await arm(geoOf(null));
+    await fixture.stop();
+    const receiptFile = path.join(fixture.workspace, 'line-shipments.json');
+    const savedReceipts = fs.readFileSync(receiptFile, 'utf8');
+    const invalidReceipts = JSON.stringify({ version: 1, value: { invalid: true } });
+    fs.writeFileSync(receiptFile, invalidReceipts);
+    await fixture.start();
+    assert.equal((await fixture.json('GET', '/api/routing/lines/stats?since=1')).status, 500, 'unreadable history is not reported as zero shipments');
+    assert.equal((await fixture.json('POST', '/api/routing/sample', { line: LA, text: 'Another short answer.', name: 'A' })).status, 200, 'receipt storage failure does not block actual work');
+    assert.equal(fs.readFileSync(receiptFile, 'utf8'), invalidReceipts, 'a completed job cannot overwrite an unreadable prior history');
+    fs.writeFileSync(receiptFile, savedReceipts);
+    assert.equal(await shipped(), 1, 'next real stats poll retries and recovers the preserved history');
 
   } finally {
     await fixture.dispose();
