@@ -1263,7 +1263,9 @@
   const AGENT_HANDOFF = {
     FROM_OUTBOX: 'an OUTBOX ends its line: no belt leaves it. To hand this line\'s finished work to another line, send it there: { op: "send", from: this OUTBOX, to: that line\'s INBOX } (SEND TO, a pointer on the OUTBOX, never a belt)',
     INTO_INBOX: 'an INBOX is where a line starts: no belt runs into it. To feed it another line\'s finished work: { op: "send", from: that line\'s OUTBOX, to: this INBOX } (SEND TO, never a belt)',
-    NOT_INBOX: 'an OUTBOX sends its work on only to another line\'s INBOX: to is that INBOX (its id, an as, or its tile), or null to send nowhere'
+    NOT_INBOX: 'an OUTBOX sends its work on only to another line\'s INBOX: to is that INBOX (its id, an as, or its tile), or null to send nowhere',
+    // (2026-10-12) only reached when one send cannot convert the old belt by itself: the OUTBOX has more than one
+    OLD_BELT: 'old belts already join this OUTBOX to other lines\' INBOXes, which fuses those lines into one. Take up the extra ones first with { op: "unbelt", tiles: every tile of that belt } (station.map with { room } lists the belts), then { op: "send", from: this OUTBOX, to: that INBOX } turns the last one into a SEND TO'
   };
   const agentMsg = r => (r && AGENT_HANDOFF[r.error]) || wmMsg(r);
   const LOOP_WHEN = /^(approved|revise|code|research|general)$/, CONNECTOR_T = /^connector_portal$/, DIR_WORD = { N: 'north', E: 'east', S: 'south', W: 'west' };
@@ -1287,7 +1289,18 @@
     // line, a circle, an end on no line) — one pointer, never a belt; the card names it as weighty as a budget (it starts paid jobs)
     const sendOn = (O, I, why) => {
       if (typeof st.setSendTo !== 'function') return refuse('this page cannot send one line on to another; reload it');
-      const r = st.setSendTo(O.id, I.id); if (!r || !r.ok) return refuse(agentMsg(r));
+      const r = st.setSendTo(O.id, I.id);
+      /* AN OLD BELT already joins this OUTBOX to that INBOX (a save from before SEND TO): "send A on to B" is exactly the Workflow
+         panel's MAKE IT A SEND TO, so it is that — the floor's own convertHandoffBelt (the belt lifted, the pointer set, one undo
+         with the rest of the plan), said plainly on the card. Several old belts out of it: AGENT_HANDOFF.OLD_BELT names the ops. */
+      if (r && r.error === 'OLD_BELT' && typeof st.convertHandoffBelt === 'function' && typeof st.oldHandoffBelts === 'function') {
+        const old = st.oldHandoffBelts(O.id) || [];
+        if (old.length !== 1 || old[0].intakeId !== I.id) return refuse(agentMsg(r));
+        const c = st.convertHandoffBelt(O.id); if (!c || !c.ok) return refuse(agentMsg(c));
+        return { ok: true, res: c, weighty: 'SEND TOs', text: 'the old belt from the OUTBOX at ' + at(O.x, O.y) + ' into ' + lineWordOf(st, env, I.id) + '\'s INBOX at ' + at(I.x, I.y)
+          + ' taken up: the OUTBOX now sends every finished job on to it (SEND TO), so the two lines work separately and its own crew works each job next at its own cost' + (why || '') };
+      }
+      if (!r || !r.ok) return refuse(agentMsg(r));
       return { ok: true, res: r, weighty: 'SEND TOs', text: 'the OUTBOX at ' + at(O.x, O.y) + ' sends every finished job on to ' + lineWordOf(st, env, I.id) + ' (its INBOX at ' + at(I.x, I.y) + '), whose own crew works it next at its own cost (SEND TO)' + (why || '') };
     };
     // a whole line by its name (line) or by any machine on it (prop, or a piece given as line)
@@ -1295,7 +1308,9 @@
       const piece = pref != null ? pref : (lref != null && (names[lref] || tileOf(lref) || (typeof lref === 'string' && st.propById(lref)))) ? lref : null;
       if (piece != null) { const t = propRef(piece); if (!t.ok) return t; if (!MACHINE_T.test(t.p.t)) return refuse('the ' + nm(t.p.t) + ' at ' + at(t.p.x, t.p.y) + ' is no workflow machine: give any machine on the line, or the line\'s name'); return { ok: true, p: t.p }; }
       if (lref == null) return refuse('say which line: line (its name) or prop (any machine on it)');
-      const ln = lineNamed(st, env, lref, o.room); return ln.ok ? { ok: true, p: ln.intake } : ln;
+      // the room qualifier resolves like every other room in a refit (its name, an id, or an as given earlier in the plan)
+      let rq = null; if (o.room != null) { const t = roomRef(o.room); if (!t.ok) return t; rq = t.room.name; }
+      const ln = lineNamed(st, env, lref, rq); return ln.ok ? { ok: true, p: ln.intake } : ln;
     };
     const crewHere = id => (env.crew || []).some(a => a && a.id === id);
     const targetOf = ref => { if (ref == null) return null; const id = names[ref] || ref, pp = typeof id === 'string' ? st.propById(id) : null; if (pp) return pp; const tt = tileOf(ref); if (!tt) return null; const pid = st.propAt(tt.x, tt.y), q = pid ? st.propById(pid) : null; return q || { x: tt.x, y: tt.y, w: 1, h: 1 }; };
@@ -1387,8 +1402,11 @@
         const hall = o.hall != null ? hallOf(o.hall) : hallOf(o.room);
         if (o.hall != null && !hall) return refuse('there is no hallway "' + String(typeof o.hall === 'object' ? JSON.stringify(o.hall) : o.hall).slice(0, 40) + '" (station.map lists every hallway under halls)');
         // DELETE LINE (Build mode's own, 2026-10-11): every machine of the line and every belt between them (removeLine), one edit;
-        // a SEND TO into it goes with it, and the card says which lines stop handing work on
-        if (o.line != null && o.prop == null && o.room == null && o.hall == null) {
+        // a SEND TO into it goes with it, and the card says which lines stop handing work on. A room given WITH the line names the
+        // room the line stands in (plan_edit's remove: { line, room }, the duplicate-name refusal's own advice) — it never turns the
+        // edit into a room removal that took every other line in that room with it (2026-10-12)
+        if (o.line != null && (o.prop != null || o.hall != null)) return refuse('delete takes one of line (with its room, if two lines share the name), prop, room or hall');
+        if (o.line != null) {
           if (typeof st.removeLine !== 'function' || typeof st.lineMembers !== 'function') return refuse('this page cannot take a whole line up; reload it');
           const s = lineSrc(null, o.line); if (!s.ok) return s;
           const m = st.lineMembers(s.p.id);
@@ -1467,7 +1485,9 @@
         if (c.clip.crewLeft) left.push(c.clip.crewLeft + (c.clip.crewLeft === 1 ? ' step\'s agent (not on the crew)' : ' steps\' agents (not on the crew)'));
         if (c.clip.dropped) left.push('its SEND TO (the copy sends nowhere; set one with op send)');
         if (srcIn.some(p => typeof p.projectRoot === 'string' && p.projectRoot.trim())) left.push('its project folder');
-        return { ok: true, text: 'a copy of ' + word + ' at ' + at(q.x, q.y) + inRoom(q.x, q.y) + (laid ? ' (laid out to fit near there: ' + laid + ')' : '') + ': ' + made.length + ' pieces and ' + (r.links || []).length + ' belts, each step with its role, crew and instructions'
+        // a copy laid out to fit stands where the layout put it: the card says THAT spot, and the one asked for (2026-10-12)
+        const ax = laid && made.length ? Math.min(...made.map(p => p.x)) : q.x, ay = laid && made.length ? Math.min(...made.map(p => p.y)) : q.y;
+        return { ok: true, text: 'a copy of ' + word + ' at ' + at(ax, ay) + inRoom(ax, ay) + (laid ? ' (laid out to fit near ' + at(q.x, q.y) + ': ' + laid + ')' : '') + ': ' + made.length + ' pieces and ' + (r.links || []).length + ' belts, each step with its role, crew and instructions'
           + (inbox && inbox.label ? '; the copy is ' + lineWordOf(st, env, inbox.id) : '') + ', its own line with its own jobs and budget' + (left.length ? '; not copied: ' + left.join(', ') : '') + (o.as && inbox ? ' (' + o.as + ' names its INBOX)' : '') };
       }
       case 'role': { const t = propRef(o.prop); if (!t.ok) return t; const role = String(o.role || '').toUpperCase().replace(/[^A-Z]/g, ''); return did(st.setPropRole(t.p.id, role), 'the bay at ' + at(t.p.x, t.p.y) + ' is ' + (role ? titleCase(role) : 'roleless')); }
@@ -1514,13 +1534,13 @@
   }
   // every op in order on `st`; the first that fails refuses, naming it
   function refitAll(st, env, ops, resolved) {
-    const names = {}, texts = [], ctx = { aimed: new Set(), touched: new Set() }, byOp = new Map();   // seat id -> the edit that put it there
+    const names = {}, texts = [], kinds = [], ctx = { aimed: new Set(), touched: new Set() }, byOp = new Map();   // seat id -> the edit that put it there
     for (let i = 0; i < ops.length; i++) {
       let r;
       const had = new Set(st.props().map(p => p.id)), op = String((ops[i] && ops[i].op) || '').toLowerCase().trim(), touched = new Set(ctx.touched);
       try { r = refitOne(st, env, ops[i], names, resolved ? resolved[i] : null, ctx); } catch (e) { r = refuse(String((e && e.message) || e)); }
       if (!r.ok) return refuse('Edit ' + (i + 1) + ' (' + String((ops[i] && ops[i].op) || '?').slice(0, 12) + '): ' + r.error.replace(/\.$/, '') + '. Nothing was built; fix that edit and plan again.');
-      texts.push(r.text);
+      texts.push(r.text); kinds.push(r.weighty || null);   // what an edit BECAME (a connect that made a SEND TO) weighs as that
       if (op === 'place') for (const p of st.props()) if (!had.has(p.id)) byOp.set(p.id, i);
       for (const id of ctx.touched) if (!touched.has(id)) byOp.set(id, i);
     }
@@ -1533,7 +1553,7 @@
       const what = 'the ' + pieceName(env, turn.table.t) + ' beside it';
       texts[i] = String((ops[i] && ops[i].op) || '').toLowerCase().trim() === 'place' ? texts[i].replace(/, facing (south|west|north|east)/, '') + ', facing ' + turn.dir + ' (turned to face ' + what + ')' : texts[i] + ' (then turned ' + turn.dir + ' to face ' + what + ')';
     }
-    return { ok: true, texts, names };
+    return { ok: true, texts, kinds, names };
   }
   // a folder or bind edit names a service the station has: matched here against env.services (the page reads them for the plan)
   function serviceOf(o, env) {
@@ -1588,7 +1608,7 @@
     if (cut.length) warn.push((cut.length > 1 ? cut.join(', ') + ' cannot be walked into' : cut[0] + ' cannot be walked into') + ' from the main room');
     // a long refit shows its first edits, and EVERY edit that takes something away, moves or resizes, or changes what a line
     // does, spends or reaches, wherever it falls (judged by its op, never by its wording): none of those hides behind "and more"
-    const list = ran.texts.map((t, i) => ({ t: (i + 1) + '. ' + t, k: REFIT_WEIGHTY[String((ops[i] && ops[i].op) || '').toLowerCase().trim()] || null }));
+    const list = ran.texts.map((t, i) => ({ t: (i + 1) + '. ' + t, k: (ran.kinds && ran.kinds[i]) || REFIT_WEIGHTY[String((ops[i] && ops[i].op) || '').toLowerCase().trim()] || null }));
     let shown = list.map(x => x.t);
     if (list.length > 30) {
       const rest = list.slice(25), keep = rest.filter(x => x.k), named = keep.slice(0, 60), over = keep.slice(60);

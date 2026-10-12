@@ -3625,7 +3625,7 @@ const WorldModel = (() => {
           if (n.sendTo && map[n.sendTo] && p.t === 'outbox') p.sendTo = map[n.sendTo];
         });
         emit(made.map(id => propFootprint(propById(id))), { staticBakeUnchanged: true });
-        return { ok: true, ids: made, map, laid: true };
+        return { ok: true, ids: made, map, links: (r.links || []).slice(), laid: true };   // (the belts the layout laid, as pasteLines reports its own)
       }, 'PASTE');
     }
     /* DELETE LINE: every machine of the line holding propId, every belt between them (the tiles no other line rides) and the

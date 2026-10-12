@@ -153,6 +153,8 @@ const lineOfIntake = (s, id) => plan(s).lines.find(l => l.intakes.includes(id));
   A.ok(Lay && Lay.ok, 'the engine lays the copied line out near the spot');
   const n0 = s.props().length, r = s.pasteLinesLaid(c, Lay);
   A.ok(r.ok && r.ids.length === 5 && s.props().length === n0 + 5, 'pasteLinesLaid writes it');
+  // M24 (2026-10-12): the laid copy reports the belts it laid, as the exact paste does (the lead's card said "0 belts")
+  A.ok(Array.isArray(r.links) && r.links.length === c.links.length && r.links.every(id => s.links().some(l => l.id === id)), 'a laid-out paste returns the ids of the belts it laid (' + (r.links || []).length + ' of ' + c.links.length + ')');
   A.ok(s.propById(r.map[L.B1]).brief === 'Find three sources.' && s.propById(r.map[L.I]).label === 'RESEARCH 2' && s.propById(r.map[L.LOOP]).maxIter === 4, '…with its briefs, its name (numbered) and its LOOP passes');
   A.eq(codes(s), ['LOOP_NO_BACK', 'LOOP_NO_BACK'], '…and it compiles as the original does');
   A.eq(s.undo().label, 'PASTE', 'one undo (UNDID · PASTE)');
