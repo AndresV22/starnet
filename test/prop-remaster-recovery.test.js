@@ -9,10 +9,10 @@ const copy=value=>JSON.parse(JSON.stringify(value));
 const view=(image='sample.png')=>({image,sourceWidth:8,sourceHeight:8,footprint:{w:1,h:1},bounds:{x:0,y:0,width:12,height:12},mode:'static'});
 function solid(colour=rgb,width=8,height=8){const c=Canvas.createCanvas(width,height),g=c.getContext('2d');g.fillStyle='rgba('+colour.slice(0,3).join(',')+',1)';g.fillRect(0,0,width,height);return c;}
 async function fixture(count=1,options={}){
-  const canvases=[],pending=[],state={now:1000,failLoads:0,hold:false,blankFresh:false,requests:0,active:0,maxActive:0};
+  const canvases=[],pending=[],state={now:1000,failLoads:0,hold:false,blankFresh:false,failDefaultContext:false,failCpuAfter:null,cpuRequests:0,requests:0,active:0,maxActive:0};
   const projection=options.projection?require('../frontend/app/projection-prop-effects.js'):null;
   const ids=projection?['console','connector_portal']:Array.from({length:count},(_,i)=>'sample_'+i),props={},geometry={};
-  for(const id of ids){const binding=projection?.classify(id)?.binding,spec={...view(id+'.png'),...(binding?{sourceWidth:binding.width,sourceHeight:binding.height}:{})};props[id]={views:{s:spec}};geometry[id+':s']={image:spec.image,width:spec.sourceWidth,height:spec.sourceHeight,crop:{x:0,y:0,width:spec.sourceWidth,height:spec.sourceHeight}};}
+  for(const id of ids){const binding=projection?.classify(id)?.binding,spec={...view(id+'.png'),...(options.mode?{mode:options.mode}:{}),...(binding?{sourceWidth:binding.width,sourceHeight:binding.height}:{})};props[id]={views:{s:spec}};geometry[id+':s']={image:spec.image,width:spec.sourceWidth,height:spec.sourceHeight,crop:{x:0,y:0,width:spec.sourceWidth,height:spec.sourceHeight}};}
   class Image {constructor(){const c=solid();Object.defineProperty(c,'src',{set(url){
     const spec=Object.values(props).map(p=>p.views.s).find(v=>url.endsWith('/'+v.image));
     if(spec){c.width=spec.sourceWidth;c.height=spec.sourceHeight;const g=c.getContext('2d');g.fillStyle='rgb('+rgb.slice(0,3).join(',')+')';g.fillRect(0,0,c.width,c.height);}
@@ -27,9 +27,16 @@ async function fixture(count=1,options={}){
     c.emit=name=>{for(const fn of [...(listeners.get(name)||[])])fn({preventDefault(){}});};
     c.hasLossListener=()=>!!listeners.get('contextlost')?.length;
     if(state.blankFresh){const g=c.getContext('2d');g.drawImage=()=>{};g.putImageData=()=>{};}
+    const native=c.getContext.bind(c);let acquired=false;c.getContext=(kind,attrs)=>{
+      if(!acquired){if(attrs?.willReadFrequently){state.cpuRequests++;if(state.failCpuAfter!=null&&state.cpuRequests>state.failCpuAfter)return null;}else if(state.failDefaultContext)return null;} 
+      acquired=true;return native(kind,attrs);
+    };
     canvases.push(c);return c;
   }};
-  const scope={module:{exports:{}},console,URLSearchParams,location:{search:''},Image,ImageData:Canvas.ImageData,
+  const contentRegions=Object.fromEntries(ids.map(id=>[id,{}]));
+  const drawContent=(g,id,box,live={})=>{g.fillStyle=live.value===2?'#c83c64':'#1e8cc8';g.fillRect(1,1,2,2);};
+  const composedOwners=options.mode?{AuthoredPropContent:{regions:contentRegions,draw:drawContent},AuthoredServiceContent:{regions:contentRegions,draw:drawContent},AuthoredMachineConfig:{get:()=>({motion:{sourceWidth:8,sourceHeight:8},layers:{}})},AuthoredPropMotion:{register:()=>true,draw:drawContent}}:{};
+  const scope={...composedOwners,module:{exports:{}},console,URLSearchParams,location:{search:''},Image,ImageData:Canvas.ImageData,
     performance:{now:()=>state.now},Date,setTimeout,clearTimeout,queueMicrotask,document,
     IndustrialTextures:{isRemaster:()=>true},...(projection?{ProjectionPropEffects:projection}:{}),fetch:async url=>({ok:true,json:async()=>url.endsWith('runtime-geometry.json')?{version:1,views:geometry}:{version:1,props}})};
   vm.runInNewContext(source,scope);const api=scope.module.exports;await api.ready;
@@ -117,5 +124,28 @@ test('recovery preserves idle screen power and live connector status overlays',a
   assert.deepEqual(f.draw('connector_portal',online,socket),beforeOnline,'online state survives fallback body painting');
   assert.deepEqual(f.draw('connector_portal',error,socket),beforeError,'status changes remain live while texture repair is pending');
   await f.drain();assert.deepEqual(f.draw('console',idle,screen),beforeIdle);
+});
+for(const mode of ['service','content','machine'])test(mode+' recovery remains drawable when accelerated composition allocation fails',async()=>{
+  const f=await fixture(1,{mode});recoveryAPI(f);sameArt(f);
+  if(mode!=='machine')assert.deepEqual(f.draw(f.ids[0],{value:1},[2,2]).pixel,[30,140,200,255],'fixture contains separately painted live content');
+  f.state.hold=true;f.lose(f.latestBody());f.state.failDefaultContext=true;
+  // Default contexts are unavailable, but an explicitly CPU-backed context is
+  // still available. The fault must not escape and skip the rest of the station.
+  assert.doesNotThrow(()=>sameArt(f),'a failed graphics allocation cannot throw out of the prop draw');
+  if(mode!=='machine')assert.deepEqual(f.draw(f.ids[0],{value:2},[2,2]).pixel,[200,60,100,255],'pure live content still updates on the available CPU surface');
+  assert.equal(f.nativeCalls,0,'composition failure cannot reveal procedural legacy art');
+  f.state.failDefaultContext=false;await f.drain();sameArt(f);assert.equal(f.api.status().lost,0);
+});
+for(const mode of ['service','content','machine'])test(mode+' keeps its body and bounds retries when CPU composition is unavailable',async()=>{
+  const f=await fixture(1,{mode});recoveryAPI(f);sameArt(f);
+  f.state.hold=true;f.lose(f.latestBody());f.state.failDefaultContext=true;f.state.failCpuAfter=1;
+  // The first CPU allocation restores the body; the second (composition) fails.
+  assert.doesNotThrow(()=>sameArt(f),'failed composition must still display the retained authored body');
+  const attempts=f.state.cpuRequests;assert.equal(attempts,2,'the injected failure reached composition after restoring the body');
+  for(let frame=0;frame<5;frame++)sameArt(f);
+  assert.equal(f.state.cpuRequests,attempts,'failed composition allocation is not retried every frame');
+  f.state.now+=3100;sameArt(f);assert.equal(f.state.cpuRequests,attempts+1,'one composition retry is allowed after backoff');
+  assert.equal(f.nativeCalls,0);f.state.failCpuAfter=null;f.state.failDefaultContext=false;
+  await f.drain();sameArt(f);assert.equal(f.api.status().lost,0);
 });
 (async()=>{let failed=0;for(const [name,run]of tests){try{await run();console.log('PASS: '+name);}catch(error){failed++;console.error('FAIL: '+name+'\n'+(error.stack||error));}}console.log('prop-remaster-recovery: '+(tests.length-failed)+'/'+tests.length+' scenarios passed');if(failed)process.exitCode=1;})().catch(error=>{console.error(error);process.exitCode=1;});
