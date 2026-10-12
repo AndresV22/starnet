@@ -5316,21 +5316,25 @@ const App = (() => {
   function showSaveUnreachableGate(reason) {
     gateActive = true;
     try { if (World && World.stop) World.stop(); } catch (_) {}
-    const sub = el('unreachable-sub');
-    if (sub) sub.textContent = reason === 'forbidden' ? 'station service refused this window (stale session) — a relaunch usually clears it' : 'station service not answering';
-    if (sub && reason === 'unreadable') sub.textContent = 'saved station temporarily unreadable — retry without resetting';
-    if (sub && reason === 'cache') sub.textContent = 'saved station could not be restored into this window — retry without resetting';
-    // Screenshot-readable diagnosis for a stranded beginner: support can distinguish an alive sidecar refusing
-    // stale window auth from a fetch that died after the page loaded without asking for Terminal logs.
-    const diagnosis = reason === 'forbidden'
-      ? { code: 'SAVE-403 · STALE WINDOW SESSION', text: 'the station service is running, but it refused this app window' }
-      : reason === 'unreadable'
-        ? { code: 'SAVE-READ · STATION FILE UNAVAILABLE', text: 'the station service is running, but could not read the saved station; your existing files are preserved' }
-        : reason === 'cache'
-          ? { code: 'SAVE-CACHE · LOCAL RESTORE FAILED', text: 'the saved station was received, but this window could not store or read it; the durable station is preserved' }
-          : { code: 'SAVE-NET · SAVE REQUEST LOST', text: 'the app loaded, but its saved-station request did not return' };
-    const code = el('unreachable-code');
-    if (code) code.innerHTML = '<b>RECOVERY CODE: ' + diagnosis.code + '</b><br>' + diagnosis.text + '. Send a screenshot of this code to support.';
+    const sub = el('unreachable-sub'), code = el('unreachable-code');
+    let diagnosis;
+    // A retry can reach a different failure boundary; keep the screenshot and copied report current.
+    const paintDiagnosis = reason => {
+      if (sub) sub.textContent = reason === 'forbidden' ? 'station service refused this window (stale session) — a relaunch usually clears it' : 'station service not answering';
+      if (sub && reason === 'unreadable') sub.textContent = 'saved station temporarily unreadable — retry without resetting';
+      if (sub && reason === 'cache') sub.textContent = 'saved station could not be restored into this window — retry without resetting';
+      // Screenshot-readable diagnosis for a stranded beginner: support can distinguish an alive sidecar refusing
+      // stale window auth from a fetch that died after the page loaded without asking for Terminal logs.
+      diagnosis = reason === 'forbidden'
+        ? { code: 'SAVE-403 · STALE WINDOW SESSION', text: 'the station service is running, but it refused this app window' }
+        : reason === 'unreadable'
+          ? { code: 'SAVE-READ · STATION FILE UNAVAILABLE', text: 'the station service is running, but could not read the saved station; your existing files are preserved' }
+          : reason === 'cache'
+            ? { code: 'SAVE-CACHE · LOCAL RESTORE FAILED', text: 'the saved station was received, but this window could not store or read it; the durable station is preserved' }
+            : { code: 'SAVE-NET · SAVE REQUEST LOST', text: 'the app loaded, but its saved-station request did not return' };
+      if (code) code.innerHTML = '<b>RECOVERY CODE: ' + diagnosis.code + '</b><br>' + diagnosis.text + '. Send a screenshot of this code to support.';
+    };
+    paintDiagnosis(reason);
     const reportBtn = el('btn-unreachable-report'), reportHost = el('unreachable-report');
     if (reportBtn) reportBtn.onclick = () => {
       SFX.click && SFX.click();
@@ -5352,14 +5356,12 @@ const App = (() => {
     // and a verbatim reason. Show THAT reason on this screen instead of the generic "not answering": the text is
     // produced by the sidecar from its own ledger, so it is proof, not a guess. Likewise, if the desktop guardian
     // has HALTED respawns (starnet_sidecar_status.halted), say so — the retry poll can never heal that on its own.
-    let degradedReason = '';
     // The reading itself is shared with the in-game LINK DOWN chip (Harness.engineState): the same verbatim 503 text
     // or guardian halt, now bounded so a hung service cannot leave the probe pending.
     const probeDegraded = async () => {
       let reason = '';
       try { reason = String(((await Harness.engineState()) || {}).reason || ''); } catch (_) { reason = ''; }
-      if (reason === degradedReason) return reason;
-      degradedReason = reason;
+      // Reapply a persistent degraded verdict after the retry refreshed its save-request diagnosis.
       if (sub) { if (reason) sub.textContent = reason; else if (/^(degraded|station service halted)/i.test(sub.textContent)) sub.textContent = 'station service not answering'; }
       if (code && reason) code.innerHTML = '<b>RECOVERY CODE: ' + (/owner unavailable/i.test(reason) ? 'SAVE-OWNER · WORKSPACE OWNED BY ANOTHER PROCESS' : /crash-loop/i.test(reason) ? 'SAVE-LOOP · STATION SERVICE CRASH LOOP' : 'SAVE-DEGRADED · STATION SERVICE DEGRADED') + '</b><br>' + reason.replace(/</g, '&lt;') + '<br>Send a screenshot of this code to support.';
       return reason;
@@ -5392,6 +5394,7 @@ const App = (() => {
         try { location.reload(); } catch (_) {}
         return;
       }
+      paintDiagnosis(r.reason);
       const degraded = await probeDegraded();
       const unreadable = r.reason === 'unreadable', cacheFailed = r.reason === 'cache';
       setStatus((degraded ? degraded + ' — ' : unreadable ? 'saved station still unreadable — ' : cacheFailed ? 'local restore still unavailable — ' : 'still unreachable — ') + 'retrying every 5s (attempt ' + attempts + '). Your save is untouched.' + (core || unreadable || cacheFailed ? '' : ' ' + BROWSER_HINT));
