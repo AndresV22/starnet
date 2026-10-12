@@ -764,6 +764,9 @@ const World = (() => {
           without an event (and any future regression that blanks the bake).
      The probe costs one 1x1 readback a second, against a frame it saves entirely. */
   let bakeProbe = null;        // {x,y} a pixel buildBase painted opaque — the loss sentinel
+  let bakeProbePending = false; // transient read failure or an empty rebuild of a known occupied floor
+  let bakeExpected = false;
+  let bakeProbeSource = null;
   let detailProbes = new WeakMap(); // discarded on rebake; never retain obsolete LOD plates
   let lostDetailLayer = null;
   let probeOff = false;        // getImageData refused (tainted canvas): never retry, never spam
@@ -780,6 +783,10 @@ const World = (() => {
      watchdog simply stays inert rather than rebaking a legitimately empty frame forever. */
   function recordBakeProbe() {
     bakeProbe = null;
+    bakeProbePending = false;
+    if (typeof geo !== 'undefined' && geo && geo.zoneGrid) bakeExpected = geo.zoneGrid.some(z => z != null);
+    else bakeExpected = !!cache && cache.baseCv === bakeProbeSource && bakeExpected;
+    bakeProbeSource = cache && cache.baseCv;
     probeBatch = null; // a newly painted bake must never inherit pre-recovery samples
     probeEpoch++; completedProbeBatch = null; pendingProbe = null;
     detailProbes = new WeakMap();
@@ -792,9 +799,13 @@ const World = (() => {
       for (const [fx, fy] of pts) {
         const x = Math.min(W - 1, Math.max(0, Math.round(W * fx)));
         const y = Math.min(H - 1, Math.max(0, Math.round(H * fy)));
-        if (readAlpha1(c, x, y) > 0) { bakeProbe = { x, y }; detailWentBlank(); return; }   // via the probe canvas — see THE READBACK LAW below
+        if (readAlpha1(c, x, y) > 0) { bakeProbe = { x, y }; bakeExpected = true; detailWentBlank(); return; }   // via the probe canvas — see THE READBACK LAW below
       }
-    } catch (e) { probeOff = true; }
+      bakeProbePending = bakeExpected;
+    } catch (e) {
+      if (e && e.name === 'SecurityError') probeOff = true;
+      else { resetLossProbe(); bakeProbePending = true; }
+    }
   }
 
   /* THE READBACK LAW (2026-08-26, lag escape shipped in v0.10.10): NEVER getImageData a canvas
@@ -807,6 +818,10 @@ const World = (() => {
   let sentinelCv = null, sentinelCtx = null;
   let probeAtlas = null, probeAtlasCtx = null, probeBatch = null;
   let probeEpoch = 0, pendingProbe = null, completedProbeBatch = null, probeAsyncFailed = false, timedOutProbe = null;
+  function resetLossProbe() {
+    sentinelCv = sentinelCtx = probeAtlas = probeAtlasCtx = probeBatch = null;
+    probeEpoch++; pendingProbe = completedProbeBatch = null;
+  }
   function prepareProbeBatch() {
     if(completedProbeBatch){probeBatch=completedProbeBatch;completedProbeBatch=null;return;}
     const now=performance.now(),timedOut=pendingProbe&&now-pendingProbe.started>1000;
@@ -866,6 +881,7 @@ const World = (() => {
   function readAlpha1(src, x, y) {   // alpha 0-255 of src's (x,y); throws propagate to the caller's existing taint/loss handling
     const batch=probeBatch&&probeBatch.get(src),key=x+','+y;
     if(batch&&batch.has(key))return batch.get(key);
+    if (sentinelCtx && sentinelCtx.isContextLost?.()) resetLossProbe();
     if (!sentinelCtx) {
       sentinelCv = document.createElement('canvas'); sentinelCv.width = 1; sentinelCv.height = 1;
       sentinelCtx = sentinelCv.getContext('2d', { willReadFrequently: true });
@@ -899,10 +915,15 @@ const World = (() => {
   }
   function bakeWentBlank() {
     lostDetailLayer = null;
-    if (!bakeProbe || probeOff || !cache || !cache.baseCv) return false;
+    if (probeOff || !cache || !cache.baseCv) return false;
+    if (bakeProbePending) return true;
+    if (!bakeProbe) return false;
     try {
       return readAlpha1(cache.baseCv, bakeProbe.x, bakeProbe.y) === 0 || detailWentBlank();
-    } catch (e) { probeOff = true; return false; }
+    } catch (e) {
+      if (e && e.name === 'SecurityError') { probeOff = true; return false; }
+      resetLossProbe(); return true;
+    }
   }
 
   /* Rebuild everything that lives in an offscreen canvas. Only `bakeDirty` is set (never
@@ -921,7 +942,9 @@ const World = (() => {
       console.warn('[world] cached canvases lost (' + why + ') — rebuilding station + sky + ground (recovery #' + recoveries + ')');
     } catch (_) {}
     bakeDirty = true; bakeProbe = null;
+    resetLossProbe();
     try { if (typeof IndustrialTextures !== 'undefined' && IndustrialTextures.restoreMaterials) IndustrialTextures.restoreMaterials(); } catch (_) {}
+    try { if (typeof PropRemaster !== 'undefined' && PropRemaster.restore) PropRemaster.restore(); } catch (_) {}
     try { if (typeof SpaceBG !== 'undefined' && SpaceBG.invalidate) SpaceBG.invalidate(); } catch (_) {}
     try { if (typeof Terrain !== 'undefined' && Terrain.invalidate) Terrain.invalidate(); } catch (_) {}
     return true;
