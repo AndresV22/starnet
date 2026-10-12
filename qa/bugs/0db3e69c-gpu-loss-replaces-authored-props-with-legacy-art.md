@@ -47,7 +47,7 @@ No installer was rebuilt or installed, and the owner has not retested the repair
 
 Before: all six original real-canvas lifecycle cases fail, and the live original renderer loses authored pixels permanently. After: thirteen real-canvas lifecycle cases and the real seeded-app check pass. They include pure status overlays/idle screen state and six service/content/machine composition-allocation cases. The additional six independently failed on 74c8e0ff2, then passed after bc5ed0c6e guarded CPU composition and retained-body fallback; these are supported alternate modes, not a proven cause of the default-art incident. Floor regressions cover transient readback failure, later loss, failed probe registration, blank rebuild, sparse healthy layouts, and permanent taint. Ollama regression covers HTTP, stream and compatible fallback memory errors reaching the actual agent loop after one POST without retry waits; hosted errors retain existing retry behavior.
 
-Full-gate and source handoff details: qa/digests/2026-10-12-qwen-render-loss.md. The fast gate stops at the release-source audit because the three changed frontend modules differ from its saved source lock. The integration owner must refresh final-candidate evidence and rerun the complete gate; targeted green results do not override that requirement.
+Full-gate and source handoff details: qa/audits/2026-10-12-qwen-render-loss.md. The fast gate stops at the release-source audit because the three changed frontend modules differ from its saved source lock. The integration owner must refresh final-candidate evidence and rerun the complete gate; targeted green results do not override that requirement.
 
 
 ## Sibling coverage

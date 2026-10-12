@@ -1,0 +1,80 @@
+# Qwen allocation failure and station graphics recovery
+
+Source repair: `agent/qwen-render-loss-1012`, based on `a20ffa71f`.
+Production changes end at `bc5ed0c6e`; the final tested source candidate is `bb380c04720083c31eb5f84b6cb1c36ddfc5e6a5`.
+Integration and installer verification remain pending. This lane has not merged, rebuilt or replaced the installed app.
+
+Frozen candidate path map (`a20ffa71f..bb380c047`):
+
+```text
+frontend/app/friendlyerror.js
+frontend/app/propremaster.js
+frontend/app/world.js
+qa/BUGS.md
+qa/bugs/0db3e69c-gpu-loss-replaces-authored-props-with-legacy-art.md
+sidecar/providers/errorClass.js
+sidecar/providers/openai-compatible.js
+test/canvas-loss-recovery.test.js
+test/fast.list
+test/friendlyerror.test.js
+test/projection-depth-rendering.test.js
+test/prop-recovery-live.e2e.test.mjs
+test/prop-remaster-recovery.test.js
+test/provider.ollama-native.test.js
+website/app/app/friendlyerror.js
+website/app/app/propremaster.js
+website/app/app/world.js
+```
+
+`qa/BUGS.md` is generated and should be regenerated after combining bug records. Independent source review's two live-test evidence recommendations are included in `74c8e0ff2`. Integration review subsequently found an allocation failure in supported service/content/machine modes (not the current default approved-art manifest); `bc5ed0c6e` fixes that guarded CPU composition path. Its independent final review found no material defect and independently passed all 13 pixel scenarios.
+
+## Incident and cause
+
+The owner reported that every prop glitched and older artwork became visible after a Qwen conversation. The two owner screenshots also show missing floor/wall surfaces and a disconnected station.
+
+Local evidence from installed 0.13.1 connects the failure to memory pressure: an internal session-recommendation request loaded Llama 3.1 8B and finished at 23:59:48 EDT; Qwen 3 8B started at 23:59:55 with an 8192-token context. Its 4643.78 MiB CUDA allocation failed at 00:00:04. Windows recorded low virtual memory at 00:00:05, followed by the WebView GPU-process exit and a sidecar restart at 00:00:10. A later 40960-token task context also failed allocation, but that was after the initial collapse.
+
+Two source defects made lost graphics persist: PropRemaster treated a lost authored canvas as a permanent draw failure, exposing the legacy procedural renderer; the floor watchdog permanently disabled itself after transient readback errors. The old renderer remains intentionally present for classic review and saved custom-footprint compatibility. Normal authored props now retain their own artwork during loss.
+
+## Repair
+
+- Retain bounded CPU snapshots of authored bodies, foregrounds and idle-screen state; preserve geometry, picking and pure status overlays while rebuilding from source images.
+- Rebuild through a deduplicated queue with at most four active jobs. Reject empty replacements, stale runtime-art replacements and unbounded retry loops. Global canvas recovery also restores authored props.
+- Use guarded CPU composition for service/content/machine recovery. Pure service/content overlays remain live when CPU composition is available; if it also fails, retain the authored body and limit composition allocation retries to once per three seconds.
+- Keep transient floor-probe errors recoverable. Use an actual occupied tile as a witness so sparse layouts do not trigger repeated false recoveries. Permanent security taint remains terminal.
+- Treat adapter-proven Ollama allocation errors as terminal for that run, including native, streaming and compatible fallback paths. Explain the memory failure and open the model picker instead of inviting another automatic retry.
+- Keep the desktop and website copies of all three changed frontend modules byte-identical.
+
+## Verified evidence
+
+| Check | Result |
+| --- | --- |
+| Original renderer in the live seeded app | Reproduces: authored alpha 128578 becomes 0, draw=false permanently after loss |
+| Final renderer in the live seeded app | Pass: same authored alpha 75029 before, during and after loss (supply-cart view); synchronous immediate paint reports lost=1; completed reconstruction reports lost=0/recovering=0 |
+| Floor after live cache loss | Pass: occupied-tile probe `(42,42)`, probeOff=false, blank=false; no uncaught browser exceptions |
+| Graphics gate through the hermetic test runner | 5/5 suites pass, including 13/13 real-pixel lifecycle scenarios, 44 canvas-loss and 35 stage-loss assertions |
+| Native Ollama, error classification and friendly UI | Pass: 168, 284 and 330 assertions respectively; broader fast gate also passed these before its release-audit blocker |
+| Full fast gate | Blocked at step 357/1140, `test/qa-product-perfect-claims.test.js`; saved release source differs in friendlyerror.js, propremaster.js and world.js |
+| Full HTTP gate | Pass: all 209 steps green, including native/compatible Ollama and the previously ENOSPC-blocked sample-provider case |
+
+The release audit was read without modifying its shared ledger. Exact returned source lock: `1df52b78574a6ba00758bdeefd10392de14346b5`; inspected candidate: `0a474ec9a5c0271288a9d7a31438c31b32113457`. The integration owner must refresh the final candidate's release-source evidence and rerun the full gate. These expected mismatches are not a green gate.
+
+The HTTP run began before the final frontend-only compositor addendum; the sidecar source stayed identical throughout. The final `bb380c047` renderer and tests were then exercised through the separate five-suite graphics gate. This receipt does not claim that a complete combined gate ran against one frozen final revision.
+
+Owning worktree logs: `.dogfood/render-baseline.log`, `.dogfood/graphics-gate-composition-final.log`, `.dogfood/render-composition-final.log`, `.dogfood/full-fast-hydrated.log`, `.dogfood/release-claims-blocker.log`, `.dogfood/full-http-final.log`.
+
+Focused reproduction command:
+
+```text
+node scripts/run-fast-tests.mjs prop-remaster-recovery prop-recovery-live projection-depth-rendering canvas-loss-recovery stage-context-loss
+```
+
+The browser test uses a real isolated seeded sidecar and headless Chromium with deliberate canvas-loss injection. It does not exhaust memory or reproduce a physical GPU-driver reset. It waits up to 15 seconds for proven floor pixels instead of a fixed sleep under software-rendering load.
+
+## Remaining limits
+
+The source fix does not guarantee prevention of the first OS/GPU exhaustion. Recommendation generation captures the currently selected provider/model; the evidence does not prove accidental model routing. The prior Llama request was already complete when Qwen began, so cancellation alone would not remove its resident model. No existing safe memory-admission or unload guard was found. Automatic unload and fixed context caps would change model-management policy and could interrupt valid sessions.
+
+The installed 0.13.1 binary remains unchanged and owner recovery is unconfirmed. The durable P1 remains open at `qa/bugs/0db3e69c-gpu-loss-replaces-authored-props-with-legacy-art.md` pending integration/release acceptance.
+
+Storage constraints also affected verification: an earlier customer-journey run stopped at step 2 because its isolated recovery journal could not be persisted (ENOSPC). The sparse checkout now explicitly retains only its independently checked-out runtime asset subset; it does not contain all historical asset/evidence archives. A failed browser rerun after cherry-pick exposed that excluded assets were pruned by Git; retaining the subset fixed the fixture failure, and the final five-suite graphics gate passed. No shared asset directory was modified for this repair.
