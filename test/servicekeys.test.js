@@ -119,6 +119,11 @@ const K = require('../sidecar/servicekeys.js');
   A.ok(K.promptBlock(l1, { platform: 'linux' }).indexOf('%RESEND_API_KEY%') < 0, 'posix block keeps $VAR (no cmd.exe syntax)');
   A.ok(/Prefer web_request/.test(winBlock), 'with both routes, the block steers to web_request');
   A.ok(!/Prefer web_request/.test(K.promptBlock(l1, { shell: true, request: false, platform: 'win32' })), 'never recommends a route the run lacks');
+  // verified platform notes ride under their key — only when the run HAS web_request, since they describe its calls
+  const notesFor = (env) => env === 'RESEND_API_KEY' ? 'POST /emails sends one message.' : '';
+  A.ok(K.promptBlock(l1, { request: true, notesFor }).indexOf('(API docs: https://resend.com/docs)\n  API notes: POST /emails sends one message.') >= 0, 'API notes ride under the key line');
+  A.ok(K.promptBlock(l1, { shell: true, request: false, notesFor }).indexOf('API notes') < 0, 'no notes without web_request');
+  A.eq(K.promptBlock(l1, { request: true, notesFor: () => { throw new Error('x'); } }), K.promptBlock(l1, { request: true }), 'a throwing notes source never breaks the block');
   A.ok(/"in": "query"/.test(block), 'block teaches the auth query slot for ?key= APIs');
 }
 

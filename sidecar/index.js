@@ -21547,7 +21547,7 @@ async function runOnceCore(o) {
     const canShell = kt.indexOf('shell.exec') >= 0;
     const canRequest = kt.indexOf('web_request') >= 0;
     if (canShell || canRequest) {
-      const b = serviceKeysMod.promptBlock(serviceKeys, { shell: canShell, request: canRequest, platform: process.platform });
+      const b = serviceKeysMod.promptBlock(serviceKeys, { shell: canShell, request: canRequest, platform: process.platform, notesFor: serviceKeysCatalog.notesFor });
       if (b) serviceKeysBlock = '\n\n' + b;
     }
   } catch (_) { serviceKeysBlock = ''; }
