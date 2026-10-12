@@ -372,7 +372,16 @@ function makeChainRunner(o) {
        `agentId` who produced it, `stopped` a short honest reason when the line did not run to its end (null
        when it did). Never throws: a chain is an enhancement to a reply the caller already holds. */
   async function advance(seed) {
-    const out = await advanceLine(seed);
+    const evidence = { workitemIds: [] };
+    const out = await advanceLine(seed, evidence);
+    const s = seed || {};
+    // Exact terminal authority for the floor: a barrier release alone may have more work after it.
+    // Existing event, additive metadata (like dockId): no output text or guessed route leaves here.
+    if (s.lineId && out && out.stopped == null && out.outboxId && String(out.text || '').trim()) {
+      say('workitem.delivered', withDock({ workitemId: newId(), finalQueueId: 'outbox', agentId: out.agentId,
+        box: 'line-output', lineId: String(s.lineId), outboxId: out.outboxId,
+        entryRunId: s.runId ? String(s.runId) : null, workitemIds: evidence.workitemIds, ms: 0, ts: now() }, out.dockId));
+    }
     if (onShipped) shipped(seed || {}, out);
     return out;
   }
@@ -389,7 +398,7 @@ function makeChainRunner(o) {
     try { const r = onShipped(rec); if (r && typeof r.then === 'function') r.then(null, e => failNote('chain.onShipped', e)); }
     catch (e) { failNote('chain.onShipped', e); }
   }
-  async function advanceLine(seed) {
+  async function advanceLine(seed, evidence) {
     const s = seed || {};
     const startAgent = s.agentId, originalText = s.originalText != null ? s.originalText : s.text;
     // the line this work ENTERED on (null for a direct order — the gate then keeps every dock terminal)
@@ -516,12 +525,12 @@ function makeChainRunner(o) {
           return { node: t, usd, error: r.error ? t.agentId + ' failed' : t.agentId + ' returned nothing' };
         }
         say('workitem.delivered', withDock({ workitemId, finalQueueId: t.agentId, agentId: t.agentId, box: '', ms: now() - t0, ts: now() }, t.dockId));
-        return { node: t, usd, text: r.text, ms: now() - t0 };
+        return { node: t, workitemId, usd, text: r.text, ms: now() - t0 };
       }));
       for (const x of results) {
         out.usd += x.usd; spent += x.usd;
         if (dayLedger && x.usd) { try { dayLedger.note(lineId, x.usd); } catch (e) { failNote('chain.dayLedger.batch', e); } }
-        if (!x.error) { const rec = { agentId: x.node.agentId, usd: x.usd, ms: x.ms }; if (x.node.dockId) rec.dockId = x.node.dockId; out.hops.push(rec); }
+        if (!x.error) { evidence.workitemIds.push(x.workitemId); const rec = { agentId: x.node.agentId, usd: x.usd, ms: x.ms }; if (x.node.dockId) rec.dockId = x.node.dockId; out.hops.push(rec); }
       }
       return { results };
     }
@@ -628,6 +637,7 @@ function makeChainRunner(o) {
             say('workitem.delivered', withDock({ workitemId: newId(), finalQueueId: cur.agentId, agentId: cur.agentId, box: 'join:' + step.join, ms: 0, ts: now() }, cur.dockId));
           } else {
             out.text = Pipeline.joinPayload(r.parts, [], failedNames);
+            say('workitem.delivered', withDock({ workitemId: newId(), finalQueueId: cur.agentId, agentId: cur.agentId, box: 'join:' + step.join, ms: 0, ts: now() }, cur.dockId));
           }
           branchMode = false; fan = null;
           // the merged crate continues from the joiner's exit; the last deliverer is its producer
@@ -722,6 +732,7 @@ function makeChainRunner(o) {
         return out;
       }
       say('workitem.delivered', withDock({ workitemId, finalQueueId: target.agentId, agentId: target.agentId, box: '', ms: now() - t0, ts: now() }, target.dockId));
+      evidence.workitemIds.push(workitemId);
       const hopRec = { agentId: target.agentId, usd, ms: now() - t0 };
       if (target.dockId) hopRec.dockId = target.dockId;
       out.hops.push(hopRec);
