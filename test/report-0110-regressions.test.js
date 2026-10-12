@@ -64,11 +64,56 @@ test('a delayed rating for the preceding run cannot appear below newer work in t
 
 test('delayed memory decks do not reintroduce a superseded rating',()=>{assert.match(extract(chat,'function renderTurninBatch(', '    const state ='),/!ratingRunSuperseded\(batch.runId\)/);});
 
-test('QA 10-02: a skill review (also fired by a rating) checks the spending cap before it spends', () => {
+test('QA 10-02: a skill review (also fired by a rating) checks the spending cap before it spends', async () => {
  const src = extract(backend, 'async function runBackgroundSkillReview(o)', 'async function runSkillCurator');
  const gate = src.indexOf("budget.check(null, String(agentId || 'agent'), 0, Date.now(), null)");
  assert.ok(gate > 0, 'the review asks the budget first');
  assert.ok(gate < src.indexOf('new AbortController()'), 'before any provider work starts');
- assert.ok(/if \(blocked\) \{[^}]*return null; \}/.test(src), 'a reached cap returns without a paid call');
  assert.ok(/if \(!unmetered\) \{/.test(src.slice(0, gate)), 'an unmetered provider is not gated by a cap it never spends against');
+ // Execute the actual host function up to the first provider setup boundary.
+ // The sentinel keeps this focused test independent of downstream skill tools.
+ const reachedSetup = new Error('provider setup reached'), checks = [];
+ let blocked = { scope: 'day' }, providerSetup = 0;
+ const ctx = {
+  LearningEvidence: { buildLearningEvidence: () => ({ eligible: true }) }, redact: x => x,
+  Date: { now: () => 123 }, console: { log() {} },
+  budget: { check: (...args) => { checks.push(args); return blocked; } },
+  AbortController: class { constructor() { providerSetup++; throw reachedSetup; } }
+ };
+ vm.createContext(ctx); vm.runInContext(src, ctx);
+ const packet = { agentId: 'nova', runId: 'rated-run', messages: [] };
+ assert.equal(await ctx.runBackgroundSkillReview(packet), false, 'a reached cap defers the review');
+ assert.deepEqual(checks, [[null, 'nova', 0, 123, null]]);
+ assert.equal(providerSetup, 0, 'cap refusal stops before any provider setup');
+ blocked = { unknown: true, code: 'spend_history_unavailable' };
+ assert.equal(await ctx.runBackgroundSkillReview(packet), false, 'unknown spend also defers the review');
+ assert.equal(providerSetup, 0);
+ const checksBeforeUnmetered = checks.length;
+ await assert.rejects(ctx.runBackgroundSkillReview({ ...packet, unmetered: true }), error => error === reachedSetup);
+ assert.equal(checks.length, checksBeforeUnmetered, 'unmetered review bypasses the metered budget check');
+ assert.equal(providerSetup, 1, 'unmetered review actually passes the budget guard');
+
+ // Returning null would complete this job. The real queue must retain false
+ // as pending and schedule another guarded attempt without doing paid work.
+ providerSetup = 0; blocked = { scope: 'day' };
+ const timers = [], launches = [];
+ const queue = require('../sidecar/verdictreview.js').makeVerdictReview({
+  now: () => 123, graceMs: 0, retryMs: 100,
+  setTimeout: (fn, ms) => { const timer = { fn, ms }; timers.push(timer); return timer; },
+  clearTimeout: () => {}, onChange: () => true
+ });
+ queue.stash(packet.runId, packet);
+ assert.equal(queue.arm(packet.runId, 'miss', job => {
+  const result = ctx.runBackgroundSkillReview(job); launches.push(result); return result;
+ }), true);
+ await launches[0];
+ assert.equal(queue.holding(packet.runId), true);
+ assert.equal(queue.snapshot()[0].reviewStatus, 'pending', 'budget refusal cannot consume the review');
+ assert.equal(queue.snapshot()[0].attempts, 1);
+ assert.equal(timers.length, 1); assert.equal(timers[0].ms, 100);
+ timers.shift().fn(); await launches[1];
+ assert.equal(launches.length, 2, 'the retained review retries through the same spending guard');
+ assert.equal(queue.snapshot()[0].reviewStatus, 'pending');
+ assert.equal(queue.snapshot()[0].attempts, 2);
+ assert.equal(providerSetup, 0, 'neither blocked attempt reaches provider setup');
 });
