@@ -203,9 +203,9 @@ const WorkflowsWindow = (() => {
     if (!order.length || typeof World === 'undefined' || !World.bayLive) return { id: null, text: 'The job is riding the line…' };
     const at = st => { for (let i = 0; i < order.length; i++) { const s = lamp(order[i]); if (s && s.state === st) return { i, s, id: order[i] }; } return null; };
     const w = at('working');
-    if (w) { const st = line.steps[w.i] || {}; return { id: w.id, text: 'Now: step ' + (w.i + 1) + ' of ' + order.length + ' · ' + (st.role || 'STEP') + ' · ' + NAME(w.s.agentId || st.agentId) + ' is working' + (w.s.forMs != null ? ' · ' + secs(w.s.forMs) : '') }; }
+    if (w) { const st = line.steps[w.i] || {}; return { id: w.id, text: 'Now: step ' + (w.i + 1) + ' of ' + order.length + ' · ' + (st.label || st.role || 'STEP') + ' · ' + NAME(w.s.agentId || st.agentId) + ' is working' + (w.s.forMs != null ? ' · ' + secs(w.s.forMs) : '') }; }
     const q = at('waiting');
-    if (q) { const st = line.steps[q.i] || {}; return { id: null, text: 'Next: step ' + (q.i + 1) + ' of ' + order.length + ' · ' + (st.role || 'STEP') + ' · waiting for ' + NAME(st.agentId) }; }
+    if (q) { const st = line.steps[q.i] || {}; return { id: null, text: 'Next: step ' + (q.i + 1) + ' of ' + order.length + ' · ' + (st.label || st.role || 'STEP') + ' · waiting for ' + NAME(st.agentId) }; }
     return { id: null, text: S.out && S.out.phase === 'post' ? 'Sending the job into the line…' : 'Handing the job on…' };
   }
   function tickLive() {
@@ -278,7 +278,7 @@ const WorkflowsWindow = (() => {
     // one note per field the fix changed, each with ITS OWN before and after (a hand-off put back saved the old instructions)
     for (const [field, now, was] of [['does', x.does, x.was], ['hands', x.hands, x.wasHands]]) {
       if (now == null) continue;
-      noteJob(job, { kind: back ? 'putback' : 'fix', dockId: x.dockId, role: p.role || '', field, text: back ? (was || '') : now, was: back ? now : (was || ''), why: x.why || '' });
+      noteJob(job, { kind: back ? 'putback' : 'fix', dockId: x.dockId, role: p.label || p.role || '', field, text: back ? (was || '') : now, was: back ? now : (was || ''), why: x.why || '' });
     }
     schedule();
   }
@@ -310,7 +310,7 @@ const WorkflowsWindow = (() => {
     const r = st.setPropBrief(d, next);
     if (!r || !r.ok) { sfx('bad'); notify('the style could not be saved', 'warn'); return; }
     sfx('chime');   // (the key says it: ★ STYLE KEPT)
-    noteJob(job, { kind: 'example', dockId: d, role: p.role || '', field: 'does', text: next, was });
+    noteJob(job, { kind: 'example', dockId: d, role: p.label || p.role || '', field: 'does', text: next, was });
     keptTaste(job, false);
     schedule();
   }
@@ -344,7 +344,7 @@ const WorkflowsWindow = (() => {
     const r = st.setPropBrief(d, was);
     if (!r || !r.ok) { sfx('bad'); return; }
     sfx('click');
-    noteJob(job, { kind: 'putback', dockId: d, role: p.role || '', field: 'does', text: was, was: p.brief || '' });
+    noteJob(job, { kind: 'putback', dockId: d, role: p.label || p.role || '', field: 'does', text: was, was: p.brief || '' });
     keptTaste(job, true);
     schedule();
   }
@@ -569,7 +569,7 @@ const WorkflowsWindow = (() => {
     const tiles = ['<span class="wf-node" data-tip="INBOX: you send jobs in here.">' + art('intake') + '<span class="wf-nname">INBOX</span><span class="wf-nmeta">jobs go in</span><span class="dot ok"></span></span>'];
     for (const s of l.steps) {
       const okay = !!s.agentId && s.desk;
-      tiles.push('<button type="button" class="wf-node' + (S.step === s.id ? ' sel' : '') + (workingId === s.id ? ' working' : '') + '" data-step="' + esc(s.id) + '" aria-pressed="' + (S.step === s.id) + '" data-tip="' + esc('Step ' + s.n + (s.role ? ' · ' + s.role : '') + (s.agentId ? ' · ' + NAME(s.agentId) : '') + (s.brief ? ': ' + s.brief.slice(0, 220) : '')) + '">'
+      tiles.push('<button type="button" class="wf-node' + (S.step === s.id ? ' sel' : '') + (workingId === s.id ? ' working' : '') + '" data-step="' + esc(s.id) + '" aria-pressed="' + (S.step === s.id) + '" data-tip="' + esc('Step ' + s.n + ((s.label || s.role) ? ' · ' + (s.label || s.role) : '') + (s.agentId ? ' · ' + NAME(s.agentId) : '') + (s.brief ? ': ' + s.brief.slice(0, 220) : '')) + '">'
         + '<span class="wf-nbadge' + (okay ? ' ok' : '') + '">' + s.n + '</span>' + art('bay', s.agentId)
         + '<span class="wf-nname">' + esc(s.label || s.role || 'STEP ' + s.n) + '</span><span class="wf-nmeta' + (okay ? '' : ' warn') + '">' + esc(!s.agentId ? 'needs an agent' : !s.desk ? 'needs a desk' : NAME(s.agentId)) + '</span><span class="dot' + (okay ? ' ok' : '') + '"></span></button>');
     }
@@ -579,7 +579,7 @@ const WorkflowsWindow = (() => {
   // a step, opened: who does it (one click changes it) and what it does (edited in the full editor)
   function stepHTML(l, s) {
     const crew = roster();
-    return '<section class="wfw-sec wfw-stepbox"><h3>Step ' + s.n + (s.role ? ' · ' + esc(s.role) : '') + '</h3>'
+    return '<section class="wfw-sec wfw-stepbox"><h3>Step ' + s.n + ((s.label || s.role) ? ' · ' + esc(s.label || s.role) : '') + '</h3>'
       + '<div class="wfw-k">Who does it?</div><div class="wfw-agents">' + crew.map(a => '<button type="button" class="wfw-agent' + (a.id === s.agentId ? ' on' : '') + '" data-assign="' + esc(s.id) + '" data-aid="' + esc(a.id) + '" aria-pressed="' + (a.id === s.agentId) + '">'
         + thumb(a.id, 26, 32, 'wfw-av') + '<span>' + esc(String(a.name || a.id).toUpperCase()) + '</span></button>').join('') + '</div>'
       + (s.agentId && !s.desk ? '<div class="wf-row"><span class="wfw-bad">' + esc(NAME(s.agentId)) + ' needs a desk to work this step.</span><button type="button" class="bb sm refit-primary" data-desk="' + esc(s.id) + '">GIVE ' + esc(NAME(s.agentId)) + ' A DESK</button></div>' : '')
@@ -589,7 +589,7 @@ const WorkflowsWindow = (() => {
   function setupHTML(l) {
     const crew = roster(), items = [];
     const missing = l.steps.filter(s => !s.agentId);
-    for (const s of missing) items.push('<div class="wfw-fixrow"><div class="wfw-fixh">Who does step ' + s.n + (s.role ? ' · ' + esc(s.role) : '') + '?</div><div class="wfw-agents">'
+    for (const s of missing) items.push('<div class="wfw-fixrow"><div class="wfw-fixh">Who does step ' + s.n + ((s.label || s.role) ? ' · ' + esc(s.label || s.role) : '') + '?</div><div class="wfw-agents">'
       + (crew.length ? crew.map(a => '<button type="button" class="wfw-agent" data-assign="' + esc(s.id) + '" data-aid="' + esc(a.id) + '">' + thumb(a.id, 26, 32, 'wfw-av') + '<span>' + esc(String(a.name || a.id).toUpperCase()) + '</span></button>').join('')
         : '<span class="wfw-bad">No agents yet — recruit one from CREW first.</span>') + '</div></div>');
     for (const s of l.steps.filter(s => s.agentId && !s.desk)) items.push('<div class="wfw-fixrow"><div class="wfw-fixh">' + esc(NAME(s.agentId)) + ' needs a desk to work step ' + s.n + '.</div><div class="wf-row"><button type="button" class="bb sm refit-primary" data-desk="' + esc(s.id) + '">GIVE ' + esc(NAME(s.agentId)) + ' A DESK</button></div></div>');
@@ -649,14 +649,15 @@ const WorkflowsWindow = (() => {
     const END = { empty: 'gave no final answer', error: 'hit an error', max_iters: 'ran out of turns', budget: 'hit the spending cap', refusal: 'refused the work', interrupted: 'was interrupted', stopped: 'was stopped' };
     const head = ok ? '<b class="ok">✓ DONE</b>' : job.status === 'stopped' ? '<b>■ STOPPED</b>' : job.status === 'interrupted' ? '<b class="warn">⚠ INTERRUPTED</b>' : job.status === 'failed' ? '<b class="warn">✕ IT DIDN’T RUN</b>' : '<b class="warn">⚠ FINISHED WITH A PROBLEM</b>';
     const meta = [runs.length + ' step' + (runs.length === 1 ? '' : 's'), usd(job.usd), took, inOutbox ? 'in the OUTBOX' : ''].filter(Boolean).join(' · ');
-    const why = ok ? '' : job.status === 'problem' && bad ? (() => { const p = bad.dockId && st ? st.propById(bad.dockId) : null; return 'The ' + ((p && p.role) ? p.role + ' step' : 'step') + ' (' + NAME(bad.agentId) + ') ' + (END[bad.reason] || String(bad.reason || 'did not finish').replace(/_/g, ' ')) + ', so this job did not finish cleanly. Sending it again often works.'; })()
+    // a step goes by its NAME first, then its role — the map's word for it (conveyor-ui-15)
+    const why = ok ? '' : job.status === 'problem' && bad ? (() => { const p = bad.dockId && st ? st.propById(bad.dockId) : null, nm = p && (p.label || p.role); return 'The ' + (nm ? nm + ' step' : 'step') + ' (' + NAME(bad.agentId) + ') ' + (END[bad.reason] || String(bad.reason || 'did not finish').replace(/_/g, ' ')) + ', so this job did not finish cleanly. Sending it again often works.'; })()
       : job.status === 'stopped' ? (job.from && job.error ? job.error + '. What already ran is counted.' : 'You stopped this job. What already ran is counted.') : job.status === 'interrupted' ? 'The station stopped while this job was out. Send it again.'
       : (job.error || 'Nothing ran.') + (job.repeats > 1 ? ' (' + job.repeats + ' hand-offs from ' + lineWord(job.from) + ' were refused like this — the last ' + ago(job.endedAt) + ')' : '');
     const passes = {};
     const steps = runs.map((r, i) => {
       const p = r.dockId && st ? st.propById(r.dockId) : null, k = r.dockId || r.agentId, pass = passes[k] = (passes[k] || 0) + 1, got = S.stepOut[r.runId];
       const txt = !got || got === 'loading' ? 'reading…' : got.err ? '⚠ ' + got.err : (got.output || 'this step replied with nothing');
-      return '<details class="wf-more wf-step-out"><summary><span>' + (i + 1) + ' · ' + esc(((p && p.role) ? p.role + ' · ' : '') + NAME(r.agentId) + (pass > 1 ? ' · pass ' + pass : '')) + '</span><span class="src' + (r.reason !== 'done' ? ' warn' : '') + '">' + (r.reason !== 'done' ? esc(END[r.reason] || r.reason) + ' · ' : '') + usd(r.usd) + '</span></summary>'
+      return '<details class="wf-more wf-step-out"><summary><span>' + (i + 1) + ' · ' + esc(((p && (p.label || p.role)) ? (p.label || p.role) + ' · ' : '') + NAME(r.agentId) + (pass > 1 ? ' · pass ' + pass : '')) + '</span><span class="src' + (r.reason !== 'done' ? ' warn' : '') + '">' + (r.reason !== 'done' ? esc(END[r.reason] || r.reason) + ' · ' : '') + usd(r.usd) + '</span></summary>'
         + '<div class="wf-io"' + (got && got.output ? ' data-md data-md-src="' + esc(got.output) + '"' : '') + '>' + esc(txt) + '</div></details>';
     }).join('');
     const prev = S.prev[job.id];
@@ -708,7 +709,7 @@ const WorkflowsWindow = (() => {
       const st = stationOf();
       h += '<div class="wfw-fixes" data-fixes>' + (fx.diagnosis ? '<p class="wfw-why">' + esc(fx.diagnosis) + '</p>' : '') + fx.fixes.map((x, i) => {
         const p = (st && st.propById(x.dockId)) || {}, inUse = fixInUse(x), n = l ? l.steps.findIndex(s => s.id === x.dockId) + 1 : 0;
-        return '<div class="wf-fix' + (inUse ? ' applied' : '') + '"><div class="wf-fix-h"><b>' + esc((n > 0 ? 'STEP ' + n + ' · ' : '') + (p.role || 'STEP') + (p.agentId ? ' · ' + NAME(p.agentId) : '')) + '</b>' + (inUse ? '<span class="wf-tag">IN USE</span>' : '') + '</div>'
+        return '<div class="wf-fix' + (inUse ? ' applied' : '') + '"><div class="wf-fix-h"><b>' + esc((n > 0 ? 'STEP ' + n + ' · ' : '') + (p.label || p.role || 'STEP') + (p.agentId ? ' · ' + NAME(p.agentId) : '')) + '</b>' + (inUse ? '<span class="wf-tag">IN USE</span>' : '') + '</div>'
           + (x.why ? '<p class="wfw-why">' + esc(x.why) + '</p>' : '')
           + (x.does != null ? '<div class="wfw-k">New instructions</div><div class="wf-io edited">' + esc(x.does) + '</div><details class="wf-more"><summary>What it said before</summary><div class="wf-io">' + esc(x.was || '(no instructions)') + '</div></details>' : '')
           + (x.hands != null ? '<div class="wfw-k">New hand-off</div><div class="wf-io edited">' + esc(x.hands) + '</div>' : '')

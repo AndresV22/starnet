@@ -147,7 +147,8 @@ const WorkflowPanel = (() => {
   }
   function close() {
     if (!el) return;
-    saveOpenFields();
+    S.closing = true;
+    try { saveOpenFields(); } finally { S.closing = false; }
     stopPoll();
     if (todayTimer) { clearInterval(todayTimer); todayTimer = 0; }
     if (S.ltTimer) { clearInterval(S.ltTimer); S.ltTimer = 0; }
@@ -248,7 +249,7 @@ const WorkflowPanel = (() => {
     if (b.dataset.insRole != null) return 'ins:' + b.dataset.insRole;
     return b.id ? 'id:' + b.id : '';
   };
-  function findAnchor(k) { if (!k || !el) return null; return $$('button, [data-edit]').find(b => anchorKey(b) === k) || null; }
+  function findAnchor(k) { if (!k || !el) return null; return $$('button, input, [data-edit]').find(b => anchorKey(b) === k) || null; }
   function placeNote() {
     if (!el) return;
     for (const o of $$('.wf-note')) o.remove();
@@ -265,6 +266,8 @@ const WorkflowPanel = (() => {
     if (a && map && map.contains(a)) { after(map, 'top'); return; }
     const row = a && a.closest('.wf-chips, .wf-row, .wf-toolong, .wf-inserter .h');
     if (row) { after(row); return; }
+    const field = a && a.tagName === 'INPUT' ? a.closest('label') : null;   // (a field's answer goes under its whole label, never inside it)
+    if (field) { after(field); return; }
     if (a) { after(a); return; }
     if (map) after(map, 'top');   // (the control went with the edit: under the line diagram)
   }
@@ -361,7 +364,7 @@ const WorkflowPanel = (() => {
       if (nameIn) {
         let saved = intake.label || '';
         const save = () => { const v = nameIn.value.trim(); if (v === saved) return; const res = H.station().setPropLabel(intake.id, v);
-          if (res && res.ok) { saved = res.label || ''; H.sfx('click'); H.flashTip(v ? 'line named — ' + v : 'line name cleared', true); H.lineRenamed(); } else { nameIn.value = saved; H.sfx('bad'); H.flashTip((res && res.msg) || 'name not saved', false); } };
+          if (res && res.ok) { saved = res.label || ''; said(v ? 'line named — ' + (res.label || v) : 'line name cleared', false, nameIn); H.lineRenamed(); } else { nameIn.value = saved; said((res && res.msg) || 'name not saved', true, nameIn); } };
         nameIn.addEventListener('blur', save);
         nameIn.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); save(); nameIn.blur(); } if (e.key === 'Escape') { e.stopPropagation(); nameIn.blur(); } });
         el._saveName = save;
@@ -576,6 +579,13 @@ const WorkflowPanel = (() => {
   const plusWhy = chk => (chk && chk.msg) || 'a step cannot be added on this belt automatically — add a BAY by hand (Conveyors › MACHINES › BAY) and connect it with BELT';
   // a refusal: the bad sound and the panel's own answer line under the control that was clicked (note) — never an off-panel toast
   function refuse(msg, anchor) { H.sfx('bad'); note(msg, true, anchor); }
+  /* a NAME's answer (line or step), said under its own field like every other panel answer (conveyor-ui-12: a refused name
+     reverted quietly and its reason was a toast at the far-left edge of the screen). A name saved as the panel CLOSES (✕ / Esc
+     blur the field) has no panel left to say it in: then, and only then, the floor's tip says it. */
+  function said(msg, bad, anchor) {
+    if (S.closing || !el) { H.sfx(bad ? 'bad' : 'click'); H.flashTip(msg, !bad); return; }
+    if (bad) refuse(msg, anchor); else { H.sfx('click'); note(msg, false, anchor); }
+  }
   function insertStep(fromId, toId, role, anchor, tidy) {
     // a floor that builds by links: the step goes in as a LINE EDIT (only what changed moves); an older floor keeps the
     // insert that lays its belts by the ring rule
@@ -810,8 +820,9 @@ const WorkflowPanel = (() => {
       + '<div class="wf-compute" data-live="compute">' + computeHTML(p) + '</div></section>'
       + '<section class="wf-sec"><h3>What is their job?</h3>'
       + '<label class="refit-field" for="wf-bay-name">NAME <input id="wf-bay-name" class="refit-input" type="text" maxlength="48" aria-label="Step name" value="' + esc(p.label || '') + '" placeholder="Name this step" /></label>'
-      // the step's ROLE is its name on the line (and which starters it offers) — click the pressed one again to clear it
-      + (H.station().setPropRole ? '<div class="wf-chips wf-roles" aria-label="This step’s role">' + STEP_ROLES.map(r => '<button type="button" class="wf-chip" data-role="' + r + '" aria-pressed="' + (p.role === r) + '">' + r + '</button>').join('') + '</div>' : '')
+      // the step's ROLE is its name on the line (and which starters it offers) — click the pressed one again to clear it. A role
+      // the inserter does not offer (SPLIT THE JOB's PLANNER, an older blueprint's CREW / FIXER) is shown pressed too, never roleless
+      + (H.station().setPropRole ? '<div class="wf-chips wf-roles" aria-label="This step’s role">' + (p.role && STEP_ROLES.indexOf(p.role) < 0 ? STEP_ROLES.concat([p.role]) : STEP_ROLES).map(r => '<button type="button" class="wf-chip" data-role="' + esc(r) + '" aria-pressed="' + (p.role === r) + '">' + esc(r) + '</button>').join('') + '</div>' : '')
       + '<div class="wf-chips" aria-label="Starters">' + st.map((x, i) => '<button type="button" class="wf-chip" data-st="' + i + '">' + esc(x.label) + '</button>').join('') + '</div>'
       + '<div class="wf-contract">'
       + '<div class="row"><span class="lab">GETS</span><span class="val ro" data-live="gets">→ <b>' + esc(cr.gets) + '</b></span></div>'
@@ -825,7 +836,7 @@ const WorkflowPanel = (() => {
     wireEdits(body);
     const bayName = $('#wf-bay-name');
     let savedName = p.label || '';
-    const saveName = () => { const v = bayName.value.trim(); if (v === savedName) return; const r = H.station().setPropLabel(p.id, v); if (r && r.ok) { savedName = r.label || ''; H.flashTip(v ? 'step named — ' + v : 'step name cleared', true); paint(true); } else { bayName.value = savedName; H.flashTip((r && r.msg) || 'name not saved', false); } };
+    const saveName = () => { const v = bayName.value.trim(); if (v === savedName) return; const r = H.station().setPropLabel(p.id, v); if (r && r.ok) { savedName = r.label || ''; paint(true); said(v ? 'step named — ' + (r.label || v) : 'step name cleared', false, $('#wf-bay-name') || bayName); } else { bayName.value = savedName; said((r && r.msg) || 'name not saved', true, bayName); } };
     bayName.addEventListener('blur', saveName);
     bayName.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); saveName(); } if (e.key === 'Escape') { e.stopPropagation(); bayName.value = savedName; bayName.blur(); } });
     const join = $('#wf-join');
@@ -1604,9 +1615,11 @@ const WorkflowPanel = (() => {
         + (whyOff ? '<ul class="wf-why" aria-label="Why a choice is not available yet">' + whyOff + '</ul>' : '') + leadNote
         + '<div class="wf-mode">' + dia + '<p>' + MODE_TEXT[mode] + '</p></div>'
         + '<h4 class="wf-sub">Branches</h4>' + branches('No branches yet. Run two belts OUT of the splitter: drag from the SPLITTER onto the next machine, then again for the second branch.')
-        + '<p class="wf-help" id="split-note">Switching swaps the JOINER or MERGER where the branches meet. Same belts, one UNDO.</p></section>'
+        // (COPY TO EACH and SPLIT THE JOB both meet at a JOINER: only TAKE TURNS swaps it for a MERGER)
+        + '<p class="wf-help" id="split-note">Switching to or from TAKE TURNS swaps the JOINER or MERGER where the branches meet; COPY TO EACH and SPLIT THE JOB share the JOINER. Same belts, one UNDO.</p></section>'
         + (H.lineEdit ? '<section class="wf-sec wf-shape"><h3>Shape the line</h3><div class="wf-chips">'
-          + editBtn('addArm', p.id, { split: p.id }, '⑂ ADD A BRANCH', copies ? 'one more step gets a copy of every job — the JOINER waits for it too' : 'one more step takes its turn with the others')
+          + editBtn('addArm', p.id, { split: p.id }, '⑂ ADD A BRANCH', mode === 'divide' ? 'one more step takes one more part of the job — the step before the splitter writes one part per branch, and the JOINER waits for it too'
+            : copies ? 'one more step gets a copy of every job — the JOINER waits for it too' : 'one more step takes its turn with the others')
           + lanes.filter(l => l.dock).map(l => editBtn('removeArm', p.id, { split: p.id, head: l.dock }, '✕ ' + branchLabel(f, l.dock), 'take this branch out, every step on it; a split left with one branch folds away')).join('')
           + '</div><p class="wf-help dim">A branch comes out whole — the steps on it and their belts. One UNDO takes it back.</p></section>' : '');
       wireEdits(body);
@@ -1626,9 +1639,8 @@ const WorkflowPanel = (() => {
         + '<p class="wf-help">Want the branches of ONE job combined into a single result? Use a JOINER instead.</p></section>';
       return;
     }
-    const TXT = {
-      outbox: ['OUTBOX', 'Collect the finished work', 'The OUTBOX receives completed work. Leave build mode and click it to browse delivered work in the Logbook.' + (f && f.outbox.reached ? ' This line reaches it.' : ' Drag from the last BAY onto it to connect them.')],
-    }[p.t] || [String(p.t).toUpperCase(), 'Part of the line', 'Drag from one machine onto the next to connect them.'];
+    // (the OUTBOX never reaches here: paintOutbox above is the one place its help is written)
+    const TXT = [String(p.t).toUpperCase(), 'Part of the line', 'Drag from one machine onto the next to connect them.'];
     body.innerHTML = '<section class="wf-sec workflow-no-settings"><h3><span class="n">' + esc(TXT[0]) + '</span>' + esc(TXT[1]) + '</h3><p class="wf-help">' + esc(TXT[2]) + '</p>'
       + '<p class="wf-help dim">No extra settings needed — the belts you draw decide the paths.</p></section>';
   }
@@ -1792,9 +1804,9 @@ const WorkflowPanel = (() => {
     if (!H.bayLive || !order.length) return { text: 'The job is riding the line…', id: null };
     const at = st => { for (let i = 0; i < order.length; i++) { const s = H.bayLive(order[i]); if (s && s.state === st) return { i, s, id: order[i], p: prop(order[i]) || {} }; } return null; };
     const w = at('working');
-    if (w) { liveSeen = true; return { id: w.id, text: 'Now: step ' + (w.i + 1) + ' of ' + order.length + ' · ' + (w.p.role || 'STEP') + ' · ' + String(nameOf(w.s.agentId || w.p.agentId)).toUpperCase() + ' is working' + (w.s.forMs != null ? ' · ' + Math.round(w.s.forMs / 1000) + 's' : '') }; }
+    if (w) { liveSeen = true; return { id: w.id, text: 'Now: step ' + (w.i + 1) + ' of ' + order.length + ' · ' + (w.p.label || w.p.role || 'STEP') + ' · ' + String(nameOf(w.s.agentId || w.p.agentId)).toUpperCase() + ' is working' + (w.s.forMs != null ? ' · ' + Math.round(w.s.forMs / 1000) + 's' : '') }; }
     const q = at('waiting');
-    if (q) return { id: null, text: 'Next: step ' + (q.i + 1) + ' of ' + order.length + ' · ' + (q.p.role || 'STEP') + ' · waiting for ' + String(nameOf(q.p.agentId)).toUpperCase() };
+    if (q) return { id: null, text: 'Next: step ' + (q.i + 1) + ' of ' + order.length + ' · ' + (q.p.label || q.p.role || 'STEP') + ' · waiting for ' + String(nameOf(q.p.agentId)).toUpperCase() };
     return { id: null, text: liveSeen ? 'Handing the job on to the next step…' : 'Sending the job into the line…' };
   }
   const liveText = f => liveNow(f).text;
@@ -1861,7 +1873,8 @@ const WorkflowPanel = (() => {
     const prev = S.prevJob && S.prevJob.stamp !== mine.stamp && S.prevJob.text === mine.text ? S.prevJob : null;
     const passes = {};   // a looping line runs a BAY more than once: its later runs say which pass they were
     const steps = runs.map((r, i) => {
-      const pr = r.dockId ? prop(r.dockId) : null, role = (pr && pr.role) || null, k = r.dockId || r.agentId, pass = passes[k] = (passes[k] || 0) + 1;
+      // a step goes by its NAME first, then its role — the strip's and the tiles' word for it (conveyor-ui-15)
+      const pr = r.dockId ? prop(r.dockId) : null, role = (pr && (pr.label || pr.role)) || null, k = r.dockId || r.agentId, pass = passes[k] = (passes[k] || 0) + 1;
       return '<details class="wf-more wf-step-out" data-run="' + esc(r.runId) + '"><summary><span>' + (i + 1) + ' · ' + esc((role ? role + ' · ' : '') + String(nameOf(r.agentId)).toUpperCase() + (pass > 1 ? ' · pass ' + pass : '')) + '</span>'
         + '<span class="src' + (r.reason && r.reason !== 'done' ? ' warn' : '') + '">' + (r.reason && r.reason !== 'done' ? esc(runEnd(r.reason)) + ' · ' : '') + '$' + (+r.usd || 0).toFixed(4) + '</span></summary>'
         + '<div class="wf-io">' + esc(stepText(stepOut[r.runId])) + '</div></details>';
@@ -1871,7 +1884,7 @@ const WorkflowPanel = (() => {
        complete cleanly"). It is said as FINISHED WITH A PROBLEM: which step, what happened, in words; what came out, and every step. */
     const bad = v.ok ? null : runs.find(r => r.reason && r.reason !== 'done');
     const badLine = v.ok ? '' : bad
-      ? (() => { const pr = bad.dockId ? prop(bad.dockId) : null; return 'The ' + (pr && pr.role ? pr.role + ' step' : 'step') + ' (' + String(nameOf(bad.agentId)).toUpperCase() + ') ' + runEnd(bad.reason) + ', so this job did not finish cleanly and was not put in the OUTBOX. Sending it again often works.'; })()
+      ? (() => { const pr = bad.dockId ? prop(bad.dockId) : null, nm = pr && (pr.label || pr.role); return 'The ' + (nm ? nm + ' step' : 'step') + ' (' + String(nameOf(bad.agentId)).toUpperCase() + ') ' + runEnd(bad.reason) + ', so this job did not finish cleanly and was not put in the OUTBOX. Sending it again often works.'; })()
       : String(v.reason || 'the job did not finish cleanly');
     return '<div class="wf-job' + (v.ok ? '' : ' problem') + '">'
       + (v.ok ? '<div class="wf-job-h"><b>✓ DELIVERED</b> · ' + runs.length + ' step' + (runs.length === 1 ? '' : 's') + (v.usd != null ? ' · $' + v.usd.toFixed(4) : '') + (mine.folded ? ' · in the OUTBOX' : '') + '</div>'
@@ -1909,7 +1922,7 @@ const WorkflowPanel = (() => {
   const fixInUse = x => { const p = prop(x.dockId) || {}; return (x.does == null || (p.brief || '') === x.does) && (x.hands == null || (p.hands || '') === x.hands); };
   function fixCardHTML(x, i, f) {
     const p = prop(x.dockId) || {}, n = f ? f.order.indexOf(x.dockId) + 1 : 0, inUse = fixInUse(x);
-    const label = (n > 0 ? 'BAY ' + n + ' · ' : '') + (p.role || 'STEP') + (p.agentId ? ' · ' + String(nameOf(p.agentId)).toUpperCase() : '');
+    const label = (n > 0 ? 'BAY ' + n + ' · ' : '') + (p.label || p.role || 'STEP') + (p.agentId ? ' · ' + String(nameOf(p.agentId)).toUpperCase() : '');
     return '<div class="wf-fix' + (inUse ? ' applied' : '') + '"><div class="wf-fix-h"><b>' + esc(label) + '</b>' + (inUse ? '<span class="wf-tag">IN USE</span>' : '') + '</div>'
       + (x.why ? '<p class="wf-help">' + esc(x.why) + '</p>' : '')
       + (x.does != null ? '<div class="wf-from"><span>DOES · NEW</span></div><div class="wf-io edited">' + esc(x.does) + '</div>'
@@ -1967,7 +1980,8 @@ const WorkflowPanel = (() => {
     if (!next) { H.sfx('bad'); H.flashTip('this step’s instructions are too long to hold an example — shorten them first', false); return; }
     const r = H.station().setPropBrief(dockId, next);
     if (!r || !r.ok) { H.sfx('bad'); H.flashTip('the example could not be saved', false); return; }
-    S.exampleStamp = mine.stamp; H.sfx('chime'); H.flashTip((p.role || 'the last step') + ' will match this example · the crew learns its style · UNDO takes it back', true);
+    // only the step's own fact is said now: whether the CREW learned the style is the keep-style answer's to say (keepTaste)
+    S.exampleStamp = mine.stamp; H.sfx('chime'); H.flashTip((p.label || p.role || 'the last step') + ' will match this example · UNDO takes it back', true);
     keepTaste(mine, last.runId);
     paint(false);
   }
@@ -1978,10 +1992,15 @@ const WorkflowPanel = (() => {
      keep itself has landed, so the two can never cross). A failure is said, never hidden. */
   function keepTaste(mine, runId) {
     if (!runId) return;
+    /* the crew learned it only when the station STORED it (feedbackMemory.stored) — said then, never before the answer
+       (conveyor-ui-14). Resolves true only for a stored style: that is the one the panel's UNDO has to take back. */
     const sent = api('/api/taste/keep-style', 'POST', { runId }).then(({ status, j }) => {
       if (status !== 200 || !(j && j.ok)) { H.flashTip('kept for this step, but the crew could not learn the style: ' + ((j && j.error) || 'http ' + status), false); return false; }
-      if (j.feedbackMemory && j.feedbackMemory.reason === 'personalization-paused') H.flashTip('kept for this step — learning is paused, so the rest of the crew will not learn this style', false);
-      return true;
+      const fm = j.feedbackMemory || {};
+      if (fm.stored === true) { H.flashTip((fm.created === false ? 'the crew already knew this style' : 'the crew learned this style') + ' · UNDO takes it back', true); return true; }
+      if (fm.reason === 'personalization-paused') H.flashTip('kept for this step — learning is paused, so the rest of the crew will not learn this style', false);
+      else H.flashTip('kept for this step, but the crew did not learn the style: ' + (fm.reason || 'the station did not say why'), false);
+      return false;
     }, () => { H.flashTip('kept for this step — the crew could not learn the style (is the station running?)', false); return false; });
     S.tasteKept = { stamp: mine.stamp, runId, sent };
   }
