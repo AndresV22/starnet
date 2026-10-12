@@ -308,5 +308,71 @@ module.exports = (async () => {
     A.eq(errorClass.classifyApiError(absentErr, { model: 'qwen3:8b' }).reason, 'timeout', 'absent placement remains a timeout, not a model-load failure');
   }
 
+  // Explicit local allocation failures are terminal even when Ollama reports HTTP 500.
+  // Replaying the same allocation caused repeated memory pressure after the owner's GPU/sidecar crash.
+  {
+    const details = [
+      'llama-server reported out-of-memory during startup: cudaMalloc failed: out of memory',
+      'failed to allocate CUDA0 buffer of size 4869357568',
+      'failed to allocate buffer for kv cache',
+      'model requires more system memory (8.0 GiB) than is available (1.1 GiB)'
+    ];
+    for (const detail of details) {
+      for (const mode of ['http', 'stream', 'compatible-fallback']) {
+        let posts = 0;
+        const p = makeOpenAICompatibleProvider({ nativeOllama: true, baseUrl: 'http://memory.test:11434/v1', fetch: async url => {
+          if (url.endsWith('/api/show')) return SHOW(40960, ['completion', 'tools']);
+          if (url.endsWith('/api/chat') && mode === 'compatible-fallback') return new Response('not found', { status: 404 });
+          if (url.endsWith('/api/chat') || url.endsWith('/chat/completions')) {
+            posts++;
+            return mode === 'stream' ? ndjson([{ error: detail }]) : new Response(JSON.stringify({ error: detail }), { status: 500 });
+          }
+          return new Response('{"data":[],"models":[]}', { status: 200 });
+        } });
+        let err;
+        try { await collect(p, { model: 'qwen3:8b', messages: [{ role: 'user', content: 'hello' }] }); } catch (e) { err = e; }
+        A.eq(posts, 1, mode + ': the failed allocation is never resent');
+        const cls = errorClass.classifyApiError(err, { model: 'qwen3:8b' });
+        A.eq(cls.reason, 'local_error', mode + ': memory exhaustion uses the existing terminal local failure category');
+        A.eq(cls.retryable, false, mode + ': memory exhaustion cannot enter the host retry ladder');
+        A.eq(require('../sidecar/recovery-policy.js').providerFailure({ classification: cls, hasFallback: true, maxRecoveries: 3 }).action,
+          'fail', mode + ': neither retries nor an automatic second local-model allocation follow');
+        A.ok(/^Local model ran out of memory\./.test(err && err.message), mode + ': forwarded error carries an actionable local-memory headline');
+        A.ok(err && err.message.includes(detail), mode + ': the exact allocation failure remains available for diagnostics');
+      }
+    }
+    // A generic hosted 500 with the same upstream detail stays retryable: this is an Ollama-specific decision.
+    let posts = 0;
+    const hosted = makeOpenAICompatibleProvider({ baseUrl: 'https://hosted.test/v1', fetch: async url => {
+      if (url.endsWith('/chat/completions')) { posts++; return posts === 1
+        ? new Response(JSON.stringify({ error: details[0] }), { status: 500 })
+        : new Response('data: {"choices":[{"delta":{"content":"ok"},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n', { status: 200 }); }
+      return new Response('{"data":[]}', { status: 200 });
+    } });
+    await collect(hosted, { model: 'hosted', messages: [{ role: 'user', content: 'hello' }] });
+    A.eq(posts, 2, 'hosted memory-related 500 keeps its transient retry behavior');
+  }
+
+  // The actual host loop must receive the terminal category and preserve the actionable message.
+  {
+    let posts = 0;
+    const seq = [], waits = [], recoveries = [];
+    const p = makeOpenAICompatibleProvider({ nativeOllama: true, baseUrl: 'http://loop-memory.test:11434/v1', fetch: async url => {
+      if (url.endsWith('/api/show')) return SHOW(40960, ['completion', 'tools']);
+      if (url.endsWith('/api/chat')) { posts++; return new Response(JSON.stringify({ error: 'cudaMalloc failed: out of memory' }), { status: 500 }); }
+      return new Response('{"data":[],"models":[]}', { status: 200 });
+    } });
+    const result = await require('../sidecar/loop.js').runAgentLoop({ provider: p, model: 'qwen3:8b', agentId: 'memory-test', runId: 'memory-test',
+      messages: [{ role: 'user', content: 'hello' }], emit: (name, payload) => seq.push({ name, payload }),
+      sleep: async ms => { waits.push(ms); }, onRecovery: row => recoveries.push(row) });
+    A.eq(posts, 1, 'the real host loop does not restart a failed local model allocation');
+    A.eq(waits, [], 'no adapter or host retry wait occurs');
+    A.eq(recoveries, [], 'no retry recovery is falsely reported');
+    A.eq([result.reason, result.failureStage, result.failureCode], ['error', 'provider_stream', 'local_error'], 'terminal failure telemetry is retained');
+    const error = seq.find(row => row.name === 'agent.run.error');
+    A.eq(error && error.payload.transient, false, 'the actual emitted error is terminal');
+    A.ok(error && /^Local model ran out of memory\./.test(error.payload.message), 'the actual error event carries the memory headline');
+  }
+
   A.report('provider.ollama-native.test');
 })();
