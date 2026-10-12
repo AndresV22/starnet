@@ -13,6 +13,7 @@
 const A = require('./_assert.js');
 const fs = require('fs');
 const path = require('path');
+const vm = require('node:vm');
 const WM = require('../frontend/app/worldmodel.js');
 const P = require('../frontend/app/pipeline.js');
 const W = require('../frontend/app/workflowline.js');
@@ -72,7 +73,50 @@ const splitOf = plan => Object.keys(plan.junctions).find(k => plan.junctions[k].
   A.ok(/WP\.showTest\('watch'\)/.test(ot) && /return sendTestBoxes\(e\);/.test(ot), 'TEST opens the TEST view AND plays the free walkthrough (one click, as before)');
   A.ok(/preview: \(\) => sendTestBoxes\(null\)/.test(build), 'WATCH IT drives the same walkthrough');
   A.ok(/\['watch', 'WATCH IT · FREE'/.test(panel) && /\['step', 'STEP THROUGH · REAL'/.test(panel) && /\['real', 'RUN ONE REAL JOB'/.test(panel), 'three named modes');
-  A.ok(/return m === 'step' && S\.seam !== true \? 'real' : m;/.test(panel), 'no step-test seam: STEP THROUGH steps aside for RUN ONE REAL JOB');
+  // Exercise the production decision AND its render entry point. A source spelling
+  // check missed a correct fallback helper hidden behind a seam-only panel guard.
+  const headers = ['function stepTestUnavailable()', 'function testModeNow()', 'function testPickerHTML(s)', 'function paintBodyInner(body, f)'];
+  const helpers = headers.map(h => {
+    const src = A.fnBody(panel, h);
+    A.ok(src.length > 0 && src.length < 9000, 'bounded actual panel helper: ' + h);
+    return src;
+  }).join('\n');
+  const modes = (panel.match(/const TEST_MODES = \[[\s\S]*?\n  \];/) || [''])[0];
+  A.ok(modes.length > 0 && modes.length < 1000, 'actual named test modes are loaded');
+  function renderChoice(plan, seam, mode, pipeline) {
+    const S = { view: 'test', seam, testMode: mode, lineKey: plan.lines[0].lineId, testJob: {}, pauseMode: 'every' };
+    const context = {
+      S, H: { plan: () => plan, sampleState: () => null }, Pipeline: pipeline,
+      comp: () => ({ key: S.lineKey }), esc: value => String(value == null ? '' : value),
+      restoreDrafts: () => {}, prop: () => ({ t: 'intake' }),
+      paintTrigger: body => { body.innerHTML = 'INBOX editor'; }
+    };
+    const api = vm.runInNewContext(modes + '\n' + helpers + '\n({ testModeNow, stepTestUnavailable, testPickerHTML, paintBodyInner })', context);
+    context.paintTest = body => { body.innerHTML = api.testPickerHTML(null); };
+    const body = { innerHTML: '' }; api.paintBodyInner(body, null);
+    return { mode: api.testModeNow(), refusal: api.stepTestUnavailable(), html: body.innerHTML };
+  }
+  const simple = P.compileRoutingPlan(stampCrewed('load_balancer').projectGeometry());
+  const parallel = P.compileRoutingPlan(stampCrewed('second_opinion').projectGeometry());
+  for (const seam of [false, null, 'probing']) for (const requested of [undefined, 'step']) {
+    const r = renderChoice(simple, seam, requested, P);
+    A.eq(r.mode, 'real', 'unavailable/probing step endpoint selects real-job fallback: ' + seam);
+    A.ok(r.html.includes('id="wf-real"') && !r.html.includes('id="wf-st-go"'), 'fallback renders RUN ONE REAL JOB, never a paid step start: ' + seam);
+    A.ok(/data-tmode="step"[^>]*aria-disabled="true"/.test(r.html), 'unavailable STEP THROUGH explains its disabled choice: ' + seam);
+  }
+  for (const requested of [undefined, 'step']) {
+    const r = renderChoice(simple, true, requested, P);
+    A.eq(r.mode, 'step', 'supported simple line keeps default and explicit STEP THROUGH');
+    A.ok(r.html.includes('id="wf-st-go"') && !r.refusal, 'supported line renders the step-start control');
+    const blocked = renderChoice(parallel, true, requested, P);
+    A.eq(blocked.mode, 'real', 'unsupported parallel line offers a real whole-line job');
+    A.ok(blocked.html.includes('id="wf-real"') && !blocked.html.includes('id="wf-st-go"') && /parallel/.test(blocked.refusal), 'parallel refusal remains truthful and prevents step start');
+  }
+  for (const seam of [false, true]) {
+    A.ok(renderChoice(parallel, seam, 'watch', P).html.includes('id="wf-watch"'), 'explicit WATCH IT stays free and available: ' + seam);
+    A.ok(renderChoice(simple, seam, 'real', P).html.includes('id="wf-real"'), 'explicit RUN ONE REAL JOB remains selected: ' + seam);
+  }
+  A.eq(renderChoice(simple, true, 'step', undefined).mode, 'step', 'older compiler without refusal helper preserves supported step choice');
   A.ok(/id="wf-test">' \+ \(s && W\.isLive\(s\) \? '▶ TEST · '/.test(panel) && !/id="wf-steptest"/.test(panel) && !/id="wf-sample"/.test(panel), 'the footer has ONE TEST button (the step-test and sample buttons are gone)');
   A.ok(/showTest, _state: S/.test(panel), 'the panel exposes showTest for the top bar');
   A.ok(/'TEST IT AGAIN' : 'TEST THIS STEP'/.test(panel), 'the per-step button says what it tests');
