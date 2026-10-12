@@ -34,7 +34,7 @@ Source repaired in 30cbb0420. Compiled line topology supplies one shared refusal
 
 ## Regression
 
-Before: feature detection alone enabled whole-line step-through. After: a compiled fan-out/JOINER limitation refuses before any run; changing topology clears it. Existing single-step and sequential/LOOP tests remain green.
+Before: feature detection alone enabled whole-line step-through. After: a compiled fan-out/JOINER limitation refuses before any run; changing topology clears it. Existing single-step and sequential/LOOP tests remain green. Follow-up 43e32a761 derives the same refusal from persisted plans created before the new marker; regression proof removes the marker and still makes zero runDock calls.
 
 ## Sibling coverage
 

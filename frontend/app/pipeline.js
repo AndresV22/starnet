@@ -2163,10 +2163,6 @@
     const rec = m && typeof m === 'object' ? m[String(lineId)] : null;
     return rec && typeof rec === 'object' ? rec : null;
   }
-  /* THE HAND's ALT VIEW (build mode, 2026-10-10): how many stages one job on a line can run, and its ceiling — the same count
-     LINE_TOO_LONG makes (jobStages from every INBOX feed mouth of the line), for a line that is NOT over budget too, so the
-     floor can say n/max on every INBOX. Pure over a compiled plan; null for a line it cannot count (no INBOX on it, or routing
-     off under a belt / work-line loop, where LINE_TOO_LONG is silent too). Outside the hash — nothing dispatch reads. */
   function stepTestRefusal(plan, lineId) {
     const line = plan && Array.isArray(plan.lines) ? plan.lines.find(l => l && String(l.lineId) === String(lineId)) : null;
     if (!line) return null;
@@ -2192,6 +2188,10 @@
     return 'STEP THROUGH carries one crate at a time and cannot finish this ' + (barrier === 'fanout' ? 'parallel' : 'joined')
       + ' line. Use RUN ONE REAL JOB to test the whole line, or TRY THIS STEP on an individual BAY.';
   }
+  /* THE HAND's ALT VIEW (build mode, 2026-10-10): how many stages one job on a line can run, and its ceiling — the same count
+     LINE_TOO_LONG makes (jobStages from every INBOX feed mouth of the line), for a line that is NOT over budget too, so the
+     floor can say n/max on every INBOX. Pure over a compiled plan; null for a line it cannot count (no INBOX on it, or routing
+     off under a belt / work-line loop, where LINE_TOO_LONG is silent too). Outside the hash — nothing dispatch reads. */
   function lineStages(plan, lineId) {
     const rec = plan && Array.isArray(plan.lines) ? plan.lines.find(l => l && l.lineId === lineId) : null;
     if (!rec || !rec.intakes || !rec.intakes.length) return null;
