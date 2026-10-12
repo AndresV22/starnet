@@ -51,6 +51,91 @@
       "log": ".handoff/customer-fbeb-fast.log",
       "logSha256": "8f71c29b3ec1ed0333b426ed6baf767b31136839d24cdcda5afdc33f4a89b892",
       "scope": "Intentional cancellation, not a product failure or a completed gate."
+    },
+    {
+      "candidate": "6f7361a721bbd932d14f23e5a28117e120b4ebf4",
+      "command": "npm run test:fast",
+      "startedAt": "2026-10-12T08:02:50.4556185Z",
+      "observedCompletedAt": "2026-10-12T08:11:44.476Z",
+      "exitCode": 1,
+      "log": ".handoff/customer-6f-fast.log",
+      "logSha256": "0b4b35263c1c9cc4e7660825c9c19966db9082ce2ac5bd9e9c1a20e5bb0dd971",
+      "manifestSteps": 1145,
+      "completedSteps": 598,
+      "failedStep": 599,
+      "failure": {
+        "test": "test/slag-known-error-kinds.test.js",
+        "detail": "local_model_memory missing from exhaustive post-mortem classification"
+      },
+      "scope": "Failed full source gate; unchanged-candidate diagnostic traversal below does not convert this into a pass.",
+      "diagnosticRemainders": [
+        {
+          "startedAt": "2026-10-12T08:13:34.3396707Z",
+          "observedCompletedAt": "2026-10-12T08:14:33.031Z",
+          "exitCode": 1,
+          "log": ".handoff/customer-6f-remaining-fast.log",
+          "logSha256": "f8bd9441e5600f6e3fdf049433385cf68e3bcd37a53b0ead3d47843e00cb14dc",
+          "firstOriginalStep": 600,
+          "lastOriginalStep": 751,
+          "failedOriginalStep": 751,
+          "test": "test/conveyor-choices.test.js",
+          "detail": "Unavailable step-test endpoint fallback and helper expectation",
+          "scope": "Diagnostic subset only, not a full gate"
+        },
+        {
+          "startedAt": "2026-10-12T08:15:10.7938408Z",
+          "observedCompletedAt": "2026-10-12T08:16:50.696Z",
+          "exitCode": 1,
+          "log": ".handoff/customer-6f-tail-fast.log",
+          "logSha256": "7d7c509f3012650faf65e75d37be99249d431f86a533a98874890e4862e88c70",
+          "firstOriginalStep": 752,
+          "lastOriginalStep": 922,
+          "failedOriginalStep": 922,
+          "test": "test/lint-gate-can-fail.js",
+          "detail": "Saved-station diagnosis test helper report compatibility",
+          "scope": "Diagnostic subset only, not a full gate"
+        },
+        {
+          "startedAt": "2026-10-12T08:17:24.6121282Z",
+          "observedCompletedAt": "2026-10-12T08:18:50.229Z",
+          "exitCode": 1,
+          "log": ".handoff/customer-6f-last-fast.log",
+          "logSha256": "5415f5edf6c03bb05081952865e8aa888319266b6fffefb65dbc51b880f9d63c",
+          "firstOriginalStep": 923,
+          "lastOriginalStep": 1018,
+          "failedOriginalStep": 1018,
+          "test": "test/remaster-physical-fit.test.js",
+          "detail": "Old lost-cache fallback assertion versus authored-pixel retention",
+          "scope": "Diagnostic subset only, not a full gate"
+        },
+        {
+          "startedAt": "2026-10-12T08:19:43.3109819Z",
+          "observedCompletedAt": "2026-10-12T08:20:42.978Z",
+          "exitCode": 1,
+          "log": ".handoff/customer-6f-final-diagnostic.log",
+          "logSha256": "1b4138c11ee70476a095c1beb31dc6869a4ea376e0e342dc97a99343d4dd8b93",
+          "firstOriginalStep": 1019,
+          "lastOriginalStep": 1110,
+          "failedOriginalStep": 1110,
+          "test": "test/conveyor-ease.test.js",
+          "detail": "SHIPPED tooltip expectation",
+          "scope": "Diagnostic subset only, not a full gate"
+        },
+        {
+          "startedAt": "2026-10-12T08:21:18.9385802Z",
+          "observedCompletedAt": "2026-10-12T08:21:37.653Z",
+          "exitCode": 0,
+          "log": ".handoff/customer-6f-last35-fast.log",
+          "logSha256": "c4eccc145f6ff41d722c2d259af91295874c6309d5ecccba0c17868de7bf4eef",
+          "firstOriginalStep": 1111,
+          "lastOriginalStep": 1145,
+          "failedOriginalStep": null,
+          "test": null,
+          "detail": null,
+          "scope": "Diagnostic subset only, not a full gate"
+        }
+      ],
+      "followUp": "Repairs returned to owning lanes; a new complete fast/HTTP/customer-journey gate is required on the final combined candidate."
     }
   ],
   "scope": "Revision-bound source gates, including failures. Later evidence-only changes do not establish the cause of a failed run. These receipts do not establish installed/customer acceptance or release readiness."
