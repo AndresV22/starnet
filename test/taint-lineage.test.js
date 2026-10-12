@@ -293,7 +293,7 @@ const leadCtx = (extra) => makeCapCtx({ agentId: 'lead', room: 'office', hasComp
 // ===== 4. the index.js wiring that joins the seams (a defence dies silently at the seam) =====
 {
   const src = fs.readFileSync(path.join(root, 'sidecar', 'index.js'), 'utf8');
-  A.ok(/const relayed = taintPolicy\.relayedTaint\(r\);\s*if \(relayed\) latchRunTaint\(relayed\);/.test(src), 'the dispatch seam latches a relayed worker taint on the lead');
+  A.ok(/const relayed = taintPolicy\.relayedTaint\(r\);\s*if \(relayed\) \{ latchRunTaint\(relayed\);/.test(src), 'the dispatch seam latches a relayed worker taint on the lead');
   A.ok(/result\.taintedBy = execution\.taintedBy\(\)/.test(src), 'runOnce reports its taint to the caller (worker -> team.* rows)');
   // one report per hand-off (2026-10-11): ANY tainted worker of the batch taints the reviewing lead
   A.ok(/initialTaint: taintPolicy\.relayedTaint\(\{ taintedBy: taintPolicy\.firstTaint\(members\) \|\| '' \}\) \|\| undefined/.test(src), 'the overseer hand-back review starts tainted by a tainted worker');

@@ -19109,6 +19109,9 @@ async function runOnceCore(o) {
   // it STARTED with (set once the replay proof below has run): a refusal under either must not claim this run read anything.
   const taintHandedIn = execution.taintedBy();
   let taintAtStart = null;
+  // SAME-ORIGIN API CONTINUATION scope (taint.js): null until this run reads untrusted bytes; { origin, keys } while all
+  // of them came from ONE https API origin; { broad: true } once anything else (or a taint it started with) is involved.
+  let taintScope = null;
   // One sequence across provider and tool recovery. Adapter-local counters restart at one, but the durable run
   // record must preserve the actual cross-stage order in which recovery actions happened.
   const recordRunRecoveryAttempt = (attempt) => {
@@ -20865,7 +20868,12 @@ async function runOnceCore(o) {
     const effectSurface = connectorPrompt ? 'interactive' : surface;
     const connectorFullAccess = /^mcp:/.test(String(liveTool?.capability || ''))
       && typeof o.connectorAuthority?.fullAccess === 'function' && o.connectorAuthority.fullAccess() === true;
-    let postTaint = revokedByTaint.boundary(liveTool, {
+    /* SAME-ORIGIN API CONTINUATION (owner decision 2026-10-12): a run whose only untrusted reads are responses from ONE
+       https API may keep calling that same API with keys it already sent there — no per-call card, and unattended runs
+       are not refused for it. The taint stays latched: every other host, key, tool and power keeps the lock below. */
+    const sameOriginApi = !!taintSource && !inheritedTaint && taintSource === execution.taintedBy()
+      && taintPolicy.sameOriginContinuation(taintScope, liveTool, c, { untrustedEntry: untrustedEntryRun });
+    let postTaint = sameOriginApi ? { allow: true, needsConfirmation: false, oneShot: false } : revokedByTaint.boundary(liveTool, {
       taintedBy: taintSource, surface: effectSurface, hasPrompt: typeof effectPrompt === 'function',
       fullAccess: stationBypassNow() || agentFullAccessNow() || connectorFullAccess, untrustedEntry: untrustedEntryRun
     });
@@ -21120,8 +21128,9 @@ async function runOnceCore(o) {
        puts it verbatim into the tool_result the model reads. So `isError: true` was a one-flag bypass that let
        a hostile connector inject text while the run kept its terminal / credentialed / connector-write powers.
        What actually matters is whether untrusted BYTES reached the context, not whether the call succeeded. */
-    if (!execution.taintedBy() && r && typeof r.content === 'string' && r.content.length && revokedByTaint.isSource(liveTool, c)) {
-      latchRunTaint(c.name);
+    if (r && typeof r.content === 'string' && r.content.length && revokedByTaint.isSource(liveTool, c)) {
+      taintScope = taintPolicy.scopeAfterSource(taintScope, liveTool, c, { wasTainted: !!execution.taintedBy(), runId });
+      if (!execution.taintedBy()) latchRunTaint(c.name);
     }
     /* RELAYED TAINT (sec-taint 09-25). team.dispatch / team.spawn / team.subagents / team.resume hand this run the
        text of ANOTHER run. When that run was tainted (its worker read a hostile page), the text it returns is the
@@ -21130,7 +21139,7 @@ async function runOnceCore(o) {
        host-proven latch (never model-supplied); the lead inherits it, errors included. */
     if (!execution.taintedBy() && r) {
       const relayed = taintPolicy.relayedTaint(r);
-      if (relayed) latchRunTaint(relayed);
+      if (relayed) { latchRunTaint(relayed); taintScope = { broad: true }; }
     }
     // observe BEFORE the tool-output budget clip below, so the collector parses the tool's REAL result text.
     if (!internalBriefControl) {
