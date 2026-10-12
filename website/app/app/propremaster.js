@@ -274,6 +274,17 @@ const PropRemaster = (() => {
     }
     return entry[field];
   }
+  function recoveryComposition(key,entry,body){
+    if(performance.now()<(entry.composedRetryAt||0))return null;
+    try{
+      let c=entry.recoveryComposed;
+      if(!c){c=document.createElement('canvas');c.width=body.width;c.height=body.height;}
+      const g=c.getContext('2d',{willReadFrequently:true});
+      if(!g||g.isContextLost?.())throw Error('recovery composition unavailable');
+      if(!entry.recoveryComposed){entry.recoveryComposed=c;watchPlane(key,entry,c);}
+      return {canvas:c,ctx:g};
+    }catch(_){entry.recoveryComposed=null;entry.composedRetryAt=performance.now()+3000;return null;}
+  }
   // Complete new display art: no original sprite is drawn beneath or over it.
   // Power follows physical occupancy; motion modifies only authored cyan phosphor.
   function authoredScreen(body,regions,box,frame){
@@ -369,9 +380,11 @@ const PropRemaster = (() => {
     const f=e.frame;
     const body=e.lost?recoveryBody(id+':'+view,e):e.body;
     if(!body)return true; // known authored art never routes a graphics outage to legacy art
-    if(e.composed){
-      if(e.lost&&!e.recoveryComposed){e.recoveryComposed=canvas(body.width,body.height);watchPlane(id+':'+view,e,e.recoveryComposed);}
-      const composed=e.lost?e.recoveryComposed:e.composed,g=composed.getContext('2d');g.save();
+    const composition=e.composed?(e.lost?recoveryComposition(id+':'+view,e,body):{canvas:e.composed,ctx:e.composed.getContext('2d')}):null;
+    // Composition is optional during a reset. If even the CPU surface cannot be
+    // allocated, the normal body path below keeps the retained authored pixels.
+    if(composition){
+      const {canvas:composed,ctx:g}=composition;g.save();
       try{
         g.setTransform(1,0,0,1,0,0);g.globalAlpha=1;g.globalCompositeOperation='source-over';g.clearRect(0,0,composed.width,composed.height);g.drawImage(body,0,0);
         g.scale(DENSITY,DENSITY);g.translate(-f.x,-f.y);
