@@ -348,6 +348,7 @@ const { makeWorkshopStore } = require('./workshop-store.js'); // durable per-age
 const { makeDeliverableStore } = require('./deliverable-store.js'); // durable kept/discarded/failed Workshop lifecycle index
 const { makeSteerBuffers } = require('./steer-buffer.js'); // h1: live-steer buffers + the run-end close (an honest 409 once a run can no longer apply a note)
 const { makeIdempotencyLedger } = require('./idempotency-ledger.js'); // SOP lane: durable connector-WRITE idempotency (no double-send on retry/resume)
+const TrustedLearning = require('./trusted-learning.js');
 const TaskPostconditions = require('./task-postconditions.js');        // SOP lane: the typed acceptance authority (mid-run probe + end-of-run verdict)
 const RecipeDrift = require('./recipe-drift.js');                      // golden-run drift: latest recipe run vs its own good history (pure, from run rows)
 const { makeProvenanceIndex } = require('./deliverable-provenance.js'); // WHO made a deliverable + WHAT project it belongs to, derived from the run log
@@ -3514,6 +3515,7 @@ async function runBackgroundSkillReview(o) {
       runId: reviewRunId,
       signal: ac.signal,
       skillReview: true,
+      projectRoot: o.projectRoot || '',
       createdBy: 'background-review'
     });
     const dispatch = async (c, ctx) => {
@@ -3522,12 +3524,12 @@ async function runBackgroundSkillReview(o) {
     };
     const reviewNotebook = notebookStore.get('notebook:' + agentId);
     const prompt = skillReview.buildPrompt({
-      agentId, runId, messages, verdict, correction, failed: !!(o && o.failed),
+      agentId, runId, messages, verdict, correction, correctionSource: o && o.correctionSource, learningEvidence: o && o.learningEvidence, failed: !!(o && o.failed),
       loadedSkills: loadedSkills || [],
       managedSkills: managedSkills || [],
       // top-12 by rank() against the run's directive (was: last 12 in raw store order) — the reviewer sees the
       // memories RELEVANT to what this run did; on a queryless run rank degrades to recency+trust, still 12.
-      memories: rank(Array.isArray(reviewNotebook) ? reviewNotebook : [], latestUserText(messages), { now: Date.now(), k: 12 }),
+      memories: (o.learningEvidence && (o.learningEvidence.tainted || o.learningEvidence.trustedOnly)) ? [] : rank(Array.isArray(reviewNotebook) ? reviewNotebook : [], latestUserText(messages), { now: Date.now(), k: 12 }),
       skills: skillStore.list(agentId, { includeArchived: true })
     });
     result = await runAgentLoop({
@@ -18707,6 +18709,7 @@ async function handleRun(req, res) {
     // USER ATTACHMENTS: expand any Commander-attached photos/files (carried as lightweight references on the
     // user turns) into real provider content blocks before the model call. Degrades per-attachment, never throws.
     const hasUserAttachments = messages.some(m => m && Array.isArray(m.attachments) && m.attachments.length > 0);
+    const learningInput = TrustedLearning.capture(messages, 'interactive-owner');
     let runMessages = messages;
     try { runMessages = await attachments.expandUserAttachments(messages, agentId); } catch (_) { runMessages = messages; }
     // The browser is WATCHED, so an ungranted mutation asks live (interactive surface + promptConsent) instead
@@ -18716,6 +18719,7 @@ async function handleRun(req, res) {
       emit, signal: ac.signal, runId, trigger: 'directive', internal, evidence,
       voiceTurn: !!(body && body.voiceTurn === true),   // the reply will be SPOKEN: the voice chat model may answer it
       initialTaint: hasUserAttachments ? 'user attachment' : null,
+      learningInput,   // host-captured BEFORE attachment expansion; never accepted from request metadata
       retryUserRunId: body && body.retryUserRunId,
       surface: 'interactive', prompt: promptConsent, pathPrompt: promptPathTrust, summon: summonRequest,   // team.summon → live summonAgent() round-trip; pathPrompt → NS-5 "work in <root>?" bless
       loginPrompt: askHuman,   // attended browser login: browser.login's two consent asks ride the same fail-closed permission.prompt channel
@@ -20332,8 +20336,11 @@ async function runOnceCore(o) {
      delegated worker (its "user" turn is the lead's brief), a group session (its "user" turn is the shared transcript,
      other agents' words included), a line hand-off (the previous stage's output) or harness self-talk: there, the
      "user" words are not the Commander's. */
-  const commanderWords = (!internal && !o.parentRunId && !o.delegatedBy && !o.groupTools && (surface === 'interactive' || ownerTrusted) &&
-    !(Pipeline.isHandoff && Pipeline.isHandoff(latestUserText(messages)))) ? recentUserText(messages) : '';
+  const learningSource = o.learningInput ? 'interactive-owner' : (o.channelSender === true && o.channelSenderOwner === true ? 'channel-owner' : '');
+  const trustedLearningInput = TrustedLearning.eligible(Object.assign({}, o, { internal, source: learningSource, hostPowerWithheld, untrustedEntry: untrustedEntryRun,
+    handoff: !!(Pipeline.isHandoff && Pipeline.isHandoff(latestUserText(messages))) }))
+    ? (o.learningInput || TrustedLearning.capture(messages, learningSource)) : null;
+  const commanderWords = trustedLearningInput ? trustedLearningInput.content : '';
   const capCtx = makeCapCtx(resolved, Object.assign({
     emit, consent, summon, timeoutMs: CAPS.toolTimeoutMs, runId, streamId, signal: signal, ownerTrusted, commanderWords,
     // Host-minted routine identity for routine.notepad. Interactive/model-authored runs cannot name another
@@ -22234,6 +22241,10 @@ async function runOnceCore(o) {
      words in a hand-off are only the original request — the line's first run already carried those — so a hand-off run is not
      reflected on, studied or thread-mined (and spends none of the agent's cooldowns). */
   const _lineHop = !!(Pipeline.isHandoff && Pipeline.isHandoff(latestUserText(msgs)));
+  const learningEvidence = TrustedLearning.evidence({ runId, trigger: o.trigger, tainted: execution.taintedBy(), trustedInput: trustedLearningInput, completion: finalCompletionEvidence, loadedSkills });
+  if ((_auxDone || _auxFail) && o.reflect && isTask && !internal) {
+    await captureTrustedLearning({ agentId, runId, projectRoot: o.projectRoot || '', input: trustedLearningInput, learningEvidence });
+  }
   const _gateReflect = !!(o.reflect && memoryConfig.reflectEnabled && isTask && _auxDone && !_lineHop && reflectSalient(result.messages, o.recurring)
       && personalizationStore.read().enabled   // the personalization PAUSE never even offers the candidate (runReflection re-checks the same authority)
       && !reflectingNow.has(agentId) && (Date.now() - (lastReflectAt.get(agentId) || 0) >= memoryConfig.reflectCooldownMs));
@@ -22282,11 +22293,11 @@ async function runOnceCore(o) {
   let _capReached = !!(result && result.reason === 'budget');
   if (!_capReached && !providerUnmetered) { try { _capReached = !!budget.check(null, agentId, 0, Date.now(), null); } catch (e) { failNote('aux.budget', e); } }
   if (_capReached) _auxCandidates.length = 0;
-  // A TAINTED RUN TEACHES NOTHING DURABLE (2026-10-10): these passes turn the run's transcript into notes, lessons and
-  // skills that later — Full Access — runs read as trusted context, outside the per-run taint fence. Content the
-  // Commander did not author (a web page, an email, a stranger's message) must not be laundered into memory that way.
+  // External transcript text never enters a durable learning pass. The skill reviewer may still use the
+  // separately captured owner directive and host checks; its structured packet discards all external bytes.
   if (execution.taintedBy()) {
-    for (const pass of ['reflection', 'failure-review', 'study', 'threadmine', 'skill-review']) {
+    const noTrustedEvidence = !learningEvidence.trustedUserMessages.length && !learningEvidence.checks.length;
+    for (const pass of ['reflection', 'failure-review', 'study', 'threadmine'].concat(noTrustedEvidence ? ['skill-review'] : [])) {
       const at = _auxCandidates.indexOf(pass);
       if (at >= 0) _auxCandidates.splice(at, 1);
     }
@@ -22343,7 +22354,7 @@ async function runOnceCore(o) {
   }
   if (_auxSpend.has('skill-review')) {
     skillReviewingNow.add(agentId);
-    runBackgroundSkillReview({ agentId, runId, messages: result.messages.slice(), provider, model: _auxSkillModel, cost, loadedSkills, managedSkills, unmetered: providerUnmetered }).catch(swallow('aux.skillreview.envelope')).finally(() => { skillReviewingNow.delete(agentId); });
+    runBackgroundSkillReview({ agentId, runId, messages: result.messages.slice(), learningEvidence, projectRoot: o.projectRoot || '', provider, model: _auxSkillModel, cost, loadedSkills, managedSkills, unmetered: providerUnmetered }).catch(swallow('aux.skillreview.envelope')).finally(() => { skillReviewingNow.delete(agentId); });
   }
   if (process.env.SKYNET_SKILL_REVIEW !== '0' && (_auxDone || _auxFail) && isTask && !internal) {
     // CONSISTENCY LOOP (2026-08-22): park this real task run's review packet (a FAILED one too, 2026-10-01: the
@@ -22352,7 +22363,7 @@ async function runOnceCore(o) {
     // Parked even when the nudge review above already fired: that pass ran before the verdict existed and is
     // blind to it. The verdict pass is the one that knows the work fell short. Bounded LRU + TTL in verdictreview.js;
     // `great` never spends it; taken once; one extra aux pass per rated-short run, a Commander-initiated signal.
-    verdictReview.stash(runId, { agentId, messages: result.messages.slice(), provider, model: _auxSkillModel, cost, loadedSkills, managedSkills, unmetered: providerUnmetered, failed: !_auxDone });
+    verdictReview.stash(runId, { agentId, messages: result.messages.slice(), learningEvidence, projectRoot: o.projectRoot || '', provider, model: _auxSkillModel, cost, loadedSkills, managedSkills, unmetered: providerUnmetered, failed: !_auxDone });
   }
   if (_auxSpend.has('skill-curator')) {
     runSkillCurator({ agentId, runId, provider, model: _auxSkillModel, cost, unmetered: providerUnmetered }).catch(swallow('aux.skillcurator.envelope'));
@@ -26349,6 +26360,30 @@ async function recordFeedbackMemory(o) {
   }
 }
 
+// Owner statements survive research and short turns without an auxiliary model inferring their meaning.
+// The canonical writer supplies durable deduplication and receipts; declined memories remain declined.
+async function captureTrustedLearning(o) {
+  const status = { runId: o.runId, at: Date.now(), tainted: !!o.learningEvidence.tainted, saved: 0,
+    trustedDirectives: o.learningEvidence.trustedUserMessages.length, verifiedChecks: o.learningEvidence.checks.filter(c => c.status === 'passed').length,
+    reason: 'no_explicit_standing_preference' };
+  if (!personalizationStore.read().enabled || !memoryConfig.reflectEnabled) status.reason = 'learning_paused';
+  else if (!o.input) status.reason = 'no_trusted_owner_input';
+  else {
+    const declined = buildDeclinedIndex(o.agentId);
+    for (const prop of TrustedLearning.preferences(o.input, o.projectRoot)) {
+      if (declined.has(prop.content)) continue;
+      try {
+        const w = await writeMemoryRecord(o.agentId, prop, { runId: o.runId, source: 'owner-statement', origin: 'commander', trustedInput: o.input });
+        if (w.ok) { status.saved++; recordRunReceipt(o.agentId, o.runId, { id: w.id, kind: w.kind, content: prop.content, scope: prop.scope, projectRoot: prop.projectRoot, origin: 'commander', saved: true }); }
+      } catch (e) { status.reason = 'write_failed'; failNote('learning.capture', e); }
+    }
+    if (status.saved) status.reason = 'owner_preference_saved';
+  }
+  try { await notebookStore.update('learning:' + o.agentId, rows => (Array.isArray(rows) ? rows : []).filter(r => r.runId !== o.runId).concat([status]).slice(-100)); }
+  catch (e) { failNote('learning.status', e); }
+  console.log('[learning] run=' + o.runId + ' agent=' + o.agentId + ' reason=' + status.reason + ' saved=' + status.saved + ' trusted=' + status.trustedDirectives + ' checks=' + status.verifiedChecks + ' tainted=' + status.tainted);
+}
+
 async function writeMemoryRecord(agentId, prop, opts) {
   opts = opts || {};
   const content = String(opts.content != null ? opts.content : (prop && prop.content) || '').trim();
@@ -26386,6 +26421,10 @@ async function writeMemoryRecord(agentId, prop, opts) {
         (Array.isArray(r.history) && r.history.some(h => h && sameText(h.body)))))) return undefined;
     writtenId = memcore.nextNoteId(list);   // collision-proof (positional length reuses a slot freed by forget)
     rec = recordFromProposal(prop || {}, { now: Date.now(), runId: runId || (prop && prop.sourceRunId), id: writtenId, content, origin: opts.origin, userConfirmed: opts.userConfirmed === true });
+    if (opts.trustedInput && TrustedLearning.preferences(opts.trustedInput, prop.projectRoot).some(p => p.content === content)) {
+      rec.confirmation = 'user-stated'; rec.standing = true;
+      rec.statedBy = { runId, quote: content, source: opts.trustedInput.source };
+    }
     if (trustDelta) rec.trust = memcore.nextTrust(rec.trust, trustDelta);   // M-mem.6: keep/edit seeds real trust; silent auto-save leaves it neutral
     list.push(rec);
     return list;
