@@ -155,7 +155,7 @@ A.eq(CP.dayTag(0, T), '', 'undated → empty tag');
   const TrustedLearning = require('../sidecar/trusted-learning.js');
   function host(input) {
     input = input || {};
-    let projected;
+    const projections = [];
     const requested = {};
     const pack = vm.runInNewContext('(' + fn + ')()', {
       Date: { now: () => T },
@@ -172,9 +172,9 @@ A.eq(CP.dayTag(0, T), '', 'undated → empty tag');
       stationTrackRecordLines: () => [],
       threadsStore: { openThreads: () => [] },
       redact,
-      contextpack: { assemble: (data, opts) => { projected = data; return CP.assemble(data, opts); } }
+      contextpack: { assemble: (data, opts) => { projections.push(data); return CP.assemble(data, opts); } }
     });
-    return { pack, projected, requested };
+    return { pack, projected: projections[0], trustedProjected: projections[1], projectionCount: projections.length, requested };
   }
   const owner = (content, over) => Object.assign({
     agentId: 'owner-agent', streamId: 'ws-main', sourceRunId: 'owner-original', role: 'user', content, taintKnown: true, ts: T
@@ -227,6 +227,25 @@ A.eq(CP.dayTag(0, T), '', 'undated → empty tag');
   A.ok(surfaced.includes(clean.content) && surfaced.includes('Owner next task'),
     'one tainted row does not suppress clean owner activity elsewhere in its stream');
   A.ok(!/sentinel|INTERNAL (?:GOAL DECOMPOSITION|TAINTED STATION|QUOTED STATION)/.test(surfaced), 'rejected and internal content never enters the prompt or evidence pool');
+
+  A.eq(result.projectionCount, 2, 'host separately assembles general activity and trusted learning activity');
+  A.ok(result.trustedProjected.runs.length === 3 && result.trustedProjected.runs.every(r => r.internal),
+    'trusted assembly retains internal runs only as negative markers for self-talk');
+  A.eq(result.trustedProjected.chats.map(m => m.content), result.projected.chats.map(m => m.content),
+    'both projections receive the same proven owner chats');
+  const trustedText = result.pack.trustedActivityLines.join('\n');
+  A.ok(trustedText.includes(clean.content) && trustedText.includes('Owner next task'),
+    'clean owner requests remain available to topic learning');
+  A.ok(!/Legacy clean run|Explicit clean run|sentinel|INTERNAL (?:GOAL DECOMPOSITION|TAINTED STATION|QUOTED STATION)/.test(trustedText),
+    'legacy ordinary run titles, tainted rows and internal self-talk cannot become trusted topic evidence');
+
+  const richBriefText = 'Owner requests release notes\nVerify the release number';
+  const trustedBrief = host({ chats: [owner(richBriefText)], briefs: [brief(richBriefText)] });
+  A.eq(trustedBrief.trustedProjected.briefs.length, 1, 'the trusted assembly retains an occurrence-proven owner brief');
+  A.ok(trustedBrief.pack.trustedActivityLines.some(line => line.includes('Verify the release number')),
+    'trusted brief evidence retains verified original directive detail beyond the chat opening');
+  A.eq(host({ runs: [{ title: 'Legacy ordinary task title', ts: T }] }).pack.trustedActivityLines, [],
+    'legacy run titles alone never supply trusted topic-learning activity');
 
   for (const enabled of [true, false]) {
     const alwaysFiltered = host({
