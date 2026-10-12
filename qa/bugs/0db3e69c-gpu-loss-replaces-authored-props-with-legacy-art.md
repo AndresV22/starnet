@@ -49,6 +49,8 @@ Before: all six original real-canvas lifecycle cases fail, and the live original
 
 Full-gate and source handoff details: qa/audits/2026-10-12-qwen-render-loss.md. This lane's earlier fast gate stopped at the release-source audit. The integration owner subsequently reported that combined 6f7361a passed 598 steps, then stopped at the exhaustive postmortem-kind contract. Follow-up 0b49c64a0 adds the actual named local-memory postmortem with truthful later-turn wording and regression coverage; four focused suites and a visible seeded-app stalled-build notification pass. The integration owner must include that follow-up and rerun the complete combined gate; targeted green results do not override that requirement.
 
+The combined diagnostic continuation also exposed an old null-on-loss picking expectation. Test-only follow-up 7504418c5 strengthens test/remaster-physical-fit.test.js to verify every authored alpha pixel, retained geometry and unchanged custom-footprint fallback during loss. It passes alongside all 13 real-pixel recovery scenarios; no production behavior was weakened for the old assertion.
+
 
 ## Sibling coverage
 
