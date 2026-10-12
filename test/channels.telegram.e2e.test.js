@@ -511,8 +511,13 @@ async function waitUntil(fn, ms, label) {
       const parentEvents = () => sse.events.slice(eventFrom).filter(e => e.payload && e.payload.agentId === agentId && e.payload.runId === runId);
       await sse.waitFor(() => parentEvents().some(e => e.name === 'agent.run.end'), 5000, 'crewless parent end');
       const calls = parentEvents().filter(e => e.name === 'agent.tool_call').map(e => e.payload);
-      A.eq(calls.map(c => c.name.replace('_', '.')), ['brief.proceed', 'tool.search', 'team.spawn'], 'real Task Brief precedes search and real spawn');
-      for (const callId of ['crewless_brief', 'crewless_search', 'crewless_spawn']) {
+      // Task Brief controls are intentionally hidden from SSE; their real result is on the next provider request.
+      const briefMessages = leads[1] && leads[1].messages || [];
+      const briefResult = briefMessages.find(m => m.role === 'tool' && m.tool_call_id === 'crewless_brief');
+      A.eq(briefResult && briefResult.content, 'Task Brief settled. Consequential tools are unlocked.', 'real Task Brief succeeds before the search request');
+      A.ok(briefMessages.some(m => (m.tool_calls || []).some(c => c.id === 'crewless_brief' && c.function && c.function.name === 'brief_proceed')), 'brief result belongs to the real parent control call');
+      A.eq(calls.map(c => c.name.replace('_', '.')), ['tool.search', 'team.spawn'], 'visible search precedes real spawn after the settled brief');
+      for (const callId of ['crewless_search', 'crewless_spawn']) {
         const outcomes = parentEvents().filter(e => e.name === 'agent.tool_result' && e.payload.callId === callId);
         A.eq(outcomes.length, 1, callId + ' has one attributed outcome');
         A.ok(outcomes[0] && outcomes[0].payload.ok === true && outcomes[0].payload.isError === false, callId + ' really succeeded');
