@@ -5363,7 +5363,10 @@ const App = (() => {
       try { reason = String(((await Harness.engineState()) || {}).reason || ''); } catch (_) { reason = ''; }
       // Reapply a persistent degraded verdict after the retry refreshed its save-request diagnosis.
       if (sub) { if (reason) sub.textContent = reason; else if (/^(degraded|station service halted)/i.test(sub.textContent)) sub.textContent = 'station service not answering'; }
-      if (code && reason) code.innerHTML = '<b>RECOVERY CODE: ' + (/owner unavailable/i.test(reason) ? 'SAVE-OWNER · WORKSPACE OWNED BY ANOTHER PROCESS' : /crash-loop/i.test(reason) ? 'SAVE-LOOP · STATION SERVICE CRASH LOOP' : 'SAVE-DEGRADED · STATION SERVICE DEGRADED') + '</b><br>' + reason.replace(/</g, '&lt;') + '<br>Send a screenshot of this code to support.';
+      if (reason) {
+        diagnosis = { code: /owner unavailable/i.test(reason) ? 'SAVE-OWNER · WORKSPACE OWNED BY ANOTHER PROCESS' : /crash-loop/i.test(reason) ? 'SAVE-LOOP · STATION SERVICE CRASH LOOP' : 'SAVE-DEGRADED · STATION SERVICE DEGRADED', text: reason };
+        if (code) code.innerHTML = '<b>RECOVERY CODE: ' + diagnosis.code + '</b><br>' + diagnosis.text.replace(/&/g, '&amp;').replace(/</g, '&lt;') + '<br>Send a screenshot of this code to support.';
+      }
       return reason;
     };
     // BROWSER MODE (no desktop shell): there is no sidecar to restart and no workspace to quarantine, so this
