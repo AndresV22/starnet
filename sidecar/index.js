@@ -1677,11 +1677,10 @@ const skillsIo = {
     try { return readBoundedJsonl(SKILLS_FILE); } catch (e) { return []; }
   },
   append(entry) {
-    let fd = null;
-    try { fd = fs.openSync(SKILLS_FILE, 'a'); fs.writeSync(fd, JSON.stringify(entry) + '\n'); fs.fsyncSync(fd); }
-    catch (e) { console.warn('[skills] append failed:', (e && e.message) || e); }
-    finally { if (fd != null) { try { fs.closeSync(fd); } catch (_) {} } }
-    rotateJsonl(SKILLS_FILE);   // roll to <file>.1 once the live segment passes the cap (bounds disk; compaction keeps the set intact)
+    // The skill store publishes to RAM only after this durable write returns.
+    // Never swallow a failure and claim a proposal, rejection, or promotion survived it.
+    appendJsonlDurable({ fs, note: failNote }, SKILLS_FILE, entry);
+    rotateJsonl(SKILLS_FILE);
   },
   rewrite(entries) { rewriteJsonlDurable(SKILLS_FILE, entries); }   // compaction full-replace
 };
