@@ -28,20 +28,14 @@
      deliverables and all organized output'): this list is DELIVERABLES' TO REVIEW section — finished runs waiting for
      your verdict — not a window of its own. openTerm('outbox') / the floor OUTBOX / every old door land there
      (TERM_ALIAS outbox → deliverables § review). Empty = the section hides; the library below is always there. */
-  /* a SEND TO end in the floor's words (2026-10-12): the job record's own name, else what the live floor calls that line (its
-     INBOX label, else 'LINE <letter>' — the plate's word); 'ANOTHER LINE' only for a line no longer on the floor. A record's end
-     is { line, jobId, name } — never lineId — so an unnamed line read FROM ANOTHER LINE here while the floor called it LINE C. */
+  /* a SEND TO end in the floor's words (2026-10-12): the job record's own name, else what the live floor calls that line now —
+     World.lineName, the floor's one rule (its first NAMED INBOX, else LINE <its first INBOX's letter>; the plate's word) — and
+     'ANOTHER LINE' only for a line no longer on the floor. A record's end is { line, jobId, name } — never lineId — so an unnamed
+     line read FROM ANOTHER LINE here while the floor called it LINE C. Nothing is compiled here: the floor already holds its lines. */
   function handoffLineWord(e) {
     const nm = e && typeof e.name === 'string' ? e.name.trim() : '';
     let live = '';
-    if (!nm && e && e.line) {
-      try {
-        const st = (typeof App !== 'undefined' && App.station) ? App.station() : null;
-        const comp = st && typeof st.projectGeometry === 'function' ? (Pipeline.lineComponents(st.projectGeometry()) || []).find(c => c.key === String(e.line)) : null;
-        const iid = comp && (comp.intakes || [])[0], ip = iid ? st.propById(iid) : null;
-        if (ip) live = String(ip.label || '').trim() || (st.lineLetter ? 'LINE ' + st.lineLetter(iid) : '');
-      } catch (err) { live = ''; }   // (a floor that cannot be read names no line: the record's own fallback stands)
-    }
+    if (!nm && e && e.line && typeof World !== 'undefined' && World.lineName) live = World.lineName(String(e.line)) || '';
     return Pipeline.lineWord(nm || live, 'ANOTHER LINE');
   }
   const mounted = new Set();
@@ -197,20 +191,24 @@
         desc.textContent = lastReply ? firstLine(plain(lastReply), 150)
           : (turns === null ? 'couldn’t read the result — is the station running?'
             : (turns && turns.length ? 'the run finished with nothing to report.' : 'no transcript recorded for this run. Open the session for older work without run attribution.'));
-        const askFull = hand && hand.sent ? String(hand.original) + '\n\n— handed on from ' + Pipeline.lineWord(hand.sent.fromName, 'another line') + ': this reply is this line’s work on what that line delivered.'
-          : hand ? String(hand.original) + '\n\n— the result of a work line: this reply is from step ' + hand.stage + ', after ' + String(agentName(hand.from)).toUpperCase() + '.'
-          : users.length ? String(users[0].content) : '';
+        // the line a handed-on job came FROM — said in the floor's words once the job's record is read (below); the frame's own
+        // name only when there is no record (an unnamed line's frame carries none: it read 'another line' beside FROM LINE N)
+        let fromWord = hand && hand.sent ? Pipeline.lineWord(hand.sent.fromName, 'another line') : '';
         // where this job came from / went on to (SEND TO) — the job's own record says, never a guess from the text
         if (jobStream) {
           try {
             const lj = await Harness.api.get('/api/line-jobs?stream=' + encodeURIComponent(rw.streamId) + '&limit=1');
             const sj = lj && Array.isArray(lj.jobs) ? lj.jobs[0] : null, word = handoffLineWord;
+            if (sj && sj.from && hand && hand.sent) fromWord = word(sj.from);
             // (a REFUSED hand-off is NOT SENT ON, with why — never "sent on" for work the station did not send, 10-11)
             const bits = sj ? [sj.from ? 'FROM ' + word(sj.from) : '', sj.sentTo ? (sj.sentTo.refused ? 'NOT SENT ON TO ' + word(sj.sentTo) + ' — ' + sj.sentTo.refused : 'SENT ON TO ' + word(sj.sentTo)) : ''].filter(Boolean) : [];
             const pv = row.querySelector('.ob-prov');
             if (pv && bits.length) { pv.textContent = bits.join(' · '); pv.hidden = false; }
           } catch (_) { /* the provenance line is extra: the result itself is already on screen */ }
         }
+        const askFull = hand && hand.sent ? String(hand.original) + '\n\n— handed on from ' + fromWord + ': this reply is this line’s work on what that line delivered.'
+          : hand ? String(hand.original) + '\n\n— the result of a work line: this reply is from step ' + hand.stage + ', after ' + String(agentName(hand.from)).toUpperCase() + '.'
+          : users.length ? String(users[0].content) : '';
         ask.textContent = askFull ? (askFull.length > 1500 ? askFull.slice(0, 1500) + ' …' : askFull) : (rw.title || '—');
         out.textContent = lastReply ? (lastReply.length > 4000 ? lastReply.slice(0, 4000) + '\n\n… output truncated — ↗ OPEN SESSION opens the conversation.' : lastReply)
           : (turns === null ? '⚠ couldn’t load the output — the run’s transcript wasn’t reachable.'

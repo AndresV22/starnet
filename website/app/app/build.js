@@ -3176,8 +3176,8 @@ const Build = (() => {
   /* THE CHECKLIST FOLLOWS THE LINE YOU ARE TOUCHING (2026-08-22 sweep): with two lines on the floor the
      FINISH card stayed pinned to whichever line it first adopted. Opening any machine's card (STEP / INBOX /
      OUTBOX / junction) now focuses that machine's line — finKeySel is the same session key finPick honours —
-     and re-renders, so the checklist beside the card is the checklist FOR that line. A line already retired
-     (done/dismissed) stays quiet: finPick filters those before the key is consulted. */
+     and re-renders, so the checklist beside the card is the checklist FOR that line. A line already finished
+     (dismissed, or shipped with nothing left to do) stays quiet: finPick filters those before the key is consulted. */
   function finFocusLine(propId) {
     const c = lineOfProp(propId);
     if (c) finEngaged = true;
@@ -4115,14 +4115,36 @@ const Build = (() => {
      server-proven feed truth (World.feedState — the exact NO FEED source), and the sample-job seam
      (feature-detected, below). LAWS: never blocks editing (a floating side card, no backdrop),
      dismissible, stands down while the tutorial coaches (Tutorial.isCoaching / .refit-firstrun —
-     same gate as the first ride), and retires PERMANENTLY per line when that line's first real
-     product crate delivers (world.js's delivery seam calls noteLineDelivered — event-driven).
+     same gate as the first ride), and stands down per line once that line has SHIPPED (its FIRST SHIP:
+     the sidecar's shipment record — noteLineShipped / markLineShipped, never a crate sinking at a chute,
+     which a direct COMMS order rides too) AND nothing is left to do: a shipped line nothing starts keeps
+     its card, ② in view, until a real start or a SEND TO into it exists (2026-10-12).
      Line identity + membership come from Pipeline.lineComponents (key = smallest member prop id,
-     stable in the save); retirement/dismissal persist in localStorage beside the first-ride flag. */
+     stable in the save); shipped/dismissal persist in localStorage beside the first-ride flag. */
   const FIN_KEY = st => 'starnet.refit.finline.' + stationKeyOf(st || station);
+  /* UPGRADE, ONCE PER STATION (2026-10-12): older builds marked a line `done` when a product crate sank at its chute, and the old
+     FIRST SHIP and the card's retirement both answered to it. A line an older build already delivered on has had its moment, so
+     its `done` is read once as `shipped` — FIRST SHIP spent, never a second gold toast after the upgrade. The marker keeps a `done`
+     written later from ever being honoured (nothing here writes one any more: a crate proves no shipment). */
+  const FIN_MIG = st => 'starnet.refit.finline.v2.' + stationKeyOf(st || station);
+  const finMigrated = new Set();
   function finRead(st) {
-    try { const o = JSON.parse(localStorage.getItem(FIN_KEY(st)) || '{}'); return (o && typeof o === 'object') ? o : {}; }
-    catch (e) { return {}; }
+    let o;
+    try { o = JSON.parse(localStorage.getItem(FIN_KEY(st)) || '{}'); } catch (e) { return {}; }
+    if (!o || typeof o !== 'object') o = {};
+    const mk = FIN_MIG(st);
+    if (!finMigrated.has(mk)) {
+      finMigrated.add(mk);
+      try {
+        if (!localStorage.getItem(mk)) {
+          let moved = false;
+          for (const k of Object.keys(o)) if (o[k] && typeof o[k] === 'object' && o[k].done && !o[k].shipped) { o[k].shipped = 1; moved = true; }
+          if (moved) localStorage.setItem(FIN_KEY(st), JSON.stringify(o));
+          localStorage.setItem(mk, '1');
+        }
+      } catch (e) { finMigrated.delete(mk); }   // (storage refused: try again on the next read, never half-migrate)
+    }
+    return o;
   }
   function finMark(st, key, field) {
     try {
@@ -4166,10 +4188,22 @@ const Build = (() => {
     return { unbound, crewLeft: unbound.length, hasIntake, feed, feedDone, schedOff,
       todo: unbound.length > 0 || (hasIntake && feed.known && !feedDone) };
   }
+  // ② in words, from finState — done only by what STARTS the line: a configured start (the floor-wide feed: a channel, an armed
+  // routine, a watched folder or a webhook) or another line's SEND TO into it; a run that already came by (a sample, a test)
+  // starts nothing, so it never ticks this step (2026-10-12)
+  function finFeedText(st) {
+    if (st.feedDone) return st.feed.known && st.feed.fed ? '✓ A START IS CONFIGURED' : '✓ ANOTHER LINE SENDS IT WORK';
+    if (!st.hasIntake) return '② FEED IT — TASK THE AGENT, OR WIRE A ROUTINE';
+    if (!st.feed.known) return '② CHECKING WHAT STARTS THIS LINE…';
+    return st.schedOff ? '② SCHEDULING IS OFF — TURN IT ON' : '② CHOOSE WHAT STARTS THIS LINE';
+  }
   function finPick() {
     if (!valComps || !valComps.length) return null;
     const reg = finRead(station);
-    const live = valComps.filter(c => c.bays.length && c.beltCount && !(reg[c.key] && (reg[c.key].done || reg[c.key].dis)));
+    // ✕ quiets a line for good; a line that SHIPPED is done as a guide only once nothing is left to do (a shipped line nothing
+    // starts keeps ② CHOOSE WHAT STARTS THIS LINE in view — the floor still says NO FEED there)
+    const quiet = c => { const r = reg[c.key]; return !!(r && (r.dis || (r.shipped && !finState(c).todo))); };
+    const live = valComps.filter(c => c.bays.length && c.beltCount && !quiet(c));
     if (!live.length) return null;
     const sel = live.find(c => c.key === finKeySel);
     if (sel) return sel;
@@ -4289,11 +4323,7 @@ const Build = (() => {
     finSig = sig;
     const crewDone = st.crewLeft === 0;
     const crewTxt = crewDone ? '✓ AGENTS ASSIGNED' : '① ASSIGN STEP AGENTS — ' + st.crewLeft + ' TO GO';
-    // ② is done by what STARTS the line — a configured start, or another line's SEND TO into it; a run that already came by
-    // (a sample, a test) starts nothing, so it never ticks this step (2026-10-12)
-    const feedTxt = st.feedDone ? (st.feed.known && st.feed.fed ? '✓ A START IS CONFIGURED' : '✓ ANOTHER LINE SENDS IT WORK') : !st.hasIntake ? '② FEED IT — TASK THE AGENT, OR WIRE A ROUTINE'
-      : !st.feed.known ? '② CHECKING WHAT STARTS THIS LINE…'
-      : st.feed.fed ? '✓ AUTOMATIC START CONFIGURED' : st.schedOff ? '② SCHEDULING IS OFF — TURN IT ON' : '② CHOOSE WHAT STARTS THIS LINE';
+    const feedTxt = finFeedText(st);   // ② — what STARTS the line (finFeedText)
     // the sample RESULT belongs to the line it rode (finSampleRes.key) — another line's card shows none
     const sr = (finSampleRes && finSampleRes.key === c.key) ? finSampleRes : null;
     const sampleOn = finSample === true && crewDone && !(sr && sr.pending);
@@ -4522,36 +4552,39 @@ const Build = (() => {
     finCardEl.style.left = Math.round(x / uiz) + 'px';
     finCardEl.style.top = Math.round(y / uiz) + 'px';
   }
-  /* the delivery-retirement hook — world.js calls this (WORLD tiles) when a real product crate sinks
-     at an outbox mouth. Works with BUILD MODE closed: resolves the station via opts and maps the tile to
-     its line in a fresh geometry frame. First delivery wins; done is forever (per station+line). */
-  function noteLineDelivered(wtx, wty) {
-    /* THE LIVE STATION WINS. This hook fires from world.js with BUILD MODE CLOSED, and close() never nulls the
-       module-level `station` — so preferring it meant the retirement was booked against whatever station
-       the last BUILD MODE session held. Load a different save and the first real delivery retired a line on the
-       station you are no longer standing in. opts.getStation() is the app's live station; the stale
-       module field is only the fallback for a harness that injected no getter. */
+  /* FIRST SHIP BOOKKEEPING (2026-10-12) — per station+line, `shipped` = this line's FIRST SHIP is spent. world.js calls these with
+     BUILD MODE CLOSED. THE LIVE STATION WINS: close() never nulls the module-level `station`, so preferring it booked a line
+     against whatever station the last BUILD MODE session held (load a different save and the next shipment marked a line on the
+     station you are no longer standing in). opts.getStation() is the app's live station; the stale module field is only the
+     fallback for a harness that injected no getter. A crate sinking at a chute books NOTHING here: it proves no shipment (a
+     direct COMMS order to a line's agent rides one down that line's belt too), so it neither spends FIRST SHIP nor touches the
+     finish card. */
+  function finLiveStation() {
     const live = (opts && typeof opts.getStation === 'function') ? opts.getStation() : null;
     const st = live || station;
-    if (!st || typeof Pipeline === 'undefined' || !Pipeline.lineComponents) return;
-    let geo = null;
-    try { geo = st.projectGeometry(); } catch (e) { return; }
-    const o = (geo && geo.origin) || { tx: 0, ty: 0 };
-    const k = (wtx - o.tx) + ',' + (wty - o.ty);
-    for (const c of Pipeline.lineComponents(geo)) {
-      if (!c.tiles[k]) continue;
-      const reg = finRead(st);
-      if (!(reg[c.key] && reg[c.key].done)) finMark(st, c.key, 'done');
-      if (running) renderFinCard();
-      return;   // a SILENT retirement: a crate at a chute proves no shipment (a direct COMMS order rides one too) — FIRST SHIP is noteLineShipped's
-    }
+    return st || null;
+  }
+  // has this line's FIRST SHIP been said (or quietly learned)? — asked before any read, so a spent line costs nothing
+  function lineShipSpent(lineId) {
+    const st = finLiveStation();
+    if (!st || lineId == null || lineId === '') return false;
+    const r = finRead(st)[String(lineId)];
+    return !!(r && r.shipped);
+  }
+  // the shipment record shows this line already SHIPPED (this window missed it, another window said it, or it shipped before this
+  // page): spend its FIRST SHIP quietly — no toast — and let the finish card stand down if nothing is left to do
+  function markLineShipped(lineId) {
+    const st = finLiveStation();
+    if (!st || lineId == null || lineId === '' || lineShipSpent(lineId)) return false;
+    finMark(st, String(lineId), 'shipped');
+    if (running) renderFinCard();
+    return true;
   }
   /* FIRST SHIP (2026-10-12): the gold toast + milestone a line earns the first time it SHIPS — never a crate animation. world.js
      calls this from the executor's terminal receipt (chain.js workitem.delivered { box: 'line-output', lineId, outboxId }: a clean
-     job of THAT line reached THAT OUTBOX) once the line's SHIPPED count shows the job minted a shipment (noteFirstShip), with
-     BUILD MODE closed, so it resolves the live station like noteLineDelivered; its flag (reg[key].shipped) is its own, apart from
-     the finish card's done. -> { first: true, name, tiles } once per line, else null (a line no longer on the floor, a receipt
-     whose OUTBOX is now on another line, a line that already shipped). */
+     job of THAT line reached THAT OUTBOX) once the shipment record shows the line went from no shipment to its first
+     (noteFirstShip). -> { first: true, name, tiles } once per line, else null (a line no longer on the floor, a receipt whose
+     OUTBOX is now on another line, a line whose FIRST SHIP is spent). */
   function noteLineShipped(outboxId, lineId) {
     const live = (opts && typeof opts.getStation === 'function') ? opts.getStation() : null;
     const st = live || station;
@@ -4563,6 +4596,7 @@ const Build = (() => {
     const reg = finRead(st);
     if (reg[c.key] && reg[c.key].shipped) return null;
     finMark(st, c.key, 'shipped');
+    if (running) renderFinCard();   // the line shipped: its card stands down unless a step is still left to do
     const ip = (geo.props || []).find(p => c.intakes.includes(p.id));
     return { first: true, name: Pipeline.lineWord(ip && ip.label, ip && st.lineLetter ? 'LINE ' + st.lineLetter(ip.id) : 'LINE ' + c.key), tiles: c.tiles };
   }
@@ -9256,7 +9290,7 @@ const Build = (() => {
     try { openFlowCard(propId); } catch (e) { return false; }
     return true;
   }
-  const api = { init, open, openWorkflows, editLine, testJobForProp, close, toggle, isOpen, requisition, refitNames: guideNames, openAssign, placeDeskFor, noteLineDelivered, noteLineShipped, lineOfAgentInfo, summonForRole, nagLabel: code => VAL_LABEL[code] || code,
+  const api = { init, open, openWorkflows, editLine, testJobForProp, close, toggle, isOpen, requisition, refitNames: guideNames, openAssign, placeDeskFor, noteLineShipped, markLineShipped, lineShipSpent, lineOfAgentInfo, summonForRole, nagLabel: code => VAL_LABEL[code] || code,
     // the WORKFLOWS window speaks the shelf's own words and shows the shelf's own art (one name per line, never a second one)
     lineWords: () => ({ plain: LINE_PLAIN, purpose: LINE_PURPOSE }), lineSchematic: bp => lineSchematic(bp), machineStill: t => machineStill(t),
     nagWhy: valWhy };   // nagLabel: the floor's own nag copy for a compiler code (ROUTINES RUN NOW refusal reads it); nagWhy: the full fix sentence the hover card + Workflow panel say (station.layout reads it)

@@ -730,6 +730,7 @@ test/routing-nag-parity.test.js
 test/crate-honesty.test.js
 test/joined-product-truth.test.js
 test/first-ship-receipt.test.js
+test/finish-line-card-truth.test.js
 test/plan-poster.test.js
 test/chain.test.js
 test/chain.join-loop.test.js

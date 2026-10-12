@@ -154,7 +154,10 @@ A.eq(R.hydrate(JSON.parse(JSON.stringify(s))).pending[0].streamId, 'cron-r1', 's
 
 /* ---- M28 (2026-10-12): TO REVIEW's FROM / SENT ON TO names the line the way the floor does ----
    Job records carry from/sentTo as { line, jobId, name } — never lineId — so an unnamed sending line read FROM ANOTHER LINE while
-   its plate said LINE C. The REAL helper, against a real station. */
+   its plate said LINE C. Repair pass (2026-10-12): the name comes from ONE resolver, the floor's rule (World.lineName — its first
+   NAMED INBOX, else LINE <its first INBOX's letter>), not a private copy that took intakes[0]'s label and recompiled the whole
+   station per mention; and the ASK block's "handed on from …" reads the same record, never the frame's empty name ('another
+   line'). The REAL helpers (outbox.js handoffLineWord over world.js lineNameOf), against a real station and its compiled plan. */
 {
   const WM = require('../frontend/app/worldmodel.js'), P = require('../frontend/app/pipeline.js'), LE = require('../frontend/app/lineedit.js');
   const st = WM.create(); st.addRoom({ kind: 'hab', rect: { x1: 30, y1: 0, x2: 90, y2: 40 } });
@@ -162,15 +165,51 @@ A.eq(R.hydrate(JSON.parse(JSON.stringify(s))).pending[0].streamId, 'cron-r1', 's
   A.ok(a.ok && b.ok, 'fixture: two lines');
   const ia = a.ids.find(id => st.propById(id).t === 'intake'), ib = b.ids.find(id => st.propById(id).t === 'intake');
   st.setPropLabel(ib, 'Editing');
+  // a second INBOX on line A, belted into its BAY — the line now has two INBOXes
+  const bayA = a.ids.find(id => st.propById(id).t === 'bay'), i1 = st.propById(ia);
+  let i2 = null;
+  for (const [dx, dy] of [[-6, 0], [0, -6], [0, 6], [-6, 4], [-6, -4]]) {
+    const r = st.addProp({ t: 'intake', x: i1.x + dx, y: i1.y + dy, w: i1.w || 2, h: i1.h || 2 });
+    if (!r.ok) continue;
+    const c = st.connectBelt(r.id, bayA); if (c && c.ok) { i2 = r.id; break; }
+    st.removeProp(r.id);
+  }
   const keyOf = iid => P.lineComponents(st.projectGeometry()).find(c => c.intakes.includes(iid)).key;
+  const ctx = vm.createContext({ station: st, routingPlan: null, Pipeline: P });
+  const lns = world.indexOf('  function lineNameOf(lineId) {'), lne = world.indexOf('  const firstShipSeen = new Set();', lns);
+  A.ok(lns > 0 && lne > lns, 'the floor\'s line-name resolver is one function in world.js');
+  vm.runInContext(world.slice(lns, lne) + '; globalThis.World = { lineName: lineNameOf };', ctx);
   const at = station.indexOf('  function handoffLineWord(e) {'), end = station.indexOf('  const mounted = new Set();', at);
   A.ok(at > 0 && end > at, 'the provenance words come from one helper');
-  const ctx = vm.createContext({ App: { station: () => st }, Pipeline: P });
   vm.runInContext(station.slice(at, end) + '; globalThis.word = handoffLineWord;', ctx);
-  A.eq(ctx.word({ line: keyOf(ia), jobId: 'j', name: '' }), 'LINE ' + st.lineLetter(ia), 'an unnamed sending line reads by its letter (the floor plate\'s word), never ANOTHER LINE');
+  const plan = () => { ctx.routingPlan = P.compileRoutingPlan(st.projectGeometry()); };
+  plan();
+  const lineA = keyOf(ia), firstA = P.lineComponents(st.projectGeometry()).find(c => c.key === lineA).intakes[0];
+  A.eq(ctx.word({ line: lineA, jobId: 'j', name: '' }), 'LINE ' + st.lineLetter(firstA), 'an unnamed sending line reads by its first INBOX\'s letter (the floor plate\'s word), never ANOTHER LINE');
   A.eq(ctx.word({ line: keyOf(ib), jobId: 'j', name: '' }), 'LINE EDITING', 'a named line with no recorded name reads by its INBOX label');
-  A.eq(ctx.word({ line: keyOf(ia), jobId: 'j', name: 'Research' }), 'LINE RESEARCH', 'a recorded name still wins');
+  A.eq(ctx.word({ line: lineA, jobId: 'j', name: 'Research' }), 'LINE RESEARCH', 'a recorded name still wins');
   A.eq(ctx.word({ line: 'p-gone', jobId: 'j', name: '' }), 'ANOTHER LINE', 'a line no longer on the floor is ANOTHER LINE');
+  // the review's probe: two INBOXes, the one that is NOT the first is named — the floor says LINE RESEARCH, so must TO REVIEW
+  A.ok(i2 && P.lineComponents(st.projectGeometry()).find(c => c.key === lineA).intakes.length === 2, 'fixture: line A has two INBOXes');
+  const other = firstA === ia ? i2 : ia;
+  st.setPropLabel(other, 'Research'); plan();
+  A.eq(ctx.word({ line: lineA, jobId: 'j', name: '' }), 'LINE RESEARCH', 'a line is named by its first NAMED INBOX, as the floor names it (not intakes[0]\'s label or letter)');
+  A.eq(ctx.World.lineName(lineA), 'LINE RESEARCH', '…the same word World.lineName gives every other surface');
+  // the floor lane's station.lineName (the one rule on the station) wins once the station carries it
+  st.lineName = () => 'LINE FROM-STATION';
+  A.eq(ctx.word({ line: lineA, jobId: 'j', name: '' }), 'LINE FROM-STATION', 'the station\'s own line name is used when the station carries one');
+  delete st.lineName;
   A.ok(/word = handoffLineWord;/.test(station) && !/e && e\.lineId \?/.test(station), 'TO REVIEW reads the record\'s line key, never the lineId records never carry');
+  A.ok(!/lineComponents|projectGeometry/.test(station.slice(at, end)), 'the helper compiles nothing per mention (the floor already holds its lines)');
+  // the ASK block's "handed on from …" is built AFTER the job record is read, from the record's FROM end
+  const rr = station.slice(station.indexOf('let fromWord = hand && hand.sent'), station.indexOf('ask.textContent = askFull'));
+  A.ok(/if \(sj && sj\.from && hand && hand\.sent\) fromWord = word\(sj\.from\);/.test(rr) && /'\\n\\n— handed on from ' \+ fromWord \+ ':/.test(rr),
+    'the ASK block names the sending line from the job record (the frame\'s own empty name only when there is no record)');
+  A.ok(!/handed on from ' \+ Pipeline\.lineWord\(hand\.sent\.fromName/.test(station), '…never straight from the frame\'s name');
+  // the hand-off crate riding into the receiving INBOX is titled by the floor's word too (world.js intakeMessage)
+  A.ok(/if \(p\.kind === 'handoff' && p\.fromLine\) \{ const nm = lineNameOf\(p\.fromLine\); if \(nm\) p\.preview = \('FROM ' \+ nm\)\.slice\(0, 40\); \}/.test(world),
+    'a hand-off crate is re-titled FROM <the floor\'s name> before LINE WATCH keeps its title');
+  const reg = world.indexOf("U.bus.on('workitem.placed', p => intakeMessage(p));"), lw = world.indexOf("for (const n of ['workitem.placed'");
+  A.ok(reg > 0 && lw > reg, '…intakeMessage hears workitem.placed before LINE WATCH does');
 }
 A.report('outbox-window.test');

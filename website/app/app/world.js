@@ -642,6 +642,9 @@ const World = (() => {
     // light this floor's colliding bays. Drop the watch (lazily rebuilt; acks re-read from localStorage) and the
     // stats (re-asked by rederive's lineStatsSoon) so every lamp re-earns its state from THIS floor's events.
     watch = null; lineStats = { known: false, byLine: {}, since: 0 }; firstShipPulse=null; hoverBay = null; hoverCrate = null;
+    // …and FIRST SHIP's shipment counts belong to the old floor's lines too: unknown until THIS floor's are read (an older read
+    // still in flight can no longer land — shipApplied moves past it)
+    shipBase = { known: false, byLine: {} }; shipBaseHash = null; shipApplied = shipSeq; firstShipPending.clear();
     propFoot = new Map(); pendingMourn = null;          // forget where things stood (no cross-station grief)
     agentDecor.length = 0; ownPlaced.clear(); placeCd = 0;   // forget which decor it placed (the new floor is a clean slate)
     if (agent && agent.fond) agent.fond.clear();        // forget the old floor's haunts — the new floor earns its own
@@ -9286,6 +9289,10 @@ const World = (() => {
        return below: cancelling is bookkeeping about a run that already happened, and it must not depend
        on whether this floor currently has a conveyor to draw the arriving crate on. */
     if (p.kind === 'chain' && p.from) cancelDeferredShip(String(p.from));
+    // SEND TO: the hand-off crate is titled by the line it came FROM, as the floor names that line — the sidecar knows only a name
+    // typed on it, so an unnamed line's work rode in as 'FROM ANOTHER LINE' while its plate said LINE C. Re-worded here, before
+    // LINE WATCH (registered after this) keeps the crate's title; a line no longer on the floor keeps the sidecar's words.
+    if (p.kind === 'handoff' && p.fromLine) { const nm = lineNameOf(p.fromLine); if (nm) p.preview = ('FROM ' + nm).slice(0, 40); }
     if (!convey) return;
     // tag the box with its content kind (the same getTag the sidecar routes by) so a FILTER sorts it visibly
     if (p.agentId) {
@@ -9423,10 +9430,16 @@ const World = (() => {
       if (r && r.steptest) setTimeout(pollStepTest, 600);   // a step-test hop ended: the session is paused/done NOW — ask once
     }
     if (name === 'workitem.placed' && p && p.steptest) pollStepTest();   // a step-test crate: learn the session (its 4 s poll runs only while live)
+    // FIRST SHIP: a job is starting on a line with no shipment count yet (a line built a moment ago) — read it NOW, before the job can ship
+    if ((name === 'workitem.placed' || name === 'agent.run.start') && p) {
+      const lid = name === 'workitem.placed' ? p.lineId : ((w.run(p.runId) || {}).lineId);
+      if (lid && !hasCount(String(lid))) refreshShipBase();
+    }
   }
   function pollLineStats() {
     if (typeof fetch === 'undefined' || typeof LineWatch === 'undefined') return;
     pollLineJobStreams();   // the per-OUTBOX crate join rides the line plates' cadence (60 s + shortly after a line run)
+    if (shipBaseStale()) refreshShipBase();   // FIRST SHIP's counts: a reload or a new line on the posted floor reads them (once per plan)
     const since = LineWatch.localMidnight(Date.now());
     try {
       fetch(apiUrl('/api/routing/lines/stats?since=' + since), { cache: 'no-store' })
@@ -9931,34 +9944,89 @@ const World = (() => {
       workitemId: p.workitemId, agentId: p.agentId || '', dockId: p.dockId || null, lineId: p.lineId });
   }
   /* FIRST SHIP (2026-10-12): the gold toast, the milestone and the line's pulse say a line SHIPPED for the first time, so they
-     answer to the proof the plate's SHIPPED counts: the sidecar's shipment receipt (line-shipments — a clean, PRODUCTIVE job of
-     that line reached its OUTBOX, counted once). The executor's terminal receipt (workitem.delivered box 'line-output': THAT line
-     reached THAT OUTBOX) asks; the line's SHIPPED count, read fresh after it, answers. A talk-only job reaches the OUTBOX and
-     ships nothing (its plate stays SHIPPED 0, so no toast either); a crate sinking at a chute — a direct COMMS order to a line's
-     agent rides one too — never asks at all. Once per receipt (the SSE echo delivers it twice); Build says first; a stats read
-     that fails announces nothing. Returns the check's promise (null when the event is no receipt) for the test seam. */
+     answer to the record the plate's SHIPPED counts: the sidecar's shipment receipts (line-shipments — a clean, PRODUCTIVE job of
+     that line reached its OUTBOX, counted once). Never this browser's memory alone, never today's count: a line that shipped
+     before this page loaded, while this window slept, in another window or under an older build has had its FIRST SHIP.
+       • shipBase — each line's SHIPPED over everything the record keeps (?since=1: the stats route reads its whole kept window),
+         from a read made BEFORE the receipt. A line with no count there is UNKNOWN, never 0, and nothing is claimed for it; the
+         count is re-read when the floor gains a line, a line's job starts, the stream reconnects, or the station changes.
+       • the executor's terminal receipt (workitem.delivered box 'line-output': THAT line reached THAT OUTBOX) asks. A line whose
+         FIRST SHIP is spent (Build.lineShipSpent — said here, learned from the record, or delivered on under an older build) or
+         whose count was already above 0 reads nothing; a line at 0 reads once more, and FIRST SHIP is said only when the record
+         now holds a shipment for it (0 -> 1+ across this receipt). A talk-only job reaches the OUTBOX and mints nothing, so it
+         says nothing; a crate sinking at a chute — a direct COMMS order rides one too — never asks at all.
+     Once per receipt (the SSE echo delivers it twice); Build says first; a read that fails announces nothing. Returns the
+     check's promise (null when nothing is read) for the test seam. */
+  /* A LINE'S NAME off the floor (2026-10-12) — for the surfaces that name a line by its id away from the floor: DELIVERABLES › TO
+     REVIEW, a hand-off crate's title, FIRST SHIP. ONE rule, the floor's: a line is called by its first NAMED INBOX, else LINE <the
+     letter of its first INBOX>. The station's own resolver says it when the station carries one (station.lineName); until then the
+     compiled plan says the same (compileRoutingPlan's rec.name IS the first named INBOX's label) — nothing is compiled per call.
+     null = no line with an INBOX has that id on this floor (the caller keeps its own fallback). */
+  function lineNameOf(lineId) {
+    if (lineId == null || lineId === '') return null;
+    const id = String(lineId);
+    if (station && typeof station.lineName === 'function') { try { return station.lineName(id) || null; } catch (e) { return null; } }
+    const rec = routingPlan && Array.isArray(routingPlan.lines) ? routingPlan.lines.find(l => l && String(l.lineId) === id) : null;
+    const iid = rec && Array.isArray(rec.intakes) ? rec.intakes[0] : null;
+    if (!iid) return null;
+    if (rec.name && typeof Pipeline !== 'undefined' && Pipeline.lineWord) return Pipeline.lineWord(rec.name, null);
+    const letter = station && typeof station.lineLetter === 'function' ? station.lineLetter(iid) : null;
+    return letter ? 'LINE ' + letter : null;
+  }
   const firstShipSeen = new Set();
+  const firstShipPending = new Set();   // lines whose post-receipt read is in flight: a count read meanwhile leaves their FIRST SHIP to it
+  let shipBase = { known: false, byLine: {} };
+  let shipSeq = 0, shipApplied = 0, shipBaseReading = false, shipBaseHash = null;
+  const hasCount = (id) => shipBase.known && Object.prototype.hasOwnProperty.call(shipBase.byLine, id);
+  function readShipCounts() {
+    const seq = ++shipSeq;
+    return fetch(apiUrl('/api/routing/lines/stats?since=1'), { cache: 'no-store' })
+      .then(r => (r && r.ok ? r.json() : null))
+      .then(j => {
+        if (!j || !Array.isArray(j.lines)) return null;
+        const by = {};
+        // a line whose SHIPPED the sidecar could not read (null: an unreadable record) stays unknown — never 0
+        for (const l of j.lines) if (l && l.lineId && typeof l.shipped === 'number' && isFinite(l.shipped)) by[String(l.lineId)] = l.shipped;
+        if (seq > shipApplied) {   // a read answering late never overwrites a newer one
+          shipApplied = seq; shipBase = { known: true, byLine: by };
+          // a line the record shows SHIPPED has spent its FIRST SHIP — quietly (no toast for a shipment this page did not see)
+          if (typeof Build !== 'undefined' && Build.markLineShipped) for (const id of Object.keys(by)) if (by[id] > 0 && !firstShipPending.has(id)) Build.markLineShipped(id);
+        }
+        return by;
+      })
+      .catch(() => null);   // (offline / a refused read: the counts stay as they were)
+  }
+  function refreshShipBase() {
+    if (shipBaseReading || typeof fetch === 'undefined') return;
+    shipBaseReading = true; shipBaseHash = routingPlan ? routingPlan.hash || '' : null;
+    readShipCounts().then(() => { shipBaseReading = false; });
+  }
+  // does the posted floor have a line with no count yet (a new line, a reload)? — then the counts are read again (once per plan)
+  function shipBaseStale() {
+    if (!shipBase.known) return true;
+    const lines = routingPlan && Array.isArray(routingPlan.lines) ? routingPlan.lines : [];
+    return lines.some(l => l && l.lineId && !hasCount(String(l.lineId))) && shipBaseHash !== (routingPlan.hash || '');
+  }
   function noteFirstShip(p) {
     if (!p || p.box !== 'line-output' || !p.lineId || !p.outboxId || !p.workitemId || firstShipSeen.has(p.workitemId)) return null;
     firstShipSeen.add(p.workitemId);
     if (firstShipSeen.size > 400) firstShipSeen.delete(firstShipSeen.values().next().value);
-    if (typeof Build === 'undefined' || !Build.noteLineShipped || typeof fetch === 'undefined' || typeof LineWatch === 'undefined') return null;
-    // the count this line had before the receipt (same local day, or 0): the job minted a shipment only if SHIPPED grew past it
-    const since = LineWatch.localMidnight(Date.now());
-    const had = lineStats && lineStats.known && lineStats.since === since && lineStats.byLine ? lineStats.byLine[p.lineId] : null;
-    const was = had ? (had.shipped | 0) : 0;
-    return fetch(apiUrl('/api/routing/lines/stats?since=' + since), { cache: 'no-store' })
-      .then(r => (r && r.ok ? r.json() : null))
-      .then(j => {
-        const l = j && Array.isArray(j.lines) ? j.lines.find(x => x && x.lineId === p.lineId) : null;
-        if (!l || !((l.shipped | 0) > was)) return;   // nothing was minted: no claim
-        const receipt = Build.noteLineShipped(p.outboxId, p.lineId);
-        if (!receipt || !receipt.first) return;
-        firstShipPulse = { at: fnow, tiles: receipt.tiles };
-        if (typeof StationUI !== 'undefined' && StationUI.notify) StationUI.notify('FIRST SHIP · ' + receipt.name, 'gold');
-        if (typeof SFX !== 'undefined' && SFX.milestone) SFX.milestone();
-      })
-      .catch(() => {});   // (offline / a refused read: SHIPPED is unknown, so nothing is announced)
+    if (typeof Build === 'undefined' || !Build.noteLineShipped || typeof fetch === 'undefined') return null;
+    const id = String(p.lineId);
+    if (Build.lineShipSpent && Build.lineShipSpent(id)) return null;   // said, learned, or delivered on before: nothing to read
+    if (!hasCount(id)) { refreshShipBase(); return null; }             // no count from before this receipt: no claim
+    if (shipBase.byLine[id] > 0) { if (Build.markLineShipped) Build.markLineShipped(id); return null; }   // it shipped before
+    firstShipPending.add(id);
+    return readShipCounts().then(by => {
+      firstShipPending.delete(id);
+      const now = by ? by[id] : undefined;
+      if (typeof now !== 'number' || !(now > 0)) return;   // unknown, or this job minted nothing: no claim
+      const receipt = Build.noteLineShipped(p.outboxId, id);
+      if (!receipt || !receipt.first) return;
+      firstShipPulse = { at: fnow, tiles: receipt.tiles };
+      if (typeof StationUI !== 'undefined' && StationUI.notify) StationUI.notify('FIRST SHIP · ' + (lineNameOf(id) || receipt.name), 'gold');
+      if (typeof SFX !== 'undefined' && SFX.milestone) SFX.milestone();
+    });
   }
   // the crate's MASS must be read NOW: run.end drops runUsdRecon the instant this returns, so a deferred
   // ship that re-read it later would weigh every crate 0 (crate-mass honesty).
@@ -10366,14 +10434,9 @@ const World = (() => {
     if (p.outbound) {
       lastOutboxFlash = fnow;   // box reached the OUTBOX -> flash the chute
       noteOutboxSink(bx.x, bx.y);   // SEND TO: a hand-off held for this OUTBOX's crate may fly now
-      // GUIDED WORKFLOWS: a line's FIRST real product delivery permanently retires its finish-the-line
-      // card. This is THE delivery seam (the crate that actually sank at the chute) — event-driven, and
-      // product-only: slag (an unproductive run) finishes nothing. World tiles ride over so Build maps
-      // the mouth tile to its line in its own geometry frame.
-      // (a crate sinking is NOT a shipment — FIRST SHIP rides the sidecar's terminal receipt: noteFirstShip below)
-      if (p.box === 'product' && geo && geo.origin && typeof Build !== 'undefined' && Build.noteLineDelivered) {
-        try { Build.noteLineDelivered(bx.x + geo.origin.tx, bx.y + geo.origin.ty); } catch (_) {}
-      }
+      // A CRATE SINKING HERE IS A PICTURE, NOT A RECORD (2026-10-12): a direct COMMS order to the agent crewing a line's last BAY
+      // rides a crate down that line's belt too, so it books nothing — no FIRST SHIP, and the finish-the-line card stays. Both
+      // answer to the sidecar's shipment record instead (noteFirstShip, from the executor's terminal receipt).
       // slag is NOT a satisfying delivery — skip the relaxed exhale; the post-mortem already fired at run.end
       if (p.box !== 'slag' && agent && !agent.unplaced && activity === 'idle') {   // EXHALE: watch the reply leave, satisfied, then relax (downtime clock resets)
         const ob = geo && geo.props && geo.props.find(q => q.t === 'outbox');
@@ -10953,6 +11016,9 @@ const World = (() => {
           const m = JSON.parse(ev.data);
           if (m && m.stream === 'ready') {
             bridgeCursor = String(m.cursor || '');
+            // FIRST SHIP: a line may have shipped while the stream was down (a receipt the server no longer replays) — this
+            // page's counts are no baseline any more; read them again before the next receipt is judged
+            shipBase = { known: false, byLine: {} }; shipApplied = shipSeq; shipBaseReading = false; refreshShipBase();
             // Snapshot reconciliation is also needed after a complete replay: it repairs any
             // pre-existing local drift without pretending an expired history was delivered.
             fetchSnapshot();
@@ -11318,6 +11384,8 @@ const World = (() => {
     // FEED TRUTH accessor (guided workflows): the exact server-proven state the NO FEED nag keys on —
     // BUILD MODE's finish-the-line card reads THIS, never a parallel poll, so the two can never disagree.
     fedLines: knownFedLines,
+    // a line's name by its id, by the floor's one rule (lineNameOf) — DELIVERABLES › TO REVIEW names a SEND TO's ends with it
+    lineName: lineNameOf,
     feedState: () => ({ known: feedState.known, fed: feedState.fed }),
     // does this INBOX's line wait on a routine saved while scheduling is off? (the floor's SCHEDULE OFF — CLICK) — BUILD MODE's
     // finish card asks it with ITS OWN compiled plan (plan param), so a line stamped this session answers too
