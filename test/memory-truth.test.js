@@ -124,6 +124,24 @@ function harness(at, extra) {
     A.eq(h2.notes()[0].scope, 'stream', 'an explicit scope always wins');
   }
 
+  // Shared vocabulary is not evidence of the same instruction. Preserve relations and qualifiers.
+  for (const [said, note] of [
+    ['From now on, use spaces instead of tabs for indentation.', 'User prefers tabs over spaces for indentation'],
+    ['I prefer small blue buttons for the settings page.', 'User prefers large blue buttons for the settings page'],
+    ['I prefer spaces, not tabs, for indentation.', 'User does not prefer spaces over tabs for indentation'],
+    ['If I prefer spaces for indentation, ask me first.', 'User prefers spaces for indentation'],
+    ['I prefer spaces only for Python indentation.', 'User prefers spaces for Python indentation'],
+    ['I prefer spaces or tabs for indentation.', 'User prefers spaces and tabs for indentation'],
+    ['Someone said "I prefer spaces for indentation".', 'User prefers spaces for indentation']
+  ]) {
+    const h = harness(T1);
+    const result = await h.t.writeTool.run({title:'Indentation',body:note,pinned:true},ctxA({commanderWords:said}));
+    const n = h.notes()[0];
+    A.ok(n.confirmation !== 'user-stated' && !n.statedBy, 'no user authority for an altered claim: ' + note + ' / ' + said);
+    A.eq(n.scope, 'stream', 'an unproven claim is not widened across conversations');
+    A.ok(!/Commander.s own words/.test(result.content), 'the save receipt does not claim the user stated the alteration');
+  }
+
   // ---- 2. corrections: proven words keep the Commander's authority; unproven reads as a superseding inference ----
   {
     const kept = () => [{ id: 'note_1', kind: 'note', title: 'Indentation', body: 'User prefers tabs for indentation', content: 'User prefers tabs for indentation',

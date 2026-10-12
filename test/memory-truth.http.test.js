@@ -34,9 +34,9 @@ async function journey() {
       const lastUser = messages.map(m => m.role).lastIndexOf('user');
       const did = name => messages.slice(lastUser + 1).some(m => (m.tool_calls || []).some(t => t.function && t.function.name === name));
       if (auxiliary) delta.content = phase === 'reflect' ? 'FACT: ' + fact : 'NONE';
-      else if (phase === 'stated') {
+      else if (phase === 'stated' || phase === 'inverted') {
         if ((body.tools || []).some(t => t.function && t.function.name === 'brief_proceed') && !did('brief_proceed')) tool('brief_proceed', { objective: 'Save the Commander\'s indentation preference in durable memory' });
-        else if (!did('notebook_write')) tool('notebook_write', { title: 'Indentation', body: note, pinned: true });
+        else if (!did('notebook_write')) tool('notebook_write', { title: 'Indentation', body: phase === 'inverted' ? 'User prefers tabs over spaces for indentation' : note, pinned: true });
         else delta.content = "I've saved your indentation preference.";
       } else delta.content = 'The request has been reviewed and handled. ' + 'The plan covers the deploy target and the rollout order. '.repeat(4);
       res.writeHead(200, { 'Content-Type': 'text/event-stream' });
@@ -55,8 +55,8 @@ async function journey() {
     const r = await fixture.request(route, { method, headers: { 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
     return { status: r.status, body: await r.json() };
   };
-  const run = async (text, streamId, isTask) => {
-    const r = await fixture.request('/api/run', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ agentId: 'agent', provider: 'openrouter', model: 'memory-fixture', key: 'memory-fixture', baseUrl: providerBase, isTask: !!isTask, streamId, objects: ['computer', 'notebook'], messages: [{ role: 'user', content: text }] }) });
+  const run = async (text, streamId, isTask, agentId = 'agent') => {
+    const r = await fixture.request('/api/run', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ agentId, provider: 'openrouter', model: 'memory-fixture', key: 'memory-fixture', baseUrl: providerBase, isTask: !!isTask, streamId, objects: ['computer', 'notebook'], messages: [{ role: 'user', content: text }] }) });
     const raw = await r.text(); assert.equal(r.status, 200, raw);
     const events = raw.split('\n').filter(Boolean).map(l => JSON.parse(l));
     const start = events.find(e => e.name === 'agent.run.start');
@@ -87,6 +87,18 @@ async function journey() {
     assert.ok(fence.includes('[note_1] [user-stated] Indentation — ' + note + ' (saved ' + today + ')'), 'another chat recalls it as the Commander\'s words, dated: ' + fence.slice(0, 600));
     assert.ok(/newer one wins/.test(fence) && /latest message beats any memory/.test(fence), 'under the conflict rule');
     assert.deepEqual(await receipts(b.runId), [], 'a run that saved nothing has an empty receipt');
+
+    // A faulty model reverses the stated preference. The host must not attest that inference.
+    phase = 'inverted';
+    const inverted = await run(said, 'chat-inverted', true, 'inverter');
+    assert.equal(inverted.end.payload.reason, 'done');
+    const inverse = (await json('GET', '/api/memory/records?agent=inverter')).body.records[0];
+    assert.ok(inverse, 'the model wrote its synthetic reversed note');
+    assert.ok(inverse.confirmation !== 'user-stated' && !inverse.statedQuote,
+      'reversed instruction is not the Commander\'s own words: ' + JSON.stringify(inverse));
+    assert.equal(inverse.scope, 'stream', 'the host does not promote an inverted preference across chats');
+    const saveResult = inverted.events.filter(e => e.name === 'agent.tool_result').map(e => JSON.stringify(e.payload)).join(' ');
+    assert.ok(!/Recorded as the Commander.s own words/.test(saveResult), 'no false provenance receipt');
 
     // 3. reflection stashes a batch for run C; a later run D that saves nothing must NOT be shown C's memories
     await json('POST', '/api/memory/config', { reflectEnabled: true, reflectCooldownMs: 0 });
