@@ -12,6 +12,7 @@
    local mock (a mock that is never hit fails the test — traffic that reached a real provider is not a pass).
    Skips LOUDLY when no Chromium is installed. In test:http (a child-process boot + browser is not a fast step). */
 import { spawn } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { mkdtempSync, mkdirSync, rmSync } from 'node:fs';
 import http from 'node:http';
 import { createServer } from 'node:net';
@@ -49,9 +50,37 @@ const stopChild = (child, graceful = false) => new Promise(resolve => {
   if (graceful) killTimer = setTimeout(kill, 3000); else kill();
 });
 
-// the mock model: the lead calls station_layout once per run (args = mock.nextArgs), then answers
+// Match the actual foreground turn, never a quotation in auxiliary context or a desired tool.
+function hasExactUserTurn(request, run) {
+  const users = (request.messages || []).filter(m => m && m.role === 'user');
+  return request.model === run.model && users.length === 1 && users[0].content === run.prompt;
+}
+function leadRequest(mock, run) {
+  const matches = mock.requests.filter(r => hasExactUserTurn(r, run)
+    && !(r.messages || []).some(m => m && (m.role === 'tool' || m.role === 'assistant')));
+  if (matches.length !== 1) throw new Error('expected one initial foreground request, found ' + matches.length);
+  return matches[0];
+}
+function layoutResult(mock, run, initial) {
+  const starts = run.events.filter(e => e.name === 'agent.run.start');
+  const ends = run.events.filter(e => e.name === 'agent.run.end');
+  const runId = starts.length === 1 && starts[0].payload && starts[0].payload.runId;
+  if (!runId || starts[0].payload.agentId !== 'agent' || ends.length !== 1
+    || ends[0].payload.runId !== runId || ends[0].payload.reason !== 'done') throw new Error('foreground run did not finish once');
+  const calls = run.events.filter(e => e.name === 'agent.tool_call' && e.payload.runId === runId && e.payload.name === 'station_layout');
+  if (calls.length !== 1) throw new Error('expected one foreground station_layout call, found ' + calls.length);
+  const callId = calls[0].payload.callId;
+  if (mock.issued.get(callId) !== initial) throw new Error('layout call did not originate in the selected foreground request');
+  const completed = run.events.filter(e => e.name === 'agent.tool_result' && e.payload.runId === runId && e.payload.callId === callId);
+  if (completed.length !== 1 || completed[0].payload.ok !== true || completed[0].payload.isError !== false) throw new Error('foreground layout tool did not succeed once');
+  const results = mock.results.filter(r => r.callId === callId && hasExactUserTurn(r.request, run));
+  if (results.length !== 1) throw new Error('expected one model-visible foreground layout result, found ' + results.length);
+  return results[0].content;
+}
+
+// The mock calls station_layout for each registered foreground case, then answers.
 function startMock() {
-  const mock = { requests: [], results: [], nextArgs: {} };
+  const mock = { requests: [], results: [], issued: new Map(), cases: new Map() };
   const server = http.createServer((req, res) => {
     if (req.url.indexOf('/models') >= 0) {
       res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -63,13 +92,16 @@ function startMock() {
       mock.requests.push(p);
       const offered = (p.tools || []).some(t => t && t.function && t.function.name === 'station_layout');
       const answered = (p.messages || []).filter(m => m && m.role === 'tool');
+      const ownCase = Array.from(mock.cases.values()).find(c => hasExactUserTurn(p, c));
       res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache' });
       const send = o => res.write('data: ' + JSON.stringify(o) + '\n\n');
-      if (offered && !answered.length) {
-        send({ choices: [{ delta: { tool_calls: [{ index: 0, id: 'call_layout_' + mock.requests.length, type: 'function', function: { name: 'station_layout', arguments: JSON.stringify(mock.nextArgs) } }] } }] });
+      if (ownCase && offered && !answered.length) {
+        const callId = 'call_layout_' + mock.requests.length;
+        mock.issued.set(callId, p);
+        send({ choices: [{ delta: { tool_calls: [{ index: 0, id: callId, type: 'function', function: { name: 'station_layout', arguments: JSON.stringify(ownCase.args) } }] } }] });
         send({ choices: [{ finish_reason: 'tool_calls', delta: {} }], usage: { prompt_tokens: 10, completion_tokens: 4, total_tokens: 14 } });
       } else {
-        for (const m of answered) mock.results.push(typeof m.content === 'string' ? m.content : JSON.stringify(m.content));
+        for (const m of answered) mock.results.push({ request: p, callId: m.tool_call_id, content: typeof m.content === 'string' ? m.content : JSON.stringify(m.content) });
         send({ choices: [{ delta: { content: 'I read the floor.' } }] });
         send({ choices: [{ delta: {}, finish_reason: 'stop' }], usage: { prompt_tokens: 12, completion_tokens: 6, total_tokens: 18 } });
       }
@@ -78,11 +110,14 @@ function startMock() {
   });
   return new Promise(r => server.listen(0, '127.0.0.1', () => { mock.server = server; mock.base = 'http://127.0.0.1:' + server.address().port + '/api/v1'; r(mock); }));
 }
-async function leadRun(base, token, prompt) {
+async function leadRun(base, token, prompt, args = {}) {
+  prompt += '\n[layout-e2e:' + randomUUID() + ']';
+  const model = 'test/model';
+  mock.cases.set(prompt, { prompt, model, args });
   const res = await fetch(base + '/api/run', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-StarNet-Token': token, Origin: base },
-    body: JSON.stringify({ key: 'sk-or-v1-fake', model: 'test/model', agentId: 'agent', isTask: true, messages: [{ role: 'user', content: prompt }] }) });
+    body: JSON.stringify({ key: 'sk-or-v1-fake', model, agentId: 'agent', isTask: true, messages: [{ role: 'user', content: prompt }] }) });
   const text = await res.text();
-  return { status: res.status, events: text.split('\n').map(l => { try { return JSON.parse(l); } catch (_) { return null; } }).filter(Boolean) };
+  return { status: res.status, prompt, model, events: text.split('\n').map(l => { try { return JSON.parse(l); } catch (_) { return null; } }).filter(Boolean) };
 }
 
 const root = mkdtempSync(join(tmpdir(), 'starnet-layout-e2e-'));
@@ -132,21 +167,20 @@ try {
   const run1 = await leadRun(base, token, 'what does my research line do?');
   const end1 = run1.events.filter(e => e.name === 'agent.run.end').pop();
   check('the lead run completes', run1.status === 200 && !!end1 && end1.payload.reason === 'done', JSON.stringify(end1 && end1.payload && end1.payload.reason));
-  // the LEAD's own request, not requests[0]: a new station now proposes by default, so background propose-level
-  // work (the quest refresh's boot look) may reach the mock first — that call carries no tools by design.
-  const leadReq = mock.requests.find(r => JSON.stringify(r.messages || []).indexOf('what does my research line do?') >= 0) || {};
+  const leadReq = leadRequest(mock, run1);
   check('the lead is offered station_layout', JSON.stringify(leadReq.tools || []).indexOf('station_layout') >= 0);
-  let R = null; try { R = JSON.parse(mock.results[0] || ''); } catch (_) { R = null; }
-  check('the model received the layout (not a refusal)', !!R, (mock.results[0] || '').slice(0, 160));
+  const result1 = layoutResult(mock, run1, leadReq);
+  let R = null; try { R = JSON.parse(result1); } catch (_) { R = null; }
+  check('the model received the layout (not a refusal)', !!R, result1.slice(0, 160));
   const L = R && (R.lines || []).find(l => l.name === 'RESEARCH DESK');
   check('routing is live AND confirmed against the real router', !!R && R.routing.state === 'live' && R.routing.confirmed === true, JSON.stringify(R && R.routing));
   check('two steps, the hero on both, in compiled order', !!L && L.steps.length === 2 && L.steps.every(s => s.propId && setup.bays.indexOf(s.propId) >= 0), JSON.stringify(L && L.steps));
   check('the line carries the runner\'s effective budget', !!L && !!L.budget && typeof L.budget.maxHops === 'number', JSON.stringify(L && L.budget));
 
   // 2. the same line in full: per-Bay hand-offs off the compiled dock layer
-  mock.nextArgs = { line: 'research desk' };
-  await leadRun(base, token, 'show me that line in full');
-  let D = null; try { D = JSON.parse(mock.results[1] || '').line; } catch (_) { D = null; }
+  const run2 = await leadRun(base, token, 'show me that line in full', { line: 'research desk' });
+  const result2 = layoutResult(mock, run2, leadRequest(mock, run2));
+  let D = null; try { D = JSON.parse(result2).line; } catch (_) { D = null; }
   const [a, b] = (D && D.steps) || [];
   check('`line` returns that one line in full', !!D && D.name === 'RESEARCH DESK' && !!a && typeof a.brief === 'string' && Array.isArray(a.tools));
   check('step 1 is fed by the Inbox and hands to step 2; step 2 ships to the OUTBOX', !!a && !!b && a.fedByInbox === true && b.fedByInbox === false
@@ -168,9 +202,9 @@ try {
   // 4. Build mode holds the world: an unsent edit reads as pending, and the answer never says the router runs it
   await evalJS(cdp, `(() => { App.station().assignPropAgent(${JSON.stringify(setup.bays[1])}, ''); return true; })()`);
   await sleep(1000);
-  mock.nextArgs = {};
-  await leadRun(base, token, 'why is step 2 not running?');
-  let P = null; try { P = JSON.parse(mock.results[2] || ''); } catch (_) { P = null; }
+  const run3 = await leadRun(base, token, 'why is step 2 not running?');
+  const result3 = layoutResult(mock, run3, leadRequest(mock, run3));
+  let P = null; try { P = JSON.parse(result3); } catch (_) { P = null; }
   check('an edit held by Build mode reads as pending', !!P && P.routing.pendingEdits === true && /running the floor as last sent/.test(P.routing.note), JSON.stringify(P && P.routing));
   const PL = P && (P.lines || []).find(l => l.name === 'RESEARCH DESK');
   check('and the drawn floor says what is missing', !!PL && /NEEDS AN AGENT/.test(PL.status), PL && PL.status);
