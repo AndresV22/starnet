@@ -23,4 +23,5 @@ const failedSettlement = makeEvaluationAccounting({ ledger: { beginRun: () => tr
 failedSettlement.beforeRun({ runId: 'cannot-save' });
 assert.throws(() => failedSettlement.onRun({ runId: 'cannot-save', result: { usd: 0.01, tokens: 3 } }), /disk full/);
 assert.equal(failedSettlement.canContinue(), false);
+for(const reason of ['error','cancelled']) { const f=makeEvaluationAccounting({ledger}); f.beforeRun({runId:reason}); assert.throws(()=>f.onRun({runId:reason,result:{reason,usd:0,tokens:0}}),/incomplete/); assert.equal(pending.has(reason),true); }
 console.log('skill evaluation accounting: settled cost, interrupted restart, and persistence denial PASS');

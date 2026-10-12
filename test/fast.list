@@ -1148,3 +1148,5 @@ test/skill.evaluation.test.js
 test/skill.evaluation-accounting.test.js
 
 test/verdictreview.lifecycle.test.js
+
+test/skill.evaluation.accounting.test.js

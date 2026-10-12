@@ -14,7 +14,7 @@ function makeEvaluationAccounting(options) {
       return true;
     },
     onRun({ result, runId }) {
-      if (!result || result.accountingIncomplete || !Number.isFinite(result.usd) || result.usd < 0 || !Number.isFinite(result.tokens) || result.tokens < 0 || (result.unpricedUsage || []).length) {
+      if (!result || ['error', 'cancelled', 'runner-error'].includes(result.reason) || result.accountingIncomplete || !Number.isFinite(result.usd) || result.usd < 0 || !Number.isFinite(result.tokens) || result.tokens < 0 || (result.unpricedUsage || []).length) {
         uncertain = true;
         // Keep the dispatch receipt for reconciliation after restart. Never invent a zero-dollar settlement.
         throw new Error('Evaluation spend is incomplete; its dispatch receipt remains unsettled.');
