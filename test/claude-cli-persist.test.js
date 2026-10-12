@@ -145,7 +145,7 @@ const tick = ms => new Promise(r => setTimeout(r, ms || 0));
     A.eq(p.persistStats().fresh.history, 1, 'stats name the reason: history');
     // a fold that adds a leading summary note changes the system prompt the child was started with
     await collect(p, req([SYS, { role: 'system', content: '<conversation_summary>asked for two files</conversation_summary>' }, { role: 'user', content: 'and now?' }]));
-    A.eq([spawns.length, p.persistStats().fresh.prompt], [3, 1], 'a summary folded into the system prompt starts a fresh child (reason: prompt)');
+    A.eq([spawns.length, p.persistStats().fresh.system], [3, 1], 'a summary folded into the system prompt starts a fresh child (reason: system)');
 
     // the loop recorded the reply without its call (a duplicate-check stop) and moved on
     const p2 = make(reader);
@@ -160,7 +160,7 @@ const tick = ms => new Promise(r => setTimeout(r, ms || 0));
     const m3 = [SYS, { role: 'user', content: 'Read a.txt and b.txt.' }];
     const r3 = reply(await collect(p3.p, req(m3))); m3.push(r3, ...results(r3, 'alpha'));
     await collect(p3.p, req(m3, 'opus'));
-    A.eq([p3.spawns.length, p3.p.persistStats().fresh.prompt], [2, 1], 'a model switch starts a fresh child');
+    A.eq([p3.spawns.length, p3.p.persistStats().fresh.model], [2, 1], 'a model switch starts a fresh child');
     A.eq(p3.spawns[1].args[p3.spawns[1].args.indexOf('--model') + 1], 'opus', 'on the new model');
 
     // steering / a system note appended after the results is NOT a mismatch: it rides the delta
@@ -176,7 +176,7 @@ const tick = ms => new Promise(r => setTimeout(r, ms || 0));
   // 3. A REPLY THAT RUNS ON PAST ITS BLOCK: the child's history now holds the guess, so it is closed (never reused).
   {
     const { p, spawns } = make((rec, n) => {
-      if (n > 1) return { lines: [init(), delta('done'), result('done')] };
+      if (spawns.indexOf(rec) > 0 || n > 1) return { lines: [init(), delta('done'), result('done')] };   // only the first child guesses
       const text = block('a.txt') + '\n\n<function_results>made up</function_results>';
       return { lines: [init(), delta(block('a.txt')), delta('\n\n<function_results>made up</function_results>'), result(text)] };
     });
@@ -188,9 +188,22 @@ const tick = ms => new Promise(r => setTimeout(r, ms || 0));
     A.ok(!t1.some(e => e.type === 'text' && /made up/.test(e.delta)), 'the guess never reaches the loop');
     A.ok(spawns[0].treeKilled, 'the child that kept the guess is killed at once');
     A.eq(p.persistStats().closed.overrun, 1, 'stats: closed for overrun');
+    A.ok(spawns.length === 2 && spawns[1].inputs.length === 0 && spawns[1].child.exitCode == null && p.persistStats().prewarmed === 1,
+      'a WARM replacement is started at once, idle while the loop runs the tool');
+    A.eq(spawns[1].args.filter(a => !/starnet-claude-cli-/.test(a)), spawns[0].args.filter(a => !/starnet-claude-cli-/.test(a)), 'with the same flags (its own system prompt file)');
     const r1 = reply(t1); msgs.push(r1, ...results(r1, 'real contents'));
     await collect(p, req(msgs));
-    A.ok(spawns.length === 2 && textIn(spawns[1].inputs[0]).startsWith('<conversation>'), 'the next turn starts a fresh child from StarNet\'s history');
+    A.ok(spawns.length === 2 && textIn(spawns[1].inputs[0]).startsWith('<conversation>'), 'the next turn starts on the warm child, from StarNet\'s whole history');
+    A.eq(p.persistStats().fresh.warm, 1, 'stats: the warm child was used');
+    p.release('run-3');
+    A.ok(spawns[1].treeKilled, 'run end kills it like any child');
+    // a warm child the next turn does not fit (a model switch) is closed unused, and a fitting one is started
+    const wu = make(rec => (wu.spawns.indexOf(rec) > 0 ? { lines: [init(), delta('ok'), result('ok')] } : { lines: [init(), delta(block('a.txt') + ' guess'), result(block('a.txt') + ' guess')] }));
+    const wm = [SYS, { role: 'user', content: 'Read a.txt.' }];
+    const wr = reply(await collect(wu.p, req(wm))); wm.push(wr, ...results(wr, 'alpha'));
+    await collect(wu.p, Object.assign(req(wm), { model: 'opus' }));
+    A.ok(wu.spawns.length === 3 && wu.spawns[1].treeKilled && wu.spawns[1].inputs.length === 0 && wu.p.persistStats().closed.warm_unused === 1,
+      'a warm child the next turn does not fit is closed unused');
 
     // the block arrives in the SAME delta as text past it: the stop delta's rest counts too
     const same = make(rec => ({ lines: [init(), delta(block('a.txt') + '\nThe file says hi.'), result(block('a.txt') + '\nThe file says hi.')] }));
@@ -304,6 +317,40 @@ const tick = ms => new Promise(r => setTimeout(r, ms || 0));
     A.ok(spawns.every(s => s.args.indexOf('--input-format') < 0 && s.inputs.length === 0 && s.ended), 'each one reads plain text stdin, then ends');
     A.ok(spawns[1].stdinText.startsWith('<conversation>') && spawns[1].stdinText.includes('Read a.txt.') && spawns[1].stdinText.includes('alpha'), 'and gets the whole history');
     A.eq(p.persistStats().enabled, false, 'stats say persistence is off');
+  }
+
+  // 11. TOOL REVEALS (live 10-12: tool_search restarted the child twice in a 5-turn run). A revealed tool is ADDED to
+  //     the request's tools; the child keeps going and the new tool is announced in that turn's message. A tool that is
+  //     withdrawn or changed is not something a note can fix: fresh child.
+  {
+    const WRITE = { type: 'function', function: { name: 'fs_write', description: 'write a file', parameters: { type: 'object', properties: { path: { type: 'string' }, content: { type: 'string' } } } } };
+    const { p, spawns } = make(reader);
+    const ac = new AbortController();
+    const req = (msgs, tools) => ({ model: 'sonnet', tools, messages: msgs.slice(), runId: 'run-11', signal: ac.signal });
+    const msgs = [SYS, { role: 'user', content: 'Read a.txt and b.txt.' }];
+    const r1 = reply(await collect(p, req(msgs, TOOLS))); msgs.push(r1, ...results(r1, 'found fs_write'));
+    const t2 = await collect(p, req(msgs, TOOLS.concat([WRITE])));
+    A.eq(spawns.length, 1, 'a revealed tool keeps the child');
+    const sent = textIn(spawns[0].inputs[1]);
+    A.ok(sent.startsWith('<tool_result') && sent.includes('found fs_write') && /<system_note>\nMore tools are now available[^]*\n- fs_write: write a file\n  parameters: \{"type":"object"/.test(sent) && !sent.includes('- fs_read'),
+      'the turn that reveals it announces ONLY the new tool, after the results: ' + JSON.stringify(sent.slice(0, 300)));
+    A.eq(p.persistStats().announced, 1, 'stats: one tool announced');
+    const r2 = reply(t2); msgs.push(r2, ...results(r2, 'beta'));
+    await collect(p, req(msgs, TOOLS.concat([WRITE])));
+    A.ok(spawns.length === 1 && !textIn(spawns[0].inputs[2]).includes('More tools'), 'an announced tool is not announced again');
+
+    const w = make(reader);
+    const m2 = [SYS, { role: 'user', content: 'Read a.txt and b.txt.' }];
+    const rr = reply(await collect(w.p, req(m2, TOOLS.concat([WRITE])))); m2.push(rr, ...results(rr, 'alpha'));
+    await collect(w.p, req(m2, TOOLS));
+    A.eq([w.spawns.length, w.p.persistStats().fresh.tools], [2, 1], 'a withdrawn tool starts a fresh child');
+    const c = make(reader);
+    const m3 = [SYS, { role: 'user', content: 'Read a.txt and b.txt.' }];
+    const r3 = reply(await collect(c.p, req(m3, TOOLS))); m3.push(r3, ...results(r3, 'alpha'));
+    await collect(c.p, req(m3, [{ type: 'function', function: Object.assign({}, TOOLS[0].function, { description: 'read a file (now with limits)' }) }]));
+    A.eq([c.spawns.length, c.p.persistStats().fresh.tools], [2, 1], 'a changed tool description starts a fresh child');
+    const fresh = c.spawns[1].args[c.spawns[1].args.indexOf('--system-prompt-file') + 1];
+    A.ok(typeof fresh === 'string' && fresh.length > 0, 'the fresh child is started with its own (new) system prompt file');
   }
 
   // 10. THE REAL LOOP drives the adapter (no hand-built replies): the reply loop.js records is exactly the one the child

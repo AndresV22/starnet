@@ -116,15 +116,20 @@
     return parts.join('\n');
   }
 
-  function toolsPrompt(tools) {
+  // Each tool as the prompt lists it: { name, line }.
+  function toolLines(tools) {
     const list = [];
     for (const item of (Array.isArray(tools) ? tools : [])) {
       const fn = (item && item.function) || {};
       const name = String(fn.name || '').trim();
       if (!name) continue;
-      list.push('- ' + name + (fn.description ? ': ' + String(fn.description).trim() : '') +
-        '\n  parameters: ' + JSON.stringify(fn.parameters || { type: 'object', properties: {} }));
+      list.push({ name, line: '- ' + name + (fn.description ? ': ' + String(fn.description).trim() : '') +
+        '\n  parameters: ' + JSON.stringify(fn.parameters || { type: 'object', properties: {} }) });
     }
+    return list;
+  }
+  function toolsPrompt(tools) {
+    const list = toolLines(tools).map(t => t.line);
     // A turn with NO tools still says so: a Claude Code model told about station powers in the system prompt otherwise
     // improvises its own native tool-call markup as TEXT (live 09-28: '<invoke name="Bash">…' leaked into a chat reply).
     if (!list.length) return '# Tools\nNo tools are available in this turn. Answer in plain prose only: never write tool-call markup (<tool_call>, <invoke>, <function_calls>) and never claim to have run anything.';
@@ -150,6 +155,10 @@
       'Available tools:',
       list.join('\n')
     ].join('\n');
+  }
+  // Tools a live persistent child was not started with, announced in the turn that revealed them (see TOOL REVEALS).
+  function toolsNote(added) {
+    return 'More tools are now available. Call them exactly like the tools listed in your instructions:\n' + added.map(t => t.line).join('\n');
   }
   // A prior call, rendered the way the model is asked to write one (string values raw, everything else JSON).
   function invokeText(name, args) {
@@ -186,11 +195,11 @@
     const prefix = typeof cachePrefix === 'string' ? cachePrefix.trim() : '';
     const joined = system.join('\n\n');
     const note = prefix && joined.startsWith(prefix) ? joined.slice(prefix.length).trim() : '';
-    const tp = toolsPrompt(tools);
-    if (note) system.splice(0, system.length, prefix, ...(tp ? [tp] : []), DYNAMIC_BOUNDARY + '\n' + note);
-    else if (tp) system.push(tp);
-    return { system: system.join('\n\n'), rest: messages.slice(i).filter(m => m && typeof m === 'object') };
+    const compose = tp => (note ? [prefix].concat(tp ? [tp] : [], [DYNAMIC_BOUNDARY + '\n' + note]) : system.concat(tp ? [tp] : [])).join('\n\n');
+    // base: the same prompt with the tool list left out — what a persistent child must still match after a tool reveal
+    return { system: compose(toolsPrompt(tools)), base: compose(TOOLS_SLOT), rest: messages.slice(i).filter(m => m && typeof m === 'object') };
   }
+  const TOOLS_SLOT = '\u0000tools\u0000';
   // One transcript entry as the model reads it (null: a role the transcript does not carry).
   function messageLine(m, images) {
     if (m.role === 'user') return '<user>\n' + textOf(m.content, images) + '\n</user>';
@@ -256,13 +265,24 @@
     });
   }
   /* Every live persistent child, so an exiting sidecar never leaves one behind (each also ends by itself when its stdin
-     closes). A plain kill: an exit handler cannot wait for taskkill, and the child runs no tools of its own. */
+     closes). The CLI keeps helper processes of its own (a cmd.exe + conhost.exe were seen under one), so on Windows the
+     tree goes with a SYNCHRONOUS taskkill /T (an exit handler cannot wait on anything async); only a real ChildProcess
+     is ever killed by pid. */
   const LIVE = new Set();
   let exitHooked = false;
   function hookExit() {
     if (exitHooked || typeof process === 'undefined' || typeof process.once !== 'function') return;
     exitHooked = true;
-    process.once('exit', () => { for (const c of LIVE) { try { c.kill(); } catch (e) { failNote('claudecli.persist.exit', e); } } });
+    process.once('exit', () => {
+      const cp = require('node:child_process');
+      for (const c of LIVE) {
+        try {
+          if (process.platform === 'win32' && c instanceof cp.ChildProcess && c.pid && c.exitCode == null) {
+            require('../child-env.js').guardChildProcess(cp).spawnSync('taskkill', ['/pid', String(c.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true });
+          } else c.kill();
+        } catch (e) { failNote('claudecli.persist.exit', e); }
+      }
+    });
   }
 
   /* Resolve the image marks. No image: the plain text stdin, byte-identical to before. Images: the newest MAX_IMAGES
@@ -922,11 +942,13 @@
        "[Request interrupted by user]" turn, so it is never used — a reply that runs on past its block is the one case
        that would diverge, and it closes the child instead.
        IN SYNC OR START FRESH. The child is reused only while what it holds is provably StarNet's history: the same
-       system prompt (persona + tool list), model, effort, run and Stop signal; every earlier message unchanged (a
-       fingerprint each); the reply it wrote recorded by the loop unedited (same text, same calls); nothing but new
+       system prompt (persona, rules, brief), the same tools or more (a tool_search reveal is announced in that turn's
+       message: TOOL REVEALS), model, effort, run and Stop signal; every earlier message unchanged (a fingerprint
+       each); the reply it wrote recorded by the loop unedited (same text, same calls); nothing but new
        user/tool/system messages after it. Anything else (compaction, an aged-out screenshot, a dropped or repaired
-       call, a retry after a failed turn, a model switch, a revealed tool, the CLI compacting itself) closes the child
-       and the turn starts a fresh one from StarNet's whole history, exactly like a one-shot turn.
+       call, a retry after a failed turn, a model switch, a withdrawn or changed tool, the CLI compacting itself)
+       closes the child and the turn starts a fresh one from StarNet's whole history, exactly like a one-shot turn.
+       STARNET_CLAUDE_CLI_PERSIST_LOG=1 prints one line per decision (reuse, fresh + why, closed + why).
        LIFECYCLE. The child ends at the run's end (release(), called by the loop), on Stop (the run signal, even
        between turns), on any turn that did not end cleanly (error, crash, idle watchdog), after
        STARNET_CLAUDE_CLI_PERSIST_IDLE_MS (default 5 min) parked, and when the sidecar exits; every kill takes the
@@ -940,6 +962,9 @@
     const bump = (o, k) => { o[k] = (o[k] || 0) + 1; };
     const sha1 = s => require('crypto').createHash('sha1').update(s).digest('hex');
     const sessionKey = (req, system) => sha1(JSON.stringify([String(req.model || ''), effortOf(req), system]));
+    const toolMap = tools => new Map(toolLines(tools).map(t => [t.name, t.line]));
+    // STARNET_CLAUDE_CLI_PERSIST_LOG=1: one console line per persistent-child decision (reuse / fresh + why / closed + why)
+    const plog = msg => { if (envOf('STARNET_CLAUDE_CLI_PERSIST_LOG') === '1') console.log('[claude-cli persist] ' + msg); };
 
     function openSession(cmd, req, system, key, runId) {
       const sysFile = path.join(os.tmpdir(), 'starnet-claude-cli-' + process.pid + '-s' + (++sessionSeq) + '-' + require('crypto').randomBytes(6).toString('hex') + '.txt');
@@ -951,8 +976,8 @@
         removeFile(sysFile);
         throw notInstalled();
       }
-      const s = { child, key, runId, signal: req.signal || null, sysFile, alive: true, closed: false, busy: false, covered: [], pending: null,
-        costSeen: 0, stderr: '', exitCode: null, error: null, sink: null, onData: null, idleTimer: null, onRunAbort: null };
+      const s = { child, key, runId, model: String(req.model || ''), effort: effortOf(req), tools: toolMap(req.tools), signal: req.signal || null, sysFile, alive: true, closed: false, busy: false, covered: [], pending: null,
+        costSeen: 0, stderr: '', exitCode: null, error: null, sink: null, onData: null, idleTimer: null, onRunAbort: null, primed: false, systemHash: sha1(system) };
       LIVE.add(child); hookExit();
       let buf = '';
       child.stdout.setEncoding('utf8'); child.stderr.setEncoding('utf8');
@@ -987,12 +1012,27 @@
       if (s.onRunAbort && s.signal && typeof s.signal.removeEventListener === 'function') s.signal.removeEventListener('abort', s.onRunAbort);
       LIVE.delete(s.child);
       bump(stats.closed, why || 'closed');
+      plog('child ' + (s.child && s.child.pid) + ' closed: ' + (why || 'closed'));
       try { s.child.stdin.end(); } catch (e) { failNote('claudecli.persist.stdin', e); }
       killTree(s.child);
       removeFile(s.sysFile);
     }
+    /* WARM REPLACEMENT. A child closed at the end of a CALL turn (it wrote past its block, or never ended) is replaced at
+       once with the same flags and system prompt, while the loop runs the tools: the next turn then gives it the whole
+       history without paying the CLI's start-up (live: an idle child answered its first line in 1.1 s, 0.1 s to init,
+       against 3.7 s cold). It is an ordinary child of this run: Stop, run end and the idle timeout end it the same way,
+       and a next turn it does not fit (another prompt, model or run) closes it unused. */
+    function prewarm(cmd, req, system, key, runId) {
+      let w;
+      try { w = openSession(cmd, req, system, key, runId); } catch (e) { failNote('claudecli.persist.prewarm', e); return; }
+      stats.prewarmed = (stats.prewarmed || 0) + 1;
+      plog('warm child ' + (w.child && w.child.pid) + ' started');
+      w.idleTimer = setTimeout(() => closeSession(w, 'idle'), persistIdleMs);
+      if (w.idleTimer && typeof w.idleTimer.unref === 'function') w.idleTimer.unref();
+    }
     // What the child now holds: the request it answered + the reply it wrote. It waits, parked, for the next turn.
-    function parkSession(s, rest, T) {
+    function parkSession(s, rest, T, req) {
+      s.tools = toolMap(req.tools);   // every tool the child has now been told about (its system prompt + any announced since)
       s.covered = rest.map(fingerprint);
       s.pending = { text: T.shown, calls: T.calls.filter(Boolean).map(c => ({ id: c.id, name: c.name, args: c.args })) };
       s.busy = false; s.sink = null; s.onData = null;
@@ -1001,9 +1041,11 @@
       if (s.idleTimer && typeof s.idleTimer.unref === 'function') s.idleTimer.unref();
     }
     // Can this request ride the live child? { delta } = only what it has not seen; { why } = start fresh.
-    function planDelta(s, key, runId, signal, rest) {
+    function planDelta(s, key, runId, signal, rest, req) {
       if (!s.alive) return { why: 'dead' };
-      if (s.key !== key) return { why: 'prompt' };   // system prompt, tool list, model or effort changed
+      if (s.key !== key) {   // the child was started on another system prompt (persona, rules, task brief), model or effort
+        return { why: s.model !== String(req.model || '') ? 'model' : s.effort !== effortOf(req) ? 'effort' : 'system' };
+      }
       if (s.runId !== runId || s.signal !== (signal || null)) return { why: 'run' };
       const n = s.covered.length;
       if (rest.length < n + 2) return { why: 'history' };
@@ -1011,7 +1053,17 @@
       if (!s.pending || !sameReply(rest[n], s.pending)) return { why: 'reply' };
       const delta = rest.slice(n + 1);
       if (delta.some(m => m.role === 'assistant')) return { why: 'history' };
-      return { delta };
+      /* TOOL REVEALS. tool_search grants a deferred tool by ADDING it to the request's tool list, and the list lives in
+         the system prompt the child was started with. Every tool the child knows must still be offered unchanged; one
+         that is new is announced at the end of this turn's message instead of restarting the child. */
+      const added = [];
+      const want = toolLines(req.tools);
+      for (const t of want) {
+        if (!s.tools.has(t.name)) added.push(t);
+        else if (s.tools.get(t.name) !== t.line) return { why: 'tools' };
+      }
+      if (s.tools.size + added.length !== want.length) return { why: 'tools' };   // a tool the child knows was withdrawn
+      return { delta, added };
     }
     function costOf(s, result) {   // this turn's share of the child's running total_cost_usd
       const total = Number(result && result.total_cost_usd);
@@ -1024,16 +1076,22 @@
     async function* persistentStream(req, cmd) {
       const signal = req.signal;
       const sp = splitPrompt(req.messages, req.tools, req.cacheSystemPrefix);
-      const key = sessionKey(req, sp.system);
+      const key = sessionKey(req, sp.base);
       const runId = req.runId == null ? '' : String(req.runId);
       let s = session, prompt = null;
-      if (s) {
-        const plan = planDelta(s, key, runId, signal, sp.rest);
-        if (plan.delta) prompt = renderDelta(plan.delta);
+      if (s && !s.primed) {
+        // a WARM child started for this run (see prewarm): it holds nothing yet, so it takes the whole history
+        if (s.alive && s.key === key && s.runId === runId && s.signal === (signal || null) && s.systemHash === sha1(sp.system)) {
+          prompt = renderTranscript(sp.system, sp.rest); bump(stats.fresh, 'warm'); plog('use warm child ' + (s.child && s.child.pid));
+        } else { closeSession(s, 'warm_unused'); s = null; bump(stats.fresh, 'first'); plog('fresh child: warm one did not fit'); }
+      } else if (s) {
+        const plan = planDelta(s, key, runId, signal, sp.rest, req);
+        if (plan.delta) prompt = renderDelta(plan.added.length ? plan.delta.concat([{ role: 'system', content: toolsNote(plan.added) }]) : plan.delta);
+        if (prompt && plan.delta && plan.added.length) { stats.announced = (stats.announced || 0) + plan.added.length; plog('announce ' + plan.added.length + ' revealed tool(s): ' + plan.added.map(t => t.name).join(', ')); }
         if (prompt && !String(prompt.input || '').trim()) prompt = null;   // nothing sendable: start fresh instead
-        if (prompt) stats.reused++;
-        else { const why = plan.why || 'empty'; bump(stats.fresh, why); closeSession(s, why); s = null; }
-      } else bump(stats.fresh, 'first');
+        if (prompt) { stats.reused++; plog('reuse child ' + (s.child && s.child.pid) + ': +' + plan.delta.length + ' message(s)'); }
+        else { const why = plan.why || 'empty'; bump(stats.fresh, why); plog('fresh child: ' + why); closeSession(s, why); s = null; }
+      } else { bump(stats.fresh, 'first'); plog('fresh child: first'); }
       if (!s) { s = openSession(cmd, req, sp.system, key, runId); prompt = renderTranscript(sp.system, sp.rest); }
 
       const turn = ++seq;
@@ -1061,7 +1119,7 @@
         return queue.shift();
       };
       if (s.idleTimer) { clearTimeout(s.idleTimer); s.idleTimer = null; }
-      s.busy = true; s.sink = push; s.onData = armIdle;
+      s.busy = true; s.sink = push; s.onData = armIdle; s.primed = true;
       if (signal && typeof signal.addEventListener === 'function') signal.addEventListener('abort', onAbort, { once: true });
       armIdle();
       try {
@@ -1121,9 +1179,12 @@
             const cost = costOf(s, ended);
             const billed = { usage: ended.usage || T.streamUsage || {}, total_cost_usd: isFinite(cost) ? cost : estimateUsd(ended.usage || {}, req.model) };
             out = [T.usageChunk(billed), { type: 'done', finishReason: 'tool_calls', truncated: false }];
-            settle(); parkSession(s, sp.rest, T); clean = true;
+            settle(); parkSession(s, sp.rest, T, req); clean = true;
           } else {
-            settle(); closeSession(s, ended ? 'diverged' : (tail.trim() ? 'overrun' : 'no_end'));
+            const why = ended ? 'diverged' : (tail.trim() ? 'overrun' : 'no_end');
+            stats.lastClose = { why, after: tail.replace(/\u0001/g, '[non-text]').slice(0, 160), ended: !!ended };   // what the reply did past its block
+            settle(); closeSession(s, why);
+            if (!(signal && signal.aborted)) prewarm(cmd, req, sp.system, key, runId);   // the loop runs the tools meanwhile
             out = T.stopChunks(req.model);
           }
           for (const ev of out) yield ev;
@@ -1137,7 +1198,7 @@
         if (!ok) { settle(); closeSession(s, 'error'); yield* T.finish({ code: s.exitCode, stderr: s.stderr }, cost); return; }
         const out = Array.from(T.finish({ code: s.exitCode, stderr: s.stderr }, cost));   // the reply's tail, usage, done
         settle();
-        if (!T.compacted && String(result.result == null ? '' : result.result).trim() === T.raw.trim()) { parkSession(s, sp.rest, T); clean = true; }
+        if (!T.compacted && String(result.result == null ? '' : result.result).trim() === T.raw.trim()) { parkSession(s, sp.rest, T, req); clean = true; }
         else closeSession(s, 'diverged');
         for (const ev of out) yield ev;
       } finally {
