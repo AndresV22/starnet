@@ -77,20 +77,24 @@ const Q = { remoteAddress: '127.0.0.1', remotePort: 52345, localAddress: '127.0.
   const winSelf = P.makePeerOwnerCheck({ platform: 'win32', selfPid: 4242, winUser: 'HOST\\owner', run: fakeRun({ 'netstat.exe': () => ({ ok: true, stdout: NETSTAT }) }) });
   A.eq((await winSelf(Q)).ok, true, 'win32: our own process fetching / is ourselves');
 
-  let t = 1000; let calls = 0;
-  const winCache = P.makePeerOwnerCheck({ platform: 'win32', selfPid: 100, winUser: 'HOST\\owner', now: () => t, cacheMs: 15000,
-    run: fakeRun({ 'netstat.exe': () => ({ ok: true, stdout: NETSTAT }), 'tasklist.exe': () => { calls++; return { ok: true, stdout: '"chrome.exe","4242","Console","1","1 K"' }; } }) });
-  await winCache(Q); await winCache(Q);
-  A.eq(calls, 1, 'win32: a positive verdict is cached per pid');
-  t += 16000; await winCache(Q);
-  A.eq(calls, 2, 'win32: ...and expires');
-
-  // no injected clock → no cache at all (an inert clock would make a verdict immortal for a recycled PID)
-  let noClockCalls = 0;
-  const winNoClock = P.makePeerOwnerCheck({ platform: 'win32', selfPid: 100, winUser: 'HOST\\owner', cacheMs: 15000,
-    run: fakeRun({ 'netstat.exe': () => ({ ok: true, stdout: NETSTAT }), 'tasklist.exe': () => { noClockCalls++; return { ok: true, stdout: '"chrome.exe","4242","Console","1","1 K"' }; } }) });
-  const nc1 = await winNoClock(Q); const nc2 = await winNoClock(Q);
-  A.eq([nc1.ok, nc2.ok, noClockCalls], [true, true, 2], 'win32: without an injected clock every load re-checks (no cache, never a frozen one)');
+  // A PID identifies a current process, not a process generation. The OS may reuse a once-owned PID
+  // for another account before any time-based cache expires, including on a different exact socket.
+  let calls = 0, currentNetstat = NETSTAT, sameOwner = true, tasklistOk = true;
+  const winFresh = P.makePeerOwnerCheck({ platform: 'win32', selfPid: 100, winUser: 'HOST\\owner', now: () => 1000, cacheMs: 15000,
+    run: fakeRun({ 'netstat.exe': () => ({ ok: true, stdout: currentNetstat }), 'tasklist.exe': () => {
+      calls++; return { ok: tasklistOk, stdout: sameOwner ? '"chrome.exe","4242","Console","1","1 K"' : '' };
+    } }) });
+  A.eq((await winFresh(Q)).ok, true, 'win32: current owner receives the token');
+  await winFresh(Q);
+  A.eq(calls, 2, 'win32: every page checks current ownership even for the same exact connection');
+  currentNetstat = NETSTAT.replaceAll(':52345', ':52348'); sameOwner = false;
+  const reused = await winFresh({ ...Q, remotePort: 52348 });
+  A.eq([reused.ok, reused.reason], [false, 'other-user'], 'win32: recycled PID on another socket cannot borrow its previous owner verdict');
+  A.eq(calls, 3, 'win32: a recycled PID is checked with tasklist inside the former cache window');
+  sameOwner = true;
+  A.eq((await winFresh({ ...Q, remotePort: 52348 })).ok, true, 'win32: a previous refusal does not poison a later proven owner');
+  tasklistOk = false;
+  A.eq((await winFresh({ ...Q, remotePort: 52348 })).reason, 'lookup-failed', 'win32: lookup failure after prior success still fails closed');
 
   const linSame = P.makePeerOwnerCheck({ platform: 'linux', uid: 1001, readFile: async (f) => f === '/proc/net/tcp' ? PROC : '' });
   A.eq((await linSame({ remoteAddress: '127.0.0.1', remotePort: 52537, localAddress: '127.0.0.1', localPort: 8787 })).ok, true, 'linux: same uid → token');
