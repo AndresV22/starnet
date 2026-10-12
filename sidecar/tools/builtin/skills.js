@@ -83,6 +83,7 @@
       };
     }
     function decideFor(skill, withBody) {
+      if (skill && skill.pendingCandidate) return { visible: false, reason: 'proposed skill awaits behavior evaluation and Commander approval' };
       if (!gate || !skill) return { visible: true };
       try {
         const d = (withBody && typeof gate.verify === 'function') ? gate.verify(skill)
@@ -131,7 +132,7 @@
         if (!r.ok) return { content: 'Could not save the skill: ' + r.error, summary: 'not saved' };
         emitSkill(ctx, r.skill);
         if (typeof onManage === 'function') { try { onManage(r.skill, ctx, r.pending ? 'propose' : (r.edited ? 'edit' : 'create')); } catch (_) {} }
-        if (r.pending) return { content: 'Proposed revision for skill "' + r.skill.name + '". The active version is unchanged; evaluation and Commander approval are required before use.', summary: 'proposed' };
+        if (r.pending) return { content: 'Proposed revision for skill "' + r.skill.name + '". Evaluation and Commander approval are required before use. Any existing active version is unchanged.', summary: 'proposed' };
         return { content: (r.edited ? 'Updated' : 'Saved') + ' skill "' + r.skill.name + '". Reload it anytime with skill.view.', summary: r.edited ? 'edited' : 'saved' };
       }
     };
@@ -174,7 +175,7 @@
         if (!r.ok) return { content: 'Could not manage the skill: ' + r.error, summary: 'not saved' };
         emitSkill(ctx, r.skill);
         if (typeof onManage === 'function') { try { onManage(r.skill, ctx, r.pending ? 'propose' : (r.action || (args && args.action) || 'manage')); } catch (_) {} }
-        if (r.pending) return { content: 'Proposed revision for skill "' + r.skill.name + '". The active version remains available; evaluate and approve the candidate in ABILITIES > SKILLS before it can replace that version.', summary: 'proposed' };
+        if (r.pending) return { content: 'Proposed revision for skill "' + r.skill.name + '". Evaluate and approve the candidate in ABILITIES > SKILLS before use. Any existing active version remains unchanged.', summary: 'proposed' };
         const done = r.action || (args && args.action) || 'updated';
         const path = r.path ? (' (' + r.path + ')') : '';
         const heir = r.absorbedInto ? (' Content now lives in "' + r.absorbedInto + '".') : '';

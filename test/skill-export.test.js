@@ -20,7 +20,7 @@ const guard = require('../sidecar/skills/guard.js');
 const { digestOf } = require('../sidecar/skills/gate.js');
 
 function memIo() { const lines = []; return { readAll() { return lines.slice(); }, append(e) { lines.push(e); } }; }
-function store() { return makeSkillStore({ io: memIo(), clock: { now: () => 9000 }, guard, digest: digestOf }); }
+function store(extra) { return makeSkillStore(Object.assign({ io: memIo(), clock: { now: () => 9000 }, guard, digest: digestOf }, extra)); }
 const hash = (s) => crypto.createHash('sha256').update(String(s)).digest('hex');
 let n = 0;
 function exchangeFor(s, extra) { return makeSkillExchange(Object.assign({ skillStore: s, guard, hash, now: () => 5000, makeId: () => 'st-' + (++n) }, extra || {})); }
@@ -29,10 +29,14 @@ function skillMdOf(exported) { return packageFormat.fileBuffer(JSON.parse(export
 
 (async () => {
   // ---- A. an authored skill exports as a standard package ----
-  const home = store();
+  // Export consumes an active, evaluated version. Receipt authority is independently tested
+  // by skills.review-approval and the behavior evaluator suites.
+  const home = store({ validatePromotionReceipt: id => ({ ok: id === 'host-export-fixture', receiptId: id }) });
   home.write({ agentId: 'a', name: 'Deploy the Site (prod)', summary: 'Build, test and ship the marketing site', body: '1. npm ci\n2. npm test\n3. npm run deploy',
     setup: 'Node 20 and a clean tree.', category: 'Ops', createdBy: 'agent' });
   home.manage({ agentId: 'a', action: 'write_file', target: 'Deploy the Site (prod)', path: 'references/checklist.md', content: '- smoke test /health\n', createdBy: 'agent' });
+  const candidate = home.candidates('a')[0];
+  A.ok(home.approveCandidate({ agentId: 'a', candidateId: candidate.candidateId, candidateDigest: candidate.candidateDigest, evaluation: 'host-export-fixture', approvedBy: 'user' }).ok, 'evaluated model-created skill promoted before export');
   const local = home.list('a')[0];
   const ex = exchangeFor(home);
   let exported;

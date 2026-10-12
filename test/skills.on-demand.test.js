@@ -113,7 +113,7 @@ const bySlug = {}; for (const s of LIB) bySlug[s.slug] = s;
 // ---- F. skill.view: bundled recipes served; agent skills byte-identical ----
 function memIo() { const lines = []; return { readAll() { return lines.slice(); }, append(e) { lines.push(e); } }; }
 function makeStore() {
-  const s = makeSkillStore({ io: memIo(), clock: { now: () => 1000 } });
+  const s = makeSkillStore({ stageReviews: false, io: memIo(), clock: { now: () => 1000 } });
   s.write({ agentId: 'a', name: 'Deploy the site', summary: 'build, test, push', body: '1. npm ci\n2. npm test\n3. npm run deploy' });
   // an agent skill that SHARES a recipe's display name: the agent's own must keep winning
   s.write({ agentId: 'a', name: 'Make a Plan', summary: 'my own planning ritual', body: 'AGENT-OWNED PLAN BODY' });

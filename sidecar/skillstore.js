@@ -218,10 +218,11 @@
     const validatePromotionReceipt = typeof opts.validatePromotionReceipt === 'function' ? opts.validatePromotionReceipt : null;
     const digestCandidate = typeof opts.digestCandidate === 'function' ? opts.digestCandidate : (s) => {
       const f = require('./skills/gate.js').digestOf;
+      if (!s) return f({ body: 'null' });
       return f({ body: JSON.stringify([s.name, s.summary, s.description, s.body, s.setup, s.category,
-        s.requires, s.platforms, s.scope || 'agent', s.projectRoot || '', s.state, s.pinned, s.absorbedInto]), files: s.files || [] });
+        s.requires, s.platforms, s.scope || 'agent', s.projectRoot || '', s.state, s.pinned, s.absorbedInto, s.packageFiles]), files: s.files || [] });
     };
-    function revisionDigest(entry) { return entry ? str(digestCandidate(projectSkill(entry, true))) : ''; }
+    function revisionDigest(entry) { return str(digestCandidate(entry ? projectSkill(entry, true) : null)); }
     function restoreCandidate(r) {
       if (!r || r.recordType !== 'skill-candidate' || !r.candidateId || !r.skill) return;
       const skill = normalizeEntry(r.skill);
@@ -501,13 +502,13 @@
         } else if (str(e.absorbedInto || '').trim()) {
           heir = find(agentId, str(e.absorbedInto).trim(), { includeArchived: false });
         }
-        entry = clone(existing); entry.state = 'archived'; entry.updatedAt = now();
+        entry = clone(existing); entry.writtenBy = str(e.createdBy || 'agent'); entry.state = 'archived'; entry.updatedAt = now();
         if (heir) entry.absorbedInto = heir.name;
         entry = persist(entry);
         return { ok: true, action: 'archive', absorbedInto: entry.absorbedInto || '', skill: projectSkill(entry, true), edited: true };
       }
       if (action === 'restore') {
-        entry = clone(existing); entry.state = 'active'; entry.updatedAt = now();
+        entry = clone(existing); entry.writtenBy = str(e.createdBy || 'agent'); entry.state = 'active'; entry.updatedAt = now();
         entry = persist(entry);
         return { ok: true, action: 'restore', skill: projectSkill(entry, true), edited: true };
       }
@@ -521,6 +522,7 @@
         if (!p.ok) return p;
         t = now();
         entry = clone(existing);
+        entry.writtenBy = str(e.createdBy || 'agent');
         entry.files = normFiles(entry.files);
         const encoding = e.encoding === 'base64' ? 'base64' : 'utf8';
         const content = encoding === 'base64' ? str(e.content).slice(0, Math.ceil(supportFileMax * 4 / 3) + 4) : red(e.content, supportFileMax);
@@ -546,6 +548,7 @@
         p = supportPath(e.path || e.file || e.filePath);
         if (!p.ok) return p;
         entry = clone(existing);
+        entry.writtenBy = str(e.createdBy || 'agent');
         entry.files = normFiles(entry.files);
         delete entry.files[p.path];
         entry.packageDiverged = !!entry.packageDigest;
@@ -565,9 +568,7 @@
       if (opts.stageReviews === false) return false;   // private isolated draft constructor
       if (REVIEW_ACTORS.has(str(e.createdBy))) return true;
       if (!legacyWrite && ['pin', 'unpin'].includes(str(e.action))) return false;
-      const target = legacyWrite ? e.name : (e.target != null ? e.target : (e.id != null ? e.id : e.name));
-      return trustSource(e.createdBy || 'agent') === 'agent-created'
-        && !!find(str(e.agentId) || 'agent', target, { includeArchived: true });
+      return trustSource(e.createdBy || 'agent') === 'agent-created';
     }
     function stageMutation(e, legacyWrite) {
       const aid = str(e.agentId) || 'agent';
@@ -582,7 +583,7 @@
       const r = legacyWrite ? draft.write(e) : draft.manage(e);
       if (!r.ok) return r;
       const entry = normalizeEntry(r.skill);
-      entry.writtenBy = str(e.createdBy);
+      entry.writtenBy = str(e.createdBy || 'agent');
       entry.packagePath = ''; entry.canonicalRevision = false;
       if (entry.guardAction !== 'block') entry.guardAction = 'ask';
       const key = keyOf(aid, entry.name), active = latest.get(key) || null, prior = candidateRows.get(key);
@@ -667,9 +668,16 @@
     }
     function listAccessible(agentId, options) {
       const o = options || {};
-      return Array.from(latest.values()).filter(s => isAccessible(s, agentId, o.projectRoot)
-        && (o.includeArchived || s.state !== 'archived')).map(s => projectSkill(s, false))
-        .sort((a, b) => (Number(b.agentId === str(agentId)) - Number(a.agentId === str(agentId))) || a.name.localeCompare(b.name));
+      const rows = Array.from(latest.values()).filter(s => isAccessible(s, agentId, o.projectRoot)
+        && (o.includeArchived || s.state !== 'archived')).map(s => projectSkill(s, false));
+      // A pending-only name is discoverable only by its owner. Its unapproved summary,
+      // prerequisites and support files never enter a foreground index or tool response.
+      if (o.includePending !== false) for (const row of candidateRows.values()) {
+        if (row.agentId !== str(agentId) || row.status !== 'pending' || latest.has(keyOf(row.agentId, row.name))) continue;
+        rows.push({ id: row.skill.id, agentId: row.agentId, name: row.name, state: 'active', scope: 'agent',
+          pendingCandidate: true, candidateId: row.candidateId, guardAction: 'ask', summary: '', files: [] });
+      }
+      return rows.sort((a, b) => (Number(b.agentId === str(agentId)) - Number(a.agentId === str(agentId))) || a.name.localeCompare(b.name));
     }
     function viewAccessible(agentId, target, options) {
       const o = options || {};
@@ -677,7 +685,7 @@
         && (s.id === str(target) || s.name.toLowerCase() === str(target).toLowerCase()));
       if (!o.ownerAgentId && matches.some(s => s.agentId === str(agentId))) matches = matches.filter(s => s.agentId === str(agentId));
       if (matches.length !== 1) return null;   // never choose an arbitrary owner's same-name skill
-      return view(matches[0].agentId, matches[0].id, o);
+      return matches[0].pendingCandidate ? matches[0] : view(matches[0].agentId, matches[0].id, o);
     }
     function share(e) {
       e = e || {};
@@ -767,9 +775,12 @@
       const staleMs = opts2.staleMs > 0 ? opts2.staleMs : 30 * 24 * 60 * 60 * 1000;
       const archiveMs = opts2.archiveMs > 0 ? opts2.archiveMs : 90 * 24 * 60 * 60 * 1000;
       const t = opts2.now != null ? num(opts2.now) : now();
-      let stale = 0, archived = 0;
+      let stale = 0, archived = 0, proposedArchives = 0;
       for (const s of mine(agentId, { includeArchived: true })) {
         if (s.pinned || s.state === 'archived') continue;
+        const pending = candidateRows.get(keyOf(s.agentId, s.name));
+        // Aging must not invalidate a pending replacement or repeatedly override a rejected retirement.
+        if (pending && ['pending', 'rejected'].includes(pending.status) && pending.baseDigest === revisionDigest(s)) continue;
         const base = s.lastUsedAt || s.updatedAt || s.createdAt || t;
         const age = Math.max(0, t - base);
         const entry = clone(s);
@@ -778,13 +789,18 @@
         // only ages curator-managed skills). This matters since 2026-09-28, when lastUsedAt stopped being refreshed
         // for every skill merely listed in the index, so the aging clock now measures real loads.
         const autoArchive = (guard && typeof guard.originTier === 'function' ? guard.originTier(s) : trustSource(s.createdBy)) === 'agent-created';
+        if (age >= archiveMs && autoArchive && opts.stageReviews !== false) {
+          const proposed = manage({ agentId: s.agentId, target: s.id, action: 'archive', createdBy: 'background-review' });
+          if (proposed.ok && proposed.pending) proposedArchives++;
+          continue;
+        }
         if (age >= archiveMs && autoArchive) { entry.state = 'archived'; archived++; }
         else if (age >= staleMs) { entry.state = 'stale'; stale++; }
         else continue;
         entry.updatedAt = t;
         persist(entry);
       }
-      return { ok: true, stale, archived };
+      return { ok: true, stale, archived, proposedArchives };
     }
 
     return {
