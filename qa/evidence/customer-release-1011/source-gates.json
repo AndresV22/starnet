@@ -31,6 +31,20 @@
       "log": ".handoff/customer-c0-http.log",
       "logSha256": "8685636851ebe737c1046c746ffd7fc4ec8e052d67c2a98125229f833b88ebf5",
       "scope": "Failed source gate, not accepted for integration. No initial failure or assertion suppressed."
+    },
+    {
+      "candidate": "fbeb93bd7cfa35704bc4417874d447fea9e0f249",
+      "status": "CANCELLED",
+      "at": "2026-10-12T04:24:42.9714749Z",
+      "reason": "Intentional stop before a combined candidate adds reviewed conveyor repairs and deterministic quest-fixture isolation. Partial progress is not a green gate.",
+      "ownedRootPid": 63232,
+      "stoppedRunnerPid": 63908,
+      "command": "npm run test:fast",
+      "startedAt": "2026-10-12T04:14:51.6178989Z",
+      "exitCode": -1,
+      "log": ".handoff/customer-fbeb-fast.log",
+      "logSha256": "8f71c29b3ec1ed0333b426ed6baf767b31136839d24cdcda5afdc33f4a89b892",
+      "scope": "Intentional cancellation, not a product failure or a completed gate."
     }
   ],
   "scope": "Revision-bound source gates, including failures. Later evidence-only changes do not establish the cause of a failed run. These receipts do not establish installed/customer acceptance or release readiness."
