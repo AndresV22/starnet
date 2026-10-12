@@ -1,0 +1,128 @@
+{
+  "schemaVersion": 1,
+  "recordedAtUtc": "2026-10-12T23:52:13.639Z",
+  "status": "DIRECT_RESTRICTED_RECALL_PURE_ACCEPTANCE_PASSED; QUOTED_NAMED_WORKER_RELAY_CHANGES_REQUESTED; LIVE_AND_RELEASE_ACCEPTANCE_NOT_ESTABLISHED",
+  "branch": "agent/memory-harness-audit-1011",
+  "repairOwner": "agent/release-review-1012",
+  "scope": "Evidence only. Exact source modules and extracted host expressions/pure worker helpers; synthetic in-memory data. No baseline rerun, full host dispatch, provider, live app, broad gate, hotfix modification or release operation.",
+  "recall": {
+    "sources": [
+      "6ef7d4e453730e05f0c82a07c92683bbef897138",
+      "ed77f6d266e3b09a1dbfecac18e98411b0a47c72"
+    ],
+    "receipts": [
+      "recall-repair-acceptance-6ef7d4e4.json",
+      "recall-repair-acceptance-ed77f6d2.json"
+    ],
+    "executions": 2,
+    "perRevision": {
+      "boundedControlsPassed": 18,
+      "hostileAdapterControlsPassed": 3,
+      "qualifiedObservations": 3,
+      "totalControlsAndObservations": 24
+    },
+    "sameObservedResultsAcrossRevisions": true,
+    "acceptedBoundary": [
+      "Restricted default/all searches do not disclose the distinct private payload.",
+      "Restricted browse and own scroll return only the authorized stream; foreign/missing stream rows from a hostile adapter are removed before rendering.",
+      "Explicit foreign scroll/stable anchor and absent current stream deny before store access.",
+      "Forged policy arguments do not widen host-owned restriction.",
+      "Owner cross-stream search, scroll and browse retain access.",
+      "Pure delegated, resumed and nested Boolean inheritance preserves restriction; correctly bound workers retain local access."
+    ],
+    "observer": {
+      "failedAttempt": "recall-repair-failed-observer.json",
+      "originalProbe": "recall-repair-failed-observer.cjs",
+      "correction": "Private payload is a distinct stored canary, absent from every request and heading; corrected default-search proves query echo without payload disclosure."
+    },
+    "conditionalWorkerAndResume": {
+      "observed": "When the fixture gives a restricted worker or resumed worker the owner-private destination stream, the payload is returned. Current ctx.streamId is the boundary; original authorized source is not bound by the Boolean.",
+      "demonstratedFullDispatch": false,
+      "preconditions": [
+        "orchestrator capability",
+        "dispatch consent",
+        "valid distinct worker",
+        "live-page resolution of the selected foreign session"
+      ],
+      "ordinaryChannelQualification": "Ordinary channel ingress is floorless and not a coordinator run; coordinator preload and coordinated refresh are not established ordinary-channel leak paths.",
+      "classification": "Conditional simulation/source concern, not proof of an admitted dispatch or installed exploit."
+    },
+    "malformedStream": {
+      "observed": "A nonempty invalid current stream reaches search/storage handling (two recorded store method calls) but exact output filtering returns no private payload.",
+      "classification": "Read-hygiene observation; no observed disclosure."
+    },
+    "sourceEquivalence": {
+      "identicalBlobs": {
+        "sidecar/tools/builtin/recall.js": "a618aa61b75d4f11fa5102410d41c3664a35ee7e",
+        "sidecar/transcriptstore.js": "2ebb4f5bf808036fa64ee1b31b1619e2d91aebf5",
+        "sidecar/transcript-history.js": "574c79fddfebc8b5113bc3538e1c444ff2dd1b9c",
+        "sidecar/tools/builtin/orchestration.js": "9b975ac3ce8fa6b95f21c172f71e56091cb8f4d8",
+        "sidecar/subagents.js": "cdc7406c841cae0d35a8daa84f13321101a82ba2",
+        "sidecar/overseer.js": "14d7e1a96850f113d361c609f721e6cabc76bc68",
+        "sidecar/channels/hub.js": "fef61d71f7b5602049afe4692855590c2f2a46bb"
+      },
+      "indexDiff": "diff --git a/sidecar/index.js b/sidecar/index.js\nindex a8e2f1b7a..9c730367d 100644\n--- a/sidecar/index.js\n+++ b/sidecar/index.js\n@@ -18671,7 +18671,7 @@ async function handleSkillCandidateAction(req, res) {\n     const accounting = makeEvaluationAccounting({ ledger, budget, agentId, provider: providerId, model: cfg.model, unmetered });\n     try {\n       const provider = await providerForRunConfig(cfg, resolveReasoningEffort(providerId, cfg.reasoningEffort));\n-      const runCase = SkillEvaluationRunner.makeAgentLoopCaseRunner({ provider, model: cfg.model, cost: makeCostEngine({ priceOf: provider.priceOf }), clock: { now: () => Date.now() },\n+      const runCase = SkillEvaluationRunner.makeAgentLoopCaseRunner({ provider, model: cfg.model, unmetered, cost: makeCostEngine({ priceOf: provider.priceOf }), clock: { now: () => Date.now() },\n         runIdPrefix: 'skill-eval-' + crypto.randomUUID(), limits: { maxIters: 8, maxCostUsd: 0.08, grace: false },\n         authorize: async () => !controller.signal.aborted && accounting.canContinue() && (unmetered || !budget.check(null, agentId, 0, Date.now(), null)),\n         beforeRun: accounting.beforeRun,",
+      "changedPathsBetweenRefs": [
+        "docs/releases/next/NOTES_DRAFT.md",
+        "sidecar/index.js",
+        "sidecar/skill-evaluation-accounting.js",
+        "sidecar/skill-evaluation-runner.js",
+        "test/skill.evaluation.accounting.test.js"
+      ],
+      "conclusion": "Host recall wiring unchanged; index change adds unmetered to skill evaluation runner options."
+    }
+  },
+  "quotedFollowup": {
+    "source": "72e5e92f741c8cfe0fa9d6b69e1521bf25c0a8d3",
+    "probe": "quoted-worker-followup-probe.cjs",
+    "receipt": "quoted-worker-followup-output.json",
+    "execution": "Prior actual pure VM run retained without rerunning; its source hashes independently checked while assembling this receipt.",
+    "verdict": "CHANGES_REQUESTED for delegated/resumed quoted-input learning restriction.",
+    "observed": [
+      "Parent quote detection succeeds and trusted owner capture returns null.",
+      "Structured learning packet removes the quoted sentinel, but named-worker raw review prompt still contains it when the inherited restriction is absent.",
+      "Origin-limit relay, persisted flag-only limits and resume drop quotedOwnerInput.",
+      "Due-review control remains due for a named worker.",
+      "Restricted no-check input is ineligible; host-verified restricted evidence remains eligible; clean local learning remains eligible.",
+      "Existing non-owner host/taste/untrusted/taint restrictions survive resume."
+    ],
+    "limitations": [
+      "No claim that a quote was attributed as an owner directive: structured directives are empty.",
+      "No automatic skill promotion or owner-approval bypass was demonstrated.",
+      "Named workers/team.resume are in scope; ephemeral sub-* immediate nudges, output-only repair and crash recovery are not proven affected by this probe.",
+      "Pure helper/template execution is not a live delegated run."
+    ]
+  },
+  "hotfixApplicability": {
+    "source": "f902469ba1904925c3a08da69e1d2f68e7e3b080",
+    "inputProvenance": "Release coordinator supplied read-only applicability finding in the request; not independently re-executed here.",
+    "reportedFinding": "The 6ef7 patch does not apply to f902 in all three changed paths; copying whole files imports broader recall/ranking changes.",
+    "requiredWork": "Existing owner must prepare a narrow hotfix backport preserving local-first behavior; no hotfix files were changed or accepted here.",
+    "recallAcceptanceDoesNotEstablishHotfixAcceptance": true
+  },
+  "priorBaselines": {
+    "references": [
+      "recall-channel-confidentiality-review.json",
+      "release-split-memory-review.json"
+    ],
+    "rerun": false
+  },
+  "validation": {
+    "productionFilesChanged": false,
+    "fullFastGateRun": false,
+    "fullHttpGateRun": false,
+    "liveAppRun": false,
+    "installedAppRun": false,
+    "externalProviderCalls": 0,
+    "artifactChecks": "Three probe syntax checks, output shape/equivalence checks, exact source hashes and scoped Git diff check are recorded at commit time."
+  },
+  "artifactSha256": {
+    "recall-repair-acceptance-probe.cjs": "02db05bf448c343d5f72f0ff4376e89533e2c4ce1e3b1f2f56dd51a432e86e31",
+    "recall-repair-failed-observer.cjs": "643306ede1ae56c6fc515938466c0914eb16ec353ae753e2902b810d019be194",
+    "recall-repair-failed-observer.json": "3fcec709b971905c9203489c7167ce168e26adfcb73c907aa86e9d1d99688feb",
+    "recall-repair-acceptance-6ef7d4e4.json": "29bf711cd6e66181799072337059bbcdcc7979c3f8c2487425910a4d20182821",
+    "recall-repair-acceptance-ed77f6d2.json": "fb0bc38eff15bf01827bcdde1b23fc0c2a2272d208ee5b17823072997ac002b9",
+    "quoted-worker-followup-probe.cjs": "abb6dd9b152e713d59353be97705d6f7945e1b645f46af604513a68420c1650b",
+    "quoted-worker-followup-output.json": "8f73057a35338f7e9a359521d092a92375e2a2c60f0b1f63cffccbfd52c3316f"
+  }
+}

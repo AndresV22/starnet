@@ -1,0 +1,20 @@
+{
+  "kind": "Preserved prior failed attempt; not rerun",
+  "source": "6ef7d4e453730e05f0c82a07c92683bbef897138",
+  "probe": "recall-repair-failed-observer.cjs",
+  "probeSha256": "643306ede1ae56c6fc515938466c0914eb16ec353ae753e2902b810d019be194",
+  "syntaxCheck": "passed",
+  "executionExitCode": 1,
+  "observedStderr": "Unexpected control default-search",
+  "outputArtifactProduced": false,
+  "rawToolOutputSaved": false,
+  "observationLimit": "Error text retained from prior execution; no reconstructed raw result.",
+  "observerDefect": "The observer searched for SYNTHETIC_PRIVATE_COBALT, which was also the query. A negative result echoes that query and is falsely counted as private content. Corrected probe uses a distinct stored payload absent from request arguments and verifies this separation.",
+  "correctionConfirmedBy": {
+    "receipt": "recall-repair-acceptance-6ef7d4e4.json",
+    "mode": "default-search",
+    "content": "Conversation recall is limited to this chat. No messages in this chat match \"SYNTHETIC_PRIVATE_COBALT\".",
+    "queryEchoPresent": true,
+    "privatePayloadReturned": false
+  }
+}
