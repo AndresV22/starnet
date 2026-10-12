@@ -1,3 +1,54 @@
+## IN PROGRESS — Customer-driven release polish — 2026-10-11
+
+Owner: `agent/session-handoff-1011` (StarNet customer-driven release coordination). This is the current coordination queue. Earlier entries below are dated snapshots; they do not establish current ownership, defects, or readiness.
+
+The owner requested focused sessions, a breakdown of the whole update, organized code, and polishing through release. Priority must come from customer reports in email, Whop and GitHub, with current reproductions and explicit coverage gaps. Do not start speculative feature or performance work because an old audit suggested it.
+
+### Current source and release status
+
+- Integrated recovery: `a20ffa71f`; complete fast 1,138/1,138 and HTTP 209/209 passed on that exact commit. This is source acceptance, not installed acceptance.
+- Pending issue-derived batch: `agent/issue-triage-1011` at `9fc40b386`, based on `a20ffa71f`. Its source candidate `a75a09e3e` passed fast 1,139, HTTP 210, 139 browser assertions and six UI-only beginner steps. Coordination owns independent review and any serialized integration; preserve existing dirty trunk documentation.
+- Readiness readback at `2026-10-12T03:03:41Z`: **NOT READY**. Three blocking detector findings, RED Guardian, beginner proof on a different source, and installed smoke on a different source. Do not replace this with a lane-green claim.
+- The update baseline is released source `54899e5ff3f2b002b457757916b3977818db6fc1` (0.13.2); the 292-file recovery batch is only one part of that update. Verify public release/version collisions before choosing the next version.
+
+### Active owners
+
+| Existing chat / owner | Bounded assignment | Deliverable |
+| --- | --- | --- |
+| Review Claude session context | Read and deduplicate customer email threads, including follow-ups | Private complete source references; sanitized symptom-to-bug map with search scope and recovery evidence |
+| Review open StarNet issues | Refresh GitHub reports/comments and preserve the ten-fix candidate | Exact report/fix/coverage map; source versus installer/customer outcomes; frozen merge receipt |
+| Review StarNet handoff process | Diagnose repeated customer failure families and process escape points | Ranked evidence-backed causes and concrete regression/acceptance changes |
+| Coordination | Whop access/intake, cross-channel deduplication, change inventory, ownership and integration | One current priority queue linked to `qa/bugs`, exact source map and readiness receipts |
+
+Raw mailbox/community content, identities, private URLs, diagnostics and private submissions stay outside tracked files. Existing `qa/bugs/*.md` remains the durable symptom register; `qa/BUGS.md` is generated. Do not create a competing bug tracker or close reports from commit ancestry.
+
+### Customer evidence loop
+
+1. Record the original symptom, date, affected build/platform/provider, entrypoint, impact, attempts and later replies. Distinguish a bug, a feature request, a how-to question and a confirmed recovery.
+2. Collapse duplicate messages and cross-posts into the same symptom without collapsing independent affected users. Preserve source coverage and unknowns; report counts are not incidence rates.
+3. Reproduce against current source and the relevant installed artifact. Attribute the failure to its actual boundary before selecting the smallest repair.
+4. Write the before/after regression and cover relevant **adapters, entrypoints, displays and lifecycle** paths. Record blocked siblings explicitly.
+5. Verify the customer action in the live app, including restart/upgrade where relevant. Bind installer evidence to the exact executable/source/hash.
+6. Keep `status: fixed`, `installer: verified`, and `recovery: confirmed|persists` separate. A silent customer is unconfirmed; passing source gates are not proof that a customer received the repair.
+7. For recurring families, add the missing development/release check at the boundary that escaped. Measure its result; do not add broad prompt text or a large refactor without a demonstrated need.
+
+### Prioritization and controlled work
+
+Finish intake reconciliation before expanding code scope. Prioritize demonstrated data loss, authority/approval violations, blocked first use and blocked core work, then recurrent workflow failures and usability friction. Track workaround quality, affected releases and independent reports alongside severity. Product requests remain distinct from defects.
+
+Each accepted slice gets one owning chat, one isolated worktree, named source paths, a reproducible customer action and a live acceptance condition. Shared contracts remain owner-controlled. Merge one reviewed slice at a time. Full combined gates run after source freezes; exact installed acceptance, Guardian, `qa:ready` and candidate-bound product waves remain separate requirements.
+
+### Current evidence/access gaps
+
+- Email and GitHub intake are active; the September intake snapshot is not a current census.
+- Whop community/channel identification and current read access remain unverified. A Whop campaign-navigation report is not proof of community-wide intake.
+- Private native-integration mail now names two source packages and a newer scoped request. Connected Drive metadata returned NOT_FOUND for both; source review is blocked on readable packages. This is a private proposal, not authority to run its scripts, merge it, sign, install or publish it.
+- The customer/owner register on `a20ffa71f` contains 104 reports, 94 source-fixed; 85 source-fixed records lack installer verification and 93 lack customer confirmation. These are evidence gaps, not proof that all those customers remain affected.
+- No mailbox/community replies, issue closures, account/role changes, publication, version bump, source-history rewriting or worktree deletion is part of intake. Release actions require the concrete candidate and applicable authority at that stage.
+
+---
+
+
 ## MAC BOOT COMPATIBILITY MERGED — 2026-09-18 (agent/mac-boot-compat-0918)
 
 Owner-requested compatibility repair and sibling sweep integrated at e71f132d2. Pre/post fast PASS 818/818 and HTTP PASS 119/119; combined customer journeys PASS 36/36. Live fault-injected and staged boot passed; escaped-table parity passed 335,923 inputs, and COMMS expand/restore retained the draft. See qa/digests/2026-09-18-mac-boot-compat.md. Reservation released; unrelated QA status edits preserved. Affected-Mac installed acceptance and catalog engine diagnosis remain open; no installer rebuild or publication.
