@@ -2113,7 +2113,9 @@ const WorldModel = (() => {
       if (!insertProbe.memo[k]) {
         let r;
         try { r = makeStation(clone(doc)).insertBayBetween(fromId, toId, size); } catch (e) { r = fail('THREW', String((e && e.message) || e)); }
-        insertProbe.memo[k] = (r && r.ok) ? { ok: true, beforeJoin: !!lane.beforeJoin } : (r || fail('NO_ROOM', 'no room for a new BAY here'));
+        // (x, y = where the dry run put the BAY: the same insert on a clone at the same edit lands it there too — the drop ghost
+        // stands THERE, never at the pointer: final floor lane M4)
+        insertProbe.memo[k] = (r && r.ok) ? { ok: true, beforeJoin: !!lane.beforeJoin, x: r.x, y: r.y } : (r || fail('NO_ROOM', 'no room for a new BAY here'));
       }
       return insertProbe.memo[k];
     }

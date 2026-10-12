@@ -509,8 +509,8 @@ const Build = (() => {
     root.querySelector('#refit-zout').onclick = () => zoomStep(-1);
     root.querySelector('#refit-zlvl').onclick = () => zoomTo(2);   // 2 = the entering default (a tile reads at 24px)
     root.querySelector('#refit-test').onclick = (e) => openTest(e);
-    undoBtn.onclick = () => { setHand(null, { silent: true }); const r = station.undo(); sfx(r.ok ? 'click' : 'bad'); floatHistory(r, 'UNDID'); };
-    redoBtn.onclick = () => { setHand(null, { silent: true }); const r = station.redo(); sfx(r.ok ? 'click' : 'bad'); floatHistory(r, 'REDID'); };
+    undoBtn.onclick = () => { dropPickOff(); const r = station.undo(); sfx(r.ok ? 'click' : 'bad'); floatHistory(r, 'UNDID'); };
+    redoBtn.onclick = () => { dropPickOff(); const r = station.redo(); sfx(r.ok ? 'click' : 'bad'); floatHistory(r, 'REDID'); };
 
     cv.addEventListener('pointerdown', onDown);
     cv.addEventListener('pointermove', onMove);
@@ -1776,6 +1776,9 @@ const Build = (() => {
     if (p.m) h.m = 1;
     return h;
   }
+  /* UNDO / REDO keep THE HAND (final floor lane M21 / R55): only PICK WHAT GOES HERE closes — its options were probed against the
+     floor before the undo; the held piece and an armed REMOVE / PICK UP stay (the hand ghost re-judges on geoVer anyway) */
+  const dropPickOff = () => { if (dropPick) { dropPick = null; renderSelection(); setHint(); } };
   function setHand(h, o) {
     const next = h && h.t ? h : null;
     if (next && tool !== 'select') selectTool('select', { silent: true, keepKit: true, keepGroup: true });
@@ -4585,11 +4588,12 @@ const Build = (() => {
   function doDeleteRoom(roomId, ev) {
     const rm = station.roomById(roomId);
     const on = rm ? station.props().filter(p => rm.rects.some(r => p.x <= r.x2 && p.x + (p.w || 1) - 1 >= r.x1 && p.y <= r.y2 && p.y + (p.h || 1) - 1 >= r.y1)).map(p => Object.assign({}, p)) : [];
-    if(warnSendCuts(on.map(p=>p.id),ev)) return;
+    if(warnSendCuts(on.map(p=>p.id),ev)) return false;   // (the room stays selected: "repeat DELETE" means the very next Delete)
     const res = keepsHalls(() => station.removeRoom(roomId));
     if (res && res.ok) { if (rm) pushFlash(rm.rects, true); on.forEach(p => vanishProp(p)); flashUndo(); flashTip(ev, 'deleted — UNDO to restore', true); sfx('click'); }
     else if (res && res.error === 'SPAWN_ROOM') { flashTip(ev, 'spawn room — can’t delete (select it and drag it to move it)'); sfx('bad'); }
     else { flashTip(ev, (res && res.msg) || 'blocked'); sfx('bad'); }
+    return !!(res && res.ok);
   }
 
   function openDoorPicker(propId, ev) {
@@ -5713,7 +5717,11 @@ const Build = (() => {
     if (rm.id === station.spawnRoomId()) { sfx('bad'); flashTip(ev, 'the spawn room can’t be deleted — drag it to move it instead'); return; }
     const now = performance.now();
     if (!roomDelArmedAt || now - roomDelArmedAt > 2500) { roomDelArmedAt = now; sfx('tick'); flashTip(ev, 'press Delete again to delete ' + (rm.name || 'this room') + ' — everything on it goes (one Undo brings it back)'); return; }
-    roomDelArmedAt = 0; selectedRoomId = null; doDeleteRoom(rm.id, ev); renderSelection(); setHint();
+    /* deselect only once the room is GONE (final floor lane M15): after a SEND TO cut warning ("repeat DELETE / REMOVE to continue")
+       the room stays selected and armed, so the next Delete goes straight through; a refused delete leaves a room that still stands */
+    roomDelArmedAt = 0;
+    if (doDeleteRoom(rm.id, ev)) selectedRoomId = null; else if (sendCutArm) roomDelArmedAt = performance.now();
+    renderSelection(); setHint();
   }
   function nudgeRoom(dx, dy, ev) {
     const rm = station.roomById(selectedRoomId); if (!rm) return;
@@ -5926,6 +5934,9 @@ const Build = (() => {
     const v = t === 'bay' && link && station.canInsertBayBetween ? station.canInsertBayBetween(link.from.prop,link.to.prop,{w:size.w,h:size.h,block:true}) : {ok:false,short:'A BELT RUNS HERE',msg:'Drop it beside the belt; a BAY can insert into one clear connection.'};
     return {link,v};
   }
+  // a BAY dropped on a belt lands where insertBayBetween puts it (the model's own dry run — canInsertBayBetween's x, y), never at
+  // the pointer: the ghost, its art and the landing flash stand THERE (final floor lane M4 — preview == commit)
+  const landRect = (foot, rect, s) => (foot && foot.v && foot.v.ok && foot.v.x != null) ? { x1: foot.v.x, y1: foot.v.y, x2: foot.v.x + s.w - 1, y2: foot.v.y + s.h - 1 } : rect;
   function commitPropStamp(d, ev) {
     // CLICK-ON-MACHINE WINS: a click (no drag) on ANY existing prop inspects it instead of attempting
     // a placement on top of it — placement happens only on clear deck. (The old rule only caught a
@@ -5981,6 +5992,7 @@ const Build = (() => {
       : station.addProp(placement);
     if (onBelt && res && !res.ok) res.msg = res.msg || 'that tile will not take it';
     if (res && !res.ok) res.msg = placementReason({v:res,rects:[{x1:px,y1:py,x2:px+s.w-1,y2:py+s.h-1}]});
+    if (foot && res && res.ok && res.x != null) { px = res.x; py = res.y; }   // an inserted BAY flashes where it LANDED (final floor lane M4)
     if (res && res.ok) {
       pushFlash([{ x1: px, y1: py, x2: px + s.w - 1, y2: py + s.h - 1 }], false);
       landProps([res.id]);
@@ -6321,11 +6333,13 @@ const Build = (() => {
     if (T) {
       if (!isConveyorPiece(T)) return { ok: false, to: T, why: 'BELTS RUN BETWEEN CONVEYOR MACHINES' };
       if (A.t === 'outbox' && T.t === 'intake' && typeof station.setSendTo === 'function') {
-        const same = lineOfProp(A.id), there = lineOfProp(T.id);
-        if (same && there && same.key === there.key) return { ok: false, to: T, why: 'THAT INBOX STARTS THIS SAME LINE' };
-        // the ONE SEND TO verdict (worldmodel sendToRefusal: no line, same line, a loop) — the ghost never goes green for a drop setSendTo refuses
+        // the ONE SEND TO verdict (worldmodel sendToRefusal: no line, an OLD BELT to convert, same line, a loop) — the ghost never
+        // goes green for a drop setSendTo refuses, and says what the BELT tool and the panel say (an old OUTBOX→INBOX belt reads
+        // CONVERT THE OLD BELT TO SEND TO, never "this same line": final floor lane M20)
         const sv = sendToPv(A.id, T.id);
         if (sv && sv.ok === false) return { ok: false, to: T, why: sv.short || String(sv.msg || '').toUpperCase() || 'THAT HAND-OFF CAN’T BE MADE' };
+        const same = !sv && lineOfProp(A.id), there = same && lineOfProp(T.id);   // (no verdict at all: the floor's own same-line read)
+        if (same && there && same.key === there.key) return { ok: false, to: T, why: 'THAT INBOX STARTS THIS SAME LINE' };
         return { ok: true, kind: 'send', to: T, why: 'SEND EVERY RESULT TO ' + mName(T.id) };
       }
       if (exit && exit.to.prop === T.id) return { ok: false, to: T, why: 'ALREADY CONNECTED' };
@@ -6643,11 +6657,11 @@ const Build = (() => {
     escExitArmedAt = 0;   // any other key disarms the pending exit
     if ((ev.ctrlKey || ev.metaKey) && (ev.key === 'z' || ev.key === 'Z')) {
       ev.preventDefault();
-      setHand(null, { silent: true });
+      dropPickOff();
       const r = ev.shiftKey ? station.redo() : station.undo();
       sfx(r.ok ? 'click' : 'bad'); floatHistory(r, ev.shiftKey ? 'REDID' : 'UNDID'); return;
     }
-    if ((ev.ctrlKey || ev.metaKey) && (ev.key === 'y' || ev.key === 'Y')) { ev.preventDefault(); setHand(null, { silent: true }); const r = station.redo(); sfx(r.ok ? 'click' : 'bad'); floatHistory(r, 'REDID'); return; }
+    if ((ev.ctrlKey || ev.metaKey) && (ev.key === 'y' || ev.key === 'Y')) { ev.preventDefault(); dropPickOff(); const r = station.redo(); sfx(r.ok ? 'click' : 'bad'); floatHistory(r, 'REDID'); return; }
     if (ev.key === '/') { ev.preventDefault(); buildGroup = 'props'; selectTool('select'); root.querySelector('#refit-propsearch-input')?.focus(); return; }
     if (ev.key === 'f' || ev.key === 'F') { fitCamera(); return; }
     // THE HAND: R mid-drag flips the belt's corner; Q picks up one like the piece under the pointer (Q again puts it down)
@@ -6921,7 +6935,7 @@ const Build = (() => {
           // THE HAND: a junction held over a belt goes ON that belt (junctionOnBelt) — green where it may, red with the reason
           const onBelt = JUNCTION_TAG_TYPES[propType] && station.beltAt(gx, gy) && linkedFloor() && typeof station.junctionOnBeltRefusal === 'function';
           const foot = beltUnderFoot(propType,gx,gy,s);
-          if (foot) { propHoverMemo = { key, ghost: { rects:[rect], v:foot.v, kind:'prop', stamp:true, insert:foot.v.ok, links:[] } }; } else if (onBelt) {
+          if (foot) { propHoverMemo = { key, ghost: { rects:[landRect(foot, rect, s)], v:foot.v, kind:'prop', stamp:true, insert:foot.v.ok, links:[] } }; } else if (onBelt) {
             const no = station.junctionOnBeltRefusal(gx, gy);
             propHoverMemo = { key, ghost: { rects: [rect], v: no ? { ok: false, msg: no.msg, short: no.short } : { ok: true }, kind: 'prop', stamp: true, insert: true, links: [] } };
           } else if (sn) {
@@ -6959,7 +6973,7 @@ const Build = (() => {
       const rect = { x1: tx, y1: ty, x2: tx + s.w - 1, y2: ty + s.h - 1 };
       const links = isWorkflowType(propType) ? ghostLinks({ props: [{ t: propType, x: tx, y: ty, w: s.w, h: s.h }] }) : [];
       const foot = beltUnderFoot(propType,tx,ty,s);
-      return { rects: [rect], v: foot ? foot.v : station.canPlaceProp(propType, tx, ty, s.w, s.h), kind: 'prop', links, insert: !!(foot && foot.v.ok) };
+      return { rects: [landRect(foot, rect, s)], v: foot ? foot.v : station.canPlaceProp(propType, tx, ty, s.w, s.h), kind: 'prop', links: foot ? [] : links, insert: !!(foot && foot.v.ok) };
     }
     if (drag.mode === 'propmove') {
       const p = station.propById(drag.propId); if (!p) return null;

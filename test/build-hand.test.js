@@ -256,7 +256,14 @@ const frozen = s => JSON.stringify(s.serialize()) + '|' + s.getSeq() + '|' + s.c
     && /live: !!\(valPlan && valPlan\.sendTo && valPlan\.sendTo\[p\.id\]\)/.test(fn('sendLinks')), '…Alt makes every SEND TO arc say its words, live or OFF exactly as the compiled plan has it');
   const ajt = fn('altJunctionText');
   A.ok(!/[×→▸]/.test(ajt), 'the Alt texts are ASCII (VT323 has no × or arrows)');
-  A.ok(/floatHistory\(r, ev\.shiftKey \? 'REDID' : 'UNDID'\)/.test(key) && /undoBtn\.onclick = \(\) => \{ setHand\(null, \{ silent: true \}\); const r = station\.undo\(\); sfx\(r\.ok \? 'click' : 'bad'\); floatHistory\(r, 'UNDID'\); \};/.test(build), 'Ctrl+Z / Ctrl+Y and the UNDO / REDO keys float UNDID · / REDID · <WHAT>');
+  A.ok(/floatHistory\(r, ev\.shiftKey \? 'REDID' : 'UNDID'\)/.test(key) && /undoBtn\.onclick = \(\) => \{ dropPickOff\(\); const r = station\.undo\(\); sfx\(r\.ok \? 'click' : 'bad'\); floatHistory\(r, 'UNDID'\); \};/.test(build)
+    && /redoBtn\.onclick = \(\) => \{ dropPickOff\(\); const r = station\.redo\(\);/.test(build), 'Ctrl+Z / Ctrl+Y and the UNDO / REDO keys float UNDID · / REDID · <WHAT>');
+  // final floor lane M21 / R55: undo / redo close only PICK WHAT GOES HERE (its options were probed on the floor before the undo) and
+  // keep the piece in THE HAND — placing BAYs from the hotbar, a Ctrl+Z on a misplaced one leaves the BAY still held
+  const zKey = key.slice(key.indexOf("(ev.key === 'z' || ev.key === 'Z')"), key.indexOf("if (ev.key === '/')"));
+  A.ok(zKey.length > 0 && !/setHand\(null/.test(zKey) && (zKey.match(/dropPickOff\(\);/g) || []).length === 2, 'Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y put down only the picker, never the held piece');
+  A.ok(!/(undo|redo)Btn\.onclick = \(\) => \{ setHand\(null/.test(build), '…and so do the UNDO / REDO keys');
+  A.ok(/const dropPickOff = \(\) => \{ if \(dropPick\) \{ dropPick = null; renderSelection\(\); setHint\(\); \} \};/.test(build), 'dropPickOff closes an open picker (and only that)');
   A.ok(/if\(dropPick\)\{host\.hidden=false;root\.classList\.add\('has-selection'\);return renderDropPick\(host\);\}/.test(build), 'PICK WHAT GOES HERE docks where the selection card does (windows dock from the bottom — never a popover at the pointer)');
   const od = fn('openDropPick');
   A.ok(/station\.probeDrop\(/.test(od) && !/probeDrop/.test(hp + plan2), 'the fit probe runs once on RELEASE, never per frame');

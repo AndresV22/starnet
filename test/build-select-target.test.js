@@ -189,6 +189,26 @@ function drag(R, id, tiles, o) {
   A.ok(h.plans[1] && h.plans[1].ok === false && h.plans[1].why === words, 'a re-route that would close a circle is red too: ' + (h.plans[1] && h.plans[1].why));
   A.eq(links(s), before, '…and lays nothing');
 }
+/* 10. an OLD SAVE's OUTBOX → INBOX belt (final floor lane M20): the hand's ghost says what the BELT tool and setSendTo say —
+       CONVERT THE OLD BELT TO SEND TO — never "THAT INBOX STARTS THIS SAME LINE" (the old belt makes the two one component) */
+{
+  const LE = require('../frontend/app/lineedit.js');
+  const s0 = WM.create(); s0.projectGeometry(); s0.addRoom({ kind: 'hab', rect: { x1: 30, y1: 0, x2: 120, y2: 60 } });
+  const pl = [0, 1].map(i => { const r = LE.placeBlueprint(s0, 'research_line', { x: 50, y: 8 + i * 14 }); if (!r.ok) throw Error(JSON.stringify(r)); const of = t => r.ids.filter(id => s0.propById(id).t === t); return { I: of('intake')[0], O: of('outbox')[0] }; });
+  const d = JSON.parse(JSON.stringify(s0.serialize()));
+  for (const p of d.props) if (p.id === pl[0].O || p.id === pl[1].I) p.t = 'bay';
+  const ob = WM.deserialize(d); A.ok(ob.connectBelt(pl[0].O, pl[1].I).ok, 'rig: the old pre-SEND TO belt');
+  const saved = JSON.parse(JSON.stringify(ob.serialize())); for (const p of saved.props) { if (p.id === pl[0].O) p.t = 'outbox'; if (p.id === pl[1].I) p.t = 'intake'; }
+  const s = WM.deserialize(saved);
+  A.eq(s.oldHandoffBelts(pl[0].O).length, 1, 'rig: the old OUTBOX → INBOX belt is on the floor');
+  const ctx = { station: s, geoVer: 1, flipPref: false, NO_ROUTE: {}, machineName: id => id, propLabel: t => String(t).toUpperCase(),
+    lineOfProp: () => ({ key: 'one-component' }), sendName: id => 'LINE ' + id, linkedFloor: () => !!s.isLinked() };
+  vm.createContext(ctx); vm.runInContext(CODE, ctx);
+  const O = s.propById(pl[0].O), I = s.propById(pl[1].I);
+  const pv = ctx.handPlan({ mode: 'handbelt', propId: O.id, moved: true, cur: { tx: I.x, ty: I.y } });
+  A.ok(pv && pv.ok === false && pv.why === 'CONVERT THE OLD BELT TO SEND TO', 'the hand ghost over the old belt\'s INBOX offers the conversion — ' + JSON.stringify(pv && pv.why));
+  A.eq(pv.why, s.sendToRefusal(O.id, I.id).short, '…in the words setSendTo and the BELT tool use');
+}
 /* 8. the source wiring: one line in onMove, the old "deselect first" teaching gone */
 {
   const mv = between('function onMove(ev) {', 'function onUp(ev) {');

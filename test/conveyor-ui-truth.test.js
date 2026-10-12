@@ -48,4 +48,28 @@ for(const [bp,worst] of [['revision_loop',8],['deep_dive',12]]) {
  links.push({from:{prop:'c'},to:{prop:'d'},path:[{x:5,y:5}]});
  A.ok(!ctx.check('bay',4,4,{w:2,h:2}).v.ok,'shared belt tile refuses ambiguous insertion');
 }
+// A BAY dropped on a belt: the ghost stands where the click LANDS it (final floor lane M4). The insert picks its spot near the
+// lane's middle, wherever on the belt you point — so the ghost, its art and the landing flash read the model's own dry run.
+{
+ const fs=require('fs'),vm=require('vm'),build=fs.readFileSync(require.resolve('../frontend/app/build.js'),'utf8');
+ const start=build.indexOf('  function beltUnderFoot('),end=build.indexOf('  function commitPropStamp(',start);
+ const s=WM.create();s.projectGeometry();s.addRoom({kind:'hab',rect:{x1:30,y1:0,x2:120,y2:60}});
+ const add=(t,x,y)=>s.addProp({t,x,y,w:2,h:2,block:true}).id,I=add('intake',32,4),B=add('bay',42,4),O=add('outbox',76,4);
+ A.ok(s.connectBelt(I,B).ok&&s.connectBelt(B,O).ok,'insert rig');
+ const ctx={CONNECT_TYPES:{bay:1,outbox:1,splitter:1},JUNCTION_TAG_TYPES:{splitter:1},linkedFloor:()=>true,linksMemoed:()=>s.links(),station:s};
+ vm.createContext(ctx);vm.runInContext(build.slice(start,end)+'this.check=beltUnderFoot;this.land=landRect;',ctx);
+ const lane=s.links().find(l=>l.from.prop===B),size={w:2,h:2};
+ for(const t of [lane.path[2],lane.path[Math.floor(lane.path.length/2)],lane.path[lane.path.length-3]]){
+  const foot=ctx.check('bay',t.x,t.y,size),ghost=ctx.land(foot,{x1:t.x,y1:t.y,x2:t.x+1,y2:t.y+1},size);
+  A.ok(foot&&foot.v.ok&&foot.v.x!=null,'hovering belt tile '+t.x+','+t.y+' offers an insert with its landing spot');
+  const before=JSON.stringify(s.serialize()),r=s.insertBayBetween(lane.from.prop,lane.to.prop,{w:2,h:2,block:true});
+  A.ok(r.ok,'…the click inserts');
+  A.eq(ghost,{x1:r.x,y1:r.y,x2:r.x+1,y2:r.y+1},'…and the ghost rect IS the committed BAY (pointer '+t.x+','+t.y+')');
+  A.eq({x:foot.v.x,y:foot.v.y},{x:r.x,y:r.y},'…the dry run and the insert agree');
+  s.undo();A.eq(JSON.stringify(s.serialize()),before,'(undo)');
+ }
+ A.eq(ctx.land(null,{x1:1,y1:2,x2:2,y2:3},size),{x1:1,y1:2,x2:2,y2:3},'off a belt the ghost stays at the pointer');
+ A.ok(/if \(foot && res && res\.ok && res\.x != null\) \{ px = res\.x; py = res\.y; \}[^\n]*\n\s*if \(res && res\.ok\) \{\s*pushFlash\(\[\{ x1: px, y1: py/.test(build),'the landing flash marks the BAY where it landed');
+ A.ok((build.match(/rects: ?\[landRect\(foot, rect, s\)\]/g)||[]).length===2,'both the hover ghost and the stamp drag stand at the landing spot');
+}
 A.report('conveyor-ui-truth.test');
