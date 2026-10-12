@@ -19427,10 +19427,15 @@ async function runOnceCore(o) {
   // routines all reach this host-derived origin; checking only chain.advance let every new job buy its
   // entry run after the day limit, and a one-step line never checked the cap at all. Re-read at admission
   // (including queued turns), before a routine script or provider can run. Direct orders carry no origin.
-  if (workflowLine) {
-    const lim = chainEffectiveLimits(router.lineLimits(workflowLine), {},
+  // A TERMINAL routine (runsLine !== true, Andrew's 08-07 ruling) is not line work: LINE WATCH stamps its crate with the bay's
+  // line (workflowLine above keeps that for the crew check and the row), but its chain seed carries no line, so its spend never
+  // reaches this ledger — the line's cap must not refuse it. Both routine entries carry cronJobId (the scheduled fire and Run
+  // Now); hub entries, samples, line triggers, hops and step tests carry none and keep the cap.
+  const capLine = (o.cronJobId && o.runsLine !== true) ? null : workflowLine;
+  if (capLine) {
+    const lim = chainEffectiveLimits(router.lineLimits(capLine), {},
       (typeof effectiveCaps.global === 'number' && effectiveCaps.global > 0) ? effectiveCaps.global : null);
-    if (lim.maxUsdPerDay != null && lineSpend.spentToday(workflowLine) >= lim.maxUsdPerDay) {
+    if (lim.maxUsdPerDay != null && lineSpend.spentToday(capLine) >= lim.maxUsdPerDay) {
       emit('agent.run.start', { agentId, runId, trigger, model: o.noAgent ? '' : model, ...runStartExtra });
       emit('agent.run.error', { agentId, runId, transient: false,
         message: 'The line reached its $' + lim.maxUsdPerDay.toFixed(2) + ' daily limit — raise its LINE BUDGET or try again tomorrow.' });
