@@ -173,6 +173,22 @@ const { makeFsTools } = require('../sidecar/tools/builtin/fs.js');
         A.eq(tsRows.length, 1, 'the same .ts write on the interactive surface still starts it');
         A.eq(watched.diagnostics && watched.diagnostics.status, 'available', 'and gets diagnostics');
       } finally { await tsManager.closeAll(); }
+      // Follow-up: on a machine WITHOUT typescript-language-server (most users) the unattended reason must stay the
+      // detection truth, never a watched-run promise for a server the harness never found.
+      const noTsRows = [];
+      const noTsManager = makeLspManager({
+        spawn: (...a) => { noTsRows.push(a[0]); return spawn(...a); }, fs, fsp, pathMod: path,
+        env: Object.assign({}, env, { PATH: '', Path: '' }),
+        limits: { requestTimeoutMs: 2000, diagnosticTimeoutMs: 1000, idleMs: 500 }
+      });
+      const noTsTools = makeFsTools({ fsp, pathMod: path, root, editDiagnostics: noTsManager });
+      try {
+        const absentTs = await noTsTools.writeTool.run({ path: 'absent.ts', content: 'export const c = 1;\n' }, Object.assign({}, ctx, { surface: 'autonomous' }));
+        A.eq(noTsRows.length, 0, 'an unattended .ts write with no typescript-language-server spawns nothing');
+        A.eq(absentTs.diagnostics && absentTs.diagnostics.status, 'unavailable', 'and reports diagnostics as unavailable');
+        A.ok(/typescript-language-server is not installed on PATH/.test(absentTs.diagnostics.reason || ''), 'with the detection truth: not installed on PATH');
+        A.ok(!/watched run/.test(absentTs.diagnostics.reason || ''), 'never a watched-run promise for a server that was never found');
+      } finally { await noTsManager.closeAll(); }
     }
     A.eq(ledgerRows.length, 1, 'the long-lived language-server child is recorded for crash recovery');
     A.ok(ledgerRows[0].kind === 'lsp:fake' && ledgerReleases.includes(ledgerRows[0].pid), 'normal idle exit releases the durable process-ledger row');
