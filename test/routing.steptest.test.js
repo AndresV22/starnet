@@ -115,6 +115,16 @@ const settle = async (R, id) => { for (let i = 0; i < 50; i++) { await R.st.sett
     A.ok(one.ok, 'TRY THIS STEP is still available on a parallel line');
     await settle(rr, one.session.id);
     A.eq(rr.calls.length, 1, 'single-step test runs exactly one BAY');
+    const sibling = LE.placeBlueprint(station, 'parallel_crew', { x: 80, y: 40 });
+    A.ok(sibling.ok, 'place separate TAKE TURNS line beside the parallel line');
+    const siblingBays = sibling.ids.map(id => station.propById(id)).filter(p => p.t === 'bay');
+    for (let i = 0; i < siblingBays.length; i++) station.assignPropAgent(siblingBays[i].id, i ? 'sibling' + i : rr.plan.bays[0].agentId);
+    const together = P.compileRoutingPlan(station.projectGeometry());
+    const siblingLine = together.lineOfProp[siblingBays[0].id];
+    A.eq(P.stepTestRefusal(together, siblingLine), null, 'sharing an agent with a parallel line does not disable TAKE TURNS');
+    for (const l of together.lines) delete l.stepTestBarrier;
+    A.ok(P.stepTestRefusal(together, rr.lineId), 'saved-plan topology still finds its own parallel branch');
+    A.eq(P.stepTestRefusal(together, siblingLine), null, 'saved-plan topology never borrows another line through its shared agent');
     station.swapJoinerMerger(merger.id);
     A.eq(P.stepTestRefusal(P.compileRoutingPlan(station.projectGeometry()), rr.lineId), null, 'changing back to TAKE TURNS removes the limitation');
     A.eq(P.stepTestRefusal(rr.plan, 'other-line'), null, 'another line is not blocked');

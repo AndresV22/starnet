@@ -36,6 +36,8 @@ Source repaired in 30cbb0420. Compiled line topology supplies one shared refusal
 
 Before: feature detection alone enabled whole-line step-through. After: a compiled fan-out/JOINER limitation refuses before any run; changing topology clears it. Existing single-step and sequential/LOOP tests remain green. Follow-up 43e32a761 derives the same refusal from persisted plans created before the new marker; regression proof removes the marker and still makes zero runDock calls.
 
+The combined gate exposed the parity harness needing to classify stepTestBarrier alongside its existing additive advisory fields; all pre-existing plan fields, hashes and executor answers remain asserted unchanged. A shared-agent sibling repro additionally proved a sequential line could inherit another line's restriction. The fallback now uses an agent-chain start only for its owning line; both modern and saved-plan variants pass.
+
 ## Sibling coverage
 
 - Panel entry and control paint: live seeded UI receipt above.
