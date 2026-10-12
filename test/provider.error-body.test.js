@@ -129,6 +129,61 @@ const line = o => 'data: ' + JSON.stringify(o);
     }
   }
 
+  // Cleanup failure must be observable without replacing the original result or exposing its error text.
+  {
+    const failopen = require('../sidecar/failopen.js');
+    const tag = 'providers.openai_compatible.error_reader_release';
+    const initialCount = failopen.counts()[tag] || 0;
+    const priorIdle = process.env.SKYNET_PROVIDER_IDLE_MS;
+    const priorWarn = console.warn;
+    const warnings = [];
+    const cleanupSecret = 'https://fixture-user:fixture-pass@fixture.invalid/?token=fixture-url-secret body=fixture-body-secret';
+    process.env.SKYNET_PROVIDER_IDLE_MS = '40';
+    try {
+      for (const mode of ['complete', 'idle', 'cancel', 'cancel-logger-throws']) {
+        const response = new Response(mode === 'complete' ? '{"error":{"message":"original refusal","code":"fixture_refusal"}}' : new ReadableStream({
+          start(c) { c.enqueue(new TextEncoder().encode('{"error":')); }
+        }), { status: 422 });
+        const getReader = response.body.getReader.bind(response.body);
+        response.body.getReader = () => {
+          const reader = getReader();
+          return { read: () => reader.read(), cancel: () => reader.cancel(),
+            releaseLock() { reader.releaseLock(); throw new Error(cleanupSecret); } };
+        };
+        console.warn = (...args) => {
+          if (mode === 'cancel-logger-throws') throw new Error('fixture logger unavailable');
+          warnings.push(args.map(String).join(' '));
+        };
+        const ac = new AbortController();
+        const p = makeOpenAICompatibleProvider({ baseUrl: 'http://127.0.0.1:11434/v1',
+          fetch: async (_url, init) => (!init || !init.body) ? new Response('{"data":[]}') : response });
+        const pending = thrown(p, Object.assign({}, REQ, { signal: ac.signal }));
+        if (mode.startsWith('cancel')) {
+          while (!response.body.locked) await new Promise(resolve => setTimeout(resolve, 1));
+          ac.abort();
+        }
+        const err = await pending;
+        if (mode.startsWith('cancel')) A.eq(err, null, mode + ': release failure cannot replace cancellation');
+        else if (mode === 'idle') {
+          A.eq(err && err.code, 'PROVIDER_STREAM_TIMEOUT', 'release failure cannot replace idle timeout');
+          A.eq(err && err.phase, 'idle', 'original timeout phase survives cleanup failure');
+        } else {
+          A.eq(err && err.status, 422, 'release failure cannot replace HTTP status');
+          A.eq(err && err.body && err.body.error.code, 'fixture_refusal', 'original structured error survives cleanup failure');
+        }
+        A.eq(response.body.locked, false, mode + ': reader release was attempted');
+      }
+      A.eq((failopen.counts()[tag] || 0) - initialCount, 4, 'every cleanup failure is counted, even when logging throws');
+      A.eq(warnings.length, 3, 'cleanup failures emit throttled diagnostics');
+      A.ok(warnings.every(w => w.includes(tag) && w.endsWith('error response reader release failed')), 'diagnostics carry the fixed cleanup tag and message');
+      A.ok(warnings.every(w => !/fixture-user|fixture-pass|fixture-url-secret|fixture-body-secret|fixture.invalid/.test(w)), 'cleanup exception URL, credentials and response text never reach diagnostics');
+    } finally {
+      console.warn = priorWarn;
+      if (priorIdle === undefined) delete process.env.SKYNET_PROVIDER_IDLE_MS;
+      else process.env.SKYNET_PROVIDER_IDLE_MS = priorIdle;
+    }
+  }
+
   // ---- OpenRouter: code only in the body (the message is generic) ----
   {
     const calls = [];
