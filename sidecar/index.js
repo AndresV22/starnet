@@ -5493,6 +5493,8 @@ function persistConnectorState(nextConfigs, nextOauth) {
     load: () => connectorVault.load(CONNECTORS_STATE_FILE),
     proof: raw => connectorStateMod.same(raw, intended)
   });
+  // A read failure can lock the vault after boot; keep the public storage state in sync.
+  if (!r.ok && connectorVault.locked) lockConnectorStorage(connectorVault.lockReason || 'unreadable');
   if (!r.ok) console.warn('[connectors] transactional persist UNVERIFIED after retry (' + (r.error || '?') + ')');
   return r.ok;
 }
@@ -5500,7 +5502,10 @@ function persistConnectorRemoval(nextConfigs, nextOauth) {
   if (connectorStorageError) return false;
   const intended = connectorStateMod.envelope(nextConfigs, nextOauth);
   try { return connectorVault.write(CONNECTORS_STATE_FILE, intended, { removal: true }); }
-  catch (_) { console.warn('[connectors] removal could not be verified'); return false; }
+  catch (_) {
+    if (connectorVault.locked) lockConnectorStorage(connectorVault.lockReason || 'unreadable');
+    console.warn('[connectors] removal could not be verified'); return false;
+  }
 }
 function adoptConnectorState(next) {
   connectorState = connectorStateMod.normalize(next);
