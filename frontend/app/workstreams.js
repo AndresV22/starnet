@@ -245,7 +245,7 @@
     return create(null, opts);
   }
   // ADOPT a workstream with a CALLER-CHOSEN id (idempotent): if one already exists with opts.id it is
-  // returned untouched; otherwise a new record is minted from opts and inserted WITHOUT stealing the active
+  // keeps its content and adopts only missing thread metadata; otherwise a new record is minted WITHOUT stealing the active
   // stream (never sets activeId — the caller decides whether to focus it). This is the seam the autosessions
   // layer uses to surface an unattended cron run as a session keyed by its own 'cron-<runId>' stream id, so
   // the rail row and the durable server transcript share one identity. Returns the (existing or new) record.
@@ -254,6 +254,13 @@
     if (opts.id) {
       const ex = find(opts.id); if (ex) {
         if (opts.automation) ex.automation = make(opts).automation;
+        // A run can be reconciled before the overseer files its thread metadata. Adopt those
+        // additive links here, so the participation index follows the same store mutation.
+        let threadChanged = false;
+        if (!ex.parentStreamId && opts.parentStreamId) { ex.parentStreamId = String(opts.parentStreamId); threadChanged = true; }
+        if (opts.worker === true && ex.worker !== true) { ex.worker = true; threadChanged = true; }
+        if (!ex.projectRoot && opts.projectRoot) ex.projectRoot = String(opts.projectRoot);
+        if (threadChanged) delegatedAgents = null;
         return ex;
       }
       // a DELETED id stays deleted: the boot-time resurrection paths (workshop pending poll, cron

@@ -117,5 +117,27 @@ const makeRefs = new Function('Chat', 'sharedFor', 'openFile', 'showError', 'sha
   const own = makeRefs('g', 'mira', 'm4');
   A.eq(await own.image('unique.png'), 'own', 'missing authored shared file uses its own workspace');
   A.eq(fallback, ['mira:unique.png'], 'workspace fallback stays bound to the speaker');
+  // Real Overseer.refresh: a delivered stream can exist before its worker metadata arrives.
+  W.init({ generalId: 'poll-home', workstreams: [
+    { id: 'poll-home', agentId: 'nova', title: null },
+    { id: 'poll-worker', agentId: 'mira', title: 'Original title', history: [{ role: 'assistant', content: 'A saved finding' }] }
+  ] });
+  A.ok(!W.hasAgent(W.get('poll-home'), 'mira'), 'pre-poll participation index has no unproven link');
+  const snapshot = { threads: [{ id: 'poll-worker', agentId: 'mira', parentStreamId: 'poll-home', worker: true, projectRoot: 'C:/launch', title: 'Incoming metadata' }], workers: [] };
+  let saves = 0, refreshes = 0;
+  const ctx = { Workstreams: W, App: { persist: () => { saves++; }, refreshRail: () => { refreshes++; } },
+    fetch: async () => ({ ok: true, json: async () => snapshot }), AbortController, setTimeout, clearTimeout, console, module: { exports: {} } };
+  require('node:vm').runInNewContext(read('frontend/app/overseer.js'), ctx);
+  await ctx.module.exports.refresh();
+  A.ok(W.hasAgent(W.get('poll-home'), 'mira'), 'polling an existing stream invalidates the stale participation index');
+  A.eq(W.list().filter(w => W.hasAgent(w, 'mira')).map(w => w.id), ['poll-home'], 'the live poll replaces the visible worker row with its discoverable parent');
+  A.eq(W.get('poll-worker').title, 'Original title', 'additive adoption preserves existing conversation content and title');
+  A.eq(W.get('poll-worker').projectRoot, 'C:/launch', 'the same poll adopts a missing project scope');
+  A.eq([saves, refreshes], [1, 1], 'new thread metadata persists and refreshes the rail once');
+  await ctx.module.exports.refresh();
+  A.eq([saves, refreshes], [1, 1], 'an unchanged poll does not repeatedly persist or repaint');
+  snapshot.threads[0].parentStreamId = 'other'; snapshot.threads[0].projectRoot = 'C:/other';
+  W.adopt({ id: 'other', agentId: 'nova' }); await ctx.module.exports.refresh();
+  A.eq([W.get('poll-worker').parentStreamId, W.get('poll-worker').projectRoot], ['poll-home', 'C:/launch'], 'later metadata never silently rehomes an established worker');
   A.report('thread-flow-navigation.test');
 })().catch(e => { console.error(e); process.exitCode = 1; });
