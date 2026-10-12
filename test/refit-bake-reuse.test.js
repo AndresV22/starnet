@@ -145,3 +145,4 @@ assert.equal(render.bakeDirty,false,'successful bake clears only visual invalida
 delete render.Build;render.geoDirty=true;render.rebake();
 assert.equal(derived,2,'bootstrap without Build still derives the floor');
 console.log('render-only Build publication boundaries PASS');
+assert.equal(require('./_assert').fails(),0,'shared assertion helpers have no pending failures');
