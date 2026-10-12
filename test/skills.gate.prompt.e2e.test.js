@@ -79,6 +79,8 @@ function boot(port, env, attemptsLeft) {
 function seed(ws) {
   const lines = [];
   const store = makeSkillStore({
+    // Fixture only: represent previously active authored versions; production model writes still stage.
+    stageReviews: false,
     io: { readAll() { return []; }, append(e) { lines.push(JSON.stringify(e)); } },
     clock: { now: () => Date.now() }, guard: skillGuard, digest: digestOf
   });
