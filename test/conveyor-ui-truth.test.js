@@ -10,7 +10,12 @@ const hand = P.handoffInput({ fromName: 'Line A', original: 'write the report', 
 A.ok(hand.startsWith('[HAND-OFF — LINE A finished'), 'hand-off carries no duplicate LINE prefix');
 A.ok(hand.includes('full finished work itself'), 'receiving line must hand on the work rather than completion commentary');
 A.eq(P.parseHandoffInput(P.parseHandoff(P.handoffPrompt(hand, 'nova', 'revised body', 1)).original).original, 'write the report', 'nested later-stage hand-off retains the human job');
-A.eq(P.fedLineIds({sendTo:{out:{toLine:'B'}}}, {known:true,byLine:{A:{runs:1},C:{runs:0}}}), {B:true,A:true}, 'compiled hand-off and real run independently prove a fed line');
+/* M7 (2026-10-12): the old expectation {B:true,A:true} was WRONG — a run count is not a feed. A line's runs include the
+   Commander's own SEND IT A JOB and the lead's station.test_line, and neither starts the line by itself: counting them cleared
+   the NO FEED nag and ticked the finish card's "what starts this line" for a line nothing is wired to start. Per-line feed
+   evidence is a compiled hand-off into it (SEND TO); channels/routines/folders/webhooks come through the station-wide feed. */
+A.eq(P.fedLineIds({sendTo:{out:{toLine:'B'}}}, {known:true,byLine:{A:{runs:1},C:{runs:0}}}), {B:true}, 'a compiled hand-off proves a fed line; a run count does not');
+A.eq(P.fedLineIds({}, {known:true,byLine:{A:{runs:3,tests:2}}}), {}, 'a line with sample/test runs and nothing wired to start it is NOT fed');
 A.eq(P.fedLineIds({}, {known:false,byLine:{A:{runs:5}}}), {}, 'unknown stats cannot assert real runs');
 function fresh() { const d=WM.starterDoc(); for(const r of Object.values(d.rooms)) for(const b of r.rects) {b.x2=64;b.y2=48;} return WM.create(d); }
 function crew(st) { for(const p of st.props()) if(p.t==='bay') st.assignPropAgent(p.id,'ag_'+p.id); }

@@ -8279,7 +8279,8 @@ const World = (() => {
     SEND_TO_LOOP: 'SENDS IN A CIRCLE — CUT ONE SEND TO'
   };
   // project the compiled plan's error list onto floor rectangles once per recompile (zero per-frame walk)
-  const knownFedLines = plan => typeof Pipeline !== 'undefined' && Pipeline.fedLineIds ? Pipeline.fedLineIds(plan || routingPlan, lineStats) : {};
+  // a line another line SENDS TO is fed; its own run count never is (a SEND IT A JOB / a test starts nothing — 2026-10-12)
+  const knownFedLines = plan => typeof Pipeline !== 'undefined' && Pipeline.fedLineIds ? Pipeline.fedLineIds(plan || routingPlan) : {};
   let feedNagIds = new Set();
   function buildRoutingNags() {
     feedNagIds = new Set();
@@ -9929,6 +9930,22 @@ const World = (() => {
     convey.enqueueAt(out.tile.x, out.tile.y, { outbound: true, box: 'product', weight,
       workitemId: p.workitemId, agentId: p.agentId || '', dockId: p.dockId || null, lineId: p.lineId });
   }
+  /* FIRST SHIP (2026-10-12): the gold toast, the milestone and the line's pulse ride the executor's exact terminal receipt — a
+     clean job of THAT line reached THAT OUTBOX (box 'line-output', the proof SHIPPED counts) — never a crate sinking at a chute,
+     which a direct COMMS order to a line's agent rides too. Once per receipt (the SSE echo delivers it twice); Build says first. */
+  const firstShipSeen = new Set();
+  function noteFirstShip(p) {
+    if (!p || p.box !== 'line-output' || !p.lineId || !p.outboxId || !p.workitemId || firstShipSeen.has(p.workitemId)) return;
+    firstShipSeen.add(p.workitemId);
+    if (firstShipSeen.size > 400) firstShipSeen.delete(firstShipSeen.values().next().value);
+    if (typeof Build === 'undefined' || !Build.noteLineShipped) return;
+    let receipt = null;
+    try { receipt = Build.noteLineShipped(p.outboxId, p.lineId); } catch (e) { receipt = null; }
+    if (!receipt || !receipt.first) return;
+    firstShipPulse = { at: fnow, tiles: receipt.tiles };
+    if (typeof StationUI !== 'undefined' && StationUI.notify) StationUI.notify('FIRST SHIP · ' + receipt.name, 'gold');
+    if (typeof SFX !== 'undefined' && SFX.milestone) SFX.milestone();
+  }
   // the crate's MASS must be read NOW: run.end drops runUsdRecon the instant this returns, so a deferred
   // ship that re-read it later would weigh every crate 0 (crate-mass honesty).
   function productCrateSpec(p) {
@@ -10339,8 +10356,9 @@ const World = (() => {
       // card. This is THE delivery seam (the crate that actually sank at the chute) — event-driven, and
       // product-only: slag (an unproductive run) finishes nothing. World tiles ride over so Build maps
       // the mouth tile to its line in its own geometry frame.
+      // (a crate sinking is NOT a shipment — FIRST SHIP rides the sidecar's terminal receipt: noteFirstShip below)
       if (p.box === 'product' && geo && geo.origin && typeof Build !== 'undefined' && Build.noteLineDelivered) {
-        try { const receipt=Build.noteLineDelivered(bx.x + geo.origin.tx, bx.y + geo.origin.ty); if(receipt&&receipt.first){ firstShipPulse={at:fnow,tiles:receipt.tiles}; if(typeof StationUI!=='undefined'&&StationUI.notify)StationUI.notify('FIRST SHIP · '+receipt.name,'gold'); if(typeof SFX!=='undefined'&&SFX.milestone)SFX.milestone(); } } catch (_) {}
+        try { Build.noteLineDelivered(bx.x + geo.origin.tx, bx.y + geo.origin.ty); } catch (_) {}
       }
       // slag is NOT a satisfying delivery — skip the relaxed exhale; the post-mortem already fired at run.end
       if (p.box !== 'slag' && agent && !agent.unplaced && activity === 'idle') {   // EXHALE: watch the reply leave, satisfied, then relax (downtime clock resets)
@@ -10539,7 +10557,7 @@ const World = (() => {
     for (const n of ['workitem.placed', 'workitem.superseded', 'agent.run.start', 'agent.cost', 'agent.run.error', 'agent.run.end']) U.bus.on(n, p => watchEvent(n, p));
     // Ordinary stage deliveries do not spawn duplicates. The executor's exact terminal receipt
     // releases productive work held for a JOINER-capable line, once the job reached its OUTBOX.
-    U.bus.on('workitem.delivered', p => releaseJoinedProduct(p));
+    U.bus.on('workitem.delivered', p => { releaseJoinedProduct(p); noteFirstShip(p); });
     U.bus.on('workitem.superseded', p => { if (p && p.workitemId && convey) convey.dropWorkitem(p.workitemId); });
     // queue.status drives BOTH the numeric backpressure gauge (chanQueues) and the FloorStats backlog fold.
     U.bus.on('queue.status', p => { if (p && p.queueId != null) chanQueues.set(p.queueId, Math.max(0, p.depth | 0)); if (floor) floor.onEvent('queue.status', p); });

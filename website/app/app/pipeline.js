@@ -2215,11 +2215,13 @@
     return { stages, worst, max: maxHops + 1, maxHops };
   }
 
-  // Per-line evidence that an INBOX is fed: a compiled hand-off or a recorded real run, never a doc pointer.
-  function fedLineIds(plan, stats) {
+  /* Per-line evidence that an INBOX is fed: a compiled hand-off into it, never a run count or a doc pointer (2026-10-12).
+     A line's runs include the Commander's SEND IT A JOB and the lead's station.test_line — neither starts the line by itself,
+     so a run count cleared NO FEED for a line nothing is wired to start. Channels, armed routines, folders and webhooks are the
+     station-wide feed (world.js feedState), not this. */
+  function fedLineIds(plan) {
     const out = {};
     for (const s of Object.values((plan && plan.sendTo) || {})) if (s && s.toLine) out[s.toLine] = true;
-    if (stats && stats.known) for (const id of Object.keys(stats.byLine || {})) if (stats.byLine[id] && stats.byLine[id].runs > 0) out[id] = true;
     return out;
   }
 

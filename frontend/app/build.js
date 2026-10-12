@@ -4289,7 +4289,9 @@ const Build = (() => {
     finSig = sig;
     const crewDone = st.crewLeft === 0;
     const crewTxt = crewDone ? '✓ AGENTS ASSIGNED' : '① ASSIGN STEP AGENTS — ' + st.crewLeft + ' TO GO';
-    const feedTxt = st.feedDone ? '✓ A START IS CONFIGURED OR WORK HAS ARRIVED' : !st.hasIntake ? '② FEED IT — TASK THE AGENT, OR WIRE A ROUTINE'
+    // ② is done by what STARTS the line — a configured start, or another line's SEND TO into it; a run that already came by
+    // (a sample, a test) starts nothing, so it never ticks this step (2026-10-12)
+    const feedTxt = st.feedDone ? (st.feed.known && st.feed.fed ? '✓ A START IS CONFIGURED' : '✓ ANOTHER LINE SENDS IT WORK') : !st.hasIntake ? '② FEED IT — TASK THE AGENT, OR WIRE A ROUTINE'
       : !st.feed.known ? '② CHECKING WHAT STARTS THIS LINE…'
       : st.feed.fed ? '✓ AUTOMATIC START CONFIGURED' : st.schedOff ? '② SCHEDULING IS OFF — TURN IT ON' : '② CHOOSE WHAT STARTS THIS LINE';
     // the sample RESULT belongs to the line it rode (finSampleRes.key) — another line's card shows none
@@ -4539,12 +4541,30 @@ const Build = (() => {
     for (const c of Pipeline.lineComponents(geo)) {
       if (!c.tiles[k]) continue;
       const reg = finRead(st);
-      const first=!(reg[c.key] && reg[c.key].done);
-      if (first) finMark(st, c.key, 'done');
+      if (!(reg[c.key] && reg[c.key].done)) finMark(st, c.key, 'done');
       if (running) renderFinCard();
-      const ip=(geo.props||[]).find(p=>c.intakes.includes(p.id));
-      return first ? {first:true,name:Pipeline.lineWord(ip&&ip.label,ip&&st.lineLetter?'LINE '+st.lineLetter(ip.id):'LINE '+c.key),tiles:c.tiles} : null;
+      return;   // a SILENT retirement: a crate at a chute proves no shipment (a direct COMMS order rides one too) — FIRST SHIP is noteLineShipped's
     }
+  }
+  /* FIRST SHIP (2026-10-12): the gold toast + milestone a line earns the first time it SHIPS — driven by the sidecar's terminal
+     receipt (chain.js workitem.delivered { box: 'line-output', lineId, outboxId }: a clean job of THAT line reached THAT OUTBOX, the
+     same proof the plate's SHIPPED count is minted from), never by a crate animation. world.js calls this from the receipt with
+     BUILD MODE closed, so it resolves the live station like noteLineDelivered; its flag (reg[key].shipped) is its own, apart from
+     the finish card's done. -> { first: true, name, tiles } once per line, else null (a line no longer on the floor, a receipt
+     whose OUTBOX is now on another line, a line that already shipped). */
+  function noteLineShipped(outboxId, lineId) {
+    const live = (opts && typeof opts.getStation === 'function') ? opts.getStation() : null;
+    const st = live || station;
+    if (!st || !outboxId || typeof Pipeline === 'undefined' || !Pipeline.lineComponents) return null;
+    let geo = null;
+    try { geo = st.projectGeometry(); } catch (e) { return null; }
+    const c = (Pipeline.lineComponents(geo) || []).find(k => (k.outboxes || []).indexOf(outboxId) >= 0);
+    if (!c || (lineId != null && String(lineId) !== String(c.key))) return null;
+    const reg = finRead(st);
+    if (reg[c.key] && reg[c.key].shipped) return null;
+    finMark(st, c.key, 'shipped');
+    const ip = (geo.props || []).find(p => c.intakes.includes(p.id));
+    return { first: true, name: Pipeline.lineWord(ip && ip.label, ip && st.lineLetter ? 'LINE ' + st.lineLetter(ip.id) : 'LINE ' + c.key), tiles: c.tiles };
   }
 
   /* ---------- AIRLOCK door-state picker: cycle a room's SPATIAL seal (floor containment, NOT capability
@@ -9236,7 +9256,7 @@ const Build = (() => {
     try { openFlowCard(propId); } catch (e) { return false; }
     return true;
   }
-  const api = { init, open, openWorkflows, editLine, testJobForProp, close, toggle, isOpen, requisition, refitNames: guideNames, openAssign, placeDeskFor, noteLineDelivered, lineOfAgentInfo, summonForRole, nagLabel: code => VAL_LABEL[code] || code,
+  const api = { init, open, openWorkflows, editLine, testJobForProp, close, toggle, isOpen, requisition, refitNames: guideNames, openAssign, placeDeskFor, noteLineDelivered, noteLineShipped, lineOfAgentInfo, summonForRole, nagLabel: code => VAL_LABEL[code] || code,
     // the WORKFLOWS window speaks the shelf's own words and shows the shelf's own art (one name per line, never a second one)
     lineWords: () => ({ plain: LINE_PLAIN, purpose: LINE_PURPOSE }), lineSchematic: bp => lineSchematic(bp), machineStill: t => machineStill(t),
     nagWhy: valWhy };   // nagLabel: the floor's own nag copy for a compiler code (ROUTINES RUN NOW refusal reads it); nagWhy: the full fix sentence the hover card + Workflow panel say (station.layout reads it)
