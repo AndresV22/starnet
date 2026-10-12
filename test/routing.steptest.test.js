@@ -107,6 +107,10 @@ const settle = async (R, id) => { for (let i = 0; i < 50; i++) { await R.st.sett
     A.ok(!refused.ok && /RUN ONE REAL JOB/.test(refused.error), 'whole-line test points to the existing action');
     A.eq(rr.calls.length, 0, 'no paid stage starts before refusing parallel step-through');
     A.eq(rr.st.get().session, null, 'a refusal creates no session');
+    const legacy = JSON.parse(JSON.stringify(rr.plan)); for (const l of legacy.lines) delete l.stepTestBarrier;
+    rr.router.setPlan(legacy);
+    A.ok(!rr.st.start({ line: rr.lineId, text: 'legacy saved plan', pause: 'none' }).ok, 'persisted plans without the new marker refuse too');
+    A.eq(rr.calls.length, 0, 'legacy-plan refusal also spends nothing');
     const one = rr.st.start({ line: rr.lineId, text: 'test one branch', startAt: rr.plan.bays[0].agentId, single: true });
     A.ok(one.ok, 'TRY THIS STEP is still available on a parallel line');
     await settle(rr, one.session.id);

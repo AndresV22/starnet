@@ -2169,8 +2169,27 @@
      off under a belt / work-line loop, where LINE_TOO_LONG is silent too). Outside the hash — nothing dispatch reads. */
   function stepTestRefusal(plan, lineId) {
     const line = plan && Array.isArray(plan.lines) ? plan.lines.find(l => l && String(l.lineId) === String(lineId)) : null;
-    if (!line || !line.stepTestBarrier) return null;
-    return 'STEP THROUGH carries one crate at a time and cannot finish this ' + (line.stepTestBarrier === 'fanout' ? 'parallel' : 'joined')
+    if (!line) return null;
+    let barrier = line.stepTestBarrier;
+    // Persisted plans and older clients predate the marker. Read their existing belt
+    // topology without advancing a splitter or trusting a stale availability flag.
+    if (!barrier) {
+      const ids = new Set(line.propIds || []), starts = [];
+      for (const source of (plan.sources || [])) if ((line.intakes || []).indexOf(source.propId) >= 0) starts.push(...srcTiles(source));
+      for (const bay of (plan.dockBays || []).concat(plan.bays || [])) if (ids.has(bay.propId)) starts.push(...(bay.tiles || []));
+      for (const agentId of (line.agents || [])) { const c = plan.chains && plan.chains[agentId]; if (c && c.tile) starts.push(c.tile); }
+      const seen = new Set(), map = plan.belts || {}, junctions = plan.junctions || {};
+      for (let i = 0; i < starts.length; i++) {
+        const t = starts[i]; if (!t) continue;
+        const k = key(t.x, t.y); if (seen.has(k)) continue; seen.add(k);
+        const j = junctions[k];
+        if (j && j.kind === 'split' && j.fanout) { barrier = 'fanout'; break; }
+        if (j && j.kind === 'join') barrier = 'join';
+        starts.push(...nextTiles(map, junctions, t));
+      }
+    }
+    if (!barrier) return null;
+    return 'STEP THROUGH carries one crate at a time and cannot finish this ' + (barrier === 'fanout' ? 'parallel' : 'joined')
       + ' line. Use RUN ONE REAL JOB to test the whole line, or TRY THIS STEP on an individual BAY.';
   }
   function lineStages(plan, lineId) {
