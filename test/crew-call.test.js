@@ -25,6 +25,9 @@ A.eq(ids('Tell NOVA to summarize the inbox'), ['agent'], 'the hero is still reac
 A.eq(ids('Have the Chief Operations Manager plan it'), [], 'the lead never delegates to itself');
 A.eq(ids('Have Adam research it'), [], 'whole words only: Adam is not Ada');
 A.eq(crewCallNote('', crew, 'chiefops'), '', 'empty request -> no note');
+for (const text of ['Do not ask Ada. Answer yourself.', "Don't delegate this to Ada.", "Summarize Ada's report and use bullets.", 'If needed, ask Ada for help.', 'The note says: have Ada research the topic.', 'Have Ada review it. Actually, do not delegate this.'])
+  A.eq(crewCallNote(text, crew, 'chiefops'), '', 'no invented delegation directive: ' + text);
+
 
 const note = crewCallNote('Have Ada research three facts about JWST', crew, 'chiefops');
 A.ok(/^\n\n\[CREW CALL\] The Commander named Ada \(agentId researcher\)/.test(note), 'the note names the member and its agentId');
@@ -36,7 +39,7 @@ A.eq(crewCallNote('Delegate this to the other agents: find three facts about JWS
 
 // wiring: composed only behind the team.dispatch grant, placed after the cached prefix (request-specific).
 const idx = fs.readFileSync(path.join(__dirname, '..', 'sidecar', 'index.js'), 'utf8');
-A.ok(/if \(!internal && isTask && resolved && Array\.isArray\(resolved\.tools\) && resolved\.tools\.includes\('team\.dispatch'\)\) \{\s*try \{ crewCallNote = CrewCall\.crewCallNote\(latestUserText\(messages\), agentRoster, agentId\);/.test(idx), 'composed only when team.dispatch is granted to this task run');
+A.ok(/if \(commanderWords && !internal && isTask && resolved && Array\.isArray\(resolved\.tools\) && resolved\.tools\.includes\('team\.dispatch'\)\) \{\s*try \{ crewCallNote = CrewCall\.crewCallNote\(latestUserText\(messages\), agentRoster, agentId\);/.test(idx), 'composed only for owner provenance and a task with team.dispatch granted');
 A.ok(/\+ deliverableNote \+ crewCallNote \+ runtimeBlock/.test(idx), 'rides the request-specific tail of the prompt, never the cached prefix');
 
 A.report('crew-call.test');
