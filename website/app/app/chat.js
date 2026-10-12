@@ -3344,6 +3344,7 @@ const Chat = (() => {
     let q = { question: '', options: [], recommended: '', reason: '', multiSelect: false, ordinal: 0, total: 0 };
     try { q = Object.assign(q, JSON.parse(p.argsSummary || '{}')); } catch (_) {}
     const r = row('agent'); r.d.classList.add('tool'); r.d.classList.add('consent');
+    r.d.dataset.clarifyPrompt = String(p.promptId || ''); r.d.tabIndex = -1;
     if(q.mode==='conversation' && typeof TaskConversation!=='undefined') {
       const rid=ws && Channels.runIdOf(ws.id);
       TaskConversation.mount(r.body,q,async text=>{
@@ -3351,7 +3352,7 @@ const Chat = (() => {
         if(!result || !result.ok)return false;
         // the question is answered: say so on the bus like the approval card does, or the CREW card and the world pose stay "needs your OK"
         try{if(typeof U!=='undefined'&&U.bus)U.bus.emit('permission.response',{promptId:p.promptId,decision:'once'});}catch(_){}
-        if(ws)Channels.clearPending(ws.id,Date.now());
+        if(ws)Channels.clearPending(ws.id,Date.now(),p.promptId);
         if(isActiveWs(ws)){renderPresence();syncStatus();}
         return true;
       });
@@ -3389,7 +3390,7 @@ const Chat = (() => {
       // answered: tell the bus, as the approval card does — the CREW card's "needs your OK" frame and the world's
       // AWAITING pose clear on permission.response, and a question never emitted one (sweep 2026-10-02)
       try { if (typeof U !== 'undefined' && U.bus) U.bus.emit('permission.response', { promptId: p.promptId, decision: 'once' }); } catch (_) {}
-      if (ws && typeof Channels !== 'undefined') Channels.clearPending(ws.id, Date.now());   // the wait never counts as run time
+      if (ws && typeof Channels !== 'undefined') Channels.clearPending(ws.id, Date.now(), p.promptId);   // the wait never counts as run time
       if (isActiveWs(ws)) renderPresence();
       btns.remove();
       const tag = document.createElement('span'); tag.className = 'consent-result'; tag.textContent = doneLabel;
@@ -3463,7 +3464,7 @@ const Chat = (() => {
         U.bus.off('permission.response', onElsewhere);
         if (decided) return;
         decided = true;
-        if (ws && typeof Channels !== 'undefined') Channels.clearPending(ws.id, Date.now());
+        if (ws && typeof Channels !== 'undefined') Channels.clearPending(ws.id, Date.now(), p.promptId);
         if (isActiveWs(ws)) renderPresence();
         btns.remove();
         const tag = document.createElement('span');

@@ -17,6 +17,7 @@ const vm = require('vm');
 const P = require('../frontend/app/pipeline.js');
 const WL = require('../frontend/app/workflowline.js');
 const LE = require('../frontend/app/lineedit.js');
+const FM = require('../sidecar/feedbackmemory.js');
 const WM = require('../frontend/app/worldmodel.js');
 const rd = p => fs.readFileSync(path.join(__dirname, '..', p), 'utf8');
 const src = rd('frontend/app/windows/workflows.js');
@@ -38,7 +39,7 @@ const tick = () => new Promise(r => setTimeout(r, 15));
       lineWords: () => ({ plain: { research_line: 'Research + write', front_desk: 'One agent', revision_loop: 'Draft + review', build_test: 'Build + test' }, purpose: { research_line: 'one agent digs up sources, the next writes the answer' } }) },
     World: { syncPlan: () => Promise.resolve({ errors: [] }), bayLive: () => null },
     ReturnStore: { foldRow: row => { folded.push(row); return true; }, pendingRows: () => [] },
-    fetch: (url, init) => { fetches.push({ url, init }); const r = replyFor(url, init); return Promise.resolve({ status: r.__status || 200, json: () => Promise.resolve(r) }); },
+    fetch: (url, init) => { fetches.push({ url, init }); return Promise.resolve(replyFor(url, init)).then(r => ({ status: r.__status || 200, json: () => Promise.resolve(r) })); },
   });
   vm.runInContext(src, ctx, { filename: 'workflows.js' });
   const WW = ctx.module.exports, S = WW._state;
@@ -160,6 +161,58 @@ const tick = () => new Promise(r => setTimeout(r, 15));
     for (let i = 0; i < 4; i++) await tick();
     A.eq(keepPosts(), [{ runId: 'r2' }, { runId: 'r2', undo: true }], 'PUT IT BACK takes the station-wide approval back too');
     A.ok((st.propById(dockId).brief || '') === plain, 'and the step is as it was');
+  }
+
+  /* ---------- slow style reference capture: PUT IT BACK must win after KEEP THIS STYLE ---------- */
+  {
+    let memory = [], release, writes = [];
+    const delayed = new Promise(resolve => { release = resolve; });
+    replyFor = async (url, init) => {
+      if (!/\/api\/taste\/keep-style$/.test(url)) return { ok: true };
+      const b = JSON.parse(init.body);
+      if (!b.undo) await delayed; // the real keep route awaits captureTasteRef before entering notebookStore.update
+      const r = b.undo ? FM.unkeep(memory, b.runId) : FM.apply(memory, { runId: b.runId, kept: true, verdict: 'great', directive: 'design the landing page' }, { now: 1 });
+      if (r) memory = r.list;
+      writes.push(b.undo ? 'undo' : 'keep');
+      return { ok: true, feedbackMemory: b.undo ? undefined : { stored: true } };
+    };
+    const posts = () => fetches.filter(x => /\/api\/taste\/keep-style$/.test(x.url)).map(x => JSON.parse(x.init.body));
+    fetches.length = 0;
+    WW._keepStyle(job); WW._putStyleBack(job);
+    await tick();
+    A.ok(!WW._styleKept(job), 'PUT IT BACK restores the step immediately while reference capture is pending');
+    A.eq(posts(), [{ runId: 'r2' }], 'the withdrawal waits for the pending keep instead of overtaking it');
+    // A separate run is independent, and a view change cannot cancel this run's pending undo.
+    S.job = null; S.view = 'list';
+    const other = Object.assign({}, job, { runs: [{ runId: 'other-run', dockId: job.runs[0].dockId }] });
+    WW._putStyleBack(other); await tick();
+    A.ok(posts().some(p => p.runId === 'other-run' && p.undo), 'a pending write on one run never blocks another run');
+    release(); for (let i = 0; i < 4; i++) await tick();
+    A.eq(writes.filter((_, i) => i > 0), ['keep', 'undo'], 'the same run commits keep before undo even after changing views');
+    A.ok(!memory.some(r => r.sourceRunId === 'r2' && r.feedbackKept), 'the crew no longer remembers a style the Commander put back');
+
+    // KEEP / PUT BACK / KEEP while the first capture is pending: the LAST click wins, not merely the first pair.
+    memory = []; writes = []; fetches.length = 0;
+    let finishFirst; const first = new Promise(resolve => { finishFirst = resolve; }); let seen = 0;
+    replyFor = async (url, init) => {
+      if (!/\/api\/taste\/keep-style$/.test(url)) return { ok: true };
+      const b = JSON.parse(init.body); if (++seen === 1) await first;
+      const r = b.undo ? FM.unkeep(memory, b.runId) : FM.apply(memory, { runId: b.runId, kept: true, verdict: 'great', directive: 'design the landing page' }, { now: 1 });
+      if (r) memory = r.list; writes.push(b.undo ? 'undo' : 'keep');
+      return { ok: true };
+    };
+    WW._keepStyle(job); WW._putStyleBack(job); WW._keepStyle(job); await tick();
+    A.eq(posts(), [{ runId: 'r2' }], 'rapid keep/undo/keep sends only the first request while it is unsettled');
+    finishFirst(); for (let i = 0; i < 4; i++) await tick();
+    A.eq(writes, ['keep', 'undo', 'keep'], 'all repeated style changes commit in user order');
+    A.ok(WW._styleKept(job) && memory.some(r => r.sourceRunId === 'r2' && r.feedbackKept), 'the last KEEP THIS STYLE agrees on the step and in crew memory');
+
+    // A failed keep does not poison the queue: undo is still necessary when the response was lost after persistence.
+    fetches.length = 0; let n = 0;
+    replyFor = (url) => /\/api\/taste\/keep-style$/.test(url) && ++n === 1 ? Promise.reject(new Error('response lost')) : { ok: true };
+    WW._keepStyle(job); WW._putStyleBack(job); for (let i = 0; i < 4; i++) await tick();
+    A.eq(posts(), [{ runId: 'r2' }, { runId: 'r2', undo: true }], 'a failed keep response still lets the requested withdrawal reach the station');
+    replyFor = () => ({ ok: true });
   }
 
   /* ---------- source locks ---------- */

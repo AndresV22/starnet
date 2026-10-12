@@ -106,3 +106,46 @@ test('a chat message (Telegram/Discord) fits the whole request or says it had to
     else { assert.match(ask.t, /more characters: open StarNet to read the whole request/); assert.ok(ask.t.length < 4096, 'under a Telegram message: ' + ask.t.length); }
   }
 });
+
+// Parallel workers can ask on the same lead channel. Answering one question must leave all other asks waiting.
+function clarificationFixture(mode) {
+  const Channels = require('../frontend/app/channels.js'); Channels.reset();
+  const nodes = [], listeners = new Map();
+  const element = () => ({ children: [], dataset: {}, classList: { add() {}, remove() {} }, appendChild(n) { this.children.push(n); },
+    addEventListener() {}, setAttribute() {}, remove() {}, focus() {} });
+  const ws = { id: 'parallel-asks' };
+  Channels.begin(ws.id, 1); Channels.setRunId(ws.id, 'lead');
+  const q = { promptId: 'q1', tool: 'brief.ask', argsSummary: JSON.stringify({ question: 'Which color?', options: ['Blue', 'Green'], mode }) };
+  const other = { promptId: 'p2', tool: 'fs.write' };
+  Channels.setPending(ws.id, q, 1); Channels.setPending(ws.id, other, 2);
+  let conversationAnswer = null;
+  const ctx = { Channels, JSON, Date, name: 'NOVA', input: null,
+    document: { createElement: element, createTextNode: textContent => ({ textContent }) },
+    row: () => { const r = { d: element(), body: element() }; nodes.push(r); return r; },
+    Harness: { consentAnswer: () => Promise.resolve({ ok: true }) },
+    TaskConversation: { mount: (el, question, cb) => { conversationAnswer = cb; } },
+    U: { bus: { emit() {}, on: (name, fn) => listeners.set(name, fn), off() {} } },
+    isActiveWs: () => false, renderPresence() {}, syncStatus() {}, status() {}, autoscroll() {}, announcedPrompt: () => true };
+  vm.createContext(ctx); vm.runInContext(extract(chat, '  function clarifyRow(', '  // p = a consent payload'), ctx);
+  ctx.clarifyRow(q, ws);
+  return { Channels, ws, q, nodes, listeners, conversationAnswer };
+}
+test('a choice answer preserves a parallel worker approval and its paused clock', () => {
+  const f = clarificationFixture('choice');
+  const buttons = f.nodes[0].body.children.find(n => n.className === 'consent-btns');
+  buttons.children[0].onclick();
+  assert.deepEqual(f.Channels.pendingAllOf(f.ws.id).map(p => p.promptId), ['p2']);
+  assert.ok(f.Channels.peek(f.ws.id).pausedAt, 'another worker is still waiting on the Commander');
+  assert.equal(f.nodes[0].d.dataset.clarifyPrompt, 'q1', 'delegation Answer targets this exact card');
+});
+test('a conversation answer preserves a parallel worker approval', async () => {
+  const f = clarificationFixture('conversation');
+  assert.equal(f.nodes[0].d.tabIndex, -1, 'conversation cards can receive delegated Answer focus too');
+  assert.equal(await f.conversationAnswer('Use blue.'), true);
+  assert.deepEqual(f.Channels.pendingAllOf(f.ws.id).map(p => p.promptId), ['p2']);
+});
+test('an answer arriving from another surface clears only its question', () => {
+  const f = clarificationFixture('choice');
+  f.listeners.get('permission.response')({ promptId: 'q1', decision: 'once' });
+  assert.deepEqual(f.Channels.pendingAllOf(f.ws.id).map(p => p.promptId), ['p2']);
+});
