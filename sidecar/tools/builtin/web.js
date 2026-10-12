@@ -1011,21 +1011,14 @@
         'Call a third-party REST API (Printify, Etsy, Stripe, any service with an HTTP API) and return the response. ' +
         'To authenticate, reference a stored key by its environment-variable NAME inside a header value using ${NAME} — ' +
         'e.g. headers {"Authorization": "Bearer ${PRINTIFY_API_KEY}"}. The host substitutes the real value at send time; ' +
-        'you never see it and must never ask the user for it. Placeholders work in headers only, never in the url. ' +
-        'For upload endpoints, attach workspace files host-side instead of pasting bytes: ${file:relative/path} in the ' +
-        'body inserts the file as base64, and the multipart parameter sends real multipart/form-data. ' +
-        'Responses are never silently cut: a body too large to show is saved whole to a file you can read in ranges. ' +
-        'For a large JSON document, pass select with only the fields you need and the host extracts them from the whole response.',
+        'you never see it and must never ask the user for it. Placeholders work in headers only, never in the url.',
       schema: {
         type: 'object', required: ['url'],
         properties: {
           url: { type: 'string', description: 'Full https URL of the API endpoint.' },
           select: {
             type: 'array', items: { type: 'string' },
-            description: 'Optional, for JSON responses: field paths to return instead of the whole document, extracted ' +
-              'host-side from the COMPLETE response. "[]" walks an array: ["id","title","variants[].id","variants[].is_enabled",' +
-              '"images[].src"], or ["[].id","[].title"] when the response itself is an array. Nesting is kept. ' +
-              'The whole response is still saved to a file. Ignored for error responses (you see the full error).'
+            description: 'JSON field paths to return from the WHOLE response; [] walks arrays: ["id","variants[].id"] or ["[].id"].'
           },
           method: { type: 'string', description: 'GET (default), HEAD, POST, PUT, PATCH or DELETE.' },
           headers: { type: 'object', description: 'Request headers. Use ${KEY_NAME} to reference a stored key.' },
