@@ -2066,7 +2066,7 @@
       }
       // OUTPUT-LIMIT STOP: keep the valid partial text, but NEVER repair/dispatch a tool call whose generation hit
       // the semantic cap — even apparently-valid JSON may be missing a later argument or sibling call. The next
-      // paid turn is explicitly told to reissue the complete call. Content-filter/policy stops do not enter here.
+      // paid turn is told to split the call (splitAdvice). Content-filter/policy stops do not enter here.
       if (lastFinishReason === 'length') {
         const partial = assistantTurn(acc.text, [], acc.reasoning);
         messages.push(partial);
@@ -2084,7 +2084,7 @@
         const cutExhausted = !!cutTool && toolCutStreak > TOOL_CUT_MAX;
         if (!cutExhausted && continuation.shouldContinue(lastFinishReason, outputContinuesUsed, OUTPUT_CONTINUE_MAX)) {
           outputContinuesUsed++;
-          const nudge = { role: 'system', content: continuation.prompt(calls.length > 0) + (cutTool ? splitAdvice(cutTool, toolCutStreak) : '') };
+          const nudge = { role: 'system', content: continuation.prompt(calls.length > 0, cutTool ? splitAdvice(cutTool, toolCutStreak) : '') };
           messages.push(nudge);
           continuationPrompts.push(nudge);
           dedupeAgainst = continuationText;

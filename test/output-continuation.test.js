@@ -135,6 +135,9 @@ const usage = (input, output) => ({ type: 'usage', usage: { prompt_tokens: input
     A.eq(provider.callCount(), 3, 'initial cut + exactly two split nudges, not four blind reissues');
     A.ok(/too large to fit in one reply/.test(requests[1]) && /fs_append/.test(requests[1]), 'the first nudge says split it, naming fs_append (a tool this run has)');
     A.ok(/cut off 2 times in a row/.test(requests[2]), 'the second nudge says the same oversized call was cut off again');
+    // review threads-backend-09: one directive, never "reissue the complete call" next to "do NOT re-send it whole"
+    A.ok(!/Reissue the complete tool call/i.test(requests[1]), 'the cut nudge never asks for the same oversized call again');
+    A.ok(/Do NOT re-send it whole[^]*<\/output_continuation>/.test(requests[1]), 'the split advice sits inside the continuation tag');
     A.eq(res.reason, 'error', 'the run does not pass off a never-written file as done or a bare empty');
     A.eq(res.failureCode, 'output_limit_tool_cut', 'durable failure code names the cause');
     const err = seq.find(e => e.name === 'agent.run.error');
