@@ -756,7 +756,8 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     applySettings(); save();
     try { rerender('settings'); } catch (_) {}
     const name = next === 0 ? 'AUTO · ' + autoTextScale() + '%' : (TEXT_SCALES.find(([v]) => v === next) || [0, ''])[1] + ' · ' + next + '%';
-    notify('TEXT SIZE ' + name + '. Ctrl + and Ctrl − change it, Ctrl 0 resets. Also in SETTINGS › LOOK & SOUND.', '', undefined, { transient: true });
+    const mod = ev.metaKey ? 'Cmd' : 'Ctrl';   // name the key that was pressed (Cmd on a Mac); a plain '-' is what the user types
+    notify('TEXT SIZE ' + name + '. ' + mod + ' + and ' + mod + ' - change it, ' + mod + ' 0 resets. Also in SETTINGS › LOOK & SOUND.', '', undefined, { transient: true });
   });
   let resizeClampTimer = 0;
   window.addEventListener('resize', () => {
