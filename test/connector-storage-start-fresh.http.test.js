@@ -100,6 +100,26 @@ const { FORMAT } = require('../sidecar/connector-vault.js');
     assert.ok((finished.body.previous || []).some(p => p.includes('unreadable-crashed')), 'the answer still names the earlier folder: ' + JSON.stringify(finished.body.previous));
     assert.equal(fs.readFileSync(path.join(finished.body.movedTo, 'state.json'), 'utf8'), savedBytes, 'the old store is kept in the new folder');
     assert.equal((await storage()).error, null, 'and the store is open');
+    await app.stop();
+    // sidecar-index-07: an older credential file that cannot be removed (held by another program; here a directory
+    // stands where its backup would be) used to lock every connector with no START FRESH and a reset that failed. The
+    // sealed store is written and verified first, so this is a warning to retry, never a lock.
+    const legacyBak = path.join(app.workspace, 'connectors', 'connectors.json.bak');
+    fs.mkdirSync(legacyBak);
+    try {
+      await app.start({ STARNET_CONNECTOR_ENCRYPTION_KEY: K1, STARNET_CONNECTOR_KEY_ERROR: '' });
+      s = await storage();
+      assert.equal(s.error, null, 'a leftover older file does not lock the store: ' + s.error);
+      assert.equal(s.encrypted, true, 'the store it reads is still sealed');
+      assert.match(String(s.notice || ''), /could not be removed/, 'the panel is told, in plain words: ' + s.notice);
+      const kept = await app.json('POST', '/api/connectors', { id: 'after-leftover', transport: 'http', url: 'http://127.0.0.1:1/mcp', enabled: false });
+      assert.equal(kept.status, 200, 'saving still works: ' + JSON.stringify(kept.body));
+      await app.stop();
+    } finally { fs.rmSync(legacyBak, { recursive: true, force: true }); }
+    await app.start({ STARNET_CONNECTOR_ENCRYPTION_KEY: K1, STARNET_CONNECTOR_KEY_ERROR: '' });
+    s = await storage();
+    assert.equal(s.error, null);
+    assert.equal(s.notice, null, 'the notice is gone once the old file is gone');
     console.log('connector-storage-start-fresh.http: PASS (fresh-install fallback + reason, seal on keyed launch, key-mismatch lock, confirmed START FRESH keeps old files, restart, Settings reset exit)');
   } finally { await app.dispose(); }
 })().catch(error => { console.error(error); process.exitCode = 1; });

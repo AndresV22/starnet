@@ -5527,9 +5527,25 @@ function loadConnectorState() {
   return migrated;
 }
 let connectorState = loadConnectorState();
+/* A failed seal or clean-up is not a store-wide lock. It used to lock every connector with no START FRESH (that hits
+   the same failure) and a Settings reset that failed: a fail-closed vault with no exit. Only a vault that itself
+   locked locks the store, with its reason and exit. Otherwise sign-ins keep working and the panel says what will be
+   retried. migrate() seals and verifies the store BEFORE it removes any older file, and an older file is never read
+   while the sealed store exists, so a leftover only waits for the next start. */
+let connectorMigrationNotice = '', connectorSealPending = false;
 if (connectorVault.protected && !connectorStorageError) {
   try { connectorVault.migrate(CONNECTORS_STATE_FILE, connectorState, [CONNECTORS_FILE, CONNECTORS_OAUTH_FILE]); }
-  catch (_) { connectorStorageError = 'Connector credential migration is incomplete. Restart StarNet to retry; saved credentials have been preserved.'; console.error('[connectors] ' + connectorStorageError); }
+  catch (e) {
+    if (connectorVault.locked) lockConnectorStorage(connectorVault.lockReason || 'unreadable');
+    else {
+      const leftover = /legacy copy/.test(String((e && e.message) || ''));
+      connectorSealPending = !leftover;   // the seal itself failed: never claim encryption for this session
+      connectorMigrationNotice = leftover
+        ? 'An older connector sign-in file could not be removed (another program may be holding it). Your sign-ins are sealed and work normally; StarNet tries again at the next start.'
+        : 'Connector sign-ins could not be sealed and checked yet, so StarNet does not count them as encrypted. They work normally; StarNet tries again at the next start.';
+      console.warn('[connectors] ' + connectorMigrationNotice + ' (' + String((e && e.message) || e) + ')');
+    }
+  }
 }
 if (connectorVault.fallback && !connectorStorageError) console.warn('[connectors] saving connector sign-ins WITHOUT encryption: ' + (CONNECTOR_KEY_ERROR || 'the desktop shell supplied no credential-store key'));
 let connectorConfigs = connectorState.configs;
@@ -5619,11 +5635,12 @@ async function resetLockedConnectors(json, section) {
 function connectorStorageSnapshot() {
   const fallback = connectorVault.fallback && !connectorStorageError;
   return {
-    encrypted: connectorVault.protected && !connectorStorageError, error: connectorStorageError || null,
+    encrypted: connectorVault.protected && !connectorStorageError && !connectorSealPending, error: connectorStorageError || null,
     reason: connectorStorageReason || null, canStartFresh: connectorStorageCanStartFresh(),
     fallback, keyError: (fallback || connectorStorageReason === 'key-unavailable') ? (CONNECTOR_KEY_ERROR || null) : null,
     notice: fallback ? 'Saved on this computer WITHOUT encryption: StarNet could not open the system credential store.' +
-      (CONNECTOR_KEY_ERROR ? ' Reason: ' + CONNECTOR_KEY_ERROR + '.' : '') + ' Sign-ins still work, and StarNet seals them automatically once the store is reachable.' : null
+      (CONNECTOR_KEY_ERROR ? ' Reason: ' + CONNECTOR_KEY_ERROR + '.' : '') + ' Sign-ins still work, and StarNet seals them automatically once the store is reachable.'
+      : (!connectorStorageError && connectorMigrationNotice) || null
   };
 }
 function saveConnectorConfigs() {
