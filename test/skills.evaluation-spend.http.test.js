@@ -16,7 +16,7 @@ const NAME = 'Evaluation Spend Procedure';
 const BASELINE = 'BASELINE_POLICY: Report the old result as JSON.';
 const CANDIDATE = 'CANDIDATE_POLICY: Report the requested result as JSON.';
 const SUITE = 'owner:evaluation-spend';
-const requests = [], phases = [];
+const requests = [], phases = [], faults = [];
 let includeUsage = false;
 function seed(workspace) {
   const rows = [];
@@ -52,6 +52,8 @@ const server = http.createServer((req, res) => {
       res.writeHead(200, { 'Content-Type': 'text/event-stream' });
       res.end('data: ' + JSON.stringify(chunk) + '\n\ndata: [DONE]\n\n');
     } catch (error) {
+      // An assertion thrown here never reaches the test's own try: record it so the run fails below.
+      faults.push(error.message);
       console.error('scripted spend provider failed: ' + error.message);
       res.writeHead(500, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: error.message }));
@@ -142,9 +144,10 @@ const server = http.createServer((req, res) => {
     assert.ok(Math.abs(final.spentToday - 0.06) < 1e-9, 'the attested charge and four observed charges are each booked exactly once');
     assert.equal(fixture.child.pid, sidecarPid, 'explicit settlement restores evaluation without restarting');
     phases.push('explicit settlement restores known spend and complete-usage evaluation in the same process');
+    assert.deepEqual(faults, [], 'the scripted provider served only the declared evaluation cases (no unrelated or background model work)');
     console.log(JSON.stringify({ status: 'PASS', test: 'skills.evaluation-spend.http', phases, modelCalls: requests.length }, null, 2));
   } catch (error) {
-    console.error(JSON.stringify({ status: 'FAIL', phases, error: error.stack, requests, sidecarTail: fixture.output().slice(-5000) }, null, 2));
+    console.error(JSON.stringify({ status: 'FAIL', phases, error: error.stack, requests, faults, sidecarTail: fixture.output().slice(-5000) }, null, 2));
     process.exitCode = 1;
   } finally {
     await fixture.dispose();
