@@ -202,10 +202,15 @@ function makeStepTest(o) {
     /* THE OPEN GATES (wave 2 review, conveyor-backend-02 — chain.js openLoops, 2026-10-10): two review loops in a row stopped the
        test on the outer gate's second pass, because the inner gate letting work out lowered the ONE looping flag while the outer
        gate's re-run was still under way. A gate closes only its own pass. Kept as a plain object: _w is JSON-cloned and persisted
-       (a Set would not survive). A session persisted before this (no openLoops) keeps reading its old single flag. */
+       (a Set would not survive). A session persisted before this (no openLoops) keeps reading its old single flag until a gate
+       decides, and only then starts tracking its gates: its openLoops stays UNSET (undefined, never {}) on every other hop — an
+       empty object would read as "no gate open" and stop a pass the old flag still carries (wave 2 repair, 2026-10-12). */
+    const legacy = W.openLoops == null;
     const open = Object.assign({}, W.openLoops || {});
-    let target = null, text = raw, again = false, loopKey = null, n = 0, exhausted = false, looping = W.openLoops ? Object.keys(open).length > 0 : W.looping;
+    let target = null, text = raw, again = false, loopKey = null, n = 0, exhausted = false, looping = legacy ? !!W.looping : Object.keys(open).length > 0;
+    let gateDecided = false;
     if (step && step.loop) {
+      gateDecided = true;
       loopKey = step.loop; n = W.iter[step.loop] || 0;
       const d = loopDecision(step, ctx, n, W.visited, raw);
       target = asNode(d.target); text = d.text; again = d.again; exhausted = d.exhausted;
@@ -226,7 +231,7 @@ function makeStepTest(o) {
     const next = { kind: 'agent', agentId: target.agentId, back: !!again };
     if (target.dockId) next.dockId = target.dockId;   // additive: WHICH bay the crate goes to (multi-bay)
     if (refusal) next.blocked = refusal;   // additive: continuing here will stop, and this is why
-    return { next, text, target: target.agentId, targetDock: target.dockId || null, targetKey, again, loopKey, n, exhausted, looping, openLoops: open, loopHop, refusal };
+    return { next, text, target: target.agentId, targetDock: target.dockId || null, targetKey, again, loopKey, n, exhausted, looping, openLoops: (legacy && !gateDecided) ? undefined : open, loopHop, refusal };
   }
 
   /* advanceFrom(s, editedText) — CONTINUE: resolve the real next step, stamp the last hop's handoff, commit the
@@ -250,7 +255,7 @@ function makeStepTest(o) {
     if (nx.loopHop) W.loopHops += 1; else W.visited[nx.targetKey] = true;
     if (nx.again) W.iter[nx.loopKey] = nx.n + 1;
     W.looping = nx.looping;
-    W.openLoops = nx.openLoops;
+    if (nx.openLoops !== undefined) W.openLoops = nx.openLoops;   // a legacy session stays legacy until a gate decides
     if (nx.exhausted) W.loopExhausted = true;
     const job = { agentId: nx.target, input: last.sent, entry: false, from: W.cur, hop: W.hop, edited, rerun: false };
     if (nx.targetDock) { job.dockId = nx.targetDock; job.fromDock = W.curDock || null; }
