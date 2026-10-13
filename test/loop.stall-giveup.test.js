@@ -93,17 +93,19 @@ async function runWith(provider, extra) {
     A.eq(recov.map(r => [r.action, r.reason]), [['retry', 'timeout']], 'recovery telemetry: one retry, no phantom ladder');
   }
 
-  // Error bytes can arrive before the body stalls: diagnostics must not deny that observed progress.
+  // Error bytes can arrive before the body stalls: the status line already arrived, so the run fails as THAT status
+  // (review providers-tools-07: a 401 behind a hanging proxy must reach its reconnect door) — one attempt, since a
+  // 4xx is not retried — and the diagnostic never denies the bytes that arrived.
   {
     const up = upstream(() => new Response(new ReadableStream({
       start(c) { c.enqueue(new TextEncoder().encode('{"error":')); }
     }), { status: 400 }));
     const { res, seq } = await runWith(adapter(up.fetch));
     A.eq(res.reason, 'error', 'a stalled partial error body never becomes a completed reply');
-    A.eq(up.posts.length, 2, 'partial error bodies use the existing two-idle-stall cutoff');
+    A.eq(up.posts.length, 1, 'a 400 whose body stalls is that 400: not retried as a stall');
     const err = seq.find(e => e.name === 'agent.run.error');
     A.ok(err && !err.payload.message.includes('received no response bytes'), 'the diagnostic does not deny error bytes that arrived');
-    A.ok(err && err.payload.message.includes('idle timed out after 40ms'), 'the diagnostic states the actual watchdog result');
+    A.ok(err && /400/.test(err.payload.message) && /error body did not finish/.test(err.payload.message), 'the diagnostic names the status and says the body stalled: ' + (err && err.payload.message));
     A.eq(seq.filter(e => e.name === 'agent.run.end').map(e => e.payload.reason), ['error'], 'one truthful terminal for the failed run');
   }
 
