@@ -18533,7 +18533,10 @@ function serveAgentSkills(req, res) {
     /* verify (not decide) whenever bodies were loaded: the panel is where "Approved by you for this
        exact content" is printed, and only a re-digest of the delivered bytes can tell whether that is
        still true. Without it the card blesses a package whose SKILL.md was rewritten after review. */
-    skills = skillGate.annotate(skills, { verify: includeBody }).map(s => Object.assign({}, s, { guardDigest: skillGate.stampOf(s), goldens: goldensFor(agentId, s.id).length }));
+    /* guardDigest is what ALLOW sends back, so it must be the digest the allow route compares: the digest of the bytes
+       this panel shows (the same hydrated view). The stored stamp describes the reviewed bytes, so on a package edited
+       on disk every ALLOW answered 409 and the skill stayed withheld for good. Rows without a body keep the stamp. */
+    skills = skillGate.annotate(skills, { verify: includeBody }).map(s => Object.assign({}, s, { guardDigest: (includeBody && typeof s.body === 'string') ? skillGate.digestOf(s) : skillGate.stampOf(s), goldens: goldensFor(agentId, s.id).length }));
     const candidates = skillStore.candidates(agentId, { includeBody });
     json(200, { ok: true, agentId, skills, candidates, evaluationSuites: evaluationSuiteMetadata(agentId, candidates.map(c => c.skill)), withheld: skills.filter(s => s.withheld).length });
   } catch (e) { json(500, readRouteFailure('agent-skills', e)); }   // harness.agentSkillsRead maps !ok to { ok:false } — never a confirmed empty
