@@ -237,4 +237,25 @@ for (const change of ['body', 'files', 'summary', 'baseline', 'pin']) {
   const measured = proposal(g.s);
   A.eq(g.promote(measured, g.issue(measured)).candidate.acknowledgedNoImprovement, false, 'a measured improvement is not recorded as acknowledged');
 }
+// A consolidation's archive waits for its heir: approving the archive alone must not point at an umbrella
+// that does not carry the merged content yet (CONSOLIDATION MUST NAME ITS HEIR).
+{
+  const f = fixture(); seed(f, 'Reports'); seed(f, 'Weekly brief');
+  A.ok(f.s.manage({ agentId: 'a', target: 'Reports', action: 'edit', body: BODY + '\n3. Weekly brief steps.', createdBy: 'curator' }).pending, 'curator merge is proposed');
+  A.ok(f.s.manage({ agentId: 'a', target: 'Weekly brief', action: 'archive', absorbedInto: 'Reports', createdBy: 'curator' }).pending, 'curator archive is proposed');
+  const rows = f.s.candidates('a', { includeBody: true });
+  const heir = rows.find(c => c.name === 'Reports'), sibling = rows.find(c => c.name === 'Weekly brief');
+  const early = f.promote(sibling, f.issue(sibling));
+  A.eq(early.ok, false, 'archive cannot be approved while its heir is still a proposal');
+  A.ok(/Reports/.test(early.error || ''), 'refusal names the heir to approve first');
+  A.eq(read(f.s, 'Weekly brief').state, 'active', 'sibling stays active while its heir waits');
+  A.ok(f.promote(heir, f.issue(heir)).ok, 'heir merge approves');
+  A.ok(f.promote(sibling, f.issue(sibling)).ok, 'archive approves once the heir carries the content');
+  A.eq(read(f.s, 'Weekly brief').absorbedInto, 'Reports', 'archived sibling points at the live heir');
+  const g = fixture(); seed(g, 'Weekly brief');
+  A.ok(g.s.manage({ agentId: 'a', action: 'create', name: 'All reports', body: BODY, createdBy: 'curator' }).pending, 'new umbrella is proposed');
+  A.ok(g.s.manage({ agentId: 'a', target: 'Weekly brief', action: 'archive', absorbedInto: 'All reports', createdBy: 'curator' }).pending, 'archive into the new umbrella is proposed');
+  const into = g.s.candidates('a', { includeBody: true }).find(c => c.name === 'Weekly brief');
+  A.eq(g.promote(into, g.issue(into)).ok, false, 'archive into an umbrella that is not active yet is refused');
+}
 A.report('skills.review-approval');

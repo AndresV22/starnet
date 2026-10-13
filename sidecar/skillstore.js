@@ -644,6 +644,17 @@
       const entry = clone(row.skill);
       // Pinned content cannot be changed by proposing a revision before it was pinned.
       if (active && active.pinned) return { ok: false, error: 'the active skill is pinned; unpin it before promotion' };
+      // A CONSOLIDATION MUST NAME ITS HEIR, and the heir must already carry the content. A curator merge and its
+      // archive are separate proposals, so approving the archive first would leave it pointing at an umbrella that
+      // still has the old narrow body (or is not active at all).
+      if (entry.state === 'archived' && entry.absorbedInto) {
+        const heirName = str(entry.absorbedInto);
+        const heir = find(row.agentId, heirName, { includeArchived: false });
+        const heirPending = Array.from(candidateRows.values()).some(r => r.agentId === row.agentId && r.status === 'pending'
+          && r.candidateId !== row.candidateId && r.name.toLowerCase() === heirName.toLowerCase());
+        if (heirPending) return { ok: false, error: 'approve the proposal for "' + heirName + '" first - this archive moves its content there' };
+        if (!heir) return { ok: false, error: '"' + heirName + '" is not an active skill, so this archive would point at content nobody can load' };
+      }
       entry.canonicalRevision = true; entry.updatedAt = now();
       entry.promotionReceiptId = str(checked.receiptId || (e.evaluation && (e.evaluation.receiptId || e.evaluation.id)));
       // The decision record says whether the promotion was measured or only owner-acknowledged as no improvement.
