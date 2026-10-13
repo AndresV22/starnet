@@ -5,7 +5,10 @@ const root = path.resolve(process.env.STARNET_WORKSPACES || '');
 if (path.dirname(root) !== path.resolve(os.tmpdir()) || !path.basename(root).startsWith('starnet-credential-recovery-')) throw Error('Requires isolated credential-recovery fixture');
 const marker = name => path.join(root, name);
 const dns = require('node:dns'), lookup = dns.promises.lookup;
-dns.promises.lookup = (host, options) => host === 'audit.example.com' ? Promise.resolve([{ address: '93.184.216.34', family: 4 }]) : lookup(host, options);
+// github.com is faked too: the device-flow poll must never leave the machine (tests-03 — once 5 s passed under load,
+// the poll sent the shipped client_id plus a synthetic device code to the real GitHub and the test went red).
+const GITHUB = ['github.com', 'api.github.com'];
+dns.promises.lookup = (host, options) => (host === 'audit.example.com' || GITHUB.includes(host)) ? Promise.resolve([{ address: '93.184.216.34', family: 4 }]) : lookup(host, options);
 const realFetch = globalThis.fetch;
 const json = body => new Response(JSON.stringify(body), { headers: { 'Content-Type': 'application/json' } });
 async function held(name) {
@@ -20,6 +23,8 @@ async function held(name) {
 globalThis.fetch = async (raw, opts = {}) => {
   const url = new URL(String(raw));
   if (url.hostname === 'github.com' && url.pathname === '/login/device/code') return json({ device_code: 'SYNTHETIC_DEVICE', user_code: 'ABCD-EFGH', verification_uri: 'https://github.com/login/device', expires_in: 600, interval: 5 });
+  if (url.hostname === 'github.com' && url.pathname === '/login/oauth/access_token') return json({ error: 'authorization_pending' });
+  if (GITHUB.includes(url.hostname)) throw Error('hermetic fixture: unexpected GitHub request ' + url.pathname);
   if (url.hostname !== 'audit.example.com') return realFetch(raw, opts);
   if (url.pathname.includes('oauth-protected-resource')) return json({ resource: 'https://audit.example.com/mcp', authorization_servers: ['https://audit.example.com'] });
   if (url.pathname.includes('oauth-authorization-server')) return json({ issuer: 'https://audit.example.com', authorization_endpoint: 'https://audit.example.com/authorize', token_endpoint: 'https://audit.example.com/token', registration_endpoint: 'https://audit.example.com/register', response_types_supported: ['code'], code_challenge_methods_supported: ['S256'] });
