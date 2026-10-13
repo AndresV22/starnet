@@ -828,8 +828,22 @@ async function run() {
     A.ok(sends.includes('second-reply'), 'and the newer message was answered too');
     A.ok(!sends.some(x => /Stopped the earlier task/.test(x)), 'nothing was stopped, so nothing says it was');
   }
+  {
+    // a plain "stop" from the owner while the task runs IS /stop: no supersede notice, no paid model run on the word
+    // "stop" (review voice-remote-channels-04)
+    const store = fakeStore(); const runs = []; const steers = []; const sends = [];
+    const hub = makeChannelHub({ runOnce: parkedRun(runs), store, send: (c, t) => { sends.push(t); return Promise.resolve({ ok: true }); }, secrets: () => ({ key: 'k', model: 'm' }), classify: () => true, newId: idGen(),
+      isOwner: () => true, steerRun: (runId, text) => { steers.push(text); return { ok: true }; } });
+    const p1 = hub.onInbound(dm('build the landing page'));
+    await waitFor(() => runs.length === 1);
+    await hub.onInbound(dm('stop'));
+    await p1;
+    A.eq(steers.length, 0, 'a plain "stop" never rides into the running task as an instruction');
+    A.eq(runs.length, 1, 'a plain "stop" starts no model run of its own');
+    A.ok(sends.includes('Stopped the run in progress.'), 'it answers exactly like /stop: ' + JSON.stringify(sends));
+    A.ok(!sends.some(x => /Stopped the earlier task/.test(x)), 'never framed as a newer request to handle');
+  }
   for (const [label, second] of [
-    ['an explicit "stop"', dm('stop')],
     ['a group message', Object.assign(dm('also make it blue'), { chatType: 'group', userName: 'Ana' })],
     ['a forwarded message', Object.assign(dm('also make it blue'), { forwarded: true, forwardFrom: 'someone' })]
   ]) {

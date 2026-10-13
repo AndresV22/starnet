@@ -60,7 +60,8 @@
     // "raise", never "remove" — on StarNet credits PER RUN 0 still stops at the managed default (mirrors chat.js).
     return '\n\n(' + what + (scope === 'run' ? ' — raise it' : ' — raise or remove it') + ' in the app under SETTINGS › SPENDING LIMITS.)';
   }
-  // a follow-up that is itself a stop request never steers the running task — it stops it (the supersede path)
+  // a follow-up that is itself a stop request never steers the running task — from the owner it IS /stop (onInbound);
+  // anything else (a group, a forward) still stops it through the supersede path
   const STOP_WORDS_RE = /^\s*(?:stop|cancel|abort|halt|never\s*mind|nvm|forget\s+(?:it|that)|scratch\s+that)\s*[.!]*\s*$/i;
   // plain-English stop sentences shared with routines/loops (sidecar/stop-reason.js); the inline fallback only serves a
   // non-node embed, which never runs the hub against a real host.
@@ -1614,10 +1615,23 @@
          this is a plain follow-up to the SAME agent, it goes into that run's steer buffer — the loop reads it at its
          next step, exactly like a COMMS mid-run steer — and nothing is aborted. Only in a DIRECT chat with no
          forwarded/quoted text and no media: the run's trust and taint were decided from its first sender, so a group
-         member or third-party text must never ride into it as a Commander instruction. A plain "stop"/"cancel" still
-         stops (falls through to the supersede below). A refused steer (the run already finished its work, or has no
-         id yet) falls through to the old path, which now says the earlier run was stopped. */
+         member or third-party text must never ride into it as a Commander instruction. A plain "stop"/"cancel" from
+         the owner IS /stop (below). A refused steer (the run already finished its work, or has no id yet) falls
+         through to the old path, which now says the earlier run was stopped. */
       const liveRun = inflight.get(chatId);
+      // a plain "stop"/"cancel" from the owner while this chat's run is working IS /stop: the same reply, no supersede
+      // notice, and no paid model run on the word "stop". Same message kinds the steer below accepts; anything else
+      // (a group, a forward, media, a non-owner) falls through unchanged.
+      if (liveRun && liveRun.abort && !liveRun.superseded && !liveRun.halted && senderIsOwner
+          && msg.chatType !== 'group' && !msg.edited && !carriesThirdPartyText(msg)
+          && !(Array.isArray(msg.media) && msg.media.length)
+          && STOP_WORDS_RE.test(String(msg.text || ''))) {
+        liveRun.superseded = true;   // no supersededBy: the run's teardown stays quiet, exactly like /stop
+        let aborted = false;
+        try { liveRun.abort.abort(); aborted = true; } catch (e) { failNote('channels.hub.plainStop', e); }
+        await deliver(chatId, aborted ? 'Stopped the run in progress.' : '⚠ Could not stop that run — it may already be finishing.', '', 'command');
+        return;
+      }
       // 409 = that run's loop already FINISHED its work and is settling its reply: never abort it (that would throw away
       // a finished answer) — it delivers, and this message runs next, queued behind it on the same conversation.
       let letPrevFinish = false;
@@ -1843,7 +1857,7 @@
           } catch (_) { /* a stop notice must never crash the teardown */ }
         } else if (!myRec.halted && myRec.supersededBy === 'message' && !haltNoticeSent && myRec.runId && !(state && state.errMsg)) {
           /* A NEWER MESSAGE STOPPED THIS RUN — never silently (2026-10-11). This is the fallback when the follow-up
-             could not join the run (no steer seam, a group chat, media, an explicit "stop", or no live loop to read
+             could not join the run (no steer seam, a group chat, media, a "stop" the owner did not send, or no live loop to read
              it): the earlier task's unfinished reply is dropped, so say so once. Its question stays
              in the transcript, so the newer run can see it. */
           haltNoticeSent = true;
