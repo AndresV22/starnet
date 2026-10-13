@@ -203,7 +203,7 @@ const roster = new Map([['researcher', { system: 'R', name: 'MIRA' }], ['writer'
   A.ok(/x\.status === 'running' && x\.parentStreamId === w\.id/.test(app), 'a conversation whose crew is still working says so on its own lamp');
   A.ok(/title, worker: true \}\);/.test(idx) && /parentStreamId: t\.worker \? \(t\.parentStreamId \|\| ''\) : ''/.test(idx), 'the delegating run marks its threads as workers, and only those are briefed as delegated work');
   A.ok(/includeArchived: true, includeWorkers: true \}\)\.filter\(w => w && w\.worker === true && w\.parentStreamId === parentId\)/.test(dg), 'the card is the one place that reads workers\' threads');
-  A.ok(/parentStreamId: parentId, worker: true,/.test(sc) && /if \(prompt && !ws\.worker\) ws\.history\.push\(/.test(sc) && /markUnread && !ws\.worker/.test(sc), 'a worker adopted on first delivery is marked a worker, never unread on its own');
+  A.ok(/parentStreamId: parentId, worker: true,/.test(sc) && /if \(prompt && !ws\.worker\) turns\.push\(/.test(sc) && /markUnread && !ws\.worker/.test(sc), 'a worker adopted on first delivery is marked a worker, never unread on its own');
   A.ok(/Workstreams\.isHidden && Workstreams\.isHidden\(w\)\) \|\| filed/.test(rs), 'a deliverable\'s "open conversation" never adopts a worker\'s thread as a session');
   A.ok(/overseer\.threads\(\)\.filter\(w => w\.worker !== true\)\.map/.test(idx), 'the lead\'s session list never offers a worker\'s thread');
   A.ok(/workerThreadIds: \(\) =>/.test(idx) && /workers\.has\(r\.streamId\)/.test(src('sidecar/remote/host.js')), 'nor does the phone');

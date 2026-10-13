@@ -998,7 +998,7 @@ for (const reason of ['done', 'budget', 'max_iters', 'aborted']) {
   A.ok(/'station\.sessions'/.test(page), 'the page can list its sessions');
   A.ok(/'station\.deliver'/.test(page), 'the page can fold a delegated answer into a session');
   A.ok(/indexOf\(runId\) >= 0/.test(page), 'delivery is idempotent by runId (no double-posting)');
-  A.ok(/history\.push/.test(page) && !/ws\.history = next/.test(page), 'delivery APPENDS — it never replaces a session\'s existing thread');
+  A.ok(/history\.(?:push|splice)/.test(page) && !/ws\.history = next/.test(page), 'delivery APPENDS — it never replaces a session\'s existing thread');
   const mirror = fs.readFileSync(path.join(__dirname, '..', 'website', 'app', 'app', 'stationcommands.js'), 'utf8');
   A.eq(mirror, page, 'the website mirror of stationcommands.js is in sync');
 }

@@ -113,6 +113,81 @@ async function call(env, verb, args) {
   A.eq(env.page.loaded.length, 0, 'a session that is NOT open is not force-rendered');
 }
 
+// A foreground worker's text is not proof of completion: keep the actual terminal reason live and after recovery.
+for (const reason of ['done', 'budget', 'max_iters', 'aborted', 'error']) {
+  const env = boot();
+  const worker = env.W.adopt({ id: 'worker-outcome', title: 'Worker outcome', agentId: 'researcher', worker: true, parentStreamId: env.W.generalId() });
+  await call(env, 'station.deliver', { streamId: worker.id, agentId: 'researcher', runId: 'outcome-' + reason, text: 'The recorded work so far.', reason });
+  A.eq(worker.lastRunReason, reason, 'live worker delivery preserves ' + reason);
+  A.eq(worker.lastRunOk, reason === 'done', 'only a completed worker is successful: ' + reason);
+  env.W.init(JSON.parse(JSON.stringify(env.W.serialize())));
+  A.eq(env.W.get(worker.id).lastRunReason, reason, 'worker outcome survives page restart: ' + reason);
+}
+{
+  const env = boot({ runs: [{ runId: 'partial-run', streamId: 'partial-worker', sessionTitle: 'Partial worker',
+    agentId: 'researcher', reason: 'max_iters', deliveryText: 'Partial findings.', ts: 1000 }] });
+  const worker = env.W.adopt({ id: 'partial-worker', title: 'Partial worker', worker: true, parentStreamId: env.W.generalId() });
+  await call(env, 'station.deliver', { streamId: worker.id, runId: 'partial-run', text: 'Partial findings.' });
+  A.eq(worker.lastRunReason, '', 'a legacy delivery without outcome never guesses completion');
+  A.eq(await env.S.reconcile(worker.id), 0, 'learning an outcome does not duplicate an already delivered answer');
+  A.eq(worker.lastRunReason, 'max_iters', 'recovery heals an older delivery that lost its iteration-limit reason');
+  A.eq(worker.history.length, 1, 'the partial answer remains single');
+  env.W.appendRun(worker.id, 'newer-run', 2000); env.W.noteRunEnd(worker.id, 'newer-run', true, 'done');
+  await env.S.reconcile(worker.id);
+  A.eq(worker.lastRunReason, 'done', 'an older recovered outcome cannot replace the newest run result');
+}
+{
+  const env = boot({ runs: [{ runId: 'empty-error', streamId: 'failed-worker', sessionTitle: 'Failed worker',
+    agentId: 'researcher', reason: 'error', deliveryText: '', ts: 1000 }] });
+  const worker = env.W.adopt({ id: 'failed-worker', title: 'Failed worker', worker: true, parentStreamId: env.W.generalId() });
+  await call(env, 'station.dispatch_start', { streamId: worker.id, runId: 'empty-error' });
+  const ended = await call(env, 'station.dispatch_end', { streamId: worker.id, runId: 'empty-error' });
+  A.eq(ended.ok, true, 'dispatch end settles the foreground worker channel');
+  await env.S.reconcile(worker.id);
+  A.eq(worker.lastRunReason, 'error', 'a worker that failed without text still retains its actual reason');
+  A.eq(worker.history.length, 0, 'recovering an empty failure invents no assistant answer');
+  A.eq(worker.runIds[0], 'empty-error', 'the failed run can still be inspected from its card');
+  A.eq(env.page.save.workstreams.find(w => w.id === worker.id).lastRunReason, 'error', 'empty failure outcome is persisted');
+}
+
+// Healing a missed older attempt must never make it the worker's newest result or stop a newer live retry.
+for (const text of ['', 'Older partial work.']) {
+  const runs = [
+    { runId: 'new-result', streamId: 'healed-worker', sessionTitle: 'Healed worker', reason: 'done', deliveryText: 'New result.', ts: 2000 },
+    { runId: 'missed-attempt', streamId: 'healed-worker', sessionTitle: 'Healed worker', reason: 'error', deliveryText: text, ts: 1000 }
+  ];
+  const env = boot({ runs });
+  const worker = env.W.adopt({ id: 'healed-worker', title: 'Healed worker', worker: true, parentStreamId: env.W.generalId() });
+  await call(env, 'station.deliver', { ...runs[0], text: runs[0].deliveryText });
+  await call(env, 'station.dispatch_start', { streamId: worker.id, runId: 'live-retry' });
+  const healed = await env.S.reconcile(worker.id);
+  A.eq(worker.runIds.join(','), 'missed-attempt,new-result', 'recovered older attempt stays before the known newer result');
+  A.eq(worker.lastRunReason, 'done', 'older recovery preserves the newest measured outcome');
+  A.eq(worker.lastRunOk, true, 'older recovery preserves the newest success flag');
+  A.eq(worker.lastActiveAt, 2000, 'older recovery does not move activity backwards');
+  A.eq(env.C.runIdOf(worker.id), 'live-retry', 'older recovery does not clear a newer live channel');
+  A.eq(env.C.isBusy(worker.id), true, 'the newer retry remains busy');
+  A.eq(healed, text ? 1 : 0, 'only a recovered answer counts as delivered');
+  A.eq(worker.history.at(-1).content, 'New result.', 'recovery keeps the newest answer last');
+  A.eq(env.page.save.workstreams.find(w => w.id === worker.id).runIds.join(','), 'missed-attempt,new-result', 'recovery persists the corrected run order even for an empty failure');
+  const staleEnd = await call(env, 'station.dispatch_end', { streamId: worker.id, runId: 'missed-attempt' });
+  A.eq(staleEnd.result.settled, false, 'a delayed old end event does not claim to settle the newer channel');
+  A.eq(env.C.runIdOf(worker.id), 'live-retry', 'a delayed old end event cannot clear the retry');
+  await call(env, 'station.deliver', { ...runs[0], text: runs[0].deliveryText });
+  A.eq(env.C.runIdOf(worker.id), 'live-retry', 'a duplicate prior delivery cannot clear the retry');
+}
+
+{
+  const env = boot({ runs: [{ runId: 'missed-before-live', streamId: 'active-worker', sessionTitle: 'Active worker', reason: 'error', deliveryText: '', ts: 1000 }] });
+  const worker = env.W.adopt({ id: 'active-worker', title: 'Active worker', worker: true, parentStreamId: env.W.generalId() });
+  env.W.appendRun(worker.id, 'live-not-recorded-yet', 2000);
+  await call(env, 'station.dispatch_start', { streamId: worker.id, runId: 'live-not-recorded-yet' });
+  await env.S.reconcile(worker.id);
+  A.eq(worker.runIds.join(','), 'missed-before-live,live-not-recorded-yet', 'the current channel anchors recovery before its run reaches the server record');
+  A.eq(worker.lastRunReason, '', 'a live unconfirmed outcome stays unknown while an old failure is recovered');
+  A.eq(worker.lastRunOk, null, 'a live unconfirmed success flag stays unknown');
+}
+
 // ---- task board verbs: canonical kind:'task' Workstreams, durable read-back, and semantic idempotency ----
 {
   const env = boot({ agents: () => [{ id: 'builder', name: 'BUILDER' }] });
