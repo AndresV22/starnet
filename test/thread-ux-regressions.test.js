@@ -207,3 +207,24 @@ test('a card settled by another surface says what was APPLIED and where it came 
   assert.ok(/U\.bus\.emit\('permission\.response', \{ promptId: p\.promptId, decision: appliedDecision, via: via \|\| 'desk' \}\)/.test(chat), 'every local answer names its surface on the bus');
   assert.ok(/Chat\.answerConsent\(pending, ws, decision, 'voice'\)/.test(fs.readFileSync('frontend/app/voice-live.js', 'utf8')), 'voice answers say they were spoken');
 });
+
+test('answering one of two asks moves the bell to the other QUIETLY (no second toast, no chime); a quiet notify files the bell only', () => {
+  const effects = [];
+  const pending = [{ promptId: 'a', tool: 'fs.write', workerAgentId: 'MIRA' }, { promptId: 'b', tool: 'fs.write', workerAgentId: 'VEX' }];
+  const c = ctx(part(chat, '  const settledPromptNotices', '  function settledWhere(resp)'), { Channels: { pendingAllOf: () => pending }, StationUI: { notify: (text, cls, category, opts) => effects.push(opts), settleNotifs() {} }, Workstreams: { get: id => ({ id }) }, askerName: p => p.workerAgentId, actionPhrase: () => 'write a file' });
+  c.settlePromptNotice('ws1', 'a');
+  assert.equal(effects.length, 1); assert.equal(effects[0].prompt, 'b'); assert.equal(effects[0].quiet, true, 'the remaining ask is re-filed without a toast');
+  const ui = fs.readFileSync('frontend/app/stationui.js', 'utf8');
+  const toasts = [], notifs = [];
+  const s = ctx(part(ui, '  function notify(text, cls, category, opts) {', '  function goToNotif(go) {'), { notifyPrefOf: () => ({ show: true, sound: true }), NOTIF_KIND_OF: { needsApproval: 'needs' }, store: { notifs }, uid: () => 'n1', save() {}, badges() {}, open: {}, rerender() {}, toast: (...a) => toasts.push(a), openNotif() {}, NOTIF_LIFE: 1 });
+  s.notify('VEX still needs approval', 'warn', 'needsApproval', { kind: 'needs', key: 'needs:ws1', prompt: 'b', quiet: true });
+  assert.equal(s.store.notifs.length, 1, 'the bell entry is filed'); assert.equal(toasts.length, 0, 'no toast, no sound');
+  s.notify('MIRA needs approval', 'warn', 'needsApproval', { kind: 'needs', key: 'needs:ws2', prompt: 'c' });
+  assert.equal(toasts.length, 1, 'an ordinary notify still toasts');
+});
+
+test('a delegated worker\'s question toasts in the WORKER\'s name, like its card', () => {
+  const body = part(chat, '  function clarifyRow(', '  // p = a consent payload');
+  assert.ok(/const asker = \(p && p\.workerAgentId\) \? askerName\(p, ws\) : name;[^\n]*\n\s*if \(ws && !announcedPrompt\(p\.promptId, ws\)[^\n]*StationUI\.notify\(asker \+ ' has a quick question for you'/.test(body));
+  assert.ok(!/StationUI\.notify\(name \+ ' has a quick question/.test(body), 'never the lead\'s name');
+});
