@@ -308,7 +308,7 @@
       // {reason, messages, usd, turns, …}), so the token stream is where the iteration's own account of its
       // work comes from — the same way cron-driver captures it. This is what the convergence reader and the
       // candidate title are read from, so without it every candidate is titleless and NOTHING-TO-DO is never seen.
-      const state = { buf: '', errMsg: null, reason: null, cancelled: false };
+      const state = { buf: '', errMsg: null, reason: null, cancelled: false, toolsRan: 0 };   // toolsRan: an empty end after tool steps is not "nothing was done"
       const sink = function (name, payload) {
         const p = payload || {};
         const lease = leases.get(loop.id);
@@ -320,7 +320,7 @@
           }
         }
         if (name === 'agent.token') { state.buf += (p.delta || ''); return; }   // accumulated here; never teed out
-        if (name === 'agent.tool_call') state.buf = '';
+        if (name === 'agent.tool_call') { state.buf = ''; state.toolsRan++; }
         if (name === 'agent.run.error') state.errMsg = p.message || 'run error';
         else if (name === 'capdenied') state.errMsg = state.errMsg || ('no ' + (p.need || 'capability') + ' — ' + (p.reason || ''));
         else if (name === 'agent.run.end') {
@@ -414,7 +414,7 @@
             if (terminalReason !== 'done') {
               return settle(loop.id, runId, {
                 status: 'error', cancelled: terminalReason === 'cancelled',
-                error: incompleteRunMessage(terminalReason)
+                error: incompleteRunMessage(terminalReason, { toolsRan: state.toolsRan || 0 })   // tools that ran: an 'empty' end may already have changed things
               });
             }
             // hand the harvest the run result WITH the streamed text folded in (runOnce doesn't carry it).
