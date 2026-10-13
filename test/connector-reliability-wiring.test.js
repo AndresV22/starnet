@@ -64,4 +64,25 @@ A.ok(/migrateConnectorCatalogKeyHeaders/.test(host) && /headers\[catalogEntry\.k
   A.eq(html({ encrypted: true, notice: null, migrationNotice: null }), '', 'nothing to say, nothing drawn');
   A.ok(/notices\.innerHTML \+= storageNoticeHtml\(storage\)/.test(A.fnBody(connectors, 'async function refresh(')), 'the panel draws it');
 }
+// security-storage-04: START FRESH finishing an interrupted attempt answers with `previous` (the folders that attempt
+// filled). A resume with nothing left to move has no movedTo, and the marker that named those folders is gone, so the
+// toast is the one place left that says where the old files are.
+{
+  const vm = require('node:vm');
+  const body = A.fnBody(connectors, 'function startFreshKeptText(');
+  A.ok(body && body.length < 2000, 'connectors.js has the START FRESH answer helper');
+  const ctx = {};
+  vm.createContext(ctx);
+  if (body) vm.runInContext(body + '\nthis.kept = startFreshKeptText;', ctx);
+  const kept = j => (ctx.kept ? ctx.kept(j) : '');
+  A.eq(kept({ movedTo: 'C:/c/unreadable-2', previous: [] }), 'Connector storage started fresh. Old files kept in C:/c/unreadable-2', 'a plain START FRESH names its folder');
+  A.eq(kept({ movedTo: 'C:/c/unreadable-2', previous: ['C:/c/unreadable-1', 'C:/c/unreadable-0'] }),
+    'Connector storage started fresh. Old files kept in C:/c/unreadable-2 (earlier copies in C:/c/unreadable-1, C:/c/unreadable-0)', 'a resumed one names the earlier folders too');
+  A.eq(kept({ movedTo: '', previous: ['C:/c/unreadable-1'] }), 'Connector storage started fresh. Old files kept in C:/c/unreadable-1', 'nothing left to move: the earlier folder holds them');
+  A.eq(kept({ movedTo: '', previous: ['C:/c/unreadable-1', 'C:/c/unreadable-0'] }),
+    'Connector storage started fresh. Old files kept in C:/c/unreadable-1 (earlier copies in C:/c/unreadable-0)', 'each folder named once');
+  A.eq(kept(null), 'Connector storage started fresh. Old files kept in the connectors folder', 'an answer with no folders keeps the old wording');
+  const sf = connectors.slice(connectors.indexOf("armedLabel: 'SURE? SIGN IN AGAIN'"), connectors.indexOf("armedLabel: 'SURE? SIGN IN AGAIN'") + 1200);
+  A.ok(/notify\(startFreshKeptText\(r\.j\)\)/.test(sf), 'the START FRESH toast uses it');
+}
 A.report('connector-reliability-wiring.test');

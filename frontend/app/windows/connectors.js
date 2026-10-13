@@ -44,6 +44,16 @@
     return (s.notice ? '<div class="mc-notice"><b>Credential storage · not encrypted</b>' + esc(s.notice) + '</div>' : '') +
       (s.migrationNotice ? '<div class="mc-notice"><b>Credential storage</b>' + esc(s.migrationNotice) + '</div>' : '');
   }
+  /* START FRESH's answer: where the old files went. Finishing an interrupted attempt also returns `previous`, the
+     folders that attempt filled; with nothing left to move it has no movedTo, and the marker that named those folders
+     is gone, so this toast is the one place left that says where the old files are. */
+  function startFreshKeptText(answer) {
+    const j = answer || {};
+    const previous = Array.isArray(j.previous) ? j.previous.filter(p => typeof p === 'string' && p) : [];
+    const where = (typeof j.movedTo === 'string' && j.movedTo) || previous[0] || 'the connectors folder';
+    const earlier = previous.filter(p => p !== where);
+    return 'Connector storage started fresh. Old files kept in ' + where + (earlier.length ? ' (earlier copies in ' + earlier.join(', ') + ')' : '');
+  }
 
   /* ============== CONNECTORS — attach MCP servers so agents gain external tools ==============
      A connector is a remote MCP (Model Context Protocol) server. Once added + connected, its tools
@@ -1047,7 +1057,7 @@
                 fresh.disabled = true;
                 let r = null;
                 try { r = await Harness.api.post('/api/connectors/storage/start-fresh', { confirm: true }); } catch (_) {}
-                if (r && r.ok) { sfx('ok'); notify('Connector storage started fresh. Old files kept in ' + ((r.j && r.j.movedTo) || 'the connectors folder')); }
+                if (r && r.ok) { sfx('ok'); notify(startFreshKeptText(r.j)); }
                 else { sfx('bad'); notify('START FRESH failed: ' + ((r && r.j && r.j.error) || 'the station did not answer')); }
                 refresh();
               }
