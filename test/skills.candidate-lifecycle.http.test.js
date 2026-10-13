@@ -161,6 +161,18 @@ const server = http.createServer((req, res) => {
     const evaluated = await action('evaluate-candidate', candidate, { suiteId: 'owner:copy-lifecycle' });
     const receipt = evaluated.receipt;
     assert.equal(receipt.status, 'passed', JSON.stringify(receipt));
+    // skills-eval-21: a reload of the panel keeps the paid result (the whole stored receipt rides the candidate)
+    await check('skills-eval-21', async () => {
+      const listed = (await candidates()).find(c => c.candidateId === candidate.candidateId);
+      assert.equal(listed.latestEvaluation && listed.latestEvaluation.receiptId, receipt.receiptId, 'the list carries the latest receipt');
+      assert.equal(listed.latestEvaluation.candidateDigest, candidate.candidateDigest);
+      assert.equal(listed.latestEvaluation.baselineDigest, candidate.baseDigest);
+      assert.equal(listed.latestEvaluation.cases.length, 2, 'whole receipt, cases included');
+      const single = await api('GET', '/api/agent-skills/candidates?agent=agent&candidateId=' + encodeURIComponent(candidate.candidateId));
+      assert.equal(single.candidate.latestEvaluation && single.candidate.latestEvaluation.receiptId, receipt.receiptId, 'and so does the single read');
+      const other = (await candidates()).find(c => c.candidateId === seeded.fresh.candidateId);
+      assert.equal(other.latestEvaluation, null, 'a proposal never evaluated carries none');
+    });
     assert.equal(receipt.cases.length, 2);
     assert.ok(receipt.cases.every(c => c.before.completed && c.after.pass));
     assert.ok(receipt.cases.some(c => c.heldOut));

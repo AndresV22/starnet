@@ -18657,13 +18657,25 @@ function serveSkillCandidates(req, res) {
     const u = new URL(req.url, 'http://localhost'), agentId = String(u.searchParams.get('agent') || 'agent');
     if (!isAgentId(agentId)) return learningJson(res, 403, { ok: false, error: 'forbidden' });
     const id = String(u.searchParams.get('candidateId') || u.searchParams.get('id') || '');
+    /* latestEvaluation: the newest stored receipt for exactly this proposal and this active version, the whole row (the
+       page reads its cases for a tie or a spend stop), so a panel reload no longer throws away a paid result. Read-only:
+       approve-candidate still re-verifies the receipt by id (verifySkillPromotion), so nothing here grants trust. */
+    const receipts = skillEvaluationIo.get('skill-evaluation-receipts');
+    const latestFor = c => {
+      if (!Array.isArray(receipts) || !c) return null;
+      for (let i = receipts.length - 1; i >= 0; i--) {
+        const r = receipts[i];
+        if (r && r.receiptId && r.candidateDigest === c.candidateDigest && r.baselineDigest === c.baseDigest) return r;
+      }
+      return null;
+    };
     if (id) {
       const candidate = skillStore.candidate(agentId, id);
       if (!candidate) return learningJson(res, 404, { ok: false, error: 'no such candidate' });
-      return learningJson(res, 200, { ok: true, candidate, active: skillStore.view(agentId, candidate.skill.id, { bump: false, includeArchived: true, hydrate: false }), evaluationSuites: evaluationSuiteMetadata(agentId, [candidate.skill]) });
+      return learningJson(res, 200, { ok: true, candidate: Object.assign({}, candidate, { latestEvaluation: latestFor(candidate) }), active: skillStore.view(agentId, candidate.skill.id, { bump: false, includeArchived: true, hydrate: false }), evaluationSuites: evaluationSuiteMetadata(agentId, [candidate.skill]) });
     }
     const candidates = skillStore.candidates(agentId, { includeBody: u.searchParams.get('body') === '1', includeResolved: u.searchParams.get('resolved') === '1' });
-    return learningJson(res, 200, { ok: true, agentId, candidates, evaluationSuites: evaluationSuiteMetadata(agentId, candidates.map(c => c.skill)) });
+    return learningJson(res, 200, { ok: true, agentId, candidates: candidates.map(c => Object.assign({}, c, { latestEvaluation: latestFor(c) })), evaluationSuites: evaluationSuiteMetadata(agentId, candidates.map(c => c.skill)) });
   } catch (e) { return learningJson(res, 500, readRouteFailure('skill-candidates', e)); }
 }
 async function handleSkillCandidateAction(req, res) {
