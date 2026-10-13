@@ -9,6 +9,10 @@ const tick=()=>new Promise(r=>setImmediate(r));
  let next={unknown:true,reason:'unreachable'},degraded='',reloads=0,report;
  const ctx={el,gateActive:false,World:{stop(){}},SFX:{click(){}},tauriCore:()=>null,show(){},setInterval:()=>1,clearInterval(){},setTimeout(){},Save:{load:()=>null},location:{reload(){reloads++}},Harness:{engineState:async()=>({reason:degraded})},CloudSave:{reconcile:async()=>next,isUnknownSentinel:r=>!!r?.unknown},Diag:{copy(o){report=o.context;o.onDone(true,'fixture')}}};
  vm.runInNewContext(source+';showSaveUnreachableGate("unreachable")',ctx);await tick();
+ // review app-shell-ui-09: in browser mode (no desktop shell) the subtitle keeps saying so after a retry repaints it
+ assert.equal(el('unreachable-sub').textContent,'station service not answering (browser mode)','the first paint names browser mode');
+ el('btn-unreachable-retry').onclick();await tick();await tick();
+ assert.equal(el('unreachable-sub').textContent,'station service not answering (browser mode)','a retry keeps the browser-mode subtitle');
  for(const [reason,code] of [['unreadable','SAVE-READ'],['forbidden','SAVE-403'],['cache','SAVE-CACHE'],['unreachable','SAVE-NET']]){
   next={unknown:true,reason};el('btn-unreachable-retry').onclick();await tick();await tick();
   assert.match(el('unreachable-code').innerHTML,new RegExp(code),'latest response updates displayed recovery code');

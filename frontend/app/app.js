@@ -5321,10 +5321,13 @@ const App = (() => {
     gateActive = true;
     try { if (World && World.stop) World.stop(); } catch (_) {}
     const sub = el('unreachable-sub'), code = el('unreachable-code');
+    // BROWSER MODE (no desktop shell, see below): the subtitle says so on every repaint, not only the first
+    const core = tauriCore();
+    const notAnswering = 'station service not answering' + (core ? '' : ' (browser mode)');
     let diagnosis;
     // A retry can reach a different failure boundary; keep the screenshot and copied report current.
     const paintDiagnosis = reason => {
-      if (sub) sub.textContent = reason === 'forbidden' ? 'station service refused this window (stale session) — a relaunch usually clears it' : 'station service not answering';
+      if (sub) sub.textContent = reason === 'forbidden' ? 'station service refused this window (stale session) — a relaunch usually clears it' : notAnswering;
       if (sub && reason === 'unreadable') sub.textContent = 'saved station temporarily unreadable — retry without resetting';
       if (sub && reason === 'cache') sub.textContent = 'saved station could not be restored into this window — retry without resetting';
       // Screenshot-readable diagnosis for a stranded beginner: support can distinguish an alive sidecar refusing
@@ -5366,7 +5369,7 @@ const App = (() => {
       let reason = '';
       try { reason = String(((await Harness.engineState()) || {}).reason || ''); } catch (_) { reason = ''; }
       // Reapply a persistent degraded verdict after the retry refreshed its save-request diagnosis.
-      if (sub) { if (reason) sub.textContent = reason; else if (/^(degraded|station service halted)/i.test(sub.textContent)) sub.textContent = 'station service not answering'; }
+      if (sub) { if (reason) sub.textContent = reason; else if (/^(degraded|station service halted)/i.test(sub.textContent)) sub.textContent = notAnswering; }
       if (reason) {
         diagnosis = { code: /owner unavailable/i.test(reason) ? 'SAVE-OWNER · WORKSPACE OWNED BY ANOTHER PROCESS' : /crash-loop/i.test(reason) ? 'SAVE-LOOP · STATION SERVICE CRASH LOOP' : 'SAVE-DEGRADED · STATION SERVICE DEGRADED', text: reason };
         if (code) code.innerHTML = '<b>RECOVERY CODE: ' + diagnosis.code + '</b><br>' + diagnosis.text.replace(/&/g, '&amp;').replace(/</g, '&lt;') + '<br>Send a screenshot of this code to support.';
@@ -5375,11 +5378,9 @@ const App = (() => {
     };
     // BROWSER MODE (no desktop shell): there is no sidecar to restart and no workspace to quarantine, so this
     // screen used to offer nothing but the 5s poll — a dead end (audit: "first run fails silently"). Say plainly
-    // where the service lives, on the subtitle AND on every poll line, so the exit is never a mystery.
-    const core = tauriCore();
+    // where the service lives, on the subtitle (paintDiagnosis) AND on every poll line, so the exit is never a mystery.
     const BROWSER_HINT = 'the station service isn\'t answering. if you launched with `npm start`, check that terminal; otherwise open the desktop app.';
     if (!core) {
-      if (sub && reason !== 'forbidden' && reason !== 'unreadable' && reason !== 'cache') sub.textContent = 'station service not answering (browser mode)';
       if (reason === 'cache') setStatus('Your durable save is untouched. Retry after browser storage becomes available.');
       else if (reason === 'unreadable') setStatus('Your save is untouched. Retry when the station file becomes readable.');
       else setStatus(BROWSER_HINT);
