@@ -4298,10 +4298,18 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
   }
 
   let skillPanelLoad = 0;
-  async function skillReviewPost(action, body) {
-    const r = await Harness.api.post('/api/agent-skills/' + action, body, { timeoutMs: action === 'evaluate-candidate' ? 180000 : 60000 });
+  async function skillReviewPost(action, body, opts) {
+    const r = await Harness.api.post('/api/agent-skills/' + action, body, { timeoutMs: (opts && opts.timeoutMs > 0) ? opts.timeoutMs : action === 'evaluate-candidate' ? 180000 : 60000 });
     if (!r.ok || !r.j || !r.j.ok) throw new Error((r.j && r.j.error) || 'The station refused this change.');
     return r.j;
+  }
+  // How long the page waits for evaluate-candidate: the suite's waitMs (the station's own clock for it plus a margin,
+  // index.js evaluationSuiteMetadata), else the same rule the station uses (2 runs a case at 90 s each, 2 to 20 min,
+  // plus 30 s), so the page never gives up before the station's answer.
+  function evaluationWaitMs(suite) {
+    if (suite && suite.waitMs > 0) return suite.waitMs;
+    const cases = Number(suite && suite.cases);
+    return (cases > 0 ? Math.min(20 * 60000, Math.max(120000, cases * 2 * 90000)) : 20 * 60000) + 30000;
   }
   function loadAgentSkills(agentId) {
     const host = $('#sk-agent'); if (!host) return;
@@ -4387,7 +4395,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
           if (busy) return; busy = true; run.disabled = true; approve.disabled = true; acknowledge.disabled = true; acknowledge.hidden = true; receipt = null;
           note.textContent = 'Running the checks with and without the proposal…';
           try {
-            const r = await skillReviewPost('evaluate-candidate', Object.assign({}, request, { suiteId: suite.id }));
+            const r = await skillReviewPost('evaluate-candidate', Object.assign({}, request, { suiteId: suite.id }), { timeoutMs: evaluationWaitMs(suite) });
             showResult(r.receipt, suite, '');
           } catch (e) { note.textContent = e.message; }
           finally { busy = false; run.disabled = false; }

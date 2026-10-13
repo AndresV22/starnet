@@ -78,7 +78,12 @@ async function checkCandidateReview() {
     const children = [], found = {};
     return { children, dataset: {}, disabled: false, textContent: '', value: '',
       appendChild(child) { children.push(child); },
-      querySelector(key) { return found[key] || (found[key] = element()); },
+      // Like the real DOM, a card built from markup has no control its markup does not carry.
+      querySelector(key) {
+        const attr = /^\[([a-z-]+)\]$/.exec(key);
+        if (this.html != null && attr && !this.html.includes(attr[1])) return null;
+        return found[key] || (found[key] = element());
+      },
       set innerHTML(html) { this.html = html; }, get innerHTML() { return this.html || ''; } };
   }
   const postSource = source.slice(source.indexOf('  async function skillReviewPost('), source.indexOf('  function loadAgentSkills('));
@@ -86,11 +91,12 @@ async function checkCandidateReview() {
   const requests = [], reloads = [], host = element(); let status = 'passed', extra = {};
   const ctx = { host, esc: String, mkEl: (tag, cls) => Object.assign(element(), { tag, className: cls || '' }), loadAgentSkills: id => reloads.push(id),
     ArmConfirm: { wire(btn, opts) { btn.armed = opts; } },
-    Harness: { api: { post: async (path, body) => { requests.push({ path, body }); return { ok: true, j: { ok: true, receipt: Object.assign({ receiptId: 'host-receipt', status }, extra) } }; } } },
+    Harness: { api: { post: async (path, body, opts) => { requests.push({ path, body, opts }); return { ok: true, j: { ok: true, receipt: Object.assign({ receiptId: 'host-receipt', status }, extra) } }; } } },
     review: { candidates: [{ candidateId: 'candidate-3', candidateDigest: 'exact-sha', revision: 3,
       skill: { id: 'brief', name: 'Brief', body: 'Proposed instructions', scope: 'agent', files: [] } }],
-      evaluationSuites: [{ id: 'brief-checks', skillId: 'brief', description: 'Weekly brief checks' },
-        { id: 'task-handoff:Brief', skillId: 'brief', description: 'Structured continuation handoff.', generic: true }] }
+      // waitMs is the station's own wait for this suite (index.js evaluationSuiteMetadata); the generic suite omits it
+      evaluationSuites: [{ id: 'brief-checks', skillId: 'brief', description: 'Weekly brief checks', cases: 4, waitMs: 750000 },
+        { id: 'task-handoff:Brief', skillId: 'brief', description: 'Structured continuation handoff.', generic: true, cases: 3 }] }
   };
   vm.runInNewContext(postSource + renderSource + '\nrenderSkillCandidates(host, "agent", review);', ctx);
   const card = host.children[0], approve = card.querySelector('[data-candidate-approve]');
@@ -109,8 +115,11 @@ async function checkCandidateReview() {
   await run.onclick();
   A.eq(requests[0].body.candidateDigest, 'exact-sha', 'evaluation request binds displayed revision');
   A.eq(requests[0].body.suiteId, 'brief-checks', 'host selects runner for registered suite');
+  // skills-eval-06: the page waits as long as the station says this suite can take, never a fixed 3 minutes
+  A.eq(requests[0].opts && requests[0].opts.timeoutMs, 750000, 'evaluate waits the suite\'s waitMs from the station');
   A.eq(approve.disabled, false, 'passing host receipt enables separate approval action');
   await approve.onclick();
+  A.eq(requests[1].opts && requests[1].opts.timeoutMs, 60000, 'other skill actions keep the 60 s wait');
   A.eq(requests[1].body.evaluation, 'host-receipt', 'approval uses durable host receipt ID');
   A.eq(requests[1].body.candidateDigest, 'exact-sha', 'approval remains bound to displayed revision');
   A.ok(!Object.hasOwn(requests[1].body, 'status'), 'UI cannot manufacture evaluation status for approval');
@@ -163,6 +172,8 @@ async function checkCandidateReview() {
   const card6 = host6.children[0];
   await card6.querySelector('[data-evaluation-suites]').children[3].onclick();
   A.eq(requests.at(-1).body.suiteId, 'task-handoff:Brief', 'generic suite is the one evaluated');
+  // A suite listed without waitMs gets the station's own rule: 2 runs a case at 90 s, 2 to 20 min, plus a 30 s margin.
+  A.eq(requests.at(-1).opts && requests.at(-1).opts.timeoutMs, 3 * 2 * 90000 + 30000, 'a suite without waitMs waits by its case count');
   A.ok(card6.querySelector('[data-evaluation-result]').textContent.includes('Register task checks for this skill to measure it.'), 'a generic-suite tie suggests registering task checks');
   status = 'passed'; extra = {};
   const host3 = element(); ctx.host = host3;
@@ -263,6 +274,7 @@ async function checkCandidateReview() {
   };
   await untouched(reload(stale), 'a receipt for another revision is not shown as this one');
   await untouched(reload(Object.assign({}, passedRow, { baselineDigest: SkillEvaluation.digestSkill(null) })), 'a receipt measured against another active version is not shown');
+
 }
 
 // Review finding world-render-10: Change sharing speaks plain words, marks the current choice, asks for a
