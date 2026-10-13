@@ -309,11 +309,14 @@
 
   // Only explicit, proven standing preferences cross agent boundaries. A profile label alone can
   // describe private biographical facts; a global scope alone says nothing about provenance.
+  // The text test accepts every opening TrustedLearning.preferences() saves ("Remember that I prefer…",
+  // "I strongly prefer…", "For all future tasks, …"); test/trusted-learning.test.js locks writer and reader together.
+  // The stored `standing` flag is not trusted: it outlives a later correction of the words.
   function isStandingMemory(r) {
     if (!r || r.origin === 'feedback' || r.scope !== 'global' || r.projectRoot || r.streamId || r.taintedBy) return false;
     if (r.confirmation !== 'user-stated' && r.confirmation !== 'user-confirmed') return false;
     const text = String(r.content != null ? r.content : r.body || '');
-    const standing = /(?:^|[.!?]\s+)(?:(?:the\s+)?(?:i|we|user|commander)\s+(?:would\s+)?prefers?\b|prefers?\b|always\b|never\b|from now on\b|going forward\b|by default\b|every time\b|whenever\b)/i.test(text.trim());
+    const standing = /(?:^|[.!?]\s+)(?:(?:please\s+)?remember(?:\s+that)?[,:]?\s+)?(?:(?:the\s+)?(?:i|we|user|commander)\s+(?:would\s+|strongly\s+|generally\s+)?prefers?\b|prefers?\b|always\b|never\b|from now on\b|going forward\b|by default\b|every time\b|whenever\b|for (?:all|every) future (?:tasks?|chats?|conversations?)\b)/i.test(text.trim());
     return standing && (r.kind === 'profile' || r.pinned === true);
   }
 

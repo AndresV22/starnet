@@ -51,4 +51,17 @@ assert.equal('trustedOnly' in L.evidence({runId:'c'}),false,'a clean run keeps t
     const n=cap(file,re);assert.ok(n>0&&n<=L.LEARNING_TAIL_CHARS,file+' reads a tail inside the learning bound ('+n+')');
   }
 }
+// Review memory-learning-02: the writer (preferences) and the reader (isStandingMemory) must agree. Every
+// sentence the writer saves as a standing owner preference is read back as standing, so it is shared with the
+// crew and keeps its priority slot instead of behaving like an ordinary note.
+{
+  const { isStandingMemory } = require('../sidecar/context.js');
+  for (const content of ['Remember that I prefer dark mode.', 'Please remember that I prefer dark mode.', 'I strongly prefer tabs.', 'We generally prefer short replies.',
+    'For all future tasks, cite your sources.', 'For every future chat, answer in English.', 'From now on, use metric units.', 'Going forward, sign every commit.',
+    'By default, write in British English.', 'Remember that always cite your sources.', 'I prefer concise bullet points.', 'Never again push to main.', 'Always tabs, never spaces.']) {
+    const saved = L.preferences(input(content));
+    assert.equal(saved.length, 1, 'the writer saves: ' + content);
+    for (const p of saved) assert.equal(isStandingMemory({ kind: p.kind, content: p.content, scope: p.scope, projectRoot: p.projectRoot, confirmation: 'user-stated' }), true, 'the reader treats it as standing: ' + content);
+  }
+}
 console.log('trusted-learning: provenance, preference polarity, scope, external input and verification checks PASS');
