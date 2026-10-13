@@ -62,6 +62,19 @@ const fresh = fs => makeJourneyStore({ fs: fs || memFs(), path, workspaces: '/ws
   A.ok(s.snapshot().receipts.filter(r => r.agentId === 'builder').every(r => r.dismissedAt === 300), 'suppression is visible on its receipts');
   await s.setSuppressed('builder', 'building', false, 301);
   A.ok(/building: 7 verified outcomes/.test(s.adaptationBlock('builder')), 'Commander can resume the corrected track');
+  // LEAN PROMPT (2026-10-12): the block rides the cache-stable system prompt, so that form carries the TIER only — a count
+  // changes with every verified outcome and would re-write the cached prefix behind it mid-conversation
+  {
+    const t = fresh();
+    for (let n = 1; n <= 7; n++) await t.recordQuest(quest(n), null, 100 + n);
+    const tierOnly = t.adaptationBlock('builder', { counts: false });
+    A.ok(/\n- building \(proven\)\. Reuse established patterns\. State uncertainty outside this track\.\n/.test(tierOnly), 'tier-only block: domain, tier and its instruction');
+    A.ok(!/verified outcomes? \(/.test(tierOnly) && !/: \d+ /.test(tierOnly), 'tier-only block: no outcome count');
+    await t.recordQuest(quest(8), null, 108);
+    A.eq(t.snapshot().mastery.find(m => m.agentId === 'builder' && m.domain === 'building').count, 8, 'setup: an eighth verified outcome lands (still proven)');
+    A.eq(t.adaptationBlock('builder', { counts: false }), tierOnly, 'tier-only block is byte-identical across a verified outcome that crosses no tier');
+    A.ok(/building: 8 verified outcomes/.test(t.adaptationBlock('builder')), 'the default (counted) block still reports the live count');
+  }
   // PROTOTYPE POLLUTION (security audit 2026-09-25): '__proto__' passes the agent-id regex, and
   // rec.suppressed['__proto__'] is Object.prototype — one /api/journey call used to set Object.prototype.building.
   for (const bad of ['__proto__', 'constructor', 'prototype']) {

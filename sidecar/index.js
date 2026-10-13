@@ -21881,8 +21881,11 @@ async function runOnceCore(o) {
   // VERIFIED JOURNEY ADAPTATION: this is the behavioral half of the receipt the Commander sees. It is derived
   // exclusively from completed journey outcomes, is agent-specific, and disappears immediately when the
   // Commander suppresses that domain. It grants no tools or authority; it is a bounded planning prior.
+  // The cache-stable system prompt (stablePrefix, see CACHE-STABLE PREFIX below) carries the TIER-ONLY form: a count changes
+  // with every verified outcome and would re-write the cached prefix mid-conversation. The kill switch keeps the counted one.
+  const stablePrefix = !internal && !o.recovery && String(ENV('STABLE_PREFIX') || '').trim() !== '0';
   let journeyBlock = '';
-  if (!internal) { try { const jb = journeyStore.adaptationBlock(agentId); if (jb) journeyBlock = '\n\n' + jb; } catch (_) { journeyBlock = ''; } }
+  if (!internal) { try { const jb = journeyStore.adaptationBlock(agentId, { counts: !stablePrefix }); if (jb) journeyBlock = '\n\n' + jb; } catch (_) { journeyBlock = ''; } }
   /* DELIVERABLE NAMING — asked for at THE one final prompt seam, so every real-work surface gets it identically:
      the watched browser run, a cron routine, a Workshop shift, a messaging reply. Putting it on handleRun alone
      (as a first draft did) left the AWAY runs — the ones nobody watched and therefore most need a readable name —
@@ -21915,8 +21918,9 @@ async function runOnceCore(o) {
      the constant half of the Task Brief directive (~4.4K): it rides exactly when the brief and its brief_* tools do —
      every task message of a COMMS conversation — so it is as stable as the tool list; only the brief's own block
      (<task_brief id="tb_<runId>">, ORIGINAL REQUEST, commander evidence) moves. Internal self-talk and recovery
-     continuations are untouched. KILL SWITCH: STARNET_STABLE_PREFIX=0 restores the old single system prompt. */
-  const stablePrefix = !internal && !o.recovery && String(ENV('STABLE_PREFIX') || '').trim() !== '0';
+     continuations are untouched. The journey adaptation in the system is its tier-only form (no live counts).
+     KILL SWITCH: STARNET_STABLE_PREFIX=0 restores the old single system prompt. `stablePrefix` is declared above
+     journeyBlock. */
   const taskDoctrine = taskBrief ? '\n\n' + TaskIntent.directive('') : '';                     // TaskIntent.directive(cx) = doctrine + '\n' + cx
   const taskBriefContext = taskBrief && String(taskContextBlock || '').trim() ? '\n\n' + String(taskContextBlock).trim() : '';
   const perRunBlocks = runtimeSkillBlock + preloadedSkillBlock + taskBriefContext + awayBriefingNote + directDomainBlock + crewCallNote + runtimeBlock;

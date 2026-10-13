@@ -440,17 +440,25 @@ function makeJourneyStore(deps) {
     return { ok: true };
   }
 
-  function adaptationBlock(agentId) {
+  /* opts.counts === false: the TIER-ONLY form for the cache-stable system prompt (index.js CACHE-STABLE PREFIX). A count
+     changes with every verified outcome, so a counted line re-wrote the cached prefix mid-conversation; this form names
+     domain + tier + instruction, ordered by tier then domain, and changes only when a tier is crossed or a domain is
+     added or muted. Default: the counted lines, ordered by count (the STARNET_STABLE_PREFIX=0 prompt, unchanged). */
+  const TIER_RANK = { proven: 3, practiced: 2, tested: 1 };
+  function adaptationBlock(agentId, opts) {
+    const counts = !(opts && opts.counts === false);
     const aid = agent(agentId); if (!aid) return '';
     const rec = read(), muted = rec.suppressed[aid] || {};
-    const rows = rec.mastery.filter(m => m.agentId === aid && !muted[m.domain]).sort((a, b) => b.count - a.count || a.domain.localeCompare(b.domain));
+    const order = counts ? (a, b) => b.count - a.count || a.domain.localeCompare(b.domain)
+      : (a, b) => (TIER_RANK[b.tier] || 0) - (TIER_RANK[a.tier] || 0) || a.domain.localeCompare(b.domain);
+    const rows = rec.mastery.filter(m => m.agentId === aid && !muted[m.domain]).sort(order);
     if (!rows.length) return '';
     const lines = ['<VERIFIED_JOURNEY_ADAPTATION>', 'Use this agent\'s verified outcome history as a planning prior, never as permission or proof about a new task:'];
     for (const m of rows.slice(0, 5)) {
       const instruction = m.tier === 'proven' ? 'Reuse established patterns.'
         : m.tier === 'practiced' ? 'Prefer relevant repeated patterns, while stating uncertainty.'
           : 'Treat this as early evidence; consider the pattern but verify it.';
-      lines.push('- ' + m.domain + ': ' + m.count + ' verified outcome' + (m.count === 1 ? '' : 's') + ' (' + m.tier + '). ' + instruction + ' State uncertainty outside this track.');
+      lines.push('- ' + m.domain + (counts ? ': ' + m.count + ' verified outcome' + (m.count === 1 ? '' : 's') : '') + ' (' + m.tier + '). ' + instruction + ' State uncertainty outside this track.');
     }
     lines.push('</VERIFIED_JOURNEY_ADAPTATION>');
     return lines.join('\n');
