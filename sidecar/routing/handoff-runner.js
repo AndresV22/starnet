@@ -68,10 +68,13 @@ function makeHandoffRunner(deps) {
   const refused = [];          // [{ at, fromLine, toLine, error }] newest last
 
   const lineRec = (plan, id) => ((plan && Array.isArray(plan.lines)) ? plan.lines : []).find(l => l && String(l.lineId) === String(id)) || null;
-  const nameOf = (plan, id) => { const l = lineRec(plan, id); return (l && typeof l.name === 'string') ? l.name : ''; };
   // a line as the floor names it (Pipeline.lineNames over the plan's own line records: its first named INBOX, else LINE <its first
   // INBOX's letter>, never two lines alike) — the word the plates and the Workflows window say; null when the plan has no such line
   const floorWord = (plan, id) => { const W = typeof Pipeline.lineNames === 'function' ? Pipeline.lineNames((plan && Array.isArray(plan.lines)) ? plan.lines : []) : {}; return W[id] || null; };
+  /* the name a hand-off and its job records carry: the line's own name, else the floor's word for it (wave 2, worldmodel-08 — an
+     unnamed line was '' here, so the next crew was told the work came from "the line before this one" and the records had no
+     name while every plate said LINE N; Pipeline.lineWord is idempotent on 'LINE N', so nothing reads it doubled) */
+  const nameOf = (plan, id) => { const l = lineRec(plan, id); return (l && typeof l.name === 'string' && l.name.trim()) ? l.name : (floorWord(plan, id) || ''); };
   const say = (plan, id) => floorWord(plan, id) || Pipeline.lineWord(nameOf(plan, id), 'the next line');
   function stateOf(line) {
     let s = live.get(line);

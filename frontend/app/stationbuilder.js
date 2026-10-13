@@ -49,11 +49,9 @@
     }
     const base = String(wanted || '').trim().slice(0, 48);
     if (!taken(base)) return base;
-    for (let n = 2; n < 1000; n++) {
-      const tail = ' ' + n, label = base.slice(0, 48 - tail.length).trimEnd() + tail;
-      if (!taken(label)) return label;
-    }
-    return base; // (a floor holds far fewer lines than the candidates above)
+    // numbered by the floor's one rule (Pipeline.uniqueLineName via WM): 'Batch 7' beside a Batch 7 is Batch 8, as a paste makes it
+    // (this loop made 'Batch 7 2': wave 2, worldmodel-07)
+    return WM && typeof WM.uniqueLineName === 'function' ? WM.uniqueLineName(base, taken) : base;
   }
 
   /* a floor fingerprint over what an edit can change (never meta or derived links), in CANONICAL form: object keys

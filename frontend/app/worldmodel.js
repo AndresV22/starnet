@@ -1778,13 +1778,17 @@ const WorldModel = (() => {
       const g = sendGraph();
       return { routing, lines: g ? g.comps.map(c => c.props.slice().sort().join(',')).sort() : null };
     }
-    function moveRouteRefusal(before, links) {
+    /* `lost` = the moved machine's own links its belts could not re-lay (relayLinksOf). The refusal names the real cause (wave 2,
+       worldmodel-09): a connection that appeared, or one of ANOTHER machine's that broke, is the route changing (WOULD_REWIRE — e.g.
+       dropped onto another line's belt); only its own belts lost is ITS BELT CAN'T FOLLOW HERE (LINK_LOST); else the compiled route */
+    function moveRouteRefusal(before, links, lost) {
       const after = moveRouting(), now = currentLinks() || [];
       const pair = l => l.from.prop + '>' + l.to.prop;
-      const expected = new Set(links.map(pair));
-      if (now.some(l => !expected.has(pair(l))) || links.some(l => !now.some(n => pair(n) === pair(l)))
-        || (before && JSON.stringify(before) !== JSON.stringify(after)))
-        return sendFail('WOULD_REWIRE', 'Moving here would change which machines receive the work. Choose clear floor where the same belts can follow.', 'THIS MOVE WOULD CHANGE THE ROUTE');
+      const expected = new Set(links.map(pair)), gone = new Set((lost || []).map(l => l.from + '>' + l.to));
+      const rewire = () => sendFail('WOULD_REWIRE', 'Moving here would change which machines receive the work. Choose clear floor where the same belts can follow.', 'THIS MOVE WOULD CHANGE THE ROUTE');
+      if (now.some(l => !expected.has(pair(l))) || links.some(l => !gone.has(pair(l)) && !now.some(n => pair(n) === pair(l)))) return rewire();
+      if (lost && lost.length) return Object.assign(sendFail('LINK_LOST', 'Its belt finds no clear route from there. Move it where the belt can follow, or take the belt up first.', 'ITS BELT CAN’T FOLLOW HERE'), { lost });
+      if (before && JSON.stringify(before) !== JSON.stringify(after)) return rewire();
       return null;
     }
     const moveMemo = { k: null, v: null };
@@ -1830,11 +1834,15 @@ const WorldModel = (() => {
         return { ok: true };
       }
       // A LINKED MACHINE'S BELTS FOLLOW IT (conveyor-links phase B): each link to another machine is lifted and re-laid
-      // from its new spot, keeping its id and ports; one that finds no route is reported, never silently kept
+      // from its new spot, keeping its id and ports. One that finds no route refuses the move IN ITS OWN WORDS (wave 2,
+      // worldmodel-09 — it read "would change which machines receive the work"), unless the move also rewires another
+      // machine's connections (moveRouteRefusal decides which); the transact puts everything back either way
       const r = relayLinksOf(p, () => { p.x = nx; p.y = ny; });
-      const no = moveRouteRefusal(route, links); if (no) return no;
+      // (set down ON another machine's belt, the move takes that line — the route changing is the cause, whatever its own belts do)
+      const onOther = links.some(l => l.from.prop !== id && l.to.prop !== id && (l.path || []).some(q => q.x >= nx && q.x < nx + p.w && q.y >= ny && q.y < ny + p.h));
+      const no = moveRouteRefusal(route, links, onOther ? null : r.lost); if (no) return no;
       emit([before, propFootprint(p)].concat(r.dirty), { staticBakeUnchanged: true });
-      return { ok: true, relaid: r.relaid, lost: r.lost };
+      return { ok: true, relaid: r.relaid, lost: r.lost };   // (lost is always empty here now: a lost link refused above)
       }, 'MOVE');
     }
     /* MOVE SEVERAL PIECES AS ONE (Build Mode's group move, sweep 2026-10-02): every member shifts by (dTx, dTy) at once, then
@@ -2277,6 +2285,10 @@ const WorldModel = (() => {
       const line = first ? lineOf(first.id) : { ids: [], links: [] };
       if (!line) return fail('NOT_LINKED', 'this line is not on a floor that builds by links');
       const oldLinkIds = new Set(line.links.map(l => l.id));
+      // a NEW labelled INBOX (a shelf line laid out to fit) is numbered past a name another line already shows — judged on the floor
+      // before the edit, the line's own INBOXes excepted (wave 2, worldmodel-07)
+      const own = new Set(line.ids.filter(id => { const q = propById(id); return !!q && q.t === 'intake'; })), fresh = {};
+      for (const n of graph.nodes) if (n.t === 'intake' && !propById(n.id) && typeof n.label === 'string' && n.label.trim() && !(n.label in fresh)) fresh[n.label] = freshIntakeLabel(n.label, own);
       return transact(() => {
         const dirty = [], cell = (x, y) => ({ x1: x, y1: y, x2: x, y2: y });
         const mine = new Set(line.ids), inLine = l => mine.has(l.from.prop) && mine.has(l.to.prop);
@@ -2310,7 +2322,7 @@ const WorldModel = (() => {
             if (n.role && BAY_ROLES[n.role]) p.role = n.role;
             if (typeof n.agentId === 'string' && n.agentId) p.agentId = n.agentId;
             if (n.t === 'bay') stampBrief(p, n.role && (n.brief || n.hands) ? { [n.role]: { does: n.brief, hands: n.hands } } : null);
-            if ((n.t === 'intake' || n.t === 'bay') && typeof n.label === 'string' && n.label.trim()) p.label = n.label.trim().slice(0, 48);
+            if ((n.t === 'intake' || n.t === 'bay') && typeof n.label === 'string' && n.label.trim()) p.label = (n.t === 'intake' && fresh[n.label]) || n.label.trim().slice(0, 48);
             if (n.t === 'intake' && n.limits && typeof n.limits === 'object') {   // through the one normalizer, as a stamp does
               const nl = normalizeLimits(n.limits);
               if (nl) p.limits = { maxHops: nl.maxHops, maxUsdPerMessage: nl.maxUsdPerMessage, maxUsdPerDay: nl.maxUsdPerDay };
@@ -2663,7 +2675,7 @@ const WorldModel = (() => {
       if (O.t !== 'outbox') return sendFail('BAD_TYPE', 'Only an OUTBOX sends its line’s finished work on.', 'ONLY AN OUTBOX SENDS WORK ON');
       if (intakeId == null || intakeId === '') {
         if (!O.sendTo) return { ok: true, id: O.id, sendTo: null };
-        snapshot();
+        snapshot('SEND TO');   // (undo says UNDID · SEND TO, never SETTINGS — wave 2, worldmodel-11)
         delete O.sendTo;
         emit([propFootprint(O)], { staticBakeUnchanged: true });
         return { ok: true, id: O.id, sendTo: null };
@@ -2673,7 +2685,7 @@ const WorldModel = (() => {
       const g = sendGraph(), toLine = (g && g.lineOfProp[intakeId]) || null;
       if (O.sendTo === intakeId) return { ok: true, id: O.id, sendTo: intakeId, toLine, name: lineWord(g, toLine) };
       const I = propById(intakeId);
-      snapshot();
+      snapshot('SEND TO');
       O.sendTo = intakeId;
       emit([propFootprint(O), propFootprint(I)], { staticBakeUnchanged: true });
       return { ok: true, id: O.id, sendTo: intakeId, toLine, name: lineWord(g, toLine) };
@@ -3311,14 +3323,14 @@ const WorldModel = (() => {
         if (!s.ok) return s;
         let toId = typeof to === 'string' ? to : null, made = null;
         if (!toId && doc.belts[tileKey(to.x, to.y)]) { const m = junctionOnBelt(to.x, to.y, 'merger', o); if (!m.ok) return m; toId = made = m.id; }
-        if (!toId) { const d = placeNear(o && o.place, to, s.id); if (!d.ok) return d; toId = made = d.id; }
+        if (!toId) { const d = placeNear(o && o.place, to); if (!d.ok) return d; toId = made = d.id; }
         const c = connectBelt(s.id, toId, o);
         return c.ok ? { ok: true, id: s.id, made, count: c.count } : c;
       }, 'SPLITTER');
     }
     /* stand a new machine of spec {t,w,h,block} at (or as near as fits) tile {x,y} — the empty-floor drop. A 1x1 junction
        goes exactly there; a 2x2 machine tries the four footprints that cover the tile, then a ring further out. */
-    function placeNear(spec, tile, avoidId) {
+    function placeNear(spec, tile) {   // (the spot and its near neighbours only — no avoidance of the source machine: addProp's checks + the belt decide)
       if (!spec || !spec.t) return fail('NO_TYPE', 'pick what goes here');
       const w = Math.max(1, spec.w | 0 || 1), h = Math.max(1, spec.h | 0 || 1), x0 = tile.x | 0, y0 = tile.y | 0;
       const cands = [[x0, y0]];
@@ -3345,7 +3357,7 @@ const WorldModel = (() => {
     // the EMPTY-FLOOR drop: stand a piece there (placeNear) and belt machine fromId into it — one undo
     function dropFrom(fromId, tile, spec, o) {
       return transact(() => {
-        const d = placeNear(spec, tile, fromId);
+        const d = placeNear(spec, tile);
         if (!d.ok) return d;
         const c = connectBelt(fromId, d.id, o);
         return c.ok ? { ok: true, id: d.id, count: c.count } : c;
@@ -3475,12 +3487,19 @@ const WorldModel = (() => {
     const CLIP_CFG_DIRS = ['def', 'done', 'esc'];
     /* a pasted INBOX keeps its line's name, numbered when that name is already SHOWN here ("RESEARCH" → "RESEARCH 2") — by the one
        name key setPropLabel refuses on (final floor lane M32: 'Alpha' pasted beside 'Line Alpha 2' made a second LINE ALPHA 2) */
+    //  (numbered by the ONE rule, Pipeline.uniqueLineName — 'BATCH 7' pasted beside itself is BATCH 8, as the lead numbers it; a
+    //  stamped / laid shelf line's INBOX name is numbered the same way: wave 2, worldmodel-07)
     function freshIntakeLabel(label, except) {
-      const base = String(label || '').trim().slice(0, 48);
-      if (!base || !lineNameTaken(base, except)) return base;
-      const stem = base.replace(/\s+\d+$/, '');
-      for (let n = 2; n < 100; n++) { const nm = (stem.slice(0, 44) + ' ' + n); if (!lineNameTaken(nm, except)) return nm; }
-      return base;
+      const base = String(label || '').trim().slice(0, 48), P = pipelineModule();
+      if (!base) return base;
+      /* side-effect-free first: every name a line can SHOW is some INBOX's own word, or (an unnamed line numbered past a named one)
+         that word + ' N' — so when no INBOX's word is the name or its stem, nothing shows it, and the line graph (which adopts the
+         floor's links on a floor that never had them — a stamp mid-way through a fixture changed how later stamps were linked) is
+         never asked */
+      const key = shownWord(base);
+      if (!doc.props.some(q => q.t === 'intake' && !(except && except.has(q.id)) && (w => w === key || key.startsWith(w + ' '))(ownWord(q)))) return base;
+      if (!lineNameTaken(base, except)) return base;
+      return P && typeof P.uniqueLineName === 'function' ? P.uniqueLineName(base, v => lineNameTaken(v, except)) : base;
     }
     function lineMembers(propId) {
       const line = lineOf(propId);
@@ -3844,6 +3863,10 @@ const WorldModel = (() => {
       if (!v.ok) return v;
       tx |= 0; ty |= 0;
       const ov = (opts && typeof opts === 'object') ? opts : {};
+      // a pre-labeled INBOX (ALLOWANCE DESK) is numbered past a name the floor already shows — judged on the floor BEFORE the stamp
+      // (stamped twice it made two LINE ALLOWANCE that setPropLabel would refuse: wave 2, worldmodel-07)
+      const fresh = {};
+      for (const s of bp.props) if (s.t === 'intake' && typeof s.label === 'string' && s.label.trim() && !(s.label in fresh)) fresh[s.label] = freshIntakeLabel(s.label);
       snapshot();   // ONE undo slot for the whole line
       const ids = [], dirty = [];
       for (const s of bp.props) {
@@ -3853,7 +3876,7 @@ const WorldModel = (() => {
         /* an INBOX may stamp pre-labeled and pre-budgeted (ALLOWANCE DESK, 2026-08-30) — through the
            SAME normalizer setPropLimits uses, so a blueprint can never write a number the executor
            would read differently. Both fields already round-trip via migrate()'s prop whitelist. */
-        if (s.t === 'intake' && typeof s.label === 'string' && s.label.trim()) prop.label = s.label.trim().slice(0, 48);
+        if (s.t === 'intake' && typeof s.label === 'string' && s.label.trim()) prop.label = fresh[s.label] || s.label.trim().slice(0, 48);
         if (s.t === 'intake' && s.limits) {
           const nl = normalizeLimits(s.limits);
           if (nl) prop.limits = { maxHops: nl.maxHops, maxUsdPerMessage: nl.maxUsdPerMessage, maxUsdPerDay: nl.maxUsdPerDay };
@@ -4366,7 +4389,7 @@ const WorldModel = (() => {
       if (!p) return fail('NOT_FOUND', 'no such prop');
       if (p.t !== 'splitter') return fail('BAD_TYPE', 'only a SPLITTER divides a job');
       if (!!p.divide === !!on) return { ok: true, id: p.id, divide: !!on, already: true };
-      snapshot();
+      snapshot('SPLIT THE JOB');
       if (on) p.divide = true; else delete p.divide;
       emit([propFootprint(p)], { staticBakeUnchanged: true });
       return { ok: true, id: p.id, divide: !!on };
@@ -4501,7 +4524,7 @@ const WorldModel = (() => {
         const own = new Set([p.id].concat(intakesOfLine(sendGraph(), p.id)));
         if (lineNameTaken(l, own)) return sendFail('DUPLICATE_NAME', 'Another line is already called ' + lineNameKey(l) + '. Choose a distinct name.', 'THAT LINE NAME IS ALREADY IN USE');
       }
-      snapshot();
+      snapshot('NAME');   // (UNDID · NAME)
       if (l) p.label = l; else delete p.label;
       emit([{ x1: p.x, y1: p.y, x2: p.x + (p.w || 1) - 1, y2: p.y + (p.h || 1) - 1 }]);
       return { ok: true, id: propId, label: p.label || null };
@@ -4935,6 +4958,8 @@ const WorldModel = (() => {
     rotateClip, clipTurns,
     // an unnamed line's letter from its INBOX id (pure — station.lineLetter for an INBOX)
     lineLetterOf, lineNameKey: lineNameKeyOf,
+    // the one numbering rule for a new line's name (Pipeline.uniqueLineName, reached through here by stationbuilder, which takes WM)
+    uniqueLineName: (wanted, taken) => { const P = pipelineModule(); return P && typeof P.uniqueLineName === 'function' ? P.uniqueLineName(wanted, taken) : String(wanted == null ? '' : wanted).trim().slice(0, 48); },
   };
 })();
 

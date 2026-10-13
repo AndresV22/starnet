@@ -2182,7 +2182,7 @@
     }
     if (!barrier) return null;
     return 'STEP THROUGH carries one crate at a time and cannot finish this ' + (barrier === 'fanout' ? 'parallel' : 'joined')
-      + ' line. Use RUN ONE REAL JOB to test the whole line, or TRY THIS STEP on an individual BAY.';
+      + ' line. Use RUN ONE REAL JOB to test the whole line, or TEST THIS STEP on a single BAY.';   // (the BAY card's key reads TEST THIS STEP)
   }
   /* THE HAND's ALT VIEW (build mode, 2026-10-10): how many stages one job on a line can run, and its ceiling — the same count
      LINE_TOO_LONG makes (jobStages from every INBOX feed mouth of the line), for a line that is NOT over budget too, so the
@@ -2329,6 +2329,21 @@
     }
     return out;
   }
+  /* uniqueLineName(wanted, taken) -> the name a NEW line gets: `wanted` when no line shows it yet, else numbered on — from the name's
+     own trailing number ('BATCH 7' → 'BATCH 8'), else from 2 ('RESEARCH' → 'RESEARCH 2') — never longer than 48. `taken(name)` is the
+     floor's own duplicate test (worldmodel lineNameTaken: judged by the shown word). THE ONE numbering rule (wave 2, worldmodel-07):
+     a paste, a stamped or laid shelf line and the lead's planned line are all numbered by it — a paste made 'BATCH 2' of 'BATCH 7'
+     while the lead made 'BATCH 7 2', and a stamped ALLOWANCE DESK was never numbered at all. Pure. */
+  function uniqueLineName(wanted, taken) {
+    const base = String(wanted == null ? '' : wanted).trim().slice(0, 48);
+    if (!base || typeof taken !== 'function' || !taken(base)) return base;
+    const m = /^(.*\S)\s+(\d{1,6})$/.exec(base), stem = m ? m[1] : base;
+    for (let n = m ? Number(m[2]) + 1 : 2, i = 0; i < 1000; n++, i++) {
+      const tail = ' ' + n, nm = stem.slice(0, 48 - tail.length).trimEnd() + tail;
+      if (!taken(nm)) return nm;
+    }
+    return base;   // (a floor holds far fewer lines than the candidates above)
+  }
   function handoffInput(o) {
     const x = o || {};
     const nm = String(x.fromName == null ? '' : x.fromName).replace(/\s+/g, ' ').trim().slice(0, 48);
@@ -2353,7 +2368,7 @@
     return { fromName: m[1] || '', original: orig ? orig[1] : '', output: out ? out[1] : '' };
   }
 
-  return { stepTestRefusal, lineStages, fedLineIds, sendToFileAdvice, rejoinOf, deriveLinks, reconcileLinks, compileRoutingPlan, sendToOf, sendsReachedOf, outboxesReached, lineWord, lineLetterOf, lineNames, handoffInput, parseHandoffInput, composeStageBrief, HANDS_LEAD, resolveTarget, lineOf, lineOriginOf, lineLimitsOf, normalizeLineLimits, LINE_LIMIT_DEFAULTS, LINE_LIMIT_CEILINGS, sourceFor, ok, liveTiles, routeFrom, junctionLaneOwners, chainNext, chainStep, fanSiblings, handoffPrompt, parseHandoff, isHandoff, stripVerdictLine, joinPayload, divideJob, partTurn, partHandoff, divideBrief, divideAfterDock, splitFedByDock, lineComponents, LOOP_MAX_DEFAULT, LOOP_MAX_CEILING,
+  return { stepTestRefusal, lineStages, fedLineIds, sendToFileAdvice, rejoinOf, deriveLinks, reconcileLinks, compileRoutingPlan, sendToOf, sendsReachedOf, outboxesReached, lineWord, lineLetterOf, lineNames, uniqueLineName, handoffInput, parseHandoffInput, composeStageBrief, HANDS_LEAD, resolveTarget, lineOf, lineOriginOf, lineLimitsOf, normalizeLineLimits, LINE_LIMIT_DEFAULTS, LINE_LIMIT_CEILINGS, sourceFor, ok, liveTiles, routeFrom, junctionLaneOwners, chainNext, chainStep, fanSiblings, handoffPrompt, parseHandoff, isHandoff, stripVerdictLine, joinPayload, divideJob, partTurn, partHandoff, divideBrief, divideAfterDock, splitFedByDock, lineComponents, LOOP_MAX_DEFAULT, LOOP_MAX_CEILING,
     // THE DOCK LAYER (multi-bay agents, 2026-09-22) — the dock-keyed truth the agent readings above are views of
     resolveDock, chainNextDock, chainStepDock, fanSiblingsDock, junctionLaneDocks, lineOfDock, lineOriginOfDock, entryDockOf, docksOf, dockOf, agentOfDock: agentOfDockIn, deriveDockLayer, dockLayer, hasDockLayer, stepToAgents, propIdCmp,
     _internals: { DIRV, OPP, LANE_ORDER, key, buildBeltMap, outLanes, inLanes, loopLanes, beltTileNear, ringBelts, junctionAnchor, dirBetween, linkTilesByProp, linkedBeltMap, nextTiles, splitLanes, detectCycle, hashStr, compileChains, compileDockChains, chainCycle, shipFrom, propIdCmp, entryDocksOf, agentChainsView } };
