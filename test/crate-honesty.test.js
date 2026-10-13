@@ -120,4 +120,34 @@ A.ok(/dockLineWork\.clear\(\);/.test(load), '…and the per-dock line-work memor
   A.eq(sb.name('p99'), 'a line since edited', 'a key the floor no longer has says so — no borrowed label, no null');
 }
 
+/* ---- a SEND TO hand-off crate belongs to ITS floor and ITS frame (review world-render-06) ----
+   The crate is held (up to the hand-off grace) and then flown on an arc from the sending OUTBOX to the next line's INBOX, both
+   held as prop objects of the geometry it was placed on. Loading another save kept it, so it flew at stale coordinates and then
+   enqueued on the NEW floor's belts — a phantom work crate on the wrong line — and the OUTBOX-sink memory keyed by (recycled)
+   low prop ids could release a fresh one early. An edit that moved the station's origin left the arc in the old frame. */
+{
+  const vm = require('vm');
+  const blk = world.slice(world.indexOf('  const SEND_FLY_MS'), world.indexOf('  // hover: an INBOX (or its plate)'));
+  A.ok(blk.length > 500 && blk.length < 9000, 'the SEND TO crate block was located');
+  const enq = [], geoAt = (dx, dy, keep) => ({ props: [{ id: 'p5', t: 'outbox', x: 10 + dx, y: 10 + dy }, { id: 'p9', t: 'intake', x: 30 + dx, y: 10 + dy }].filter(keep || (() => true)) });
+  const sb = { T: 12, fnow: 1000, HANDOFF_GRACE_MS: 8000, geo: geoAt(0, 0), routingPlan: { lines: [] },
+    Pipeline: { sourceFor: () => ({ x: 3, y: 4 }) }, convey: { enqueueAt: (x, y, p) => enq.push([x, y, p.workitemId]) }, dockArrival: () => {} };
+  vm.createContext(sb);
+  vm.runInContext(blk + '\nthis.S = { place: placeSendCrate, crates: sendCrates, sunk: outboxSunk, arc: sendArcPts, sink: noteOutboxSink,' +
+    ' reframe: typeof reframeSendCrates === "function" ? reframeSendCrates : () => {}, clear: typeof clearSendCrates === "function" ? clearSendCrates : () => {} };', sb);
+  const S = sb.S;
+  A.ok(S.place({ fromOutbox: 'p5', toIntake: 'p9', agentId: 'ag1', workitemId: 'w1' }), 'a hand-off crate is placed on this floor');
+  sb.geo = geoAt(2, 1); S.reframe();
+  A.eq(S.arc(S.crates[0]).ax, 12.5 * 12, 'a room added at the north/west edge re-frames the held crate\'s arc with the floor');
+  sb.geo = geoAt(2, 1, q => q.id !== 'p5'); S.reframe();
+  A.eq(S.crates.length, 0, 'a crate whose OUTBOX was removed no longer flies from where it stood...');
+  A.eq(JSON.stringify(enq), JSON.stringify([[3, 4, 'w1']]), '...its real work still lands on its agent\'s line, like any work the floor cannot arc in');
+  sb.geo = geoAt(0, 0); S.place({ fromOutbox: 'p5', toIntake: 'p9', agentId: 'ag1', workitemId: 'w2' }); S.sink(10, 10);
+  A.ok(S.crates.length === 1 && S.sunk.size === 1, '(a held crate and an OUTBOX sink on the old floor)');
+  S.clear();
+  A.ok(S.crates.length === 0 && S.sunk.size === 0, 'clearing drops every hand-off and the sink memory');
+  A.ok(/clearSendCrates\(\);/.test(load), 'loading a different station clears the SEND TO crates — a hand-off never lands on the wrong floor');
+  A.ok(/reframeSendCrates\(\);/.test(A.fnBody(world, 'function rederive()')), 'every re-derive re-reads the held crates against the new floor');
+}
+
 A.report('crate-honesty');

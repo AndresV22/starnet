@@ -637,6 +637,7 @@ const World = (() => {
     novelty = []; seenProps = null; seenBelts = null;   // re-learn the scene from scratch (no cross-station novelty)
     beltWatch = null;                                   // ...and the belt-watch claim: this floor's belts are gone, so a claim on them is a ghost holding the slot
     clearDeferredShips();                               // a crate waiting on the OLD floor's handoff must never land on this one
+    clearSendCrates();                                  // ...nor a SEND TO hand-off held or flying on the old floor
     dockLineWork.clear(); activeDock.clear();          // ...and the dock glow it feeds (written together in intakeMessage)
     // LINE WATCH state is keyed by prop id, and a fresh doc reissues low ids — the old floor's lamps/plates would
     // light this floor's colliding bays. Drop the watch (lazily rebuilt; acks re-read from localStorage) and the
@@ -693,6 +694,7 @@ const World = (() => {
         if (b.state === 'walk') { b.state = 'idle'; b.idleUntil = 0; }
       }
     }
+    reframeSendCrates();           // a held/flying SEND TO crate re-reads its OUTBOX + INBOX in the new frame (after the plan + belts moved)
     syncCrewFromPlan();            // reconcile the light crew bodies with the plan's bound bays
     if (agent) {
       if (agent.unplaced) placeAgent();
@@ -9767,6 +9769,19 @@ const World = (() => {
     sendCrates.push({ p, ob, ib, born: fnow, t0: 0 });
     if (sendCrates.length > 12) sendCrates.shift();
     return true;
+  }
+  function clearSendCrates() { sendCrates.length = 0; outboxSunk.clear(); }   // loadStation: the old floor's crates and (recycled) ids
+  /* Props live in the local tile frame and each edit derives new prop objects: a crate re-reads its OUTBOX and INBOX by id, so an
+     origin shift (a room added at the north/west edge) or a moved prop carries the arc with it. A crate whose OUTBOX or INBOX is
+     gone is not dropped — the sidecar really placed that work — it lands now, the way any work the floor cannot arc in does. */
+  function reframeSendCrates() {
+    if (!sendCrates.length || !geo || !geo.props) return;
+    const gone = [];
+    for (let i = 0; i < sendCrates.length; i++) {
+      const c = sendCrates[i], ob = geo.props.find(q => q.id === c.ob.id), ib = geo.props.find(q => q.id === c.ib.id);
+      if (ob && ib) { c.ob = ob; c.ib = ib; } else gone.push(c);
+    }
+    for (const c of gone) { sendCrates.splice(sendCrates.indexOf(c), 1); landSendCrate(c); }
   }
   function noteOutboxSink(x, y) {
     if (!geo || !geo.props) return;
