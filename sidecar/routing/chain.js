@@ -283,7 +283,8 @@ function makeChainRunner(o) {
      the caller has them: the job's own stream and the time its entry run started, so the runner reads back exactly its runs;
      outboxId = the OUTBOX the job's last walk landed in — a line with two OUTBOXes hands on only from the one that sends).
      rec.partial (runtime repair 2026-10-12) = why a JOINER sent this job on without every branch (out.partial below): the host
-     still hears of it — so SEND TO can say on the next line why nothing came — but never counts or hands it on as a clean job. */
+     still hears of it — so SEND TO can say on the next line why nothing came — but never counts or hands it on as a clean job.
+     rec.entryTrusted / rec.hostPowerKept (conveyor-backend-04) = true only when the seed carried them as a literal true (shipped below). */
   const onShipped = typeof o.onShipped === 'function' ? o.onShipped : null;
   /* cleanJob({ lineId, entryRunId, streamId }) -> bool (runtime audit 2026-10-12): did EVERY run of this job end clean? The
      line-output authority below releases a held product on the floor; it must judge a job by the same rule the shipment receipt
@@ -410,6 +411,10 @@ function makeChainRunner(o) {
       streamId: (s.streamId != null && String(s.streamId)) || null, since: (typeof s.since === 'number' && isFinite(s.since)) ? s.since : null };
     // a PARTIAL joined job still reaches the host — the receipt refuses it and SEND TO says why on the next line — never as clean
     if (out.partial) rec.partial = String(out.partial);
+    /* SEND TO VERDICTS (conveyor-backend-04): the producing job's entry verdicts, carried only when the seed holds them as a literal
+       true (the channel hub stamps them — it ran the job under them). Absent = the hand-off runs untrusted + withheld (handoff-runner). */
+    if (s.entryTrusted === true) rec.entryTrusted = true;
+    if (s.hostPowerKept === true) rec.hostPowerKept = true;
     try { const r = onShipped(rec); if (r && typeof r.then === 'function') r.then(null, e => failNote('chain.onShipped', e)); }
     catch (e) { failNote('chain.onShipped', e); }
   }

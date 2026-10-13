@@ -655,6 +655,7 @@ test/untrusted-taint.test.js
 test/taint-lineage.test.js
 test/taint-refusal-copy.test.js
 test/taint-entry-origin.test.js
+test/sendto-entry-verdicts.test.js
 test/routine-tools.test.js
 test/routine-toolsets.test.js
 test/routine-grant-rebind.test.js

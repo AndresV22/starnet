@@ -20,6 +20,11 @@
      · at most MAX_PENDING hand-offs wait per target line behind the one running (a burst beyond is refused), one in flight.
    Re-checked at dispatch (a waiting hand-off whose gate closed meanwhile is dropped with the reason on record).
 
+   VERDICTS (conveyor-backend-04): the target line's job runs under the SENDING job's entry verdicts — the Commander's own job keeps
+   Full Access on the next line exactly as an in-line hop does; a payload-started, forwarded or attachment-started job stays under the
+   taint lock and a non-owner sender's job stays withheld. Fail closed: only entryTrusted/hostPowerKept carried as a literal true from the
+   hub that ran the job (chain.js shipped) lift either, the weakest along the lineage wins, and anything else is untrusted + withheld.
+
    THE RECORDS: the target line's job is a line-jobs record of ITS line with from:{ line, jobId, name }, its `text` the job AS IT
    FIRST ARRIVED and `handedIn` what the sending line delivered; the sending job is linked sentTo:{ line, jobId, name } — or,
    refused, sentTo.refused = why (never read as "sent on"). Each line's result stays its own. A job E-STOP killed is `stopped`.
@@ -139,7 +144,8 @@ function makeHandoffRunner(deps) {
     // the OUTBOX the job landed in (the chain's terminal walk) decides — a line with two OUTBOXes hands on only from the one that sends
     const st = plan ? Pipeline.sendToOf(plan, r.lineId, r.dockId, r.outboxId) : null;
     if (!st) return { ok: false, code: 'none' };   // this line sends nowhere (the common case)
-    const from = (r.streamId && lineage.get(String(r.streamId))) || { lines: [String(r.lineId)], depth: 0 };
+    const lin = (r.streamId && lineage.get(String(r.streamId))) || null;   // this job was itself handed on (B → C): its lineage
+    const from = lin || { lines: [String(r.lineId)], depth: 0 };
     const lines = from.lines.indexOf(String(r.lineId)) >= 0 ? from.lines.slice() : from.lines.concat([String(r.lineId)]);
     const fromJob = r.streamId ? J.byStream(String(r.streamId)) : null;
     // THE JOB AS IT FIRST ARRIVED: a handed-on job's own "original" is the frame it was handed — carry the first job's text down
@@ -149,7 +155,12 @@ function makeHandoffRunner(deps) {
     const item = {
       rec: r, fromLine: String(r.lineId), toLine: st.toLine, fromOutbox: st.outboxId, toIntake: st.intakeId,
       fromName: nameOf(plan, r.lineId), toName: nameOf(plan, st.toLine), fromJobId: fromJob ? fromJob.id : null,
-      lines, depth: from.depth + 1, at: now(), original, output: String(r.text == null ? '' : r.text)
+      lines, depth: from.depth + 1, at: now(), original, output: String(r.text == null ? '' : r.text),
+      /* THE SENDING JOB'S VERDICTS (conveyor-backend-04): positive only, and only when the chain carried them on this shipment (the hub
+         that ran the job established them) AND every earlier line of its lineage held them too — a hand-off is never more trusted than
+         the job that produced it, and the weakest verdict along A → B → C wins. Missing anywhere = untrusted entry + host power withheld. */
+      entryTrusted: r.entryTrusted === true && (!lin || lin.entryTrusted === true),
+      hostPowerKept: r.hostPowerKept === true && (!lin || lin.hostPowerKept === true)
     };
     // a PARTIAL joined job (chain out.partial: a COPY branch failed or never reached the JOINER) is not handed on as a finished
     // result — said on the next line, like a job with a failed step (runtime repair 2026-10-12: a hop refused before it ran left
@@ -200,6 +211,11 @@ function makeHandoffRunner(deps) {
       entryAllowed: (agentId) => !!(s.current && s.current.routed && s.current.routed.agentId === agentId),
       onResolved: (info) => { if (s.current && !s.current.resolved) s.current.resolved = info; },
       onLineOutcome: (info) => { if (s.current) s.current.lineOutcome = info; },
+      /* SEND TO VERDICTS (conveyor-backend-04): the target line's job runs under the SENDING job's verdicts (index.js makeTriggerHub
+         forwards these to hub.js) — FAIL CLOSED: only a positive verdict carried from the job that established it lifts either one; no
+         job in hand, a legacy shipment or a lineage without them = untrusted entry + host power withheld. */
+      entryUntrusted: () => !(s.current && s.current.entryTrusted === true),
+      senderWithheld: () => !(s.current && s.current.hostPowerKept === true),
       streamId: () => (s.current && s.current.streamId) || undefined,
       turns: (agentId) => { if (!s.current) return []; const k = String(agentId || ''); return s.current.turns[k] || (s.current.turns[k] = []); },
       /* once the station is stopped (E-STOP, or its own fault containment) nothing more is this job's output: the hub's "⏹ Stopped —
@@ -269,7 +285,8 @@ function makeHandoffRunner(deps) {
     const input = Pipeline.handoffInput({ fromName: item.fromName, original: item.original, output: item.output, files });
 
     const startedAt = now(), streamId = newStream();
-    lineage.set(streamId, { lines: item.lines.concat([item.toLine]), depth: item.depth, original: item.original });
+    lineage.set(streamId, { lines: item.lines.concat([item.toLine]), depth: item.depth, original: item.original,
+      entryTrusted: item.entryTrusted === true, hostPowerKept: item.hostPowerKept === true });   // line C inherits this job's verdicts
     if (lineage.size > 500) lineage.delete(lineage.keys().next().value);
     // the record keeps the job as it first arrived (`text`) and what the sending line delivered (`handedIn`) apart — never the
     // whole frame, which the record's 2000 characters would cut through what was delivered
@@ -278,7 +295,8 @@ function makeHandoffRunner(deps) {
     if (yj) item.startedJobId = yj.id;   // (a throw from here on finishes THIS record — pump)
     if (yj && item.fromJobId) J.link(item.fromJobId, { line: item.toLine, jobId: yj.id, name: item.toName });
 
-    s.current = { streamId, routed: null, resolved: null, lineOutcome: null, replies: [], turns: {} };
+    s.current = { streamId, routed: null, resolved: null, lineOutcome: null, replies: [], turns: {},
+      entryTrusted: item.entryTrusted === true, hostPowerKept: item.hostPowerKept === true };   // what hubFor's verdict hooks answer
     const hub = hubFor(item.toLine, s);
     const settled = Promise.resolve(hub.onInbound({ chatId: 'hof-' + item.toLine, userId: 'handoff', text: input, chatType: 'dm' }))
       .catch(e => ({ error: (e && e.message) || String(e) }));
