@@ -297,6 +297,16 @@ async function checkCandidateReview() {
     vm.runInNewContext('renderSkillCandidates(host, "agent", review);', ctx);
     A.ok(h.children[0].html.includes('PROPOSED REVISION') && h.children[0].html.includes('data-candidate-approve') && h.children[0].html.includes('data-suite-register'), 'baseCurrent ' + baseCurrent + ' keeps the full card');
   }
+
+  // skills-eval-07: an archive proposal names the skill it archives into, so the Commander approves that one first.
+  const archiveHost = element(); ctx.host = archiveHost;
+  ctx.review = { candidates: [{ candidateId: 'weekly-candidate-1', candidateDigest: 'archive-sha', revision: 1, baseCurrent: true,
+    skill: { id: 'weekly', name: 'Weekly brief', body: 'Old steps', scope: 'agent', files: [], state: 'archived', absorbedInto: 'Reports' } }], evaluationSuites: [] };
+  vm.runInNewContext('renderSkillCandidates(host, "agent", review);', ctx);
+  const archiveCard = archiveHost.children[0];
+  A.ok(archiveCard.html.includes('<div class="sk-attr">Archives into: Reports</div>'), 'an archive proposal shows its heir');
+  A.ok(archiveCard.html.includes('"absorbedInto": "Reports"'), 'the proposed metadata carries absorbedInto');
+  A.ok(!card.html.includes('Archives into'), 'a content revision shows no heir line');
 }
 
 // Review finding world-render-10: Change sharing speaks plain words, marks the current choice, asks for a
