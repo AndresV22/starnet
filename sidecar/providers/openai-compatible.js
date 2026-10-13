@@ -411,6 +411,9 @@
        run continues on the /v1 wire exactly as before. */
     let nativeWire = opts.nativeOllama === true && !!ollamaNative;
     const nativeBase = nativeWire ? ollamaNative.nativeRoot(baseUrl) : '';
+    // Where the Ollama server runs, for its user-facing copy: loopback is "this computer", anything else is named.
+    const ollamaHost = opts.nativeOllama === true ? provider.runtime.requestHostOf(baseUrl) : '';
+    const ollamaIsLoopback = !ollamaHost || /^(?:localhost|.+\.localhost|127(?:\.\d+){3}|0\.0\.0\.0|\[?::1\]?)$/i.test(ollamaHost);
     const pinnedCtx = Math.max(0, Math.floor(Number(opts.numCtx) || 0));
     const ctxCeiling = Math.max(0, Math.floor(Number(opts.maxCtx) || 0)) || (ollamaNative ? ollamaNative.DEFAULT_MAX_CTX : 0);
     const modelFacts = new Map();      // model -> Promise<{ contextLength, supportsTools, supportsReasoning }>
@@ -723,7 +726,9 @@
       if (!/out[- ]of[- ]memory|failed to allocate (?:CUDA\d* buffer|buffer for kv cache)|model requires more (?:system )?memory/i.test(detail)) return err;
       err.localModelMemory = true;
       err.ownMessage = true;
-      err.message = 'Local model ran out of memory. Close other local models or memory-heavy apps, or choose a smaller model from the model picker in COMMS before trying again. [' + detail + ']';
+      err.message = ollamaIsLoopback
+        ? 'Local model ran out of memory. Close other local models or memory-heavy apps, or choose a smaller model from the model picker in COMMS before trying again. [' + detail + ']'
+        : 'The model server at ' + ollamaHost + ' ran out of memory. Free memory on that machine, or choose a smaller model from the model picker in COMMS before trying again. [' + detail + ']';
       return err;
     }
 
@@ -755,7 +760,7 @@
           // Appended, so the message still reads "timed out" and classifies exactly as before.
           if (native && e && e.timeout && e.phase === 'connect' && !e.ollamaPlacement) {
             e.ollamaPlacement = true;
-            e.message += ' — ' + ollamaNative.placementNote(await ollamaStatus(), body.model, ollamaNative.estimateTokens(body));
+            e.message += ' — ' + ollamaNative.placementNote(await ollamaStatus(), body.model, ollamaNative.estimateTokens(body), ollamaIsLoopback ? 'on this computer' : 'at ' + ollamaHost);
           }
           // a TLS rejection or a crash in our own request code cannot heal by re-sending: fail fast, unmarked
           if (!classifyApiError(e, { model: body.model }).retryable) throw e;

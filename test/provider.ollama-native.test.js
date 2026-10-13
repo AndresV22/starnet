@@ -296,6 +296,12 @@ module.exports = (async () => {
     A.ok(!/so it was still loading|was still loading the model from disk/.test(absent), 'an absent model is not proof of disk loading');
     A.ok(!/had not finished reading/.test(N.placementNote(ps(10e9), 'qwen3:8b', 21000)), 'placement does not prove the model is reading the prompt');
     A.ok(/could not be read/.test(N.placementNote(null, 'qwen3:8b', 0)), 'an unreadable status says so, never guesses');
+    A.ok(/^Ollama on this computer /.test(N.placementNote(ps(0), 'qwen3:8b', 21000)), 'a loopback server is named as this computer');
+    // Review providers-tools-05: a remote Ollama (a GPU box on the LAN) is never called "this computer".
+    for (const body of [ps(0), { models: [] }, null]) {
+      const remote = N.placementNote(body, 'qwen3:8b', 21000, 'at ollama.lan');
+      A.ok(/^Ollama at ollama\.lan /.test(remote) && !/this computer/.test(remote), 'a remote server is named by its host: ' + remote);
+    }
 
     let statusBody = ps(0);
     const fetch = async (url, init) => {
@@ -317,6 +323,11 @@ module.exports = (async () => {
     A.ok(absentErr && /not listed as loaded/.test(absentErr.message), 'actual timed-out request carries observed missing-model status');
     A.ok(absentErr && /may still be loading/.test(absentErr.message) && !/so it was still loading/.test(absentErr.message), 'actual adapter preserves uncertainty about loading');
     A.eq(errorClass.classifyApiError(absentErr, { model: 'qwen3:8b' }).reason, 'timeout', 'absent placement remains a timeout, not a model-load failure');
+    statusBody = ps(0);
+    const lan = makeOpenAICompatibleProvider({ fetch, baseUrl: 'http://ollama.lan:11434/v1', nativeOllama: true, connectTimeoutMs: 30 });
+    let lanErr = null;
+    try { await collect(lan, { model: 'qwen3:8b', messages: [{ role: 'user', content: 'x' }], preStreamRetries: 0 }); } catch (e) { lanErr = e; }
+    A.ok(lanErr && /Ollama at ollama\.lan had qwen3:8b loaded/.test(lanErr.message) && !/this computer/.test(lanErr.message), 'a remote timeout names the remote server');
   }
 
   // Explicit local allocation failures are terminal even when Ollama reports HTTP 500.
@@ -331,7 +342,7 @@ module.exports = (async () => {
     for (const detail of details) {
       for (const mode of ['http', 'stream', 'compatible-fallback']) {
         let posts = 0;
-        const p = makeOpenAICompatibleProvider({ nativeOllama: true, baseUrl: 'http://memory.test:11434/v1', fetch: async url => {
+        const p = makeOpenAICompatibleProvider({ nativeOllama: true, baseUrl: 'http://localhost:11434/v1', fetch: async url => {
           if (url.endsWith('/api/show')) return SHOW(40960, ['completion', 'tools']);
           if (url.endsWith('/api/chat') && mode === 'compatible-fallback') return new Response('not found', { status: 404 });
           if (url.endsWith('/api/chat') || url.endsWith('/chat/completions')) {
@@ -354,6 +365,19 @@ module.exports = (async () => {
         A.ok(err && err.message.includes(detail), mode + ': the exact allocation failure remains available for diagnostics');
       }
     }
+    // Review providers-tools-05: an Ollama server on another machine is not "this computer": say which one.
+    {
+      const lan = makeOpenAICompatibleProvider({ nativeOllama: true, baseUrl: 'http://ollama.lan:11434/v1', fetch: async url => {
+        if (url.endsWith('/api/show')) return SHOW(40960, ['completion', 'tools']);
+        if (url.endsWith('/api/chat')) return new Response(JSON.stringify({ error: details[1] }), { status: 500 });
+        return new Response('{"data":[],"models":[]}', { status: 200 });
+      } });
+      let err;
+      try { await collect(lan, { model: 'qwen3:8b', messages: [{ role: 'user', content: 'hello' }] }); } catch (e) { err = e; }
+      A.ok(err && /^The model server at ollama\.lan ran out of memory\./.test(err.message), 'a remote allocation failure names that server: ' + (err && err.message));
+      A.ok(err && !/Close other local models|this computer/.test(err.message), 'and never tells the Commander to close apps here');
+      A.eq(errorClass.classifyApiError(err, { model: 'qwen3:8b' }).reason, 'local_memory', 'it is still the memory category');
+    }
     // A generic hosted 500 with the same upstream detail stays retryable: this is an Ollama-specific decision.
     let posts = 0;
     const hosted = makeOpenAICompatibleProvider({ baseUrl: 'https://hosted.test/v1', fetch: async url => {
@@ -370,7 +394,7 @@ module.exports = (async () => {
   {
     let posts = 0;
     const seq = [], waits = [], recoveries = [];
-    const p = makeOpenAICompatibleProvider({ nativeOllama: true, baseUrl: 'http://loop-memory.test:11434/v1', fetch: async url => {
+    const p = makeOpenAICompatibleProvider({ nativeOllama: true, baseUrl: 'http://127.0.0.1:11434/v1', fetch: async url => {
       if (url.endsWith('/api/show')) return SHOW(40960, ['completion', 'tools']);
       if (url.endsWith('/api/chat')) { posts++; return new Response(JSON.stringify({ error: 'cudaMalloc failed: out of memory' }), { status: 500 }); }
       return new Response('{"data":[],"models":[]}', { status: 200 });

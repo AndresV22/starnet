@@ -271,7 +271,7 @@
   }
 
   const timeouts = { envInt, connectMs, idleMs, connectSignal, connectGuard, idleGuardedReader, timeoutError, makeAbortError };
-  const runtime = { isAbort, abortableDelay, markPreStreamRetriesExhausted, preStreamRetries, stampRequestHost };
+  const runtime = { isAbort, abortableDelay, markPreStreamRetriesExhausted, preStreamRetries, stampRequestHost, requestHostOf };
 
   function recoveredToolContent(callId, content) {
     let body;
