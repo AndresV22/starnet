@@ -110,9 +110,8 @@ const Delegated = (() => {
   }
   // the sidecar's own explanation of a bad end, for a hover tip: a refusal's or an error's sentence (the ledger's result;
   // a timeout's or a rejected answer's result is the worker's partial work, never a reason) or a long free-text reason
-  // the status line leaves out (the liveness check's receipt). Clipped, never invented. /api/overseer workers[] do not
-  // carry `result` yet, so today only the liveness receipt shows; a refused or failed row's tip stays empty until the
-  // route projects it.
+  // the status line leaves out (the liveness check's receipt). Clipped, never invented. /api/overseer workers[] carry
+  // `result` only for a refused or failed worker, so a timeout's partial work never reaches this tip.
   function tipOf(w) {
     if (!w || !['error', 'refused', 'stale'].includes(w.status)) return '';
     const reason = String(w.reason || '').trim();
