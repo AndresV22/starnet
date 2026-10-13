@@ -24,7 +24,7 @@
 
 /* One frame around a question, not a card nested inside another padded card. */
 #screen-game #chat-panel .cmsg.nudge:has(.task-conversation) { padding: 10px; }
-#screen-game #chat-panel .cmsg.nudge .task-conversation {
+#screen-game #chat-panel :is(.cmsg.nudge, .cmsg.consent) .task-conversation {   /* the question card is ONE 5px frame, never a card inside a card */
   padding: 0; margin: 0; border: 0; border-radius: 0; background: none; box-shadow: none;
 }
 #screen-game #chat-panel .task-conversation :is(.tc-caption, .tc-question, .tc-reason) { margin-bottom: 6px; }

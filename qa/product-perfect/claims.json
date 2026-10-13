@@ -18,7 +18,7 @@
   "expectedClaimCount": 37,
   "releaseSurface": {
     "algorithm": "sha256",
-    "sourceCommit": "e9037cf36e694de932fe6421be81c1b7af4eaafe",
+    "sourceCommit": "eeda12a533615249237cf066143117a478b29244",
     "pathSetSha256": "213a4211bc1a66001a9f827b197c1b7aff1194373527f28d43c7ea6f2ebd706c",
     "files": [
       {
@@ -173,8 +173,8 @@
       },
       {
         "path": "frontend/app/app.js",
-        "bytes": 437573,
-        "sha256": "cadea93203644183c77985c2319195c6a900698484dbe2dea0b55365266e0b8c"
+        "bytes": 438273,
+        "sha256": "fba754e15e62d073e793dadbc65f5d0b125fb0b3faae8ae671d5cb5d2e6e8f96"
       },
       {
         "path": "frontend/app/approved-sheet-effects.js",
@@ -343,8 +343,8 @@
       },
       {
         "path": "frontend/app/chat.js",
-        "bytes": 764365,
-        "sha256": "152311e4e9cdaec7bd7e41bb8025162f435eec9f4f487db433a3ac00fa9a4dd1"
+        "bytes": 770718,
+        "sha256": "b7225e72bc172f323cef48c03645431fd8646ee2e47b28da0a2151472768ca24"
       },
       {
         "path": "frontend/app/chatresize.js",
@@ -558,8 +558,8 @@
       },
       {
         "path": "frontend/app/group-chat.js",
-        "bytes": 99163,
-        "sha256": "377b147aa69f13865c9c88823028b61e8cdd4607db5368887b36593566766d96"
+        "bytes": 96933,
+        "sha256": "a5272eb459931b91658e3f7579b20833c99ab731e725defa2acfeaf03d501bc0"
       },
       {
         "path": "frontend/app/harness.js",
@@ -1163,8 +1163,8 @@
       },
       {
         "path": "frontend/app/stationcommands.js",
-        "bytes": 96132,
-        "sha256": "796cc93485abdaaf9c0e92cf9b5cfa91f100f09378e1e181eb348a6e7d675365"
+        "bytes": 94095,
+        "sha256": "e182239d22bbf22e032e1e7759a22b5d52bb0977f7568196e1d33da9ac88ab08"
       },
       {
         "path": "frontend/app/stationquests.js",
@@ -1213,8 +1213,8 @@
       },
       {
         "path": "frontend/app/taskconversation.js",
-        "bytes": 7129,
-        "sha256": "e742eb1ee7955f5ba682dea20cdd38fff45803e1ce3dac06863ce2eb1f44a6e6"
+        "bytes": 7800,
+        "sha256": "08330ed65204790bb9e38f64da148358d2bc8b4bb4f313b879a9cdf7423b0b46"
       },
       {
         "path": "frontend/app/terrain.js",
@@ -1438,8 +1438,8 @@
       },
       {
         "path": "frontend/app/workstreams.js",
-        "bytes": 46066,
-        "sha256": "1d4af13d5c4c09439e3ee6b7bfc063943aac5a89426fa700871d787a8814bd7d"
+        "bytes": 45428,
+        "sha256": "934b6a6820c1bcfb43fba11535cb119317ba98607280616b77be32e97be20d33"
       },
       {
         "path": "frontend/app/workview.js",
@@ -1523,8 +1523,8 @@
       },
       {
         "path": "frontend/css/app.css",
-        "bytes": 419349,
-        "sha256": "6f6e549415a91e1c6353c721ef47a17cc3da8f9ba8be3ee1b86665c40c5f7ef4"
+        "bytes": 419205,
+        "sha256": "8c5ac40a9730a23fd36a5fa7202e8bfd77c1617f4f90f91e3749098653ed853f"
       },
       {
         "path": "frontend/css/asciifx.css",
@@ -1533,8 +1533,8 @@
       },
       {
         "path": "frontend/css/beat-cards.css",
-        "bytes": 37425,
-        "sha256": "39e50ea15000266ef60f4aae73b1f48f70965e71484f5b579c64332156e357c6"
+        "bytes": 38594,
+        "sha256": "af88e5bfc810db7d1eb8f592a570b4fe35d581939147f0131a6a6651cac66402"
       },
       {
         "path": "frontend/css/cabinet-clean.css",
@@ -1553,18 +1553,18 @@
       },
       {
         "path": "frontend/css/comms-convo.css",
-        "bytes": 18991,
-        "sha256": "b2039e8d0bb66a35f916bd714adb30e77dda7b18403df0a8619e9860124a7cd8"
+        "bytes": 18970,
+        "sha256": "e89a62e4782dd53b703a258c8c7405a0d37df096b97099683badd5beab761826"
       },
       {
         "path": "frontend/css/comms-layout.css",
-        "bytes": 4284,
-        "sha256": "c851e19dee7b24fd513d67fa19133f8f6278d6bc9e9d2ace7c2efb1b75b49ffd"
+        "bytes": 4375,
+        "sha256": "4086a904610637d81ff9e6e6e21e6dae8f2f0fe1ca9d0a487ba3084fcaa411b6"
       },
       {
         "path": "frontend/css/comms.css",
-        "bytes": 55976,
-        "sha256": "74431d48306be02083966b7fccbac1d3c6665a7a61f1b660618e17aabf4f9942"
+        "bytes": 56070,
+        "sha256": "302b15f37ed454504f3e4c53c868f48882f27a3d682f94fba19619dc01b52a96"
       },
       {
         "path": "frontend/css/crew-glass.css",
