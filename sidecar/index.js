@@ -10841,7 +10841,9 @@ const groupSessions = require('./group-sessions.js').makeGroupSessions({
         runId, signal, emit, broadcast: true, streamId: g.id, sessionTitle: g.title,
         isTask: Classify.isTaskDirective(g.messages.find(m => m.id === t.origin)?.content || ''), trigger: 'directive',
         taskKey: 'stream:' + g.id, taskSource: 'interactive',
-        surface: 'interactive', lead: false, groupTools: tools, askCommander,
+        // the group's LEAD keeps the overseer's station tools (group.add brings more crew in from inside the group, settings,
+        // builds); every other participant is a peer. team.* / session.* stay stripped in a group (resolveTools below).
+        surface: 'interactive', lead: t.agentId === g.leadId, groupTools: tools, askCommander,
         station: router.stationFor(t.agentId) || undefined,
         // the agent's own room gear (its dish = web, its cabinet = files …), exactly as its one-on-one chat gets it from
         // the durable floor (/api/run, savedPlacement): in a group a researcher could not search (2026-10-13 gap review)

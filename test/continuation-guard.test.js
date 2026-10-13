@@ -286,5 +286,29 @@ const run = (provider, extra) => runAgentLoop(Object.assign({
   console.log('continuation-guard.test: OK');
   // report() settles the assertion counter. The .catch below only fires on a THROWN error, so
   // without this every one of the assertions above could fail and the file would still exit 0.
+  // ---- H. WAITING ON THE CREW (2026-10-13): a lead that REALLY handed work on may end "I'll pull it together when they
+  //         report" — the guard failed that turn, and the failed turn cancelled the very hand-offs it had made. The same
+  //         words with no hand-off are still an unkept promise. ----
+  {
+    const { waitsOnPeers } = require('../sidecar/loop.js')._internals;
+    for (const p of ['I will pull it together when they report.', "I'll merge both drafts once MIRA and ROOK finish.", 'I will summarize when the crew reports back.', 'I will continue after they reply.'])
+      A.ok(waitsOnPeers(p), 'a wait on the crew: ' + p);
+    for (const p of ["I'll check the logs when the build finishes.", 'I will run the tests when the page loads.', 'Next I will read main.js.', "I'll deploy it once the tests pass."])
+      A.ok(!waitsOnPeers(p), 'not a wait on the crew: ' + p);
+    const handoffTurn = [
+      { type: 'tool_start', index: 0, id: 'h1', name: 'group_handoff' },
+      { type: 'tool_args', index: 0, chunk: '{"agentId":"research","request":"scan competitors"}' },
+      { type: 'usage', usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 } },
+      { type: 'done', finishReason: 'tool_calls' }
+    ];
+    const wait = 'MIRA researches the competitors. I will pull it together when they report.';
+    const tools = [{ name: 'group_handoff', schema: { type: 'object' } }, { name: 'thing', schema: { type: 'object' } }];
+    const handed = await run(scripted([handoffTurn, textTurn(wait)]), { tools, dispatch: async () => ({ ok: true, isError: false, content: 'Queued research.' }) });
+    A.eq(handed.reason, 'done', 'after a real hand-off the honest wait ends the turn done (the hand-offs then run)');
+    const refused = await run(scripted([handoffTurn, textTurn(wait)]), { tools, dispatch: async () => ({ ok: false, isError: true, content: 'Unknown participant' }) });
+    A.ok(refused.reason !== 'done', 'a hand-off that FAILED earns no wait: still an unkept promise (' + refused.reason + ')');
+    const none = await run(scripted([textTurn(wait)]), { tools });
+    A.ok(none.reason !== 'done', 'the same words with no hand-off at all are still caught (' + none.reason + ')');
+  }
   A.report('continuation-guard.test');
 })().catch(e => { console.error(e); process.exit(1); });

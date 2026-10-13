@@ -533,6 +533,11 @@
         const byTitle = named.filter(s => String(s.title).trim().toLowerCase() === lower);
         const byPart = lower ? named.filter(s => String(s.title).trim().toLowerCase().indexOf(lower) >= 0) : [];
         const hits = byId.length ? byId : (byTitle.length ? byTitle : byPart);
+        if (hits.length === 1 && hits[0].group) {
+          j.error = '"' + String(hits[0].title || want) + '" is a group chat: a group takes work through its members, not dispatched workers. '
+            + 'Bring the agent into that chat (station.control group.add) and hand it the work there (group.handoff). This worker did NOT run.';
+          continue;
+        }
         if (hits.length === 1) { j.streamId = String(hits[0].id); j.sessionTitle = String(hits[0].title || want); continue; }
         j.error = hits.length > 1
           ? 'more than one session matches "' + want + '" (' + hits.map(h => String(h.title || h.id)).join(', ')

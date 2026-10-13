@@ -24,6 +24,7 @@ const { makeStationControlTools, cardFor, ACTIONS } = require('../sidecar/tools/
   const card = cardFor({ action: 'group.add', args: { agents: 'NOVA and SAM ALTMAN' } });
   A.ok(/^bring "NOVA", "SAM ALTMAN" into this conversation: they see the whole conversation and its files/.test(card), 'the card names who joins and what they see: ' + card);
   A.ok(/becomes a group chat/.test(card) && /beside it/.test(card) && /join the moment my reply ends/.test(card), 'the card says the chat changes shape, General opens beside it, and when it lands');
+  A.ok(/beside it with just this request in it/.test(card) && /I then hand them their parts there/.test(card), 'and it is truthful about General (only the request goes with it) and about what happens once they join');
   A.ok(/WHOLE member list becomes nova \(anyone not listed leaves\)/.test(cardFor({ action: 'group.configure', args: { group: 'Launch', members: ['nova'] } })),
     'group.configure says its members REPLACE the roster (an "add NOVA" sent there cannot quietly remove everyone)');
 
@@ -38,6 +39,7 @@ const { makeStationControlTools, cardFor, ACTIONS } = require('../sidecar/tools/
   A.ok(/"done":"group.add"/.test(r.content), 'an applied join reads as done');
   answer = { ok: true, result: { joining: true, agents: ['NOVA'], note: 'NOVA joins this chat (it becomes a group chat, its history kept) the moment your reply ends.' } };
   r = await t.controlTool.run({ action: 'group.add', args: { agents: 'NOVA' } }, ctx);
+  A.ok(/once they join you get a turn in the group chat to hand them their parts/.test(r.content), 'the asking agent knows it gets a turn once they join (so it neither hands off early nor promises what will not happen)');
   A.ok(/^QUEUED, NOT DONE YET: NOVA joins this chat/.test(r.content) && /not in the chat yet/.test(r.content) && !/"done"/.test(r.content), 'a join waiting for the reply is never reported as done: ' + r.content);
   r = await t.controlTool.run({ action: 'group.add', args: { agents: [] } }, ctx);
   A.ok(/^REFUSED: group.add named no crew member/.test(r.content), 'naming nobody is refused before the page is asked');
@@ -116,6 +118,22 @@ const { makeStationControlTools, cardFor, ACTIONS } = require('../sidecar/tools/
     A.eq(create.body.history.map(m => m.content).join(' | '), 'add 2 agents into this chat | Bringing them in when I finish.', 'the group gets the dialogue, never a status or run-failed line as the lead\'s words');
     A.eq(b.ws.get('ws_chat').pendingJoin, null, 'the join is settled');
     A.ok(b.notes.some(([cls, t]) => cls === 'good' && /NOVA and SAM ALTMAN joined/.test(t)), 'the Commander is told they joined');
+    A.eq(create.body.kickoff, 'NOVA and SAM ALTMAN have joined this chat at your request. Carry on with the Commander\'s request: give each of them their part (group.handoff) and do your own.',
+      'the lead gets the first turn in the group to hand them their parts (nothing idles after they join)');
+  }
+  // from General: the new group carries the request it was made for — and only that (General's history stays in General)
+  {
+    const general = chat({ id: 'general-home', title: null, history: [
+      { role: 'user', content: 'what did we decide yesterday?' }, { role: 'assistant', content: 'We picked the blue logo.' },
+      { role: 'user', content: 'add 2 agents to research and build the landing page', ts: 7 }, { role: 'assistant', content: 'Bringing them in.' }] });
+    const b = boot({ chats: [general], busy: { 'general-home': 'run_g' }, generalId: 'general-home' });
+    await b.GC.addAgents(b.ws.get('general-home'), ['nova', 'sam'], { streamId: 'general-home', runId: 'run_g' });
+    b.busy.delete('general-home'); b.ws.get('general-home').lastRunOk = true;
+    await b.GC.drainAfterRun('general-home', 'run_g', { stopped: false }); await settle();
+    const create = b.sent.find(s => s.body && s.body.op === 'create');
+    A.ok(create && create.body.id !== 'general-home' && !create.body.conversionKey, 'from General a NEW group chat opens beside it');
+    A.eq(JSON.stringify(create.body.history), JSON.stringify([{ role: 'user', content: 'add 2 agents to research and build the landing page', ts: 7 }]), 'it carries the request it was made for, and nothing else of General');
+    A.ok(/^NOVA and SAM ALTMAN have joined this chat at your request/.test(create.body.kickoff), 'and its lead picks that request up');
   }
   // a stopped reply drops the join and SAYS so in the chat (saved), never a silent no-op
   {
@@ -171,7 +189,7 @@ const { makeStationControlTools, cardFor, ACTIONS } = require('../sidecar/tools/
   A.ok(/const stoppedHere = interrupted\.has\(ws\.id\);[^\n]*\n\s*interrupted\.delete\(ws\.id\);/.test(chatSrc), 'the stop flag is read before the teardown consumes it');
   // a group turn keeps the agent's own room gear (its dish = web search), as its one-on-one chat does (gap review G2)
   const idx = fs.readFileSync(path.join(__dirname, '../sidecar/index.js'), 'utf8');
-  A.ok(/lead: false, groupTools: tools, askCommander,\s*\n\s*station: router\.stationFor\(t\.agentId\) \|\| undefined,[\s\S]{0,400}extraObjects: require\('\.\/capability\/saved-placement\.js'\)\.savedPlacement\(saveStore\.load\('agent'\), t\.agentId\),/.test(idx),
+  A.ok(/lead: t\.agentId === g\.leadId, groupTools: tools, askCommander,\s*\n\s*station: router\.stationFor\(t\.agentId\) \|\| undefined,[\s\S]{0,400}extraObjects: require\('\.\/capability\/saved-placement\.js'\)\.savedPlacement\(saveStore\.load\('agent'\), t\.agentId\),/.test(idx),
     'a group participant\'s run carries its saved room gear (a researcher can search in a group)');
   A.report('group-add.test');
 })().catch(e => { console.error(e); process.exitCode = 1; });

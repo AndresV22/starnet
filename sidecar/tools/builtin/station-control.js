@@ -269,7 +269,7 @@
   def('group.add', { page: true, thisSession: true, caller: true, takes: '{agents: [crew names or ids], session? (default: this conversation)}',
     shape: a => Object.assign({}, a, { agents: crewList(a) }),
     needs: a => a.agents.length ? '' : 'group.add named no crew member (e.g. {"agents": ["NOVA", "ROOK"]})',
-    card: a => 'bring ' + (crewList(a).map(q).join(', ') || 'nobody named') + ' into ' + sess(a) + ': they see the whole conversation and its files. A one-on-one chat becomes a group chat (from General, a new group chat opens beside it); if I am still answering there, they join the moment my reply ends.' });
+    card: a => 'bring ' + (crewList(a).map(q).join(', ') || 'nobody named') + ' into ' + sess(a) + ': they see the whole conversation and its files. A one-on-one chat becomes a group chat (from General, a new group chat opens beside it with just this request in it); if I am still answering there, they join the moment my reply ends, and I then hand them their parts there.' });
   def('group.configure', { takes: '{group (its id or title), members? [the group\'s WHOLE member list, crew ids], leadId?, title?, instructions?, maxTurns? 1-100}',
     // members REPLACES the roster: the card says so, so "add NOVA" sent as {members:["nova"]} cannot quietly remove everyone else
     card: a => 'change the group chat ' + q(a.group) + ': ' + clip(['members', 'leadId', 'title', 'instructions', 'maxTurns'].filter(k => a[k] != null).map(k => k === 'members' && Array.isArray(a[k]) ? 'its WHOLE member list becomes ' + a[k].join(', ') + ' (anyone not listed leaves)' : k + ' ' + (Array.isArray(a[k]) ? a[k].join(', ') : a[k])).join('; ') || 'nothing named', 200) + '.',
@@ -522,7 +522,7 @@
           const r = spec.page ? await page('station.control', Object.assign({}, a, { action: spec.name }, caller)) : await spec.run(a, env);
           if (!r || r.status >= 400 || r.refused || (r.json && r.json.ok === false)) return refuse(errorOf(r));
           // a change that lands only when this reply ends is NOT done yet — say exactly that (truthful telemetry)
-          if (r.json && r.json.joining) return { content: 'QUEUED, NOT DONE YET: ' + clip(r.json.note, 400) + ' Tell the Commander exactly that. They are not in the chat yet, so do not hand them work in this reply.', summary: spec.name + ' (queued)' };
+          if (r.json && r.json.joining) return { content: 'QUEUED, NOT DONE YET: ' + clip(r.json.note, 400) + ' Tell the Commander exactly that. They are not in the chat yet, so do not hand them work in this reply: once they join you get a turn in the group chat to hand them their parts (group.handoff).', summary: spec.name + ' (queued)' };
           return { content: shape({ done: spec.name, result: r.json }), summary: spec.name };
         }
       };

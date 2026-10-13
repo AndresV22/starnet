@@ -270,6 +270,7 @@ const StationCommands = (() => {
     opts = opts || {};
     const hit = resolveDelivery(a);
     const ws = hit.w;
+    if (ws.conversationMode === 'group') throw new Error('"' + (ws.title || 'that chat') + '" is a group chat: its transcript belongs to its members, so a worker\'s result cannot be filed into it. Nothing was delivered there');
     const text = String((a && a.text) || '').trim();
     if (!text) throw new Error('nothing to deliver — the worker returned no text');
     const runId = String((a && a.runId) || '');
@@ -877,6 +878,7 @@ const StationCommands = (() => {
           title: w.title != null ? w.title : (w.id === generalId ? 'General' : null),
           agentId: w.agentId || 'agent',
           lane: w.lane || null,
+          group: w.conversationMode === 'group',   // a group takes work through its members (group.add + group.handoff), never a dispatched worker
           active: w.id === activeId
         }))
       };
@@ -1232,6 +1234,11 @@ const StationCommands = (() => {
     } catch (error) {
       out = { id, ok: false, error: String((error && error.message) || error) };
     }
+    /* TWO STATION PAGES (the app and a browser tab): every open page gets the command and the FIRST answer wins. A page
+       that cannot even find the chat it names (a chat another page just made) must not out-race the page that owns it
+       with "there is no session called …" — the agent was told REFUSED for a change the other page made (2026-10-13).
+       It answers a beat later; the owner's answer lands first and the bridge drops the late one. Alone, it still answers. */
+    if (!out.ok && /^there is no session called /.test(out.error)) await new Promise(r => setTimeout(r, 1500));
     try {
       await fetch('/api/station/ack', {
         method: 'POST',

@@ -99,6 +99,8 @@ function makeGroupSessions(d) {
     const leadId = b.leadId || (ids.includes('agent') ? 'agent' : ids[0]);
     if (!ids.includes(leadId)) fail('Lead must be a participant');
     const conversionKey = b.conversionKey ? identifier(b.conversionKey) : null;
+    // crew an agent brought in at the Commander's request: the lead gets the next turn, to hand them their parts
+    const kickoff = b.kickoff ? text(b.kickoff, 1000).trim() : '';
     const conversionFingerprint = conversionKey ? createHash('sha256').update(JSON.stringify({ history: b.history || [], originalAgentId: b.originalAgentId || leadId, members: ids, leadId, title: b.title || 'Group chat', instructions: b.instructions || '' })).digest('hex') : null;
     const sameConversion = g => conversionKey && g.conversionKey === conversionKey && g.conversionFingerprint === conversionFingerprint && !g.deleted;
     const existing = read().groups[id];
@@ -143,8 +145,10 @@ function makeGroupSessions(d) {
         message(g, m.role === 'user' ? 'user' : String(m.agentId || b.originalAgentId || leadId),
           body, { imported: true, ...(Number.isFinite(m.ts) ? { at: m.ts } : {}), ...(artifactIds.length ? { artifactIds } : {}) });
       }
+      if (kickoff) { const origin = [...g.messages].reverse().find(m => m.author === 'user'); if (origin) turn(g, origin.id, leadId, { request: kickoff, kickoff: true }); }
       s.groups[id] = g; return s;
     });
+    if (kickoff) kick(id);
     return publicGroup(get(id));
   }
   function recipients(g, b) {
@@ -521,7 +525,8 @@ function makeGroupSessions(d) {
               const finish = value => { clearTimeout(timer); pending.delete(promptId); ac.signal.removeEventListener('abort', onAbort); resolve(value); };
               const onAbort = () => finish('deny');
               pending.set(promptId, { id, turnId: t.id, finish, tool: fields.tool, argsFull: argsFull && typeof argsFull.text === 'string' ? argsFull : null });
-              timer = setTimeout(onAbort, 300000);
+              // nobody answered in 5 minutes: a TIMEOUT (the broker says "nobody answered in time"), never the Commander's "no"
+              timer = setTimeout(() => finish('timeout'), 300000);
               ac.signal.addEventListener('abort', onAbort, { once: true });
               if (ac.signal.aborted) onAbort();
             });

@@ -717,7 +717,7 @@ const GroupChat = (() => {
      The General home stream is never converted: it stays the station's casual line, and a fresh group starts beside it
      (the same rule the rail's + NEW keeps — General is never rebound). */
   function isGeneral(ws) { return !!ws && typeof Workstreams !== 'undefined' && typeof Workstreams.generalId === 'function' && Workstreams.generalId() === ws.id; }
-  async function startGroup(origin, ids) {
+  async function startGroup(origin, ids, opts = {}) {   // opts.kickoff: the lead's next turn, when an agent brought the crew in
     if (!origin) throw new Error('Open a chat first');
     if (origin.conversationMode === 'group') throw new Error('This chat is already a group');
     const lead = origin.agentId || 'agent', general = isGeneral(origin);
@@ -730,10 +730,13 @@ const GroupChat = (() => {
     if (typeof App !== 'undefined' && App.pushRoster) await App.pushRoster();   // the backend must know every agent it seats
     const id = general ? 'ws_' + uid().replace(/-/g, '').slice(0, 20) : origin.id;
     const title = general ? members.map(name).join(' + ') : (origin.title || 'Group chat');
-    const g = await api(general ? { op: 'create', id, members, leadId: lead, title }
+    // from General the new group carries the request it was made for (only that: General's own history stays in General)
+    const ask = general && opts.kickoff ? [...(origin.history || [])].reverse().find(m => m && m.role === 'user' && !m.sys && String(m.content || '').trim()) : null;
+    const kick = opts.kickoff ? { kickoff: opts.kickoff } : {};
+    const g = await api(general ? { op: 'create', id, members, leadId: lead, title, ...(ask ? { history: [{ role: 'user', content: ask.content, ts: ask.ts }], originalAgentId: lead } : {}), ...kick }
       // only the dialogue: the local markers (a run-failed / stopped line, a history-cap marker, a status line) are this
       // page's records, not anyone's words — imported, every member would read them as the lead's (chat.js historyWindowFrom)
-      : { op: 'create', id, conversionKey: origin.id, history: (origin.history || []).filter(m => !(m && (m.truncated || m.sys || m.error))), originalAgentId: lead, members, leadId: lead, title });
+      : { op: 'create', id, conversionKey: origin.id, history: (origin.history || []).filter(m => !(m && (m.truncated || m.sys || m.error))), originalAgentId: lead, members, leadId: lead, title, ...kick });
     adopt(g); save();
     const still = !active || active.id === origin.id;
     // the words in the message box travel with the conversation — what is in it NOW if you stayed (you may have kept
@@ -821,7 +824,10 @@ const GroupChat = (() => {
     const ids = job.ids.filter(id => crew.some(a => a && a.id === id));
     if (!ids.length) return notAdded(ws, job.ids, 'they are no longer on the crew');
     try {
-      const out = ws.conversationMode === 'group' ? await addAgents(ws, ids, null) : await startGroup(ws, ids);
+      // the lead asked for them to work on the Commander's request: it gets the first turn in the group to hand them their parts
+      const kickoff = agentNames(ids) + (ids.length > 1 ? ' have' : ' has') + ' joined this chat at your request. Carry on with the Commander\'s request: give '
+        + (ids.length > 1 ? 'each of them their part' : 'them their part') + ' (group.handoff) and do your own.';
+      const out = ws.conversationMode === 'group' ? await addAgents(ws, ids, null) : await startGroup(ws, ids, { kickoff });
       if (typeof StationUI !== 'undefined' && StationUI.notify) StationUI.notify(agentNames(ids) + (ids.length > 1 ? ' joined ' : ' joined ') + (out && out.title ? '"' + out.title + '"' : 'the chat'), 'good');
       return out;
     } catch (e) { return notAdded(ws, ids, String((e && e.message) || e).replace(/\.$/, '')); }
