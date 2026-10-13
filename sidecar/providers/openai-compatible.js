@@ -218,10 +218,13 @@
     }
     return '';
   }
+  // An error body is read only this far: 500 characters are kept, so a proxy's endless HTML page is cut off.
+  const MAX_ERR_BODY = 64 * 1024;
   async function responseErrorDetail(res, signal, url) {
     let data = null;
     let text = '';
     let readStream = false;
+    let bodyStalled = false;
     try {
       // Error headers disarm the connect guard too. An unfinished error body must retain the
       // same idle watchdog and caller cancellation as a successful stream, including local loads.
@@ -230,19 +233,28 @@
         const raw = res.body.getReader();
         const reader = timeouts.idleGuardedReader(raw, { signal, url });
         const decoder = new TextDecoder();
+        let bytes = 0;
         try {
           for (;;) {
             const chunk = await reader.read();
             if (chunk.done) break;
             text += decoder.decode(chunk.value, { stream: true });
+            bytes += (chunk.value && chunk.value.byteLength) || 0;
+            if (bytes >= MAX_ERR_BODY) {
+              try { await reader.cancel(); } catch (e) { failNote('providers.openai_compatible.error_reader_cancel', 'error response reader cancel failed'); }
+              break;
+            }
           }
           text += decoder.decode();
         } finally { try { raw.releaseLock(); } catch (_) { failNote('providers.openai_compatible.error_reader_release', 'error response reader release failed'); } }
       } else text = typeof res.text === 'function' ? await res.text() : '';
       if (text) { try { data = JSON.parse(text); } catch (_) { data = null; } }
     } catch (e) {
-      if (isAbort(e, signal) || (e && e.code === 'PROVIDER_STREAM_TIMEOUT')) throw e;
-      text = ''; data = null;
+      if (isAbort(e, signal)) throw e;
+      // The status line already arrived: a body that stalls is still that status (a 401 keeps its reconnect door),
+      // never a "no bytes received" stall. Keep what text did arrive.
+      if (e && e.code === 'PROVIDER_STREAM_TIMEOUT') bodyStalled = true; else text = '';
+      data = null;
     }
     if (!readStream && !data && !text && typeof res.json === 'function') {
       try { data = await res.json(); } catch (e) {
@@ -251,7 +263,8 @@
       }
     }
     const e = data && data.error;
-    const message = safeErrorField((e && e.message) || (data && data.message) || text || res.statusText || ('HTTP ' + res.status), 500);
+    const message = safeErrorField((e && e.message) || (data && data.message) || text || res.statusText || ('HTTP ' + res.status), 500)
+      + (bodyStalled ? ' (error body did not finish)' : '');
     const type = safeErrorField(e && e.type, 80);
     const code = safeErrorField(e && e.code, 80);
     // OpenRouter places provider identity in metadata; raw metadata is deliberately ignored because it may

@@ -66,7 +66,8 @@ const line = o => 'data: ' + JSON.stringify(o);
     A.eq(classifyApiError(mid, { model: 'm' }).reason, 'context_overflow', 'openai-compatible: …and classifies by its code');
   }
 
-  // Error headers do not end a response: a partial error body must still time out or cancel.
+  // Error headers do not end a response: a partial error body must still time out or cancel. A stalled body keeps
+  // the HTTP status already received (review providers-tools-07): it is that status, never a no-bytes stall.
   {
     const priorIdle = process.env.SKYNET_PROVIDER_IDLE_MS;
     process.env.SKYNET_PROVIDER_IDLE_MS = '180';
@@ -95,9 +96,10 @@ const line = o => 'data: ' + JSON.stringify(o);
           A.eq(response.body.locked, false, label + ': releases its reader');
           if (cancel) A.eq(observed.error, null, label + ': caller cancellation returns cleanly');
           else {
-            A.eq(observed.error && observed.error.code, 'PROVIDER_STREAM_TIMEOUT', label + ': timeout remains an error');
-            A.eq(observed.error && observed.error.phase, 'idle', label + ': error body uses the idle contract');
-            A.eq(observed.error && observed.error.requestHost, '127.0.0.1', label + ': diagnostic destination survives');
+            A.eq(observed.error && observed.error.status, 400, label + ': the received HTTP status survives the stalled body');
+            A.ok(observed.error && observed.error.code !== 'PROVIDER_STREAM_TIMEOUT', label + ': it is not reported as a no-bytes stall');
+            A.ok(observed.error && /http 400/.test(observed.error.message) && /error body did not finish/.test(observed.error.message), label + ': the message says the status and that the body stalled');
+            A.eq(classifyApiError(observed.error, { model: 'm' }).retryable, false, label + ': a 400 routes as a 400, not a retryable timeout');
           }
         }
       }
@@ -127,6 +129,21 @@ const line = o => 'data: ' + JSON.stringify(o);
       if (priorIdle === undefined) delete process.env.SKYNET_PROVIDER_IDLE_MS;
       else process.env.SKYNET_PROVIDER_IDLE_MS = priorIdle;
     }
+  }
+
+  // A proxy streaming a huge error page is read only up to a cap, then cancelled: 500 characters are kept anyway.
+  {
+    let sent = 0, cancelled = 0;
+    const chunk = new TextEncoder().encode('<html>' + 'x'.repeat(8192));
+    const response = new Response(new ReadableStream({
+      pull(c) { sent += chunk.byteLength; c.enqueue(chunk); if (sent > 8 * 1024 * 1024) c.close(); },
+      cancel() { cancelled++; }
+    }), { status: 502 });
+    const err = await thrown(makeOpenAICompatibleProvider({ baseUrl: 'https://proxy.test/v1', fetch: async (_url, init) => (!init || !init.body) ? new Response('{"data":[]}') : response }));
+    A.eq(err && err.status, 502, 'a huge error page keeps its status');
+    A.eq(cancelled, 1, 'a huge error page is cancelled at the cap');
+    A.ok(sent < 1024 * 1024, 'and is never read whole (read ' + sent + ' bytes)');
+    A.eq(response.body.locked, false, 'the capped body releases its reader');
   }
 
   // Cleanup failure must be observable without replacing the original result or exposing its error text.
@@ -165,8 +182,8 @@ const line = o => 'data: ' + JSON.stringify(o);
         const err = await pending;
         if (mode.startsWith('cancel')) A.eq(err, null, mode + ': release failure cannot replace cancellation');
         else if (mode === 'idle') {
-          A.eq(err && err.code, 'PROVIDER_STREAM_TIMEOUT', 'release failure cannot replace idle timeout');
-          A.eq(err && err.phase, 'idle', 'original timeout phase survives cleanup failure');
+          A.eq(err && err.status, 422, 'release failure cannot replace the status of a stalled error body');
+          A.ok(err && err.code !== 'PROVIDER_STREAM_TIMEOUT', 'a stalled error body is not a no-bytes stall');
         } else {
           A.eq(err && err.status, 422, 'release failure cannot replace HTTP status');
           A.eq(err && err.body && err.body.error.code, 'fixture_refusal', 'original structured error survives cleanup failure');
