@@ -10,7 +10,8 @@ const UNAVAILABLE = 'Connector credentials are locked. Restart StarNet with the 
 // a restart only helps when the OS store was unreachable or the file was busy; the others need START FRESH.
 // 'reset-interrupted': an earlier START FRESH stopped part-way (crash, power loss); pressing it again finishes it.
 // 'busy': the file was there but could not be read right now (antivirus, backup or sync holding it); a restart
-// is the fix, and START FRESH would only set a good store aside.
+// is the fix, and START FRESH would only set a good store aside. It stays named as the exit for a file that is
+// still locked after a restart (an account that may not read it), so the lock is never one with no way out.
 const LOCK_REASONS = ['key-unavailable', 'key-mismatch', 'unreadable', 'reset-interrupted', 'busy'];
 // Windows reports a sharing violation as EBUSY and a held/denied handle as EPERM. Other errors (EIO, POSIX EACCES)
 // are not a passing hold, so they stay 'unreadable'.
@@ -21,7 +22,8 @@ function lockMessage(reason, keyError = '', detail = {}) {
   const movedTo = detail && typeof detail.movedTo === 'string' ? detail.movedTo.slice(0, 400) : '';
   const readCode = detail && typeof detail.readCode === 'string' ? detail.readCode.replace(/[^A-Z]/g, '').slice(0, 12) : '';
   if (reason === 'busy') return 'Saved connector sign-ins are locked: StarNet could not read the saved file' + (readCode ? ' (' + readCode + ')' : '') +
-    '. Another program such as antivirus, backup or sync may have been holding it, or this account may not be allowed to read it. They are safe and unchanged. Restart StarNet to try again.';
+    '. Another program such as antivirus, backup or sync may have been holding it, or this account may not be allowed to read it. They are safe and unchanged. Restart StarNet to try again.' +
+    ' If it is still locked after a restart, START FRESH moves the old files aside (nothing is deleted) so you can sign in again.';
   if (reason === 'key-unavailable') return 'Saved connector sign-ins are locked: StarNet could not open this computer\'s credential store.' +
     (why ? ' Reason: ' + why + '.' : '') + ' They are safe and unchanged. Unlock or repair the credential store and restart StarNet, or START FRESH to sign in again.';
   if (reason === 'key-mismatch') return 'Saved connector sign-ins are locked: they were sealed with a key this OS account no longer has (its credential-store entry was reset, or this is a different account). START FRESH to sign in again. The old files are kept, not deleted.';

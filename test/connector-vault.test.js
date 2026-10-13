@@ -283,7 +283,10 @@ try {
     assert.deepEqual(held.lockDetail, { readCode: 'EBUSY' }, 'and keeps the read error for the message');
     const msg = lockMessage('busy', '', held.lockDetail);
     assert.match(msg, /could not read the saved file \(EBUSY\).*antivirus.*safe and unchanged.*Restart StarNet/, msg);
-    assert.doesNotMatch(msg, /damaged|START FRESH/, 'it is not called damaged and does not steer to START FRESH');
+    assert.doesNotMatch(msg, /damaged/, 'it is not called damaged');
+    // restart comes first; START FRESH stays a named exit for a file that is still locked after a restart (a
+    // persistent EPERM), so the vault never locks with no way out — and never steers to it before a restart
+    assert.match(msg, /Restart StarNet to try again\. If it is still locked after a restart, START FRESH/, msg);
     { const v = make({ fs: heldFs('EPERM') }); assert.throws(() => v.load(f), /locked/); assert.equal(v.lockReason, 'busy', 'EPERM (Windows sharing/access denial) is busy too'); }
     { const v = make({ fs: heldFs('EIO') }); assert.throws(() => v.load(f), /locked/); assert.equal(v.lockReason, 'unreadable', 'a disk I/O error stays unreadable'); }
     { const v = make({ fs: heldFs('EACCES') }); assert.throws(() => v.load(f), /locked/); assert.equal(v.lockReason, 'unreadable', 'POSIX EACCES is not a passing hold (the credential-recovery fault hosts rely on it)'); }
