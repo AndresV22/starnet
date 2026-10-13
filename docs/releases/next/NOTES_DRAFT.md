@@ -38,7 +38,7 @@ The summary above is under the Update Center's 520-character limit. Retain the i
 
 ## Security
 
-Local authorization and instruction-provenance hardening is included in source. Final public notes must describe only the fixes accepted in the signed candidate; keep exploit details out until the corrected build is available. The reviewed issue batch is combined in this candidate; exact installed cross-user acceptance of the fresh authorization report remains outstanding.
+Local authorization and instruction-provenance hardening is included in source. Final public notes must describe only the fixes accepted in the signed candidate; keep exploit details out until the corrected build is available. The reviewed issue batch is combined in this candidate.
 
 ## Heads-up for upgrades
 
