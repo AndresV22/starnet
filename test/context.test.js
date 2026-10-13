@@ -454,6 +454,11 @@ A.ok(renderRecall([{ content: 'prefers reports', confirmation: 'user-confirmed' 
   A.eq(C.rank([stand], 'what is the weather in Lisbon', { now: 100, standing: false }).length, 0, 'a withheld run drops a zero-relevance standing preference');
   const asked = C.rank([stand], 'what should I call Andy', { now: 100, standing: false });
   A.ok(asked.length === 1 && asked.recallMeta.priority.length === 0, 'a relevant one can still be recalled, as an ordinary note');
+  // the compaction summarizer ranks the same notebook: a withheld run's fold must not carry the owner's standing
+  // notes into the summary the guest's model reads next (memory-learning-10 follow-up)
+  const prefs = [stand, Object.assign({}, stand, { id: 'elm', content: 'For all future tasks, deliver to the Elm Street office.' })];
+  A.ok(/Andy/.test(C.compactionMemoryBlock(prefs, 'what is the weather in Lisbon', { now: 100 })), 'an owner fold keeps its standing preferences');
+  A.eq(C.compactionMemoryBlock(prefs, 'what is the weather in Lisbon', { now: 100, standing: false }), '', 'a withheld fold carries no zero-relevance standing preference');
   const summarizer = C.compactionMemoryBlock(notes, 'deploy', { now: 100, limit: 60 });
   A.ok(summarizer.length > 0 && !/notebook\.read/.test(summarizer) && !/omitted|ranked lower/.test(summarizer), 'the tool-less summarizer gets no notice: ' + summarizer);
 }

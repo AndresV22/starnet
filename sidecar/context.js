@@ -636,10 +636,11 @@
   // PREPEND to the summarizer's input — so a summary can never silently drop "user prefers X". Returns '' when
   // there is nothing to preserve (caller prepends nothing → byte-identical to a memoryless compaction). `now`
   // injected (deterministic). Reuses rank + renderRecall so the selection matches live recall exactly.
+  // `standing` passes through to rank: a withheld (guest / group) run's fold sends standing:false, like its live recall.
   function compactionMemoryBlock(records, recentText, opts) {
     opts = opts || {};
     const now = typeof opts.now === 'number' ? opts.now : 0;
-    const ranked = rank(records, recentText || '', { now: now, k: opts.k || 5, streamId: opts.streamId || null, projectRoot: opts.projectRoot || null, vectors: opts.vectors || null, queryVec: opts.queryVec || null });
+    const ranked = rank(records, recentText || '', { now: now, k: opts.k || 5, streamId: opts.streamId || null, projectRoot: opts.projectRoot || null, vectors: opts.vectors || null, queryVec: opts.queryVec || null, standing: opts.standing });
     if (!ranked.length) return '';
     const rr = renderRecall(ranked, {
       limit: opts.limit || 800, priorityLimit: 0, notice: false,   // the summarizer has no tools: no notebook.read pointer
