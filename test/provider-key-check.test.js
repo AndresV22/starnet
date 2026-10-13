@@ -69,12 +69,20 @@ A.ok(/noteApiRefusal\(req, 'forbidden token'\);/.test(sidecar), 'a stale-token r
   const m = /function noteApiRefusal\(req, reason\) \{[\s\S]*?\n\}/.exec(sidecar);
   A.ok(m, 'index.js defines noteApiRefusal');
   const lines = [];
-  const note = new Function('apiRefusalsSeen', 'apiauth', 'PORT', 'recordDiagError', 'failNote', 'console', m[0] + '\nreturn noteApiRefusal;')(
-    new Set(), require('../sidecar/apiauth.js'), 8787, () => {}, () => {}, { warn: l => lines.push(l) });
+  // a fresh once-per-cause registry per instance, so each case below is logged
+  const noter = () => new Function('apiRefusalsSeen', 'apiauth', 'apitickets', 'PORT', 'recordDiagError', 'failNote', 'console', m[0] + '\nreturn noteApiRefusal;')(
+    new Set(), require('../sidecar/apiauth.js'), require('../sidecar/apitickets.js'), 8787, () => {}, () => {}, { warn: l => lines.push(l) });
+  const note = noter();
   note({ method: 'GET', url: '/api/state', headers: { host: '127.0.0.1:8787', origin: 'http://127.0.0.1:8787' } }, 'forbidden token');
   A.ok(lines[0] && !/before a sidecar restart/.test(lines[0]) && /no station key/.test(lines[0]), 'a key-less request is not called a stale page: ' + lines[0]);
   note({ method: 'GET', url: '/api/state', headers: { host: '127.0.0.1:8787', origin: 'http://127.0.0.1:8787', 'x-starnet-token': 'old-launch-key' } }, 'forbidden token');
   A.ok(lines[1] && /before a sidecar restart; reload it/.test(lines[1]), 'a wrong key is still a page from before a restart: ' + lines[1]);
+  // the header-less shapes (the COMMS EventSource, the unload save beacon) carry their key as a ?ticket=: a stale
+  // ticket is a stale page, not a page the station kept its key from
+  noter()({ method: 'GET', url: '/api/channels/events?ticket=old-launch-ticket', headers: { host: '127.0.0.1:8787', origin: 'http://127.0.0.1:8787' } }, 'forbidden token');
+  A.ok(lines[2] && /before a sidecar restart; reload it/.test(lines[2]) && !/no station key/.test(lines[2]), 'a stale ?ticket= is a page from before a restart: ' + lines[2]);
+  noter()({ method: 'GET', url: '/api/channels/events', headers: { host: '127.0.0.1:8787', origin: 'http://127.0.0.1:8787' } }, 'forbidden token');
+  A.ok(lines[3] && /no station key/.test(lines[3]), 'the same shape with no ticket carried no key: ' + lines[3]);
 }
 A.ok(/if \(apiRefusalsSeen\.has\(sig\) \|\| apiRefusalsSeen\.size >= 64\) return;/.test(sidecar), 'refusal notes are once per cause and bounded');
 

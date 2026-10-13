@@ -498,8 +498,10 @@ function noteApiRefusal(req, reason) {
     const clean = v => String(v == null ? '' : v).replace(/[^\x20-\x7e]/g, '?').slice(0, 120);
     const origin = clean(req.headers.origin), host = clean(req.headers.host);
     // a request with NO key is not a page from before a restart: it is a page this station withheld its key from (the
-    // "withheld the station token" line names why) or not a StarNet page. Only a WRONG key is a stale page.
-    const noKey = reason === 'forbidden token' && !apiauth.headerToken(req);
+    // "withheld the station token" line names why) or not a StarNet page. Only a WRONG key is a stale page, and the
+    // header-less shapes (EventSource, save beacon) carry theirs as a ?ticket=, so a stale ticket is a stale page too.
+    const ticketClaim = reason === 'forbidden token' ? apitickets.apiTicketClaim(req) : null;
+    const noKey = reason === 'forbidden token' && !apiauth.headerToken(req) && !(ticketClaim && ticketClaim.ticket);
     const sig = reason + (noKey ? ':none' : '') + '|' + origin + '|' + host;
     if (apiRefusalsSeen.has(sig) || apiRefusalsSeen.size >= 64) return;
     apiRefusalsSeen.add(sig);
