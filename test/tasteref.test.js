@@ -111,6 +111,20 @@ const TRACE = [{ name: 'fs.write', ok: true }, { name: 'image_generate', ok: tru
   A.ok(!abs.agent && /index\.html$/.test(T.refLine(abs, 2)) && T.refLine(abs, 2).length <= 84, 'a project run\'s absolute path has no owner tag and is clipped from the FRONT (the file name survives): ' + T.refLine(abs, 2));
 }
 
+// ---- review memory-learning-11: the palette is what THE RATED RUN made, not what a later run left in the same file ----
+// Run A writes index.html (blue); run B rewrites it dark green; rating run A afterwards used to record B's colours as A's.
+{
+  const ENDED = Date.UTC(2026, 9, 10, 12, 0, 0);
+  const at = (mtimeMs) => T.buildRef({ artifacts: ARTS, toolTrace: TRACE, files: [{ path: 'site/index.html', text: HTML, mtimeMs }], ranUntil: ENDED });
+  const later = at(ENDED + 60000);
+  A.ok(later && later.paths[0] === 'site/index.html', 'a file rewritten after the run ended is still named as the run\'s deliverable');
+  A.eq([later.palette, later.fonts], [undefined, undefined], 'but its current colours and fonts are not recorded as this run\'s');
+  A.eq(at(ENDED - 5000).palette[0], '#39ff88', 'a file unchanged since the run keeps its palette');
+  A.eq(at(ENDED + 1500).fonts[0], 'Space Grotesk', 'within the 2 s slack (mtime granularity, record lag) it still counts');
+  A.eq(at(undefined).palette, undefined, 'with the run\'s end known, a file whose change time is unknown proves nothing');
+  A.eq(T.buildRef({ artifacts: ARTS, files: [{ path: 'site/index.html', text: HTML }] }).palette[0], '#39ff88', 'a caller that knows no end time reads the file as before');
+}
+
 // ---- feedbackmemory.apply: the record carries the reference ----
 const REF = T.buildRef({ artifacts: ARTS, toolTrace: TRACE, rows: ROWS, files: [{ path: 'site/index.html', text: HTML }] });
 {
