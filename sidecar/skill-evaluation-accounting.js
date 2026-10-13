@@ -35,7 +35,10 @@ function makeEvaluationAccounting(options) {
         finally { clearLive(runId); }
         return;
       }
-      if (!result || ['error', 'cancelled', 'runner-error'].includes(result.reason) || result.accountingIncomplete || !Number.isFinite(result.usd) || result.usd < 0 || !Number.isFinite(result.tokens) || result.tokens < 0 || (result.unpricedUsage || []).length) {
+      // A cancel that landed between provider calls is known spend: the runner says so only with a literal false
+      // (every attempt finished and was priced). A cancel mid-call leaves that attempt unaccounted, so it stays unknown.
+      const knownCancel = !!result && result.reason === 'cancelled' && result.accountingIncomplete === false;
+      if (!result || ['error', 'runner-error'].includes(result.reason) || (result.reason === 'cancelled' && !knownCancel) || result.accountingIncomplete || !Number.isFinite(result.usd) || result.usd < 0 || !Number.isFinite(result.tokens) || result.tokens < 0 || (result.unpricedUsage || []).length) {
         unknown(runId);
         // Keep the dispatch receipt for explicit settlement, now or after restart.
         throw new Error('Evaluation spend is incomplete; its dispatch receipt remains unsettled.');

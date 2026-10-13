@@ -139,6 +139,31 @@ async function main() {
   assert.equal(capped.result.accountingIncomplete, false, 'known charge is still safe to settle');
   assert.equal(capped.result.usd, 0.01);
   assert.equal(observed[0].spentUsd, 0.01);
+  // A METERED, priced run cancelled BETWEEN provider calls (the evaluation timer fired during a tool step): every
+  // attempt finished and was priced, so its spend is known. It is booked, not left as an unsettled receipt.
+  {
+    const pending = new Map(), rows = [], marked = [];
+    const io = { readAll: () => rows.slice(), unsettled: () => [...pending.values()], beginRun: r => pending.set(r.runId, r), finishRun: e => pending.delete(e.runId), append: e => rows.push(e) };
+    const ledger = makeLedger({ io, clock: { now: () => 1 } });
+    const accounting = makeEvaluationAccounting({ ledger: Object.assign({}, ledger, { markUnsettled: runId => { marked.push(runId); return ledger.markUnsettled(runId); } }),
+      agentId: 'owner', provider: 'openrouter', model: 'scripted/accounting' });
+    const stop = new AbortController();
+    let count = 0, result, error = null;
+    const provider = { async *stream() { count++; yield { type: 'tool_start', index: 0, id: 'read', name: 'fs_read' }; yield { type: 'tool_args', index: 0, chunk: '{"path":"input.json"}' }; yield usage; yield { type: 'done', finishReason: 'tool_calls' }; }, contextLimit: () => 8000 };
+    const runner = makeAgentLoopCaseRunner({ provider, model: 'scripted/accounting', runIdPrefix: 'between-calls', clock: { now: () => 1 },
+      cost: makeCostEngine({ priceOf: () => ({ in: 1, out: 1 }) }), limits: { maxIters: 3, grace: false, continueGuard: false, emptyRetry: false },
+      emit: (name) => { if (name === 'agent.tool_result') stop.abort(); },
+      beforeRun: accounting.beforeRun, onStream: accounting.onStream, onRun: async row => { result = row.result; return accounting.onRun(row); } });
+    try { await runner({ task: { id: 'between', prompt: 'Read input.json.', fixtures: { 'input.json': '{}' } }, skill: null, phase: 'after', signal: stop.signal }); } catch (e) { error = e; }
+    assert.equal(count, 1, 'the cancel lands before a second provider call');
+    assert.equal(result.reason, 'cancelled');
+    assert.equal(result.accountingIncomplete, false, 'the one finished, priced attempt is fully accounted');
+    assert.equal(error, null, 'a known charge settles on cancel: ' + (error && error.message));
+    assert.deepEqual(marked, [], 'no unsettled receipt is left for a charge the runner priced');
+    assert.equal(ledger.unsettledRuns().length, 0);
+    assert.equal(rows.length, 1); assert.equal(rows[0].usd, 0.01);
+    assert.equal(ledger.health().complete, true);
+  }
   console.log('skill.evaluation.accounting: unmetered $0, metered unpriced, real loop usage, empty usage, partial throw, cancellation, retry uncertainty and billed length stop PASS');
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });
