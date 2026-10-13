@@ -40,8 +40,9 @@
      agentId, only that agent's own pins lead: another agent's pinned station skill never jumps ahead of them. The
      rest sort by context.js's bm25 over {name, summary} (skills shim onto the record shape as title/body), tiebreak
      updatedAt desc then name then caller order. No query at all (or no scorer in the vestigial browser path) →
-     the pins, then the caller's order (skillStore listAccessible(): own skills first, then by name). Nothing is
-     ever DROPPED by relevance: the budget's own skip-and-count is the only omission path, unchanged.
+     the pins, then the caller's order (skillStore listAccessible(): own skills first, then pinned, most recently
+     updated, then name). Nothing is ever DROPPED by relevance: the budget's own skip-and-count is the only
+     omission path, unchanged.
      Without an agentId the owner is read off the list: listAccessible returns agent-scope rows only for the caller,
      so any such row names it. A list with none (every own skill shared) lets every pin lead, as before. */
   function listOwner(live, agentId) {

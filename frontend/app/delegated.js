@@ -30,9 +30,7 @@ const Delegated = (() => {
     return list.find(a => a.id === id) || { id, name: (has(App, 'agentName') && App.agentName(id)) || id };
   }
   /* one card = the threads one lead run filed: its dispatch calls in the order they were made (a thread's `call`, the
-     requestId's middle segment), each call's workers in the order it asked for them. /api/overseer threads[] do not
-     carry `call` yet (sidecar/overseer.js snapshot() sends leadRunId and slot only): until they do, every row reads as
-     one call and a lead run's rows sort by slot alone, so two calls in one run still interleave. */
+     requestId's middle segment), each call's workers in the order it asked for them. */
   function batches(parentId) {
     if (typeof Workstreams === 'undefined' || !parentId) return [];
     const s = snap();

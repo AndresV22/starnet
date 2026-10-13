@@ -133,10 +133,11 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     for (const k of Object.keys(ROOM_LIGHTING_MIN)) out[k] = +(ROOM_LIGHTING_MIN[k] + (ROOM_LIGHTING_MAX[k] - ROOM_LIGHTING_MIN[k]) * t).toFixed(4);
     return out;
   }
-  // `live` (a slider drag): the CRT film and (industrial world) WorldLight's deck ambient reach the next frame on
-  // their own. The pool cut + key reach WorldLight only through World.rebake, a full StationBake that freezes a big
-  // station for ~2.5 s, so a drag never rebakes and a commit (release) rebakes only when its knobs differ from the
-  // ones last baked. A drag that ends where it began then owes nothing to the next unrelated applySettings.
+  // `live` (a slider drag) reaches the next frame on its own: the CRT film, and (industrial world) WorldLight's deck
+  // ambient plus its pool cut + key, which worldrenderer.js begin() hands to WorldLight.configure over the same bake.
+  // So a drag never rebakes. A commit (release) rebakes once, for StationBake's baked ambient (a full StationBake
+  // freezes a big station for ~2.5 s), and only when the knobs differ from the ones last baked. A drag that ends
+  // where it began then owes nothing to the next unrelated applySettings.
   function applyRoomLighting(value, live) {
     if (typeof StationBake === 'undefined') return;
     if (!live && roomLightingTimer) { clearTimeout(roomLightingTimer); roomLightingTimer = 0; }   // this commit supersedes a queued one
