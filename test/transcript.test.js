@@ -318,6 +318,30 @@ const redact = (s) => String(s).replace(/sk-[A-Za-z0-9]{8,}/g, '[redacted]');
   A.ok(noError.some(t => t.sys && /no result was accepted/.test(t.content)), 'an interrupted run with no recorded reason still says no result was accepted');
   A.eq(projectConversation(rows, () => ({ runId: 'w1', reason: 'done', dispatchDelivery: { state: 'pending' } })), [], 'a run still pending finalization stays hidden (its accepted answer may be in flight)');
   A.eq(projectConversation(rows, () => null), [], 'a run with no record stays hidden');
+
+  // Every open re-merges the station's projection into the saved thread (desk: chat.js mergeCanonicalHistory; phone:
+  // remote/host.js mergeCanonical), and the result is saved. The interrupted line must stay ONE line however often the
+  // thread is opened, with or without a saved copy of the directive, and sit right under its directive.
+  const fs = require('node:fs'), path = require('node:path');
+  const mergeFrom = (file, header) => {
+    const body = A.fnBody(fs.readFileSync(path.join(__dirname, '..', file), 'utf8'), header);
+    A.ok(body.length > 0, file + ': its history merge was found');
+    return new Function('return (' + body + ')')();
+  };
+  const merges = [['desk', mergeFrom('frontend/app/chat.js', 'function mergeCanonicalHistory(local, turns)')],
+    ['phone', mergeFrom('sidecar/remote/host.js', 'function mergeCanonical(local, turns)')]];
+  for (const [surface, merge] of merges) {
+    for (const [label, start] of [['no saved copy', []], ['a saved directive', [{ role: 'user', content: 'Find three JWST facts', from: 'nova', ts: 10 }]]]) {
+      let saved = start;
+      for (let open = 1; open <= 4; open++) saved = JSON.parse(JSON.stringify(merge(saved, interrupted)));
+      const lines = saved.filter(t => t.sys && /interrupted/.test(t.content));
+      A.eq(lines.length, 1, surface + ', ' + label + ': four opens keep exactly one interrupted line');
+      A.eq(saved.map(t => t.content), ['Find three JWST facts', interrupted[1].content], surface + ', ' + label + ': the line sits under its directive');
+    }
+  }
+  // Once the run has an accepted answer the station stops sending the line, and the saved copy goes with it.
+  const healed = merges[0][1](merges[0][1]([], interrupted), [rows[0]]);
+  A.ok(!healed.some(t => t.sys), 'a saved interrupted line is not kept once the station no longer reports it');
 }
 
 // Full accepted output and the bounded execution preview have separate durability contracts.

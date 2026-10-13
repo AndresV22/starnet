@@ -121,10 +121,13 @@
       // A run StarNet stopped before it finished was never finalized and never will be. Show its directive and one
       // plain interrupted line, so the thread is not silently empty; its raw partial output stays hidden. A run whose
       // record still says pending may be mid-finalize, so it stays hidden until its accepted answer lands.
+      // The line is the station's, re-sent on every read: transcriptPending tells the desk and phone merges
+      // (chat.js mergeCanonicalHistory, remote/host.js mergeCanonical) to drop their saved copy and take this one,
+      // so reopening the thread never stacks it, and it goes away once the station stops reporting it.
       if (!final && run && run.reason === 'interrupted' && !(delivery && (delivery.state === 'final' || delivery.state === 'pending'))) {
         if (row.role === 'user' && !prompts.has(id)) {
           out.push(row); prompts.add(id);
-          out.push({ streamId: row.streamId, agentId: row.agentId, role: 'assistant', sys: true, error: true, sourceRunId: id,
+          out.push({ streamId: row.streamId, agentId: row.agentId, role: 'assistant', sys: true, error: true, transcriptPending: true, sourceRunId: id,
             dispatchState: 'interrupted', ts: row.ts, content: str(run.error) || (run.continuedRunId
               ? 'interrupted: StarNet stopped before this delegated run finished; it was continued as another run'
               : 'interrupted: StarNet stopped before this delegated run finished; no result was accepted') });
