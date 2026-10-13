@@ -275,6 +275,28 @@ async function checkCandidateReview() {
   await untouched(reload(stale), 'a receipt for another revision is not shown as this one');
   await untouched(reload(Object.assign({}, passedRow, { baselineDigest: SkillEvaluation.digestSkill(null) })), 'a receipt measured against another active version is not shown');
 
+  // skills-eval-17: a proposal whose base is no longer the active skill (the store lists it baseCurrent:false) can
+  // only be rejected. The card says so and offers nothing the station would refuse, even with a passing receipt.
+  const outdatedHost = element(); ctx.host = outdatedHost;
+  ctx.review = { candidates: [Object.assign({}, listed(passedRow).review.candidates[0], { baseCurrent: false })], evaluationSuites: listed(passedRow).review.evaluationSuites };
+  vm.runInNewContext('renderSkillCandidates(host, "agent", review);', ctx);
+  const outdated = outdatedHost.children[0];
+  A.ok(outdated.html.includes('<span class="sk-badge miss">OUTDATED</span>') && !outdated.html.includes('PROPOSED REVISION'), 'an outdated proposal is badged OUTDATED');
+  A.ok(outdated.html.includes('The active skill changed after this was proposed. Reject it, or wait for the agent\'s next revision.'), 'it says why and what the Commander can do');
+  for (const attr of ['data-evaluation-suites', 'data-candidate-approve', 'data-candidate-acknowledge', 'data-suite-register', 'data-suite-json'])
+    A.ok(!outdated.html.includes(attr), 'an outdated proposal has no ' + attr);
+  A.ok(!/Last evaluation|Passed/.test(outdated.querySelector('[data-evaluation-result]').textContent), 'a stored receipt is not offered on an outdated proposal');
+  const outdatedReject = outdated.querySelector('[data-candidate-reject]');
+  A.ok(outdatedReject && outdatedReject.armed, 'Reject stays, armed as usual');
+  await outdatedReject.armed.onConfirm();
+  A.ok(requests.at(-1).path.endsWith('/reject-candidate') && requests.at(-1).body.candidateId === 'candidate-4', 'Reject sends the outdated proposal');
+  // A fresh proposal (baseCurrent true, or a host that does not send the field) keeps every control.
+  for (const baseCurrent of [true, undefined]) {
+    const h = element(); ctx.host = h;
+    ctx.review = { candidates: [Object.assign({}, listed(null).review.candidates[0], { baseCurrent })], evaluationSuites: listed(null).review.evaluationSuites };
+    vm.runInNewContext('renderSkillCandidates(host, "agent", review);', ctx);
+    A.ok(h.children[0].html.includes('PROPOSED REVISION') && h.children[0].html.includes('data-candidate-approve') && h.children[0].html.includes('data-suite-register'), 'baseCurrent ' + baseCurrent + ' keeps the full card');
+  }
 }
 
 // Review finding world-render-10: Change sharing speaks plain words, marks the current choice, asks for a

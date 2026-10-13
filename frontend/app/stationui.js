@@ -4358,22 +4358,38 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     };
     for (const candidate of rows) {
       const skill = candidate.skill || {};
+      // skills-eval-17: the store lists a pending proposal whose base is no longer the active skill as baseCurrent:false.
+      // The station refuses to evaluate or approve it, so the card offers only Reject. A host that does not send the
+      // field (undefined) keeps the full card.
+      const outdated = candidate.baseCurrent === false;
       const card = mkEl('div', 'sk-card want open'); host.appendChild(card);
       card.dataset.skillCandidate = candidate.candidateId;
-      card.innerHTML = '<div class="sk-card-head"><div class="sk-card-main"><div class="sk-name-row"><span class="sk-name">' + esc(skill.name || candidate.name) + '</span><span class="sk-badge want">PROPOSED REVISION</span></div><div class="sk-desc">Any existing active version stays available. This proposal needs a task evaluation and your approval. If a complete evaluation shows no improvement but the proposal passed every check, you can still approve it by confirming that.</div></div></div>' +
+      card.innerHTML = '<div class="sk-card-head"><div class="sk-card-main"><div class="sk-name-row"><span class="sk-name">' + esc(skill.name || candidate.name) + '</span>' +
+        (outdated ? '<span class="sk-badge miss">OUTDATED</span></div><div class="sk-desc">The active skill changed after this was proposed. Reject it, or wait for the agent\'s next revision.</div></div></div>'
+          : '<span class="sk-badge want">PROPOSED REVISION</span></div><div class="sk-desc">Any existing active version stays available. This proposal needs a task evaluation and your approval. If a complete evaluation shows no improvement but the proposal passed every check, you can still approve it by confirming that.</div></div></div>') +
         '<div class="sk-body"><div class="sk-attr">Proposed sharing: ' + esc(skillScopeText(skill.scope, skill.projectRoot)) + ' · revision ' + esc(candidate.revision) + '</div><pre>' + esc(skill.body || '') + '</pre>' +
         '<details><summary>Proposed metadata and package files</summary><pre>' + esc(JSON.stringify({ candidateDigest: candidate.candidateDigest, baseDigest: candidate.baseDigest, summary: skill.summary, description: skill.description, setup: skill.setup, category: skill.category, requires: skill.requires, platforms: skill.platforms, state: skill.state, scope: skill.scope, projectRoot: skill.projectRoot, packageFiles: skill.packageFiles }, null, 2)) + '</pre></details>' +
         (skill.files || []).map(f => '<details><summary>' + esc(f.path) + '</summary><pre>' + esc(f.content || '') + '</pre></details>').join('') +
+        (outdated ? '<div class="sk-attr" data-evaluation-result></div><div class="consent-btns mc-acts"><button class="consent-btn" data-candidate-reject>Reject proposal</button></div></div>' :
         '<div class="sk-attr">Evaluation checks only the selected task family. A passing result does not prove improvement for every use.</div><div data-evaluation-suites></div>' +
         '<div class="sk-attr" data-evaluation-result>No evaluation run from this panel yet.</div><div class="consent-btns mc-acts"><button class="consent-btn" data-candidate-approve disabled>Approve evaluated revision</button><button class="consent-btn" data-candidate-acknowledge hidden disabled>Approve without measured improvement</button><button class="consent-btn" data-candidate-reject>Reject proposal</button></div>' +
-        '<details><summary>Register task checks (JSON)</summary><div class="sk-attr">Declare repeatable tasks and exact checks, including a held-out case. The station validates and runs this suite before approval.</div><textarea class="cf-ta mc-edit" data-suite-json spellcheck="false" aria-label="Evaluation suite JSON" placeholder="' + esc(SUITE_EXAMPLE) + '"></textarea><button class="consent-btn" data-suite-register>Register task checks</button></details></div>';
-      const suiteHost = card.querySelector('[data-evaluation-suites]');
+        '<details><summary>Register task checks (JSON)</summary><div class="sk-attr">Declare repeatable tasks and exact checks, including a held-out case. The station validates and runs this suite before approval.</div><textarea class="cf-ta mc-edit" data-suite-json spellcheck="false" aria-label="Evaluation suite JSON" placeholder="' + esc(SUITE_EXAMPLE) + '"></textarea><button class="consent-btn" data-suite-register>Register task checks</button></details></div>');
       const note = card.querySelector('[data-evaluation-result]');
-      const approve = card.querySelector('[data-candidate-approve]');
-      const acknowledge = card.querySelector('[data-candidate-acknowledge]');
       const reject = card.querySelector('[data-candidate-reject]');
       let receipt = null, busy = false;
       const request = { agentId, candidateId: candidate.candidateId, candidateDigest: candidate.candidateDigest };
+      const doReject = async () => {
+        if (busy) return; busy = true; reject.disabled = true;
+        try { await skillReviewPost('reject-candidate', request); loadAgentSkills(agentId); }
+        catch (e) { note.textContent = e.message; busy = false; reject.disabled = false; }
+      };
+      // Rejecting discards the proposal and whatever evaluation it had: arm, then confirm, like the acknowledgement.
+      if (typeof ArmConfirm !== 'undefined' && ArmConfirm.wire) ArmConfirm.wire(reject, { armedLabel: 'Confirm: reject proposal', onArm: () => sfx('bad'), onConfirm: doReject });
+      else reject.onclick = doReject;
+      if (outdated) continue;
+      const suiteHost = card.querySelector('[data-evaluation-suites]');
+      const approve = card.querySelector('[data-candidate-approve]');
+      const acknowledge = card.querySelector('[data-candidate-acknowledge]');
       const matching = suites.filter(s => s.skillId === skill.id || (!s.skillId && s.skillName === skill.name));
       // One result path for a fresh run and for the host's stored receipt of this exact revision.
       const showResult = (r, suite, lead) => {
@@ -4418,14 +4434,6 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       if (typeof ArmConfirm !== 'undefined' && ArmConfirm.wire) {
         ArmConfirm.wire(acknowledge, { armedLabel: 'Confirm: approve with no measured improvement', onConfirm: () => decide({ acknowledgeNoImprovement: true }) });
       }
-      const doReject = async () => {
-        if (busy) return; busy = true; reject.disabled = true;
-        try { await skillReviewPost('reject-candidate', request); loadAgentSkills(agentId); }
-        catch (e) { note.textContent = e.message; busy = false; reject.disabled = false; }
-      };
-      // Rejecting discards the proposal and whatever evaluation it had: arm, then confirm, like the acknowledgement.
-      if (typeof ArmConfirm !== 'undefined' && ArmConfirm.wire) ArmConfirm.wire(reject, { armedLabel: 'Confirm: reject proposal', onArm: () => sfx('bad'), onConfirm: doReject });
-      else reject.onclick = doReject;
       const register = card.querySelector('[data-suite-register]');
       register.onclick = async () => {
         if (busy) return;
