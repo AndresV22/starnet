@@ -193,12 +193,13 @@ function finCard(st, valPlan, names) {
   let html = '';
   const elm = () => ({ className: '', style: {}, set innerHTML(v) { html = v; }, get innerHTML() { return html; }, querySelector: () => ({ onclick: null, textContent: '' }) });
   const c = { key: 'LB', intakes: ['pB'], bays: [{ propId: 'b1', agentId: 'x' }] };
-  const ctx = run(between('function renderFinCard() {', '// ① — center the camera'), {
+  // the card's own ② words (finFeedText) and ③'s SEND TO promise (finOnwardPromise, agent lane) ride the slice with it
+  const ctx = run(fnOf(src, 'finFeedText') + fnOf(src, 'finOnwardPromise') + between('function renderFinCard() {', '// ① — center the camera'), {
     root: { appendChild() {} }, running: true, finEngaged: true, tool: 'belt', finCardEl: null, finSig: '', finComp: null, finSample: null, finSampleRes: null, valPlan,
     tutorialCoaching: () => false, ordersHide() {}, renderOrders() {}, bumpUi() {}, finPick: () => c, finState: () => st, lineNameOf: () => null,
     workflowReadout: () => ({ compact: '' }), agentLabelFor: a => a, document: { createElement: elm }, esc: s => String(s), finSampleHTML: () => '',
     finMark() {}, sfx() {}, currentPresetExample: () => null, openPresetExample() {}, openFlowCard() {}, openStepCard() {}, finFocusCrew() {}, finOpenFeed() {}, finRunSample() {},
-    station: { lineName: k => names[k] || null }, Pipeline: P
+    station: { lineName: k => names[k] || null }, Pipeline: P, WorkflowLine: require('../frontend/app/workflowline.js'), opts: { world: { lineName: k => names[k] || null } }
   });
   ctx.renderFinCard();
   const m = /data-act="feed"[^>]*>([^<]*)</.exec(html);
@@ -209,8 +210,10 @@ function finCard(st, valPlan, names) {
   const sent = { sendTo: { pO: { intakeId: 'pB', fromLine: 'LA', toLine: 'LB' } } };
   A.eq(finCard(Object.assign({ feed: { known: true, fed: false } }, base), sent, { LA: 'LINE ALPHA' }), '✓ FED BY LINE ALPHA', 'a line fed by another line\'s SEND TO says so, naming the sender');
   A.eq(finCard(Object.assign({ feed: { known: true, fed: true }, autoStart: true }, base), {}, {}), '✓ AUTOMATIC START CONFIGURED', 'an automatic start of THIS line says so (it was unreachable)');
-  A.eq(finCard(Object.assign({ feed: { known: true, fed: true }, autoStart: false }, base), {}, {}), '✓ WORK HAS ARRIVED', 'a station-wide feed flag is never this line\'s AUTOMATIC START (wave 2 repair)');
-  A.eq(finCard(Object.assign({ feed: { known: true, fed: false } }, base), {}, {}), '✓ WORK HAS ARRIVED', 'only arrived work: says that');
+  // (conveyor-final merge, decision b: "fed" is a compiled SEND TO from a line that can run, NEVER a run count — so arrived work no
+  // longer ticks ② and there is no WORK HAS ARRIVED; ② done with no named sender and no start of this line is the SEND TO fallback)
+  A.eq(finCard(Object.assign({ feed: { known: true, fed: true }, autoStart: false }, base), {}, {}), '✓ ANOTHER LINE SENDS IT WORK', 'a station-wide feed flag is never this line\'s AUTOMATIC START (wave 2 repair)');
+  A.ok(!/WORK HAS ARRIVED/.test(src), 'arrived work is no start: ② never says WORK HAS ARRIVED (a sample or a test run starts nothing)');
   A.eq(finCard(Object.assign({ feed: { known: true, fed: false } }, base, { feedDone: false }), {}, {}), '② CHOOSE WHAT STARTS THIS LINE', 'not fed: the step is still open');
   A.ok(!/A START IS CONFIGURED OR WORK HAS ARRIVED/.test(src), 'the X-OR-Y sentence is gone');
 }
@@ -548,7 +551,7 @@ function finReal(s, intake, o) {
   let html = '';
   const elm = () => ({ className: '', style: {}, set innerHTML(v) { html = v; }, get innerHTML() { return html; }, querySelector: () => ({ onclick: null, textContent: '' }) });
   const world = Object.assign({ feedState: () => ({ known: true, fed: false }), fedLines: pl => P.fedLineIds(pl), schedOffFor: () => false, startFacts: () => null }, (o && o.world) || {});
-  const ctx = run(between('function finState(c) {', 'function finPick() {') + between('function renderFinCard() {', '// ① — center the camera'), {
+  const ctx = run(between('function finState(c) {', 'function finPick() {') + fnOf(src, 'finOnwardPromise') + between('function renderFinCard() {', '// ① — center the camera'), {
     opts: { world, agents: () => (o && o.agents) || [] }, Pipeline: P, WorkflowLine: WL, cacheGeo: geo, valPlan, finStartsMemo: null,
     root: { appendChild() {} }, running: true, finEngaged: true, tool: 'belt', finCardEl: null, finSig: '', finComp: null, finSample: null, finSampleRes: null,
     tutorialCoaching: () => false, ordersHide() {}, renderOrders() {}, bumpUi() {}, finPick: () => c, lineNameOf: () => null,

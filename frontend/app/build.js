@@ -4393,8 +4393,8 @@ const Build = (() => {
     const lname = lineNameOf(c);
     const overview = workflowReadout(c, valPlan, agentLabelFor);
     // ② DONE SAYS WHICH START IT FOUND (wave 2, build-12): another line's SEND TO feeds it (named by the one line name), else an
-    // automatic start of THIS line is configured, else work has arrived on it (the run stats behind fedLines) — the old X-or-Y sentence
-    // could not say which of its two claims held. A sender counts only if it can run (Pipeline.lineSenders: it has an INBOX — a
+    // automatic start of THIS line is configured (lineStartsHere) — work that merely arrived (a run count) starts nothing and never ticks
+    // ② (fedLines is the compiled SEND TO, Pipeline.fedLineIds). The old X-or-Y sentence could not say which of its two claims held. A sender counts only if it can run (Pipeline.lineSenders: it has an INBOX — a
     // fragment's hand-off feeds nothing), so it always has a floor name (wave 2 repair: an INBOX-less sender read FED BY ANOTHER LINE)
     const senders = [...new Set(((typeof Pipeline !== 'undefined' && Pipeline.lineSenders) ? Pipeline.lineSenders(valPlan, c.key) : [])
       .map(id => station && station.lineName && station.lineName(id)).filter(Boolean))];
