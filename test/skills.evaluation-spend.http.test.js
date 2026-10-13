@@ -68,6 +68,7 @@ const server = http.createServer((req, res) => {
     STARNET_OPENROUTER_BASE: endpoint, SKYNET_OPENROUTER_BASE: endpoint,
     STARNET_OPENROUTER_KEY: 'local-fixture-only', SKYNET_OPENROUTER_KEY: 'local-fixture-only',
     STARNET_BUDGET_PER_DAY: '1', SKYNET_BUDGET_PER_DAY: '1',
+    STARNET_BUDGET_PER_RUN: '0.25', SKYNET_BUDGET_PER_RUN: '0.25',   // the Commander's per-run cap each evaluation run must get
     STARNET_FULL_ACCESS: '1', SKYNET_FULL_ACCESS: '1',
     SKYNET_SKILL_REVIEW: '0', SKYNET_SKILL_CURATOR: '0', SKYNET_REFLECT: '0', SKYNET_SCOUT: '0',
     SKYNET_QUEST_REFRESH: '0', SKYNET_CRON_ENABLED: '0', STARNET_CRON_ENABLED: '0'
@@ -113,6 +114,14 @@ const server = http.createServer((req, res) => {
     assert.equal(unsettled.agentId, 'agent');
     assert.equal(unsettled.provider, 'openrouter');
     assert.equal(unsettled.model, MODEL);
+    // skills-eval-06: each run is bounded by the Commander's per-run cap, never a fixed $0.08 that a premium model
+    // passes on its first call
+    assert.equal(unsettled.runCapUsd, 0.25, 'the evaluation run recorded the Commander\'s per-run cap');
+    // security-storage-07: the row says what it is (an evaluation, not an interrupted run) and the billing source the
+    // host knew (the Commander's own key here, so not StarNet credits)
+    assert.equal(unsettled.kind, 'evaluation');
+    assert.equal(unsettled.title, 'skill evaluation (agent)');
+    assert.equal(unsettled.managed, false, 'the billing source is known');
     phases.push('finished text without usage creates an immediately visible unsettled charge');
 
     const beforeBlocked = requests.length;

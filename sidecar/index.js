@@ -1777,8 +1777,10 @@ function verifySkillPromotion(receipt, expected) {
 }
 function evaluationSuiteMetadata(agentId, skills) {
   // generic: a built-in suite tests a fixed task family, not what this particular skill is for (owner suites are `owner:`).
+  // waitMs: how long the page should wait for evaluate-candidate (the server's own clock for this suite plus a margin),
+  // so the page never gives up before the server's answer
   return skills.flatMap(skill => evaluationSuitesFor(agentId, skill).map(s => ({ id: s.id, skillId: skill.id, skillName: skill.name, description: s.description || '', cases: s.cases.length,
-    generic: !String(s.id).startsWith('owner:') })));
+    generic: !String(s.id).startsWith('owner:'), waitMs: SkillEvaluationRunner.evaluationLimits({ cases: s.cases.length }).wallClockMs + 30000 })));
 }
 
 // SKILL EXCHANGE: the existing web guard owns public-host validation; the exchange adds HTTPS-only,
@@ -13284,8 +13286,12 @@ function budgetUnsettledRuns() {
   return ledger.unsettledRuns().map(r => {
     let title = '';
     try { const row = runStore.latest(r.runId); title = String((row && row.title) || ''); } catch (e) { failNote('budget.unsettled.title', e); }
+    // a skill evaluation is never in run history: name it by its receipt's runId (which survives a restart), so the
+    // panel does not call a finished evaluation an interrupted run of the agent
+    const evaluation = String(r.runId || '').startsWith('skill-eval-');
+    if (!title && evaluation) title = 'skill evaluation (' + (r.agentId || 'agent') + ')';
     return {
-      runId: r.runId, agentId: r.agentId || '', ts: r.ts || null, title: title.slice(0, 120),
+      runId: r.runId, agentId: r.agentId || '', ts: r.ts || null, title: title.slice(0, 120), ...(evaluation ? { kind: 'evaluation' } : {}),
       provider: r.provider || null, model: r.model || null, managed: typeof r.managed === 'boolean' ? r.managed : null,
       runCapUsd: (typeof r.runCapUsd === 'number' && r.runCapUsd > 0) ? r.runCapUsd : null
     };
@@ -18744,14 +18750,24 @@ async function handleSkillCandidateAction(req, res) {
     const baseline = skillStore.view(agentId, candidate.skill.id, { bump: false, includeArchived: true, hydrate: false });
     if (SkillEvaluation.digestSkill(baseline) !== candidate.baseDigest) return learningJson(res, 409, { ok: false, error: 'the active skill changed after this proposal; reject it or wait for the agent to propose a new revision' });
     const providerId = normalizeProvider(cfg.provider), unmetered = !!((getProviderProfile(providerId) || {}).unmetered);
-    const controller = new AbortController(), timer = setTimeout(() => controller.abort(), 120000);
+    /* Limits sized to the chosen suite and the Commander's per-run cap (SkillEvaluationRunner.evaluationLimits): a fixed
+       120 s and $0.08 per run stopped every evaluation on a slow reasoning model or a premium-priced one. Each run
+       gets the per-run cap (the runner's default when none is set), the whole evaluation runs x that cap. */
+    const evalSuite = evaluationSuitesFor(agentId, candidate.skill).find(s => s.id === String(body.suiteId || ''));
+    const perRunCap = !unmetered && effectiveCaps.perRun > 0 && isFinite(effectiveCaps.perRun) ? effectiveCaps.perRun : undefined;
+    const lim = SkillEvaluationRunner.evaluationLimits({ cases: evalSuite ? evalSuite.cases.length : 0, runCapUsd: perRunCap });
+    let timedOut = false;
+    const controller = new AbortController(), timer = setTimeout(() => { timedOut = true; controller.abort(); }, lim.wallClockMs);
     const onClose = () => { if (!res.writableEnded) controller.abort(); };
     res.once('close', onClose); stationOneShots.add(controller); skillEvaluationsNow.add(agentId);
-    const accounting = makeEvaluationAccounting({ ledger, budget, agentId, provider: providerId, model: cfg.model, unmetered });
+    // managed: the billing source the host knows, by the same rule as a run (managedRun): StarNet credits, or the Commander's own key
+    const managed = credits.configured() && !unmetered && (providerId === 'starnet' || !!CREDITS_URL);
+    const accounting = makeEvaluationAccounting({ ledger, budget, agentId, provider: providerId, model: cfg.model, unmetered, managed, runCapUsd: lim.perRunUsd, maxUsd: lim.totalUsd });
+    const evalPrefix = crypto.randomUUID();   // the runner adds the skill-eval- namespace itself
     try {
       const provider = await providerForRunConfig(cfg, resolveReasoningEffort(providerId, cfg.reasoningEffort));
       const runCase = SkillEvaluationRunner.makeAgentLoopCaseRunner({ provider, model: cfg.model, unmetered, cost: makeCostEngine({ priceOf: provider.priceOf }), clock: { now: () => Date.now() },
-        runIdPrefix: 'skill-eval-' + crypto.randomUUID(), limits: { maxIters: 8, maxCostUsd: 0.08, grace: false },
+        runIdPrefix: evalPrefix, limits: { maxIters: 8, maxCostUsd: lim.perRunUsd, grace: false },
         authorize: async () => !controller.signal.aborted && accounting.canContinue() && (unmetered || !budget.check(null, agentId, 0, Date.now(), null)),
         beforeRun: accounting.beforeRun,
         beforeStream: ({ runId, spentUsd }) => !controller.signal.aborted && accounting.canContinue(spentUsd) &&
@@ -18761,6 +18777,13 @@ async function handleSkillCandidateAction(req, res) {
       });
       const receipt = await evaluationServiceFor(agentId, candidate.skill, cfg, runCase).evaluate({ candidate: candidate.skill, baseline, suiteId: String(body.suiteId || ''), signal: controller.signal });
       return learningJson(res, 200, { ok: true, receipt });
+    } catch (e) {
+      if (!timedOut) throw e;
+      // say what happened, not "cancelled": the clock ran out. A call it cut off is named only when the ledger holds it.
+      const cutOff = ledger.unsettledRuns().some(r => r && String(r.runId || '').startsWith('skill-eval-' + evalPrefix));
+      failNote('skill-candidate.evaluate.timeout', e);
+      return learningJson(res, 400, { ok: false, error: 'the evaluation stopped after ' + Math.round(lim.wallClockMs / 60000) + ' min, before every run finished' +
+        (cutOff ? '; a provider call it cut off is unsettled — settle it in SETTINGS › SPENDING LIMITS' : '') });
     } finally { clearTimeout(timer); res.removeListener('close', onClose); stationOneShots.delete(controller); skillEvaluationsNow.delete(agentId); }
   } catch (e) { failNote('skill-candidate.' + action, e); return learningJson(res, 400, { ok: false, error: String(e && e.message || 'candidate action failed').slice(0, 300) }); }
 }
