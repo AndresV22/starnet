@@ -144,6 +144,10 @@ async function main() {
     assert.equal(paid, 0, 'no paid run for a check this runner cannot observe');
     assert.throws(() => providerEval.registerSuite(exitSuite), /process_exit checks need an executable runner/);
     assert.equal(E.makeSkillEvaluator({ ...options, suites: [exitSuite] }).listSuites()[0].id, 'owner:exit-code', 'an executable runner still takes the suite');
+    // The suite-registration route validates without an evaluator: the same refusal is one exported call there.
+    assert.throws(() => E.assertSuiteRunnable(E.validateSuite(exitSuite), 'provider'), error => error.message === E.PROCESS_EXIT_REFUSAL, 'the route refuses a process_exit suite for the provider runner');
+    assert.equal(E.assertSuiteRunnable(E.validateSuite(exitSuite), 'executable').id, 'owner:exit-code', 'an executable runner can observe the exit');
+    assert.equal(E.assertSuiteRunnable(E.validateSuite(suite), 'provider').id, suite.id, 'a suite without process_exit checks is runnable here');
     assert.throws(() => E.validateSuite({ ...suite, cases: [{ ...suite.cases[0], checks: [{ id: 'bad', kind: 'regex', expected: 'x' }] }, suite.cases[1]] }), /kind of json_equal, artifact_json_equal, artifact_sha256 or tool_call/);
   }
   console.log('skill.evaluation: exact executable improvement, held-out regression, restart, tamper/model/test/skill invalidation, fixture refusal, real loop fixture isolation PASS');

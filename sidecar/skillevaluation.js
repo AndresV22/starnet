@@ -164,6 +164,14 @@ function validatePromotionReceipt(receipt, options) {
   if (o.acknowledgedNoImprovement !== true) return { ok: false, reason: 'the evaluation showed no measurable improvement; approve it without measured improvement to accept it' };
   return { ok: true, receiptId: receipt.receiptId, acknowledged: true };
 }
+/* Only an executable runner observes a process exit. The provider and fixture runners work in an isolated file
+   workspace, so a process_exit check there could never pass: refuse it before any run, and say why. Exported so the
+   suite-registration route refuses it too (it validates without an evaluator). Returns the suite. */
+const PROCESS_EXIT_REFUSAL = 'process_exit checks need an executable runner; this station evaluates in an isolated file workspace, so use json_equal, artifact_json_equal, artifact_sha256 or tool_call checks';
+function assertSuiteRunnable(suite, evidenceClass) {
+  if (evidenceClass !== 'executable' && suite.cases.some(c => c.checks.some(check => check.kind === 'process_exit'))) throw new Error(PROCESS_EXIT_REFUSAL);
+  return suite;
+}
 function makeSkillEvaluator(options) {
   const o = options || {}, suites = new Map((o.suites || []).map(s => { const suite = validateSuite(s); return [suite.id, suite]; }));
   if (typeof o.runCase !== 'function' || !o.io || typeof o.io.get !== 'function' || typeof o.io.set !== 'function') throw new Error('evaluation needs a host runner and durable receipt store');
@@ -174,17 +182,11 @@ function makeSkillEvaluator(options) {
   if (evidenceClass === 'executable' && (!runnerIdentity.implementation || !runnerIdentity.version)) throw new Error('executable evaluation requires versioned runner identity');
   const runnerDigest = digest(runnerIdentity);
   const active = new Set();
-  // Only an executable runner observes a process exit. The provider and fixture runners work in an isolated file
-  // workspace, so a process_exit check there could never pass: refuse it before any run, and say why. Suites already
-  // stored still load above; they fail here, at evaluate, with this reason instead of a silent never-passing check.
-  function unobservable(suite) {
-    return evidenceClass !== 'executable' && suite.cases.some(c => c.checks.some(check => check.kind === 'process_exit'));
-  }
-  const PROCESS_EXIT_REFUSAL = 'process_exit checks need an executable runner; this station evaluates in an isolated file workspace, so use json_equal, artifact_json_equal, artifact_sha256 or tool_call checks';
+  // Suites already stored still load above; one this runner cannot observe fails at evaluate, before any run.
   async function evaluate(input) {
     const p = input || {}, suite = suites.get(p.suiteId);
     if (!suite) throw new Error('unknown host evaluation suite');
-    if (unobservable(suite)) throw new Error(PROCESS_EXIT_REFUSAL);
+    assertSuiteRunnable(suite, evidenceClass);
     if (!p.candidate) throw new Error('candidate required');
     const candidate = clone(p.candidate.skill || p.candidate), baseline = p.baseline ? clone(p.baseline.skill || p.baseline) : null;
     if (!candidate || candidate.name !== suite.skillName || (baseline && baseline.name !== candidate.name)) throw new Error('test set does not govern this skill');
@@ -231,10 +233,9 @@ function makeSkillEvaluator(options) {
     return validatePromotionReceipt(stored, { ...expected, runnerDigest, suite: suites.get(stored.suiteId) });
   }
   function registerSuite(value) {
-    const suite = validateSuite(value);
-    if (unobservable(suite)) throw new Error(PROCESS_EXIT_REFUSAL);
+    const suite = assertSuiteRunnable(validateSuite(value), evidenceClass);
     suites.set(suite.id, suite); return suite.id;
   }
   return { evaluate, verifyReceipt, getReceipt, registerSuite, listSuites: () => Array.from(suites.values()).map(s => ({ id: s.id, skillName: s.skillName, cases: s.cases.length })) };
 }
-module.exports = { SCHEMA, digestSkill, digestTestSet: digest, validateSuite, assessCase, compareCases, validatePromotionReceipt, makeSkillEvaluator };
+module.exports = { SCHEMA, digestSkill, digestTestSet: digest, validateSuite, assertSuiteRunnable, PROCESS_EXIT_REFUSAL, assessCase, compareCases, validatePromotionReceipt, makeSkillEvaluator };
