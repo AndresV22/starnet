@@ -179,6 +179,17 @@ many of these — they win on any wording conflict.
   every candidate-bound wave W0–W7 passes. Neither verdict authorizes publishing, deployment,
   credential rotation, or any other external release operation; those still require the owner's
   explicit authorization.
+- **Transcript row provenance is one rule: `rowTaint` in `sidecar/transcriptstore.js`** (review
+  memory-learning-07, 2026-10-13). A stored row with `taint` taints whatever reads it. A row is clean
+  only when its writer stamped it (`taintKnown`, recorded whenever a taint value is passed, `null`
+  included). Every other row is "taint unverifiable", whatever its age: a date cutoff is unsafe
+  (an older build kept writing un-stamped tainted rows for anyone who upgraded late), and a
+  per-install "stamped since" marker could only clear a row whose writer forgot the stamp. So every
+  raw `transcriptStore.append` must pass `taint` (test/recall.test.js locks it). recall_conversation
+  reads rows by this rule, so recalling history from before the update taints the run. Replay
+  (`transcriptStore.taintOf`) and the earlier-conversation note count only an explicit `taint`:
+  applying the rule there would start every older conversation tainted after an update. Changing
+  that split, either way, is Andrew's call.
 
 
 ## Build mode / conveyors (Andrew, 2026-10-10/11)
