@@ -214,6 +214,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       const r = JSON.parse(localStorage.getItem(KEY));
       if (r && r.v === 1) {
         r.settings = Object.assign(defaults(), r.settings || {});
+        r.settings.roomLighting = resolveRoomLighting(r.settings.roomLighting);   // an old LOW/MEDIUM/HIGH save reads back as its 0/15/30 level
         r.settings.notifyPrefs = Object.assign(notifyDefaults(), r.settings.notifyPrefs || {});   // merge new keys onto an old save
         if (!Array.isArray(r.tasks)) r.tasks = [];
         if (!Array.isArray(r.notifs)) r.notifs = [];
@@ -7268,7 +7269,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
               }
               // restore the browser-owned slices locally.
               const b = (j && j.browser) || {};
-              if (b.settings) { Object.assign(store.settings, b.settings); }
+              if (b.settings) { Object.assign(store.settings, b.settings); store.settings.roomLighting = resolveRoomLighting(store.settings.roomLighting); }
               if (b.notifyPrefs) { store.settings.notifyPrefs = Object.assign(notifyDefaults(), b.notifyPrefs); }
               save(); applySettings();
               if (b.autonomy && typeof AutonomyStore !== 'undefined' && AutonomyStore.importState) {

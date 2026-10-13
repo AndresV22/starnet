@@ -100,6 +100,24 @@ assert.equal(classic.crt.film, 0);
 capi.apply(0);
 assert.equal(bake.LIGHT.ambient, original.ambient);
 
+// Review finding world-render-08: a 0.13.2 save holding 'high' must read back as the level the station applies
+// (30), so lookNow / setLook's `now` never report a chip value next to the '0-100' options.
+{
+  const loadStart = src.indexOf('  function defaults() {'), loadEnd = src.indexOf('  let store = load();');
+  assert.ok(loadStart >= 0 && loadEnd > loadStart);
+  const saved = { 'starnet.station.v1': JSON.stringify({ v: 1, settings: { roomLighting: 'high', theme: 'amber' } }) };
+  const localStorage = { getItem: k => (k in saved ? saved[k] : null) };
+  const loadSettings = new Function('localStorage', 'KEY', 'window', src.slice(loadStart, loadEnd) + '\nreturn load;')(localStorage, 'starnet.station.v1', {});
+  assert.equal(loadSettings().settings.roomLighting, 30, 'a legacy HIGH save loads as its 0-100 level');
+  saved['starnet.station.v1'] = JSON.stringify({ v: 1, settings: { roomLighting: 'medium' } });
+  assert.equal(loadSettings().settings.roomLighting, 15, 'a legacy MEDIUM save loads as 15');
+  saved['starnet.station.v1'] = JSON.stringify({ v: 1, settings: { roomLighting: 64 } });
+  assert.equal(loadSettings().settings.roomLighting, 64, 'a numeric save is kept');
+  // A restored backup from before the slider carries the same strings into the live store.
+  assert.match(src, /Object\.assign\(store\.settings, b\.settings\); store\.settings\.roomLighting = resolveRoomLighting\(store\.settings\.roomLighting\);/,
+    'a restored backup converts a legacy room light value too');
+}
+
 assert.match(src, /roomLighting: 0, textScale/, 'default is the approved station');
 assert.match(src, /applyRoomLighting\(s\.roomLighting\);\n/, 'applySettings applies the saved level');
 assert.match(src, /roomLighting: resolveRoomLighting\(store\.settings\.roomLighting\)/, 'backup includes lighting');
