@@ -60,4 +60,17 @@ A.ok(skipped > 0, 'and moves that cannot touch a lamp skip the bake (' + skipped
 const g1 = st.projectGeometry();
 A.ok(plan(g1) === plan0 && fixtureAnchorKey(g1) === key0, 'undo restores the plan and the fingerprint exactly');
 
+// world-render-03: prop ART never reaches the station bake (planFixtures reads walkability, never sprites), so a prop-art
+// change (a remaster repair batch after a GPU reset, a user prop decoded) must repaint only the prop-shadow layer — a
+// full World.rebake() there was another ~2.5 s freeze per batch on a large station.
+const propsSrc = require('fs').readFileSync(require('path').join(__dirname, '..', 'frontend', 'app', 'propsprites.js'), 'utf8');
+const inval = A.fnBody(world, 'function invalidatePropShadows()');
+A.ok(inval && /propShadowLayer\.stamp\s*=\s*null/.test(inval) && !/rebake|StationBake/.test(inval), 'World.invalidatePropShadows only clears the shadow layer stamp (no bake)');
+A.ok(/return \{ init, rebake, invalidatePropShadows,/.test(world), 'World exports invalidatePropShadows');
+const artLine = (propsSrc.match(/userArtChanged\(\) \{[^\n]*/) || [''])[0];
+A.ok(/World\.invalidatePropShadows\(\)/.test(artLine), 'userArtChanged repaints the shadow layer instead of baking: ' + artLine.slice(0, 160));
+A.ok(!/World\.rebake\(\)/.test(artLine.replace(/else if \(typeof World\.rebake === 'function'\) World\.rebake\(\);/, '')), 'userArtChanged rebakes only on a World without the cheap invalidation');
+const readyBlock = (propsSrc.split('PropRemaster.ready.then(() => {')[1] || '').split('});')[0];
+A.ok(/World\.invalidatePropShadows\(\)/.test(readyBlock) && !/World\.rebake\(\);\s*$/m.test(readyBlock.replace(/else if \(typeof World\.rebake === 'function'\) World\.rebake\(\);/, '')), 'the remaster-ready refresh repaints shadows instead of baking');
+
 A.report('static-bake-guard');

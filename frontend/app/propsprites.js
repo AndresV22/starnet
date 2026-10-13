@@ -11949,9 +11949,9 @@ const PropSprites = (() => {
     PropRemaster.ready.then(() => {
       if (!PropRemaster.revision()) return;
       shadowMasks.clear(); invalidateLightResponse(); _ink.clear();
-      // The world caches the aggregate shadow pass against its current bake.
-      // rebake is the existing public render invalidation; it does not edit the save.
-      if (typeof World !== 'undefined' && typeof World.rebake === 'function') World.rebake();
+      // The world caches the aggregate shadow pass; prop art never reaches the station bake, so repaint only that
+      // layer (World.invalidatePropShadows) instead of a full rebake. Neither edits the save.
+      if (typeof World !== 'undefined') { if (typeof World.invalidatePropShadows === 'function') World.invalidatePropShadows(); else if (typeof World.rebake === 'function') World.rebake(); }
       if (typeof window !== 'undefined' && window.dispatchEvent && typeof CustomEvent !== 'undefined')
         window.dispatchEvent(new CustomEvent('starnet:prop-art-ready',{detail:{revision:PropRemaster.revision()}}));
     });
@@ -11968,7 +11968,7 @@ const PropSprites = (() => {
     getChroma: () => CHROMA,
     registerUserProp, registerUserSide, unregisterUserProp, resizeUserProp, markUserDeleted, ruleFor, isUserProp: (t) => USER_ID.test(String(t || '')),
     // After player-made art decodes: drop the caches that were built while those props were placeholders.
-    userArtChanged() { shadowMasks.clear(); invalidateLightResponse(); _ink.clear(); if (typeof World !== 'undefined' && typeof World.rebake === 'function') World.rebake(); },
+    userArtChanged() { shadowMasks.clear(); invalidateLightResponse(); _ink.clear(); if (typeof World !== 'undefined') { if (typeof World.invalidatePropShadows === 'function') World.invalidatePropShadows(); else if (typeof World.rebake === 'function') World.rebake(); } },
     draw, drawBayNames, drawOver, hasOver, drawSeatFront, get CATALOG(){return projectionCatalog()?CATALOG.map(c=>spec(c.id)):CATALOG;}, CATS, spec, has, TILE,
     drawShadow, lightOf, EMIT, canLightResponse, drawLightResponse, lightResponseStats, invalidateLightResponse,
     // ORIENTATION: what each prop's art can honestly do, and the box it covers once turned. The
