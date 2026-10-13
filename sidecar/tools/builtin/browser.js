@@ -3464,7 +3464,9 @@
       await assertResolvedSafe(u, doLookup);   // same rebinding bar as navigate — a login window is not a weaker surface
       const host = hostOf(u);
       const approved = d => !!d && d !== 'deny';
-      if (!approved(await attended.prompt({ tool: 'browser.login', scope: 'execute', argsSummary: host }))) {
+      // fresh: both asks approve THIS sign-in only. askHuman marks the prompt freshConsent, so handleConsent applies and
+      // echoes a standing answer (always, full, session) as 'once': no surface confirms a grant the station never made
+      if (!approved(await attended.prompt({ tool: 'browser.login', scope: 'execute', argsSummary: host, fresh: true }))) {
         return { status: 'declined', host };
       }
       // The durable profile is what makes the login outlive this run. When a host wires one, contention is a
@@ -3485,7 +3487,7 @@
            they are typing a password or a 2FA code into. thaw() also retires every ref minted before. */
         const wasFrozen = frozenBy;
         if (!wasFrozen) freeze('sign-in at ' + host);
-        try { doneHere = approved(await attended.prompt({ tool: 'browser.login.done', scope: 'execute', argsSummary: host })); }
+        try { doneHere = approved(await attended.prompt({ tool: 'browser.login.done', scope: 'execute', argsSummary: host, fresh: true })); }
         finally {
           if (!wasFrozen) thaw();
           if (typeof deps.onLoginClose === 'function') { try { deps.onLoginClose({ host }); } catch (e) { failNote('browser.login.close', e); } }
@@ -3508,7 +3510,7 @@
         await relaunch({ headed: deps.preferVisible === true ? wantedHeaded(undefined) : false });
         throw e;
       }
-      const done = approved(await attended.prompt({ tool: 'browser.login.done', scope: 'execute', argsSummary: host }));
+      const done = approved(await attended.prompt({ tool: 'browser.login.done', scope: 'execute', argsSummary: host, fresh: true }));
       // Done or cancelled, the window closes and research mode resumes on the SAME profile — any cookies the
       // site set during the attempt are already durable.
       await relaunch({ headed: deps.preferVisible === true ? wantedHeaded(undefined) : false });
