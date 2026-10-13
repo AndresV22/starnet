@@ -30,4 +30,4 @@ Fix 8968a9269: only a job that reached its OUTBOX reports unconfirmed destinatio
 
 ## Verdict
 
-Fixed in source on agent/conveyor-final-runtime (8968a9269); unit-proven.
+Fixed in source on agent/conveyor-final-runtime (8968a9269); unit-proven. Residual (wave 2 review): on a line with two OUTBOXes where only one sends, a job that reaches the other one still reports an unconfirmed hand-off, because the route lists every SEND TO of the line; filed as 3ee2d13a (open, the route line belongs to the release-review lane: seams-06 / conveyor-ui-17).
