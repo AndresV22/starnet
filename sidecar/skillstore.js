@@ -613,6 +613,12 @@
         baseDigest: revisionDigest(active), candidateDigest: revisionDigest(entry),
         createdAt: prior && prior.status === 'pending' ? prior.createdAt : now(), updatedAt: now(),
         action: r.action || (r.edited ? 'edit' : 'create'), skill: entry };
+      // An archive into a heir is bound to the heir version this draft saw (the curator's pending merge when there
+      // was one, else the live heir): see heirBlocker.
+      if (entry.state === 'archived' && entry.absorbedInto) {
+        const heirSeen = seeds.find(s => keyOf(s.agentId, s.name) === keyOf(aid, entry.absorbedInto) && s.state !== 'archived');
+        if (heirSeen) row.heirDigest = heirDigestOf(heirSeen);
+      }
       try { io.append(clone(row)); } catch (err) { failNote('skillstore.candidate.append', err); throw err; }
       candidateRows.set(key, clone(row));
       return Object.assign({}, r, { pending: true, candidate: projectCandidate(row, true),
@@ -644,6 +650,35 @@
         && (r.skill.id === str(target) || r.name.toLowerCase() === str(target).toLowerCase() || r.candidateId === str(target)));
       return row ? Object.assign(projectSkill(row.skill, true), { pendingCandidate: true, candidateId: row.candidateId }) : null;
     }
+    // A heir's CONTENT: lifecycle and pin are not content (a stale or pinned umbrella still carries the merged steps).
+    function heirDigestOf(entry) { return entry ? revisionDigest(Object.assign(clone(entry), { state: 'active', pinned: false })) : ''; }
+    /* AN ARCHIVE IS BOUND TO ITS HEIR (CONSOLIDATION MUST NAME ITS HEIR). A curator consolidation is two proposals,
+       widen the umbrella and archive the narrow sibling into it, and the Commander can click them in any order.
+       The archive row records the heir version it was built on (heirDigest), and it is approvable only while that
+       exact content is the live heir. Otherwise the archived steps would be in no active skill: the merge was
+       rejected, is outdated, or the heir changed since. Returns the refusal text, or null. */
+    function heirBlocker(row) {
+      const entry = row.skill;
+      if (!entry || entry.state !== 'archived' || !entry.absorbedInto) return null;
+      const heirName = str(entry.absorbedInto), q = '"' + heirName + '"';
+      const heir = find(row.agentId, heirName, { includeArchived: false });
+      const other = candidateRows.get(keyOf(row.agentId, heirName));
+      const heirRow = other && other.candidateId !== row.candidateId ? other : null;
+      const approveFirst = 'approve the proposal for ' + q + ' first - this archive moves its content there';
+      const notLive = q + ' is not an active skill, so this archive would point at content nobody can load';
+      if (!row.heirDigest) {   // proposed before archives recorded their heir version
+        if (heirRow && heirRow.status === 'pending') return approveFirst;
+        return heir ? null : notLive;
+      }
+      if (heir && heirDigestOf(heir) === row.heirDigest) return null;
+      const merge = heirRow && heirDigestOf(heirRow.skill) === row.heirDigest ? heirRow : null;
+      if (merge && merge.status === 'pending'
+        && merge.baseDigest === revisionDigest(latest.get(keyOf(row.agentId, heirName)) || null)) return approveFirst;
+      if (merge && (merge.status === 'pending' || merge.status === 'rejected'))
+        return 'the merge into ' + q + ' was not approved, so archiving this skill would lose its steps; reject this archive';
+      if (!heir) return notLive;
+      return q + ' changed after this archive was proposed, so it may not hold these steps; reject this archive';
+    }
     function candidateDecision(e) {
       const row = Array.from(candidateRows.values()).find(r => r.agentId === str(e.agentId) && r.candidateId === str(e.candidateId));
       if (!row || row.status !== 'pending') return { error: 'no pending candidate with that id' };
@@ -671,17 +706,8 @@
       const entry = clone(row.skill);
       // Pinned content cannot be changed by proposing a revision before it was pinned.
       if (active && active.pinned) return { ok: false, error: 'the active skill is pinned; unpin it before promotion' };
-      // A CONSOLIDATION MUST NAME ITS HEIR, and the heir must already carry the content. A curator merge and its
-      // archive are separate proposals, so approving the archive first would leave it pointing at an umbrella that
-      // still has the old narrow body (or is not active at all).
-      if (entry.state === 'archived' && entry.absorbedInto) {
-        const heirName = str(entry.absorbedInto);
-        const heir = find(row.agentId, heirName, { includeArchived: false });
-        const heirPending = Array.from(candidateRows.values()).some(r => r.agentId === row.agentId && r.status === 'pending'
-          && r.candidateId !== row.candidateId && r.name.toLowerCase() === heirName.toLowerCase());
-        if (heirPending) return { ok: false, error: 'approve the proposal for "' + heirName + '" first - this archive moves its content there' };
-        if (!heir) return { ok: false, error: '"' + heirName + '" is not an active skill, so this archive would point at content nobody can load' };
-      }
+      const heirBlock = heirBlocker(row);
+      if (heirBlock) return { ok: false, error: heirBlock };
       // Usage telemetry is not part of the evaluated digest: keep the live counters, not the stage-time copy,
       // or a skill used every day since it was proposed would look idle to curate() right after approval.
       if (active) {

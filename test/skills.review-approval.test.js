@@ -258,6 +258,43 @@ for (const change of ['body', 'files', 'summary', 'baseline', 'pin']) {
   const into = g.s.candidates('a', { includeBody: true }).find(c => c.name === 'Weekly brief');
   A.eq(g.promote(into, g.issue(into)).ok, false, 'archive into an umbrella that is not active yet is refused');
 }
+// The archive is bound to the heir version it was built on, so the click order cannot route around it: a rejected
+// or outdated merge never lets the archive through, and the refusal does not send the Commander to approve a merge
+// that can no longer be approved. An archive into a live heir that already carries the content needs nothing more.
+{
+  const consolidation = () => {
+    const f = fixture(); seed(f, 'Reports'); seed(f, 'Weekly brief');
+    f.s.manage({ agentId: 'a', target: 'Reports', action: 'edit', body: BODY + '\n3. Weekly brief steps.', createdBy: 'curator' });
+    f.s.manage({ agentId: 'a', target: 'Weekly brief', action: 'archive', absorbedInto: 'Reports', createdBy: 'curator' });
+    const rows = f.s.candidates('a', { includeBody: true });
+    return { f, heir: rows.find(c => c.name === 'Reports'), sibling: rows.find(c => c.name === 'Weekly brief') };
+  };
+  let { f, heir, sibling } = consolidation();
+  A.ok(f.s.rejectCandidate({ agentId: 'a', candidateId: heir.candidateId, candidateDigest: heir.candidateDigest }).ok, 'Commander rejects the merge');
+  const afterReject = f.promote(sibling, f.issue(sibling));
+  A.eq(afterReject.ok, false, 'archive is refused once its merge was rejected');
+  A.ok(/not approved/.test(afterReject.error || '') && /reject this archive/.test(afterReject.error || ''), 'refusal says the merge was not approved and to reject the archive');
+  A.eq(read(f.s, 'Weekly brief').state, 'active', 'sibling keeps its steps active after a rejected merge');
+  f.s.compact(); f.reload();
+  A.eq(f.promote(sibling, f.issue(sibling)).ok, false, 'the heir binding survives compaction and restart');
+  ({ f, heir, sibling } = consolidation());
+  f.s.manage({ agentId: 'a', target: 'Reports', action: 'edit', body: 'Commander rewrite of reports.', createdBy: 'user' });
+  const outdated = f.promote(sibling, f.issue(sibling));
+  A.eq(outdated.ok, false, 'archive is refused while its merge is outdated');
+  A.ok(!/first/.test(outdated.error || '') && /reject this archive/.test(outdated.error || ''), 'an outdated merge is not offered as the next step');
+  ({ f, heir, sibling } = consolidation());
+  A.ok(f.promote(heir, f.issue(heir)).ok, 'merge approves');
+  f.s.manage({ agentId: 'a', target: 'Reports', action: 'edit', body: 'Commander rewrite of reports.', createdBy: 'user' });
+  const changed = f.promote(sibling, f.issue(sibling));
+  A.eq(changed.ok, false, 'archive is refused when the heir changed after the archive was proposed');
+  A.ok(/changed after this archive/.test(changed.error || ''), 'refusal says the heir changed');
+  const g = fixture(); seed(g, 'Reports'); seed(g, 'Weekly brief');
+  A.ok(g.s.manage({ agentId: 'a', target: 'Weekly brief', action: 'archive', absorbedInto: 'Reports', createdBy: 'curator' }).pending, 'archive into a live heir is proposed');
+  A.ok(g.s.manage({ agentId: 'a', target: 'Reports', action: 'patch', find: 'concise', replace: 'short', createdBy: 'background-review', sourceRunId: 'run-9' }).pending, 'a later review proposes a heir revision');
+  const into = g.s.candidates('a', { includeBody: true }).find(c => c.name === 'Weekly brief');
+  A.ok(g.promote(into, g.issue(into)).ok, 'archive into the unchanged live heir is not held by a later heir proposal');
+  A.eq(read(g.s, 'Weekly brief').absorbedInto, 'Reports', 'archived sibling points at the live heir');
+}
 // A foreground run only sees the active version, so it never builds on (or silently discards) a review draft it
 // cannot see. Its own run's draft and the review passes (which read drafts through pendingView) still continue one.
 {
