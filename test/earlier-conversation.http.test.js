@@ -47,7 +47,11 @@ async function send(streamId, history, text) {
   const end = events.find(e => e.name === 'agent.run.end');
   A.eq(end && end.payload.reason, 'done', 'run completed: ' + text.slice(0, 40));
   const reply = events.filter(e => e.name === 'agent.token').map(e => e.payload.delta).join('');
-  const req = seen.slice(before).find(b => Array.isArray(b.messages) && b.messages.some(m => m.role === 'user' && String(m.content).indexOf(text) >= 0));
+  // the provider request that carried this send (user content may arrive as a string or as content parts). It must be
+  // found: an empty message list would make every "gets no note" / "never sees" check below pass vacuously (review tests-24)
+  const textOf = (c) => typeof c === 'string' ? c : JSON.stringify(c);
+  const req = seen.slice(before).find(b => Array.isArray(b.messages) && b.messages.some(m => m.role === 'user' && textOf(m.content).indexOf(text) >= 0));
+  A.ok(req, 'the provider saw the request: ' + text.slice(0, 40));
   return {reply, messages: req ? req.messages : []};
 }
 const notesOf = (msgs) => msgs.filter(m => m.role === 'system' && /^<conversation_summary>/.test(String(m.content)));
