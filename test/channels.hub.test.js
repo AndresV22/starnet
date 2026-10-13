@@ -843,7 +843,22 @@ async function run() {
     A.ok(sends.includes('Stopped the run in progress.'), 'it answers exactly like /stop: ' + JSON.stringify(sends));
     A.ok(!sends.some(x => /Stopped the earlier task/.test(x)), 'never framed as a newer request to handle');
   }
+  for (const [ownerIs, label] of [[false, 'a non-owner direct-chat "stop"'], [true, 'the owner\'s "stop" in a group']]) {
+    // only the owner's DIRECT-chat stop is /stop; anything else still stops the run through the supersede path
+    const store = fakeStore(); const runs = []; const steers = []; const sends = [];
+    const hub = makeChannelHub({ runOnce: parkedRun(runs), store, send: (c, t) => { sends.push(t); return Promise.resolve({ ok: true }); }, secrets: () => ({ key: 'k', model: 'm' }), classify: () => true, newId: idGen(),
+      isOwner: () => ownerIs, steerRun: (runId, text) => { steers.push(text); return { ok: true }; } });
+    const asGroup = (m) => (ownerIs ? Object.assign(m, { chatType: 'group', userName: 'Bo' }) : m);
+    const p1 = hub.onInbound(asGroup(dm('build the landing page')));
+    await waitFor(() => runs.length === 1);
+    await hub.onInbound(asGroup(dm('stop')));
+    await p1;
+    A.eq(steers.length, 0, label + ' never rides into the running task as an instruction');
+    A.ok(!sends.includes('Stopped the run in progress.'), label + ' is not the owner\'s /stop: ' + JSON.stringify(sends));
+    A.eq(runs.length, 2, label + ' takes the supersede path (the earlier run stops, the message runs)');
+  }
   for (const [label, second] of [
+    ['a non-owner "stop"', dm('stop')],
     ['a group message', Object.assign(dm('also make it blue'), { chatType: 'group', userName: 'Ana' })],
     ['a forwarded message', Object.assign(dm('also make it blue'), { forwarded: true, forwardFrom: 'someone' })]
   ]) {
