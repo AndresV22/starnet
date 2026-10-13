@@ -19439,8 +19439,10 @@ async function runOnceTrackedInner(o) {
   // harness self-talk and plain chats keep their own registries — this map exists so a bay lamp / a crew card is never
   // stood down while its run is really working. A foreground dispatch worker was in none of the snapshot's sources, so
   // the 30 s reconcile painted RESEARCH "idle" through its whole 42-step run (live walkthrough 2026-10-13).
-  if (!rid || hostLiveRuns.has(rid) || !(o.lineId || o.dockId || o.parentRunId) || o.internal || o.outputOnly) return runOnceCoreCounted(o);
-  hostLiveRuns.set(rid, { agentId: String((o && o.agentId) || 'agent'), startedAt: Date.now(), source: o.parentRunId && !(o.lineId || o.dockId) ? 'delegated' : 'host' });
+  // (a BACKGROUND worker carries its manager's steer and is listed by the subagent manager as source 'subagent' — not here)
+  const fgWorker = !!(o.parentRunId && typeof o.steer !== 'function');
+  if (!rid || hostLiveRuns.has(rid) || !(o.lineId || o.dockId || fgWorker) || o.internal || o.outputOnly) return runOnceCoreCounted(o);
+  hostLiveRuns.set(rid, { agentId: String((o && o.agentId) || 'agent'), startedAt: Date.now(), source: fgWorker && !(o.lineId || o.dockId) ? 'delegated' : 'host' });
   try { return await runOnceCoreCounted(o); }
   finally { hostLiveRuns.delete(rid); }
 }

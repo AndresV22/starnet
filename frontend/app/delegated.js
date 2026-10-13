@@ -132,7 +132,11 @@ const Delegated = (() => {
       return { cls: 'working', live: doing(steps.get(String(w.runId))), t: clock(Date.now() - (+w.startedAt || Date.now())), stop: !!w.canInterrupt, worker: w };
     }
     // elapsedOf needs NOW: without it the clock read NaN and painted "0:00" for the whole run (live walkthrough 2026-10-13)
-    if (C && C.isBusy && C.isBusy(k.id)) return { cls: 'working', live: 'working', t: C.elapsedOf ? clock(C.elapsedOf(k.id, Date.now())) : '' };
+    if (C && C.isBusy && C.isBusy(k.id)) {
+      // the worker's own clock as CREW shows it (approval waits excluded), else the thread's
+      const crewMs = (typeof CrewClock !== 'undefined' && CrewClock.elapsedOf && k.agentId) ? CrewClock.elapsedOf(k.agentId, Date.now()) : null;
+      return { cls: 'working', live: 'working', t: crewMs != null ? clock(crewMs) : (C.elapsedOf ? clock(C.elapsedOf(k.id, Date.now())) : '') };
+    }
     const reason = String((w && w.reason) || k.lastRunReason || '');
     if (reason === 'budget' || reason === 'max_iters') return { cls: 'stopped', live: reason === 'budget' ? 'budget limit reached' : 'step limit reached', t: '' };
     if (['aborted', 'cancelled', 'interrupted', 'stopped'].includes(reason)) return { cls: 'stopped', live: 'stopped before completion', t: '' };

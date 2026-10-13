@@ -125,8 +125,8 @@ function host() {
 {
   const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'sidecar', 'index.js'), 'utf8');
   const inner = src.slice(src.indexOf('async function runOnceTrackedInner(o) {'), src.indexOf('/* UPDATE DRAIN (B10)'));
-  A.ok(inner.indexOf('!(o.lineId || o.dockId || o.parentRunId)') >= 0, 'a delegated worker run registers in hostLiveRuns (the snapshot lists it)');
-  A.ok(inner.indexOf("source: o.parentRunId && !(o.lineId || o.dockId) ? 'delegated' : 'host'") >= 0, 'and is marked as a delegated run, not a line run');
+  A.ok(inner.indexOf("const fgWorker = !!(o.parentRunId && typeof o.steer !== 'function');") >= 0 && inner.indexOf('!(o.lineId || o.dockId || fgWorker)') >= 0, 'a FOREGROUND delegated worker run registers in hostLiveRuns (the snapshot lists it); a background one stays listed by the subagent manager');
+  A.ok(inner.indexOf("source: fgWorker && !(o.lineId || o.dockId) ? 'delegated' : 'host'") >= 0, 'and is marked as a delegated run, not a line run');
 }
 
 A.report('update-drain-wiring.test');

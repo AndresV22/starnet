@@ -121,5 +121,9 @@
     setInterval(paint, 1000);
     paint();
   }
+  /* ONE CLOCK PER WORKER (live walkthrough 2026-10-13): CREW read RESEARCH "3:04" while its DELEGATED row read "4:04" —
+     the row's thread clock never saw the worker's approval waits (they are filed on the lead's conversation). The row
+     reads this one: the same run, with every wait on the Commander excluded. null = no live run for that agent here. */
+  if (typeof window !== 'undefined') window.CrewClock = { elapsedOf: (agentId, now) => { const f = forAgent(String(agentId || ''), now || Date.now()); return f.start ? f.elapsed : null; } };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', wire); else wire();
 })();

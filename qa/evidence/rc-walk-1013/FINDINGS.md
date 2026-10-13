@@ -5,6 +5,29 @@ Station: isolated `dev/seed.js` workspace `~/.claude-scratch/rc-walk-1013/seeded
 
 Severity: **S1** = a user gets stuck / the app says something false · **S2** = confusing, inconsistent, or noisy · **S3** = polish.
 
+## STATUS (2026-10-13, end of pass 1) — branch `agent/rc-walk-1013`, NOT merged, NOT pushed
+
+Gates on the fixed tree: `npm run test:fast` **1166/1166 green** (log read); `npm run test:http` — see commit after this one.
+
+**FIXED + live-verified on the isolated seeded station (real model):**
+- #25 #37 #40 workers hand work on (copywriter: 25 web steps / 4:32 / $0.08 / no email → **3 reads of the researcher's files / 15 s / $0.03 / delivered**); lead reads workers' files at their real paths (no more guessed /tmp paths)
+- #17 #26 CREW shows a working worker ("3:04 · working", "needs your OK"), the DELEGATED row clock counts ("Working · 4:04")
+- #6 one duration: `RUN COMPLETE · 242.8s · 115.5s waiting on you` matches the receipt `242.8s`
+- #24 a worker's report keeps its headings/paragraphs on their own lines
+- #28 "Approve once" on worker rows
+- #43 STOP mid-approval: the card reads "■ the run ended before an answer — nothing was approved", 0 live keys (first attempt missed the STOP path; fixed in stopActive's confirmed-abort hook)
+- #1 an approval on screen: NEEDS YOU lists it, no "needs approval" toast
+- #49 #113 CUSTOM add forms take the endpoint URL (key optional); #51 a click on an unconfigured provider opens its setup and keeps the brain ("Your agents stay on OPENROUTER") — this one had silently broken the whole test station
+- #13 #20 COMMS header class is hidden for every run state (`status-approval` on "awaiting your approval…")
+
+**FIXED + unit/regression-tested (live re-check pending):** #3 verify-before-done skips standalone pages · #4 failed rows say why ("not a web address (file://)") · #5 a host refusal never taints; a human Deny reaches the model as a decline · #10 hiring is brief-exempt; refusal reads "paused — settling the task first" · #11 #42 a composer reply answers the open question (no queued duplicate that restarts the job) · #12 Enter sends in the question card · #14 an unlisted recommendation drops its ★ instead of rejecting (no double-asked question) · #15 "hire RESEARCH (researcher) onto the crew" · #31 unattended runs deliver content instead of explaining approval rules · #38 the Commander never sees the lead's [STOPPED …] note · #7 #22 the 4-docks hint shows once per page · #50 add-key copy no longer claims a ChatGPT sign-in · worker slices pause while waiting on the Commander
+
+**FIXED, live re-check pending:** #21 #27 the DELEGATED row reads CREW's clock (approval waits excluded) — window.CrewClock
+
+**OPEN — fixable, not yet done:** #30 SHIPPED 0 beside ✓ DELIVERED (needs a per-job "shipped" bit from the sidecar) · #2 "change" vs "create" (needs an additive field in the owned shared/events.js) · #48 raw markdown / "the agent did not name this one" in DELIVERABLES · #44 "RESEARCH, COPY and COPY" · #9 deliverable frame renders white in the preview pane (verify in the desktop app) · duplicate "General" session titles · #29 toast over an open dock menu
+
+**NEEDS ANDREW'S CALL (product decisions, not bugs):** #52 SYSTEM › FIND (Ctrl+K) — remove? · #55 #16 default ASK mode = 4–9 approval prompts for one delegated job · #57 onboarding autonomy copy (REACH / SANDBOX / "it knows 1 of 4 areas… reaching either lets it act" reads as an unlock ladder) · #23 the dock "grows as it is used" · #53 #54 first-run provider page opens on OpenAI, OpenRouter defaults to Opus 4.8 · #45 #46 TASKS vs DELIVERABLES vs TO REVIEW (three places for "my work") · #18 #19 auto-created sessions (one per hire, per quest/starter click, "While you were away") · #32 39 preset lines on first open · #39 NO FEED plate on a hand-fed line · ALSO RUNNING IN banner
+
 ## J1 — First task (COMMS → approval → deliverable)
 
 | # | Sev | Seam | Evidence |
