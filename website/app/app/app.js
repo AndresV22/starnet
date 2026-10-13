@@ -4112,6 +4112,8 @@ const App = (() => {
     // are not in SESSIONS, so the asking conversation's lamp carries it — from the durable ledger, never a guess.
     const ov = typeof Overseer !== 'undefined' && Overseer.snapshot ? Overseer.snapshot() : null;
     const crew = ((ov && ov.workers) || []).filter(x => x && x.status === 'running' && x.parentStreamId === w.id).length;
+    // …a ledger the station has stopped answering for cannot vouch that they still run: say unknown, never "working"
+    if (crew && Overseer.fresh && !Overseer.fresh()) return { dot: 'ws-dot', meta: 'crew · unknown', busy: false, attn: false, status: 'station unreachable — crew state unknown' };
     if (crew) return { dot: 'ws-dot working', meta: crew + ' working', busy: true, attn: false, status: crew + ' of the crew working on what you delegated' };
     // A settled failure uses the crossed lamp; only a live approval/question earns the action row.
     if (w.lastRunOk === false) return { dot: 'ws-dot failed', meta: railRelTime(w.lastActiveAt), busy: false, attn: false, status: 'last run failed — open to inspect' };
@@ -4213,16 +4215,14 @@ const App = (() => {
     syncRailAgentChip(allRows.length);
     const grouped = Workstreams.railGroups(allRows, { view: railKind, activeId, expanded: [...railExpanded], urgent: allRows.filter(w => railRowState(w).busy || pending.has(w.id)).map(w => w.id) });
     const headers = new Map();
-    const flat = grouped.flatMap(item => {
+    // delegated workers' threads are never rows (Workstreams.list hides them): their work is on the asking
+    // conversation's delegation card, and a running crew shows on that conversation's own lamp (railRowState reads the ledger)
+    const rows = grouped.flatMap(item => {
       if (item.type === 'session') return [item.w];
       headers.set(item.visible[0].id, item);
       return item.visible;
     });
-    // delegated workers' threads are never rows (Workstreams.list hides them): their work is on the asking
-    // conversation's delegation card, and a running crew shows on that conversation's own lamp (railRowState reads the ledger)
-    const rows = flat;
     const filters = el('ws-kind-filter');
-    if (filters) filters.hidden = false;
     if (filters) filters.querySelectorAll('[data-ws-kind]').forEach(button => {
       button.setAttribute('aria-pressed', String(button.dataset.wsKind === railKind));
       button.onclick = () => { railKind = button.dataset.wsKind; saveRailView(); renderRail(); };
@@ -4230,15 +4230,13 @@ const App = (() => {
     if (!rows.some(w => w.id === railFocusId)) railFocusId = rows.some(w => w.id === activeId) ? activeId : (rows[0] && rows[0].id);
     ul.setAttribute('role', 'listbox');
     ul.setAttribute('aria-label', 'Sessions');
-    let index = 0;
-    ul.innerHTML = rows.map(w => {
-      index++;
+    ul.innerHTML = rows.map((w, i) => {
       const title = w.title || 'General';
       const st = railRowState(w);
       const group = headers.get(w.id);
       const groupHead = group ? '<li class="ws-auto-group" role="presentation"><button type="button" data-ws-group="' + U.esc(group.key) + '" aria-expanded="' + railExpanded.has(group.key) + '"><span>' + U.esc(group.name) + '</span><small>' + U.esc(railAgentName(w)) + ' · ' + group.rows.length + ' run' + (group.rows.length === 1 ? '' : 's') + ' · ' + (railExpanded.has(group.key) ? 'collapse' : 'show history') + '</small></button></li>' : '';
       const tip = railRowTip(w, st);
-      return groupHead + '<li class="' + rowClass(w, st, activeId) + '" data-id="' + U.esc(w.id) + '" tabindex="' + (w.id === railFocusId ? '0' : '-1') + '" role="option" aria-selected="' + (w.id === activeId ? 'true' : 'false') + '" aria-posinset="' + index + '" aria-setsize="' + rows.length + '" aria-label="' + U.esc(railRowLabel(w, st)) + '" aria-keyshortcuts="Shift+F10" title="' + U.esc(tip) + '">' +
+      return groupHead + '<li class="' + rowClass(w, st, activeId) + '" data-id="' + U.esc(w.id) + '" tabindex="' + (w.id === railFocusId ? '0' : '-1') + '" role="option" aria-selected="' + (w.id === activeId ? 'true' : 'false') + '" aria-posinset="' + (i + 1) + '" aria-setsize="' + rows.length + '" aria-label="' + U.esc(railRowLabel(w, st)) + '" aria-keyshortcuts="Shift+F10" title="' + U.esc(tip) + '">' +
         '<span class="' + st.dot + '" aria-hidden="true"></span>' +
         (w.pinned ? '<span class="ws-pin" aria-hidden="true">★</span>' : '') +
         '<span class="ws-agent" aria-hidden="true"' + railAgentColorAttr(w) + '>' + U.esc(railAgentName(w)) + '</span>' +
@@ -4261,7 +4259,7 @@ const App = (() => {
       ul.innerHTML = '<li class="proj-empty" role="presentation"><span role="status">No automation sessions yet.</span></li>';
     }
     ul.querySelectorAll('[data-ws-group]').forEach(button => {
-      button.onclick = (e) => {
+      button.onclick = () => {
         const key = button.dataset.wsGroup;
         if (railExpanded.has(key)) railExpanded.delete(key); else railExpanded.add(key);
         saveRailView();
@@ -5319,10 +5317,13 @@ const App = (() => {
     gateActive = true;
     try { if (World && World.stop) World.stop(); } catch (_) {}
     const sub = el('unreachable-sub'), code = el('unreachable-code');
+    // BROWSER MODE (no desktop shell, see below): the subtitle says so on every repaint, not only the first
+    const core = tauriCore();
+    const notAnswering = 'station service not answering' + (core ? '' : ' (browser mode)');
     let diagnosis;
     // A retry can reach a different failure boundary; keep the screenshot and copied report current.
     const paintDiagnosis = reason => {
-      if (sub) sub.textContent = reason === 'forbidden' ? 'station service refused this window (stale session) — a relaunch usually clears it' : 'station service not answering';
+      if (sub) sub.textContent = reason === 'forbidden' ? 'station service refused this window (stale session) — a relaunch usually clears it' : notAnswering;
       if (sub && reason === 'unreadable') sub.textContent = 'saved station temporarily unreadable — retry without resetting';
       if (sub && reason === 'cache') sub.textContent = 'saved station could not be restored into this window — retry without resetting';
       // Screenshot-readable diagnosis for a stranded beginner: support can distinguish an alive sidecar refusing
@@ -5364,7 +5365,7 @@ const App = (() => {
       let reason = '';
       try { reason = String(((await Harness.engineState()) || {}).reason || ''); } catch (_) { reason = ''; }
       // Reapply a persistent degraded verdict after the retry refreshed its save-request diagnosis.
-      if (sub) { if (reason) sub.textContent = reason; else if (/^(degraded|station service halted)/i.test(sub.textContent)) sub.textContent = 'station service not answering'; }
+      if (sub) { if (reason) sub.textContent = reason; else if (/^(degraded|station service halted)/i.test(sub.textContent)) sub.textContent = notAnswering; }
       if (reason) {
         diagnosis = { code: /owner unavailable/i.test(reason) ? 'SAVE-OWNER · WORKSPACE OWNED BY ANOTHER PROCESS' : /crash-loop/i.test(reason) ? 'SAVE-LOOP · STATION SERVICE CRASH LOOP' : 'SAVE-DEGRADED · STATION SERVICE DEGRADED', text: reason };
         if (code) code.innerHTML = '<b>RECOVERY CODE: ' + diagnosis.code + '</b><br>' + diagnosis.text.replace(/&/g, '&amp;').replace(/</g, '&lt;') + '<br>Send a screenshot of this code to support.';
@@ -5373,11 +5374,9 @@ const App = (() => {
     };
     // BROWSER MODE (no desktop shell): there is no sidecar to restart and no workspace to quarantine, so this
     // screen used to offer nothing but the 5s poll — a dead end (audit: "first run fails silently"). Say plainly
-    // where the service lives, on the subtitle AND on every poll line, so the exit is never a mystery.
-    const core = tauriCore();
+    // where the service lives, on the subtitle (paintDiagnosis) AND on every poll line, so the exit is never a mystery.
     const BROWSER_HINT = 'the station service isn\'t answering. if you launched with `npm start`, check that terminal; otherwise open the desktop app.';
     if (!core) {
-      if (sub && reason !== 'forbidden' && reason !== 'unreadable' && reason !== 'cache') sub.textContent = 'station service not answering (browser mode)';
       if (reason === 'cache') setStatus('Your durable save is untouched. Retry after browser storage becomes available.');
       else if (reason === 'unreadable') setStatus('Your save is untouched. Retry when the station file becomes readable.');
       else setStatus(BROWSER_HINT);

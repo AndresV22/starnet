@@ -360,11 +360,9 @@ body #chat-panel #chat-log > .dg-line .dg-line-list {
 body #chat-panel #chat-log > .dg-line .dg-li {
   grid-column: 1 / -1; display: grid; grid-template-columns: 10px auto minmax(0, 1fr) auto; grid-template-columns: subgrid;
   align-items: center; column-gap: 10px; row-gap: 2px;
-  padding: 9px 12px 9px 14px; cursor: pointer; transition: background-color var(--t-fast) var(--ease-soft);
+  padding: 9px 12px 9px 14px;
 }
 body #chat-panel #chat-log > .dg-line .dg-li + .dg-li { border-top: 1px solid rgba(var(--ph-rgb), .08); }
-body #chat-panel #chat-log > .dg-line .dg-li:hover { background: rgba(var(--ph-rgb), .06); }
-body #chat-panel #chat-log > .dg-line .dg-li:focus-visible { outline: 2px solid var(--ph); outline-offset: -2px; }
 body #chat-panel #chat-log > .dg-line .dg-li > .dg-lamp { grid-column: 1; grid-row: 1; }
 body #chat-panel #chat-log > .dg-line .dg-li-who { grid-column: 2; grid-row: 1; font-size: var(--sn-type-control) !important; letter-spacing: 1px; color: var(--ph); }
 body #chat-panel #chat-log > .dg-line .dg-li-task {
@@ -435,7 +433,6 @@ body #chat-panel #chat-log > .dg-line .dg-inspect:empty { display: none; }
 body #chat-panel #chat-log > .dg-line .dg-inspect summary { color: var(--gold); font-size: var(--sn-type-meta); overflow-wrap: anywhere; }
 body #chat-panel #chat-log > .dg-line .dg-inspect pre { max-height: 240px; padding: 10px; border: 1px solid var(--beat-edge); background: rgba(0,0,0,.2); font-size: var(--sn-type-meta); }
 body #chat-panel #chat-log > .dg-line .dg-inspect .consent-copy { min-height: 34px; }
-body #chat-panel #chat-log > .dg-line .dg-li { cursor: default; }
 @container delegated (max-width: 420px) {
   body #chat-panel #chat-log > .dg-line .dg-line-head { flex-wrap: wrap; }
   body #chat-panel #chat-log > .dg-line .dg-line-text { white-space: normal; }

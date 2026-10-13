@@ -122,7 +122,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
   const ROOM_LIGHTING_MAX = { ambient: 0.3, cut: 2.4, key: 2, film: 0.26 };
   const ROOM_LIGHTING_LEGACY = { low: 0, medium: 15, high: 30 };
   let roomLightingFilm = null;   // the renderer's CRT.film before the slider touched it
-  let roomLightingTimer = 0;
+  let roomLightingBaked = null, roomLightingTimer = 0;   // the ambient/cut/key the station was last baked with
   function resolveRoomLighting(v) {
     if (typeof v === 'string' && Object.prototype.hasOwnProperty.call(ROOM_LIGHTING_LEGACY, v)) return ROOM_LIGHTING_LEGACY[v];
     const n = typeof v === 'number' || (typeof v === 'string' && v.trim() !== '') ? Number(v) : NaN;
@@ -133,10 +133,13 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     for (const k of Object.keys(ROOM_LIGHTING_MIN)) out[k] = +(ROOM_LIGHTING_MIN[k] + (ROOM_LIGHTING_MAX[k] - ROOM_LIGHTING_MIN[k]) * t).toFixed(4);
     return out;
   }
-  // `live` (a slider drag): film and ambient reach the next frame on their own; the pool cut + key need a
-  // rebake, which is too heavy for every drag tick, so it waits until the drag pauses (crtlab's 90 ms idiom).
+  // `live` (a slider drag): the CRT film and (industrial world) WorldLight's deck ambient reach the next frame on
+  // their own. The pool cut + key reach WorldLight only through World.rebake, a full StationBake that freezes a big
+  // station for ~2.5 s, so a drag never rebakes and a commit (release) rebakes only when its knobs differ from the
+  // ones last baked. A drag that ends where it began then owes nothing to the next unrelated applySettings.
   function applyRoomLighting(value, live) {
     if (typeof StationBake === 'undefined') return;
+    if (!live && roomLightingTimer) { clearTimeout(roomLightingTimer); roomLightingTimer = 0; }   // this commit supersedes a queued one
     const step = roomLightingKnobs(value);
     const crt = typeof World !== 'undefined' && World.crt;
     const tex = typeof IndustrialTextures !== 'undefined' && IndustrialTextures.lighting;
@@ -144,16 +147,18 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       if (roomLightingFilm == null) roomLightingFilm = Number(crt.film) || 0;
       crt.film = +(roomLightingFilm * step.film).toFixed(4);   // a per-frame post pass: no rebake needed
     }
-    const rebake = () => { roomLightingTimer = 0; if (typeof World !== 'undefined' && World.rebake) World.rebake(); };
-    if (StationBake.LIGHT.ambient === step.ambient && (!tex || (tex.cut === step.cut && tex.key === step.key))) {
-      if (roomLightingTimer && !live) { clearTimeout(roomLightingTimer); rebake(); }   // a release lands the pending rebake now
-      return;
-    }
+    const knobs = () => StationBake.LIGHT.ambient + ',' + (tex ? tex.cut + ',' + tex.key : '');
+    if (roomLightingBaked == null) roomLightingBaked = knobs();   // the first call sees what the station booted (and baked) with
     StationBake.LIGHT.ambient = step.ambient;
     if (tex) { tex.cut = step.cut; tex.key = step.key; }
+    if (live || knobs() === roomLightingBaked) return;
+    roomLightingBaked = knobs();
+    if (typeof World !== 'undefined' && World.rebake) World.rebake();
+  }
+  // The slider's `change` (a mouse release, or every arrow-key step): a burst of steps costs one bake, not one each.
+  function commitRoomLighting(read) {
     if (roomLightingTimer) clearTimeout(roomLightingTimer);
-    if (live) roomLightingTimer = setTimeout(rebake, 90);
-    else rebake();
+    roomLightingTimer = setTimeout(() => { roomLightingTimer = 0; applyRoomLighting(read()); }, 150);
   }
   // TEXT SIZE steps (percent → chip label; 0 = AUTO, the default). Applied as a body zoom in
   // applySettings(): zoom scales layout too, so every hard-px face (COMMS included) grows together —
@@ -208,6 +213,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       const r = JSON.parse(localStorage.getItem(KEY));
       if (r && r.v === 1) {
         r.settings = Object.assign(defaults(), r.settings || {});
+        r.settings.roomLighting = resolveRoomLighting(r.settings.roomLighting);   // an old LOW/MEDIUM/HIGH save reads back as its 0/15/30 level
         r.settings.notifyPrefs = Object.assign(notifyDefaults(), r.settings.notifyPrefs || {});   // merge new keys onto an old save
         if (!Array.isArray(r.tasks)) r.tasks = [];
         if (!Array.isArray(r.notifs)) r.notifs = [];
@@ -749,7 +755,8 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     applySettings(); save();
     try { rerender('settings'); } catch (_) {}
     const name = next === 0 ? 'AUTO · ' + autoTextScale() + '%' : (TEXT_SCALES.find(([v]) => v === next) || [0, ''])[1] + ' · ' + next + '%';
-    notify('TEXT SIZE ' + name + '. Ctrl + and Ctrl − change it, Ctrl 0 resets. Also in SETTINGS › LOOK & SOUND.', '', undefined, { transient: true });
+    const mod = ev.metaKey ? 'Cmd' : 'Ctrl';   // name the key that was pressed (Cmd on a Mac); a plain '-' is what the user types
+    notify('TEXT SIZE ' + name + '. ' + mod + ' + and ' + mod + ' - change it, ' + mod + ' 0 resets. Also in SETTINGS › LOOK & SOUND.', '', undefined, { transient: true });
   });
   let resizeClampTimer = 0;
   window.addEventListener('resize', () => {
@@ -4314,51 +4321,103 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
   function renderSkillCandidates(host, agentId, review) {
     const rows = Array.isArray(review.candidates) ? review.candidates : [];
     const suites = Array.isArray(review.evaluationSuites) ? review.evaluationSuites : [];
+    // A tie: every run finished, nothing regressed and every proposal case passed, yet nothing improved
+    // (a capable baseline already passes). It is the one unproven result the owner may still accept.
+    const candidateTie = r => !!(r && r.status === 'insufficient_evidence' && r.allCandidatePassed === true && Array.isArray(r.regressions) && !r.regressions.length &&
+      Array.isArray(r.cases) && r.cases.length && r.cases.every(c => c && c.before && c.before.completed === true && c.after && c.after.completed === true));
+    const candidateResultText = (r, suite, tie) => {
+      const status = r && r.status;
+      if (status === 'passed') return 'Passed: the proposal passed every check and did better than without it on at least one' + (suite.generic ? ', on a generic check (not specific to this skill).' : '.');
+      // "Without it" holds for a revision (the current version) and a new skill (no skill); owner checks already exist.
+      if (tie) return 'No improvement shown: the proposal passed every check, and so did the run without it, so this suite cannot show what the proposal adds. ' +
+        (suite.generic ? 'Register task checks for this skill to measure it.' : 'Add a check that fails without the proposal to measure the difference.');
+      if (status === 'regression') return 'Regression: the proposal failed a check the current version passed.';
+      if (status === 'failed') return 'Failed: the proposal did not pass every check.';
+      if (status === 'insufficient_evidence') return stoppedText(r);
+      return 'No confirmed result.';
+    };
+    // The runner writes 'policy-denied' for a run the station refused (skill-evaluation-runner.js): a budget limit,
+    // paused spending, the evaluation's time limit, or an earlier run whose cost could not be settled
+    // (skill-evaluation-accounting.js canContinue), which a failed metered run ('error' / 'runner-error') leaves
+    // behind. The card names only what the receipt shows. Runs in order: each case's before, then its after.
+    const stoppedText = r => {
+      const runs = r && Array.isArray(r.cases) ? r.cases.flatMap(c => [c && c.before, c && c.after]).map(x => (x && x.reason) || '') : [];
+      const held = runs.indexOf('policy-denied');
+      if (held < 0) return 'No result: not every run finished.';
+      if (held > 0 && (runs[held - 1] === 'error' || runs[held - 1] === 'runner-error') && runs.slice(held).every(x => x === 'policy-denied'))
+        return 'No result: a run failed and the station held back every run after it, so not every run finished.';
+      return 'No result: the station stopped a run (a budget limit, paused spending, the time limit, or an earlier run whose cost could not be settled), so not every run finished.';
+    };
     for (const candidate of rows) {
       const skill = candidate.skill || {};
       const card = mkEl('div', 'sk-card want open'); host.appendChild(card);
       card.dataset.skillCandidate = candidate.candidateId;
-      card.innerHTML = '<div class="sk-card-head"><div class="sk-card-main"><div class="sk-name-row"><span class="sk-name">' + esc(skill.name || candidate.name) + '</span><span class="sk-badge want">PROPOSED REVISION</span></div><div class="sk-desc">Any existing active version stays available. This proposal needs a passing task evaluation and your approval.</div></div></div>' +
-        '<div class="sk-body"><div class="sk-attr">Proposed scope: ' + esc(skill.scope || 'agent') + ' · revision ' + esc(candidate.revision) + '</div><pre>' + esc(skill.body || '') + '</pre>' +
+      card.innerHTML = '<div class="sk-card-head"><div class="sk-card-main"><div class="sk-name-row"><span class="sk-name">' + esc(skill.name || candidate.name) + '</span><span class="sk-badge want">PROPOSED REVISION</span></div><div class="sk-desc">Any existing active version stays available. This proposal needs a task evaluation and your approval. If a complete evaluation shows no improvement but the proposal passed every check, you can still approve it by confirming that.</div></div></div>' +
+        '<div class="sk-body"><div class="sk-attr">Proposed sharing: ' + esc(skillScopeText(skill.scope, skill.projectRoot)) + ' · revision ' + esc(candidate.revision) + '</div><pre>' + esc(skill.body || '') + '</pre>' +
         '<details><summary>Proposed metadata and package files</summary><pre>' + esc(JSON.stringify({ candidateDigest: candidate.candidateDigest, baseDigest: candidate.baseDigest, summary: skill.summary, description: skill.description, setup: skill.setup, category: skill.category, requires: skill.requires, platforms: skill.platforms, state: skill.state, scope: skill.scope, projectRoot: skill.projectRoot, packageFiles: skill.packageFiles }, null, 2)) + '</pre></details>' +
         (skill.files || []).map(f => '<details><summary>' + esc(f.path) + '</summary><pre>' + esc(f.content || '') + '</pre></details>').join('') +
         '<div class="sk-attr">Evaluation checks only the selected task family. A passing result does not prove improvement for every use.</div><div data-evaluation-suites></div>' +
-        '<div class="sk-attr" data-evaluation-result>No evaluation run from this panel yet.</div><div class="consent-btns mc-acts"><button class="consent-btn" data-candidate-approve disabled>Approve evaluated revision</button><button class="consent-btn" data-candidate-reject>Reject proposal</button></div>' +
-        '<details><summary>Register task checks (JSON)</summary><div class="sk-attr">Declare repeatable tasks and exact checks, including a held-out case. The station validates and runs this suite before approval.</div><textarea class="cf-ta mc-edit" data-suite-json spellcheck="false" aria-label="Evaluation suite JSON"></textarea><button class="consent-btn" data-suite-register>Register task checks</button></details></div>';
+        '<div class="sk-attr" data-evaluation-result>No evaluation run from this panel yet.</div><div class="consent-btns mc-acts"><button class="consent-btn" data-candidate-approve disabled>Approve evaluated revision</button><button class="consent-btn" data-candidate-acknowledge hidden disabled>Approve without measured improvement</button><button class="consent-btn" data-candidate-reject>Reject proposal</button></div>' +
+        '<details><summary>Register task checks (JSON)</summary><div class="sk-attr">Declare repeatable tasks and exact checks, including a held-out case. The station validates and runs this suite before approval.</div><textarea class="cf-ta mc-edit" data-suite-json spellcheck="false" aria-label="Evaluation suite JSON" placeholder="' + esc(SUITE_EXAMPLE) + '"></textarea><button class="consent-btn" data-suite-register>Register task checks</button></details></div>';
       const suiteHost = card.querySelector('[data-evaluation-suites]');
       const note = card.querySelector('[data-evaluation-result]');
       const approve = card.querySelector('[data-candidate-approve]');
+      const acknowledge = card.querySelector('[data-candidate-acknowledge]');
       const reject = card.querySelector('[data-candidate-reject]');
       let receipt = null, busy = false;
       const request = { agentId, candidateId: candidate.candidateId, candidateDigest: candidate.candidateDigest };
       const matching = suites.filter(s => s.skillId === skill.id || (!s.skillId && s.skillName === skill.name));
+      // One result path for a fresh run and for the host's stored receipt of this exact revision.
+      const showResult = (r, suite, lead) => {
+        receipt = r;
+        const tie = candidateTie(r);
+        note.textContent = lead + candidateResultText(r, suite, tie) + ' Approval remains a separate action.';
+        const box = mkEl('details', ''), head = mkEl('summary', ''), raw = mkEl('pre', '');
+        head.textContent = 'Evaluation receipt'; raw.textContent = JSON.stringify(r, null, 2);
+        box.appendChild(head); box.appendChild(raw); note.appendChild(box);
+        approve.disabled = !(r && r.status === 'passed' && r.receiptId);
+        // The station re-checks the receipt; this only offers the owner's "accept it anyway" on a complete tie.
+        acknowledge.hidden = !(tie && r.receiptId); acknowledge.disabled = acknowledge.hidden;
+      };
       if (!matching.length) suiteHost.textContent = 'No task checks registered for this skill yet.';
       for (const suite of matching) {
-        const label = mkEl('div', 'sk-attr'); label.textContent = suite.description || suite.skillName || suite.id; suiteHost.appendChild(label);
-        const run = mkEl('button', 'consent-btn'); run.textContent = 'Evaluate: ' + suite.id; suiteHost.appendChild(run);
+        const label = mkEl('div', 'sk-attr'); label.textContent = (suite.description || suite.skillName || suite.id) + (suite.generic ? ' · generic check (not specific to this skill)' : ''); suiteHost.appendChild(label);
+        const run = mkEl('button', 'consent-btn'); run.textContent = 'Run these checks'; suiteHost.appendChild(run);
         run.onclick = async () => {
-          if (busy) return; busy = true; run.disabled = true; approve.disabled = true; receipt = null;
-          note.textContent = 'Running baseline and proposal against ' + suite.id + '…';
+          if (busy) return; busy = true; run.disabled = true; approve.disabled = true; acknowledge.disabled = true; acknowledge.hidden = true; receipt = null;
+          note.textContent = 'Running the checks with and without the proposal…';
           try {
             const r = await skillReviewPost('evaluate-candidate', Object.assign({}, request, { suiteId: suite.id }));
-            receipt = r.receipt;
-            note.textContent = 'Task family: ' + (suite.description || suite.id) + ' · result: ' + String(receipt && receipt.status || 'unconfirmed') + '. Approval remains a separate action.';
-            const details = mkEl('pre', ''); details.textContent = JSON.stringify(receipt, null, 2); note.appendChild(details);
-            approve.disabled = !(receipt && receipt.status === 'passed' && receipt.receiptId);
+            showResult(r.receipt, suite, '');
           } catch (e) { note.textContent = e.message; }
           finally { busy = false; run.disabled = false; }
         };
       }
-      approve.onclick = async () => {
-        if (busy || !receipt) return; busy = true; approve.disabled = true;
-        try { await skillReviewPost('approve-candidate', Object.assign({}, request, { evaluation: receipt.receiptId })); loadAgentSkills(agentId); }
-        catch (e) { note.textContent = e.message; busy = false; approve.disabled = false; }
+      // A reload (registering checks, sharing another skill) must not throw away a paid result. Contract:
+      // latestEvaluation is the whole stored receipt row (the same object evaluate-candidate returns), never a
+      // summary; tie and spend-stop are read from its cases. Only a receipt for these exact proposal and active
+      // versions counts, and approval still re-verifies it by id.
+      const last = candidate.latestEvaluation;
+      if (last && last.receiptId && last.candidateDigest === candidate.candidateDigest && last.baselineDigest === candidate.baseDigest)
+        showResult(last, matching.find(s => s.id === last.suiteId) || {}, 'Last evaluation: ');
+      const decide = async extra => {
+        if (busy || !receipt) return; busy = true; approve.disabled = true; acknowledge.disabled = true;
+        try { await skillReviewPost('approve-candidate', Object.assign({}, request, { evaluation: receipt.receiptId }, extra)); loadAgentSkills(agentId); }
+        catch (e) { note.textContent = e.message; busy = false; approve.disabled = receipt.status !== 'passed'; acknowledge.disabled = acknowledge.hidden; }
       };
-      reject.onclick = async () => {
+      approve.onclick = () => decide({});
+      // Accepting a revision the evaluation could not show to be better is a deliberate owner decision: arm, then confirm.
+      if (typeof ArmConfirm !== 'undefined' && ArmConfirm.wire) {
+        ArmConfirm.wire(acknowledge, { armedLabel: 'Confirm: approve with no measured improvement', onConfirm: () => decide({ acknowledgeNoImprovement: true }) });
+      }
+      const doReject = async () => {
         if (busy) return; busy = true; reject.disabled = true;
         try { await skillReviewPost('reject-candidate', request); loadAgentSkills(agentId); }
         catch (e) { note.textContent = e.message; busy = false; reject.disabled = false; }
       };
+      // Rejecting discards the proposal and whatever evaluation it had: arm, then confirm, like the acknowledgement.
+      if (typeof ArmConfirm !== 'undefined' && ArmConfirm.wire) ArmConfirm.wire(reject, { armedLabel: 'Confirm: reject proposal', onArm: () => sfx('bad'), onConfirm: doReject });
+      else reject.onclick = doReject;
       const register = card.querySelector('[data-suite-register]');
       register.onclick = async () => {
         if (busy) return;
@@ -4371,6 +4430,14 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     }
   }
 
+  // Skill sharing in plain words (skillstore.js isAccessible): agent = only the owning agent; project = any
+  // agent working in that project folder; station = every agent on the station.
+  const SKILL_SCOPE_LABEL = { agent: 'Only this agent', project: 'This project', station: 'Whole station' };
+  const skillScopeText = (scope, root) => (SKILL_SCOPE_LABEL[scope || 'agent'] || String(scope)) + (root ? ' · ' + root : '');
+  const SUITE_EXAMPLE = 'Example:\n{ "id": "owner:weekly-brief", "version": 1, "description": "Weekly brief",\n  "cases": [\n' +
+    '    { "id": "basic", "prompt": "Write brief.json for this week", "writablePaths": ["brief.json"],\n' +
+    '      "checks": [{ "id": "title", "kind": "artifact_json_equal", "path": "brief.json", "expected": { "title": "Week 41" } }] },\n' +
+    '    { "id": "held", "heldOut": true, "prompt": "…", "writablePaths": ["brief.json"], "checks": [ … ] } ] }';
   function renderAgentSkills(host, skills, agentId, review) {
     review = review || {};
     if (!skills.length && !(review.candidates || []).length && !review.error) {
@@ -4427,7 +4494,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
             '</div>' +
             '<button class="sk-expand" data-ag-act="expand" title="Read the skill">&gt;</button>' +
           '</div>' +
-          '<div class="sk-body">' + heldBlock + '<div class="sk-attr">Shared with: ' + esc(s.scope || 'agent') + (s.projectRoot ? ' · ' + esc(s.projectRoot) : '') + '</div><pre>' + esc(s.body || '') + '</pre>' + files + absorbed + packageState +
+          '<div class="sk-body">' + heldBlock + '<div class="sk-attr">Shared with: ' + esc(skillScopeText(s.scope, s.projectRoot)) + '</div><pre>' + esc(s.body || '') + '</pre>' + files + absorbed + packageState +
             '<div class="consent-btns mc-acts">' +
               heldBtn +
               packageButtons +
@@ -4447,22 +4514,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
         const opened = card.classList.toggle('open'); btn.textContent = opened ? 'v' : '>'; sfx('click'); return;
       }
       if (act === 'edit') { editAgentSkill(card, skill, agentId); return; }
-      if (act === 'sharing') {
-        const body = card.querySelector('.sk-body');
-        if (body.querySelector('[data-skill-sharing]')) return;
-        const panel = mkEl('div', ''); panel.dataset.skillSharing = '1'; body.appendChild(panel);
-        const input = mkEl('input', 'key-input'); input.value = skill.projectRoot || ''; input.placeholder = 'Absolute project path for project sharing'; input.setAttribute('aria-label', 'Project sharing path'); panel.appendChild(input);
-        const note = mkEl('div', 'sk-attr'); note.textContent = 'Agent is private to this owner. Project shares only in this project. Station shares with all station agents.'; panel.appendChild(note);
-        for (const scope of ['agent', 'project', 'station']) {
-          const button = mkEl('button', 'consent-btn'); button.textContent = 'Share: ' + scope; panel.appendChild(button);
-          button.onclick = async () => {
-            button.disabled = true;
-            try { await skillReviewPost('share', { agentId, target: skill.id, scope, projectRoot: input.value }); loadAgentSkills(agentId); }
-            catch (e) { note.textContent = e.message; button.disabled = false; }
-          };
-        }
-        return;
-      }
+      if (act === 'sharing') { toggleSkillSharing(card, skill, agentId); return; }
       if (act === 'check') {
         btn.classList.add('busy');
         const r = await Harness.skillExchangeCheck({ agentId, id: skill.id }); btn.classList.remove('busy');
@@ -4527,6 +4579,33 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       if (r && r.ok) { sfx('click'); loadAgentSkills(agentId); } else btn.classList.remove('busy');
     }));
     renderSkillCandidates(host, agentId, review);
+  }
+
+  // Change sharing: a second click closes it, the current choice is marked, and the folder field shows only
+  // for This project (the host refuses a project share without a trusted folder).
+  function toggleSkillSharing(card, skill, agentId) {
+    const body = card.querySelector('.sk-body'); if (!body) return;
+    const shown = body.querySelector('[data-skill-sharing]');
+    if (shown) { shown.remove(); return; }
+    const panel = mkEl('div', ''); panel.dataset.skillSharing = '1'; body.appendChild(panel);
+    const note = mkEl('div', 'sk-attr'); panel.appendChild(note);
+    note.textContent = 'Only this agent: just ' + agentId + ' uses it. This project: any agent working in that project folder. Whole station: every agent.';
+    const row = mkEl('div', 'consent-btns mc-acts'); panel.appendChild(row);
+    const input = mkEl('input', 'key-input'); input.value = skill.projectRoot || ''; input.placeholder = 'Project folder (full path)';
+    input.setAttribute('aria-label', 'Project folder to share with'); input.hidden = (skill.scope || 'agent') !== 'project'; panel.appendChild(input);
+    for (const scope of ['agent', 'project', 'station']) {
+      const current = (skill.scope || 'agent') === scope;
+      const button = mkEl('button', 'consent-btn' + (current ? ' sel' : '')); button.type = 'button';
+      button.textContent = SKILL_SCOPE_LABEL[scope]; button.setAttribute('aria-pressed', current ? 'true' : 'false'); row.appendChild(button);
+      button.onclick = async () => {
+        if (scope === 'project' && input.hidden) {   // ask for the folder first; the next click shares it
+          input.hidden = false; note.textContent = 'Enter the project folder, then click This project again.'; input.focus(); return;
+        }
+        button.disabled = true;
+        try { await skillReviewPost('share', { agentId, target: skill.id, scope, projectRoot: scope === 'project' ? input.value : '' }); loadAgentSkills(agentId); }
+        catch (e) { note.textContent = e.message; button.disabled = false; }
+      };
+    }
   }
 
   function editAgentSkill(card, skill, agentId) {
@@ -7203,7 +7282,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
               }
               // restore the browser-owned slices locally.
               const b = (j && j.browser) || {};
-              if (b.settings) { Object.assign(store.settings, b.settings); }
+              if (b.settings) { Object.assign(store.settings, b.settings); store.settings.roomLighting = resolveRoomLighting(store.settings.roomLighting); }
               if (b.notifyPrefs) { store.settings.notifyPrefs = Object.assign(notifyDefaults(), b.notifyPrefs); }
               save(); applySettings();
               if (b.autonomy && typeof AutonomyStore !== 'undefined' && AutonomyStore.importState) {
@@ -7864,7 +7943,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     const roomLightIn = host.querySelector('#set-room-light');
     if (roomLightIn) {
       roomLightIn.addEventListener('input', ev => { s.roomLighting = resolveRoomLighting(ev.target.value); applyRoomLighting(s.roomLighting, true); sliderVal('#set-room-light-val', s.roomLighting + '%'); });
-      roomLightIn.addEventListener('change', () => { applyRoomLighting(s.roomLighting); save(); sfx('click'); flashSaved(appMsg()); });
+      roomLightIn.addEventListener('change', () => { commitRoomLighting(() => store.settings.roomLighting); save(); sfx('click'); flashSaved(appMsg()); });
     }
     // CRT GLASS chips — same instant-apply + persist idiom as TEXT SIZE below.
     const glChips = host.querySelectorAll('#set-crtglass [data-glass]');

@@ -3482,7 +3482,8 @@ const WorldModel = (() => {
        paste). Crew travels only where the caller's `o.agent(id)` says that agent is on this station.
        pasteLines lays a clip EXACTLY as drawn — every machine where the clip says, every belt tile on clear floor (never over
        another belt, never touching a junction already here), then asks the floor's own reconcile whether every pasted belt
-       still joins the two machines it joined and nothing already here was joined into the copy — one undo, all-or-nothing.
+       still joins the two machines it joined and nothing already here was joined into the copy, and asks the compiler whether
+       the copy stays a line of its own (a belt laid beside another line's fuses the two) — one undo, all-or-nothing.
        pasteLinesLaid is the fallback: the same clip as a graph, laid out by the layout engine near the spot (LineEdit). */
     const CLIP_CFG_DIRS = ['def', 'done', 'esc'];
     /* a pasted INBOX keeps its line's name, numbered when that name is already SHOWN here ("RESEARCH" → "RESEARCH 2") — by the one
@@ -3702,6 +3703,12 @@ const WorldModel = (() => {
           }
           const ours = new Set(placed.map(l => l.id));
           if (after.some(q => !ours.has(q.id) && (mine.has(q.from.prop) || mine.has(q.to.prop)))) return Object.assign(fail('JOINS_FLOOR', 'the copy would join a belt already here'), { short: 'IT WOULD JOIN A BELT ALREADY HERE' });
+          // …and no belt of the copy runs beside another line's: the compiler joins belts that touch into ONE line (one line id,
+          // one budget — the 10-09 P0), so the copy must stay a line of its own (the check applyLineLayout makes)
+          sendMemo.k = null;
+          const comps = sendGraph();
+          if (comps && comps.comps.some(c => c.props.some(id => mine.has(id)) && c.props.some(id => !mine.has(id))))
+            return sendFail('JOINS_FLOOR', 'the copy would join another line: a belt of it runs right beside that line', 'ANOTHER LINE IS TOO CLOSE');
           for (const id of made) { const J = propById(id); if (J && isJunction(J)) syncJunctionCfg(J); }
           // …and a copy never brings a work-line circle onto the floor (a legacy floor's — NO CIRCLE BUT A LOOP'S)
           const cl = circleAmong(currentLinks() || [], doc.belts, mine);

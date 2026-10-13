@@ -276,6 +276,10 @@ const GroupChat = (() => {
     // the ADD AGENTS window edits ONE session: leaving it for another closes the window (it would edit the wrong chat)
     if (pickerFor && pickerFor !== ws?.id && $('gc-picker') && typeof StationUI !== 'undefined') StationUI.closeTerm('group-agents');
     if (openedFileUrl) { URL.revokeObjectURL(openedFileUrl); openedFileUrl = null; openedFile = null; $('gc-preview').replaceChildren(); }
+    // …and the previous group's inline shared images: the log is emptied below, so nothing shows these URLs any more
+    // (a read that failed made no URL, so there is nothing to release for it — it already showed as not found)
+    for (const p of sharedBlobs.values()) p.then(u => URL.revokeObjectURL(u), () => {});
+    sharedBlobs.clear();
     if (active) composerDrafts.set(active.id, input.value);
     active = ws; group = null; replyTo = null; selected = []; lastPaint = ''; generation++;
     clearTimeout(timer); $('gc-log').replaceChildren(); $('gc-states').replaceChildren(); $('gc-questions').replaceChildren(); input.value = composerDrafts.get(ws?.id) || ''; draftKey = null; notice = ''; $('gc-notice').textContent = ''; closeMentions(); recipientLabel();
