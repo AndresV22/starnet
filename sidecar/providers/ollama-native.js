@@ -63,7 +63,16 @@
       }
     } else content = systems.map(m => m.content == null ? '' : String(m.content)).join('\n\n');
     const system = systems.length === 1 ? systems[0] : Object.assign({}, systems[0], { content });
-    return [system, ...messages.filter(m => !(m && m.role === 'system'))];
+    const out = [system, ...messages.filter(m => !(m && m.role === 'system'))];
+    // A trailing host nudge after assistant prose would leave the wire ending on that prose: an assistant prefill the
+    // template continues (or a strict server refuses). Open a fresh turn with a neutral user boundary that carries no
+    // policy; the instruction itself keeps its SYSTEM authority above.
+    const last = messages[messages.length - 1];
+    const tail = out[out.length - 1];
+    if (last && last.role === 'system' && tail && tail.role === 'assistant' && !(Array.isArray(tail.tool_calls) && tail.tool_calls.length)) {
+      out.push({ role: 'user', content: '<host_turn>Respond to the latest host instruction above.</host_turn>' });
+    }
+    return out;
   }
 
   function textOfParts(content) {
