@@ -69,6 +69,8 @@ const splitOf = plan => Object.keys(plan.junctions).find(k => plan.junctions[k].
   const labels = (panel.match(/const LABEL = \{ copy: '([^']+)', divide: '([^']+)', turns: '([^']+)' \}/) || []).slice(1);
   A.ok(labels.length === 3 && labels.every(l => guide.includes('<b>' + l + '</b>')) && !/choose between the two modes/.test(guide) && /PLANNER/.test(guide),
     'the splitter guide names the three choices the panel offers, and that SPLIT THE JOB can add a PLANNER step');
+  // a JOINER is where COPY TO EACH and SPLIT THE JOB both meet: the guide must not say a JOINER alone gives every lane the same job
+  A.ok(!/WITH A JOINER: EVERYONE|splitter switches to <b>fan-out<\/b>/.test(guide), 'the splitter guide never says a JOINER alone means every lane gets the same job');
 }
 
 /* ---------- 3b: one TEST control ---------- */
