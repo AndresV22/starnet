@@ -82,8 +82,9 @@ function makeOverseer(deps) {
     // a hidden worker thread never blocks a name the Commander can see; worker threads stay unique among themselves too
     const taken = name => rows.some(w => (args.worker === true || w.worker !== true) && w.title.toLowerCase() === name.toLowerCase());
     if (taken(title)) {
-      // uniqueTitle: the caller wants a thread whatever the name (a delegated worker), so pick a free one from this view
-      if (args.uniqueTitle !== true) throw new Error('session title already exists; use its id');
+      // A delegated worker (or a caller passing uniqueTitle) wants a thread whatever the name, so pick a free one from
+      // this same view: a repeated ask costs one save load, not one per taken name, and never loses its thread.
+      if (args.uniqueTitle !== true && args.worker !== true) throw new Error('session title already exists; use its id');
       title = freeTitle(title, taken);
     }
     const agentId = args.agentId || parent.agentId || 'agent';

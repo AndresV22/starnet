@@ -130,7 +130,8 @@ const { makeSubagentManager } = require('../sidecar/subagents.js');
       const sixth = file('Summarize my inbox', 6);
       assert.equal(sixth.title, 'Summarize my inbox (6)', 'a repeated ask counts up to a free title');
       assert.equal(loads, 1, 'a repeated title still costs one save load, not one per taken title');
-      assert.throws(() => ov.create({ parentStreamId: 'home', agentId: 'researcher', title: 'Summarize my inbox', worker: true }), /already exists/, 'without uniqueTitle a taken title still refuses');
+      assert.equal(ov.create({ parentStreamId: 'home', agentId: 'researcher', requestId: 'plain-worker', title: 'Summarize my inbox', worker: true }).title, 'Summarize my inbox (7)', 'a worker thread picks a free title even without uniqueTitle (the production caller passes none)');
+      assert.throws(() => ov.create({ parentStreamId: 'home', agentId: 'researcher', title: 'Home' }), /already exists/, 'a session the Commander sees still refuses a taken title');
       const long = 'x'.repeat(80);
       file(long, 7);
       assert.equal(file(long, 8).title, 'x'.repeat(76) + ' (2)', 'a suffix fits inside the 80-char title instead of being cut off');
@@ -154,6 +155,32 @@ const { makeSubagentManager } = require('../sidecar/subagents.js');
       assert.deepEqual(ov.snapshot().reviews.map(r => r.workerRunId), ['run_kept'], 'an old settled report whose worker is gone is dropped; one whose worker is still listed is kept');
       ov.collect([worker('w_kept', 'run_kept')]);
       assert.equal(ov.snapshot().reviews.length, 1, 'a kept report still covers its worker (no second report)');
+    }
+    // WIRING (review threads-backend-07 follow-up): the production caller is sidecar/index.js childThread. Run ITS code
+    // (sliced from the source, never required: requiring index.js boots a sidecar) against a counted save, so the
+    // saving reaches the place workers are actually filed.
+    {
+      const src = fs.readFileSync(path.join(__dirname, '../sidecar/index.js'), 'utf8');
+      const at = src.indexOf('childThread: ');
+      assert.ok(at > 0, 'index.js still files workers through childThread');
+      const body = require('./_assert.js').fnBody(src.slice(at, at + 4000), '(a) => {');
+      assert.ok(body.length > 40 && body.length < 4000 && /overseer\.create\(/.test(body), 'childThread body found');
+      let loads = 0, now = 5000;
+      const page = { generalId: 'home', workstreams: [{ id: 'home', title: 'Home', agentId: 'agent' }], deletedIds: [] };
+      const ov = makeOverseer({ fs, path, file: path.join(root, 'overseer-wiring.json'), now: () => now,
+        newId: () => 'ws_wire_' + ++serial, sessions: () => { loads++; return JSON.parse(JSON.stringify(page)); },
+        hasAgent: id => ['agent', 'researcher'].includes(id) });
+      const childThread = new Function('o', 'agentId', 'overseer', 'return ' + body)({ streamId: 'home', sessionTitle: 'Home' }, 'agent', ov);
+      const ask = n => childThread({ parentStreamId: 'home', agentId: 'researcher', requestId: 'wire' + n + ':team.dispatch:0', projectRoot: '', title: 'Daily digest' });
+      loads = 0; ask(1);
+      const firstCost = loads;
+      for (let n = 2; n <= 20; n++) ask(n);
+      loads = 0;
+      assert.equal(ask(21).title, 'Daily digest (21)', 'the 21st repeat of an ask counts up to a free title');
+      assert.equal(loads, firstCost, 'the 21st repeat of an ask costs the same save loads as the first, not one more per day');
+      for (let n = 22; n <= 99; n++) page.workstreams.push({ id: 'page_wire_' + n, title: 'Daily digest (' + n + ')', agentId: 'agent' });
+      const x = ask(100), y = ask(101);
+      assert.ok(x && y && x.title !== y.title, 'two same-titled workers in the same second both get a thread');
     }
     console.log('overseer: durable identity, deduplication, restart, rename, tombstones and turn serialization PASS');
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
