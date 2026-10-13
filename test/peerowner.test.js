@@ -53,7 +53,9 @@ A.eq(P.parseLsofOwners('p100\nu501\nf12\np4242\nu501\nf20\n', 100), [{ pid: 4242
 A.eq(P.parseLsofOwners('', 100), [], 'lsof: nothing visible → no owners');
 
 // ---- the check itself, with injected lookups ----
-function fakeRun(map) { return async (exe, args) => { const k = path.basename(exe); return map[k] ? map[k](args) : { ok: false, code: -1, stdout: '' }; }; }
+// win32 basename: the injected exe paths are Windows paths ('C:\\W\\System32\\netstat.exe'), and POSIX path.basename
+// does not split on '\\' — on the Linux CI gate every fake would miss and read as lookup-failed.
+function fakeRun(map) { return async (exe, args) => { const k = path.win32.basename(exe); return map[k] ? map[k](args) : { ok: false, code: -1, stdout: '' }; }; }
 const Q = { remoteAddress: '127.0.0.1', remotePort: 52345, localAddress: '127.0.0.1', localPort: 8787 };
 
 (async () => {
