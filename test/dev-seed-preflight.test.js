@@ -34,5 +34,6 @@ const entry = path.resolve(__dirname, '../dev/seed.js');
   assert.deepEqual(pub.urls, ['https://openrouter.ai/api/v1/models'], 'no override keeps the public catalog');
   const starnet = await preflight({ STARNET_OPENROUTER_BASE: 'http://127.0.0.1:8/v1', SKYNET_OPENROUTER_BASE: 'http://127.0.0.1:9/v1' }, ['test/model']);
   assert.deepEqual(starnet.urls, ['http://127.0.0.1:8/v1/models'], 'STARNET_OPENROUTER_BASE wins, as in the sidecar');
+  assert.equal(require('./_assert.js').fails(), 0, 'shared assertion helpers have no pending failures');
   console.log('dev-seed-preflight.test: OK (7 assertions)');
 })().catch(err => { console.error(err); process.exit(1); });
