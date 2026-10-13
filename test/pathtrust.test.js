@@ -161,7 +161,10 @@ function scriptPrompt(decision) {
   {
     const home = path.join(ROOT, 'home');
     const stores = [['.ssh', 'id_ed25519'], ['.aws', 'credentials'], ['.tauri', 'starnet-updater.key'], ['.codex', 'auth.json'],
-      [path.join('AppData', 'Local', 'Google', 'Chrome', 'User Data', 'Default'), 'Login Data']];
+      [path.join('AppData', 'Local', 'Google', 'Chrome', 'User Data', 'Default'), 'Login Data'],
+      // security-storage-03: the Windows homes of the gcloud and GitHub CLI logins, and cargo's registry token
+      [path.join('AppData', 'Roaming', 'gcloud'), 'credentials.db'], [path.join('AppData', 'Roaming', 'GitHub CLI'), 'hosts.yml'],
+      ['.cargo', 'credentials.toml'], ['.cargo', 'credentials'], [path.join('.config', 'gh'), 'hosts.yml']];
     for (const [dir, file] of stores) { await fsp.mkdir(path.join(home, dir), { recursive: true }); await fsp.writeFile(path.join(home, dir, file), 'secret'); }
     await fsp.writeFile(path.join(home, '.git-credentials'), 'https://u:p@h');
     await fsp.writeFile(path.join(home, 'notes.ssh.txt'), 'not a key');

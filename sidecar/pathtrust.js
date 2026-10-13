@@ -106,8 +106,9 @@
        SEGMENTS (forward-slashed, case-folded), so a name merely containing ".ssh" is not caught. */
     const CREDENTIAL_STORES = [
       [/(^|\/)\.(ssh|gnupg|aws|azure|kube|tauri|starnet-signing|starnet-keys|fly|codex)(\/|$)/, 'SSH, GPG, cloud CLI and signing keys'],
-      [/(^|\/)(\.netrc|_netrc|\.git-credentials|\.pypirc|\.pgpass|\.npmrc)$/, 'saved login credentials'],
-      [/(^|\/)\.docker\/config\.json$|(^|\/)\.config\/(gcloud|gh)(\/|$)|(^|\/)\.claude\/\.credentials\.json$/, 'cloud and developer CLI logins'],
+      [/(^|\/)(\.netrc|_netrc|\.git-credentials|\.pypirc|\.pgpass|\.npmrc)$|(^|\/)\.cargo\/credentials(\.toml)?$/, 'saved login credentials'],
+      // gcloud and the GitHub CLI keep their logins under %APPDATA% on Windows, ~/.config elsewhere
+      [/(^|\/)\.docker\/config\.json$|(^|\/)\.config\/(gcloud|gh)(\/|$)|(^|\/)appdata\/roaming\/(gcloud|github cli)(\/|$)|(^|\/)\.claude\/\.credentials\.json$/, 'cloud and developer CLI logins'],
       [/(^|\/)microsoft\/(credentials|protect|vault)(\/|$)|(^|\/)library\/keychains(\/|$)|(^|\/)\.local\/share\/keyrings(\/|$)/, 'the operating system credential store'],
       [/(^|\/)(google\/chrome|chromium|microsoft\/edge|bravesoftware\/brave-browser|vivaldi|opera software)(\/|\s)?(user data|beta|dev)?(\/|$)|(^|\/)(mozilla\/firefox|\.mozilla\/firefox|\.config\/(google-chrome|chromium|brave-?software))(\/|$)|(^|\/)library\/(cookies|application support\/(google\/chrome|firefox|microsoft edge|bravesoftware))(\/|$)/, 'browser profiles (cookies and saved passwords)']
     ];
