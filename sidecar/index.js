@@ -21483,7 +21483,7 @@ async function runOnceCore(o) {
     }
     if (taskBriefState && !internalBriefControl) {
       const gate = TaskBriefPolicy.canMutate(taskBriefState.brief, liveTool);
-      if (!gate.ok) return { ok: false, isError: true, content: 'Task Brief gate: ' + gate.reason, summary: 'task-brief-gate' };
+      if (!gate.ok) return { ok: false, isError: true, content: 'Task Brief gate: ' + gate.reason, summary: 'paused — settling the task first' };
     }
     /* EVIDENCE-PROGRESS GUARD. The old loop guard below catches an identical call only when it FAILS. The
        live Drive incident spent 100+ calls on nominal successes (same page text, fresh refs, "clicked", parked

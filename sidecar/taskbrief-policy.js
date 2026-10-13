@@ -68,8 +68,10 @@ function validateQuestionFields(c, call) {
   if (!question || VAGUE.test(question)) return { ok: false, error: 'ask one concrete, non-vague question' };
   const conversational = c.mode === 'conversation';
   if (!conversational && options.length < 2) return { ok: false, error: multiSelect ? 'provide 2-6 genuinely different options' : 'provide 2-3 genuinely different options' };
+  // A recommendation that matches no option is DROPPED (the question shows with no ★), never a rejection: a rejected
+  // brief_ask sent the model to the marker fallback, and it asked the same question twice — once in prose, once as a
+  // card (live walkthrough 2026-10-13). matchOption still never guesses between chips.
   const pick = matchOption(options, recommended);
-  if ((!conversational || recommended) && !pick) return { ok: false, error: 'recommended must match one option (copy it verbatim from options)' };
   if (!reason) return { ok: false, error: 'state why this decision materially changes the result' };
   if ((call || c).discoverable !== false) return { ok: false, error: 'inspect available context first; discoverable must be false' };
   return { ok: true, question: { dimension, question, text: question, options, recommended: pick, reason,
@@ -167,6 +169,10 @@ function validateProceed(candidate) {
 
 function canMutate(brief, tool) {
   if (!brief || !tool) return { ok: true };
+  // SETUP, NOT THE DELIVERABLE: hiring a crew member (team.summon) shapes the station, not the work the brief settles,
+  // and it has its own approval card. "Get me a researcher and a copywriter, then…" used to be refused outright
+  // until the brief was settled (live walkthrough 2026-10-13). A tool opts in with briefExempt:true.
+  if (tool.briefExempt === true) return { ok: true };
   // Built-in reads are non-consequential, but MCP tools are deliberately `external-unknown` even when an
   // untrusted server advertises readOnlyHint. That annotation may shape grants; it cannot bypass the brief gate.
   if (tool.scope === 'read' && tool.impact !== 'external-unknown') return { ok: true };

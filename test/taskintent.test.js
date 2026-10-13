@@ -53,7 +53,18 @@ A.eq(valid.ok, true, 'a concrete researched material decision passes host valida
 A.eq(Policy.validateQuestion(material({ question: 'What does good look like?', options: ['simple', 'detailed'] }), { questions: [] }).ok, false, 'vague quality prompts fail closed');
 A.eq(Policy.validateQuestion(material({ options: ['operators', 'Operators'] }), { questions: [] }).ok, false, 'duplicate options do not masquerade as distinct choices');
 A.eq(Policy.validateQuestion(material({ discoverable: true }), { questions: [] }).ok, false, 'a discoverable gap must be researched instead of asked');
-A.eq(Policy.validateQuestion(material({ recommended: 'not listed' }), { questions: [] }).ok, false, 'recommended default must be one of the visible choices');
+// a recommendation that matches no visible choice is DROPPED (no ★), never a rejection — a rejection sent the model to
+// the marker fallback and it asked the same question twice, in prose and as a card (live walkthrough 2026-10-13)
+{
+  const unlisted = Policy.validateQuestion(material({ recommended: 'not listed' }), { questions: [] });
+  A.eq(unlisted.ok, true, 'an unlisted recommendation does not reject the question');
+  A.eq(unlisted.question.recommended, '', 'and no chip is starred for it — the host never guesses which one was meant');
+}
+// hiring is setup, not the deliverable: a briefExempt tool passes an unsettled brief; every other write still waits
+A.eq(Policy.canMutate({ status: 'ready' }, { scope: 'write', briefExempt: true }).ok, true, 'team.summon (briefExempt) is never held behind the Task Brief');
+A.eq(Policy.canMutate({ status: 'ready' }, { scope: 'write' }).ok, false, 'any other consequential tool still waits for brief_proceed');
+A.ok(/name: 'team\.summon'[^\n]*\n\s*briefExempt: true/.test(require('fs').readFileSync(require('path').join(__dirname, '..', 'sidecar', 'tools', 'builtin', 'orchestration.js'), 'utf8')),
+  'team.summon is the tool that carries briefExempt');
 
 // RECOMMENDATION MATCHING — a formatting slip must not silently cost the Commander the ★ suggestion, and a
 // rescue must never resolve to the WRONG chip. Every accepted form returns the CANONICAL option text.
