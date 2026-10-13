@@ -24,13 +24,13 @@ function registerTaskBriefTools(registry, store, state, deps) {
     // Batched asks (up to 3 questions) wait sequentially inside one run() — the ceiling must cover three
     // consent waits (fail-closed timer + one ack extension each), not one.
     timeoutMs: 30 * 60 * 1000,
-    description: 'Ask one concrete question and listen. Prefer mode:conversation for discovery: options are optional shortcuts, sample is an optional small draft to react to. Ask about the last real example, a troublesome step, or an exception. After the answer use brief.update to extract everything it established before choosing another question or proceeding. Legacy mode:choice supports bundled independent decisions. Inspect available context first; correct rejected arguments rather than bypassing the task lifecycle in prose.',
+    description: 'Ask one concrete question and listen. The question is ONE short plain sentence: the options show as tap keys under it, so never list them in it, and background goes in reason. Prefer mode:conversation for discovery: options are optional shortcuts, sample is an optional small draft to react to. Ask about the last real example, a troublesome step, or an exception. After the answer use brief.update to extract everything it established before choosing another question or proceeding. Legacy mode:choice supports bundled independent decisions. Inspect available context first; correct rejected arguments rather than bypassing the task lifecycle in prose.',
     schema: (() => {
       const qProps = {
         // the enum IS the whitelist (taskbrief-policy DIMENSIONS) — live-caught 2026-07-16: without it the
         // model invents dimensions ('dashboard_tech'), burns retries on rejections, then falls back to prose.
         dimension: { type: 'string', enum: Array.from(Policy.DIMENSIONS) },
-        question: { type: 'string' }, options: { type: 'array', items: { type: 'string' } },
+        question: { type: 'string', description: 'ONE short plain sentence (about 15 words). Never list the options in it: they show as tap keys under it. Background goes in reason.' }, options: { type: 'array', items: { type: 'string' } },
         recommended: { type: 'string' }, reason: { type: 'string' },
         mode:{type:'string',enum:['conversation','choice'],description:'conversation: one open-ended question with optional shortcuts. choice: legacy bounded choices.'},
         sample:{type:'string',description:'Optional short draft/example to react to; not a claim of a created file or completed action.'},
