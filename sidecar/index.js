@@ -12082,7 +12082,11 @@ function gracefulShutdown(signal) {
   // are aborted, so the target line gets its "not sent on" record and every sending job reads NOT sent on, with why (wave 2 review,
   // conveyor-backend-03 — they used to vanish on a restart or an update). lineJobsSet saves synchronously, so the records are on disk
   // before exit. The one RUNNING is said as interrupted at the next boot (LineJobs.boot). A hard kill skips this path entirely.
-  try { if (handoffRunner) handoffRunner.haltAll('the station stopped before this hand-off ran — send the job again'); } catch (e) { failNote('shutdown.handoffs', e); }
+  // { close: true } closes admission as well (wave 2 repair): hub-driven jobs keep running through the ~3 s shutdown window, and a
+  // hand-off one of them sends meanwhile is refused with the same reason on both lines, never queued into memory that exits.
+  // (The desktop Quit and window-close POST /api/halt FIRST — src-tauri drain_and_kill_sidecar — so there the waiting hand-offs
+  // were already said as "automation is stopped (E-STOP)"; this path is what SIGTERM/SIGINT, IPC and /api/lifecycle/quit alone get.)
+  try { if (handoffRunner) handoffRunner.haltAll('the station stopped before this hand-off ran — send the job again', { close: true }); } catch (e) { failNote('shutdown.handoffs', e); }
   try { if (typeof cronTimer !== 'undefined' && cronTimer) { clearInterval(cronTimer); } } catch (_) {}
   try { if (typeof nightshiftTimer !== 'undefined' && nightshiftTimer) { clearInterval(nightshiftTimer); } } catch (_) {}   // NS-1: stop the night-shift ticker on shutdown
   try { if (typeof connectorLifecycleTimer !== 'undefined' && connectorLifecycleTimer) { clearInterval(connectorLifecycleTimer); } } catch (_) {}

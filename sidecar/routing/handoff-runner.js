@@ -69,6 +69,9 @@ function makeHandoffRunner(deps) {
   const lineage = new Map();
   const live = new Map();      // target lineId -> { queue:[], busy, hub, current }
   const refused = [];          // [{ at, fromLine, toLine, error }] newest last
+  // the station is quitting (haltAll(why, { close: true })): every later hand-off is refused with this reason, never queued in a
+  // memory that is about to exit (wave 2 repair, conveyor-backend-03) — null while the station takes work
+  let closing = null;
 
   const lineRec = (plan, id) => ((plan && Array.isArray(plan.lines)) ? plan.lines : []).find(l => l && String(l.lineId) === String(id)) || null;
   const nameOf = (plan, id) => { const l = lineRec(plan, id); return (l && typeof l.name === 'string') ? l.name : ''; };
@@ -85,6 +88,7 @@ function makeHandoffRunner(deps) {
   function preflight(plan, toLine) {
     // (bare reasons — wave 2 review, conveyor-backend-09: the record's 'not sent on: ' and every sender surface already say it was not sent)
     if (halted()) return faulted() ? 'the station hit an internal fault and stopped its background work' : 'automation is stopped (E-STOP)';
+    if (closing) return closing;
     if (!plan) return 'no work line is armed';
     if (!lineRec(plan, toLine)) return 'the line it sends to is no longer on the floor — set its SEND TO again';
     if (!crewedDocksOnLine(plan, toLine).length) return say(plan, toLine) + ' routes work to no crewed dock — assign an agent to its first step';
@@ -165,12 +169,19 @@ function makeHandoffRunner(deps) {
     /* a dispatch that THREW (makeHub, the hub's own entry) is said like every other drop — this module's rule (wave 2 review,
        conveyor-backend-11: it was a console line only). A target record it already started says why instead of staying "running";
        before that, the refusal path writes one on both lines. */
+    /* (wave 2 repair) the SENDING job is told too: dispatch links it "sent on" as soon as the target record starts, so a throw before
+       the target line was entered (makeHub, the hub's own entry) re-links it NOT sent on, with why — its card read "Sent on to LINE B —
+       that line works on this result next" for a hand-off that never started. A throw AFTER the line was entered is said as such: the
+       work did reach that line, so the sender keeps its plain link to the record that says what happened. */
     Promise.resolve().then(() => dispatch(item, s)).catch(e => {
-      const why = 'the hand-off could not start (' + String((e && e.message) || e).slice(0, 200) + ')';
+      const msg = String((e && e.message) || e).slice(0, 200);
+      const why = item.entered ? 'the hand-off broke after it started (' + msg + ')' : 'the hand-off could not start (' + msg + ')';
       warn('[handoff] dispatch failed: ' + ((e && e.message) || e));
       try {
-        if (item.startedJobId) J.finish(item.startedJobId, { at: now(), status: 'failed', usd: 0, output: '', runs: [], error: why });
-        else refuse(item, why);
+        if (item.startedJobId) {
+          J.finish(item.startedJobId, { at: now(), status: 'failed', usd: 0, output: '', runs: [], error: why });
+          if (!item.entered && item.fromJobId) J.link(item.fromJobId, { line: item.toLine, jobId: item.startedJobId, name: item.toName, refused: why });
+        } else refuse(item, why);
       } catch (e2) { warn('[handoff] the failed dispatch could not be recorded: ' + ((e2 && e2.message) || e2)); }
     }).then(() => { s.busy = false; s.current = null; pump(line); });
   }
@@ -185,7 +196,11 @@ function makeHandoffRunner(deps) {
       onLineOutcome: (info) => { if (s.current) s.current.lineOutcome = info; },
       streamId: () => (s.current && s.current.streamId) || undefined,
       turns: (agentId) => { if (!s.current) return []; const k = String(agentId || ''); return s.current.turns[k] || (s.current.turns[k] = []); },
-      send: (text) => { if (s.current) { s.current.replies.push(String(text == null ? '' : text)); if (s.current.replies.length > 20) s.current.replies.shift(); } }
+      /* once the station is stopped (E-STOP, or its own fault containment) nothing more is this job's output: the hub's "⏹ Stopped —
+         E-STOP was pressed…" courtesy notice for a real chat came through here and the STOPPED card showed it under "What came out",
+         with NEEDS CHANGES offered against it (wave 2 repair, conveyor-backend-08 — the sample route's own rule). What was said
+         before the stop stays. */
+      send: (text) => { if (s.current && !halted()) { s.current.replies.push(String(text == null ? '' : text)); if (s.current.replies.length > 20) s.current.replies.shift(); } }
     });
     return s.hub;
   }
@@ -261,6 +276,7 @@ function makeHandoffRunner(deps) {
     const hub = hubFor(item.toLine, s);
     const settled = Promise.resolve(hub.onInbound({ chatId: 'hof-' + item.toLine, userId: 'handoff', text: input, chatType: 'dm' }))
       .catch(e => ({ error: (e && e.message) || String(e) }));
+    item.entered = true;   // the target line has the work from here (a throw after this is said as "broke after it started" — pump)
     // resolution lands in onInbound's first synchronous slice (the one-resolver law); the crate follows it
     const info = s.current.resolved;
     let workitemId = '', agentId = '';
@@ -315,9 +331,13 @@ function makeHandoffRunner(deps) {
   /* E-STOP: drop every waiting hand-off; the host kills the in-flight runs through the hubs' inflight maps.
      (fix-runtime 24) A drop is SAID, never silent: each dropped hand-off goes through refuse() — the target line gets the failed
      "not sent on" record (a burst counted on ONE record, the standing-refusal rule) and every dropped sending job reads NOT sent
-     on, with why. `why` names a stop that was not the Commander's E-STOP (the process-fault containment says its own). */
-  function haltAll(why) {
+     on, with why. `why` names a stop that was not the Commander's E-STOP (the process-fault containment says its own).
+     opts.close (the station is QUITTING — gracefulShutdown; wave 2 repair, conveyor-backend-03): admission closes as well. A
+     hub-driven job on another line can still finish inside the shutdown window; its hand-off is then refused with the same reason
+     (preflight), never queued into a memory that process.exit drops. An E-STOP never closes admission: RESUME lets work go again. */
+  function haltAll(why, opts) {
     const reason = (typeof why === 'string' && why.trim()) ? why.trim() : 'automation is stopped (E-STOP)';
+    if (opts && opts.close) closing = reason;
     let n = 0;
     for (const s of live.values()) { const q = s.queue.splice(0); n += q.length; for (const it of q) refuse(it, reason); }
     return n;

@@ -181,8 +181,11 @@ test('a job that ships on LINE A rides on to LINE B by SEND TO', async () => {
 });
 
 /* (wave 2 review, conveyor-backend-03) SEND TO hand-offs WAITING in a line's queue when the station quits are said on their records:
-   LINE B is busy with one hand-off while two more wait behind it; a graceful Quit (the desktop shell's POST /api/lifecycle/quit, the
-   same gracefulShutdown a SIGTERM runs) drops the waiting ones through the refusal path. After the restart LINE B has ONE failed
+   LINE B is busy with one hand-off while two more wait behind it; a graceful stop that sends NO E-STOP first (POST /api/lifecycle/quit
+   on its own — what the desktop shell's ExitRequested path, stop_sidecar_gracefully, sends — and the same gracefulShutdown a SIGTERM,
+   SIGINT or the IPC/CLI stop runs) drops the waiting ones through the refusal path. (The desktop tray Quit and a full window-close quit
+   POST /api/halt FIRST — src-tauri drain_and_kill_sidecar — so there handleHalt had already said them as "automation is stopped
+   (E-STOP)", before and after this fix; that Quit says E-STOP because it really sends one.) After the restart LINE B has ONE failed
    "not sent on" record counting both, and each sending job on LINE A reads NOT sent on, with why — they used to vanish with no record
    anywhere (A's jobs read DELIVERED with no "sent on" and no "NOT sent on"). The one that was running is said as interrupted. */
 test('hand-offs waiting when the station quits are said, never lost', async () => {
