@@ -6471,9 +6471,11 @@ async function deliverCronResult(job, result) {
     try {
       const streamId = 'cron-' + result.runId;
       const recorded = transcriptStore.reconstruct(streamId, { limit: 2 });
-      if (!recorded.some(t => t.role === 'user')) transcriptStore.append({ streamId, agentId: job.agentId, role: 'user', content: String(job.prompt || '') });
-      if (!recorded.some(t => t.role === 'assistant')) transcriptStore.append({ streamId, agentId: job.agentId, role: 'assistant', content: result.outcome === 'failed' ? String(result.error || 'script failed') : String(result.text || '') });
-    } catch (_) {}
+      // provenance on both rows (memory-learning-07): the routine's prompt is the Commander's own; the script's stdout is
+      // untrusted output, the same as the <untrusted_script_output> a scheduled pre-check script hands a run
+      if (!recorded.some(t => t.role === 'user')) transcriptStore.append({ streamId, agentId: job.agentId, role: 'user', taint: null, content: String(job.prompt || '') });
+      if (!recorded.some(t => t.role === 'assistant')) transcriptStore.append({ streamId, agentId: job.agentId, role: 'assistant', taint: 'scheduled script output', content: result.outcome === 'failed' ? String(result.error || 'script failed') : String(result.text || '') });
+    } catch (e) { failNote('cron.script.transcript', e); }
   }
   const text = result.outcome === 'failed'
     ? ('✦ ' + (job.name || 'Routine') + ' failed\n\n' + String(result.error || 'The run failed.'))
@@ -22522,7 +22524,7 @@ async function runOnceCore(o) {
           console.warn('[run-journal] retained unsettled run for review:', runId, retirement.state && retirement.state.status);
         }
       } else {
-        if (title && !retryDirective && !o.syntheticTrigger && !runTranscript.directiveWritten()) transcriptStore.append({ streamId: o.streamId, agentId, role: 'user', content: title, from: o.delegatedBy || undefined, sourceRunId: o.dispatchDelivery ? runId : undefined, dispatchState: o.dispatchDelivery && o.dispatchDelivery.state });
+        if (title && !retryDirective && !o.syntheticTrigger && !runTranscript.directiveWritten()) transcriptStore.append({ streamId: o.streamId, agentId, role: 'user', taint: execution.taintedBy() || null, content: title, from: o.delegatedBy || undefined, sourceRunId: o.dispatchDelivery ? runId : undefined, dispatchState: o.dispatchDelivery && o.dispatchDelivery.state });
         if (result && Array.isArray(result.messages)) transcriptStore.appendNew(o.streamId, agentId, result.messages, { taint: execution.taintedBy(), sourceRunId: o.dispatchDelivery ? runId : undefined, dispatchState: o.dispatchDelivery && o.dispatchDelivery.state });
       }
     } catch (_) {}
@@ -23600,9 +23602,13 @@ async function handleAwayBriefingDeliver(req, res) {
     await awayBriefingStore.update('briefing', async (raw) => {
       const st = awayBriefingState(raw), now = Date.now();
       const since = st.through || (now - AWAY_BRIEFING_FIRST_WINDOW_MS);
-      const b = AwayBriefing.compose(await awayBriefingInputs(since, now, tz));
+      const inputs = await awayBriefingInputs(since, now, tz);
+      const b = AwayBriefing.compose(inputs);
       if (b.empty) { out = { delivered: false, counts: b.counts }; return { through: now, last: st.last }; }
-      transcriptStore.append({ streamId: AwayBriefing.STREAM_ID, agentId: AWAY_BRIEFING_AGENT, role: 'assistant', content: b.text });
+      // provenance (memory-learning-07): the briefing quotes runs' own output, so a run in its window that read untrusted
+      // content makes the briefing row untrusted too; otherwise it is the station's own report (clean)
+      const quoted = (inputs.runs || []).find(r => r && r.taintedBy && (Number(r.endedAt) || Number(r.ts) || 0) > since);
+      transcriptStore.append({ streamId: AwayBriefing.STREAM_ID, agentId: AWAY_BRIEFING_AGENT, role: 'assistant', taint: quoted ? 'away briefing quoting ' + String(quoted.taintedBy).slice(0, 80) : null, content: b.text });
       const last = { at: now, since: b.since, items: b.items, counts: b.counts };
       out = { delivered: true, at: now, text: b.text, items: b.items, counts: b.counts };
       return { through: now, last };

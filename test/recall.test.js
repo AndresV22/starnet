@@ -304,6 +304,12 @@ let clk = 1000; const clock = { now: () => clk };
     const idx = require('fs').readFileSync(require('path').join(__dirname, '../sidecar/index.js'), 'utf8');
     A.ok(/makeRecallTool\(\{ transcriptStore, ownStreamOnly: \(\) => tasteWithheld \}\)/.test(idx),
       'the host pins recall to the run\'s own chat exactly when it withholds the Commander\'s taste (non-owner, group, their workers)');
+    // memory-learning-07 (host half): every raw transcript append stamps provenance, so no new row is ever "unknown"
+    // (an unknown row taints every recall that returns it, while replay treats the same row as clean)
+    const appends = idx.split('\n').filter(line => /transcriptStore\.append\(\{/.test(line));
+    A.ok(appends.length >= 4, 'index.js: the raw transcript appends are where this test reads them');
+    A.eq(appends.filter(line => !/\btaint: /.test(line)).map(line => line.trim().slice(0, 120)), [], 'every raw transcript append stamps a taint value');
+    A.ok(/role: 'assistant', taint: 'scheduled script output'/.test(idx), 'a script-only routine\'s stdout is stamped untrusted, as its run is');
   }
 
   A.report('recall.test');
