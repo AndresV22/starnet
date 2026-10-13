@@ -477,8 +477,11 @@ const VoiceLive = (() => {
       const id = String(pending.promptId || pending.tool || 'prompt');
       if (id !== spokenApprovalId) {
         spokenApprovalId = id;
-        // offer only the answers the card has: a once-only ask has no Always (review app-shell-ui-03)
-        speakLocal('Approval needed: ' + (pending.tool || 'an action') + (pending.argsSummary ? ' — ' + String(pending.argsSummary).slice(0, 120) : '') +
+        // who asks and what for, in the card's words (review app-shell-ui-08); offer only the answers the card has:
+        // a once-only ask has no Always (review app-shell-ui-03)
+        const ask = askParts(pending, ws);
+        speakLocal((ask.what ? (ask.who ? ask.who + ' needs approval to ' : 'Approval needed to ') + ask.what
+          : 'Approval needed: ' + (pending.tool || 'an action') + (pending.argsSummary ? ' — ' + String(pending.argsSummary).slice(0, 120) : '')) +
           (ONCE_ONLY.has(pending.tool) ? '. Say approve or deny.' : '. Say approve, always allow, or deny.'));
       }
     } else spokenApprovalId = null;
@@ -525,6 +528,14 @@ const VoiceLive = (() => {
   // the login window) and the plugin install (freshConsent: the station grants that one call whatever grade arrives).
   // A spoken "always allow" there approves this one call and says so, never a standing grant (review app-shell-ui-02/03)
   const ONCE_ONLY = new Set(['station.power', 'browser.login', 'browser.login.done', 'plugin.submit']);
+  // which ask a spoken line is about, in the card's own words (Chat.consentPhrase): who asks (the worker, else the lead) and
+  // what for, without the card's fine print. what = '' when there is no phrase, and the line keeps its plain form
+  function askParts(pending, ws) {
+    const what = typeof Chat !== 'undefined' && Chat.consentPhrase
+      ? String(Chat.consentPhrase(pending) || '').split(' — ')[0].replace(/\s*\([^()]*\)?\s*$/, '').trim().slice(0, 140) : '';
+    const id = pending.workerAgentId || pending.agentId || (ws && ws.agentId) || '';
+    return { what, who: (what && id && typeof App !== 'undefined' && App.agentName && App.agentName(id)) || '' };
+  }
   function approvalCommand(lower) {
     if (typeof Workstreams === 'undefined' || typeof Channels === 'undefined') return false;
     const ws = Workstreams.active();
@@ -546,17 +557,21 @@ const VoiceLive = (() => {
     approvalSubmissions.add(id);
     const seq = sessionSeq;
     const ownsFeedback = () => active && sessionSeq === seq && boundWsId === ws.id;
+    // with several asks open, the outcome names the one it answered (review app-shell-ui-08)
+    const ask = askParts(pending, ws), about = ask.what ? ': ' + (ask.who ? ask.who + ' to ' : '') + ask.what + '.' : '.';
     // Every surface uses the same confirmed, exact-prompt path. A delegated ask may have no ordinary card.
     Promise.resolve().then(() => Chat.answerConsent(pending, ws, decision, 'by voice')).then(result => {
       if (!ownsFeedback()) return;
       const applied = result && result.appliedDecision;
-      if (applied === 'deny') speakLocal('Denied.');
-      else if (applied === 'always') speakLocal('Always allowed.');
-      else if (applied === 'once') speakLocal((onceOnly ? 'This one can only be approved once. ' : '') + 'Approved once.');
+      if (applied === 'deny') speakLocal('Denied' + about);
+      else if (applied === 'always') speakLocal('Always allowed' + about);
+      else if (applied === 'once') speakLocal((onceOnly ? 'This one can only be approved once. ' : '') + 'Approved once' + about);
       else speakLocal('The station did not confirm your answer. Please try again.');
     }).catch(() => {
+      if (!ownsFeedback()) return;
+      // settled elsewhere meanwhile (timed out, answered on the card or the phone): say so, never leave the call silent
       const stillPending = Channels.pendingAllOf(ws.id).some(p => String(p.promptId || '') === id);
-      if (ownsFeedback() && stillPending) speakLocal('I could not submit that answer. The approval is still waiting; please try again.');
+      speakLocal(stillPending ? 'I could not submit that answer. The approval is still waiting; please try again.' : 'That approval is no longer waiting.');
     }).finally(() => {
       approvalSubmissions.delete(id);
       if (ownsFeedback()) refreshTask();

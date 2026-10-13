@@ -241,5 +241,5 @@ test('spoken delegated approvals await confirmed exact-prompt settlement and pre
   c.boundWsId=ws.id;Channels.setPending(ws.id,{promptId:'remote-wins',tool:'fs.write'});let reject;
   reply=new Promise((_resolve,no)=>{reject=no;});c.approvalCommand('approve');await drain();
   Channels.clearPending(ws.id,Date.now(),'remote-wins');reject(new Error('local network failed'));await drain();
-  assert.equal(spoken.length,0,'a failed local request does not claim a remotely handled prompt still waits');
+  assert.deepEqual(spoken,['That approval is no longer waiting.'],'a failed local request on a remotely handled prompt says so, never that it still waits (review app-shell-ui-08)');
 });

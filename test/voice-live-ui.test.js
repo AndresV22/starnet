@@ -307,7 +307,7 @@ function approvalFixture(opts = {}) {
   const ws = { id: 'voice-parallel', agentId: 'lead' }, calls = [], events = [], spoken = [];
   Channels.begin(ws.id, 1000); Channels.setRunId(ws.id, 'lead-run');
   Channels.setPending(ws.id, { promptId: 'worker-first', tool: 'fs.write' }, 2000);
-  Channels.setPending(ws.id, { promptId: 'worker-second', tool: opts.tool || 'shell.exec' }, 3000);
+  Channels.setPending(ws.id, { promptId: 'worker-second', tool: opts.tool || 'shell.exec', ...(opts.worker ? { workerAgentId: opts.worker } : {}) }, 3000);
   const Workstreams = { active: () => ws, get: id => id === ws.id ? ws : null };
   let respond = (_run, _prompt, decision) => ({ ok: true, decision });
   const Harness = { consent: (...args) => { calls.push(args); return respond(...args); } };
@@ -319,12 +319,13 @@ function approvalFixture(opts = {}) {
     Harness, Channels, Workstreams, U, clock, { notify() {}, settleNotifs() {} },
     () => 'worker', () => 'write a file', () => false, () => {}, () => {}
   );
+  Object.assign(Chat, opts.chat || {});   // e.g. the real module's consentPhrase
   // Supply module state, not another implementation of approval or settlement.
   // eslint-disable-next-line no-new-func
-  const controller = new Function('Workstreams', 'Channels', 'Chat', 'speakLocal', 'refreshTask',
+  const controller = new Function('Workstreams', 'Channels', 'Chat', 'App', 'speakLocal', 'refreshTask',
     "let active = true, sessionSeq = 1, boundWsId = 'voice-parallel';\n" + source.slice(approvalStart, approvalEnd) +
     '\nreturn { answer: approvalCommand, end: () => { active = false; }, replaceCall: () => { sessionSeq++; }, rebind: id => { boundWsId = id; } };')(
-    Workstreams, Channels, Chat, text => spoken.push(text), () => {}
+    Workstreams, Channels, Chat, opts.App, text => spoken.push(text), () => {}
   );
   return { ...controller, Channels, ws, calls, events, spoken, respond: fn => { respond = fn; },
     pending: () => Channels.pendingAllOf(ws.id).map(p => p.promptId) };
@@ -398,7 +399,7 @@ function approvalFixture(opts = {}) {
     f.answer('approve'); await flushApproval();
     f.Channels.clearPending(f.ws.id, 8000, 'worker-second'); reject(new Error('local response lost')); await flushApproval();
     assert.deepEqual(f.pending(), ['worker-first']);
-    assert.deepEqual(f.spoken, [], 'a failed local request does not claim the remotely resolved prompt still waits');
+    assert.deepEqual(f.spoken, ['That approval is no longer waiting.'], 'a failed local request on a prompt settled elsewhere says so, never that it still waits (review app-shell-ui-08)');
   }
   // review app-shell-ui-03: the leash, the login window and a plugin install are answered fresh every time — the station
   // grants that ONE call whatever grade arrives. A spoken "always allow" there must submit once and say so, never
@@ -416,6 +417,22 @@ function approvalFixture(opts = {}) {
     assert.deepEqual(f.calls, [['lead-run', 'worker-second', 'always']], 'an ordinary card still takes a spoken always');
     assert.equal(f.spoken.at(-1), 'Always allowed.');
   }
+  // review app-shell-ui-08: with several asks open, the spoken outcome names which one it answered — who asked, for what
+  {
+    const phrase = p => ({ 'shell.exec': 'run a command: npm test', 'plugin.submit': 'install the plugin it built “x” — it stays OFF until you approve its code' })[p.tool] || 'write a file';
+    const App = { agentName: id => ({ nova: 'NOVA', mira: 'MIRA', lead: 'LEAD' })[id] || null };
+    const f = approvalFixture({ worker: 'nova', chat: { consentPhrase: phrase }, App });
+    f.answer('approve'); await flushApproval();
+    assert.equal(f.spoken.at(-1), 'Approved once: NOVA to run a command: npm test.', 'the outcome names the asker and the action');
+    f.respond(() => ({ ok: true, decision: 'deny' })); f.answer('deny'); await flushApproval();
+    assert.equal(f.spoken.at(-1), 'Denied: LEAD to write a file.', 'the lead\'s own ask names the lead');
+    const g = approvalFixture({ tool: 'plugin.submit', worker: 'mira', chat: { consentPhrase: phrase }, App });
+    g.answer('always allow'); await flushApproval();
+    assert.equal(g.spoken.at(-1), 'This one can only be approved once. Approved once: MIRA to install the plugin it built “x”.', 'speech drops the card\'s fine print');
+    const h = approvalFixture({ chat: { consentPhrase: phrase } });
+    h.answer('approve'); await flushApproval();
+    assert.equal(h.spoken.at(-1), 'Approved once: run a command: npm test.', 'with no name to give, the outcome still names the action');
+  }
   // the hands-free announcement offers only the keys the card has
   {
     const waitsStart = source.indexOf('  function announceWaits() {');
@@ -426,16 +443,21 @@ function approvalFixture(opts = {}) {
       Channels.setPending('w', { promptId: 'p-' + tool, tool }, 1000);
       const spoken = [];
       // eslint-disable-next-line no-new-func
-      new Function('Workstreams', 'Channels', 'Chat', 'speakLocal',
+      new Function('Workstreams', 'Channels', 'Chat', 'App', 'speakLocal',
         "let active = true, boundWsId = 'w', spokenApprovalId = null, sessionSeq = 1; const boundSession = () => ({ id: 'w', agentId: 'lead' });\n" +
         source.slice(waitsStart, waitsEnd) + source.slice(approvalStart, approvalEnd) + '\nannounceWaits();')(
-        { activeId: () => 'w', active: () => ({ id: 'w' }) }, Channels, {}, t => spoken.push(t));
+        { activeId: () => 'w', active: () => ({ id: 'w' }) }, Channels, chat || {}, App, t => spoken.push(t));
       return spoken.join(' ');
     };
+    let chat = null, App;
     for (const tool of ['station.power', 'browser.login', 'browser.login.done', 'plugin.submit']) {
       assert.match(say(tool), /Say approve or deny\.$/, tool + ': a card with no Always is never offered "always allow" aloud');
     }
     assert.match(say('fs.write'), /Say approve, always allow, or deny\.$/, 'an ordinary card keeps all three answers');
+    // …and names who asks and what for, in the card's words, never the raw tool id (review app-shell-ui-08)
+    chat = { consentPhrase: p => p.tool === 'shell.exec' ? 'run a command: npm test' : 'write a file' };
+    App = { agentName: id => (id === 'lead' ? 'NOVA' : null) };
+    assert.equal(say('shell.exec'), 'NOVA needs approval to run a command: npm test. Say approve, always allow, or deny.');
   }
   assert.equal(source, fs.readFileSync(path.join(root, 'website', 'app', 'app', 'voice-live.js'), 'utf8'), 'the website voice controller matches the desktop');
   console.log('voice-live-ui.test.js: ok (confirmed ownership, siblings, pause accounting, refusal, duplicate, inflight and call-generation controls)');
