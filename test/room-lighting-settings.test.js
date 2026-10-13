@@ -87,6 +87,14 @@ assert.equal(rebakes, 3);
 flush();
 assert.equal(rebakes, 3, 'the superseded commit does not rebake again');
 assert.equal(bake.LIGHT.ambient, api.knobs(70).ambient, 'the newest value stays');
+// A drag that ends on the value it started from fires no change event and owes no bake: the station is already
+// baked with those knobs. The next unrelated applySettings (a hue tick, a theme chip, setLook from chat) applies
+// the same level and must not pay a full StationBake for it.
+for (const v of [80, 75, 70]) api.apply(v, true);
+api.apply(70);
+assert.equal(rebakes, 3, 'a drag back to the baked value leaves no rebake owed');
+api.apply(72, true); api.apply(72);
+assert.equal(rebakes, 4, 'a drag that moved still pays its one rebake');
 
 api.apply(0);
 assert.deepEqual(bake.LIGHT, original, '0 restores the exact approved light controls');

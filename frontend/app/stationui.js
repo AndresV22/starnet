@@ -122,7 +122,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
   const ROOM_LIGHTING_MAX = { ambient: 0.3, cut: 2.4, key: 2, film: 0.26 };
   const ROOM_LIGHTING_LEGACY = { low: 0, medium: 15, high: 30 };
   let roomLightingFilm = null;   // the renderer's CRT.film before the slider touched it
-  let roomLightingPending = false, roomLightingTimer = 0;
+  let roomLightingBaked = null, roomLightingTimer = 0;   // the ambient/cut/key the station was last baked with
   function resolveRoomLighting(v) {
     if (typeof v === 'string' && Object.prototype.hasOwnProperty.call(ROOM_LIGHTING_LEGACY, v)) return ROOM_LIGHTING_LEGACY[v];
     const n = typeof v === 'number' || (typeof v === 'string' && v.trim() !== '') ? Number(v) : NaN;
@@ -135,7 +135,8 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
   }
   // `live` (a slider drag): the CRT film and (industrial world) WorldLight's deck ambient reach the next frame on
   // their own. The pool cut + key reach WorldLight only through World.rebake, a full StationBake that freezes a big
-  // station for ~2.5 s, so a live change only marks that rebake owed and the commit (release) pays it once.
+  // station for ~2.5 s, so a drag never rebakes and a commit (release) rebakes only when its knobs differ from the
+  // ones last baked. A drag that ends where it began then owes nothing to the next unrelated applySettings.
   function applyRoomLighting(value, live) {
     if (typeof StationBake === 'undefined') return;
     if (!live && roomLightingTimer) { clearTimeout(roomLightingTimer); roomLightingTimer = 0; }   // this commit supersedes a queued one
@@ -146,15 +147,13 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       if (roomLightingFilm == null) roomLightingFilm = Number(crt.film) || 0;
       crt.film = +(roomLightingFilm * step.film).toFixed(4);   // a per-frame post pass: no rebake needed
     }
-    const rebake = () => { roomLightingPending = false; if (typeof World !== 'undefined' && World.rebake) World.rebake(); };
-    if (StationBake.LIGHT.ambient === step.ambient && (!tex || (tex.cut === step.cut && tex.key === step.key))) {
-      if (roomLightingPending && !live) rebake();   // a release lands the rebake the drag owed
-      return;
-    }
+    const knobs = () => StationBake.LIGHT.ambient + ',' + (tex ? tex.cut + ',' + tex.key : '');
+    if (roomLightingBaked == null) roomLightingBaked = knobs();   // the first call sees what the station booted (and baked) with
     StationBake.LIGHT.ambient = step.ambient;
     if (tex) { tex.cut = step.cut; tex.key = step.key; }
-    if (live) { roomLightingPending = true; return; }
-    rebake();
+    if (live || knobs() === roomLightingBaked) return;
+    roomLightingBaked = knobs();
+    if (typeof World !== 'undefined' && World.rebake) World.rebake();
   }
   // The slider's `change` (a mouse release, or every arrow-key step): a burst of steps costs one bake, not one each.
   function commitRoomLighting(read) {
