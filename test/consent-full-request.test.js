@@ -304,3 +304,16 @@ test('a phone answer graded "always" on a station.power card still settles as ap
   g.listeners.get('permission.response')({ promptId: g.p.promptId, decision: 'deny' });
   assert.equal(g.nodes[0].body.children.filter(n => /^consent-result/.test(n.className || ''))[0].textContent, '✕ cancelled from your phone');
 });
+
+/* A PLUGIN INSTALL IS ANSWERED FRESH EVERY TIME (review app-shell-ui-03). plugin.submit is a fresh-consent tool: the
+   station grants any yes for this one install. Its desk card still offered Always and Full access and could settle as
+   "✓ always allowed", a standing grant the station never made. It now gets the station.power keys: Approve once, Deny. */
+for (const decision of ['always', 'full']) test('a plugin.submit card offers only a yes and a no, and a "' + decision + '" answer settles as approved once', () => {
+  const f = permissionFixture('plugin.submit');
+  const buttons = f.nodes[0].body.children.find(n => n.className === 'consent-btns');
+  assert.deepEqual(buttons.children.map(b => b.textContent), ['Approve once', 'Deny'], 'no Always, no Full access on a card the station answers once');
+  f.listeners.get('permission.response')({ promptId: f.p.promptId, decision });
+  const tag = f.nodes[0].body.children.filter(n => /^consent-result/.test(n.className || ''))[0].textContent;
+  assert.equal(tag, '✓ approved once from your phone');
+  assert.ok(!/always allowed|full access/.test(tag), 'the receipt claims no standing grant: ' + tag);
+});
