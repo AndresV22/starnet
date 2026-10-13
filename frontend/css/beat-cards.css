@@ -405,6 +405,15 @@ body #chat-panel #chat-log > .dg-line .dg-work-answer {
   margin: 8px 0 10px; padding: 2px 0 2px 12px; border-left: 2px solid rgba(var(--ph-rgb), .35);
   font-size: var(--sn-type-control) !important; line-height: 1.5; color: var(--text); overflow-wrap: anywhere;
 }
+/* a worker's report renders with the same report markdown as COMMS (Chat.renderProse): its headings are spans that are
+   block-level only under .cmsg .body, so here they ran inline into the text around them — "Here's what I found:3
+   Competitor Launch Emails — Desktop AI Agent SpaceI've sourced…" (live walkthrough 2026-10-13) */
+body #chat-panel #chat-log > .dg-line .dg-work-answer .md-p { display: block; white-space: pre-wrap; margin: .5em 0; }
+body #chat-panel #chat-log > .dg-line .dg-work-answer .md-h { display: block; margin: .65em 0 .3em; color: var(--ph-bright); letter-spacing: .5px; }
+body #chat-panel #chat-log > .dg-line .dg-work-answer > .md-h:first-child,
+body #chat-panel #chat-log > .dg-line .dg-work-answer > .md-p:first-child { margin-top: .2em; }
+body #chat-panel #chat-log > .dg-line .dg-work-answer .md-list { white-space: normal; margin: .4em 0; padding-left: 1.6em; }
+body #chat-panel #chat-log > .dg-line .dg-work-answer .md-quote { display: block; white-space: normal; margin: .5em 0; padding: .3em .7em; border-left: 2px solid var(--ph-faint); }
 body #chat-panel #chat-log > .dg-line .dg-work-note { margin: 8px 0; font-size: var(--sn-type-meta) !important; color: var(--text); opacity: .75; }
 body #chat-panel #chat-log > .dg-line .dg-work-note.bad { color: var(--bad); opacity: 1; }
 body #chat-panel #chat-log > .dg-line .dg-receipt {
