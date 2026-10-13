@@ -233,9 +233,10 @@
 
   /* A PAGE THE STATION KEPT ITS KEY FROM (review threads-backend-05). The sidecar serves the page without its key when it
      cannot prove this browser runs as the station's own OS user (Harness.tokenWithheld() = its reason); every keyed call
-     then 403s exactly like a stale page, but a reload only re-runs the same check — "The station restarted — reload"
-     would be a false claim and a dead door. Both stale_session sites (the "sidecar HTTP 403" ladder and kindFromRaw's
-     403) therefore lead with Harness's own withheld notice and offer NO door. The kind stays stale_session (its
+     then 403s exactly like a stale page, but the station did not restart — "The station restarted — reload" would be
+     a false claim. Both stale_session sites (the "sidecar HTTP 403" ladder and kindFromRaw's 403) therefore lead with
+     Harness's own withheld notice and offer NO door: the notice itself says whether a reload can help (it re-runs the
+     check, so only for a transient reason) and names the owner's hatch. The kind stays stale_session (its
      post-mortem already reads "the message is the fix"). '' = this page holds its key (or no Harness: node/tests). */
   const TOKEN_WITHHELD_MSG = 'StarNet could not confirm this browser runs as your own user account, so it won’t take commands from this page. Open StarNet from the desktop app, or if this is your own browser, restart StarNet with STARNET_TRUST_LOCAL_PEERS=1.';
   function withheldNotice() {

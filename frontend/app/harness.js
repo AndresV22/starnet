@@ -170,9 +170,12 @@ const Harness = (() => {
      without its key when it cannot prove this browser runs as the station's own OS user (sidecar/peerowner.js: the
      lookup failed or timed out, the connection could not be traced, it belongs to another account, or the platform
      has no check) and says why in window.__STARNET_TOKEN_WITHHELD__. Every keyed /api call is then refused exactly
-     like a stale page, but re-reading or reloading the page only re-runs the same check — so this is NOT a restarted
-     station, and the page says why + the owner's escape hatch instead of "reload this page". '' = the page has its key. */
-  const tokenWithheld = (typeof window !== 'undefined' && !window.__STARNET_API_TOKEN__ && window.__STARNET_TOKEN_WITHHELD__) ? String(window.__STARNET_TOKEN_WITHHELD__) : '';
+     like a stale page, but this is NOT a restarted station: the page says why + the owner's escape hatch, never
+     "the station restarted". For a LASTING reason (another account, no check here) re-reading the page only re-runs
+     the same failing check, so it never does. For a TRANSIENT one (the lookup failed or timed out, the connection
+     could not be traced) re-running the check is the fix: a refused call re-reads '/' at most once a minute
+     (withheldRetryDue) and the page adopts its key in place when the check passes. '' = the page has its key. */
+  let tokenWithheld = (typeof window !== 'undefined' && !window.__STARNET_API_TOKEN__ && window.__STARNET_TOKEN_WITHHELD__) ? String(window.__STARNET_TOKEN_WITHHELD__) : '';
 
   // TRUE only for our OWN sidecar API — a same-origin request under /api/. The X-StarNet-Token this gates is a
   // PRIVATE local credential; a naive substring match on '/api/' would attach it to third-party URLs that merely
@@ -253,7 +256,7 @@ const Harness = (() => {
     function refresh(sent) {
       const cur = o.getToken();
       if (cur && cur !== sent) return Promise.resolve(cur);   // a concurrent 403 already adopted the fresh token
-      if (!o.canRefresh()) return Promise.resolve('');
+      if (!inflight && !o.canRefresh()) return Promise.resolve('');   // a read in flight is joined, never asked for twice
       if (!inflight) {
         inflight = Promise.resolve()
           .then(() => o.rawFetch('/', { cache: 'no-store', credentials: 'same-origin' }))
@@ -285,14 +288,20 @@ const Harness = (() => {
   }
   // Set when a stale-token 403 could NOT be recovered in place — the one state where the honest answer is
   // "reload this page". Surfaces read it (Harness.sessionStale) so they stop blaming the network or the catalog.
-  // NOT set for a page the station kept its key from (tokenWithheld): a reload would only re-run the same check.
+  // NOT set for a page the station kept its key from (tokenWithheld): that is not a restart (tokenWithheldNotice says why).
   let sessionStale = false;
   let staleNotified = false;
   function stationUI(method, args) {
     try { if (typeof StationUI !== 'undefined' && StationUI && StationUI[method]) StationUI[method].apply(StationUI, args); } catch (_) {}
   }
   function stationNotify(text, cls, opts) { stationUI('notify', [text, cls, undefined, opts]); }
-  // The withheld notice: why (sidecar/peerowner.js reason, in plain words), what it means, and the owner's way out.
+  // A withheld reason that re-running the ownership check can clear: the lookup failed or timed out (a loaded box), or
+  // the connection had no row yet (a race). Another account, or a platform with no check, never passes on a retry.
+  function withheldRetryable(reason) {
+    return reason === 'lookup-failed' || reason === 'peer-not-found';
+  }
+  // The withheld notice: why (sidecar/peerowner.js reason, in plain words), what it means, and the owner's way out —
+  // for a transient reason a reload (it re-runs the check) BEFORE the hatch that turns the check off.
   function tokenWithheldNotice(reason) {
     const r = String(reason || '');
     if (!r) return '';
@@ -302,7 +311,8 @@ const Harness = (() => {
       : r === 'unsupported-platform' ? 'this system can’t run the ownership check'
       : 'the ownership check did not pass';
     return 'StarNet could not confirm this browser runs as your own user account (' + why + '), so it won’t take commands from this page. '
-      + 'Open StarNet from the desktop app, or if this is your own browser, restart StarNet with STARNET_TRUST_LOCAL_PEERS=1.';
+      + (withheldRetryable(r) ? 'Reload this page to run the check again. If it keeps failing, open' : 'Open')
+      + ' StarNet from the desktop app, or if this is your own browser, restart StarNet with STARNET_TRUST_LOCAL_PEERS=1.';
   }
   // Shown ONCE per page life — at boot (init) or on the first refused call, whichever comes first — and kept in
   // NOTIFICATIONS as one alert (key folds a repeat after a reload), because it outlives a toast's few seconds. A page
@@ -315,18 +325,34 @@ const Harness = (() => {
     withheldNotified = true;
     stationNotify(tokenWithheldNotice(tokenWithheld), 'warn', { kind: 'alert', key: 'token-withheld' });
   }
+  // A transient withheld reason re-runs the check (re-reads '/') at most once a minute, and only on a refused call.
+  const WITHHELD_RETRY_MS = 60000;
+  let withheldTriedAt = -Infinity;
+  function withheldRetryDue() {
+    if (!withheldRetryable(tokenWithheld)) return false;
+    const now = Date.now();
+    if (now - withheldTriedAt < WITHHELD_RETRY_MS) return false;
+    withheldTriedAt = now;
+    return true;
+  }
   const staleToken = staleTokenRecovery({
     rawFetch: (u, init) => window.fetch(u, init),   // '/' is not an API URL, so the wrapper passes it straight through
     getToken: () => apiToken,
     setToken: t => { apiToken = t; try { window.__STARNET_API_TOKEN__ = t; } catch (_) {} },   // apiticket.js mints from the window copy
-    // a withheld page never re-reads '/': that only re-runs the same ownership check on every refused call
-    canRefresh: () => !tokenWithheld && !DESKTOP && !(typeof window !== 'undefined' && window.__STARNET_API__),
+    // a withheld page re-reads '/' only when a transient retry is due (last: withheldRetryDue stamps the attempt)
+    canRefresh: () => !DESKTOP && !(typeof window !== 'undefined' && window.__STARNET_API__) && (!tokenWithheld || withheldRetryDue()),
     onRecovered: () => {
       sessionStale = false; staleNotified = false;
+      if (tokenWithheld) {   // the re-run ownership check passed: not a restart, and the withheld alert is now handled
+        tokenWithheld = '';
+        stationUI('settleNotifs', ['token-withheld']);
+        stationNotify('The ownership check passed on retry — this page can drive the station now.', 'good');
+        return;
+      }
       stationNotify('The station service restarted — this page reconnected on its own.', 'good');
     },
     onStale: () => {
-      if (tokenWithheld) { noteTokenWithheld(); return; }   // not a restart: say why the key was kept, never "reload"
+      if (tokenWithheld) { noteTokenWithheld(); return; }   // not a restart: say why the key was kept, never "restarted"
       sessionStale = true;
       if (!staleNotified) { staleNotified = true; stationNotify('The station restarted and this page could not reconnect — reload this page.', 'warn'); }
     }
@@ -1635,8 +1661,9 @@ const Harness = (() => {
     api,
     apiToken: ensureApiToken,
     sessionStale: () => sessionStale,   // a stale-token 403 that could not be recovered in place — the answer is "reload this page" (#39)
-    tokenWithheld: () => tokenWithheld,   // the station kept its key from this page (peerowner reason) — never "reload"; '' = it has its key
+    tokenWithheld: () => tokenWithheld,   // the station kept its key from this page (peerowner reason) — never "restarted"; '' = it has its key
     tokenWithheldNotice: () => tokenWithheldNotice(tokenWithheld),   // the full withheld sentence ('' = not withheld)
+    tokenWithheldRetryable: () => withheldRetryable(tokenWithheld),   // a transient reason: a reload re-runs the check and may pass
     apiFetch: (u, init) => ensureApiToken().then(t => fetch(u, withApiToken(init, t))),
     totals: () => totals,
     setTotals: t => { totals = { tokens: t.tokens || 0, cost: t.cost || 0, calls: t.calls || 0 }; },

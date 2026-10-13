@@ -1644,10 +1644,16 @@ const App = (() => {
   let genesisOffline = false;
   /* Why this page's keyed /api calls are refused, in one short phrase ('' = they are not, as far as the page knows).
      A page the station KEPT its key from (Harness.tokenWithheld: it could not prove this browser runs as the owner's OS
-     user, sidecar/peerowner.js) is checked FIRST: it is not a restarted station, and a reload only re-runs the same
-     check, so "reload this page" would be a false claim and a dead door (review threads-backend-05 / sidecar-index-06). */
+     user, sidecar/peerowner.js) is checked FIRST: it is not a restarted station (review threads-backend-05 /
+     sidecar-index-06). A reload re-runs the check, so it is offered only for a transient reason
+     (Harness.tokenWithheldRetryable: the lookup failed or the connection could not be traced), before the hatch that
+     turns the check off; for another account it would re-run the same failing check, so it is never offered. */
   function refusedPageLine() {
-    if (Harness.tokenWithheld && Harness.tokenWithheld()) return 'this browser was not verified as running under your own user account, so StarNet won’t take commands from it — if it is yours, restart StarNet with STARNET_TRUST_LOCAL_PEERS=1';
+    if (Harness.tokenWithheld && Harness.tokenWithheld()) {
+      return 'this browser was not verified as running under your own user account, so StarNet won’t take commands from it — '
+        + (Harness.tokenWithheldRetryable && Harness.tokenWithheldRetryable() ? 'reload this page to run the check again; if it keeps failing and it is yours, ' : 'if it is yours, ')
+        + 'restart StarNet with STARNET_TRUST_LOCAL_PEERS=1';
+    }
     if (Harness.sessionStale && Harness.sessionStale()) return 'the station restarted; reload this page';
     return '';
   }
