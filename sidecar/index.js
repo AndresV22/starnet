@@ -18833,11 +18833,15 @@ async function handleRun(req, res) {
   // prompt can never hold a billable run open. Settles exactly once. EL-11 FIX 1c: the timing now lives in the
   // unit-tested waiter (consentwait.js) — same fail-closed contract, plus the one-shot CONSENT_ACK_EXTEND_MS
   // extension the browser earns via POST /api/consent/ack once the prompt is provably rendered to a human.
-  function askHuman(fields) {
+  // opts.timeoutDecision: what an expired prompt resolves to (consentwait.js). Only the capability consent opts in to
+  // 'timeout' (the broker tells the model nobody answered); path.trust, browser.login and brief.ask keep 'deny',
+  // because their callers read any other word as "not refused".
+  function askHuman(fields, opts) {
     let untrack = null;
     // a delegated worker's ask (attributeAsks): stamped with who asked, and withdrawn the moment THAT worker stops
     const by = askedBy.getStore() || null;
     return makeConsentWait({
+      timeoutDecision: opts && opts.timeoutDecision,
       // Node 18 / 20.0-20.2 have no AbortSignal.any: the ask then rides the run's own signal and the timeout (still
       // fail-closed; only the instant withdrawal when that one worker stops is lost)
       pending, signal: (by && by.signal && typeof AbortSignal.any === 'function') ? AbortSignal.any([ac.signal, by.signal]) : ac.signal, timeoutMs: CONSENT_TIMEOUT_MS, extendMs: CONSENT_ACK_EXTEND_MS,
@@ -18868,7 +18872,8 @@ async function handleRun(req, res) {
     }).ask().then((v) => { if (untrack) untrack(); return v; });
   }
   function promptConsent(call, tool) {
-    return askHuman({ tool: call.name, scope: (tool && tool.scope) || 'write', argsSummary: consentSummary(call), argsFull: consentArgsFull(call), fresh: !!(tool && tool.freshConsent === true) });
+    // an unanswered COMMS card is not a refusal: the broker's 'timeout' result says so (the card still gets expired:true)
+    return askHuman({ tool: call.name, scope: (tool && tool.scope) || 'write', argsSummary: consentSummary(call), argsFull: consentArgsFull(call), fresh: !!(tool && tool.freshConsent === true) }, { timeoutDecision: 'timeout' });
   }
   // NS-5: the "work in <root>? always/once/no" channel — the SAME permission.prompt mechanism, so the browser's
   // existing consent card answers it (Always = record a standing path grant; Approve once = this access only;
