@@ -332,3 +332,10 @@ test('an explicit reveal survives the load\'s server-history repaint; a reader g
   await c.reconcileServerHistory(ws,1,read);while(frames.length)frames.shift()();
   assert.equal(log.scrollTop,0,'after the reader scrolls on their own, a repaint does not jump them back to the old reveal');
 });
+
+test('a keyboard scroll forgets an earlier reveal like a wheel or touch does (review follow-up, comms-threads-ui-04)',()=>{
+  const wiring=chat.match(/\[([^\]]*)\]\.forEach\(type => log\.addEventListener\(type, forgetReveal\b/);
+  assert.ok(wiring,'the reader gestures that forget a reveal are wired on the log');
+  const gestures=wiring[1].match(/'[a-z]+'/g).map(s=>s.slice(1,-1));
+  for (const g of ['wheel','touchstart','pointerdown','keydown']) assert.ok(gestures.includes(g),g+' forgets the reveal (PageUp/arrow reading is a real gesture)');
+});

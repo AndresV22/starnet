@@ -1046,7 +1046,7 @@ const Chat = (() => {
       });   // at the bottom → retire the pill; scrolled up → a persistent "↓ latest" affordance
       // A real attempt to inspect history wins even during the two-frame settle window.
       ['wheel', 'touchstart', 'pointerdown'].forEach(type => log.addEventListener(type, cancelHistoryPin, { passive: true }));
-      ['wheel', 'touchstart', 'pointerdown'].forEach(type => log.addEventListener(type, forgetReveal, { passive: true }));   // …and their own reading wins over an earlier reveal
+      ['wheel', 'touchstart', 'pointerdown', 'keydown'].forEach(type => log.addEventListener(type, forgetReveal, { passive: true }));   // …and their own reading (keys too: PageUp/arrows) wins over an earlier reveal
       ['wheel', 'touchstart', 'touchmove', 'pointerdown', 'keydown'].forEach(type => log.addEventListener(type, () => { userScrollAt = Date.now(); }, { passive: true }));
       log.addEventListener('pointerdown', () => { userScrollHeld = true; }, { passive: true });
       if (!window.__chatScrollReleaseWired) {
