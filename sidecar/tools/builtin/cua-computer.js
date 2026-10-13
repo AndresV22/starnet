@@ -55,6 +55,13 @@ function makeCuaComputerTools(deps) {
         const parameters = args.parameters || {};
         if (!parameters || typeof parameters !== 'object' || Array.isArray(parameters)) throw new Error('parameters must be an object');
         if ('session' in parameters) throw new Error('StarNet owns the computer session; omit session');
+        // STARNET IS NEVER DRIVEN THROUGH THE SCREEN (computer.js guardSelfTarget): an action aimed at the desktop shell's own
+        // pid is refused before it reaches CUA; reads (list_windows, get_window_state) stay open. A paired remote owner keeps it.
+        const op = contract.tools.find(t => t.name === args.action);
+        const selfPids = (typeof deps.selfPids === 'function' ? deps.selfPids() : deps.selfPids) || [];
+        if (!op.read_only && !(ctx?.remoteDesktopAuthorized === true && ctx?.ownerTrusted === true) && selfPids.indexOf(Number(parameters.pid) || 0) >= 0) {
+          throw new Error('refused: pid ' + parameters.pid + ' is StarNet itself, so nothing was sent — ' + policy.SELF_DRIVE_HELP);
+        }
         const conn = await getConnection(ctx?.signal);
         const cancelled = () => { void reset(); };
         ctx?.signal?.addEventListener('abort', cancelled, { once: true });
