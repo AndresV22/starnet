@@ -35,6 +35,7 @@ const Chat = (() => {
   // Channels (channels.js) so streams are isolated and survive a switch — chat.js is the DOM view over it. The
   // one thing that can't live in the pure model is the live AbortController (not serializable), so it stays here.
   const aborters = new Map();   // workstreamId -> AbortController for that stream's in-flight run
+  const liveRunRoots = new Map();   // workstreamId -> the project root its in-flight run was sent with (null = none): a switch-back replays its files there
   const interrupted = new Set();   // wsIds the Commander deliberately STOPPED this turn — send()'s catch reads this as a
                                    // graceful stop (keep the partial reply, log no error) rather than a disconnect. Consumed in finally.
   const interruptedStreams = new Set();   // wsIds whose in-flight run lost its stream; durable recovery decides
@@ -119,6 +120,7 @@ const Chat = (() => {
   let stick = true;   // STICKY-BOTTOM: auto-scroll only fires when the Commander is already at/near the bottom,
                       // so scrolling UP to re-read history mid-stream isn't yanked back down by every token.
   let historyPinSeq = 0, historyPinPending = 0;   // a load owns one final post-layout pin; a real user gesture cancels it
+  let revealKey = '';   // selector of the last explicit reveal (revealHistory); a fresh load or the reader's own gesture forgets it
   let userScrollHeld = false;
   let userScrollAt = 0;   // last real scroll GESTURE on the log (wheel/touch/scrollbar/keys) — only a gesture can unstick
   function nearBottom() { return !log || (log.scrollHeight - log.scrollTop - log.clientHeight < 40); }
@@ -138,8 +140,15 @@ const Chat = (() => {
     cancelHistoryPin(); stick = false; userScrollAt = Date.now();
     target.scrollIntoView({ block: 'center' });
     showNewPill(false);
+    revealKey = revealSelector(target);
     return true;
   }
+  // The revealed row as a selector, so the load's server-history repaint (which rebuilds every row) can find it again.
+  function revealSelector(target) {
+    const sel = attr => (target.hasAttribute && target.hasAttribute(attr)) ? '[' + attr + '="' + String(target.getAttribute(attr)).replace(/["\\]/g, '\\$&') + '"]' : '';
+    return sel('data-dg-row') || sel('data-clarify-prompt');
+  }
+  function forgetReveal() { revealKey = ''; }
   function pinLoadedHistoryAfterLayout(seq) {
     const pin = () => {
       if (!log || historyPinPending !== seq) return;
@@ -780,6 +789,26 @@ const Chat = (() => {
       image: path => { const aid = agentId || attachAgentId(); return cachedBlob(scope + '|' + aid + '|' + (projectRoot || '') + '|' + path, () => imageBlobUrl(fileUrl(path, aid, projectRoot), path)); }
     };
   }
+  /* WHERE A COMMS REPLY'S FILES LIVE: where the run that wrote them put them. A run sent with a project root wrote its
+     relative files AT that root; a run sent without one wrote them in its agent's own workspace. A session can join a
+     project mid-conversation (a path.trust ALWAYS anchors it), so the session's CURRENT root says nothing about an
+     earlier reply: send() stamps every reply it persists with the root its run was sent with (projectRoot: string, or
+     null for none), and a WORK LINE stage is stamped null (the hop's Harness.chat sends no root) whoever ran it.
+     turn = a history turn, or a live reply's { agentId, projectRoot }. agentId = the stamped speaker (none = session agent). */
+  function turnFileRefs(turn) {
+    const t = turn || {};
+    const sessionAgent = (activeWs && activeWs.agentId) || null;
+    const own = !t.agentId || t.agentId === (sessionAgent || 'agent');
+    return workspaceFileRefs(own ? sessionAgent : t.agentId, null, turnProjectRoot(t, own) || undefined);
+  }
+  function turnProjectRoot(t, own) {
+    if (t.projectRoot !== undefined) return t.projectRoot || '';   // the turn's own record of its run
+    if (!own) return '';   // an older work-line stage of another agent: a hop never ran with the root
+    // An unstamped reply (an older build, or a turn the server filled in): the session root only when the reply is
+    // newer than the moment the session joined that project; with no record of that moment, the agent's workspace.
+    const root = activeWs && activeWs.projectRoot, at = Number(activeWs && activeWs.projectRootAt);
+    return root && at > 0 && Number(t.ts) >= at ? root : '';
+  }
   function hydrateFileRefs(bodyEl) {
     if (!bodyEl.querySelector || !bodyEl.querySelector('.md-file, .md-img')) return;
     const refs = bodyEl.__fileRefs || (bodyEl.__fileRefs = workspaceFileRefs(null));
@@ -1017,6 +1046,7 @@ const Chat = (() => {
       });   // at the bottom → retire the pill; scrolled up → a persistent "↓ latest" affordance
       // A real attempt to inspect history wins even during the two-frame settle window.
       ['wheel', 'touchstart', 'pointerdown'].forEach(type => log.addEventListener(type, cancelHistoryPin, { passive: true }));
+      ['wheel', 'touchstart', 'pointerdown', 'keydown'].forEach(type => log.addEventListener(type, forgetReveal, { passive: true }));   // …and their own reading (keys too: PageUp/arrows) wins over an earlier reveal
       ['wheel', 'touchstart', 'touchmove', 'pointerdown', 'keydown'].forEach(type => log.addEventListener(type, () => { userScrollAt = Date.now(); }, { passive: true }));
       log.addEventListener('pointerdown', () => { userScrollHeld = true; }, { passive: true });
       if (!window.__chatScrollReleaseWired) {
@@ -1809,6 +1839,9 @@ const Chat = (() => {
     read.repaint = false;
     if (typeof Briefing !== 'undefined' && Briefing.presentFor) { try { Briefing.presentFor(ws.id).catch(() => {}); } catch (_) {} }   // the repaint wiped the chips
     if (typeof Delegated !== 'undefined' && Delegated.presentFor) { try { Delegated.presentFor(ws.id).catch(() => {}); } catch (_) {} }   // …and the delegated cards
+    // An explicit reveal made before this repaint (NEEDS YOU Open, a search hit) keeps its place: the repaint rebuilt
+    // every row, so find the same one again rather than leave the reader at the top of the conversation.
+    if (revealKey && !stick && log) { const again = log.querySelector(revealKey); if (again) revealHistory(again); }
     pinLoadedHistoryAfterLayout(loadToken);
     return reachable;
   }
@@ -1824,6 +1857,7 @@ const Chat = (() => {
   function load(ws) {
     const historyPin = ++historyPinSeq;
     historyPinPending = historyPin;
+    revealKey = '';   // a reveal into this conversation runs after load(); this only drops a stale one
     const nextWs = ws || (typeof Workstreams !== 'undefined' ? Workstreams.active() : null);
     if (activeWs?.id !== nextWs?.id) focusVersion++;
     activeWs = nextWs;
@@ -2064,13 +2098,15 @@ const Chat = (() => {
   }
   // A streamed fragment is real assistant output even when the transport dies before a clean result envelope.
   // Persist it as its own turn before the failure marker so switch/reload cannot erase what was already visible.
+  // The turn records the project root its in-flight run was sent with (send's liveRunRoots; null = none), so its file
+  // links resolve where that run wrote them.
   function persistPartial(ws, text) {
     if (!ws || !ws.history) return false;
     const content = String(text == null ? '' : text);
     if (!content.trim()) return false;
     const last = ws.history[ws.history.length - 1];
     if (last && last.role === 'assistant' && !last.error && last.content === content) return false;
-    ws.history.push({ role: 'assistant', content: content, ts: Date.now() });
+    ws.history.push({ role: 'assistant', content: content, ts: Date.now(), projectRoot: liveRunRoots.get(ws.id) });
     capHistory(ws);
     return true;
   }
@@ -3616,7 +3652,10 @@ const Chat = (() => {
       if (StationUI.notify) StationUI.notify(askerName(next, ws) + (next.tool === 'brief.ask' ? ' still needs your answer' : ' still needs approval to ' + actionPhrase(next)), 'warn', 'needsApproval', { kind: 'needs', go: { ws: wsId }, key: 'needs:' + wsId, prompt: next.promptId });
     } else if (StationUI.settleNotifs) StationUI.settleNotifs('needs:' + wsId);
   }
-  async function answerConsent(p, ws, decision) {
+  // an ask answered on THIS page (voice, NEEDS YOU, a worker row): its card settles from the bus echo below, so it must
+  // read the grade the station applied and who answered here — never "from your phone" (review app-shell-ui-02)
+  const localAnswers = new Map();   // promptId -> { decision, via }
+  async function answerConsent(p, ws, decision, via) {
     const rid = (p && p.runId) || ((ws && typeof Channels !== 'undefined') ? Channels.runIdOf(ws.id) : null);
     const answer = await Harness.consent(rid, p.promptId, decision);
     if (!(answer && answer.ok)) throw new Error((answer && answer.error) || 'The station did not confirm that answer. Please try again.');
@@ -3632,6 +3671,8 @@ const Chat = (() => {
     }
     // surface the decision on the bus (schema: permission.response) so listeners — e.g. the first-run tutorial —
     // can tell an approve from a deny and narrate the consent loop honestly. Additive; the run resumes via Harness.consent.
+    localAnswers.set(String(p.promptId), { decision: appliedDecision, via: via || '' });
+    if (localAnswers.size > 200) localAnswers.delete(localAnswers.keys().next().value);
     try { if (typeof U !== 'undefined' && U.bus) U.bus.emit('permission.response', { promptId: p.promptId, decision: appliedDecision }); } catch (_) {}
     // NS conversational anchor: "Always" — and now "Full access" — on a path.trust card IS the project bless
     // (a standing path grant + known-projects row land on the sidecar). Stamp the origin session's projectRoot
@@ -3694,7 +3735,9 @@ const Chat = (() => {
       r.body.appendChild(tag);
       syncStatus();
     }
+    const labels = {};   // decision -> this card's own receipt: an answer from another surface settles in the card's words
     const mk = (text, decision, cls, doneLabel, isDeny) => {
+      labels[decision] = doneLabel;
       const b = document.createElement('button');
       b.className = 'consent-btn' + (cls ? ' ' + cls : '');
       b.textContent = text;
@@ -3723,7 +3766,8 @@ const Chat = (() => {
     // STARNET REMOTE: a paired phone can answer this same prompt. The sidecar then puts permission.response on
     // this run's own stream (harness re-emits it on U.bus). Settle the card to what actually happened, so the
     // desk never keeps live buttons on a question that was already answered elsewhere. The desk's own answer
-    // also emits permission.response, but by then `decided` is set and this listener just unsubscribes.
+    // also emits permission.response, but by then `decided` is set and this listener just unsubscribes. An answer from
+    // another surface on this page (voice) arrives the same way, recorded in localAnswers by answerConsent.
     if (typeof U !== 'undefined' && U.bus && U.bus.on && U.bus.off) {
       const onElsewhere = applyElsewhere = (resp) => {
         if (!resp || resp.promptId !== p.promptId) return;
@@ -3737,7 +3781,12 @@ const Chat = (() => {
         btns.remove();
         const tag = document.createElement('span');
         tag.className = 'consent-result' + (denied ? ' err' : '');
-        tag.textContent = resp.expired ? '✕ no answer in time — denied' : denied ? '✕ denied from your phone' : (resp.decision === 'session' ? '✓ approved for this session from your phone' : '✓ approved once from your phone');
+        // the grade the station applied, in this card's own words: a card with no Always key (station.power, the login
+        // window) grants this one call whatever grade another surface sent. An answer given on this page (voice) names
+        // its own surface, not the phone
+        const local = localAnswers.get(String(p.promptId));
+        const grade = denied ? labels.deny : labels[resp.decision] || (resp.decision === 'session' && labels.always ? '✓ approved for this session' : labels.once);
+        tag.textContent = resp.expired ? '✕ no answer in time — denied' : grade + (local ? (local.via ? ' ' + local.via : '') : ' from your phone');
         r.body.appendChild(tag);
         syncStatus();
       };
@@ -7340,7 +7389,7 @@ const Chat = (() => {
       if (stamp !== false) flushDeliverablesBefore(stamp);   // the files this reply's run produced were shown BEFORE the reply landed
       const r = row('agent', { stamp: stamp, who: spoke });   // past turns render as plain GROUPED messages; only the LIVE reply is the lit headline
       if (m.error) r.d.classList.add('err');
-      renderProse(r.body, shownText);   // same linkify path as live tokens, so replayed history matches
+      renderProse(r.body, shownText, { files: turnFileRefs(m) });   // same linkify path as live tokens, so replayed history matches
       if (m.stopped && m.stopNote) toolLine('⏹ ' + m.stopNote);   // WHY it stopped survives the reload
       lastReal = m;
     }
@@ -7409,7 +7458,7 @@ const Chat = (() => {
       for (const t of s.tools) toolLine(t.text, t.isErr);
     }
     if (s.busy || s.acc) {
-      const o = streamingAgent(); if (s.acc) o.append(s.acc);
+      const o = streamingAgent(undefined, undefined, liveRunRoots.get(activeWs.id)); if (s.acc) o.append(s.acc);
       if (s.busy) activeLiveRow = o; else o.done();   // a still-running stream keeps its live row so new tokens flow into it
     }
     for (const p of (s.pendings && s.pendings.length ? s.pendings : (s.pending ? [s.pending] : []))) permissionRow(p, activeWs);
@@ -7421,8 +7470,14 @@ const Chat = (() => {
   // so a turn reads top-to-bottom as "said this → did that → said this", classic-harness style.
   // whoName (optional) = the speaker to stamp on every row this controller opens. Passed by a WORK LINE stage so
   // the transcript names the agent that actually produced the text; omitted everywhere else = the focused agent.
-  function streamingAgent(whoName) {
+  // whoAgentId (optional) = that stage agent's id, so its file links resolve in ITS workspace (turnFileRefs).
+  // runRoot (optional) = the project root this reply's run was sent with (null = none, as for every work-line stage);
+  // omitted = the session's current root for the session's own reply (a scripted line, or a run this page did not start).
+  function streamingAgent(whoName, whoAgentId, runRoot) {
     let seg = null, caret = null, raw = '';   // seg: the currently-open agent row; raw: its accumulated prose (so URLs can be linkified as they complete)
+    // one resolver per reply: every paragraph of it came from the same run
+    const files = turnFileRefs({ agentId: whoAgentId || undefined,
+      projectRoot: runRoot !== undefined ? runRoot : whoAgentId ? undefined : ((activeWs && activeWs.projectRoot) || null) });
     /* PER-FRAME RENDER COALESCING (2026-08-26 lag fix). Once a paragraph contains any markdown
        marker or URL, renderProse re-parses and rebuilds the WHOLE accumulated paragraph — doing
        that on every streamed token is O(n²) per answer and is a real "COMMS gets slower the
@@ -7431,7 +7486,7 @@ const Chat = (() => {
        the DOM current RIGHT NOW (closeSeg's empty-stub check, error, cleanTaskIntent, a hidden
        tab where rAF never fires) goes through flushProse() synchronously. */
     let renderQueued = false;
-    function flushProse() { renderQueued = false; if (seg) renderProse(seg.body, raw); }
+    function flushProse() { renderQueued = false; if (seg) renderProse(seg.body, raw, { files }); }
     function queueProse() {
       if (renderQueued) return;
       if (typeof requestAnimationFrame !== 'function' || (typeof document !== 'undefined' && document.hidden)) { flushProse(); autoscroll(); return; }
@@ -7656,7 +7711,7 @@ const Chat = (() => {
       last.stopped = true;
       return;
     }
-    ws.history.push({ role: 'assistant', content: text, stopped: true, ts: Date.now() });
+    ws.history.push({ role: 'assistant', content: text, stopped: true, ts: Date.now(), projectRoot: liveRunRoots.get(ws.id) });   // the in-flight run's root (persistPartial)
   }
   // WHY it stopped, kept on the stopped turn itself (2026-10-11): the ⏹ work-log line was DOM-only, so after a reload the
   // thread showed a cut-off reply with no reason. renderHistory replays it as the same ⏹ line. Metadata only — the
@@ -9354,7 +9409,7 @@ const Chat = (() => {
       // chain runner passes (sidecar/routing/chain.js) — so the same floor composes the same run here too.
       const prompt = (typeof Pipeline !== 'undefined' && Pipeline.handoffPrompt)
         ? Pipeline.handoffPrompt(seed.originalText, cur, out.text, hop, nxr.brief, nxr.verdict, nxr.last) : out.text;   // + the VERDICT / LAST-stage parts hopTurn adds (sweep 2026-10-01)
-      const hopRow = isActiveWs(ws) ? streamingAgent(who) : null;
+      const hopRow = isActiveWs(ws) ? streamingAgent(who, nx, null) : null;   // null: the hop runs without the project root, even as the session's own agent
       if (hopRow) activeLiveRow = hopRow;
       let hopAcc = '';
       let res = null;
@@ -9389,7 +9444,7 @@ const Chat = (() => {
         return out;
       }
       wiEmit('workitem.delivered', { workitemId: wiHop, finalQueueId: nx, agentId: nx, box: '', ms: Date.now() - hopStart, ts: Date.now() });
-      ws.history.push({ role: 'assistant', content: hopText, agentId: nx, ts: Date.now() });   // agentId = the ACTUAL speaker (renderHistory names it)
+      ws.history.push({ role: 'assistant', content: hopText, agentId: nx, projectRoot: null, ts: Date.now() });   // agentId = the ACTUAL speaker (renderHistory names it); projectRoot null = its files are in nx's workspace
       capHistory(ws);
       out.text = hopText; out.agentId = nx; out.hops++;
       cur = nx; curDock = nxDock;
@@ -9559,7 +9614,11 @@ const Chat = (() => {
     // cancels it a moment later, so its stop line says so and offers no TRY AGAIN (a retry would press the E-STOP again)
     let runPressedEstop = false;
     let runStartedAt = 0;   // P3.2: this lead run's start wall-clock → the window claimCrew uses to attribute forwarded worker spend
-    activeLiveRow = streamingAgent();
+    // the project root THIS run is sent with, captured once: the body, the live reply and every turn it persists use the
+    // same value, so a session that joins a project mid-run (path.trust ALWAYS) never re-homes this run's files
+    const runRoot = ws.projectRoot || null;
+    liveRunRoots.set(ws.id, runRoot);
+    activeLiveRow = streamingAgent(undefined, undefined, runRoot);
     let acc = '';
     // the model the SIDECAR reported for this run's usage — captured from the usage payload rather than
     // read off the agent's config, so the SESSIONS rail's INBOX receipt names what actually answered.
@@ -9646,7 +9705,7 @@ const Chat = (() => {
       if (historyRead.repaint && isActiveWs(ws)) {
         if (log) log.innerHTML = '';
         renderHistory(); syncStatus();
-        activeLiveRow = streamingAgent(); historyRead.repaint = false;
+        activeLiveRow = streamingAgent(undefined, undefined, runRoot); historyRead.repaint = false;
       }
       const { text: reply, error, endReason, finishReason, completionVerdict, effectVerdict, budgetScope, budgetCapUsd, budgetCapIsBalance, unpricedModel, unpricedCapTokens, subscriptionModel, subscriptionCapTokens } = await Harness.chat({
         system: sys, messages: retry ? endOnUserTurn(historyWindow(ws)) : historyWindow(ws), agentId: ws.agentId || 'agent', isTask, recurring, signal: ac.signal, streamId: ws.id,
@@ -9659,7 +9718,7 @@ const Chat = (() => {
         retryUserRunId: retry ? ((opts && opts.retryUserRunId) || (retryDirectiveTurn && retryDirectiveTurn.sourceRunId)) : undefined,
         connectorContinuationOf: opts && opts.connectorContinuationOf,
         recipeId: recipeId || undefined,   // provenance spine: the launching recipe rides to the durable run row (undefined for non-recipe runs)
-        projectRoot: ws.projectRoot || undefined,   // project-anchored session: the sidecar injects the folder context ONLY if the root is still a standing blessed grant (truthful)
+        projectRoot: runRoot || undefined,   // project-anchored session: the sidecar injects the folder context ONLY if the root is still a standing blessed grant (truthful)
         placed: (typeof World !== 'undefined' && World.heroCaps) ? World.heroCaps(ws.agentId || 'agent') : [],   // THE MOAT: this run's TOOL reach = the agent's REAL placed props (dish→web · cabinet→files · workbench→terminal · …); compute is the freebie
         stationPlaced: (typeof World !== 'undefined' && World.stationCaps) ? World.stationCaps() : [],   // Class Loadouts (shared-gear): station-wide gear for SKILL availability — a desk-only specialist still gets its class skills when the STATION has the gear (tools stay room-scoped via `placed`)
         onRunId: id => { retirePriorRatings(ws.id); thisRunId = id; if (retryDirectiveTurn && !retryDirectiveTurn.sourceRunId) retryDirectiveTurn.sourceRunId = id; if (starterId) StarterStore.started(starterId, id); runStartedAt = Date.now(); try { RUN_META.set(id, { streamId: ws.id, focusVersion: runFocusVersion, isTask: !!isTask, title: (ws && ws.title) || '', directive: String(text || ''), correctionOf: correctionOf, intentOfferText: intentOfferText, fromRecipe: fromRecipe, recipeId: recipeId, agentId: ws.agentId || 'agent', rec: recClaimRun(id, ws.agentId || 'agent') }); if (RUN_META.size > 60) RUN_META.delete(RUN_META.keys().next().value); } catch (_) {} Channels.setRunId(ws.id, id, Date.now()); if (walkedToDesk && Channels.setStatus) Channels.setStatus(ws.id, 'working…'); if (isActiveWs(ws)) { syncStatus(); renderPresence(); } if (typeof Workstreams !== 'undefined') { Workstreams.appendRun(ws.id, id); if (typeof App !== 'undefined' && App.refreshRail) App.refreshRail(); } },
@@ -9751,7 +9810,7 @@ const Chat = (() => {
         if (v.kind === 'network' && thisRunId) { interruptedStreams.add(ws.id); armReconnectWatch(); }
         persistPartial(ws, acc);
         if (isActiveWs(ws)) { if (activeLiveRow) activeLiveRow.error(v.userMessage, v.raw); }
-        ws.history.push({ role: 'assistant', content: errorHistoryLine(v), error: true, ts: Date.now() });   // so the failure (and its real reason) survives a switch-back/reload — error:true keeps it off the model's wire
+        ws.history.push({ role: 'assistant', content: errorHistoryLine(v), error: true, ts: Date.now(), projectRoot: runRoot });   // so the failure (and its real reason) survives a switch-back/reload — error:true keeps it off the model's wire
         goalStall = v.userMessage;
         // the run DIED in flight — settle its outcome (task-board truth: a dead run can never wear the DONE
         // chip). Guarded on thisRunId: no run started → nothing was filed, nothing to settle.
@@ -9789,7 +9848,7 @@ const Chat = (() => {
         }
         finalReply = replyText;
         titleOk = !!replyText.trim();   // a real, non-empty reply landed → this stream is eligible for a summary title
-        if (replyText.trim()) ws.history.push({ role: 'assistant', content: replyText, ts: Date.now(), sourceRunId: thisRunId || undefined });   // never persist an empty turn
+        if (replyText.trim()) ws.history.push({ role: 'assistant', content: replyText, ts: Date.now(), sourceRunId: thisRunId || undefined, projectRoot: runRoot });   // never persist an empty turn
         // Lane 5 (truthful telemetry): a reply the PROVIDER cut off — finishReason 'length' (hit max_tokens
         // mid-thought) or 'content_filter' (output filtered) — is an AMPUTATED turn even though endReason==='done'.
         // It must NOT ship a "◈ delivered" crate / XP / workitem.delivered as if it were complete. Treat it like a
@@ -9970,7 +10029,7 @@ const Chat = (() => {
           ? Friendly.friendlyError(aborted ? new Error('connection dropped mid-reply') : e, null, { engineAlive: engineAlive })
           : { userMessage: aborted ? 'Lost the connection — try again.' : (e.message || String(e)), retryable: true, action: null, raw: (e && e.message) || String(e) };
         if (isActiveWs(ws)) { if (activeLiveRow) activeLiveRow.error(v.userMessage, v.raw); resolvePresence(ws, { error: true }); }
-        ws.history.push({ role: 'assistant', content: errorHistoryLine(v), error: true, ts: Date.now() });   // keep a readable trace of the failure (never replayed to the model)
+        ws.history.push({ role: 'assistant', content: errorHistoryLine(v), error: true, ts: Date.now(), projectRoot: runRoot });   // keep a readable trace of the failure (never replayed to the model)
         goalStall = v.userMessage;
         if (v.kind === 'network' && thisRunId) { interruptedStreams.add(ws.id); armReconnectWatch(); }
         if (thisRunId && typeof Workstreams !== 'undefined' && Workstreams.noteRunEnd) Workstreams.noteRunEnd(ws.id, thisRunId, false);
@@ -9982,6 +10041,7 @@ const Chat = (() => {
       if (typeof StationUI !== 'undefined' && StationUI.clearRunning) StationUI.clearRunning(ws.agentId || 'agent');
     } finally {
       aborters.delete(ws.id);
+      liveRunRoots.delete(ws.id);
       interrupted.delete(ws.id);   // consume the stop flag (whether or not it fired)
       stopSource.delete(ws.id);
       Channels.end(ws.id);

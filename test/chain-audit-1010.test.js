@@ -168,5 +168,155 @@ const belt = (x, y, dir) => ({ x, y, dir });
     }
   }
 
+  /* ---- 5. what comes AFTER a JOINER decides the OUTBOX (runtime audit 2026-10-12): PLANNER ▸ COPY split ▸ 3 crew ▸ JOINER ▸
+     TAKE TURNS splitter ▸ OUTBOX A | OUTBOX B. The parallel batch took the merged job's OUTBOX from the NON-ADVANCING peek
+     (and from its 'general' walk), so every job landed in OUTBOX A: B's SEND TO, receipts and line-output never fired, and a
+     FILTER after the joiner never routed by the merged job. The merged job now walks on from the joiner's exit like any job. ---- */
+  {
+    // opts.crew = how many of the 3 crew bays get an agent (an unbound bay's branch never launches: an EVEN width with 2);
+    // opts.entry = the SECOND OPINION blueprint instead: INBOX ▸ COPY split ▸ 2 crew ▸ JOINER, the entry fan-out path
+    const floorAfterJoin = (junction, opts) => {
+      opts = opts || {};
+      const s = WM.create(), z = s.rooms()[0].rects[0];
+      s.addRoom({ kind: 'hab', rect: { x1: z.x2 + 1, y1: z.y1, x2: z.x2 + 40, y2: z.y1 + 30 } });
+      let ok = null;
+      for (let y = z.y1; y < z.y1 + 25 && !ok; y++) for (let x = z.x1; x < z.x2 + 30 && !ok; x++) { const r = s.stampBlueprint(opts.entry ? 'second_opinion' : 'parallel_crew', x, y); if (r.ok) ok = r; }
+      if (opts.entry) {
+        A.ok(!!ok && s.props().some(p => p.t === 'joiner'), junction + ': SECOND OPINION stamped with its JOINER');
+        s.props().filter(p => p.t === 'bay').forEach((b, i) => s.assignPropAgent(b.id, 'c' + i));
+      } else {
+        const intake = s.props().find(p => p.t === 'intake'), split = s.props().find(p => p.t === 'splitter'), merger = s.props().find(p => p.t === 'merger');
+        A.ok(!!ok && LE.run(s, intake.id, 'insertStep', { from: intake.id, to: split.id, role: 'PLANNER' }, { near: { x: split.x, y: split.y } }).ok && s.swapJoinerMerger(merger.id).ok, junction + ': PARALLEL CREW with a PLANNER and a JOINER');
+        let n = 0;
+        s.props().filter(p => p.t === 'bay').forEach((b, i) => { if (b.role === 'PLANNER') s.assignPropAgent(b.id, 'planner'); else if (n++ < (opts.crew || 3)) s.assignPropAgent(b.id, 'c' + i); });
+      }
+      // the second exit is drawn by hand past the joiner (ring-rule geometry): the junction on the joiner's exit belt, a lane down to OUTBOX B
+      const geo = s.projectGeometry(); delete geo.links;
+      for (const b of geo.belts) if (b.d && !b.dir) b.dir = b.d;
+      const J = geo.props.find(p => p.t === 'joiner'), outA = geo.props.find(p => p.t === 'outbox');
+      const beltAt = (x, y) => geo.belts.find(b => b.x === x && b.y === y);
+      const used = (x, y) => !!beltAt(x, y) || geo.props.some(p => x >= p.x && x < p.x + (p.w || 1) && y >= p.y && y < p.y + (p.h || 1));
+      const lane = [[J.x + 1, J.y + 1, 'S'], [J.x + 1, J.y + 2, 'S'], [J.x + 1, J.y + 3, 'S'], [J.x + 1, J.y + 4, 'E'], [J.x + 2, J.y + 4, 'E']];
+      const box = [[0, 0], [1, 0], [0, 1], [1, 1]].map(([dx, dy]) => [J.x + 3 + dx, J.y + 4 + dy]);
+      A.ok(beltAt(J.x + 1, J.y) && beltAt(J.x + 1, J.y).dir === 'E' && lane.concat(box).every(([x, y]) => !used(x, y)), junction + ': the joiner exits east onto free floor');
+      geo.props.push(junction === 'filter' ? { id: 'pj2', t: 'filter', x: J.x + 1, y: J.y, w: 1, h: 1, routes: { code: 'S' }, def: 'E' } : { id: 'pj2', t: 'splitter', x: J.x + 1, y: J.y, w: 1, h: 1 });
+      geo.props.push({ id: 'pob2', t: 'outbox', x: J.x + 3, y: J.y + 4, w: 2, h: 2 });
+      for (const [x, y, dir] of lane) geo.belts.push({ x, y, dir });
+      const plan = P.compileRoutingPlan(geo);
+      A.eq(plan.errors.filter(e => !e.warn).length, 0, junction + ': compiles');
+      const j2 = plan.junctions[(J.x + 1) + ',' + J.y] || {};
+      A.ok(j2.kind === junction.replace('turns', 'split') && !j2.fanout, junction + ': the junction after the joiner is a ' + (junction === 'filter' ? 'FILTER' : 'TAKE TURNS splitter'));
+      return { plan, planner: geo.props.find(p => p.agentId === 'planner'), outA: outA.id };
+    };
+    // tagged: true = every crew writes CODE; a function (agentId, isEntryRun) -> its text, for floors where only SOME branches carry the tag
+    const jobs = async (f, peek, tagged) => {
+      const router = makeRouter(); router.setPlan(f.plan);
+      const textOf = typeof tagged === 'function' ? tagged : a => (tagged ? 'CODE ' : '') + a + ' did it';
+      const shipped = [], outputs = [];
+      for (let i = 0; i < 4; i++) {
+        const c = makeChainRunner(Object.assign({ nextAgent: (a, x) => router.chainNext(a, x), stepAgent: (a, x) => router.chainStep(a, x),
+          stepDock: (d, x) => router.chainStepDock(d, x), entryDockOf: a => router.entryDockOf(a), fanSiblingsDock: d => router.fanSiblingsDock(d),
+          lineOfAgent: (a, d) => router.lineOfAgent(a, d), lastStage: (a, d) => router.chainShipsToOutbox(a, d), onShipped: r => shipped.push(r.outboxId),
+          getTag: t => /CODE/.test(String(t)) ? 'code' : 'general', setTimer: () => 0,
+          emit: (n, p) => { if (n === 'workitem.delivered' && p.box === 'line-output') outputs.push(p.outboxId); } }, peek ? { peekDock: (d, x) => router.chainPeekDock(d, x) } : {}));
+        // the entry fan-out (SECOND OPINION): the INBOX names ONE crew — the same resolver the hub asks — and it has run already
+        const entry = f.planner ? { agentId: 'planner', dockId: f.planner.id, text: 'plan' } : router.resolveDock({ tag: 'general' });
+        const lineId = f.planner ? router.lineOfAgent('planner', f.planner.id) : router.lineOriginFor(entry.agentId, entry.dockId);
+        const res = await c.advance({ agentId: entry.agentId, dockId: entry.dockId, text: f.planner ? 'plan' : textOf(entry.agentId, true), originalText: 'do X', lineId, runId: 'job' + i,
+          runAgent: async h => ({ text: textOf(h.agentId, false) }) });
+        A.eq(res.stopped, null, 'the line ends clean (' + res.stopped + ')');
+      }
+      await new Promise(r => setImmediate(r));
+      return { shipped: shipped.join(' '), outputs: outputs.join(' ') };
+    };
+    const turns = floorAfterJoin('turns');
+    const alternate = [turns.outA, 'pob2', turns.outA, 'pob2'].join(' ');
+    for (const peek of [true, false]) {
+      const r = await jobs(turns, peek, false);
+      A.eq(r.shipped, alternate, (peek ? 'parallel' : 'one after another') + ': TAKE TURNS after the joiner alternates the OUTBOX SEND TO is told about');
+      A.eq(r.outputs, alternate, (peek ? 'parallel' : 'one after another') + ': and the floor\'s line-output names the same OUTBOXes');
+    }
+    const filter = floorAfterJoin('filter');
+    for (const peek of [true, false]) {
+      const r = await jobs(filter, peek, true);
+      A.eq(r.shipped, 'pob2 pob2 pob2 pob2', (peek ? 'parallel' : 'one after another') + ': a FILTER after the joiner routes by the merged job (code → OUTBOX B)');
+    }
+    /* EVEN widths, the entry fan-out, a tag on SOME branches (runtime repair 2026-10-12). Three crews hid the one-after-another
+       bug: every ARRIVING branch's walk went on past the joiner with the advancing pick — 3 moves of a 2-exit TAKE TURNS splitter
+       alternate by parity; 2 moves stick on one OUTBOX — and the release then shipped where the LAST branch's walk ended, by
+       that branch's tag, not the merged job's. The merged job alone walks on from the joiner, once, by its own tag. */
+    const turns2 = floorAfterJoin('turns', { crew: 2 });
+    const alternate2 = [turns2.outA, 'pob2', turns2.outA, 'pob2'].join(' ');
+    for (const peek of [true, false]) {
+      const r = await jobs(turns2, peek, false);
+      A.eq(r.shipped, alternate2, (peek ? 'parallel' : 'one after another') + ', 2 branches: TAKE TURNS after the joiner alternates the OUTBOX');
+      A.eq(r.outputs, alternate2, (peek ? 'parallel' : 'one after another') + ', 2 branches: and line-output names the same OUTBOXes');
+    }
+    for (const peek of [true, false]) {
+      // only c1 writes CODE, and it is never the last to arrive one after another — the merged job still contains CODE
+      const r = await jobs(filter, peek, a => (a === 'c1' ? 'CODE ' : '') + a + ' did it');
+      A.eq(r.shipped, 'pob2 pob2 pob2 pob2', (peek ? 'parallel' : 'one after another') + ': a FILTER after the joiner reads the merged job when only one branch wrote CODE');
+    }
+    const so = floorAfterJoin('turns', { entry: true });
+    for (const peek of [true, false]) {
+      const r = await jobs(so, peek, false);
+      const want = [so.outA, 'pob2', so.outA, 'pob2'].join(' ');
+      A.eq(r.shipped, want, 'SECOND OPINION' + (peek ? '' : ' (no peek)') + ': TAKE TURNS after the joiner alternates the OUTBOX');
+      A.eq(r.outputs, want, 'SECOND OPINION' + (peek ? '' : ' (no peek)') + ': and line-output names the same OUTBOXes');
+    }
+    const soF = floorAfterJoin('filter', { entry: true });
+    for (const peek of [true, false]) {
+      // only the crew the INBOX named (the entry run) writes CODE; its sibling runs after it and arrives last without it
+      const r = await jobs(soF, peek, (a, isEntry) => (isEntry ? 'CODE ' : '') + a + ' did it');
+      A.eq(r.shipped, 'pob2 pob2 pob2 pob2', 'SECOND OPINION' + (peek ? '' : ' (no peek)') + ': a FILTER after the joiner reads the merged job (code → OUTBOX B), not the last branch');
+      A.eq(r.outputs, 'pob2 pob2 pob2 pob2', 'SECOND OPINION' + (peek ? '' : ' (no peek)') + ': and line-output names OUTBOX B');
+    }
+  }
+
+  /* ---- 6. a COPY split inside a review loop's pass (wave 2 review, conveyor-backend-01): INBOX ▸ drafter ▸ COPY split ▸
+     [factcheck] + [style] ▸ JOINER ▸ editor ▸ LOOP (back lane to the drafter) ▸ OUTBOX. The parallel batch ignored the loop pass:
+     on the second pass it found factcheck already visited and stopped with "the line loops back to …", where the one-after-another
+     walk (no peek) honours the pass and finishes. Both must run the second review, and the pass's hops count off the ceiling. ---- */
+  {
+    const s = WM.create(), z = s.rooms()[0].rects[0];
+    s.addRoom({ kind: 'hab', rect: { x1: z.x2 + 1, y1: z.y1, x2: z.x2 + 50, y2: z.y1 + 40 } });
+    const near = { x: z.x2 + 10, y: z.y1 + 6 };
+    const nl = LE.run(s, null, 'newLine', { role: 'WRITER' }, { near });
+    A.ok(nl.ok, 'a one-step line (' + JSON.stringify(nl.error || '') + ')');
+    const drafter = s.props().find(p => p.t === 'bay' && p.role === 'WRITER');
+    let r = LE.run(s, drafter.id, 'addLoop', { around: drafter.id, max: 3 }, { near });
+    if (!r.ok) r = LE.run(s, drafter.id, 'addLoop', { around: drafter.id, max: 3 }, { near, tidy: true });
+    A.ok(r.ok, 'a review loop round the drafter (' + JSON.stringify(r.error || '') + ')');
+    const editor = s.props().find(p => p.t === 'bay' && p.role === 'REVIEWER');
+    r = LE.run(s, drafter.id, 'addBranch', { from: drafter.id, to: editor.id, mode: 'copy', n: 2 }, { near });
+    if (!r.ok) r = LE.run(s, drafter.id, 'addBranch', { from: drafter.id, to: editor.id, mode: 'copy', n: 2 }, { near, tidy: true });
+    A.ok(r.ok, 'a COPY section between the drafter and the editor (' + JSON.stringify(r.error || '') + ')');
+    const branches = s.props().filter(p => p.t === 'bay' && p.id !== drafter.id && p.id !== editor.id);
+    A.eq(branches.length, 2, 'two branch steps');
+    s.assignPropAgent(drafter.id, 'drafter'); s.assignPropAgent(editor.id, 'editor');
+    s.assignPropAgent(branches[0].id, 'factcheck'); s.assignPropAgent(branches[1].id, 'style');
+    const plan = P.compileRoutingPlan(s.projectGeometry());
+    A.eq(plan.errors.filter(e => !e.warn).length, 0, 'the looped COPY floor compiles (' + JSON.stringify(plan.errors) + ')');
+    const router = makeRouter(); A.ok(router.setPlan(plan).ok, 'and deploys');
+    const lineId = router.lineOfAgent('drafter', drafter.id);
+    for (const peek of [true, false]) {
+      let editorN = 0; const ran = [];
+      const c = makeChainRunner(Object.assign({ nextAgent: (a, x) => router.chainNext(a, x), stepAgent: (a, x) => router.chainStep(a, x),
+        stepDock: (d, x) => router.chainStepDock(d, x), entryDockOf: a => router.entryDockOf(a), fanSiblingsDock: d => router.fanSiblingsDock(d),
+        lineOfAgent: (a, d) => router.lineOfAgent(a, d), lastStage: (a, d) => router.chainShipsToOutbox(a, d), setTimer: () => 0 },
+        peek ? { peekDock: (d, x) => router.chainPeekDock(d, x) } : {}));
+      const out = await c.advance({ agentId: 'drafter', dockId: drafter.id, text: 'draft v1', originalText: 'write X', lineId,
+        runAgent: async h => { ran.push(h.agentId);
+          if (h.agentId === 'editor') return { text: (++editorN === 1) ? 'needs work\nVERDICT: revise' : 'good\nVERDICT: approved' };
+          return { text: h.agentId + ' out' }; } });
+      const order = ran.map(a => (a === 'factcheck' || a === 'style') ? 'branch' : a).join(' > ');
+      const label = peek ? 'parallel' : 'one after another';
+      A.eq(out.stopped, null, label + ': the second review pass runs through the COPY section (' + out.stopped + ')');
+      A.eq(order, 'branch > branch > editor > drafter > branch > branch > editor', label + ': drafter, both branches, editor — twice');
+      A.eq(out.agentId, 'editor', label + ': the editor has the last word');
+      A.ok(/^good/.test(String(out.text)) && !/VERDICT/.test(String(out.text)), label + ': the approved review leaves on DONE (' + JSON.stringify(String(out.text).slice(0, 60)) + ')');
+    }
+  }
+
   A.report('chain-audit-1010');
 })();

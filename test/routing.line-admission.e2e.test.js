@@ -53,9 +53,14 @@ const Pipeline = require('../frontend/app/pipeline.js');
     assert.equal(calls.length, count, label + ': the exhausted line must make zero provider calls');
     assert.equal(result.body.ok, false, result.text);
     assert.ok(capText.test(JSON.stringify(result.body.replies)), label + ': the reply names the line daily cap: ' + result.text);
+    // the refusal's REASON is the route's error (the panel / FINISH card / station.test_line read it) — never only "no durable run outcome"
+    assert.ok(capText.test(String(result.body.error || '')) && /raise its LINE BUDGET or try again tomorrow/.test(result.body.error) && !/^⚠/.test(result.body.error), label + ': the error says the daily limit and how to raise it: ' + result.body.error);
     assert.equal(result.body.delivered, null, 'the refused job never claims delivery');
     const job = await fixture.json('GET', '/api/line-jobs/' + result.body.jobId);
     assert.equal(job.body.job.status, 'failed', 'the line history keeps the refused job');
+    // no run row exists for a refused entry: the job record and the route's error carry the cap, never "no step ran"
+    assert.match(String(job.body.job.error || ''), capText, label + ': the job record says why it failed: ' + JSON.stringify(job.body.job.error));
+    assert.match(String(result.body.error || ''), capText, label + ': the route\'s error names the cap: ' + JSON.stringify(result.body.error));
     return result;
   }
   try {
@@ -75,9 +80,9 @@ const Pipeline = require('../frontend/app/pipeline.js');
     assert.ok(capText.test(run.text), run.text);
     assert.ok(run.text.includes('"reason":"budget"'), 'Run Now emits a budget outcome');
 
-    const scheduled = await fixture.json('POST', '/api/cron', { name: 'Scheduled capped line', prompt: 'Write the workflow result.',
+    const scheduled = await fixture.json('POST', '/api/cron', { name: 'Overnight batch', prompt: 'Write the workflow result.',
       schedule: 'in 1s', agentId: 'writer', dockId: 'a1', model: 'test/model', provider: 'openrouter', runsLine: true });
-    assert.ok(scheduled.body.job?.id, scheduled.text);
+    assert.ok(scheduled.body.job?.id && !scheduled.body.duplicate, 'a distinct scheduled routine is created (the mint gate folds a near-same name into the Run Now job, which never fires on schedule): ' + scheduled.text);
     await fixture.json('POST', '/api/cron/arm', { enabled: true });
     let fired = null;
     const deadline = Date.now() + 15000;
@@ -91,6 +96,39 @@ const Pipeline = require('../frontend/app/pipeline.js');
     assert.notEqual(fired.lastStatus, 'ok', 'the scheduled refusal is not success');
     assert.equal(calls.length, count, 'the scheduled line also spends nothing after the cap');
     await fixture.json('POST', '/api/cron/arm', { enabled: false });
+
+    /* A TERMINAL routine (runsLine:false — Andrew's 08-07 ruling) on a bay of the capped line is not line work: its chain seed
+       carries no line, so its spend never reaches the line ledger, and the line's daily limit must not refuse it. The crate
+       still names the bay's line (LINE WATCH), which is exactly how the entry cap used to mistake it for a line entry. */
+    const ledgerLine = () => ((JSON.parse(fs.readFileSync(ledger, 'utf8')).lines || {})[lineA] || null);
+    const ledgerBefore = JSON.stringify(ledgerLine());
+    const terminal = await fixture.json('POST', '/api/cron', { name: 'Solo report', prompt: 'Write the workflow result.',
+      schedule: 'every 1h', agentId: 'writer', dockId: 'a1', model: 'test/model', provider: 'openrouter', runsLine: false });
+    assert.ok(terminal.body.job?.id && !terminal.body.duplicate, terminal.text);
+    count = before();
+    const terminalRun = await fixture.json('POST', '/api/cron/run', { id: terminal.body.job.id });
+    assert.ok(calls.length > count, 'a terminal routine on a capped line\'s bay still runs: ' + terminalRun.text.slice(0, 400));
+    assert.ok(!capText.test(terminalRun.text), 'a terminal routine is never refused by the line daily limit: ' + terminalRun.text.slice(0, 400));
+    assert.ok(terminalRun.text.includes('The workflow result.'), 'the terminal routine delivers its own answer');
+    assert.equal(JSON.stringify(ledgerLine()), ledgerBefore, 'its spend never lands in the line ledger');
+    const terminalScheduled = await fixture.json('POST', '/api/cron', { name: 'Morning summary', prompt: 'Write the workflow result.',
+      schedule: 'in 1s', agentId: 'writer', dockId: 'a1', model: 'test/model', provider: 'openrouter', runsLine: false });
+    assert.ok(terminalScheduled.body.job?.id && !terminalScheduled.body.duplicate, terminalScheduled.text);
+    count = before();
+    await fixture.json('POST', '/api/cron/arm', { enabled: true });
+    let firedTerminal = null;
+    const terminalDeadline = Date.now() + 15000;
+    while (Date.now() < terminalDeadline) {
+      const jobs = (await fixture.json('GET', '/api/cron')).body.jobs || [];
+      firedTerminal = jobs.find(j => j.id === terminalScheduled.body.job.id && j.lastRunAt);
+      if (firedTerminal) break;
+      await new Promise(r => setTimeout(r, 100));
+    }
+    await fixture.json('POST', '/api/cron/arm', { enabled: false });
+    assert.ok(firedTerminal, 'the scheduled terminal routine fired');
+    assert.equal(firedTerminal.lastStatus, 'ok', 'a scheduled terminal routine on a capped line\'s bay succeeds: ' + JSON.stringify(firedTerminal).slice(0, 400));
+    assert.ok(calls.length > count, 'and really called its provider');
+    assert.equal(JSON.stringify(ledgerLine()), ledgerBefore, 'the scheduled terminal fire leaves the line ledger alone too');
 
     count = before();
     const other = await sample(lineB);

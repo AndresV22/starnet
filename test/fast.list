@@ -656,6 +656,7 @@ test/untrusted-taint.test.js
 test/taint-lineage.test.js
 test/taint-refusal-copy.test.js
 test/taint-entry-origin.test.js
+test/sendto-entry-verdicts.test.js
 test/routine-tools.test.js
 test/routine-toolsets.test.js
 test/routine-grant-rebind.test.js
@@ -730,6 +731,8 @@ test/routing.multibay.test.js
 test/routing-nag-parity.test.js
 test/crate-honesty.test.js
 test/joined-product-truth.test.js
+test/first-ship-receipt.test.js
+test/finish-line-card-truth.test.js
 test/plan-poster.test.js
 test/chain.test.js
 test/chain.join-loop.test.js
@@ -775,6 +778,8 @@ test/workflow-line.test.js
 test/workflow-line-compiled-order.test.js
 test/floor.multibay.test.js
 test/workflow-panel-source.test.js
+test/workflow-panel-review-1012.test.js
+test/workflow-panel-sendto-truth.test.js
 test/sibling-scope.test.js
 test/propanchor.test.js
 test/prop-mount.test.js
@@ -1120,7 +1125,11 @@ test/build-hand.test.js
 test/build-select-target.test.js
 test/build-hand-circle.test.js
 test/build-clip.test.js
+test/line-names.test.js
 test/worldmodel-moveprops.test.js
+test/build-move-settle.test.js
+test/build-room-delete-sendto.test.js
+test/floor-wave2.test.js
 test/buildmode-halls.test.js
 test/trigger-sweep.test.js
 test/steptest-restart-spend.test.js

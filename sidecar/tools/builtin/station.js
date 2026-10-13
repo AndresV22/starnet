@@ -276,8 +276,13 @@
         const b = call(lf.budget, L.lineId);
         if (b) { L.budget = { maxHops: b.maxHops, maxUsdPerMessage: b.maxUsdPerMessage, maxUsdPerDay: b.maxUsdPerDay == null ? null : b.maxUsdPerDay }; if (b.clamped && b.clamped.length) L.budget.clamped = b.clamped; }
         const t = byLine[L.lineId];
-        if (t) L.today = { runs: t.runs, shipped: t.shipped, failed: t.failed, tests: t.tests, usd: t.usdToday, capUsdPerDay: t.capUsdPerDay, medianMs: t.medianMs, day: t.spendDay === 'utc' ? 'UTC day' : 'local day' };
-        else if (today) L.today = null;   // the router runs no such line (routing off, or edits not sent): no numbers to claim
+        if (t) {
+          L.today = { runs: t.runs, shipped: t.shipped, failed: t.failed, tests: t.tests, usd: t.usdToday, capUsdPerDay: t.capUsdPerDay, medianMs: t.medianMs, day: t.spendDay === 'utc' ? 'UTC day' : 'local day' };
+          // shipped null = UNKNOWN (the shipment history could not be read) — said, so the lead never reports it as nothing shipped
+          if (t.shipped == null && t.shippedUnknown) L.today.shippedUnknown = String(t.shippedUnknown);
+          // a LOWER BOUND (some of today's jobs have no saved record): said, so the lead never reports it as the exact count
+          if (t.shipped != null && t.shippedAtLeast) L.today.shippedAtLeast = true;
+        } else if (today) L.today = null;   // the router runs no such line (routing off, or edits not sent): no numbers to claim
         for (const s of (L.steps || [])) { const d = docks[s.propId]; if (d) s.lastRun = lastRun(d, now); }
       }
       for (const b of (r.loneBays || [])) { const d = docks[b.propId]; if (d) b.lastRun = lastRun(d, now); }
@@ -292,6 +297,8 @@
         const x = { lineId: L.lineId, name: L.name, status: L.status, ready: L.ready, howItRuns: L.howItRuns, blocking: L.blocking, hints: L.hints,
           starts: { schedules: L.starts.schedules, channels: L.starts.channels, events: L.starts.events, paused: L.starts.paused } };
         if (L.startsUnread) x.startsUnread = L.startsUnread;
+        // an unnamed line: the word its plate shows (LINE F — final floor lane M25), which line= also takes
+        if (!L.name && L.word) x.word = L.word;
         // SEND TO (2026-10-10): where every finished job goes next / which lines hand theirs to this one — never "it ends at the OUTBOX"
         if (L.sendsWorkTo) x.sendsWorkTo = L.sendsWorkTo.map(s => s.name);
         if (L.getsWorkFromLines) x.getsWorkFromLines = L.getsWorkFromLines.map(s => s.name);
@@ -367,7 +374,8 @@
         const fitted = fitLayout(shaped, Math.max(2000, max - 64), !!line);
         const lines = r.lines || [];
         const routing = r.routing && r.routing.state ? 'routing ' + r.routing.state : 'routing unknown';
-        const head = lines.length === 1 ? '"' + (lines[0].name || 'unnamed line') + '": ' + (lines[0].status || '?') : lines.length + ' line(s)';
+        // (an unnamed line by the word its plate shows — LINE F — the same word the result carries; repair: 'unnamed line')
+        const head = lines.length === 1 ? '"' + (lines[0].name || lines[0].word || 'unnamed line') + '": ' + (lines[0].status || '?') : lines.length + ' line(s)';
         return { content: JSON.stringify(fitted), summary: head + ' · ' + routing };
       }
     };
@@ -612,7 +620,7 @@
           line: L.name, status, cost: '$' + (Number(o.totalUsd) || 0).toFixed(2),
           steps: runs.map((x, i) => ({ step: i + 1, at: stepOf(x), ended: x.reason || 'unknown', usd: typeof x.usd === 'number' ? Math.round(x.usd * 1000) / 1000 : null })),
           verdict: o.ok ? (/LOOP — exhausted/.test(said) ? 'The job reached the OUTBOX, but its review loop ran out of passes without an approval: the reviewer never said VERDICT: approved. Read what it delivered below; tighten the step it reviews or the reviewer\'s brief, or allow more passes.' : 'The job reached the OUTBOX: read what it delivered below and judge whether the line did the job well.')
-            : o.stopped ? 'The Commander stopped the job.' : String(o.error || 'The job did not finish').replace(/[.\s]*$/, '.') + ' Look at which step ended badly, fix the line, and test again.',
+            : o.stopped ? (o.stoppedBy === 'fault' ? 'The station hit an internal fault and stopped the job.' : 'The Commander stopped the job.') : String(o.error || 'The job did not finish').replace(/[.\s]*$/, '.') + ' Look at which step ended badly, fix the line, and test again.',
           jobId: o.jobId || null
         };
         // Only the durable job link proves that work was sent onward. A configured destination is not a running job.
@@ -622,8 +630,20 @@
             note: send.refused ? 'The downstream hand-off was refused: ' + send.refused
               : 'A separate downstream job was created. Its current state, result and cost are on its own job record; this cost covers only the tested line.' };
           if (send.refused) out.sentOnTo.refused = send.refused;
-        } else if (Array.isArray(o.onwardDestinations) && o.onwardDestinations.length) {
-          out.sentOnTo = { destinations: o.onwardDestinations, state: 'unconfirmed',
+        } else if (o.ok && Array.isArray(o.onwardDestinations) && o.onwardDestinations.length) {
+          /* (wave 2 review, conveyor-backend-10) only a job that reached its OUTBOX is ever handed on: a failed or stopped test claims
+             no onward hand-off, not even an unconfirmed one. Each destination is named the way this tool names a line (station.line_ref,
+             the page's own rule), so the lead can tell the Commander WHICH line — never a bare machine id. */
+          const destinations = [];
+          for (const d of o.onwardDestinations.slice(0, 8)) {
+            if (!d || d.lineId == null || !String(d.lineId)) continue;
+            const named = await ask('station.line_ref', { line: String(d.lineId).slice(0, 80) });
+            const dest = { lineId: String(d.lineId) };
+            if (named.ok && named.result && named.result.name) dest.line = String(named.result.name);
+            if (d.outboxId != null && String(d.outboxId)) dest.outboxId = String(d.outboxId);
+            destinations.push(dest);
+          }
+          out.sentOnTo = { destinations, state: 'unconfirmed',
             note: 'SEND TO is configured, but no downstream job link was recorded when this reply was read. Check this job again; no downstream start or completion is claimed.' };
         }
         const shown = said.length > 6000 ? said.slice(0, 6000) + ' …(' + (said.length - 6000) + ' more characters in the OUTBOX)' : said;

@@ -66,7 +66,7 @@ A.ok(/tidy \? \{ tidy: true \} : null/.test(wire), '…and the second click asks
 A.ok(/res\.tidied \? ' · the whole line laid out afresh round it' : res\.relaid \? ' · the belts round it re-routed'/.test(le), 'the confirmation says when belts were re-routed or the line laid afresh');
 
 // ROLE chips: a step's name, one undo, only real roles
-A.ok(/data-role="' \+ r \+ '" aria-pressed=/.test(panel) && /setPropRole\(p\.id, b\.getAttribute\('aria-pressed'\) === 'true' \? '' : b\.dataset\.role\)/.test(panel), 'a BAY\'s ROLE chips set its role (clicking the pressed one clears it)');
+A.ok(/data-role="' \+ esc\(r\) \+ '" aria-pressed=/.test(panel) && /setPropRole\(p\.id, b\.getAttribute\('aria-pressed'\) === 'true' \? '' : b\.dataset\.role\)/.test(panel), 'a BAY\'s ROLE chips set its role (clicking the pressed one clears it)');
 {
   const st = WM.create(WM.starterDoc());
   const bay = st.addProp({ t: 'bay', x: 6, y: 5, w: 2, h: 2 });

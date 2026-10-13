@@ -8,6 +8,14 @@
   const H = StationUI.h;
   const esc = H.esc, sfx = H.sfx, fmtRel = H.fmtRel, notify = H.notify, openTerm = H.openTerm;
   const WS = H.WS, persistWS = H.persistWS;
+  /* a job's FROM / SENT ON TO end by the floor's own line name (worldmodel.lineName — LINE N for an unnamed line, as its plate
+     says), else the name the job recorded. A job end is { line, jobId, name } (linejobs normEnd): it never carried a lineId, so
+     every unnamed line read 'ANOTHER LINE' here (repair). */
+  function lineOfEnd(e) {
+    let st = null; try { st = (typeof App !== 'undefined' && App.station) ? App.station() : null; } catch (_) { st = null; }
+    const w = e && e.line != null && st && typeof st.lineName === 'function' ? st.lineName(e.line) : null;
+    return w || Pipeline.lineWord(e && e.name, 'ANOTHER LINE');
+  }
 
   /* ============== OUTBOX — the finished-work window (accordion redesign, 2026-07-16 round 4) ==============
      Andrew's spec, exactly: an EXTREMELY simple list. Collapsed row = the task's TITLE + a small
@@ -181,20 +189,24 @@
         desc.textContent = lastReply ? firstLine(plain(lastReply), 150)
           : (turns === null ? 'couldn’t read the result — is the station running?'
             : (turns && turns.length ? 'the run finished with nothing to report.' : 'no transcript recorded for this run. Open the session for older work without run attribution.'));
-        const askFull = hand && hand.sent ? String(hand.original) + '\n\n— handed on from ' + Pipeline.lineWord(hand.sent.fromName, 'another line') + ': this reply is this line’s work on what that line delivered.'
-          : hand ? String(hand.original) + '\n\n— the result of a work line: this reply is from step ' + hand.stage + ', after ' + String(agentName(hand.from)).toUpperCase() + '.'
-          : users.length ? String(users[0].content) : '';
+        // the line a handed-on job came FROM — said in the floor's words once the job's record is read (below); the frame's own
+        // name only when there is no record (an unnamed line's frame carries none: it read 'another line' beside FROM LINE N)
+        let fromWord = hand && hand.sent ? Pipeline.lineWord(hand.sent.fromName, 'another line') : '';
         // where this job came from / went on to (SEND TO) — the job's own record says, never a guess from the text
         if (jobStream) {
           try {
             const lj = await Harness.api.get('/api/line-jobs?stream=' + encodeURIComponent(rw.streamId) + '&limit=1');
-            const sj = lj && Array.isArray(lj.jobs) ? lj.jobs[0] : null, word = e => Pipeline.lineWord(e && e.name, e && e.lineId ? 'LINE ' + e.lineId : 'ANOTHER LINE');
+            const sj = lj && Array.isArray(lj.jobs) ? lj.jobs[0] : null, word = e => lineOfEnd(e);
+            if (sj && sj.from && hand && hand.sent) fromWord = word(sj.from);
             // (a REFUSED hand-off is NOT SENT ON, with why — never "sent on" for work the station did not send, 10-11)
             const bits = sj ? [sj.from ? 'FROM ' + word(sj.from) : '', sj.sentTo ? (sj.sentTo.refused ? 'NOT SENT ON TO ' + word(sj.sentTo) + ' — ' + sj.sentTo.refused : 'SENT ON TO ' + word(sj.sentTo)) : ''].filter(Boolean) : [];
             const pv = row.querySelector('.ob-prov');
             if (pv && bits.length) { pv.textContent = bits.join(' · '); pv.hidden = false; }
           } catch (_) { /* the provenance line is extra: the result itself is already on screen */ }
         }
+        const askFull = hand && hand.sent ? String(hand.original) + '\n\n— handed on from ' + fromWord + ': this reply is this line’s work on what that line delivered.'
+          : hand ? String(hand.original) + '\n\n— the result of a work line: this reply is from step ' + hand.stage + ', after ' + String(agentName(hand.from)).toUpperCase() + '.'
+          : users.length ? String(users[0].content) : '';
         ask.textContent = askFull ? (askFull.length > 1500 ? askFull.slice(0, 1500) + ' …' : askFull) : (rw.title || '—');
         out.textContent = lastReply ? (lastReply.length > 4000 ? lastReply.slice(0, 4000) + '\n\n… output truncated — ↗ OPEN SESSION opens the conversation.' : lastReply)
           : (turns === null ? '⚠ couldn’t load the output — the run’s transcript wasn’t reachable.'

@@ -120,6 +120,39 @@ const tick = () => new Promise(r => setTimeout(r, 15));
     S.jobs = []; S.out = null;
   }
 
+  /* ---------- a REFUSED hand-off says "not sent on" once (wave 2 review, conveyor-backend-09): the card's first line says it was
+     not sent on, so the reason follows bare — never "not sent on: automation is stopped (E-STOP) — nothing was sent on" after it ---------- */
+  {
+    const refused = { id: 'job-0123456789bb', line: line.key, name: 'B', text: 'the first job', status: 'failed', error: 'not sent on: automation is stopped (E-STOP)',
+      from: { line: 'p998', jobId: null, name: 'A' }, runs: [], usd: 0, startedAt: 5, endedAt: 5, repeats: 3, notes: [], output: '' };
+    const html = WW._resultHTML(line, refused), plain = html.replace(/<[^>]+>/g, ' ').replace(/&[a-z#0-9]+;/gi, ' ');
+    A.ok(plain.includes('LINE A tried to send its result on to this line — it was not sent on, so nothing ran here.'), 'the card says once that it was not sent on — ' + plain.slice(0, 240));
+    A.ok(plain.includes('Automation is stopped (E-STOP). (3 hand-offs from LINE A were refused like this'), '…then the bare reason, and how many were refused like this');
+    A.eq((plain.match(/not sent on/gi) || []).length, 1, '"not sent on" appears once on the card, not three times');
+    const old = WW._resultHTML(line, Object.assign({}, refused, { error: 'not sent on: automation is stopped (E-STOP) — nothing was sent on', repeats: 1 })).replace(/<[^>]+>/g, ' ');
+    A.ok(old.includes('Automation is stopped (E-STOP) — nothing was sent on.') && (old.match(/not sent on/gi) || []).length === 1, 'an older record keeps its own words, without the repeated prefix');
+  }
+
+  /* ---------- every reason the card shows opens as a sentence (wave 2 repair): the stored reasons are bare clauses ("the station hit an
+     internal fault and stopped this job", "the hand-off could not start (hub down)"); the card opened its paragraph in lowercase under
+     ■ STOPPED / ✕ IT DIDN'T RUN. A fault-stopped sample job read "You stopped this job." — a stop the Commander never made. ---------- */
+  {
+    const plainOf = j => WW._resultHTML(line, j).replace(/<[^>]+>/g, ' ').replace(/&[a-z#0-9]+;/gi, ' ').replace(/\s+/g, ' ');
+    const base = { id: 'job-0123456789cc', line: line.key, name: 'B', text: 'the first job', runs: [], usd: 0, startedAt: 5, endedAt: 9, notes: [], output: '' };
+    const fault = plainOf(Object.assign({}, base, { status: 'stopped', error: 'the station hit an internal fault and stopped this job', from: { line: 'p998', jobId: null, name: 'A' } }));
+    A.ok(fault.includes('The station hit an internal fault and stopped this job. What already ran is counted.'), 'a fault-stopped hand-off opens with a capital — ' + fault.slice(0, 260));
+    const sampleFault = plainOf(Object.assign({}, base, { status: 'stopped', error: 'the station hit an internal fault and stopped this job' }));
+    A.ok(sampleFault.includes('The station hit an internal fault and stopped this job. What already ran is counted.') && !/You stopped this job/.test(sampleFault), 'a fault-stopped job of the line\'s own never says "You stopped this job" — ' + sampleFault.slice(0, 260));
+    const mine = plainOf(Object.assign({}, base, { status: 'stopped', error: 'you stopped this job' }));
+    A.ok(mine.includes('You stopped this job. What already ran is counted.'), 'the Commander\'s own stop keeps its words');
+    const bare = plainOf(Object.assign({}, base, { status: 'stopped' }));
+    A.ok(bare.includes('You stopped this job. What already ran is counted.'), 'an older stopped record with no reason reads as before');
+    const threw = plainOf(Object.assign({}, base, { status: 'failed', error: 'the hand-off could not start (hub down)', from: { line: 'p998', jobId: null, name: 'A' } }));
+    A.ok(threw.includes('The hand-off could not start (hub down).'), 'a dispatch failure opens with a capital and ends as a sentence — ' + threw.slice(0, 260));
+    const none = plainOf(Object.assign({}, base, { status: 'failed', error: '' }));
+    A.ok(none.includes('Nothing ran.'), 'no reason still reads "Nothing ran."');
+  }
+
   /* ---------- NEEDS CHANGES → USE THIS / PUT IT BACK: each field's note keeps its OWN before and after ---------- */
   {
     const step = WW._floor().lines[0].steps[1], dockId = step.id, wasDoes = st.propById(dockId).brief || '', wasHands = st.propById(dockId).hands || '';
@@ -235,6 +268,24 @@ const tick = () => new Promise(r => setTimeout(r, 15));
   A.ok(!/\stitle="/.test(src) && !/window\.(alert|confirm|prompt)\(/.test(src) && !/<select/.test(src) && !/key-input/.test(src), 'no OS tooltip, no native dialog, no native select, no old CRT field');
   A.ok(/\.term\.wfw-win \.bb \{[\s\S]{0,400}min-height: 36px;[\s\S]{0,200}border-radius: 8px;/.test(css) && /--refit-glass: linear-gradient\(125deg/.test(css), 'its keys are the Build Library / Workflow panel glass key (36px, 8px), on the panel\'s own glass tokens');
   A.ok(/\.term\.wfw-win \.bb:hover::before, \.term\.wfw-win \.bb:hover::after \{ content: none; \}/.test(css), 'never the old pip-boy [ ] hover brackets');
+
+  /* ---------- M28 (2026-10-12): a hand-off end is named the way the floor names its line ---------- */
+  {
+    // job records carry from/sentTo as { line, jobId, name } (handoff-runner) — an UNNAMED sending line has name '', never a lineId
+    const placed = LE.placeBlueprint(st, 'research_line', { x: 6, y: 12 });
+    A.ok(placed.ok, 'fixture: an unnamed second line');
+    const iid = placed.ids.find(id => st.propById(id).t === 'intake');
+    const key = (P.lineComponents(st.projectGeometry()).find(c => c.intakes.includes(iid)) || {}).key, letter = st.lineLetter(iid);
+    A.ok(key && /^[A-Z]+$/.test(letter) && !st.propById(iid).label, 'fixture: the line has no name, only its letter');
+    A.eq(WW._lineWord({ line: key, jobId: 'j1', name: '' }), 'LINE ' + letter, 'an unnamed sending line reads LINE ' + letter + ', as its floor plate does — never "another line"');
+    // ONE line-naming rule (conveyor-final merge, decision a — the floor lane's): a line still on the floor is named by the floor's
+    // CURRENT name (worldmodel lineName); the name a job recorded is used only once that line is gone from the floor
+    A.eq(WW._lineWord({ line: key, jobId: 'j1', name: 'Research' }), 'LINE ' + letter, 'a line still on the floor reads its CURRENT floor name (LINE ' + letter + '), never the stale name the job recorded');
+    A.eq(WW._lineWord({ line: 'p-gone', jobId: 'j1', name: 'Research' }), 'LINE RESEARCH', 'a line no longer on the floor reads the name its job recorded');
+    A.eq(WW._lineWord({ line: 'p-gone', jobId: 'j1', name: '' }), 'another line', 'a line no longer on the floor, with no recorded name, is "another line"');
+    A.ok(st.setPropLabel(iid, 'Digest').ok === true, 'fixture: the line is renamed on the floor');
+    A.eq(WW._lineWord({ line: key, jobId: 'j1', name: 'Research' }), 'LINE DIGEST', 'a renamed line reads its new floor name, never the name the job recorded');
+  }
 
   A.report('workflows-window.test');
 })().catch(e => { console.error(e); process.exit(1); });

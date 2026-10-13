@@ -387,6 +387,27 @@
     // its FIRST hop starts under, so the entry run's sensitive tools are consent-gated exactly like any other run
     // that has read untrusted content. Absent -> the old rule (only a media attachment taints the entry run).
     const entryTaint = (typeof o.entryTaint === 'string' && o.entryTaint.trim()) ? o.entryTaint.trim().slice(0, 80) : null;
+    /* SEND TO VERDICTS (review finding conveyor-backend-04, 2026-10-13). A hub whose inbound is a SEND TO hand-off (the handoff
+       runner's trigger hub, index.js makeTriggerHub) is told the SENDING job's own verdicts instead of inferring them from its taint
+       label, so a job the Commander typed into LINE A keeps Full Access on LINE B exactly as an in-line hop does. Both only NARROW:
+         entryUntrusted(msg) -> is this entry third-party content? Read only on an entryTaint hub; anything but a literal false, or a
+                                throw, is untrusted. Absent -> today's rule (an entryTaint hub's entry is untrusted). An attachment or
+                                a forwarded message stays untrusted whatever it answers.
+         senderWithheld(msg) -> did the sending job run with host power withheld (a non-owner sender)? Anything but a literal false, or a
+                                throw, withholds: the entry run and every hop then run as that sender did (channelSender:true,
+                                channelSenderOwner:false). Absent -> nothing is withheld beyond this hub's own sender rule.
+       The entry run still starts TAINTED under entryTaint (initialTaint below), like a chain hop. */
+    const entryUntrustedFn = typeof o.entryUntrusted === 'function' ? o.entryUntrusted : (() => !!entryTaint);
+    const senderWithheldFn = typeof o.senderWithheld === 'function' ? o.senderWithheld : null;
+    function entryVerdictUntrusted(msg) {
+      try { return entryUntrustedFn(msg) !== false; }
+      catch (e) { failNote('channels.hub.entryUntrusted', e); return true; }
+    }
+    function senderVerdictWithheld(msg) {
+      if (!senderWithheldFn) return false;
+      try { return senderWithheldFn(msg) !== false; }
+      catch (e) { failNote('channels.hub.senderWithheld', e); return true; }
+    }
     // SAMPLE/PROOF SEAM (additive, 2026-08-05): an optional streamId (string, or fn(chatId) -> string) stamped
     // onto every runOnce this hub fires (entry dock AND chain hops). With it, the host records the runs +
     // transcripts under that workstream (runs.jsonl streamId -> a readable OUTBOX crate); WITHOUT it — every
@@ -1752,8 +1773,13 @@
       }
       // UNTRUSTED ENTRY (run-origin.js entryUntrusted): the same three provenances that start the entry run tainted —
       // a trigger payload (entryTaint), a chat attachment, a forwarded/quoted third-party message. Decided ONCE per
-      // message so the entry run and every hop of its line carry one verdict.
-      const lineEntryUntrusted = !!(entryTaint || mediaIngest.attachments.length || carriesThirdPartyText(msg));
+      // message so the entry run and every hop of its line carry one verdict. A SEND TO hand-off's entryTaint is read through
+      // the sending job's own verdict (entryUntrusted above): a Commander-typed job stays trusted on the next line.
+      const lineEntryUntrusted = !!((entryTaint && entryVerdictUntrusted(msg)) || mediaIngest.attachments.length || carriesThirdPartyText(msg));
+      // …and the sending job's sender verdict (senderWithheld above): a non-owner's job stays withheld on every line it reaches
+      const lineWithheld = senderVerdictWithheld(msg);
+      const runChannelSender = lineWithheld ? true : tagSenderRuns;
+      const runChannelSenderOwner = lineWithheld ? false : channelSenderOwner;
       // The quoted preamble goes ABOVE the member's own words — it is the context their sentence refers back to.
       // It is built from msg.replyTo only, never from msg.text, so routing/classification/commands (which all ran
       // on the RAW text above) are untouched by it.
@@ -1852,8 +1878,11 @@
         if (!myRec.superseded) return false;
         if (myRec.halted && !haltNoticeSent) {
           haltNoticeSent = true;
+          // the station's OWN process-fault containment marks the run `faulted` before it kills it (halt.js markFaulted): that
+          // stop is said as the fault it was, never as an E-STOP nobody pressed (wave 2 repair, conveyor-backend-08)
+          const why = myRec.faulted ? 'the station hit an internal fault and stopped this run' : 'E-STOP was pressed in the station';
           try {
-            await deliver(chatId, '⏹ Stopped — E-STOP was pressed in the station. This message got no reply and nothing further will run for it.', myRec.runId || '', 'command');
+            await deliver(chatId, '⏹ Stopped — ' + why + '. This message got no reply and nothing further will run for it.', myRec.runId || '', 'command');
           } catch (_) { /* a stop notice must never crash the teardown */ }
         } else if (!myRec.halted && myRec.supersededBy === 'message' && !haltNoticeSent && myRec.runId && !(state && state.errMsg)) {
           /* A NEWER MESSAGE STOPPED THIS RUN — never silently (2026-10-11). This is the fallback when the follow-up
@@ -1928,8 +1957,9 @@
             surface: wantApprovals ? 'interactive' : 'autonomous',
             ownerTrusted: ownerTrusted,
             // RUN ORIGIN (sidecar/run-origin.js): a chat sender started this run. Full Power (per-agent Full Access /
-            // master bypass) is inherited only when that sender is the bound owner in a direct chat.
-            channelSender: tagSenderRuns, channelSenderOwner: channelSenderOwner,
+            // master bypass) is inherited only when that sender is the bound owner in a direct chat (a SEND TO hand-off: as
+            // the sending job's sender was, lineWithheld above).
+            channelSender: runChannelSender, channelSenderOwner: runChannelSenderOwner,
             // ...but ONLY for who answers a consent prompt. A phone has no floor to place props on, so this run
             // composes the headless office either way. Without this, /approvals on silently cut the agent from
             // the full autonomous office to compute-only (2 tools) — THE MOAT is floor-real placement, and there
@@ -1991,6 +2021,11 @@
           // SEND TO (2026-10-10, additive): the job's stream and the time its entry run started, so a hand-off reads back exactly
           // this job's run rows (a channel chat's stream carries every earlier message too)
           streamId: canonicalStreamId || undefined, since: (typeof myRec.startedAt === 'number' ? myRec.startedAt : undefined),
+          /* SEND TO VERDICTS (conveyor-backend-04): the verdicts this job's entry run and every hop below run under, stamped
+             POSITIVE only and only here — this hub established them. A hand-off of this job (handoff-runner) runs the next line
+             under the same ones; a seed without them (routines, Run Now, anything older) hands on as untrusted + withheld. */
+          entryTrusted: lineEntryUntrusted ? undefined : true,
+          hostPowerKept: (runChannelSender === true && runChannelSenderOwner !== true) ? undefined : true,   // run-origin.js hostPowerWithheldFor's own test
           signal: myRec.abort ? myRec.abort.signal : null,
           runAgent: async function (h) {
             // a hop is a plain autonomous run of ANOTHER agent: its OWN composed persona (never this channel's
@@ -2035,7 +2070,7 @@
                 initialTaint: 'upstream agent output',
                 untrustedEntry: lineEntryUntrusted || undefined,   // a hop of a payload-started line stays under the taint lock
                 surface: 'autonomous', ownerTrusted: ownerTrusted, broadcast: true, reflect: true,
-                channelSender: tagSenderRuns, channelSenderOwner: channelSenderOwner,   // a hop keeps the entry sender's Full Power verdict
+                channelSender: runChannelSender, channelSenderOwner: runChannelSenderOwner,   // a hop keeps the entry sender's Full Power verdict
                 // the hop's OWN dock room (multi-bay: never the union of the agent's bays)
                 station: (resolveStation ? (h.dockId ? resolveStation(h.agentId, h.dockId) : resolveStation(h.agentId)) : null) || undefined,
                 taskKey: 'chain:' + channel + ':' + chatId + ':' + h.agentId + (h.dockId ? '@' + h.dockId : ''), taskSource: channel,
@@ -2049,7 +2084,8 @@
         if (onLineOutcome) {
           // a throwing outcome hook is the HOST's bug (the trigger runner records every fire's truth through it): never
           // let it abort the reply, but never swallow it silently either — the failopen ledger names it
-          try { const lo = { agentId: line.agentId, stopped: line.stopped || null, hops: line.hops.slice(), usd: line.usd }; if (line.dockId) lo.dockId = line.dockId; onLineOutcome(lo); } catch (e) { failNote('channels.hub.lineOutcome', e); }
+          // partial (additive): the JOINER sent on without every branch — the job is not clean, whatever its run rows say
+          try { const lo = { agentId: line.agentId, stopped: line.stopped || null, hops: line.hops.slice(), usd: line.usd }; if (line.dockId) lo.dockId = line.dockId; if (line.partial) lo.partial = String(line.partial); onLineOutcome(lo); } catch (e) { failNote('channels.hub.lineOutcome', e); }
         }
         if (!myRec.superseded && line.hops.length) {
           // the line's answer replaces the first stage's — and the floor/channel agree on who produced it

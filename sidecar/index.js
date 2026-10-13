@@ -55,7 +55,7 @@ const workspaceRecovery = require('./workspace-recovery.js');
 const { makeUpdatePreparation } = require('./update-preparation.js');
 const { makeAgentLifecycle } = require('./agent-lifecycle.js');
 const { makeConsentWait } = require('./consentwait.js');   // EL-11: fail-closed consent timer + human-visible ack extension
-const { killAll } = require('./halt.js');
+const { killAll, markFaulted } = require('./halt.js');
 const { makeRegistry, outputBudgetFor, outputWindowFor } = require('./tools/registry.js');
 const { makeOutputArtifacts, visibleOutputPath } = require('./output-artifacts.js');
 const { makeWebTools, makePoliteScheduler } = require('./tools/builtin/web.js');
@@ -259,7 +259,7 @@ const LineJobs = require('./routing/linejobs.js');   // WORKFLOWS — every job 
 const LineDraft = require('./routing/linedraft.js');   // WORKFLOWS › SET IT UP FOR ME — "what should it make?" → a starter, a name, each step's instructions (/api/routing/line-draft)
 const LineFix = require('./routing/linefix.js');   // NOT RIGHT? — a result the Commander doesn't want → fixes to the line's step instructions (/api/routing/fix-suggest)
 const { lineStats: foldLineStats } = require('./routing/line-stats.js');   // LINE WATCH: per-line runs/shipped/failed/$ + each bay's last outcome (GET /api/routing/lines/stats)
-const { makeLineShipments, validateShipments, loadShipmentReceipts } = require('./routing/line-shipments.js');
+const { makeLineShipments, validateShipments, loadShipmentReceipts, cleanJobRows, SHIPMENT_KEEP_MS } = require('./routing/line-shipments.js');
 const { makeLineSpend } = require('./routing/line-spend.js');   // per-line DAY spend ledger (LINE BUDGET maxUsdPerDay) — durable sibling of routing.plan.json
 const LineTriggers = require('./routing/triggers.js');   // LINE TRIGGERS (2026-09-23): folder/webhook events that start ONE line
 const { makeTriggerRunner, crewedDocksOnLine } = require('./routing/trigger-runner.js');
@@ -5381,7 +5381,9 @@ const lineSpend = makeLineSpend({
   save: v => { try { lineSpendStore.save(v); } catch (e) { console.warn('[line-spend] persist failed:', (e && e.message) || e); } }
 });
 /* SHIPPED is durable terminal-job evidence, independent of later floor edits.
-   Older runs have no receipt and are never reconstructed into guessed shipments. */
+   Older runs have no receipt and are never reconstructed into guessed shipments. Receipts are kept for the retention
+   window (line-shipments SHIPMENT_KEEP_MS, 7 days): SHIPPED counts the receipts inside it, and the stats route never asks
+   for an older window. */
 const lineShipmentStore = makeDomainStore({
   fs, path, file: path.join(WORKSPACES, 'line-shipments.json'), version: 1, writeDurable: writeFileDurable,
   defaults: () => [], normalize: validateShipments,
@@ -5434,6 +5436,9 @@ const chainRunner = makeChainRunner({
     lineShipments.record(rec);
     return handoffRunner ? handoffRunner.onShipped(rec) : null;
   },
+  // the floor's line-output authority follows the receipt's clean-job rule over the job's own run rows (no stream or entry run
+  // = not proven clean = nothing released; a guess here would put a product at the OUTBOX that SHIPPED and SEND TO refuse)
+  cleanJob: (k) => !!(k && k.streamId && k.entryRunId) && !!cleanJobRows(runStore.list(null, { streamId: k.streamId, limit: 200 }), k),
   barrierStore: {
     load: () => { try { return loadResilient(path.join(WORKSPACES, 'join.barriers.json'), 'join-barriers'); } catch (_) { return null; } },
     save: (v) => { try { saveResilient(path.join(WORKSPACES, 'join.barriers.json'), v); } catch (e) { failNote('chain.barriers.save', e); } }
@@ -6641,6 +6646,9 @@ const cronDriver = makeCronDriver({
     // the entry run's reconciled spend: MAX_CHAIN_USD bounds the WHOLE chain, and stage one is part of the
     // chain (2026-08-10 audit — the entry run rode outside its own line's $ ceiling on every path).
     entryUsd: o.entryUsd,
+    // SEND TO VERDICT (conveyor-backend-04): a routine run never withholds host power (run-origin.js: no channelSender), so its
+    // hand-off keeps it too — the level it had before verdicts were carried. NEVER the trusted-entry verdict here: that stays the hub's alone.
+    hostPowerKept: true,
     /* ONLY A ROUTINE THAT BELONGS TO THE LINE RUNS THE LINE (Andrew's ruling, 2026-08-07). `o.runsLine` is
        the durable opt-in the driver reads off the job record (cron-store `runsLine`): true only for a routine
        created from a line's own INBOX trigger zone. Without it this is a routine that predates the workflow
@@ -12118,6 +12126,9 @@ function quiesceForProcessFault() {
     });
     const tgBotInflights = [...telegramBots.values()].map((w) => (w && w.hub && w.hub._internals) ? w.hub._internals.inflight : null);
     const devInflight = (devHub && devHub._internals) ? devHub._internals.inflight : null;
+    // the station's OWN fault, never the Commander's E-STOP: each run it kills is marked first, so a chat's notice and a STEP
+    // THROUGH name the fault (halt.js markFaulted; wave 2 repair, conveyor-backend-08)
+    markFaulted(tgInflight, dcInflight, ...genericInflights, ...tgBotInflights, devInflight, stepTest ? stepTest.inflight : null);
     killAll(runs, tgInflight, dcInflight, ...genericInflights, ...tgBotInflights, devInflight, stepTest ? stepTest.inflight : null);
   });
   // line triggers, as E-STOP does (handleHalt): no further folder poll, every waiting item dropped, every trigger
@@ -12128,14 +12139,16 @@ function quiesceForProcessFault() {
     if (triggerPollTimer) clearInterval(triggerPollTimer);
     triggerPollTimer = null;
     triggerRunner.haltAll();
+    markFaulted(...triggerRunner.inflights());
     killAll(null, ...triggerRunner.inflights());
   });
   // SEND TO hand-offs: every waiting one dropped, every target line's live run killed (handoffRunner is declared below too)
   // (each dropped one is said on its records — the station's fault, never the Commander's E-STOP)
-  contain('handoffs', () => { if (handoffRunner) { handoffRunner.haltAll('the station hit an internal fault and stopped its background work — nothing was sent on'); killAll(null, ...handoffRunner.inflights()); } });
+  contain('handoffs', () => { if (handoffRunner) { handoffRunner.haltAll('the station hit an internal fault and stopped its background work'); markFaulted(...handoffRunner.inflights()); killAll(null, ...handoffRunner.inflights()); } });
   // the whole-line SAMPLE hub's run (POST /api/routing/sample) is real spend too — its own containment for the same
-  // reason as the triggers above (sampleHub is declared further down this file)
-  contain('sample', () => { if (sampleInFlight) sampleInFlight.stopRequested = true; killAll(null, (sampleHub && sampleHub._internals) ? sampleHub._internals.inflight : null); });
+  // reason as the triggers above (sampleHub is declared further down this file). stopCause 'fault': its record and its answer
+  // name the station's fault, never "you stopped this job" (wave 2 repair, conveyor-backend-08's sibling)
+  contain('sample', () => { if (sampleInFlight) { sampleInFlight.stopRequested = true; sampleInFlight.stopCause = 'fault'; } markFaulted((sampleHub && sampleHub._internals) ? sampleHub._internals.inflight : null); killAll(null, (sampleHub && sampleHub._internals) ? sampleHub._internals.inflight : null); });
   contain('groups', () => groupSessions && groupSessions.halt && groupSessions.halt());
   contain('subagents', () => subagents && subagents.interruptAll && subagents.interruptAll());
   contain('shell-background', () => shellBg && shellBg.killAll && shellBg.killAll());
@@ -12159,6 +12172,15 @@ function gracefulShutdown(signal) {
   const deadline = setTimeout(() => { try { console.warn('  · shutdown deadline hit — forcing exit'); } catch (_) {} process.exit(0); }, 3000);
   if (deadline.unref) deadline.unref();
   try { flushVerdictPackets(); } catch (e) { failNote('verdict.packets.shutdown', e); }   // a rating after the restart must still find its packet
+  // SEND TO hand-offs still WAITING in a line's queue live only in memory: each goes through the refusal path NOW, before the runs
+  // are aborted, so the target line gets its "not sent on" record and every sending job reads NOT sent on, with why (wave 2 review,
+  // conveyor-backend-03 — they used to vanish on a restart or an update). lineJobsSet saves synchronously, so the records are on disk
+  // before exit. The one RUNNING is said as interrupted at the next boot (LineJobs.boot). A hard kill skips this path entirely.
+  // { close: true } closes admission as well (wave 2 repair): hub-driven jobs keep running through the ~3 s shutdown window, and a
+  // hand-off one of them sends meanwhile is refused with the same reason on both lines, never queued into memory that exits.
+  // (The desktop Quit and window-close POST /api/halt FIRST — src-tauri drain_and_kill_sidecar — so there the waiting hand-offs
+  // were already said as "automation is stopped (E-STOP)"; this path is what SIGTERM/SIGINT, IPC and /api/lifecycle/quit alone get.)
+  try { if (handoffRunner) handoffRunner.haltAll('the station stopped before this hand-off ran — send the job again', { close: true }); } catch (e) { failNote('shutdown.handoffs', e); }
   try { if (typeof cronTimer !== 'undefined' && cronTimer) { clearInterval(cronTimer); } } catch (_) {}
   try { if (typeof nightshiftTimer !== 'undefined' && nightshiftTimer) { clearInterval(nightshiftTimer); } } catch (_) {}   // NS-1: stop the night-shift ticker on shutdown
   try { if (typeof connectorLifecycleTimer !== 'undefined' && connectorLifecycleTimer) { clearInterval(connectorLifecycleTimer); } } catch (_) {}
@@ -12589,18 +12611,30 @@ async function runSampleJob(readArgs) {
        only land on that line's docks, but if resolution ever fell through to a hub fallback the proof
        must fail honestly rather than 200 while claiming a line it never rode. */
     const onLine = !line || entryLineId === line;
+    // a PARTIAL joined job (a COPY branch failed or never reached the JOINER — chain out.partial) is not delivered, even when every
+    // run row that exists ended done: a hop refused before it ran writes none (runtime repair 2026-10-12)
+    const partial = (sampleLineOutcome && sampleLineOutcome.partial) ? String(sampleLineOutcome.partial) : '';
     const completed = onLine && runs.length > 0 && runs.every(r => r.reason === 'done')
-      && !!sampleLineOutcome && !sampleLineOutcome.stopped
+      && !!sampleLineOutcome && !sampleLineOutcome.stopped && !partial
       && router.chainShipsToOutbox(sampleLineOutcome.agentId, sampleLineOutcome.dockId);
     const delivered = completed ? runs[0] : null;
     const totalUsd = runs.reduce((s, r) => s + ((typeof r.usd === 'number' && isFinite(r.usd)) ? r.usd : 0), 0);
+    /* A JOB REFUSED BEFORE ANY STEP RAN SAYS WHY (conveyor-ui-03): the hub answers a refusal it made itself — a spent LINE BUDGET,
+       a run that could not start — as a ⚠ reply and records no run. That reply IS the reason: it becomes the route's error and
+       the job record's, so the panel, the FINISH card and station.test_line say "the line reached its $1.00 daily limit — raise
+       its LINE BUDGET…", never only "no durable run outcome". Only a ⚠ reply of the hub's own, and only when nothing ran. */
+    const refusedSaid = runs.length ? '' : (sampleReplies.map(t => String(t == null ? '' : t).trim()).filter(t => /^⚠/.test(t)).pop() || '').replace(/^⚠\s*/, '').trim().slice(0, 400);
     // the job's record takes the route's own verdict: delivered · a problem (steps ran, not all clean) · stopped · failed (nothing ran)
     const jobId = sampleInFlight.jobId || null;
+    // NO RUN ROW, BUT A REASON (trigger-runner's pattern): an entry refused before it could run (the line's daily cap, reached
+    // at admission) records no row — the hub's ⚠ reply is the only witness of why, and it is what the job record says
+    const firstWarn = (sampleReplies.find(x => /^⚠/.test(String(x).trim())) || '').trim().replace(/^⚠\s*/, '').trim();
     if (jobId) {
       const stoppedJob = !!sampleInFlight.stopRequested;
+      // (wave 2 repair) the station's own fault containment stopped it (stopCause 'fault'): said as that, never "you stopped this job"
       lineJobsSet(LineJobs.finish(lineJobs, jobId, { at: Date.now(), usd: totalUsd, output: sampleReplies.join(''), runs,
         status: completed ? 'delivered' : stoppedJob ? 'stopped' : runs.length ? 'problem' : 'failed',
-        error: completed ? '' : stoppedJob ? 'you stopped this job' : !onLine ? 'the job did not enter through this line' : runs.length ? 'a step did not finish cleanly' : 'no step ran' }));
+        error: completed ? '' : stoppedJob ? (sampleInFlight.stopCause === 'fault' ? 'the station hit an internal fault and stopped this job' : 'you stopped this job') :!onLine ? 'the job did not enter through this line' : (partial && runs.every(r => r.reason === 'done')) ? 'the joiner sent on without every branch (' + partial + ')' : runs.length ? 'a step did not finish cleanly' : (refusedSaid || firstWarn || 'no step ran') }));
       sampleInFlight.jobId = null;
     }
     const recordedJob = jobId ? LineJobs.get(lineJobs, jobId) : null;
@@ -12620,10 +12654,13 @@ async function runSampleJob(readArgs) {
       return json(502, Object.assign({
         ok: false, sample: true, error: stopped ? 'stopped — you stopped this job before it reached the OUTBOX'
           : !onLine ? 'sample job did not enter through line "' + line + '"'
-          : runs.length ? 'sample job did not complete cleanly' : 'sample job produced no durable run outcome',
+          : (partial && runs.length && runs.every(r => r.reason === 'done')) ? 'sample job came out of its joiner partial (' + partial + ')'
+          : runs.length ? 'sample job did not complete cleanly' : (refusedSaid || firstWarn || 'sample job produced no durable run outcome'),
         chatId: SAMPLE_CHAT, streamId: streamId, agentId: agentId || null, isTask: isTask,
         workitemId: workitemId || null, replies: sampleReplies.slice(), runs: runs, delivered: null, totalUsd: totalUsd
-      }, line ? { line: line } : null, stopped ? { stopped: true } : null, jobId ? { jobId } : null, onward));
+      }, line ? { line: line } : null, stopped ? { stopped: true } : null, jobId ? { jobId } : null, onward,
+      // (wave 2 repair) a stop the station's own fault containment made is said as that fault, never as the Commander's stop
+      (stopped && sampleInFlight.stopCause === 'fault') ? { error: 'stopped — the station hit an internal fault and stopped this job before it reached the OUTBOX', stoppedBy: 'fault' } : null));
     }
     return json(200, Object.assign({
       ok: true, sample: true, chatId: SAMPLE_CHAT, streamId: streamId,
@@ -12776,6 +12813,8 @@ const triggerRunner = makeTriggerRunner({
   },
   // the durable automation E-STOP, OR a process fault that quiesced this torn process (no new fire may start)
   halted: () => cronHalted === true || processFaultQuiesced === true,
+  // the halt is the station's own fault containment (never the Commander's E-STOP, which wins when both are set): only the words differ
+  faulted: () => processFaultQuiesced === true && cronHalted !== true,
   runsFor: (streamId) => (runStore.list(null, { streamId: streamId, limit: 200 }) || []).filter(r => r && String(r.streamId || '') === streamId)
     .map(r => ({ runId: r.runId, agentId: r.agentId, reason: r.reason, usd: r.usd, streamId: r.streamId })),
   emit: chanEmit, bumpQueue: bumpQueue, queueCap: QUEUE_CAP,
@@ -12801,6 +12840,8 @@ handoffRunner = makeHandoffRunner({
     return { cap: lim.maxUsdPerDay, spent: lineSpend.spentToday(lineId) };
   },
   halted: () => cronHalted === true || processFaultQuiesced === true,
+  // the halt is the station's own fault containment (never the Commander's E-STOP, which wins when both are set): only the words differ
+  faulted: () => processFaultQuiesced === true && cronHalted !== true,
   workspaceOf: (agentId) => executionEnvironment.forAgent(agentId).workspaceRoot(agentId),
   runsFor: (streamId) => (runStore.list(null, { streamId: streamId, limit: 200 }) || []).filter(r => r && String(r.streamId || '') === streamId)
     .map(r => ({ runId: r.runId, agentId: r.agentId, dockId: r.dockId || null, lineId: r.lineId || null, reason: r.reason, usd: r.usd, streamId: r.streamId,
@@ -13238,11 +13279,18 @@ function lineStatsSnapshot(since) {
   const plan = router.getPlan();
   const lines = (plan && Array.isArray(plan.lines)) ? plan.lines : [];
   const pool = linePoolCap();
+  /* an unreadable / invalid shipment history makes SHIPPED unknown on every line (null + why) — it no longer takes the whole
+     answer down: RUNS, FAILED, $ against the cap, the median, the tests and the bay lamps never depended on the receipts
+     (runtime audit 2026-10-12). Never an empty list in its place: that would read as "nothing shipped". */
+  let shipments = null, shippedUnknown = null;
+  try { shipments = lineShipments.snapshot(); }
+  catch (e) { failNote('line-stats.shipments', e); shippedUnknown = 'shipment history unreadable: ' + String((e && e.message) || e).slice(0, 160); }
   return foldLineStats({
     rows: runStore.list(null, { limit: 1000 }) || [], lines, since,
     spentToday: id => lineSpend.spentToday(id),
     capOf: id => chainEffectiveLimits(router.lineLimits(id), {}, pool).maxUsdPerDay,
-    shipments: lineShipments.snapshot()
+    shipments, shippedUnknown,
+    shipmentsMissedAt: lineShipments.missedAt()   // a job that shipped past the hold while the history was unreadable: SHIPPED at least
   });
 }
 /* GET /api/routing/lines/stats?since=<ms> — LINE WATCH. `since` is the caller's local midnight (the same window the
@@ -13256,7 +13304,9 @@ function handleLineStats(req, res) {
     const nowMs = Date.now();
     const q = Number(u.searchParams.get('since'));
     const utcDay = nowMs - (nowMs % (24 * 60 * 60 * 1000));
-    const since = (isFinite(q) && q > 0 && q <= nowMs) ? q : utcDay;
+    // never older than the shipment retention window: a range whose receipts were pruned would under-count SHIPPED (the answer
+    // carries the window it really read in `since`)
+    const since = Math.max((isFinite(q) && q > 0 && q <= nowMs) ? q : utcDay, nowMs - SHIPMENT_KEEP_MS);
     return json(200, Object.assign({ ok: true }, lineStatsSnapshot(since)));
   } catch (e) {
     return json(500, { ok: false, error: 'line stats unreadable: ' + String((e && e.message) || e).slice(0, 200) });
@@ -15956,6 +16006,7 @@ async function handleCronRun(req, res) {
           // every-step-ended-done check and the files it made) — without it Run Now handed on half-finished work the schedule refuses
           runId, streamId: 'cron-' + runId,
           entryUsd: state.usd,   // stage one is part of the chain — its spend counts against MAX_CHAIN_USD (2026-08-10)
+          hostPowerKept: true,   // SEND TO VERDICT: the same as the scheduled seam above (a routine never withholds host power; never the trusted-entry verdict)
           // SAME ORIGIN AS THE SCHEDULED FIRE (work belongs to a line, 2026-08-07): Run Now is this routine's
           // own trigger pressed by hand, so it carries the dock's lineId and the line runs — but ONLY for a
           // routine that belongs to the line (the durable `runsLine` opt-in, read off the same job record the
@@ -19600,10 +19651,15 @@ async function runOnceCore(o) {
   // routines all reach this host-derived origin; checking only chain.advance let every new job buy its
   // entry run after the day limit, and a one-step line never checked the cap at all. Re-read at admission
   // (including queued turns), before a routine script or provider can run. Direct orders carry no origin.
-  if (workflowLine) {
-    const lim = chainEffectiveLimits(router.lineLimits(workflowLine), {},
+  // A TERMINAL routine (runsLine !== true, Andrew's 08-07 ruling) is not line work: LINE WATCH stamps its crate with the bay's
+  // line (workflowLine above keeps that for the crew check and the row), but its chain seed carries no line, so its spend never
+  // reaches this ledger — the line's cap must not refuse it. Both routine entries carry cronJobId (the scheduled fire and Run
+  // Now); hub entries, samples, line triggers, hops and step tests carry none and keep the cap.
+  const capLine = (o.cronJobId && o.runsLine !== true) ? null : workflowLine;
+  if (capLine) {
+    const lim = chainEffectiveLimits(router.lineLimits(capLine), {},
       (typeof effectiveCaps.global === 'number' && effectiveCaps.global > 0) ? effectiveCaps.global : null);
-    if (lim.maxUsdPerDay != null && lineSpend.spentToday(workflowLine) >= lim.maxUsdPerDay) {
+    if (lim.maxUsdPerDay != null && lineSpend.spentToday(capLine) >= lim.maxUsdPerDay) {
       emit('agent.run.start', { agentId, runId, trigger, model: o.noAgent ? '' : model, ...runStartExtra });
       emit('agent.run.error', { agentId, runId, transient: false,
         message: 'The line reached its $' + lim.maxUsdPerDay.toFixed(2) + ' daily limit — raise its LINE BUDGET or try again tomorrow.' });

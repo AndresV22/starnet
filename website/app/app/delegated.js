@@ -29,19 +29,10 @@ const Delegated = (() => {
     const list = has(App, 'agents') ? App.agents() : [];
     return list.find(a => a.id === id) || { id, name: (has(App, 'agentName') && App.agentName(id)) || id };
   }
-  function excerpt(ws) {
-    const h = (ws && ws.history) || [];
-    for (let i = h.length - 1; i >= 0; i--) {
-      const m = h[i];
-      if (m && m.role === 'assistant' && !m.sys && String(m.content || '').trim()) {
-        const line = String(m.content).split(/\r?\n/).map(s => s.replace(/^[#>*\-\s]+/, '').replace(/\*\*|`/g, '').trim()).find(Boolean) || '';
-        return line.length > 90 ? line.slice(0, 89).trimEnd() + '…' : line;
-      }
-    }
-    return '';
-  }
-
-  /* one dispatch = the threads one lead run filed; rows keep the order the threads were made in */
+  /* one card = the threads one lead run filed: its dispatch calls in the order they were made (a thread's `call`, the
+     requestId's middle segment), each call's workers in the order it asked for them. /api/overseer threads[] do not
+     carry `call` yet (sidecar/overseer.js snapshot() sends leadRunId and slot only): until they do, every row reads as
+     one call and a lead run's rows sort by slot alone, so two calls in one run still interleave. */
   function batches(parentId) {
     if (typeof Workstreams === 'undefined' || !parentId) return [];
     const s = snap();
@@ -56,10 +47,16 @@ const Delegated = (() => {
       const t = threads.get(k.id);
       const lead = (t && t.leadRunId) || (worker && worker.parentRunId) || ('at:' + Math.floor((+k.createdAt || 0) / 60000));
       if (!groups.has(lead)) groups.set(lead, { lead, at: +k.createdAt || 0, rows: [] });
-      groups.get(lead).rows.push({ ws: k, worker, slot: (t && Number(t.slot)) || 0 });
+      groups.get(lead).rows.push({ ws: k, worker, slot: (t && Number(t.slot)) || 0, call: (t && t.call) || '' });
     }
-    // a dispatch's workers in the order the lead asked for them (threads made in the same instant tie on createdAt)
-    groups.forEach(g => g.rows.sort((x, y) => x.slot - y.slot));
+    // a lead run's dispatch calls in the order they were made (rows are in createdAt order here), and each call's
+    // workers in the order the lead asked for them (threads made in the same instant tie on createdAt; slots restart
+    // at 0 for every call, so sorting by slot alone would interleave two calls)
+    groups.forEach(g => {
+      const first = new Map();
+      g.rows.forEach((r, i) => { if (!first.has(r.call)) first.set(r.call, i); });
+      g.rows.sort((x, y) => (first.get(x.call) - first.get(y.call)) || (x.slot - y.slot));
+    });
     return Array.from(groups.values()).sort((a, b) => a.at - b.at);
   }
 
@@ -99,6 +96,31 @@ const Delegated = (() => {
     return i >= 0 && i < ids.length - 1 ? null : w;
   }
 
+  // a stale worker was cut off by a station restart, or stopped by the liveness check while the station stayed up
+  // (the sidecar records that reason as "stalled: …"): say which, never a restart that did not happen
+  const staleLine = w => /^stalled\b/.test(String((w && w.reason) || '')) ? 'stopped after making no progress' : 'stopped when the station restarted';
+  // why a worker ended, in a few plain words: the ledger's reason codes are internal ('refused', 'output_limit', …).
+  // A code with no phrase shows as itself only while it is short; a long free-text reason shows nothing here.
+  const WHY = { refused: 'couldn\'t start (too many running, or a sign-in is needed)', timeout: 'ran out of time', empty: 'the model sent an empty reply', refusal: 'the model declined the task',
+    output_limit: 'hit the model\'s output limit', 'invalid-result': 'its result failed the format check', 'not-dispatched': 'never started',
+    stalled: 'made no progress', error: 'hit an error' };
+  function whyOf(r) {
+    const s = String(r || '').trim();
+    return WHY[s] || WHY[s.split(':')[0].trim()] || (s.length > 40 ? '' : s.replace(/[_-]+/g, ' '));
+  }
+  // the sidecar's own explanation of a bad end, for a hover tip: a refusal's or an error's sentence (the ledger's result;
+  // a timeout's or a rejected answer's result is the worker's partial work, never a reason) or a long free-text reason
+  // the status line leaves out (the liveness check's receipt). Clipped, never invented. /api/overseer workers[] do not
+  // carry `result` yet, so today only the liveness receipt shows; a refused or failed row's tip stays empty until the
+  // route projects it.
+  function tipOf(w) {
+    if (!w || !['error', 'refused', 'stale'].includes(w.status)) return '';
+    const reason = String(w.reason || '').trim();
+    const said = w.status !== 'stale' && (w.status === 'refused' || reason === 'refused' || reason === 'error') ? String(w.result || '') : '';
+    const one = (said.trim() || (reason.length > 40 ? reason : '')).replace(/\s+/g, ' ').trim();
+    return one.length > 200 ? one.slice(0, 199) + '…' : one;
+  }
+
   /* the row's state, in priority order. `parentLive` = the lead run that dispatched it is still running on this page. */
   function stateOf(r, parentId, lead) {
     const k = r.ws, w = currentWorker(r), C = typeof Channels !== 'undefined' ? Channels : null;
@@ -113,12 +135,12 @@ const Delegated = (() => {
     const reason = String((w && w.reason) || k.lastRunReason || '');
     if (reason === 'budget' || reason === 'max_iters') return { cls: 'stopped', live: reason === 'budget' ? 'budget limit reached' : 'step limit reached', t: '' };
     if (['aborted', 'cancelled', 'interrupted', 'stopped'].includes(reason)) return { cls: 'stopped', live: 'stopped before completion', t: '' };
-    if (w && w.status === 'done') return { cls: 'done', live: excerpt(k) || 'done', t: w.completedAt && w.startedAt ? clock(w.completedAt - w.startedAt) : '' };
-    if (w && (w.status === 'error' || w.status === 'refused')) return { cls: 'failed', live: 'failed' + (w.reason && w.reason !== 'error' ? ' · ' + w.reason : ''), t: '' };
-    if (w && (w.status === 'interrupted' || w.status === 'stale')) return { cls: 'stopped', live: w.status === 'stale' ? 'stopped when the station restarted' : 'stopped', t: '' };
+    if (w && w.status === 'done') return { cls: 'done', live: 'done', t: w.completedAt && w.startedAt ? clock(w.completedAt - w.startedAt) : '' };
+    if (w && (w.status === 'error' || w.status === 'refused')) return { cls: 'failed', live: 'failed' + (w.reason && w.reason !== 'error' && whyOf(w.reason) ? ' · ' + whyOf(w.reason) : ''), t: '', tip: tipOf(w) };
+    if (w && (w.status === 'interrupted' || w.status === 'stale')) return { cls: 'stopped', live: w.status === 'stale' ? staleLine(w) : 'stopped', t: '', tip: tipOf(w) };
     if (k.lastRunOk === false) return { cls: 'failed', live: 'failed', t: '' };
-    if (reason === 'done') return { cls: 'done', live: excerpt(k) || 'done', t: '' };
-    if (reason) return { cls: 'failed', live: 'ended · ' + reason, t: '' };
+    if (reason === 'done') return { cls: 'done', live: 'done', t: '' };
+    if (reason) return { cls: 'failed', live: 'ended · ' + (whyOf(reason) || 'before finishing'), t: '' };
     if ((k.runIds || []).length) return { cls: 'recorded', live: 'result available · completion unconfirmed', t: '' };
     const parentBusy = C && C.isBusy && C.isBusy(parentId) && (!C.runIdOf || !lead || C.runIdOf(parentId) === lead);
     if (parentBusy) return { cls: 'queued', live: 'starting', t: '' };
@@ -136,7 +158,7 @@ const Delegated = (() => {
     return (all || []).find(p => p && ((p.workerStreamId && p.workerStreamId === r.ws.id) || (p.workerRunId && runIds.has(String(p.workerRunId))))) || null;
   }
 
-  /* ONE CARD PER DISPATCH under the ask: "Delegated to MIRA, ROOK and VEX · 2 working · 1 done". While anything runs (or
+  /* ONE CARD PER LEAD RUN under the ask (its dispatch calls in order): "Delegated to MIRA, ROOK and VEX · 2 working · 1 done". While anything runs (or
      waits on you) its rows show (2026-10-10 blind test: who-has-what and Stop without a click); once all settle it
      folds to that one line. The Commander's own click wins either way while the page lives. */
   const opened = new Set();   // batch keys the Commander expanded
@@ -175,7 +197,7 @@ const Delegated = (() => {
       // the thread's " (2)" is only there to keep thread titles unique; the card says the task in its own words
       const task = String(r.ws.title || 'Delegated task').replace(/ \(\d+\)$/, '').replace(/ · \d{4}-\d\d-\d\d \d\d:\d\d:\d\d$/, '');
       const who = a.name || a.id, id = r.ws.id, shown = seen.has(id);
-      const status = st.cls === 'waiting' ? askLine(st.pend) : cap(st.cls === 'done' ? WORD[st.cls] : st.live || WORD[st.cls]);
+      const status = st.cls === 'waiting' ? askLine(st.pend) : cap(st.live || WORD[st.cls]);
       // ONE way to act per state: answer its ask, stop it while it runs, else see its work
       const key = st.cls === 'waiting' && st.pend.tool === 'brief.ask'
         ? '<button type="button" class="dg-key primary" data-dg-question="' + esc(st.pend.promptId) + '">Answer</button>'
@@ -187,7 +209,7 @@ const Delegated = (() => {
           : '<button type="button" class="dg-key" data-dg-see="' + esc(id) + '" aria-expanded="' + shown + '">' + (shown ? 'Hide work' : 'See work') + '</button>';
       return '<div class="dg-li ' + st.cls + '" data-dg-row="' + esc(id) + '" role="group" aria-label="' + esc(who + ': ' + task + ' — ' + WORD[st.cls]) + '">'
         + '<span class="dg-lamp ' + st.cls + '" aria-hidden="true"></span><span class="dg-li-who">' + esc(who) + '</span>'
-        + '<span class="dg-li-task" data-tip="' + esc(task) + '">' + esc(task) + '</span><span class="dg-li-st">' + esc(status) + '<span data-dg-clock="' + esc(id) + '"></span></span>' + key
+        + '<span class="dg-li-task" data-tip="' + esc(task) + '">' + esc(task) + '</span><span class="dg-li-st"' + (st.tip ? ' data-tip="' + esc(st.tip) + '"' : '') + '>' + esc(status) + '<span data-dg-clock="' + esc(id) + '"></span></span>' + key
         + '</div>' + (st.pend && st.pend.tool !== 'brief.ask' ? '<div class="dg-inspect" data-dg-inspect="' + esc(id) + '" data-dg-prompt="' + esc(st.pend.promptId) + '"></div>' : '')
         + (shown ? '<div class="dg-work" data-dg-work="' + esc(id) + '">' + workHtml(id, who) + '</div>' : '');
     }).join('') + '</div>';
@@ -479,6 +501,6 @@ const Delegated = (() => {
   }
 
   if (typeof document !== 'undefined') document.addEventListener('DOMContentLoaded', wire);
-  return { presentFor, repaint, batches, stateOf, reveal, hosts, _internals: { workerRunOf, anchorFor, excerpt, lineHtml, opened, closed, seen, receipts, foldReceipt, askOf, hydrate, loadReceipt } };
+  return { presentFor, repaint, batches, stateOf, reveal, hosts, staleLine, whyOf, tipOf, _internals: { workerRunOf, anchorFor, lineHtml, opened, closed, seen, receipts, foldReceipt, askOf, hydrate, loadReceipt } };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = Delegated;

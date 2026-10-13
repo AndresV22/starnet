@@ -398,6 +398,22 @@ const settle = async (R, id) => { for (let i = 0; i < 50; i++) { await R.st.sett
     A.eq(s.state, 'stopped'); A.ok(/E-STOP/.test(s.error), 'says E-STOP: ' + s.error);
   }
 
+  /* ---- THE STATION'S OWN FAULT (wave 2 repair, conveyor-backend-08's sibling): the process-fault containment marks the step-test run
+     faulted before it kills it, so the test says the station hit a fault — never an E-STOP nobody pressed ---- */
+  {
+    let release; const hold = new Promise(res => { release = res; });
+    const R = rig(twoDock(), {}, { gate: () => hold });
+    const r = R.st.start({ line: R.lineId, text: 'go' });
+    const { killAll, markFaulted } = require('../sidecar/halt.js');
+    markFaulted(R.st.inflight);
+    A.eq(killAll(null, R.st.inflight), 1, 'fault: the containment reaches the step-test run');
+    release();
+    const s = await settle(R, r.session.id);
+    A.eq(s.state, 'stopped', 'fault: the test is stopped');
+    A.ok(/internal fault/.test(s.error) && !/E-STOP/.test(s.error), 'fault: says the station hit a fault, not E-STOP: ' + s.error);
+    A.ok(/internal fault/.test(s.hops[0].error || ''), 'fault: the step\'s own error says it too: ' + s.hops[0].error);
+  }
+
   /* ---- (sweep 2026-09-25) the owner reads display names, never raw agent ids ---- */
   {
     const noOut = twoDock();
@@ -420,6 +436,102 @@ const settle = async (R, id) => { for (let i = 0; i < 50; i++) { await R.st.sett
     const R2 = rig(twoDock({}), { research: { text: 'fine', usd: 0.01 }, writer: { text: 'ok', usd: 0.01 } });
     const s2 = await settle(R2, R2.st.start({ line: R2.lineId, text: 'go' }).session.id);
     A.eq(s2.hops[0].denied, [], 'a clean step records none');
+  }
+
+  /* ---- TWO REVIEW LOOPS IN A ROW (wave 2 review, conveyor-backend-02): drafter ▸ factcheck ▸ LOOP1 ▸ style ▸ LOOP2 ▸ publisher ▸
+     OUTBOX, both back lanes to the drafter (chain-audit-1010's floor). LOOP2 says revise; on the re-run LOOP1 approves and used to
+     lower the ONE looping flag while LOOP2's pass was still open, so the visited style read as a loop-back and STEP THROUGH stopped
+     "before style" on a line RUN ONE REAL JOB finishes. A gate closes only its own pass (chain.js openLoops, 2026-10-10). ---- */
+  {
+    const belts = [belt(1, 4, 'E'), belt(2, 4, 'E'), belt(5, 4, 'E'), belt(6, 4, 'E'), belt(7, 4, 'E'), belt(10, 4, 'E'), belt(11, 4, 'E'), belt(12, 4, 'E'),
+      belt(13, 4, 'E'), belt(14, 4, 'E'), belt(12, 3, 'N'), belt(12, 2, 'N'), belt(12, 1, 'W')];
+    for (let x = 11; x >= 6; x--) belts.push(belt(x, 1, 'W'));
+    belts.push(belt(5, 1, 'S'), belt(5, 2, 'S'));
+    belts.push(belt(17, 4, 'E'), belt(18, 4, 'E'), belt(19, 4, 'E'), belt(20, 4, 'E'), belt(21, 4, 'E'));
+    belts.push(belt(19, 3, 'N'), belt(19, 2, 'N'), belt(19, 1, 'N'), belt(19, 0, 'W'));
+    for (let x = 18; x >= 5; x--) belts.push(belt(x, 0, 'W'));
+    belts.push(belt(4, 0, 'S'), belt(4, 1, 'S'), belt(4, 2, 'S'), belt(24, 4, 'E'));
+    const floor = { props: [
+      { id: 'p1', t: 'intake', x: 0, y: 4, w: 1, h: 1 },
+      { id: 'p2', t: 'bay', x: 3, y: 3, w: 2, h: 2, agentId: 'drafter' },
+      { id: 'p3', t: 'bay', x: 8, y: 3, w: 2, h: 2, agentId: 'factcheck' },
+      { id: 'p5', t: 'loop', x: 12, y: 4, w: 1, h: 1, done: 'E', when: 'approved', maxIter: 3 },
+      { id: 'p6', t: 'bay', x: 15, y: 3, w: 2, h: 2, agentId: 'style' },
+      { id: 'p7', t: 'loop', x: 19, y: 4, w: 1, h: 1, done: 'E', when: 'approved', maxIter: 3 },
+      { id: 'p8', t: 'bay', x: 22, y: 3, w: 2, h: 2, agentId: 'publisher' },
+      { id: 'p9', t: 'outbox', x: 25, y: 4, w: 1, h: 1 }], belts };
+    let styleN = 0;
+    const R = rig(floor, {
+      factcheck: () => ({ text: 'facts ok\nVERDICT: approved', usd: 0.01 }),
+      style: () => ({ text: (++styleN === 1) ? 'tone off\nVERDICT: revise' : 'good\nVERDICT: approved', usd: 0.01 })
+    });
+    A.eq(R.plan.errors.filter(e => !e.warn).length, 0, 'two gates: the floor compiles');
+    const r = R.st.start({ line: R.lineId, text: 'write X', pause: 'none' });
+    A.ok(r.ok, 'two gates: STEP THROUGH starts (' + r.error + ')');
+    const s = await settle(R, r.session.id);
+    A.eq(s.hops.map(h => h.agentId).join(' > '), 'drafter > factcheck > style > drafter > factcheck > style > publisher', 'two gates: the outer gate sends it round once, then on to the publisher');
+    A.eq(s.state, 'done', 'two gates: the test finishes (' + s.error + ')');
+    A.ok(s.final != null && !s.error, 'two gates: the publisher\'s work reaches the OUTBOX');
+    // a fresh session on a one-gate line (openLoops starts empty) still goes round once and out
+    const R2 = rig(loopFloor({ maxIter: 3, when: 'approved' }), { reviewer: (h, calls) => ({ text: calls.filter(c => c.agentId === 'reviewer').length === 1 ? 'x\nVERDICT: revise' : 'y\nVERDICT: approved', usd: 0.01 }) });
+    const s2 = await settle(R2, R2.st.start({ line: R2.lineId, text: 'go', pause: 'none' }).session.id);
+    A.eq(s2.hops.map(h => h.agentId).join(' > '), 'drafter > reviewer > drafter > reviewer > publisher', 'one gate: unchanged');
+    A.eq(s2.state, 'done', 'one gate: finishes');
+  }
+
+  /* ---- A SESSION SAVED BEFORE THE GATES WERE TRACKED (wave 2 repair of conveyor-backend-02): the old engine persisted only the
+     single W.looping flag, never W.openLoops. A STEP THROUGH paused mid-pass in a loop whose body is two steps long (drafter ▸
+     editor ▸ reviewer ▸ LOOP back to drafter ▸ publisher) used to write openLoops = {} on the first CONTINUE after the update, and
+     the next hop read "no gate open": editor → reviewer stopped as "the line loops back to reviewer" on a line the old engine
+     finished. A legacy session keeps its old flag until a gate decides. A rewind onto a step saved before the update walks the
+     same way. ---- */
+  {
+    const belts = [belt(1, 4, 'E'), belt(2, 4, 'E'), belt(5, 4, 'E'), belt(6, 4, 'E'), belt(7, 4, 'E'), belt(10, 4, 'E'), belt(11, 4, 'E'), belt(12, 4, 'E'),
+      belt(15, 4, 'E'), belt(16, 4, 'E'), belt(17, 4, 'E'), belt(18, 4, 'E'), belt(19, 4, 'E'), belt(17, 3, 'N'), belt(17, 2, 'N'), belt(17, 1, 'W'),
+      belt(22, 4, 'E'), belt(23, 4, 'E')];
+    for (let x = 16; x >= 6; x--) belts.push(belt(x, 1, 'W'));
+    belts.push(belt(5, 1, 'S'), belt(5, 2, 'S'));
+    const floor = { props: [
+      { id: 'p1', t: 'intake', x: 0, y: 4, w: 1, h: 1 },
+      { id: 'p2', t: 'bay', x: 3, y: 3, w: 2, h: 2, agentId: 'drafter' },
+      { id: 'p3', t: 'bay', x: 8, y: 3, w: 2, h: 2, agentId: 'editor' },
+      { id: 'p4', t: 'bay', x: 13, y: 3, w: 2, h: 2, agentId: 'reviewer' },
+      { id: 'p5', t: 'loop', x: 17, y: 4, w: 1, h: 1, done: 'E', when: 'approved', maxIter: 3 },
+      { id: 'p6', t: 'bay', x: 20, y: 3, w: 2, h: 2, agentId: 'publisher' },
+      { id: 'p7', t: 'outbox', x: 24, y: 4, w: 1, h: 1 }], belts };
+    let revN = 0;
+    const R = rig(floor, { reviewer: () => ({ text: (++revN === 1) ? 'meh\nVERDICT: revise' : 'ok\nVERDICT: approved', usd: 0.01 }) });
+    A.eq(R.plan.errors.filter(e => !e.warn).length, 0, 'legacy: the two-step loop body compiles');
+    // strip what the old engine never wrote, then boot a fresh engine over the same store (= the update's restart)
+    const toLegacy = () => {
+      const raw = JSON.parse(R.store.raw());
+      for (const x of raw) { if (x._w) delete x._w.openLoops; for (const h of x.hops || []) if (h._before) delete h._before.openLoops; if (x._pending && x._pending.before) delete x._pending.before.openLoops; }
+      R.store.save(raw);
+    };
+    const id = R.st.start({ line: R.lineId, text: 'write X', pause: 'every' }).session.id;
+    let st = R.st, s = null, upgraded = false;
+    const walk = async () => {
+      for (let i = 0; i < 30; i++) {
+        await st.settled(id); s = st.get(id).session;
+        if (s.state !== 'paused') return;
+        if (!upgraded && s.hops.length === 4 && s.hops[3].agentId === 'drafter') {
+          upgraded = true; toLegacy(); st = R.mk();
+          const w = st._sessions()[0]._w;
+          A.eq(w.openLoops, undefined, 'legacy: the reloaded session has no openLoops');
+          A.eq(w.looping, true, 'legacy: and is paused inside the loop pass');
+        }
+        st.continue(id, {});
+      }
+    };
+    await walk();
+    A.ok(upgraded, 'legacy: the session was paused after the drafter\'s second pass and reloaded');
+    A.eq(s.hops.map(h => h.agentId).join(' > '), 'drafter > editor > reviewer > drafter > editor > reviewer > publisher', 'legacy: the pass walks on through the editor and the reviewer');
+    A.eq(s.state, 'done', 'legacy: the test finishes (' + s.error + ')');
+    // rewind onto the drafter's second pass (a step whose saved walk predates the update) and walk it again
+    A.ok(st.rewind(id, { hop: 3 }).ok, 'legacy: rewind onto a pre-update step');
+    await walk();
+    A.eq(s.hops.map(h => h.agentId).join(' > '), 'drafter > editor > reviewer > drafter > editor > reviewer > publisher', 'legacy rewind: the same walk');
+    A.eq(s.state, 'done', 'legacy rewind: finishes (' + s.error + ')');
   }
 
   A.report('routing.steptest');

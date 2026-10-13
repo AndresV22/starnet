@@ -1197,7 +1197,7 @@ const Tutorial = (() => {
     }
     if (tab === 'GEAR') {
       const gear = [
-        ['desk', 'WORKSTATION', 'A desk, console, or pixel rig gives an agent a work position. A routed agent needs its own workstation; check line readiness before running work.'],
+        ['desk', 'WORKSTATION', 'A desk, console, or pixel rig gives an agent a work position. A routed agent needs its own workstation; the Workflow panel lists what a line still needs.'],
         ['war_intelcab', 'CABINET', 'File tools: read and write within the agent’s configured reach. Includes safes, vaults, racks, and shelves.'],
         ['comms_dish', 'DISH', 'Web search and page access. Uplinks and beacons provide the same capability.'],
         ['gigs_servercart', 'SERVER', 'Persistent notebook and reusable skill procedures. Relay stacks and cores also provide memory.'],
@@ -1218,7 +1218,7 @@ const Tutorial = (() => {
       const junctions = R.machines.filter(m => m.junction);
       return '<p class="fm-lead">Turn repeatable work into a production line. You can still give ordinary jobs in COMMS without building belts.</p>'
         + '<div class="fm-route"><span>INBOX<small>work arrives</small></span><i aria-hidden="true">→</i><span>BAY<small>agent + instructions</small></span><i aria-hidden="true">→</i><span>OUTBOX<small>output leaves</small></span></div>'
-        + fmEntry('01', 'Place the stations', 'In BUILD MODE, open <b>' + e(R.tab) + ' › ' + e(R.machinesShelf) + '</b> and place an INBOX, BAY, and OUTBOX. Click the BAY: the <b>Workflow panel</b> docks beside the floor — assign an agent and define its step. Each assigned agent needs a workstation; use the readiness panel to resolve missing compute.')
+        + fmEntry('01', 'Place the stations', 'In BUILD MODE, open <b>' + e(R.tab) + ' › ' + e(R.machinesShelf) + '</b> and place an INBOX, BAY, and OUTBOX. Click the BAY: the <b>Workflow panel</b> docks beside the floor — assign an agent and define its step. Each assigned agent needs its own workstation. If one is missing, the panel says which BAY needs a workstation; click that line to go to it.')
         + fmEntry('02', 'Connect the route', '<b>Drag from one machine onto the next</b>: the belt follows your pointer and lays itself (<kbd>R</kbd> flips its corner) — selected or not, so the BAY you just crewed belts the same way. A selected piece dragged onto open floor moves instead. Connect INBOX → BAY, then BAY → OUTBOX. Drag the middle of a belt to branch it; let go on empty floor to pick what goes there; right-click removes a piece or a belt. (' + e(R.belt) + ' still connects by two clicks.) Inspect the route and fix any flagged breaks.')
         + fmEntry('03', 'Give the line a source', 'Click the INBOX: its Workflow panel answers <b>What starts this line?</b> — add a schedule there, or a message on a connected channel (<b>BUILD › CONNECT › CHANNELS</b> connects the platforms; <b>WORK › AUTOMATE</b> manages routines and loops). A line can run when you send it a job; a schedule, folder, webhook, or SEND TO from another line can start it automatically.')
         + fmEntry('04', 'Hand work to another line', 'Drag a line’s <b>OUTBOX</b> onto another line’s <b>INBOX</b>, or pick a line under <b>SEND TO</b> in the OUTBOX’s Workflow panel. Every job that lands there starts a separate job on that line, using its own crew and budget. A circle is refused. Pick <b>NOWHERE</b> to stop sending. Copying a line leaves its external SEND TO and project folder behind; set them on the copy if needed.')

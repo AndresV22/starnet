@@ -4,7 +4,7 @@
 One tracked file per bug under `qa/bugs/`; this is only the index. File a new bug with
 `node scripts/qa/bugs.mjs --new --title "..." --surface <surface>`.
 
-**20** open (open+claimed) of 276 total — 0 P0 · 10 P1 · 10 P2
+**21** open (open+claimed) of 284 total — 0 P0 · 10 P1 · 11 P2
 
 Engineering status is separate from delivery and customer recovery. Legacy rows without origin are not a customer census.
 
@@ -300,6 +300,7 @@ User/owner reports: **114** · source fixed: **94** · installer verified: **6**
 | P2 | open | release | [Mac installer reports application unsupported on the computer](bugs/ff3fb4cb-mac-unsupported-installation-uncorrelated.md) | release-0120-prep-0915 | — |
 | P2 | open | release | [Windows Node 24 HTTP test exits with a native libuv assertion after passing](bugs/6e29727c-windows-node-24-http-test-exits-with-a-native-li.md) | reliability-audit-0919 | — |
 | P2 | open | safecell | [First file write in a fresh station can time out while the checkpoint runs inside its 10s budget](bugs/e47efecf-first-file-write-in-a-fresh-station-can-time-out.md) | agent/ollama-fixes | — |
+| P2 | open | world | [station.test_line claims an unconfirmed onward hand-off for a job that landed in a non-sending OUTBOX](bugs/3ee2d13a-test-line-unconfirmed-hand-off-from-a-non-sendin.md) | conveyor-final-runtime | — |
 | P2 | fixed | autonomy | [Cancelled edit starts a replacement language server](bugs/37059128-cancelled-edit-starts-a-replacement-language-ser.md) | reliability-audit | 547dd03d7 |
 | P2 | fixed | autonomy | [Commander-reported plan step shown as StarNet recorded](bugs/024e4e15-commander-reported-plan-step-shown-as-starnet-re.md) | sweep/autonomy | e0b979995 |
 | P2 | fixed | autonomy | [Deliverable naming instruction conflicts with explicit stop limits](bugs/5a35bcfe-deliverable-note-overrides-stop.md) | report-0110-0908 | 72a8a3043c263cd53ed353daed2042e256c8e236 |
@@ -371,6 +372,10 @@ User/owner reports: **114** · source fixed: **94** · installer verified: **6**
 | P2 | fixed | voice | [Muting the speaker mid-reply in hands-free nulls the only surviving rearm heartbeat — the mic never re-opens while the mode button still reads 'hands-free ON'](bugs/2f7b280c-muting-the-speaker-mid-reply-in-hands-free-nulls.md) | sweep/voice | 50a8b07b |
 | P2 | fixed | voice | [Revoked or replaced speech synthesis can publish stale audio](bugs/4fca711c-revoked-speech-synthesis-publishes-stale-audio.md) | agent/runtime-triage-1011 | 1d1a89980717271a2dbbc627088dca2f1c25c1ba |
 | P2 | fixed | voice | [The /api/stt degrade reason is written to the status line then overwritten by endListening()'s restore in the same synchronous block, so it is never painted](bugs/562b14a5-the-api-stt-degrade-reason-is-written-to-the-sta.md) | sweep/voice | 50a8b07b |
+| P2 | fixed | world | [A COPY section inside a review loop stops the job on its second pass](bugs/45054e87-a-copy-section-inside-a-review-loop-stops-the-jo.md) | conveyor-final-runtime | d3bf4937d |
+| P2 | fixed | world | [A hand-off the station's own fault stopped is blamed on E-STOP](bugs/de6f8dc7-a-hand-off-the-station-s-own-fault-stopped-is-bl.md) | conveyor-final-runtime | 20134a0af |
+| P2 | fixed | world | [A hand-off whose dispatch throws is dropped with only a console line](bugs/32df5ca7-a-hand-off-whose-dispatch-throws-is-dropped-with.md) | conveyor-final-runtime | 9ccd2ba42 |
+| P2 | fixed | world | [A refused hand-off card says not sent on three times](bugs/eb912c5a-a-refused-hand-off-card-says-not-sent-on-three-t.md) | conveyor-final-runtime | a49b5b96e |
 | P2 | fixed | world | [Agent look-back flicker and waypoint stutter](bugs/e356ce13-agent-look-back-flicker-and-waypoint-stutter.md) | skin-motion-0910 | 75a814c18 |
 | P2 | fixed | world | [Backdrop preview baking stalls settings interaction](bugs/63f08158-backdrop-preview-baking-stalls-settings-interact.md) | agent/glass-demo-0909 | db3ae6bb4 |
 | P2 | fixed | world | [Centered room lighting leaves sides dark and creates hotspots](bugs/741832d8-centered-room-lighting-leaves-sides-dark-and-cre.md) | agent/room-lighting-strip | 5f40c3e60 |
@@ -398,9 +403,12 @@ User/owner reports: **114** · source fixed: **94** · installer verified: **6**
 | P2 | fixed | world | [Roaming agents jam nose to nose in narrow hallways](bugs/2b7a920c-roaming-agents-jam-nose-to-nose-in-narrow-hallwa.md) | hallway-awareness-0917 | 54105ec6c |
 | P2 | fixed | world | [Room fixture grids flood edges and corners](bugs/b8594ab9-room-fixture-grids-flood-edges-and-corners.md) | agent/room-lighting-strip | 1525663d0 |
 | P2 | fixed | world | [Room lighting loses colour and flickers across the floor](bugs/3365f5ba-room-lighting-loses-colour-and-flickers-across-t.md) | agent/room-lighting-strip | 011ba23a4 |
+| P2 | fixed | world | [SEND TO hand-offs waiting when the station quits vanish without a record](bugs/b0c913b9-send-to-hand-offs-waiting-when-the-station-quits.md) | conveyor-final-runtime | 9ccd2ba42 |
 | P2 | fixed | world | [Standard text size leaves everyday controls and labels hard to read](bugs/96921b22-standard-text-size-leaves-everyday-controls-and.md) | agent/glass-demo-0909 | bb7df320ebad0f89338818730aba8503f5532091 |
 | P2 | fixed | world | [Station backup omits backdrop text size and session row preferences](bugs/f5a90439-station-backup-omits-backdrop-text-size-and-sess.md) | agent/release-ui-audit-0906 | 336919446 |
+| P2 | fixed | world | [station.test_line claims an unconfirmed onward hand-off for a failed test](bugs/0d10e82b-station-test-line-claims-an-unconfirmed-onward-h.md) | conveyor-final-runtime | 8968a9269 |
 | P2 | fixed | world | [Station tooltip: pointerout during the 320ms show delay cannot clear the pending timer (`if (!anchor) return` runs before hide()), so a ghost card pops up besid](bugs/01caed27-station-tooltip.md) | sweep/world | f4d03511 |
+| P2 | fixed | world | [STEP THROUGH stops on two review loops in a row](bugs/670332ae-step-through-stops-on-two-review-loops-in-a-row.md) | conveyor-final-runtime | 28d32bbfa |
 | P2 | fixed | world | [Turtle rear walk faces forward and wizard staff flickers](bugs/20a0796e-turtle-rear-walk-faces-forward-and-wizard-staff.md) | skin-motion-0910 | 734063b21 |
 | P2 | fixed | world | [Website preview applies retired rendering effects and implies live work](bugs/d0904df1-website-preview-applies-retired-rendering-effect.md) | agent/website-demo-0921 | 8be5cf230 |
 | P2 | fixed | world | [Workflow style undo can be overwritten by a delayed keep](bugs/1ee46ab1-workflow-style-undo-can-be-overwritten-by-a-dela.md) | agent/ux-triage-1011 | bf756e00e85172c01c9fc336bd9da69c8183864c |
@@ -417,7 +425,7 @@ User/owner reports: **114** · source fixed: **94** · installer verified: **6**
 | sessions | 1 |
 | skills | 1 |
 | onboarding | 2 |
-| world | 1 |
+| world | 2 |
 | voice | 0 |
 | release | 3 |
 
