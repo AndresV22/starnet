@@ -127,7 +127,9 @@ function replyLine(ex) {
    WHOSE WORDS (review memory-learning-06): only a row the Commander typed is carried as the Commander's standing word.
    A row another agent wrote (transcript `from`: a lead's brief to its worker) is marked "[brief from <agent>]" and
    counted apart. ownerVoice:false (host-minted: a run a non-owner or a group chat started, and its workers) carries
-   every message as this chat's context — other people's words are never presented as the Commander's instructions. */
+   every message as this chat's context — other people's words are never presented as the Commander's instructions.
+   ownerVoice defaults to true and the rows cannot tell a guest from the Commander, so the host's render call must pass
+   ownerVoice: !tasteWithheld (index.js) — without it a group chat's messages read as the Commander's standing words. */
 function render(dropped, opts) {
   opts = opts || {};
   const windowTokens = Math.max(0, Math.floor(Number(opts.windowTokens) || 0));

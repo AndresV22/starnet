@@ -10,8 +10,9 @@
               "Generated and saved … model X" line, never the requested one), the reported saved shape, verified transparency, and
               any reference image it matched (the run's transcript rows: tool_call arguments paired with the result)
      palette  the dominant colours IN the deliverable files (hex / rgb() / hsl(); a CSS custom property counts extra,
-              it is a design token), by frequency — read only from files unchanged since the run ended: a file a later
-              run rewrote holds THAT run's style, so it keeps its path but lends no colours or fonts
+              it is a design token), by frequency. A file a later run rewrote holds THAT run's style: when the caller
+              passes ranUntil and each file's mtimeMs, such a file keeps its path but lends no colours or fonts. Without
+              ranUntil every file is read as it is NOW, so the host must pass both (captureTasteRef in index.js)
      fonts    the primary family of each font-family declaration in those same files (plus Google Fonts links)
      tools    the approach: the run's successful tool calls in order (runstore `toolTrace`), repeats folded
 
