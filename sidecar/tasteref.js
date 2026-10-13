@@ -285,6 +285,5 @@ function refLine(ref, level, viewer) {
   if (tools) bits.push('via ' + tools);
   return (paths.length ? ' → ' + where + paths.join(', ') : '') + (bits.length ? ' · ' + bits.join(' · ') : '');
 }
-function hasStyle(ref) { return !!(ref && ((Array.isArray(ref.paths) && ref.paths.length) || (Array.isArray(ref.images) && ref.images.length) || (Array.isArray(ref.palette) && ref.palette.length))); }
 
-module.exports = { isDesignPath, colorsIn, fontsIn, styleSpec, imageCalls, methodOf, buildRef, refLine, hasStyle, DESIGN_EXT };
+module.exports = { isDesignPath, colorsIn, fontsIn, styleSpec, imageCalls, methodOf, buildRef, refLine, DESIGN_EXT };

@@ -87,7 +87,6 @@ const TRACE = [{ name: 'fs.write', ok: true }, { name: 'image_generate', ok: tru
   A.eq(T.buildRef({ artifacts: [], toolTrace: [{ name: 'notebook.write', ok: true }] }), null, 'nothing real to point at = no reference');
   const methodOnly = T.buildRef({ toolTrace: [{ name: 'web.search', ok: true }, { name: 'web.fetch', ok: true }] });
   A.eq(methodOnly, { v: 2, tools: 'web.search → web.fetch' }, 'a non-design task still remembers HOW it was done');
-  A.ok(!T.hasStyle(methodOnly) && T.hasStyle(ref), 'hasStyle: files/images/palette, not a method alone');
   A.ok(/→ site\/index\.html, images\/hero\.png, notes\.txt · palette #39ff88 .* · fonts Space Grotesk, VT323, Inter · image "neon synthwave skyline, \[x\] haze" \(google\/gemini-2\.5-flash-image, 16:9, reference sent: images\/old\.png\) · image "a fox logo" \(openai\/gpt-5-image-mini, 512x512, transparent\) · via fs\.write → image_generate$/.test(T.refLine(ref, 0)), 'level 0 is the whole reference: ' + T.refLine(ref, 0));
   A.eq(T.refLine(ref, 1), ' → site/index.html · palette #39ff88 #0b0f14 #e6e6e6 · font Space Grotesk', 'level 1: main file + 3 colours + main font');
   A.eq(T.refLine(ref, 2), ' → site/index.html', 'level 2: the main file');
