@@ -438,9 +438,9 @@ function approvalFixture(opts = {}) {
     const waitsStart = source.indexOf('  function announceWaits() {');
     const waitsEnd = source.indexOf('  /* Answer visible chips by voice.', waitsStart);
     assert.ok(waitsStart >= 0 && waitsEnd > waitsStart, 'announceWaits() is present');
-    const say = tool => {
+    const say = (tool, extra) => {
       const Channels = require('../frontend/app/channels.js'); Channels.reset();
-      Channels.setPending('w', { promptId: 'p-' + tool, tool }, 1000);
+      Channels.setPending('w', Object.assign({ promptId: 'p-' + tool, tool }, extra || {}), 1000);
       const spoken = [];
       // eslint-disable-next-line no-new-func
       new Function('Workstreams', 'Channels', 'Chat', 'App', 'speakLocal',
@@ -458,6 +458,46 @@ function approvalFixture(opts = {}) {
     chat = { consentPhrase: p => p.tool === 'shell.exec' ? 'run a command: npm test' : 'write a file' };
     App = { agentName: id => (id === 'lead' ? 'NOVA' : null) };
     assert.equal(say('shell.exec'), 'NOVA needs approval to run a command: npm test. Say approve, always allow, or deny.');
+    // a question is not an approval: it is spoken as the question, with only the answers voice can give — the card's
+    // one-tap options (chipCommand presses them) — never approve/always/deny, which approvalCommand ignores for brief.ask
+    const question = q => say('brief.ask', { argsSummary: typeof q === 'string' ? q : JSON.stringify(q) });
+    assert.equal(question({ question: 'Which database should I use?', options: ['Postgres', 'SQLite'] }),
+      'NOVA asks: Which database should I use? Say Postgres, SQLite, or use your judgment.', 'a question is read aloud with its options');
+    assert.equal(question({ question: 'Ship it today', options: [] }), 'NOVA asks: Ship it today. Say use your judgment, or answer on the card.');
+    assert.equal(question({ question: 'Which pages?', options: ['Home', 'About'], multiSelect: true }), 'NOVA asks: Which pages? Answer on the card.',
+      'a multi-select card is not offered by voice: its keys only toggle');
+    assert.equal(question({ question: 'Tell me about the last export.', mode: 'conversation' }), 'NOVA asks: Tell me about the last export. Answer on the card.');
+    assert.equal(question('not json'), 'NOVA has a quick question for you. Answer on the card.');
+    for (const line of [question({ question: 'Which one?', options: ['A'] }), question('not json')]) {
+      assert.doesNotMatch(line, /approv|always allow|deny/i, 'a question never offers approval answers');
+    }
+  }
+  // a spoken pick presses a pending question's real option key first; a multi-select card's toggles are never pressed
+  {
+    const chipStart = source.indexOf('  function chipButtons() {');
+    const chipEnd = source.indexOf('  /* ⛔ THE ONLY WAIT THAT SPEAKS', chipStart);
+    const cmdStart = source.indexOf('  function matchChoice(said, labels) {');
+    const cmdEnd = source.indexOf('  const approvalSubmissions = new Set();', cmdStart);
+    assert.ok(chipStart >= 0 && chipEnd > chipStart && cmdStart > chipEnd && cmdEnd > cmdStart, 'chipButtons() and chipCommand() are present');
+    const button = (label, cls) => ({ textContent: label, disabled: false, cls: cls || '', clicked: 0, click() { this.clicked++; } });
+    const dom = (askRows, chips) => ({ querySelectorAll: sel => sel === '#chat-log [data-clarify-prompt] .consent-btns'
+      ? askRows.map(btns => ({ querySelector: q => (q === '.consent-confirm' && btns.some(b => /consent-confirm/.test(b.cls))) ? {} : null, querySelectorAll: () => btns }))
+      : sel === '#chat-log .choice-row button.choice' ? chips : [] });
+    const press = (document, said) => {
+      const spoken = [];
+      // eslint-disable-next-line no-new-func
+      const handled = new Function('document', 'speakLocal', 'refreshTask', source.slice(chipStart, chipEnd) + source.slice(cmdStart, cmdEnd) + '\nreturn chipCommand;')(
+        document, t => spoken.push(t), () => {})(said);
+      return { handled, spoken };
+    };
+    const pg = button('★ Postgres'), sq = button('SQLite'), judge = button('use your judgment'), old = button('Postgres');
+    const r1 = press(dom([[pg, sq, judge]], [old]), 'postgres');
+    assert.ok(r1.handled && pg.clicked === 1 && old.clicked === 0, 'the pending question\'s own key is pressed, not an older chip of the same name');
+    assert.deepEqual(r1.spoken, ['Postgres.']);
+    const home = button('Home'), confirm = button('✔ confirm', 'consent-btn consent-confirm'), chip = button('Home');
+    const r2 = press(dom([[home, confirm]], [chip]), 'home');
+    assert.ok(home.clicked === 0, 'a multi-select toggle is never pressed by voice');
+    assert.ok(r2.handled && chip.clicked === 1, 'with no single-pick question open, chips answer as before');
   }
   assert.equal(source, fs.readFileSync(path.join(root, 'website', 'app', 'app', 'voice-live.js'), 'utf8'), 'the website voice controller matches the desktop');
   console.log('voice-live-ui.test.js: ok (confirmed ownership, siblings, pause accounting, refusal, duplicate, inflight and call-generation controls)');

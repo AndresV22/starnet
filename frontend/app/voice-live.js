@@ -455,7 +455,13 @@ const VoiceLive = (() => {
      but the ASK happens aloud, and the call never depends on the Commander looking at the screen. */
   let spokenApprovalId = null;
   function chipButtons() {
-    return Array.from(document.querySelectorAll('#chat-log .choice-row button.choice')).filter(b => !b.disabled);
+    // a pending question's one-tap answers come first (chat.js clarifyRow: the run is paused on them). A multi-select
+    // card is left to the screen: its keys only toggle, so a spoken pick there would answer nothing
+    const asks = Array.from(document.querySelectorAll('#chat-log [data-clarify-prompt] .consent-btns'))
+      .filter(row => !row.querySelector('.consent-confirm'))
+      .reduce((all, row) => all.concat(Array.from(row.querySelectorAll('button'))), []);
+    const buttons = asks.length ? asks : Array.from(document.querySelectorAll('#chat-log .choice-row button.choice'));
+    return buttons.filter(b => !b.disabled);
   }
   function chipLabel(b) {
     // strip the leading glyph (▤, ◈, …) chips carry — nobody SAYS the icon
@@ -477,6 +483,7 @@ const VoiceLive = (() => {
       const id = String(pending.promptId || pending.tool || 'prompt');
       if (id !== spokenApprovalId) {
         spokenApprovalId = id;
+        if (pending.tool === 'brief.ask') { speakLocal(questionLine(pending, ws)); return; }
         // who asks and what for, in the card's words (review app-shell-ui-08); offer only the answers the card has:
         // a once-only ask has no Always (review app-shell-ui-03)
         const ask = askParts(pending, ws);
@@ -485,6 +492,22 @@ const VoiceLive = (() => {
           (ONCE_ONLY.has(pending.tool) ? '. Say approve or deny.' : '. Say approve, always allow, or deny.'));
       }
     } else spokenApprovalId = null;
+  }
+  // a brief.ask is a question, not a grade: say the question and only the answers voice can give — the card's one-tap
+  // options, which chipCommand presses — never approve/always/deny (approvalCommand leaves brief.ask alone)
+  function questionLine(pending, ws) {
+    let q = null;
+    try { q = JSON.parse(pending.argsSummary || '{}'); } catch (e) { q = null; }   // unreadable: the plain line below
+    q = q && typeof q === 'object' ? q : {};
+    const id = pending.workerAgentId || pending.agentId || (ws && ws.agentId) || '';
+    const who = (id && typeof App !== 'undefined' && App.agentName && App.agentName(id)) || 'The agent';
+    let question = String(q.question || '').replace(/\s+/g, ' ').trim().slice(0, 200);
+    if (!question) return who + ' has a quick question for you. Answer on the card.';
+    if (!/[.?!]$/.test(question)) question += '.';
+    // the same keys chat.js clarifyRow draws: up to six single-pick options plus "use your judgment"
+    const opts = (Array.isArray(q.options) ? q.options.slice(0, 6) : []).map(o => String(o).trim()).filter(Boolean);
+    if (q.mode === 'conversation' || (q.multiSelect === true && opts.length > 1)) return who + ' asks: ' + question + ' Answer on the card.';
+    return who + ' asks: ' + question + (opts.length ? ' Say ' + opts.join(', ') + ', or use your judgment.' : ' Say use your judgment, or answer on the card.');
   }
   /* Answer visible chips by voice. Clicks the REAL button (chat.js binds the pick to it), so this is the
      mouse path with a different finger. Matching is deliberately conservative — exact, then prefix/containment
