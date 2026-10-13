@@ -15,7 +15,7 @@ const TaskConversation = (() => {
     // the key shows exactly while the question is clamped: re-measured whenever COMMS changes size (width, TEXT SIZE, shown
     // after being hidden); a question that cannot be measured (hidden) keeps its key
     const fit=()=>{if(card.classList.contains('tc-open')||!question.isConnected)return;whole.hidden=question.clientHeight>0&&question.scrollHeight<=question.clientHeight+2;};
-    if(typeof ResizeObserver!=='undefined')new ResizeObserver(fit).observe(question);
+    if(typeof ResizeObserver!=='undefined')new ResizeObserver(()=>requestAnimationFrame(fit)).observe(question);
     if(typeof requestAnimationFrame==='function')requestAnimationFrame(fit);
     // starting points: a tap adds that line to the answer, a second tap takes it out (✓ = it is in the answer)
     const options=el('div','tc-shortcuts');

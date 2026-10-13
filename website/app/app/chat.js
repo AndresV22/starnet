@@ -215,6 +215,8 @@ const Chat = (() => {
   }
   function showNewPill(hasNew) {
     const panel = el('chat-panel'); if (!panel || stick) return;
+    // a card held from its top is what you are reading: no "latest" key on top of it (only real new content brings one)
+    if (!hasNew && heldCard && log && log.contains(heldCard)) return;
     let pill = el('comms-newpill');
     if (!pill) {
       pill = document.createElement('button'); pill.id = 'comms-newpill'; pill.type = 'button'; pill.className = 'comms-newpill';
@@ -3345,7 +3347,7 @@ const Chat = (() => {
      get one short line, and the card carries the whole thing in INSPECT COMPLETE REQUEST (permissionRow). */
   // "Show the whole question" shows exactly while the question is clamped — re-measured when COMMS changes size (width,
   // TEXT SIZE, shown after being hidden); a question that cannot be measured (hidden) keeps its key
-  const wholeFitObserver = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(list => { for (const e of list) if (e.target._fitWhole) e.target._fitWhole(); }) : null;
+  const wholeFitObserver = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(list => { const hit = list.map(e => e.target); requestAnimationFrame(() => { for (const t of hit) if (t._fitWhole) t._fitWhole(); }); }) : null;
   function fitWhole(text, key, isOpen) {
     text._fitWhole = () => { if (isOpen() || !text.isConnected) return; key.hidden = text.clientHeight > 0 && text.scrollHeight <= text.clientHeight + 2; };
     if (wholeFitObserver) wholeFitObserver.observe(text);

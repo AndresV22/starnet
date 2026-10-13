@@ -61,7 +61,7 @@ const GroupChat = (() => {
   }
   // "Show the whole question" shows exactly while the question is clamped; a question that cannot be measured (the strip
   // is hidden) keeps its key — re-measured whenever the strip changes size
-  const wholeObserver = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(list => { for (const e of list) { const c = e.target.closest && e.target.closest('.gc-question'); if (c && c._fit) c._fit(); } }) : null;
+  const wholeObserver = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(list => requestAnimationFrame(() => { for (const e of list) { const c = e.target.closest && e.target.closest('.gc-question'); if (c && c._fit) c._fit(); } })) : null;
   function questionCard(groupId, q) {
     const who = name(q.agentId), color = colorOf(q.agentId);
     const card = h('div', { class: 'gc-question', role: 'group', 'aria-label': who + ' asks you a question' });
