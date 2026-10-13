@@ -114,6 +114,9 @@ A.eq(B.contextBlock({ items: [] }), '', 'no items → no context block');
   A.ok(/“Launch planning”: 1 delegated job finished\. Latest: Webb saw the earliest galaxies\./.test(d.text), 'the excerpt is the accepted answer, not the raw output: ' + d.text);
   const only = B.compose({ since: SINCE, now: NOW, threads, runs: [run({ streamId: 'k4', parentRunId: 'lead', delegatedBy: 'agent', dispatchDelivery: { state: 'final', reason: 'invalid-result', text: '' } })] });
   A.ok(/didn’t finish: invalid result/.test(only.text), 'the reason is the delivery\'s reason in plain words: ' + only.text);
+  // a delivery that only repeats the run's own reason adds nothing: the run's failure code says more (rate limit)
+  const same = B.compose({ since: SINCE, now: NOW, threads, runs: [run({ streamId: 'k4', parentRunId: 'lead', delegatedBy: 'agent', reason: 'error', failureCode: 'rate_limit', dispatchDelivery: { state: 'final', reason: 'error', text: '' } })] });
+  A.ok(/didn’t finish: rate limit/.test(same.text), 'a delivery that repeats the run reason keeps the run\'s failure code: ' + same.text);
   const pending = B.compose({ since: SINCE, now: NOW, threads, runs: [run({ streamId: 'k5', parentRunId: 'lead', delegatedBy: 'agent', deliveryText: 'Draft facts.', dispatchDelivery: { state: 'pending' } })] });
   A.ok(/1 delegated job finished\. Latest: Draft facts\./.test(pending.text), 'a pending delivery falls back to the execution row');
 }

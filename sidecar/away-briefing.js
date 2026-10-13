@@ -114,8 +114,11 @@ function compose(input) {
       const dd = r.dispatchDelivery && r.dispatchDelivery.state === 'final' ? r.dispatchDelivery : null;
       const bad = dd ? str(dd.reason) !== 'done' : failed(r);
       if (bad) g.failed++;
+      // The delivery's reason says why when it adds something (an invalid result); one that only repeats the run's
+      // own reason ('error') says less than the run's failure code ('rate limit').
+      const ddWhy = dd && str(dd.reason) !== str(r.reason) ? str(dd.reason).replace(/[_-]+/g, ' ').trim() : '';
       g.latest = { runId: str(r.runId), at: endedAt(r), failed: bad,
-        why: bad ? (dd ? (str(dd.reason).replace(/[_-]+/g, ' ').trim() || 'did not finish') : failWord(r)) : '',
+        why: bad ? (ddWhy || failWord(r)) : '',
         excerpt: bad ? '' : excerptOf(dd ? dd.text : r.deliveryText), open: str(r.streamId) };
       continue;
     }
