@@ -18,7 +18,7 @@
   "expectedClaimCount": 37,
   "releaseSurface": {
     "algorithm": "sha256",
-    "sourceCommit": "0d4e9bd660e1342e080e74f6cdfc45076f5da16e",
+    "sourceCommit": "392da6ce1fa2b70cda8aad887b2b031f9fa822e3",
     "pathSetSha256": "e4cf2ec7f6a313f096915edc1eea9291b5f6ab7782c1784d289af5ac2f76084d",
     "files": [
       {
@@ -343,8 +343,8 @@
       },
       {
         "path": "frontend/app/chat.js",
-        "bytes": 762550,
-        "sha256": "b5d66c838537bd6ace48427c9668f97c33ecf8433d744a0284c5050ce044bfd0"
+        "bytes": 764535,
+        "sha256": "097dcf0fbba9befe16aef0327bb686bc1aaf7e8859a20af85b4d79598091c062"
       },
       {
         "path": "frontend/app/chatresize.js",
@@ -423,8 +423,8 @@
       },
       {
         "path": "frontend/app/data-shim.js",
-        "bytes": 6356,
-        "sha256": "87746e10ac0b967700104aa4c06b1f92c8338edaeb2a011b1cbaa13165ee861b"
+        "bytes": 6561,
+        "sha256": "8f51947e2fa30ce5f10682c540e695ad7ebb3da33adf66cd29e877d156308984"
       },
       {
         "path": "frontend/app/datareset.js",
@@ -433,8 +433,8 @@
       },
       {
         "path": "frontend/app/delegated.js",
-        "bytes": 40595,
-        "sha256": "86e150de5a85e828f830ef09e5012d9fa80a5602ba7d0ee6786933ff5f790cde"
+        "bytes": 40828,
+        "sha256": "ba4a77074f12d7c82f1dffa0539f19e77ed28703b8281ca2c665d038a063a7f3"
       },
       {
         "path": "frontend/app/deliverables.js",
@@ -708,8 +708,8 @@
       },
       {
         "path": "frontend/app/needsyou.js",
-        "bytes": 16415,
-        "sha256": "e9c8c2114f2d41c8fe9e53e72e291b65de5eff9c2bfabeb003092211e5f4dbc1"
+        "bytes": 16749,
+        "sha256": "f0e321c279a81796313f31730970562c2fa66bd08c616442b58d1ec1cd987926"
       },
       {
         "path": "frontend/app/nightnudge.js",
@@ -1183,8 +1183,8 @@
       },
       {
         "path": "frontend/app/stationui.js",
-        "bytes": 879557,
-        "sha256": "caf6784ae29cf010621f255d127b999f6853d0e1656602e586c35a9c39cb250f"
+        "bytes": 879783,
+        "sha256": "d61d1229daf2122354fd6a31a83867684d4caeb66c24589dfb6beb25fd1bfc34"
       },
       {
         "path": "frontend/app/stepin.js",
@@ -1308,8 +1308,8 @@
       },
       {
         "path": "frontend/app/voice-live.js",
-        "bytes": 101451,
-        "sha256": "f0a29846b9933ea5895a2e9097b9a08385f05d2df54ca048dcfddb1e6d35e4c4"
+        "bytes": 102019,
+        "sha256": "d91273c8abdc171279650935b62615b5369cc44fbb2ec384c56b733a9647b154"
       },
       {
         "path": "frontend/app/voice-stream.js",
@@ -1538,8 +1538,8 @@
       },
       {
         "path": "frontend/css/beat-cards.css",
-        "bytes": 32673,
-        "sha256": "31984034faa0e587d3dd85011e26a730092e415df6651fa9fd60ca797ac271a9"
+        "bytes": 33032,
+        "sha256": "eefcb7e5887b2a60185419a20ccf52424db7bc377853434f75dc7211a1d91981"
       },
       {
         "path": "frontend/css/cabinet-clean.css",
