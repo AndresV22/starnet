@@ -184,7 +184,11 @@ const run = (provider, extra) => runAgentLoop(Object.assign({
       'Will do!',
       'Consider it done.',
       "Great idea. I'll make the header sticky and add a footer. Let me know if you want changes.",
-      "I'm building the page now — it'll have a hero, pricing and a footer."
+      "I'm building the page now — it'll have a hero, pricing and a footer.",
+      'Found it — now fixing the death path.',
+      'Reading the full main.js now.',
+      'Found the bug — now working on the fix.',
+      'Patched the import — now fixing.'
     ]) A.ok(announcesIntent(p), 'announce-then-stop is caught: ' + p);
     for (const n of [
       'Want me to build it?',
@@ -204,7 +208,12 @@ const run = (provider, extra) => runAgentLoop(Object.assign({
       "If the error comes back, I'll dig deeper.",
       "I'm looking forward to seeing it live!",
       "Now let's add a route:\n```js\napp.get('/')\n```\nThat's it.",
-      "First, I'll create the file.\nThen the server starts on port 8080. You can open the page at localhost. The tests cover login and logout. All green."
+      "First, I'll create the file.\nThen the server starts on port 8080. You can open the page at localhost. The tests cover login and logout. All green.",
+      // review threads-backend-04: a finished fix reported as a STATE is not an announce
+      'Fixed the import path — now working.',
+      'Fixed! Now working as expected.',
+      'Saving now works again.',
+      'Done — uploading now succeeds.'
     ]) A.ok(!announcesIntent(n), 'a reply that waits on the Commander or delivers is never nudged: ' + n);
   }
   // end to end: the commonest making-announcement now buys a nudge and the real work; a question still ends the run
