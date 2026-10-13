@@ -2174,7 +2174,11 @@ const Chat = (() => {
     statusEl.textContent = s;
     const low = String(s || '').toLowerCase();
     statusEl.classList.remove('status-thinking', 'status-working', 'status-approval', 'status-stopping', 'status-connecting', 'status-online', 'status-down', 'status-idle');
-    statusEl.classList.add(low.indexOf('approval') >= 0 ? 'status-approval'
+    // NO RUN STATE IN THE COMMS HEADER (Andrew, asked 5x; locked 10-03): every run-state string must land on a class the
+    // header hides — "awaiting your context/answer…" and "waking…" used to fall through to the VISIBLE status-online
+    // (live walkthrough 2026-10-13). Faults (unreachable, voice errors) still show.
+    statusEl.classList.add(low.indexOf('approval') >= 0 || /^awaiting\b/.test(low.trim()) ? 'status-approval'
+      : /^waking\b/.test(low.trim()) ? 'status-thinking'
       : low.indexOf('stopping') >= 0 ? 'status-stopping'
       : low.indexOf('working') >= 0 ? 'status-working'
       : low.indexOf('thinking') >= 0 ? 'status-thinking'
@@ -2200,7 +2204,7 @@ const Chat = (() => {
     // a peer run no longer blocks THIS session — the status stays an honest 'online' (send is allowed) with
     // the peer named beside it; the soft #comms-agent-busy row below carries the VIEW ACTIVE RUN route.
     // ('running', not 'busy'/'working': status() classifies by substring and this session is NOT the one working.)
-    status(p ? 'awaiting your approval…' : (isBusy() ? (channelStatus || 'thinking…') : (peer ? ('online · also running in ' + streamLabel(peer)) : (down ? 'station unreachable' : 'online'))));
+    status(p ? 'awaiting your approval…' : (isBusy() ? (channelStatus || 'thinking…') : (down ? 'station unreachable' : 'online')));
     renderAgentBusy(peer);
     // keep the elapsed readout matched to the DISPLAYED stream — switching to a busy stream picks up its
     // live count, switching to an idle one clears it. (send() also starts it the instant a run begins.)
