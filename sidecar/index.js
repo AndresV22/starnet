@@ -3568,7 +3568,7 @@ async function runBackgroundSkillReview(o) {
     // rewrite or archive it — the ledger lives in this per-pass tool instance. gate: the fork is a
     // model too; a withheld skill is withheld from IT as well, or the review pass becomes the way
     // an unreviewed body reaches a prompt.
-    makeSkillTools({ store: skillStore, gate: skillGate, readBeforeWrite: true, countViews: false, onManage: (skill, ctx, action) => reviewObserver.onManage(skill, action) }).register(registry);
+    makeSkillTools({ store: skillStore, gate: skillGate, readBeforeWrite: true, countViews: false, onManage: (skill, ctx, action, info) => reviewObserver.onManage(skill, action, info) }).register(registry);
     const allowed = ['skill.write', 'skill.manage', 'skill.list', 'skill.view'];
     const resolved = {
       agentId, room: 'skill-review', hasCompute: true, tools: allowed.slice(),
@@ -3656,7 +3656,7 @@ async function runSkillCurator(o) {
     const registry = makeRegistry();
     // A2: same un-silencing for the curator — merges/archives now surface a deliverable + audit line once each.
     const curatorObserver = skillReview.makeReviewObserver({ emit: chanEmit, log: (s) => console.log(s), now: () => Date.now(), source: 'skill-curator' });
-    makeSkillTools({ store: skillStore, gate: skillGate, readBeforeWrite: true, countViews: false, onManage: (skill, ctx, action) => curatorObserver.onManage(skill, action) }).register(registry);   // same two guards as the review fork: read before you rewrite, and the guard's verdict binds here too
+    makeSkillTools({ store: skillStore, gate: skillGate, readBeforeWrite: true, countViews: false, onManage: (skill, ctx, action, info) => curatorObserver.onManage(skill, action, info) }).register(registry);   // same two guards as the review fork: read before you rewrite, and the guard's verdict binds here too
     const allowed = ['skill.write', 'skill.manage', 'skill.list', 'skill.view'];
     const resolved = { agentId, room: 'skill-curator', hasCompute: true, tools: allowed.slice(), approvalRules: {}, networkCaps: {} };
     const toolDefs = registry.wireFormat(registry.list(new Set(allowed)));
@@ -26789,7 +26789,9 @@ async function writeMemoryRecord(agentId, prop, opts) {
     try { r = skillStore.write({ agentId, name: skillName, summary, body: skillBody, createdBy: opts.source || 'reflection', sourceRunId: runId || (prop && prop.sourceRunId) }); }
     catch (e) { return { ok: false, error: (e && e.message) || 'could not save skill' }; }
     if (!r.ok) return { ok: false, error: r.error || 'could not save skill' };
-    chanEmit('deliverable', { id: r.skill.id, agentId, kind: 'skill', title: r.pending ? 'Proposed revision: ' + r.skill.name : r.skill.name });
+    // a proposal with no active (or archived) version to revise is a NEW skill, never a "revision" (same rule as skills.js)
+    const isNew = !!r.pending && (typeof r.isNew === 'boolean' ? r.isNew : !skillStore.view(agentId, r.skill.id, { bump: false, includeArchived: true, hydrate: false }));
+    chanEmit('deliverable', { id: r.skill.id, agentId, kind: 'skill', title: r.pending ? (isNew ? 'Proposed skill: ' : 'Proposed revision: ') + r.skill.name : r.skill.name });
     return { ok: true, id: r.skill.id, kind: 'skill', pending: !!r.pending, skill: r.skill };
   }
   // P1: write the notebook record under the per-agent lock, RE-READING the list so the id (positional) is minted
