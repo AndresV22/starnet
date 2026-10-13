@@ -992,8 +992,16 @@ const { note: failNote } = require('../../failopen');
            Root the scan at the file's own folder and admit only that name: narrower than the folder the jail
            already allows, and naming the file is consent to search it even when a .gitignore would skip it. */
         let onlyName = null;
-        // An unstattable path stays a folder search, whose own scan reports the real error.
-        const startStat = await fsp.stat(abs).catch((e) => { failNote('fs.search.start.stat', e); return null; });
+        /* A missing path is an ordinary answer, not a swallowed failure: a named one says it does not exist (a bare
+           "no matches" read as "the text is not there"), and the workspace root not existing yet stays an empty
+           folder search. Only an unexpected stat failure is a fail-open trace; that path stays a folder search. */
+        let missing = false;
+        const startStat = await fsp.stat(abs).catch((e) => {
+          if (e && (e.code === 'ENOENT' || e.code === 'ENOTDIR')) missing = true;
+          else failNote('fs.search.start.stat', e);
+          return null;
+        });
+        if (missing && P.relative(base, abs) !== '') return { content: '(no such path: ' + String(args.path) + ')', summary: 'path not found' };
         if (startStat && startStat.isFile()) { onlyName = P.basename(abs); abs = P.dirname(abs); }
         const onlyRel = onlyName ? P.relative(base, resolved.abs).split(P.sep).join('/') : null;
         const startPrefix = P.relative(base, abs).split(P.sep).join('/');     // '' when searching from the root
