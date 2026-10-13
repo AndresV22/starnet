@@ -876,6 +876,7 @@ async function run() {
     A.eq(clean, 'all done', 'a clean reply gets no note');
     const unpriced = await endWith({ reason: 'budget', budgetScope: 'run', unpricedModel: 'x/mystery', unpricedTokens: 2000001, unpricedCapTokens: 2000000 }, { token: 'partial' });
     A.ok(/2,000,000-token safety ceiling/.test(unpriced) && /does not change this/.test(unpriced) && !/raise it in the app under SETTINGS › SPENDING LIMITS/.test(unpriced), 'the unpriced TOKEN ceiling is named as itself, not a $ cap to raise: ' + unpriced);
+    A.ok(!/\)\.\)/.test(unpriced) && /SKYNET_MODEL_PRICES\.\)$/.test(unpriced), 'the unpriced note ends cleanly, never "…).)" (review voice-remote-channels-12): ' + unpriced);
     const cancelled = await endWith({ reason: 'cancelled' }, { token: 'partial' });
     A.ok(/stopped from the StarNet app/.test(cancelled), 'a station-side cancel says who stopped it: ' + cancelled);
     const stuck = await endWith({ reason: 'error' }, { error: 'loop guard: fs_read failed 3 times with identical arguments — stopping a stuck loop' });
