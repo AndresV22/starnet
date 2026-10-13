@@ -200,6 +200,7 @@ const GroupChat = (() => {
       .gc-sect-list{flex:1 1 auto;min-height:0;overflow:auto;border:1px solid var(--ph-faint);border-radius:3px;background:rgba(0,0,0,.18)}.gc-sect-list:empty{display:none}.gc-sect.in .gc-sect-list{flex:0 1 auto;max-height:min(30vh,174px)}
       .gc-row{display:flex;align-items:center;gap:10px;padding:8px 10px;border-bottom:1px solid var(--ph-faint);min-width:0}.gc-row:last-child{border-bottom:0}.gc-row[hidden]{display:none}
       .gc-row .gc-led{flex:0 0 auto;width:8px;height:8px;border-radius:2px;background:var(--ph-dim)}.gc-row.in .gc-led{box-shadow:0 0 6px var(--ph-glow)}
+      .gc-row .gc-pic{flex:0 0 auto;display:flex;line-height:0}.gc-row .gc-av{border-radius:5px;background:rgba(0,0,0,.34);box-shadow:inset 0 0 0 1px rgba(var(--ph-rgb),.22),inset 0 1px 3px rgba(0,0,0,.15)}
       .gc-row .gc-id{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:1px}.gc-row .gc-nm{font-size:14px;letter-spacing:1px;text-transform:uppercase;color:var(--ph-bright);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.gc-row .gc-tag{font-size:12px;color:var(--ph-dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.gc-row .gc-tag:empty{display:none}
       .gc-row.in .gc-nm{color:var(--ph)}.gc-row .bb{flex:0 0 auto;min-width:74px;text-align:center}.gc-row.in .bb{color:var(--ph-dim)}.gc-row.in .bb:hover{color:var(--bad);border-color:var(--bad);background:transparent}
       .gc-row .bb[disabled]{opacity:.45;cursor:default}
@@ -863,8 +864,11 @@ const GroupChat = (() => {
       function row(a, inChat) {
         const r = h('div', { class: 'gc-row' + (inChat ? ' in' : ''), role: 'listitem', 'data-agent-name': label(a.id).toLowerCase() });
         const led = h('span', { class: 'gc-led', 'aria-hidden': 'true' }); if (colorOf(a.id)) led.style.background = colorOf(a.id);
+        // the agent's own skin (the shared thumb path every crew surface uses); a skin still loading shows the silhouette
+        const pic = h('span', { class: 'gc-pic', 'aria-hidden': 'true' });
+        if (typeof AgentPortraits !== 'undefined' && AgentPortraits.thumbHTML) pic.innerHTML = AgentPortraits.thumbHTML(App.agents?.().find(x => x.id === a.id) || a, 32, 38, 'gc-av');
         const idc = h('div', { class: 'gc-id' }); idc.append(h('span', { class: 'gc-nm' }, label(a.id)), h('span', { class: 'gc-tag' }, describe(a.id)));
-        r.append(led, idc);
+        r.append(led, pic, idc);
         if (inChat && a.id === leadNow()) { r.append(h('span', { class: 'gc-lead', title: 'Answers when you do not @ anyone' }, 'lead')); return r; }
         const b = inChat ? button(saving === a.id ? 'REMOVING…' : '✕ REMOVE', () => change(a.id, false)) : button(saving === a.id ? 'ADDING…' : '+ ADD', () => change(a.id, true));
         b.setAttribute('aria-label', (inChat ? 'Remove ' : 'Add ') + label(a.id) + (inChat ? ' from this chat' : ' to this chat'));
