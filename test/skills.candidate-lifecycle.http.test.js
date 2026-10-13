@@ -6,6 +6,8 @@ const fs = require('node:fs');
 const http = require('node:http');
 const path = require('node:path');
 const { SidecarFixture } = require('./helpers/sidecar-fixture.js');
+// the Commander's own words: on this non-Claude wire the run-context note leads the newest user message
+const { lastUserWords } = require('./helpers/host-notes.js');
 const { makeSkillStore } = require('../sidecar/skillstore.js');
 const guard = require('../sidecar/skills/guard.js');
 const { digestOf } = require('../sidecar/skills/gate.js');
@@ -60,7 +62,7 @@ const server = http.createServer((req, res) => {
         return res.end(JSON.stringify({ data: [{ id: MODEL, context_length: 64000, supported_parameters: ['tools'], pricing: { prompt: '0', completion: '0' } }] }));
       }
       const input = JSON.parse(raw), messages = input.messages || [], system = String(messages[0]?.content || '');
-      const prompt = String(messages.filter(m => m.role === 'user').at(-1)?.content || '');
+      const prompt = String(lastUserWords(messages) || '');
       const calls = messages.flatMap(m => m.tool_calls || []);
       const called = name => calls.some(c => c.function?.name === name);
       const toolResults = messages.filter(m => m.role === 'tool');
