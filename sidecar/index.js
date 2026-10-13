@@ -18838,7 +18838,9 @@ async function handleRun(req, res) {
     // a delegated worker's ask (attributeAsks): stamped with who asked, and withdrawn the moment THAT worker stops
     const by = askedBy.getStore() || null;
     return makeConsentWait({
-      pending, signal: by && by.signal ? AbortSignal.any([ac.signal, by.signal]) : ac.signal, timeoutMs: CONSENT_TIMEOUT_MS, extendMs: CONSENT_ACK_EXTEND_MS,
+      // Node 18 / 20.0-20.2 have no AbortSignal.any: the ask then rides the run's own signal and the timeout (still
+      // fail-closed; only the instant withdrawal when that one worker stops is lost)
+      pending, signal: (by && by.signal && typeof AbortSignal.any === 'function') ? AbortSignal.any([ac.signal, by.signal]) : ac.signal, timeoutMs: CONSENT_TIMEOUT_MS, extendMs: CONSENT_ACK_EXTEND_MS,
       uuid: () => crypto.randomUUID(),
       // nobody answered in time (or the run dropped): the prompt fail-closed to deny — say so on the run's stream
       // (expired:true, additive) so the desk card and the CREW frame stop asking
