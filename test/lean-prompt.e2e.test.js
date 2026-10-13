@@ -1,10 +1,11 @@
 /* node test/lean-prompt.e2e.test.js — LEAN PROMPT (2026-10-12), through the REAL request assembly of a hermetic sidecar.
 
    1. ZERO-CREW DIET. A lead with no crew used to ship the whole crew kit on every task request (9 team_* schemas +
-      a ~5 KB [ORCHESTRATION] briefing about a team that does not exist). With no crew: team.summon stays advertised,
-      the rest of the kit is DEFERRED (granted, named in [HARNESS], revealed by tool_search), the briefing is one
-      recruit line + the crew-independent station/session rules, and a summon reveals team.dispatch on its own.
-      With crew, the full kit and briefing are back.
+      a ~5 KB [ORCHESTRATION] briefing about a team that does not exist). With no crew: only team.dispatch and the
+      background-worker controls are DEFERRED (granted, named in [HARNESS], revealed by tool_search); team.summon,
+      team.spawn and team.config / team.configure stay advertised; the briefing is the recruit line + the SPAWN, CREW
+      CONFIGURATION, [PROJECT WORKSPACE] and session rules; a summon reveals team.dispatch and a background spawn reveals
+      its controls on their own. With crew, the full kit and briefing are back.
    2. CACHE-STABLE PREFIX. The per-run block ([RUNTIME], the Task Brief, quests …) rides a <run_context> note placed
       with the newest user message, so the leading system prompt + tools are byte-identical across a conversation's
       messages and its tool iterations, and the request still ends on the user turn.
