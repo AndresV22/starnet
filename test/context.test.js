@@ -469,6 +469,13 @@ A.ok(renderRecall([{ content: 'prefers reports', confirmation: 'user-confirmed' 
   const prefs = [stand, Object.assign({}, stand, { id: 'elm', content: 'For all future tasks, deliver to the Elm Street office.' })];
   A.ok(/Andy/.test(C.compactionMemoryBlock(prefs, 'what is the weather in Lisbon', { now: 100 })), 'an owner fold keeps its standing preferences');
   A.eq(C.compactionMemoryBlock(prefs, 'what is the weather in Lisbon', { now: 100, standing: false }), '', 'a withheld fold carries no zero-relevance standing preference');
+  // the host half: rank's standing:false only helps if runOnceCore passes it for withheld runs (seam lock)
+  {
+    const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'sidecar', 'index.js'), 'utf8');
+    A.ok(/const standingOn = !\(o\.recovery \|\| tasteWithheld\b/.test(src), 'standing priority is off for withheld runs');
+    A.ok(/const ranked = rank\(recs\.concat\(standingRecs\), q, \{[^}]*\bstanding: standingOn\b/.test(src), 'live recall passes standing');
+    A.ok(/compactionMemoryBlock\(recs, transcript, \{[^}]*\bstanding: !\(tasteWithheld\b/.test(src), 'the fold memory block passes standing');
+  }
   const summarizer = C.compactionMemoryBlock(notes, 'deploy', { now: 100, limit: 60 });
   A.ok(summarizer.length > 0 && !/notebook\.read/.test(summarizer) && !/omitted|ranked lower/.test(summarizer), 'the tool-less summarizer gets no notice: ' + summarizer);
 }
