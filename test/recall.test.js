@@ -200,6 +200,30 @@ let clk = 1000; const clock = { now: () => clk };
     A.eq((await makeRecallTool({ transcriptStore: clean }).recallTool.run({}, { streamId: 'main' })).taintedBy, null, 'browse: a stamped clean preview is clean');
   }
 
+  // memory-learning-07 (one rule): a stored row's provenance is read in ONE place, transcriptstore.rowTaint (the policy
+  // docs/DECISIONS.md records) — an explicit taint is its source, the writer's clean stamp is clean, anything else is
+  // unverifiable whatever its age. recall reads rows through it, so it cannot drift into a rule of its own.
+  {
+    const { rowTaint, UNVERIFIED_ROW } = require('../sidecar/transcriptstore.js');
+    A.eq(typeof rowTaint, 'function', 'transcriptstore exports the one row-provenance rule');
+    A.ok(/taint unverifiable/.test(UNVERIFIED_ROW), 'and the reason a row without provenance carries');
+    if (typeof rowTaint === 'function') {
+      A.eq(rowTaint({ taint: 'web_fetch' }), 'web_fetch', 'an explicit taint is the source');
+      A.eq(rowTaint({ taint: 'web_fetch', taintKnown: true }), 'web_fetch', 'an explicit taint wins over the clean stamp');
+      A.eq(rowTaint({ taint: '', taintKnown: true }), null, 'the clean stamp is clean');
+      A.eq(rowTaint({ ts: Date.UTC(2026, 9, 5) }), UNVERIFIED_ROW, 'no stamp is unverifiable, however recent the row');
+      A.eq(rowTaint(null), UNVERIFIED_ROW, 'a missing row proves nothing');
+      const s = makeTranscriptStore({ io: memIo(), clock });
+      A.eq(rowTaint(s.append({ streamId: 'new', role: 'user', content: 'the amber ledger moved to friday', taint: null })), null, 'a row written with a taint value reads clean');
+      A.eq(rowTaint(s.append({ streamId: 'odd', role: 'user', content: 'the amber ledger moved to monday' })), UNVERIFIED_ROW, 'a row written without one does not');
+      const { recallTool } = makeRecallTool({ transcriptStore: s });
+      A.eq((await recallTool.run({ query: 'amber ledger monday', scope: 'stream' }, { streamId: 'odd' })).taintedBy, UNVERIFIED_ROW, 'recall relays the rule\'s own reason');
+      A.eq((await recallTool.run({ query: 'amber ledger friday', scope: 'stream' }, { streamId: 'new' })).taintedBy, null, 'and reads a stamped row clean');
+    }
+    const recallSource = require('fs').readFileSync(require('path').join(__dirname, '../sidecar/tools/builtin/recall.js'), 'utf8');
+    A.ok(/\browTaint\(/.test(recallSource) && !/\.taintKnown\b/.test(recallSource), 'recall.js reads provenance through rowTaint, never its own taintKnown test');
+  }
+
   // review memory-learning-16: a run with no workstream id (e.g. a channel run with bound chats off) has its rows stored
   // under 'global'. scope:"stream" filtered every 'global' hit out and answered "No messages in this workstream match".
   {

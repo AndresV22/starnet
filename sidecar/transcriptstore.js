@@ -43,6 +43,20 @@
   function num(v) { return (typeof v === 'number' && isFinite(v)) ? v : 0; }
   function str(v) { return v == null ? '' : String(v); }
 
+  /* ROW PROVENANCE — the one rule for reading a stored row's taint (review memory-learning-07; docs/DECISIONS.md).
+     A row with `taint` was written by a run that had read untrusted content: that is its source. A row whose writer
+     passed a taint value (null included) carries the clean stamp, taintKnown (buildEntry), and is clean. Any other row
+     has no provenance — written before the clean stamp existed, or by a writer that passed no taint value — and its
+     age proves nothing (an older build kept writing un-stamped tainted rows after the stamping release for anyone who
+     upgraded late), so it is unverifiable, never clean. A browse preview reads the same way through
+     { taint: previewTaint, taintKnown: previewTaintKnown }. */
+  const UNVERIFIED_ROW = 'historical conversation (taint unverifiable: missing row provenance)';
+  function rowTaint(row) {
+    if (!row || typeof row !== 'object') return UNVERIFIED_ROW;
+    if (row.taint) return str(row.taint).slice(0, 200);
+    return row.taintKnown === true ? null : UNVERIFIED_ROW;
+  }
+
   // an OpenAI-format message's content is either a plain string or a multimodal parts array
   function flattenContent(c) {
     if (typeof c === 'string') return c;
@@ -467,7 +481,10 @@
             the stream's newest rows covering as many user/assistant turns as were replayed are checked too.
        Decay is structural, never silent: once tainted rows fall outside what is replayed (a new session, a history
        window that no longer reaches them) the next run starts clean, because the untrusted text is no longer in its
-       context. Returns the first taint source found, else null. */
+       context. Returns the first taint source found, else null.
+       Only an explicit `taint` counts here: a replayed row with no provenance (rowTaint's unverifiable case — all
+       history from before the clean stamp) does not taint the run, or every older conversation would start tainted
+       after an update. recall_conversation does treat it as unverifiable; docs/DECISIONS.md records the split. */
     function taintOf(streamId, messages, o) {
       o = o || {};
       const prior = (Array.isArray(messages) ? messages : []).filter(m => m && typeof m === 'object' && ROLES.has(m.role) && m.role !== 'system');
@@ -541,5 +558,5 @@
     };
   }
 
-  return { makeTranscriptStore, projectConversation, conversationPreview, isFinalDeliveryRow, markPersisted, _internals: { SID_RE, ROLES, PERSISTED, flattenContent } };
+  return { makeTranscriptStore, projectConversation, conversationPreview, isFinalDeliveryRow, markPersisted, rowTaint, UNVERIFIED_ROW, _internals: { SID_RE, ROLES, PERSISTED, flattenContent } };
 });

@@ -25,11 +25,14 @@
    started — and any worker it delegates to — never reads the Commander's other workstreams. */
 'use strict';
 (function (root, factory) {
-  const api = factory(typeof require === 'function' ? require('../../context.js') : (root.SK && root.SK.context));
+  const api = factory(typeof require === 'function' ? require('../../context.js') : (root.SK && root.SK.context),
+    typeof require === 'function' ? require('../../transcriptstore.js') : (root.SK && root.SK.transcriptstore));
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else { root.SK = root.SK || {}; root.SK.tools = root.SK.tools || {}; (root.SK.tools.builtin = root.SK.tools.builtin || {}).recall = api; }
-})(typeof globalThis !== 'undefined' ? globalThis : this, function (retrieval) {
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (retrieval, transcripts) {
   'use strict';
+  // the one rule for a stored row's provenance (transcriptstore.js rowTaint; docs/DECISIONS.md)
+  const { rowTaint, UNVERIFIED_ROW } = transcripts;
 
   const { note: failNote } = (typeof require === 'function') ? require('../../failopen.js') : { note: function (tag, code) { console.warn('[failopen] ' + tag + ':', code); } };
 
@@ -50,18 +53,17 @@
   function makeRecallTool(deps) {
     const d = deps || {};
     const transcriptStore = d.transcriptStore;
-    // Taint follows only returned rows/previews. A row WITHOUT a taint key is not proof of clean history, whatever its
-    // age (review memory-learning-07 follow-up): raw append paths still write rows with no provenance — a script-only
-    // routine's stdout (index.js deliverCronResult) is untrusted output without one — and a build older than taint
-    // stamping keeps writing un-stamped rows after its release date when a user upgrades late. Only the explicit clean
-    // stamp (taintKnown) proves clean; otherwise use the store's exact known source when possible, or relay uncertainty.
+    // Taint follows only returned rows/previews, read through rowTaint (review memory-learning-07): an explicit taint is
+    // the source, the writer's clean stamp is clean, and a row without provenance is unverifiable whatever its age —
+    // pre-update history, or a writer that passed no taint value. For those, use the store's exact known source when
+    // it has one, or relay the uncertainty.
     function resultTaint(rows, preview) {
       let unknown = false;
       for (const r of rows) {
         if (preview && !r.preview) continue;
-        const source = preview ? r.previewTaint : r.taint;
-        if (source) return String(source).slice(0, 200);
-        if ((preview ? r.previewTaintKnown : r.taintKnown) === true) continue;
+        const source = rowTaint(preview ? { taint: r.previewTaint, taintKnown: r.previewTaintKnown } : r);
+        if (source == null) continue;
+        if (source !== UNVERIFIED_ROW) return String(source).slice(0, 200);
         unknown = true;
         if (transcriptStore && typeof transcriptStore.taintOf === 'function') {
           try {
@@ -73,7 +75,7 @@
           }
         }
       }
-      return unknown ? 'historical conversation (taint unverifiable: missing row provenance)' : null;
+      return unknown ? UNVERIFIED_ROW : null;
     }
 
     const recallTool = {
