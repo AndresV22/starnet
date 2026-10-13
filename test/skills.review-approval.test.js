@@ -161,17 +161,19 @@ for (const change of ['body', 'files', 'summary', 'baseline', 'pin']) {
 
 // Tool telemetry reports proposal, never learning/application; schemas cannot request approval or sharing.
 {
-  const f = fixture(), actions = [], events = [];
-  const tools = makeSkillTools({ store: f.s, onManage: (s, c, action) => actions.push(action) });
+  const f = fixture(), actions = [], events = [], infos = [];
+  const tools = makeSkillTools({ store: f.s, onManage: (s, c, action, info) => { actions.push(action); infos.push(info); } });
   const r = tools.manageTool.run({ action: 'create', name: 'Brief', body: BODY, createdBy: 'user', scope: 'station', approvedBy: 'user' }, { agentId: 'a', emit: (type, value) => events.push(value) });
   A.eq(r.summary, 'proposed', 'new model skill described as proposed');
   A.eq(actions, ['propose'], 'observer sees proposal action');
   A.eq(events[0].title, 'Proposed skill: Brief', 'a brand-new skill is labeled a proposed skill, not a revision');
+  A.eq(infos, [{ isNew: true }], 'the observer is told a brand-new proposal is new, so its deliverable title can say so');
   A.ok(/^Proposed new skill "Brief"\. It is not active until the Commander evaluates and approves it in ABILITIES > SKILLS\.$/.test(r.content), 'new-skill reply: ' + r.content);
-  const g = fixture(); seed(g); const revEvents = [];
-  const revision = makeSkillTools({ store: g.s }).writeTool.run({ name: 'Brief', body: BODY + '\n3. Check.' }, { agentId: 'a', emit: (type, value) => revEvents.push(value) });
+  const g = fixture(); seed(g); const revEvents = [], revInfos = [];
+  const revision = makeSkillTools({ store: g.s, onManage: (s, c, action, info) => revInfos.push(info) }).writeTool.run({ name: 'Brief', body: BODY + '\n3. Check.' }, { agentId: 'a', emit: (type, value) => revEvents.push(value) });
   A.ok(/^Proposed revision for skill "Brief"\..*the active version is unchanged\.$/.test(revision.content), 'revision reply: ' + revision.content);
   A.eq(revEvents[0].title, 'Proposed revision: Brief', 'a change to an active skill is labeled a revision');
+  A.eq(revInfos, [{ isNew: false }], 'the observer is told a revision is not new');
   A.eq(proposal(f.s).skill.scope, 'agent', 'unadvertised model sharing ignored');
   A.eq(f.s.list('a').length, 0, 'spoofed user fields do not bypass candidate publication');
 }

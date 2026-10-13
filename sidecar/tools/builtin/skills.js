@@ -48,6 +48,8 @@
   function makeSkillTools(deps) {
     const store = deps && deps.store;
     const onView = deps && deps.onView;
+    // onManage(skill, ctx, action, { isNew }): isNew marks a proposal for a skill with no active version, so an
+    // observer whose own deliverable title replaces emitSkill's (the review/curator passes) can say 'Proposed skill'.
     const onManage = deps && deps.onManage;
     const gate = (deps && deps.gate) || null;                          // skills/gate.js instance: may the MODEL read this skill?
     const readBeforeWrite = !!(deps && deps.readBeforeWrite);           // set for the autonomous review/curator passes
@@ -150,7 +152,7 @@
         if (!r.ok) return { content: 'Could not save the skill: ' + r.error, summary: 'not saved' };
         const isNew = !!r.pending && proposesNew(aid, r);
         emitSkill(ctx, r.skill, isNew);
-        if (typeof onManage === 'function') { try { onManage(r.skill, ctx, r.pending ? 'propose' : (r.edited ? 'edit' : 'create')); } catch (_) {} }
+        if (typeof onManage === 'function') { try { onManage(r.skill, ctx, r.pending ? 'propose' : (r.edited ? 'edit' : 'create'), { isNew }); } catch (_) {} }
         if (r.pending) return proposedReply(r, isNew);
         return { content: (r.edited ? 'Updated' : 'Saved') + ' skill "' + r.skill.name + '". Reload it anytime with skill.view.', summary: r.edited ? 'edited' : 'saved' };
       }
@@ -194,7 +196,7 @@
         if (!r.ok) return { content: 'Could not manage the skill: ' + r.error, summary: 'not saved' };
         const isNew = !!r.pending && proposesNew(aid, r);
         emitSkill(ctx, r.skill, isNew);
-        if (typeof onManage === 'function') { try { onManage(r.skill, ctx, r.pending ? 'propose' : (r.action || (args && args.action) || 'manage')); } catch (_) {} }
+        if (typeof onManage === 'function') { try { onManage(r.skill, ctx, r.pending ? 'propose' : (r.action || (args && args.action) || 'manage'), { isNew }); } catch (_) {} }
         if (r.pending) return proposedReply(r, isNew);
         const done = r.action || (args && args.action) || 'updated';
         const path = r.path ? (' (' + r.path + ')') : '';
