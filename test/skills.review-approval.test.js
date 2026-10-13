@@ -295,6 +295,40 @@ for (const change of ['body', 'files', 'summary', 'baseline', 'pin']) {
   A.ok(g.promote(into, g.issue(into)).ok, 'archive into the unchanged live heir is not held by a later heir proposal');
   A.eq(read(g.s, 'Weekly brief').absorbedInto, 'Reports', 'archived sibling points at the live heir');
 }
+// The approve route precommits a digest approval for the candidate's bytes before it promotes. An archive carries
+// the live sibling's bytes, so the route asks promotionBlocker first: a refused archive must not leave a withheld
+// sibling's unapproved bytes approved (a click meant to retire it would release it into prompts).
+{
+  const f = fixture({ digestCandidate: require('../sidecar/skillevaluation.js').digestSkill }); seed(f, 'Reports');
+  f.io.lines.push({ id: 'weekly-brief', agentId: 'a', name: 'Weekly brief', summary: 'Weekly brief procedure', body: BODY, createdBy: 'agent',
+    writtenBy: 'background-review', guardAction: 'ask', contentDigest: digestOf({ body: BODY }), state: 'active', createdAt: 1, updatedAt: 1 });
+  f.reload();
+  f.s.manage({ agentId: 'a', target: 'Reports', action: 'edit', body: BODY + '\n3. Weekly brief steps.', createdBy: 'curator' });
+  f.s.manage({ agentId: 'a', target: 'Weekly brief', action: 'archive', absorbedInto: 'Reports', createdBy: 'curator' });
+  const rows = f.s.candidates('a', { includeBody: true });
+  const heir = rows.find(c => c.name === 'Reports'), sibling = rows.find(c => c.name === 'Weekly brief');
+  const approvals = new Map(), keyOf = c => c.skill.id + ':' + digestOf(c.skill);
+  const gate = makeSkillGate({ guard, approvals: { get(a, id, d) { return approvals.get(id + ':' + d) || null; } } });
+  // The route's order: precheck, then precommit the digest approval, then promote.
+  const route = c => {
+    const blocked = f.s.promotionBlocker('a', c.candidateId);
+    if (blocked) return { ok: false, error: blocked };
+    approvals.set(keyOf(c), { digest: digestOf(c.skill) });
+    return f.promote(c, f.issue(c));
+  };
+  A.eq(gate.decide(read(f.s, 'Weekly brief')).visible, false, 'precondition: the sibling is withheld');
+  const early = route(sibling);
+  A.eq(early.ok, false, 'archive is refused before the merge is approved');
+  A.eq(early.error, f.promote(sibling, f.issue(sibling)).error, 'the precheck and the promotion refuse with the same words');
+  A.eq(gate.decide(read(f.s, 'Weekly brief')).visible, false, 'a refused archive leaves the sibling withheld');
+  A.eq(f.s.promotionBlocker('a', heir.candidateId), null, 'nothing blocks the merge itself');
+  approvals.set(keyOf(sibling), { digest: digestOf(sibling.skill) });
+  A.eq(gate.decide(read(f.s, 'Weekly brief')).visible, true, 'precondition: a precommitted key alone would have released the sibling');
+  approvals.clear();
+  f.s.manage({ agentId: 'a', target: 'Reports', action: 'pin', createdBy: 'user' });
+  A.ok(/pinned/.test(f.s.promotionBlocker('a', heir.candidateId) || ''), 'the precheck covers a pinned active skill');
+  A.eq(f.s.promotionBlocker('a', 'no-such-candidate'), 'no pending candidate with that id', 'the precheck names an unknown candidate');
+}
 // A foreground run only sees the active version, so it never builds on (or silently discards) a review draft it
 // cannot see. Its own run's draft and the review passes (which read drafts through pendingView) still continue one.
 {

@@ -686,14 +686,30 @@
         return { error: 'candidate changed; read and evaluate its current revision first' };
       return { row, active: latest.get(keyOf(row.agentId, row.name)) || null };
     }
+    // Everything that stops a pending proposal from being promoted apart from its evaluation receipt (null when
+    // nothing does). approveCandidate runs it, and the approve route must run it (promotionBlocker) BEFORE it
+    // precommits a digest approval for the candidate's bytes: an archive carries the live sibling's bytes, so a
+    // refused archive would otherwise leave a withheld sibling's bytes approved.
+    function blockerFor(row, active) {
+      if (revisionDigest(active) !== row.baseDigest) return 'the active skill changed after this proposal; reject it or wait for the agent to propose a new revision';
+      if (row.skill.guardAction === 'block') return 'candidate is blocked by the skill guard';
+      // Pinned content cannot be changed by proposing a revision before it was pinned.
+      if (active && active.pinned) return 'the active skill is pinned; unpin it before promotion';
+      return heirBlocker(row);
+    }
+    function promotionBlocker(agentId, candidateId) {
+      const row = Array.from(candidateRows.values()).find(r => r.agentId === str(agentId) && r.candidateId === str(candidateId));
+      if (!row || row.status !== 'pending') return 'no pending candidate with that id';
+      return blockerFor(row, latest.get(keyOf(row.agentId, row.name)) || null);
+    }
     function approveCandidate(e) {
       e = e || {};
       if (e.approvedBy !== 'user') return { ok: false, error: 'only the Commander may promote a candidate' };
       const found = candidateDecision(e);
       if (found.error) return { ok: false, error: found.error };
       const { row, active } = found;
-      if (revisionDigest(active) !== row.baseDigest) return { ok: false, error: 'the active skill changed after this proposal; reject it or wait for the agent to propose a new revision' };
-      if (row.skill.guardAction === 'block') return { ok: false, error: 'candidate is blocked by the skill guard' };
+      const blocked = blockerFor(row, active);
+      if (blocked) return { ok: false, error: blocked };
       if (!validatePromotionReceipt) return { ok: false, error: 'candidate needs a host-verified behavior evaluation before promotion' };
       let checked;
       // acknowledgedNoImprovement is the Commander's explicit "accept a complete tie"; the verifier decides if it qualifies.
@@ -704,10 +720,6 @@
       if (!checked || checked.ok !== true || (checked.status && checked.status !== 'pass'))
         return { ok: false, error: (checked && checked.error) || 'evaluation is missing, stale, insufficient, or regressed' };
       const entry = clone(row.skill);
-      // Pinned content cannot be changed by proposing a revision before it was pinned.
-      if (active && active.pinned) return { ok: false, error: 'the active skill is pinned; unpin it before promotion' };
-      const heirBlock = heirBlocker(row);
-      if (heirBlock) return { ok: false, error: heirBlock };
       // Usage telemetry is not part of the evaluated digest: keep the live counters, not the stage-time copy,
       // or a skill used every day since it was proposed would look idle to curate() right after approval.
       if (active) {
@@ -883,7 +895,7 @@
 
     return {
       write, manage, list, view, markUsed, curate, compact,
-      candidates, candidate, pendingView, approveCandidate, rejectCandidate, share, listAccessible, viewAccessible,
+      candidates, candidate, pendingView, promotionBlocker, approveCandidate, rejectCandidate, share, listAccessible, viewAccessible,
       all() { return Array.from(latest.values()).map(s => projectSkill(s, true)); },
       count() { return latest.size; },
       _internals: { slug, keyOf, supportPath, cleanName, normalizeEntry, bumpView, trustSource }
