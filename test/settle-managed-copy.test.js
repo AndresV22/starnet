@@ -101,6 +101,20 @@ const harness = (status) => {
     assert.match(line, settle);
     assert.doesNotMatch(line, /interrupted/, 'an evaluation is never counted as an interrupted run: ' + line);
   }
+  // every skill evaluation run id opens with the runner's 'skill-eval-' namespace, so its first 8 chars are the same for
+  // all of them: the tip and RECENT ACTIVITY both name its evaluation, serial and phase instead (one helper, same words)
+  const evalId = 'skill-eval-3f2a9c1d-7b4e-4c1a-9d2e-0123456789ab';
+  const managedEval = { ...evalRun, runId: evalId + '-2-after-0123456789ab', provider: 'starnet', managed: true };
+  const me = harness({ ...st, unsettled: [managedEval, { ...managedEval, runId: evalId + '-1-before-0123456789ab' }] }); await tick();
+  const [meAfter, meBefore] = me.node('#budget-unsettled').children;
+  assert.match(meAfter.attrs['data-tip'], /RECENT ACTIVITY lists those charges as skill eval 3f2a9c1d-2-after:/, 'the tip names this evaluation run: ' + meAfter.attrs['data-tip']);
+  assert.match(meBefore.attrs['data-tip'], /lists those charges as skill eval 3f2a9c1d-1-before:/, 'and tells the two runs apart: ' + meBefore.attrs['data-tip']);
+  assert.doesNotMatch(meAfter.attrs['data-tip'], /run skill-ev/, 'never the shared namespace');
+  const runTag = vm.runInNewContext(code + ';creditRunTag', {});
+  assert.equal(runTag('m1'), 'run m1', 'a plain run keeps its first 8 chars');
+  assert.equal(runTag('run-0123456789'), 'run run-0123');
+  assert.equal(runTag(managedEval.runId), 'skill eval 3f2a9c1d-2-after');
+  assert.equal(runTag('skill-eval-odd'), 'run skill-ev', 'an id that is not the runner shape falls back to the plain tag');
   const idx = fs.readFileSync(path.join(__dirname, '..', 'sidecar/index.js'), 'utf8');
   const settle = idx.slice(idx.indexOf('async function handleBudgetSettle('), idx.indexOf('async function warmModelCatalogSet('));
   assert.ok(settle.length > 200 && settle.length < 6000, 'handleBudgetSettle found');
@@ -109,6 +123,6 @@ const harness = (status) => {
   // the door exists: the configured STORE renders a RECENT ACTIVITY list whose rows carry the run id
   assert.match(text, /<h4 class="ms-h">STORE /, 'the STORE heading exists under AI & MODELS');
   assert.match(text, /RECENT ACTIVITY<\/span>/, 'with its RECENT ACTIVITY list');
-  assert.match(text, /e && e\.runId \? ' · run ' \+ esc\(String\(e\.runId\)\.slice\(0, 8\)\)/, 'whose rows show the run id (first 8 chars)');
+  assert.match(text, /e && e\.runId \? ' · ' \+ esc\(creditRunTag\(e\.runId\)\)/, 'whose rows show the run tag the tip names (first 8 chars, or a skill evaluation\'s own id)');
   console.log('settle-managed-copy: StarNet-credit receipts point at the STORE’s RECENT ACTIVITY, provider-key receipts at the provider dashboard PASS');
 })().catch(e => { console.error(e); process.exitCode = 1; });

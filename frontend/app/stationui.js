@@ -6425,7 +6425,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       const kind = esc(creditEntryLabel(e));
       const amt = (e && e.usd != null) ? fmtUsd(e.usd) : '';
       return '<div class="mc-row"><div class="mc-top"><b>' + kind + '</b> <span class="dim">' + esc(when) + '</span></div>' +
-        '<div class="mc-url dim">' + esc(amt) + (e && e.runId ? ' · run ' + esc(String(e.runId).slice(0, 8)) : '') + '</div></div>';
+        '<div class="mc-url dim">' + esc(amt) + (e && e.runId ? ' · ' + esc(creditRunTag(e.runId)) : '') + '</div></div>';
     }).join('') : '<div class="fb-empty">No credit activity yet.</div>';
     // A LINKED station is somebody's own subscription; an env-configured one is an operator's prepaid pool.
     // Same balance, completely different sentence — describing a subscriber's own account as something "the
@@ -6622,6 +6622,14 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
   // BUDGET panel — read the live caps + real spend from the sidecar, fill the four inputs, wire SAVE / RESET.
   // Caps persist server-side and apply live; this is the ONLY UI for money limits (previously env-var-only).
   const BG_KEYS = ['perRun', 'perAgent', 'perDay', 'global'];
+  // How a run is named in the STORE's RECENT ACTIVITY and in an unsettled row's tip — the same words on both, so the
+  // Commander can match a charge to its row. A skill evaluation run id is 'skill-eval-<evaluation>-<n>-<phase>-<digest>'
+  // (skill-evaluation-runner.js), so its first 8 chars are the same for every one: name its evaluation, serial and phase.
+  function creditRunTag(runId) {
+    const s = String(runId == null ? '' : runId);
+    const m = /^skill-eval-(.+)-(\d+)-([a-z]+)-[A-Za-z0-9]+$/.exec(s);
+    return m ? 'skill eval ' + m[1].slice(0, 8) + '-' + m[2] + '-' + m[3] : 'run ' + s.slice(0, 8);
+  }
   function wireBudget(body) {
     const form = body.querySelector('#budget-form');
     if (!form) return;
@@ -6755,7 +6763,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
         row.setAttribute('data-tip', (evaluation ? 'This skill evaluation run has no recorded price: its provider usage came back without one, or the call failed or was cut off'
           : 'This run stopped before StarNet recorded what it spent') +
           (managed ? ' (it ran on your StarNet credits' + (r.model ? ', ' + r.model : '') + ')' : (where ? ' (it started on ' + where + ')' : '')) +
-          (managed ? '. Enter what StarNet charged for it — SETTINGS → AI & MODELS › STORE › RECENT ACTIVITY lists those charges as run ' + String(r.runId).slice(0, 8)
+          (managed ? '. Enter what StarNet charged for it — SETTINGS → AI & MODELS › STORE › RECENT ACTIVITY lists those charges as ' + creditRunTag(r.runId)
             : byok ? '. Enter the charge your provider dashboard shows for it' : '. The billing source was not recorded. Match this run to StarNet Recent Activity or the original provider billing records, then enter only its verified charge') + ': StarNet books it once and your spending limits can be checked again.');
         const what = document.createElement('span');
         what.className = 'bg-un-what';
