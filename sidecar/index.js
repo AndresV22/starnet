@@ -20036,14 +20036,10 @@ async function runOnceCore(o) {
     childThread: require('./overseer.js').isCoordinatorRun({ ...o, agentId, surface }) ? (a) => {
       // the asking conversation may be too new for the page to have saved it yet: this run proves it exists
       if (a.parentStreamId === String(o.streamId || '')) overseer.ensure({ id: a.parentStreamId, title: o.sessionTitle || '', agentId, projectRoot: a.projectRoot });
-      // titles are station-unique, and the same ask is often delegated again and again (a weekly email, a daily
-      // scan): count up, then fall back to the time it was asked, so a repeat never costs a worker its thread
-      const make = title => overseer.create({ parentStreamId: a.parentStreamId, agentId: a.agentId, requestId: a.requestId, projectRoot: a.projectRoot, title, worker: true });
-      for (let n = 1; n <= 99; n++) {
-        try { return make(n === 1 ? a.title : a.title + ' (' + n + ')'); }
-        catch (e) { if (!/already exists/.test(e.message)) throw e; }
-      }
-      return make(a.title + ' · ' + new Date().toISOString().slice(0, 19).replace('T', ' '));
+      // titles are station-unique, and the same ask is often delegated again and again (a weekly email, a daily scan).
+      // overseer.create picks the free title for a worker (count up, then the time it was asked) from ONE save load,
+      // so a repeat never costs a worker its thread and never costs one load per taken name
+      return overseer.create({ parentStreamId: a.parentStreamId, agentId: a.agentId, requestId: a.requestId, projectRoot: a.projectRoot, title: a.title, worker: true });
     } : undefined,
     classes: SPECIALIST_CLASSES,   // Class Loadouts S1: the summon-tool class list, composed from the shared catalog (no hardcoded prose)
     selfSystem: system,   // team.spawn clones the LEAD's OWN base identity into each ephemeral subagent (Meeseeks)
