@@ -117,7 +117,7 @@ const roster = new Map([['researcher', { system: 'R', name: 'MIRA' }], ['writer'
 /* ---- 3. the card: row state, the worker's exact ask, the receipt ---- */
 {
   const busy = new Set(), pend = new Map(), runOf = new Map();
-  global.Channels = { pendingOf: id => (pend.get(id) || [])[0] || null, pendingAllOf: id => pend.get(id) || [], isBusy: id => busy.has(id), elapsedOf: () => 65000, runIdOf: id => runOf.get(id) || '' };
+  global.Channels = { pendingOf: id => (pend.get(id) || [])[0] || null, pendingAllOf: id => pend.get(id) || [], isBusy: id => busy.has(id), elapsedOf: (id, now) => (typeof now === 'number' ? 65000 : NaN) /* like the real one: no now, no number */, runIdOf: id => runOf.get(id) || '' };
   global.document = undefined;
   const D = require('../frontend/app/delegated.js');
   const ws = (o) => Object.assign({ id: 'k', history: [], runIds: [] }, o);
