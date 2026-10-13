@@ -651,8 +651,12 @@ const Harness = (() => {
     if (j.error) return String(j.error);
     const t = String(text == null ? '' : text).trim().slice(0, 80);
     if (status >= 200 && status < 300) return 'the provider did not verify this key';
+    // a page the station KEPT its key from refuses every key save with 'forbidden token' too — that is not a restart
+    // (review threads-backend-05). The typeof guard keeps this pure when a test lifts it on its own.
+    const withheld = typeof tokenWithheld === 'string' && tokenWithheld;
     const hint = /forbidden origin/.test(t) ? ' — this page’s address doesn’t match the station; open StarNet at the exact address you forward to it'
       : /forbidden host/.test(t) ? ' — StarNet answers only on localhost / 127.0.0.1; reach it through a port forward, not a hostname'
+      : /forbidden token/.test(t) && withheld ? ' — this browser was not verified as running under your own user account, so the station kept its key from this page (see the notice)'
       : /forbidden token/.test(t) ? ' — the station restarted since this page loaded; reload the page'
       : '';
     return 'the station refused the key check (HTTP ' + status + (t && !/^[{<]/.test(t) ? ' ' + t : '') + ')' + hint;

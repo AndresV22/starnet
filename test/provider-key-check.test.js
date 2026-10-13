@@ -27,6 +27,15 @@ const origin = keyCheckFailure(403, {}, 'forbidden origin');
 A.ok(/station refused the key check \(HTTP 403 forbidden origin\)/.test(origin), 'a 403 origin refusal names the station, not the provider: ' + origin);
 A.ok(/address/.test(origin), 'the origin refusal says what to do');
 A.ok(/reload the page/.test(keyCheckFailure(403, {}, 'forbidden token')), 'a stale-token refusal says reload');
+// a page the station KEPT its key from (Harness tokenWithheld = the peerowner reason) is not a restarted station: every
+// key save on it hits 'forbidden token', and "restarted; reload" would be false (review threads-backend-05 follow-up)
+{
+  const withheldCheck = new Function('tokenWithheld', mFail[0] + '\nreturn keyCheckFailure;')('other-user');
+  const w = withheldCheck(403, {}, 'forbidden token');
+  A.ok(/not verified as running under your own user account/.test(w) && /kept its key from this page/.test(w), 'a withheld page\'s refused key check says why: ' + w);
+  A.ok(!/restarted|reload/i.test(w), 'and never claims a restart or offers a reload: ' + w);
+  A.ok(/reload the page/.test(new Function('tokenWithheld', mFail[0] + '\nreturn keyCheckFailure;')('')(403, {}, 'forbidden token')), 'a keyed page keeps the reload line');
+}
 A.ok(/localhost/.test(keyCheckFailure(403, {}, 'forbidden host')), 'a host refusal names the loopback rule');
 A.ok(/HTTP 423\)$/.test(keyCheckFailure(423, {}, '<html>frozen</html>')), 'an HTML/JSON-ish body is not pasted into the message');
 A.ok(!/did not verify/.test(origin), 'the misleading "provider did not verify" never appears for a station refusal');
