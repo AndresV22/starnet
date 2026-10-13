@@ -109,11 +109,11 @@ const Delegated = (() => {
   // the sidecar's own explanation of a bad end, for a hover tip: a refusal's or an error's sentence (the ledger's result;
   // a timeout's or a rejected answer's result is the worker's partial work, never a reason) or a long free-text reason
   // the status line leaves out (the liveness check's receipt). Clipped, never invented. /api/overseer workers[] carry
-  // `result` only for a refused or failed worker, so a timeout's partial work never reaches this tip.
+  // `failure` only for a refused or failed worker (never `result`), so a timeout's partial work never reaches this tip.
   function tipOf(w) {
     if (!w || !['error', 'refused', 'stale'].includes(w.status)) return '';
     const reason = String(w.reason || '').trim();
-    const said = w.status !== 'stale' && (w.status === 'refused' || reason === 'refused' || reason === 'error') ? String(w.result || '') : '';
+    const said = w.status !== 'stale' && (w.status === 'refused' || reason === 'refused' || reason === 'error') ? String(w.failure || '') : '';
     const one = (said.trim() || (reason.length > 40 ? reason : '')).replace(/\s+/g, ' ').trim();
     return one.length > 200 ? one.slice(0, 199) + '…' : one;
   }
