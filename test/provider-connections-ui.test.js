@@ -72,4 +72,18 @@ ok(/const\s+health\s*=\s*providerHealth\[k\.provider\]/.test(station) &&
   'the API-key rows also reserve ACTIVE for probe-proven runnability instead of selection alone');
 ok(!/connected\s*\?\s*connLabel[\s\S]{0,160}p\.id\s*===\s*'ollama'\s*\?\s*'[^']*LOCAL'/.test(station), 'Ollama does not fall through the generic credential status copy');
 
+// GitHub #113 (confirmed live 2026-10-13): a CUSTOM endpoint is added with its URL — both add forms carry the field, the key
+// is optional, and the add copy no longer claims a ChatGPT sign-in on stations that have none
+ok(/customEndpointInputHtml\('base-in-new'\)/.test(station) && /customEndpointInputHtml\('prov-base-in-custom'\)/.test(station), 'both CUSTOM add forms take the endpoint URL');
+ok(/if \(act === 'add' && \(b\.dataset\.provider \|\| activeProv\(\)\) === 'custom'\) \{\s*saveCustomEndpoint\(/.test(station) && /if \(provider === 'custom'\) return saveCustomEndpoint\(/.test(station), 'both CUSTOM saves store the endpoint before any key');
+ok(!/while keeping your ChatGPT sign-in connected/.test(station), 'the add-key copy never claims a ChatGPT sign-in');
+{
+  const src = station.slice(station.indexOf('  function normEndpoint(raw) {'), station.indexOf('  function addKeyHtml('));
+  const norm = new Function(src.slice(0, src.indexOf('\n  }\n') + 4) + '\nreturn normEndpoint;')();
+  ok(norm('localhost:1234/v1') === 'http://localhost:1234/v1', 'a bare local host gets http:// (LM Studio)');
+  ok(norm('192.168.1.20:8000/v1') === 'http://192.168.1.20:8000/v1', 'a bare LAN host gets http://');
+  ok(norm('api.freellmapi.com/v1') === 'https://api.freellmapi.com/v1', 'a bare public host gets https://');
+  ok(norm('https://x.example/v1') === 'https://x.example/v1' && norm('') === '' && norm('http://') === null, 'a full URL is kept, empty is empty, junk is refused');
+}
+
 console.log('provider-connections-ui.test.js OK -', n, 'assertions');
