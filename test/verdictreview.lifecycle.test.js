@@ -126,6 +126,25 @@ async function main() {
     assert.equal(lastRows.find(r => r.runId === 'lean0').packet.learningEvidence.correction.text, 'Use JSON. · Bullets only.', 'a later correction reaches the saved held row');
     assert.ok(lean.take('lean1', 'ok')); assert.equal(acks.at(-1), false, 'a take save is not acknowledged work');
   }
+  // The cached compaction must not freeze redaction at stash time: redact() also scrubs the exact secrets the station
+  // holds, read live, so a token stored to the station after its run ended leaves every saved row at the next save.
+  {
+    const { compactPacket } = require('../sidecar/verdictreview.js');
+    const known = new Set(); let gen = 0, scrubs = 0, lastRows = [];
+    const scrub = t => { scrubs++; let s = String(t); for (const k of known) s = s.split(k).join('[redacted-secret]'); return s; };
+    const late = makeVerdictReview({ ...opts, redact: scrub, redactGeneration: () => gen, onChange: rows => { lastRows = clone(rows); } });
+    const leaked = 'plainTokenNoPrefix42';
+    const run = id => ({ agentId: 'a', model: 'm/x', reason: 'done', messages: [{ role: 'user', content: 'call the api with ' + leaked + ' ' + id }, { role: 'assistant', content: 'Done with ' + leaked }] });
+    late.stash('late-parked', run('p')); late.stash('late-held', run('h')); late.arm('late-held', 'miss', () => true, 'Use JSON.');
+    assert.ok(JSON.stringify(lastRows).includes(leaked), 'the token is not a known secret yet');
+    known.add(leaked); gen++;
+    late.stash('late-next', run('n'));
+    assert.equal(lastRows.length, 3);
+    assert.ok(!JSON.stringify(lastRows).includes(leaked), 'a secret stored after the run is scrubbed from every saved row at the next save');
+    scrubs = 0; compactPacket(run('x'), scrub); const one = scrubs;
+    scrubs = 0; late.stash('late-quiet', run('q'));
+    assert.ok(one > 0 && scrubs === one, 'an unchanged secret generation still compacts only the new packet (' + scrubs + ' scrubs, one packet = ' + one + ')');
+  }
   // A storage block is not carried into a fresh boot: a held row on disk proves a later save worked, so the
   // restarted station reviews the run instead of leaving it parked until the TTL (skills-eval-19).
   {

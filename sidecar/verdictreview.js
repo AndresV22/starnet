@@ -85,17 +85,29 @@ function makeVerdictReview(opts) {
   // Each row is compacted once, not on every save: a run end used to recompact and re-scrub every parked packet.
   // A parked packet never changes after stash; a held row is recompacted only when its verdict or correction does.
   // The rows share these cached objects, so a caller treats a snapshot as read-only.
-  function parkedCompact(row) { return row.compact || (row.compact = compactPacket(row.packet, opts.redact)); }
-  function heldCompact(h, runId) {
-    const key = JSON.stringify([runId, h.verdict, h.correction, h.correctionOriginalChars, h.correctionTruncated, h.correctionSource || '']);
+  // The cache never freezes redaction: redact() also scrubs the exact secrets the station holds, read live, so the
+  // host's known-secret generation (opts.redactGeneration) keys every cached row. A token stored to the station after
+  // its run ended leaves every saved row at the next save. A generation that cannot be read forces a fresh compaction.
+  const redactGeneration = typeof opts.redactGeneration === 'function' ? opts.redactGeneration : null;
+  let unreadGenerations = 0;
+  function secretGeneration() {
+    if (!redactGeneration) return '';
+    try { return 'g:' + String(redactGeneration()); } catch (e) { failNote('verdictreview.redactGeneration', e); return 'unread:' + (++unreadGenerations); }
+  }
+  function parkedCompact(row, gen) {
+    if (!row.compact || row.compactGen !== gen) { row.compact = compactPacket(row.packet, opts.redact); row.compactGen = gen; }
+    return row.compact;
+  }
+  function heldCompact(h, runId, gen) {
+    const key = JSON.stringify([runId, gen, h.verdict, h.correction, h.correctionOriginalChars, h.correctionTruncated, h.correctionSource || '']);
     if (h.compactKey !== key) { h.compact = compactPacket(jobFor(h, runId, 'snapshot'), opts.redact); h.compactKey = key; }
     return h.compact;
   }
   function snapshot() {
-    const rows = [];
-    for (const [runId, row] of packets) rows.push({ runId, at: row.at, packet: parkedCompact(row) });
+    const rows = [], gen = secretGeneration();
+    for (const [runId, row] of packets) rows.push({ runId, at: row.at, packet: parkedCompact(row, gen) });
     for (const [runId, h] of held) {
-      const packet = heldCompact(h, runId);
+      const packet = heldCompact(h, runId, gen);
       const correction = packet.learningEvidence && packet.learningEvidence.correction;
       rows.push({ runId, at: h.at, state: 'held', reviewStatus: h.status, dueAt: h.dueAt, attempts: h.attempts, persistenceFailures: h.persistenceFailures || 0, persistenceBlocked: h.persistenceBlocked === true,
         verdict: h.verdict, correction: correction ? correction.text : '', correctionSource: h.correctionSource,
