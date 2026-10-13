@@ -3900,7 +3900,12 @@ const Chat = (() => {
     r.d.addEventListener('keydown', e => { if (e.key === 'Escape') { e.preventDefault(); decide('deny', '✕ denied', true); } });
     status('awaiting your approval…');
     const asker = (p && p.workerAgentId) ? askerName(p, ws) : name;   // a delegated worker's ask names the worker
-    if (ws && !announcedPrompt(p.promptId, ws) && typeof StationUI !== 'undefined') StationUI.notify(asker + ' needs approval to ' + actionPhrase(p), 'warn', 'needsApproval', { kind: 'needs', go: { ws: ws.id }, key: 'needs:' + ws.id, prompt: p.promptId });
+    // ONE APPROVAL, ONE PLACE YOU ARE LOOKING (live walkthrough 2026-10-13: one file write was announced in 7 places). The
+    // Commander already has this card in front of them when its conversation is open and the page is visible: the bell
+    // still files it (NEEDS YOU, the SYSTEM badge) but quietly — no corner toast, no chime. BUILD MODE hides COMMS, so
+    // there (and in any other conversation, or a hidden window) it still toasts.
+    const seenHere = !!(ws && isActiveWs(ws) && typeof document !== 'undefined' && !document.hidden && log && log.getClientRects && log.getClientRects().length);
+    if (ws && !announcedPrompt(p.promptId, ws) && typeof StationUI !== 'undefined') StationUI.notify(asker + ' needs approval to ' + actionPhrase(p), 'warn', 'needsApproval', { kind: 'needs', go: { ws: ws.id }, key: 'needs:' + ws.id, prompt: p.promptId, quiet: seenHere });
     else if (!ws && typeof StationUI !== 'undefined') StationUI.notify(asker + ' needs approval to ' + actionPhrase(p), 'warn', 'needsApproval');   // P1-8 category: consent prompt
     // FOCUS-STEAL GUARD (P0): a consent prompt must NEVER hijack focus from a Commander who is mid-typing or holds
     // a draft — a stolen focus + a reflexive Enter could approve a file write they never read. Only follow the

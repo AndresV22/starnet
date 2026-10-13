@@ -105,7 +105,8 @@ A.ok(!/hudNote\('◈ recalled[^\n]*kind:/.test(world) && !/hudNote\('✎ memory 
       r: { body: { appendChild: tag => tags.push(tag) } }, document: { createElement: () => ({}) },
       Harness: { consent: async () => { calls++; return reply; }, consentAnswer: async () => { calls++; return reply; } },
       Channels, StationUI: N, askerName: row => row.workerAgentId || 'lead', actionPhrase: () => 'write a file',
-      U: { bus: { emit: (name, data) => events.push([name, data.promptId]) } }, isActiveWs: () => false, renderPresence() {}, syncStatus() {} });
+      U: { bus: { emit: (name, data) => events.push([name, data.promptId]) } }, isActiveWs: () => false, renderPresence() {}, syncStatus() {},
+      askAnswerers: new Map() /* chat.js: open questions the composer may answer (answer() retires its own entry) */ });
     const handler = mode === 'question' ? 'async function answer(text, doneLabel)' : 'async function decide(decision, doneLabel, isDeny)';
     const body = A.fnBody(chat, handler);
     A.ok(body.length > 200 && body.length < 4000, mode + ' submission function is bounded');
