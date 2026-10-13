@@ -291,4 +291,25 @@ for (const change of ['body', 'files', 'summary', 'baseline', 'pin']) {
   A.eq([promoted.useCount, promoted.viewCount, promoted.lastUsedAt], [live.useCount, live.viewCount, live.lastUsedAt], 'promotion carries the live usage counters');
   f.reload(); A.eq(read(f.s).useCount, live.useCount, 'carried usage survives restart');
 }
+// A lifecycle click is not an approval. Archiving and restoring a withheld review-written version, or attaching or
+// removing a support file on it, must not relabel its writer and so un-withhold bytes nobody approved.
+{
+  const f = fixture();
+  f.io.lines.push({ id: 'legacy', agentId: 'a', name: 'Legacy', summary: 'Legacy procedure', body: BODY, createdBy: 'agent',
+    writtenBy: 'background-review', guardAction: 'ask', state: 'active', createdAt: 1, updatedAt: 1 });
+  f.reload();
+  const gate = makeSkillGate({ guard, approvals: { get() { return null; } } });
+  A.eq(gate.decide(read(f.s, 'Legacy')).visible, false, 'precondition: legacy review-written version is withheld');
+  A.ok(f.s.manage({ agentId: 'a', target: 'Legacy', action: 'archive', createdBy: 'user' }).ok, 'Commander archives it');
+  A.ok(f.s.manage({ agentId: 'a', target: 'Legacy', action: 'restore', createdBy: 'user' }).ok, 'Commander restores it');
+  A.eq(read(f.s, 'Legacy').writtenBy, 'background-review', 'archive and restore keep the writer of these bytes');
+  A.eq(gate.decide(read(f.s, 'Legacy')).visible, false, 'archive and restore do not approve review-written bytes');
+  A.ok(f.s.manage({ agentId: 'a', target: 'Legacy', action: 'write_file', path: 'references/note.txt', content: 'A note.', createdBy: 'user' }).ok, 'Commander attaches a support file');
+  A.eq(gate.decide(read(f.s, 'Legacy')).visible, false, 'a support file attached by the Commander keeps the review stamp');
+  A.ok(f.s.manage({ agentId: 'a', target: 'Legacy', action: 'remove_file', path: 'references/note.txt', createdBy: 'user' }).ok, 'Commander removes it again');
+  A.eq(gate.decide(read(f.s, 'Legacy')).visible, false, 'removing a support file keeps the review stamp');
+  const approved = read(f.s, 'Legacy');
+  const blessed = makeSkillGate({ guard, approvals: { get(a, id, d) { return d === approved.contentDigest ? { digest: d } : null; } } });
+  A.eq(blessed.decide(approved).visible, true, 'only an approval of these exact bytes shows it');
+}
 A.report('skills.review-approval');

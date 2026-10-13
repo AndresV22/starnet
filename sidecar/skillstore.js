@@ -502,13 +502,16 @@
         } else if (str(e.absorbedInto || '').trim()) {
           heir = find(agentId, str(e.absorbedInto).trim(), { includeArchived: false });
         }
-        entry = clone(existing); entry.writtenBy = str(e.createdBy || 'agent'); entry.state = 'archived'; entry.updatedAt = now();
+        // Archive and restore change no content, so they keep the writer of these bytes: relabeling a withheld
+        // review-written version as the Commander's would approve bytes nobody read. (A staged archive is still
+        // stamped with its proposer in stageMutation.)
+        entry = clone(existing); entry.state = 'archived'; entry.updatedAt = now();
         if (heir) entry.absorbedInto = heir.name;
         entry = persist(entry);
         return { ok: true, action: 'archive', absorbedInto: entry.absorbedInto || '', skill: projectSkill(entry, true), edited: true };
       }
       if (action === 'restore') {
-        entry = clone(existing); entry.writtenBy = str(e.createdBy || 'agent'); entry.state = 'active'; entry.updatedAt = now();
+        entry = clone(existing); entry.state = 'active'; entry.updatedAt = now();
         entry = persist(entry);
         return { ok: true, action: 'restore', skill: projectSkill(entry, true), edited: true };
       }
@@ -522,7 +525,8 @@
         if (!p.ok) return p;
         t = now();
         entry = clone(existing);
-        entry.writtenBy = str(e.createdBy || 'agent');
+        // A support file ships with the body it sits beside: never lower a review stamp on that body.
+        if (!REVIEW_ACTORS.has(str(existing.writtenBy))) entry.writtenBy = str(e.createdBy || 'agent');
         entry.files = normFiles(entry.files);
         const encoding = e.encoding === 'base64' ? 'base64' : 'utf8';
         const content = encoding === 'base64' ? str(e.content).slice(0, Math.ceil(supportFileMax * 4 / 3) + 4) : red(e.content, supportFileMax);
@@ -548,7 +552,8 @@
         p = supportPath(e.path || e.file || e.filePath);
         if (!p.ok) return p;
         entry = clone(existing);
-        entry.writtenBy = str(e.createdBy || 'agent');
+        // A support file ships with the body it sits beside: never lower a review stamp on that body.
+        if (!REVIEW_ACTORS.has(str(existing.writtenBy))) entry.writtenBy = str(e.createdBy || 'agent');
         entry.files = normFiles(entry.files);
         delete entry.files[p.path];
         entry.packageDiverged = !!entry.packageDigest;
