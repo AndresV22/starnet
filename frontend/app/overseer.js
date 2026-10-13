@@ -5,7 +5,8 @@ const Overseer = (() => {
   let busy = false, lastDeliveries = '', last = null;   // last = the latest /api/overseer answer (Delegated reads it)
   // whether that answer is still CURRENT: the latest poll failed (sidecar down) or one has hung past three beats, and the
   // ledger can no longer vouch for a worker still running. snapshot() stays readable for finished and failed rows;
-  // anything that says "working" reads fresh() first (review app-shell-ui-05)
+  // anything that says "working" must read fresh() first: the rail's crew lamp does; the delegation card's stateOf
+  // (delegated.js) does not yet, so its running rows still tick through an outage (review app-shell-ui-05)
   const BEAT = 2500;
   let okAt = 0, failing = false;
   const fresh = () => !!last && !failing && !(busy && Date.now() - okAt > 3 * BEAT);
@@ -40,7 +41,7 @@ const Overseer = (() => {
       // Existing connection UI owns outages. Retry reconciliation after recovery.
       lastDeliveries = '';
       failing = true;
-      if (typeof Delegated !== 'undefined' && Delegated.repaint) Delegated.repaint();   // its running rows lose their live claim now
+      if (typeof Delegated !== 'undefined' && Delegated.repaint) Delegated.repaint();   // at once, so a row that reads fresh() drops its live claim
       console.debug('[overseer sync]', error.message);
     } finally { clearTimeout(timeout); busy = false; }
   }
