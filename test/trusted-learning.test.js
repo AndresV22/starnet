@@ -71,7 +71,22 @@ assert.equal('trustedOnly' in L.evidence({runId:'c'}),false,'a clean run keeps t
   const key = 'sk-proj-' + 'A1b2C3d4E5f6G7h8I9j0';
   const [saved] = L.preferences(input('Always use ' + key + ' for OpenAI calls.'));
   assert.ok(saved && !saved.content.includes(key) && saved.content.includes('[redacted-key]'), 'a vendor-shaped key is scrubbed from the saved sentence: ' + (saved && saved.content));
-  assert.equal(L.preferences(input('Always use ' + key + ' for OpenAI calls.'))[0].content, saved.content, 'the provenance re-check compares the same scrubbed words');
+  // The host stamps 'user-stated' (and with it standing and crew sharing) only when the written text equals a
+  // preferences() result for the owner's message. Lock that seam in sidecar/index.js: captureTrustedLearning writes
+  // prop.content as preferences() returned it, and writeMemoryRecord compares preferences(...).content with that same
+  // text. A comparison against the raw message would silently drop 'user-stated' from every scrubbed preference.
+  const src = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'sidecar', 'index.js'), 'utf8');
+  const fn = name => { const at = src.indexOf('\nasync function ' + name + '('); assert.ok(at >= 0, name + ' exists in index.js'); return src.slice(at, src.indexOf('\n}\n', at)); };
+  const capture = fn('captureTrustedLearning'), write = fn('writeMemoryRecord');
+  assert.match(capture, /for \(const prop of TrustedLearning\.preferences\(o\.input, o\.projectRoot\)\)/, 'capture saves exactly what preferences() returns');
+  const call = (capture.match(/writeMemoryRecord\(o\.agentId, prop, \{[^}]*\}\)/) || [''])[0];
+  assert.ok(/trustedInput: o\.input\b/.test(call) && !/\bcontent:/.test(call), 'capture passes the owner message and no content override: ' + call);
+  assert.match(write, /const content = String\(opts\.content != null \? opts\.content : \(prop && prop\.content\) \|\| ''\)\.trim\(\);/, 'the written text is prop.content');
+  assert.match(write, /TrustedLearning\.preferences\(opts\.trustedInput, prop\.projectRoot\)\.some\(p => p\.content === content\)/, 'the user-stated stamp compares preferences() words with the written words');
+  // …and with the scrubbed sentence that stamp holds, while the raw sentence would not match.
+  const written = String(saved.content).trim();
+  assert.equal(L.preferences(input('Always use ' + key + ' for OpenAI calls.'), saved.projectRoot).some(p => p.content === written), true, 'a scrubbed owner preference keeps user-stated');
+  assert.notEqual(written, 'Always use ' + key + ' for OpenAI calls.', 'the raw sentence is not what was written');
   C.setKnownSecretSource(() => ['house-service-value-42']);
   try {
     const [known] = L.preferences(input('From now on, send house-service-value-42 with every deploy.'));
