@@ -21902,13 +21902,18 @@ async function runOnceCore(o) {
      (measured 2026-10-11: system part 1 diverged at char 4,819 on every message; ~50 KB of history re-sent uncached).
      It now rides ONE fenced <run_context> note placed with the newest user message, exactly where <recalled-memory>
      goes (injected below), so the system prompt + tools are byte-identical across a conversation's messages and its
-     tool iterations. Same text, same order — moved, not rewritten; the per-conversation blocks (service keys, journey
-     adaptation, the deliverable clause, FINISH THE JOB) stay in the system. Internal self-talk and recovery
+     tool iterations. Same text, same order — moved, not rewritten; the per-conversation blocks (service keys, the
+     Task Brief DOCTRINE, journey adaptation, the deliverable clause, FINISH THE JOB) stay in the system. The doctrine is
+     the constant half of the Task Brief directive (~4.4K): it rides exactly when the brief and its brief_* tools do —
+     every task message of a COMMS conversation — so it is as stable as the tool list; only the brief's own block
+     (<task_brief id="tb_<runId>">, ORIGINAL REQUEST, commander evidence) moves. Internal self-talk and recovery
      continuations are untouched. KILL SWITCH: STARNET_STABLE_PREFIX=0 restores the old single system prompt. */
   const stablePrefix = !internal && !o.recovery && String(ENV('STABLE_PREFIX') || '').trim() !== '0';
-  const perRunBlocks = runtimeSkillBlock + preloadedSkillBlock + taskIntentNote + awayBriefingNote + directDomainBlock + crewCallNote + runtimeBlock;
+  const taskDoctrine = taskBrief ? '\n\n' + TaskIntent.directive('') : '';                     // TaskIntent.directive(cx) = doctrine + '\n' + cx
+  const taskBriefContext = taskBrief && String(taskContextBlock || '').trim() ? '\n\n' + String(taskContextBlock).trim() : '';
+  const perRunBlocks = runtimeSkillBlock + preloadedSkillBlock + taskBriefContext + awayBriefingNote + directDomainBlock + crewCallNote + runtimeBlock;
   const taskSystem = stablePrefix
-    ? FinishLine.append(cacheSystemPrefix + serviceKeysBlock + journeyBlock + deliverableNote, { isTask, internal, tools: resolved.tools })
+    ? FinishLine.append(cacheSystemPrefix + serviceKeysBlock + taskDoctrine + journeyBlock + deliverableNote, { isTask, internal, tools: resolved.tools })
     : FinishLine.append(cacheSystemPrefix + runtimeSkillBlock
       + preloadedSkillBlock + serviceKeysBlock + taskIntentNote + awayBriefingNote + directDomainBlock + journeyBlock
       + deliverableNote + crewCallNote + runtimeBlock, { isTask, internal, tools: resolved.tools });

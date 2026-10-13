@@ -52,7 +52,9 @@ const text = content => typeof content === 'string' ? content : (content || []).
         assert.ok(!sys.includes('Run id:'),provider+': no run id in the system prompt');
         assert.ok(sys.includes('CACHE_PROOF_IDENTITY'),provider+': caller instructions retained');
         assert.ok(sys.includes('<capabilities_ground_truth>'),provider+': capability truth retained');
-        assert.ok(note.includes('brief_proceed') || note.includes('brief.proceed'),provider+': Task Brief control retained (run-context note)');
+        assert.ok(sys.includes('brief_proceed') || sys.includes('brief.proceed'),provider+': Task Brief control retained (its constant doctrine stays in the system prompt)');
+        assert.ok(note.includes('<task_brief id="tb_'),provider+': the brief itself (its id is the run\'s) rides the run-context note');
+        assert.ok(!sys.includes('<task_brief'),provider+': no per-run brief block in the system prompt');
         assert.ok(sys.length+note.length>20000,provider+': full task context was not shortened');
         assert.equal(lastUser(body),body.messages.length-1,provider+': the request ends on the user turn');
       }
