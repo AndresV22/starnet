@@ -41,10 +41,17 @@
      rest sort by context.js's bm25 over {name, summary} (skills shim onto the record shape as title/body), tiebreak
      updatedAt desc then name then caller order. No query at all (or no scorer in the vestigial browser path) →
      the pins, then the caller's order (skillStore listAccessible(): own skills first, then by name). Nothing is
-     ever DROPPED by relevance: the budget's own skip-and-count is the only omission path, unchanged. */
+     ever DROPPED by relevance: the budget's own skip-and-count is the only omission path, unchanged.
+     Without an agentId the owner is read off the list: listAccessible returns agent-scope rows only for the caller,
+     so any such row names it. A list with none (every own skill shared) lets every pin lead, as before. */
+  function listOwner(live, agentId) {
+    if (str(agentId)) return str(agentId);
+    const own = live.find(s => s && s.agentId && (!s.scope || s.scope === 'agent'));
+    return own ? str(own.agentId) : '';
+  }
   function leadsAsPinned(s, agentId) { return !!(s && s.pinned) && (!agentId || !s.agentId || str(s.agentId) === agentId); }
   function orderByQuery(live, query, ctx, agentId) {
-    const owner = str(agentId);
+    const owner = listOwner(live, agentId);
     const pinnedFirst = list => list.filter(s => leadsAsPinned(s, owner)).concat(list.filter(s => !leadsAsPinned(s, owner)));
     if (!query || !ctx || typeof ctx.bm25 !== 'function') return pinnedFirst(live);
     const rel = ctx.bm25(live.map(s => ({ kind: 'note', title: str(s && s.name), body: str(s && s.summary) })), query);

@@ -185,6 +185,13 @@ const redact = (t) => String(t).replace(/sk-[A-Za-z0-9]{8,}/g, '[redacted]');
     A.ok(line('Shared runbook').indexOf('[owner: b, scope: station]') > 0, 'a skill shared by another agent still names its owner and scope');
     const tight = runtimeSkills.composeIndex(st.listAccessible('a', {}), { budget: 60 });
     A.ok(/Additional saved skills/.test(tight.text) && tight.text.indexOf('- Beta report [owner:') < 0 && tight.text.indexOf('- Shared runbook [owner: b]') >= 0, 'the names-only overflow applies the same rule');
+    // Another agent's pinned station skill never jumps ahead of the agent's own skills, even when the caller passes
+    // no agentId (the run prompt): listAccessible's agent-scope rows are the caller's own, so they name the owner.
+    A.ok(st.manage({ agentId: 'b', action: 'pin', target: 'Shared runbook' }).ok, 'b pins its station skill');
+    const noQuery = runtimeSkills.composeIndex(st.listAccessible('a', {}), {}).text;
+    A.ok(noQuery.indexOf('Zoom setup') < noQuery.indexOf('Alpha brief') && noQuery.indexOf('Beta report') < noQuery.indexOf('Shared runbook'), 'with no query, the agent\'s own pin leads and another agent\'s pin keeps its place after the agent\'s own skills');
+    const asked = runtimeSkills.composeIndex(st.listAccessible('a', {}), { query: 'alpha brief' }).text;
+    A.ok(asked.indexOf('Zoom setup') < asked.indexOf('Alpha brief') && asked.indexOf('Alpha brief') < asked.indexOf('Shared runbook'), 'with a query, another agent\'s pin ranks by relevance, not ahead of it');
   }
   A.eq(runtimeSkills.extractInvocations([{ role: 'user', content: '/skill Deploy\ncontinue' }])[0], 'Deploy', 'slash /skill invocation is parsed');
   A.ok(/PRELOADED SKILLS/.test(runtimeSkills.composeLoaded([s.view('a', 'Deploy', { bump: false })])), 'explicit preload composes full skill bodies');
