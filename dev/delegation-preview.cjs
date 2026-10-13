@@ -49,6 +49,14 @@ async function provider() {
       send({ content: (lines.length > 1 ? 'The launch kit is ready.' : 'Here is what came back.') + '\n\n' + lines.join('\n')
         + (still.length ? '\n\n' + still.join(' and ') + (still.length > 1 ? ' are' : ' is') + ' still working; I will report when they finish.' : '') });
     }
+    else if (/\badd (?:two|2) agents\b/i.test(user) && crew.length >= 2) {
+      // the lead brings two crew into THIS chat (station.control group.add) and then says ONLY what the tool said
+      const toolText = String((messages.slice(lastUser + 1).filter(m => m.role === 'tool').pop() || {}).content || '');
+      if (!used.includes('brief_proceed')) call('brief_proceed', { objective: 'Bring two crew members into this chat', deliverable: 'A researcher and a builder seated in this chat' });
+      else if (!used.includes('tool_search')) call('tool_search', { query: 'add agents to this chat group.add' });
+      else if (!used.includes('station_control')) call('station_control', { action: 'group.add', args: { agents: crew.slice(0, 2) } });
+      else send({ content: /^QUEUED, NOT DONE YET: /.test(toolText) ? toolText.replace(/^QUEUED, NOT DONE YET: /, '').replace(/ Tell the Commander[\s\S]*$/, '') : 'I could not add them: ' + toolText.slice(0, 300) });
+    }
     else if (task && !system.includes('[ORCHESTRATION]')) {
       // PREVIEW_TWO_ASKS=1 (with SEED_FULL_ACCESS=0): ROOK writes a file too, so two workers wait on approvals at once
       // — answering one must leave the other waiting, with its bell and no second toast

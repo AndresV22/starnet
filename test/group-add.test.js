@@ -105,7 +105,7 @@ const { makeStationControlTools, cardFor, ACTIONS } = require('../sidecar/tools/
     A.ok(/still answering in that chat/.test(threw), 'another run cannot queue a change on a chat it is not running');
     const out = await b.GC.addAgents(b.ws.get('ws_chat'), ['nova', 'sam'], { streamId: 'ws_chat', runId: 'run_1' });
     A.eq(out.joining, true, 'the asking run\'s join is queued');
-    A.ok(/^NOVA and SAM ALTMAN join this chat \(it becomes a group chat, its history kept\) the moment your reply ends/.test(out.note), 'its note says when, in plain words: ' + out.note);
+    A.ok(/^NOVA and SAM ALTMAN join this chat \(it becomes a group chat, its history kept\) the moment this reply ends/.test(out.note), 'its note says when, in plain words: ' + out.note);
     A.eq(JSON.stringify(b.ws.get('ws_chat').pendingJoin.ids), '["nova","sam"]', 'the join is saved on the conversation');
     A.ok(!b.sent.some(s => s.body && s.body.op === 'create'), 'nothing converts while the reply runs');
     // the reply ends well: the join lands with the dialogue only

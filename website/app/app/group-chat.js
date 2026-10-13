@@ -675,7 +675,7 @@ const GroupChat = (() => {
       ws.pendingJoin = { runId, ids: all, at: Date.now() }; save();
       return { joining: true, agents: all.map(name), note: agentNames(all) + (all.length > 1 ? ' join ' : ' joins ')
         + (isGeneral(ws) ? 'a new group chat that opens beside General' : 'this chat (it becomes a group chat, its history kept)')
-        + ' the moment your reply ends. If the reply is stopped or fails, nobody is added and the Commander is told in the chat.' };
+        + ' the moment this reply ends. If the reply is stopped or fails, nobody is added and the Commander is told in the chat.' };
     }
     const g = await startGroup(ws, add);
     return { added: add, members: g.members, group: g.id, title: g.title };
