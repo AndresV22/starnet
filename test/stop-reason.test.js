@@ -87,6 +87,13 @@ A.eq(Friendly.friendlyError(Object.assign(new Error('aborted'), { name: 'AbortEr
 /* ---- 3. COMMS ---- */
 // the work-log line for a run that ENDED without a clean delivery
 A.ok(/empty reply, so nothing was done/.test(Friendly.stopLine('empty')), 'COMMS: empty is explained, never "stopped (empty)"');
+// an empty end AFTER tool steps: COMMS says what the chat surfaces say, in the same words (review threads-backend-03)
+for (const n of [1, 2]) {
+  const line = Friendly.stopLine('empty', { toolsRan: n });
+  A.ok(!/nothing was done/.test(line), 'COMMS: an empty end after ' + n + ' tool step(s) never says nothing was done: ' + line);
+  A.eq(line, SR.stopSentence('empty', { toolsRan: n }), 'COMMS mirrors the chat wording for an empty end after ' + n + ' tool step(s)');
+}
+A.eq(Friendly.stopLine('empty', { toolsRan: 0 }), SR.stopSentence('empty'), 'COMMS mirrors the chat wording for an empty end with no tool step');
 A.ok(/outside this chat/.test(Friendly.stopLine('cancelled')) && /E-STOP/.test(Friendly.stopLine('cancelled')), 'COMMS: a cancel that was not yours says it came from elsewhere');
 A.ok(/E-STOP this run pressed/.test(Friendly.stopLine('cancelled', { cancelSource: 'estop_by_run' })), 'COMMS: the run\'s own E-STOP keeps its line');
 A.eq(Friendly.stopLine('done'), '', 'COMMS: a clean end has no stop line');
