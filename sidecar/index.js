@@ -18660,7 +18660,7 @@ function serveSkillCandidates(req, res) {
     if (id) {
       const candidate = skillStore.candidate(agentId, id);
       if (!candidate) return learningJson(res, 404, { ok: false, error: 'no such candidate' });
-      return learningJson(res, 200, { ok: true, candidate, active: skillStore.view(agentId, candidate.skill.id, { bump: false, includeArchived: true }), evaluationSuites: evaluationSuiteMetadata(agentId, [candidate.skill]) });
+      return learningJson(res, 200, { ok: true, candidate, active: skillStore.view(agentId, candidate.skill.id, { bump: false, includeArchived: true, hydrate: false }), evaluationSuites: evaluationSuiteMetadata(agentId, [candidate.skill]) });
     }
     const candidates = skillStore.candidates(agentId, { includeBody: u.searchParams.get('body') === '1', includeResolved: u.searchParams.get('resolved') === '1' });
     return learningJson(res, 200, { ok: true, agentId, candidates, evaluationSuites: evaluationSuiteMetadata(agentId, candidates.map(c => c.skill)) });
@@ -18699,13 +18699,13 @@ async function handleSkillCandidateAction(req, res) {
     const guard = skillGate.verify(candidate.skill);
     if (guard.action === 'block') return learningJson(res, 400, { ok: false, error: 'the skill guard blocks this revision; edit the flagged content first' });
     if (action === 'approve-candidate') {
-      const baseline = skillStore.view(agentId, candidate.skill.id, { bump: false, includeArchived: true });
+      const baseline = skillStore.view(agentId, candidate.skill.id, { bump: false, includeArchived: true, hydrate: false });
       // Only a literal true from the Commander's panel accepts a complete tie ("no measurable improvement").
       const acknowledgedNoImprovement = body.acknowledgeNoImprovement === true;
       const expected = { candidate: candidate.skill, baseline, agentId, candidateDigest: candidate.candidateDigest, baselineDigest: candidate.baseDigest, acknowledgedNoImprovement };
       const checked = verifySkillPromotion(body.receiptId || body.evaluation, expected);
       if (!checked.ok) return learningJson(res, 409, { ok: false, error: checked.error || 'behavior evaluation has not passed' });
-      if (SkillEvaluation.digestSkill(baseline) !== candidate.baseDigest) return learningJson(res, 409, { ok: false, error: 'active skill changed since the candidate was proposed' });
+      if (SkillEvaluation.digestSkill(baseline) !== candidate.baseDigest) return learningJson(res, 409, { ok: false, error: 'the active skill changed after this proposal; reject it or wait for the agent to propose a new revision' });
       // Precommit a digest-specific approval. It cannot revoke the old active approval or approve different bytes.
       // If promotion append fails, the old skill remains active; this unused candidate approval is harmless.
       const key = agentId + '\x00' + candidate.skill.id + '\x00' + skillGate.digestOf(candidate.skill);
@@ -18718,8 +18718,11 @@ async function handleSkillCandidateAction(req, res) {
     if (skillEvaluationsNow.has(agentId)) return learningJson(res, 409, { ok: false, error: 'an evaluation is already running for this agent' });
     const cfg = sampleRunConfigFor(agentId);
     if (!cfg || cfg.ok === false || !cfg.model || (!cfg.configured && !cfg.key)) return learningJson(res, 409, { ok: false, error: 'configure a model for this agent before evaluation' });
-    const baseline = skillStore.view(agentId, candidate.skill.id, { bump: false, includeArchived: true });
-    if (SkillEvaluation.digestSkill(baseline) !== candidate.baseDigest) return learningJson(res, 409, { ok: false, error: 'active skill changed; regenerate the candidate before evaluating' });
+    /* The baseline is the STORED record (hydrate:false), the same one the store took baseDigest from and approveCandidate
+       compares. The hydrated view can differ (a body ending in a newline that SKILL.md trims, a removed or base64
+       support file, a hand-edited SKILL.md), which made such a proposal impossible to evaluate or approve. */
+    const baseline = skillStore.view(agentId, candidate.skill.id, { bump: false, includeArchived: true, hydrate: false });
+    if (SkillEvaluation.digestSkill(baseline) !== candidate.baseDigest) return learningJson(res, 409, { ok: false, error: 'the active skill changed after this proposal; reject it or wait for the agent to propose a new revision' });
     const providerId = normalizeProvider(cfg.provider), unmetered = !!((getProviderProfile(providerId) || {}).unmetered);
     const controller = new AbortController(), timer = setTimeout(() => controller.abort(), 120000);
     const onClose = () => { if (!res.writableEnded) controller.abort(); };

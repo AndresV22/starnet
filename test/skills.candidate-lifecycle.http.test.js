@@ -118,6 +118,9 @@ const server = http.createServer((req, res) => {
   const candidates = async () => (await api('GET', '/api/agent-skills/candidates?agent=agent&body=1&resolved=1')).candidates;
   const action = (name, c, extra, status) => api('POST', '/api/agent-skills/' + name, { agentId: 'agent', candidateId: c.candidateId, candidateDigest: c.candidateDigest, ...(extra || {}) }, status);
   const manage = fields => api('POST', '/api/agent-skills/manage', { agentId: 'agent', target: seeded.id, ...fields });
+  // review regressions are collected, so one run of this heavy suite reports every one of them
+  const regressions = [];
+  const check = async (label, fn) => { try { await fn(); } catch (error) { regressions.push(label + ': ' + error.message.slice(0, 600)); } };
   const worker = async (agentId, prompt, projectRoot) => {
     const before = requests.length;
     await api('POST', '/api/run', { agentId, provider: 'openrouter', model: MODEL, key: 'local-fixture-only', isTask: true,
@@ -249,6 +252,23 @@ const server = http.createServer((req, res) => {
     await api('POST', '/api/agent-skills/share', { agentId: 'agent', target: seeded.id, scope: 'agent' });
     assert.ok(!(await worker('worker_revoked', 'LIFECYCLE_READ revoked')).includes(CANDIDATE), 'sharing withdrawal applies to a fresh worker');
     phases.push('owner-only sharing; private/station/project boundaries, restart, and withdrawal on fresh runs');
+
+    // skills-eval-03: the panel's textarea sends its value untrimmed, so the stored body can end in a newline the
+    // package's SKILL.md (and so the hydrated view) does not. The proposal's base is the STORED record; the routes
+    // compared it with the hydrated view, so this proposal could never be evaluated or approved.
+    await check('skills-eval-03', async () => {
+      await manage({ action: 'edit', body: BASELINE + '\n' });
+      await api('POST', '/api/agent-skills/allow', { agentId: 'agent', id: seeded.id });
+      assert.equal((await active()).withheld, false, 'the Commander approved the edited skill');
+      assert.match(await worker('agent', 'LIFECYCLE_PROPOSE: Read the edited procedure, then propose the exact copy procedure again.'), /Proposed revision/);
+      const again = (await candidates()).find(c => c.name === NAME && c.status === 'pending');
+      assert.ok(again, 'the agent proposed a revision of the edited skill');
+      const outcome = await action('evaluate-candidate', again, { suiteId: 'owner:copy-lifecycle' });
+      assert.equal(outcome.receipt.status, 'passed', JSON.stringify(outcome.receipt).slice(0, 400));
+      const done = await action('approve-candidate', again, { receiptId: outcome.receipt.receiptId });
+      assert.equal(done.candidate.status, 'promoted');
+    });
+    assert.deepEqual(regressions, [], 'review regressions');
     assert.ok(requests.every(r => r.model === MODEL), 'every model call stayed on the local configured fixture model');
     console.log(JSON.stringify({ status: 'PASS', test: 'skills.candidate-lifecycle.http', proof: 'real sidecar and agent loops; scripted loopback provider; no model-quality claim', phases, modelCalls: requests.length }, null, 2));
   } catch (error) {
