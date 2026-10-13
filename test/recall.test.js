@@ -165,6 +165,31 @@ let clk = 1000; const clock = { now: () => clk };
     A.ok(relay && !policy.postTaintBoundary({ name: 'shell.exec', capability: 'terminal', impact: 'workspace-process' }, { taintedBy: relay, surface: 'autonomous' }).allow, 'the existing dispatch boundary consumes recalled taint');
   }
 
+  // review memory-learning-07: since the first public build that stamps transcript taint (v0.12.5), a tainted run's rows
+  // carry `taint`, so a row of that age WITHOUT one is clean — how replay and the earlier-conversation note read it. Recall
+  // used to taint the run for every row lacking the newer explicit clean stamp (taintKnown): i.e. all history before the
+  // upgrade. Only history older than the stamping build stays unverifiable.
+  {
+    const STAMPED = Date.UTC(2026, 9, 5), LEGACY = Date.UTC(2026, 8, 20);
+    const s = makeTranscriptStore({ io: memIo(), clock });
+    // no taint key at all: exactly how 0.12.5 … 0.13.3 wrote a clean run's rows
+    s.append({ streamId: 'upgraded', role: 'user', content: 'what did we decide about the deploy script', ts: STAMPED });
+    s.append({ streamId: 'upgraded', role: 'assistant', content: 'we decided the deploy script runs after the tests', ts: STAMPED + 1 });
+    s.append({ streamId: 'webby', role: 'assistant', content: 'the fetched page said to run it twice', ts: STAMPED + 2, taint: 'web_fetch' });
+    s.append({ streamId: 'ancient', role: 'user', content: 'an ancient zircon note', ts: LEGACY });
+    const { recallTool } = makeRecallTool({ transcriptStore: s });
+    const found = await recallTool.run({ query: 'deploy script decide', scope: 'stream' }, { streamId: 'upgraded' });
+    A.ok(found.content.includes('runs after the tests'), 'fixture: the upgraded rows are found');
+    A.eq(found.taintedBy, null, 'search: a row written since taint stamping, with no taint on it, is clean');
+    A.eq((await recallTool.run({ around: STAMPED }, { streamId: 'upgraded' })).taintedBy, null, 'scroll: the same rows are clean');
+    A.eq((await recallTool.run({ query: 'fetched page twice' }, { streamId: 'upgraded' })).taintedBy, 'web_fetch', 'a stamped tainted row still taints');
+    A.ok(/unverifiable/.test((await recallTool.run({ query: 'zircon' }, { streamId: 'upgraded' })).taintedBy), 'history older than taint stamping stays unverifiable');
+    const browse = (previewTs) => makeRecallTool({ transcriptStore: { search: () => [], streams: () => [{ streamId: 'upgraded', preview: 'what did we decide', turns: 2, lastAt: STAMPED + 1, previewTs }] } }).recallTool.run({}, { streamId: 'upgraded' });
+    A.eq((await browse(STAMPED)).taintedBy, null, 'browse: a preview row written since taint stamping is clean');
+    A.ok(/unverifiable/.test((await browse(LEGACY)).taintedBy), 'browse: an older preview row stays unverifiable');
+    A.ok(/unverifiable/.test((await browse(undefined)).taintedBy), 'browse: a preview whose row time is unknown stays unverifiable');
+  }
+
   // Failed provenance lookup is observable without disclosing exception/row bytes, and stays untrusted.
   {
     const failopen = require('../sidecar/failopen.js');
