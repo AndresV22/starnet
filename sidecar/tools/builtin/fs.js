@@ -614,11 +614,13 @@ const { note: failNote } = require('../../failopen');
             const plan = await planFor(op.path);
             requireExists(plan, 'UPDATE');
             let current = plan.content;
-            for (const hunk of op.hunks) {
+            for (let h = 0; h < op.hunks.length; h++) {
+              const hunk = op.hunks[h];
               const oldText = hunkOldText(hunk);
               const newText = hunkNewText(hunk);
               const res = fuzzyFindAndReplace(current, oldText, newText);
-              if (!res.ok) throw new Error('UPDATE ' + op.path + ': ' + res.error);
+              // name the hunk: in a multi-hunk update the model must know WHICH one to re-copy from the file
+              if (!res.ok) throw new Error('UPDATE ' + op.path + ' (hunk ' + (h + 1) + '/' + op.hunks.length + '): ' + res.error);
               current = res.content;
             }
             assertSize(op.path, current);

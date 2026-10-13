@@ -79,6 +79,12 @@ function patch(body) {
       '-missing',
       '+MISSING'
     ].join('\n')) }, ctx), /Could not find|UPDATE rollback/, 'failed second hunk rejects the whole patch');
+    // The refusal names the failing hunk and says how to fix it, so a retry is not the same blind guess.
+    const why = await rejectedError(patchTool.run({ patch: patch([
+      '*** Update File: rollback.txt', '@@ h1 @@', '-one', '+ONE', '@@ h2 @@', '-missing', '+MISSING'
+    ].join('\n')) }, ctx));
+    A.ok(why && /^UPDATE rollback\.txt \(hunk 2\/2\): Could not find a match/.test(why.message), 'refusal names the failing hunk - ' + (why && why.message));
+    A.ok(why && /line for line/.test(why.message) && /fs\.read the file and copy those lines verbatim/.test(why.message), 'refusal says how to fix the hunk - ' + (why && why.message));
     const after = await readTool.run({ path: 'rollback.txt' }, ctx);
     A.eq(after.content, 'one\ntwo\nthree', 'failed patch leaves file byte-identical');
   }
