@@ -121,6 +121,40 @@ function parsePages(buf) {
     await voice.hear('devB', { utt: 'b1', part: 0, frames: [b64u(SILK_WB_60MS)] });
     t += VOICE_TTL_MS + 1;
     A.ok(!(await voice.hear('devB', { utt: 'b1', part: 1, frames: [], last: true })).ok, 'an abandoned utterance expires');
+
+    // a reply lost on the relay: the device sends its FINAL part again and gets the same transcript back,
+    // never a second (paid) STT call and never "start again from part 0"
+    {
+      let calls = 0, release;
+      const gate = new Promise((r) => { release = r; });
+      const v4 = makeRemoteVoice({ now: () => t, newId: () => 'x', transcribeOgg: async () => { calls++; await gate; return { ok: true, text: 'what time is it' }; } });
+      const frames = Array(10).fill(b64u(SILK_WB_60MS));
+      A.ok((await v4.hear('devR', { utt: 'r1', part: 0, frames, frameMs: 60 })).ok, 'retry: part 0 opens the utterance');
+      const lastPart = { utt: 'r1', part: 1, frames, frameMs: 60, last: true };
+      const first = v4.hear('devR', lastPart);
+      const during = v4.hear('devR', lastPart);   // the retry lands while the station is still transcribing
+      release();
+      const [r1, r2] = await Promise.all([first, during]);
+      const r3 = await v4.hear('devR', lastPart);   // and one after it finished
+      A.ok(r1.ok && r1.data.text === 'what time is it', 'the final part is transcribed');
+      A.ok(r2.ok && r2.data.text === 'what time is it', 'a repeat of the final part during STT gets the same transcript: ' + JSON.stringify(r2));
+      A.ok(r3.ok && r3.data.text === 'what time is it', 'a repeat of the final part after STT gets the same transcript: ' + JSON.stringify(r3));
+      A.eq(calls, 1, 'one STT call for three deliveries of the final part');
+      A.ok(!(await v4.hear('devR', { utt: 'r1', part: 1, frames: frames.slice(0, 9), frameMs: 60, last: true })).ok, 'different audio under the same part number is not a repeat: refused');
+      A.ok(!(await v4.hear('devR', { utt: 'r1', part: 2, frames, frameMs: 60, last: true })).ok, 'a later part of a closed utterance is still refused');
+      A.ok((await v4.hear('devR', { utt: 'r2', part: 0, frames, frameMs: 60 })).ok, 'a new utterance opens');
+      A.ok(!(await v4.hear('devR', lastPart)).ok, 'a new utterance drops the old transcript');
+      A.eq(calls, 1, 'still one STT call');
+      const v5 = makeRemoteVoice({ now: () => t, newId: () => 'x', transcribeOgg: async () => { calls++; return { ok: true, text: 'lights off' }; } });
+      const solo = { utt: 's1', part: 0, frames, frameMs: 60, last: true };
+      A.ok((await v5.hear('devS', solo)).ok && (await v5.hear('devS', solo)).data.text === 'lights off', 'a one-part utterance sent twice is one transcript');
+      A.eq(calls, 2, 'a one-part repeat never reaches STT again');
+      v5.forget('devS');
+      A.ok((await v5.hear('devS', solo)).ok && calls === 3, 'a revoke (forget) drops the kept transcript');
+      t += VOICE_TTL_MS + 1;
+      A.ok((await v5.hear('devS', solo)).ok && calls === 4, 'the kept transcript expires after VOICE_TTL_MS');
+      A.eq(v5._sizes().heard, 1, 'one kept transcript per device');
+    }
   }
 
   /* ---------- 3. speak / speech: progressive (sentence by sentence), ADPCM, per device, re-askable, expiring ---------- */
@@ -206,11 +240,12 @@ function parsePages(buf) {
     const idle = makeRemoteVoice({ now: () => tIdle, newId: () => 'i1', synthesize: async () => ({ ok: true, buf: Buffer.from([0xff, 0xfb, 0x90, 0x00]), mime: 'audio/mpeg', provider: 'edge' }) });
     await idle.speak('devZ', { text: 'Hi.' });
     await idle.hear('devZ', { utt: 'z1', part: 0, frames: [b64u(SILK_WB_60MS)] });
-    A.eq(idle._sizes(), { utterances: 1, replies: 1 }, 'an unfinished utterance and a reply are held');
+    await idle.hear('devY', { utt: 'y1', part: 0, frames: [b64u(SILK_WB_60MS)], last: true });
+    A.eq(idle._sizes(), { utterances: 1, replies: 1, heard: 1 }, 'an unfinished utterance, a reply and a kept transcript are held');
     tIdle += VOICE_TTL_MS + 1;
     A.eq(typeof idle.sweep, 'function', 'sweep is exported');
     idle.sweep();
-    A.eq(idle._sizes(), { utterances: 0, replies: 0 }, 'sweep alone drops expired audio, with no voice verb called');
+    A.eq(idle._sizes(), { utterances: 0, replies: 0, heard: 0 }, 'sweep alone drops expired audio and transcripts, with no voice verb called');
 
     // a later sentence that fails ends the reply with what was said, and says why
     let n = 0;

@@ -19,10 +19,14 @@
        replaces the old one. Nothing is written to disk and nothing is served after VOICE_TTL_MS. sweep() drops
        expired audio; it runs on every voice verb, a revoke (forget) drops a device's audio at once, and sweep is
        exported so the host can also run it on a timer for a device that never calls again.
-     · Parts must arrive in order (0, 1, 2 …). A gap or a repeat is refused, never silently stitched.
+     · Parts must arrive in order (0, 1, 2 …). A gap or a repeat is refused, never silently stitched. The one
+       exception: a repeat of the FINAL part (same utterance, part and audio — the reply was lost on the relay)
+       returns the same transcript, never a second STT call. A new utterance, a revoke or VOICE_TTL_MS drops it.
      · Every size is capped: frames per utterance, bytes per frame, text per reply, bytes per chunk.
      · An utterance too short to be speech returns an empty transcript instead of reaching a paid STT leg. */
 'use strict';
+
+const nodeCrypto = require('crypto');
 
 const MAX_FRAMES = 1000;            // 60 s of 60 ms frames
 const MAX_FRAME_BYTES = 1500;       // one Opus packet; the device's 16 kHz mono frames are ~100–200 bytes
@@ -282,12 +286,14 @@ function makeRemoteVoice(deps) {
   const utterances = new Map();   // deviceId -> { utt, next, frames, bytes, frameMs, at }
   const replies = new Map();      // deviceId -> { id, buf, mime, provider, at }
   const pendingReplies = new Map(); // deviceId -> first-chunk owner, installed before awaiting synthesis
+  const heard = new Map();        // deviceId -> { utt, part, sig, p (the transcript's promise), at }: the last final part
 
   function sweep() {
     const t = now();
     for (const [k, u] of utterances) if (t - u.at > VOICE_TTL_MS) utterances.delete(k);
     for (const [k, r] of replies) if (t - r.at > VOICE_TTL_MS) replies.delete(k);
     for (const [k, r] of pendingReplies) if (t - r.at > VOICE_TTL_MS) pendingReplies.delete(k);
+    for (const [k, h] of heard) if (t - h.at > VOICE_TTL_MS) heard.delete(k);
   }
 
   async function hear(deviceId, a) {
@@ -300,10 +306,17 @@ function makeRemoteVoice(deps) {
     const raw = Array.isArray(a.frames) ? a.frames : [];
     if (raw.length > MAX_FRAMES_PER_PART) return { ok: false, error: 'too many frames in one part' };
 
+    // The final part again, same audio: its reply was lost on the relay. Hand back the same transcript (or the
+    // one still being made) instead of "start again" and a second paid STT call.
+    const sig = a.last === true ? nodeCrypto.createHash('sha256').update(raw.map(String).join('.')).digest('base64url') : '';
+    const h = heard.get(deviceId);
+    if (sig && h && h.utt === utt && h.part === part && h.sig === sig) { h.at = now(); return h.p; }
+
     let u = utterances.get(deviceId);
     if (part === 0) {
       u = { utt, next: 0, frames: [], bytes: 0, frameMs, at: now() };
       utterances.set(deviceId, u);
+      heard.delete(deviceId);   // a new utterance replaces the old transcript
     }
     if (!u || u.utt !== utt) return { ok: false, error: 'that utterance is not open (start again from part 0)' };
     if (part !== u.next) return { ok: false, error: 'part ' + part + ' arrived out of order (expected ' + u.next + ')' };
@@ -320,18 +333,22 @@ function makeRemoteVoice(deps) {
     if (a.last !== true) return { ok: true, data: { utt, received: u.frames.length } };
 
     utterances.delete(deviceId);
-    const ms = u.frames.length * u.frameMs;
-    if (ms < MIN_SPEECH_MS) return { ok: true, data: { utt, text: '', ms, short: true } };
-    if (typeof transcribeOgg !== 'function') return { ok: false, error: 'this station cannot transcribe speech' };
-    const ogg = opusFramesToOgg(u.frames, { frameMs: u.frameMs });
-    let r;
-    try { r = await transcribeOgg(ogg); } catch (e) { r = { ok: false, reason: (e && e.message) || String(e) }; }
-    if (!r || !r.ok) return { ok: false, error: 'the station could not transcribe that (' + String((r && r.reason) || 'no transcription').slice(0, 160) + ')' };
-    // Whisper turns room noise into timestamps or punctuation ("00:00:01 - 00:00:03", first live test): a
-    // transcript with no letters in any script is not speech, and must not become a run on the overseer.
-    const text = String(r.text || '').trim();
-    if (!/\p{L}/u.test(text)) return { ok: true, data: { utt, text: '', ms, noise: text.slice(0, 80) } };
-    return { ok: true, data: { utt, text, ms } };
+    const p = (async () => {
+      const ms = u.frames.length * u.frameMs;
+      if (ms < MIN_SPEECH_MS) return { ok: true, data: { utt, text: '', ms, short: true } };
+      if (typeof transcribeOgg !== 'function') return { ok: false, error: 'this station cannot transcribe speech' };
+      const ogg = opusFramesToOgg(u.frames, { frameMs: u.frameMs });
+      let r;
+      try { r = await transcribeOgg(ogg); } catch (e) { r = { ok: false, reason: (e && e.message) || String(e) }; }
+      if (!r || !r.ok) return { ok: false, error: 'the station could not transcribe that (' + String((r && r.reason) || 'no transcription').slice(0, 160) + ')' };
+      // Whisper turns room noise into timestamps or punctuation ("00:00:01 - 00:00:03", first live test): a
+      // transcript with no letters in any script is not speech, and must not become a run on the overseer.
+      const text = String(r.text || '').trim();
+      if (!/\p{L}/u.test(text)) return { ok: true, data: { utt, text: '', ms, noise: text.slice(0, 80) } };
+      return { ok: true, data: { utt, text, ms } };
+    })();
+    heard.set(deviceId, { utt, part, sig, p, at: now() });
+    return p;
   }
 
   // provider: the engine the reply's first sentence came from. Later sentences are pinned to it, so a voice model
@@ -426,9 +443,9 @@ function makeRemoteVoice(deps) {
     return { ok: true, data: { id: r.id, offset, bytes: r.buf.length, data: chunk.toString('base64url'), done, pending: !done && !chunk.length, error: r.error || undefined } };
   }
 
-  function forget(deviceId) { utterances.delete(deviceId); replies.delete(deviceId); pendingReplies.delete(deviceId); }
+  function forget(deviceId) { utterances.delete(deviceId); replies.delete(deviceId); pendingReplies.delete(deviceId); heard.delete(deviceId); }
 
-  return { hear, speak, speech, forget, sweep, _sizes: () => ({ utterances: utterances.size, replies: replies.size }) };
+  return { hear, speak, speech, forget, sweep, _sizes: () => ({ utterances: utterances.size, replies: replies.size, heard: heard.size }) };
 }
 
 module.exports = { makeRemoteVoice, opusFramesToOgg, oggCrc, wavToPcm16, decodeAdpcm, makeAdpcmEncoder, splitSentences, ADPCM_MIME, MAX_FRAMES, MAX_SPEECH_CHUNK, MAX_SPEAK_TEXT, VOICE_TTL_MS };
