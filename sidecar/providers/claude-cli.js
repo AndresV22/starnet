@@ -185,7 +185,9 @@
      results share one block (the API looks back only ~20 blocks for an earlier entry), and an image's number is its
      place in the whole conversation, so a new image never renumbers an old one. */
   function buildPrompt(messages, tools, cachePrefix) {
-    messages = provider.repairToolPairs(Array.isArray(messages) ? messages : []);
+    // host-fence tags (<run_context>, <recalled-memory>, <conversation_summary>) in user/tool text and inside a note's
+    // body are written inert (provider.js INERT HOST FENCES): this transcript is ONE text, so a forged close would read as host text
+    messages = provider.repairToolPairs(provider.inertHostFences(Array.isArray(messages) ? messages : []));
     const system = [];
     let i = 0;
     for (; i < messages.length && messages[i] && messages[i].role === 'system'; i++) {

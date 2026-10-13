@@ -490,7 +490,8 @@
   function prepareWireMessages(messages, target) {
     if (!Array.isArray(messages)) return messages;
     const spec = WIRE_TARGETS[target] || WIRE_TARGETS.chat;
-    let out = repairToolPairs(messages);
+    // host-fence tags in user/tool content and inside a note's body are written inert (INERT HOST FENCES, below)
+    let out = repairToolPairs(inertHostFences(messages));
     if (spec.idGrammar) out = remapToolCallIds(out, spec.idGrammar);
     return out;
   }
@@ -562,6 +563,58 @@
     return false;
   }
   function isClaudeModel(model) { return /anthropic\/|claude/i.test(String(model || '')); }
+
+  /* INERT HOST FENCES (lean-prompt review, 2026-10-12). With the host notes riding the SAME user turn as the
+     Commander's words (and on a Claude route as adjacent user text), a "</run_context>" or "<recalled-memory>" typed by
+     a user, pasted by a channel guest, or returned in a tool result (a web page, a file, an email) could close a
+     genuine note early or open a forged one — text that reads as host context. The claude-cli pattern (inertTags):
+     every host-fence open/close tag in user and tool content is written with &lt; so it stays text, and so is every
+     one inside a note's own body (its task brief quotes the Commander; recall quotes saved memories; the summary quotes
+     the conversation). A note keeps exactly its own outer fence: the open tag it starts with, the close tag it ends
+     with, and same-tag block joins ("</recalled-memory>\n<recalled-memory>": recall + taste), which can only ever
+     separate two blocks of the same note. The system prompt (index 0) is the host's own text and is left alone.
+     Pure, deterministic; identity when nothing changes, so a clean transcript keeps its bytes. */
+  const HOST_FENCE_TAG_RE = /<(\/?)(run_context|recalled-memory|conversation_summary)(?=[\s>/]|$)/gi;
+  const inertHostTags = s => String(s).replace(HOST_FENCE_TAG_RE, '&lt;$1$2');
+  function inertNoteBody(s) {
+    const str = String(s);
+    let tag = '';
+    for (const t of HOST_NOTE_TAGS) if (str.indexOf('<' + t + '>') === 0) { tag = t; break; }
+    if (!tag) return inertHostTags(str);
+    const open = '<' + tag + '>', close = '</' + tag + '>', join = close + '\n' + open;
+    const end = str.endsWith(close) ? str.length - close.length : str.length;
+    const inner = str.slice(open.length, end);
+    return open + inner.split(join).map(inertHostTags).join(join) + str.slice(end);
+  }
+  function inertContent(content, fn) {
+    if (typeof content === 'string') { const v = fn(content); return v === content ? content : v; }
+    if (!Array.isArray(content)) return content;
+    let changed = false;
+    const parts = content.map(p => {
+      if (!p || typeof p !== 'object' || typeof p.text !== 'string') return p;
+      const v = fn(p.text);
+      if (v === p.text) return p;
+      changed = true;
+      return Object.assign({}, p, { text: v });
+    });
+    return changed ? parts : content;
+  }
+  function inertHostFences(messages) {
+    if (!Array.isArray(messages)) return messages;
+    let changed = false;
+    const out = messages.map((m, i) => {
+      if (!m || typeof m !== 'object') return m;
+      let fn = null;
+      if (m.role === 'user' || m.role === 'tool') fn = inertHostTags;
+      else if (m.role === 'system' && i > 0) fn = isHostNote(m) ? inertNoteBody : inertHostTags;
+      if (!fn || m.content == null) return m;
+      const content = inertContent(m.content, fn);
+      if (content === m.content) return m;
+      changed = true;
+      return Object.assign({}, m, { content });
+    });
+    return changed ? out : messages;
+  }
   function contentText(content) {
     if (typeof content === 'string') return content;
     if (!Array.isArray(content)) return content == null ? '' : String(content);
@@ -615,6 +668,6 @@
 
   return { EVENT_TYPES, FINISH, normalizeFinish, timeouts, runtime, repairToolPairs, preserveClaudeContinuations,
     RUN_CONTEXT_OPEN, RUN_CONTEXT_CLOSE, runContextNote, isRunContextNote,
-    HOST_NOTE_TAGS, isHostNote, isClaudeModel, userSideHostNotes, chatRoleProjection,
+    HOST_NOTE_TAGS, isHostNote, isClaudeModel, userSideHostNotes, chatRoleProjection, inertHostTags, inertHostFences,
     prepareWireMessages, remapToolCallIds, ANTHROPIC_TOOL_ID, chatWireMessages, CHAT_WIRE_KEYS };
 });
