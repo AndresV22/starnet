@@ -316,15 +316,19 @@
         // the exact behaviour this guard exists to stop. Show the belief it already holds IN FULL so the decision is
         // informed, and emit NOTHING (no memory.write, no deliverable): nothing was written, and a receipt for a
         // write that did not happen is the kind of claim truthful telemetry forbids.
+        /* AN ECHO CARRIES ITS TAINT (security-storage-02). The near-dupe refusal and the similar-notes tail below quote
+           a held note verbatim — the same exposure as notebook.read — so a clean run that sees a tainted note's text
+           here is tainted by it too (registry copies taintedBy onto the result; the host latches it via relayedTaint). */
+        const echoTaint = rows => { const t = (rows || []).find(n => n && typeof n.taintedBy === 'string' && n.taintedBy); return t ? { taintedBy: 'memory saved by a run that read ' + t.taintedBy } : {}; };
         if (dupe) {
           const held = String(dupe.content != null ? dupe.content : (dupe.body != null ? dupe.body : '')).replace(/\s+/g, ' ').trim().slice(0, 300);
-          return {
+          return Object.assign({
             content: 'Not saved — you already remember something very close:\n[' + dupe.id + '] ' + String(dupe.title || '') + ': ' + held + '\n\n' +
               'If that is the SAME belief, you are done — do not reword and retry. If this is genuinely a different fact ' +
               ', use distinct:true. If this is a CORRECTION, call notebook.write with replaceId:"' + dupe.id +
               '" and the exact current previousBody from notebook.read. That updates the existing entry; distinct:true does not.',
             summary: 'already known (' + dupe.id + ')'
-          };
+          }, echoTaint([dupe]));
         }
         // the receipt for THIS run, registered before memory.write tells COMMS to fetch it
         if (onSaved && runId) onSaved(aid, runId, {
@@ -363,7 +367,7 @@
             'previousBody set to its exact text above, and this same title/body — StarNet folds ' + note.id + ' into it, so only ' +
             'the corrected belief stays active. If they are separate facts, leave both.';
         }
-        return { content: (args.replaceId ? 'Updated' : 'Saved') + ' note "' + note.title + '" (' + note.id + ').' + (args.replaceId ? ' The previous text is archived and is no longer active recall.' : '') + where + proof + tail, summary: (args.replaceId ? 'updated ' : 'wrote ') + note.id };
+        return Object.assign({ content: (args.replaceId ? 'Updated' : 'Saved') + ' note "' + note.title + '" (' + note.id + ').' + (args.replaceId ? ' The previous text is archived and is no longer active recall.' : '') + where + proof + tail, summary: (args.replaceId ? 'updated ' : 'wrote ') + note.id }, echoTaint(similar));
       }
     };
 
