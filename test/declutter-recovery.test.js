@@ -96,5 +96,12 @@ function fn(src,name){const m=new RegExp('^( {0,4})(?:async )?function '+name+'\
     w.q('#dl-refresh')._h.click[0]();await settle();A.ok(w.q('#dl-clear-shown').hidden,'an undecided-only view offers no CLEAR');
     delete global.ArmConfirm;delete global.fetch;
   }
+  // seams-07: the sidecar sends the count itself, on the filtered view, by the clear route's own skip rule
+  {
+    const idx=require('fs').readFileSync(require('path').join(__dirname,'..','sidecar','index.js'),'utf8');
+    const list=idx.slice(idx.indexOf('async function handleDeliverablesList('),idx.indexOf('async function handleDeliverablesClear('));
+    A.ok(/items = deliverableFilter\(items, filter\);[\s\S]*clearable: items\.filter\(r => r\.status !== 'pending'\)\.length/.test(list),'the library list answers how many rows CLEAR ALL would take');
+    A.ok(/const ids = rows\.filter\(r => r\.status !== 'pending'\)/.test(idx),'with the same rule the clear route applies');
+  }
   A.report('declutter-recovery');
 })().catch(e=>{console.error(e);process.exitCode=1;});

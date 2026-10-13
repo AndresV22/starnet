@@ -16961,7 +16961,9 @@ async function handleDeliverablesList(req, res) {
       newestAt: items.reduce((m, r) => Math.max(m, Number(r.createdAt) || 0), 0)
     };
     items = deliverableFilter(items, filter);
-    json(200, { ok: true, items: items.slice(0, 500), total: items.length, projects: projects, kinds: kinds, summary: summary, previewLimits: { markdown: DELIVERABLE_PREVIEW_MAX, csv: DELIVERABLE_PREVIEW_MAX, image: DELIVERABLE_IMAGE_MAX } });
+    // clearable: what CLEAR ALL on this view would take, by handleDeliverablesClear's own rule (an undecided build is
+    // never cleared). The page shows only 500 rows, so it cannot count a bigger view itself.
+    json(200, { ok: true, items: items.slice(0, 500), total: items.length, clearable: items.filter(r => r.status !== 'pending').length, projects: projects, kinds: kinds, summary: summary, previewLimits: { markdown: DELIVERABLE_PREVIEW_MAX, csv: DELIVERABLE_PREVIEW_MAX, image: DELIVERABLE_IMAGE_MAX } });
   } catch (e) { json(500, { ok: false, error: 'could not read the deliverable library' }); }
 }
 async function handleDeliverablesCleanupPreview(req, res) {
