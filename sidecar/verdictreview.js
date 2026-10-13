@@ -21,6 +21,15 @@ const { note: failNote } = require('./failopen.js');   // a swallowed error stay
 
 const VERDICTS_THAT_TEACH = new Set(['ok', 'miss']);
 
+// reviewPassFinished — the host launcher's answer to fireHeld (true = finished, false = retry later). A pass that
+// reached one of its OWN stops (done/empty, its per-pass $ cap, its turn ceiling, its deadline) or that changed the
+// skillbase already did its work: a retry re-pays the same pass and stages a further revision of the same candidate
+// under a fresh run id. Only a pass that FAILED (reason 'error') before it changed anything earns another attempt.
+function reviewPassFinished(result, changedSkillbase) {
+  if (!result || typeof result !== 'object') return false;
+  return result.reason !== 'error' || changedSkillbase === true;
+}
+
 // compactPacket â€” the persistable half of a review packet: no provider/cost objects (they are live handles, and a
 // provider can carry a credential), and only the transcript the review prompt can actually read (skillreview's
 // transcript() tail-caps at 12k chars) plus the run's directive, so a packet on disk stays a few KB.
@@ -111,14 +120,19 @@ function makeVerdictReview(opts) {
     return n;
   }
 
+  // An ARMED review (running, or pending with an attempt left and storage working) is a lesson the rating route
+  // already reported armed: the cap never counts or evicts it, so an unrelated run ending inside its grace or retry
+  // window cannot drop it. Only parked packets and dormant held rows (retry-exhausted, storage-blocked) are capped.
+  function liveHeld(r) { return r.status === 'running' || (r.status === 'pending' && !r.persistenceBlocked && r.attempts < maxAttempts); }
   function sweep() {
     const t = now();
     const before = packets.size + held.size;
     for (const [id, row] of packets) if (t - row.at > ttlMs) packets.delete(id);
     for (const [id, row] of held) if (t - row.at > ttlMs && row.status !== 'running') { clearT(row.timer); held.delete(id); }
-    while (packets.size + held.size > cap) {
-      const candidates = [...packets].map(([id, r]) => ({ id, at: r.at, held: false })).concat([...held].filter(([, r]) => r.status !== 'running').map(([id, r]) => ({ id, at: r.at, held: true }))).sort((a, b) => a.at - b.at);
-      const oldest = candidates[0]; if (!oldest) break;
+    for (;;) {
+      const candidates = [...packets].map(([id, r]) => ({ id, at: r.at, held: false })).concat([...held].filter(([, r]) => !liveHeld(r)).map(([id, r]) => ({ id, at: r.at, held: true }))).sort((a, b) => a.at - b.at);
+      if (candidates.length <= cap) break;
+      const oldest = candidates[0];
       if (oldest.held) { clearT(held.get(oldest.id).timer); held.delete(oldest.id); } else packets.delete(oldest.id);
     }
     return packets.size + held.size !== before;
@@ -240,7 +254,8 @@ function makeVerdictReview(opts) {
     const id = String(runId || '').trim();
     if (typeof fire !== 'function' || held.has(id) || !shouldTrigger(id, verdict)) return false;
     const row = packets.get(id);
-    const h = { at: row.at, packet: row.packet, verdict: String(verdict), ...correctionParts(initialCorrection),
+    // `at` restarts at the RATING: the TTL already gated the run's age (shouldTrigger), so a held job ages from here
+    const h = { at: now(), packet: row.packet, verdict: String(verdict), ...correctionParts(initialCorrection),
       correctionSource: initialCorrection ? 'verdict' : '', timer: null, fire, dueAt: now() + graceMs, attempts: 0, persistenceFailures: 0, persistenceBlocked: false, status: 'pending' };
     packets.delete(id); held.set(id, h);
     if (!changed()) { held.delete(id); packets.set(id, row); return false; }
@@ -277,4 +292,4 @@ function makeVerdictReview(opts) {
   return { stash, shouldTrigger, take, size, has, cap, ttlMs, arm, correct, holding, peek, graceMs, snapshot, restore, resumeHeld };
 }
 
-module.exports = { makeVerdictReview, VERDICTS_THAT_TEACH, compactPacket };
+module.exports = { makeVerdictReview, VERDICTS_THAT_TEACH, compactPacket, reviewPassFinished };

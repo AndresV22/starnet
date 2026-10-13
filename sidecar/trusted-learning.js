@@ -14,27 +14,38 @@ function quotedMaterial(text) {
   return /```|~~~|(?:^|\n)\s*>|<\/?(?:document|email|untrusted|script)\b|[“"][^“”"]{20,}[”"]/i.test(String(text || '')) || /\b(?:examples?|samples?|transcript|following (?:document|email|message)|(?:document|attachment|website|webpage|email|message|article)\s+(?:says?|said|states?|reads?|instructs?))[^\n]*[:\n]/i.test(String(text || ''));
 }
 // Ambient activity and repeat-work claims require the original owner text, not the completion run's later
-// provenance. Bound before filtering; legacy rows without an explicit clean stamp cannot supply that proof.
+// provenance. Legacy rows without an explicit clean stamp cannot supply that proof.
+function originsOf(runRecords) {
+  return runRecords === undefined ? null : new Map((Array.isArray(runRecords) ? runRecords : []).filter(r => r && r.runId).map(r => [r.runId, r]));
+}
+function cleanOwnerRow(m, origins) {
+  if (!m || m.role !== 'user' || m.taintKnown !== true || m.taint || m.from ||
+    typeof m.content !== 'string' || !m.content.trim() || quotedMaterial(m.content)) return false;
+  if (!origins) return true;
+  // A clean row can still be station self-talk. Resolve its original run independently of the recent
+  // title window; missing origin or an unknown internal flag is not evidence of an owner request.
+  const r = origins.get(m.sourceRunId);
+  return !!(r && r.internal === false && !r.parentRunId && !r.delegatedBy && !r.cronJobId && !r.recoveryOf &&
+    r.agentId === m.agentId && (r.streamId || 'global') === m.streamId && !/^(?:nightshift-|cron-|workshop-)/i.test(r.streamId || ''));
+}
+// Ambient activity reads only the recent tail: bound before filtering.
 function cleanOwnerRows(rows, runRecords) {
-  const origins = runRecords === undefined ? null : new Map((Array.isArray(runRecords) ? runRecords : []).filter(r => r && r.runId).map(r => [r.runId, r]));
-  return (Array.isArray(rows) ? rows : []).slice(-400).filter(m => {
-    if (!m || m.role !== 'user' || m.taintKnown !== true || m.taint || m.from ||
-      typeof m.content !== 'string' || !m.content.trim() || quotedMaterial(m.content)) return false;
-    if (!origins) return true;
-    // A clean row can still be station self-talk. Resolve its original run independently of the recent
-    // title window; missing origin or an unknown internal flag is not evidence of an owner request.
-    const r = origins.get(m.sourceRunId);
-    return !!(r && r.internal === false && !r.parentRunId && !r.delegatedBy && !r.cronJobId && !r.recoveryOf &&
-      r.agentId === m.agentId && (r.streamId || 'global') === m.streamId && !/^(?:nightshift-|cron-|workshop-)/i.test(r.streamId || ''));
-  });
+  const origins = originsOf(runRecords);
+  return (Array.isArray(rows) ? rows : []).slice(-400).filter(m => cleanOwnerRow(m, origins));
 }
 function ownedBriefs(briefs, transcriptRows, runRecords) {
-  const clean = cleanOwnerRows(transcriptRows, runRecords), seen = new Set();
-  return (Array.isArray(briefs) ? briefs : []).filter(b => {
-    if (!b || !b.agentId || !b.originalDirective) return false;
-    // New briefs retain an immutable originalRunId. Older host briefs already encode that identity in
-    // tb_<original-run-id>; never substitute completion's mutable runId or a later identical request.
-    const original = b.originalRunId || (typeof b.id === 'string' && b.id.startsWith('tb_') ? b.id.slice(3) : '');
+  const list = (Array.isArray(briefs) ? briefs : []).filter(b => b && b.agentId && b.originalDirective);
+  // New briefs retain an immutable originalRunId. Older host briefs already encode that identity in
+  // tb_<original-run-id>; never substitute completion's mutable runId or a later identical request.
+  const originalOf = b => b.originalRunId || (typeof b.id === 'string' && b.id.startsWith('tb_') ? b.id.slice(3) : '');
+  // A brief's proof is its ORIGINAL directive row, and the repeat-work detector reaches back 60 days: a recency tail
+  // (every assistant and tool row counts toward it) drops a two-week-old occasion of a weekly task. Look the proof
+  // up by run id across every row the caller holds; each row still has to pass the same clean-owner check.
+  const wanted = new Set(list.map(originalOf).filter(Boolean)), origins = originsOf(runRecords);
+  const clean = (Array.isArray(transcriptRows) ? transcriptRows : []).filter(m => m && wanted.has(m.sourceRunId) && cleanOwnerRow(m, origins));
+  const seen = new Set();
+  return list.filter(b => {
+    const original = originalOf(b);
     if (!original) return false;
     const stream = b.streamId || 'global', key = JSON.stringify([b.agentId, stream, original]);
     if (seen.has(key) || !clean.some(m => m.sourceRunId === original && m.agentId === b.agentId && m.streamId === stream &&
@@ -55,8 +66,9 @@ function capture(messages, source) {
 }
 function eligible(origin) {
   const o = origin || {};
+  // A recipe launch sends the recipe author's template (built-in or an imported file), not the owner's wording.
   return !o.internal && !o.parentRunId && !o.delegatedBy && !o.groupTools && !o.recovery && !o.handoff &&
-    !o.untrustedEntry && !o.syntheticTrigger && !o.hostPowerWithheld &&
+    !o.untrustedEntry && !o.syntheticTrigger && !o.hostPowerWithheld && !o.recipeId && !o.fromRecipe &&
     (o.source === 'interactive-owner' || (o.source === 'channel-owner' && o.channelSenderOwner === true));
 }
 function preferences(input, projectRoot) {
@@ -72,12 +84,30 @@ function preferences(input, projectRoot) {
     const content = raw.trim();
     if (content.length < 8 || content.length > 600 || /\?$/.test(content)) continue;
     if (!/^(?:(?:please\s+)?remember(?:\s+that)?[,:]?\s+)?(?:(?:i|we)\s+(?:strongly\s+|generally\s+)?prefer\b|(?:from now on|going forward|by default|for (?:all|every) future (?:tasks?|chats?|conversations?))[,:]?\s|(?:always|never)\s)/i.test(content)) continue;
+    // An anchor word alone is not a standing preference: an idiom ("Never mind", "Never again"), a one-off pick
+    // between drafts ("I prefer the second option") or a description of current behavior ("By default the app opens
+    // to settings", "Going forward the API returns 404") is task wording. A described subject must still say what
+    // should happen. When in doubt, nothing is saved.
+    const lead = content.replace(/^(?:please\s+)?remember(?:\s+that)?[,:]?\s+/i, '');
+    if (/^(?:always|never)[,]?\s+(?:mind|again|before|been|was|were|is|are|am|had|has|did|does|will|would|could|can|gonna)\b/i.test(lead)) continue;
+    if (/^(?:i|we)\s+(?:strongly\s+|generally\s+)?prefer\s+(?:(?:the|your|my)\s+)?(?:first|second|third|fourth|fifth|last|latter|former|other|previous|next|new|old|original|current|top|bottom|left|right|\d+(?:st|nd|rd|th)?|this|that|these|those|it|them|one|yours|mine|option|version|choice|draft|variant)\b(?:\s+\S+){0,2}?\s*[.!]*$/i.test(lead)) continue;
+    if (/^(?:always|never|from now on|going forward|by default|for (?:all|every) future (?:tasks?|chats?|conversations?))[,:]?\s+(?:the|a|an|this|that|these|those|it|its|there|they|he|she|his|her|our|their|my)\b/i.test(lead) &&
+      !/\b(?:should|must|shall|needs?\s+to|ha(?:s|ve)\s+to|ought\s+to|(?:is|are)\s+to|please)\b/i.test(lead)) continue;
     if (/\b(?:passwords?|secrets?|credentials?|api.?keys?|access.?tokens?|auth|permissions?|approvals?|safety|guards?|polic(?:y|ies)|system.?prompts?|instruction.?hierarchy|full.?access|bypass(?:ing)?|overrides?|forget|do not (?:remember|save)|don't (?:remember|save))\b/i.test(content)) continue;
     const global = !projectRoot || /\b(?:across all (?:projects|tasks)|for (?:all|every) future (?:tasks?|chats?|conversations?))\b/i.test(content);
     out.push({ kind: 'profile', content, scope: global ? 'global' : 'project', projectRoot: global ? null : String(projectRoot), standing: true });
     if (out.length >= 5) break;
   }
   return out;
+}
+// Every captured statement is a standing instruction by construction, so the reflection deck's generic
+// always/never/from-now-on tier would hold all of them. Ask its remaining tiers (a credential, personal data, an
+// instruction carrying authority) with the standing marker rewritten as the modal it stands for, so "Never ask before
+// deleting files" still reads as an authority-shaped "do not ask ... delete". No deck predicate: never auto-save.
+function needsReview(content, highStakes) {
+  if (typeof highStakes !== 'function') return true;
+  return highStakes(String(content || '').replace(/[‘’]/g, "'").replace(/\bnever\b/gi, 'do not')
+    .replace(/\b(?:always|from now on|going forward|by default|for (?:all|every) future (?:tasks?|chats?|conversations?))\b/gi, 'must'));
 }
 function checks(evidence) {
   const e = evidence || {};
@@ -93,4 +123,4 @@ function evidence(input) {
   return { version: 1, source: 'host', runId: String(o.runId || ''), trigger: String(o.trigger || ''), tainted: !!o.tainted,
     trustedUserMessages: o.trustedInput ? [o.trustedInput] : [], checks: checks(o.completion), loadedSkills: o.loadedSkills || [] };
 }
-module.exports = { textOf, quotedMaterial, cleanOwnerRows, ownedBriefs, capture, eligible, preferences, checks, evidence };
+module.exports = { textOf, quotedMaterial, cleanOwnerRows, ownedBriefs, capture, eligible, preferences, needsReview, checks, evidence };

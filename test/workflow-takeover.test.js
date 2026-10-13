@@ -297,9 +297,23 @@ console.log('workflow-takeover: repeat sense (paraphrase, guards, notice, cadenc
   assert.equal(host(history()).notice(CLEAN, 'another-agent'), null, 'notice stays with its owning agent');
   assert.equal(host(history()).notice(CLEAN, 'agent', '/fixture/project-b'), null, 'notice stays within its project');
 
+  // (2026-10-12) This used to pin the opposite: 400 newer rows (every assistant and tool row counts) evicted the
+  // original-row proof, so a weekly task's two-week-old occasion fell out of the 60-day detector. The proof is now
+  // looked up by original run id across the rows the store holds; every row still passes the clean-owner check.
   const agedOut = history();
   agedOut.rows.push(...Array.from({ length: 400 }, (_, i) => ({ role: 'assistant', content: 'bounded-tail-' + i })));
-  denied(agedOut, 'original proof outside the bounded 400-row tail');
+  assert.equal(TrustedLearning.ownedBriefs(agedOut.briefs, agedOut.rows, agedOut.runs).length, 3, '400 newer rows do not evict a held clean original');
+  assert.equal(host(agedOut).candidates().length, 1, 'a long-ago clean occasion still counts toward the routine card');
+  assert.ok(host(agedOut).notice(), 'and toward the in-reply notice');
+  const weekly = history();
+  weekly.rows.splice(1, 0, ...Array.from({ length: 14 * 17 }, (_, i) => ({ role: i % 17 ? 'tool' : 'user', agentId: 'agent', streamId: 'other-' + i,
+    content: 'ordinary run ' + i, sourceRunId: 'filler-' + i, taintKnown: true })));
+  weekly.rows.push(...Array.from({ length: 14 * 17 }, (_, i) => ({ role: 'assistant', content: 'later ordinary run ' + i })));
+  assert.equal(host(weekly).candidates()[0].count, 3, 'weekly occasions separated by ordinary tool-using runs remain three occasions');
+  const agedOutUnknown = history();
+  agedOutUnknown.rows[0] = { ...agedOutUnknown.rows[0], taintKnown: undefined };
+  agedOutUnknown.rows.push(...Array.from({ length: 400 }, (_, i) => ({ role: 'assistant', content: 'bounded-tail-' + i })));
+  assert.equal(TrustedLearning.ownedBriefs(agedOutUnknown.briefs, agedOutUnknown.rows, agedOutUnknown.runs).length, 2, 'an old original without a clean stamp still proves nothing');
   const paused = host(history(), false);
   assert.equal(paused.notice(), null);
   assert.equal(paused.candidates().length, 0);

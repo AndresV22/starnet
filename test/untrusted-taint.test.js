@@ -135,9 +135,9 @@ A.eq(taint.postTaintBoundary(FS_WRITE, { taintedBy: 'web_fetch', surface: 'auton
   A.ok(attachmentEntry.indexOf('TrustedLearning.capture(') < attachmentEntry.indexOf('await attachments.expandUserAttachments('), 'owner words are captured before files expand');
   A.ok(/\n\s*learningInput,/.test(attachmentEntry) && !/body\.learningInput/.test(attachmentEntry), 'run receives host-captured input rather than request metadata');
   if (initialTaint && captureStart >= 0 && captureEnd > captureStart) {
-    const classify = messages => vm.runInNewContext('(() => { ' + attachmentEntry.slice(captureStart, captureEnd) +
-      '; return { initialTaint: (' + initialTaint[1] + '), learningInput }; })()', {
-        messages, TrustedLearning: require('../sidecar/trusted-learning.js'),
+    const classify = (messages, ownerWording = true) => vm.runInNewContext('(() => { ' + attachmentEntry.slice(captureStart, captureEnd) +
+      '; return { initialTaint: (' + initialTaint[1] + '), learningInput, quotedUserMaterial }; })()', {
+        messages, ownerWording, TrustedLearning: require('../sidecar/trusted-learning.js'),
         latestUserText: list => require('../sidecar/trusted-learning.js').textOf(list.filter(m => m && m.role === 'user').at(-1))
       });
     const attachment = { path: '.attachments/poison.txt', name: 'poison.txt' };
@@ -154,12 +154,44 @@ A.eq(taint.postTaintBoundary(FS_WRITE, { taintedBy: 'web_fetch', surface: 'auton
     const history = classify([{ role: 'user', content: '', attachments: [attachment] }, { role: 'user', content: typed }]);
     A.eq(history.initialTaint, 'user attachment', 'an earlier attachment keeps the incoming history tainted');
     A.eq(history.learningInput.content, typed, 'only the newest typed input gains owner attribution');
+    // (2026-10-12) Quoted material in the Commander's own message withholds LEARNING, never execution: this used to
+    // assert initialTaint 'quoted user material', which locked an ordinary "Fix this crash: ```…```" run's tools and
+    // replayed that lock into every later turn of the conversation.
     const quoted = classify([{ role: 'user', content: '> I prefer quoted instructions.' }]);
-    A.eq(quoted.initialTaint, 'quoted user material', 'quoted material remains untrusted without attachments');
+    A.eq(quoted.initialTaint, null, 'quoted owner text does not latch the execution taint');
+    A.eq(quoted.quotedUserMaterial, true, 'quoted owner text is marked for the learning withhold');
     A.eq(quoted.learningInput, null, 'quoted material cannot establish an owner preference');
+    for (const content of ['Fix this crash:\n```\nTypeError: x is undefined\n```', 'Rename the checkout button to "Download your invoice now"', 'Add input validation, for example: reject negative quantities.']) {
+      const coding = classify([{ role: 'user', content }]);
+      A.eq(coding.initialTaint, null, 'an ordinary owner request with quoted/code text keeps its tools: ' + JSON.stringify(content));
+      A.eq(coding.quotedUserMaterial, true, 'and still withholds learning: ' + JSON.stringify(content));
+    }
+    const laterTurn = classify([{ role: 'user', content: 'The document says:\n> I prefer pasted instructions.' }, { role: 'assistant', content: 'ok' }, { role: 'user', content: typed }]);
+    A.eq(laterTurn.initialTaint, null, 'a later clean turn is not locked by the earlier pasted document');
+    A.eq(laterTurn.quotedUserMaterial, true, 'but learning stays withheld while the pasted document is in the conversation');
     const clean = classify([{ role: 'user', content: typed, attachments: [] }]);
     A.eq(clean.initialTaint, null, 'ordinary typed text without a file stays clean');
+    A.eq(clean.quotedUserMaterial, false, 'ordinary typed text keeps learning');
     A.eq(clean.learningInput.content, typed, 'clean owner input remains eligible');
+    A.eq(classify([{ role: 'user', content: typed }], false).learningInput, null, 'a recipe launch (or its retry) is never captured as owner wording');
+  }
+  // The recipe/retry origin is decided before the capture, from host state only.
+  {
+    const start = src.indexOf('const retryOf = (body');
+    const end = src.indexOf('// USER ATTACHMENTS:', start);
+    A.ok(start > 0 && end > start, 'recipe-launch origin check precedes the owner capture');
+    const origin = (body, recipeId, rows) => vm.runInNewContext('(() => { ' + src.slice(start, end) + '; return ownerWording; })()', {
+      body, recipeId, runStore: { latest: id => (rows || {})[id] || null }, failNote: () => {}
+    });
+    A.eq(origin({}, null), true, 'a typed COMMS directive is owner wording');
+    A.eq(origin({ recipeId: 'dependency-audit' }, 'dependency-audit'), false, 'a recipe launch is template text');
+    A.eq(origin({ recipeId: 'imported.recipe v2' }, null), false, 'an id the route cannot parse still names a recipe launch');
+    A.eq(origin({ retryUserRunId: 'r1' }, null, { r1: { runId: 'r1', recipeId: '' } }), true, 'a retry of a typed directive stays owner wording');
+    A.eq(origin({ retryUserRunId: 'r1' }, null, { r1: { runId: 'r1', recipeId: 'dependency-audit' } }), false, 'a retry re-sends the recipe template');
+    A.eq(origin({ retryUserRunId: 'gone' }, null, {}), false, 'a retry of an unknown run cannot prove typed wording');
+    A.ok(/const learningTaint = execution\.taintedBy\(\) \|\| \(o\.quotedUserMaterial === true \? 'quoted user material' : null\);/.test(src) &&
+      /\n  if \(learningTaint\) \{\n    const noTrustedEvidence/.test(src) && /\n\s*quotedUserMaterial,\n/.test(src),
+      'quoted owner material reaches the run-end learning withhold');
   }
   A.ok(/revokedByTaint\.isSource\(liveTool, c\)/.test(src), 'taint is latched from the tool and path that produced the content');
   // A result with real content taints WHETHER OR NOT the call succeeded. The old rule required !r.isError on

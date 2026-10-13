@@ -150,4 +150,56 @@ A.ok(VERDICTS_THAT_TEACH.has('ok') && VERDICTS_THAT_TEACH.has('miss') && !VERDIC
   A.eq(c2.restore(null) + c2.restore([{ runId: '', at: 1, packet: {} }, { runId: 'x', packet: {} }]), 0, 'malformed rows are skipped');
 }
 
+// ---- an ARMED review is never evicted by the cap or aged out by its run's TTL (audit 10-11) ----
+{
+  let t = 1000, timers = [];
+  const fakeSet = (fn, ms) => { const h = { fn, ms, live: true }; timers.push(h); return h; };
+  const fakeClear = (h) => { if (h) h.live = false; };
+  const runTimers = () => { for (const h of timers.splice(0)) if (h.live) h.fn(); };
+  const fired = [];
+  const g = makeVerdictReview({ cap: 3, ttlMs: 10000, graceMs: 500, now: () => t, setTimeout: fakeSet, clearTimeout: fakeClear });
+  g.stash('run-old', { agentId: 'a' }); t += 10; g.stash('run-b', {}); t += 10; g.stash('run-c', {});
+  A.eq(g.arm('run-old', 'miss', j => { fired.push(j.runId); return true; }), true, 'the oldest parked run is rated miss and armed');
+  t += 10; g.stash('run-d', {});
+  A.eq(g.holding('run-old'), true, 'RATCHET: another run ending on a full station does not evict the armed review');
+  A.eq(timers.filter(h => h.live).length, 1, 'its grace timer is still live');
+  A.ok(g.has('run-b') && g.has('run-d'), 'an armed review does not count against the parked-packet cap');
+  t += 10; g.stash('run-e', {});
+  A.eq(g.has('run-b'), false, 'the cap still evicts the oldest PARKED packet');
+  runTimers();
+  A.eq(fired.join(','), 'run-old', 'the armed review fires after its grace');
+  // negative: a DORMANT held row (retry-exhausted) is still capped, oldest first
+  const d = makeVerdictReview({ cap: 2, ttlMs: 10000, graceMs: 0, maxAttempts: 1, now: () => t, setTimeout: fakeSet, clearTimeout: fakeClear });
+  d.stash('dead', {}); d.arm('dead', 'miss', () => false);
+  A.eq(d.snapshot()[0].reviewStatus, 'retry-exhausted', 'a review out of attempts goes dormant');
+  t += 10; d.stash('p1', {}); A.eq(d.holding('dead'), true, 'a dormant row within the cap stays');
+  t += 10; d.stash('p2', {});
+  A.eq(d.holding('dead'), false, 'a dormant row past the cap is evicted like a parked packet');
+  // TTL runs from the RATING: a run rated near its TTL still gets its review
+  const n = makeVerdictReview({ ttlMs: 10000, graceMs: 500, now: () => t, setTimeout: fakeSet, clearTimeout: fakeClear });
+  const nearFired = [];
+  n.stash('near', {}); t += 9900;
+  A.eq(n.arm('near', 'miss', j => { nearFired.push(j); return true; }), true, 'a run rated just inside its TTL arms');
+  t += 500; runTimers();
+  A.eq(nearFired.length, 1, 'RATCHET: and its review fires after the grace window instead of being aged out mid-grace');
+  // negative: a held job past the TTL since its rating (a long downtime) is still dropped, never reviewed
+  const late = [];
+  n.stash('late', {}); n.arm('late', 'miss', j => { late.push(j); return true; });
+  t += 10001; runTimers();
+  A.eq(late.length + (n.holding('late') ? 1 : 0), 0, 'a held job older than the TTL since its rating is dropped');
+}
+
+// ---- the launcher's finished/retry answer: a pass that did its work is never retried (audit 10-11) ----
+{
+  const { reviewPassFinished } = require('../sidecar/verdictreview.js');
+  for (const reason of ['done', 'empty', 'budget', 'max_iters', 'cancelled']) A.eq(reviewPassFinished({ reason }, false), true, 'a pass that reached its own ' + reason + ' stop is finished (no paid retry)');
+  A.eq(reviewPassFinished({ reason: 'error' }, false), false, 'a pass that failed before changing anything is retried');
+  A.eq(reviewPassFinished({ reason: 'error' }, true), true, 'a pass that failed AFTER staging a candidate is finished (a retry would re-stage it)');
+  A.eq(reviewPassFinished(null, false), false, 'no loop result is a retry');
+  const v = makeVerdictReview({ now: () => 1, graceMs: 0, retryMs: 100 });
+  let passes = 0;
+  v.stash('cap-stop', {}); v.arm('cap-stop', 'miss', () => { passes++; return reviewPassFinished({ reason: 'budget' }, true); });
+  A.eq(passes + '/' + v.holding('cap-stop'), '1/false', 'a budget-stopped pass completes the held review: one paid pass, nothing left to retry');
+}
+
 A.report('verdictreview');

@@ -18,7 +18,16 @@ const mock = http.createServer((req, res) => {
   if (req.url.includes('/models')) { res.setHeader('Content-Type', 'application/json'); return res.end(JSON.stringify({data: [{id: 'test/model', context_length: 128000, pricing: {prompt: '0', completion: '0'}, supported_parameters: ['tools']}]})); }
   let raw = ''; req.on('data', d => { raw += d; }); req.on('end', () => {
     try { seen.push(JSON.parse(raw)); } catch (_) {}
+    const review = raw.indexOf('COMMANDER VERDICT ON THIS RUN') >= 0;
+    // the outage probe's review: the provider refuses before the pass changes anything
+    if (review && raw.indexOf('provider-outage probe') >= 0) { res.writeHead(400, {'Content-Type': 'application/json'}); return res.end(JSON.stringify({error: {message: 'invalid request: malformed json body field'}})); }
     res.writeHead(200, {'Content-Type': 'text/event-stream'});
+    // the ceiling probe's review: a tool call every turn, so the pass ends on its own 6-turn ceiling (max_iters)
+    if (review && raw.indexOf('iteration-ceiling probe') >= 0) {
+      res.write('data: ' + JSON.stringify({choices: [{delta: {tool_calls: [{index: 0, id: 'call_' + seen.length, type: 'function', function: {name: 'skill_list', arguments: '{}'}}]}}]}) + '\n\n');
+      res.write('data: ' + JSON.stringify({choices: [{delta: {}, finish_reason: 'tool_calls'}], usage: {prompt_tokens: 5, completion_tokens: 5, total_tokens: 10}}) + '\n\n');
+      return res.end('data: [DONE]\n\n');
+    }
     res.write('data: ' + JSON.stringify({choices: [{delta: {content: 'Done: the weekly report is written.'}}]}) + '\n\n');
     res.write('data: ' + JSON.stringify({choices: [{delta: {}, finish_reason: 'stop'}], usage: {prompt_tokens: 5, completion_tokens: 5, total_tokens: 10}}) + '\n\n');
     res.end('data: [DONE]\n\n');
@@ -66,6 +75,25 @@ const until = async (fn, ms) => { const end = Date.now() + ms; while (Date.now()
     const completedCalls=seen.length; await stop(); await boot();
     await new Promise(resolve=>setTimeout(resolve,300));
     A.eq(seen.length,completedCalls,'completed review is not re-dispatched after another restart');
+
+    // A review pass that stopped on its OWN ceiling did its work: it completes, never a paid retry (audit 10-11).
+    // Negative: a pass whose provider failed before it changed anything stays queued for its retry.
+    const taskRun = async directive => (await (await fetch(base + '/api/run', {method: 'POST', headers, body: JSON.stringify({agentId: 'agent', key: 'sk-or-v1-packets-fixture', model: 'test/model', isTask: true, messages: [{role: 'user', content: directive}]})})).text()).split('\n').filter(Boolean).map(s => JSON.parse(s)).find(e => e.name === 'agent.run.end');
+    const heldRow = id => JSON.parse(fs.readFileSync(file, 'utf8')).rows.find(row => row.runId === id && row.state === 'held');
+    const reviewCalls = probe => seen.filter(b => { const s = JSON.stringify(b.messages || []); return s.indexOf('COMMANDER VERDICT ON THIS RUN') >= 0 && s.indexOf(probe) >= 0; }).length;
+    const ceiling = await taskRun('Draft the iteration-ceiling probe memo.');
+    A.eq(ceiling && ceiling.payload.reason, 'done', 'ceiling probe run completed');
+    A.ok((await api('/api/growth/ratings', {runId: ceiling.payload.runId, verdict: 'miss', epoch: 1})).body.skillReviewArmed === true, 'ceiling probe review armed');
+    A.ok(await until(() => reviewCalls('iteration-ceiling probe') >= 6 && (heldRow(ceiling.payload.runId) || {}).reviewStatus !== 'running', 20000), 'the ceiling probe review ran to its turn ceiling');
+    A.eq(reviewCalls('iteration-ceiling probe'), 6, 'one pass of six turns (maxIters), no second pass');
+    const ceilingRow = heldRow(ceiling.payload.runId);
+    A.ok(!ceilingRow || ceilingRow.reviewStatus === 'completed', 'RATCHET: a max_iters review is durably completed instead of queued for a paid retry: ' + JSON.stringify(ceilingRow && {reviewStatus: ceilingRow.reviewStatus, attempts: ceilingRow.attempts}));
+    const outage = await taskRun('Draft the provider-outage probe memo.');
+    A.eq(outage && outage.payload.reason, 'done', 'outage probe run completed');
+    A.ok((await api('/api/growth/ratings', {runId: outage.payload.runId, verdict: 'miss', epoch: 1})).body.skillReviewArmed === true, 'outage probe review armed');
+    A.ok(await until(() => reviewCalls('provider-outage probe') >= 1 && ((heldRow(outage.payload.runId) || {}).attempts || 0) >= 1 && heldRow(outage.payload.runId).reviewStatus !== 'running', 20000), 'the outage probe review pass ended');
+    const outageRow = heldRow(outage.payload.runId);
+    A.ok(outageRow && outageRow.reviewStatus === 'pending' && outageRow.attempts === 1, 'a review whose provider failed before any skill change is kept for a retry: ' + JSON.stringify(outageRow && {reviewStatus: outageRow.reviewStatus, attempts: outageRow.attempts}));
   } finally { await stop(); await new Promise(r => mock.close(r)); fs.rmSync(workspace, {recursive: true, force: true}); }
   A.report('verdictpackets.http');
 })().catch(e => { console.error(e); process.exit(1); });

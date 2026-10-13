@@ -394,7 +394,7 @@ const { makeSkillMetrics } = require('./skills/metrics.js');
 const skillReview = require('./skillreview.js');
 const { makeSkillMarket, DEFAULT_CATALOG_URL: SKILL_MARKET_DEFAULT_URL } = require('./skills/market.js');   // the Skill Market client (curated catalog → station library)            // background skill maintenance trigger/prompt
 const skillMarketSigning = require('./skills/market-signing.js');   // the Skill Market's trusted signing keys
-const { makeVerdictReview } = require('./verdictreview.js');   // consistency loop: a rated ok/miss run earns a skill review
+const { makeVerdictReview, reviewPassFinished } = require('./verdictreview.js');   // consistency loop: a rated ok/miss run earns a skill review
 const skillCurator = require('./skillcurator.js');          // skill lifecycle/consolidation maintenance
 const slash = require('./slash.js');                       // slash-command catalog + dispatch descriptors
 const { makeUserCommands } = require('./usercommands.js');  // Commander-defined slash commands (alias/exec)
@@ -3519,7 +3519,7 @@ async function runBackgroundSkillReview(o) {
   const ac = new AbortController();
   const timer = setTimeout(() => { try { ac.abort(); } catch (_) {} }, SKILL_REVIEW_TIMEOUT_MS);
   const reviewRunId = String(runId || 'run') + '_skill_review_' + crypto.randomUUID();
-  let result = null;
+  let result = null, changedSkillbase = false;   // a pass that staged/edited a skill did its work, whatever stopped it
   try {
     const registry = makeRegistry();
     // A2: un-silence the review. The quiet loop's own emit stays a no-op (no run.start/tool chatter on the bus),
@@ -3530,7 +3530,7 @@ async function runBackgroundSkillReview(o) {
     // rewrite or archive it — the ledger lives in this per-pass tool instance. gate: the fork is a
     // model too; a withheld skill is withheld from IT as well, or the review pass becomes the way
     // an unreviewed body reaches a prompt.
-    makeSkillTools({ store: skillStore, gate: skillGate, readBeforeWrite: true, countViews: false, onManage: (skill, ctx, action) => reviewObserver.onManage(skill, action) }).register(registry);
+    makeSkillTools({ store: skillStore, gate: skillGate, readBeforeWrite: true, countViews: false, onManage: (skill, ctx, action) => { changedSkillbase = true; return reviewObserver.onManage(skill, action); } }).register(registry);
     const allowed = ['skill.write', 'skill.manage', 'skill.list', 'skill.view'];
     const resolved = {
       agentId, room: 'skill-review', hasCompute: true, tools: allowed.slice(),
@@ -3586,7 +3586,9 @@ async function runBackgroundSkillReview(o) {
       try { ledger.record({ runId: reviewRunId, agentId, turns: result.turns || 0, usd: result.usd || 0, tokens: result.tokens || 0, unmetered }); } catch (_) {}
     }
   }
-  return !!(result && result.reason === 'done');
+  // false asks verdictreview to retry: only a pass that failed before it changed the skillbase (a budget/turn-ceiling/
+  // deadline stop is the pass's own end, and a retry would re-pay it and re-stage the same candidate)
+  return reviewPassFinished(result, changedSkillbase);
 }
 
 // auxCuratorDue — is the skill curator's 24h interval elapsed for this agent? Hoisted for the aux governor so
@@ -7717,10 +7719,11 @@ function nightshiftContextPack() {
     chats = cleanOwnerChats.map(m => ({ role: m.role, content: m.content, ts: m.ts, streamId: m.streamId }));
   } catch (_) { cleanOwnerChats = []; chats = []; }
   // Briefs have no independent provenance stamp. Match their exact stored directive to a proven clean owner turn
-  // in the same agent/stream; completion's runId may belong to a later turn and is not an authorship proof.
+  // in the same agent/stream; completion's runId may belong to a later turn and is not an authorship proof. The proof
+  // is looked up by original run id, not inside the chat tail above: a brief exists to carry work older than that tail.
   let briefs = [];
   try {
-    briefs = TrustedLearning.ownedBriefs(taskBriefStore.list({ status: 'done', limit: 30 }), cleanOwnerChats)
+    briefs = TrustedLearning.ownedBriefs(taskBriefStore.list({ status: 'done', limit: 30 }), transcriptStore.all(), runStore.all())
       .map(b => ({ originalDirective: b.originalDirective, ts: b.completedAt || b.updatedAt }));
   } catch (_) { briefs = []; }
   // the active GOAL ARC (single object or null).
@@ -18460,7 +18463,10 @@ function serveAgentSkills(req, res) {
     /* verify (not decide) whenever bodies were loaded: the panel is where "Approved by you for this
        exact content" is printed, and only a re-digest of the delivered bytes can tell whether that is
        still true. Without it the card blesses a package whose SKILL.md was rewritten after review. */
-    skills = skillGate.annotate(skills, { verify: includeBody }).map(s => Object.assign({}, s, { guardDigest: skillGate.stampOf(s), goldens: goldensFor(agentId, s.id).length }));
+    /* guardDigest is what the panel's Approve posts back, so it is the digest handleAgentSkillAllow binds to:
+       the SERVED bytes when a body was loaded, the stamp only without one. The stored stamp on a drifted
+       package describes bytes nobody is reading, and the handler 409s it on every click. */
+    skills = skillGate.annotate(skills, { verify: includeBody }).map(s => Object.assign({}, s, { guardDigest: typeof s.body === 'string' ? skillGate.digestOf(s) : skillGate.stampOf(s), goldens: goldensFor(agentId, s.id).length }));
     const candidates = skillStore.candidates(agentId, { includeBody });
     json(200, { ok: true, agentId, skills, candidates, evaluationSuites: evaluationSuiteMetadata(agentId, candidates.map(c => c.skill)), withheld: skills.filter(s => s.withheld).length });
   } catch (e) { json(500, readRouteFailure('agent-skills', e)); }   // harness.agentSkillsRead maps !ok to { ok:false } — never a confirmed empty
@@ -18869,10 +18875,24 @@ async function handleRun(req, res) {
 
   // all setup + the run live inside ONE try, so any failure becomes a clean agent.run.error + closed stream
   try {
+    /* A RECIPE LAUNCH IS NOT THE COMMANDER'S WORDING (2026-10-12): its text is the recipe author's template (a built-in,
+       or an imported file anyone could have written) with the Commander's blanks filled in, and a retry re-sends that
+       same template. Neither is captured as owner-typed text (chat.js draws the same line for its intent offers). A
+       retry whose original run is unknown cannot prove the text was typed, so it is not captured either. */
+    const retryOf = (body && typeof body.retryUserRunId === 'string' && body.retryUserRunId.length <= 200) ? body.retryUserRunId : '';
+    let ownerWording = !recipeId && !(body && body.recipeId);   // an unparseable recipe id still names a recipe launch
+    if (ownerWording && retryOf) {
+      try { const was = runStore.latest(retryOf); ownerWording = !!was && !was.recipeId; }
+      catch (e) { ownerWording = false; failNote('learning.retryOrigin', e); }
+    }
     // USER ATTACHMENTS: expand any Commander-attached photos/files (carried as lightweight references on the
     // user turns) into real provider content blocks before the model call. Degrades per-attachment, never throws.
     const hasUserAttachments = messages.some(m => m && Array.isArray(m.attachments) && m.attachments.length > 0);
-    const learningInput = TrustedLearning.capture(messages, 'interactive-owner');
+    const learningInput = ownerWording ? TrustedLearning.capture(messages, 'interactive-owner') : null;
+    // A code fence, pasted log, quoted label or blockquoted document in this conversation is data the learning passes
+    // must not read as the Commander's preferences. It is still the Commander typing at their own station, so it
+    // withholds learning only (runOnce) and never the execution taint, which is for content they did not author.
+    const quotedUserMaterial = messages.some(m => m && m.role === 'user' && TrustedLearning.quotedMaterial(TrustedLearning.textOf(m)));
     let runMessages = messages;
     try { runMessages = await attachments.expandUserAttachments(messages, agentId); } catch (_) { runMessages = messages; }
     // The browser is WATCHED, so an ungranted mutation asks live (interactive surface + promptConsent) instead
@@ -18881,8 +18901,9 @@ async function handleRun(req, res) {
       key, keyPool: body && body.keyPool, model, system: (projectLine || projectRules) ? (String(system || '') + projectLine + projectRules) : system, messages: runMessages, agentId, isTask, provider: runProvider, baseUrl, reasoningEffort, fallbackModels, fallbackProviders,
       emit, signal: ac.signal, runId, trigger: 'directive', internal, evidence,
       voiceTurn: !!(body && body.voiceTurn === true),   // the reply will be SPOKEN: the voice chat model may answer it
-      initialTaint: hasUserAttachments ? 'user attachment' : (TrustedLearning.quotedMaterial(latestUserText(messages)) ? 'quoted user material' : null),
+      initialTaint: hasUserAttachments ? 'user attachment' : null,
       learningInput,   // host-captured BEFORE attachment expansion; never accepted from request metadata
+      quotedUserMaterial,
       retryUserRunId: body && body.retryUserRunId,
       surface: 'interactive', prompt: promptConsent, pathPrompt: promptPathTrust, summon: summonRequest,   // team.summon → live summonAgent() round-trip; pathPrompt → NS-5 "work in <root>?" bless
       loginPrompt: askHuman,   // attended browser login: browser.login's two consent asks ride the same fail-closed permission.prompt channel
@@ -22418,7 +22439,10 @@ async function runOnceCore(o) {
      words in a hand-off are only the original request — the line's first run already carried those — so a hand-off run is not
      reflected on, studied or thread-mined (and spends none of the agent's cooldowns). */
   const _lineHop = !!(Pipeline.isHandoff && Pipeline.isHandoff(latestUserText(msgs)));
-  const learningEvidence = TrustedLearning.evidence({ runId, trigger: o.trigger, tainted: execution.taintedBy(), trustedInput: trustedLearningInput, completion: finalCompletionEvidence, loadedSkills });
+  // Quoted material the Commander pasted (handleRun) withholds learning exactly like untrusted content, without the
+  // execution lock: the transcript is not evidence of their preferences, but their own run keeps its tools.
+  const learningTaint = execution.taintedBy() || (o.quotedUserMaterial === true ? 'quoted user material' : null);
+  const learningEvidence = TrustedLearning.evidence({ runId, trigger: o.trigger, tainted: learningTaint, trustedInput: trustedLearningInput, completion: finalCompletionEvidence, loadedSkills });
   if ((_auxDone || _auxFail) && o.reflect && isTask && !internal) {
     await captureTrustedLearning({ agentId, runId, projectRoot: o.projectRoot || '', input: trustedLearningInput, learningEvidence });
   }
@@ -22472,7 +22496,7 @@ async function runOnceCore(o) {
   if (_capReached) _auxCandidates.length = 0;
   // External transcript text never enters a durable learning pass. The skill reviewer may still use the
   // separately captured owner directive and host checks; its structured packet discards all external bytes.
-  if (execution.taintedBy()) {
+  if (learningTaint) {
     const noTrustedEvidence = !learningEvidence.trustedUserMessages.length && !learningEvidence.checks.length;
     for (const pass of ['reflection', 'failure-review', 'study', 'threadmine'].concat(noTrustedEvidence ? ['skill-review'] : [])) {
       const at = _auxCandidates.indexOf(pass);
@@ -26537,25 +26561,41 @@ async function recordFeedbackMemory(o) {
 // Owner statements survive research and short turns without an auxiliary model inferring their meaning.
 // The canonical writer supplies durable deduplication and receipts; declined memories remain declined.
 async function captureTrustedLearning(o) {
-  const status = { runId: o.runId, at: Date.now(), tainted: !!o.learningEvidence.tainted, saved: 0,
+  const status = { runId: o.runId, at: Date.now(), tainted: !!o.learningEvidence.tainted, saved: 0, held: 0,
     trustedDirectives: o.learningEvidence.trustedUserMessages.length, verifiedChecks: o.learningEvidence.checks.filter(c => c.status === 'passed').length,
     reason: 'no_explicit_standing_preference' };
   if (!personalizationStore.read().enabled || !memoryConfig.reflectEnabled) status.reason = 'learning_paused';
   else if (!o.input) status.reason = 'no_trusted_owner_input';
   else {
-    const declined = buildDeclinedIndex(o.agentId);
+    const declined = buildDeclinedIndex(o.agentId), held = [];
     for (const prop of TrustedLearning.preferences(o.input, o.projectRoot)) {
-      if (declined.has(prop.content)) continue;
+      // §5.6 + reflection's rare-confirm tier: a statement carrying a secret, personal data or an authority-shaped
+      // instruction is never saved silently. It waits, scrubbed, on the same Keep/Edit/Discard deck reflection uses.
+      const content = redact(prop.content);
+      if (declined.has(prop.content) || declined.has(content)) continue;
+      if (content !== prop.content || TrustedLearning.needsReview(content, highStakes)) {
+        held.push({ id: 'owner_' + (held.length + 1), kind: prop.kind, content, scope: prop.scope, projectRoot: prop.projectRoot, origin: 'commander' });
+        continue;
+      }
       try {
         const w = await writeMemoryRecord(o.agentId, prop, { runId: o.runId, source: 'owner-statement', origin: 'commander', trustedInput: o.input });
         if (w.ok) { status.saved++; recordRunReceipt(o.agentId, o.runId, { id: w.id, kind: w.kind, content: prop.content, scope: prop.scope, projectRoot: prop.projectRoot, origin: 'commander', saved: true }); }
       } catch (e) { status.reason = 'write_failed'; failNote('learning.capture', e); }
     }
+    if (held.length) {
+      try {
+        stashProposals(o.agentId, o.runId, held);
+        await queuePending(o.agentId, o.runId, held);   // answerable after a restart, like reflection's held half
+        for (const p of held) chanEmit('memory.proposed', { agentId: o.agentId, runId: o.runId, id: p.id, kind: p.kind, scope: p.scope });
+        status.held = held.length;
+      } catch (e) { status.reason = 'write_failed'; failNote('learning.hold', e); }
+    }
     if (status.saved) status.reason = 'owner_preference_saved';
+    else if (status.held) status.reason = 'owner_preference_held_for_review';
   }
   try { const rows = skillEvaluationIo.get('learning:' + o.agentId); skillEvaluationIo.set('learning:' + o.agentId, (Array.isArray(rows) ? rows : []).filter(r => r.runId !== o.runId).concat([status]).slice(-100)); }
   catch (e) { failNote('learning.status', e); }
-  console.log('[learning] run=' + o.runId + ' agent=' + o.agentId + ' reason=' + status.reason + ' saved=' + status.saved + ' trusted=' + status.trustedDirectives + ' checks=' + status.verifiedChecks + ' tainted=' + status.tainted);
+  console.log('[learning] run=' + o.runId + ' agent=' + o.agentId + ' reason=' + status.reason + ' saved=' + status.saved + ' held=' + status.held + ' trusted=' + status.trustedDirectives + ' checks=' + status.verifiedChecks + ' tainted=' + status.tainted);
 }
 
 async function writeMemoryRecord(agentId, prop, opts) {
@@ -26576,9 +26616,12 @@ async function writeMemoryRecord(agentId, prop, opts) {
     chanEmit('deliverable', { id: r.skill.id, agentId, kind: 'skill', title: r.pending ? 'Proposed revision: ' + r.skill.name : r.skill.name });
     return { ok: true, id: r.skill.id, kind: 'skill', pending: !!r.pending, skill: r.skill };
   }
+  // §5.6 at the write boundary: scrub secrets before they persist (notebook.write and the manual route already do;
+  // reflection scrubs at proposal time, an owner statement arrives as typed).
+  const scrubbed = redact(content);
   // P1: write the notebook record under the per-agent lock, RE-READING the list so the id (positional) is minted
   // against the current notebook and a concurrent run's memory.write isn't clobbered by this whole-array set.
-  let writtenId = null, rec = null;
+  let writtenId = null, rec = null, refreshed = false;
   await notebookStore.update('notebook:' + agentId, (stored) => {
     const list = Array.isArray(stored) ? stored : [];
     if (prop && prop.replaceId) {
@@ -26590,15 +26633,29 @@ async function writeMemoryRecord(agentId, prop, opts) {
       writtenId = rec.id;
       return list;
     }
-    const sameText = value => String(value || '').trim().toLowerCase() === content.toLowerCase();
-    if (list.some(r => r && (sameText(r.content != null ? r.content : r.body) ||
-        (Array.isArray(r.history) && r.history.some(h => h && sameText(h.body)))))) return undefined;
-    writtenId = memcore.nextNoteId(list);   // collision-proof (positional length reuses a slot freed by forget)
-    rec = recordFromProposal(prop || {}, { now: Date.now(), runId: runId || (prop && prop.sourceRunId), id: writtenId, content, origin: opts.origin, userConfirmed: opts.userConfirmed === true });
-    if (opts.trustedInput && TrustedLearning.preferences(opts.trustedInput, prop.projectRoot).some(p => p.content === content)) {
-      rec.confirmation = 'user-stated'; rec.standing = true;
-      rec.statedBy = { runId, quote: content, source: opts.trustedInput.source };
+    const bodyOf = r => r.content != null ? r.content : r.body;
+    const sameText = value => String(value || '').trim().toLowerCase() === scrubbed.toLowerCase();
+    // only the Commander's exact words (nothing scrubbed) prove the statement is theirs
+    const stated = !!opts.trustedInput && scrubbed === content && TrustedLearning.preferences(opts.trustedInput, prop.projectRoot).some(p => p.content === content);
+    const stamp = r => Object.assign(r, { confirmation: 'user-stated', standing: true, statedBy: { runId, quote: scrubbed, source: opts.trustedInput.source } });
+    if (list.some(r => r && (sameText(bodyOf(r)) || (Array.isArray(r.history) && r.history.some(h => h && sameText(h.body)))))) {
+      if (!stated) return undefined;
+      /* THE COMMANDER SAID IT AGAIN (2026-10-12). Dropping a restatement left an older contradicting record as the
+         newer memory, and recall resolves a conflict by "the newer one wins". The same clean record in the same
+         scope is re-dated and re-stamped as stated now; a copy that only survives in a corrected record's history,
+         a tainted one, or one in another scope does not carry the restatement, so it becomes a new record. */
+      const scopeOf = r => [r.kind || 'note', r.scope || 'global', r.projectRoot ? String(r.projectRoot) : '', r.streamId || '', r.origin || 'commander'].join('\u0000');
+      const want = scopeOf({ kind: prop.kind, scope: prop.scope, projectRoot: prop.projectRoot, streamId: prop.streamId, origin: opts.origin });
+      const at = list.findIndex(r => r && !r.taintedBy && sameText(bodyOf(r)) && scopeOf(r) === want);
+      if (at >= 0) {
+        rec = stamp(Object.assign({}, list[at], { updatedAt: Date.now() }));
+        list[at] = rec; writtenId = rec.id; refreshed = true;
+        return list;
+      }
     }
+    writtenId = memcore.nextNoteId(list);   // collision-proof (positional length reuses a slot freed by forget)
+    rec = recordFromProposal(prop || {}, { now: Date.now(), runId: runId || (prop && prop.sourceRunId), id: writtenId, content: scrubbed, origin: opts.origin, userConfirmed: opts.userConfirmed === true });
+    if (stated) stamp(rec);
     if (trustDelta) rec.trust = memcore.nextTrust(rec.trust, trustDelta);   // M-mem.6: keep/edit seeds real trust; silent auto-save leaves it neutral
     list.push(rec);
     return list;
@@ -26620,7 +26677,7 @@ async function writeMemoryRecord(agentId, prop, opts) {
       questStore.completeByContract('fact', _fk, Date.now()).then(completeQuestRecommendationIds).catch(swallow('quest.complete'));
     }
   } catch (_) {}
-  return { ok: true, id: writtenId, kind: rec.kind };
+  return { ok: true, id: writtenId, kind: rec.kind, ...(refreshed ? { refreshed: true } : {}) };
 }
 
 // §5.6 "discard/veto = never again": append the rejected belief text to the permanent per-agent declined list
