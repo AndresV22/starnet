@@ -1,0 +1,91 @@
+{
+  "agentId": "agent",
+  "skin": "drevil",
+  "body": {
+    "id": "agent",
+    "name": "NOVA",
+    "hero": true,
+    "tile": {
+      "x": 14,
+      "y": 8
+    },
+    "renderTile": {
+      "x": 14,
+      "y": 8
+    },
+    "px": 172,
+    "py": 106,
+    "dir": "east",
+    "state": "walk",
+    "goal": null,
+    "moving": true,
+    "working": false,
+    "sitting": false,
+    "waitingApproval": false,
+    "seated": false,
+    "unplaced": false,
+    "summoned": false,
+    "visTopPy": 86,
+    "say": null,
+    "target": {
+      "tile": {
+        "x": 20,
+        "y": 8
+      },
+      "x": 246,
+      "y": 107
+    },
+    "glance": {
+      "dir": "west",
+      "ms": 0
+    },
+    "zone": {
+      "kind": "room",
+      "rect": {
+        "x1": 3,
+        "y1": 3,
+        "x2": 20,
+        "y2": 13
+      },
+      "roam": {
+        "cx": 11,
+        "cy": 4,
+        "r": 14,
+        "rects": [
+          {
+            "x1": 3,
+            "y1": 3,
+            "x2": 20,
+            "y2": 13
+          }
+        ]
+      }
+    },
+    "inOwnZone": true,
+    "facing": "open",
+    "facingProp": null,
+    "facingCounter": false,
+    "wallDirs": 0,
+    "quirkKind": null,
+    "useKind": null,
+    "usingProp": null,
+    "emote": false,
+    "talking": false,
+    "pose": "approved_drevil.walk.east",
+    "socialKind": null,
+    "socialPhase": null,
+    "inHomeRoom": true
+  },
+  "count": 53,
+  "cloud": {
+    "lastPushOkAt": 1791865763812,
+    "lastPushFailAt": 0,
+    "consecutiveFailures": 0,
+    "nextRetryAt": 0,
+    "warn": false,
+    "stale": false,
+    "conflict": null,
+    "degraded": false
+  },
+  "sourceCommit": "7dd062343efd6c611ec19c7569abbb9fd31f22a8"
+}

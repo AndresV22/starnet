@@ -149,6 +149,23 @@ const Chat = (() => {
     return sel('data-dg-row') || sel('data-clarify-prompt');
   }
   function forgetReveal() { revealKey = ''; }
+  // ONE HOP TO A QUESTION (2026-10-13 review: from NEEDS YOU it took Answer → the worker's row → Answer → the card). A
+  // question is answered on its own question card; the row's Answer key and NEEDS YOU both land there. If the card is not
+  // in the transcript, draw it again from the conversation's open ask, so the key is never dead.
+  function revealAsk(promptId) {
+    if (!log || promptId == null) return false;
+    const id = String(promptId);
+    const find = () => Array.from(log.querySelectorAll('[data-clarify-prompt]')).find(n => n.dataset.clarifyPrompt === id);
+    let card = find();
+    if (!card && activeWs && typeof Channels !== 'undefined' && Channels.pendingAllOf) {
+      const p = Channels.pendingAllOf(activeWs.id).find(x => x && String(x.promptId) === id);
+      if (p && p.tool === 'brief.ask') { permissionRow(p, activeWs); card = find(); }
+    }
+    if (!card) return false;
+    revealHistory(card);
+    try { card.focus({ preventScroll: true }); } catch (_) { /* focus is a courtesy: the card is already in view */ }
+    return true;
+  }
   function pinLoadedHistoryAfterLayout(seq) {
     const pin = () => {
       if (!log || historyPinPending !== seq) return;
@@ -3616,7 +3633,7 @@ const Chat = (() => {
         btns.remove();
         const tag = document.createElement('span');
         tag.className = 'consent-result' + (resp.decision === 'deny' ? ' err' : '');
-        tag.textContent = resp.expired ? '✕ no answer in time — the agent used its judgment' : resp.decision === 'deny' ? '✕ declined from your phone' : '✓ answered from your phone';
+        tag.textContent = resp.expired ? '✕ no answer in time — the agent used its judgment' : resp.decision === 'deny' ? '✕ declined' + settledWhere(resp) : '✓ answered' + settledWhere(resp);
         r.body.appendChild(tag);
         syncStatus();
       };
@@ -3627,8 +3644,9 @@ const Chat = (() => {
     r.d.tabIndex = -1;
     r.d.addEventListener('keydown', e => { if (e.key === 'Escape') { e.preventDefault(); answer('use your judgment', '✓ your call'); } });
     status('awaiting your answer…');
-    if (ws && !announcedPrompt(p.promptId, ws) && typeof StationUI !== 'undefined') StationUI.notify(name + ' has a quick question for you' + sessionNote(ws), 'warn', 'needsApproval', { kind: 'needs', go: { ws: ws.id }, key: 'needs:' + ws.id, prompt: p.promptId });
-    else if (!ws && typeof StationUI !== 'undefined') StationUI.notify(name + ' has a quick question for you' + sessionNote(ws), 'warn', 'needsApproval');
+    const asker = (p && p.workerAgentId) ? askerName(p, ws) : name;   // a delegated worker's question names the worker, like its card
+    if (ws && !announcedPrompt(p.promptId, ws) && typeof StationUI !== 'undefined') StationUI.notify(asker + ' has a quick question for you' + sessionNote(ws), 'warn', 'needsApproval', { kind: 'needs', go: { ws: ws.id }, key: 'needs:' + ws.id, prompt: p.promptId });
+    else if (!ws && typeof StationUI !== 'undefined') StationUI.notify(asker + ' has a quick question for you' + sessionNote(ws), 'warn', 'needsApproval');
     autoscroll();
     const composerBusy = !!(input && (document.activeElement === input || (input.value && input.value.trim())));
     if (!composerBusy) { try { r.d.focus({ preventScroll: true }); } catch (_) { try { r.d.focus(); } catch (_) {} } }
@@ -3649,12 +3667,23 @@ const Chat = (() => {
     const pending = typeof Channels !== 'undefined' && Channels.pendingAllOf ? Channels.pendingAllOf(wsId).filter(p => String(p.promptId) !== id) : [];
     if (pending.length) {
       const next = pending[0], ws = (typeof Workstreams !== 'undefined' && Workstreams.get && Workstreams.get(wsId)) || { id: wsId, agentId: next.agentId };
-      if (StationUI.notify) StationUI.notify(askerName(next, ws) + (next.tool === 'brief.ask' ? ' still needs your answer' : ' still needs approval to ' + actionPhrase(next)), 'warn', 'needsApproval', { kind: 'needs', go: { ws: wsId }, key: 'needs:' + wsId, prompt: next.promptId });
+      // quiet: the sibling was already announced; its bell entry moves to it without a second toast and chime
+      if (StationUI.notify) StationUI.notify(askerName(next, ws) + (next.tool === 'brief.ask' ? ' still needs your answer' : ' still needs approval to ' + actionPhrase(next)), 'warn', 'needsApproval', { kind: 'needs', go: { ws: wsId }, key: 'needs:' + wsId, prompt: next.promptId, quiet: true });
     } else if (StationUI.settleNotifs) StationUI.settleNotifs('needs:' + wsId);
   }
-  // an ask answered on THIS page (voice, NEEDS YOU, a worker row): its card settles from the bus echo below, so it must
-  // read the grade the station applied and who answered here — never "from your phone" (review app-shell-ui-02)
-  const localAnswers = new Map();   // promptId -> { decision, via }
+  // what settled a card it did not submit itself, in words. The sidecar's remote answer (a phone) carries no `via`; this
+  // page's other surfaces (a worker's row, NEEDS YOU, voice) answer through answerConsent, which says which on the bus —
+  // and the label names what was APPLIED ('always' is not 'once'; review app-shell-ui-02 / 2026-10-13: a spoken "always
+  // allow" read "approved once from your phone").
+  function settledWhere(resp) { return resp.via === 'voice' ? ' by voice' : resp.via === 'needs-you' ? ' from NEEDS YOU' : resp.via ? '' : ' from your phone'; }
+  // `own` = a card's own receipts (decision -> its done label): a card with no Always key (station.power, plugin.submit,
+  // the login window) grants this one call whatever grade another surface sent, so it settles in its own yes/no words
+  function settledLabel(resp, own) {
+    if (resp.decision === 'deny') return ((own && own.deny) || '✕ denied') + settledWhere(resp);
+    const words = { always: '✓ always allowed', session: '✓ approved for this session', full: '✓ full access' };
+    const grade = own ? own[resp.decision] || (resp.decision === 'session' && own.always ? words.session : own.once) : words[resp.decision];
+    return (grade || '✓ approved once') + settledWhere(resp);
+  }
   async function answerConsent(p, ws, decision, via) {
     const rid = (p && p.runId) || ((ws && typeof Channels !== 'undefined') ? Channels.runIdOf(ws.id) : null);
     const answer = await Harness.consent(rid, p.promptId, decision);
@@ -3671,9 +3700,7 @@ const Chat = (() => {
     }
     // surface the decision on the bus (schema: permission.response) so listeners — e.g. the first-run tutorial —
     // can tell an approve from a deny and narrate the consent loop honestly. Additive; the run resumes via Harness.consent.
-    localAnswers.set(String(p.promptId), { decision: appliedDecision, via: via || '' });
-    if (localAnswers.size > 200) localAnswers.delete(localAnswers.keys().next().value);
-    try { if (typeof U !== 'undefined' && U.bus) U.bus.emit('permission.response', { promptId: p.promptId, decision: appliedDecision }); } catch (_) {}
+    try { if (typeof U !== 'undefined' && U.bus) U.bus.emit('permission.response', { promptId: p.promptId, decision: appliedDecision, via: via || 'desk' }); } catch (_) {}
     // NS conversational anchor: "Always" — and now "Full access" — on a path.trust card IS the project bless
     // (a standing path grant + known-projects row land on the sidecar). Stamp the origin session's projectRoot
     // with the SAME proposed root so the PROJECTS rail lists this session under its project — the identical
@@ -3768,7 +3795,8 @@ const Chat = (() => {
     // this run's own stream (harness re-emits it on U.bus). Settle the card to what actually happened, so the
     // desk never keeps live buttons on a question that was already answered elsewhere. The desk's own answer
     // also emits permission.response, but by then `decided` is set and this listener just unsubscribes. An answer from
-    // another surface on this page (voice) arrives the same way, recorded in localAnswers by answerConsent.
+    // another surface on this page (voice, a worker's row, NEEDS YOU) arrives the same way, its surface named in `via`
+    // by answerConsent.
     if (typeof U !== 'undefined' && U.bus && U.bus.on && U.bus.off) {
       const onElsewhere = applyElsewhere = (resp) => {
         if (!resp || resp.promptId !== p.promptId) return;
@@ -3782,12 +3810,10 @@ const Chat = (() => {
         btns.remove();
         const tag = document.createElement('span');
         tag.className = 'consent-result' + (denied ? ' err' : '');
-        // the grade the station applied, in this card's own words: a card with no Always key (station.power, the login
-        // window) grants this one call whatever grade another surface sent. An answer given on this page (voice) names
-        // its own surface, not the phone
-        const local = localAnswers.get(String(p.promptId));
-        const grade = denied ? labels.deny : labels[resp.decision] || (resp.decision === 'session' && labels.always ? '✓ approved for this session' : labels.once);
-        tag.textContent = resp.expired ? '✕ no answer in time — denied' : grade + (local ? (local.via ? ' ' + local.via : '') : ' from your phone');
+        // the grade the station applied, in this card's own words: a card with no Always key (station.power,
+        // plugin.submit, the login window) grants this one call whatever grade another surface sent. An answer given
+        // on this page (voice, a worker's row, NEEDS YOU) names its own surface, not the phone
+        tag.textContent = resp.expired ? '✕ no answer in time — denied' : settledLabel(resp, labels);
         r.body.appendChild(tag);
         syncStatus();
       };
@@ -10365,5 +10391,5 @@ const Chat = (() => {
   // only" gate maybeStandaloneRate uses — so a pure-chat run is never bottle-offered. Used by App.runBottleInfo (R5).
   function runDidWork(id) { const w = id ? runWork.get(id) : null; return !!(w && ((w.toolsOk || 0) >= 1 || (w.delivered || 0) >= 1)); }
 
-  return { init, load, deliverTurns, send, consentInspect, appendConsentDetails, revealHistory, copyText, continuityDiagnostics, refreshStarters, sendOrQueue, continueConnectorTask, stopActive, status, localLine, broadcast, renderProse, openFile, answerConsent, consentPhrase: actionPhrase, setSystem, getHistory, contextRef, abort, isBusy, beatBusy: skillBeatBusy, beginInterview, endInterview, echoUser, prefill, autoGrowInput, choices, clearChoices, retireDeskPrompt, typeLine, nudge, clearNudge, offerCuriosity, offerFork, planGoalPath, briefingReceipt, isComposerEngaged, canFocusSession, runMeta, runDidWork, awayDigest, awayReview, awayRate, sampleCard, workshopReturn, refreshIdBar: renderIdBar, refreshGroupControls: updateControls, refreshAgentIdentity, setRosterStatus, askBudgetSpent, spendAsk, clockLabel: fmtClock, breakLabel: fmtBreak, workspaceFileRefs, imageBlobUrl };
+  return { init, load, deliverTurns, send, consentInspect, appendConsentDetails, revealHistory, revealAsk, copyText, continuityDiagnostics, refreshStarters, sendOrQueue, continueConnectorTask, stopActive, status, localLine, broadcast, renderProse, openFile, answerConsent, consentPhrase: actionPhrase, setSystem, getHistory, contextRef, abort, isBusy, beatBusy: skillBeatBusy, beginInterview, endInterview, echoUser, prefill, autoGrowInput, choices, clearChoices, retireDeskPrompt, typeLine, nudge, clearNudge, offerCuriosity, offerFork, planGoalPath, briefingReceipt, isComposerEngaged, canFocusSession, runMeta, runDidWork, awayDigest, awayReview, awayRate, sampleCard, workshopReturn, refreshIdBar: renderIdBar, refreshGroupControls: updateControls, refreshAgentIdentity, setRosterStatus, askBudgetSpent, spendAsk, clockLabel: fmtClock, breakLabel: fmtBreak, workspaceFileRefs, imageBlobUrl };
 })();

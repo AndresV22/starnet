@@ -1,5 +1,6 @@
-/* Thread UX regressions: delegated participation stays findable without exposing worker storage;
-   shared files keep their author and the version that belonged to the reply. Live DOM proof is separate. */
+/* Thread UX regressions: delegated participation stays findable without exposing worker storage, and polling that
+   adopts thread metadata keeps that index current; shared files keep their author and the version that belonged to
+   the reply. Live DOM proof is separate. */
 'use strict';
 const fs = require('node:fs');
 const path = require('node:path');

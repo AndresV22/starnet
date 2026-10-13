@@ -145,6 +145,7 @@ for (const reason of ['done', 'budget', 'max_iters', 'aborted', 'error']) {
   await call(env, 'station.dispatch_start', { streamId: worker.id, runId: 'empty-error' });
   const ended = await call(env, 'station.dispatch_end', { streamId: worker.id, runId: 'empty-error' });
   A.eq(ended.ok, true, 'dispatch end reconciles the foreground worker record');
+  A.eq([ended.result.settled, env.C.isBusy(worker.id)], [true, false], 'dispatch end settles the foreground worker channel');
   A.eq(worker.lastRunReason, 'error', 'a worker that failed without text still retains its actual reason');
   A.eq(worker.history.length, 0, 'recovering an empty failure invents no assistant answer');
   A.eq(worker.runIds[0], 'empty-error', 'the failed run can still be inspected from its card');

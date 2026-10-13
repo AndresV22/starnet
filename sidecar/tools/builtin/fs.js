@@ -400,6 +400,18 @@ const { note: failNote } = require('../../failopen');
         }
 
         const txt = raw.toString('utf8');
+        /* ONE PAGE FITS ONE RESULT (2026-10-12, live A/B proof of the Publisher report). A page was capped only by
+           READ_RETURN (200k), but the registry then cut any result over the run's window-scaled budget (ctx.outputMax,
+           as low as 8k) out of the MIDDLE — while the trailer below still said "next: offset <end of the whole page>".
+           Paging a parked 1.4 MB API response with limit 100000 under a 27k budget lost 73k characters per call, and
+           following "next" skipped them for good. A page is now sized to what the model will actually see, so "next"
+           is always contiguous. No budget passed (a direct call, a test) = READ_RETURN exactly as before. */
+        const pageMax = (() => {
+          let v = ctx ? ctx.outputMax : null;
+          if (typeof v === 'function') { try { v = v(); } catch (_) { v = null; } }
+          const n = Math.floor(Number(v));
+          return Number.isFinite(n) && n > 0 ? Math.max(2000, Math.min(READ_RETURN, n - 600)) : READ_RETURN;   // headroom: trailer + fence
+        })();
         /* NUMBERED (2026-09-02, coding-tools lane). Line-cited reads are how a coding agent anchors an fs.edit or
            a diagnostic ("main.js:214"). Opt-in, because ~25 test files and the output-parking read-back path
            consume the plain default and a numbered default would change what they parse; `raw: true` is the
@@ -420,7 +432,7 @@ const { note: failNote } = require('../../failopen');
           let chars = 0, endLine = startLine - 1, capped = false;
           for (let i = startLine - 1; i < totalLines && rows.length < requestedLines; i++) {
             const row = (i + 1) + '\t' + lines[i].replace(/\r$/, '');
-            if (rows.length && chars + row.length + 1 > READ_RETURN) { capped = true; break; }
+            if (rows.length && chars + row.length + 1 > pageMax) { capped = true; break; }
             rows.push(row); chars += row.length + 1; endLine = i + 1;
           }
           let out = rows.join('\n');
@@ -433,10 +445,11 @@ const { note: failNote } = require('../../failopen');
         const offset = Math.min(txt.length, Math.max(0, Math.floor(Number(args.offset) || 0)));
         const requested = args.limit == null ? READ_RETURN : Math.floor(Number(args.limit) || 0);
         if (requested <= 0) throw new Error('limit must be a positive number');
-        const limit = Math.min(READ_RETURN, requested);
+        const limit = Math.min(READ_RETURN, requested, pageMax);
         const end = Math.min(txt.length, offset + limit);
         let out = txt.slice(offset, end);
         if (end < txt.length) out += '\n[showing characters ' + offset + '-' + end + ' of ' + txt.length
+          + (limit < Math.min(READ_RETURN, requested) ? ' (page sized to fit this model\'s context window)' : '')
           + '; next: fs.read {"path":' + JSON.stringify(String(args.path)) + ',"offset":' + end + ',"limit":' + limit + '}]';
         else if (offset > 0) out += '\n[showing characters ' + offset + '-' + end + ' of ' + txt.length + '; end of file]';
         return { content: out, summary: kb(Buffer.byteLength(txt)) + ' read; characters ' + offset + '-' + end + ' of ' + txt.length };
@@ -731,7 +744,13 @@ const { note: failNote } = require('../../failopen');
     // binary files, caps files scanned; redacts secrets out of every surfaced line (§5.6).
     // SEARCH_MAX_FILES 4000 -> 20000 (2026-09-02): with .gitignore pruning the walk no longer burns the cap on
     // build output, and 4000 was under one mid-sized project's source count. Per-call override: `max_files`.
-    const SEARCH_MAX_FILE_BYTES = 512 * 1024, SEARCH_MAX_FILES = 20000, SEARCH_MAX_FILES_CEILING = 100000, SEARCH_LINE_CHARS = 500, SEARCH_DENSIFY_MIN = 5;
+    /* A FILE TOO BIG TO SEARCH MUST NEVER READ AS "NO MATCHES" (2026-10-12, live A/B proof of the Publisher report). The
+       per-file cap was 512 KB and both engines skipped a bigger file without a word, so fs.search "Oceania" over a parked
+       1.4 MB API response answered "(no matches for Oceania)" — a confident false negative on exactly the files every
+       output-cap note tells the model to search. Folder scans now cover 8 MB per file, a file named as `path` 64 MB, and
+       anything still skipped is NAMED in the result instead of vanishing (the walker knows; rg's --max-filesize is silent,
+       so a >8 MB file inside a folder scan on the rg engine is the one remaining unnamed skip). */
+    const SEARCH_MAX_FILE_BYTES = 8 * 1024 * 1024, SEARCH_NAMED_FILE_BYTES = 64 * 1024 * 1024, SEARCH_MAX_FILES = 20000, SEARCH_MAX_FILES_CEILING = 100000, SEARCH_LINE_CHARS = 500, SEARCH_DENSIFY_MIN = 5;
     const SEARCH_MAX_MATCHES = 20000;   // rg path: stop draining after this many matching lines (JS path is bounded by files + time)
 
     /* RIPGREP, WHEN THE MACHINE HAS IT (2026-09-02). The pure-JS walker stays the guaranteed path (bundle Node,
@@ -972,7 +991,7 @@ const { note: failNote } = require('../../failopen');
         }
         if (stack.length && gitignored(stack, rel, isDir)) { stats.ignored = (stats.ignored || 0) + 1; continue; }
         if (isDir) { if (ent.name !== 'node_modules') await collectFiles(abs, rel, acc, stats, baseReal, stack); continue; }
-        stats.files++; acc.push({ rel, abs, mtimeMs: st.mtimeMs || 0 });
+        stats.files++; acc.push({ rel, abs, mtimeMs: st.mtimeMs || 0, size: Number(st.size) || 0 });
       }
     }
     // `note` (optional) carries an honest reason the result set is partial for a reason OTHER than paging —
@@ -1025,7 +1044,9 @@ const { note: failNote } = require('../../failopen');
         const target = ({ grep: 'content', find: 'files' })[args.target] || args.target || 'content';
         const cx = Math.max(0, Math.min(10, Number(args.context) || 0));
         const maxFiles = Math.max(1, Math.min(SEARCH_MAX_FILES_CEILING, Math.floor(Number(args.max_files)) || SEARCH_MAX_FILES));
-        const stats = { files: 0, truncated: false, maxFiles, gitignore: args.gitignore !== false && !onlyName };
+        const stats = { files: 0, truncated: false, maxFiles, gitignore: args.gitignore !== false && !onlyName, skippedLarge: [] };
+        const maxBytes = onlyName ? SEARCH_NAMED_FILE_BYTES : SEARCH_MAX_FILE_BYTES;
+        if (onlyName && startStat && startStat.size > maxBytes) stats.skippedLarge.push(P.relative(base, P.join(abs, onlyName)).split(P.sep).join('/'));
         const signal = ctx && ctx.signal;
 
         // .gitignore layers ABOVE the start dir still bind (a `path` of "src/x" is inside the root's rules);
@@ -1049,7 +1070,7 @@ const { note: failNote } = require('../../failopen');
           const all = []; await collectFiles(abs, startPrefix, all, stats, baseReal, ancestors); return all;
         }
         const rg = await rgBinary();
-        const rgCommon = ['--no-require-git', '--no-messages', '--max-filesize', String(SEARCH_MAX_FILE_BYTES), '-g', '!node_modules', '--sort', 'path'];
+        const rgCommon = ['--no-require-git', '--no-messages', '--max-filesize', String(maxBytes), '-g', '!node_modules', '--sort', 'path'];
         if (!stats.gitignore) rgCommon.push('--no-ignore');
         const rgRel = (p) => { const n = String(p).replace(/\\/g, '/').replace(/^\.\//, ''); return startPrefix ? startPrefix + '/' + n : n; };
 
@@ -1174,8 +1195,10 @@ const { note: failNote } = require('../../failopen');
           if (budgetTimer && typeof budgetTimer.unref === 'function') budgetTimer.unref();
           for (const f of candidates) {
             if (expired) { timedOut = true; stats.truncated = true; break; }
+            if (f.size > maxBytes) { stats.skippedLarge.push(f.rel); continue; }   // named below, never a silent miss
             let buf; try { buf = await fsp.readFile(f.abs); } catch (e) { continue; }
-            if (buf.length > SEARCH_MAX_FILE_BYTES || buf.indexOf(0) >= 0) continue;   // skip oversized / binary
+            if (buf.length > maxBytes) { stats.skippedLarge.push(f.rel); continue; }
+            if (buf.indexOf(0) >= 0) continue;   // binary
             const lines = buf.toString('utf8').split(/\r?\n/), idxs = [];
             for (let i = 0; i < lines.length; i++) if (matcher(lines[i])) idxs.push(i);
             if (idxs.length) { fileHits.push({ rel: f.rel, idxs, lines, maxIdx: lines.length - 1 }); totalMatches += idxs.length; }
@@ -1184,17 +1207,23 @@ const { note: failNote } = require('../../failopen');
         }
         if (timedOut) stats.timedOutNote = '\n\n[search stopped at the ' + Math.round(SEARCH_TIME_BUDGET_MS / 1000) +
           's budget — these are the matches found so far; narrow with file_glob or a more specific query]';
+        if (stats.skippedLarge.length) stats.timedOutNote = (stats.timedOutNote || '') + '\n\n[NOT searched — over the '
+          + Math.round(maxBytes / (1024 * 1024)) + ' MB per-file search limit: ' + stats.skippedLarge.slice(0, 10).join(', ')
+          + (stats.skippedLarge.length > 10 ? ' and ' + (stats.skippedLarge.length - 10) + ' more' : '')
+          + (onlyName ? '. Read it in ranges with fs.read instead.' : '. Name one as "path" to search it (up to ' + Math.round(SEARCH_NAMED_FILE_BYTES / (1024 * 1024)) + ' MB).') + ']';
+        // A miss carries the same notes as a hit: "(no matches)" from a search that stopped early or skipped files is a false negative.
+        const missNote = stats.timedOutNote || '';
 
         const omode = args.output_mode || 'content';
         if (omode === 'count') {
-          if (!fileHits.length) return { content: '(no matches for ' + q + ')', summary: '0 matches' };
+          if (!fileHits.length) return { content: '(no matches for ' + q + ')' + missNote, summary: '0 matches' };
           const total = fileHits.length, page = fileHits.slice(offset, offset + limit);
           const truncated = stats.truncated || total > offset + limit;
           return { content: page.map(h => h.rel + ': ' + h.idxs.length).join('\n') + searchHint(truncated, offset, limit, total, stats.timedOutNote),
                    summary: totalMatches + ' match' + (totalMatches === 1 ? '' : 'es') + ' across ' + total + ' file(s)', engine: stats.engine };
         }
         if (omode === 'files_only') {
-          if (!fileHits.length) return { content: '(no matches for ' + q + ')', summary: '0 files' };
+          if (!fileHits.length) return { content: '(no matches for ' + q + ')' + missNote, summary: '0 files' };
           const total = fileHits.length, page = fileHits.slice(offset, offset + limit);
           const truncated = stats.truncated || total > offset + limit;
           return { content: page.map(h => h.rel).join('\n') + searchHint(truncated, offset, limit, total, stats.timedOutNote),
@@ -1205,7 +1234,7 @@ const { note: failNote } = require('../../failopen');
         const flat = [];
         for (let fi = 0; fi < fileHits.length; fi++) for (const idx of fileHits[fi].idxs) flat.push({ fi, idx });
         const total = flat.length;
-        if (!total) return { content: '(no matches for ' + q + ')', summary: '0 matches in ' + stats.files + ' file(s) scanned', engine: stats.engine };
+        if (!total) return { content: '(no matches for ' + q + ')' + missNote, summary: '0 matches in ' + stats.files + ' file(s) scanned' + (stats.skippedLarge.length ? ', ' + stats.skippedLarge.length + ' too large' : ''), engine: stats.engine };
         const pageRefs = flat.slice(offset, offset + limit);
         const truncated = stats.truncated || total > offset + limit;
         let body;

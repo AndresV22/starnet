@@ -126,7 +126,7 @@ function clarificationFixture(mode) {
     TaskConversation: { mount: (el, question, cb) => { conversationAnswer = cb; } },
     U: { bus: { emit() {}, on: (name, fn) => listeners.set(name, fn), off: (name, fn) => { if (listeners.get(name) === fn) listeners.delete(name); } } },
     isActiveWs: () => false, renderPresence() {}, syncStatus() {}, status() {}, autoscroll() {}, announcedPrompt: () => true };
-  vm.createContext(ctx); vm.runInContext(extract(chat, '  function clarifyRow(', '  // p = a consent payload'), ctx);
+  vm.createContext(ctx); vm.runInContext(extract(chat, '  function settledWhere(resp)', '  async function answerConsent('), ctx); vm.runInContext(extract(chat, '  function clarifyRow(', '  // p = a consent payload'), ctx);
   ctx.clarifyRow(q, ws);
   return { Channels, ws, q, nodes, listeners, conversationAnswer, ctx };
 }

@@ -228,7 +228,30 @@ assert.match(chatSource, /function liveVoiceCall\(\)/, 'chat.js knows whether a 
   assert.match(briefBody[1], /if \(liveVoiceCall\(\)\) return;/, 'the tap-to-correct brief card never renders during a live call');
 }
 assert.match(bodyOf('refreshTask'), /announceWaits\(\)/, 'the live tick announces a newly-arrived approval');
-assert.match(source, /Say approve, always allow, or deny/, 'an arriving approval is ASKED aloud, with the exact words that answer it');
+{
+  // an arriving ask is SAID aloud with who asks, what exactly, and the exact words that answer it (2026-10-13 review: a
+  // question was read as "Approval needed: brief.ask — {json}. Say approve…", then "approve" was refused for it)
+  const spokenSrc = /(  function spokenAsk\(p, ws\) \{[\s\S]*?\n  \})\n/.exec(source);
+  assert.ok(spokenSrc, 'voice-live.js defines spokenAsk()');
+  // its helpers: the question line, the card's own words (askParts) and the once-only asks
+  const helperSrc = ['questionLine', 'askParts'].map(name => {
+    const m = new RegExp('(  function ' + name + '\\(pending, ws\\) \\{[\\s\\S]*?\\n  \\})\\n').exec(source);
+    assert.ok(m, 'voice-live.js defines ' + name + '()');
+    return m[1];
+  });
+  const onceOnlySrc = /  const ONCE_ONLY = new Set\([^\n]*\);/.exec(source);
+  assert.ok(onceOnlySrc, 'voice-live.js defines ONCE_ONLY');
+  // eslint-disable-next-line no-new-func
+  const spokenAsk = new Function('App', 'Chat', onceOnlySrc[0] + '\n' + helperSrc.join('\n') + '\n' + spokenSrc[1] + '\nreturn spokenAsk;')(
+    { agentName: id => ({ lead: 'NOVA', writer: 'VEX' })[id] || id }, { consentPhrase: p => 'change ' + JSON.parse(p.argsSummary).path });
+  assert.equal(spokenAsk({ tool: 'fs.write', argsSummary: '{"path":"notes.md"}' }, { agentId: 'lead' }), 'NOVA needs approval to change notes.md. Say approve, always allow, or deny.', 'the lead\'s own ask: the exact words that answer it');
+  assert.equal(spokenAsk({ tool: 'fs.write', argsSummary: '{"path":"email.md"}', workerAgentId: 'writer' }, { agentId: 'lead' }), 'VEX needs approval to change email.md. Say approve or deny.', 'a worker\'s ask names the worker and offers once-or-deny only, like its row');
+  // a question is read as the question, in the asking worker's name, with only the answers voice can give (questionLine)
+  const questionSaid = spokenAsk({ tool: 'brief.ask', argsSummary: '{"question":"Which tier leads?"}', workerAgentId: 'writer' }, { agentId: 'lead' });
+  assert.equal(questionSaid, 'VEX asks: Which tier leads? Say use your judgment, or answer on the card.', 'a question is never read as an approval');
+  assert.doesNotMatch(questionSaid, /approv|always allow|deny/i, 'a question never offers approval answers');
+  assert.match(bodyOf('announceWaits'), /speakLocal\(spokenAsk\(pending, ws\)\)/, 'the live tick speaks it');
+}
 assert.doesNotMatch(bodyOf('announceWaits'), /Say one/, 'chips are never narrated — the blurt class is dead, approvals are the only spoken wait');
 assert.match(bodyOf('handleTranscript'), /approvalCommand\(lower\)/, 'a spoken approval answer settles the blocking wait first');
 assert.match(bodyOf('handleTranscript'), /chipCommand\(lower\)/, 'a chip row that PRE-DATES the call can still be answered by voice');
@@ -360,7 +383,7 @@ function approvalFixture(opts = {}) {
     assert.deepEqual(f.spoken, [], 'speech cannot claim success before acknowledgement');
     await flushApproval();
     assert.deepEqual(f.calls, [['lead-run', 'worker-second', decision]], 'voice sends only the selected prompt decision through Chat');
-    assert.deepEqual(f.events, [['permission.response', { promptId: 'worker-second', decision }]], 'the bus names the confirmed prompt');
+    assert.deepEqual(f.events, [['permission.response', { promptId: 'worker-second', decision, via: 'voice' }]], 'the bus names the confirmed prompt');
     assert.deepEqual(f.pending(), ['worker-first'], 'voice answer preserves the other pending prompt');
     assert.equal(f.Channels.peek(f.ws.id).pausedAt, 2000, 'the outstanding prompt keeps the original pause open');
     assert.equal(f.Channels.statusOf(f.ws.id), 'awaiting your approval…', 'the channel still truthfully waits');
@@ -373,6 +396,16 @@ function approvalFixture(opts = {}) {
     assert.equal(f.Channels.statusOf(f.ws.id), 'working…');
     assert.equal(f.answer(speech), false, 'a settled conversation cannot submit the same prompt again');
     assert.equal(f.calls.length, 2);
+  }
+  {
+    // a delegated worker's request is once-or-deny by voice too: "always allow" grants nothing and says why
+    const f = approvalFixture();
+    f.Channels.setPending(f.ws.id, { promptId: 'worker-third', tool: 'fs.write', workerAgentId: 'writer' }, 4000);
+    assert.equal(f.answer('always allow'), true);
+    await flushApproval();
+    assert.deepEqual(f.calls, [], 'no standing grant is sent for a worker\'s request');
+    assert.match(f.spoken[0] || '', /only be approved once or denied/);
+    assert.deepEqual(f.pending(), ['worker-first', 'worker-second', 'worker-third'], 'nothing is settled');
   }
   {
     const f = approvalFixture(); let resolve;
@@ -390,7 +423,7 @@ function approvalFixture(opts = {}) {
     f.respond(() => ({ ok: true, decision: 'deny' })); f.answer('approve'); await flushApproval();
     assert.equal(f.calls.length, 3, 'a refused or failed submission remains retryable');
     assert.deepEqual(f.pending(), ['worker-first']);
-    assert.deepEqual(f.events, [['permission.response', { promptId: 'worker-second', decision: 'deny' }]], 'the confirmed applied decision wins');
+    assert.deepEqual(f.events, [['permission.response', { promptId: 'worker-second', decision: 'deny', via: 'voice' }]], 'the confirmed applied decision wins');
     assert.equal(f.spoken.at(-1), 'Denied.', 'speech reports the applied decision, not the requested approval');
   }
   {

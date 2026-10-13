@@ -276,11 +276,19 @@
     // history is about). Default to both when unspecified so an un-updated caller stays informative.
     const canShell = !opts || opts.shell !== false;
     const canRequest = !opts || opts.request !== false;
+    // Verified API facts for a known platform (servicekeys-catalog apiNotes). They describe web_request calls, so they
+    // ride only when the run has web_request. A docs link alone left the agent guessing endpoints from a 250 KB page.
+    const notesFor = canRequest && opts && typeof opts.notesFor === 'function' ? opts.notesFor : null;
     const lines = rows
       .slice().sort((a, b) => String(a.name).localeCompare(String(b.name)))
-      .map(r => '- ' + r.name + ': ' + r.envVar
-        + (r.unattendedSupported === false ? ' [watched sessions only; unattended unsupported]' : (r.autonomous === true ? '' : ' [watched sessions only]'))
-        + (r.docsUrl ? ' (API docs: ' + r.docsUrl + ')' : ''));
+      .map(r => {
+        let notes = '';
+        if (notesFor) { try { notes = String(notesFor(r.envVar, r.docsUrl) || '').trim(); } catch (_) { notes = ''; } }
+        return '- ' + r.name + ': ' + r.envVar
+          + (r.unattendedSupported === false ? ' [watched sessions only; unattended unsupported]' : (r.autonomous === true ? '' : ' [watched sessions only]'))
+          + (r.docsUrl ? ' (API docs: ' + r.docsUrl + ')' : '')
+          + (notes ? '\n  API notes: ' + notes : '');
+      });
     const how = [];
     if (canRequest) how.push('with web_request, by writing the NAME as a placeholder in a header — e.g. '
       + 'headers {"Authorization": "Bearer ${' + rows[0].envVar + '}"} — which the host substitutes at send time. '

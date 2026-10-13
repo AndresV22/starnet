@@ -339,3 +339,52 @@ test('a keyboard scroll forgets an earlier reveal like a wheel or touch does (re
   const gestures=wiring[1].match(/'[a-z]+'/g).map(s=>s.slice(1,-1));
   for (const g of ['wheel','touchstart','pointerdown','keydown']) assert.ok(gestures.includes(g),g+' forgets the reveal (PageUp/arrow reading is a real gesture)');
 });
+
+test('a card settled by another surface says what was APPLIED and where it came from (voice "always" is not "once from your phone")', () => {
+  const c = ctx(part(chat, '  function settledWhere(resp)', '  async function answerConsent('));
+  assert.equal(c.settledLabel({ decision: 'always', via: 'voice' }), '✓ always allowed by voice');
+  assert.equal(c.settledLabel({ decision: 'once', via: 'needs-you' }), '✓ approved once from NEEDS YOU');
+  assert.equal(c.settledLabel({ decision: 'deny', via: 'row' }), '✕ denied');
+  assert.equal(c.settledLabel({ decision: 'session' }), '✓ approved for this session from your phone', 'no via = the sidecar\'s remote (phone) answer');
+  assert.equal(c.settledLabel({ decision: 'once' }), '✓ approved once from your phone');
+  assert.ok(/U\.bus\.emit\('permission\.response', \{ promptId: p\.promptId, decision: appliedDecision, via: via \|\| 'desk' \}\)/.test(chat), 'every local answer names its surface on the bus');
+  assert.ok(/Chat\.answerConsent\(pending, ws, decision, 'voice'\)/.test(fs.readFileSync('frontend/app/voice-live.js', 'utf8')), 'voice answers say they were spoken');
+});
+
+test('answering one of two asks moves the bell to the other QUIETLY (no second toast, no chime); a quiet notify files the bell only', () => {
+  const effects = [];
+  const pending = [{ promptId: 'a', tool: 'fs.write', workerAgentId: 'MIRA' }, { promptId: 'b', tool: 'fs.write', workerAgentId: 'VEX' }];
+  const c = ctx(part(chat, '  const settledPromptNotices', '  function settledWhere(resp)'), { Channels: { pendingAllOf: () => pending }, StationUI: { notify: (text, cls, category, opts) => effects.push(opts), settleNotifs() {} }, Workstreams: { get: id => ({ id }) }, askerName: p => p.workerAgentId, actionPhrase: () => 'write a file' });
+  c.settlePromptNotice('ws1', 'a');
+  assert.equal(effects.length, 1); assert.equal(effects[0].prompt, 'b'); assert.equal(effects[0].quiet, true, 'the remaining ask is re-filed without a toast');
+  const ui = fs.readFileSync('frontend/app/stationui.js', 'utf8');
+  const toasts = [], notifs = [];
+  const s = ctx(part(ui, '  function notify(text, cls, category, opts) {', '  function goToNotif(go) {'), { notifyPrefOf: () => ({ show: true, sound: true }), NOTIF_KIND_OF: { needsApproval: 'needs' }, store: { notifs }, uid: () => 'n1', save() {}, badges() {}, open: {}, rerender() {}, toast: (...a) => toasts.push(a), openNotif() {}, NOTIF_LIFE: 1 });
+  s.notify('VEX still needs approval', 'warn', 'needsApproval', { kind: 'needs', key: 'needs:ws1', prompt: 'b', quiet: true });
+  assert.equal(s.store.notifs.length, 1, 'the bell entry is filed'); assert.equal(toasts.length, 0, 'no toast, no sound');
+  s.notify('MIRA needs approval', 'warn', 'needsApproval', { kind: 'needs', key: 'needs:ws2', prompt: 'c' });
+  assert.equal(toasts.length, 1, 'an ordinary notify still toasts');
+});
+
+test('a delegated worker\'s question toasts in the WORKER\'s name, like its card', () => {
+  const body = part(chat, '  function clarifyRow(', '  // p = a consent payload');
+  assert.ok(/const asker = \(p && p\.workerAgentId\) \? askerName\(p, ws\) : name;[^\n]*\n\s*if \(ws && !announcedPrompt\(p\.promptId, ws\)[^\n]*StationUI\.notify\(asker \+ ' has a quick question for you'/.test(body));
+  assert.ok(!/StationUI\.notify\(name \+ ' has a quick question/.test(body), 'never the lead\'s name');
+});
+
+test('a worker question is ONE hop away: revealAsk lands on its question card, redrawing it from the open ask when it is not in the transcript', () => {
+  const cards = [], revealed = [], drawn = [], focused = [];
+  const mkCard = id => ({ dataset: { clarifyPrompt: id }, focus() { focused.push(id); } });
+  cards.push(mkCard('q-other'));   // another question's card is already showing: it is never the one revealed
+  const log = { querySelectorAll: () => cards };
+  const pend = [{ promptId: 'q1', tool: 'brief.ask', workerAgentId: 'MIRA' }, { promptId: 'p2', tool: 'fs.write' }];
+  const c = ctx(part(chat, '  function revealAsk(promptId) {', '  function pinLoadedHistoryAfterLayout('), {
+    log, activeWs: { id: 'ws1' }, Channels: { pendingAllOf: () => pend },
+    permissionRow: (p) => { drawn.push(p.promptId); cards.push(mkCard(String(p.promptId))); }, revealHistory: el => revealed.push(el.dataset.clarifyPrompt) });
+  assert.equal(c.revealAsk('q1'), true, 'a missing card is drawn again from the open ask'); assert.deepEqual(drawn, ['q1']); assert.deepEqual(revealed, ['q1']);
+  assert.equal(c.revealAsk('q1'), true); assert.deepEqual(drawn, ['q1'], 'a card already showing is revealed, never drawn twice');
+  assert.deepEqual(focused, ['q1', 'q1'], 'focus lands on that exact card'); assert.ok(!revealed.includes('q-other'), 'never on the card of another question');
+  assert.equal(c.revealAsk('p2'), false, 'an approval is not a question card'); assert.equal(c.revealAsk('gone'), false, 'an answered ask reveals nothing');
+  assert.ok(/if \(typeof Chat !== 'undefined' && Chat\.revealAsk\) Chat\.revealAsk\(q\.dataset\.dgQuestion\);/.test(delegated), 'the row\'s Answer key uses it');
+  assert.ok(/i\.kind === 'question' && i\.p && typeof Chat !== 'undefined' && Chat\.revealAsk && Chat\.revealAsk\(i\.p\.promptId\)\) return;/.test(fs.readFileSync('frontend/app/needsyou.js', 'utf8')), 'NEEDS YOU Answer lands on the card, not the row');
+});

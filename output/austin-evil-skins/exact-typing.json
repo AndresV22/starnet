@@ -1,0 +1,402 @@
+[
+  {
+    "id": "austinpowers",
+    "recipe": {
+      "job": {
+        "canvas": [
+          144,
+          144
+        ],
+        "frame_count": 4,
+        "durations_ms": [
+          170,
+          160,
+          170,
+          160
+        ],
+        "views": [
+          {
+            "id": "north",
+            "offset": [
+              0,
+              0
+            ],
+            "protected_regions": [
+              {
+                "name": "head",
+                "region": [
+                  59,
+                  45,
+                  84,
+                  75
+                ],
+                "mode": "source_pixels"
+              }
+            ]
+          }
+        ],
+        "body_palette_exact": true,
+        "require_clear_border": true
+      },
+      "scene": {
+        "layers": [
+          {
+            "id": "body",
+            "name": "Body - seated"
+          },
+          {
+            "id": "arms",
+            "name": "Body - forearms"
+          }
+        ],
+        "views": {
+          "north": {
+            "selections": {
+              "left": {
+                "regions": [
+                  [
+                    55,
+                    82,
+                    62,
+                    88
+                  ]
+                ]
+              },
+              "right": {
+                "regions": [
+                  [
+                    82,
+                    82,
+                    89,
+                    88
+                  ]
+                ]
+              },
+              "rest": {}
+            },
+            "nodes": {
+              "body": {
+                "layer": "body",
+                "draw": [
+                  {
+                    "op": "copy",
+                    "part": "rest"
+                  }
+                ],
+                "at": [
+                  0,
+                  0
+                ]
+              },
+              "left": {
+                "layer": "arms",
+                "draw": [
+                  {
+                    "op": "copy",
+                    "part": "left"
+                  }
+                ],
+                "at": [
+                  0,
+                  0
+                ]
+              },
+              "right": {
+                "layer": "arms",
+                "draw": [
+                  {
+                    "op": "copy",
+                    "part": "right"
+                  }
+                ],
+                "at": [
+                  0,
+                  0
+                ]
+              }
+            },
+            "tracks": [
+              {
+                "node": "left",
+                "property": "at",
+                "interpolation": "step",
+                "keys": [
+                  [
+                    1,
+                    [
+                      0,
+                      0
+                    ]
+                  ],
+                  [
+                    2,
+                    [
+                      1,
+                      0
+                    ]
+                  ],
+                  [
+                    3,
+                    [
+                      1,
+                      0
+                    ]
+                  ],
+                  [
+                    4,
+                    [
+                      0,
+                      0
+                    ]
+                  ]
+                ]
+              },
+              {
+                "node": "right",
+                "property": "at",
+                "interpolation": "step",
+                "keys": [
+                  [
+                    1,
+                    [
+                      0,
+                      0
+                    ]
+                  ],
+                  [
+                    2,
+                    [
+                      0,
+                      0
+                    ]
+                  ],
+                  [
+                    3,
+                    [
+                      -1,
+                      0
+                    ]
+                  ],
+                  [
+                    4,
+                    [
+                      -1,
+                      0
+                    ]
+                  ]
+                ]
+              }
+            ]
+          }
+        }
+      }
+    },
+    "sheet": {
+      "url": "https://api.pixellab.ai/mcp/pixel-tools/721b8976-50cd-4cf3-bc79-1ae392c3ac4e/assets/north/full.png",
+      "frameSize": 144,
+      "columns": 2,
+      "count": 4
+    },
+    "source": "https://api.pixellab.ai/mcp/pixel-tools/6d96161b-38ef-43f7-99be-202fb49d6c35/image.png"
+  },
+  {
+    "id": "drevil",
+    "recipe": {
+      "job": {
+        "canvas": [
+          144,
+          144
+        ],
+        "frame_count": 4,
+        "durations_ms": [
+          170,
+          160,
+          170,
+          160
+        ],
+        "views": [
+          {
+            "id": "north",
+            "offset": [
+              0,
+              0
+            ],
+            "protected_regions": [
+              {
+                "name": "head",
+                "region": [
+                  59,
+                  45,
+                  84,
+                  75
+                ],
+                "mode": "source_pixels"
+              }
+            ]
+          }
+        ],
+        "body_palette_exact": true,
+        "require_clear_border": true
+      },
+      "scene": {
+        "layers": [
+          {
+            "id": "body",
+            "name": "Body - seated"
+          },
+          {
+            "id": "arms",
+            "name": "Body - forearms"
+          }
+        ],
+        "views": {
+          "north": {
+            "selections": {
+              "left": {
+                "regions": [
+                  [
+                    56,
+                    80,
+                    63,
+                    88
+                  ]
+                ]
+              },
+              "right": {
+                "regions": [
+                  [
+                    81,
+                    80,
+                    88,
+                    88
+                  ]
+                ]
+              },
+              "rest": {}
+            },
+            "nodes": {
+              "body": {
+                "layer": "body",
+                "draw": [
+                  {
+                    "op": "copy",
+                    "part": "rest"
+                  }
+                ],
+                "at": [
+                  0,
+                  0
+                ]
+              },
+              "left": {
+                "layer": "arms",
+                "draw": [
+                  {
+                    "op": "copy",
+                    "part": "left"
+                  }
+                ],
+                "at": [
+                  0,
+                  0
+                ]
+              },
+              "right": {
+                "layer": "arms",
+                "draw": [
+                  {
+                    "op": "copy",
+                    "part": "right"
+                  }
+                ],
+                "at": [
+                  0,
+                  0
+                ]
+              }
+            },
+            "tracks": [
+              {
+                "node": "left",
+                "property": "at",
+                "interpolation": "step",
+                "keys": [
+                  [
+                    1,
+                    [
+                      0,
+                      0
+                    ]
+                  ],
+                  [
+                    2,
+                    [
+                      1,
+                      0
+                    ]
+                  ],
+                  [
+                    3,
+                    [
+                      1,
+                      0
+                    ]
+                  ],
+                  [
+                    4,
+                    [
+                      0,
+                      0
+                    ]
+                  ]
+                ]
+              },
+              {
+                "node": "right",
+                "property": "at",
+                "interpolation": "step",
+                "keys": [
+                  [
+                    1,
+                    [
+                      0,
+                      0
+                    ]
+                  ],
+                  [
+                    2,
+                    [
+                      0,
+                      0
+                    ]
+                  ],
+                  [
+                    3,
+                    [
+                      -1,
+                      0
+                    ]
+                  ],
+                  [
+                    4,
+                    [
+                      -1,
+                      0
+                    ]
+                  ]
+                ]
+              }
+            ]
+          }
+        }
+      }
+    },
+    "sheet": {
+      "url": "https://api.pixellab.ai/mcp/pixel-tools/5bfd0ebe-ab9d-4ca8-8f37-8698d2317656/assets/north/full.png",
+      "frameSize": 144,
+      "columns": 2,
+      "count": 4
+    },
+    "source": "https://api.pixellab.ai/mcp/images/e2fbc904-7b17-4129-adbe-49ee14a76900/download?index=4"
+  }
+]

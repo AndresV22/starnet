@@ -234,7 +234,10 @@ function makeOverseer(deps) {
   function collect(workers) {
     // Pending reports can wait for credentials or another turn too. Absorb their newly settled members before
     // creating any follow-up; a follow-up is only for workers finishing after the earlier report began.
-    for (const r of state.reviews.slice()) refreshReview(r.id, workers);
+    // only a pending batch report can absorb members — settled ones are history (refreshing every review ever made
+    // cost a find + a clone per review on every 2 s tick; finished ones are kept up to the retention window below)
+    const open = state.reviews.filter(r => r && r.status === 'pending' && r.kind === 'batch' && r.groupKey).map(r => r.id);
+    for (const id of open) refreshReview(id, workers);
     const fresh = freshReviews(workers);
     const expired = expiredReviews(workers);
     if (fresh.length || expired.size) update(s => { s.reviews = s.reviews.filter(r => !expired.has(r.id)); s.reviews.push(...fresh); return null; });

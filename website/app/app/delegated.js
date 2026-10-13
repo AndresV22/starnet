@@ -141,7 +141,9 @@ const Delegated = (() => {
     if (k.lastRunOk === false) return { cls: 'failed', live: 'failed', t: '' };
     if (reason === 'done') return { cls: 'done', live: 'done', t: '' };
     if (reason) return { cls: 'failed', live: 'ended · ' + (whyOf(reason) || 'before finishing'), t: '' };
-    if ((k.runIds || []).length) return { cls: 'recorded', live: 'result available · completion unconfirmed', t: '' };
+    // a thread filed before outcomes were recorded (0.13.x and earlier) holds an answer, but the old recovery also filed
+    // budget / step-limit partials: say only what is provable — it was delivered — never 'done'
+    if ((k.runIds || []).length) return { cls: 'recorded', live: 'delivered', t: '' };
     const parentBusy = C && C.isBusy && C.isBusy(parentId) && (!C.runIdOf || !lead || C.runIdOf(parentId) === lead);
     if (parentBusy) return { cls: 'queued', live: 'starting', t: '' };
     return { cls: 'stopped', live: 'ended without a result', t: '' };
@@ -168,7 +170,7 @@ const Delegated = (() => {
   const loadingReceipts = new Set();
   const answering = new Set();
   const stopping = new Set();
-  const WORD = { recorded: 'result available', working: 'working', waiting: 'needs you', done: 'done', failed: 'failed', stopped: 'stopped', queued: 'starting', unknown: 'status unknown' };
+  const WORD = { recorded: 'delivered', working: 'working', waiting: 'needs you', done: 'done', failed: 'failed', stopped: 'stopped', queued: 'starting', unknown: 'status unknown' };
   function names(list) {
     const n = list.map(a => String(a.name || a.id));
     return n.length <= 3 ? (n.length > 1 ? n.slice(0, -1).join(', ') + ' and ' + n[n.length - 1] : n[0] || '')
@@ -181,7 +183,7 @@ const Delegated = (() => {
     const sum = [count('waiting') && count('waiting') + ' need' + (count('waiting') === 1 ? 's' : '') + ' you', count('working') && count('working') + ' working',
       count('queued') && count('queued') + ' starting', count('failed') && count('failed') + ' failed', count('stopped') && count('stopped') + ' stopped',
       count('unknown') && count('unknown') + ' status unknown',
-      count('recorded') && count('recorded') + ' result' + (count('recorded') === 1 ? '' : 's') + ' available',
+      count('recorded') && count('recorded') + ' delivered',
       count('done') && (count('done') === rows.length ? (rows.length > 1 ? 'all ' + rows.length + ' done' : 'done') : count('done') + ' done')]
       .filter(Boolean).join(' · ');
     // a row whose state the station cannot confirm right now (unknown) keeps an open card open: it was running a beat ago
@@ -205,8 +207,8 @@ const Delegated = (() => {
       const key = st.cls === 'waiting' && st.pend.tool === 'brief.ask'
         ? '<button type="button" class="dg-key primary" data-dg-question="' + esc(st.pend.promptId) + '">Answer</button>'
         : st.cls === 'waiting'
-        ? '<span class="dg-keys"><button type="button" class="dg-key primary" data-dg-consent="once" data-dg-ws="' + esc(id) + '"' + (answering.has(String(st.pend.promptId)) ? ' disabled' : '') + '>Approve</button>'
-          + '<button type="button" class="dg-key deny" data-dg-consent="deny" data-dg-ws="' + esc(id) + '"' + (answering.has(String(st.pend.promptId)) ? ' disabled' : '') + '>Deny</button></span>'
+        ? '<span class="dg-keys"><button type="button" class="dg-key primary" data-dg-consent="once" data-dg-ws="' + esc(id) + '" data-dg-prompt="' + esc(st.pend.promptId) + '"' + (answering.has(String(st.pend.promptId)) ? ' disabled' : '') + '>Approve</button>'
+          + '<button type="button" class="dg-key deny" data-dg-consent="deny" data-dg-ws="' + esc(id) + '" data-dg-prompt="' + esc(st.pend.promptId) + '"' + (answering.has(String(st.pend.promptId)) ? ' disabled' : '') + '>Deny</button></span>'
         : st.stop
           ? '<button type="button" class="dg-key deny" data-dg-stop="' + esc(st.worker.id) + '" data-tip="Stop ' + esc(who) + '"' + (stopping.has(st.worker.id) ? ' disabled' : '') + '>' + (stopping.has(st.worker.id) ? 'Stopping…' : 'Stop') + '</button>'
           : '<button type="button" class="dg-key" data-dg-see="' + esc(id) + '" aria-expanded="' + shown + '">' + (shown ? 'Hide work' : 'See work') + '</button>';
@@ -443,9 +445,11 @@ const Delegated = (() => {
     const r = findRow(wsId); if (!r) return;
     const p = askOf(r, Workstreams.activeId());
     if (!p || p.tool === 'brief.ask' || typeof Chat === 'undefined' || !Chat.answerConsent) return;
+    // the key answers the ask it was drawn for: if a different one is waiting now, show that one first, never answer it
+    if (key && key.dataset && key.dataset.dgPrompt && String(p.promptId) !== key.dataset.dgPrompt) { repaint(); return; }
     const promptId = String(p.promptId); if (answering.has(promptId)) return;
     answering.add(promptId); key.disabled = true; repaint();
-    Promise.resolve(Chat.answerConsent(p, Workstreams.get(Workstreams.activeId()), decision === 'deny' ? 'deny' : 'once'))
+    Promise.resolve(Chat.answerConsent(p, Workstreams.get(Workstreams.activeId()), decision === 'deny' ? 'deny' : 'once', 'row'))
       .catch(e => { key.disabled = false; if (typeof StationUI !== 'undefined' && StationUI.notify) StationUI.notify('Could not send that answer: ' + ((e && e.message) || e), 'warn'); })
       .then(() => { answering.delete(promptId); repaint(); });
   }
@@ -460,9 +464,8 @@ const Delegated = (() => {
       if (q) {
         e.preventDefault();
         // A question already has its real choices/free-text card in COMMS. Approve/Deny would resolve
-        // its waiter without an answer; this key only brings that exact card into view.
-        const log = $log(), card = log && Array.from(log.querySelectorAll('[data-clarify-prompt]')).find(n => n.dataset.clarifyPrompt === q.dataset.dgQuestion);
-        if (card) { if (typeof Chat !== 'undefined' && Chat.revealHistory) Chat.revealHistory(card); else card.scrollIntoView({ block: 'center' }); if (card.focus) card.focus({ preventScroll: true }); }
+        // its waiter without an answer; this key brings that exact card into view (drawing it again if needed).
+        if (typeof Chat !== 'undefined' && Chat.revealAsk) Chat.revealAsk(q.dataset.dgQuestion);
         return;
       }
       const c = t.closest('#chat-log [data-dg-consent]');

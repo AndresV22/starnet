@@ -1,0 +1,16 @@
+[
+  {
+    "id": "austinpowers",
+    "rotations": 8,
+    "walkDirections": 8,
+    "seatedDirections": 4,
+    "typingFrames": 4
+  },
+  {
+    "id": "drevil",
+    "rotations": 8,
+    "walkDirections": 8,
+    "seatedDirections": 4,
+    "typingFrames": 4
+  }
+]

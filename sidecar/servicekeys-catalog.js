@@ -20,6 +20,8 @@
      note     — anything that would otherwise surprise the user (e.g. OAuth, per-store hosts)
      retiredDocsUrls — docs links this row USED to carry. A saved key stores its docsUrl and that copy is what
                 the prompt reads, so a key saved before a vendor moved its docs heals to docsUrl on load.
+     apiNotes — the few facts an agent gets wrong without them, ONLY where verified against the vendor's own API
+                reference (with the date). Rides into the system prompt under the key when the run has web_request.
      apiVia   — set ONLY when the vendor publishes no API of its own; names the API the row actually uses, and
                 the card says "via <apiVia>" instead of claiming a first-party API.
 
@@ -41,7 +43,17 @@
       authHint: 'Authorization: Bearer ${PRINTIFY_API_KEY}',
       aliases: ['pod', 'print on demand', 'merch', 'marketplace products'],
       blurb: 'Print-on-demand: shops, blueprints, products, orders, publishing.',
-      note: 'Create a personal access token under Printify → Settings → API.' },
+      note: 'Create a personal access token under Printify → Settings → API.',
+      /* Verified 2026-10-12 against developers.printify.com, after a Publisher agent burned hours on a mockup endpoint
+         that does not exist (405), PUTs that sent part of the variant list, and ids copied from a truncated response. */
+      apiNotes: 'Mockups are read-only and have no endpoint of their own: they are the images[] (src, variant_ids, position, is_default) of GET /v1/shops/{shop_id}/products/{product_id}.json. '
+        + 'Upload artwork with POST /v1/uploads/images.json and {"file_name":"art.png","url":"https://..."} or {"file_name":"art.png","contents":"${file:path/art.png}"}; read it back with GET /v1/uploads/{image_id}.json. '
+        + 'Update with PUT /v1/shops/{shop_id}/products/{product_id}.json: a partial document is accepted, but if you send variants, EVERY variant of the product must be in the request. '
+        + 'A product is locked while publishing (is_locked); POST .../products/{product_id}/publishing_succeeded.json or publishing_failed.json unlocks it. '
+        + 'Variant catalog: GET /v1/catalog/blueprints/{blueprint_id}/print_providers/{print_provider_id}/variants.json (?show-out-of-stock=1 includes out-of-stock). '
+        + 'Ids are opaque strings (e.g. 5de6593ebff03b5313567d22): copy them exactly from a response, never retype or shorten them. '
+        + 'Limits: 600 requests/min, catalog 100/min, publishing 200 per 30 min. '
+        + 'Product documents are large: pass web_request select, e.g. ["id","variants[].id","variants[].is_enabled","variants[].price","print_areas","images[].src"].' },
 
     { id: 'printful', name: 'Printful', category: 'Commerce & Print-on-Demand', envVar: 'PRINTFUL_API_KEY',
       docsUrl: 'https://developers.printful.com/', apiBase: 'https://api.printful.com',
@@ -298,6 +310,12 @@
 
   function byId(id) { return PLATFORMS.find(p => p.id === String(id || '')) || null; }
 
+  // The verified API notes for a saved key: its row by env var, else by the docs link it was saved with.
+  function notesFor(envVar, docsUrl) {
+    const row = PLATFORMS.find(p => p.envVar === String(envVar || '')) || (docsUrl ? PLATFORMS.find(p => p.docsUrl === String(docsUrl).trim()) : null);
+    return row && row.apiNotes ? String(row.apiNotes) : '';
+  }
+
   // A saved key carrying a docs link its row has retired gets the current link; anything else is returned as is.
   function healDocsUrl(record) {
     if (!record || typeof record !== 'object' || Array.isArray(record)) return record;
@@ -306,5 +324,5 @@
     return Object.assign({}, record, { docsUrl: row.docsUrl });
   }
 
-  return { PLATFORMS, CATEGORY_ORDER, categories, grouped, byId, healDocsUrl };
+  return { PLATFORMS, CATEGORY_ORDER, categories, grouped, byId, healDocsUrl, notesFor };
 });

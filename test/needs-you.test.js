@@ -137,7 +137,7 @@ const NY = require('../frontend/app/needsyou.js');
   A.ok(/if \(railView !== 'sessions'\) \{ host\.hidden = true; return; \}\s*\n\s*if \(typeof NeedsYou !== 'undefined' && NeedsYou\.render\) NeedsYou\.render\(\);/.test(app), 'the rail renders it (SESSIONS view only)');
   A.ok(/NeedsYou\.render\(\);   \/\/ ages tick, failures arrive/.test(app), 'and the 1s rail heartbeat keeps it current');
   const ny = fs.readFileSync(path.join(__dirname, '..', 'frontend', 'app', 'needsyou.js'), 'utf8');
-  A.ok(/Chat\.answerConsent\(i\.p, Workstreams\.get\(i\.wsId\), kind\)/.test(ny), 'Approve / Deny answer through the approval card\'s own path');
+  A.ok(/Chat\.answerConsent\(i\.p, Workstreams\.get\(i\.wsId\), kind, 'needs-you'\)/.test(ny), 'Approve / Deny answer through the approval card\'s own path (and say they came from NEEDS YOU)');
   A.ok(/fetch\('\/api\/cron\/run', \{ method: 'POST'[^\n]*detach: true/.test(ny), 'Retry reruns the routine for real (detached)');
 }
 /* ---- the rail's 1s heartbeat: an age tick never rebuilds the list (focus survives), an answer in flight stays locked ---- */

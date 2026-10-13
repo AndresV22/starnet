@@ -168,6 +168,8 @@ const NeedsYou = (() => {
     if (!i || !has(App, 'openWorkstream')) return;
     if (i.kind === 'failed') dismiss(i.key);   // you went to look at it: it has done its job here
     App.openWorkstream(i.wsId);
+    // a question lands on its question card in one hop (not on the worker's row, which only points there)
+    if (i.kind === 'question' && i.p && typeof Chat !== 'undefined' && Chat.revealAsk && Chat.revealAsk(i.p.promptId)) return;
     if (i.workerWsId && typeof Delegated !== 'undefined' && Delegated.reveal) Delegated.reveal(i.workerWsId);
   }
   async function act(kind, key, btn) {
@@ -182,7 +184,8 @@ const NeedsYou = (() => {
       if (answering.has(promptId)) return;
       // render first, while the clicked key still holds focus (the rebuild moves it to the row), then lock the key in hand
       answering.add(promptId); render(); if (btn) btn.disabled = true;
-      try { await Chat.answerConsent(i.p, Workstreams.get(i.wsId), kind); }
+      // 'needs-you': the ask's card settles as answered here, never "from your phone"
+      try { await Chat.answerConsent(i.p, Workstreams.get(i.wsId), kind, 'needs-you'); }
       catch (e) { if (typeof StationUI !== 'undefined' && StationUI.notify) StationUI.notify('Could not send that answer: ' + ((e && e.message) || e), 'warn'); }
       finally { answering.delete(promptId); }
       render(); if (has(App, 'refreshRail')) App.refreshRail(); return;

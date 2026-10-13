@@ -51,7 +51,10 @@ async function provider() {
         + (still.length ? '\n\n' + still.join(' and ') + (still.length > 1 ? ' are' : ' is') + ' still working; I will report when they finish.' : '') });
     }
     else if (task && !system.includes('[ORCHESTRATION]')) {
-      if (!used.includes(task.tool[0])) call(task.tool[0], task.tool[1]);
+      // PREVIEW_TWO_ASKS=1 (with SEED_FULL_ACCESS=0): ROOK writes a file too, so two workers wait on approvals at once
+      // — answering one must leave the other waiting, with its bell and no second toast
+      const tool = process.env.PREVIEW_TWO_ASKS === '1' && task === TASKS[1] ? ['fs_write', { path: 'pricing-page.md', content: '# Pricing\n\nEntry, annual, local-first.\n' }] : task.tool;
+      if (!used.includes(tool[0])) call(tool[0], tool[1]);
       else { await sleep(task.ms); send({ content: task.out }); }
     }
     else if (system.includes('[ORCHESTRATION]')) {

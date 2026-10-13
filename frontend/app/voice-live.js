@@ -492,15 +492,22 @@ const VoiceLive = (() => {
       const id = String(pending.promptId || pending.tool || 'prompt');
       if (id !== spokenApprovalId) {
         spokenApprovalId = id;
-        if (pending.tool === 'brief.ask') { speakLocal(questionLine(pending, ws)); return; }
-        // who asks and what for, in the card's words (review app-shell-ui-08); offer only the answers the card has:
-        // a once-only ask has no Always (review app-shell-ui-03)
-        const ask = askParts(pending, ws);
-        speakLocal((ask.what ? (ask.who ? ask.who + ' needs approval to ' : 'Approval needed to ') + ask.what
-          : 'Approval needed: ' + (pending.tool || 'an action') + (pending.argsSummary ? ' — ' + String(pending.argsSummary).slice(0, 120) : '')) +
-          (ONCE_ONLY.has(pending.tool) ? '. Say approve or deny.' : '. Say approve, always allow, or deny.'));
+        speakLocal(spokenAsk(pending, ws));
       }
     } else spokenApprovalId = null;
+  }
+  /* What a waiting ask says out loud (2026-10-13 review: a question was read as "Approval needed: brief.ask — {raw
+     JSON}. Say approve…" and then "approve" was refused for it). Names who asks — a delegated worker, not the lead —
+     and what for, in the card's own words without its fine print (review app-shell-ui-08). A question is read as the
+     question (questionLine). Offers only the answers the card has: a once-only ask has no Always (review
+     app-shell-ui-03), and a worker's request is once-or-deny, exactly like its row (a standing grant is the lead's to
+     give, from its own card). */
+  function spokenAsk(p, ws) {
+    if (p.tool === 'brief.ask') return questionLine(p, ws);
+    const ask = askParts(p, ws);
+    return (ask.what ? (ask.who ? ask.who + ' needs approval to ' : 'Approval needed to ') + ask.what
+      : 'Approval needed: ' + (p.tool || 'an action') + (p.argsSummary ? ' — ' + String(p.argsSummary).slice(0, 120) : '')) +
+      (ONCE_ONLY.has(p.tool) || p.workerAgentId ? '. Say approve or deny.' : '. Say approve, always allow, or deny.');
   }
   // a brief.ask is a question, not a grade: say the question and only the answers voice can give — the card's one-tap
   // options, which chipCommand presses — never approve/always/deny (approvalCommand leaves brief.ask alone)
@@ -556,9 +563,8 @@ const VoiceLive = (() => {
   }
 
   const approvalSubmissions = new Set();
-  // asks the station answers fresh every time: the cards with no Always key (chat.js permissionRow — widening the leash,
-  // the login window) and the plugin install (freshConsent: the station grants that one call whatever grade arrives).
-  // A spoken "always allow" there approves this one call and says so, never a standing grant (review app-shell-ui-02/03)
+  // asks the station grants one call at a time whatever grade arrives (no Always key: the leash, the login window; the
+  // plugin install): a spoken "always allow" approves this one call and says so (review app-shell-ui-02/03)
   const ONCE_ONLY = new Set(['station.power', 'browser.login', 'browser.login.done', 'plugin.submit']);
   // which ask a spoken line is about, in the card's own words (Chat.consentPhrase): who asks (the worker, else the lead) and
   // what for, without the card's fine print. what = '' when there is no phrase, and the line keeps its plain form
@@ -580,6 +586,10 @@ const VoiceLive = (() => {
     if (!decision) return false;
     const onceOnly = decision === 'always' && ONCE_ONLY.has(pending.tool);
     if (onceOnly) decision = 'once';
+    if (decision === 'always' && pending.workerAgentId) {   // the worker's row grants this request only — so does voice
+      speakLocal('A delegated worker\'s request can only be approved once or denied. Say approve, or deny.');
+      return true;
+    }
     if (typeof Chat === 'undefined' || !Chat.answerConsent) {
       speakLocal('I could not submit that answer. Please use the approval card.');
       return true;
@@ -592,7 +602,7 @@ const VoiceLive = (() => {
     // with several asks open, the outcome names the one it answered (review app-shell-ui-08)
     const ask = askParts(pending, ws), about = ask.what ? ': ' + (ask.who ? ask.who + ' to ' : '') + ask.what + '.' : '.';
     // Every surface uses the same confirmed, exact-prompt path. A delegated ask may have no ordinary card.
-    Promise.resolve().then(() => Chat.answerConsent(pending, ws, decision, 'by voice')).then(result => {
+    Promise.resolve().then(() => Chat.answerConsent(pending, ws, decision, 'voice')).then(result => {
       if (!ownsFeedback()) return;
       const applied = result && result.appliedDecision;
       if (applied === 'deny') speakLocal('Denied' + about);
