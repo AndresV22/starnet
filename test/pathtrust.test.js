@@ -189,6 +189,40 @@ function scriptPrompt(decision) {
     if (linked) await rejects(h.pt.guard(link, { scope: 'read', surface: 'autonomous', fullAccess: true }), 'credential floor is re-proven on the symlink\'s real target');
   }
 
+  // ---- security-storage-08: the browser-profile rule matches the browsers' real profile folders, not any folder
+  //      that happens to be NAMED chromium or vivaldi (a Chromium checkout is an ordinary project). ----
+  {
+    const home = path.join(ROOT, 'home-browsers');
+    const profiles = [
+      [path.join('AppData', 'Local', 'Chromium', 'User Data', 'Default'), 'Cookies'],
+      [path.join('AppData', 'Local', 'Google', 'Chrome SxS', 'User Data', 'Default'), 'Login Data'],
+      [path.join('AppData', 'Local', 'Microsoft', 'Edge Beta', 'User Data', 'Default'), 'Cookies'],
+      [path.join('AppData', 'Local', 'BraveSoftware', 'Brave-Browser', 'User Data', 'Default'), 'Cookies'],
+      [path.join('AppData', 'Local', 'Vivaldi', 'User Data', 'Default'), 'Login Data'],
+      [path.join('AppData', 'Roaming', 'Opera Software', 'Opera Stable'), 'Cookies'],
+      [path.join('AppData', 'Roaming', 'Mozilla', 'Firefox', 'Profiles', 'x.default'), 'logins.json'],
+      [path.join('.config', 'chromium', 'Default'), 'Cookies'], [path.join('.config', 'vivaldi', 'Default'), 'Cookies'],
+      [path.join('.config', 'google-chrome-beta', 'Default'), 'Cookies'], [path.join('.mozilla', 'firefox', 'x.default'), 'logins.json'],
+      [path.join('snap', 'chromium', 'common', 'chromium', 'Default'), 'Cookies'],
+      [path.join('.var', 'app', 'com.google.Chrome', 'config', 'google-chrome', 'Default'), 'Cookies'],
+      [path.join('Library', 'Application Support', 'Chromium', 'Default'), 'Cookies'],
+      [path.join('Library', 'Application Support', 'Vivaldi', 'Default'), 'Cookies'],
+      [path.join('Library', 'Application Support', 'Google', 'Chrome', 'Default'), 'Cookies']];
+    const projects = [[path.join('chromium', 'src', 'base'), 'a.cc'], [path.join('code', 'vivaldi'), 'readme.md'],
+      [path.join('code', 'google', 'chrome-extension'), 'manifest.json']];
+    for (const [dir, file] of profiles.concat(projects)) { await fsp.mkdir(path.join(home, dir), { recursive: true }); await fsp.writeFile(path.join(home, dir, file), 'x'); }
+    const h = harness({ roots: [home] });
+    for (const [dir, file] of profiles) {
+      await rejects(h.pt.guard(path.join(home, dir, file), { scope: 'read', surface: 'autonomous', fullAccess: true }),
+        'credential floor: browser profile ' + dir + ' is denied to an unattended Full Access run');
+    }
+    for (const [dir, file] of projects) {
+      let err = '';
+      try { await h.pt.guard(path.join(home, dir, file), { scope: 'read', surface: 'autonomous', fullAccess: true }); } catch (e) { err = e.message; }
+      A.eq(err, '', 'a project folder named like a browser (' + dir + ') is not a browser profile');
+    }
+  }
+
   // ---- Full Power: the whole local computer, including protected paths, with no project card ----
   {
     const h = harness();

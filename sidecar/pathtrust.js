@@ -110,7 +110,10 @@
       // gcloud and the GitHub CLI keep their logins under %APPDATA% on Windows, ~/.config elsewhere
       [/(^|\/)\.docker\/config\.json$|(^|\/)\.config\/(gcloud|gh)(\/|$)|(^|\/)appdata\/roaming\/(gcloud|github cli)(\/|$)|(^|\/)\.claude\/\.credentials\.json$/, 'cloud and developer CLI logins'],
       [/(^|\/)microsoft\/(credentials|protect|vault)(\/|$)|(^|\/)library\/keychains(\/|$)|(^|\/)\.local\/share\/keyrings(\/|$)/, 'the operating system credential store'],
-      [/(^|\/)(google\/chrome|chromium|microsoft\/edge|bravesoftware\/brave-browser|vivaldi|opera software)(\/|\s)?(user data|beta|dev)?(\/|$)|(^|\/)(mozilla\/firefox|\.mozilla\/firefox|\.config\/(google-chrome|chromium|brave-?software))(\/|$)|(^|\/)library\/(cookies|application support\/(google\/chrome|firefox|microsoft edge|bravesoftware))(\/|$)/, 'browser profiles (cookies and saved passwords)']
+      // browser profiles are matched under their real parent folders (AppData, ~/.config and its snap/flatpak
+      // twins, ~/Library) — a project folder merely NAMED chromium or vivaldi is an ordinary project. The [^\/]*
+      // suffix keeps the Beta/Dev/SxS/Stable siblings ("Chrome SxS", "Edge Beta", "google-chrome-beta").
+      [/(^|\/)appdata\/(local|roaming)\/(google\/chrome|chromium|microsoft\/edge|bravesoftware\/brave-browser|vivaldi|opera software|mozilla\/firefox)[^\/]*(\/|$)|(^|\/)\.mozilla\/firefox(\/|$)|(^|\/)(\.config|\.var\/app\/[^\/]+\/config|snap\/chromium\/common)\/(google-chrome[^\/]*|chromium|vivaldi[^\/]*|brave-?software|opera[^\/]*|microsoft-edge[^\/]*)(\/|$)|(^|\/)library\/(cookies|application support\/(google\/chrome[^\/]*|chromium|vivaldi|firefox|microsoft edge[^\/]*|bravesoftware|com\.operasoftware\.opera[^\/]*))(\/|$)/, 'browser profiles (cookies and saved passwords)']
     ];
     function credentialFloor(p) {
       const s = String(p || '').replace(/\\/g, '/').toLowerCase();
