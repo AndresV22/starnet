@@ -620,7 +620,19 @@ const { note: failNote } = require('../../failopen');
               const newText = hunkNewText(hunk);
               const res = fuzzyFindAndReplace(current, oldText, newText);
               // name the hunk: in a multi-hunk update the model must know WHICH one to re-copy from the file
-              if (!res.ok) throw new Error('UPDATE ' + op.path + ' (hunk ' + (h + 1) + '/' + op.hunks.length + '): ' + res.error);
+              if (!res.ok) {
+                const where = 'UPDATE ' + op.path + ' (hunk ' + (h + 1) + '/' + op.hunks.length + '): ';
+                // Hunks match the text as earlier hunks left it, not the file on disk. When this hunk
+                // matches the disk file but not that text, "fs.read and copy verbatim" would repeat
+                // the same refusal: name the earlier hunk as the cause instead.
+                const staleAfterEarlierHunk = /^Could not find a match/.test(res.error)
+                  && typeof plan.initialContent === 'string' && current !== plan.initialContent
+                  && fuzzyFindAndReplace(plan.initialContent, oldText, newText).ok;
+                if (staleAfterEarlierHunk) {
+                  throw new Error(where + 'Could not find a match for patch hunk: an earlier hunk in this patch already changed these lines. Write this hunk against the text as the earlier hunks leave it, or merge the overlapping hunks into one.');
+                }
+                throw new Error(where + res.error);
+              }
               current = res.content;
             }
             assertSize(op.path, current);

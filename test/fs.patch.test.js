@@ -87,6 +87,16 @@ function patch(body) {
     A.ok(why && /line for line/.test(why.message) && /fs\.read the file and copy those lines verbatim/.test(why.message), 'refusal says how to fix the hunk - ' + (why && why.message));
     const after = await readTool.run({ path: 'rollback.txt' }, ctx);
     A.eq(after.content, 'one\ntwo\nthree', 'failed patch leaves file byte-identical');
+    // Hunk 2 copies the file on disk word for word, but hunk 1 already changed its context line.
+    // "fs.read and copy verbatim" would repeat the same refusal: the refusal must say the
+    // earlier hunk is the cause.
+    const stale = await rejectedError(patchTool.run({ patch: patch([
+      '*** Update File: rollback.txt', '@@ h1 @@', '-one', '+ONE', '@@ h2 @@', ' one', '-two', '+TWO'
+    ].join('\n')) }, ctx));
+    A.ok(stale && /^UPDATE rollback\.txt \(hunk 2\/2\): Could not find a match/.test(stale.message), 'overlapping hunk refusal names the hunk - ' + (stale && stale.message));
+    A.ok(stale && /earlier hunk in this patch already changed/.test(stale.message), 'overlapping hunk refusal names the earlier hunk as the cause - ' + (stale && stale.message));
+    A.ok(stale && !/copy those lines verbatim/.test(stale.message), 'overlapping hunk refusal does not send the model back to the unchanged file - ' + (stale && stale.message));
+    A.eq((await readTool.run({ path: 'rollback.txt' }, ctx)).content, 'one\ntwo\nthree', 'overlapping hunk refusal leaves file byte-identical');
   }
 
   // ---- jail: escaped path rejected before any in-jail file is touched ----
