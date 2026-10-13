@@ -246,15 +246,30 @@ function twoUnnamed() {
   vm.runInContext(grab('  function lineWordOf(ip) {') + '\n' + grab('  function linkNames(links) {'), ctx);
   A.eq(ctx.linkNames(links), s7.lineName(I), 'the ghost says WILL CONNECT TO ' + s7.lineName(I) + ' — never LINE null');
   A.eq(ctx.lineWordOf(I), s7.lineName(I), '…lineWordOf takes a bare INBOX id too');
-  // FIRST SHIP: the toast names the line by lineName (its first NAMED INBOX), never the first INBOX in geo order or a raw key
+  // FIRST SHIP: the toast names the line by lineName (its first NAMED INBOX), never the first INBOX in geo order or a raw key.
+  // (conveyor-final merge, decision d: FIRST SHIP comes from the executor's shipment receipt — world.js noteFirstShip calls
+  // build.js noteLineShipped(outboxId, lineId) — and the old crate-animation noteLineDelivered(wtx, wty) is gone on purpose)
   const s8 = fresh(), J1 = add(s8, 'intake', 32, 4), J2 = add(s8, 'intake', 32, 14), JB = add(s8, 'bay', 44, 8), JO = add(s8, 'outbox', 58, 8);
   A.ok(s8.connectBelt(J1, JB).ok && s8.connectBelt(J2, JB).ok && s8.connectBelt(JB, JO).ok && s8.setPropLabel(J2, 'Second door').ok, 'a line whose SECOND INBOX is named');
-  const fin = {}, nctx = vm.createContext({ station: null, opts: { getStation: () => s8 }, Pipeline: P, finRead: () => fin, finMark: (st, k) => { fin[k] = { done: true }; }, running: false, renderFinCard() {} });
-  vm.runInContext(grab('  function noteLineDelivered(wtx, wty) {'), nctx);
-  const geo = s8.projectGeometry(), c = P.lineComponents(geo)[0], tk = Object.keys(c.tiles)[0].split(',').map(Number);
-  const rec = nctx.noteLineDelivered(tk[0] + geo.origin.tx, tk[1] + geo.origin.ty);
+  const shipSrc = grab('  function noteLineShipped(outboxId, lineId) {');
+  A.ok(shipSrc.length > 200 && shipSrc.length < 4000, 'sliced noteLineShipped (' + shipSrc.length + ' chars)');
+  const fin = {}, nctx = vm.createContext({ station: null, opts: { getStation: () => s8 }, Pipeline: P, finRead: () => fin, finMark: (st, k, f) => { fin[k] = Object.assign({}, fin[k], { [f]: 1 }); }, running: false, renderFinCard() {} });
+  vm.runInContext(shipSrc, nctx);
+  const geo = s8.projectGeometry(), c = P.lineComponents(geo)[0];
+  A.ok(c && c.outboxes.includes(JO) && c.intakes.includes(J1) && c.intakes.includes(J2), 'rig: one line, two INBOXes, its OUTBOX');
+  A.eq(s8.lineName(c.key), 'LINE SECOND DOOR', 'rig: the floor calls the line by its first NAMED INBOX');
+  A.eq(nctx.noteLineShipped(JO, 'p-elsewhere'), null, 'a receipt whose OUTBOX now ends ANOTHER line claims nothing');
+  A.eq(nctx.noteLineShipped('p-gone', c.key), null, 'a receipt whose OUTBOX is no longer on the floor claims nothing');
+  const rec = nctx.noteLineShipped(JO, c.key);
   A.ok(rec && rec.first && rec.name === 'LINE SECOND DOOR', 'FIRST SHIP · LINE SECOND DOOR (it said LINE <the first INBOX\'s letter>) — ' + JSON.stringify(rec && rec.name));
-  A.ok(!/'LINE '\s*\+\s*c\.key/.test(grab('  function noteLineDelivered(wtx, wty) {')), '…and never a raw line key');
+  A.ok(rec && rec.name === s8.lineName(c.key), '…the very word the floor shows (station.lineName), never the first INBOX in geo order (J1 is unnamed)');
+  A.ok(fin[c.key] && fin[c.key].shipped === 1, 'the line\'s FIRST SHIP is spent in the finish register');
+  A.eq(nctx.noteLineShipped(JO, c.key), null, 'a second receipt of the same line: no second FIRST SHIP');
+  A.ok(!/'LINE '\s*\+\s*c\.key/.test(shipSrc), '…and never a raw line key');
+  A.ok(!/function noteLineDelivered\(/.test(build), 'the crate-animation FIRST SHIP (noteLineDelivered) is gone — a crate reaching the OUTBOX is no shipment');
+  const world = src('world.js'), fsAt = world.indexOf('  function noteFirstShip(p) {'), firstShip = fsAt < 0 ? '' : world.slice(fsAt, world.indexOf('\n  }', fsAt) + 4);
+  A.ok(/Build\.noteLineShipped\(p\.outboxId, id\)/.test(firstShip) && /p\.box !== 'line-output'/.test(firstShip), 'world.js asks noteLineShipped only from the executor\'s line-output receipt (its OUTBOX, its line)');
+  A.ok(/'FIRST SHIP · ' \+ \(lineNameOf\(id\) \|\| receipt\.name\)/.test(firstShip), 'the toast says the floor\'s name for the line');
 }
 {
   // (5) a job's FROM / SENT ON TO end ({ line, jobId, name } — no lineId) is named by the floor: Workflows window, DELIVERABLES, the crate

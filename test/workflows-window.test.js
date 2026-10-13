@@ -278,8 +278,13 @@ const tick = () => new Promise(r => setTimeout(r, 15));
     const key = (P.lineComponents(st.projectGeometry()).find(c => c.intakes.includes(iid)) || {}).key, letter = st.lineLetter(iid);
     A.ok(key && /^[A-Z]+$/.test(letter) && !st.propById(iid).label, 'fixture: the line has no name, only its letter');
     A.eq(WW._lineWord({ line: key, jobId: 'j1', name: '' }), 'LINE ' + letter, 'an unnamed sending line reads LINE ' + letter + ', as its floor plate does — never "another line"');
-    A.eq(WW._lineWord({ line: key, jobId: 'j1', name: 'Research' }), 'LINE RESEARCH', 'a recorded name still wins');
-    A.eq(WW._lineWord({ line: 'p-gone', jobId: 'j1', name: '' }), 'another line', 'a line no longer on the floor is "another line"');
+    // ONE line-naming rule (conveyor-final merge, decision a — the floor lane's): a line still on the floor is named by the floor's
+    // CURRENT name (worldmodel lineName); the name a job recorded is used only once that line is gone from the floor
+    A.eq(WW._lineWord({ line: key, jobId: 'j1', name: 'Research' }), 'LINE ' + letter, 'a line still on the floor reads its CURRENT floor name (LINE ' + letter + '), never the stale name the job recorded');
+    A.eq(WW._lineWord({ line: 'p-gone', jobId: 'j1', name: 'Research' }), 'LINE RESEARCH', 'a line no longer on the floor reads the name its job recorded');
+    A.eq(WW._lineWord({ line: 'p-gone', jobId: 'j1', name: '' }), 'another line', 'a line no longer on the floor, with no recorded name, is "another line"');
+    A.ok(st.setPropLabel(iid, 'Digest').ok === true, 'fixture: the line is renamed on the floor');
+    A.eq(WW._lineWord({ line: key, jobId: 'j1', name: 'Research' }), 'LINE DIGEST', 'a renamed line reads its new floor name, never the name the job recorded');
   }
 
   A.report('workflows-window.test');
