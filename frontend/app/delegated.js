@@ -29,7 +29,8 @@ const Delegated = (() => {
     const list = has(App, 'agents') ? App.agents() : [];
     return list.find(a => a.id === id) || { id, name: (has(App, 'agentName') && App.agentName(id)) || id };
   }
-  /* one dispatch = the threads one lead run filed; rows keep the order the threads were made in */
+  /* one card = the threads one lead run filed: its dispatch calls in the order they were made (the overseer's `call`,
+     the requestId's middle segment), each call's workers in the order it asked for them */
   function batches(parentId) {
     if (typeof Workstreams === 'undefined' || !parentId) return [];
     const s = snap();
@@ -44,10 +45,16 @@ const Delegated = (() => {
       const t = threads.get(k.id);
       const lead = (t && t.leadRunId) || (worker && worker.parentRunId) || ('at:' + Math.floor((+k.createdAt || 0) / 60000));
       if (!groups.has(lead)) groups.set(lead, { lead, at: +k.createdAt || 0, rows: [] });
-      groups.get(lead).rows.push({ ws: k, worker, slot: (t && Number(t.slot)) || 0 });
+      groups.get(lead).rows.push({ ws: k, worker, slot: (t && Number(t.slot)) || 0, call: (t && t.call) || '' });
     }
-    // a dispatch's workers in the order the lead asked for them (threads made in the same instant tie on createdAt)
-    groups.forEach(g => g.rows.sort((x, y) => x.slot - y.slot));
+    // a lead run's dispatch calls in the order they were made (rows are in createdAt order here), and each call's
+    // workers in the order the lead asked for them (threads made in the same instant tie on createdAt; slots restart
+    // at 0 for every call, so sorting by slot alone would interleave two calls)
+    groups.forEach(g => {
+      const first = new Map();
+      g.rows.forEach((r, i) => { if (!first.has(r.call)) first.set(r.call, i); });
+      g.rows.sort((x, y) => (first.get(x.call) - first.get(y.call)) || (x.slot - y.slot));
+    });
     return Array.from(groups.values()).sort((a, b) => a.at - b.at);
   }
 
@@ -137,7 +144,7 @@ const Delegated = (() => {
     return (all || []).find(p => p && ((p.workerStreamId && p.workerStreamId === r.ws.id) || (p.workerRunId && runIds.has(String(p.workerRunId))))) || null;
   }
 
-  /* ONE CARD PER DISPATCH under the ask: "Delegated to MIRA, ROOK and VEX · 2 working · 1 done". While anything runs (or
+  /* ONE CARD PER LEAD RUN under the ask (its dispatch calls in order): "Delegated to MIRA, ROOK and VEX · 2 working · 1 done". While anything runs (or
      waits on you) its rows show (2026-10-10 blind test: who-has-what and Stop without a click); once all settle it
      folds to that one line. The Commander's own click wins either way while the page lives. */
   const opened = new Set();   // batch keys the Commander expanded

@@ -238,6 +238,24 @@ const roster = new Map([['researcher', { system: 'R', name: 'MIRA' }], ['writer'
   delete global.DeskScreen;
 }
 
+/* ---- 3b. two dispatch calls in one lead run: each call's workers in the order that call asked for them ---- */
+{
+  const D = require('../frontend/app/delegated.js');
+  const kid = (id, agentId, createdAt) => ({ id, agentId, title: id, worker: true, parentStreamId: 'home', createdAt, runIds: [] });
+  // MIRA + ROOK in the first call, VEX + KAI in a retry call: same lead run, slots restart at 0 for the second call
+  global.Workstreams = { activeId: () => 'home', list: () => [kid('t_mira', 'researcher', 1000), kid('t_rook', 'designer', 1000), kid('t_vex', 'writer', 9000), kid('t_kai', 'coder', 9000)] };
+  global.Overseer = { snapshot: () => ({ workers: [], threads: [
+    { id: 't_mira', leadRunId: 'lead1', call: 'c1', slot: 0 }, { id: 't_rook', leadRunId: 'lead1', call: 'c1', slot: 1 },
+    { id: 't_vex', leadRunId: 'lead1', call: 'c2', slot: 0 }, { id: 't_kai', leadRunId: 'lead1', call: 'c2', slot: 1 }
+  ] }) };
+  const groups = D.batches('home');
+  A.eq(groups.length + '|' + groups[0].rows.map(r => r.ws.id).join(','), '1|t_mira,t_rook,t_vex,t_kai', 'one card per lead run, its calls in order, each call\'s workers by slot');
+  global.Workstreams.list = () => [kid('t_rook', 'designer', 1000), kid('t_mira', 'researcher', 1000)];
+  global.Overseer.snapshot = () => ({ workers: [], threads: [{ id: 't_mira', leadRunId: 'lead1', call: 'c1', slot: 0 }, { id: 't_rook', leadRunId: 'lead1', call: 'c1', slot: 1 }] });
+  A.eq(D.batches('home')[0].rows.map(r => r.ws.id).join(','), 't_mira,t_rook', 'threads made in the same instant still follow the order the lead asked');
+  delete global.Workstreams; delete global.Overseer;
+}
+
 /* ---- 4. wiring ---- */
 {
   const src = f => fs.readFileSync(path.join(__dirname, '..', f), 'utf8');
