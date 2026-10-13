@@ -200,6 +200,19 @@ async function main() {
     assert.equal(sized.observation.reason, 'done', 'the sized cap lets the premium run finish');
     assert.ok(Math.abs(sized.result.usd - 0.20) < 1e-9 && sized.result.accountingIncomplete === false, 'both calls are booked as known spend');
   }
+  // The runner owns the skill-eval- namespace: a host prefix that already carries it is not doubled in the run ids
+  // SPENDING LIMITS and the ledger show (skills-eval-20).
+  {
+    const ids = [];
+    const provider = { async *stream() { yield text; yield usage; yield done; }, contextLimit: () => 8000 };
+    for (const runIdPrefix of ['skill-eval-3f2a', '3f2a']) {
+      const runner = makeAgentLoopCaseRunner({ provider, model: 'scripted/accounting', runIdPrefix, clock: { now: () => 1 },
+        cost: makeCostEngine({ priceOf: () => ({ in: 1, out: 1 }) }), limits: { maxIters: 2, grace: false, continueGuard: false, emptyRetry: false },
+        beforeRun: async row => { ids.push(row.runId); return true; } });
+      await runner({ task, skill: null, phase: 'before' });
+    }
+    assert.ok(ids.every(id => /^skill-eval-3f2a-1-before-[a-f0-9]{12}$/.test(id)), 'one skill-eval- namespace per run id: ' + ids.join(', '));
+  }
   console.log('skill.evaluation.accounting: unmetered $0, metered unpriced, real loop usage, empty usage, partial throw, cancellation, retry uncertainty and billed length stop PASS');
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });

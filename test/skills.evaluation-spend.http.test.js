@@ -107,6 +107,7 @@ const server = http.createServer((req, res) => {
     assert.equal(unknown.unsettled.length, 1);
     const unsettled = unknown.unsettled[0];
     assert.match(unsettled.runId, /^skill-eval-/);
+    assert.doesNotMatch(unsettled.runId, /^skill-eval-skill-eval-/, 'the receipt id carries one skill-eval- namespace');
     assert.equal(unsettled.agentId, 'agent');
     assert.equal(unsettled.provider, 'openrouter');
     assert.equal(unsettled.model, MODEL);

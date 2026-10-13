@@ -59,7 +59,8 @@ function makeAgentLoopCaseRunner(options) {
   if (!o.provider || typeof o.provider.stream !== 'function') throw new Error('evaluation provider required');
   const loop = o.runAgentLoop || defaultLoop;
   if (typeof o.runIdPrefix !== 'string' || !/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,79}$/.test(o.runIdPrefix)) throw new Error('evaluation requires a bounded host runIdPrefix');
-  const runIdPrefix = o.runIdPrefix;
+  // The runner owns the skill-eval- namespace below; a host prefix that already carries it is not doubled.
+  const runIdPrefix = /^skill-eval-[a-zA-Z0-9]/.test(o.runIdPrefix) ? o.runIdPrefix.slice('skill-eval-'.length) : o.runIdPrefix;
   let runSerial = 0;
   const clock = o.clock || { now: () => 0 };
   const tools = [
