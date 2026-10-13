@@ -1748,23 +1748,29 @@ const World = (() => {
   /* STRAINED DETAIL (2026-10-10, "1 frame per hour — can't navigate"; see SPRITES.setStrained). The budget above keeps
      the UI alive but cannot make a slow draw fast: a weak machine sat at 5 draws/s and every pan landed 5 times a second.
      While the floor's draw would hold the budget under ~25 fps the crew drops its extra passes (walk in-between, pose
-     dissolve, local light). Leaving needs proof, not a prediction: every STRAIN_PROBE_DRAWS strained draws, one draw is
-     made at full detail and timed, and full detail returns only after two probes in a row fit comfortably
-     (STRAIN_EXIT_MS, well under the entry line, so a borderline station can't flap). A healthy station never enters. */
-  const STRAIN_ENTER_MS = PACE_FOCUS_MS * BUDGET_SHARE * 1.2, STRAIN_EXIT_MS = STRAIN_ENTER_MS * 0.7;
-  const STRAIN_SETTLE_DRAWS = 10, STRAIN_PROBE_DRAWS = 45;   // settle: a boot-time false start is harmless (the probes undo it); a slow one is 15 s of slideshow at 2 draws/s
-  let strained = false, strainProbe = false, strainProbeMs = 0, strainPasses = 0, strainDraws = 0, strainForce = null;
+     dissolve, local light). Entering needs a slow floor, not one hitch: the budget over STRAIN_ENTER_MS AND 3 of the last
+     5 draws over it (a GC pause, a page-in after a restore or a props-only rederive holds a 22 ms floor's EMA over the
+     line ~13 draws, yet it is one slow draw). Leaving needs proof, not a prediction: every STRAIN_PROBE_DRAWS strained
+     draws, one draw is made at full detail and timed, and full detail returns after STRAIN_EXIT_PROBES probes in a row
+     come in under STRAIN_EXIT_MS. That line sits 10% under the entry line: a 22-25 ms floor (fine at 30 fps) that a long
+     stall pushed in must earn its way back (under the old 70% line it stayed strained for the session); three probes in
+     a row and the 3-of-5 entry keep a borderline floor from flapping. A healthy station never enters. */
+  const STRAIN_ENTER_MS = PACE_FOCUS_MS * BUDGET_SHARE * 1.2, STRAIN_EXIT_MS = STRAIN_ENTER_MS * 0.9;
+  const STRAIN_SETTLE_DRAWS = 10, STRAIN_PROBE_DRAWS = 45, STRAIN_EXIT_PROBES = 3;   // settle: a boot-time false start is harmless (the probes undo it); a slow one is 15 s of slideshow at 2 draws/s
+  let strained = false, strainProbe = false, strainProbeMs = 0, strainPasses = 0, strainDraws = 0, strainSlow = 0, strainForce = null;
   function noteStrain(ms) {
     strainDraws++;
     if (strainForce != null) { strained = strainForce; strainProbe = false; return; }
     if (!strained) {
-      if (strainDraws > STRAIN_SETTLE_DRAWS && drawCostMs > STRAIN_ENTER_MS) { strained = true; strainDraws = 0; strainPasses = 0; }
+      strainSlow = ((strainSlow << 1) | (ms > STRAIN_ENTER_MS ? 1 : 0)) & 31;   // the last 5 draws, one bit each: over the line
+      let slow = 0; for (let b = strainSlow; b; b &= b - 1) slow++;
+      if (strainDraws > STRAIN_SETTLE_DRAWS && drawCostMs > STRAIN_ENTER_MS && slow >= 3) { strained = true; strainDraws = 0; strainPasses = 0; strainSlow = 0; }
       return;
     }
     if (strainProbe) {   // the draw that just finished was the full-detail probe
       strainProbe = false; strainProbeMs = ms;
       strainPasses = ms < STRAIN_EXIT_MS ? strainPasses + 1 : 0;
-      if (strainPasses >= 2) { strained = false; strainDraws = 0; }
+      if (strainPasses >= STRAIN_EXIT_PROBES) { strained = false; strainDraws = 0; }
       return;
     }
     if (strainDraws % STRAIN_PROBE_DRAWS === 0) strainProbe = true;   // the next draw measures full detail again

@@ -41,7 +41,7 @@ const sandbox = {
 vm.createContext(sandbox);
 vm.runInContext('let frameCapMs = 0, lastDrawnAt = 0, running = true, raf = 0; function frame() {}\n' + world.slice(from, to) +
   '\nthis.api = { paceMs, simSlices, easeK, scheduleFrame, paceWake, paceEngage, noteDrawCost, budgetMs, resetBudget: () => { drawCostMs = 0; },' +
-  ' noteStrain, strain: () => ({ strained, strainProbe, strainDraws }), strainConsts: { STRAIN_ENTER_MS, STRAIN_EXIT_MS, STRAIN_SETTLE_DRAWS, STRAIN_PROBE_DRAWS },' +
+  ' noteStrain, strain: () => ({ strained, strainProbe, strainDraws }), strainConsts: { STRAIN_ENTER_MS, STRAIN_EXIT_MS, STRAIN_SETTLE_DRAWS, STRAIN_PROBE_DRAWS, STRAIN_EXIT_PROBES },' +
   ' set: o => { if ("cap" in o) frameCapMs = o.cap; if ("low" in o) paceLowRate = o.low; if ("drawn" in o) lastDrawnAt = o.drawn; if ("raf" in o) raf = o.raf; },' +
   ' timer: () => paceTimer, consts: { PACE_FOCUS_MS, PACE_BLUR_MS, SIM_SLICE_MS, SIM_CATCHUP_MAX_MS, BUDGET_SHARE, BUDGET_MIN_FPS } };', sandbox);
 const W = sandbox.api;
@@ -166,10 +166,12 @@ A.ok(/armFlickerClock\(\); armMotionRest\(\);/.test(ui), 'applySettings arms bot
   const probes = run(S.STRAIN_PROBE_DRAWS * 6, 120, 50);
   A.ok(probes >= 5 && probes <= 7, 'while strained, one draw in STRAIN_PROBE_DRAWS is a timed full-detail probe');
   A.eq(W.strain().strained, true, '...and a probe that is still too slow keeps it strained (no flapping on the cheap draws)');
-  run(S.STRAIN_PROBE_DRAWS * 4, 25, 12);   // freed up, but a full draw (25 ms) is still over the comfortable exit line
+  A.ok(S.STRAIN_EXIT_MS > 22 && S.STRAIN_EXIT_MS < S.STRAIN_ENTER_MS * 0.95, 'the exit line lets a 22 ms floor back but stays clear of the entry line');
+  run(S.STRAIN_PROBE_DRAWS * 4, 26.5, 12);   // freed up, but a full draw (26.5 ms) is still within 10% of the entry line
   A.eq(W.strain().strained, true, 'a full draw just under the entry line is not proof enough: it stays strained');
-  run(S.STRAIN_PROBE_DRAWS * 3, 12, 8);    // the machine freed up (a scan finished, a window closed)
-  A.eq(W.strain().strained, false, 'two full-detail probes that fit comfortably bring full detail back');
+  A.ok(S.STRAIN_EXIT_PROBES >= 2, 'one lucky probe is never enough to leave');
+  run(S.STRAIN_PROBE_DRAWS * (S.STRAIN_EXIT_PROBES + 1), 12, 8);    // the machine freed up (a scan finished, a window closed)
+  A.eq(W.strain().strained, false, 'full-detail probes in a row that fit comfortably bring full detail back');
   W.resetBudget(); run(200, 14, 14);
   A.eq(W.strain().strained, false, '...and it stays back');
 }
@@ -179,14 +181,15 @@ A.ok(/armFlickerClock\(\); armMotionRest\(\);/.test(ui), 'applySettings arms bot
 // EMA at the 250 ms cap, STRAINED DETAIL switched on at draw 11, and a floor whose full draw is 22 ms (fine at 30 fps, but over
 // the 19.6 ms exit line) never earned its way back: crew lost walk frames, pose dissolve and body light for the session.
 // The real frame() and rebake() run here against a clock the stubs advance.
-{
+const rebakeSrc = A.fnBody(code, 'function rebake()');
+A.ok(rebakeSrc && /StationBake\.bake\(geo\)/.test(rebakeSrc), 'rebake() is the one place the station bake runs');
+// a floor whose every draw (full detail, lite or probe) costs clk.drawMs, and whose station bake costs 2.5 s
+function floorSim() {
   const clk = { now: 0, drawMs: 22 };
   const sb = { document: { hasFocus: () => true }, performance: { now: () => clk.now }, requestAnimationFrame: () => 1, cancelAnimationFrame: () => {},
     setTimeout: () => 1, clearTimeout: () => {}, console, clk,
     StationBake: { bake: () => { clk.now += 2500; return { doorOccluders: [] }; } } };
   vm.createContext(sb);
-  const rebakeSrc = A.fnBody(code, 'function rebake()');
-  A.ok(rebakeSrc && /StationBake\.bake\(geo\)/.test(rebakeSrc), 'rebake() is the one place the station bake runs');
   vm.runInContext('let frameCapMs = 0, lastDrawnAt = 0, running = true, raf = 0, renderFaults = 0, lastFaultMsg = "", reviewParts = null, reviewStamp = 0;\n' +
     'const RENDER_FAULT_LIMIT = 30, reviewPerformance = { enabled: false, samples: [] };\n' +
     'let station = {}, geo = {}, cache = null, geoDirty = false, bakeDirty = true, bakedAnchorKey = null;\n' +
@@ -194,7 +197,11 @@ A.ok(/armFlickerClock\(\); armMotionRest\(\);/.test(ui), 'applySettings arms bot
     'function frameBody(now) { if (bakeDirty || !cache) rebake(); clk.now += clk.drawMs; }\n' +
     world.slice(from, to) + '\n' + rebakeSrc + '\n' + frameSrc +
     '\nthis.F = { frame, strained: () => strained, cost: () => drawCostMs, edit: () => { bakeDirty = true; } };', sb);
-  const F = sb.F, draw = n => { for (let i = 0; i < n; i++) F.frame(clk.now, true); };
+  const F = sb.F;
+  return { clk, F, draw: n => { for (let i = 0; i < n; i++) F.frame(clk.now, true); } };
+}
+{
+  const { clk, F, draw } = floorSim();
   draw(1);
   A.ok(F.cost() < 30, 'the boot frame that baked the station does not seed the frame budget (' + F.cost().toFixed(1) + ' ms)');
   draw(200);
@@ -204,6 +211,26 @@ A.ok(/armFlickerClock\(\); armMotionRest\(\);/.test(ui), 'applySettings arms bot
   A.eq(F.strained(), false, 'a room edit that re-bakes mid-session does not tip it into STRAINED DETAIL either');
   clk.drawMs = 60; draw(40);
   A.eq(F.strained(), true, 'a floor that really draws slowly still sheds detail (the bake exclusion hides nothing else)');
+}
+
+// ---- 5. A HITCH IS NOT A SLOW FLOOR (review world-render-01 follow-up) -------------------------------------------
+// One non-bake frame of 83 ms or more (a GC pause, a page-in after a restore from minimized, a props-only edit's
+// rederive, a texture pyramid built on the first zoom-out) lifted the EMA of a 22 ms floor over the entry line. Its
+// probes then measured 22 ms, never under the 19.6 ms exit line, so the crew stayed strained for the session.
+{
+  const { clk, F, draw } = floorSim();
+  draw(201);
+  A.eq(F.strained(), false, 'a 22 ms floor boots at full detail');
+  let shed = 0;
+  const watch = n => { for (let i = 0; i < n; i++) { draw(1); if (F.strained()) shed++; } };
+  clk.drawMs = 250; watch(1); clk.drawMs = 22; watch(200);
+  A.eq(shed, 0, 'one 250 ms frame that baked nothing does not shed detail even for a moment (no blink of crew light)');
+  clk.drawMs = 250; draw(5); clk.drawMs = 22;   // a stall five frames long: the floor really was slow for a moment
+  A.eq(F.strained(), true, 'a stall several frames long does shed detail');
+  draw(200);
+  A.eq(F.strained(), false, '...and probes at the floor\'s own 22 ms bring full detail back');
+  shed = 0; watch(3000);
+  A.eq(shed, 0, '...for good');
 }
 
 A.report('render pacing (#69)');
