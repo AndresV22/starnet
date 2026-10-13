@@ -92,10 +92,14 @@ try {
     // a station upgraded mid-flight: its old per-worker row covers that worker
     const old = worker('old', { status: 'done', completedAt: clock });
     fs.writeFileSync(path.join(root, 'd.json'), JSON.stringify({ version: 1, value: { threads: [], reviews: [{ id: 'old_run:review', parentStreamId: 'home', workerId: 'old', workerRunId: 'old_run', status: 'done', reviewRunId: 'r0', error: '' }] } }));
-    const m2 = mk('d.json');
+    // a 1 ms retention makes the old row past its keep window, so only its listed worker can keep it
+    const m2 = mk('d.json', { reviewRetentionMs: 1 });
+    clock += 10;
     m2.collect([old]);
     A.eq(m2.snapshot().reviews.length, 1, 'a pre-batching review row covers its worker: an upgrade never re-reviews history');
-    A.eq(m2.snapshot().reviews[0].id, 'old_run:review', 'the old row itself is kept while its worker is listed (never dropped and re-reviewed)');
+    A.eq((m2.snapshot().reviews[0] || {}).id, 'old_run:review', 'an expired old row is kept while its worker is listed (never dropped and re-reviewed)');
+    m2.collect([]);
+    A.eq(m2.snapshot().reviews.length, 0, 'once its worker has left the registry, the expired old row is dropped');
   }
   {
     const m = mk('e.json');
