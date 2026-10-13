@@ -1071,6 +1071,7 @@ const StationCommands = (() => {
       const act = String((a && a.action) || '');
       if (/^agent\./.test(act)) return agentControl(act, a);
       if (/^session\./.test(act)) return sessionControl(act, a);
+      if (act === 'group.add') return groupAdd(a);
       if (act === 'look.set') {
         if (typeof StationUI === 'undefined' || !StationUI.setLook) throw new Error('the look settings are not loaded on this page');
         // an empty look changes nothing — never answer it as saved (it read back "done" while hints stayed on, 2026-10-08)
@@ -1199,6 +1200,18 @@ const StationCommands = (() => {
     if (!live) throw new Error('the Commander is not looking at this conversation right now, so their screen was left alone — tell them where it is instead');
   }
   // an agent by exact id or name (case-insensitive) — never a guess: unknown or ambiguous refuses with the real roster
+  /* group.add (station-control.js): bring crew into a chat through the SAME path the chat's + Add agents key takes
+     (group-chat.js addAgents). Names resolve strictly (two agents with one name are refused, never guessed). The caller
+     — the run that asked, host-stamped by the sidecar — lets a chat whose reply is still running take the join when
+     THAT reply ends; the result then says "joining", never "added". */
+  async function groupAdd(a) {
+    if (typeof GroupChat === 'undefined' || !GroupChat.addAgents) throw new Error('group chat is not loaded on this page; reload it, nothing changed');
+    const hit = resolveChat(a.session);
+    const ids = [];
+    for (const ref of (Array.isArray(a.agents) ? a.agents : [])) { const ag = resolveAgent(ref); if (!ids.includes(ag.id)) ids.push(ag.id); }
+    if (!ids.length) throw new Error('no crew member was named, so nothing changed');
+    return GroupChat.addAgents(hit.w, ids, a.caller && typeof a.caller === 'object' ? a.caller : null);
+  }
   function resolveAgent(ref) {
     const crew = (typeof App !== 'undefined' && App.agents && App.agents()) || [];
     const want = String(ref || '').trim().toLowerCase();

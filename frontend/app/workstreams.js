@@ -91,6 +91,11 @@
       lastRunOk: opts.lastRunOk === true ? true : (opts.lastRunOk === false ? false : null),
       // The backend's terminal reason is stronger evidence than a completed transport or a filed run id.
       lastRunReason: typeof opts.lastRunReason === 'string' ? clamp(opts.lastRunReason.trim(), 80) : '',
+      // crew an agent asked to bring into this chat (station.control group.add) while its own reply was still running
+      // there: they join when THAT reply ends (group-chat.js drainAfterRun). Saved, so a reload that kills the reply
+      // settles it truthfully ("not added") instead of leaving "they join when I finish" hanging.
+      pendingJoin: opts.pendingJoin && typeof opts.pendingJoin === 'object' && Array.isArray(opts.pendingJoin.ids) && opts.pendingJoin.ids.length
+        ? { runId: String(opts.pendingJoin.runId || ''), ids: opts.pendingJoin.ids.map(String).slice(0, 10), at: Number(opts.pendingJoin.at) || 0 } : null,
       // the model id the SIDECAR reported for this stream's most recent run (harness usage payload,
       // not local config) — the only model claim about a session this app can actually prove. '' = we
       // have never measured one here: no run yet, or a save written before this field existed. The

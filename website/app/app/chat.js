@@ -9987,6 +9987,7 @@ const Chat = (() => {
       if (typeof StationUI !== 'undefined' && StationUI.clearRunning) StationUI.clearRunning(ws.agentId || 'agent');
     } finally {
       aborters.delete(ws.id);
+      const stoppedHere = interrupted.has(ws.id);   // read before it is consumed: a join this reply asked for is dropped on a stop
       interrupted.delete(ws.id);   // consume the stop flag (whether or not it fired)
       stopSource.delete(ws.id);
       Channels.end(ws.id);
@@ -10058,8 +10059,11 @@ const Chat = (() => {
       closeSpeech();
       // hands-free voice mode: the run is done — let Voice re-open the mic for the next turn.
       if ((!liveVoiceCall() || liveVoiceOwns(ws)) && typeof Voice !== 'undefined' && Voice.onTurnEnd) Voice.onTurnEnd();
+      // CREW THIS REPLY ASKED FOR (station.control group.add): they join now — the reply is saved in the history and the
+      // channel has ended — and BEFORE a queued follow-up is sent, so that message goes to the new group, not a new reply
+      const joining = typeof GroupChat !== 'undefined' && GroupChat.drainAfterRun ? GroupChat.drainAfterRun(ws.id, thisRunId, { stopped: stoppedHere }) : null;
       // TYPE-AHEAD: the stream just freed — send its next queued follow-up (after this call fully unwinds).
-      setTimeout(() => flushQueued(ws.id), 0);
+      setTimeout(() => { Promise.resolve(joining).catch(() => null).then(() => flushQueued(ws.id)); }, 0);
       // GOAL LOOP: after the teardown, judge this turn against the standing goal and maybe fire the next continuation.
       // A QUEUED user follow-up wins first — it's the human steering, so let it drain (it will preempt/pause the loop
       // when IT is judged as a non-continuation). Only judge when nothing is queued. Deferred (setTimeout) so it runs

@@ -258,7 +258,7 @@ const GroupChat = (() => {
     save();
   }
   function bind(ws) {
-    init(); if (!root) return;
+    init(); settleStaleJoins(); if (!root) return;
     const enabled = !!ws && ws.conversationMode === 'group';
     $('gc-header').hidden = !enabled;
     $('comms-idbar').classList.toggle('gc-group', enabled);
@@ -604,12 +604,16 @@ const GroupChat = (() => {
     // the words in THIS chat's box, taken now: if you switch chats while it is created, the box holds another chat's words
     const box = $('chat-input'), draft = box && active?.id === origin.id ? box.value : (composerDrafts.get(origin.id) || '');
     const members = [lead, ...ids.filter(id => id !== lead)];
-    if (!general && typeof Chat !== 'undefined' && Chat.isBusy && active?.id === origin.id && Chat.isBusy()) throw new Error(name(lead) + ' is still working in this chat. Let the run finish (or stop it), then add agents.');
+    // THE chat being converted must be idle (not merely the one on screen): a reply still running there would be lost to the
+    // group, its approval cards hidden and its STOP retargeted. group.add waits for that reply instead (drainAfterRun).
+    if (!general && typeof Channels !== 'undefined' && Channels.isBusy && Channels.isBusy(origin.id)) throw new Error(name(lead) + ' is still working in this chat. Let the run finish (or stop it), then add agents.');
     if (typeof App !== 'undefined' && App.pushRoster) await App.pushRoster();   // the backend must know every agent it seats
     const id = general ? 'ws_' + uid().replace(/-/g, '').slice(0, 20) : origin.id;
     const title = general ? members.map(name).join(' + ') : (origin.title || 'Group chat');
     const g = await api(general ? { op: 'create', id, members, leadId: lead, title }
-      : { op: 'create', id, conversionKey: origin.id, history: origin.history, originalAgentId: lead, members, leadId: lead, title });
+      // only the dialogue: the local markers (a run-failed / stopped line, a history-cap marker, a status line) are this
+      // page's records, not anyone's words — imported, every member would read them as the lead's (chat.js historyWindowFrom)
+      : { op: 'create', id, conversionKey: origin.id, history: (origin.history || []).filter(m => !(m && (m.truncated || m.sys || m.error))), originalAgentId: lead, members, leadId: lead, title });
     adopt(g); save();
     const still = !active || active.id === origin.id;
     // the words in the message box travel with the conversation — what is in it NOW if you stayed (you may have kept
@@ -632,6 +636,86 @@ const GroupChat = (() => {
       try {
         return await api({ op: 'configure', id, revision: fresh.revision, members, leadId: members.includes(fresh.leadId) ? fresh.leadId : members[0] });
       } catch (e) { if (attempt >= 3 || !/Session changed/i.test(e.message || '')) throw e; }
+    }
+  }
+
+  /* ---------- AN AGENT BRINGS CREW IN (station.control group.add, Andrew 2026-10-13) ----------
+     "add 2 agents into this chat … it actually refused to do it, I have to manually add it myself". The SAME paths the
+     + Add agents key takes, for three shapes of chat:
+     - a group: each new member is invited now (safe while a turn runs — the group keeps going);
+     - a chat with no reply running: it converts now, exactly as the key does (General opens a new group beside it);
+     - the chat whose reply IS running — the run that asked: the join waits for that reply to end. A chat cannot change
+       shape under a live reply (the reply, its approval cards and STOP belong to the one-on-one chat), so the join is
+       saved on the conversation and lands through the same startGroup the moment the reply ends; a stop, a failed reply
+       or a reload drops it and says so in the chat. The agent is told "joining when your reply ends", never "added". */
+  const agentNames = ids => { const n = ids.map(name); return n.length > 1 ? n.slice(0, -1).join(', ') + ' and ' + n[n.length - 1] : (n[0] || 'nobody'); };
+  async function addAgents(ws, ids, caller) {
+    if (!ws) throw new Error('that chat no longer exists');
+    if (ws.conversationMode === 'group') {
+      const fresh = await api(null, '?id=' + encodeURIComponent(ws.id));
+      const add = ids.filter(id => !(fresh.members || []).includes(id));
+      if (!add.length) throw new Error(agentNames(ids) + (ids.length > 1 ? ' are' : ' is') + ' already in this chat');
+      if (typeof App !== 'undefined' && App.pushRoster) await App.pushRoster();   // the backend must know every agent it seats
+      let g = fresh;
+      for (const agentId of add) g = await api({ op: 'invite', id: ws.id, agentId });
+      adopt(g); save();
+      if (active?.id === g.id) { group = g; lastPaint = ''; paint(); }
+      return { added: add, members: g.members };
+    }
+    const lead = ws.agentId || 'agent', add = ids.filter(id => id !== lead);
+    if (!add.length) throw new Error(name(lead) + ' is already this chat\'s agent: name someone else from the crew');
+    if (typeof Channels !== 'undefined' && Channels.isBusy && Channels.isBusy(ws.id)) {
+      // only the run that asked may queue its own chat's change (any other live reply there: refuse, never queue blind)
+      const runId = String((Channels.runIdOf && Channels.runIdOf(ws.id)) || '');
+      if (!caller || String(caller.streamId || '') !== ws.id || !runId || runId !== String(caller.runId || '')) {
+        throw new Error(name(lead) + ' is still answering in that chat: add agents after that reply ends');
+      }
+      const cur = ws.pendingJoin && ws.pendingJoin.runId === runId ? ws.pendingJoin.ids : [];
+      const all = [...new Set([...cur, ...add])].slice(0, 10);
+      ws.pendingJoin = { runId, ids: all, at: Date.now() }; save();
+      return { joining: true, agents: all.map(name), note: agentNames(all) + (all.length > 1 ? ' join ' : ' joins ')
+        + (isGeneral(ws) ? 'a new group chat that opens beside General' : 'this chat (it becomes a group chat, its history kept)')
+        + ' the moment your reply ends. If the reply is stopped or fails, nobody is added and the Commander is told in the chat.' };
+    }
+    const g = await startGroup(ws, add);
+    return { added: add, members: g.members, group: g.id, title: g.title };
+  }
+  // a line in the chat itself that says what did NOT happen (saved: it is still there after a reload), plus the bell
+  function notAdded(ws, ids, why) {
+    const text = agentNames(ids) + (ids.length > 1 ? ' were' : ' was') + ' not added to this chat: ' + why + '.';
+    if (ws && Array.isArray(ws.history)) { ws.history.push({ role: 'system', sys: true, content: text, ts: Date.now() }); save(); }
+    if (ws && typeof Workstreams !== 'undefined' && Workstreams.activeId && Workstreams.activeId() === ws.id && typeof Chat !== 'undefined' && Chat.localLine) Chat.localLine(text);
+    if (typeof StationUI !== 'undefined' && StationUI.notify) StationUI.notify(text, 'bad');
+    return null;
+  }
+  // chat.js calls this as the asking reply's teardown ends (after the reply is saved in the history, before a queued
+  // follow-up is sent — which then goes to the new group): land the join, or say why it did not happen
+  async function drainAfterRun(wsId, runId, how) {
+    const ws = typeof Workstreams !== 'undefined' && Workstreams.get ? Workstreams.get(wsId) : null;
+    const job = ws && ws.pendingJoin;
+    if (!job || (runId && job.runId !== String(runId))) return null;
+    ws.pendingJoin = null; save();
+    if (how && how.stopped) return notAdded(ws, job.ids, 'the reply was stopped before it finished');
+    if (ws.lastRunOk === false) return notAdded(ws, job.ids, 'the reply failed before it finished');
+    const crew = (typeof App !== 'undefined' && App.agents && App.agents()) || [];
+    const ids = job.ids.filter(id => crew.some(a => a && a.id === id));
+    if (!ids.length) return notAdded(ws, job.ids, 'they are no longer on the crew');
+    try {
+      const out = ws.conversationMode === 'group' ? await addAgents(ws, ids, null) : await startGroup(ws, ids);
+      if (typeof StationUI !== 'undefined' && StationUI.notify) StationUI.notify(agentNames(ids) + (ids.length > 1 ? ' joined ' : ' joined ') + (out && out.title ? '"' + out.title + '"' : 'the chat'), 'good');
+      return out;
+    } catch (e) { return notAdded(ws, ids, String((e && e.message) || e).replace(/\.$/, '')); }
+  }
+  // a reload or a closed tab ends every reply (the request dies with the page): a join still waiting on one never lands
+  let joinsSettled = false;
+  function settleStaleJoins() {
+    if (joinsSettled || typeof Workstreams === 'undefined' || !Workstreams.list) return; joinsSettled = true;
+    for (const ws of Workstreams.list({ includeArchived: true }) || []) {
+      if (!ws || !ws.pendingJoin) continue;
+      const live = typeof Channels !== 'undefined' && Channels.isBusy && Channels.isBusy(ws.id) && Channels.runIdOf && String(Channels.runIdOf(ws.id) || '') === ws.pendingJoin.runId;
+      if (live) continue;
+      const ids = ws.pendingJoin.ids; ws.pendingJoin = null;
+      notAdded(ws, ids, 'the reply was interrupted before it finished (the page reloaded or closed)');
     }
   }
 
@@ -899,5 +983,5 @@ const GroupChat = (() => {
   const goneOk = e => { if (!/not found/i.test(e.message || '')) throw e; };
   async function remove(id) { await api({ op: 'control', id, action: 'delete' }).catch(goneOk); states.delete(id); }
   async function pause(id) { await api({ op: 'control', id, action: 'pause' }).catch(goneOk); }
-  return { bind, sendText, discover, rename, remove, pause, isBusy, stop, mentionKey, mentionTargets, startWith, stateOf, attentionIds, membersOf: id => membersById.get(id) || null };
+  return { bind, sendText, discover, rename, remove, pause, isBusy, stop, mentionKey, mentionTargets, startWith, stateOf, attentionIds, membersOf: id => membersById.get(id) || null, addAgents, drainAfterRun };
 })();
