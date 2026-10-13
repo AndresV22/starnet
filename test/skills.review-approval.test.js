@@ -326,4 +326,16 @@ for (const change of ['body', 'files', 'summary', 'baseline', 'pin']) {
   A.ok(f.s.manage({ agentId: 'a', target: 'Weekly brief', action: 'patch', find: 'concise', replace: 'short', createdBy: 'curator' }).pending, 'a new curator revision is still a proposal');
   A.eq(read(f.s, 'Weekly brief').body, BODY, 'proposal leaves the active curator version in place');
 }
+// Rejecting a content revision says nothing about a skill's age: only a rejected RETIREMENT pauses aging.
+{
+  const f = fixture(); f.s.write({ agentId: 'a', name: 'Brief', body: BODY });
+  let c = proposal(f.s); A.ok(f.promote(c, f.issue(c)).ok, 'precondition: active learned procedure');
+  f.s.manage({ agentId: 'a', target: 'Brief', action: 'patch', find: 'concise', replace: 'short', createdBy: 'background-review' });
+  c = proposal(f.s); A.ok(f.s.rejectCandidate({ agentId: 'a', candidateId: c.candidateId, candidateDigest: c.candidateDigest }).ok, 'content revision rejected');
+  A.eq(f.s.curate('a', { now: 100000, staleMs: 10, archiveMs: 20 }).proposedArchives, 1, 'aged learned skill is still proposed for retirement');
+  const g = fixture(); seed(g);
+  g.s.manage({ agentId: 'a', target: 'Brief', action: 'patch', find: 'concise', replace: 'short', createdBy: 'background-review' });
+  c = proposal(g.s); g.s.rejectCandidate({ agentId: 'a', candidateId: c.candidateId, candidateDigest: c.candidateDigest });
+  A.eq(g.s.curate('a', { now: 100000, staleMs: 10, archiveMs: 1e9 }).stale, 1, 'aged Commander skill still goes stale');
+}
 A.report('skills.review-approval');

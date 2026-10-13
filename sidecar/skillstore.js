@@ -821,8 +821,11 @@
       for (const s of mine(agentId, { includeArchived: true })) {
         if (s.pinned || s.state === 'archived') continue;
         const pending = candidateRows.get(keyOf(s.agentId, s.name));
-        // Aging must not invalidate a pending replacement or repeatedly override a rejected retirement.
-        if (pending && ['pending', 'rejected'].includes(pending.status) && pending.baseDigest === revisionDigest(s)) continue;
+        // Aging must not invalidate a pending replacement or repeatedly override a rejected RETIREMENT. A rejected
+        // content edit says nothing about the skill's age, so it must not freeze aging. (manage reports delete as
+        // action 'archive', so this covers both.)
+        if (pending && pending.baseDigest === revisionDigest(s)
+          && (pending.status === 'pending' || (pending.status === 'rejected' && pending.action === 'archive'))) continue;
         const base = s.lastUsedAt || s.updatedAt || s.createdAt || t;
         const age = Math.max(0, t - base);
         const entry = clone(s);
