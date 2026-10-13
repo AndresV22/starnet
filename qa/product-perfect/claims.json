@@ -18,7 +18,7 @@
   "expectedClaimCount": 37,
   "releaseSurface": {
     "algorithm": "sha256",
-    "sourceCommit": "e090df148a65977c05517b36b6a1e682c9171be9",
+    "sourceCommit": "becb10a01c5e79a4ef179b0265ab6b48d6fd911b",
     "pathSetSha256": "e4cf2ec7f6a313f096915edc1eea9291b5f6ab7782c1784d289af5ac2f76084d",
     "files": [
       {
@@ -173,8 +173,8 @@
       },
       {
         "path": "frontend/app/app.js",
-        "bytes": 437285,
-        "sha256": "ec4c8da4ecabd32254db0a245f713b8039fbf52e96c7c57a131ee288effd234e"
+        "bytes": 437573,
+        "sha256": "cadea93203644183c77985c2319195c6a900698484dbe2dea0b55365266e0b8c"
       },
       {
         "path": "frontend/app/approved-sheet-effects.js",
@@ -343,8 +343,8 @@
       },
       {
         "path": "frontend/app/chat.js",
-        "bytes": 748815,
-        "sha256": "bf9086235bc91a727ffe347e206ef370706daa32dedf63c7fc16594eab916309"
+        "bytes": 758018,
+        "sha256": "8fc3987ebe5d420c77555d2d6cbed59770349f9191c94e6003de070c67a8c8b6"
       },
       {
         "path": "frontend/app/chatresize.js",
@@ -433,8 +433,8 @@
       },
       {
         "path": "frontend/app/delegated.js",
-        "bytes": 29558,
-        "sha256": "db7e639ae8a430304c6f7edb697e14ec337aa62ec9587b6804abfe639afe78b8"
+        "bytes": 36366,
+        "sha256": "7745cc99dfa8ace7cd9a1cfd0b3ee3cd5b6b5b10b82bea69932a27bfcb4be152"
       },
       {
         "path": "frontend/app/deliverables.js",
@@ -708,8 +708,8 @@
       },
       {
         "path": "frontend/app/needsyou.js",
-        "bytes": 11999,
-        "sha256": "cb7a5d65729d72cc5bce2837f97fc2973fb8f27d30f35094df1e646ffd0fbd28"
+        "bytes": 12246,
+        "sha256": "eea34b43ca0675ad667a5ab1391883f47eef853522c1d6163cf8fa59e00eb82e"
       },
       {
         "path": "frontend/app/nightnudge.js",
@@ -743,8 +743,8 @@
       },
       {
         "path": "frontend/app/overseer.js",
-        "bytes": 2642,
-        "sha256": "9cba4eeea44f5987106dde35ac667e784804f450afa82725003d66043a0299d4"
+        "bytes": 2480,
+        "sha256": "cb554074f4775742a81f9e9a76dfa16aa491dd9ba48ed0a388c142c0fe7ea12b"
       },
       {
         "path": "frontend/app/permissions.js",
@@ -1163,8 +1163,8 @@
       },
       {
         "path": "frontend/app/stationcommands.js",
-        "bytes": 91316,
-        "sha256": "9d0a29a25e004b50df6335b6c1e39eab0da6e7477581b85f0ff5c3f6c32b7f26"
+        "bytes": 94130,
+        "sha256": "4d89a7cc42e139a0c9b89894d73a0b9a2f29200616cdfed6beee3d2588e91601"
       },
       {
         "path": "frontend/app/stationquests.js",
@@ -1183,8 +1183,8 @@
       },
       {
         "path": "frontend/app/stationui.js",
-        "bytes": 859387,
-        "sha256": "4f7a55b59a8946d10cdb4471dbd9f2a42601c03c6970ece136968640aff62461"
+        "bytes": 859613,
+        "sha256": "c682cb313571fbe24be374f29b90fe2889267492a1f47a4bcfa68dd4ee2a87e0"
       },
       {
         "path": "frontend/app/stepin.js",
@@ -1308,8 +1308,8 @@
       },
       {
         "path": "frontend/app/voice-live.js",
-        "bytes": 95997,
-        "sha256": "15c8a90e9c12133e054c23c76d69e963dba1a78abc3c5ff01d06edb5952e5428"
+        "bytes": 97659,
+        "sha256": "67ab9eb0cba9ab22e5a5de99530107e3f5b7698483e3ca36abfcc7cdac3c7761"
       },
       {
         "path": "frontend/app/voice-stream.js",
@@ -1443,8 +1443,8 @@
       },
       {
         "path": "frontend/app/workstreams.js",
-        "bytes": 43439,
-        "sha256": "f53ebce81850cf27881873f35815fe1ca729349991afd34976207ecf33a7a850"
+        "bytes": 45428,
+        "sha256": "934b6a6820c1bcfb43fba11535cb119317ba98607280616b77be32e97be20d33"
       },
       {
         "path": "frontend/app/workview.js",
@@ -1538,8 +1538,8 @@
       },
       {
         "path": "frontend/css/beat-cards.css",
-        "bytes": 31189,
-        "sha256": "ae2a39dbf301a633b59dd6e0dfd5b576206eeb66453eaefe2a6aa4a9f8a96de3"
+        "bytes": 33318,
+        "sha256": "3cdbdd50057fdf50e663bc05729e4e5f0b32a5e093fae0924b11c1973b1f0a3e"
       },
       {
         "path": "frontend/css/cabinet-clean.css",
