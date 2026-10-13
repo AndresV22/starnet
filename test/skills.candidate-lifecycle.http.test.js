@@ -155,6 +155,13 @@ const server = http.createServer((req, res) => {
     assert.equal((await active()).body, BASELINE);
     const registered = await api('POST', '/api/agent-skills/evaluation-suite', { agentId: 'agent', skillId: seeded.id, suite: suite('owner:copy-lifecycle') });
     assert.ok(registered.evaluationSuites.some(s => s.id === 'owner:copy-lifecycle' && s.cases === 2 && s.generic === false));
+    // skills-eval-16: a process_exit check can never pass in the isolated file workspace, so registering one is refused
+    await check('skills-eval-16', async () => {
+      const exitSuite = suite('owner:exit-check');
+      exitSuite.cases[0].checks = [{ id: 'build-exit', kind: 'process_exit', executionId: 'build', expected: 0 }];
+      const refusedSuite = await api('POST', '/api/agent-skills/evaluation-suite', { agentId: 'agent', skillId: seeded.id, suite: exitSuite }, 400);
+      assert.match(refusedSuite.error, /process_exit checks need an executable runner/);
+    });
     const builtIns = registered.evaluationSuites.filter(s => !s.id.startsWith('owner:'));
     assert.ok(builtIns.length >= 2 && builtIns.every(s => s.generic === true), 'built-in suites are marked generic checks');
     await api('POST', '/api/agent-skills/evaluation-suite', { agentId: 'stranger', skillId: seeded.id, suite: suite('owner:forged-owner') }, 404);

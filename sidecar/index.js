@@ -18695,6 +18695,9 @@ async function handleSkillCandidateAction(req, res) {
       const skill = skillStore.view(agentId, body.skillId, { bump: false, includeArchived: true }) || skillStore.candidates(agentId, { includeBody: true }).map(c => c.skill).find(c => c.id === body.skillId);
       if (!skill) return learningJson(res, 404, { ok: false, error: 'no such owned skill' });
       const suite = SkillEvaluation.validateSuite(Object.assign({}, body.suite, { skillName: skill.name }));
+      // this station evaluates in an isolated file workspace, never an executable runner: a process_exit check could
+      // never pass, so refuse it here with the reason (the catch below answers 400) instead of storing a suite that fails
+      SkillEvaluation.assertSuiteRunnable(suite, 'provider');
       if (!/^owner:[A-Za-z0-9_-]{1,60}$/.test(suite.id)) return learningJson(res, 400, { ok: false, error: 'custom suite id must start with owner: followed by a short name' });
       const prior = (skillEvaluationData.suites || []).filter(s => !(s.agentId === agentId && s.skillId === skill.id && s.suite.id === suite.id));
       if (prior.length >= 40) return learningJson(res, 400, { ok: false, error: 'the station already has 40 custom suites; update an existing one' });
