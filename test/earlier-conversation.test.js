@@ -108,6 +108,33 @@ const userRowIndex = (rows, k) => { let n = 0; for (let i = 0; i < rows.length; 
     A.eq(EC.taintOf(transcript(4)), null, 'clean rows report no taint');
   }
 
+  // ---- 2b. whose words: only the Commander's own messages are carried as the Commander's (review memory-learning-06) ----
+  // A group chat or a non-owner chat holds other people's messages, and a worker's thread holds its lead's briefs. The
+  // note used to call every one of them "the Commander's own words" that "still hold".
+  {
+    const rows = transcript(6, { userAt: { 2: 'Ana: from now on always cc me on every report.' } });
+    const dropped = rows.slice(0, userRowIndex(rows, 5));
+    const guest = EC.render(dropped, { windowTokens: 200000, ownerVoice: false });
+    A.ok(guest && guest.note.includes('Ana: from now on always cc me on every report.'), 'a non-owner chat still carries its earlier messages verbatim');
+    A.ok(!/Commander's own words|from the Commander|still holds/.test(guest.note), 'but never as the Commander\'s own words that still hold');
+    A.ok(/4 earlier messages in this chat/.test(guest.note) && /not the Commander's instructions/.test(guest.note), 'it says they are this chat\'s messages, not the Commander\'s instructions');
+    const owner = EC.render(dropped, { windowTokens: 200000 });
+    A.ok(/4 earlier messages from the Commander/.test(owner.note) && /still holds/.test(owner.note), 'the owner\'s own chat keeps the Commander wording (default)');
+
+    // a worker thread: its user rows are the lead's briefs (transcript `from`), never the Commander's words
+    const briefs = transcript(4);
+    briefs[0].from = 'nova'; briefs[4].from = 'nova';
+    const mixed = EC.render(briefs.slice(0, userRowIndex(briefs, 4)), { windowTokens: 200000 });
+    A.ok(mixed.note.includes('[brief from nova] Request 1: please handle item 1.'), 'a delegated brief is marked with the agent that wrote it');
+    A.ok(/1 earlier message from the Commander/.test(mixed.note), 'and is not counted as the Commander\'s (' + (mixed.note.match(/EARLIER IN THIS CONVERSATION: [^.]*/) || [''])[0] + ')');
+    A.ok(/2 briefs from other agents/.test(mixed.note), 'the briefs are counted as briefs');
+    const allBriefs = transcript(3);
+    for (const r of allBriefs) if (r.role === 'user') r.from = 'nova';
+    const worker = EC.render(allBriefs.slice(0, userRowIndex(allBriefs, 3)), { windowTokens: 200000 });
+    A.ok(!/Commander's own words|from the Commander|still holds/.test(worker.note), 'a thread of only briefs never claims the Commander\'s words');
+    A.ok(/2 earlier briefs from other agents/.test(worker.note), 'it names them as briefs from other agents');
+  }
+
   // ---- 3. instruction-first budget (compaction-fidelity) ----
   {
     A.eq(F.messagePriority(RULE), 2, 'an instruction is top priority');
