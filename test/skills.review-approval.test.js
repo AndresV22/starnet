@@ -502,5 +502,11 @@ for (const change of ['body', 'files', 'summary', 'baseline', 'pin']) {
   const precommit = branch.indexOf('persistSkillApprovals(');
   A.ok(branch && precommit > 0, 'index.js: the approve route and its approval precommit are where this test reads them');
   A.ok(blocker >= 0 && blocker < precommit, 'the approve route refuses a blocked promotion before it writes any approval');
+  // skills-eval-08 (host half): COMMS UNDO on a silently saved skill must reject the reflection's proposal (store.veto,
+  // unit-tested above). A plain archive was a new staged write: refused for a revision, 'no such skill' for a new
+  // skill, and the proposal stayed approvable.
+  const turnin = src.slice(src.indexOf('async function handleMemoryTurnin('), src.indexOf("if (verdict === 'veto') {") + 900);
+  A.ok(/skillStore\.veto\(\{ agentId, target: id \}\)/.test(turnin), 'the COMMS veto of a skill rejects its pending proposal (store.veto)');
+  A.ok(!/skillStore\.manage\(\{ agentId, action: 'archive', id \}\)/.test(turnin), 'and no longer stages a plain archive');
 }
 A.report('skills.review-approval');

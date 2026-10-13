@@ -26873,7 +26873,10 @@ async function handleMemoryTurnin(req, res) {
     if (!id) return json(400, { error: 'veto needs the saved record id' });
     const text = String(body.content || '').trim();
     if (String(body.kind || '') === 'skill') {
-      const r = skillStore.manage({ agentId, action: 'archive', id });   // soft-delete (archive) = "delete the skill"
+      // UNDO a silent save: reject the reflection's pending proposal (new skill or revision), and archive only an active
+      // skill, as the Commander (skillstore veto). A plain archive was itself staged: refused for a revision, 'no such
+      // skill' for a new one, and the proposal stayed approvable.
+      const r = skillStore.veto({ agentId, target: id });
       if (!r.ok && !/no such skill/i.test(String(r.error || ''))) return json(400, { error: r.error || 'could not undo skill' });
     } else {
       // remove the notebook record under the per-agent lock (re-read so a concurrent write isn't clobbered).
