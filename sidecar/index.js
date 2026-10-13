@@ -25757,6 +25757,10 @@ async function handleTasteKeepStyle(req, res) {
   const packet = verdictReview.peek(runId);
   const directive = FeedbackMemory.directiveFor([lead.deliveryPrompt, lead.title], packet && packet.messages);
   const feedbackMemory = await recordFeedbackMemory({ agentId: lead.agentId || 'agent', runId, verdict: 'great', kept: true, directive, run: lead });
+  // the crew learned nothing when the store refused the write: never answer ok (both callers then said "the crew
+  // learns its style"). Paused learning and an idempotent re-keep stay ok:true; their reason is already shown.
+  if (feedbackMemory && feedbackMemory.stored === false && feedbackMemory.reason === 'could not save')
+    return json(200, { ok: false, error: 'the crew\'s memory could not be written', feedbackMemory });
   return json(200, { ok: true, feedbackMemory });
 }
 // GET /api/runs?agent=<id>&limit=<n>&since=<ms>[&runId=<id>] — the agent's run history (M-save P4), newest-first.

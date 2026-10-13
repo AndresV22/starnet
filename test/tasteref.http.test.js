@@ -146,6 +146,18 @@ async function run(text, agentId) {
     const arcadeLine = r7.prompt.split('\\n').find(line => line.includes('Design the arcade night flyer')) || '';
     A.ok(/REJECTED .*Design the arcade night flyer.*wrong colors/.test(arcadeLine) && !/APPROVED|liked:/.test(arcadeLine), 'provider receives the rejection after unkeep: ' + arcadeLine);
 
+    // 5d. seams-03: the crew's memory cannot be written (here: the notebook path is a directory). KEEP must not report
+    // that the crew learned the style.
+    const nb = path.join(workspace, 'agent.notebook.json');
+    A.ok(fs.existsSync(nb), 'the agent notebook exists');
+    fs.renameSync(nb, nb + '.held'); fs.mkdirSync(nb);
+    try {
+      const unsaved = await api('/api/taste/keep-style', {runId: r1.runId});
+      A.eq(unsaved.body.ok, false, 'a keep that could not be saved is not ok: ' + JSON.stringify(unsaved.body));
+      A.ok(/could not be written/.test(String(unsaved.body.error || '')), 'and says the memory was not written');
+      A.eq(unsaved.body.feedbackMemory && unsaved.body.feedbackMemory.reason, 'could not save', 'with the store\'s own reason');
+    } finally { fs.rmdirSync(nb); fs.renameSync(nb + '.held', nb); }
+
     // 6. the personalization pause stops keep-style and says so
     A.ok((await api('/api/personalization', {enabled: false})).body.ok, 'personalization paused');
     const paused = await api('/api/taste/keep-style', {runId: r1.runId});
