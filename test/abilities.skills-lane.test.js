@@ -84,7 +84,7 @@ async function checkCandidateReview() {
   const postSource = source.slice(source.indexOf('  async function skillReviewPost('), source.indexOf('  function loadAgentSkills('));
   const renderSource = source.slice(source.indexOf('  function renderSkillCandidates('), source.indexOf('  function renderAgentSkills('));
   const requests = [], reloads = [], host = element(); let status = 'passed', extra = {};
-  const ctx = { host, esc: String, mkEl: element, loadAgentSkills: id => reloads.push(id),
+  const ctx = { host, esc: String, mkEl: (tag, cls) => Object.assign(element(), { tag, className: cls || '' }), loadAgentSkills: id => reloads.push(id),
     ArmConfirm: { wire(btn, opts) { btn.armed = opts; } },
     Harness: { api: { post: async (path, body) => { requests.push({ path, body }); return { ok: true, j: { ok: true, receipt: Object.assign({ receiptId: 'host-receipt', status }, extra) } }; } } },
     review: { candidates: [{ candidateId: 'candidate-3', candidateDigest: 'exact-sha', revision: 3,
@@ -165,4 +165,42 @@ async function checkCandidateReview() {
   await card3.querySelector('[data-suite-register]').onclick();
   A.eq(requests.at(-1).body.skillId, 'brief', 'custom task checks are bound to the owned skill');
   A.ok(requests.at(-1).path.endsWith('/evaluation-suite'), 'suite JSON is validated by host route');
+
+  // Review finding skills-eval-21: plain words, no raw ids, and a paid passing receipt survives a panel reload.
+  const runLabel = card3.querySelector('[data-evaluation-suites]').children[1].textContent;
+  A.ok(!runLabel.includes('brief-checks'), 'the run button does not show the raw suite id: ' + runLabel);
+  A.eq(runLabel, 'Run these checks', 'the run button says what it does; the description label sits above it');
+  // The run's receipt sits in a closed details block, never as a JSON dump in the sentence.
+  const note2 = card2.querySelector('[data-evaluation-result]'), receiptBox = note2.children.at(-1);
+  A.eq(receiptBox && receiptBox.tag, 'details', 'the evaluation receipt is folded into a details block');
+  A.eq(receiptBox && receiptBox.children[0] && receiptBox.children[0].textContent, 'Evaluation receipt', 'the folded receipt is labeled');
+  A.ok(!note2.textContent.includes('{'), 'the result sentence carries no JSON');
+  // A run the spending policy stopped says so in plain words.
+  const host8 = element(); ctx.host = host8; status = 'insufficient_evidence';
+  extra = { allCandidatePassed: false, regressions: [], improvements: [], cases: [{ before: { completed: false, pass: false, reason: 'policy-denied' }, after: { completed: false, pass: false, reason: 'policy-denied' } }] };
+  vm.runInNewContext('renderSkillCandidates(host, "agent", review);', ctx);
+  const card8 = host8.children[0];
+  await card8.querySelector('[data-evaluation-suites]').children[1].onclick();
+  A.ok(/spending/i.test(card8.querySelector('[data-evaluation-result]').textContent), 'a spend-denied run names the spending policy');
+  A.ok(!card8.querySelector('[data-evaluation-result]').textContent.includes('insufficient_evidence'), 'no enum status reaches the owner');
+  // The host's stored receipt for this exact revision (latestEvaluation) seeds the card after a reload.
+  status = 'passed'; extra = {};
+  const host7 = element(); ctx.host = host7; const sent = requests.length;
+  ctx.review = { candidates: [Object.assign({}, ctx.review.candidates[0], { latestEvaluation: { receiptId: 'stored-receipt', suiteId: 'brief-checks', status: 'passed', createdAt: 1,
+    allCandidatePassed: true, regressions: [], cases: [{ before: { completed: true, pass: false }, after: { completed: true, pass: true } }] } })], evaluationSuites: ctx.review.evaluationSuites };
+  vm.runInNewContext('renderSkillCandidates(host, "agent", review);', ctx);
+  const card7 = host7.children[0];
+  A.ok(/^Last evaluation: Passed/.test(card7.querySelector('[data-evaluation-result]').textContent), 'a reloaded panel shows the last evaluation of this revision');
+  A.eq(card7.querySelector('[data-candidate-approve]').disabled, false, 'a stored passing receipt keeps approval available');
+  await card7.querySelector('[data-candidate-approve]').onclick();
+  A.eq(requests.length, sent + 1, 'approval does not require paying for another evaluation');
+  A.eq(requests.at(-1).body.evaluation, 'stored-receipt', 'approval names the stored host receipt; the station re-verifies it');
+  // A stored tie offers only the armed acknowledgement, exactly like a fresh one.
+  const host9 = element(); ctx.host = host9;
+  ctx.review = { candidates: [Object.assign({}, ctx.review.candidates[0], { latestEvaluation: { receiptId: 'stored-tie', suiteId: 'brief-checks', status: 'insufficient_evidence',
+    allCandidatePassed: true, regressions: [], cases: tieCases } })], evaluationSuites: ctx.review.evaluationSuites };
+  vm.runInNewContext('renderSkillCandidates(host, "agent", review);', ctx);
+  const card9 = host9.children[0];
+  A.eq(card9.querySelector('[data-candidate-acknowledge]').hidden, false, 'a stored tie shows the acknowledgement');
+  A.eq(card9.querySelector('[data-candidate-approve]').disabled, true, 'a stored tie never enables the measured approval');
 }

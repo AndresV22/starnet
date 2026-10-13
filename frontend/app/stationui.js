@@ -4326,9 +4326,11 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
         (suite.generic ? 'Register task checks for this skill to measure it.' : 'Add a check that fails without the proposal to measure the difference.');
       if (status === 'regression') return 'Regression: the proposal failed a check the current version passed.';
       if (status === 'failed') return 'Failed: the proposal did not pass every check.';
-      if (status === 'insufficient_evidence') return 'No result: not every run finished.';
+      if (status === 'insufficient_evidence') return spendStopped(r) ? 'No result: the spending policy stopped a run (a budget limit or paused spending), so not every run finished.' : 'No result: not every run finished.';
       return 'No confirmed result.';
     };
+    // The runner marks a run the station's spend policy refused as 'policy-denied' (skill-evaluation-runner.js).
+    const spendStopped = r => !!(r && Array.isArray(r.cases) && r.cases.some(c => c && ((c.before && c.before.reason === 'policy-denied') || (c.after && c.after.reason === 'policy-denied'))));
     for (const candidate of rows) {
       const skill = candidate.skill || {};
       const card = mkEl('div', 'sk-card want open'); host.appendChild(card);
@@ -4348,26 +4350,36 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       let receipt = null, busy = false;
       const request = { agentId, candidateId: candidate.candidateId, candidateDigest: candidate.candidateDigest };
       const matching = suites.filter(s => s.skillId === skill.id || (!s.skillId && s.skillName === skill.name));
+      // One result path for a fresh run and for the host's stored receipt of this exact revision.
+      const showResult = (r, suite, lead) => {
+        receipt = r;
+        const tie = candidateTie(r);
+        note.textContent = lead + candidateResultText(r, suite, tie) + ' Approval remains a separate action.';
+        const box = mkEl('details', ''), head = mkEl('summary', ''), raw = mkEl('pre', '');
+        head.textContent = 'Evaluation receipt'; raw.textContent = JSON.stringify(r, null, 2);
+        box.appendChild(head); box.appendChild(raw); note.appendChild(box);
+        approve.disabled = !(r && r.status === 'passed' && r.receiptId);
+        // The station re-checks the receipt; this only offers the owner's "accept it anyway" on a complete tie.
+        acknowledge.hidden = !(tie && r.receiptId); acknowledge.disabled = acknowledge.hidden;
+      };
       if (!matching.length) suiteHost.textContent = 'No task checks registered for this skill yet.';
       for (const suite of matching) {
         const label = mkEl('div', 'sk-attr'); label.textContent = (suite.description || suite.skillName || suite.id) + (suite.generic ? ' · generic check (not specific to this skill)' : ''); suiteHost.appendChild(label);
-        const run = mkEl('button', 'consent-btn'); run.textContent = 'Evaluate: ' + suite.id; suiteHost.appendChild(run);
+        const run = mkEl('button', 'consent-btn'); run.textContent = 'Run these checks'; suiteHost.appendChild(run);
         run.onclick = async () => {
           if (busy) return; busy = true; run.disabled = true; approve.disabled = true; acknowledge.disabled = true; acknowledge.hidden = true; receipt = null;
-          note.textContent = 'Running baseline and proposal against ' + suite.id + '…';
+          note.textContent = 'Running the checks with and without the proposal…';
           try {
             const r = await skillReviewPost('evaluate-candidate', Object.assign({}, request, { suiteId: suite.id }));
-            receipt = r.receipt;
-            const tie = candidateTie(receipt);
-            note.textContent = candidateResultText(receipt, suite, tie) + ' Approval remains a separate action.';
-            const details = mkEl('pre', ''); details.textContent = JSON.stringify(receipt, null, 2); note.appendChild(details);
-            approve.disabled = !(receipt && receipt.status === 'passed' && receipt.receiptId);
-            // The station re-checks the receipt; this only offers the owner's "accept it anyway" on a complete tie.
-            acknowledge.hidden = !(tie && receipt.receiptId); acknowledge.disabled = acknowledge.hidden;
+            showResult(r.receipt, suite, '');
           } catch (e) { note.textContent = e.message; }
           finally { busy = false; run.disabled = false; }
         };
       }
+      // A reload (registering checks, sharing another skill) must not throw away a paid result: the host
+      // returns its newest receipt for this candidate and base digest, and approval re-verifies it by id.
+      const last = candidate.latestEvaluation;
+      if (last && last.receiptId) showResult(last, matching.find(s => s.id === last.suiteId) || {}, 'Last evaluation: ');
       const decide = async extra => {
         if (busy || !receipt) return; busy = true; approve.disabled = true; acknowledge.disabled = true;
         try { await skillReviewPost('approve-candidate', Object.assign({}, request, { evaluation: receipt.receiptId }, extra)); loadAgentSkills(agentId); }
