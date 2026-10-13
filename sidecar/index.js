@@ -11165,7 +11165,8 @@ const remoteVoice = require('./remote/voice.js').makeRemoteVoice({
     if (!wav) return { ok: false, reason: 'no audio' };
     return media.transcribeAudioBuffer(wav, 'wav');
   },
-  synthesize: (text) => media.synthesizeStationVoice(text)
+  // o = { provider }: the engine pinned for this reply (remote/voice.js synthOne), so every sentence speaks in one engine
+  synthesize: (text, o) => media.synthesizeStationVoice(text, o)
 });
 const remoteGateway = require('./remote/gateway.js').makeGateway({ host: remoteHost, approvals: remoteApprovals, push: remotePush, voice: remoteVoice, now: () => Date.now() });
 const remoteLan = require('./remote/lan.js').makeLanListener({

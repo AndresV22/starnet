@@ -384,6 +384,10 @@ function parsePages(buf) {
     const hostSrc = fs.readFileSync(require('path').join(__dirname, '../sidecar/remote/host.js'), 'utf8');
     A.ok(hostSrc.includes('system: o.voice ? withVoiceStyle(cred.system) : cred.system'), 'host.send applies them to the run it starts');
     A.ok(/voiceTurn: o\.voice === true \|\| undefined/.test(hostSrc), 'and marks it a voice turn, so the VOICE CHAT MODEL may answer the companion (a phone is unchanged)');
+    // voice-remote-channels-02: the per-reply engine pin (synthOne's { provider }) must reach the station voice, or a model
+    // that finishes loading mid-reply answers sentence 2 in another engine and the reply is cut short
+    const indexSrc = fs.readFileSync(require('path').join(__dirname, '../sidecar/index.js'), 'utf8');
+    A.ok(indexSrc.includes('synthesize: (text, o) => media.synthesizeStationVoice(text, o)'), 'the sidecar passes the per-reply engine pin through to the station voice');
   }
 
   A.report('remote-voice');
