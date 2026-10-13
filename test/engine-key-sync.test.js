@@ -180,7 +180,7 @@ function sandbox(opts) {
   A.ok(/writeScoped\(LS\.baseUrl, p, u \|\| ''\);[\s\S]{0,300}return syncEngineKey\(p\)\.then\(engine => \(\{ engine \}\)\);/.test(harness), 'an endpoint saved in the browser reaches the station, and resolves its answer');
   const station = read('frontend', 'app', 'stationui.js');
   A.ok(/function warnIfStationLacksKey\(res\) \{[\s\S]{0,200}e\.ok === false && e\.error\) notify\('⚠ ' \+ e\.error, 'warn', undefined, \{ key: 'engine-key' \}\)/.test(station), 'SETTINGS shows the station\'s refusal as a warning (one toast slot)');
-  A.eq((station.match(/warnIfStationLacksKey\(res\);/g) || []).length, 5, 'beside each key save (add, edit, inline), the backup pool and the endpoint editor');
+  A.eq((station.match(/warnIfStationLacksKey\(res\);/g) || []).length, 6, 'beside each key save (add, edit, inline), the backup pool, the endpoint editor and the CUSTOM endpoint add (GitHub #113)');
   A.ok(/Promise\.resolve\(h\.setKey\('', row\.provider\)\)\.then\(warnIfStationLacksKey\)/.test(station), 'after REMOVE');
   A.ok(/Promise\.resolve\(h\.setBaseUrl\('', 'custom'\)\)\.then\(warnIfStationLacksKey\)/.test(station), 'and after the keyless CUSTOM endpoint REMOVE');
   A.ok(/const count = \(res && typeof res === 'object'\) \? Number\(res\.count\) \|\| 0 : res;/.test(station), 'the backup-pool toast reads the count out of { count, engine }');

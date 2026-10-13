@@ -86,4 +86,9 @@ ok(!/while keeping your ChatGPT sign-in connected/.test(station), 'the add-key c
   ok(norm('https://x.example/v1') === 'https://x.example/v1' && norm('') === '' && norm('http://') === null, 'a full URL is kept, empty is empty, junk is refused');
 }
 
+// LOOKING IS NOT SWITCHING (live walkthrough 2026-10-13): one click on the unconfigured CUSTOM card made it the station's
+// brain and every later run failed. A card says whether it is set up; a click on one that is not opens its setup instead.
+ok(/data-configured="' \+ \(configured \? '1' : '0'\) \+ '"/.test(station), 'each provider card says whether it is set up');
+ok(/if \(card\.dataset\.configured === '0' && p !== activeProv\(\)\) \{[\s\S]{0,400}return;\s*\}\s*h\.setProv\(p\);/.test(station), 'a click on a provider that is not set up never switches the brain to it');
+
 console.log('provider-connections-ui.test.js OK -', n, 'assertions');

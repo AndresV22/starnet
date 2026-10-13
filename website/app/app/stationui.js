@@ -5566,7 +5566,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       const wantsClaudeInstall = p.id === 'claude-cli' && !!(claudeCliSt && !claudeCliSt.installed);
       const claudeFlowing = wantsClaudeSignin && !claudeCard.account && typeof ClaudeCliSignIn !== 'undefined' && ClaudeCliSignIn.active();
       const claudeBox = wantsClaudeSignin && (claudeFlowing || (claudeCard.failed && !!claudeCard.msg));
-      return '<div class="prov-card ' + cls + '" data-provider="' + esc(p.id) + '" role="group" aria-label="' + esc(p.name) + ' provider" style="--ci:' + pi + '">' +
+      return '<div class="prov-card ' + cls + '" data-provider="' + esc(p.id) + '" data-configured="' + (configured ? '1' : '0') + '" role="group" aria-label="' + esc(p.name) + ' provider" style="--ci:' + pi + '">' +
         '<button class="prov-select" data-act="prov-select" aria-label="Select ' + esc(p.name) + ' provider">' +
           providerLogoHtml(p.id) +
           '<span class="prov-main">' +
@@ -6044,6 +6044,17 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
         const h = H();
         const p = card.dataset.provider;
         if (!h || !p || !h.setProv) return;
+        /* LOOKING IS NOT SWITCHING (live walkthrough 2026-10-13): one click on the CUSTOM card — to see where its URL goes —
+           made an unconfigured endpoint the station's brain; every later run failed "the CUSTOM endpoint has no base URL"
+           while the model badge still read CLAUDE HAIKU 4.5. A provider that is not set up opens its own setup instead;
+           the brain only switches to one that can run. */
+        if (card.dataset.configured === '0' && p !== activeProv()) {
+          const ed = card.querySelector('.prov-key-edit');
+          if (ed) { ed.hidden = false; const f = ed.querySelector('input'); if (f) f.focus(); }
+          notify(provName(p) + ' is not set up yet — ' + (ed ? 'add it here first' : 'sign in on its card first') + '. Your agents stay on ' + provName(activeProv()) + '.', 'warn');
+          sfx('click');
+          return;
+        }
         h.setProv(p);
         // the station default (the Overseer's pin) follows the pick, so unpinned agents do too (#24 follow-up)
         if (typeof App !== 'undefined' && App.setStationProvider) App.setStationProvider(p);
