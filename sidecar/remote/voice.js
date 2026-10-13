@@ -10,12 +10,15 @@
 
    Audio up is raw Opus frames exactly as the device's encoder made them (mono, one frame per element). The
    station wraps them in an Ogg container here — pure JS, no codec — and hands that to the SAME decoder and STT
-   chain Telegram voice notes use. Audio down is whatever the voice engine produced (WAV from the local engine,
-   MP3 from the Edge floor); the device decodes both, so the station never transcodes.
+   chain Telegram voice notes use. Audio down: a WAV reply (the local engine, or a keyed WAV leg) is levelled for
+   the small speaker and re-encoded as IMA ADPCM (ADPCM_MIME, an 'SNA1' + rate stream). MP3 from the Edge floor is
+   passed through as it is.
 
    Laws:
      · One utterance and one reply per device at a time. A new utterance replaces an unfinished one; a new reply
-       replaces the old one. Nothing is written to disk and nothing outlives VOICE_TTL_MS.
+       replaces the old one. Nothing is written to disk and nothing is served after VOICE_TTL_MS. sweep() drops
+       expired audio; it runs on every voice verb, a revoke (forget) drops a device's audio at once, and sweep is
+       exported so the host can also run it on a timer for a device that never calls again.
      · Parts must arrive in order (0, 1, 2 …). A gap or a repeat is refused, never silently stitched.
      · Every size is capped: frames per utterance, bytes per frame, text per reply, bytes per chunk.
      · An utterance too short to be speech returns an empty transcript instead of reaching a paid STT leg. */
@@ -110,11 +113,10 @@ function opusFramesToOgg(frames, o) {
   return Buffer.concat(pages);
 }
 
-/* ---------- WAV for a small decoder and a small speaker ----------
-   The local voice engine writes 32-bit float WAV at normal speech loudness (peaks ~-3 dBFS, average ~-22 dBFS);
-   on a palm-sized speaker that is barely audible (2026-10-09, first live test). Returns a mono 16-bit WAV levelled
-   for a small speaker: average raised toward SPEAKER_RMS (at most MAX_GAIN), peaks above the knee bent smoothly
-   under full scale instead of clipping. null when the bytes are not a WAV this can read. */
+/* ---------- levelling for a small speaker ----------
+   The local engine writes 16-bit PCM WAV at speech level (decodeWavMono also reads 32-bit float). On a palm-sized
+   speaker that is still quiet (2026-10-09, first live test), so the average is raised toward SPEAKER_RMS (at most
+   MAX_GAIN) and peaks above the knee are bent smoothly under full scale instead of clipping. */
 const SPEAKER_RMS = 0.16;   // ~-16 dBFS average
 const MAX_GAIN = 3;         // never lift a near-silent take into hiss
 const KNEE = 0.7;
@@ -167,16 +169,15 @@ function levelToInt16(mono, gain) {
   }
   return out;
 }
+/* A test seam for the levelling the ADPCM path uses (the same decodeWavMono + speakerGain + levelToInt16): a WAV
+   in, a mono 16-bit WAV out, levelled for the small speaker. null when the bytes are not a WAV this can read. */
 function wavToPcm16(buf) {
   const w = decodeWavMono(buf);
   if (!w) return null;
-  const frames = w.samples.length, mono = w.samples, fmt = { rate: w.rate };
-  const gain = speakerGain(mono);
-  const out = Buffer.alloc(frames * 2);
-  for (let i = 0; i < frames; i++) {
-    const v = speakerLevel(mono[i], gain);
-    out.writeInt16LE(v < 0 ? Math.round(v * 32768) : Math.round(v * 32767), i * 2);
-  }
+  const fmt = { rate: w.rate };
+  const pcm = levelToInt16(w.samples, speakerGain(w.samples));
+  const out = Buffer.alloc(pcm.length * 2);
+  for (let i = 0; i < pcm.length; i++) out.writeInt16LE(pcm[i], i * 2);
   const h = Buffer.alloc(44);
   h.write('RIFF', 0, 'latin1'); h.writeUInt32LE(36 + out.length, 4); h.write('WAVE', 8, 'latin1');
   h.write('fmt ', 12, 'latin1'); h.writeUInt32LE(16, 16); h.writeUInt16LE(1, 20); h.writeUInt16LE(1, 22);
@@ -427,7 +428,7 @@ function makeRemoteVoice(deps) {
 
   function forget(deviceId) { utterances.delete(deviceId); replies.delete(deviceId); pendingReplies.delete(deviceId); }
 
-  return { hear, speak, speech, forget, _sizes: () => ({ utterances: utterances.size, replies: replies.size }) };
+  return { hear, speak, speech, forget, sweep, _sizes: () => ({ utterances: utterances.size, replies: replies.size }) };
 }
 
 module.exports = { makeRemoteVoice, opusFramesToOgg, oggCrc, wavToPcm16, decodeAdpcm, makeAdpcmEncoder, splitSentences, ADPCM_MIME, MAX_FRAMES, MAX_SPEECH_CHUNK, MAX_SPEAK_TEXT, VOICE_TTL_MS };

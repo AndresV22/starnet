@@ -201,6 +201,17 @@ function parsePages(buf) {
     t += VOICE_TTL_MS + 1;
     A.ok(!voice.speech('devA', { id: s3.data.id, offset: 0 }).ok, 'an unread reply expires');
 
+    // sweep() is exported for the host's timer: a device that never calls again does not keep its audio in memory
+    let tIdle = 1;
+    const idle = makeRemoteVoice({ now: () => tIdle, newId: () => 'i1', synthesize: async () => ({ ok: true, buf: Buffer.from([0xff, 0xfb, 0x90, 0x00]), mime: 'audio/mpeg', provider: 'edge' }) });
+    await idle.speak('devZ', { text: 'Hi.' });
+    await idle.hear('devZ', { utt: 'z1', part: 0, frames: [b64u(SILK_WB_60MS)] });
+    A.eq(idle._sizes(), { utterances: 1, replies: 1 }, 'an unfinished utterance and a reply are held');
+    tIdle += VOICE_TTL_MS + 1;
+    A.eq(typeof idle.sweep, 'function', 'sweep is exported');
+    idle.sweep();
+    A.eq(idle._sizes(), { utterances: 0, replies: 0 }, 'sweep alone drops expired audio, with no voice verb called');
+
     // a later sentence that fails ends the reply with what was said, and says why
     let n = 0;
     const flaky = makeRemoteVoice({ now: () => 1, newId: () => 'f1', synthesize: async () => (++n === 2 ? { ok: false, reason: 'engine crashed' } : { ok: true, buf: sentenceWav(n), mime: 'audio/wav' }) });
@@ -243,7 +254,7 @@ function parsePages(buf) {
     A.ok(numChunks.length === 2 && numChunks.every((c) => c.endsWith('.')) && numChunks.join(' ').includes('3.5 GB'), 'a long reply with a decimal is still cut only at sentence ends: ' + JSON.stringify(numChunks.map((c) => c.slice(-24))));
   }
 
-  /* ---------- 3b. WAV normalisation: what the local voice engine writes -> what a device decoder plays ---------- */
+  /* ---------- 3b. speaker levelling: wavToPcm16 is the test seam for the levelling the ADPCM path applies ---------- */
   {
     const rmsOf = (w) => { let e = 0; const n = (w.length - 44) / 2; for (let i = 0; i < n; i++) { const v = w.readInt16LE(44 + i * 2) / 32768; e += v * v; } return Math.sqrt(e / n); };
     const peakOf = (w) => { let p = 0; for (let i = 44; i < w.length; i += 2) p = Math.max(p, Math.abs(w.readInt16LE(i))); return p; };
