@@ -113,7 +113,9 @@ function makeVerdictReview(opts) {
         held.set(id, { at: r.at, packet: Object.assign({}, r.packet, { restored: true }), verdict: r.verdict,
           ...correctionParts(r.correction, r.correctionOriginalChars, r.correctionTruncated), correctionSource: String(r.correctionSource || ''),
           dueAt: r.reviewStatus === 'running' ? now() + retryMs : (Number.isFinite(r.dueAt) ? r.dueAt : now() + graceMs),
-          persistenceFailures: Math.max(0, Number(r.persistenceFailures) || 0), persistenceBlocked: r.persistenceBlocked === true,
+          // A held row on disk proves a later save succeeded, so a storage block never outlives the boot it happened
+          // in: fireHeld re-verifies durability before dispatch, and the retry bound applies again from zero.
+          persistenceFailures: 0, persistenceBlocked: false,
           attempts: Math.max(0, Number(r.attempts) || 0), status: r.reviewStatus === 'retry-exhausted' ? 'retry-exhausted' : 'pending', timer: null, fire: null });
       } else packets.set(id, { at: r.at, packet: Object.assign({}, r.packet, { restored: true }) });
       n++;

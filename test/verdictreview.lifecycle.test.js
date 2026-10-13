@@ -126,6 +126,25 @@ async function main() {
     assert.equal(lastRows.find(r => r.runId === 'lean0').packet.learningEvidence.correction.text, 'Use JSON. · Bullets only.', 'a later correction reaches the saved held row');
     assert.ok(lean.take('lean1', 'ok')); assert.equal(acks.at(-1), false, 'a take save is not acknowledged work');
   }
+  // A storage block is not carried into a fresh boot: a held row on disk proves a later save worked, so the
+  // restarted station reviews the run instead of leaving it parked until the TTL (skills-eval-19).
+  {
+    timers = []; let diskFull = false, launches = 0, saved = [];
+    const sick = makeVerdictReview({ ...opts, maxPersistenceAttempts: 3, onChange: rows => { if (diskFull) throw new Error('expected disk-full save failure'); saved = clone(rows); } });
+    sick.stash('sick', packet); sick.arm('sick', 'miss', () => { launches++; return true; });
+    diskFull = true;
+    for (let i = 0; i < 8; i++) { time += 5000; await runTimers(); }
+    assert.equal(launches, 0); assert.equal(sick.snapshot()[0].persistenceBlocked, true);
+    diskFull = false; sick.stash('later', packet);
+    assert.equal(saved.find(r => r.runId === 'sick').persistenceBlocked, true, 'a later save writes the blocked held row');
+    timers = [];
+    const rebooted = makeVerdictReview(opts);
+    assert.equal(rebooted.restore(saved), 2);
+    assert.equal(rebooted.resumeHeld(() => { launches++; return true; }), 1, 'the restored held review is scheduled');
+    time += 100; await runTimers();
+    assert.equal(launches, 1, 'the run is reviewed exactly once after the restart');
+    assert.equal(rebooted.holding('sick'), false);
+  }
   console.log('verdictreview.lifecycle: held snapshot/restart, remaining grace, late reversal, launcher retry/restart, bounded attempts, latest host correction PASS');
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });
