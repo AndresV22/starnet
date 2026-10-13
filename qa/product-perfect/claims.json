@@ -18,7 +18,7 @@
   "expectedClaimCount": 37,
   "releaseSurface": {
     "algorithm": "sha256",
-    "sourceCommit": "4baf4adafa77c1d1f89b5c37dca02991513104ff",
+    "sourceCommit": "53ea33cbcb20a3f72da7da86c9b2640cf32b4834",
     "pathSetSha256": "e4cf2ec7f6a313f096915edc1eea9291b5f6ab7782c1784d289af5ac2f76084d",
     "files": [
       {
@@ -343,8 +343,8 @@
       },
       {
         "path": "frontend/app/chat.js",
-        "bytes": 764535,
-        "sha256": "097dcf0fbba9befe16aef0327bb686bc1aaf7e8859a20af85b4d79598091c062"
+        "bytes": 770995,
+        "sha256": "66af7f0a39c3f4eb79429716a91c79e0fe9083b79a522b253d5be989567cf61e"
       },
       {
         "path": "frontend/app/chatresize.js",
@@ -433,8 +433,8 @@
       },
       {
         "path": "frontend/app/delegated.js",
-        "bytes": 40828,
-        "sha256": "ba4a77074f12d7c82f1dffa0539f19e77ed28703b8281ca2c665d038a063a7f3"
+        "bytes": 40970,
+        "sha256": "6e9ceb9723269f54185890fbc7a046ee0c1a7e530e376c00298164060fca1831"
       },
       {
         "path": "frontend/app/deliverables.js",
@@ -703,13 +703,13 @@
       },
       {
         "path": "frontend/app/navdock.js",
-        "bytes": 12779,
-        "sha256": "8f95a5862f957b5780beb70da2f833231393b0e03e3493da205b5f6d1fb2b7df"
+        "bytes": 13199,
+        "sha256": "ab3bd5c27f4a41dce44156efb2071fc84f0123e2b5f9a19f0cb115e6c515f5c2"
       },
       {
         "path": "frontend/app/needsyou.js",
-        "bytes": 16749,
-        "sha256": "f0e321c279a81796313f31730970562c2fa66bd08c616442b58d1ec1cd987926"
+        "bytes": 16754,
+        "sha256": "405474d781552ad6aafb7b93f882e991edf202df26c32357c4b4a9250f99710c"
       },
       {
         "path": "frontend/app/nightnudge.js",
@@ -1183,8 +1183,8 @@
       },
       {
         "path": "frontend/app/stationui.js",
-        "bytes": 879783,
-        "sha256": "d61d1229daf2122354fd6a31a83867684d4caeb66c24589dfb6beb25fd1bfc34"
+        "bytes": 883362,
+        "sha256": "b06450f6381eac85a521a53095e9638c551f90d2d5737c18c0c7ed8a0c4f765b"
       },
       {
         "path": "frontend/app/stepin.js",
@@ -1213,8 +1213,8 @@
       },
       {
         "path": "frontend/app/taskconversation.js",
-        "bytes": 5039,
-        "sha256": "a7868cceb4c4868c04f61b40226d61457367d6e8d39ec006ff171e3da2c62f1b"
+        "bytes": 5484,
+        "sha256": "a15ae5a25473701e80f370ace05b1e892cb2c53cb6b1a6efba7b5b84da0c28ca"
       },
       {
         "path": "frontend/app/terrain.js",
@@ -1538,8 +1538,8 @@
       },
       {
         "path": "frontend/css/beat-cards.css",
-        "bytes": 33032,
-        "sha256": "eefcb7e5887b2a60185419a20ccf52424db7bc377853434f75dc7211a1d91981"
+        "bytes": 34117,
+        "sha256": "a99289c56fcf03414d7affd837c1f6c40bbdc839a53ffd5ac1b8eb88e8142402"
       },
       {
         "path": "frontend/css/cabinet-clean.css",
