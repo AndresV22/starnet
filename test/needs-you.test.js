@@ -141,10 +141,11 @@ function fakeRail() {
     querySelector: sel => sel === '.ny-more' ? host.buttons.find(b => /\bny-more\b/.test(b.className)) || null : null,
     get innerHTML() { return this._h; },
     set innerHTML(h) {
+      if (this.buttons.includes(doc.activeElement)) doc.activeElement = null;   // a removed element loses focus to the page
       this._h = h; this.writes++;
       this.buttons = [...h.matchAll(/<button type="button" class="([^"]*)" data-ny-act="([^"]*)"([^>]*)>/g)].map(m => {
         const key = /data-ny-key="([^"]*)"/.exec(m[3]);
-        const b = { className: m[1], dataset: { nyAct: m[2], nyKey: key ? key[1] : undefined }, disabled: / disabled/.test(m[3]), focus() { doc.activeElement = b; } };
+        const b = { className: m[1], dataset: { nyAct: m[2], nyKey: key ? key[1] : undefined }, disabled: / disabled/.test(m[3]), focus() { if (!b.disabled) doc.activeElement = b; } };   // a disabled key cannot take focus
         return b;
       });
       this.rows = [...h.matchAll(/<li class="ny-item [^"]*" data-ny-key="([^"]*)">[\s\S]*?<span class="ny-age">([^<]*)<\/span>/g)].map(m => {
@@ -177,13 +178,23 @@ function fakeRail() {
   const click = b => host.listeners.click({ target: { closest: sel => sel === '[data-ny-act]' ? b : null }, preventDefault() {}, stopPropagation() {} });
   click(key('once', 'ask:p2'));
   A.ok(key('once', 'ask:p2').disabled && key('deny', 'ask:p2').disabled, 'Approve and Deny are disabled while the answer is in flight');
+  A.ok(doc.activeElement === key('open', 'ask:p2'), 'a keyboard answer keeps focus on that ask\'s row (its "in <where>" key), never drops it to the page');
   clock += 1000; pend.push({ wsId: 'proj', p: { promptId: 'p31', tool: 'fs.read', argsSummary: 'b.md', askedAt: NOW - 20000 } }); NY.render();
   A.ok(key('once', 'ask:p2').disabled && key('deny', 'ask:p2').disabled, 'and stay disabled when the list rebuilds meanwhile');
+  A.ok(doc.activeElement === key('open', 'ask:p2'), 'and focus stays on that row through the rebuild');
   click(key('once', 'ask:p2')); click({ dataset: { nyAct: 'deny', nyKey: 'ask:p2' } });
   A.eq(calls, 1, 'a second click on a settling ask sends no second answer');
   pend.splice(pend.findIndex(x => x.p.promptId === 'p2'), 1);
   settle(); await new Promise(r => setTimeout(r, 0));
   A.ok(!key('once', 'ask:p2') && !/ask:p2/.test(host.innerHTML), 'once answered, the ask leaves the list');
+  // an answer that fails: the keys come back, and so does the focus
+  let fail = null;
+  global.Chat.answerConsent = () => new Promise((_, no) => { fail = no; });
+  doc.activeElement = key('once', 'ask:p30');
+  click(key('once', 'ask:p30'));
+  A.ok(key('once', 'ask:p30').disabled && doc.activeElement === key('open', 'ask:p30'), 'a second ask in flight: its keys lock, focus waits on its row');
+  fail(new Error('the station is offline')); await new Promise(r => setTimeout(r, 0));
+  A.ok(!key('once', 'ask:p30').disabled && doc.activeElement === key('once', 'ask:p30'), 'the answer failed: Approve is back and so is the focus');
   global.Chat.answerConsent = answerConsent; Date.now = realNow; global.document = realDoc;
   pend.splice(pend.findIndex(x => x.p.promptId === 'p30'), 1); pend.splice(pend.findIndex(x => x.p.promptId === 'p31'), 1);
 })().then(() => A.report('needs-you.test'), e => { console.error(e); process.exit(1); });

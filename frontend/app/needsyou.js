@@ -20,6 +20,7 @@ const NeedsYou = (() => {
   const DISMISS_KEY = 'skynet.needs-dismissed';
   let expanded = false, wired = false, lastShape = '';
   const answering = new Set();          // promptIds whose answer is on its way: their keys stay disabled through re-renders
+  let parked = null;                    // { act, cls, key } of a focused key that went disabled: focus returns when it can
   const has = (o, k) => typeof o !== 'undefined' && o && typeof o[k] === 'function';
   const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
@@ -143,13 +144,23 @@ const NeedsYou = (() => {
     lastShape = shape;
     // a real rebuild: put focus back on the same key in the new list
     const f = typeof document !== 'undefined' && document.activeElement && host.contains(document.activeElement) ? document.activeElement : null;
-    const fAct = f && f.dataset ? f.dataset.nyAct : '', fKey = f && f.dataset ? f.dataset.nyKey : '', fCls = f ? f.className : '';
+    let fAct = f && f.dataset ? f.dataset.nyAct : '', fCls = f ? f.className : '';
+    const fKey = f && f.dataset ? f.dataset.nyKey : '';
+    // focus is on the stand-in for a key that was locked: aim for that key again (it is back when its answer failed)
+    if (f && parked && parked.key === fKey) { fAct = parked.act; fCls = parked.cls; }
+    parked = null;
     host.innerHTML = html(list, now);
     if (fAct) {
       // "in <where>" and Review/Open share an action: the class tells them apart
-      const same = Array.from(host.querySelectorAll('[data-ny-act]')).filter(n => n.dataset.nyAct === fAct && (fAct === 'more' || n.dataset.nyKey === fKey));
+      const keys = Array.from(host.querySelectorAll('[data-ny-act]'));
+      const same = keys.filter(n => n.dataset.nyAct === fAct && (fAct === 'more' || n.dataset.nyKey === fKey));
       const again = same.find(n => n.className === fCls) || same[0];
-      if (again && again.focus) again.focus({ preventScroll: true });
+      // a disabled key cannot hold focus (its answer is on the way): keep it on the same row's live key, else its
+      // "in <where>", so a keyboard Commander is never dropped to the page
+      const live = again && !again.disabled ? again
+        : fKey ? keys.find(n => n.dataset.nyKey === fKey && !n.disabled && /\bny-key\b/.test(n.className)) || keys.find(n => n.dataset.nyKey === fKey && !n.disabled) : null;
+      if (live && again && live !== again) parked = { act: fAct, cls: fCls, key: fKey };
+      if (live && live.focus) live.focus({ preventScroll: true });
     }
   }
   function open(i) {
@@ -168,7 +179,8 @@ const NeedsYou = (() => {
       // one answer per ask: a re-render while it is on its way keeps both keys disabled, and a second click sends nothing
       const promptId = String(i.p.promptId);
       if (answering.has(promptId)) return;
-      answering.add(promptId); if (btn) btn.disabled = true; render();
+      // render first, while the clicked key still holds focus (the rebuild moves it to the row), then lock the key in hand
+      answering.add(promptId); render(); if (btn) btn.disabled = true;
       try { await Chat.answerConsent(i.p, Workstreams.get(i.wsId), kind); }
       catch (e) { if (typeof StationUI !== 'undefined' && StationUI.notify) StationUI.notify('Could not send that answer: ' + ((e && e.message) || e), 'warn'); }
       finally { answering.delete(promptId); }
