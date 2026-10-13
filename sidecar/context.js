@@ -589,7 +589,9 @@
       const inProject = !!(project && r.projectRoot && projectKey(r.projectRoot) === project);
       const sameProject = inProject ? 0.5 : 0;   // this project's own lessons float up (memory-compound lane)
       const pinnedHere = r.pinned && (r.scope !== 'stream' || (streamId && r.streamId === streamId) || inProject);
-      const standing = isStandingMemory(r);
+      // standing:false — the host's withheld (guest / group) runs: the owner's standing preferences get no forced
+      // priority there and compete on relevance like any note (the owner-only boundary; review memory-learning-10)
+      const standing = rankOpts.standing !== false && isStandingMemory(r);
       const semantic = queryVec && r.id != null && vectors[r.id] ? Math.max(0, cosine(queryVec, vectors[r.id])) : 0;
       const score = relevance + SEMANTIC_WEIGHT * semantic + 0.5 * recency + 0.3 * trust - DISTRUST_WEIGHT * distrust + sameStream + sameProject + (pinnedHere ? 1000 : 0);
       const eligible = !(r.pinned && r.projectRoot) || inProject || (!project && streamId && r.streamId === streamId);

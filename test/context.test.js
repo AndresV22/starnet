@@ -439,6 +439,15 @@ A.ok(renderRecall([{ content: 'prefers reports', confirmation: 'user-confirmed' 
   A.ok(/\[52 more saved memories ranked lower\.\]/.test(imageOnly.text), 'a turn with no words does not claim the memories matched: ' + imageOnly.text.slice(-80));
   const tight = C.renderRecall(C.rank(notes, 'deploy', { now: 100 }), { limit: 40 });
   A.ok(/omitted to fit the prompt/.test(tight.text) && /notebook\.read/.test(tight.text), 'a budget cut keeps the notebook.read pointer: ' + tight.text.slice(-200));
+  // Review memory-learning-10: standing priority is the owner's. A guest (withheld) run passes standing:false and gets
+  // ordinary relevance-gated recall: a zero-relevance standing note is not force-injected into the guest's prompt.
+  const stand = { id: 'andy', kind: 'profile', scope: 'global', confirmation: 'user-stated', content: 'I prefer to be called Andy.', createdAt: 1 };
+  const own = C.rank([stand], 'what is the weather in Lisbon', { now: 100 });
+  A.eq(own.map(r => r.id), ['andy'], 'an owner run keeps its standing preference with no word overlap');
+  A.eq(own.recallMeta.priority.length, 1, 'and gives it the priority slot');
+  A.eq(C.rank([stand], 'what is the weather in Lisbon', { now: 100, standing: false }).length, 0, 'a withheld run drops a zero-relevance standing preference');
+  const asked = C.rank([stand], 'what should I call Andy', { now: 100, standing: false });
+  A.ok(asked.length === 1 && asked.recallMeta.priority.length === 0, 'a relevant one can still be recalled, as an ordinary note');
   const summarizer = C.compactionMemoryBlock(notes, 'deploy', { now: 100, limit: 60 });
   A.ok(summarizer.length > 0 && !/notebook\.read/.test(summarizer) && !/omitted|ranked lower/.test(summarizer), 'the tool-less summarizer gets no notice: ' + summarizer);
 }
