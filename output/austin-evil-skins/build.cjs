@@ -64,7 +64,7 @@ async function pack(file,dest,rot){
     if(walks[d].length!==6)throw Error('Expected six walk frames '+row.id+' '+d);
     const files=[];
     for(let i=0;i<walks[d].length;i++){
-     const name='walk_'+d+'_'+i+'.png',frame=await download(walks[d][i],path.join(cache,(d==='south'&&animations(row.detail,'starnet-walk-front')[d]?'front_':'')+name));
+     const name='walk_'+d+'_'+i+'.png',frame=await download(walks[d][i],path.join(cache,(animations(row.detail,'starnet-walk-front')[d]?'front_':'')+name));
      await pack(frame,path.join(dir,name),anchor);files.push(set+'/'+name);
     }
     sprites[set+'.walk.'+d]=files;stats.walkDirections++;
@@ -83,6 +83,11 @@ async function pack(file,dest,rot){
    }
   }
   report.push(stats);
+  const repairs=fs.existsSync(path.join(out,'master-repairs.json'))?read('output/austin-evil-skins/master-repairs.json'):[];
+  for(const repair of repairs.filter(r=>r.skin===row.id)){
+   const fixed=await download(repair.url,path.join(cache,'repaired_'+repair.file));
+   fs.copyFileSync(fixed,path.join(dir,repair.file));
+  }
   const contact=[];
   for(let rowIndex=0;rowIndex<8;rowIndex++)for(let c=0;c<DIRS.length;c++){
    const d=DIRS[c],name=rowIndex===0?'rot_'+d+'.png':rowIndex===7?'sit_'+d+'.png':'walk_'+d+'_'+(rowIndex-1)+'.png';

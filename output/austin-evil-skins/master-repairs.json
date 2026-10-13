@@ -1,0 +1,23 @@
+[
+  {
+    "skin": "drevil",
+    "file": "type_north_0.png",
+    "url": "https://api.pixellab.ai/mcp/pixel-tools/03a67596-d42a-4692-b4c6-d0cebcde4a20/image.png",
+    "reason": "Remove reviewed detached bright flecks only; PixelLab exact-pixel edit.",
+    "receipt": "image_id: 03a67596-d42a-4692-b4c6-d0cebcde4a20\ncanvas: 144x144, 1 frame(s)\n1. copy_region: 4 px changed\nsheet rows: frames [1]\npalette (1127): #c5d6d9ff x129, #00000001 x49, #c4d5d8ff x30, #00000002 x29, #00000007 x21, #c8d9dcff x21, #00000005 x20, #c3d4d7ff x20, #c6d7daff x18, #00000003 x16, #c7d8dbff x14, #00000004 x14, #b6c7cbff x12, #abbec3ff x11, #00000006 x11, #ffffff01 x11, … +1111 more\ndownload https://api.pixellab.ai/mcp/pixel-tools/03a67596-d42a-4692-b4c6-d0cebcde4a20/: image.png, frames.png\nnext: edit 03a67596-d42a-4692-b4c6-d0cebcde4a20 --changes […]"
+  },
+  {
+    "skin": "drevil",
+    "file": "type_north_1.png",
+    "url": "https://api.pixellab.ai/mcp/pixel-tools/32b0bb27-78fa-4f37-a6d3-fd68f1a73113/image.png",
+    "reason": "Remove reviewed detached bright flecks only; PixelLab exact-pixel edit.",
+    "receipt": "image_id: 32b0bb27-78fa-4f37-a6d3-fd68f1a73113\ncanvas: 144x144, 1 frame(s)\n1. copy_region: 4 px changed\n2. copy_region: 2 px changed\nsheet rows: frames [1]\npalette (1103): #c5d6d9ff x129, #00000001 x44, #c4d5d8ff x30, #00000002 x26, #00000007 x21, #c8d9dcff x21, #00000005 x21, #c6d7daff x20, #00000004 x19, #00000003 x18, #c3d4d7ff x18, #c7d8dbff x15, #00000006 x13, #00000011 x12, #b6c7cbff x12, #abbec3ff x11, … +1087 more\ndownload https://api.pixellab.ai/mcp/pixel-tools/32b0bb27-78fa-4f37-a6d3-fd68f1a73113/: image.png, frames.png\nnext: edit 32b0bb27-78fa-4f37-a6d3-fd68f1a73113 --changes […]"
+  },
+  {
+    "skin": "drevil",
+    "file": "type_north_2.png",
+    "url": "https://api.pixellab.ai/mcp/pixel-tools/2f0ac227-0fba-4e04-956f-b516e25d4c31/image.png",
+    "reason": "Remove reviewed detached bright flecks only; PixelLab exact-pixel edit.",
+    "receipt": "image_id: 2f0ac227-0fba-4e04-956f-b516e25d4c31\ncanvas: 144x144, 1 frame(s)\n1. copy_region: 4 px changed\n2. copy_region: 2 px changed\nsheet rows: frames [1]\npalette (1101): #c5d6d9ff x126, #00000001 x44, #c4d5d8ff x31, #00000005 x25, #c6d7daff x23, #00000007 x22, #c8d9dcff x21, #00000004 x20, #c3d4d7ff x19, #00000003 x18, #00000002 x18, #c7d8dbff x13, #b6c7cbff x12, #abbec3ff x11, #000000ff x11, #00000006 x10, … +1085 more\ndownload https://api.pixellab.ai/mcp/pixel-tools/2f0ac227-0fba-4e04-956f-b516e25d4c31/: image.png, frames.png\nnext: edit 2f0ac227-0fba-4e04-956f-b516e25d4c31 --changes […]"
+  }
+]
