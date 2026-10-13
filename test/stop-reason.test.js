@@ -91,6 +91,9 @@ A.ok(/outside this chat/.test(Friendly.stopLine('cancelled')) && /E-STOP/.test(F
 A.ok(/E-STOP this run pressed/.test(Friendly.stopLine('cancelled', { cancelSource: 'estop_by_run' })), 'COMMS: the run\'s own E-STOP keeps its line');
 A.eq(Friendly.stopLine('done'), '', 'COMMS: a clean end has no stop line');
 A.ok(/Friendly\.stopLine\(endReason/.test(chat), 'COMMS routes its stop lines through Friendly.stopLine');
+// threads-backend-03: the stop line hears how many tool calls this run made, so an "empty" end after real steps is
+// never told "nothing was done" (callNames is the run's own callId -> tool map that onToolCall fills)
+A.ok(/Friendly\.stopLine\(endReason, \{[^}]*toolsRan: Object\.keys\(callNames\)\.length/.test(chat), 'COMMS passes the run\'s tool-call count to its stop line');
 A.ok(/stopActive\('esc'\)/.test(chat) && /■ STOPPED BY YOU \(ESC\)/.test(chat), 'Esc stops say STOPPED BY YOU (ESC) on the card');
 
 // the ⚠ row keeps the real reason (unknown verdicts carry their raw text) …

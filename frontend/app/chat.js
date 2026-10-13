@@ -9873,7 +9873,8 @@ const Chat = (() => {
           const stoppedBy = (endReason === 'cancelled' && interrupted.has(ws.id)) ? (stopSource.get(ws.id) || 'you') : null;
           const stopLine = endReason === 'budget' ? budgetStopLine(budgetScope, budgetCapUsd, budgetCapIsBalance, unpriced, subscription)
             : stoppedBy ? stoppedByLine(stoppedBy)
-            : (typeof Friendly !== 'undefined' && Friendly.stopLine) ? Friendly.stopLine(endReason, { cancelSource: runPressedEstop ? 'estop_by_run' : '' })
+            // toolsRan: this run's tool calls (callNames), so an empty end after real steps never reads "nothing was done"
+            : (typeof Friendly !== 'undefined' && Friendly.stopLine) ? Friendly.stopLine(endReason, { cancelSource: runPressedEstop ? 'estop_by_run' : '', toolsRan: Object.keys(callNames).length })
             : 'stopped (' + endReason + ')';
           // the card already says STOPPED BY YOU — the work log only repeats a reason the card can't carry
           if (isActiveWs(ws)) { breakLive(); if (stopLine && !stoppedBy) toolLine('⏹ ' + stopLine); }
