@@ -1767,12 +1767,16 @@ function evaluationSuitesFor(agentId, skill) {
   const custom = (skillEvaluationData.suites || []).filter(s => s.agentId === agentId && s.skillId === skill.id).map(s => s.suite);
   return [SkillEvaluationRunner.createArtifactWorkflowSuite(skill.name), SkillEvaluationRunner.createTaskHandoffSuite(skill.name)].concat(custom);
 }
+// The evaluator a receipt is bound to: approve re-checks the receipt's runnerDigest against this identity.
+function evaluationRunnerIdentity(cfg) {
+  return { provider: normalizeProvider(cfg && cfg.provider), model: String(cfg && cfg.model || 'unconfigured'), reasoningEffort: String(cfg && cfg.reasoningEffort || ''),
+    endpoint: crypto.createHash('sha256').update(String(cfg && cfg.baseUrl || '')).digest('hex'), implementation: 'isolated-agent-loop-v1' };
+}
 function evaluationServiceFor(agentId, skill, cfg, runCase) {
   const providerId = normalizeProvider(cfg && cfg.provider);
   return SkillEvaluation.makeSkillEvaluator({ suites: evaluationSuitesFor(agentId, skill), io: skillEvaluationIo, clock: () => Date.now(),
     evidenceClass: providerId === 'replay' ? 'fixture' : 'provider',
-    runnerIdentity: { provider: providerId, model: String(cfg && cfg.model || 'unconfigured'), reasoningEffort: String(cfg && cfg.reasoningEffort || ''),
-      endpoint: crypto.createHash('sha256').update(String(cfg && cfg.baseUrl || '')).digest('hex'), implementation: 'isolated-agent-loop-v1' },
+    runnerIdentity: evaluationRunnerIdentity(cfg),
     runCase: runCase || (async () => { throw new Error('evaluation runner was not configured'); }) });
 }
 function verifySkillPromotion(receipt, expected) {
@@ -18687,17 +18691,28 @@ function serveSkillCandidates(req, res) {
     const u = new URL(req.url, 'http://localhost'), agentId = String(u.searchParams.get('agent') || 'agent');
     if (!isAgentId(agentId)) return learningJson(res, 403, { ok: false, error: 'forbidden' });
     const id = String(u.searchParams.get('candidateId') || u.searchParams.get('id') || '');
-    /* latestEvaluation: the newest stored receipt for exactly this proposal and this active version, the whole row (the
-       page reads its cases for a tie or a spend stop), so a panel reload no longer throws away a paid result. Read-only:
-       approve-candidate still re-verifies the receipt by id (verifySkillPromotion), so nothing here grants trust. */
+    /* latestEvaluation: a stored receipt for exactly this proposal and this active version, the whole row (the page
+       reads its cases for a tie or a spend stop), so a panel reload no longer throws away a paid result. Only a receipt
+       the agent's CURRENT evaluator made counts: approve re-checks runnerDigest, so one from a previous model would offer
+       an Approve that refuses. The newest receipt approval can accept (passed, or a complete tie) leads, else the newest,
+       so a later failing run of a generic suite does not hide a passing one. Read-only: approve-candidate still
+       re-verifies the receipt by id (verifySkillPromotion), so nothing here grants trust. */
     const receipts = skillEvaluationIo.get('skill-evaluation-receipts');
+    const runCfg = sampleRunConfigFor(agentId);
+    // digestTestSet is the evaluator's one canonical digest; its runnerDigest is that digest of the runner identity
+    const runnerDigest = (runCfg && runCfg.ok !== false && runCfg.model) ? SkillEvaluation.digestTestSet(evaluationRunnerIdentity(runCfg)) : '';
+    const approvable = r => r.status === 'passed' || (r.status === 'insufficient_evidence' && r.allCandidatePassed === true && !(r.regressions || []).length &&
+      Array.isArray(r.cases) && r.cases.every(x => x && x.before && x.after && x.before.completed === true && x.after.completed === true));
     const latestFor = c => {
-      if (!Array.isArray(receipts) || !c) return null;
+      if (!Array.isArray(receipts) || !c || !runnerDigest) return null;
+      let newest = null;
       for (let i = receipts.length - 1; i >= 0; i--) {
         const r = receipts[i];
-        if (r && r.receiptId && r.candidateDigest === c.candidateDigest && r.baselineDigest === c.baseDigest) return r;
+        if (!r || !r.receiptId || r.candidateDigest !== c.candidateDigest || r.baselineDigest !== c.baseDigest || r.runnerDigest !== runnerDigest) continue;
+        if (approvable(r)) return r;
+        if (!newest) newest = r;
       }
-      return null;
+      return newest;
     };
     if (id) {
       const candidate = skillStore.candidate(agentId, id);

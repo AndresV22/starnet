@@ -179,6 +179,19 @@ const server = http.createServer((req, res) => {
       assert.equal(single.candidate.latestEvaluation && single.candidate.latestEvaluation.receiptId, receipt.receiptId, 'and so does the single read');
       const other = (await candidates()).find(c => c.candidateId === seeded.fresh.candidateId);
       assert.equal(other.latestEvaluation, null, 'a proposal never evaluated carries none');
+      // a later run of a generic suite that fails does not hide the passing receipt approval can still accept
+      const generic = await action('evaluate-candidate', candidate, { suiteId: 'task-handoff:' + NAME });
+      assert.equal(generic.receipt.status, 'failed', JSON.stringify(generic.receipt).slice(0, 400));
+      const relisted = (await candidates()).find(c => c.candidateId === candidate.candidateId);
+      assert.equal(relisted.latestEvaluation && relisted.latestEvaluation.receiptId, receipt.receiptId, 'the passing owner-suite receipt still leads');
+      // a receipt made under another model is not offered: approve re-checks the evaluator and would refuse it
+      try {
+        await fixture.restart({ STARNET_DEFAULT_MODEL: 'lifecycle/other-model', SKYNET_DEFAULT_MODEL: 'lifecycle/other-model' });
+        const otherModel = (await candidates()).find(c => c.candidateId === candidate.candidateId);
+        assert.equal(otherModel.latestEvaluation, null, 'no receipt from the previous model is offered');
+      } finally { await fixture.restart(); }
+      const back = (await candidates()).find(c => c.candidateId === candidate.candidateId);
+      assert.equal(back.latestEvaluation && back.latestEvaluation.receiptId, receipt.receiptId, 'back on the evaluated model, the receipt is offered again');
     });
     assert.equal(receipt.cases.length, 2);
     assert.ok(receipt.cases.every(c => c.before.completed && c.after.pass));
