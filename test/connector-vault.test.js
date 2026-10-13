@@ -286,6 +286,7 @@ try {
     assert.doesNotMatch(msg, /damaged|START FRESH/, 'it is not called damaged and does not steer to START FRESH');
     { const v = make({ fs: heldFs('EPERM') }); assert.throws(() => v.load(f), /locked/); assert.equal(v.lockReason, 'busy', 'EPERM (Windows sharing/access denial) is busy too'); }
     { const v = make({ fs: heldFs('EIO') }); assert.throws(() => v.load(f), /locked/); assert.equal(v.lockReason, 'unreadable', 'a disk I/O error stays unreadable'); }
+    { const v = make({ fs: heldFs('EACCES') }); assert.throws(() => v.load(f), /locked/); assert.equal(v.lockReason, 'unreadable', 'POSIX EACCES is not a passing hold (the credential-recovery fault hosts rely on it)'); }
     assert.deepEqual(make().load(f), state, 'once the file is free the same store opens');
   }
   // security-storage-04: an interrupted reset says so, names the folder, and START FRESH finishes it.

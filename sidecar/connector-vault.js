@@ -12,7 +12,9 @@ const UNAVAILABLE = 'Connector credentials are locked. Restart StarNet with the 
 // 'busy': the file was there but could not be read right now (antivirus, backup or sync holding it); a restart
 // is the fix, and START FRESH would only set a good store aside.
 const LOCK_REASONS = ['key-unavailable', 'key-mismatch', 'unreadable', 'reset-interrupted', 'busy'];
-const BUSY_READ_CODES = ['EBUSY', 'EPERM', 'EACCES', 'EAGAIN'];
+// Windows reports a sharing violation as EBUSY and a held/denied handle as EPERM. Other errors (EIO, POSIX EACCES)
+// are not a passing hold, so they stay 'unreadable'.
+const BUSY_READ_CODES = ['EBUSY', 'EPERM'];
 // detail (optional, from vault.lockDetail): { movedTo } for an interrupted reset, { readCode } for a busy file.
 function lockMessage(reason, keyError = '', detail = {}) {
   const why = String(keyError || '').trim().slice(0, 240);
