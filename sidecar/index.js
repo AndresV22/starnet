@@ -21906,7 +21906,7 @@ async function runOnceCore(o) {
     // line a Build Manager handed "rebuild the lab" has deferred tools it never searches for, and says it cannot build.
     const lender = String((agentRoster.get(o.delegatedBy) || {}).name || o.delegatedBy);
     teamNote = '\n\n[STATION BUILDER — lent by ' + lender + ' for this job] You can change the station floor: tool_search "station builder" '
-      + 'for station.map (see it), station.plan (plan on a copy) and station.build (build a plan; the Commander approves each build). '
+      + 'for station.map (see it), station.plan (plan on a copy) and station.build (build a plan; per your lead\'s approval setting). '
       + 'Claim only what station.build reports. Recruiting new crew, binding connector portals or plugin terminals, making new props, '
       + 'and testing or starting lines stay with ' + lender + ': name what is needed in your result instead.';
   }
