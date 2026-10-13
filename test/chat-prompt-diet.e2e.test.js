@@ -18,6 +18,7 @@ const os = require('os');
 const path = require('path');
 const { spawn } = require('child_process');
 const { bootToken } = require('./_httpToken.js');
+const { runContextOf, userWords } = require('./helpers/host-notes.js');
 
 const HOST = '127.0.0.1';
 const INDEX = path.resolve(__dirname, '..', 'sidecar', 'index.js');
@@ -37,8 +38,8 @@ function startMockOpenRouter() {
           const request = JSON.parse(body);
           requests.push(request);
           const latestUser = (request.messages || []).filter(m => m.role === 'user').at(-1);
-          const cappedChat = latestUser && latestUser.content === 'hello cap regression';
-          const cappedTask = latestUser && latestUser.content === 'write cap regression'
+          const cappedChat = latestUser && userWords(latestUser) === 'hello cap regression';
+          const cappedTask = latestUser && userWords(latestUser) === 'write cap regression'
             && !(request.messages || []).some(m => String(m.content).includes('<output_continuation>'));
           res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache' });
           res.write('data: ' + JSON.stringify({ choices: [{ delta: { content: 'ok' } }] }) + '\n\n');
@@ -100,11 +101,10 @@ function boot(port, env, attemptsLeft) {
       // the run's own request is the longest system prompt in the window (aux passes are shorter or absent)
       const system = systems.sort((a, b) => b.length - a.length)[0] || '';
       const tools = reqs.map(q => (q && Array.isArray(q.tools)) ? q.tools.length : 0);
-      // the per-run <run_context> note (lean-prompt 2026-10-12) of that same request: the system message just before its newest user turn
+      // the per-run <run_context> note (lean-prompt 2026-10-12) of that same request: on this non-Claude chat wire, the fenced
+      // leading text of its newest user turn (provider.js userSideHostNotes)
       const main = reqs.find(q => (((q || {}).messages || [])[0] || {}).content === system) || { messages: [] };
-      const lastUser = main.messages.map(m => m.role).lastIndexOf('user');
-      const before = main.messages[lastUser - 1];
-      const note = before && before.role === 'system' && String(before.content).indexOf('<run_context>') === 0 ? String(before.content) : '';
+      const note = runContextOf(main.messages);
       return { system, note, events, requests: reqs, tools: Math.max.apply(null, tools.concat([0])) };
     };
 

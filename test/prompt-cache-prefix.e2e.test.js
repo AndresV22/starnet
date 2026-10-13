@@ -3,6 +3,7 @@
 const assert = require('node:assert/strict');
 const http = require('node:http');
 const { SidecarFixture } = require('./helpers/sidecar-fixture.js');
+const { runContextOf } = require('./helpers/host-notes.js');
 const text = content => typeof content === 'string' ? content : (content || []).map(p => p.text || '').join('');
 (async () => {
   const bodies = [];
@@ -41,10 +42,10 @@ const text = content => typeof content === 'string' ? content : (content || []).
          conversation's two messages (the second request replays the first exchange from the transcript). */
       const systemOf=body=>body.system ? text(body.system) : text(body.messages[0].content);
       const lastUser=body=>{for(let i=body.messages.length-1;i>=0;i--) if(body.messages[i].role==='user') return i; return -1;};
-      const noteOf=body=>{ // native Anthropic: inside the newest user turn; chat wires: the message right before it
+      const noteOf=body=>{ // native Anthropic: inside the newest user turn; Claude on a chat wire: the user message before it; any other model: the newest user message's leading text
         const i=lastUser(body);
         if(body.system) return (body.messages[i].content.find(p=>String(p.text||'').startsWith('<run_context>'))||{}).text||'';
-        const m=body.messages[i-1]; return m && text(m.content).startsWith('<run_context>') ? text(m.content) : '';
+        return runContextOf(body.messages);
       };
       for(const body of bodies) {
         const sys=systemOf(body), note=noteOf(body);
@@ -70,6 +71,7 @@ const text = content => typeof content === 'string' ? content : (content || []).
       } else {
         assert.deepEqual(a.messages[0],b.messages[0],'custom: the system message is BYTE-IDENTICAL across the two messages');
         assert.equal(typeof a.messages[0].content,'string','generic provider keeps string system prompt');
+        for(const body of bodies) assert.equal(body.messages.filter(m=>m.role==='system').length,1,'custom: exactly ONE system message (the notes ride the newest user turn)');
         assert.ok(!JSON.stringify(a).includes('cacheSystemPrefix'),'internal cache hint does not leak to wire');
       }
     }

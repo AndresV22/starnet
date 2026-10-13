@@ -6,6 +6,7 @@
 'use strict';
 
 const A = require('./_assert.js');
+const { hostText } = require('./helpers/host-notes.js');
 const http = require('http');
 const path = require('path');
 const os = require('os');
@@ -19,8 +20,8 @@ const INDEX = path.resolve(__dirname, '..', 'sidecar', 'index.js');
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
 function agentIdFrom(messages) {
-  // [RUNTIME] (Agent id) rides the per-run <run_context> system note since lean-prompt (2026-10-12), not messages[0]
-  const sys = (messages || []).filter(m => m && m.role === 'system').map(m => String(m.content || '')).join('\n');
+  // [RUNTIME] (Agent id) rides the per-run <run_context> note since lean-prompt (2026-10-12), not messages[0] (user-side on this chat wire)
+  const sys = hostText(messages || []);
   const m = sys.match(/Agent id:\s*([^\n]+)/);
   return m ? m[1].trim() : '';
 }

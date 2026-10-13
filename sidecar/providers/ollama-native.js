@@ -20,9 +20,9 @@
      showFacts(json)                      /api/show -> { contextLength, supportsTools, supportsReasoning } */
 'use strict';
 (function (root, factory) {
-  if (typeof module !== 'undefined' && module.exports) module.exports = factory();
-  else { root.SK = root.SK || {}; root.SK.providers = root.SK.providers || {}; root.SK.providers.ollamaNative = factory(); }
-})(typeof globalThis !== 'undefined' ? globalThis : this, function () {
+  if (typeof module !== 'undefined' && module.exports) module.exports = factory(require('./provider.js'));
+  else { root.SK = root.SK || {}; root.SK.providers = root.SK.providers || {}; root.SK.providers.ollamaNative = factory(root.SK.providers.provider); }
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (provider) {
   'use strict';
 
   // Window sizes Ollama is asked for. A LADDER, not the exact need: every distinct num_ctx forces Ollama to reload
@@ -49,8 +49,14 @@
   // policy to a user turn, or promote user/tool content into policy. Non-system turns (including
   // tool-call/result pairs) keep their order and identity; the durable transcript is not mutated.
   // This is applied by the adapter before sizing/sending, including its compatible-wire fallback.
+  // HOST NOTES (lean-prompt review, 2026-10-12): the per-run <run_context> note, <recalled-memory> and the
+  // <conversation_summary> are NOT merged into that slot — they change on every message, and merging them made system[0]
+  // differ per message (no prefix reuse). They become the fenced leading text of the newest user message instead
+  // (provider.userSideHostNotes, the same projection every generic Chat Completions route gets), so system[0] stays
+  // byte-stable across a conversation's messages.
   function leadingSystemMessages(messages) {
     if (!Array.isArray(messages)) return messages;
+    if (provider && typeof provider.userSideHostNotes === 'function') messages = provider.userSideHostNotes(messages);
     const systems = messages.filter(m => m && m.role === 'system');
     if (!systems.length || (systems.length === 1 && messages[0] === systems[0])) return messages;
     let content;

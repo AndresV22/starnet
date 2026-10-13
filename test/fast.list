@@ -98,6 +98,7 @@ test/provider.openrouter.test.js
 test/provider.openai-compatible.test.js
 test/provider.ollama-native.test.js
 test/provider.ollama-system.test.js
+test/provider.host-notes.test.js
 test/realtime-voice.test.js
 test/native-stt.test.js
 test/local-voice.test.js

@@ -14,6 +14,7 @@
 const A = require('./_assert.js');
 const http = require('node:http');
 const { SidecarFixture } = require('./helpers/sidecar-fixture.js');
+const { hostNotes, runContextOf, userWords } = require('./helpers/host-notes.js');
 
 const HOST = '127.0.0.1';
 const MARK = 'LEAN_PROMPT_PROBE';
@@ -21,8 +22,8 @@ const FLOOR = ['cabinet', 'dish', 'notebook', 'studio', 'workbench'].map(objectT
 const CREW_KIT = ['team_dispatch', 'team_spawn', 'team_subagents', 'team_steer', 'team_interrupt', 'team_resume', 'team_config', 'team_configure'];
 
 const text = c => typeof c === 'string' ? c : (Array.isArray(c) ? c.map(p => (p && p.text) || '').join('') : '');
-// THE system prompt: the first message. (On a conversation's first message the run-context note is a second LEADING
-// system message for a non-Claude chat wire; it is still its own message, so the prompt prefix ends before it.)
+// THE system prompt: the first message. On this non-Claude chat wire it is the ONLY system message: the run-context note
+// is the fenced leading text of the newest user message (provider.js userSideHostNotes — strict chat templates).
 const leadingSystem = body => { const m = (body.messages || [])[0]; return m && m.role === 'system' ? text(m.content) : ''; };
 const toolNames = body => (body.tools || []).map(t => t.function.name);
 const lastUserIdx = body => { const m = body.messages || []; for (let i = m.length - 1; i >= 0; i--) if (m[i].role === 'user') return i; return -1; };
@@ -36,7 +37,7 @@ function startUpstream() {
     const main = leadingSystem(body).indexOf(MARK) >= 0 && Array.isArray(body.tools) && body.tools.length > 0;
     if (main) bodies.push(body);
     const msgs = body.messages || [];
-    const ask = text((msgs[lastUserIdx(body)] || {}).content);
+    const ask = userWords(msgs[lastUserIdx(body)] || {});
     const answered = msgs.slice(lastUserIdx(body) + 1).some(m => m.role === 'tool');
     let call = null;
     if (main && !answered && /^SEARCH/.test(ask)) call = { name: 'tool_search', args: { query: /dossier/i.test(ask) ? 'agent dossier' : 'delegate subtasks' } };
@@ -123,12 +124,13 @@ async function run(fixture, up, stream, messages) {
     for (const b of [b1, b2]) {
       const li = lastUserIdx(b);
       A.eq(li, b.messages.length - 1, 'the request ends on the user turn');
-      const note = b.messages[li - 1];
-      A.ok(note && note.role === 'system' && text(note.content).indexOf('<run_context>') === 0, 'the <run_context> note sits right before the newest user message');
-      A.ok(/Run id: \S+/.test(text(note.content)) && text(note.content).indexOf('[RUNTIME]') >= 0, 'the note carries the runtime identity');
-      A.eq(b.messages.filter(m => text(m.content).indexOf('<run_context>') === 0).length, 1, 'exactly one run-context note (history carries none)');
+      A.eq(b.messages.filter(m => m.role === 'system').length, 1, 'exactly ONE system message on this chat wire (strict templates refuse a later one)');
+      A.ok(text(b.messages[li].content).indexOf('<run_context>') === 0, 'the <run_context> note is the fenced leading text of the newest user message');
+      const note = runContextOf(b.messages);
+      A.ok(/Run id: \S+/.test(note) && note.indexOf('[RUNTIME]') >= 0, 'the note carries the runtime identity');
+      A.eq(hostNotes(b.messages, 'run_context').length, 1, 'exactly one run-context note (history carries none)');
     }
-    A.ok(text(b1.messages[lastUserIdx(b1) - 1].content) !== text(b2.messages[lastUserIdx(b2) - 1].content), 'each message gets its own run context');
+    A.ok(runContextOf(b1.messages) !== runContextOf(b2.messages), 'each message gets its own run context');
     A.eq(text(b2.messages[1].content), 'tell me a joke', 'message 2 replays the history right after the system prompt (cacheable prefix)');
     A.eq(JSON.stringify(b2.messages[0]), JSON.stringify(b1.messages[0]), 'message 2\'s first message (the system prompt) is the same bytes message 1 sent');
 
@@ -173,7 +175,7 @@ async function run(fixture, up, stream, messages) {
     A.ok(leadingSystem(o1).indexOf('You have no crew yet') < 0 && leadingSystem(o1).indexOf('SPAWN temporary') >= 0, 'STARNET_LEAN_CREW=0: the full briefing');
     A.ok(leadingSystem(o1).indexOf('Run id:') >= 0, 'STARNET_STABLE_PREFIX=0: the runtime block is back in the system prompt');
     A.ok(leadingSystem(o1) !== leadingSystem(o2), 'STARNET_STABLE_PREFIX=0: the system prompt differs per message again (the old behaviour)');
-    A.ok(!o1.messages.some(m => text(m.content).indexOf('<run_context>') === 0), 'STARNET_STABLE_PREFIX=0: no run-context note');
+    A.eq(hostNotes(o1.messages, 'run_context').length, 0, 'STARNET_STABLE_PREFIX=0: no run-context note');
   } finally {
     await fixture.dispose();
     await new Promise(r => up.server.close(r));

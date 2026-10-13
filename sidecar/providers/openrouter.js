@@ -131,7 +131,9 @@
 
   const repairToolPairs = provider.repairToolPairs;
 
-  const preserveClaudeContinuations = provider.preserveClaudeContinuations;
+  // A Claude model keeps its continuation placement; every other upstream gets the host notes user-side (provider.js
+  // chatRoleProjection — strict upstream chat templates refuse a system message after index 0).
+  const chatRoleProjection = provider.chatRoleProjection;
 
   function normalizeReasoningEffort(value) {
     const key = String(value || 'medium').trim().toLowerCase().replace(/[\s_-]+/g, '');
@@ -235,7 +237,7 @@
       // Strict upstreams behind OpenRouter must never see StarNet's own bookkeeping keys on a message (ts, streamId,
       // agentId, sourceRunId, error, stopped, attachments) — only Chat Completions message keys leave, projected
       // BEFORE applyCacheControl so its cache_control anchors are stamped inside the content parts of clean copies.
-      const body = { model: req.model, messages: applyCacheControl(provider.chatWireMessages(preserveClaudeContinuations(provider.prepareWireMessages(req.messages, 'chat'), req.model)), req.model, req.cacheSystemPrefix), stream: true, usage: { include: true } };
+      const body = { model: req.model, messages: applyCacheControl(provider.chatWireMessages(chatRoleProjection(provider.prepareWireMessages(req.messages, 'chat'), req.model)), req.model, req.cacheSystemPrefix), stream: true, usage: { include: true } };
       if (effort !== 'none' || allowed.length > 1) body.reasoning = { effort };
       if (req.tools && req.tools.length) {
         // Grammar-safe property keys on every tool (OpenRouter fronts Anthropic/Bedrock, which 400 the whole request

@@ -5,6 +5,7 @@
    deltas, a reconciled agent.cost, and exactly one agent.run.end{reason:'done'} — no real key, no network. */
 'use strict';
 const A = require('./_assert.js');
+const { runContextOf } = require('./helpers/host-notes.js');
 const http = require('http');
 const path = require('path');
 const os = require('os');
@@ -179,9 +180,9 @@ function boot(port, env, attemptsLeft) {
     A.eq(ends.length, 1, 'exactly one agent.run.end');
     A.eq(ends[0].payload.reason, 'done', 'the run completes with reason done');
     const firstReq = mock.requests[0] || {};
-    // lean-prompt (2026-10-12): [RUNTIME] rides the per-run <run_context> system note placed with the newest user turn,
-    // so the system prompt (messages[0]) stays byte-identical across a conversation's messages
-    const firstSystem = (firstReq.messages || []).filter(m => m && m.role === 'system' && String(m.content || '').indexOf('<run_context>') === 0).map(m => m.content).join('\n');
+    // lean-prompt (2026-10-12): [RUNTIME] rides the per-run <run_context> note placed with the newest user turn (on this
+    // non-Claude chat wire, as that turn's fenced leading text), so the system prompt (messages[0]) stays byte-identical
+    const firstSystem = runContextOf(firstReq.messages || []);
     A.ok(String((((firstReq.messages || [])[0] || {}).content) || '').indexOf('[RUNTIME]') < 0, 'the system prompt itself carries no per-run block');
     A.ok(firstSystem.indexOf('[RUNTIME]') >= 0, 'runtime identity block reaches the provider (run-context note)');
     A.ok(firstSystem.indexOf('Provider: openrouter') >= 0, 'runtime block names the selected provider');

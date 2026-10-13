@@ -539,12 +539,72 @@
     return head.indexOf(RUN_CONTEXT_OPEN) === 0;
   }
 
+  /* HOST NOTES ON A GENERIC CHAT WIRE (lean-prompt review, 2026-10-12). Three host notes ride the conversation as their
+     own system messages AFTER the system prompt: the per-run <run_context> note and <recalled-memory> (both right
+     before the newest user message), and the <conversation_summary> of turns the history window dropped (right after
+     the system prompt, or where a compaction fold put it). A Claude route turns them into user-side text
+     (preserveClaudeContinuations, the native adapters); a generic Chat Completions endpoint received them as role
+     'system' at index > 0 — and strict chat templates refuse exactly that ("System message must be at the beginning",
+     #102), as do role-order validators that reject a system message after an assistant or tool turn. With the run
+     context now on EVERY message, every run on such an endpoint would fail. So on a non-Claude chat wire the notes
+     leave their system messages and become ONE fenced leading text part of the NEWEST user message: the request keeps
+     exactly one leading system message (byte-stable across a conversation's messages), user/assistant alternation is
+     untouched (never a separate message), and the request still ends on that user turn. Other host system messages
+     (loop steering, nudges) keep their pre-existing placement. Pure: copies, never mutates; identity when no note. */
+  const HOST_NOTE_TAGS = ['run_context', 'recalled-memory', 'conversation_summary'];
+  function headText(content) {
+    return typeof content === 'string' ? content : (Array.isArray(content) && content[0] && typeof content[0].text === 'string' ? content[0].text : '');
+  }
+  function isHostNote(message) {
+    if (!message || message.role !== 'system') return false;
+    const head = headText(message.content);
+    for (const tag of HOST_NOTE_TAGS) if (head.indexOf('<' + tag + '>') === 0) return true;
+    return false;
+  }
+  function isClaudeModel(model) { return /anthropic\/|claude/i.test(String(model || '')); }
+  function contentText(content) {
+    if (typeof content === 'string') return content;
+    if (!Array.isArray(content)) return content == null ? '' : String(content);
+    return content.map(p => (typeof p === 'string' ? p : (p && typeof p.text === 'string' ? p.text : ''))).join('');
+  }
+  // prepend `text` (already fenced) to a user message's content: a string stays a string (the shape every endpoint
+  // accepts), a parts array gains one leading text part
+  function withLeadingText(message, text) {
+    const c = message.content;
+    let content;
+    if (Array.isArray(c)) content = [{ type: 'text', text }].concat(c);
+    else if (typeof c === 'string' && c) content = text + '\n\n' + c;
+    else content = text;
+    return Object.assign({}, message, { content });
+  }
+  function userSideHostNotes(messages) {
+    if (!Array.isArray(messages) || !messages.some(isHostNote)) return messages;
+    let target = -1;
+    for (let i = messages.length - 1; i >= 0; i--) if (messages[i] && messages[i].role === 'user') { target = i; break; }
+    if (target < 0) return messages;   // nothing to carry them (no user turn at all): the old placement
+    const notes = [];
+    for (const m of messages) if (isHostNote(m)) { const t = contentText(m.content).trim(); if (t) notes.push(t); }
+    const out = [];
+    for (let i = 0; i < messages.length; i++) {
+      const m = messages[i];
+      if (isHostNote(m)) continue;
+      out.push(i === target && notes.length ? withLeadingText(m, notes.join('\n\n')) : m);
+    }
+    return out;
+  }
+  /* The ONE role projection every Chat Completions adapter applies (openai-compatible, openrouter): a Claude model
+     keeps its structural placement (later system messages become user turns — preserveClaudeContinuations), every
+     other model gets the host notes user-side (userSideHostNotes). */
+  function chatRoleProjection(messages, model) {
+    return isClaudeModel(model) ? preserveClaudeContinuations(messages, model) : userSideHostNotes(messages);
+  }
+
   // Claude has one leading system block. Keep later host reminders in the
   // conversation, as the native Anthropic adapter does, so gateways cannot hoist
   // them and turn the preceding assistant answer into unsupported prefill.
   // The run-context note ends the leading block even when nothing but the system prompt precedes it (see above).
   function preserveClaudeContinuations(messages, model) {
-    if (!Array.isArray(messages) || !/anthropic\/|claude/i.test(String(model || ''))) return messages;
+    if (!Array.isArray(messages) || !isClaudeModel(model)) return messages;
     let leading = true;
     return messages.map(message => {
       if (!message || message.role !== 'system' || isRunContextNote(message)) leading = false;
@@ -555,5 +615,6 @@
 
   return { EVENT_TYPES, FINISH, normalizeFinish, timeouts, runtime, repairToolPairs, preserveClaudeContinuations,
     RUN_CONTEXT_OPEN, RUN_CONTEXT_CLOSE, runContextNote, isRunContextNote,
+    HOST_NOTE_TAGS, isHostNote, isClaudeModel, userSideHostNotes, chatRoleProjection,
     prepareWireMessages, remapToolCallIds, ANTHROPIC_TOOL_ID, chatWireMessages, CHAT_WIRE_KEYS };
 });

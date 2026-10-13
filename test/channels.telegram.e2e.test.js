@@ -13,6 +13,9 @@ const fs = require('fs');
 const { spawn } = require('child_process');
 const { bootToken } = require('./_httpToken.js');
 const { allocatePort } = require('./helpers/sidecar-fixture.js');
+// host notes (the <run_context> note, recall) ride the newest user turn on this non-Claude wire: read them, and the
+// Commander's own words, through the helper rather than one placement (provider.js userSideHostNotes)
+const { runContextOf, userWords, lastUserWords, hostText } = require('./helpers/host-notes.js');
 
 const HOST = '127.0.0.1';
 const INDEX = path.resolve(__dirname, '..', 'sidecar', 'index.js');
@@ -22,10 +25,9 @@ const CREWLESS_REQUEST = 'Delegate one temporary subtask for the crewless Telegr
 const CREWLESS_WORKER_REQUEST = 'Return exactly CREWLESS_WORKER_OK.';
 const CREWLESS_DONE = 'CREWLESS_TELEGRAM_DONE';
 const CREWLESS_FAILED = 'CREWLESS_TELEGRAM_FAILED';
-const lastUserText = body => String(([...(body.messages || [])].reverse().find(m => m && m.role === 'user') || {}).content || '');
+const lastUserText = body => lastUserWords(body.messages || []);
 function crewlessRuntime(body) {
-  const note = (body.messages || []).find(m => m && m.role === 'system' && String(m.content || '').startsWith('<run_context>'));
-  const text = String((note && note.content) || '');
+  const text = runContextOf(body.messages || []);
   return { agentId: (/Agent id: (\S+)/.exec(text) || [])[1] || '', runId: (/Run id: (\S+)/.exec(text) || [])[1] || '' };
 }
 function crewlessRows(messages) {
@@ -81,7 +83,8 @@ function startMockOpenRouter() {
              messages the model answers plainly, or the run would loop forever. */
           const msgs = (parsed && parsed.messages) || [];
           const lastUser = [...msgs].reverse().find(m => m && m.role === 'user');
-          if (String((lastUser && lastUser.content) || '') === CREWLESS_REQUEST) {
+          const lastUserOwn = lastUser ? userWords(lastUser) : '';   // the Commander's words, without the leading host notes
+          if (lastUserOwn === CREWLESS_REQUEST) {
             const current = msgs.slice(msgs.lastIndexOf(lastUser) + 1);
             const results = current.filter(m => m && m.role === 'tool');
             const brief = results.find(m => m.tool_call_id === 'crewless_brief');
@@ -111,14 +114,14 @@ function startMockOpenRouter() {
             res.end('data: [DONE]\n\n');
             return;
           }
-          if (String((lastUser && lastUser.content) || '') === CREWLESS_WORKER_REQUEST) {
+          if (lastUserOwn === CREWLESS_WORKER_REQUEST) {
             res.write('data: ' + JSON.stringify({ choices: [{ delta: { content: 'CREWLESS_WORKER_OK' } }] }) + '\n\n');
             res.write('data: ' + JSON.stringify({ choices: [{ delta: {}, finish_reason: 'stop' }], usage: { prompt_tokens: 5, completion_tokens: 3, total_tokens: 8 } }) + '\n\n');
             res.end('data: [DONE]\n\n');
             return;
           }
-          const parityTask = /delegate telegram parity/i.test(String((lastUser && lastUser.content) || ''));
-          const parityWorker = /return worker parity proof/i.test(String((lastUser && lastUser.content) || ''));
+          const parityTask = /delegate telegram parity/i.test(lastUserOwn);
+          const parityWorker = /return worker parity proof/i.test(lastUserOwn);
           if (parityTask) {
             const lastUserIndex = msgs.lastIndexOf(lastUser);
             const currentTools = msgs.slice(lastUserIndex + 1).filter(m => m && m.role === 'tool');
@@ -134,7 +137,7 @@ function startMockOpenRouter() {
               return;
             }
           }
-          if (/run telegram shell proof/i.test(String((lastUser && lastUser.content) || '')) && !msgs.some(m => m && m.role === 'tool')) {
+          if (/run telegram shell proof/i.test(lastUserOwn) && !msgs.some(m => m && m.role === 'tool')) {
             // A task-shaped request first settles the same Task Brief that a desktop run settles. This proves
             // owner parity through the genuine task pipeline rather than bypassing unrelated task semantics.
             res.write('data: ' + JSON.stringify({ choices: [{ delta: { tool_calls: [{ index: 0, id: 'call_brief', type: 'function', function: { name: 'brief_proceed', arguments: '{"objective":"Run the requested Telegram shell proof"}' } }] } }] }) + '\n\n');
@@ -143,7 +146,7 @@ function startMockOpenRouter() {
             res.end();
             return;
           }
-          if (/run telegram shell proof/i.test(String((lastUser && lastUser.content) || '')) && msgs.some(m => m && m.role === 'tool')
+          if (/run telegram shell proof/i.test(lastUserOwn) && msgs.some(m => m && m.role === 'tool')
               && !msgs.some(m => m && m.role === 'tool' && /TELEGRAM_SHELL_OK/.test(JSON.stringify(m)))) {
             res.write('data: ' + JSON.stringify({ choices: [{ delta: { tool_calls: [{ index: 0, id: 'call_shell', type: 'function', function: { name: 'shell_exec', arguments: '{"cmd":"echo TELEGRAM_SHELL_OK"}' } }] } }] }) + '\n\n');
             res.write('data: ' + JSON.stringify({ choices: [{ delta: {}, finish_reason: 'tool_calls' }], usage: { prompt_tokens: 5, completion_tokens: 3, total_tokens: 8 } }) + '\n\n');
@@ -151,7 +154,7 @@ function startMockOpenRouter() {
             res.end();
             return;
           }
-          if (/who can you reach/i.test(String((lastUser && lastUser.content) || '')) && !msgs.some(m => m && m.role === 'tool')) {
+          if (/who can you reach/i.test(lastUserOwn) && !msgs.some(m => m && m.role === 'tool')) {
             res.write('data: ' + JSON.stringify({ choices: [{ delta: { tool_calls: [{ index: 0, id: 'call_t', type: 'function', function: { name: 'channel.targets', arguments: '{}' } }] } }] }) + '\n\n');
             res.write('data: ' + JSON.stringify({ choices: [{ delta: {}, finish_reason: 'tool_calls' }], usage: { prompt_tokens: 5, completion_tokens: 3, total_tokens: 8 } }) + '\n\n');
             res.write('data: [DONE]\n\n');
@@ -164,7 +167,7 @@ function startMockOpenRouter() {
           const answer = appliedFollowup ? 'Follow-up applied: TELEGRAM_FOLLOWUP_APPLIED'
             : parityWorker ? 'WORKER_PARITY_OK' : parityTask ? 'DELEGATION_PARITY_DONE' : 'Telegram answer';
           res.write('data: ' + JSON.stringify({ choices: [{ delta: { content: answer } }] }) + '\n\n');
-          if (gate.armed && lastUser && lastUser.content === gate.userText) {
+          if (gate.armed && lastUser && lastUserOwn === gate.userText) {
             gate.armed = false;   // auxiliary requests cannot steal another task's gate
             gate.request = parsed;
             await new Promise(r => { gate._release = r; if (gate._startedResolve) gate._startedResolve(); });
@@ -563,10 +566,11 @@ async function waitUntil(fn, ms, label) {
       const reqs = llm.requests.slice(start);
       const leads = reqs.filter(r => String((r.messages.find(m => m.role === 'system') || {}).content || '').includes('[ORCHESTRATION]'));
       // [RUNTIME] (Agent id) rides the per-run <run_context> system note since lean-prompt (2026-10-12), not messages[0]
-      A.ok(leads.some(r => r.messages.some(m => m.role === 'system' && String(m.content).includes('Agent id: parity_lead'))), label + ': the same saved lead identity handles the task');
+      A.ok(leads.some(r => hostText(r.messages).includes('Agent id: parity_lead')), label + ': the same saved lead identity handles the task');
       A.ok(leads.some(r => JSON.stringify(r.messages[0]).includes('parity_worker (Parity Worker)')), label + ': briefing names the saved specialist');
       A.ok(reqs.some(r => (r.messages || []).some(m => m.role === 'tool' && /WORKER_PARITY_OK/.test(JSON.stringify(m)))), label + ': worker result returned through the real tool loop');
-      const worker = reqs.find(r => (r.messages || []).some(m => m.role === 'user' && /return worker parity proof/i.test(String(m.content))));
+      // the Commander's (here: the lead's) own words — a lead request's leading host notes (recall, earlier conversation) can quote them
+      const worker = reqs.find(r => (r.messages || []).some(m => m.role === 'user' && /return worker parity proof/i.test(userWords(m))));
       A.ok(!!worker, label + ': specialist made a real provider call');
       A.ok(worker && !(worker.tools || []).some(t => t.function?.name === 'team_dispatch'), label + ': worker cannot recursively delegate');
       A.ok(worker && !String(worker.messages[0].content).includes('[ORCHESTRATION]'), label + ': worker gets no lead briefing');
@@ -751,7 +755,7 @@ async function waitUntil(fn, ms, label) {
     llm.gate.arm(original5555);
     tg.pushText(5555, 99, original5555);
     await waitUntil(() => !!llm.gate._release, 8000, 'the exact original task reaches the fixture gate');
-    A.ok(llm.gate.request && llm.gate.request.messages.some(m => m && m.role === 'user' && m.content === original5555),
+    A.ok(llm.gate.request && llm.gate.request.messages.some(m => m && m.role === 'user' && userWords(m) === original5555),
       'the held provider request is the original task, not an auxiliary completion');
     await sse.waitFor(() => starts5555().length === 1, 5000, 'held run start (tg_5555)');
     const heldRunId = starts5555()[0].payload.runId;
@@ -772,7 +776,7 @@ async function waitUntil(fn, ms, label) {
     const appliedRequest = () => llm.requests.find(r => (r.messages || []).some(m => m && m.role === 'system'
       && /<steering_note>/.test(String(m.content || '')) && String(m.content || '').includes(followup5555)));
     await waitUntil(() => !!appliedRequest(), 8000, 'the follow-up reaches the production provider as a steering note');
-    A.ok(appliedRequest().messages.some(m => m && m.role === 'user' && m.content === original5555),
+    A.ok(appliedRequest().messages.some(m => m && m.role === 'user' && userWords(m) === original5555),
       'the provider receives the follow-up with the original task still in context');
     await waitUntil(() => replies5555().some(s => /Follow-up applied: TELEGRAM_FOLLOWUP_APPLIED/.test(rendered(s.text))),
       12000, 'the provider answer that applied the follow-up is delivered');

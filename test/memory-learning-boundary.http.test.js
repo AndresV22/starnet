@@ -1,5 +1,6 @@
 'use strict';
 const assert = require('node:assert/strict');
+const { hostText, withoutHostNotes } = require('./helpers/host-notes.js');
 const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -16,8 +17,8 @@ const server=http.createServer((req,res)=>{
   if(!req.url.includes('/chat/completions')) {res.writeHead(200,{'Content-Type':'application/json'}); return res.end(JSON.stringify({data:[{id:'audit/model',context_length:64000,supported_parameters:['tools'],pricing:{prompt:'0',completion:'0'}}]}));}
   const body=JSON.parse(raw), msgs=body.messages||[], sys=String(msgs[0]?.content||'');
   // the MAIN run carries [RUNTIME] — since lean-prompt (2026-10-12) in its <run_context> system note, not the system prompt
-  const review=sys.includes('skillbase maintenance worker'); const main=!review&&msgs.some(m=>m.role==='system'&&String(m.content||'').includes('[RUNTIME]'));
-  requests.push({phase,main,review,attachmentPoisonReceived:main&&JSON.stringify(msgs.filter(m=>m.role==='user')).includes(ATTACHMENT_POISON),reviewText:review?JSON.stringify(msgs):'',system:msgs.filter(m=>m.role==='system').map(m=>String(m.content||'')).join('\n\n'),fixtureReadReceived:msgs.some(m=>m.role==='tool' && String(m.content).includes('Deployment notes: use the staging environment')),tools:(body.tools||[]).map(t=>t.function.name),reflect:!main&&sys.includes('reflecting right after finishing a task'),quotedPoisonRead:!main&&raw.includes('QUOTED_POISON_SENTINEL')});
+  const review=sys.includes('skillbase maintenance worker'); const main=!review&&hostText(msgs).includes('[RUNTIME]');
+  requests.push({phase,main,review,attachmentPoisonReceived:main&&JSON.stringify(msgs.filter(m=>m.role==='user').map(withoutHostNotes)).includes(ATTACHMENT_POISON),reviewText:review?JSON.stringify(msgs):'',system:hostText(msgs),fixtureReadReceived:msgs.some(m=>m.role==='tool' && String(m.content).includes('Deployment notes: use the staging environment')),tools:(body.tools||[]).map(t=>t.function.name),reflect:!main&&sys.includes('reflecting right after finishing a task'),quotedPoisonRead:!main&&raw.includes('QUOTED_POISON_SENTINEL')});
   const lastUser=msgs.map(m=>m.role).lastIndexOf('user');
   const called=name=>msgs.slice(lastUser+1).some(m=>(m.tool_calls||[]).some(t=>t.function?.name===name));
   let delta,finish='stop';
