@@ -36,13 +36,15 @@ const T0 = 1_800_000_000_000;
   const workers = [
     { id: 'w1', agentId: 'researcher', status: 'stale', prompt: 'Dig up the docs', completedAt: T0 - 1000 },
     { id: 'w2', agentId: 'researcher', status: 'refused', prompt: 'Do the thing', completedAt: T0 - 2000 },
-    { id: 'w3', agentId: 'researcher', status: 'weird', prompt: 'Other', completedAt: T0 - 3000 }
+    { id: 'w3', agentId: 'researcher', status: 'weird', prompt: 'Other', completedAt: T0 - 3000 },
+    { id: 'w4', agentId: 'researcher', status: 'stale', reason: 'stalled: no progress for 450s — the liveness check stopped this worker (threshold 420s)', prompt: 'Hung on a tool', completedAt: T0 - 500 }
   ];
   const items = H.workItems({ feed: H.createFeed(), workers, now: T0 });
   const w = id => items.find(x => x.workerId === id);
   A.eq([w('w1').state, w('w1').status], ['fault', 'Lost when the station restarted'], 'a worker lost to a restart is a fault, not "done"');
   A.eq([w('w2').state, w('w2').status], ['fault', 'Refused'], 'a refused worker is a fault');
   A.eq([w('w3').state, w('w3').status], ['stopped', 'Ended (weird)'], 'an ending the HUD does not know is never painted done');
+  A.eq([w('w4').state, w('w4').status], ['fault', 'Stopped: made no progress'], 'a worker the liveness check stopped is never blamed on a restart that did not happen');
   const js = fs.readFileSync(path.join(ROOT, 'frontend/app/hudmode.js'), 'utf8');
   A.ok(!js.includes('No result was recorded') && js.includes("'Its reply isn’t shown here.'") && js.includes("'Its reply is in the conversation.'"),
     'a finished card with no reply on this page says where the reply is, never that there was none');
