@@ -98,9 +98,14 @@
     if (coachTimer) { clearTimeout(coachTimer); coachTimer = 0; }
     if (persist !== false) { try { localStorage.setItem(COACH_KEY, '1'); } catch (_) {} }
   }
+  // ONCE PER PAGE (live walkthrough 2026-10-13): the observer below fires on ANY class change of #screen-game, and a
+  // flicker effect toggles a class there every 7 s — so the hint came back 15 s on / 7 s off for the whole session,
+  // over the CREW dock, the dock menus and the approval toasts. It shows once per page; GOT IT still ends it for good.
+  let coachShown = false;
   function showCoachOnce() {
-    if (!coach || !coach.hidden) return;
+    if (!coach || !coach.hidden || coachShown) return;
     try { if (localStorage.getItem(COACH_KEY)) return; } catch (_) {}
+    coachShown = true;
     coach.hidden = false;
     coachTimer = setTimeout(() => dismissCoach(false), 15000);   // fade out after a while, but let it return next session
   }

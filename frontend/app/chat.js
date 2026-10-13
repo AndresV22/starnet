@@ -3441,7 +3441,13 @@ const Chat = (() => {
       return 'install the plugin it built' + (id ? ' “' + id + '”' : '') + ' — it stays OFF until you approve its code in ABILITIES → EXTENSIONS';
     }
     if (/notebook/.test(t)) return 'save a note to its memory';
-    if (/summon/.test(t)) return 'summon a new agent onto the crew' + (ev.argsSummary ? ' (' + glance(ev.argsSummary) + ')' : '');
+    // a hire reads as a hire: "hire RESEARCH (researcher) onto the crew", never the raw JSON args (live walkthrough 2026-10-13)
+    if (/summon/.test(t)) {
+      const o = requestArgs(ev.argsSummary) || {};
+      const nm = String(o.name || '').trim(), spec = String(o.specId || o.class || o.role || '').trim();
+      if (nm || spec) return 'hire ' + (nm ? nm.toUpperCase() + (spec && spec.toLowerCase() !== nm.toLowerCase() ? ' (' + spec + ')' : '') : 'a ' + spec) + ' onto the crew';
+      return 'hire a new agent onto the crew' + (ev.argsSummary && !requestArgs(ev.argsSummary) ? ' (' + glance(ev.argsSummary) + ')' : '');
+    }
     // a command: name it in words, its text clipped to a glance; the card's inspect panel holds every character of it
     if (/^(?:shell|terminal)[._]/.test(t)) {
       const o = requestArgs(ev.argsSummary) || {};

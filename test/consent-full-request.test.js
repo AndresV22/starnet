@@ -329,3 +329,11 @@ test('a lead question is answerable from the composer, exactly once', async () =
   assert.equal(f.ctx.askAnswerers.has('q1'), false, 'and the answerer is removed once used');
   assert.equal(await a.answer('again'), false, 'a second answer to the same question is refused, never sent twice');
 });
+
+// a hire reads as a hire, never the raw JSON args (live walkthrough 2026-10-13: 'summon a new agent onto the crew ({"specId": …})')
+test('the hire approval names who is hired', () => {
+  assert.equal(card.actionPhrase({ tool: 'team.summon', argsSummary: JSON.stringify({ specId: 'researcher', name: 'Research' }) }), 'hire RESEARCH (researcher) onto the crew');
+  assert.equal(card.actionPhrase({ tool: 'team.summon', argsSummary: JSON.stringify({ specId: 'copywriter' }) }), 'hire a copywriter onto the crew');
+  assert.equal(card.actionPhrase({ tool: 'team.summon', argsSummary: '' }), 'hire a new agent onto the crew');
+  assert.ok(!/[{}"]/.test(card.actionPhrase({ tool: 'team.summon', argsSummary: JSON.stringify({ name: 'Nova2', specId: 'nova2' }) })), 'no JSON punctuation reaches the card');
+});
