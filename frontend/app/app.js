@@ -4143,6 +4143,16 @@ const App = (() => {
     const a = agents.get(w.agentId);                      // the live registry, same one the world reads
     return (a && a.name) ? a.name : (w.agentId || 'AGENT');
   }
+  // the row's agent line: a group shows its first two members by name and counts the rest ("ULTRON, CYPHER +3"); the
+  // count sits in its own span so a long pair of names ellipsizes without ever cutting off the +N
+  function railAgentLine(w) {
+    const members = w.conversationMode === 'group' && typeof GroupChat !== 'undefined' && GroupChat.membersOf ? GroupChat.membersOf(w.id) : null;
+    if (!members || members.length < 2) return U.esc(railAgentName(w));
+    const ids = [w.agentId].concat(members.filter(id => id !== w.agentId)).filter(id => members.includes(id));
+    const names = ids.slice(0, 2).map(id => { const m = agents.get(id); return (m && m.name) || id; }).join(', ');
+    const more = ids.length - 2;
+    return '<span class="ws-agent-names">' + U.esc(names) + '</span>' + (more > 0 ? '<span class="ws-agent-more">+' + more + '</span>' : '');
+  }
   // the INBOX row names its agent in that agent's own colour, exactly as its CREW card does (a group row: the lead's)
   function railAgentColorAttr(w) {
     const a = agents.get(w.agentId);
@@ -4241,9 +4251,8 @@ const App = (() => {
       return groupHead + '<li class="' + rowClass(w, st, activeId) + '" data-id="' + U.esc(w.id) + '" tabindex="' + (w.id === railFocusId ? '0' : '-1') + '" role="option" aria-selected="' + (w.id === activeId ? 'true' : 'false') + '" aria-posinset="' + index + '" aria-setsize="' + rows.length + '" aria-label="' + U.esc(railRowLabel(w, st)) + '" aria-keyshortcuts="Shift+F10" title="' + U.esc(tip) + '">' +
         '<span class="' + st.dot + '" aria-hidden="true"></span>' +
         (w.pinned ? '<span class="ws-pin" aria-hidden="true">★</span>' : '') +
-        '<span class="ws-agent" aria-hidden="true"' + railAgentColorAttr(w) + '>' + U.esc(railAgentName(w)) + '</span>' +
-        // a group chat says so on the row itself, inside the title cell so every rail layout places it (compact, attention, inbox)
-        '<span class="ws-title">' + (w.conversationMode === 'group' ? '<span class="ws-gc" aria-hidden="true">GROUP</span>' : '') + U.esc(title) + '</span>' +
+        '<span class="ws-agent' + (w.conversationMode === 'group' ? ' ws-agent-group' : '') + '" aria-hidden="true"' + railAgentColorAttr(w) + '>' + railAgentLine(w) + '</span>' +
+        '<span class="ws-title">' + U.esc(title) + '</span>' +
         '<span class="ws-meta">' + U.esc(st.meta) + '</span>' +
         '<span class="ws-receipt" aria-hidden="true">' + U.esc(railReceipt(w)) + '</span>' +
         '<button class="ws-kebab" tabindex="-1" aria-label="session actions" title="session actions">⋯</button>' +
