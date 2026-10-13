@@ -312,4 +312,18 @@ for (const change of ['body', 'files', 'summary', 'baseline', 'pin']) {
   const blessed = makeSkillGate({ guard, approvals: { get(a, id, d) { return d === approved.contentDigest ? { digest: d } : null; } } });
   A.eq(blessed.decide(approved).visible, true, 'only an approval of these exact bytes shows it');
 }
+// A curator version from before curator writes were staged (0.13.2/0.13.3 stamped them 'allow') stays available
+// when a run merely uses it; only NEW curator revisions go through the proposal path.
+{
+  const f = fixture();
+  f.io.lines.push({ id: 'weekly-brief', agentId: 'a', name: 'Weekly brief', summary: 'Weekly brief procedure', body: BODY, createdBy: 'agent',
+    writtenBy: 'curator', guardAction: 'allow', state: 'active', createdAt: 1, updatedAt: 1 });
+  f.reload();
+  const gate = makeSkillGate({ guard, approvals: { get() { return null; } } });
+  A.eq(gate.decide(read(f.s, 'Weekly brief')).visible, true, 'precondition: pre-upgrade curator version is active');
+  A.eq(f.s.markUsed('a', 'Weekly brief').count, 1, 'run-end markUsed persists the use');
+  A.eq(gate.decide(read(f.s, 'Weekly brief')).visible, true, 'a run that used it does not withhold it afterwards');
+  A.ok(f.s.manage({ agentId: 'a', target: 'Weekly brief', action: 'patch', find: 'concise', replace: 'short', createdBy: 'curator' }).pending, 'a new curator revision is still a proposal');
+  A.eq(read(f.s, 'Weekly brief').body, BODY, 'proposal leaves the active curator version in place');
+}
 A.report('skills.review-approval');

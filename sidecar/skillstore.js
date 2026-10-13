@@ -57,7 +57,12 @@
     const s = str(v || 'active').toLowerCase();
     return STATES.has(s) ? s : 'active';
   }
-  const REVIEW_ACTORS = new Set(['background-review', 'skill-review', 'curator']);   // autonomous revisions are proposed separately from the active skill
+  // Two different questions, two sets. REVIEW_ACTORS: whose stored versions persist() stamps 'ask' (provenance).
+  // STAGE_ACTORS: whose NEW writes become proposals instead of the active skill. The curator is staged, but its
+  // pre-staging versions (0.13.2/0.13.3, stamped 'allow') must not turn 'ask' the first time a run merely uses
+  // them: it archived the narrow siblings, so withholding the umbrella would leave the agent with neither.
+  const REVIEW_ACTORS = new Set(['background-review', 'skill-review']);
+  const STAGE_ACTORS = new Set(['background-review', 'skill-review', 'curator']);
   function trustSource(createdBy) {
     const source = str(createdBy).trim().toLowerCase();
     if (source === 'user') return 'user';
@@ -571,7 +576,7 @@
     // build on its pending draft; every revision invalidates previous evaluation receipts.
     function shouldStage(e, legacyWrite) {
       if (opts.stageReviews === false) return false;   // private isolated draft constructor
-      if (REVIEW_ACTORS.has(str(e.createdBy))) return true;
+      if (STAGE_ACTORS.has(str(e.createdBy))) return true;
       if (!legacyWrite && ['pin', 'unpin'].includes(str(e.action))) return false;
       return trustSource(e.createdBy || 'agent') === 'agent-created';
     }
@@ -585,7 +590,7 @@
       const unseen = new Set();
       for (const row of candidateRows.values()) if (row.agentId === aid && row.status === 'pending'
         && row.baseDigest === revisionDigest(latest.get(keyOf(row.agentId, row.name)) || null)) {
-        if (!REVIEW_ACTORS.has(str(e.createdBy)) && str(row.skill.sourceRunId) !== str(e.sourceRunId)) { unseen.add(keyOf(row.agentId, row.name)); continue; }
+        if (!STAGE_ACTORS.has(str(e.createdBy)) && str(row.skill.sourceRunId) !== str(e.sourceRunId)) { unseen.add(keyOf(row.agentId, row.name)); continue; }
         const i = seeds.findIndex(s => keyOf(s.agentId, s.name) === keyOf(row.agentId, row.name));
         if (i >= 0) seeds[i] = clone(row.skill); else seeds.push(clone(row.skill));
       }
