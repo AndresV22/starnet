@@ -55,7 +55,8 @@ const Pipeline = require('../frontend/app/pipeline.js');
       const system=request.messages.filter(m=>m.role==='system').map(m=>String(m.content)).join('\n');
       const directive=(system.match(/\[CREW CALL\][^\n]*/)||[''])[0];
       A.eq([...directive.matchAll(/agentId:"([^"]+)"/g)].map(m=>m[1]),expected,label+' exact host targets: '+(directive||'absent'));
-      A.eq(request.messages[request.messages.length-1]?.role,'user',label+' request ends on the owner turn');
+      const last=request.messages[request.messages.length-1];
+      A.ok(last?.role==='user' && last.content===text,label+' request ends on the owner turn: '+JSON.stringify(last&&{role:last.role,content:String(last.content).slice(0,80)}));
     }
   } finally {await fixture.dispose();await new Promise(r=>server.close(r));}
   A.report('crew-call.http');
