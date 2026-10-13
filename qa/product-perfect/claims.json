@@ -18,7 +18,7 @@
   "expectedClaimCount": 37,
   "releaseSurface": {
     "algorithm": "sha256",
-    "sourceCommit": "a9c982c15ba524afae96036fe5119709cdb5a8fb",
+    "sourceCommit": "f01d52868a7f2209ca93b80e244ed0e34882a334",
     "pathSetSha256": "e4cf2ec7f6a313f096915edc1eea9291b5f6ab7782c1784d289af5ac2f76084d",
     "files": [
       {
@@ -558,8 +558,8 @@
       },
       {
         "path": "frontend/app/group-chat.js",
-        "bytes": 76957,
-        "sha256": "96f0def99fc5a24b1cc778793bb8c0953cd6fb9f225ec78f130c628d5a5ac5e9"
+        "bytes": 80608,
+        "sha256": "de526b1f4a1c24b67a995fbe0512bb8c335b049f6ca82a2cb362afa117b7c686"
       },
       {
         "path": "frontend/app/harness.js",
@@ -1213,8 +1213,8 @@
       },
       {
         "path": "frontend/app/taskconversation.js",
-        "bytes": 5039,
-        "sha256": "a7868cceb4c4868c04f61b40226d61457367d6e8d39ec006ff171e3da2c62f1b"
+        "bytes": 5301,
+        "sha256": "8e01223dcaa3eba2b4c5dc9104d41c6d133c767ab4a1198480bb5750612e1648"
       },
       {
         "path": "frontend/app/terrain.js",
@@ -1538,8 +1538,8 @@
       },
       {
         "path": "frontend/css/beat-cards.css",
-        "bytes": 33318,
-        "sha256": "3cdbdd50057fdf50e663bc05729e4e5f0b32a5e093fae0924b11c1973b1f0a3e"
+        "bytes": 33859,
+        "sha256": "673a2da9c4367df646475f2587eea455f38f9f3b475f83887c5d1212d31ba0d2"
       },
       {
         "path": "frontend/css/cabinet-clean.css",
@@ -1593,8 +1593,8 @@
       },
       {
         "path": "frontend/css/glass-comms.css",
-        "bytes": 25600,
-        "sha256": "502290a7e2d10633dff6189214adef659e14cb52d9553ba13e3cdffec4993293"
+        "bytes": 25587,
+        "sha256": "9d9ac12256668111ed545e7d93ed176a2cf0dac9baa6409186ecc5deb5242f67"
       },
       {
         "path": "frontend/css/glass-demo.css",
