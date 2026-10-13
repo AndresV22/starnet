@@ -11409,8 +11409,9 @@ const ROUTES = [
       agentId: w.agentId, parentRunId: w.parentRunId || '', generation: w.generation, completedAt: w.completedAt || 0,
       canInterrupt: !!w.canInterrupt, reason: w.reason || '',
       // the ledger's own explanation of a refused or failed worker (the crew-cap or sign-in sentence, a run's error) for
-      // the card's hover tip and NEEDS YOU. Never a timeout's or a rejected answer's result: that is partial work.
-      result: (w.status === 'refused' || (w.status === 'error' && (w.reason === 'error' || w.reason === 'refused'))) ? String(w.result || '').slice(0, 400) : ''
+      // the card's hover tip and NEEDS YOU, as `failure` and only when there is one. This polled route never carries a
+      // worker's `result` (heavy, and a timeout's or rejected answer's result is partial work, never a reason).
+      ...((w.status === 'refused' || (w.status === 'error' && (w.reason === 'error' || w.reason === 'refused'))) ? { failure: String(w.result || '').slice(0, 400) } : {})
     })) }); }
     catch (e) { respondJson(res, 503, { error: e.message }); }
   } },

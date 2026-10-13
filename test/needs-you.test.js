@@ -85,7 +85,7 @@ const NY = require('../frontend/app/needsyou.js');
   global.Overseer = { snapshot: () => ({ workers: [
     { runId: 'wr6', status: 'stale', reason: 'stalled: no progress for 450s — the liveness check stopped this worker (threshold 420s)', agentId: 'researcher', parentStreamId: 'home', streamId: 'thread_mira', completedAt: NOW - 2000 },
     { runId: 'wr7', status: 'stale', reason: 'sidecar restarted before this worker finished', agentId: 'designer', parentStreamId: 'home', completedAt: NOW - 3000 },
-    { runId: 'wr8', status: 'error', reason: 'refused', result: 'subagent could not start — the concurrency cap (STARNET_MAX_CONCURRENT_AGENTS) is full or a sign-in is needed. Try fewer at once.', agentId: 'writer', parentStreamId: 'home', completedAt: NOW - 4000 }
+    { runId: 'wr8', status: 'error', reason: 'refused', failure: 'subagent could not start — the concurrency cap (STARNET_MAX_CONCURRENT_AGENTS) is full or a sign-in is needed. Try fewer at once.', agentId: 'writer', parentStreamId: 'home', completedAt: NOW - 4000 }
   ] }) };
   const list = NY.items(NOW);
   A.eq(list.find(i => i.key === 'worker:wr6').what, 'stopped after making no progress', 'a worker the liveness check stopped never blames a restart that did not happen');

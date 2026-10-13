@@ -138,14 +138,14 @@ const roster = new Map([['researcher', { system: 'R', name: 'MIRA' }], ['writer'
   A.eq(st({ ws: ws(), worker: { status: 'error', reason: 'refused' } }).live, 'failed · couldn\'t start (too many running, or a sign-in is needed)', 'a worker the crew cap refused never reads as a debug code, and says what stopped it');
   // the sidecar's own explanation rides the row's hover tip: the refusal sentence, a run's error, the liveness check's
   // receipt — read off the ledger, clipped, never invented. A timeout's result is its PARTIAL WORK, never a reason.
-  // (/api/overseer projects `result` only for a refused or failed worker: these pin the page's half; the route's is below.)
-  const capRefused = { status: 'error', reason: 'refused', result: 'subagent could not start — the concurrency cap (STARNET_MAX_CONCURRENT_AGENTS) is full or a sign-in is needed. Try fewer at once.' };
-  A.eq(D.tipOf(capRefused), capRefused.result, 'a refused worker\'s tip is the sidecar\'s own refusal sentence');
-  A.eq(D.tipOf({ status: 'error', reason: 'error', result: 'worker run failed: provider returned 401' }), 'worker run failed: provider returned 401', 'a failed run\'s tip is its error');
-  A.eq(D.tipOf({ status: 'error', reason: 'timeout', result: 'Half the pricing table\n\n[STOPPED — this worker used up its 300s slice]' }), '', 'a timed-out worker\'s partial work is never shown as its reason');
+  // (/api/overseer projects `failure` only for a refused or failed worker: these pin the page's half; the route's is below.)
+  const capRefused = { status: 'error', reason: 'refused', failure: 'subagent could not start — the concurrency cap (STARNET_MAX_CONCURRENT_AGENTS) is full or a sign-in is needed. Try fewer at once.' };
+  A.eq(D.tipOf(capRefused), capRefused.failure, 'a refused worker\'s tip is the sidecar\'s own refusal sentence');
+  A.eq(D.tipOf({ status: 'error', reason: 'error', failure: 'worker run failed: provider returned 401' }), 'worker run failed: provider returned 401', 'a failed run\'s tip is its error');
+  A.eq(D.tipOf({ status: 'error', reason: 'timeout', failure: 'Half the pricing table\n\n[STOPPED — this worker used up its 300s slice]' }), '', 'a timed-out worker\'s partial work is never shown as its reason');
   A.eq(D.tipOf({ status: 'stale', reason: 'stalled: no progress for 450s — the liveness check stopped this worker (threshold 420s)' }), 'stalled: no progress for 450s — the liveness check stopped this worker (threshold 420s)', 'a stopped worker\'s tip is the liveness check\'s own receipt');
   A.eq(D.tipOf({ status: 'done', reason: 'done', result: 'the answer' }) + D.tipOf(null), '', 'a finished worker has no failure tip');
-  A.eq(D.tipOf({ status: 'error', reason: 'error', result: 'x'.repeat(300) }).length, 200, 'a long explanation is clipped');
+  A.eq(D.tipOf({ status: 'error', reason: 'error', failure: 'x'.repeat(300) }).length, 200, 'a long explanation is clipped');
   A.eq(st({ ws: ws(), worker: { status: 'error', reason: 'error' } }).live, 'failed', 'a bare error adds nothing it cannot say');
   A.eq(st({ ws: ws(), worker: { status: 'error', reason: 'some_new_code' } }).live, 'failed · some new code', 'a short unknown code still reads as words');
   A.eq(st({ ws: ws(), worker: { status: 'error', reason: 'x'.repeat(60) } }).live, 'failed', 'a long free-text reason is not pasted into the one-line status');
@@ -306,7 +306,7 @@ const roster = new Map([['researcher', { system: 'R', name: 'MIRA' }], ['writer'
   A.ok(html.indexOf('app/overseer.js') >= 0 && html.indexOf('app/delegated.js') > 0, 'the page loads the card module');
   A.ok(/agentId: w\.agentId, parentRunId: w\.parentRunId \|\| '', generation: w\.generation/.test(idx), 'the overseer route carries the card\'s fields');
   // comms-threads-ui-06: and the refusal or error sentence tipOf shows, never a timeout's partial work
-  A.ok(/result: \(w\.status === 'refused' \|\| \(w\.status === 'error' && \(w\.reason === 'error' \|\| w\.reason === 'refused'\)\)\) \? String\(w\.result \|\| ''\)\.slice\(0, 400\) : ''/.test(idx), 'the overseer route sends a refused or failed worker\'s own explanation');
+  A.ok(/\? \{ failure: String\(w\.result \|\| ''\)\.slice\(0, 400\) \} : \{\}\)/.test(idx), 'the overseer route sends a refused or failed worker\'s own explanation');
   A.ok(/each worker\\'s work is filed on this conversation\\'s card/.test(idx), 'the lead prompt states the filing rule');
   A.ok(/childThread: require\('\.\/overseer\.js'\)\.isCoordinatorRun/.test(idx), 'only coordinator runs file child threads');
   // a worker thread asks overseer.create for a free title (count up, then the ask time: test/overseer.test.js runs this
