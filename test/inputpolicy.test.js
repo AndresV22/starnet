@@ -240,6 +240,7 @@ A.eq(backgroundOwnsLoopbackUrl({ running: true, tail: 'Local: https://[::1]:4443
   A.ok(timedOutDispatch.isError === true && /timed out/.test(timedOutDispatch.content) && /not a refusal/.test(timedOutDispatch.content)
     && /NOT run/.test(timedOutDispatch.content) && /Do NOT retry it yourself/.test(timedOutDispatch.content),
   'the dispatched result says it timed out, was not run, was not a refusal, and not to retry alone: ' + timedOutDispatch.content);
+  A.ok(!/denied/i.test(timedOutDispatch.content), 'a timed-out exact confirmation never reads as denied: ' + timedOutDispatch.content);
 
   /* THE CONNECTOR TOOL (capability 'mcp:<id>') — a server the Commander deliberately connected. It routes to
      the consent BROKER instead, so the grade they pick is recorded and the next call is answered from cache.

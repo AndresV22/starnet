@@ -466,6 +466,9 @@
       let authority = null;
       if (typeof ctx.authorize === 'function') {
         try { authority = await ctx.authorize(call, tool); } catch (e) { authority = { ok: false, reason: 'authority error' }; }
+        // a TIMED-OUT exact confirmation (inputpolicy.js timedOut) is not a refusal: same words as the consent timeout
+        // below, never "denied". Summary 'denied' + "Do NOT retry" keep it a terminal human decision for loop.js.
+        if (authority && authority.ok !== true && authority.timedOut === true) return errResult('approval timed out for ' + call.name + ': the Commander did not answer the approval request in time, so it was NOT run. This was not a refusal — tell them it timed out and that they can ask again to retry. Do NOT retry it yourself.', 'denied');
         if (!authority || authority.ok !== true) return errResult('user-control denied: ' + ((authority && authority.reason) || call.name), 'user-control-denied');
       } else if (tool.impact === 'physical-input' || tool.impact === 'visible-desktop' || tool.impact === 'external-unknown') {
         return errResult('user-control denied: no run authority for ' + tool.impact, 'user-control-denied');
