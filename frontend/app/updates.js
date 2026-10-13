@@ -421,7 +421,8 @@ const Updates = (() => {
     if (state.phase === 'current') return 'up to date';
     if (state.phase === 'skipped') return 'update skipped';
     if (state.phase === 'error') return 'check failed';
-    return 'not checked yet';
+    // idle = no check this launch: say whether one ever ran, never "not checked yet" over a dated last check
+    return state.lastCheckedAt ? 'not checked this launch' : 'never checked';
   }
 
   function settingsHtml() {
@@ -500,9 +501,13 @@ const Updates = (() => {
     } else if (state.phase === 'idle') {
       // Not checked this launch: say only what is known — when the last check ran and what it found.
       const known = prefs.availableVersion && prefs.availableVersion !== state.currentVersion && prefs.availableVersion !== prefs.ignoredVersion ? prefs.availableVersion : '';
+      // the last check found the release the Commander skipped: say so, as the skipped phase does
+      const skipped = !known && prefs.ignoredVersion && prefs.availableVersion === prefs.ignoredVersion ? prefs.ignoredVersion : '';
       out += '<div class="up-empty">' + (known
         ? 'The last check found v' + esc(known) + '. Press CHECK NOW to get it ready to install.'
-        : 'Not checked since ' + esc(fmtTime(state.lastCheckedAt)) + '. Press CHECK NOW to look for a newer StarNet.') + '</div>';
+        : skipped ? 'v' + esc(skipped) + ' is skipped. Press CHECK NOW to see it again.'
+        : (state.lastCheckedAt ? 'Not checked since ' + esc(fmtTime(state.lastCheckedAt)) + '.' : 'Never checked for updates.') +
+          ' Press CHECK NOW to look for a newer StarNet.') + '</div>';
     }
     if (state.phase === 'preparing' || state.phase === 'downloading' || state.phase === 'installing' || state.phase === 'restarting') {
       out += '<div class="up-progress"><div style="width:' + pct + '%"></div></div>' +

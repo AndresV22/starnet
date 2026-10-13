@@ -122,8 +122,25 @@ function launch(store, opts) {
     const body = off.open(); await tick();
     A.eq(off.checks.length, 0, 'AUTO-CHECK off: neither startup nor opening the window sends a request');
     A.eq(off.updates.phase(), 'idle', 'nothing was checked');
-    A.ok(/Not checked since never/.test(body.innerHTML), 'the window says it has not checked, never "no update"');
-    A.ok(/NOT CHECKED YET/.test(body.innerHTML), 'the status label does not claim READY');
+    A.ok(/Never checked for updates\./.test(body.innerHTML), 'the window says it has not checked, never "no update"');
+    A.ok(!/since never/.test(body.innerHTML), 'never "Not checked since never." (review seams-08, tests-05)');
+    A.ok(/NEVER CHECKED/.test(body.innerHTML), 'the status label does not claim READY');
+
+    // a check ran on an earlier launch: the header and the body agree (review app-shell-ui-06)
+    const dated = new Map([['starnet.updates.v1', JSON.stringify({ autoCheck: false, lastCheckAt: 5 })]]);
+    const d = launch(dated);
+    await d.init(); await tick();
+    const db = d.open(); await tick();
+    A.eq(d.checks.length, 0, 'AUTO-CHECK off: still no request on open');
+    A.ok(/NOT CHECKED THIS LAUNCH/.test(db.innerHTML) && !/NOT CHECKED YET/.test(db.innerHTML), 'the label never says "not checked yet" over a dated last check');
+    A.ok(/Not checked since /.test(db.innerHTML) && !/since never/.test(db.innerHTML), 'the body names when the last check ran');
+
+    // the last check found the version the Commander skipped: the idle window says it is skipped
+    const skip = new Map([['starnet.updates.v1', JSON.stringify({ autoCheck: false, availableVersion: '0.13.3', ignoredVersion: '0.13.3', lastCheckAt: 5 })]]);
+    const sk = launch(skip);
+    await sk.init(); await tick();
+    const sb = sk.open(); await tick();
+    A.ok(/v0\.13\.3 is skipped/.test(sb.innerHTML), 'a remembered skip is named after a relaunch');
 
     const known = new Map([['starnet.updates.v1', JSON.stringify({ autoCheck: false, availableVersion: '0.13.2', lastCheckAt: 5 })]]);
     const k = launch(known);
