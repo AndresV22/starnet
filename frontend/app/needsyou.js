@@ -18,7 +18,8 @@ const NeedsYou = (() => {
   const KEEP_FAILED_MS = 3 * DAY;      // a failure older than this is history, not a to-do
   const SHOW = 3;                       // rows before "N more"
   const DISMISS_KEY = 'skynet.needs-dismissed';
-  let expanded = false, wired = false, lastSig = '';
+  let expanded = false, wired = false, lastShape = '';
+  const answering = new Set();          // promptIds whose answer is on its way: their keys stay disabled through re-renders
   const has = (o, k) => typeof o !== 'undefined' && o && typeof o[k] === 'function';
   const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
@@ -98,8 +99,9 @@ const NeedsYou = (() => {
     return !!Chat.consentInspect(p);
   }
   function keysFor(i) {
-    const k = (act, label, cls) => '<button type="button" class="ny-key' + (cls ? ' ' + cls : '') + '" data-ny-act="' + act + '" data-ny-key="' + esc(i.key) + '">' + label + '</button>';
-    if (i.kind === 'approval') return (hiddenDetail(i.p) ? k('open', 'Review', 'primary') : k('once', 'Approve', 'primary')) + k('deny', 'Deny', 'deny');
+    const k = (act, label, cls, off) => '<button type="button" class="ny-key' + (cls ? ' ' + cls : '') + '" data-ny-act="' + act + '" data-ny-key="' + esc(i.key) + '"' + (off ? ' disabled' : '') + '>' + label + '</button>';
+    const sending = !!(i.p && answering.has(String(i.p.promptId)));
+    if (i.kind === 'approval') return (hiddenDetail(i.p) ? k('open', 'Review', 'primary') : k('once', 'Approve', 'primary', sending)) + k('deny', 'Deny', 'deny', sending);
     if (i.kind === 'question') return k('open', 'Answer', 'primary');
     if (i.kind === 'routine' && i.routineId) return k('retry', 'Retry', 'primary') + k('open', 'Open');
     if (i.kind === 'failed') return k('open', 'Open') + k('dismiss', 'Dismiss', 'quiet');
@@ -117,19 +119,36 @@ const NeedsYou = (() => {
         + '</li>').join('') + '</ul>'
       + (list.length > SHOW ? '<button type="button" class="ny-more" data-ny-act="more" aria-expanded="' + expanded + '">' + (expanded ? 'Show fewer' : (list.length - SHOW) + ' more') + '</button>' : '');
   }
-  // what the list holds, for change detection (the rail's 1s ticker re-renders only when this moves)
-  function signature(now) { return items(now).map(i => i.key + '@' + age(i.since, now)).join('|') + '#' + expanded; }
+  // what the list shows apart from its ages: the rail's 1s heartbeat rebuilds the list only when this moves
+  const shapeOf = list => list.map(i => [i.key, i.who, i.what, i.where, keysFor(i)].join('\u0001')).join('\u0002') + '#' + expanded;
 
   function render() {
     const host = typeof document !== 'undefined' && document.getElementById('ws-needs');
     if (!host) return;
     wire(host);
-    const now = Date.now(), list = items(now), sig = list.map(i => i.key + '@' + age(i.since, now)).join('|') + '#' + expanded;
+    const now = Date.now(), list = items(now), shape = shapeOf(list);
     host.hidden = !list.length;
     host.setAttribute('aria-label', list.length ? 'Needs you: ' + list.length + ' waiting' : 'Needs you');
-    if (sig === lastSig) return;
-    lastSig = sig;
+    if (shape === lastShape) {
+      // only time moved: update the ages in place, so the key the Commander is on keeps its focus
+      const since = new Map(list.map(i => [i.key, i.since]));
+      host.querySelectorAll('li.ny-item[data-ny-key]').forEach(li => {
+        const el = li.querySelector('.ny-age'), text = age(since.get(li.dataset.nyKey), now);
+        if (el && el.textContent !== text) el.textContent = text;
+      });
+      return;
+    }
+    lastShape = shape;
+    // a real rebuild: put focus back on the same key in the new list
+    const f = typeof document !== 'undefined' && document.activeElement && host.contains(document.activeElement) ? document.activeElement : null;
+    const fAct = f && f.dataset ? f.dataset.nyAct : '', fKey = f && f.dataset ? f.dataset.nyKey : '', fCls = f ? f.className : '';
     host.innerHTML = html(list, now);
+    if (fAct) {
+      // "in <where>" and Review/Open share an action: the class tells them apart
+      const same = Array.from(host.querySelectorAll('[data-ny-act]')).filter(n => n.dataset.nyAct === fAct && (fAct === 'more' || n.dataset.nyKey === fKey));
+      const again = same.find(n => n.className === fCls) || same[0];
+      if (again && again.focus) again.focus({ preventScroll: true });
+    }
   }
   function open(i) {
     if (!i || !has(App, 'openWorkstream')) return;
@@ -139,15 +158,19 @@ const NeedsYou = (() => {
   }
   async function act(kind, key, btn) {
     const i = items().find(x => x.key === key);
-    if (kind === 'more') { expanded = !expanded; lastSig = ''; render(); return; }
-    if (!i) { lastSig = ''; render(); return; }
+    if (kind === 'more') { expanded = !expanded; lastShape = ''; render(); return; }
+    if (!i) { lastShape = ''; render(); return; }
     if (kind === 'open' || (kind === 'once' && hiddenDetail(i.p))) return open(i);   // never approve what the rail cannot show
-    if (kind === 'dismiss') { dismiss(key); lastSig = ''; render(); return; }
+    if (kind === 'dismiss') { dismiss(key); lastShape = ''; render(); return; }
     if ((kind === 'once' || kind === 'deny') && i.p && typeof Chat !== 'undefined' && Chat.answerConsent) {
-      if (btn) btn.disabled = true;
+      // one answer per ask: a re-render while it is on its way keeps both keys disabled, and a second click sends nothing
+      const promptId = String(i.p.promptId);
+      if (answering.has(promptId)) return;
+      answering.add(promptId); if (btn) btn.disabled = true; render();
       try { await Chat.answerConsent(i.p, Workstreams.get(i.wsId), kind); }
-      catch (e) { if (btn) btn.disabled = false; if (typeof StationUI !== 'undefined' && StationUI.notify) StationUI.notify('Could not send that answer: ' + ((e && e.message) || e), 'warn'); }
-      lastSig = ''; render(); if (has(App, 'refreshRail')) App.refreshRail(); return;
+      catch (e) { if (typeof StationUI !== 'undefined' && StationUI.notify) StationUI.notify('Could not send that answer: ' + ((e && e.message) || e), 'warn'); }
+      finally { answering.delete(promptId); }
+      render(); if (has(App, 'refreshRail')) App.refreshRail(); return;
     }
     if (kind === 'retry' && i.routineId) {
       if (btn) { btn.disabled = true; btn.textContent = 'Running…'; }
@@ -160,7 +183,7 @@ const NeedsYou = (() => {
         if (btn) { btn.disabled = false; btn.textContent = 'Retry'; }
         if (typeof StationUI !== 'undefined' && StationUI.notify) StationUI.notify('Could not rerun it: ' + ((e && e.message) || e), 'warn');
       }
-      lastSig = ''; render(); if (has(App, 'refreshRail')) App.refreshRail();
+      lastShape = ''; render(); if (has(App, 'refreshRail')) App.refreshRail();
     }
   }
   function wire(host) {
@@ -177,6 +200,6 @@ const NeedsYou = (() => {
       U.bus.on('permission.response', () => setTimeout(render, 0));
     }
   }
-  return { items, render, signature, _internals: { html, age, keysFor, dismissed } };
+  return { items, render, _internals: { html, age, keysFor, dismissed } };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = NeedsYou;

@@ -116,4 +116,60 @@ const NY = require('../frontend/app/needsyou.js');
   A.ok(/Chat\.answerConsent\(i\.p, Workstreams\.get\(i\.wsId\), kind\)/.test(ny), 'Approve / Deny answer through the approval card\'s own path');
   A.ok(/fetch\('\/api\/cron\/run', \{ method: 'POST'[^\n]*detach: true/.test(ny), 'Retry reruns the routine for real (detached)');
 }
-A.report('needs-you.test');
+/* ---- the rail's 1s heartbeat: an age tick never rebuilds the list (focus survives), an answer in flight stays locked ---- */
+// a host that understands exactly the markup html() writes (no DOM library in this repo's headless tests)
+function fakeRail() {
+  const doc = { activeElement: null };
+  const host = { hidden: false, writes: 0, buttons: [], rows: [], listeners: {}, _h: '',
+    setAttribute() {}, addEventListener(type, fn) { this.listeners[type] = fn; },
+    contains: n => host.buttons.includes(n),
+    querySelectorAll: sel => sel === 'li.ny-item[data-ny-key]' ? host.rows : sel === '[data-ny-act]' ? host.buttons : [],
+    querySelector: sel => sel === '.ny-more' ? host.buttons.find(b => /\bny-more\b/.test(b.className)) || null : null,
+    get innerHTML() { return this._h; },
+    set innerHTML(h) {
+      this._h = h; this.writes++;
+      this.buttons = [...h.matchAll(/<button type="button" class="([^"]*)" data-ny-act="([^"]*)"([^>]*)>/g)].map(m => {
+        const key = /data-ny-key="([^"]*)"/.exec(m[3]);
+        const b = { className: m[1], dataset: { nyAct: m[2], nyKey: key ? key[1] : undefined }, disabled: / disabled/.test(m[3]), focus() { doc.activeElement = b; } };
+        return b;
+      });
+      this.rows = [...h.matchAll(/<li class="ny-item [^"]*" data-ny-key="([^"]*)">[\s\S]*?<span class="ny-age">([^<]*)<\/span>/g)].map(m => {
+        const ageEl = { textContent: m[2] };
+        return { dataset: { nyKey: m[1] }, ageEl, querySelector: sel => sel === '.ny-age' ? ageEl : null };
+      });
+    } };
+  doc.getElementById = id => id === 'ws-needs' ? host : null;
+  return { doc, host, key: (act, k) => host.buttons.find(b => b.dataset.nyAct === act && b.dataset.nyKey === k) };
+}
+(async () => {
+  const realNow = Date.now, realDoc = global.document;
+  let clock = NOW; Date.now = () => clock;
+  const { doc, host, key } = fakeRail(); global.document = doc;
+  NY.render();
+  A.eq(host.writes, 1, 'the first render draws the list');
+  doc.activeElement = key('once', 'ask:p2');
+  clock = NOW + 60000; NY.render();
+  A.eq(host.writes, 1, 'a minute passing does not rebuild the list');
+  A.eq(host.rows.find(r => r.dataset.nyKey === 'ask:p2').ageEl.textContent, '3m', 'only the age text moves, in place');
+  A.ok(doc.activeElement === key('once', 'ask:p2'), 'so the key the Commander is on keeps its focus');
+  pend.push({ wsId: 'proj', p: { promptId: 'p30', tool: 'fs.read', argsSummary: 'notes.md', askedAt: NOW - 30000 } });
+  NY.render();
+  A.eq(host.writes, 2, 'a new ask rebuilds the list');
+  A.ok(doc.activeElement && doc.activeElement === key('once', 'ask:p2'), 'and focus lands back on the same key in the new list');
+  // an answer in flight: both keys stay disabled through every re-render, and a second click sends nothing
+  let calls = 0, settle = null;
+  const answerConsent = global.Chat.answerConsent;
+  global.Chat.answerConsent = () => { calls++; return new Promise(r => { settle = r; }); };
+  const click = b => host.listeners.click({ target: { closest: sel => sel === '[data-ny-act]' ? b : null }, preventDefault() {}, stopPropagation() {} });
+  click(key('once', 'ask:p2'));
+  A.ok(key('once', 'ask:p2').disabled && key('deny', 'ask:p2').disabled, 'Approve and Deny are disabled while the answer is in flight');
+  clock += 1000; pend.push({ wsId: 'proj', p: { promptId: 'p31', tool: 'fs.read', argsSummary: 'b.md', askedAt: NOW - 20000 } }); NY.render();
+  A.ok(key('once', 'ask:p2').disabled && key('deny', 'ask:p2').disabled, 'and stay disabled when the list rebuilds meanwhile');
+  click(key('once', 'ask:p2')); click({ dataset: { nyAct: 'deny', nyKey: 'ask:p2' } });
+  A.eq(calls, 1, 'a second click on a settling ask sends no second answer');
+  pend.splice(pend.findIndex(x => x.p.promptId === 'p2'), 1);
+  settle(); await new Promise(r => setTimeout(r, 0));
+  A.ok(!key('once', 'ask:p2') && !/ask:p2/.test(host.innerHTML), 'once answered, the ask leaves the list');
+  global.Chat.answerConsent = answerConsent; Date.now = realNow; global.document = realDoc;
+  pend.splice(pend.findIndex(x => x.p.promptId === 'p30'), 1); pend.splice(pend.findIndex(x => x.p.promptId === 'p31'), 1);
+})().then(() => A.report('needs-you.test'), e => { console.error(e); process.exit(1); });
