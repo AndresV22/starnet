@@ -222,6 +222,12 @@ function parsePages(buf) {
     A.ok(chunks.every((c) => c.endsWith('.')), 'each chunk ends on a sentence boundary');
     const long = splitSentences('word '.repeat(120).trim());
     A.ok(long.length >= 2 && long.every((p) => p.length <= 240), 'a run-on is cut at spaces under 240 characters');
+    // a decimal, a version or a price is one number, never a sentence end ("3.5" was spoken "three. five")
+    const nums = splitSentences('It is 3.5 GB and version 0.13.2 is out. That is $4.99!').join(' | ');
+    A.ok(nums.includes('3.5') && nums.includes('0.13.2') && nums.includes('$4.99'), 'numbers stay whole: ' + nums);
+    A.ok(!/3\. 5|0\. 13|13\. 2|4\. 99/.test(nums), 'no sentence break inside a number: ' + nums);
+    const numChunks = splitSentences(S150('alpha') + ' It weighs 3.5 GB. ' + S150('bravo'));
+    A.ok(numChunks.length === 2 && numChunks.every((c) => c.endsWith('.')) && numChunks.join(' ').includes('3.5 GB'), 'a long reply with a decimal is still cut only at sentence ends: ' + JSON.stringify(numChunks.map((c) => c.slice(-24))));
   }
 
   /* ---------- 3b. WAV normalisation: what the local voice engine writes -> what a device decoder plays ---------- */

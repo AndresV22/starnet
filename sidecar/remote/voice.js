@@ -241,10 +241,12 @@ function decodeAdpcm(buf) {   // the device's decoder, in JS: what the tests (an
   return { rate, samples: out };
 }
 
-/* Sentences, so the first one is spoken while the rest are still being synthesised. */
+/* Sentences, so the first one is spoken while the rest are still being synthesised. A sentence ends only at
+   terminal punctuation followed by a space or the end (the local engine's own rule, local-voice speechPieces):
+   "3.5", "0.13.2" and "$4.99" are one number each, never "three. five". */
 const MAX_SENTENCE = 240;
 function splitSentences(text) {
-  const parts = String(text).match(/[^.!?]+[.!?]+["')\]]*\s*|[^.!?]+$/g) || [String(text)];
+  const parts = String(text).match(/[^]*?[.!?]+["')\]]*(?=\s|$)\s*|[^]+$/g) || [String(text)];
   const out = [];
   for (let p of parts) {
     p = p.trim();
