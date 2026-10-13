@@ -182,13 +182,13 @@ async function checkCandidateReview() {
   A.eq(receiptBox && receiptBox.tag, 'details', 'the evaluation receipt is folded into a details block');
   A.eq(receiptBox && receiptBox.children[0] && receiptBox.children[0].textContent, 'Evaluation receipt', 'the folded receipt is labeled');
   A.ok(!note2.textContent.includes('{'), 'the result sentence carries no JSON');
-  // A run the spending policy stopped says so in plain words.
+  // A run the station refused ('policy-denied') says so in plain words, listing only causes the harness can have had.
   const host8 = element(); ctx.host = host8; status = 'insufficient_evidence';
   extra = { allCandidatePassed: false, regressions: [], improvements: [], cases: [{ before: { completed: false, pass: false, reason: 'policy-denied' }, after: { completed: false, pass: false, reason: 'policy-denied' } }] };
   vm.runInNewContext('renderSkillCandidates(host, "agent", review);', ctx);
   const card8 = host8.children[0];
   await card8.querySelector('[data-evaluation-suites]').children[1].onclick();
-  A.ok(/spending/i.test(card8.querySelector('[data-evaluation-result]').textContent), 'a spend-denied run names the spending policy');
+  A.ok(card8.querySelector('[data-evaluation-result]').textContent.includes('the station stopped a run (a budget limit, paused spending, the time limit, or an earlier run whose cost could not be settled)'), 'a refused run lists what can stop one');
   A.ok(!card8.querySelector('[data-evaluation-result]').textContent.includes('insufficient_evidence'), 'no enum status reaches the owner');
   // The host's stored receipt for this exact revision (latestEvaluation) seeds the card after a reload.
   // Contract: latestEvaluation is the WHOLE stored receipt row, the same object evaluate-candidate returns as
@@ -226,10 +226,32 @@ async function checkCandidateReview() {
   A.eq(card9.querySelector('[data-candidate-acknowledge]').hidden, false, 'a stored tie shows the acknowledgement');
   A.eq(card9.querySelector('[data-candidate-approve]').disabled, true, 'a stored tie never enables the measured approval');
   A.ok(/^Last evaluation: No improvement shown/.test(card9.querySelector('[data-evaluation-result]').textContent), 'a stored tie says no improvement was shown');
-  // A stored run the spending policy stopped still names the spending policy after a reload.
+  // A stored refused run reads the same after a reload.
   const card10 = reload(deniedRow);
-  A.ok(/spending policy stopped a run/.test(card10.querySelector('[data-evaluation-result]').textContent), 'a stored spend-denied run names the spending policy');
+  A.ok(card10.querySelector('[data-evaluation-result]').textContent.includes('the station stopped a run (a budget limit'), 'a stored refused run lists what can stop one');
   A.eq(card10.querySelector('[data-candidate-acknowledge]').hidden, true, 'a stored spend-denied run offers no acknowledgement');
+  // A provider error (an HTTP 429) on the first run leaves its cost unsettled, so the real accounting refuses every
+  // later run and the runner writes 'policy-denied' for them. No budget limit or paused spending was involved, so
+  // the card must not name one. Built with the real evaluator, runner, accounting and ledger modules.
+  const Runner = require('../sidecar/skill-evaluation-runner.js');
+  const { makeEvaluationAccounting } = require('../sidecar/skill-evaluation-accounting.js');
+  const { makeLedger } = require('../sidecar/ledger.js');
+  const unsettled = new Map(), booked = [];
+  const ledger = makeLedger({ io: { readAll: () => booked.slice(), unsettled: () => [...unsettled.values()], beginRun: r => unsettled.set(r.runId, r),
+    finishRun: e => unsettled.delete(e.runId), append: e => booked.push(e) }, clock: { now: () => 42 } });
+  const accounting = makeEvaluationAccounting({ ledger, agentId: 'agent', provider: 'test', model: 'test/model' });
+  const realRunCase = Runner.makeAgentLoopCaseRunner({ model: 'test/model', runIdPrefix: 'skills-lane', clock: { now: () => 0 },
+    provider: { stream: async function* rateLimited() { throw Object.assign(new Error('rate limited'), { status: 429 }); } },
+    cost: { reconcile: () => null }, limits: { maxIters: 2, maxCostUsd: 0.08, grace: false },
+    authorize: async () => accounting.canContinue(), beforeRun: accounting.beforeRun,
+    beforeStream: ({ spentUsd }) => accounting.canContinue(spentUsd), onStream: accounting.onStream, onRun: accounting.onRun });
+  await SkillEvaluation.makeSkillEvaluator({ suites: [suite], runCase: realRunCase, io, clock: () => 2 }).evaluate({ candidate: proposed, baseline: active, suiteId: suite.id });
+  const erroredRow = store['skill-evaluation-receipts'].at(-1);
+  A.eq(erroredRow.cases.map(c => [c.before.reason, c.after.reason]), [['runner-error', 'policy-denied'], ['policy-denied', 'policy-denied']],
+    'the real modules hold back every run after a failed one as policy-denied');
+  const erroredText = reload(erroredRow).querySelector('[data-evaluation-result]').textContent;
+  A.ok(!/budget|paused/i.test(erroredText), 'a run held back after a failed run names no budget limit or paused spending: ' + erroredText);
+  A.ok(/a run failed/i.test(erroredText) && /held back every run after it/.test(erroredText), 'it says a run failed and the runs after it were held back: ' + erroredText);
   // A receipt for another revision (or another active version) never reads as this proposal's result.
   const stale = Object.assign({}, passedRow, { candidateDigest: SkillEvaluation.digestSkill(Object.assign({}, proposed, { body: 'An older proposal' })) });
   const untouched = async (card, why) => {

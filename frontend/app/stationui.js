@@ -4334,11 +4334,21 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
         (suite.generic ? 'Register task checks for this skill to measure it.' : 'Add a check that fails without the proposal to measure the difference.');
       if (status === 'regression') return 'Regression: the proposal failed a check the current version passed.';
       if (status === 'failed') return 'Failed: the proposal did not pass every check.';
-      if (status === 'insufficient_evidence') return spendStopped(r) ? 'No result: the spending policy stopped a run (a budget limit or paused spending), so not every run finished.' : 'No result: not every run finished.';
+      if (status === 'insufficient_evidence') return stoppedText(r);
       return 'No confirmed result.';
     };
-    // The runner marks a run the station's spend policy refused as 'policy-denied' (skill-evaluation-runner.js).
-    const spendStopped = r => !!(r && Array.isArray(r.cases) && r.cases.some(c => c && ((c.before && c.before.reason === 'policy-denied') || (c.after && c.after.reason === 'policy-denied'))));
+    // The runner writes 'policy-denied' for a run the station refused (skill-evaluation-runner.js): a budget limit,
+    // paused spending, the evaluation's time limit, or an earlier run whose cost could not be settled
+    // (skill-evaluation-accounting.js canContinue), which a failed metered run ('error' / 'runner-error') leaves
+    // behind. The card names only what the receipt shows. Runs in order: each case's before, then its after.
+    const stoppedText = r => {
+      const runs = r && Array.isArray(r.cases) ? r.cases.flatMap(c => [c && c.before, c && c.after]).map(x => (x && x.reason) || '') : [];
+      const held = runs.indexOf('policy-denied');
+      if (held < 0) return 'No result: not every run finished.';
+      if (held > 0 && (runs[held - 1] === 'error' || runs[held - 1] === 'runner-error') && runs.slice(held).every(x => x === 'policy-denied'))
+        return 'No result: a run failed and the station held back every run after it, so not every run finished.';
+      return 'No result: the station stopped a run (a budget limit, paused spending, the time limit, or an earlier run whose cost could not be settled), so not every run finished.';
+    };
     for (const candidate of rows) {
       const skill = candidate.skill || {};
       const card = mkEl('div', 'sk-card want open'); host.appendChild(card);
