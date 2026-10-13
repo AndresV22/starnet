@@ -94,4 +94,20 @@ A.ok(/railRowTip\(w, st, project\), tipAttr/.test(app), 'in-place rail updates r
 A.ok(context.railRowLabel(savedA, row(savedA), true).includes(row(savedA).status), 'project session rows share the current state label');
 A.ok(!context.railRowLabel(savedA, row(savedA), true).includes('Shift+F10'), 'project sessions do not advertise unsupported action shortcuts');
 A.ok(!context.railRowTip(savedA, row(savedA), true).includes('right-click'), 'project session tooltip names its real open action');
+
+// review app-shell-ui-05: the "N working" crew lamp reads the delegation ledger, and the ledger stops vouching for
+// running workers once the station stops answering — the lamp must not keep pulsing through an outage
+{
+  Channels.reset();
+  const quiet = Workstreams.get('b');
+  let fresh = true;
+  context.Overseer = { snapshot: () => ({ workers: [{ runId: 'w1', status: 'running', parentStreamId: 'b' }, { runId: 'w2', status: 'running', parentStreamId: 'b' }] }), fresh: () => fresh };
+  A.eq([row(quiet).dot, row(quiet).meta, row(quiet).busy], ['ws-dot working', '2 working', true], 'a fresh ledger with two running workers lights the asking conversation');
+  fresh = false;
+  const st = row(quiet);
+  A.ok(st.dot !== 'ws-dot working' && !st.busy, 'station unreachable: the row no longer pulses as working');
+  A.ok(!/working/.test(st.meta) && /unknown/.test(st.meta), 'station unreachable: the row says the crew state is unknown, not "2 working"');
+  A.ok(/unreachable/.test(st.status) && /unknown/.test(st.status), 'the row tip says why the crew state is unknown');
+  delete context.Overseer;
+}
 A.report('session-indicators.test');

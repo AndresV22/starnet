@@ -3,6 +3,12 @@
 // Reuse existing sessions and transcript reconciliation; never change chat focus.
 const Overseer = (() => {
   let busy = false, lastDeliveries = '', last = null;   // last = the latest /api/overseer answer (Delegated reads it)
+  // whether that answer is still CURRENT: the latest poll failed (sidecar down) or one has hung past three beats, and the
+  // ledger can no longer vouch for a worker still running. snapshot() stays readable for finished and failed rows;
+  // anything that says "working" reads fresh() first (review app-shell-ui-05)
+  const BEAT = 2500;
+  let okAt = 0, failing = false;
+  const fresh = () => !!last && !failing && !(busy && Date.now() - okAt > 3 * BEAT);
   async function refresh() {
     if (busy || typeof Workstreams === 'undefined' || !Workstreams.generalId()) return;
     busy = true;
@@ -22,7 +28,7 @@ const Overseer = (() => {
         const adoptedRow = Workstreams.adopt(row);
         if (adoptedRow && (!before || before[0] !== adoptedRow.parentStreamId || before[1] !== adoptedRow.worker || before[2] !== adoptedRow.projectRoot)) adopted = true;
       }
-      last = data;
+      last = data; okAt = Date.now(); failing = false;
       if (adopted) { App.persist(); App.refreshRail(); }
       if (typeof Delegated !== 'undefined' && Delegated.repaint) Delegated.repaint();   // the parent's DELEGATED card follows the ledger
       const deliveries = JSON.stringify([(data.workers || []).map(w => [w.runId, w.status]),
@@ -33,10 +39,12 @@ const Overseer = (() => {
     } catch (error) {
       // Existing connection UI owns outages. Retry reconciliation after recovery.
       lastDeliveries = '';
+      failing = true;
+      if (typeof Delegated !== 'undefined' && Delegated.repaint) Delegated.repaint();   // its running rows lose their live claim now
       console.debug('[overseer sync]', error.message);
     } finally { clearTimeout(timeout); busy = false; }
   }
-  if (typeof document !== 'undefined') document.addEventListener('DOMContentLoaded', () => { refresh(); setInterval(refresh, 2500); });
-  return { refresh, snapshot: () => last };
+  if (typeof document !== 'undefined') document.addEventListener('DOMContentLoaded', () => { refresh(); setInterval(refresh, BEAT); });
+  return { refresh, snapshot: () => last, fresh };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = Overseer;
