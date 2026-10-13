@@ -12743,6 +12743,9 @@ function makeTriggerHub(hooks) {
     // a trigger's work item IS external data (a webhook body, a watched file's contents): the entry run starts
     // TAINTED, so its sensitive tools stay consent-gated like any run that has read untrusted content
     entryTaint: hooks.entryTaint || 'line trigger payload',
+    // a SEND TO hand-off carries the sending job's own verdicts (untrusted entry / sender withheld) instead of inferring
+    // an untrusted entry from the taint label; undefined (every other trigger) keeps the hub's default
+    entryUntrusted: hooks.entryUntrusted, senderWithheld: hooks.senderWithheld,
     streamId: () => hooks.streamId()
   });
 }
