@@ -19,7 +19,7 @@ async function campaign(root, seed) {
     App:{persist:()=>{saves++; saved=JSON.stringify([...sessions.values()]);}},
     fetch:(_url,opts)=>new Promise(resolve=>requests.push({resolve,signal:opts.signal})),
     renderHistory:()=>paints++, replayChannel(){}, syncStatus(){}, maybeEmptyState(){}, pinLoadedHistoryAfterLayout(){},
-    log:{innerHTML:''}, activeWs:w, historyPinSeq:5, historyPinPending:0,
+    log:{innerHTML:''}, activeWs:w, historyPinSeq:5, historyPinPending:0, revealKey:'',
   });
   const merge = A.fnBody(src,'function mergeCanonicalHistory(local, turns)');
   const seam = src.slice(src.indexOf('  const historyLoads = new WeakMap();'), src.indexOf('\n  // swap the rendered conversation',src.indexOf('  const historyLoads = new WeakMap();')));

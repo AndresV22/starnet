@@ -119,6 +119,7 @@ const Chat = (() => {
   let stick = true;   // STICKY-BOTTOM: auto-scroll only fires when the Commander is already at/near the bottom,
                       // so scrolling UP to re-read history mid-stream isn't yanked back down by every token.
   let historyPinSeq = 0, historyPinPending = 0;   // a load owns one final post-layout pin; a real user gesture cancels it
+  let revealKey = '';   // selector of the last explicit reveal (revealHistory); a fresh load or the reader's own gesture forgets it
   let userScrollHeld = false;
   let userScrollAt = 0;   // last real scroll GESTURE on the log (wheel/touch/scrollbar/keys) — only a gesture can unstick
   function nearBottom() { return !log || (log.scrollHeight - log.scrollTop - log.clientHeight < 40); }
@@ -138,8 +139,15 @@ const Chat = (() => {
     cancelHistoryPin(); stick = false; userScrollAt = Date.now();
     target.scrollIntoView({ block: 'center' });
     showNewPill(false);
+    revealKey = revealSelector(target);
     return true;
   }
+  // The revealed row as a selector, so the load's server-history repaint (which rebuilds every row) can find it again.
+  function revealSelector(target) {
+    const sel = attr => (target.hasAttribute && target.hasAttribute(attr)) ? '[' + attr + '="' + String(target.getAttribute(attr)).replace(/["\\]/g, '\\$&') + '"]' : '';
+    return sel('data-dg-row') || sel('data-clarify-prompt');
+  }
+  function forgetReveal() { revealKey = ''; }
   function pinLoadedHistoryAfterLayout(seq) {
     const pin = () => {
       if (!log || historyPinPending !== seq) return;
@@ -1026,6 +1034,7 @@ const Chat = (() => {
       });   // at the bottom → retire the pill; scrolled up → a persistent "↓ latest" affordance
       // A real attempt to inspect history wins even during the two-frame settle window.
       ['wheel', 'touchstart', 'pointerdown'].forEach(type => log.addEventListener(type, cancelHistoryPin, { passive: true }));
+      ['wheel', 'touchstart', 'pointerdown'].forEach(type => log.addEventListener(type, forgetReveal, { passive: true }));   // …and their own reading wins over an earlier reveal
       ['wheel', 'touchstart', 'touchmove', 'pointerdown', 'keydown'].forEach(type => log.addEventListener(type, () => { userScrollAt = Date.now(); }, { passive: true }));
       log.addEventListener('pointerdown', () => { userScrollHeld = true; }, { passive: true });
       if (!window.__chatScrollReleaseWired) {
@@ -1818,6 +1827,9 @@ const Chat = (() => {
     read.repaint = false;
     if (typeof Briefing !== 'undefined' && Briefing.presentFor) { try { Briefing.presentFor(ws.id).catch(() => {}); } catch (_) {} }   // the repaint wiped the chips
     if (typeof Delegated !== 'undefined' && Delegated.presentFor) { try { Delegated.presentFor(ws.id).catch(() => {}); } catch (_) {} }   // …and the delegated cards
+    // An explicit reveal made before this repaint (NEEDS YOU Open, a search hit) keeps its place: the repaint rebuilt
+    // every row, so find the same one again rather than leave the reader at the top of the conversation.
+    if (revealKey && !stick && log) { const again = log.querySelector(revealKey); if (again) revealHistory(again); }
     pinLoadedHistoryAfterLayout(loadToken);
     return reachable;
   }
@@ -1833,6 +1845,7 @@ const Chat = (() => {
   function load(ws) {
     const historyPin = ++historyPinSeq;
     historyPinPending = historyPin;
+    revealKey = '';   // a reveal into this conversation runs after load(); this only drops a stale one
     const nextWs = ws || (typeof Workstreams !== 'undefined' ? Workstreams.active() : null);
     if (activeWs?.id !== nextWs?.id) focusVersion++;
     activeWs = nextWs;

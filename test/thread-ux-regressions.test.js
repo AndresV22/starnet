@@ -266,3 +266,32 @@ test('COMMS prose resolves files where the speaking run wrote them (review comms
   assert.deepEqual(renders[0],['nova',null,'C:/proj'],'live reply links resolve at the project root');
   assert.deepEqual(renders[1],['mira',null,undefined],'a live work-line stage resolves in the stage agent\'s workspace');
 });
+
+test('an explicit reveal survives the load\'s server-history repaint; a reader gesture forgets it (review comms-threads-ui-04)',async()=>{
+  const frames=[];let current=null;
+  const makeRow=()=>({hasAttribute:a=>a==='data-dg-row',getAttribute:a=>a==='data-dg-row'?'mira-ws':null,scrollIntoView(){log.scrollTop=700;}});
+  const log={scrollTop:0,scrollHeight:2000,clientHeight:400,contains:el=>!!el&&el===current,
+    querySelector:sel=>current&&sel==='[data-dg-row="mira-ws"]'?current:null,set innerHTML(v){current=null;this.scrollTop=0;}};
+  const ws={id:'home',agentId:'lead',history:[]};
+  const boot=()=>{
+    const read={history:[],repaint:false};
+    const c=ctx(part(chat,'  function cancelHistoryPin()', '  function positionNewPill(')+part(chat,'  async function reconcileServerHistory(', '  // swap the rendered conversation'),{
+      log,activeWs:ws,historyPinSeq:1,historyPinPending:1,stick:true,userScrollAt:0,revealKey:'',historyLoads:new Map([[ws,read]]),
+      requestAnimationFrame:fn=>frames.push(fn),nearBottom:()=>log.scrollHeight-log.scrollTop-log.clientHeight<40,hideNewPill(){},showNewPill(){},
+      Workstreams:{get:()=>ws},Channels:{isBusy:()=>false},noteContinuity(){},mergeCanonicalHistory:(a,t)=>t,App:{persist(){}},
+      fetch:async()=>({ok:true,json:async()=>({turns:[{role:'assistant',content:'the lead followed up '+Math.random()}]})}),
+      renderHistory(){},replayChannel(){},syncStatus(){},maybeEmptyState(){},Delegated:{presentFor:async()=>{current=makeRow();}},
+      AbortController,setTimeout,clearTimeout,Date,JSON,String,Promise});
+    return {c,read};
+  };
+  let {c,read}=boot();
+  current=makeRow();log.scrollTop=1600;
+  assert.equal(c.revealHistory(current),true);assert.equal(log.scrollTop,700);
+  await c.reconcileServerHistory(ws,1,read);while(frames.length)frames.shift()();
+  assert.equal(log.scrollTop,700,'the repaint finds the revealed worker row again instead of dropping the reader at the top');
+  assert.equal(c.stick,false);
+  ({c,read}=boot());current=makeRow();
+  assert.equal(c.revealHistory(current),true);c.forgetReveal();
+  await c.reconcileServerHistory(ws,1,read);while(frames.length)frames.shift()();
+  assert.equal(log.scrollTop,0,'after the reader scrolls on their own, a repaint does not jump them back to the old reveal');
+});
