@@ -29,18 +29,6 @@ const Delegated = (() => {
     const list = has(App, 'agents') ? App.agents() : [];
     return list.find(a => a.id === id) || { id, name: (has(App, 'agentName') && App.agentName(id)) || id };
   }
-  function excerpt(ws) {
-    const h = (ws && ws.history) || [];
-    for (let i = h.length - 1; i >= 0; i--) {
-      const m = h[i];
-      if (m && m.role === 'assistant' && !m.sys && String(m.content || '').trim()) {
-        const line = String(m.content).split(/\r?\n/).map(s => s.replace(/^[#>*\-\s]+/, '').replace(/\*\*|`/g, '').trim()).find(Boolean) || '';
-        return line.length > 90 ? line.slice(0, 89).trimEnd() + '…' : line;
-      }
-    }
-    return '';
-  }
-
   /* one dispatch = the threads one lead run filed; rows keep the order the threads were made in */
   function batches(parentId) {
     if (typeof Workstreams === 'undefined' || !parentId) return [];
@@ -126,11 +114,11 @@ const Delegated = (() => {
     const reason = String((w && w.reason) || k.lastRunReason || '');
     if (reason === 'budget' || reason === 'max_iters') return { cls: 'stopped', live: reason === 'budget' ? 'budget limit reached' : 'step limit reached', t: '' };
     if (['aborted', 'cancelled', 'interrupted', 'stopped'].includes(reason)) return { cls: 'stopped', live: 'stopped before completion', t: '' };
-    if (w && w.status === 'done') return { cls: 'done', live: excerpt(k) || 'done', t: w.completedAt && w.startedAt ? clock(w.completedAt - w.startedAt) : '' };
+    if (w && w.status === 'done') return { cls: 'done', live: 'done', t: w.completedAt && w.startedAt ? clock(w.completedAt - w.startedAt) : '' };
     if (w && (w.status === 'error' || w.status === 'refused')) return { cls: 'failed', live: 'failed' + (w.reason && w.reason !== 'error' && whyOf(w.reason) ? ' · ' + whyOf(w.reason) : ''), t: '' };
     if (w && (w.status === 'interrupted' || w.status === 'stale')) return { cls: 'stopped', live: w.status === 'stale' ? staleLine(w) : 'stopped', t: '' };
     if (k.lastRunOk === false) return { cls: 'failed', live: 'failed', t: '' };
-    if (reason === 'done') return { cls: 'done', live: excerpt(k) || 'done', t: '' };
+    if (reason === 'done') return { cls: 'done', live: 'done', t: '' };
     if (reason) return { cls: 'failed', live: 'ended · ' + (whyOf(reason) || 'before finishing'), t: '' };
     if ((k.runIds || []).length) return { cls: 'recorded', live: 'result available · completion unconfirmed', t: '' };
     const parentBusy = C && C.isBusy && C.isBusy(parentId) && (!C.runIdOf || !lead || C.runIdOf(parentId) === lead);
@@ -188,7 +176,7 @@ const Delegated = (() => {
       // the thread's " (2)" is only there to keep thread titles unique; the card says the task in its own words
       const task = String(r.ws.title || 'Delegated task').replace(/ \(\d+\)$/, '').replace(/ · \d{4}-\d\d-\d\d \d\d:\d\d:\d\d$/, '');
       const who = a.name || a.id, id = r.ws.id, shown = seen.has(id);
-      const status = st.cls === 'waiting' ? askLine(st.pend) : cap(st.cls === 'done' ? WORD[st.cls] : st.live || WORD[st.cls]);
+      const status = st.cls === 'waiting' ? askLine(st.pend) : cap(st.live || WORD[st.cls]);
       // ONE way to act per state: answer its ask, stop it while it runs, else see its work
       const key = st.cls === 'waiting' && st.pend.tool === 'brief.ask'
         ? '<button type="button" class="dg-key primary" data-dg-question="' + esc(st.pend.promptId) + '">Answer</button>'
@@ -492,6 +480,6 @@ const Delegated = (() => {
   }
 
   if (typeof document !== 'undefined') document.addEventListener('DOMContentLoaded', wire);
-  return { presentFor, repaint, batches, stateOf, reveal, hosts, staleLine, whyOf, _internals: { workerRunOf, anchorFor, excerpt, lineHtml, opened, closed, seen, receipts, foldReceipt, askOf, hydrate, loadReceipt } };
+  return { presentFor, repaint, batches, stateOf, reveal, hosts, staleLine, whyOf, _internals: { workerRunOf, anchorFor, lineHtml, opened, closed, seen, receipts, foldReceipt, askOf, hydrate, loadReceipt } };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = Delegated;

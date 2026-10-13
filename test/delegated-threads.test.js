@@ -115,7 +115,8 @@ const roster = new Map([['researcher', { system: 'R', name: 'MIRA' }], ['writer'
   A.eq(st({ ws: ws(), worker: { status: 'running', startedAt: Date.now() - 5000, canInterrupt: true, id: 'w1', runId: 'r1' } }).cls, 'working', 'a running ledger worker is working');
   A.ok(st({ ws: ws(), worker: { status: 'running', startedAt: Date.now(), canInterrupt: true, id: 'w1', runId: 'r1' } }).stop, 'and STOP is offered only when the ledger says it can be interrupted');
   const done = st({ ws: ws({ history: [{ role: 'system', sys: true, content: '— delegated —' }, { role: 'assistant', content: '## Found\n**Two** competitors undercut us.' }] }), worker: { status: 'done', startedAt: 1000, completedAt: 13000 } });
-  A.eq(done.cls + '|' + done.live + '|' + done.t, 'done|Found|0:12', 'a finished worker quotes the first line it delivered, with its real run time');
+  // the card never repeats a worker's answer (calm version, 6aa3cd0b0): See work holds it
+  A.eq(done.cls + '|' + done.live + '|' + done.t, 'done|done|0:12', 'a finished worker is done, with its real run time');
   A.eq(st({ ws: ws(), worker: { status: 'error', reason: 'timeout' } }).live, 'failed · ran out of time', 'a failed worker says why, in words');
   A.eq(st({ ws: ws(), worker: { status: 'error', reason: 'refused' } }).live, 'failed · couldn\'t start', 'a worker the crew cap refused never reads as a debug code');
   A.eq(st({ ws: ws(), worker: { status: 'error', reason: 'error' } }).live, 'failed', 'a bare error adds nothing it cannot say');
