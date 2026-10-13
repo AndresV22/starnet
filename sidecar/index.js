@@ -1404,10 +1404,11 @@ const voiceChatStore = makeDomainStore({
 });
 let voiceChatSaved = voiceChatStore.load().value;
 function effectiveVoiceChat() { return voiceChatSaved ? voiceChatRoute.cleanSetting(voiceChatSaved) : voiceChatRoute.defaultSetting(); }
+// true only when the choice (or its removal) is on disk: the route answers 507 otherwise, so a setting is never
+// confirmed that would silently fall back to the default at the next restart
 function saveVoiceChat() {
-  if (voiceChatSaved == null) { try { voiceChatStore.remove(); } catch (e) { failNote('voiceChat.remove', e); } return; }
-  try { voiceChatStore.save(voiceChatSaved); }
-  catch (e) { console.warn('[voice-chat] persist failed:', (e && e.message) || e); }
+  try { if (voiceChatSaved == null) voiceChatStore.remove(); else voiceChatStore.save(voiceChatSaved); return true; }
+  catch (e) { failNote('voiceChat.persist', e); return false; }
 }
 
 // admission gate: bounds how many distinct agents run paid loops concurrently (multi-agent fan-out guard).
@@ -13667,8 +13668,9 @@ async function handleVoiceChatSet(req, res) {
   const v = voiceChatRoute.validatePatch(body);
   if (!v.ok) return json(400, { error: v.error });
   if (v.setting && v.setting.provider && !getProviderProfile(v.setting.provider)) return json(400, { error: 'unknown provider: ' + v.setting.provider });
+  const prev = voiceChatSaved;
   voiceChatSaved = (v.setting && !voiceChatRoute.isDefault(v.setting)) ? v.setting : null;   // the default is not a saved choice
-  saveVoiceChat();
+  if (!saveVoiceChat()) { voiceChatSaved = prev; return json(507, { ok: false, error: 'the voice chat model could not be saved; the previous choice was kept' }); }
   return json(200, voiceChatStatus());
 }
 
