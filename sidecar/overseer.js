@@ -32,7 +32,9 @@ function makeOverseer(deps) {
   const valid = value => /^[A-Za-z0-9_-]{1,80}$/.test(String(value || ''));
   const locks = new Map();
 
-  function threads() {
+  // ONE load of the page's save: deps.sessions() parses the whole save file, so a caller that needs the rows twice
+  // (resolve the parent, then check the title) reads them from one view instead of loading it again.
+  function view() {
     if (unavailable) throw new Error(unavailable);
     const legacy = deps.sessions() || {};
     const deleted = new Set(legacy.deletedIds || []);
@@ -45,11 +47,12 @@ function makeOverseer(deps) {
       rows.set(w.id, Object.assign({}, w, visible || {}, { parentStreamId: w.parentStreamId, projectHome: !!w.projectHome, worker: w.worker === true,
         projectRoot: (visible && visible.projectRoot) || w.projectRoot || null }));
     }
-    return Array.from(rows.values()).filter(w => !w.archived).map(w => ({ ...w,
-      title: w.title || (w.id === legacy.generalId ? 'General' : 'Untitled') }));
+    return { deleted, rows: Array.from(rows.values()).filter(w => !w.archived).map(w => ({ ...w,
+      title: w.title || (w.id === legacy.generalId ? 'General' : 'Untitled') })) };
   }
-  function resolve(ref) {
-    const rows = threads();
+  function threads() { return view().rows; }
+  function resolve(ref) { return resolveIn(threads(), ref); }
+  function resolveIn(rows, ref) {
     const key = String(ref || '').trim().toLowerCase();
     const exact = rows.filter(w => w.id === ref);
     const named = rows.filter(w => w.title.toLowerCase() === key);
@@ -59,14 +62,30 @@ function makeOverseer(deps) {
     if (hits.length !== 1) throw new Error(hits.length ? 'ambiguous session title; use its id' : 'no such session');
     return hits[0];
   }
+  // A free name for a repeated ask (a daily routine delegates the same first line every day): count up, then the time
+  // it was asked, then count that up, so a repeat never costs a worker its thread. Suffixes fit inside 80 chars.
+  function freeTitle(base, taken) {
+    const fit = suffix => base.slice(0, 80 - suffix.length).trimEnd() + suffix;
+    for (let n = 2; n <= 99; n++) if (!taken(fit(' (' + n + ')'))) return fit(' (' + n + ')');
+    const stamp = ' · ' + new Date(Number(deps.now()) || Date.now()).toISOString().slice(0, 19).replace('T', ' ');
+    if (!taken(fit(stamp))) return fit(stamp);
+    for (let n = 2; n <= 10000; n++) if (!taken(fit(stamp + ' (' + n + ')'))) return fit(stamp + ' (' + n + ')');
+    throw new Error('session title already exists; use its id');
+  }
   function create(args) {
-    const title = String(args.title || '').trim().slice(0, 80);
+    let title = String(args.title || '').trim().slice(0, 80);
     if (!title) throw new Error('a session needs a title');
-    const parent = resolve(args.parentStreamId);
+    const { rows, deleted } = view();
+    const parent = resolveIn(rows, args.parentStreamId);
     const duplicate = state.threads.find(w => args.requestId && w.requestId === args.requestId);
-    if (duplicate) return copy(resolve(duplicate.id));
+    if (duplicate) return copy(resolveIn(rows, duplicate.id));
     // a hidden worker thread never blocks a name the Commander can see; worker threads stay unique among themselves too
-    if (threads().some(w => (args.worker === true || w.worker !== true) && w.title.toLowerCase() === title.toLowerCase())) throw new Error('session title already exists; use its id');
+    const taken = name => rows.some(w => (args.worker === true || w.worker !== true) && w.title.toLowerCase() === name.toLowerCase());
+    if (taken(title)) {
+      // uniqueTitle: the caller wants a thread whatever the name (a delegated worker), so pick a free one from this view
+      if (args.uniqueTitle !== true) throw new Error('session title already exists; use its id');
+      title = freeTitle(title, taken);
+    }
     const agentId = args.agentId || parent.agentId || 'agent';
     if (!valid(agentId) || !deps.hasAgent(agentId)) throw new Error('unknown crew agent');
     const row = { id: deps.newId(), title, agentId, parentStreamId: parent.id,
@@ -75,22 +94,26 @@ function makeOverseer(deps) {
       // the parent's project, or the project the creating run was admitted under (a page-saved parent row can lag it)
       projectRoot: parent.projectRoot || (args.projectRoot ? String(args.projectRoot) : null), requestId: String(args.requestId || ''),
       kind: 'chat', lane: 'active', history: [], runIds: [], createdAt: deps.now(), lastActiveAt: deps.now() };
-    return update(s => { s.threads.push(row); return row; });
+    return update(s => { dropDeleted(s, deleted); s.threads.push(row); return row; });
   }
+  // A thread the Commander deleted is already hidden; its row is dropped from overseer.json the next time a thread is
+  // filed, so the file does not keep one row per deleted worker forever. ensure() still refuses it while the save's
+  // tombstone stands.
+  function dropDeleted(s, deleted) { if (deleted.size) s.threads = s.threads.filter(w => !deleted.has(w.id)); }
   // A brand-new conversation whose FIRST ask delegates: its run is live before the page's debounced save lands, so the
   // overseer has never seen it and every worker lost its thread ("no such session", 2026-10-10). The run that asks proves
   // the conversation exists; it is filed from that run's identity, and the page's saved copy wins every field once it
   // lands. A conversation the Commander deleted is never brought back.
   function ensure(args) {
     const id = String(args.id || '');
-    if (threads().some(w => w.id === id)) return resolve(id);
-    const legacy = deps.sessions() || {};
-    if (!valid(id) || (legacy.deletedIds || []).includes(id) || state.threads.some(w => w.id === id)) throw new Error('no such session');
+    const { rows, deleted } = view();
+    if (rows.some(w => w.id === id)) return resolveIn(rows, id);
+    if (!valid(id) || deleted.has(id) || state.threads.some(w => w.id === id)) throw new Error('no such session');
     const agentId = args.agentId || 'agent';
     if (!valid(agentId) || !deps.hasAgent(agentId)) throw new Error('unknown crew agent');
     const row = { id, title: String(args.title || '').trim().slice(0, 80), agentId, projectRoot: args.projectRoot ? String(args.projectRoot) : null,
       parentStreamId: '', kind: 'chat', lane: 'active', history: [], runIds: [], createdAt: deps.now(), lastActiveAt: deps.now() };
-    update(s => { s.threads.push(row); return row; });
+    update(s => { dropDeleted(s, deleted); s.threads.push(row); return row; });
     return resolve(id);
   }
   // One durable conversation per trusted project. Opening a project is an
@@ -194,12 +217,26 @@ function makeOverseer(deps) {
     if (Object.keys(fields).every(k => JSON.stringify(current[k]) === JSON.stringify(fields[k]))) return copy(current);
     return patchReview(id, fields);
   }
+  // A settled report is kept while the worker registry still holds any of its workers (it is what marks them reported).
+  // Once all of them have left the registry and the report is old, nothing can be reported again, so it is dropped
+  // instead of growing overseer.json one row per worker forever.
+  const FINISHED_REVIEW = ['done', 'cancelled', 'superseded', 'interrupted'];
+  const reviewKeepMs = () => (Number(deps.reviewRetentionMs) > 0 ? Number(deps.reviewRetentionMs) : 7 * 24 * 60 * 60 * 1000);
+  function expiredReviews(workers) {
+    const listed = new Set();
+    for (const w of workers) { if (w && w.id) listed.add('w:' + w.id); if (w && w.runId) listed.add('r:' + w.runId); }
+    const cutoff = deps.now() - reviewKeepMs();
+    return new Set(state.reviews.filter(r => FINISHED_REVIEW.includes(r.status) && (Number(r.createdAt) || 0) < cutoff
+      && !membersOf(r).some(m => listed.has('w:' + m.workerId) || listed.has('r:' + m.workerRunId))
+      && !(Array.isArray(r.workerRunIds) ? r.workerRunIds : []).some(id => listed.has('r:' + id))).map(r => r.id));
+  }
   function collect(workers) {
     // Pending reports can wait for credentials or another turn too. Absorb their newly settled members before
     // creating any follow-up; a follow-up is only for workers finishing after the earlier report began.
     for (const r of state.reviews.slice()) refreshReview(r.id, workers);
     const fresh = freshReviews(workers);
-    if (fresh.length) update(s => { s.reviews.push(...fresh); return null; });
+    const expired = expiredReviews(workers);
+    if (fresh.length || expired.size) update(s => { s.reviews = s.reviews.filter(r => !expired.has(r.id)); s.reviews.push(...fresh); return null; });
   }
   function patchReview(id, fields) {
     return update(s => { const r = s.reviews.find(row => row.id === id); if (!r) throw new Error('unknown review'); Object.assign(r, fields); return r; });

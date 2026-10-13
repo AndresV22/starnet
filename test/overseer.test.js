@@ -111,6 +111,50 @@ const { makeSubagentManager } = require('../sidecar/subagents.js');
     saved.workstreams.push({ id: 'ws_fresh', title: 'Launch prep', agentId: 'agent' });
     assert.equal(manager.resolve('ws_fresh').title, 'Launch prep', 'once the page saves it, the page copy wins');
     assert.throws(() => manager.ensure({ id: child.id, agentId: 'agent' }), /no such session/, 'a deleted conversation is never brought back');
+
+    // COST + GROWTH (review threads-backend-07). A routine that delegates the same ask every day used to load and
+    // parse the whole save file twice per taken title; filing a worker now costs one load whatever the repeats.
+    {
+      let loads = 0, now = 1000;
+      const page = { generalId: 'home', workstreams: [{ id: 'home', title: 'Home', agentId: 'agent' }], deletedIds: [] };
+      const cdeps = { fs, path, file: path.join(root, 'overseer-cost.json'), now: () => now,
+        newId: () => 'ws_cost_' + ++serial, sessions: () => { loads++; return JSON.parse(JSON.stringify(page)); },
+        hasAgent: id => ['agent', 'researcher'].includes(id), reviewRetentionMs: 1000 };
+      const ov = makeOverseer(cdeps);
+      const file = (title, n) => ov.create({ parentStreamId: 'home', agentId: 'researcher', requestId: 'lead' + n + ':team.dispatch:0', title, worker: true, uniqueTitle: true });
+      loads = 0;
+      assert.equal(file('Summarize my inbox', 1).title, 'Summarize my inbox');
+      assert.equal(loads, 1, 'filing a worker thread loads the save once');
+      for (let n = 2; n <= 5; n++) file('Summarize my inbox', n);
+      loads = 0;
+      const sixth = file('Summarize my inbox', 6);
+      assert.equal(sixth.title, 'Summarize my inbox (6)', 'a repeated ask counts up to a free title');
+      assert.equal(loads, 1, 'a repeated title still costs one save load, not one per taken title');
+      assert.throws(() => ov.create({ parentStreamId: 'home', agentId: 'researcher', title: 'Summarize my inbox', worker: true }), /already exists/, 'without uniqueTitle a taken title still refuses');
+      const long = 'x'.repeat(80);
+      file(long, 7);
+      assert.equal(file(long, 8).title, 'x'.repeat(76) + ' (2)', 'a suffix fits inside the 80-char title instead of being cut off');
+      for (let n = 2; n <= 99; n++) page.workstreams.push({ id: 'page_' + n, title: 'Weekly scan (' + n + ')', agentId: 'agent' });
+      page.workstreams.push({ id: 'page_1', title: 'Weekly scan', agentId: 'agent' });
+      const a = file('Weekly scan', 9), b = file('Weekly scan', 10);
+      assert.match(a.title, /^Weekly scan · \d{4}-\d\d-\d\d \d\d:\d\d:\d\d$/, 'past 99 the time it was asked names it');
+      assert.notEqual(a.title, b.title, 'two such workers in the same second still both get a thread');
+      // a thread the Commander deleted is dropped from overseer.json the next time a thread is filed
+      page.deletedIds.push(sixth.id);
+      file('After delete', 11);
+      assert.ok(!JSON.parse(fs.readFileSync(cdeps.file, 'utf8')).value.threads.some(t => t.id === sixth.id), 'deleted thread rows do not pile up in overseer.json');
+      assert.throws(() => ov.ensure({ id: sixth.id, agentId: 'agent' }), /no such session/, 'a pruned deleted conversation is still never brought back');
+      // settled reports whose workers the registry no longer holds stop growing overseer.json; covered work is never re-reported
+      const worker = (id, runId) => ({ id, runId, generation: 1, leadId: 'agent', agentId: 'researcher', parentStreamId: 'home', parentRunId: 'lead_' + id, streamId: 'home', status: 'done', completedAt: now });
+      ov.collect([worker('w_old', 'run_old'), worker('w_kept', 'run_kept')]);
+      for (const r of ov.snapshot().reviews) ov.patchReview(r.id, { status: 'done' });
+      assert.equal(ov.snapshot().reviews.length, 2);
+      now += 5000;
+      ov.collect([worker('w_kept', 'run_kept')]);
+      assert.deepEqual(ov.snapshot().reviews.map(r => r.workerRunId), ['run_kept'], 'an old settled report whose worker is gone is dropped; one whose worker is still listed is kept');
+      ov.collect([worker('w_kept', 'run_kept')]);
+      assert.equal(ov.snapshot().reviews.length, 1, 'a kept report still covers its worker (no second report)');
+    }
     console.log('overseer: durable identity, deduplication, restart, rename, tombstones and turn serialization PASS');
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 })().catch(e => { console.error(e); process.exitCode = 1; });
