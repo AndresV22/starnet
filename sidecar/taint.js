@@ -117,5 +117,61 @@
     return { allow, needsConfirmation: false, oneShot: allow };
   }
 
-  return { isUntrustedSource, allowedWhenTainted, postTaintBoundary, relayedTaint, firstTaint, CONNECTOR_CAP, UNTRUSTED_PARK_PREFIX };
+  /* SAME-ORIGIN API CONTINUATION (owner decision 2026-10-12, Etsy-factory Publisher report). Reading one API's response
+     used to revoke web_request outright: a watched run got one approval card PER CALL ("session" collapsed to once —
+     live-proven 3 calls = 3 cards) and an unattended run was refused. Every real API job is GET-then-PUT, so StarNet
+     could not run one hands-off. The threat the latch answers is injected text steering the run's powers somewhere
+     NEW: exfiltrating to another host, or spending a key on a service it was not already working on. Neither exists
+     when the next call goes back to the SAME https origin with keys the run already sent there.
+     So the run tracks a scope: { origin, keys } while every untrusted byte it has read came from web_request responses
+     of ONE https origin (plus this run's own parked copies of them), else { broad: true }. Pure; the host owns state.
+     Anything else that taints — a page, a browser read, a connector, an attachment, another origin, a key not already
+     used there, a taint the run started with or inherited — makes the scope broad and the old lock applies unchanged. */
+  const KEY_REF = /\$\{([A-Z][A-Z0-9_]*)\}/g;
+  function requestOrigin(call) {
+    try {
+      const u = new URL(String((call && call.args && call.args.url) || ''));
+      return u.protocol === 'https:' ? u.origin.toLowerCase() : '';
+    } catch (_) { return ''; }
+  }
+  function requestKeys(call) {
+    const a = (call && call.args) || {};
+    const out = new Set();
+    const h = a.headers && typeof a.headers === 'object' ? a.headers : {};
+    for (const k of Object.keys(h)) { let m; KEY_REF.lastIndex = 0; while ((m = KEY_REF.exec(String(h[k])))) out.add(m[1]); }
+    if (a.auth && typeof a.auth === 'object' && a.auth.key) out.add(String(a.auth.key).trim());
+    return Array.from(out).sort();
+  }
+  function isWebRequest(tool, call) { return String((tool && tool.name) || (call && call.name) || '').replace(/\./g, '_') === 'web_request'; }
+  // fs.read / fs.search of a park THIS run made: its bytes are this run's own (same-scope) results, not new content.
+  function ownPark(tool, call, runId) {
+    const name = String((tool && tool.name) || '');
+    if (name !== 'fs.read' && name !== 'fs.search') return false;
+    const base = String((call && call.args && call.args.path) || '').split(/[\\/]/).pop();
+    const rid = String(runId || '').replace(/[^A-Za-z0-9_-]/g, '');
+    return !!rid && base.indexOf(UNTRUSTED_PARK_PREFIX) === 0 && base.indexOf('-' + rid + '-') > 0;
+  }
+  // The scope after one more untrusted result. wasTainted = the run was already tainted before this result arrived.
+  function scopeAfterSource(scope, tool, call, opts) {
+    opts = opts || {};
+    if (scope && scope.broad) return scope;
+    if (!scope && opts.wasTainted) return { broad: true };          // tainted by something we did not scope
+    if (scope && ownPark(tool, call, opts.runId)) return scope;
+    const origin = isWebRequest(tool, call) ? requestOrigin(call) : '';
+    if (!origin) return { broad: true };
+    const keys = requestKeys(call);
+    if (!scope) return { origin, keys };
+    if (scope.origin !== origin || !keys.every(k => scope.keys.indexOf(k) >= 0)) return { broad: true };
+    return scope;
+  }
+  // May this call skip the post-taint confirmation? Only a web_request back to the scoped origin, spending no key
+  // the run had not already sent there. Never for an untrusted ENTRY (webhook/forward/attachment-started run).
+  function sameOriginContinuation(scope, tool, call, opts) {
+    opts = opts || {};
+    if (!scope || scope.broad || opts.untrustedEntry === true || !isWebRequest(tool, call)) return false;
+    if (requestOrigin(call) !== scope.origin) return false;
+    return requestKeys(call).every(k => scope.keys.indexOf(k) >= 0);
+  }
+
+  return { isUntrustedSource, allowedWhenTainted, postTaintBoundary, relayedTaint, firstTaint, scopeAfterSource, sameOriginContinuation, CONNECTOR_CAP, UNTRUSTED_PARK_PREFIX };
 });

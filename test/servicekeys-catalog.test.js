@@ -157,4 +157,19 @@ for (const p of C.PLATFORMS) {
   }
 }
 
+// ---- D. VERIFIED API NOTES (2026-10-12 user report: a Publisher agent hit a mockup endpoint that does not exist, sent
+//      partial variant lists in PUTs, and retyped ids from a truncated response). Notes ride the prompt, so they hold
+//      only facts checked against the vendor's own reference — and they reach a key saved under any name via its docs link. ----
+{
+  const n = C.notesFor('PRINTIFY_API_KEY');
+  const has = s => n.indexOf(s) >= 0;
+  A.ok(has('images[]') && has('no endpoint of their own'), 'Printify: mockups are the product images[], not an endpoint');
+  A.ok(has('EVERY variant'), 'Printify: a PUT that sends variants must send all of them');
+  A.ok(has('POST /v1/uploads/images.json') && has('GET /v1/uploads/{image_id}.json'), 'Printify: upload + read-back paths');
+  A.ok(has('${file:') && has('select'), 'Printify: notes point at the host-side file attach and select');
+  A.eq(C.notesFor('PRINTIFY_TOKEN_API_KEY', 'https://developers.printify.com/'), n, 'a key saved under another name still gets the notes via its docs link');
+  A.eq(C.notesFor('NOPE_API_KEY'), '', 'no row -> no notes');
+  for (const p of C.PLATFORMS) if (p.apiNotes) A.ok(typeof p.apiNotes === 'string' && p.apiNotes.length < 2000, 'apiNotes stay a short string [' + p.id + ']');
+}
+
 A.report('servicekeys-catalog.test.js');

@@ -67,7 +67,8 @@ const result = (extra) => Object.assign({ type: 'result', subtype: 'success', is
     A.eq(args[args.indexOf('--model') + 1], 'sonnet', 'model is passed through');
     A.eq(args[args.indexOf('--effort') + 1], 'high', 'reasoning effort maps to --effort');
     A.ok(args.indexOf('--system-prompt-file') >= 0, 'system prompt travels in a file, not argv');
-    A.eq(calls[0].stdin, 'hi', 'a single user message is sent verbatim on stdin');
+    A.ok(args.join(' ').includes('--input-format stream-json'), 'stdin is always stream-json (one block per transcript entry: the prompt cache)');
+    A.eq(JSON.parse(calls[0].stdin), { type: 'user', message: { role: 'user', content: [{ type: 'text', text: '<user>\nhi\n</user>' }] } }, 'a single user message is one tagged block');
     A.eq(evs.filter(e => e.type === 'text').map(e => e.delta).join(''), 'Hello', 'text deltas stream (result text not duplicated)');
     const usage = evs.find(e => e.type === 'usage').usage;
     A.eq([usage.prompt_tokens, usage.completion_tokens, usage.prompt_tokens_details.cached_tokens], [35, 7, 20], 'real token counts');
@@ -108,10 +109,11 @@ const result = (extra) => Object.assign({ type: 'result', subtype: 'success', is
       { role: 'assistant', content: '', tool_calls: [{ id: 'c1', type: 'function', function: { name: 'fs.read', arguments: '{"path":"a.txt"}' } }] },
       { role: 'tool', tool_call_id: 'c1', content: 'milk' }
     ], [{ type: 'function', function: { name: 'fs.read', parameters: {} } }]);
+    const text = built.blocks.map(b => b.text).join('\n');
     A.ok(/^sys\n\n# Tools/.test(built.system), 'system prompt keeps the host system text, then the tool protocol');
-    A.ok(built.input.indexOf('<function_calls>\n<invoke name="fs.read">\n<parameter name="path">a.txt</parameter>\n</invoke>\n</function_calls>') >= 0, 'prior call rendered in the format the model is asked to write');
+    A.ok(text.indexOf('<function_calls>\n<invoke name="fs.read">\n<parameter name="path">a.txt</parameter>\n</invoke>\n</function_calls>') >= 0, 'prior call rendered in the format the model is asked to write');
     A.ok(/<function_calls>/.test(built.system) && /write nothing more/.test(built.system), 'the tool protocol asks for the model\'s own call format and a stop after the block');
-    A.ok(built.input.indexOf('<tool_result id="c1">\nmilk\n</tool_result>') >= 0, 'prior result rendered');
+    A.ok(text.indexOf('<tool_result id="c1">\nmilk\n</tool_result>') >= 0, 'prior result rendered');
     A.ok(/No tools are available in this turn/.test(_internals.toolsPrompt([])), 'a toolless (chat) turn says so, so the model never improvises tool markup');
     const sp = _internals.makeCallSplitter();
     A.eq(sp.push('a <tool_call>not json').text + sp.end().text, 'a <tool_call>not json', 'an unclosed, unparseable block stays prose');
@@ -295,13 +297,13 @@ const result = (extra) => Object.assign({ type: 'result', subtype: 'success', is
     const msg = JSON.parse(calls[0].stdin);
     A.eq([msg.type, msg.message.role], ['user', 'user'], 'stdin is one stream-json user message');
     const c = msg.message.content;
-    A.eq(c[0], { type: 'text', text: 'What does it say?\n[image 1 — attached below]' }, 'the text says where the image sat');
+    A.eq(c[0], { type: 'text', text: '<user>\nWhat does it say?\n[image 1 — attached below]\n</user>' }, 'the text says where the image sat');
     A.eq(c.slice(1), [{ type: 'text', text: 'Image 1:' }, { type: 'image', source: { type: 'base64', media_type: 'image/png', data: png } }], 'the picture itself is sent as an Anthropic image block');
     A.ok(out.some(e => e.type === 'text' && /FINAL BOSS/.test(e.delta)), 'the answer streams back as usual');
 
     const plain = make({ lines: [init('none'), result({ result: 'ok' })] });
     await collect(plain.p, { model: 'opus', messages: [{ role: 'user', content: 'hi' }] });
-    A.ok(plain.calls[0].args.indexOf('--input-format') < 0 && plain.calls[0].stdin === 'hi', 'a text-only turn is unchanged (no stream-json input)');
+    A.eq(JSON.parse(plain.calls[0].stdin).message.content, [{ type: 'text', text: '<user>\nhi\n</user>' }], 'a text-only turn is one text block, no image blocks');
 
     // a screenshot inside a transcript, an http image, an svg the API cannot take, and the cap on old images
     const t = make({ lines: [init('none'), result({ result: 'ok' })] });
@@ -315,10 +317,14 @@ const result = (extra) => Object.assign({ type: 'result', subtype: 'success', is
     const tc = JSON.parse(t.calls[0].stdin).message.content;
     const imgs = tc.filter(b => b.type === 'image');
     A.eq(imgs.length, 20, 'at most 20 images ride one turn (the newest)');
-    A.ok(tc[0].text.includes('[earlier image no longer attached]') && !tc[0].text.includes('https://x.test/a.png'), 'an image past the cap leaves a note');
-    A.ok(tc[0].text.includes('[image attachment omitted — it could not be sent to the Claude Code brain]'), 'an svg (not an API image type) is a note, never a broken block');
+    A.eq(tc.slice(0, 2).map(b => b.text), ['<user>\nlook\n</user>', '<assistant>\nok\n</assistant>'], 'each transcript entry is its own block');
+    const shot = tc[2].text;
+    A.ok(shot.includes('[earlier image no longer attached]') && !shot.includes('https://x.test/a.png'), 'an image past the cap leaves a note');
+    A.ok(shot.includes('[image attachment omitted — it could not be sent to the Claude Code brain]'), 'an svg (not an API image type) is a note, never a broken block');
     A.eq(imgs[0].source.media_type, 'image/jpeg', 'image/jpg is normalized to image/jpeg');
-    A.ok(tc[0].text.includes('<conversation>') && tc[0].text.includes('[image 20 — attached below]') && !tc[0].text.includes('\u0000'), 'the transcript is intact and every mark is resolved');
+    // numbered by place in the whole conversation (the http image is #1, the 22 jpgs #2-#23): a new image never renumbers an old one
+    A.ok(shot.includes('[image 4 — attached below]') && shot.includes('[image 23 — attached below]') && !shot.includes('[image 3 —') && !shot.includes('\u0000'), 'the transcript is intact and every mark is resolved');
+    A.eq([tc[3].text, tc[4].type, tc[tc.length - 2].text], ['Image 4:', 'image', 'Image 23:'], 'the images follow the entry they came in, each with its label');
   }
   {
     const { makeClaudeCliProvider } = require('../sidecar/providers/claude-cli.js');
@@ -346,10 +352,34 @@ const result = (extra) => Object.assign({ type: 'result', subtype: 'success', is
     A.ok(head1 && head1 === head2 && head1.startsWith('You are the researcher.') && !head1.includes('Run id'), 'the stable part before the boundary is identical across runs');
     A.ok(tail1 === '[RUNTIME]\nRun id: r1' && tail2 === '[RUNTIME]\nRun id: r2', 'the per-run block stays in the system prompt, after the boundary');
     A.ok(head1.indexOf('# Tools') > 0, 'the tool catalog sits on the stable side of the boundary');
-    A.eq(calls[0].stdin, 'hi', 'the transcript on stdin is unchanged');
+    A.eq(JSON.parse(calls[0].stdin).message.content, [{ type: 'text', text: '<user>\nhi\n</user>' }], 'the transcript on stdin is unchanged');
+    A.ok(head1.includes('# Conversation') && /Continue as the assistant/.test(head1), 'how to read the transcript sits on the cached side of the boundary');
     const miss = _internals.buildPrompt([{ role: 'system', content: 'other system' }, { role: 'user', content: 'hi' }], [], prefix);
     const none = _internals.buildPrompt([{ role: 'system', content: 'other system' }, { role: 'user', content: 'hi' }], []);
     A.eq(miss, none, 'a prefix that does not match the system prompt leaves the prompt exactly as before');
+  }
+  // 2026-10-12 PROMPT CACHE: the CLI caches at the LAST block and the API only finds an earlier entry at a block boundary.
+  // One text block ending in a per-turn "Continue…" line made every tool turn re-write the whole conversation and read 0
+  // back (live Haiku probe: turn 2 wrote 16,632, read 0). Turn N's blocks must be a block-for-block prefix of turn N+1's.
+  {
+    const tools = [{ type: 'function', function: { name: 'fs_read', parameters: { type: 'object', properties: { path: { type: 'string' } } } } }];
+    const call = (id, p) => ({ id, type: 'function', function: { name: 'fs_read', arguments: JSON.stringify({ path: p }) } });
+    const t1 = [{ role: 'system', content: 'sys' }, { role: 'user', content: 'read a and b' },
+      { role: 'assistant', content: '', tool_calls: [call('c1', 'a'), call('c2', 'b')] },
+      { role: 'tool', tool_call_id: 'c1', content: 'A' }, { role: 'tool', tool_call_id: 'c2', content: 'B' }];
+    const t2 = t1.concat([{ role: 'assistant', content: 'now c', tool_calls: [call('c3', 'c')] }, { role: 'tool', tool_call_id: 'c3', content: 'C' }]);
+    const b1 = _internals.buildPrompt(t1, tools), b2 = _internals.buildPrompt(t2, tools);
+    A.eq(b2.blocks.slice(0, b1.blocks.length), b1.blocks, 'the next turn starts with every block of this one, unchanged');
+    A.eq(b1.system, b2.system, 'the system prompt does not change between turns');
+    A.eq(b1.blocks.length, 3, 'user, assistant, then ONE block for both parallel tool results (few blocks per turn: the API looks back ~20)');
+    A.ok(/<\/tool_result>$/.test(b2.blocks[b2.blocks.length - 1].text), 'nothing per-turn follows the newest entry');
+    A.ok(!b2.blocks.some(b => /Continue as the assistant|<conversation>/.test(b.text)), 'the instruction lives in the system prompt, not the transcript');
+  }
+  // the subscription seatbelt's input: a subscription turn says so on its usage; an API-key turn does not
+  {
+    const sub = await collect(make({ lines: [init('none'), result({ result: 'ok' })] }).p, { model: 'opus', messages: [{ role: 'user', content: 'x' }] });
+    const key = await collect(make({ lines: [init('ANTHROPIC_API_KEY'), result({ result: 'ok' })] }).p, { model: 'opus', messages: [{ role: 'user', content: 'x' }] });
+    A.eq([sub.find(e => e.type === 'usage').usage.subscription, key.find(e => e.type === 'usage').usage.subscription], [true, undefined], 'usage.subscription marks only a subscription sign-in');
   }
   A.report('provider.claude-cli.test');
 })().catch(e => { console.log('FAIL: provider.claude-cli.test threw -- ' + (e && e.stack || e)); process.exit(1); });

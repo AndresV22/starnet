@@ -768,7 +768,7 @@ let runtimeKnobs = (function loadRuntimeKnobsAtBoot() {
   function parseKnobs(raw) {
     const k = (raw && typeof raw === 'object' && raw.knobs && typeof raw.knobs === 'object') ? raw.knobs : {};
     const out = {};
-    for (const key of ['maxIters', 'maxConcurrentAgents', 'consentTimeoutMs', 'cronTickMs']) {
+    for (const key of ['maxIters', 'maxConcurrentAgents', 'consentTimeoutMs', 'cronTickMs', 'maxSubscriptionTokens']) {
       const v = k[key];
       if (typeof v === 'number' && isFinite(v) && v >= 0) out[key] = Math.floor(v);
     }
@@ -797,7 +797,9 @@ function knobEnvLocked(envSuffix) { const e = envSuffix ? ENV(envSuffix) : null;
 // absolutely (deterministic tests + locked-down deploys).
 // maxUnpricedTokens: per-run TOKEN ceiling for turns no catalog/table could price on a METERED provider (the $ cap
 // is blind to them). SKYNET_MAX_UNPRICED_TOKENS overrides; 0 disables. OAuth/unmetered providers are exempt.
-const CAPS = { maxIters: resolveKnob('MAX_ITERS', 'maxIters', 0), maxCostUsd: 1.00, maxRepeat: 3, toolTimeoutMs: 30000, maxToolBytes: resolveKnob('MAX_TOOL_BYTES', 'maxToolBytes', 120000), maxUnpricedTokens: resolveKnob('MAX_UNPRICED_TOKENS', 'maxUnpricedTokens', 2000000) };
+// maxSubscriptionTokens: per-run TOKEN ceiling for $0 subscription turns (a Claude Code sign-in); cache re-reads count
+// 1/10 (loop.js SUBSCRIPTION SEATBELT). STARNET_MAX_SUBSCRIPTION_TOKENS or SETTINGS › APP & BACKUP overrides; 0 disables.
+const CAPS = { maxIters: resolveKnob('MAX_ITERS', 'maxIters', 0), maxCostUsd: 1.00, maxRepeat: 3, toolTimeoutMs: 30000, maxToolBytes: resolveKnob('MAX_TOOL_BYTES', 'maxToolBytes', 120000), maxUnpricedTokens: resolveKnob('MAX_UNPRICED_TOKENS', 'maxUnpricedTokens', 2000000), maxSubscriptionTokens: resolveKnob('MAX_SUBSCRIPTION_TOKENS', 'maxSubscriptionTokens', 2000000) };
 const MAX_TOOL_BYTES_PINNED = knobEnvLocked('MAX_TOOL_BYTES');
 const MCP_CALL_TIMEOUT_MS = 120000;   // default connector call/handshake budget (mcp/manager.js); per-connector timeoutMs overrides
 // Spend governance: per-run, per-agent and global ceilings default OFF; per-DAY ships ON as a soft rail
@@ -13956,7 +13958,8 @@ const RUNTIME_KNOB_DEFS = [
   { key: 'maxIters', env: 'MAX_ITERS', def: 0, min: 0, max: 200 },
   { key: 'maxConcurrentAgents', env: 'MAX_CONCURRENT_AGENTS', def: 0, min: 0, max: 32 },
   { key: 'consentTimeoutMs', env: 'CONSENT_TIMEOUT_MS', def: 120000, min: 5000, max: 600000 },
-  { key: 'cronTickMs', env: 'CRON_TICK_MS', def: 60000, min: 5000, max: 600000 }
+  { key: 'cronTickMs', env: 'CRON_TICK_MS', def: 60000, min: 5000, max: 600000 },
+  { key: 'maxSubscriptionTokens', env: 'MAX_SUBSCRIPTION_TOKENS', def: 2000000, min: 0, max: 100000000 }
 ];
 function saveRuntimeKnobs() {
   try { saveResilient(RUNTIME_KNOBS_FILE, { version: 1, knobs: runtimeKnobs }); }
@@ -19273,6 +19276,9 @@ async function runOnceCore(o) {
   // it STARTED with (set once the replay proof below has run): a refusal under either must not claim this run read anything.
   const taintHandedIn = execution.taintedBy();
   let taintAtStart = null;
+  // SAME-ORIGIN API CONTINUATION scope (taint.js): null until this run reads untrusted bytes; { origin, keys } while all
+  // of them came from ONE https API origin; { broad: true } once anything else (or a taint it started with) is involved.
+  let taintScope = null;
   // One sequence across provider and tool recovery. Adapter-local counters restart at one, but the durable run
   // record must preserve the actual cross-stage order in which recovery actions happened.
   const recordRunRecoveryAttempt = (attempt) => {
@@ -21033,7 +21039,12 @@ async function runOnceCore(o) {
     const effectSurface = connectorPrompt ? 'interactive' : surface;
     const connectorFullAccess = /^mcp:/.test(String(liveTool?.capability || ''))
       && typeof o.connectorAuthority?.fullAccess === 'function' && o.connectorAuthority.fullAccess() === true;
-    let postTaint = revokedByTaint.boundary(liveTool, {
+    /* SAME-ORIGIN API CONTINUATION (owner decision 2026-10-12): a run whose only untrusted reads are responses from ONE
+       https API may keep calling that same API with keys it already sent there — no per-call card, and unattended runs
+       are not refused for it. The taint stays latched: every other host, key, tool and power keeps the lock below. */
+    const sameOriginApi = !!taintSource && !inheritedTaint && taintSource === execution.taintedBy()
+      && taintPolicy.sameOriginContinuation(taintScope, liveTool, c, { untrustedEntry: untrustedEntryRun });
+    let postTaint = sameOriginApi ? { allow: true, needsConfirmation: false, oneShot: false } : revokedByTaint.boundary(liveTool, {
       taintedBy: taintSource, surface: effectSurface, hasPrompt: typeof effectPrompt === 'function',
       fullAccess: stationBypassNow() || agentFullAccessNow() || connectorFullAccess, untrustedEntry: untrustedEntryRun
     });
@@ -21288,8 +21299,9 @@ async function runOnceCore(o) {
        puts it verbatim into the tool_result the model reads. So `isError: true` was a one-flag bypass that let
        a hostile connector inject text while the run kept its terminal / credentialed / connector-write powers.
        What actually matters is whether untrusted BYTES reached the context, not whether the call succeeded. */
-    if (!execution.taintedBy() && r && typeof r.content === 'string' && r.content.length && revokedByTaint.isSource(liveTool, c)) {
-      latchRunTaint(c.name);
+    if (r && typeof r.content === 'string' && r.content.length && revokedByTaint.isSource(liveTool, c)) {
+      taintScope = taintPolicy.scopeAfterSource(taintScope, liveTool, c, { wasTainted: !!execution.taintedBy(), runId });
+      if (!execution.taintedBy()) latchRunTaint(c.name);
     }
     /* RELAYED TAINT (sec-taint 09-25). team.dispatch / team.spawn / team.subagents / team.resume hand this run the
        text of ANOTHER run. When that run was tainted (its worker read a hostile page), the text it returns is the
@@ -21298,7 +21310,7 @@ async function runOnceCore(o) {
        host-proven latch (never model-supplied); the lead inherits it, errors included. */
     if (!execution.taintedBy() && r) {
       const relayed = taintPolicy.relayedTaint(r);
-      if (relayed) latchRunTaint(relayed);
+      if (relayed) { latchRunTaint(relayed); taintScope = { broad: true }; }
     }
     // observe BEFORE the tool-output budget clip below, so the collector parses the tool's REAL result text.
     if (!internalBriefControl) {
@@ -21716,7 +21728,7 @@ async function runOnceCore(o) {
     const canShell = kt.indexOf('shell.exec') >= 0;
     const canRequest = kt.indexOf('web_request') >= 0;
     if (canShell || canRequest) {
-      const b = serviceKeysMod.promptBlock(serviceKeys, { shell: canShell, request: canRequest, platform: process.platform });
+      const b = serviceKeysMod.promptBlock(serviceKeys, { shell: canShell, request: canRequest, platform: process.platform, notesFor: serviceKeysCatalog.notesFor });
       if (b) serviceKeysBlock = '\n\n' + b;
     }
   } catch (_) { serviceKeysBlock = ''; }
@@ -22104,7 +22116,9 @@ async function runOnceCore(o) {
         grace: o.outputOnly ? false : undefined, refundMax: o.outputOnly ? 0 : undefined,
         turnOutputMax: () => runOutputBudget().turnMax,   // 30% of the live window (see WINDOW-SCALED TOOL OUTPUT)
         // unpriced-token seatbelt: metered API-key providers only — a subscription/OAuth/unmetered run bills nothing
-        maxUnpricedTokens: (providerUnmetered || usingCodex || usingDeviceOAuth) ? Infinity : CAPS.maxUnpricedTokens
+        maxUnpricedTokens: (providerUnmetered || usingCodex || usingDeviceOAuth) ? Infinity : CAPS.maxUnpricedTokens,
+        // subscription seatbelt: counts only turns whose usage says `subscription` (a Claude Code sign-in), whatever the provider
+        maxSubscriptionTokens: CAPS.maxSubscriptionTokens
       },
       budget: runBudget, context: ctxMgr, summarize, fallbacks, initialFallback,
       microCompaction: !/^(0|false|off|no)$/i.test(String(ENV('COMPACT_MICRO') || '').trim()),   // free elision tier before any paid fold (off: STARNET_COMPACT_MICRO=0)

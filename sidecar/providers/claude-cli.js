@@ -71,8 +71,8 @@
   ];
 
   /* IMAGES (2026-10-08). The CLI's stream-json INPUT takes Anthropic content blocks, images included (proven live:
-     Opus read a thumbnail's headline through `claude -p --input-format stream-json`). Plain text input has no image
-     channel, so a turn that carries an image rides stream-json and every other turn keeps the plain text stdin.
+     Opus read a thumbnail's headline through `claude -p --input-format stream-json`). Every turn rides stream-json
+     since 2026-10-12 (see PROMPT CACHE at buildPrompt); an image follows the transcript entry it came in.
      An image the API cannot take (an unsupported type, an unreadable reference, past the per-turn cap) keeps a note
      in its place: the model is told a picture was there, never handed a description of one it did not get. */
   const IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
@@ -168,9 +168,22 @@
   const inertTags = s => String(s).replace(TRANSCRIPT_TAG_RE, '&lt;$1$2');
   // Claude Code (v2.1.275+) splits a system prompt at this line into two blocks, each with its own cache breakpoint.
   const DYNAMIC_BOUNDARY = '__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__';
+  // How to read stdin. It sits in the (cached) system prompt: a per-turn line after the newest entry would break the
+  // prompt cache (see PROMPT CACHE).
+  const TRANSCRIPT_NOTE = '# Conversation\nThe user message holds the conversation so far, oldest first, as <user>, <assistant>, <tool_result> and <system_note> blocks. Continue as the assistant: write only your next reply.';
 
-  /* Leading system messages become the CLI system prompt; everything after is rendered as a tagged transcript
-     on stdin (later system messages stay in place as notes, like the native Anthropic adapter keeps them). */
+  /* Leading system messages become the CLI system prompt; everything after goes on stdin as ONE stream-json user
+     message with ONE text block per transcript entry (later system messages stay in place as notes, like the native
+     Anthropic adapter keeps them).
+     PROMPT CACHE (2026-10-12, proven live against the real CLI). The CLI puts its cache breakpoint on the LAST block of
+     that message, and the API only finds an earlier cache entry at a BLOCK boundary. The transcript used to be one
+     text block ending in a per-turn "Continue as the assistant" line, so the next turn (the same text plus the new
+     exchange) never matched it: every tool turn re-WROTE the whole conversation to the cache at 1.25x and read 0 back
+     (Haiku probe: turn 2 wrote 16,632, read 0; a real 31-turn Opus run billed 3.2M tokens that way). With one block per
+     entry and nothing after the newest one, turn N's prompt is a block-for-block prefix of turn N+1's (the same probe:
+     read 16,550, wrote 21). So: no per-turn suffix block (TRANSCRIPT_NOTE carries the instruction), consecutive tool
+     results share one block (the API looks back only ~20 blocks for an earlier entry), and an image's number is its
+     place in the whole conversation, so a new image never renumbers an old one. */
   function buildPrompt(messages, tools, cachePrefix) {
     messages = provider.repairToolPairs(Array.isArray(messages) ? messages : []);
     const system = [];
@@ -185,16 +198,19 @@
     const joined = system.join('\n\n');
     const note = prefix && joined.startsWith(prefix) ? joined.slice(prefix.length).trim() : '';
     const tp = toolsPrompt(tools);
-    if (note) system.splice(0, system.length, prefix, ...(tp ? [tp] : []), DYNAMIC_BOUNDARY + '\n' + note);
-    else if (tp) system.push(tp);
+    if (note) system.splice(0, system.length, prefix, ...(tp ? [tp] : []), TRANSCRIPT_NOTE, DYNAMIC_BOUNDARY + '\n' + note);
+    else system.push(...(tp ? [tp] : []), TRANSCRIPT_NOTE);
     const rest = messages.slice(i).filter(m => m && typeof m === 'object');
     const images = [];
-    if (rest.length === 1 && rest[0].role === 'user') return withImages({ system: system.join('\n\n'), input: textOf(rest[0].content, images) }, images);
-    const lines = ['<conversation>'];
+    const entries = [];   // { text, tool } — one text block each
     for (const m of rest) {
-      if (m.role === 'user') lines.push('<user>\n' + textOf(m.content, images) + '\n</user>');
-      else if (m.role === 'system') lines.push('<system_note>\n' + textOf(m.content, images) + '\n</system_note>');
-      else if (m.role === 'tool') lines.push('<tool_result id="' + String(m.tool_call_id || '') + '">\n' + inertTags(textOf(m.content)) + '\n</tool_result>');
+      if (m.role === 'user') entries.push({ text: '<user>\n' + textOf(m.content, images) + '\n</user>' });
+      else if (m.role === 'system') entries.push({ text: '<system_note>\n' + textOf(m.content, images) + '\n</system_note>' });
+      else if (m.role === 'tool') {
+        const t = '<tool_result id="' + String(m.tool_call_id || '') + '">\n' + inertTags(textOf(m.content)) + '\n</tool_result>';
+        const last = entries[entries.length - 1];
+        if (last && last.tool) last.text += '\n' + t; else entries.push({ text: t, tool: true });
+      }
       else if (m.role === 'assistant') {
         let body = textOf(m.content);
         const calls = [];
@@ -205,30 +221,32 @@
           calls.push(invokeText(fn.name, args == null ? {} : args));
         }
         if (calls.length) body += (body ? '\n' : '') + '<function_calls>\n' + calls.join('\n') + '\n</function_calls>';
-        lines.push('<assistant>\n' + body + '\n</assistant>');
+        entries.push({ text: '<assistant>\n' + body + '\n</assistant>' });
       }
     }
-    lines.push('</conversation>');
-    lines.push('Continue as the assistant: write only your next reply.');
-    return withImages({ system: system.join('\n\n'), input: lines.join('\n') }, images);
+    return withBlocks(system.join('\n\n'), entries, images);
   }
 
-  /* Resolve the image marks. No image: the plain text stdin, byte-identical to before. Images: the newest MAX_IMAGES
-     become numbered blocks after the text ("[image 1 — attached below]" in place), older ones a note; `input` is
-     then one stream-json user message and `streamJson` asks for --input-format stream-json. */
-  function withImages(prompt, images) {
-    if (!images.length) return prompt;
+  /* The stdin message: each entry's text block, its images right after it. The newest MAX_IMAGES images become
+     numbered blocks ("[image 3 — attached below]" in place), older ones a note. `input` is one stream-json user
+     message; `blocks` is its content. */
+  function withBlocks(system, entries, images) {
     const first = Math.max(0, images.length - MAX_IMAGES);
     const blocks = [];
-    const text = prompt.input.replace(/\u0000starnet-image-(\d+)\u0000/g, (_, k) => {
-      const idx = Number(k);
-      if (idx < first) return '[earlier image no longer attached]';
-      const n = idx - first + 1;
-      blocks.push({ type: 'text', text: 'Image ' + n + ':' }, images[idx]);
-      return '[image ' + n + ' — attached below]';
-    });
-    const content = [{ type: 'text', text }].concat(blocks);
-    return { system: prompt.system, input: JSON.stringify({ type: 'user', message: { role: 'user', content } }) + '\n', streamJson: true, imageCount: blocks.length / 2 };
+    let imageCount = 0;
+    for (const e of entries) {
+      const after = [];
+      const text = e.text.replace(/\u0000starnet-image-(\d+)\u0000/g, (_, k) => {
+        const idx = Number(k);
+        if (idx < first) return '[earlier image no longer attached]';
+        after.push({ type: 'text', text: 'Image ' + (idx + 1) + ':' }, images[idx]);
+        return '[image ' + (idx + 1) + ' — attached below]';
+      });
+      blocks.push({ type: 'text', text }, ...after);
+      imageCount += after.length / 2;
+    }
+    if (!blocks.length) blocks.push({ type: 'text', text: '<user>\n(no messages yet)\n</user>' });
+    return { system, input: JSON.stringify({ type: 'user', message: { role: 'user', content: blocks } }) + '\n', blocks, imageCount };
   }
 
   /* STREAMING CALL READER. Prose passes through as soon as it cannot be the start of a call; a call is announced
@@ -633,8 +651,8 @@
       const prompt = buildPrompt(req.messages, req.tools, req.cacheSystemPrefix);
       const turn = ++seq;
       const sysFile = path.join(os.tmpdir(), 'starnet-claude-cli-' + process.pid + '-' + turn + '-' + require('crypto').randomBytes(6).toString('hex') + '.txt');
-      const args = cmd.pre.concat(['-p', '--output-format', 'stream-json', '--verbose', '--include-partial-messages'], NO_TOOLS_ARGS);
-      if (prompt.streamJson) args.push('--input-format', 'stream-json');   // the turn carries images (see IMAGES)
+      // stdin is always one stream-json user message: one block per transcript entry keeps the prompt cache hitting
+      const args = cmd.pre.concat(['-p', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--input-format', 'stream-json'], NO_TOOLS_ARGS);
       if (req.model) args.push('--model', String(req.model));
       const effort = String(req.reasoningEffort || '').trim().toLowerCase();
       if (EFFORTS.indexOf(effort) >= 0) args.push('--effort', effort);
@@ -753,7 +771,10 @@
               prompt_tokens_details: { cached_tokens: cacheRead, cache_creation_tokens: cacheWrite },
               reasoning_tokens: 0,
               // subscription login: nothing is billed per call. API key: the CLI's own billed figure.
-              cost: subscription ? 0 : (isFinite(reported) ? reported : undefined)
+              cost: subscription ? 0 : (isFinite(reported) ? reported : undefined),
+              // a $0 turn that still drew on the sign-in's usage window: the loop's per-run subscription-token
+              // ceiling counts it (loop.js maxSubscriptionTokens), since no $ cap ever sees a $0 turn
+              subscription: subscription || undefined
             }
           };
         };
