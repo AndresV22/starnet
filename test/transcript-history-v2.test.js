@@ -234,9 +234,15 @@ function ioAt(base, extra) {
     A.eq(restored.content.length, content.length, 'restarted segmented history preserves maximum full length');
     A.eq(hash(restored.content), hash(content), 'restarted segmented history preserves maximum full UTF-8 hash');
     A.ok(restored.content === content, 'restarted segmented history preserves exact surrogate code units too');
-    // A corrupt disk read must not become an empty first-acceptance lookup, even with a good RAM copy.
-    fs.appendFileSync(path.join(dir, 'history', 'segment-000001.jsonl'), '{bad line}\n');
-    A.throws(() => store.history('full', { sourceRunId: 'original', dispatchState: 'final', strict: true }), 'strict acceptance lookup rejects corrupt segment rather than falling back to RAM');
+    // A torn fragment of some OTHER row never names this run, so it was never this run's accepted answer:
+    // it must not fail the acceptance lookup (it used to fail every worker finalize until the segment rolled).
+    const seg = path.join(dir, 'history', 'segment-000001.jsonl');
+    fs.appendFileSync(seg, '{bad line}\n');
+    const afterTorn = store.history('full', { sourceRunId: 'original', dispatchState: 'final', strict: true, limit: 1 })[0];
+    A.ok(!!afterTorn && hash(afterTorn.content) === hash(content), 'an unrelated torn line no longer fails the strict acceptance lookup');
+    // A damaged line that names this run may be its accepted answer: that still fails closed, never falls back to RAM.
+    fs.appendFileSync(seg, '{"streamId":"full","sourceRunId":"original","dispatchState":"fin\n');
+    A.throws(() => store.history('full', { sourceRunId: 'original', dispatchState: 'final', strict: true }), 'strict acceptance lookup rejects a damaged line naming this run rather than falling back to RAM');
   } finally { remove(dir); }
 }
 
@@ -271,6 +277,44 @@ function ioAt(base, extra) {
     fs.writeFileSync(manifestFile, JSON.stringify(manifest));
     store = makeTranscriptStore({ io: ioAt(dir, { segmentBytes: 500 }), clock: { now: () => tick++ } });
     A.ok(!/UNVERIFIED/.test(store.streams().find(r => r.streamId === 'chat').preview), 'unversioned closed preview metadata is not trusted as visible conversation text');
+  } finally { remove(dir); }
+}
+
+// A torn line left by a killed sidecar must not block worker finalization, and finalize must not
+// re-read every old segment of a long stream ('global') that predates the run.
+{
+  const dir = temp('history-finalize-torn');
+  const hash = text => require('crypto').createHash('sha256').update(text, 'utf8').digest('hex');
+  const { makeRunStore } = require('../sidecar/runstore.js');
+  const { finalizeDispatchDelivery, recoverPendingDeliveries } = require('../sidecar/dispatch-delivery.js');
+  try {
+    let now = 1000;
+    const clock = { now: () => now };
+    const reads = [];
+    const countedFs = Object.create(fs);
+    countedFs.readFileSync = (file, ...rest) => { reads.push(path.basename(String(file))); return fs.readFileSync(file, ...rest); };
+    const io = ioAt(dir, { fs: countedFs, segmentBytes: 700 });
+    const transcriptStore = makeTranscriptStore({ io, clock });
+    for (let i = 0; i < 12; i++) transcriptStore.appendStrict({ streamId: 'global', role: 'assistant', content: 'old global chatter ' + i + ' ' + 'x'.repeat(80) });
+    const oldSegments = io.status().segments.filter(s => s.number !== io.status().activeSegment).map(s => s.file);
+    A.ok(oldSegments.length >= 2, 'the old global history spans several closed segments');
+    // the sidecar died mid-append in an OLD segment and in the ACTIVE one
+    fs.appendFileSync(path.join(dir, 'history', oldSegments[0]), '{"streamId":"global","role":"assi\n');
+    now = 1000 + 2 * 24 * 60 * 60 * 1000;
+    fs.appendFileSync(path.join(dir, 'history', 'segment-' + String(io.status().activeSegment).padStart(6, '0') + '.jsonl'), '{"streamId":"global","con');
+    const runStore = makeRunStore({ io: { readAll: () => [], append() {} }, clock });
+    transcriptStore.appendStrict({ streamId: 'global', sourceRunId: 'w1', dispatchState: 'pending', role: 'user', content: 'Summarize the inbox' });
+    runStore.record({ runId: 'w1', agentId: 'ada', reason: 'done', startedAt: now, dispatchDelivery: { state: 'pending' } });
+    now += 1000;
+    reads.length = 0;
+    const deps = { runStore, transcriptStore, redact: t => t, hash };
+    let row = null;
+    A.notThrows(() => { row = finalizeDispatchDelivery(deps, 'w1', { text: 'Three unread invoices.', reason: 'done' }); }, 'a torn line from another row never fails this worker\'s finalization');
+    A.eq(row && row.dispatchDelivery && row.dispatchDelivery.state, 'final', 'the worker\'s delivery is final, not left pending');
+    A.ok(!oldSegments.some(f => reads.includes(f)), 'finalize never re-reads closed segments that end before the run started (read: ' + reads.join(',') + ')');
+    A.eq(transcriptStore.history('global', { sourceRunId: 'w1', dispatchState: 'final' }).length, 1, 'exactly one accepted final row is written');
+    A.notThrows(() => finalizeDispatchDelivery(deps, 'w1', { text: 'Three unread invoices.', reason: 'done' }), 'a repeated finalize stays idempotent past the torn lines');
+    A.eq(recoverPendingDeliveries(Object.assign({ onFailure: e => { throw e; } }, deps)), 0, 'no pending delivery is left to recover');
   } finally { remove(dir); }
 }
 A.report('transcript-history-v2.test');

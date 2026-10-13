@@ -481,7 +481,7 @@
       // durable index/segments first so an old, idle conversation still resumes exactly.
       if (typeof io.history === 'function') {
         try {
-          const found = io.history(want, { limit, sourceRunId, dispatchState: o.dispatchState, strict: o.strict });
+          const found = io.history(want, { limit, sourceRunId, dispatchState: o.dispatchState, strict: o.strict, since: num(o.since) });
           if (Array.isArray(found)) return found.map(r => Object.assign({}, r));
         } catch (e) { if (o.strict) throw e; failNote('transcript.io', e); }
       }

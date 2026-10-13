@@ -1,4 +1,10 @@
 'use strict';
+// A run's accepted answer cannot predate the run: bound the lookup so finalize never re-reads a long stream's
+// whole lifetime (non-coordinator workers all write to 'global').
+function runSince(source) {
+  const at = [source.startedAt, source.ts].map(Number).filter(v => Number.isFinite(v) && v > 0);
+  return at.length ? Math.min.apply(null, at) : 0;
+}
 // The accepted answer is committed in full before its bounded run envelope can claim recoverable completion.
 // Separate stores are append-only: a ledger failure leaves the first accepted projection available for retry.
 function finalizeDispatchDelivery(deps, runId, value) {
@@ -9,7 +15,7 @@ function finalizeDispatchDelivery(deps, runId, value) {
   const final = { state: 'final', text, reason: String(value.reason || 'error'), repairRunId: String(value.repairRunId || ''),
     textLength: text.length, textSha256: hash(text) };
   const streamId = source.streamId || 'global';
-  const rows = transcriptStore.history(streamId, { sourceRunId: runId, dispatchState: 'final', limit: 1, strict: true });
+  const rows = transcriptStore.history(streamId, { sourceRunId: runId, dispatchState: 'final', limit: 1, strict: true, since: runSince(source) });
   const prior = rows.find(row => row.dispatchState === 'final');
   const saved = source.dispatchDelivery;
   if (prior && !require('./transcriptstore.js').isFinalDeliveryRow(prior, hash, saved)) throw new Error('The first accepted dispatch projection is incomplete or unverifiable.');
@@ -45,7 +51,7 @@ function recoverPendingDeliveries(deps) {
     if (!source.dispatchDelivery || source.dispatchDelivery.state !== 'pending') continue;
     try {
       const streamId = source.streamId || 'global';
-      const prior = transcriptStore.history(streamId, { sourceRunId: source.runId, dispatchState: 'final', limit: 1, strict: true })[0];
+      const prior = transcriptStore.history(streamId, { sourceRunId: source.runId, dispatchState: 'final', limit: 1, strict: true, since: runSince(source) })[0];
       if (!prior) continue;
       if (!require('./transcriptstore.js').isFinalDeliveryRow(prior, hash) || !Number.isSafeInteger(prior.textLength)
           || prior.streamId !== streamId || prior.sourceRunId !== source.runId || !prior.dispatchReason) {

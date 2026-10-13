@@ -110,22 +110,24 @@ function makeSegmentedTranscriptIo(opts) {
       ids.push(id);
     }
   }
+  // strict: true fails the read on ANY unreadable line; a function fails it only on a bad line the caller
+  // claims (strict(line) === true). An unreadable file always fails a strict read.
   function readRows(n, strict) {
     const file = segFile(n);
     let text;
     try { text = fs.readFileSync(file, 'utf8'); }
     catch (e) { if (strict) throw e; warning('segment ' + n + ' unreadable: ' + ((e && e.message) || e)); return []; }
     const rows = [];
-    let bad = 0;
+    let bad = 0, claimed = 0;
     for (const line of text.split(/\r?\n/)) {
       if (!line.trim()) continue;
-      try {
-        const row = JSON.parse(line);
-        if (row && typeof row === 'object' && num(row.rowId) > 0) rows.push(row);
-        else bad++;
-      } catch (_) { bad++; }
+      let row = null;
+      try { row = JSON.parse(line); } catch (_) { row = null; }
+      if (row && typeof row === 'object' && num(row.rowId) > 0) { rows.push(row); continue; }
+      bad++;
+      if (typeof strict === 'function' && strict(line)) claimed++;
     }
-    if (bad && strict) throw new Error('segment ' + n + ' contains unreadable transcript evidence');
+    if (bad && (strict === true || claimed)) throw new Error('segment ' + n + ' contains unreadable transcript evidence');
     if (bad) warning('segment ' + n + ' isolated ' + bad + ' corrupt line(s)');
     return rows;
   }
@@ -412,12 +414,21 @@ function makeSegmentedTranscriptIo(opts) {
     out.sort((a, b) => num(a.rowId) - num(b.rowId));
     return out.map(publicRow);
   }
+  // A run's rows cannot predate it: an optional `since` (ms) skips segments that ended well before it, so a
+  // finalize lookup never re-reads a long stream's whole lifetime ('global'). The slack absorbs a small clock
+  // step between the run's start and its rows.
+  const SINCE_SLACK_MS = 60 * 60 * 1000;
   function history(streamId, options) {
     const limit = Math.max(1, num(options && options.limit) || 400);
     const runId = String((options && options.sourceRunId) || '');
+    const since = num(options && options.since);
+    // A strict lookup for ONE run fails closed only on a damaged line that names that run. A torn fragment of
+    // some other row (a killed append) never names it, so it was never an accepted row of this run.
+    const strict = options && options.strict ? (runId ? line => line.includes(JSON.stringify(runId)) : true) : false;
     const out = [];
     for (const meta of relevantSegments(streamId, true)) {
-      const rows = readRows(meta.number, options && options.strict);
+      if (since > 0 && num(meta.maxTs) > 0 && num(meta.maxTs) < since - SINCE_SLACK_MS) continue;
+      const rows = readRows(meta.number, strict);
       for (let i = rows.length - 1; i >= 0 && out.length < limit; i--) if (rows[i].streamId === streamId && (!runId || rows[i].sourceRunId === runId) && (!(options && options.dispatchState) || rows[i].dispatchState === options.dispatchState)) out.push(rows[i]);
       if (out.length >= limit) break;
     }
