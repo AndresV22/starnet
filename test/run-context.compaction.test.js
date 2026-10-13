@@ -10,7 +10,7 @@ const A = require('./_assert.js');
 const { runAgentLoop } = require('../sidecar/loop.js');
 const { makeContext, RUN_CONTEXT_DEFAULTS } = require('../sidecar/context.js');
 const { makeCostEngine } = require('../sidecar/cost.js');
-const { runContextNote, isRunContextNote } = require('../sidecar/providers/provider.js');
+const { runContextNote, isRunContextNote, crewCallFence, isCrewCallNote } = require('../sidecar/providers/provider.js');
 
 const NOTE = runContextNote('<task_brief id="tb_r1" status="active">ORIGINAL REQUEST: read cfg files</task_brief>\n\n[RUNTIME]\nRun id: r1');
 const READ_TOOL = [{ type: 'function', function: { name: 'read', parameters: { type: 'object', properties: {} } } }];
@@ -91,6 +91,33 @@ const isSummary = m => m && m.role === 'system' && /^<conversation_summary>/.tes
     A.eq(compacts.length, 0, 'note-only: no agent.compact is emitted');
     A.ok(requests.length >= 1 && requests.every(r => !r.some(isSummary)), 'note-only: no request carries a summary note');
     A.ok(requests.every(r => r.filter(isRunContextNote).length === 1), 'note-only: the note rides every request, once');
+  }
+  // THE CREW CALL IS PINNED TOO (review 2026-10-12): it left the run-context note for its own <crew_call> note right
+  // after the newest user message (it must trail the Commander's words). In the system prompt no fold ever took it, so
+  // no fold may take it now: out of the summarizer's slice, carried after the summary with the run-context note.
+  for (const mode of ['paid', 'fallback']) {
+    const CREW = crewCallFence('[CREW CALL] The Commander named Ada (agentId researcher) in this request.');
+    const ctx = makeContext(Object.assign({ contextLimit: 20000 }, RUN_CONTEXT_DEFAULTS));
+    const requests = [], slices = [], compacts = [];
+    const res = await runAgentLoop({
+      messages: seed().concat([{ role: 'system', content: CREW }]), provider: scripted(ctx, 10, requests), cost: makeCostEngine({ priceOf: () => null }), context: ctx, tools: READ_TOOL,
+      dispatch: async (c) => ({ ok: true, content: 'cfg ' + c.id + ' VALUE=' + c.id + ' ' + 'v'.repeat(16000) }),
+      emit: (nm, p) => { if (nm === 'agent.compact') compacts.push(p); },
+      summarize: mode === 'paid' ? async (older) => { slices.push(older); return { summary: '## Active Task\nAudit.', usd: 0, tokens: 0 }; } : undefined,
+      microCompaction: false, model: 'm', agentId: 'a', runId: 'r3', limits: { maxIters: 20 }
+    });
+    A.eq(res.reason, 'done', 'crew ' + mode + ': the run completes');
+    A.ok(compacts.length >= 1, 'crew ' + mode + ': at least one fold happened (' + compacts.length + ')');
+    const firstFolded = requests.findIndex(r => r.some(isSummary));
+    A.ok(firstFolded > 0, 'crew ' + mode + ': a post-fold request exists');
+    for (const [k, r] of requests.slice(firstFolded).entries()) {
+      const crews = r.filter(isCrewCallNote);
+      A.eq(crews.length, 1, 'crew ' + mode + ': post-fold request ' + (k + 1) + ' carries the crew call exactly once');
+      A.eq(crews[0] && crews[0].content, CREW, 'crew ' + mode + ': carried verbatim');
+      A.ok(r.indexOf(crews[0]) > r.findIndex(isSummary) && r.filter(isRunContextNote).length === 1, 'crew ' + mode + ': after the summary, next to the one run-context note');
+    }
+    if (mode === 'paid') A.ok(slices.length && slices.every(s => !s.some(isCrewCallNote)), 'crew paid: the summarizer never receives the crew call');
+    A.eq(res.messages.filter(isCrewCallNote).length, 1, 'crew ' + mode + ': the final transcript holds one crew call');
   }
   A.report('run-context.compaction');
 })().catch(e => { console.error(e && e.stack || e); process.exit(1); });

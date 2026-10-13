@@ -27,6 +27,8 @@
   const fidelity = (typeof require === 'function') ? require('./compaction-fidelity.js') : null;
   // the per-run <run_context> note's predicate (providers/provider.js owns the fence) — compaction pins that note
   const isRunContextNote = (typeof require === 'function') ? require('./providers/provider.js').isRunContextNote : null;
+  // ... and the <crew_call> note (review 2026-10-12): it left the run-context note to trail the newest user message
+  const isCrewCallNote = (typeof require === 'function') ? require('./providers/provider.js').isCrewCallNote : null;
 
   // tool-call argument repair (L2): recover mechanically-broken JSON from non-Anthropic models. Degrades to
   // identity if the module is absent (e.g. a browser build that never runs the loop).
@@ -1497,12 +1499,14 @@
          quests — index.js CACHE-STABLE PREFIX) sits with the run's newest user message, which a long run folds. It used to
          close the system prompt, which no fold touches, so no fold may take it now: it leaves the folded slice and rides
          right after the summary note. The micro tier removes no message, so there it simply stays where it is. */
+      // The <crew_call> note is pinned the same way (review 2026-10-12): in the system prompt no fold ever took it either.
       const ctxNote = isRunContextNote ? (plan.older.find(isRunContextNote) || null) : null;
-      const foldOlder = ctxNote ? plan.older.filter(m => m !== ctxNote) : plan.older;
+      const crewNote = isCrewCallNote ? (plan.older.find(isCrewCallNote) || null) : null;
+      const carriedCtx = [ctxNote, crewNote].filter(Boolean);
+      const foldOlder = carriedCtx.length ? plan.older.filter(m => carriedCtx.indexOf(m) < 0) : plan.older;
       // the pin can leave NOTHING to fold (the plan's slice was the note alone): no paid summarizer call over an empty
       // slice, no agent.compact for a fold that removes nothing — the same answer as an empty plan above
       if (!foldOlder.length) return false;
-      const carriedCtx = ctxNote ? [ctxNote] : [];
       const beforeTokens = context.estimateMessages(messages);
       const threshold = (typeof context.thresholdTokens === 'function') ? context.thresholdTokens() : 0;
       const appendTodo = (arr) => { if (todoNote) { try { const tn = todoNote(); if (tn) return arr.concat([{ role: 'system', content: String(tn) }]); } catch (e) { failNote('loop.compaction.todoNote', e); } } return arr; };

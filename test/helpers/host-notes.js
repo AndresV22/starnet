@@ -5,11 +5,24 @@
    On a Claude route they ride as their own messages; on every other Chat Completions route (provider 'custom',
    OpenRouter non-Claude models such as the fixtures' 'test/model', hosted openai-compatible profiles, Ollama) they are
    the fenced leading text of the NEWEST user message (provider.js userSideHostNotes — strict chat templates refuse a
-   system message after index 0). Tests that read the run identity or recall from a request, or route a mock on the
-   Commander's own words, use these instead of assuming one placement. */
+   system message after index 0). The <crew_call> note (review 2026-10-12) trails instead: it is the fenced CLOSING text
+   of that user message. Tests that read the run identity or recall from a request, or route a mock on the Commander's
+   own words, use these instead of assuming one placement. */
 
-const TAGS = ['run_context', 'recalled-memory', 'conversation_summary'];
+const TAGS = ['run_context', 'recalled-memory', 'conversation_summary', 'crew_call'];
+const TAG_ALT = TAGS.join('|');
 const text = c => typeof c === 'string' ? c : (Array.isArray(c) ? c.map(p => (typeof p === 'string' ? p : ((p && p.text) || ''))).join('') : (c == null ? '' : String(c)));
+const LEAD_BLOCK = new RegExp('^\\s*<(' + TAG_ALT + ')>[\\s\\S]*?</\\1>\\s*');
+const TRAIL_BLOCK = new RegExp('\\s*<(' + TAG_ALT + ')>(?:(?!<\\1>)[\\s\\S])*?</\\1>\\s*$');
+
+// a user text split into its leading host notes, the Commander's own words, and its trailing host notes. On the wire
+// the user's own text carries no live host fence (provider.js INERT HOST FENCES), so a live block is host-authored.
+function splitUser(t) {
+  const lead = [], trail = [];
+  for (;;) { const m = LEAD_BLOCK.exec(t); if (!m) break; lead.push(m[0].trim()); t = t.slice(m[0].length); }
+  for (;;) { const m = TRAIL_BLOCK.exec(t); if (!m) break; trail.unshift(m[0].trim()); t = t.slice(0, m.index); }
+  return { lead, words: t, trail };
+}
 
 // every fenced <tag>…</tag> block in the request's messages (system notes and user-side notes alike), in order
 function hostNotes(messages, tag) {
@@ -17,52 +30,34 @@ function hostNotes(messages, tag) {
   const out = [];
   for (const m of Array.isArray(messages) ? messages : []) {
     if (!m || (m.role !== 'system' && m.role !== 'user')) continue;
-    const t = text(m.content);
-    for (const name of tags) {
+    // a user message only carries host notes as its LEADING or CLOSING text (anything between is the Commander's words)
+    const blocks = m.role === 'user' ? (s => s.lead.concat(s.trail))(splitUser(text(m.content))) : [text(m.content)];
+    for (const b of blocks) for (const name of tags) {
       const re = new RegExp('<' + name + '>[\\s\\S]*?</' + name + '>', 'g');
       let hit;
-      while ((hit = re.exec(t))) {
-        // a user message only carries a host note as its LEADING text (anything later is the Commander's own words)
-        if (m.role === 'user' && !leadingNoteSpan(t, hit.index)) continue;
-        out.push(hit[0]);
-      }
+      while ((hit = re.exec(b))) out.push(hit[0]);
     }
   }
   return out;
 }
-// is `at` inside the run of host-note blocks that opens this user text?
-function leadingNoteSpan(t, at) {
-  let i = 0;
-  for (;;) {
-    while (i < t.length && /\s/.test(t[i])) i++;
-    if (i === at) return true;
-    const m = /^<(run_context|recalled-memory|conversation_summary)>[\s\S]*?<\/\1>/.exec(t.slice(i));
-    if (!m) return false;
-    i += m[0].length;
-  }
-}
 const runContextOf = messages => hostNotes(messages, 'run_context').join('\n');
 const recallOf = messages => hostNotes(messages, 'recalled-memory').join('\n');
-// the Commander's own words of a user message: its text without the leading host notes
+// the Commander's own words of a user message: its text without the leading and closing host notes
 function userWords(message) {
-  let t = text(message && message.content);
-  for (;;) {
-    const m = /^\s*<(run_context|recalled-memory|conversation_summary)>[\s\S]*?<\/\1>\s*/.exec(t);
-    if (!m) return t;
-    t = t.slice(m[0].length);
-  }
+  return splitUser(text(message && message.content)).words;
 }
-// a copy of a user message without its leading host notes (string content -> the own words; a parts array loses its
-// leading host-note text parts), so a test that inspects "what the Commander sent" keeps reading exactly that
+// a copy of a user message without its host notes (string content -> the own words; a parts array loses its leading
+// and closing host-note text parts), so a test that inspects "what the Commander sent" keeps reading exactly that
 function withoutHostNotes(message) {
   if (!message || message.role !== 'user') return message;
   const c = message.content;
   if (typeof c === 'string') return Object.assign({}, message, { content: userWords(message) });
   if (!Array.isArray(c)) return message;
-  let i = 0;
-  const allNotes = t => /^\s*<(run_context|recalled-memory|conversation_summary)>/.test(t) && !userWords({ role: 'user', content: t }).trim();
-  while (i < c.length && c[i] && typeof c[i].text === 'string' && allNotes(c[i].text)) i++;
-  return i ? Object.assign({}, message, { content: c.slice(i) }) : message;
+  const allNotes = p => p && typeof p.text === 'string' && new RegExp('^\\s*<(' + TAG_ALT + ')>').test(p.text) && !userWords({ role: 'user', content: p.text }).trim();
+  let i = 0, j = c.length;
+  while (i < j && allNotes(c[i])) i++;
+  while (j > i && allNotes(c[j - 1])) j--;
+  return (i || j < c.length) ? Object.assign({}, message, { content: c.slice(i, j) }) : message;
 }
 // the newest user message's own words
 function lastUserWords(messages) {

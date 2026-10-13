@@ -4,9 +4,10 @@ const A = require('./_assert.js');
 const http = require('node:http');
 const {SidecarFixture} = require('./helpers/sidecar-fixture.js');
 const Pipeline = require('../frontend/app/pipeline.js');
-// The [CREW CALL] line is per-request, so it rides the host's <run_context> note (lean-prompt): on this non-Claude chat
-// wire that is the fenced leading text of the newest user message. Read host text and the Commander's own words apart.
-const {hostText,userWords} = require('./helpers/host-notes.js');
+// The [CREW CALL] line is per-request, so it stays out of the cache-stable system prompt. It rides its own <crew_call>
+// host note right after the newest user message (review 2026-10-12: crew-call.js wants it LAST), which on this non-Claude
+// chat wire is the fenced CLOSING text of that user message. Read host text and the Commander's own words apart.
+const {hostText,userWords,text:wireText} = require('./helpers/host-notes.js');
 (async () => {
   const wire = [];
   const server = http.createServer((req,res) => {
@@ -59,6 +60,11 @@ const {hostText,userWords} = require('./helpers/host-notes.js');
       const directive=(system.match(/\[CREW CALL\][^\n]*/)||[''])[0];
       A.eq([...directive.matchAll(/agentId:"([^"]+)"/g)].map(m=>m[1]),expected,label+' exact host targets: '+(directive||'absent'));
       if (!expected.length) A.ok(request.messages.some(m=>m.role==='user' && userWords(m)===text),'original '+label+' remains in user context');
+      else {
+        const newest=wireText([...request.messages].reverse().find(m=>m.role==='user').content);
+        A.ok(newest.indexOf(text)>=0 && newest.indexOf('[CREW CALL]')>newest.lastIndexOf(text) && /\n<\/crew_call>$/.test(newest),label+' the crew call trails the Commander\'s words: the last text of the newest user turn');
+        A.ok(request.messages[0].role==='system' && String(request.messages[0].content).indexOf('[CREW CALL]')<0,label+' the crew call stays out of the system prompt');
+      }
     }
   } finally {await fixture.dispose();await new Promise(r=>server.close(r));}
   A.report('crew-call.http');

@@ -209,16 +209,20 @@
     /* SINGLE USER TURN: only host notes (the run-context note, recall) and one user message — a first message. The notes
        join that user entry as its leading text, the way a chat wire carries them (provider.userSideHostNotes): one block,
        no <system_note> ahead of the conversation's first turn. Later messages keep the notes as their own entries. */
+    // The <crew_call> note (provider.js CREW CALL NOTE) sits right AFTER that user message: it closes the same entry.
     let lead = 0;
-    while (lead < rest.length && provider.isHostNote(rest[lead])) lead++;
-    let leadNotes = '';
-    if (lead && rest.length === lead + 1 && rest[lead].role === 'user') {
+    while (lead < rest.length && provider.isHostNote(rest[lead]) && !provider.isCrewCallNote(rest[lead])) lead++;
+    let trail = rest.length;
+    while (trail > lead + 1 && provider.isCrewCallNote(rest[trail - 1])) trail--;
+    let leadNotes = '', trailNotes = '';
+    if ((lead || trail < rest.length) && trail === lead + 1 && rest[lead] && rest[lead].role === 'user') {
+      trailNotes = rest.splice(trail).map(m => textOf(m.content).trim()).filter(Boolean).join('\n\n');
       leadNotes = rest.splice(0, lead).map(m => textOf(m.content).trim()).filter(Boolean).join('\n\n');
     }
     const images = [];
     const entries = [];   // { text, tool } — one text block each
     for (const m of rest) {
-      if (m.role === 'user') entries.push({ text: '<user>\n' + (leadNotes ? leadNotes + '\n\n' : '') + textOf(m.content, images) + '\n</user>' });
+      if (m.role === 'user') entries.push({ text: '<user>\n' + (leadNotes ? leadNotes + '\n\n' : '') + textOf(m.content, images) + (trailNotes ? '\n\n' + trailNotes : '') + '\n</user>' });
       else if (m.role === 'system') entries.push({ text: '<system_note>\n' + textOf(m.content, images) + '\n</system_note>' });
       else if (m.role === 'tool') {
         const t = '<tool_result id="' + String(m.tool_call_id || '') + '">\n' + inertTags(textOf(m.content)) + '\n</tool_result>';

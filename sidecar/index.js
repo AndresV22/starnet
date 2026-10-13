@@ -189,7 +189,7 @@ const kimiRegion = require('./providers/kimi-region.js');
 const { effectiveModel: resolveEffectiveModel, effectiveUsd, effectiveRunUsd } = require('./spend.js');
 const { makeEmitter } = require('../shared/emitter.js');
 const { redact, setKnownSecretSource, renderRecall, injectRecall, rank, makeContext, compactionMemoryBlock, compactionSummaryPrompt, RUN_CONTEXT_DEFAULTS, foldFreedEnough } = require('./context.js');
-const { runContextNote } = require('./providers/provider.js');   // lean-prompt: the per-run <run_context> note (adapters share its predicate)
+const { runContextNote, crewCallFence } = require('./providers/provider.js');   // lean-prompt: the per-run <run_context> note and the trailing <crew_call> note (adapters share their predicates)
 const { makeSummarizer } = require('./compaction-summarizer.js');   // chunked context-compaction fold (Lane A)
 const EarlierConversation = require('./earlier-conversation.js');     // the turns COMMS's history window dropped, carried verbatim
 const { setStationSecretSource } = require('./child-env.js');   // station-secret-free env for every helper process
@@ -21913,7 +21913,8 @@ async function runOnceCore(o) {
      (measured 2026-10-11: system part 1 diverged at char 4,819 on every message; ~50 KB of history re-sent uncached).
      It now rides ONE fenced <run_context> note placed with the newest user message, exactly where <recalled-memory>
      goes (injected below), so the system prompt + tools are byte-identical across a conversation's messages and its
-     tool iterations. Same text, same order — moved, not rewritten; the per-conversation blocks (service keys, the
+     tool iterations (except the crew call: its own <crew_call> note right AFTER the newest user message, so it still
+     reads last — review 2026-10-12). Same text, same order — moved, not rewritten; the per-conversation blocks (service keys, the
      Task Brief DOCTRINE, journey adaptation, the deliverable clause, FINISH THE JOB) stay in the system. The doctrine is
      the constant half of the Task Brief directive (~4.4K): it rides exactly when the brief and its brief_* tools do —
      every task message of a COMMS conversation — so it is as stable as the tool list; only the brief's own block
@@ -21923,7 +21924,8 @@ async function runOnceCore(o) {
      journeyBlock. */
   const taskDoctrine = taskBrief ? '\n\n' + TaskIntent.directive('') : '';                     // TaskIntent.directive(cx) = doctrine + '\n' + cx
   const taskBriefContext = taskBrief && String(taskContextBlock || '').trim() ? '\n\n' + String(taskContextBlock).trim() : '';
-  const perRunBlocks = runtimeSkillBlock + preloadedSkillBlock + taskBriefContext + awayBriefingNote + directDomainBlock + crewCallNote + runtimeBlock;
+  // the crew call is NOT a run-context block: it trails the Commander's words as its own <crew_call> note (below)
+  const perRunBlocks = runtimeSkillBlock + preloadedSkillBlock + taskBriefContext + awayBriefingNote + directDomainBlock + runtimeBlock;
   const taskSystem = stablePrefix
     ? FinishLine.append(cacheSystemPrefix + serviceKeysBlock + taskDoctrine + journeyBlock + deliverableNote, { isTask, internal, tools: resolved.tools })
     : FinishLine.append(cacheSystemPrefix + runtimeSkillBlock
@@ -22005,6 +22007,16 @@ async function runOnceCore(o) {
   // note immediately before the newest user message, so the request still ends on that user turn. Injected FIRST, so
   // recall (below) lands between it and the user turn: the same order the two had when the block closed the system.
   if (runContext) msgs = injectRecall(msgs, runContext);
+  // THE CREW CALL TRAILS (review 2026-10-12; provider.js CREW CALL NOTE). crew-call.js wants its line "short,
+  // request-specific, and last"; inside the run-context note it sat BEFORE the Commander's words. It rides its own
+  // <crew_call> note right AFTER the newest user message instead, so every route reads it after the request (chat wire
+  // and Ollama: that turn's closing text; Claude: the next user turn) and it stays out of the cache-stable system.
+  const crewCall = stablePrefix ? crewCallFence(crewCallNote) : '';
+  if (crewCall) {
+    let at = msgs.length - 1;
+    while (at >= 0 && !(msgs[at] && msgs[at].role === 'user')) at--;
+    if (at >= 0) msgs = msgs.slice(0, at + 1).concat([{ role: 'system', content: crewCall }], msgs.slice(at + 1));
+  }
   // Cortex (M-mem.3): surface the agent's OWN memory in-prompt — RANK it by relevance to this message
   // (BM25 + recency/trust/pin), inject the top few as a recalled-memory fence before the triggering user
   // message, and emit memory.used per surfaced record (-> useCount/trust + the XP reuse path). The recency
