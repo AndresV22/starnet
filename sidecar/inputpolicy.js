@@ -198,9 +198,12 @@ function makeRunAuthority(opts) {
       // this call ONCE only. "Always", Full Access, and cached grants are not recorded here.
       return Promise.resolve(confirm(call, tool)).then(decision => {
         const allow = /^(?:once|session|always|full)$/i.test(String(decision || ''));
-        return allow
-          ? { ok: true, impact, surface, isTask, isolated, oneShot: true }
-          : { ok: false, impact, reason: 'exact external-effect confirmation was denied' };
+        if (allow) return { ok: true, impact, surface, isTask, isolated, oneShot: true };
+        // an unanswered prompt (consentwait timeoutDecision) is not a refusal: never let the model say they declined
+        if (String(decision) === 'timeout') {
+          return { ok: false, impact, timedOut: true, reason: 'the exact external-effect confirmation timed out; nobody answered (not a refusal)' };
+        }
+        return { ok: false, impact, reason: 'exact external-effect confirmation was denied' };
       }, () => ({ ok: false, impact, reason: 'exact external-effect confirmation failed' }));
     }
     // Cached grants and task text never turn an ASK-mode unattended run into authority over a host

@@ -222,6 +222,15 @@ A.eq(backgroundOwnsLoopbackUrl({ running: true, tail: 'Local: https://[::1]:4443
   await unknownRegistry.dispatch({ id: 'u2', name: 'future.magic', args: {} }, unknownCtx);
   A.eq(exactPrompts, 2, 'an unclassifiable tool re-asks every call — "full" is deliberately NOT recorded for it');
   A.eq(unknownRuns, 2, 'each confirmed unclassifiable call executes exactly once');
+  // an UNANSWERED prompt (consentwait resolves 'timeout') is not a refusal: the model must not hear "denied" and tell
+  // the Commander they declined. An actual deny still says denied. (review threads-backend-06)
+  const askWith = (decision) => makeRunAuthority({ surface: 'interactive', isTask: true, environment: { supports: { hostileCodeSandbox: false } }, confirm: async () => decision })
+    .authorize({ id: 'u3', name: 'future.magic', args: {} }, unknownRegistry.get('future.magic'));
+  const timedOut = await askWith('timeout');
+  A.eq(timedOut.ok, false, 'a timed-out exact confirmation still does not run the call');
+  A.ok(/timed out/.test(timedOut.reason) && /not a refusal/.test(timedOut.reason) && !/denied/.test(timedOut.reason), 'and says nobody answered, never "denied": ' + timedOut.reason);
+  const denied = await askWith('deny');
+  A.ok(denied.ok === false && /was denied/.test(denied.reason), 'an actual deny still reads as denied');
 
   /* THE CONNECTOR TOOL (capability 'mcp:<id>') — a server the Commander deliberately connected. It routes to
      the consent BROKER instead, so the grade they pick is recorded and the next call is answered from cache.
