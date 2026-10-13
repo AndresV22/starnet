@@ -6,7 +6,9 @@ const TaskConversation = (() => {
     const card=el('section','task-conversation'); card.setAttribute('aria-label','Shape this task');
     card.appendChild(el('div','tc-caption','LET’S SHAPE THIS'));
     card.appendChild(el('h4','tc-question',q.question));
-    if(q.reason) card.appendChild(el('p','tc-reason',q.reason));
+    // the question leads; the model's reasoning and its draft are one tap away, never a wall under it (Andrew 2026-10-13)
+    const fold=(cls,label,body)=>{const d=el('details',cls);d.appendChild(el('summary','',label));d.appendChild(body);return d;};
+    if(q.reason) card.appendChild(fold('tc-why','Why this matters',el('p','tc-reason',q.reason)));
     const cx=q.context;
     if(cx && ((cx.facts||[]).length || (cx.assumptions||[]).length || (cx.unknowns||[]).length)) {
       const details=el('details','tc-understanding');
@@ -25,8 +27,8 @@ const TaskConversation = (() => {
       card.appendChild(details);
     }
     if(q.sample) {
-      const sample=el('div','tc-sample');sample.appendChild(el('div','tc-dimension','A starting point · draft'));
-      sample.appendChild(el('div','tc-sample-text',q.sample));card.appendChild(sample);
+      const sample=el('div','tc-sample');sample.appendChild(el('div','tc-sample-text',q.sample));
+      card.appendChild(fold('tc-draft','See the draft starting point',sample));
     }
     const label=el('label','tc-answer-label','Your context');
     const input=el('textarea','tc-answer');input.rows=3;input.maxLength=3800;

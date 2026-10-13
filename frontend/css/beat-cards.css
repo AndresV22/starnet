@@ -257,6 +257,13 @@ body .task-conversation :is(.tc-caption,.tc-dimension,.tc-answer-label,.tc-hint)
 }
 body .task-conversation :is(.tc-caption,.tc-dimension) { color: var(--ph); }
 body .task-conversation .tc-question { font-size: var(--sn-type-title) !important; line-height: 1.4; }
+/* the reason and the draft fold under labelled lines: the question and the answer box lead the card */
+body .task-conversation :is(.tc-why,.tc-draft) { margin: 8px 0; }
+body .task-conversation :is(.tc-why,.tc-draft) > summary {
+  cursor: pointer; padding: 4px 0; font-size: var(--sn-type-meta) !important; letter-spacing: .3px; color: var(--ph);
+}
+body .task-conversation :is(.tc-why,.tc-draft) > summary:focus-visible { outline: 2px solid var(--ph); outline-offset: 2px; }
+body .task-conversation .tc-why .tc-reason { margin: 6px 0 2px; }
 body .task-conversation :is(.tc-reason,.tc-understanding,.tc-sample-text,.tc-answer-sent) {
   font-size: var(--sn-type-prose) !important; line-height: 1.5; color: var(--text);
 }

@@ -21,6 +21,16 @@ const GroupChat = (() => {
     return e;
   };
   const button = (label, fn) => h('button', { type: 'button', class: 'bb', onclick: () => Promise.resolve().then(fn).catch(showError) }, label);
+  // a labelled fold on a question card. The question strip is rebuilt on every refresh, so the Commander's open/closed
+  // choice is remembered by key — a fold they opened to read never snaps shut under them.
+  const openFolds = new Set();
+  function questionFold(key, label, text, cls) {
+    const fold = h('details', { class: 'gc-q-more' });
+    fold.append(h('summary', {}, label), h('p', { class: cls || '' }, text));
+    if (openFolds.has(key)) fold.open = true;
+    fold.addEventListener('toggle', () => { if (fold.open) openFolds.add(key); else openFolds.delete(key); if (openFolds.size > 50) openFolds.delete(openFolds.values().next().value); });
+    return fold;
+  }
   function showError(e) {
     notice = e.message || String(e); if ($('gc-notice')) $('gc-notice').textContent = notice;
     // a direct chat has no group notice line on screen: say it where the Commander is looking
@@ -136,7 +146,7 @@ const GroupChat = (() => {
     const css = h('style'); css.textContent = `
       #group-chat{position:relative;display:flex;flex:1 1 0;min-width:0;min-height:0;flex-direction:column;overflow:hidden;color:var(--text);background:transparent;padding:0;gap:0}
       #group-chat[hidden],#gc-header[hidden],#group-chat .gc-files[hidden],#group-chat #gc-files[hidden]{display:none}
-      #gc-tray{flex:0 1 auto;min-height:0;max-height:45%;display:flex;flex-direction:column}#gc-tray:not(:has(.gc-question,.gc-state,#gc-preview:not(:empty),.gc-files:not([hidden]))){display:none}
+      #gc-tray{flex:0 1 auto;min-height:0;max-height:45%;display:flex;flex-direction:column}#gc-tray:has(#gc-questions .gc-question){max-height:80%}#gc-tray:not(:has(.gc-question,.gc-state,#gc-preview:not(:empty),.gc-files:not([hidden]))){display:none}
       #gc-tray .gc-tray-scroll{flex:0 1 auto;min-height:0;overflow-y:auto;scrollbar-color:var(--ph-dim) transparent}
       #comms-idbar{flex:0 0 auto;flex-wrap:nowrap}#comms-idbar.gc-group>.comms-agent-wrap,#comms-idbar.gc-group>#comms-agent-model,#chat-panel #comms-idbar.gc-group>.comms-identity,#chat-panel #comms-idbar.gc-group>.comms-portrait{display:none}
       #gc-header{display:flex;align-items:center;gap:10px;flex:1;min-width:0;color:var(--ph)}
@@ -186,12 +196,12 @@ const GroupChat = (() => {
       #gc-preview{padding:0 12px 8px;border-top:1px solid var(--ph-faint)}#gc-preview:empty{display:none}#gc-preview .gc-preview-head{display:flex;align-items:center;flex-wrap:wrap;gap:4px 10px;white-space:normal}#gc-preview .gc-preview-head h4{flex:1 1 auto;min-width:0}#gc-preview h4{margin:6px 0 2px;font-size:13px;letter-spacing:1px;text-transform:uppercase;color:var(--ph)}#gc-preview small{color:var(--ph-dim);font-size:11px;margin-right:10px}
       #gc-preview{overflow-wrap:anywhere}#gc-preview .gc-doc .body{white-space:pre-wrap}#gc-preview .gc-doc .body:has(.md-p,.md-h,.md-list){white-space:normal}#gc-preview a{color:var(--ph);font-size:11px;letter-spacing:1px}#gc-preview .gc-message{margin-top:6px}
       #gc-states{padding:0 12px 4px}#gc-states:empty{display:none}
-      .gc-state{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;margin:4px 0 2px;padding:6px 11px;border-left:2px solid var(--ph);border-radius:0 4px 4px 0;background:linear-gradient(180deg,var(--ph-faint),rgba(0,0,0,.25));font-size:13px;letter-spacing:.5px;color:var(--ph-bright)}
-      .gc-state .gc-dot{flex:0 0 auto;color:var(--ph);text-shadow:0 0 6px var(--ph-glow);animation:1s steps(1) infinite comms-blink}.gc-state .gc-verb{letter-spacing:1.5px;text-transform:uppercase}.gc-state .gc-what{color:var(--ph-dim);font-size:12px;min-width:0;overflow:hidden;text-overflow:ellipsis}
+      .gc-state{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;margin:4px 0 2px;padding:6px 11px;border-left:2px solid var(--ph);border-radius:0 4px 4px 0;background:linear-gradient(180deg,var(--ph-faint),rgba(0,0,0,.25));font-size:15px;letter-spacing:.5px;color:var(--ph-bright)}
+      .gc-state .gc-dot{flex:0 0 auto;color:var(--ph);text-shadow:0 0 6px var(--ph-glow);animation:1s steps(1) infinite comms-blink}.gc-state .gc-verb{letter-spacing:1.5px;text-transform:uppercase}.gc-state .gc-what{color:var(--text);font-size:14px;min-width:0;overflow:hidden;text-overflow:ellipsis}
       .gc-state.hold{border-left-color:var(--gold);background:linear-gradient(180deg,color-mix(in srgb,var(--gold) 14%,transparent),rgba(0,0,0,.25))}.gc-state.hold .gc-dot,.gc-state.hold .gc-verb{color:var(--gold);animation:none;text-shadow:none}
       .gc-state.bad{border-left-color:var(--bad)}.gc-state.bad .gc-dot,.gc-state.bad .gc-verb{color:var(--bad);animation:none;text-shadow:none}
-      .gc-state .gc-inspect summary{cursor:pointer}.gc-state .gc-inspect pre{max-height:240px;overflow:auto;margin:4px 0;white-space:pre-wrap;overflow-wrap:anywhere;user-select:text}.gc-state .gc-approval{flex:1 0 100%;font-size:12px;color:var(--text);opacity:.9;overflow-wrap:anywhere}.gc-state .bb{margin-left:auto!important;font-size:11px!important;min-height:20px!important;padding:0 6px!important}.gc-state .bb+.bb{margin-left:0!important}
-      #gc-questions:empty{display:none}.gc-question{padding:8px 12px;border-left:2px solid var(--gold);background:var(--panel2);font-size:14px}.gc-question p{margin:5px 0}.gc-question-choices{display:flex;flex-wrap:wrap;gap:5px;margin:6px 0}.gc-question small,.gc-transfer{color:var(--ph-dim);font-size:12px}.gc-transfer{padding:2px 0 5px 14px;flex:0 0 auto}
+      .gc-state .gc-inspect summary{cursor:pointer}.gc-state .gc-inspect pre{max-height:240px;overflow:auto;margin:4px 0;white-space:pre-wrap;overflow-wrap:anywhere;user-select:text}.gc-state .gc-approval{flex:1 0 100%;font-size:14px;line-height:1.45;color:var(--text);opacity:.9;overflow-wrap:anywhere}.gc-state .bb{margin-left:auto!important;font-size:15px!important;min-height:34px!important;padding:0 14px!important}.gc-state .bb+.bb{margin-left:0!important}
+      #gc-questions:empty{display:none}#gc-questions{padding:2px 12px 6px}.gc-question{margin:6px 0;padding:14px 16px;border:1px solid var(--beat-edge);border-left:3px solid var(--gc-c,var(--gold));border-radius:10px;background:var(--beat-face);box-shadow:inset 0 1px 0 var(--beat-light);color:var(--text);text-shadow:none;overflow-wrap:anywhere}.gc-question .gc-q-who{font-size:var(--sn-type-meta,14px);line-height:1.3;letter-spacing:1.2px;text-transform:uppercase;color:var(--gc-c,var(--gold))}.gc-question .gc-q-text{margin:6px 0 12px;font-size:var(--sn-type-prose,18px);line-height:1.45;color:var(--ph-bright);white-space:pre-wrap}.gc-question-choices{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 10px}.gc-question .gc-q-choice{min-height:36px;max-width:100%;padding:7px 14px;font:inherit;font-size:var(--sn-type-control,16px);line-height:1.3;letter-spacing:.2px;text-align:left;white-space:normal;color:var(--ph-bright);border:1px solid rgba(var(--gold-rgb),.5);border-radius:8px;background:linear-gradient(140deg,rgba(var(--gold-rgb),.15),rgba(var(--ph-rgb),.04));box-shadow:inset 0 1px 0 var(--beat-light);text-shadow:none;cursor:pointer}.gc-question .gc-q-choice:hover{background:var(--beat-hover);border-color:var(--ph-dim)}.gc-question .gc-q-choice:focus-visible{outline:2px solid var(--ph);outline-offset:3px}.gc-question .gc-q-hint{font-size:var(--sn-type-meta,14px);line-height:1.4;color:var(--text);opacity:.85}.gc-question .gc-q-more{margin-top:8px}.gc-question .gc-q-more>summary{cursor:pointer;padding:3px 0;font-size:var(--sn-type-meta,14px);letter-spacing:.3px;color:var(--ph)}.gc-question .gc-q-more>summary:focus-visible{outline:2px solid var(--ph);outline-offset:2px}.gc-question .gc-q-more>p{margin:6px 0 2px;max-height:260px;overflow:auto;font-size:var(--sn-type-control,16px);line-height:1.5;color:var(--text);white-space:pre-wrap}.gc-question .gc-q-more>p.gc-q-draft{padding:10px 12px;border:1px solid var(--beat-edge);border-radius:6px;background:rgba(0,0,0,.2)}.gc-transfer{color:var(--ph-dim);font-size:12px;padding:2px 0 5px 14px;flex:0 0 auto}
       #gc-notice:empty{display:none}#gc-notice{flex:0 0 auto;padding:4px 12px;font-size:13px;color:var(--gold);overflow-wrap:anywhere}
       /* the picker fills its window: the two lists share the height and scroll on their own, the footer never leaves view */
       .gc-picker{min-width:0;min-height:100%;box-sizing:border-box;display:flex;flex-direction:column;gap:10px}.gc-picker>.key-input{flex:0 0 auto;display:block;width:100%;box-sizing:border-box;margin:0}
@@ -409,18 +419,26 @@ const GroupChat = (() => {
     /* Turn state in the same voice as the direct chat's presence card: dot · NAME · verb.
        Truthful: 'running' only once the sidecar reports it; before that the word is 'connecting'. */
     const questions = $('gc-questions'); questions.replaceChildren();
+    /* A QUESTION READS AT A GLANCE (Andrew 2026-10-13: "tiny cards with tiny little letters … long and not summarized"):
+       who asks, the question in reading size, the answers as real keys, one plain line on how to answer. The model's
+       reason and its draft are kept — each one tap away behind a labelled fold, never a wall of text under the keys. */
     for (const q of (group.questions || []).filter(q => q.state === 'pending')) {
-      const id = group.id, card = h('div', { class: 'gc-question', role: 'group', 'aria-label': name(q.agentId) + ' needs your answer' });
-      card.append(h('div', { class: 'gc-verb' }, name(q.agentId) + ' · waiting for your answer'), h('p', {}, q.question));
+      const id = group.id, who = name(q.agentId), color = colorOf(q.agentId);
+      const card = h('div', { class: 'gc-question', role: 'group', 'aria-label': who + ' asks you a question' });
+      if (color) card.style.setProperty('--gc-c', color);
+      card.append(h('div', { class: 'gc-q-who' }, who + ' asks'), h('p', { class: 'gc-q-text' }, q.question));
+      const options = Array.isArray(q.options) ? q.options : [];
       const choices = h('div', { class: 'gc-question-choices' });
-      for (const option of q.options) choices.append(button(option, () => {
+      for (const option of options) choices.append(h('button', { type: 'button', class: 'gc-q-choice', onclick: () => Promise.resolve().then(() => {
         if (!q.multiSelect && q.mode !== 'conversation') return answerQuestion(id, q.id, option);
         const input = $('chat-input'); const parts = input.value ? input.value.split('; ') : [];
         if (!parts.includes(option)) parts.push(option); input.value = parts.join('; '); draftKey = null; input.focus();
-      }));
-      card.append(choices, h('small', {}, q.multiSelect ? 'Choose any that apply, then send your answer below.' : 'Choose an answer or reply in the message box.'));
-      if (q.reason) card.append(h('p', {}, q.reason));
-      if (q.sample) card.append(h('small', {}, 'A starting point · draft'), h('p', { style: 'white-space:pre-wrap' }, q.sample));
+      }).catch(showError) }, option));
+      if (options.length) card.append(choices);
+      card.append(h('div', { class: 'gc-q-hint' }, q.multiSelect ? 'Pick any that apply, then send your answer below.'
+        : options.length ? 'Pick one, or type your own answer below.' : 'Type your answer below.'));
+      if (q.reason) card.append(questionFold(q.id + ':why', 'Why ' + who + ' is asking', q.reason, ''));
+      if (q.sample) card.append(questionFold(q.id + ':draft', 'See the draft ' + who + ' suggests', q.sample, 'gc-q-draft'));
       questions.append(card);
     }
     const states = $('gc-states'); states.replaceChildren();
@@ -453,8 +471,11 @@ const GroupChat = (() => {
         const raw = String(t.approval.argsSummary || '');
         const ins = (typeof Chat !== 'undefined' && Chat.consentInspect ? Chat.consentInspect(t.approval) : null) || { text: raw };
         const one = String(ins.copy || ins.text).replace(/\s+/g, ' ').trim();
-        row.append(h('div', { class: 'gc-approval' }, t.approval.tool + (one ? ' · ' + (one.length > 160 ? one.slice(0, 159) + '…' : one) : '')));
-        if (one.length > 160 || /\n/.test(String(ins.text).trim())) {
+        // the line says WHAT in the desk card's own words ("to change opportunity-brief.md"), never raw JSON — and then every
+        // character is one click away under INSPECT (Andrew 2026-10-13: the cards must read at a glance)
+        const phrase = typeof Chat !== 'undefined' && Chat.consentPhrase ? String(Chat.consentPhrase(t.approval) || '').trim() : '';
+        row.append(h('div', { class: 'gc-approval' }, phrase ? 'to ' + phrase : t.approval.tool + (one ? ' · ' + (one.length > 160 ? one.slice(0, 159) + '…' : one) : '')));
+        if (phrase || one.length > 160 || /\n/.test(String(ins.text).trim())) {
           const pid = t.approval.promptId;
           const detail = h('details', { class: 'gc-approval gc-inspect', ontoggle: () => { if (detail.open) inspectOpen.add(pid); else inspectOpen.delete(pid); } });
           detail.open = inspectOpen.has(pid);   // a re-render keeps the panel the Commander opened
