@@ -343,8 +343,10 @@ function makeMediaService(options) {
      agentId, so the companion does not follow them. Never throws.
      opts.provider pins one reply to the engine that spoke its first sentence ('local-kokoro', 'edge', or a keyed
      provider): later sentences try only that leg, so a reply never changes speaker or format halfway (the desk's
-     Live Voice pins the same way). The built-in engine answers only once its model is READY: a cold model starts
-     loading in the background and this reply goes to the next leg at once, never waiting minutes on a download. */
+     Live Voice pins the same way). The built-in engine answers once its model is READY, or while it is cold or
+     loading when its model is already on disk (a load of seconds, so every reply is the same speaker and an
+     offline station still speaks). A model that must still be DOWNLOADED (~326 MB) is never waited on: it starts
+     loading in the background and this reply goes to the next leg at once. A failed load is retried the same way. */
   async function synthesizeStationVoice(text, opts) {
     const said = String(text || '').replace(/\s+/g, ' ').trim();
     if (!said) return { ok: false, reason: 'no text' };
@@ -354,7 +356,12 @@ function makeMediaService(options) {
     let st = null;
     try { st = localVoice.status() || null; } catch (error) { reasons.push('local status: ' + ((error && error.message) || error)); }
     if (st && st.available && (!pin || pin === 'local-kokoro')) {
-      if (st.tts === 'ready' || pin === 'local-kokoro') {
+      let onDisk = false;
+      if (st.tts === 'cold' || st.tts === 'loading') {
+        try { onDisk = typeof localVoice.ttsCached === 'function' && !!localVoice.ttsCached(); }
+        catch (error) { reasons.push('local cache: ' + ((error && error.message) || error)); }
+      }
+      if (st.tts === 'ready' || pin === 'local-kokoro' || onDisk) {
         try {
           const buf = await localVoice.synthesize(said, { voice: voiceId, speed: 1 });
           if (buf && buf.length) return { ok: true, buf, mime: 'audio/wav', provider: 'local-kokoro' };
@@ -365,7 +372,7 @@ function makeMediaService(options) {
           Promise.resolve().then(() => localVoice.warm({ asr: false }))
             .catch(error => logger.error('[local-voice] warm failed:', (error && error.message) || error));
         }
-        reasons.push('local: voice model still loading');
+        reasons.push(st.tts === 'error' ? 'local: voice model failed to load' : 'local: voice model still loading');
       }
     }
     if (pin === 'local-kokoro') return { ok: false, reason: reasons.join('; ') || 'local: unavailable' };

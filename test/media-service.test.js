@@ -246,7 +246,7 @@ async function invokeTts(overrides, body) {
     const warms = [];
     const station = await make({
       localVoice: {
-        status: () => ({ available: true, tts }), defaultVoice: () => 'am_onyx',
+        status: () => ({ available: true, tts }), defaultVoice: () => 'am_onyx', ttsCached: () => false,
         edgeVoiceFor: () => 'en-US-ChristopherNeural', transcribe: async () => '',
         warm: async opts => { warms.push(opts); return {}; },
         synthesize: async () => { localCalls++; if (localFails) throw new Error('engine hiccup'); return Buffer.from('kokoro-wav'); }
@@ -269,6 +269,37 @@ async function invokeTts(overrides, body) {
     const pinned = await station.synthesizeStationVoice('do not switch', { provider: 'local-kokoro' });
     assert.equal(pinned.ok, false, 'a built-in-pinned sentence that fails is reported, not re-voiced');
     assert.equal(edgeCalls, edgeBefore, 'and never falls through to a different speaker');
+  }
+
+  // A voice model already ON DISK is not a download. The engine starts cold on every launch; with the model cached
+  // it loads in seconds, so the companion's first reply waits for it: the same speaker as every later reply, the
+  // text stays on this machine, and an offline station without keys still speaks. A failed load says so.
+  {
+    let tts = 'cold', localCalls = 0, edgeCalls = 0, edgeOn = true;
+    const warms = [];
+    const station = await make({
+      localVoice: {
+        status: () => ({ available: true, tts }), defaultVoice: () => 'am_onyx', ttsCached: () => true,
+        edgeVoiceFor: () => 'en-US-ChristopherNeural', transcribe: async () => '',
+        warm: async opts => { warms.push(opts); return {}; },
+        synthesize: async () => { localCalls++; return Buffer.from('kokoro-wav'); }
+      },
+      edgetts: { enabled: () => edgeOn, resolveVoice: () => 'en-US-ChristopherNeural', synth: async () => { edgeCalls++; return Buffer.from('edge-mp3'); } }
+    });
+    const first = await station.synthesizeStationVoice('first reply after a launch');
+    assert.equal(first.provider, 'local-kokoro', 'a cold engine whose model is on disk loads it and speaks');
+    assert.equal(edgeCalls, 0, 'the reply is not sent to Edge while the built-in voice can answer');
+    tts = 'loading';
+    assert.equal((await station.synthesizeStationVoice('while it loads')).provider, 'local-kokoro', 'a disk load under way is waited on too');
+    assert.equal(localCalls, 2);
+    assert.equal(warms.length, 0, 'no separate background load is started');
+    tts = 'error'; edgeOn = false;
+    const failedLoad = await station.synthesizeStationVoice('after a failed load');
+    assert.equal(failedLoad.ok, false);
+    assert.match(failedLoad.reason, /local: voice model failed to load/, 'a failed load is named as a failure');
+    assert.doesNotMatch(failedLoad.reason, /still loading/, 'never as "still loading"');
+    assert.equal(localCalls, 2, 'a failed load is not retried inside the reply (it may need a download)');
+    assert.deepEqual(warms, [{ asr: false }], 'it is retried in the background instead');
   }
 
   // Edge is tried ONCE per station-voice sentence (in the mapped voice), never a second time in its default voice
