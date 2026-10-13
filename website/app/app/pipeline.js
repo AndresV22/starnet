@@ -2231,10 +2231,27 @@
     return out;
   }
 
-  // Per-line evidence that an INBOX is fed: a compiled hand-off or a recorded real run, never a doc pointer.
+  /* the lines whose SEND TO hands work on to `toLine` AND that can run: a sender is a line with an INBOX (wave 2 repair, build-12 — a
+     BAY → OUTBOX fragment whose INBOX is not laid yet compiles a hand-off, but no job can ever start on it, so it feeds nothing). A plan
+     with no line records (a hand-made one) cannot say, and keeps every compiled sender. Sorted lineIds, each once. */
+  function senderRuns(plan, fromLine) {
+    const lines = plan && Array.isArray(plan.lines) ? plan.lines : null;
+    if (!lines) return true;
+    const rec = fromLine == null ? null : lines.find(l => l && String(l.lineId) === String(fromLine));
+    return !!(rec && Array.isArray(rec.intakes) && rec.intakes.length);
+  }
+  function lineSenders(plan, toLine) {
+    const out = [];
+    for (const s of Object.values((plan && plan.sendTo) || {})) {
+      if (!s || s.fromLine == null || s.toLine == null || String(s.toLine) !== String(toLine) || !senderRuns(plan, s.fromLine)) continue;
+      if (out.indexOf(String(s.fromLine)) < 0) out.push(String(s.fromLine));
+    }
+    return out.sort(propIdCmp);
+  }
+  // Per-line evidence that an INBOX is fed: a compiled hand-off from a line that can run, or a recorded real run — never a doc pointer.
   function fedLineIds(plan, stats) {
     const out = {};
-    for (const s of Object.values((plan && plan.sendTo) || {})) if (s && s.toLine) out[s.toLine] = true;
+    for (const s of Object.values((plan && plan.sendTo) || {})) if (s && s.toLine && senderRuns(plan, s.fromLine)) out[s.toLine] = true;
     if (stats && stats.known) for (const id of Object.keys(stats.byLine || {})) if (stats.byLine[id] && stats.byLine[id].runs > 0) out[id] = true;
     return out;
   }
@@ -2368,7 +2385,7 @@
     return { fromName: m[1] || '', original: orig ? orig[1] : '', output: out ? out[1] : '' };
   }
 
-  return { stepTestRefusal, lineStages, fedLineIds, sendToFileAdvice, rejoinOf, deriveLinks, reconcileLinks, compileRoutingPlan, sendToOf, sendsReachedOf, outboxesReached, lineWord, lineLetterOf, lineNames, uniqueLineName, handoffInput, parseHandoffInput, composeStageBrief, HANDS_LEAD, resolveTarget, lineOf, lineOriginOf, lineLimitsOf, normalizeLineLimits, LINE_LIMIT_DEFAULTS, LINE_LIMIT_CEILINGS, sourceFor, ok, liveTiles, routeFrom, junctionLaneOwners, chainNext, chainStep, fanSiblings, handoffPrompt, parseHandoff, isHandoff, stripVerdictLine, joinPayload, divideJob, partTurn, partHandoff, divideBrief, divideAfterDock, splitFedByDock, lineComponents, LOOP_MAX_DEFAULT, LOOP_MAX_CEILING,
+  return { stepTestRefusal, lineStages, fedLineIds, lineSenders, sendToFileAdvice, rejoinOf, deriveLinks, reconcileLinks, compileRoutingPlan, sendToOf, sendsReachedOf, outboxesReached, lineWord, lineLetterOf, lineNames, uniqueLineName, handoffInput, parseHandoffInput, composeStageBrief, HANDS_LEAD, resolveTarget, lineOf, lineOriginOf, lineLimitsOf, normalizeLineLimits, LINE_LIMIT_DEFAULTS, LINE_LIMIT_CEILINGS, sourceFor, ok, liveTiles, routeFrom, junctionLaneOwners, chainNext, chainStep, fanSiblings, handoffPrompt, parseHandoff, isHandoff, stripVerdictLine, joinPayload, divideJob, partTurn, partHandoff, divideBrief, divideAfterDock, splitFedByDock, lineComponents, LOOP_MAX_DEFAULT, LOOP_MAX_CEILING,
     // THE DOCK LAYER (multi-bay agents, 2026-09-22) — the dock-keyed truth the agent readings above are views of
     resolveDock, chainNextDock, chainStepDock, fanSiblingsDock, junctionLaneDocks, lineOfDock, lineOriginOfDock, entryDockOf, docksOf, dockOf, agentOfDock: agentOfDockIn, deriveDockLayer, dockLayer, hasDockLayer, stepToAgents, propIdCmp,
     _internals: { DIRV, OPP, LANE_ORDER, key, buildBeltMap, outLanes, inLanes, loopLanes, beltTileNear, ringBelts, junctionAnchor, dirBetween, linkTilesByProp, linkedBeltMap, nextTiles, splitLanes, detectCycle, hashStr, compileChains, compileDockChains, chainCycle, shipFrom, propIdCmp, entryDocksOf, agentChainsView } };

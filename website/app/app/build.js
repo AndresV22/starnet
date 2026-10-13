@@ -171,6 +171,7 @@ const Build = (() => {
   let tool = 'select', kind = 'hab', style = 'cobalt', mat = 'plate', hallWidth = 2, propType = 'war_intelcab', propCat = 'all', propTier = 'functional';
   let selectedPropId=null, positionOpen=false, groupIds=[];   // groupIds: a selection of two or more (MANY AT ONCE)
   let selBelts=null;   // THE HAND part 2: the belts a box (or a whole line) took with the selection — { key, links:[id], tiles:[{x,y}] } (see beltSel)
+  let beltCardHot=null;   // the belt card's REMOVE key under the pointer / focus: { cells, ver } — the tiles only that connection rides, lit on the floor
   let selectedRoomId=null, furnishOpen=false, roomDelArmedAt=0, hoverHandle=-1;   // a selected ROOM (THE ROOM CARD); its hovered edge handle
   let roomAsk=null;   // a furnish / clear that would take equipment out, waiting on FURNISH ANYWAY (THE ROOM CARD)
   let propSection = 'decoration', propAbility = '', equipmentAgentId = '';
@@ -207,7 +208,7 @@ const Build = (() => {
   function releaseDrag() {
     if (dragPid != null && cv) { try { cv.releasePointerCapture(dragPid); } catch (e) {} }
     // a hand drag dropped any other way (Esc, right-click, pointercancel, blur) consumes R's corner flip like a release does (build-10)
-    if (drag && HAND_PLAN_MODES[drag.mode] && flipPref) { flipPref = false; paintHandKeys(); }
+    if (drag && (HAND_PLAN_MODES[drag.mode] || drag.handSeen) && flipPref) { flipPref = false; paintHandKeys(); }   // (handSeen: a belt drag that became a MOVE)
     dragPid = null; drag = null;
   }
   let dupe = null;   // DUPE tool clipboard: {type:'prop'|'room', rects (rel to top-left), …} — armed = ghost follows cursor, click stamps
@@ -3640,17 +3641,25 @@ const Build = (() => {
     // A LINKED FLOOR says which connection this belt is — or that it is LOOSE: it joins no two machines, so it is in
     // no plan and nothing rides it (conveyor-links phase B; the plan's belts are its links' paths)
     const loose = linkedFloor() && !!valPlan && !!valPlan.belts && !valPlan.belts[(tx - o.tx) + ',' + (ty - o.ty)];
-    const conns = [];   // the connections riding this tile: { from, to, ids } — two or more get one REMOVE key each (build-17)
-    if (linkedFloor() && !loose) {
-      const byPair = new Map();
-      for (const l of (station.links() || [])) {
-        if (l.from.prop == null || l.to.prop == null || !l.path.some(q => q.x === tx && q.y === ty)) continue;
-        const k = l.from.prop + '>' + l.to.prop;
-        if (byPair.has(k)) { byPair.get(k).ids.push(l.id); continue; }
-        const c = { from: l.from.prop, to: l.to.prop, ids: [l.id] }; byPair.set(k, c); conns.push(c);
-        li.push('This belt runs from <b>' + esc(machineName(l.from.prop)) + '</b> to <b>' + esc(machineName(l.to.prop)) + '</b>.');
-      }
-    }
+    // the connections riding this tile: { from, to, ids } per from ▸ to pair — two or more get one REMOVE key each (build-17). Two
+    // that read the same (two uncrewed BAYs, two BAYs one agent crews) say which side of the shared run each is on (FROM ▴ NORTH —
+    // connSide), else BELT 1 / BELT 2; and pointing at a key lights the tiles only its belt rides, the floor showing through the card
+    // (wave 2 repair: two identical keys left the Commander guessing which connection goes)
+    const conns = (linkedFloor() && !loose) ? connsAt(tx, ty) : [];
+    const words = conns.map(c => String(machineName(c.from)).toUpperCase() + ' ▸ ' + String(machineName(c.to)).toUpperCase());
+    const alike = i => conns.filter((o, j) => j !== i && words[j] === words[i]);
+    const sides = conns.map((c, i) => alike(i).length ? connSide(c, alike(i)) : null);
+    const tag = conns.map((c, i) => {
+      if (!alike(i).length) return '';
+      const group = conns.map((o, j) => j).filter(j => words[j] === words[i]);
+      const clear = group.every(j => sides[j]) && new Set(group.map(j => sides[j])).size === group.length;
+      return clear ? sides[i] : String(group.indexOf(i) + 1);
+    });
+    // a look-alike's key is just REMOVE BELT FROM ▴ NORTH / REMOVE BELT 2 (its sentence above names the machines); the machines ride
+    // along only where two groups of look-alikes would share that short key
+    const short = conns.map((c, i) => tag[i] ? 'REMOVE BELT ' + tag[i] : 'REMOVE ' + words[i]);
+    const keyText = short.map((k, i) => short.filter(x => x === k).length > 1 ? k + ' · ' + words[i] : k);
+    conns.forEach((c, i) => li.push((!tag[i] ? 'This belt runs' : /^\d/.test(tag[i]) ? 'Belt ' + tag[i] + ' runs' : 'The belt ' + tag[i].toLowerCase() + ' runs') + ' from <b>' + esc(machineName(c.from)) + '</b> to <b>' + esc(machineName(c.to)) + '</b>.'));
     if (loose) li.push('This belt is <b>loose</b> — it joins no two machines, so nothing rides it. Drag from one machine onto the next to connect them; right-click removes this one.');
     else if (r) {
       if (r.agents.length) li.push('Work riding this lane reaches <b>' + r.agents.map(a => esc(agentLabelFor(a))).join(' + ') + '</b>.');
@@ -3668,17 +3677,24 @@ const Build = (() => {
       + '<div class="workflow-body"><section class="workflow-section"><h4>Connected destinations</h4><ul>' + li.map(s => '<li>' + s + '</li>').join('') + '</ul></section></div>'
       + '<div class="workflow-footer"><span>Drag a belt’s middle to branch it · Ctrl+drag reshapes it · right-click removes it.</span>'
       // one connection: REMOVE BELT; a tile two connections share: one key per connection (never a guess at which goes)
-      + (conns.length > 1 ? conns.map((c, i) => '<button type="button" class="btn-sm" data-rmlink="' + i + '">' + esc('REMOVE ' + String(machineName(c.from)).toUpperCase() + ' ▸ ' + String(machineName(c.to)).toUpperCase()) + '</button>').join('')
+      + (conns.length > 1 ? conns.map((c, i) => '<button type="button" class="btn-sm" data-rmlink="' + i + '">' + esc(keyText[i]) + '</button>').join('')
         : '<button type="button" class="btn-sm" id="belt-remove">REMOVE BELT</button>')
       + '<button type="button" class="btn-sm refit-primary" id="belt-ok">✓ DONE</button></div></div>';
     root.appendChild(g);
     requestAnimationFrame(() => g.classList.add('refit-swap'));
-    const closeP = () => { if (g.parentNode) g.parentNode.removeChild(g); };
+    const closeP = () => { beltCardHot = null; if (g.parentNode) g.parentNode.removeChild(g); };
     cardRegister(g, closeP);
     g.querySelector('[data-workflow-close]').onclick = closeP;
     const rmOne = g.querySelector('#belt-remove');
-    if (rmOne) rmOne.onclick = () => { removeBeltAt(tx,ty,ev); closeP(); };
-    g.querySelectorAll('[data-rmlink]').forEach(b => { b.onclick = () => { const c = conns[+b.dataset.rmlink]; if (c) removeBeltLinks(c.ids, ev); closeP(); }; });
+    if (rmOne) rmOne.onclick = () => { removeBeltAt(tx,ty,ev); closeP(); };   // (one connection, even one laid twice: removeBeltAt takes it whole)
+    g.querySelectorAll('[data-rmlink]').forEach(b => {
+      const c = conns[+b.dataset.rmlink];
+      b.onclick = () => { if (c) removeBeltLinks(c.ids, ev); closeP(); };
+      // pointing at (or tabbing to) a key lights the tiles only its belt rides — the floor answers "which one is that?" (drawHover)
+      const lit = on => { if (!c) return; g.classList.toggle('is-peek', !!on); if (!on) { beltCardHot = null; return; } const lt = linkTiles(c.ids); beltCardHot = { cells: (lt.alone.length ? lt.alone : lt.tiles).map(q => ({ x: q.x, y: q.y })), ver: geoVer }; };
+      b.addEventListener('pointerenter', () => lit(true)); b.addEventListener('pointerleave', () => lit(false));
+      b.addEventListener('focus', () => lit(true)); b.addEventListener('blur', () => lit(false));
+    });
     g.querySelector('#belt-ok').onclick = () => { sfx('click'); closeP(); };
     g.addEventListener('click', e => { if (e.target === g) closeP(); });
   }
@@ -4196,18 +4212,40 @@ const Build = (() => {
   let finKeySel = null;         // the line key the card is focused on (session-scoped)
   let finEngaged = false;       // workflow guidance follows an explicit configuration action
   let finCardEl = null, finComp = null, finSig = '', finPollTs = 0;
+  let finStartsMemo = null;   // { plan, facts, geo, crew, by: { lineKey: anyStart } } — lineStartsHere, re-read only when one of those moves
   function finState(c) {
     const unbound = c.bays.filter(b => !b.agentId);
     const feed = (opts && opts.world && opts.world.feedState) ? opts.world.feedState() : { known: false, fed: false };
     const hasIntake = c.intakes.length > 0;
     const fedLines = opts && opts.world && opts.world.fedLines ? opts.world.fedLines(valPlan) : Pipeline.fedLineIds(valPlan);
-    const feedDone = hasIntake && ((feed.known && feed.fed) || !!fedLines[c.key]);
+    /* ② is done on evidence about THIS line (wave 2 repair, build-12): a start the server reports for it — a routine that runs it from
+       its entry step, a connected channel answering as its first step, an armed trigger of its own (lineStartsHere: the Workflow
+       panel's own reader) — or a hand-off from a line that can run / work that really arrived (fedLines). The station-wide `fed`
+       (ANY channel / routine / trigger anywhere) said AUTOMATIC START CONFIGURED for a line nothing starts. */
+    const autoStart = hasIntake && feed.known && lineStartsHere(c);
+    const feedDone = hasIntake && (autoStart || !!fedLines[c.key]);
     // a routine IS saved for this line but scheduling is off (2026-09-28 retest): ② says so, and still opens the INBOX section,
     // where the TURN SCHEDULING ON switch is — never "choose what starts this line" over a start the Commander already chose
     let schedOff = false;
-    try { schedOff = hasIntake && feed.known && !feed.fed && !!(opts && opts.world && opts.world.schedOffFor && opts.world.schedOffFor(c.intakes[0], valPlan)); } catch (_) { schedOff = false; }
-    return { unbound, crewLeft: unbound.length, hasIntake, feed, feedDone, schedOff,
+    try { schedOff = hasIntake && feed.known && !autoStart && !!(opts && opts.world && opts.world.schedOffFor && opts.world.schedOffFor(c.intakes[0], valPlan)); } catch (_) { schedOff = false; }
+    return { unbound, crewLeft: unbound.length, hasIntake, feed, autoStart, feedDone, schedOff,
       todo: unbound.length > 0 || (hasIntake && feed.known && !feedDone) };
+  }
+  // does the server report a start of THIS line? WorkflowLine.lineStarts over the facts World's feed poll read (the Workflow panel and
+  // the lead's station.layout read a line's starts through the same function) — memoized per plan + facts + floor + crew roster
+  function lineStartsHere(c) {
+    const W = typeof WorkflowLine !== 'undefined' ? WorkflowLine : null;
+    const facts = opts && opts.world && opts.world.startFacts ? opts.world.startFacts() : null;
+    if (!c || !facts || !valPlan || !W || !W.lineFlow || !W.lineStarts) return false;
+    const agents = (opts && typeof opts.agents === 'function' && opts.agents()) || [];
+    const crew = agents.map(a => (a && a.id) + ':' + (a && a.name)).join('|');
+    if (!finStartsMemo || finStartsMemo.plan !== valPlan || finStartsMemo.facts !== facts || finStartsMemo.geo !== cacheGeo || finStartsMemo.crew !== crew) finStartsMemo = { plan: valPlan, facts, geo: cacheGeo, crew, by: {} };
+    if (!(c.key in finStartsMemo.by)) {
+      const flow = W.lineFlow(valPlan, c, Pipeline, (cacheGeo && cacheGeo.props) || []);
+      const st = W.lineStarts(flow, { lt: facts.lt, lineKey: c.key, cron: facts.cron, chans: facts.chans, agents });
+      finStartsMemo.by[c.key] = !!(st && (st.schedules.length || st.channels.length || st.events.length));
+    }
+    return finStartsMemo.by[c.key];
   }
   function finPick() {
     if (!valComps || !valComps.length) return null;
@@ -4321,11 +4359,12 @@ const Build = (() => {
     const lname = lineNameOf(c);
     const overview = workflowReadout(c, valPlan, agentLabelFor);
     // ② DONE SAYS WHICH START IT FOUND (wave 2, build-12): another line's SEND TO feeds it (named by the one line name), else an
-    // automatic start (a channel / routine) is configured, else work has arrived on it (the run stats behind fedLines) — the old
-    // X-or-Y sentence could not say which of its two claims held
-    const senders = [...new Set(Object.values((valPlan && valPlan.sendTo) || {}).filter(s => s && s.toLine === c.key && s.fromLine != null)
-      .map(s => (station && station.lineName && station.lineName(s.fromLine)) || 'ANOTHER LINE'))];
-    const sig = [c.key, st.crewLeft, st.hasIntake, st.feed.known, st.feed.fed, st.feedDone, st.schedOff, finSample, lname || '', overview.compact, finSampleRes ? finSampleRes.key + ':' + finSampleRes.stamp : '', senders.join(',')].join('|');
+    // automatic start of THIS line is configured, else work has arrived on it (the run stats behind fedLines) — the old X-or-Y sentence
+    // could not say which of its two claims held. A sender counts only if it can run (Pipeline.lineSenders: it has an INBOX — a
+    // fragment's hand-off feeds nothing), so it always has a floor name (wave 2 repair: an INBOX-less sender read FED BY ANOTHER LINE)
+    const senders = [...new Set(((typeof Pipeline !== 'undefined' && Pipeline.lineSenders) ? Pipeline.lineSenders(valPlan, c.key) : [])
+      .map(id => station && station.lineName && station.lineName(id)).filter(Boolean))];
+    const sig = [c.key, st.crewLeft, st.hasIntake, st.feed.known, st.autoStart, st.feedDone, st.schedOff, finSample, lname || '', overview.compact, finSampleRes ? finSampleRes.key + ':' + finSampleRes.stamp : '', senders.join(',')].join('|');
     if (!finCardEl) {
       finCardEl = document.createElement('div');
       root.appendChild(finCardEl);
@@ -4337,7 +4376,7 @@ const Build = (() => {
     finSig = sig;
     const crewDone = st.crewLeft === 0;
     const crewTxt = crewDone ? '✓ AGENTS ASSIGNED' : '① ASSIGN STEP AGENTS — ' + st.crewLeft + ' TO GO';
-    const feedTxt = st.feedDone ? (senders.length ? '✓ FED BY ' + senders.join(' + ') : (st.feed.known && st.feed.fed) ? '✓ AUTOMATIC START CONFIGURED' : '✓ WORK HAS ARRIVED')
+    const feedTxt = st.feedDone ? (senders.length ? '✓ FED BY ' + senders.join(' + ') : st.autoStart ? '✓ AUTOMATIC START CONFIGURED' : '✓ WORK HAS ARRIVED')
       : !st.hasIntake ? '② FEED IT — TASK THE AGENT, OR WIRE A ROUTINE'
       : !st.feed.known ? '② CHECKING WHAT STARTS THIS LINE…'
       : st.schedOff ? '② SCHEDULING IS OFF — TURN IT ON' : '② CHOOSE WHAT STARTS THIS LINE';
@@ -4956,6 +4995,7 @@ const Build = (() => {
          ghost, its verdict, its commit — exactly as if it had not been selected; over open floor it stays a MOVE. Asked tile by
          tile (selectedDragAims), so the ghost always says what letting go there does. Shift held = a move, always. */
       if (drag.sel && !drag.add && (drag.mode === 'propmove' || drag.mode === 'handbelt')) drag.mode = selectedDragAims(drag, w, ev.shiftKey) ? 'handbelt' : 'propmove';
+      if (HAND_PLAN_MODES[drag.mode]) drag.handSeen = true;   // (it was a belt drag at some point: R's flip belongs to it — upCommit / releaseDrag use it up)
       if(drag.mode==='roompress'&&drag.moved&&slipped)drag.mode='move';
       if ((drag.mode === 'propmove' || drag.mode === 'groupmove' || drag.mode === 'move') && cv.style.cursor !== 'move') cv.style.cursor = 'move';   // a move carries the move cursor (onUp restores)
       if(drag.mode==='beltpress'&&drag.moved&&slipped)drag.mode='handbranch';
@@ -5002,6 +5042,9 @@ const Build = (() => {
   }
   function upCommit(d, ev) {
     if (d.mode === 'pan' || d.mode === 'pinch') return;
+    // a SELECTED piece's belt drag that turned back into a MOVE before the release (the target decides, tile by tile) used R's flip
+    // too: the MOVE's commit never reset it, so CORNER stayed lit and the next belt drag turned the flipped way (wave 2 repair, build-10)
+    if (d.handSeen && !HAND_PLAN_MODES[d.mode] && flipPref) { flipPref = false; handPvKey = ''; paintHandKeys(); }
     if (d.mode === 'selectpress' || d.mode === 'grouppress') return d.add ? toggleInSelection(d.propId) : onInspect(station.propById(d.propId),ev);
     if (d.mode === 'beltpress') return openBeltCard(d.start.tx, d.start.ty, ev);   // a belt CLICKED (not dragged): where it goes
     if (d.mode === 'reshapepress') return openBeltCard(d.start.tx,d.start.ty,ev);   // a Ctrl+CLICK on a belt: its card, nothing reshaped
@@ -6568,10 +6611,17 @@ const Build = (() => {
   function removeBeltAt(tx,ty,ev) {
     const w={tx,ty};
     if (!station.beltAt(w.tx, w.ty)) return false;
-    /* a tile two belts SHARE (an old save's merged run): never guess which goes (wave 2, build-17 — it took whichever link came first
-       and said only REMOVED · BELT). Say so; the belt's card (a click) offers one REMOVE key per connection */
-    const on = linkedFloor() ? linksMemoed().filter(l => l && l.from && l.to && l.from.prop != null && l.to.prop != null && (l.path || []).some(q => q.x === w.tx && q.y === w.ty)) : [];
-    if (on.length > 1) { sfx('bad'); flashTip(ev, 'THIS TILE CARRIES ' + on.length + ' BELTS — CLICK IT TO PICK WHICH ONE GOES', false); return true; }
+    /* a tile two CONNECTIONS share (an old save's merged run): never guess which goes (wave 2, build-17 — it took whichever link came
+       first and said only REMOVED · BELT). Counted as the belt card counts them, per from ▸ to pair (connsAt): one connection laid twice
+       — two links, one pair — is ONE belt and goes whole (wave 2 repair: this counted links, the card pairs, so the card's one key
+       refused forever). Two or more: say so — a click opens the card's one-key-per-connection; with the touch REMOVE key armed the tap
+       opens that card itself (a tap there only repeated the CLICK IT advice) */
+    const conns = linkedFloor() ? connsAt(w.tx, w.ty) : [];
+    if (conns.length > 1) {
+      if (touchArm === 'remove') { openBeltCard(w.tx, w.ty, ev); return true; }
+      sfx('bad'); flashTip(ev, 'THIS TILE CARRIES ' + conns.length + ' BELTS — CLICK IT TO PICK WHICH ONE GOES', false); return true;
+    }
+    if (conns.length === 1 && conns[0].ids.length > 1) { removeBeltLinks(conns[0].ids, ev); return true; }
     const linked = linkedFloor() && typeof station.removeLinkAt === 'function' ? station.removeLinkAt(w.tx, w.ty) : null;
     const res = linked && linked.ok ? linked : station.removeBelt(w.tx, w.ty);
     if (res && res.ok) {
@@ -6580,12 +6630,43 @@ const Build = (() => {
     } else { sfx('bad'); flashTip(ev, (res && res.msg) || 'blocked', false); }
     return true;
   }
+  // the connections riding one belt tile, per from ▸ to pair: [{ from, to, ids }] — what the belt card offers a REMOVE key for and what
+  // REMOVE BELT counts (one count for both: wave 2 repair, build-17)
+  function connsAt(tx, ty) {
+    const byPair = new Map(), out = [];
+    for (const l of linksMemoed()) {
+      if (!l || !l.from || !l.to || l.from.prop == null || l.to.prop == null || !(l.path || []).some(q => q.x === tx && q.y === ty)) continue;
+      const k = l.from.prop + '>' + l.to.prop;
+      if (byPair.has(k)) { byPair.get(k).ids.push(l.id); continue; }
+      const c = { from: l.from.prop, to: l.to.prop, ids: [l.id] }; byPair.set(k, c); out.push(c);
+    }
+    return out;
+  }
+  // the tiles a set of links covers (each once), and those no OTHER link rides — what removing them clears, what the card's key lights
+  function linkTiles(ids) {
+    const want = new Set(ids || []), all = linksMemoed(), mine = all.filter(l => want.has(l.id));
+    const others = new Set(); for (const l of all) if (!want.has(l.id)) for (const q of (l.path || [])) others.add(q.x + ',' + q.y);
+    const seen = new Set(), tiles = [];
+    for (const l of mine) for (const q of (l.path || [])) { const k = q.x + ',' + q.y; if (!seen.has(k)) { seen.add(k); tiles.push(q); } }
+    return { want, mine, tiles, alone: tiles.filter(q => !others.has(q.x + ',' + q.y)) };
+  }
+  /* which side a connection is on, for two that read the same on a shared tile (wave 2 repair, build-17): where its own belt JOINS the
+     run the look-alikes share ('FROM ▴ NORTH'), else where it LEAVES it ('TO ▸ EAST') — read off its path, a place on the floor the
+     Commander can see; null when its belt never meets theirs side by side */
+  const SIDE_WORD = { '0,-1': '▴ NORTH', '0,1': '▾ SOUTH', '-1,0': '◂ WEST', '1,0': '▸ EAST' };
+  function connSide(c, alike) {
+    const all = linksMemoed(), theirs = new Set();
+    for (const o of alike) for (const l of all) if (o.ids.includes(l.id)) for (const q of (l.path || [])) theirs.add(q.x + ',' + q.y);
+    const path = ((all.find(l => l.id === c.ids[0]) || {}).path) || [], on = q => theirs.has(q.x + ',' + q.y);
+    const word = (a, b) => SIDE_WORD[(a.x - b.x) + ',' + (a.y - b.y)] || null;
+    for (let i = 1; i < path.length; i++) if (on(path[i]) && !on(path[i - 1])) { const w = word(path[i - 1], path[i]); if (w) return 'FROM ' + w; }
+    for (let i = path.length - 2; i >= 0; i--) if (on(path[i]) && !on(path[i + 1])) { const w = word(path[i + 1], path[i]); if (w) return 'TO ' + w; }
+    return null;
+  }
   // the belt card's REMOVE <A ▸ B> on a shared tile: exactly those links, one undo; the float rises over a tile only they rode
   function removeBeltLinks(ids, ev) {
-    const want = new Set(ids || []), all = linksMemoed(), mine = all.filter(l => want.has(l.id));
+    const { want, mine, tiles, alone } = linkTiles(ids);
     if (!mine.length || typeof station.removeLinks !== 'function') return false;
-    const others = new Set(); for (const l of all) if (!want.has(l.id)) for (const q of (l.path || [])) others.add(q.x + ',' + q.y);
-    const tiles = mine.reduce((a, l) => a.concat(l.path || []), []), alone = tiles.filter(q => !others.has(q.x + ',' + q.y));
     const res = station.removeLinks(Array.from(want));
     if (!(res && res.ok)) { sfx('bad'); flashTip(ev, (res && res.msg) || 'blocked', false); return false; }
     const at = alone.length ? alone[Math.floor(alone.length / 2)] : tiles[0];
@@ -8237,10 +8318,16 @@ const Build = (() => {
     if (!station) return;
     const links = sendLinks();
     if (!links.length) return;
+    /* RE-AIMED: the arc being re-aimed is hidden only while a NEW arc stands in for it — THE HAND's ghost while the drag really re-aims
+       the OUTBOX (a SEND TO plan, memoized per tile), or the BELT tool armed on that OUTBOX over another INBOX it may send to
+       (drawBeltEndpointGlow strokes that arc; a click there replaces this one). The OUTBOX laying a belt, MOVED (SELECT MOVES — its
+       SEND TO stays after the move, and nothing else draws it), armed pointing at nothing, at its own target or at a refused INBOX
+       keeps its arc (wave 2, build-13; repair: the propmove clause hid a live hand-off for the whole move, and the BELT tool's re-aim
+       drew two arcs from one OUTBOX) */
+    const beltAim = tool === 'belt' && connectFrom && !connectTo && hoverPropId && hoverPropId !== connectFrom ? hoverPropId : null;
     for (const s of links) {
-      // the hand's ghost draws the one being re-aimed — hidden only while the drag REALLY re-aims it (a SEND TO plan, memoized per tile);
-      // the OUTBOX dragged to lay a belt or onto the floor keeps its SEND TO arc (wave 2, build-13)
-      if (drag && drag.propId === s.from.id && (drag.mode === 'propmove' || (drag.mode === 'handbelt' && (handPlan(drag) || {}).kind === 'send'))) continue;
+      if (drag && drag.propId === s.from.id && drag.mode === 'handbelt' && (handPlan(drag) || {}).kind === 'send') continue;
+      if (beltAim && s.from.id === connectFrom && beltAim !== s.to.id) { const hp = station.propById(beltAim), sp = hp && hp.t === 'intake' ? sendToPv(s.from.id, hp.id) : null; if (sp && sp.ok) continue; }
       const arc = sendArc(t, s.from, s.to);
       strokeSendArc(arc, s.live ? '#57bd8b' : '#d2684c', now, s.live ? 0.7 : 0.8);
       const near = altOn() || [hoverPropId, selectedPropId].some(id => id && (id === s.from.id || id === s.to.id));
@@ -8543,6 +8630,7 @@ const Build = (() => {
     }
     for(const id of groupIds){const gp=station.propById(id);if(gp)drawPropSelection(gp,t,'rgba(244,200,112,.9)',false);}
     if(selBelts){const bs=beltSel();if(bs)drawBeltCells(t,bs.cells,'rgba(244,200,112,.85)');}   // the belts the selection took (THE HAND part 2)
+    if(beltCardHot&&beltCardHot.ver===geoVer)drawBeltCells(t,beltCardHot.cells,'rgba(255,143,128,.9)');   // the belt card's REMOVE key under the pointer: the belt it takes (build-17)
     if (selectedRoomId && !(drag && (drag.mode === 'roomresize' || drag.mode === 'move'))) drawRoomSelection(t);   // (a resize or a move draws its own ghost)
     if (drag) return;
     // a hovered prop (select/reclaim) outlines on top of any room outline

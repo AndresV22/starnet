@@ -198,7 +198,7 @@ function finCard(st, valPlan, names) {
     tutorialCoaching: () => false, ordersHide() {}, renderOrders() {}, bumpUi() {}, finPick: () => c, finState: () => st, lineNameOf: () => null,
     workflowReadout: () => ({ compact: '' }), agentLabelFor: a => a, document: { createElement: elm }, esc: s => String(s), finSampleHTML: () => '',
     finMark() {}, sfx() {}, currentPresetExample: () => null, openPresetExample() {}, openFlowCard() {}, openStepCard() {}, finFocusCrew() {}, finOpenFeed() {}, finRunSample() {},
-    station: { lineName: k => names[k] || null }
+    station: { lineName: k => names[k] || null }, Pipeline: P
   });
   ctx.renderFinCard();
   const m = /data-act="feed"[^>]*>([^<]*)</.exec(html);
@@ -208,7 +208,8 @@ function finCard(st, valPlan, names) {
   const base = { unbound: [], crewLeft: 0, hasIntake: true, schedOff: false, todo: false, feedDone: true };
   const sent = { sendTo: { pO: { intakeId: 'pB', fromLine: 'LA', toLine: 'LB' } } };
   A.eq(finCard(Object.assign({ feed: { known: true, fed: false } }, base), sent, { LA: 'LINE ALPHA' }), '✓ FED BY LINE ALPHA', 'a line fed by another line\'s SEND TO says so, naming the sender');
-  A.eq(finCard(Object.assign({ feed: { known: true, fed: true } }, base), {}, {}), '✓ AUTOMATIC START CONFIGURED', 'an automatic start says so (it was unreachable)');
+  A.eq(finCard(Object.assign({ feed: { known: true, fed: true }, autoStart: true }, base), {}, {}), '✓ AUTOMATIC START CONFIGURED', 'an automatic start of THIS line says so (it was unreachable)');
+  A.eq(finCard(Object.assign({ feed: { known: true, fed: true }, autoStart: false }, base), {}, {}), '✓ WORK HAS ARRIVED', 'a station-wide feed flag is never this line\'s AUTOMATIC START (wave 2 repair)');
   A.eq(finCard(Object.assign({ feed: { known: true, fed: false } }, base), {}, {}), '✓ WORK HAS ARRIVED', 'only arrived work: says that');
   A.eq(finCard(Object.assign({ feed: { known: true, fed: false } }, base, { feedDone: false }), {}, {}), '② CHOOSE WHAT STARTS THIS LINE', 'not fed: the step is still open');
   A.ok(!/A START IS CONFIGURED OR WORK HAS ARRIVED/.test(src), 'the X-OR-Y sentence is gone');
@@ -217,7 +218,7 @@ function finCard(st, valPlan, names) {
 /* ---------- build-13: the SEND TO re-aim leftovers ---------- */
 {
   const sl = fnOf(src, 'drawSendLinks'), hg = fnOf(src, 'drawHandGhost');
-  A.ok(/if \(drag && drag\.propId === s\.from\.id && \(drag\.mode === 'propmove' \|\| \(drag\.mode === 'handbelt' && \(handPlan\(drag\) \|\| \{\}\)\.kind === 'send'\)\)\) continue;/.test(sl), 'the old arc hides while the hand really re-aims the OUTBOX (it drew next to the new one)');
+  A.ok(/drag\.mode === 'handbelt' && \(handPlan\(drag\) \|\| \{\}\)\.kind === 'send'/.test(sl), 'the old arc hides while the hand really re-aims the OUTBOX (it drew next to the new one) — the whole rule is driven in the wave 2 repair section');
   A.ok(/strokeSendArc\(sendArc\(t, A, plan\.to\), col, now, 0\.95\)/.test(hg) && !/function drawSendArc\(/.test(src), 'the re-aim ghost is the committed arc (same curve, same arrowhead) — no second arc shape');
   A.ok(!/function drawSendGhost\(/.test(src) && !/g\.sendTo/.test(src) && !/function intakeAt\(/.test(src), 'the unreachable propmove SEND TO ghost path is gone');
   A.ok(!/intakeAt|commitSendTo/.test(fnOf(src, 'commitPropMove')), 'a plain move never SENDS TO (THE HAND\'s plan is the one door)');
@@ -236,7 +237,7 @@ function legacyMerge() {
 {
   const R = legacyMerge(), s = R.s, said = [];
   const ctx = run(between('function removeBeltAt(tx,ty,ev) {', '// Q: pick up one like'), {
-    station: s, linkedFloor: () => true, linksMemoed: () => s.links() || [], pushFlash() {}, flashUndo() {}, sfxVanish() {},
+    station: s, linkedFloor: () => true, linksMemoed: () => s.links() || [], pushFlash() {}, flashUndo() {}, sfxVanish() {}, touchArm: null, openBeltCard() {},
     floatAt: (at, m) => said.push('FLOAT ' + m + ' @' + at.x + ',' + at.y), sfx() {}, flashTip: (ev, m) => said.push('NO ' + m)
   });
   const before = JSON.stringify(s.links().map(l => l.id));
@@ -304,7 +305,7 @@ function legacyMerge() {
     A.eq(P.uniqueLineName('BATCH 7', v => taken.has(v)), 'BATCH 9', 'a name ending in a number counts on from it (BATCH 7 → BATCH 9 past a taken 8)');
     A.eq(P.uniqueLineName('RESEARCH', v => taken.has(v)), 'RESEARCH 2', 'a bare name gets 2');
     A.eq(P.uniqueLineName('FREE', v => taken.has(v)), 'FREE', 'a free name is kept');
-    A.ok(P.uniqueLineName('X'.repeat(48), () => true).length <= 48 || true, '(never longer than 48)');
+    A.ok(P.uniqueLineName('X'.repeat(48), () => true).length <= 48, 'every name taken: still never longer than 48 (this assertion could not fail — it ended in || true)');
     A.ok(P.uniqueLineName('X'.repeat(48), v => v === 'X'.repeat(48)).length <= 48, 'a numbered name stays within 48 characters');
   }
   // paste: 'BATCH 7' copied beside itself is BATCH 8 (it was 'BATCH 2': the stem dropped the 7)
@@ -418,6 +419,212 @@ function legacyMerge() {
   const pl = P.compileRoutingPlan(s.projectGeometry()), why = P.stepTestRefusal(pl, pl.lines[0].lineId) || '';
   A.ok(/TEST THIS STEP/.test(why) && !/TRY THIS STEP/.test(why), 'the refusal says TEST THIS STEP (no key is called TRY THIS STEP) — ' + why);
   A.ok(/'TEST THIS STEP'/.test(read('frontend/app/workflowpanel.js')), '(the BAY card\'s key is TEST THIS STEP)');
+}
+
+/* ======================= WAVE 2 REPAIR (2026-10-12, the second review of this lane) =======================
+   Each section fails against af2a6fd72 (the wave 2 head):
+     build-17 a  one connection laid twice over a merged run: REMOVE BELT (and the card's one key) took nothing, forever
+     build-17 b  the per-connection REMOVE keys could read the same; pointing at one now lights the belt it takes
+     build-17 c  REMOVE armed (touch): a tap on a shared tile opens the belt card — the CLICK IT advice could not be followed
+     build-12 a  a SEND TO from a fragment with no INBOX (it can never run) is no feed: no ✓, no FED BY ANOTHER LINE
+     build-12 b  AUTOMATIC START CONFIGURED only for a start of THIS line (the Workflow panel's own reader), never the station flag
+     build-13 a  the BELT tool's SEND TO re-aim hides the old arc while the new one is drawn (only THE HAND's re-aim did)
+     build-13 b  a plain MOVE of an OUTBOX keeps its SEND TO arc (the propmove clause hid a live hand-off for the whole drag) */
+const WL = require('../frontend/app/workflowline.js');
+const rmCtx = (s, said, extra) => run(between('function removeBeltAt(tx,ty,ev) {', '// Q: pick up one like'), Object.assign({
+  station: s, linkedFloor: () => true, linksMemoed: () => s.links() || [], pushFlash() {}, flashUndo() {}, sfxVanish() {}, touchArm: null,
+  openBeltCard: (x, y) => said.push('CARD ' + x + ',' + y), floatAt: (at, m) => said.push('FLOAT ' + m), sfx() {}, flashTip: (ev, m) => said.push('NO ' + m)
+}, extra || {}));
+/* the belt card, driven: build.js's own openBeltCard + its REMOVE seams on a stub DOM that keeps each key's handlers */
+function beltCard(s, tx, ty) {
+  const said = [], els = {}, keys = [];
+  let html = '';
+  const el = () => ({ onclick: null, on: {}, dataset: {}, addEventListener(type, fn) { this.on[type] = fn; } });
+  const peek = { on: false };
+  const g = { className: '', parentNode: null, classList: { add() {}, toggle(c, on) { if (c === 'is-peek') peek.on = !!on; } }, addEventListener() {},
+    set innerHTML(v) { html = v; const re = /<button[^>]*data-rmlink="(\d+)"[^>]*>([^<]*)<\/button>/g; let m; while ((m = re.exec(v))) { const b = el(); b.dataset.rmlink = m[1]; b.label = m[2]; keys.push(b); } },
+    get innerHTML() { return html; },
+    querySelector: q => (q === '#belt-remove' && !/id="belt-remove"/.test(html)) ? null : (els[q] = els[q] || el()),
+    querySelectorAll: q => (q === '[data-rmlink]' ? keys : []) };
+  const root = { appendChild(x) { x.parentNode = root; }, removeChild(x) { x.parentNode = null; } };
+  const ctx = run(between('function openBeltCard(tx, ty, ev) {', 'function openJunctionEditor(') + between('function removeBeltAt(tx,ty,ev) {', '// Q: pick up one like'), {
+    root, document: { createElement: () => g }, requestAnimationFrame: f => f(), cardCloseAll() {}, cardRegister() {}, workflowIntroHTML: () => '<div data-workflow-close></div>',
+    station: s, cacheGeo: { origin: { tx: 0, ty: 0 } }, valPlan: null, linkedFloor: () => true, linksMemoed: () => s.links() || [], esc: x => String(x),
+    agentLabelFor: a => String(a).toUpperCase(), lineWordOf: () => 'LINE ?', propLabel: t => String(t).toUpperCase(), geoVer: 1, touchArm: null, beltCardHot: null,
+    pushFlash() {}, flashUndo() {}, sfxVanish() {}, sfx() {}, floatAt: (at, m) => said.push('FLOAT ' + m), flashTip: (ev, m) => said.push('NO ' + m), openBeltCard: null
+  });
+  ctx.openBeltCard(tx, ty, {});
+  return { ctx, html, keys, one: /id="belt-remove"/.test(html) ? els['#belt-remove'] : null, said, peek };
+}
+function samePairMerge() {
+  // a pre-links save: ONE BAY's two hand-laid runs (east, and down-east-up) meet and run on as one belt into the next BAY — the floor
+  // derives two links, both A1 ▸ C, and both ride the shared tail
+  const s0 = hall(); const A1 = add(s0, 'bay', 32, 7), C = add(s0, 'bay', 48, 7);
+  const d = s0.serialize(); delete d.links; const s = WM.deserialize(d);
+  for (const [a, b] of [[[34, 7], [39, 7]], [[33, 9], [33, 10]], [[33, 10], [39, 10]], [[40, 10], [40, 8]], [[40, 7], [47, 7]]]) A.ok(s.placeBeltRun({ tx: a[0], ty: a[1] }, { tx: b[0], ty: b[1] }).ok, 'rig: hand-laid run');
+  const on = (s.links() || []).filter(l => l.path.some(q => q.x === 44 && q.y === 7));
+  A.ok(on.length === 2 && on.every(l => l.from.prop === A1 && l.to.prop === C), 'rig: two links, both A1 ▸ C, share the run at 44,7');
+  return { s, A1, C };
+}
+
+/* ---------- build-17 a: one connection laid twice — REMOVE BELT takes it ---------- */
+{
+  const R = samePairMerge(), s = R.s, said = [];
+  const ctx = rmCtx(s, said);
+  A.eq(ctx.removeBeltAt(44, 7, {}), true, 'the gesture is answered');
+  A.eq(s.links().length, 0, 'REMOVE BELT on a tile only ONE connection rides (laid twice) takes that connection — it refused with THIS TILE CARRIES 2 BELTS');
+  A.ok(/^FLOAT REMOVED · BELT · CTRL\+Z/.test(said[said.length - 1] || ''), '…and says so — ' + said[said.length - 1]);
+  A.ok(s.undo().ok && s.links().length === 2, 'one undo brings it back, both runs');
+}
+{
+  const R = samePairMerge(), s = R.s, B = beltCard(s, 44, 7);
+  A.eq(B.keys.length, 0, 'one connection on the tile: no per-connection keys');
+  A.ok(!!B.one, '…the one REMOVE BELT key');
+  if (B.one) B.one.onclick();
+  A.eq(s.links().length, 0, 'the card\'s REMOVE BELT takes the connection (it called the same refusal, and a click reopened the same card)');
+}
+
+/* ---------- build-17 b: every REMOVE key reads differently, and pointing at one lights the belt it takes ---------- */
+for (const crew of [null, 'nova']) {
+  const R = legacyMerge(), s = R.s;
+  if (crew) { s.assignPropAgent(R.A1, crew); s.assignPropAgent(R.A2, crew); }
+  const B = beltCard(s, 44, 7), labels = B.keys.map(k => k.label);
+  A.eq(labels.length, 2, (crew ? 'two BAYs one agent crews' : 'two uncrewed BAYs') + ' merging: two REMOVE keys');
+  A.eq(new Set(labels).size, 2, '…that read differently (both said REMOVE ' + (crew ? 'NOVA ▸ …' : 'AN EMPTY BAY ▸ AN EMPTY BAY') + ') — ' + JSON.stringify(labels));
+  A.eq(labels.slice().sort(), ['REMOVE BELT FROM ▴ NORTH', 'REMOVE BELT FROM ▾ SOUTH'], '…each by the side its belt joins the shared run from (A1 comes down from the north, A2 up from the south; the sentences above name the machines)');
+  const north = B.keys.findIndex(k => /FROM ▴ NORTH/.test(k.label)), n1 = north >= 0 && R.s.links().find(l => l.id === B.ctx.connsAt(44, 7)[north].ids[0]);
+  A.ok(!!n1 && n1.from.prop === R.A1, '…and FROM ▴ NORTH is A1\'s connection');
+  A.ok(/The belt from ▴ north runs from/.test(B.html) && /The belt from ▾ south runs from/.test(B.html), 'the card\'s sentences use the same words');
+  const lit = B.keys.map(k => { if (k.on.pointerenter) k.on.pointerenter(); const h = B.ctx.beltCardHot, cells = h && h.cells ? h.cells.map(q => q.x + ',' + q.y) : []; if (k.on.pointerleave) k.on.pointerleave(); return cells; });
+  const own = id => s.links().filter(l => l.from.prop === id).reduce((a, l) => a.concat(l.path.map(q => q.x + ',' + q.y)), []);
+  A.ok(lit.every(c => c.length > 0) && lit[0].join() !== lit[1].join(), 'pointing at a key lights the tiles its belt alone rides — ' + JSON.stringify(lit));
+  A.ok(lit.every(c => !c.includes('44,7')) && [R.A1, R.A2].every(id => lit.some(c => c.every(k => own(id).includes(k)))), '…its own run, never the shared tail');
+  A.eq(B.ctx.beltCardHot, null, 'pointer gone: nothing lit');
+  B.keys[0].on.pointerenter(); A.eq(B.peek.on, true, 'while a key is pointed at, the card lets the floor show through (its backdrop blurred the lit run away)'); B.keys[0].on.pointerleave(); A.eq(B.peek.on, false, '…and dims again after');
+  A.ok(typeof B.keys[0].on.focus === 'function' && typeof B.keys[0].on.blur === 'function', 'a key reached by Tab answers too');
+  B.keys[0].on.focus(); A.eq(JSON.stringify(B.ctx.beltCardHot.cells.map(q => q.x + ',' + q.y)), JSON.stringify(lit[0]), '…lighting the same belt');
+  B.keys[0].on.blur(); A.eq(B.ctx.beltCardHot, null, '…and letting it go');
+  B.keys[1].on.pointerenter(); B.keys[1].onclick();
+  A.eq(B.ctx.beltCardHot, null, 'the card gone (its key took the belt): nothing left lit');
+  A.eq(s.links().length, 1, '…and that key took exactly one connection');
+}
+
+{
+  const s0 = hall(); const A1 = add(s0, 'bay', 36, 5), A2 = add(s0, 'bay', 40, 5), A3 = add(s0, 'bay', 44, 5), C = add(s0, 'bay', 48, 10);
+  const d = s0.serialize(); delete d.links; const s = WM.deserialize(d);
+  for (const [a, b] of [[[36, 7], [36, 9]], [[40, 7], [40, 9]], [[44, 7], [44, 9]], [[36, 10], [47, 10]]]) A.ok(s.placeBeltRun({ tx: a[0], ty: a[1] }, { tx: b[0], ty: b[1] }).ok, 'rig: hand-laid run');
+  A.eq(s.links().filter(l => l.path.some(q => q.x === 46 && q.y === 10)).length, 3, 'rig: three uncrewed BAYs share the run at 46,10 (two join it from the north)');
+  const labels = beltCard(s, 46, 10).keys.map(k => k.label);
+  A.eq(labels, ['REMOVE BELT 1', 'REMOVE BELT 2', 'REMOVE BELT 3'], 'when the side words would repeat, the look-alikes are numbered (never two keys that read the same)');
+  A.ok(/Belt 1 runs from/.test(beltCard(s, 46, 10).html), '…as their sentences are');
+}
+{
+  // two groups of look-alikes on one tile (two uncrewed BAYs, two BAYs NOVA crews), each with a belt from the north: the short keys
+  // would repeat across the groups, so those carry their machines
+  const s0 = hall(); const A1 = add(s0, 'bay', 32, 4), A2 = add(s0, 'bay', 32, 10), N1 = add(s0, 'bay', 42, 2), N2 = add(s0, 'bay', 42, 11), C = add(s0, 'bay', 48, 7);
+  s0.assignPropAgent(N1, 'nova'); s0.assignPropAgent(N2, 'nova');
+  const d = s0.serialize(); delete d.links; const s = WM.deserialize(d);
+  for (const [a, b] of [[[34, 4], [39, 4]], [[40, 4], [40, 6]], [[34, 10], [39, 10]], [[40, 10], [40, 8]], [[43, 4], [43, 6]], [[43, 10], [43, 8]], [[40, 7], [47, 7]]]) A.ok(s.placeBeltRun({ tx: a[0], ty: a[1] }, { tx: b[0], ty: b[1] }).ok, 'rig: hand-laid run');
+  A.eq(s.links().filter(l => l.path.some(q => q.x === 45 && q.y === 7)).length, 4, 'rig: four BAYs share the run at 45,7');
+  const labels = beltCard(s, 45, 7).keys.map(k => k.label);
+  A.eq(labels.slice().sort(), ['REMOVE BELT FROM ▴ NORTH · AN EMPTY BAY ▸ AN EMPTY BAY', 'REMOVE BELT FROM ▴ NORTH · NOVA ▸ AN EMPTY BAY', 'REMOVE BELT FROM ▾ SOUTH · AN EMPTY BAY ▸ AN EMPTY BAY', 'REMOVE BELT FROM ▾ SOUTH · NOVA ▸ AN EMPTY BAY'], 'four keys, four different words — ' + JSON.stringify(labels));
+}
+
+/* ---------- build-17 c: REMOVE armed (touch) on a tile two connections share ---------- */
+{
+  const R = legacyMerge(), s = R.s, said = [], before = s.links().length;
+  const ctx = rmCtx(s, said, { touchArm: 'remove' });
+  A.eq(ctx.removeBeltAt(44, 7, {}), true, 'the tap is answered');
+  A.eq(s.links().length, before, 'nothing goes without a pick');
+  A.eq(said, ['CARD 44,7'], 'REMOVE armed: the tap opens the belt card with one REMOVE key per connection (it said CLICK IT, and the next tap only repeated that)');
+  const mouse = [], m = rmCtx(s, mouse);
+  m.removeBeltAt(44, 7, {});
+  A.ok(mouse.length === 1 && /THIS TILE CARRIES 2 BELTS — CLICK IT TO PICK WHICH ONE GOES/.test(mouse[0]), 'right-click (SELECT, where a click opens the card) keeps the advice — ' + mouse[0]);
+}
+
+/* ---------- build-12 a + b: ② is done only on evidence about THIS line ---------- */
+function finReal(s, intake, o) {
+  const geo = s.projectGeometry(), valPlan = P.compileRoutingPlan(geo), c = P.lineComponents(geo).find(x => x.intakes.includes(intake));
+  let html = '';
+  const elm = () => ({ className: '', style: {}, set innerHTML(v) { html = v; }, get innerHTML() { return html; }, querySelector: () => ({ onclick: null, textContent: '' }) });
+  const world = Object.assign({ feedState: () => ({ known: true, fed: false }), fedLines: pl => P.fedLineIds(pl), schedOffFor: () => false, startFacts: () => null }, (o && o.world) || {});
+  const ctx = run(between('function finState(c) {', 'function finPick() {') + between('function renderFinCard() {', '// ① — center the camera'), {
+    opts: { world, agents: () => (o && o.agents) || [] }, Pipeline: P, WorkflowLine: WL, cacheGeo: geo, valPlan, finStartsMemo: null,
+    root: { appendChild() {} }, running: true, finEngaged: true, tool: 'belt', finCardEl: null, finSig: '', finComp: null, finSample: null, finSampleRes: null,
+    tutorialCoaching: () => false, ordersHide() {}, renderOrders() {}, bumpUi() {}, finPick: () => c, lineNameOf: () => null,
+    workflowReadout: () => ({ compact: '' }), agentLabelFor: a => a, document: { createElement: elm }, esc: x => String(x), finSampleHTML: () => '',
+    finMark() {}, sfx() {}, currentPresetExample: () => null, openPresetExample() {}, openFlowCard() {}, openStepCard() {}, finFocusCrew() {}, finOpenFeed() {}, finRunSample() {},
+    station: s
+  });
+  ctx.renderFinCard();
+  const m = /data-act="feed"[^>]*>([^<]*)</.exec(html);
+  return m ? m[1] : html;
+}
+function fedRig() {
+  const s = hall(70, 40);
+  const I = add(s, 'intake', 32, 4), B1 = add(s, 'bay', 40, 4), O = add(s, 'outbox', 50, 4);
+  s.assignPropAgent(B1, 'ava');
+  A.ok(s.connectBelt(I, B1).ok && s.connectBelt(B1, O).ok, 'rig: line C (INBOX → BAY → OUTBOX)');
+  return { s, I, B1, O };
+}
+{
+  const R = fedRig(), s = R.s;
+  const B2 = add(s, 'bay', 40, 16), O2 = add(s, 'outbox', 50, 16);   // a fragment: BAY → OUTBOX, its INBOX not laid yet
+  A.ok(s.connectBelt(B2, O2).ok && s.setSendTo(O2, R.I).ok, 'rig: the fragment SENDS TO line C');
+  const plan = P.compileRoutingPlan(s.projectGeometry()), toLine = plan.lineOfProp[R.I];
+  A.ok(!!(plan.sendTo && plan.sendTo[O2]), 'rig: the compiled hand-off is there (it will run once the fragment has an INBOX)');
+  A.ok(!P.fedLineIds(plan)[toLine], 'a SEND TO from a fragment with no INBOX feeds nothing: no job can ever start on it');
+  A.eq(finReal(s, R.I), '② CHOOSE WHAT STARTS THIS LINE', 'FINISH THE LINE keeps ② open (it said ✓ FED BY ANOTHER LINE)');
+  const I2 = add(s, 'intake', 32, 16);
+  A.ok(s.connectBelt(I2, B2).ok, 'rig: the fragment gets its INBOX (unnamed)');
+  const fromKey = P.compileRoutingPlan(s.projectGeometry()).lineOfProp[I2], word = s.lineName(fromKey);
+  A.ok(/^LINE [A-Z]/.test(word || ''), 'rig: the sending line shows as LINE <letter> — ' + word);
+  A.eq(finReal(s, R.I), '✓ FED BY ' + word, 'now it can run: ✓ FED BY ' + word + ', by the one line name (never ANOTHER LINE)');
+  A.ok(!/'ANOTHER LINE'/.test(fnOf(src, 'renderFinCard')), 'no unnamed-sender fallback is left to say');
+}
+{
+  const R = fedRig(), s = R.s, I = R.I;
+  const lineKey = P.compileRoutingPlan(s.projectGeometry()).lineOfProp[I];
+  const fedAll = { feedState: () => ({ known: true, fed: true }) };
+  const facts = f => Object.assign({}, fedAll, { startFacts: () => f });
+  A.eq(finReal(s, I, { world: fedAll }), '② CHOOSE WHAT STARTS THIS LINE', 'a channel or routine SOMEWHERE on the station is no start of this line (it said ✓ AUTOMATIC START CONFIGURED)');
+  const job = (o2) => Object.assign({ id: 'j1', name: 'morning', agentId: 'ava', dockId: R.B1, runsLine: true, enabled: true, scheduleDisplay: 'daily 9:00' }, o2 || {});
+  A.eq(finReal(s, I, { world: facts({ cron: { enabled: true, jobs: [job()] } }) }), '✓ AUTOMATIC START CONFIGURED', 'a routine that runs THIS line from its entry step: ✓ AUTOMATIC START CONFIGURED');
+  A.eq(finReal(s, I, { world: facts({ cron: { enabled: true, jobs: [job({ agentId: 'zed', dockId: null })] } }) }), '② CHOOSE WHAT STARTS THIS LINE', 'a routine for an agent on no step of this line: still open');
+  A.eq(finReal(s, I, { world: facts({ cron: { enabled: true, jobs: [job({ runsLine: false })] } }) }), '② CHOOSE WHAT STARTS THIS LINE', 'a routine that runs only its own step, not the line: still open');
+  A.eq(finReal(s, I, { world: facts({ chans: { telegram: { configured: true, connected: true, agentName: 'Ava' } } }), agents: [{ id: 'ava', name: 'Ava' }] }), '✓ AUTOMATIC START CONFIGURED', 'a connected channel that answers as the first step: ✓');
+  A.eq(finReal(s, I, { world: facts({ chans: { telegram: { configured: true, connected: true, agentName: 'Zed' } } }), agents: [{ id: 'ava', name: 'Ava' }, { id: 'zed', name: 'Zed' }] }), '② CHOOSE WHAT STARTS THIS LINE', 'a channel answering as someone else: still open');
+  A.eq(finReal(s, I, { world: facts({ lt: { triggers: [{ id: 't1', lineId: lineKey, kind: 'webhook', enabled: true, blockedBy: null }] } }) }), '✓ AUTOMATIC START CONFIGURED', 'an armed webhook of this line: ✓');
+  A.eq(finReal(s, I, { world: facts({ lt: { triggers: [{ id: 't1', lineId: lineKey, kind: 'webhook', enabled: true, blockedBy: 'E-STOP is on' }] } }) }), '② CHOOSE WHAT STARTS THIS LINE', 'a webhook the server holds back: still open');
+  A.eq(finReal(s, I, { world: Object.assign({ schedOffFor: () => true }, facts({ cron: { enabled: false, jobs: [job()] } })) }), '② SCHEDULING IS OFF — TURN IT ON', 'this line\'s routine saved while scheduling is off says so, whatever else feeds the station (the station flag hid it)');
+}
+
+/* ---------- build-13 a + b: which SEND TO arcs draw while one is being re-aimed ---------- */
+{
+  const s = hall(70, 40), L1 = line(s, 4, 'Alpha'), L2 = line(s, 14, 'Beta'), L3 = line(s, 24, 'Gamma');
+  A.ok(s.setSendTo(L1.O, L2.I).ok, 'rig: ALPHA SENDS TO BETA');
+  const arcs = st => {
+    const drawn = [], links = s.props().filter(p => p.t === 'outbox' && p.sendTo).map(p => ({ from: p, to: s.propById(p.sendTo), live: true, name: 'X' }));
+    const ctx = run(fnOf(src, 'drawSendLinks'), Object.assign({
+      station: s, sendLinks: () => links, sendArc: (t, a, b) => ({ a: a.id, b: b.id, ax: 0, ay: 0, mx: 0, my: 0, bx: 0, by: 0 }), strokeSendArc: arc => drawn.push(arc.a + '>' + arc.b),
+      altOn: () => false, hoverPropId: null, selectedPropId: null, drag: null, handPlan: () => null, tool: 'select', connectFrom: null, connectTo: null, sendToPv: () => ({ ok: true }),
+      ctx: { save() {}, restore() {}, measureText: () => ({ width: 10 }) }, VAL_FONT: () => '', zoom: 1, voiceSay() {}
+    }, st || {}));
+    ctx.drawSendLinks(16, 0);
+    return drawn;
+  };
+  const one = [L1.O + '>' + L2.I];
+  A.eq(arcs(), one, 'at rest: the arc');
+  A.eq(arcs({ drag: { mode: 'propmove', propId: L1.O, moved: true } }), one, 'the OUTBOX moved (SELECT MOVES) keeps its SEND TO arc — nothing else drew it, and the hand-off stays after the move');
+  A.eq(arcs({ drag: { mode: 'handbelt', propId: L1.O, moved: true }, handPlan: () => ({ ok: true, kind: 'send' }) }), [], 'THE HAND re-aiming it: the ghost draws the new arc, the old one is hidden');
+  A.eq(arcs({ drag: { mode: 'handbelt', propId: L1.O, moved: true }, handPlan: () => ({ ok: true, kind: 'floor' }) }), one, 'the OUTBOX laying a belt keeps its arc');
+  const belt = o => Object.assign({ tool: 'belt', connectFrom: L1.O, connectTo: null }, o);
+  A.eq(arcs(belt({ hoverPropId: L3.I })), [], 'BELT armed on the OUTBOX over another line\'s INBOX: the prospective arc stands in for the old one (two arcs left one OUTBOX)');
+  A.eq(arcs(belt({ hoverPropId: null })), one, '…armed, pointing at nothing: the OUTBOX still shows where it sends now');
+  A.eq(arcs(belt({ hoverPropId: L2.I })), one, '…over the INBOX it already sends to: that arc');
+  A.eq(arcs(belt({ hoverPropId: L3.I, sendToPv: () => ({ ok: false }) })), one, '…over an INBOX it may not send to: a click keeps the old SEND TO, so the old arc stays');
+  A.eq(arcs(belt({ hoverPropId: L3.B1 })), one, '…over a BAY (no SEND TO there): the arc stays');
+  A.eq(arcs(belt({ connectFrom: L2.O, hoverPropId: L3.I })), one, 'another OUTBOX armed: this arc is not the one re-aimed');
 }
 
 let done = false;

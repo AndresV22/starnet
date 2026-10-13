@@ -290,6 +290,34 @@ function drag(R, id, tiles, o) {
   ctx.releaseDrag();
   A.eq(ctx.flipPref, true, 'a dropped MOVE leaves the CORNER key armed for the next belt drag (it never used it)');
 }
+/* 13b. build-10 (wave 2 repair): a SELECTED piece's drag that was a belt when R was pressed and turned back into a MOVE before the
+   release (the target decides, tile by tile) still uses the flip up — the MOVE's commit never reset it, so CORNER stayed lit and the
+   next, unrelated belt drag turned its corner the flipped way */
+{
+  const R = rig(), { s, ctx } = R;
+  const press = () => {
+    const [tx, ty] = tileOf(s, R.B3);
+    ctx.selectedPropId = R.B3; ctx.geoVer++;
+    ctx.drag = { mode: 'selectpress', propId: R.B3, start: { tx, ty }, cur: { tx, ty }, moved: false, add: false, cx: tx * 100, cy: ty * 100, sel: true };
+  };
+  const over = (x, y) => ctx.onMove({ tx: x, ty: y, clientX: x * 100, clientY: y * 100, shiftKey: false });
+  ctx.flipPref = false;
+  press(); over(52, 13);
+  A.eq(ctx.drag.mode, 'handbelt', 'rig: the selected BAY over the next BAY lays a belt');
+  ctx.flipPref = true;   // R pressed there (flipCorner runs only in a hand mode)
+  over(45, 19);
+  A.eq(ctx.drag.mode, 'propmove', 'rig: …over open floor it is a MOVE again');
+  ctx.onUp({ tx: 45, ty: 19, clientX: 4500, clientY: 1900, pointerId: 1 });
+  A.eq(pos(s, R.B3), '45,19', 'the MOVE lands');
+  A.eq(ctx.flipPref, false, 'the flip pressed while it was a belt drag is used up by the MOVE it ended as');
+  press(); over(52, 13); ctx.flipPref = true; over(56, 20);
+  A.eq(ctx.drag.mode, 'propmove', 'rig: belt, R, then a MOVE again');
+  ctx.releaseDrag();   // Esc / right-click / pointercancel / blur
+  A.eq(ctx.flipPref, false, '…and so does that drag dropped any other way');
+  ctx.flipPref = true;
+  press(); over(56, 20); ctx.onUp({ tx: 56, ty: 20, clientX: 5600, clientY: 2000, pointerId: 1 });
+  A.eq(ctx.flipPref, true, 'a selected piece\'s plain MOVE (never a belt) leaves the CORNER key armed for the next belt drag');
+}
 /* 14. build-13 d: Shift let go over another line's INBOX before the release — the ghost was a plain (refused) MOVE, so is the release */
 {
   const R = rig(), { s, ctx } = R;

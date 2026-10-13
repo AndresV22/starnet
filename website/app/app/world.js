@@ -36,6 +36,7 @@ const World = (() => {
   let routingNags = null;                        // [{x,y,w,h,label,warn}] in-world callouts mirroring the compiler's errors
   let firstShipPulse = null;
   let feedState = { known: false, fed: true };   // server-proven "something feeds the intake" truth (channels/cron); fed=true until proven otherwise
+  let startFacts = null;                         // …and the server's own answers it was read from ({ chans, cron, lt }) — what starts ONE line (WorkflowLine.lineStarts)
   let feedNagOn = false;                         // a NO FEED nag is showing → the intake becomes clickable (→ CHANNELS)
   let selectedRoutingTile = null;                // explicit canvas selection; full routing instructions never open on hover
 
@@ -8355,6 +8356,11 @@ const World = (() => {
       const offJobs = (cron && !cron.enabled) ? jobs.filter(j => j && j.enabled !== false).map(j => ({ dockId: j.dockId || null, agentId: j.agentId || null })) : [];
       const schedOff = offJobs.length > 0;
       const next = { known: true, fed: chan || cronFeeds || trgFeeds, schedOff, offJobs };
+      // the answers themselves, per fact (one that did not answer keeps its last answer — a hiccup never unsays a start): BUILD MODE's
+      // FINISH THE LINE reads what starts ONE line from these, never the station-wide `fed` (wave 2 repair, build-12)
+      const was = startFacts || {};
+      startFacts = { chans: (chans && typeof chans === 'object') ? chans : (was.chans || null), cron: (cron && Array.isArray(cron.jobs)) ? cron : (was.cron || null),
+        lt: (trg && Array.isArray(trg.triggers)) ? trg : (was.lt || null) };
       const offSig = s => (s.offJobs || []).map(j => j.dockId + '|' + j.agentId).join(',');
       const changed = next.known !== feedState.known || next.fed !== feedState.fed || next.schedOff !== feedState.schedOff || offSig(next) !== offSig(feedState);
       feedState = next;
@@ -11286,6 +11292,8 @@ const World = (() => {
     // BUILD MODE's finish-the-line card reads THIS, never a parallel poll, so the two can never disagree.
     fedLines: knownFedLines,
     feedState: () => ({ known: feedState.known, fed: feedState.fed }),
+    // the server answers that feed truth was read from ({ chans, cron, lt } | null until one answered) — what starts ONE line
+    startFacts: () => startFacts,
     // does this INBOX's line wait on a routine saved while scheduling is off? (the floor's SCHEDULE OFF — CLICK) — BUILD MODE's
     // finish card asks it with ITS OWN compiled plan (plan param), so a line stamped this session answers too
     schedOffFor: (intakeId, plan) => schedOffFor(intakeId, plan),
