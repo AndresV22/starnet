@@ -16,15 +16,11 @@ const Overseer = (() => {
       for (const row of data.threads || []) {
         if (!row.parentStreamId || !Workstreams.get(row.parentStreamId)) continue;
         const local = Workstreams.get(row.id);
-        // a session this page already had (e.g. delivered before the poll adopted it) learns its parent once, so the
-        // rail can fold it under the conversation that delegated it; adopt() leaves existing records untouched
-        if (local) {
-          if (!local.parentStreamId) { local.parentStreamId = String(row.parentStreamId); adopted = true; }
-          if (row.worker === true && local.worker !== true) { local.worker = true; adopted = true; }
-          if (!local.projectRoot && row.projectRoot) { local.projectRoot = String(row.projectRoot); adopted = true; }
-          continue;
-        }
-        if (Workstreams.adopt(row)) adopted = true;
+        const before = local && [local.parentStreamId, local.worker, local.projectRoot];
+        // Reconciliation may have filed the result first. The store adopts its missing thread
+        // metadata and invalidates delegated participation before CREW or search reads it.
+        const adoptedRow = Workstreams.adopt(row);
+        if (adoptedRow && (!before || before[0] !== adoptedRow.parentStreamId || before[1] !== adoptedRow.worker || before[2] !== adoptedRow.projectRoot)) adopted = true;
       }
       last = data;
       if (adopted) { App.persist(); App.refreshRail(); }
