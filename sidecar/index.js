@@ -3480,21 +3480,45 @@ function persistSkillNudge() {
   try { saveResilient(SKILL_NUDGE_FILE, { v: 1, counts: Object.fromEntries(skillNudge) }); }
   catch (e) { failNote('skill.nudge.persist', e); }
 }
-// Parked and armed review jobs are durably acknowledged before scheduling or dispatch.
+/* Verdict review packets on disk. A transition that acts on the result (arm, correct, fire, complete, retry state) is
+   written, read back and compared before it is acknowledged. A stash or take (meta.ack === false: nobody waits on it)
+   is batched for up to 1 s: a synchronous verified rewrite of the whole multi-MB file at EVERY run end blocked the event
+   loop (token streams, SSE) on a busy station. Every snapshot is the full state, so an acknowledged write first drops a
+   pending batch (its snapshot is older and must never overwrite the newer one). Shutdown flushes a pending batch. */
 const VERDICT_PACKETS_FILE = path.join(WORKSPACES, 'verdict.packets.json');
-function flushVerdictPackets() { /* Every transition is already synchronous and verified. */ }
-function persistVerdictPackets(rows) {
+let _vpRows = null, _vpTimer = null;
+function writeVerdictPackets(rows) {
   const value = { v: 2, rows: rows || [] };
   saveResilient(VERDICT_PACKETS_FILE, value);
   const proven = loadResilient(VERDICT_PACKETS_FILE, 'verdict-packets');
   if (JSON.stringify(proven) !== JSON.stringify(value)) throw new Error('verdict review persistence could not be verified');
   return true;
 }
+function flushVerdictPackets() {
+  if (!_vpTimer) return;
+  clearTimeout(_vpTimer); _vpTimer = null;
+  try { writeVerdictPackets(_vpRows); } catch (e) { failNote('verdict.packets.flush', e); }
+}
+function persistVerdictPackets(rows, meta) {
+  if (meta && meta.ack === false) {
+    _vpRows = rows;
+    if (!_vpTimer) {
+      _vpTimer = setTimeout(() => { _vpTimer = null; try { writeVerdictPackets(_vpRows); } catch (e) { failNote('verdict.packets.persist', e); } }, 1000);
+      if (_vpTimer && _vpTimer.unref) _vpTimer.unref();
+    }
+    return true;
+  }
+  if (_vpTimer) { clearTimeout(_vpTimer); _vpTimer = null; }
+  return writeVerdictPackets(rows);
+}
 function launchVerdictReview(job) {
   console.log('[skills] verdict-triggered review fired run=' + job.runId + ' verdict=' + job.verdict + ' by=' + job.firedBy);
   return rehydrateReviewJob(job).then(runBackgroundSkillReview);
 }
-const verdictReview = makeVerdictReview({ cap: num(process.env.SKYNET_VERDICT_REVIEW_CAP, 40), ttlMs: num(process.env.SKYNET_VERDICT_REVIEW_TTL_MS, 72 * 60 * 60 * 1000), graceMs: num(process.env.SKYNET_VERDICT_REVIEW_GRACE_MS, 90 * 1000), now: () => Date.now(), onChange: persistVerdictPackets, redact: (t) => redact(t) });
+const verdictReview = makeVerdictReview({ cap: num(process.env.SKYNET_VERDICT_REVIEW_CAP, 40), ttlMs: num(process.env.SKYNET_VERDICT_REVIEW_TTL_MS, 72 * 60 * 60 * 1000), graceMs: num(process.env.SKYNET_VERDICT_REVIEW_GRACE_MS, 90 * 1000), now: () => Date.now(), onChange: persistVerdictPackets, redact: (t) => redact(t),
+  // the cache key for each row's compacted copy: a secret saved to the station after a run ended leaves every saved row
+  // at the next save (a throw before the secret stores exist at boot forces a fresh compaction in verdictreview.js)
+  redactGeneration: () => crypto.createHash('sha256').update(stationSecretValues().slice().sort().join('\u0000')).digest('base64') });
 try {
   const savedPackets = loadResilient(VERDICT_PACKETS_FILE, 'verdict-packets');
   const n = verdictReview.restore(savedPackets && savedPackets.rows);
