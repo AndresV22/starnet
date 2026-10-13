@@ -232,7 +232,7 @@
     return items.filter(r => r.runId === runId && (!needle || [r.title, r.summary, r.ask].join(' ').toLowerCase().includes(needle)));
   }
   function mount(body) {
-    let rows = [], projects = [], kinds = [], summary = null, loadSeq = 0, project = '', kind = '', total = 0, clearable = 0;
+    let rows = [], projects = [], kinds = [], summary = null, loadSeq = 0, project = '', kind = '', total = 0, clearable = 0;   // clearable null = unknown
     let runFilter = null;
     let lastUndo = null;   // the last clear's { text, token }: its UNDO comes back after an arm/disarm or a reload blanks the line
     const openState = { blobUrl: '', previewHost: null };
@@ -415,14 +415,27 @@
           : (j.skipped ? 'Nothing cleared —' + kept.replace(/ and stayed\.$/, ': KEEP IT or DISCARD first.') : 'Nothing to clear here.'), j.cleared ? j.undoToken : '');
       } catch (e) { if (b) b.disabled = false; say('Could not clear: ' + e.message, true); }
     }
-    // the count is what the clear will actually take: the server's own clearable count for the view (undecided builds stay)
+    // the count is what the clear will actually take (undecided builds stay), or no count when the page cannot prove it
     function clearShownLabel() {
       const filtered = !!(runFilter || project || kind || q.value || status.value);
-      return (filtered ? 'CLEAR THESE ' : 'CLEAR ALL ') + (runFilter ? rows.filter(clearableRow).length : clearable);
+      const n = runFilter ? rows.filter(clearableRow).length : clearable;
+      return (filtered ? 'CLEAR THESE' : 'CLEAR ALL') + (n == null ? '' : ' ' + n);
+    }
+    /* What a clear of this view would take. A sidecar that sends its own count (clearable) is the answer. Otherwise only
+       a count this page can prove: the complete list it was sent; a status filter (every match has that one status); or
+       the unfiltered library, whose summary counts the same rows. A list cut short at 500 under any other filter has no
+       provable count: null, and the label names none. */
+    function provableClearable(j, sent, all) {
+      if (typeof j.clearable === 'number' && isFinite(j.clearable)) return j.clearable;
+      if (sent.length >= all) return sent.filter(clearableRow).length;
+      if (status.value) return status.value === 'pending' ? 0 : all;
+      const s = j.summary;
+      if (!runFilter && !q.value && !project && !kind && s && Number(s.total) === all && isFinite(Number(s.pending))) return Math.max(0, all - Number(s.pending));
+      return null;
     }
     function wireClears() {
       const shown = body.querySelector('#dl-clear-shown');
-      shown.hidden = !rows.length || !(runFilter ? rows.some(clearableRow) : clearable);
+      shown.hidden = !rows.length || (runFilter ? !rows.some(clearableRow) : clearable === 0);
       if (shown.dataset.armed !== '1') shown.textContent = clearShownLabel();
       if (shown.dataset.wired !== '1' && typeof ArmConfirm !== 'undefined' && ArmConfirm.wire) {
         shown.dataset.wired = '1';
@@ -434,7 +447,7 @@
         });
       }
       shown.disabled = false;
-      // the resting label names the real scope — the whole library, or the filtered view — with the server's own count
+      // the resting label names the real scope — the whole library, or the filtered view — with a count it can prove
       const label = clearShownLabel();
       if (shown.dataset.armed !== '1') shown.textContent = label;
       list.querySelectorAll('button.dlv-bclear').forEach(btn => {
@@ -493,8 +506,7 @@
         if (seq !== loadSeq) return;
         rows = j.items || [];
         total = Number(j.total) || rows.length;   // the FULL match count — the list itself ships at most 500
-        // what a clear of this view would take; an older sidecar sends no count, so count the list when it is the whole view
-        clearable = (typeof j.clearable === 'number' && isFinite(j.clearable)) ? j.clearable : rows.length >= total ? rows.filter(clearableRow).length : total;
+        clearable = provableClearable(j, rows, total);   // before the run narrowing below: the server's view, not the run's
         // The backend's text search narrows the request; equality supplies the actual provenance boundary.
         if (runFilter) rows = rowsForRun(rows, runFilter.runId, q.value);
         projects = Array.isArray(j.projects) ? j.projects : [];   // an older sidecar simply sends none -> rail shows ALL WORK only

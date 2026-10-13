@@ -84,6 +84,16 @@ function fn(src,name){const m=new RegExp('^( {0,4})(?:async )?function '+name+'\
     A.ok(/can no longer be undone/.test(msg.innerHTML),'a dead UNDO says why it failed');
     shown.__arm.onArm();shown.__arm.onDisarm();A.eq(msg.innerHTML,'','a dead UNDO is not offered again after a disarm');
     w.q('#dl-refresh')._h.click[0]();await settle();A.ok(!/data-undo-clear/.test(msg.innerHTML),'…or after a reload');
+    // review follow-up (seams-07): over 500 matches the list is cut short; the count is one the page can prove, or none
+    const many=[...Array(500)].map((_,i)=>row('r'+i,i<400?'produced':'pending'));
+    library={items:many,total:612,summary:{total:612,pending:150}};
+    w=await mount();A.eq(w.q('#dl-clear-shown').textContent,'CLEAR ALL 462','the whole library: its summary proves what a clear takes (612 - 150 undecided)');
+    w.q('#dl-query').value='report';w.q('#dl-refresh')._h.click[0]();await settle();
+    A.eq(w.q('#dl-clear-shown').textContent,'CLEAR THESE','a search cut short at 500 names no count it cannot prove');A.ok(!w.q('#dl-clear-shown').hidden,'…and still offers the clear');
+    w.q('#dl-query').value='';w.q('#dl-status').value='produced';library={items:many.slice(0,400),total:540,summary:{total:612,pending:150}};
+    w.q('#dl-refresh')._h.click[0]();await settle();A.eq(w.q('#dl-clear-shown').textContent,'CLEAR THESE 540','a done-status view clears every match');
+    w.q('#dl-status').value='pending';library={items:many.slice(400),total:150,summary:{total:612,pending:150}};
+    w.q('#dl-refresh')._h.click[0]();await settle();A.ok(w.q('#dl-clear-shown').hidden,'an undecided-only view offers no CLEAR');
     delete global.ArmConfirm;delete global.fetch;
   }
   A.report('declutter-recovery');
