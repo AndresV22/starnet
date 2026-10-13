@@ -86,19 +86,39 @@ function bodyOf(name) {
   const availabilityFailure = new Function(m[1] + '\nreturn availabilityFailure;')();
   assert.deepEqual(
     availabilityFailure({ ok: false, status: 403 }),
-    { probeFailed: true, staleSession: true, status: 403 },
+    { probeFailed: true, staleSession: true, tokenWithheld: '', status: 403 },
     'an old sidecar token is recognized as a stale page, not allowed into a silent voice session'
   );
   assert.deepEqual(
     availabilityFailure({ ok: false, status: 500 }),
-    { probeFailed: true, staleSession: false, status: 500 },
+    { probeFailed: true, staleSession: false, tokenWithheld: '', status: 500 },
     'other sidecar failures are also refused before the microphone opens'
   );
   assert.equal(availabilityFailure({ ok: true, status: 200 }), null, 'a healthy probe proceeds normally');
+  /* A page the station KEPT its key from (Harness.tokenWithheld) gets the same 403, but it is not a restart: a reload
+     only re-runs the same ownership check. It carries the withheld notice and never reads as stale (threads-backend-05). */
+  // eslint-disable-next-line no-new-func
+  const withHarness = H => new Function('Harness', m[1] + '\nreturn availabilityFailure;')(H);
+  assert.deepEqual(
+    withHarness({ tokenWithheld: () => 'other-user', tokenWithheldNotice: () => 'WITHHELD NOTICE' })({ ok: false, status: 403 }),
+    { probeFailed: true, staleSession: false, tokenWithheld: 'WITHHELD NOTICE', status: 403 },
+    'a withheld page\'s 403 carries the withheld notice, never a stale (restarted) session'
+  );
+  const bare = withHarness({ tokenWithheld: () => 'peer-not-found' })({ ok: false, status: 403 });
+  assert.ok(bare.staleSession === false && /could not confirm this browser/.test(bare.tokenWithheld) && !/restart|reload/i.test(bare.tokenWithheld),
+    'an older Harness without the notice still names the check, never a restart: ' + bare.tokenWithheld);
+  assert.deepEqual(
+    withHarness({ tokenWithheld: () => '' })({ ok: false, status: 403 }),
+    { probeFailed: true, staleSession: true, tokenWithheld: '', status: 403 },
+    'a keyed page\'s 403 is still a stale session'
+  );
 }
 {
   const startBody = bodyOf('start');
   assert.match(startBody, /readiness\.probeFailed[\s\S]*?reload this page to reconnect voice/, 'stale pages receive an actionable reload message');
+  assert.match(startBody, /if \(withheld\) setUnrecoverableError\(withheld\);/, 'a withheld page shows the withheld notice as its error');
+  assert.ok(startBody.indexOf('withheld ?') > 0 && startBody.indexOf('withheld ?') < startBody.indexOf('station restarted'),
+    'the withheld check comes before every restart line');
   assert.ok(
     startBody.indexOf('readiness.probeFailed') < startBody.indexOf('openMicrophone(seq)'),
     'a failed sidecar probe is refused before requesting microphone access'
