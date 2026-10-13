@@ -5445,14 +5445,57 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     provider = provider || activeProv();
     return !isOAuthProvider(provider) && provider !== 'ollama' && provider !== 'claude-cli';
   }
+  /* A CUSTOM ENDPOINT NEEDS ITS ADDRESS (GitHub #113, confirmed live 2026-10-13): the CUSTOM card promised "any /v1 base
+     URL", but every add form offered only "paste CUSTOM key…" — the endpoint could be set only during onboarding. The
+     add forms now take the endpoint (required) with the key optional; the copy no longer claims a ChatGPT sign-in. */
+  function customEndpointInputHtml(id) {
+    return '<input type="url" class="key-input base-input" id="' + id + '" placeholder="endpoint URL, e.g. http://localhost:1234/v1" autocomplete="off" spellcheck="false" aria-label="Custom endpoint URL">';
+  }
+  // the URL the CUSTOM endpoint is stored as: a bare host gets a scheme (http:// for this machine or the LAN, https:// otherwise)
+  function normEndpoint(raw) {
+    let n = String(raw || '').trim();
+    if (!n) return '';
+    if (!/^https?:\/\//i.test(n)) n = (/^(localhost|127\.|0\.0\.0\.0|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|\[?::1)/i.test(n) ? 'http://' : 'https://') + n.replace(/^\/+/, '');
+    try { new URL(n); return n; } catch (_) { return null; }
+  }
+  // CUSTOM: store the endpoint (required), then the key if one was given, then PROVE reachability (never claim connected)
+  function saveCustomEndpoint(baseInp, keyInp) {
+    const h = H();
+    const norm = normEndpoint(baseInp ? baseInp.value : '');
+    if (!norm) { sfx('bad'); notify(norm === null ? '✕ that endpoint does not look like a URL' : '✕ enter the endpoint URL (e.g. http://localhost:1234/v1)', 'bad'); if (baseInp) baseInp.focus(); return; }
+    if (!h || !h.setBaseUrl) { sfx('bad'); return; }
+    const key = keyInp ? keyInp.value.trim() : '';
+    Promise.resolve(h.setBaseUrl(norm, 'custom')).then(res => {
+      warnIfStationLacksKey(res);
+      return key ? Promise.resolve(h.validateAndSetKey ? h.validateAndSetKey(key, 'custom') : h.setKey(key, 'custom')) : null;
+    }).then(() => {
+      invalidateProviderHealth('custom');
+      const done = (pr) => {
+        notify(pr && pr.reachable ? '✓ custom endpoint saved — reachable' + (pr.credentialVerified ? ' · credentials verified' : '') : '✓ custom endpoint saved — not reachable yet' + (pr && pr.error ? ' (' + pr.error + ')' : ''), pr && pr.reachable ? 'good' : 'warn');
+        if (typeof ModelDock !== 'undefined' && ModelDock.reflect) ModelDock.reflect();
+        if (typeof KeyCTA !== 'undefined' && KeyCTA.refresh) KeyCTA.refresh();
+        rerender('settings');
+      };
+      if (!h.probeProvider) return done(null);
+      return h.probeProvider('custom').then(pr => { providerHealth.custom = pr || null; done(pr); }, () => done(null));
+    }).catch(err => {
+      notify('✕ ' + ((err && err.message) || 'could not save the custom endpoint'), 'bad');
+      sfx('bad');
+      rerender('settings');
+    });
+  }
   function addKeyHtml(provider, empty) {
     provider = provider || 'openrouter';
+    const custom = provider === 'custom';
     return '<div class="key-empty">' +
-      '<p>' + (empty
-        ? 'No API keys connected. Paste a key here to reconnect - it stays on this machine.'
-        : 'Add a ' + esc(provName(provider)) + ' key while keeping your ChatGPT sign-in connected.') + '</p>' +
+      '<p>' + (custom
+        ? 'Point StarNet at any OpenAI-compatible endpoint (LM Studio, vLLM, FreeLLMAPI…). The key is optional — many local servers need none.'
+        : empty
+          ? 'No API keys connected. Paste a key here to reconnect - it stays on this machine.'
+          : 'Add a ' + esc(provName(provider)) + ' key — it stays on this machine.') + '</p>' +
       '<div class="key-edit">' +
-      '<input type="password" class="key-input" id="key-in-new" placeholder="paste ' + esc(provName(provider)) + ' key..." autocomplete="off" spellcheck="false">' +
+      (custom ? customEndpointInputHtml('base-in-new') : '') +
+      '<input type="password" class="key-input" id="key-in-new" placeholder="paste ' + esc(provName(provider)) + ' key' + (custom ? ' (optional)' : '') + '..." autocomplete="off" spellcheck="false">' +
       '<button class="bb sm" data-act="add" data-provider="' + esc(provider) + '">SAVE</button>' +
       '</div></div>';
   }
@@ -5538,7 +5581,8 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
         (wantsOAuthSignin ? '<button class="bb sm prov-addkey" data-act="prov-oauth-signin" data-provider="' + esc(p.id) + '" aria-label="Sign in to ' + esc(p.name) + '" title="device-code sign-in — no API key needed">' + (codexDead ? '⏼ RECONNECT' : '⏼ SIGN IN') + '</button>' : '') +
         (wantsInline
           ? '<div class="key-edit prov-key-edit" id="prov-key-edit-' + esc(p.id) + '" hidden>' +
-            '<input type="password" class="key-input" id="prov-key-in-' + esc(p.id) + '" placeholder="paste ' + esc(p.name) + ' key…" autocomplete="off" spellcheck="false">' +
+            (p.id === 'custom' ? customEndpointInputHtml('prov-base-in-custom') : '') +
+            '<input type="password" class="key-input" id="prov-key-in-' + esc(p.id) + '" placeholder="paste ' + esc(p.name) + ' key' + (p.id === 'custom' ? ' (optional)' : '') + '…" autocomplete="off" spellcheck="false">' +
             '<button class="bb sm" data-act="prov-add-save" data-provider="' + esc(p.id) + '">SAVE</button>' +
             '</div>'
           : '') +
@@ -5849,6 +5893,10 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
           return;
         }
         if (!h) return;
+        if (act === 'add' && (b.dataset.provider || activeProv()) === 'custom') {
+          saveCustomEndpoint(body.querySelector('#base-in-new'), body.querySelector('#key-in-new'));
+          return;
+        }
         if (act === 'add') {              // empty-state: connect a first key without leaving the game
           const inp = body.querySelector('#key-in-new');
           const v = inp ? inp.value.trim() : '';
@@ -5969,6 +6017,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
   function wireProviderActions(body) {
     // save a pasted key from a NO-KEY card's inline row, reusing the SAME store path as the key list (Harness.setKey).
     const saveInline = (provider) => {
+      if (provider === 'custom') return saveCustomEndpoint(body.querySelector('#prov-base-in-custom'), body.querySelector('#prov-key-in-custom'));
       const h = H();
       const inp = body.querySelector('#prov-key-in-' + provider);   // provider ids are simple slugs — safe to interpolate
       const v = inp ? inp.value.trim() : '';

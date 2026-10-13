@@ -467,6 +467,8 @@ const Chat = (() => {
     if (!card) return;
     const presenceRunId = (typeof Channels !== 'undefined') ? Channels.runIdOf(ws.id) : '';
     if (presenceRunId) card.dataset.runId = presenceRunId;
+    // the honest machine time rides the card, so the later telemetry hydration can never swap in wall-clock time
+    if (started) card.dataset.ms = String(Math.max(0, Math.round(Channels.elapsedOf(ws.id, Date.now()) || 0)));
     card.classList.remove('cp-live');
     presenceCurTool = null;
     const isErr = !!opts.error, needsVerify = !!opts.verificationRequired, isStop = needsVerify || !!opts.stopped || (opts.endReason && opts.endReason !== 'done') || !!opts.cutShort;
@@ -1269,6 +1271,14 @@ const Chat = (() => {
       const atts = pendingAtts.filter(entry => entry.status === 'ready' && entry.ref).map(entry => entry.ref);
       const sent = await GroupChat.sendText(t, { attachments: atts, attachmentAgent: ws.agentId });
       if (sent && activeWs?.id === ws.id) { takeAttachments(); if (input.value.trim() === t) input.value = ''; closeSlash(); autoGrowInput(); }
+      return;
+    }
+    // ANSWER, NOT QUEUE: the run is waiting on one question of its lead's in this conversation — this text is the
+    // answer (askAnswerers). Files still wait for the next send; a failed answer keeps the words in the box.
+    if (isBusy() && t && !hasStaged && pendingAskFor(activeWs)) {
+      const ws = activeWs;
+      input.value = ''; closeSlash(); autoGrowInput();
+      if (!(await answerPendingAsk(ws, t)) && activeWs === ws && !input.value.trim()) { input.value = t; autoGrowInput(); }
       return;
     }
     // BUSY: type-ahead queues TEXT; staged files wait in the strip for the next idle send (one run per stream).
@@ -2166,7 +2176,11 @@ const Chat = (() => {
     statusEl.textContent = s;
     const low = String(s || '').toLowerCase();
     statusEl.classList.remove('status-thinking', 'status-working', 'status-approval', 'status-stopping', 'status-connecting', 'status-online', 'status-down', 'status-idle');
-    statusEl.classList.add(low.indexOf('approval') >= 0 ? 'status-approval'
+    // NO RUN STATE IN THE COMMS HEADER (Andrew, asked 5x; locked 10-03): every run-state string must land on a class the
+    // header hides — "awaiting your context/answer…" and "waking…" used to fall through to the VISIBLE status-online
+    // (live walkthrough 2026-10-13). Faults (unreachable, voice errors) still show.
+    statusEl.classList.add(low.indexOf('approval') >= 0 || /^awaiting\b/.test(low.trim()) ? 'status-approval'
+      : /^waking\b/.test(low.trim()) ? 'status-thinking'
       : low.indexOf('stopping') >= 0 ? 'status-stopping'
       : low.indexOf('working') >= 0 ? 'status-working'
       : low.indexOf('thinking') >= 0 ? 'status-thinking'
@@ -2192,7 +2206,7 @@ const Chat = (() => {
     // a peer run no longer blocks THIS session — the status stays an honest 'online' (send is allowed) with
     // the peer named beside it; the soft #comms-agent-busy row below carries the VIEW ACTIVE RUN route.
     // ('running', not 'busy'/'working': status() classifies by substring and this session is NOT the one working.)
-    status(p ? 'awaiting your approval…' : (isBusy() ? (channelStatus || 'thinking…') : (peer ? ('online · also running in ' + streamLabel(peer)) : (down ? 'station unreachable' : 'online'))));
+    status(p ? 'awaiting your approval…' : (isBusy() ? (channelStatus || 'thinking…') : (down ? 'station unreachable' : 'online')));
     renderAgentBusy(peer);
     // keep the elapsed readout matched to the DISPLAYED stream — switching to a busy stream picks up its
     // live count, switching to an idle one clears it. (send() also starts it the instant a run begins.)
@@ -3310,7 +3324,13 @@ const Chat = (() => {
     if (sum) {
       const label = String(sum.textContent || '').split(' · ')[0];
       const bits = [];
-      if (Number(entry.durationMs) > 0) bits.push(fmtMs(Number(entry.durationMs)));
+      // ONE run, ONE duration (live walkthrough 2026-10-13: "RUN COMPLETE · 89.1s" above a receipt reading 49.3s). The
+      // card shows machine time — approval waits excluded, the same number as the receipt — and names the wait apart.
+      const honest = Number(card.dataset.ms) || 0, wall = Number(entry.durationMs) || 0;
+      if (honest > 0) {
+        bits.push(fmtMs(honest));
+        if (wall - honest > 1500) bits.push(fmtMs(wall - honest) + ' waiting on you');
+      } else if (wall > 0) bits.push(fmtMs(wall));
       bits.push(leadCalls + ' tool ' + (leadCalls === 1 ? 'call' : 'calls'));   // the LEAD's tool calls (runCallCount = toolTrace) — not model calls
       if (children.length) bits.push(workerCalls + ' worker ' + (workerCalls === 1 ? 'call' : 'calls'));
       const identity = [entry.model && entry.model !== '(unknown)' ? entry.model : '', (entry.reasoningEffort && entry.reasoningEffort !== 'none') ? entry.reasoningEffort : ''].filter(Boolean).join(' ');
@@ -3429,7 +3449,13 @@ const Chat = (() => {
       return 'install the plugin it built' + (id ? ' “' + id + '”' : '') + ' — it stays OFF until you approve its code in ABILITIES → EXTENSIONS';
     }
     if (/notebook/.test(t)) return 'save a note to its memory';
-    if (/summon/.test(t)) return 'summon a new agent onto the crew' + (ev.argsSummary ? ' (' + glance(ev.argsSummary) + ')' : '');
+    // a hire reads as a hire: "hire RESEARCH (researcher) onto the crew", never the raw JSON args (live walkthrough 2026-10-13)
+    if (/summon/.test(t)) {
+      const o = requestArgs(ev.argsSummary) || {};
+      const nm = String(o.name || '').trim(), spec = String(o.specId || o.class || o.role || '').trim();
+      if (nm || spec) return 'hire ' + (nm ? nm.toUpperCase() + (spec && spec.toLowerCase() !== nm.toLowerCase() ? ' (' + spec + ')' : '') : 'a ' + spec) + ' onto the crew';
+      return 'hire a new agent onto the crew' + (ev.argsSummary && !requestArgs(ev.argsSummary) ? ' (' + glance(ev.argsSummary) + ')' : '');
+    }
     // a command: name it in words, its text clipped to a glance; the card's inspect panel holds every character of it
     if (/^(?:shell|terminal)[._]/.test(t)) {
       const o = requestArgs(ev.argsSummary) || {};
@@ -3489,6 +3515,25 @@ const Chat = (() => {
      timer falls back to today's durable end-run question. Joins the consent card's lifecycle contract:
      decided chips vanish into a verdict tag, pending-span bookkeeping excludes the wait from run time, and
      focus is never stolen from a mid-typing Commander. */
+  /* THE COMPOSER ANSWERS THE QUESTION (live walkthrough 2026-10-13). NOVA asked "what are you launching?"; the
+     Commander typed the answer in the COMMS box like any chat — and it became a queued chip, the run sat on
+     "awaiting your answer", and ~15 min later the chip fired as a NEW message that restarted the whole job. While the
+     open conversation waits on exactly ONE of its lead's questions, a composer send is that question's answer.
+     promptId -> { wsId, answer(text) -> Promise<bool> } — registered by clarifyRow, removed once answered. */
+  const askAnswerers = new Map();
+  function pendingAskFor(ws) {
+    if (!ws) return null;
+    const live = [];
+    for (const [id, a] of askAnswerers) { if (a.wsId === ws.id && !(a.isDone && a.isDone())) live.push(id); else if (a.isDone && a.isDone()) askAnswerers.delete(id); }
+    return live.length === 1 ? askAnswerers.get(live[0]) : null;
+  }
+  async function answerPendingAsk(ws, text) {
+    const a = pendingAskFor(ws);
+    if (!a) return false;
+    let ok = false;
+    try { ok = (await a.answer(text)) === true; } catch (e) { ok = false; }
+    return ok;
+  }
   function clarifyRow(p, ws) {
     let q = { question: '', options: [], recommended: '', reason: '', multiSelect: false, ordinal: 0, total: 0 };
     try { q = Object.assign(q, JSON.parse(p.argsSummary || '{}')); } catch (_) {}
@@ -3496,15 +3541,19 @@ const Chat = (() => {
     r.d.dataset.clarifyPrompt = String(p.promptId || ''); r.d.tabIndex = -1;
     if(q.mode==='conversation' && typeof TaskConversation!=='undefined') {
       const rid=ws && Channels.runIdOf(ws.id);
-      TaskConversation.mount(r.body,q,async text=>{
+      const mounted=TaskConversation.mount(r.body,q,async text=>{
         const result=await Harness.consentAnswer(rid,p.promptId,text,true);
         if(!result || !result.ok)return false;
         // the question is answered: say so on the bus like the approval card does, or the CREW card and the world pose stay "needs your OK"
         try{if(typeof U!=='undefined'&&U.bus)U.bus.emit('permission.response',{promptId:p.promptId,decision:'once'});}catch(_){}
         if(ws)Channels.clearPending(ws.id,Date.now(),p.promptId);
         if(isActiveWs(ws)){renderPresence();syncStatus();}
+        askAnswerers.delete(String(p.promptId||''));
         return true;
       });
+      // a worker's question is answered on its own row; the lead's is answerable from the composer
+      if(ws && p.promptId && !p.workerStreamId && mounted && typeof mounted.submit==='function')
+        askAnswerers.set(String(p.promptId),{wsId:ws.id,answer:mounted.submit,isDone:mounted.isDone});
       status('awaiting your context…');autoscroll();return;
     }
     // A batched ask shows its place ("asks (2 of 3)") so the Commander knows one more tap ends it —
@@ -3532,7 +3581,7 @@ const Chat = (() => {
     const btns = document.createElement('span'); btns.className = 'consent-btns';
     let decided = false, submitting = false, received = null, applyElsewhere = null;
     async function answer(text, doneLabel) {
-      if (decided || submitting) return;
+      if (decided || submitting) return false;
       submitting = true;
       const buttons = Array.from(btns.querySelectorAll('button')), disabled = buttons.map(b => b.disabled);
       buttons.forEach(b => { b.disabled = true; });
@@ -3545,9 +3594,10 @@ const Chat = (() => {
         if (received && applyElsewhere) { applyElsewhere(received); return; }
         buttons.forEach((b, i) => { b.disabled = disabled[i]; });
         if (typeof StationUI !== 'undefined' && StationUI.notify) StationUI.notify('Could not answer: ' + ((e && e.message) || e), 'warn');
-        return;
+        return false;
       }
       submitting = false; decided = true;
+      askAnswerers.delete(String(p.promptId || ''));
       if (received && applyElsewhere) applyElsewhere(received);
       if (ws) settlePromptNotice(ws.id, p.promptId);
       // answered: tell the bus, as the approval card does — the CREW card's "needs your OK" frame and the world's
@@ -3559,7 +3609,9 @@ const Chat = (() => {
       const tag = document.createElement('span'); tag.className = 'consent-result'; tag.textContent = doneLabel;
       r.body.appendChild(tag);
       syncStatus();
+      return true;
     }
+    if (ws && p.promptId && !p.workerStreamId) askAnswerers.set(String(p.promptId), { wsId: ws.id, answer: (text) => answer(text, '✓ ' + glance(text, 60)), isDone: () => decided });
     const opts = Array.isArray(q.options) ? q.options.slice(0, 6) : [];
     if (q.multiSelect === true && opts.length > 1) {
       // NON-EXCLUSIVE options: chips toggle, a confirm chip fires. The answer is the Commander's picks
@@ -3725,6 +3777,20 @@ const Chat = (() => {
     const id = (p && p.workerAgentId) || (ws && ws.agentId) || 'agent';
     return (typeof App !== 'undefined' && App.agentName && App.agentName(id)) || id;
   }
+  /* A STOPPED RUN TAKES ITS OPEN CARDS WITH IT (live walkthrough 2026-10-13): after STOP the run's approval card kept
+     live Approve once / Always / Full access / Deny keys while NEEDS YOU and the toast had already cleared — a key that
+     answers nothing. promptId -> { wsId, runId, worker, retire(text) }; retireOpenConsents runs at the run's end. */
+  const openConsentCards = new Map();
+  function retireOpenConsents(wsId, runId) {
+    for (const [id, c] of openConsentCards) {
+      if (c.wsId !== wsId) continue;
+      // a background worker's ask can outlive its lead's run — only this run's own cards (or unattributed lead cards) retire
+      if (c.runId ? c.runId !== runId : c.worker) continue;
+      openConsentCards.delete(id);
+      try { c.retire('■ the run ended before an answer — nothing was approved'); } catch (e) { if (typeof console !== 'undefined') console.warn('[comms] retire card failed', e); }
+    }
+    for (const [id, a] of askAnswerers) if (a.wsId === wsId) askAnswerers.delete(id);   // its questions are gone with it
+  }
   function permissionRow(p, ws) {
     if (p && p.tool === 'brief.ask') return clarifyRow(p, ws);   // a question, not a grade — its own card
     // ONE PLACE PER STATUS: a delegated worker's ask is answered on that worker's row of the delegation card
@@ -3819,13 +3885,27 @@ const Chat = (() => {
       };
       U.bus.on('permission.response', onElsewhere);
     }
+    if (ws && p && p.promptId) openConsentCards.set(String(p.promptId), { wsId: ws.id, runId: String(p.runId || ''), worker: !!(p.workerAgentId || p.workerRunId),
+      retire: (text) => {
+        if (decided) return;
+        decided = true;
+        try { if (applyElsewhere && typeof U !== 'undefined' && U.bus && U.bus.off) U.bus.off('permission.response', applyElsewhere); } catch (e) { applyElsewhere = null; }
+        btns.remove();
+        const tag = document.createElement('span'); tag.className = 'consent-result err'; tag.textContent = text;
+        r.body.appendChild(tag);
+      } });
     // a blocking, run-pausing prompt: make it keyboard-operable. Esc on the focused CONTAINER = Deny (the row,
     // not a button — so a reflexive Enter never lands on Approve and greenlights a write the user didn't read).
     r.d.tabIndex = -1;
     r.d.addEventListener('keydown', e => { if (e.key === 'Escape') { e.preventDefault(); decide('deny', '✕ denied', true); } });
     status('awaiting your approval…');
     const asker = (p && p.workerAgentId) ? askerName(p, ws) : name;   // a delegated worker's ask names the worker
-    if (ws && !announcedPrompt(p.promptId, ws) && typeof StationUI !== 'undefined') StationUI.notify(asker + ' needs approval to ' + actionPhrase(p), 'warn', 'needsApproval', { kind: 'needs', go: { ws: ws.id }, key: 'needs:' + ws.id, prompt: p.promptId });
+    // ONE APPROVAL, ONE PLACE YOU ARE LOOKING (live walkthrough 2026-10-13: one file write was announced in 7 places). The
+    // Commander already has this card in front of them when its conversation is open and the page is visible: the bell
+    // still files it (NEEDS YOU, the SYSTEM badge) but quietly — no corner toast, no chime. BUILD MODE hides COMMS, so
+    // there (and in any other conversation, or a hidden window) it still toasts.
+    const seenHere = !!(ws && isActiveWs(ws) && typeof document !== 'undefined' && !document.hidden && log && log.getClientRects && log.getClientRects().length);
+    if (ws && !announcedPrompt(p.promptId, ws) && typeof StationUI !== 'undefined') StationUI.notify(asker + ' needs approval to ' + actionPhrase(p), 'warn', 'needsApproval', { kind: 'needs', go: { ws: ws.id }, key: 'needs:' + ws.id, prompt: p.promptId, quiet: seenHere });
     else if (!ws && typeof StationUI !== 'undefined') StationUI.notify(asker + ' needs approval to ' + actionPhrase(p), 'warn', 'needsApproval');   // P1-8 category: consent prompt
     // FOCUS-STEAL GUARD (P0): a consent prompt must NEVER hijack focus from a Commander who is mid-typing or holds
     // a draft — a stolen focus + a reflexive Enter could approve a file write they never read. Only follow the
@@ -7696,6 +7776,11 @@ const Chat = (() => {
       send(value);
       return { ok: true, state: 'started', workstreamId: activeWs.id };
     }
+    if (isBusy() && pendingAskFor(activeWs)) {
+      const ws = activeWs;
+      answerPendingAsk(ws, value).then(ok => { if (!ok) enqueue(value); });
+      return { ok: true, state: 'answered', workstreamId: ws.id };
+    }
     if (isBusy()) {
       enqueue(value);
       return { ok: true, state: 'queued', workstreamId: activeWs.id };
@@ -9938,6 +10023,7 @@ const Chat = (() => {
         // the door. Only on a clean end: a stopped run owns the slot with its retry/budget chip above.
         if (thisRunId) notedRuns.delete(thisRunId);
         if (!taskQuestion && endReason !== 'clarifying' && typeof StationUI !== 'undefined' && StationUI.settleNotifs) StationUI.settleNotifs('needs:' + ws.id);   // the run is over: its approvals/questions are no longer waiting
+        retireOpenConsents(ws.id, thisRunId || '');   // ...and its open approval cards say so instead of keeping live keys
         if (!taskQuestion && (!endReason || endReason === 'done')) offerConnectorDoor(thisRunId, ws);
         if (taskQuestion || endReason === 'clarifying') holdConnectorDoor(thisRunId, ws);   // the question owns the slot (parsed here, or restored from the store below); its card carries the door
         // GOLDEN-RUN DRIFT (2026-08-22): a recipe-launched run is compared by the sidecar against that recipe's own
