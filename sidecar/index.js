@@ -5650,6 +5650,10 @@ function adoptConnectorState(next) {
    into connectors/unreadable-<time>/ (never deleted) and a new empty store is written, sealed when the OS key
    exists. Only offered while the store is locked: a readable store is reset through /api/config/reset. */
 const connectorStorageCanStartFresh = () => !!connectorStorageReason;
+// What the panel is OFFERED: an interrupted reset the vault says cannot be finished automatically gets the by-hand
+// steps instead of a key that always fails. The route guard above stays as it is (its refusal names those steps).
+const connectorStorageOffersStartFresh = () => connectorStorageCanStartFresh()
+  && !(connectorStorageReason === 'reset-interrupted' && connectorVault.lockDetail && connectorVault.lockDetail.unfinishable);
 async function startFreshConnectorStorage() {
   if (!connectorStorageCanStartFresh()) return { ok: false, status: 409, error: 'Connector storage is not locked; nothing to start fresh from.' };
   let result;
@@ -5674,7 +5678,7 @@ function connectorStorageSnapshot() {
   const fallback = connectorVault.fallback && !connectorStorageError;
   return {
     encrypted: connectorVault.protected && !connectorStorageError && !connectorSealPending, error: connectorStorageError || null,
-    reason: connectorStorageReason || null, canStartFresh: connectorStorageCanStartFresh(),
+    reason: connectorStorageReason || null, canStartFresh: connectorStorageOffersStartFresh(),
     fallback, keyError: (fallback || connectorStorageReason === 'key-unavailable') ? (CONNECTOR_KEY_ERROR || null) : null,
     // a MALFORMED saved key never fixes itself, so never promise automatic sealing for it: say how to clear it (safe:
     // fallback only happens when nothing is sealed, so removing the entry strands nothing; the next start makes a key)
@@ -21285,7 +21289,7 @@ async function runOnceCore(o) {
       && typeof o.connectorAuthority?.fullAccess === 'function' && o.connectorAuthority.fullAccess() === true;
     let postTaint = revokedByTaint.boundary(liveTool, {
       taintedBy: taintSource, surface: effectSurface, hasPrompt: typeof effectPrompt === 'function',
-      // call: lets an action-aware taint lock (pause/stop a routine or loop is never locked) read this call's args
+      // call: lets an action-aware taint lock (pausing a routine, or pausing/stopping a loop, is never locked) read this call's args
       fullAccess: stationBypassNow() || agentFullAccessNow() || connectorFullAccess, untrustedEntry: untrustedEntryRun, call: c
     });
     if (postTaint.needsConfirmation) {
@@ -21339,7 +21343,7 @@ async function runOnceCore(o) {
       const offerApproval = !o.delegatedBy || (effectSurface === 'interactive' && typeof effectPrompt === 'function');
       return {
         ok: false, isError: true, summary: 'untrusted-content-lockout',
-        content: 'BLOCKED: "' + c.name + '" is no longer available on this run. ' + taintCause + ' '
+        content: 'BLOCKED: ' + taintPolicy.lockoutLead(liveTool, c) + ' ' + taintCause + ' '
           + 'Unattended runs give up terminal, credentialed-request, and connector/unknown-external powers; a watched '
           + 'run needs a fresh confirmation for this exact call. For the Commander: '
           + (offerApproval ? 'a watched chat can ask to approve this exact call, or ' : '')

@@ -77,6 +77,7 @@ const { FORMAT } = require('../sidecar/connector-vault.js');
     fs.writeFileSync(file + '.reset-pending', JSON.stringify({ movedTo: path.join(app.workspace, 'connectors/unreadable-interrupted') }));
     await app.start({ STARNET_CONNECTOR_ENCRYPTION_KEY: K1, STARNET_CONNECTOR_KEY_ERROR: '' });
     assert.equal((await storage()).reason, 'reset-interrupted', 'incomplete reset cannot boot as an empty store');
+    assert.equal((await storage()).canStartFresh, false, 'a reset START FRESH cannot finish is not offered START FRESH (the by-hand steps speak)');
     // a record this build never writes (no file list) cannot be checked: refuse, change nothing, name the way out
     const incomplete = await app.json('POST', '/api/connectors/storage/start-fresh', { confirm: true });
     assert.equal(incomplete.status, 500);
