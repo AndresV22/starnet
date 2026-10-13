@@ -7,13 +7,19 @@ const FORMAT = 'starnet.connector-vault.v1';
 const AAD = Buffer.from(FORMAT);
 const UNAVAILABLE = 'Connector credentials are locked. Restart StarNet with the original OS account and an unlocked credential store.';
 // Why the saved sign-ins could not be opened. Each one names what the user can actually do about it:
-// a restart only helps when the OS store itself was unreachable; the others need START FRESH.
+// a restart only helps when the OS store was unreachable or the file was busy; the others need START FRESH.
 // 'reset-interrupted': an earlier START FRESH stopped part-way (crash, power loss); pressing it again finishes it.
-const LOCK_REASONS = ['key-unavailable', 'key-mismatch', 'unreadable', 'reset-interrupted'];
-// detail (optional, from vault.lockDetail): { movedTo } for an interrupted reset.
+// 'busy': the file was there but could not be read right now (antivirus, backup or sync holding it); a restart
+// is the fix, and START FRESH would only set a good store aside.
+const LOCK_REASONS = ['key-unavailable', 'key-mismatch', 'unreadable', 'reset-interrupted', 'busy'];
+const BUSY_READ_CODES = ['EBUSY', 'EPERM', 'EACCES', 'EAGAIN'];
+// detail (optional, from vault.lockDetail): { movedTo } for an interrupted reset, { readCode } for a busy file.
 function lockMessage(reason, keyError = '', detail = {}) {
   const why = String(keyError || '').trim().slice(0, 240);
   const movedTo = detail && typeof detail.movedTo === 'string' ? detail.movedTo.slice(0, 400) : '';
+  const readCode = detail && typeof detail.readCode === 'string' ? detail.readCode.replace(/[^A-Z]/g, '').slice(0, 12) : '';
+  if (reason === 'busy') return 'Saved connector sign-ins are locked: StarNet could not read the saved file' + (readCode ? ' (' + readCode + ')' : '') +
+    '. Another program such as antivirus, backup or sync may have been holding it, or this account may not be allowed to read it. They are safe and unchanged. Restart StarNet to try again.';
   if (reason === 'key-unavailable') return 'Saved connector sign-ins are locked: StarNet could not open this computer\'s credential store.' +
     (why ? ' Reason: ' + why + '.' : '') + ' They are safe and unchanged. Unlock or repair the credential store and restart StarNet, or START FRESH to sign in again.';
   if (reason === 'key-mismatch') return 'Saved connector sign-ins are locked: they were sealed with a key this OS account no longer has (its credential-store entry was reset, or this is a different account). START FRESH to sign in again. The old files are kept, not deleted.';
@@ -56,7 +62,8 @@ function makeConnectorVault({ fs, path, keyHex = '', required = false, writeDura
     const previous = Array.isArray(m.previous) ? m.previous.filter(p => typeof p === 'string' && p && p !== movedTo) : [];
     return { raw, movedTo, sources: names, previous };
   }
-  function lockDetailFor(reason, file) {
+  function lockDetailFor(reason, file, error) {
+    if (reason === 'busy') return error && error.readCode ? { readCode: String(error.readCode) } : {};
     if (reason !== 'reset-interrupted') return {};
     const m = readMarker(file + '.reset-pending');
     return m.movedTo ? { movedTo: m.movedTo } : {};
@@ -88,7 +95,12 @@ function makeConnectorVault({ fs, path, keyHex = '', required = false, writeDura
   function readOne(file) {
     let raw;
     try { raw = fs.readFileSync(file, 'utf8'); }
-    catch (e) { if (e.code === 'ENOENT') return { absent: true }; throw lockError('unreadable'); }
+    catch (e) {
+      if (e.code === 'ENOENT') return { absent: true };
+      // a held or access-denied file is present and probably fine — never call it damaged (security-storage-05)
+      if (BUSY_READ_CODES.includes(e.code)) throw Object.assign(lockError('busy'), { readCode: e.code });
+      throw lockError('unreadable');
+    }
     let parsed;
     try { parsed = JSON.parse(raw); } catch (_) { return { corrupt: true }; }
     // Every supported current/legacy format is an object. JSON null is present
@@ -110,7 +122,7 @@ function makeConnectorVault({ fs, path, keyHex = '', required = false, writeDura
       throw lockError('unreadable');
     } catch (e) {
       locked = true; lockReason = (e && e.lockReason) || 'unreadable';
-      lockInfo = lockDetailFor(lockReason, file);
+      lockInfo = lockDetailFor(lockReason, file, e);
       throw lockError(lockReason);
     }
   }

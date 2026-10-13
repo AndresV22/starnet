@@ -269,6 +269,25 @@ try {
   const restarted = make();
   assert.throws(() => restarted.load(interrupted), /locked/, 'unfinished recovery never looks like a new empty store');
   assert.equal(restarted.lockReason, 'reset-interrupted');
+  // security-storage-05: antivirus/backup holding the file at boot is not "damaged", and START FRESH is not the fix
+  {
+    const f = path.join(root, 'busy.json');
+    make().write(f, state);
+    const heldFs = code => Object.assign(Object.create(fs), { readFileSync(target, ...args) {
+      if (target === f) throw Object.assign(Error(code + ': resource busy or locked'), { code });
+      return fs.readFileSync(target, ...args);
+    } });
+    const held = make({ fs: heldFs('EBUSY') });
+    assert.throws(() => held.load(f), /locked/);
+    assert.equal(held.lockReason, 'busy', 'a file another program holds is locked as busy');
+    assert.deepEqual(held.lockDetail, { readCode: 'EBUSY' }, 'and keeps the read error for the message');
+    const msg = lockMessage('busy', '', held.lockDetail);
+    assert.match(msg, /could not read the saved file \(EBUSY\).*antivirus.*safe and unchanged.*Restart StarNet/, msg);
+    assert.doesNotMatch(msg, /damaged|START FRESH/, 'it is not called damaged and does not steer to START FRESH');
+    { const v = make({ fs: heldFs('EPERM') }); assert.throws(() => v.load(f), /locked/); assert.equal(v.lockReason, 'busy', 'EPERM (Windows sharing/access denial) is busy too'); }
+    { const v = make({ fs: heldFs('EIO') }); assert.throws(() => v.load(f), /locked/); assert.equal(v.lockReason, 'unreadable', 'a disk I/O error stays unreadable'); }
+    assert.deepEqual(make().load(f), state, 'once the file is free the same store opens');
+  }
   // security-storage-04: an interrupted reset says so, names the folder, and START FRESH finishes it.
   assert.match(lockMessage('reset-interrupted', '', { movedTo: path.join(root, 'unreadable-x') }), /START FRESH was interrupted.*not deleted.*unreadable-x.*START FRESH to finish/);
   assert.doesNotMatch(lockMessage('reset-interrupted'), /damaged|newer StarNet/, 'an interrupted reset is not called a damaged file');
