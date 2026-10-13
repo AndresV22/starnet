@@ -153,6 +153,11 @@ const WorkflowPanel = (() => {
     if (todayTimer) { clearInterval(todayTimer); todayTimer = 0; }
     if (S.ltTimer) { clearInterval(S.ltTimer); S.ltTimer = 0; }
     S.ltReveal = null; S.ltForm = null;   // a key shown once is gone once the panel closes
+    /* A REFUSAL SAID AS THE PANEL CLOSES IS NEVER LOST (wave-2 repair, conveyor-ui-12): ✕, DONE or BUILD pressed with the mouse blur a
+       name field on mousedown — its save is refused and said in the panel — and the click then closes the panel before anyone could
+       read it. A refusal that young is said again by the floor's tip; one that had its time on screen is not repeated. */
+    const last = S.note;
+    if (last && last.bad && Date.now() - last.ts < NOTE_FRESH_MS) H.flashTip(last.t, false);
     S.note = null; clearTimeout(noteTimer);
     el.remove(); el = null;
     S.sel = null; S.lineKey = null; S.lone = null;
@@ -240,10 +245,11 @@ const WorkflowPanel = (() => {
      answers is a line INSIDE the panel, right under the row of the control that was clicked (under the line diagram for a +,
      just above the footer for a footer key). It survives the repaint the edit causes and goes after a few seconds or with the
      next answer. `anchor` is the clicked element; its key finds the same control again after a repaint. */
-  const NOTE_MS = 9000;
+  const NOTE_MS = 9000, NOTE_FRESH_MS = 2000;   // (FRESH: a refusal this young when the panel closes was never read — close() says it again)
   let noteTimer = 0;
   const anchorKey = b => {
     if (!b || !b.dataset) return '';
+    if (b.dataset.nameFor) return 'name:' + b.dataset.nameFor;   // a NAME field answers for ITS part: never another BAY's or line's same-id field
     if (b.dataset.edit) return 'edit:' + b.dataset.edit + '|' + (b.dataset.editId || '') + '|' + (b.dataset.editArgs || '');
     if (b.dataset.plusAt != null) return 'plus:' + b.dataset.plusAt;
     if (b.dataset.insRole != null) return 'ins:' + b.dataset.insRole;
@@ -256,11 +262,16 @@ const WorkflowPanel = (() => {
     const n = S.note;
     if (!n) return;
     if (Date.now() - n.ts > NOTE_MS) { S.note = null; return; }
+    /* A NAME'S ANSWER STAYS WITH ITS PART (wave-2 repair): picking another BAY or opening another line repaints a NAME field with the
+       same id — the answer is never shown under it. A saved name needs no echo (the strip shows it); a refusal no card can show any
+       more is said once by the floor's tip, so its reason is never lost. */
+    const a = findAnchor(n.at);
+    if (!a && /^name:/.test(n.at)) { S.note = null; clearTimeout(noteTimer); if (n.bad) H.flashTip(n.t, false); return; }
     const p = document.createElement('p');
     p.className = 'wf-note' + (n.bad ? ' bad' : '');
     p.setAttribute('role', n.bad ? 'alert' : 'status');
     p.textContent = n.t;
-    const a = findAnchor(n.at), map = $('#wf-map'), foot = $('#wf-foot');
+    const map = $('#wf-map'), foot = $('#wf-foot');
     const after = (ref, cls) => { if (cls) p.classList.add(cls); ref.parentNode.insertBefore(p, ref.nextSibling); };
     if (a && foot && foot.contains(a)) { p.classList.add('top'); el.insertBefore(p, foot); return; }
     if (a && map && map.contains(a)) { after(map, 'top'); return; }
@@ -354,7 +365,7 @@ const WorkflowPanel = (() => {
       head.dataset.line = headKey;
       head.innerHTML = '<div class="wf-head-row"><span class="wf-kick" id="wf-kick"></span><button type="button" class="bb sm wf-x" id="wf-close" aria-label="Close workflow panel">✕</button></div>'
         + '<div class="wf-name">' + (intake
-          ? '<input id="wf-name" class="wf-name-in" type="text" maxlength="48" aria-label="Workflow name" placeholder="' + esc(H.stampName(intake.id) || 'Name this workflow') + '" value="' + esc(intake.label || '') + '" />'
+          ? '<input id="wf-name" data-name-for="' + esc(intake.id) + '" class="wf-name-in" type="text" maxlength="48" aria-label="Workflow name" placeholder="' + esc(H.stampName(intake.id) || 'Name this workflow') + '" value="' + esc(intake.label || '') + '" />'
           : '<span class="wf-name-none">' + (c ? 'Unnamed line' : 'A single BAY') + '</span>') + '</div>'
         + '<div class="wf-ready"><span class="wf-pill" id="wf-pill"></span><button type="button" class="bb sm refit-primary" id="wf-sendnow" hidden>▶ SEND IT A JOB</button><span class="wf-est" id="wf-est"></span></div>'
         + '<div class="wf-warnline wf-toolong" id="wf-toolong" role="status" hidden></div>'
@@ -820,7 +831,7 @@ const WorkflowPanel = (() => {
       + '<button type="button" class="bb sm" id="wf-aid-ok">▸ ASSIGN</button><button type="button" class="bb sm" id="wf-aid-clear">UNASSIGN</button></div><div class="refit-error" id="wf-aid-err">unknown agent — pick one above, or check the id</div></details>'
       + '<div class="wf-compute" data-live="compute">' + computeHTML(p) + '</div></section>'
       + '<section class="wf-sec"><h3>What is their job?</h3>'
-      + '<label class="refit-field" for="wf-bay-name">NAME <input id="wf-bay-name" class="refit-input" type="text" maxlength="48" aria-label="Step name" value="' + esc(p.label || '') + '" placeholder="Name this step" /></label>'
+      + '<label class="refit-field" for="wf-bay-name">NAME <input id="wf-bay-name" data-name-for="' + esc(p.id) + '" class="refit-input" type="text" maxlength="48" aria-label="Step name" value="' + esc(p.label || '') + '" placeholder="Name this step" /></label>'
       // the step's ROLE is its name on the line (and which starters it offers) — click the pressed one again to clear it. A role
       // the inserter does not offer (SPLIT THE JOB's PLANNER, an older blueprint's CREW / FIXER) is shown pressed too, never roleless
       + (H.station().setPropRole ? '<div class="wf-chips wf-roles" aria-label="This step’s role">' + (p.role && STEP_ROLES.indexOf(p.role) < 0 ? STEP_ROLES.concat([p.role]) : STEP_ROLES).map(r => '<button type="button" class="wf-chip" data-role="' + esc(r) + '" aria-pressed="' + (p.role === r) + '">' + esc(r) + '</button>').join('') + '</div>' : '')
@@ -2047,7 +2058,11 @@ const WorkflowPanel = (() => {
     const sent = api('/api/taste/keep-style', 'POST', { runId }).then(({ status, j }) => {
       if (status !== 200 || !(j && j.ok)) { H.flashTip('kept for this step, but the crew could not learn the style: ' + ((j && j.error) || 'http ' + status), false); return false; }
       const fm = j.feedbackMemory || {};
-      if (fm.stored === true) { H.flashTip((fm.created === false ? 'the crew already knew this style' : 'the crew learned this style') + ' · UNDO takes it back', true); return true; }
+      /* stored = the kept flag is newly on the record (FeedbackMemory.apply): learned, whether the record is new or an earlier verdict on
+         that run gained it (created:false — a 👎 then a keep is a NEW approval). 'nothing to learn' = that run's style is ALREADY kept
+         (★ KEEP THIS STYLE in WORKFLOWS): true and calm — and false here, so this panel's UNDO never takes back the earlier keep. */
+      if (fm.stored === true) { H.flashTip('the crew learned this style · UNDO takes it back', true); return true; }
+      if (fm.reason === 'nothing to learn') { H.flashTip('kept for this step — the crew already keeps this style', true); return false; }
       if (fm.reason === 'personalization-paused') H.flashTip('kept for this step — learning is paused, so the rest of the crew will not learn this style', false);
       else H.flashTip('kept for this step, but the crew did not learn the style: ' + (fm.reason || 'the station did not say why'), false);
       return false;

@@ -103,29 +103,87 @@ const body = () => ({ innerHTML: '', querySelector: () => null, querySelectorAll
   A.ok(/S\.closing = true;\s*try \{ saveOpenFields\(\); \} finally \{ S\.closing = false; \}/.test(close), 'close() marks the closing save so its answer reaches the floor tip');
 }
 
+/* ---------- wave-2 repair (conveyor-ui-12): a NAME's answer stays with ITS part; a refusal outlives a mouse close ---------- */
+{
+  const anchorKeySrc = A.fnBody(panel, 'const anchorKey = b => {');
+  A.ok(anchorKeySrc.length > 40 && anchorKeySrc.length < 1200 && /b\.dataset\.nameFor\) return 'name:' \+ b\.dataset\.nameFor/.test(anchorKeySrc), 'a NAME field is keyed by the part it names, never the shared input id');
+  A.ok(/<input id="wf-name" data-name-for="' \+ esc\(intake\.id\) \+ '"/.test(A.fnBody(panel, 'function paintHead(f)')), 'the line name field carries its INBOX');
+  A.ok(/<input id="wf-bay-name" data-name-for="' \+ esc\(p\.id\) \+ '"/.test(A.fnBody(panel, 'function paintBay(body, f, p)')), 'the step name field carries its BAY');
+  // the panel's own note machinery, with the real anchorKey, over a panel whose fields are swapped as the selection moves
+  function rig() {
+    const tips = [], placed = [];
+    const field = (id, nameFor) => Object.assign(stubEl(), { tagName: 'INPUT', id, dataset: { nameFor }, closest: () => null, parentNode: { insertBefore() { placed.push(nameFor); } }, nextSibling: null });
+    const ctx = { S: { note: null, closing: false }, inputs: [], placed, tips };
+    const el = { querySelectorAll: sel => (String(sel).split(',').map(x => x.trim()).indexOf('input') >= 0 ? ctx.inputs : []), querySelector: () => null, insertBefore() {}, remove() {} };
+    const H = { sfx() {}, flashTip: (m, ok) => tips.push([m, ok]), highlight() {}, pausedMarker() {}, panelShown() {} };
+    const fns = load(panel, ['function note(t, bad, anchor)', 'function placeNote()', 'function findAnchor(k)', 'function refuse(msg, anchor)', 'function said(msg, bad, anchor)', 'function close()'], {
+      S: ctx.S, H, el, $: () => null, $$: q => el.querySelectorAll(q), clearTimeout() {}, setTimeout: () => 0, clearInterval() {}, saveOpenFields() {}, stopPoll() {}, todayTimer: 0,
+      document: { createElement: () => Object.assign(stubEl(), { classList: { add() {} } }) }
+    }, 'const NOTE_MS = 9000, NOTE_FRESH_MS = 2000; let noteTimer = 0; ' + anchorKeySrc + ';');
+    return Object.assign(ctx, { fns, field });
+  }
+  // a step named on BAY 1, then BAY 2 picked: the answer never shows under BAY 2's NAME
+  let r = rig();
+  r.inputs = [r.field('wf-bay-name', 'b1')];
+  r.fns.said('step named — Fact checker', false, r.inputs[0]);
+  A.ok(r.S.note && r.S.note.at === 'name:b1' && r.placed.join() === 'b1', 'the answer is said under BAY 1\'s NAME — ' + JSON.stringify(r.S.note));
+  r.inputs = [r.field('wf-bay-name', 'b2')]; r.placed.length = 0;
+  r.fns.placeNote();
+  A.eq(r.placed.length, 0, 'after BAY 2 is picked, BAY 1\'s answer is not placed under BAY 2\'s NAME');
+  A.ok(!r.S.note && r.tips.length === 0, '…it goes (a saved name needs no echo: the strip shows it)');
+  // a refused name, then another line opened: the refusal is said on the floor, never under the other line's name
+  r = rig();
+  r.inputs = [r.field('wf-name', 'i1')];
+  r.fns.said('A line called RESEARCH is already on the floor', true, r.inputs[0]);
+  A.ok(r.S.note && r.S.note.bad && r.tips.length === 0, 'a refused line name is the panel\'s answer under LINE A\'s name');
+  r.inputs = [r.field('wf-name', 'i2')]; r.placed.length = 0;
+  r.fns.placeNote();
+  A.ok(r.placed.length === 0 && !r.S.note, 'LINE B\'s card never shows LINE A\'s refusal');
+  A.ok(r.tips.length === 1 && /already on the floor/.test(r.tips[0][0]) && r.tips[0][1] === false, '…and the reason is said once on the floor, never lost — ' + JSON.stringify(r.tips));
+  // the real mouse close: mousedown on ✕ blurs the field (save refused, said in the panel), THEN the click closes the panel
+  r = rig();
+  r.inputs = [r.field('wf-name', 'i1')];
+  r.fns.said('A line called RESEARCH is already on the floor', true, r.inputs[0]);   // the blur, S.closing still false
+  A.ok(r.S.note && r.tips.length === 0, '(the blur) the refusal is said in the panel');
+  r.fns.close();                                                                       // the click
+  A.ok(r.tips.length === 1 && /already on the floor/.test(r.tips[0][0]) && r.tips[0][1] === false, 'closing right after keeps the reason: the floor tip says it — ' + JSON.stringify(r.tips));
+  A.ok(!r.S.note, '…and the panel\'s note goes with the panel');
+  r = rig();
+  r.inputs = [r.field('wf-name', 'i1')];
+  r.fns.said('A line called RESEARCH is already on the floor', true, r.inputs[0]);
+  r.S.note.ts -= 5000;   // said 5 s before the close: it had its time on screen
+  r.fns.close();
+  A.eq(r.tips.length, 0, 'a refusal that had time on screen is not said again when the panel closes');
+}
+
 /* ---------- conveyor-ui-14: the crew learned the style only when the station stored it ---------- */
 {
   (async () => {
     // the immediate toast says only the step's fact
     const kx = A.fnBody(panel, 'function keepExample(mine)');
     A.ok(kx.length > 0 && !/the crew learns/.test(kx) && /will match this example · UNDO takes it back/.test(kx), 'KEEP AS THE EXAMPLE says only that the step will match it before the station answers');
+    /* (wave-2 repair) the first cut of this table locked two wrong answers in: created:false ("already knew") is a record that
+       existed — a 👎 on that run, say — gaining the kept flag, so the crew DID learn the style; and 'nothing to learn' is the
+       station saying that run's style is ALREADY kept (FeedbackMemory.apply returns null for a kept=true on a record already
+       feedbackKept), so it is true and calm, not a failure. The UNDO contract is unchanged: only a stored keep resolves true. */
     const cases = [
-      [{ status: 200, j: { ok: true, feedbackMemory: { stored: true, created: true } } }, /the crew learned this style/, true],
-      [{ status: 200, j: { ok: true, feedbackMemory: { stored: true, created: false } } }, /the crew already knew this style/, true],
-      [{ status: 200, j: { ok: true, feedbackMemory: { stored: false, reason: 'personalization-paused' } } }, /learning is paused/, false],
-      [{ status: 200, j: { ok: true, feedbackMemory: { stored: false, reason: 'could not save' } } }, /did not learn the style: could not save/, false],
-      [{ status: 200, j: { ok: true, feedbackMemory: { stored: false, reason: 'nothing to learn' } } }, /did not learn the style: nothing to learn/, false],
-      [{ status: 500, j: { ok: false, error: 'boom' } }, /could not learn the style: boom/, false]
+      [{ status: 200, j: { ok: true, feedbackMemory: { stored: true, created: true } } }, /^the crew learned this style · UNDO takes it back$/, true, true],
+      [{ status: 200, j: { ok: true, feedbackMemory: { stored: true, created: false } } }, /^the crew learned this style · UNDO takes it back$/, true, true],
+      [{ status: 200, j: { ok: true, feedbackMemory: { stored: false, reason: 'personalization-paused' } } }, /learning is paused/, false, false],
+      [{ status: 200, j: { ok: true, feedbackMemory: { stored: false, reason: 'could not save' } } }, /did not learn the style: could not save/, false, false],
+      [{ status: 200, j: { ok: true, feedbackMemory: { stored: false, reason: 'nothing to learn' } } }, /^kept for this step — the crew already keeps this style$/, false, true],
+      [{ status: 500, j: { ok: false, error: 'boom' } }, /could not learn the style: boom/, false, false]
     ];
-    for (const [reply, said, stored] of cases) {
+    for (const [reply, said, stored, calm] of cases) {
       const tips = [];
       const ctx = { S: {}, H: { flashTip: (m, ok) => tips.push([m, ok]) }, api: () => Promise.resolve(reply) };
       const fns = load(panel, ['function keepTaste(mine, runId)'], ctx);
       fns.keepTaste({ stamp: 7 }, 'run-7');
       const got = await ctx.S.tasteKept.sent.then(v => v, () => 'threw');
       A.eq(got, stored, 'keep-style ' + JSON.stringify(reply.j) + ' resolves stored=' + stored + ' (only a stored style is taken back by UNDO)');
-      A.ok(tips.length === 1 && said.test(tips[0][0]) && tips[0][1] === stored, 'and says ' + said + ' — ' + JSON.stringify(tips));
+      A.ok(tips.length === 1 && said.test(tips[0][0]) && tips[0][1] === calm, 'and says ' + said + ' (' + (calm ? 'ok' : 'warning') + ') — ' + JSON.stringify(tips));
       A.ok(stored || !/learned|already knew/.test((tips[0] || [''])[0]), '…never "learned" when nothing was stored');
+      A.ok(!/already knew/.test((tips[0] || [''])[0]), '…and never "already knew" (a new approval is learned)');
     }
 
     /* ---------- conveyor-ui-15: steps go by their NAME ---------- */
