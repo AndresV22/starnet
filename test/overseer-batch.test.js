@@ -89,15 +89,13 @@ try {
     A.eq(m.snapshot().reviews[0].members.length, 2, 'credential recovery reports both outcomes together');
   }
   {
-    const m = mk('c.json');
-    const p = m.patchReview ? m : null;
     // a station upgraded mid-flight: its old per-worker row covers that worker
     const old = worker('old', { status: 'done', completedAt: clock });
     fs.writeFileSync(path.join(root, 'd.json'), JSON.stringify({ version: 1, value: { threads: [], reviews: [{ id: 'old_run:review', parentStreamId: 'home', workerId: 'old', workerRunId: 'old_run', status: 'done', reviewRunId: 'r0', error: '' }] } }));
     const m2 = mk('d.json');
     m2.collect([old]);
     A.eq(m2.snapshot().reviews.length, 1, 'a pre-batching review row covers its worker: an upgrade never re-reviews history');
-    A.ok(!!p, 'the manager exposes patchReview');
+    A.eq(m2.snapshot().reviews[0].id, 'old_run:review', 'the old row itself is kept while its worker is listed (never dropped and re-reviewed)');
   }
   {
     const m = mk('e.json');
@@ -106,6 +104,8 @@ try {
     const rows = m.snapshot().reviews;
     A.eq(rows.length, 1, 'E-STOP files the finished part of an incomplete hand-off (never a worker cancelled with its lead)');
     A.eq(rows[0].status, 'cancelled', 'and cancels it: the Commander stopped everything');
+    A.eq(rows[0].members.map(x => x.workerId).join(','), 'w1', 'only the finished worker is filed; the worker cancelled with its lead is never folded in');
+    A.eq(rows[0].waitingOn.map(x => x.workerId).join(','), 'w2', 'the still-running worker is named as waiting, and the parent-cancelled one is not');
   }
   {
     const m = mk('f.json');
