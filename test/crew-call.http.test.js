@@ -55,7 +55,7 @@ const Pipeline = require('../frontend/app/pipeline.js');
       const system=request.messages.filter(m=>m.role==='system').map(m=>String(m.content)).join('\n');
       const directive=(system.match(/\[CREW CALL\][^\n]*/)||[''])[0];
       A.eq([...directive.matchAll(/agentId:"([^"]+)"/g)].map(m=>m[1]),expected,label+' exact host targets: '+(directive||'absent'));
-      if (!expected.length) A.ok(request.messages.some(m=>m.role==='user' && m.content===text),'original '+label+' remains in user context');
+      A.eq(request.messages[request.messages.length-1]?.role,'user',label+' request ends on the owner turn');
     }
   } finally {await fixture.dispose();await new Promise(r=>server.close(r));}
   A.report('crew-call.http');
