@@ -217,6 +217,21 @@ function startMockTelegram() {
           });
           flush();
         },
+        pushForward(chatId, userId, text) {
+          queued.push({
+            update_id: ++updateId,
+            message: {
+              message_id: ++messageId,
+              date: Math.floor(Date.now() / 1000),
+              forward_date: Math.floor(Date.now() / 1000) - 60,
+              forward_sender_name: 'someone else',
+              chat: { id: chatId, type: 'private' },
+              from: { id: userId, username: 'commander' },
+              text
+            }
+          });
+          flush();
+        },
         revokeToken() { fatal = true; while (waiters.length) respond(waiters.shift().res, { ok: false, error_code: 401, description: 'Unauthorized' }); },
         failPolls(count) {
           transientPollFailures = Math.max(0, Number(count) || 0);
@@ -679,9 +694,10 @@ async function waitUntil(fn, ms, label) {
     await llm.gate.started;                           // run #1 is provably in-flight (slot held) now
     await sse.waitFor(events => events.some(e => e.name === 'agent.run.start' && e.payload && e.payload.agentId === 'tg_5556'), 5000, 'run #1 start (tg_5556)');
 
-    // Explicit cancel bypasses steering: aborts #1, then races the still-held workspace slot -> transient refusal ->
-    // the hub's bounded retry recovers once #1's abort frees the slot.
-    tg.pushText(5556, 99, 'cancel');
+    // A forwarded message never steers a run (third-party words), so it supersedes: aborts #1, then races the still-held
+    // workspace slot -> transient refusal -> the hub's bounded retry recovers once #1's abort frees the slot. (A plain
+    // "cancel" from the owner is /stop now — it stops #1 and starts nothing — so it can no longer drive this race.)
+    tg.pushForward(5556, 99, 'please summarise this forwarded note');
 
     // the user's SECOND message must EVENTUALLY get a real answer delivered to chat 5556 (the whole point of the fix).
     await waitUntil(() => tg.sends.some(s => String(s.chat_id) === '5556' && String(s.text || '').indexOf('Telegram answer') >= 0), 12000, 'chat 5556 eventually gets the real answer for message #2');
