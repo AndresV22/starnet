@@ -122,7 +122,7 @@ const roster = new Map([['researcher', { system: 'R', name: 'MIRA' }], ['writer'
   A.eq(st({ ws: ws(), worker: { status: 'error', reason: 'refused' } }).live, 'failed · couldn\'t start (too many running, or a sign-in is needed)', 'a worker the crew cap refused never reads as a debug code, and says what stopped it');
   // the sidecar's own explanation rides the row's hover tip: the refusal sentence, a run's error, the liveness check's
   // receipt — read off the ledger, clipped, never invented. A timeout's result is its PARTIAL WORK, never a reason.
-  // (/api/overseer does not project a worker's `result` yet: these pin the page's half; live, only the receipt shows.)
+  // (/api/overseer projects `result` only for a refused or failed worker: these pin the page's half; the route's is below.)
   const capRefused = { status: 'error', reason: 'refused', result: 'subagent could not start — the concurrency cap (STARNET_MAX_CONCURRENT_AGENTS) is full or a sign-in is needed. Try fewer at once.' };
   A.eq(D.tipOf(capRefused), capRefused.result, 'a refused worker\'s tip is the sidecar\'s own refusal sentence');
   A.eq(D.tipOf({ status: 'error', reason: 'error', result: 'worker run failed: provider returned 401' }), 'worker run failed: provider returned 401', 'a failed run\'s tip is its error');
