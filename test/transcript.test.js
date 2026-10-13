@@ -299,6 +299,27 @@ const redact = (s) => String(s).replace(/sk-[A-Za-z0-9]{8,}/g, '[redacted]');
   A.eq(projectConversation([{ role: 'assistant', content: 'legacy' }], () => null), [{ role: 'assistant', content: 'legacy' }], 'legacy unmarked conversations keep their existing shape');
 }
 
+// A delegated run the sidecar stopped mid-way (never finalized) keeps its directive and says it was interrupted,
+// instead of the whole thread silently disappearing. Its raw partial output stays hidden.
+{
+  const rows = [
+    { streamId: 'research', agentId: 'ada', role: 'user', content: 'Find three JWST facts', from: 'nova', sourceRunId: 'w1', dispatchState: 'pending', ts: 10 },
+    { streamId: 'research', agentId: 'ada', role: 'assistant', content: 'PARTIAL RAW WORK', sourceRunId: 'w1', dispatchState: 'pending', ts: 11 },
+    { streamId: 'research', agentId: 'ada', role: 'assistant', content: 'MORE PARTIAL WORK', sourceRunId: 'w1', dispatchState: 'pending', ts: 12 }
+  ];
+  const interrupted = projectConversation(rows, id => id === 'w1' ? { runId: 'w1', reason: 'interrupted', error: 'interrupted: StarNet stopped before this run finished; it can be continued' } : null);
+  A.eq(interrupted.filter(t => !t.sys).map(t => t.content), ['Find three JWST facts'], 'an interrupted delegated run keeps its directive');
+  A.eq(interrupted[0] && interrupted[0].from, 'nova', 'the directive keeps who sent it');
+  const status = interrupted.filter(t => t.sys);
+  A.eq(status.length, 1, 'exactly one interrupted status line is shown');
+  A.ok(!!status[0] && status[0].error === true && status[0].sourceRunId === 'w1' && /interrupted/.test(status[0].content), 'the status line says the run was interrupted');
+  A.ok(!interrupted.some(t => /PARTIAL/.test(t.content)), 'raw partial output of an unaccepted run is never shown');
+  const noError = projectConversation(rows, () => ({ runId: 'w1', reason: 'interrupted' }));
+  A.ok(noError.some(t => t.sys && /no result was accepted/.test(t.content)), 'an interrupted run with no recorded reason still says no result was accepted');
+  A.eq(projectConversation(rows, () => ({ runId: 'w1', reason: 'done', dispatchDelivery: { state: 'pending' } })), [], 'a run still pending finalization stays hidden (its accepted answer may be in flight)');
+  A.eq(projectConversation(rows, () => null), [], 'a run with no record stays hidden');
+}
+
 // Full accepted output and the bounded execution preview have separate durability contracts.
 {
   const { makeRunStore } = require('../sidecar/runstore.js');

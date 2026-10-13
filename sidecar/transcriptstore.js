@@ -118,6 +118,19 @@
       if (!state) { out.push(row); continue; } // pre-envelope history keeps its exact existing shape
       if (state === 'internal') continue;
       const final = finals.get(id);
+      // A run StarNet stopped before it finished was never finalized and never will be. Show its directive and one
+      // plain interrupted line, so the thread is not silently empty; its raw partial output stays hidden. A run whose
+      // record still says pending may be mid-finalize, so it stays hidden until its accepted answer lands.
+      if (!final && run && run.reason === 'interrupted' && !(delivery && (delivery.state === 'final' || delivery.state === 'pending'))) {
+        if (row.role === 'user' && !prompts.has(id)) {
+          out.push(row); prompts.add(id);
+          out.push({ streamId: row.streamId, agentId: row.agentId, role: 'assistant', sys: true, error: true, sourceRunId: id,
+            dispatchState: 'interrupted', ts: row.ts, content: str(run.error) || (run.continuedRunId
+              ? 'interrupted: StarNet stopped before this delegated run finished; it was continued as another run'
+              : 'interrupted: StarNet stopped before this delegated run finished; no result was accepted') });
+        }
+        continue;
+      }
       const finalPrompt = final ? final.dispatchPrompt : delivery && delivery.state === 'final' && run.deliveryPrompt;
       if (row.role === 'user' && finalPrompt && !prompts.has(id)) {
         out.push(Object.assign({}, row, { content: finalPrompt })); prompts.add(id);
