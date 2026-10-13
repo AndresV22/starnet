@@ -1647,7 +1647,7 @@ const App = (() => {
      user, sidecar/peerowner.js) is checked FIRST: it is not a restarted station, and a reload only re-runs the same
      check, so "reload this page" would be a false claim and a dead door (review threads-backend-05 / sidecar-index-06). */
   function refusedPageLine() {
-    if (Harness.tokenWithheld && Harness.tokenWithheld()) return 'this browser was not verified as your own account, so StarNet won’t take commands from it — if it is yours, restart StarNet with STARNET_TRUST_LOCAL_PEERS=1';
+    if (Harness.tokenWithheld && Harness.tokenWithheld()) return 'this browser was not verified as running under your own user account, so StarNet won’t take commands from it — if it is yours, restart StarNet with STARNET_TRUST_LOCAL_PEERS=1';
     if (Harness.sessionStale && Harness.sessionStale()) return 'the station restarted; reload this page';
     return '';
   }

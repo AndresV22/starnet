@@ -252,7 +252,7 @@ const forbiddenToken = () => new Response('forbidden token', { status: 403 });
     A.ok(lineSrc.length > 50 && lineSrc.length < 2000, 'app.js defines refusedPageLine()');
     const lineFor = (H) => new Function('Harness', lineSrc + '\nreturn refusedPageLine;')(H)();
     const withheld = lineFor({ tokenWithheld: () => 'peer-not-found', sessionStale: () => true });
-    A.ok(/not verified as your own account/.test(withheld) && /STARNET_TRUST_LOCAL_PEERS=1/.test(withheld) && !/restarted|reload/i.test(withheld),
+    A.ok(/not verified as running under your own user account/.test(withheld) && /STARNET_TRUST_LOCAL_PEERS=1/.test(withheld) && !/restarted|reload/i.test(withheld),
       'a withheld page says it was not verified + the escape hatch, never "restarted; reload": ' + withheld);
     A.eq(lineFor({ tokenWithheld: () => '', sessionStale: () => true }), 'the station restarted; reload this page', 'a keyed page\'s stale session keeps the reload line');
     A.eq(lineFor({ tokenWithheld: () => '', sessionStale: () => false }), '', 'a page that is not refused has no line');
