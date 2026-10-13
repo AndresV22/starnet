@@ -96,4 +96,15 @@ assert.equal('trustedOnly' in L.evidence({runId:'c'}),false,'a clean run keeps t
   assert.equal(url && url.content, 'From now on use https://deploy:[redacted-secret]@ci.example.com for builds.', 'a password in a URL is scrubbed from the saved sentence');
   assert.equal(L.preferences(input('I prefer concise bullet points.'))[0].content, 'I prefer concise bullet points.', 'ordinary words are kept exactly');
 }
+// Owner-row proof reads a row's provenance through the one shared rule (transcriptstore.js rowTaint; docs/DECISIONS.md),
+// never an inline copy that could drift from it: only the writer's clean stamp with no taint proves an owner request.
+{
+  const { rowTaint } = require('../sidecar/transcriptstore.js');
+  const row = extra => Object.assign({ role: 'user', agentId: 'a', streamId: 'global', content: 'Prepare the weekly report.' }, extra);
+  const cases = [row({ taintKnown: true, taint: '' }), row({ taintKnown: true, taint: 'web_fetch' }), row({ taint: 'web_fetch' }), row({}), row({ taintKnown: 'yes' })];
+  assert.deepEqual(cases.map(r => L.cleanOwnerRows([r]).length === 1), cases.map(r => rowTaint(r) === null), 'cleanOwnerRows agrees with rowTaint on every provenance shape');
+  assert.deepEqual(cases.map(r => L.cleanOwnerRows([r]).length), [1, 0, 0, 0, 0], 'only the stamped clean row proves an owner request');
+  const source = require('fs').readFileSync(require('path').join(__dirname, '../sidecar/trusted-learning.js'), 'utf8');
+  assert.ok(/\browTaint\(m\)/.test(source) && !/\.taintKnown\b/.test(source), 'trusted-learning.js reads row provenance through rowTaint, never its own taintKnown test');
+}
 console.log('trusted-learning: provenance, preference polarity, scope, external input and verification checks PASS');

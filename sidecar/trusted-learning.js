@@ -4,6 +4,8 @@
    are accepted as proof that a standing preference came from the owner. */
 'use strict';
 const { redact } = require('./context.js');
+// rowTaint: the one rule for a stored transcript row's provenance (transcriptstore.js; docs/DECISIONS.md).
+const { rowTaint } = require('./transcriptstore.js');
 
 function textOf(message) {
   if (!message || message.role !== 'user') return '';
@@ -45,14 +47,15 @@ function quotedInLearningTail(messages) {
   return false;
 }
 // Ambient activity and repeat-work claims require the original owner text, not the completion run's later
-// provenance. Bound before filtering; legacy rows without an explicit clean stamp cannot supply that proof.
+// provenance. Bound before filtering; only a row rowTaint reads as clean (the writer's clean stamp, no taint) can
+// supply that proof, so a legacy row without the stamp never does.
 // `tail` bounds the window to the newest rows (ambient activity: 400); 0 reads every row passed in, which is how
 // ownedBriefs proves an older request (review sidecar-index-03) — the host's RAM mirror is already capped.
 function cleanOwnerRows(rows, runRecords, tail = 400) {
   const origins = runRecords === undefined ? null : new Map((Array.isArray(runRecords) ? runRecords : []).filter(r => r && r.runId).map(r => [r.runId, r]));
   const list = Array.isArray(rows) ? rows : [];
   return (tail > 0 ? list.slice(-tail) : list).filter(m => {
-    if (!m || m.role !== 'user' || m.taintKnown !== true || m.taint || m.from ||
+    if (!m || m.role !== 'user' || rowTaint(m) !== null || m.from ||
       typeof m.content !== 'string' || !m.content.trim() || quotedMaterial(m.content)) return false;
     if (!origins) return true;
     // A clean row can still be station self-talk. Resolve its original run independently of the recent
