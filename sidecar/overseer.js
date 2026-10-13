@@ -273,9 +273,13 @@ function makeOverseer(deps) {
     return { threads: threads().map(w => ({ id: w.id, title: w.title, agentId: w.agentId,
     parentStreamId: w.parentStreamId || '', projectRoot: w.projectRoot || null, projectHome: !!w.projectHome, worker: w.worker === true,
     kind: w.kind, lane: w.lane, createdAt: w.createdAt,
-    // the lead run that filed this thread (requestId = '<leadRunId>:<n|title>'): the page groups a dispatch's threads by it
+    // the lead run that filed this thread (requestId = '<leadRunId>:<call>:<slot>' for a dispatch worker,
+    // '<leadRunId>:<title>' for a session.create thread): the page groups a lead run's threads by it
     leadRunId: String(w.requestId || '').split(':')[0],
-    // the worker slot in that dispatch ('<leadRunId>:<n>'): the page lists a dispatch's workers in the order they were asked
+    // the dispatch call that filed a worker thread: the page keeps each call's workers together. Workers only: a
+    // session.create title may hold a colon, and that is never a call
+    call: w.worker === true ? (p => p.length > 2 ? p[1] : '')(String(w.requestId || '').split(':')) : '',
+    // the worker slot in that call: the page lists a call's workers in the order they were asked
     slot: Number(String(w.requestId || '').split(':').pop()) || 0 })), reviews: copy(state.reviews), paused: emergencyPaused || !!state.paused }; }
   function resumeReviews() {
     // A damaged optional coordination store must not prevent ordinary chat.

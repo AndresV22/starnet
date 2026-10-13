@@ -108,6 +108,17 @@ const { makeSubagentManager } = require('../sidecar/subagents.js');
     const snap = manager.snapshot().threads;
     assert.equal(snap.find(t => t.id === workerRow.id).worker, true, 'a delegated worker thread is marked a worker');
     assert.equal(snap.find(t => t.id === madeRow.id).worker, false, 'a session.create session is not (it keeps its own row on the page)');
+    // review seams-09: a worker's requestId is '<leadRunId>:<call>:<slot>'. The delegation card keeps each dispatch
+    // call's workers together by `call`, so two calls in one lead run never interleave their rows.
+    const secondCall = manager.create({ title: 'Second call worker', parentStreamId: 'ws_fresh', agentId: 'researcher', requestId: 'lead1:c9:1', worker: true });
+    const colonTitle = manager.create({ title: 'Q3: plan', parentStreamId: 'ws_fresh', agentId: 'agent', requestId: 'lead1:Q3: plan' });
+    const calls = manager.snapshot().threads;
+    assert.equal(calls.find(t => t.id === workerRow.id).call, 'c', 'a worker thread carries its dispatch call');
+    assert.equal(calls.find(t => t.id === secondCall.id).call, 'c9', 'each dispatch call is its own segment');
+    assert.equal(calls.find(t => t.id === secondCall.id).slot, 1, 'the slot is still the last segment');
+    assert.equal(calls.find(t => t.id === secondCall.id).leadRunId, 'lead1');
+    assert.equal(calls.find(t => t.id === madeRow.id).call, '', 'a session.create thread (<leadRunId>:<title>) has no call');
+    assert.equal(calls.find(t => t.id === colonTitle.id).call, '', 'a colon in a session title is never read as a dispatch call');
     saved.workstreams.push({ id: 'ws_fresh', title: 'Launch prep', agentId: 'agent' });
     assert.equal(manager.resolve('ws_fresh').title, 'Launch prep', 'once the page saves it, the page copy wins');
     assert.throws(() => manager.ensure({ id: child.id, agentId: 'agent' }), /no such session/, 'a deleted conversation is never brought back');
