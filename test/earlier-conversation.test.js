@@ -205,6 +205,13 @@ const userRowIndex = (rows, k) => { let n = 0; for (let i = 0; i < rows.length; 
     for (let k = 0; k < 10; k++) wide.push({ kind: 'user', text: 'Note ' + k + ': ' + 'w'.repeat(490) });
     const ws = F.mergeUserMessages(null, wide, 6400);
     A.ok(ws.items.filter(it => it.kind !== 'task').every(it => it.text.length >= Math.min(Number(it.fullChars) || it.text.length, 240)), 'wide window: no carried message is shrunk below its floor: ' + ws.items.map(it => it.text.length).join(','));
+    // the allocation step on its own (no task, nothing to drop): the instruction share (60%) used to take 500 of a
+    // 1,000 budget and leave three ordinary messages ~166 chars each, under the 240 they were kept for
+    const alloc = [{ kind: 'user', text: 'Always rule: ' + 'r'.repeat(487) }];
+    for (let k = 0; k < 3; k++) alloc.push({ kind: 'user', text: 'Status ' + k + ': ' + 'w'.repeat(490) });
+    const as = F.mergeUserMessages(null, alloc, 1000);
+    A.eq(as.omitted, 0, 'all four fit at their floor, so none is dropped');
+    A.ok(as.items.length === 4 && as.items.every(it => it.text.length >= Math.min(Number(it.fullChars) || it.text.length, 240)), 'the instruction share never eats an ordinary message\'s floor: ' + as.items.map(it => it.text.length).join(','));
   }
 
   // ---- 4. the REAL loop: its compaction merges onto the note, the instruction rides every post-fold request once ----
