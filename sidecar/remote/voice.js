@@ -343,8 +343,10 @@ function makeRemoteVoice(deps) {
   }
 
   // Encode one synthesised sentence onto the reply. WAV becomes levelled ADPCM; MP3 (the Edge floor) is
-  // appended as it is (MP3 frames concatenate). A later sentence in a different format ends the reply there.
+  // appended as it is (MP3 frames concatenate). A later sentence in a different format, or from a different
+  // engine (another speaker), ends the reply there: silence beats a voice that changes halfway.
   function append(rec, r) {
+    if (rec.provider && String(r.provider || '') !== rec.provider) return 'the station voice changed mid-reply';
     const mime = String(r.mime || '');
     if (/wav/.test(mime)) {
       if (rec.mime !== ADPCM_MIME) return 'the voice changed format mid-reply';

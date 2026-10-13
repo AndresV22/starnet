@@ -209,6 +209,16 @@ function parsePages(buf) {
     const fc = flaky.speech('devA', { id: fs1.data.id, offset: 0 });
     A.ok(fc.data.done && /engine crashed/.test(fc.data.error || ''), 'a failed later sentence ends the reply and reports it');
 
+    // a later sentence in a different engine's voice (same format) ends the reply there: one reply, one speaker
+    let k = 0;
+    const swap = makeRemoteVoice({ now: () => 1, newId: () => 'p1', synthesize: async () => (++k === 1
+      ? { ok: true, buf: Buffer.from([0xff, 0xfb, 0x90, 0x00]), mime: 'audio/mpeg', provider: 'edge' }
+      : { ok: true, buf: Buffer.from([0xff, 0xfb, 0x90, 0x01]), mime: 'audio/mpeg', provider: 'openrouter' }) });
+    const sw = await swap.speak('devA', { text: LONG_REPLY });
+    await settle(); await settle();
+    const swc = swap.speech('devA', { id: sw.data.id, offset: 0 });
+    A.ok(swc.data.done && swc.data.bytes === 4 && /changed mid-reply/.test(swc.data.error || ''), 'a speaker change mid-reply ends it with what the first voice said: ' + JSON.stringify({ bytes: swc.data.bytes, error: swc.data.error }));
+
     // the encoder itself: a 440 Hz tone survives ADPCM with good SNR
     const enc = makeAdpcmEncoder();
     const tone = new Int16Array(24000); for (let i = 0; i < tone.length; i++) tone[i] = Math.round(Math.sin(2 * Math.PI * 440 * i / 24000) * 12000);

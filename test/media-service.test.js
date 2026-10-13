@@ -271,6 +271,30 @@ async function invokeTts(overrides, body) {
     assert.equal(edgeCalls, edgeBefore, 'and never falls through to a different speaker');
   }
 
+  // Edge is tried ONCE per station-voice sentence (in the mapped voice), never a second time in its default voice
+  // through the keyed ladder's own Edge floor; a keyed-pinned reply tries only that provider.
+  {
+    let edgeCalls = 0, fetches = 0;
+    const offline = await make({
+      localVoice: {
+        status: () => ({ available: false }), defaultVoice: () => 'am_onyx',
+        edgeVoiceFor: () => 'en-US-ChristopherNeural', transcribe: async () => '', synthesize: async () => { throw new Error('unused'); }
+      },
+      edgetts: { enabled: () => true, resolveVoice: () => 'en-US-ChristopherNeural', synth: async () => { edgeCalls++; throw new Error('offline'); } },
+      providerRuntimeKey: provider => provider === 'openrouter' ? 'key' : '',
+      fetch: async () => { fetches++; return { ok: false, status: 402, text: async () => 'credits exhausted' }; }
+    });
+    const failed = await offline.synthesizeStationVoice('hello');
+    assert.equal(failed.ok, false);
+    assert.equal(edgeCalls, 1, 'an offline station waits through one Edge attempt, not two');
+    assert.equal(fetches, 1, 'the keyed ladder still gets its turn');
+    assert.match(failed.reason, /edge: offline/);
+    fetches = 0; edgeCalls = 0;
+    const keyedPin = await offline.synthesizeStationVoice('same speaker', { provider: 'gemini' });
+    assert.equal(keyedPin.ok, false, 'a reply pinned to a keyed provider this station cannot reach fails');
+    assert.equal(fetches + edgeCalls, 0, 'without paying another provider or switching to Edge');
+  }
+
   console.log('media-service: OK (36 assertions)');
 })().finally(async () => {
   for (const root of roots) await fsp.rm(root, { recursive: true, force: true });

@@ -310,10 +310,14 @@ function makeMediaService(options) {
     const style = String((args && args.style) || '').replace(/\s+/g, ' ').trim().slice(0, 500);
     const wantVoice = String((args && args.voice) || '').trim();
     const input = style ? ('Say the following in ' + style + ': ' + text) : text;
+    // only: try just that keyed provider (a reply pinned to it); noEdge: skip the Edge floor (a caller that
+    // already tried Edge in its own mapped voice must not try it again in Edge's default one)
+    const only = String((args && args.only) || '');
     const reasons = [];
     for (const provider of TTS_KEY_PROVIDERS) {
+      if (only && provider !== only) continue;
       const key = providerRuntimeKey(provider, '');
-      if (!key) continue;
+      if (!key) { if (only) reasons.push(provider + ': no key'); continue; }
       let result;
       try { result = await ttsSynthKeyed(provider, { model: TTS_DEFAULT_MODEL, voice: wantVoice || 'Umbriel', input, text, style, key }); }
       catch (error) { result = { ok: false, reason: (error && error.message) || String(error) }; }
@@ -322,15 +326,16 @@ function makeMediaService(options) {
       }
       reasons.push(provider + ': ' + ((result && result.reason) || 'failed'));
     }
-    if (edgetts.enabled()) {
+    const edgeFloor = !(args && args.noEdge);
+    if (edgeFloor && edgetts.enabled()) {
       const edgeVoice = /^[a-z]{2}-[A-Za-z]{2,8}-\w+$/.test(wantVoice) ? wantVoice : '';
       try {
         const buf = await edgetts.synth(text, edgeVoice ? { nowMs: now(), voice: edgeVoice } : { nowMs: now() });
         if (buf && buf.length) return { ok: true, buf, ext: 'mp3', mime: 'audio/mpeg', provider: 'edge' };
         reasons.push('edge: empty audio');
       } catch (error) { reasons.push('edge: ' + ((error && error.message) || error)); }
-    } else reasons.push('edge: disabled');
-    return { ok: false, reason: reasons.join('; ') || 'this station holds no voice-capable credential' };
+    } else if (edgeFloor) reasons.push('edge: disabled');
+    return { ok: false, reason: reasons.join('; ') || (edgeFloor ? 'this station holds no voice-capable credential' : 'no keyed voice provider') };
   }
   /* The station's SPOKEN voice for a paired device (remote/voice.js `speak`): the same order the desk's own speaker
      uses — the bundled offline engine in its default voice, then that voice's mapped Edge neural, then the keyed
@@ -373,7 +378,8 @@ function makeMediaService(options) {
       } else reasons.push('edge: disabled');
       if (pin === 'edge') return { ok: false, reason: reasons.join('; ') };
     }
-    const keyed = await synthesizeForAgent({ text: said });
+    // Edge already had its one try above, in the mapped voice: the keyed ladder runs without its own Edge floor
+    const keyed = await synthesizeForAgent(pin ? { text: said, noEdge: true, only: pin } : { text: said, noEdge: true });
     if (keyed.ok) return keyed;
     reasons.push(keyed.reason);
     return { ok: false, reason: reasons.join('; ') };
