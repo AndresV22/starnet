@@ -491,4 +491,16 @@ for (const change of ['body', 'files', 'summary', 'baseline', 'pin']) {
   A.ok(/reject it/.test(refused.error) && !/regenerate/.test(refused.error), 'refusal names an action the Commander can take');
   A.ok(f.s.rejectCandidate({ agentId: 'a', candidateId: c.candidateId, candidateDigest: c.candidateDigest }).ok, 'an outdated proposal can still be rejected');
 }
+// skills-eval-07 (host half): the approve route precommits a digest approval for the candidate's bytes before it calls
+// approveCandidate. An archive carries the live sibling's bytes, so a refused archive (heir not approved yet) left a
+// withheld sibling's bytes approved. The route must ask the store's promotionBlocker BEFORE that precommit.
+{
+  const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'sidecar', 'index.js'), 'utf8');
+  const at = src.indexOf("if (action === 'approve-candidate') {");
+  const branch = at >= 0 ? src.slice(at, src.indexOf("if (action !== 'evaluate-candidate')", at)) : '';
+  const blocker = branch.indexOf('skillStore.promotionBlocker(agentId, candidate.candidateId)');
+  const precommit = branch.indexOf('persistSkillApprovals(');
+  A.ok(branch && precommit > 0, 'index.js: the approve route and its approval precommit are where this test reads them');
+  A.ok(blocker >= 0 && blocker < precommit, 'the approve route refuses a blocked promotion before it writes any approval');
+}
 A.report('skills.review-approval');

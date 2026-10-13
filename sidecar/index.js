@@ -18714,6 +18714,11 @@ async function handleSkillCandidateAction(req, res) {
     const guard = skillGate.verify(candidate.skill);
     if (guard.action === 'block') return learningJson(res, 400, { ok: false, error: 'the skill guard blocks this revision; edit the flagged content first' });
     if (action === 'approve-candidate') {
+      // Everything except the receipt that stops this promotion (an outdated base, a pinned skill, an archive whose heir
+      // is not approved yet), asked BEFORE the approval precommit below: an archive carries the live sibling's bytes, so
+      // a refused archive would otherwise leave a withheld sibling's bytes approved.
+      const blocked = skillStore.promotionBlocker(agentId, candidate.candidateId);
+      if (blocked) return learningJson(res, 409, { ok: false, error: blocked });
       const baseline = skillStore.view(agentId, candidate.skill.id, { bump: false, includeArchived: true, hydrate: false });
       // Only a literal true from the Commander's panel accepts a complete tie ("no measurable improvement").
       const acknowledgedNoImprovement = body.acknowledgeNoImprovement === true;
