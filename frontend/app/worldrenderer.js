@@ -104,6 +104,9 @@ const WorldRenderer = (() => {
       if (lastStart && timestamp > lastStart && timestamp - lastStart < 1000) push(elapsed, timestamp - lastStart);
       lastStart = timestamp;
       if (frame.geo !== geometry || frame.cache !== baked) {
+        // the floor re-bakes (a new cache) for every edit that changes rooms, walls, doors or the frame; a props-only edit
+        // brings a new geo over the SAME bake, and the light model (walls, visibility caches, light canvases) stays valid
+        const bakeChanged = frame.cache !== baked;
         geometry = frame.geo; baked = frame.cache; rebuilds++;
         const projection = typeof PropRemaster !== 'undefined' && PropRemaster.isProjection();
         const fill = baked.lamps || baked.flickers || [], practical = baked.wallFixtures || [];
@@ -118,12 +121,15 @@ const WorldRenderer = (() => {
           return Object.assign({}, l, { rgb, r: l.r * 1.12, gain: (l.gain == null ? 1 : l.gain) * 1.5 });
         })) : fill.concat(practical);
         if (canLight()) {
-          if (!lighting) lighting = WorldLight.create({ quality: 'high', wallAmbient: .16, fixtureTint: .16, propTint: .48 });
-          if (typeof IndustrialTextures !== 'undefined' && IndustrialTextures.enabled() && lighting.configure)
-            lighting.configure(IndustrialTextures.lighting);
-          lighting.setGeometry(geometry, { width: baked.W, height: baked.H,
-            tileSize: geometry.TILE, interiorPath: baked.interiorPath, interiorMask: baked.interiorCv, surfaceMask: baked.baseCv,
-            surfaceChunks: baked.chunks });
+          const fresh = !lighting;
+          if (fresh) lighting = WorldLight.create({ quality: 'high', wallAmbient: .16, fixtureTint: .16, propTint: .48 });
+          if (fresh || bakeChanged) {
+            if (typeof IndustrialTextures !== 'undefined' && IndustrialTextures.enabled() && lighting.configure)
+              lighting.configure(IndustrialTextures.lighting);
+            lighting.setGeometry(geometry, { width: baked.W, height: baked.H,
+              tileSize: geometry.TILE, interiorPath: baked.interiorPath, interiorMask: baked.interiorCv, surfaceMask: baked.baseCv,
+              surfaceChunks: baked.chunks });
+          }
         }
       }
       entityCount = 0;

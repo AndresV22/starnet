@@ -100,6 +100,27 @@ classic.drawGrounding({}, [{}]);
 assert.equal(classic.drawLight({}, [], {}), false);
 console.log('worldrenderer: depth order, camera geometry, lifecycle and measured-only statistics passed');
 
+// A PROPS-ONLY EDIT KEEPS THE LIGHT MODEL (review world-render-05). The floor re-bakes only when rooms, walls or doors change
+// (a new cache object); turning a stool hands begin() a fresh geo with the SAME cache. Resetting the WorldLight there threw away
+// its wall segments, visibility/kernel caches and light canvases for nothing — a visible hitch per edit on weak machines.
+{
+  const counts = { create: 0, setGeometry: 0, configure: 0 };
+  const countingLight = { setGeometry() { counts.setGeometry++; }, configure() { counts.configure++; }, prepare() {}, sample: () => null, dispose() {} };
+  const s = { module: { exports: {} }, WorldLight: { create: () => { counts.create++; return countingLight; } },
+    IndustrialTextures: { enabled: () => true, lighting: { key: 1 } } };
+  vm.runInNewContext(fs.readFileSync(require.resolve('../frontend/app/worldrenderer.js'), 'utf8'), s);
+  const r = s.module.exports.create();
+  const bake1 = { W: 48, H: 48, lamps: [{ x: 12 }] }, bake2 = { W: 48, H: 48, lamps: [{ x: 24 }] };
+  r.begin({ now: 1, geo: { TILE: 12 }, cache: bake1 });
+  assert.deepEqual(counts, { create: 1, setGeometry: 1, configure: 1 }, 'the first frame builds the light model');
+  r.begin({ now: 2, geo: { TILE: 12, props: ['a turned stool'] }, cache: bake1 });
+  assert.deepEqual(counts, { create: 1, setGeometry: 1, configure: 1 }, 'a props-only edit (new geo, same bake) keeps the light model and its caches');
+  r.begin({ now: 3, geo: { TILE: 12 }, cache: bake2 });
+  assert.deepEqual(counts, { create: 1, setGeometry: 2, configure: 2 }, 'a re-bake (rooms, walls or doors changed) resets the light model');
+  r.dispose();
+}
+console.log('worldrenderer: a props-only edit keeps the light model passed');
+
 const hudGeo = { TILE: 12, COLS: 4, ROWS: 2, W: 48, zoneGrid: ['a','a','b','b','a','a','b','b'], nameOf: id => ({a:'COMMAND',b:'FABRICATION'})[id] };
 const hudView = {x:0,y:0,w:20,h:20};
 assert.equal(R.cameraReadout({geo:hudGeo,viewport:hudView,linked:true}).label,'CAM · COMMAND');
