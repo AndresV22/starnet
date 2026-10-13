@@ -190,6 +190,20 @@ let clk = 1000; const clock = { now: () => clk };
     A.ok(/unverifiable/.test((await browse(undefined)).taintedBy), 'browse: a preview whose row time is unknown stays unverifiable');
   }
 
+  // review memory-learning-16: a run with no workstream id (e.g. a channel run with bound chats off) has its rows stored
+  // under 'global'. scope:"stream" filtered every 'global' hit out and answered "No messages in this workstream match".
+  {
+    const s = makeTranscriptStore({ io: memIo(), clock });
+    clk = 9000; s.append({ role: 'user', content: 'the invoice for march is overdue', taint: null });
+    clk = 9001; s.append({ streamId: 'elsewhere', role: 'user', content: 'the invoice for march is overdue', taint: null });
+    const { recallTool } = makeRecallTool({ transcriptStore: s });
+    const strict = await recallTool.run({ query: 'invoice', scope: 'stream' }, {});
+    A.ok(/march is overdue/.test(strict.content) && !/No messages/.test(strict.content), 'scope:"stream" with no workstream id finds the rows stored under global: ' + strict.content.slice(0, 80));
+    A.ok(!strict.content.includes('elsewhere'), 'and still never another workstream');
+    const tie = await recallTool.run({ query: 'invoice march overdue', limit: 1 }, {});
+    A.ok(tie.content.includes('[global'), 'an equal match in this run\'s own (global) history outranks a newer one elsewhere: ' + tie.content.slice(0, 80));
+  }
+
   // Failed provenance lookup is observable without disclosing exception/row bytes, and stays untrusted.
   {
     const failopen = require('../sidecar/failopen.js');

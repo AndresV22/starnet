@@ -145,6 +145,10 @@
         // deduped, then reranked together with exact + explicit lexical-expansion scores.
         // A pinned run is always strict: no default history leg, no scope:'all', no zero-hit auto-widen.
         const strictStream = pinned || a.scope === 'stream';
+        // the store files a run with no (or a malformed) workstream id under 'global' (transcriptstore normStream): hits
+        // are matched against that same id, or scope:"stream" would drop the run's own rows (review memory-learning-16).
+        // A pinned run keeps its raw id below, so it can never read the shared 'global' stream.
+        const searchStream = streamId && /^[A-Za-z0-9_-]{1,64}$/.test(streamId) ? streamId : 'global';
         const wantAll = !pinned && a.scope === 'all';
         const expanded = retrieval && retrieval.expandRecallQuery ? retrieval.expandRecallQuery(q) : q;
         const queries = Array.from(new Set([q.slice(0, 2000), expanded].filter(Boolean)));
@@ -157,7 +161,7 @@
             const found = transcriptStore.search(streamId, queries[qi], { limit: Math.min(50, limit * 3), scope }) || [];
             if (!qi && scope === 'stream') localExact = found.length;
             for (const h of found) {
-              if (!h || !h.content || (strictStream && h.streamId && h.streamId !== streamId) || (pinned && h.streamId !== streamId)) continue;
+              if (!h || !h.content || (strictStream && h.streamId && h.streamId !== searchStream) || (pinned && h.streamId !== streamId)) continue;
               const id = key(h);
               if (!candidates.has(id)) candidates.set(id, h);
               if (!qi) exact.add(id);
@@ -170,9 +174,9 @@
           : rows.map(h => Number(h.score) || 0);
         const hits = rows.map((h, i) => ({ h, i, score: scores[i] || (exact.has(key(h)) ? 0.01 : 0) }))
           .filter(x => x.score > 0).sort((a, b) => b.score - a.score
-            || Number(b.h.streamId === streamId) - Number(a.h.streamId === streamId)
+            || Number(b.h.streamId === searchStream) - Number(a.h.streamId === searchStream)
             || (Number(b.h.ts) || 0) - (Number(a.h.ts) || 0) || a.i - b.i).slice(0, limit).map(x => x.h);
-        const widened = !strictStream && !wantAll && !localExact && hits.some(h => h.streamId !== streamId);
+        const widened = !strictStream && !wantAll && !localExact && hits.some(h => h.streamId !== searchStream);
         if (!hits.length) {
           if (failures.length) return { content: 'Some conversation history could not be searched. No matching messages were available; this does not prove the conversation never happened.', summary: 'history search incomplete' };
           const where = pinned ? 'this chat' : strictStream ? 'this workstream' : 'any workstream';
