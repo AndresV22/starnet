@@ -10,8 +10,9 @@
    - delegated work that failed, or was stopped by a restart or the liveness check: the overseer's worker ledger (/api/overseer), for a
      conversation this page holds, until you open it or dismiss it;
    - a routine run that failed and you have not looked at: its own cron-<runId> session (lastRunOk === false, unread).
-   Actions are the real ones: Approve / Deny answer through the approval card's own path (Chat.answerConsent), Retry runs
-   the routine again (POST /api/cron/run), Open lands on the conversation (a worker's work unfolded on its card). */
+   Actions are the real ones: Approve / Deny answer through the approval card's own path (Chat.answerConsent) — Approve
+   only when the rail's line is the whole request, else Review opens the card that shows all of it — Retry runs the
+   routine again (POST /api/cron/run), Open lands on the conversation (a worker's work unfolded on its card). */
 const NeedsYou = (() => {
   const DAY = 86400000;
   const KEEP_FAILED_MS = 3 * DAY;      // a failure older than this is history, not a to-do
@@ -83,9 +84,17 @@ const NeedsYou = (() => {
     return s < 60 ? 'now' : s < 3600 ? Math.floor(s / 60) + 'm' : s < DAY / 1000 ? Math.floor(s / 3600) + 'h' : Math.floor(s / 86400) + 'd';
   }
   const KIND = { approval: 'wants to', question: 'asks', group: '', failed: '', routine: '' };
+  // the rail shows one glance line. Approve from here only when that line IS the whole request; when the approval card
+  // holds more (INSPECT: a long command's tail, a file change, every argument; a station build's plan), Review lands
+  // on that card instead. Deny stays one tap: refusing without the detail is safe.
+  function hiddenDetail(p) {
+    if (/^station[._]build$/.test(String((p && p.tool) || ''))) return true;
+    if (typeof Chat === 'undefined' || !Chat.consentInspect) return true;   // no way to tell: never approve blind
+    return !!Chat.consentInspect(p);
+  }
   function keysFor(i) {
     const k = (act, label, cls) => '<button type="button" class="ny-key' + (cls ? ' ' + cls : '') + '" data-ny-act="' + act + '" data-ny-key="' + esc(i.key) + '">' + label + '</button>';
-    if (i.kind === 'approval') return k('once', 'Approve', 'primary') + k('deny', 'Deny', 'deny');
+    if (i.kind === 'approval') return (hiddenDetail(i.p) ? k('open', 'Review', 'primary') : k('once', 'Approve', 'primary')) + k('deny', 'Deny', 'deny');
     if (i.kind === 'question') return k('open', 'Answer', 'primary');
     if (i.kind === 'routine' && i.routineId) return k('retry', 'Retry', 'primary') + k('open', 'Open');
     if (i.kind === 'failed') return k('open', 'Open') + k('dismiss', 'Dismiss', 'quiet');
@@ -127,7 +136,7 @@ const NeedsYou = (() => {
     const i = items().find(x => x.key === key);
     if (kind === 'more') { expanded = !expanded; lastSig = ''; render(); return; }
     if (!i) { lastSig = ''; render(); return; }
-    if (kind === 'open') return open(i);
+    if (kind === 'open' || (kind === 'once' && hiddenDetail(i.p))) return open(i);   // never approve what the rail cannot show
     if (kind === 'dismiss') { dismiss(key); lastSig = ''; render(); return; }
     if ((kind === 'once' || kind === 'deny') && i.p && typeof Chat !== 'undefined' && Chat.answerConsent) {
       if (btn) btn.disabled = true;
