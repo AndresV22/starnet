@@ -47,26 +47,21 @@
     return String(s == null ? '' : s).replace(/\s+/g, ' ').trim().slice(0, max || SNIPPET);
   }
 
-  // WHEN A ROW'S PROVENANCE IS KNOWN (review memory-learning-07). Since the first public build that stamps transcript taint
-  // (v0.12.5, 2026-09-28 01:09 UTC; sec-taint a94d97f6c), every row a tainted run writes carries `taint`, so a row of that
-  // age WITHOUT one is clean — the same reading replay (transcriptstore taintOf) and the earlier-conversation note use.
-  // Rows older than that build carry no provenance at all and stay unverifiable. An explicit clean stamp (taintKnown)
-  // is proof at any age. A row whose time is unknown is never assumed recent.
-  const TAINT_STAMP_SINCE = Date.UTC(2026, 8, 28, 1, 10);
-  function provenanceKnown(explicitClean, ts) { return explicitClean === true || Number(ts) >= TAINT_STAMP_SINCE; }
-
   function makeRecallTool(deps) {
     const d = deps || {};
     const transcriptStore = d.transcriptStore;
-    // Taint follows only returned rows/previews. Missing provenance on history older than taint stamping is not
-    // proof of clean history; use the store's exact known source when possible, otherwise relay uncertainty.
+    // Taint follows only returned rows/previews. A row WITHOUT a taint key is not proof of clean history, whatever its
+    // age (review memory-learning-07 follow-up): raw append paths still write rows with no provenance — a script-only
+    // routine's stdout (index.js deliverCronResult) is untrusted output without one — and a build older than taint
+    // stamping keeps writing un-stamped rows after its release date when a user upgrades late. Only the explicit clean
+    // stamp (taintKnown) proves clean; otherwise use the store's exact known source when possible, or relay uncertainty.
     function resultTaint(rows, preview) {
       let unknown = false;
       for (const r of rows) {
         if (preview && !r.preview) continue;
         const source = preview ? r.previewTaint : r.taint;
         if (source) return String(source).slice(0, 200);
-        if (preview ? provenanceKnown(r.previewTaintKnown, r.previewTs) : provenanceKnown(r.taintKnown, r.ts)) continue;
+        if ((preview ? r.previewTaintKnown : r.taintKnown) === true) continue;
         unknown = true;
         if (transcriptStore && typeof transcriptStore.taintOf === 'function') {
           try {
