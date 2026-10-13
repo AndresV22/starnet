@@ -128,7 +128,8 @@ const usage = (input, output) => ({ type: 'usage', usage: { prompt_tokens: input
     const cut = [{ type: 'tool_start', index: 0, id: 'big', name: 'fs_write' }, { type: 'tool_args', index: 0, chunk: '{"path":"page.html","content":"<html>' }, usage(3, 3), { type: 'done', finishReason: 'length' }];
     const provider = scripted([cut, cut, cut, cut, cut], (req) => requests.push(req.messages.map(m => String(m.content || '')).join('\n')));
     let ran = 0;
-    const res = await runAgentLoop({ messages: [{ role: 'user', content: 'write a big page' }], provider, emit, cost: makeCost(), model: 'm', agentId: 'a', runId: 'r',
+    const cutMessages = [{ role: 'user', content: 'write a big page' }];
+    const res = await runAgentLoop({ messages: cutMessages, provider, emit, cost: makeCost(), model: 'm', agentId: 'a', runId: 'r',
       tools: [{ type: 'function', function: { name: 'fs.write', parameters: {} } }, { type: 'function', function: { name: 'fs.append', parameters: {} } }],
       dispatch: async () => { ran++; return { ok: true, isError: false, content: 'ok' }; }, capCtx: openCtx() });
     A.eq(ran, 0, 'a cut-off call is never dispatched');
@@ -143,6 +144,12 @@ const usage = (input, output) => ({ type: 'usage', usage: { prompt_tokens: input
     const err = seq.find(e => e.name === 'agent.run.error');
     A.ok(err && /hit the model's output limit while writing a large fs_write call/.test(err.payload.message), 'the user-facing stop says exactly what happened');
     A.ok(err && /smaller parts/.test(err.payload.message), 'and what to do');
+    // review threads-backend-10: the explanation persisted into the tail turn is streamed too, so live COMMS and a
+    // reloaded transcript show the same message
+    const streamed = seq.filter(e => e.name === 'agent.token' && /hit the model's output limit/.test(e.payload.delta));
+    A.eq(streamed.length, 1, 'one agent.token carries the explanation');
+    const tail = cutMessages[cutMessages.length - 1];
+    A.ok(tail && tail.role === 'assistant' && streamed.length === 1 && String(tail.content).endsWith(streamed[0].payload.delta), 'the persisted tail turn ends with exactly the streamed text');
   }
   // …and when the model DOES split after the first cut, the work lands normally.
   {

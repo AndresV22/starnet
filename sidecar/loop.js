@@ -2096,7 +2096,13 @@
           const explanation = 'The reply hit the model\'s output limit while writing a large ' + wireKey(cutTool) + ' call: it was cut off '
             + toolCutStreak + ' time' + (toolCutStreak === 1 ? '' : 's') + ' in a row and never ran, so nothing from it was saved. Ask for it in smaller parts (for example "write it section by section"), or switch to a model with a larger output limit.';
           const tailTurn = messages[messages.length - 1];
-          if (tailTurn && tailTurn.role === 'assistant' && !tailTurn.tool_calls) tailTurn.content = String(tailTurn.content || '') + (String(tailTurn.content || '').trim() ? '\n\n' : '') + '[' + explanation + ']';
+          // stream exactly what is persisted, so live COMMS and the reloaded transcript show the same turn
+          if (tailTurn && tailTurn.role === 'assistant' && !tailTurn.tool_calls) {
+            const prior = String(tailTurn.content || '');
+            const delta = (prior.trim() ? '\n\n' : '') + '[' + explanation + ']';
+            tailTurn.content = prior + delta;
+            emit('agent.token', { agentId, runId, delta });
+          }
           emit('agent.run.error', { agentId, runId, message: explanation, transient: false });
           return end('error', { failureStage: 'provider_output', failureCode: 'output_limit_tool_cut' });
         }
