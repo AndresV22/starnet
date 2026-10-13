@@ -47,4 +47,21 @@ A.ok(/migrateConnectorCatalogKeyHeaders/.test(host) && /headers\[catalogEntry\.k
   A.eq(next({ reason: 'unreadable', canStartFresh: false }), '', 'any other lock with no START FRESH leaves the sidecar message to speak');
   A.ok(/storageNextStep\(storage\)/.test(A.fnBody(connectors, 'async function refresh(')), 'the panel uses it');
 }
+// sidecar-index-07: an older sign-in file that could not be removed beside a SEALED store arrives as migrationNotice.
+// The panel shows it, under a plain heading: only `notice` (fallback or a failed seal) is headed 'not encrypted'.
+{
+  const vm = require('node:vm');
+  const body = A.fnBody(connectors, 'function storageNoticeHtml(');
+  A.ok(body && body.length < 2000, 'connectors.js has the storage notice helper');
+  const ctx = { esc: s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;') };
+  vm.createContext(ctx);
+  if (body) vm.runInContext(body + '\nthis.html = storageNoticeHtml;', ctx);
+  const html = s => (ctx.html ? ctx.html(s) : '');
+  const leftover = html({ encrypted: true, notice: null, migrationNotice: 'An older connector sign-in file could not be removed <x>.' });
+  A.ok(leftover.includes('could not be removed &lt;x>'), 'the leftover-file warning reaches the panel, escaped: ' + leftover);
+  A.ok(/<b>Credential storage<\/b>/.test(leftover) && !/not encrypted/.test(leftover), 'under a plain heading, never "not encrypted": ' + leftover);
+  A.ok(/Credential storage · not encrypted<\/b>Saved WITHOUT encryption/.test(html({ encrypted: false, fallback: true, notice: 'Saved WITHOUT encryption' })), 'the unencrypted notice keeps its heading');
+  A.eq(html({ encrypted: true, notice: null, migrationNotice: null }), '', 'nothing to say, nothing drawn');
+  A.ok(/notices\.innerHTML \+= storageNoticeHtml\(storage\)/.test(A.fnBody(connectors, 'async function refresh(')), 'the panel draws it');
+}
 A.report('connector-reliability-wiring.test');

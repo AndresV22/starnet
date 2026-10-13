@@ -36,6 +36,14 @@
     if (s.canStartFresh) return ' START FRESH sets the unreadable files aside and lets you sign in to each service again.';
     return s.reason === 'key-unavailable' ? ' Unlock the credential store and restart StarNet.' : '';
   }
+  /* An open store's storage notes. `notice` is a store StarNet does not count as encrypted (fallback, or a seal not yet
+     checked), so it is headed that way. `migrationNotice` is an older sign-in file left beside a SEALED store: a plain
+     heading, never 'not encrypted'. */
+  function storageNoticeHtml(storage) {
+    const s = storage || {};
+    return (s.notice ? '<div class="mc-notice"><b>Credential storage · not encrypted</b>' + esc(s.notice) + '</div>' : '') +
+      (s.migrationNotice ? '<div class="mc-notice"><b>Credential storage</b>' + esc(s.migrationNotice) + '</div>' : '');
+  }
 
   /* ============== CONNECTORS — attach MCP servers so agents gain external tools ==============
      A connector is a remote MCP (Model Context Protocol) server. Once added + connected, its tools
@@ -1047,7 +1055,7 @@
           }
           return;
         }
-        if (storage.notice) notices.innerHTML += '<div class="mc-notice"><b>Credential storage · not encrypted</b>' + esc(storage.notice) + '</div>';
+        notices.innerHTML += storageNoticeHtml(storage);
         if (list.length) {
           const expanded = new Set(Array.from(listEl.querySelectorAll('.mc-inspect[open]')).map(el => el.closest('.mc-row').dataset.id));
           listEl.innerHTML = list.map(row).join('');
