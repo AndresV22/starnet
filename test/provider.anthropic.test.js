@@ -70,8 +70,8 @@ async function collect(provider, req) { const out = []; for await (const e of pr
     A.eq(captured.headers['anthropic-version'], '2023-06-01', 'Anthropic API version header set');
     A.eq(captured.body.system, [{ type: 'text', text: 'sys', cache_control: { type: 'ephemeral' } }],
       'leading system lifted — block form, carrying the cache breakpoint');
-    // lean-prompt 2026-10-12: with a system prompt the LAST tool now carries its own anchor (TOOL ANCHOR in anthropic.js)
-    A.eq(captured.body.tools[0], { name: 'web', description: 'd', input_schema: { type: 'object' }, cache_control: { type: 'ephemeral' } }, 'OpenAI tool -> Anthropic tool');
+    // an UNSPLIT system prompt keeps the system anchor over the tools (the TOOL ANCHOR rides only a split, task-run system)
+    A.eq(captured.body.tools[0], { name: 'web', description: 'd', input_schema: { type: 'object' } }, 'OpenAI tool -> Anthropic tool');
     A.eq(captured.body.messages[0].content[1], { type: 'tool_use', id: 'call_7', name: 'web', input: { q: 1 }, cache_control: { type: 'ephemeral' } },
       'assistant tool_call -> tool_use block (inside the last-3 sliding window, so it carries an anchor)');
     A.eq(captured.body.messages[1].content[0], { type: 'tool_result', tool_use_id: 'call_7', content: 'result text', cache_control: { type: 'ephemeral' } },
@@ -102,23 +102,32 @@ async function collect(provider, req) { const out = []; for await (const e of pr
     };
     const TOOLS = [{ type: 'function', function: { name: 'a', parameters: { type: 'object' } } }];
 
-    // With a system prompt, SYSTEM is the anchor — it renders after tools, so one breakpoint caches both.
-    const withSys = await cap({ model: 'm', messages: [{ role: 'system', content: 's' }, { role: 'user', content: 'u' }], tools: TOOLS });
+    // With an UNSPLIT system prompt, SYSTEM is the anchor — it renders after tools, so one breakpoint caches both, and the
+    // three newest messages keep their sliding anchors (1 + 3 = the API's 4).
+    const tail3 = [{ role: 'system', content: 's' }, { role: 'user', content: 'u1' }, { role: 'assistant', content: 'a1' }, { role: 'user', content: 'u2' }];
+    const withSys = await cap({ model: 'm', messages: tail3, tools: TOOLS });
     A.eq(withSys.system[0].cache_control, { type: 'ephemeral' }, 'system block carries the static-prefix breakpoint');
-    /* TOOL ANCHOR (lean-prompt 2026-10-12; this used to assert the OPPOSITE — "no redundant breakpoint on tools"). The
-       system anchor covers the tools only while the system is unchanged: a Dossier edit or persona toggle re-wrote the
-       whole catalogue in front of it (issue #105). The last tool now anchors the catalogue on its own. */
-    A.eq(withSys.tools[withSys.tools.length - 1].cache_control, { type: 'ephemeral' }, 'the last tool anchors the catalogue even when a system prompt exists');
+    A.ok(!withSys.tools[withSys.tools.length - 1].cache_control, 'unsplit system: no redundant breakpoint on the tools (the system anchor covers them)');
+    A.eq(withSys.messages.map(m => m.content.some(b => b.cache_control)), [true, true, true], 'unsplit system: the three newest messages keep their sliding anchors');
+    /* TOOL ANCHOR (lean-prompt 2026-10-12): only a SPLIT system (a task run's cacheSystemPrefix + the per-conversation
+       tail) anchors the last tool on its own, so a change in the system tail (a Dossier edit, a persona toggle) never
+       re-writes the catalogue in front of it (issue #105). Budget: tools 1 + the stable system block 1 + 2 tail. */
+    const SPLIT_SYS = 'stable prefix. '.repeat(10);
+    const split = await cap({ model: 'm', cacheSystemPrefix: SPLIT_SYS, messages: [{ role: 'system', content: SPLIT_SYS + '\n\nper-conversation tail' }].concat(tail3.slice(1)), tools: TOOLS });
+    A.eq(split.tools[split.tools.length - 1].cache_control, { type: 'ephemeral' }, 'split system: the last tool anchors the catalogue');
+    A.ok(split.system[0].cache_control && !split.system[1].cache_control, 'split system: the stable block is anchored, the tail block is not');
+    A.eq(split.messages.map(m => m.content.some(b => b.cache_control)), [false, true, true], 'split system: two sliding tail anchors');
     {
+      // the kill switch is read PER CALL: the provider made above (module already loaded) obeys it without a re-require
       const prev = process.env.STARNET_ANTHROPIC_TOOL_ANCHOR;
       process.env.STARNET_ANTHROPIC_TOOL_ANCHOR = '0';
-      delete require.cache[require.resolve('../sidecar/providers/anthropic.js')];
       let legacy = null;
-      await collect(require('../sidecar/providers/anthropic.js').makeAnthropicProvider({ key: 'k', fetch: async (_, o) => { legacy = JSON.parse(o.body); return new Response('data: {"type":"message_stop"}\n\n'); } }),
-        { model: 'm', messages: [{ role: 'system', content: 's' }, { role: 'user', content: 'u' }], tools: TOOLS });
-      if (prev === undefined) delete process.env.STARNET_ANTHROPIC_TOOL_ANCHOR; else process.env.STARNET_ANTHROPIC_TOOL_ANCHOR = prev;
-      delete require.cache[require.resolve('../sidecar/providers/anthropic.js')];
-      A.ok(!legacy.tools[0].cache_control && legacy.system[0].cache_control, 'kill switch STARNET_ANTHROPIC_TOOL_ANCHOR=0: the system-only anchor layout');
+      try {
+        await collect(makeAnthropicProvider({ key: 'k', fetch: async (_, o) => { legacy = JSON.parse(o.body); return new Response('data: {"type":"message_stop"}\n\n'); } }),
+          { model: 'm', cacheSystemPrefix: SPLIT_SYS, messages: [{ role: 'system', content: SPLIT_SYS + '\n\nper-conversation tail' }].concat(tail3.slice(1)), tools: TOOLS });
+      } finally { if (prev === undefined) delete process.env.STARNET_ANTHROPIC_TOOL_ANCHOR; else process.env.STARNET_ANTHROPIC_TOOL_ANCHOR = prev; }
+      A.ok(legacy && !legacy.tools[0].cache_control && legacy.system[0].cache_control && legacy.system[1].cache_control,
+        'kill switch STARNET_ANTHROPIC_TOOL_ANCHOR=0 (read per call): the system-only anchor layout');
     }
 
     // With NO system prompt the last tool is the only anchor that still covers the tool catalogue.
