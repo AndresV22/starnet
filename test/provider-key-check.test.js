@@ -63,6 +63,19 @@ A.ok(/noteKeyCheckFailure\('probe', id, obj, probeKey\)/.test(sidecar), 'a saved
 // ---- refused API calls are no longer silent ----
 A.ok(/isAllowedApiOrigin\(String\(req\.headers\.origin \|\| ''\), PORT, req\.headers\.host\)\) \{ noteApiRefusal\(req, 'forbidden origin'\);/.test(sidecar), 'rejectApi passes the Host (tunnel same-origin) and notes an origin refusal');
 A.ok(/noteApiRefusal\(req, 'forbidden token'\);/.test(sidecar), 'a stale-token refusal is noted');
+// sidecar-index-06: a page the station WITHHELD its key from sends no key at all. Its refusals must not be logged as "a
+// page from before a sidecar restart; reload it" (the station did not restart, and reloading changes nothing).
+{
+  const m = /function noteApiRefusal\(req, reason\) \{[\s\S]*?\n\}/.exec(sidecar);
+  A.ok(m, 'index.js defines noteApiRefusal');
+  const lines = [];
+  const note = new Function('apiRefusalsSeen', 'apiauth', 'PORT', 'recordDiagError', 'failNote', 'console', m[0] + '\nreturn noteApiRefusal;')(
+    new Set(), require('../sidecar/apiauth.js'), 8787, () => {}, () => {}, { warn: l => lines.push(l) });
+  note({ method: 'GET', url: '/api/state', headers: { host: '127.0.0.1:8787', origin: 'http://127.0.0.1:8787' } }, 'forbidden token');
+  A.ok(lines[0] && !/before a sidecar restart/.test(lines[0]) && /no station key/.test(lines[0]), 'a key-less request is not called a stale page: ' + lines[0]);
+  note({ method: 'GET', url: '/api/state', headers: { host: '127.0.0.1:8787', origin: 'http://127.0.0.1:8787', 'x-starnet-token': 'old-launch-key' } }, 'forbidden token');
+  A.ok(lines[1] && /before a sidecar restart; reload it/.test(lines[1]), 'a wrong key is still a page from before a restart: ' + lines[1]);
+}
 A.ok(/if \(apiRefusalsSeen\.has\(sig\) \|\| apiRefusalsSeen\.size >= 64\) return;/.test(sidecar), 'refusal notes are once per cause and bounded');
 
 // ---- Settings shows the reason ----

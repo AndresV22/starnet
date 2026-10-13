@@ -497,12 +497,16 @@ function noteApiRefusal(req, reason) {
   try {
     const clean = v => String(v == null ? '' : v).replace(/[^\x20-\x7e]/g, '?').slice(0, 120);
     const origin = clean(req.headers.origin), host = clean(req.headers.host);
-    const sig = reason + '|' + origin + '|' + host;
+    // a request with NO key is not a page from before a restart: it is a page this station withheld its key from (the
+    // "withheld the station token" line names why) or not a StarNet page. Only a WRONG key is a stale page.
+    const noKey = reason === 'forbidden token' && !apiauth.headerToken(req);
+    const sig = reason + (noKey ? ':none' : '') + '|' + origin + '|' + host;
     if (apiRefusalsSeen.has(sig) || apiRefusalsSeen.size >= 64) return;
     apiRefusalsSeen.add(sig);
     const line = '[api] refused ' + clean(req.method) + ' ' + clean(apiauth.pathOf(req.url)) + ' — ' + reason +
       ' (origin ' + (origin || 'none') + ', host ' + (host || 'none') + ', station port ' + PORT + ')' +
-      (reason === 'forbidden token' ? ' — a page from before a sidecar restart; reload it' : '') +
+      (reason === 'forbidden token' ? (noKey ? ' — the request carried no station key: a page the station kept its key from (see "withheld the station token"), or not a StarNet page'
+        : ' — a page from before a sidecar restart; reload it') : '') +
       (reason === 'forbidden host' ? ' — StarNet answers only on localhost/127.0.0.1; reach it through a port forward' : '');
     console.warn(line);
     recordDiagError(line);
