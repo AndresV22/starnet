@@ -1499,6 +1499,9 @@
          right after the summary note. The micro tier removes no message, so there it simply stays where it is. */
       const ctxNote = isRunContextNote ? (plan.older.find(isRunContextNote) || null) : null;
       const foldOlder = ctxNote ? plan.older.filter(m => m !== ctxNote) : plan.older;
+      // the pin can leave NOTHING to fold (the plan's slice was the note alone): no paid summarizer call over an empty
+      // slice, no agent.compact for a fold that removes nothing — the same answer as an empty plan above
+      if (!foldOlder.length) return false;
       const carriedCtx = ctxNote ? [ctxNote] : [];
       const beforeTokens = context.estimateMessages(messages);
       const threshold = (typeof context.thresholdTokens === 'function') ? context.thresholdTokens() : 0;

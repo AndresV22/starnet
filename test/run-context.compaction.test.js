@@ -64,5 +64,33 @@ const isSummary = m => m && m.role === 'system' && /^<conversation_summary>/.tes
     if (mode === 'paid') A.ok(slices.length && slices.every(s => !s.some(isRunContextNote)), 'paid: the summarizer never receives the note to paraphrase');
     A.eq(res.messages.filter(isRunContextNote).length, 1, mode + ': the final transcript holds one note');
   }
+  // ONLY THE NOTE WOULD FOLD: a big pinned prefix pushes the prompt over the threshold, and the foldable slice is the
+  // note + one short user turn, so the tail keeps the user turn and the plan's `older` is the note alone. The pin takes
+  // it out of the slice, leaving NOTHING to fold: no summarizer call (a paid call over an empty slice) and no
+  // agent.compact claiming a fold that removed nothing.
+  {
+    const ctx = makeContext(Object.assign({ contextLimit: 20000 }, RUN_CONTEXT_DEFAULTS));
+    const bigNote = runContextNote('<task_brief id="tb_r2" status="active">ORIGINAL REQUEST: ' + 'b'.repeat(20000) + '</task_brief>\n\n[RUNTIME]\nRun id: r2');
+    const messages = [
+      { role: 'system', content: 'You are an auditor agent. ' + 's'.repeat(56000) },
+      { role: 'user', content: 'Directive: audit the config files.' },
+      { role: 'system', content: bigNote },
+      { role: 'user', content: 'Go.' }
+    ];
+    A.eq(ctx.planCompaction(messages.slice(2)).older.map(m => m.content), [bigNote], 'setup: the plan would fold the note and nothing else');
+    const requests = [], slices = [], compacts = [];
+    const res = await runAgentLoop({
+      messages, provider: scripted(ctx, 0, requests), cost: makeCostEngine({ priceOf: () => null }), context: ctx, tools: READ_TOOL,
+      dispatch: async () => ({ ok: true, content: 'unused' }),
+      emit: (nm, p) => { if (nm === 'agent.compact') compacts.push(p); },
+      summarize: async (older) => { slices.push(older); return { summary: '## Active Task\nAudit.', usd: 0, tokens: 0 }; },
+      microCompaction: false, model: 'm', agentId: 'a', runId: 'r2', limits: { maxIters: 5 }
+    });
+    A.eq(res.reason, 'done', 'note-only: the run completes');
+    A.eq(slices.length, 0, 'note-only: the summarizer is never called (nothing to fold)');
+    A.eq(compacts.length, 0, 'note-only: no agent.compact is emitted');
+    A.ok(requests.length >= 1 && requests.every(r => !r.some(isSummary)), 'note-only: no request carries a summary note');
+    A.ok(requests.every(r => r.filter(isRunContextNote).length === 1), 'note-only: the note rides every request, once');
+  }
   A.report('run-context.compaction');
 })().catch(e => { console.error(e && e.stack || e); process.exit(1); });
