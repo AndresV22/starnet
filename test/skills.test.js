@@ -450,7 +450,7 @@ const redact = (t) => String(t).replace(/sk-[A-Za-z0-9]{8,}/g, '[redacted]');
   const g = runtimeSkills.composeIndex([], { emptyGuide: true, canManage: true }).text;
   A.ok(/## SAVED AGENT SKILLS/.test(g) && /no saved skills yet/.test(g), 'emptyGuide -> a zero-skill agent is told it has none and what a skill is');
   A.ok(g.indexOf('skill.manage (action create)') >= 0, 'the line names the create call the agent actually has');
-  A.ok(g.indexOf('after the Commander approves it in ABILITIES > SKILLS') >= 0, 'the line never implies a saved skill applies before the Commander approves it');
+  A.ok(g.indexOf('It applies once approved in ABILITIES > SKILLS.') >= 0, 'the line never implies a saved skill applies before the Commander approves it');
   A.ok(/skill.write/.test(runtimeSkills.composeIndex([], { emptyGuide: true, canManage: false }).text), 'without skill.manage the line names skill.write');
   A.eq(runtimeSkills.composeIndex([], { emptyGuide: true, canManage: true }).text, g, 'the line is a constant (rides the cached prefix)');
   const allArchived = runtimeSkills.composeIndex([{ name: 'Old', body: 'x', state: 'archived' }, { name: 'Older', body: 'y', state: 'archived' }], { emptyGuide: true, canManage: true }).text;

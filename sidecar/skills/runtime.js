@@ -82,7 +82,7 @@
       + (canManage ? 'with skill.manage (action create)' : 'with skill.write')
       + ' before you finish: a short name, a one-line summary of when to use it, and the steps. '
       // A model-written skill is a pending proposal: say so, or the agent believes it already applies.
-      + 'It is a proposal: it becomes available after the Commander approves it in ABILITIES > SKILLS.';
+      + 'It applies once approved in ABILITIES > SKILLS.';
   }
 
   function composeIndex(skills, opts) {
