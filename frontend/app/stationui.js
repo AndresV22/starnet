@@ -4336,12 +4336,12 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       const card = mkEl('div', 'sk-card want open'); host.appendChild(card);
       card.dataset.skillCandidate = candidate.candidateId;
       card.innerHTML = '<div class="sk-card-head"><div class="sk-card-main"><div class="sk-name-row"><span class="sk-name">' + esc(skill.name || candidate.name) + '</span><span class="sk-badge want">PROPOSED REVISION</span></div><div class="sk-desc">Any existing active version stays available. This proposal needs a task evaluation and your approval. If a complete evaluation shows no improvement but the proposal passed every check, you can still approve it by confirming that.</div></div></div>' +
-        '<div class="sk-body"><div class="sk-attr">Proposed scope: ' + esc(skill.scope || 'agent') + ' · revision ' + esc(candidate.revision) + '</div><pre>' + esc(skill.body || '') + '</pre>' +
+        '<div class="sk-body"><div class="sk-attr">Proposed sharing: ' + esc(skillScopeText(skill.scope, skill.projectRoot)) + ' · revision ' + esc(candidate.revision) + '</div><pre>' + esc(skill.body || '') + '</pre>' +
         '<details><summary>Proposed metadata and package files</summary><pre>' + esc(JSON.stringify({ candidateDigest: candidate.candidateDigest, baseDigest: candidate.baseDigest, summary: skill.summary, description: skill.description, setup: skill.setup, category: skill.category, requires: skill.requires, platforms: skill.platforms, state: skill.state, scope: skill.scope, projectRoot: skill.projectRoot, packageFiles: skill.packageFiles }, null, 2)) + '</pre></details>' +
         (skill.files || []).map(f => '<details><summary>' + esc(f.path) + '</summary><pre>' + esc(f.content || '') + '</pre></details>').join('') +
         '<div class="sk-attr">Evaluation checks only the selected task family. A passing result does not prove improvement for every use.</div><div data-evaluation-suites></div>' +
         '<div class="sk-attr" data-evaluation-result>No evaluation run from this panel yet.</div><div class="consent-btns mc-acts"><button class="consent-btn" data-candidate-approve disabled>Approve evaluated revision</button><button class="consent-btn" data-candidate-acknowledge hidden disabled>Approve without measured improvement</button><button class="consent-btn" data-candidate-reject>Reject proposal</button></div>' +
-        '<details><summary>Register task checks (JSON)</summary><div class="sk-attr">Declare repeatable tasks and exact checks, including a held-out case. The station validates and runs this suite before approval.</div><textarea class="cf-ta mc-edit" data-suite-json spellcheck="false" aria-label="Evaluation suite JSON"></textarea><button class="consent-btn" data-suite-register>Register task checks</button></details></div>';
+        '<details><summary>Register task checks (JSON)</summary><div class="sk-attr">Declare repeatable tasks and exact checks, including a held-out case. The station validates and runs this suite before approval.</div><textarea class="cf-ta mc-edit" data-suite-json spellcheck="false" aria-label="Evaluation suite JSON" placeholder="' + esc(SUITE_EXAMPLE) + '"></textarea><button class="consent-btn" data-suite-register>Register task checks</button></details></div>';
       const suiteHost = card.querySelector('[data-evaluation-suites]');
       const note = card.querySelector('[data-evaluation-result]');
       const approve = card.querySelector('[data-candidate-approve]');
@@ -4390,11 +4390,14 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       if (typeof ArmConfirm !== 'undefined' && ArmConfirm.wire) {
         ArmConfirm.wire(acknowledge, { armedLabel: 'Confirm: approve with no measured improvement', onConfirm: () => decide({ acknowledgeNoImprovement: true }) });
       }
-      reject.onclick = async () => {
+      const doReject = async () => {
         if (busy) return; busy = true; reject.disabled = true;
         try { await skillReviewPost('reject-candidate', request); loadAgentSkills(agentId); }
         catch (e) { note.textContent = e.message; busy = false; reject.disabled = false; }
       };
+      // Rejecting discards the proposal and whatever evaluation it had: arm, then confirm, like the acknowledgement.
+      if (typeof ArmConfirm !== 'undefined' && ArmConfirm.wire) ArmConfirm.wire(reject, { armedLabel: 'Confirm: reject proposal', onArm: () => sfx('bad'), onConfirm: doReject });
+      else reject.onclick = doReject;
       const register = card.querySelector('[data-suite-register]');
       register.onclick = async () => {
         if (busy) return;
@@ -4407,6 +4410,14 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     }
   }
 
+  // Skill sharing in plain words (skillstore.js isAccessible): agent = only the owning agent; project = any
+  // agent working in that project folder; station = every agent on the station.
+  const SKILL_SCOPE_LABEL = { agent: 'Only this agent', project: 'This project', station: 'Whole station' };
+  const skillScopeText = (scope, root) => (SKILL_SCOPE_LABEL[scope || 'agent'] || String(scope)) + (root ? ' · ' + root : '');
+  const SUITE_EXAMPLE = 'Example:\n{ "id": "owner:weekly-brief", "version": 1, "description": "Weekly brief",\n  "cases": [\n' +
+    '    { "id": "basic", "prompt": "Write brief.json for this week", "writablePaths": ["brief.json"],\n' +
+    '      "checks": [{ "id": "title", "kind": "artifact_json_equal", "path": "brief.json", "expected": { "title": "Week 41" } }] },\n' +
+    '    { "id": "held", "heldOut": true, "prompt": "…", "writablePaths": ["brief.json"], "checks": [ … ] } ] }';
   function renderAgentSkills(host, skills, agentId, review) {
     review = review || {};
     if (!skills.length && !(review.candidates || []).length && !review.error) {
@@ -4463,7 +4474,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
             '</div>' +
             '<button class="sk-expand" data-ag-act="expand" title="Read the skill">&gt;</button>' +
           '</div>' +
-          '<div class="sk-body">' + heldBlock + '<div class="sk-attr">Shared with: ' + esc(s.scope || 'agent') + (s.projectRoot ? ' · ' + esc(s.projectRoot) : '') + '</div><pre>' + esc(s.body || '') + '</pre>' + files + absorbed + packageState +
+          '<div class="sk-body">' + heldBlock + '<div class="sk-attr">Shared with: ' + esc(skillScopeText(s.scope, s.projectRoot)) + '</div><pre>' + esc(s.body || '') + '</pre>' + files + absorbed + packageState +
             '<div class="consent-btns mc-acts">' +
               heldBtn +
               packageButtons +
@@ -4483,22 +4494,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
         const opened = card.classList.toggle('open'); btn.textContent = opened ? 'v' : '>'; sfx('click'); return;
       }
       if (act === 'edit') { editAgentSkill(card, skill, agentId); return; }
-      if (act === 'sharing') {
-        const body = card.querySelector('.sk-body');
-        if (body.querySelector('[data-skill-sharing]')) return;
-        const panel = mkEl('div', ''); panel.dataset.skillSharing = '1'; body.appendChild(panel);
-        const input = mkEl('input', 'key-input'); input.value = skill.projectRoot || ''; input.placeholder = 'Absolute project path for project sharing'; input.setAttribute('aria-label', 'Project sharing path'); panel.appendChild(input);
-        const note = mkEl('div', 'sk-attr'); note.textContent = 'Agent is private to this owner. Project shares only in this project. Station shares with all station agents.'; panel.appendChild(note);
-        for (const scope of ['agent', 'project', 'station']) {
-          const button = mkEl('button', 'consent-btn'); button.textContent = 'Share: ' + scope; panel.appendChild(button);
-          button.onclick = async () => {
-            button.disabled = true;
-            try { await skillReviewPost('share', { agentId, target: skill.id, scope, projectRoot: input.value }); loadAgentSkills(agentId); }
-            catch (e) { note.textContent = e.message; button.disabled = false; }
-          };
-        }
-        return;
-      }
+      if (act === 'sharing') { toggleSkillSharing(card, skill, agentId); return; }
       if (act === 'check') {
         btn.classList.add('busy');
         const r = await Harness.skillExchangeCheck({ agentId, id: skill.id }); btn.classList.remove('busy');
@@ -4563,6 +4559,33 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       if (r && r.ok) { sfx('click'); loadAgentSkills(agentId); } else btn.classList.remove('busy');
     }));
     renderSkillCandidates(host, agentId, review);
+  }
+
+  // Change sharing: a second click closes it, the current choice is marked, and the folder field shows only
+  // for This project (the host refuses a project share without a trusted folder).
+  function toggleSkillSharing(card, skill, agentId) {
+    const body = card.querySelector('.sk-body'); if (!body) return;
+    const shown = body.querySelector('[data-skill-sharing]');
+    if (shown) { shown.remove(); return; }
+    const panel = mkEl('div', ''); panel.dataset.skillSharing = '1'; body.appendChild(panel);
+    const note = mkEl('div', 'sk-attr'); panel.appendChild(note);
+    note.textContent = 'Only this agent: just ' + agentId + ' uses it. This project: any agent working in that project folder. Whole station: every agent.';
+    const row = mkEl('div', 'consent-btns mc-acts'); panel.appendChild(row);
+    const input = mkEl('input', 'key-input'); input.value = skill.projectRoot || ''; input.placeholder = 'Project folder (full path)';
+    input.setAttribute('aria-label', 'Project folder to share with'); input.hidden = (skill.scope || 'agent') !== 'project'; panel.appendChild(input);
+    for (const scope of ['agent', 'project', 'station']) {
+      const current = (skill.scope || 'agent') === scope;
+      const button = mkEl('button', 'consent-btn' + (current ? ' sel' : '')); button.type = 'button';
+      button.textContent = SKILL_SCOPE_LABEL[scope]; button.setAttribute('aria-pressed', current ? 'true' : 'false'); row.appendChild(button);
+      button.onclick = async () => {
+        if (scope === 'project' && input.hidden) {   // ask for the folder first; the next click shares it
+          input.hidden = false; note.textContent = 'Enter the project folder, then click This project again.'; input.focus(); return;
+        }
+        button.disabled = true;
+        try { await skillReviewPost('share', { agentId, target: skill.id, scope, projectRoot: scope === 'project' ? input.value : '' }); loadAgentSkills(agentId); }
+        catch (e) { note.textContent = e.message; button.disabled = false; }
+      };
+    }
   }
 
   function editAgentSkill(card, skill, agentId) {

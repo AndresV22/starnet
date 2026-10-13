@@ -67,7 +67,7 @@ async function checkAvailability() {
   A.eq(unavailable.requested, '', 'unavailable authority never produces a guessed skill query');
   A.ok(unavailable.host.innerHTML.includes('Could not load'), 'unavailable authority renders recovery instead of missing-prop advice');
   await checkCandidateReview();
-  A.report('abilities.skills-lane.test');
+  await checkSkillSharing();
 }
 checkAvailability().catch(error => { console.error(error); process.exitCode = 1; });
 
@@ -97,6 +97,8 @@ async function checkCandidateReview() {
   // Fake DOM does not parse disabled attributes, but the actual markup must start disabled.
   A.ok(card.html.includes('data-candidate-approve disabled'), 'pending approval starts disabled');
   A.ok(card.html.includes('does not prove improvement for every use'), 'UI states evaluation scope honestly');
+  A.ok(card.html.includes('Proposed sharing: Only this agent · revision 3'), 'proposed sharing reads in plain words, not the raw scope id');
+  A.ok(/data-suite-json[^>]*placeholder="Example:/.test(card.html), 'the task-check editor shows an example suite');
   A.ok(card.html.includes('data-candidate-acknowledge hidden disabled'), 'no-improvement approval starts hidden and disabled');
   // The header states the gate the station enforces: a passing evaluation, or a complete no-improvement one the owner confirms.
   A.ok(!card.html.includes('needs a passing task evaluation'), 'header does not claim a pass is the only way through');
@@ -119,7 +121,12 @@ async function checkCandidateReview() {
   await card2.querySelector('[data-evaluation-suites]').children[1].onclick();
   A.eq(card2.querySelector('[data-candidate-approve]').disabled, true, 'regressed proposal cannot be approved from panel');
   A.eq(card2.querySelector('[data-candidate-acknowledge]').disabled, true, 'regressed proposal cannot be acknowledged from panel');
-  await card2.querySelector('[data-candidate-reject]').onclick();
+  // Review finding world-render-10: a misclick must not discard an evaluated proposal. Reject arms first.
+  const rejectBtn = card2.querySelector('[data-candidate-reject]');
+  A.ok(rejectBtn.armed && typeof rejectBtn.armed.onConfirm === 'function', 'reject is an armed two-step confirm');
+  A.ok(!rejectBtn.onclick, 'reject has no one-click path when ArmConfirm is present');
+  A.eq(rejectBtn.armed.armedLabel, 'Confirm: reject proposal', 'the armed reject says what the second click does');
+  await rejectBtn.armed.onConfirm();
   A.ok(requests.at(-1).path.endsWith('/reject-candidate'), 'reject has a separate server decision');
   // A complete tie (every candidate case passed, no regression) offers ONLY the armed owner acknowledgement,
   // and the panel says plainly that the evaluation showed no improvement.
@@ -203,4 +210,56 @@ async function checkCandidateReview() {
   const card9 = host9.children[0];
   A.eq(card9.querySelector('[data-candidate-acknowledge]').hidden, false, 'a stored tie shows the acknowledgement');
   A.eq(card9.querySelector('[data-candidate-approve]').disabled, true, 'a stored tie never enables the measured approval');
+}
+
+// Review finding world-render-10: Change sharing speaks plain words, marks the current choice, asks for a
+// project folder only for This project, and a second click on Change sharing closes it.
+async function checkSkillSharing() {
+  function node(tag, cls) {
+    const n = { tag, className: cls || '', children: [], dataset: {}, attrs: {}, hidden: false, disabled: false, textContent: '', value: '', parent: null,
+      appendChild(c) { c.parent = n; n.children.push(c); return c; },
+      remove() { if (n.parent) n.parent.children.splice(n.parent.children.indexOf(n), 1); n.parent = null; },
+      setAttribute(k, v) { n.attrs[k] = String(v); }, focus() { n.focused = true; },
+      querySelector(sel) {
+        const want = sel === '.sk-body' ? c => /(^| )sk-body( |$)/.test(c.className) : sel === '[data-skill-sharing]' ? c => !!c.dataset.skillSharing : () => false;
+        for (const c of n.children) { if (want(c)) return c; const d = c.querySelector(sel); if (d) return d; }
+        return null;
+      } };
+    return n;
+  }
+  const consts = source.slice(source.indexOf('  // Skill sharing in plain words'), source.indexOf('  function renderAgentSkills('));
+  const fn = source.slice(source.indexOf('  function toggleSkillSharing('), source.indexOf('  function editAgentSkill('));
+  A.ok(consts.includes('SKILL_SCOPE_LABEL') && fn.includes('function toggleSkillSharing'), 'sharing helpers are present');
+  const posts = [], reloads = [];
+  const card = node('div', 'sk-card'), body = card.appendChild(node('div', 'sk-body'));
+  const ctx = { card, mkEl: node, loadAgentSkills: id => reloads.push(id),
+    skillReviewPost: async (action, payload) => { posts.push({ action, payload }); return { ok: true }; },
+    skill: { id: 'brief', scope: 'agent', projectRoot: '' } };
+  vm.runInNewContext(consts + fn + '\ntoggleSkillSharing(card, skill, "nova");', ctx);
+  const panel = body.querySelector('[data-skill-sharing]');
+  A.ok(panel, 'Change sharing opens the panel');
+  const row = panel.children.find(c => /consent-btns/.test(c.className)), buttons = row.children;
+  A.eq(buttons.map(b => b.textContent), ['Only this agent', 'This project', 'Whole station'], 'scope buttons use plain words, not raw ids');
+  A.eq(buttons.map(b => b.attrs['aria-pressed']), ['true', 'false', 'false'], 'the current sharing is marked');
+  A.ok(/(^| )sel( |$)/.test(buttons[0].className), 'the current sharing has the selected skin');
+  const input = panel.children.find(c => c.tag === 'input');
+  A.eq(input.hidden, true, 'no folder field until This project is chosen');
+  A.ok(panel.children[0].textContent.includes('just nova uses it'), 'the note says who uses each choice');
+  await buttons[1].onclick();
+  A.eq(posts.length, 0, 'choosing This project first asks for the folder');
+  A.eq(input.hidden, false, 'the folder field appears for This project');
+  input.value = 'C:/work/brief';
+  await buttons[1].onclick();
+  A.eq(posts.at(-1).payload, { agentId: 'nova', target: 'brief', scope: 'project', projectRoot: 'C:/work/brief' }, 'the second click shares with the folder');
+  await buttons[2].onclick();
+  A.eq(posts.at(-1).payload.projectRoot, '', 'a whole-station share sends no folder');
+  A.eq(reloads, ['nova', 'nova'], 'each confirmed share reloads authoritative state');
+  vm.runInNewContext('toggleSkillSharing(card, skill, "nova");', ctx);
+  A.eq(body.querySelector('[data-skill-sharing]'), null, 'a second Change sharing click closes the panel');
+  ctx.skill = { id: 'brief', scope: 'project', projectRoot: 'C:/work/brief' };
+  vm.runInNewContext('toggleSkillSharing(card, skill, "nova");', ctx);
+  const projectPanel = body.querySelector('[data-skill-sharing]');
+  A.eq(projectPanel.children.find(c => c.tag === 'input').hidden, false, 'a project-shared skill shows its folder');
+  A.eq(projectPanel.children.find(c => /consent-btns/.test(c.className)).children.map(b => b.attrs['aria-pressed']), ['false', 'true', 'false'], 'project sharing is marked current');
+  A.report('abilities.skills-lane.test');
 }
