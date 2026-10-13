@@ -19,7 +19,7 @@ function rig(type='loop') {
  const {s,I,B1,B2,O,J}=rig();
  A.ok(s.connectBelt(J,B1).ok,'first back lane remains allowed');
  const before=frozen(s),pv=s.previewBelt(J,I),r=s.connectBelt(J,I);
- A.ok(!pv.ok&&!r.ok,'cannot connect LOOP into INBOX');
+ A.ok(!pv.ok&&!r.ok,'cannot connect LOOP into INBOX');A.ok(frozen(s)===before,'refused LOOP->INBOX leaves floor unchanged');
  const upstream=add(s,'bay',34,15);s.assignPropAgent(upstream,'up');
  A.ok(s.connectBelt(upstream,B1).ok,'independent upstream BAY connects');
  const state=frozen(s),p=s.previewBelt(J,upstream),c=s.connectBelt(J,upstream);
@@ -138,7 +138,7 @@ function lines(n) {
  const before=plan(s),r=LE.run(s,b.B[0],'appendStep',{after:b.B[0],role:'WRITER'});
  A.ok(r.ok,'adding a step on clear nearby floor succeeds');
  const after=plan(s);A.ok(after.lines.length===2&&after.sendTo[a.O].intakeId===b.I,'editing B preserves two lines and A SEND TO');
- A.eq(after.lines.map(l=>l.maxHops).sort(),before.lines.map(l=>l.maxHops).sort(),'each line keeps its own budget');
+ const hops=(p,id)=>(p.lines.find(l=>l.intakes.includes(id))||{}).maxHops;A.ok(hops(before,a.I)===4&&hops(before,b.I)===9&&hops(after,a.I)===4&&hops(after,b.I)===9,'each line keeps its own budget, on its own INBOX — '+JSON.stringify([hops(before,a.I),hops(before,b.I),hops(after,a.I),hops(after,b.I)]));
 }
 // Names persist and duplicate line labels are refused without forbidding BAY labels.
 {
