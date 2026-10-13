@@ -11376,7 +11376,10 @@ const ROUTES = [
       status: w.status, working: w.working, startedAt: w.startedAt, prompt: String(w.prompt || '').slice(0, 80),
       // the parent's DELEGATED card (frontend/app/delegated.js): who, which dispatch, and whether STOP can act
       agentId: w.agentId, parentRunId: w.parentRunId || '', generation: w.generation, completedAt: w.completedAt || 0,
-      canInterrupt: !!w.canInterrupt, reason: w.reason || ''
+      canInterrupt: !!w.canInterrupt, reason: w.reason || '',
+      // the ledger's own explanation of a refused or failed worker (the crew-cap or sign-in sentence, a run's error) for
+      // the card's hover tip and NEEDS YOU. Never a timeout's or a rejected answer's result: that is partial work.
+      result: (w.status === 'refused' || (w.status === 'error' && (w.reason === 'error' || w.reason === 'refused'))) ? String(w.result || '').slice(0, 400) : ''
     })) }); }
     catch (e) { respondJson(res, 503, { error: e.message }); }
   } },

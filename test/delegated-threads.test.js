@@ -289,6 +289,8 @@ const roster = new Map([['researcher', { system: 'R', name: 'MIRA' }], ['writer'
   A.ok(/Delegated\.presentFor\(activeWs\.id\)/.test(chat), 'Chat.load mounts the card');
   A.ok(html.indexOf('app/overseer.js') >= 0 && html.indexOf('app/delegated.js') > 0, 'the page loads the card module');
   A.ok(/agentId: w\.agentId, parentRunId: w\.parentRunId \|\| '', generation: w\.generation/.test(idx), 'the overseer route carries the card\'s fields');
+  // comms-threads-ui-06: and the refusal or error sentence tipOf shows, never a timeout's partial work
+  A.ok(/result: \(w\.status === 'refused' \|\| \(w\.status === 'error' && \(w\.reason === 'error' \|\| w\.reason === 'refused'\)\)\) \? String\(w\.result \|\| ''\)\.slice\(0, 400\) : ''/.test(idx), 'the overseer route sends a refused or failed worker\'s own explanation');
   A.ok(/each worker\\'s work is filed on this conversation\\'s card/.test(idx), 'the lead prompt states the filing rule');
   A.ok(/childThread: require\('\.\/overseer\.js'\)\.isCoordinatorRun/.test(idx), 'only coordinator runs file child threads');
   // a worker thread asks overseer.create for a free title (count up, then the ask time: test/overseer.test.js runs this
