@@ -105,7 +105,7 @@ const NeedsYou = (() => {
   function keysFor(i) {
     const k = (act, label, cls, off) => '<button type="button" class="ny-key' + (cls ? ' ' + cls : '') + '" data-ny-act="' + act + '" data-ny-key="' + esc(i.key) + '"' + (off ? ' disabled' : '') + '>' + label + '</button>';
     const sending = !!(i.p && answering.has(String(i.p.promptId)));
-    if (i.kind === 'approval') return (hiddenDetail(i.p) ? k('open', 'Review', 'primary') : k('once', 'Approve', 'primary', sending)) + k('deny', 'Deny', 'deny', sending);
+    if (i.kind === 'approval') return (hiddenDetail(i.p) ? k('open', 'Review', 'primary') : k('once', 'Approve once', 'primary', sending)) + k('deny', 'Deny', 'deny', sending);
     if (i.kind === 'question') return k('open', 'Answer', 'primary');
     if (i.kind === 'routine' && i.routineId) return k('retry', 'Retry', 'primary') + k('open', 'Open');
     if (i.kind === 'failed') return k('open', 'Open') + k('dismiss', 'Dismiss', 'quiet');

@@ -208,7 +208,7 @@ const Delegated = (() => {
       const key = st.cls === 'waiting' && st.pend.tool === 'brief.ask'
         ? '<button type="button" class="dg-key primary" data-dg-question="' + esc(st.pend.promptId) + '">Answer</button>'
         : st.cls === 'waiting'
-        ? '<span class="dg-keys"><button type="button" class="dg-key primary" data-dg-consent="once" data-dg-ws="' + esc(id) + '" data-dg-prompt="' + esc(st.pend.promptId) + '"' + (answering.has(String(st.pend.promptId)) ? ' disabled' : '') + '>Approve</button>'
+        ? '<span class="dg-keys"><button type="button" class="dg-key primary" data-dg-consent="once" data-dg-ws="' + esc(id) + '" data-dg-prompt="' + esc(st.pend.promptId) + '"' + (answering.has(String(st.pend.promptId)) ? ' disabled' : '') + '>Approve once</button>'
           + '<button type="button" class="dg-key deny" data-dg-consent="deny" data-dg-ws="' + esc(id) + '" data-dg-prompt="' + esc(st.pend.promptId) + '"' + (answering.has(String(st.pend.promptId)) ? ' disabled' : '') + '>Deny</button></span>'
         : st.stop
           ? '<button type="button" class="dg-key deny" data-dg-stop="' + esc(st.worker.id) + '" data-tip="Stop ' + esc(who) + '"' + (stopping.has(st.worker.id) ? ' disabled' : '') + '>' + (stopping.has(st.worker.id) ? 'Stopping…' : 'Stop') + '</button>'

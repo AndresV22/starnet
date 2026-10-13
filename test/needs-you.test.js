@@ -105,7 +105,7 @@ const NY = require('../frontend/app/needsyou.js');
   const build = ask({ promptId: 'p21', tool: 'station.build', argsSummary: 'build a kitchen\n1. place a stove by the wall' });
   A.ok(/>Review</.test(k(build)) && !/data-ny-act="once"/.test(k(build)), 'a station build shows its plan on the card before it is approved');
   A.ok(!/data-ny-act="once"/.test(k(ask({ promptId: 'p22', tool: 'fs.write', argsSummary: JSON.stringify({ path: 'notes.md', content: 'x' }) }))), 'a file change is inspected on its card');
-  A.ok(/data-ny-act="once"[^>]*>Approve</.test(k(ask({ promptId: 'p23', tool: 'fs.read', argsSummary: 'notes.md' }))), 'a request the rail shows whole is still one-tap Approve');
+  A.ok(/data-ny-act="once"[^>]*>Approve once</.test(k(ask({ promptId: 'p23', tool: 'fs.read', argsSummary: 'notes.md' }))), 'a request the rail shows whole is still one-tap Approve');
   const inspect = global.Chat.consentInspect; delete global.Chat.consentInspect;
   A.ok(!/data-ny-act="once"/.test(k(ask({ promptId: 'p24', tool: 'fs.read', argsSummary: 'notes.md' }))), 'with no way to tell, the rail never approves blind');
   global.Chat.consentInspect = inspect;
@@ -121,7 +121,7 @@ const NY = require('../frontend/app/needsyou.js');
   const longPath = ask({ promptId: 'p28', tool: 'fs.read', argsSummary: 'C:\\Users\\andro\\projects\\launch-prep\\drafts\\pricing\\tier-comparison-final.md' });
   A.eq(global.Chat.consentInspect(longPath.p), null, '(a bare path under the glance limit has no INSPECT panel on its card)');
   A.ok(/>Review</.test(k(longPath)) && !/data-ny-act="once"/.test(k(longPath)), 'a path longer than the rail shows is reviewed on its card');
-  A.ok(/data-ny-act="once"[^>]*>Approve</.test(k(ask({ promptId: 'p29', tool: 'fs.read', argsSummary: 'notes.md' }))), 'a short request is still one-tap Approve');
+  A.ok(/data-ny-act="once"[^>]*>Approve once</.test(k(ask({ promptId: 'p29', tool: 'fs.read', argsSummary: 'notes.md' }))), 'a short request is still one-tap Approve');
   global.Chat.consentPhrase = phrase;
 }
 {
