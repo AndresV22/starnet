@@ -26,6 +26,17 @@
     if (typeof StationUI.openTerm === 'function') StationUI.openTerm('connectors', 'catalog');
   };
 
+  /* LOCKED CREDENTIAL STORAGE — the next step the panel names under the sidecar's own message. A held file ('busy':
+     antivirus, backup or sync) is fixed by a restart, and START FRESH would only set an intact store aside, so the
+     restart comes first and START FRESH stays as the exit for a file still locked after one. "Unlock the credential
+     store" fits only an unreachable OS store; any other lock with no START FRESH leaves the sidecar's message to speak. */
+  function storageNextStep(storage) {
+    const s = storage || {};
+    if (s.reason === 'busy') return s.canStartFresh ? ' Restart StarNet first. Use START FRESH only if it is still locked after a restart.' : ' Restart StarNet to try again.';
+    if (s.canStartFresh) return ' START FRESH sets the unreadable files aside and lets you sign in to each service again.';
+    return s.reason === 'key-unavailable' ? ' Unlock the credential store and restart StarNet.' : '';
+  }
+
   /* ============== CONNECTORS — attach MCP servers so agents gain external tools ==============
      A connector is a remote MCP (Model Context Protocol) server. Once added + connected, its tools
      become real agent tools, gated by the same consent prompt as everything else. The server URL +
@@ -1017,8 +1028,7 @@
           notices.innerHTML += '<div class="mc-notice"><b>Credential storage</b>' + esc(storageError) + '</div>';
           // START FRESH is the exit the sidecar offers for a store it cannot open (wrong key, damaged, unrecognized):
           // the old files are moved aside, never deleted, and every service is signed in again.
-          listEl.innerHTML = '<div class="mc-detail">Your saved connections have not been erased.' +
-            (storage.canStartFresh ? ' START FRESH sets the unreadable files aside and lets you sign in to each service again.' : ' Unlock the credential store and restart StarNet.') + '</div>' +
+          listEl.innerHTML = '<div class="mc-detail">Your saved connections have not been erased.' + storageNextStep(storage) + '</div>' +
             (storage.canStartFresh ? '<div class="mc-acts"><button class="bb sm danger" id="mc-start-fresh" type="button">START FRESH</button></div>' : '');
           const fresh = listEl.querySelector('#mc-start-fresh');
           if (fresh && typeof ArmConfirm !== 'undefined' && ArmConfirm.wire) {

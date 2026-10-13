@@ -26,4 +26,25 @@ A.ok(/clientSecret: clientSecret, tokenEndpointAuthMethod: tokenEndpointAuthMeth
   'DCR client secrets stay inside the protected callback/refresh persistence path');   // `cur` = the single-flight refresh's freshest stored entry (was `t` before the per-connector refresh coalescing)
 A.ok(/migrateConnectorCatalogKeyHeaders/.test(host) && /headers\[catalogEntry\.keyHeader\] = token;[\s\S]{0,80}token = ''/.test(host),
   'catalog-specific API key headers migrate and save without also sending a stale Bearer credential');
+// The locked credential-storage panel, run on the shapes the sidecar sends (review findings security-storage-05 and
+// sidecar-index-07). A held file ('busy') is fixed by a restart, so the panel names the restart first and keeps
+// START FRESH only as the exit for a file still locked after one. "Unlock the credential store" fits only an
+// unreachable OS store; any other lock with no START FRESH adds nothing to the sidecar's own message.
+{
+  const vm = require('node:vm');
+  const body = A.fnBody(connectors, 'function storageNextStep(');
+  A.ok(body && body.length < 2000, 'connectors.js has the storage next-step helper');
+  const ctx = {};
+  vm.createContext(ctx);
+  if (body) vm.runInContext(body + '\nthis.next = storageNextStep;', ctx);
+  const next = s => (ctx.next ? ctx.next(s) : '');
+  const busy = next({ reason: 'busy', canStartFresh: true });
+  A.ok(/Restart StarNet first/.test(busy) && /START FRESH only if it is still locked after a restart/.test(busy), 'a busy file names the restart first: ' + busy);
+  A.ok(!/unreadable files aside/.test(busy), 'and never steers a held, intact store to START FRESH: ' + busy);
+  A.eq(next({ reason: 'busy', canStartFresh: false }), ' Restart StarNet to try again.', 'a busy lock with no START FRESH says restart');
+  A.ok(/START FRESH sets the unreadable files aside/.test(next({ reason: 'key-mismatch', canStartFresh: true })), 'a wrong-key store keeps the START FRESH line');
+  A.eq(next({ reason: 'key-unavailable', canStartFresh: false }), ' Unlock the credential store and restart StarNet.', 'the unlock advice is for an unreachable OS store');
+  A.eq(next({ reason: 'unreadable', canStartFresh: false }), '', 'any other lock with no START FRESH leaves the sidecar message to speak');
+  A.ok(/storageNextStep\(storage\)/.test(A.fnBody(connectors, 'async function refresh(')), 'the panel uses it');
+}
 A.report('connector-reliability-wiring.test');
