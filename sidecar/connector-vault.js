@@ -7,13 +7,18 @@ const FORMAT = 'starnet.connector-vault.v1';
 const AAD = Buffer.from(FORMAT);
 const UNAVAILABLE = 'Connector credentials are locked. Restart StarNet with the original OS account and an unlocked credential store.';
 // Why the saved sign-ins could not be opened. Each one names what the user can actually do about it:
-// a restart only helps when the OS store itself was unreachable; the other two need START FRESH.
-const LOCK_REASONS = ['key-unavailable', 'key-mismatch', 'unreadable'];
-function lockMessage(reason, keyError = '') {
+// a restart only helps when the OS store itself was unreachable; the others need START FRESH.
+// 'reset-interrupted': an earlier START FRESH stopped part-way (crash, power loss); pressing it again finishes it.
+const LOCK_REASONS = ['key-unavailable', 'key-mismatch', 'unreadable', 'reset-interrupted'];
+// detail (optional, from vault.lockDetail): { movedTo } for an interrupted reset.
+function lockMessage(reason, keyError = '', detail = {}) {
   const why = String(keyError || '').trim().slice(0, 240);
+  const movedTo = detail && typeof detail.movedTo === 'string' ? detail.movedTo.slice(0, 400) : '';
   if (reason === 'key-unavailable') return 'Saved connector sign-ins are locked: StarNet could not open this computer\'s credential store.' +
     (why ? ' Reason: ' + why + '.' : '') + ' They are safe and unchanged. Unlock or repair the credential store and restart StarNet, or START FRESH to sign in again.';
   if (reason === 'key-mismatch') return 'Saved connector sign-ins are locked: they were sealed with a key this OS account no longer has (its credential-store entry was reset, or this is a different account). START FRESH to sign in again. The old files are kept, not deleted.';
+  if (reason === 'reset-interrupted') return 'Saved connector sign-ins are locked: an earlier START FRESH was interrupted before it finished. Your old files were not deleted' +
+    (movedTo ? ' (copies are in ' + movedTo + ')' : '') + '. Press START FRESH to finish it.';
   return 'Saved connector sign-ins are locked: the saved file is damaged or from a newer StarNet. START FRESH to sign in again. The old files are kept, not deleted.';
 }
 function lockError(reason) { return Object.assign(new Error(UNAVAILABLE), { lockReason: LOCK_REASONS.includes(reason) ? reason : 'unreadable' }); }
@@ -35,7 +40,27 @@ function makeConnectorVault({ fs, path, keyHex = '', required = false, writeDura
   const key = keyHex ? Buffer.from(keyHex, 'hex') : null;
   let locked = false;
   let lockReason = '';
+  let lockInfo = {};
   let resetInProgress = false;
+  // The START FRESH recovery marker: { movedTo, sources: [basenames], previous?: [earlier folders] }.
+  // { absent } when there is none; { bad, movedTo? } when it exists but cannot be checked.
+  function readMarker(marker) {
+    let raw;
+    try { raw = fs.readFileSync(marker, 'utf8'); }
+    catch (e) { return e && e.code === 'ENOENT' ? { absent: true } : { bad: 'cannot be read (' + String(e && e.code || e) + ')' }; }
+    let m = null;
+    try { m = JSON.parse(raw); } catch (e) { return { bad: 'is not valid JSON' }; }
+    const movedTo = m && typeof m.movedTo === 'string' && m.movedTo ? m.movedTo : '';
+    const names = m && Array.isArray(m.sources) && m.sources.every(n => typeof n === 'string' && n && path.basename(n) === n) ? m.sources : null;
+    if (!movedTo || !names) return { bad: 'does not list the files it moved', movedTo };
+    const previous = Array.isArray(m.previous) ? m.previous.filter(p => typeof p === 'string' && p && p !== movedTo) : [];
+    return { raw, movedTo, sources: names, previous };
+  }
+  function lockDetailFor(reason, file) {
+    if (reason !== 'reset-interrupted') return {};
+    const m = readMarker(file + '.reset-pending');
+    return m.movedTo ? { movedTo: m.movedTo } : {};
+  }
   function decode(value) {
     if (value && typeof value.format === 'string' && value.format.startsWith('starnet.connector-vault.') && value.format !== FORMAT) throw lockError('unreadable');
     if (!value || value.format !== FORMAT) return value;
@@ -76,14 +101,18 @@ function makeConnectorVault({ fs, path, keyHex = '', required = false, writeDura
     if (locked) throw lockError(lockReason);
     try {
       // A reset interrupted after parking the old copies must never boot as an empty store.
-      if (!resetInProgress && fs.existsSync(file + '.reset-pending')) throw lockError('unreadable');
+      if (!resetInProgress && fs.existsSync(file + '.reset-pending')) throw lockError('reset-interrupted');
       const main = readOne(file);
       if (!main.absent && !main.corrupt) return main.value;
       const bak = readOne(file + '.bak');
       if (!bak.absent && !bak.corrupt) return bak.value;
       if (main.absent && bak.absent) return undefined;
       throw lockError('unreadable');
-    } catch (e) { locked = true; lockReason = (e && e.lockReason) || 'unreadable'; throw lockError(lockReason); }
+    } catch (e) {
+      locked = true; lockReason = (e && e.lockReason) || 'unreadable';
+      lockInfo = lockDetailFor(lockReason, file);
+      throw lockError(lockReason);
+    }
   }
   function readVerified(file, value) {
     const got = readOne(file);
@@ -147,19 +176,42 @@ function makeConnectorVault({ fs, path, keyHex = '', required = false, writeDura
     const empty = { version: 2, configs: [], oauth: { byId: {}, clients: {} } };
     const label = String(stamp || '').replace(/[^0-9A-Za-z-]/g, '-').slice(0, 40) || 'unknown';
     const dir = path.join(path.dirname(file), 'unreadable-' + label);
-    const sources = [file, ...legacyFiles].flatMap(f => [f, f + '.bak']).filter(src => fs.existsSync(src));
+    const candidates = [file, ...legacyFiles].flatMap(f => [f, f + '.bak']);
+    const sources = candidates.filter(src => fs.existsSync(src));
+    const marker = file + '.reset-pending';
+    /* RESUME AN INTERRUPTED RESET (security-storage-04). A crash or power loss after the marker was written left
+       the store locked, and every later START FRESH refused: a lock with no exit. Nothing is lost at any point of
+       an interrupted run, because originals are only removed after ALL copies are verified and flushed. So every
+       file the marker lists is either still in place or copied into its folder. When that holds, finish the job:
+       sweep what sits at the source paths now into a NEW folder (the earlier one is never touched) and record
+       both. When it does not (an unreadable marker, or a listed file in neither place), refuse and change nothing. */
+    const pending = readMarker(marker);
+    const refuse = (why, movedTo) => new Error('START FRESH cannot finish the earlier interrupted attempt: ' + why +
+      '. Your files were left as they are. To recover by hand, copy the files from ' + (movedTo || 'the unreadable-* folder') +
+      ' back into ' + path.dirname(file) + ', delete ' + marker + ', and restart StarNet.');
+    if (pending.bad) throw refuse('its record ' + marker + ' ' + pending.bad, pending.movedTo);
+    const resuming = !pending.absent;
+    if (resuming) {
+      const lost = pending.sources.filter(name => !candidates.some(c => path.basename(c) === name && fs.existsSync(c)) &&
+        !fs.existsSync(path.join(pending.movedTo, name)));
+      if (lost.length) throw refuse(lost.join(', ') + ' is in neither ' + path.dirname(file) + ' nor ' + pending.movedTo, pending.movedTo);
+    }
     for (const src of sources) {
       if (fs.existsSync(path.join(dir, path.basename(src)))) throw new Error('START FRESH could not keep ' + path.basename(src) + ' aside; nothing was changed');
     }
-    const marker = file + '.reset-pending';
-    if (fs.existsSync(marker)) throw new Error('START FRESH is incomplete from a previous attempt; saved recovery files were preserved. Restore the original files before retrying.');
-    const oldReason = lockReason || 'unreadable';
+    const previous = resuming ? [pending.movedTo, ...pending.previous] : [];
+    const oldReason = lockReason || (resuming ? 'reset-interrupted' : 'unreadable');
     const moved = [];
-    let writing = false;
+    let writing = false, wroteMarker = false;
     try {
       if (sources.length) fs.mkdirSync(dir, { recursive: true });
       // Durable intent precedes the first move. A crash leaves a visible locked store, never an empty one.
-      writeDurable({ fs, path }, marker, JSON.stringify({ movedTo: dir, sources: sources.map(src => path.basename(src)) }));
+      // A resume with nothing left to move keeps the earlier marker as it is (it already locks the store).
+      if (!resuming || sources.length) {
+        writeDurable({ fs, path }, marker, JSON.stringify(Object.assign({ movedTo: dir, sources: sources.map(src => path.basename(src)) },
+          previous.length ? { previous } : {})));
+        wroteMarker = true;
+      }
       // Verify every preserved copy before removing any original credential file.
       for (const src of sources) {
         const dest = path.join(dir, path.basename(src));
@@ -176,11 +228,11 @@ function makeConnectorVault({ fs, path, keyHex = '', required = false, writeDura
         moved.push(path.basename(src));
       }
       resetInProgress = true;
-      locked = false; lockReason = '';
+      locked = false; lockReason = ''; lockInfo = {};
       writing = true;
       write(file, empty, { removal: true });
       fs.unlinkSync(marker);
-      return { movedTo: moved.length ? dir : '', moved, state: empty };
+      return { movedTo: moved.length ? dir : '', moved, state: empty, previous };
     } catch (error) {
       locked = true; lockReason = oldReason;
       let restored = true;
@@ -203,15 +255,23 @@ function makeConnectorVault({ fs, path, keyHex = '', required = false, writeDura
       for (const dir of restoredDirs) {
         try { flushRecoveryDirectory(dir); } catch (_) { restored = false; }
       }
-      if (restored) try { fs.unlinkSync(marker); } catch (e) { if (e.code !== 'ENOENT') restored = false; }
-      const detail = restored ? 'The original files were restored and storage remains locked.'
-        : 'Storage remains locked; preserved recovery files are in ' + dir + '. Recovery did not fully restore the original locations.';
+      // A clean rollback returns to exactly the state before this attempt: no marker after a first attempt, the
+      // earlier marker after a resume (the store must stay locked while its old files are still parked).
+      if (restored && !resuming) try { fs.unlinkSync(marker); } catch (e) { if (e.code !== 'ENOENT') restored = false; }
+      if (restored && resuming && wroteMarker) try { writeDurable({ fs, path }, marker, pending.raw); } catch (e) { restored = false; }
+      lockInfo = lockDetailFor(lockReason, file);
+      const earlier = resuming ? ' Earlier copies stay in ' + pending.movedTo + '.' : '';
+      const detail = restored ? (resuming ? 'Storage remains locked' + (moved.length ? '; the files it moved were put back' : '') + '.' + earlier
+        : 'The original files were restored and storage remains locked.')
+        : 'Storage remains locked; preserved recovery files are in ' + dir + '. Recovery did not fully restore the original locations.' + earlier;
       throw new Error('START FRESH failed. ' + detail + ' ' + String(error && error.message || error));
     } finally { resetInProgress = false; }
   }
   return { load, write, migrate, startFresh,
     get protected() { return !!key && !locked; }, get locked() { return locked; },
     get lockReason() { return locked ? lockReason : ''; },
+    // What the lock message can name: { movedTo } for an interrupted reset (lockMessage's third argument).
+    get lockDetail() { return locked ? Object.assign({}, lockInfo) : {}; },
     // The desktop expected an OS-keychain key and did not get one: whatever is saved is NOT encrypted.
     get fallback() { return !!required && !key; } };
 }

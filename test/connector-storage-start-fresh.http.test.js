@@ -5,7 +5,8 @@
    2. next launch WITH a key -> the fallback store is sealed;
    3. key changed under it   -> locked with reason key-mismatch + canStartFresh; sign-in refused; START FRESH
       keeps the old files aside byte-for-byte, writes a new sealed store, and the lock is gone after restart;
-   4. Settings' connector reset of a locked store also starts fresh instead of failing forever. */
+   4. Settings' connector reset of a locked store also starts fresh instead of failing forever;
+   5. an interrupted START FRESH locks as reset-interrupted, and START FRESH finishes it when its record checks out. */
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -74,12 +75,29 @@ const { FORMAT } = require('../sidecar/connector-vault.js');
     const savedBytes = fs.readFileSync(file, 'utf8');
     fs.writeFileSync(file + '.reset-pending', JSON.stringify({ movedTo: path.join(app.workspace, 'connectors/unreadable-interrupted') }));
     await app.start({ STARNET_CONNECTOR_ENCRYPTION_KEY: K1, STARNET_CONNECTOR_KEY_ERROR: '' });
-    assert.equal((await storage()).reason, 'unreadable', 'incomplete reset cannot boot as an empty store');
+    assert.equal((await storage()).reason, 'reset-interrupted', 'incomplete reset cannot boot as an empty store');
+    // a record this build never writes (no file list) cannot be checked: refuse, change nothing, name the way out
     const incomplete = await app.json('POST', '/api/connectors/storage/start-fresh', { confirm: true });
     assert.equal(incomplete.status, 500);
-    assert.match(incomplete.body.error, /incomplete from a previous attempt/);
+    assert.match(incomplete.body.error, /cannot finish the earlier interrupted attempt/);
+    assert.ok(incomplete.body.error.includes('unreadable-interrupted'), 'the refusal names the recovery folder');
     assert.ok(!incomplete.body.error.includes('nothing was changed'), 'failure message does not claim a rollback it did not prove');
     assert.equal(fs.readFileSync(file, 'utf8'), savedBytes, 'retry leaves the active recovery data unchanged');
+    await app.stop();
+    // security-storage-04: a crash during the copy phase (originals in place, the record lists them) used to lock the
+    // store as "damaged" forever, and every START FRESH refused. It now says what happened and START FRESH finishes it.
+    fs.writeFileSync(file + '.reset-pending', JSON.stringify({ movedTo: path.join(app.workspace, 'connectors/unreadable-crashed'), sources: ['state.json', 'state.json.bak'] }));
+    await app.start({ STARNET_CONNECTOR_ENCRYPTION_KEY: K1, STARNET_CONNECTOR_KEY_ERROR: '' });
+    s = await storage();
+    assert.equal(s.reason, 'reset-interrupted');
+    assert.equal(s.canStartFresh, true);
+    assert.match(s.error, /START FRESH was interrupted.*Press START FRESH to finish it/, 'the lock says what happened: ' + s.error);
+    assert.doesNotMatch(s.error, /damaged|newer StarNet/, 'and does not call intact files damaged');
+    const finished = await app.json('POST', '/api/connectors/storage/start-fresh', { confirm: true });
+    assert.equal(finished.status, 200, 'START FRESH finishes an interrupted reset: ' + JSON.stringify(finished.body));
+    assert.ok(!fs.existsSync(file + '.reset-pending'), 'the recovery marker is cleared');
+    assert.equal(fs.readFileSync(path.join(finished.body.movedTo, 'state.json'), 'utf8'), savedBytes, 'the old store is kept in the new folder');
+    assert.equal((await storage()).error, null, 'and the store is open');
     console.log('connector-storage-start-fresh.http: PASS (fresh-install fallback + reason, seal on keyed launch, key-mismatch lock, confirmed START FRESH keeps old files, restart, Settings reset exit)');
   } finally { await app.dispose(); }
 })().catch(error => { console.error(error); process.exitCode = 1; });
