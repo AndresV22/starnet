@@ -64,4 +64,19 @@ assert.equal('trustedOnly' in L.evidence({runId:'c'}),false,'a clean run keeps t
     for (const p of saved) assert.equal(isStandingMemory({ kind: p.kind, content: p.content, scope: p.scope, projectRoot: p.projectRoot, confirmation: 'user-stated' }), true, 'the reader treats it as standing: ' + content);
   }
 }
+// Review memory-learning-03: a saved owner sentence is written to the notebook, the Memory Core panel and the
+// COMMS receipt, so it is scrubbed the same way notebook.write scrubs: a key in the sentence never lands on disk.
+{
+  const C = require('../sidecar/context.js');
+  const key = 'sk-proj-' + 'A1b2C3d4E5f6G7h8I9j0';
+  const [saved] = L.preferences(input('Always use ' + key + ' for OpenAI calls.'));
+  assert.ok(saved && !saved.content.includes(key) && saved.content.includes('[redacted-key]'), 'a vendor-shaped key is scrubbed from the saved sentence: ' + (saved && saved.content));
+  assert.equal(L.preferences(input('Always use ' + key + ' for OpenAI calls.'))[0].content, saved.content, 'the provenance re-check compares the same scrubbed words');
+  C.setKnownSecretSource(() => ['house-service-value-42']);
+  try {
+    const [known] = L.preferences(input('From now on, send house-service-value-42 with every deploy.'));
+    assert.ok(known && !known.content.includes('house-service-value-42'), 'a secret the host holds is scrubbed whatever its shape: ' + (known && known.content));
+  } finally { C.setKnownSecretSource(null); }
+  assert.equal(L.preferences(input('I prefer concise bullet points.'))[0].content, 'I prefer concise bullet points.', 'ordinary words are kept exactly');
+}
 console.log('trusted-learning: provenance, preference polarity, scope, external input and verification checks PASS');

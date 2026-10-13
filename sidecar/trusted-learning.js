@@ -3,6 +3,7 @@
    No model-provided provenance fields, prior conversation turns, or quoted documents
    are accepted as proof that a standing preference came from the owner. */
 'use strict';
+const { redact } = require('./context.js');
 
 function textOf(message) {
   if (!message || message.role !== 'user') return '';
@@ -109,7 +110,10 @@ function preferences(input, projectRoot) {
     if (/^(?:(?:please\s+)?remember(?:\s+that)?[,:]?\s+)?(?:never\s+mind\b|(?:always|never)\s+(?:(?:ever|again|before|once)\s+)*(?:(?:seen|been|had|heard|knew|known|got|gotten|did|done|was|were|is|are|am|has|does|thought|felt|happened|happens|worked|works|liked|loved|expected|imagined|managed|understood|occurred|would|could|might|will|can|shall|should|must|gets|seems|fails|goes|breaks|noticed|tried|used|wanted|needed|realized|said|told|saw|went|came|made|took)\b(?!-)|(?:do|have)\s+(?:i|we|you|they)\b)|(?:always|never)\s+(?:(?:ever|again|before|once)\b\s*)+(?:[.!,;:—–…-]|$))/i.test(content)) continue;
     if (/\b(?:passwords?|secrets?|credentials?|api.?keys?|access.?tokens?|auth|permissions?|approvals?|safety|guards?|polic(?:y|ies)|system.?prompts?|instruction.?hierarchy|full.?access|bypass(?:ing)?|overrides?|forget|do not (?:remember|save)|don't (?:remember|save))\b/i.test(content)) continue;
     const global = !projectRoot || /\b(?:across all (?:projects|tasks)|for (?:all|every) future (?:tasks?|chats?|conversations?))\b/i.test(content);
-    out.push({ kind: 'profile', content, scope: global ? 'global' : 'project', projectRoot: global ? null : String(projectRoot), standing: true });
+    // The saved words reach the notebook on disk, the Memory Core panel and the COMMS receipt: scrub keys and known
+    // secrets here, once, as notebook.write does. The host's provenance re-check calls this same function, so it
+    // compares scrubbed words with scrubbed words.
+    out.push({ kind: 'profile', content: redact(content).trim(), scope: global ? 'global' : 'project', projectRoot: global ? null : String(projectRoot), standing: true });
     if (out.length >= 5) break;
   }
   return out;
