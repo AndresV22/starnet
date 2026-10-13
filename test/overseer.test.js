@@ -182,6 +182,7 @@ const { makeSubagentManager } = require('../sidecar/subagents.js');
       const x = ask(100), y = ask(101);
       assert.ok(x && y && x.title !== y.title, 'two same-titled workers in the same second both get a thread');
     }
+    assert.equal(require('./_assert.js').fails(), 0, 'shared assertion helpers have no pending failures');
     console.log('overseer: durable identity, deduplication, restart, rename, tombstones and turn serialization PASS');
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 })().catch(e => { console.error(e); process.exitCode = 1; });

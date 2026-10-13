@@ -67,7 +67,7 @@ function makeOverseer(deps) {
   function freeTitle(base, taken) {
     const fit = suffix => base.slice(0, 80 - suffix.length).trimEnd() + suffix;
     for (let n = 2; n <= 99; n++) if (!taken(fit(' (' + n + ')'))) return fit(' (' + n + ')');
-    const stamp = ' · ' + new Date(Number(deps.now()) || Date.now()).toISOString().slice(0, 19).replace('T', ' ');
+    const stamp = ' · ' + new Date(Number(deps.now())).toISOString().slice(0, 19).replace('T', ' ');
     if (!taken(fit(stamp))) return fit(stamp);
     for (let n = 2; n <= 10000; n++) if (!taken(fit(stamp + ' (' + n + ')'))) return fit(stamp + ' (' + n + ')');
     throw new Error('session title already exists; use its id');
