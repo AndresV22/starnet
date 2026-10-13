@@ -159,3 +159,40 @@ test('reader anchor survives reassignment of a time separator',()=>{
   assert.equal(divider.children[0].textContent,new Date(first+2700000).toISOString(),'the separator now belongs to the recovered earlier message');
   assert.equal(original[1].getBoundingClientRect().top,before,'the persistent message remains anchored');
 });
+
+test('spoken delegated approvals await confirmed exact-prompt settlement and preserve siblings on failure',async()=>{
+  const voice=fs.readFileSync('frontend/app/voice-live.js','utf8');
+  const Channels=require('../frontend/app/channels.js');Channels.reset();
+  const ws={id:'voice-parent',agentId:'lead'},first={promptId:'voice-mira',tool:'fs.write'},second={promptId:'voice-rook',tool:'shell.exec'};
+  Channels.setPending(ws.id,first);Channels.setPending(ws.id,second);
+  let reply={ok:false,error:'offline'},calls=0;const spoken=[],events=[];
+  const settlement=ctx(part(chat,'  const settledPromptNotices','  // the channel\'s record'),{Channels,
+    Harness:{consent:async()=>{calls++;return reply;}},StationUI:{notify(){},settleNotifs(){}},askerName:()=> 'worker',actionPhrase:()=> 'write',
+    U:{bus:{emit:(name,p)=>events.push([name,p.promptId])}},isActiveWs:()=>false,syncStatus(){}});
+  const c=ctx(part(voice,'  const approvalSubmissions = new Set();', '  /* THE CALL IS BOUND'),{
+    active:true,sessionSeq:1,boundWsId:ws.id,Channels,Workstreams:{active:()=>ws},Chat:{answerConsent:settlement.answerConsent},
+    speakLocal:text=>spoken.push(text),refreshTask(){}});
+  const drain=async()=>{for(let i=0;i<12;i++)await Promise.resolve();};
+  assert.equal(c.approvalCommand('approve'),true);assert.equal(c.approvalCommand('approve'),true);await drain();
+  assert.equal(calls,1);assert.deepEqual(Channels.pendingAllOf(ws.id).map(p=>p.promptId),['voice-mira','voice-rook']);
+  assert.equal(events.length,0);assert.equal(spoken.some(t=>/^Approved/.test(t)),false);assert.match(spoken[0],/could not submit/);
+  let confirm;reply=new Promise(resolve=>{confirm=resolve;});spoken.length=0;
+  c.approvalCommand('always allow');await drain();assert.equal(spoken.length,0);assert.equal(Channels.pendingAllOf(ws.id).length,2);
+  confirm({ok:true,decision:'always'});await drain();
+  assert.deepEqual(Channels.pendingAllOf(ws.id).map(p=>p.promptId),['voice-mira']);assert.deepEqual(spoken,['Always allowed.']);
+  assert.deepEqual(events,[['permission.response','voice-rook']]);
+  reply={ok:true,decision:'deny'};c.approvalCommand('approve');await drain();
+  assert.equal(Channels.pendingAllOf(ws.id).length,0);assert.equal(spoken.at(-1),'Denied.','say the decision the station applied');
+  Channels.setPending(ws.id,{promptId:'question',tool:'brief.ask'});const before=calls;
+  assert.equal(c.approvalCommand('approve'),false);assert.equal(calls,before,'a question is never answered as a tool approval');
+  Channels.clearPending(ws.id,Date.now(),'question');Channels.setPending(ws.id,{promptId:'late',tool:'fs.write'});
+  reply=new Promise(resolve=>{confirm=resolve;});spoken.length=0;c.approvalCommand('approve');await drain();c.sessionSeq++;
+  confirm({ok:true,decision:'once'});await drain();assert.equal(spoken.length,0,'late confirmation never speaks into a later call');
+  Channels.setPending(ws.id,{promptId:'rebound',tool:'fs.write'});reply=new Promise(resolve=>{confirm=resolve;});
+  c.approvalCommand('approve');await drain();c.boundWsId='another-chat';
+  confirm({ok:true,decision:'once'});await drain();assert.equal(spoken.length,0,'voice rebinding within one call suppresses the old conversation confirmation');
+  c.boundWsId=ws.id;Channels.setPending(ws.id,{promptId:'remote-wins',tool:'fs.write'});let reject;
+  reply=new Promise((_resolve,no)=>{reject=no;});c.approvalCommand('approve');await drain();
+  Channels.clearPending(ws.id,Date.now(),'remote-wins');reject(new Error('local network failed'));await drain();
+  assert.equal(spoken.length,0,'a failed local request does not claim a remotely handled prompt still waits');
+});
