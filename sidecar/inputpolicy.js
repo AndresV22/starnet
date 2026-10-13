@@ -199,9 +199,14 @@ function makeRunAuthority(opts) {
       return Promise.resolve(confirm(call, tool)).then(decision => {
         const allow = /^(?:once|session|always|full)$/i.test(String(decision || ''));
         if (allow) return { ok: true, impact, surface, isTask, isolated, oneShot: true };
-        // an unanswered prompt (consentwait timeoutDecision) is not a refusal: never let the model say they declined
+        // an unanswered prompt (consentwait timeoutDecision) is not a refusal: never let the model say they declined.
+        // The reason carries the consent path's own guidance (registry.js consent timeout), because it is what the model reads.
         if (String(decision) === 'timeout') {
-          return { ok: false, impact, timedOut: true, reason: 'the exact external-effect confirmation timed out; nobody answered (not a refusal)' };
+          return {
+            ok: false, impact, timedOut: true,
+            reason: 'the exact confirmation for ' + String((call && call.name) || 'this call') + ' timed out: the Commander did not answer in time, '
+              + 'so it was NOT run. This was not a refusal; tell them it timed out and that they can ask again. Do NOT retry it yourself.'
+          };
         }
         return { ok: false, impact, reason: 'exact external-effect confirmation was denied' };
       }, () => ({ ok: false, impact, reason: 'exact external-effect confirmation failed' }));
