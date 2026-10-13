@@ -339,7 +339,7 @@ function approvalFixture() {
     assert.deepEqual(f.spoken, [], 'speech cannot claim success before acknowledgement');
     await flushApproval();
     assert.deepEqual(f.calls, [['lead-run', 'worker-second', decision]], 'voice sends only the selected prompt decision through Chat');
-    assert.deepEqual(f.events, [['permission.response', { promptId: 'worker-second', decision }]], 'the bus names the confirmed prompt');
+    assert.deepEqual(f.events, [['permission.response', { promptId: 'worker-second', decision, via: 'voice' }]], 'the bus names the confirmed prompt');
     assert.deepEqual(f.pending(), ['worker-first'], 'voice answer preserves the other pending prompt');
     assert.equal(f.Channels.peek(f.ws.id).pausedAt, 2000, 'the outstanding prompt keeps the original pause open');
     assert.equal(f.Channels.statusOf(f.ws.id), 'awaiting your approval…', 'the channel still truthfully waits');
@@ -369,7 +369,7 @@ function approvalFixture() {
     f.respond(() => ({ ok: true, decision: 'deny' })); f.answer('approve'); await flushApproval();
     assert.equal(f.calls.length, 3, 'a refused or failed submission remains retryable');
     assert.deepEqual(f.pending(), ['worker-first']);
-    assert.deepEqual(f.events, [['permission.response', { promptId: 'worker-second', decision: 'deny' }]], 'the confirmed applied decision wins');
+    assert.deepEqual(f.events, [['permission.response', { promptId: 'worker-second', decision: 'deny', via: 'voice' }]], 'the confirmed applied decision wins');
     assert.equal(f.spoken.at(-1), 'Denied.', 'speech reports the applied decision, not the requested approval');
   }
   {

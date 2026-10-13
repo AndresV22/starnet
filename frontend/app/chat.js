@@ -3557,7 +3557,7 @@ const Chat = (() => {
         btns.remove();
         const tag = document.createElement('span');
         tag.className = 'consent-result' + (resp.decision === 'deny' ? ' err' : '');
-        tag.textContent = resp.expired ? '✕ no answer in time — the agent used its judgment' : resp.decision === 'deny' ? '✕ declined from your phone' : '✓ answered from your phone';
+        tag.textContent = resp.expired ? '✕ no answer in time — the agent used its judgment' : resp.decision === 'deny' ? '✕ declined' + settledWhere(resp) : '✓ answered' + settledWhere(resp);
         r.body.appendChild(tag);
         syncStatus();
       };
@@ -3593,7 +3593,16 @@ const Chat = (() => {
       if (StationUI.notify) StationUI.notify(askerName(next, ws) + (next.tool === 'brief.ask' ? ' still needs your answer' : ' still needs approval to ' + actionPhrase(next)), 'warn', 'needsApproval', { kind: 'needs', go: { ws: wsId }, key: 'needs:' + wsId, prompt: next.promptId });
     } else if (StationUI.settleNotifs) StationUI.settleNotifs('needs:' + wsId);
   }
-  async function answerConsent(p, ws, decision) {
+  // what settled a card it did not submit itself, in words. The sidecar's remote answer (a phone) carries no `via`; this
+  // page's other surfaces (a worker's row, NEEDS YOU, voice) answer through answerConsent, which says which — and the label
+  // names what was APPLIED ('always' is not 'once'; 2026-10-13 review: a spoken "always allow" read "approved once from
+  // your phone").
+  function settledWhere(resp) { return resp.via === 'voice' ? ' by voice' : resp.via === 'needs-you' ? ' from NEEDS YOU' : resp.via ? '' : ' from your phone'; }
+  function settledLabel(resp) {
+    if (resp.decision === 'deny') return '✕ denied' + settledWhere(resp);
+    return '✓ ' + ({ always: 'always allowed', session: 'approved for this session', full: 'full access' }[resp.decision] || 'approved once') + settledWhere(resp);
+  }
+  async function answerConsent(p, ws, decision, via) {
     const rid = (p && p.runId) || ((ws && typeof Channels !== 'undefined') ? Channels.runIdOf(ws.id) : null);
     const answer = await Harness.consent(rid, p.promptId, decision);
     if (!(answer && answer.ok)) throw new Error((answer && answer.error) || 'The station did not confirm that answer. Please try again.');
@@ -3609,7 +3618,7 @@ const Chat = (() => {
     }
     // surface the decision on the bus (schema: permission.response) so listeners — e.g. the first-run tutorial —
     // can tell an approve from a deny and narrate the consent loop honestly. Additive; the run resumes via Harness.consent.
-    try { if (typeof U !== 'undefined' && U.bus) U.bus.emit('permission.response', { promptId: p.promptId, decision: appliedDecision }); } catch (_) {}
+    try { if (typeof U !== 'undefined' && U.bus) U.bus.emit('permission.response', { promptId: p.promptId, decision: appliedDecision, via: via || 'desk' }); } catch (_) {}
     // NS conversational anchor: "Always" — and now "Full access" — on a path.trust card IS the project bless
     // (a standing path grant + known-projects row land on the sidecar). Stamp the origin session's projectRoot
     // with the SAME proposed root so the PROJECTS rail lists this session under its project — the identical
@@ -3714,7 +3723,7 @@ const Chat = (() => {
         btns.remove();
         const tag = document.createElement('span');
         tag.className = 'consent-result' + (denied ? ' err' : '');
-        tag.textContent = resp.expired ? '✕ no answer in time — denied' : denied ? '✕ denied from your phone' : (resp.decision === 'session' ? '✓ approved for this session from your phone' : '✓ approved once from your phone');
+        tag.textContent = resp.expired ? '✕ no answer in time — denied' : settledLabel(resp);
         r.body.appendChild(tag);
         syncStatus();
       };

@@ -405,7 +405,7 @@ const Delegated = (() => {
     if (!p || p.tool === 'brief.ask' || typeof Chat === 'undefined' || !Chat.answerConsent) return;
     const promptId = String(p.promptId); if (answering.has(promptId)) return;
     answering.add(promptId); key.disabled = true; repaint();
-    Promise.resolve(Chat.answerConsent(p, Workstreams.get(Workstreams.activeId()), decision === 'deny' ? 'deny' : 'once'))
+    Promise.resolve(Chat.answerConsent(p, Workstreams.get(Workstreams.activeId()), decision === 'deny' ? 'deny' : 'once', 'row'))
       .catch(e => { key.disabled = false; if (typeof StationUI !== 'undefined' && StationUI.notify) StationUI.notify('Could not send that answer: ' + ((e && e.message) || e), 'warn'); })
       .then(() => { answering.delete(promptId); repaint(); });
   }

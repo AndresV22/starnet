@@ -129,7 +129,7 @@ const NeedsYou = (() => {
     if (kind === 'dismiss') { dismiss(key); lastSig = ''; render(); return; }
     if ((kind === 'once' || kind === 'deny') && i.p && typeof Chat !== 'undefined' && Chat.answerConsent) {
       if (btn) btn.disabled = true;
-      try { await Chat.answerConsent(i.p, Workstreams.get(i.wsId), kind); }
+      try { await Chat.answerConsent(i.p, Workstreams.get(i.wsId), kind, 'needs-you'); }
       catch (e) { if (btn) btn.disabled = false; if (typeof StationUI !== 'undefined' && StationUI.notify) StationUI.notify('Could not send that answer: ' + ((e && e.message) || e), 'warn'); }
       lastSig = ''; render(); if (has(App, 'refreshRail')) App.refreshRail(); return;
     }

@@ -539,7 +539,7 @@ const VoiceLive = (() => {
     const seq = sessionSeq;
     const ownsFeedback = () => active && sessionSeq === seq && boundWsId === ws.id;
     // Every surface uses the same confirmed, exact-prompt path. A delegated ask may have no ordinary card.
-    Promise.resolve().then(() => Chat.answerConsent(pending, ws, decision)).then(result => {
+    Promise.resolve().then(() => Chat.answerConsent(pending, ws, decision, 'voice')).then(result => {
       if (!ownsFeedback()) return;
       const applied = result && result.appliedDecision;
       if (applied === 'deny') speakLocal('Denied.');
