@@ -103,6 +103,10 @@ const card = (fns, st, outboxId) => { const b = { innerHTML: '', querySelector: 
   A.ok(/Drag it onto another line's INBOX \(SEND TO\) and every job that finishes cleanly is sent on to that line \(its crew, its budget\)\./.test(outboxDesc) && !/rides on/.test(outboxDesc), 'the OUTBOX catalog card promises only a cleanly finished job — ' + outboxDesc);
   const notes = rd('docs/releases/next/NOTES_DRAFT.md');
   A.ok(/every job that finishes cleanly is sent on to it/.test(notes) && !/every finished job rides on/.test(notes), 'the release notes draft says the same');
+  // (docs-claims-08) the floor's own SEND TO tips — arming an OUTBOX and the SEND TO it set — say it too
+  A.ok(/'SEND TO — now click another line’s INBOX: each job that finishes cleanly here starts a job on it'/.test(build)
+    && /'SENDS TO ' \+ sendName\(ip\.id\) \+ ' — each job that finishes cleanly here starts a job on it'/.test(build)
+    && !/every job that lands in this OUTBOX rides on/.test(build), 'the build floor\'s SEND TO tips promise only a cleanly finished job');
 }
 
 /* ---------- conveyor-ui-16: an OUTBOX on no line ---------- */

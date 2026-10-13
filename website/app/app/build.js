@@ -4996,7 +4996,7 @@ const Build = (() => {
           const no = station.connectRefusal ? station.connectRefusal(pid, null) : null;
           if (no) { sfx('bad'); flashTip(ev, no.msg, false); return; }
           // (an OUTBOX arms a SEND TO: its one destination is another line's INBOX — never a belt)
-          connectFrom = pid; sfx('click'); flashTip(ev, pp.t === 'outbox' ? 'SEND TO — now click another line’s INBOX: every job that lands in this OUTBOX rides on to it' : 'FROM ▸ ' + (propSpec(pp.t).label || pp.t).toUpperCase() + ' — now click a destination', true); return;
+          connectFrom = pid; sfx('click'); flashTip(ev, pp.t === 'outbox' ? 'SEND TO — now click another line’s INBOX: each job that finishes cleanly here starts a job on it' : 'FROM ▸ ' + (propSpec(pp.t).label || pp.t).toUpperCase() + ' — now click a destination', true); return;
         }
         if (connectFrom === pid) { connectFrom = null; hideTip(); return; }
         // the armed OUTBOX's second click on an INBOX: SEND TO (refused in its own words — this same line, a circle)
@@ -8356,7 +8356,7 @@ const Build = (() => {
     const o = station.propById(outboxId), ip = intakeId ? station.propById(intakeId) : null;
     if (r && r.ok) {
       sfx('chime');
-      flashTip(ev, ip ? 'SENDS TO ' + sendName(ip.id) + ' — every job that lands in this OUTBOX rides on to it' : 'SENDS NOWHERE — this line’s work stops at its OUTBOX', true);
+      flashTip(ev, ip ? 'SENDS TO ' + sendName(ip.id) + ' — each job that finishes cleanly here starts a job on it' : 'SENDS NOWHERE — this line’s work stops at its OUTBOX', true);
       if (o) pushFlash([propRect(o)].concat(ip ? [propRect(ip)] : []), false);
       if (o) { selectedPropId = o.id; renderSelection(); }
     } else { sfx('bad'); flashTip(ev, (r && r.msg) || 'an OUTBOX sends only to another line’s INBOX', false); }
