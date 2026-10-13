@@ -396,6 +396,7 @@ test/browser-proxy.test.js
 test/browser-orphans.test.js
 test/browser.desktop-login-journey.test.js
 test/browser.login-seed.test.js
+test/dev-seed-preflight.test.js
 test/browser.reach-measure.test.js
 test/browser.tool-parity.test.js
 test/browser.wait-recovery.test.js
