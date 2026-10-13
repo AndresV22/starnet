@@ -573,8 +573,14 @@
     function stageMutation(e, legacyWrite) {
       const aid = str(e.agentId) || 'agent';
       const seeds = Array.from(latest.values()).map(clone);
+      // A writer builds on a pending draft only when it can SEE that draft: the review/curator passes read it
+      // through pendingView, and a foreground run sees it only when its own run wrote it. Otherwise the run's
+      // patch text comes from the active body (so it "isn't found" in the draft) and a full edit would silently
+      // discard the proposal it never saw.
+      const unseen = new Set();
       for (const row of candidateRows.values()) if (row.agentId === aid && row.status === 'pending'
         && row.baseDigest === revisionDigest(latest.get(keyOf(row.agentId, row.name)) || null)) {
+        if (!REVIEW_ACTORS.has(str(e.createdBy)) && str(row.skill.sourceRunId) !== str(e.sourceRunId)) { unseen.add(keyOf(row.agentId, row.name)); continue; }
         const i = seeds.findIndex(s => keyOf(s.agentId, s.name) === keyOf(row.agentId, row.name));
         if (i >= 0) seeds[i] = clone(row.skill); else seeds.push(clone(row.skill));
       }
@@ -582,6 +588,10 @@
         io: { readAll: () => seeds, append() {} } }));
       const r = legacyWrite ? draft.write(e) : draft.manage(e);
       if (!r.ok) return r;
+      // Only the skill this write targets can collide; an unrelated pending proposal never blocks it.
+      if (unseen.has(keyOf(aid, r.skill && r.skill.name))) {
+        return { ok: false, error: '"' + r.skill.name + '" already has a proposed revision awaiting evaluation in ABILITIES > SKILLS - the Commander must approve or reject it before this skill can be changed again' };
+      }
       const entry = normalizeEntry(r.skill);
       entry.writtenBy = str(e.createdBy || 'agent');
       entry.packagePath = ''; entry.canonicalRevision = false;

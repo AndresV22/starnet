@@ -258,4 +258,24 @@ for (const change of ['body', 'files', 'summary', 'baseline', 'pin']) {
   const into = g.s.candidates('a', { includeBody: true }).find(c => c.name === 'Weekly brief');
   A.eq(g.promote(into, g.issue(into)).ok, false, 'archive into an umbrella that is not active yet is refused');
 }
+// A foreground run only sees the active version, so it never builds on (or silently discards) a review draft it
+// cannot see. Its own run's draft and the review passes (which read drafts through pendingView) still continue one.
+{
+  const f = fixture(); seed(f); seed(f, 'Other');
+  A.ok(f.s.manage({ agentId: 'a', target: 'Brief', action: 'patch', find: 'concise', replace: 'reviewed', createdBy: 'background-review', sourceRunId: 'run-1' }).pending, 'review proposes a revision');
+  const review = proposal(f.s);
+  const patch = f.s.manage({ agentId: 'a', target: 'Brief', action: 'patch', find: 'concise', replace: 'short', createdBy: 'agent', sourceRunId: 'run-2' });
+  A.eq(patch.ok, false, 'foreground patch of a skill with an unseen proposal is refused');
+  A.ok(/awaiting/.test(patch.error || '') && !/not found/.test(patch.error || ''), 'refusal names the waiting proposal, not missing patch text');
+  const edit = f.s.manage({ agentId: 'a', target: 'Brief', action: 'edit', body: BODY + '\n3. Foreground fix.', createdBy: 'agent', sourceRunId: 'run-2' });
+  A.eq(edit.ok, false, 'foreground full edit cannot overwrite the unseen proposal');
+  A.eq(f.s.candidates('a', { includeBody: true }).find(c => c.name === 'Brief').candidateDigest, review.candidateDigest, 'review proposal is kept intact');
+  A.ok(f.s.manage({ agentId: 'a', target: 'Other', action: 'edit', body: 'Other steps.', createdBy: 'agent', sourceRunId: 'run-2' }).pending, 'an unrelated proposal never blocks another skill');
+  A.ok(f.s.manage({ agentId: 'a', target: 'Brief', action: 'patch', find: 'reviewed', replace: 'reviewed twice', createdBy: 'skill-review', sourceRunId: 'run-3' }).pending, 'a review pass continues the draft it can read');
+  const g = fixture(); seed(g);
+  A.ok(g.s.manage({ agentId: 'a', target: 'Brief', action: 'patch', find: 'concise', replace: 'short', createdBy: 'agent', sourceRunId: 'run-4' }).pending, 'foreground run proposes a revision');
+  A.ok(g.s.manage({ agentId: 'a', target: 'Brief', action: 'patch', find: 'short', replace: 'very short', createdBy: 'agent', sourceRunId: 'run-4' }).pending, 'the same run continues its own draft');
+  A.ok(proposal(g.s).skill.body.includes('very short'), 'own draft carries both patches');
+  A.eq(g.s.write({ agentId: 'a', name: 'Brief', body: 'Rewritten.', createdBy: 'agent', sourceRunId: 'run-5' }).ok, false, 'legacy write wrapper is held to the same rule');
+}
 A.report('skills.review-approval');
