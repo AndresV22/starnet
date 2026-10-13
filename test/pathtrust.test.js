@@ -221,6 +221,7 @@ function scriptPrompt(decision) {
       [path.join('AppData', 'Roaming', 'Mozilla', 'Firefox', 'Profiles', 'x.default'), 'logins.json'],
       // Microsoft Store (MSIX) Firefox: the package virtualizes AppData as Packages/<pkg>/LocalCache/{Local,Roaming}
       [path.join('AppData', 'Local', 'Packages', 'Mozilla.Firefox_n80bbvh6b1yt2', 'LocalCache', 'Roaming', 'Mozilla', 'Firefox', 'Profiles', 'x.default'), 'logins.json'],
+      [path.join('.config', 'opera'), 'Cookies'], [path.join('.config', 'opera-developer'), 'Login Data'],
       [path.join('.config', 'chromium', 'Default'), 'Cookies'], [path.join('.config', 'vivaldi', 'Default'), 'Cookies'],
       [path.join('.config', 'google-chrome-beta', 'Default'), 'Cookies'], [path.join('.mozilla', 'firefox', 'x.default'), 'logins.json'],
       [path.join('snap', 'chromium', 'common', 'chromium', 'Default'), 'Cookies'],
@@ -229,7 +230,9 @@ function scriptPrompt(decision) {
       [path.join('Library', 'Application Support', 'Vivaldi', 'Default'), 'Cookies'],
       [path.join('Library', 'Application Support', 'Google', 'Chrome', 'Default'), 'Cookies']];
     const projects = [[path.join('chromium', 'src', 'base'), 'a.cc'], [path.join('code', 'vivaldi'), 'readme.md'],
-      [path.join('code', 'google', 'chrome-extension'), 'manifest.json']];
+      [path.join('code', 'google', 'chrome-extension'), 'manifest.json'],
+      // a .config child that merely STARTS with "opera" is not Opera's profile
+      [path.join('.config', 'operator'), 'notes.md'], [path.join('code', 'app', '.config', 'operations'), 'x.json']];
     for (const [dir, file] of profiles.concat(projects)) { await fsp.mkdir(path.join(home, dir), { recursive: true }); await fsp.writeFile(path.join(home, dir, file), 'x'); }
     const h = harness({ roots: [home] });
     for (const [dir, file] of profiles) {

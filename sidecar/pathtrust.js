@@ -114,7 +114,8 @@
       // twins, ~/Library) — a project folder merely NAMED chromium or vivaldi is an ordinary project. The [^\/]*
       // suffix keeps the Beta/Dev/SxS/Stable siblings ("Chrome SxS", "Edge Beta", "google-chrome-beta").
       // A Microsoft Store (MSIX) browser keeps its AppData under Packages/<pkg>/LocalCache/{Local,Roaming}.
-      [/(^|\/)(appdata|localcache)\/(local|roaming)\/(google\/chrome|chromium|microsoft\/edge|bravesoftware\/brave-browser|vivaldi|opera software|mozilla\/firefox)[^\/]*(\/|$)|(^|\/)\.mozilla\/firefox(\/|$)|(^|\/)(\.config|\.var\/app\/[^\/]+\/config|snap\/chromium\/common)\/(google-chrome[^\/]*|chromium|vivaldi[^\/]*|brave-?software|opera[^\/]*|microsoft-edge[^\/]*)(\/|$)|(^|\/)library\/(cookies|application support\/(google\/chrome[^\/]*|chromium|vivaldi|firefox|microsoft edge[^\/]*|bravesoftware|com\.operasoftware\.opera[^\/]*))(\/|$)/, 'browser profiles (cookies and saved passwords)']
+      // Opera's ~/.config folders are named exactly, so ~/.config/operator or .config/operations stay readable.
+      [/(^|\/)(appdata|localcache)\/(local|roaming)\/(google\/chrome|chromium|microsoft\/edge|bravesoftware\/brave-browser|vivaldi|opera software|mozilla\/firefox)[^\/]*(\/|$)|(^|\/)\.mozilla\/firefox(\/|$)|(^|\/)(\.config|\.var\/app\/[^\/]+\/config|snap\/chromium\/common)\/(google-chrome[^\/]*|chromium|vivaldi[^\/]*|brave-?software|opera(-beta|-developer|-gx)?|microsoft-edge[^\/]*)(\/|$)|(^|\/)library\/(cookies|application support\/(google\/chrome[^\/]*|chromium|vivaldi|firefox|microsoft edge[^\/]*|bravesoftware|com\.operasoftware\.opera[^\/]*))(\/|$)/, 'browser profiles (cookies and saved passwords)']
     ];
     function credentialFloor(p) {
       const s = String(p || '').replace(/\\/g, '/').toLowerCase();
