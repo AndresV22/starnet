@@ -66,5 +66,16 @@ function enact(s,ops) {const r=plan(s,ops);A.ok(r.ok,'plan accepted: '+(r.error|
   A.eq([j.cost,j.sentOnTo.lineId,j.sentOnTo.jobId],['$0.12','b','job-b'],'upstream cost and actual downstream job kept distinct');A.ok(/created/.test(j.sentOnTo.note)&&!/(now running|completed)/.test(j.sentOnTo.note),'created record is not a guessed current state');
   payload={sentTo:{line:'b',name:'B',refused:'budget exhausted'}};r=await t.run({line:'A',job:'work'},{});j=JSON.parse(r.content.split('\n')[0]);A.eq(j.sentOnTo.refused,'budget exhausted','downstream refusal preserved');A.ok(/refused/.test(r.summary),'summary says refused');
   payload={onwardDestinations:[{lineId:'b',outboxId:'o'}]};r=await t.run({line:'A',job:'work'},{});j=JSON.parse(r.content.split('\n')[0]);A.eq(j.sentOnTo.state,'unconfirmed','configured destination without durable link is unconfirmed');A.ok(!j.sentOnTo.jobId&&!/queued behind/.test(r.content),'no invented queue state');
+  // conveyor-ui-17 / seams-06: the route's real producer reads the OUTBOX id from plan.sendTo's key (the values carry
+  // fromLine/toLine/intakeId only), so the lead can tell which OUTBOX hands on to which line
+  const idxSrc=require('fs').readFileSync(require('path').join(__dirname,'..','sidecar','index.js'),'utf8');
+  const producer=(idxSrc.match(/onward\.onwardDestinations = [^\n]*/)||[''])[0];
+  A.ok(/Object\.entries\(plan\.sendTo\)/.test(producer)&&/outboxId \}\)/.test(producer),'onwardDestinations names each OUTBOX by its plan key: '+producer.slice(0,160));
+  {
+    const plan={sendTo:{ob1:{intakeId:'in1',fromLine:'A',toLine:'b'},ob2:{intakeId:'in2',fromLine:'A',toLine:'c'},ob3:{intakeId:'in3',fromLine:'Z',toLine:'b'}}};
+    const onward={},line='A';
+    new Function('line','plan','onward',producer+';')(line,plan,onward);
+    A.eq(onward.onwardDestinations,[{lineId:'b',outboxId:'ob1'},{lineId:'c',outboxId:'ob2'}],'two OUTBOXes on one line: each destination names its OUTBOX');
+  }
   A.report('station-builder-lineops');
 })().catch(e=>{console.error(e);process.exitCode=1;});

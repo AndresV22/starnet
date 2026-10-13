@@ -12582,7 +12582,9 @@ async function runSampleJob(readArgs) {
     }
     const recordedJob = jobId ? LineJobs.get(lineJobs, jobId) : null;
     const onward = recordedJob && recordedJob.sentTo ? { sentTo: recordedJob.sentTo } : {};
-    if (line && plan.sendTo) onward.onwardDestinations = Object.values(plan.sendTo).filter(s => s.fromLine === line).map(s => ({ lineId: s.toLine, outboxId: s.outboxId }));
+    // the OUTBOX id is plan.sendTo's KEY (as pipeline.js sendRec reads it): the values carry no outboxId, so a line with
+    // two OUTBOXes used to tell the lead its destinations without saying which OUTBOX hands on to which
+    if (line && plan.sendTo) onward.onwardDestinations = Object.entries(plan.sendTo).filter(([, s]) => s && s.fromLine === line).map(([outboxId, s]) => ({ lineId: s.toLine, outboxId }));
     if (workitemId) {
       const d = bumpQueue(agentId, -1);
       if (completed) chanEmit('workitem.delivered', { workitemId, finalQueueId: 'outbox', agentId, box: '', ms: Date.now() - t0, ts: Date.now(), sample: true });
