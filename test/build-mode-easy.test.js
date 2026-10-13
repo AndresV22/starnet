@@ -246,6 +246,22 @@ A.ok(/^\.refit-toolset-buttons\.is-edit \{ grid-template-columns: repeat\(3,minm
   const sc = rd('website/docs/shortcuts.html'), gl = rd('website/docs/glossary.html');
   A.ok(!/<b>MOVE<\/b>/.test(sc) && /<b>SELECT<\/b> &mdash; click to select &middot; drag a machine onto another to belt them &middot; drag a selected piece onto open floor to move it/.test(sc) && !/Ten tools|, move, delete,/.test(gl),
     'the public shortcuts page and glossary no longer advertise the retired MOVE on key 4');
+  /* the layout count on the public pages is the shelf's own count (review docs-claims-07 follow-up: it drifted 19 vs 20 once);
+     a page may drop the number, but a number it states must be WorldModel.BLUEPRINTS.length */
+  const units = 'zero one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen'.split(' ');
+  const tens = { twenty: 20, thirty: 30, forty: 40 };
+  const num = t => {
+    t = t.toLowerCase();
+    if (/^\d+$/.test(t)) return +t;
+    if (units.includes(t)) return units.indexOf(t);
+    const m = /^(twenty|thirty|forty)(?:-(one|two|three|four|five|six|seven|eight|nine))?$/.exec(t);
+    return m ? tens[m[1]] + (m[2] ? units.indexOf(m[2]) : 0) : null;
+  };
+  const shelf = require('../frontend/app/worldmodel.js').BLUEPRINTS.length;
+  for (const [page, src] of [['glossary.html', gl], ['help.html', rd('website/docs/help.html')]]) {
+    const said = [...src.matchAll(/\b([A-Za-z]+(?:-[a-z]+)?|\d+) (?:ready-made |finished )?layouts\b/g)].map(m => num(m[1])).filter(n => n !== null);
+    A.ok(said.every(n => n === shelf), page + ' states the shelf\'s own layout count (' + shelf + '), never a stale one: ' + JSON.stringify(said));
+  }
 }
 
 /* ---------- 7. the tabs show their things ---------- */
