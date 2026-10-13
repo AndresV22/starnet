@@ -225,13 +225,16 @@
     return String(id || 'agent');
   }
 
+  // the server refuses to clear an undecided build (it still needs KEEP IT or DISCARD), so a clear never counts one
+  const clearableRow = r => !!r && r.status !== 'pending';
   function rowsForRun(items, runId, query) {
     const needle = String(query || '').trim().toLowerCase();
     return items.filter(r => r.runId === runId && (!needle || [r.title, r.summary, r.ask].join(' ').toLowerCase().includes(needle)));
   }
   function mount(body) {
-    let rows = [], projects = [], kinds = [], summary = null, loadSeq = 0, project = '', kind = '', total = 0;
+    let rows = [], projects = [], kinds = [], summary = null, loadSeq = 0, project = '', kind = '', total = 0, clearable = 0;
     let runFilter = null;
+    let lastUndo = null;   // the last clear's { text, token }: its UNDO comes back after an arm/disarm or a reload blanks the line
     const openState = { blobUrl: '', previewHost: null };
     const revoke = () => revokePreview(openState);
     // self-driving lane 5: no second DELIVERABLES heading under the MY WORK tab that already says it, and one short line where
@@ -244,6 +247,7 @@
       '<div class="dlv-split"><nav id="dl-rail" class="dlv-rail" aria-label="Projects"></nav><div id="dl-list" class="dlv-main"></div></div></div>';
     const q = body.querySelector('#dl-query'), status = body.querySelector('#dl-status'), list = body.querySelector('#dl-list'), rail = body.querySelector('#dl-rail'), msg = body.querySelector('#dl-msg'), cleanup = body.querySelector('#dl-cleanup'), head = body.querySelector('#dl-head'), kindbar = body.querySelector('#dl-kinds');
     const say = (s, bad) => { msg.textContent = s || ''; msg.className = 'msg ' + (bad ? 'bad' : 'ok'); };
+    const restoreMsg = () => lastUndo ? sayUndo(lastUndo.text, lastUndo.token) : say('');
     const runScope = body.querySelector('#dl-run-scope');
     const renderRunScope = () => {
       runScope.hidden = !runFilter;
@@ -376,11 +380,12 @@
         return;
       }
       const now = Date.now();
-      const groups = {};
-      rows.forEach((r, i) => { const b = bucketOf(Number(r.createdAt) || 0, now); (groups[b] = groups[b] || []).push(cardHtml(r, i, now)); });
+      const groups = {}, canClear = {};
+      rows.forEach((r, i) => { const b = bucketOf(Number(r.createdAt) || 0, now); (groups[b] = groups[b] || []).push(cardHtml(r, i, now)); if (clearableRow(r)) canClear[b] = true; });
       // each time heading carries its own CLEAR — "I'm done with everything from before this week" is one click, not forty
+      // (a heading over only undecided builds has nothing the server would clear, so it carries none)
       list.innerHTML = BUCKETS.filter(b => groups[b] && groups[b].length)
-        .map(b => '<section class="dlv-bucket"><h4><span>' + b + '</span><button type="button" class="dlv-bclear" data-bucket="' + b + '">CLEAR ' + b + '</button></h4>' + groups[b].join('') + '</section>').join('');
+        .map(b => '<section class="dlv-bucket"><h4><span>' + b + '</span>' + (canClear[b] ? '<button type="button" class="dlv-bclear" data-bucket="' + b + '">CLEAR ' + b + '</button>' : '') + '</h4>' + groups[b].join('') + '</section>').join('');
       wireDiscards();
       wireClears();
     }
@@ -395,6 +400,7 @@
       return b === 'TODAY' ? { after: t } : b === 'THIS WEEK' ? { after: week, before: t } : { before: week };
     }
     function sayUndo(text, token) {
+      if (token) lastUndo = { text, token };   // a clear that took nothing leaves the earlier clear's UNDO standing
       msg.className = 'msg ok';
       msg.innerHTML = esc(text) + (token ? ' <button type="button" class="bb sm" data-undo-clear="' + esc(token) + '">UNDO</button>' : '');
     }
@@ -409,20 +415,21 @@
           : (j.skipped ? 'Nothing cleared —' + kept.replace(/ and stayed\.$/, ': KEEP IT or DISCARD first.') : 'Nothing to clear here.'), j.cleared ? j.undoToken : '');
       } catch (e) { if (b) b.disabled = false; say('Could not clear: ' + e.message, true); }
     }
+    // the count is what the clear will actually take: the server's own clearable count for the view (undecided builds stay)
     function clearShownLabel() {
       const filtered = !!(runFilter || project || kind || q.value || status.value);
-      return (filtered ? 'CLEAR THESE ' : 'CLEAR ALL ') + (runFilter ? rows.length : total);
+      return (filtered ? 'CLEAR THESE ' : 'CLEAR ALL ') + (runFilter ? rows.filter(clearableRow).length : clearable);
     }
     function wireClears() {
       const shown = body.querySelector('#dl-clear-shown');
-      shown.hidden = !rows.length;
+      shown.hidden = !rows.length || !(runFilter ? rows.some(clearableRow) : clearable);
       if (shown.dataset.armed !== '1') shown.textContent = clearShownLabel();
       if (shown.dataset.wired !== '1' && typeof ArmConfirm !== 'undefined' && ArmConfirm.wire) {
         shown.dataset.wired = '1';
         ArmConfirm.wire(shown, {
           armedLabel: 'CLEAR THEM — SURE?',
           onArm: () => say('Clears every deliverable in this view out of the library (anything still waiting for a decision stays). The files stay on disk, and UNDO brings them back. Click again to confirm.'),
-          onDisarm: () => { shown.textContent = clearShownLabel(); say(''); },
+          onDisarm: () => { shown.textContent = clearShownLabel(); restoreMsg(); },
           onConfirm: () => clearRows(runFilter ? { ids: rows.map(r => r.id) } : { filter: curFilter() }, shown)
         });
       }
@@ -436,7 +443,7 @@
         ArmConfirm.wire(btn, {
           armedLabel: 'CLEAR ' + bucket + ' — SURE?',
           onArm: () => say('Clears everything under ' + bucket + ' in this view out of the library. The files stay on disk, and UNDO brings them back. Click again to confirm.'),
-          onDisarm: () => say(''),
+          onDisarm: restoreMsg,
           onConfirm: () => {
             const now = Date.now();
             return clearRows(runFilter ? { ids: rows.filter(r => bucketOf(Number(r.createdAt) || 0, now) === bucket).map(r => r.id) }
@@ -449,7 +456,7 @@
     msg.addEventListener('click', async ev => {
       const b = ev.target.closest && ev.target.closest('button[data-undo-clear]'); if (!b) return;
       b.disabled = true;
-      try { const u = await post('/api/deliverables/clear-undo', { undoToken: b.dataset.undoClear }); await load(); say('Brought back ' + u.restored + (u.restored === 1 ? ' deliverable.' : ' deliverables.')); }
+      try { const u = await post('/api/deliverables/clear-undo', { undoToken: b.dataset.undoClear }); lastUndo = null; await load(); say('Brought back ' + u.restored + (u.restored === 1 ? ' deliverable.' : ' deliverables.')); }
       catch (e) { b.disabled = false; say(e.message, true); }
     });
     // Re-wired after every render: innerHTML replaces the buttons, so the previous listeners die with the
@@ -470,7 +477,7 @@
         ArmConfirm.wire(b, {
           armedLabel: 'DISCARD — SURE?',
           onArm: () => say('Discarding “' + (r.title || 'this output') + '” also removes its Workshop files permanently. Click again to confirm.', true),
-          onDisarm: () => say(''),   // disarming just clears the warning; it is not an excuse to restate the count
+          onDisarm: restoreMsg,   // disarming just clears the warning (the last clear's UNDO comes back); it is not an excuse to restate the count
           onConfirm: () => decide(r, 'discard', b)
         });
       });
@@ -483,6 +490,8 @@
         if (seq !== loadSeq) return;
         rows = j.items || [];
         total = Number(j.total) || rows.length;   // the FULL match count — the list itself ships at most 500
+        // what a clear of this view would take; an older sidecar sends no count, so count the list when it is the whole view
+        clearable = (typeof j.clearable === 'number' && isFinite(j.clearable)) ? j.clearable : rows.length >= total ? rows.filter(clearableRow).length : total;
         // The backend's text search narrows the request; equality supplies the actual provenance boundary.
         if (runFilter) rows = rowsForRun(rows, runFilter.runId, q.value);
         projects = Array.isArray(j.projects) ? j.projects : [];   // an older sidecar simply sends none -> rail shows ALL WORK only
@@ -491,8 +500,8 @@
         render();
         // The summary strip above already states the count. This line is for TRANSIENT status only — loading,
         // errors, and the result of an action — so a second standing count does not sit under it saying the
-        // same number in different words.
-        say('');
+        // same number in different words. (The last clear's UNDO is an action result: it stays.)
+        restoreMsg();
       }
       catch (e) { say('Could not load the library: ' + e.message, true); }
     }
@@ -504,7 +513,7 @@
     async function decide(r, act, b) {
       if (b.disabled) return;   // belt to the once-wiring: a second confirm on an in-flight decide is never a second POST
       b.disabled = true;
-      try { const j = await post('/api/workshop/decide', { agentId: r.agentId, runId: r.runId, decision: act }); say(j.decision === 'keep' ? ('Kept ' + r.title + (j.destPath ? ' in ' + j.destPath : '')) : ('Discarded ' + r.title)); await load(); }
+      try { const j = await post('/api/workshop/decide', { agentId: r.agentId, runId: r.runId, decision: act }); lastUndo = null; say(j.decision === 'keep' ? ('Kept ' + r.title + (j.destPath ? ' in ' + j.destPath : '')) : ('Discarded ' + r.title)); await load(); }
       catch (e) { b.disabled = false; say(e.message, true); }
     }
     /* ONE DRAWER OPEN AT A TIME — the same rule the OUTBOX accordion follows. Two open drawers turn a scannable
