@@ -18,7 +18,7 @@
   "expectedClaimCount": 37,
   "releaseSurface": {
     "algorithm": "sha256",
-    "sourceCommit": "b4ab912150f7e6db13d45fc1740685a9ecef6a84",
+    "sourceCommit": "d1a1637253f3644f22ec6e6d2146abe9e9d011c2",
     "pathSetSha256": "e4cf2ec7f6a313f096915edc1eea9291b5f6ab7782c1784d289af5ac2f76084d",
     "files": [
       {
@@ -343,8 +343,8 @@
       },
       {
         "path": "frontend/app/chat.js",
-        "bytes": 770995,
-        "sha256": "66af7f0a39c3f4eb79429716a91c79e0fe9083b79a522b253d5be989567cf61e"
+        "bytes": 771208,
+        "sha256": "a9f424bb364a1bc622909920f04d5987ce5ae58827df1be9547ceb85e39374f2"
       },
       {
         "path": "frontend/app/chatresize.js",
@@ -393,8 +393,8 @@
       },
       {
         "path": "frontend/app/crewcards.js",
-        "bytes": 7560,
-        "sha256": "53af13632b82d5b7142ade2621802726b99236318c7586f0d0acc0d3abff925f"
+        "bytes": 8114,
+        "sha256": "4c43fc71c280793cdbe81e35dfacdaec0f65992fc6f9abc4de641ec9c91b52c9"
       },
       {
         "path": "frontend/app/cronhuman.js",
@@ -433,8 +433,8 @@
       },
       {
         "path": "frontend/app/delegated.js",
-        "bytes": 40970,
-        "sha256": "6e9ceb9723269f54185890fbc7a046ee0c1a7e530e376c00298164060fca1831"
+        "bytes": 41258,
+        "sha256": "8d9713f5d3bdc925e4a2a5bab83cb723430f8e1ef7ea46185f6b30bbda0d6d16"
       },
       {
         "path": "frontend/app/deliverables.js",
