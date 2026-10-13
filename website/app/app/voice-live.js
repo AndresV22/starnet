@@ -342,16 +342,25 @@ const VoiceLive = (() => {
 
   function availabilityFailure(response) {
     if (!response || response.ok !== false) return null;
+    // a page the station KEPT its key from (Harness.tokenWithheld) gets the same 403, but it is not a restart: a reload
+    // only re-runs the same ownership check, so it carries the withheld notice instead (review threads-backend-05)
+    const withheld = response.status === 403 && typeof Harness !== 'undefined' && Harness
+      && typeof Harness.tokenWithheld === 'function' && Harness.tokenWithheld()
+      ? ((typeof Harness.tokenWithheldNotice === 'function' && Harness.tokenWithheldNotice())
+        || 'StarNet could not confirm this browser is yours — see the station notice.')
+      : '';
     return {
       probeFailed: true,
-      staleSession: response.status === 403,
+      staleSession: response.status === 403 && !withheld,
+      tokenWithheld: withheld,
       status: Number(response.status) || 0
     };
   }
 
   // One read of the sidecar's installation verdict. A failed probe is a first-class result: every Live
   // Voice engine needs the sidecar, so opening the microphone after a 403/5xx only creates a convincing
-  // but silent session. In particular, 403 means this page still carries the token from before a restart.
+  // but silent session. In particular, 403 means this page still carries the token from before a restart,
+  // or (tokenWithheld) the station never gave this page its key.
   async function probeAvailability() {
     try {
       const response = await fetch('/api/local-voice/status', { cache: 'no-store' });
@@ -1238,13 +1247,15 @@ const VoiceLive = (() => {
     if (readiness && readiness.probeFailed) {
       $('live-voice-panel').hidden = false;
       setState('offline');
-      caption('user', readiness.staleSession
-        ? 'This page lost its connection when the station restarted.'
+      const withheld = readiness.tokenWithheld;   // not a restart: a reload only re-runs the same check
+      caption('user', withheld ? 'StarNet could not confirm this browser is yours.'
+        : readiness.staleSession ? 'This page lost its connection when the station restarted.'
         : 'Local Live could not reach the station.');
-      caption('agent', readiness.staleSession
-        ? 'Reload this page to reconnect, then start Local Live again.'
+      caption('agent', withheld ? 'Voice cannot start on this page.'
+        : readiness.staleSession ? 'Reload this page to reconnect, then start Local Live again.'
         : 'Confirm the station is running, then try again.');
-      if (readiness.staleSession) {
+      if (withheld) setUnrecoverableError(withheld);
+      else if (readiness.staleSession) {
         setUnrecoverableError('The station restarted — reload this page to reconnect voice.');
       } else {
         setError('Local voice could not reach the station.');

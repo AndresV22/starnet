@@ -137,6 +137,7 @@
     // crash+respawn the page still holds the OLD X-StarNet-Token, so EVERY action 403s. Retrying is doomed and
     // "add a key" is the wrong door — the page needs the fresh boot token, which only a reload fetches.
     stale_session: { retryable: false, action: 'reload',   msg: 'The station restarted — reload this page to reconnect.' },
+    // (a page the station KEPT its key from gets the same 403 but is no restart — see withheldNotice() below)
     /* StarNet's OWN spend ledger can't say what was spent (sidecar/loop.js stopForSpend, failureCode
        spend_history_unavailable): a limit the Commander chose can't be checked, so the run was stopped. NOT a provider
        out of credit (never `billing`), and never the generic "Something went wrong — try again": a retry hits the same
@@ -207,12 +208,19 @@
   /* The COMMS work-log line for a run that ENDED (agent.run.end reason) without a clean delivery and without an error
      row of its own. Raw reason words ("stopped (empty)") read as a silent stop; each now says what happened + the
      next step. opts.cancelSource: 'estop_by_run' (the run pressed E-STOP itself) — anything else that is not the
-     Commander's own Stop came from OUTSIDE this chat (a station/HUD/phone STOP or E-STOP). '' = nothing to add. */
+     Commander's own Stop came from OUTSIDE this chat (a station/HUD/phone STOP or E-STOP). opts.toolsRan: this turn's
+     agent.tool_call count — an empty end AFTER tool steps is not "nothing was done" (a file may already be written), so
+     it reads exactly like sidecar/stop-reason.js stopSentence (test/stop-reason.test.js locks the two). '' = nothing to add. */
   function stopLine(reason, opts) {
     const o = opts || {};
     const r = String(reason == null ? '' : reason);
     if (r === 'max_iters') return 'reached the step limit — say "continue" to keep going';
-    if (r === 'empty') return 'the model sent back an empty reply, so nothing was done — say "continue" to try again, or switch model if it keeps happening';
+    if (r === 'empty') {
+      const ran = Math.floor(Number(o.toolsRan) || 0);
+      return ran > 0
+        ? 'the model went silent after ' + ran + ' tool step' + (ran === 1 ? '' : 's') + ' and never gave a final answer — those steps may already have made changes; say "continue" to have it finish, or switch model if it keeps happening'
+        : 'the model sent back an empty reply, so nothing was done — say "continue" to try again, or switch model if it keeps happening';
+    }
     if (r === 'refusal') return 'the model declined that request — try rephrasing it';
     if (r === 'cancelled') {
       if (o.cancelSource === 'estop_by_run') return 'stopped by the E-STOP this run pressed — RESUME AUTOMATION (top bar) is yours alone';
@@ -221,6 +229,19 @@
     if (r === 'error') return 'it stopped on an error before it finished — try again';
     if (!r || r === 'done' || r === 'clarifying') return '';
     return 'it stopped before finishing (' + r + ')';
+  }
+
+  /* A PAGE THE STATION KEPT ITS KEY FROM (review threads-backend-05). The sidecar serves the page without its key when it
+     cannot prove this browser runs as the station's own OS user (Harness.tokenWithheld() = its reason); every keyed call
+     then 403s exactly like a stale page, but the station did not restart — "The station restarted — reload" would be
+     a false claim. Both stale_session sites (the "sidecar HTTP 403" ladder and kindFromRaw's 403) therefore lead with
+     Harness's own withheld notice and offer NO door: the notice itself says whether a reload can help (it re-runs the
+     check, so only for a transient reason) and names the owner's hatch. The kind stays stale_session (its
+     post-mortem already reads "the message is the fix"). '' = this page holds its key (or no Harness: node/tests). */
+  const TOKEN_WITHHELD_MSG = 'StarNet could not confirm this browser runs as your own user account, so it won’t take commands from this page. Open StarNet from the desktop app, or if this is your own browser, restart StarNet with STARNET_TRUST_LOCAL_PEERS=1.';
+  function withheldNotice() {
+    if (typeof Harness === 'undefined' || !Harness || typeof Harness.tokenWithheld !== 'function' || !Harness.tokenWithheld()) return '';
+    return (typeof Harness.tokenWithheldNotice === 'function' && Harness.tokenWithheldNotice()) || TOKEN_WITHHELD_MSG;
   }
 
   function rawText(err) {
@@ -532,6 +553,11 @@
       kind = kindFromRaw(raw, status);
     }
     const k = KINDS[kind] || KINDS.unknown;
+    // a page the station kept its key from: say why, with no RELOAD door (a reload re-runs the same check)
+    if (kind === 'stale_session') {
+      const withheld = withheldNotice();
+      if (withheld) return { userMessage: withheld, kind: kind, retryable: false, action: null, withheld: true, raw: raw };
+    }
     // capdenied: name the exact power + gear parsed from the raw message, and route to BUILD MODE (the true unlock —
     // a station quest minted on this denial completes by PLACEMENT, not a SKILLS toggle).
     if (kind === 'capdenied') {

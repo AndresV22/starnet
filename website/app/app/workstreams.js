@@ -76,6 +76,10 @@
       // records saved before this field existed simply read null. The PROJECTS rail uses it to list the
       // sessions attached to each project — a REAL stored link, never a guessed title match.
       projectRoot: opts.projectRoot != null ? String(opts.projectRoot) : null,
+      // WHEN this session joined that project (ms). chat.js resolves an unstamped reply's relative links at the root only
+      // when the reply is newer than this. create/adopt stamp a session born in a project with its createdAt and
+      // setProjectRoot stamps a later join; a record saved before this field existed keeps null, never an invented time.
+      projectRootAt: Number(opts.projectRootAt) > 0 ? Number(opts.projectRootAt) : null,
       parentStreamId: opts.parentStreamId ? String(opts.parentStreamId) : null,
       // a delegated WORKER's own thread (team.dispatch files one per worker). Only these fold under their parent in
       // SESSIONS; a session the agent opened with session.create (it records its parent too) keeps its own row.
@@ -218,6 +222,7 @@
     // create() always mints a 'todo' record, so make()'s lane-inference would read it as a task — pass an
     // EXPLICIT kind so a freshly-created stream is 'chat' UNLESS the caller is a board directive (kind:'task').
     const w = make({ title: title || null, lane: 'todo', agentId: opts.agentId, kind: opts.kind === 'task' ? 'task' : 'chat', projectRoot: opts.projectRoot });   // summon binds a stream to its NEW agent
+    if (w.projectRoot) w.projectRootAt = w.createdAt;   // born in the project: every turn of it ran with the root
     ws.push(w);
     if (opts.activate !== false) activeId = w.id;   // board "add" passes {activate:false} so it won't hijack the active chat
     return w;
@@ -259,7 +264,7 @@
         let threadChanged = false;
         if (!ex.parentStreamId && opts.parentStreamId) { ex.parentStreamId = String(opts.parentStreamId); threadChanged = true; }
         if (opts.worker === true && ex.worker !== true) { ex.worker = true; threadChanged = true; }
-        if (!ex.projectRoot && opts.projectRoot) ex.projectRoot = String(opts.projectRoot);
+        if (!ex.projectRoot && opts.projectRoot) { ex.projectRoot = String(opts.projectRoot); ex.projectRootAt = now(); }
         if (threadChanged) delegatedAgents = null;
         return ex;
       }
@@ -272,6 +277,7 @@
       }
     }
     const w = make(opts);
+    if (w.projectRoot && !w.projectRootAt) w.projectRootAt = w.createdAt;   // born in the project (a caller's own stamp wins)
     ws.push(w);
     if (w.worker) delegatedAgents = null;
     return w;
@@ -293,7 +299,14 @@
   function setLane(id, lane) { const w = find(id); if (!w || LANES.indexOf(lane) < 0) return false; w.lane = lane; return true; }
   // anchor (or re-anchor) a session to a blessed project root — the Projects rail's "Work here" stamps the
   // session it jumps into so the project row can truthfully list its sessions. null/'' clears the anchor.
-  function setProjectRoot(id, root) { const w = find(id); if (!w) return false; w.projectRoot = root ? String(root) : null; return true; }
+  // The join time moves only when the root actually changes (naming the same root again keeps it).
+  function setProjectRoot(id, root) {
+    const w = find(id); if (!w) return false;
+    const next = root ? String(root) : null;
+    if (next !== (w.projectRoot || null)) w.projectRootAt = next ? now() : null;
+    w.projectRoot = next;
+    return true;
+  }
   function pin(id, val) { const w = find(id); if (!w) return false; w.pinned = val !== false; return true; }
   function touch(id) { const w = find(id); if (w) { w.lastActiveAt = now(); if (id === activeId) w.lastReadAt = w.lastActiveAt; } return !!w; }
   // re-flag REAL unseen state WITHOUT lying about when the work happened: unlike touch(), this never

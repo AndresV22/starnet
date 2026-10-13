@@ -30,9 +30,7 @@ const Delegated = (() => {
     return list.find(a => a.id === id) || { id, name: (has(App, 'agentName') && App.agentName(id)) || id };
   }
   /* one card = the threads one lead run filed: its dispatch calls in the order they were made (a thread's `call`, the
-     requestId's middle segment), each call's workers in the order it asked for them. /api/overseer threads[] do not
-     carry `call` yet (sidecar/overseer.js snapshot() sends leadRunId and slot only): until they do, every row reads as
-     one call and a lead run's rows sort by slot alone, so two calls in one run still interleave. */
+     requestId's middle segment), each call's workers in the order it asked for them. */
   function batches(parentId) {
     if (typeof Workstreams === 'undefined' || !parentId) return [];
     const s = snap();
@@ -110,9 +108,8 @@ const Delegated = (() => {
   }
   // the sidecar's own explanation of a bad end, for a hover tip: a refusal's or an error's sentence (the ledger's result;
   // a timeout's or a rejected answer's result is the worker's partial work, never a reason) or a long free-text reason
-  // the status line leaves out (the liveness check's receipt). Clipped, never invented. /api/overseer workers[] do not
-  // carry `result` yet, so today only the liveness receipt shows; a refused or failed row's tip stays empty until the
-  // route projects it.
+  // the status line leaves out (the liveness check's receipt). Clipped, never invented. /api/overseer workers[] carry
+  // `result` only for a refused or failed worker, so a timeout's partial work never reaches this tip.
   function tipOf(w) {
     if (!w || !['error', 'refused', 'stale'].includes(w.status)) return '';
     const reason = String(w.reason || '').trim();
@@ -129,6 +126,9 @@ const Delegated = (() => {
     const pend = askOf(r, parentId);
     if (pend) return { cls: 'waiting', live: pend.tool === 'brief.ask' ? 'asking you a question' : 'needs you', t: '', pend };
     if (w && w.status === 'running') {
+      // the station stopped answering (Overseer.fresh): the last ledger can no longer vouch for this worker, so the row
+      // claims neither working nor stopped — no live clock, no Stop key (a failed poll repaints at once)
+      if (typeof Overseer !== 'undefined' && Overseer.fresh && !Overseer.fresh()) return { cls: 'unknown', live: 'status unknown — station unreachable', t: '' };
       return { cls: 'working', live: doing(steps.get(String(w.runId))), t: clock(Date.now() - (+w.startedAt || Date.now())), stop: !!w.canInterrupt, worker: w };
     }
     if (C && C.isBusy && C.isBusy(k.id)) return { cls: 'working', live: 'working', t: C.elapsedOf ? clock(C.elapsedOf(k.id)) : '' };
@@ -168,7 +168,7 @@ const Delegated = (() => {
   const loadingReceipts = new Set();
   const answering = new Set();
   const stopping = new Set();
-  const WORD = { recorded: 'result available', working: 'working', waiting: 'needs you', done: 'done', failed: 'failed', stopped: 'stopped', queued: 'starting' };
+  const WORD = { recorded: 'result available', working: 'working', waiting: 'needs you', done: 'done', failed: 'failed', stopped: 'stopped', queued: 'starting', unknown: 'status unknown' };
   function names(list) {
     const n = list.map(a => String(a.name || a.id));
     return n.length <= 3 ? (n.length > 1 ? n.slice(0, -1).join(', ') + ' and ' + n[n.length - 1] : n[0] || '')
@@ -180,14 +180,17 @@ const Delegated = (() => {
     const count = c => rows.filter(x => x.st.cls === c).length;
     const sum = [count('waiting') && count('waiting') + ' need' + (count('waiting') === 1 ? 's' : '') + ' you', count('working') && count('working') + ' working',
       count('queued') && count('queued') + ' starting', count('failed') && count('failed') + ' failed', count('stopped') && count('stopped') + ' stopped',
+      count('unknown') && count('unknown') + ' status unknown',
       count('recorded') && count('recorded') + ' result' + (count('recorded') === 1 ? '' : 's') + ' available',
       count('done') && (count('done') === rows.length ? (rows.length > 1 ? 'all ' + rows.length + ' done' : 'done') : count('done') + ' done')]
       .filter(Boolean).join(' · ');
-    const live = count('working') + count('waiting') + count('queued') > 0;
+    // a row whose state the station cannot confirm right now (unknown) keeps an open card open: it was running a beat ago
+    const live = count('working') + count('waiting') + count('queued') + count('unknown') > 0;
     // a worker waiting on you always shows (folding it would hide the one thing that needs you)
     const open = opened.has(b.lead) || count('waiting') > 0 || (live && !closed.has(b.lead));
-    // the batch lamp: the most urgent worker state (needs you > working > failed > done)
-    const tone = count('waiting') ? 'waiting' : (count('working') || count('queued')) ? 'working' : (count('failed') || count('stopped')) ? 'failed' : count('recorded') ? 'recorded' : 'done';
+    // the batch lamp: the most urgent worker state (needs you > working > failed > unknown > done); unknown keeps the
+    // plain unlit lamp, neither the working pulse nor the failed red
+    const tone = count('waiting') ? 'waiting' : (count('working') || count('queued')) ? 'working' : (count('failed') || count('stopped')) ? 'failed' : count('unknown') ? 'unknown' : count('recorded') ? 'recorded' : 'done';
     const head = '<button type="button" class="dg-line-head" data-dg-toggle="' + esc(b.lead) + '" aria-expanded="' + open + '">'
       + '<span class="dg-lamp ' + tone + '" aria-hidden="true"></span>'
       + '<span class="dg-line-text">Delegated to <b>' + esc(names(rows.map(x => x.a))) + '</b></span>'

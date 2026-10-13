@@ -6592,6 +6592,10 @@ const World = (() => {
     } finally {g.restore();PropSprites.setCtx(ctx);}
   }
 
+  // Prop ART changed (a remaster repair batch, a user prop decoded): only the screen-space shadow layer holds prop
+  // pixels, so clear its stamp and the next frame repaints it. StationBake never reads prop art — a full rebake here
+  // was a ~2.5 s freeze per repair batch on a large station (review finding world-render-03).
+  function invalidatePropShadows() { if (propShadowLayer) propShadowLayer.stamp = null; }
   function drawPropShadows() {
     if(typeof PropSprites==='undefined'||!PropSprites.drawShadow)return;
     if(!propShadowLayer){
@@ -11434,7 +11438,7 @@ const World = (() => {
     pollFeed: () => pollFeedState(),
     pollShip: () => pollShipStats()
   });
-  return { init, rebake, frameReviewRoom, renderStill, renderStillOfTiles, crewFrames, crt: CRT, renderPace, slagLog: () => (slaglog ? slaglog.recent() : []),
+  return { init, rebake, invalidatePropShadows, frameReviewRoom, renderStill, renderStillOfTiles, crewFrames, crt: CRT, renderPace, slagLog: () => (slaglog ? slaglog.recent() : []),
     // LINE WATCH: the Workflow panel pushes the step-test session it polls; reads today's numbers for a line
     noteStepTest, lineStatsFor: id => (lineStats.known ? (lineStats.byLine[id] || null) : null), pollLineStats,
     // a bay's live state — the lamp's own fold (WORKING only once the sidecar confirmed the run), with how long it has held

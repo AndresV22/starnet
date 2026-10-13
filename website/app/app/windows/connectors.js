@@ -26,6 +26,37 @@
     if (typeof StationUI.openTerm === 'function') StationUI.openTerm('connectors', 'catalog');
   };
 
+  /* LOCKED CREDENTIAL STORAGE — the next step the panel names under the sidecar's own message. A held file ('busy':
+     antivirus, backup or sync) and an unreachable OS store ('key-unavailable') leave an intact store that a restart or
+     an unlock fixes, and START FRESH would only set it aside, so neither is told its files are unreadable: the restart
+     or the unlock comes first and START FRESH stays as the exit when that fails. A busy lock's sidecar message already
+     says restart, then START FRESH, so the line adds nothing for it. The sidecar sends canStartFresh for every lock
+     today; a lock with no START FRESH and no fix of its own leaves the sidecar's message to speak. */
+  function storageNextStep(storage) {
+    const s = storage || {};
+    if (s.reason === 'busy') return s.canStartFresh ? '' : ' Restart StarNet to try again.';
+    if (s.reason === 'key-unavailable') return s.canStartFresh ? ' Use START FRESH only if you cannot unlock or repair the credential store.' : ' Unlock the credential store and restart StarNet.';
+    return s.canStartFresh ? ' START FRESH sets the unreadable files aside and lets you sign in to each service again.' : '';
+  }
+  /* An open store's storage notes. `notice` is a store StarNet does not count as encrypted (fallback, or a seal not yet
+     checked), so it is headed that way. `migrationNotice` is an older sign-in file left beside a SEALED store: a plain
+     heading, never 'not encrypted'. */
+  function storageNoticeHtml(storage) {
+    const s = storage || {};
+    return (s.notice ? '<div class="mc-notice"><b>Credential storage · not encrypted</b>' + esc(s.notice) + '</div>' : '') +
+      (s.migrationNotice ? '<div class="mc-notice"><b>Credential storage</b>' + esc(s.migrationNotice) + '</div>' : '');
+  }
+  /* START FRESH's answer: where the old files went. Finishing an interrupted attempt also returns `previous`, the
+     folders that attempt filled; with nothing left to move it has no movedTo, and the marker that named those folders
+     is gone, so this toast is the one place left that says where the old files are. */
+  function startFreshKeptText(answer) {
+    const j = answer || {};
+    const previous = Array.isArray(j.previous) ? j.previous.filter(p => typeof p === 'string' && p) : [];
+    const where = (typeof j.movedTo === 'string' && j.movedTo) || previous[0] || 'the connectors folder';
+    const earlier = previous.filter(p => p !== where);
+    return 'Connector storage started fresh. Old files kept in ' + where + (earlier.length ? ' (earlier copies in ' + earlier.join(', ') + ')' : '');
+  }
+
   /* ============== CONNECTORS — attach MCP servers so agents gain external tools ==============
      A connector is a remote MCP (Model Context Protocol) server. Once added + connected, its tools
      become real agent tools, gated by the same consent prompt as everything else. The server URL +
@@ -1017,8 +1048,7 @@
           notices.innerHTML += '<div class="mc-notice"><b>Credential storage</b>' + esc(storageError) + '</div>';
           // START FRESH is the exit the sidecar offers for a store it cannot open (wrong key, damaged, unrecognized):
           // the old files are moved aside, never deleted, and every service is signed in again.
-          listEl.innerHTML = '<div class="mc-detail">Your saved connections have not been erased.' +
-            (storage.canStartFresh ? ' START FRESH sets the unreadable files aside and lets you sign in to each service again.' : ' Unlock the credential store and restart StarNet.') + '</div>' +
+          listEl.innerHTML = '<div class="mc-detail">Your saved connections have not been erased.' + storageNextStep(storage) + '</div>' +
             (storage.canStartFresh ? '<div class="mc-acts"><button class="bb sm danger" id="mc-start-fresh" type="button">START FRESH</button></div>' : '');
           const fresh = listEl.querySelector('#mc-start-fresh');
           if (fresh && typeof ArmConfirm !== 'undefined' && ArmConfirm.wire) {
@@ -1029,7 +1059,7 @@
                 fresh.disabled = true;
                 let r = null;
                 try { r = await Harness.api.post('/api/connectors/storage/start-fresh', { confirm: true }); } catch (_) {}
-                if (r && r.ok) { sfx('ok'); notify('Connector storage started fresh. Old files kept in ' + ((r.j && r.j.movedTo) || 'the connectors folder')); }
+                if (r && r.ok) { sfx('ok'); notify(startFreshKeptText(r.j)); }
                 else { sfx('bad'); notify('START FRESH failed: ' + ((r && r.j && r.j.error) || 'the station did not answer')); }
                 refresh();
               }
@@ -1037,7 +1067,7 @@
           }
           return;
         }
-        if (storage.notice) notices.innerHTML += '<div class="mc-notice"><b>Credential storage · not encrypted</b>' + esc(storage.notice) + '</div>';
+        notices.innerHTML += storageNoticeHtml(storage);
         if (list.length) {
           const expanded = new Set(Array.from(listEl.querySelectorAll('.mc-inspect[open]')).map(el => el.closest('.mc-row').dataset.id));
           listEl.innerHTML = list.map(row).join('');

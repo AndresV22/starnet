@@ -340,7 +340,10 @@
       const endAt = wk.completedAt || wk.updatedAt || 0;
       if (!running && !(endAt && t - endAt <= FINISHED_WINDOW_MS)) continue;
       const asking = running && !!wk.runId && feed.prompts.has(wk.runId);
-      const end = WORKER_END[wk.status] || ['stopped', wk.status ? 'Ended (' + String(wk.status) + ')' : 'Ended'];
+      // a worker the liveness check stopped (the sidecar records "stalled: …") was not lost to a restart
+      const stalled = wk.status === 'stale' && /^stalled\b/.test(String(wk.reason || ''));
+      const end = stalled ? ['fault', 'Stopped: made no progress']
+        : (WORKER_END[wk.status] || ['stopped', wk.status ? 'Ended (' + String(wk.status) + ')' : 'Ended']);
       const w = who(wk.agentId);
       out.push({
         key: 'worker:' + wk.id, kind: 'worker', workerId: wk.id, generation: wk.generation, runId: wk.runId || '',

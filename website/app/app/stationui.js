@@ -133,10 +133,11 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     for (const k of Object.keys(ROOM_LIGHTING_MIN)) out[k] = +(ROOM_LIGHTING_MIN[k] + (ROOM_LIGHTING_MAX[k] - ROOM_LIGHTING_MIN[k]) * t).toFixed(4);
     return out;
   }
-  // `live` (a slider drag): the CRT film and (industrial world) WorldLight's deck ambient reach the next frame on
-  // their own. The pool cut + key reach WorldLight only through World.rebake, a full StationBake that freezes a big
-  // station for ~2.5 s, so a drag never rebakes and a commit (release) rebakes only when its knobs differ from the
-  // ones last baked. A drag that ends where it began then owes nothing to the next unrelated applySettings.
+  // `live` (a slider drag) reaches the next frame on its own: the CRT film, and (industrial world) WorldLight's deck
+  // ambient plus its pool cut + key, which worldrenderer.js begin() hands to WorldLight.configure over the same bake.
+  // So a drag never rebakes. A commit (release) rebakes once, for StationBake's baked ambient (a full StationBake
+  // freezes a big station for ~2.5 s), and only when the knobs differ from the ones last baked. A drag that ends
+  // where it began then owes nothing to the next unrelated applySettings.
   function applyRoomLighting(value, live) {
     if (typeof StationBake === 'undefined') return;
     if (!live && roomLightingTimer) { clearTimeout(roomLightingTimer); roomLightingTimer = 0; }   // this commit supersedes a queued one
@@ -4298,10 +4299,18 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
   }
 
   let skillPanelLoad = 0;
-  async function skillReviewPost(action, body) {
-    const r = await Harness.api.post('/api/agent-skills/' + action, body, { timeoutMs: action === 'evaluate-candidate' ? 180000 : 60000 });
+  async function skillReviewPost(action, body, opts) {
+    const r = await Harness.api.post('/api/agent-skills/' + action, body, { timeoutMs: (opts && opts.timeoutMs > 0) ? opts.timeoutMs : action === 'evaluate-candidate' ? 180000 : 60000 });
     if (!r.ok || !r.j || !r.j.ok) throw new Error((r.j && r.j.error) || 'The station refused this change.');
     return r.j;
+  }
+  // How long the page waits for evaluate-candidate: the suite's waitMs (the station's own clock for it plus a margin,
+  // index.js evaluationSuiteMetadata), else the same rule the station uses (2 runs a case at 90 s each, 2 to 20 min,
+  // plus 30 s), so the page never gives up before the station's answer.
+  function evaluationWaitMs(suite) {
+    if (suite && suite.waitMs > 0) return suite.waitMs;
+    const cases = Number(suite && suite.cases);
+    return (cases > 0 ? Math.min(20 * 60000, Math.max(120000, cases * 2 * 90000)) : 20 * 60000) + 30000;
   }
   function loadAgentSkills(agentId) {
     const host = $('#sk-agent'); if (!host) return;
@@ -4350,22 +4359,42 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     };
     for (const candidate of rows) {
       const skill = candidate.skill || {};
+      // skills-eval-17: the store lists a pending proposal whose base is no longer the active skill as baseCurrent:false.
+      // The station refuses to evaluate or approve it, so the card offers only Reject. A host that does not send the
+      // field (undefined) keeps the full card.
+      const outdated = candidate.baseCurrent === false;
       const card = mkEl('div', 'sk-card want open'); host.appendChild(card);
       card.dataset.skillCandidate = candidate.candidateId;
-      card.innerHTML = '<div class="sk-card-head"><div class="sk-card-main"><div class="sk-name-row"><span class="sk-name">' + esc(skill.name || candidate.name) + '</span><span class="sk-badge want">PROPOSED REVISION</span></div><div class="sk-desc">Any existing active version stays available. This proposal needs a task evaluation and your approval. If a complete evaluation shows no improvement but the proposal passed every check, you can still approve it by confirming that.</div></div></div>' +
-        '<div class="sk-body"><div class="sk-attr">Proposed sharing: ' + esc(skillScopeText(skill.scope, skill.projectRoot)) + ' · revision ' + esc(candidate.revision) + '</div><pre>' + esc(skill.body || '') + '</pre>' +
-        '<details><summary>Proposed metadata and package files</summary><pre>' + esc(JSON.stringify({ candidateDigest: candidate.candidateDigest, baseDigest: candidate.baseDigest, summary: skill.summary, description: skill.description, setup: skill.setup, category: skill.category, requires: skill.requires, platforms: skill.platforms, state: skill.state, scope: skill.scope, projectRoot: skill.projectRoot, packageFiles: skill.packageFiles }, null, 2)) + '</pre></details>' +
+      card.innerHTML = '<div class="sk-card-head"><div class="sk-card-main"><div class="sk-name-row"><span class="sk-name">' + esc(skill.name || candidate.name) + '</span>' +
+        (outdated ? '<span class="sk-badge miss">OUTDATED</span></div><div class="sk-desc">The active skill changed after this was proposed. Reject it, or wait for the agent\'s next revision.</div></div></div>'
+          : '<span class="sk-badge want">PROPOSED REVISION</span></div><div class="sk-desc">Any existing active version stays available. This proposal needs a task evaluation and your approval. If a complete evaluation shows no improvement but the proposal passed every check, you can still approve it by confirming that.</div></div></div>') +
+        '<div class="sk-body"><div class="sk-attr">Proposed sharing: ' + esc(skillScopeText(skill.scope, skill.projectRoot)) + ' · revision ' + esc(candidate.revision) + '</div>' +
+        // skills-eval-07: a curator archive moves its steps into another skill, and the station holds it until that skill
+        // carries them, so the card names it
+        (skill.state === 'archived' && skill.absorbedInto ? '<div class="sk-attr">Archives into: ' + esc(skill.absorbedInto) + '</div>' : '') +
+        '<pre>' + esc(skill.body || '') + '</pre>' +
+        '<details><summary>Proposed metadata and package files</summary><pre>' + esc(JSON.stringify({ candidateDigest: candidate.candidateDigest, baseDigest: candidate.baseDigest, summary: skill.summary, description: skill.description, setup: skill.setup, category: skill.category, requires: skill.requires, platforms: skill.platforms, state: skill.state, absorbedInto: skill.absorbedInto, scope: skill.scope, projectRoot: skill.projectRoot, packageFiles: skill.packageFiles }, null, 2)) + '</pre></details>' +
         (skill.files || []).map(f => '<details><summary>' + esc(f.path) + '</summary><pre>' + esc(f.content || '') + '</pre></details>').join('') +
+        (outdated ? '<div class="sk-attr" data-evaluation-result></div><div class="consent-btns mc-acts"><button class="consent-btn" data-candidate-reject>Reject proposal</button></div></div>' :
         '<div class="sk-attr">Evaluation checks only the selected task family. A passing result does not prove improvement for every use.</div><div data-evaluation-suites></div>' +
         '<div class="sk-attr" data-evaluation-result>No evaluation run from this panel yet.</div><div class="consent-btns mc-acts"><button class="consent-btn" data-candidate-approve disabled>Approve evaluated revision</button><button class="consent-btn" data-candidate-acknowledge hidden disabled>Approve without measured improvement</button><button class="consent-btn" data-candidate-reject>Reject proposal</button></div>' +
-        '<details><summary>Register task checks (JSON)</summary><div class="sk-attr">Declare repeatable tasks and exact checks, including a held-out case. The station validates and runs this suite before approval.</div><textarea class="cf-ta mc-edit" data-suite-json spellcheck="false" aria-label="Evaluation suite JSON" placeholder="' + esc(SUITE_EXAMPLE) + '"></textarea><button class="consent-btn" data-suite-register>Register task checks</button></details></div>';
-      const suiteHost = card.querySelector('[data-evaluation-suites]');
+        '<details><summary>Register task checks (JSON)</summary><div class="sk-attr">Declare repeatable tasks and exact checks, including a held-out case. The station validates and runs this suite before approval.</div><textarea class="cf-ta mc-edit" data-suite-json spellcheck="false" aria-label="Evaluation suite JSON" placeholder="' + esc(SUITE_EXAMPLE) + '"></textarea><button class="consent-btn" data-suite-register>Register task checks</button></details></div>');
       const note = card.querySelector('[data-evaluation-result]');
-      const approve = card.querySelector('[data-candidate-approve]');
-      const acknowledge = card.querySelector('[data-candidate-acknowledge]');
       const reject = card.querySelector('[data-candidate-reject]');
       let receipt = null, busy = false;
       const request = { agentId, candidateId: candidate.candidateId, candidateDigest: candidate.candidateDigest };
+      const doReject = async () => {
+        if (busy) return; busy = true; reject.disabled = true;
+        try { await skillReviewPost('reject-candidate', request); loadAgentSkills(agentId); }
+        catch (e) { note.textContent = e.message; busy = false; reject.disabled = false; }
+      };
+      // Rejecting discards the proposal and whatever evaluation it had: arm, then confirm, like the acknowledgement.
+      if (typeof ArmConfirm !== 'undefined' && ArmConfirm.wire) ArmConfirm.wire(reject, { armedLabel: 'Confirm: reject proposal', onArm: () => sfx('bad'), onConfirm: doReject });
+      else reject.onclick = doReject;
+      if (outdated) continue;
+      const suiteHost = card.querySelector('[data-evaluation-suites]');
+      const approve = card.querySelector('[data-candidate-approve]');
+      const acknowledge = card.querySelector('[data-candidate-acknowledge]');
       const matching = suites.filter(s => s.skillId === skill.id || (!s.skillId && s.skillName === skill.name));
       // One result path for a fresh run and for the host's stored receipt of this exact revision.
       const showResult = (r, suite, lead) => {
@@ -4387,7 +4416,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
           if (busy) return; busy = true; run.disabled = true; approve.disabled = true; acknowledge.disabled = true; acknowledge.hidden = true; receipt = null;
           note.textContent = 'Running the checks with and without the proposal…';
           try {
-            const r = await skillReviewPost('evaluate-candidate', Object.assign({}, request, { suiteId: suite.id }));
+            const r = await skillReviewPost('evaluate-candidate', Object.assign({}, request, { suiteId: suite.id }), { timeoutMs: evaluationWaitMs(suite) });
             showResult(r.receipt, suite, '');
           } catch (e) { note.textContent = e.message; }
           finally { busy = false; run.disabled = false; }
@@ -4410,14 +4439,6 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       if (typeof ArmConfirm !== 'undefined' && ArmConfirm.wire) {
         ArmConfirm.wire(acknowledge, { armedLabel: 'Confirm: approve with no measured improvement', onConfirm: () => decide({ acknowledgeNoImprovement: true }) });
       }
-      const doReject = async () => {
-        if (busy) return; busy = true; reject.disabled = true;
-        try { await skillReviewPost('reject-candidate', request); loadAgentSkills(agentId); }
-        catch (e) { note.textContent = e.message; busy = false; reject.disabled = false; }
-      };
-      // Rejecting discards the proposal and whatever evaluation it had: arm, then confirm, like the acknowledgement.
-      if (typeof ArmConfirm !== 'undefined' && ArmConfirm.wire) ArmConfirm.wire(reject, { armedLabel: 'Confirm: reject proposal', onArm: () => sfx('bad'), onConfirm: doReject });
-      else reject.onclick = doReject;
       const register = card.querySelector('[data-suite-register]');
       register.onclick = async () => {
         if (busy) return;
@@ -6405,7 +6426,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       const kind = esc(creditEntryLabel(e));
       const amt = (e && e.usd != null) ? fmtUsd(e.usd) : '';
       return '<div class="mc-row"><div class="mc-top"><b>' + kind + '</b> <span class="dim">' + esc(when) + '</span></div>' +
-        '<div class="mc-url dim">' + esc(amt) + (e && e.runId ? ' · run ' + esc(String(e.runId).slice(0, 8)) : '') + '</div></div>';
+        '<div class="mc-url dim">' + esc(amt) + (e && e.runId ? ' · ' + esc(creditRunTag(e.runId)) : '') + '</div></div>';
     }).join('') : '<div class="fb-empty">No credit activity yet.</div>';
     // A LINKED station is somebody's own subscription; an env-configured one is an operator's prepaid pool.
     // Same balance, completely different sentence — describing a subscriber's own account as something "the
@@ -6602,6 +6623,14 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
   // BUDGET panel — read the live caps + real spend from the sidecar, fill the four inputs, wire SAVE / RESET.
   // Caps persist server-side and apply live; this is the ONLY UI for money limits (previously env-var-only).
   const BG_KEYS = ['perRun', 'perAgent', 'perDay', 'global'];
+  // How a run is named in the STORE's RECENT ACTIVITY and in an unsettled row's tip — the same words on both, so the
+  // Commander can match a charge to its row. A skill evaluation run id is 'skill-eval-<evaluation>-<n>-<phase>-<digest>'
+  // (skill-evaluation-runner.js), so its first 8 chars are the same for every one: name its evaluation, serial and phase.
+  function creditRunTag(runId) {
+    const s = String(runId == null ? '' : runId);
+    const m = /^skill-eval-(.+)-(\d+)-([a-z]+)-[A-Za-z0-9]+$/.exec(s);
+    return m ? 'skill eval ' + m[1].slice(0, 8) + '-' + m[2] + '-' + m[3] : 'run ' + s.slice(0, 8);
+  }
   function wireBudget(body) {
     const form = body.querySelector('#budget-form');
     if (!form) return;
@@ -6669,11 +6698,18 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       if (spendEl && acc && (!acc.complete || !acc.durable)) {
         // name the cause and the fix that works for it: a restart replays a failed save, never an interrupted run
         const open = Array.isArray(st.unsettled) ? st.unsettled.length : 0;
+        // a skill evaluation row (kind 'evaluation') may have finished: what it lacks is a price, so it is never counted
+        // as an interrupted run; a mix of both kinds gets the wording that is true of each
+        const evals = open ? st.unsettled.filter(r => r && r.kind === 'evaluation').length : 0;
+        const missing = evals === open
+          ? (open === 1 ? 'a skill evaluation run has no recorded price' : open + ' skill evaluation runs have no recorded price')
+          : evals ? open + ' runs never recorded what they spent'
+            : (open === 1 ? 'an interrupted run never recorded what it spent' : open + ' interrupted runs never recorded what they spent');
         const floor = (st.atLeast && typeof st.atLeast.today === 'number') ? ' At least ' + fmtUsd(st.atLeast.today) + ' today.' : '';
         spendEl.textContent = acc.writeError
           ? 'Spend history unavailable — it could not be saved to disk, so your spending limits can’t be checked. Restart StarNet to recover it.'
           : (acc.readError === 'UNSETTLED_SPEND' && open)
-            ? 'Spend history unavailable — ' + (open === 1 ? 'an interrupted run never recorded what it spent' : open + ' interrupted runs never recorded what they spent') +
+            ? 'Spend history unavailable — ' + missing +
               ', so your spending limits can’t be checked. Settle ' + (open === 1 ? 'it' : 'each') + ' below.' + floor
             : 'Spend history unavailable — the spend record could not be read, so your spending limits can’t be checked. Restart StarNet; if this stays, the spend files in your workspaces folder are damaged.';
       } else if (spendEl) {
@@ -6704,7 +6740,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
             refresh();
             return;
           }
-          paint(j); setMsg('✓ interrupted run settled — its spend is in your history', true); sfx('click');
+          paint(j); setMsg('✓ ' + (r.kind === 'evaluation' ? 'skill evaluation run' : 'interrupted run') + ' settled — its spend is in your history', true); sfx('click');
         })
         .catch(() => { setMsg('could not reach the sidecar'); sfx('bad'); btns.forEach(b => { b.disabled = false; }); });
     };
@@ -6722,15 +6758,19 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
         // station and an operator (env) one alike — not on a provider dashboard the user never had.
         const managed = r.managed === true, byok = r.managed === false;
         const chargedBy = managed ? 'what StarNet charged' : byok ? 'what your provider charged' : 'the verified charge';
-        row.setAttribute('data-tip', 'This run stopped before StarNet recorded what it spent' +
+        // A skill evaluation run (budgetUnsettledRuns tags it kind 'evaluation' from its runId, which survives a restart)
+        // may well have finished: what it lacks is a recorded price, so it reads UNPRICED, never INTERRUPTED.
+        const evaluation = r.kind === 'evaluation';
+        row.setAttribute('data-tip', (evaluation ? 'This skill evaluation run has no recorded price: its provider usage came back without one, or the call failed or was cut off'
+          : 'This run stopped before StarNet recorded what it spent') +
           (managed ? ' (it ran on your StarNet credits' + (r.model ? ', ' + r.model : '') + ')' : (where ? ' (it started on ' + where + ')' : '')) +
-          (managed ? '. Enter what StarNet charged for it — SETTINGS → AI & MODELS › STORE › RECENT ACTIVITY lists those charges as run ' + String(r.runId).slice(0, 8)
+          (managed ? '. Enter what StarNet charged for it — SETTINGS → AI & MODELS › STORE › RECENT ACTIVITY lists those charges as ' + creditRunTag(r.runId)
             : byok ? '. Enter the charge your provider dashboard shows for it' : '. The billing source was not recorded. Match this run to StarNet Recent Activity or the original provider billing records, then enter only its verified charge') + ': StarNet books it once and your spending limits can be checked again.');
         const what = document.createElement('span');
         what.className = 'bg-un-what';
         const name = document.createElement('b');
         name.textContent = String(r.title || r.agentId || 'a run').slice(0, 80);
-        what.appendChild(document.createTextNode('INTERRUPTED — '));
+        what.appendChild(document.createTextNode(evaluation ? 'UNPRICED — ' : 'INTERRUPTED — '));
         what.appendChild(name);
         what.appendChild(document.createTextNode(' · ' + whenOf(r.ts)));
         if (!managed && !byok) what.appendChild(document.createTextNode(' · BILLING SOURCE UNKNOWN'));

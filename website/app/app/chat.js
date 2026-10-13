@@ -3752,8 +3752,9 @@ const Chat = (() => {
     } else if (p.tool === 'browser.login.done') {
       mk('Done — I\'ve logged in', 'once', '', '✓ done', false);
       mk('Cancel', 'deny', 'deny', '✕ cancelled', true);
-    } else if (p.tool === 'station.power') {
-      // widening the station's leash is answered fresh every time (permissions.js tier 1.5): no Always, no Full access
+    } else if (p.tool === 'station.power' || p.tool === 'plugin.submit') {
+      // widening the station's leash and installing a plugin are answered fresh every time (freshConsent tools,
+      // permissions.js tier 1.5): the station grants any yes once, so no Always and no Full access
       mk('Approve once', 'once', '', '✓ approved once', false);
       mk('Deny', 'deny', 'deny', '✕ denied', true);
     } else {
@@ -9872,7 +9873,8 @@ const Chat = (() => {
           const stoppedBy = (endReason === 'cancelled' && interrupted.has(ws.id)) ? (stopSource.get(ws.id) || 'you') : null;
           const stopLine = endReason === 'budget' ? budgetStopLine(budgetScope, budgetCapUsd, budgetCapIsBalance, unpriced, subscription)
             : stoppedBy ? stoppedByLine(stoppedBy)
-            : (typeof Friendly !== 'undefined' && Friendly.stopLine) ? Friendly.stopLine(endReason, { cancelSource: runPressedEstop ? 'estop_by_run' : '' })
+            // toolsRan: this run's tool calls (callNames), so an empty end after real steps never reads "nothing was done"
+            : (typeof Friendly !== 'undefined' && Friendly.stopLine) ? Friendly.stopLine(endReason, { cancelSource: runPressedEstop ? 'estop_by_run' : '', toolsRan: Object.keys(callNames).length })
             : 'stopped (' + endReason + ')';
           // the card already says STOPPED BY YOU — the work log only repeats a reason the card can't carry
           if (isActiveWs(ws)) { breakLive(); if (stopLine && !stoppedBy) toolLine('⏹ ' + stopLine); }
