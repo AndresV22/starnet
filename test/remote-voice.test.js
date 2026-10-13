@@ -235,7 +235,7 @@ function parsePages(buf) {
     t += VOICE_TTL_MS + 1;
     A.ok(!voice.speech('devA', { id: s3.data.id, offset: 0 }).ok, 'an unread reply expires');
 
-    // sweep() is exported for the host's timer: a device that never calls again does not keep its audio in memory
+    // sweep() alone (what the store's own timer runs): a device that never calls again does not keep its audio in memory
     let tIdle = 1;
     const idle = makeRemoteVoice({ now: () => tIdle, newId: () => 'i1', synthesize: async () => ({ ok: true, buf: Buffer.from([0xff, 0xfb, 0x90, 0x00]), mime: 'audio/mpeg', provider: 'edge' }) });
     await idle.speak('devZ', { text: 'Hi.' });
@@ -246,6 +246,23 @@ function parsePages(buf) {
     A.eq(typeof idle.sweep, 'function', 'sweep is exported');
     idle.sweep();
     A.eq(idle._sizes(), { utterances: 0, replies: 0, heard: 0 }, 'sweep alone drops expired audio and transcripts, with no voice verb called');
+
+    // ...and nobody has to remember to call it: the voice store runs sweep on its own unref'd timer, so a companion
+    // unplugged mid-reply does not keep its audio or its question in memory until another device speaks
+    const timers = [];
+    let tTimed = 1;
+    const timed = makeRemoteVoice({ now: () => tTimed, newId: () => 't1',
+      setInterval: (fn, ms) => { const h = { fn, ms, unrefd: false, unref() { h.unrefd = true; return h; } }; timers.push(h); return h; },
+      synthesize: async () => ({ ok: true, buf: Buffer.from([0xff, 0xfb, 0x90, 0x00]), mime: 'audio/mpeg', provider: 'edge' }) });
+    A.eq(timers.map((h) => [h.ms, h.unrefd]), [[60 * 1000, true]], 'one sweep timer, once a minute, unref\'d (it never keeps the sidecar alive)');
+    await timed.speak('devT', { text: 'Hi.' });
+    await timed.hear('devT', { utt: 't1', part: 0, frames: [b64u(SILK_WB_60MS)] });
+    await timed.hear('devU', { utt: 'u1', part: 0, frames: [b64u(SILK_WB_60MS)], last: true });
+    timers[0].fn();
+    A.eq(timed._sizes(), { utterances: 1, replies: 1, heard: 1 }, 'a tick drops nothing that is still fresh');
+    tTimed += VOICE_TTL_MS + 1;
+    timers[0].fn();
+    A.eq(timed._sizes(), { utterances: 0, replies: 0, heard: 0 }, 'a tick after VOICE_TTL_MS drops it all, with no voice verb called');
 
     // a later sentence that fails ends the reply with what was said, and says why
     let n = 0;

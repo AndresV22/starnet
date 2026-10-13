@@ -17,8 +17,8 @@
    Laws:
      · One utterance and one reply per device at a time. A new utterance replaces an unfinished one; a new reply
        replaces the old one. Nothing is written to disk and nothing is served after VOICE_TTL_MS. sweep() drops
-       expired audio; it runs on every voice verb, a revoke (forget) drops a device's audio at once, and sweep is
-       exported so the host can also run it on a timer for a device that never calls again.
+       expired audio and transcripts; it runs on every voice verb and once a minute on its own unref'd timer (a
+       device that never calls again), and a revoke (forget) drops a device's audio at once.
      · Parts must arrive in order (0, 1, 2 …). A gap or a repeat is refused, never silently stitched. The one
        exception: a repeat of the FINAL part (same utterance, part and audio — the reply was lost on the relay)
        returns the same transcript, never a second STT call. A new utterance, a revoke or VOICE_TTL_MS drops it.
@@ -27,6 +27,7 @@
 'use strict';
 
 const nodeCrypto = require('crypto');
+const { note } = require('../failopen.js');
 
 const MAX_FRAMES = 1000;            // 60 s of 60 ms frames
 const MAX_FRAME_BYTES = 1500;       // one Opus packet; the device's 16 kHz mono frames are ~100–200 bytes
@@ -35,6 +36,7 @@ const MIN_SPEECH_MS = 300;
 const MAX_SPEAK_TEXT = 1200;
 const MAX_SPEECH_CHUNK = 64 * 1024;
 const VOICE_TTL_MS = 5 * 60 * 1000;
+const SWEEP_EVERY_MS = 60 * 1000;
 const FRAME_MS = [10, 20, 40, 60];
 const UTT_RE = /^[A-Za-z0-9_-]{1,40}$/;
 
@@ -295,6 +297,11 @@ function makeRemoteVoice(deps) {
     for (const [k, r] of pendingReplies) if (t - r.at > VOICE_TTL_MS) pendingReplies.delete(k);
     for (const [k, h] of heard) if (t - h.at > VOICE_TTL_MS) heard.delete(k);
   }
+  // A device that never calls again (unplugged mid-reply) must not keep its audio or transcript until another
+  // device speaks: sweep also runs once a minute on its own timer, unref'd so it never keeps the sidecar alive.
+  const every = typeof deps.setInterval === 'function' ? deps.setInterval : setInterval;
+  const sweepTimer = every(() => { try { sweep(); } catch (e) { note('remote.voice.sweep', e); } }, SWEEP_EVERY_MS);
+  if (sweepTimer && typeof sweepTimer.unref === 'function') sweepTimer.unref();
 
   async function hear(deviceId, a) {
     sweep();
