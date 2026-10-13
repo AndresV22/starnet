@@ -6724,7 +6724,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
             refresh();
             return;
           }
-          paint(j); setMsg('✓ interrupted run settled — its spend is in your history', true); sfx('click');
+          paint(j); setMsg('✓ ' + (r.kind === 'evaluation' ? 'skill evaluation run' : 'interrupted run') + ' settled — its spend is in your history', true); sfx('click');
         })
         .catch(() => { setMsg('could not reach the sidecar'); sfx('bad'); btns.forEach(b => { b.disabled = false; }); });
     };
@@ -6742,7 +6742,11 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
         // station and an operator (env) one alike — not on a provider dashboard the user never had.
         const managed = r.managed === true, byok = r.managed === false;
         const chargedBy = managed ? 'what StarNet charged' : byok ? 'what your provider charged' : 'the verified charge';
-        row.setAttribute('data-tip', 'This run stopped before StarNet recorded what it spent' +
+        // A skill evaluation run (budgetUnsettledRuns tags it kind 'evaluation' from its runId, which survives a restart)
+        // may well have finished: what it lacks is a recorded price, so it reads UNPRICED, never INTERRUPTED.
+        const evaluation = r.kind === 'evaluation';
+        row.setAttribute('data-tip', (evaluation ? 'This skill evaluation run has no recorded price: its provider usage came back without one, or the call failed or was cut off'
+          : 'This run stopped before StarNet recorded what it spent') +
           (managed ? ' (it ran on your StarNet credits' + (r.model ? ', ' + r.model : '') + ')' : (where ? ' (it started on ' + where + ')' : '')) +
           (managed ? '. Enter what StarNet charged for it — SETTINGS → AI & MODELS › STORE › RECENT ACTIVITY lists those charges as run ' + String(r.runId).slice(0, 8)
             : byok ? '. Enter the charge your provider dashboard shows for it' : '. The billing source was not recorded. Match this run to StarNet Recent Activity or the original provider billing records, then enter only its verified charge') + ': StarNet books it once and your spending limits can be checked again.');
@@ -6750,7 +6754,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
         what.className = 'bg-un-what';
         const name = document.createElement('b');
         name.textContent = String(r.title || r.agentId || 'a run').slice(0, 80);
-        what.appendChild(document.createTextNode('INTERRUPTED — '));
+        what.appendChild(document.createTextNode(evaluation ? 'UNPRICED — ' : 'INTERRUPTED — '));
         what.appendChild(name);
         what.appendChild(document.createTextNode(' · ' + whenOf(r.ts)));
         if (!managed && !byok) what.appendChild(document.createTextNode(' · BILLING SOURCE UNKNOWN'));

@@ -72,6 +72,22 @@ const harness = (status) => {
   const unknownCount=cappedUnknown.node('#budget-unsettled').children[0].children[3];
   assert.match(unknownCount.attrs['data-tip'],/verify the exact charge in the original billing records/);
   assert.doesNotMatch(unknownCount.attrs['data-tip'],/provider dashboard|STORE/,'recorded cap cannot establish billing provenance');
+  // security-storage-07: a skill evaluation run (budgetUnsettledRuns tags it kind 'evaluation') was not interrupted;
+  // its provider call has no recorded price. The row says UNPRICED, and the settled message does not call it interrupted.
+  const evalRun = { runId: 'skill-eval-abc-1-before-0123456789ab', agentId: 'agent', ts: Date.now(), title: 'skill evaluation (agent)', kind: 'evaluation',
+    provider: 'openrouter', model: 'test/m', managed: false, runCapUsd: 0.5 };
+  const ev = harness({ ...st, unsettled: [evalRun, st.unsettled[1]] }); await tick();
+  const [evalRow, plainRow] = ev.node('#budget-unsettled').children;
+  assert.match(evalRow.children[0].textContent, /^UNPRICED — skill evaluation \(agent\)/, 'an evaluation row is UNPRICED: ' + evalRow.children[0].textContent);
+  assert.doesNotMatch(evalRow.children[0].textContent, /INTERRUPTED/);
+  assert.match(evalRow.attrs['data-tip'], /^This skill evaluation run has no recorded price/, 'its tip says what is missing: ' + evalRow.attrs['data-tip']);
+  assert.doesNotMatch(evalRow.attrs['data-tip'], /stopped before/, 'and does not say it stopped');
+  assert.match(evalRow.attrs['data-tip'], /Enter the charge your provider dashboard shows for it/, 'it keeps where to find the charge');
+  assert.match(plainRow.children[0].textContent, /^INTERRUPTED — Fix the build/, 'every other row stays INTERRUPTED');
+  evalRow.children[3].click(); await tick();
+  assert.match(ev.node('#budget-msg').textContent, /skill evaluation run settled/, 'the settled message names the evaluation: ' + ev.node('#budget-msg').textContent);
+  plainRow.children[3].click(); await tick();
+  assert.match(ev.node('#budget-msg').textContent, /interrupted run settled/, 'a plain run still settles as an interrupted run');
   const idx = fs.readFileSync(path.join(__dirname, '..', 'sidecar/index.js'), 'utf8');
   const settle = idx.slice(idx.indexOf('async function handleBudgetSettle('), idx.indexOf('async function warmModelCatalogSet('));
   assert.ok(settle.length > 200 && settle.length < 6000, 'handleBudgetSettle found');
