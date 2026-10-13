@@ -11161,7 +11161,7 @@ const remoteHost = require('./remote/host.js').makeRemoteHost({
 // go through the SAME decoder + STT chain Telegram voice notes use; replies are spoken in the station's own voice.
 const remoteVoice = require('./remote/voice.js').makeRemoteVoice({
   now: () => Date.now(),
-  newId: () => require('crypto').randomUUID(),
+  newId: () => crypto.randomUUID(),
   transcribeOgg: async (ogg) => {
     const { oggOpusToMono16kFloat32, float32PcmToWav } = require('./media-service.js');
     const pcm = await oggOpusToMono16kFloat32(ogg);
@@ -11318,8 +11318,8 @@ async function handleRemoteRevoke(req, res) {
   const r = remoteDevices.revoke(id);
   remoteSessions.endDevice(id);
   if (remoteRelay) remoteRelay.kickDevice(id);
-  if (r.ok) remoteHost.stopDevice(id);
-  if (r.ok) remoteVoice.forget(id);   // and nothing it said or was about to hear stays behind   // the runs that phone started stop with it (a lost phone's task never keeps going)
+  if (r.ok) remoteHost.stopDevice(id);   // the runs that phone started stop with it (a lost phone's task never keeps going)
+  if (r.ok) remoteVoice.forget(id);      // and nothing it said or was about to hear stays behind
   if (r.ok) { const f = remotePush.forget(id); if (!f.ok) failNote('remote.index.pushForget', new Error(f.error)); }   // a removed phone gets no more notifications
   if (!r.ok) return respondJson(res, r.error === 'no such device' ? 404 : 500, { ok: false, error: r.error });
   respondJson(res, 200, remoteSnapshot());
@@ -19812,7 +19812,7 @@ async function runOnceCore(o) {
     // keys, so "add it in KEYS" would send the Commander round a loop they can never finish.
     resolveServiceKey: (name, sfc) => serviceKeysMod.resolveForRequest(serviceKeys, name, sfc, { reservedEnv: SERVICEKEYS_RESERVED_ENV }),
     // workspace files in outbound requests (${file:...} body refs / multipart parts): resolved through the
-    // SAME resolveInside jail as fs.* and browser.upload, so a request can only carry this agent's own files.
+    // per-agent workspace jail only (no ctx/pathTrust, unlike fs.read and browser.upload), so a request can only carry this agent's own workspace files.
     readWorkspaceFile: async (aid, rel) => {
       const { abs } = await fsJail.resolveInside(aid, rel, { scope: 'read' });
       return fsp.readFile(abs);
