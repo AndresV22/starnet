@@ -219,6 +219,8 @@ function scriptPrompt(decision) {
       [path.join('AppData', 'Local', 'Vivaldi', 'User Data', 'Default'), 'Login Data'],
       [path.join('AppData', 'Roaming', 'Opera Software', 'Opera Stable'), 'Cookies'],
       [path.join('AppData', 'Roaming', 'Mozilla', 'Firefox', 'Profiles', 'x.default'), 'logins.json'],
+      // Microsoft Store (MSIX) Firefox: the package virtualizes AppData as Packages/<pkg>/LocalCache/{Local,Roaming}
+      [path.join('AppData', 'Local', 'Packages', 'Mozilla.Firefox_n80bbvh6b1yt2', 'LocalCache', 'Roaming', 'Mozilla', 'Firefox', 'Profiles', 'x.default'), 'logins.json'],
       [path.join('.config', 'chromium', 'Default'), 'Cookies'], [path.join('.config', 'vivaldi', 'Default'), 'Cookies'],
       [path.join('.config', 'google-chrome-beta', 'Default'), 'Cookies'], [path.join('.mozilla', 'firefox', 'x.default'), 'logins.json'],
       [path.join('snap', 'chromium', 'common', 'chromium', 'Default'), 'Cookies'],
