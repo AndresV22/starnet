@@ -16,7 +16,8 @@ const LOCK_REASONS = ['key-unavailable', 'key-mismatch', 'unreadable', 'reset-in
 // Windows reports a sharing violation as EBUSY and a held/denied handle as EPERM. Other errors (EIO, POSIX EACCES)
 // are not a passing hold, so they stay 'unreadable'.
 const BUSY_READ_CODES = ['EBUSY', 'EPERM'];
-// detail (optional, from vault.lockDetail): { movedTo } for an interrupted reset, { readCode } for a busy file.
+// detail (optional, from vault.lockDetail): { movedTo, unfinishable? } for an interrupted reset, { readCode } for a
+// busy file.
 function lockMessage(reason, keyError = '', detail = {}) {
   const why = String(keyError || '').trim().slice(0, 240);
   const movedTo = detail && typeof detail.movedTo === 'string' ? detail.movedTo.slice(0, 400) : '';
@@ -27,6 +28,10 @@ function lockMessage(reason, keyError = '', detail = {}) {
   if (reason === 'key-unavailable') return 'Saved connector sign-ins are locked: StarNet could not open this computer\'s credential store.' +
     (why ? ' Reason: ' + why + '.' : '') + ' They are safe and unchanged. Unlock or repair the credential store and restart StarNet, or START FRESH to sign in again.';
   if (reason === 'key-mismatch') return 'Saved connector sign-ins are locked: they were sealed with a key this OS account no longer has (its credential-store entry was reset, or this is a different account). START FRESH to sign in again. The old files are kept, not deleted.';
+  const unfinishable = detail && typeof detail.unfinishable === 'string' ? detail.unfinishable.slice(0, 240) : '';
+  if (reason === 'reset-interrupted' && unfinishable) return 'Saved connector sign-ins are locked: an earlier START FRESH was interrupted and cannot be finished automatically, because ' +
+    unfinishable + '. Your files were left as they are. To recover by hand, copy the files from ' + (movedTo || 'the unreadable-* folder') +
+    ' back into the connectors folder, delete the .reset-pending file there, and restart StarNet.';
   if (reason === 'reset-interrupted') return 'Saved connector sign-ins are locked: an earlier START FRESH was interrupted before it finished. Your old files were not deleted' +
     (movedTo ? ' (copies are in ' + movedTo + ')' : '') + '. Press START FRESH to finish it.';
   return 'Saved connector sign-ins are locked: the saved file is damaged or from a newer StarNet. START FRESH to sign in again. The old files are kept, not deleted.';
@@ -66,11 +71,20 @@ function makeConnectorVault({ fs, path, keyHex = '', required = false, writeDura
     const previous = Array.isArray(m.previous) ? m.previous.filter(p => typeof p === 'string' && p && p !== movedTo) : [];
     return { raw, movedTo, sources: names, previous };
   }
+  // Every file an interrupted reset lists must still be at its source path (inPlace) or in its recovery folder,
+  // or finishing the reset could lose one.
+  function lostSources(pending, inPlace) {
+    return pending.sources.filter(name => !inPlace(name) && !fs.existsSync(path.join(pending.movedTo, name)));
+  }
   function lockDetailFor(reason, file, error) {
     if (reason === 'busy') return error && error.readCode ? { readCode: String(error.readCode) } : {};
     if (reason !== 'reset-interrupted') return {};
     const m = readMarker(file + '.reset-pending');
-    return m.movedTo ? { movedTo: m.movedTo } : {};
+    // The same check startFresh makes, so the message only promises a finish START FRESH will do (the files a
+    // reset moves all sit beside `file`). unfinishable: why it cannot, for the by-hand steps instead.
+    const lost = m.bad || m.absent ? [] : lostSources(m, name => fs.existsSync(path.join(path.dirname(file), name)));
+    const unfinishable = m.bad ? 'its record ' + m.bad : lost.length ? lost.join(', ') + ' is in neither its original place nor the recovery folder' : '';
+    return Object.assign(m.movedTo ? { movedTo: m.movedTo } : {}, unfinishable ? { unfinishable } : {});
   }
   function decode(value) {
     if (value && typeof value.format === 'string' && value.format.startsWith('starnet.connector-vault.') && value.format !== FORMAT) throw lockError('unreadable');
@@ -208,8 +222,7 @@ function makeConnectorVault({ fs, path, keyHex = '', required = false, writeDura
     if (pending.bad) throw refuse('its record ' + marker + ' ' + pending.bad, pending.movedTo);
     const resuming = !pending.absent;
     if (resuming) {
-      const lost = pending.sources.filter(name => !candidates.some(c => path.basename(c) === name && fs.existsSync(c)) &&
-        !fs.existsSync(path.join(pending.movedTo, name)));
+      const lost = lostSources(pending, name => candidates.some(c => path.basename(c) === name && fs.existsSync(c)));
       if (lost.length) throw refuse(lost.join(', ') + ' is in neither ' + path.dirname(file) + ' nor ' + pending.movedTo, pending.movedTo);
     }
     for (const src of sources) {
@@ -286,7 +299,8 @@ function makeConnectorVault({ fs, path, keyHex = '', required = false, writeDura
   return { load, write, migrate, startFresh,
     get protected() { return !!key && !locked; }, get locked() { return locked; },
     get lockReason() { return locked ? lockReason : ''; },
-    // What the lock message can name: { movedTo } for an interrupted reset (lockMessage's third argument).
+    // What the lock message can name (lockMessage's third argument): { movedTo, unfinishable? } for an interrupted
+    // reset, { readCode } for a busy file.
     get lockDetail() { return locked ? Object.assign({}, lockInfo) : {}; },
     // The desktop expected an OS-keychain key and did not get one: whatever is saved is NOT encrypted.
     get fallback() { return !!required && !key; } };

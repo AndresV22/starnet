@@ -295,6 +295,14 @@ try {
   // security-storage-04: an interrupted reset says so, names the folder, and START FRESH finishes it.
   assert.match(lockMessage('reset-interrupted', '', { movedTo: path.join(root, 'unreadable-x') }), /START FRESH was interrupted.*not deleted.*unreadable-x.*START FRESH to finish/);
   assert.doesNotMatch(lockMessage('reset-interrupted'), /damaged|newer StarNet/, 'an interrupted reset is not called a damaged file');
+  // ...but only promises START FRESH finishes it when START FRESH can: a marker that cannot be checked gets the
+  // by-hand steps instead of a button that will always refuse
+  {
+    assert.match(restarted.lockDetail.unfinishable || '', /does not list the files it moved/, 'the lock knows the record cannot be checked');
+    const msg = lockMessage('reset-interrupted', '', restarted.lockDetail);
+    assert.match(msg, /cannot be finished automatically, because its record does not list the files it moved.*unreadable-interrupted.*restart StarNet/, msg);
+    assert.doesNotMatch(msg, /Press START FRESH to finish/, 'it does not promise a finish that START FRESH would refuse');
+  }
   // a marker this build never writes (no sources list) cannot be checked: refuse, name the marker, change nothing
   assert.throws(() => restarted.startFresh(interrupted, [], { stamp: 'no-sources' }), e => {
     assert.match(e.message, /interrupted\.json\.reset-pending/, 'the refusal names the marker');
@@ -329,6 +337,10 @@ try {
   {
     const f = path.join(root, 'lost.json'), old = path.join(root, 'unreadable-lost');
     fs.writeFileSync(f + '.reset-pending', JSON.stringify({ movedTo: old, sources: ['lost.json'] }));
+    const v = make();
+    assert.throws(() => v.load(f), /locked/);
+    assert.match(v.lockDetail.unfinishable || '', /lost\.json is in neither/, 'the lock names the missing file');
+    assert.doesNotMatch(lockMessage('reset-interrupted', '', v.lockDetail), /Press START FRESH to finish/, 'and does not promise a finish');
     assert.throws(() => make().startFresh(f, [], { stamp: 'lost-2' }), e => /lost\.json\.reset-pending/.test(e.message) && /unreadable-lost/.test(e.message));
     assert.ok(fs.existsSync(f + '.reset-pending'), 'the marker stays, so the store stays locked');
   }
