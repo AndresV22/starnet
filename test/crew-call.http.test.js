@@ -4,6 +4,9 @@ const A = require('./_assert.js');
 const http = require('node:http');
 const {SidecarFixture} = require('./helpers/sidecar-fixture.js');
 const Pipeline = require('../frontend/app/pipeline.js');
+// The [CREW CALL] line is per-request, so it rides the host's <run_context> note (lean-prompt): on this non-Claude chat
+// wire that is the fenced leading text of the newest user message. Read host text and the Commander's own words apart.
+const {hostText,userWords} = require('./helpers/host-notes.js');
 (async () => {
   const wire = [];
   const server = http.createServer((req,res) => {
@@ -48,14 +51,14 @@ const Pipeline = require('../frontend/app/pipeline.js');
       A.eq(r.status,200,label+' reaches the run route');
       A.eq(events.find(e=>e.name==='agent.run.end')?.payload.reason,'done',label+' run completes successfully');
       A.ok(!events.some(e=>e.name==='agent.run.error'),label+' run has no harness error');
-      const request=wire.slice(from).find(b=>(b.messages||[]).some(m=>m.role==='user' && m.content===text));
+      const request=wire.slice(from).find(b=>(b.messages||[]).some(m=>m.role==='user' && userWords(m)===text));
       A.ok(request,label+' reaches the actual provider');
       if (!request) continue;
       A.ok((request.tools||[]).some(t=>t.function.name==='team_dispatch'),label+' has real dispatch capability');
-      const system=request.messages.filter(m=>m.role==='system').map(m=>String(m.content)).join('\n');
+      const system=hostText(request.messages);
       const directive=(system.match(/\[CREW CALL\][^\n]*/)||[''])[0];
       A.eq([...directive.matchAll(/agentId:"([^"]+)"/g)].map(m=>m[1]),expected,label+' exact host targets: '+(directive||'absent'));
-      if (!expected.length) A.ok(request.messages.some(m=>m.role==='user' && m.content===text),'original '+label+' remains in user context');
+      if (!expected.length) A.ok(request.messages.some(m=>m.role==='user' && userWords(m)===text),'original '+label+' remains in user context');
     }
   } finally {await fixture.dispose();await new Promise(r=>server.close(r));}
   A.report('crew-call.http');
