@@ -329,6 +329,35 @@ for (const change of ['body', 'files', 'summary', 'baseline', 'pin']) {
   A.ok(/pinned/.test(f.s.promotionBlocker('a', heir.candidateId) || ''), 'the precheck covers a pinned active skill');
   A.eq(f.s.promotionBlocker('a', 'no-such-candidate'), 'no pending candidate with that id', 'the precheck names an unknown candidate');
 }
+// COMMS veto of a reflection save. Reflection writes are proposals now, so the veto must reject the proposal: a
+// plain archive with no writer was refused (a revision) or answered 'no such skill' (a new skill), and the
+// proposal stayed approvable. Only a save that is an active skill is archived, as the Commander.
+{
+  const f = fixture(); seed(f);
+  const created = f.s.write({ agentId: 'a', name: 'Standup notes', summary: 'Standup', body: BODY, createdBy: 'reflection', sourceRunId: 'run-1' });
+  A.ok(created.pending, 'precondition: reflection proposes a new skill');
+  const v1 = f.s.veto({ agentId: 'a', target: created.skill.id });
+  A.ok(v1.ok && v1.action === 'reject', 'veto rejects the proposed new skill');
+  A.eq(f.s.candidates('a').length, 0, 'the vetoed new skill is no longer approvable');
+  const revised = f.s.write({ agentId: 'a', name: 'Brief', body: BODY + '\n3. Reflection step.', createdBy: 'reflection', sourceRunId: 'run-2' });
+  A.ok(revised.pending, 'precondition: reflection proposes a revision of an active skill');
+  const v2 = f.s.veto({ agentId: 'a', target: revised.skill.id });
+  A.ok(v2.ok && v2.action === 'reject', 'veto rejects the proposed revision');
+  A.eq(f.s.candidates('a').length, 0, 'the veto stages no archive proposal');
+  A.eq([read(f.s).state, read(f.s).body], ['active', BODY], 'the approved skill stays as it was');
+  const v3 = f.s.veto({ agentId: 'a', target: 'brief' });
+  A.ok(v3.ok && v3.action === 'archive', 'veto of an active save archives it');
+  A.eq(read(f.s).state, 'archived', 'the active save is archived directly');
+  A.eq(f.s.candidates('a').length, 0, 'the Commander\'s archive is not a proposal');
+  const v4 = f.s.veto({ agentId: 'a', target: 'never-saved' });
+  A.ok(!v4.ok && /no such skill/.test(v4.error), 'a record already gone says no such skill');
+  const g = fixture(); seed(g);
+  A.ok(g.s.manage({ agentId: 'a', target: 'Brief', action: 'archive', createdBy: 'background-review' }).pending, 'precondition: a retirement is proposed');
+  const v5 = g.s.veto({ agentId: 'a', target: 'Brief' });
+  A.ok(v5.ok && v5.action === 'archive', 'veto during a pending retirement archives the skill');
+  A.eq(read(g.s).state, 'archived', 'the skill is archived');
+  A.eq(g.s.candidates('a').length, 0, 'the retirement proposal is resolved, not left outdated');
+}
 // A foreground run only sees the active version, so it never builds on (or silently discards) a review draft it
 // cannot see. Its own run's draft and the review passes (which read drafts through pendingView) still continue one.
 {

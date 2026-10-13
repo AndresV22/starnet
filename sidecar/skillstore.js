@@ -744,6 +744,25 @@
       io.append(clone(row)); candidateRows.set(keyOf(row.agentId, row.name), row);
       return { ok: true, candidate: projectCandidate(row, false) };
     }
+    /* VETO = UNDO A SILENT SAVE (COMMS). The reflection auto-saves a learned skill through write(), which makes it
+       a proposal, so the veto rejects that proposal. A plain archive was a new staged write that could not see the
+       reflection's draft: refused for a revision, 'no such skill' for a new skill, and the proposal stayed
+       approvable. Only an active skill is archived, as the Commander, so the archive is not staged again (a pending
+       retirement proposal is rejected first, then the skill is archived). Matched by skill id or name; 'no such
+       skill' when neither exists, which the route treats as already undone. */
+    function veto(e) {
+      e = e || {};
+      const aid = str(e.agentId) || 'agent';
+      const target = str(e.target != null ? e.target : e.id).trim();
+      const row = target ? Array.from(candidateRows.values()).find(r => r.agentId === aid && r.status === 'pending'
+        && (r.skill.id === target || r.name.toLowerCase() === target.toLowerCase())) : null;
+      if (row) {
+        const r = rejectCandidate({ agentId: aid, candidateId: row.candidateId, candidateDigest: row.candidateDigest });
+        if (!r.ok) return r;
+        if (row.skill.state !== 'archived') return Object.assign({ action: 'reject' }, r);
+      }
+      return manage({ agentId: aid, target, action: 'archive', createdBy: 'user' });
+    }
     function projectKey(root) {
       const s = str(root).trim().replace(/\\/g, '/').replace(/\/+$/, '');
       return /^[A-Za-z]:\//.test(s) ? s.toLowerCase() : s;
@@ -895,7 +914,7 @@
 
     return {
       write, manage, list, view, markUsed, curate, compact,
-      candidates, candidate, pendingView, promotionBlocker, approveCandidate, rejectCandidate, share, listAccessible, viewAccessible,
+      candidates, candidate, pendingView, promotionBlocker, approveCandidate, rejectCandidate, veto, share, listAccessible, viewAccessible,
       all() { return Array.from(latest.values()).map(s => projectSkill(s, true)); },
       count() { return latest.size; },
       _internals: { slug, keyOf, supportPath, cleanName, normalizeEntry, bumpView, trustSource }
