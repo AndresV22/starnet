@@ -414,6 +414,23 @@ const tick = ms => new Promise(r => setTimeout(r, ms || 0));
     p.release('run-13');
   }
 
+  // 14. DIAGNOSTICS: STARNET_CLAUDE_CLI_PERSIST_LOG=1 also prints each turn's usage (what the prompt cache read vs wrote),
+  //     on either path — the live proof's per-turn cache numbers. Off by default: nothing is printed.
+  {
+    const lines = [], log = console.log;
+    console.log = (...a) => { const s = a.join(' '); if (/\[claude-cli persist\]/.test(s)) lines.push(s); else log(...a); };
+    try {
+      for (const env of [{ PATH: '', STARNET_CLAUDE_CLI_PERSIST_LOG: '1' }, { PATH: '', STARNET_CLAUDE_CLI_PERSIST_LOG: '1', STARNET_CLAUDE_CLI_PERSIST: '0' }, { PATH: '' }]) {
+        const { p } = make(reader, { env });
+        await collect(p, { model: 'sonnet', tools: TOOLS, messages: [SYS, { role: 'user', content: 'Read a.txt and b.txt.' }], runId: 'run-14', signal: new AbortController().signal });
+        p.release('run-14');
+      }
+    } finally { console.log = log; }
+    const usage = lines.filter(l => / usage /.test(l));
+    A.eq(usage, ['[claude-cli persist] usage persistent: in=35 cache_read=20 cache_write=5 out=7 subscription', '[claude-cli persist] usage one-shot: in=3 cache_read=0 cache_write=0 out=30 subscription'],
+      'one usage line per turn on each path when asked (a one-shot call turn is cut at its block: the stream\'s own numbers), none by default');
+  }
+
   // 10. THE REAL LOOP drives the adapter (no hand-built replies): the reply loop.js records is exactly the one the child
   //     holds, so the next turn rides the same child, and the run's end releases it (loop.js end() -> release()).
   {

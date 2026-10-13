@@ -906,8 +906,16 @@
       // The persistent child serves the agent loop (a turn that carries tools). A side call (summary, vision, wire test)
       // or a second request while the child is mid-turn runs its own one-shot child and never touches it.
       const persistent = persistOn && Array.isArray(req.tools) && req.tools.length > 0 && !(session && session.busy);
-      if (persistent) yield* persistentStream(req, cmd);
-      else yield* oneShotStream(req, cmd);
+      const turn = persistent ? persistentStream(req, cmd) : oneShotStream(req, cmd);
+      if (envOf('STARNET_CLAUDE_CLI_PERSIST_LOG') !== '1') { yield* turn; return; }
+      // the diagnostics switch also prints each turn's usage: what the prompt cache did (read vs written) per turn
+      for await (const ev of turn) {
+        if (ev && ev.type === 'usage' && ev.usage) {
+          const u = ev.usage, d = u.prompt_tokens_details || {};
+          plog('usage ' + (persistent ? 'persistent' : 'one-shot') + ': in=' + u.prompt_tokens + ' cache_read=' + (d.cached_tokens || 0) + ' cache_write=' + (d.cache_creation_tokens || 0) + ' out=' + u.completion_tokens + (u.subscription ? ' subscription' : ''));
+        }
+        yield ev;
+      }
     }
 
     // ONE-SHOT: one `claude -p` child for one turn (STARNET_CLAUDE_CLI_PERSIST=0 runs every turn this way).
@@ -1011,7 +1019,8 @@
        user/tool/system messages after it. Anything else (compaction, an aged-out screenshot, a dropped or repaired
        call, a retry after a failed turn, a model switch, a withdrawn or changed tool, the CLI compacting itself)
        closes the child and the turn starts a fresh one from StarNet's whole history, exactly like a one-shot turn.
-       STARNET_CLAUDE_CLI_PERSIST_LOG=1 prints one line per decision (reuse, fresh + why, closed + why).
+       STARNET_CLAUDE_CLI_PERSIST_LOG=1 prints one line per decision (reuse, fresh + why, closed + why) and one per
+       turn's usage (cache read vs written), on either path.
        LIFECYCLE. The child ends at the run's end (release(), called by the loop), on Stop (the run signal, even
        between turns), on any turn that did not end cleanly (error, crash, idle watchdog), after
        STARNET_CLAUDE_CLI_PERSIST_IDLE_MS (default 5 min) parked, and when the sidecar exits; every kill takes the
