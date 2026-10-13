@@ -18774,9 +18774,13 @@ async function handleSkillCandidateAction(req, res) {
     const providerId = normalizeProvider(cfg.provider), unmetered = !!((getProviderProfile(providerId) || {}).unmetered);
     /* Limits sized to the chosen suite and the Commander's per-run cap (SkillEvaluationRunner.evaluationLimits): a fixed
        120 s and $0.08 per run stopped every evaluation on a slow reasoning model or a premium-priced one. Each run
-       gets the per-run cap (the runner's default when none is set), the whole evaluation runs x that cap. */
+       gets the Commander's PER RUN cap; with none set (the shipped default) it gets the ceiling the station gives a
+       run nobody capped (MANAGED_PER_RUN_DEFAULT, issue #53), never the runner's $0.08 fallback, which ended every
+       premium-model run with 'budget'. The whole evaluation is bounded by runs x that cap, and the day rail still applies. */
     const evalSuite = evaluationSuitesFor(agentId, candidate.skill).find(s => s.id === String(body.suiteId || ''));
-    const perRunCap = !unmetered && effectiveCaps.perRun > 0 && isFinite(effectiveCaps.perRun) ? effectiveCaps.perRun : undefined;
+    const perRunCap = unmetered ? undefined
+      : (effectiveCaps.perRun > 0 && isFinite(effectiveCaps.perRun)) ? effectiveCaps.perRun
+      : (MANAGED_PER_RUN_DEFAULT > 0 && isFinite(MANAGED_PER_RUN_DEFAULT)) ? MANAGED_PER_RUN_DEFAULT : budgetCaps.DEFAULT_MANAGED_PER_RUN_USD;
     const lim = SkillEvaluationRunner.evaluationLimits({ cases: evalSuite ? evalSuite.cases.length : 0, runCapUsd: perRunCap });
     let timedOut = false;
     const controller = new AbortController(), timer = setTimeout(() => { timedOut = true; controller.abort(); }, lim.wallClockMs);

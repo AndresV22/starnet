@@ -68,7 +68,7 @@ const server = http.createServer((req, res) => {
     STARNET_OPENROUTER_BASE: endpoint, SKYNET_OPENROUTER_BASE: endpoint,
     STARNET_OPENROUTER_KEY: 'local-fixture-only', SKYNET_OPENROUTER_KEY: 'local-fixture-only',
     STARNET_BUDGET_PER_DAY: '1', SKYNET_BUDGET_PER_DAY: '1',
-    STARNET_BUDGET_PER_RUN: '0.25', SKYNET_BUDGET_PER_RUN: '0.25',   // the Commander's per-run cap each evaluation run must get
+    // no PER RUN cap: the shipped default is none, and that is what most stations evaluate with
     STARNET_FULL_ACCESS: '1', SKYNET_FULL_ACCESS: '1',
     SKYNET_SKILL_REVIEW: '0', SKYNET_SKILL_CURATOR: '0', SKYNET_REFLECT: '0', SKYNET_SCOUT: '0',
     SKYNET_QUEST_REFRESH: '0', SKYNET_CRON_ENABLED: '0', STARNET_CRON_ENABLED: '0'
@@ -114,9 +114,9 @@ const server = http.createServer((req, res) => {
     assert.equal(unsettled.agentId, 'agent');
     assert.equal(unsettled.provider, 'openrouter');
     assert.equal(unsettled.model, MODEL);
-    // skills-eval-06: each run is bounded by the Commander's per-run cap, never a fixed $0.08 that a premium model
-    // passes on its first call
-    assert.equal(unsettled.runCapUsd, 0.25, 'the evaluation run recorded the Commander\'s per-run cap');
+    // skills-eval-06: with no PER RUN cap set (the shipped default), an evaluation run gets the station's ceiling for
+    // a run nobody capped ($2, issue #53), never a fixed $0.08 that a premium model passes on its first call
+    assert.equal(unsettled.runCapUsd, 2, 'an uncapped station gives each evaluation run the uncapped-run ceiling');
     // security-storage-07: the row says what it is (an evaluation, not an interrupted run) and the billing source the
     // host knew (the Commander's own key here, so not StarNet credits)
     assert.equal(unsettled.kind, 'evaluation');
@@ -153,6 +153,18 @@ const server = http.createServer((req, res) => {
     assert.ok(Math.abs(final.spentToday - 0.06) < 1e-9, 'the attested charge and four observed charges are each booked exactly once');
     assert.equal(fixture.child.pid, sidecarPid, 'explicit settlement restores evaluation without restarting');
     phases.push('explicit settlement restores known spend and complete-usage evaluation in the same process');
+
+    // skills-eval-06: a PER RUN cap the Commander saves in SPENDING LIMITS replaces that ceiling for the next evaluation
+    await api('POST', '/api/budget/caps', { perRun: 0.25 });
+    includeUsage = false;
+    const beforeCapped = requests.length;
+    const capped = await evaluate();
+    assert.equal(capped.receipt.status, 'insufficient_evidence');
+    assert.equal(requests.length - beforeCapped, 1, 'the uncertain charge stops the evaluation after one call');
+    const cappedStatus = await api('GET', '/api/budget/status');
+    assert.equal(cappedStatus.unsettled.length, 1);
+    assert.equal(cappedStatus.unsettled[0].runCapUsd, 0.25, 'the evaluation run recorded the Commander\'s per-run cap');
+    phases.push('a saved PER RUN cap bounds each evaluation run');
     assert.deepEqual(faults, [], 'the scripted provider served only the declared evaluation cases (no unrelated or background model work)');
     console.log(JSON.stringify({ status: 'PASS', test: 'skills.evaluation-spend.http', phases, modelCalls: requests.length }, null, 2));
   } catch (error) {
