@@ -1632,7 +1632,12 @@
         if (steered) {
           try { store.appendTurn(agentId, 'user', note); } catch (e) { failNote('channels.hub.appendTurn', e); }
           try { emit('channel.inbound', { channel, chatId, agentId, userId: msg.userId || '', kind: 'dm' }); } catch (e) { failNote('channels.hub.inbound.emit', e); }
-          await deliver(chatId, '↪ Added to the task that is already running — it picks this up at its next step, no restart.', liveRun.runId, 'command');
+          // the run may be PAUSED on an approval keyboard: "next step" would then wait out the keyboard (and a typed "yes"
+          // never answers it — only a tap grants a security decision), so say where it is stuck and what unblocks it
+          const waitingOnApproval = (liveRun.awaitingConsent || 0) > 0;
+          await deliver(chatId, waitingOnApproval
+            ? '↪ Added to the task — but it is paused on the permission request above. Tap Allow or Deny there (a typed yes/no does not answer it); it reads your note right after.'
+            : '↪ Added to the task that is already running — it picks this up at its next step, no restart.', liveRun.runId, 'command');
           return;
         }
       }
@@ -1879,12 +1884,20 @@
         // only renders the keyboard and routes the tap back. Built per ATTEMPT so it closes over this attempt's
         // runId + AbortController; a superseded attempt's prompts die with its signal.
         const consentPrompt = wantApprovals ? function (call, tool) {
-          return askConsent({
+          // count the open asks on the chat's run record (released however the wait settles: tap, timeout, abort) so a
+          // typed follow-up can say the run is paused on this keyboard (LIVE STEER above)
+          myRec.awaitingConsent = (myRec.awaitingConsent || 0) + 1;
+          const release = function () { myRec.awaitingConsent = Math.max(0, (myRec.awaitingConsent || 1) - 1); };
+          let asked;
+          try {
+            asked = askConsent({
             agentId: agentId, runId: runId, signal: ac.signal, call: call, tool: tool,
             onPrompt: function (promptId, fields) { sendConsentPrompt(chatId, runId, promptId, fields); },
             // the fail-closed timer fired with no tap: SAY so, or the chat sees the run carry on as if they had refused
             onTimeout: function (promptId, fields) { notifyConsentTimeout(chatId, runId, fields); }
-          });
+            });
+          } catch (e) { release(); throw e; }
+          return Promise.resolve(asked).finally(release);
         } : undefined;
 
         try {
