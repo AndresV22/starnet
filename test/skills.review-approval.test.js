@@ -212,4 +212,29 @@ for (const change of ['body', 'files', 'summary', 'baseline', 'pin']) {
   A.eq(proposal(f.s).candidateDigest, c.candidateDigest, 'pending replacement is not overwritten by retirement');
   A.eq(read(f.s).state, 'active', 'pending replacement keeps active procedure available');
 }
+// "No measurable improvement" is the Commander's explicit acknowledgement: it reaches the host verifier
+// only when sent, and the promotion record says it was acknowledged rather than measured.
+{
+  const seen = [];
+  const f = fixture({ validatePromotionReceipt(id, context) {
+    seen.push(context);
+    return context.acknowledgedNoImprovement === true ? { ok: true, receiptId: id, acknowledged: true } : { ok: false, error: 'the evaluation showed no measurable improvement' };
+  } });
+  seed(f); f.s.manage({ agentId: 'a', action: 'edit', target: 'Brief', body: BODY + '\n3. Same steps, reworded.' });
+  const c = proposal(f.s);
+  const refused = f.promote(c, 'host-tie');
+  A.eq(refused.ok, false, 'a tie is refused without the owner acknowledgement');
+  A.ok(/no measurable improvement/.test(refused.error), 'refusal names the missing improvement');
+  A.eq(seen.at(-1).acknowledgedNoImprovement, false, 'no acknowledgement is ever assumed');
+  A.eq(read(f.s).body, BODY, 'refused tie leaves the active bytes');
+  const r = f.s.approveCandidate({ agentId: 'a', candidateId: c.candidateId, candidateDigest: c.candidateDigest, approvedBy: 'user', evaluation: 'host-tie', acknowledgedNoImprovement: true });
+  A.ok(r.ok, 'acknowledged tie promotes');
+  A.eq(seen.at(-1).acknowledgedNoImprovement, true, 'host verifier receives the acknowledgement');
+  A.eq(r.candidate.acknowledgedNoImprovement, true, 'promotion records the owner acknowledgement');
+  f.reload();
+  A.eq(f.s.candidates('a', { includeResolved: true }).find(x => x.candidateId === c.candidateId).acknowledgedNoImprovement, true, 'acknowledgement survives restart');
+  const g = fixture(); seed(g); g.s.manage({ agentId: 'a', action: 'edit', target: 'Brief', body: BODY + '\n3. Check totals.' });
+  const measured = proposal(g.s);
+  A.eq(g.promote(measured, g.issue(measured)).candidate.acknowledgedNoImprovement, false, 'a measured improvement is not recorded as acknowledged');
+}
 A.report('skills.review-approval');

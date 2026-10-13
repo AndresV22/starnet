@@ -15,17 +15,26 @@ function makeEvaluationAccounting(options) {
   return {
     canContinue(caseSpent) { return !uncertain && spent + (Number(caseSpent) || 0) < (o.maxUsd || 0.40); },
     beforeRun({ runId }) {
-      if (uncertain || !ledger.beginRun(runId, o.agentId, { provider: o.provider, model: o.model, runCapUsd: o.runCapUsd || 0.08 })) {
+      // An unmetered provider bills nothing per call, so there is no unknown charge to hold a receipt for (runOnce skips it too).
+      if (uncertain || (!o.unmetered && !ledger.beginRun(runId, o.agentId, { provider: o.provider, model: o.model, runCapUsd: o.runCapUsd || 0.08 }))) {
         uncertain = true;
         throw new Error('Evaluation dispatch could not be durably recorded.');
       }
       return true;
     },
     onStream({ runId, spentUsd, accountingIncomplete }) {
-      if (accountingIncomplete) unknown(runId);
+      if (accountingIncomplete && !o.unmetered) unknown(runId);
       else if (o.budget) o.budget.noteLive(runId, o.unmetered ? 0 : spentUsd);
     },
     onRun({ result, runId }) {
+      if (o.unmetered) {
+        // Every outcome there (done, failed, timed out, cancelled) is known $0: book it unmetered, out of USD caps.
+        const tokens = result && Number.isFinite(result.tokens) && result.tokens >= 0 ? result.tokens : 0;
+        try { ledger.recordStrict({ runId, agentId: o.agentId, turns: (result && result.turns) || 0, usd: 0, tokens, model: o.model, unmetered: true }); }
+        catch (error) { uncertain = true; throw error; }
+        finally { clearLive(runId); }
+        return;
+      }
       if (!result || ['error', 'cancelled', 'runner-error'].includes(result.reason) || result.accountingIncomplete || !Number.isFinite(result.usd) || result.usd < 0 || !Number.isFinite(result.tokens) || result.tokens < 0 || (result.unpricedUsage || []).length) {
         unknown(runId);
         // Keep the dispatch receipt for explicit settlement, now or after restart.

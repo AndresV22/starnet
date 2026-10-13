@@ -829,6 +829,14 @@
     // Missing/0/non-finite = off (every existing caller byte-identical).
     let maxUnpricedTokens = (typeof limits.maxUnpricedTokens === 'number' && isFinite(limits.maxUnpricedTokens) && limits.maxUnpricedTokens > 0)
       ? Math.floor(limits.maxUnpricedTokens) : Infinity;
+    // SUBSCRIPTION SEATBELT (2026-10-12). A Claude Code turn on a subscription sign-in books $0 (nothing is billed per
+    // call) yet draws on that sign-in's usage window. It is priced, so the unpriced ceiling skips it, and $0 never
+    // trips maxCostUsd: a run was structurally uncapped (a real one: 3.2M tokens over 31 turns). The host passes a
+    // per-run TOKEN ceiling for turns whose usage says `subscription`; a cache re-read counts 1/10 (what it costs next
+    // to a fresh token), so a run that reuses its cache is not stopped for rereading its own context.
+    // Missing/0/non-finite = off (every existing caller byte-identical).
+    const maxSubscriptionTokens = (typeof limits.maxSubscriptionTokens === 'number' && isFinite(limits.maxSubscriptionTokens) && limits.maxSubscriptionTokens > 0)
+      ? Math.floor(limits.maxSubscriptionTokens) : Infinity;
     const signal = o.signal || { aborted: false };
     const clock = o.clock;
     let cost = o.cost;   // swappable: a cross-provider fallback entry can carry its own cost engine (fb.cost) so
@@ -1043,6 +1051,8 @@
     let unpricedTokens = 0;          // tokens reconciled at $0 on a model nothing could price (feeds maxUnpricedTokens)
     let unpricedFlagged = false;     // agent.cost carries unpriced:true ONCE per run — the first turn it happens
     let unpricedModel = '';
+    let subscriptionTokens = 0;      // subscription turns' tokens, cache re-reads at 1/10 (feeds maxSubscriptionTokens)
+    let subscriptionModel = '';
     /* USAGE ANCHOR (Step 2 wave 2, audit F1). The provider's prompt_tokens for the last successful request, paired
        with the local ruler's reading of that SAME request. The fold decision adds what the ruler says grew since
        (tool results appended after the reading) — see promptAnchor. null = no reading: the full local ruler decides. */
@@ -1238,6 +1248,13 @@
       unpricedTokens += (c.tokensIn || 0) + (c.tokensOut || 0);
       if (!unpricedModel) unpricedModel = modelId || '(unknown)';
     }
+    // a subscription turn's tokens toward maxSubscriptionTokens: fresh input + output in full, a cache re-read at 1/10
+    function noteSubscription(modelId, u, c) {
+      if (!u || u.subscription !== true || !c) return;
+      const cached = Math.min(c.cachedTokens || 0, c.tokensIn || 0);
+      subscriptionTokens += (c.tokensIn || 0) - cached + cached / 10 + (c.tokensOut || 0);
+      if (!subscriptionModel) subscriptionModel = modelId || '(unknown)';
+    }
     // ONE booking per model ATTEMPT. Every exit of the stream loop calls this — fatal, cancel, and the top of each
     // retry/compress/fallback re-entry (which used to reset `usage = null` and lose it). The provider bills a
     // cancelled or retried attempt too (Anthropic's message_start already carries input_tokens), so a stopped
@@ -1248,6 +1265,7 @@
       spentUsd += c.usd || 0;
       spentTokens += (c.tokensIn || 0) + (c.tokensOut || 0);
       noteUnpriced(modelId, c);
+      noteSubscription(modelId, u, c);
       emit('agent.cost', {
         agentId, runId, usd: c.usd || 0, tokensIn: c.tokensIn || 0, tokensOut: c.tokensOut || 0,
         reasoningTokens: c.reasoningTokens || 0, cachedTokens: c.cachedTokens || 0, model: modelId, reconciled: true
@@ -1297,6 +1315,13 @@
           endPayload.unpricedTokens = Number(extra.unpricedTokens) || 0;
           endPayload.unpricedCapTokens = Number(extra.unpricedCapTokens) || 0;
         }
+        // the SUBSCRIPTION-token ceiling (additive, like the unpriced fields): which model, how far, which ceiling —
+        // so the stop reads "used N tokens of your Claude subscription" instead of a $ cap that never governed it
+        if (extra.subscriptionModel) {
+          endPayload.subscriptionModel = String(extra.subscriptionModel).slice(0, 120);
+          endPayload.subscriptionTokens = Number(extra.subscriptionTokens) || 0;
+          endPayload.subscriptionCapTokens = Number(extra.subscriptionCapTokens) || 0;
+        }
       }
       emit('agent.run.end', endPayload);
       const tail = messages[messages.length - 1];
@@ -1307,6 +1332,10 @@
       if (endPayload.unpricedModel) {
         out.unpricedModel = endPayload.unpricedModel; out.unpricedTokens = endPayload.unpricedTokens; out.unpricedCapTokens = endPayload.unpricedCapTokens;
         out.budgetNote = 'stopped: ' + endPayload.unpricedTokens.toLocaleString('en-US') + ' tokens on unpriced model ' + endPayload.unpricedModel + ' reached the ' + endPayload.unpricedCapTokens.toLocaleString('en-US') + '-token ceiling (no published rate - set SKYNET_MODEL_PRICES or SKYNET_MAX_UNPRICED_TOKENS)';
+      }
+      if (endPayload.subscriptionModel) {
+        out.subscriptionModel = endPayload.subscriptionModel; out.subscriptionTokens = endPayload.subscriptionTokens; out.subscriptionCapTokens = endPayload.subscriptionCapTokens;
+        out.budgetNote = 'stopped: ' + endPayload.subscriptionTokens.toLocaleString('en-US') + ' subscription tokens on ' + endPayload.subscriptionModel + ' (cache re-reads count 1/10) reached the ' + endPayload.subscriptionCapTokens.toLocaleString('en-US') + '-token per-run ceiling (SETTINGS > APP & BACKUP > Runtime limits, or STARNET_MAX_SUBSCRIPTION_TOKENS)';
       }
       if (extra && extra.failureStage) out.failureStage = String(extra.failureStage).slice(0, 80);
       if (extra && extra.failureCode) out.failureCode = String(extra.failureCode).slice(0, 80);
@@ -1598,6 +1627,10 @@
       // per-RUN token ceiling for turns nothing could price (the $ ceiling above is blind to them — see maxUnpricedTokens)
       if (unpricedTokens >= maxUnpricedTokens) {
         return end('budget', { budgetScope: 'run', unpricedModel: unpricedModel || model, unpricedTokens, unpricedCapTokens: maxUnpricedTokens });
+      }
+      // per-RUN token ceiling for subscription turns ($0 each, so the $ ceiling above never fires — see maxSubscriptionTokens)
+      if (subscriptionTokens >= maxSubscriptionTokens) {
+        return end('budget', { budgetScope: 'run', subscriptionModel: subscriptionModel || model, subscriptionTokens: Math.round(subscriptionTokens), subscriptionCapTokens: maxSubscriptionTokens });
       }
       // CROSS-RUN BUDGET: day/global pool over the ledger. check() emits any threshold crossing itself and
       // returns a block descriptor when a soft cap is reached (no resume headroom left) -> stop as 'budget'.
@@ -2002,6 +2035,7 @@
       spentUsd += final.usd || 0;
       spentTokens += (final.tokensIn || 0) + (final.tokensOut || 0);
       noteUnpriced(model, final);
+      noteSubscription(model, usage, final);
       noteReading(usage);   // the usage anchor for the next fold decision (real count + the ruler on this same request)
       const costPayload = {
         agentId, runId, usd: final.usd || 0, tokensIn: final.tokensIn || 0, tokensOut: final.tokensOut || 0,

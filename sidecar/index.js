@@ -478,6 +478,9 @@ function applyApiCors(req, res) {
   }
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PATCH,DELETE,OPTIONS');   // PATCH: /api/routing/triggers/:id (line triggers)
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type,X-StarNet-Token,X-Skynet-Token');   // accept the legacy header name too (old Tauri shell)
+  // the desktop page is cross-origin: it can only read a non-safelisted header named here. voice.js picks a
+  // clip's effect + pacing from which engine spoke it; hidden, every built-in voice resolved as the keyed recipe.
+  res.setHeader('Access-Control-Expose-Headers', 'X-Voice-Provider, X-Voice-Cache');
   res.setHeader('Access-Control-Max-Age', '600');
 }
 function rejectApi(req, res) {
@@ -770,7 +773,7 @@ let runtimeKnobs = (function loadRuntimeKnobsAtBoot() {
   function parseKnobs(raw) {
     const k = (raw && typeof raw === 'object' && raw.knobs && typeof raw.knobs === 'object') ? raw.knobs : {};
     const out = {};
-    for (const key of ['maxIters', 'maxConcurrentAgents', 'consentTimeoutMs', 'cronTickMs']) {
+    for (const key of ['maxIters', 'maxConcurrentAgents', 'consentTimeoutMs', 'cronTickMs', 'maxSubscriptionTokens']) {
       const v = k[key];
       if (typeof v === 'number' && isFinite(v) && v >= 0) out[key] = Math.floor(v);
     }
@@ -799,7 +802,9 @@ function knobEnvLocked(envSuffix) { const e = envSuffix ? ENV(envSuffix) : null;
 // absolutely (deterministic tests + locked-down deploys).
 // maxUnpricedTokens: per-run TOKEN ceiling for turns no catalog/table could price on a METERED provider (the $ cap
 // is blind to them). SKYNET_MAX_UNPRICED_TOKENS overrides; 0 disables. OAuth/unmetered providers are exempt.
-const CAPS = { maxIters: resolveKnob('MAX_ITERS', 'maxIters', 0), maxCostUsd: 1.00, maxRepeat: 3, toolTimeoutMs: 30000, maxToolBytes: resolveKnob('MAX_TOOL_BYTES', 'maxToolBytes', 120000), maxUnpricedTokens: resolveKnob('MAX_UNPRICED_TOKENS', 'maxUnpricedTokens', 2000000) };
+// maxSubscriptionTokens: per-run TOKEN ceiling for $0 subscription turns (a Claude Code sign-in); cache re-reads count
+// 1/10 (loop.js SUBSCRIPTION SEATBELT). STARNET_MAX_SUBSCRIPTION_TOKENS or SETTINGS › APP & BACKUP overrides; 0 disables.
+const CAPS = { maxIters: resolveKnob('MAX_ITERS', 'maxIters', 0), maxCostUsd: 1.00, maxRepeat: 3, toolTimeoutMs: 30000, maxToolBytes: resolveKnob('MAX_TOOL_BYTES', 'maxToolBytes', 120000), maxUnpricedTokens: resolveKnob('MAX_UNPRICED_TOKENS', 'maxUnpricedTokens', 2000000), maxSubscriptionTokens: resolveKnob('MAX_SUBSCRIPTION_TOKENS', 'maxSubscriptionTokens', 2000000) };
 const MAX_TOOL_BYTES_PINNED = knobEnvLocked('MAX_TOOL_BYTES');
 const MCP_CALL_TIMEOUT_MS = 120000;   // default connector call/handshake budget (mcp/manager.js); per-connector timeoutMs overrides
 // Spend governance: per-run, per-agent and global ceilings default OFF; per-DAY ships ON as a soft rail
@@ -1771,7 +1776,9 @@ function verifySkillPromotion(receipt, expected) {
   return Object.assign({}, result, { error: result.reason });
 }
 function evaluationSuiteMetadata(agentId, skills) {
-  return skills.flatMap(skill => evaluationSuitesFor(agentId, skill).map(s => ({ id: s.id, skillId: skill.id, skillName: skill.name, description: s.description || '', cases: s.cases.length })));
+  // generic: a built-in suite tests a fixed task family, not what this particular skill is for (owner suites are `owner:`).
+  return skills.flatMap(skill => evaluationSuitesFor(agentId, skill).map(s => ({ id: s.id, skillId: skill.id, skillName: skill.name, description: s.description || '', cases: s.cases.length,
+    generic: !String(s.id).startsWith('owner:') })));
 }
 
 // SKILL EXCHANGE: the existing web guard owns public-host validation; the exchange adds HTTPS-only,
@@ -14018,7 +14025,8 @@ const RUNTIME_KNOB_DEFS = [
   { key: 'maxIters', env: 'MAX_ITERS', def: 0, min: 0, max: 200 },
   { key: 'maxConcurrentAgents', env: 'MAX_CONCURRENT_AGENTS', def: 0, min: 0, max: 32 },
   { key: 'consentTimeoutMs', env: 'CONSENT_TIMEOUT_MS', def: 120000, min: 5000, max: 600000 },
-  { key: 'cronTickMs', env: 'CRON_TICK_MS', def: 60000, min: 5000, max: 600000 }
+  { key: 'cronTickMs', env: 'CRON_TICK_MS', def: 60000, min: 5000, max: 600000 },
+  { key: 'maxSubscriptionTokens', env: 'MAX_SUBSCRIPTION_TOKENS', def: 2000000, min: 0, max: 100000000 }
 ];
 function saveRuntimeKnobs() {
   try { saveResilient(RUNTIME_KNOBS_FILE, { version: 1, knobs: runtimeKnobs }); }
@@ -18646,7 +18654,9 @@ async function handleSkillCandidateAction(req, res) {
     if (guard.action === 'block') return learningJson(res, 400, { ok: false, error: 'the skill guard blocks this revision; edit the flagged content first' });
     if (action === 'approve-candidate') {
       const baseline = skillStore.view(agentId, candidate.skill.id, { bump: false, includeArchived: true });
-      const expected = { candidate: candidate.skill, baseline, agentId, candidateDigest: candidate.candidateDigest, baselineDigest: candidate.baseDigest };
+      // Only a literal true from the Commander's panel accepts a complete tie ("no measurable improvement").
+      const acknowledgedNoImprovement = body.acknowledgeNoImprovement === true;
+      const expected = { candidate: candidate.skill, baseline, agentId, candidateDigest: candidate.candidateDigest, baselineDigest: candidate.baseDigest, acknowledgedNoImprovement };
       const checked = verifySkillPromotion(body.receiptId || body.evaluation, expected);
       if (!checked.ok) return learningJson(res, 409, { ok: false, error: checked.error || 'behavior evaluation has not passed' });
       if (SkillEvaluation.digestSkill(baseline) !== candidate.baseDigest) return learningJson(res, 409, { ok: false, error: 'active skill changed since the candidate was proposed' });
@@ -18654,7 +18664,7 @@ async function handleSkillCandidateAction(req, res) {
       // If promotion append fails, the old skill remains active; this unused candidate approval is harmless.
       const key = agentId + '\x00' + candidate.skill.id + '\x00' + skillGate.digestOf(candidate.skill);
       persistSkillApprovals(Object.assign({}, skillApprovals, { [key]: { digest: skillGate.digestOf(candidate.skill), action: 'allow', at: Date.now(), name: candidate.name } }));
-      const result = skillStore.approveCandidate({ agentId, candidateId: candidate.candidateId, candidateDigest: candidate.candidateDigest, evaluation: checked.receiptId, approvedBy: 'user' });
+      const result = skillStore.approveCandidate({ agentId, candidateId: candidate.candidateId, candidateDigest: candidate.candidateDigest, evaluation: checked.receiptId, acknowledgedNoImprovement, approvedBy: 'user' });
       if (result.ok) chanEmit('deliverable', { agentId, id: result.skill.id, kind: 'skill', title: result.skill.name });
       return learningJson(res, result.ok ? 200 : 409, result);
     }
@@ -18671,7 +18681,7 @@ async function handleSkillCandidateAction(req, res) {
     const accounting = makeEvaluationAccounting({ ledger, budget, agentId, provider: providerId, model: cfg.model, unmetered });
     try {
       const provider = await providerForRunConfig(cfg, resolveReasoningEffort(providerId, cfg.reasoningEffort));
-      const runCase = SkillEvaluationRunner.makeAgentLoopCaseRunner({ provider, model: cfg.model, cost: makeCostEngine({ priceOf: provider.priceOf }), clock: { now: () => Date.now() },
+      const runCase = SkillEvaluationRunner.makeAgentLoopCaseRunner({ provider, model: cfg.model, unmetered, cost: makeCostEngine({ priceOf: provider.priceOf }), clock: { now: () => Date.now() },
         runIdPrefix: 'skill-eval-' + crypto.randomUUID(), limits: { maxIters: 8, maxCostUsd: 0.08, grace: false },
         authorize: async () => !controller.signal.aborted && accounting.canContinue() && (unmetered || !budget.check(null, agentId, 0, Date.now(), null)),
         beforeRun: accounting.beforeRun,
@@ -18944,6 +18954,12 @@ async function handleRun(req, res) {
     // user turns) into real provider content blocks before the model call. Degrades per-attachment, never throws.
     const hasUserAttachments = messages.some(m => m && Array.isArray(m.attachments) && m.attachments.length > 0);
     const learningInput = TrustedLearning.capture(messages, 'interactive-owner');
+    // Words the Commander TYPED stay owner authority even when they hold a code fence, a quote or "example:" — only
+    // real outside bytes (an attachment here; fetched/forwarded content via the tool latch) taint tools, grants and
+    // workers. Quoted text is still kept out of what agents LEARN, for as long as any learning pass can still read it:
+    // an earlier quote inside that tail counts, one that scrolled past it no longer turns learning off for the rest of
+    // the conversation. Host-computed from the messages, never from request metadata.
+    const quotedOwnerInput = TrustedLearning.quotedInLearningTail(messages);
     let runMessages = messages;
     try { runMessages = await attachments.expandUserAttachments(messages, agentId); } catch (_) { runMessages = messages; }
     // The browser is WATCHED, so an ungranted mutation asks live (interactive surface + promptConsent) instead
@@ -18952,8 +18968,9 @@ async function handleRun(req, res) {
       key, keyPool: body && body.keyPool, model, system: (projectLine || projectRules) ? (String(system || '') + projectLine + projectRules) : system, messages: runMessages, agentId, isTask, provider: runProvider, baseUrl, reasoningEffort, fallbackModels, fallbackProviders,
       emit, signal: ac.signal, runId, trigger: 'directive', internal, evidence,
       voiceTurn: !!(body && body.voiceTurn === true),   // the reply will be SPOKEN: the voice chat model may answer it
-      initialTaint: hasUserAttachments ? 'user attachment' : (TrustedLearning.quotedMaterial(latestUserText(messages)) ? 'quoted user material' : null),
+      initialTaint: hasUserAttachments ? 'user attachment' : null,
       learningInput,   // host-captured BEFORE attachment expansion; never accepted from request metadata
+      quotedOwnerInput,   // learning-only: skips the durable learning passes at run end, latches nothing
       retryUserRunId: body && body.retryUserRunId,
       surface: 'interactive', prompt: promptConsent, pathPrompt: promptPathTrust, summon: summonRequest,   // team.summon → live summonAgent() round-trip; pathPrompt → NS-5 "work in <root>?" bless
       loginPrompt: askHuman,   // attended browser login: browser.login's two consent asks ride the same fail-closed permission.prompt channel
@@ -19838,7 +19855,7 @@ async function runOnceCore(o) {
   makeFsTools({ fsp, pathMod: path, root: WORKSPACES, environment: executionEnvironment, limits: { writeBytes: 1 << 20, readReturn: 24000 }, redact, pathTrust: runPathTrust, docExtract, imageWire, editDiagnostics: lspManager, spawn: childSpawn }).register(registry);   // redact: scrub secrets out of surfaced fs.search lines (§5.6); baseline-before-edit LSP feedback; spawn: lets fs.search use `rg` when the machine has it
   makeNotebookTools({ store: notebookStore, clock: { now: () => Date.now() }, redact, rank, nextTrust: memcore.nextTrust, findSimilar: memcore.findSimilar, similarity: memcore.tokenJaccard, onSaved: recordRunReceipt, sharedStanding: () => (tasteWithheld || !personalizationStore.read().enabled) ? [] : FeedbackMemory.stationStanding(notebookStore.get('notebook:' + agentId), otherAgentNotebooks(agentId)).filter(r => r.foreign) }).register(registry);   // §5.6: scrub secrets at the write boundary; rank: explicit read shares auto-recall's relevance order; nextTrust: notebook.feedback rating fold; findSimilar: near-dupe guard so the same belief can't accumulate in N phrasings; similarity: the same-subject listing; onSaved: this run's COMMS receipt
   widgetTools.register(registry);   // WIDGET RAILS Phase 2: widget.set — agent-fed rail readouts (memory capability: sandboxed local write, no consent, no network)
-  makeRecallTool({ transcriptStore }).register(registry);   // H1.3: recall_conversation — agent searches its own past dialogue (transcriptstore); joins the NOTEBOOK (memory) capability
+  makeRecallTool({ transcriptStore, ownStreamOnly: () => tasteWithheld }).register(registry);   // H1.3: recall_conversation — agent searches its own past dialogue (transcriptstore); joins the NOTEBOOK (memory) capability · a non-owner/group run (and its workers) never reads the Commander's other workstreams
   makeSkillTools({
     store: skillStore,
     gate: skillGate,   // guard verdict enforcement: a withheld skill lists as withheld and refuses to load its body
@@ -22236,7 +22253,9 @@ async function runOnceCore(o) {
         grace: o.outputOnly ? false : undefined, refundMax: o.outputOnly ? 0 : undefined,
         turnOutputMax: () => runOutputBudget().turnMax,   // 30% of the live window (see WINDOW-SCALED TOOL OUTPUT)
         // unpriced-token seatbelt: metered API-key providers only — a subscription/OAuth/unmetered run bills nothing
-        maxUnpricedTokens: (providerUnmetered || usingCodex || usingDeviceOAuth) ? Infinity : CAPS.maxUnpricedTokens
+        maxUnpricedTokens: (providerUnmetered || usingCodex || usingDeviceOAuth) ? Infinity : CAPS.maxUnpricedTokens,
+        // subscription seatbelt: counts only turns whose usage says `subscription` (a Claude Code sign-in), whatever the provider
+        maxSubscriptionTokens: CAPS.maxSubscriptionTokens
       },
       budget: runBudget, context: ctxMgr, summarize, fallbacks, initialFallback,
       microCompaction: !/^(0|false|off|no)$/i.test(String(ENV('COMPACT_MICRO') || '').trim()),   // free elision tier before any paid fold (off: STARNET_COMPACT_MICRO=0)
@@ -22536,7 +22555,7 @@ async function runOnceCore(o) {
      words in a hand-off are only the original request — the line's first run already carried those — so a hand-off run is not
      reflected on, studied or thread-mined (and spends none of the agent's cooldowns). */
   const _lineHop = !!(Pipeline.isHandoff && Pipeline.isHandoff(latestUserText(msgs)));
-  const learningEvidence = TrustedLearning.evidence({ runId, trigger: o.trigger, tainted: execution.taintedBy(), trustedInput: trustedLearningInput, completion: finalCompletionEvidence, loadedSkills });
+  const learningEvidence = TrustedLearning.evidence({ runId, trigger: o.trigger, tainted: execution.taintedBy(), trustedOnly: o.quotedOwnerInput === true, trustedInput: trustedLearningInput, completion: finalCompletionEvidence, loadedSkills });
   if ((_auxDone || _auxFail) && o.reflect && isTask && !internal) {
     await captureTrustedLearning({ agentId, runId, projectRoot: o.projectRoot || '', input: trustedLearningInput, learningEvidence });
   }
@@ -22590,7 +22609,9 @@ async function runOnceCore(o) {
   if (_capReached) _auxCandidates.length = 0;
   // External transcript text never enters a durable learning pass. The skill reviewer may still use the
   // separately captured owner directive and host checks; its structured packet discards all external bytes.
-  if (execution.taintedBy()) {
+  // Quoted material the Commander typed (o.quotedOwnerInput, host-minted by handleRun) skips the same passes, but
+  // latches no taint: tools, standing grants, workers and later turns keep the owner's authority.
+  if (execution.taintedBy() || o.quotedOwnerInput === true) {
     const noTrustedEvidence = !learningEvidence.trustedUserMessages.length && !learningEvidence.checks.length;
     for (const pass of ['reflection', 'failure-review', 'study', 'threadmine'].concat(noTrustedEvidence ? ['skill-review'] : [])) {
       const at = _auxCandidates.indexOf(pass);
