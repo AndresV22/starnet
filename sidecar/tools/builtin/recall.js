@@ -155,11 +155,9 @@
         const scopes = strictStream ? ['stream'] : wantAll ? ['all'] : ['stream', 'all'];
         const candidates = new Map(), exact = new Set(), failures = [];
         const key = h => h.rowId ? 'row:' + h.rowId : [h.streamId || '', h.role || '', h.ts || '', h.content || ''].join('\u0000');
-        let localExact = 0;
         for (const scope of scopes) for (let qi = 0; qi < queries.length; qi++) {
           try {
             const found = transcriptStore.search(streamId, queries[qi], { limit: Math.min(50, limit * 3), scope }) || [];
-            if (!qi && scope === 'stream') localExact = found.length;
             for (const h of found) {
               if (!h || !h.content || (strictStream && h.streamId && h.streamId !== searchStream) || (pinned && h.streamId !== streamId)) continue;
               const id = key(h);
@@ -172,11 +170,14 @@
         const scores = retrieval && retrieval.lexicalScores
           ? retrieval.lexicalScores(rows.map(h => ({ content: h.content, kind: 'fact' })), q).scores
           : rows.map(h => Number(h.score) || 0);
-        const hits = rows.map((h, i) => ({ h, i, score: scores[i] || (exact.has(key(h)) ? 0.01 : 0) }))
+        const ranked = rows.map((h, i) => ({ h, i, score: scores[i] || (exact.has(key(h)) ? 0.01 : 0) }))
           .filter(x => x.score > 0).sort((a, b) => b.score - a.score
             || Number(b.h.streamId === searchStream) - Number(a.h.streamId === searchStream)
-            || (Number(b.h.ts) || 0) - (Number(a.h.ts) || 0) || a.i - b.i).slice(0, limit).map(x => x.h);
-        const widened = !strictStream && !wantAll && !localExact && hits.some(h => h.streamId !== searchStream);
+            || (Number(b.h.ts) || 0) - (Number(a.h.ts) || 0) || a.i - b.i);
+        const hits = ranked.slice(0, limit).map(x => x.h);
+        // "nothing matched here" only when no row of this workstream scored at all — an expansion-only local match, or
+        // one the limit cut, still counts (review memory-learning-15)
+        const widened = !strictStream && !wantAll && !ranked.some(x => x.h.streamId === searchStream) && hits.some(h => h.streamId !== searchStream);
         if (!hits.length) {
           if (failures.length) return { content: 'Some conversation history could not be searched. No matching messages were available; this does not prove the conversation never happened.', summary: 'history search incomplete' };
           const where = pinned ? 'this chat' : strictStream ? 'this workstream' : 'any workstream';

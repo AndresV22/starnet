@@ -204,6 +204,20 @@ let clk = 1000; const clock = { now: () => clk };
     A.ok(tie.content.includes('[global'), 'an equal match in this run\'s own (global) history outranks a newer one elsewhere: ' + tie.content.slice(0, 80));
   }
 
+  // review memory-learning-15: a local row found only through query expansion is still a match in this workstream —
+  // the lead must not say "Nothing matched in this workstream" above it.
+  {
+    const s = makeTranscriptStore({ io: memIo(), clock });
+    clk = 9100; s.append({ streamId: 'here', role: 'user', content: 'registry push rate limits again', taint: null });
+    clk = 9101; s.append({ streamId: 'other', role: 'user', content: 'the uploads finished overnight', taint: null });
+    const { recallTool } = makeRecallTool({ transcriptStore: s });
+    const r = await recallTool.run({ query: 'throttled uploads' }, { streamId: 'here' });
+    A.ok(r.content.includes('rate limits') && r.content.includes('[here'), 'fixture: the expanded local hit is in the list: ' + r.content.slice(0, 120));
+    A.ok(!/Nothing matched in this workstream/.test(r.content), 'and the lead does not claim nothing here matched');
+    const away = await recallTool.run({ query: 'finished overnight' }, { streamId: 'here' });
+    A.ok(/Nothing matched in this workstream/.test(away.content), 'a search with no local match at all still says it widened');
+  }
+
   // Failed provenance lookup is observable without disclosing exception/row bytes, and stays untrusted.
   {
     const failopen = require('../sidecar/failopen.js');
