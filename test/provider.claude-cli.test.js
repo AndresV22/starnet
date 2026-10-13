@@ -375,6 +375,29 @@ const result = (extra) => Object.assign({ type: 'result', subtype: 'success', is
     A.ok(/<\/tool_result>$/.test(b2.blocks[b2.blocks.length - 1].text), 'nothing per-turn follows the newest entry');
     A.ok(!b2.blocks.some(b => /Continue as the assistant|<conversation>/.test(b.text)), 'the instruction lives in the system prompt, not the transcript');
   }
+  // LEAN PROMPT (2026-10-12): the per-run <run_context> note rides right before the newest user message. On a FIRST message
+  // nothing but the system prompt precedes it, and the leading-system loop swallowed it into the CLI system prompt: message
+  // 1's system carried its run id and differed from message 2's, so the second message re-wrote the system prompt cache.
+  {
+    const provider = require('../sidecar/providers/provider.js');
+    const prefix = 'You are the researcher.';
+    const sys = { role: 'system', content: prefix + '\n\nFINISH THE JOB.' };
+    const note1 = provider.runContextNote('[RUNTIME]\nRun id: r1'), note2 = provider.runContextNote('[RUNTIME]\nRun id: r2');
+    const recall = '<recalled-memory>\n• prefers bullets\n</recalled-memory>';
+    const m1 = [sys, { role: 'system', content: note1 }, { role: 'system', content: recall }, { role: 'user', content: 'hi' }];
+    const m2 = [sys, { role: 'user', content: 'hi' }, { role: 'assistant', content: 'hello' }, { role: 'system', content: note2 }, { role: 'user', content: 'more' }];
+    for (const cp of [undefined, prefix]) {
+      const b1 = _internals.buildPrompt(m1, [], cp), b2 = _internals.buildPrompt(m2, [], cp);
+      const tag = cp ? ' (with the cache prefix split)' : '';
+      A.eq(b1.system, b2.system, 'message 1\'s CLI system prompt is the same bytes as message 2\'s' + tag);
+      A.ok(b1.system.indexOf('Run id') < 0 && b1.system.indexOf('<run_context>') < 0 && b1.system.indexOf('<recalled-memory>') < 0, 'no per-run note or recall in message 1\'s system prompt' + tag);
+      A.eq(b1.blocks, [{ type: 'text', text: '<user>\n' + note1 + '\n\n' + recall + '\n\nhi\n</user>' }], 'single user turn: the notes join the newest user entry as its leading text (one block)' + tag);
+      A.eq(b2.blocks.map(b => b.text), ['<user>\nhi\n</user>', '<assistant>\nhello\n</assistant>', '<system_note>\n' + note2 + '\n</system_note>', '<user>\nmore\n</user>'],
+        'a later message keeps one block per entry, the note in place before the newest user turn' + tag);
+    }
+    const plain = _internals.buildPrompt([sys, { role: 'system', content: 'loop steering' }, { role: 'user', content: 'hi' }], []);
+    A.ok(plain.system.indexOf('loop steering') >= 0 && plain.blocks.length === 1 && plain.blocks[0].text === '<user>\nhi\n</user>', 'a leading system message that is not a host note still joins the system prompt (unchanged)');
+  }
   // the subscription seatbelt's input: a subscription turn says so on its usage; an API-key turn does not
   {
     const sub = await collect(make({ lines: [init('none'), result({ result: 'ok' })] }).p, { model: 'opus', messages: [{ role: 'user', content: 'x' }] });

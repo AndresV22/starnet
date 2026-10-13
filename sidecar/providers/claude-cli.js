@@ -190,7 +190,10 @@
     messages = provider.repairToolPairs(provider.inertHostFences(Array.isArray(messages) ? messages : []));
     const system = [];
     let i = 0;
-    for (; i < messages.length && messages[i] && messages[i].role === 'system'; i++) {
+    // The per-run <run_context> note ENDS the leading block (as in provider.preserveClaudeContinuations): on a first
+    // message nothing but the system prompt precedes it, and swallowing it (and the recall after it) put the run id in
+    // the CLI system prompt, so message 1's system differed from message 2's and the next message re-wrote its cache.
+    for (; i < messages.length && messages[i] && messages[i].role === 'system' && !provider.isRunContextNote(messages[i]); i++) {
       const t = textOf(messages[i].content).trim();
       if (t) system.push(t);
     }
@@ -203,10 +206,19 @@
     if (note) system.splice(0, system.length, prefix, ...(tp ? [tp] : []), TRANSCRIPT_NOTE, DYNAMIC_BOUNDARY + '\n' + note);
     else system.push(...(tp ? [tp] : []), TRANSCRIPT_NOTE);
     const rest = messages.slice(i).filter(m => m && typeof m === 'object');
+    /* SINGLE USER TURN: only host notes (the run-context note, recall) and one user message — a first message. The notes
+       join that user entry as its leading text, the way a chat wire carries them (provider.userSideHostNotes): one block,
+       no <system_note> ahead of the conversation's first turn. Later messages keep the notes as their own entries. */
+    let lead = 0;
+    while (lead < rest.length && provider.isHostNote(rest[lead])) lead++;
+    let leadNotes = '';
+    if (lead && rest.length === lead + 1 && rest[lead].role === 'user') {
+      leadNotes = rest.splice(0, lead).map(m => textOf(m.content).trim()).filter(Boolean).join('\n\n');
+    }
     const images = [];
     const entries = [];   // { text, tool } — one text block each
     for (const m of rest) {
-      if (m.role === 'user') entries.push({ text: '<user>\n' + textOf(m.content, images) + '\n</user>' });
+      if (m.role === 'user') entries.push({ text: '<user>\n' + (leadNotes ? leadNotes + '\n\n' : '') + textOf(m.content, images) + '\n</user>' });
       else if (m.role === 'system') entries.push({ text: '<system_note>\n' + textOf(m.content, images) + '\n</system_note>' });
       else if (m.role === 'tool') {
         const t = '<tool_result id="' + String(m.tool_call_id || '') + '">\n' + inertTags(textOf(m.content)) + '\n</tool_result>';
