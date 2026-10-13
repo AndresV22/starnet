@@ -72,7 +72,7 @@ try {
     # the TOP-LEVEL window a click at (x, y) lands in (GA_ROOT = 2), so a WebView child resolves to its app window
     $pt = New-Object StarNetNative+POINT; $pt.X = [int]$request.x; $pt.Y = [int]$request.y
     $h = [StarNetNative]::GetAncestor([StarNetNative]::WindowFromPoint($pt), 2); $title = New-Object Text.StringBuilder 1024; [void][StarNetNative]::GetWindowText($h, $title, $title.Capacity)
-    [uint32]$windowPid = 0; [void][StarNetNative]::GetWindowThreadProcessId($h, [ref]$windowPid); $proc = ''; try { $proc = (Get-Process -Id $windowPid -ErrorAction Stop).ProcessName } catch {}
+    [uint32]$windowPid = 0; [void][StarNetNative]::GetWindowThreadProcessId($h, [ref]$windowPid); $proc = ''; try { $proc = (Get-Process -Id $windowPid -ErrorAction Stop).ProcessName } catch { $proc = '' }
     Emit @{ title = $title.ToString(); process = $proc; pid = $windowPid }
   } elseif ($request.kind -eq 'capture') {
     $vs = [System.Windows.Forms.SystemInformation]::VirtualScreen
