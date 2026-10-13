@@ -150,7 +150,7 @@ const redact = (t) => String(t).replace(/sk-[A-Za-z0-9]{8,}/g, '[redacted]');
 
   // ---- relevance-ranked index: opts.query reorders by BM25 over {name, summary}; no query -> caller order ----
   {
-    // caller (skillStore mine()) order: pinned first, then updatedAt desc — feed that shape in directly.
+    // a pinned-first, updatedAt-desc caller order (skillStore mine()'s shape; the run prompt passes listAccessible) — fed in directly.
     const idx = [
       { id: 'p1', name: 'Pinned Ops', summary: 'unrelated ops runbook', state: 'active', pinned: true, updatedAt: 1000 },
       { id: 'n1', name: 'Deploy Pipeline', summary: 'ship the app safely', state: 'active', updatedAt: 3000 },
@@ -169,6 +169,22 @@ const redact = (t) => String(t).replace(/sk-[A-Za-z0-9]{8,}/g, '[redacted]');
       'a no-overlap query degrades to updatedAt-desc caller order (tiebreak law)');
     const stopQ = runtimeSkills.composeIndex(idx, { query: 'the of and' });
     A.ok(stopQ.text.indexOf('Deploy Pipeline') < stopQ.text.indexOf('Video Editing'), 'a stopword-only query is treated as no query');
+  }
+  // ---- the run prompt's real caller (listAccessible): pinned first on a turn with no query, and no redundant
+  // owner tags on the agent's own skills (skills-eval-18) ----
+  {
+    const st = makeSkillStore({ io: memIo(), clock, redact });
+    for (const name of ['Alpha brief', 'Beta report', 'Zoom setup']) st.write({ agentId: 'a', name, summary: 'when ' + name.toLowerCase() + ' comes up', body: 'steps' });
+    A.ok(st.manage({ agentId: 'a', action: 'pin', target: 'Zoom setup' }).ok, 'pin the alphabetically last skill');
+    st.write({ agentId: 'b', name: 'Shared runbook', summary: 'station ops', body: 'steps' });
+    A.ok(st.share({ agentId: 'b', target: 'Shared runbook', scope: 'station', actor: 'user' }).ok, 'b shares a station skill');
+    const own = runtimeSkills.composeIndex(st.listAccessible('a', {}), {});
+    A.ok(own.text.indexOf('Zoom setup') >= 0 && own.text.indexOf('Zoom setup') < own.text.indexOf('Alpha brief'), 'a pinned skill leads the index on a turn with no query');
+    const line = name => own.text.split('\n').find(l => l.indexOf('- ' + name) === 0) || '';
+    A.ok(line('Alpha brief') && line('Alpha brief').indexOf('[owner:') < 0, 'the agent\'s own skill carries no owner tag: ' + line('Alpha brief'));
+    A.ok(line('Shared runbook').indexOf('[owner: b, scope: station]') > 0, 'a skill shared by another agent still names its owner and scope');
+    const tight = runtimeSkills.composeIndex(st.listAccessible('a', {}), { budget: 60 });
+    A.ok(/Additional saved skills/.test(tight.text) && tight.text.indexOf('- Beta report [owner:') < 0 && tight.text.indexOf('- Shared runbook [owner: b]') >= 0, 'the names-only overflow applies the same rule');
   }
   A.eq(runtimeSkills.extractInvocations([{ role: 'user', content: '/skill Deploy\ncontinue' }])[0], 'Deploy', 'slash /skill invocation is parsed');
   A.ok(/PRELOADED SKILLS/.test(runtimeSkills.composeLoaded([s.view('a', 'Deploy', { bump: false })])), 'explicit preload composes full skill bodies');
