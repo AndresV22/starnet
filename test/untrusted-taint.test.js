@@ -133,7 +133,7 @@ A.eq(taint.postTaintBoundary(FS_WRITE, { taintedBy: 'web_fetch', surface: 'auton
   const captureEnd = attachmentEntry.indexOf('let runMessages =');
   const initialTaint = attachmentEntry.match(/initialTaint: ([^\r\n]+),/);
   A.ok(attachmentStart > 0 && captureStart >= 0 && captureEnd > captureStart && !!initialTaint, 'attachment entry classification exists');
-  A.ok(attachmentEntry.indexOf('TrustedLearning.capture(') < attachmentEntry.indexOf('await attachments.expandUserAttachments('), 'owner words are captured before files expand');
+  A.ok(attachmentEntry.indexOf('TrustedLearning.capture(') >= 0 && attachmentEntry.indexOf('TrustedLearning.capture(') < attachmentEntry.indexOf('await attachments.expandUserAttachments('), 'owner words are captured before files expand');
   A.ok(/\n\s*learningInput,/.test(attachmentEntry) && !/body\.learningInput/.test(attachmentEntry), 'run receives host-captured input rather than request metadata');
   A.ok(/\n\s*quotedOwnerInput,/.test(attachmentEntry) && !/body\.quotedOwnerInput/.test(attachmentEntry), 'the quoted-material learning flag is host-computed, never request metadata');
   A.ok(/if \(execution\.taintedBy\(\) \|\| o\.quotedOwnerInput === true\) \{\s*\n\s*const noTrustedEvidence/.test(src),
