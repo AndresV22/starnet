@@ -109,8 +109,14 @@ function compose(input) {
       let g = delegated.get(parent);
       if (!g) { g = { kind: 'delegated', parentId: parent, name: titleOf.get(parent) || 'a conversation', runs: 0, failed: 0, latest: null, open: parent }; delegated.set(parent, g); }
       g.runs++;
-      if (failed(r)) g.failed++;
-      g.latest = { runId: str(r.runId), at: endedAt(r), failed: failed(r), why: failed(r) ? failWord(r) : '', excerpt: failed(r) ? '' : excerptOf(r.deliveryText), open: str(r.streamId) };
+      // A worker's outcome is its FINAL delivery when it has one: a run can end 'done' with an output that failed its
+      // result contract, and a repaired answer differs from the raw execution text. Pending/absent → the execution row.
+      const dd = r.dispatchDelivery && r.dispatchDelivery.state === 'final' ? r.dispatchDelivery : null;
+      const bad = dd ? str(dd.reason) !== 'done' : failed(r);
+      if (bad) g.failed++;
+      g.latest = { runId: str(r.runId), at: endedAt(r), failed: bad,
+        why: bad ? (dd ? (str(dd.reason).replace(/[_-]+/g, ' ').trim() || 'did not finish') : failWord(r)) : '',
+        excerpt: bad ? '' : excerptOf(dd ? dd.text : r.deliveryText), open: str(r.streamId) };
       continue;
     }
     const kind = kindOf(r);

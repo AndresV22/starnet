@@ -97,4 +97,25 @@ A.eq(B.contextBlock({ items: [] }), '', 'no items → no context block');
     'without its thread map, a worker run is never briefed loose');
 }
 
+// ---- a delegated job is judged by its FINAL delivery, not its execution row (review threads-backend-11) ----
+{
+  const threads = [{ id: 'home', title: 'Launch planning' }, { id: 'k4', parentStreamId: 'home', title: 'Facts' }, { id: 'k5', parentStreamId: 'home', title: 'Summary' }];
+  const d = B.compose({ since: SINCE, now: NOW, threads, runs: [
+    // the run ended 'done' but its output failed the result contract: nothing was accepted
+    run({ streamId: 'k4', parentRunId: 'lead', delegatedBy: 'agent', deliveryText: '{"facts":[', dispatchDelivery: { state: 'final', reason: 'invalid-result', text: '' } }),
+    // the run's raw text needed a repair; the accepted answer is the final delivery's text
+    run({ streamId: 'k5', parentRunId: 'lead', delegatedBy: 'agent', deliveryText: 'RAW UNREPAIRED OUTPUT', endedAt: 1600000, ts: 1600000, dispatchDelivery: { state: 'final', reason: 'done', text: 'Webb saw the earliest galaxies.' } }),
+    // the internal schema-repair run is harness work, not a second job
+    run({ streamId: 'k5', parentRunId: 'k5run', delegatedBy: 'agent', internal: true, endedAt: 1650000, ts: 1650000, deliveryText: 'repair' })
+  ] });
+  const g = d.items.filter(i => i.kind === 'delegated');
+  A.eq(g.length && g[0].runs + '|' + g[0].failed, '2|1', 'two delegated jobs, one of them failed (the repair run is not a job)');
+  A.ok(/1 delegated job in “Launch planning” didn’t finish/.test(d.text), 'an output that failed validation is waiting on you, not finished');
+  A.ok(/“Launch planning”: 1 delegated job finished\. Latest: Webb saw the earliest galaxies\./.test(d.text), 'the excerpt is the accepted answer, not the raw output: ' + d.text);
+  const only = B.compose({ since: SINCE, now: NOW, threads, runs: [run({ streamId: 'k4', parentRunId: 'lead', delegatedBy: 'agent', dispatchDelivery: { state: 'final', reason: 'invalid-result', text: '' } })] });
+  A.ok(/didn’t finish: invalid result/.test(only.text), 'the reason is the delivery\'s reason in plain words: ' + only.text);
+  const pending = B.compose({ since: SINCE, now: NOW, threads, runs: [run({ streamId: 'k5', parentRunId: 'lead', delegatedBy: 'agent', deliveryText: 'Draft facts.', dispatchDelivery: { state: 'pending' } })] });
+  A.ok(/1 delegated job finished\. Latest: Draft facts\./.test(pending.text), 'a pending delivery falls back to the execution row');
+}
+
 A.report('away-briefing');
