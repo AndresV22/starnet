@@ -79,14 +79,22 @@
     return null;
   }
 
-  // Once the run is tainted, may this tool still be called?
-  function allowedWhenTainted(tool) {
+  // Is this tool's taint lock on for THIS call? A function lock reads the call's args (action-aware): routine.manage
+  // and loop.manage leave pause/stop open, because stopping work is a de-escalation, not a way to schedule a rerun.
+  // Without a call the predicate sees {} (no action), which locks; a predicate that throws keeps the tool locked.
+  function lockedFor(tool, call) {
+    if (typeof tool.taintLocked !== 'function') return tool.taintLocked === true;
+    try { return tool.taintLocked((call && call.args) || {}) !== false; } catch (_) { return true; /* fail closed */ }
+  }
+
+  // Once the run is tainted, may this tool still be called? `call` (optional) lets an action-aware lock read the args.
+  function allowedWhenTainted(tool, call) {
     if (!tool) return true;                                  // unknown name -> let the ordinary unknown-tool path answer
     // a tool that PERSISTS text a later run obeys (team.configure rewrites a crew member's standing orders) would
     // launder this run's taint into every future run of that agent — past the per-run fence entirely. Same for a
     // routine/loop (its prompt fires later as a fresh, untainted run — with Full Access) and a skill (a procedure
     // later runs load and follow, scripts/ included): all taint-locked 2026-10-10.
-    if (tool.taintLocked === true) return false;
+    if (lockedFor(tool, call)) return false;
     const impact = impactOfTool(tool);
     if (impact === 'workspace-process') return false;        // shell.exec / verify.run
     if (impact === 'external-credentialed') return false;    // web_request — spends a stored key outward
@@ -101,7 +109,7 @@
   // an input: only a decision obtained by the caller AFTER taint can yield a one-call recovery.
   function postTaintBoundary(tool, opts) {
     opts = opts || {};
-    if (!opts.taintedBy || allowedWhenTainted(tool)) return { allow: true, needsConfirmation: false, oneShot: false };
+    if (!opts.taintedBy || allowedWhenTainted(tool, opts.call)) return { allow: true, needsConfirmation: false, oneShot: false };
     // FULL ACCESS is the Commander's explicit zero-prompt posture. Taint still remains latched and fenced, but it
     // cannot silently downgrade Full Access into ASK mode. Hardline floors live outside this policy and still win.
     // EXCEPT when the run's ENTRY was untrusted third-party content (sec-taint2 09-25, owner decision): a webhook /

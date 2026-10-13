@@ -512,12 +512,32 @@ const dcall = (name, args) => ({ id: 'c', name, args, argsRaw: JSON.stringify(ar
   {
     const taintPolicy = require('../sidecar/taint.js');
     const src = (f) => require('fs').readFileSync(require('path').join(__dirname, '..', 'sidecar', 'tools', 'builtin', f), 'utf8');
-    for (const [file, name] of [['routines.js', 'routine.create'], ['routines.js', 'routine.manage'], ['loops.js', 'loop.create'], ['loops.js', 'loop.manage'], ['skills.js', 'skill.write'], ['skills.js', 'skill.manage']]) {
+    for (const [file, name] of [['routines.js', 'routine.create'], ['loops.js', 'loop.create'], ['skills.js', 'skill.write'], ['skills.js', 'skill.manage']]) {
       A.ok(new RegExp("name: '" + name.replace('.', '\\.') + "'[^\\n]*taintLocked: true").test(src(file)), name + ' is taint-locked');
     }
     A.eq(taintPolicy.allowedWhenTainted({ name: 'routine.create', capability: 'orchestrator', taintLocked: true }), false, 'a taint-locked orchestrator tool is not allowed after taint');
     const b = taintPolicy.postTaintBoundary({ name: 'routine.create', capability: 'orchestrator', taintLocked: true }, { taintedBy: 'webhook payload', fullAccess: true, untrustedEntry: true, surface: 'autonomous', hasPrompt: false });
     A.eq(b.allow, false, 'a webhook/forward-started run cannot create a routine even under Full Access (it would fire later untainted)');
+    // routine.manage / loop.manage lock per ACTION: pausing or stopping work is a de-escalation a tainted run may still
+    // ask for (consent still applies); anything that edits, re-arms, fires, approves or throws work away stays locked.
+    // Checked on the REGISTERED tools, so tool.js keeping the predicate is part of what is proven.
+    const regM = makeRegistry();
+    require('../sidecar/tools/builtin/loops.js').makeLoopTools({}).register(regM);
+    require('../sidecar/tools/builtin/routines.js').makeRoutineTools({}).register(regM);
+    const lockedFor = (name, args) => taintPolicy.allowedWhenTainted(regM.get(name), { args }) === false;
+    for (const action of ['update', 'resume', 'remove', 'approve', 'reject', 'Pause', 'bogus']) A.ok(lockedFor('loop.manage', { action }), 'loop.manage ' + action + ' stays taint-locked');
+    for (const action of ['pause', 'stop']) A.ok(!lockedFor('loop.manage', { action }), 'a tainted run may still ' + action + ' a loop');
+    for (const action of ['update', 'resume', 'remove', 'run_now', 'approve', 'stop']) A.ok(lockedFor('routine.manage', { action }), 'routine.manage ' + action + ' stays taint-locked');
+    A.ok(!lockedFor('routine.manage', { action: 'pause' }) && !lockedFor('routine.manage', { action: ' PAUSE ' }), 'a tainted run may still pause a routine (same action reading as the tool itself)');
+    A.ok(lockedFor('loop.manage', {}) && lockedFor('routine.manage', {}), 'no action stays locked');
+    A.eq(taintPolicy.allowedWhenTainted(regM.get('routine.manage')), false, 'a check without the call stays locked');
+    A.ok(lockedFor('loop.create', { action: 'pause' }) && lockedFor('routine.create', { action: 'pause' }), 'the create tools stay locked whatever the args say');
+    const tainted = { taintedBy: 'web page', surface: 'autonomous', hasPrompt: false };
+    A.eq(taintPolicy.postTaintBoundary(regM.get('routine.manage'), Object.assign({ call: { args: { action: 'pause' } } }, tainted)).allow, true, 'the boundary reads the call: an unattended tainted run may pause a routine');
+    A.eq(taintPolicy.postTaintBoundary(regM.get('routine.manage'), Object.assign({ call: { args: { action: 'run_now' } } }, tainted)).allow, false, 'but cannot fire one');
+    A.eq(taintPolicy.postTaintBoundary(regM.get('loop.manage'), Object.assign({ call: { args: { action: 'stop' } } }, tainted)).allow, true, 'and may stop a loop');
+    A.eq(taintPolicy.postTaintBoundary(regM.get('loop.manage'), Object.assign({ call: { args: { action: 'resume' } } }, tainted)).allow, false, 'but cannot resume one');
+    A.eq(taintPolicy.allowedWhenTainted({ name: 'x', capability: 'orchestrator', taintLocked: () => { throw new Error('boom'); } }, { args: {} }), false, 'a lock predicate that throws keeps the tool locked');
     // the host's post-run passes (reflection / failure-review / study / threadmine / skill-review) turn a transcript into
     // durable notes and skills — a tainted run's transcript never feeds them, and auto-recall latches a tainted note
     const idx = require('fs').readFileSync(require('path').join(__dirname, '..', 'sidecar', 'index.js'), 'utf8');

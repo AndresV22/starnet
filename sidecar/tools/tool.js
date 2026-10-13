@@ -60,8 +60,9 @@
       // its OWN consent class (permissions.js dangerKey) — a cached "always" on a sibling tool of the same
       // capability must never pre-approve this one. Dropped here before 2026-09-23, silently disabling it.
       consentKey: typeof def.consentKey === 'string' && def.consentKey ? def.consentKey : null,
-      // revoked once the run has read untrusted content (taint.js) — for tools that PERSIST text another run obeys
-      taintLocked: def.taintLocked === true,
+      // revoked once the run has read untrusted content (taint.js) — for tools that PERSIST text another run obeys.
+      // A function is an action-aware lock: (args) => locked? (routine.manage / loop.manage leave pause/stop open)
+      taintLocked: typeof def.taintLocked === 'function' ? def.taintLocked : def.taintLocked === true,
       // never approved by a cached grant, never left behind as one, and Full Access keeps its taint lock (permissions.js, taint.js)
       freshConsent: def.freshConsent === true,
       timeoutMs: def.timeoutMs || 0,

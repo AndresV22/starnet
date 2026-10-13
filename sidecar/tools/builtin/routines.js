@@ -382,7 +382,11 @@
        the SCHEDULER fire it on its next tick through the ordinary unattended path — which is also what the
        reference harness's trigger_job does. It reports the armed time, never "it ran". */
     const manageTool = {
-      name: 'routine.manage', capability: 'orchestrator', scope: 'write', requiresConsent: true, timeoutMs: 15000, taintLocked: true,
+      name: 'routine.manage', capability: 'orchestrator', scope: 'write', requiresConsent: true, timeoutMs: 15000,
+      // taint lock per ACTION (taint.js): a run that read outside content may still pause a routine (stopping work
+      // schedules nothing); update/resume/run_now re-arm what a later run obeys and remove throws it away. Same
+      // action reading as run() below, so the lock and the tool can never disagree about which action this is.
+      taintLocked: (a) => lower(clean(a && a.action, 20)) !== 'pause',
       description: 'Edit, pause, resume, delete, or queue an immediate fire of an existing StarNet ROUTINES job. Call routine.list first to see what exists; reference a routine by its exact id, or by name when that name is unambiguous.',
       schema: {
         type: 'object',
