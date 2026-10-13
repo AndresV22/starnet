@@ -171,7 +171,7 @@ function render(dropped, opts) {
       + (briefs ? ' A message marked [brief from <agent>] was written by that agent, not the Commander.' : '');
   }
   if (lines.length) prose += '\n\nYour replies in that part (shortened, oldest first):\n' + (omitted ? '- [' + omitted + ' earlier repl' + (omitted === 1 ? 'y' : 'ies') + ' not shown]\n' : '') + lines.join('\n');
-  if (opts.searchTool) prose += '\n\nTo read any of that part in full, search this conversation with ' + opts.searchTool + '.';
+  if (opts.searchTool) prose += '\n\nTo read any of that part in full, search this conversation with ' + opts.searchTool + ' and scope:"stream" so other conversations stay out of the results.';
   const note = '<conversation_summary>\n' + fidelity.joinSummary(prose, usersText) + '\n</conversation_summary>';
   return { note, users: section.items.length, omittedUsers: section.omitted, replies: lines.length, omittedReplies: omitted };
 }

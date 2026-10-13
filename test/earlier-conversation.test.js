@@ -92,6 +92,7 @@ const userRowIndex = (rows, k) => { let n = 0; for (let i = 0; i < rows.length; 
     A.ok(/EARLIER IN THIS CONVERSATION: 30 earlier messages/.test(split.summary), 'the prose says how much was carried');
     A.ok(/\[used fs_write\]/.test(split.summary) && /\[used web_search\]/.test(split.summary), 'reply heads name the tools used');
     A.ok(/recall_conversation/.test(split.summary), 'the note points at the conversation-search tool when the run has it');
+    A.ok(/recall_conversation and scope:"stream"/.test(split.summary), 'scoped to this conversation: the tool\'s default also ranks other workstreams (review memory-learning-14)');
     A.ok(!/recall_conversation/.test(EC.render(dropped, { windowTokens: 200000 }).note), 'and does not name a tool the run lacks');
     A.ok(split.summary.indexOf('Request 30: please handle item 30.') < 0, 'the prose holds replies, not a second copy of the requests');
     // determinism: the same rows render the same note
