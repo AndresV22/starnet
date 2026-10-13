@@ -115,6 +115,22 @@ const roster = new Map([['researcher', { system: 'R', name: 'MIRA' }], ['writer'
   const st = (r, lead) => D.stateOf(r, 'home', lead || 'lead1');
   A.eq(st({ ws: ws(), worker: { status: 'running', startedAt: Date.now() - 5000, canInterrupt: true, id: 'w1', runId: 'r1' } }).cls, 'working', 'a running ledger worker is working');
   A.ok(st({ ws: ws(), worker: { status: 'running', startedAt: Date.now(), canInterrupt: true, id: 'w1', runId: 'r1' } }).stop, 'and STOP is offered only when the ledger says it can be interrupted');
+  // app-shell-ui-05: the station stopped answering (Overseer.fresh() false): the last ledger can no longer vouch for a
+  // running worker, so its row claims neither working nor stopped — no live clock, no Stop key, and the card says so
+  {
+    let fresh = false;
+    global.Overseer = { snapshot: () => ({ workers: [], threads: [] }), fresh: () => fresh };
+    global.App = { agentName: id => ({ researcher: 'MIRA' })[id] || id };
+    const runningRow = { ws: ws({ id: 'ko', agentId: 'researcher', title: 'Scan competitors' }), worker: { status: 'running', startedAt: Date.now() - 5000, canInterrupt: true, id: 'wo', runId: 'ro' } };
+    const down = st(runningRow);
+    A.eq([down.cls, down.live, down.t, !!down.stop], ['unknown', 'status unknown — station unreachable', '', false], 'a running worker the station cannot vouch for is neither working nor stopped');
+    const card = D._internals.lineHtml({ lead: 'outage1', rows: [runningRow] }, 'home');
+    A.ok(!/data-dg-stop=/.test(card) && /Status unknown — station unreachable/.test(card), 'its row offers no Stop and says why');
+    A.ok(/dg-line-sum[^>]*>1 status unknown</.test(card) && !/working|stopped/.test(card.replace(/Scan competitors/g, '')), 'the card header claims nothing it cannot prove');
+    fresh = true;
+    A.eq(st(runningRow).cls, 'working', 'once the station answers again the row is working');
+    delete global.Overseer; delete global.App;
+  }
   const done = st({ ws: ws({ history: [{ role: 'system', sys: true, content: '— delegated —' }, { role: 'assistant', content: '## Found\n**Two** competitors undercut us.' }] }), worker: { status: 'done', startedAt: 1000, completedAt: 13000 } });
   // the card never repeats a worker's answer (calm version, 6aa3cd0b0): See work holds it
   A.eq(done.cls + '|' + done.live + '|' + done.t, 'done|done|0:12', 'a finished worker is done, with its real run time');

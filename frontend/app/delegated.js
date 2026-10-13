@@ -129,6 +129,9 @@ const Delegated = (() => {
     const pend = askOf(r, parentId);
     if (pend) return { cls: 'waiting', live: pend.tool === 'brief.ask' ? 'asking you a question' : 'needs you', t: '', pend };
     if (w && w.status === 'running') {
+      // the station stopped answering (Overseer.fresh): the last ledger can no longer vouch for this worker, so the row
+      // claims neither working nor stopped — no live clock, no Stop key (a failed poll repaints at once)
+      if (typeof Overseer !== 'undefined' && Overseer.fresh && !Overseer.fresh()) return { cls: 'unknown', live: 'status unknown — station unreachable', t: '' };
       return { cls: 'working', live: doing(steps.get(String(w.runId))), t: clock(Date.now() - (+w.startedAt || Date.now())), stop: !!w.canInterrupt, worker: w };
     }
     if (C && C.isBusy && C.isBusy(k.id)) return { cls: 'working', live: 'working', t: C.elapsedOf ? clock(C.elapsedOf(k.id)) : '' };
@@ -168,7 +171,7 @@ const Delegated = (() => {
   const loadingReceipts = new Set();
   const answering = new Set();
   const stopping = new Set();
-  const WORD = { recorded: 'result available', working: 'working', waiting: 'needs you', done: 'done', failed: 'failed', stopped: 'stopped', queued: 'starting' };
+  const WORD = { recorded: 'result available', working: 'working', waiting: 'needs you', done: 'done', failed: 'failed', stopped: 'stopped', queued: 'starting', unknown: 'status unknown' };
   function names(list) {
     const n = list.map(a => String(a.name || a.id));
     return n.length <= 3 ? (n.length > 1 ? n.slice(0, -1).join(', ') + ' and ' + n[n.length - 1] : n[0] || '')
@@ -180,14 +183,17 @@ const Delegated = (() => {
     const count = c => rows.filter(x => x.st.cls === c).length;
     const sum = [count('waiting') && count('waiting') + ' need' + (count('waiting') === 1 ? 's' : '') + ' you', count('working') && count('working') + ' working',
       count('queued') && count('queued') + ' starting', count('failed') && count('failed') + ' failed', count('stopped') && count('stopped') + ' stopped',
+      count('unknown') && count('unknown') + ' status unknown',
       count('recorded') && count('recorded') + ' result' + (count('recorded') === 1 ? '' : 's') + ' available',
       count('done') && (count('done') === rows.length ? (rows.length > 1 ? 'all ' + rows.length + ' done' : 'done') : count('done') + ' done')]
       .filter(Boolean).join(' · ');
-    const live = count('working') + count('waiting') + count('queued') > 0;
+    // a row whose state the station cannot confirm right now (unknown) keeps an open card open: it was running a beat ago
+    const live = count('working') + count('waiting') + count('queued') + count('unknown') > 0;
     // a worker waiting on you always shows (folding it would hide the one thing that needs you)
     const open = opened.has(b.lead) || count('waiting') > 0 || (live && !closed.has(b.lead));
-    // the batch lamp: the most urgent worker state (needs you > working > failed > done)
-    const tone = count('waiting') ? 'waiting' : (count('working') || count('queued')) ? 'working' : (count('failed') || count('stopped')) ? 'failed' : count('recorded') ? 'recorded' : 'done';
+    // the batch lamp: the most urgent worker state (needs you > working > failed > unknown > done); unknown keeps the
+    // plain unlit lamp, neither the working pulse nor the failed red
+    const tone = count('waiting') ? 'waiting' : (count('working') || count('queued')) ? 'working' : (count('failed') || count('stopped')) ? 'failed' : count('unknown') ? 'unknown' : count('recorded') ? 'recorded' : 'done';
     const head = '<button type="button" class="dg-line-head" data-dg-toggle="' + esc(b.lead) + '" aria-expanded="' + open + '">'
       + '<span class="dg-lamp ' + tone + '" aria-hidden="true"></span>'
       + '<span class="dg-line-text">Delegated to <b>' + esc(names(rows.map(x => x.a))) + '</b></span>'
