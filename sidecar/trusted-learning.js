@@ -46,9 +46,12 @@ function quotedInLearningTail(messages) {
 }
 // Ambient activity and repeat-work claims require the original owner text, not the completion run's later
 // provenance. Bound before filtering; legacy rows without an explicit clean stamp cannot supply that proof.
-function cleanOwnerRows(rows, runRecords) {
+// `tail` bounds the window to the newest rows (ambient activity: 400); 0 reads every row passed in, which is how
+// ownedBriefs proves an older request (review sidecar-index-03) — the host's RAM mirror is already capped.
+function cleanOwnerRows(rows, runRecords, tail = 400) {
   const origins = runRecords === undefined ? null : new Map((Array.isArray(runRecords) ? runRecords : []).filter(r => r && r.runId).map(r => [r.runId, r]));
-  return (Array.isArray(rows) ? rows : []).slice(-400).filter(m => {
+  const list = Array.isArray(rows) ? rows : [];
+  return (tail > 0 ? list.slice(-tail) : list).filter(m => {
     if (!m || m.role !== 'user' || m.taintKnown !== true || m.taint || m.from ||
       typeof m.content !== 'string' || !m.content.trim() || quotedMaterial(m.content)) return false;
     if (!origins) return true;
@@ -60,7 +63,14 @@ function cleanOwnerRows(rows, runRecords) {
   });
 }
 function ownedBriefs(briefs, transcriptRows, runRecords) {
-  const clean = cleanOwnerRows(transcriptRows, runRecords), seen = new Set();
+  // Every clean owner row in the mirror (not just the newest 400), indexed by the agent, stream and run that wrote
+  // it: one pass, then one lookup per brief instead of a scan of every row per brief.
+  const proof = new Map(), seen = new Set();
+  for (const m of cleanOwnerRows(transcriptRows, runRecords, 0)) {
+    const key = JSON.stringify([m.agentId, m.streamId, m.sourceRunId]);
+    if (!proof.has(key)) proof.set(key, []);
+    proof.get(key).push(m);
+  }
   return (Array.isArray(briefs) ? briefs : []).filter(b => {
     if (!b || !b.agentId || !b.originalDirective) return false;
     // New briefs retain an immutable originalRunId. Older host briefs already encode that identity in
@@ -68,8 +78,7 @@ function ownedBriefs(briefs, transcriptRows, runRecords) {
     const original = b.originalRunId || (typeof b.id === 'string' && b.id.startsWith('tb_') ? b.id.slice(3) : '');
     if (!original) return false;
     const stream = b.streamId || 'global', key = JSON.stringify([b.agentId, stream, original]);
-    if (seen.has(key) || !clean.some(m => m.sourceRunId === original && m.agentId === b.agentId && m.streamId === stream &&
-      m.content.trim().slice(0, 4000) === b.originalDirective)) return false;
+    if (seen.has(key) || !(proof.get(key) || []).some(m => m.content.trim().slice(0, 4000) === b.originalDirective)) return false;
     seen.add(key); return true;
   });
 }

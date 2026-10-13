@@ -297,9 +297,17 @@ console.log('workflow-takeover: repeat sense (paraphrase, guards, notice, cadenc
   assert.equal(host(history()).notice(CLEAN, 'another-agent'), null, 'notice stays with its owning agent');
   assert.equal(host(history()).notice(CLEAN, 'agent', '/fixture/project-b'), null, 'notice stays within its project');
 
+  // review sidecar-index-03: ownership proof reads the whole transcript mirror, not the newest 400 rows — a few days of
+  // ordinary use push Monday's request past 400 rows, and the repeat would never be offered as a routine.
+  const later = Array.from({ length: 400 }, (_, i) => ({ role: 'assistant', content: 'bounded-tail-' + i }));
   const agedOut = history();
-  agedOut.rows.push(...Array.from({ length: 400 }, (_, i) => ({ role: 'assistant', content: 'bounded-tail-' + i })));
-  denied(agedOut, 'original proof outside the bounded 400-row tail');
+  agedOut.rows.push(...later);
+  assert.equal(TrustedLearning.ownedBriefs(agedOut.briefs, agedOut.rows, agedOut.runs).length, 3, 'proven originals 400 rows back stay owned');
+  assert.ok(host(agedOut).notice(), 'a proven original 400 rows back still supports the standing-work notice');
+  assert.equal(host(agedOut).candidates()[0].count, 3, 'and still counts as its own occasion');
+  denied({ ...history(), rows: later.slice() }, 'no original row anywhere in the transcript');
+  const ambient = TrustedLearning.cleanOwnerRows(history().rows.concat(later), history().runs);
+  assert.equal(ambient.length, 0, 'ambient owner activity still reads only the newest 400 rows');
   const paused = host(history(), false);
   assert.equal(paused.notice(), null);
   assert.equal(paused.candidates().length, 0);
