@@ -1,0 +1,25 @@
+{
+  "reference": {
+    "file": "frontend/assets/sprites/approved_secretagent/rot_south.png",
+    "commit": "1ebdccccd014f1561086cbf94aaba3e9dbc89a20",
+    "visibleHeight": 76,
+    "visibleWidth": 34
+  },
+  "reason": "User identified proportion mismatch. Both characters redressed on the approved Secret Agent body template, preserving its stance and head/torso/leg proportions.",
+  "characters": [
+    {
+      "id": "austinpowers",
+      "editJob": "dfbb68ba-0a2d-4fed-9deb-9b0b9e76281e",
+      "characterId": "afecb1ab-f987-48c9-983a-c1b9e8d29e98",
+      "visibleHeight": 77,
+      "visibleWidth": 34
+    },
+    {
+      "id": "drevil",
+      "editJob": "62d81219-467c-4a49-af79-e831f0a4b27f",
+      "characterId": "70086f2a-0012-40ea-bc8e-ec8e213e03cd",
+      "visibleHeight": 76,
+      "visibleWidth": 34
+    }
+  ]
+}
