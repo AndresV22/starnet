@@ -20,9 +20,16 @@ const run = makeCheckpointGitRunner({spawn,file:process.execPath,timeoutMs:1200,
     const before=fs.statSync(heartbeat).size;
     await new Promise(r=>setTimeout(r,250));
     A.eq(fs.statSync(heartbeat).size,before,'timeout stopped descendant before returning');
+    // abort only once THIS run's grandchild is writing, so a kill of the direct child alone cannot pass (tests-11);
+    // its own runner has a long timeout so a slow spawn is waited for, never turned into a timeout instead.
+    const abortRun=makeCheckpointGitRunner({spawn,file:process.execPath,timeoutMs:15000,clock:{now:()=>Date.now()}});
     const controller=new AbortController();
-    const aborted=run([launcher,worker,heartbeat],{cwd:root,signal:controller.signal});
-    setTimeout(()=>controller.abort(),350);
+    const startSize=fs.statSync(heartbeat).size;
+    const aborted=abortRun([launcher,worker,heartbeat],{cwd:root,signal:controller.signal});
+    const deadline=Date.now()+10000;
+    while(fs.statSync(heartbeat).size===startSize&&Date.now()<deadline) await new Promise(r=>setTimeout(r,20));
+    A.ok(fs.statSync(heartbeat).size>startSize,'descendant running before abort');
+    controller.abort();
     const abortResult=await aborted;
     A.ok(abortResult.aborted&&abortResult.code!==0,'abort is observable');
     const afterAbort=fs.statSync(heartbeat).size;
