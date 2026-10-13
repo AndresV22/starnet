@@ -2,13 +2,14 @@
 
    Every model call re-sends the system prompt and every advertised tool schema. Nothing guarded that growth: a
    Hermes-parity audit measured StarNet at 34,867 system chars + 47 tools per call on a working floor, against
-   13,595 + 25 for Hermes on the same machine. This test builds the two layouts that matter from the REAL request
+   13,595 + 25 for Hermes on the same machine. This test builds the layouts that matter from the REAL request
    bytes a private sidecar sends to a fake model, prints what it measured so growth is visible in review, and pins
    an upper budget with headroom:
 
      default-new-install  the floor a fresh station boots with (WorldModel.starterDoc() -> World.heroCaps), the
                           interactive LEAD run, ASK approval, no connectors, no media/Spotify credentials.
      fully-granted-floor  the same station with the master bypass on: every CAP_REGISTRY object is materialized.
+     lead-with-crew       the default floor again with ONE specialist on the roster (the crew>0 lead path).
 
    A budget failure is a REVIEW prompt, not a bug report: if the growth is intended, raise the budget in the same
    commit and say why. Also re-asserts the chat-diet law: a non-task turn carries NO tools on the wire. */
@@ -72,10 +73,15 @@ const HOST = '127.0.0.1';
    Dossier) stay advertised with their SPAWN and CREW CONFIGURATION briefing lines. Since 1765d0a2c the run-context note
    rides the newest user message on this non-Claude wire, so systemChars now adds the user-side host notes explicitly
    (same quantity as before: every host-authored prompt char re-sent per call). Measured: both floors 79 tools / 61,298
-   tool bytes; 22,069 / 22,290 chars (1,961 of them the note). Still below base 04ce1fcb8 (84 / 66,238 / 24,672). */
+   tool bytes; 22,069 / 22,290 chars (1,961 of them the note). Still below base 04ce1fcb8 (84 / 66,238 / 24,672).
+   LEAD WITH CREW 2026-10-12: both layouts above are crewless, so the crew>0 path (which the diet must leave untouched)
+   had no ratchet. lead-with-crew = the starter floor with ONE specialist on the roster: 84 tools / 66,238 tool bytes
+   (exactly base's tool payload; tools/bytes pinned at the base budgets 84 / 66,250) and 25,006 chars (1,961 of them
+   the note; the full [ORCHESTRATION] briefing with YOUR TEAM). System budget = measurement + ~0.3%. */
 const BUDGET = {
   'default-new-install': { systemChars: 22140, tools: 79, toolBytes: 61350 },
-  'fully-granted-floor': { systemChars: 22360, tools: 79, toolBytes: 61350 }
+  'fully-granted-floor': { systemChars: 22360, tools: 79, toolBytes: 61350 },
+  'lead-with-crew': { systemChars: 25080, tools: 84, toolBytes: 66250 }
 };
 
 (async () => {
@@ -134,6 +140,13 @@ const BUDGET = {
     A.eq(chat.tools, 0, 'chat diet: a non-task turn carries NO tools on the wire');
     A.eq((await fixture.json('POST', '/api/permissions/bypass', { on: true })).status, 200, 'master bypass on (every capability object materialized)');
     measured['fully-granted-floor'] = await measure(true);
+    // lead-with-crew: the starter floor again (bypass off), now with ONE specialist on the roster, so the crew>0 path —
+    // which the zero-crew diet must leave byte-identical — keeps its own ratchet
+    A.eq((await fixture.json('POST', '/api/permissions/bypass', { on: false })).status, 200, 'master bypass off again (the starter floor)');
+    A.eq((await fixture.json('POST', '/api/roster', { updatedAt: Date.now(), agents: [
+      { agentId: 'agent', name: 'NOVA', provider: 'custom', model: 'fixture-model' },
+      { agentId: 'researcher', name: 'Ada', role: 'researcher', provider: 'custom', model: 'fixture-model' }] })).status, 200, 'one specialist on the roster');
+    measured['lead-with-crew'] = await measure(true);
     for (const id of Object.keys(BUDGET)) {
       const m = measured[id], b = BUDGET[id];
       console.log('[payload] ' + id + ': system ' + m.systemChars + ' chars (budget ' + b.systemChars + '; of which user-side notes ' + m.noteChars + ') | ' + m.tools + ' tools (budget ' + b.tools + ') | '
