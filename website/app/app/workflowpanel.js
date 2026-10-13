@@ -357,7 +357,7 @@ const WorkflowPanel = (() => {
     const W = WL(), c = comp(), intake = f && f.trigger.propId ? prop(f.trigger.propId) : null;
     const tr = triggers(f);
     const r = f && c ? W.readiness(f, c, { hasCompute: H.hasCompute, errors: (H.plan() || {}).errors || [], labelOf: H.valLabel, isCrew,
-      briefOf: pid => { const p = prop(pid); return p && (p.brief || p.hands); }, triggers: tr }) : null;
+      briefOf: pid => { const p = prop(pid); return p && (p.brief || p.hands); }, stepName: pid => { const p = prop(pid); return p && p.label; }, triggers: tr }) : null;
     const est = f ? W.costEstimate(f, testsMap()) : null;
     const nSteps = f ? f.order.length : 1;
     const headKey = (S.lineKey ? 'line:' + S.lineKey : 'lone:' + S.lone) + (intake ? '|' + intake.id : '');   // (a line's key can BE its first machine's id: tell a lone part from its line, and a line that gained its INBOX)
@@ -796,7 +796,8 @@ const WorkflowPanel = (() => {
     if (!others.length) return { busy: false, txt: 'free' };
     const other = others[0];
     const c = H.lineOfProp(other.id), ln = c ? H.lineNameOf(c) : null;
-    return { busy: false, also: true, txt: 'also on ' + (ln ? ln + ' ' : '') + (other.role || 'another') + ' bay' + (others.length > 1 ? ' +' + (others.length - 1) : '') };
+    // a named BAY is said by its NAME (conveyor-ui-15): "also on LINE A · Fact checker"; an unnamed one by its role, as before
+    return { busy: false, also: true, txt: 'also on ' + (other.label ? (ln ? ln + ' · ' : '') + other.label : (ln ? ln + ' ' : '') + (other.role || 'another') + ' bay') + (others.length > 1 ? ' +' + (others.length - 1) : '') };
   }
   /* WHAT A STEP'S INSTRUCTIONS ARE (2026-09-30, issue #28: "Are these BAY instructions being used instead of the Agent's Purpose
      or in addition to it?" · "It's not obvious when I'm supposed to include instructions in a BAY versus in the Dossier"): the
@@ -986,6 +987,7 @@ const WorkflowPanel = (() => {
   function paintTrigger(body, f, p) {
     const W = WL(), tr = triggers(f), c = comp();
     const docks = f ? f.order.map(pid => f.docks[pid]).filter(d => d.agentId) : [];
+    const firstName = docks.length ? ((prop(docks[0].propId) || {}).label || docks[0].role) : '';   // the first step by its NAME, else its role (conveyor-ui-15)
     // FIRES AT a BAY (multi-bay): S.trgDock is the chosen dock's prop id — the writer's two bays are two choices
     const entries = entryDocks(f);
     if (!S.trgDock || !docks.some(d => d.propId === S.trgDock)) S.trgDock = entries[0] || (docks[0] && docks[0].propId) || null;
@@ -1057,7 +1059,7 @@ const WorkflowPanel = (() => {
         + (typeof SchedPicker !== 'undefined' ? SchedPicker.html({ inputId: 'trg-sched' }) : '<input id="trg-sched" class="refit-input" type="text" maxlength="80" placeholder="schedule — every 30m · 0 9 * * * · in 2h" />')
         + '</div><div class="trg-preview" id="trg-preview"></div>'
         + (docks.length > 1 ? '<details class="wf-more"><summary>Starting agent · ' + esc(nameOf(trgAgent())) + '</summary><p class="wf-help">Usually, start with the first step. Choosing a later step skips the steps before it.</p><div class="wf-chips" id="trg-docks">' + docks.map(dockChip).join('') + '</div><div class="wf-help trg-dock-hint" id="trg-dock-hint">' + esc(dockHint(S.trgDock)) + '</div></details>'
-          : docks.length === 1 ? '<div class="wf-help">fires at ' + thumb(docks[0].agentId, 16, 20, 'wf-ithumb') + '<b>' + esc((docks[0].role ? docks[0].role + ' · ' : '') + nameOf(docks[0].agentId)) + '</b> — this line’s first step</div>'
+          : docks.length === 1 ? '<div class="wf-help">fires at ' + thumb(docks[0].agentId, 16, 20, 'wf-ithumb') + '<b>' + esc((firstName ? firstName + ' · ' : '') + nameOf(docks[0].agentId)) + '</b> — this line’s first step</div>'
           : '<div class="wf-warnline">Assign an agent to a connected BAY first. A schedule needs an agent to start the work.</div>')
         /* SAVE, AND TURN IT ON (2026-09-28 — "have saving the first schedule offer to turn scheduling on"): while scheduling is off
            for the station, saving offers the switch in the same click — a schedule saved under a switched-off scheduler was the
@@ -1996,7 +1998,7 @@ const WorkflowPanel = (() => {
     // one entry per BAY, with its LAST reply (a line that loops runs a BAY more than once)
     const byDock = new Map();
     for (const r of (mine.runs || []).slice().reverse()) { if (!r.dockId) continue; const got = stepOut[r.runId]; byDock.set(r.dockId, got && got.output ? got.output : ''); }
-    const steps = [...byDock.entries()].map(([dockId, output]) => { const p = prop(dockId) || {}; return { dockId, role: p.role || '', agent: p.agentId ? nameOf(p.agentId) : '', does: p.brief || '', hands: p.hands || '', output }; });
+    const steps = [...byDock.entries()].map(([dockId, output]) => { const p = prop(dockId) || {}; return { dockId, role: p.role || '', name: p.label || '', agent: p.agentId ? nameOf(p.agentId) : '', does: p.brief || '', hands: p.hands || '', output }; });
     S.fix = { stamp: mine.stamp, state: 'asking', complaint, fixes: [] };
     const nrIn = $('#wf-nr-in'); if (nrIn) nrIn.blur();   // the cursor leaves the box: the card can show THINKING… and the fixes
     paint(false);
@@ -2243,7 +2245,7 @@ const WorkflowPanel = (() => {
       + '<div class="wf-row"><button type="button" class="bb sm" id="wf-restore"' + (edited ? '' : ' hidden') + '>UNDO MY EDIT</button></div>'
       + '<div class="wf-row"><button type="button" class="bb sm refit-primary' + (edited ? ' cyan' : '') + '" id="wf-cont"' + (S.busy ? ' disabled' : '') + '>' + (edited ? (toOut ? '▶ FINISH WITH MY EDIT' : '▶ CONTINUE WITH MY EDIT') : (toOut ? '▶ FINISH TEST' : '▶ CONTINUE')) + '</button>'
       + '<button type="button" class="bb sm" id="wf-rerun"' + (S.busy ? ' disabled' : '') + '>↻ RE-RUN STEP</button><button type="button" class="bb sm" id="wf-toend"' + (S.busy ? ' disabled' : '') + '>▶▶ RUN TO END</button><button type="button" class="bb sm" id="wf-st-stop2"' + (S.busy ? ' disabled' : '') + '>■ STOP</button></div>'
-      + (pid ? '<details class="wf-more" id="wf-rebrief"><summary>Rewrite ' + esc((p.role || nameOf(h.agentId))) + '’s brief &amp; re-run</summary>'
+      + (pid ? '<details class="wf-more" id="wf-rebrief"><summary>Rewrite ' + esc(p.label || p.role || nameOf(h.agentId)) + '’s brief &amp; re-run</summary>'
         + '<textarea id="wf-rebrief-in" data-keep="rebrief:' + esc(pid) + '" class="wf-io" rows="4">' + esc(p.brief || '') + '</textarea>'
         + '<div class="wf-row"><button type="button" class="bb sm refit-primary" id="wf-rebrief-go">↻ SAVE BRIEF &amp; RE-RUN ' + esc(nameOf(h.agentId)) + '</button></div></details>' : '')
       + (pid && (nextPid || toOut) ? '<details class="wf-more" id="wf-addbay"><summary>Add a BAY before ' + esc(nextPid ? dockLabel(f, nextPid) : 'the OUTBOX') + '</summary>'

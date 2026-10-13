@@ -443,7 +443,7 @@ const StationCommands = (() => {
       const anyStart = !!(starts.schedules.length || starts.channels.length || starts.events.length);
       // the panel's facts, verbatim (build.js wfHost: hasCompute per BAY; workflowpanel.js paintHead: briefOf, labelOf, isCrew)
       const ready = W.readiness(flow, c, { hasCompute, errors: plan.errors || [], labelOf: why, isCrew: onCrew,
-        briefOf: pid => { const p = propOf(pid); return p && (p.brief || p.hands); }, triggers: starts });
+        briefOf: pid => { const p = propOf(pid); return p && (p.brief || p.hands); }, stepName: pid => { const p = propOf(pid); return p && p.label; }, triggers: starts });
       const segs = W.howItRuns(flow, { nameOf: upper, handsOf: pid => { const p = propOf(pid); return p && p.hands; }, triggers: starts });
       let hints = ready.hints.map(h => h.what);
       if (unread.length && flow.trigger.propId && !anyStart && !flow.cyclic) {

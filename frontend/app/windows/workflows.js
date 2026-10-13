@@ -249,7 +249,7 @@ const WorkflowsWindow = (() => {
     const st = stationOf();
     const byDock = new Map();
     for (const r of (job.runs || []).slice().reverse()) { if (!r.dockId) continue; const got = S.stepOut[r.runId]; byDock.set(r.dockId, got && got.output ? got.output : ''); }
-    const steps = [...byDock.entries()].map(([dockId, output]) => { const p = (st && st.propById(dockId)) || {}; return { dockId, role: p.role || '', agent: p.agentId ? nameOf(p.agentId) : '', does: p.brief || '', hands: p.hands || '', output }; });
+    const steps = [...byDock.entries()].map(([dockId, output]) => { const p = (st && st.propById(dockId)) || {}; return { dockId, role: p.role || '', name: p.label || '', agent: p.agentId ? nameOf(p.agentId) : '', does: p.brief || '', hands: p.hands || '', output }; });
     if (!steps.length) { sfx('bad'); notify('this job’s steps are not on the floor any more', 'warn'); return; }
     S.fix = { jobId: job.id, open: true, state: 'asking', complaint, fixes: [] };
     blurIn('#wfw-fix-in'); schedule();

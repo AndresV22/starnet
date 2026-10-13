@@ -535,7 +535,8 @@
 
   /* ---------- readiness: what is missing, blocking first ----------
      facts = { hasCompute(agentId, dockId)->bool, errors:[{code, propId, tile, warn}], labelOf(code)->string, briefOf(propId),
-               triggers (lineStarts), isCrew(agentId)->bool (optional: is this id on the crew roster?) }
+               triggers (lineStarts), isCrew(agentId)->bool (optional: is this id on the crew roster?),
+               stepName(propId)->string (optional: the BAY's NAME — a named step is said by it, BAY n (Fact checker), else by its role) }
      A BLOCKING item is one the harness would fail on: no INBOX, an uncrewed dock, a dock with no workstation
      (the compute gate stays shut), no route to an OUTBOX, a compiler error on this line — or a BLOCKING error
      ANYWHERE on the floor, because the router refuses the whole plan while one stands. A HINT is advice.
@@ -560,7 +561,7 @@
     let n = 0;
     for (const pid of flow.order) {
       n++;
-      const d = flow.docks[pid], lbl = 'BAY ' + n + (d.role ? ' (' + d.role + ')' : '');
+      const d = flow.docks[pid], nm = (f.stepName && f.stepName(pid)) || d.role, lbl = 'BAY ' + n + (nm ? ' (' + nm + ')' : '');
       if (!d.agentId) { blocking.push({ what: lbl + ' needs an agent', propId: pid }); continue; }
       // an id that is not on the crew still RUNS — on the station's default identity (runOnce identityFallback)
       if (f.isCrew && !f.isCrew(d.agentId)) hints.push({ what: lbl + '\'s agent "' + d.agentId + '" is not on the crew: its runs use the station\'s default identity. Assign a crew agent', propId: pid });

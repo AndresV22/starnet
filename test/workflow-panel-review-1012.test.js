@@ -219,6 +219,36 @@ const body = () => ({ innerHTML: '', querySelector: () => null, querySelectorAll
       A.ok(/s\.label \|\| s\.role/.test(map) && /s\.label \|\| s\.role/.test(step) && /s\.label \|\| s\.role/.test(setup) && /st\.label \|\| st\.role \|\| 'STEP'/.test(lv), 'the map tip, the opened step, the setup rows and "Now: step n" all say the NAME first');
       A.ok(/p\.label \|\| p\.role \|\| 'STEP'/.test(A.fnBody(windowSrc, 'function fixHTML(job, l)')), 'a suggested change names its step the same way');
     }
+    /* ---------- wave-2 repair (conveyor-ui-15 leftovers): the INBOX schedule form, STEP THROUGH, the crew picker, readiness and NOT
+       RIGHT? name a step by its NAME too ---------- */
+    {
+      const WLm = require('../frontend/app/workflowline.js'), P = require('../frontend/app/pipeline.js'), WM = require('../frontend/app/worldmodel.js'), LE = require('../frontend/app/lineedit.js');
+      const d = WM.starterDoc();
+      for (const id in d.rooms) for (const r of d.rooms[id].rects) { r.x2 = 44; r.y2 = 44; }
+      const st = WM.create(d), bp = LE.placeBlueprint(st, 'research_line', { x: 8, y: 4 });
+      const bays = bp.ids.filter(id => st.propById(id).t === 'bay');
+      st.setPropLabel(bays[0], 'Fact checker');
+      const geo = st.projectGeometry(), plan = P.compileRoutingPlan(geo), comp = P.lineComponents(geo).find(c => c.props.indexOf(bays[0]) >= 0);
+      const flow = WLm.lineFlow(plan, comp, P, geo.props);
+      const ready = WLm.readiness(flow, comp, { errors: plan.errors || [], stepName: pid => (st.propById(pid) || {}).label });
+      const whats = ready.blocking.map(b => b.what);
+      A.ok(whats.indexOf('BAY 1 (Fact checker) needs an agent') >= 0 && whats.some(w => /^BAY 2 \(\w+\) needs an agent$/.test(w)), 'readiness names a named BAY by its NAME, an unnamed one by its role — ' + JSON.stringify(whats));
+      A.ok(WLm.readiness(flow, comp, { errors: plan.errors || [] }).blocking.some(b => /^BAY 1 \(RESEARCHER\) needs an agent$/.test(b.what)), '…and a caller with no names keeps the role');
+      const head = A.fnBody(panel, 'function paintHead(f)'), cmds = rd('frontend/app/stationcommands.js');
+      A.ok(/stepName: pid => \{ const p = prop\(pid\); return p && p\.label; \}/.test(head), 'the panel\'s pill asks readiness with the step names');
+      A.ok(/stepName: pid => \{ const p = propOf\(pid\); return p && p\.label; \}/.test(cmds), '…and station.layout with the same facts');
+      const trig = A.fnBody(panel, 'function paintTrigger(body, f, p)');
+      A.ok(trig.length > 100 && trig.indexOf("const firstName = docks.length ? ((prop(docks[0].propId) || {}).label || docks[0].role) : '';") >= 0
+        && trig.indexOf("'<b>' + esc((firstName ? firstName + ' · ' : '') + nameOf(docks[0].agentId)) + '</b> — this line’s first step") >= 0, 'the INBOX schedule form says "fires at" the first step by its NAME');
+      A.ok(/Rewrite ' \+ esc\(p\.label \|\| p\.role \|\| nameOf\(h\.agentId\)\) \+ '’s brief/.test(A.fnBody(panel, 'function pausedHTML(s, f)')), 'STEP THROUGH\'s paused card names the step by its NAME');
+      // the crew picker: an agent already on a named BAY says that BAY's NAME
+      const ag = load(panel, ['function agentStatus(aid, bayId)'], { H: { station: () => ({ props: () => [{ id: 'b9', t: 'bay', agentId: 'nova', role: 'REVIEWER', label: 'Fact checker' }] }), lineOfProp: () => ({ key: 'L' }), lineNameOf: () => 'LINE A' } });
+      A.eq(ag.agentStatus('nova', 'b1').txt, 'also on LINE A · Fact checker', 'the crew picker says where else the agent works by that step\'s NAME');
+      const ag2 = load(panel, ['function agentStatus(aid, bayId)'], { H: { station: () => ({ props: () => [{ id: 'b9', t: 'bay', agentId: 'nova', role: 'REVIEWER', label: '' }] }), lineOfProp: () => ({ key: 'L' }), lineNameOf: () => 'LINE A' } });
+      A.eq(ag2.agentStatus('nova', 'b1').txt, 'also on LINE A REVIEWER bay', '…an unnamed one by its role, as before');
+      // NOT RIGHT?: the fix model is given the step's NAME beside its role (both askFixes)
+      A.ok(/role: p\.role \|\| '', name: p\.label \|\| ''/.test(A.fnBody(panel, 'function askFixes(mine, complaint)')) && /role: p\.role \|\| '', name: p\.label \|\| ''/.test(A.fnBody(windowSrc, 'function askFixes(job, line, complaint)')), 'NOT RIGHT? sends each step\'s NAME with its role, in the panel and in WORKFLOWS');
+    }
     A.report('workflow-panel-review-1012.test');
   })().catch(e => { console.error(e); process.exit(1); });
 }
