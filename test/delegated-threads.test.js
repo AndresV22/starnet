@@ -118,6 +118,10 @@ const roster = new Map([['researcher', { system: 'R', name: 'MIRA' }], ['writer'
   A.eq(done.cls + '|' + done.live + '|' + done.t, 'done|Found|0:12', 'a finished worker quotes the first line it delivered, with its real run time');
   A.eq(st({ ws: ws(), worker: { status: 'error', reason: 'timeout' } }).live, 'failed · timeout', 'a failed worker says why');
   A.eq(st({ ws: ws(), worker: { status: 'stale' } }).live, 'stopped when the station restarted', 'a stale worker is honest about it');
+  A.eq(st({ ws: ws(), worker: { status: 'stale', reason: 'sidecar restarted before this worker finished' } }).live, 'stopped when the station restarted', 'a worker a restart cut off says so');
+  // the liveness check also settles a hung worker as stale (reason "stalled: …") while the station stays up
+  const hung = st({ ws: ws(), worker: { status: 'stale', reason: 'stalled: no progress for 450s while a tool call was still running — the liveness check stopped this worker (threshold 420s)' } });
+  A.eq(hung.cls + '|' + hung.live, 'stopped|stopped after making no progress', 'a worker the liveness check stopped never blames a restart that did not happen');
   const stale = { ws: ws({ runIds: ['r1', 'r2'], lastRunReason: 'done' }), worker: { status: 'done', reason: 'budget', runId: 'r1' } };
   A.eq(st(stale).cls, 'done', 'an older capped ledger run cannot override the newer completed run');
   A.eq(D._internals.workerRunOf(stale), 'r2', 'the receipt follows the newer recorded run');

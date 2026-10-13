@@ -7,7 +7,7 @@
    - an approval or question: Channels.allPending() (the asking run's own permission.prompt; a delegated worker's ask
      names the worker — sidecar attributeAsks);
    - a group chat waiting on you: GroupChat.attentionIds();
-   - delegated work that failed or was cut off by a restart: the overseer's worker ledger (/api/overseer), for a
+   - delegated work that failed, or was stopped by a restart or the liveness check: the overseer's worker ledger (/api/overseer), for a
      conversation this page holds, until you open it or dismiss it;
    - a routine run that failed and you have not looked at: its own cron-<runId> session (lastRunOk === false, unread).
    Actions are the real ones: Approve / Deny answer through the approval card's own path (Chat.answerConsent), Retry runs
@@ -34,7 +34,9 @@ const NeedsYou = (() => {
     try { const j = JSON.parse(p.argsSummary || '{}'); if (j && typeof j.question === 'string' && j.question.trim()) return j.question.trim(); } catch (_) { /* a plain-text ask */ }
     return String(p.argsSummary || 'a question').trim();
   }
-  const reasonOf = w => w.status === 'stale' ? 'stopped when the station restarted' : 'failed' + (w.reason && w.reason !== 'error' ? ': ' + w.reason : '');
+  // a stale worker: a restart cut it off, or the liveness check stopped it (Delegated words both, for the card and here)
+  const reasonOf = w => w.status === 'stale' ? (typeof Delegated !== 'undefined' && Delegated.staleLine ? Delegated.staleLine(w) : 'stopped')
+    : 'failed' + (w.reason && w.reason !== 'error' ? ': ' + w.reason : '');
 
   // the live list, most urgent first: asks (oldest waiting first), then what failed (newest first)
   function items(now) {

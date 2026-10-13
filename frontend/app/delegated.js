@@ -99,6 +99,10 @@ const Delegated = (() => {
     return i >= 0 && i < ids.length - 1 ? null : w;
   }
 
+  // a stale worker was cut off by a station restart, or stopped by the liveness check while the station stayed up
+  // (the sidecar records that reason as "stalled: …"): say which, never a restart that did not happen
+  const staleLine = w => /^stalled\b/.test(String((w && w.reason) || '')) ? 'stopped after making no progress' : 'stopped when the station restarted';
+
   /* the row's state, in priority order. `parentLive` = the lead run that dispatched it is still running on this page. */
   function stateOf(r, parentId, lead) {
     const k = r.ws, w = currentWorker(r), C = typeof Channels !== 'undefined' ? Channels : null;
@@ -115,7 +119,7 @@ const Delegated = (() => {
     if (['aborted', 'cancelled', 'interrupted', 'stopped'].includes(reason)) return { cls: 'stopped', live: 'stopped before completion', t: '' };
     if (w && w.status === 'done') return { cls: 'done', live: excerpt(k) || 'done', t: w.completedAt && w.startedAt ? clock(w.completedAt - w.startedAt) : '' };
     if (w && (w.status === 'error' || w.status === 'refused')) return { cls: 'failed', live: 'failed' + (w.reason && w.reason !== 'error' ? ' · ' + w.reason : ''), t: '' };
-    if (w && (w.status === 'interrupted' || w.status === 'stale')) return { cls: 'stopped', live: w.status === 'stale' ? 'stopped when the station restarted' : 'stopped', t: '' };
+    if (w && (w.status === 'interrupted' || w.status === 'stale')) return { cls: 'stopped', live: w.status === 'stale' ? staleLine(w) : 'stopped', t: '' };
     if (k.lastRunOk === false) return { cls: 'failed', live: 'failed', t: '' };
     if (reason === 'done') return { cls: 'done', live: excerpt(k) || 'done', t: '' };
     if (reason) return { cls: 'failed', live: 'ended · ' + reason, t: '' };
@@ -479,6 +483,6 @@ const Delegated = (() => {
   }
 
   if (typeof document !== 'undefined') document.addEventListener('DOMContentLoaded', wire);
-  return { presentFor, repaint, batches, stateOf, reveal, hosts, _internals: { workerRunOf, anchorFor, excerpt, lineHtml, opened, closed, seen, receipts, foldReceipt, askOf, hydrate, loadReceipt } };
+  return { presentFor, repaint, batches, stateOf, reveal, hosts, staleLine, _internals: { workerRunOf, anchorFor, excerpt, lineHtml, opened, closed, seen, receipts, foldReceipt, askOf, hydrate, loadReceipt } };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = Delegated;

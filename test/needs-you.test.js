@@ -37,6 +37,7 @@ global.Overseer = { snapshot: () => ({ workers: [
 global.App = { agentName: id => ({ agent: 'NOVA', writer: 'VEX', researcher: 'MIRA', designer: 'ROOK' })[id] || id };
 global.Chat = { consentPhrase: p => p.tool === 'mcp__gmail__send' ? 'send an email to beta@list' : String(p.tool) };
 global.document = undefined;
+global.Delegated = require('../frontend/app/delegated.js');   // the page loads both; worker end-lines are worded once, there
 const NY = require('../frontend/app/needsyou.js');
 
 {
@@ -66,6 +67,18 @@ const NY = require('../frontend/app/needsyou.js');
   A.ok(!NY.items(NOW).some(i => i.key === 'worker:wr1'), 'a dismissed failure leaves the list');
   unread.delete('cron-r1');
   A.ok(!NY.items(NOW).some(i => i.key === 'routine:cron-r1'), 'a failed routine you have opened (read) leaves it too');
+}
+{
+  // the liveness check settles a hung worker as stale too (reason "stalled: …"), with no restart at all
+  const ledger = global.Overseer;
+  global.Overseer = { snapshot: () => ({ workers: [
+    { runId: 'wr6', status: 'stale', reason: 'stalled: no progress for 450s — the liveness check stopped this worker (threshold 420s)', agentId: 'researcher', parentStreamId: 'home', streamId: 'thread_mira', completedAt: NOW - 2000 },
+    { runId: 'wr7', status: 'stale', reason: 'sidecar restarted before this worker finished', agentId: 'designer', parentStreamId: 'home', completedAt: NOW - 3000 }
+  ] }) };
+  const list = NY.items(NOW);
+  A.eq(list.find(i => i.key === 'worker:wr6').what, 'stopped after making no progress', 'a worker the liveness check stopped never blames a restart that did not happen');
+  A.eq(list.find(i => i.key === 'worker:wr7').what, 'stopped when the station restarted', 'a worker a restart cut off still says so');
+  global.Overseer = ledger;
 }
 {
   const app = fs.readFileSync(path.join(__dirname, '..', 'frontend', 'app', 'app.js'), 'utf8');
