@@ -5668,8 +5668,13 @@ function connectorStorageSnapshot() {
     encrypted: connectorVault.protected && !connectorStorageError && !connectorSealPending, error: connectorStorageError || null,
     reason: connectorStorageReason || null, canStartFresh: connectorStorageCanStartFresh(),
     fallback, keyError: (fallback || connectorStorageReason === 'key-unavailable') ? (CONNECTOR_KEY_ERROR || null) : null,
+    // a MALFORMED saved key never fixes itself, so never promise automatic sealing for it: say how to clear it (safe:
+    // fallback only happens when nothing is sealed, so removing the entry strands nothing; the next start makes a key)
     notice: fallback ? 'Saved on this computer WITHOUT encryption: StarNet could not open the system credential store.' +
-      (CONNECTOR_KEY_ERROR ? ' Reason: ' + CONNECTOR_KEY_ERROR + '.' : '') + ' Sign-ins still work, and StarNet seals them automatically once the store is reachable.'
+      (CONNECTOR_KEY_ERROR ? ' Reason: ' + CONNECTOR_KEY_ERROR + '.' : '') +
+      (/malformed/i.test(CONNECTOR_KEY_ERROR)
+        ? ' Sign-ins still work. To seal them, remove the "connectors:encryption:v1" entry for ai.skynet.harness from the system credential store and restart StarNet.'
+        : ' Sign-ins still work, and StarNet seals them automatically once the store is reachable.')
       : (!connectorStorageError && connectorMigrationNotice) || null
   };
 }
