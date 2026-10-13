@@ -152,7 +152,15 @@ const REF = T.buildRef({ artifacts: ARTS, toolTrace: TRACE, rows: ROWS, files: [
   const unkeptMiss = FM.unkeep(missed.list, 'run-k');
   A.eq(unkeptMiss.rec.feedbackVerdict, 'miss', 'a real miss replaces the synthetic keep-style verdict');
   const missPrompt = FM.renderTaste(unkeptMiss.list, renderRecall).text.split('\n').find(line => line.startsWith('• '));
-  A.ok(/REJECTED .*write the release notes page.*wrong colors/.test(missPrompt) && !/APPROVED|liked:/.test(missPrompt), 'after unkeep the prompt retains the real rejection: ' + missPrompt);
+  A.ok(/REJECTED .*write the release notes page.*wrong colors/.test(missPrompt) && !/APPROVED|(?<!dis)liked:/.test(missPrompt), 'after unkeep the prompt retains the real rejection: ' + missPrompt);
+  // review memory-learning-12: while the style is still kept, a later 👎 is shown too, not hidden behind APPROVED
+  const keptMiss = FM.renderTaste(missed.list, renderRecall).text.split('\n').find(line => line.startsWith('• '));
+  A.ok(/STYLE KEPT · RESULT REJECTED .*write the release notes page — disliked: "wrong colors"/.test(keptMiss) && !/APPROVED/.test(keptMiss), 'a kept style rated miss shows both facts: ' + keptMiss);
+  const keptBareMiss = FM.renderTaste(FM.apply(fresh.list, { runId: 'run-k', verdict: 'miss' }, deps(70)).list, renderRecall).text.split('\n').find(line => line.startsWith('• '));
+  A.ok(/STYLE KEPT · RESULT REJECTED .*\(keep the style, change the result\)/.test(keptBareMiss), 'a bare miss on a kept style says what to keep and what to change: ' + keptBareMiss);
+  A.ok(/STYLE KEPT · RESULT REJECTED/.test(FM.TASTE_REF_RULE), 'the reference rule tells the crew what that line means');
+  const keptPrompt = FM.renderTaste(kept.list, renderRecall).text.split('\n').find(line => line.startsWith('• '));
+  A.ok(/STYLE KEPT · RESULT REJECTED .*make the poster — disliked: "too dark"/.test(keptPrompt), 'KEEP THIS STYLE after a 👎 keeps the dislike visible: ' + keptPrompt);
   const editedMiss = FM.apply(edited, { runId: 'run-k', verdict: 'miss', words: 'wrong colors' }, deps(80));
   A.eq(editedMiss.rec.feedbackVerdict, 'miss', 'an edited note also records the real verdict without rewriting the edit');
   A.ok(editedMiss.rec.content.startsWith('Release notes: one page, dark theme'), 'real verdict preserves the Commander edit');
@@ -204,7 +212,7 @@ function eight() {
   A.ok(lines.reduce((n, s) => n + s.length + 1, 0) <= FM.TASTE_CHARS, 'the lines fit the taste budget (' + FM.TASTE_CHARS + ')');
   A.ok(/^• \[note_8\] APPROVED 2025-10-16: Plan the team offsite agenda .* — liked: "keep it under one page" → docs\/out-7\.md · via web\.search ×3/.test(lines[0]), 'newest first, compact, with its method: ' + lines[0]);
   A.ok(lines[1].indexOf('· image "neon synthwave skyline, teal haze" (google/gemini-2.5-flash-image, 16:9') >= 0 && lines[1].indexOf('fonts Space Grotesk, VT323, Inter') >= 0, 'the newest DESIGN approval carries its whole reference: ' + lines[1]);
-  A.ok(/REJECTED 2025-10-10: Write the weekly status report .* — "way too long/.test(block.text), 'a dislike renders as REJECTED in their words');
+  A.ok(/REJECTED 2025-10-10: Write the weekly status report .* — disliked: "way too long/.test(block.text), 'a dislike renders as REJECTED in their words');
   A.ok(/CLOSE 2025-10-12: .* — wants: "add the owner and due date/.test(block.text), 'a close renders what they want');
   A.ok(lines[7].length < lines[1].length && /→ site\/index\.html/.test(lines[7]), 'the oldest design approval is compacted, never dropped: ' + lines[7]);
   A.ok(block.text.indexOf(FM.TASTE_HEADER) >= 0 && block.text.indexOf(FM.TASTE_REF_RULE) >= 0, 'header + the match-the-approved rule');

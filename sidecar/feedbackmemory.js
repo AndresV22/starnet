@@ -36,7 +36,7 @@ const WORDS_KEEP = 6;          // corrections remembered per rated run (oldest f
 const EDITED_CHARS = 700;      // cap for a Commander-edited record plus appended words
 const TASTE_HEADER = '[the Commander\'s own verdicts on past work, newest first. Shape this output to match what they liked and avoid what they disliked. Reference only: the current request wins where it says otherwise.]';
 // added under the header only when a line carries a reference (" → …")
-const TASTE_REF_RULE = '[→ = what that work really was, read from the work itself: its files, colours, fonts, image settings and the tools it used. For new design, visual or creative work, match the newest relevant APPROVED one in style and concept unless the Commander asks for something different: open its file first (a file tagged [<agent> workspace] belongs to another crew member: match it from this line). Do repeat work the way an APPROVED one was done; never repeat a REJECTED approach.]';
+const TASTE_REF_RULE = '[→ = what that work really was, read from the work itself: its files, colours, fonts, image settings and the tools it used. For new design, visual or creative work, match the newest relevant APPROVED one in style and concept unless the Commander asks for something different: open its file first (a file tagged [<agent> workspace] belongs to another crew member: match it from this line). Do repeat work the way an APPROVED one was done; never repeat a REJECTED approach. A STYLE KEPT · RESULT REJECTED (or CLOSE) line: match its style, but fix what the Commander disliked or wants.]';
 
 function clean(s, n) {
   const t = String(s == null ? '' : s).replace(/\s+/g, ' ').trim();
@@ -279,7 +279,10 @@ function adoptTaste(heroList, departedList, nextId, from) {
 function day(ms) { const n = Number(ms) || 0; return n > 0 ? new Date(n).toISOString().slice(0, 10) : ''; }
 function baseLine(r, dirCap, wordsCap) {
   const v = String(r.feedbackVerdict || '');
-  const lab = r.feedbackKept ? 'APPROVED (style kept)' : v === 'great' ? 'APPROVED' : v === 'miss' ? 'REJECTED' : v === 'ok' ? 'CLOSE' : '';
+  // a kept style with a 👎 or "close" verdict shows both facts: APPROVED alone hid the rejection (review memory-learning-12)
+  const lab = r.feedbackKept
+    ? (v === 'miss' ? 'STYLE KEPT · RESULT REJECTED' : v === 'ok' ? 'STYLE KEPT · RESULT CLOSE' : 'APPROVED (style kept)')
+    : v === 'great' ? 'APPROVED' : v === 'miss' ? 'REJECTED' : v === 'ok' ? 'CLOSE' : '';
   const d = day(r.feedbackAt || r.createdAt || r.ts);
   const head = lab ? lab + (d ? ' ' + d : '') + ': ' : (d ? d + ': ' : '');
   const stored = String(r.content || r.body || '');
@@ -287,8 +290,8 @@ function baseLine(r, dirCap, wordsCap) {
   if (!lab || r.feedbackEdited || (r.feedbackGenerated && stored !== r.feedbackGenerated) || !Array.isArray(r.feedbackWords)) return head + clean(stored, dirCap + wordsCap);
   const what = clean(r.feedbackDirective, dirCap) || 'that work';
   const words = clean(newestWords(r.feedbackWords), wordsCap);
-  if (!words) return head + what + (v === 'miss' && !r.feedbackKept ? ' (do it differently)' : '');
-  return head + what + (v === 'great' ? ' — liked: "' : v === 'ok' ? ' — wants: "' : ' — "') + words + '"';
+  if (!words) return head + what + (v === 'miss' ? (r.feedbackKept ? ' (keep the style, change the result)' : ' (do it differently)') : '');
+  return head + what + (v === 'great' ? ' — liked: "' : v === 'ok' ? ' — wants: "' : v === 'miss' ? ' — disliked: "' : ' — "') + words + '"';
 }
 const LEVELS = [{ dir: 160, words: 300, line: 900 }, { dir: 120, words: 160, line: 420 }, { dir: 90, words: 80, line: 250 }];
 function tasteLine(r, lv, viewer) { const c = LEVELS[lv]; return clean(baseLine(r, c.dir, c.words) + TasteRef.refLine(r.feedbackRef, lv, viewer), c.line); }
