@@ -5437,10 +5437,12 @@ const CONNECTORS_OAUTH_FILE = path.join(CONNECTORS_DIR, 'oauth.json');       // 
 const CONNECTORS_STATE_FILE = path.join(CONNECTORS_DIR, 'state.json');       // authoritative v2 envelope
 const CONNECTORS_SCHEMA_DIR = path.join(CONNECTORS_DIR, 'schemas');
 let connectorStorageError = '';
-let connectorStorageReason = '';        // key-unavailable | key-mismatch | unreadable | unrecognized
+let connectorStorageReason = '';        // key-unavailable | key-mismatch | unreadable | reset-interrupted | busy | unrecognized
 function lockConnectorStorage(reason, message) {
   connectorStorageReason = reason;
-  connectorStorageError = message || connectorVaultMod.lockMessage(reason, CONNECTOR_KEY_ERROR);
+  // the vault's lockDetail lets the message name what the user needs: the recovery folder of an interrupted reset (or
+  // the by-hand steps when it cannot be finished) and the read error of a busy file
+  connectorStorageError = message || connectorVaultMod.lockMessage(reason, CONNECTOR_KEY_ERROR, connectorVault.lockDetail);
   console.error('[connectors] ' + connectorStorageError);
 }
 function connectorSchemaFile(id) { return path.join(CONNECTORS_SCHEMA_DIR, String(id) + '.json'); }
@@ -5602,8 +5604,12 @@ async function startFreshConnectorStorage() {
   connectorStorageError = ''; connectorStorageReason = '';
   adoptConnectorState(result.state);
   await invalidateConnectorRuntime();
-  console.log('[connectors] START FRESH: kept ' + (result.moved.join(', ') || 'nothing') + (result.movedTo ? ' in ' + result.movedTo : '') + '; new store ' + (connectorVault.protected ? 'encrypted' : 'NOT encrypted'));
-  return { ok: true, movedTo: result.movedTo, moved: result.moved };
+  // previous: the folders an interrupted earlier attempt already filled (a resume with nothing left to move has no
+  // movedTo, and those folders were otherwise named only in the marker it just deleted)
+  const previous = Array.isArray(result.previous) ? result.previous : [];
+  console.log('[connectors] START FRESH: kept ' + (result.moved.join(', ') || 'nothing') + (result.movedTo ? ' in ' + result.movedTo : '') +
+    (previous.length ? '; earlier copies in ' + previous.join(', ') : '') + '; new store ' + (connectorVault.protected ? 'encrypted' : 'NOT encrypted'));
+  return { ok: true, movedTo: result.movedTo, moved: result.moved, previous };
 }
 // Settings' connector reset of a LOCKED store IS start fresh: a removal write can never verify against a store it can't open.
 async function resetLockedConnectors(json, section) {
@@ -14308,7 +14314,7 @@ async function handleConnectorStorageStartFresh(req, res) {
   if (body.confirm !== true) return json(400, { error: 'START FRESH needs { confirm: true }' });
   const r = await startFreshConnectorStorage();
   if (!r.ok) return json(r.status || 500, { ok: false, error: r.error });
-  return json(200, { ok: true, movedTo: r.movedTo, moved: r.moved, credentialStorage: connectorStorageSnapshot() });
+  return json(200, { ok: true, movedTo: r.movedTo, moved: r.moved, previous: r.previous || [], credentialStorage: connectorStorageSnapshot() });
 }
 function handleConnectorsList(req, res) {
   res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
