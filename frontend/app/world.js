@@ -781,7 +781,7 @@ const World = (() => {
   let lastRecoverAt = 0;       // when the last recovery ran (only consulted while backing off)
   let futileRecoveries = 0;    // consecutive recoveries that did NOT restore an opaque bake
   let recoveries = 0;
-  const PROBE_MS = 250, RECOVER_COOLDOWN_MS = 3000;
+  const PROBE_MS = 250, RECOVER_COOLDOWN_MS = 3000, RECOVER_MAX_COOLDOWN_MS = 60000;
 
   /* Find one pixel the fresh bake painted OPAQUE. Centre first (on any real station the middle
      of the footprint is deck), then a coarse ring outward — so the common case is a single
@@ -949,8 +949,12 @@ const World = (() => {
        by the FIRST loss made the station sit black through the next one. A recovery that
        restored an opaque bake is proof the GPU is healthy, so the next loss must heal on the
        spot; only a recovery that changed nothing (futile) is evidence of a broken GPU worth
-       rate-limiting. Recovering is cheap. Sitting in a black station is not. */
-    if (futileRecoveries > 0 && now - lastRecoverAt < RECOVER_COOLDOWN_MS) return false;
+       rate-limiting. Recovering is cheap. Sitting in a black station is not.
+       A futile streak waits longer each time (3 s, 6 s, 12 s ... capped at a minute): every retry is a full station bake (~2.5 s
+       on a big industrial floor) into a GPU that is not giving canvases back, and a flat 3 s kept the main thread ~80% busy for
+       as long as it stayed broken. A restored context or the page coming back starts the streak over. */
+    const cooldown = Math.min(RECOVER_MAX_COOLDOWN_MS, RECOVER_COOLDOWN_MS * 2 ** Math.max(0, futileRecoveries - 1));
+    if (futileRecoveries > 0 && now - lastRecoverAt < cooldown) return false;
     lastRecoverAt = now; recoveries++;
     try {
       console.warn('[world] cached canvases lost (' + why + ') — rebuilding station + sky + ground (recovery #' + recoveries + ')');
@@ -958,10 +962,15 @@ const World = (() => {
     bakeDirty = true; bakeProbe = null;
     resetLossProbe();
     try { if (typeof IndustrialTextures !== 'undefined' && IndustrialTextures.restoreMaterials) IndustrialTextures.restoreMaterials(); } catch (_) {}
-    try { if (typeof PropRemaster !== 'undefined' && PropRemaster.restore) PropRemaster.restore(); } catch (_) {}
+    // the prop catalog is re-prepared once per loss, not per futile retry: PropRemaster retries its own failed entries, and
+    // watchCanvasLoss re-prepares it again once the GPU gives an opaque bake back
+    if (!futileRecoveries) restorePropArt();
     try { if (typeof SpaceBG !== 'undefined' && SpaceBG.invalidate) SpaceBG.invalidate(); } catch (_) {}
     try { if (typeof Terrain !== 'undefined' && Terrain.invalidate) Terrain.invalidate(); } catch (_) {}
     return true;
+  }
+  function restorePropArt() {
+    try { if (typeof PropRemaster !== 'undefined' && PropRemaster.restore) PropRemaster.restore(); } catch (_) {}
   }
 
   /* per-frame (throttled) sentinel read — called from frameBody. Heals in THIS frame: rebake()
@@ -977,9 +986,11 @@ const World = (() => {
       recoveries++; futileRecoveries = 0;
       return; // native bake is intact; do not stall the frame rebaking the entire station
     }
+    const streak = futileRecoveries;
     if (!recoverLostCanvases(now, 'bake sentinel went transparent')) return;
     rebake();
     futileRecoveries = bakeProbe ? 0 : futileRecoveries + 1;
+    if (streak && bakeProbe) restorePropArt();   // the GPU is back after a broken spell: prop art prepared during it may be blank too
   }
 
   /* ---------- STAGE CONTEXT LOSS — the OTHER way the station goes black ----------
@@ -1501,7 +1512,7 @@ const World = (() => {
        block), NOT in wireStageInput(): that function re-runs on every stage rebuild, and these
        two target document/window — the only listeners in it that would survive the old canvas
        and stack forever (every other handler is cv-scoped and dies with the replaced node). */
-    document.addEventListener('visibilitychange', () => { if (!document.hidden) lastProbeAt = 0; });
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) { lastProbeAt = 0; futileRecoveries = 0; } });   // (a sleep/wake GPU reset heals on THIS frame, not after the broken spell's back-off)
     window.addEventListener('focus', () => { lastProbeAt = 0; });
     // RENDER PACING wake-ups (#69): focus, a visible page, or any hand on the window resumes full pace NOW
     window.addEventListener('focus', paceWake);
@@ -1540,7 +1551,7 @@ const World = (() => {
         try { console.warn('[world] canvas 2d context lost — awaiting restore'); } catch (_) {}
       }, false);
       cv.addEventListener('contextrestored', () => {
-        lastRecoverAt = 0;   // an explicit restore always wins the cooldown
+        lastRecoverAt = 0; futileRecoveries = 0;   // an explicit restore always wins the cooldown (and re-prepares the props)
         recoverLostCanvases(performance.now(), 'contextrestored');
         redrawNow();
       }, false);
