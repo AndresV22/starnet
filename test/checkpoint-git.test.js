@@ -7,8 +7,13 @@ const root = fs.mkdtempSync(path.join(os.tmpdir(),'starnet-checkpoint-git-'));
 const heartbeat = path.join(root,'heartbeat.txt');
 const worker = path.join(root,'worker.cjs');
 const launcher = path.join(root,'launcher.cjs');
-fs.writeFileSync(worker,"const fs=require('node:fs'); setInterval(()=>fs.appendFileSync(process.argv[2],'x'),40);");
-fs.writeFileSync(launcher,"require('node:child_process').spawn(process.execPath,[process.argv[2],process.argv[3]],{stdio:'inherit',windowsHide:true});setInterval(()=>{},1000);");
+// The worker stops by itself after 30 s, or as soon as the temp dir is gone, so a failed run leaves nothing behind.
+fs.writeFileSync(worker,"const fs=require('node:fs'); setTimeout(()=>process.exit(0),30000); setInterval(()=>fs.appendFileSync(process.argv[2],'x'),40);");
+// The grandchild must be able to OUTLIVE the launcher, or killing only the direct child would pass. On Windows, node
+// puts a non-detached child in a kill-on-close job, so the launcher's death would take the worker with it; detached
+// keeps it out (as git's own children are). On POSIX it stays in the launcher's process group, as git's children
+// do. stdio 'ignore' so a surviving worker holds no pipe and fails the check instead of stalling the run.
+fs.writeFileSync(launcher,"require('node:child_process').spawn(process.execPath,[process.argv[2],process.argv[3]],{stdio:'ignore',windowsHide:true,cwd:require('node:os').tmpdir(),detached:process.platform==='win32'});setInterval(()=>{},1000);");
 const run = makeCheckpointGitRunner({spawn,file:process.execPath,timeoutMs:1200,clock:{now:()=>Date.now()}});
 (async()=>{
   try {
