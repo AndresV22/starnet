@@ -91,4 +91,19 @@ A.ok(/migrateConnectorCatalogKeyHeaders/.test(host) && /headers\[catalogEntry\.k
   const sf = connectors.slice(connectors.indexOf("armedLabel: 'SURE? SIGN IN AGAIN'"), connectors.indexOf("armedLabel: 'SURE? SIGN IN AGAIN'") + 1200);
   A.ok(/notify\(startFreshKeptText\(r\.j\)\)/.test(sf), 'the START FRESH toast uses it');
 }
+// tests-04: the connector key policy tests (credentials.rs connector_key_policy*) and the harness's acceptance_guards are
+// pure (injected closures and input checks: no keychain entry, no native process), so fast-gate runs them on every trunk
+// push and PR. The native acceptance workflow is dispatch-only: its two stale branch push triggers are gone.
+{
+  const gate = read('.github/workflows/fast-gate.yml').replace(/\r\n/g, '\n');
+  const job = (gate.match(/^  rust-policy:\n(?:(?: {4}.*)?\n)+/m) || [''])[0];
+  const cmd = 'cargo test --locked --manifest-path test/native-connector-keychain/Cargo.toml ';
+  A.ok(job.includes(cmd + 'connector_key_policy') && job.includes(cmd + 'acceptance_guards'), 'fast-gate has a rust-policy job that runs both pure test filters');
+  A.ok(job && !/--ignored|--include-ignored|STARNET_DISPOSABLE_KEYCHAIN|starnet-connector-keychain-acceptance(\.exe)?\s/.test(job),
+    '…never the ignored production-entry test, a native phase or the disposable-keychain opt-in');
+  A.ok(/test result: ok\\\. \[1-9\]/.test(job), '…and it fails when a filter matched no test (a renamed test must not pass green)');
+  const acc = read('.github/workflows/connector-keychain-acceptance.yml').replace(/\r\n/g, '\n');
+  const on = (acc.match(/^on:\n((?: .*\n)+)/m) || ['', ''])[1];
+  A.ok(/^  workflow_dispatch:/m.test(on) && !/^  push:/m.test(on) && !/agent\/google-oauth/.test(acc), 'the native acceptance workflow runs on manual dispatch only');
+}
 A.report('connector-reliability-wiring.test');

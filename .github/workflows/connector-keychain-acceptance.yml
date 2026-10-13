@@ -1,8 +1,6 @@
 name: connector-keychain-acceptance
 on:
   workflow_dispatch:
-  push:
-    branches: [agent/google-oauth-audit-0919, agent/google-oauth-merge-0920]
 permissions:
   contents: read
 jobs:
