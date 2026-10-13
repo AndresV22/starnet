@@ -18,7 +18,7 @@ const fakeClear = t => { if (t) t.live = false; };
 const flush = () => { for (const t of timers.splice(0)) if (t.live) t.fn(); };
 const world = { crt: { film: .38, scan: .1 }, rebake() { rebakes++; } };
 const build = (w, t) => new Function('StationBake', 'World', 'IndustrialTextures', 'setTimeout', 'clearTimeout', src.slice(start, end) +
-  '\nreturn { resolve: resolveRoomLighting, knobs: roomLightingKnobs, apply: applyRoomLighting };')(bake, w, t, fakeTimeout, fakeClear);
+  '\nreturn { resolve: resolveRoomLighting, knobs: roomLightingKnobs, apply: applyRoomLighting, commit: commitRoomLighting };')(bake, w, t, fakeTimeout, fakeClear);
 const api = build(world, { lighting: tex });
 
 // 0 (and anything unreadable) is the approved station, byte for byte.
@@ -58,19 +58,35 @@ for (const level of [25, 50, 75, 100]) {
 assert.equal(rebakes, 4, 'every committed change reaches the renderer');
 assert.deepEqual(api.knobs(100), { ambient: 0.3, cut: 2.4, key: 2, film: 0.26 }, '100 is the brightest tuned look');
 
-// A DRAG never rebakes per tick: film and ambient move at once, the bake waits for the pause/release.
+// A DRAG never rebakes: World.rebake is a full StationBake (~2.5 s frozen on a big station), so even a pause
+// mid-drag must not pay it. Film and ambient move at once; the release pays the one rebake the drag owed
+// (review finding world-render-07).
 rebakes = 0;
 for (let v = 99; v >= 60; v--) api.apply(v, true);
 assert.equal(rebakes, 0, 'no rebake during the drag');
 assert.equal(bake.LIGHT.ambient, api.knobs(60).ambient, 'ambient follows the drag live');
 assert.equal(world.crt.film, +(0.38 * api.knobs(60).film).toFixed(4), 'film follows the drag live');
+assert.equal(timers.filter(t => t.live).length, 0, 'a drag arms no rebake timer');
 flush();
-assert.equal(rebakes, 1, 'one rebake once the drag pauses');
+assert.equal(rebakes, 0, 'a pause mid-drag does not rebake');
 api.apply(55, true);
-api.apply(55);   // release lands the pending rebake now
-assert.equal(rebakes, 2);
+api.apply(55);   // release lands the owed rebake now
+assert.equal(rebakes, 1, 'the release rebakes exactly once');
+api.apply(55);
+assert.equal(rebakes, 1, 'nothing is owed after the release');
+// The slider's change event fires on every arrow-key step: a burst commits once, 150 ms after the last step.
+for (const v of [54, 53, 52]) { api.apply(v, true); api.commit(() => v); }
+assert.equal(rebakes, 1, 'a commit waits for the burst to end');
+assert.deepEqual(timers.filter(t => t.live).map(t => t.ms), [150], 'one commit is queued for the burst');
 flush();
-assert.equal(rebakes, 2, 'the cancelled timer does not rebake twice');
+assert.equal(rebakes, 2, 'one rebake for the whole burst');
+assert.equal(bake.LIGHT.ambient, api.knobs(52).ambient, 'the burst lands its last value');
+// A direct apply (chat control, a restored backup) supersedes a queued commit: no older value lands later.
+api.apply(51, true); api.commit(() => 51); api.apply(70);
+assert.equal(rebakes, 3);
+flush();
+assert.equal(rebakes, 3, 'the superseded commit does not rebake again');
+assert.equal(bake.LIGHT.ambient, api.knobs(70).ambient, 'the newest value stays');
 
 api.apply(0);
 assert.deepEqual(bake.LIGHT, original, '0 restores the exact approved light controls');
@@ -89,7 +105,7 @@ assert.match(src, /applyRoomLighting\(s\.roomLighting\);\n/, 'applySettings appl
 assert.match(src, /roomLighting: resolveRoomLighting\(store\.settings\.roomLighting\)/, 'backup includes lighting');
 assert.match(src, /id="set-room-light"[^>]*min="0" max="100"/, 'Settings shows the 0–100 slider');
 assert.match(src, /applyRoomLighting\(s\.roomLighting, true\)/, 'dragging applies live');
-assert.match(src, /applyRoomLighting\(s\.roomLighting\); save\(\)/, 'release applies and persists');
+assert.match(src, /commitRoomLighting\(\(\) => store\.settings\.roomLighting\); save\(\)/, 'release commits the current value and persists');
 assert.match(src, /else if \(k === 'roomLighting'\) num\(k, 0, 100\)/, 'chat control takes the same 0–100 range');
 assert.equal(src, fs.readFileSync(path.join(__dirname, '../website/app/app/stationui.js'), 'utf8'));
 console.log('room-lighting-settings: 0–100 slider drives film/cut/key/CRT film, drag debounce, legacy saves, classic and mirror passed');

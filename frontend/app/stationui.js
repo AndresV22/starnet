@@ -122,7 +122,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
   const ROOM_LIGHTING_MAX = { ambient: 0.3, cut: 2.4, key: 2, film: 0.26 };
   const ROOM_LIGHTING_LEGACY = { low: 0, medium: 15, high: 30 };
   let roomLightingFilm = null;   // the renderer's CRT.film before the slider touched it
-  let roomLightingTimer = 0;
+  let roomLightingPending = false, roomLightingTimer = 0;
   function resolveRoomLighting(v) {
     if (typeof v === 'string' && Object.prototype.hasOwnProperty.call(ROOM_LIGHTING_LEGACY, v)) return ROOM_LIGHTING_LEGACY[v];
     const n = typeof v === 'number' || (typeof v === 'string' && v.trim() !== '') ? Number(v) : NaN;
@@ -133,10 +133,12 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     for (const k of Object.keys(ROOM_LIGHTING_MIN)) out[k] = +(ROOM_LIGHTING_MIN[k] + (ROOM_LIGHTING_MAX[k] - ROOM_LIGHTING_MIN[k]) * t).toFixed(4);
     return out;
   }
-  // `live` (a slider drag): film and ambient reach the next frame on their own; the pool cut + key need a
-  // rebake, which is too heavy for every drag tick, so it waits until the drag pauses (crtlab's 90 ms idiom).
+  // `live` (a slider drag): the CRT film and (industrial world) WorldLight's deck ambient reach the next frame on
+  // their own. The pool cut + key reach WorldLight only through World.rebake, a full StationBake that freezes a big
+  // station for ~2.5 s, so a live change only marks that rebake owed and the commit (release) pays it once.
   function applyRoomLighting(value, live) {
     if (typeof StationBake === 'undefined') return;
+    if (!live && roomLightingTimer) { clearTimeout(roomLightingTimer); roomLightingTimer = 0; }   // this commit supersedes a queued one
     const step = roomLightingKnobs(value);
     const crt = typeof World !== 'undefined' && World.crt;
     const tex = typeof IndustrialTextures !== 'undefined' && IndustrialTextures.lighting;
@@ -144,16 +146,20 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       if (roomLightingFilm == null) roomLightingFilm = Number(crt.film) || 0;
       crt.film = +(roomLightingFilm * step.film).toFixed(4);   // a per-frame post pass: no rebake needed
     }
-    const rebake = () => { roomLightingTimer = 0; if (typeof World !== 'undefined' && World.rebake) World.rebake(); };
+    const rebake = () => { roomLightingPending = false; if (typeof World !== 'undefined' && World.rebake) World.rebake(); };
     if (StationBake.LIGHT.ambient === step.ambient && (!tex || (tex.cut === step.cut && tex.key === step.key))) {
-      if (roomLightingTimer && !live) { clearTimeout(roomLightingTimer); rebake(); }   // a release lands the pending rebake now
+      if (roomLightingPending && !live) rebake();   // a release lands the rebake the drag owed
       return;
     }
     StationBake.LIGHT.ambient = step.ambient;
     if (tex) { tex.cut = step.cut; tex.key = step.key; }
+    if (live) { roomLightingPending = true; return; }
+    rebake();
+  }
+  // The slider's `change` (a mouse release, or every arrow-key step): a burst of steps costs one bake, not one each.
+  function commitRoomLighting(read) {
     if (roomLightingTimer) clearTimeout(roomLightingTimer);
-    if (live) roomLightingTimer = setTimeout(rebake, 90);
-    else rebake();
+    roomLightingTimer = setTimeout(() => { roomLightingTimer = 0; applyRoomLighting(read()); }, 150);
   }
   // TEXT SIZE steps (percent → chip label; 0 = AUTO, the default). Applied as a body zoom in
   // applySettings(): zoom scales layout too, so every hard-px face (COMMS included) grows together —
@@ -7923,7 +7929,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     const roomLightIn = host.querySelector('#set-room-light');
     if (roomLightIn) {
       roomLightIn.addEventListener('input', ev => { s.roomLighting = resolveRoomLighting(ev.target.value); applyRoomLighting(s.roomLighting, true); sliderVal('#set-room-light-val', s.roomLighting + '%'); });
-      roomLightIn.addEventListener('change', () => { applyRoomLighting(s.roomLighting); save(); sfx('click'); flashSaved(appMsg()); });
+      roomLightIn.addEventListener('change', () => { commitRoomLighting(() => store.settings.roomLighting); save(); sfx('click'); flashSaved(appMsg()); });
     }
     // CRT GLASS chips — same instant-apply + persist idiom as TEXT SIZE below.
     const glChips = host.querySelectorAll('#set-crtglass [data-glass]');
