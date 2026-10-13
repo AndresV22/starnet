@@ -99,9 +99,21 @@
       const d = str(skill && skill.contentDigest);
       return d || ('u' + str((skill && skill.updatedAt) || 0));
     }
+    /* AN UNSTAMPED RECORD (no contentDigest: saved before digest stamping — a legacy row with no verdict, or an
+       'ask' written between verdict stamping and digest stamping) has only the lifecycle stamp, which no
+       Approve can match: the route binds the approval to digestOf(the bytes the Commander read). With the body,
+       verify() re-scans those live bytes and re-decides against their digest (below), so an approval releases
+       exactly the bytes that were scanned and read — never unscanned bytes on a lifecycle stamp (review
+       2026-10-12: an earlier fix approved the live digest here with no scan, which laundered a rewrite past the
+       guard). Metadata only (the prompt index, skill.list): the lifecycle stamp the record carried when it was
+       approved (`rec.stamp`), so the next real mutation re-asks. A stamped record is unchanged. */
     function isApproved(skill) {
       const rec = approvalFor(skill);
-      return !!(rec && str(rec.digest) === stampOf(skill));
+      if (!rec) return false;
+      const want = str(rec.digest);
+      if (want === stampOf(skill)) return true;
+      if (str(skill.contentDigest) || typeof skill.body === 'string') return false;
+      return !!str(rec.stamp) && str(rec.stamp) === stampOf(skill);
     }
 
     /* decide — the metadata-only decision, safe to call from the index composer where bodies are
@@ -158,12 +170,20 @@
       if (!stamped && !str(skill.guardAction)) {
         const live = liveScan(skill);
         if (!live || live.action === 'allow') return base;
-        const legacy = decide(Object.assign({}, skill, { guardAction: live.action, scan: live.scan }));
+        // judged against the digest of the bytes just scanned, so an approval releases exactly these bytes
+        const legacy = decide(Object.assign({}, skill, { guardAction: live.action, scan: live.scan, contentDigest: digestOf(skill) }));
         legacy.unscanned = true;
         if (!legacy.visible) legacy.reason = 'this skill was saved before the guard existed and re-scanning it flagged content — review it in ABILITIES > SKILLS';
         return legacy;
       }
-      if (!stamped) return base;
+      /* An unstamped record WITH a verdict: its verdict describes bytes no digest pins, so re-scan what is here now,
+         take the worse action, and judge any approval against THESE bytes' digest (fail closed: unscannable => ask). */
+      if (!stamped) {
+        const live = liveScan(skill);
+        return decide(Object.assign({}, skill, {
+          guardAction: worseAction(base.action, live ? live.action : 'ask'), scan: (live && live.scan) || skill.scan, contentDigest: digestOf(skill)
+        }));
+      }
       if (digestOf(skill) === stamped) return base;
       const live = liveScan(skill);
       const action = worseAction(base.action, live ? live.action : 'ask');   // unscannable tamper => at least ask

@@ -219,6 +219,71 @@ function seedSkills(ws) {
     const raced = await api('/api/agent-skills/allow', { method: 'POST', body: JSON.stringify({ agentId: 'agent', id: safeId, digest: readBefore }) });
     A.eq(raced.status, 409, 'bytes that changed after the Commander read them are not approved by that read');
     A.eq((await list()).by['Safe Deploy'].withheld, true, 'so the rewritten package stays withheld');
+
+    // ---- 8. a record saved BEFORE digest stamping is really approved by Approve (or the route says why not) ----
+    // Two real shapes in old skills.jsonl files: no verdict and no digest (pre-guard), and an 'ask' verdict with no
+    // digest (written between verdict stamping and digest stamping). The approval is bound to digestOf(bytes read),
+    // which the gate used to compare against the lifecycle stamp 'u'+updatedAt: a 200 that never took effect.
+    try { child.kill(); } catch (_) {}
+    await new Promise(r => setTimeout(r, 400));
+    const legacyBase = { agentId: 'agent', description: '', setup: '', category: 'General', requires: [], platforms: [], state: 'active', pinned: false,
+      createdBy: 'agent', sourceRunId: null, createdAt: 1700000000000, updatedAt: 1700000000000, lastUsedAt: null, viewCount: 0, useCount: 0, patchCount: 0, packagePath: '', files: {} };
+    const noVerdict = Object.assign({}, legacyBase, { id: 'legacy-unscanned', name: 'Legacy Unscanned', summary: 'pre-guard', body: RISKY });
+    const askNoDigest = Object.assign({}, legacyBase, { id: 'legacy-ask', name: 'Legacy Ask', summary: 'pre-digest', body: RISKY });
+    askNoDigest.scan = skillGuard.scanSkillRecord(Object.assign({}, askNoDigest, { files: [] }), { source: 'agent-created' });
+    askNoDigest.guardAction = 'ask';
+    // and a hub-sourced package whose SKILL.md is rewritten on disk into content its tier BLOCKS
+    const hubLines = [];
+    const hubStore = makeSkillStore({ stageReviews: false, io: { readAll() { return []; }, append(e) { hubLines.push(JSON.stringify(e)); } },
+      clock: { now: () => Date.now() }, guard: skillGuard, digest: digestOf,
+      packageStore: skillPackages.makePackageStore({ fs, pathMod: path, root: path.join(ws, 'skill-packages') }) });
+    hubStore.write({ agentId: 'agent', name: 'Hub Cleanup', summary: 'from the hub', body: '1. tidy\n2. done', createdBy: 'community' });
+    const hubId = hubStore.list('agent')[0].id;
+    fs.appendFileSync(path.join(ws, 'skills.jsonl'), [JSON.stringify(noVerdict), JSON.stringify(askNoDigest)].concat(hubLines).join('\n') + '\n', 'utf8');
+    const hubMd = path.join(ws, 'skill-packages', 'agent', hubId, 'SKILL.md');
+    fs.writeFileSync(hubMd, fs.readFileSync(hubMd, 'utf8').replace('2. done', '2. ' + NASTY), 'utf8');
+    booted = await boot(booted.port + 1, ws, 20);
+    child = booted.child; B = 'http://' + HOST + ':' + booted.port; apiToken = await bootToken(B);
+    const metaList = async () => {
+      const r = await api('/api/agent-skills?agent=agent&archived=1');
+      const by = {}; for (const s of (r.body && r.body.skills) || []) by[s.name] = s;
+      return by;
+    };
+    L = await list();
+    for (const name of ['Legacy Unscanned', 'Legacy Ask']) {
+      const card = L.by[name];
+      A.ok(card && !card.contentDigest, name + ': precondition, the record carries no stamped digest');
+      A.eq(card.withheld, true, name + ': unapproved, it is withheld from the agent');
+      A.eq(card.guardApprovable, true, name + ': and offered as approvable');
+      const ok = await api('/api/agent-skills/allow', { method: 'POST', body: JSON.stringify({ agentId: 'agent', id: card.id, digest: card.guardDigest }) });
+      A.eq(ok.status, 200, name + ': the panel\'s Approve succeeds: ' + JSON.stringify(ok.body && ok.body.error));
+      A.eq(ok.body && ok.body.skill && ok.body.skill.withheld, false, name + ': and the 200 reports what the delivery seam now does');
+    }
+    L = await list();
+    A.eq(L.by['Legacy Unscanned'].withheld, false, 'RATCHET: an approved pre-guard record is given to the agent after a reload');
+    A.eq(L.by['Legacy Ask'].withheld, false, 'RATCHET: an approved pre-digest ask record is given to the agent after a reload');
+    const meta = await metaList();
+    A.eq(meta['Legacy Ask'].withheld, false, 'the metadata-only surface (the prompt index\'s decision) agrees it is approved');
+    try { child.kill(); } catch (_) {}
+    await new Promise(r => setTimeout(r, 400));
+    booted = await boot(booted.port + 1, ws, 20);
+    child = booted.child; B = 'http://' + HOST + ':' + booted.port; apiToken = await bootToken(B);
+    A.eq((await list()).by['Legacy Ask'].withheld, false, 'the approval survives a restart');
+    // negative: the approval binds those bytes — an edit re-asks
+    const legacyEdit = await api('/api/agent-skills/manage', { method: 'POST', body: JSON.stringify({ agentId: 'agent', action: 'edit', target: 'legacy-ask', body: RISKY + '\nStep 3. and something new' }) });
+    A.eq(legacyEdit.status, 200, 'the legacy record can be edited');
+    A.eq((await list()).by['Legacy Ask'].withheld, true, 'editing the approved legacy record re-asks (bound to bytes, not a name)');
+    A.eq((await metaList())['Legacy Ask'].withheld, true, 'and the metadata-only surface re-asks too');
+    // negative: an approval that could not release the skill is refused out loud, and nothing is saved
+    L = await list();
+    A.eq(L.by['Hub Cleanup'].withheld, true, 'the rewritten hub package is withheld (its tier blocks the new bytes)');
+    const allowedBefore = fs.readFileSync(path.join(ws, 'skills-allowed.json'), 'utf8');
+    const dead = await api('/api/agent-skills/allow', { method: 'POST', body: JSON.stringify({ agentId: 'agent', id: hubId, digest: L.by['Hub Cleanup'].guardDigest }) });
+    A.eq(dead.status, 400, 'RATCHET: an Approve that would leave the skill withheld is not a 200: ' + JSON.stringify(dead.body));
+    A.eq(dead.body && dead.body.approved, false, 'the route does not claim it was approved');
+    A.ok(/would not release/.test((dead.body && dead.body.error) || '') && /blocked/.test(dead.body.error), 'and says why, in words the panel prints');
+    A.eq(fs.readFileSync(path.join(ws, 'skills-allowed.json'), 'utf8'), allowedBefore, 'and no dead approval row was written');
+    A.eq((await list()).by['Hub Cleanup'].withheld, true, 'the package stays withheld');
   } finally {
     try { child.kill(); } catch (_) {}
     try { fs.rmSync(ws, { recursive: true, force: true }); } catch (_) {}
