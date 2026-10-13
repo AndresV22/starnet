@@ -189,8 +189,12 @@ const server = http.createServer((req, res) => {
       assert.equal(listed.latestEvaluation.candidateDigest, candidate.candidateDigest);
       assert.equal(listed.latestEvaluation.baselineDigest, candidate.baseDigest);
       assert.equal(listed.latestEvaluation.cases.length, 2, 'whole receipt, cases included');
+      // The page reads a tie and a spend stop from the stored row, so it must be the whole row evaluate-candidate
+      // returned, never a summary (the contract test/abilities.skills-lane.test.js renders from).
+      assert.deepEqual(listed.latestEvaluation, receipt, 'the list carries exactly the receipt evaluate-candidate returned');
       const single = await api('GET', '/api/agent-skills/candidates?agent=agent&candidateId=' + encodeURIComponent(candidate.candidateId));
       assert.equal(single.candidate.latestEvaluation && single.candidate.latestEvaluation.receiptId, receipt.receiptId, 'and so does the single read');
+      assert.deepEqual(single.candidate.latestEvaluation, receipt, 'the single read carries the same whole receipt');
       const other = (await candidates()).find(c => c.candidateId === seeded.fresh.candidateId);
       assert.equal(other.latestEvaluation, null, 'a proposal never evaluated carries none');
       // a later run of a generic suite that fails does not hide the passing receipt approval can still accept
