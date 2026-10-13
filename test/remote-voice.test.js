@@ -310,6 +310,7 @@ function parsePages(buf) {
     A.eq(withVoiceStyle(''), VOICE_SURFACE, 'an agent with no system prompt still gets them');
     const hostSrc = fs.readFileSync(require('path').join(__dirname, '../sidecar/remote/host.js'), 'utf8');
     A.ok(hostSrc.includes('system: o.voice ? withVoiceStyle(cred.system) : cred.system'), 'host.send applies them to the run it starts');
+    A.ok(/voiceTurn: o\.voice === true \|\| undefined/.test(hostSrc), 'and marks it a voice turn, so the VOICE CHAT MODEL may answer the companion (a phone is unchanged)');
   }
 
   A.report('remote-voice');
