@@ -76,15 +76,26 @@ function makeVerdictReview(opts) {
   // hands the caller a compacted, provider-free snapshot to persist; restore() reloads it on boot. A restored
   // packet has no live provider: the caller rebuilds one for the agent when the review fires.
   const onChange = typeof opts.onChange === 'function' ? opts.onChange : null;
-  function changed() {
+  // meta.ack:false marks a save no caller waits on (stash, take): the host may batch it. Every other transition
+  // (arm, correct, fire, retry, complete) acts on the result, so it stays a synchronous, verified save.
+  function changed(meta) {
     if (!onChange) return true;
-    try { const result = onChange(snapshot()); if (result === false || (result && typeof result.then === 'function')) throw new Error('review persistence must complete synchronously'); return true; } catch (e) { failNote('verdictreview.persist', e); return false; }
+    try { const result = onChange(snapshot(), meta || { ack: true }); if (result === false || (result && typeof result.then === 'function')) throw new Error('review persistence must complete synchronously'); return true; } catch (e) { failNote('verdictreview.persist', e); return false; }
+  }
+  // Each row is compacted once, not on every save: a run end used to recompact and re-scrub every parked packet.
+  // A parked packet never changes after stash; a held row is recompacted only when its verdict or correction does.
+  // The rows share these cached objects, so a caller treats a snapshot as read-only.
+  function parkedCompact(row) { return row.compact || (row.compact = compactPacket(row.packet, opts.redact)); }
+  function heldCompact(h, runId) {
+    const key = JSON.stringify([runId, h.verdict, h.correction, h.correctionOriginalChars, h.correctionTruncated, h.correctionSource || '']);
+    if (h.compactKey !== key) { h.compact = compactPacket(jobFor(h, runId, 'snapshot'), opts.redact); h.compactKey = key; }
+    return h.compact;
   }
   function snapshot() {
     const rows = [];
-    for (const [runId, row] of packets) rows.push({ runId, at: row.at, packet: compactPacket(row.packet, opts.redact) });
+    for (const [runId, row] of packets) rows.push({ runId, at: row.at, packet: parkedCompact(row) });
     for (const [runId, h] of held) {
-      const packet = compactPacket(jobFor(h, runId, 'snapshot'), opts.redact);
+      const packet = heldCompact(h, runId);
       const correction = packet.learningEvidence && packet.learningEvidence.correction;
       rows.push({ runId, at: h.at, state: 'held', reviewStatus: h.status, dueAt: h.dueAt, attempts: h.attempts, persistenceFailures: h.persistenceFailures || 0, persistenceBlocked: h.persistenceBlocked === true,
         verdict: h.verdict, correction: correction ? correction.text : '', correctionSource: h.correctionSource,
@@ -132,7 +143,7 @@ function makeVerdictReview(opts) {
     packets.delete(id);
     packets.set(id, { at: now(), packet });
     sweep();
-    changed();
+    changed({ ack: false });
     return true;
   }
 
@@ -150,7 +161,7 @@ function makeVerdictReview(opts) {
     const id = String(runId).trim();
     const row = packets.get(id);
     packets.delete(id);
-    changed();
+    changed({ ack: false });
     return row ? row.packet : null;
   }
 

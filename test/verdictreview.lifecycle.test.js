@@ -98,6 +98,34 @@ async function main() {
   assert.equal(completionLaunches, 1); assert.equal(completing.holding('complete-save'), true);
   completionFailure = false; time += 100; await runTimers();
   assert.equal(completionLaunches, 1); assert.equal(completing.holding('complete-save'), false);
+  // A run end parks one packet: it must not recompact (and re-scrub) every other parked packet on each save, and a
+  // stash/take save says nothing waits on its acknowledgement, so the host may batch it (skills-eval-09).
+  {
+    const { compactPacket } = require('../sidecar/verdictreview.js');
+    let scrubs = 0; const acks = []; let lastRows = [];
+    const countScrub = t => { scrubs++; return String(t).replace(/sk-live-\w+/g, '[redacted]'); };
+    const run = i => ({ agentId: 'a', model: 'm/x', reason: 'done', messages: [
+      { role: 'user', content: 'export report ' + i },
+      { role: 'assistant', content: '', tool_calls: [{ id: 'c' + i, type: 'function', function: { name: 'fs.write', arguments: JSON.stringify({ path: 'r' + i + '.json', content: 'sk-live-abc' }) } }] },
+      { role: 'tool', tool_call_id: 'c' + i, content: 'Saved r' + i + '.json' },
+      { role: 'assistant', content: 'Done ' + i } ] });
+    const lean = makeVerdictReview({ ...opts, redact: countScrub, onChange: (rows, meta) => { lastRows = clone(rows); acks.push(meta && meta.ack); } });
+    for (let i = 0; i < 6; i++) lean.stash('lean' + i, run(i));
+    scrubs = 0; compactPacket(run(6), countScrub); const one = scrubs;
+    scrubs = 0; lean.stash('lean6', run(6));
+    assert.ok(one > 0 && scrubs === one, 'parking a 7th packet compacts only that packet (' + scrubs + ' scrubs, one packet = ' + one + ')');
+    assert.deepEqual(lastRows.map(r => r.packet), [0, 1, 2, 3, 4, 5, 6].map(i => clone(compactPacket(run(i), countScrub))), 'the saved rows are exactly the compacted packets');
+    assert.deepEqual(acks.slice(-1), [false], 'a stash save is not acknowledged work');
+    lean.arm('lean0', 'miss', () => true, 'Use JSON.');
+    assert.equal(acks.at(-1), true, 'arming waits on a verified save');
+    const heldRow = lastRows.find(r => r.runId === 'lean0');
+    const fresh = compactPacket(Object.assign({}, run(0), { runId: 'lean0', verdict: 'miss', correction: 'Use JSON.', correctionOriginalChars: 9,
+      correctionTruncated: false, correctionSource: 'verdict', firedBy: 'snapshot', reviewAttempt: 0 }), countScrub);
+    assert.deepEqual(heldRow.packet, clone(fresh), 'a held row persists the same evidence a fresh compaction gives');
+    assert.equal(lean.correct('lean0', 'Bullets only.', false, 'chip').ok, true);
+    assert.equal(lastRows.find(r => r.runId === 'lean0').packet.learningEvidence.correction.text, 'Use JSON. · Bullets only.', 'a later correction reaches the saved held row');
+    assert.ok(lean.take('lean1', 'ok')); assert.equal(acks.at(-1), false, 'a take save is not acknowledged work');
+  }
   console.log('verdictreview.lifecycle: held snapshot/restart, remaining grace, late reversal, launcher retry/restart, bounded attempts, latest host correction PASS');
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });
