@@ -343,7 +343,10 @@ body.glass-demo :is(#chat-log, #gc-log) .cmsg.user  + .cmsg.user  > .cmsg-head {
 #comms-presence.paused .cp-dot { animation: none; color: var(--gold); text-shadow: 0 0 6px color-mix(in srgb, var(--gold) 55%, transparent); opacity: .9; }
 #comms-presence.paused .cp-verb { color: var(--gold); text-shadow: 0 0 5px color-mix(in srgb, var(--gold) 45%, transparent); }
 #comms-presence .cp-tool.paused-note { color: var(--gold); flex: 1 1 auto; white-space: normal; opacity: .95; }
-#comms-presence .cp-tool.paused-note::before { content: ''; }
+/* PAUSED reads at body size and matte (2026-10-13 review: a 12px glowing line under a decision card) */
+#comms-presence.comms-presence.paused { font-size: 14px; box-shadow: none; background: color-mix(in srgb, var(--gold) 8%, transparent); }
+#comms-presence.paused :is(.cp-dot, .cp-verb) { text-shadow: none; }
+#comms-presence.paused :is(.cp-tool, .cp-time) { font-size: 14px; }
 /* LIVE WAIT LINE (chat.js waitNoteText) — the retry rung / countdown / reason / duration must stay readable at the
    300 px FIT minimum, so it wraps instead of ellipsis-clipping (a long model id breaks anywhere). */
 #comms-presence .cp-tool.wait-note { white-space: normal; overflow-wrap: anywhere; }

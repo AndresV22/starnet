@@ -76,8 +76,7 @@
     P('settings-app', 'SETTINGS › APP & BACKUP', 'startup, runtime limits, backups, updates, troubleshooting, START FRESH and ERASE EVERYTHING', { term: 'settings', section: 'system' }),
     P('notifications', 'NOTIFICATIONS', 'everything that happened and what is waiting on the Commander', { term: 'notifs' }),
     P('updates', 'UPDATES', 'check for and install a StarNet update', { term: 'updates' }),
-    P('field-manual', 'FIELD MANUAL', 'the Commander\'s guide to StarNet', { term: 'manual' }),
-    P('find', 'SYSTEM › FIND', 'one search over every window, agent and conversation (Ctrl+K from anywhere)', { term: 'find' })
+    P('field-manual', 'FIELD MANUAL', 'the Commander\'s guide to StarNet', { term: 'manual' })
   ]);
 
   const BY_ID = Object.create(null);
@@ -86,7 +85,7 @@
   const get = id => BY_ID[String(id || '').trim().toLowerCase()] || null;
   const needsAgent = p => !!(p && (p.open.agent || p.open.desk));
 
-  /* OPEN a place through its own door — the ONE opener for the agent's station.show and the Commander's FIND (Ctrl+K).
+  /* OPEN a place through its own door — the ONE opener for the agent's station.show.
      env = the page's own objects, passed in so this file stays DOM-free (the sidecar requires it) and testable:
      { ui: StationUI, build?: Build, app?: App, market?: Marketplace, agentId? (for an agent place), sleep?(ms) }.
      Resolves what is really on screen ({ open, key, … }); throws when a door is not loaded on this page. */

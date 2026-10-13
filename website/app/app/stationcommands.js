@@ -1099,7 +1099,7 @@ const StationCommands = (() => {
       if (typeof StationUI === 'undefined' || !StationUI.showTerm) throw new Error('the station windows are not ready yet');
       const o = place.open;
       const ag = (o.agent || o.desk) ? resolveAgent(a && a.agent) : null;
-      // the ONE opener (app/places.js): the same doors FIND (Ctrl+K) uses, with this page's own objects
+      // the ONE opener (app/places.js), with this page's own objects
       const out = await Places.open(place, { ui: StationUI, agentId: ag && ag.id,
         build: typeof Build !== 'undefined' ? Build : null, app: typeof App !== 'undefined' ? App : null, market: typeof Marketplace !== 'undefined' ? Marketplace : null });
       if (ag && out) out.agentName = ag.name || ag.id;
