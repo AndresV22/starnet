@@ -134,10 +134,12 @@ function parsePages(buf) {
     const LONG_REPLY = S150('alpha') + ' ' + S150('bravo') + ' ' + S150('delta');
     const gate = [];   // synthesis of sentences 2+ waits here, so the test can watch the reply grow
     let calls = 0, said = [];
+    const pins = [];   // the engine each sentence was pinned to (undefined = the first sentence picks)
     const voice = makeRemoteVoice({
       now: () => t, newId: () => 'r' + (++calls),
-      synthesize: async (text) => {
+      synthesize: async (text, o) => {
         said.push(text);
+        pins.push(o && o.provider);
         if (text === 'fail') return { ok: false, reason: 'no engine' };
         if (said.length > 1) await new Promise((r) => gate.push(r));
         return { ok: true, buf: sentenceWav(said.length), mime: 'audio/wav', provider: 'local-kokoro' };
@@ -169,6 +171,7 @@ function parsePages(buf) {
       if (c.data.done) break;
       if (!b.length) await settle();
     }
+    A.eq(pins.slice(-3), [undefined, 'local-kokoro', 'local-kokoro'], 'the first sentence picks the engine; the rest of the reply is pinned to it (one speaker, one format)');
     const decoded = decodeAdpcm(Buffer.concat(all));
     A.eq(decoded.rate, 24000, 'the stream says its rate');
     A.eq(decoded.samples.length, 3 * 24000, 'all three sentences arrive, exactly 3 s of samples');

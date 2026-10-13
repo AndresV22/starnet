@@ -274,7 +274,7 @@ function makeRemoteVoice(deps) {
   const now = deps && deps.now;
   if (typeof now !== 'function') throw new Error('makeRemoteVoice needs an injected clock (deps.now)');
   const transcribeOgg = deps.transcribeOgg;     // async (oggBuf) -> { ok, text } | { ok:false, reason }
-  const synthesize = deps.synthesize;           // async (text) -> { ok, buf, mime, provider } | { ok:false, reason }
+  const synthesize = deps.synthesize;           // async (text, { provider }?) -> { ok, buf, mime, provider } | { ok:false, reason }
   const newId = deps.newId;
   if (typeof newId !== 'function') throw new Error('makeRemoteVoice needs deps.newId');
 
@@ -333,9 +333,11 @@ function makeRemoteVoice(deps) {
     return { ok: true, data: { utt, text, ms } };
   }
 
-  async function synthOne(text) {
+  // provider: the engine the reply's first sentence came from. Later sentences are pinned to it, so a voice model
+  // that finishes loading mid-reply (or a flaky leg) never changes the speaker or the format halfway through.
+  async function synthOne(text, provider) {
     let r;
-    try { r = await synthesize(text); } catch (e) { r = { ok: false, reason: (e && e.message) || String(e) }; }
+    try { r = await synthesize(text, provider ? { provider } : undefined); } catch (e) { r = { ok: false, reason: (e && e.message) || String(e) }; }
     if (!r || !r.ok || !Buffer.isBuffer(r.buf) || !r.buf.length) return { ok: false, reason: String((r && r.reason) || 'no audio') };
     return r;
   }
@@ -390,7 +392,7 @@ function makeRemoteVoice(deps) {
     (async () => {
       for (let i = 1; i < sentences.length; i++) {
         if (replies.get(deviceId) !== rec) return;   // replaced or forgotten: stop spending on it
-        const r = await synthOne(sentences[i]);
+        const r = await synthOne(sentences[i], rec.provider);
         if (replies.get(deviceId) !== rec || now() - rec.at > VOICE_TTL_MS) {
           if (replies.get(deviceId) === rec) replies.delete(deviceId);
           return;

@@ -238,6 +238,39 @@ async function invokeTts(overrides, body) {
     assert.equal(edgeCalls, 1, 'a Kokoro-pinned session never falls through to Edge mid-conversation');
   }
 
+  // The companion's voice (remote/voice.js `speak`) never waits on a first-time voice-model download: a cold
+  // built-in engine starts loading in the background and THIS reply speaks in the mapped Edge voice at once.
+  // A reply that began in one engine is pinned to it (the provider option), so it never changes speaker.
+  {
+    let tts = 'cold', localFails = false, localCalls = 0, edgeCalls = 0;
+    const warms = [];
+    const station = await make({
+      localVoice: {
+        status: () => ({ available: true, tts }), defaultVoice: () => 'am_onyx',
+        edgeVoiceFor: () => 'en-US-ChristopherNeural', transcribe: async () => '',
+        warm: async opts => { warms.push(opts); return {}; },
+        synthesize: async () => { localCalls++; if (localFails) throw new Error('engine hiccup'); return Buffer.from('kokoro-wav'); }
+      },
+      edgetts: { enabled: () => true, resolveVoice: () => 'en-US-ChristopherNeural', synth: async () => { edgeCalls++; return Buffer.from('edge-mp3'); } }
+    });
+    const first = await station.synthesizeStationVoice('hello there');
+    assert.equal(first.provider, 'edge', 'a cold voice model never blocks the reply: the mapped Edge voice answers');
+    assert.equal(localCalls, 0, 'the model download is not waited on');
+    assert.deepEqual(warms, [{ asr: false }], 'the voice model starts loading in the background (speech only)');
+    tts = 'loading';
+    assert.equal((await station.synthesizeStationVoice('still loading')).provider, 'edge', 'while it loads, Edge keeps answering');
+    assert.equal(warms.length, 1, 'a load already under way is not started again');
+    tts = 'ready';
+    assert.equal((await station.synthesizeStationVoice('now ready')).provider, 'local-kokoro', 'once ready, the built-in engine speaks');
+    assert.equal((await station.synthesizeStationVoice('same reply', { provider: 'edge' })).provider, 'edge', 'a reply that began in Edge stays in Edge');
+    assert.equal(localCalls, 1, 'an Edge-pinned sentence never probes the built-in engine');
+    localFails = true;
+    const edgeBefore = edgeCalls;
+    const pinned = await station.synthesizeStationVoice('do not switch', { provider: 'local-kokoro' });
+    assert.equal(pinned.ok, false, 'a built-in-pinned sentence that fails is reported, not re-voiced');
+    assert.equal(edgeCalls, edgeBefore, 'and never falls through to a different speaker');
+  }
+
   console.log('media-service: OK (36 assertions)');
 })().finally(async () => {
   for (const root of roots) await fsp.rm(root, { recursive: true, force: true });
