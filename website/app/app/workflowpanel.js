@@ -1548,31 +1548,26 @@ const WorkflowPanel = (() => {
   }
   /* A JOB SENT HERE STARTS ANOTHER LINE'S PAID JOB (conveyor-ui-01): the line's SEND TO, said where a job is sent (SEND IT DOWN
      THE LINE, RUN ONE REAL JOB) — from the compiled plan's live pointers on THIS line (plan.sendTo), named as the OUTBOX card names
-     them (sendTarget). A line with an OUTBOX that sends nowhere hands on only the jobs that land in the one that sends. */
+     them (sendTarget). A line with an OUTBOX that sends nowhere hands on only the jobs that land in the one that sends. A target the
+     hand-off runner would refuse NOW (no agent on its first BAY, its daily limit spent — the OUTBOX card's own check, sendBlocked) is
+     never promised a job: the key says nothing will be sent on, and why. The words are WorkflowLine.onwardPromise — the floor
+     FINISH card's ③ RUN ONE REAL JOB says the same (wave-2 repair). */
   function onwardNote() {
-    const c = comp(), plan = (H && H.plan && H.plan()) || {}, st = plan.sendTo || {};
-    if (!c) return '';
-    const sends = Object.keys(st).filter(k => st[k] && st[k].fromLine === c.key).map(k => sendTarget(k)).filter(t => t && !t.off);
-    if (!sends.length) return '';
-    const names = [...new Set(sends.map(t => t.name))].map(n => '<b>' + esc(n) + '</b>').join(' and ');
-    return (sends.length >= (c.outboxes || []).length ? ' When it finishes cleanly it is sent on to ' : ' When it finishes cleanly in an OUTBOX that sends on, it goes on to ')
-      + names + ': that line’s crew starts a job of its own on the result, at its own cost.';
+    const c = comp(), W = WL();
+    if (!c || !W || !W.onwardPromise) return '';
+    return W.onwardPromise((H && H.plan && H.plan()) || {}, c.key, (c.outboxes || []).length, typeof Pipeline !== 'undefined' ? Pipeline : null, {
+      nameOf: k => { const t = sendTarget(k); return t && !t.off ? t.name : null; }, statsOf: (typeof World !== 'undefined' && World.lineStatsFor ? id => World.lineStatsFor(id) : null), mark: n => '<b>' + esc(n) + '</b>' });
   }
   /* A HAND-OFF THE STATION WOULD REFUSE IS SAID BEFORE ANY JOB (conveyor-ui-05): the hand-off runner refuses a target line with no
      crewed entry dock, or whose daily limit is spent (handoff-runner preflight). The OUTBOX card reads the same floor facts — the
      compiled plan's crewed docks on that line (the question trigger-runner crewedDocksOnLine asks) and the line's TODAY spend
      against its cap (World.lineStatsFor, the LINE BUDGET ledger) — so it never promises a hand-off that would be refused. A spend
-     the floor has not read yet says nothing. */
+     the floor has not read yet says nothing. (The check is WorkflowLine.sendRefusal: the send keys and the FINISH card ask it too.) */
   function sendBlocked(outboxId, name) {
-    const plan = (H.plan && H.plan()) || {}, rec = (plan.sendTo || {})[outboxId], to = rec && rec.toLine;
-    if (!to || typeof Pipeline === 'undefined' || !Pipeline.dockLayer) return '';
-    const L = Pipeline.dockLayer(plan), reach = L.reachDock || {};
-    if (!Object.keys(reach).some(d => reach[d] && (L.agentOfDock || {})[d] && (L.lineOfDock || {})[d] === to))
-      return '<p class="wf-warnline" id="send-blocked">' + esc(name) + ' has no agent on its first BAY yet — nothing is sent on until it has one.</p>';
-    const ls = typeof World !== 'undefined' && World.lineStatsFor ? World.lineStatsFor(to) : null;
-    if (ls && ls.capUsdPerDay != null && +ls.capUsdPerDay > 0 && +ls.usdToday >= +ls.capUsdPerDay)
-      return '<p class="wf-warnline" id="send-blocked">' + esc(name) + ' has spent its $' + (+ls.capUsdPerDay).toFixed(2) + ' daily limit — nothing is sent on until tomorrow, or until its LINE BUDGET is raised.</p>';
-    return '';
+    const W = WL(), r = W && W.sendRefusal ? W.sendRefusal((H.plan && H.plan()) || {}, outboxId, typeof Pipeline !== 'undefined' ? Pipeline : null, (typeof World !== 'undefined' && World.lineStatsFor ? id => World.lineStatsFor(id) : null)) : null;
+    if (!r) return '';
+    return '<p class="wf-warnline" id="send-blocked">' + esc(W.sendRefusalText(name, r))
+      + (r.code === 'CAP' ? ' — nothing is sent on until tomorrow, or until its LINE BUDGET is raised.' : ' — nothing is sent on until it has one.') + '</p>';
   }
   function paintOutbox(body, f, p) {
     const choices = sendChoices(p.id), on = choices.find(c => c.on), ss = sendState(p.id);
@@ -1928,13 +1923,18 @@ const WorkflowPanel = (() => {
       : String(v.reason || 'the job did not finish cleanly');
     /* WHERE IT WENT ON TO (conveyor-ui-01): the job's own record (sample answer `sentTo`) says SENT ON / NOT SENT ON, in the words
        WORKFLOWS uses; a record the hand-off runner has not written yet (it links the two jobs on its own) says only what is proven
-       — that this line sends on, and where to see what happened. The line's name: the record's, else the floor's (World.lineName). */
-    const endWord = e => Pipeline.lineWord(String((e && e.name) || '').trim() || (e && e.line != null && typeof World !== 'undefined' && World.lineName ? World.lineName(String(e.line)) : '') || '', 'another line');
-    const onward = !v.ok ? '' : mine.sentTo
-      ? (mine.sentTo.refused ? '<div class="wf-warnline wf-sent">NOT sent on to ' + esc(endWord(mine.sentTo)) + ' — ' + esc(mine.sentTo.refused) + '.</div>'
-        : '<p class="wf-help wf-sent">Sent on to <b>' + esc(endWord(mine.sentTo)) + '</b> — that line works on this result next, at its own cost.'
-          + (mine.sentTo.jobId ? ' <button type="button" class="wf-link" data-open-job="' + esc(mine.sentTo.jobId) + '">OPEN ITS JOB</button>' : '') + '</p>')
-      : (mine.onward || []).length ? '<p class="wf-help wf-sent">This line sends its finished work on to <b>' + esc([...new Set(mine.onward.map(d => endWord({ line: d.lineId })))].join(' and ')) + '</b> (SEND TO) — WORKFLOWS › LAST JOBS shows that line’s job, or why it was not sent.</p>' : '';
+       — that this line sends on, and where to see what happened. The line's name: the record's, else the floor's (World.lineName).
+       Only THIS job's OUTBOX counts (wave-2 repair): the route lists every SEND TO of the line, so a job that landed in an OUTBOX that
+       sends nowhere says nothing, and one whose OUTBOX the floor cannot tell is said conditionally (WorkflowLine.onwardResult — the
+       FINISH card reads the same). */
+    const W = WL(), o = W && W.onwardResult && P ? W.onwardResult(mine, (H.plan && H.plan()) || {}, P, typeof World !== 'undefined' && World.lineName ? id => World.lineName(id) : null) : null;
+    const to = o && o.names ? o.names.map(n => '<b>' + esc(n) + '</b>').join(' and ') : '';
+    const onward = !o ? ''
+      : o.kind === 'refused' ? '<div class="wf-warnline wf-sent">NOT sent on to ' + esc(o.name) + ' — ' + esc(o.why) + '.</div>'
+      : o.kind === 'sent' ? '<p class="wf-help wf-sent">Sent on to <b>' + esc(o.name) + '</b> — that line works on this result next, at its own cost.'
+          + (o.jobId ? ' <button type="button" class="wf-link" data-open-job="' + esc(o.jobId) + '">OPEN ITS JOB</button>' : '') + '</p>'
+      : o.kind === 'sends' ? '<p class="wf-help wf-sent">This line sends its finished work on to ' + to + ' (SEND TO) — WORKFLOWS › LAST JOBS shows that line’s job, or why it was not sent.</p>'
+      : '<p class="wf-help wf-sent">An OUTBOX on this line sends on to ' + to + ' (SEND TO) — if this job was handed on, WORKFLOWS › LAST JOBS shows that line’s job, or why it was not sent.</p>';
     return '<div class="wf-job' + (v.ok ? '' : ' problem') + '">'
       + (v.ok ? '<div class="wf-job-h"><b>✓ DELIVERED</b> · ' + runs.length + ' step' + (runs.length === 1 ? '' : 's') + (v.usd != null ? ' · $' + v.usd.toFixed(4) : '') + (mine.folded ? ' · in the OUTBOX' : '') + '</div>'
         : '<div class="wf-job-h"><b class="warn">⚠ FINISHED WITH A PROBLEM</b> · ' + runs.length + ' step' + (runs.length === 1 ? '' : 's') + (v.usd != null ? ' · $' + v.usd.toFixed(4) : '') + '</div><div class="wf-warnline">' + esc(badLine) + '</div>')

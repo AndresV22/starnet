@@ -49,7 +49,7 @@ function panelOn(st, opts) {
     'function paintOutbox(body, f, p)', 'function sendDynHTML(f)', 'function jobResultHTML(mine, f)', 'function loopNotes(text)'];
   const src = headers.map(h => { const b = A.fnBody(panel, h); A.ok(b.length > 20 && b.length < 20000, 'sliced ' + h); return b; }).join('\n');
   const names = headers.map(h => /function (\w+)\(/.exec(h)[1]);
-  const ctx = vm.createContext({ esc, H, Pipeline: P, World: o.world, JSON, Object, Array, String, Set, Map, Math,
+  const ctx = vm.createContext({ esc, H, Pipeline: P, World: o.world, WL: () => WL, JSON, Object, Array, String, Set, Map, Math,
     comp: () => o.comp || null, S: { testJob: {} }, $: () => null, note() {}, paint() {}, prop: id => st.propById(id), nameOf: a => String(a).toUpperCase(),
     stepText: () => 'reply', stepOut: {}, exampleKept: () => false, notRightHTML: () => '', runEnd: r => r, liveText: () => '' });
   return vm.runInContext("const LOOP_NOTE = /^\\[LOOP — (exhausted|escalated): (\\d+) pass(?:es)? round the gate[^\\n]*\\]\\s*/gm;\n" + src + '\n({ ' + names.join(', ') + ' })', ctx);
@@ -86,6 +86,11 @@ const card = (fns, st, outboxId) => { const b = { innerHTML: '', querySelector: 
   const stripFn = A.fnBody(panel, 'function paintStrip(f)');
   A.ok(/every job that finishes cleanly is sent on to ' \+ sendsTo\.name/.test(stripFn) && !/every job that lands in it rides on/.test(stripFn), 'the strip\'s OUTBOX tip says the same');
   A.ok(/Then every job it finishes cleanly is sent on to /.test(commands) && !/Then every job it finishes is sent on/.test(commands), 'the lead\'s station.layout overview says the same');
+  // (wave-2 repair) the OUTBOX's Build Library card and the release notes draft say it too — never "every job … rides on"
+  const outboxDesc = (/\{ id: "outbox", label: "OUTBOX"[^\n]*desc: "([^"]*)"/.exec(rd('frontend/app/propsprites.js')) || [])[1] || '';
+  A.ok(/Drag it onto another line's INBOX \(SEND TO\) and every job that finishes cleanly is sent on to that line \(its crew, its budget\)\./.test(outboxDesc) && !/rides on/.test(outboxDesc), 'the OUTBOX catalog card promises only a cleanly finished job — ' + outboxDesc);
+  const notes = rd('docs/releases/next/NOTES_DRAFT.md');
+  A.ok(/every job that finishes cleanly is sent on to it/.test(notes) && !/every finished job rides on/.test(notes), 'the release notes draft says the same');
 }
 
 /* ---------- conveyor-ui-16: an OUTBOX on no line ---------- */
@@ -149,6 +154,91 @@ const card = (fns, st, outboxId) => { const b = { innerHTML: '', querySelector: 
   A.ok(run.length > 200 && run.length < 6000, 'sliced finRunSample (' + run.length + ' chars)');
   A.ok(/sentTo: \(response && response\.sentTo && typeof response\.sentTo === 'object'\) \? response\.sentTo : null, onward: Array\.isArray\(response\?\.onwardDestinations\) \? response\.onwardDestinations : \[\]/.test(run), 'the sample result keeps the job\'s sentTo and the line\'s onwardDestinations');
   A.ok(/\$\$\('\[data-open-job\]'\)\.forEach\(b => \{ b\.onclick = \(\) => \{ H\.sfx\('click'\); saveOpenFields\(\); H\.openTerm\('workflows'\); if \(typeof WorkflowsWindow !== 'undefined' && WorkflowsWindow\.showJob\) WorkflowsWindow\.showJob\(b\.dataset\.openJob\); \}; \}\);/.test(A.fnBody(panel, 'function wireJob()')), 'OPEN ITS JOB opens that job in WORKFLOWS');
+}
+
+/* ---------- wave-2 repair: a hand-off the station would refuse is never promised; the job card says only where THIS job went ---------- */
+{
+  const { st, L: [a, b] } = lines(2);
+  st.setPropLabel(b.intake, 'B');
+  A.ok(st.setSendTo(a.outbox, b.intake).ok, 'A sends to B');
+  const compA = (P.lineComponents(st.projectGeometry()) || []).find(c => c.props.indexOf(a.intake) >= 0);
+  const toLine = P.compileRoutingPlan(st.projectGeometry()).sendTo[a.outbox].toLine;
+  // the target's first BAY has no agent: the hand-off runner refuses ("routes work to no crewed dock")
+  for (const id of b.bays) st.assignPropAgent(id, '');
+  let fns = panelOn(st, { comp: compA });
+  let say = strip(fns.onwardNote());
+  A.ok(/^ Its SEND TO LINE B is set, but nothing will be sent on: LINE B has no agent on its first BAY yet\.$/.test(say), 'an uncrewed target: the send box says nothing will be sent on, and why — ' + say);
+  A.ok(!/starts a job of its own/.test(say), '…never the promise of a paid job the station would refuse');
+  A.ok(/lands in the OUTBOX\. Its SEND TO LINE B is set, but nothing will be sent on: LINE B has no agent on its first BAY yet\./.test(strip(fns.sendDynHTML(null))), 'SEND IT DOWN THE LINE says it too');
+  A.ok(/LINE B has no agent on its first BAY yet — nothing is sent on until it has one\./.test(strip(card(fns, st, a.outbox))), 'the OUTBOX card says the same refusal (one predicate)');
+  for (const id of b.bays) st.assignPropAgent(id, 'ag_' + id);
+  // the target's daily limit is spent
+  say = strip(panelOn(st, { comp: compA, world: { lineStatsFor: id => (id === toLine ? { usdToday: 2, capUsdPerDay: 1.5 } : null) } }).onwardNote());
+  A.ok(/^ Its SEND TO LINE B is set, but nothing will be sent on: LINE B has spent its \$1\.50 daily limit\.$/.test(say), 'a target whose daily limit is spent: nothing will be sent on — ' + say);
+  say = strip(panelOn(st, { comp: compA, world: { lineStatsFor: () => ({ usdToday: 0.2, capUsdPerDay: 1.5 }) } }).onwardNote());
+  A.ok(/^ When it finishes cleanly it is sent on to LINE B: that line’s crew starts a job of its own on the result, at its own cost\.$/.test(say), 'under its limit the promise stands — ' + say);
+  say = strip(panelOn(st, { comp: compA, world: { lineStatsFor: () => null } }).onwardNote());
+  A.ok(/When it finishes cleanly it is sent on to LINE B/.test(say), '…and a spend the floor has not read is never a refusal');
+}
+{
+  // a SORTING OFFICE: two finished lanes, each into its OWN OUTBOX — only the first sends on
+  const d = WM.starterDoc();
+  for (const id in d.rooms) for (const r of d.rooms[id].rects) { r.x2 = 60; r.y2 = 44; }
+  const st = WM.create(d);
+  const so = LE.placeBlueprint(st, 'sorting_office', { x: 8, y: 4 });
+  const sb = so.ids.filter(id => st.propById(id).t === 'bay'), [o1, o2] = so.ids.filter(id => st.propById(id).t === 'outbox');
+  const rb = LE.placeBlueprint(st, 'research_line', { x: 8, y: 24 });
+  const bIn = rb.ids.find(id => st.propById(id).t === 'intake');
+  for (const p of st.props()) if (p.t === 'bay' && !p.agentId) st.assignPropAgent(p.id, 'ag_' + p.id);
+  st.setPropLabel(bIn, 'B');
+  A.ok(o1 && o2 && st.setSendTo(o1, bIn).ok, 'a two-OUTBOX line; only OUTBOX 1 sends on');
+  const plan = P.compileRoutingPlan(st.projectGeometry()), compS = (P.lineComponents(st.projectGeometry()) || []).find(c => c.props.indexOf(sb[0]) >= 0);
+  const toLine = plan.sendTo[o1].toLine;
+  A.eq((P.sendToOf(plan, compS.key, sb[0]) || {}).outboxId, o1, '(fixture) BAY 1 ships into the sending OUTBOX');
+  A.eq(P.sendToOf(plan, compS.key, sb[1]), null, '(fixture) BAY 2 ships into the OUTBOX that sends nowhere');
+  const fns = panelOn(st, { comp: compS, world: { lineName: id => (id === toLine ? 'LINE B' : null) } });
+  const view = { ok: true, stages: ['AG'], usd: 0.01, reply: 'x' };
+  // the route lists every SEND TO of the line (onwardDestinations): the card must not read that as THIS job's hand-off
+  const res = dock => strip(fns.jobResultHTML({ key: compS.key, view, runs: [{ runId: 'r1', dockId: dock, agentId: 'ag', reason: 'done', usd: 0.01 }], output: 'R', stamp: 1, sentTo: null, onward: [{ lineId: toLine }] }, null));
+  A.ok(!/LINE B/.test(res(sb[1])) && !/sends? (its finished work )?on/.test(res(sb[1])), 'a job that landed in the OUTBOX that sends nowhere says nothing about a hand-off — ' + res(sb[1]).slice(0, 200));
+  A.ok(/This line sends its finished work on to LINE B \(SEND TO\) — WORKFLOWS › LAST JOBS shows that line’s job, or why it was not sent\./.test(res(sb[0])), 'a job that landed in the sending OUTBOX says the line sends it on');
+  A.ok(/An OUTBOX on this line sends on to LINE B \(SEND TO\) — if this job was handed on, WORKFLOWS › LAST JOBS shows that line’s job, or why it was not sent\./.test(res('p-gone')), 'where the job landed is not on the floor: said conditionally, never "sent" — ' + res('p-gone').slice(0, 200));
+  // RUN ONE REAL JOB on a two-OUTBOX line says which jobs are sent on
+  A.ok(/^ When it finishes cleanly in an OUTBOX that sends on, it goes on to LINE B: that line’s crew starts a job of its own on the result, at its own cost\.$/.test(strip(fns.onwardNote())), 'the send box says only a job in the sending OUTBOX goes on — ' + strip(fns.onwardNote()));
+}
+
+/* ---------- wave-2 repair: the floor FINISH card's ③ RUN ONE REAL JOB says what the panel's key says ---------- */
+{
+  const fin = ['  function finOnwardPromise(c) {', '  function finOnwardHTML(sr) {'].map(h => { const b = A.fnBody(build, h); A.ok(b.length > 50 && b.length < 6000, 'sliced ' + h.trim()); return b; }).join('\n');
+  const { st, L: [a, b] } = lines(2);
+  st.setPropLabel(b.intake, 'B');
+  const compA = () => (P.lineComponents(st.projectGeometry()) || []).find(c => c.props.indexOf(a.intake) >= 0);
+  const finOn = (world) => {
+    const ctx = vm.createContext({ esc, WorkflowLine: WL, Pipeline: P, valPlan: P.compileRoutingPlan(st.projectGeometry()), opts: { world }, String, Object, Array, Set });
+    return vm.runInContext(fin + '\n({ finOnwardPromise, finOnwardHTML })', ctx);
+  };
+  const lineB = () => P.compileRoutingPlan(st.projectGeometry()).lineOfProp[b.intake];
+  const world = { lineName: id => (id === lineB() ? 'LINE B' : null), lineStatsFor: () => null };
+  A.eq(finOn(world).finOnwardPromise(compA()), '', 'a line with no SEND TO adds nothing to ③');
+  A.ok(st.setSendTo(a.outbox, b.intake).ok, 'A sends to B');
+  let f = finOn(world);
+  A.eq(f.finOnwardPromise(compA()), 'When it finishes cleanly it is sent on to LINE B: that line’s crew starts a job of its own on the result, at its own cost.', '③ RUN ONE REAL JOB says the job starts LINE B\'s own paid job, in the panel\'s words');
+  for (const id of b.bays) st.assignPropAgent(id, '');
+  A.eq(finOn(world).finOnwardPromise(compA()), 'Its SEND TO LINE B is set, but nothing will be sent on: LINE B has no agent on its first BAY yet.', '…and a target that would refuse it says so instead');
+  for (const id of b.bays) st.assignPropAgent(id, 'ag_' + id);
+  f = finOn(world);
+  const key = compA().key, view = { ok: true, stages: ['AG'], usd: 0.01, reply: 'x' }, runs = [{ runId: 'r1', dockId: a.bays[1], agentId: 'ag', reason: 'done', usd: 0.01 }];
+  const out = sr => strip(f.finOnwardHTML(Object.assign({ key, view, runs }, sr)));
+  A.ok(/^SENT ON to LINE B — its crew works this result next, at its own cost$/.test(out({ sentTo: { line: lineB(), jobId: 'job-2', name: '' } })), 'the FINISH card says SENT ON from the job\'s record — ' + out({ sentTo: { line: lineB(), jobId: 'job-2' } }));
+  A.ok(/^NOT SENT ON to LINE B — LINE B reached its \$1\.00 daily limit$/.test(out({ sentTo: { line: 'x', name: 'B', refused: 'LINE B reached its $1.00 daily limit' } })), '…NOT SENT ON with why');
+  A.ok(/^SEND TO this line sends its finished work on to LINE B — WORKFLOWS › LAST JOBS shows that line’s job, or why it was not sent$/.test(out({ sentTo: null, onward: [{ lineId: lineB() }] })), '…and with no record yet, only that the line sends on');
+  A.eq(out({ sentTo: null, onward: [] }), '', 'a line that sends nowhere says nothing');
+  A.eq(strip(f.finOnwardHTML({ key, view: { ok: false, stages: [], usd: 0 }, runs, sentTo: { line: 'x', name: 'B' } })), '', 'a job that did not finish cleanly is never said to be sent on');
+  // the card wires both: the promise in ③'s tip and under it (before a result), the outcome beside RAN / COST / SAID
+  const render = A.fnBody(build, '  function renderFinCard() {');
+  A.ok(/const onward = st\.crewLeft === 0 \? finOnwardPromise\(c\) : '';/.test(render) &&/'run ONE real job through the whole line \(your INBOX test job, if you wrote one\)' \+ \(onward \? '\. ' \+ onward : ''\)/.test(render), '③\'s tip carries the SEND TO promise');
+  A.ok(/\$\{sr && sr\.view \? finSampleHTML\(sr\.view\) \+ finOnwardHTML\(sr\) : onward \? '<div class="fl-result fl-onward"><span class="fl-result-k">SEND TO<\/span> ' \+ esc\(onward\) \+ '<\/div>' : ''\}/.test(render), '…and under the key until a result replaces it with SENT ON / NOT SENT ON');
+  A.ok(/const sig = \[[^\]]*\bonward\b[^\]]*\]\.join\('\|'\);/.test(render) && render.indexOf('finOnwardPromise(c)') < render.indexOf('const sig = '), 'the card repaints when the SEND TO (or its target\'s refusal) changes: the promise is in the card\'s signature');
 }
 
 /* ---------- conveyor-ui-06: TOO LONG says the longest way ---------- */

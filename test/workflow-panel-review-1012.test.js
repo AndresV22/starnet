@@ -132,7 +132,7 @@ const body = () => ({ innerHTML: '', querySelector: () => null, querySelectorAll
     {
       const st = { 'b1': { id: 'b1', t: 'bay', label: 'Fact checker', role: 'REVIEWER' }, 'b0': { id: 'b0', t: 'bay', label: '', role: 'WRITER' } };
       const fns = load(panel, ['function jobResultHTML(mine, f)', 'function loopNotes(text)'], {
-        prop: id => st[id] || null, nameOf: a => a.toUpperCase(), stepText: () => 'reply', stepOut: {}, H: { sampleHTML: () => '' },
+        prop: id => st[id] || null, nameOf: a => a.toUpperCase(), stepText: () => 'reply', stepOut: {}, H: { sampleHTML: () => '', plan: () => ({}) }, WL: () => require('../frontend/app/workflowline.js'),
         S: {}, exampleKept: () => false, notRightHTML: () => '', Pipeline: undefined, runEnd: r => 'ran out of turns'
       }, "const LOOP_NOTE = /^\\[LOOP — (exhausted|escalated): (\\d+) pass(?:es)? round the gate[^\\n]*\\]\\s*/gm;");
       const runs = [{ runId: 'r2', dockId: 'b1', agentId: 'nova', reason: 'max_iters', usd: 0.01 }, { runId: 'r1', dockId: 'b0', agentId: 'ada', reason: 'done', usd: 0.01 }];

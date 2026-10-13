@@ -463,6 +463,76 @@
     return list.slice(0, -1).join(', ') + ' or ' + list[list.length - 1];
   }
 
+  /* ---------- SEND TO, said the same way wherever a job is sent and wherever its result is read (2026-10-12, wave-2 repair) ----------
+     A SEND TO starts ANOTHER line's paid job (handoff-runner), so every key that sends a job — the panel's SEND IT DOWN THE LINE and
+     RUN ONE REAL JOB, the floor FINISH card's ③ RUN ONE REAL JOB — says it first, and every card that reads the result says what
+     became of it. One reading here, so the panel and the FINISH card can never promise different things.
+
+     sendRefusal(plan, outboxId, P, statsOf) -> null | { code:'NO_CREW' } | { code:'CAP', cap } — what the hand-off runner's preflight
+       would refuse the SEND TO on this OUTBOX for: a target line with no crewed entry dock, or one whose daily limit is spent
+       (statsOf(lineId) -> { usdToday, capUsdPerDay } | null, the LINE BUDGET ledger the floor reads — a spend not read yet says
+       nothing, never a guess). The compiled plan's dock layer, as trigger-runner crewedDocksOnLine asks it.
+     sendRefusalText(name, r) -> "LINE B has no agent on its first BAY yet" / "LINE B has spent its $1.00 daily limit".
+     onwardPromise(plan, lineKey, nOutboxes, P, { nameOf(outboxId)->name|null (null: that SEND TO is off), statsOf, mark(name) })
+       -> '' | the sentence a sending key adds: where a clean job is sent on, at whose cost — or, for a target that would refuse it
+       now, that nothing will be sent on and why. mark wraps each line name (the panel bolds it; the FINISH card leaves it plain).
+     onwardResult(sr, plan, P, lineName) -> null | { kind:'sent', name, jobId } | { kind:'refused', name, why }
+       | { kind:'sends', names } | { kind:'maybe', names } — what a delivered sample job's card says about the hand-off: the job's own
+       record (sentTo) when the runner wrote one; else only what the floor proves — 'sends' when every OUTBOX the job's last step
+       reaches sends on, nothing when none of them does, 'maybe' (said conditionally) when the job could have landed in either.
+       Names: the record's, else lineName(lineId) (World.lineName — the floor's one rule), through P.lineWord. */
+  function sendRefusal(plan, outboxId, P, statsOf) {
+    const rec = plan && plan.sendTo ? plan.sendTo[outboxId] : null, to = rec && rec.toLine;
+    if (!to || !P || !P.dockLayer) return null;
+    const L = P.dockLayer(plan), reach = L.reachDock || {}, agentOf = L.agentOfDock || {}, lineOf = L.lineOfDock || {};
+    if (!Object.keys(reach).some(d => reach[d] && agentOf[d] && lineOf[d] === to)) return { code: 'NO_CREW' };
+    const ls = typeof statsOf === 'function' ? statsOf(to) : null;
+    if (ls && ls.capUsdPerDay != null && +ls.capUsdPerDay > 0 && +ls.usdToday >= +ls.capUsdPerDay) return { code: 'CAP', cap: +ls.capUsdPerDay };
+    return null;
+  }
+  function sendRefusalText(name, r) {
+    if (!r) return '';
+    return r.code === 'CAP' ? name + ' has spent its $' + (+r.cap).toFixed(2) + ' daily limit' : name + ' has no agent on its first BAY yet';
+  }
+  function onwardPromise(plan, lineKey, nOutboxes, P, o) {
+    o = o || {};
+    const st = (plan && plan.sendTo) || {}, mark = typeof o.mark === 'function' ? o.mark : (n => n);
+    const sends = Object.keys(st).filter(k => st[k] && st[k].fromLine === lineKey)
+      .map(k => ({ k, name: typeof o.nameOf === 'function' ? o.nameOf(k) : null })).filter(x => x.name);
+    if (!sends.length) return '';
+    for (const x of sends) x.no = sendRefusal(plan, x.k, P, o.statsOf);
+    const open = sends.filter(x => !x.no), shut = sends.filter(x => x.no);
+    const list = xs => [...new Set(xs.map(x => x.name))].map(mark).join(' and ');
+    let out = '';
+    if (open.length) out += (sends.length >= (nOutboxes | 0) ? ' When it finishes cleanly it is sent on to ' : ' When it finishes cleanly in an OUTBOX that sends on, it goes on to ')
+      + list(open) + ': that line’s crew starts a job of its own on the result, at its own cost.';
+    for (const x of shut) out += ' Its SEND TO ' + mark(x.name) + ' is set, but nothing will be sent on: ' + sendRefusalText(mark(x.name), x.no) + '.';
+    return out;
+  }
+  function onwardResult(sr, plan, P, lineName) {
+    const v = sr && sr.view;
+    if (!v || !v.ok || !P || !P.lineWord) return null;
+    const word = e => P.lineWord(String((e && e.name) || '').trim() || (e && e.line != null && typeof lineName === 'function' ? lineName(String(e.line)) || '' : ''), 'another line');
+    if (sr.sentTo && typeof sr.sentTo === 'object')
+      return sr.sentTo.refused ? { kind: 'refused', name: word(sr.sentTo), why: String(sr.sentTo.refused) } : { kind: 'sent', name: word(sr.sentTo), jobId: sr.sentTo.jobId || null };
+    const onward = Array.isArray(sr.onward) ? sr.onward : [];
+    if (!onward.length) return null;
+    const st = (plan && plan.sendTo) || {}, sends = k => !!(st[k] && String(st[k].fromLine) === String(sr.key));
+    const names = ks => [...new Set(ks.map(k => word({ line: st[k].toLine })))];
+    const last = (sr.runs || [])[0], dock = last && last.dockId;
+    const reached = dock && plan && P.outboxesReached ? P.outboxesReached(plan, dock) : [];
+    if (reached.length) {
+      const on = reached.filter(sends);
+      if (!on.length) return null;   // every OUTBOX this job's last step reaches sends nowhere: nothing was handed on
+      return { kind: on.length === reached.length ? 'sends' : 'maybe', names: names(on) };
+    }
+    // where the job landed is not on the floor (its step is gone, or reaches no OUTBOX): one OUTBOX that sends is still certain
+    const ln = plan && Array.isArray(plan.lines) ? plan.lines.find(l => l && String(l.lineId) === String(sr.key)) : null;
+    const outs = ln && Array.isArray(ln.outboxes) ? ln.outboxes.map(String) : [];
+    if (outs.length === 1 && sends(outs[0])) return { kind: 'sends', names: names(outs) };
+    return { kind: 'maybe', names: [...new Set(onward.map(d => word({ line: d && d.lineId })))] };
+  }
+
   /* ---------- readiness: what is missing, blocking first ----------
      facts = { hasCompute(agentId, dockId)->bool, errors:[{code, propId, tile, warn}], labelOf(code)->string, briefOf(propId),
                triggers (lineStarts), isCrew(agentId)->bool (optional: is this id on the crew roster?) }
@@ -733,5 +803,5 @@
   }
   return { ROLE, GENERIC, roleInfo, starters, defaultBrief, lineFlow, physicalOrder, neighbours, howItRuns, readiness, pillText, tooLongText, tooLongFix,
     costEstimate, channelFeeds, lineRoutines, lineEventTriggers, lineStarts, entryDocksOf, entryAgentsOf, dockAgentsOf, sentenceText,
-    triggerSig, rowPatch, testInputFor, pausedNext, hopLabel, isLive, CHAN_LABEL, suggestLineFor };
+    triggerSig, rowPatch, testInputFor, pausedNext, hopLabel, isLive, CHAN_LABEL, suggestLineFor, sendRefusal, sendRefusalText, onwardPromise, onwardResult };
 });

@@ -86,7 +86,7 @@ const splitOf = plan => Object.keys(plan.junctions).find(k => plan.junctions[k].
   function renderChoice(plan, seam, mode, pipeline) {
     const S = { view: 'test', seam, testMode: mode, lineKey: plan.lines[0].lineId, testJob: {}, pauseMode: 'every' };
     const context = {
-      S, H: { plan: () => plan, sampleState: () => null }, Pipeline: pipeline,
+      S, H: { plan: () => plan, sampleState: () => null }, Pipeline: pipeline, WL: () => require('../frontend/app/workflowline.js'),   // (onwardNote reads WorkflowLine.onwardPromise)
       comp: () => ({ key: S.lineKey }), esc: value => String(value == null ? '' : value),
       restoreDrafts: () => {}, prop: () => ({ t: 'intake' }),
       paintTrigger: body => { body.innerHTML = 'INBOX editor'; }

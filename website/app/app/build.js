@@ -2951,7 +2951,7 @@ const Build = (() => {
         '<p class="example-note">Assignments save when selected. Each step\'s instructions live on its Bay; click the Bay to edit them.</p>'+
         '<section class="example-sample"><h4>Try the sample job</h4><p>'+esc(e.sample.replace(/^SAMPLE JOB: /,''))+'</p><p class="example-note">This is one real job: the agents you chose run it on their own models, and normal model costs apply.</p><button class="bb refit-primary" data-example-run'+(!ready||pending?' disabled':'')+'>'+(pending?'SAMPLE IN PROGRESS…':sr?.view?.ok?'RUN THE SAMPLE AGAIN':'RUN THE SAMPLE JOB')+'</button></section>'+
         '<p class="example-status" role="status">'+esc(status)+'</p>'+
-        (sr?.view ? '<div class="example-result">'+finSampleHTML(sr.view)+(sr.output?'<details><summary>Read the finished result</summary><pre>'+esc(sr.output)+'</pre></details>':'')+'</div>' : '')+
+        (sr?.view ? '<div class="example-result">'+finSampleHTML(sr.view)+finOnwardHTML(sr)+(sr.output?'<details><summary>Read the finished result</summary><pre>'+esc(sr.output)+'</pre></details>':'')+'</div>' : '')+
         /* NEXT: USE IT FOR REAL — one click to the Inbox's own settings in the Workflow panel (what starts it; the working
            folder a software line builds in), instead of a sentence about where to click */
         '<section class="example-next"><h4>Use it for real</h4><p>'+(software ? 'Choose the project folder the Builder works in, and when the line runs: on a schedule or from a chat app.' : 'Choose when the line runs: on a schedule or from a chat app.')+' Finished work lands in the Outbox and opens in the Logbook.</p>'+
@@ -4311,7 +4311,10 @@ const Build = (() => {
     // keep the generic header. In the sig so a rename repaints without a topology edit.
     const lname = lineNameOf(c);
     const overview = workflowReadout(c, valPlan, agentLabelFor);
-    const sig = [c.key, st.crewLeft, st.hasIntake, st.feed.known, st.feed.fed, st.feedDone, st.schedOff, finSample, lname || '', overview.compact, finSampleRes ? finSampleRes.key + ':' + finSampleRes.stamp : ''].join('|');
+    // ③ posts the same paid job as the panel's RUN ONE REAL JOB: it says the same about a SEND TO (finOnwardPromise) — in the sig, so
+    // setting a SEND TO, or its target losing its crew or spending its limit, repaints the card
+    const onward = st.crewLeft === 0 ? finOnwardPromise(c) : '';
+    const sig = [c.key, st.crewLeft, st.hasIntake, st.feed.known, st.feed.fed, st.feedDone, st.schedOff, finSample, lname || '', overview.compact, finSampleRes ? finSampleRes.key + ':' + finSampleRes.stamp : '', onward].join('|');
     if (!finCardEl) {
       finCardEl = document.createElement('div');
       root.appendChild(finCardEl);
@@ -4327,7 +4330,7 @@ const Build = (() => {
     // the sample RESULT belongs to the line it rode (finSampleRes.key) — another line's card shows none
     const sr = (finSampleRes && finSampleRes.key === c.key) ? finSampleRes : null;
     const sampleOn = finSample === true && crewDone && !(sr && sr.pending);
-    const sampleTip = finSample !== true ? 'coming online soon' : (crewDone ? 'run ONE real job through the whole line (your INBOX test job, if you wrote one)' : 'Assign each step an agent first');
+    const sampleTip = finSample !== true ? 'coming online soon' : (crewDone ? 'run ONE real job through the whole line (your INBOX test job, if you wrote one)' + (onward ? '. ' + onward : '') : 'Assign each step an agent first');
     const sampleTxt = (sr && sr.pending) ? (sr.phase === 'post' ? '③ POSTING LINE…' : '③ RUNNING — THE JOB IS RIDING THE LINE…') : (sr && sr.view && sr.view.ok) ? '✓ JOB DELIVERED — RUN ANOTHER' : '③ RUN ONE REAL JOB';
     finCardEl.innerHTML = `
       <div class="fl-head"><span class="fl-title">▸ ${lname ? 'FINISH ' + esc(lname.toUpperCase()) : 'FINISH THE LINE'}</span><button type="button" class="bb sm fl-x" title="dismiss for this line">✕</button></div>
@@ -4336,7 +4339,7 @@ const Build = (() => {
       <button type="button" class="bb fl-step${crewDone ? ' done' : ''}" data-act="crew"${crewDone ? ' disabled' : ''}>${esc(crewTxt)}</button>
       <button type="button" class="bb fl-step${st.feedDone ? ' done' : ''}" data-act="feed"${st.feedDone ? ' disabled' : ''}>${esc(feedTxt)}</button>
       <button type="button" class="bb fl-step${sampleOn ? '' : ' off'}${sr && sr.view && sr.view.ok ? ' done' : ''}" data-act="sample" title="${esc(sampleTip)}">${esc(sampleTxt)}</button>
-      ${sr && sr.view ? finSampleHTML(sr.view) : ''}`;
+      ${sr && sr.view ? finSampleHTML(sr.view) + finOnwardHTML(sr) : onward ? '<div class="fl-result fl-onward"><span class="fl-result-k">SEND TO</span> ' + esc(onward) + '</div>' : ''}`;
     finCardEl.querySelector('.fl-x').onclick = () => { finMark(station, c.key, 'dis'); sfx('click'); renderFinCard(); };
     const example = currentPresetExample();
     const overviewButton = finCardEl.querySelector('[data-act="overview"]');
@@ -4391,6 +4394,28 @@ const Build = (() => {
       + (v.usd != null ? '<div><span class="fl-result-k">COST</span> $' + esc(v.usd.toFixed(4)) + '</div>' : '')
       + (v.reply ? '<div class="fl-result-reply"><span class="fl-result-k">SAID</span> ' + esc(v.reply) + '</div>' : '')
       + '</div>';
+  }
+  /* ③ STARTS ANOTHER LINE'S PAID JOB, SAID HERE TOO (conveyor-ui-01, wave-2 repair): the FINISH card's RUN ONE REAL JOB posts the
+     same /api/routing/sample job as the Workflow panel's key, and a SEND TO on this line hands a clean result to the next line's
+     crew — a second job at that line's cost. Both surfaces say it from ONE reading (WorkflowLine.onwardPromise / onwardResult over
+     the plan the floor compiled, valPlan): before the job, where a clean result is sent on — or that the target would refuse it now
+     (no agent on its first BAY, its daily limit spent); after it, SENT ON / NOT SENT ON from the job's own record, else only what
+     the floor proves. A line is named by the floor's one rule (World.lineName). */
+  function finOnwardPromise(c) {
+    const W = typeof WorkflowLine !== 'undefined' ? WorkflowLine : null, w = opts.world;
+    if (!c || !valPlan || !W || !W.onwardPromise || typeof Pipeline === 'undefined') return '';
+    const nameOf = k => { const r = (valPlan.sendTo || {})[k]; return r ? Pipeline.lineWord((w && w.lineName && w.lineName(String(r.toLine))) || '', 'another line') : null; };
+    return W.onwardPromise(valPlan, c.key, (c.outboxes || []).length, Pipeline, { nameOf, statsOf: w && w.lineStatsFor ? id => w.lineStatsFor(id) : null }).trim();
+  }
+  function finOnwardHTML(sr) {
+    const W = typeof WorkflowLine !== 'undefined' ? WorkflowLine : null, w = opts.world;
+    const o = W && W.onwardResult && valPlan && typeof Pipeline !== 'undefined' ? W.onwardResult(sr, valPlan, Pipeline, w && w.lineName ? id => w.lineName(id) : null) : null;
+    if (!o) return '';
+    const to = esc((o.names || []).join(' and '));
+    if (o.kind === 'refused') return '<div class="fl-result bad"><span class="fl-result-k">NOT SENT ON</span> to ' + esc(o.name) + ' — ' + esc(o.why) + '</div>';
+    if (o.kind === 'sent') return '<div class="fl-result"><span class="fl-result-k">SENT ON</span> to ' + esc(o.name) + ' — its crew works this result next, at its own cost</div>';
+    if (o.kind === 'sends') return '<div class="fl-result"><span class="fl-result-k">SEND TO</span> this line sends its finished work on to ' + to + ' — WORKFLOWS › LAST JOBS shows that line’s job, or why it was not sent</div>';
+    return '<div class="fl-result"><span class="fl-result-k">SEND TO</span> an OUTBOX on this line sends on to ' + to + ' — if this job was handed on, WORKFLOWS › LAST JOBS shows that line’s job, or why it was not sent</div>';
   }
   /* POST THE LINE BEFORE RUNNING IT (2026-08-22). BUILD MODE freezes the world, so the plan the sidecar routes by
      is the one posted at the LAST BUILD MODE CLOSE — a sample fired right after an edit ran the OLD line while
