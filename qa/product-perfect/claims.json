@@ -18,7 +18,7 @@
   "expectedClaimCount": 37,
   "releaseSurface": {
     "algorithm": "sha256",
-    "sourceCommit": "7f0e739557448972d6d93c826eed80eab438d254",
+    "sourceCommit": "14f0a451f987f794fc10bc88ed70206ebedbec03",
     "pathSetSha256": "e4cf2ec7f6a313f096915edc1eea9291b5f6ab7782c1784d289af5ac2f76084d",
     "files": [
       {
@@ -333,8 +333,8 @@
       },
       {
         "path": "frontend/app/build.js",
-        "bytes": 693201,
-        "sha256": "e4013eefec70ce6aff3e2aed5e6b137213171927b037eae027b1e05823e4269d"
+        "bytes": 693638,
+        "sha256": "8fe39cbbdaa4af4f075f73afae2495005071f5752944d0406be0b6617ca462e7"
       },
       {
         "path": "frontend/app/channels.js",
@@ -1163,8 +1163,8 @@
       },
       {
         "path": "frontend/app/stationcommands.js",
-        "bytes": 95500,
-        "sha256": "fe784811184a32a60c1bd7dddeac98c1263d623f35d8df4579df420051698c16"
+        "bytes": 95508,
+        "sha256": "182e01503eddcc945c2493e46a195e860f2a47b75a9d25be2ad1bde36b935dc0"
       },
       {
         "path": "frontend/app/stationquests.js",
@@ -1393,18 +1393,18 @@
       },
       {
         "path": "frontend/app/windows/workflows.js",
-        "bytes": 80073,
-        "sha256": "9b60f594b2c12581a523b660edcedead61ed6f3f622e15d0d0f8bd3f12b9e7fb"
+        "bytes": 80352,
+        "sha256": "991dbeaba7e3b2572a765146d3d7ece033cf3cc5792dcd14371d07af0ad61993"
       },
       {
         "path": "frontend/app/workflowline.js",
-        "bytes": 55031,
-        "sha256": "652d923eecf6534984e055a75de9e0c5c1f96903d08e9f767c739cc6bfd591e3"
+        "bytes": 55177,
+        "sha256": "eaa623a5a51cc40c3c8398dfaccb137941378aafebdd0180f4ab9798d545be46"
       },
       {
         "path": "frontend/app/workflowpanel.js",
-        "bytes": 200460,
-        "sha256": "cc66ea85fdd1db1be9a1c08d867fbdff062e4067331f5f13f3054ee0ba7fd644"
+        "bytes": 208407,
+        "sha256": "93f7b7bacdf731c07795068da898cb17e018bd156972aaa43fb469b7bdf4b423"
       },
       {
         "path": "frontend/app/workflowtakeoverstore.js",
