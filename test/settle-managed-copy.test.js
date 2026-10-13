@@ -88,6 +88,19 @@ const harness = (status) => {
   assert.match(ev.node('#budget-msg').textContent, /skill evaluation run settled/, 'the settled message names the evaluation: ' + ev.node('#budget-msg').textContent);
   plainRow.children[3].click(); await tick();
   assert.match(ev.node('#budget-msg').textContent, /interrupted run settled/, 'a plain run still settles as an interrupted run');
+  // the spend line above the rows tells the same story: an unpriced evaluation is never counted as an interrupted run
+  const evalRun2 = { ...evalRun, runId: 'skill-eval-abc-2-after-0123456789ab' };
+  for (const [unsettled, re, settle] of [
+    [[evalRun], /— a skill evaluation run has no recorded price, so your spending limits can’t be checked\./, /Settle it below/],
+    [[evalRun, evalRun2], /— 2 skill evaluation runs have no recorded price, so/, /Settle each below/],
+    [[evalRun, st.unsettled[1]], /— 2 runs never recorded what they spent, so/, /Settle each below/]
+  ]) {
+    const h = harness({ ...st, unsettled }); await tick();
+    const line = h.node('#budget-spend').textContent;
+    assert.match(line, re, 'the spend line names what is missing: ' + line);
+    assert.match(line, settle);
+    assert.doesNotMatch(line, /interrupted/, 'an evaluation is never counted as an interrupted run: ' + line);
+  }
   const idx = fs.readFileSync(path.join(__dirname, '..', 'sidecar/index.js'), 'utf8');
   const settle = idx.slice(idx.indexOf('async function handleBudgetSettle('), idx.indexOf('async function warmModelCatalogSet('));
   assert.ok(settle.length > 200 && settle.length < 6000, 'handleBudgetSettle found');

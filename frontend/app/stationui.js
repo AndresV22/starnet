@@ -6689,11 +6689,18 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       if (spendEl && acc && (!acc.complete || !acc.durable)) {
         // name the cause and the fix that works for it: a restart replays a failed save, never an interrupted run
         const open = Array.isArray(st.unsettled) ? st.unsettled.length : 0;
+        // a skill evaluation row (kind 'evaluation') may have finished: what it lacks is a price, so it is never counted
+        // as an interrupted run; a mix of both kinds gets the wording that is true of each
+        const evals = open ? st.unsettled.filter(r => r && r.kind === 'evaluation').length : 0;
+        const missing = evals === open
+          ? (open === 1 ? 'a skill evaluation run has no recorded price' : open + ' skill evaluation runs have no recorded price')
+          : evals ? open + ' runs never recorded what they spent'
+            : (open === 1 ? 'an interrupted run never recorded what it spent' : open + ' interrupted runs never recorded what they spent');
         const floor = (st.atLeast && typeof st.atLeast.today === 'number') ? ' At least ' + fmtUsd(st.atLeast.today) + ' today.' : '';
         spendEl.textContent = acc.writeError
           ? 'Spend history unavailable — it could not be saved to disk, so your spending limits can’t be checked. Restart StarNet to recover it.'
           : (acc.readError === 'UNSETTLED_SPEND' && open)
-            ? 'Spend history unavailable — ' + (open === 1 ? 'an interrupted run never recorded what it spent' : open + ' interrupted runs never recorded what they spent') +
+            ? 'Spend history unavailable — ' + missing +
               ', so your spending limits can’t be checked. Settle ' + (open === 1 ? 'it' : 'each') + ' below.' + floor
             : 'Spend history unavailable — the spend record could not be read, so your spending limits can’t be checked. Restart StarNet; if this stays, the spend files in your workspaces folder are damaged.';
       } else if (spendEl) {
