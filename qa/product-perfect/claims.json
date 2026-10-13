@@ -18,7 +18,7 @@
   "expectedClaimCount": 37,
   "releaseSurface": {
     "algorithm": "sha256",
-    "sourceCommit": "300f948ba30e8043152499bfafa07167a82f9273",
+    "sourceCommit": "2bc726ac4fc9505e296867291ef5769c980f5746",
     "pathSetSha256": "e4cf2ec7f6a313f096915edc1eea9291b5f6ab7782c1784d289af5ac2f76084d",
     "files": [
       {
@@ -1393,8 +1393,8 @@
       },
       {
         "path": "frontend/app/windows/workflows.js",
-        "bytes": 79287,
-        "sha256": "a3b39d7e36335973ffd2d25b69205c1d31915f1168ecae7c4dc4cd4258088b61"
+        "bytes": 79769,
+        "sha256": "17f5e659a2b770fd6db7c8089369b5571753587019ba4a51bd2ee000d5f8878f"
       },
       {
         "path": "frontend/app/workflowline.js",
