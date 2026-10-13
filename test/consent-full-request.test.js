@@ -183,11 +183,11 @@ function permissionFixture(tool) {
     Harness: { consent: async (_run, _prompt, decision) => ({ ok: true, decision }) },
     U: { bus: { on: (name, fn) => listeners.set(name, fn), off: (name, fn) => { if (listeners.get(name) === fn) listeners.delete(name); },
       emit: (name, value) => { const fn = listeners.get(name); if (fn) fn(value); } } },
-    isActiveWs: () => false, renderPresence() {}, syncStatus() { synced++; }, status() {}, autoscroll() {}, announcedPrompt: () => true };
+    isActiveWs: () => false, renderPresence() {}, syncStatus() { synced++; }, status() {}, autoscroll() {}, announcedPrompt: () => true, askAnswerers: new Map() };
   vm.createContext(ctx);
   // the card and the shared answer path live side by side in chat.js: an answer from any surface reaches the card on the bus
   vm.runInContext(extract(chat, '  const settledPromptNotices = new Set();', '  // the channel\'s record'), ctx);
-  vm.runInContext(extract(chat, '  function permissionRow(', '  // EL-11 FIX 1a:'), ctx);
+  vm.runInContext(extract(chat, '  const openConsentCards = new Map();', '  // EL-11 FIX 1a:'), ctx);
   ctx.permissionRow(p, ws);
   return { Channels, ws, p, nodes, listeners, ctx, synced: () => synced };
 }
@@ -336,4 +336,16 @@ test('the hire approval names who is hired', () => {
   assert.equal(card.actionPhrase({ tool: 'team.summon', argsSummary: JSON.stringify({ specId: 'copywriter' }) }), 'hire a copywriter onto the crew');
   assert.equal(card.actionPhrase({ tool: 'team.summon', argsSummary: '' }), 'hire a new agent onto the crew');
   assert.ok(!/[{}"]/.test(card.actionPhrase({ tool: 'team.summon', argsSummary: JSON.stringify({ name: 'Nova2', specId: 'nova2' }) })), 'no JSON punctuation reaches the card');
+});
+
+// A STOPPED RUN TAKES ITS OPEN CARDS WITH IT (live walkthrough 2026-10-13): after STOP the approval card kept live keys
+test('the end of a run retires its open approval card — no live key answers a dead run', () => {
+  const f = permissionFixture();
+  const before = f.nodes[0].body.children.length;
+  f.ctx.retireOpenConsents(f.ws.id, String(f.p.runId || ''));
+  const body = f.nodes[0].body;
+  const tag = body.children.find(n => n.className && n.className.indexOf('consent-result') >= 0);
+  assert.ok(tag && /the run ended before an answer/.test(tag.textContent), 'the card says the run ended and nothing was approved');
+  assert.ok(body.children.length >= before, 'the card stays as history');
+  assert.equal(f.listeners.has('permission.response'), false, 'and it no longer listens for an answer');
 });

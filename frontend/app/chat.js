@@ -3777,6 +3777,20 @@ const Chat = (() => {
     const id = (p && p.workerAgentId) || (ws && ws.agentId) || 'agent';
     return (typeof App !== 'undefined' && App.agentName && App.agentName(id)) || id;
   }
+  /* A STOPPED RUN TAKES ITS OPEN CARDS WITH IT (live walkthrough 2026-10-13): after STOP the run's approval card kept
+     live Approve once / Always / Full access / Deny keys while NEEDS YOU and the toast had already cleared — a key that
+     answers nothing. promptId -> { wsId, runId, worker, retire(text) }; retireOpenConsents runs at the run's end. */
+  const openConsentCards = new Map();
+  function retireOpenConsents(wsId, runId) {
+    for (const [id, c] of openConsentCards) {
+      if (c.wsId !== wsId) continue;
+      // a background worker's ask can outlive its lead's run — only this run's own cards (or unattributed lead cards) retire
+      if (c.runId ? c.runId !== runId : c.worker) continue;
+      openConsentCards.delete(id);
+      try { c.retire('■ the run ended before an answer — nothing was approved'); } catch (e) { if (typeof console !== 'undefined') console.warn('[comms] retire card failed', e); }
+    }
+    for (const [id, a] of askAnswerers) if (a.wsId === wsId) askAnswerers.delete(id);   // its questions are gone with it
+  }
   function permissionRow(p, ws) {
     if (p && p.tool === 'brief.ask') return clarifyRow(p, ws);   // a question, not a grade — its own card
     // ONE PLACE PER STATUS: a delegated worker's ask is answered on that worker's row of the delegation card
@@ -3871,6 +3885,15 @@ const Chat = (() => {
       };
       U.bus.on('permission.response', onElsewhere);
     }
+    if (ws && p && p.promptId) openConsentCards.set(String(p.promptId), { wsId: ws.id, runId: String(p.runId || ''), worker: !!(p.workerAgentId || p.workerRunId),
+      retire: (text) => {
+        if (decided) return;
+        decided = true;
+        try { if (applyElsewhere && typeof U !== 'undefined' && U.bus && U.bus.off) U.bus.off('permission.response', applyElsewhere); } catch (e) { applyElsewhere = null; }
+        btns.remove();
+        const tag = document.createElement('span'); tag.className = 'consent-result err'; tag.textContent = text;
+        r.body.appendChild(tag);
+      } });
     // a blocking, run-pausing prompt: make it keyboard-operable. Esc on the focused CONTAINER = Deny (the row,
     // not a button — so a reflexive Enter never lands on Approve and greenlights a write the user didn't read).
     r.d.tabIndex = -1;
@@ -9995,6 +10018,7 @@ const Chat = (() => {
         // the door. Only on a clean end: a stopped run owns the slot with its retry/budget chip above.
         if (thisRunId) notedRuns.delete(thisRunId);
         if (!taskQuestion && endReason !== 'clarifying' && typeof StationUI !== 'undefined' && StationUI.settleNotifs) StationUI.settleNotifs('needs:' + ws.id);   // the run is over: its approvals/questions are no longer waiting
+        retireOpenConsents(ws.id, thisRunId || '');   // ...and its open approval cards say so instead of keeping live keys
         if (!taskQuestion && (!endReason || endReason === 'done')) offerConnectorDoor(thisRunId, ws);
         if (taskQuestion || endReason === 'clarifying') holdConnectorDoor(thisRunId, ws);   // the question owns the slot (parsed here, or restored from the store below); its card carries the door
         // GOLDEN-RUN DRIFT (2026-08-22): a recipe-launched run is compared by the sidecar against that recipe's own
