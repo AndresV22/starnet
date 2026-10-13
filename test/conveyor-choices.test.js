@@ -64,6 +64,11 @@ const splitOf = plan => Object.keys(plan.junctions).find(k => plan.junctions[k].
   A.ok(/for \(const id of step\.swap\) \{ const r = station\.swapJoinerMerger\(id\)/.test(build) && /station\.setSplitDivide\(splitId, mode === 'divide'\)/.test(build) && /splitModeInfo: id => splitModeInfo\(id\)/.test(build) && /setSplitMode: \(id, mode\) => setSplitMode\(id, mode\)/.test(build), 'the panel reaches it through the host');
   A.ok(/const LABEL = \{ copy: 'COPY TO EACH', divide: 'SPLIT THE JOB', turns: 'TAKE TURNS' \}/.test(panel) && /pick\('copy',/.test(panel) && /pick\('divide',/.test(panel) && /pick\('turns',/.test(panel) && /class="wf-why"/.test(panel) && /H\.setSplitMode\(p\.id, b\.dataset\.smode\)/.test(panel), 'the SPLITTER section carries the switch');
   A.ok(/aria-disabled="true" data-tip="' \+ esc\(\(step && step\.msg\)/.test(panel), 'a choice the floor cannot make is greyed with its reason');
+  // the public guide teaches the same choices by the panel's own labels (review docs-claims-03: it said the mode was no choice)
+  const guide = read('website/docs/guides/splitter-joiner.html');
+  const labels = (panel.match(/const LABEL = \{ copy: '([^']+)', divide: '([^']+)', turns: '([^']+)' \}/) || []).slice(1);
+  A.ok(labels.length === 3 && labels.every(l => guide.includes('<b>' + l + '</b>')) && !/choose between the two modes/.test(guide) && /PLANNER/.test(guide),
+    'the splitter guide names the three choices the panel offers, and that SPLIT THE JOB can add a PLANNER step');
 }
 
 /* ---------- 3b: one TEST control ---------- */
