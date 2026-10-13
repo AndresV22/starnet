@@ -30,6 +30,15 @@ A.ok(/no published price|no price/.test(SR.stopSentence('budget', { unpricedMode
 A.ok(!/^run ended without completion: empty$/.test(SR.incompleteRunMessage('empty')) && /empty reply/.test(SR.incompleteRunMessage('empty')) && /\[empty\]$/.test(SR.incompleteRunMessage('empty')),
   'a routine settlement reads in words and keeps the machine reason for triage: ' + SR.incompleteRunMessage('empty'));
 A.ok(/missing terminal outcome/.test(SR.incompleteRunMessage('')), 'a missing outcome is named, never blank');
+// an empty end AFTER tools ran must never say "nothing was done" — a file may already be written (review threads-backend-03)
+{
+  const afterTools = SR.stopSentence('empty', { toolsRan: 2 });
+  A.ok(!/nothing was done/.test(afterTools) && /2 tool steps/.test(afterTools) && /may already have made changes/.test(afterTools) && /continue/.test(afterTools),
+    'an empty end after tool steps says they ran and may have changed things: ' + afterTools);
+  A.ok(/1 tool step\b/.test(SR.stopSentence('empty', { toolsRan: 1 })), 'one tool step reads singular: ' + SR.stopSentence('empty', { toolsRan: 1 }));
+  A.ok(!/nothing was done/.test(SR.incompleteRunMessage('empty', { toolsRan: 3 })) && /\[empty\]$/.test(SR.incompleteRunMessage('empty', { toolsRan: 3 })),
+    'a routine/loop settlement after tool steps never says nothing was done: ' + SR.incompleteRunMessage('empty', { toolsRan: 3 }));
+}
 
 /* ---- 2. one vocabulary for the harness's own stops ---- */
 // the real loop / breaker sources still emit the shapes the explainers key on

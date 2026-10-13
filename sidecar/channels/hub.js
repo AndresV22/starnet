@@ -1859,14 +1859,14 @@
 
         // assemble the reply by buffering agent.token deltas — the SAME reassembly harness.js does in the browser.
         // transient rides alongside errMsg so the retry gate can tell the workspace-mutex race from a hard error.
-        state = { runId, buf: '', errMsg: null, reason: null, transient: false };
+        state = { runId, buf: '', errMsg: null, reason: null, transient: false, toolsRan: 0 };
         const sink = (name, payload) => {
           let p; try { p = redact(payload); } catch (_) { p = payload; }
           if (name === 'agent.run.start') state.runId = p.runId || state.runId;
           // The reply is already being assembled here, delta by delta — so this is also where it can be SHOWN.
           // stream.push is fire-and-forget and throttled; it can never delay or fail the run.
           else if (name === 'agent.token') { state.buf += (p.delta || ''); if (stream) stream.push(state.buf); }
-          else if (name === 'agent.tool_call') state.buf = '';
+          else if (name === 'agent.tool_call') { state.buf = ''; state.toolsRan++; }   // counted: an 'empty' end after tools is not "nothing was done"
           else if (name === 'agent.run.error') { state.errMsg = p.message || 'run error'; state.transient = !!p.transient; }
           else if (name === 'capdenied') state.errMsg = state.errMsg || ('no ' + (p.need || 'capability') + ' — ' + (p.reason || ''));
           else if (name === 'agent.run.end') { state.reason = p.reason; state.finishReason = p.finishReason || null; state.unpricedModel = p.unpricedModel || null; state.unpricedCapTokens = Number(p.unpricedCapTokens) || 0; state.subscriptionModel = p.subscriptionModel || null; state.subscriptionCapTokens = Number(p.subscriptionCapTokens) || 0; state.budgetScope = p.budgetScope || null; state.budgetCapUsd = (typeof p.budgetCapUsd === 'number' && isFinite(p.budgetCapUsd)) ? p.budgetCapUsd : null; state.budgetCapIsBalance = p.budgetCapIsBalance === true; if (typeof p.usd === 'number' && isFinite(p.usd)) state.usd = Math.max(state.usd || 0, p.usd); }
@@ -2051,8 +2051,10 @@
           : '⚠ ' + (explained ? explained.text : state.errMsg);
       } else if (!String(state.buf || '').trim() && (state.reason === 'empty' || !state.reason)) {
         // NOTHING came back. "(no reply)\n\n(stopped: empty)" read as a silent stop; say what happened and the way on.
+        // the shared sentence (stop-reason.js) knows whether tools already ran — a file may be written even though the reply is empty
+        const emptySentence = state.reason === 'empty' ? String(StopReason.stopSentence('empty', { toolsRan: state.toolsRan }) || '') : '';
         reply = state.reason === 'empty'
-          ? '⚠ The model sent back an empty reply, so nothing was done — say "continue" to try again, or switch model with /model if it keeps happening.'
+          ? '⚠ ' + emptySentence.charAt(0).toUpperCase() + emptySentence.slice(1).replace('switch model', 'switch model with /model') + '.'
           : '⚠ The run ended without a reply and without saying why — say "continue" to try again.';
       } else {
         reply = state.buf || '(no reply)';

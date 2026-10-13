@@ -9,7 +9,8 @@
 
    stopSentence(reason, extra) -> string | ''
      reason: agent.run.end reason. extra (optional): { finishReason, budgetScope, unpricedModel, unpricedCapTokens,
-     subscriptionModel, subscriptionCapTokens }.
+     subscriptionModel, subscriptionCapTokens, toolsRan (agent.tool_call count this run — 'empty' after tools is not
+     "nothing was done") }.
      '' for a clean end ('done' with no cut, 'clarifying') — nothing to explain. Never throws. */
 'use strict';
 
@@ -21,7 +22,12 @@ function stopSentence(reason, extra) {
     if (x.finishReason === 'content_filter') return 'the model\'s output was filtered, so this reply is incomplete';
     return '';
   }
-  if (r === 'empty') return 'the model sent back an empty reply, so nothing was done — say "continue" to try again, or switch model if it keeps happening';
+  if (r === 'empty') {
+    // tools already ran (a file may be written): "nothing was done" would be false, and a blind retry could redo the work
+    const ran = Math.floor(Number(x.toolsRan) || 0);
+    if (ran > 0) return 'the model went silent after ' + ran + ' tool step' + (ran === 1 ? '' : 's') + ' and never gave a final answer — those steps may already have made changes; say "continue" to have it finish, or switch model if it keeps happening';
+    return 'the model sent back an empty reply, so nothing was done — say "continue" to try again, or switch model if it keeps happening';
+  }
   if (r === 'max_iters') return 'it reached the step limit before finishing — say "continue" to keep going';
   if (r === 'budget') {
     if (x.unpricedModel) {

@@ -848,6 +848,11 @@ async function run() {
     const sends = [];
     const runOnce = async (o) => {
       o.emit('agent.run.start', { agentId: o.agentId, runId: o.runId, trigger: 'event', model: o.model });
+      for (let i = 0; i < ((extra && extra.tools) || 0); i++) {
+        o.emit('agent.token', { agentId: o.agentId, runId: o.runId, delta: 'writing it now' });
+        o.emit('agent.tool_call', { agentId: o.agentId, runId: o.runId, callId: 'c' + i, name: 'fs_write' });
+        o.emit('agent.tool_result', { agentId: o.agentId, runId: o.runId, callId: 'c' + i, ok: true, isError: false });
+      }
       if (extra && extra.token) o.emit('agent.token', { agentId: o.agentId, runId: o.runId, delta: extra.token });
       if (extra && extra.error) o.emit('agent.run.error', { agentId: o.agentId, runId: o.runId, message: extra.error, transient: false });
       o.emit('agent.run.end', Object.assign({ agentId: o.agentId, runId: o.runId, turns: 1, usd: 0 }, endPayload));
@@ -860,6 +865,11 @@ async function run() {
     const empty = await endWith({ reason: 'empty' });
     A.ok(/empty reply, so nothing was done/.test(empty) && /continue/.test(empty), 'an empty end says what happened and what to do: ' + empty);
     A.ok(!/\(no reply\)|stopped: empty/.test(empty), 'never the raw "(no reply) (stopped: empty)"');
+    // a tool already ran (the file IS written), then the model went silent: never "nothing was done" (review threads-backend-03)
+    const emptyAfterTools = await endWith({ reason: 'empty' }, { tools: 2 });
+    A.ok(!/nothing was done/.test(emptyAfterTools) && /2 tool steps/.test(emptyAfterTools) && /may already have made changes/.test(emptyAfterTools) && /^⚠ The model/.test(emptyAfterTools),
+      'an empty end after tool steps says they ran: ' + emptyAfterTools);
+    A.ok(/\/model/.test(emptyAfterTools), 'the channel copy still names its /model door: ' + emptyAfterTools);
     const cut = await endWith({ reason: 'done', finishReason: 'length' }, { token: 'half of the ans' });
     A.ok(/half of the ans/.test(cut) && /output limit/.test(cut), 'a provider-cut reply carries a cut-short note (finishReason is no longer ignored): ' + cut);
     const clean = await endWith({ reason: 'done' }, { token: 'all done' });

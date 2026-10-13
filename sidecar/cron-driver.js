@@ -273,7 +273,7 @@
       const terminalReason = String(state.reason || '');
       const errMsg = state.errMsg
         || (threw ? ('run failed: ' + ((threw && threw.message) || threw)) : null)
-        || (terminalReason === 'done' ? null : incompleteRunMessage(terminalReason));
+        || (terminalReason === 'done' ? null : incompleteRunMessage(terminalReason, { toolsRan: state.toolsRan || 0 }));   // tools that ran mean an 'empty' end is not "nothing was done"
       const ok = !errMsg;
       const transient = !!(state.transient || (threw && threw.transient));
       // GENERATION FENCE (2026-07-15 reliability audit): only the run that STILL OWNS the job's lease may
@@ -458,7 +458,7 @@
       // redaction so an unattended run is observable live in the SAME redacted shape a routed channel run ships
       // (tool_call name-only, tool_result outcome-only, metadata events whole; token deltas dropped to stay quiet,
       // and any event runTeeView maps to null — e.g. the noisy inner streams — is dropped rather than leaked raw).
-      const state = { buf: '', errMsg: null, reason: null, transient: false, usd: 0, monitorHash: sourceHash };
+      const state = { buf: '', errMsg: null, reason: null, transient: false, usd: 0, monitorHash: sourceHash, toolsRan: 0 };
       const sink = function (name, payload) {
         const p = payload || {};
         // NS-0 HEARTBEAT: every run-progress event proves this run is still alive → renew the in-RAM lease
@@ -467,7 +467,7 @@
         // from persisting on every delta: only persist once the durable heartbeat is older than heartbeatMs.
         renewLease(job.id, runId);
         if (name === 'agent.token') { state.buf += (p.delta || ''); return; }   // token stream never leaves the driver
-        if (name === 'agent.tool_call') state.buf = '';   // prior prose was narration; only the terminal segment is deliverable
+        if (name === 'agent.tool_call') { state.buf = ''; state.toolsRan++; }   // prior prose was narration; only the terminal segment is deliverable
         if (name === 'agent.run.error') { state.errMsg = p.message || 'run error'; state.transient = !!p.transient; }
         else if (name === 'capdenied') state.errMsg = state.errMsg || ('no ' + (p.need || 'capability') + ' — ' + (p.reason || ''));
         else if (name === 'agent.run.end') {
