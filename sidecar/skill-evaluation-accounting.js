@@ -16,7 +16,8 @@ function makeEvaluationAccounting(options) {
     canContinue(caseSpent) { return !uncertain && spent + (Number(caseSpent) || 0) < (o.maxUsd || 0.40); },
     beforeRun({ runId }) {
       // An unmetered provider bills nothing per call, so there is no unknown charge to hold a receipt for (runOnce skips it too).
-      if (uncertain || (!o.unmetered && !ledger.beginRun(runId, o.agentId, { provider: o.provider, model: o.model, runCapUsd: o.runCapUsd || 0.08 }))) {
+      // managed: the billing source the host knew (StarNet credits vs the Commander's own key); the ledger keeps only a boolean.
+      if (uncertain || (!o.unmetered && !ledger.beginRun(runId, o.agentId, { provider: o.provider, model: o.model, managed: o.managed, runCapUsd: o.runCapUsd || 0.08 }))) {
         uncertain = true;
         throw new Error('Evaluation dispatch could not be durably recorded.');
       }
