@@ -793,7 +793,10 @@
         rows.push({ id: row.skill.id, agentId: row.agentId, name: row.name, state: 'active', scope: 'agent',
           pendingCandidate: true, candidateId: row.candidateId, guardAction: 'ask', summary: '', files: [] });
       }
-      return rows.sort((a, b) => (Number(b.agentId === str(agentId)) - Number(a.agentId === str(agentId))) || a.name.localeCompare(b.name));
+      // Own skills first; inside each group mine()'s order (pinned, then most recently updated, then name), so a
+      // budget-capped index or a paged skill.list drops the stale skills, not the alphabetically late ones.
+      return rows.sort((a, b) => (Number(b.agentId === str(agentId)) - Number(a.agentId === str(agentId)))
+        || (!!b.pinned - !!a.pinned) || ((b.updatedAt || 0) - (a.updatedAt || 0)) || a.name.localeCompare(b.name));
     }
     function viewAccessible(agentId, target, options) {
       const o = options || {};

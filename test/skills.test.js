@@ -193,6 +193,21 @@ const redact = (t) => String(t).replace(/sk-[A-Za-z0-9]{8,}/g, '[redacted]');
     const asked = runtimeSkills.composeIndex(st.listAccessible('a', {}), { query: 'alpha brief' }).text;
     A.ok(asked.indexOf('Zoom setup') < asked.indexOf('Alpha brief') && asked.indexOf('Alpha brief') < asked.indexOf('Shared runbook'), 'with a query, another agent\'s pin ranks by relevance, not ahead of it');
   }
+  // ---- listAccessible keeps mine()'s order inside the own-first grouping: own pins, then most recently updated,
+  // then name; another agent's newer skill stays after the agent's own (skills-eval-18) ----
+  {
+    const saved = clk;
+    const st = makeSkillStore({ io: memIo(), clock, redact });
+    clk = 5000; st.write({ agentId: 'a', name: 'Alpha old', summary: 'x', body: 'steps' });
+    clk = 6000; st.write({ agentId: 'a', name: 'Beta mid', summary: 'x', body: 'steps' });
+    clk = 7000; st.write({ agentId: 'a', name: 'Gamma new', summary: 'x', body: 'steps' });
+    clk = 7500; A.ok(st.manage({ agentId: 'a', action: 'pin', target: 'Alpha old' }).ok, 'pin the oldest own skill');
+    clk = 8000; st.write({ agentId: 'b', name: 'Aardvark station', summary: 'x', body: 'steps' });
+    A.ok(st.share({ agentId: 'b', target: 'Aardvark station', scope: 'station', actor: 'user' }).ok, 'b shares a newer station skill');
+    A.eq(st.listAccessible('a', {}).map(s => s.name), ['Alpha old', 'Gamma new', 'Beta mid', 'Aardvark station'],
+      'own pin first, then own skills newest first, then other agents\' skills');
+    clk = saved;
+  }
   A.eq(runtimeSkills.extractInvocations([{ role: 'user', content: '/skill Deploy\ncontinue' }])[0], 'Deploy', 'slash /skill invocation is parsed');
   A.ok(/PRELOADED SKILLS/.test(runtimeSkills.composeLoaded([s.view('a', 'Deploy', { bump: false })])), 'explicit preload composes full skill bodies');
 }
