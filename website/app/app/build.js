@@ -118,7 +118,9 @@ const Build = (() => {
     // the done lane defaults to the FIRST exit (E, S, W, N order); this only fires with no exit, or a done set to a non-exit
     LOOP_NO_DONE: 'NO DONE LANE',
     LOOP_NO_BACK: 'NO BACK LANE',
-    ORPHAN_JUNCTION: 'NOT ON A BELT — MOVE IT ONTO THE LINE',
+    // a junction touching no belt is fixed by belting into it (a junction moved onto the belt of a line is refused — it would take that
+    // line: ANOTHER BELT RUNS HERE), so the nag names that gesture, never the refused move (wave 2, build-06)
+    ORPHAN_JUNCTION: 'NOT ON A BELT — BELT INTO IT',
     BELT_BURIED: 'A PROP SITS ON THIS LINE — MOVE IT',
     // the docks feed each OTHER: no belt loop anywhere, but the work line would run forever, paying each lap
     CHAIN_CYCLE: 'WORK LINE LOOPS — CUT ONE HANDOFF',
@@ -135,6 +137,7 @@ const Build = (() => {
     ORPHAN_BAY: 'This BAY isn’t on any line, so it only works when you message it directly. To add it to a line, drag from the machine that should hand it work onto this BAY — or pick BELT, click the machine that should hand it work, then this BAY (or click it and choose JOIN A LINE).',
     BAY_NOT_FED: 'Not fed — no belt brings work into this BAY. Run a belt INTO it: drag from the machine before it onto this BAY (or BELT: click that machine, then this BAY). If the lane passes a junction, it must run THROUGH the junction’s tile, not past its corner.',
     BAY_TOO_CLOSE: 'Too close — this BAY sits right beside the machine that feeds it, so the belt between them touches both at once and the job never arrives. Move one of them a tile further apart, then connect them again with BELT.',
+    ORPHAN_JUNCTION: 'This junction touches no belt, so it routes nothing. Belt into it: drag from the machine before it onto this junction (or pick BELT, click that machine, then this junction), then on to the machines after it. A junction cannot be moved onto a belt that already joins two machines — to put one ON a line, delete this one and drop a junction from the hotbar onto that belt.',
     SPLIT_ONE_LANE: 'This SPLITTER needs two out-lanes — run belts THROUGH its tile: in on one side, out on two others.',
     JOIN_ONE_LANE: 'This JOINER needs two in-lanes — run a second belt INTO its tile.',
     LOOP_NO_DONE: 'This LOOP has no DONE lane — run a belt OUT of its tile onward (the first exit, in E/S/W/N order, is DONE unless you choose one).',
@@ -203,6 +206,8 @@ const Build = (() => {
   let dragPid = null;
   function releaseDrag() {
     if (dragPid != null && cv) { try { cv.releasePointerCapture(dragPid); } catch (e) {} }
+    // a hand drag dropped any other way (Esc, right-click, pointercancel, blur) consumes R's corner flip like a release does (build-10)
+    if (drag && HAND_PLAN_MODES[drag.mode] && flipPref) { flipPref = false; paintHandKeys(); }
     dragPid = null; drag = null;
   }
   let dupe = null;   // DUPE tool clipboard: {type:'prop'|'room', rects (rel to top-left), …} — armed = ghost follows cursor, click stamps
@@ -286,6 +291,9 @@ const Build = (() => {
     // THE HAND's latches too (repair 2026-10-11): a reopened BUILD MODE never starts holding a piece, with REMOVE armed, a stale PICK
     // WHAT GOES HERE (its pin + ghost belt, a pick aimed at the last session's prop and tile), a box's belts, a flipped corner or Alt
     hand = null; touchArm = null; dropPick = null; selBelts = null; flipPref = false; altHeld = false; altLatched = false; floaters.length = 0; lastTap = null;
+    // …nor a selection whose card the new dock never shows: SELECT MOVES would drag the old BAY instead of laying a belt, and Delete
+    // would remove it (wave 2, build-18 — the same reset selectRoom / setSelection make)
+    selectedPropId = null; groupIds = []; selectedRoomId = null; positionOpen = false; furnishOpen = false; roomDelArmedAt = 0;
     /* SESSION-SCOPED UI STATE (2026-08-07 conveyor audit). Everything here outlived close() and lied on the
        next open. The load-bearing one is `layerFailed`: renderDegraded is a TRUTHFUL-TELEMETRY readout —
        "a draw layer is currently failing" — and one transient throw in a session two hours ago had it
@@ -1250,7 +1258,7 @@ const Build = (() => {
       paletteLabel = 'INSPECT';
       const note = document.createElement('div');
       note.className = 'refit-selectnote refit-keycard';
-      const KEYS = [['Click', 'select it'], ['Drag a box', 'select several'], ['Double-click', 'a whole line'], ['Shift + click', 'add or drop one'], ['Drag a machine', 'onto another: belt them'], ['Drag a selected one', 'onto floor: move it'], ['Shift + drag', 'move any piece'], ['Right-click', 'remove a piece'], ['Q · Alt', 'pick up · every setting'],
+      const KEYS = [['Click', 'select it'], ['Drag a box', 'select several'], ['Double-click', 'a whole line'], ['Shift + click', 'add or drop one'], ['Drag a machine', 'onto another: belt them'], ['Drag a selected one', 'onto floor: move it'], ['Shift + drag', 'move any piece'], ['Right-click', 'remove a piece'], ['Ctrl + drag a belt', 'reshape it'], ['Q · Alt', 'pick up · every setting'],
         ['Arrows', 'nudge · Shift: 5'], ['R · M', 'turn · flip'], ['Ctrl + D', 'duplicate'], ['Ctrl + C · X · V', 'copy · cut · paste'], ['Del', 'delete'], ['Ctrl + Z', 'undo'],
         ['Click a room', 'move · resize · furnish']];
       note.innerHTML = '<b>Click anything to edit</b><div class="refit-keyrows">' + KEYS.map(([k, v]) => '<span class="refit-keyrow"><kbd>' + esc(k) + '</kbd><span>' + esc(v) + '</span></span>').join('') + '</div>';
@@ -1755,7 +1763,9 @@ const Build = (() => {
   let flipPref = false;     // R mid-drag (or the CORNER key): where two shortest routes exist, the belt's corner turns the other way
   let altHeld = false, altLatched = false;   // Alt held (or the ALT VIEW key latched): every setting, SEND TO and stage count shows
   let dropPick = null;      // an empty-floor release waiting on PICK WHAT GOES HERE: { from, tile, flip, path, opts:[{t,ok,msg}] }
-  const altOn = () => altHeld || altLatched;
+  // held Alt shows in every tab; the ALT VIEW key's latch only in the Conveyors tab, where that key (its off switch) is on screen —
+  // latched, then Props, it painted every line outline and junction plate over the furnishing with no visible way off (wave 2, build-11)
+  const altOn = () => altHeld || (altLatched && buildGroup === 'workflow');
   const placingProp = () => tool === 'prop' || !!hand;   // a piece is in hand — through the PROP tool or the hotbar
   const HAND_CFG_KEYS = ['maxIter', 'when', 'timeoutMin', 'bufferSize', 'divide'];
   // an agent this station crews (a pipette or a copy may carry only these — an id from elsewhere is dropped)
@@ -1821,8 +1831,16 @@ const Build = (() => {
       const on = { remove: touchArm === 'remove', pipette: touchArm === 'pipette', corner: flipPref, alt: altLatched }[id];
       b.classList.toggle('active', !!on); b.setAttribute('aria-pressed', String(!!on));
     };
-    key('remove', 'REMOVE', 'R-CLICK', 'Tap a piece or a belt to remove it (a mouse: right-click it) · UNDO puts it back', () => { const on = touchArm !== 'remove'; setHand(null, { silent: true }); touchArm = on ? 'remove' : null; paintHandKeys(); setHint(); sfx('click'); });
-    key('pipette', 'PICK UP', 'Q', 'Tap a piece to hold one like it — its settings and crew too (a mouse: point at it and press Q)', () => { const on = touchArm !== 'pipette'; setHand(null, { silent: true }); touchArm = on ? 'pipette' : null; paintHandKeys(); setHint(); sfx('click'); });
+    /* REMOVE / PICK UP arm the next tap in SELECT — the only tool that reads touchArm. Under an armed LINES / PROP tool the key lit
+       and the next tap stamped or inspected through that tool instead (wave 2, build-09): go back to SELECT first (it clears
+       touchArm, so the toggle is read before), keeping the Conveyors tab and the library where they are */
+    const armTouch = id => {
+      const on = touchArm !== id;
+      if (tool !== 'select') selectTool('select', { silent: true, keepKit: true, keepGroup: true });
+      setHand(null, { silent: true }); touchArm = on ? id : null; paintHandKeys(); setHint(); setCursor(); sfx('click');
+    };
+    key('remove', 'REMOVE', 'R-CLICK', 'Tap a piece or a belt to remove it (a mouse: right-click it) · UNDO puts it back', () => armTouch('remove'));
+    key('pipette', 'PICK UP', 'Q', 'Tap a piece to hold one like it — its settings and crew too (a mouse: point at it and press Q)', () => armTouch('pipette'));
     key('corner', 'CORNER', 'R', 'Flip which way a dragged belt turns its corner (a mouse: press R while dragging)', () => { flipPref = !flipPref; handPvKey = ''; paintHandKeys(); sfx('click'); });
     key('alt', 'ALT VIEW', 'ALT', 'Show every setting, every SEND TO and every line’s stage count on the floor (a mouse: hold Alt)', () => { altLatched = !altLatched; paintHandKeys(); sfx('click'); });
     if (lastCopy && lastCopy.type === 'lines') key('paste', 'PASTE', 'Ctrl+V', 'Pick up the last copy again: ' + lastCopy.label, () => holdClip(lastCopy, orientEv()));
@@ -2562,10 +2580,12 @@ const Build = (() => {
   function selectTool(id, o) {
     if (id === 'move') id = 'select';   // the MOVE tool is retired (10-11): SELECT moves — a stale caller lands where moving lives now
     const wasSelect = tool === 'select';
+    // arming any tool (or a bare deselect) puts down what was in hand — BEFORE the card repaints: an unanswered PICK WHAT GOES HERE
+    // stayed docked with dead tiles after a tab switch, 0/9, BELT or Ctrl+V (wave 2, build-08)
+    hand = null; touchArm = null; dropPick = null;
     selBelts=null;selectedPropId=null;groupIds=[];selectedRoomId=null;renderSelection();
     if (drag || dragPid != null) releaseDrag();
     tool = id; drag = null; connectFrom = null; connectTo = null; dupe = null; hideTip(); hidePropCard();
-    hand = null; touchArm = null; dropPick = null;   // arming any tool (or a bare deselect) puts down what was in hand
     if (id !== 'prop') deskOwner = null;
     if (id !== 'select' && !(o && o.keepGroup)) buildGroup = BUILD_GROUPS.find(g => g[2].includes(id))?.[0] || buildGroup;
     root.querySelectorAll('.refit-tool').forEach(b => {
@@ -3620,11 +3640,14 @@ const Build = (() => {
     // A LINKED FLOOR says which connection this belt is — or that it is LOOSE: it joins no two machines, so it is in
     // no plan and nothing rides it (conveyor-links phase B; the plan's belts are its links' paths)
     const loose = linkedFloor() && !!valPlan && !!valPlan.belts && !valPlan.belts[(tx - o.tx) + ',' + (ty - o.ty)];
+    const conns = [];   // the connections riding this tile: { from, to, ids } — two or more get one REMOVE key each (build-17)
     if (linkedFloor() && !loose) {
-      const seen = new Set();
+      const byPair = new Map();
       for (const l of (station.links() || [])) {
         if (l.from.prop == null || l.to.prop == null || !l.path.some(q => q.x === tx && q.y === ty)) continue;
-        const k = l.from.prop + '>' + l.to.prop; if (seen.has(k)) continue; seen.add(k);
+        const k = l.from.prop + '>' + l.to.prop;
+        if (byPair.has(k)) { byPair.get(k).ids.push(l.id); continue; }
+        const c = { from: l.from.prop, to: l.to.prop, ids: [l.id] }; byPair.set(k, c); conns.push(c);
         li.push('This belt runs from <b>' + esc(machineName(l.from.prop)) + '</b> to <b>' + esc(machineName(l.to.prop)) + '</b>.');
       }
     }
@@ -3643,13 +3666,19 @@ const Build = (() => {
     g.innerHTML = '<div class="refit-guide-card" role="dialog" aria-modal="true" aria-labelledby="workflow-title">'
       + workflowIntroHTML('BELT · ' + (DIRWORD[dir] || dir), 'Where this belt takes work', 'Belts connect the steps in your workflow. Their direction decides where work travels next.')
       + '<div class="workflow-body"><section class="workflow-section"><h4>Connected destinations</h4><ul>' + li.map(s => '<li>' + s + '</li>').join('') + '</ul></section></div>'
-      + '<div class="workflow-footer"><span>Drag a belt’s middle to branch it · right-click removes it.</span><button type="button" class="btn-sm" id="belt-remove">REMOVE BELT</button><button type="button" class="btn-sm refit-primary" id="belt-ok">✓ DONE</button></div></div>';
+      + '<div class="workflow-footer"><span>Drag a belt’s middle to branch it · Ctrl+drag reshapes it · right-click removes it.</span>'
+      // one connection: REMOVE BELT; a tile two connections share: one key per connection (never a guess at which goes)
+      + (conns.length > 1 ? conns.map((c, i) => '<button type="button" class="btn-sm" data-rmlink="' + i + '">' + esc('REMOVE ' + String(machineName(c.from)).toUpperCase() + ' ▸ ' + String(machineName(c.to)).toUpperCase()) + '</button>').join('')
+        : '<button type="button" class="btn-sm" id="belt-remove">REMOVE BELT</button>')
+      + '<button type="button" class="btn-sm refit-primary" id="belt-ok">✓ DONE</button></div></div>';
     root.appendChild(g);
     requestAnimationFrame(() => g.classList.add('refit-swap'));
     const closeP = () => { if (g.parentNode) g.parentNode.removeChild(g); };
     cardRegister(g, closeP);
     g.querySelector('[data-workflow-close]').onclick = closeP;
-    g.querySelector('#belt-remove').onclick = () => { removeBeltAt(tx,ty,ev); closeP(); };
+    const rmOne = g.querySelector('#belt-remove');
+    if (rmOne) rmOne.onclick = () => { removeBeltAt(tx,ty,ev); closeP(); };
+    g.querySelectorAll('[data-rmlink]').forEach(b => { b.onclick = () => { const c = conns[+b.dataset.rmlink]; if (c) removeBeltLinks(c.ids, ev); closeP(); }; });
     g.querySelector('#belt-ok').onclick = () => { sfx('click'); closeP(); };
     g.addEventListener('click', e => { if (e.target === g) closeP(); });
   }
@@ -4291,7 +4320,12 @@ const Build = (() => {
     // keep the generic header. In the sig so a rename repaints without a topology edit.
     const lname = lineNameOf(c);
     const overview = workflowReadout(c, valPlan, agentLabelFor);
-    const sig = [c.key, st.crewLeft, st.hasIntake, st.feed.known, st.feed.fed, st.feedDone, st.schedOff, finSample, lname || '', overview.compact, finSampleRes ? finSampleRes.key + ':' + finSampleRes.stamp : ''].join('|');
+    // ② DONE SAYS WHICH START IT FOUND (wave 2, build-12): another line's SEND TO feeds it (named by the one line name), else an
+    // automatic start (a channel / routine) is configured, else work has arrived on it (the run stats behind fedLines) — the old
+    // X-or-Y sentence could not say which of its two claims held
+    const senders = [...new Set(Object.values((valPlan && valPlan.sendTo) || {}).filter(s => s && s.toLine === c.key && s.fromLine != null)
+      .map(s => (station && station.lineName && station.lineName(s.fromLine)) || 'ANOTHER LINE'))];
+    const sig = [c.key, st.crewLeft, st.hasIntake, st.feed.known, st.feed.fed, st.feedDone, st.schedOff, finSample, lname || '', overview.compact, finSampleRes ? finSampleRes.key + ':' + finSampleRes.stamp : '', senders.join(',')].join('|');
     if (!finCardEl) {
       finCardEl = document.createElement('div');
       root.appendChild(finCardEl);
@@ -4303,9 +4337,10 @@ const Build = (() => {
     finSig = sig;
     const crewDone = st.crewLeft === 0;
     const crewTxt = crewDone ? '✓ AGENTS ASSIGNED' : '① ASSIGN STEP AGENTS — ' + st.crewLeft + ' TO GO';
-    const feedTxt = st.feedDone ? '✓ A START IS CONFIGURED OR WORK HAS ARRIVED' : !st.hasIntake ? '② FEED IT — TASK THE AGENT, OR WIRE A ROUTINE'
+    const feedTxt = st.feedDone ? (senders.length ? '✓ FED BY ' + senders.join(' + ') : (st.feed.known && st.feed.fed) ? '✓ AUTOMATIC START CONFIGURED' : '✓ WORK HAS ARRIVED')
+      : !st.hasIntake ? '② FEED IT — TASK THE AGENT, OR WIRE A ROUTINE'
       : !st.feed.known ? '② CHECKING WHAT STARTS THIS LINE…'
-      : st.feed.fed ? '✓ AUTOMATIC START CONFIGURED' : st.schedOff ? '② SCHEDULING IS OFF — TURN IT ON' : '② CHOOSE WHAT STARTS THIS LINE';
+      : st.schedOff ? '② SCHEDULING IS OFF — TURN IT ON' : '② CHOOSE WHAT STARTS THIS LINE';
     // the sample RESULT belongs to the line it rode (finSampleRes.key) — another line's card shows none
     const sr = (finSampleRes && finSampleRes.key === c.key) ? finSampleRes : null;
     const sampleOn = finSample === true && crewDone && !(sr && sr.pending);
@@ -4774,7 +4809,7 @@ const Build = (() => {
     // group — is SELECT's own press (a drag moves it, a click inspects it, exactly what CLICK-ON-MACHINE WINS did), never a stamp or a row
     if (tool !== 'select' && (selectedPropId || groupIds.length) && pressMovesSelection()) {
       const sid = propAtEvent(ev), sp = sid && station.propById(sid);
-      if (sp && groupIds.includes(sp.id)) { drag = { mode: 'grouppress', propId: sp.id, start: w, cur: w, moved: false, add: false }; return; }
+      if (sp && groupIds.includes(sp.id)) { drag = { mode: 'grouppress', propId: sp.id, start: w, cur: w, moved: false, add: false, cx: ev.clientX, cy: ev.clientY }; return; }
       if (sp && sp.id === selectedPropId) { drag = { mode: 'selectpress', propId: sp.id, start: w, cur: w, moved: false, add: false, cx: ev.clientX, cy: ev.clientY, sel: true }; return; }
     }
     if (tool === 'select') {
@@ -4790,8 +4825,9 @@ const Build = (() => {
       if (hd) { drag = { mode: 'roomresize', roomId: selectedRoomId, edge: hd.e, start: w, cur: w, moved: false }; return; }
       const pid = propAtEvent(ev);
       const p = pid && station.propById(pid);
+      if (!p) clickMachine = null;   // a press off every machine lets the double-click latch go (wave 2, build-19)
       // a member of a selected group: a drag moves the whole group, a click (no drag) selects just it; Shift+click adds / drops one
-      if (p && groupIds.includes(p.id)) { drag={mode:'grouppress',propId:p.id,start:w,cur:w,moved:false,add:ev.shiftKey};return; }
+      if (p && groupIds.includes(p.id)) { drag={mode:'grouppress',propId:p.id,start:w,cur:w,moved:false,add:ev.shiftKey,cx:ev.clientX,cy:ev.clientY};return; }   // cx/cy: a click that drifts across a tile edge is still a click (build-20)
       /* SELECT MOVES (10-11): the piece already SELECTED moves when dragged (sel) — unless it is a conveyor machine let go on another
          machine, which belts them (the target decides); an UNSELECTED workflow machine becomes a belt drag the moment it moves (THE
          HAND); furniture moves either way; Shift+drag moves any of them (onMove decides) */
@@ -4800,10 +4836,13 @@ const Build = (() => {
       // Shift over a BELT inside the selected room grabs the ROOM (a hallway its belt covers end to end has no bare floor to press —
       // the retired MOVE tool skipped belts the same way); a plain press on a belt keeps its own card / branch
       if (inSelRoom && ev.shiftKey && station.beltAt(w.tx, w.ty)) { drag = { mode: 'roompress', roomId: selectedRoomId, start: w, cur: w, moved: false, cx: ev.clientX, cy: ev.clientY, viaBelt: true }; return; }
+      /* Ctrl+drag a belt RESHAPES it (wave 2, build-16): a PRESS first, like a belt press — a Ctrl+click (or one that drifts a pixel
+         across a tile edge) opens the belt's card and commits nothing; only a drag past CLICK_SLOP reshapes. A tile no link rides (a
+         loose or legacy belt) falls through to the belt card, which says what it is; a tile two links share says how to pick one */
       if(station.beltAt(w.tx,w.ty) && (ev.ctrlKey || ev.metaKey)) {
         const matches=linksMemoed().filter(l=>(l.path||[]).some(q=>q.x===w.tx&&q.y===w.ty));
-        if(matches.length!==1){flashTip(ev,'THIS TILE CARRIES '+matches.length+' BELTS — PICK ONE CLEAR BELT TO RESHAPE',false);return;}
-        drag={mode:'beltreshape',linkId:matches[0].id,from:{x:w.tx,y:w.ty},start:w,cur:w,moved:false,cx:ev.clientX,cy:ev.clientY};return;
+        if(matches.length>1){sfx('bad');flashTip(ev,'THIS TILE CARRIES '+matches.length+' BELTS — CTRL+DRAG A TILE ONLY ONE BELT RIDES TO RESHAPE IT',false);return;}
+        if(matches.length===1){drag={mode:'reshapepress',linkId:matches[0].id,from:{x:w.tx,y:w.ty},start:w,cur:w,moved:false,cx:ev.clientX,cy:ev.clientY};return;}
       }
       // a BELT: a click opens its card on the release, a drag off it BRANCHES it (a SPLITTER lands where it was pressed)
       if (station.beltAt(w.tx, w.ty)) { drag = { mode: 'beltpress', start: w, cur: w, moved: false, from: { x: w.tx, y: w.ty }, cx: ev.clientX, cy: ev.clientY }; return; }
@@ -4861,8 +4900,8 @@ const Build = (() => {
       // CLICK-ON-MACHINE WINS: with a copy armed, a click ON an existing machine inspects it instead
       // of silently attempting an invalid stamp on top of it.
       if (dupe) {
-        // (a CLIP in hand is the exception: its ghost is centred on the pointer and promises A CLICK LAYS IT OUT TO FIT NEAR HERE
-        //  even over a machine — the click keeps that promise; Esc / right-click puts the clip down to inspect)
+        // (a CLIP in hand is the exception: its ghost is centred on the pointer, even over a machine, and says what the click does
+        //  there — lays it, lays it out to fit nearby once the layout engine said so, or why not; Esc / right-click puts it down)
         const pid = station.propAt(w.tx, w.ty), p = pid && station.propById(pid);
         if (p && dupe.type !== 'lines') { onInspect(p, ev); return; }
         stampDupe(w, ev);
@@ -4920,8 +4959,9 @@ const Build = (() => {
       if(drag.mode==='roompress'&&drag.moved&&slipped)drag.mode='move';
       if ((drag.mode === 'propmove' || drag.mode === 'groupmove' || drag.mode === 'move') && cv.style.cursor !== 'move') cv.style.cursor = 'move';   // a move carries the move cursor (onUp restores)
       if(drag.mode==='beltpress'&&drag.moved&&slipped)drag.mode='handbranch';
+      if(drag.mode==='reshapepress'&&drag.moved&&slipped)drag.mode='beltreshape';   // (a Ctrl+press becomes a reshape only past the slop)
       if ((drag.mode === 'handbelt' || drag.mode === 'handbranch') && cv.style.cursor !== 'crosshair') cv.style.cursor = 'crosshair';   // laying a belt aims (onUp restores)
-      if(drag.mode==='grouppress'&&drag.moved)drag.mode='groupmove';
+      if(drag.mode==='grouppress'&&drag.moved&&slipped)drag.mode='groupmove';   // (a click on one member never moves the line one tile: wave 2, build-20)
       if(drag.mode==='boxpress'&&drag.moved)drag.mode='box';
       if (drag.mode === 'paint' || drag.mode === 'reclaim') rasterTo(drag, w);   // accumulate every tile the brush crosses
       drag.cur = w;
@@ -4964,7 +5004,7 @@ const Build = (() => {
     if (d.mode === 'pan' || d.mode === 'pinch') return;
     if (d.mode === 'selectpress' || d.mode === 'grouppress') return d.add ? toggleInSelection(d.propId) : onInspect(station.propById(d.propId),ev);
     if (d.mode === 'beltpress') return openBeltCard(d.start.tx, d.start.ty, ev);   // a belt CLICKED (not dragged): where it goes
-    if (d.mode === 'beltreshape' && !d.moved) return openBeltCard(d.start.tx,d.start.ty,ev);
+    if (d.mode === 'reshapepress') return openBeltCard(d.start.tx,d.start.ty,ev);   // a Ctrl+CLICK on a belt: its card, nothing reshaped
     if (HAND_PLAN_MODES[d.mode]) return commitHandGesture(d, ev);
     if (d.mode === 'groupmove') return commitGroupMove(d, ev);
     if (d.mode === 'roompress' && d.viaBelt) return openBeltCard(d.start.tx, d.start.ty, ev);   // a Shift+CLICK on its belt still opens the belt's card
@@ -5117,7 +5157,7 @@ const Build = (() => {
     if(ev&&ev.pointerType==='touch'&&CONNECT_TYPES[p.t]&&tool==='select'){const tNow=performance.now();if(lastTap&&lastTap.id===p.id&&tNow-lastTap.t<380){lastTap=null;clearTimeout(inspectTimer);selectWholeLine(p.id,ev);return;}lastTap={id:p.id,t:tNow};}
     clearTimeout(inspectTimer);
     if(ev&&ev.detail>=2&&CONNECT_TYPES[p.t]){selectWholeLine((clickMachine&&clickMachine.id)||p.id,ev);return;}
-    clickMachine={id:p.id,t:performance.now()};
+    clickMachine={id:p.id,t:performance.now(),x:ev&&ev.clientX,y:ev&&ev.clientY};   // (where it was clicked: a double-click elsewhere is not on it)
     selBelts=null;groupIds=[];selectedRoomId=null;selectedPropId=p.id;renderSelection();
     // an UNBOUND connector/plugin terminal says "CLICK TO BIND" on the floor and in its hover card — so one click
     // opens the bind editor (it only selected it, and members reported "no bind option": only unbind/cancel showed)
@@ -5191,7 +5231,7 @@ const Build = (() => {
      the selection, so Ctrl+D again makes a row), Ctrl+C picks it up as a stamp (every click places a copy; Ctrl+V picks the last one
      up again), the arrows nudge it a tile (Shift: five). Each is one ordinary edit — one UNDO. A lone prop's copy is the COPY tool's
      own pickup: orientation, a filter's routes, a door's seal travel with it; an agent binding never does. A conveyor piece, a group
-     or a line copies as a CLIP (THE HAND part 2) — its belts, settings, names, briefs and the crew this station has. */
+     or a line copies as a CLIP (THE HAND part 2) — the belts between its machines, settings, names, briefs and the crew this station has. */
   function copySpecOf(p) {
     const s = propSpec(p.t), cfg = {};
     if (p.r) cfg.r = p.r;
@@ -5216,14 +5256,17 @@ const Build = (() => {
      confirm to 6 s); a new selection lets it go (selectRoom) */
   let sendCutArm = null;
   const cutArmFor = roomId => !!(sendCutArm && roomId != null && sendCutArm.room === roomId && performance.now() - sendCutArm.t < 6000);
-  function warnSendCuts(ids, ev, roomId) {
+  /* `again` = the gesture that armed the warning, said in it and part of its arm key: the confirm is THAT gesture repeated (wave 2,
+     build-15 — "repeat DELETE / REMOVE" told a Ctrl+X or right-click user to repeat a key they never pressed, in mixed case) */
+  function warnSendCuts(ids, ev, roomId, again) {
     const gone = new Set(ids), cuts = station.props().filter(p => p.t==='outbox' && p.sendTo && gone.has(p.sendTo) && !gone.has(p.id));
     if (!cuts.length) { sendCutArm=null; return false; }
-    const key = ids.slice().sort().join(',')+'|'+cuts.map(p=>p.id+':'+p.sendTo).sort().join(',');
+    const verb = String(again || 'DELETE').toUpperCase();
+    const key = verb+'|'+ids.slice().sort().join(',')+'|'+cuts.map(p=>p.id+':'+p.sendTo).sort().join(',');
     if (sendCutArm && sendCutArm.key===key && performance.now()-sendCutArm.t<6000) { sendCutArm=null; return false; }
     sendCutArm={key,t:performance.now(),room:roomId==null?null:roomId};
     const names=cuts.map(p=>(station.lineNameAt&&station.lineNameAt(p.id))||'A LINE');   // (the one line name: worldmodel.lineName)
-    sfx('tick'); flashTip(ev,'THIS CUTS '+cuts.length+' SEND TO'+(cuts.length===1?'':'S')+' FROM '+Array.from(new Set(names)).join(', ')+' — repeat DELETE / REMOVE to continue · Undo restores them',false); return true;
+    sfx('tick'); flashTip(ev,('THIS CUTS '+cuts.length+' SEND TO'+(cuts.length===1?'':'S')+' FROM '+Array.from(new Set(names)).join(', ')+' — '+verb+' AGAIN TO CONTINUE · UNDO RESTORES THEM').toUpperCase(),false); return true;
   }
   function deleteSelected(ev) {
     if (groupIds.length) return deleteGroupOrLine(ev);
@@ -5257,7 +5300,7 @@ const Build = (() => {
   }
   let lastCopy = null;   // the last thing picked up with Ctrl+C / COPY (a prop, a room, or a CLIP of floor) — Ctrl+V picks it up again
   /* COPY: a lone piece of furniture is the COPY tool's own pickup (a stamp, as it always was); a group, a conveyor piece or a
-     selection with belts is a CLIP — the machines with their belts, settings, names, briefs and crew (THE HAND part 2) */
+     selection with belts is a CLIP — the machines with the belts between them, settings, names, briefs and crew (THE HAND part 2) */
   function copySelected(ev) {
     if (groupIds.length || beltSel() || clipWorthy()) return copyClip(ev, false);
     const p = station.propById(selectedPropId); if (!p) return false;
@@ -5342,8 +5385,7 @@ const Build = (() => {
         const next = [];
         for (const id of pending) {
           const r = station.moveProp(id, dx, dy);
-          if (!r || !r.ok) { next.push(id); last = r; continue; }
-          if (Array.isArray(r.lost) && r.lost.length) return { ok: false, error: 'LINK_LOST', msg: 'moving these together would take up a belt link — move those machines one at a time (their belts follow)' };
+          if (!r || !r.ok) { next.push(id); last = r; continue; }   // (a belt that cannot follow is moveProp's own LINK_LOST refusal)
         }
         if (next.length === pending.length) return last || { ok: false, msg: 'blocked — nothing moved' };
         pending = next;
@@ -5406,7 +5448,7 @@ const Build = (() => {
   function deleteGroup(ev, verb) {
     const was = selectionIds().map(id => station.propById(id)).filter(Boolean).map(p => Object.assign({}, p)), bs = beltSel(), cut = verb === 'CUT';
     if (!was.length && !bs) return false;
-    if (warnSendCuts(was.map(p=>p.id),ev)) return false;
+    if (warnSendCuts(was.map(p=>p.id), ev, null, cut ? 'CUT (CTRL+X)' : undefined)) return false;
     const liftIds = cut ? cutLinksOf(was.map(p => p.id)) : (bs ? bs.links : []), loose = cut ? [] : (bs ? bs.tiles : []);
     const nb = cut ? liftIds.length : (bs ? bs.links.length + bs.tiles.length : 0);
     const cells = cut ? linksMemoed().filter(l => liftIds.includes(l.id)).reduce((a, l) => a.concat(l.path || []), []) : (bs ? bs.cells : []);
@@ -5512,7 +5554,10 @@ const Build = (() => {
   function onDblClick(ev) {
     if (tool !== 'select' || hand || touchArm || dropPick || drag) return;
     clearTimeout(inspectTimer);
-    const pid = clickMachine && performance.now()-clickMachine.t<600 ? clickMachine.id : propAtEvent(ev), p = pid && station.propById(pid);
+    // the machine the double-click's first press selected — only when this double-click lands where that press did (build-19: a
+    // double-click on empty floor 0.1 s after clicking a BAY elsewhere took that BAY's whole line); else what is under it now
+    const near = clickMachine && (clickMachine.x == null || ev.clientX == null || Math.hypot(ev.clientX - clickMachine.x, ev.clientY - clickMachine.y) < CLICK_SLOP);
+    const pid = clickMachine && near && performance.now()-clickMachine.t<600 ? clickMachine.id : propAtEvent(ev), p = pid && station.propById(pid);
     if (!p || !CONNECT_TYPES[p.t]) return;
     if (ev.preventDefault) ev.preventDefault();
     selectWholeLine(p.id, ev);
@@ -5522,9 +5567,9 @@ const Build = (() => {
   function deleteLine(pid, ev, verb) {
     const m = typeof station.lineMembers === 'function' ? station.lineMembers(pid) : null;
     if (!m || typeof station.removeLine !== 'function') return false;
-    const was = m.ids.map(id => station.propById(id)).filter(Boolean).map(p => Object.assign({}, p));
-    if (warnSendCuts(m.ids,ev)) return false;
-    const line = wholeLineOf(was), name = line ? line.name : 'THE LINE', cut = verb === 'CUT';
+    const was = m.ids.map(id => station.propById(id)).filter(Boolean).map(p => Object.assign({}, p)), cut = verb === 'CUT';
+    if (warnSendCuts(m.ids, ev, null, cut ? 'CUT (CTRL+X)' : undefined)) return false;
+    const line = wholeLineOf(was), name = line ? line.name : 'THE LINE';
     const res = cut ? station.transact(() => station.removeLine(pid), 'CUT') : station.removeLine(pid);
     if (res && res.ok) {
       pushFlash(was.map(p => propRect(p)), true); was.forEach(p => vanishProp(p)); setSelection([]); flashUndo();
@@ -5558,6 +5603,12 @@ const Build = (() => {
     if (c.dropped) notes.push(c.dropped + ' SEND TO LEFT OUT (IT POINTS OUTSIDE THE COPY)');
     if (c.oldBelts) notes.push(c.oldBelts + ' OLD HAND-OFF BELT' + (c.oldBelts === 1 ? '' : 'S') + ' LEFT OUT (A HAND-OFF IS SEND TO)');
     if (c.crewLeft) notes.push(c.crewLeft + ' CREW LEFT OUT (NOT ON THIS STATION)');
+    /* a COPY carries the belts BETWEEN the copied machines only — the box's other belts (counted on its card, drawn gold) are said,
+       never dropped silently (wave 2, build-22: "3 things · 4 belts" copied as "1 BELT"); a CUT says the same in cutLeavesBehind */
+    if (!cut) {
+      const bs = beltSel(), carried = new Set(cutLinksOf(ps.map(p => p.id))), left = bs ? bs.links.filter(id => !carried.has(id)).length + bs.tiles.length : 0;
+      if (left) notes.push(left + (left === 1 ? ' BELT' : ' BELTS') + ' LEFT OUT (' + (left === 1 ? 'IT RUNS' : 'THEY RUN') + ' OUTSIDE THE COPY)');
+    }
     const lost = cut ? cutLeavesBehind(ps) : [];
     const whole = cut ? lineSelectionOf(ps) : null;
     if (cut && !(whole ? deleteLine(whole.id, ev, 'CUT') : deleteGroup(ev, 'CUT'))) return true;   // (refused: nothing was taken, nothing is held)
@@ -5616,22 +5667,59 @@ const Build = (() => {
     let v = station.checkPaste(c, ax, ay);
     if (v && v.ok) { const pr = station.probePaste(c, ax, ay); if (!pr || !pr.ok) v = Object.assign({ badNodes: [], badTiles: [] }, pr || { ok: false }, { whole: true }); }
     const rects = c.nodes.map(n => ({ x1: ax + n.x, y1: ay + n.y, x2: ax + n.x + n.w - 1, y2: ay + n.y + n.h - 1 }));
-    const g = { clip: true, kind: 'dupe', ax, ay, rects, v: v || { ok: false }, badNodes: new Set((v && v.badNodes) || []), badTiles: new Set((v && v.badTiles) || []) };
+    const g = { clip: true, kind: 'dupe', tx, ty, ax, ay, rects, v: v || { ok: false }, badNodes: new Set((v && v.badNodes) || []), badTiles: new Set((v && v.badTiles) || []) };
     clipGhostMemo = { key, g };
     return g;
   }
-  // a click with a clip in hand: lay it EXACTLY where the ghost was green — else, a line laid out to fit near the click — else, said
+  /* LAID OUT TO FIT — ASKED, NEVER PROMISED (wave 2, build-04). Where the drawn copy will not go, a click lays the line out near the
+     pointer (LineEdit.layoutGraphNear) — and the ghost used to promise A CLICK LAYS IT OUT for every red spot, then the click said
+     PART OF IT IS OFF THE STATION FLOOR. Now the layout engine is asked OFF the frame path, once the pointer has rested on a tile
+     (a 120 ms debounce — the whole-floor layout is never asked per frame or per tile crossed), memoized per edit + clip + turn +
+     tile; the ghost says only what it answered (and nothing while it is still asked), and the click lays exactly that answer. */
+  const layable = c => !!(c && c.nodes && c.nodes.length && c.nodes.every(n => CONNECT_TYPES[n.t]));
+  let clipLaid = null, clipLaidT = 0, clipLaidAt = null;
+  const clipLaidKey = () => [geoVer, dupe.cid, dupe.rot | 0].join('|');
+  function layClipNear(c, at) {
+    if (typeof LineEdit === 'undefined' || !LineEdit.layoutGraphNear || typeof station.clipGraph !== 'function') return { ok: false, msg: 'this floor cannot lay a copy out' };
+    try {
+      const gr = station.clipGraph(c, { agent: agentHere });
+      if (!gr || !gr.ok) return { ok: false, msg: (gr && gr.msg) || 'this copy cannot be laid out' };
+      const L = LineEdit.layoutGraphNear(station, gr.graph, { x: at.tx, y: at.ty });
+      return L && L.ok ? { ok: true, L } : { ok: false, msg: (L && L.msg) || 'there is no clear floor near here to lay this copy out on' };
+    } catch (e) { return { ok: false, msg: 'the layout failed — ' + String((e && e.message) || e) }; }
+  }
+  // the engine's answer for this tile: { ok, L } | { ok:false, msg } — undefined while it is still being asked
+  function clipLaidFor(tx, ty) {
+    const k = clipLaidKey(), tk = tx + ',' + ty;
+    if (!clipLaid || clipLaid.key !== k) clipLaid = { key: k, tiles: new Map() };
+    if (clipLaid.tiles.has(tk)) return clipLaid.tiles.get(tk);
+    if (!clipLaidAt || clipLaidAt.tx !== tx || clipLaidAt.ty !== ty) {   // a new tile restarts the wait: asked once the pointer rests
+      clipLaidAt = { tx, ty };
+      clearTimeout(clipLaidT); clipLaidT = setTimeout(stepClipLaid, 120);
+    }
+    return undefined;
+  }
+  function stepClipLaid() {
+    clipLaidT = 0;
+    const at = clipLaidAt; clipLaidAt = null;
+    if (!at || !running || !station || !dupe || !dupe.clip || !clipLaid || clipLaid.key !== clipLaidKey()) return;
+    if (clipLaid.tiles.size > 48) clipLaid.tiles.clear();   // (a bounded memo: each answer holds a layout)
+    clipLaid.tiles.set(at.tx + ',' + at.ty, layClipNear(dupe.clip, at));
+  }
+  // a click with a clip in hand: lay it EXACTLY where the ghost was green — else, a line laid out to fit near the click (the engine's
+  // answer the ghost showed, asked now if the ghost never got it) — else, said: the layout's own reason when it was the one asked
   function pasteClipAt(w, ev) {
     const c = dupe.clip, { ax, ay } = clipAnchor(c, w.tx, w.ty), g = clipGhost(w.tx, w.ty);
-    let res = g.v && g.v.ok ? station.pasteLines(c, ax, ay, { agent: agentHere }) : g.v, laid = false;
-    if (!(res && res.ok) && typeof LineEdit !== 'undefined' && LineEdit.layoutGraphNear && typeof station.clipGraph === 'function') {
-      const gr = station.clipGraph(c, { agent: agentHere });
-      if (gr && gr.ok) {
-        const L = LineEdit.layoutGraphNear(station, gr.graph, { x: w.tx, y: w.ty });
-        if (L && L.ok) { const r2 = station.pasteLinesLaid(c, L, { agent: agentHere }); if (r2 && r2.ok) { res = r2; laid = true; } }
+    let res = g.v && g.v.ok ? station.pasteLines(c, ax, ay, { agent: agentHere }) : g.v, laid = false, lay = null;
+    if (!(res && res.ok) && layable(c)) {
+      const known = clipLaid && clipLaid.key === clipLaidKey() ? clipLaid.tiles.get(w.tx + ',' + w.ty) : undefined;
+      lay = known || layClipNear(c, w);
+      if (lay.ok) {
+        const r2 = station.pasteLinesLaid(c, lay.L, { agent: agentHere });
+        if (r2 && r2.ok) { res = r2; laid = true; } else lay = { ok: false, msg: (r2 && (r2.short || r2.msg)) || 'the copy could not be laid' };
       }
     }
-    if (!(res && res.ok)) { sfx('bad'); flashTip(ev, 'CAN’T PASTE HERE — ' + String((res && (res.short || res.msg)) || 'it does not fit').toUpperCase(), false); return; }
+    if (!(res && res.ok)) { sfx('bad'); flashTip(ev, 'CAN’T PASTE HERE — ' + String((lay && !lay.ok && lay.msg) || (res && (res.short || res.msg)) || 'it does not fit').toUpperCase(), false); return; }
     const made = (res.ids || []).map(id => station.propById(id)).filter(Boolean);
     pushFlash(made.map(p => propRect(p)), false);
     landProps(made.slice().sort((a, b) => a.x - b.x || a.y - b.y).map(p => p.id), 40);
@@ -5735,7 +5823,7 @@ const Build = (() => {
     // (after a SEND TO cut warning FOR THIS ROOM the repeat confirms anywhere in its own 6 s window — reading it took longer than
     // the 2.5 s arm, live 10-12; any other room, or a lapsed warning, keeps the 2.5 s confirm)
     if (!roomDelArmedAt || now - roomDelArmedAt > (cutArmFor(rm.id) ? 6000 : 2500)) { roomDelArmedAt = now; sfx('tick'); flashTip(ev, 'press Delete again to delete ' + (rm.name || 'this room') + ' — everything on it goes (one Undo brings it back)'); return; }
-    /* deselect only once the room is GONE (final floor lane M15): after a SEND TO cut warning ("repeat DELETE / REMOVE to continue")
+    /* deselect only once the room is GONE (final floor lane M15): after a SEND TO cut warning ("DELETE AGAIN TO CONTINUE")
        the room stays selected and armed, so the next Delete goes straight through; a refused delete leaves a room that still stands */
     roomDelArmedAt = 0;
     if (doDeleteRoom(rm.id, ev)) selectedRoomId = null; else if (cutArmFor(rm.id)) roomDelArmedAt = performance.now();
@@ -6130,20 +6218,15 @@ const Build = (() => {
   function commitPropMove(d, ev) {
     let dx = d.cur.tx - d.start.tx, dy = d.cur.ty - d.start.ty;
     if (!dx && !dy) { hideTip(); return; }
-    // SEND TO: an OUTBOX let go on another line's INBOX points at it and stays where it stands (the ghost showed the arc)
-    const so = station.propById(d.propId), si = !d.add && !ev.shiftKey && so && so.t === 'outbox' ? intakeAt(d.cur.tx, d.cur.ty) : null;
-    if (si) { commitSendTo(so.id, si.id, ev); return; }
-    // JUNCTION SNAP on MOVE — the same rule placement (commitPropStamp) already applies: a filter/
-    // splitter/merger dropped NEXT to a line snaps onto the nearest belt tile. Without this, a moved
-    // filter one tile off its belt still compiled (ring-attached) while reading as misplaced — or, two
-    // tiles off, went silently inert. If the snapped tile is blocked, fall back to the plain move.
+    // a MOVE is only ever a move: an OUTBOX aimed at another line's INBOX is THE HAND's SEND TO (selectedDragAims / planHandGesture —
+    // its ghost, its commit); the old propmove SEND TO here could only be reached by Shift-moving onto an INBOX and letting Shift go
+    // before the release, and then sent where its own ghost had shown a refused move (wave 2, build-13)
     const mp = station.propById(d.propId);
-    let okMsg = 'relocated';
     // belts never ride along with a machine: say so at the drop (the ghost already warned amber)
     const left = mp ? beltsLeftBehind(mp, mp.x + dx, mp.y + dy) : 0;
     // (a SELECTED conveyor machine let go on another machine never lands here: that drag is THE HAND's — selectedDragAims)
     const moved = station.moveProp(d.propId, dx, dy);
-    feedback(moved, ev, moveMsg(moved, left, okMsg));
+    feedback(moved, ev, moveMsg(moved, left, 'relocated'));
     // the piece it moved is THE selection now (a press on an unselected chair selects + moves it — never leaves a group card up)
     if(moved && moved.ok){if(selectedPropId!==d.propId||groupIds.length||selectedRoomId)setSelection([d.propId]);else renderSelection();landProps([d.propId]);}
   }
@@ -6278,8 +6361,9 @@ const Build = (() => {
   const isConveyorPiece = p => !!(p && CONNECT_TYPES[p.t]);
   /* a drag of the SELECTED piece (onMove — ONE GESTURE, THE TARGET DECIDES): does the pointer stand on a target THE HAND takes?
      Only for a lone conveyor machine (never a group, never furniture, never with Shift held). ANOTHER conveyor machine: always (a
-     move there could only overlap it). A belt tile: where the hand would MERGE into it (green) — except a 1x1 junction, whose move
-     onto a line is where a junction goes (commitPropMove's snap). Anything else — open floor, its own footprint — is the MOVE. */
+     move there could only overlap it). A belt tile: where the hand would MERGE into it (green) — except a 1x1 junction: its move onto
+     another line's belt is refused by moveProp (ON_BELT — it would take that line), so the plain MOVE ghost shows that reason.
+     Anything else — open floor, its own footprint — is the MOVE. */
   function selectedDragAims(d, w, shift) {
     if (shift || groupIds.length || !beltSource(d.propId)) return false;
     const A = station.propById(d.propId), tid = station.propAt(w.tx, w.ty), T = tid && station.propById(tid);
@@ -6386,8 +6470,10 @@ const Build = (() => {
   function commitHandGesture(d, ev) {
     const plan = handPlan(d, true);   // (the release judges for real, even where the ghost was still CHECKING THE ROUTE)
     hideTip();
-    if (!plan) return;                                   // let go where it started: nothing happened
-    if (!plan.ok) { sfx('bad'); flashTip(ev, plan.why, false); return; }
+    // R flips THIS drag's corner: every way the drag ends consumes it, a refusal and a let-go-where-it-started too (wave 2, build-10 —
+    // the next, unrelated drag silently routed the flipped way with CORNER still lit)
+    if (!plan) { flipPref = false; paintHandKeys(); return; }                                   // let go where it started: nothing happened
+    if (!plan.ok) { sfx('bad'); flashTip(ev, plan.why, false); flipPref = false; paintHandKeys(); return; }
     const o = { flip: flipPref }, tile = { x: d.cur.tx, y: d.cur.ty };
     if (plan.kind === 'floor' || plan.kind === 'branchfloor') { openDropPick(d, plan, tile, ev); flipPref = false; paintHandKeys(); return; }   // (the picker keeps the corner it was shown with)
     let res = null, msg = '';
@@ -6466,7 +6552,7 @@ const Build = (() => {
     const w = toWorldTile(ev);
     const pid = propAtEvent(ev) || station.propAt(w.tx, w.ty), p = pid && station.propById(pid);
     if (p && isConveyorPiece(p)) {
-      if(warnSendCuts([p.id],ev)) return true;
+      if (warnSendCuts([p.id], ev, null, 'RIGHT-CLICK / REMOVE')) return true;
       const was = Object.assign({}, p), label = propLabel(p.t);
       const res = station.removeProp(p.id);
       if (res && res.ok) {
@@ -6482,12 +6568,29 @@ const Build = (() => {
   function removeBeltAt(tx,ty,ev) {
     const w={tx,ty};
     if (!station.beltAt(w.tx, w.ty)) return false;
+    /* a tile two belts SHARE (an old save's merged run): never guess which goes (wave 2, build-17 — it took whichever link came first
+       and said only REMOVED · BELT). Say so; the belt's card (a click) offers one REMOVE key per connection */
+    const on = linkedFloor() ? linksMemoed().filter(l => l && l.from && l.to && l.from.prop != null && l.to.prop != null && (l.path || []).some(q => q.x === w.tx && q.y === w.ty)) : [];
+    if (on.length > 1) { sfx('bad'); flashTip(ev, 'THIS TILE CARRIES ' + on.length + ' BELTS — CLICK IT TO PICK WHICH ONE GOES', false); return true; }
     const linked = linkedFloor() && typeof station.removeLinkAt === 'function' ? station.removeLinkAt(w.tx, w.ty) : null;
     const res = linked && linked.ok ? linked : station.removeBelt(w.tx, w.ty);
     if (res && res.ok) {
       pushFlash([{ x1: w.tx, y1: w.ty, x2: w.tx, y2: w.ty }], true); flashUndo(); sfxVanish();
       floatAt({ x: w.tx + 0.5, y: w.ty }, 'REMOVED · ' + (linked && linked.ok ? 'BELT' : 'BELT TILE') + ' · CTRL+Z', 'bad');
     } else { sfx('bad'); flashTip(ev, (res && res.msg) || 'blocked', false); }
+    return true;
+  }
+  // the belt card's REMOVE <A ▸ B> on a shared tile: exactly those links, one undo; the float rises over a tile only they rode
+  function removeBeltLinks(ids, ev) {
+    const want = new Set(ids || []), all = linksMemoed(), mine = all.filter(l => want.has(l.id));
+    if (!mine.length || typeof station.removeLinks !== 'function') return false;
+    const others = new Set(); for (const l of all) if (!want.has(l.id)) for (const q of (l.path || [])) others.add(q.x + ',' + q.y);
+    const tiles = mine.reduce((a, l) => a.concat(l.path || []), []), alone = tiles.filter(q => !others.has(q.x + ',' + q.y));
+    const res = station.removeLinks(Array.from(want));
+    if (!(res && res.ok)) { sfx('bad'); flashTip(ev, (res && res.msg) || 'blocked', false); return false; }
+    const at = alone.length ? alone[Math.floor(alone.length / 2)] : tiles[0];
+    pushFlash((alone.length ? alone : tiles).map(q => ({ x1: q.x, y1: q.y, x2: q.x, y2: q.y })), true); flashUndo(); sfxVanish();
+    if (at) floatAt({ x: at.x + 0.5, y: at.y }, 'REMOVED · BELT · CTRL+Z', 'bad');
     return true;
   }
   // Q: pick up one like the piece under the pointer — its type, settings and crew (an agent this station has) — Q again puts it down
@@ -6914,8 +7017,9 @@ const Build = (() => {
   // what a MOVE did, said as it happened: on a linked floor its belts came with it — or one found no route and stayed off
   function moveMsg(res, left, okMsg) {
     if (!res || !res.ok) return okMsg;
-    const lost = Array.isArray(res.lost) ? res.lost.length : 0, relaid = Array.isArray(res.relaid) ? res.relaid.length : 0;
-    if (lost) return 'moved — ' + lost + ' of its belts found no clear route and ' + (lost === 1 ? 'was' : 'were') + ' taken up · reconnect with BELT (Undo puts it back)';
+    // (a belt that cannot follow refuses the move itself — moveProp's LINK_LOST, ITS BELT CAN’T FOLLOW HERE: no move ever lands with a
+    //  belt taken up, so there is no "moved — its belts were taken up" to say any more — wave 2, worldmodel-09)
+    const relaid = Array.isArray(res.relaid) ? res.relaid.length : 0;
     if (relaid) return okMsg.replace(/ · Undo restores the previous position$/, '') + ' · its belt' + (relaid === 1 ? '' : 's') + ' came with it';
     return left ? 'moved — its belts stayed behind · reconnect with BELT (Undo puts it back)' : okMsg;
   }
@@ -6996,9 +7100,6 @@ const Build = (() => {
     if (drag.mode === 'propmove') {
       const p = station.propById(drag.propId); if (!p) return null;
       const dx = drag.cur.tx - drag.start.tx, dy = drag.cur.ty - drag.start.ty;
-      // SEND TO: an OUTBOX dragged onto another line's INBOX points at it (it stays where it stands — no belt, no move)
-      const sendTo = !drag.add && !drag.forceMove && p.t === 'outbox' && (dx || dy) ? intakeAt(drag.cur.tx, drag.cur.ty) : null;
-      if (sendTo) { const pv = sendToPv(p.id, sendTo.id) || { ok: false, short: 'CANNOT SEND THERE' }; return { sendTo: true, from: p, to: sendTo, rects: [propRect(sendTo)], v: pv }; }
       const nx = p.x + dx, ny = p.y + dy;
       const rect = { x1: nx, y1: ny, x2: nx + p.w - 1, y2: ny + p.h - 1 };
       const links = isWorkflowType(p.t) && (dx || dy) ? ghostLinks({ props: [{ t: p.t, x: nx, y: ny, w: p.w, h: p.h }], ignoreId: p.id }) : [];
@@ -7908,7 +8009,7 @@ const Build = (() => {
       }
       if ((mode === 'divide') !== dividing) { const r = station.setSplitDivide(splitId, mode === 'divide'); if (!r.ok) return r; }
       return { ok: true };
-    });
+    }, mode === 'divide' ? 'SPLIT THE JOB' : 'SPLITTER');   // (the undo says what it took back — setSplitDivide's own label is skipped in a batch)
     if (res && res.ok) { try { rebake(); } catch (e) { /* the frame loop recompiles */ } }
     return res && res.ok ? { ok: true, mode } : { ok: false, msg: (res && (res.msg || res.error)) || 'could not switch' };
   }
@@ -8089,7 +8190,6 @@ const Build = (() => {
     const ip = station.propById(intakeId);
     return ip ? lineWordOf(ip) : 'A REMOVED LINE';
   }
-  function intakeAt(tx, ty) { const id = station.propAt(tx, ty), p = id && station.propById(id); return p && p.t === 'intake' ? p : null; }
   function commitSendTo(outboxId, intakeId, ev) {
     const r = typeof station.setSendTo === 'function' ? station.setSendTo(outboxId, intakeId) : null;
     const o = station.propById(outboxId), ip = intakeId ? station.propById(intakeId) : null;
@@ -8138,7 +8238,9 @@ const Build = (() => {
     const links = sendLinks();
     if (!links.length) return;
     for (const s of links) {
-      if (drag && drag.mode === 'propmove' && drag.propId === s.from.id) continue;   // the drag ghost draws the one being re-aimed
+      // the hand's ghost draws the one being re-aimed — hidden only while the drag REALLY re-aims it (a SEND TO plan, memoized per tile);
+      // the OUTBOX dragged to lay a belt or onto the floor keeps its SEND TO arc (wave 2, build-13)
+      if (drag && drag.propId === s.from.id && (drag.mode === 'propmove' || (drag.mode === 'handbelt' && (handPlan(drag) || {}).kind === 'send'))) continue;
       const arc = sendArc(t, s.from, s.to);
       strokeSendArc(arc, s.live ? '#57bd8b' : '#d2684c', now, s.live ? 0.7 : 0.8);
       const near = altOn() || [hoverPropId, selectedPropId].some(id => id && (id === s.from.id || id === s.to.id));
@@ -8155,13 +8257,6 @@ const Build = (() => {
         c.restore();
       });
     }
-  }
-  // the SELECT drag of an OUTBOX over another line's INBOX: the arc it would make, the INBOX outlined, the verdict
-  function drawSendGhost(t, now, g) {
-    const ok = !!(g.v && g.v.ok);
-    strokeSendArc(sendArc(t, g.from, g.to), ok ? '#57bd8b' : '#d2684c', now, 0.95);
-    drawPropSelection(g.to, t, ok ? 'rgba(120,255,170,0.95)' : 'rgba(255,120,110,0.95)', false);
-    ghostBadge(t, ok ? ['SEND TO ' + (g.v.name || sendName(g.to.id)), 'RELEASE: WORK THAT LANDS HERE RIDES ON'] : [placementReason(g)], ok, g.rects[0]);
   }
   // the BELT tool armed on an OUTBOX: its one destination is another line's INBOX (a SEND TO) — what each hovered target says
   function sendRole(isFrom, p) {
@@ -8240,17 +8335,6 @@ const Build = (() => {
     ctx.save(); ctx.globalAlpha = alpha; PropSprites.setCtx(ctx); PropSprites.setNow(now);
     try { for (const j of list) PropSprites.draw({ t: j.t, x: j.x, y: j.y, w: 1, h: 1 }, false); } finally { ctx.restore(); }
   }
-  // a hand-off arc between two machines (SEND TO): a dashed curve that dips under them, drawn, never a belt
-  function drawSendArc(a, b, t, col, label) {
-    const ax = (a.x + (a.w || 1) / 2) * t, ay = (a.y + (a.h || 1) / 2) * t, bx = (b.x + (b.w || 1) / 2) * t, by = (b.y + (b.h || 1) / 2) * t;
-    const mx = (ax + bx) / 2, my = Math.max(ay, by) + t * 2.6;
-    ctx.save(); ctx.strokeStyle = col; ctx.globalAlpha = 0.9; ctx.lineWidth = 1.5 / zoom; ctx.setLineDash([4 / zoom, 3 / zoom]);
-    ctx.beginPath(); ctx.moveTo(ax, ay); ctx.quadraticCurveTo(mx, my, bx, by); ctx.stroke(); ctx.restore();
-    if (label) {
-      const box = captionBox(label, 0.25 * ax + 0.5 * mx + 0.25 * bx, null, 0.25 * ay + 0.5 * my + 0.25 * by);
-      voiceSay('activeFlow', box, box, c => captionPlate(c, label, box, col, 0.95));
-    }
-  }
   function drawHandGhost(t, now) {
     if (dropPick) {   // PICK WHAT GOES HERE waits: its belt stays drawn and a pin marks the tile
       // the piece pointed at in the dock: the belt IT gets and where it stands (probeDrop laid it on a copy) — else the route to the pin
@@ -8271,7 +8355,7 @@ const Build = (() => {
     if (A) drawPropSelection(A, t, 'rgba(255,217,74,.95)', false);
     if (!plan) return;
     const ok = !!plan.ok, col = plan.checking ? '#ffd24a' : ok ? '#7ee2a8' : '#ff8f80';
-    if (plan.kind === 'send' && A && plan.to) drawSendArc(A, plan.to, t, col, null);
+    if (plan.kind === 'send' && A && plan.to) strokeSendArc(sendArc(t, A, plan.to), col, now, 0.95);   // the committed arc's own curve + arrowhead (build-13)
     else if (plan.path && plan.path.length) drawBeltPreview(t, { path: plan.path }, col);
     else {   // no route to draw: a straight dashed line from where it started to the pointer says where you are aiming
       const s = A ? { x: (A.x + (A.w || 1) / 2) * t, y: (A.y + (A.h || 1) / 2) * t } : { x: (drag.from.x + 0.5) * t, y: (drag.from.y + 0.5) * t }, c = cursorWorld();
@@ -8310,7 +8394,9 @@ const Build = (() => {
      rest (no Alt) never walked at all: only an over-budget line shows then, and an over-budget line always carries its finding. */
   let stagesPlan = null, stagesMemo = null;
   function lineStagesOf(rec, rest) {
-    if (!rec || !valPlan) return null;
+    // a line with no INBOX (a BAY belted to an OUTBOX before its INBOX went down, a ship-out fragment) has no plate to carry a count —
+    // and the compiler counts none for it: Alt read .worst off that null every frame, and every later line lost its plate (wave 2)
+    if (!rec || !valPlan || !rec.intakes || !rec.intakes.length) return null;
     if (stagesPlan !== valPlan) { stagesPlan = valPlan; stagesMemo = new Map(); }
     const mk = rec.lineId + (rest ? '|rest' : '|full');
     if (stagesMemo.has(mk)) return stagesMemo.get(mk);
@@ -8325,7 +8411,7 @@ const Build = (() => {
         v = ls && ls.stages > 0 ? { n: ls.stages, max: ls.max, over: ls.stages > ls.max } : null;
       }
     }
-    if (v && !rest && typeof Pipeline !== 'undefined' && Pipeline.lineStages) v.worst = Pipeline.lineStages(valPlan, rec.lineId).worst;
+    if (v && !rest && typeof Pipeline !== 'undefined' && Pipeline.lineStages) { const ls = Pipeline.lineStages(valPlan, rec.lineId); if (ls) v.worst = ls.worst; }   // (null where the compiler cannot count: never read through it)
     stagesMemo.set(mk, v);
     return v;
   }
@@ -8757,7 +8843,13 @@ const Build = (() => {
     const bb = { x1: g.ax, y1: g.ay, x2: g.ax + c.w - 1, y2: g.ay + c.h - 1 };
     const lines = ['PASTE · ' + String(dupe.label || '').toUpperCase() + (dupe.rot ? ' · TURNED ' + dupe.rot * 90 : '')];
     if (ok) lines.push('CLICK TO PLACE · R TURNS IT');
-    else { lines.push(String(g.v.short || g.v.msg || 'IT DOES NOT FIT HERE').toUpperCase()); if (c.nodes.every(n => CONNECT_TYPES[n.t])) lines.push('A CLICK LAYS IT OUT TO FIT NEAR HERE'); }
+    else {
+      lines.push(String(g.v.short || g.v.msg || 'IT DOES NOT FIT HERE').toUpperCase());
+      // the layout engine's own answer for this spot (clipLaidFor — asked once the pointer rests): the promise only when it fits
+      const laid = layable(c) ? clipLaidFor(g.tx, g.ty) : null;
+      if (laid && laid.ok) lines.push('A CLICK LAYS IT OUT TO FIT NEARBY');
+      else if (laid) lines.push(String(laid.msg || 'IT CANNOT BE LAID OUT HERE EITHER').toUpperCase());
+    }
     ghostBadge(t, lines, ok, bb);
   }
   // a group being dragged: every member's art at its new spot, outlined green (it fits) or red (something outside the group is in the way)
@@ -8801,7 +8893,6 @@ const Build = (() => {
     const g = ghostInfo();
     if (!g) return;
     if (g.group) { drawGroupGhost(t, now, g); return; }
-    if (g.sendTo) { drawSendGhost(t, now, g); return; }
     if (g.clip) { drawClipGhost(t, now, g); return; }
     if (g.row) { drawRowGhost(t, now, g); return; }
     // Show the actual art at the exact candidate footprint, including its facing
@@ -9075,7 +9166,9 @@ const Build = (() => {
     clip: (tile) => {
       if (!(tool === 'dupe' && dupe && dupe.type === 'lines')) return lastCopy && lastCopy.type === 'lines' ? { held: false, label: lastCopy.label, n: lastCopy.clip.n, nb: lastCopy.clip.nb } : null;
       const g = tile ? clipGhost(tile[0], tile[1]) : null;
-      return { held: true, label: dupe.label, n: dupe.clip.n, nb: dupe.clip.nb, rot: dupe.rot | 0, w: dupe.clip.w, h: dupe.clip.h, ghost: g && { ok: !!g.v.ok, short: g.v.short || g.v.msg || null, ax: g.ax, ay: g.ay, badNodes: g.badNodes.size, badTiles: g.badTiles.size } };
+      return { held: true, label: dupe.label, n: dupe.clip.n, nb: dupe.clip.nb, rot: dupe.rot | 0, w: dupe.clip.w, h: dupe.clip.h, ghost: g && { ok: !!g.v.ok, short: g.v.short || g.v.msg || null, ax: g.ax, ay: g.ay, badNodes: g.badNodes.size, badTiles: g.badTiles.size },
+        // (wave 2: the layout engine's answer the red ghost says — 'asking' until the pointer has rested, then { ok, msg })
+        laid: g && !g.v.ok && layable(dupe.clip) ? (r => r === undefined ? 'asking' : { ok: !!r.ok, msg: r.msg || null })(clipLaidFor(tile[0], tile[1])) : null };
     },
     dblClick: (tile) => { onDblClick(Object.assign(__test__._tileEvent(tile), { preventDefault() {} })); return { selection: selectionIds(), belts: (beltSel() || { links: [] }).links.length }; },
     click: (tile, o) => { const e = Object.assign(__test__._tileEvent(tile), o || {}); onDown(e); onUp(e); return { tool, selection: selectionIds() }; },

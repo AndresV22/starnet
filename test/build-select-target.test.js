@@ -27,7 +27,9 @@ const CODE = line1(/const CONNECT_TYPES = [^\n]+/) + line1(/const JUNCTION_TAG_T
   + between('const pathRects = path =>', '/* PICK WHAT GOES HERE')                 // commitHandGesture
   + between('function beltsLeftBehind(', 'function ghostInfo()')                    // beltsLeftBehind · moveMsg
   + between('let sendPvKey = null', '// a line as the floor names it')              // sendToPv (the one SEND TO verdict)
-  + between('function intakeAt(', '// the arc from an OUTBOX');                     // intakeAt · commitSendTo
+  + (src.indexOf('function intakeAt(') >= 0 ? between('function intakeAt(', 'function commitSendTo(') : '')   // (intakeAt is gone with the propmove SEND TO — build-13)
+  + between('function commitSendTo(', '// the arc from an OUTBOX')                    // commitSendTo
+  + between('function releaseDrag() {', 'let dupe = null;');                         // releaseDrag (every non-release way out of a drag)
 
 function rig() {
   const s = WM.create(); s.projectGeometry();
@@ -218,6 +220,88 @@ function drag(R, id, tiles, o) {
   const all = src + fs.readFileSync(require.resolve('../frontend/app/tutorial.js'), 'utf8') + fs.readFileSync(require.resolve('../frontend/app/workflowpanel.js'), 'utf8');
   A.ok(!/ORPHAN_SOURCE_SELECTED|DESELECT, THEN DRAG|deselect it first|deselect the SPLITTER|it was selected, so the drag MOVED it|lay a belt \(if unselected\)|DRAG ON FROM IT, THEN CLICK/.test(all),
     'no copy tells the user to deselect before belting any more');
+}
+
+/* ---------- wave 2 (release review, floor lane) ---------- */
+/* 11. build-20: a click on a GROUP member that drifts across a tile edge is still a click (it moved the whole line one tile) */
+{
+  const R = rig(), { s, ctx } = R;
+  const moved = [], looked = [];
+  ctx.commitGroupMove = d => moved.push(d.cur.tx - d.start.tx);
+  ctx.onInspect = p => looked.push(p && p.id);
+  ctx.groupIds = [R.B1, R.B2];
+  const [tx, ty] = tileOf(s, R.B1);
+  // the press as onDown makes it (source lock below): where the pointer went down rides along
+  ctx.drag = { mode: 'grouppress', propId: R.B1, start: { tx, ty }, cur: { tx, ty }, moved: false, add: false, cx: 1000, cy: 1000 };
+  ctx.onMove({ tx: tx + 1, ty, clientX: 1004, clientY: 1001, shiftKey: false });
+  A.eq(ctx.drag.mode, 'grouppress', 'a 4 px jitter across a tile seam is not a group move');
+  ctx.onUp({ tx: tx + 1, ty, clientX: 1004, clientY: 1001, pointerId: 1 });
+  A.eq([moved, looked], [[], [R.B1]], '…let go: the BAY is focused, nothing moved, no undo slot spent');
+  ctx.drag = { mode: 'grouppress', propId: R.B1, start: { tx, ty }, cur: { tx, ty }, moved: false, add: false, cx: 1000, cy: 1000 };
+  ctx.onMove({ tx: tx + 1, ty, clientX: 1006, clientY: 1000, shiftKey: false });
+  ctx.onMove({ tx: tx + 2, ty, clientX: 1030, clientY: 1000, shiftKey: false });
+  A.eq(ctx.drag.mode, 'groupmove', 'past the 12 px slop it is the group move');
+  ctx.onUp({ tx: tx + 2, ty, clientX: 1030, clientY: 1000, pointerId: 1 });
+  A.eq(moved, [2], '…by the full tile delta from the press');
+  const down = between('function onDown(ev) {', 'const CLICK_SLOP');
+  A.eq((down.match(/mode: ?'grouppress',[^}]*cx: ?ev\.clientX, ?cy: ?ev\.clientY/g) || []).length, 2, 'both group presses onDown makes carry where the pointer went down');
+  A.ok(/if\(drag\.mode==='grouppress'&&drag\.moved&&slipped\)drag\.mode='groupmove';/.test(between('function onMove(ev) {', 'function onUp(ev) {')), '…and onMove asks the slop before a group moves');
+}
+/* 12. build-16: a Ctrl+press on a belt is a press — a click opens its card, only a real drag reshapes */
+{
+  const R = rig(), { s, ctx } = R;
+  const cards = [];
+  ctx.openBeltCard = (x, y) => cards.push(x + ',' + y);
+  const l = (s.links() || []).find(x => x.from.prop === R.B1 && x.to.prop === R.B2), t = l.path[2];
+  const before = JSON.stringify(s.links()), undo = s.canUndo();
+  const press = () => ({ mode: 'reshapepress', linkId: l.id, from: { x: t.x, y: t.y }, start: { tx: t.x, ty: t.y }, cur: { tx: t.x, ty: t.y }, moved: false, cx: t.x * 100, cy: t.y * 100 });
+  ctx.drag = press();
+  ctx.onMove({ tx: t.x, ty: t.y + 1, clientX: t.x * 100, clientY: t.y * 100 + 5, shiftKey: false });
+  A.eq(ctx.drag.mode, 'reshapepress', 'a Ctrl+click that drifts 5 px across a tile edge stays a press');
+  ctx.onUp({ tx: t.x, ty: t.y + 1, clientX: t.x * 100, clientY: t.y * 100 + 5, pointerId: 1 });
+  A.eq(cards, [t.x + ',' + t.y], '…let go: the belt card opens');
+  A.ok(JSON.stringify(s.links()) === before && s.canUndo() === undo, '…and no RESHAPE BELT was committed (no undo slot)');
+  ctx.drag = press();
+  ctx.onMove({ tx: t.x, ty: t.y + 2, clientX: t.x * 100, clientY: t.y * 100 + 40, shiftKey: false });
+  A.eq(ctx.drag.mode, 'beltreshape', 'past the slop it is the reshape');
+  ctx.drag = null;
+  const down = between('function onDown(ev) {', 'const CLICK_SLOP');
+  A.ok(/mode:'reshapepress',linkId:matches\[0\]\.id/.test(down) && /if\(matches\.length>1\)\{sfx\('bad'\);flashTip\(ev,'THIS TILE CARRIES '\+matches\.length\+' BELTS — CTRL\+DRAG A TILE ONLY ONE BELT RIDES TO RESHAPE IT',false\);return;\}/.test(down)
+    && /if\(matches\.length===1\)\{/.test(down), 'a Ctrl+press on a loose / unlinked belt falls through to the belt card (it said THIS TILE CARRIES 0 BELTS); two belts on the tile say how to pick one');
+  A.ok(/\['Ctrl \+ drag a belt', 'reshape it'\]/.test(src) && /Ctrl\+drag reshapes it/.test(src), 'the gesture is on the key list and on the belt card');
+}
+/* 13. build-10: R's corner flip belongs to the drag it was pressed in — every way that drag ends consumes it */
+{
+  const R = rig(), { s, ctx } = R;
+  A.ok(s.connectBelt(R.B3, R.B5).ok, 'rig: B3 → B5');
+  ctx.flipPref = true;
+  const g = drag(R, R.B5, [[46, 13], [40, 13]]);
+  A.ok(g.plans[1] && g.plans[1].ok === false, 'rig: let go on a red verdict (a circle)');
+  A.eq(ctx.flipPref, false, 'a refused release consumes the flip (the next drag started flipped)');
+  ctx.flipPref = true;
+  drag(R, R.B3, [[46, 16], [40, 13]]);   // out over the floor and back onto the machine it left: let go where it started
+  A.eq(ctx.flipPref, false, 'a drag let go where it started consumes it too');
+  ctx.flipPref = true;
+  ctx.drag = { mode: 'handbelt', propId: R.B3, start: { tx: 40, ty: 13 }, cur: { tx: 46, ty: 16 }, moved: true };
+  ctx.releaseDrag();   // Esc / right-click / pointercancel / blur
+  A.eq(ctx.flipPref, false, '…and so does a hand drag dropped any other way');
+  ctx.flipPref = true;
+  ctx.drag = { mode: 'propmove', propId: R.CH, start: { tx: 36, ty: 16 }, cur: { tx: 38, ty: 16 }, moved: true };
+  ctx.releaseDrag();
+  A.eq(ctx.flipPref, true, 'a dropped MOVE leaves the CORNER key armed for the next belt drag (it never used it)');
+}
+/* 14. build-13 d: Shift let go over another line's INBOX before the release — the ghost was a plain (refused) MOVE, so is the release */
+{
+  const R = rig(), { s, ctx } = R;
+  ctx.selectedPropId = R.O2;
+  const [tx, ty] = tileOf(s, R.O2), before = JSON.stringify(s.serialize());
+  ctx.geoVer++;
+  ctx.drag = { mode: 'selectpress', propId: R.O2, start: { tx, ty }, cur: { tx, ty }, moved: false, add: false, cx: tx * 100, cy: ty * 100, sel: true };
+  for (const [x, y] of [[44, 20], [32, 4]]) ctx.onMove({ tx: x, ty: y, clientX: x * 100, clientY: y * 100, shiftKey: true });
+  A.eq(ctx.drag.mode, 'propmove', 'Shift held over the INBOX: a MOVE');
+  ctx.onUp({ tx: 32, ty: 4, clientX: 3200, clientY: 400, pointerId: 1, shiftKey: false });   // Shift up, no pointer move, then the release
+  A.eq(s.propById(R.O2).sendTo, undefined, 'the release never SENDS TO (the old propmove path did, against its own ghost)');
+  A.eq(JSON.stringify(s.serialize()), before, '…nothing changed (the move onto the INBOX is refused)');
 }
 
 A.report('build-select-target.test');

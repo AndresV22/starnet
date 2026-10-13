@@ -386,7 +386,10 @@ const lineOfIntake = (s, id) => plan(s).lines.find(l => l.intakes.includes(id));
   A.ok(/drawBeltPreview\(t, \{ path: good \}, GOOD\)/.test(dcg) && !/convey\.drawBelts/.test(dcg) && !/station\./.test(dcg), 'the paste ghost is drawn geometry off the memo — never convey.drawBelts, never a model call per frame');
   A.ok(/if \(g\.clip\) \{ drawClipGhost\(t, now, g\); return; \}/.test(build) && /if \(dupe\.type === 'lines'\) return clipGhost\(tx, ty\);/.test(fn('dupeGhost')) && /if \(dupe\.type === 'lines'\) return pasteClipAt\(w, ev\);/.test(fn('stampDupe')), 'a clip rides the COPY tool\'s own stamp (dupe.type \'lines\')');
   const pca = fn('pasteClipAt');
-  A.ok(/station\.pasteLines\(c, ax, ay, \{ agent: agentHere \}\)/.test(pca) && /LineEdit\.layoutGraphNear\(station, gr\.graph, \{ x: w\.tx, y: w\.ty \}\)/.test(pca) && /station\.pasteLinesLaid\(c, L, \{ agent: agentHere \}\)/.test(pca), 'a click lays it exactly — else laid out to fit near the click — else refused, said');
+  // (wave 2, build-04: the layout near the click is ONE function, layClipNear — the ghost's off-frame probe and the click both ask it,
+  //  and the click lays the very answer the ghost showed when it has one)
+  A.ok(/station\.pasteLines\(c, ax, ay, \{ agent: agentHere \}\)/.test(pca) && /lay = known \|\| layClipNear\(c, w\);/.test(pca) && /LineEdit\.layoutGraphNear\(station, gr\.graph, \{ x: at\.tx, y: at\.ty \}\)/.test(fn('layClipNear'))
+    && /station\.pasteLinesLaid\(c, lay\.L, \{ agent: agentHere \}\)/.test(pca), 'a click lays it exactly — else laid out to fit near the click — else refused, said');
   const key = fn('onKey');
   A.ok(/tool === 'dupe' && dupe && dupe\.type === 'lines' && !\(ev\.ctrlKey \|\| ev\.metaKey\)\) \{ ev\.preventDefault\(\); turnClip\(ev\.shiftKey \? 3 : 1, orientEv\(\)\); return; \}/.test(key) && key.indexOf('turnClip(') < key.indexOf('turnUnderCursor('), 'R turns a clip in hand (before R turns a prop)');
   A.ok(/\(ev\.key === 'x' \|\| ev\.key === 'X'\)\) \{ ev\.preventDefault\(\); cutSelected\(orientEv\(\)\); return; \}/.test(key) && /if \(held\.type === 'lines'\) \{ holdClip\(held, orientEv\(\)\); return; \}/.test(key), 'Ctrl+X cuts; Ctrl+V picks a clip up again');

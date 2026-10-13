@@ -141,8 +141,11 @@ const tutorialSrc = read('tutorial.js');
   // a machine moved away from its belts: the ghost and the drop both say the belts stay
   const cm = build.slice(build.indexOf('function commitPropMove('), build.indexOf('function commitPaint('));
   const mm = build.slice(build.indexOf('  function moveMsg('), build.indexOf('  function ghostInfo('));
-  A.ok(/beltsLeftBehind\(mp, mp\.x \+ dx, mp\.y \+ dy\)/.test(cm) && /feedback\(moved, ev, moveMsg\(moved, left, okMsg\)\)/.test(cm) && /its belts stayed behind/.test(mm), 'dropping a moved machine away from its belts says they stayed behind (a ring-rule floor)');
-  A.ok(/came with it/.test(mm) && /found no clear route/.test(mm) && /linkedFloor\(\)\) return 0;/.test(build), '…and on a linked floor that its belts came with it, or which found no route (conveyor links phase B)');
+  A.ok(/beltsLeftBehind\(mp, mp\.x \+ dx, mp\.y \+ dy\)/.test(cm) && /feedback\(moved, ev, moveMsg\(moved, left, 'relocated'\)\)/.test(cm) && /its belts stayed behind/.test(mm), 'dropping a moved machine away from its belts says they stayed behind (a ring-rule floor)');
+  // (wave 2, worldmodel-09: a belt that finds no route now REFUSES the move in its own words — moveProp's LINK_LOST, "Its belt finds no
+  //  clear route from there" — so the drop never lands with a belt taken up; test/floor-wave2 drives the refusal for real)
+  const wm = fs.readFileSync(path.join(__dirname, '..', 'frontend', 'app', 'worldmodel.js'), 'utf8');
+  A.ok(/came with it/.test(mm) && /if \(lost && lost\.length\) return Object\.assign\(sendFail\('LINK_LOST', 'Its belt finds no clear route from there/.test(wm) && /linkedFloor\(\)\) return 0;/.test(build), '…and on a linked floor that its belts came with it, or the move is refused because one found no route (conveyor links phase B)');
 }
 
 A.report('refit-playtest-fixes.test');

@@ -48,7 +48,7 @@ function rig() {
   ctx.deleteSelectedRoom({}); R.tick(300);
   A.ok(/press Delete again/.test(said[said.length - 1]), 'the first Delete arms');
   ctx.deleteSelectedRoom({}); R.tick(300);
-  A.ok(/THIS CUTS 1 SEND TO/.test(said[said.length - 1]) && /repeat DELETE/.test(said[said.length - 1]), 'the second warns that a SEND TO is cut — ' + said[said.length - 1]);
+  A.ok(/THIS CUTS 1 SEND TO/.test(said[said.length - 1]) && / — DELETE AGAIN TO CONTINUE · UNDO RESTORES THEM$/.test(said[said.length - 1]), 'the second warns that a SEND TO is cut — ' + said[said.length - 1]);
   A.ok(!!s.roomById(R.rb), '…the room still stands');
   A.eq(ctx.selectedRoomId, R.rb, '…and STAYS selected, so "repeat DELETE" can mean the next Delete');
   R.tick(1500);   // (the warning re-armed the room: the next Delete inside the 2.5 s arm confirms)
@@ -102,5 +102,23 @@ function rig() {
   ctx.deleteSelectedRoom({}); R.tick(300); ctx.deleteSelectedRoom({});   // room B: arm, then the cut warning
   R.tick(4200); ctx.deleteSelectedRoom({});
   A.ok(!s.roomById(R.rb), 'room B\'s own warning: the repeat 4 s later deletes it');
+}
+{
+  // build-15 (wave 2): the warning names the gesture that armed it (Ctrl+X, a right-click / REMOVE tap, Delete), in one case — and
+  // the confirm is that same gesture: "repeat DELETE / REMOVE" told a Ctrl+X user to repeat a key they never pressed
+  const R = rig(), { s, ctx, said } = R;
+  const target = s.props().find(p => p.t === 'intake' && s.props().some(o => o.t === 'outbox' && o.sendTo === p.id));
+  A.ok(ctx.warnSendCuts([target.id], {}, null, 'CUT (CTRL+X)'), 'Ctrl+X on it warns');
+  const m = said[said.length - 1];
+  A.ok(/ — CUT \(CTRL\+X\) AGAIN TO CONTINUE · UNDO RESTORES THEM$/.test(m) && m === m.toUpperCase(), 'the cut warning asks for Ctrl+X again, in one case — ' + m);
+  A.ok(ctx.warnSendCuts([target.id], {}, null, 'RIGHT-CLICK / REMOVE'), 'a different gesture is not the confirm: it warns in its own words');
+  A.ok(/RIGHT-CLICK \/ REMOVE AGAIN TO CONTINUE/.test(said[said.length - 1]), '…' + said[said.length - 1]);
+  A.eq(ctx.warnSendCuts([target.id], {}, null, 'RIGHT-CLICK / REMOVE'), false, '…and repeating THAT gesture confirms');
+  A.ok(ctx.warnSendCuts([target.id], {}), 'Delete warns');
+  A.ok(/ — DELETE AGAIN TO CONTINUE/.test(said[said.length - 1]), '…asking for DELETE again (the default) — ' + said[said.length - 1]);
+  const src2 = src.slice(src.indexOf('function deleteLine('), src.indexOf('function deleteLine(') + 900);
+  A.ok(/const cut = verb === 'CUT'[^\n]*\n[^\n]*warnSendCuts\(m\.ids, ?ev, ?null, ?cut \? 'CUT \(CTRL\+X\)' : undefined\)/.test(src2) || /cut = verb === 'CUT';[\s\S]{0,200}warnSendCuts\(m\.ids,\s*ev,\s*null,\s*cut \? 'CUT \(CTRL\+X\)' : undefined\)/.test(src2),
+    'a whole-line Ctrl+X warns in CUT words (cut is known before the warning)');
+  A.ok(/warnSendCuts\(\[p\.id\],\s*ev,\s*null,\s*'RIGHT-CLICK \/ REMOVE'\)/.test(src), 'a right-click / REMOVE tap warns in its own words');
 }
 A.report('build-room-delete-sendto.test');
