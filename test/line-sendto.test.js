@@ -59,7 +59,9 @@ const lineOf = (pl, id) => pl.lineOfProp[id];
   A.ok(P.ok(p1) && !p1.errors.some(e => /^SEND_TO/.test(e.code)), 'a clean SEND TO is no finding');
 
   // the same pointer again burns no undo slot
-  st.undo(); A.eq(st.propById(a.outbox).sendTo, undefined, 'UNDO takes the pointer back');
+  const again = st.setSendTo(a.outbox, b.intake);
+  A.ok(again.ok && again.sendTo === b.intake, 'the same SEND TO again answers ok');
+  st.undo(); A.eq(st.propById(a.outbox).sendTo, undefined, 'ONE UNDO takes the pointer back (the repeat burned no slot)');
   st.redo(); A.eq(st.propById(a.outbox).sendTo, b.intake, 'REDO puts it back');
 
   // refusals
@@ -85,6 +87,9 @@ const lineOf = (pl, id) => pl.lineOfProp[id];
   // NOWHERE
   const nw = st.setSendTo(b.outbox, null);
   A.ok(nw.ok && st.propById(b.outbox).sendTo === undefined, 'NOWHERE clears it');
+  A.ok(st.setSendTo(b.outbox, null).ok, 'NOWHERE again is ok');
+  st.undo(); A.eq(st.propById(b.outbox).sendTo, c.intake, 'a second NOWHERE burned no slot: one UNDO restores B → C');
+  st.redo(); A.eq(st.propById(b.outbox).sendTo, undefined, '…and REDO clears it again');
   A.ok(st.setSendTo(c.outbox, a.intake).ok, 'with B → C gone, C → A is no circle (C → A → B)');
 }
 
