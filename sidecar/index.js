@@ -20078,9 +20078,14 @@ async function runOnceCore(o) {
   // NS-5: bind the per-run path-trust guard — the ONE way an fs call may reach outside the jail, mediated
   // against the station's blessed project roots. surface + pathPrompt are per-run: an autonomous run passes
   // no prompt, so pathTrustCore hard-denies any un-blessed outside path (the unattended rule).
+  /* HAND-OFF READS (2026-10-13): the exact files another agent saved that THIS run may read — set only by the host:
+     team.dispatch hands a later worker its earlier siblings' files (o.handoffReads), and grants the lead its workers'
+     saved files once they return (grantReads below). Read-only, exact real paths, gone when the run ends. */
+  const runReadGrants = new Set((Array.isArray(o.handoffReads) ? o.handoffReads : []).map(String).filter(Boolean).slice(0, 64));
   const runPathTrust = (abs, o2) => pathTrustCore.guard(abs, {
     scope: (o2 && o2.scope) || 'read', surface: surface, prompt: pathPrompt || null,
     agentId: (o2 && o2.agentId) || agentId,
+    readGrants: Array.from(runReadGrants),
     // who CAUSED this I/O (recency metadata only): a watched run, or the Commander's owner-trusted channel DM.
     userTouch: surface === 'interactive' || ownerTrusted,
     // This Computer widens the path envelope without changing approval posture: ASK still prompts before
@@ -20164,6 +20169,24 @@ async function runOnceCore(o) {
     runOnce, roster: () => agentRoster, key: runKey, model, provider: providerId, baseUrl, reasoningEffort, subagents,
     finalizeDispatchDelivery: (id, envelope) => dispatchDeliveryStore.finalizeDispatchDelivery(dispatchDeliveryDeps, id, envelope),
     runRecord: (id) => runStore.latest(id),   // team.subagents {runId}: verify a foreground dispatch against run history (#57)
+    // THE HAND-OFF: where a worker's saved files really are (existing files only), and the lead's right to read them
+    handoffFiles: async (aid, list) => {
+      const out = [];
+      if (!/^[A-Za-z0-9_-]{1,40}$/.test(String(aid || ''))) return out;
+      const bases = [path.join(WORKSPACES, String(aid))].concat(o.projectRoot ? [String(o.projectRoot)] : []);
+      for (const a of (Array.isArray(list) ? list : []).slice(0, 20)) {
+        const p = a && typeof a.path === 'string' ? a.path : '';
+        if (!p) continue;
+        for (const base of (path.isAbsolute(p) ? [''] : bases)) {
+          let real = null;
+          try { real = await fsp.realpath(base ? path.resolve(base, p) : path.resolve(p)); if (!(await fsp.stat(real)).isFile()) real = null; }
+          catch (_) { real = null; }   // not there (yet): nothing to hand on, never a guessed path
+          if (real) { out.push({ path: p, abs: real }); break; }
+        }
+      }
+      return out;
+    },
+    grantReads: (paths) => { for (const p of (Array.isArray(paths) ? paths : [])) if (runReadGrants.size < 64 && p) runReadGrants.add(String(p)); },
     coordinateResults: require('./overseer.js').isCoordinatorRun({ ...o, agentId, surface }),
     // every coordinator worker is filed in its own thread under the conversation that delegated it (orchestration.js
     // fileUnderThreads). Idempotent per requestId; a taken title gets a numeric suffix rather than refusing the work.

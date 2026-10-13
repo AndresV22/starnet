@@ -202,6 +202,17 @@
             const ownReal = await realpathOrSelf(P.join(workspaceRoot, agentId));
             if (pathInside(real, ownReal)) return { base: ownReal, abs: norm };
           }
+          /* THE HAND-OFF EXCEPTION (2026-10-13): a READ of one EXACT file the host handed this run (a dispatched
+             worker reading what the worker before it saved; a lead reading its workers' saved files). Exact real path
+             only — never a folder, never a write, never a path the model named on its own. */
+          if (scope === 'read' && Array.isArray(o.readGrants) && o.readGrants.length) {
+            for (const g of o.readGrants) {
+              if (!g || !P.isAbsolute(String(g))) continue;
+              let gReal = '';
+              try { gReal = await realpathOrSelf(String(g)); } catch (e) { continue; }   // a granted file since deleted grants nothing
+              if (gReal && pathInside(real, gReal) && pathInside(gReal, real)) return { base: P.dirname(real), abs: norm, handoff: true };
+            }
+          }
           throw new Error('path is inside another agent workspace and cannot be shared by a project grant: ' + norm);
         }
       }

@@ -425,13 +425,76 @@
        working state. */
     const HANDOFF_CONTEXT_MAX = 8000;
     function handoffContext(raw) { return String(raw == null ? '' : raw).trim().slice(0, HANDOFF_CONTEXT_MAX); }
-    function openingMessage(prompt, context, resultSchema) {
+    function openingMessage(prompt, context, resultSchema, earlier) {
       const ask = resultSchema
         ? String(prompt || '') + '\n\n[STRUCTURED RESULT CONTRACT] Return ONLY strict JSON matching this schema: ' + JSON.stringify(resultSchema)
         : String(prompt || '');
-      if (!context) return ask;
-      return '[LEAD CONTEXT — what your lead already established for this task. Treat it as settled starting knowledge; do not re-derive it, and re-verify it only where it contradicts what you observe.]\n'
-        + context + '\n\n[YOUR SUBTASK]\n' + ask;
+      const parts = [];
+      if (context) parts.push('[LEAD CONTEXT — what your lead already established for this task. Treat it as settled starting knowledge; do not re-derive it, and re-verify it only where it contradicts what you observe.]\n' + context);
+      if (earlier) parts.push(EARLIER_HEADER + '\n' + earlier);
+      if (!parts.length) return ask;
+      return parts.join('\n\n') + '\n\n[YOUR SUBTASK]\n' + ask;
+    }
+    /* THE HAND-OFF BETWEEN WORKERS (2026-10-13 live walkthrough). A sequential dispatch ran its workers one after
+       another but told each one NOTHING about the ones before it: asked for "a researcher finds 3 launch emails, a
+       copywriter drafts ours from them", the copywriter re-did the research from scratch (25 web steps), ran out of
+       its slice, and the Commander got no email after paying for both. Each later worker in a SEQUENTIAL dispatch now
+       opens with what the earlier workers returned (bounded) plus the exact files they saved, and may READ those
+       exact files (host-resolved, read-only, this run only — see pathtrust readGrants). A worker that read outside
+       content passes that taint on: the next worker starts under the same limits. Parallel workers run at the same
+       time, so nothing is handed between them. */
+    const EARLIER_HEADER = '[EARLIER WORKERS IN THIS HAND-OFF — their finished output is your input. Build on it; do not redo their work. You can fs_read the files listed under each one at those exact paths.]';
+    const EARLIER_EACH_MAX = 3000, EARLIER_MAX = 8000;
+    // user-visible text for a row whose `result` carries a model-directed note (the timeout row): never shown to the Commander
+    const shownText = new WeakMap();
+    const userTextOf = (row) => shownText.has(row) ? shownText.get(row) : String((row && row.result) || '');
+    const workerName = (aid) => { const id = (crewNow && crewNow.get && crewNow.get(aid)) || null; return String((id && id.name) || aid || 'worker').toUpperCase(); };
+    let crewNow = null;
+    async function resolveHandoffFiles(aid, artifacts) {
+      if (typeof deps.handoffFiles !== 'function' || !Array.isArray(artifacts) || !artifacts.length) return [];
+      try { const got = await deps.handoffFiles(aid, artifacts); return Array.isArray(got) ? got.filter(f => f && f.abs) : []; }
+      catch (e) { failNote('dispatch.handoff-files', e); return []; }
+    }
+    async function earlierHandoff(rows) {
+      const usable = (rows || []).filter(r => r && (r.reason === 'done' || r.reason === 'timeout'));
+      if (!usable.length) return null;
+      const reads = [], blocks = [];
+      for (const r of usable) {
+        const files = await resolveHandoffFiles(r.agentId, r.artifacts);
+        for (const f of files) reads.push(String(f.abs));
+        const text = userTextOf(r).trim();
+        const clipped = text.length > EARLIER_EACH_MAX ? text.slice(0, EARLIER_EACH_MAX) + ' …(cut — read the file for the rest)' : text;
+        blocks.push('— ' + workerName(r.agentId) + (r.reason === 'timeout' ? ' (UNFINISHED — ran out of time)' : '') + ':\n'
+          + (clipped || '(returned no text)') + (files.length ? '\nFiles: ' + files.map(f => f.abs).join(', ') : ''));
+      }
+      return { text: blocks.join('\n\n').slice(0, EARLIER_MAX), reads, taint: taintOfRows(usable) || '' };
+    }
+    /* A WORKER'S CLOCK STOPS WHILE IT WAITS ON THE COMMANDER. The slice is for the worker's work: an fs_write approval
+       sitting unanswered (the Commander was in BUILD MODE) used to drain it, and the worker was cut off with its draft
+       unsaved. hold()/release() pause the slice around every consent prompt; the dispatch credits the held time back to
+       the whole wall clock (bounded, so a prompt nobody answers can't hold a dispatch open forever). Needs the host
+       clock — without one (bare unit callers) the slice runs as before. */
+    const APPROVAL_HOLD_MAX_MS = (typeof deps.approvalHoldMaxMs === 'number' && deps.approvalHoldMaxMs >= 0) ? deps.approvalHoldMaxMs : 900000;
+    function pausableSlice(ms, onExpire, clockNow, onHeld) {
+      let left = ms, startedAt = clockNow(), timer = setTimeout(onExpire, ms), holds = 0, heldAt = 0;
+      return {
+        hold() {
+          if (holds++ > 0 || !timer) return;
+          clearTimeout(timer); timer = null;
+          const t = clockNow(); left -= Math.max(0, t - startedAt); heldAt = t;
+        },
+        release() {
+          if (holds === 0 || --holds > 0) return;
+          const t = clockNow(); if (onHeld) onHeld(Math.max(0, t - heldAt));
+          startedAt = t; timer = setTimeout(onExpire, Math.max(1, left));
+        },
+        clear() { if (timer) clearTimeout(timer); timer = null; holds = 0; }
+      };
+    }
+    function holdDuringConsent(consent, slice) {
+      if (typeof consent !== 'function' || !slice) return consent;
+      const held = async function () { slice.hold(); try { return await consent.apply(this, arguments); } finally { slice.release(); } };
+      return Object.assign(held, consent);
     }
     const perWorker = (typeof deps.perWorker === 'number' && isFinite(deps.perWorker) && deps.perWorker > 0) ? deps.perWorker : 0;
     // Zero means no user-work quota. Narrow task contracts and structured-output repair
@@ -590,8 +653,8 @@
       let out = null;
       const args = {
         streamId: job.streamId, sessionTitle: job.sessionTitle || job.session || '',
-        agentId: job.agentId, runId: row.runId || '', prompt: job.prompt, text: row.result, reason: row.reason || '',
-        dispatchDelivery: { state: 'final', text: row.result || '', reason: row.reason || 'error', repairRunId: row.repairRunId || '' },
+        agentId: job.agentId, runId: row.runId || '', prompt: job.prompt, text: userTextOf(row), reason: row.reason || '',
+        dispatchDelivery: { state: 'final', text: userTextOf(row), reason: row.reason || 'error', repairRunId: row.repairRunId || '' },
         parentStreamId: job.parentStreamId || undefined   // a fresh child thread the page may not have adopted yet
       };
       try { out = await station.request('station.deliver', args); }
@@ -606,7 +669,7 @@
     }
 
     async function finalizeWorkerDelivery(runId, row) {
-      const envelope = { state: 'final', text: row.result || '', reason: row.reason || 'error', repairRunId: row.repairRunId || '' };
+      const envelope = { state: 'final', text: userTextOf(row), reason: row.reason || 'error', repairRunId: row.repairRunId || '' };
       // a refused / never-admitted run filed no execution row: there is nothing to make recoverable
       const recorded = typeof deps.runRecord !== 'function' || !!deps.runRecord(runId);
       if (recorded && typeof deps.finalizeDispatchDelivery === 'function') {
@@ -634,7 +697,8 @@
       // The registry timeout is now only a BACKSTOP: it sits a minute above the dispatch's own budget so the
       // in-tool wall clock (which returns partial rows) always fires first. Letting the registry's timeout be the
       // primary mechanism is what threw away every completed worker's result (2026-07-26 audit finding A).
-      timeoutMs: dispatchBudgetMs + 60000,
+      // + the bounded time workers may spend paused on the Commander's approval (pausableSlice credits it back)
+      timeoutMs: dispatchBudgetMs + (hasClock ? APPROVAL_HOLD_MAX_MS : 0) + 60000,
       // CONSENT-GATED (2026-07-14, closes the parked P1): delegation fans out REAL autonomous agent loops that
       // spend budget — if untrusted content in the lead's context (a fetched page, a channel message) injects
       // "dispatch a worker to do X", the human must get a say first. Same semantics as team.summon: the APPROVAL
@@ -642,7 +706,7 @@
       // user keeps the frictionless flow by choosing it. Lead-only conferral + budget caps + the concurrency
       // ceiling + autonomous workers (default-deny) all still stand underneath.
       name: 'team.dispatch', capability: 'orchestrator', scope: 'execute', requiresConsent: true,
-      description: 'Delegate subtasks to your specialist crew. Each worker runs its OWN real agent loop (live web search/read, files, memory) and returns its result for you to synthesize into the final answer. Address workers by the agentId listed under YOUR TEAM. Runs sequentially by default; pass parallel:true to run them at once. Pass background:true to start watchable workers and keep working. SESSIONS: pass `session` on a worker (the session\'s NAME, as the Commander says it) to make that subtask run in — and be filed under — that session instead of this one. Without it, each worker\'s work is filed on this conversation\'s card. A name that does not match one on this station is REFUSED, not guessed, and that worker does not run. FILES: in a conversation scoped to a trusted project, a worker\'s RELATIVE file paths (fs_write, image_generate, voice_generate) land in that project folder, the same place yours do, so fs_read finds them by the same relative path. Otherwise each worker saves into its OWN private workspace — you cannot fs.read another agent\'s private files, so never "verify" such a file with your own file tools (absence in YOUR workspace proves nothing); every save receipt names the absolute location. The result\'s artifacts list is the proof of what each worker saved, and the Commander is shown those files as cards automatically — reference them as "<workerId>\'s workspace: <path>". COMMANDS: in ASK mode a delegated worker cannot run shell commands (shell_exec / verify_run are withheld from delegated runs, WORKBENCH or not, unless that worker is set to Full Access); run commands in this conversation yourself, or have the worker return the exact commands to you. BUILDER: builder:true lends that worker your station.map/plan/build for this job; builds follow your approval setting.',
+      description: 'Delegate subtasks to your specialist crew. Each worker runs its OWN real agent loop (live web search/read, files, memory) and returns its result for you to synthesize into the final answer. Address workers by the agentId listed under YOUR TEAM. Runs sequentially by default; pass parallel:true to run them at once. Pass background:true to start watchable workers and keep working. SESSIONS: pass `session` on a worker (the session\'s NAME, as the Commander says it) to make that subtask run in — and be filed under — that session instead of this one. Without it, each worker\'s work is filed on this conversation\'s card. A name that does not match one on this station is REFUSED, not guessed, and that worker does not run. FILES: in a conversation scoped to a trusted project, a worker\'s RELATIVE file paths (fs_write, image_generate, voice_generate) land in that project folder, the same place yours do, so fs_read finds them by the same relative path. Otherwise each worker saves into its OWN private workspace. After the dispatch you may fs_read EXACTLY the files a worker\'s row lists (artifacts[].abs) — no other path into another agent\'s workspace works, so never guess one. The result\'s artifacts list is the proof of what each worker saved, and the Commander is shown those files as cards automatically. ORDER: workers run one after another by default, and each later worker is handed the earlier workers\' results and can read their files — so list a worker that needs another\'s output AFTER it, and only pass parallel:true for independent subtasks. COMMANDS: in ASK mode a delegated worker cannot run shell commands (shell_exec / verify_run are withheld from delegated runs, WORKBENCH or not, unless that worker is set to Full Access); run commands in this conversation yourself, or have the worker return the exact commands to you. BUILDER: builder:true lends that worker your station.map/plan/build for this job; builds follow your approval setting.',
       schema: {
         type: 'object', required: ['workers'], properties: {
           workers: {
@@ -668,6 +732,10 @@
         if (typeof runOnce !== 'function') return { content: 'orchestration unavailable (no run host)', summary: 'error' };
         const leadId = (ctx && ctx.agentId) || 'agent';
         const crew = roster() || new Map();
+        crewNow = crew;
+        // wall-clock time this dispatch's workers spent waiting on the Commander's approval (credited back, bounded)
+        let heldTotal = 0;
+        const creditHeld = (ms) => { heldTotal = Math.min(APPROVAL_HOLD_MAX_MS, heldTotal + (Number(ms) || 0)); };
         // NO SILENT CAPS (2026-07-26 orchestration audit): the cap used to `slice(0, maxWorkers)` and say nothing,
         // so a 6-worker decomposition became a 4-worker dispatch reporting "4 done" — and the lead then wrote the
         // Commander a confident final answer covering two subtasks that never ran. The overflow now comes BACK as
@@ -738,7 +806,9 @@
             if (deliver) {
               if (job.parentStreamId) {
                 row.session = job.sessionTitle || job.streamId;
-                const p = deliverToSession(job, Object.assign({}, row));
+                const copy = Object.assign({}, row);
+                if (shownText.has(row)) shownText.set(copy, shownText.get(row));
+                const p = deliverToSession(job, copy);
                 if (p && typeof p.catch === 'function') p.catch(e => failNote('dispatch.thread-delivery', e));
               } else await deliverToSession(job, row);
             }
@@ -754,11 +824,16 @@
             : allottedWallMs;
           const child = wallMs ? childAbort(parentSignal) : null;
           const ac = child && child.ac;
-          let timedOut = false, timer = null;
-          if (ac) timer = setTimeout(() => { timedOut = true; abort(ac); }, wallMs);
+          let timedOut = false, timer = null, slice = null;
+          if (ac) {
+            const expire = () => { timedOut = true; abort(ac); };
+            // the slice pauses while this worker waits on the Commander (see pausableSlice) — host clock required
+            if (hasClock) slice = pausableSlice(wallMs, expire, now, creditHeld);
+            else timer = setTimeout(expire, wallMs);
+          }
           const timeoutRow = (res) => {
             const partial = res ? (lastAssistant(res.messages) || '') : '';
-            return {
+            const row = {
               agentId: job.agentId, reason: 'timeout',
               result: (partial ? partial + '\n\n' : '')
                 + '[STOPPED — this worker used up its ' + Math.round(wallMs / 1000) + 's slice of the dispatch wall clock'
@@ -767,14 +842,24 @@
               usd: (res && res.usd) || 0,
               taintedBy: taintOfRun(res) || undefined
             };
+            // what it DID save before the clock ran out still counts (and still hands on)
+            if (res && Array.isArray(res.artifacts) && res.artifacts.length) row.artifacts = res.artifacts.map(a => Object.assign({}, a, { agentId: job.agentId, workspace: job.agentId }));
+            // the bracketed note is for the LEAD; the Commander sees the partial work only (the card already says it ran out of time)
+            shownText.set(row, partial);
+            return row;
           };
           let result;
-          const contractedPrompt = openingMessage(job.prompt, job.context, job.resultSchema);
+          const handoff = o2.handoff || null;
+          const contractedPrompt = openingMessage(job.prompt, job.context, job.resultSchema, handoff && handoff.text);
           const previousMessages = job.sessionContext && job.sessionContext.messages || [];
           noteSessionActivity('station.dispatch_start', job, workerRunId);
           try {
+            const conn = connectorOptions(ctx);
             result = await runOnce({
-              ...projectOptions(job.sessionContext || ctx), ...connectorOptions(ctx),
+              ...projectOptions(job.sessionContext || ctx), ...conn,
+              // THE HAND-OFF: what the earlier workers read, this one inherits; the files they saved, it may read
+              ...(handoff && handoff.taint ? { initialTaint: conn.initialTaint || handoff.taint } : {}),
+              ...(handoff && handoff.reads && handoff.reads.length ? { handoffReads: handoff.reads.slice() } : {}),
               key: wire.key, provider: wire.provider, baseUrl: wire.baseUrl,
               // Class Loadouts S1: the WORKER runs at its OWN class-applied reasoning effort (roster record), not the
               // lead's — a dispatched specialist honors its loadout. Falls back to the lead's effort when unset.
@@ -802,7 +887,8 @@
               // ever consulted. So of the WORKBENCH grant a worker receives, shell.exec and verify.run never reach the
               // model at all; only its background-shell and browser-test tools survive. Widening that is a deliberate
               // permissions-surface decision, not something to fix by editing this comment.
-              consent: ctx && ctx.consent,
+              // ...and the worker's slice pauses while one of those prompts waits on the Commander (pausableSlice)
+              consent: holdDuringConsent(ctx && ctx.consent, slice),
               extraObjects: kitFor(job.builder),   // + the LENT BUILDER when the lead dispatched it with builder:true
               maxCostUsd: perWorker,           // a runaway worker can't blow the lead's per-run ceiling
               maxIters: bounded ? lowerPositive(workerMaxIters, bounded.workerMaxIters) : workerMaxIters,
@@ -814,6 +900,7 @@
             return finish({ agentId: job.agentId, reason: 'error', result: 'worker run failed: ' + ((e && e.message) || e), usd: 0 });
           } finally {
             if (timer) clearTimeout(timer);
+            if (slice) slice.clear();
             if (child) child.detach();
           }
           if (timedOut) return finish(timeoutRow(result));   // keep whatever partial text the aborted run did produce
@@ -879,6 +966,16 @@
           // cards via the forwarded deliverable events). Never invent paths beyond this list.
           if (artifacts.length) {
             row.artifacts = artifacts.map(a => Object.assign({}, a, { agentId: job.agentId, workspace: job.agentId }));
+            // the REAL location of each saved file (host-resolved, existing files only), and the lead may now read
+            // exactly those — it used to guess "/tmp/<worker>/…" paths and ask the Commander to approve them
+            const files = await resolveHandoffFiles(job.agentId, row.artifacts);
+            for (const f of files) {
+              const a = row.artifacts.find(x => x && x.path === f.path);
+              if (a) a.abs = f.abs;
+            }
+            if (files.length && typeof deps.grantReads === 'function') {
+              try { deps.grantReads(files.map(f => f.abs)); } catch (e) { failNote('dispatch.grant-reads', e); }
+            }
           }
           return finish(row, true);
         };
@@ -914,7 +1011,7 @@
         const waves = [];
         for (let i = 0; i < jobs.length; i += size) waves.push(jobs.slice(i, i + size));
         const leftAt = (w) => hasClock
-          ? dispatchBudgetMs - (now() - startedAt)
+          ? dispatchBudgetMs - (now() - startedAt - heldTotal)   // time spent waiting on the Commander is not the workers' time
           : dispatchBudgetMs - Math.floor(dispatchBudgetMs * w / waves.length);   // no clock: fixed even shares
         const notStartedRow = (job) => ({
           agentId: job.agentId, reason: 'not-dispatched', usd: 0,
@@ -926,7 +1023,9 @@
           const left = leftAt(w);
           if (left <= 0) { for (const j of waves[w]) out.push(notStartedRow(j)); continue; }
           const share = Math.max(1, Math.floor(left / (waves.length - w)));
-          const done = await Promise.all(waves[w].map(j => runWorker(j, { wallMs: share })));
+          // SEQUENTIAL: each later worker is handed what the earlier ones returned and saved (earlierHandoff)
+          const handoff = (!args.parallel && out.length) ? await earlierHandoff(out) : null;
+          const done = await Promise.all(waves[w].map(j => runWorker(j, { wallMs: share, handoff })));
           for (const r of done) out.push(r);
         }
         /* ONE RETRY PASS for a refusal. A 'refused' row means the admission gate was full at that instant — a
@@ -935,9 +1034,10 @@
            retrying it is free. `out` is built in job order, so out[i] pairs with jobs[i] (overflow is appended after). */
         for (let i = 0; i < out.length && i < jobs.length; i++) {
           if (out[i].reason !== 'refused') continue;
-          const left = hasClock ? dispatchBudgetMs - (now() - startedAt) : Math.floor(dispatchBudgetMs / jobs.length);
+          const left = hasClock ? dispatchBudgetMs - (now() - startedAt - heldTotal) : Math.floor(dispatchBudgetMs / jobs.length);
           if (left <= 0) break;
-          const retried = await runWorker(jobs[i], { wallMs: left });
+          const retryHandoff = (!args.parallel && i > 0) ? await earlierHandoff(out.slice(0, i)) : null;
+          const retried = await runWorker(jobs[i], { wallMs: left, handoff: retryHandoff });
           out[i] = (retried.reason === 'refused') ? Object.assign(retried, { retried: true }) : retried;
         }
         out = out.concat(overflowRows());

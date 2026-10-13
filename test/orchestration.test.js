@@ -173,7 +173,8 @@ const tick = () => new Promise(resolve => setImmediate(resolve));
   A.ok(Array.isArray(row.artifacts) && row.artifacts.length === 1, 'the dispatch result carries the worker artifact ledger');
   A.eq(row.artifacts[0].workspace, 'designer', "each artifact is stamped with the owning WORKSPACE (the lead can answer 'where is it' truthfully)");
   A.eq(row.artifacts[0].path, 'images/x.png', 'the artifact keeps its jail-relative path');
-  A.ok(/private workspace/.test(dispatchTool.description) && /cannot fs\.read/.test(dispatchTool.description), "the tool contract teaches the lead that worker files are NOT in its own jail (the ghost-file reply)");
+  A.ok(/private workspace/.test(dispatchTool.description) && /fs_read EXACTLY the files a worker's row lists/.test(dispatchTool.description) && /never guess one/.test(dispatchTool.description),
+    "the tool contract teaches the lead that worker files live in the worker's workspace and only the listed files are readable (the ghost-file reply)");
 }
 
 // ---- self / unknown targets are rejected WITHOUT a run ----
@@ -1204,7 +1205,12 @@ for (const mode of ['invalid', 'error', 'refused']) {
   A.ok(opening.indexOf('[LEAD CONTEXT') === 0, 'the handoff block leads the opening message');
   A.ok(opening.indexOf('config lives at /srv/app/config.yaml') > 0, 'the lead-authored context rides to the worker verbatim');
   A.ok(opening.indexOf('[YOUR SUBTASK]') > 0 && opening.indexOf('summarize the config') > opening.indexOf('[YOUR SUBTASK]'), 'the ask itself stays LAST, under its own header');
-  A.eq(String(ro.calls[1].messages[0].content), 'no-context control', 'a worker without context gets the exact pre-G6 opening message (byte-identical)');
+  // the second worker of a SEQUENTIAL dispatch is now handed the first worker's output (the hand-off, below) — so
+  // the byte-identical control is a worker dispatched alone
+  const roSolo = fakeRunOnce();
+  const { dispatchTool: dSolo } = makeOrchestrationTools({ runOnce: roSolo, roster: () => roster, key: 'k', model: 'lead-model', newId: counter() });
+  await dSolo.run({ workers: [{ agentId: 'researcher', prompt: 'no-context control' }] }, ctx);
+  A.eq(String(roSolo.calls[0].messages[0].content), 'no-context control', 'a lone worker without context gets the exact pre-G6 opening message (byte-identical)');
 
   // context composes with a result contract: context first, prompt, then the JSON contract suffix.
   const ro2 = fakeRunOnce(async () => ({ reason: 'done', messages: [{ role: 'assistant', content: '{"ok":true}' }], usd: 0.1 }));
@@ -1292,6 +1298,106 @@ for (const mode of ['invalid', 'error', 'refused']) {
     A.eq((await noHistory.run({ runId: row.runId }, ctx)).summary, 'unavailable', 'without a run-history reader the lookup says so instead of guessing');
   } finally { try { fs.rmSync(root, { recursive: true, force: true }); } catch (_) {} }
 }
+// ---- THE HAND-OFF BETWEEN WORKERS (2026-10-13 live walkthrough): "a researcher finds 3 launch emails, a copywriter
+//      drafts ours from them" — the copywriter used to be told nothing and re-did the research. A later worker in a
+//      SEQUENTIAL dispatch opens with the earlier workers' output + the exact files they saved, may read those files,
+//      and inherits their taint; a parallel dispatch hands nothing on. ----
+{
+  const ro = fakeRunOnce(async (o) => o.agentId === 'researcher'
+    ? { reason: 'done', messages: [{ role: 'assistant', content: 'FOUND: LM Studio, Ollama, Claude launch emails' }], usd: 0.1,
+        artifacts: [{ kind: 'file', path: 'competitor-launch-emails.md', bytes: 6900 }], taintedBy: 'web.search' }
+    : { reason: 'done', messages: [{ role: 'assistant', content: 'DRAFT: launch email' }], usd: 0.1 });
+  const roster = new Map([['researcher', { name: 'Research' }], ['copywriter', { name: 'Copy' }]]);
+  const granted = [];
+  const { dispatchTool } = makeOrchestrationTools({ runOnce: ro, roster: () => roster, key: 'k', model: 'm', newId: counter(),
+    handoffFiles: async (aid, list) => list.map(a => ({ path: a.path, abs: '/ws/' + aid + '/' + a.path })),
+    grantReads: (paths) => granted.push(...paths) });
+  const r = await dispatchTool.run({ workers: [
+    { agentId: 'researcher', prompt: 'find 3 competitor launch emails' },
+    { agentId: 'copywriter', prompt: 'draft our launch email from the research' }
+  ] }, { agentId: 'lead', signal: { aborted: false }, emit: () => {}, consent: {} });
+  const first = String(ro.calls[0].messages[0].content), second = String(ro.calls[1].messages[0].content);
+  A.eq(first, 'find 3 competitor launch emails', 'the first worker is handed nothing (there is nothing before it)');
+  A.ok(second.indexOf('[EARLIER WORKERS IN THIS HAND-OFF') === 0, 'the second worker opens with the earlier workers\' output');
+  A.ok(/RESEARCH[^\n]*:\nFOUND: LM Studio, Ollama, Claude launch emails/.test(second), 'it is the researcher\'s actual result, under its name');
+  A.ok(second.indexOf('Files: /ws/researcher/competitor-launch-emails.md') > 0, 'with the exact file the researcher saved');
+  A.ok(second.indexOf('[YOUR SUBTASK]\ndraft our launch email from the research') > 0, 'and the copywriter\'s own ask stays last');
+  A.eq(JSON.stringify(ro.calls[1].handoffReads), JSON.stringify(['/ws/researcher/competitor-launch-emails.md']), 'the copywriter may read exactly that file');
+  A.eq(ro.calls[0].handoffReads, undefined, 'the first worker gets no read grant');
+  A.eq(ro.calls[1].initialTaint, 'web.search', 'the copywriter starts under the taint of what the researcher read');
+  A.ok(granted.indexOf('/ws/researcher/competitor-launch-emails.md') >= 0, 'the lead may read its worker\'s saved file after the dispatch');
+  const rows = JSON.parse(r.content);
+  A.eq(rows[0].artifacts[0].abs, '/ws/researcher/competitor-launch-emails.md', 'the row names the file\'s REAL location (no more guessed /tmp paths)');
+
+  const roP = fakeRunOnce();
+  const { dispatchTool: dp } = makeOrchestrationTools({ runOnce: roP, roster: () => roster, key: 'k', model: 'm', newId: counter(),
+    handoffFiles: async () => [] });
+  await dp.run({ parallel: true, workers: [{ agentId: 'researcher', prompt: 'a' }, { agentId: 'copywriter', prompt: 'b' }] },
+    { agentId: 'lead', signal: { aborted: false }, emit: () => {}, consent: {} });
+  A.eq(String(roP.calls[1].messages[0].content), 'b', 'parallel workers run at once, so nothing is handed between them');
+}
+
+// ---- A WORKER'S CLOCK STOPS WHILE IT WAITS ON THE COMMANDER, and the user never reads the lead's [STOPPED …] note ----
+{
+  let clock = 0;
+  const delivered = [];
+  // the worker asks for approval at once; the Commander answers 300 ms later; then it works 50 ms. Its slice is 200 ms.
+  const runOnce = async (o) => {
+    await o.consent({ name: 'fs.write' });
+    await new Promise(res => setTimeout(res, 50));
+    return { reason: 'done', messages: [{ role: 'assistant', content: 'SAVED the draft' }], usd: 0.1 };
+  };
+  const consent = async () => { await new Promise(res => setTimeout(res, 300)); clock += 300; return { allow: true }; };
+  const roster = new Map([['copywriter', {}]]);
+  const { dispatchTool } = makeOrchestrationTools({ runOnce, roster: () => roster, key: 'k', model: 'm', newId: counter(),
+    dispatchTimeoutMs: 200, now: () => clock });
+  const r = await dispatchTool.run({ workers: [{ agentId: 'copywriter', prompt: 'draft it' }] },
+    { agentId: 'lead', signal: { aborted: false }, emit: () => {}, consent });
+  const rows = JSON.parse(r.content);
+  A.eq(rows[0].reason, 'done', 'a 300 ms approval wait does not use up a 200 ms slice — the worker finishes its job');
+
+  // a worker that really does run out of time: the lead gets the note, the Commander's card gets only the partial work
+  const ro2 = async (o) => {
+    await new Promise(res => { const t = setTimeout(res, 2000); o.signal.addEventListener('abort', () => { clearTimeout(t); res(); }, { once: true }); });
+    return { reason: 'done', messages: [{ role: 'assistant', content: 'half a draft' }], usd: 0.1 };
+  };
+  const station = { request: async (verb, a) => { if (verb === 'station.dispatch_end' && a.dispatchDelivery) delivered.push({ streamId: a.streamId, text: a.dispatchDelivery.text, dispatchDelivery: a.dispatchDelivery }); return { ok: true, result: {} }; } };
+  const { dispatchTool: d2 } = makeOrchestrationTools({ runOnce: ro2, roster: () => roster, key: 'k', model: 'm', newId: counter(),
+    dispatchTimeoutMs: 60, now: () => 0, station, childThread: (a) => ({ id: 'ws_child', title: 'Copy task' }) });
+  const r2 = await d2.run({ workers: [{ agentId: 'copywriter', prompt: 'draft it' }] },
+    { agentId: 'lead', streamId: 'ws_parent', signal: { aborted: false }, emit: () => {}, consent: {} });
+  const row = JSON.parse(r2.content)[0];
+  await tick(); await tick();
+  A.eq(row.reason, 'timeout', 'the slice really ran out');
+  A.ok(/\[STOPPED/.test(row.result), 'the lead still gets the model-directed note');
+  const shown = delivered.find(d => d.streamId === 'ws_child');
+  A.ok(shown && shown.text === 'half a draft' && !/\[STOPPED/.test(shown.dispatchDelivery.text), 'the Commander\'s thread shows the partial work only, never the lead\'s instruction');
+}
+
+// ---- the path guard's hand-off exception: an exact granted file, read-only ----
+{
+  const { makePathTrust } = require('../sidecar/pathtrust.js');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'sk-handoff-'));
+  try {
+    const ws = path.join(root, 'workspaces');
+    fs.mkdirSync(path.join(ws, 'researcher'), { recursive: true });
+    fs.mkdirSync(path.join(ws, 'copywriter'), { recursive: true });
+    const file = path.join(ws, 'researcher', 'competitor-launch-emails.md');
+    const other = path.join(ws, 'researcher', 'secret-notes.md');
+    fs.writeFileSync(file, 'emails'); fs.writeFileSync(other, 'private');
+    const trust = makePathTrust({ fsp: require('fs/promises'), pathMod: path, workspaceRoot: ws, roots: () => [] });
+    const grants = [fs.realpathSync(file)];
+    const ok = await trust.guard(file, { scope: 'read', agentId: 'copywriter', readGrants: grants });
+    A.ok(ok && ok.handoff === true, 'a granted file in another agent\'s workspace is readable');
+    let e1 = null; try { await trust.guard(other, { scope: 'read', agentId: 'copywriter', readGrants: grants }); } catch (e) { e1 = e; }
+    A.ok(e1 && /another agent workspace/.test(e1.message), 'any OTHER file in that workspace is still refused');
+    let e2 = null; try { await trust.guard(file, { scope: 'write', agentId: 'copywriter', readGrants: grants }); } catch (e) { e2 = e; }
+    A.ok(e2 && /another agent workspace/.test(e2.message), 'a grant never allows a write');
+    let e3 = null; try { await trust.guard(file, { scope: 'read', agentId: 'copywriter' }); } catch (e) { e3 = e; }
+    A.ok(e3 && /another agent workspace/.test(e3.message), 'without the host grant the private-workspace floor holds');
+  } finally { try { fs.rmSync(root, { recursive: true, force: true }); } catch (_) {} }
+}
+
 A.report('orchestration.test');
 
 })();
