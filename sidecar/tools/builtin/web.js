@@ -883,9 +883,11 @@
        ~2.8M base64 chars, orders of magnitude past any context budget, so for months the harness simply could
        not carry the byte-bearing step of any API workflow. Same cure as ${KEY} headers: the model writes a
        REFERENCE (${file:relative/path}, or a multipart part naming a file), the host resolves it at send
-       time, and the payload never enters model context in either direction. Files resolve through the SAME
-       resolveInside jail as fs.* and browser.upload (deps.readWorkspaceFile), so a request can only ever
-       carry the agent's own workspace. Lowercase 'file:' can never collide with SECRET_REF's [A-Z] names. */
+       time, and the payload never enters model context in either direction. Files resolve through
+       deps.readWorkspaceFile: the per-agent workspace jail only (no project root, no absolute paths, no
+       path-trust), so a request can only ever carry the agent's own workspace. This is deliberately narrower
+       than fs.read and browser.upload, which also reach the run's trusted project: widening an outbound-network
+       tool is a decision, not a polish fix. Lowercase 'file:' can never collide with SECRET_REF's [A-Z] names. */
     const FILE_REF_RE = /\$\{file:([^}]*)\}/g;
     const FILE_REF_TEST = /\$\{file:/;
     const FILE_MAX_BYTES = 20 * 1024 * 1024;      // one referenced file
