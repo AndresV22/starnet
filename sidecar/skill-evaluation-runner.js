@@ -74,6 +74,9 @@ function makeAgentLoopCaseRunner(options) {
     if (typeof o.authorize === 'function' && await o.authorize({ runId, taskId: task.id, phase }) !== true) return { reason: 'policy-denied' };
     const streamAttempts = [];
     let streamSpent = 0, streamUncertain = false, streamDenied = false;
+    // An unmetered provider (Ollama, a Codex/Grok/Kimi sign-in) bills nothing per call. The host says so when it
+    // builds the runner (o.unmetered) or in its dispatch admission (beforeRun), before any provider attempt.
+    let unmetered = o.unmetered === true;
     const accountableProvider = Object.create(o.provider);
     accountableProvider.stream = async function* trackedStream(request) {
       // This is the paid entry, including retries and continuation calls inside one loop turn.
@@ -103,7 +106,7 @@ function makeAgentLoopCaseRunner(options) {
             attempt.usageObserved = !!(usage && ((nonnegative(usage.prompt_tokens) && nonnegative(usage.completion_tokens)) ||
               nonnegative(usage.cost) || nonnegative(usage.cost_in_usd_ticks)));
             const charge = attempt.usageObserved && reconcile(usage);
-            if (priced(charge)) {
+            if (!unmetered && priced(charge)) {
               // Publish known accrued usage while the request is still streaming so
               // concurrent station admissions see it. Final reconciliation may replace it.
               liveAttemptUsd = Math.max(liveAttemptUsd, charge.usd);
@@ -122,12 +125,14 @@ function makeAgentLoopCaseRunner(options) {
         const charge = reconcile(lastUsage);
         // The same reconciler used by the loop supplies totals. Unknown pricing or
         // partial streams cannot authorize another attempt using guessed headroom.
-        // An unmetered provider (Ollama, a Codex/Grok/Kimi sign-in) bills nothing per call:
-        // every attempt there is known $0, complete or not, as runOnce books it.
-        const unmetered = o.unmetered === true;
-        attempt.accounted = unmetered || !!(attempt.complete && attempt.usageObserved && priced(charge));
-        if (attempt.accounted) streamSpent += unmetered ? 0 : charge.usd;
-        else streamUncertain = true;
+        // An unmetered provider bills nothing per call: every attempt there is known $0, complete or not, as runOnce
+        // books it, whatever its usage said. There is no headroom to guess.
+        if (unmetered) attempt.accounted = attempt.unmetered = true;
+        else {
+          attempt.accounted = !!(attempt.complete && attempt.usageObserved && priced(charge));
+          if (attempt.accounted) streamSpent += charge.usd;
+          else streamUncertain = true;
+        }
         if (typeof o.onStream === 'function') await o.onStream({ runId, spentUsd: streamSpent, accountingIncomplete: streamUncertain });
       }
     };
@@ -150,7 +155,13 @@ function makeAgentLoopCaseRunner(options) {
       supportFiles.filter(f => f.encoding !== 'base64').map(f => '\nSupporting file ' + f.path + ':\n' + f.content).join('') : '';
     // The host commits its dispatch receipt before spend. A rejected/failed write
     // must stop here so interrupted or unpriced runs remain durably unsettled.
-    if (typeof o.beforeRun === 'function' && await o.beforeRun({ runId, taskId: task.id, phase }) !== true) throw new Error('evaluation dispatch receipt was not accepted');
+    // An unmetered admission ({ ok: true, unmetered: true }) has no receipt to commit: the run is $0.
+    if (typeof o.beforeRun === 'function') {
+      const admission = await o.beforeRun({ runId, taskId: task.id, phase });
+      if (admission !== true && !(admission && admission.ok === true)) throw new Error('evaluation dispatch receipt was not accepted');
+      // The admission can only add the unmetered fact; it never turns a host-declared unmetered provider metered.
+      if (admission && admission.unmetered === true) unmetered = true;
+    }
     let result;
     try { result = await loop({
       messages: [{ role: 'system', content: 'Complete the task using the isolated workspace tools when needed. Report only work actually completed. The task supplies the required output contract.' + skillContext }, { role: 'user', content: task.prompt }],
@@ -164,7 +175,7 @@ function makeAgentLoopCaseRunner(options) {
     }
     if (streamDenied) result.reason = 'policy-denied';
     const uncertainAttempts = streamAttempts.filter(attempt => !attempt.accounted);
-    result.accountingIncomplete = result.accountingIncomplete === true || uncertainAttempts.length > 0 || (result.reason === 'done' && streamAttempts.length === 0);
+    result.accountingIncomplete = !unmetered && (result.accountingIncomplete === true || uncertainAttempts.length > 0 || (result.reason === 'done' && streamAttempts.length === 0));
     result.accountingStreams = { attempted: streamAttempts.length, complete: streamAttempts.filter(attempt => attempt.accounted).length,
       uncertain: uncertainAttempts.slice(0, 128), omitted: Math.max(0, uncertainAttempts.length - 128) };
     if (typeof o.onRun === 'function') await o.onRun({ result, runId, taskId: task.id, phase });

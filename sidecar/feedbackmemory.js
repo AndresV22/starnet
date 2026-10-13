@@ -202,7 +202,9 @@ function selectTaste(records, opts) {
   candidates.sort((a, b) => b.score - a.score || a.i - b.i);
   for (const row of candidates) { if (chosen.size >= limit) break; chosen.add(row.r); }
   const selected = all.filter(r => chosen.has(r));   // render newest first, so conflicts retain temporal authority
-  Object.defineProperty(selected, 'recallMeta', { value: { notShown: all.length - selected.length } });
+  // notShown: every verdict the selection left out (a ranking cut, not an omission). ownNotShown: the left-out records
+  // that live in THIS notebook (not another agent's), the only ones notebook.read can return.
+  Object.defineProperty(selected, 'recallMeta', { value: { notShown: all.length - selected.length, ownNotShown: all.filter(r => !chosen.has(r) && !r.foreign).length } });
   return selected;
 }
 
@@ -269,6 +271,7 @@ function adoptTaste(heroList, departedList, nextId, from) {
 }
 
 /* renderTaste(records, renderRecall, { agentId? }) — the taste block for a run's prompt (both injection sites in index.js).
+   agentId names the prompt's reader: the agent whose notebook stationTaste's `own` was.
    One compact line per record — VERDICT YYYY-MM-DD: <what the work was> — "<their words>" → <the reference> — under the
    taste header (which already says these are the Commander's own verdicts, so the generic recall prefix
    "[user-confirmed reference] Preference — ", ~40 chars a line, is not repeated). EVERY selected record renders: the
@@ -310,11 +313,17 @@ function renderTaste(records, renderRecall, opts) {
   const lines = recs.map((r, i) => ({ id: r.id, title: '', body: tasteLine(r, levels[i], viewer), content: String(r.content || r.body || '') + TasteRef.refLine(r.feedbackRef, 0, viewer) }));
   const header = TASTE_HEADER + (recs.some(r => r.feedbackRef) ? '\n' + TASTE_REF_RULE : '');
   // the levels above already fit the budget; the slack only absorbs a recall-line format change, never drops a record.
-  // The selection cut is disclosed as older verdicts, with no notebook.read pointer: a verdict shared from another
-  // agent's notebook has no id here, so notebook.read could not fetch it.
-  Object.defineProperty(lines, 'recallMeta', { value: { notShown: (records.recallMeta && records.recallMeta.notShown) || 0, priority: [] } });
+  // The selection cut is disclosed as older verdicts not shown: a ranking cut, never called an omission, and never a
+  // bare notebook.read (an unqueried read lists the whole notebook; review memory-learning-04). notebook.read can
+  // return only the named READER's own records, so only those get a query-bound retrieval path. Another agent's verdicts (shared with no id here), or a prompt with no named reader (a delegated
+  // worker's task context: its notebook.read reads its own notebook), get no retrieval promise they cannot keep.
+  const meta = records.recallMeta || {};
+  const notShown = Math.max(0, Number(meta.notShown) || 0);
+  const ownNotShown = viewer ? Math.min(notShown, Math.max(0, Number(meta.ownNotShown) || 0)) : 0;
+  Object.defineProperty(lines, 'recallMeta', { value: { notShown, priority: [] } });
   return renderRecall(lines, { limit: budget + 400, priorityLimit: 0, header, pointer: false,
-    notShownText: n => n + ' older verdict' + (n === 1 ? '' : 's') + ' not shown' });
+    notShownText: n => n + ' older verdict' + (n === 1 ? '' : 's') + ' not shown'
+      + (ownNotShown ? ' (' + ownNotShown + ' of them are in your own notebook: notebook.read with a query finds them)' : '') });
 }
 
 module.exports = { ORIGIN, TASTE_HEADER, TASTE_REF_RULE, TASTE_LIMIT, TASTE_CHARS, content, apply, directiveFor, looksLikeFeedback, isTaste, selectTaste, stationTaste, stationStanding, adoptTaste, renderTaste, unkeep };

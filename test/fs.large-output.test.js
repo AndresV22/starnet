@@ -75,6 +75,28 @@ const WS = path.join(ROOT, 'big');
     A.ok(/^\(no matches for Zebra\)$/.test(named.content), 'naming the 9 MB file searches it (64 MB named-file cap), so its miss is a real miss: ' + JSON.stringify(named.content.slice(0, 200)));
   }
 
+  // ---- D. a NAMED file over the 64 MB cap is skipped BEFORE it is read ----
+  // The one-file shortcut used to hand the walker an entry with no `size`, so `f.size > maxBytes` was
+  // `undefined > n` and the whole file went through readFile before the post-read check threw it away:
+  // a full-file RAM spike the 20 s budget cannot interrupt. Spy on readFile to prove it is never called.
+  {
+    const reads = [];
+    const spyFsp = new Proxy(fsp, { get(t, k) {
+      if (k === 'readFile') return (p, ...rest) => { reads.push(path.basename(String(p))); return t.readFile(p, ...rest); };
+      const v = t[k]; return typeof v === 'function' ? v.bind(t) : v;
+    } });
+    const spyTools = makeFsTools({ fsp: spyFsp, pathMod: path, root: ROOT, rg: false });
+    await fsp.writeFile(path.join(WS, '.output', 'over.log'), '');
+    await fsp.truncate(path.join(WS, '.output', 'over.log'), 70 * 1024 * 1024);   // 70 MB, past the named-file cap
+    const over = await spyTools.searchTool.run({ query: 'Zebra', path: '.output/over.log' }, { agentId: 'big' });
+    A.eq(reads.indexOf('over.log'), -1, 'the over-cap named file is never read into memory (reads: ' + JSON.stringify(reads) + ')');
+    A.ok(/NOT searched — over the 64 MB per-file search limit: \.output\/over\.log/.test(over.content) && /Read it in ranges with fs\.read/.test(over.content),
+      'and it is still NAMED as not searched, with the way to read it: ' + JSON.stringify(over.content));
+    const under = await spyTools.searchTool.run({ query: 'Zebra', path: '.output/huge.txt' }, { agentId: 'big' });
+    A.ok(reads.indexOf('huge.txt') >= 0, 'a named file UNDER the cap is still read and searched (reads: ' + JSON.stringify(reads) + ')');
+    A.ok(/^\(no matches for Zebra\)$/.test(under.content), 'so its miss is a real miss: ' + JSON.stringify(under.content.slice(0, 200)));
+  }
+
   await fsp.rm(ROOT, { recursive: true, force: true });
   A.report('fs.large-output.test.js');
 })().catch(e => { console.log('FAIL: fs.large-output.test.js threw — ' + (e && e.stack || e)); try { fs.rmSync(ROOT, { recursive: true, force: true }); } catch (_) {} process.exit(1); });

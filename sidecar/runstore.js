@@ -309,6 +309,11 @@
         // set by the host that ran it (never re-derived from a stream prefix). The line stats count these apart —
         // a test is not a job the line shipped or failed. Present only when true.
         ...(e.stepTest ? { stepTest: true } : {}),
+        // OWNER DIRECTIVE (additive, 2026-10-12): TRUE only when the host proved this run's directive is the
+        // Commander's own (their typed COMMS turn, or the bound owner's direct chat). A channel group guest's run looks
+        // exactly like the owner's by surface and streamId, so ambient activity and repeat-work proof need this stamp;
+        // old rows lack it and prove nothing. Present only when true, so every other row stays byte-identical.
+        ...(e.ownerDirective === true ? { ownerDirective: true } : {}),
         // LINE WATCH (additive, 2026-09-23): WHICH work line and WHICH bay (dock prop id) this run worked AT, set
         // by the host that dispatched it (hub / chain hop / routine / step test) — never re-derived from a stream
         // prefix. The per-line stats plate and the bay status lamps read these. Present only when known, so every

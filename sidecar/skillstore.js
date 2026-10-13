@@ -57,12 +57,17 @@
     const s = str(v || 'active').toLowerCase();
     return STATES.has(s) ? s : 'active';
   }
-  // Two different questions, two sets. REVIEW_ACTORS: whose stored versions persist() stamps 'ask' (provenance).
-  // STAGE_ACTORS: whose NEW writes become proposals instead of the active skill. The curator is staged, but its
-  // pre-staging versions (0.13.2/0.13.3, stamped 'allow') must not turn 'ask' the first time a run merely uses
-  // them: it archived the narrow siblings, so withholding the umbrella would leave the agent with neither.
-  const REVIEW_ACTORS = new Set(['background-review', 'skill-review']);
+  // Two different questions. STAGE_ACTORS: the autonomous writers whose NEW writes become proposals instead of the
+  // active skill. reviewWritten(entry): whose STORED versions persist() stamps 'ask' (provenance) on EVERY save,
+  // telemetry included. A curator version saved before curator writes became proposals (0.13.2/0.13.3, stamped
+  // 'allow', its narrow siblings archived into it) must not turn 'ask' the first time a run merely uses it:
+  // withholding the umbrella would leave the agent with neither. A curator version is review-written once it was
+  // promoted (its approval is digest-keyed: the approve route precommits it for the candidate's bytes).
   const STAGE_ACTORS = new Set(['background-review', 'skill-review', 'curator']);
+  function reviewWritten(entry) {
+    const by = str(entry && entry.writtenBy);
+    return STAGE_ACTORS.has(by) && (by !== 'curator' || !!str(entry && entry.promotionReceiptId));
+  }
   function trustSource(createdBy) {
     const source = str(createdBy).trim().toLowerCase();
     if (source === 'user') return 'user';
@@ -221,11 +226,13 @@
     const candidateRows = new Map();
     // Receipts must come from the host evaluator's durable authority, not model-submitted JSON.
     const validatePromotionReceipt = typeof opts.validatePromotionReceipt === 'function' ? opts.validatePromotionReceipt : null;
+    // stale is the aging clock, not content: using a stale skill flips it active, which must not orphan its pending
+    // revision (the same rule as skillevaluation.js digestSkill, the digest the run host injects)
     const digestCandidate = typeof opts.digestCandidate === 'function' ? opts.digestCandidate : (s) => {
       const f = require('./skills/gate.js').digestOf;
       if (!s) return f({ body: 'null' });
       return f({ body: JSON.stringify([s.name, s.summary, s.description, s.body, s.setup, s.category,
-        s.requires, s.platforms, s.scope || 'agent', s.projectRoot || '', s.state, s.pinned, s.absorbedInto, s.packageFiles]), files: s.files || [] });
+        s.requires, s.platforms, s.scope || 'agent', s.projectRoot || '', s.state === 'stale' ? 'active' : s.state, s.pinned, s.absorbedInto, s.packageFiles]), files: s.files || [] });
     };
     function revisionDigest(entry) { return str(digestCandidate(entry ? projectSkill(entry, true) : null)); }
     function restoreCandidate(r) {
@@ -291,7 +298,7 @@
              prompt until the Commander approves THESE bytes — the same digest-keyed gate a scanner `ask` uses
              and the same keep/discard the memory turn-in card has always had. Memory proposals were reviewed;
              skill writes landed straight into the next run's system prompt. A `block` stays a block. */
-          if (REVIEW_ACTORS.has(str(entry.writtenBy)) && entry.guardAction !== 'block') entry.guardAction = 'ask';
+          if (reviewWritten(entry) && entry.guardAction !== 'block') entry.guardAction = 'ask';
         }
       } catch (e) { failNote('skillstore.guard.scan', e); }
       // Stamp the digest of the content that was JUST scanned, so the verdict and the digest can
@@ -531,7 +538,7 @@
         t = now();
         entry = clone(existing);
         // A support file ships with the body it sits beside: never lower a review stamp on that body.
-        if (!REVIEW_ACTORS.has(str(existing.writtenBy))) entry.writtenBy = str(e.createdBy || 'agent');
+        if (!reviewWritten(existing)) entry.writtenBy = str(e.createdBy || 'agent');
         entry.files = normFiles(entry.files);
         const encoding = e.encoding === 'base64' ? 'base64' : 'utf8';
         const content = encoding === 'base64' ? str(e.content).slice(0, Math.ceil(supportFileMax * 4 / 3) + 4) : red(e.content, supportFileMax);
@@ -558,7 +565,7 @@
         if (!p.ok) return p;
         entry = clone(existing);
         // A support file ships with the body it sits beside: never lower a review stamp on that body.
-        if (!REVIEW_ACTORS.has(str(existing.writtenBy))) entry.writtenBy = str(e.createdBy || 'agent');
+        if (!reviewWritten(existing)) entry.writtenBy = str(e.createdBy || 'agent');
         entry.files = normFiles(entry.files);
         delete entry.files[p.path];
         entry.packageDiverged = !!entry.packageDigest;
@@ -730,12 +737,14 @@
       if (!checked || checked.ok !== true || (checked.status && checked.status !== 'pass'))
         return { ok: false, error: (checked && checked.error) || 'evaluation is missing, stale, insufficient, or regressed' };
       const entry = clone(row.skill);
-      // Usage telemetry is not part of the evaluated digest: keep the live counters, not the stage-time copy,
-      // or a skill used every day since it was proposed would look idle to curate() right after approval.
+      // (A pinned active skill was already refused by blockerFor above.)
+      // Usage belongs to the ACTIVE record: it kept counting while the candidate waited (no digest covers it), so
+      // the proposal-time snapshot must not reset it, or a skill used every day since it was proposed would look
+      // idle to curate() right after approval. Stale/active is the same freshness clock; archive/restore is content.
       if (active) {
-        entry.viewCount = active.viewCount || 0;
-        entry.useCount = active.useCount || 0;
-        entry.lastUsedAt = active.lastUsedAt || null;
+        entry.viewCount = active.viewCount || 0; entry.useCount = active.useCount || 0;
+        entry.lastUsedAt = active.lastUsedAt == null ? null : active.lastUsedAt;
+        if (entry.state !== 'archived' && active.state !== 'archived') entry.state = active.state;
       }
       entry.canonicalRevision = true; entry.updatedAt = now();
       entry.promotionReceiptId = str(checked.receiptId || (e.evaluation && (e.evaluation.receiptId || e.evaluation.id)));

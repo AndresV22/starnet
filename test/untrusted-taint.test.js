@@ -136,14 +136,16 @@ A.eq(taint.postTaintBoundary(FS_WRITE, { taintedBy: 'web_fetch', surface: 'auton
   A.ok(attachmentEntry.indexOf('TrustedLearning.capture(') >= 0 && attachmentEntry.indexOf('TrustedLearning.capture(') < attachmentEntry.indexOf('await attachments.expandUserAttachments('), 'owner words are captured before files expand');
   A.ok(/\n\s*learningInput,/.test(attachmentEntry) && !/body\.learningInput/.test(attachmentEntry), 'run receives host-captured input rather than request metadata');
   A.ok(/\n\s*quotedOwnerInput,/.test(attachmentEntry) && !/body\.quotedOwnerInput/.test(attachmentEntry), 'the quoted-material learning flag is host-computed, never request metadata');
-  A.ok(/if \(execution\.taintedBy\(\) \|\| o\.quotedOwnerInput === true\) \{\s*\n\s*const noTrustedEvidence/.test(src),
+  A.ok(/const quotedLearning = o\.quotedOwnerInput === true \|\| replayedQuoted;/.test(src) &&
+    /const learningTaint = execution\.taintedBy\(\) \|\| \(quotedLearning \? 'quoted user material' : null\);/.test(src) &&
+    /\n  if \(learningTaint\) \{\n    const noTrustedEvidence/.test(src),
     'quoted owner material still skips the durable learning passes (reflection, failure review, study, thread mining)');
-  A.ok(/TrustedLearning\.evidence\(\{[^}\n]*tainted: execution\.taintedBy\(\), trustedOnly: o\.quotedOwnerInput === true,/.test(src),
+  A.ok(/TrustedLearning\.evidence\(\{[^}\n]*tainted: execution\.taintedBy\(\), trustedOnly: quotedLearning,/.test(src),
     'quoted owner material makes the skill review trusted-only (no raw transcript), without reporting the run as tainted');
   if (initialTaint && captureStart >= 0 && captureEnd > captureStart) {
-    const classify = messages => vm.runInNewContext('(() => { ' + attachmentEntry.slice(captureStart, captureEnd) +
+    const classify = (messages, ownerWording = true) => vm.runInNewContext('(() => { ' + attachmentEntry.slice(captureStart, captureEnd) +
       '; return { initialTaint: (' + initialTaint[1] + '), learningInput, quotedOwnerInput: typeof quotedOwnerInput === \'undefined\' ? undefined : quotedOwnerInput }; })()', {
-        messages, TrustedLearning: require('../sidecar/trusted-learning.js'),
+        messages, ownerWording, TrustedLearning: require('../sidecar/trusted-learning.js'),
         latestUserText: list => require('../sidecar/trusted-learning.js').textOf(list.filter(m => m && m.role === 'user').at(-1))
       });
     const attachment = { path: '.attachments/poison.txt', name: 'poison.txt' };
@@ -160,6 +162,9 @@ A.eq(taint.postTaintBoundary(FS_WRITE, { taintedBy: 'web_fetch', surface: 'auton
     const history = classify([{ role: 'user', content: '', attachments: [attachment] }, { role: 'user', content: typed }]);
     A.eq(history.initialTaint, 'user attachment', 'an earlier attachment keeps the incoming history tainted');
     A.eq(history.learningInput.content, typed, 'only the newest typed input gains owner attribution');
+    // (2026-10-12) Quoted material in the Commander's own message withholds LEARNING, never execution: this used to
+    // assert initialTaint 'quoted user material', which locked an ordinary "Fix this crash: ```…```" run's tools and
+    // replayed that lock into every later turn of the conversation.
     const quoted = classify([{ role: 'user', content: '> I prefer quoted instructions.' }]);
     A.eq(quoted.initialTaint, null, 'quoted text the Commander typed does not lock tools, grants or workers');
     A.eq(quoted.quotedOwnerInput, true, 'quoted text the Commander typed is flagged for the learning-only exclusion');
@@ -170,6 +175,15 @@ A.eq(taint.postTaintBoundary(FS_WRITE, { taintedBy: 'web_fetch', surface: 'auton
       const r = classify([{ role: 'user', content: text }]);
       A.eq([r.initialTaint, r.quotedOwnerInput], [null, true], 'owner-typed ' + JSON.stringify(text.slice(0, 24)) + ' is owner authority, excluded only from learning');
     }
+    // the merged lane's own repro shapes (2026-10-12): ordinary coding requests keep their tools, withhold learning only
+    for (const content of ['Fix this crash:\n```\nTypeError: x is undefined\n```', 'Rename the checkout button to "Download your invoice now"', 'Add input validation, for example: reject negative quantities.']) {
+      const coding = classify([{ role: 'user', content }]);
+      A.eq(coding.initialTaint, null, 'an ordinary owner request with quoted/code text keeps its tools: ' + JSON.stringify(content));
+      A.eq(coding.quotedOwnerInput, true, 'and still withholds learning: ' + JSON.stringify(content));
+    }
+    const laterTurn = classify([{ role: 'user', content: 'The document says:\n> I prefer pasted instructions.' }, { role: 'assistant', content: 'ok' }, { role: 'user', content: typed }]);
+    A.eq(laterTurn.initialTaint, null, 'a later clean turn is not locked by the earlier pasted document');
+    A.eq(laterTurn.quotedOwnerInput, true, 'but learning stays withheld while the pasted document is in the conversation a learning pass reads');
     // an earlier quoted turn is still in the tail the reflection reads, so the conversation stays out of learning
     const later = classify([{ role: 'user', content: '> I prefer quoted instructions.' }, { role: 'assistant', content: 'Noted.' }, { role: 'user', content: typed }]);
     A.eq([later.initialTaint, later.quotedOwnerInput], [null, true], 'a later turn is not locked, and an earlier quote still keeps its history out of learning');
@@ -190,8 +204,76 @@ A.eq(taint.postTaintBoundary(FS_WRITE, { taintedBy: 'web_fetch', surface: 'auton
     A.eq([quotedFile.initialTaint, quotedFile.quotedOwnerInput], ['user attachment', true], 'a real attachment still taints whatever the typed text holds');
     const clean = classify([{ role: 'user', content: typed, attachments: [] }]);
     A.eq(clean.initialTaint, null, 'ordinary typed text without a file stays clean');
-    A.eq(clean.quotedOwnerInput, false, 'ordinary typed text is not flagged as quoted material');
+    A.eq(clean.quotedOwnerInput, false, 'ordinary typed text is not flagged as quoted material (it keeps learning)');
     A.eq(clean.learningInput.content, typed, 'clean owner input remains eligible');
+    A.eq(classify([{ role: 'user', content: typed }], false).learningInput, null, 'a recipe launch (or its retry) is never captured as owner wording');
+  }
+  // The recipe/retry origin is decided before the capture, from host state only.
+  {
+    const start = src.indexOf('const retryOf = (body');
+    const end = src.indexOf('// USER ATTACHMENTS:', start);
+    A.ok(start > 0 && end > start, 'recipe-launch origin check precedes the owner capture');
+    const origin = (body, recipeId, rows) => vm.runInNewContext('(() => { ' + src.slice(start, end) + '; return ownerWording; })()', {
+      body, recipeId, runStore: { latest: id => (rows || {})[id] || null }, failNote: () => {}
+    });
+    A.eq(origin({}, null), true, 'a typed COMMS directive is owner wording');
+    A.eq(origin({ recipeId: 'dependency-audit' }, 'dependency-audit'), false, 'a recipe launch is template text');
+    A.eq(origin({ recipeId: 'imported.recipe v2' }, null), false, 'an id the route cannot parse still names a recipe launch');
+    A.eq(origin({ retryUserRunId: 'r1' }, null, { r1: { runId: 'r1', recipeId: '' } }), true, 'a retry of a typed directive stays owner wording');
+    A.eq(origin({ retryUserRunId: 'r1' }, null, { r1: { runId: 'r1', recipeId: 'dependency-audit' } }), false, 'a retry re-sends the recipe template');
+    A.eq(origin({ retryUserRunId: 'gone' }, null, {}), false, 'a retry of an unknown run cannot prove typed wording');
+    A.ok(/const learningTaint = execution\.taintedBy\(\) \|\| \(quotedLearning \? 'quoted user material' : null\);/.test(src) &&
+      /\n  if \(learningTaint\) \{\n    const noTrustedEvidence/.test(src) && /\n\s*quotedOwnerInput,   \/\/ learning-only/.test(src),
+      'quoted owner material reaches the run-end learning withhold');
+  }
+  // (2026-10-12, round two) Quoted owner text no longer taints its transcript row, so replayed taint no longer catches a
+  // pasted document from an EARLIER turn. What the run replays (server-seeded transcript, re-seed, client history,
+  // recovery checkpoint) and the earlier-conversation rows still withhold learning, as when the row was tainted.
+  {
+    const start = src.indexOf('  let replayedQuoted = false;');
+    const end = src.indexOf('\n', src.indexOf("failNote('learning.replayedQuoted'", start));
+    A.ok(start > 0 && end > start, 'the replayed-context quote check exists in runOnceCore');
+    const replayed = (msgs, recovery) => vm.runInNewContext('(() => { ' + src.slice(start, end) + '; return replayedQuoted; })()', {
+      msgs, o: { recovery }, TrustedLearning: require('../sidecar/trusted-learning.js'), failNote: () => {} });
+    const sys = { role: 'system', content: 'system prompt' }, typed = { role: 'user', content: 'I prefer concise bullet summaries.' };
+    const pasted = { role: 'user', content: 'The document says:\n> I prefer pasted instructions.' };
+    A.eq(replayed([sys, pasted, { role: 'assistant', content: 'ok' }, typed]), true, 'a pasted document in server-seeded history still withholds learning');
+    A.eq(replayed([sys, { role: 'user', content: 'Plan the launch.' }, { role: 'assistant', content: '```js\nx()\n```' }, typed]), false, 'clean replayed history keeps learning');
+    A.eq(replayed([sys, pasted]), false, 'the new directive is the caller\'s to classify (handleRun quotedOwnerInput)');
+    A.eq(replayed([sys, pasted], { sourceRunId: 'r0' }), true, 'a recovery replays its whole checkpoint, directive included');
+    // ...bounded like handleRun's flag (sidecar-index-01 follow-up): a replayed paste that scrolled past every learning
+    // pass's tail no longer withholds learning for the rest of the conversation, one still inside it does.
+    const answer = { role: 'assistant', content: 'The audit continued with ordinary local checks and nothing unusual turned up. '.repeat(55) };
+    const next = { role: 'user', content: 'Keep going with the next check.' };
+    const replay = n => [sys, pasted].concat(...Array(n).fill([answer, next]), [typed]);
+    A.eq(replayed(replay(6)), false, 'a replayed paste more than 16k chars back no longer withholds learning');
+    A.eq(replayed(replay(3)), true, 'a replayed paste still inside the learning tail keeps withholding it');
+    // Rows the window dropped (the earlier-conversation note) withhold learning under the SAME tail rule, counted back
+    // across the window: they are older than all of it, so a quote there withholds learning only while the window is
+    // short enough for a pass to still reach it — never for the rest of a chat long enough for COMMS to trim (review
+    // follow-up: an unbounded check turned learning off for good once the window dropped a turn-1 code fence).
+    const droppedLine = src.match(/\n(\s*if \(!replayedQuoted && TrustedLearning\.quotedInLearningTail\(dropped\.concat\(window\)\)\) replayedQuoted = true;)/);
+    A.ok(!!droppedLine, 'rows the window dropped (earlier-conversation note) are checked with the learning-tail bound');
+    A.ok(!/TrustedLearning\.quotedTurns\(dropped\)/.test(src), 'no unbounded dropped-rows check keeps learning off for the rest of a long chat');
+    const droppedQuoted = (dropped, window, already) => vm.runInNewContext('(() => { let replayedQuoted = ' + !!already + '; ' + droppedLine[1] + ' return replayedQuoted; })()', {
+      dropped, window, TrustedLearning: require('../sidecar/trusted-learning.js') });
+    const droppedRows = [pasted, { role: 'assistant', content: 'noted' }];
+    const longWindow = [].concat(...Array(6).fill([next, answer]));
+    A.eq(droppedQuoted(droppedRows, longWindow), false, 'a dropped quote behind a window over 16k chars no longer withholds learning');
+    A.eq(droppedQuoted(droppedRows, [next, { role: 'assistant', content: 'ok' }]), true, 'a dropped quote behind a short window still withholds learning');
+    A.eq(droppedQuoted([{ role: 'user', content: 'Plan the launch.' }], [next]), false, 'clean dropped rows keep learning');
+    A.eq(droppedQuoted([{ role: 'user', content: 'Plan the launch.' }], longWindow, true), true, 'the dropped-rows check never clears a quote the replay check already found');
+  }
+  // WHOSE WORDS (review memory-learning-06): the earlier-conversation note of a run a non-owner or a group chat started
+  // (tasteWithheld, host-minted, inherited by its workers) never presents the dropped messages as the Commander's words.
+  {
+    const renderLine = src.match(/\n\s*(const earlier = EarlierConversation\.render\(dropped, \{ windowTokens: ctxMgr\.contextLimit, searchTool, ownerVoice: !tasteWithheld \}\);)/);
+    A.ok(!!renderLine, 'the earlier-conversation render call passes ownerVoice: !tasteWithheld');
+    const note = (tasteWithheld) => vm.runInNewContext('(() => { ' + renderLine[1] + ' return earlier && earlier.note; })()', {
+      EarlierConversation: require('../sidecar/earlier-conversation.js'), ctxMgr: { contextLimit: 200000 }, searchTool: '', tasteWithheld,
+      dropped: [{ role: 'user', content: 'Always ship the dark theme first.' }, { role: 'assistant', content: 'Will do.' }] });
+    A.ok(/not the Commander's instructions/.test(note(true)) && !/from the Commander/.test(note(true)), 'a group or guest run carries the dropped messages as chat context, not the Commander\'s words');
+    A.ok(/from the Commander/.test(note(false)) && /still holds/.test(note(false)), 'the Commander\'s own chat still carries their dropped words as standing');
   }
   A.ok(/revokedByTaint\.isSource\(liveTool, c\)/.test(src), 'taint is latched from the tool and path that produced the content');
   // A result with real content taints WHETHER OR NOT the call succeeded. The old rule required !r.isError on

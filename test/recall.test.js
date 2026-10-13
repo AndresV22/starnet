@@ -299,15 +299,17 @@ let clk = 1000; const clock = { now: () => clk };
     } finally { console.warn = originalWarn; }
   }
 
-  // A non-owner / group / delegated-worker run (host-minted ownStreamOnly) never reads the Commander's OTHER
-  // workstreams in ANY shape: default search, scope:'all', a zero-local-hit auto-widen, browse, scroll. Owner runs keep it.
+  // A non-owner / group / delegated-worker run never reads the Commander's OTHER workstreams in ANY shape: default
+  // search, scope:'all', a zero-local-hit auto-widen, browse, scroll. Pinned by the host-minted factory flag OR the
+  // run's host-minted ctx.connectorAuthority.withholdTaste (tasteWithheld). Owner runs keep cross-chat recall.
   {
     const s = makeTranscriptStore({ io: memIo(), clock });
     clk = 8000; s.append({ streamId: 'private-stream', role: 'user', content: 'the private budget is forty thousand', taint: null });
     clk = 8001; s.append({ streamId: 'group-chat', role: 'user', content: 'what has andrew said about the budget', taint: null });
     const owner = makeRecallTool({ transcriptStore: s, ownStreamOnly: () => false }).recallTool;
     A.ok((await owner.run({ query: 'budget' }, { streamId: 'group-chat' })).content.includes('forty thousand'), 'an owner run keeps cross-conversation recall');
-    const { recallTool } = makeRecallTool({ transcriptStore: s, ownStreamOnly: () => true });
+    A.ok((await owner.run({ query: 'budget' }, { streamId: 'group-chat', connectorAuthority: { withholdTaste: false } })).content.includes('forty thousand'),
+      'an owner run whose authority does not withhold taste keeps cross-conversation recall');
     const leaks = r => r.content.includes('forty thousand') || r.content.includes('private-stream');
     const shapes = [
       [{ query: 'budget' }, 'default search'],
@@ -316,19 +318,59 @@ let clk = 1000; const clock = { now: () => clk };
       [{}, 'browse'],
       [{ around: 8000, stream: 'private-stream' }, 'scroll into a foreign stream']
     ];
-    for (const [args, label] of shapes) {
-      A.ok(!leaks(await recallTool.run(args, { streamId: 'group-chat' })), 'pinned run, ' + label + ': no row from the private workstream');
-      A.ok(!leaks(await recallTool.run(args, {})), 'pinned run with no chat id, ' + label + ': no row from any workstream');
+    const plain = makeRecallTool({ transcriptStore: s }).recallTool;
+    const pinnings = [
+      [makeRecallTool({ transcriptStore: s, ownStreamOnly: () => true }).recallTool, {}, 'factory-pinned'],
+      [plain, { connectorAuthority: { withholdTaste: true } }, 'authority-pinned']
+    ];
+    for (const [tool, extra, how] of pinnings) {
+      for (const [args, label] of shapes) {
+        A.ok(!leaks(await tool.run(args, Object.assign({ streamId: 'group-chat' }, extra))), how + ' run, ' + label + ': no row from the private workstream');
+        A.ok(!leaks(await tool.run(args, Object.assign({}, extra))), how + ' run with no chat id, ' + label + ': no row from any workstream');
+      }
+      const own = await tool.run({ query: 'budget', scope: 'all' }, Object.assign({ streamId: 'group-chat' }, extra));
+      A.ok(own.content.includes('what has andrew said'), how + ' run still searches its own chat');
+      A.ok(/limited to this chat/i.test(own.content), how + ' run says recall is limited to this chat (never implies it searched everything)');
+      A.ok((await tool.run({}, Object.assign({ streamId: 'group-chat' }, extra))).content.includes('group-chat'), how + ' browse shows only this chat');
+      A.ok((await tool.run({ around: 8001 }, Object.assign({ streamId: 'group-chat' }, extra))).content.includes('what has andrew said'), how + ' scroll reads this chat');
     }
-    const own = await recallTool.run({ query: 'budget', scope: 'all' }, { streamId: 'group-chat' });
-    A.ok(own.content.includes('what has andrew said'), "a pinned run still searches its own chat");
-    A.ok(/limited to this chat/i.test(own.content), 'and says recall is limited to this chat (never implies it searched everything)');
-    A.ok((await recallTool.run({}, { streamId: 'group-chat' })).content.includes('group-chat'), 'pinned browse shows only this chat');
-    A.ok((await recallTool.run({ around: 8001 }, { streamId: 'group-chat' })).content.includes('what has andrew said'), 'pinned scroll reads this chat');
     const idx = require('fs').readFileSync(require('path').join(__dirname, '../sidecar/index.js'), 'utf8');
+    A.ok(/connectorAuthority: \{[\s\S]{0,2500}?withholdTaste: tasteWithheld,/.test(idx),
+      'the host mints withholdTaste (non-owner, group, their workers) onto the run ctx the recall tool reads');
     A.ok(/makeRecallTool\(\{ transcriptStore, ownStreamOnly: \(\) => tasteWithheld \}\)/.test(idx),
       'the host pins recall to the run\'s own chat exactly when it withholds the Commander\'s taste (non-owner, group, their workers)');
     A.ok(/role: 'assistant', taint: 'scheduled script output'/.test(idx), 'a script-only routine\'s stdout is stamped untrusted, as its run is');
+  }
+
+  // A run with no stream id (headless) has its rows filed under 'global': scope:"stream" finds them instead of
+  // claiming "no messages", and still never returns another workstream's row.
+  {
+    const s = makeTranscriptStore({ io: memIo(), clock });
+    clk = 9000; s.append({ streamId: null, role: 'user', content: 'deploy the registry tonight', taint: null });
+    clk = 9001; s.append({ streamId: 'elsewhere', role: 'user', content: 'the registry mirror is private elsewhere', taint: null });
+    const { recallTool } = makeRecallTool({ transcriptStore: s });
+    const r = await recallTool.run({ query: 'registry', scope: 'stream' }, { streamId: null });
+    A.ok(r.content.includes('deploy the registry tonight'), 'a headless scope:"stream" search returns its own global-stream hit');
+    A.ok(!/no messages/i.test(r.content), 'and never claims no message matches');
+    A.ok(!r.content.includes('mirror is private'), 'a headless scope:"stream" search still never returns another workstream');
+    const none = await recallTool.run({ query: 'mirror', scope: 'stream' }, { streamId: null });
+    A.ok(/no messages in this workstream/i.test(none.content), 'a term only another workstream holds is still honestly "no messages" under scope:"stream"');
+  }
+
+  // The widened lead ("Nothing matched in this workstream") is only used when no ranked match came from this
+  // workstream: a local lexical-expansion hit (uploads -> pushes) must not be listed under that lead.
+  {
+    const s = makeTranscriptStore({ io: memIo(), clock });
+    clk = 9100; s.append({ streamId: 's1', role: 'user', content: 'the registry keeps throttling our pushes', taint: null });
+    clk = 9101; s.append({ streamId: 's2', role: 'user', content: 'uploads failed again', taint: null });
+    clk = 9102; s.append({ streamId: 's3', role: 'user', content: 'unrelated chatter only', taint: null });
+    const { recallTool } = makeRecallTool({ transcriptStore: s });
+    const r = await recallTool.run({ query: 'uploads' }, { streamId: 's1' });
+    A.ok(r.content.includes('throttling our pushes') && r.content.includes('uploads failed again'), 'expansion finds the local paraphrase and the foreign exact hit');
+    A.ok(!/nothing matched in this workstream/i.test(r.content), 'a local expansion hit never sits under "nothing matched in this workstream"');
+    A.ok(/across current and earlier workstreams/i.test(r.content), 'the lead says the results span current and earlier workstreams');
+    const far = await recallTool.run({ query: 'uploads' }, { streamId: 's3' });
+    A.ok(/nothing matched in this workstream, so I searched all of them/i.test(far.content), 'with no local match at all the widening is still stated');
   }
 
   // memory-learning-07 (host half): every transcript write outside the store itself stamps provenance, so no new row is

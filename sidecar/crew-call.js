@@ -14,8 +14,15 @@
 
 // "have Ada …", "ask the researcher to …", "get Quill on this", "delegate to Ada", "loop in the analyst".
 const ASK = '(?:have|ask|get|tell|let|send|use|put|dispatch|task|loop in|bring in|(?:delegate|assign|hand|give)(?:\\s+(?:this|it|the task))?\\s+to)';
-// This note is an unconditional SYSTEM directive. Negated, conditional and quoted requests cannot prove it.
-const QUALIFIED = /\b(?:no|not|never|cancel(?:led|ed)?|don['’]?t|doesn['’]?t|won['’]?t|without|unless|if|maybe|perhaps)\b|["“”`]/i;
+// This note is an unconditional SYSTEM directive, so a request that retracts, hedges or quotes cannot prove it: any such
+// word ANYWHERE vetoes it (fail closed — a missed note leaves the lead to decide; a wrong one delegates against the
+// Commander's wish). Ordinary task words are not hedges: "check IF the tests pass" and "write it WITHOUT jargon" still
+// ask Ada for the work (review 2026-10-12: the old list vetoed them, undoing the 0/4 -> 4/4 fix below).
+const QUALIFIED = /\b(?:no|not|never|nope|nah|cancel(?:l?ed)?|don['’]?t|doesn['’]?t|won['’]?t|shouldn['’]?t|unless|maybe|perhaps|instead|actually|wait|scratch\s+that|never\s*mind|on\s+second\s+thought|changed\s+my\s+mind)\b|\bi['’]?ll\s+(?:do|handle|take)\s+(?:it|this|that)\b|\bdo\s+it\s+yourself\b|\bif\s+(?:needed|necessary|required|possible|it\s+helps|you\s+(?:want|like|need|can|think|prefer))\b|["“”`]/i;
+// reassurance, not a retraction: "no rush" does not take the work back from Ada
+const REASSURANCE = /\bno\s+(?:rush|hurry|pressure|worries)\b/gi;
+// ordinary lead-ins before the ask: "can you have Ada…", "hey, ask Ada to…", "please get Quill on this"
+const LEAD = '^(?:(?:please|hey|hi|ok(?:ay)?|so|now|also|and|can\\s+you|could\\s+you|would\\s+you|will\\s+you|i(?:[\'’]d|\\s+would)\\s+like\\s+you\\s+to|i\\s+want\\s+you\\s+to|go\\s+ahead\\s+and)[\\s,]+)*';
 // Ids that are ordinary words in a sentence, never on their own a reference to one agent ("ask an agent").
 const GENERIC_IDS = new Set(['agent']);
 const esc = s => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -25,7 +32,7 @@ const esc = s => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
    appears as a whole word AND the request asks for work (a delegation verb, or "Name, …" / "Name: …" up front). */
 function crewMentions(text, crew, leadId) {
   const t = String(text || '').trim();
-  if (!t || !crew || QUALIFIED.test(t)) return [];
+  if (!t || !crew || QUALIFIED.test(t.replace(REASSURANCE, ' '))) return [];
   const members = [];
   for (const [agentId, ident] of crew) {
     if (!agentId || agentId === leadId) continue;
@@ -42,7 +49,7 @@ function crewMentions(text, crew, leadId) {
   const list = target + '(?:' + separator + target + ')*';
   // Match the whole target span before rejecting possession, so regex backtracking cannot
   // turn "Have Ada and Quill's report" into a directive for just Ada.
-  const action = new RegExp('^(?:please\\s+)?' + ASK + '\\s+(' + list + ')', 'i').exec(t);
+  const action = new RegExp(LEAD + ASK + '\\s+(' + list + ')', 'i').exec(t);
   const tail = action ? t.slice(action[0].length) : '';
   const targets = new Set(action && !/^(?:['’]|\s*(?:,|&|and\b))/i.test(tail)
     ? Array.from(action[1].matchAll(new RegExp('(?:^|' + separator + ')' + target, 'ig')), m => m[1].toLowerCase())

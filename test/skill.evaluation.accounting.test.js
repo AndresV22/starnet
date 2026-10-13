@@ -16,7 +16,7 @@ async function execute(stream, signal, options = {}) {
   const provider = { async *stream(request) { count++; assert.equal(request.preStreamRetries, 0); yield* stream(request, count); }, contextLimit: () => 8000 };
   const runner = makeAgentLoopCaseRunner({ provider, model: 'scripted/accounting', runIdPrefix: 'stream-accounting', clock: { now: () => 1 },
     cost: makeCostEngine({ priceOf: () => ({ in: 1, out: 1 }) }), limits: { maxIters: 2, grace: false, continueGuard: false, emptyRetry: false },
-    ...options, beforeRun: async () => true, onRun: async row => { result = row.result; } });
+    ...options, beforeRun: options.beforeRun || (async () => true), onRun: async row => { result = row.result; if (options.onRun) await options.onRun(row); } });
   const observation = await runner({ task, skill: null, phase: 'after', signal });
   return { result, count, observation };
 }
@@ -213,6 +213,41 @@ async function main() {
     }
     assert.ok(ids.every(id => /^skill-eval-3f2a-1-before-[a-f0-9]{12}$/.test(id)), 'one skill-eval- namespace per run id: ' + ids.join(', '));
   }
-  console.log('skill.evaluation.accounting: unmetered $0, metered unpriced, real loop usage, empty usage, partial throw, cancellation, retry uncertainty and billed length stop PASS');
+  // Unmetered (Ollama/subscription): token-only usage has no price, and that is $0, not unknown spend. The tool
+  // loop's next call proceeds; a metered provider with the same unpriced usage still refuses it.
+  const unpricedUsage = { type: 'usage', usage: { prompt_tokens: 500, completion_tokens: 40, total_tokens: 540 } };
+  const toolTurn = async function* (_, attempt) {
+    if (attempt === 1) { yield { type: 'tool_start', index: 0, id: 'read', name: 'fs_read' }; yield { type: 'tool_args', index: 0, chunk: '{"path":"input.json"}' }; yield unpricedUsage; yield { type: 'done', finishReason: 'tool_calls' }; return; }
+    yield text; yield unpricedUsage; yield done;
+  };
+  const unpriced = { cost: makeCostEngine({ priceOf: () => null }) };
+  const local = await execute(toolTurn, undefined, { ...unpriced, beforeRun: async () => ({ ok: true, unmetered: true }) });
+  assert.equal(local.count, 2, 'unmetered unpriced usage does not refuse the next tool-loop call');
+  assert.notEqual(local.result.reason, 'policy-denied', 'no spending refusal on an unmetered provider');
+  assert.equal(local.result.accountingIncomplete, false, 'an unmetered run settles at $0, never unknown');
+  const meteredUnpricedLoop = await execute(toolTurn, undefined, unpriced);
+  assert.equal(meteredUnpricedLoop.count, 1, 'metered unpriced usage still refuses another paid attempt');
+  assert.equal(meteredUnpricedLoop.result.reason, 'policy-denied');
+  assert.equal(meteredUnpricedLoop.result.accountingIncomplete, true, 'metered unpriced usage stays unsettled');
+  // The accounting's own callbacks, wired as the run host wires them, under a strict station cap.
+  for (const unmetered of [true, false]) {
+    const pending = new Map(), rows = [];
+    const io = { readAll: () => rows.slice(), unsettled: () => [...pending.values()], beginRun: r => pending.set(r.runId, r), finishRun: e => pending.delete(e.runId), append: e => rows.push(e) };
+    const ledger = makeLedger({ io, clock: { now: () => 1 } }), strict = makeBudget({ ledger, caps: { day: 5 }, clock: { now: () => 1 } });
+    const accounting = makeEvaluationAccounting({ ledger, budget: strict, agentId: 'owner', provider: unmetered ? 'ollama' : 'custom', model: 'scripted/accounting', unmetered });
+    let thrown = null;
+    try { await execute(toolTurn, undefined, { ...unpriced, beforeRun: accounting.beforeRun, onStream: accounting.onStream, onRun: accounting.onRun }); }
+    catch (error) { thrown = error; }
+    if (unmetered) {
+      assert.equal(thrown, null, 'an unmetered case settles instead of throwing');
+      assert.equal(ledger.health().complete, true, 'no unsettled receipt from an unmetered evaluation');
+      assert.equal(strict.check('another-run', 'another-agent', 0), null, 'station spend stays governable');
+      assert.equal(accounting.canContinue(), true, 'later cases can still run');
+    } else {
+      assert.match(String(thrown && thrown.message), /incomplete/, 'metered unpriced spend still fails closed');
+      assert.equal(ledger.health().readError, 'UNSETTLED_SPEND');
+    }
+  }
+  console.log('skill.evaluation.accounting: unmetered $0 (host flag and dispatch admission), metered unpriced, real loop usage, empty usage, partial throw, cancellation, known-spend cancel between calls, sized limits, run-id namespace, retry uncertainty and billed length stop PASS');
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });

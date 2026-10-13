@@ -313,8 +313,9 @@
 
   // Only explicit, proven standing preferences cross agent boundaries. A profile label alone can
   // describe private biographical facts; a global scope alone says nothing about provenance.
-  // The text test accepts every opening TrustedLearning.preferences() saves ("Remember that I prefer…",
-  // "I strongly prefer…", "For all future tasks, …"); test/trusted-learning.test.js locks writer and reader together.
+  // The text test accepts every opening TrustedLearning.preferences() saves (an explicit standing marker: "Remember that
+  // always…", "For all future tasks, …") and the "I (strongly) prefer…" forms an agent saves with notebook.write;
+  // test/trusted-learning.test.js locks writer and reader together.
   // The stored `standing` flag is not trusted: it outlives a later correction of the words.
   function isStandingMemory(r) {
     if (!r || r.origin === 'feedback' || r.scope !== 'global' || r.projectRoot || r.streamId || r.taintedBy) return false;
@@ -562,7 +563,9 @@
     // (or an unscoped run): a lesson about repo A's flaky registry must not steer work in repo B. Global records
     // (no projectRoot, or scope global/stream) always compete, exactly as before. Same-project records get the
     // same-stream boost below so a project's own lessons float up inside it.
-    const recs = activeMemoryRecords(records)
+    // A proven correction retires its older exact copy from AUTO-recall only. An explicit read (floor:false) keeps
+    // every record its own gate admitted: that search is how the agent finds the stale copy to correct or forget.
+    const recs = (rankOpts.floor === false ? (Array.isArray(records) ? records.filter(Boolean) : []) : activeMemoryRecords(records))
       .filter(r => !(r.scope === 'project' && projectKey(r.projectRoot) && projectKey(r.projectRoot) !== project));
     if (!recs.length) return [];
     const rel = lexicalScores(recs, query, rankOpts);   // exact and bounded lexical expansion; vectors below remain semantic
@@ -621,8 +624,20 @@
         priorityNotShown: scored.filter(s => s.pinnedHere || s.standing).length - shownPriority.length } });
       return selected;
     }
+    // PRIORITY ALLOWANCE: auto-recall (no explicit k) adds up to 32 pinned/standing records on top of k ordinary ones;
+    // renderRecall's priority budget bounds them. A caller that names its own k gets at most k (the skill reviewer
+    // lists every record it is handed: "top-12" must stay 12) unless it opts back in with priorityMax.
+    const priorityMax = rankOpts.priorityMax != null ? Math.max(0, Math.min(32, Number(rankOpts.priorityMax) || 0)) : (rankOpts.k ? 0 : 32);
     const allPriority = scored.filter(s => s.pinnedHere || s.standing);
-    const priority = allPriority.slice(0, 32);
+    if (!priorityMax) {
+      const top = scored.slice(0, k);
+      const selected = top.map(s => s.r);
+      const shownPriority = top.filter(s => s.pinnedHere || s.standing);
+      Object.defineProperty(selected, 'recallMeta', { value: { priority: shownPriority.map(s => s.r), notShown: scored.length - selected.length, queried: rel.queried,
+        priorityNotShown: allPriority.length - shownPriority.length } });
+      return selected;
+    }
+    const priority = allPriority.slice(0, priorityMax);
     const ordinary = scored.filter(s => !(s.pinnedHere || s.standing)).slice(0, k);
     const chosen = new Set(priority.concat(ordinary));
     const selected = scored.filter(s => chosen.has(s)).map(s => s.r);
@@ -640,7 +655,7 @@
   function compactionMemoryBlock(records, recentText, opts) {
     opts = opts || {};
     const now = typeof opts.now === 'number' ? opts.now : 0;
-    const ranked = rank(records, recentText || '', { now: now, k: opts.k || 5, streamId: opts.streamId || null, projectRoot: opts.projectRoot || null, vectors: opts.vectors || null, queryVec: opts.queryVec || null, standing: opts.standing });
+    const ranked = rank(records, recentText || '', { now: now, k: opts.k || 5, priorityMax: 32, streamId: opts.streamId || null, projectRoot: opts.projectRoot || null, vectors: opts.vectors || null, queryVec: opts.queryVec || null, standing: opts.standing });
     if (!ranked.length) return '';
     const rr = renderRecall(ranked, {
       limit: opts.limit || 800, priorityLimit: 0, notice: false,   // the summarizer has no tools: no notebook.read pointer

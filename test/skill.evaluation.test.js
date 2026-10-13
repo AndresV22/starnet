@@ -75,6 +75,8 @@ async function main() {
   assert.equal(E.digestSkill(candidate), E.digestSkill({ ...candidate, updatedAt: 123, useCount: 9, id: 'other' }));
   assert.notEqual(E.digestSkill(candidate), E.digestSkill({ ...candidate, scope: 'project', projectRoot: 'C:/another' }));
   assert.notEqual(E.digestSkill(candidate), E.digestSkill({ ...candidate, state: 'archived' }));
+  assert.equal(E.digestSkill(candidate), E.digestSkill({ ...candidate, state: 'stale' }), 'stale is the aging clock, not content: use must not orphan a revision');
+  assert.notEqual(E.digestSkill({ ...candidate, state: 'stale' }), E.digestSkill({ ...candidate, state: 'archived' }), 'a stale skill is still distinct from a retired one');
   assert.notEqual(E.digestSkill(candidate), E.digestSkill({ ...candidate, files: [{ path: 'scripts/sum.js', content: 'different' }] }));
   // Real agent loop + replay transport proves tool observations and workspace isolation,
   // not model quality. The receipt classifier above prevents it authorizing promotion.

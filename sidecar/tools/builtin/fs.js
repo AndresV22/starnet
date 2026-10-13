@@ -1066,7 +1066,8 @@ const { note: failNote } = require('../../failopen');
         async function walkAll() {
           // The named file already passed resolveInside. Do not enumerate its parent: same-name descendants
           // are different files, and unrelated siblings must not consume this one-file scan's budget.
-          if (onlyName) { stats.files = 1; return [{ rel: onlyRel, abs: resolved.abs, mtimeMs: startStat.mtimeMs || 0 }]; }
+          // `size` like collectFiles' entries: the walker skips an over-cap file BEFORE readFile, never after.
+          if (onlyName) { stats.files = 1; return [{ rel: onlyRel, abs: resolved.abs, mtimeMs: startStat.mtimeMs || 0, size: Number(startStat.size) || 0 }]; }
           const all = []; await collectFiles(abs, startPrefix, all, stats, baseReal, ancestors); return all;
         }
         const rg = await rgBinary();

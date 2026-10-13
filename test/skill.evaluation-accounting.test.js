@@ -43,4 +43,28 @@ for (const managed of [true, false, undefined]) {
   sourced.beforeRun({ runId: 'sourced' });
   assert.equal(metas[0].managed, managed, 'billing source on the receipt: ' + managed);
 }
-console.log('skill evaluation accounting: settled cost, interrupted restart, and persistence denial PASS');
+// An unmetered provider (Ollama, a subscription) bills nothing per token: its unpriced usage settles at $0, with no
+// dispatch receipt (the run host writes none for it), and never makes station spend history unknown.
+{
+  const localPending = new Map(), localRows = [];
+  const localIo = { readAll: () => localRows.slice(), unsettled: () => [...localPending.values()], beginRun: r => localPending.set(r.runId, r), finishRun: e => localPending.delete(e.runId), append: e => localRows.push(e) };
+  const localLedger = makeLedger({ io: localIo, clock: { now: () => 42 } });
+  const localStrict = makeBudget({ ledger: localLedger, caps: { day: 1 }, clock: { now: () => 42 } });
+  const local = makeEvaluationAccounting({ ledger: localLedger, budget: localStrict, agentId: 'owner', provider: 'ollama', model: 'qwen3:8b', unmetered: true });
+  assert.deepEqual(local.beforeRun({ runId: 'local' }), { ok: true, unmetered: true }, 'unmetered admission tells the runner to settle at $0');
+  assert.equal(localPending.size, 0, 'an unmetered dispatch writes no receipt');
+  local.onStream({ runId: 'local', spentUsd: 0, accountingIncomplete: true });
+  local.onRun({ runId: 'local', result: { reason: 'done', usd: 0, tokens: 540, turns: 1, unpricedUsage: [{ model: 'qwen3:8b', tokensIn: 500, tokensOut: 40 }] } });
+  assert.equal(local.canContinue(), true, 'unpriced unmetered usage is not unknown spend');
+  assert.equal(localLedger.health().complete, true, 'station spend history stays complete');
+  assert.equal(localStrict.check(null, 'other', 0), null, 'a strict cap still admits every other agent');
+  assert.deepEqual([localRows[0].usd, localRows[0].tokens, localRows[0].unmetered], [0, 540, true], 'booked as a $0 unmetered row with its tokens');
+  local.beforeRun({ runId: 'local-error' });
+  local.onRun({ runId: 'local-error', result: { reason: 'runner-error', accountingIncomplete: true } });
+  assert.equal(localLedger.health().complete, true, 'a failed unmetered case is still $0, not unsettled');
+  const meteredLocal = makeEvaluationAccounting({ ledger: localLedger, budget: localStrict, agentId: 'owner', provider: 'custom', model: 'local/model' });
+  assert.equal(meteredLocal.beforeRun({ runId: 'metered-unpriced' }), true, 'a metered provider still commits its receipt');
+  assert.throws(() => meteredLocal.onRun({ runId: 'metered-unpriced', result: { reason: 'done', usd: 0, tokens: 540, turns: 1, unpricedUsage: [{ model: 'local/model', tokensIn: 500, tokensOut: 40 }] } }), /incomplete/, 'metered unpriced usage stays unknown');
+  assert.equal(localLedger.health().readError, 'UNSETTLED_SPEND');
+}
+console.log('skill evaluation accounting: settled cost, interrupted restart, persistence denial, and unmetered $0 settlement PASS');

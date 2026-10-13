@@ -1,0 +1,258 @@
+{
+  "schemaVersion": 1,
+  "recordedAtUtc": "2026-10-12T23:21:43.687Z",
+  "status": "HOTFIX_RECALL_GAP_REPRODUCED; LARGER_BATCH_QUOTED_LEARNING_RELAY_GAP_CONFIRMED_BY_SOURCE_AND_PURE_CONTROLS; OWNER_REPAIRS_PENDING",
+  "releaseScope": {
+    "source": "Coordinator report of trusted human selection at2026-10-12T23:02:49Z",
+    "hotfix": "0.13.3 = v0.13.2 plus security hotfixes",
+    "largerBatch": "Deferred to0.13.4",
+    "scopeIsNotReleaseAcceptance": true
+  },
+  "repairOwner": {
+    "branch": "agent/release-review-1012",
+    "inspectedTip": "72e5e92f741c8cfe0fa9d6b69e1521bf25c0a8d3",
+    "noCompetingSourceImplementation": true
+  },
+  "hotfixRecall": {
+    "source": "f902469ba1904925c3a08da69e1d2f68e7e3b080",
+    "finding": "memory-learning-08",
+    "hostBinding": {
+      "path": "sidecar/index.js",
+      "line": 19184,
+      "expression": "makeRecallTool({ transcriptStore }).register(registry)"
+    },
+    "execution": {
+      "command": "node qa/evidence/memory-harness-audit-1011/recall-channel-confidentiality-probe.cjs f902469ba1904925c3a08da69e1d2f68e7e3b080",
+      "exitCode": 0,
+      "kind": "One root exact-source in-memory execution; observations summarized from captured tool output. No real host, provider or account.",
+      "results": [
+        {
+          "mode": "default-search",
+          "privateSentinelReturned": true,
+          "publicControlReturned": false,
+          "taintedBy": null
+        },
+        {
+          "mode": "explicit-all",
+          "privateSentinelReturned": true,
+          "publicControlReturned": false,
+          "taintedBy": null
+        },
+        {
+          "mode": "foreign-scroll",
+          "privateSentinelReturned": true,
+          "publicControlReturned": false,
+          "taintedBy": null
+        },
+        {
+          "mode": "browse",
+          "privateSentinelReturned": true,
+          "publicControlReturned": true,
+          "taintedBy": null
+        },
+        {
+          "mode": "authorized-local",
+          "privateSentinelReturned": false,
+          "publicControlReturned": true,
+          "taintedBy": null
+        },
+        {
+          "mode": "restricted-default-with-local-hit",
+          "privateSentinelReturned": false,
+          "publicControlReturned": true,
+          "taintedBy": null
+        },
+        {
+          "mode": "restricted-missing-stream",
+          "privateSentinelReturned": true,
+          "publicControlReturned": false,
+          "taintedBy": null
+        },
+        {
+          "mode": "simulated-restricted-worker-foreign-stream",
+          "privateSentinelReturned": true,
+          "publicControlReturned": false,
+          "taintedBy": null
+        },
+        {
+          "mode": "owner-cross-stream",
+          "privateSentinelReturned": true,
+          "publicControlReturned": false,
+          "taintedBy": null
+        },
+        {
+          "mode": "owner-foreign-scroll",
+          "privateSentinelReturned": true,
+          "publicControlReturned": false,
+          "taintedBy": null
+        },
+        {
+          "mode": "owner-browse",
+          "privateSentinelReturned": true,
+          "publicControlReturned": true,
+          "taintedBy": null
+        }
+      ],
+      "interpretation": "The first four restricted modes return synthetic private text; missing-stream and simulated foreign-worker context also expose it. Three owner-wide controls intentionally return it. Local controls work. Exit zero means the diagnostic ran, not that the candidate is secure."
+    },
+    "differenceFromDb63": "Hotfix default search first uses the current stream and widens on zero hits. A local hit keeps the hotfix search local. Explicit all, foreign scroll and global browse remain unrestricted. The larger batch instead ranks local and historical hits together.",
+    "sourceBlobs": {
+      "sidecar/index.js": "6a9c03ae1730d3b64185346641efc4ced49ec1f9",
+      "sidecar/tools/builtin/recall.js": "8e1ea7be3cb3457f5fad0a0e9e57368648fa4e85",
+      "sidecar/transcriptstore.js": "a8bbf57ba2cb1eb6f46e844c0a94065d694ff09b",
+      "sidecar/context.js": "d8f559c99c6d56d9c3562ad8fad459646970327d",
+      "sidecar/tools/builtin/orchestration.js": "3564ca8ed5dcf0d06fef6cb4b898598c336e6581",
+      "sidecar/overseer.js": "8234fa0a86739865fec0159f93e42d4702f0a3c9"
+    },
+    "priorDb63": {
+      "source": "db63a980da421c75d00072978776e117802c8c24",
+      "receipt": "qa/evidence/memory-harness-audit-1011/recall-channel-confidentiality-review.json",
+      "rerun": false
+    }
+  },
+  "quotedWorkerLearning": {
+    "source": "eadb3be8f87c7dade328c1135ba284243d88f09e",
+    "hotfixApplicability": "Not attributed to selected hotfix; this is the later learning-only flag change in the larger batch.",
+    "execution": {
+      "command": "node qa/evidence/memory-harness-audit-1011/quoted-worker-learning-probe.cjs",
+      "exitCode": 0,
+      "meaning": "Exact-source pure controls confirm review-input exposure. No actual named worker or review provider was launched.",
+      "observed": {
+        "source": "eadb3be8f87c7dade328c1135ba284243d88f09e",
+        "kind": "Pure exact-source VM modules plus extracted origin helpers; synthetic only. No actual worker, host process, provider or account run.",
+        "parentQuoteDetected": true,
+        "parentCapture": null,
+        "namedWorkerWithoutInheritedFlag": {
+          "trustedOnly": false,
+          "eligible": true,
+          "directives": [
+            {
+              "provenance": "unattributed-input",
+              "durableInstructionEligible": false
+            }
+          ],
+          "verification": 0,
+          "reviewContainsQuotedSentinel": true
+        },
+        "parentRestricted": {
+          "trustedOnly": true,
+          "eligible": false,
+          "directives": [],
+          "verification": 0,
+          "reviewContainsQuotedSentinel": false
+        },
+        "restrictedWithHostCheck": {
+          "trustedOnly": true,
+          "eligible": true,
+          "directives": [],
+          "verification": 1,
+          "reviewContainsQuotedSentinel": false
+        },
+        "cleanLocalWorker": {
+          "quoteDetected": false,
+          "trustedOnly": false,
+          "eligible": true,
+          "keepsLocalTranscript": true
+        },
+        "dueControl": {
+          "count": 10,
+          "due": true
+        },
+        "originLimitsFromFlaggedAuthority": {
+          "withholdHostPower": false,
+          "untrustedEntry": false,
+          "withholdTaste": false,
+          "taintedBy": ""
+        },
+        "persistedMergedLimits": {
+          "withholdHostPower": false,
+          "untrustedEntry": false,
+          "withholdTaste": false,
+          "taintedBy": ""
+        },
+        "resumeOnlyQuotedFlagSurvives": false,
+        "existingNonOwnerLimitsPreserved": {
+          "withholdHostPower": true,
+          "withholdTaste": true,
+          "untrustedEntry": true,
+          "taintedBy": "synthetic external source"
+        }
+      }
+    },
+    "sourceBlobs": {
+      "sidecar/index.js": "bf5d249add0595a60a5497cdc06c4ff13fc389b7",
+      "sidecar/trusted-learning.js": "3026678d549d1a1590b1f82943c5a7180513a05b",
+      "sidecar/learningevidence.js": "57b3ed37ba44bbf231adbbbcafdccb0d46cb8c4c",
+      "sidecar/skillreview.js": "fa32f8f093288e7247ec9337b5794ae5c6105086",
+      "sidecar/tools/builtin/orchestration.js": "9b975ac3ce8fa6b95f21c172f71e56091cb8f4d8",
+      "sidecar/subagents.js": "cdc7406c841cae0d35a8daa84f13321101a82ba2"
+    },
+    "sourceTrace": [
+      {
+        "path": "sidecar/index.js",
+        "lines": "18951,18962",
+        "fact": "handleRun detects quotedOwnerInput as a learning-only restriction."
+      },
+      {
+        "path": "sidecar/index.js",
+        "lines": "20619-20628",
+        "fact": "Host connectorAuthority omits that restriction."
+      },
+      {
+        "path": "sidecar/tools/builtin/orchestration.js",
+        "lines": "323-343",
+        "fact": "Origin projection and resume merging omit the learning-only restriction."
+      },
+      {
+        "path": "sidecar/subagents.js",
+        "lines": "224-227,254",
+        "fact": "Durable origin merging drops the learning-only restriction."
+      },
+      {
+        "path": "sidecar/index.js",
+        "lines": "22506,22531-22536,22562",
+        "fact": "Evidence/trustedOnly and filtering read o.quotedOwnerInput; named worker skill nudge can be due without o.reflect."
+      },
+      {
+        "path": "sidecar/skillreview.js",
+        "lines": "65,122",
+        "fact": "trustedOnly withholds raw transcript and notebook memories; a missing flag retains raw transcript."
+      }
+    ],
+    "reachableClaim": "A successful named worker with skill tools and a due nudge may send quoted raw transcript into review when this restriction is lost. Its directive remains unattributed and durableInstructionEligible=false. No automatic promotion bypass or actual durable poisoning is established.",
+    "excludedImmediateReviewPaths": [
+      "Ephemeral non-roster sub-* workers are excluded by _throwawayAgent.",
+      "Output-only structured repairs become internal and are excluded.",
+      "Crash recovery makes _auxDone/_auxFail false; journal omission alone does not prove an immediate review."
+    ],
+    "acceptance": [
+      "Propagate the learning-only restriction through the host bridge, named foreground/background workers, durable origin limits and sticky resume without widening.",
+      "Keep quote status separate from tool taint and owner/tool authority.",
+      "Preserve existing non-owner withholdHostPower/withholdTaste/untrustedEntry/taintedBy restrictions.",
+      "Preserve clean local-worker learning and restricted review backed by host checks while withholding quoted raw transcript."
+    ]
+  },
+  "delegationAcceptanceQualification": {
+    "confirmedSource": "On the hotfix, ordinary channel ingress sets floorless:true (channels/hub.js1834); overseer.isCoordinatorRun requires !floorless. Coordinator sessionContext/preloading and coordinated queued refresh are therefore not ordinary channel disclosure paths.",
+    "conditionalSeam": "resolveSessions is not conditioned on withholdTaste or coordinateResults. A restricted run with explicit orchestrator capability, required dispatch consent, a valid distinct worker, and a live page uniquely resolving an existing foreign session could give that worker a foreign stream; ordinary auto-reconstruct then needs scrutiny.",
+    "notDemonstrated": "Default restricted-channel offices lack orchestrator and no-page resolution fails. No configured end-to-end exploit was tested. Record this as a conditional acceptance case, not a separate proven blocker.",
+    "anchors": [
+      "sidecar/overseer.js:8",
+      "sidecar/channels/hub.js:1834",
+      "sidecar/index.js:19256",
+      "sidecar/index.js:19259",
+      "sidecar/index.js:19289",
+      "sidecar/tools/builtin/orchestration.js:481",
+      "sidecar/tools/builtin/orchestration.js:618",
+      "sidecar/index.js:21169"
+    ],
+    "requirement": "Bind recall to original host-authorized conversation, not merely a potentially model-selected worker destination. Cover foreground/background/resume, explicit foreign requests, missing bindings and local/owner successes."
+  },
+  "limits": [
+    "No broad, live, installed or provider tests. No real conversations or accounts accessed.",
+    "No source repair or fix acceptance; active peer retains ownership.",
+    "No frozen coordinator or trunk advance. Existing unrelated owner-worktree QA commits preserved."
+  ],
+  "quotedProbeSha256": "1637254c3e76c3ecf6e3927170e9e6d7c949c93f7290f18db0c84b2fd5239e68",
+  "recallProbeSha256": "4ba7b86546ee4689179436a9621c8a90ffb1089ad7c0133ca268ff3045a13c8a"
+}

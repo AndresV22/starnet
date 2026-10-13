@@ -22,7 +22,8 @@
      makeRecallTool({ transcriptStore, ownStreamOnly }) -> { recallTool, register(registry) }
    At call time, ctx supplies streamId (the active workstream) — the local ranking tie-break and default scroll target.
    ownStreamOnly() (host-minted, never from args/text) pins EVERY shape to that one chat: a run a non-owner or a group
-   started — and any worker it delegates to — never reads the Commander's other workstreams. */
+   started — and any worker it delegates to — never reads the Commander's other workstreams. The run's host-minted
+   ctx.connectorAuthority.withholdTaste (the same tasteWithheld flag, already on every run's capCtx) pins it too. */
 'use strict';
 (function (root, factory) {
   const api = factory(typeof require === 'function' ? require('../../context.js') : (root.SK && root.SK.context),
@@ -98,7 +99,14 @@
         if (!transcriptStore || typeof transcriptStore.search !== 'function') return { content: 'Conversation recall is unavailable.', summary: 'unavailable' };
         const limit = (Number(a.limit) > 0) ? Math.min(Number(a.limit), 20) : 5;
         // a non-owner / group run (and its workers) reads ONLY its own chat — the Commander's other workstreams are private
-        const pinned = typeof d.ownStreamOnly === 'function' && d.ownStreamOnly() === true;
+        const authority = ctx && ctx.connectorAuthority;
+        const pinned = (typeof d.ownStreamOnly === 'function' && d.ownStreamOnly() === true)
+          || !!(authority && typeof authority === 'object' && authority.withholdTaste === true);
+        // the store files a run with no (or a malformed) workstream id under 'global' (transcriptstore normStream): hits
+        // are matched against that same id, or a headless run's own scope:"stream" hits read as foreign and it reports
+        // "no messages" over real ones (review memory-learning-16). A pinned run keeps its raw id below, so it can never
+        // read the shared 'global' stream.
+        const here = streamId && /^[A-Za-z0-9_-]{1,64}$/.test(streamId) ? streamId : 'global';
         const LIMITED = 'Conversation recall is limited to this chat.';
         if (pinned && !streamId) return { content: LIMITED + ' This run has no chat history to search.', summary: 'limited to this chat' };
         const ownRows = list => pinned ? list.filter(r => r && r.streamId === streamId) : list;
@@ -142,24 +150,21 @@
         // deduped, then reranked together with exact + explicit lexical-expansion scores.
         // A pinned run is always strict: no default history leg, no scope:'all', no zero-hit auto-widen.
         const strictStream = pinned || a.scope === 'stream';
-        // the store files a run with no (or a malformed) workstream id under 'global' (transcriptstore normStream): hits
-        // are matched against that same id, or scope:"stream" would drop the run's own rows (review memory-learning-16).
-        // A pinned run keeps its raw id below, so it can never read the shared 'global' stream.
-        const searchStream = streamId && /^[A-Za-z0-9_-]{1,64}$/.test(streamId) ? streamId : 'global';
         const wantAll = !pinned && a.scope === 'all';
         const expanded = retrieval && retrieval.expandRecallQuery ? retrieval.expandRecallQuery(q) : q;
         const queries = Array.from(new Set([q.slice(0, 2000), expanded].filter(Boolean)));
         const scopes = strictStream ? ['stream'] : wantAll ? ['all'] : ['stream', 'all'];
-        const candidates = new Map(), exact = new Set(), failures = [];
+        const candidates = new Map(), exact = new Set(), local = new Set(), failures = [];
         const key = h => h.rowId ? 'row:' + h.rowId : [h.streamId || '', h.role || '', h.ts || '', h.content || ''].join('\u0000');
         for (const scope of scopes) for (let qi = 0; qi < queries.length; qi++) {
           try {
             const found = transcriptStore.search(streamId, queries[qi], { limit: Math.min(50, limit * 3), scope }) || [];
             for (const h of found) {
-              if (!h || !h.content || (strictStream && h.streamId && h.streamId !== searchStream) || (pinned && h.streamId !== streamId)) continue;
+              if (!h || !h.content || (strictStream && h.streamId && h.streamId !== here) || (pinned && h.streamId !== streamId)) continue;
               const id = key(h);
               if (!candidates.has(id)) candidates.set(id, h);
               if (!qi) exact.add(id);
+              if (scope === 'stream' || h.streamId === here) local.add(id);
             }
           } catch (_) { failures.push(scope); }
         }
@@ -169,12 +174,14 @@
           : rows.map(h => Number(h.score) || 0);
         const ranked = rows.map((h, i) => ({ h, i, score: scores[i] || (exact.has(key(h)) ? 0.01 : 0) }))
           .filter(x => x.score > 0).sort((a, b) => b.score - a.score
-            || Number(b.h.streamId === searchStream) - Number(a.h.streamId === searchStream)
+            || Number(b.h.streamId === here) - Number(a.h.streamId === here)
             || (Number(b.h.ts) || 0) - (Number(a.h.ts) || 0) || a.i - b.i);
         const hits = ranked.slice(0, limit).map(x => x.h);
-        // "nothing matched here" only when no row of this workstream scored at all — an expansion-only local match, or
-        // one the limit cut, still counts (review memory-learning-15)
-        const widened = !strictStream && !wantAll && !ranked.some(x => x.h.streamId === searchStream) && hits.some(h => h.streamId !== searchStream);
+        // "nothing matched here" only when NO ranked match (exact OR lexical-expansion) came from this workstream — one
+        // the limit cut still counts (review memory-learning-15) — and its own search actually ran: a local paraphrase
+        // hit listed under that lead contradicts it
+        const widened = !strictStream && !wantAll && !failures.includes('stream')
+          && !ranked.some(x => local.has(key(x.h))) && hits.some(h => h.streamId !== here);
         if (!hits.length) {
           if (failures.length) return { content: 'Some conversation history could not be searched. No matching messages were available; this does not prove the conversation never happened.', summary: 'history search incomplete' };
           const where = pinned ? 'this chat' : strictStream ? 'this workstream' : 'any workstream';

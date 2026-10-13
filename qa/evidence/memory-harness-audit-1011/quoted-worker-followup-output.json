@@ -1,0 +1,89 @@
+{
+  "recordType": "preserved prior execution evidence",
+  "provenance": "Copied from the actual earlier no-files pure VM execution in this agent conversation; the probe was not rerun while saving these files.",
+  "sourceCommit": "72e5e92f741c8cfe0fa9d6b69e1521bf25c0a8d3",
+  "originalCommand": "PowerShell single-quoted here-string containing quoted-worker-followup-probe.cjs body piped to node",
+  "originalWorkingDirectory": "C:\\Users\\andro\\gen-trees\\memory-audit-loop-1011",
+  "originalExitCode": 0,
+  "capturedOutput": {
+    "source": "72e5e92f741c8cfe0fa9d6b69e1521bf25c0a8d3",
+    "kind": "exact-source pure VM probe; synthetic only; no writes or live runs",
+    "parentQuoteInLearningTail": true,
+    "parentCapture": null,
+    "namedWorkerWithoutInheritedFlag": {
+      "trustedOnly": false,
+      "eligible": true,
+      "directives": [],
+      "verification": 0,
+      "structuredContainsQuotedSentinel": false,
+      "reviewContainsQuotedSentinel": true,
+      "keepsCleanTranscript": false
+    },
+    "restrictedNoCheck": {
+      "trustedOnly": true,
+      "eligible": false,
+      "directives": [],
+      "verification": 0,
+      "structuredContainsQuotedSentinel": false,
+      "reviewContainsQuotedSentinel": false,
+      "keepsCleanTranscript": false
+    },
+    "restrictedWithHostCheck": {
+      "trustedOnly": true,
+      "eligible": true,
+      "directives": [],
+      "verification": 1,
+      "structuredContainsQuotedSentinel": false,
+      "reviewContainsQuotedSentinel": false,
+      "keepsCleanTranscript": false
+    },
+    "cleanLocalWorker": {
+      "trustedOnly": false,
+      "eligible": true,
+      "directives": [
+        {
+          "provenance": "unattributed-input",
+          "durableInstructionEligible": false
+        }
+      ],
+      "verification": 0,
+      "structuredContainsQuotedSentinel": false,
+      "reviewContainsQuotedSentinel": false,
+      "keepsCleanTranscript": true
+    },
+    "dueControl": {
+      "count": 10,
+      "due": true
+    },
+    "originLimitsFromFlaggedAuthority": {
+      "withholdHostPower": false,
+      "untrustedEntry": false,
+      "withholdTaste": false,
+      "taintedBy": ""
+    },
+    "persistedFlagOnly": {
+      "withholdHostPower": false,
+      "untrustedEntry": false,
+      "withholdTaste": false,
+      "taintedBy": ""
+    },
+    "resumeFlagOnlySurvives": false,
+    "nonOwnerResume": {
+      "withholdHostPower": true,
+      "withholdTaste": true,
+      "untrustedEntry": true,
+      "taintedBy": "forwarded message",
+      "initialTaint": "forwarded message",
+      "quotedOwnerInput": false
+    }
+  },
+  "sourceBlobs": {
+    "sidecar/index.js": "e982bc82a61ac3c2472c43f2c85548bb26a66566",
+    "sidecar/trusted-learning.js": "6aa266ce750624364b2d2d8cb2fee2e483f4df6e",
+    "sidecar/learningevidence.js": "098d26b33bc86c93ea0c4203168d0b601e7fb56b",
+    "sidecar/skillreview.js": "fa32f8f093288e7247ec9337b5794ae5c6105086",
+    "sidecar/tools/builtin/orchestration.js": "9b975ac3ce8fa6b95f21c172f71e56091cb8f4d8",
+    "sidecar/subagents.js": "cdc7406c841cae0d35a8daa84f13321101a82ba2"
+  },
+  "scope": "Synthetic source-level/pure-helper evidence only. No live app or provider execution, test suite, account access, or automatic-promotion bypass is claimed."
+}

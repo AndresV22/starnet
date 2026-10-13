@@ -428,6 +428,16 @@ A.ok(renderRecall([{ content: 'prefers reports', confirmation: 'user-confirmed' 
   A.eq(C.activeMemoryRecords([Object.assign({}, old, { origin: 'feedback', feedbackRef: { id: 'design-a' } }), Object.assign({}, corrected, { origin: 'feedback', feedbackRef: { id: 'design-b' } })]).length, 2, 'correction of one feedback reference does not retire another reference with the same words');
   A.eq(C.rank([old, Object.assign({}, corrected, { confirmation: 'inferred' })], 'tabs').length, 2, 'unconfirmed edits cannot retire the user-stated original');
   A.eq(C.rank([old, Object.assign({}, corrected, { scope: 'project', projectRoot: 'C:/secret' })], 'tabs').map(x => x.id), ['old-copy'], 'project correction cannot retire a global preference');
+  // an explicit read (floor:false) only REORDERS what its gate admitted: the retired copy stays findable there
+  A.eq(C.rank([old, corrected], 'tabs', { floor: false, k: 2 }).map(x => x.id).sort(), ['current', 'old-copy'], 'an explicit notebook read still returns a retired copy its gate admitted (to correct or forget it)');
+  A.eq(C.rank([old, corrected], 'tabs', { floor: false, k: 2 })[0].id, 'current', 'and the corrected record still leads that read');
+  // a caller that names k gets at most k; auto-recall (no k) keeps the bounded priority allowance
+  const pinnedPool = Array.from({ length: 40 }, (_, i) => Object.assign({}, required[0], { id: 'p' + i }))
+    .concat(Array.from({ length: 20 }, (_, i) => ({ id: 'o' + i, kind: 'fact', content: 'deploy checklist note ' + i, createdAt: 50 + i })));
+  A.eq(C.rank(pinnedPool, 'deploy', { now: 100, k: 12 }).length, 12, 'an explicit k (the skill reviewer\'s top-12) caps the returned count even with 40 pinned notes');
+  A.eq(C.rank(pinnedPool, '', { now: 100, k: 12 }).length, 12, 'a queryless explicit-k rank is capped too');
+  A.eq(C.rank(pinnedPool, 'deploy', { now: 100 }).length, 40, 'auto-recall (no k) still carries 8 ordinary + 32 bounded priority records');
+  A.eq(C.rank(pinnedPool, 'deploy', { now: 100, k: 5, priorityMax: 32 }).length, 37, 'a caller that opts into the allowance (compaction) keeps it');
 }
 
 // Review memory-learning-04: ordinary top-k ranking is not an omission. A 60-note notebook used to end every run's

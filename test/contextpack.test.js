@@ -161,7 +161,7 @@ A.eq(CP.dayTag(0, T), '', 'undated → empty tag');
     // represent an absent/mismatched/internal source without altering the row's own clean stamp.
     const originRuns = input.originRuns || (input.chats || []).filter(m => m && m.sourceRunId).map(m =>
       (input.runs || []).find(r => r && r.runId === m.sourceRunId) ||
-      { runId: m.sourceRunId, agentId: m.agentId, streamId: m.streamId, internal: false });
+      { runId: m.sourceRunId, agentId: m.agentId, streamId: m.streamId, internal: false, ownerDirective: true });
     const pack = vm.runInNewContext('(' + fn + ')()', {
       Date: { now: () => T },
       personalizationStore: { read: () => ({ enabled: input.enabled !== false }) },
@@ -262,7 +262,7 @@ A.eq(CP.dayTag(0, T), '', 'undated → empty tag');
   A.eq(windowEdge.projected.briefs.length, 0, 'an internal original run cannot authorize a completed brief');
   A.eq(windowEdge.pack.trustedActivityLines, [], 'old internal self-talk never mints trusted topic activity');
 
-  const originProof = { runId: 'owner-original', agentId: 'owner-agent', streamId: 'ws-main', internal: false };
+  const originProof = { runId: 'owner-original', agentId: 'owner-agent', streamId: 'ws-main', internal: false, ownerDirective: true };
   for (const [label, origins] of [
     ['missing source run metadata', []],
     ['internal source run metadata', [{ ...originProof, internal: true }]],
@@ -272,14 +272,16 @@ A.eq(CP.dayTag(0, T), '', 'undated → empty tag');
     ['scheduled source run', [{ ...originProof, cronJobId: 'schedule-job' }]],
     ['recovery source run', [{ ...originProof, recoveryOf: 'interrupted-run' }]],
     ['another agent owns the source run', [{ ...originProof, agentId: 'other-agent' }]],
-    ['another stream owns the source run', [{ ...originProof, streamId: 'other-stream' }]]
+    ['another stream owns the source run', [{ ...originProof, streamId: 'other-stream' }]],
+    // (2026-10-12) a channel group guest's run looks like the owner's by surface/stream; only the host stamp tells them apart
+    ['a channel group guest (no owner-directive stamp) gave the source run', [{ ...originProof, ownerDirective: undefined, surface: 'interactive' }]]
   ]) {
     const rejected = host({ chats: [clean], briefs: [brief(clean.content)], originRuns: origins });
     A.eq(rejected.projected.chats.length, 0, label + ': no owner chat');
     A.eq(rejected.projected.briefs.length, 0, label + ': no owned brief');
     A.eq(rejected.pack.trustedActivityLines, [], label + ': no trusted topic evidence');
   }
-  const oldOwnerOrigin = { ...oldInternal, internal: false };
+  const oldOwnerOrigin = { ...oldInternal, internal: false, ownerDirective: true };
   const oldOwnerStillProven = host({ runs: recentTitles, originRuns: [...recentTitles, oldOwnerOrigin],
     chats: [oldInternalChat], briefs: [oldInternalBrief] });
   A.eq(oldOwnerStillProven.projected.chats.length, 1, 'a genuine owner source outside the title window remains eligible');
@@ -398,12 +400,16 @@ A.eq(CP.dayTag(0, T), '', 'undated → empty tag');
   A.eq(host({ chats: [owner(longDirective + '\n> external late direction')], briefs: [brief(clipped)] }).projected.briefs.length, 0,
     'a quote after character 4000 invalidates the whole source before a matching brief prefix can launder it');
 
-  const oldOwner = owner('Older owner directive outside the bounded source window');
+  const oldOwner = owner('Older owner directive outside the bounded source window', { sourceRunId: 'old-original' });
   const newestOwner = owner('Newest owner directive inside the bounded source window');
   const history = [oldOwner, ...Array.from({ length: 400 }, (_, i) => owner('Unknown padding ' + i, { taintKnown: undefined })), newestOwner];
-  const bounded = host({ chats: history, briefs: [brief(oldOwner.content), brief(newestOwner.content)] });
+  const bounded = host({ chats: history, briefs: [brief(oldOwner.content, { id: 'tb_old-original', originalRunId: 'old-original' }), brief(newestOwner.content)] });
   A.eq(bounded.projected.chats.map(m => m.content), [newestOwner.content], 'take the last 400 source rows before filtering, without searching unbounded clean history');
-  A.eq(bounded.projected.briefs.map(b => b.originalDirective), [newestOwner.content], 'brief authority comes only from the bounded eligible owner window');
+  // (2026-10-12) A completed brief exists to carry work older than the chat tail: its proof is its own original row,
+  // looked up by run id, so 400 newer rows no longer evict a still-held clean original (this used to pin the eviction).
+  A.eq(bounded.projected.briefs.map(b => b.originalDirective), [oldOwner.content, newestOwner.content], 'a brief older than the chat tail keeps its clean original-row proof');
+  const oldUnknown = host({ chats: [{ ...oldOwner, taintKnown: undefined }, ...history.slice(1)], briefs: [brief(oldOwner.content, { id: 'tb_old-original', originalRunId: 'old-original' }), brief(newestOwner.content)] });
+  A.eq(oldUnknown.projected.briefs.map(b => b.originalDirective), [newestOwner.content], 'an old original without a clean stamp still proves nothing');
 }
 
 setTimeout(() => A.report('contextpack.test'), 30);

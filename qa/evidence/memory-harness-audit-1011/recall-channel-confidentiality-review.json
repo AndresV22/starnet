@@ -1,0 +1,108 @@
+{
+  "schemaVersion": 1,
+  "recordedAtUtc": "2026-10-12T22:55:08.329Z",
+  "finding": "memory-learning-08",
+  "status": "BASELINE_SYNTHETIC_DISCLOSURE_REPRODUCED; ASSIGNED_OWNER_FIX_REVIEW_PENDING",
+  "source": "db63a980da421c75d00072978776e117802c8c24",
+  "owner": {
+    "branch": "agent/release-review-1012",
+    "inspectedTip": "03c4df5d03b17762eeb303aa746d44cb5c931be0",
+    "assignment": "Coordinator explicitly confirmed this finding belongs to the existing Claude release-review lane. No competing implementation.",
+    "unchangedRecallRelatedPaths": [
+      "sidecar/tools/builtin/recall.js",
+      "sidecar/tools/builtin/orchestration.js",
+      "sidecar/transcriptstore.js",
+      "sidecar/transcript-history.js"
+    ]
+  },
+  "execution": {
+    "command": "node qa/evidence/memory-harness-audit-1011/recall-channel-confidentiality-probe.cjs db63a980da421c75d00072978776e117802c8c24",
+    "exitCode": 0,
+    "meaning": "Probe completed and reproduced the defect. Exit zero does not mean fixed or accepted.",
+    "observed": {
+      "source": "db63a980da421c75d00072978776e117802c8c24",
+      "kind": "Exact committed modules with synthetic in-memory transcript data. No real sidecar, account, conversation or provider accessed.",
+      "execution": "The current candidate host supplies only transcriptStore to the factory; inherited host restriction is present in synthetic context.",
+      "results": [
+        {
+          "mode": "default-search",
+          "privateSentinelReturned": true,
+          "publicControlReturned": false,
+          "taintedBy": null
+        },
+        {
+          "mode": "explicit-all",
+          "privateSentinelReturned": true,
+          "publicControlReturned": false,
+          "taintedBy": null
+        },
+        {
+          "mode": "foreign-scroll",
+          "privateSentinelReturned": true,
+          "publicControlReturned": false,
+          "taintedBy": null
+        },
+        {
+          "mode": "browse",
+          "privateSentinelReturned": true,
+          "publicControlReturned": true,
+          "taintedBy": null
+        },
+        {
+          "mode": "authorized-local",
+          "privateSentinelReturned": false,
+          "publicControlReturned": true,
+          "taintedBy": null
+        }
+      ],
+      "sourceBlobs": {
+        "sidecar/transcriptstore.js": "2ebb4f5bf808036fa64ee1b31b1619e2d91aebf5",
+        "sidecar/failopen.js": "c90f4a4e756b19974f2a6a640b0859ed8e9c0441",
+        "sidecar/context.js": "6434ccef0c5f03e9649ca4c0f40e36d1f0fc3f0c",
+        "sidecar/tools/builtin/recall.js": "ffe6b53551554cd40aec543a76cbf8e0cbde22e1"
+      }
+    },
+    "initialProbeSetupFailure": "Adding the host binding guard exceeded Node default execFileSync buffer on index.js. Read-only source buffer increased to8MiB; rerun completed. No production source changed."
+  },
+  "sourceTrace": [
+    {
+      "path": "sidecar/channels/hub.js",
+      "line": 1521,
+      "observation": "Hub computes channelSenderOwner; group and allowed non-owner are not owner."
+    },
+    {
+      "path": "sidecar/index.js",
+      "line": 19377,
+      "observation": "tasteWithheld captures non-owner channel and inherited worker restriction."
+    },
+    {
+      "path": "sidecar/index.js",
+      "line": 19838,
+      "observation": "Recall factory receives only transcriptStore; authorization never reaches recall modes."
+    },
+    {
+      "path": "sidecar/tools/builtin/recall.js",
+      "line": 99,
+      "observation": "SCROLL permits model-supplied foreign stream. BROWSE112 exposes global previews. SEARCH131 uses all mode."
+    },
+    {
+      "path": "sidecar/tools/builtin/orchestration.js",
+      "line": 536,
+      "observation": "Model-selected session names resolve to existing stream IDs; worker runOnce receives job.streamId at782."
+    }
+  ],
+  "repairAcceptance": [
+    "Restricted search, including scope:all and automatic historical search, stays in a host-authorized stream.",
+    "Foreign timestamp and stable-anchor scroll requests denied before disclosure; missing/malformed binding denies.",
+    "Restricted browse exposes no foreign IDs/counts/previews; foreign or missing-stream returned rows excluded before formatting/taint lookup.",
+    "Authorized owner cross-stream search/scroll/browse and restricted local successes remain working.",
+    "Original channel authorization survives foreground/background delegation, model-selected existing worker sessions, nested delegation and resume. Binding only to worker current stream is insufficient if a model can select a foreign existing session.",
+    "Cover actual host-to-tool and host-to-worker wiring. Baseline probe refuses a changed factory binding to avoid falsely judging a repaired host using old fixture wiring."
+  ],
+  "limits": [
+    "No owner fix committed on inspected peer tip; fix acceptance pending.",
+    "Worker-session concern is source analysis and required acceptance case, not an executed exploit against a completed repair.",
+    "No live sidecar/provider, account, private conversation, customer leak, broad gate, source integration or release change exercised.",
+    "Evidence-only changes in original owner worktree; existing post-handoff QA commits preserved."
+  ]
+}
