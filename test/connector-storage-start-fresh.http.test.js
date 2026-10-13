@@ -111,7 +111,11 @@ const { FORMAT } = require('../sidecar/connector-vault.js');
       s = await storage();
       assert.equal(s.error, null, 'a leftover older file does not lock the store: ' + s.error);
       assert.equal(s.encrypted, true, 'the store it reads is still sealed');
-      assert.match(String(s.notice || ''), /could not be removed/, 'the panel is told, in plain words: ' + s.notice);
+      // its own field: the page heads every `notice` 'not encrypted', which a sealed store is not, and it claims nothing
+      // about the leftover file beyond what StarNet knows
+      assert.match(String(s.migrationNotice || ''), /could not be removed/, 'the panel is told, in plain words: ' + s.migrationNotice);
+      assert.doesNotMatch(String(s.migrationNotice || ''), /sealed/, 'no claim about a file StarNet could not remove');
+      assert.equal(s.notice, null, 'not reported as an unencrypted store');
       const kept = await app.json('POST', '/api/connectors', { id: 'after-leftover', transport: 'http', url: 'http://127.0.0.1:1/mcp', enabled: false });
       assert.equal(kept.status, 200, 'saving still works: ' + JSON.stringify(kept.body));
       await app.stop();
@@ -119,7 +123,8 @@ const { FORMAT } = require('../sidecar/connector-vault.js');
     await app.start({ STARNET_CONNECTOR_ENCRYPTION_KEY: K1, STARNET_CONNECTOR_KEY_ERROR: '' });
     s = await storage();
     assert.equal(s.error, null);
-    assert.equal(s.notice, null, 'the notice is gone once the old file is gone');
+    assert.equal(s.migrationNotice, null, 'the notice is gone once the old file is gone');
+    assert.equal(s.notice, null);
     console.log('connector-storage-start-fresh.http: PASS (fresh-install fallback + reason, seal on keyed launch, key-mismatch lock, confirmed START FRESH keeps old files, restart, Settings reset exit)');
   } finally { await app.dispose(); }
 })().catch(error => { console.error(error); process.exitCode = 1; });

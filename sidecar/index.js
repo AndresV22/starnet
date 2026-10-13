@@ -5567,8 +5567,11 @@ let connectorState = loadConnectorState();
    the same failure) and a Settings reset that failed: a fail-closed vault with no exit. Only a vault that itself
    locked locks the store, with its reason and exit. Otherwise sign-ins keep working and the panel says what will be
    retried. migrate() seals and verifies the store BEFORE it removes any older file, and an older file is never read
-   while the sealed store exists, so a leftover only waits for the next start. */
-let connectorMigrationNotice = '', connectorSealPending = false;
+   while the sealed store exists, so a leftover only waits for the next start.
+   The two cases reach the panel in different fields. A failed seal is `notice` (the store is not counted as encrypted,
+   which the page heads 'not encrypted'). A leftover file is `migrationNotice`: the store StarNet reads IS sealed, so
+   it must not sit under that heading, and the text claims nothing about the file it could not remove. */
+let connectorMigrationNotice = '', connectorSealNotice = '', connectorSealPending = false;
 if (connectorVault.protected && !connectorStorageError) {
   try { connectorVault.migrate(CONNECTORS_STATE_FILE, connectorState, [CONNECTORS_FILE, CONNECTORS_OAUTH_FILE]); }
   catch (e) {
@@ -5576,10 +5579,9 @@ if (connectorVault.protected && !connectorStorageError) {
     else {
       const leftover = /legacy copy/.test(String((e && e.message) || ''));
       connectorSealPending = !leftover;   // the seal itself failed: never claim encryption for this session
-      connectorMigrationNotice = leftover
-        ? 'An older connector sign-in file could not be removed (another program may be holding it). Your sign-ins are sealed and work normally; StarNet tries again at the next start.'
-        : 'Connector sign-ins could not be sealed and checked yet, so StarNet does not count them as encrypted. They work normally; StarNet tries again at the next start.';
-      console.warn('[connectors] ' + connectorMigrationNotice + ' (' + String((e && e.message) || e) + ')');
+      if (leftover) connectorMigrationNotice = 'An older connector sign-in file could not be removed (another program may be holding it). StarNet tries again at the next start.';
+      else connectorSealNotice = 'Connector sign-ins could not be sealed and checked yet, so StarNet does not count them as encrypted. They work normally; StarNet tries again at the next start.';
+      console.warn('[connectors] ' + (connectorMigrationNotice || connectorSealNotice) + ' (' + String((e && e.message) || e) + ')');
     }
   }
 }
@@ -5681,7 +5683,9 @@ function connectorStorageSnapshot() {
       (/malformed/i.test(CONNECTOR_KEY_ERROR)
         ? ' Sign-ins still work. To seal them, remove the "connectors:encryption:v1" entry for ai.skynet.harness from the system credential store and restart StarNet.'
         : ' Sign-ins still work, and StarNet seals them automatically once the store is reachable.')
-      : (!connectorStorageError && connectorMigrationNotice) || null
+      : (!connectorStorageError && connectorSealNotice) || null,
+    // a leftover older file next to a sealed store: its own field, never under the page's 'not encrypted' heading
+    migrationNotice: (!connectorStorageError && connectorMigrationNotice) || null
   };
 }
 function saveConnectorConfigs() {
