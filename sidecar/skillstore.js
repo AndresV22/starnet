@@ -58,6 +58,13 @@
     return STATES.has(s) ? s : 'active';
   }
   const REVIEW_ACTORS = new Set(['background-review', 'skill-review', 'curator']);   // autonomous revisions are proposed separately from the active skill
+  // persist() re-stamps a review-written version 'ask' on EVERY save, telemetry included. A curator version saved
+  // before curator writes became proposals was 'allow', with its narrow siblings archived into it: re-judging that
+  // umbrella at its next markUsed withheld the only copy. A curator version is review-written once it was promoted.
+  function reviewWritten(entry) {
+    const by = str(entry && entry.writtenBy);
+    return REVIEW_ACTORS.has(by) && (by !== 'curator' || !!str(entry.promotionReceiptId));
+  }
   function trustSource(createdBy) {
     const source = str(createdBy).trim().toLowerCase();
     if (source === 'user') return 'user';
@@ -216,11 +223,13 @@
     const candidateRows = new Map();
     // Receipts must come from the host evaluator's durable authority, not model-submitted JSON.
     const validatePromotionReceipt = typeof opts.validatePromotionReceipt === 'function' ? opts.validatePromotionReceipt : null;
+    // stale is the aging clock, not content: using a stale skill flips it active, which must not orphan its pending
+    // revision (the same rule as skillevaluation.js digestSkill, the digest the run host injects)
     const digestCandidate = typeof opts.digestCandidate === 'function' ? opts.digestCandidate : (s) => {
       const f = require('./skills/gate.js').digestOf;
       if (!s) return f({ body: 'null' });
       return f({ body: JSON.stringify([s.name, s.summary, s.description, s.body, s.setup, s.category,
-        s.requires, s.platforms, s.scope || 'agent', s.projectRoot || '', s.state, s.pinned, s.absorbedInto, s.packageFiles]), files: s.files || [] });
+        s.requires, s.platforms, s.scope || 'agent', s.projectRoot || '', s.state === 'stale' ? 'active' : s.state, s.pinned, s.absorbedInto, s.packageFiles]), files: s.files || [] });
     };
     function revisionDigest(entry) { return str(digestCandidate(entry ? projectSkill(entry, true) : null)); }
     function restoreCandidate(r) {
@@ -286,7 +295,7 @@
              prompt until the Commander approves THESE bytes — the same digest-keyed gate a scanner `ask` uses
              and the same keep/discard the memory turn-in card has always had. Memory proposals were reviewed;
              skill writes landed straight into the next run's system prompt. A `block` stays a block. */
-          if (REVIEW_ACTORS.has(str(entry.writtenBy)) && entry.guardAction !== 'block') entry.guardAction = 'ask';
+          if (reviewWritten(entry) && entry.guardAction !== 'block') entry.guardAction = 'ask';
         }
       } catch (e) { failNote('skillstore.guard.scan', e); }
       // Stamp the digest of the content that was JUST scanned, so the verdict and the digest can
@@ -642,6 +651,13 @@
       const entry = clone(row.skill);
       // Pinned content cannot be changed by proposing a revision before it was pinned.
       if (active && active.pinned) return { ok: false, error: 'the active skill is pinned; unpin it before promotion' };
+      // Usage belongs to the ACTIVE record: it kept counting while the candidate waited (no digest covers it), so
+      // the proposal-time snapshot must not reset it. Stale/active is the same freshness clock; archive/restore is content.
+      if (active) {
+        entry.viewCount = active.viewCount || 0; entry.useCount = active.useCount || 0;
+        entry.lastUsedAt = active.lastUsedAt == null ? null : active.lastUsedAt;
+        if (entry.state !== 'archived' && active.state !== 'archived') entry.state = active.state;
+      }
       entry.canonicalRevision = true; entry.updatedAt = now();
       entry.promotionReceiptId = str(checked.receiptId || (e.evaluation && (e.evaluation.receiptId || e.evaluation.id)));
       const resolved = Object.assign({}, clone(row), { status: 'promoted', resolvedAt: now(), evaluation: clone(e.evaluation) });

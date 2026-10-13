@@ -38,7 +38,9 @@ function digestSkill(skill) {
   return digest({
     name: s.name || '', summary: s.summary || '', description: s.description || s.summary || '', category: s.category || '',
     body: s.body || '', setup: s.setup || '', requires: s.requires || [], platforms: s.platforms || [],
-    state: s.state || 'active', absorbedInto: s.absorbedInto || '',
+    // stale is the aging clock, not behavior (the runner loads stale and active alike): using a stale skill flips it
+    // active, and that must not orphan a pending revision or its receipt. archived stays distinct: it is content.
+    state: s.state === 'stale' ? 'active' : (s.state || 'active'), absorbedInto: s.absorbedInto || '',
     scope: s.scope || 'agent', projectRoot: s.projectRoot || '',
     files: files.map(f => ({ path: f.path, encoding: f.encoding || 'utf8', content: f.content || '' })).sort((a, b) => a.path.localeCompare(b.path)),
     packageFiles: (s.packageFiles || []).map(f => ({ path: f.path, encoding: f.encoding || 'base64', content: f.content || '' })).sort((a, b) => a.path.localeCompare(b.path))

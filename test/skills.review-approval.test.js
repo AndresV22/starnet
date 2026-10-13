@@ -8,6 +8,7 @@ const { makeSkillGate, digestOf } = require('../sidecar/skills/gate.js');
 const { makeSkillTools } = require('../sidecar/tools/builtin/skills.js');
 const runtime = require('../sidecar/skills/runtime.js');
 const guard = require('../sidecar/skills/guard.js');
+const { digestSkill } = require('../sidecar/skillevaluation.js');
 function memIo() {
   const lines = []; return { lines, fail: false, readAll() { return lines.slice(); },
     append(e) { if (this.fail) throw new Error('test journal failure'); lines.push(JSON.parse(JSON.stringify(e))); },
@@ -211,5 +212,62 @@ for (const change of ['body', 'files', 'summary', 'baseline', 'pin']) {
   f.s.curate('a', { now: 400000, staleMs: 10, archiveMs: 20 });
   A.eq(proposal(f.s).candidateDigest, c.candidateDigest, 'pending replacement is not overwritten by retirement');
   A.eq(read(f.s).state, 'active', 'pending replacement keeps active procedure available');
+}
+// A curator umbrella saved 'allow' before curator writes were staged (its narrow siblings archived into it) stays
+// available when a run uses it or aging marks it; a legacy unapproved review-written version stays withheld.
+{
+  const f = fixture(), gate = makeSkillGate({ guard, approvals: { get() { return null; } } });
+  const legacy = (name, writtenBy, extra) => Object.assign({ id: name.toLowerCase(), agentId: 'a', name, summary: 's', body: BODY,
+    createdBy: 'agent', writtenBy, state: 'active', createdAt: 1, updatedAt: 1 }, extra);
+  f.io.lines.push(legacy('Umbrella', 'curator', { guardAction: 'allow' }),
+    legacy('Narrow', 'curator', { guardAction: 'allow', state: 'archived', absorbedInto: 'Umbrella' }),
+    legacy('Reviewed', 'background-review', { guardAction: 'ask' }));
+  f.reload();
+  A.eq(gate.decide(read(f.s, 'Umbrella')).visible, true, 'precondition: legacy curator umbrella is available');
+  A.eq(gate.decide(read(f.s, 'Reviewed')).visible, false, 'precondition: legacy review version awaits approval');
+  f.s.markUsed('a', ['Umbrella', 'Reviewed']);
+  A.eq(read(f.s, 'Umbrella').guardAction, 'allow', 'a usage save never re-judges a curator umbrella as review-written');
+  A.eq(gate.decide(read(f.s, 'Umbrella')).visible, true, 'the used umbrella is still available');
+  A.eq(f.s.curate('a', { now: time + 40 * 86400000 }).stale, 2, 'precondition: aging marks both stale');
+  f.reload();
+  A.eq(gate.decide(read(f.s, 'Umbrella')).visible, true, 'the umbrella stays available after aging and restart');
+  A.eq(read(f.s, 'Reviewed').guardAction, 'ask', 'a legacy review-written version keeps its provenance ask');
+  A.eq(gate.decide(read(f.s, 'Reviewed')).visible, false, 'and stays withheld until the Commander approves it');
+  f.s.manage({ agentId: 'a', action: 'patch', target: 'Umbrella', find: 'concise', replace: 'checked', createdBy: 'curator' });
+  const widened = proposal(f.s); A.ok(f.promote(widened, f.issue(widened)).ok, 'a new curator revision promotes');
+  A.eq(read(f.s, 'Umbrella').guardAction, 'ask', 'a promoted curator revision is review-written (its approval is digest-keyed)');
+  f.s.markUsed('a', ['Umbrella']);
+  A.eq(read(f.s, 'Umbrella').guardAction, 'ask', 'and a usage save keeps that stamp stable');
+}
+// Promotion keeps the active record's usage: it kept climbing while the candidate waited.
+{
+  const f = fixture(); seed(f);
+  f.s.manage({ agentId: 'a', action: 'patch', target: 'Brief', find: 'concise', replace: 'checked', createdBy: 'background-review' });
+  for (let i = 0; i < 3; i++) { f.s.markUsed('a', ['Brief']); f.s.view('a', 'Brief'); }
+  const before = read(f.s), c = proposal(f.s);
+  A.eq(c.skill.useCount, 0, 'precondition: the candidate holds the proposal-time snapshot');
+  A.ok(f.promote(c, f.issue(c)).ok, 'promotion after use succeeds');
+  const after = read(f.s);
+  A.eq([after.useCount, after.viewCount, after.lastUsedAt], [3, before.viewCount, before.lastUsedAt], 'promotion keeps active usage telemetry');
+  A.ok(after.body.includes('checked'), 'promotion still publishes the candidate bytes');
+  f.reload(); A.eq(read(f.s).useCount, 3, 'kept usage survives restart');
+  const g = fixture(); seed(g);
+  g.s.manage({ agentId: 'a', action: 'archive', target: 'Brief', createdBy: 'agent' });
+  const retire = proposal(g.s); A.ok(g.promote(retire, g.issue(retire)).ok, 'retirement promotes');
+  A.eq(read(g.s).state, 'archived', 'an approved retirement still archives (lifecycle content is not usage)');
+}
+// Using a stale skill flips it active; that freshness change must not orphan its pending revision.
+for (const digestCandidate of [null, digestSkill]) {
+  const f = fixture(digestCandidate ? { digestCandidate } : {}), label = digestCandidate ? 'evaluator digest: ' : 'default digest: ';
+  seed(f);
+  A.eq(f.s.curate('a', { now: time + 40 * 86400000 }).stale, 1, label + 'precondition: skill is stale');
+  f.s.manage({ agentId: 'a', action: 'patch', target: 'Brief', find: 'concise', replace: 'checked', createdBy: 'background-review' });
+  f.s.view('a', 'Brief'); f.s.markUsed('a', ['Brief']);
+  A.eq(read(f.s).state, 'active', label + 'use flips stale to active');
+  A.ok(f.s.pendingView('a', 'Brief'), label + 'the pending revision is still the reviewer draft');
+  const c = proposal(f.s);
+  A.ok(f.promote(c, f.issue(c)).ok, label + 'the revision is still promotable after use');
+  A.eq(read(f.s).state, 'active', label + 'promotion keeps current freshness, not the proposal-time stale');
+  A.ok(read(f.s).body.includes('checked'), label + 'promoted bytes are the candidate');
 }
 A.report('skills.review-approval');
