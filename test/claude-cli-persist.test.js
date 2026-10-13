@@ -23,7 +23,8 @@ function fakeCli(script) {
     const exit = code => { if (child.exitCode != null) return; child.exitCode = code; child.emit('exit', code); child.emit('close', code); };
     if (file === 'taskkill') {
       const target = spawns.find(r => String(r.child.pid) === args[1]);
-      if (target) { target.treeKilled = true; target.child.kill(); }
+      // treeKilledOpen: taskkill /T reached the child while it was alive with stdin still open (it walks a LIVE tree)
+      if (target) { target.treeKilled = true; target.treeKilledOpen = target.child.exitCode == null && !target.ended; target.child.kill(); }
       setImmediate(() => exit(0));
       child.kill = () => exit(null);
       return child;
@@ -122,6 +123,8 @@ const tick = ms => new Promise(r => setTimeout(r, ms || 0));
     A.ok(spawns[0].child.exitCode == null, 'release() for another run leaves this child alone');
     p.release('run-1');
     A.ok(spawns[0].treeKilled, 'release() at run end kills the child\'s process tree');
+    await tick(5);   // the taskkill attempt finishes
+    A.ok(spawns[0].treeKilledOpen && spawns[0].ended, 'the tree is killed BEFORE stdin closes (EOF would let the CLI exit first and orphan its helpers), then stdin closes');
     A.eq(p.persistStats().live, false, 'no child is left after the run');
   }
 

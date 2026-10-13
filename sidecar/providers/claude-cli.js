@@ -1104,10 +1104,17 @@
       if (s.idleTimer) { clearTimeout(s.idleTimer); s.idleTimer = null; }
       s.onData = null;
       if (s.sink) s.sink(null);
-      try { s.child.stdin.end(); } catch (e) { failNote('claudecli.persist.stdin', e); }
-      if (s.closed || s.processExited) return;
+      const endStdin = () => { try { s.child.stdin.end(); } catch (e) { failNote('claudecli.persist.stdin', e); } };
+      if (s.closed || s.processExited) { endStdin(); return; }
+      /* KILL THE LIVE TREE (real-process proof 2026-10-13). On Windows the tree goes by the child's own pid, and
+         taskkill /T can only walk it from a LIVE root. Closing stdin first let the CLI exit on that EOF before taskkill
+         ran, and a helper process it had started was left running (3 of 3: release, Stop, idle). So on Windows stdin
+         closes only once the kill attempt is over; elsewhere it still closes first. */
+      const win = host.platform === 'win32';
+      if (!win) endStdin();
       s.killPending = true; s.cleanupError = null;
       killTree(s.child, error => {
+        if (win) endStdin();
         if (s.closed) return;
         s.killPending = false; s.cleanupError = error;
       });
