@@ -202,10 +202,15 @@ async function loadAsr() {
    q4 export the engine used to load (326 vs 305 MB — Kokoro is mostly convolution, which q4 leaves alone,
    so q4 bought almost no size while 4-bit MatMuls added an audible buzz). q8 stays out: it fails to
    initialize in onnxruntime-node on some Windows machines. q4 remains the fallback so a machine where fp32
-   cannot load still speaks. STARNET_KOKORO_DTYPE pins one precision (no fallback) for diagnosis. */
-function kokoroDtypes() {
+   cannot load still speaks. STARNET_KOKORO_DTYPE pins one precision (no fallback) for diagnosis.
+   A machine that already holds the q4 copy (an install from before fp32) and not fp32 keeps speaking from it:
+   loading fp32 first would make its next reply wait on a ~326 MB download and keep two copies on disk. */
+function kokoroDtypes(root = cacheRoot) {
   const pinned = String(process.env.STARNET_KOKORO_DTYPE || process.env.SKYNET_KOKORO_DTYPE || '').trim();
-  return pinned ? [pinned] : ['fp32', 'q4'];
+  if (pinned) return [pinned];
+  const dir = path.join(root, 'transformers-kokoro', 'onnx-community', 'Kokoro-82M-v1.0-ONNX', 'onnx');
+  if (fs.existsSync(path.join(dir, 'model_q4.onnx')) && !fs.existsSync(path.join(dir, 'model.onnx'))) return ['q4', 'fp32'];
+  return ['fp32', 'q4'];
 }
 
 async function loadTts() {
