@@ -165,6 +165,10 @@
     [/\b\d{8,10}:[A-Za-z0-9_\-]{30,}\b/g, '[redacted-token]'],          // Telegram bot token (this app uses these)
     [/sk-[A-Za-z0-9_\-]{16,}/g, '[redacted-key]'],                      // generic OpenAI-style (broad — keep last)
     [/\bBearer\s+[A-Za-z0-9._\-]{12,}/g, 'Bearer [redacted-key]'],      // Authorization: Bearer <token>
+    // The password in a URL's `user:pass@host` part (git remotes, proxies, database URLs). The user name and host stay
+    // readable; the password runs to the LAST '@' of the authority, because a password may itself hold an '@'. A vendor
+    // key or known secret already scrubbed in that slot keeps its own tag. A port (`host:8080/…`) is never touched.
+    [/\b([a-z][a-z0-9+.-]*:\/\/[^\s:\/?#@]*:)(?!\[redacted-)[^\s\/?#]+(?=@)/gi, '$1[redacted-secret]'],
     // Synthetic/local connectors frequently use ordinary canaries rather than vendor-shaped tokens. Scrub
     // explicit credential assignments too, including URL query strings, so upstream diagnostics cannot turn a
     // `password=...` or `client_secret: ...` value into a credential disclosure.

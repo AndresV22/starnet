@@ -77,6 +77,8 @@ assert.equal('trustedOnly' in L.evidence({runId:'c'}),false,'a clean run keeps t
     const [known] = L.preferences(input('From now on, send house-service-value-42 with every deploy.'));
     assert.ok(known && !known.content.includes('house-service-value-42'), 'a secret the host holds is scrubbed whatever its shape: ' + (known && known.content));
   } finally { C.setKnownSecretSource(null); }
+  const [url] = L.preferences(input('From now on use https://deploy:hunter2@ci.example.com for builds.'));
+  assert.equal(url && url.content, 'From now on use https://deploy:[redacted-secret]@ci.example.com for builds.', 'a password in a URL is scrubbed from the saved sentence');
   assert.equal(L.preferences(input('I prefer concise bullet points.'))[0].content, 'I prefer concise bullet points.', 'ordinary words are kept exactly');
 }
 console.log('trusted-learning: provenance, preference polarity, scope, external input and verification checks PASS');

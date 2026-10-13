@@ -116,6 +116,12 @@ A.ok(redact('Authorization: Bearer abcdef0123456789ABCDEF').indexOf('abcdef01234
 A.ok(redact('password=synthetic-canary-value').indexOf('synthetic-canary-value') < 0, 'generic password assignment redacted');
 A.ok(redact('client_secret: local-fixture-secret').indexOf('local-fixture-secret') < 0, 'generic client secret assignment redacted');
 A.ok(redact('https://local.test/cb?access_token=synthetic-query-token&mode=test').indexOf('synthetic-query-token') < 0, 'secret-like URL query assignment redacted');
+// Review memory-learning-03 follow-up: the password in a URL's user:pass@ part is a credential like `password=`.
+A.eq(redact('From now on use https://deploy:hunter2@ci.example.com for builds.'), 'From now on use https://deploy:[redacted-secret]@ci.example.com for builds.', 'URL password redacted; user name and host kept');
+A.eq(redact('redis://:fixture-pw@cache.local:6379/0'), 'redis://:[redacted-secret]@cache.local:6379/0', 'URL password with an empty user name redacted');
+A.ok(redact('proxy http://user:p@ssw0rd@proxy.corp.example:8080 set').indexOf('ssw0rd') < 0, 'a URL password holding @ is scrubbed whole');
+A.eq(redact('https://x-access-token:ghp_0123456789abcdefghijklmnopqrstuvwxyz12@github.com/o/r'), 'https://x-access-token:[redacted-key]@github.com/o/r', 'a vendor key in the password slot keeps its vendor tag');
+for (const s of ['open http://localhost:8787/api now', 'ssh://git@github.com/o/r.git', 'http://host:8080/x?to=me@example.com', 'mail me@example.com at 10:30']) A.eq(redact(s), s, 'a port, a bare user name or an email is not a URL password: ' + s);
 A.eq(redact({ password: 'synthetic-object-secret', mode: 'test' }), { password: '[redacted-secret]', mode: 'test' }, 'secret-named object fields redact structurally');
 A.eq(redact('just a normal sentence'), 'just a normal sentence', 'non-secrets untouched');
 const obj = { note: 'token sk-or-v1-deadbeefdeadbeef99', list: ['sk-ant-zzzzzzzzzzzzzzzz', 'safe'] };
