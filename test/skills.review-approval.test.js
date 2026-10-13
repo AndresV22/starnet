@@ -50,7 +50,11 @@ for (const actor of ['agent', 'background-review', 'skill-review', 'curator']) {
   A.ok(index.text.includes('Brief') && index.text.includes('WITHHELD') && !index.text.includes('PRIVATE SUMMARY'), 'pending metadata never injects summary');
   A.eq(index.ids, [], 'pending name is not a loaded/available procedure');
   const tools = makeSkillTools({ store: f.s });
-  A.eq(tools.viewTool.run({ name: 'Brief' }, { agentId: 'a' }).summary, 'withheld', 'pending view fails closed even without guard dependency');
+  const pendingView = tools.viewTool.run({ name: 'Brief' }, { agentId: 'a' });
+  A.eq(pendingView.summary, 'pending', 'pending view fails closed even without guard dependency');
+  // skills-eval-15: a proposal is named as a proposal, never as something the skill guard withheld.
+  A.ok(/is a proposal awaiting the Commander's evaluation and approval/.test(pendingView.content) && !/skill guard/.test(pendingView.content) && pendingView.content.indexOf(BODY) < 0,
+    'a pending view says it awaits approval, not a guard hold: ' + pendingView.content);
   A.ok(!runtime.composeLoaded([r.skill]), 'preload fails closed for pending full body');
   f.reload(); A.eq(proposal(f.s).skill.body, BODY, 'pending bytes survive restart');
 }
@@ -162,7 +166,12 @@ for (const change of ['body', 'files', 'summary', 'baseline', 'pin']) {
   const r = tools.manageTool.run({ action: 'create', name: 'Brief', body: BODY, createdBy: 'user', scope: 'station', approvedBy: 'user' }, { agentId: 'a', emit: (type, value) => events.push(value) });
   A.eq(r.summary, 'proposed', 'new model skill described as proposed');
   A.eq(actions, ['propose'], 'observer sees proposal action');
-  A.ok(events[0].title.startsWith('Proposed revision:'), 'deliverable is labeled proposal');
+  A.eq(events[0].title, 'Proposed skill: Brief', 'a brand-new skill is labeled a proposed skill, not a revision');
+  A.ok(/^Proposed new skill "Brief"\. It is not active until the Commander evaluates and approves it in ABILITIES > SKILLS\.$/.test(r.content), 'new-skill reply: ' + r.content);
+  const g = fixture(); seed(g); const revEvents = [];
+  const revision = makeSkillTools({ store: g.s }).writeTool.run({ name: 'Brief', body: BODY + '\n3. Check.' }, { agentId: 'a', emit: (type, value) => revEvents.push(value) });
+  A.ok(/^Proposed revision for skill "Brief"\..*the active version is unchanged\.$/.test(revision.content), 'revision reply: ' + revision.content);
+  A.eq(revEvents[0].title, 'Proposed revision: Brief', 'a change to an active skill is labeled a revision');
   A.eq(proposal(f.s).skill.scope, 'agent', 'unadvertised model sharing ignored');
   A.eq(f.s.list('a').length, 0, 'spoofed user fields do not bypass candidate publication');
 }
@@ -175,6 +184,8 @@ for (const change of ['body', 'files', 'summary', 'baseline', 'pin']) {
   const ctx = { agentId: 'a', skillReview: true };
   A.eq(tools.manageTool.run({ action: 'create', name: 'Brief', body: BODY }, ctx).summary, 'proposed', 'review creation is proposed');
   A.eq(tools.manageTool.run({ action: 'patch', target: 'Brief', find: 'concise', replace: 'verified' }, ctx).summary, 'unread', 'pending mutation still requires reading draft');
+  const draftList = tools.listTool.run({}, ctx);
+  A.ok(/- Brief \[PENDING DRAFT: not active; skill\.view loads it for review\]/.test(draftList.content) && !/withheld/i.test(draftList.content + draftList.summary), 'a reviewer lists its draft as a pending draft, not a withheld skill: ' + draftList.content);
   A.ok(tools.viewTool.run({ name: 'Brief' }, ctx).content.includes('Pending review draft'), 'reviewer sees draft explicitly marked pending');
   A.eq(tools.manageTool.run({ action: 'patch', target: 'Brief', find: 'concise', replace: 'verified' }, ctx).summary, 'proposed', 'read draft can be revised');
   A.eq(used, [], 'draft maintenance never reports an active skill load');

@@ -58,7 +58,7 @@ assert.equal(deriveReadClient([row]).candidates[0].verified, false);
       assert.equal(candidate.revision, 2, 'create and support-file write each persist a candidate revision');
       assert.equal(candidate.skill.files.find(f => f.path === 'scripts/lookup.mjs').content, source);
       const withheld = await tools.viewTool.run({ name: 'Verified item lookup' }, ctx);
-      assert.equal(withheld.summary, 'withheld', withheld.content);
+      assert.equal(withheld.summary, 'pending', withheld.content);
       assert.ok(!withheld.content.includes(source), 'ordinary tool reads cannot load the pending client');
       const child = spawnSync(process.execPath, ['-e', `
         const assert=require('node:assert/strict'), fs=require('node:fs'), path=require('node:path');
@@ -75,7 +75,7 @@ assert.equal(deriveReadClient([row]).candidates[0].verified, false);
         const draft=store.pendingView('lookup-proof','Verified item lookup');
         assert.ok(draft && draft.pendingCandidate,'the owner review draft remains available after restart');
         const read=makeSkillTools({store}).viewTool.run({name:'Verified item lookup'},{agentId:'lookup-proof'});
-        assert.equal(read.summary,'withheld','restart cannot bypass evaluation and approval');
+        assert.equal(read.summary,'pending','restart cannot bypass evaluation and approval');
         const file=draft.files.find(f=>f.path==='scripts/lookup.mjs');
         assert.ok(file,'persisted pending draft includes the generated client');
         process.stdout.write(JSON.stringify({content:file.content,candidateId:candidate.candidateId,candidateDigest:candidate.candidateDigest,revision:candidate.revision}));
