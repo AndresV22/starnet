@@ -18,8 +18,8 @@
   "expectedClaimCount": 37,
   "releaseSurface": {
     "algorithm": "sha256",
-    "sourceCommit": "8307998fae759380412666d26432ce85b55ac001",
-    "pathSetSha256": "e4cf2ec7f6a313f096915edc1eea9291b5f6ab7782c1784d289af5ac2f76084d",
+    "sourceCommit": "ac508b90a0057c71c89066202a20fbe336a9356b",
+    "pathSetSha256": "213a4211bc1a66001a9f827b197c1b7aff1194373527f28d43c7ea6f2ebd706c",
     "files": [
       {
         "path": "INSTALL.md",
@@ -778,8 +778,8 @@
       },
       {
         "path": "frontend/app/places.js",
-        "bytes": 11262,
-        "sha256": "537d1abb29c9346cb3fa3dd059611f4ed0738e3d0069a32ce0954108e2d99eac"
+        "bytes": 11097,
+        "sha256": "c112a47e695167461208b0d5508eeb1be565dffa8b1ed269318dce551648dfd8"
       },
       {
         "path": "frontend/app/planpreview.js",
@@ -1163,8 +1163,8 @@
       },
       {
         "path": "frontend/app/stationcommands.js",
-        "bytes": 94130,
-        "sha256": "4d89a7cc42e139a0c9b89894d73a0b9a2f29200616cdfed6beee3d2588e91601"
+        "bytes": 94095,
+        "sha256": "e182239d22bbf22e032e1e7759a22b5d52bb0977f7568196e1d33da9ac88ab08"
       },
       {
         "path": "frontend/app/stationquests.js",
@@ -1350,11 +1350,6 @@
         "path": "frontend/app/windows/connectors.js",
         "bytes": 150256,
         "sha256": "8f9f5380c2358c658ef85df4d2b5247341d49b9fbd6adabd50e25bcb285e669b"
-      },
-      {
-        "path": "frontend/app/windows/find.js",
-        "bytes": 7624,
-        "sha256": "b38e054f94ef1963c67dcc1c3305f3aa00cf0e01ab4c5c7d34691f7c49910579"
       },
       {
         "path": "frontend/app/windows/logbook.js",
@@ -1578,18 +1573,13 @@
       },
       {
         "path": "frontend/css/deliverables-glass.css",
-        "bytes": 12010,
-        "sha256": "ce627d662795dff9272b6e0b2b005ba1aaf207634546786eca437ca028d7b552"
+        "bytes": 11988,
+        "sha256": "e8cb8cbac0241418159bb896311b0fe0f26d8baa20a082a48c27d3913d71e464"
       },
       {
         "path": "frontend/css/deskscreen.css",
         "bytes": 6862,
         "sha256": "f51433dc450e1e68e09478d4ab22bee6078d879b899052ce6576fbe67980180a"
-      },
-      {
-        "path": "frontend/css/find-window.css",
-        "bytes": 3827,
-        "sha256": "1b3d3fde5b0cec372d087e1efa1b814cc5f41f76e9901144f0906a52490673a8"
       },
       {
         "path": "frontend/css/glass-comms.css",
@@ -1818,8 +1808,8 @@
       },
       {
         "path": "frontend/index.html",
-        "bytes": 99054,
-        "sha256": "483e217a3b8a55519b95307387f1f568dc1a71d960cd623997f560b25ab71db1"
+        "bytes": 98567,
+        "sha256": "55cc95531bd4fc7fdb342f4c0ad5041ce4c075ba92c276233241c836aa1426c9"
       },
       {
         "path": "frontend/js/arcade.js",
