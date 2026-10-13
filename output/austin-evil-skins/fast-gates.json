@@ -1,0 +1,24 @@
+{
+  "sourceCommit": "7dd062343efd6c611ec19c7569abbb9fd31f22a8",
+  "command": "npm run test:fast",
+  "premerge": {
+    "exitCode": 0,
+    "steps": 1139,
+    "completedAtUtc": "2026-10-13T04:46:20.0963364Z",
+    "logSha256": "99527E3A9A7A2B65490590831D4D301129661DC3A20C1353FBA62DADE34A5F1B"
+  },
+  "postmerge": {
+    "exitCode": 0,
+    "startedAtUtc": "2026-10-13T04:53:10.9044541Z",
+    "completedAtUtc": "2026-10-13T05:16:11.4591643Z",
+    "sourceAfter": "7dd062343efd6c611ec19c7569abbb9fd31f22a8",
+    "logSha256": "5358E04C56062350614B331027CF43F8C9005CBE98C8AEFDAAFF9A04D4A453DA",
+    "steps": 1139
+  },
+  "priorPostmergeAttempt": {
+    "exitCode": 1,
+    "failedStep": 215,
+    "reason": "Evidence hygiene scanned a temporary duplicate documentation backup. Removed only task-owned untracked duplicate backups; committed source was unchanged. Dedicated evidence lint then passed.",
+    "logSha256": "D075641D2A26677B60099232F7E5602540E6ED70069C158D2ADAAEC41782D64D"
+  }
+}

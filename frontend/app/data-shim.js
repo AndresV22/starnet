@@ -70,6 +70,8 @@ DATA.SKINS = {
   catinthehat: {"name":"Cat in the Hat","set":"approved_catinthehat","scale":0.25,"sourceStandingHeight":76},
   reptilian: {"name":"Reptilian","set":"approved_reptilian","scale":0.25,"sourceStandingHeight":76},
   elonmusk: {"name":"Elon Musk","set":"approved_elonmusk","scale":0.25,"sourceStandingHeight":76},
+  austinpowers: {"name":"Austin Powers","set":"approved_austinpowers","scale":0.25,"sourceStandingHeight":76},
+  drevil: {"name":"Dr. Evil","set":"approved_drevil","scale":0.25,"sourceStandingHeight":76},
 };
 // Keep the retired duplicate readable in old saves without offering it in the picker.
 Object.defineProperty(DATA.SKINS, 'minionchar', { value: DATA.SKINS.station_minion });

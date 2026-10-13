@@ -1,0 +1,399 @@
+{
+  "url": "http://127.0.0.1:9964/",
+  "skins": [
+    {
+      "name": "Austin Powers",
+      "skin": "austinpowers",
+      "selected": "true",
+      "saved": "austinpowers",
+      "body": {
+        "id": "agent",
+        "name": "NOVA",
+        "hero": true,
+        "tile": {
+          "x": 12,
+          "y": 6
+        },
+        "renderTile": {
+          "x": 12,
+          "y": 6
+        },
+        "px": 150,
+        "py": 83,
+        "dir": "south",
+        "state": "idle",
+        "goal": "stare-chat",
+        "moving": false,
+        "working": false,
+        "sitting": false,
+        "waitingApproval": false,
+        "seated": false,
+        "unplaced": false,
+        "summoned": false,
+        "visTopPy": 63,
+        "say": null,
+        "target": null,
+        "glance": null,
+        "zone": {
+          "kind": "room",
+          "rect": {
+            "x1": 3,
+            "y1": 3,
+            "x2": 20,
+            "y2": 13
+          },
+          "roam": {
+            "cx": 11,
+            "cy": 4,
+            "r": 14,
+            "rects": [
+              {
+                "x1": 3,
+                "y1": 3,
+                "x2": 20,
+                "y2": 13
+              }
+            ]
+          }
+        },
+        "inOwnZone": true,
+        "facing": "open",
+        "facingProp": null,
+        "facingCounter": false,
+        "wallDirs": 0,
+        "quirkKind": null,
+        "useKind": null,
+        "usingProp": null,
+        "emote": false,
+        "talking": false,
+        "pose": "approved_austinpowers.rot.south",
+        "socialKind": null,
+        "socialPhase": null,
+        "inHomeRoom": true
+      },
+      "catalog": 53,
+      "poses": [
+        {
+          "state": "idle",
+          "dir": "south",
+          "pose": "approved_austinpowers.rot.south",
+          "ink": 136,
+          "top": 80,
+          "bottom": 99,
+          "gap": 0
+        },
+        {
+          "state": "idle",
+          "dir": "east",
+          "pose": "approved_austinpowers.rot.east",
+          "ink": 95,
+          "top": 81,
+          "bottom": 99,
+          "gap": 0
+        },
+        {
+          "state": "idle",
+          "dir": "north",
+          "pose": "approved_austinpowers.rot.north",
+          "ink": 124,
+          "top": 81,
+          "bottom": 99,
+          "gap": -0.25
+        },
+        {
+          "state": "idle",
+          "dir": "west",
+          "pose": "approved_austinpowers.rot.west",
+          "ink": 91,
+          "top": 81,
+          "bottom": 99,
+          "gap": 0
+        },
+        {
+          "state": "walk",
+          "dir": "south",
+          "pose": "approved_austinpowers.walk.south",
+          "ink": 137,
+          "top": 79,
+          "bottom": 99,
+          "gap": 0.6219809940930077
+        },
+        {
+          "state": "walk",
+          "dir": "east",
+          "pose": "approved_austinpowers.walk.east",
+          "ink": 105,
+          "top": 81,
+          "bottom": 99,
+          "gap": 0
+        },
+        {
+          "state": "walk",
+          "dir": "north",
+          "pose": "approved_austinpowers.walk.north",
+          "ink": 131,
+          "top": 80,
+          "bottom": 99,
+          "gap": 0.5406603313643359
+        },
+        {
+          "state": "walk",
+          "dir": "west",
+          "pose": "approved_austinpowers.walk.west",
+          "ink": 109,
+          "top": 81,
+          "bottom": 99,
+          "gap": 0.4186793372713282
+        },
+        {
+          "state": "sit",
+          "dir": "south",
+          "pose": "approved_austinpowers.sit.south",
+          "ink": 112,
+          "top": 84,
+          "bottom": 100,
+          "gap": -0.5
+        },
+        {
+          "state": "sit",
+          "dir": "east",
+          "pose": "approved_austinpowers.sit.east",
+          "ink": 108,
+          "top": 83,
+          "bottom": 99,
+          "gap": 0
+        },
+        {
+          "state": "sit",
+          "dir": "north",
+          "pose": "approved_austinpowers.sit.north",
+          "ink": 96,
+          "top": 85,
+          "bottom": 99,
+          "gap": -0.25
+        },
+        {
+          "state": "sit",
+          "dir": "west",
+          "pose": "approved_austinpowers.sit.west",
+          "ink": 105,
+          "top": 83,
+          "bottom": 99,
+          "gap": 0
+        },
+        {
+          "state": "type",
+          "dir": "north",
+          "pose": "approved_austinpowers.type.north",
+          "ink": 59,
+          "top": 78,
+          "bottom": 87,
+          "gap": 6.75
+        }
+      ],
+      "reload": {
+        "skin": "austinpowers",
+        "pose": "approved_austinpowers.rot.south"
+      }
+    },
+    {
+      "name": "Dr. Evil",
+      "skin": "drevil",
+      "selected": "true",
+      "saved": "drevil",
+      "body": {
+        "id": "agent",
+        "name": "NOVA",
+        "hero": true,
+        "tile": {
+          "x": 11,
+          "y": 8
+        },
+        "renderTile": {
+          "x": 11,
+          "y": 8
+        },
+        "px": 138,
+        "py": 107,
+        "dir": "south",
+        "state": "idle",
+        "goal": "stare-chat",
+        "moving": false,
+        "working": false,
+        "sitting": false,
+        "waitingApproval": false,
+        "seated": false,
+        "unplaced": false,
+        "summoned": false,
+        "visTopPy": 87,
+        "say": null,
+        "target": null,
+        "glance": null,
+        "zone": {
+          "kind": "room",
+          "rect": {
+            "x1": 3,
+            "y1": 3,
+            "x2": 20,
+            "y2": 13
+          },
+          "roam": {
+            "cx": 11,
+            "cy": 4,
+            "r": 14,
+            "rects": [
+              {
+                "x1": 3,
+                "y1": 3,
+                "x2": 20,
+                "y2": 13
+              }
+            ]
+          }
+        },
+        "inOwnZone": true,
+        "facing": "open",
+        "facingProp": null,
+        "facingCounter": false,
+        "wallDirs": 0,
+        "quirkKind": null,
+        "useKind": null,
+        "usingProp": null,
+        "emote": false,
+        "talking": false,
+        "pose": "approved_drevil.rot.south",
+        "socialKind": null,
+        "socialPhase": null,
+        "inHomeRoom": true
+      },
+      "catalog": 53,
+      "poses": [
+        {
+          "state": "idle",
+          "dir": "south",
+          "pose": "approved_drevil.rot.south",
+          "ink": 128,
+          "top": 81,
+          "bottom": 99,
+          "gap": 0
+        },
+        {
+          "state": "idle",
+          "dir": "east",
+          "pose": "approved_drevil.rot.east",
+          "ink": 84,
+          "top": 80,
+          "bottom": 99,
+          "gap": 0
+        },
+        {
+          "state": "idle",
+          "dir": "north",
+          "pose": "approved_drevil.rot.north",
+          "ink": 138,
+          "top": 81,
+          "bottom": 100,
+          "gap": -0.25
+        },
+        {
+          "state": "idle",
+          "dir": "west",
+          "pose": "approved_drevil.rot.west",
+          "ink": 87,
+          "top": 80,
+          "bottom": 99,
+          "gap": 0
+        },
+        {
+          "state": "walk",
+          "dir": "south",
+          "pose": "approved_drevil.walk.south",
+          "ink": 133,
+          "top": 80,
+          "bottom": 99,
+          "gap": 0.5813206627286718
+        },
+        {
+          "state": "walk",
+          "dir": "east",
+          "pose": "approved_drevil.walk.east",
+          "ink": 104,
+          "top": 80,
+          "bottom": 99,
+          "gap": -0.2093396686356641
+        },
+        {
+          "state": "walk",
+          "dir": "north",
+          "pose": "approved_drevil.walk.north",
+          "ink": 135,
+          "top": 80,
+          "bottom": 99,
+          "gap": 0.12198099409300767
+        },
+        {
+          "state": "walk",
+          "dir": "west",
+          "pose": "approved_drevil.walk.west",
+          "ink": 104,
+          "top": 80,
+          "bottom": 99,
+          "gap": 0.2093396686356641
+        },
+        {
+          "state": "sit",
+          "dir": "south",
+          "pose": "approved_drevil.sit.south",
+          "ink": 105,
+          "top": 83,
+          "bottom": 99,
+          "gap": 0
+        },
+        {
+          "state": "sit",
+          "dir": "east",
+          "pose": "approved_drevil.sit.east",
+          "ink": 103,
+          "top": 83,
+          "bottom": 99,
+          "gap": 0
+        },
+        {
+          "state": "sit",
+          "dir": "north",
+          "pose": "approved_drevil.sit.north",
+          "ink": 100,
+          "top": 86,
+          "bottom": 100,
+          "gap": -0.25
+        },
+        {
+          "state": "sit",
+          "dir": "west",
+          "pose": "approved_drevil.sit.west",
+          "ink": 95,
+          "top": 83,
+          "bottom": 99,
+          "gap": 0
+        },
+        {
+          "state": "type",
+          "dir": "north",
+          "pose": "approved_drevil.type.north",
+          "ink": 55,
+          "top": 79,
+          "bottom": 87,
+          "gap": 6.75
+        }
+      ],
+      "reload": {
+        "skin": "drevil",
+        "pose": "approved_drevil.rot.south"
+      }
+    }
+  ],
+  "errors": [],
+  "agentId": "agent",
+  "pass": true,
+  "sourceCommit": "7dd062343efd6c611ec19c7569abbb9fd31f22a8"
+}
