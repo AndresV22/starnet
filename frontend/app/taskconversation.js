@@ -46,14 +46,15 @@ const TaskConversation = (() => {
     const actions=el('div','tc-actions'), submit=el('button','consent-btn primary','Send context'), skip=el('button','consent-btn tc-skip','Use your judgment');
     submit.type=skip.type='button';actions.appendChild(submit);actions.appendChild(skip);card.appendChild(actions);
     const feedback=el('div','tc-feedback');feedback.setAttribute('role','status');card.appendChild(feedback);
-    card.appendChild(el('div','tc-hint','Ctrl + Enter to send · Enter adds a line'));
+    // the SAME keys as the COMMS composer (live walkthrough 2026-10-13: Enter sent there and added a line here)
+    card.appendChild(el('div','tc-hint','Enter to send · Shift + Enter adds a line'));
     let busy=false,done=false;
     function refresh(){submit.disabled=busy||done||!input.value.trim();skip.disabled=busy||done;input.disabled=busy||done;for(const b of options.children)b.disabled=busy||done;}
     async function answer(delegated) {
-      if(busy||done)return;
+      if(busy||done)return false;
       const typed=input.value.trim();
       const text=delegated ? (typed ? typed+'\nUse your judgment for the remaining choices.' : 'use your judgment') : typed;
-      if(!text)return;
+      if(!text)return false;
       busy=true;feedback.textContent='Sending…';refresh();
       try {
         const accepted=await send(text);
@@ -63,13 +64,16 @@ const TaskConversation = (() => {
         card.classList.add('tc-answered');card.setAttribute('aria-label','Shared task context');
         const receipt=el('details','tc-receipt');receipt.appendChild(el('summary','','You shared: '+text.slice(0,100)+(text.length>100?'…':'')));
         receipt.appendChild(el('p','tc-answer-sent',text));card.appendChild(receipt);
-      }catch(e){feedback.textContent=e.message||'Could not send. Your text is kept here; try again.';}
+        return true;
+      }catch(e){feedback.textContent=e.message||'Could not send. Your text is kept here; try again.';return false;}
       finally{busy=false;refresh();}
     }
     input.addEventListener('input',refresh);
-    input.addEventListener('keydown',e=>{if(e.key==='Enter'&&(e.ctrlKey||e.metaKey)){e.preventDefault();answer(false);}});
+    input.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();answer(false);}});
     submit.onclick=()=>answer(false);skip.onclick=()=>answer(true);
-    refresh();host.appendChild(card);return {card,input};
+    // submit(text): the COMMS composer answers this card when the Commander types the reply there (chat.js askAnswerers)
+    const submitText=async text=>{if(done||busy)return false;input.value=String(text||'');refresh();return answer(false);};
+    refresh();host.appendChild(card);return {card,input,submit:submitText,isDone:()=>done};
   }
   return {mount};
 })();

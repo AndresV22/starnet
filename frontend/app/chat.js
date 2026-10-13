@@ -1271,6 +1271,14 @@ const Chat = (() => {
       if (sent && activeWs?.id === ws.id) { takeAttachments(); if (input.value.trim() === t) input.value = ''; closeSlash(); autoGrowInput(); }
       return;
     }
+    // ANSWER, NOT QUEUE: the run is waiting on one question of its lead's in this conversation — this text is the
+    // answer (askAnswerers). Files still wait for the next send; a failed answer keeps the words in the box.
+    if (isBusy() && t && !hasStaged && pendingAskFor(activeWs)) {
+      const ws = activeWs;
+      input.value = ''; closeSlash(); autoGrowInput();
+      if (!(await answerPendingAsk(ws, t)) && activeWs === ws && !input.value.trim()) { input.value = t; autoGrowInput(); }
+      return;
+    }
     // BUSY: type-ahead queues TEXT; staged files wait in the strip for the next idle send (one run per stream).
     if (isBusy()) { if (t) { input.value = ''; closeSlash(); autoGrowInput(); enqueue(t); } return; }
     // SETTLE UPLOADS: a staged attachment still uploading must not be silently dropped — uploads to the local
@@ -3489,6 +3497,25 @@ const Chat = (() => {
      timer falls back to today's durable end-run question. Joins the consent card's lifecycle contract:
      decided chips vanish into a verdict tag, pending-span bookkeeping excludes the wait from run time, and
      focus is never stolen from a mid-typing Commander. */
+  /* THE COMPOSER ANSWERS THE QUESTION (live walkthrough 2026-10-13). NOVA asked "what are you launching?"; the
+     Commander typed the answer in the COMMS box like any chat — and it became a queued chip, the run sat on
+     "awaiting your answer", and ~15 min later the chip fired as a NEW message that restarted the whole job. While the
+     open conversation waits on exactly ONE of its lead's questions, a composer send is that question's answer.
+     promptId -> { wsId, answer(text) -> Promise<bool> } — registered by clarifyRow, removed once answered. */
+  const askAnswerers = new Map();
+  function pendingAskFor(ws) {
+    if (!ws) return null;
+    const live = [];
+    for (const [id, a] of askAnswerers) { if (a.wsId === ws.id && !(a.isDone && a.isDone())) live.push(id); else if (a.isDone && a.isDone()) askAnswerers.delete(id); }
+    return live.length === 1 ? askAnswerers.get(live[0]) : null;
+  }
+  async function answerPendingAsk(ws, text) {
+    const a = pendingAskFor(ws);
+    if (!a) return false;
+    let ok = false;
+    try { ok = (await a.answer(text)) === true; } catch (e) { ok = false; }
+    return ok;
+  }
   function clarifyRow(p, ws) {
     let q = { question: '', options: [], recommended: '', reason: '', multiSelect: false, ordinal: 0, total: 0 };
     try { q = Object.assign(q, JSON.parse(p.argsSummary || '{}')); } catch (_) {}
@@ -3496,15 +3523,19 @@ const Chat = (() => {
     r.d.dataset.clarifyPrompt = String(p.promptId || ''); r.d.tabIndex = -1;
     if(q.mode==='conversation' && typeof TaskConversation!=='undefined') {
       const rid=ws && Channels.runIdOf(ws.id);
-      TaskConversation.mount(r.body,q,async text=>{
+      const mounted=TaskConversation.mount(r.body,q,async text=>{
         const result=await Harness.consentAnswer(rid,p.promptId,text,true);
         if(!result || !result.ok)return false;
         // the question is answered: say so on the bus like the approval card does, or the CREW card and the world pose stay "needs your OK"
         try{if(typeof U!=='undefined'&&U.bus)U.bus.emit('permission.response',{promptId:p.promptId,decision:'once'});}catch(_){}
         if(ws)Channels.clearPending(ws.id,Date.now(),p.promptId);
         if(isActiveWs(ws)){renderPresence();syncStatus();}
+        askAnswerers.delete(String(p.promptId||''));
         return true;
       });
+      // a worker's question is answered on its own row; the lead's is answerable from the composer
+      if(ws && p.promptId && !p.workerStreamId && mounted && typeof mounted.submit==='function')
+        askAnswerers.set(String(p.promptId),{wsId:ws.id,answer:mounted.submit,isDone:mounted.isDone});
       status('awaiting your context…');autoscroll();return;
     }
     // A batched ask shows its place ("asks (2 of 3)") so the Commander knows one more tap ends it —
@@ -3532,7 +3563,7 @@ const Chat = (() => {
     const btns = document.createElement('span'); btns.className = 'consent-btns';
     let decided = false, submitting = false, received = null, applyElsewhere = null;
     async function answer(text, doneLabel) {
-      if (decided || submitting) return;
+      if (decided || submitting) return false;
       submitting = true;
       const buttons = Array.from(btns.querySelectorAll('button')), disabled = buttons.map(b => b.disabled);
       buttons.forEach(b => { b.disabled = true; });
@@ -3545,9 +3576,10 @@ const Chat = (() => {
         if (received && applyElsewhere) { applyElsewhere(received); return; }
         buttons.forEach((b, i) => { b.disabled = disabled[i]; });
         if (typeof StationUI !== 'undefined' && StationUI.notify) StationUI.notify('Could not answer: ' + ((e && e.message) || e), 'warn');
-        return;
+        return false;
       }
       submitting = false; decided = true;
+      askAnswerers.delete(String(p.promptId || ''));
       if (received && applyElsewhere) applyElsewhere(received);
       if (ws) settlePromptNotice(ws.id, p.promptId);
       // answered: tell the bus, as the approval card does — the CREW card's "needs your OK" frame and the world's
@@ -3559,7 +3591,9 @@ const Chat = (() => {
       const tag = document.createElement('span'); tag.className = 'consent-result'; tag.textContent = doneLabel;
       r.body.appendChild(tag);
       syncStatus();
+      return true;
     }
+    if (ws && p.promptId && !p.workerStreamId) askAnswerers.set(String(p.promptId), { wsId: ws.id, answer: (text) => answer(text, '✓ ' + glance(text, 60)), isDone: () => decided });
     const opts = Array.isArray(q.options) ? q.options.slice(0, 6) : [];
     if (q.multiSelect === true && opts.length > 1) {
       // NON-EXCLUSIVE options: chips toggle, a confirm chip fires. The answer is the Commander's picks
@@ -7695,6 +7729,11 @@ const Chat = (() => {
     if (activeWs.conversationMode === 'group' && typeof GroupChat !== 'undefined') {
       send(value);
       return { ok: true, state: 'started', workstreamId: activeWs.id };
+    }
+    if (isBusy() && pendingAskFor(activeWs)) {
+      const ws = activeWs;
+      answerPendingAsk(ws, value).then(ok => { if (!ok) enqueue(value); });
+      return { ok: true, state: 'answered', workstreamId: ws.id };
     }
     if (isBusy()) {
       enqueue(value);

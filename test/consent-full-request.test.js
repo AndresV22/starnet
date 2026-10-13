@@ -125,7 +125,8 @@ function clarificationFixture(mode) {
     Harness: { consentAnswer: () => Promise.resolve({ ok: true }) },
     TaskConversation: { mount: (el, question, cb) => { conversationAnswer = cb; } },
     U: { bus: { emit() {}, on: (name, fn) => listeners.set(name, fn), off: (name, fn) => { if (listeners.get(name) === fn) listeners.delete(name); } } },
-    isActiveWs: () => false, renderPresence() {}, syncStatus() {}, status() {}, autoscroll() {}, announcedPrompt: () => true };
+    isActiveWs: () => false, renderPresence() {}, syncStatus() {}, status() {}, autoscroll() {}, announcedPrompt: () => true,
+    askAnswerers: new Map(), glance: (t) => String(t) };
   vm.createContext(ctx); vm.runInContext(extract(chat, '  function settledWhere(resp)', '  async function answerConsent('), ctx); vm.runInContext(extract(chat, '  function clarifyRow(', '  // p = a consent payload'), ctx);
   ctx.clarifyRow(q, ws);
   return { Channels, ws, q, nodes, listeners, conversationAnswer, ctx };
@@ -316,4 +317,15 @@ for (const decision of ['always', 'full']) test('a plugin.submit card offers onl
   const tag = f.nodes[0].body.children.filter(n => /^consent-result/.test(n.className || ''))[0].textContent;
   assert.equal(tag, '✓ approved once from your phone');
   assert.ok(!/always allowed|full access/.test(tag), 'the receipt claims no standing grant: ' + tag);
+});
+
+// THE COMPOSER ANSWERS THE QUESTION (live walkthrough 2026-10-13): a lead's open question registers an answerer, so
+// text typed in the COMMS box answers it instead of queueing a duplicate turn; once answered it is gone.
+test('a lead question is answerable from the composer, exactly once', async () => {
+  const f = clarificationFixture('choice');
+  const a = f.ctx.askAnswerers.get('q1');
+  assert.ok(a && a.wsId === f.ws.id, 'the open question registers an answerer for its conversation');
+  assert.equal(await a.answer('Blue, with a dark border'), true, 'a typed answer settles the question');
+  assert.equal(f.ctx.askAnswerers.has('q1'), false, 'and the answerer is removed once used');
+  assert.equal(await a.answer('again'), false, 'a second answer to the same question is refused, never sent twice');
 });
