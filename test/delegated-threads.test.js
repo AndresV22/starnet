@@ -99,9 +99,10 @@ const roster = new Map([['researcher', { system: 'R', name: 'MIRA' }], ['writer'
   const { dispatchTool } = makeOrchestrationTools({ runOnce: ro, roster: () => roster, key: 'k', model: 'm', newId: counter(), coordinateResults: true, childThread: () => { asked++; return { id: 't' }; } });
   await dispatchTool.run({ workers: [{ agentId: 'researcher', prompt: 'find X' }] }, { agentId: 'agent', streamId: 'global', runId: 'lead3' });
   A.eq(asked, 0, 'a global (channel) run has no conversation to file under');
-  const none = makeOrchestrationTools({ runOnce: fakeRunOnce(), roster: () => roster, key: 'k', model: 'm', newId: counter() });
+  const plainRo = fakeRunOnce();
+  const none = makeOrchestrationTools({ runOnce: plainRo, roster: () => roster, key: 'k', model: 'm', newId: counter() });
   await none.dispatchTool.run({ workers: [{ agentId: 'researcher', prompt: 'find X' }] }, { agentId: 'researcher_lead', streamId: 'home', runId: 'lead4' });
-  A.ok(true, 'a non-coordinator lead (no childThread) dispatches unchanged');
+  A.eq(plainRo.calls.length + '|' + String(plainRo.calls[0] && plainRo.calls[0].streamId), '1|undefined', 'a non-coordinator lead (no childThread) dispatches unchanged: the worker runs once, in the lead stream, with no thread');
 }
 
 /* ---- 3. the card: row state, the worker's exact ask, the receipt ---- */
