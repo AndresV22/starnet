@@ -233,7 +233,7 @@ function world(opts) {
     await c.advance(seed({}));
     A.eq([got[0].entryTrusted, got[0].hostPowerKept], [true, true], 'a seed holding both verdicts ships them');
     A.ok(!('entryTrusted' in got[1]) && !('hostPowerKept' in got[1]), 'a non-boolean "verdict" is never carried — ' + JSON.stringify(got[1]));
-    A.ok(!('entryTrusted' in got[2]) && !('hostPowerKept' in got[2]), 'a seed without them (a routine, Run Now) ships none — ' + JSON.stringify(got[2]));
+    A.ok(!('entryTrusted' in got[2]) && !('hostPowerKept' in got[2]), 'a seed without them (anything that never established one) ships none — ' + JSON.stringify(got[2]));
   }
 
   /* ---------- 3. RIDES ON ---------- */
@@ -308,7 +308,18 @@ function world(opts) {
     A.ok(all.filter(r => r.initialTaint).length === 5 && all.filter(r => r.initialTaint).every(r => !r.shellAllowed), '…so every tainted step (A\'s hop, all of B and C) is refused the shell');
     A.ok(w.shipped.every(s => s.hostPowerKept !== true), '…and no shipment of it carries hostPowerKept');
   }
-  // (f) a LEGACY shipment (no verdict fields: a routine, Run Now, anything from before this change): untrusted + withheld
+  // (f') a ROUTINE's shipment (index.js stamps hostPowerKept on the scheduled + Run Now seeds, never entryTrusted): untrusted, NOT withheld
+  //      — exactly today's level for a routine-started hand-off, never stricter, never trusted
+  {
+    const w = world();
+    const aLast = w.L[0].bays.slice().sort(P.propIdCmp).pop();
+    const q = w.R.onShipped({ lineId: w.lines.A, agentId: w.plan.agentOfDock[aLast], dockId: aLast, outboxId: w.L[0].outbox, text: 'routine output', originalText: 'the routine', streamId: null, hostPowerKept: true });
+    A.ok(q.ok, 'the routine\'s shipment is handed on — ' + JSON.stringify(q));
+    await w.settle();
+    const bc = w.on('B').concat(w.on('C'));
+    A.ok(w.on('B').length === 2 && w.on('C').length === 2 && bc.every(r => r.untrusted && !r.withheld && !r.shellAllowed), 'a routine\'s hand-off runs untrusted but not withheld on B and C (today\'s level) — ' + JSON.stringify(bc.map(pick)));
+  }
+  // (f) a LEGACY shipment (no verdict fields: anything from before this change): untrusted + withheld
   {
     const w = world();
     const aLast = w.L[0].bays.slice().sort(P.propIdCmp).pop();
@@ -351,8 +362,11 @@ function world(opts) {
         else if (/\.js$/.test(e.name) && /\b(entryTrusted|hostPowerKept)\b/.test(fs.readFileSync(p, 'utf8'))) files.push(path.relative(root, p).split(path.sep).join('/'));
       }
     })(path.join(root, 'sidecar'));
-    A.eq(files.sort(), ['sidecar/channels/hub.js', 'sidecar/routing/chain.js', 'sidecar/routing/handoff-runner.js'],
-      'the verdict fields live ONLY in the hub (which established them), the chain (which carries them) and the handoff runner — no routine / Run Now seam can stamp one');
+    A.eq(files.sort(), ['sidecar/channels/hub.js', 'sidecar/index.js', 'sidecar/routing/chain.js', 'sidecar/routing/handoff-runner.js'],
+      'the verdict fields live ONLY in the hub (which established them), the routine seeds (hostPowerKept only), the chain (which carries them) and the handoff runner');
+    const idxSrc = fs.readFileSync(path.join(root, 'sidecar', 'index.js'), 'utf8');
+    A.eq((idxSrc.match(/\bentryTrusted\b/g) || []).length, 0, 'index.js never stamps entryTrusted (a routine / Run Now entry is not the hub\'s verdict to mint)');
+    A.eq((idxSrc.match(/^\s*hostPowerKept: true,/gm) || []).length, 2, 'index.js stamps hostPowerKept on exactly the two routine seeds (scheduled advanceChain + Run Now) — a routine never withholds host power');
     const hubSrc = fs.readFileSync(path.join(root, 'sidecar', 'channels', 'hub.js'), 'utf8');
     A.eq((hubSrc.match(/entryTrusted: lineEntryUntrusted \? undefined : true,/g) || []).length, 1, 'the hub stamps entryTrusted once, from the verdict its runs carry');
     A.eq((hubSrc.match(/hostPowerKept: \(runChannelSender === true && runChannelSenderOwner !== true\) \? undefined : true,/g) || []).length, 1, '…and hostPowerKept once, by run-origin\'s own withheld test');

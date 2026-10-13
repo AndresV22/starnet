@@ -6571,6 +6571,9 @@ const cronDriver = makeCronDriver({
     // the entry run's reconciled spend: MAX_CHAIN_USD bounds the WHOLE chain, and stage one is part of the
     // chain (2026-08-10 audit — the entry run rode outside its own line's $ ceiling on every path).
     entryUsd: o.entryUsd,
+    // SEND TO VERDICT (conveyor-backend-04): a routine run never withholds host power (run-origin.js: no channelSender), so its
+    // hand-off keeps it too — the level it had before verdicts were carried. NEVER the trusted-entry verdict here: that stays the hub's alone.
+    hostPowerKept: true,
     /* ONLY A ROUTINE THAT BELONGS TO THE LINE RUNS THE LINE (Andrew's ruling, 2026-08-07). `o.runsLine` is
        the durable opt-in the driver reads off the job record (cron-store `runsLine`): true only for a routine
        created from a line's own INBOX trigger zone. Without it this is a routine that predates the workflow
@@ -15914,6 +15917,7 @@ async function handleCronRun(req, res) {
           // every-step-ended-done check and the files it made) — without it Run Now handed on half-finished work the schedule refuses
           runId, streamId: 'cron-' + runId,
           entryUsd: state.usd,   // stage one is part of the chain — its spend counts against MAX_CHAIN_USD (2026-08-10)
+          hostPowerKept: true,   // SEND TO VERDICT: the same as the scheduled seam above (a routine never withholds host power; never the trusted-entry verdict)
           // SAME ORIGIN AS THE SCHEDULED FIRE (work belongs to a line, 2026-08-07): Run Now is this routine's
           // own trigger pressed by hand, so it carries the dock's lineId and the line runs — but ONLY for a
           // routine that belongs to the line (the durable `runsLine` opt-in, read off the same job record the
