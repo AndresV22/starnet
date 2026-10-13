@@ -21246,7 +21246,8 @@ async function runOnceCore(o) {
       && typeof o.connectorAuthority?.fullAccess === 'function' && o.connectorAuthority.fullAccess() === true;
     let postTaint = revokedByTaint.boundary(liveTool, {
       taintedBy: taintSource, surface: effectSurface, hasPrompt: typeof effectPrompt === 'function',
-      fullAccess: stationBypassNow() || agentFullAccessNow() || connectorFullAccess, untrustedEntry: untrustedEntryRun
+      // call: lets an action-aware taint lock (pause/stop a routine or loop is never locked) read this call's args
+      fullAccess: stationBypassNow() || agentFullAccessNow() || connectorFullAccess, untrustedEntry: untrustedEntryRun, call: c
     });
     if (postTaint.needsConfirmation) {
       let decision = 'deny';
@@ -21255,7 +21256,7 @@ async function runOnceCore(o) {
       try { decision = await (o.delegatedBy ? askedBy.run({ agentId, runId, streamId: streamId || '', signal }, askEffect) : askEffect()); } catch (_) {}
       postTaint = revokedByTaint.boundary(liveTool, {
         taintedBy: taintSource, surface: effectSurface, hasPrompt: true, decision,
-        fullAccess: stationBypassNow() || agentFullAccessNow() || connectorFullAccess, untrustedEntry: untrustedEntryRun
+        fullAccess: stationBypassNow() || agentFullAccessNow() || connectorFullAccess, untrustedEntry: untrustedEntryRun, call: c
       });
     }
     const postTaintConfirmed = postTaint.oneShot;
