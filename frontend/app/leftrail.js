@@ -89,7 +89,8 @@
   const left = document.getElementById('left');
   const vseam = document.getElementById('crew-vresizer');
   const crewSearch = document.getElementById('crew-search-wrap');
-  const attention = document.getElementById('ws-attention');
+  // NEEDS YOU (needsyou.js) rides between the roster and SESSIONS — it replaced the old #ws-attention button
+  const needs = document.getElementById('ws-needs');
 
   // The dragged row count, or null for "measure it for me". Stored as a ROW COUNT and not as a
   // height on purpose: rows change height (a WORKING row opens its in-flight bar) and the roster
@@ -143,8 +144,13 @@
 
     // What the column can actually spare.
     const z = zoomOf();
-    const attentionH = attention ? attention.getBoundingClientRect().height : 0;
-    const spare = (left.getBoundingClientRect().bottom - ul.getBoundingClientRect().top - belowList() - attentionH) / z - WS_FLOOR;
+    // NEEDS YOU is not flex-shrunk, so it comes off the column whole, its margins with it (review app-shell-ui-04)
+    let needsH = 0;
+    if (needs && !needs.hidden) {
+      const ns = getComputedStyle(needs);
+      needsH = needs.getBoundingClientRect().height + (parseFloat(ns.marginTop) || 0) + (parseFloat(ns.marginBottom) || 0);
+    }
+    const spare = (left.getBoundingClientRect().bottom - ul.getBoundingClientRect().top - belowList() - needsH) / z - WS_FLOOR;
 
     // Search temporarily opens a deliberately shut roster, then restores the saved split on close.
     const searching = crewSearch && !crewSearch.hidden;
@@ -168,9 +174,10 @@
     // rewrites every status line's textContent once a second, and a subtree childList observer
     // turns that into ~8 forced layouts a second for nothing.
     new MutationObserver(schedule).observe(ul, { childList: true });
-    for (const control of [crewSearch, attention]) {
-      if (control) new MutationObserver(schedule).observe(control, { attributeFilter: ['hidden'] });
-    }
+    if (crewSearch) new MutationObserver(schedule).observe(crewSearch, { attributeFilter: ['hidden'] });
+    // NEEDS YOU appearing, gaining or losing an ask, or expanding "N more" — a ResizeObserver, not a hidden-attribute
+    // watch: needsyou.js re-sets `hidden` on every 1s tick while the list is empty, and that would re-fit every second
+    if (needs && typeof ResizeObserver === 'function') new ResizeObserver(schedule).observe(needs);
     // ROW HEIGHT — crewTick toggles .working, which opens the in-flight bar inside the row.
     new MutationObserver(schedule).observe(ul, { subtree: true, attributeFilter: ['class', 'hidden'] });
     // …and that bar is TRANSITIONED (motion.css §17, --t-med 220ms), so the class toggle above
