@@ -28,6 +28,15 @@ function fn(src,name){const m=new RegExp('^( {0,4})(?:async )?function '+name+'\
   const live=[{dataset:{runId:'already',collected:'1'}},{dataset:{runId:'left'}}];let resolved=[],notice='';
   const clear=out.match(/    const clearEvery = \(\) => \{([^]*?)\n    \};/)[1];new Function('list','RS','notify','renderEmpty',clear)({children:live},{resolveAll:ids=>{resolved=ids}},t=>{notice=t},()=>{});
   A.eq(resolved,['left'],'TO REVIEW clear acts only on still-live rows');A.ok(/Cleared 1 /.test(notice),'clear toast counts only remaining reminder');
+  {// leaving a group releases its inline shared images (review comms-threads-ui-12)
+    const revoked=[],bad=Promise.reject(new Error('missing shared'));bad.catch(()=>{});
+    const shared=new Map([['art-1',Promise.resolve('blob:one')],['art-2',bad]]);
+    const els={},$=id=>els[id]||(els[id]={hidden:false,style:{},classList:{toggle(){}},replaceChildren(){},textContent:'',value:'',placeholder:''});
+    const bind=new Function('$','sharedBlobs','URL','composerDrafts',`let root={},basePlaceholder=null,active={id:'g1'},pickerFor=null,openedFileUrl=null,openedFile=null,group=null,replyTo=null,selected=[],lastPaint='',generation=0,timer=0,draftKey=null,notice='';const init=()=>{},closeMentions=()=>{},recipientLabel=()=>{},poll=()=>{};${fn(gc,'bind')}return bind;`)($,shared,{revokeObjectURL:u=>revoked.push(u)},new Map());
+    bind({id:'g1',conversationMode:'group'});await new Promise(r=>setImmediate(r));A.eq(revoked,[],'re-binding the same group keeps its images');
+    bind({id:'g2',conversationMode:'group'});await new Promise(r=>setImmediate(r));
+    A.eq(revoked,['blob:one'],'switching groups revokes the previous group image blob URLs');A.eq(shared.size,0,'and forgets them');
+  }
   let q={value:'filtered'},status={value:''},runFilter=null,project='',kind='',total=12,clearable=12,libraryRows=[];
   const label=new Function('state','clearableRow',fn(dlv,'clearShownLabel').replace(/(?<![.\w])(runFilter|project|kind|total|clearable|rows|q|status)(?!\w)/g,x=>'state.'+({rows:'libraryRows'}[x]||x))+';return clearShownLabel;')({q,status,runFilter,project,kind,total,clearable,libraryRows},r=>r.status!=='pending');
   const armSrc=read('frontend/app/armconfirm.js');let timer=null;const sandbox={module:{exports:{}},setTimeout:f=>{timer=f;return 1},clearTimeout:()=>{},console};vm.runInNewContext(armSrc,sandbox);
