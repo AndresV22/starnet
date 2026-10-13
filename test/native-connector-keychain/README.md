@@ -27,8 +27,17 @@ Use the existing `connector-keychain-acceptance` workflow from the reviewed sour
 
 Never run the ignored `connector_keychain_roundtrip` production-entry test or pass `--ignored`. The named `connector_key_policy*` tests use injected closures only: existing/malformed-value preservation, generation only on NoEntry, mismatched readback, simulated initial-read/write/readback refusal. Those simulated errors prove policy branches, **not actual Windows OS-denial behavior**. `acceptance_guards` is pure input validation with no Entry or process calls.
 
+## Pure policy tests: no automatic runner yet (run before a cut)
+
+`connector_key_policy*` (the `#[cfg(test)]` block in `src-tauri/src/credentials.rs`) and `acceptance_guards` (`src/main.rs`) touch no keychain entry and start no process, so they are safe on any machine. No push-triggered job or fast gate runs them. Only the dispatch-only workflow above does, so a policy regression (for example, regenerating over a malformed existing key, which would orphan every sealed connector credential) goes unnoticed. The `credentials.rs` refactor they cover has not been compiled yet either. Until a CI job runs them, run both once before every release cut, when the machine has RAM to spare (not during another gate):
+
+    cargo test --locked --manifest-path test/native-connector-keychain/Cargo.toml connector_key_policy
+    cargo test --locked --manifest-path test/native-connector-keychain/Cargo.toml acceptance_guards
+
+Never pass `--ignored`; without it the production-entry `connector_keychain_roundtrip` test stays skipped. The minimum compile check for the app itself is `cargo check --tests --manifest-path src-tauri/Cargo.toml`.
+
 ## Validation status and acceptance gaps
 
-Bounded checks passed: production policy branch-body equivalence after substituting the injected read/write calls, absence of production-wrapper/entry calls in the harness, workflow YAML parsing with both jobs present, and git diff --check. Only source/static review was authorized locally. Compilation, Rust test execution, Windows native phases and macOS regression execution are owed to the reviewed hosted job. No dependency or lockfile changes are needed.
+Bounded checks passed: production policy branch-body equivalence after substituting the injected read/write calls, absence of production-wrapper/entry calls in the harness, workflow YAML parsing with both jobs present, and git diff --check. Only source/static review was authorized locally. Compilation and Rust test execution are still owed (see the section above), as are the Windows native phases and macOS regression execution on the reviewed hosted job. No dependency or lockfile changes are needed.
 
 Even a future passing job proves only native Windows component persistence across two processes with a synthetic entry. It does not prove the exact signed installer, Tauri app-data isolation or launch environment, actual application quit/relaunch, Windows account/session changes, Higgsfield connectivity, real credential-store denial, or customer recovery. Report e7b2ffcd stays open until that separate evidence exists; startup report 85f602c4 remains separate.
