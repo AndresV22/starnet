@@ -121,6 +121,40 @@ console.log('worldrenderer: depth order, camera geometry, lifecycle and measured
 }
 console.log('worldrenderer: a props-only edit keeps the light model passed');
 
+// A ROOM LIGHT DRAG PREVIEWS THE POOLS WITHOUT A BAKE (review world-render-07). stationui.js rebakes the station only on
+// release; the pool cut and key are WorldLight's own knobs (StationBake never reads them), so begin() hands a changed cut
+// or key to lighting.configure on the next frame, over the SAME bake, and never rebuilds the light model's geometry.
+{
+  const counts = { setGeometry: 0, configure: 0 }, seen = [];
+  const light = { setGeometry() { counts.setGeometry++; }, configure(t) { counts.configure++; seen.push(t.cut + ',' + t.key); }, prepare() {}, sample: () => null, dispose() {} };
+  let enabled = true;
+  const tex = { cut: 1, key: 0, keyReach: .5 };
+  const s = { module: { exports: {} }, WorldLight: { create: () => light },
+    IndustrialTextures: { enabled: () => enabled, lighting: tex } };
+  vm.runInNewContext(fs.readFileSync(require.resolve('../frontend/app/worldrenderer.js'), 'utf8'), s);
+  const r = s.module.exports.create();
+  const geo = { TILE: 12 }, bake1 = { W: 48, H: 48, lamps: [] }, bake2 = { W: 48, H: 48, lamps: [] };
+  r.begin({ now: 1, geo, cache: bake1 });
+  r.begin({ now: 2, geo, cache: bake1 });
+  assert.deepEqual(counts, { setGeometry: 1, configure: 1 }, 'an unchanged frame never reconfigures the light model');
+  tex.cut = 2.1; tex.key = 1.4;
+  r.begin({ now: 3, geo, cache: bake1 });
+  assert.deepEqual(counts, { setGeometry: 1, configure: 2 }, 'a dragged cut/key reaches WorldLight on the next frame, with no rebuild of its geometry');
+  assert.equal(seen[seen.length - 1], '2.1,1.4', 'with the dragged values');
+  r.begin({ now: 4, geo, cache: bake1 });
+  assert.equal(counts.configure, 2, 'once per change, not once per frame');
+  tex.cut = 2.4; tex.key = 2;
+  r.begin({ now: 5, geo, cache: bake2 });
+  assert.deepEqual(counts, { setGeometry: 2, configure: 3 }, 'the release re-bake configures once');
+  r.begin({ now: 6, geo, cache: bake2 });
+  assert.equal(counts.configure, 3, 'and the frame after it owes nothing more');
+  enabled = false; tex.cut = 1;
+  r.begin({ now: 7, geo, cache: bake2 });
+  assert.equal(counts.configure, 3, 'the classic textures never take the industrial pool knobs');
+  r.dispose();
+}
+console.log('worldrenderer: a ROOM LIGHT drag previews the pool cut and key without a bake passed');
+
 const hudGeo = { TILE: 12, COLS: 4, ROWS: 2, W: 48, zoneGrid: ['a','a','b','b','a','a','b','b'], nameOf: id => ({a:'COMMAND',b:'FABRICATION'})[id] };
 const hudView = {x:0,y:0,w:20,h:20};
 assert.equal(R.cameraReadout({geo:hudGeo,viewport:hudView,linked:true}).label,'CAM · COMMAND');
