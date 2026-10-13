@@ -19,6 +19,7 @@ const { FORMAT } = require('../sidecar/connector-vault.js');
   const app = SidecarFixture.create({ env: { STARNET_DESKTOP_SHELL: '1', STARNET_CONNECTOR_KEY_ERROR: REASON }, timeoutMs: 30000 });
   const file = path.join(app.workspace, 'connectors/state.json');
   const storage = async () => (await app.json('GET', '/api/connectors')).body.credentialStorage;
+  let busyApp = null;
   try {
     await app.start();
     let s = await storage();
@@ -125,6 +126,34 @@ const { FORMAT } = require('../sidecar/connector-vault.js');
     assert.equal(s.error, null);
     assert.equal(s.migrationNotice, null, 'the notice is gone once the old file is gone');
     assert.equal(s.notice, null);
-    console.log('connector-storage-start-fresh.http: PASS (fresh-install fallback + reason, seal on keyed launch, key-mismatch lock, confirmed START FRESH keeps old files, restart, Settings reset exit)');
-  } finally { await app.dispose(); }
+    await app.stop();
+    // security-storage-05: antivirus, backup or sync holding state.json at boot (EBUSY) used to lock every sign-in as
+    // "damaged or from a newer StarNet" and steer the user to START FRESH, which sets an intact store aside. It is now
+    // a 'busy' lock that names the read error and a restart first, keeps START FRESH as the exit for a file that is
+    // still locked after one, and the store opens untouched once the file is free.
+    busyApp = SidecarFixture.create({ prefix: 'starnet-credential-recovery-', entry: path.join(__dirname, 'helpers/connector-recovery-fault-host.cjs'),
+      env: { STARNET_DESKTOP_SHELL: '1', STARNET_CONNECTOR_ENCRYPTION_KEY: K1, STARNET_CONNECTOR_KEY_ERROR: '' }, timeoutMs: 30000 });
+    const busyFile = path.join(busyApp.workspace, 'connectors/state.json'), busyControl = path.join(busyApp.workspace, 'credential-fault.json');
+    const busyStorage = async () => (await busyApp.json('GET', '/api/connectors')).body;
+    await busyApp.start();
+    assert.equal((await busyApp.json('POST', '/api/connectors', { id: 'held-fixture', transport: 'http', url: 'http://127.0.0.1:1/mcp', enabled: false })).status, 200);
+    await busyApp.stop();
+    const heldBytes = fs.readFileSync(busyFile, 'utf8');
+    fs.writeFileSync(busyControl, JSON.stringify({ mode: 'busy' }));
+    await busyApp.start();
+    s = (await busyStorage()).credentialStorage;
+    assert.equal(s.reason, 'busy', 'a held file is a busy lock: ' + JSON.stringify(s));
+    assert.ok(String(s.error).includes('EBUSY'), 'the lock names the read error: ' + s.error);
+    assert.match(s.error, /Restart StarNet to try again\. If it is still locked after a restart, START FRESH/, 'a restart first, START FRESH after: ' + s.error);
+    assert.doesNotMatch(s.error, /damaged|newer StarNet/, 'and does not call an intact file damaged');
+    assert.equal(s.canStartFresh, true, 'START FRESH stays the exit for a file that is still locked after a restart');
+    assert.equal(fs.readFileSync(busyFile, 'utf8'), heldBytes, 'the held store is not touched');
+    await busyApp.stop();
+    fs.unlinkSync(busyControl);
+    await busyApp.start();
+    const freed = await busyStorage();
+    assert.equal(freed.credentialStorage.error, null, 'a restart once the file is free opens the store');
+    assert.ok(freed.connectors.some(c => c.id === 'held-fixture'), 'with the saved connector still there');
+    console.log('connector-storage-start-fresh.http: PASS (fresh-install fallback + reason, seal on keyed launch, key-mismatch lock, confirmed START FRESH keeps old files, restart, Settings reset exit, busy file waits for a restart)');
+  } finally { await app.dispose(); if (busyApp) await busyApp.dispose(); }
 })().catch(error => { console.error(error); process.exitCode = 1; });

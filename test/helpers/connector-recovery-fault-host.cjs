@@ -7,7 +7,10 @@ const control = path.join(root, 'credential-fault.json'), state = path.join(root
 const read = fs.readFileSync.bind(fs), open = fs.openSync.bind(fs);
 function mode() { try { return JSON.parse(read(control, 'utf8')).mode; } catch (_) { return ''; } }
 fs.readFileSync = function(file, ...args) {
-  if (mode() === 'read' && path.resolve(String(file)) === state) throw Object.assign(Error('Synthetic credential read refused'), { code: 'EACCES' });
+  const m = mode();
+  if (m === 'read' && path.resolve(String(file)) === state) throw Object.assign(Error('Synthetic credential read refused'), { code: 'EACCES' });
+  // 'busy': the sharing violation Windows reports while antivirus, backup or sync holds the file
+  if (m === 'busy' && path.resolve(String(file)) === state) throw Object.assign(Error('EBUSY: synthetic resource busy or locked'), { code: 'EBUSY' });
   return read(file, ...args);
 };
 fs.openSync = function(file, flags, ...args) {
