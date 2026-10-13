@@ -102,6 +102,22 @@ const dcall = (name, args) => ({ id: 'c', name, args, argsRaw: JSON.stringify(ar
     await reg2.dispatch(dcall('notebook.write', { title: 'two', body: 'deploy b' }), { agentId: 'ag' });
     const r2 = await reg2.dispatch(dcall('notebook.read', { query: 'deploy' }), { agentId: 'ag' });
     A.ok(r2.content.indexOf('one') < r2.content.indexOf('two'), 'no ranker injected: falls back to store order, still returns matches');
+
+    // a copy a proven correction retired from AUTO-recall is still findable by a ranked query read (to correct or
+    // forget it) — whether or not another note also matches; the footer counts every admitted match
+    const store3 = memStore();
+    const reg3 = makeRegistry();
+    makeNotebookTools({ store: store3, clock: makeClock(5000), rank }).register(reg3);
+    store3.set('notebook:ag', [
+      { id: 'note_1', title: 'Indent', body: 'User prefers tabs', scope: 'global', kind: 'profile', confirmation: 'user-stated', createdAt: 1000 },
+      { id: 'note_2', title: 'Indent', body: 'User prefers spaces', scope: 'global', kind: 'profile', confirmation: 'user-stated', createdAt: 2000, updatedAt: 3000,
+        history: [{ body: 'User prefers tabs', replacedAt: 3000 }] }
+    ]);
+    const both = await reg3.dispatch(dcall('notebook.read', { query: 'prefers' }), { agentId: 'ag' });
+    A.ok(both.content.includes('[note_1]') && both.content.includes('[note_2]'), 'ranked read: a retired copy the substring gate admitted is still listed');
+    A.ok(both.content.includes('(2 of 2 entries in memory)'), 'ranked read: the footer counts every admitted match');
+    A.ok(both.content.indexOf('[note_2]') < both.content.indexOf('[note_1]'), 'ranked read: the corrected note still leads');
+    A.eq(rank(store3.get('notebook:ag'), 'prefers', { now: 5000 }).map(n => n.id), ['note_2'], 'auto-recall still retires the superseded copy');
   }
 
   // ============ A1c. notebook.feedback — fact_feedback parity with the reference harness (trust nudge, asymmetric, no content change) ============

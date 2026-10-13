@@ -57,6 +57,22 @@ for (const [text, expected] of [
   ['Have Ada and Ada-Aux review the plan.', ['researcher', 'ada-aux']],
   ['Ask the night-shift to review it.', ['night-shift']]
 ]) A.eq(ids(text), expected, 'only the exact affirmative targets receive the directive: ' + text);
+// a qualifier inside the TASK, or a polite opener, is still an ordinary delegation (10-11: 0/4 -> 4/4 needs the note)
+for (const text of [
+  'Have Ada check if the tests pass', 'Have Ada write the report, no rush', 'Have Ada research JWST, not Hubble',
+  'Have Ada find out whether the API is down or not', 'Have Ada list facts about JWST that are not well known',
+  'Ask Ada to compare "React" and "Vue"', 'Please have Ada run `npm test`', "Have Ada research JWST. Don't use tables.",
+  "Have Ada research it, don't do it yourself", 'Have Ada see if the API works',
+  'Can you have Ada research three facts about JWST?', 'Could you ask Ada to research three facts about JWST',
+  'Could you get Ada to look into this?', 'Hey, ask Ada to summarize the paper', 'I want you to have Ada draft the summary'
+]) A.eq(ids(text), ['researcher'], 'an ordinary delegation request still gets the note: ' + text);
+// …while a qualifier on the DELEGATION itself, anywhere in the message, still vetoes it
+for (const text of [
+  'Ask Ada for help if needed.', 'Have Ada review it unless you already know.', 'Maybe ask Ada.',
+  'Have Ada review it. Actually, no.', "Have Quill draft it. Don't ask Ada.", 'Have Ada review it, never mind.',
+  'Have Ada research it," he said.', 'Should I ask Ada?', 'Did you ask Ada?', "Have Ada review it. Actually, I'll do it myself.",
+  'Answer without asking Ada.', 'Have Ada review it, or just do it yourself.', 'Have Ada review it. Scratch that.'
+]) A.eq(crewCallNote(text, crew, 'chiefops'), '', 'a negated, conditional or quoted delegation adds no directive: ' + text);
 
 const note = crewCallNote('Have Ada research three facts about JWST', crew, 'chiefops');
 A.ok(/^\n\n\[CREW CALL\] The Commander named Ada \(agentId researcher\)/.test(note), 'the note names the member and its agentId');

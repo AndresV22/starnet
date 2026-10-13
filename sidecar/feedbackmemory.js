@@ -202,7 +202,8 @@ function selectTaste(records, opts) {
   candidates.sort((a, b) => b.score - a.score || a.i - b.i);
   for (const row of candidates) { if (chosen.size >= limit) break; chosen.add(row.r); }
   const selected = all.filter(r => chosen.has(r));   // render newest first, so conflicts retain temporal authority
-  Object.defineProperty(selected, 'recallMeta', { value: { omitted: all.length - selected.length } });
+  // ownOmitted: the left-out records that live in THIS notebook (not another agent's), the only ones notebook.read can return
+  Object.defineProperty(selected, 'recallMeta', { value: { omitted: all.length - selected.length, ownOmitted: all.filter(r => !chosen.has(r) && !r.foreign).length } });
   return selected;
 }
 
@@ -269,6 +270,7 @@ function adoptTaste(heroList, departedList, nextId, from) {
 }
 
 /* renderTaste(records, renderRecall, { agentId? }) — the taste block for a run's prompt (both injection sites in index.js).
+   agentId names the prompt's reader: the agent whose notebook stationTaste's `own` was.
    One compact line per record — VERDICT YYYY-MM-DD: <what the work was> — "<their words>" → <the reference> — under the
    taste header (which already says these are the Commander's own verdicts, so the generic recall prefix
    "[user-confirmed reference] Preference — ", ~40 chars a line, is not repeated). EVERY selected record renders: the
@@ -307,7 +309,11 @@ function renderTaste(records, renderRecall, opts) {
   const lines = recs.map((r, i) => ({ id: r.id, title: '', body: tasteLine(r, levels[i], viewer), content: String(r.content || r.body || '') + TasteRef.refLine(r.feedbackRef, 0, viewer) }));
   const header = TASTE_HEADER + (recs.some(r => r.feedbackRef) ? '\n' + TASTE_REF_RULE : '');
   // the levels above already fit the budget; the slack only absorbs a recall-line format change, never drops a record
-  Object.defineProperty(lines, 'recallMeta', { value: { omitted: (records.recallMeta && records.recallMeta.omitted) || 0, priority: [] } });
+  // The omission notice promises notebook.read can fetch them, so count only what the READER's notebook.read returns:
+  // the named viewer's own records. Another agent's verdicts, or a prompt with no named reader (a delegated worker's
+  // task context: its notebook.read reads its own notebook), get no retrieval promise they cannot keep.
+  const omitted = viewer ? Number(records.recallMeta && records.recallMeta.ownOmitted) || 0 : 0;
+  Object.defineProperty(lines, 'recallMeta', { value: { omitted, priority: [] } });
   return renderRecall(lines, { limit: budget + 400, priorityLimit: 0, header });
 }
 

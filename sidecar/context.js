@@ -543,7 +543,9 @@
     // (or an unscoped run): a lesson about repo A's flaky registry must not steer work in repo B. Global records
     // (no projectRoot, or scope global/stream) always compete, exactly as before. Same-project records get the
     // same-stream boost below so a project's own lessons float up inside it.
-    const recs = activeMemoryRecords(records)
+    // A proven correction retires its older exact copy from AUTO-recall only. An explicit read (floor:false) keeps
+    // every record its own gate admitted: that search is how the agent finds the stale copy to correct or forget.
+    const recs = (rankOpts.floor === false ? (Array.isArray(records) ? records.filter(Boolean) : []) : activeMemoryRecords(records))
       .filter(r => !(r.scope === 'project' && projectKey(r.projectRoot) && projectKey(r.projectRoot) !== project));
     if (!recs.length) return [];
     const rel = lexicalScores(recs, query, rankOpts);   // exact and bounded lexical expansion; vectors below remain semantic
@@ -598,7 +600,17 @@
       Object.defineProperty(selected, 'recallMeta', { value: { priority: explicit.filter(s => s.pinnedHere || s.standing).map(s => s.r), omitted: scored.length - selected.length } });
       return selected;
     }
-    const priority = scored.filter(s => s.pinnedHere || s.standing).slice(0, 32);
+    // PRIORITY ALLOWANCE: auto-recall (no explicit k) adds up to 32 pinned/standing records on top of k ordinary ones;
+    // renderRecall's priority budget bounds them. A caller that names its own k gets at most k (the skill reviewer
+    // lists every record it is handed: "top-12" must stay 12) unless it opts back in with priorityMax.
+    const priorityMax = rankOpts.priorityMax != null ? Math.max(0, Math.min(32, Number(rankOpts.priorityMax) || 0)) : (rankOpts.k ? 0 : 32);
+    if (!priorityMax) {
+      const top = scored.slice(0, k);
+      const selected = top.map(s => s.r);
+      Object.defineProperty(selected, 'recallMeta', { value: { priority: top.filter(s => s.pinnedHere || s.standing).map(s => s.r), omitted: scored.length - selected.length } });
+      return selected;
+    }
+    const priority = scored.filter(s => s.pinnedHere || s.standing).slice(0, priorityMax);
     const ordinary = scored.filter(s => !(s.pinnedHere || s.standing)).slice(0, k);
     const chosen = new Set(priority.concat(ordinary));
     const selected = scored.filter(s => chosen.has(s)).map(s => s.r);
@@ -615,7 +627,7 @@
   function compactionMemoryBlock(records, recentText, opts) {
     opts = opts || {};
     const now = typeof opts.now === 'number' ? opts.now : 0;
-    const ranked = rank(records, recentText || '', { now: now, k: opts.k || 5, streamId: opts.streamId || null, projectRoot: opts.projectRoot || null, vectors: opts.vectors || null, queryVec: opts.queryVec || null });
+    const ranked = rank(records, recentText || '', { now: now, k: opts.k || 5, priorityMax: 32, streamId: opts.streamId || null, projectRoot: opts.projectRoot || null, vectors: opts.vectors || null, queryVec: opts.queryVec || null });
     if (!ranked.length) return '';
     const rr = renderRecall(ranked, {
       limit: opts.limit || 800, priorityLimit: 0,
