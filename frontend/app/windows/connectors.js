@@ -27,14 +27,15 @@
   };
 
   /* LOCKED CREDENTIAL STORAGE — the next step the panel names under the sidecar's own message. A held file ('busy':
-     antivirus, backup or sync) is fixed by a restart, and START FRESH would only set an intact store aside, so the
-     restart comes first and START FRESH stays as the exit for a file still locked after one. "Unlock the credential
-     store" fits only an unreachable OS store; any other lock with no START FRESH leaves the sidecar's message to speak. */
+     antivirus, backup or sync) and an unreachable OS store ('key-unavailable') leave an intact store that a restart or
+     an unlock fixes, and START FRESH would only set it aside, so neither is told its files are unreadable: the restart
+     or the unlock comes first and START FRESH stays as the exit when that fails. The sidecar sends canStartFresh for
+     every lock today; a lock with no START FRESH and no fix of its own leaves the sidecar's message to speak. */
   function storageNextStep(storage) {
     const s = storage || {};
     if (s.reason === 'busy') return s.canStartFresh ? ' Restart StarNet first. Use START FRESH only if it is still locked after a restart.' : ' Restart StarNet to try again.';
-    if (s.canStartFresh) return ' START FRESH sets the unreadable files aside and lets you sign in to each service again.';
-    return s.reason === 'key-unavailable' ? ' Unlock the credential store and restart StarNet.' : '';
+    if (s.reason === 'key-unavailable') return s.canStartFresh ? ' Use START FRESH only if you cannot unlock or repair the credential store.' : ' Unlock the credential store and restart StarNet.';
+    return s.canStartFresh ? ' START FRESH sets the unreadable files aside and lets you sign in to each service again.' : '';
   }
   /* An open store's storage notes. `notice` is a store StarNet does not count as encrypted (fallback, or a seal not yet
      checked), so it is headed that way. `migrationNotice` is an older sign-in file left beside a SEALED store: a plain

@@ -26,10 +26,12 @@ A.ok(/clientSecret: clientSecret, tokenEndpointAuthMethod: tokenEndpointAuthMeth
   'DCR client secrets stay inside the protected callback/refresh persistence path');   // `cur` = the single-flight refresh's freshest stored entry (was `t` before the per-connector refresh coalescing)
 A.ok(/migrateConnectorCatalogKeyHeaders/.test(host) && /headers\[catalogEntry\.keyHeader\] = token;[\s\S]{0,80}token = ''/.test(host),
   'catalog-specific API key headers migrate and save without also sending a stale Bearer credential');
-// The locked credential-storage panel, run on the shapes the sidecar sends (review findings security-storage-05 and
-// sidecar-index-07). A held file ('busy') is fixed by a restart, so the panel names the restart first and keeps
-// START FRESH only as the exit for a file still locked after one. "Unlock the credential store" fits only an
-// unreachable OS store; any other lock with no START FRESH adds nothing to the sidecar's own message.
+// The locked credential-storage panel's next-step line (review findings security-storage-05 and sidecar-index-07).
+// Today the sidecar sends canStartFresh true for every lock reason; the canStartFresh-false shapes are the defensive
+// half (a lock the sidecar may later mark as having no START FRESH). A held file ('busy') and an unreachable OS store
+// ('key-unavailable') leave an intact store that a restart or an unlock fixes, so the line never steers them to
+// START FRESH as if their files were unreadable. Any other lock with no START FRESH adds nothing to the sidecar's own
+// message.
 {
   const vm = require('node:vm');
   const body = A.fnBody(connectors, 'function storageNextStep(');
@@ -41,6 +43,9 @@ A.ok(/migrateConnectorCatalogKeyHeaders/.test(host) && /headers\[catalogEntry\.k
   const busy = next({ reason: 'busy', canStartFresh: true });
   A.ok(/Restart StarNet first/.test(busy) && /START FRESH only if it is still locked after a restart/.test(busy), 'a busy file names the restart first: ' + busy);
   A.ok(!/unreadable files aside/.test(busy), 'and never steers a held, intact store to START FRESH: ' + busy);
+  const unreachable = next({ reason: 'key-unavailable', canStartFresh: true });
+  A.ok(!/unreadable files aside/.test(unreachable), 'an unreachable OS store is never steered to START FRESH as unreadable: ' + unreachable);
+  A.ok(/START FRESH only if you cannot unlock/.test(unreachable), 'it puts unlocking the credential store before START FRESH: ' + unreachable);
   A.eq(next({ reason: 'busy', canStartFresh: false }), ' Restart StarNet to try again.', 'a busy lock with no START FRESH says restart');
   A.ok(/START FRESH sets the unreadable files aside/.test(next({ reason: 'key-mismatch', canStartFresh: true })), 'a wrong-key store keeps the START FRESH line');
   A.eq(next({ reason: 'key-unavailable', canStartFresh: false }), ' Unlock the credential store and restart StarNet.', 'the unlock advice is for an unreachable OS store');
