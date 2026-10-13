@@ -504,9 +504,12 @@
       const prepared = provider.prepareWireMessages(req.messages || [], 'chat');
       // Keep the profile's SYSTEM projection even after nativeWire falls back to /v1. Do not
       // infer this policy from a model name or change generic/hosted Chat Completions requests.
+      // Every other route: ONE role projection (provider.chatRoleProjection) — a Claude model keeps its continuation
+      // placement; any other model gets the host notes (<run_context>, recall, the earlier-conversation summary) as the
+      // fenced leading text of the newest user message, never as a system message after index 0 (#102-class refusals).
       const messages = opts.nativeOllama === true && ollamaNative
         ? ollamaNative.leadingSystemMessages(prepared)
-        : provider.preserveClaudeContinuations(prepared, req.model);
+        : provider.chatRoleProjection(prepared, req.model);
       const body = { model: req.model, messages, stream: true };
       if (includeUsage && !skip('stream_options')) body.stream_options = { include_usage: true };
       const explicitMax = Math.floor(Number(req.max_tokens || req.maxTokens || 0)) || 0;

@@ -7,6 +7,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const http = require('node:http');
+const { userWords } = require('./helpers/host-notes.js');   // the user's own words: the run-context note leads the newest user message on this wire
 const fs = require('node:fs');
 const path = require('node:path');
 const { SidecarFixture } = require('./helpers/sidecar-fixture.js');
@@ -22,7 +23,7 @@ test('a job that ships on LINE A rides on to LINE B by SEND TO', async () => {
       let raw = ''; req.on('data', d => { raw += d; });
       req.on('end', () => {
         const body = JSON.parse(raw);
-        const user = (body.messages || []).filter(m => m && m.role === 'user').map(m => String(m.content || '')).join('\n');
+        const user = (body.messages || []).filter(m => m && m.role === 'user').map(m => userWords(m)).join('\n');
         const handoff = user.indexOf('[HAND-OFF') >= 0;   // (the roster's own system prompt wins over the hub persona)
         calls.push({ handoff, user, tools: (body.tools || []).map(t => t.function && t.function.name), results: (body.messages || []).filter(m => m.role === 'tool').map(m => m.content) });
         if (fileProof && !handoff && !fileRequested && user.startsWith('FILE PROOF') && body.tools && body.tools.length) {

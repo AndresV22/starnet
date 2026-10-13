@@ -637,9 +637,11 @@ const Voice = (() => {
     try { armAudio(); } catch (_) {}   // inside the click: the newly needed chain starts running
     return { effect: want || 'auto', appliesOn: 'the next spoken reply' };
   }
+  // Also takes a reply's pinned local engine ('local-kokoro' | 'edge'): a request locked to it is only ever served
+  // by that engine, so a clip whose header is unreadable is still that engine, never the keyed recipe.
   function engineOf(servedBy) {
     const s = String(servedBy || '').toLowerCase();
-    return s === 'local-kokoro' ? 'kokoro' : s.indexOf('edge:') === 0 ? 'edge' : 'keyed';
+    return s === 'local-kokoro' ? 'kokoro' : (s === 'edge' || s.indexOf('edge:') === 0) ? 'edge' : 'keyed';
   }
   function effectFor(engine) {
     return voiceEffect() || (engine === 'keyed' ? 'machine' : 'natural');
@@ -887,7 +889,7 @@ const Voice = (() => {
         }
       }
       const ct = r.headers.get('Content-Type') || '';
-      if (r.ok && ct.indexOf('audio') === 0) { const blob = await r.blob(); if (blob && blob.size) return { kind: 'neural', blob, engine: engineOf(r.headers.get('X-Voice-Provider')) }; }
+      if (r.ok && ct.indexOf('audio') === 0) { const blob = await r.blob(); if (blob && blob.size) return { kind: 'neural', blob, engine: engineOf(r.headers.get('X-Voice-Provider') || job.voice.engine) }; }
       let reason = 'http ' + r.status;
       try { const j = await r.json(); if (j && j.reason) reason = j.reason; } catch (_) {}
       if (job.seq === speakSeq) recordSpeechEvent('synthesis_failure', { chunk: jobs.indexOf(job), attempt: job.attempt, httpStatus: r.status, category: classifyFallback(reason), retryable: retryableFallback(reason) });

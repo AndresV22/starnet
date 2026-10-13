@@ -70,7 +70,9 @@
       + opening + 'A skill is a procedure you write down so your next runs start from it instead of working it out again. '
       + 'When a task makes you work out a non-trivial procedure (a multi-step workflow, a fix for a tricky error, a format or approach the Commander wants), save it '
       + (canManage ? 'with skill.manage (action create)' : 'with skill.write')
-      + ' before you finish: a short name, a one-line summary of when to use it, and the steps.';
+      + ' before you finish: a short name, a one-line summary of when to use it, and the steps. '
+      // A model-written skill is a pending proposal: say so, or the agent believes it already applies.
+      + 'It is a proposal: it becomes available after the Commander approves it in ABILITIES > SKILLS.';
   }
 
   function composeIndex(skills, opts) {

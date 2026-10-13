@@ -109,7 +109,7 @@ A.ok(!/hudNote\('◈ recalled[^\n]*kind:/.test(world) && !/hudNote\('✎ memory 
     const handler = mode === 'question' ? 'async function answer(text, doneLabel)' : 'async function decide(decision, doneLabel, isDeny)';
     const body = A.fnBody(chat, handler);
     A.ok(body.length > 200 && body.length < 4000, mode + ' submission function is bounded');
-    vm.runInContext(settlement + '\n' + A.fnBody(chat, 'async function answerConsent(p, ws, decision)') + '\n' + body, c);
+    vm.runInContext(settlement + '\n' + A.fnBody(chat, 'async function answerConsent(p, ws, decision, via)') + '\n' + body, c);
     const invoke = () => mode === 'question' ? c.answer('my answer', 'answered') : c.decide('once', 'approved', false);
     await invoke();
     A.eq(Channels.pendingAllOf(ws.id).map(x => x.promptId), [p.promptId, sibling.promptId], mode + ' failed response preserves both pending prompts');

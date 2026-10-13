@@ -25,6 +25,10 @@
   // fold-fidelity helpers (verbatim user section, usage anchor, provider-reported window). Node-only like failopen;
   // absent (a browser build that never runs the loop) = compaction stays off rather than folding unfaithfully.
   const fidelity = (typeof require === 'function') ? require('./compaction-fidelity.js') : null;
+  // the per-run <run_context> note's predicate (providers/provider.js owns the fence) — compaction pins that note
+  const isRunContextNote = (typeof require === 'function') ? require('./providers/provider.js').isRunContextNote : null;
+  // ... and the <crew_call> note (review 2026-10-12): it left the run-context note to trail the newest user message
+  const isCrewCallNote = (typeof require === 'function') ? require('./providers/provider.js').isCrewCallNote : null;
 
   // tool-call argument repair (L2): recover mechanically-broken JSON from non-Anthropic models. Degrades to
   // identity if the module is absent (e.g. a browser build that never runs the loop).
@@ -827,6 +831,14 @@
     // Missing/0/non-finite = off (every existing caller byte-identical).
     let maxUnpricedTokens = (typeof limits.maxUnpricedTokens === 'number' && isFinite(limits.maxUnpricedTokens) && limits.maxUnpricedTokens > 0)
       ? Math.floor(limits.maxUnpricedTokens) : Infinity;
+    // SUBSCRIPTION SEATBELT (2026-10-12). A Claude Code turn on a subscription sign-in books $0 (nothing is billed per
+    // call) yet draws on that sign-in's usage window. It is priced, so the unpriced ceiling skips it, and $0 never
+    // trips maxCostUsd: a run was structurally uncapped (a real one: 3.2M tokens over 31 turns). The host passes a
+    // per-run TOKEN ceiling for turns whose usage says `subscription`; a cache re-read counts 1/10 (what it costs next
+    // to a fresh token), so a run that reuses its cache is not stopped for rereading its own context.
+    // Missing/0/non-finite = off (every existing caller byte-identical).
+    const maxSubscriptionTokens = (typeof limits.maxSubscriptionTokens === 'number' && isFinite(limits.maxSubscriptionTokens) && limits.maxSubscriptionTokens > 0)
+      ? Math.floor(limits.maxSubscriptionTokens) : Infinity;
     const signal = o.signal || { aborted: false };
     const clock = o.clock;
     let cost = o.cost;   // swappable: a cross-provider fallback entry can carry its own cost engine (fb.cost) so
@@ -1041,6 +1053,8 @@
     let unpricedTokens = 0;          // tokens reconciled at $0 on a model nothing could price (feeds maxUnpricedTokens)
     let unpricedFlagged = false;     // agent.cost carries unpriced:true ONCE per run — the first turn it happens
     let unpricedModel = '';
+    let subscriptionTokens = 0;      // subscription turns' tokens, cache re-reads at 1/10 (feeds maxSubscriptionTokens)
+    let subscriptionModel = '';
     /* USAGE ANCHOR (Step 2 wave 2, audit F1). The provider's prompt_tokens for the last successful request, paired
        with the local ruler's reading of that SAME request. The fold decision adds what the ruler says grew since
        (tool results appended after the reading) — see promptAnchor. null = no reading: the full local ruler decides. */
@@ -1236,6 +1250,13 @@
       unpricedTokens += (c.tokensIn || 0) + (c.tokensOut || 0);
       if (!unpricedModel) unpricedModel = modelId || '(unknown)';
     }
+    // a subscription turn's tokens toward maxSubscriptionTokens: fresh input + output in full, a cache re-read at 1/10
+    function noteSubscription(modelId, u, c) {
+      if (!u || u.subscription !== true || !c) return;
+      const cached = Math.min(c.cachedTokens || 0, c.tokensIn || 0);
+      subscriptionTokens += (c.tokensIn || 0) - cached + cached / 10 + (c.tokensOut || 0);
+      if (!subscriptionModel) subscriptionModel = modelId || '(unknown)';
+    }
     // ONE booking per model ATTEMPT. Every exit of the stream loop calls this — fatal, cancel, and the top of each
     // retry/compress/fallback re-entry (which used to reset `usage = null` and lose it). The provider bills a
     // cancelled or retried attempt too (Anthropic's message_start already carries input_tokens), so a stopped
@@ -1246,6 +1267,7 @@
       spentUsd += c.usd || 0;
       spentTokens += (c.tokensIn || 0) + (c.tokensOut || 0);
       noteUnpriced(modelId, c);
+      noteSubscription(modelId, u, c);
       emit('agent.cost', {
         agentId, runId, usd: c.usd || 0, tokensIn: c.tokensIn || 0, tokensOut: c.tokensOut || 0,
         reasoningTokens: c.reasoningTokens || 0, cachedTokens: c.cachedTokens || 0, model: modelId, reconciled: true
@@ -1300,6 +1322,13 @@
           endPayload.unpricedTokens = Number(extra.unpricedTokens) || 0;
           endPayload.unpricedCapTokens = Number(extra.unpricedCapTokens) || 0;
         }
+        // the SUBSCRIPTION-token ceiling (additive, like the unpriced fields): which model, how far, which ceiling —
+        // so the stop reads "used N tokens of your Claude subscription" instead of a $ cap that never governed it
+        if (extra.subscriptionModel) {
+          endPayload.subscriptionModel = String(extra.subscriptionModel).slice(0, 120);
+          endPayload.subscriptionTokens = Number(extra.subscriptionTokens) || 0;
+          endPayload.subscriptionCapTokens = Number(extra.subscriptionCapTokens) || 0;
+        }
       }
       emit('agent.run.end', endPayload);
       const tail = messages[messages.length - 1];
@@ -1310,6 +1339,10 @@
       if (endPayload.unpricedModel) {
         out.unpricedModel = endPayload.unpricedModel; out.unpricedTokens = endPayload.unpricedTokens; out.unpricedCapTokens = endPayload.unpricedCapTokens;
         out.budgetNote = 'stopped: ' + endPayload.unpricedTokens.toLocaleString('en-US') + ' tokens on unpriced model ' + endPayload.unpricedModel + ' reached the ' + endPayload.unpricedCapTokens.toLocaleString('en-US') + '-token ceiling (no published rate - set SKYNET_MODEL_PRICES or SKYNET_MAX_UNPRICED_TOKENS)';
+      }
+      if (endPayload.subscriptionModel) {
+        out.subscriptionModel = endPayload.subscriptionModel; out.subscriptionTokens = endPayload.subscriptionTokens; out.subscriptionCapTokens = endPayload.subscriptionCapTokens;
+        out.budgetNote = 'stopped: ' + endPayload.subscriptionTokens.toLocaleString('en-US') + ' subscription tokens on ' + endPayload.subscriptionModel + ' (cache re-reads count 1/10) reached the ' + endPayload.subscriptionCapTokens.toLocaleString('en-US') + '-token per-run ceiling (SETTINGS > APP & BACKUP > Runtime limits, or STARNET_MAX_SUBSCRIPTION_TOKENS)';
       }
       if (extra && extra.failureStage) out.failureStage = String(extra.failureStage).slice(0, 80);
       if (extra && extra.failureCode) out.failureCode = String(extra.failureCode).slice(0, 80);
@@ -1467,6 +1500,18 @@
       const realNow = (hint && hint.realBefore > 0) ? hint.realBefore : anchor;
       const plan = context.planCompaction(working.slice(i), { scale: rulerNow > 0 ? Math.max(1, realNow / rulerNow) : 1 });
       if (!plan.older.length) return false;                               // nothing safely foldable yet (no paid call)
+      /* THE RUN CONTEXT IS PINNED (lean-prompt, 2026-10-12). The per-run <run_context> note (Task Brief, runtime identity,
+         quests — index.js CACHE-STABLE PREFIX) sits with the run's newest user message, which a long run folds. It used to
+         close the system prompt, which no fold touches, so no fold may take it now: it leaves the folded slice and rides
+         right after the summary note. The micro tier removes no message, so there it simply stays where it is. */
+      // The <crew_call> note is pinned the same way (review 2026-10-12): in the system prompt no fold ever took it either.
+      const ctxNote = isRunContextNote ? (plan.older.find(isRunContextNote) || null) : null;
+      const crewNote = isCrewCallNote ? (plan.older.find(isCrewCallNote) || null) : null;
+      const carriedCtx = [ctxNote, crewNote].filter(Boolean);
+      const foldOlder = carriedCtx.length ? plan.older.filter(m => carriedCtx.indexOf(m) < 0) : plan.older;
+      // the pin can leave NOTHING to fold (the plan's slice was the note alone): no paid summarizer call over an empty
+      // slice, no agent.compact for a fold that removes nothing — the same answer as an empty plan above
+      if (!foldOlder.length) return false;
       const beforeTokens = context.estimateMessages(messages);
       const threshold = (typeof context.thresholdTokens === 'function') ? context.thresholdTokens() : 0;
       const appendTodo = (arr) => { if (todoNote) { try { const tn = todoNote(); if (tn) return arr.concat([{ role: 'system', content: String(tn) }]); } catch (e) { failNote('loop.compaction.todoNote', e); } } return arr; };
@@ -1516,8 +1561,8 @@
         // digest the ORIGINAL messages: a tool result's first line is usually the fact worth keeping — an elided body would
         // reduce every read to "[elided]" and the run forgets what it saw (live-proved 08-21 against a real model)
         if (summarize && typeof summarize.drain === 'function') { try { summarize.drain(plan.older); } catch (e) { failNote('loop.compaction.fallbackDrain', e); return false; } }
-        const note = summaryNote(fallbackNote(plan.older, prevSummary));
-        const rebuilt = appendTodo(prefix.concat([note], plan.tail));
+        const note = summaryNote(fallbackNote(foldOlder, prevSummary));
+        const rebuilt = appendTodo(prefix.concat([note], carriedCtx, plan.tail));
         const afterTokens = context.estimateMessages(rebuilt);
         if (afterTokens >= beforeTokens) return false;                  // didn't shrink — don't spin the overflow retry
         messages.length = 0; for (const mm of rebuilt) messages.push(mm);
@@ -1542,7 +1587,7 @@
       let r;
       // Pass the loop's CURRENT provider/model/cost: after a rotation or a cross-provider fallback these are the
       // only live ones, and the injected summarizer captured its own bindings before the run started.
-      try { r = await summarize(plan.older, prevSummary, { provider, model, cost }); }   // prevSummary => the summarizer MERGE-updates it (H5.2)
+      try { r = await summarize(foldOlder, prevSummary, { provider, model, cost }); }   // prevSummary => the summarizer MERGE-updates it (H5.2)
       catch (e) { if (++compactionFails >= 2) compactionOff = true; usageReading = null; return false; }   // summarizer threw -> skip
       if (signal.aborted) return false;
       const summary = (typeof r === 'string') ? r : ((r && r.summary) || '');
@@ -1562,7 +1607,7 @@
       }
       compactionFails = 0;
       const note = summaryNote(summary);
-      let rebuilt = prefix.concat([note], plan.tail);
+      let rebuilt = prefix.concat([note], carriedCtx, plan.tail);
       // re-append the active task plan so it rides through the compaction (folded into the after-count below)
       if (todoNote) { try { const tn = todoNote(); if (tn) rebuilt = rebuilt.concat([{ role: 'system', content: String(tn) }]); } catch (e) { failNote('loop.compaction.todoNote', e); } }
       const afterTokens = context.estimateMessages(rebuilt);
@@ -1594,6 +1639,10 @@
       // per-RUN token ceiling for turns nothing could price (the $ ceiling above is blind to them — see maxUnpricedTokens)
       if (unpricedTokens >= maxUnpricedTokens) {
         return end('budget', { budgetScope: 'run', unpricedModel: unpricedModel || model, unpricedTokens, unpricedCapTokens: maxUnpricedTokens });
+      }
+      // per-RUN token ceiling for subscription turns ($0 each, so the $ ceiling above never fires — see maxSubscriptionTokens)
+      if (subscriptionTokens >= maxSubscriptionTokens) {
+        return end('budget', { budgetScope: 'run', subscriptionModel: subscriptionModel || model, subscriptionTokens: Math.round(subscriptionTokens), subscriptionCapTokens: maxSubscriptionTokens });
       }
       // CROSS-RUN BUDGET: day/global pool over the ledger. check() emits any threshold crossing itself and
       // returns a block descriptor when a soft cap is reached (no resume headroom left) -> stop as 'budget'.
@@ -1998,6 +2047,7 @@
       spentUsd += final.usd || 0;
       spentTokens += (final.tokensIn || 0) + (final.tokensOut || 0);
       noteUnpriced(model, final);
+      noteSubscription(model, usage, final);
       noteReading(usage);   // the usage anchor for the next fold decision (real count + the ruler on this same request)
       const costPayload = {
         agentId, runId, usd: final.usd || 0, tokensIn: final.tokensIn || 0, tokensOut: final.tokensOut || 0,

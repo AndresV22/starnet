@@ -10,7 +10,7 @@
 'use strict';
 const A = require('./_assert.js');
 const { EventEmitter } = require('events');
-const { makeClaudeCliProvider } = require('../sidecar/providers/claude-cli.js');
+const { makeClaudeCliProvider, _internals } = require('../sidecar/providers/claude-cli.js');
 
 function fakeCli(script) {
   const spawns = [];
@@ -112,8 +112,8 @@ const tick = ms => new Promise(r => setTimeout(r, ms || 0));
     A.eq(spawns[0].opts.env.CLAUDE_CODE_DISABLE_AUTO_MEMORY, '1', 'auto-memory stays off');
     const ins = spawns[0].inputs.map(textIn);
     A.eq(ins.length, 3, 'one user line per turn');
-    A.eq(ins[0], 'Read a.txt and b.txt.', 'turn 1 sends the opening request');
-    A.eq(ins[1], '<tool_result id="' + r1.tool_calls[0].id + '">\nalpha\n</tool_result>', 'turn 2 sends ONLY the new tool result');
+    A.eq(spawns[0].inputs[0].message.content, [{ type: 'text', text: '<user>\nRead a.txt and b.txt.\n</user>' }], 'turn 1 sends the opening request as one tagged block (the PROMPT CACHE blocks)');
+    A.eq(spawns[0].inputs[1].message.content, [{ type: 'text', text: '<tool_result id="' + r1.tool_calls[0].id + '">\nalpha\n</tool_result>' }], 'turn 2 sends ONLY the new tool result, one block');
     A.ok(!ins[2].includes('Read a.txt') && !ins[2].includes('alpha') && ins[2].includes('beta'), 'turn 3 sends only what turn 2 added');
     A.eq(p.persistStats().reused, 2, 'stats: two turns reused the child');
     A.ok(!spawns[0].killed && spawns[0].child.exitCode == null, 'the child is parked between turns, not killed');
@@ -140,8 +140,9 @@ const tick = ms => new Promise(r => setTimeout(r, ms || 0));
     A.eq(spawns.length, 2, 'an edited earlier message starts a fresh child');
     A.ok(spawns[0].treeKilled, 'the stale child is killed (tree)');
     const fresh = textIn(spawns[1].inputs[0]);
-    A.ok(fresh.startsWith('<conversation>') && fresh.includes('Read a.txt and b.txt.') && fresh.includes('cleared to save context') && !fresh.includes('alpha') &&
-      fresh.includes('beta') && fresh.includes('<invoke name="fs_read">'), 'the fresh child gets the whole (edited) history as one transcript, exactly like a one-shot turn');
+    A.ok(fresh.startsWith('<user>\nRead a.txt and b.txt.') && fresh.includes('cleared to save context') && !fresh.includes('alpha') &&
+      fresh.includes('beta') && fresh.includes('<invoke name="fs_read">'), 'the fresh child gets the whole (edited) history');
+    A.eq(spawns[1].inputs[0].message.content, _internals.buildPrompt(msgs, TOOLS).blocks, '... in exactly the blocks a one-shot turn sends (one per entry)');
     A.eq(p.persistStats().fresh.history, 1, 'stats name the reason: history');
     // a fold that adds a leading summary note changes the system prompt the child was started with
     await collect(p, req([SYS, { role: 'system', content: '<conversation_summary>asked for two files</conversation_summary>' }, { role: 'user', content: 'and now?' }]));
@@ -193,7 +194,7 @@ const tick = ms => new Promise(r => setTimeout(r, ms || 0));
     A.eq(spawns[1].args.filter(a => !/starnet-claude-cli-/.test(a)), spawns[0].args.filter(a => !/starnet-claude-cli-/.test(a)), 'with the same flags (its own system prompt file)');
     const r1 = reply(t1); msgs.push(r1, ...results(r1, 'real contents'));
     await collect(p, req(msgs));
-    A.ok(spawns.length === 2 && textIn(spawns[1].inputs[0]).startsWith('<conversation>'), 'the next turn starts on the warm child, from StarNet\'s whole history');
+    A.ok(spawns.length === 2 && textIn(spawns[1].inputs[0]).startsWith('<user>\nRead a.txt.') && textIn(spawns[1].inputs[0]).includes('real contents'), 'the next turn starts on the warm child, from StarNet\'s whole history');
     A.eq(p.persistStats().fresh.warm, 1, 'stats: the warm child was used');
     p.release('run-3');
     A.ok(spawns[1].treeKilled, 'run end kills it like any child');
@@ -314,8 +315,8 @@ const tick = ms => new Promise(r => setTimeout(r, ms || 0));
     msgs.push(r1, ...results(r1, 'alpha'));
     await collect(p, { model: 'sonnet', tools: TOOLS, messages: msgs.slice(), runId: 'run-9', signal: ac.signal });
     A.eq(spawns.length, 2, 'kill switch off: a fresh child per turn');
-    A.ok(spawns.every(s => s.args.indexOf('--input-format') < 0 && s.inputs.length === 0 && s.ended), 'each one reads plain text stdin, then ends');
-    A.ok(spawns[1].stdinText.startsWith('<conversation>') && spawns[1].stdinText.includes('Read a.txt.') && spawns[1].stdinText.includes('alpha'), 'and gets the whole history');
+    A.ok(spawns.every(s => s.args.join(' ').includes('--input-format stream-json') && s.inputs.length === 0 && s.ended), 'each one gets ONE stream-json message on stdin, then stdin ends');
+    A.eq(JSON.parse(spawns[1].stdinText).message.content, _internals.buildPrompt(msgs, TOOLS).blocks, 'and gets the whole history, one block per entry (the base PROMPT CACHE path)');
     A.eq(p.persistStats().enabled, false, 'stats say persistence is off');
   }
 
@@ -362,9 +363,9 @@ const tick = ms => new Promise(r => setTimeout(r, ms || 0));
     msgs.push(r1, ...results(r1, 'alpha'), { role: 'user', content: [{ type: 'text', text: '[BEGIN EXTERNAL SCREEN CAPTURE]' }, { type: 'image_url', image_url: { url: 'data:image/png;base64,iVBORw0KGgo=' } }] });
     await collect(p, { model: 'sonnet', tools: TOOLS, messages: msgs.slice(), runId: 'run-12', signal: ac.signal });
     const c = spawns[0].inputs[1].message.content;
-    A.ok(spawns.length === 1 && c[0].type === 'text' && c[0].text.includes('<tool_result') && c[0].text.includes('[image 1 — attached below]') && !c[0].text.includes('Read a.txt'),
-      'the delta text names where the picture sat');
-    A.eq(c.slice(1), [{ type: 'text', text: 'Image 1:' }, { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'iVBORw0KGgo=' } }], 'and the picture rides as an image block on the same child');
+    A.ok(spawns.length === 1 && c[0].type === 'text' && c[0].text.startsWith('<tool_result') && !c.some(b => b.text && b.text.includes('Read a.txt')), 'the delta starts with the new tool result');
+    A.eq(c[1], { type: 'text', text: '<user>\n[BEGIN EXTERNAL SCREEN CAPTURE]\n[image 1 — attached below]\n</user>' }, 'the capture is its own entry, naming where the picture sat');
+    A.eq(c.slice(2), [{ type: 'text', text: 'Image 1:' }, { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'iVBORw0KGgo=' } }], 'and the picture rides as an image block right after it, on the same child');
     p.release('run-12');
   }
 

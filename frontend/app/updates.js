@@ -70,6 +70,11 @@ const Updates = (() => {
   function snapshot() {
     return Object.assign({}, state, { prefs: Object.assign({}, prefs) });
   }
+  // The Commander pressed SKIP VERSION on exactly this release. Automatic paths (startup, open, 6 h, a webview reload's
+  // native pending update) leave it un-armed; only CHECK NOW shows it again. A critical release is never skippable.
+  function isSkipped(update) {
+    return !!(update && !update.critical && update.version && String(update.version) === prefs.ignoredVersion);
+  }
   function emit() {
     paintBadge();
     try { rerender('updates'); } catch (_) {}
@@ -108,7 +113,10 @@ const Updates = (() => {
       state.desktop = !!r.desktop;
       state.currentVersion = r.currentVersion || '';
       state.target = r.target || '';
-      if (r.pending) {
+      if (r.pending && isSkipped(r.pending)) {
+        state.update = null;
+        state.phase = 'skipped';
+      } else if (r.pending) {
         state.update = r.pending;
         state.phase = 'available';
       } else if (state.phase === 'idle') {
@@ -166,7 +174,11 @@ const Updates = (() => {
       const r = await invoke('starnet_update_check');
       prefs = CORE.recordCheckResult(prefs, r, Date.now());
       state.lastCheckedAt = r.checkedAt || Date.now();
-      if (r.available && r.update) {
+      if (r.available && r.update && !manual && isSkipped(r.update)) {
+        // Found the release the Commander skipped: stay skipped (no card, no NEW chip, no toast).
+        state.update = null;
+        state.phase = 'skipped';
+      } else if (r.available && r.update) {
         state.update = r.update;
         state.phase = 'available';
         if (CORE.shouldNotify(prefs, r.update.version, Date.now(), !!r.update.critical)) {
@@ -378,6 +390,9 @@ const Updates = (() => {
   }
   function remindLater() {
     if (!state.update) return;
+    // REMIND TOMORROW on the version the Commander skipped (CHECK NOW brought it back) is the newer choice: cancel the
+    // skip, or the automatic check a day later would find it still skipped and the promised reminder never arrives.
+    if (prefs.ignoredVersion && prefs.ignoredVersion === String(state.update.version)) prefs = CORE.ignoreVersion(prefs, '');
     prefs = CORE.remindLater(prefs, state.update.version, Date.now());
     savePrefs();
     notify('Update reminder moved to tomorrow', '');
@@ -389,7 +404,7 @@ const Updates = (() => {
     prefs = CORE.ignoreVersion(prefs, state.update.version);
     savePrefs();
     state.update = null;
-    state.phase = 'idle';
+    state.phase = 'skipped';
     notify('StarNet v' + prefs.ignoredVersion + ' will be skipped', 'warn');
     schedule();
     emit();
@@ -404,6 +419,7 @@ const Updates = (() => {
     if (state.phase === 'installing') return 'preparing installer';
     if (state.phase === 'restarting') return 'restarting';
     if (state.phase === 'current') return 'up to date';
+    if (state.phase === 'skipped') return 'update skipped';
     if (state.phase === 'error') return 'check failed';
     return 'not checked yet';
   }
@@ -435,7 +451,7 @@ const Updates = (() => {
     // The window is the "check it now" place: opening it checks unless this launch already checked recently.
     // Deferred out of this render's stack; check() stamps sessionCheckAt and busy first, so its rerenders never re-enter. AUTO-CHECK off means
     // no request the Commander didn't click (PRIVACY.md §6) — CHECK NOW stays the manual path.
-    if (TAURI && CORE && !busy && !installing && prefs.autoCheck !== false && (state.phase === 'idle' || state.phase === 'current' || state.phase === 'error') &&
+    if (TAURI && CORE && !busy && !installing && prefs.autoCheck !== false && (state.phase === 'idle' || state.phase === 'current' || state.phase === 'skipped' || state.phase === 'error') &&
         CORE.shouldCheckOnOpen(sessionCheckAt, Date.now())) {
       Promise.resolve().then(() => check(false, 'open'));
     }
@@ -476,6 +492,9 @@ const Updates = (() => {
       }
     } else if (state.phase === 'current') {
       out += '<div class="up-empty">You have the latest StarNet (checked ' + esc(fmtTime(state.lastCheckedAt)) + ').</div>';
+    } else if (state.phase === 'skipped') {
+      // Never "latest": a newer release exists, the Commander chose to skip it.
+      out += '<div class="up-empty">v' + esc(prefs.ignoredVersion) + ' is skipped. Press CHECK NOW to see it again.</div>';
     } else if (state.phase === 'checking') {
       out += '<div class="up-empty">Checking for a newer StarNet...</div>';
     } else if (state.phase === 'idle') {

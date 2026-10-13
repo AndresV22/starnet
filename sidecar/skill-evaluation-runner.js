@@ -108,8 +108,11 @@ function makeAgentLoopCaseRunner(options) {
         const charge = reconcile(lastUsage);
         // The same reconciler used by the loop supplies totals. Unknown pricing or
         // partial streams cannot authorize another attempt using guessed headroom.
-        attempt.accounted = !!(attempt.complete && attempt.usageObserved && priced(charge));
-        if (attempt.accounted) streamSpent += charge.usd;
+        // An unmetered provider (Ollama, a Codex/Grok/Kimi sign-in) bills nothing per call:
+        // every attempt there is known $0, complete or not, as runOnce books it.
+        const unmetered = o.unmetered === true;
+        attempt.accounted = unmetered || !!(attempt.complete && attempt.usageObserved && priced(charge));
+        if (attempt.accounted) streamSpent += unmetered ? 0 : charge.usd;
         else streamUncertain = true;
         if (typeof o.onStream === 'function') await o.onStream({ runId, spentUsd: streamSpent, accountingIncomplete: streamUncertain });
       }

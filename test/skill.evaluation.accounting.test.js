@@ -4,6 +4,9 @@ const { makeAgentLoopCaseRunner } = require('../sidecar/skill-evaluation-runner.
 const { makeCostEngine } = require('../sidecar/cost.js');
 const { makeLedger } = require('../sidecar/ledger.js');
 const { makeBudget } = require('../sidecar/budget.js');
+const { makeEvaluationAccounting } = require('../sidecar/skill-evaluation-accounting.js');
+const fs = require('node:fs');
+const path = require('node:path');
 const usage = { type: 'usage', usage: { prompt_tokens: 12, completion_tokens: 4, cost: 0.01 } };
 const text = { type: 'text', delta: '{"answer":42}' };
 const done = { type: 'done', finishReason: 'stop' };
@@ -17,7 +20,73 @@ async function execute(stream, signal, options = {}) {
   const observation = await runner({ task, skill: null, phase: 'after', signal });
   return { result, count, observation };
 }
+// A two-turn tool loop (read, then answer) on a model nothing can price, wired through the host's real
+// evaluation accounting and ledger, as index.js wires it.
+async function evaluateUnpriced(unmetered, script, signal) {
+  const pending = new Map(), rows = [], marked = [], receipts = [];
+  const io = { readAll: () => rows.slice(), unsettled: () => [...pending.values()], beginRun: r => { receipts.push(r.runId); pending.set(r.runId, r); }, finishRun: e => pending.delete(e.runId), append: e => rows.push(e) };
+  const ledger = makeLedger({ io, clock: { now: () => 1 } });
+  const accounting = makeEvaluationAccounting({ ledger: Object.assign({}, ledger, { markUnsettled: runId => { marked.push(runId); return ledger.markUnsettled(runId); } }),
+    agentId: 'owner', provider: unmetered ? 'ollama' : 'custom', model: 'local/unpriced', unmetered });
+  let count = 0, result, error = null, observation;
+  const provider = { async *stream() { count++; yield* script(count); }, contextLimit: () => 8000 };
+  const runner = makeAgentLoopCaseRunner({ provider, model: 'local/unpriced', runIdPrefix: 'unpriced-' + (unmetered ? 'free' : 'metered'), clock: { now: () => 1 },
+    cost: makeCostEngine({ priceOf: () => null }), unmetered, limits: { maxIters: 3, grace: false, continueGuard: false, emptyRetry: false },
+    beforeRun: accounting.beforeRun, onStream: accounting.onStream, onRun: async row => { result = row.result; return accounting.onRun(row); } });
+  const unpricedTask = { id: 'unpriced', prompt: 'Read input.json, then return only JSON {"answer":42}.', fixtures: { 'input.json': '{"answer":42}' } };
+  try { observation = await runner({ task: unpricedTask, skill: null, phase: 'after', signal }); } catch (e) { error = e; }
+  const strict = makeBudget({ ledger, caps: { day: 1 }, clock: { now: () => 1 } });
+  return { count, result, error, observation, marked, rows, receipts, ledger, admission: strict.check(null, 'owner', 0) };
+}
+async function* readThenAnswer(attempt) {
+  const freeUsage = { type: 'usage', usage: { prompt_tokens: 12, completion_tokens: 4 } };   // Ollama: tokens, no price
+  if (attempt === 1) {
+    yield { type: 'tool_start', index: 0, id: 'read', name: 'fs_read' };
+    yield { type: 'tool_args', index: 0, chunk: '{"path":"input.json"}' };
+    yield freeUsage; yield { type: 'done', finishReason: 'tool_calls' };
+  } else { yield text; yield freeUsage; yield done; }
+}
 async function main() {
+  // UNMETERED (Ollama, OAuth subscriptions): a complete attempt nothing could price is known $0, as runOnce books it.
+  const free = await evaluateUnpriced(true, readThenAnswer);
+  assert.equal(free.error, null, 'an unmetered evaluation run settles: ' + (free.error && free.error.message));
+  assert.equal(free.count, 2, 'the tool loop second turn on an unmetered provider is not refused');
+  assert.equal(free.result.reason, 'done');
+  assert.equal(free.result.accountingIncomplete, false);
+  assert.deepEqual(free.observation.value, { answer: 42 });
+  assert.deepEqual(free.marked, [], 'a free local call never leaves an unsettled spend receipt');
+  assert.equal(free.rows.length, 1); assert.equal(free.rows[0].unmetered, true); assert.equal(free.rows[0].usd, 0);
+  assert.equal(free.ledger.health().complete, true);
+  assert.equal(free.admission, null, 'paid dispatch under a strict cap is not blocked by a free evaluation');
+  assert.deepEqual(free.receipts, [], 'an unmetered run leaves no dispatch receipt, as runOnce skips it');
+  // An unfinished attempt on an unmetered provider is still known $0: nothing is billed per call there.
+  const freeBroken = await evaluateUnpriced(true, async function* () { yield text; throw new Error('connection reset after partial output'); });
+  assert.equal(freeBroken.error, null, 'a failed free call is not unknown spend: ' + (freeBroken.error && freeBroken.error.message));
+  assert.notEqual(freeBroken.observation.reason, 'done');
+  assert.deepEqual(freeBroken.marked, []); assert.equal(freeBroken.ledger.unsettledRuns().length, 0);
+  assert.deepEqual(freeBroken.receipts, []);
+  assert.equal(freeBroken.rows.length, 1); assert.equal(freeBroken.rows[0].unmetered, true); assert.equal(freeBroken.rows[0].usd, 0);
+  assert.equal(freeBroken.admission, null, 'a failed free evaluation never blocks paid runs under a strict cap');
+  // A cold local model aborted mid-stream (the 120 s evaluation timer, or the dialog closed) is still $0.
+  const stop = new AbortController();
+  const freeAborted = await evaluateUnpriced(true, async function* () { yield text; stop.abort(); yield { type: 'usage', usage: { prompt_tokens: 12, completion_tokens: 4 } }; yield done; }, stop.signal);
+  assert.equal(freeAborted.error, null, 'an aborted free evaluation settles: ' + (freeAborted.error && freeAborted.error.message));
+  assert.equal(freeAborted.observation.reason, 'cancelled');
+  assert.deepEqual(freeAborted.marked, []); assert.equal(freeAborted.ledger.unsettledRuns().length, 0);
+  assert.equal(freeAborted.ledger.health().readError, null);
+  assert.equal(freeAborted.rows.length, 1); assert.equal(freeAborted.rows[0].unmetered, true); assert.equal(freeAborted.rows[0].usd, 0);
+  assert.equal(freeAborted.admission, null, 'an aborted free evaluation never blocks paid runs under a strict cap');
+  // METERED but unpriced usage stays unknown: no second paid attempt, receipt left for the Commander to settle.
+  const meteredUnpriced = await evaluateUnpriced(false, readThenAnswer);
+  assert.equal(meteredUnpriced.count, 1, 'unknown metered spend refuses the next paid attempt');
+  assert.match(String(meteredUnpriced.error && meteredUnpriced.error.message), /incomplete/);
+  assert.ok(meteredUnpriced.marked.length > 0); assert.equal(meteredUnpriced.ledger.unsettledRuns().length, 1);
+  assert.equal(meteredUnpriced.rows.length, 0);
+  assert.equal(meteredUnpriced.admission.code, 'spend_history_unavailable');
+  // The host must pass the provider's unmetered flag to the runner too, or the second free turn is refused again.
+  const host = fs.readFileSync(path.join(__dirname, '..', 'sidecar', 'index.js'), 'utf8');
+  const wiring = host.slice(host.indexOf('async function handleSkillCandidateAction'));
+  assert.match(wiring.slice(0, wiring.indexOf('/* -------')), /makeAgentLoopCaseRunner\(\{[^}]*\bunmetered\b/, 'the evaluation runner receives unmetered');
   const good = await execute(async function* () { yield text; yield usage; yield done; });
   assert.equal(good.result.reason, 'done');
   assert.equal(good.result.accountingIncomplete, false);
@@ -70,6 +139,6 @@ async function main() {
   assert.equal(capped.result.accountingIncomplete, false, 'known charge is still safe to settle');
   assert.equal(capped.result.usd, 0.01);
   assert.equal(observed[0].spentUsd, 0.01);
-  console.log('skill.evaluation.accounting: real loop usage, empty usage, partial throw, cancellation, retry uncertainty and billed length stop PASS');
+  console.log('skill.evaluation.accounting: unmetered $0, metered unpriced, real loop usage, empty usage, partial throw, cancellation, retry uncertainty and billed length stop PASS');
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });

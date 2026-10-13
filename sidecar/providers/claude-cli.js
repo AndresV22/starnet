@@ -73,8 +73,8 @@
   ];
 
   /* IMAGES (2026-10-08). The CLI's stream-json INPUT takes Anthropic content blocks, images included (proven live:
-     Opus read a thumbnail's headline through `claude -p --input-format stream-json`). Plain text input has no image
-     channel, so a turn that carries an image rides stream-json and every other turn keeps the plain text stdin.
+     Opus read a thumbnail's headline through `claude -p --input-format stream-json`). Every turn rides stream-json
+     since 2026-10-12 (see PROMPT CACHE at splitPrompt); an image follows the transcript entry it came in.
      An image the API cannot take (an unsupported type, an unreadable reference, past the per-turn cap) keeps a note
      in its place: the model is told a picture was there, never handed a description of one it did not get. */
   const IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
@@ -179,14 +179,37 @@
   const inertTags = s => String(s).replace(TRANSCRIPT_TAG_RE, '&lt;$1$2');
   // Claude Code (v2.1.275+) splits a system prompt at this line into two blocks, each with its own cache breakpoint.
   const DYNAMIC_BOUNDARY = '__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__';
+  // How to read stdin. It sits in the (cached) system prompt: a per-turn line after the newest entry would break the
+  // prompt cache (see PROMPT CACHE).
+  const TRANSCRIPT_NOTE = '# Conversation\nThe user message holds the conversation so far, oldest first, as <user>, <assistant>, <tool_result> and <system_note> blocks. Continue as the assistant: write only your next reply.';
+  // The same for a persistent child (PERSISTENT CHILD): its first user message holds the conversation so far, and each
+  // later one only what StarNet added after the child's own reply.
+  const PERSIST_TRANSCRIPT_NOTE = '# Conversation\nThe first user message holds the conversation so far, oldest first, as <user>, <assistant>, <tool_result> and <system_note> blocks. Each later user message holds, in the same blocks, what happened after your previous reply. Continue as the assistant: write only your next reply.';
 
-  /* Leading system messages become the CLI system prompt; everything after is rendered as a tagged transcript
-     on stdin (later system messages stay in place as notes, like the native Anthropic adapter keeps them). */
-  function splitPrompt(messages, tools, cachePrefix) {
-    messages = provider.repairToolPairs(Array.isArray(messages) ? messages : []);
+  /* Leading system messages become the CLI system prompt; everything after goes on stdin as ONE stream-json user
+     message with ONE text block per transcript entry (later system messages stay in place as notes, like the native
+     Anthropic adapter keeps them).
+     PROMPT CACHE (2026-10-12, proven live against the real CLI). The CLI puts its cache breakpoint on the LAST block of
+     that message, and the API only finds an earlier cache entry at a BLOCK boundary. The transcript used to be one
+     text block ending in a per-turn "Continue as the assistant" line, so the next turn (the same text plus the new
+     exchange) never matched it: every tool turn re-WROTE the whole conversation to the cache at 1.25x and read 0 back
+     (Haiku probe: turn 2 wrote 16,632, read 0; a real 31-turn Opus run billed 3.2M tokens that way). With one block per
+     entry and nothing after the newest one, turn N's prompt is a block-for-block prefix of turn N+1's (the same probe:
+     read 16,550, wrote 21). So: no per-turn suffix block (TRANSCRIPT_NOTE carries the instruction), consecutive tool
+     results share one block (the API looks back only ~20 blocks for an earlier entry), and an image's number is its
+     place in the whole conversation, so a new image never renumbers an old one.
+     A persistent child (PERSISTENT CHILD) gets the same blocks: the whole transcript when it starts, then only the
+     entries that are new since its reply, as its next user message. */
+  function splitPrompt(messages, tools, cachePrefix, transcriptNote) {
+    // host-fence tags (<run_context>, <recalled-memory>, <conversation_summary>) in user/tool text and inside a note's
+    // body are written inert (provider.js INERT HOST FENCES): this transcript is ONE text, so a forged close would read as host text
+    messages = provider.repairToolPairs(provider.inertHostFences(Array.isArray(messages) ? messages : []));
     const system = [];
     let i = 0;
-    for (; i < messages.length && messages[i] && messages[i].role === 'system'; i++) {
+    // The per-run <run_context> note ENDS the leading block (as in provider.preserveClaudeContinuations): on a first
+    // message nothing but the system prompt precedes it, and swallowing it (and the recall after it) put the run id in
+    // the CLI system prompt, so message 1's system differed from message 2's and the next message re-wrote its cache.
+    for (; i < messages.length && messages[i] && messages[i].role === 'system' && !provider.isRunContextNote(messages[i]); i++) {
       const t = textOf(messages[i].content).trim();
       if (t) system.push(t);
     }
@@ -195,56 +218,72 @@
     const prefix = typeof cachePrefix === 'string' ? cachePrefix.trim() : '';
     const joined = system.join('\n\n');
     const note = prefix && joined.startsWith(prefix) ? joined.slice(prefix.length).trim() : '';
-    const compose = tp => (note ? [prefix].concat(tp ? [tp] : [], [DYNAMIC_BOUNDARY + '\n' + note]) : system.concat(tp ? [tp] : [])).join('\n\n');
+    const tn = transcriptNote || TRANSCRIPT_NOTE;
+    const compose = tp => (note ? [prefix].concat(tp ? [tp] : [], [tn, DYNAMIC_BOUNDARY + '\n' + note]) : system.concat(tp ? [tp] : [], [tn])).join('\n\n');
     // base: the same prompt with the tool list left out — what a persistent child must still match after a tool reveal
     return { system: compose(toolsPrompt(tools)), base: compose(TOOLS_SLOT), rest: messages.slice(i).filter(m => m && typeof m === 'object') };
   }
   const TOOLS_SLOT = '\u0000tools\u0000';
-  // One transcript entry as the model reads it (null: a role the transcript does not carry).
-  function messageLine(m, images) {
-    if (m.role === 'user') return '<user>\n' + textOf(m.content, images) + '\n</user>';
-    if (m.role === 'system') return '<system_note>\n' + textOf(m.content, images) + '\n</system_note>';
-    if (m.role === 'tool') return '<tool_result id="' + String(m.tool_call_id || '') + '">\n' + inertTags(textOf(m.content)) + '\n</tool_result>';
-    if (m.role === 'assistant') {
-      let body = textOf(m.content);
-      const calls = [];
-      for (const tc of (Array.isArray(m.tool_calls) ? m.tool_calls : [])) {
-        const fn = (tc && tc.function) || {};
-        let args = fn.arguments;
-        if (typeof args === 'string') { try { args = JSON.parse(args || '{}'); } catch (_) { args = String(args); } }
-        calls.push(invokeText(fn.name, args == null ? {} : args));
-      }
-      if (calls.length) body += (body ? '\n' : '') + '<function_calls>\n' + calls.join('\n') + '\n</function_calls>';
-      return '<assistant>\n' + body + '\n</assistant>';
+  /* The transcript entries, ONE text block each: { text, tool?, at } (at = the index in `rest` of the message that opened
+     the entry; consecutive tool results share one entry).
+     SINGLE USER TURN: only host notes (the run-context note, recall) and one user message — a first message. The notes
+     join that user entry as its leading text, the way a chat wire carries them (provider.userSideHostNotes): one block,
+     no <system_note> ahead of the conversation's first turn. Later messages keep the notes as their own entries.
+     The <crew_call> note (provider.js CREW CALL NOTE) sits right AFTER that user message: it closes the same entry. */
+  function transcriptEntries(rest, images) {
+    let lead = 0;
+    while (lead < rest.length && provider.isHostNote(rest[lead]) && !provider.isCrewCallNote(rest[lead])) lead++;
+    let trail = rest.length;
+    while (trail > lead + 1 && provider.isCrewCallNote(rest[trail - 1])) trail--;
+    let leadNotes = '', trailNotes = '', from = 0, to = rest.length;
+    if ((lead || trail < rest.length) && trail === lead + 1 && rest[lead] && rest[lead].role === 'user') {
+      trailNotes = rest.slice(trail).map(m => textOf(m.content).trim()).filter(Boolean).join('\n\n');
+      leadNotes = rest.slice(0, lead).map(m => textOf(m.content).trim()).filter(Boolean).join('\n\n');
+      from = lead; to = trail;
     }
-    return null;
+    const entries = [];
+    for (let at = from; at < to; at++) {
+      const m = rest[at];
+      if (m.role === 'user') entries.push({ text: '<user>\n' + (leadNotes ? leadNotes + '\n\n' : '') + textOf(m.content, images) + (trailNotes ? '\n\n' + trailNotes : '') + '\n</user>', at });
+      else if (m.role === 'system') entries.push({ text: '<system_note>\n' + textOf(m.content, images) + '\n</system_note>', at });
+      else if (m.role === 'tool') {
+        const t = '<tool_result id="' + String(m.tool_call_id || '') + '">\n' + inertTags(textOf(m.content)) + '\n</tool_result>';
+        const last = entries[entries.length - 1];
+        if (last && last.tool) last.text += '\n' + t; else entries.push({ text: t, tool: true, at });
+      }
+      else if (m.role === 'assistant') {
+        let body = textOf(m.content);
+        const calls = [];
+        for (const tc of (Array.isArray(m.tool_calls) ? m.tool_calls : [])) {
+          const fn = (tc && tc.function) || {};
+          let args = fn.arguments;
+          if (typeof args === 'string') { try { args = JSON.parse(args || '{}'); } catch (_) { args = String(args); } }
+          calls.push(invokeText(fn.name, args == null ? {} : args));
+        }
+        if (calls.length) body += (body ? '\n' : '') + '<function_calls>\n' + calls.join('\n') + '\n</function_calls>';
+        entries.push({ text: '<assistant>\n' + body + '\n</assistant>', at });
+      }
+    }
+    return entries;
   }
-  // The whole conversation as ONE user turn: a lone user message verbatim, anything longer as a tagged transcript.
+  // The whole conversation as ONE stream-json user message: what a one-shot child, or a persistent child that has just
+  // started, is given.
   function renderTranscript(system, rest) {
     const images = [];
-    if (rest.length === 1 && rest[0].role === 'user') return withImages({ system, input: textOf(rest[0].content, images) }, images);
-    const lines = ['<conversation>'];
-    for (const m of rest) { const l = messageLine(m, images); if (l != null) lines.push(l); }
-    lines.push('</conversation>');
-    lines.push('Continue as the assistant: write only your next reply.');
-    return withImages({ system, input: lines.join('\n') }, images);
+    return withBlocks(system, transcriptEntries(rest, images), images);
   }
   function buildPrompt(messages, tools, cachePrefix) {
     const sp = splitPrompt(messages, tools, cachePrefix);
     return renderTranscript(sp.system, sp.rest);
   }
-  // What a live persistent child has not seen yet, as ONE user turn in the transcript's own tags (a lone user message
-  // verbatim, like the first turn).
-  function renderDelta(delta) {
+  /* What a live persistent child has not seen yet: the entries of every message after its own reply (rest[n]), as ONE
+     user message in the same blocks; `notes` (a tool reveal) close it as <system_note> entries. Images keep their
+     number in the whole conversation. null = nothing to send. */
+  function renderDelta(rest, n, notes) {
     const images = [];
-    let input;
-    if (delta.length === 1 && delta[0].role === 'user') input = textOf(delta[0].content, images);
-    else {
-      const lines = [];
-      for (const m of delta) { const l = messageLine(m, images); if (l != null) lines.push(l); }
-      input = lines.join('\n');
-    }
-    return withImages({ system: '', input }, images);
+    const entries = transcriptEntries(rest, images).filter(e => e.at > n);
+    for (const t of notes || []) entries.push({ text: '<system_note>\n' + t + '\n</system_note>', at: rest.length });
+    return entries.length ? withBlocks('', entries, images) : null;
   }
   // One transcript message, by value: a persistent child is reused only while every message it holds is unchanged.
   function fingerprint(m) {
@@ -266,8 +305,8 @@
   }
   /* Every live persistent child, so an exiting sidecar never leaves one behind (each also ends by itself when its stdin
      closes). The CLI keeps helper processes of its own (a cmd.exe + conhost.exe were seen under one), so on Windows the
-     tree goes with a SYNCHRONOUS taskkill /T (an exit handler cannot wait on anything async); only a real ChildProcess
-     is ever killed by pid. */
+     tree goes with a SYNCHRONOUS taskkill /T (an exit handler cannot wait on anything async) of the child's OWN pid;
+     only a real ChildProcess is ever killed by pid. */
   const LIVE = new Set();
   let exitHooked = false;
   function hookExit() {
@@ -286,22 +325,26 @@
     });
   }
 
-  /* Resolve the image marks. No image: the plain text stdin, byte-identical to before. Images: the newest MAX_IMAGES
-     become numbered blocks after the text ("[image 1 — attached below]" in place), older ones a note; `input` is
-     then one stream-json user message and `streamJson` asks for --input-format stream-json. */
-  function withImages(prompt, images) {
-    if (!images.length) return prompt;
+  /* The stdin message: each entry's text block, its images right after it. The newest MAX_IMAGES images become
+     numbered blocks ("[image 3 — attached below]" in place), older ones a note. `input` is one stream-json user
+     message; `blocks` is its content. */
+  function withBlocks(system, entries, images) {
     const first = Math.max(0, images.length - MAX_IMAGES);
     const blocks = [];
-    const text = prompt.input.replace(/\u0000starnet-image-(\d+)\u0000/g, (_, k) => {
-      const idx = Number(k);
-      if (idx < first) return '[earlier image no longer attached]';
-      const n = idx - first + 1;
-      blocks.push({ type: 'text', text: 'Image ' + n + ':' }, images[idx]);
-      return '[image ' + n + ' — attached below]';
-    });
-    const content = [{ type: 'text', text }].concat(blocks);
-    return { system: prompt.system, input: JSON.stringify({ type: 'user', message: { role: 'user', content } }) + '\n', streamJson: true, imageCount: blocks.length / 2 };
+    let imageCount = 0;
+    for (const e of entries) {
+      const after = [];
+      const text = e.text.replace(/\u0000starnet-image-(\d+)\u0000/g, (_, k) => {
+        const idx = Number(k);
+        if (idx < first) return '[earlier image no longer attached]';
+        after.push({ type: 'text', text: 'Image ' + (idx + 1) + ':' }, images[idx]);
+        return '[image ' + (idx + 1) + ' — attached below]';
+      });
+      blocks.push({ type: 'text', text }, ...after);
+      imageCount += after.length / 2;
+    }
+    if (!blocks.length) blocks.push({ type: 'text', text: '<user>\n(no messages yet)\n</user>' });
+    return { system, input: JSON.stringify({ type: 'user', message: { role: 'user', content: blocks } }) + '\n', blocks, imageCount };
   }
 
   /* STREAMING CALL READER. Prose passes through as soon as it cannot be the start of a call; a call is announced
@@ -711,9 +754,9 @@
     }
 
     const effortOf = req => { const e = String(req.reasoningEffort || '').trim().toLowerCase(); return EFFORTS.indexOf(e) >= 0 ? e : ''; };
-    function cliArgs(cmd, req, streamJsonIn, sysFile) {
-      const args = cmd.pre.concat(['-p', '--output-format', 'stream-json', '--verbose', '--include-partial-messages'], NO_TOOLS_ARGS);
-      if (streamJsonIn) args.push('--input-format', 'stream-json');
+    function cliArgs(cmd, req, sysFile) {
+      // stdin is always stream-json user messages: one block per transcript entry keeps the prompt cache hitting
+      const args = cmd.pre.concat(['-p', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--input-format', 'stream-json'], NO_TOOLS_ARGS);
       if (req.model) args.push('--model', String(req.model));
       const effort = effortOf(req);
       if (effort) args.push('--effort', effort);
@@ -796,7 +839,10 @@
             prompt_tokens_details: { cached_tokens: cacheRead, cache_creation_tokens: cacheWrite },
             reasoning_tokens: 0,
             // subscription login: nothing is billed per call. API key: the CLI's own billed figure.
-            cost: subscription ? 0 : (isFinite(reported) ? reported : undefined)
+            cost: subscription ? 0 : (isFinite(reported) ? reported : undefined),
+            // a $0 turn that still drew on the sign-in's usage window: the loop's per-run subscription-token
+            // ceiling counts it (loop.js maxSubscriptionTokens), since no $ cap ever sees a $0 turn
+            subscription: subscription || undefined
           }
         };
       };
@@ -859,7 +905,8 @@
       if (!cmd) throw notInstalled();
       // The persistent child serves the agent loop (a turn that carries tools). A side call (summary, vision, wire test)
       // or a second request while the child is mid-turn runs its own one-shot child and never touches it.
-      if (persistOn && Array.isArray(req.tools) && req.tools.length && !(session && session.busy)) yield* persistentStream(req, cmd);
+      const persistent = persistOn && Array.isArray(req.tools) && req.tools.length > 0 && !(session && session.busy);
+      if (persistent) yield* persistentStream(req, cmd);
       else yield* oneShotStream(req, cmd);
     }
 
@@ -869,7 +916,7 @@
       const prompt = buildPrompt(req.messages, req.tools, req.cacheSystemPrefix);
       const turn = ++seq;
       const sysFile = path.join(os.tmpdir(), 'starnet-claude-cli-' + process.pid + '-' + turn + '-' + require('crypto').randomBytes(6).toString('hex') + '.txt');
-      const args = cliArgs(cmd, req, prompt.streamJson, '');   // stream-json input only when the turn carries images (see IMAGES)
+      const args = cliArgs(cmd, req, '');
       if (prompt.system) { fs.writeFileSync(sysFile, prompt.system, { encoding: 'utf8', mode: 0o600 }); args.push('--system-prompt-file', sysFile); }
 
       // Child output is bridged into this generator through a small queue so events are yielded as they arrive.
@@ -945,12 +992,12 @@
       }
     }
 
-    /* PERSISTENT CHILD (2026-10-12). One-shot children paid the CLI's start-up and session setup on every model turn
-       (8.8-12.2 s a turn against Claude Code's 3.9-6.2 s on the same Opus model, gauntlet n=1), and the whole history
-       rode in as ONE growing text block that never matched the previous turn's prompt cache, so every step re-wrote the
-       transcript at the cache-write rate. Now an agent-loop turn (one that carries tools) keeps ONE child per run:
-       `--input-format stream-json` with the same isolation flags; it holds the conversation itself and each later turn
-       sends only what StarNet added since (the tool results, notes, steering) as one user message.
+    /* PERSISTENT CHILD (2026-10-12). One-shot children pay the CLI's start-up and session setup on every model turn
+       (8.8-12.2 s a turn against Claude Code's 3.9-6.2 s on the same Opus model, gauntlet n=1). Now an agent-loop turn
+       (one that carries tools) keeps ONE child per run, with the same isolation flags and stream-json input: it starts
+       with StarNet's whole transcript (the PROMPT CACHE blocks, one per entry), holds the conversation itself, and each
+       later turn sends only the entries StarNet added since its reply (the tool results, notes, steering) as its next
+       user message, in the same blocks. Its system prompt reads PERSIST_TRANSCRIPT_NOTE instead of TRANSCRIPT_NOTE.
        PROVEN on the installed CLI (2.1.284, scratchpad cli-persist/exp-*.log): one child answers successive user lines
        (each turn ends at its own `result` line; result.usage is per turn, total_cost_usd is the RUNNING total); a model
        ends its reply on its own right after </function_calls> (end_turn ~30-70 ms after the last delta), and the child
@@ -988,7 +1035,7 @@
       fs.writeFileSync(sysFile, system, { encoding: 'utf8', mode: 0o600 });
       let child;
       try {
-        child = spawn(cmd.file, cliArgs(cmd, req, true, sysFile), { env: childEnv(), cwd: os.tmpdir(), windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
+        child = spawn(cmd.file, cliArgs(cmd, req, sysFile), { env: childEnv(), cwd: os.tmpdir(), windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
       } catch (e) {
         removeFile(sysFile);
         throw notInstalled();
@@ -1103,7 +1150,7 @@
         else if (s.tools.get(t.name) !== t.line) return { why: 'tools' };
       }
       if (s.tools.size + added.length !== want.length) return { why: 'tools' };   // a tool the child knows was withdrawn
-      return { delta, added };
+      return { delta, added, n };
     }
     function costOf(s, result) {   // this turn's share of the child's running total_cost_usd
       const total = Number(result && result.total_cost_usd);
@@ -1115,7 +1162,7 @@
 
     async function* persistentStream(req, cmd) {
       const signal = req.signal;
-      const sp = splitPrompt(req.messages, req.tools, req.cacheSystemPrefix);
+      const sp = splitPrompt(req.messages, req.tools, req.cacheSystemPrefix, PERSIST_TRANSCRIPT_NOTE);
       const key = sessionKey(req, sp.base);
       const runId = req.runId == null ? '' : String(req.runId);
       let s = session, prompt = null;
@@ -1126,9 +1173,9 @@
         } else { closeSession(s, 'warm_unused'); s = null; bump(stats.fresh, 'first'); plog('fresh child: warm one did not fit'); }
       } else if (s) {
         const plan = planDelta(s, key, runId, signal, sp.rest, req);
-        if (plan.delta) prompt = renderDelta(plan.added.length ? plan.delta.concat([{ role: 'system', content: toolsNote(plan.added) }]) : plan.delta);
-        if (prompt && plan.delta && plan.added.length) { stats.announced = (stats.announced || 0) + plan.added.length; plog('announce ' + plan.added.length + ' revealed tool(s): ' + plan.added.map(t => t.name).join(', ')); }
-        if (prompt && !String(prompt.input || '').trim()) prompt = null;   // nothing sendable: start fresh instead
+        // only the entries after the child's own reply; null = nothing sendable: start fresh instead
+        if (plan.delta) prompt = renderDelta(sp.rest, plan.n, plan.added.length ? [toolsNote(plan.added)] : []);
+        if (prompt && plan.added.length) { stats.announced = (stats.announced || 0) + plan.added.length; plog('announce ' + plan.added.length + ' revealed tool(s): ' + plan.added.map(t => t.name).join(', ')); }
         if (prompt) { stats.reused++; plog('reuse child ' + (s.child && s.child.pid) + ': +' + plan.delta.length + ' message(s)'); }
         else { const why = plan.why || 'empty'; bump(stats.fresh, why); plog('fresh child: ' + why); closeSession(s, why); s = null; }
       } else { bump(stats.fresh, 'first'); plog('fresh child: first'); }
@@ -1165,7 +1212,7 @@
       if (signal && typeof signal.addEventListener === 'function') signal.addEventListener('abort', onAbort, { once: true });
       armIdle();
       try {
-        s.child.stdin.write(prompt.streamJson ? prompt.input : JSON.stringify({ type: 'user', message: { role: 'user', content: [{ type: 'text', text: String(prompt.input) }] } }) + '\n');
+        s.child.stdin.write(prompt.input);   // one stream-json user message (renderTranscript / renderDelta)
       } catch (e) { failNote('claudecli.persist.stdin', e); }
       try {
         for (;;) {

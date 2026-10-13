@@ -132,9 +132,13 @@ async function driveShell(fixture, decision) {
       'Full Power projects and executes the general host shell without a placed workbench');
     const latestRequests = provider.requests.slice(-3);
     const projected = new Set(latestRequests.flatMap(req => (req.tools || []).map(t => t && t.function && t.function.name).filter(Boolean)));
-    for (const name of ['shell_exec', 'fs_read', 'web_search', 'image_generate', 'spotify_search', 'team_dispatch']) {
+    // ORCHESTRATION family: DAVID is the only roster agent, so he leads with ZERO crew — the lean-prompt diet (2026-10-12)
+    // keeps team_summon advertised and defers the rest of the crew kit (granted, named in the prompt, tool_search finds it).
+    for (const name of ['shell_exec', 'fs_read', 'web_search', 'image_generate', 'spotify_search', 'team_summon']) {
       A.ok(projected.has(name), 'Full Power projects available capability family tool ' + name);
     }
+    A.ok(latestRequests.some(req => /These exist and you CAN use them: [^\n]*team_dispatch/.test(String(((req.messages || [])[0] || {}).content || ''))),
+      'Full Power still GRANTS team_dispatch to a crewless lead (deferred: named in the prompt, revealed by tool_search)');
 
     await fixture.restart();
     const afterRestart = await driveShell(fixture);

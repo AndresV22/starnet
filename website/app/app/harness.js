@@ -992,6 +992,9 @@ const Harness = (() => {
     // additive: a 'budget' stop at the per-run TOKEN ceiling for a model with no known price (loop.js maxUnpricedTokens).
     // The $ cap never governed it, so COMMS must name the real limit instead of "raise your spend cap".
     let unpricedModel = null, unpricedCapTokens = 0;
+    // additive: a 'budget' stop at the per-run SUBSCRIPTION-token ceiling (loop.js maxSubscriptionTokens) — a Claude Code
+    // sign-in books $0 per turn, so this is the only ceiling it has; COMMS names it instead of a $ cap.
+    let subscriptionModel = null, subscriptionCapTokens = 0;
     let sawLeadEnd = false;
 
     try {
@@ -1074,6 +1077,8 @@ const Harness = (() => {
               budgetCapIsBalance = payload.budgetCapIsBalance === true;
               unpricedModel = payload.unpricedModel ? String(payload.unpricedModel) : null;
               unpricedCapTokens = Number(payload.unpricedCapTokens) || 0;
+              subscriptionModel = payload.subscriptionModel ? String(payload.subscriptionModel) : null;
+              subscriptionCapTokens = Number(payload.subscriptionCapTokens) || 0;
             }
             break;   // the lead's own end, not a forwarded worker's
         }
@@ -1091,8 +1096,8 @@ const Harness = (() => {
     if (!sawLeadEnd && !errMsg) throw new Error('Reply stream disconnected before completion was confirmed.');
     // surface the error to the caller (do NOT swallow it just because some text streamed first) —
     // a network/fetch failure still throws below; this is for in-band run errors / capdenied.
-    if (errMsg) return { text: full, usage: lastUsage, runId, error: errMsg, endReason, finishReason, completionVerdict, effectVerdict, budgetScope, budgetCapUsd, budgetCapIsBalance, unpricedModel, unpricedCapTokens };
-    return { text: full, usage: lastUsage, runId, endReason, finishReason, completionVerdict, effectVerdict, budgetScope, budgetCapUsd, budgetCapIsBalance, unpricedModel, unpricedCapTokens };
+    if (errMsg) return { text: full, usage: lastUsage, runId, error: errMsg, endReason, finishReason, completionVerdict, effectVerdict, budgetScope, budgetCapUsd, budgetCapIsBalance, unpricedModel, unpricedCapTokens, subscriptionModel, subscriptionCapTokens };
+    return { text: full, usage: lastUsage, runId, endReason, finishReason, completionVerdict, effectVerdict, budgetScope, budgetCapUsd, budgetCapIsBalance, unpricedModel, unpricedCapTokens, subscriptionModel, subscriptionCapTokens };
   }
 
   /* Read-only fetch of an agent's notebook (its memory.md) from the sidecar. The agent writes these notes

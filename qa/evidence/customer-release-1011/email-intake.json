@@ -137,7 +137,7 @@
     {
       "id": "E07",
       "kind": "security-report",
-      "title": "Cross-user local station isolation report",
+      "title": "Private security report",
       "recovery": "unconfirmed",
       "existing_fingerprints": [
         "1df2d6f8"
@@ -146,7 +146,7 @@
         "45fd059b7",
         "f7553cd3e"
       ],
-      "assessment": "Private customer report on Windows 11 / 0.13.1; source candidate contains boundary repair and exact-peer follow-up. Existing fingerprint is audit-origin and related. No foreign-user installer proof or customer retest. Detailed evidence remains private.",
+      "assessment": "Private security report; details are held outside the repository.",
       "thread_count": 1,
       "priority": "owner-triage-first",
       "mapping_relationship": "related only; exact incident record not established",

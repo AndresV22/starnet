@@ -105,6 +105,39 @@ const lineOfIntake = (s, id) => plan(s).lines.find(l => l.intakes.includes(id));
   A.ok(!off.ok && off.error === 'OFF_DECK' && off.short === 'PART OF IT IS OFF THE STATION FLOOR', 'off the station floor says so');
 }
 
+/* ---------- B2. review worldmodel-01: a paste whose belt runs right beside another line's belt is refused (never fused) ----------
+   The compiler joins belts that touch into ONE line (Pipeline.lineComponents): a copy laid one row under LINE A's belt became
+   LINE A — one line id, one LINE BUDGET, two INBOXes (the 10-09 P0 class). The floor's own reconcile kept every belt, so only
+   the line check applyLineLayout already makes catches it. */
+{
+  const s = fresh();
+  const IA = add(s, 'intake', 32, 10), BA = add(s, 'bay', 60, 10), OA = add(s, 'outbox', 70, 10);   // LINE A: its belt rides row 10
+  const IB = add(s, 'intake', 36, 30), BB = add(s, 'bay', 46, 30), OB = add(s, 'outbox', 56, 30);   // LINE B: its belt rides row 30
+  s.assignPropAgent(BA, 'nova'); s.assignPropAgent(BB, 'atlas');
+  for (const [a, b] of [[IA, BA], [BA, OA], [IB, BB], [BB, OB]]) A.ok(s.connectBelt(a, b).ok, 'two-line floor laid ' + a + '→' + b);
+  A.ok(linkOf(s, IA, BA).path.every(t => t.y === 10) && linkOf(s, IB, BB).path.every(t => t.y === 30), 'LINE A rides row 10, LINE B row 30');
+  const lineA = lineOfIntake(s, IA).lineId;
+  const c = s.copyLines(s.lineMembers(IB).ids).clip;
+  const before = frozen(s), floor0 = JSON.stringify(s.serialize());
+  // one row under LINE A's belt: every piece stands on clear floor, but the copy's belt touches A's the whole way along
+  const ay = c.y0 - 19;
+  A.ok(c.belts.some(b => s.belts().some(q => q.x === c.x0 + b.x && q.y === ay + b.y - 1)), 'the spot lays the copy\'s belt directly under LINE A\'s');
+  const pr = s.probePaste(c, c.x0, ay);
+  A.ok(!pr.ok && pr.error === 'JOINS_FLOOR' && pr.short === 'ANOTHER LINE IS TOO CLOSE', 'the ghost refuses it whole — ANOTHER LINE IS TOO CLOSE (' + (pr.error || 'ok') + ')');
+  A.eq(frozen(s), before, 'the probe never touches the floor');
+  const r = s.pasteLines(c, c.x0, ay);
+  A.ok(!r.ok && r.error === 'JOINS_FLOOR', 'the paste is refused (' + (r.error || 'it laid') + ')');
+  A.ok(JSON.stringify(s.serialize()) === floor0, '…and nothing of it is laid (all or nothing)');
+  const a1 = lineOfIntake(s, IA);
+  A.ok(a1.lineId === lineA && a1.intakes.length === 1, 'LINE A is still its own line, with its one INBOX (' + a1.intakes.length + ')');
+  if (r.ok) s.undo();
+  // one row further down the copy's belt no longer touches A's: it lays, as its own line with its own budget
+  const ok = s.pasteLines(c, c.x0, ay + 1);
+  A.ok(ok.ok, 'a row further down it lays');
+  const a2 = lineOfIntake(s, IA), b2 = ok.ok && lineOfIntake(s, ok.map[IB]);
+  A.ok(a2 && b2 && a2.lineId === lineA && b2.lineId !== lineA && a2.intakes.length === 1, 'the copy is a NEW line beside LINE A, never part of it');
+}
+
 /* ---------- C. a quarter turn, and SEND TO inside a copy ---------- */
 {
   const s = fresh(), L = line(s);

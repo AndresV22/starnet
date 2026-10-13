@@ -7819,7 +7819,7 @@ const Chat = (() => {
   // Budget-stop legibility (2026-07-23): a 'budget' stop names WHICH spend cap fired and how big it is, in money
   // words — the old "reached this run's limit" read as a runtime setting and sent users hunting in the wrong
   // panel. Scope/cap ride the additive agent.run.end fields; an old sidecar omits them and gets the generic line.
-  function budgetStopLine(scope, capUsd, atBalance, unpriced) {
+  function budgetStopLine(scope, capUsd, atBalance, unpriced, subscription) {
     /* THE UNPRICED-MODEL TOKEN CEILING IS NOT A $ CAP (2026-10-11). A model with no known price is bounded per run in
        TOKENS (loop.js maxUnpricedTokens, 2,000,000 by default); the $ settings never read it, so "hit the per-run spend
        cap — raise it" sent the user to a lever that changes nothing. unpriced = { model, capTokens } from the additive
@@ -7827,6 +7827,11 @@ const Chat = (() => {
     if (unpriced && unpriced.model) {
       const n = Number(unpriced.capTokens) > 0 ? Number(unpriced.capTokens).toLocaleString('en-US') + '-token' : 'token';
       return 'hit the ' + n + ' safety ceiling for ' + unpriced.model + ', a model StarNet has no price for — raising the $ spending limit does not change this; pick a priced model to keep going';
+    }
+    // nor is the SUBSCRIPTION-token ceiling (loop.js maxSubscriptionTokens): a Claude Code sign-in books $0 per turn
+    if (subscription && subscription.model) {
+      const n = Number(subscription.capTokens) > 0 ? Number(subscription.capTokens).toLocaleString('en-US') + '-token' : 'token';
+      return 'used the ' + n + ' per-run ceiling on your Claude subscription (' + subscription.model + ') — say "continue" to keep going, or change the ceiling in SETTINGS › APP & BACKUP › Runtime limits';
     }
     // only show the $ figure when it renders honestly at cent precision (a sub-cent test cap would read "$0.00")
     const cap = (typeof capUsd === 'number' && isFinite(capUsd) && capUsd >= 0.01) ? '$' + capUsd.toFixed(2).replace(/\.00$/, '') + ' ' : '';
@@ -9643,7 +9648,7 @@ const Chat = (() => {
         renderHistory(); syncStatus();
         activeLiveRow = streamingAgent(); historyRead.repaint = false;
       }
-      const { text: reply, error, endReason, finishReason, completionVerdict, effectVerdict, budgetScope, budgetCapUsd, budgetCapIsBalance, unpricedModel, unpricedCapTokens } = await Harness.chat({
+      const { text: reply, error, endReason, finishReason, completionVerdict, effectVerdict, budgetScope, budgetCapUsd, budgetCapIsBalance, unpricedModel, unpricedCapTokens, subscriptionModel, subscriptionCapTokens } = await Harness.chat({
         system: sys, messages: retry ? endOnUserTurn(historyWindow(ws)) : historyWindow(ws), agentId: ws.agentId || 'agent', isTask, recurring, signal: ac.signal, streamId: ws.id,
         // a SPOKEN reply may run on SETTINGS › Models › VOICE CHAT MODEL — never a live call's delegated work, which the
         // live voice layer already answers fast and hands to the agent's own model on purpose
@@ -9804,8 +9809,9 @@ const Chat = (() => {
           // EVERY STOP SAYS WHY (2026-10-11): "stopped (empty)" / "run cancelled" / "run stopped: empty" read as the run
           // quitting for no reason. Friendly.stopLine names what happened + the next step; your own Stop says it was you.
           const unpriced = (endReason === 'budget' && unpricedModel) ? { model: unpricedModel, capTokens: unpricedCapTokens } : null;
+          const subscription = (endReason === 'budget' && subscriptionModel) ? { model: subscriptionModel, capTokens: subscriptionCapTokens } : null;
           const stoppedBy = (endReason === 'cancelled' && interrupted.has(ws.id)) ? (stopSource.get(ws.id) || 'you') : null;
-          const stopLine = endReason === 'budget' ? budgetStopLine(budgetScope, budgetCapUsd, budgetCapIsBalance, unpriced)
+          const stopLine = endReason === 'budget' ? budgetStopLine(budgetScope, budgetCapUsd, budgetCapIsBalance, unpriced, subscription)
             : stoppedBy ? stoppedByLine(stoppedBy)
             : (typeof Friendly !== 'undefined' && Friendly.stopLine) ? Friendly.stopLine(endReason, { cancelSource: runPressedEstop ? 'estop_by_run' : '' })
             : 'stopped (' + endReason + ')';
@@ -9819,9 +9825,9 @@ const Chat = (() => {
           // a budget stop's honest door is SETTINGS › SPENDING LIMITS (the top-up door when the ceiling was the StarNet
           // balance), not a doomed retry (the same cap fires again immediately); every other stop keeps the plain retry chip.
           // The UNPRICED-model token ceiling is not a $ cap at all: its door is a different model (raising $ does nothing).
-          if (isActiveWs(ws) && !(endReason === 'cancelled' && runPressedEstop)) { if (endReason === 'budget' && unpriced) offerUnpricedDoor(); else if (endReason === 'budget') offerBudgetDoor(budgetCapIsBalance); else offerTryAgain(); }
+          if (isActiveWs(ws) && !(endReason === 'cancelled' && runPressedEstop)) { if (endReason === 'budget' && unpriced) offerUnpricedDoor(); else if (endReason === 'budget' && !subscription) offerBudgetDoor(budgetCapIsBalance); else offerTryAgain(); }
           if (typeof StationUI !== 'undefined') StationUI.notify(isActiveWs(ws) ? (stoppedBy ? 'stopped by you' : 'run stopped: ' + brief(stopLine || endReason))
-            : whoOf(ws) + ' stopped' + sessionNote(ws) + ' — ' + (endReason === 'budget' ? (unpriced ? 'hit the token ceiling for a model with no price' : budgetCapIsBalance === true ? 'used the rest of your StarNet balance' : 'hit a spending limit') : endReason === 'max_iters' ? 'reached the step limit; say "continue" to keep going' : brief(stopLine || endReason)),
+            : whoOf(ws) + ' stopped' + sessionNote(ws) + ' — ' + (endReason === 'budget' ? (unpriced ? 'hit the token ceiling for a model with no price' : subscription ? 'used its per-run Claude subscription ceiling; say "continue" to keep going' : budgetCapIsBalance === true ? 'used the rest of your StarNet balance' : 'hit a spending limit') : endReason === 'max_iters' ? 'reached the step limit; say "continue" to keep going' : brief(stopLine || endReason)),
             'warn', undefined, isActiveWs(ws) || endReason === 'cancelled' ? undefined : { kind: 'alert', go: { ws: ws.id } });
         } else if (cutShort) {
           // distinct honest "cut short" recap: the reply is truncated/filtered, not a clean delivery.

@@ -634,8 +634,10 @@
       if (row.skill.guardAction === 'block') return { ok: false, error: 'candidate is blocked by the skill guard' };
       if (!validatePromotionReceipt) return { ok: false, error: 'candidate needs a host-verified behavior evaluation before promotion' };
       let checked;
+      // acknowledgedNoImprovement is the Commander's explicit "accept a complete tie"; the verifier decides if it qualifies.
       try { checked = validatePromotionReceipt(e.evaluation, { candidateDigest: row.candidateDigest, baselineDigest: row.baseDigest,
-        candidate: projectSkill(row.skill, true), baseline: active ? projectSkill(active, true) : null, agentId: row.agentId }); }
+        candidate: projectSkill(row.skill, true), baseline: active ? projectSkill(active, true) : null, agentId: row.agentId,
+        acknowledgedNoImprovement: e.acknowledgedNoImprovement === true }); }
       catch (_) { checked = null; }
       if (!checked || checked.ok !== true || (checked.status && checked.status !== 'pass'))
         return { ok: false, error: (checked && checked.error) || 'evaluation is missing, stale, insufficient, or regressed' };
@@ -644,7 +646,9 @@
       if (active && active.pinned) return { ok: false, error: 'the active skill is pinned; unpin it before promotion' };
       entry.canonicalRevision = true; entry.updatedAt = now();
       entry.promotionReceiptId = str(checked.receiptId || (e.evaluation && (e.evaluation.receiptId || e.evaluation.id)));
-      const resolved = Object.assign({}, clone(row), { status: 'promoted', resolvedAt: now(), evaluation: clone(e.evaluation) });
+      // The decision record says whether the promotion was measured or only owner-acknowledged as no improvement.
+      const resolved = Object.assign({}, clone(row), { status: 'promoted', resolvedAt: now(), evaluation: clone(e.evaluation),
+        acknowledgedNoImprovement: checked.acknowledged === true });
       // Active content and resolution are one append; restart cannot observe half a promotion.
       persist(entry, resolved);
       return { ok: true, skill: projectSkill(entry, true), candidate: projectCandidate(resolved, false) };

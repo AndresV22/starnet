@@ -25,6 +25,8 @@ const net = require('net');
 const fs = require('fs');
 const path = require('path');
 const { SidecarFixture } = require('./helpers/sidecar-fixture.js');
+// the run-context note is the leading text of the newest user message on a non-Claude chat wire: match the Commander's own words
+const { userWords } = require('./helpers/host-notes.js');
 const Phone = require('../relay/app/phone-client.js');
 
 const HOST = '127.0.0.1';
@@ -54,7 +56,7 @@ function startMockModel() {
         requests.push(parsed);
         const msgs = parsed.messages || [];
         const lastUser = [...msgs].reverse().find(m => m && m.role === 'user');
-        const text = String((lastUser && (typeof lastUser.content === 'string' ? lastUser.content : JSON.stringify(lastUser.content))) || '');
+        const text = lastUser ? userWords(lastUser) : '';
         const after = msgs.slice(msgs.lastIndexOf(lastUser) + 1);
         const tools = after.filter(m => m && m.role === 'tool');
         res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache' });
@@ -185,7 +187,7 @@ function startMockModel() {
     const followDispatch = await client.call('send', { agentId: 'forge', streamId: 'dispatch_phone', text: 'Continue the accepted phone result' });
     A.eq(followDispatch.ok, true, 'phone can continue a finalized dispatch conversation');
     await waitUntil(() => events.some(e => e.type === 'run.ended' && e.runId === followDispatch.data.runId), 20000, 'phone dispatch continuation');
-    const contextRequest = llm.requests.find(r => (r.messages || []).some(m => m.role === 'user' && m.content === 'Continue the accepted phone result'));
+    const contextRequest = llm.requests.find(r => (r.messages || []).some(m => m.role === 'user' && userWords(m) === 'Continue the accepted phone result'));
     A.ok(contextRequest && contextRequest.messages.some(m => m.role === 'assistant' && m.content === accepted), 'phone send context contains the accepted answer');
     A.ok(!/RAW_CONTRACT|RAW_INVALID|RAW_REJECTED|INTERNAL_REPAIR|LATE_INTERNAL/.test(JSON.stringify(contextRequest.messages)), 'phone send context excludes raw output and repair instructions');
 
@@ -363,7 +365,7 @@ function startMockModel() {
     const restartFollow = await c3.call('send', { agentId: 'forge', streamId: 'dispatch_phone', text: restartText });
     A.eq(restartFollow.ok, true, 'phone resumes the saved dispatch session after restart');
     await waitUntil(async () => (await fx.json('GET', '/api/remote/recent')).body.runs.some(r => r.runId === restartFollow.data.runId && r.live === false), 20000, 'post-restart dispatch continuation');
-    const restartedContext = llm.requests.find(r => (r.messages || []).some(m => m.role === 'user' && m.content === restartText));
+    const restartedContext = llm.requests.find(r => (r.messages || []).some(m => m.role === 'user' && userWords(m) === restartText));
     A.eq(restartedContext && restartedContext.messages.filter(m => m.role === 'assistant' && m.content === accepted).length, 1, 'post-restart provider receives accepted answer once');
     A.ok(!/RAW_CONTRACT|RAW_INVALID|RAW_REJECTED|INTERNAL_REPAIR|LATE_INTERNAL/.test(JSON.stringify(restartedContext && restartedContext.messages)), 'post-restart provider receives no rejected saved answer');
     console.log('phone saved-history follow-up proof: ' + JSON.stringify({ phase: 'after restart', acceptedCount: restartedContext.messages.filter(m => m.content === accepted).length, savedRejectedVisible: /RAW_REJECTED/.test(JSON.stringify(restartedContext.messages)) }));

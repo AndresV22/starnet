@@ -122,7 +122,8 @@ function compareCases(cases) {
 function validatePromotionReceipt(receipt, options) {
   const o = options || {};
   if (jsonSize(receipt) > MAX_RECEIPT_BYTES || !validJson(receipt)) return { ok: false, reason: 'invalid or oversized evaluation receipt' };
-  if (!receipt || receipt.schemaVersion !== SCHEMA || receipt.status !== 'passed') return { ok: false, reason: 'behavioral evaluation has not passed' };
+  // insufficient_evidence is read on only so a complete tie can reach the owner-acknowledgement exit below.
+  if (!receipt || receipt.schemaVersion !== SCHEMA || !['passed', 'insufficient_evidence'].includes(receipt.status)) return { ok: false, reason: 'behavioral evaluation has not passed' };
   if (!o.suite) return { ok: false, reason: 'trusted evaluation test set is unavailable' };
   let suite;
   try { suite = validateSuite(o.suite); } catch (_) { return { ok: false, reason: 'invalid evaluation test set' }; }
@@ -131,6 +132,9 @@ function validatePromotionReceipt(receipt, options) {
   if (receipt.testSetDigest !== digest(suite) || receipt.suiteId !== suite.id) return { ok: false, reason: 'evaluation test set changed' };
   if (!['provider', 'executable'].includes(receipt.evidenceClass)) return { ok: false, reason: 'fixture evidence cannot authorize promotion' };
   if (!Array.isArray(receipt.cases) || receipt.cases.length !== suite.cases.length) return { ok: false, reason: 'incomplete evaluation cases' };
+  // An unfinished run has no checks to compare; refuse it for what it is before the check-level validation.
+  if (receipt.status === 'insufficient_evidence' && receipt.cases.some(c => c && c.before && c.after && (c.before.completed !== true || c.after.completed !== true)))
+    return { ok: false, reason: 'not every evaluation run finished; evaluate again' };
   const rebuilt = [];
   for (let i = 0; i < suite.cases.length; i++) {
     const c = suite.cases[i], saved = receipt.cases[i];
@@ -149,8 +153,16 @@ function validatePromotionReceipt(receipt, options) {
     }
     rebuilt.push(saved);
   }
-  if (compareCases(rebuilt).status !== 'passed') return { ok: false, reason: 'candidate did not improve without regression' };
-  return { ok: true, receiptId: receipt.receiptId };
+  const comparison = compareCases(rebuilt);
+  if (receipt.status === 'passed' && comparison.status === 'passed') return { ok: true, receiptId: receipt.receiptId };
+  // The honest exit when a capable baseline leaves nothing to measure: every run finished, nothing regressed and
+  // every candidate case passed. Only the owner's explicit acknowledgement accepts it, and the result says so;
+  // failed, regressed and incomplete evaluations never qualify.
+  const tie = receipt.status === 'insufficient_evidence' && comparison.status === 'insufficient_evidence' && !comparison.regressions.length &&
+    comparison.allCandidatePassed && rebuilt.every(c => c.before.completed && c.after.completed);
+  if (!tie) return { ok: false, reason: 'candidate did not improve without regression' };
+  if (o.acknowledgedNoImprovement !== true) return { ok: false, reason: 'the evaluation showed no measurable improvement; approve it without measured improvement to accept it' };
+  return { ok: true, receiptId: receipt.receiptId, acknowledged: true };
 }
 function makeSkillEvaluator(options) {
   const o = options || {}, suites = new Map((o.suites || []).map(s => { const suite = validateSuite(s); return [suite.id, suite]; }));

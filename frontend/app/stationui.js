@@ -4314,46 +4314,70 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
   function renderSkillCandidates(host, agentId, review) {
     const rows = Array.isArray(review.candidates) ? review.candidates : [];
     const suites = Array.isArray(review.evaluationSuites) ? review.evaluationSuites : [];
+    // A tie: every run finished, nothing regressed and every proposal case passed, yet nothing improved
+    // (a capable baseline already passes). It is the one unproven result the owner may still accept.
+    const candidateTie = r => !!(r && r.status === 'insufficient_evidence' && r.allCandidatePassed === true && Array.isArray(r.regressions) && !r.regressions.length &&
+      Array.isArray(r.cases) && r.cases.length && r.cases.every(c => c && c.before && c.before.completed === true && c.after && c.after.completed === true));
+    const candidateResultText = (r, suite, tie) => {
+      const status = r && r.status;
+      if (status === 'passed') return 'Passed: the proposal passed every check and did better than without it on at least one' + (suite.generic ? ', on a generic check (not specific to this skill).' : '.');
+      // "Without it" holds for a revision (the current version) and a new skill (no skill); owner checks already exist.
+      if (tie) return 'No improvement shown: the proposal passed every check, and so did the run without it, so this suite cannot show what the proposal adds. ' +
+        (suite.generic ? 'Register task checks for this skill to measure it.' : 'Add a check that fails without the proposal to measure the difference.');
+      if (status === 'regression') return 'Regression: the proposal failed a check the current version passed.';
+      if (status === 'failed') return 'Failed: the proposal did not pass every check.';
+      if (status === 'insufficient_evidence') return 'No result: not every run finished.';
+      return 'No confirmed result.';
+    };
     for (const candidate of rows) {
       const skill = candidate.skill || {};
       const card = mkEl('div', 'sk-card want open'); host.appendChild(card);
       card.dataset.skillCandidate = candidate.candidateId;
-      card.innerHTML = '<div class="sk-card-head"><div class="sk-card-main"><div class="sk-name-row"><span class="sk-name">' + esc(skill.name || candidate.name) + '</span><span class="sk-badge want">PROPOSED REVISION</span></div><div class="sk-desc">Any existing active version stays available. This proposal needs a passing task evaluation and your approval.</div></div></div>' +
+      card.innerHTML = '<div class="sk-card-head"><div class="sk-card-main"><div class="sk-name-row"><span class="sk-name">' + esc(skill.name || candidate.name) + '</span><span class="sk-badge want">PROPOSED REVISION</span></div><div class="sk-desc">Any existing active version stays available. This proposal needs a task evaluation and your approval. If a complete evaluation shows no improvement but the proposal passed every check, you can still approve it by confirming that.</div></div></div>' +
         '<div class="sk-body"><div class="sk-attr">Proposed scope: ' + esc(skill.scope || 'agent') + ' · revision ' + esc(candidate.revision) + '</div><pre>' + esc(skill.body || '') + '</pre>' +
         '<details><summary>Proposed metadata and package files</summary><pre>' + esc(JSON.stringify({ candidateDigest: candidate.candidateDigest, baseDigest: candidate.baseDigest, summary: skill.summary, description: skill.description, setup: skill.setup, category: skill.category, requires: skill.requires, platforms: skill.platforms, state: skill.state, scope: skill.scope, projectRoot: skill.projectRoot, packageFiles: skill.packageFiles }, null, 2)) + '</pre></details>' +
         (skill.files || []).map(f => '<details><summary>' + esc(f.path) + '</summary><pre>' + esc(f.content || '') + '</pre></details>').join('') +
         '<div class="sk-attr">Evaluation checks only the selected task family. A passing result does not prove improvement for every use.</div><div data-evaluation-suites></div>' +
-        '<div class="sk-attr" data-evaluation-result>No evaluation run from this panel yet.</div><div class="consent-btns mc-acts"><button class="consent-btn" data-candidate-approve disabled>Approve evaluated revision</button><button class="consent-btn" data-candidate-reject>Reject proposal</button></div>' +
+        '<div class="sk-attr" data-evaluation-result>No evaluation run from this panel yet.</div><div class="consent-btns mc-acts"><button class="consent-btn" data-candidate-approve disabled>Approve evaluated revision</button><button class="consent-btn" data-candidate-acknowledge hidden disabled>Approve without measured improvement</button><button class="consent-btn" data-candidate-reject>Reject proposal</button></div>' +
         '<details><summary>Register task checks (JSON)</summary><div class="sk-attr">Declare repeatable tasks and exact checks, including a held-out case. The station validates and runs this suite before approval.</div><textarea class="cf-ta mc-edit" data-suite-json spellcheck="false" aria-label="Evaluation suite JSON"></textarea><button class="consent-btn" data-suite-register>Register task checks</button></details></div>';
       const suiteHost = card.querySelector('[data-evaluation-suites]');
       const note = card.querySelector('[data-evaluation-result]');
       const approve = card.querySelector('[data-candidate-approve]');
+      const acknowledge = card.querySelector('[data-candidate-acknowledge]');
       const reject = card.querySelector('[data-candidate-reject]');
       let receipt = null, busy = false;
       const request = { agentId, candidateId: candidate.candidateId, candidateDigest: candidate.candidateDigest };
       const matching = suites.filter(s => s.skillId === skill.id || (!s.skillId && s.skillName === skill.name));
       if (!matching.length) suiteHost.textContent = 'No task checks registered for this skill yet.';
       for (const suite of matching) {
-        const label = mkEl('div', 'sk-attr'); label.textContent = suite.description || suite.skillName || suite.id; suiteHost.appendChild(label);
+        const label = mkEl('div', 'sk-attr'); label.textContent = (suite.description || suite.skillName || suite.id) + (suite.generic ? ' · generic check (not specific to this skill)' : ''); suiteHost.appendChild(label);
         const run = mkEl('button', 'consent-btn'); run.textContent = 'Evaluate: ' + suite.id; suiteHost.appendChild(run);
         run.onclick = async () => {
-          if (busy) return; busy = true; run.disabled = true; approve.disabled = true; receipt = null;
+          if (busy) return; busy = true; run.disabled = true; approve.disabled = true; acknowledge.disabled = true; acknowledge.hidden = true; receipt = null;
           note.textContent = 'Running baseline and proposal against ' + suite.id + '…';
           try {
             const r = await skillReviewPost('evaluate-candidate', Object.assign({}, request, { suiteId: suite.id }));
             receipt = r.receipt;
-            note.textContent = 'Task family: ' + (suite.description || suite.id) + ' · result: ' + String(receipt && receipt.status || 'unconfirmed') + '. Approval remains a separate action.';
+            const tie = candidateTie(receipt);
+            note.textContent = candidateResultText(receipt, suite, tie) + ' Approval remains a separate action.';
             const details = mkEl('pre', ''); details.textContent = JSON.stringify(receipt, null, 2); note.appendChild(details);
             approve.disabled = !(receipt && receipt.status === 'passed' && receipt.receiptId);
+            // The station re-checks the receipt; this only offers the owner's "accept it anyway" on a complete tie.
+            acknowledge.hidden = !(tie && receipt.receiptId); acknowledge.disabled = acknowledge.hidden;
           } catch (e) { note.textContent = e.message; }
           finally { busy = false; run.disabled = false; }
         };
       }
-      approve.onclick = async () => {
-        if (busy || !receipt) return; busy = true; approve.disabled = true;
-        try { await skillReviewPost('approve-candidate', Object.assign({}, request, { evaluation: receipt.receiptId })); loadAgentSkills(agentId); }
-        catch (e) { note.textContent = e.message; busy = false; approve.disabled = false; }
+      const decide = async extra => {
+        if (busy || !receipt) return; busy = true; approve.disabled = true; acknowledge.disabled = true;
+        try { await skillReviewPost('approve-candidate', Object.assign({}, request, { evaluation: receipt.receiptId }, extra)); loadAgentSkills(agentId); }
+        catch (e) { note.textContent = e.message; busy = false; approve.disabled = receipt.status !== 'passed'; acknowledge.disabled = acknowledge.hidden; }
       };
+      approve.onclick = () => decide({});
+      // Accepting a revision the evaluation could not show to be better is a deliberate owner decision: arm, then confirm.
+      if (typeof ArmConfirm !== 'undefined' && ArmConfirm.wire) {
+        ArmConfirm.wire(acknowledge, { armedLabel: 'Confirm: approve with no measured improvement', onConfirm: () => decide({ acknowledgeNoImprovement: true }) });
+      }
       reject.onclick = async () => {
         if (busy) return; busy = true; reject.disabled = true;
         try { await skillReviewPost('reject-candidate', request); loadAgentSkills(agentId); }
@@ -7016,7 +7040,8 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     { key: 'maxIters', label: 'MAX ITERATIONS', hint: 'optional tool-turn ceiling for one run. 0 = unlimited (default).', min: 0, max: 200, step: 1 },
     { key: 'maxConcurrentAgents', label: 'MAX CONCURRENT AGENTS', hint: 'optional simultaneous-agent ceiling. 0 = unlimited (default).', min: 0, max: 32, step: 1 },
     { key: 'consentTimeoutMs', label: 'CONSENT TIMEOUT (MS)', hint: 'how long a permission prompt waits for your answer before auto-denying (so a run never hangs).', min: 5000, max: 600000, step: 1000 },
-    { key: 'cronTickMs', label: 'ROUTINE TICK (MS)', hint: 'how often the scheduler checks for due routines.', min: 5000, max: 600000, step: 1000 }
+    { key: 'cronTickMs', label: 'ROUTINE TICK (MS)', hint: 'how often the scheduler checks for due routines.', min: 5000, max: 600000, step: 1000 },
+    { key: 'maxSubscriptionTokens', label: 'CLAUDE CODE TOKEN CEILING', hint: 'tokens one run may use on a Claude subscription sign-in (cache re-reads count 1/10). 0 = no ceiling.', min: 0, max: 100000000, step: 100000 }
   ];
   function wireAdvanced(body) {
     const form = body.querySelector('#adv-form');

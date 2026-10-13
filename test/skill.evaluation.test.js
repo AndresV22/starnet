@@ -41,15 +41,35 @@ async function main() {
   service.registerSuite(suite);
   const tie = await service.evaluate({ candidate, baseline: candidate, suiteId: suite.id });
   assert.equal(tie.status, 'insufficient_evidence');
-  assert.equal(service.verifyReceipt(tie, { candidateDigest: expected.candidateDigest, baselineDigest: expected.candidateDigest }).ok, false);
+  const tieExpected = { candidateDigest: expected.candidateDigest, baselineDigest: expected.candidateDigest };
+  assert.equal(service.verifyReceipt(tie, tieExpected).ok, false);
+  assert.match(service.verifyReceipt(tie, tieExpected).reason, /no measurable improvement/, 'a tie says plainly that nothing was shown to improve');
+  // The honest exit: a complete, regression-free run where every candidate case passed may be
+  // promoted only on the owner's explicit acknowledgement, and the result says it was acknowledged.
+  assert.deepEqual(service.verifyReceipt(tie.receiptId, { ...tieExpected, acknowledgedNoImprovement: true }), { ok: true, receiptId: tie.receiptId, acknowledged: true });
+  assert.equal(service.verifyReceipt(tie.receiptId, { ...tieExpected, acknowledgedNoImprovement: 'yes' }).ok, false, 'only an explicit true acknowledges');
+  assert.equal(service.verifyReceipt(receipt.receiptId, { ...expected, acknowledgedNoImprovement: true }).acknowledged, undefined, 'a measured improvement is never recorded as merely acknowledged');
+  assert.equal(service.verifyReceipt(tie.receiptId, { ...expected, acknowledgedNoImprovement: true }).ok, false, 'acknowledgement keeps the exact skill binding');
   const regression = await service.evaluate({ candidate: baseline, baseline: candidate, suiteId: suite.id });
   assert.equal(regression.status, 'regression');
+  assert.equal(service.verifyReceipt(regression, { candidateDigest: E.digestSkill(baseline), baselineDigest: E.digestSkill(candidate), acknowledgedNoImprovement: true }).ok, false, 'acknowledgement never accepts a regression');
+  const failed = await service.evaluate({ candidate: baseline, baseline, suiteId: suite.id });
+  assert.equal(failed.status, 'failed');
+  assert.equal(service.verifyReceipt(failed, { candidateDigest: E.digestSkill(baseline), baselineDigest: E.digestSkill(baseline), acknowledgedNoImprovement: true }).ok, false, 'acknowledgement never accepts a failing candidate');
+  const halfRun = E.makeSkillEvaluator({ ...options, runCase: async args => { if (args.phase === 'before') throw new Error('baseline runner unavailable'); return runCase(args); } });
+  const incomplete = await halfRun.evaluate({ candidate, baseline: candidate, suiteId: suite.id });
+  assert.equal(incomplete.status, 'insufficient_evidence');
+  assert.equal(incomplete.allCandidatePassed, true);
+  assert.equal(halfRun.verifyReceipt(incomplete, { ...tieExpected, acknowledgedNoImprovement: true }).ok, false, 'acknowledgement never accepts an incomplete evaluation');
+  assert.equal(halfRun.verifyReceipt(incomplete, { ...tieExpected, acknowledgedNoImprovement: true }).reason, 'not every evaluation run finished; evaluate again', 'an unfinished run is refused for what it is');
   const broken = E.makeSkillEvaluator({ ...options, runCase: async () => { throw new Error('runner unavailable'); } });
   assert.equal((await broken.evaluate({ candidate, baseline, suiteId: suite.id })).status, 'insufficient_evidence');
   const fixture = E.makeSkillEvaluator({ ...options, evidenceClass: 'fixture' });
   const fixtureReceipt = await fixture.evaluate({ candidate, baseline, suiteId: suite.id });
   assert.equal(fixtureReceipt.status, 'passed');
   assert.equal(fixture.verifyReceipt(fixtureReceipt, expected).ok, false, 'fixture pass cannot promote');
+  const fixtureTie = await fixture.evaluate({ candidate, baseline: candidate, suiteId: suite.id });
+  assert.equal(fixture.verifyReceipt(fixtureTie, { ...tieExpected, acknowledgedNoImprovement: true }).ok, false, 'fixture tie cannot promote even when acknowledged');
   assert.throws(() => E.validateSuite({ ...suite, cases: suite.cases.map(c => ({ ...c, heldOut: false })) }), /held-out/);
   assert.throws(() => E.validateSuite({ ...suite, cases: [{ ...suite.cases[0], checks: [{ id: 'bad', kind: 'contains_keyword', expected: 'great' }] }, suite.cases[1]] }), /invalid task check/);
   assert.equal(E.digestSkill(candidate), E.digestSkill({ ...candidate, updatedAt: 123, useCount: 9, id: 'other' }));

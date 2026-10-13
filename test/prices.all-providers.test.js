@@ -210,6 +210,49 @@ function burnProvider(tokensPerTurn, priceOf) {
     A.eq(ex3.seq.filter(e => e.name === 'agent.cost' && e.payload.unpriced).length, 0, 'no unpriced flag on a priced run');
   }
 
+  // ---- D2. SUBSCRIPTION SEATBELT in the loop (2026-10-12) ----
+  // A Claude Code sign-in books every turn at $0 and is PRICED (provider-reported cost), so neither the $ cap nor the
+  // unpriced ceiling ever saw it: a real run burned 3.2M tokens over 31 turns. Its turns carry usage.subscription.
+  {
+    const subProvider = (prompt, cached, out) => ({
+      priceOf: () => null, contextLimit: () => 0,
+      stream: async function* () {
+        yield { type: 'tool_start', index: 0, id: 'c1', name: 'noop' };
+        yield { type: 'tool_args', index: 0, chunk: '{}' };
+        yield { type: 'usage', usage: { prompt_tokens: prompt, completion_tokens: out, total_tokens: prompt + out, prompt_tokens_details: { cached_tokens: cached, cache_creation_tokens: 0 }, cost: 0, subscription: true } };
+        yield { type: 'done', finishReason: 'tool_calls' };
+      }
+    });
+    const run = (provider, limits, runId) => { const s = setup(); return runAgentLoop({
+      messages: [{ role: 'user', content: 'x' }], provider, emit: s.emit, cost: makeCostEngine({ priceOf: () => null }),
+      dispatch: async () => ({ ok: true, content: 'ok' }), tools: noopTool, model: 'claude-opus-5-5', agentId: 'a', runId,
+      limits: Object.assign({ maxCostUsd: 1.00, maxIters: 10, grace: false, maxUnpricedTokens: 2000000 }, limits) }).then(res => ({ res, seq: s.seq })); };
+
+    // uncached 400k/turn, ceiling 1,000,000 -> the 3rd turn crosses it -> 'budget' before a 4th call
+    const { res, seq } = await run(subProvider(400000, 0, 0), { maxSubscriptionTokens: 1000000 }, 's1');
+    A.eq([res.reason, res.turns, res.usd], ['budget', 3, 0], 'a $0 subscription run stops at its token ceiling (the $ cap never could)');
+    A.eq([res.subscriptionModel, res.subscriptionTokens, res.subscriptionCapTokens], ['claude-opus-5-5', 1200000, 1000000], 'the stop names the model, the tokens and the ceiling');
+    A.ok(/1,200,000 subscription tokens/.test(res.budgetNote) && /Runtime limits/.test(res.budgetNote), 'budgetNote names the ceiling and its lever: ' + res.budgetNote);
+    A.eq(res.unpricedModel, undefined, 'a priced $0 turn is never filed as unpriced');
+    const endEv = seq.find(e => e.name === 'agent.run.end');
+    A.eq([endEv.payload.budgetScope, endEv.payload.subscriptionModel, endEv.payload.subscriptionCapTokens], ['run', 'claude-opus-5-5', 1000000], 'agent.run.end carries the additive subscription fields');
+    A.eq(schema.validate(events.EVENTS['agent.run.end'], endEv.payload).ok, true, 'and still validates');
+
+    // a cached run: 400k/turn of which 360k are cache re-reads = 40k + 36k = 76k per turn -> 10 turns never reach 1,000,000
+    const cached = await run(subProvider(400000, 360000, 0), { maxSubscriptionTokens: 1000000 }, 's2');
+    A.eq(cached.res.reason, 'max_iters', 'a re-read counts 1/10, so a run that reuses its cache is not stopped for rereading its context');
+    // output tokens count in full
+    const out = await run(subProvider(1000, 0, 600000), { maxSubscriptionTokens: 1000000 }, 's3');
+    A.eq([out.res.reason, out.res.turns], ['budget', 2], 'output tokens count toward the ceiling');
+    // off: omitted or 0 = no ceiling (every other caller byte-identical); a non-subscription $0 turn never counts
+    A.eq((await run(subProvider(400000, 0, 0), {}, 's4')).res.reason, 'max_iters', 'no maxSubscriptionTokens = no ceiling');
+    A.eq((await run(subProvider(400000, 0, 0), { maxSubscriptionTokens: 0 }, 's5')).res.reason, 'max_iters', '0 = no ceiling');
+    const plain = { priceOf: () => null, contextLimit: () => 0, stream: async function* () {
+      yield { type: 'tool_start', index: 0, id: 'c1', name: 'noop' }; yield { type: 'tool_args', index: 0, chunk: '{}' };
+      yield { type: 'usage', usage: { prompt_tokens: 400000, completion_tokens: 0, total_tokens: 400000, cost: 0 } }; yield { type: 'done', finishReason: 'tool_calls' }; } };
+    A.eq((await run(plain, { maxSubscriptionTokens: 1000, maxIters: 4 }, 's6')).res.reason, 'max_iters', 'a $0 turn without usage.subscription is never counted');
+  }
+
   // ---- E. cross-model fallback strips foreign thinking blocks ----
   {
     const { seq, emit } = setup();
