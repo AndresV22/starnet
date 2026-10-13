@@ -21,6 +21,13 @@ const rd = p => fs.readFileSync(path.join(__dirname, '..', p), 'utf8').replace(/
 const panel = rd('frontend/app/workflowpanel.js'), build = rd('frontend/app/build.js'), commands = rd('frontend/app/stationcommands.js');
 const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const strip = h => String(h).replace(/<[^>]+>/g, '');
+// the floor's own finding sentences (build.js VAL_LABEL / VAL_WHY → valWhy), the H.valLabel the real panel is wired with
+// (build.js `valLabel: valWhy`) — the OUTBOX card says PRIVATE FILES through it (floor lane M19 / M29)
+const valWhy = (() => {
+  const a = build.indexOf('  const VAL_LABEL = {'), z = build.indexOf('  const valWhy = code => ');
+  A.ok(a >= 0 && z > a && z - a < 20000, 'sliced the floor\'s VAL_LABEL / VAL_WHY tables');
+  return vm.runInNewContext(build.slice(a, build.indexOf('\n', z)) + '\nvalWhy', {});
+})();
 
 function lines(n) {
   const d = WM.starterDoc();
@@ -41,13 +48,18 @@ function panelOn(st, opts) {
   const o = opts || {};
   const geo = () => st.projectGeometry();
   const H = {
-    station: () => st, plan: () => P.compileRoutingPlan(geo()), sfx() {}, flashTip() {},
+    station: () => st, plan: () => P.compileRoutingPlan(geo()), sfx() {}, flashTip() {}, valLabel: valWhy,
     lineOfProp: id => (P.lineComponents(geo()) || []).find(c => c.props.indexOf(id) >= 0) || null,
     sampleState: () => o.sample || null, sampleHTML: () => '<div class="fl-result bad">REFUSED</div>', stopSample: null
   };
   const headers = ['function sendChoices(outboxId)', 'function sendState(outboxId)', 'function sendTarget(outboxId)', 'function onwardNote()', 'function sendBlocked(outboxId, name)',
     'function paintOutbox(body, f, p)', 'function sendDynHTML(f)', 'function jobResultHTML(mine, f)', 'function loopNotes(text)'];
-  const src = headers.map(h => { const b = A.fnBody(panel, h); A.ok(b.length > 20 && b.length < 20000, 'sliced ' + h); return b; }).join('\n');
+  // the panel's one SEND TO chip namer (floor lane's one line-name rule: the chip carries worldmodel.lineName) — a const arrow,
+  // so it is sliced by its own line, not by fnBody
+  const chipAt = panel.indexOf('  const sendChipName = c => ');
+  A.ok(chipAt >= 0, 'the panel names its SEND TO chips with sendChipName');
+  const chipName = panel.slice(chipAt, panel.indexOf('\n', chipAt));
+  const src = chipName + '\n' + headers.map(h => { const b = A.fnBody(panel, h); A.ok(b.length > 20 && b.length < 20000, 'sliced ' + h); return b; }).join('\n');
   const names = headers.map(h => /function (\w+)\(/.exec(h)[1]);
   const ctx = vm.createContext({ esc, H, Pipeline: P, World: o.world, WL: () => WL, JSON, Object, Array, String, Set, Map, Math,
     comp: () => o.comp || null, S: { testJob: {} }, $: () => null, note() {}, paint() {}, prop: id => st.propById(id), nameOf: a => String(a).toUpperCase(),

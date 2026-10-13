@@ -360,12 +360,16 @@ const asyncChecks = [];   // the world.js poll check is async: A.report waits fo
   const world = fs.readFileSync(path.join(__dirname, '../frontend/app/world.js'), 'utf8');
   const poll = world.slice(world.indexOf('  function pollLineStats() {'), world.indexOf('  function lineStatsSoon() {'));
   const pallet = world.slice(world.indexOf('  function drawShippedPallet(now) {'), world.indexOf('  function drawPallet('));
+  // the poll also re-reads FIRST SHIP's per-line counts when the posted floor has a line with none (agent lane: shipBaseStale /
+  // refreshShipBase) — the real ship-base functions ride the slice, over the same stubbed fetch
+  const shipBaseSrc = world.slice(world.indexOf('  const firstShipSeen = new Set();'), world.indexOf('  function noteFirstShip(p) {'));
   A.ok(poll.length > 100 && pallet.length > 100, 'the real world.js poll and pallet functions are loaded');
+  A.ok(shipBaseSrc.length > 100 && shipBaseSrc.length < 6000 && /function shipBaseStale\(\)/.test(shipBaseSrc) && /function refreshShipBase\(\)/.test(shipBaseSrc), 'the real world.js ship-base readers are loaded');
   const runPoll = async (response) => {
-    const ctx = vm.createContext({ LineWatch: LWu, apiUrl: u => u, pollLineJobStreams: () => {}, buildRoutingNags: () => ['nags'], routingNags: null,
+    const ctx = vm.createContext({ LineWatch: LWu, apiUrl: u => u, pollLineJobStreams: () => {}, buildRoutingNags: () => ['nags'], routingNags: null, routingPlan: null,
       lineWatch: () => ({ seedOutcomes: () => {} }), lineStats: { known: true, byLine: { L1: { runs: 9, shipped: 4 } }, since: 1 },
       fetch: () => (response instanceof Error ? Promise.reject(response) : Promise.resolve(response)), Date });
-    vm.runInContext(poll + '\nglobalThis.go = pollLineStats; globalThis.read = () => lineStats;', ctx);
+    vm.runInContext(shipBaseSrc + poll + '\nglobalThis.go = pollLineStats; globalThis.read = () => lineStats;', ctx);
     ctx.go(); for (let i = 0; i < 5; i++) await new Promise(r => setImmediate(r));
     return ctx.read();
   };
