@@ -158,7 +158,9 @@
       if (!stamped && !str(skill.guardAction)) {
         const live = liveScan(skill);
         if (!live || live.action === 'allow') return base;
-        const legacy = decide(Object.assign({}, skill, { guardAction: live.action, scan: live.scan }));
+        // Decide against the digest of these bytes: the allow route stores digestOf(the body the Commander read), so
+        // with no stamp isApproved() would compare it to 'u'+updatedAt and ALLOW would never take effect.
+        const legacy = decide(Object.assign({}, skill, { guardAction: live.action, scan: live.scan, contentDigest: digestOf(skill) }));
         legacy.unscanned = true;
         if (!legacy.visible) legacy.reason = 'this skill was saved before the guard existed and re-scanning it flagged content — review it in ABILITIES > SKILLS';
         return legacy;
