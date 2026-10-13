@@ -30,8 +30,8 @@ A.ok(/migrateConnectorCatalogKeyHeaders/.test(host) && /headers\[catalogEntry\.k
 // Today the sidecar sends canStartFresh true for every lock reason; the canStartFresh-false shapes are the defensive
 // half (a lock the sidecar may later mark as having no START FRESH). A held file ('busy') and an unreachable OS store
 // ('key-unavailable') leave an intact store that a restart or an unlock fixes, so the line never steers them to
-// START FRESH as if their files were unreadable. Any other lock with no START FRESH adds nothing to the sidecar's own
-// message.
+// START FRESH as if their files were unreadable. A busy lock's sidecar message already says restart, then START FRESH,
+// so the line adds nothing for it; any other lock with no START FRESH adds nothing to the sidecar's own message.
 {
   const vm = require('node:vm');
   const body = A.fnBody(connectors, 'function storageNextStep(');
@@ -41,8 +41,9 @@ A.ok(/migrateConnectorCatalogKeyHeaders/.test(host) && /headers\[catalogEntry\.k
   if (body) vm.runInContext(body + '\nthis.next = storageNextStep;', ctx);
   const next = s => (ctx.next ? ctx.next(s) : '');
   const busy = next({ reason: 'busy', canStartFresh: true });
-  A.ok(/Restart StarNet first/.test(busy) && /START FRESH only if it is still locked after a restart/.test(busy), 'a busy file names the restart first: ' + busy);
-  A.ok(!/unreadable files aside/.test(busy), 'and never steers a held, intact store to START FRESH: ' + busy);
+  A.eq(busy, '', 'a busy file leaves restart-then-START-FRESH to the sidecar message instead of saying it twice');
+  // ...and the sidecar's busy message is the one place that says it (connector-vault.js lockMessage)
+  A.ok(/Restart StarNet to try again\.[\s\S]{0,40}If it is still locked after a restart, START FRESH/.test(read('sidecar/connector-vault.js')), 'the busy lock message names the restart before START FRESH');
   const unreachable = next({ reason: 'key-unavailable', canStartFresh: true });
   A.ok(!/unreadable files aside/.test(unreachable), 'an unreachable OS store is never steered to START FRESH as unreadable: ' + unreachable);
   A.ok(/START FRESH only if you cannot unlock/.test(unreachable), 'it puts unlocking the credential store before START FRESH: ' + unreachable);

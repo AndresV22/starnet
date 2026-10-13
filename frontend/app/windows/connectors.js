@@ -29,11 +29,12 @@
   /* LOCKED CREDENTIAL STORAGE — the next step the panel names under the sidecar's own message. A held file ('busy':
      antivirus, backup or sync) and an unreachable OS store ('key-unavailable') leave an intact store that a restart or
      an unlock fixes, and START FRESH would only set it aside, so neither is told its files are unreadable: the restart
-     or the unlock comes first and START FRESH stays as the exit when that fails. The sidecar sends canStartFresh for
-     every lock today; a lock with no START FRESH and no fix of its own leaves the sidecar's message to speak. */
+     or the unlock comes first and START FRESH stays as the exit when that fails. A busy lock's sidecar message already
+     says restart, then START FRESH, so the line adds nothing for it. The sidecar sends canStartFresh for every lock
+     today; a lock with no START FRESH and no fix of its own leaves the sidecar's message to speak. */
   function storageNextStep(storage) {
     const s = storage || {};
-    if (s.reason === 'busy') return s.canStartFresh ? ' Restart StarNet first. Use START FRESH only if it is still locked after a restart.' : ' Restart StarNet to try again.';
+    if (s.reason === 'busy') return s.canStartFresh ? '' : ' Restart StarNet to try again.';
     if (s.reason === 'key-unavailable') return s.canStartFresh ? ' Use START FRESH only if you cannot unlock or repair the credential store.' : ' Unlock the credential store and restart StarNet.';
     return s.canStartFresh ? ' START FRESH sets the unreadable files aside and lets you sign in to each service again.' : '';
   }
