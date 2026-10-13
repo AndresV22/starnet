@@ -15839,13 +15839,13 @@ async function handleCronRun(req, res) {
   const bus = { emit: (name, payload) => { try { res.write(JSON.stringify({ name, payload: redact(payload) }) + '\n'); } catch (_) {} } };
   const emit = wrapEmitDiag(makeEmitter(bus, e => { if (e) console.warn('[event]', e.kind, e.event, (e.errors || []).join(';')); }));
   // tee: stream every event to the watching browser AND capture the outcome so the last-run record is honest.
-  const state = { buf: '', errMsg: null, reason: null, transient: false, usd: 0 };
+  const state = { buf: '', errMsg: null, reason: null, transient: false, usd: 0, toolsRan: 0 };   // toolsRan: an empty reply after work is not 'nothing was done'
   const teeEmit = (name, payload) => {
     try { emit(name, payload); } catch (_) {}
     { const lz = cronDriver.leases.get(job.id); if (lz && lz.runId === runId) lz.heartbeatAt = Date.now(); }   // liveness for the driver's stale sweep
     const p = payload || {};
     if (name === 'agent.token') state.buf += (p.delta || '');
-    else if (name === 'agent.tool_call') state.buf = '';
+    else if (name === 'agent.tool_call') { state.buf = ''; state.toolsRan++; }
     else if (name === 'agent.run.error') { state.errMsg = p.message || 'run error'; state.transient = !!p.transient; }
     // usd rides the same terminal event (mirrors cron-driver's sink): the entry run's reconciled spend seeds
     // the chain's $ ceiling below, so a Run-Now line is bounded exactly like the scheduled fire.
@@ -15907,7 +15907,7 @@ async function handleCronRun(req, res) {
     // the routine green. Missing terminal telemetry also fails closed.
     const terminalReason = String(state.reason || '').trim();
     if (!state.errMsg && terminalReason !== 'done') {
-      state.errMsg = StopReason.incompleteRunMessage(terminalReason);   // plain words + the machine reason in brackets
+      state.errMsg = StopReason.incompleteRunMessage(terminalReason, { toolsRan: state.toolsRan || 0 });   // plain words + the machine reason in brackets
     }
     /* RUN NOW MUST FIRE THE WHOLE LINE, exactly like the scheduled fire does. This route calls runOnce
        DIRECTLY (it streams to the watching browser), so it does not pass through the cron driver's
