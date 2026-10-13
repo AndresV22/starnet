@@ -132,6 +132,20 @@ async function main() {
   const overfull = store(); overfull.set('skill-evaluation-receipts', Array.from({ length: 30 }, (_, i) => ({ receiptId: 'old-' + i, data: 'x'.repeat(400000) })));
   await E.makeSkillEvaluator({ ...options, io: overfull }).evaluate({ candidate, baseline, suiteId: suite.id });
   assert.ok(Buffer.byteLength(JSON.stringify(overfull.get('skill-evaluation-receipts'))) <= 8388608, 'durable receipt history capped at 8 MiB');
+  // The provider runner works in an isolated file workspace and never observes a process exit, so a process_exit
+  // check could never pass there: refuse it before any paid run, and say why (skills-eval-16).
+  {
+    const exitSuite = clone(suite); exitSuite.id = 'owner:exit-code';
+    exitSuite.cases[0].checks.push({ id: 'exit', kind: 'process_exit', executionId: 'npm-test', expected: 0 });
+    let paid = 0;
+    const providerEval = E.makeSkillEvaluator({ suites: [exitSuite], io: store(), evidenceClass: 'provider', runnerIdentity: { provider: 'openrouter', model: 'm/x' },
+      runCase: async () => { paid++; return { reason: 'done', value: 15 }; } });
+    await assert.rejects(providerEval.evaluate({ candidate, baseline, suiteId: exitSuite.id }), /process_exit checks need an executable runner/);
+    assert.equal(paid, 0, 'no paid run for a check this runner cannot observe');
+    assert.throws(() => providerEval.registerSuite(exitSuite), /process_exit checks need an executable runner/);
+    assert.equal(E.makeSkillEvaluator({ ...options, suites: [exitSuite] }).listSuites()[0].id, 'owner:exit-code', 'an executable runner still takes the suite');
+    assert.throws(() => E.validateSuite({ ...suite, cases: [{ ...suite.cases[0], checks: [{ id: 'bad', kind: 'regex', expected: 'x' }] }, suite.cases[1]] }), /kind of json_equal, artifact_json_equal, artifact_sha256 or tool_call/);
+  }
   console.log('skill.evaluation: exact executable improvement, held-out regression, restart, tamper/model/test/skill invalidation, fixture refusal, real loop fixture isolation PASS');
 }
 main().catch(e => { console.error(e); process.exitCode = 1; });

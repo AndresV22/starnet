@@ -60,7 +60,7 @@ function validateSuite(suite) {
     if (!Array.isArray(c.checks) || !c.checks.length || c.checks.length > MAX_CHECKS) throw new Error('each case needs bounded independent task checks');
     const checkIds = new Set();
     for (const check of c.checks) {
-      if (!check || !identifier(check.id) || checkIds.has(check.id) || !['json_equal', 'artifact_json_equal', 'artifact_sha256', 'tool_call', 'process_exit'].includes(check.kind)) throw new Error('invalid task check');
+      if (!check || !identifier(check.id) || checkIds.has(check.id) || !['json_equal', 'artifact_json_equal', 'artifact_sha256', 'tool_call', 'process_exit'].includes(check.kind)) throw new Error('invalid task check (each needs a unique id and a kind of json_equal, artifact_json_equal, artifact_sha256 or tool_call)');
       checkIds.add(check.id);
       if (check.kind.endsWith('equal') && (!Object.hasOwn(check, 'expected') || jsonSize(check.expected) > 8192)) throw new Error('task equality check needs a bounded declared expected value');
       if (check.kind === 'json_equal' && check.path != null && (!Array.isArray(check.path) || check.path.length > 16 || check.path.some(p => !(typeof p === 'string' && p.length <= 120 && !unsafeKeys.has(p)) && !(Number.isInteger(p) && p >= 0)))) throw new Error('invalid JSON check path');
@@ -174,9 +174,17 @@ function makeSkillEvaluator(options) {
   if (evidenceClass === 'executable' && (!runnerIdentity.implementation || !runnerIdentity.version)) throw new Error('executable evaluation requires versioned runner identity');
   const runnerDigest = digest(runnerIdentity);
   const active = new Set();
+  // Only an executable runner observes a process exit. The provider and fixture runners work in an isolated file
+  // workspace, so a process_exit check there could never pass: refuse it before any run, and say why. Suites already
+  // stored still load above; they fail here, at evaluate, with this reason instead of a silent never-passing check.
+  function unobservable(suite) {
+    return evidenceClass !== 'executable' && suite.cases.some(c => c.checks.some(check => check.kind === 'process_exit'));
+  }
+  const PROCESS_EXIT_REFUSAL = 'process_exit checks need an executable runner; this station evaluates in an isolated file workspace, so use json_equal, artifact_json_equal, artifact_sha256 or tool_call checks';
   async function evaluate(input) {
     const p = input || {}, suite = suites.get(p.suiteId);
     if (!suite) throw new Error('unknown host evaluation suite');
+    if (unobservable(suite)) throw new Error(PROCESS_EXIT_REFUSAL);
     if (!p.candidate) throw new Error('candidate required');
     const candidate = clone(p.candidate.skill || p.candidate), baseline = p.baseline ? clone(p.baseline.skill || p.baseline) : null;
     if (!candidate || candidate.name !== suite.skillName || (baseline && baseline.name !== candidate.name)) throw new Error('test set does not govern this skill');
@@ -222,7 +230,11 @@ function makeSkillEvaluator(options) {
     if (!stored || (supplied && !isDeepStrictEqual(supplied, stored))) return { ok: false, reason: 'unknown or altered host evaluation receipt' };
     return validatePromotionReceipt(stored, { ...expected, runnerDigest, suite: suites.get(stored.suiteId) });
   }
-  function registerSuite(value) { const suite = validateSuite(value); suites.set(suite.id, suite); return suite.id; }
+  function registerSuite(value) {
+    const suite = validateSuite(value);
+    if (unobservable(suite)) throw new Error(PROCESS_EXIT_REFUSAL);
+    suites.set(suite.id, suite); return suite.id;
+  }
   return { evaluate, verifyReceipt, getReceipt, registerSuite, listSuites: () => Array.from(suites.values()).map(s => ({ id: s.id, skillName: s.skillName, cases: s.cases.length })) };
 }
 module.exports = { SCHEMA, digestSkill, digestTestSet: digest, validateSuite, assessCase, compareCases, validatePromotionReceipt, makeSkillEvaluator };
