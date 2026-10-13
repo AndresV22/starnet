@@ -467,6 +467,8 @@ const Chat = (() => {
     if (!card) return;
     const presenceRunId = (typeof Channels !== 'undefined') ? Channels.runIdOf(ws.id) : '';
     if (presenceRunId) card.dataset.runId = presenceRunId;
+    // the honest machine time rides the card, so the later telemetry hydration can never swap in wall-clock time
+    if (started) card.dataset.ms = String(Math.max(0, Math.round(Channels.elapsedOf(ws.id, Date.now()) || 0)));
     card.classList.remove('cp-live');
     presenceCurTool = null;
     const isErr = !!opts.error, needsVerify = !!opts.verificationRequired, isStop = needsVerify || !!opts.stopped || (opts.endReason && opts.endReason !== 'done') || !!opts.cutShort;
@@ -3322,7 +3324,13 @@ const Chat = (() => {
     if (sum) {
       const label = String(sum.textContent || '').split(' · ')[0];
       const bits = [];
-      if (Number(entry.durationMs) > 0) bits.push(fmtMs(Number(entry.durationMs)));
+      // ONE run, ONE duration (live walkthrough 2026-10-13: "RUN COMPLETE · 89.1s" above a receipt reading 49.3s). The
+      // card shows machine time — approval waits excluded, the same number as the receipt — and names the wait apart.
+      const honest = Number(card.dataset.ms) || 0, wall = Number(entry.durationMs) || 0;
+      if (honest > 0) {
+        bits.push(fmtMs(honest));
+        if (wall - honest > 1500) bits.push(fmtMs(wall - honest) + ' waiting on you');
+      } else if (wall > 0) bits.push(fmtMs(wall));
       bits.push(leadCalls + ' tool ' + (leadCalls === 1 ? 'call' : 'calls'));   // the LEAD's tool calls (runCallCount = toolTrace) — not model calls
       if (children.length) bits.push(workerCalls + ' worker ' + (workerCalls === 1 ? 'call' : 'calls'));
       const identity = [entry.model && entry.model !== '(unknown)' ? entry.model : '', (entry.reasoningEffort && entry.reasoningEffort !== 'none') ? entry.reasoningEffort : ''].filter(Boolean).join(' ');

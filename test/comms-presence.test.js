@@ -94,4 +94,14 @@ A.ok(/workerCalls[\s\S]{0,800}reasoningEffort/.test(src), 'summary exposes worke
 A.ok(/function\s+telemetryRun[\s\S]{0,1300}t\.ms/.test(src), 'expanded hierarchy renders each persisted per-tool duration');
 A.ok(/hydrateRunTelemetry\(ws,\s*entry,\s*runId\)[\s\S]{0,300}if\s*\(!arts\.length/.test(src), 'clean artifact-less runs still hydrate telemetry before the quiet recap return');
 
+// ONE run, ONE duration (live walkthrough 2026-10-13): the telemetry hydration rewrote the resolved card with the
+// sidecar's WALL time (approval waits included) under a receipt showing machine time. The card keeps the honest ms and
+// names any approval wait apart.
+{
+  const hyd = src.slice(src.indexOf('  function hydrateRunTelemetry('), src.indexOf('  function hydrateRunTelemetry(') + 2500);
+  A.ok(/if \(started\) card\.dataset\.ms = String\(Math\.max\(0, Math\.round\(Channels\.elapsedOf\(ws\.id, Date\.now\(\)\)/.test(src), 'the resolved card carries the honest (pause-excluded) run time');
+  A.ok(hyd.indexOf('const honest = Number(card.dataset.ms) || 0') >= 0 && hyd.indexOf("bits.push(fmtMs(wall - honest) + ' waiting on you')") >= 0,
+    'hydration shows that honest time and names the approval wait apart — never the wall time as the run time');
+}
+
 A.report('comms-presence.test');
