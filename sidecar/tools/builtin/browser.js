@@ -609,17 +609,28 @@
     h = String(h).toLowerCase();
     return h === '::1' || h === '::' || /^::ffff:/.test(h) || /^fe[89ab][0-9a-f]:/.test(h) || /^f[cd][0-9a-f]{2}:/.test(h);
   }
+  /* A refusal the HOST wrote (never page bytes): it does not taint the run (index.js taint observation), and its row
+     says why in a few words instead of "✗ error" (registry toolSummary). Live walkthrough 2026-10-13: an agent's
+     browser.navigate to its OWN saved file:// page was refused, the refusal latched "outside content", and a later
+     shell call was locked with a false reason. */
+  function hostRefusal(msg, summary) {
+    const e = new Error(msg);
+    e.hostAuthored = true;
+    if (summary) e.toolSummary = summary;
+    return e;
+  }
   function assertSafeUrl(raw) {
     let u;
-    try { u = new URL(raw); } catch (e) { throw new Error('invalid URL: ' + raw); }
-    if (u.protocol !== 'http:' && u.protocol !== 'https:') throw new Error('only http(s) URLs are allowed');
+    try { u = new URL(raw); } catch (e) { throw hostRefusal('invalid URL: ' + raw, 'invalid URL'); }
+    if (u.protocol === 'file:') throw hostRefusal('only http(s) URLs are allowed. To check a file you saved, fs_read it; the Commander opens it from its deliverable card.', 'not a web address (file://)');
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') throw hostRefusal('only http(s) URLs are allowed', 'not a web address');
     const h = hostOf(u);
     const numericHost = /^\d+$/.test(h) || /^0x[0-9a-f]+$/i.test(h);
     const blockedName = h === 'localhost' || h === '0.0.0.0' || h.endsWith('.localhost') || h.endsWith('.local') ||
       h.endsWith('.internal') || h.endsWith('.lan') || h.endsWith('.intranet') || h.endsWith('.home') || h.endsWith('.corp');
     const bareName = h.indexOf('.') < 0 && h.indexOf(':') < 0 && !numericHost;
     if (blockedName || bareName || numericHost || isPrivateV4(h) || isPrivateV6(h)) {
-      throw new Error('refusing to navigate to private/loopback/intranet host: ' + h);
+      throw hostRefusal('refusing to navigate to private/loopback/intranet host: ' + h, 'private address refused');
     }
     return u;
   }
@@ -682,11 +693,11 @@
   // scoped browser.test_navigate tool may use this validator, and only for an agent's local dev UI.
   function assertLoopbackUrl(raw) {
     let u;
-    try { u = new URL(raw); } catch (e) { throw new Error('invalid local test URL: ' + raw); }
-    if (u.protocol !== 'http:' && u.protocol !== 'https:') throw new Error('local browser tests allow http(s) only');
+    try { u = new URL(raw); } catch (e) { throw hostRefusal('invalid local test URL: ' + raw, 'invalid URL'); }
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') throw hostRefusal('local browser tests allow http(s) only — they drive a dev server you started, not a saved file. To check a file you saved, fs_read it.', 'not a dev-server address');
     const h = hostOf(u);
     if (h !== 'localhost' && h !== '127.0.0.1' && h !== '::1') {
-      throw new Error('local browser tests are restricted to loopback (127.0.0.1/localhost/::1)');
+      throw hostRefusal('local browser tests are restricted to loopback (127.0.0.1/localhost/::1)', 'not a local address');
     }
     return u;
   }

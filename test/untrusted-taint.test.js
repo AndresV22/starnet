@@ -280,8 +280,18 @@ A.eq(taint.postTaintBoundary(FS_WRITE, { taintedBy: 'web_fetch', surface: 'auton
   // the reasoning that "a failed fetch put nothing in front of the model" — true for web_fetch (it throws a
   // bare `http <status>`), FALSE for an MCP connector whose failure text IS the server's payload and reaches
   // the model verbatim. `isError: true` was therefore a one-flag bypass of the whole taint rule.
-  A.ok(/if \(r && typeof r\.content === 'string' && r\.content\.length && revokedByTaint\.isSource\(liveTool, c\)\) \{\s*taintScope = [^\n]*\n\s*if \(!execution\.taintedBy\(\)\) latchRunTaint\(c\.name\);/.test(src),
-    'any untrusted-source result carrying real content taints — an isError flag is not an exemption');
+  A.ok(/if \(r && typeof r\.content === 'string' && r\.content\.length && !\(r\.isError && r\.hostAuthored === true\) && revokedByTaint\.isSource\(liveTool, c\)\) \{\s*taintScope = [^\n]*\n\s*if \(!execution\.taintedBy\(\)\) latchRunTaint\(c\.name\);/.test(src),
+    'any untrusted-source result carrying real content taints — an isError flag is not an exemption; only a refusal the HOST wrote is');
+  // hostAuthored is minted only by StarNet's own URL guards — never by a connector, whose failure text IS third-party bytes
+  {
+    const tools = path.join(__dirname, '..', 'sidecar');
+    const minted = ['tools/builtin/browser.js', 'tools/builtin/web.js'];
+    for (const rel of minted) A.ok(/e\.hostAuthored = true/.test(fs.readFileSync(path.join(tools, rel), 'utf8')), rel + ' marks its own URL refusals hostAuthored');
+    const mcpDir = path.join(tools, 'mcp');
+    const mcpFiles = fs.readdirSync(mcpDir).filter(f => /\.js$/.test(f));
+    A.ok(mcpFiles.length > 0, 'the connector client sources are scanned');
+    for (const f of mcpFiles) A.ok(!/hostAuthored/.test(fs.readFileSync(path.join(mcpDir, f), 'utf8')), 'mcp/' + f + ' never marks a connector failure hostAuthored');
+  }
   A.ok(!/!r\.isError && typeof r\.content === 'string' && r\.content\.length && revokedByTaint\.isSource/.test(src),
     'the isError exemption is gone (a hostile connector cannot opt out of taint by failing)');
   A.ok(/taintedBy: taintSource, surface: effectSurface, hasPrompt:/.test(src),

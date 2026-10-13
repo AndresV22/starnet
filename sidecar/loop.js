@@ -477,6 +477,8 @@
        · It never fires without a verification tool actually wired, never on the grace turn (contracted to be
          tool-free), and at most once per run, so a model that refuses to verify still terminates. */
   const VOS_PROSE_EXT = new Set(['md', 'markdown', 'mdx', 'rst', 'txt', 'text', 'adoc', 'asciidoc', 'org', 'log', 'csv', 'tsv', 'json5']);
+  // a standalone web page (no project around it) has no build or test command to prove it — see standaloneWorkspace
+  const VOS_PAGE_RE = /\.(?:html?|svg|css)$/i;
   const VOS_PROSE_NAME = new Set(['license', 'licence', 'notice', 'authors', 'contributors', 'changelog', 'codeowners', 'readme']);
   // Wire names arrive underscored (the OpenAI function-name grammar forbids '.'), registry names dotted.
   const vosKey = (n) => String(n == null ? '' : n).toLowerCase().replace(/\./g, '_');
@@ -2458,7 +2460,7 @@
             else if (vosUnverified.size) vosFailedCheck = clip(k === 'shell_exec' ? ((c.args && (c.args.command || c.args.cmd || c.args.script)) || k) : ((c.args && c.args.cmd) || k), 80);
             continue;
           }
-          if (VOS_MUTATORS.has(k)) { const p = vosPathOf(c.args); if (vosIsCodePath(p)) vosUnverified.add(p); }
+          if (VOS_MUTATORS.has(k)) { const p = vosPathOf(c.args); if (vosIsCodePath(p) && !(o.standaloneWorkspace === true && VOS_PAGE_RE.test(p))) vosUnverified.add(p); }
           const externalEffect = vosExternalEffect(c.name);
           if (externalEffect && externalEffect.role === 'observe') {
             const pending = vosExternalUnverified.get(externalEffect.connector);

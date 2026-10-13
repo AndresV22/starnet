@@ -21415,14 +21415,22 @@ async function runOnceCore(o) {
       fullAccess: stationBypassNow() || agentFullAccessNow() || connectorFullAccess, untrustedEntry: untrustedEntryRun, call: c
     });
     if (postTaint.needsConfirmation) {
-      let decision = 'deny';
+      let decision = 'deny', humanAnswered = false;
       // a delegated worker's post-taint / connector confirmation names the worker too (the page answers it on its row)
       const askEffect = () => effectPrompt(c, liveTool);
-      try { decision = await (o.delegatedBy ? askedBy.run({ agentId, runId, streamId: streamId || '', signal }, askEffect) : askEffect()); } catch (_) {}
+      try { decision = await (o.delegatedBy ? askedBy.run({ agentId, runId, streamId: streamId || '', signal }, askEffect) : askEffect()); humanAnswered = true; } catch (_) {}
       postTaint = revokedByTaint.boundary(liveTool, {
         taintedBy: taintSource, surface: effectSurface, hasPrompt: true, decision,
         fullAccess: stationBypassNow() || agentFullAccessNow() || connectorFullAccess, untrustedEntry: untrustedEntryRun, call: c
       });
+      /* THE COMMANDER SAID NO — say that, not "outside content". A human Deny on this card used to come back to the
+         model as the taint lockout, and it told the Commander "I can't run commands because I already read outside
+         content" (live walkthrough 2026-10-13) — it was their own decision. 'denied' is a final human answer: no
+         recovery nudge follows (loop.js). */
+      if (!postTaint.allow && humanAnswered && String(decision || '').toLowerCase() === 'deny') {
+        return { ok: false, isError: true, summary: 'denied',
+          content: 'consent denied for ' + c.name + ': the Commander declined this call. Do NOT retry it or work around it with another tool; carry on without it and, if it mattered, say plainly that it was declined.' };
+      }
     }
     const postTaintConfirmed = postTaint.oneShot;
     if (!postTaint.allow) {
@@ -21665,7 +21673,9 @@ async function runOnceCore(o) {
        puts it verbatim into the tool_result the model reads. So `isError: true` was a one-flag bypass that let
        a hostile connector inject text while the run kept its terminal / credentialed / connector-write powers.
        What actually matters is whether untrusted BYTES reached the context, not whether the call succeeded. */
-    if (r && typeof r.content === 'string' && r.content.length && revokedByTaint.isSource(liveTool, c)) {
+    // ...EXCEPT a refusal the HOST itself wrote (hostAuthored: a URL guard refusing file:// or a private address) — no
+    // outside byte reached the context. MCP connector failures never carry the flag, so they still latch.
+    if (r && typeof r.content === 'string' && r.content.length && !(r.isError && r.hostAuthored === true) && revokedByTaint.isSource(liveTool, c)) {
       taintScope = taintPolicy.scopeAfterSource(taintScope, liveTool, c, { wasTainted: !!execution.taintedBy(), runId });
       if (!execution.taintedBy()) latchRunTaint(c.name);
     }
@@ -22467,6 +22477,10 @@ async function runOnceCore(o) {
       result = await runAgentLoop({
       messages: msgs, provider, emit: loopEmit, cost, tools: o.outputOnly ? [] : toolDefs, dispatch, capCtx,
       isTask: internal ? undefined : isTask,
+      // no project folder = no build or test to run: a standalone web page saved in the agent's own workspace is not
+      // "code to verify" (loop.js VERIFY-ON-STOP) — the nudge sent agents into file:// browsing and shell reads of
+      // their own deliverable after they had said "Done." (live walkthrough 2026-10-13)
+      standaloneWorkspace: !(o.projectRoot || o.workdir),
       cacheSystemPrefix: !internal && !o.recovery ? cacheSystemPrefix : '',
       drainToolCosts: () => pendingMediaCosts.splice(0),
       acceptanceProbe,

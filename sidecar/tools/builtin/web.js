@@ -280,10 +280,13 @@
     else h = h.replace(/\.+$/, '');
     return h;
   }
+  // a refusal the HOST wrote: never taints the run, and its row says why (see browser.js hostRefusal)
+  function hostRefusal(msg, summary) { const e = new Error(msg); e.hostAuthored = true; if (summary) e.toolSummary = summary; return e; }
   function assertSafeUrl(raw) {
     let u;
-    try { u = new URL(raw); } catch (e) { throw new Error('invalid URL: ' + raw); }
-    if (u.protocol !== 'http:' && u.protocol !== 'https:') throw new Error('only http(s) URLs are allowed');
+    try { u = new URL(raw); } catch (e) { throw hostRefusal('invalid URL: ' + raw, 'invalid URL'); }
+    if (u.protocol === 'file:') throw hostRefusal('only http(s) URLs are allowed. Files are read with fs_read — a worker\'s saved file at the exact path its dispatch row lists (artifacts[].abs).', 'not a web address (file://)');
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') throw hostRefusal('only http(s) URLs are allowed', 'not a web address');
     const h = hostOf(u);
     const blockedName =
       h === 'localhost' || h === '0.0.0.0' ||

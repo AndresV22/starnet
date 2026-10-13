@@ -630,6 +630,8 @@
           thrownSummary || (unknownEffect && e.cancelled ? 'cancelled' : (e && e.precondition ? 'precondition' : 'error')),
           parked, fullError.length, fullErrorBytes, e && e.mutationReceipt, e && e.precondition, hostCap);
         if (unknownEffect) failed.effectUnknown = true;
+        // the HOST wrote this refusal (a URL guard, a path rule) — no outside bytes reached the model (taint observation)
+        if (e && e.hostAuthored === true) failed.hostAuthored = true;
         // A refusal that points at a DEFERRED tool (browser.eval -> browser.inspect) must also make it callable: the
         // loop moves revealTools names into the advertised set only when they were already granted and deferred,
         // so this never widens capability. The result stays an error.

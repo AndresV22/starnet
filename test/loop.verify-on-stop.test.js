@@ -60,7 +60,8 @@ async function run(o) {
     messages, provider, emit, cost: makeCostEngine({ priceOf: provider.priceOf }),
     model: 'replay/model', agentId: 'a', runId: 'r', tools: o.tools || toolDefs('fs_write', 'verify_run', 'shell_exec'),
     limits: Object.assign({ maxIters: 8, grace: false }, o.limits || {}),
-    dispatch: (c, ctx) => r.dispatch(c, ctx), capCtx: openCtx()
+    dispatch: (c, ctx) => r.dispatch(c, ctx), capCtx: openCtx(),
+    standaloneWorkspace: o.standalone === true
   });
   const nudges = messages.filter(m => m.role === 'system' && String(m.content).indexOf('<verify_before_done>') === 0);
   const externalNudges = messages.filter(m => m.role === 'system' && String(m.content).indexOf('<verify_external_before_done>') === 0);
@@ -275,6 +276,20 @@ async function run(o) {
       'source grounding does not spend an impossible turn when the connector exposes no reader');
     A.eq((await run({ user: 'Summarize the available connector capabilities.', fixture: fixture(inspect, {}), tools: toolDefs(inspect, fetch), registry: externalReg() })).sourceNudges.length, 0,
       'an inspect-only task that asks for no source grounding does not spend an extra turn');
+  }
+
+  // ---- STANDALONE PAGES (live walkthrough 2026-10-13): a web page saved in the agent's own workspace, with no project
+  //      around it, has no build or test to run — demanding one sent the agent into file:// browsing and shell reads of
+  //      its own deliverable after it had said "Done." Inside a project the same file is still code to verify. ----
+  {
+    for (const p of ['launch-countdown.html', 'site/index.htm', 'logo.svg', 'theme.css']) {
+      const { nudges } = await run({ fixture: fixture('fs_write', { path: p, content: 'x' }), standalone: true });
+      A.eq(nudges.length, 0, 'a standalone page (' + p + ') with no project never triggers verify-on-stop');
+    }
+    A.eq((await run({ fixture: fixture('fs_write', { path: 'launch-countdown.html', content: 'x' }) })).nudges.length, 1,
+      'the same page inside a project is still code to verify');
+    A.eq((await run({ fixture: fixture('fs_write', { path: 'src/app.js', content: 'x' }), standalone: true })).nudges.length, 1,
+      'a script in a standalone workspace is still code to verify');
   }
 
   A.report('loop.verify-on-stop.test');
