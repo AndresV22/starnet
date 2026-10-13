@@ -67,7 +67,10 @@ function cleanOwnerRows(rows, runRecords, tail = 400) {
 }
 function ownedBriefs(briefs, transcriptRows, runRecords) {
   // Every clean owner row in the mirror (not just the newest 400), indexed by the agent, stream and run that wrote
-  // it: one pass, then one lookup per brief instead of a scan of every row per brief.
+  // it: one pass, then one lookup per brief instead of a scan of every row per brief. The mirror keeps only the
+  // newest 3000 rows station-wide (routine streams count too), so on a busy station a weekly request's earlier
+  // occasions can still fall out of it. Proving those from disk is the host's job: one transcriptStore.history
+  // lookup per brief key, memoized (original rows are append-only, so the answer never changes).
   const proof = new Map(), seen = new Set();
   for (const m of cleanOwnerRows(transcriptRows, runRecords, 0)) {
     const key = JSON.stringify([m.agentId, m.streamId, m.sourceRunId]);
