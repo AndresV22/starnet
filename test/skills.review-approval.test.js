@@ -278,4 +278,17 @@ for (const change of ['body', 'files', 'summary', 'baseline', 'pin']) {
   A.ok(proposal(g.s).skill.body.includes('very short'), 'own draft carries both patches');
   A.eq(g.s.write({ agentId: 'a', name: 'Brief', body: 'Rewritten.', createdBy: 'agent', sourceRunId: 'run-5' }).ok, false, 'legacy write wrapper is held to the same rule');
 }
+// Approving a revision keeps the live usage counters. Rolling useCount/lastUsedAt back to stage time made a
+// skill used all fortnight look idle, so the next curate pass could mark it stale or propose retiring it.
+{
+  const f = fixture(); seed(f); f.s.manage({ agentId: 'a', action: 'edit', target: 'Brief', body: BODY + '\n3. Check totals.' });
+  const c = proposal(f.s);
+  f.s.markUsed('a', 'Brief'); f.s.markUsed('a', 'Brief'); f.s.view('a', 'Brief', { hydrate: false });
+  const live = read(f.s);
+  A.ok(f.promote(c, f.issue(c)).ok, 'precondition: revision promotes');
+  const promoted = read(f.s);
+  A.eq(promoted.body, c.skill.body, 'promoted bytes are the evaluated candidate');
+  A.eq([promoted.useCount, promoted.viewCount, promoted.lastUsedAt], [live.useCount, live.viewCount, live.lastUsedAt], 'promotion carries the live usage counters');
+  f.reload(); A.eq(read(f.s).useCount, live.useCount, 'carried usage survives restart');
+}
 A.report('skills.review-approval');

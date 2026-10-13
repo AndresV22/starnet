@@ -665,6 +665,13 @@
         if (heirPending) return { ok: false, error: 'approve the proposal for "' + heirName + '" first - this archive moves its content there' };
         if (!heir) return { ok: false, error: '"' + heirName + '" is not an active skill, so this archive would point at content nobody can load' };
       }
+      // Usage telemetry is not part of the evaluated digest: keep the live counters, not the stage-time copy,
+      // or a skill used every day since it was proposed would look idle to curate() right after approval.
+      if (active) {
+        entry.viewCount = active.viewCount || 0;
+        entry.useCount = active.useCount || 0;
+        entry.lastUsedAt = active.lastUsedAt || null;
+      }
       entry.canonicalRevision = true; entry.updatedAt = now();
       entry.promotionReceiptId = str(checked.receiptId || (e.evaluation && (e.evaluation.receiptId || e.evaluation.id)));
       // The decision record says whether the promotion was measured or only owner-acknowledged as no improvement.
