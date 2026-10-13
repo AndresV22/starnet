@@ -337,10 +337,11 @@ function makeMediaService(options) {
     } else if (edgeFloor) reasons.push('edge: disabled');
     return { ok: false, reason: reasons.join('; ') || (edgeFloor ? 'this station holds no voice-capable credential' : 'no keyed voice provider') };
   }
-  /* The station's SPOKEN voice for a paired device (remote/voice.js `speak`): the same order the desk's own speaker
-     uses — the bundled offline engine in its default voice, then that voice's mapped Edge neural, then the keyed
-     ladder — so the companion on the desk and the desk itself sound like one station. Never throws. */
-  /* opts.provider pins one reply to the engine that spoke its first sentence ('local-kokoro', 'edge', or a keyed
+  /* The spoken voice for a paired device (remote/voice.js `speak`): always the built-in engine's DEFAULT voice
+     (am_onyx), then that voice's mapped Edge neural voice, then the keyed ladder. Voice picks (station and
+     per-agent) live in the desk page's storage (DECISIONS "Per-agent spoken voices") and `speak` carries no
+     agentId, so the companion does not follow them. Never throws.
+     opts.provider pins one reply to the engine that spoke its first sentence ('local-kokoro', 'edge', or a keyed
      provider): later sentences try only that leg, so a reply never changes speaker or format halfway (the desk's
      Live Voice pins the same way). The built-in engine answers only once its model is READY: a cold model starts
      loading in the background and this reply goes to the next leg at once, never waiting minutes on a download. */

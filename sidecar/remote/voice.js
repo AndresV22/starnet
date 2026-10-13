@@ -4,7 +4,7 @@
 
      hear   { utt, part, frames:[b64 opus], frameMs, last }   collect one utterance in order; on `last`,
                                                                transcribe it with the station's STT chain -> { text }
-     speak  { text }                                           synthesize in the station's spoken voice
+     speak  { text }                                           synthesize in the station's default built-in voice
                                                                -> { id, mime, bytes, provider }
      speech { id, offset, length }                             that audio, in chunks -> { data, offset, bytes, done }
 
