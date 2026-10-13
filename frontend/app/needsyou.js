@@ -90,13 +90,15 @@ const NeedsYou = (() => {
     return s < 60 ? 'now' : s < 3600 ? Math.floor(s / 60) + 'm' : s < DAY / 1000 ? Math.floor(s / 3600) + 'h' : Math.floor(s / 86400) + 'd';
   }
   const KIND = { approval: 'wants to', question: 'asks', group: '', failed: '', routine: '' };
+  const RAIL_CHARS = 48;   // about what the rail's two clamped lines show (pipglass.css .ny-what: line-clamp 2)
   // the rail shows one glance line. Approve from here only when that line IS the whole request; when the approval card
-  // holds more (INSPECT: a long command's tail, a file change, every argument; a station build's plan), Review lands
-  // on that card instead. Deny stays one tap: refusing without the detail is safe.
+  // holds more (INSPECT: a long command's tail, a file change, every argument; a station ask's own sentence: a build's
+  // plan, the job a line runs, what its runs spend, that it runs unattended), or the line is longer than the rail
+  // shows, Review lands on that card instead. Deny stays one tap: refusing without the detail is safe.
   function hiddenDetail(p) {
-    if (/^station[._]build$/.test(String((p && p.tool) || ''))) return true;
-    if (typeof Chat === 'undefined' || !Chat.consentInspect) return true;   // no way to tell: never approve blind
-    return !!Chat.consentInspect(p);
+    if (/^station[._]/.test(String((p && p.tool) || ''))) return true;
+    if (typeof Chat === 'undefined' || !Chat.consentInspect || !Chat.consentPhrase) return true;   // no way to tell: never approve blind
+    return !!Chat.consentInspect(p) || (KIND.approval + ' ' + Chat.consentPhrase(p)).length > RAIL_CHARS;
   }
   function keysFor(i) {
     const k = (act, label, cls, off) => '<button type="button" class="ny-key' + (cls ? ' ' + cls : '') + '" data-ny-act="' + act + '" data-ny-key="' + esc(i.key) + '"' + (off ? ' disabled' : '') + '>' + label + '</button>';

@@ -104,6 +104,20 @@ const NY = require('../frontend/app/needsyou.js');
   const inspect = global.Chat.consentInspect; delete global.Chat.consentInspect;
   A.ok(!/data-ny-act="once"/.test(k(ask({ promptId: 'p24', tool: 'fs.read', argsSummary: 'notes.md' }))), 'with no way to tell, the rail never approves blind');
   global.Chat.consentInspect = inspect;
+  // the card's own phrase (chat.js actionPhrase, run for real): the rail clamps it to two short lines, so a station ask
+  // (the sidecar's sentence: the job, what the line's runs spend, SEND TO downstream, that it runs unattended) and any
+  // phrase longer than those two lines go to the card, even when the card has no INSPECT panel for them
+  const phrase = global.Chat.consentPhrase; global.Chat.consentPhrase = consentCard.actionPhrase;
+  const testLine = ask({ promptId: 'p25', tool: 'station.test_line', argsSummary: 'the line Inbox triage, with this test job: "sort the 40 newest emails into folders and draft a reply to every customer". It runs the line\'s agents and spends what they spend; the result lands in DELIVERABLES › TO REVIEW. If its OUTBOX has SEND TO, the downstream line also runs the result at its own cost.' });
+  A.ok(/>Review</.test(k(testLine)) && !/data-ny-act="once"/.test(k(testLine)), 'a line test that spends money is reviewed on its card, never approved from the rail');
+  const startLine = ask({ promptId: 'p26', tool: 'station.start_line', argsSummary: 'the line Inbox triage: run it every day at 9:00, with the job: "sort the inbox". From then on it runs the line\'s agents unattended, within the line\'s budget.' });
+  A.ok(!/data-ny-act="once"/.test(k(startLine)), 'a line that will run unattended is reviewed on its card');
+  A.ok(!/data-ny-act="once"/.test(k(ask({ promptId: 'p27', tool: 'station.control', argsSummary: 'turn the room light up' }))), 'every station ask is reviewed on its card');
+  const longPath = ask({ promptId: 'p28', tool: 'fs.read', argsSummary: 'C:\\Users\\andro\\projects\\launch-prep\\drafts\\pricing\\tier-comparison-final.md' });
+  A.eq(global.Chat.consentInspect(longPath.p), null, '(a bare path under the glance limit has no INSPECT panel on its card)');
+  A.ok(/>Review</.test(k(longPath)) && !/data-ny-act="once"/.test(k(longPath)), 'a path longer than the rail shows is reviewed on its card');
+  A.ok(/data-ny-act="once"[^>]*>Approve</.test(k(ask({ promptId: 'p29', tool: 'fs.read', argsSummary: 'notes.md' }))), 'a short request is still one-tap Approve');
+  global.Chat.consentPhrase = phrase;
 }
 {
   const app = fs.readFileSync(path.join(__dirname, '..', 'frontend', 'app', 'app.js'), 'utf8');
