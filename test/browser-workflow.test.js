@@ -42,7 +42,7 @@ assert.equal(deriveReadClient([row]).candidates[0].verified, false);
       const store = makeSkillStore({ io, packageStore: makePackageStore({ fs, pathMod: path, root }) });
       const tools = makeSkillTools({ store });
       const manage = tools.manageTool;
-      const ctx = { agentId: 'lookup-proof' };
+      const ctx = { agentId: 'lookup-proof', runId: 'run-lookup' };   // a real run's tool ctx always carries its runId
       const source = deriveReadClient([{ ...row, url: base + '/items' }]).candidates[0].source;
       const created = await manage.run({ action: 'create', name: 'Verified item lookup', body: 'GET the observed endpoint. Verified count=2, items=one,two against the browser fixture. Return to browser if the response changes.' }, ctx);
       assert.equal(created.summary, 'proposed', created.content);

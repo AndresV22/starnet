@@ -90,11 +90,12 @@ for (const action of ['edit', 'patch', 'write_file', 'remove_file', 'archive']) 
 
 // Receipt invalidation covers changed body, support bytes, metadata, user baseline and pin races.
 for (const change of ['body', 'files', 'summary', 'baseline', 'pin']) {
-  const f = fixture(); seed(f); f.s.manage({ agentId: 'a', action: 'edit', target: 'Brief', body: BODY + '\n3. Check.' });
+  // The same run keeps revising its own proposal (a run only builds on a draft its own run wrote).
+  const f = fixture(); seed(f); f.s.manage({ agentId: 'a', action: 'edit', target: 'Brief', body: BODY + '\n3. Check.', sourceRunId: 'run-r' });
   const c = proposal(f.s), receipt = f.issue(c);
-  if (change === 'body') f.s.manage({ agentId: 'a', action: 'patch', target: 'Brief', find: 'Check.', replace: 'Check twice.' });
-  if (change === 'files') f.s.manage({ agentId: 'a', action: 'write_file', target: 'Brief', path: 'scripts/check.js', content: 'return 1;' });
-  if (change === 'summary') f.s.manage({ agentId: 'a', action: 'edit', target: 'Brief', summary: 'new tasks' });
+  if (change === 'body') f.s.manage({ agentId: 'a', action: 'patch', target: 'Brief', find: 'Check.', replace: 'Check twice.', sourceRunId: 'run-r' });
+  if (change === 'files') f.s.manage({ agentId: 'a', action: 'write_file', target: 'Brief', path: 'scripts/check.js', content: 'return 1;', sourceRunId: 'run-r' });
+  if (change === 'summary') f.s.manage({ agentId: 'a', action: 'edit', target: 'Brief', summary: 'new tasks', sourceRunId: 'run-r' });
   if (change === 'baseline') f.s.manage({ agentId: 'a', action: 'edit', target: 'Brief', body: 'Commander correction', createdBy: 'user' });
   if (change === 'pin') f.s.manage({ agentId: 'a', action: 'pin', target: 'Brief', createdBy: 'user' });
   A.eq(f.promote(c, receipt).ok, false, change + ' race refuses old approval');
@@ -377,6 +378,13 @@ for (const change of ['body', 'files', 'summary', 'baseline', 'pin']) {
   A.ok(g.s.manage({ agentId: 'a', target: 'Brief', action: 'patch', find: 'short', replace: 'very short', createdBy: 'agent', sourceRunId: 'run-4' }).pending, 'the same run continues its own draft');
   A.ok(proposal(g.s).skill.body.includes('very short'), 'own draft carries both patches');
   A.eq(g.s.write({ agentId: 'a', name: 'Brief', body: 'Rewritten.', createdBy: 'agent', sourceRunId: 'run-5' }).ok, false, 'legacy write wrapper is held to the same rule');
+  // Two empty run ids are not the same run: a review draft written without one (curate() passes none) would
+  // otherwise count as a run-less writer's own draft, and its patch text would 'not be found' again.
+  const h = fixture(); seed(h);
+  A.ok(h.s.manage({ agentId: 'a', target: 'Brief', action: 'patch', find: 'concise', replace: 'reviewed', createdBy: 'background-review' }).pending, 'review proposes a revision without a run id');
+  const runless = h.s.manage({ agentId: 'a', target: 'Brief', action: 'patch', find: 'concise', replace: 'short', createdBy: 'agent' });
+  A.eq(runless.ok, false, 'a writer with no run id does not build on the unseen draft');
+  A.ok(/awaiting/.test(runless.error || '') && !/not found/.test(runless.error || ''), 'run-less refusal names the waiting proposal');
 }
 // Approving a revision keeps the live usage counters. Rolling useCount/lastUsedAt back to stage time made a
 // skill used all fortnight look idle, so the next curate pass could mark it stale or propose retiring it.

@@ -586,11 +586,12 @@
       // A writer builds on a pending draft only when it can SEE that draft: the review/curator passes read it
       // through pendingView, and a foreground run sees it only when its own run wrote it. Otherwise the run's
       // patch text comes from the active body (so it "isn't found" in the draft) and a full edit would silently
-      // discard the proposal it never saw.
-      const unseen = new Set();
+      // discard the proposal it never saw. Two empty run ids are not the same run (a review draft can carry none).
+      const unseen = new Set(), runId = str(e.sourceRunId);
       for (const row of candidateRows.values()) if (row.agentId === aid && row.status === 'pending'
         && row.baseDigest === revisionDigest(latest.get(keyOf(row.agentId, row.name)) || null)) {
-        if (!STAGE_ACTORS.has(str(e.createdBy)) && str(row.skill.sourceRunId) !== str(e.sourceRunId)) { unseen.add(keyOf(row.agentId, row.name)); continue; }
+        const own = !!runId && str(row.skill.sourceRunId) === runId;
+        if (!STAGE_ACTORS.has(str(e.createdBy)) && !own) { unseen.add(keyOf(row.agentId, row.name)); continue; }
         const i = seeds.findIndex(s => keyOf(s.agentId, s.name) === keyOf(row.agentId, row.name));
         if (i >= 0) seeds[i] = clone(row.skill); else seeds.push(clone(row.skill));
       }
