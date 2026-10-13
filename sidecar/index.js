@@ -10843,6 +10843,9 @@ const groupSessions = require('./group-sessions.js').makeGroupSessions({
         taskKey: 'stream:' + g.id, taskSource: 'interactive',
         surface: 'interactive', lead: false, groupTools: tools, askCommander,
         station: router.stationFor(t.agentId) || undefined,
+        // the agent's own room gear (its dish = web, its cabinet = files …), exactly as its one-on-one chat gets it from
+        // the durable floor (/api/run, savedPlacement): in a group a researcher could not search (2026-10-13 gap review)
+        extraObjects: require('./capability/saved-placement.js').savedPlacement(saveStore.load('agent'), t.agentId),
         prompt: (call, tool) => prompt({ tool: call.name, scope: tool?.scope || 'write', argsSummary: consentSummary(call), argsFull: consentArgsFull(call) }),
         loginPrompt: prompt, reflect: false
       });
