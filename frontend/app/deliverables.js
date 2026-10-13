@@ -37,7 +37,7 @@
   function openUrl(url) { return (typeof ApiTicket !== 'undefined' && ApiTicket.sign) ? ApiTicket.sign(url) : String(url || ''); }
   const fmtSize = n => n == null ? 'size unknown' : n < 1024 ? n + ' B' : n < 1048576 ? (n / 1024).toFixed(1) + ' KB' : (n / 1048576).toFixed(1) + ' MB';
   const apiBase = () => typeof window !== 'undefined' ? String(window.__STARNET_API__ || '') : '';
-  const post = (url, body) => fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) }).then(async r => { const j = await r.json(); if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status)); return j; });
+  const post = (url, body) => fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) }).then(async r => { const j = await r.json(); if (!r.ok) throw Object.assign(new Error(j.error || ('HTTP ' + r.status)), { status: r.status }); return j; });
 
   function fileHref(f) {
     const href = openUrl(f && f.openUrl);
@@ -457,7 +457,10 @@
       const b = ev.target.closest && ev.target.closest('button[data-undo-clear]'); if (!b) return;
       b.disabled = true;
       try { const u = await post('/api/deliverables/clear-undo', { undoToken: b.dataset.undoClear }); lastUndo = null; await load(); say('Brought back ' + u.restored + (u.restored === 1 ? ' deliverable.' : ' deliverables.')); }
-      catch (e) { b.disabled = false; say(e.message, true); }
+      catch (e) {
+        if (e.status === 404) lastUndo = null;   // the server no longer holds that clear (aged out, or used elsewhere): never offer it again
+        b.disabled = false; say(e.message, true);
+      }
     });
     // Re-wired after every render: innerHTML replaces the buttons, so the previous listeners die with the
     // old nodes and there is nothing to dispose. If armconfirm.js somehow did not load, the buttons stay

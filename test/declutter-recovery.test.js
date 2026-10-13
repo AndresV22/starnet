@@ -52,7 +52,10 @@ function fn(src,name){const m=new RegExp('^( {0,4})(?:async )?function '+name+'\
       get innerHTML(){return this._html;},set innerHTML(v){this._html=String(v);}});
     const wired=[];global.ArmConfirm={wire:(b,o)=>{b.__arm=o;wired.push(b);return()=>{};}};
     let library,calls=[];
-    global.fetch=async(url,opts)=>{calls.push(url);const j=url.startsWith('/api/deliverables?')?library:url==='/api/deliverables/clear'?{cleared:1,skipped:1,undoToken:'tok-1'}:url==='/api/deliverables/clear-undo'?{restored:1}:{};return {ok:true,status:200,json:async()=>j};};
+    let undoGone=false;   // the server's 404 once the clear can no longer be undone (aged out, or another mount used it)
+    global.fetch=async(url,opts)=>{calls.push(url);
+      if(url==='/api/deliverables/clear-undo'&&undoGone)return {ok:false,status:404,json:async()=>({ok:false,error:'That clear can no longer be undone.'})};
+      const j=url.startsWith('/api/deliverables?')?library:url==='/api/deliverables/clear'?{cleared:1,skipped:1,undoToken:'tok-1'}:url==='/api/deliverables/clear-undo'?{restored:1}:{};return {ok:true,status:200,json:async()=>j};};
     const mount=async()=>{const els={},body=mk();body.querySelector=sel=>els[sel]||(els[sel]=mk());D.mount(body);
       const list=body.querySelector('#dl-list');list.querySelectorAll=sel=>sel==='button.dlv-bclear'?[...list._html.matchAll(/data-bucket="([^"]+)"/g)].map(m=>{const b=mk();b.dataset.bucket=m[1];return b;}):[];
       await settle();return {body,q:sel=>body.querySelector(sel)};};
@@ -75,6 +78,12 @@ function fn(src,name){const m=new RegExp('^( {0,4})(?:async )?function '+name+'\
     await msg._h.click[0]({target:{closest:()=>({disabled:false,dataset:{undoClear:'tok-1'}})}});await settle();
     A.ok(/Brought back 1 deliverable/.test(msg.innerHTML),'undo reports what came back');
     shown.__arm.onArm();shown.__arm.onDisarm();A.eq(msg.innerHTML,'','a spent UNDO is never offered again');
+    // review follow-up: an UNDO the server no longer honours is dropped, never redrawn on every disarm or reload
+    await shown.__arm.onConfirm();await settle();A.ok(/data-undo-clear="tok-1"/.test(msg.innerHTML),'a second clear offers UNDO');
+    undoGone=true;await msg._h.click[0]({target:{closest:()=>({disabled:false,dataset:{undoClear:'tok-1'}})}});await settle();
+    A.ok(/can no longer be undone/.test(msg.innerHTML),'a dead UNDO says why it failed');
+    shown.__arm.onArm();shown.__arm.onDisarm();A.eq(msg.innerHTML,'','a dead UNDO is not offered again after a disarm');
+    w.q('#dl-refresh')._h.click[0]();await settle();A.ok(!/data-undo-clear/.test(msg.innerHTML),'…or after a reload');
     delete global.ArmConfirm;delete global.fetch;
   }
   A.report('declutter-recovery');
