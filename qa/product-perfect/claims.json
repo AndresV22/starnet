@@ -18,7 +18,7 @@
   "expectedClaimCount": 37,
   "releaseSurface": {
     "algorithm": "sha256",
-    "sourceCommit": "607e90f30db241fb361c877e620664bdec854666",
+    "sourceCommit": "e9037cf36e694de932fe6421be81c1b7af4eaafe",
     "pathSetSha256": "213a4211bc1a66001a9f827b197c1b7aff1194373527f28d43c7ea6f2ebd706c",
     "files": [
       {
@@ -558,8 +558,8 @@
       },
       {
         "path": "frontend/app/group-chat.js",
-        "bytes": 98183,
-        "sha256": "589783a11c049f68f2d63d8d9334104e842213fb607f027ba8091040d2ccc5d3"
+        "bytes": 99163,
+        "sha256": "377b147aa69f13865c9c88823028b61e8cdd4607db5368887b36593566766d96"
       },
       {
         "path": "frontend/app/harness.js",
@@ -1163,8 +1163,8 @@
       },
       {
         "path": "frontend/app/stationcommands.js",
-        "bytes": 95155,
-        "sha256": "21e159939ca708645b9cd84185069a8576e4ab5db34c7b6346aa260549e5697d"
+        "bytes": 96132,
+        "sha256": "796cc93485abdaaf9c0e92cf9b5cfa91f100f09378e1e181eb348a6e7d675365"
       },
       {
         "path": "frontend/app/stationquests.js",
