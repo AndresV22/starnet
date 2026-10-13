@@ -174,6 +174,8 @@ const roster = new Map([['researcher', { system: 'R', name: 'MIRA' }], ['writer'
   const asking = L.lineHtml(running, 'home');
   A.ok(/aria-expanded="true"/.test(asking) && /data-dg-consent="once" data-dg-ws="k1"/.test(asking) && /data-dg-consent="deny" data-dg-ws="k1"/.test(asking), 'a worker waiting on you shows even folded, with Approve and Deny on its row');
   A.ok(!/data-dg-consent="(always|full|session)"/.test(asking), 'a worker row never offers a lead- or station-wide grant');
+  A.ok(/data-dg-consent="once" data-dg-ws="k1" data-dg-prompt="p5"/.test(asking) && /data-dg-consent="deny" data-dg-ws="k1" data-dg-prompt="p5"/.test(asking), 'each key is bound to the exact ask it was drawn for');
+  A.ok(/if \(key && key\.dataset && key\.dataset\.dgPrompt && String\(p\.promptId\) !== key\.dataset\.dgPrompt\) \{ repaint\(\); return; \}/.test(fs.readFileSync(path.join(__dirname, '..', 'frontend', 'app', 'delegated.js'), 'utf8')), 'a key never answers a different ask than it showed');
   pend.set('home', [{ promptId: 'question-1', tool: 'brief.ask', agentId: 'agent', workerStreamId: 'k1', argsSummary: JSON.stringify({ question: 'Which palette?', options: ['Blue', 'Green'] }) }]);
   const question = L.lineHtml(running, 'home');
   A.ok(/data-dg-question="question-1"[^>]*>Answer/.test(question), 'a delegated question links to its exact question card');

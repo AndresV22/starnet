@@ -182,8 +182,8 @@ const Delegated = (() => {
       const key = st.cls === 'waiting' && st.pend.tool === 'brief.ask'
         ? '<button type="button" class="dg-key primary" data-dg-question="' + esc(st.pend.promptId) + '">Answer</button>'
         : st.cls === 'waiting'
-        ? '<span class="dg-keys"><button type="button" class="dg-key primary" data-dg-consent="once" data-dg-ws="' + esc(id) + '"' + (answering.has(String(st.pend.promptId)) ? ' disabled' : '') + '>Approve</button>'
-          + '<button type="button" class="dg-key deny" data-dg-consent="deny" data-dg-ws="' + esc(id) + '"' + (answering.has(String(st.pend.promptId)) ? ' disabled' : '') + '>Deny</button></span>'
+        ? '<span class="dg-keys"><button type="button" class="dg-key primary" data-dg-consent="once" data-dg-ws="' + esc(id) + '" data-dg-prompt="' + esc(st.pend.promptId) + '"' + (answering.has(String(st.pend.promptId)) ? ' disabled' : '') + '>Approve</button>'
+          + '<button type="button" class="dg-key deny" data-dg-consent="deny" data-dg-ws="' + esc(id) + '" data-dg-prompt="' + esc(st.pend.promptId) + '"' + (answering.has(String(st.pend.promptId)) ? ' disabled' : '') + '>Deny</button></span>'
         : st.stop
           ? '<button type="button" class="dg-key deny" data-dg-stop="' + esc(st.worker.id) + '" data-tip="Stop ' + esc(who) + '"' + (stopping.has(st.worker.id) ? ' disabled' : '') + '>' + (stopping.has(st.worker.id) ? 'Stopping…' : 'Stop') + '</button>'
           : '<button type="button" class="dg-key" data-dg-see="' + esc(id) + '" aria-expanded="' + shown + '">' + (shown ? 'Hide work' : 'See work') + '</button>';
@@ -405,6 +405,8 @@ const Delegated = (() => {
     const r = findRow(wsId); if (!r) return;
     const p = askOf(r, Workstreams.activeId());
     if (!p || p.tool === 'brief.ask' || typeof Chat === 'undefined' || !Chat.answerConsent) return;
+    // the key answers the ask it was drawn for: if a different one is waiting now, show that one first, never answer it
+    if (key && key.dataset && key.dataset.dgPrompt && String(p.promptId) !== key.dataset.dgPrompt) { repaint(); return; }
     const promptId = String(p.promptId); if (answering.has(promptId)) return;
     answering.add(promptId); key.disabled = true; repaint();
     Promise.resolve(Chat.answerConsent(p, Workstreams.get(Workstreams.activeId()), decision === 'deny' ? 'deny' : 'once', 'row'))
