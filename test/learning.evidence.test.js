@@ -63,6 +63,11 @@ assert(SR.isWriteAction('propose'));
 const seen = [];
 SR.makeReviewObserver({ emit: (_name, value) => seen.push(value) }).onManage({ id: 's', name: 'Accounting', pendingCandidate: true }, 'propose');
 assert.equal(seen[0].title, 'Proposed revision: Accounting');
+// a proposal for a skill with no active version is a proposed SKILL, not a revision (skills.js passes { isNew })
+SR.makeReviewObserver({ emit: (_name, value) => seen.push(value) }).onManage({ id: 'n', name: 'Invoicing', pendingCandidate: true }, 'propose', { isNew: true });
+assert.equal(seen[1].title, 'Proposed skill: Invoicing');
+SR.makeReviewObserver({ emit: (_name, value) => seen.push(value) }).onManage({ id: 'r', name: 'Payroll', pendingCandidate: true }, 'propose', { isNew: false });
+assert.equal(seen[2].title, 'Proposed revision: Payroll');
 console.log('learning.evidence: provenance, bounded transcript survival, secret redaction, tainted review isolation and proposal truth PASS');
 
 const longInput = { learningEvidence: { version: 1, source: 'host', tainted: true, trustedUserMessages: [{ source: 'interactive-owner', content: 'Always use CSV. ' + 'x'.repeat(2000) + ' Correction: use JSON.' }] } };

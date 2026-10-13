@@ -177,6 +177,14 @@ for (const change of ['body', 'files', 'summary', 'baseline', 'pin']) {
   A.eq(proposal(f.s).skill.scope, 'agent', 'unadvertised model sharing ignored');
   A.eq(f.s.list('a').length, 0, 'spoofed user fields do not bypass candidate publication');
 }
+// The store itself says whether a staged proposal is for a skill with no active version (skills-eval-15).
+{
+  const f = fixture();
+  A.eq(f.s.write({ agentId: 'a', name: 'Fresh', body: BODY, createdBy: 'agent' }).isNew, true, 'a proposal with no active version is new');
+  seed(f);
+  A.eq(f.s.write({ agentId: 'a', name: 'brief', body: BODY + '\n3. Check.', createdBy: 'agent' }).isNew, false, 'a proposal over an active skill (any case) is a revision');
+  A.eq(f.s.manage({ agentId: 'a', action: 'create', name: 'Other', body: BODY, createdBy: 'background-review' }).isNew, true, 'a review-created proposal is new');
+}
 // Reviewers can continue a pending draft, without publishing it or recording active use.
 {
   const f = fixture(), used = [], managed = [];

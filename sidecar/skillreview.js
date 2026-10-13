@@ -158,14 +158,16 @@
     return { count: next, due: every > 0 && next >= every };
   }
 
-  /* makeReviewObserver({ emit, log, now, source }) -> { onManage(skill, action) }
+  /* makeReviewObserver({ emit, log, now, source }) -> { onManage(skill, action, info) }
      The ONE testable seam that un-silences a background pass. When the quiet review/curator loop mutates a
      skill, onManage fires:
        1. the EXISTING `deliverable` event (kind:'skill') through the injected emit — the SKILLS panel + the
           COMMS aside both hang off this; no new schema.
        2. a single auditable log line per changed skill (C1) so a review pass is greppable.
      Deduped by skill id+action so a create-then-edit within one pass emits once per distinct change, and a
-     read that slips through (view) is dropped. Pure given injected emit/log/clock — no globals. */
+     read that slips through (view) is dropped. Pure given injected emit/log/clock — no globals.
+     info is skills.js's { isNew }: a proposal for a skill with no active version is titled 'Proposed skill',
+     one that revises an active skill 'Proposed revision' (also the title when info is absent). */
   function makeReviewObserver(deps) {
     deps = deps || {};
     const emit = typeof deps.emit === 'function' ? deps.emit : function () {};
@@ -174,13 +176,13 @@
     const source = str(deps.source || 'background-review');
     const seen = new Set();
     return {
-      onManage(skill, action) {
+      onManage(skill, action, info) {
         if (!skill || !isWriteAction(action)) return false;
         const key = str(skill.id || skill.name) + ':' + str(action).toLowerCase();
         if (seen.has(key)) return false;
         seen.add(key);
         const act = str(action).toLowerCase();
-        try { emit('deliverable', { id: skill.id, agentId: skill.agentId || 'agent', kind: 'skill', title: (act === 'propose' || skill.pendingCandidate ? 'Proposed revision: ' : '') + skill.name }); } catch (_) {}
+        try { emit('deliverable', { id: skill.id, agentId: skill.agentId || 'agent', kind: 'skill', title: ((act === 'propose' || skill.pendingCandidate) ? ((info && info.isNew) ? 'Proposed skill: ' : 'Proposed revision: ') : '') + skill.name }); } catch (_) {}
         try { log('[skills] ' + source + ' ' + act + ' "' + str(skill.name) + '" (agent=' + str(skill.agentId || 'agent') + ') at ' + now()); } catch (_) {}
         return true;
       }

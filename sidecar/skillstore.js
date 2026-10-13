@@ -627,7 +627,8 @@
       }
       try { io.append(clone(row)); } catch (err) { failNote('skillstore.candidate.append', err); throw err; }
       candidateRows.set(key, clone(row));
-      return Object.assign({}, r, { pending: true, candidate: projectCandidate(row, true),
+      // isNew: no active version (archived counts as one), so skill.write/manage can say "proposed skill" not "revision"
+      return Object.assign({}, r, { pending: true, isNew: !active, candidate: projectCandidate(row, true),
         skill: Object.assign(projectSkill(entry, true), { pendingCandidate: true, candidateId: row.candidateId }) });
     }
     function projectCandidate(row, includeBody) {
