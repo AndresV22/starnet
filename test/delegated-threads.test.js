@@ -291,7 +291,9 @@ const roster = new Map([['researcher', { system: 'R', name: 'MIRA' }], ['writer'
   A.ok(/agentId: w\.agentId, parentRunId: w\.parentRunId \|\| '', generation: w\.generation/.test(idx), 'the overseer route carries the card\'s fields');
   A.ok(/each worker\\'s work is filed on this conversation\\'s card/.test(idx), 'the lead prompt states the filing rule');
   A.ok(/childThread: require\('\.\/overseer\.js'\)\.isCoordinatorRun/.test(idx), 'only coordinator runs file child threads');
-  A.ok(/for \(let n = 1; n <= 99; n\+\+\)/.test(idx) && /return make\(a\.title \+ ' · ' \+ new Date\(\)\.toISOString\(\)/.test(idx), 'the same ask delegated again and again never runs out of thread titles');
+  // a worker thread asks overseer.create for a free title (count up, then the ask time: test/overseer.test.js runs this
+  // childThread body against a real store), so the same ask delegated again and again never runs out of thread titles
+  A.ok(/childThread: [^\n]*\n(?:[^\n]*\n){0,8}?\s*return overseer\.create\(\{[^}]*title: a\.title, worker: true \}\)/.test(idx), 'the same ask delegated again and again never runs out of thread titles');
   // Existing-row adoption and cache invalidation run behaviorally in thread-flow-navigation.test.js.
   A.ok(/const adoptedRow = Workstreams\.adopt\(row\)/.test(ov), 'polling adopts missing metadata through the participation-aware store');
   A.ok(/Chat\.answerConsent\(p, Workstreams\.get\(Workstreams\.activeId\(\)\), decision === 'deny' \? 'deny' : 'once'\)/.test(dg), 'a worker\'s ask is answered from its row through the approval card\'s own path, once or deny only');
