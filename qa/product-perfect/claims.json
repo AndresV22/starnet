@@ -18,7 +18,7 @@
   "expectedClaimCount": 37,
   "releaseSurface": {
     "algorithm": "sha256",
-    "sourceCommit": "2829b425dc3346abd453f7ff6d6d294edbdbc4ac",
+    "sourceCommit": "353c5f28dcfd8b70a32dbf2172f37c07a43aca4a",
     "pathSetSha256": "213a4211bc1a66001a9f827b197c1b7aff1194373527f28d43c7ea6f2ebd706c",
     "files": [
       {
@@ -343,8 +343,8 @@
       },
       {
         "path": "frontend/app/chat.js",
-        "bytes": 770471,
-        "sha256": "e7e68a34e89d9ab2ecd509511dbe1df0c434ce768e32b2d8860407863e9f4f86"
+        "bytes": 770718,
+        "sha256": "b7225e72bc172f323cef48c03645431fd8646ee2e47b28da0a2151472768ca24"
       },
       {
         "path": "frontend/app/chatresize.js",
@@ -558,8 +558,8 @@
       },
       {
         "path": "frontend/app/group-chat.js",
-        "bytes": 96904,
-        "sha256": "527de888ead988e8bf2cab2822af933e46361999fcb4b998a61d2054c511b924"
+        "bytes": 96933,
+        "sha256": "a5272eb459931b91658e3f7579b20833c99ab731e725defa2acfeaf03d501bc0"
       },
       {
         "path": "frontend/app/harness.js",
@@ -1213,8 +1213,8 @@
       },
       {
         "path": "frontend/app/taskconversation.js",
-        "bytes": 7773,
-        "sha256": "c26e9817f180e97ed897b0383522fedbe271fb4e8554354ef61b698d4de7bb3d"
+        "bytes": 7800,
+        "sha256": "08330ed65204790bb9e38f64da148358d2bc8b4bb4f313b879a9cdf7423b0b46"
       },
       {
         "path": "frontend/app/terrain.js",
