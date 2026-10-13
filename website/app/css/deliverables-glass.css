@@ -1,7 +1,7 @@
 /* MY WORK › DELIVERABLES — the current glass on the window's chrome (self-driving lane 5, 2026-10-05).
    The audit (10-04) found the old look here: a CRT 4px key pair (REFRESH / CLEAN OLD RECORDS), a pitch-dark search field and
    select, a 12px lead. MATERIAL: the Workflow-window glass restated on this window's root, exactly as
-   css/workflows-window.css and css/find-window.css do — 8px glass keys (36px, 16px VT323), the Build Library field (8px,
+   css/workflows-window.css does — 8px glass keys (36px, 16px VT323), the Build Library field (8px,
    recessed), nothing a Commander reads under 14px, matte (no glow). The deliverable cards keep their own styles here. */
 .term.dlv-win {
   --refit-glass: linear-gradient(125deg, rgba(var(--ph-bright-rgb),.09), rgba(var(--ph-rgb),.045) 48%, rgba(var(--ph-rgb),.015));
