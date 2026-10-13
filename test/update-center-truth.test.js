@@ -142,6 +142,19 @@ function launch(store, opts) {
     const sb = sk.open(); await tick();
     A.ok(/v0\.13\.3 is skipped/.test(sb.innerHTML), 'a remembered skip is named after a relaunch');
 
+    // SKIP 0.13.3 → CHECK NOW → INSTALL → relaunch on 0.13.3: the running version is never called skipped
+    const landed = launch(new Map([['starnet.updates.v1', JSON.stringify({ autoCheck: false, availableVersion: '0.13.3', ignoredVersion: '0.13.3', lastCheckAt: 5 })]]), { current: '0.13.3' });
+    await landed.init(); await tick();
+    const lb = landed.open(); await tick();
+    A.ok(!/is skipped/.test(lb.innerHTML), 'the version already running is not called skipped');
+    A.ok(/Not checked since /.test(lb.innerHTML), 'the body falls back to when the last check ran');
+
+    // a newer build is running than the skipped one the last check found: that old skip is stale, not news
+    const past = launch(new Map([['starnet.updates.v1', JSON.stringify({ autoCheck: false, availableVersion: '0.13.3', ignoredVersion: '0.13.3', lastCheckAt: 5 })]]), { current: '0.13.10' });
+    await past.init(); await tick();
+    const pb = past.open(); await tick();
+    A.ok(!/is skipped/.test(pb.innerHTML), 'a skipped version older than the running one is not named');
+
     const known = new Map([['starnet.updates.v1', JSON.stringify({ autoCheck: false, availableVersion: '0.13.2', lastCheckAt: 5 })]]);
     const k = launch(known);
     await k.init(); await tick();

@@ -75,6 +75,17 @@ const Updates = (() => {
   function isSkipped(update) {
     return !!(update && !update.critical && update.version && String(update.version) === prefs.ignoredVersion);
   }
+  // true only when version a is a later release than b (dotted numbers); an unreadable pair is never "newer"
+  function isNewerVersion(a, b) {
+    const pa = String(a || '').split('.').map(n => parseInt(n, 10));
+    const pb = String(b || '').split('.').map(n => parseInt(n, 10));
+    if (!pa.length || !pb.length || pa.some(n => !Number.isFinite(n)) || pb.some(n => !Number.isFinite(n))) return false;
+    for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+      const x = pa[i] || 0, y = pb[i] || 0;
+      if (x !== y) return x > y;
+    }
+    return false;
+  }
   function emit() {
     paintBadge();
     try { rerender('updates'); } catch (_) {}
@@ -501,8 +512,10 @@ const Updates = (() => {
     } else if (state.phase === 'idle') {
       // Not checked this launch: say only what is known — when the last check ran and what it found.
       const known = prefs.availableVersion && prefs.availableVersion !== state.currentVersion && prefs.availableVersion !== prefs.ignoredVersion ? prefs.availableVersion : '';
-      // the last check found the release the Commander skipped: say so, as the skipped phase does
-      const skipped = !known && prefs.ignoredVersion && prefs.availableVersion === prefs.ignoredVersion ? prefs.ignoredVersion : '';
+      // the last check found the release the Commander skipped: say so, as the skipped phase does — but only while it
+      // is still newer than the running build (an install of that version, or a later one, makes the skip stale)
+      const skipped = !known && prefs.ignoredVersion && prefs.availableVersion === prefs.ignoredVersion &&
+        isNewerVersion(prefs.ignoredVersion, state.currentVersion) ? prefs.ignoredVersion : '';
       out += '<div class="up-empty">' + (known
         ? 'The last check found v' + esc(known) + '. Press CHECK NOW to get it ready to install.'
         : skipped ? 'v' + esc(skipped) + ' is skipped. Press CHECK NOW to see it again.'
