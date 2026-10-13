@@ -21,11 +21,13 @@ function originsOf(runRecords) {
 function cleanOwnerRow(m, origins) {
   if (!m || m.role !== 'user' || m.taintKnown !== true || m.taint || m.from ||
     typeof m.content !== 'string' || !m.content.trim() || quotedMaterial(m.content)) return false;
-  if (!origins) return true;
-  // A clean row can still be station self-talk. Resolve its original run independently of the recent
-  // title window; missing origin or an unknown internal flag is not evidence of an owner request.
+  if (!origins) return false;   // no run records, no proof of who gave the directive
+  // A clean row can still be station self-talk, or a channel GROUP GUEST's message: a guest's row is as clean as
+  // the owner's, and surface/streamId cannot tell them apart. Resolve its original run independently of the recent
+  // title window; only the host's ownerDirective stamp (runstore) proves the Commander gave it. A missing origin, an
+  // unknown internal flag, or a legacy run without the stamp is not evidence of an owner request.
   const r = origins.get(m.sourceRunId);
-  return !!(r && r.internal === false && !r.parentRunId && !r.delegatedBy && !r.cronJobId && !r.recoveryOf &&
+  return !!(r && r.ownerDirective === true && r.internal === false && !r.parentRunId && !r.delegatedBy && !r.cronJobId && !r.recoveryOf &&
     r.agentId === m.agentId && (r.streamId || 'global') === m.streamId && !/^(?:nightshift-|cron-|workshop-)/i.test(r.streamId || ''));
 }
 // Ambient activity reads only the recent tail: bound before filtering.
@@ -53,6 +55,12 @@ function ownedBriefs(briefs, transcriptRows, runRecords) {
     seen.add(key); return true;
   });
 }
+// Quoted material in any of these user turns. Callers pass the context a run REPLAYS (a server-seeded or re-seeded
+// transcript, a recovery checkpoint, the earlier-conversation rows): a pasted document there is data the learning
+// passes must not read as the Commander's words, whoever sent the history.
+function quotedTurns(messages) {
+  return (Array.isArray(messages) ? messages : []).some(m => m && m.role === 'user' && quotedMaterial(textOf(m)));
+}
 function capture(messages, source) {
   const list = Array.isArray(messages) ? messages : [];
   for (let i = list.length - 1; i >= 0; i--) {
@@ -71,6 +79,31 @@ function eligible(origin) {
     !o.untrustedEntry && !o.syntheticTrigger && !o.hostPowerWithheld && !o.recipeId && !o.fromRecipe &&
     (o.source === 'interactive-owner' || (o.source === 'channel-owner' && o.channelSenderOwner === true));
 }
+/* A PICK IS NOT A STANDING PREFERENCE (2026-10-12). "I prefer X" is standing only when X names a KIND of thing
+   ("tabs over spaces", "a dark theme", "it when replies are short", "that you use tabs"), not one of the items in
+   front of the Commander right now. Structure decides, not a word list of candidate nouns:
+     - any statement that points back at the current item (", ship it", ", go with that", "Never do that again.")
+       cannot stand on its own later, whatever its anchor (POINTS_BACK, checked for every anchor below);
+     - a "one"-headed item ("the blue one", "a shorter one") is a pick;
+     - a clause about how things should go ("it when …", "that you …", "to …", "using …") stays standing;
+     - a pronoun/demonstrative object ("this layout", "that one", "the latter") is a pick;
+     - a labelled candidate ("option B", "version 2", "B") or a definite/possessive item ("the second option",
+       "your draft") is a pick unless the sentence names the general case it covers ("the first person voice in
+       essays", "Python 3 for scripts").
+   When in doubt it is a pick, and nothing is saved. */
+const POINTS_BACK = /\b(?:it|this|that|these|those|them)(?:\s+(?:again|instead|anymore|too|now|then|here|there|later|first|yet))?\s*(?:[,;:!.]|$)/i;
+const GENERAL_CASE = /\b(?:(?:in|for|on|across|with)\s+(?!(?:this|that|these|those|its|his|us|yours|ours|theirs)\b)(?:(?:all|every|any|future|new|my|our)\s+){0,3}[a-z][a-z-]*s\b|when(?:ever)?\b|every\s+time\b)/i;
+function onePick(lead) {
+  const m = /^(?:i|we)\s+(?:strongly\s+|generally\s+)?prefer\s+([\s\S]*?)[\s.!]*$/i.exec(lead);
+  if (!m) return false;
+  const object = m[1];
+  if (/\bones?\b(?!-)\s*(?:[,;:!.]|$|\b(?:over|instead|rather|better|more|than|in|for|on|of|from|with|because)\b)/i.test(object)) return true;
+  if (/^(?:it\s+(?:when|if|whenever)|that\s+(?:you|we|i|they|he|she|it|there|the|all|every|each|any|no|our|my|your)|to|when|whenever|if)\b|^\w+ing\b/i.test(object)) return false;
+  if (/^(?:it|its|this|that|these|those|them|either|neither|both|yours|mine|ours|theirs|the\s+(?:latter|former|other|rest))\b/i.test(object)) return true;
+  const labelled = /^(?:#?\d+|[a-z])$/i.test(object) || /^[A-Za-z][\w-]*\s+(?:#?\d+(?:\.\d+)*|(?!I\b)[A-Z])(?![\w'])/.test(object);
+  const definite = /^(?:the|your|my|our|his|her|their)\b/i.test(object);
+  return (labelled || definite) && !GENERAL_CASE.test(object);
+}
 function preferences(input, projectRoot) {
   if (!input || !['interactive-owner', 'channel-owner'].includes(input.source)) return [];
   const text = String(input.content || '').replace(/[‘’]/g, "'");
@@ -83,14 +116,20 @@ function preferences(input, projectRoot) {
   for (const raw of text.split(/\n|(?<=[.!?])\s+/)) {
     const content = raw.trim();
     if (content.length < 8 || content.length > 600 || /\?$/.test(content)) continue;
-    if (!/^(?:(?:please\s+)?remember(?:\s+that)?[,:]?\s+)?(?:(?:i|we)\s+(?:strongly\s+|generally\s+)?prefer\b|(?:from now on|going forward|by default|for (?:all|every) future (?:tasks?|chats?|conversations?))[,:]?\s|(?:always|never)\s)/i.test(content)) continue;
+    // STANDING = an explicit standing marker. A bare "I prefer …" is not one: it is as often a pick between the drafts in
+    // front of the Commander ("I prefer the second option", "I prefer option two") as a lasting taste, and two review
+    // rounds of pick/taste word lists opened new holes both ways (2026-10-12). Fail closed: without a marker nothing is
+    // auto-saved here — the agent can still save a real preference with notebook.write, whose provenance is proven
+    // against the Commander's own words.
+    if (!/^(?:(?:please\s+)?remember(?:\s+that)?[,:]?\s+)?(?:(?:from now on|going forward|by default|for (?:all|every) future (?:tasks?|chats?|conversations?))[,:]?\s|(?:always|never)\s)/i.test(content)) continue;
     // An anchor word alone is not a standing preference: an idiom ("Never mind", "Never again"), a one-off pick
     // between drafts ("I prefer the second option") or a description of current behavior ("By default the app opens
     // to settings", "Going forward the API returns 404") is task wording. A described subject must still say what
     // should happen. When in doubt, nothing is saved.
     const lead = content.replace(/^(?:please\s+)?remember(?:\s+that)?[,:]?\s+/i, '');
-    if (/^(?:always|never)[,]?\s+(?:mind|again|before|been|was|were|is|are|am|had|has|did|does|will|would|could|can|gonna)\b/i.test(lead)) continue;
-    if (/^(?:i|we)\s+(?:strongly\s+|generally\s+)?prefer\s+(?:(?:the|your|my)\s+)?(?:first|second|third|fourth|fifth|last|latter|former|other|previous|next|new|old|original|current|top|bottom|left|right|\d+(?:st|nd|rd|th)?|this|that|these|those|it|them|one|yours|mine|option|version|choice|draft|variant)\b(?:\s+\S+){0,2}?\s*[.!]*$/i.test(lead)) continue;
+    // a narrative, not an instruction: "Never mind", "Never again", "Never once has this worked", "Always was"
+    if (/^(?:always|never)[,]?\s+(?:(?:once|ever|yet|even|really|truly|actually|quite)\s+)?(?:mind|again|before|been|was|were|is|are|am|had|has|did|does|will|would|could|can|gonna)\b/i.test(lead)) continue;
+    if (POINTS_BACK.test(lead) || onePick(lead)) continue;
     if (/^(?:always|never|from now on|going forward|by default|for (?:all|every) future (?:tasks?|chats?|conversations?))[,:]?\s+(?:the|a|an|this|that|these|those|it|its|there|they|he|she|his|her|our|their|my)\b/i.test(lead) &&
       !/\b(?:should|must|shall|needs?\s+to|ha(?:s|ve)\s+to|ought\s+to|(?:is|are)\s+to|please)\b/i.test(lead)) continue;
     if (/\b(?:passwords?|secrets?|credentials?|api.?keys?|access.?tokens?|auth|permissions?|approvals?|safety|guards?|polic(?:y|ies)|system.?prompts?|instruction.?hierarchy|full.?access|bypass(?:ing)?|overrides?|forget|do not (?:remember|save)|don't (?:remember|save))\b/i.test(content)) continue;
@@ -123,4 +162,4 @@ function evidence(input) {
   return { version: 1, source: 'host', runId: String(o.runId || ''), trigger: String(o.trigger || ''), tainted: !!o.tainted,
     trustedUserMessages: o.trustedInput ? [o.trustedInput] : [], checks: checks(o.completion), loadedSkills: o.loadedSkills || [] };
 }
-module.exports = { textOf, quotedMaterial, cleanOwnerRows, ownedBriefs, capture, eligible, preferences, needsReview, checks, evidence };
+module.exports = { textOf, quotedMaterial, quotedTurns, cleanOwnerRows, ownedBriefs, capture, eligible, preferences, needsReview, checks, evidence };

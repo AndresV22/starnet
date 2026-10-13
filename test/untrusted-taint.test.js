@@ -189,9 +189,26 @@ A.eq(taint.postTaintBoundary(FS_WRITE, { taintedBy: 'web_fetch', surface: 'auton
     A.eq(origin({ retryUserRunId: 'r1' }, null, { r1: { runId: 'r1', recipeId: '' } }), true, 'a retry of a typed directive stays owner wording');
     A.eq(origin({ retryUserRunId: 'r1' }, null, { r1: { runId: 'r1', recipeId: 'dependency-audit' } }), false, 'a retry re-sends the recipe template');
     A.eq(origin({ retryUserRunId: 'gone' }, null, {}), false, 'a retry of an unknown run cannot prove typed wording');
-    A.ok(/const learningTaint = execution\.taintedBy\(\) \|\| \(o\.quotedUserMaterial === true \? 'quoted user material' : null\);/.test(src) &&
+    A.ok(/const learningTaint = execution\.taintedBy\(\) \|\| \(o\.quotedUserMaterial === true \|\| replayedQuoted \? 'quoted user material' : null\);/.test(src) &&
       /\n  if \(learningTaint\) \{\n    const noTrustedEvidence/.test(src) && /\n\s*quotedUserMaterial,\n/.test(src),
       'quoted owner material reaches the run-end learning withhold');
+  }
+  // (2026-10-12, round two) Quoted owner text no longer taints its transcript row, so replayed taint no longer catches a
+  // pasted document from an EARLIER turn. What the run replays (server-seeded transcript, re-seed, client history,
+  // recovery checkpoint) and the earlier-conversation rows still withhold learning, as when the row was tainted.
+  {
+    const start = src.indexOf('  let replayedQuoted = false;');
+    const end = src.indexOf('\n', src.indexOf("failNote('learning.replayedQuoted'", start));
+    A.ok(start > 0 && end > start, 'the replayed-context quote check exists in runOnceCore');
+    const replayed = (msgs, recovery) => vm.runInNewContext('(() => { ' + src.slice(start, end) + '; return replayedQuoted; })()', {
+      msgs, o: { recovery }, TrustedLearning: require('../sidecar/trusted-learning.js'), failNote: () => {} });
+    const sys = { role: 'system', content: 'system prompt' }, typed = { role: 'user', content: 'I prefer concise bullet summaries.' };
+    const pasted = { role: 'user', content: 'The document says:\n> I prefer pasted instructions.' };
+    A.eq(replayed([sys, pasted, { role: 'assistant', content: 'ok' }, typed]), true, 'a pasted document in server-seeded history still withholds learning');
+    A.eq(replayed([sys, { role: 'user', content: 'Plan the launch.' }, { role: 'assistant', content: '```js\nx()\n```' }, typed]), false, 'clean replayed history keeps learning');
+    A.eq(replayed([sys, pasted]), false, 'the new directive is the caller\'s to classify (handleRun quotedUserMaterial)');
+    A.eq(replayed([sys, pasted], { sourceRunId: 'r0' }), true, 'a recovery replays its whole checkpoint, directive included');
+    A.ok(/if \(!replayedQuoted && TrustedLearning\.quotedTurns\(dropped\)\) replayedQuoted = true;/.test(src), 'rows the window dropped (earlier-conversation note) still withhold learning');
   }
   A.ok(/revokedByTaint\.isSource\(liveTool, c\)/.test(src), 'taint is latched from the tool and path that produced the content');
   // A result with real content taints WHETHER OR NOT the call succeeded. The old rule required !r.isError on

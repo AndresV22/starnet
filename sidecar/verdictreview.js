@@ -24,10 +24,21 @@ const VERDICTS_THAT_TEACH = new Set(['ok', 'miss']);
 // reviewPassFinished — the host launcher's answer to fireHeld (true = finished, false = retry later). A pass that
 // reached one of its OWN stops (done/empty, its per-pass $ cap, its turn ceiling, its deadline) or that changed the
 // skillbase already did its work: a retry re-pays the same pass and stages a further revision of the same candidate
-// under a fresh run id. Only a pass that FAILED (reason 'error') before it changed anything earns another attempt.
+// under a fresh run id. Only a pass that FAILED (reason 'error') before it changed anything earns another attempt —
+// and so does a pass its DEADLINE cancelled before the model produced anything (a cold local model still loading,
+// a provider that hung once): it did no work and billed nothing, and the bounded retry likely meets a warm model.
+// "Produced" is read off the loop's own result: any spend, any assistant text, tool call or reasoning. A result
+// without a message list cannot prove it produced nothing, so it counts as done (no paid re-run on a guess).
+function modelProduced(result) {
+  if (Number(result.usd) > 0 || Number(result.tokens) > 0 || !Array.isArray(result.messages)) return true;
+  return result.messages.some(m => m && m.role === 'assistant' && (String(m.content == null ? '' : m.content).trim()
+    || (Array.isArray(m.tool_calls) && m.tool_calls.length > 0) || (Array.isArray(m.reasoning) && m.reasoning.length > 0)));
+}
 function reviewPassFinished(result, changedSkillbase) {
   if (!result || typeof result !== 'object') return false;
-  return result.reason !== 'error' || changedSkillbase === true;
+  if (changedSkillbase === true) return true;
+  if (result.reason === 'error') return false;
+  return !(result.reason === 'cancelled' && !modelProduced(result));
 }
 
 // compactPacket â€” the persistable half of a review packet: no provider/cost objects (they are live handles, and a
@@ -95,7 +106,7 @@ function makeVerdictReview(opts) {
     for (const [runId, h] of held) {
       const packet = compactPacket(jobFor(h, runId, 'snapshot'), opts.redact);
       const correction = packet.learningEvidence && packet.learningEvidence.correction;
-      rows.push({ runId, at: h.at, state: 'held', reviewStatus: h.status, dueAt: h.dueAt, attempts: h.attempts, persistenceFailures: h.persistenceFailures || 0, persistenceBlocked: h.persistenceBlocked === true,
+      rows.push({ runId, at: h.at, ratedAt: h.ratedAt, state: 'held', reviewStatus: h.status, dueAt: h.dueAt, attempts: h.attempts, persistenceFailures: h.persistenceFailures || 0, persistenceBlocked: h.persistenceBlocked === true,
         verdict: h.verdict, correction: correction ? correction.text : '', correctionSource: h.correctionSource,
         correctionOriginalChars: correction ? correction.originalChars : 0, correctionTruncated: !!(correction && correction.truncated), packet });
     }
@@ -108,7 +119,7 @@ function makeVerdictReview(opts) {
       if (!id || !r.packet || typeof r.packet !== 'object' || !Number.isFinite(r.at)) continue;
       if (r.state === 'held') {
         if (!VERDICTS_THAT_TEACH.has(r.verdict) || r.reviewStatus === 'completed') continue;
-        held.set(id, { at: r.at, packet: Object.assign({}, r.packet, { restored: true }), verdict: r.verdict,
+        held.set(id, { at: r.at, ratedAt: Number.isFinite(r.ratedAt) ? r.ratedAt : r.at, packet: Object.assign({}, r.packet, { restored: true }), verdict: r.verdict,
           ...correctionParts(r.correction, r.correctionOriginalChars, r.correctionTruncated), correctionSource: String(r.correctionSource || ''),
           dueAt: r.reviewStatus === 'running' ? now() + retryMs : (Number.isFinite(r.dueAt) ? r.dueAt : now() + graceMs),
           persistenceFailures: Math.max(0, Number(r.persistenceFailures) || 0), persistenceBlocked: r.persistenceBlocked === true,
@@ -124,11 +135,21 @@ function makeVerdictReview(opts) {
   // already reported armed: the cap never counts or evicts it, so an unrelated run ending inside its grace or retry
   // window cannot drop it. Only parked packets and dormant held rows (retry-exhausted, storage-blocked) are capped.
   function liveHeld(r) { return r.status === 'running' || (r.status === 'pending' && !r.persistenceBlocked && r.attempts < maxAttempts); }
+  /* A held job ages from its RUN (`at`), exactly like a parked packet: the TTL is what keeps a review from running
+     against a skillbase that moved long after the work. The one allowance: an ARMED job rated near that edge keeps
+     its own bounded schedule — the grace window plus its retries, counted from the rating — so a review the rating
+     route reported armed is not aged out mid-grace. A dormant row (retry-exhausted, storage-blocked) gets none, so a
+     later correction cannot revive a run past its TTL; and nothing stretches the age by a full TTL from the rating. */
+  function heldExpired(h, t) {
+    if (t - h.at <= ttlMs) return false;
+    const ratedAt = Number.isFinite(h.ratedAt) ? h.ratedAt : h.at;
+    return !(liveHeld(h) && t - ratedAt <= graceMs + maxAttempts * retryMs);
+  }
   function sweep() {
     const t = now();
     const before = packets.size + held.size;
     for (const [id, row] of packets) if (t - row.at > ttlMs) packets.delete(id);
-    for (const [id, row] of held) if (t - row.at > ttlMs && row.status !== 'running') { clearT(row.timer); held.delete(id); }
+    for (const [id, row] of held) if (row.status !== 'running' && heldExpired(row, t)) { clearT(row.timer); held.delete(id); }
     for (;;) {
       const candidates = [...packets].map(([id, r]) => ({ id, at: r.at, held: false })).concat([...held].filter(([, r]) => !liveHeld(r)).map(([id, r]) => ({ id, at: r.at, held: true }))).sort((a, b) => a.at - b.at);
       if (candidates.length <= cap) break;
@@ -237,7 +258,7 @@ function makeVerdictReview(opts) {
   }
   function fireHeld(id, why) {
     const h = held.get(id); if (!h || h.status === 'running' || h.status === 'completed' || h.persistenceBlocked || typeof h.fire !== 'function') return false;
-    if (now() - h.at > ttlMs) { held.delete(id); changed(); return false; }
+    if (heldExpired(h, now())) { held.delete(id); changed(); return false; }
     try { clearT(h.timer); } catch (e) { failNote('verdictreview.clearTimer', e); }
     h.timer = null; h.status = 'running'; h.attempts++;
     if (!changed()) { h.status = 'pending'; h.attempts--; retryPersistenceOnly(id, () => fireHeld(id, 'persistence-retry')); return false; }
@@ -254,8 +275,8 @@ function makeVerdictReview(opts) {
     const id = String(runId || '').trim();
     if (typeof fire !== 'function' || held.has(id) || !shouldTrigger(id, verdict)) return false;
     const row = packets.get(id);
-    // `at` restarts at the RATING: the TTL already gated the run's age (shouldTrigger), so a held job ages from here
-    const h = { at: now(), packet: row.packet, verdict: String(verdict), ...correctionParts(initialCorrection),
+    // `at` stays the RUN's (the TTL's anchor); `ratedAt` only bounds the armed grace/retry schedule (heldExpired)
+    const h = { at: row.at, ratedAt: now(), packet: row.packet, verdict: String(verdict), ...correctionParts(initialCorrection),
       correctionSource: initialCorrection ? 'verdict' : '', timer: null, fire, dueAt: now() + graceMs, attempts: 0, persistenceFailures: 0, persistenceBlocked: false, status: 'pending' };
     packets.delete(id); held.set(id, h);
     if (!changed()) { held.delete(id); packets.set(id, row); return false; }
@@ -265,6 +286,8 @@ function makeVerdictReview(opts) {
   function correct(runId, text, final, source) {
     const id = String(runId || '').trim(), h = held.get(id);
     if (!h || h.status === 'running' || h.status === 'completed') return { ok: false, reason: 'nothing held for this run' };
+    // judged BEFORE a final correction resets the attempts: a dormant row past its run's TTL is gone, not revived
+    if (heldExpired(h, now())) { clearT(h.timer); held.delete(id); changed(); return { ok: false, reason: 'nothing held for this run' }; }
     const previous = { ...h }, incoming = correctionParts(text);
     if (incoming.correction) {
       const parts = h.correction && !final ? correctionParts(h.correction + ' · ' + incoming.correction,

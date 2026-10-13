@@ -329,4 +329,15 @@ const clock = { now: () => clk };
   A.eq(s.latest('w1').delegatedBy, 'strategist', 'delegatedBy survives a replay from disk');
 }
 
+// ---- ownerDirective (additive, 2026-10-12) — the host proved the Commander gave this run's directive ----
+{
+  const io = memIo();
+  let s = makeRunStore({ io, clock });
+  A.eq(s.record({ runId: 'o1', agentId: 'agent', reason: 'done', ownerDirective: true }).ownerDirective, true, 'an owner directive is recorded');
+  A.ok(!('ownerDirective' in s.record({ runId: 'g1', agentId: 'agent', reason: 'done', ownerDirective: false })), 'a guest run keeps the old shape (no false field)');
+  A.ok(!('ownerDirective' in s.record({ runId: 'g2', agentId: 'agent', reason: 'done', ownerDirective: 'true' })), 'only the boolean host stamp is kept');
+  s = makeRunStore({ io, clock });
+  A.eq(s.latest('o1').ownerDirective, true, 'ownerDirective survives a replay from disk');
+}
+
 A.report('runstore.test');

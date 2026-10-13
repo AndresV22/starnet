@@ -175,18 +175,62 @@ A.ok(VERDICTS_THAT_TEACH.has('ok') && VERDICTS_THAT_TEACH.has('miss') && !VERDIC
   t += 10; d.stash('p1', {}); A.eq(d.holding('dead'), true, 'a dormant row within the cap stays');
   t += 10; d.stash('p2', {});
   A.eq(d.holding('dead'), false, 'a dormant row past the cap is evicted like a parked packet');
-  // TTL runs from the RATING: a run rated near its TTL still gets its review
+  // an ARMED run rated near its TTL keeps its own grace + retry schedule (counted from the rating)
   const n = makeVerdictReview({ ttlMs: 10000, graceMs: 500, now: () => t, setTimeout: fakeSet, clearTimeout: fakeClear });
   const nearFired = [];
   n.stash('near', {}); t += 9900;
   A.eq(n.arm('near', 'miss', j => { nearFired.push(j); return true; }), true, 'a run rated just inside its TTL arms');
   t += 500; runTimers();
   A.eq(nearFired.length, 1, 'RATCHET: and its review fires after the grace window instead of being aged out mid-grace');
-  // negative: a held job past the TTL since its rating (a long downtime) is still dropped, never reviewed
+  // negative: a held job past its run TTL AND its bounded schedule (a long downtime / sleep) is still dropped
   const late = [];
   n.stash('late', {}); n.arm('late', 'miss', j => { late.push(j); return true; });
-  t += 10001; runTimers();
-  A.eq(late.length + (n.holding('late') ? 1 : 0), 0, 'a held job older than the TTL since its rating is dropped');
+  t += 10000 + 500 + 3 * 60000 + 1; runTimers();
+  A.eq(late.length + (n.holding('late') ? 1 : 0), 0, 'a held job past its run TTL and its own grace+retry schedule is dropped');
+}
+
+// ---- the TTL is the RUN's: arm() never stretches a held job's age by a full TTL from the rating (audit 10-12) ----
+{
+  let t = 0, timers = [];
+  const fakeSet = (fn, ms) => { const h = { fn, ms, live: true }; timers.push(h); return h; };
+  const fakeClear = (h) => { if (h) h.live = false; };
+  const runTimers = () => { for (const h of timers.splice(0)) if (h.live) h.fn(); };
+  // the reviewer's probe: TTL 10s, one attempt, rated at 9.9s, the attempt fails, a typed correction at 18.9s
+  let fires = 0;
+  const v = makeVerdictReview({ ttlMs: 10000, graceMs: 0, maxAttempts: 1, retryMs: 1000, now: () => t, setTimeout: fakeSet, clearTimeout: fakeClear });
+  v.stash('dormant', { agentId: 'a' }); t = 9900;
+  v.arm('dormant', 'miss', () => { fires++; return false; });
+  A.eq(v.snapshot()[0].reviewStatus + '/' + fires, 'retry-exhausted/1', 'the one attempt failed: the row is dormant');
+  A.eq(v.snapshot()[0].at, 0, 'a held row keeps its RUN\'s time, not the rating\'s');
+  A.eq(v.snapshot()[0].ratedAt, 9900, 'and records the rating separately');
+  t = 18900;
+  const late = v.correct('dormant', 'do it this way instead', true);
+  A.eq(late.ok + '/' + late.reason, 'false/nothing held for this run', 'RATCHET: a final correction cannot revive a dormant run past its TTL');
+  A.eq(fires + '/' + v.holding('dormant'), '1/false', 'so no second review fires against a skillbase that has moved');
+  // negative: the same correction inside the run's TTL still fires the review
+  let inside = 0;
+  const w = makeVerdictReview({ ttlMs: 10000, graceMs: 0, maxAttempts: 1, retryMs: 1000, now: () => t, setTimeout: fakeSet, clearTimeout: fakeClear });
+  t = 0; w.stash('fresh', { agentId: 'a' }); t = 9000;
+  w.arm('fresh', 'miss', () => { inside++; return inside > 1; });
+  t = 9950;
+  const ok = w.correct('fresh', 'do it this way instead', true);
+  A.eq(ok.ok + '/' + ok.fired + '/' + inside, 'true/true/2', 'a final correction inside the run TTL re-fires the dormant review');
+  // negative: an ARMED job whose retry falls just past the run TTL still runs its bounded schedule
+  let tries = 0;
+  const r = makeVerdictReview({ ttlMs: 10000, graceMs: 100, maxAttempts: 3, retryMs: 1000, now: () => t, setTimeout: fakeSet, clearTimeout: fakeClear });
+  t = 0; r.stash('edge', { agentId: 'a' }); t = 9800;
+  r.arm('edge', 'miss', () => { tries++; return tries > 1; });
+  t = 9900; runTimers();
+  A.eq(tries + '/' + r.snapshot()[0].reviewStatus, '1/pending', 'the first armed attempt failed inside the TTL and is queued for retry');
+  t = 10900; runTimers();
+  A.eq(tries + '/' + r.holding('edge'), '2/false', 'its retry past the run TTL (inside grace+retries from the rating) still runs and completes');
+  // a restored held row keeps both anchors
+  let disk = null;
+  const s1 = makeVerdictReview({ ttlMs: 10000, graceMs: 5000, now: () => t, setTimeout: fakeSet, clearTimeout: fakeClear, onChange: rows => { disk = JSON.parse(JSON.stringify(rows)); } });
+  t = 0; s1.stash('saved', { agentId: 'a' }); t = 9000; s1.arm('saved', 'miss', () => true);
+  const s2 = makeVerdictReview({ ttlMs: 10000, graceMs: 5000, maxAttempts: 1, now: () => t, setTimeout: fakeSet, clearTimeout: fakeClear });
+  s2.restore(disk);
+  A.eq(s2.snapshot()[0].at + '/' + s2.snapshot()[0].ratedAt, '0/9000', 'restore keeps the run time and the rating time apart');
 }
 
 // ---- the launcher's finished/retry answer: a pass that did its work is never retried (audit 10-11) ----
@@ -196,6 +240,22 @@ A.ok(VERDICTS_THAT_TEACH.has('ok') && VERDICTS_THAT_TEACH.has('miss') && !VERDIC
   A.eq(reviewPassFinished({ reason: 'error' }, false), false, 'a pass that failed before changing anything is retried');
   A.eq(reviewPassFinished({ reason: 'error' }, true), true, 'a pass that failed AFTER staging a candidate is finished (a retry would re-stage it)');
   A.eq(reviewPassFinished(null, false), false, 'no loop result is a retry');
+  // the 45s deadline cancelling a pass BEFORE the model produced anything (cold local model, a one-off hang)
+  const prompt = [{ role: 'system', content: 'quiet worker' }, { role: 'user', content: 'review this run' }];
+  const cold = { reason: 'cancelled', turns: 1, usd: 0, tokens: 0, messages: prompt.concat([{ role: 'assistant', content: '' }]) };
+  A.eq(reviewPassFinished(cold, false), false, 'RATCHET: a deadline cancel before the model produced anything keeps its bounded retry');
+  A.eq(reviewPassFinished(Object.assign({}, cold, { turns: 0, messages: prompt }), false), false, 'and so does a cancel before the first call went out');
+  A.eq(reviewPassFinished(cold, true), true, 'a cancelled pass that changed the skillbase is finished');
+  // negative: a cancelled pass that DID produce something is its own end (no paid re-run)
+  const produced = [
+    ['visible text', Object.assign({}, cold, { messages: prompt.concat([{ role: 'assistant', content: 'Looking at the skills now' }]) })],
+    ['a tool call', Object.assign({}, cold, { turns: 2, messages: prompt.concat([{ role: 'assistant', content: '', tool_calls: [{ id: 'c1', type: 'function', function: { name: 'skill_list', arguments: '{}' } }] }, { role: 'tool', tool_call_id: 'c1', content: '[]' }, { role: 'assistant', content: '' }]) })],
+    ['reasoning', Object.assign({}, cold, { messages: prompt.concat([{ role: 'assistant', content: '', reasoning: [{ type: 'thinking', thinking: 'the run missed because' }] }]) })],
+    ['billed spend', Object.assign({}, cold, { usd: 0.002 })],
+    ['booked tokens', Object.assign({}, cold, { tokens: 900 })],
+    ['no message list to prove otherwise', { reason: 'cancelled', turns: 1, usd: 0, tokens: 0 }]
+  ];
+  for (const [what, res] of produced) A.eq(reviewPassFinished(res, false), true, 'a deadline cancel after ' + what + ' is finished (no retry)');
   const v = makeVerdictReview({ now: () => 1, graceMs: 0, retryMs: 100 });
   let passes = 0;
   v.stash('cap-stop', {}); v.arm('cap-stop', 'miss', () => { passes++; return reviewPassFinished({ reason: 'budget' }, true); });

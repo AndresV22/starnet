@@ -19,7 +19,7 @@ const DAY = 86400000;
         // still proves this was the owner's workflow. Completion run IDs are deliberately not the source IDs.
         ...(provenance==='clean' ? {taintedBy:'later web_fetch'} : {})});
       if (provenance!=='missing-origin') runs.push({runId:'original-'+runId,agentId:'agent',streamId:'global',
-        reason:'done',toolsOk:0,ts:at-100,internal:provenance==='internal-origin'});
+        reason:'done',toolsOk:0,ts:at-100,internal:provenance==='internal-origin',...(provenance==='guest' ? {} : {ownerDirective:true})});
       transcripts.push({streamId:'global',agentId:'agent',role:'user',content:text,ts:at-100,
         sourceRunId:'original-'+runId,
         ...(provenance==='unknown' ? {} : {taintKnown:true}),
@@ -32,6 +32,8 @@ const DAY = 86400000;
   seedOccasions('unknown-',Array(3).fill('Prepare the weekly payroll tally from finance totals'),'unknown');
   seedOccasions('internal-origin-',Array(3).fill('Prepare monthly reactor maintenance from station telemetry'),'internal-origin');
   seedOccasions('missing-origin-',Array(3).fill('Prepare monthly orchard irrigation from rainfall measurements'),'missing-origin');
+  // (2026-10-12) a channel group guest's clean original carries no owner-directive stamp: it is not the Commander's work
+  seedOccasions('guest-',Array(3).fill('Prepare the weekly greenhouse rota from volunteer sheets'),'guest');
   const borrowedText='Prepare monthly equipment calibration from laboratory readings';
   seedOccasions('borrowed-',Array(3).fill(borrowedText),'unknown');
   transcripts.find(row=>row.sourceRunId==='original-borrowed-2').taintKnown=true;
@@ -40,7 +42,7 @@ const DAY = 86400000;
   // Before the host provenance join, the unchanged workflow engine accepts every contaminated fixture.
   // This proves the HTTP exclusions below are not accidental failures of cadence or similarity matching.
   const WorkflowTakeover=require('../sidecar/workflow-takeover.js');
-  for (const id of ['tainted-','quoted-','unknown-','borrowed-','internal-origin-','missing-origin-']) {
+  for (const id of ['tainted-','quoted-','unknown-','borrowed-','internal-origin-','missing-origin-','guest-']) {
     assert.equal(WorkflowTakeover.candidates({briefs:briefs.filter(b=>b.id.startsWith(id)),runs,now}).length,1,
       id+' fixture qualifies under the unchanged pre-filter workflow rules');
   }
@@ -57,7 +59,7 @@ const DAY = 86400000;
     let c=candidates[0]; assert.ok(c); assert.equal(c.count,3);
     assert.ok(c.evidence.every(e=>e.briefId.startsWith('clean-')),'only known-clean original owner requests establish repeated work');
     assert.equal(c.prompt,prompts[2],'later tainted completion runs do not erase independently proven owner requests');
-    assert.ok(!/warehouse|supplier|payroll|laboratory|reactor|orchard/.test(JSON.stringify(candidates)),'contaminated directive text is absent from the real HTTP response');
+    assert.ok(!/warehouse|supplier|payroll|laboratory|reactor|orchard|greenhouse/.test(JSON.stringify(candidates)),'contaminated directive text is absent from the real HTTP response');
     assert.equal((await j('POST','/api/workflow-takeovers',{id:c.id,action:'shown'})).body.ok,true);
     assert.equal((await get()).length,0);
     const review=await j('POST','/api/workflow-takeovers',{id:c.id,action:'review'});

@@ -160,7 +160,7 @@ console.log('workflow-takeover: repeat sense (paraphrase, guards, notice, cadenc
       originalDirective: text, completedAt: now - (4 - i) * DAY }));
     return { briefs, runs: briefs.map(b => ({ runId: b.runId, agentId: b.agentId, streamId: b.streamId,
       reason: 'done', toolsOk: 1, projectRoot: PROJECT, internal: false })).concat(briefs.map(b => ({
-        runId: b.originalRunId, agentId: b.agentId, streamId: b.streamId, reason: 'done', toolsOk: 0, projectRoot: PROJECT, internal: false
+        runId: b.originalRunId, agentId: b.agentId, streamId: b.streamId, reason: 'done', toolsOk: 0, projectRoot: PROJECT, internal: false, ownerDirective: true
       }))),
       rows: briefs.map((b, i) => ({ agentId: b.agentId, streamId: b.streamId, role: 'user',
         content: text, ts: b.completedAt - 1000, sourceRunId: 'original-r' + i, taintKnown: true, taint: '' })) };
@@ -177,9 +177,9 @@ console.log('workflow-takeover: repeat sense (paraphrase, guards, notice, cadenc
     };
     const api = vm.runInNewContext(hostSource + '\n({ standingWorkNotice, workflowTakeoverCandidates })', sandbox);
     return { impressions, candidates: () => api.workflowTakeoverCandidates(false),
-      notice: (text = CLEAN, agentId = 'agent', projectRoot = PROJECT) => api.standingWorkNotice({
+      notice: (text = CLEAN, agentId = 'agent', projectRoot = PROJECT, sender = {}) => api.standingWorkNotice({
         id: 'current-brief', source: 'interactive', status: 'ready', agentId, streamId: 'current-stream', originalDirective: text
-      }, agentId, { projectRoot }) };
+      }, agentId, { projectRoot, ...sender }) };
   }
   function denied(h, label) {
     const projected = host(h);
@@ -263,7 +263,9 @@ console.log('workflow-takeover: repeat sense (paraphrase, guards, notice, cadenc
     ['scheduled original runs', { cronJobId: 'schedule-job' }],
     ['recovery original runs', { recoveryOf: 'interrupted-run' }],
     ['source runs belonging to another agent', { agentId: 'another-agent' }],
-    ['source runs belonging to another stream', { streamId: 'another-stream' }]
+    ['source runs belonging to another stream', { streamId: 'another-stream' }],
+    // (2026-10-12) a channel group guest's original is as clean as the owner's; only the host stamp proves the owner gave it
+    ['channel group guest original runs (no owner-directive stamp)', { ownerDirective: undefined }]
   ]) {
     const badOrigin = history();
     badOrigin.runs.filter(r => r.runId.startsWith('original-')).forEach(r => Object.assign(r, patch));
@@ -296,6 +298,11 @@ console.log('workflow-takeover: repeat sense (paraphrase, guards, notice, cadenc
   assert.equal(host(history()).notice(CANARY), null, 'quoted current directives cannot trigger standing-work owner claims');
   assert.equal(host(history()).notice(CLEAN, 'another-agent'), null, 'notice stays with its owning agent');
   assert.equal(host(history()).notice(CLEAN, 'agent', '/fixture/project-b'), null, 'notice stays within its project');
+  // (2026-10-12) a channel group guest asking the same thing is not the Commander asking again; the owner's own DM is
+  const guestAsk = host(history());
+  assert.equal(guestAsk.notice(CLEAN, 'agent', PROJECT, { channelSender: true, channelSenderOwner: false }), null, 'a channel guest request never counts as the Commander asking again');
+  assert.equal(guestAsk.impressions.length, 0, 'and records no shown impression');
+  assert.ok(host(history()).notice(CLEAN, 'agent', PROJECT, { channelSender: true, channelSenderOwner: true }), 'the bound owner in a direct chat still gets the notice');
 
   // (2026-10-12) This used to pin the opposite: 400 newer rows (every assistant and tool row counts) evicted the
   // original-row proof, so a weekly task's two-week-old occasion fell out of the 60-day detector. The proof is now

@@ -161,7 +161,7 @@ A.eq(CP.dayTag(0, T), '', 'undated → empty tag');
     // represent an absent/mismatched/internal source without altering the row's own clean stamp.
     const originRuns = input.originRuns || (input.chats || []).filter(m => m && m.sourceRunId).map(m =>
       (input.runs || []).find(r => r && r.runId === m.sourceRunId) ||
-      { runId: m.sourceRunId, agentId: m.agentId, streamId: m.streamId, internal: false });
+      { runId: m.sourceRunId, agentId: m.agentId, streamId: m.streamId, internal: false, ownerDirective: true });
     const pack = vm.runInNewContext('(' + fn + ')()', {
       Date: { now: () => T },
       personalizationStore: { read: () => ({ enabled: input.enabled !== false }) },
@@ -262,7 +262,7 @@ A.eq(CP.dayTag(0, T), '', 'undated → empty tag');
   A.eq(windowEdge.projected.briefs.length, 0, 'an internal original run cannot authorize a completed brief');
   A.eq(windowEdge.pack.trustedActivityLines, [], 'old internal self-talk never mints trusted topic activity');
 
-  const originProof = { runId: 'owner-original', agentId: 'owner-agent', streamId: 'ws-main', internal: false };
+  const originProof = { runId: 'owner-original', agentId: 'owner-agent', streamId: 'ws-main', internal: false, ownerDirective: true };
   for (const [label, origins] of [
     ['missing source run metadata', []],
     ['internal source run metadata', [{ ...originProof, internal: true }]],
@@ -272,14 +272,16 @@ A.eq(CP.dayTag(0, T), '', 'undated → empty tag');
     ['scheduled source run', [{ ...originProof, cronJobId: 'schedule-job' }]],
     ['recovery source run', [{ ...originProof, recoveryOf: 'interrupted-run' }]],
     ['another agent owns the source run', [{ ...originProof, agentId: 'other-agent' }]],
-    ['another stream owns the source run', [{ ...originProof, streamId: 'other-stream' }]]
+    ['another stream owns the source run', [{ ...originProof, streamId: 'other-stream' }]],
+    // (2026-10-12) a channel group guest's run looks like the owner's by surface/stream; only the host stamp tells them apart
+    ['a channel group guest (no owner-directive stamp) gave the source run', [{ ...originProof, ownerDirective: undefined, surface: 'interactive' }]]
   ]) {
     const rejected = host({ chats: [clean], briefs: [brief(clean.content)], originRuns: origins });
     A.eq(rejected.projected.chats.length, 0, label + ': no owner chat');
     A.eq(rejected.projected.briefs.length, 0, label + ': no owned brief');
     A.eq(rejected.pack.trustedActivityLines, [], label + ': no trusted topic evidence');
   }
-  const oldOwnerOrigin = { ...oldInternal, internal: false };
+  const oldOwnerOrigin = { ...oldInternal, internal: false, ownerDirective: true };
   const oldOwnerStillProven = host({ runs: recentTitles, originRuns: [...recentTitles, oldOwnerOrigin],
     chats: [oldInternalChat], briefs: [oldInternalBrief] });
   A.eq(oldOwnerStillProven.projected.chats.length, 1, 'a genuine owner source outside the title window remains eligible');

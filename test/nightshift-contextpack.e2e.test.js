@@ -126,7 +126,7 @@ function thinBeliefs() {
 function seedLogs(ws, now) {
   fs.mkdirSync(ws, { recursive: true });
   const runs = [
-    { runId: 'r1', agentId: 'agent', internal: false, reason: 'done', title: REAL_RUN_TITLE, streamId: '', ts: now - 1 * 86400000 },
+    { runId: 'r1', agentId: 'agent', internal: false, ownerDirective: true, reason: 'done', title: REAL_RUN_TITLE, streamId: '', ts: now - 1 * 86400000 },
     { runId: 'r2', agentId: 'agent', reason: 'done', title: 'Draft the pricing page copy', streamId: 'ws-main', ts: now - 2 * 86400000 },
     { runId: 'r3', agentId: 'agent', reason: 'done', title: 'Refactor the sprite loader', streamId: '', ts: now - 3 * 86400000 },
     { runId: 'r4', agentId: 'agent', reason: 'done', title: 'Tidy the docs index', streamId: '', ts: now - 4 * 86400000 },

@@ -14,11 +14,15 @@ const root = path.resolve(__dirname, '..');
 const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'starnet-verdict-packets-'));
 let child, base, headers, out = '';
 const seen = [];
+const hung = [];   // the cold-model probe's review requests: never answered, so the pass's own deadline cancels them
 const mock = http.createServer((req, res) => {
   if (req.url.includes('/models')) { res.setHeader('Content-Type', 'application/json'); return res.end(JSON.stringify({data: [{id: 'test/model', context_length: 128000, pricing: {prompt: '0', completion: '0'}, supported_parameters: ['tools']}]})); }
   let raw = ''; req.on('data', d => { raw += d; }); req.on('end', () => {
     try { seen.push(JSON.parse(raw)); } catch (_) {}
     const review = raw.indexOf('COMMANDER VERDICT ON THIS RUN') >= 0;
+    // the cold-model probe's review: no byte ever comes back (a local model still loading, a provider that hung once).
+    // Matched FIRST: it runs last, and its review prompt also names the earlier probe runs.
+    if (review && raw.indexOf('cold-model probe') >= 0) { hung.push(res); return; }
     // the outage probe's review: the provider refuses before the pass changes anything
     if (review && raw.indexOf('provider-outage probe') >= 0) { res.writeHead(400, {'Content-Type': 'application/json'}); return res.end(JSON.stringify({error: {message: 'invalid request: malformed json body field'}})); }
     res.writeHead(200, {'Content-Type': 'text/event-stream'});
@@ -36,7 +40,7 @@ const mock = http.createServer((req, res) => {
 async function boot() {
   const socket = http.createServer(); socket.listen(0, '127.0.0.1'); await once(socket, 'listening'); const port = socket.address().port; await new Promise(r => socket.close(r));
   base = 'http://127.0.0.1:' + port; out = '';
-  child = spawn(process.execPath, ['sidecar/index.js'], {cwd: root, env: {...process.env, SKYNET_WORKSPACES: workspace, SKYNET_PORT: String(port), SKYNET_OPENROUTER_BASE: 'http://127.0.0.1:' + mock.address().port + '/api/v1', SKYNET_OPENROUTER_KEY: 'sk-or-v1-packets-fixture', SKYNET_EDGE_TTS: '0', SKYNET_VERDICT_REVIEW_GRACE_MS: '6000', SKYNET_SKILL_CURATOR:'0', SKYNET_SCOUT:'0', SKYNET_QUEST_REFRESH:'0'}, stdio: ['ignore', 'pipe', 'pipe']});
+  child = spawn(process.execPath, ['sidecar/index.js'], {cwd: root, env: {...process.env, SKYNET_WORKSPACES: workspace, SKYNET_PORT: String(port), SKYNET_OPENROUTER_BASE: 'http://127.0.0.1:' + mock.address().port + '/api/v1', SKYNET_OPENROUTER_KEY: 'sk-or-v1-packets-fixture', SKYNET_EDGE_TTS: '0', SKYNET_VERDICT_REVIEW_GRACE_MS: '6000', SKYNET_SKILL_REVIEW_TIMEOUT_MS: '8000', SKYNET_SKILL_CURATOR:'0', SKYNET_SCOUT:'0', SKYNET_QUEST_REFRESH:'0'}, stdio: ['ignore', 'pipe', 'pipe']});
   await new Promise((resolve, reject) => { const timer = setTimeout(() => reject(new Error('boot timeout: ' + out.slice(-1200))), 90000); const read = d => { out += d; if (out.includes('Open in your browser:')) { clearTimeout(timer); resolve(); } }; child.stdout.on('data', read); child.stderr.on('data', read); child.once('exit', c => { clearTimeout(timer); if (c) reject(new Error('boot exit ' + c + out.slice(-1200))); }); });
   headers = {'Content-Type': 'application/json', 'X-StarNet-Token': await bootToken(base, base), Origin: base};
 }
@@ -94,6 +98,15 @@ const until = async (fn, ms) => { const end = Date.now() + ms; while (Date.now()
     A.ok(await until(() => reviewCalls('provider-outage probe') >= 1 && ((heldRow(outage.payload.runId) || {}).attempts || 0) >= 1 && heldRow(outage.payload.runId).reviewStatus !== 'running', 20000), 'the outage probe review pass ended');
     const outageRow = heldRow(outage.payload.runId);
     A.ok(outageRow && outageRow.reviewStatus === 'pending' && outageRow.attempts === 1, 'a review whose provider failed before any skill change is kept for a retry: ' + JSON.stringify(outageRow && {reviewStatus: outageRow.reviewStatus, attempts: outageRow.attempts}));
-  } finally { await stop(); await new Promise(r => mock.close(r)); fs.rmSync(workspace, {recursive: true, force: true}); }
+    // A pass the 45s deadline cancelled BEFORE the model produced anything did no work: it keeps its bounded retry (audit 10-12).
+    const cold = await taskRun('Draft the cold-model probe memo.');
+    A.eq(cold && cold.payload.reason, 'done', 'cold-model probe run completed');
+    A.ok((await api('/api/growth/ratings', {runId: cold.payload.runId, verdict: 'miss', epoch: 1})).body.skillReviewArmed === true, 'cold-model probe review armed');
+    A.ok(await until(() => reviewCalls('cold-model probe') >= 1 && (heldRow(cold.payload.runId) || {}).reviewStatus !== 'running', 30000), 'the cold-model probe review pass hit its deadline');
+    A.eq(hung.length, 1, 'its one provider call hung with no byte back, so only the deadline could end the pass');
+    const coldRow = heldRow(cold.payload.runId);
+    A.ok(coldRow && coldRow.reviewStatus === 'pending' && coldRow.attempts === 1, 'RATCHET: a review cancelled by its deadline before the model produced anything is kept for a retry: ' + JSON.stringify(coldRow && {reviewStatus: coldRow.reviewStatus, attempts: coldRow.attempts}));
+    A.eq(reviewCalls('cold-model probe'), 1, 'one cancelled pass so far (the retry waits its own delay)');
+  } finally { for (const res of hung) { try { res.destroy(); } catch (e) { console.error('hung mock response close failed:', e && e.message); } } await stop(); await new Promise(r => mock.close(r)); fs.rmSync(workspace, {recursive: true, force: true}); }
   A.report('verdictpackets.http');
 })().catch(e => { console.error(e); process.exit(1); });

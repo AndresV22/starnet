@@ -7551,6 +7551,8 @@ function handleRecommendationsEval(req, res) {
 function standingWorkNotice(brief, agentId, o) {
   try {
     if (!brief || brief.status === 'cancelled' || (o && o.recovery) || !['interactive', 'channel'].includes(brief.source) || TrustedLearning.quotedMaterial(brief.originalDirective)) return null;
+    // a channel guest's request is not "the Commander asking again" (host-minted sender flags, as hostPowerWithheldFor)
+    if (o && o.channelSender === true && o.channelSenderOwner !== true) return null;
     if (!personalizationStore.read().enabled) return null;
     const saved = saveStore.load('agent') || null;
     const epoch = Math.max(1, Math.floor(Number(saved && saved.agent && saved.agent.createdAt) || 1));
@@ -18504,7 +18506,7 @@ async function handleAgentSkillAllow(req, res) {
     for (const candidateKey of Object.keys(next)) if (candidateKey.startsWith(key + '\x00')) delete next[candidateKey];
     try { persistSkillApprovals(next); }
     catch (e) { console.warn('[skills] approval revoke persist failed:', (e && e.message) || e); return json(507, { ok: false, approved: true, error: 'approval change could not be persisted; the existing decision was kept' }); }
-    return json(200, { ok: true, approved: false, skill: skillGate.annotate([skill])[0] });
+    return json(200, { ok: true, approved: false, skill: skillGate.annotate([skill], { verify: true })[0] });
   }
   const decision = skillGate.decide(skill);
   if (decision.action === 'block') return json(400, { error: 'the skill guard blocked this skill outright - it cannot be approved. Edit the skill to remove the flagged content.', findings: decision.categories });
@@ -18515,10 +18517,18 @@ async function handleAgentSkillAllow(req, res) {
      no body to digest. */
   const digest = typeof skill.body === 'string' ? skillGate.digestOf(skill) : skillGate.stampOf(skill);
   if (body.digest && String(body.digest) !== digest) return json(409, { error: 'skill changed since it was reviewed; read it again' });
-  const next = Object.assign({}, skillApprovals, { [key]: { digest, action: 'allow', at: Date.now(), name: skill.name } });
+  /* `stamp` is the record's lifecycle stamp at approval: the metadata-only decision (prompt index, skill.list) of a
+     record saved before digest stamping has no bytes to re-digest and reads it (skills/gate.js isApproved). */
+  const entry = { digest, stamp: skillGate.stampOf(skill), action: 'allow', at: Date.now(), name: skill.name };
+  /* An approval must RELEASE the skill or say why it cannot — never a 200 that leaves the card withheld. Judge it at
+     the delivery seam (verify, the bytes just read) with this entry in place, before anything is written. */
+  const released = makeSkillGate({ guard: skillGuard, approvals: { get: () => entry } }).verify(skill);
+  if (!released.visible) return json(released.action === 'block' ? 400 : 409, { ok: false, approved: false, findings: released.categories,
+    error: 'approving would not release this skill to the agent (' + (released.reason || 'held by the skill guard') + '); nothing was saved' });
+  const next = Object.assign({}, skillApprovals, { [key]: entry });
   try { persistSkillApprovals(next); }
   catch (e) { console.warn('[skills] approval persist failed:', (e && e.message) || e); return json(507, { ok: false, approved: false, error: 'approval could not be persisted; the skill remains withheld' }); }
-  const after = skillGate.annotate([skillStore.view(agentId, skill.id, { includeArchived: true, bump: false }) || skill])[0];
+  const after = skillGate.annotate([skillStore.view(agentId, skill.id, { includeArchived: true, bump: false }) || skill], { verify: true })[0];
   json(200, { ok: true, approved: true, digest, skill: after });
 }
 
@@ -18904,6 +18914,7 @@ async function handleRun(req, res) {
       initialTaint: hasUserAttachments ? 'user attachment' : null,
       learningInput,   // host-captured BEFORE attachment expansion; never accepted from request metadata
       quotedUserMaterial,
+      ownerDirective: ownerWording,   // the Commander typed this directive at their own station (not a recipe template)
       retryUserRunId: body && body.retryUserRunId,
       surface: 'interactive', prompt: promptConsent, pathPrompt: promptPathTrust, summon: summonRequest,   // team.summon → live summonAgent() round-trip; pathPrompt → NS-5 "work in <root>?" bless
       loginPrompt: askHuman,   // attended browser login: browser.login's two consent asks ride the same fail-closed permission.prompt channel
@@ -20525,9 +20536,15 @@ async function runOnceCore(o) {
      other agents' words included), a line hand-off (the previous stage's output) or harness self-talk: there, the
      "user" words are not the Commander's. */
   const learningSource = o.learningInput ? 'interactive-owner' : (o.channelSender === true && o.channelSenderOwner === true ? 'channel-owner' : '');
-  const trustedLearningInput = TrustedLearning.eligible(Object.assign({}, o, { internal, source: learningSource, hostPowerWithheld, untrustedEntry: untrustedEntryRun,
-    handoff: !!(Pipeline.isHandoff && Pipeline.isHandoff(latestUserText(messages))) }))
+  const learningOrigin = Object.assign({}, o, { internal, hostPowerWithheld, untrustedEntry: untrustedEntryRun,
+    handoff: !!(Pipeline.isHandoff && Pipeline.isHandoff(latestUserText(messages))) });
+  const trustedLearningInput = TrustedLearning.eligible(Object.assign({}, learningOrigin, { source: learningSource }))
     ? (o.learningInput || TrustedLearning.capture(messages, learningSource)) : null;
+  // WHO GAVE THIS DIRECTIVE, recorded on the run row (runstore ownerDirective): the same host-minted origins and the
+  // same exclusions, whether or not the words held a capturable preference. A channel group guest, a routine, a
+  // recipe template or a worker's brief is never the Commander's directive, however clean its transcript row looks.
+  const ownerDirective = TrustedLearning.eligible(Object.assign({}, learningOrigin,
+    { source: o.ownerDirective === true ? 'interactive-owner' : (o.channelSender === true && o.channelSenderOwner === true ? 'channel-owner' : '') }));
   const commanderWords = trustedLearningInput ? trustedLearningInput.content : '';
   const capCtx = makeCapCtx(resolved, Object.assign({
     emit, consent, summon, timeoutMs: CAPS.toolTimeoutMs, runId, streamId, signal: signal, ownerTrusted, commanderWords,
@@ -21842,6 +21859,15 @@ async function runOnceCore(o) {
     if (replayed) execution.latchTaint(replayed);
   } catch (e) { failNote('taint.replay', e); execution.latchTaint('replayed context (taint check failed)'); }   // unprovable = tainted (fail closed)
   taintAtStart = execution.taintedBy();
+  /* QUOTED MATERIAL IN REPLAYED CONTEXT STILL WITHHOLDS LEARNING (2026-10-12). Quoted owner text no longer taints
+     its transcript row (handleRun quotedUserMaterial withholds learning without locking tools), so replayed taint
+     no longer catches a pasted document or code fence from an EARLIER turn. Whatever this run replays — the
+     server-seeded transcript (H1.2 / a queued re-seed), the client's own history, a recovery checkpoint — is checked
+     here, and the earlier-conversation rows below; the new directive is the caller's to classify (handleRun), except
+     on a recovery, whose whole checkpoint is replayed. Unprovable = withheld. */
+  let replayedQuoted = false;
+  try { replayedQuoted = TrustedLearning.quotedTurns(o.recovery ? msgs : msgs.slice(0, -1)); }
+  catch (e) { failNote('learning.replayedQuoted', e); replayedQuoted = true; }
   /* THE TURNS THE WINDOW DROPPED STILL COUNT (consistency audit 2026-10-11, earlier-conversation.js). COMMS sends only
      the newest slice of a long chat, and the compaction below folds only what it is sent — so whatever fell off the
      front (an instruction from turn 3, the design the Commander approved) was gone without a trace. The durable
@@ -21867,6 +21893,7 @@ async function runOnceCore(o) {
             msgs.splice(lead, 0, { role: 'system', content: earlier.note });
             const carried = EarlierConversation.taintOf(dropped);
             if (carried && !execution.taintedBy()) { latchRunTaint('earlier conversation carried content from ' + String(carried).slice(0, 120)); taintAtStart = execution.taintedBy(); }
+            if (!replayedQuoted && TrustedLearning.quotedTurns(dropped)) replayedQuoted = true;   // a pasted document the window dropped is still in the note
           }
         }
       }
@@ -22322,7 +22349,7 @@ async function runOnceCore(o) {
         }
       }
       const runEndedAt = Date.now();
-      runStore.record({ runId, parentRunId: o.parentRunId || '', delegatedBy: o.delegatedBy || '', agentId, provider: activeProviderId, reason: ((result && result.reason) || 'done'), clarifying: taskQuestionAsked, turns: finalTurns, tokens: finalTokens, usd: finalUsd, title: title, streamId: o.streamId || '', sessionTitle: o.sessionTitle || '', deliveryPrompt: o.syntheticTrigger ? '' : (o.sessionPrompt || ''), deliveryText, recipeId: o.recipeId || '', projectRoot: o.projectRoot || '', deliverable: deliverableNotes.take(runId), model: finalModel, reasoningEffort, unmetered: runUnmetered && mediaUsd === 0, artifacts: execution.artifactList(), toolsOk: execution.toolsOk(), toolTrace: execution.toolTraceList(), failureStage: execution.failureStage(), failureCode: execution.failureCode(), uncertainMutations: execution.uncertainMutations(), completionEvidence: finalCompletionEvidence, recoveryAttempts: execution.recoveryAttempts(), startedAt: runStartedAt, endedAt: runEndedAt, durationMs: runEndedAt - runStartedAt, identityFallback, internal, surface, recoveryOf: o.recovery ? String(o.recovery.sourceRunId || '') : '', handoffEdited: o.handoffEdited === true, stepTest: o.stepTest === true, lineId: o.lineId || '', dockId: o.dockId || '', cronJobId: trigger === 'schedule' ? String(o.cronJobId || '') : '', taintedBy: execution.taintedBy() || '' });   // execution terminal stays separate from the neutral Task Brief outcome used by progression; recoveryOf links a continuation to the interrupted run it resumed
+      runStore.record({ runId, parentRunId: o.parentRunId || '', delegatedBy: o.delegatedBy || '', agentId, provider: activeProviderId, reason: ((result && result.reason) || 'done'), clarifying: taskQuestionAsked, turns: finalTurns, tokens: finalTokens, usd: finalUsd, title: title, streamId: o.streamId || '', sessionTitle: o.sessionTitle || '', deliveryPrompt: o.syntheticTrigger ? '' : (o.sessionPrompt || ''), deliveryText, recipeId: o.recipeId || '', projectRoot: o.projectRoot || '', deliverable: deliverableNotes.take(runId), model: finalModel, reasoningEffort, unmetered: runUnmetered && mediaUsd === 0, artifacts: execution.artifactList(), toolsOk: execution.toolsOk(), toolTrace: execution.toolTraceList(), failureStage: execution.failureStage(), failureCode: execution.failureCode(), uncertainMutations: execution.uncertainMutations(), completionEvidence: finalCompletionEvidence, recoveryAttempts: execution.recoveryAttempts(), startedAt: runStartedAt, endedAt: runEndedAt, durationMs: runEndedAt - runStartedAt, identityFallback, internal, surface, ownerDirective, recoveryOf: o.recovery ? String(o.recovery.sourceRunId || '') : '', handoffEdited: o.handoffEdited === true, stepTest: o.stepTest === true, lineId: o.lineId || '', dockId: o.dockId || '', cronJobId: trigger === 'schedule' ? String(o.cronJobId || '') : '', taintedBy: execution.taintedBy() || '' });   // execution terminal stays separate from the neutral Task Brief outcome used by progression; recoveryOf links a continuation to the interrupted run it resumed
 
       // P0.1/H1.1: persist the full DIALOGUE (not just the outcome) — a durable server-side transcript for EVERY
       // run, incl. headless ones (cron/Telegram/delegated). Append the triggering user directive, then EVERY new
@@ -22439,9 +22466,10 @@ async function runOnceCore(o) {
      words in a hand-off are only the original request — the line's first run already carried those — so a hand-off run is not
      reflected on, studied or thread-mined (and spends none of the agent's cooldowns). */
   const _lineHop = !!(Pipeline.isHandoff && Pipeline.isHandoff(latestUserText(msgs)));
-  // Quoted material the Commander pasted (handleRun) withholds learning exactly like untrusted content, without the
-  // execution lock: the transcript is not evidence of their preferences, but their own run keeps its tools.
-  const learningTaint = execution.taintedBy() || (o.quotedUserMaterial === true ? 'quoted user material' : null);
+  // Quoted material the Commander pasted (handleRun), or that this run replayed from an earlier turn, withholds learning
+  // exactly like untrusted content, without the execution lock: the transcript is not evidence of their preferences,
+  // but their own run keeps its tools.
+  const learningTaint = execution.taintedBy() || (o.quotedUserMaterial === true || replayedQuoted ? 'quoted user material' : null);
   const learningEvidence = TrustedLearning.evidence({ runId, trigger: o.trigger, tainted: learningTaint, trustedInput: trustedLearningInput, completion: finalCompletionEvidence, loadedSkills });
   if ((_auxDone || _auxFail) && o.reflect && isTask && !internal) {
     await captureTrustedLearning({ agentId, runId, projectRoot: o.projectRoot || '', input: trustedLearningInput, learningEvidence });
@@ -26579,7 +26607,9 @@ async function captureTrustedLearning(o) {
       }
       try {
         const w = await writeMemoryRecord(o.agentId, prop, { runId: o.runId, source: 'owner-statement', origin: 'commander', trustedInput: o.input });
-        if (w.ok) { status.saved++; recordRunReceipt(o.agentId, o.runId, { id: w.id, kind: w.kind, content: prop.content, scope: prop.scope, projectRoot: prop.projectRoot, origin: 'commander', saved: true }); }
+        // A restatement re-dated a record that already existed: there is no new memory to undo, and the receipt's one-tap
+        // veto would delete (and permanently decline) the ORIGINAL the Commander kept. Only a new record gets a receipt.
+        if (w.ok) { status.saved++; if (!w.refreshed) recordRunReceipt(o.agentId, o.runId, { id: w.id, kind: w.kind, content: prop.content, scope: prop.scope, projectRoot: prop.projectRoot, origin: 'commander', saved: true }); }
       } catch (e) { status.reason = 'write_failed'; failNote('learning.capture', e); }
     }
     if (held.length) {
@@ -26648,7 +26678,11 @@ async function writeMemoryRecord(agentId, prop, opts) {
       const want = scopeOf({ kind: prop.kind, scope: prop.scope, projectRoot: prop.projectRoot, streamId: prop.streamId, origin: opts.origin });
       const at = list.findIndex(r => r && !r.taintedBy && sameText(bodyOf(r)) && scopeOf(r) === want);
       if (at >= 0) {
+        // Re-dating never downgrades: a record the Commander kept through the deck stays user-confirmed (notebook.write's
+        // correction path keeps the same tier); an inferred or stated copy is now their own words.
+        const kept = list[at].confirmation === 'user-confirmed';
         rec = stamp(Object.assign({}, list[at], { updatedAt: Date.now() }));
+        if (kept) rec.confirmation = 'user-confirmed';
         list[at] = rec; writtenId = rec.id; refreshed = true;
         return list;
       }
