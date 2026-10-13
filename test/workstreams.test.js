@@ -469,4 +469,36 @@ A.eq([W.get(recoveredOrder.id).lastRunOk, W.get(recoveredOrder.id).lastRunReason
 W.noteRunEnd(recoveredOrder.id, 'latest', true, 'done'); W.appendRun(recoveredOrder.id, 'older', 1000, 'newer');
 A.eq(W.get(recoveredOrder.id).runIds, ['older', 'newer', 'latest'], 'a duplicate recovery neither inserts twice nor changes ordering');
 A.eq([W.get(recoveredOrder.id).lastRunOk, W.get(recoveredOrder.id).lastRunReason], [true, 'done'], 'duplicate recovery preserves the latest outcome');
+
+/* ---- comms-threads-ui-03: WHEN a session joined its project (projectRootAt). chat.js resolves an unstamped own reply's
+   relative links at the project root only when the reply is newer than that moment, else in the agent's workspace ---- */
+{
+  const realNow = Date.now;
+  let clock = 5000; Date.now = () => clock;
+  const born = W.create(null, { projectRoot: 'C:/proj', activate: false });
+  A.eq([born.projectRoot, born.projectRootAt], ['C:/proj', born.createdAt], 'a session born in a project joined it when it was created');
+  const plain = W.create(null, { activate: false });
+  A.eq(plain.projectRootAt, null, 'a session with no project has no join time');
+  clock = 9000; W.setProjectRoot(plain.id, 'C:/proj');
+  A.eq(W.get(plain.id).projectRootAt, 9000, 'a session that joins a project later is stamped at that moment');
+  clock = 12000; W.setProjectRoot(plain.id, 'C:/proj');
+  A.eq(W.get(plain.id).projectRootAt, 9000, 'naming the same root again does not move the stamp');
+  W.setProjectRoot(plain.id, 'C:/other');
+  A.eq(W.get(plain.id).projectRootAt, 12000, 'moving to another project re-stamps it');
+  W.setProjectRoot(plain.id, null);
+  A.eq([W.get(plain.id).projectRoot, W.get(plain.id).projectRootAt], [null, null], 'leaving the project clears both');
+  clock = 15000;
+  const fresh = W.adopt({ id: 'adopt-rooted', projectRoot: 'C:/proj', createdAt: 14000 });
+  A.eq(fresh.projectRootAt, 14000, 'an adopted thread born in a project joined it when it was created');
+  const late = W.adopt({ id: 'adopt-late' });
+  A.eq(late.projectRootAt, null, '(an adopted thread with no project has no join time)');
+  clock = 16000; W.adopt({ id: 'adopt-late', projectRoot: 'C:/proj' });
+  A.eq([W.get('adopt-late').projectRoot, W.get('adopt-late').projectRootAt], ['C:/proj', 16000], 'a thread that adopts its root later is stamped at that moment');
+  W.init({ workstreams: [{ id: 'saved-old', title: 'old', projectRoot: 'C:/proj', createdAt: 100 }, { id: 'saved-new', title: 'new', projectRoot: 'C:/proj', createdAt: 100, projectRootAt: 300 }] });
+  A.eq(W.get('saved-old').projectRootAt, null, 'a session saved before the stamp existed is never given an invented one');
+  A.eq(W.get('saved-new').projectRootAt, 300, 'a saved stamp survives the reload');
+  W.init(JSON.parse(JSON.stringify(W.serialize())));
+  A.eq([W.get('saved-old').projectRootAt, W.get('saved-new').projectRootAt], [null, 300], 'and survives a save and reload round trip');
+  Date.now = realNow;
+}
 A.report('workstreams.test');
