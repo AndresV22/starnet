@@ -288,9 +288,10 @@ const Harness = (() => {
   // NOT set for a page the station kept its key from (tokenWithheld): a reload would only re-run the same check.
   let sessionStale = false;
   let staleNotified = false;
-  function stationNotify(text, cls, opts) {
-    try { if (typeof StationUI !== 'undefined' && StationUI && StationUI.notify) StationUI.notify(text, cls, undefined, opts); } catch (_) {}
+  function stationUI(method, args) {
+    try { if (typeof StationUI !== 'undefined' && StationUI && StationUI[method]) StationUI[method].apply(StationUI, args); } catch (_) {}
   }
+  function stationNotify(text, cls, opts) { stationUI('notify', [text, cls, undefined, opts]); }
   // The withheld notice: why (sidecar/peerowner.js reason, in plain words), what it means, and the owner's way out.
   function tokenWithheldNotice(reason) {
     const r = String(reason || '');
@@ -304,10 +305,13 @@ const Harness = (() => {
       + 'Open StarNet from the desktop app, or if this is your own browser, restart StarNet with STARNET_TRUST_LOCAL_PEERS=1.';
   }
   // Shown ONCE per page life — at boot (init) or on the first refused call, whichever comes first — and kept in
-  // NOTIFICATIONS as one alert (key folds a repeat after a reload), because it outlives a toast's few seconds.
+  // NOTIFICATIONS as one alert (key folds a repeat after a reload), because it outlives a toast's few seconds. A page
+  // that boots WITH its key marks an alert left by an earlier withheld page as handled, so the bell never keeps
+  // saying the station won't take commands after the owner fixed it.
   let withheldNotified = false;
   function noteTokenWithheld() {
-    if (!tokenWithheld || withheldNotified) return;
+    if (!tokenWithheld) { stationUI('settleNotifs', ['token-withheld']); return; }
+    if (withheldNotified) return;
     withheldNotified = true;
     stationNotify(tokenWithheldNotice(tokenWithheld), 'warn', { kind: 'alert', key: 'token-withheld' });
   }

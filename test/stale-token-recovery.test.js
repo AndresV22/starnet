@@ -127,17 +127,17 @@ const forbiddenToken = () => new Response('forbidden token', { status: 403 });
     A.ok(wiringStart > 0 && wiringEnd > wiringStart, 'lifted the stale-token wiring');
     const wiringSrc = harness.slice(wiringStart, wiringEnd);
     const wire = (withheld, page) => {
-      const notes = []; let reads = 0;
+      const notes = [], settled = []; let reads = 0;
       const win = { fetch: () => { reads++; return Promise.resolve(new Response(page || '<html></html>', { status: 200 })); } };
       if (!withheld) win.__STARNET_API_TOKEN__ = 'OLD';
-      const StationUI = { notify: (text, cls, category, opts) => notes.push({ text, cls, category, opts }) };
+      const StationUI = { notify: (text, cls, category, opts) => notes.push({ text, cls, category, opts }), settleNotifs: key => settled.push(key) };
       const w = new Function('window', 'DESKTOP', 'StationUI', 'staleTokenRecovery', 'tokenWithheld',
         'let apiToken = window.__STARNET_API_TOKEN__ || "";\n' + wiringSrc + '\nreturn { staleToken, stale: () => sessionStale, note: noteTokenWithheld };')(
         win, false, StationUI, staleTokenRecovery, withheld);
-      return { w, notes, reads: () => reads };
+      return { w, notes, settled, reads: () => reads };
     };
     {
-      const { w, notes, reads } = wire('lookup-failed', '<html><script>window.__STARNET_TOKEN_WITHHELD__="lookup-failed";</script></html>');
+      const { w, notes, settled, reads } = wire('lookup-failed', '<html><script>window.__STARNET_TOKEN_WITHHELD__="lookup-failed";</script></html>');
       w.note();   // boot (Harness.init) shows it first …
       for (let i = 0; i < 3; i++) {
         const res = forbiddenToken();
@@ -148,11 +148,13 @@ const forbiddenToken = () => new Response('forbidden token', { status: 403 });
       A.eq(notes[0].text, tokenWithheldNotice('lookup-failed'), 'the notice is the withheld wording, not the restart wording');
       A.ok(notes[0].opts && notes[0].opts.kind === 'alert' && notes[0].opts.key === 'token-withheld', 'kept in NOTIFICATIONS as one alert (it outlives the toast)');
       A.eq(w.stale(), false, 'a withheld page is not a stale (restarted) session: no surface may say "reload"');
+      A.eq(settled.length, 0, 'a withheld page never marks its own alert handled');
     }
     {
-      const { w, notes, reads } = wire('', pageWith('OLD'));
+      const { w, notes, settled, reads } = wire('', pageWith('OLD'));
       w.note();
       A.eq(notes.length, 0, 'a page that holds its key shows no withheld notice at boot');
+      A.eq(settled, ['token-withheld'], '… and marks an alert left by an earlier withheld page as handled (the owner fixed it)');
       await w.staleToken.settle(forbiddenToken(), 'OLD', null);
       A.ok(reads() === 1 && w.stale() === true && notes.length === 1 && /station restarted/.test(notes[0].text),
         'a keyed page whose token went stale keeps the restart + reload wording: ' + (notes[0] && notes[0].text));
