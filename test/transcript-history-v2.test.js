@@ -268,15 +268,62 @@ function ioAt(base, extra) {
     A.eq(store.streams().find(r => r.streamId === 'chat').preview, 'Accepted work request', 'safe preview survives segmented restart');
     A.eq(store.streams().find(r => r.streamId === 'chat').previewTaint, 'web_fetch', 'accepted preview provenance survives restart with its text');
     A.ok(store.history('chat', { sourceRunId: 'repair' }).some(r => r.content === 'INTERNAL REPAIR PROMPT'), 'preview filtering never removes raw execution evidence');
-    // Old closed-segment summaries have no visibility provenance; omit their preview until normal index rebuild.
+    // Old closed-segment summaries have no visibility provenance; their preview is never trusted. A deferred one-time
+    // upgrade rebuilds it from the immutable JSONL (see the next block), so it can never keep the planted text.
     const manifestFile = path.join(dir, 'history', 'manifest.json');
     const manifest = JSON.parse(fs.readFileSync(manifestFile, 'utf8'));
     for (const segment of manifest.segments) if (segment.number !== manifest.activeSegment && segment.streams.chat) {
       delete segment.streams.chat.previewVersion; segment.streams.chat.preview = 'UNVERIFIED OLD REPAIR PREVIEW';
     }
     fs.writeFileSync(manifestFile, JSON.stringify(manifest));
-    store = makeTranscriptStore({ io: ioAt(dir, { segmentBytes: 500 }), clock: { now: () => tick++ } });
+    const later = [];
+    store = makeTranscriptStore({ io: ioAt(dir, { segmentBytes: 500, schedule: fn => later.push(fn) }), clock: { now: () => tick++ } });
     A.ok(!/UNVERIFIED/.test(store.streams().find(r => r.streamId === 'chat').preview), 'unversioned closed preview metadata is not trusted as visible conversation text');
+    while (later.length) later.shift()();
+    A.ok(!/UNVERIFIED/.test(store.streams().find(r => r.streamId === 'chat').preview), 'the upgrade rebuilds the preview from the JSONL, never the planted text');
+  } finally { remove(dir); }
+}
+
+// A conversation whose latest activity sits in a closed segment written before preview provenance existed gets its
+// preview back: a deferred, one-segment-at-a-time upgrade (never a boot-time scan of every segment).
+{
+  const dir = temp('history-preview-upgrade');
+  const sha = v => require('crypto').createHash('sha256').update(JSON.stringify(v)).digest('hex');
+  try {
+    let tick = 1;
+    let store = makeTranscriptStore({ io: ioAt(dir, { segmentBytes: 500 }), clock: { now: () => tick++ } });
+    store.appendStrict({ streamId: 'old-chat', role: 'user', content: 'Plan the garden beds', taint: null });
+    store.appendStrict({ streamId: 'old-chat', role: 'assistant', content: 'Raised beds, north side.', taint: null });
+    for (let i = 0; i < 12; i++) store.appendStrict({ streamId: 'other', role: 'assistant', content: 'filler '.repeat(20), taint: null });
+    // rewrite every closed segment's summary the way the previous release wrote it (no previewVersion)
+    const manifestFile = path.join(dir, 'history', 'manifest.json');
+    const manifest = JSON.parse(fs.readFileSync(manifestFile, 'utf8'));
+    let downgraded = 0;
+    for (const meta of manifest.segments) {
+      if (meta.number === manifest.activeSegment) continue;
+      const idxPath = path.join(dir, 'history', 'segment-' + String(meta.number).padStart(6, '0') + '.index.json');
+      const index = JSON.parse(fs.readFileSync(idxPath, 'utf8'));
+      for (const sid of Object.keys(index.streams)) { const s = index.streams[sid]; delete s.previewVersion; delete s.previewTaint; delete s.previewTaintKnown; }
+      fs.writeFileSync(idxPath, JSON.stringify(index));
+      meta.streams = index.streams; meta.indexHash = sha(index); downgraded++;
+    }
+    fs.writeFileSync(manifestFile, JSON.stringify(manifest));
+    A.ok(downgraded >= 2, 'several closed segments carry pre-upgrade summaries');
+    const later = [];
+    let reads = 0;
+    const countedFs = Object.create(fs); countedFs.readFileSync = (...args) => { if (/\.jsonl$/.test(String(args[0]))) reads++; return fs.readFileSync(...args); };
+    store = makeTranscriptStore({ io: ioAt(dir, { fs: countedFs, segmentBytes: 500, schedule: fn => later.push(fn) }), clock: { now: () => tick++ } });
+    A.eq(store.streams({ limit: 10 }).find(r => r.streamId === 'old-chat').preview, '', 'before the upgrade an unversioned preview is not shown');
+    A.ok(later.length === 1, 'the upgrade is scheduled, not run during boot');
+    const bootReads = reads;
+    let steps = 0;
+    while (later.length && steps < 100) { later.shift()(); steps++; }
+    A.ok(steps >= 2 && reads - bootReads === steps, 'each deferred step reads one closed segment (' + steps + ' steps, ' + (reads - bootReads) + ' reads)');
+    A.eq(store.streams({ limit: 10 }).find(r => r.streamId === 'old-chat').preview, 'Plan the garden beds', 'the pre-upgrade conversation lists with its preview again');
+    store = makeTranscriptStore({ io: ioAt(dir, { segmentBytes: 500, schedule: fn => later.push(fn) }), clock: { now: () => tick++ } });
+    A.eq(store.streams({ limit: 10 }).find(r => r.streamId === 'old-chat').preview, 'Plan the garden beds', 'the upgraded preview survives restart');
+    A.eq(later.length, 0, 'an upgraded store schedules nothing on the next boot');
+    A.ok(store.search('old-chat', 'garden', { scope: 'all' }).length === 1, 'search still finds the upgraded segment\'s rows');
   } finally { remove(dir); }
 }
 

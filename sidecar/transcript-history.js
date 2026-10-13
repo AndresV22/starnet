@@ -79,6 +79,14 @@ function makeSegmentedTranscriptIo(opts) {
   function emptyIndex(n) {
     return { version: VERSION, segment: n, rows: 0, bytes: 0, minRowId: 0, maxRowId: 0, minTs: 0, maxTs: 0, corruptLines: 0, streams: Object.create(null), terms: Object.create(null) };
   }
+  // the stream's browse preview: the latest visible prompt in this segment, with that row's own provenance
+  function notePreview(stream, row) {
+    const preview = conversationPreview(row);
+    if (preview) {
+      stream.preview = preview.replace(/\s+/g, ' ').trim().slice(0, 160);
+      stream.previewTaint = row.taint || ''; stream.previewTaintKnown = row.taintKnown === true || !!row.taint;
+    }
+  }
   function noteIndex(index, row) {
     const id = num(row.rowId);
     const ts = num(row.ts);
@@ -100,11 +108,7 @@ function makeSegmentedTranscriptIo(opts) {
     if (!stream) stream = index.streams[sid] = { count: 0, lastAt: 0, preview: '', previewVersion: 1 };
     stream.count++;
     if (ts >= stream.lastAt) stream.lastAt = ts;
-    const preview = conversationPreview(row);
-    if (preview) {
-      stream.preview = preview.replace(/\s+/g, ' ').trim().slice(0, 160);
-      stream.previewTaint = row.taint || ''; stream.previewTaintKnown = row.taintKnown === true || !!row.taint;
-    }
+    notePreview(stream, row);
     for (const term of tokenize(row.content)) {
       const ids = index.terms[term] || (index.terms[term] = []);
       ids.push(id);
@@ -210,6 +214,50 @@ function makeSegmentedTranscriptIo(opts) {
     loaded.nextRowId = 1;
     for (const meta of loaded.segments) loaded.nextRowId = Math.max(loaded.nextRowId, num(meta.maxRowId) + 1);
     return loaded;
+  }
+  /* PREVIEW UPGRADE (one time). Closed segments indexed before previews carried provenance (previewVersion) have
+     summaries streams() must not trust, so those conversations listed with no preview. Closed JSONL is immutable,
+     so each such segment's previews are rebuilt from its own rows, ONE segment per deferred step (a big history
+     never stalls boot), and persisted; an upgraded store schedules nothing on the next boot. */
+  const schedule = typeof o.schedule === 'function' ? o.schedule
+    : (fn, ms) => { const t = setTimeout(fn, ms); if (t && typeof t.unref === 'function') t.unref(); };
+  function stalePreview(meta) {
+    const s = meta && meta.streams;
+    return !!(s && typeof s === 'object' && Object.keys(s).some(sid => s[sid] && s[sid].previewVersion !== 1));
+  }
+  function upgradedIndex(n) {
+    // a predicate that claims nothing: torn lines stay isolated, but an unreadable file throws and waits for a later boot
+    const rows = readRows(n, () => false);
+    const index = readJson(idxFile(n));
+    const meta = manifest.segments.find(s => s.number === n);
+    if (!index || index.version !== VERSION || index.segment !== n || !index.streams || typeof index.streams !== 'object'
+        || (meta && meta.indexHash && indexHash(index) !== meta.indexHash)) return buildIndex(n);
+    const streams = Object.create(null);
+    for (const sid of Object.keys(index.streams)) {
+      const old = index.streams[sid] || {};
+      streams[sid] = { count: num(old.count), lastAt: num(old.lastAt), preview: '', previewVersion: 1 };
+    }
+    for (const row of rows) { const s = streams[str(row.streamId) || 'global']; if (s) notePreview(s, row); }
+    index.streams = streams;
+    return index;
+  }
+  function upgradeStalePreviews() {
+    const pending = manifest.segments.filter(m => m.number !== manifest.activeSegment && stalePreview(m)).map(m => m.number);
+    const step = () => {
+      const n = pending.shift();
+      if (n == null) return;
+      try {
+        const meta = manifest.segments.find(s => s.number === n);
+        if (meta && n !== manifest.activeSegment && stalePreview(meta)) {
+          const index = upgradedIndex(n);
+          saveIndex(index);
+          upsertMeta(index);
+          saveManifest();
+        }
+      } catch (e) { warning('preview upgrade for segment ' + n + ' deferred to a later boot: ' + ((e && e.message) || e)); }
+      if (pending.length) schedule(step, 200);
+    };
+    if (pending.length) schedule(step, 5000);
   }
   function legacyKey(file, lineNo) { return path.basename(file) + ':' + lineNo; }
   function importedLegacyKeys() {
@@ -470,8 +518,8 @@ function makeSegmentedTranscriptIo(opts) {
       let dst = by.get(sid);
       if (!dst) dst = { streamId: sid, turns: 0, lastAt: 0, preview: '' };
       dst.turns += num(s.count);
-      // Older closed indexes lack visibility provenance; omit their preview until a normal index rebuild.
-      // Never scan every conversation body merely to list threads.
+      // Older closed indexes lack visibility provenance: their preview is omitted until the deferred one-time
+      // upgrade (upgradeStalePreviews) rebuilds it. Never scan every conversation body merely to list threads.
       if (num(s.lastAt) >= dst.lastAt) { dst.lastAt = num(s.lastAt); if (s.previewVersion === 1 && s.preview) { dst.preview = str(s.preview).slice(0, previewChars); dst.previewTaint = s.previewTaint || ''; dst.previewTaintKnown = s.previewTaintKnown === true || !!s.previewTaint; } }
       by.set(sid, dst);
     }
@@ -513,7 +561,7 @@ function makeSegmentedTranscriptIo(opts) {
     return before.concat([target], after).map(publicRow);
   }
 
-  try { init(); }
+  try { init(); upgradeStalePreviews(); }
   catch (e) {
     warning('history initialization degraded to an empty in-memory view: ' + ((e && e.message) || e));
     manifest = freshManifest();
