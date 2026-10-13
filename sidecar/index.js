@@ -375,6 +375,7 @@ const WorkflowTakeover = require('./workflow-takeover.js');
 const TaskBriefPolicy = require('./taskbrief-policy.js');       // host validation + mutation boundary
 const { registerTaskBriefTools } = require('./taskbrief-tools.js'); // structured ask/proceed controls
 const CrewCall = require('./crew-call.js');   // names a crew member the Commander asked for at the END of the lead prompt
+const CrewDiet = require('./crew-diet.js');   // ZERO-CREW DIET: which crewless lead defers which part of the crew kit
 const TaskIntent = require('../frontend/app/fork.js').TaskIntent;    // shared TASK_QUESTION protocol + prompt doctrine
 const CommanderContext = require('./commander-context.js');    // bounded provenance-labelled task context
 const threadmine = require('./threadmine.js');                // NS-6: pure post-run thread-mining producer (reflect/study mold)
@@ -1959,9 +1960,6 @@ let agentRosterUpdatedAt = 0;
 const AGENT_ROSTER_FILE = path.join(WORKSPACES, 'agent.roster.json');
 // CREW = every roster agent other than the one running — the same rows the [ORCHESTRATION] "YOUR TEAM" list renders.
 function crewCountFor(agentId) { let n = 0; for (const aid of agentRoster.keys()) if (aid !== agentId) n++; return n; }
-// The crew kit a crewless lead keeps GRANTED but unadvertised (runOnceCore ZERO-CREW DIET). team.summon is not here:
-// recruiting is the one crew action that needs no crew.
-const CREW_KIT_DEFERRED = Object.freeze(['team.dispatch', 'team.spawn', 'team.subagents', 'team.steer', 'team.interrupt', 'team.resume', 'team.config', 'team.configure']);
 function replaceAgentRoster(list) {
   agentRoster.clear();
   agentRosterRaw.clear();
@@ -20490,12 +20488,14 @@ async function runOnceCore(o) {
   /* ZERO-CREW DIET (lean-prompt, 2026-10-12). A lead whose live roster holds no crew still paid for the whole crew kit
      on every task request: 8 team_* schemas (~7.5 KB) plus a ~5 KB [ORCHESTRATION] briefing about a team that does
      not exist (measured on the default new-install floor: 88 tools / 108 KB per "tell me a joke"). With no crew, the
-     kit is DEFERRED — still granted, dispatchable and findable through tool_search, exactly like the station builder —
-     and only team.summon stays advertised, because recruiting is the one crew action that needs no crew (its result
-     reveals team.dispatch, so "summon a researcher and have it look into X" never has to search). With any crew the
-     request is byte-identical to before. KILL SWITCH: STARNET_LEAN_CREW=0 (and SKYNET_TOOL_SEARCH=0) advertise it all. */
-  const crewless = isTask && !deferralOff && String(ENV('LEAN_CREW') || '').trim() !== '0'
-    && resolved.tools.indexOf('team.dispatch') >= 0 && crewCountFor(agentId) === 0;
+     kit's crew-only part is DEFERRED (crew-diet.js CREW_KIT_DEFERRED: team.dispatch + the background controls) — still
+     granted, dispatchable and findable through tool_search, exactly like the station builder. team.summon (its result
+     reveals team.dispatch, so "summon a researcher and have it look into X" never has to search), team.spawn
+     (same-identity clones need no crew; a background spawn reveals its controls) and team.config / team.configure (the
+     lead's OWN Dossier) stay advertised. Only when tool.search is granted: a deferred name nothing can reveal is a
+     hidden tool. With any crew the request is byte-identical to before. KILL SWITCH: STARNET_LEAN_CREW=0 (and
+     SKYNET_TOOL_SEARCH=0) advertise it all. */
+  const crewless = CrewDiet.isCrewlessLead({ isTask, deferralOff, leanCrew: ENV('LEAN_CREW'), tools: resolved.tools, crewCount: crewCountFor(agentId) });
   let connectorDeferral = { deferred: [], servers: [] };
   let unavailable = { byTool: {}, bySignal: {} };
   {
@@ -20533,7 +20533,7 @@ async function runOnceCore(o) {
         routineRun: !!(surface === 'autonomous' && trigger === 'schedule' && String(o.cronJobId || ''))
       }, granted);
     }
-    const extra = connectorDeferral.deferred.concat(Object.keys(unavailable.byTool), crewless ? CREW_KIT_DEFERRED : []);
+    const extra = connectorDeferral.deferred.concat(Object.keys(unavailable.byTool), crewless ? CrewDiet.CREW_KIT_DEFERRED : []);
     resolved.deferred = deferred.concat(extra.filter(n => granted.has(n) && deferred.indexOf(n) < 0 && !directDomainWithheld(n)));
     resolved.unavailable = unavailable.byTool;
     const footprintSig = JSON.stringify([connectorDeferral.servers, unavailable.bySignal]);
@@ -21605,23 +21605,41 @@ async function runOnceCore(o) {
     + 'read it first with session_peek — NEVER answer from memory or assumption. Your own thread does not show other '
     + 'sessions\' turns, so without peeking you would be guessing, and a guessed "nothing happened" about real finished '
     + 'work is a lie the Commander will catch.';
-  if (crewless) {
-    // ZERO-CREW DIET (see `crewless`): no team to list, coordinate or configure — one recruit line, one pointer to the
-    // deferred kit, and the crew-independent station + session rules. The deferred names are also in [HARNESS]'s list.
-    teamNote = '\n\n[ORCHESTRATION] You are the lead orchestrator. You have no crew yet. When the Commander wants a new agent '
-      + '("create a research agent for me"), actually DO it with team.summon — don\'t just describe it or claim you cannot; '
-      + 'it returns the new agentId, and team.dispatch becomes callable to hand it work. The rest of the crew kit is granted but '
-      + 'not loaded: tool_search "delegate subtasks" for team.dispatch and team.spawn (temporary same-identity subagents for '
-      + 'parallel work) with their background controls, or "agent dossier" for team.config / team.configure.'
-      + '\n• STATION: ' + stationPointers + sessionsNote;
-  } else if (isTask && resolved.tools.includes('team.dispatch')) {
-    let projectConversation = false;
+  // SPAWN and CREW CONFIGURATION hold with or without crew too (clones need no crew; the lead configures its OWN Dossier),
+  // and so does the project workspace: computed once, shared verbatim by both briefings.
+  const spawnLine = '\n• SPAWN temporary same-identity subagents with team.spawn for one-off parallel subtasks when no named specialist is needed. '
+    + 'Use background:true for watchable long-running spawned workers, then inspect/control them with team.subagents, team.interrupt, and team.resume. '
+    + 'When a running background worker needs a mid-flight correction or new information, use team.steer (pass the id and generation from team.subagents) instead of interrupting and restarting it.';
+  const crewConfigLine = '\n• CREW CONFIGURATION: use team.config to read Dossier documents, then team.configure to edit the requested agent by exact ID. '
+    + 'A notebook entry does not update another agent\'s Purpose or standing orders. Report a change only after the tool confirms it was saved. '
+    + 'Dossier Purpose and standing orders describe the ongoing role; Bay briefs add the workflow-stage job. '
+    + stationPointers;
+  let projectConversation = false;
+  if (isTask && resolved.tools.includes('team.dispatch')) {
     try { projectConversation = !!(o.streamId && overseer.resolve(o.streamId).projectHome); }
     catch (error) {
       // Ordinary unsaved conversations need not exist in the coordination store.
       // Damaged/unavailable state is different: keep chat usable and report it.
       if (error.message !== 'no such session') failNote('project.context', error);
     }
+  }
+  let projectWorkspaceNote = '';
+  if (projectConversation) {
+    const project = projectsStore.get(o.projectRoot || '') || {};
+    projectWorkspaceNote = '\n[PROJECT WORKSPACE] This is the project\'s main conversation. Keep decisions and final results here. '
+      + 'Preferred crew: ' + JSON.stringify(project.preferredAgents || []) + '. These are preferences, not restrictions; involve other existing station agents as useful without asking for permission just to involve them. '
+      + 'Respect direct Commander steering on workers. Use concise task descriptions so the activity feed explains the actual work. Changing projects does not cancel this work.';
+  }
+  if (crewless) {
+    // ZERO-CREW DIET (see `crewless`): no team to list or coordinate — the recruit line, the pointer to the deferred
+    // dispatch kit, the project workspace, and the crew-independent SPAWN / CREW CONFIGURATION (station pointers
+    // included) / SESSIONS rules verbatim. The deferred names are also in [HARNESS]'s list.
+    teamNote = '\n\n[ORCHESTRATION] You are the lead orchestrator. You have no crew yet. When the Commander wants a new agent '
+      + '("create a research agent for me"), actually DO it with team.summon — don\'t just describe it or claim you cannot; '
+      + 'it returns the new agentId, and team.dispatch becomes callable to hand it work. team.dispatch is granted but not loaded '
+      + 'until then (tool_search "delegate subtasks" finds it); a background team.spawn makes its worker controls callable.'
+      + projectWorkspaceNote + spawnLine + crewConfigLine + sessionsNote;
+  } else if (isTask && resolved.tools.includes('team.dispatch')) {
     teamNote = '\n\n[ORCHESTRATION] You are the lead orchestrator. You can build and direct a crew for the Commander:';
     if (require('./overseer.js').isCoordinatorRun({ ...o, agentId, surface })) teamNote += '\nCoordinate the Commander\'s existing station crew from this conversation. Handle simple work directly. '
       + 'Use the agents the Commander has already created, choosing by their roles and instructions. '
@@ -21633,12 +21651,7 @@ async function runOnceCore(o) {
       + 'Route follow-ups to existing work; inspect worker status and generation before steering. '
       + 'Project context stays scoped to the relevant thread; read its decisions before acting. '
       + 'A completed worker is evidence to review, not proof the overall objective is done.';
-    if (projectConversation) {
-      const project = projectsStore.get(o.projectRoot || '') || {};
-      teamNote += '\n[PROJECT WORKSPACE] This is the project\'s main conversation. Keep decisions and final results here. '
-        + 'Preferred crew: ' + JSON.stringify(project.preferredAgents || []) + '. These are preferences, not restrictions; involve other existing station agents as useful without asking for permission just to involve them. '
-        + 'Respect direct Commander steering on workers. Use concise task descriptions so the activity feed explains the actual work. Changing projects does not cancel this work.';
-    }
+    teamNote += projectWorkspaceNote;
     const lines = [];
     // S3: each crew line carries that specialist's EARNED track record when it has one (browser-computed,
     // coarse — see frontend/app/xp.js credential()). It INFORMS the pick, it never gates it: an agent that has
@@ -21657,9 +21670,7 @@ async function runOnceCore(o) {
       + (anyTrack ? '\n  A [bracketed] note is that specialist\'s REAL track record on this station — earned from work the '
         + 'Commander rated and runs the harness watched finish. Use it to pick the right worker; it is evidence, not a '
         + 'permission level, and an agent without one is simply new, not worse.' : '');
-    teamNote += '\n• SPAWN temporary same-identity subagents with team.spawn for one-off parallel subtasks when no named specialist is needed. '
-      + 'Use background:true for watchable long-running spawned workers, then inspect/control them with team.subagents, team.interrupt, and team.resume. '
-      + 'When a running background worker needs a mid-flight correction or new information, use team.steer (pass the id and generation from team.subagents) instead of interrupting and restarting it.';
+    teamNote += spawnLine;
     // Class Loadouts S1: the class list here is composed from the SHARED catalog (id + tagline), never hardcoded,
     // so the summon prose can't drift from the Recruitment Bay's actual classes as new ones are added.
     const classListLine = SPECIALIST_CLASSES.map(c => c.id + (c.tagline ? ' — ' + c.tagline : '')).join('; ');
@@ -21670,10 +21681,7 @@ async function runOnceCore(o) {
       + 'summon an agent, actually DO it with team.summon — don\'t just describe it or claim you cannot. '
       + 'For scheduled work, create StarNet routines with routine_create; if the work clearly belongs to a specialist '
       + '(research/news/latest => researcher/scout/analyst), target that agentId, or summon the specialist first.';
-    teamNote += '\n• CREW CONFIGURATION: use team.config to read Dossier documents, then team.configure to edit the requested agent by exact ID. '
-      + 'A notebook entry does not update another agent\'s Purpose or standing orders. Report a change only after the tool confirms it was saved. '
-      + 'Dossier Purpose and standing orders describe the ongoing role; Bay briefs add the workflow-stage job. '
-      + stationPointers;
+    teamNote += crewConfigLine;
     teamNote += sessionsNote;
   } else if (isTask && o.delegatedBy && resolved.tools.includes('station.build')) {
     // THE LENT BUILDER (team.dispatch builder:true): this worker holds the floor tools for this job only. Without this

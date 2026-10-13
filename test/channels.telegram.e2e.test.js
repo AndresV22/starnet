@@ -96,9 +96,9 @@ function startMockOpenRouter() {
             let call = null;
             if (sameRun && attempt <= 3 && !results.length && wire.includes('brief_proceed'))
               call = { id: 'crewless_brief', name: 'brief_proceed', args: { objective: 'Delegate one temporary proof subtask and return its actual result.' } };
-            else if (sameRun && attempt <= 3 && brief && String(brief.content).includes('Task Brief settled.') && !search && wire.includes('tool_search'))
-              call = { id: 'crewless_search', name: 'tool_search', args: { query: 'delegate subtasks' } };
-            else if (sameRun && attempt <= 3 && search && /Now available to call/.test(String(search.content)) && /team\.spawn/.test(String(search.content)) && !spawnResult && wire.includes('team_spawn'))
+            // team_spawn stays advertised for a crewless lead (lean-prompt review 2026-10-12: clones need no crew), so the
+            // settled brief goes straight to a real spawn — no search step
+            else if (sameRun && attempt <= 3 && brief && String(brief.content).includes('Task Brief settled.') && !search && !spawnResult && wire.includes('team_spawn'))
               call = { id: 'crewless_spawn', name: 'team_spawn', args: { tasks: [{ prompt: CREWLESS_WORKER_REQUEST, label: 'crewless Telegram proof' }], background: false } };
             if (call) {
               res.write('data: ' + JSON.stringify({ choices: [{ delta: { tool_calls: [{ index: 0, id: call.id, type: 'function', function: { name: call.name, arguments: JSON.stringify(call.args) } }] } }] }) + '\n\n');
@@ -106,7 +106,7 @@ function startMockOpenRouter() {
             } else {
               // A missing reveal, refusal, or worker failure terminates this bounded script honestly.
               const rows = crewlessRows(current);
-              const complete = attempt === 4 && rows.length === 1 && rows[0].reason === 'done' && rows[0].result === 'CREWLESS_WORKER_OK';
+              const complete = attempt === 3 && rows.length === 1 && rows[0].reason === 'done' && rows[0].result === 'CREWLESS_WORKER_OK';
               const answer = complete ? CREWLESS_DONE + ': CREWLESS_WORKER_OK' : CREWLESS_FAILED;
               res.write('data: ' + JSON.stringify({ choices: [{ delta: { content: answer } }] }) + '\n\n');
               res.write('data: ' + JSON.stringify({ choices: [{ delta: {}, finish_reason: 'stop' }], usage: { prompt_tokens: 5, completion_tokens: 3, total_tokens: 8 } }) + '\n\n');
@@ -500,34 +500,32 @@ async function waitUntil(fn, ms, label) {
       await waitUntil(() => tg.sends.slice(sendFrom).some(s => String(s.chat_id) === String(chat)
         && (rendered(s.text).includes(CREWLESS_DONE) || rendered(s.text).includes(CREWLESS_FAILED))), 20000, 'crewless Telegram final outcome');
       const leads = llm.requests.slice(requestFrom).filter(q => lastUserText(q) === CREWLESS_REQUEST && crewlessRuntime(q).agentId === agentId);
-      A.eq(leads.length, 4, 'crewless parent makes exactly brief, search, spawn and final provider requests');
+      A.eq(leads.length, 3, 'crewless parent makes exactly brief, spawn and final provider requests');
       const runId = leads.length ? crewlessRuntime(leads[0]).runId : '';
       A.ok(!!runId && leads.every(q => crewlessRuntime(q).runId === runId), 'crewless stages keep the same parent run identity');
       const first = leads[0] || { messages: [], tools: [] };
       A.ok(String((first.messages[0] || {}).content).includes('You have no crew yet'), 'crewless parent receives the compact briefing');
-      A.ok(!(first.tools || []).some(t => t.function && t.function.name === 'team_spawn'), 'crewless spawn is initially deferred');
-      const revealed = (leads[2] && leads[2].tools || []).find(t => t.function && t.function.name === 'team_spawn');
+      A.ok(!(first.tools || []).some(t => t.function && t.function.name === 'team_dispatch'), 'crewless dispatch is deferred (no crew to address)');
+      const revealed = (first.tools || []).find(t => t.function && t.function.name === 'team_spawn');
       const params = revealed && revealed.function.parameters;
       A.ok(params && params.properties && params.properties.tasks && params.properties.tasks.type === 'array'
         && params.properties.tasks.items && (params.properties.tasks.items.required || []).includes('prompt')
-        && params.properties.background && params.properties.background.type === 'boolean', 'tool search reveals the actual executable team_spawn schema');
+        && params.properties.background && params.properties.background.type === 'boolean', 'the crewless parent is offered the actual executable team_spawn schema from its first request');
       const parentEvents = () => sse.events.slice(eventFrom).filter(e => e.payload && e.payload.agentId === agentId && e.payload.runId === runId);
       await sse.waitFor(() => parentEvents().some(e => e.name === 'agent.run.end'), 5000, 'crewless parent end');
       const calls = parentEvents().filter(e => e.name === 'agent.tool_call').map(e => e.payload);
       // Task Brief controls are intentionally hidden from SSE; their real result is on the next provider request.
       const briefMessages = leads[1] && leads[1].messages || [];
       const briefResult = briefMessages.find(m => m.role === 'tool' && m.tool_call_id === 'crewless_brief');
-      A.eq(briefResult && briefResult.content, 'Task Brief settled. Consequential tools are unlocked.', 'real Task Brief succeeds before the search request');
+      A.eq(briefResult && briefResult.content, 'Task Brief settled. Consequential tools are unlocked.', 'real Task Brief succeeds before the spawn request');
       A.ok(briefMessages.some(m => (m.tool_calls || []).some(c => c.id === 'crewless_brief' && c.function && c.function.name === 'brief_proceed')), 'brief result belongs to the real parent control call');
-      A.eq(calls.map(c => c.name.replace('_', '.')), ['tool.search', 'team.spawn'], 'visible search precedes real spawn after the settled brief');
-      for (const callId of ['crewless_search', 'crewless_spawn']) {
+      A.eq(calls.map(c => c.name.replace('_', '.')), ['team.spawn'], 'a real spawn follows the settled brief');
+      for (const callId of ['crewless_spawn']) {
         const outcomes = parentEvents().filter(e => e.name === 'agent.tool_result' && e.payload.callId === callId);
         A.eq(outcomes.length, 1, callId + ' has one attributed outcome');
         A.ok(outcomes[0] && outcomes[0].payload.ok === true && outcomes[0].payload.isError === false, callId + ' really succeeded');
       }
-      const searchResult = (leads[2] && leads[2].messages || []).find(m => m.role === 'tool' && m.tool_call_id === 'crewless_search');
-      A.ok(searchResult && /Now available to call/.test(String(searchResult.content)) && /team\.spawn/.test(String(searchResult.content)), 'actual search result names the revealed spawn tool');
-      const rows = crewlessRows(leads[3] && leads[3].messages || []);
+      const rows = crewlessRows(leads[2] && leads[2].messages || []);
       A.eq(rows.length, 1, 'one actual worker result returns to the parent');
       const worker = rows[0] || {};
       A.ok(worker.reason === 'done' && worker.result === 'CREWLESS_WORKER_OK' && /^sub-/.test(worker.agentId || ''), 'worker outcome identifies a completed temporary child and its marker');

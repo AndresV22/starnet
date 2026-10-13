@@ -202,7 +202,9 @@
       schema: { type: 'object', properties: { agentId: { type: 'string' } } },
       run: async (args) => {
         const out = await ask('station.agent_config', { agentId: args && args.agentId });
-        return out.ok ? { content: JSON.stringify(out.result), summary: 'crew configuration' } : refuse(out.error);
+        // revealTools: reading a Dossier is the step before editing it — team.configure is one call away even where a
+        // tool budget holds it deferred (a no-op wherever it is already advertised; loop.js reveal)
+        return out.ok ? { content: JSON.stringify(out.result), summary: 'crew configuration', control: { revealTools: ['team.configure'] } } : refuse(out.error);
       }
     };
     // Rewrites text ANOTHER agent obeys on every later run (including unattended ones), so: its own consent class

@@ -19,7 +19,11 @@ const { hostNotes, runContextOf, userWords } = require('./helpers/host-notes.js'
 const HOST = '127.0.0.1';
 const MARK = 'LEAN_PROMPT_PROBE';
 const FLOOR = ['cabinet', 'dish', 'notebook', 'studio', 'workbench'].map(objectType => ({ objectType }));
-const CREW_KIT = ['team_dispatch', 'team_spawn', 'team_subagents', 'team_steer', 'team_interrupt', 'team_resume', 'team_config', 'team_configure'];
+// review 2026-10-12: only what needs a crew or a running background worker is deferred; clones (team_spawn) and the
+// lead's OWN Dossier (team_config / team_configure) need no crew and stay advertised with team_summon
+const CREW_DEFERRED = ['team_dispatch', 'team_subagents', 'team_steer', 'team_interrupt', 'team_resume'];
+const CREWLESS_KEPT = ['team_summon', 'team_spawn', 'team_config', 'team_configure'];
+const CREW_KIT = CREW_DEFERRED.concat(CREWLESS_KEPT);
 
 const text = c => typeof c === 'string' ? c : (Array.isArray(c) ? c.map(p => (p && p.text) || '').join('') : '');
 // THE system prompt: the first message. On this non-Claude chat wire it is the ONLY system message: the run-context note
@@ -42,6 +46,7 @@ function startUpstream() {
     let call = null;
     if (main && !answered && /^SEARCH/.test(ask)) call = { name: 'tool_search', args: { query: /dossier/i.test(ask) ? 'agent dossier' : 'delegate subtasks' } };
     if (main && !answered && /^SUMMON/.test(ask)) call = { name: 'team_summon', args: { name: 'RESEARCHER', specId: 'researcher' } };
+    if (main && !answered && /^SPAWNBG/.test(ask)) call = { name: 'team_spawn', args: { tasks: [{ prompt: 'CLONE_TASK: say done', label: 'bg proof' }], background: true } };
     res.writeHead(200, { 'Content-Type': 'text/event-stream' });
     if (call) {
       res.write('data: ' + JSON.stringify({ choices: [{ delta: { tool_calls: [{ index: 0, id: 'call_' + bodies.length, type: 'function', function: { name: call.name, arguments: JSON.stringify(call.args) } }] } }] }) + '\n\n');
@@ -109,13 +114,15 @@ async function run(fixture, up, stream, messages) {
     const [b1, b2] = [r1.bodies[0], r2.bodies[0]];
     A.ok(b1 && b2, 'both task requests reached the model');
     const names = toolNames(b1);
-    A.ok(names.indexOf('team_summon') >= 0, 'zero crew: team_summon stays advertised (recruiting needs no crew)');
-    for (const n of CREW_KIT) A.ok(names.indexOf(n) < 0, 'zero crew: ' + n + ' is not advertised');
+    for (const n of CREWLESS_KEPT) A.ok(names.indexOf(n) >= 0, 'zero crew: ' + n + ' stays advertised (needs no crew)');
+    for (const n of CREW_DEFERRED) A.ok(names.indexOf(n) < 0, 'zero crew: ' + n + ' is not advertised');
     const sys1 = leadingSystem(b1), sys2 = leadingSystem(b2);
     A.ok(/These exist and you CAN use them: [^\n]*team_dispatch/.test(sys1), 'zero crew: the deferred crew kit is NAMED in [HARNESS] (granted, findable)');
     const orch = sys1.slice(sys1.indexOf('[ORCHESTRATION]'));
     A.ok(sys1.indexOf('[ORCHESTRATION]') >= 0 && orch.indexOf('You have no crew yet') >= 0, 'zero crew: the compact briefing rides');
-    A.ok(orch.indexOf('YOUR TEAM') < 0 && orch.indexOf('SPAWN temporary') < 0 && orch.indexOf('CREW CONFIGURATION') < 0, 'zero crew: no crew list / spawn / config paragraphs');
+    A.ok(orch.indexOf('YOUR TEAM') < 0, 'zero crew: no crew list');
+    A.ok(orch.indexOf('\n• SPAWN temporary same-identity subagents with team.spawn') >= 0, 'zero crew: the SPAWN line rides (clones need no crew)');
+    A.ok(orch.indexOf('\n• CREW CONFIGURATION: use team.config') >= 0, 'zero crew: the CREW CONFIGURATION rules ride (the lead\'s own Dossier)');
     A.ok(orch.indexOf('tool_search "station settings"') >= 0 && orch.indexOf('session_peek') >= 0, 'zero crew: the crew-independent station + session rules stay');
     // 2. cache-stable prefix
     A.eq(sys2, sys1, 'the leading system prompt is BYTE-IDENTICAL across two messages of one conversation');
@@ -138,12 +145,33 @@ async function run(fixture, up, stream, messages) {
     const r3 = await run(fixture, up, 'lean-search', [{ role: 'user', content: 'SEARCH: split this into parallel subtasks' }]);
     A.eq(r3.bodies.length, 2, 'search run: two model calls (search, then answer)');
     const after = toolNames(r3.bodies[1]);
-    A.ok(after.indexOf('team_dispatch') >= 0 && after.indexOf('team_spawn') >= 0, 'tool_search "delegate subtasks" reveals team_dispatch + team_spawn');
+    A.ok(after.indexOf('team_dispatch') >= 0, 'tool_search "delegate subtasks" reveals team_dispatch');
     A.eq(leadingSystem(r3.bodies[1]), leadingSystem(r3.bodies[0]), 'within a run the system prompt is byte-identical across tool iterations');
     A.eq(leadingSystem(r3.bodies[0]), sys1, 'and identical to the other conversation\'s (the same lead, the same floor)');
-    const r3b = await run(fixture, up, 'lean-search-2', [{ role: 'user', content: 'SEARCH: edit your dossier purpose' }]);
-    const afterB = toolNames(r3b.bodies[1] || { tools: [] });
-    A.ok(afterB.indexOf('team_config') >= 0 && afterB.indexOf('team_configure') >= 0, 'tool_search "agent dossier" (the briefing\'s pointer) reveals team_config + team_configure');
+
+    // a BACKGROUND spawn reveals its worker controls on its own (no streamId: no Task Brief gate on the spawn)
+    const r3c = await run(fixture, up, null, [{ role: 'user', content: 'SPAWNBG: fan this out in the background' }]);
+    const leadCalls = r3c.bodies.filter(b => /^SPAWNBG/.test(userWords((b.messages || [])[lastUserIdx(b)] || {})));
+    A.ok(leadCalls.length >= 2, 'background spawn run: the lead was called again after team_spawn returned');
+    A.ok(CREW_DEFERRED.slice(1).every(n => toolNames(leadCalls[0]).indexOf(n) < 0), 'before the spawn: the background controls are deferred');
+    for (const n of CREW_DEFERRED.slice(1)) A.ok(toolNames(leadCalls[1]).indexOf(n) >= 0, 'after a background spawn: ' + n + ' is callable without a search');
+    A.ok(toolNames(leadCalls[1]).indexOf('team_dispatch') < 0, 'a spawn reveals the controls, not team_dispatch');
+
+    // [PROJECT WORKSPACE] rides the crewless briefing too
+    const folder = require('node:path').join(fixture.workspace, 'lean-project'); require('node:fs').mkdirSync(folder);
+    const blessed = await fixture.json('POST', '/api/projects/bless', { path: folder });
+    A.eq(blessed.status, 200, 'project folder blessed');
+    let root = blessed.body && (blessed.body.root || (blessed.body.project && blessed.body.project.root));
+    if (!root) root = ((await fixture.json('GET', '/api/projects')).body.projects.find(p => /lean-project$/i.test(p.root)) || {}).root;
+    const home = (await fixture.json('POST', '/api/projects/workspace', { root })).body.session;
+    A.ok(home && home.id, 'project conversation opened');
+    const from = up.bodies.length;
+    const pr = await fixture.request('/api/run', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
+      provider: 'custom', baseUrl: up.base, key: 'fixture-key', model: 'fixture-model', agentId: 'agent', isTask: true, streamId: home.id, projectRoot: root,
+      placed: FLOOR, stationPlaced: FLOOR, system: MARK + ': you are the lead.', messages: [{ role: 'user', content: 'tell me a joke' }] }) });
+    await pr.text();
+    const projSys = leadingSystem(up.bodies[from] || {});
+    A.ok(projSys.indexOf('You have no crew yet') >= 0 && projSys.indexOf('\n[PROJECT WORKSPACE] This is the project\'s main conversation.') >= 0, 'zero crew in a project conversation: the [PROJECT WORKSPACE] paragraph rides');
 
     // a summon reveals team.dispatch on its own
     // no streamId: a streamed conversation opens a Task Brief, whose gate holds every mutation until brief_proceed
@@ -159,10 +187,11 @@ async function run(fixture, up, stream, messages) {
       { agentId: 'researcher', name: 'Ada', role: 'researcher', provider: 'custom', model: 'fixture-model' }] })).status, 200, 'crew roster saved');
     const r5 = await run(fixture, up, 'lean-crew', [{ role: 'user', content: 'tell me a joke' }]);
     const crewNames = toolNames(r5.bodies[0]);
-    for (const n of CREW_KIT.concat(['team_summon'])) A.ok(crewNames.indexOf(n) >= 0, 'with crew: ' + n + ' advertised');
+    for (const n of CREW_KIT) A.ok(crewNames.indexOf(n) >= 0, 'with crew: ' + n + ' advertised');
     const crewSys = leadingSystem(r5.bodies[0]);
     A.ok(crewSys.indexOf('YOUR TEAM') >= 0 && crewSys.indexOf('researcher (Ada)') >= 0 && crewSys.indexOf('You have no crew yet') < 0, 'with crew: the full briefing with the team list');
     A.ok(crewSys.indexOf('\n• CREW CONFIGURATION: use team.config') >= 0 && crewSys.indexOf('\n• SESSIONS: session_list') >= 0, 'with crew: config + sessions paragraphs intact');
+    A.ok(crewSys.indexOf('\n• SPAWN temporary') >= 0 && crewSys.indexOf('\n• SUMMON a NEW specialist') >= 0 && crewSys.indexOf('team.dispatch is granted but not loaded') < 0, 'with crew: the full SPAWN / SUMMON briefing, no crewless pointer');
     await fixture.dispose();
 
     // ---- 3: kill switches restore the old request shape ----

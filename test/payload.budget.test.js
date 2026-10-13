@@ -17,6 +17,7 @@ const A = require('./_assert.js');
 const http = require('node:http');
 const { SidecarFixture } = require('./helpers/sidecar-fixture.js');
 const WM = require('../frontend/app/worldmodel.js');
+const { hostNotes } = require('./helpers/host-notes.js');
 
 const MARK = 'PAYLOAD_BUDGET_PROBE';
 const HOST = '127.0.0.1';
@@ -65,10 +66,16 @@ const HOST = '127.0.0.1';
    Measured base 04ce1fcb8 -> lane: default-new-install 24,672 -> 21,265 system chars | 84 -> 76 tools | 66,238 -> 58,822
    tool bytes; fully-granted-floor 24,893 -> 21,486 | 84 -> 76 | 66,238 -> 58,822. (systemChars sums EVERY system-role
    message, so the per-run <run_context> note the CACHE-STABLE PREFIX moved out of the system prompt is still counted
-   here: this custom model keeps it a system message.) Budgets = measurement + ~0.3% (the date line varies in length). */
+   here: this custom model keeps it a system message.) Budgets = measurement + ~0.3% (the date line varies in length).
+   LEAN PROMPT REVIEW 2026-10-12: the diet deferred working capabilities. A crewless lead now defers ONLY team.dispatch
+   and the background-worker controls; team.spawn (clones need no crew) and team.config / team.configure (its own
+   Dossier) stay advertised with their SPAWN and CREW CONFIGURATION briefing lines. Since 1765d0a2c the run-context note
+   rides the newest user message on this non-Claude wire, so systemChars now adds the user-side host notes explicitly
+   (same quantity as before: every host-authored prompt char re-sent per call). Measured: both floors 79 tools / 61,298
+   tool bytes; 22,069 / 22,290 chars (1,961 of them the note). Still below base 04ce1fcb8 (84 / 66,238 / 24,672). */
 const BUDGET = {
-  'default-new-install': { systemChars: 21330, tools: 76, toolBytes: 58850 },
-  'fully-granted-floor': { systemChars: 21550, tools: 76, toolBytes: 58850 }
+  'default-new-install': { systemChars: 22140, tools: 79, toolBytes: 61350 },
+  'fully-granted-floor': { systemChars: 22360, tools: 79, toolBytes: 61350 }
 };
 
 (async () => {
@@ -107,8 +114,13 @@ const BUDGET = {
     A.eq(bodies.length, 1, 'exactly one foreground model call');
     const b = bodies[0] || { messages: [] };
     const tools = Array.isArray(b.tools) ? b.tools : [];
+    // every system-role message PLUS the host notes that ride user-side (the per-run <run_context> note is the fenced
+    // leading text of the newest user message on this non-Claude wire since 1765d0a2c): host-authored prompt text is
+    // re-sent on every call wherever the wire puts it, so the ratchet keeps counting it
+    const noteChars = hostNotes(b.messages.filter(m => m.role === 'user')).reduce((n, t) => n + t.length, 0);
     return {
-      systemChars: b.messages.filter(m => m.role === 'system').reduce((n, m) => n + String(m.content).length, 0),
+      systemChars: b.messages.filter(m => m.role === 'system').reduce((n, m) => n + String(m.content).length, 0) + noteChars,
+      noteChars,
       tools: tools.length,
       toolBytes: tools.length ? Buffer.byteLength(JSON.stringify(tools)) : 0
     };
@@ -124,7 +136,7 @@ const BUDGET = {
     measured['fully-granted-floor'] = await measure(true);
     for (const id of Object.keys(BUDGET)) {
       const m = measured[id], b = BUDGET[id];
-      console.log('[payload] ' + id + ': system ' + m.systemChars + ' chars (budget ' + b.systemChars + ') | ' + m.tools + ' tools (budget ' + b.tools + ') | '
+      console.log('[payload] ' + id + ': system ' + m.systemChars + ' chars (budget ' + b.systemChars + '; of which user-side notes ' + m.noteChars + ') | ' + m.tools + ' tools (budget ' + b.tools + ') | '
         + m.toolBytes + ' tool bytes (budget ' + b.toolBytes + ')');
       A.ok(m.systemChars <= b.systemChars, id + ': system prompt ' + m.systemChars + ' chars within budget ' + b.systemChars);
       A.ok(m.tools <= b.tools, id + ': ' + m.tools + ' advertised tools within budget ' + b.tools);

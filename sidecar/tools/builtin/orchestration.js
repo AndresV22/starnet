@@ -30,6 +30,9 @@
   'use strict';
 
   const ID_RE = /^[A-Za-z0-9_-]{1,40}$/;
+  // The background-worker controls a BACKGROUND team.spawn / team.dispatch result reveals: a crewless lead holds them
+  // deferred (index.js ZERO-CREW DIET), so the workers it just started must be one call away, not one search away.
+  const BACKGROUND_CONTROLS = Object.freeze(['team.subagents', 'team.steer', 'team.interrupt', 'team.resume']);
   /* A worker the way the briefing SHOWS it: the crew list prints "id (Name) — role", and small local models
      (2026-10-11 report: a Qwen lead that "would not delegate") answer with "Researcher" or "researcher (Ada)"
      and got a bare "no such live worker" back, so they gave up and did the work themselves. An UNAMBIGUOUS
@@ -886,7 +889,10 @@
             });
           });
           const startedRows = started.concat(overflowRows());
-          return { content: JSON.stringify(startedRows), summary: 'started ' + started.filter(r => r && r.id).length + ' background worker(s)' + overflowNote };
+          // revealTools: a crewless lead holds the background controls DEFERRED (index.js ZERO-CREW DIET) — the workers it just
+          // started must be one call away from being watched/steered/stopped. A no-op wherever they are already advertised.
+          return { content: JSON.stringify(startedRows), summary: 'started ' + started.filter(r => r && r.id).length + ' background worker(s)' + overflowNote,
+            control: { revealTools: BACKGROUND_CONTROLS.slice() } };
         }
 
         /* WAVES — one code path for both modes (2026-07-26 audit findings A + B).
@@ -1110,7 +1116,9 @@
         const spawned = reqs.map(spawnOne);
         if (args.background) {
           const rows = spawned.map(s => Object.assign({ label: s.label }, s.view)).concat(overflowRows());
-          return { content: JSON.stringify(rows), summary: 'spawned ' + spawned.filter(s => s.started).length + ' subagent(s)' + overflowNote };
+          // revealTools: see team.dispatch background — a crewless lead's spawned background workers get their controls
+          return { content: JSON.stringify(rows), summary: 'spawned ' + spawned.filter(s => s.started).length + ' subagent(s)' + overflowNote,
+            control: { revealTools: BACKGROUND_CONTROLS.slice() } };
         }
         const results = (await Promise.all(spawned.map(s => s.done))).concat(overflowRows());
         const ok = results.filter(r => r.reason === 'done').length;
