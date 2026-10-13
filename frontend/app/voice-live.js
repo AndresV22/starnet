@@ -477,7 +477,9 @@ const VoiceLive = (() => {
       const id = String(pending.promptId || pending.tool || 'prompt');
       if (id !== spokenApprovalId) {
         spokenApprovalId = id;
-        speakLocal('Approval needed: ' + (pending.tool || 'an action') + (pending.argsSummary ? ' — ' + String(pending.argsSummary).slice(0, 120) : '') + '. Say approve, always allow, or deny.');
+        // offer only the answers the card has: a once-only ask has no Always (review app-shell-ui-03)
+        speakLocal('Approval needed: ' + (pending.tool || 'an action') + (pending.argsSummary ? ' — ' + String(pending.argsSummary).slice(0, 120) : '') +
+          (ONCE_ONLY.has(pending.tool) ? '. Say approve or deny.' : '. Say approve, always allow, or deny.'));
       }
     } else spokenApprovalId = null;
   }
@@ -519,9 +521,10 @@ const VoiceLive = (() => {
   }
 
   const approvalSubmissions = new Set();
-  // the cards with no Always key (chat.js permissionRow): widening the leash and the login window are answered fresh
-  // every time, so a spoken "always allow" there approves this one call, never a standing grant (review app-shell-ui-02)
-  const ONCE_ONLY = new Set(['station.power', 'browser.login', 'browser.login.done']);
+  // asks the station answers fresh every time: the cards with no Always key (chat.js permissionRow — widening the leash,
+  // the login window) and the plugin install (freshConsent: the station grants that one call whatever grade arrives).
+  // A spoken "always allow" there approves this one call and says so, never a standing grant (review app-shell-ui-02/03)
+  const ONCE_ONLY = new Set(['station.power', 'browser.login', 'browser.login.done', 'plugin.submit']);
   function approvalCommand(lower) {
     if (typeof Workstreams === 'undefined' || typeof Channels === 'undefined') return false;
     const ws = Workstreams.active();
@@ -532,7 +535,8 @@ const VoiceLive = (() => {
     else if (/^(?:always allow|approve always|always approve)$/.test(lower)) decision = 'always';
     else if (/^(?:deny|deny it|do not allow|don't allow|reject)$/.test(lower)) decision = 'deny';
     if (!decision) return false;
-    if (decision === 'always' && ONCE_ONLY.has(pending.tool)) decision = 'once';
+    const onceOnly = decision === 'always' && ONCE_ONLY.has(pending.tool);
+    if (onceOnly) decision = 'once';
     if (typeof Chat === 'undefined' || !Chat.answerConsent) {
       speakLocal('I could not submit that answer. Please use the approval card.');
       return true;
@@ -548,7 +552,7 @@ const VoiceLive = (() => {
       const applied = result && result.appliedDecision;
       if (applied === 'deny') speakLocal('Denied.');
       else if (applied === 'always') speakLocal('Always allowed.');
-      else if (applied === 'once') speakLocal('Approved once.');
+      else if (applied === 'once') speakLocal((onceOnly ? 'This one can only be approved once. ' : '') + 'Approved once.');
       else speakLocal('The station did not confirm your answer. Please try again.');
     }).catch(() => {
       const stillPending = Channels.pendingAllOf(ws.id).some(p => String(p.promptId || '') === id);

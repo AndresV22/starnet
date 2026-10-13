@@ -275,9 +275,9 @@ for (const [said, applied, label] of [
    downgraded on a fresh ask), so the card read "✓ always allowed by voice" and voice said "Always allowed." while the
    station granted this one call. Voice now answers these once, and the card settles any yes with its own yes receipt. */
 for (const [tool, said, sent, label, heard] of [
-  ['station.power', 'always allow', 'once', '✓ approved once by voice', 'Approved once.'],
-  ['browser.login', 'always allow', 'once', '✓ window opened by voice', 'Approved once.'],
-  ['browser.login.done', 'always allow', 'once', '✓ done by voice', 'Approved once.'],
+  ['station.power', 'always allow', 'once', '✓ approved once by voice', 'This one can only be approved once. Approved once.'],
+  ['browser.login', 'always allow', 'once', '✓ window opened by voice', 'This one can only be approved once. Approved once.'],
+  ['browser.login.done', 'always allow', 'once', '✓ done by voice', 'This one can only be approved once. Approved once.'],
   ['browser.login.done', 'deny', 'deny', '✕ cancelled by voice', 'Denied.']
 ]) test('a spoken "' + said + '" on a ' + tool + ' card (no Always key) answers once and settles with the card\'s own receipt', async () => {
   const f = permissionFixture(tool), spoken = [], sentDecisions = [];

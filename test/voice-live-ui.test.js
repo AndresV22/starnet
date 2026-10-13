@@ -302,12 +302,12 @@ const consentEnd = chatSource.indexOf('  // the channel\'s record', consentStart
 assert.ok(approvalStart >= 0 && approvalEnd > approvalStart && approvalEnd - approvalStart < 4000, 'complete bounded voice approval controller is present');
 assert.ok(consentStart >= 0 && consentEnd > consentStart && consentEnd - consentStart < 6000, 'complete bounded confirmed-answer contract is present');
 const flushApproval = () => new Promise(resolve => setImmediate(resolve));
-function approvalFixture() {
+function approvalFixture(opts = {}) {
   const Channels = require('../frontend/app/channels.js'); Channels.reset();
   const ws = { id: 'voice-parallel', agentId: 'lead' }, calls = [], events = [], spoken = [];
   Channels.begin(ws.id, 1000); Channels.setRunId(ws.id, 'lead-run');
   Channels.setPending(ws.id, { promptId: 'worker-first', tool: 'fs.write' }, 2000);
-  Channels.setPending(ws.id, { promptId: 'worker-second', tool: 'shell.exec' }, 3000);
+  Channels.setPending(ws.id, { promptId: 'worker-second', tool: opts.tool || 'shell.exec' }, 3000);
   const Workstreams = { active: () => ws, get: id => id === ws.id ? ws : null };
   let respond = (_run, _prompt, decision) => ({ ok: true, decision });
   const Harness = { consent: (...args) => { calls.push(args); return respond(...args); } };
@@ -399,6 +399,43 @@ function approvalFixture() {
     f.Channels.clearPending(f.ws.id, 8000, 'worker-second'); reject(new Error('local response lost')); await flushApproval();
     assert.deepEqual(f.pending(), ['worker-first']);
     assert.deepEqual(f.spoken, [], 'a failed local request does not claim the remotely resolved prompt still waits');
+  }
+  // review app-shell-ui-03: the leash, the login window and a plugin install are answered fresh every time — the station
+  // grants that ONE call whatever grade arrives. A spoken "always allow" there must submit once and say so, never
+  // "Always allowed." (the station's echo of a requested 'always' is not a standing grant for these)
+  for (const tool of ['station.power', 'browser.login', 'browser.login.done', 'plugin.submit']) {
+    const f = approvalFixture({ tool });
+    f.answer('always allow'); await flushApproval();
+    assert.deepEqual(f.calls, [['lead-run', 'worker-second', 'once']], tool + ': a spoken always is submitted as once');
+    assert.ok(f.spoken.every(t => !/Always allowed/.test(t)), tool + ': voice never confirms a standing grant');
+    assert.match(f.spoken.at(-1) || '', /can only be approved once\. Approved once/, tool + ': voice says why it approved once');
+  }
+  {
+    const f = approvalFixture();
+    f.answer('always allow'); await flushApproval();
+    assert.deepEqual(f.calls, [['lead-run', 'worker-second', 'always']], 'an ordinary card still takes a spoken always');
+    assert.equal(f.spoken.at(-1), 'Always allowed.');
+  }
+  // the hands-free announcement offers only the keys the card has
+  {
+    const waitsStart = source.indexOf('  function announceWaits() {');
+    const waitsEnd = source.indexOf('  /* Answer visible chips by voice.', waitsStart);
+    assert.ok(waitsStart >= 0 && waitsEnd > waitsStart, 'announceWaits() is present');
+    const say = tool => {
+      const Channels = require('../frontend/app/channels.js'); Channels.reset();
+      Channels.setPending('w', { promptId: 'p-' + tool, tool }, 1000);
+      const spoken = [];
+      // eslint-disable-next-line no-new-func
+      new Function('Workstreams', 'Channels', 'Chat', 'speakLocal',
+        "let active = true, boundWsId = 'w', spokenApprovalId = null, sessionSeq = 1; const boundSession = () => ({ id: 'w', agentId: 'lead' });\n" +
+        source.slice(waitsStart, waitsEnd) + source.slice(approvalStart, approvalEnd) + '\nannounceWaits();')(
+        { activeId: () => 'w', active: () => ({ id: 'w' }) }, Channels, {}, t => spoken.push(t));
+      return spoken.join(' ');
+    };
+    for (const tool of ['station.power', 'browser.login', 'browser.login.done', 'plugin.submit']) {
+      assert.match(say(tool), /Say approve or deny\.$/, tool + ': a card with no Always is never offered "always allow" aloud');
+    }
+    assert.match(say('fs.write'), /Say approve, always allow, or deny\.$/, 'an ordinary card keeps all three answers');
   }
   assert.equal(source, fs.readFileSync(path.join(root, 'website', 'app', 'app', 'voice-live.js'), 'utf8'), 'the website voice controller matches the desktop');
   console.log('voice-live-ui.test.js: ok (confirmed ownership, siblings, pause accounting, refusal, duplicate, inflight and call-generation controls)');
