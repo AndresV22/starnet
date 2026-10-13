@@ -587,22 +587,27 @@
       // through pendingView, and a foreground run sees it only when its own run wrote it. Otherwise the run's
       // patch text comes from the active body (so it "isn't found" in the draft) and a full edit would silently
       // discard the proposal it never saw. Two empty run ids are not the same run (a review draft can carry none).
-      const unseen = new Set(), runId = str(e.sourceRunId);
+      const unseen = new Map(), runId = str(e.sourceRunId);
       for (const row of candidateRows.values()) if (row.agentId === aid && row.status === 'pending'
         && row.baseDigest === revisionDigest(latest.get(keyOf(row.agentId, row.name)) || null)) {
         const own = !!runId && str(row.skill.sourceRunId) === runId;
-        if (!STAGE_ACTORS.has(str(e.createdBy)) && !own) { unseen.add(keyOf(row.agentId, row.name)); continue; }
+        if (!STAGE_ACTORS.has(str(e.createdBy)) && !own) { unseen.set(keyOf(row.agentId, row.name), row); continue; }
         const i = seeds.findIndex(s => keyOf(s.agentId, s.name) === keyOf(row.agentId, row.name));
         if (i >= 0) seeds[i] = clone(row.skill); else seeds.push(clone(row.skill));
       }
+      const awaiting = name => ({ ok: false, error: '"' + name + '" already has a proposal awaiting evaluation in ABILITIES > SKILLS - the Commander must approve or reject it before this skill can be changed again' });
       const draft = makeSkillStore(Object.assign({}, opts, { stageReviews: false, packageStore: null, packages: null,
         io: { readAll: () => seeds, append() {} } }));
       const r = legacyWrite ? draft.write(e) : draft.manage(e);
-      if (!r.ok) return r;
-      // Only the skill this write targets can collide; an unrelated pending proposal never blocks it.
-      if (unseen.has(keyOf(aid, r.skill && r.skill.name))) {
-        return { ok: false, error: '"' + r.skill.name + '" already has a proposed revision awaiting evaluation in ABILITIES > SKILLS - the Commander must approve or reject it before this skill can be changed again' };
+      if (!r.ok) {
+        // A skill that exists only as an unseen proposal (a new skill, listed to its owner as WITHHELD) is not in
+        // the draft at all: name the waiting proposal, not 'no such skill'.
+        const target = str(legacyWrite ? e.name : (e.target != null ? e.target : (e.id != null ? e.id : e.name))).trim();
+        const hidden = target && Array.from(unseen.values()).find(row => row.skill.id === target || row.name.toLowerCase() === target.toLowerCase());
+        return hidden ? awaiting(hidden.name) : r;
       }
+      // Only the skill this write targets can collide; an unrelated pending proposal never blocks it.
+      if (unseen.has(keyOf(aid, r.skill && r.skill.name))) return awaiting(r.skill.name);
       const entry = normalizeEntry(r.skill);
       entry.writtenBy = str(e.createdBy || 'agent');
       entry.packagePath = ''; entry.canonicalRevision = false;

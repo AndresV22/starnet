@@ -385,6 +385,25 @@ for (const change of ['body', 'files', 'summary', 'baseline', 'pin']) {
   const runless = h.s.manage({ agentId: 'a', target: 'Brief', action: 'patch', find: 'concise', replace: 'short', createdBy: 'agent' });
   A.eq(runless.ok, false, 'a writer with no run id does not build on the unseen draft');
   A.ok(/awaiting/.test(runless.error || '') && !/not found/.test(runless.error || ''), 'run-less refusal names the waiting proposal');
+  // A pending-only skill (a review's new skill, listed to its owner as WITHHELD) has no active version for another
+  // run to build on: every change to it names the waiting proposal instead of answering 'no such skill'.
+  const k = fixture();
+  const created = k.s.manage({ agentId: 'a', action: 'create', name: 'Deploy', body: BODY, createdBy: 'background-review', sourceRunId: 'run-1' });
+  A.ok(created.pending, 'precondition: review proposes a new skill');
+  for (const [action, target] of [['patch', 'Deploy'], ['edit', 'deploy'], ['write_file', created.skill.id], ['remove_file', 'Deploy'],
+    ['archive', 'Deploy'], ['delete', created.skill.id], ['restore', 'Deploy'], ['create', 'Deploy']]) {
+    const r = k.s.manage({ agentId: 'a', action, target, name: target, find: 'concise', replace: 'short', body: 'Foreground steps.',
+      path: 'references/x.txt', content: 'x', createdBy: 'agent', sourceRunId: 'run-2' });
+    A.eq(r.ok, false, action + ' of a pending-only skill is refused');
+    A.ok(/awaiting/.test(r.error || '') && !/no such skill/.test(r.error || ''), action + ' refusal names the waiting proposal, not a missing skill');
+  }
+  const oldVeto = k.s.manage({ agentId: 'a', action: 'archive', id: created.skill.id });
+  A.ok(!oldVeto.ok && /awaiting/.test(oldVeto.error || ''), 'a run-less archive never reports a pending-only skill as already gone');
+  A.eq(proposal(k.s).candidateDigest, created.candidate.candidateDigest, 'the review proposal is kept intact');
+  A.ok(/no such skill/.test(k.s.manage({ agentId: 'a', action: 'patch', target: 'Nothing', find: 'a', replace: 'b', createdBy: 'agent', sourceRunId: 'run-2' }).error || ''), 'a skill that does not exist still says no such skill');
+  A.ok(k.s.manage({ agentId: 'a', action: 'patch', target: 'Deploy', find: 'concise', replace: 'reviewed', createdBy: 'skill-review', sourceRunId: 'run-3' }).pending, 'a review pass still continues the pending-only draft');
+  A.ok(k.s.manage({ agentId: 'a', action: 'create', name: 'Ship', body: BODY, createdBy: 'agent', sourceRunId: 'run-4' }).pending, 'precondition: a run proposes its own new skill');
+  A.ok(k.s.manage({ agentId: 'a', action: 'patch', target: 'Ship', find: 'concise', replace: 'short', createdBy: 'agent', sourceRunId: 'run-4' }).pending, 'the same run continues its own pending-only draft');
 }
 // Approving a revision keeps the live usage counters. Rolling useCount/lastUsedAt back to stage time made a
 // skill used all fortnight look idle, so the next curate pass could mark it stale or propose retiring it.
