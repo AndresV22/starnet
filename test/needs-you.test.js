@@ -83,11 +83,15 @@ const NY = require('../frontend/app/needsyou.js');
   const ledger = global.Overseer;
   global.Overseer = { snapshot: () => ({ workers: [
     { runId: 'wr6', status: 'stale', reason: 'stalled: no progress for 450s — the liveness check stopped this worker (threshold 420s)', agentId: 'researcher', parentStreamId: 'home', streamId: 'thread_mira', completedAt: NOW - 2000 },
-    { runId: 'wr7', status: 'stale', reason: 'sidecar restarted before this worker finished', agentId: 'designer', parentStreamId: 'home', completedAt: NOW - 3000 }
+    { runId: 'wr7', status: 'stale', reason: 'sidecar restarted before this worker finished', agentId: 'designer', parentStreamId: 'home', completedAt: NOW - 3000 },
+    { runId: 'wr8', status: 'error', reason: 'refused', result: 'subagent could not start — the concurrency cap (STARNET_MAX_CONCURRENT_AGENTS) is full or a sign-in is needed. Try fewer at once.', agentId: 'writer', parentStreamId: 'home', completedAt: NOW - 4000 }
   ] }) };
   const list = NY.items(NOW);
   A.eq(list.find(i => i.key === 'worker:wr6').what, 'stopped after making no progress', 'a worker the liveness check stopped never blames a restart that did not happen');
   A.eq(list.find(i => i.key === 'worker:wr7').what, 'stopped when the station restarted', 'a worker a restart cut off still says so');
+  const capped = list.find(i => i.key === 'worker:wr8');
+  A.eq(capped.what, 'failed: couldn\'t start (too many running, or a sign-in is needed)', 'a refused worker says what stopped it');
+  A.ok(NY._internals.html([capped], NOW).includes('title="failed: couldn\'t start (too many running, or a sign-in is needed) — subagent could not start — the concurrency cap (STARNET_MAX_CONCURRENT_AGENTS) is full or a sign-in is needed. Try fewer at once."'), 'and its row\'s tip carries the sidecar\'s own sentence');
   global.Overseer = ledger;
 }
 {

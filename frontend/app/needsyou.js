@@ -74,7 +74,8 @@ const NeedsYou = (() => {
       const parent = Workstreams.get(w.parentStreamId); if (!parent) continue;
       const at = Number(w.completedAt) || Number(w.startedAt) || 0, key = 'worker:' + w.runId;
       if (gone.has(key) || (at && now - at > KEEP_FAILED_MS)) continue;
-      out.push({ key, kind: 'failed', wsId: parent.id, workerWsId: w.streamId || '', who: nameOf(w.agentId), what: reasonOf(w), where: titleOf(parent), since: at });
+      const tip = typeof Delegated !== 'undefined' && Delegated.tipOf ? Delegated.tipOf(w) : '';   // the sidecar's own sentence, on hover
+      out.push({ key, kind: 'failed', wsId: parent.id, workerWsId: w.streamId || '', who: nameOf(w.agentId), what: reasonOf(w), tip, where: titleOf(parent), since: at });
     }
     for (const ws of Workstreams.list()) {
       if (!/^cron-/.test(String(ws.id)) || ws.lastRunOk !== false || !(Workstreams.unread && Workstreams.unread(ws))) continue;
@@ -117,13 +118,13 @@ const NeedsYou = (() => {
       + '<ul class="ny-list">' + shown.map(i => '<li class="ny-item ' + i.kind + '" data-ny-key="' + esc(i.key) + '">'
         // the rail is narrow: who · where · how long on one line, what exactly on its own (two lines at most), keys below
         + '<div class="ny-line"><span class="ny-who">' + esc(i.who) + '</span><button type="button" class="ny-where" data-ny-act="open" data-ny-key="' + esc(i.key) + '">in ' + esc(i.where) + '</button><span class="ny-age">' + esc(age(i.since, now)) + '</span></div>'
-        + '<div class="ny-what" title="' + esc(i.what) + '">' + esc((KIND[i.kind] ? KIND[i.kind] + ' ' : '') + i.what) + '</div>'
+        + '<div class="ny-what" title="' + esc(i.what + (i.tip ? ' — ' + i.tip : '')) + '">' + esc((KIND[i.kind] ? KIND[i.kind] + ' ' : '') + i.what) + '</div>'
         + '<div class="ny-keys">' + keysFor(i) + '</div>'
         + '</li>').join('') + '</ul>'
       + (list.length > SHOW ? '<button type="button" class="ny-more" data-ny-act="more" aria-expanded="' + expanded + '">' + (expanded ? 'Show fewer' : (list.length - SHOW) + ' more') + '</button>' : '');
   }
   // what the list shows apart from its ages: the rail's 1s heartbeat rebuilds the list only when this moves
-  const shapeOf = list => list.map(i => [i.key, i.who, i.what, i.where, keysFor(i)].join('\u0001')).join('\u0002') + '#' + expanded;
+  const shapeOf = list => list.map(i => [i.key, i.who, i.what, i.tip || '', i.where, keysFor(i)].join('\u0001')).join('\u0002') + '#' + expanded;
 
   function render() {
     const host = typeof document !== 'undefined' && document.getElementById('ws-needs');

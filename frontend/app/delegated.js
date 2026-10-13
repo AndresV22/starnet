@@ -99,12 +99,22 @@ const Delegated = (() => {
   const staleLine = w => /^stalled\b/.test(String((w && w.reason) || '')) ? 'stopped after making no progress' : 'stopped when the station restarted';
   // why a worker ended, in a few plain words: the ledger's reason codes are internal ('refused', 'output_limit', …).
   // A code with no phrase shows as itself only while it is short; a long free-text reason shows nothing here.
-  const WHY = { refused: 'couldn\'t start', timeout: 'ran out of time', empty: 'the model sent an empty reply', refusal: 'the model declined the task',
+  const WHY = { refused: 'couldn\'t start (too many running, or a sign-in is needed)', timeout: 'ran out of time', empty: 'the model sent an empty reply', refusal: 'the model declined the task',
     output_limit: 'hit the model\'s output limit', 'invalid-result': 'its result failed the format check', 'not-dispatched': 'never started',
     stalled: 'made no progress', error: 'hit an error' };
   function whyOf(r) {
     const s = String(r || '').trim();
     return WHY[s] || WHY[s.split(':')[0].trim()] || (s.length > 40 ? '' : s.replace(/[_-]+/g, ' '));
+  }
+  // the sidecar's own explanation of a bad end, for a hover tip: a refusal's or an error's sentence (the ledger's result;
+  // a timeout's or a rejected answer's result is the worker's partial work, never a reason) or a long free-text reason
+  // the status line leaves out (the liveness check's receipt). Clipped, never invented.
+  function tipOf(w) {
+    if (!w || !['error', 'refused', 'stale'].includes(w.status)) return '';
+    const reason = String(w.reason || '').trim();
+    const said = w.status !== 'stale' && (w.status === 'refused' || reason === 'refused' || reason === 'error') ? String(w.result || '') : '';
+    const one = (said.trim() || (reason.length > 40 ? reason : '')).replace(/\s+/g, ' ').trim();
+    return one.length > 200 ? one.slice(0, 199) + '…' : one;
   }
 
   /* the row's state, in priority order. `parentLive` = the lead run that dispatched it is still running on this page. */
@@ -122,8 +132,8 @@ const Delegated = (() => {
     if (reason === 'budget' || reason === 'max_iters') return { cls: 'stopped', live: reason === 'budget' ? 'budget limit reached' : 'step limit reached', t: '' };
     if (['aborted', 'cancelled', 'interrupted', 'stopped'].includes(reason)) return { cls: 'stopped', live: 'stopped before completion', t: '' };
     if (w && w.status === 'done') return { cls: 'done', live: 'done', t: w.completedAt && w.startedAt ? clock(w.completedAt - w.startedAt) : '' };
-    if (w && (w.status === 'error' || w.status === 'refused')) return { cls: 'failed', live: 'failed' + (w.reason && w.reason !== 'error' && whyOf(w.reason) ? ' · ' + whyOf(w.reason) : ''), t: '' };
-    if (w && (w.status === 'interrupted' || w.status === 'stale')) return { cls: 'stopped', live: w.status === 'stale' ? staleLine(w) : 'stopped', t: '' };
+    if (w && (w.status === 'error' || w.status === 'refused')) return { cls: 'failed', live: 'failed' + (w.reason && w.reason !== 'error' && whyOf(w.reason) ? ' · ' + whyOf(w.reason) : ''), t: '', tip: tipOf(w) };
+    if (w && (w.status === 'interrupted' || w.status === 'stale')) return { cls: 'stopped', live: w.status === 'stale' ? staleLine(w) : 'stopped', t: '', tip: tipOf(w) };
     if (k.lastRunOk === false) return { cls: 'failed', live: 'failed', t: '' };
     if (reason === 'done') return { cls: 'done', live: 'done', t: '' };
     if (reason) return { cls: 'failed', live: 'ended · ' + (whyOf(reason) || 'before finishing'), t: '' };
@@ -195,7 +205,7 @@ const Delegated = (() => {
           : '<button type="button" class="dg-key" data-dg-see="' + esc(id) + '" aria-expanded="' + shown + '">' + (shown ? 'Hide work' : 'See work') + '</button>';
       return '<div class="dg-li ' + st.cls + '" data-dg-row="' + esc(id) + '" role="group" aria-label="' + esc(who + ': ' + task + ' — ' + WORD[st.cls]) + '">'
         + '<span class="dg-lamp ' + st.cls + '" aria-hidden="true"></span><span class="dg-li-who">' + esc(who) + '</span>'
-        + '<span class="dg-li-task" data-tip="' + esc(task) + '">' + esc(task) + '</span><span class="dg-li-st">' + esc(status) + '<span data-dg-clock="' + esc(id) + '"></span></span>' + key
+        + '<span class="dg-li-task" data-tip="' + esc(task) + '">' + esc(task) + '</span><span class="dg-li-st"' + (st.tip ? ' data-tip="' + esc(st.tip) + '"' : '') + '>' + esc(status) + '<span data-dg-clock="' + esc(id) + '"></span></span>' + key
         + '</div>' + (st.pend && st.pend.tool !== 'brief.ask' ? '<div class="dg-inspect" data-dg-inspect="' + esc(id) + '" data-dg-prompt="' + esc(st.pend.promptId) + '"></div>' : '')
         + (shown ? '<div class="dg-work" data-dg-work="' + esc(id) + '">' + workHtml(id, who) + '</div>' : '');
     }).join('') + '</div>';
@@ -487,6 +497,6 @@ const Delegated = (() => {
   }
 
   if (typeof document !== 'undefined') document.addEventListener('DOMContentLoaded', wire);
-  return { presentFor, repaint, batches, stateOf, reveal, hosts, staleLine, whyOf, _internals: { workerRunOf, anchorFor, lineHtml, opened, closed, seen, receipts, foldReceipt, askOf, hydrate, loadReceipt } };
+  return { presentFor, repaint, batches, stateOf, reveal, hosts, staleLine, whyOf, tipOf, _internals: { workerRunOf, anchorFor, lineHtml, opened, closed, seen, receipts, foldReceipt, askOf, hydrate, loadReceipt } };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = Delegated;

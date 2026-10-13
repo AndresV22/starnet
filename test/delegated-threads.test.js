@@ -119,7 +119,16 @@ const roster = new Map([['researcher', { system: 'R', name: 'MIRA' }], ['writer'
   // the card never repeats a worker's answer (calm version, 6aa3cd0b0): See work holds it
   A.eq(done.cls + '|' + done.live + '|' + done.t, 'done|done|0:12', 'a finished worker is done, with its real run time');
   A.eq(st({ ws: ws(), worker: { status: 'error', reason: 'timeout' } }).live, 'failed · ran out of time', 'a failed worker says why, in words');
-  A.eq(st({ ws: ws(), worker: { status: 'error', reason: 'refused' } }).live, 'failed · couldn\'t start', 'a worker the crew cap refused never reads as a debug code');
+  A.eq(st({ ws: ws(), worker: { status: 'error', reason: 'refused' } }).live, 'failed · couldn\'t start (too many running, or a sign-in is needed)', 'a worker the crew cap refused never reads as a debug code, and says what stopped it');
+  // the sidecar's own explanation rides the row's hover tip: the refusal sentence, a run's error, the liveness check's
+  // receipt — read off the ledger, clipped, never invented. A timeout's result is its PARTIAL WORK, never a reason.
+  const capRefused = { status: 'error', reason: 'refused', result: 'subagent could not start — the concurrency cap (STARNET_MAX_CONCURRENT_AGENTS) is full or a sign-in is needed. Try fewer at once.' };
+  A.eq(D.tipOf(capRefused), capRefused.result, 'a refused worker\'s tip is the sidecar\'s own refusal sentence');
+  A.eq(D.tipOf({ status: 'error', reason: 'error', result: 'worker run failed: provider returned 401' }), 'worker run failed: provider returned 401', 'a failed run\'s tip is its error');
+  A.eq(D.tipOf({ status: 'error', reason: 'timeout', result: 'Half the pricing table\n\n[STOPPED — this worker used up its 300s slice]' }), '', 'a timed-out worker\'s partial work is never shown as its reason');
+  A.eq(D.tipOf({ status: 'stale', reason: 'stalled: no progress for 450s — the liveness check stopped this worker (threshold 420s)' }), 'stalled: no progress for 450s — the liveness check stopped this worker (threshold 420s)', 'a stopped worker\'s tip is the liveness check\'s own receipt');
+  A.eq(D.tipOf({ status: 'done', reason: 'done', result: 'the answer' }) + D.tipOf(null), '', 'a finished worker has no failure tip');
+  A.eq(D.tipOf({ status: 'error', reason: 'error', result: 'x'.repeat(300) }).length, 200, 'a long explanation is clipped');
   A.eq(st({ ws: ws(), worker: { status: 'error', reason: 'error' } }).live, 'failed', 'a bare error adds nothing it cannot say');
   A.eq(st({ ws: ws(), worker: { status: 'error', reason: 'some_new_code' } }).live, 'failed · some new code', 'a short unknown code still reads as words');
   A.eq(st({ ws: ws(), worker: { status: 'error', reason: 'x'.repeat(60) } }).live, 'failed', 'a long free-text reason is not pasted into the one-line status');
@@ -171,6 +180,8 @@ const roster = new Map([['researcher', { system: 'R', name: 'MIRA' }], ['writer'
   // OPEN WHILE IT RUNS: who has what + stop without a click until every worker settles; settled rows offer See work
   const L = D._internals;
   global.App = { agentName: id => ({ researcher: 'MIRA', writer: 'VEX' })[id] || id };
+  L.opened.add('cap1');   // a settled card folds: open it, as the Commander would
+  A.ok(/class="dg-li-st" data-tip="subagent could not start — the concurrency cap/.test(L.lineHtml({ lead: 'cap1', rows: [{ ws: ws({ id: 'kc', agentId: 'researcher', title: 'Scan' }), worker: capRefused }] }, 'home')), 'the refused row carries that sentence on its status');
   const running = { lead: 'b1', rows: [{ ws: ws({ id: 'k1', agentId: 'researcher', title: 'Scan competitors' }), worker: { status: 'running', startedAt: Date.now(), canInterrupt: true, id: 'w1', runId: 'r1' } },
     { ws: ws({ id: 'k2', agentId: 'writer', title: 'Write the email (3)', runIds: ['r2'] }), worker: { status: 'done', startedAt: 1000, completedAt: 5000 } }] };
   const live = L.lineHtml(running, 'home');
