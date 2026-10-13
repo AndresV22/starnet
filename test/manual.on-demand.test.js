@@ -41,8 +41,10 @@ const inline = M.MANUAL_SECTIONS.filter(s => s.kind !== 'reference');
 // reference section (every StarNet thing, its place, its tool, its trap), NAVIGATION's generated EVERY PLACE list (frontend/app/
 // places.js), and the dossier's CAN DO replaces the gone SKILLS tab. All reference: the inline form got SHORTER.
 // Re-pinned 2026-10-11: CONCEPTS documents SEND TO and the implemented line operations.
-A.eq(full.length, 26763,'the whole manual keeps its length (+30: REFIT is named BUILD MODE; +2: SETTINGS › AI & MODELS; +308: the 0.13 dock, 2026-10-02; +494: station.show + approvals in COMMS, 2026-10-04; +13388: CONCEPTS + EVERY PLACE + the lane-3 actions + FIND, 2026-10-05; +1803: CONCEPTS learns the trunk since 10-04 (desk seats, SETTLE, held credits, browser reset, HINTS, ERASE EVERYTHING) + "conveyor" + the budget.set call shape, 2026-10-08; +287: NAVIGATION says changing is not opening, 2026-10-08; +143: never around the station tools via shell/files/web, 2026-10-08; +160: the SESSIONS rule (pin = a rail session, never a memory note) inline, 2026-10-08)');
-A.eq(crypto.createHash('sha256').update(full, 'utf8').digest('hex'), 'a8614dfec1d6650bf416f54fd7f25b7199264449e0998f519cda058d73f23d8a',
+// Re-pinned 2026-10-13: CONCEPTS names group.add (an agent brings crew into this chat) and that group.configure's members
+// is the WHOLE list (+127).
+A.eq(full.length, 26890,'the whole manual keeps its length (+127: group.add in CONCEPTS, 2026-10-13; +30: REFIT is named BUILD MODE; +2: SETTINGS › AI & MODELS; +308: the 0.13 dock, 2026-10-02; +494: station.show + approvals in COMMS, 2026-10-04; +13388: CONCEPTS + EVERY PLACE + the lane-3 actions + FIND, 2026-10-05; +1803: CONCEPTS learns the trunk since 10-04 (desk seats, SETTLE, held credits, browser reset, HINTS, ERASE EVERYTHING) + "conveyor" + the budget.set call shape, 2026-10-08; +287: NAVIGATION says changing is not opening, 2026-10-08; +143: never around the station tools via shell/files/web, 2026-10-08; +160: the SESSIONS rule (pin = a rail session, never a memory note) inline, 2026-10-08)');
+A.eq(crypto.createHash('sha256').update(full, 'utf8').digest('hex'), 'af4ec28c96d786a900c4b30cfcb672b499cdf589f33b7ce4f1aa5aa599965c69',
   'the whole manual is byte-identical to the literal that shipped before the split');
 
 // ---- B. the sections partition the manual ----
