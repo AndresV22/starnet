@@ -76,7 +76,7 @@
             // Allocation can fail after earlier turns already ran. Do not claim
             // that no work happened, or confuse this with an unexplained timeout.
             cause: ctx.error.kind === 'local_model_memory'
-              ? 'The local model could not allocate enough memory. A resend alone will not fix that; free memory or use a smaller model first.'
+              ? 'The model could not allocate enough memory. A resend alone will not fix that; free memory or use a smaller model first.'
               : 'The run stopped before doing any work, for a reason a resend will not fix.',
             fix: String(ctx.error.msg) };
         if (ctx.error && ctx.error.msg && RETRY_ERROR_KINDS[ctx.error.kind])

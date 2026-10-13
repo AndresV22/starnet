@@ -376,9 +376,10 @@
     return KINDS.spend_unknown.msg;
   }
 
+  const MEMORY_RE = /^(?:local model|the model server at \S+) ran out of memory\./i;
   function kindFromRaw(raw, status) {
     const low = String(raw || '').toLowerCase();
-    if (/^local model ran out of memory\./i.test(String(raw || ''))) return 'local_model_memory';
+    if (MEMORY_RE.test(String(raw || ''))) return 'local_model_memory';
     // Harness pre-flight guards ("no API key set" / "no model selected"): a misconfig, not a fault — point at
     // Settings instead of offering a doomed retry. (Match before capdenied, which the em-dash-less strings miss.)
     if (/chatgpt.*sign-?in|sign-?in.*chatgpt|not signed in to chatgpt|codex_not_connected|codex auth|codex_auth|chatgpt subscription.*connect/.test(low)) return 'oauth';
@@ -450,10 +451,12 @@
   function friendlyError(err, status, opts) {
     const engineAlive = (opts && typeof opts.engineAlive === 'boolean') ? opts.engineAlive : null;
     const raw = rawText(err);
-    // This prefix is minted only by the Ollama adapter after a concrete allocation failure.
-    if (/^local model ran out of memory\./i.test(raw)) {
+    // This prefix is minted only by the Ollama adapter after a concrete allocation failure. A server on another
+    // machine keeps the adapter's own sentence (it names that machine); local advice would be untrue there.
+    if (MEMORY_RE.test(raw)) {
       const k = KINDS.local_model_memory;
-      return { userMessage: k.msg, kind: 'local_model_memory', retryable: k.retryable, action: k.action, raw };
+      const msg = /^local model/i.test(raw) ? k.msg : raw.replace(/\s*\[[\s\S]*$/, '');
+      return { userMessage: msg, kind: 'local_model_memory', retryable: k.retryable, action: k.action, raw };
     }
     // a StarNet-authored stop (loop guard, unkept promise, output-limit cut, hook…) leads with what happened and what
     // to do — before the user-abort test, whose /abort/ would otherwise claim a hook reason that mentions the word
