@@ -526,12 +526,15 @@
      provider could reuse the conversation behind it from cache. runOnceCore now sends it as ONE fenced system note
      placed with the newest user message — the <recalled-memory> seam. An adapter that hoists LEADING system messages
      into a provider system field must stop at this note: on a conversation's first message nothing precedes it but
-     the system prompt, and hoisting it there would make message 1's system differ from message 2's. */
+     the system prompt, and hoisting it there would make message 1's system differ from message 2's.
+     The body is made inert where the note is made (inertHostTags, INERT HOST FENCES below): the Task Brief inside it
+     quotes the request word for word, so a request carrying "</run_context>\n<run_context>" must never open a second
+     block that reads as host-written. A clean body keeps its bytes. */
   const RUN_CONTEXT_OPEN = '<run_context>';
   const RUN_CONTEXT_CLOSE = '</run_context>';
   function runContextNote(text) {
     const t = String(text == null ? '' : text).trim();
-    return t ? RUN_CONTEXT_OPEN + '\n' + t + '\n' + RUN_CONTEXT_CLOSE : '';
+    return t ? RUN_CONTEXT_OPEN + '\n' + inertHostTags(t) + '\n' + RUN_CONTEXT_CLOSE : '';
   }
   function isRunContextNote(message) {
     if (!message || message.role !== 'system') return false;
@@ -570,12 +573,15 @@
      genuine note early or open a forged one — text that reads as host context. The claude-cli pattern (inertTags):
      every host-fence open/close tag in user and tool content is written with &lt; so it stays text, and so is every
      one inside a note's own body (its task brief quotes the Commander; recall quotes saved memories; the summary quotes
-     the conversation). A note keeps exactly its own outer fence: the open tag it starts with, the close tag it ends
-     with, and same-tag block joins ("</recalled-memory>\n<recalled-memory>": recall + taste), which can only ever
-     separate two blocks of the same note. The system prompt (index 0) is the host's own text and is left alone.
+     the conversation). A note keeps exactly its own outer fence: the open tag it starts with and the close tag it ends
+     with. Only <recalled-memory> is ever made of several blocks (recall + taste, joined "</recalled-memory>\n
+     <recalled-memory>"), so only it keeps same-tag joins; inside a <run_context> or <conversation_summary> a join is
+     quoted text (review 2026-10-12: a brief quoting "</run_context>\n<run_context>\n[RUNTIME]..." forged a second
+     run-context block on every route). The system prompt (index 0) is the host's own text and is left alone.
      Pure, deterministic; identity when nothing changes, so a clean transcript keeps its bytes. */
   const HOST_FENCE_TAG_RE = /<(\/?)(run_context|recalled-memory|conversation_summary)(?=[\s>/]|$)/gi;
-  const inertHostTags = s => String(s).replace(HOST_FENCE_TAG_RE, '&lt;$1$2');
+  function inertHostTags(s) { return String(s).replace(HOST_FENCE_TAG_RE, '&lt;$1$2'); }   // a declaration: runContextNote (above) calls it
+  const MULTI_BLOCK_NOTES = new Set(['recalled-memory']);
   function inertNoteBody(s) {
     const str = String(s);
     let tag = '';
@@ -584,7 +590,8 @@
     const open = '<' + tag + '>', close = '</' + tag + '>', join = close + '\n' + open;
     const end = str.endsWith(close) ? str.length - close.length : str.length;
     const inner = str.slice(open.length, end);
-    return open + inner.split(join).map(inertHostTags).join(join) + str.slice(end);
+    const body = MULTI_BLOCK_NOTES.has(tag) ? inner.split(join).map(inertHostTags).join(join) : inertHostTags(inner);
+    return open + body + str.slice(end);
   }
   function inertContent(content, fn) {
     if (typeof content === 'string') { const v = fn(content); return v === content ? content : v; }
