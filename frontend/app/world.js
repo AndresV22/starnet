@@ -9576,9 +9576,16 @@ const World = (() => {
     const who = (b && b.name) ? String(b.name).toUpperCase() : (aid ? String(aid).toUpperCase() : 'NO AGENT');
     return (p && (p.label || p.role) ? String(p.label || p.role).toUpperCase() : 'BAY') + ' · ' + who;
   }
+  // A lineId is the line's KEY (its oldest member prop, often a BAY), never its name: read the compiled line record, as the
+  // SENDS TO plate and the Workflow panel do. A key an edit retired resolves through that prop's current line; one whose
+  // prop is gone says so.
   function lwLineName(lineId) {
-    const ip = geo && geo.props ? geo.props.find(q => q.id === lineId) : null;
-    return Pipeline.lineWord(ip && ip.label, station && station.lineLetter ? 'LINE ' + station.lineLetter(lineId) : 'LINE ' + lineId);   // the Workflow panel names a line; an unnamed one says so
+    const ls = routingPlan && Array.isArray(routingPlan.lines) ? routingPlan.lines : [];
+    const moved = routingPlan && routingPlan.lineOfProp ? routingPlan.lineOfProp[lineId] : null;
+    const rec = ls.find(l => l && l.lineId === lineId) || (moved ? ls.find(l => l && l.lineId === moved) : null);
+    if (!rec) return 'a line since edited';
+    const iid = rec.intakes && rec.intakes[0], letter = iid && station && station.lineLetter ? station.lineLetter(iid) : null;
+    return Pipeline.lineWord(rec.name, letter ? 'LINE ' + letter : 'UNNAMED LINE');
   }
   function lwAgentName(aid) { const b = bodyForAgent(aid); return (b && b.name) ? String(b.name).toUpperCase() : String(aid || '?').toUpperCase(); }
   function crateCtx(payload) {

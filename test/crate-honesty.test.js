@@ -86,4 +86,38 @@ const load = world.slice(world.indexOf('function loadStation(st)'), world.indexO
 A.ok(/clearDeferredShips\(\);/.test(load), 'loading a different station clears them — a crate must not land on the wrong floor');
 A.ok(/dockLineWork\.clear\(\);/.test(load), '…and the per-dock line-work memory is cleared with it');
 
+/* ---- the crate card's LINE row names the LINE, never a BAY (review worldmodel-04) ----
+   A crate's lineId is the line's KEY: its OLDEST member prop, which on a hand-built line is often a BAY. Looking that id up
+   as a prop and reading its label printed the BAY's own name as the line's ("LINE WRITER"), or "LINE null" when the BAY had
+   no label (lineLetter only letters an INBOX). The name comes from the compiled line record, as the SENDS TO plate and the
+   Workflow panel read it: its INBOX's label, else that INBOX's letter. Run for real in a sandbox, not matched as prose. */
+{
+  const vm = require('vm');
+  const P = require('../frontend/app/pipeline.js');
+  const fn = A.fnBody(world, 'function lwLineName(lineId)');
+  A.ok(fn.length > 40 && fn.length < 2000, 'lwLineName was located');
+  const props = [{ id: 'p12', t: 'bay', label: 'writer' }, { id: 'p15', t: 'intake' }, { id: 'p16', t: 'bay' },
+    { id: 'p20', t: 'bay' }, { id: 'p22', t: 'intake', label: 'Research' }, { id: 'p30', t: 'bay' }];
+  const letters = { p15: 'O', p22: 'V' };
+  const sb = {
+    Pipeline: P,
+    geo: { props },
+    station: { lineLetter: id => { const q = props.find(x => x.id === id); return q && q.t === 'intake' ? letters[id] : null; } },
+    routingPlan: {
+      lines: [{ lineId: 'p12', intakes: ['p15'], propIds: ['p12', 'p15', 'p16'] }, { lineId: 'p20', intakes: ['p22'], propIds: ['p20', 'p22'], name: 'Research' },
+        { lineId: 'p30', intakes: [], propIds: ['p30'] }],
+      lineOfProp: { p12: 'p12', p15: 'p12', p16: 'p12', p20: 'p20', p22: 'p20', p30: 'p30' },
+    },
+  };
+  vm.createContext(sb);
+  vm.runInContext(fn + '\nthis.name = lwLineName;', sb);
+  A.eq(sb.name('p12'), 'LINE O', 'a line keyed by its BAY is named by its INBOX (letter) — never the BAY\'s label');
+  props[0].label = '';
+  A.eq(sb.name('p12'), 'LINE O', '…and an unlabelled key BAY never prints "LINE null"');
+  A.eq(sb.name('p20'), 'LINE RESEARCH', 'a named line reads its INBOX\'s name');
+  A.eq(sb.name('p16'), 'LINE O', 'a lineId re-keyed by an edit resolves through that prop\'s current line');
+  A.eq(sb.name('p30'), 'UNNAMED LINE', 'a line with no INBOX says it has no name');
+  A.eq(sb.name('p99'), 'a line since edited', 'a key the floor no longer has says so — no borrowed label, no null');
+}
+
 A.report('crate-honesty');
