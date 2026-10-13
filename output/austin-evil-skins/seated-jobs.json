@@ -2,107 +2,81 @@
   {
     "id": "austinpowers",
     "track": "sit",
-    "direction": "north",
-    "job": "93e258d5-64af-47ca-b62b-1ded02e0dc72",
-    "request": "id: 93e258d5-64af-47ca-b62b-1ded02e0dc72\njob_id: 93e258d5-64af-47ca-b62b-1ded02e0dc72\ndescription: Sit down on an invisible chair while facing directly away from camera. End in a compact seated posture: knees point straight forward AWAY from camera and remain only hip-width apart, ankles close together. Upper thighs are foreshortened and mostly hidden behind the torso, not stretched sideways. Both elbows are tucked tightly beside the waist. Hands reach forward away from camera, in front of the chest and mostly hidden by the body from this rear view. No sideways arms, no T pose, no wide-legged squat. Lower the head and hips substantially; end fully seated and stay seated. Keep head and torso upright and same size. Do not draw chair, desk, keyboard, floor or shadow. Preserve exact pixel art character.\nframes: 4\nsize: 96x96px\ntransparent: True\ncost: 1 generation\nstatus: processing (~1-5 min)\n\nhint: get_image(job_id=\"93e258d5-64af-47ca-b62b-1ded02e0dc72\")\nasset_id: b8d8b915-e02f-5901-9052-aa465ace0dd6\nasset_status: pending (saved to your gallery when generation completes)",
-    "acceptedFrames": [
-      "https://api.pixellab.ai/mcp/images/93e258d5-64af-47ca-b62b-1ded02e0dc72/download?index=4"
-    ]
-  },
-  {
-    "id": "austinpowers",
-    "track": "sit",
     "direction": "south",
-    "job": "76f6e1f6-4502-4e28-9141-ff45a4083b89",
-    "request": "id: 76f6e1f6-4502-4e28-9141-ff45a4083b89\njob_id: 76f6e1f6-4502-4e28-9141-ff45a4083b89\ndescription: Sit down fully on an invisible chair facing south throughout. Lower hips substantially until the seated silhouette is three quarters of standing height. Thighs extend forward in the facing direction, knees bend at right angles, shins point down and feet remain below knees. Keep original head and torso size, torso upright. Elbows stay tucked against ribs at waist, hands reach together forward at desk height inside shoulder width. For south view the thighs and forearms are foreshortened toward camera. Visibly seated, not standing with straight legs. Preserve exact character, clothing and colors. No chair, desk, keyboard, floor, shadow or new objects. End fully seated and stay seated, do not return to standing.\nframes: 4\nsize: 96x96px\ntransparent: True\ncost: 1 generation\nstatus: processing (~1-5 min)\n\nhint: get_image(job_id=\"76f6e1f6-4502-4e28-9141-ff45a4083b89\")\nasset_id: 5b11596e-55eb-5efd-91d3-9f152aa0f2e9\nasset_status: pending (saved to your gallery when generation completes)",
+    "job": "2bbef4ce-8127-40c2-8697-f6f0139e9527",
+    "request": "id: 2bbef4ce-8127-40c2-8697-f6f0139e9527\njob_id: 2bbef4ce-8127-40c2-8697-f6f0139e9527\ndescription: Sit down fully on an invisible chair facing south throughout. Lower hips substantially until the seated silhouette is three quarters of standing height. Thighs extend forward toward camera, knees bend at right angles, shins point down and feet stay beneath knees. Keep exact original head and torso size and slim body proportions, torso upright. Elbows tucked against ribs, hands together reaching forward at desk height inside shoulder width. Thighs and forearms foreshortened toward camera. Visibly seated, not standing. No chair, desk, keyboard, floor, shadow or objects. End fully seated and stay seated.\nframes: 4\nsize: 144x144px\ntransparent: True\ncost: 1 generation\nstatus: processing (~1-5 min)\n\nhint: get_image(job_id=\"2bbef4ce-8127-40c2-8697-f6f0139e9527\")\nasset_id: 245e083d-16a2-59b6-8cec-10595055209e\nasset_status: pending (saved to your gallery when generation completes)",
     "acceptedFrames": [
-      "https://api.pixellab.ai/mcp/images/76f6e1f6-4502-4e28-9141-ff45a4083b89/download?index=4"
-    ]
-  },
-  {
-    "id": "austinpowers",
-    "track": "sit",
-    "direction": "east",
-    "job": "68354753-fa48-410a-8d86-ef5e9aea4b95",
-    "request": "id: 68354753-fa48-410a-8d86-ef5e9aea4b95\njob_id: 68354753-fa48-410a-8d86-ef5e9aea4b95\ndescription: Sit down fully on an invisible chair facing east throughout. Lower hips substantially until the seated silhouette is three quarters of standing height. Thighs extend forward in the facing direction, knees bend at right angles, shins point down and feet remain below knees. Keep original head and torso size, torso upright. Elbows stay tucked against ribs at waist, hands reach together forward at desk height inside shoulder width. For south view the thighs and forearms are foreshortened toward camera. Visibly seated, not standing with straight legs. Preserve exact character, clothing and colors. No chair, desk, keyboard, floor, shadow or new objects. End fully seated and stay seated, do not return to standing.\nframes: 4\nsize: 96x96px\ntransparent: True\ncost: 1 generation\nstatus: processing (~1-5 min)\n\nhint: get_image(job_id=\"68354753-fa48-410a-8d86-ef5e9aea4b95\")\nasset_id: f6aa174a-74b5-5f54-85a5-9d2824559c0e\nasset_status: pending (saved to your gallery when generation completes)",
-    "acceptedFrames": [
-      "https://api.pixellab.ai/mcp/images/68354753-fa48-410a-8d86-ef5e9aea4b95/download?index=4"
-    ]
-  },
-  {
-    "id": "drevil",
-    "track": "sit",
-    "direction": "north",
-    "job": "5a5691c0-95e8-4707-96ce-7b7d98fe65a1",
-    "request": "id: 5a5691c0-95e8-4707-96ce-7b7d98fe65a1\njob_id: 5a5691c0-95e8-4707-96ce-7b7d98fe65a1\ndescription: Sit down on an invisible chair while facing directly away from camera. End in a compact seated posture: knees point straight forward AWAY from camera and remain only hip-width apart, ankles close together. Upper thighs are foreshortened and mostly hidden behind the torso, not stretched sideways. Both elbows are tucked tightly beside the waist. Hands reach forward away from camera, in front of the chest and mostly hidden by the body from this rear view. No sideways arms, no T pose, no wide-legged squat. Lower the head and hips substantially; end fully seated and stay seated. Keep head and torso upright and same size. Do not draw chair, desk, keyboard, floor or shadow. Preserve exact pixel art character.\nframes: 4\nsize: 96x96px\ntransparent: True\ncost: 1 generation\nstatus: processing (~1-5 min)\n\nhint: get_image(job_id=\"5a5691c0-95e8-4707-96ce-7b7d98fe65a1\")\nasset_id: bf96735d-6f6a-5c75-80e1-178136e2b783\nasset_status: pending (saved to your gallery when generation completes)",
-    "acceptedFrames": [
-      "https://api.pixellab.ai/mcp/images/5a5691c0-95e8-4707-96ce-7b7d98fe65a1/download?index=4"
+      "https://api.pixellab.ai/mcp/images/2bbef4ce-8127-40c2-8697-f6f0139e9527/download?index=4"
     ]
   },
   {
     "id": "drevil",
     "track": "sit",
     "direction": "south",
-    "job": "25b90a01-7701-4963-931b-bc4cb33077a4",
-    "request": "id: 25b90a01-7701-4963-931b-bc4cb33077a4\njob_id: 25b90a01-7701-4963-931b-bc4cb33077a4\ndescription: Sit down fully on an invisible chair facing south throughout. Lower hips substantially until the seated silhouette is three quarters of standing height. Thighs extend forward in the facing direction, knees bend at right angles, shins point down and feet remain below knees. Keep original head and torso size, torso upright. Elbows stay tucked against ribs at waist, hands reach together forward at desk height inside shoulder width. For south view the thighs and forearms are foreshortened toward camera. Visibly seated, not standing with straight legs. Preserve exact character, clothing and colors. No chair, desk, keyboard, floor, shadow or new objects. End fully seated and stay seated, do not return to standing.\nframes: 4\nsize: 96x96px\ntransparent: True\ncost: 1 generation\nstatus: processing (~1-5 min)\n\nhint: get_image(job_id=\"25b90a01-7701-4963-931b-bc4cb33077a4\")\nasset_id: 0bf3c136-de09-5a46-b362-a48b47b50497\nasset_status: pending (saved to your gallery when generation completes)",
+    "job": "f40b0d5f-f162-489d-8707-7e5d2b08cad0",
+    "request": "id: f40b0d5f-f162-489d-8707-7e5d2b08cad0\njob_id: f40b0d5f-f162-489d-8707-7e5d2b08cad0\ndescription: Sit down fully on an invisible chair facing south throughout. Lower hips substantially until the seated silhouette is three quarters of standing height. Thighs extend forward toward camera, knees bend at right angles, shins point down and feet stay beneath knees. Keep exact original head and torso size and slim body proportions, torso upright. Elbows tucked against ribs, hands together reaching forward at desk height inside shoulder width. Thighs and forearms foreshortened toward camera. Visibly seated, not standing. No chair, desk, keyboard, floor, shadow or objects. End fully seated and stay seated.\nframes: 4\nsize: 144x144px\ntransparent: True\ncost: 1 generation\nstatus: processing (~1-5 min)\n\nhint: get_image(job_id=\"f40b0d5f-f162-489d-8707-7e5d2b08cad0\")\nasset_id: 51105071-c79d-595f-b465-514f64f1114a\nasset_status: pending (saved to your gallery when generation completes)",
     "acceptedFrames": [
-      "https://api.pixellab.ai/mcp/images/25b90a01-7701-4963-931b-bc4cb33077a4/download?index=4"
+      "https://api.pixellab.ai/mcp/images/f40b0d5f-f162-489d-8707-7e5d2b08cad0/download?index=4"
+    ]
+  },
+  {
+    "id": "austinpowers",
+    "track": "sit",
+    "direction": "north",
+    "job": "e54542ed-64ca-4505-bcf3-2c8552b1fa37",
+    "request": "id: e54542ed-64ca-4505-bcf3-2c8552b1fa37\njob_id: e54542ed-64ca-4505-bcf3-2c8552b1fa37\ndescription: Sit down on an invisible chair facing directly away from camera throughout. End fully seated with bent knees pointing forward away from camera only hip-width apart and ankles close together. Thighs foreshortened hidden behind torso. Elbows tucked beside waist; hands reach forward away from camera and are mostly hidden behind torso. Lower head and hips substantially until seated silhouette is three quarters of standing height. Keep original head and torso size, narrow shoulders, slim proportions. Do not draw chair, desk, keyboard, floor or shadow. No wide-legged squat or arms extended sideways. End fully seated and stay seated.\nframes: 4\nsize: 144x144px\ntransparent: True\ncost: 1 generation\nstatus: processing (~1-5 min)\n\nhint: get_image(job_id=\"e54542ed-64ca-4505-bcf3-2c8552b1fa37\")\nasset_id: b34cc9ce-a84d-5af8-a6c7-a83cdf9358ca\nasset_status: pending (saved to your gallery when generation completes)",
+    "acceptedFrames": [
+      "https://api.pixellab.ai/mcp/images/e54542ed-64ca-4505-bcf3-2c8552b1fa37/download?index=4"
+    ]
+  },
+  {
+    "id": "austinpowers",
+    "track": "sit",
+    "direction": "east",
+    "job": "9084c747-b47b-4ac8-9969-8d0c09c3e7fb",
+    "request": "id: 9084c747-b47b-4ac8-9969-8d0c09c3e7fb\njob_id: 9084c747-b47b-4ac8-9969-8d0c09c3e7fb\ndescription: Sit down fully on an invisible chair facing east throughout. Lower hips until the seated silhouette is three quarters of standing height. Thighs extend forward in the facing direction, knees bend at right angles, shins vertical with feet beneath knees. Original head and torso size unchanged, slim proportions, upright torso. Elbows tucked at waist and hands reach forward at desk height. Clearly bent legs and a fully seated posture. No chair, desk, keyboard, floor, shadow, or objects. End fully seated and stay seated.\nframes: 4\nsize: 144x144px\ntransparent: True\ncost: 1 generation\nstatus: processing (~1-5 min)\n\nhint: get_image(job_id=\"9084c747-b47b-4ac8-9969-8d0c09c3e7fb\")\nasset_id: e1af8e6a-cb10-5e1f-aa3f-e0bc4b063f2a\nasset_status: pending (saved to your gallery when generation completes)",
+    "acceptedFrames": [
+      "https://api.pixellab.ai/mcp/images/9084c747-b47b-4ac8-9969-8d0c09c3e7fb/download?index=4"
+    ]
+  },
+  {
+    "id": "austinpowers",
+    "track": "sit",
+    "direction": "west",
+    "job": "b6dd79e7-53a1-4a4b-b37c-5e55c430babd",
+    "request": "id: b6dd79e7-53a1-4a4b-b37c-5e55c430babd\njob_id: b6dd79e7-53a1-4a4b-b37c-5e55c430babd\ndescription: Sit down fully on an invisible chair facing west throughout. Lower hips until the seated silhouette is three quarters of standing height. Thighs extend forward in the facing direction, knees bend at right angles, shins vertical with feet beneath knees. Original head and torso size unchanged, slim proportions, upright torso. Elbows tucked at waist and hands reach forward at desk height. Clearly bent legs and a fully seated posture. No chair, desk, keyboard, floor, shadow, or objects. End fully seated and stay seated.\nframes: 4\nsize: 144x144px\ntransparent: True\ncost: 1 generation\nstatus: processing (~1-5 min)\n\nhint: get_image(job_id=\"b6dd79e7-53a1-4a4b-b37c-5e55c430babd\")\nasset_id: b3d0ecf0-576a-5c43-9466-831a43827577\nasset_status: pending (saved to your gallery when generation completes)",
+    "acceptedFrames": [
+      "https://api.pixellab.ai/mcp/images/b6dd79e7-53a1-4a4b-b37c-5e55c430babd/download?index=4"
+    ]
+  },
+  {
+    "id": "drevil",
+    "track": "sit",
+    "direction": "north",
+    "job": "e2fbc904-7b17-4129-adbe-49ee14a76900",
+    "request": "id: e2fbc904-7b17-4129-adbe-49ee14a76900\njob_id: e2fbc904-7b17-4129-adbe-49ee14a76900\ndescription: Sit down on an invisible chair facing directly away from camera throughout. End fully seated with bent knees pointing forward away from camera only hip-width apart and ankles close together. Thighs foreshortened hidden behind torso. Elbows tucked beside waist; hands reach forward away from camera and are mostly hidden behind torso. Lower head and hips substantially until seated silhouette is three quarters of standing height. Keep original head and torso size, narrow shoulders, slim proportions. Do not draw chair, desk, keyboard, floor or shadow. No wide-legged squat or arms extended sideways. End fully seated and stay seated.\nframes: 4\nsize: 144x144px\ntransparent: True\ncost: 1 generation\nstatus: processing (~1-5 min)\n\nhint: get_image(job_id=\"e2fbc904-7b17-4129-adbe-49ee14a76900\")\nasset_id: f8564b2b-b001-5cfc-a177-335ea43e9b90\nasset_status: pending (saved to your gallery when generation completes)",
+    "acceptedFrames": [
+      "https://api.pixellab.ai/mcp/images/e2fbc904-7b17-4129-adbe-49ee14a76900/download?index=4"
     ]
   },
   {
     "id": "drevil",
     "track": "sit",
     "direction": "east",
-    "job": "c221f7a4-fa22-45f4-9bb3-541f008ed122",
-    "request": "id: c221f7a4-fa22-45f4-9bb3-541f008ed122\njob_id: c221f7a4-fa22-45f4-9bb3-541f008ed122\ndescription: Sit down fully on an invisible chair facing east throughout. Lower hips substantially until the seated silhouette is three quarters of standing height. Thighs extend forward in the facing direction, knees bend at right angles, shins point down and feet remain below knees. Keep original head and torso size, torso upright. Elbows stay tucked against ribs at waist, hands reach together forward at desk height inside shoulder width. For south view the thighs and forearms are foreshortened toward camera. Visibly seated, not standing with straight legs. Preserve exact character, clothing and colors. No chair, desk, keyboard, floor, shadow or new objects. End fully seated and stay seated, do not return to standing.\nframes: 4\nsize: 96x96px\ntransparent: True\ncost: 1 generation\nstatus: processing (~1-5 min)\n\nhint: get_image(job_id=\"c221f7a4-fa22-45f4-9bb3-541f008ed122\")\nasset_id: 105c9c75-b7ad-549f-9a21-a2ea49a5da92\nasset_status: pending (saved to your gallery when generation completes)",
+    "job": "fe971381-72b6-40b0-be50-1ad2bd9ece31",
+    "request": "id: fe971381-72b6-40b0-be50-1ad2bd9ece31\njob_id: fe971381-72b6-40b0-be50-1ad2bd9ece31\ndescription: Sit down fully on an invisible chair facing east throughout. Lower hips until the seated silhouette is three quarters of standing height. Thighs extend forward in the facing direction, knees bend at right angles, shins vertical with feet beneath knees. Original head and torso size unchanged, slim proportions, upright torso. Elbows tucked at waist and hands reach forward at desk height. Clearly bent legs and a fully seated posture. No chair, desk, keyboard, floor, shadow, or objects. End fully seated and stay seated.\nframes: 4\nsize: 144x144px\ntransparent: True\ncost: 1 generation\nstatus: processing (~1-5 min)\n\nhint: get_image(job_id=\"fe971381-72b6-40b0-be50-1ad2bd9ece31\")\nasset_id: e1047c31-1bab-5a5a-acd2-2c2533bbf97f\nasset_status: pending (saved to your gallery when generation completes)",
     "acceptedFrames": [
-      "https://api.pixellab.ai/mcp/images/c221f7a4-fa22-45f4-9bb3-541f008ed122/download?index=4"
-    ]
-  },
-  {
-    "id": "austinpowers",
-    "track": "sit",
-    "direction": "west",
-    "job": "a255fd82-0704-4636-94b1-41e95156af88",
-    "request": "id: a255fd82-0704-4636-94b1-41e95156af88\njob_id: a255fd82-0704-4636-94b1-41e95156af88\ndescription: Sit down fully on an invisible chair facing west throughout. Lower hips substantially until the seated silhouette is three quarters of standing height. Thighs extend forward in the facing direction, knees bend at right angles, shins point down and feet remain below knees. Keep original head and torso size, torso upright. Elbows stay tucked against ribs at waist, hands reach together forward at desk height inside shoulder width. For south view the thighs and forearms are foreshortened toward camera. Visibly seated, not standing with straight legs. Preserve exact character, clothing and colors. No chair, desk, keyboard, floor, shadow or new objects. End fully seated and stay seated, do not return to standing.\nframes: 4\nsize: 96x96px\ntransparent: True\ncost: 1 generation\nstatus: processing (~1-5 min)\n\nhint: get_image(job_id=\"a255fd82-0704-4636-94b1-41e95156af88\")\nasset_id: d1a8bc83-3e77-5fc0-8233-16c65898f642\nasset_status: pending (saved to your gallery when generation completes)",
-    "acceptedFrames": [
-      "https://api.pixellab.ai/mcp/images/a255fd82-0704-4636-94b1-41e95156af88/download?index=4"
+      "https://api.pixellab.ai/mcp/images/fe971381-72b6-40b0-be50-1ad2bd9ece31/download?index=4"
     ]
   },
   {
     "id": "drevil",
     "track": "sit",
     "direction": "west",
-    "job": "d53c014a-d726-4ca4-9e3a-5cd23dc07947",
-    "request": "id: d53c014a-d726-4ca4-9e3a-5cd23dc07947\njob_id: d53c014a-d726-4ca4-9e3a-5cd23dc07947\ndescription: Sit down fully on an invisible chair facing west throughout. Lower hips substantially until the seated silhouette is three quarters of standing height. Thighs extend forward in the facing direction, knees bend at right angles, shins point down and feet remain below knees. Keep original head and torso size, torso upright. Elbows stay tucked against ribs at waist, hands reach together forward at desk height inside shoulder width. For south view the thighs and forearms are foreshortened toward camera. Visibly seated, not standing with straight legs. Preserve exact character, clothing and colors. No chair, desk, keyboard, floor, shadow or new objects. End fully seated and stay seated, do not return to standing.\nframes: 4\nsize: 96x96px\ntransparent: True\ncost: 1 generation\nstatus: processing (~1-5 min)\n\nhint: get_image(job_id=\"d53c014a-d726-4ca4-9e3a-5cd23dc07947\")\nasset_id: ee7d35a0-4380-5b6d-868c-c4257649fc11\nasset_status: pending (saved to your gallery when generation completes)",
+    "job": "bb08cd28-7843-483a-bb6d-c75722eda6a5",
+    "request": "id: bb08cd28-7843-483a-bb6d-c75722eda6a5\njob_id: bb08cd28-7843-483a-bb6d-c75722eda6a5\ndescription: Sit down fully on an invisible chair facing west throughout. Lower hips until the seated silhouette is three quarters of standing height. Thighs extend forward in the facing direction, knees bend at right angles, shins vertical with feet beneath knees. Original head and torso size unchanged, slim proportions, upright torso. Elbows tucked at waist and hands reach forward at desk height. Clearly bent legs and a fully seated posture. No chair, desk, keyboard, floor, shadow, or objects. End fully seated and stay seated.\nframes: 4\nsize: 144x144px\ntransparent: True\ncost: 1 generation\nstatus: processing (~1-5 min)\n\nhint: get_image(job_id=\"bb08cd28-7843-483a-bb6d-c75722eda6a5\")\nasset_id: 00d5484f-e004-5a18-98d4-821ba43edcda\nasset_status: pending (saved to your gallery when generation completes)",
     "acceptedFrames": [
-      "https://api.pixellab.ai/mcp/images/d53c014a-d726-4ca4-9e3a-5cd23dc07947/download?index=4"
-    ]
-  },
-  {
-    "id": "drevil",
-    "track": "type",
-    "direction": "north",
-    "job": "0cbde7e8-284a-4b49-a065-10a3ebf8e062",
-    "request": "id: 0cbde7e8-284a-4b49-a065-10a3ebf8e062\njob_id: 0cbde7e8-284a-4b49-a065-10a3ebf8e062\ndescription: A subtle seamless seated typing loop, facing north throughout. Remain in this exact seated pose with hips, torso, head and feet fixed. Elbows stay tucked beside the waist. Only hands and forearms alternate tiny typing movements forward at desk height. Preserve exact outfit, silhouette and pixel art. No standing up, turning, chair, desk, keyboard, floor, shadow or other object.\nframes: 4\nsize: 96x96px\ntransparent: True\ncost: 1 generation\nstatus: processing (~1-5 min)\n\nhint: get_image(job_id=\"0cbde7e8-284a-4b49-a065-10a3ebf8e062\")\nasset_id: 01bbac73-4c96-5de2-bac9-81eeb70e149e\nasset_status: pending (saved to your gallery when generation completes)",
-    "acceptedFrames": [
-      "https://api.pixellab.ai/mcp/images/0cbde7e8-284a-4b49-a065-10a3ebf8e062/download?index=1",
-      "https://api.pixellab.ai/mcp/images/0cbde7e8-284a-4b49-a065-10a3ebf8e062/download?index=2",
-      "https://api.pixellab.ai/mcp/images/0cbde7e8-284a-4b49-a065-10a3ebf8e062/download?index=3",
-      "https://api.pixellab.ai/mcp/images/0cbde7e8-284a-4b49-a065-10a3ebf8e062/download?index=4"
-    ]
-  },
-  {
-    "id": "austinpowers",
-    "track": "type",
-    "direction": "north",
-    "job": "f78539f5-e1e7-42f5-bf3d-dac173651a54",
-    "request": "id: f78539f5-e1e7-42f5-bf3d-dac173651a54\njob_id: f78539f5-e1e7-42f5-bf3d-dac173651a54\ndescription: A subtle seamless seated typing loop, facing north throughout. Remain in this exact seated pose with hips, torso, head and feet fixed. Elbows stay tucked beside the waist. Only hands and forearms alternate tiny typing movements forward at desk height. Preserve exact outfit, silhouette and pixel art. No standing up, turning, chair, desk, keyboard, floor, shadow or other object.\nframes: 4\nsize: 96x96px\ntransparent: True\ncost: 1 generation\nstatus: processing (~1-5 min)\n\nhint: get_image(job_id=\"f78539f5-e1e7-42f5-bf3d-dac173651a54\")\nasset_id: 00c286fc-9d3c-544c-a8cb-fade23c9dfd0\nasset_status: pending (saved to your gallery when generation completes)",
-    "acceptedFrames": [
-      "https://api.pixellab.ai/mcp/images/f78539f5-e1e7-42f5-bf3d-dac173651a54/download?index=1",
-      "https://api.pixellab.ai/mcp/images/f78539f5-e1e7-42f5-bf3d-dac173651a54/download?index=2",
-      "https://api.pixellab.ai/mcp/images/f78539f5-e1e7-42f5-bf3d-dac173651a54/download?index=3",
-      "https://api.pixellab.ai/mcp/images/f78539f5-e1e7-42f5-bf3d-dac173651a54/download?index=4"
+      "https://api.pixellab.ai/mcp/images/bb08cd28-7843-483a-bb6d-c75722eda6a5/download?index=4"
     ]
   }
 ]

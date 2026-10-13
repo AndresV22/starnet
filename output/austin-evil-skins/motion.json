@@ -1,50 +1,52 @@
 {
-  "drevil": {
-    "sit": {
-      "north": [
-        "https://api.pixellab.ai/mcp/images/5a5691c0-95e8-4707-96ce-7b7d98fe65a1/download?index=4"
-      ],
-      "south": [
-        "https://api.pixellab.ai/mcp/images/25b90a01-7701-4963-931b-bc4cb33077a4/download?index=4"
-      ],
-      "east": [
-        "https://api.pixellab.ai/mcp/images/c221f7a4-fa22-45f4-9bb3-541f008ed122/download?index=4"
-      ],
-      "west": [
-        "https://api.pixellab.ai/mcp/images/d53c014a-d726-4ca4-9e3a-5cd23dc07947/download?index=4"
-      ]
-    },
-    "type": {
-      "north": [
-        "https://api.pixellab.ai/mcp/images/0cbde7e8-284a-4b49-a065-10a3ebf8e062/download?index=1",
-        "https://api.pixellab.ai/mcp/images/0cbde7e8-284a-4b49-a065-10a3ebf8e062/download?index=2",
-        "https://api.pixellab.ai/mcp/images/0cbde7e8-284a-4b49-a065-10a3ebf8e062/download?index=3",
-        "https://api.pixellab.ai/mcp/images/0cbde7e8-284a-4b49-a065-10a3ebf8e062/download?index=4"
-      ]
-    }
-  },
   "austinpowers": {
     "sit": {
+      "south": [
+        "https://api.pixellab.ai/mcp/images/2bbef4ce-8127-40c2-8697-f6f0139e9527/download?index=4"
+      ],
       "north": [
-        "https://api.pixellab.ai/mcp/images/93e258d5-64af-47ca-b62b-1ded02e0dc72/download?index=4"
+        "https://api.pixellab.ai/mcp/pixel-tools/6d96161b-38ef-43f7-99be-202fb49d6c35/image.png"
       ],
       "east": [
-        "https://api.pixellab.ai/mcp/images/68354753-fa48-410a-8d86-ef5e9aea4b95/download?index=4"
-      ],
-      "south": [
-        "https://api.pixellab.ai/mcp/images/76f6e1f6-4502-4e28-9141-ff45a4083b89/download?index=4"
+        "https://api.pixellab.ai/mcp/images/9084c747-b47b-4ac8-9969-8d0c09c3e7fb/download?index=4"
       ],
       "west": [
-        "https://api.pixellab.ai/mcp/images/a255fd82-0704-4636-94b1-41e95156af88/download?index=4"
+        "https://api.pixellab.ai/mcp/images/b6dd79e7-53a1-4a4b-b37c-5e55c430babd/download?index=4"
       ]
     },
-    "type": {
+    "type": {},
+    "typeSheet": {
+      "north": {
+        "url": "https://api.pixellab.ai/mcp/pixel-tools/721b8976-50cd-4cf3-bc79-1ae392c3ac4e/assets/north/full.png",
+        "frameSize": 144,
+        "columns": 2,
+        "count": 4
+      }
+    }
+  },
+  "drevil": {
+    "sit": {
+      "south": [
+        "https://api.pixellab.ai/mcp/images/f40b0d5f-f162-489d-8707-7e5d2b08cad0/download?index=4"
+      ],
       "north": [
-        "https://api.pixellab.ai/mcp/images/f78539f5-e1e7-42f5-bf3d-dac173651a54/download?index=1",
-        "https://api.pixellab.ai/mcp/images/f78539f5-e1e7-42f5-bf3d-dac173651a54/download?index=2",
-        "https://api.pixellab.ai/mcp/images/f78539f5-e1e7-42f5-bf3d-dac173651a54/download?index=3",
-        "https://api.pixellab.ai/mcp/images/f78539f5-e1e7-42f5-bf3d-dac173651a54/download?index=4"
+        "https://api.pixellab.ai/mcp/images/e2fbc904-7b17-4129-adbe-49ee14a76900/download?index=4"
+      ],
+      "east": [
+        "https://api.pixellab.ai/mcp/images/fe971381-72b6-40b0-be50-1ad2bd9ece31/download?index=4"
+      ],
+      "west": [
+        "https://api.pixellab.ai/mcp/images/bb08cd28-7843-483a-bb6d-c75722eda6a5/download?index=4"
       ]
+    },
+    "type": {},
+    "typeSheet": {
+      "north": {
+        "url": "https://api.pixellab.ai/mcp/pixel-tools/5bfd0ebe-ab9d-4ca8-8f37-8698d2317656/assets/north/full.png",
+        "frameSize": 144,
+        "columns": 2,
+        "count": 4
+      }
     }
   }
 }

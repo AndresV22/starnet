@@ -50,11 +50,11 @@ async function pack(file,dest,rot){
  const motion=fs.existsSync(path.join(out,'motion.json'))?read('output/austin-evil-skins/motion.json'):{};
  for(const row of records){
   const set='approved_'+row.id,dir=path.join(root,'frontend/assets/sprites',set);
-  const cache=path.join(root,'.dogfood/austin-evil/raw',row.id);
+  const cache=path.join(root,'.dogfood/austin-evil/raw',row.id,row.revision||'original');
   const rotationText=row.detail.split('rotations:\n')[1]?.split('\n\n')[0]||'';
   const rotations=Object.fromEntries([...rotationText.matchAll(/^  ([a-z-]+): (https:\/\/\S+)/gm)].map(m=>[m[1],m[2]]));
   const replacement=motion[row.id]||{};
-  const walks={...animations(row.detail,'starnet-walk'),...animations(row.detail,'starnet-walk-front')},sits={...animations(row.detail,'starnet-sit'),...replacement.sit},typing={...animations(row.detail,'starnet-type'),...replacement.type};
+  const walks={...animations(row.detail,'walking'),...animations(row.detail,'starnet-walk'),...animations(row.detail,'starnet-walk-front')},sits={...animations(row.detail,'starnet-sit'),...replacement.sit},typing={...animations(row.detail,'starnet-type'),...replacement.type};
   const stats={id:row.id,rotations:0,walkDirections:0,seatedDirections:0,typingFrames:0};
   for(const d of DIRS){
    if(!rotations[d])throw Error('Missing rotation '+row.id+' '+d);
@@ -73,10 +73,15 @@ async function pack(file,dest,rot){
     const name='sit_'+d+'.png',frame=await download(sits[d].at(-1),path.join(cache,(replacement.sit?.[d]?'fixed_':'')+name));
     await pack(frame,path.join(dir,name),anchor);sprites[set+'.sit.'+d]=[set+'/'+name];stats.seatedDirections++;
    }
-   if(d==='north'&&typing[d]){
-    const urls=typing[d].slice(-4),files=[];
-    for(let i=0;i<urls.length;i++){
-     const name='type_north_'+i+'.png',frame=await download(urls[i],path.join(cache,(replacement.type?.[d]?'fixed_':'')+name));
+   if(d==='north'&&(typing[d]||replacement.typeSheet?.[d])){
+    const sheet=replacement.typeSheet?.[d],urls=typing[d]?.slice(-4)||[],files=[];
+    const sheetFile=sheet?await download(sheet.url,path.join(cache,'typing-sheet.png')):null;
+    for(let i=0;i<(sheet?sheet.count:urls.length);i++){
+     const name='type_north_'+i+'.png';let frame;
+     if(sheet){
+      frame=path.join(cache,'exact_'+name);
+      await sharp(sheetFile).extract({left:(i%sheet.columns)*sheet.frameSize,top:Math.floor(i/sheet.columns)*sheet.frameSize,width:sheet.frameSize,height:sheet.frameSize}).png().toFile(frame);
+     }else frame=await download(urls[i],path.join(cache,(replacement.type?.[d]?'fixed_':'')+name));
      await pack(frame,path.join(dir,name),anchor);files.push(set+'/'+name);
     }
     sprites[set+'.type.north']=files;stats.typingFrames=files.length;
