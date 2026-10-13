@@ -51,9 +51,9 @@ body #chat-panel .cmsg :is(.turnin-kind,.ws-kindchip,.turnin-queue) {
 }
 body #chat-panel .cmsg .turnin-queue { max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
 /* Actions wrap as units. Narrow COMMS must grow vertically, never shrink its text. */
-body #chat-panel :is(.cmsg.turnin,.cmsg.nudge,.cmsg.consent) .consent-btns,
+body #chat-panel :is(.cmsg.turnin,.cmsg.nudge,.cmsg.consent,.dg-inspect) .consent-btns,
 body #chat-panel .turnin-rate { display: flex; flex-wrap: wrap; gap: 8px; }
-body #chat-panel :is(.cmsg.turnin,.cmsg.nudge,.cmsg.consent) .consent-btn,
+body #chat-panel :is(.cmsg.turnin,.cmsg.nudge,.cmsg.consent,.dg-inspect) .consent-btn,
 body #chat-panel .choice-row .choice {
   min-width: 0; min-height: 34px; max-width: 100%; padding: 7px 11px;
   font-family: inherit; font-size: var(--sn-type-control) !important; line-height: 1.3;
@@ -63,22 +63,22 @@ body #chat-panel .choice-row .choice {
   box-shadow: inset 0 1px 0 var(--beat-light); text-shadow: none;
   transition: background-color var(--t-fast) var(--ease-soft), border-color var(--t-fast) var(--ease-soft);
 }
-body #chat-panel :is(.cmsg.turnin,.cmsg.nudge,.cmsg.consent) .consent-btn:hover,
+body #chat-panel :is(.cmsg.turnin,.cmsg.nudge,.cmsg.consent,.dg-inspect) .consent-btn:hover,
 body #chat-panel .choice-row .choice:hover {
   background: var(--beat-hover); border-color: var(--ph-dim); text-shadow: none;
 }
-body #chat-panel :is(.cmsg.turnin,.cmsg.nudge,.cmsg.consent) .consent-btn:is(.primary,.ws-openit,.ws-primary,.consent-confirm),
+body #chat-panel :is(.cmsg.turnin,.cmsg.nudge,.cmsg.consent,.dg-inspect) .consent-btn:is(.primary,.ws-openit,.ws-primary,.consent-confirm),
 body #chat-panel .choice-row .choice:is(.suggested,.confirm) {
   border-color: rgba(var(--gold-rgb),.5); color: var(--ph-bright);
   background: linear-gradient(140deg,rgba(var(--gold-rgb),.15),rgba(var(--ph-rgb),.04));
 }
-body #chat-panel :is(.cmsg.turnin,.cmsg.nudge,.cmsg.consent) .consent-btn.deny {
+body #chat-panel :is(.cmsg.turnin,.cmsg.nudge,.cmsg.consent,.dg-inspect) .consent-btn.deny {
   color: var(--bad); border-color: color-mix(in srgb,var(--bad) 35%,transparent);
   background: color-mix(in srgb,var(--bad) 4%,transparent);
 }
-body #chat-panel :is(.cmsg.turnin,.cmsg.nudge,.cmsg.consent) .consent-btn.quiet,
+body #chat-panel :is(.cmsg.turnin,.cmsg.nudge,.cmsg.consent,.dg-inspect) .consent-btn.quiet,
 body #chat-panel .choice-row .choice.quiet { color: var(--text); opacity: 1; }
-body #chat-panel :is(.cmsg.turnin,.cmsg.nudge,.cmsg.consent) .consent-btn:disabled {
+body #chat-panel :is(.cmsg.turnin,.cmsg.nudge,.cmsg.consent,.dg-inspect) .consent-btn:disabled {
   color: var(--text); opacity: .55; cursor: default; background: transparent; box-shadow: none;
 }
 body #chat-panel :is(.cmsg.turnin,.cmsg.nudge,.cmsg.consent,.choice-row) :is(button,input,textarea):focus-visible {
@@ -349,6 +349,8 @@ body #chat-panel #chat-log > .dg-line .dg-lamp.working { background: var(--ph); 
 body #chat-panel #chat-log > .dg-line .dg-lamp.queued { background: rgba(var(--ph-rgb), .45); }
 body #chat-panel #chat-log > .dg-line .dg-lamp.waiting { background: var(--gold); }
 body #chat-panel #chat-log > .dg-line .dg-lamp.done { background: var(--ok); }
+/* delivered, completion unknown (a pre-0.13.3 thread): the phosphor lamp, neither done-green nor failed-red */
+body #chat-panel #chat-log > .dg-line .dg-lamp.recorded { background: rgba(var(--ph-rgb), .7); }
 body #chat-panel #chat-log > .dg-line .dg-lamp:is(.failed, .stopped) { background: var(--bad); }
 @keyframes dg-breathe { 50% { opacity: .5; } }
 @media (prefers-reduced-motion: reduce) { body #chat-panel #chat-log > .dg-line .dg-lamp { animation: none !important; } }

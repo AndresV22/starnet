@@ -119,7 +119,9 @@ const Delegated = (() => {
     if (k.lastRunOk === false) return { cls: 'failed', live: 'failed', t: '' };
     if (reason === 'done') return { cls: 'done', live: excerpt(k) || 'done', t: '' };
     if (reason) return { cls: 'failed', live: 'ended · ' + reason, t: '' };
-    if ((k.runIds || []).length) return { cls: 'recorded', live: 'result available · completion unconfirmed', t: '' };
+    // a thread filed before outcomes were recorded (0.13.x and earlier) holds an answer, but the old recovery also filed
+    // budget / step-limit partials: say only what is provable — it was delivered — never 'done'
+    if ((k.runIds || []).length) return { cls: 'recorded', live: 'delivered', t: '' };
     const parentBusy = C && C.isBusy && C.isBusy(parentId) && (!C.runIdOf || !lead || C.runIdOf(parentId) === lead);
     if (parentBusy) return { cls: 'queued', live: 'starting', t: '' };
     return { cls: 'stopped', live: 'ended without a result', t: '' };
@@ -146,7 +148,7 @@ const Delegated = (() => {
   const loadingReceipts = new Set();
   const answering = new Set();
   const stopping = new Set();
-  const WORD = { recorded: 'result available', working: 'working', waiting: 'needs you', done: 'done', failed: 'failed', stopped: 'stopped', queued: 'starting' };
+  const WORD = { recorded: 'delivered', working: 'working', waiting: 'needs you', done: 'done', failed: 'failed', stopped: 'stopped', queued: 'starting' };
   function names(list) {
     const n = list.map(a => String(a.name || a.id));
     return n.length <= 3 ? (n.length > 1 ? n.slice(0, -1).join(', ') + ' and ' + n[n.length - 1] : n[0] || '')
@@ -158,7 +160,7 @@ const Delegated = (() => {
     const count = c => rows.filter(x => x.st.cls === c).length;
     const sum = [count('waiting') && count('waiting') + ' need' + (count('waiting') === 1 ? 's' : '') + ' you', count('working') && count('working') + ' working',
       count('queued') && count('queued') + ' starting', count('failed') && count('failed') + ' failed', count('stopped') && count('stopped') + ' stopped',
-      count('recorded') && count('recorded') + ' result' + (count('recorded') === 1 ? '' : 's') + ' available',
+      count('recorded') && count('recorded') + ' delivered',
       count('done') && (count('done') === rows.length ? (rows.length > 1 ? 'all ' + rows.length + ' done' : 'done') : count('done') + ' done')]
       .filter(Boolean).join(' · ');
     const live = count('working') + count('waiting') + count('queued') > 0;

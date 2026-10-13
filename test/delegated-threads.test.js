@@ -151,6 +151,7 @@ const roster = new Map([['researcher', { system: 'R', name: 'MIRA' }], ['writer'
   busy.clear();
   A.eq(st({ ws: ws({ runIds: ['r9'], lastRunReason: 'done' }), worker: null }).cls, 'done', 'a confirmed completed foreground worker is done');
   A.eq(st({ ws: ws({ runIds: ['r9'] }), worker: null }).cls, 'recorded', 'a legacy delivery with unknown terminal reason is never claimed complete');
+  A.eq(st({ ws: ws({ runIds: ['r9'] }), worker: null }).live, 'delivered', '…and says only what is provable, in plain words (never "completion unconfirmed")');
   for (const reason of ['budget', 'max_iters', 'aborted']) A.eq(st({ ws: ws({ runIds: ['r9'], lastRunReason: reason }), worker: null }).cls, 'stopped', reason + ' is unfinished even with partial output');
   busy.add('home'); runOf.set('home', 'lead1');
   A.eq(st({ ws: ws(), worker: null }).live, 'starting', 'before delivery, while the lead run that dispatched it is still live: starting');
