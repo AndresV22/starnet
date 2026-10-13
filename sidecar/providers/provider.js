@@ -554,7 +554,11 @@
      leave their system messages and become ONE fenced leading text part of the NEWEST user message: the request keeps
      exactly one leading system message (byte-stable across a conversation's messages), user/assistant alternation is
      untouched (never a separate message), and the request still ends on that user turn. Other host system messages
-     (loop steering, nudges) keep their pre-existing placement. Pure: copies, never mutates; identity when no note. */
+     (loop steering, nudges) keep their pre-existing placement. Pure: copies, never mutates; identity when no note.
+     KNOWN GAP (review 2026-10-12, pre-existing — also on 04ce1fcb8; its own follow-up, not this projection's job): the
+     loop's mid-run system messages (continuation / empty_reply nudges, steering_note, iteration_limit, hook_context,
+     verify_*, loop_guard, the post-fold todo note) still go out as role 'system' after an assistant or tool turn here,
+     and the request can END on one — a strict template refuses it. So this does NOT make every message strict-safe. */
   const HOST_NOTE_TAGS = ['run_context', 'recalled-memory', 'conversation_summary'];
   function headText(content) {
     return typeof content === 'string' ? content : (Array.isArray(content) && content[0] && typeof content[0].text === 'string' ? content[0].text : '');

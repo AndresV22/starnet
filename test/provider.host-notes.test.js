@@ -58,7 +58,10 @@ const conversation = runId => [
     const plain = [{ role: 'system', content: SYS }, { role: 'user', content: 'hi' }];
     A.ok(provider.userSideHostNotes(plain) === plain, 'no host note: identity (bytes unchanged)');
     const steering = [{ role: 'system', content: SYS }, { role: 'user', content: 'hi' }, { role: 'assistant', content: 'x' }, { role: 'system', content: '<steering_note>s</steering_note>' }];
-    A.ok(provider.userSideHostNotes(steering) === steering, 'other host system messages keep their pre-existing placement');
+    // KNOWN GAP, pinned on purpose (pre-existing, also on 04ce1fcb8; its own follow-up): a loop nudge / steering note after
+    // an assistant or tool turn still goes out as role 'system' on a non-Claude chat route, and a strict template refuses
+    // it. This projection only moves the host NOTES; it does not make every message strict-template safe.
+    A.ok(provider.userSideHostNotes(steering) === steering, 'other host system messages keep their pre-existing placement (a mid-run nudge is NOT made strict-template safe here)');
     const parts = [{ role: 'system', content: SYS }, { role: 'system', content: provider.runContextNote('ctx') },
       { role: 'user', content: [{ type: 'text', text: 'look' }, { type: 'image_url', image_url: { url: 'data:image/png;base64,AA' } }] }];
     const p2 = provider.userSideHostNotes(parts);
