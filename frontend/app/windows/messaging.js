@@ -150,8 +150,8 @@
           const a = b.querySelector('#sg-account'); if (a && !a.value && st && st.account) a.value = st.account;
         },
         urlField: 'sg-endpoint', urlScheme: 'http',
-        emptyMsg: 'enter the signal-cli REST URL and the registered number first',
-        okMsg: '✓ connected — message the agent on Signal' }
+        emptyMsg: 'enter the bridge URL and your Signal number first',
+        okMsg: '✓ connected — chat in Note to Self (or message the spare number) on Signal' }
     ];
 
     // ---- console shell (the SETTINGS layout): left platform rail, one pane per platform ----
@@ -210,7 +210,7 @@
           '<div class="set-save">' +
             '<button class="bb sm" id="' + c.pre + '-connect">⏼ CONNECT</button> ' +
             '<button class="bb sm danger" id="' + c.pre + '-disconnect" style="display:none">⏏ DISCONNECT</button> ' +
-            '<button class="bb xs danger" id="' + c.pre + '-forget" style="display:none" title="' + (c.id === 'signal' ? 'removes the saved bridge URL and registered number from this machine' : 'permanently deletes the saved token from this machine (record + OS keychain) — you’d have to set it up again') + '">' + (c.id === 'signal' ? '✕ REMOVE CONFIGURATION' : '⌫ FORGET') + '</button>' +
+            '<button class="bb xs danger" id="' + c.pre + '-forget" style="display:none" title="' + (c.id === 'signal' ? 'removes the saved bridge URL and Signal number from this machine' : 'permanently deletes the saved token from this machine (record + OS keychain) — you’d have to set it up again') + '">' + (c.id === 'signal' ? '✕ REMOVE CONFIGURATION' : '⌫ FORGET') + '</button>' +
           '</div>' +
           '<div id="' + c.pre + '-msg" class="msg"></div>' +
           '</section>' + (c.extraHtml || '') +
@@ -255,7 +255,10 @@
     // channel.connect event cannot replace it with a generic success line (the live-reported lost-code bug).
     const pairingInstruction = {};
     const savedPlaceholder = {};
+    // Signal has no bot account on the recommended linked-device path: the pair message goes in Note to Self
+    const signalPair = code => 'To activate DMs, send this exact message in Note to Self (bridge linked to your number) or to the bridge\'s spare number: pair ' + code + ' (expires in 10 minutes).';
     function pairInstruction(c, code) {
+      if (c.id === 'signal') return signalPair(code);
       return c.id === 'telegram'
         ? 'Telegram poller starting. To activate DMs, send this exact message to your bot: /pair ' + code + ' (expires in 10 minutes).'
         : 'To activate DMs, send this exact message to your ' + c.title + ' bot from your own account: pair ' + code + ' (expires in 10 minutes).';
@@ -658,7 +661,7 @@
           const r = await Harness.api.post('/api/channels/' + c.id + '/owner/pair', {});
           const j = r.j || {};
           if (!r.ok || j.error || !j.code) { setMsg(msgEl, 'could not issue a pairing code: ' + (j.error || ('HTTP ' + r.status)), ''); sfx('bad'); return; }
-          pairingInstruction[c.id] = 'DM your ' + c.title + ' bot from your own account: pair ' + j.code + ' (code expires in 10 minutes).';
+          pairingInstruction[c.id] = c.id === 'signal' ? signalPair(j.code) : 'DM your ' + c.title + ' bot from your own account: pair ' + j.code + ' (code expires in 10 minutes).';
           setMsg(msgEl, pairingInstruction[c.id], 'info');
           sfx('click'); refreshAll();
         } catch (_) { setMsg(msgEl, 'could not reach the sidecar', ''); sfx('bad'); }
