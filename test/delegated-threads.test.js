@@ -116,7 +116,13 @@ const roster = new Map([['researcher', { system: 'R', name: 'MIRA' }], ['writer'
   A.ok(st({ ws: ws(), worker: { status: 'running', startedAt: Date.now(), canInterrupt: true, id: 'w1', runId: 'r1' } }).stop, 'and STOP is offered only when the ledger says it can be interrupted');
   const done = st({ ws: ws({ history: [{ role: 'system', sys: true, content: '— delegated —' }, { role: 'assistant', content: '## Found\n**Two** competitors undercut us.' }] }), worker: { status: 'done', startedAt: 1000, completedAt: 13000 } });
   A.eq(done.cls + '|' + done.live + '|' + done.t, 'done|Found|0:12', 'a finished worker quotes the first line it delivered, with its real run time');
-  A.eq(st({ ws: ws(), worker: { status: 'error', reason: 'timeout' } }).live, 'failed · timeout', 'a failed worker says why');
+  A.eq(st({ ws: ws(), worker: { status: 'error', reason: 'timeout' } }).live, 'failed · ran out of time', 'a failed worker says why, in words');
+  A.eq(st({ ws: ws(), worker: { status: 'error', reason: 'refused' } }).live, 'failed · couldn\'t start', 'a worker the crew cap refused never reads as a debug code');
+  A.eq(st({ ws: ws(), worker: { status: 'error', reason: 'error' } }).live, 'failed', 'a bare error adds nothing it cannot say');
+  A.eq(st({ ws: ws(), worker: { status: 'error', reason: 'some_new_code' } }).live, 'failed · some new code', 'a short unknown code still reads as words');
+  A.eq(st({ ws: ws(), worker: { status: 'error', reason: 'x'.repeat(60) } }).live, 'failed', 'a long free-text reason is not pasted into the one-line status');
+  A.eq(st({ ws: ws({ runIds: ['r9'], lastRunReason: 'empty' }), worker: null }).live, 'ended · the model sent an empty reply', 'a foreground worker that got nothing back says so');
+  A.eq(st({ ws: ws({ runIds: ['r9'], lastRunReason: 'x'.repeat(60) }), worker: null }).live, 'ended · before finishing', 'and an unreadable reason still says it did not finish');
   A.eq(st({ ws: ws(), worker: { status: 'stale' } }).live, 'stopped when the station restarted', 'a stale worker is honest about it');
   A.eq(st({ ws: ws(), worker: { status: 'stale', reason: 'sidecar restarted before this worker finished' } }).live, 'stopped when the station restarted', 'a worker a restart cut off says so');
   // the liveness check also settles a hung worker as stale (reason "stalled: …") while the station stays up

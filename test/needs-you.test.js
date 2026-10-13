@@ -60,6 +60,7 @@ const NY = require('../frontend/app/needsyou.js');
   A.ok(!list.some(i => /wr2|wr5/.test(i.key)), 'finished work and work the Commander stopped never need you');
   A.ok(!list.some(i => i.key === 'worker:wr4'), 'a failure older than three days is history, not a to-do');
   A.eq(list.find(i => i.key === 'worker:wr3').what, 'stopped when the station restarted', 'a restart-stopped worker says so');
+  A.eq(list.find(i => i.key === 'worker:wr1').what, 'failed: ran out of time', 'a failed worker says why in words, never the ledger\'s code');
   A.ok(!list.some(i => i.key === 'routine:cron-r2'), 'a routine that ran fine is not a to-do');
   const k = NY._internals.keysFor;
   A.ok(/data-ny-act="once"[^>]*>Approve/.test(k(ask)) && /data-ny-act="deny"[^>]*>Deny/.test(k(ask)), 'an approval: Approve / Deny right there');

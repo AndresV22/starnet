@@ -102,6 +102,15 @@ const Delegated = (() => {
   // a stale worker was cut off by a station restart, or stopped by the liveness check while the station stayed up
   // (the sidecar records that reason as "stalled: …"): say which, never a restart that did not happen
   const staleLine = w => /^stalled\b/.test(String((w && w.reason) || '')) ? 'stopped after making no progress' : 'stopped when the station restarted';
+  // why a worker ended, in a few plain words: the ledger's reason codes are internal ('refused', 'output_limit', …).
+  // A code with no phrase shows as itself only while it is short; a long free-text reason shows nothing here.
+  const WHY = { refused: 'couldn\'t start', timeout: 'ran out of time', empty: 'the model sent an empty reply', refusal: 'the model declined the task',
+    output_limit: 'hit the model\'s output limit', 'invalid-result': 'its result failed the format check', 'not-dispatched': 'never started',
+    stalled: 'made no progress', error: 'hit an error' };
+  function whyOf(r) {
+    const s = String(r || '').trim();
+    return WHY[s] || WHY[s.split(':')[0].trim()] || (s.length > 40 ? '' : s.replace(/[_-]+/g, ' '));
+  }
 
   /* the row's state, in priority order. `parentLive` = the lead run that dispatched it is still running on this page. */
   function stateOf(r, parentId, lead) {
@@ -118,11 +127,11 @@ const Delegated = (() => {
     if (reason === 'budget' || reason === 'max_iters') return { cls: 'stopped', live: reason === 'budget' ? 'budget limit reached' : 'step limit reached', t: '' };
     if (['aborted', 'cancelled', 'interrupted', 'stopped'].includes(reason)) return { cls: 'stopped', live: 'stopped before completion', t: '' };
     if (w && w.status === 'done') return { cls: 'done', live: excerpt(k) || 'done', t: w.completedAt && w.startedAt ? clock(w.completedAt - w.startedAt) : '' };
-    if (w && (w.status === 'error' || w.status === 'refused')) return { cls: 'failed', live: 'failed' + (w.reason && w.reason !== 'error' ? ' · ' + w.reason : ''), t: '' };
+    if (w && (w.status === 'error' || w.status === 'refused')) return { cls: 'failed', live: 'failed' + (w.reason && w.reason !== 'error' && whyOf(w.reason) ? ' · ' + whyOf(w.reason) : ''), t: '' };
     if (w && (w.status === 'interrupted' || w.status === 'stale')) return { cls: 'stopped', live: w.status === 'stale' ? staleLine(w) : 'stopped', t: '' };
     if (k.lastRunOk === false) return { cls: 'failed', live: 'failed', t: '' };
     if (reason === 'done') return { cls: 'done', live: excerpt(k) || 'done', t: '' };
-    if (reason) return { cls: 'failed', live: 'ended · ' + reason, t: '' };
+    if (reason) return { cls: 'failed', live: 'ended · ' + (whyOf(reason) || 'before finishing'), t: '' };
     if ((k.runIds || []).length) return { cls: 'recorded', live: 'result available · completion unconfirmed', t: '' };
     const parentBusy = C && C.isBusy && C.isBusy(parentId) && (!C.runIdOf || !lead || C.runIdOf(parentId) === lead);
     if (parentBusy) return { cls: 'queued', live: 'starting', t: '' };
@@ -483,6 +492,6 @@ const Delegated = (() => {
   }
 
   if (typeof document !== 'undefined') document.addEventListener('DOMContentLoaded', wire);
-  return { presentFor, repaint, batches, stateOf, reveal, hosts, staleLine, _internals: { workerRunOf, anchorFor, excerpt, lineHtml, opened, closed, seen, receipts, foldReceipt, askOf, hydrate, loadReceipt } };
+  return { presentFor, repaint, batches, stateOf, reveal, hosts, staleLine, whyOf, _internals: { workerRunOf, anchorFor, excerpt, lineHtml, opened, closed, seen, receipts, foldReceipt, askOf, hydrate, loadReceipt } };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = Delegated;

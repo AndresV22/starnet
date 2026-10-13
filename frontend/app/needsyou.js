@@ -35,9 +35,14 @@ const NeedsYou = (() => {
     try { const j = JSON.parse(p.argsSummary || '{}'); if (j && typeof j.question === 'string' && j.question.trim()) return j.question.trim(); } catch (_) { /* a plain-text ask */ }
     return String(p.argsSummary || 'a question').trim();
   }
-  // a stale worker: a restart cut it off, or the liveness check stopped it (Delegated words both, for the card and here)
-  const reasonOf = w => w.status === 'stale' ? (typeof Delegated !== 'undefined' && Delegated.staleLine ? Delegated.staleLine(w) : 'stopped')
-    : 'failed' + (w.reason && w.reason !== 'error' ? ': ' + w.reason : '');
+  // why a worker ended, in the card's own words (Delegated words them once): a stale worker was cut off by a restart or
+  // stopped by the liveness check; a failed one says why in plain words, never the ledger's internal code
+  function reasonOf(w) {
+    const D = typeof Delegated !== 'undefined' ? Delegated : null;
+    if (w.status === 'stale') return D && D.staleLine ? D.staleLine(w) : 'stopped';
+    const why = w.reason && w.reason !== 'error' && D && D.whyOf ? D.whyOf(w.reason) : '';
+    return 'failed' + (why ? ': ' + why : '');
+  }
 
   // the live list, most urgent first: asks (oldest waiting first), then what failed (newest first)
   function items(now) {
