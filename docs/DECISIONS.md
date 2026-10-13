@@ -185,8 +185,10 @@ many of these — they win on any wording conflict.
   included). Every other row is "taint unverifiable", whatever its age: a date cutoff is unsafe
   (an older build kept writing un-stamped tainted rows for anyone who upgraded late), and a
   per-install "stamped since" marker could only clear a row whose writer forgot the stamp. So every
-  raw `transcriptStore.append` must pass `taint` (test/recall.test.js locks it). recall_conversation
-  reads rows by this rule, so recalling history from before the update taints the run. Replay
+  transcript write outside the store itself (`append`, `appendStrict`, `appendNew`, `appendNewStrict`,
+  in any sidecar module) must pass `taint`; test/recall.test.js scans all of sidecar/ and locks it.
+  recall_conversation reads rows by this rule, so recalling history from before the update taints
+  the run. Replay
   (`transcriptStore.taintOf`) and the earlier-conversation note count only an explicit `taint`:
   applying the rule there would start every older conversation tainted after an update. Changing
   that split, either way, is Andrew's call.

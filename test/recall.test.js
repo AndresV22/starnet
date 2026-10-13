@@ -328,12 +328,53 @@ let clk = 1000; const clock = { now: () => clk };
     const idx = require('fs').readFileSync(require('path').join(__dirname, '../sidecar/index.js'), 'utf8');
     A.ok(/makeRecallTool\(\{ transcriptStore, ownStreamOnly: \(\) => tasteWithheld \}\)/.test(idx),
       'the host pins recall to the run\'s own chat exactly when it withholds the Commander\'s taste (non-owner, group, their workers)');
-    // memory-learning-07 (host half): every raw transcript append stamps provenance, so no new row is ever "unknown"
-    // (an unknown row taints every recall that returns it, while replay treats the same row as clean)
-    const appends = idx.split('\n').filter(line => /transcriptStore\.append\(\{/.test(line));
-    A.ok(appends.length >= 4, 'index.js: the raw transcript appends are where this test reads them');
-    A.eq(appends.filter(line => !/\btaint: /.test(line)).map(line => line.trim().slice(0, 120)), [], 'every raw transcript append stamps a taint value');
     A.ok(/role: 'assistant', taint: 'scheduled script output'/.test(idx), 'a script-only routine\'s stdout is stamped untrusted, as its run is');
+  }
+
+  // memory-learning-07 (host half): every transcript write outside the store itself stamps provenance, so no new row is
+  // ever "unknown" (an unknown row taints every recall that returns it, while replay treats the same row as clean).
+  // The lock covers EVERY sidecar module, not just index.js: raw append/appendStrict calls and the appendNew /
+  // appendNewStrict drains (their opts carry the taint), whole calls even when they span several lines.
+  {
+    const fs = require('fs'), path = require('path');
+    const CALL = /\btranscriptStore\.(?:append|appendStrict|appendNew|appendNewStrict)\(|\b[A-Za-z_$][\w$]*\.(?:appendStrict|appendNew|appendNewStrict)\(/g;
+    const writeCalls = source => [...source.matchAll(CALL)].map(m => {   // each whole call, by balanced parens
+      let depth = 0, i = m.index + m[0].length - 1, quote = '';
+      for (; i < source.length; i++) {
+        const ch = source[i];
+        if (quote) { if (ch === '\\') i++; else if (ch === quote) quote = ''; continue; }
+        if (ch === '"' || ch === "'" || ch === '`') quote = ch;
+        else if (ch === '(') depth++;
+        else if (ch === ')' && --depth === 0) break;
+      }
+      return source.slice(m.index, i + 1);
+    });
+    const unstamped = source => writeCalls(source).filter(call => !/\btaint\s*:/.test(call));
+    // the scanner itself: a multi-line call without a taint key is caught; one with it (nested parens, strings) is not
+    const probe = "x.appendStrict({ a: f(1),\n  b: ')' });\ntranscriptStore.append({ c: g(h(2)), taint: null });\nnoise.append({ d: 1 });";
+    A.eq(writeCalls(probe).length, 2, 'scanner: finds the transcript writes and skips an unrelated append');
+    A.eq(unstamped(probe).length, 1, 'scanner: flags only the multi-line write with no taint key');
+    const files = [];
+    (function walk(dir) {
+      for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+        if (e.name === 'node_modules') continue;
+        const p = path.join(dir, e.name);
+        if (e.isDirectory()) walk(p); else if (e.name.endsWith('.js')) files.push(p);
+      }
+    })(path.join(__dirname, '../sidecar'));
+    const writers = new Set(), missing = [], positional = [];
+    for (const file of files) {
+      const rel = path.relative(path.join(__dirname, '..'), file).split(path.sep).join('/');
+      if (rel === 'sidecar/transcriptstore.js') continue;   // the store's own drains pass opts.taint through
+      const source = fs.readFileSync(file, 'utf8');
+      if (writeCalls(source).length) writers.add(rel);
+      for (const call of unstamped(source)) missing.push(rel + ': ' + call.replace(/\s+/g, ' ').slice(0, 120));
+      if (/\.appendTurns\(/.test(source)) positional.push(rel);
+    }
+    A.ok(['sidecar/index.js', 'sidecar/dispatch-delivery.js', 'sidecar/transcript-run.js'].every(f => writers.has(f)),
+      'the scan reaches every known transcript writer: ' + [...writers].join(', '));
+    A.eq(missing, [], 'every transcript write in every sidecar module stamps a taint value');
+    A.eq(positional, [], 'no host code writes through appendTurns, which records no taint value');
   }
 
   A.report('recall.test');
