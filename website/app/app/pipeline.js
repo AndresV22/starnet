@@ -2259,11 +2259,14 @@
     }
     return out.sort(propIdCmp);
   }
-  // Per-line evidence that an INBOX is fed: a compiled hand-off from a line that can run, or a recorded real run — never a doc pointer.
-  function fedLineIds(plan, stats) {
+  /* Per-line evidence that an INBOX is fed: a compiled hand-off into it from a line that can run — never a run count or a doc
+     pointer (2026-10-12, M7). A line's runs include the Commander's SEND IT A JOB and the lead's station.test_line — neither starts
+     the line by itself, so a run count cleared NO FEED for a line nothing is wired to start; a BAY → OUTBOX fragment with no INBOX
+     compiles a hand-off no job can ever start (build-12). Channels, armed routines, folders and webhooks are the station-wide feed
+     (world.js feedState), not this. A second argument (old callers passed line stats) is ignored. */
+  function fedLineIds(plan) {
     const out = {};
     for (const s of Object.values((plan && plan.sendTo) || {})) if (s && s.toLine && senderRuns(plan, s.fromLine)) out[s.toLine] = true;
-    if (stats && stats.known) for (const id of Object.keys(stats.byLine || {})) if (stats.byLine[id] && stats.byLine[id].runs > 0) out[id] = true;
     return out;
   }
 

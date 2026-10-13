@@ -12537,6 +12537,11 @@ async function runSampleJob(readArgs) {
       && router.chainShipsToOutbox(sampleLineOutcome.agentId, sampleLineOutcome.dockId);
     const delivered = completed ? runs[0] : null;
     const totalUsd = runs.reduce((s, r) => s + ((typeof r.usd === 'number' && isFinite(r.usd)) ? r.usd : 0), 0);
+    /* A JOB REFUSED BEFORE ANY STEP RAN SAYS WHY (conveyor-ui-03): the hub answers a refusal it made itself — a spent LINE BUDGET,
+       a run that could not start — as a ⚠ reply and records no run. That reply IS the reason: it becomes the route's error and
+       the job record's, so the panel, the FINISH card and station.test_line say "the line reached its $1.00 daily limit — raise
+       its LINE BUDGET…", never only "no durable run outcome". Only a ⚠ reply of the hub's own, and only when nothing ran. */
+    const refusedSaid = runs.length ? '' : (sampleReplies.map(t => String(t == null ? '' : t).trim()).filter(t => /^⚠/.test(t)).pop() || '').replace(/^⚠\s*/, '').trim().slice(0, 400);
     // the job's record takes the route's own verdict: delivered · a problem (steps ran, not all clean) · stopped · failed (nothing ran)
     const jobId = sampleInFlight.jobId || null;
     // NO RUN ROW, BUT A REASON (trigger-runner's pattern): an entry refused before it could run (the line's daily cap, reached
@@ -12547,7 +12552,7 @@ async function runSampleJob(readArgs) {
       // (wave 2 repair) the station's own fault containment stopped it (stopCause 'fault'): said as that, never "you stopped this job"
       lineJobsSet(LineJobs.finish(lineJobs, jobId, { at: Date.now(), usd: totalUsd, output: sampleReplies.join(''), runs,
         status: completed ? 'delivered' : stoppedJob ? 'stopped' : runs.length ? 'problem' : 'failed',
-        error: completed ? '' : stoppedJob ? (sampleInFlight.stopCause === 'fault' ? 'the station hit an internal fault and stopped this job' : 'you stopped this job') :!onLine ? 'the job did not enter through this line' : (partial && runs.every(r => r.reason === 'done')) ? 'the joiner sent on without every branch (' + partial + ')' : runs.length ? 'a step did not finish cleanly' : (firstWarn || 'no step ran') }));
+        error: completed ? '' : stoppedJob ? (sampleInFlight.stopCause === 'fault' ? 'the station hit an internal fault and stopped this job' : 'you stopped this job') :!onLine ? 'the job did not enter through this line' : (partial && runs.every(r => r.reason === 'done')) ? 'the joiner sent on without every branch (' + partial + ')' : runs.length ? 'a step did not finish cleanly' : (refusedSaid || firstWarn || 'no step ran') }));
       sampleInFlight.jobId = null;
     }
     const recordedJob = jobId ? LineJobs.get(lineJobs, jobId) : null;
@@ -12566,7 +12571,7 @@ async function runSampleJob(readArgs) {
         ok: false, sample: true, error: stopped ? 'stopped — you stopped this job before it reached the OUTBOX'
           : !onLine ? 'sample job did not enter through line "' + line + '"'
           : (partial && runs.length && runs.every(r => r.reason === 'done')) ? 'sample job came out of its joiner partial (' + partial + ')'
-          : runs.length ? 'sample job did not complete cleanly' : (firstWarn || 'sample job produced no durable run outcome'),
+          : runs.length ? 'sample job did not complete cleanly' : (refusedSaid || firstWarn || 'sample job produced no durable run outcome'),
         chatId: SAMPLE_CHAT, streamId: streamId, agentId: agentId || null, isTask: isTask,
         workitemId: workitemId || null, replies: sampleReplies.slice(), runs: runs, delivered: null, totalUsd: totalUsd
       }, line ? { line: line } : null, stopped ? { stopped: true } : null, jobId ? { jobId } : null, onward,

@@ -175,7 +175,7 @@ A.ok(/esc\(String\(a\.name \|\| a\.id\)\.toUpperCase\(\)\)/.test(panelSrc) && /H
 A.ok(/function finFocusLine\(propId\)/.test(build), 'a focus-line helper exists');
 A.ok(/cardCloseAll\(\);[^\n]*\n\s*finFocusLine\(bayId\);/.test(build), 'opening a STEP card focuses its line');
 A.ok(/cardCloseAll\(\);\s*\n\s*finFocusLine\(propId\);/.test(build), 'opening a flow card focuses its line');
-const pos = build.slice(build.indexOf('function positionFinCard'), build.indexOf('function noteLineDelivered'));
+const pos = build.slice(build.indexOf('function positionFinCard'), build.indexOf('function finLiveStation'));
 A.ok(!/tutorialCoaching\(\) \|\| \(root && root\.querySelector\('\.refit-firstrun'\)\)\) \{ finCardEl\.style\.display = 'none'/.test(pos), 'a coach bubble no longer hides the checklist');
 A.ok(/coach\.bottom \+ 10/.test(pos), '…it stacks the checklist under the bubble instead');
 A.ok(/querySelector\('\.refit-firstrun'\)\) \{ finCardEl\.style\.display = 'none'/.test(pos), 'the first-run guide (the whole-screen card) still hides it');

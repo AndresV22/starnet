@@ -128,7 +128,7 @@ function stamped(bpId) {
   A.ok(f.tooLong && f.tooLong.stages === 8 && f.tooLong.maxHops === 6 && f.tooLong.propId === I, '…but the panel\'s flow reads the stand-in-crew compile: TOO LONG while the line is being built — ' + JSON.stringify(f.tooLong));
   const r = WL.readiness(f, comp, { errors: plan.errors, hasCompute: () => true, labelOf: c => c });
   const item = r.blocking.find(b => b.code === 'LINE_TOO_LONG');
-  A.ok(!!item && item.propId === I && /one job runs 8 stages, the LINE BUDGET allows 7/.test(item.what), 'readiness names it (not READY TO RUN) with the numbers: ' + (item && item.what));
+  A.ok(!!item && item.propId === I && /the longest way runs 8 stages, the LINE BUDGET allows 7/.test(item.what), 'readiness names it (not READY TO RUN) with the numbers: ' + (item && item.what));
   A.eq(WL.tooLongFix(f.tooLong), 7, 'the one fix: 7 stages after the first');
   A.eq(WL.tooLongFix({ stages: 26, maxHops: 6 }), null, 'past the ceiling (24 after the first) no budget fits…');
   A.ok(/shorten the line/.test(WL.tooLongText({ stages: 26, maxHops: 24 })), '…and the words say to shorten the line');

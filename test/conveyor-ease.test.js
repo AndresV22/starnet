@@ -47,7 +47,7 @@ A.ok(/job\.blur\(\);/.test(sendDyn) && /const nrIn = \$\('#wf-nr-in'\); if \(nrI
 const res = at(panel, '  function jobResultHTML(mine, f) {', '  function testModeNow() {');
 A.ok(/const runs = \(mine\.runs \|\| \[\]\)\.slice\(\)\.reverse\(\);/.test(res) && /THE RESULT/.test(res) && /HOW EACH STEP DID IT/.test(res), 'a job comes back as the whole result, then how each step did it, in line order');
 A.ok(/P\.stripVerdictLine\(out\)/.test(res) && !/slice\(0, 80\)/.test(res), '…the whole result (a reviewer\'s VERDICT line is the loop\'s signal, not the work) — never cut to 80 characters');
-A.ok(/const pr = r\.dockId \? prop\(r\.dockId\) : null, role = \(pr && pr\.role\) \|\| null,/.test(res), '…each step named by the BAY it ran at');
+A.ok(/const pr = r\.dockId \? prop\(r\.dockId\) : null, role = \(pr && \(pr\.label \|\| pr\.role\)\) \|\| null,/.test(res), '…each step named by the BAY it ran at (its NAME first, then its role — conveyor-ui-15)');
 const rd = at(panel, '  function readStep(r, streamId) {', '  function jobResultHTML(');
 A.ok(/api\('\/api\/transcript\?stream=' \+ encodeURIComponent\(streamId \|\| r\.streamId \|\| ''\) \+ '&agent=' \+ encodeURIComponent\(r\.agentId \|\| 'agent'\) \+ '&runId=' \+ encodeURIComponent\(r\.runId\) \+ '&limit=50'\)/.test(rd),
   'each step\'s reply is read from its own run (the transcript by runId — the OUTBOX window\'s read)');

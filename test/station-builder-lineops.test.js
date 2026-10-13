@@ -58,6 +58,75 @@ function enact(s,ops) {const r=plan(s,ops);A.ok(r.ok,'plan accepted: '+(r.error|
   const old=SB.planEdit(s.serialize(),{remove:{line:'Line B'}},env);A.ok(old.ok&&/LINE A no longer sends/.test(old.plan.summary),'original remove-line entry point warns too');
   const prop=plan(s,[{op:'delete',prop:b.intake}]);A.ok(prop.ok&&/LINE A no longer sends/.test(prop.plan.summary),'delete INBOX warns too');
 }
+// M24 (2026-10-12): a copy laid out to fit says where it really stands and how many belts it really has
+{
+  const {s,a}=fixture(),ia=s.propById(a.intake),ids=new Set(s.props().map(p=>p.id));
+  const p=enact(s,[{op:'copy',line:'Line A',x:ia.x+1,y:ia.y}]);
+  const made=s.props().filter(q=>!ids.has(q.id)),ax=Math.min(...made.map(q=>q.x)),ay=Math.min(...made.map(q=>q.y));
+  A.ok(/laid out to fit near \(\d+, \d+\)/.test(p.summary),'fixture: the exact spot overlaps, so the copy is laid out to fit: '+p.summary);
+  A.ok(p.summary.indexOf('a copy of LINE A at ('+ax+', '+ay+')')>=0,'the card names where the copy actually stands ('+ax+', '+ay+'): '+p.summary);
+  const belts=+(/(\d+) belts/.exec(p.summary)||[])[1],links=s.links().filter(l=>made.some(q=>q.id===l.from.prop)).length;
+  A.ok(belts>0&&belts===links,'the card counts the belts the copy really has ('+belts+' vs '+links+')');
+}
+// M5 (2026-10-12): { op:'delete', line, room } takes up THAT line, never the room it stands in (and every other line in it)
+{
+  const {s,a,b}=fixture(),ia=s.propById(a.intake),room=s.rooms().find(r=>r.id===s.roomAt(ia.x,ia.y)).name,rooms=s.rooms().length,before=snap(s);
+  A.eq(s.roomAt(ia.x,ia.y),s.roomAt(s.propById(b.intake).x,s.propById(b.intake).y),'fixture: both lines stand in one room');
+  const p=enact(s,[{op:'delete',line:'Line A',room}]);
+  A.ok(/LINE A taken up/.test(p.summary)&&!/removed, with the/.test(p.summary),'a line named with its room is the line, never the room: '+p.summary);
+  A.eq(s.rooms().length,rooms,'every room stays');
+  A.ok(!s.propById(a.intake)&&!s.propById(a.bay)&&!s.propById(a.outbox),'that line\'s machines are gone');
+  A.ok(s.propById(b.intake)&&s.propById(b.bay)&&s.propById(b.outbox),'the other line in the same room is untouched');
+  A.ok(s.undo().ok,'one undo');A.eq(snap(s),before,'one undo restores the line');
+  const miss=plan(s,[{op:'delete',line:'Line A',room:'NO SUCH ROOM'}]);A.ok(!miss.ok&&/no room called/i.test(miss.error),'an unknown room is refused, never a guess: '+miss.error);
+  const both=plan(s,[{op:'delete',line:'Line A',prop:b.bay}]);A.ok(!both.ok&&/one of/i.test(both.error),'a delete naming a line AND a piece is refused, never a silent pick: '+both.error);
+}
+// M6 (2026-10-12): a SEND TO made with connect (OUTBOX onto INBOX) is named on a long refit's card like op send — never "… more edits"
+{
+  const {s,a,b}=fixture(),labels=n=>Array.from({length:n},(_,i)=>({op:'label',prop:a.bay,text:'Step '+i}));
+  const r=plan(s,labels(30).concat([{op:'connect',from:a.outbox,to:b.intake}],labels(5)));
+  A.ok(r.ok,'long refit with a connect plans: '+(r.error||''));
+  A.ok(/sends every finished job on to .*SEND TO/.test(r.plan.summary),'the connect that became a SEND TO is listed on the card');
+  const briefs=n=>Array.from({length:n},(_,i)=>({op:'brief',prop:a.bay,text:'Brief '+i}));
+  const r2=plan(s,labels(25).concat(briefs(61),[{op:'connect',from:a.outbox,to:b.intake}],labels(3)));
+  A.ok(r2.ok&&/more edits that change what stands \([^)]*\b1 SEND TOs\b/.test(r2.plan.summary),'past 60 weighty edits the connect is counted as a SEND TO: '+(r2.ok?r2.plan.summary.slice(-200):r2.error));
+  const z=s.rooms()[1].rects[0],X=z.x1+19,Y=z.y1+32;
+  const r3=plan(s,labels(28).concat([{op:'place',t:'bay',x:X,y:Y,as:'p1'},{op:'place',t:'bay',x:X+8,y:Y,as:'p2'},{op:'connect',from:'p1',to:'p2'}],labels(5)));
+  A.ok(r3.ok&&!/belted to/.test(r3.plan.summary)&&/… and 11 more edits that add or name pieces/.test(r3.plan.summary),'a plain belt connect stays a quiet edit (not every connect is weighty): '+(r3.ok?r3.plan.summary.slice(-120):r3.error));
+}
+// M27 (2026-10-12): an old OUTBOX→INBOX belt is converted by the lead's own send/connect (the Workflow panel's MAKE IT A SEND TO),
+// never a refusal telling it to make a gesture no op can make
+function legacy() {
+  const {s,a,b,z}=fixture(),d=JSON.parse(snap(s));
+  for(const p of d.props)if(p.id===a.outbox||p.id===b.intake)p.t='bay';
+  const old=M.deserialize(d);A.ok(old.connectBelt(a.outbox,b.intake).ok,'old belt fixture');
+  const saved=JSON.parse(snap(old));for(const p of saved.props){if(p.id===a.outbox)p.t='outbox';if(p.id===b.intake)p.t='intake';}
+  const st=M.deserialize(saved);A.eq(st.oldHandoffBelts(a.outbox).length,1,'fixture: one legacy hand-off belt');A.eq(st.sendToRefusal(a.outbox,b.intake).error,'OLD_BELT','fixture: the floor refuses with OLD_BELT');
+  return {s:st,a,b,z};
+}
+for(const op of ['send','connect']) {
+  const {s,a,b}=legacy(),before=snap(s),oldTiles=s.links().find(l=>l.from.prop===a.outbox).path.map(t=>t.x+','+t.y);
+  const r=plan(s,[{op,from:a.outbox,to:b.intake}]);
+  A.ok(r.ok,op+': the old belt converts instead of a refusal: '+(r.error||''));
+  A.ok(r.ok&&/old belt .* taken up.*SEND TO/.test(r.plan.summary),op+': the card says the old belt is taken up and becomes a SEND TO');
+  if(!r.ok) continue;
+  A.ok(SB.apply(s,r.plan,env).ok,op+': applies');
+  A.eq(s.propById(a.outbox).sendTo,b.intake,op+': SEND TO set');A.eq(s.oldHandoffBelts(a.outbox).length,0,op+': no old hand-off link left');
+  A.eq(P.lineComponents(s.projectGeometry()).length,2,op+': two separate lines');
+  const belts=s.serialize().belts||{};A.ok(!oldTiles.some(k=>{const [x,y]=k.split(',').map(Number);return !s.propAt(x,y)&&belts[k];}),op+': no tile of the old belt is left on the floor');
+  A.ok(s.undo().ok,op+': one undo');A.eq(snap(s),before,op+': one undo restores the old belt');
+}
+{
+  const {s,a,b,z}=legacy(),c=LE.run(s,null,'newLine',{role:'WRITER'},{near:{x:z.x2+8,y:z.y1+28}});A.ok(c.ok,'third line');
+  const cc=P.lineComponents(s.projectGeometry()).find(k=>k.props.includes(c.focus)),d=JSON.parse(snap(s));
+  for(const p of d.props)if(p.id===a.outbox||p.id===cc.intakes[0])p.t='bay';
+  const o2=M.deserialize(d);A.ok(o2.connectBelt(a.outbox,cc.intakes[0]).ok,'second old belt fixture');
+  const sv=JSON.parse(snap(o2));for(const p of sv.props){if(p.id===a.outbox)p.t='outbox';if(p.id===cc.intakes[0]||p.id===b.intake)p.t='intake';}
+  const st=M.deserialize(sv),before=snap(st);A.eq(st.oldHandoffBelts(a.outbox).length,2,'fixture: two legacy hand-off belts');
+  const r=SB.planEdit(st.serialize(),{refit:[{op:'send',from:a.outbox,to:b.intake}]},env);
+  A.ok(!r.ok&&/unbelt/.test(r.error)&&/op: "send"/.test(r.error)&&!/Convert it to SEND TO/.test(r.error),'several old belts: the refusal names the ops the lead can send: '+(r.error||''));
+  A.eq(snap(st),before,'refusal leaves the floor');
+}
 (async()=>{
   let payload={};
   const t=makeStationTools({station:{request:async(verb,args)=>({ok:true,result:args&&args.line==='b'?{lineId:'b',name:'Line B',crewed:1,steps:[]}:{lineId:'a',name:'A',crewed:1,steps:[]}})},runLineJob:async()=>({code:200,obj:Object.assign({ok:true,totalUsd:0.12,runs:[],replies:[]},payload)})}).testLineTool;

@@ -3778,7 +3778,7 @@ const WorldModel = (() => {
           if (n.sendTo && map[n.sendTo] && p.t === 'outbox') p.sendTo = map[n.sendTo];
         });
         emit(made.map(id => propFootprint(propById(id))), { staticBakeUnchanged: true });
-        return { ok: true, ids: made, map, laid: true };
+        return { ok: true, ids: made, map, links: (r.links || []).slice(), laid: true };   // (the belts the layout laid, as pasteLines reports its own)
       }, 'PASTE');
     }
     /* DELETE LINE: every machine of the line holding propId, every belt between them (the tiles no other line rides) and the
@@ -4553,8 +4553,8 @@ const WorldModel = (() => {
     }
     /* set/clear an INTAKE's LINE BUDGET (REFIT flow card, 2026-08-21): { maxHops, maxUsdPerMessage, maxUsdPerDay }.
        Normalized + clamped through the ONE shared normalizer (Pipeline.normalizeLineLimits) so the doc never
-       holds a number the executor would read differently; null/empty clears (= executor defaults). Mirrors
-       setPropLabel: only an INBOX carries it, no-op edits take no undo slot. */
+       holds a number the executor would read differently; null/empty clears (= executor defaults). Only an
+       INBOX carries it; like setPropLabel, no-op edits take no undo slot. */
     function setPropLimits(propId, limits) {
       const p = doc.props.find(q => q.id === propId);
       if (!p) return fail('NOT_FOUND', 'no such prop');

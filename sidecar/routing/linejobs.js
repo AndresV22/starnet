@@ -41,7 +41,8 @@ function normRun(r) {
 }
 function normNote(n) {
   if (!n || typeof n !== 'object' || !NOTE_KINDS[n.kind]) return null;
-  return { kind: n.kind, at: num(n.at), dockId: key(n.dockId) || null, role: str(n.role, 40), field: n.field === 'hands' ? 'hands' : 'does',
+  // role: the step's NAME when it has one (setPropLabel keeps 48 characters), else its role — kept whole, never cut mid-word
+  return { kind: n.kind, at: num(n.at), dockId: key(n.dockId) || null, role: str(n.role, 48), field: n.field === 'hands' ? 'hands' : 'does',
     text: str(n.text, MAX_NOTE), was: str(n.was, MAX_NOTE), why: str(n.why, 400) };
 }
 // a hand-off end: the other line's key + its job (null when that job kept no record — a trigger's or a channel's) + its name then

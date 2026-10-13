@@ -455,7 +455,7 @@ const StationCommands = (() => {
       const anyStart = !!(starts.schedules.length || starts.channels.length || starts.events.length);
       // the panel's facts, verbatim (build.js wfHost: hasCompute per BAY; workflowpanel.js paintHead: briefOf, labelOf, isCrew)
       const ready = W.readiness(flow, c, { hasCompute, errors: plan.errors || [], labelOf: why, isCrew: onCrew,
-        briefOf: pid => { const p = propOf(pid); return p && (p.brief || p.hands); }, triggers: starts });
+        briefOf: pid => { const p = propOf(pid); return p && (p.brief || p.hands); }, stepName: pid => { const p = propOf(pid); return p && p.label; }, triggers: starts });
       const segs = W.howItRuns(flow, { nameOf: upper, handsOf: pid => { const p = propOf(pid); return p && p.hands; }, triggers: starts });
       let hints = ready.hints.map(h => h.what);
       if (unread.length && flow.trigger.propId && !anyStart && !flow.cyclic) {
@@ -521,7 +521,7 @@ const StationCommands = (() => {
         // which steps ship into each sending OUTBOX: only THOSE jobs ride on (a line with two OUTBOXes hands on from the one that sends)
         const afterOf = k => flow.order.filter(pid => reachedOf(pid).indexOf(k) >= 0).map(pid => step[pid]).filter(Boolean);
         out.sendsWorkTo = outs.map(k => ({ lineId: st[k].toLine, name: lineName(st[k].toLine), outboxPropId: k, afterSteps: afterOf(k) }));
-        if (c.outboxes.length <= 1) out.howItRuns += ' Then every job it finishes is sent on to ' + out.sendsWorkTo.map(x => x.name).join(' and ') + ' (SEND TO), whose own crew works it next.';
+        if (c.outboxes.length <= 1) out.howItRuns += ' Then every job it finishes cleanly is sent on to ' + out.sendsWorkTo.map(x => x.name).join(' and ') + ' (SEND TO), whose own crew works it next.';
         else out.howItRuns += ' Then ' + out.sendsWorkTo.map(x => 'a job that lands in its OUTBOX ' + x.outboxPropId + (x.afterSteps.length ? ' (after step ' + x.afterSteps.join(' or ') + ')' : '') + ' is sent on to ' + x.name).join('; ')
           + ' (SEND TO), whose own crew works it next' + (outs.length < c.outboxes.length ? '; a job that lands in another of its ' + c.outboxes.length + ' OUTBOXes stops there.' : '.');
       }

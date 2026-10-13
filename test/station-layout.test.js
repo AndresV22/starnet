@@ -455,11 +455,11 @@ const detail = async (o, line) => (await layout(o, { line: line || 'draft & revi
     const agents = [{ id: 'wA', name: 'Ann' }, { id: 'wB', name: 'Bo' }];
     const { r } = await layout({ app: app(s, agents) });
     const LA = r.lines.find(l => l.name === 'A'), LB = r.lines.find(l => l.name === 'B');
-    A.ok(/Then every job it finishes is sent on to LINE B \(SEND TO\), whose own crew works it next\.$/.test(LA.howItRuns), 'the overview sentence says where A’s work goes next: ' + LA.howItRuns);
+    A.ok(/Then every job it finishes cleanly is sent on to LINE B \(SEND TO\), whose own crew works it next\.$/.test(LA.howItRuns), 'the overview sentence says where A’s work goes next: ' + LA.howItRuns);
     A.eq([LA.sendsWorkTo, LB.getsWorkFromLines, LB.sendsWorkTo], [['LINE B'], ['LINE A'], undefined], 'and names the lines on each end');
     const D = (await layout({ app: app(s, agents) }, { line: 'A' })).r.line;
     A.ok(D.steps[0].sendsTo.some(x => /^OUTBOX, then on to LINE B \(SEND TO/.test(String(x))), 'one line in full: its last step hands to the OUTBOX, then on to LINE B — ' + JSON.stringify(D.steps[0].sendsTo));
-    // (10-11 repair) a SECOND OUTBOX on LINE A that sends nowhere: the lead is never told "every job it finishes" rides on
+    // (10-11 repair) a SECOND OUTBOX on LINE A that sends nowhere: the lead is never told "every job it finishes cleanly" rides on
     const ox = s.addProp({ t: 'outbox', x: z.x2 + 30, y: z.y1 + 1, w: 2, h: 2 });
     A.ok(ox.ok && s.connectBelt(ids[0].bay, ox.id).ok, 'fixture: LINE A gets a second OUTBOX that sends nowhere');
     const L2 = (await layout({ app: app(s, agents) })).r.lines.find(l => l.name === 'A');

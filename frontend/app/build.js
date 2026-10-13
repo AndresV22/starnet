@@ -124,7 +124,7 @@ const Build = (() => {
     BELT_BURIED: 'A PROP SITS ON THIS LINE — MOVE IT',
     // the docks feed each OTHER: no belt loop anywhere, but the work line would run forever, paying each lap
     CHAIN_CYCLE: 'WORK LINE LOOPS — CUT ONE HANDOFF',
-    // one job here runs more stages than its stage ceiling: every job would stop part-way (2026-10-09 P0) — said on its INBOX
+    // the longest way through this line runs more stages than its stage ceiling: a job that goes that way stops part-way (2026-10-09 P0) — said on its INBOX
     LINE_TOO_LONG: 'TOO LONG — RAISE THE LINE BUDGET',
     // SEND TO (2026-10-10) — said on the OUTBOX whose hand-off is off; advice, never a blocker
     SEND_TO_MISSING: 'SENDS NOWHERE — PICK A LINE', SEND_TO_SELF: 'SENDS TO ITSELF — PICK ANOTHER LINE',
@@ -142,7 +142,7 @@ const Build = (() => {
     JOIN_ONE_LANE: 'This JOINER needs two in-lanes — run a second belt INTO its tile.',
     LOOP_NO_DONE: 'This LOOP has no DONE lane — run a belt OUT of its tile onward (the first exit, in E/S/W/N order, is DONE unless you choose one).',
     LOOP_NO_BACK: 'This LOOP has no BACK lane — run a second belt OUT of its tile back to an earlier BAY.',
-    LINE_TOO_LONG: 'Too long — one job on this line runs more stages than its LINE BUDGET allows, so every job would stop part-way (the stages that ran are still paid for). Raise “max stages after the first” in this INBOX’s Workflow card › Optional limits · LINE BUDGET (24 at most), or shorten the line.',
+    LINE_TOO_LONG: 'Too long — the longest way through this line runs more stages than its LINE BUDGET allows, so a job that goes the longest way would stop part-way (the stages that ran are still paid for). Raise “max stages after the first” in this INBOX’s Workflow card › Optional limits · LINE BUDGET (24 at most), or shorten the line.',
     SEND_TO_MISSING: 'This OUTBOX sends to an INBOX that is gone or starts no line yet (or the OUTBOX itself ends no line), so nothing is sent on. Click the OUTBOX and pick a line under SEND TO (or NOWHERE).',
     SEND_TO_SELF: 'This OUTBOX sends its work back into its own line’s INBOX, so nothing is sent on. Click it and pick another line under SEND TO (or NOWHERE).',
     // (advice on the OUTBOX's card, never a floor nag — Pipeline.sendToFileAdvice says when it is true: final floor lane M19 / M29)
@@ -154,7 +154,7 @@ const Build = (() => {
   function findingWhy(e) {
     if (e && e.code === 'LINE_TOO_LONG' && e.stages > 0) {
       const fits = e.stages - 1 <= 24;
-      return 'Too long — one job on this line runs ' + e.stages + ' stages, but its LINE BUDGET allows ' + (e.maxHops + 1) + ' (the first + ' + e.maxHops + ' more), so every job would stop at stage ' + (e.maxHops + 2) + ' (the stages that ran are still paid for). '
+      return 'Too long — the longest way through this line runs ' + e.stages + ' stages, but its LINE BUDGET allows ' + (e.maxHops + 1) + ' (the first + ' + e.maxHops + ' more), so a job that goes that way would stop at stage ' + (e.maxHops + 2) + ' (the stages that ran are still paid for). '
         + (fits ? 'Raise “max stages after the first” to ' + (e.stages - 1) + ' in this INBOX’s Workflow card › Optional limits · LINE BUDGET, or shorten the line.' : 'No LINE BUDGET allows that many (25 stages at most): shorten the line.');
     }
     return VAL_WHY[e && e.code] || null;
@@ -2975,7 +2975,7 @@ const Build = (() => {
         '<p class="example-note">Assignments save when selected. Each step\'s instructions live on its Bay; click the Bay to edit them.</p>'+
         '<section class="example-sample"><h4>Try the sample job</h4><p>'+esc(e.sample.replace(/^SAMPLE JOB: /,''))+'</p><p class="example-note">This is one real job: the agents you chose run it on their own models, and normal model costs apply.</p><button class="bb refit-primary" data-example-run'+(!ready||pending?' disabled':'')+'>'+(pending?'SAMPLE IN PROGRESS…':sr?.view?.ok?'RUN THE SAMPLE AGAIN':'RUN THE SAMPLE JOB')+'</button></section>'+
         '<p class="example-status" role="status">'+esc(status)+'</p>'+
-        (sr?.view ? '<div class="example-result">'+finSampleHTML(sr.view)+(sr.output?'<details><summary>Read the finished result</summary><pre>'+esc(sr.output)+'</pre></details>':'')+'</div>' : '')+
+        (sr?.view ? '<div class="example-result">'+finSampleHTML(sr.view)+finOnwardHTML(sr)+(sr.output?'<details><summary>Read the finished result</summary><pre>'+esc(sr.output)+'</pre></details>':'')+'</div>' : '')+
         /* NEXT: USE IT FOR REAL — one click to the Inbox's own settings in the Workflow panel (what starts it; the working
            folder a software line builds in), instead of a sentence about where to click */
         '<section class="example-next"><h4>Use it for real</h4><p>'+(software ? 'Choose the project folder the Builder works in, and when the line runs: on a schedule or from a chat app.' : 'Choose when the line runs: on a schedule or from a chat app.')+' Finished work lands in the Outbox and opens in the Logbook.</p>'+
@@ -3211,8 +3211,8 @@ const Build = (() => {
   /* THE CHECKLIST FOLLOWS THE LINE YOU ARE TOUCHING (2026-08-22 sweep): with two lines on the floor the
      FINISH card stayed pinned to whichever line it first adopted. Opening any machine's card (STEP / INBOX /
      OUTBOX / junction) now focuses that machine's line — finKeySel is the same session key finPick honours —
-     and re-renders, so the checklist beside the card is the checklist FOR that line. A line already retired
-     (done/dismissed) stays quiet: finPick filters those before the key is consulted. */
+     and re-renders, so the checklist beside the card is the checklist FOR that line. A line already finished
+     (dismissed, or shipped with nothing left to do) stays quiet: finPick filters those before the key is consulted. */
   function finFocusLine(propId) {
     const c = lineOfProp(propId);
     if (c) finEngaged = true;
@@ -4174,14 +4174,36 @@ const Build = (() => {
      server-proven feed truth (World.feedState — the exact NO FEED source), and the sample-job seam
      (feature-detected, below). LAWS: never blocks editing (a floating side card, no backdrop),
      dismissible, stands down while the tutorial coaches (Tutorial.isCoaching / .refit-firstrun —
-     same gate as the first ride), and retires PERMANENTLY per line when that line's first real
-     product crate delivers (world.js's delivery seam calls noteLineDelivered — event-driven).
+     same gate as the first ride), and stands down per line once that line has SHIPPED (its FIRST SHIP:
+     the sidecar's shipment record — noteLineShipped / markLineShipped, never a crate sinking at a chute,
+     which a direct COMMS order rides too) AND nothing is left to do: a shipped line nothing starts keeps
+     its card, ② in view, until a real start or a SEND TO into it exists (2026-10-12).
      Line identity + membership come from Pipeline.lineComponents (key = smallest member prop id,
-     stable in the save); retirement/dismissal persist in localStorage beside the first-ride flag. */
+     stable in the save); shipped/dismissal persist in localStorage beside the first-ride flag. */
   const FIN_KEY = st => 'starnet.refit.finline.' + stationKeyOf(st || station);
+  /* UPGRADE, ONCE PER STATION (2026-10-12): older builds marked a line `done` when a product crate sank at its chute, and the old
+     FIRST SHIP and the card's retirement both answered to it. A line an older build already delivered on has had its moment, so
+     its `done` is read once as `shipped` — FIRST SHIP spent, never a second gold toast after the upgrade. The marker keeps a `done`
+     written later from ever being honoured (nothing here writes one any more: a crate proves no shipment). */
+  const FIN_MIG = st => 'starnet.refit.finline.v2.' + stationKeyOf(st || station);
+  const finMigrated = new Set();
   function finRead(st) {
-    try { const o = JSON.parse(localStorage.getItem(FIN_KEY(st)) || '{}'); return (o && typeof o === 'object') ? o : {}; }
-    catch (e) { return {}; }
+    let o;
+    try { o = JSON.parse(localStorage.getItem(FIN_KEY(st)) || '{}'); } catch (e) { return {}; }
+    if (!o || typeof o !== 'object') o = {};
+    const mk = FIN_MIG(st);
+    if (!finMigrated.has(mk)) {
+      finMigrated.add(mk);
+      try {
+        if (!localStorage.getItem(mk)) {
+          let moved = false;
+          for (const k of Object.keys(o)) if (o[k] && typeof o[k] === 'object' && o[k].done && !o[k].shipped) { o[k].shipped = 1; moved = true; }
+          if (moved) localStorage.setItem(FIN_KEY(st), JSON.stringify(o));
+          localStorage.setItem(mk, '1');
+        }
+      } catch (e) { finMigrated.delete(mk); }   // (storage refused: try again on the next read, never half-migrate)
+    }
+    return o;
   }
   function finMark(st, key, field) {
     try {
@@ -4247,10 +4269,22 @@ const Build = (() => {
     }
     return finStartsMemo.by[c.key];
   }
+  // ② in words, from finState — done only by what STARTS the line: another line's SEND TO into it (named by the one line name; a
+  // sender counts only if it can run — Pipeline.lineSenders) or an automatic start of THIS line (lineStartsHere). A run that
+  // already came by (a sample, a test) starts nothing, so it never ticks this step (2026-10-12, M7 + build-12)
+  function finFeedText(st, senders) {
+    if (st.feedDone) return senders && senders.length ? '✓ FED BY ' + senders.join(' + ') : st.autoStart ? '✓ AUTOMATIC START CONFIGURED' : '✓ ANOTHER LINE SENDS IT WORK';
+    if (!st.hasIntake) return '② FEED IT — TASK THE AGENT, OR WIRE A ROUTINE';
+    if (!st.feed.known) return '② CHECKING WHAT STARTS THIS LINE…';
+    return st.schedOff ? '② SCHEDULING IS OFF — TURN IT ON' : '② CHOOSE WHAT STARTS THIS LINE';
+  }
   function finPick() {
     if (!valComps || !valComps.length) return null;
     const reg = finRead(station);
-    const live = valComps.filter(c => c.bays.length && c.beltCount && !(reg[c.key] && (reg[c.key].done || reg[c.key].dis)));
+    // ✕ quiets a line for good; a line that SHIPPED is done as a guide only once nothing is left to do (a shipped line nothing
+    // starts keeps ② CHOOSE WHAT STARTS THIS LINE in view — the floor still says NO FEED there)
+    const quiet = c => { const r = reg[c.key]; return !!(r && (r.dis || (r.shipped && !finState(c).todo))); };
+    const live = valComps.filter(c => c.bays.length && c.beltCount && !quiet(c));
     if (!live.length) return null;
     const sel = live.find(c => c.key === finKeySel);
     if (sel) return sel;
@@ -4364,7 +4398,10 @@ const Build = (() => {
     // fragment's hand-off feeds nothing), so it always has a floor name (wave 2 repair: an INBOX-less sender read FED BY ANOTHER LINE)
     const senders = [...new Set(((typeof Pipeline !== 'undefined' && Pipeline.lineSenders) ? Pipeline.lineSenders(valPlan, c.key) : [])
       .map(id => station && station.lineName && station.lineName(id)).filter(Boolean))];
-    const sig = [c.key, st.crewLeft, st.hasIntake, st.feed.known, st.autoStart, st.feedDone, st.schedOff, finSample, lname || '', overview.compact, finSampleRes ? finSampleRes.key + ':' + finSampleRes.stamp : '', senders.join(',')].join('|');
+    // ③ posts the same paid job as the panel's RUN ONE REAL JOB: it says the same about a SEND TO (finOnwardPromise) — in the sig, so
+    // setting a SEND TO, or its target losing its crew or spending its limit, repaints the card
+    const onward = st.crewLeft === 0 ? finOnwardPromise(c) : '';
+    const sig = [c.key, st.crewLeft, st.hasIntake, st.feed.known, st.feed.fed, st.autoStart, st.feedDone, st.schedOff, finSample, lname || '', overview.compact, finSampleRes ? finSampleRes.key + ':' + finSampleRes.stamp : '', senders.join(','), onward].join('|');
     if (!finCardEl) {
       finCardEl = document.createElement('div');
       root.appendChild(finCardEl);
@@ -4376,14 +4413,11 @@ const Build = (() => {
     finSig = sig;
     const crewDone = st.crewLeft === 0;
     const crewTxt = crewDone ? '✓ AGENTS ASSIGNED' : '① ASSIGN STEP AGENTS — ' + st.crewLeft + ' TO GO';
-    const feedTxt = st.feedDone ? (senders.length ? '✓ FED BY ' + senders.join(' + ') : st.autoStart ? '✓ AUTOMATIC START CONFIGURED' : '✓ WORK HAS ARRIVED')
-      : !st.hasIntake ? '② FEED IT — TASK THE AGENT, OR WIRE A ROUTINE'
-      : !st.feed.known ? '② CHECKING WHAT STARTS THIS LINE…'
-      : st.schedOff ? '② SCHEDULING IS OFF — TURN IT ON' : '② CHOOSE WHAT STARTS THIS LINE';
+    const feedTxt = finFeedText(st, senders);   // ② — what STARTS the line (finFeedText)
     // the sample RESULT belongs to the line it rode (finSampleRes.key) — another line's card shows none
     const sr = (finSampleRes && finSampleRes.key === c.key) ? finSampleRes : null;
     const sampleOn = finSample === true && crewDone && !(sr && sr.pending);
-    const sampleTip = finSample !== true ? 'coming online soon' : (crewDone ? 'run ONE real job through the whole line (your INBOX test job, if you wrote one)' : 'Assign each step an agent first');
+    const sampleTip = finSample !== true ? 'coming online soon' : (crewDone ? 'run ONE real job through the whole line (your INBOX test job, if you wrote one)' + (onward ? '. ' + onward : '') : 'Assign each step an agent first');
     const sampleTxt = (sr && sr.pending) ? (sr.phase === 'post' ? '③ POSTING LINE…' : '③ RUNNING — THE JOB IS RIDING THE LINE…') : (sr && sr.view && sr.view.ok) ? '✓ JOB DELIVERED — RUN ANOTHER' : '③ RUN ONE REAL JOB';
     finCardEl.innerHTML = `
       <div class="fl-head"><span class="fl-title">▸ ${lname ? 'FINISH ' + esc(lname.toUpperCase()) : 'FINISH THE LINE'}</span><button type="button" class="bb sm fl-x" title="dismiss for this line">✕</button></div>
@@ -4392,7 +4426,7 @@ const Build = (() => {
       <button type="button" class="bb fl-step${crewDone ? ' done' : ''}" data-act="crew"${crewDone ? ' disabled' : ''}>${esc(crewTxt)}</button>
       <button type="button" class="bb fl-step${st.feedDone ? ' done' : ''}" data-act="feed"${st.feedDone ? ' disabled' : ''}>${esc(feedTxt)}</button>
       <button type="button" class="bb fl-step${sampleOn ? '' : ' off'}${sr && sr.view && sr.view.ok ? ' done' : ''}" data-act="sample" title="${esc(sampleTip)}">${esc(sampleTxt)}</button>
-      ${sr && sr.view ? finSampleHTML(sr.view) : ''}`;
+      ${sr && sr.view ? finSampleHTML(sr.view) + finOnwardHTML(sr) : onward ? '<div class="fl-result fl-onward"><span class="fl-result-k">SEND TO</span> ' + esc(onward) + '</div>' : ''}`;
     finCardEl.querySelector('.fl-x').onclick = () => { finMark(station, c.key, 'dis'); sfx('click'); renderFinCard(); };
     const example = currentPresetExample();
     const overviewButton = finCardEl.querySelector('[data-act="overview"]');
@@ -4448,6 +4482,28 @@ const Build = (() => {
       + (v.reply ? '<div class="fl-result-reply"><span class="fl-result-k">SAID</span> ' + esc(v.reply) + '</div>' : '')
       + '</div>';
   }
+  /* ③ STARTS ANOTHER LINE'S PAID JOB, SAID HERE TOO (conveyor-ui-01, wave-2 repair): the FINISH card's RUN ONE REAL JOB posts the
+     same /api/routing/sample job as the Workflow panel's key, and a SEND TO on this line hands a clean result to the next line's
+     crew — a second job at that line's cost. Both surfaces say it from ONE reading (WorkflowLine.onwardPromise / onwardResult over
+     the plan the floor compiled, valPlan): before the job, where a clean result is sent on — or that the target would refuse it now
+     (no agent on its first BAY, its daily limit spent); after it, SENT ON / NOT SENT ON from the job's own record, else only what
+     the floor proves. A line is named by the floor's one rule (World.lineName). */
+  function finOnwardPromise(c) {
+    const W = typeof WorkflowLine !== 'undefined' ? WorkflowLine : null, w = opts.world;
+    if (!c || !valPlan || !W || !W.onwardPromise || typeof Pipeline === 'undefined') return '';
+    const nameOf = k => { const r = (valPlan.sendTo || {})[k]; return r ? Pipeline.lineWord((w && w.lineName && w.lineName(String(r.toLine))) || '', 'another line') : null; };
+    return W.onwardPromise(valPlan, c.key, (c.outboxes || []).length, Pipeline, { nameOf, statsOf: w && w.lineStatsFor ? id => w.lineStatsFor(id) : null }).trim();
+  }
+  function finOnwardHTML(sr) {
+    const W = typeof WorkflowLine !== 'undefined' ? WorkflowLine : null, w = opts.world;
+    const o = W && W.onwardResult && valPlan && typeof Pipeline !== 'undefined' ? W.onwardResult(sr, valPlan, Pipeline, w && w.lineName ? id => w.lineName(id) : null) : null;
+    if (!o) return '';
+    const to = esc((o.names || []).join(' and '));
+    if (o.kind === 'refused') return '<div class="fl-result bad"><span class="fl-result-k">NOT SENT ON</span> to ' + esc(o.name) + ' — ' + esc(o.why) + '</div>';
+    if (o.kind === 'sent') return '<div class="fl-result"><span class="fl-result-k">SENT ON</span> to ' + esc(o.name) + ' — its crew works this result next, at its own cost</div>';
+    if (o.kind === 'sends') return '<div class="fl-result"><span class="fl-result-k">SEND TO</span> this line sends its finished work on to ' + to + ' — WORKFLOWS › LAST JOBS shows that line’s job, or why it was not sent</div>';
+    return '<div class="fl-result"><span class="fl-result-k">SEND TO</span> an OUTBOX on this line sends on to ' + to + ' — if this job was handed on, WORKFLOWS › LAST JOBS shows that line’s job, or why it was not sent</div>';
+  }
   /* POST THE LINE BEFORE RUNNING IT (2026-08-22). BUILD MODE freezes the world, so the plan the sidecar routes by
      is the one posted at the LAST BUILD MODE CLOSE — a sample fired right after an edit ran the OLD line while
      the floor drew the new one. Now the sample awaits World.syncPlan() (recompile if dirty + the server's
@@ -4484,7 +4540,9 @@ const Build = (() => {
       let folded = false;
       if (view.ok && response && response.delivered && response.delivered.reason === 'done') { try { if (typeof ReturnStore !== 'undefined' && ReturnStore.foldRow) folded = !!ReturnStore.foldRow(response.delivered); } catch (_) {} }
       finSampleRes = { key, stamp: Date.now(), view, exampleSignature:options.exampleSignature, output: Array.isArray(response?.replies) ? response.replies.join('') : '',
-        runs: Array.isArray(response?.runs) ? response.runs : [], streamId: response?.streamId || null, folded, text: options.text || '' };
+        runs: Array.isArray(response?.runs) ? response.runs : [], streamId: response?.streamId || null, folded, text: options.text || '',
+        // SEND TO (conveyor-ui-01): the job's own link to the next line's job (sentTo), else the line's live SEND TOs — the panel says which
+        sentTo: (response && response.sentTo && typeof response.sentTo === 'object') ? response.sentTo : null, onward: Array.isArray(response?.onwardDestinations) ? response.onwardDestinations : [] };
       finSig = ''; if (running) renderFinCard(); options.onUpdate?.(); sfx(view.ok ? 'chime' : 'bad');
     };
     const bad = reason => ({ ok: false, stages: [], usd: null, reply: '', reason });
@@ -4608,32 +4666,54 @@ const Build = (() => {
     finCardEl.style.left = Math.round(x / uiz) + 'px';
     finCardEl.style.top = Math.round(y / uiz) + 'px';
   }
-  /* the delivery-retirement hook — world.js calls this (WORLD tiles) when a real product crate sinks
-     at an outbox mouth. Works with BUILD MODE closed: resolves the station via opts and maps the tile to
-     its line in a fresh geometry frame. First delivery wins; done is forever (per station+line). */
-  function noteLineDelivered(wtx, wty) {
-    /* THE LIVE STATION WINS. This hook fires from world.js with BUILD MODE CLOSED, and close() never nulls the
-       module-level `station` — so preferring it meant the retirement was booked against whatever station
-       the last BUILD MODE session held. Load a different save and the first real delivery retired a line on the
-       station you are no longer standing in. opts.getStation() is the app's live station; the stale
-       module field is only the fallback for a harness that injected no getter. */
+  /* FIRST SHIP BOOKKEEPING (2026-10-12) — per station+line, `shipped` = this line's FIRST SHIP is spent. world.js calls these with
+     BUILD MODE CLOSED. THE LIVE STATION WINS: close() never nulls the module-level `station`, so preferring it booked a line
+     against whatever station the last BUILD MODE session held (load a different save and the next shipment marked a line on the
+     station you are no longer standing in). opts.getStation() is the app's live station; the stale module field is only the
+     fallback for a harness that injected no getter. A crate sinking at a chute books NOTHING here: it proves no shipment (a
+     direct COMMS order to a line's agent rides one down that line's belt too), so it neither spends FIRST SHIP nor touches the
+     finish card. */
+  function finLiveStation() {
     const live = (opts && typeof opts.getStation === 'function') ? opts.getStation() : null;
     const st = live || station;
-    if (!st || typeof Pipeline === 'undefined' || !Pipeline.lineComponents) return;
+    return st || null;
+  }
+  // has this line's FIRST SHIP been said (or quietly learned)? — asked before any read, so a spent line costs nothing
+  function lineShipSpent(lineId) {
+    const st = finLiveStation();
+    if (!st || lineId == null || lineId === '') return false;
+    const r = finRead(st)[String(lineId)];
+    return !!(r && r.shipped);
+  }
+  // the shipment record shows this line already SHIPPED (this window missed it, another window said it, or it shipped before this
+  // page): spend its FIRST SHIP quietly — no toast — and let the finish card stand down if nothing is left to do
+  function markLineShipped(lineId) {
+    const st = finLiveStation();
+    if (!st || lineId == null || lineId === '' || lineShipSpent(lineId)) return false;
+    finMark(st, String(lineId), 'shipped');
+    if (running) renderFinCard();
+    return true;
+  }
+  /* FIRST SHIP (2026-10-12): the gold toast + milestone a line earns the first time it SHIPS — never a crate animation. world.js
+     calls this from the executor's terminal receipt (chain.js workitem.delivered { box: 'line-output', lineId, outboxId }: a clean
+     job of THAT line reached THAT OUTBOX) once the shipment record shows the line went from no shipment to its first
+     (noteFirstShip). -> { first: true, name, tiles } once per line, else null (a line no longer on the floor, a receipt whose
+     OUTBOX is now on another line, a line whose FIRST SHIP is spent). */
+  function noteLineShipped(outboxId, lineId) {
+    const live = (opts && typeof opts.getStation === 'function') ? opts.getStation() : null;
+    const st = live || station;
+    if (!st || !outboxId || typeof Pipeline === 'undefined' || !Pipeline.lineComponents) return null;
     let geo = null;
-    try { geo = st.projectGeometry(); } catch (e) { return; }
-    const o = (geo && geo.origin) || { tx: 0, ty: 0 };
-    const k = (wtx - o.tx) + ',' + (wty - o.ty);
-    for (const c of Pipeline.lineComponents(geo)) {
-      if (!c.tiles[k]) continue;
-      const reg = finRead(st);
-      const first=!(reg[c.key] && reg[c.key].done);
-      if (first) finMark(st, c.key, 'done');
-      if (running) renderFinCard();
-      // (the one line name — worldmodel.lineName: its first NAMED INBOX, else its letter; repair: the first INBOX in geo order
-      // toasted 'FIRST SHIP · LINE C' for LINE SECOND DOOR, and an INBOX-less line its raw key 'LINE p19')
-      return first ? {first:true,name:(st.lineName&&st.lineName(c.key))||'THIS LINE',tiles:c.tiles} : null;
-    }
+    try { geo = st.projectGeometry(); } catch (e) { return null; }
+    const c = (Pipeline.lineComponents(geo) || []).find(k => (k.outboxes || []).indexOf(outboxId) >= 0);
+    if (!c || (lineId != null && String(lineId) !== String(c.key))) return null;
+    const reg = finRead(st);
+    if (reg[c.key] && reg[c.key].shipped) return null;
+    finMark(st, c.key, 'shipped');
+    if (running) renderFinCard();   // the line shipped: its card stands down unless a step is still left to do
+    // (the one line name — worldmodel.lineName: its first NAMED INBOX, else its letter; never the first INBOX in geo order or a raw key)
+    const ip = (geo.props || []).find(p => c.intakes.includes(p.id));
+    return { first: true, name: (st.lineName && st.lineName(c.key)) || Pipeline.lineWord(ip && ip.label, ip && st.lineLetter ? 'LINE ' + st.lineLetter(ip.id) : 'THIS LINE'), tiles: c.tiles };
   }
 
   /* ---------- AIRLOCK door-state picker: cycle a room's SPATIAL seal (floor containment, NOT capability
@@ -9480,7 +9560,7 @@ const Build = (() => {
     try { openFlowCard(propId); } catch (e) { return false; }
     return true;
   }
-  const api = { init, open, openWorkflows, editLine, testJobForProp, close, toggle, isOpen, requisition, refitNames: guideNames, openAssign, placeDeskFor, noteLineDelivered, lineOfAgentInfo, summonForRole, nagLabel: code => VAL_LABEL[code] || code,
+  const api = { init, open, openWorkflows, editLine, testJobForProp, close, toggle, isOpen, requisition, refitNames: guideNames, openAssign, placeDeskFor, noteLineShipped, markLineShipped, lineShipSpent, lineOfAgentInfo, summonForRole, nagLabel: code => VAL_LABEL[code] || code,
     // the WORKFLOWS window speaks the shelf's own words and shows the shelf's own art (one name per line, never a second one)
     lineWords: () => ({ plain: LINE_PLAIN, purpose: LINE_PURPOSE }), lineSchematic: bp => lineSchematic(bp), machineStill: t => machineStill(t),
     nagWhy: valWhy };   // nagLabel: the floor's own nag copy for a compiler code (ROUTINES RUN NOW refusal reads it); nagWhy: the full fix sentence the hover card + Workflow panel say (station.layout reads it)

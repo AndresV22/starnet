@@ -82,7 +82,7 @@ const splitOf = plan => Object.keys(plan.junctions).find(k => plan.junctions[k].
   A.ok(/\['watch', 'WATCH IT · FREE'/.test(panel) && /\['step', 'STEP THROUGH · REAL'/.test(panel) && /\['real', 'RUN ONE REAL JOB'/.test(panel), 'three named modes');
   // Exercise the production decision AND its render entry point. A source spelling
   // check missed a correct fallback helper hidden behind a seam-only panel guard.
-  const headers = ['function stepTestUnavailable()', 'function testModeNow()', 'function testPickerHTML(s)', 'function paintBodyInner(body, f)'];
+  const headers = ['function stepTestUnavailable()', 'function testModeNow()', 'function testPickerHTML(s)', 'function paintBodyInner(body, f)', 'function onwardNote()'];   // (onwardNote: RUN ONE REAL JOB's SEND TO line — conveyor-ui-01; these lines send nowhere, so it adds nothing)
   const helpers = headers.map(h => {
     const src = A.fnBody(panel, h);
     A.ok(src.length > 0 && src.length < 9000, 'bounded actual panel helper: ' + h);
@@ -93,7 +93,7 @@ const splitOf = plan => Object.keys(plan.junctions).find(k => plan.junctions[k].
   function renderChoice(plan, seam, mode, pipeline) {
     const S = { view: 'test', seam, testMode: mode, lineKey: plan.lines[0].lineId, testJob: {}, pauseMode: 'every' };
     const context = {
-      S, H: { plan: () => plan, sampleState: () => null }, Pipeline: pipeline,
+      S, H: { plan: () => plan, sampleState: () => null }, Pipeline: pipeline, WL: () => require('../frontend/app/workflowline.js'),   // (onwardNote reads WorkflowLine.onwardPromise)
       comp: () => ({ key: S.lineKey }), esc: value => String(value == null ? '' : value),
       restoreDrafts: () => {}, prop: () => ({ t: 'intake' }),
       paintTrigger: body => { body.innerHTML = 'INBOX editor'; }

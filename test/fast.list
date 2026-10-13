@@ -729,6 +729,8 @@ test/routing.multibay.test.js
 test/routing-nag-parity.test.js
 test/crate-honesty.test.js
 test/joined-product-truth.test.js
+test/first-ship-receipt.test.js
+test/finish-line-card-truth.test.js
 test/plan-poster.test.js
 test/chain.test.js
 test/chain.join-loop.test.js
@@ -774,6 +776,8 @@ test/workflow-line.test.js
 test/workflow-line-compiled-order.test.js
 test/floor.multibay.test.js
 test/workflow-panel-source.test.js
+test/workflow-panel-review-1012.test.js
+test/workflow-panel-sendto-truth.test.js
 test/sibling-scope.test.js
 test/propanchor.test.js
 test/prop-mount.test.js
