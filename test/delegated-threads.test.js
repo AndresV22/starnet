@@ -122,6 +122,7 @@ const roster = new Map([['researcher', { system: 'R', name: 'MIRA' }], ['writer'
   A.eq(st({ ws: ws(), worker: { status: 'error', reason: 'refused' } }).live, 'failed · couldn\'t start (too many running, or a sign-in is needed)', 'a worker the crew cap refused never reads as a debug code, and says what stopped it');
   // the sidecar's own explanation rides the row's hover tip: the refusal sentence, a run's error, the liveness check's
   // receipt — read off the ledger, clipped, never invented. A timeout's result is its PARTIAL WORK, never a reason.
+  // (/api/overseer does not project a worker's `result` yet: these pin the page's half; live, only the receipt shows.)
   const capRefused = { status: 'error', reason: 'refused', result: 'subagent could not start — the concurrency cap (STARNET_MAX_CONCURRENT_AGENTS) is full or a sign-in is needed. Try fewer at once.' };
   A.eq(D.tipOf(capRefused), capRefused.result, 'a refused worker\'s tip is the sidecar\'s own refusal sentence');
   A.eq(D.tipOf({ status: 'error', reason: 'error', result: 'worker run failed: provider returned 401' }), 'worker run failed: provider returned 401', 'a failed run\'s tip is its error');
@@ -254,7 +255,9 @@ const roster = new Map([['researcher', { system: 'R', name: 'MIRA' }], ['writer'
 {
   const D = require('../frontend/app/delegated.js');
   const kid = (id, agentId, createdAt) => ({ id, agentId, title: id, worker: true, parentStreamId: 'home', createdAt, runIds: [] });
-  // MIRA + ROOK in the first call, VEX + KAI in a retry call: same lead run, slots restart at 0 for the second call
+  // MIRA + ROOK in the first call, VEX + KAI in a retry call: same lead run, slots restart at 0 for the second call.
+  // `call` is the field the card reads; /api/overseer does not send it yet (sidecar/overseer.js snapshot()), so this
+  // pins the page's half only.
   global.Workstreams = { activeId: () => 'home', list: () => [kid('t_mira', 'researcher', 1000), kid('t_rook', 'designer', 1000), kid('t_vex', 'writer', 9000), kid('t_kai', 'coder', 9000)] };
   global.Overseer = { snapshot: () => ({ workers: [], threads: [
     { id: 't_mira', leadRunId: 'lead1', call: 'c1', slot: 0 }, { id: 't_rook', leadRunId: 'lead1', call: 'c1', slot: 1 },

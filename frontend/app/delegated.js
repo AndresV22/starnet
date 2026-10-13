@@ -29,8 +29,10 @@ const Delegated = (() => {
     const list = has(App, 'agents') ? App.agents() : [];
     return list.find(a => a.id === id) || { id, name: (has(App, 'agentName') && App.agentName(id)) || id };
   }
-  /* one card = the threads one lead run filed: its dispatch calls in the order they were made (the overseer's `call`,
-     the requestId's middle segment), each call's workers in the order it asked for them */
+  /* one card = the threads one lead run filed: its dispatch calls in the order they were made (a thread's `call`, the
+     requestId's middle segment), each call's workers in the order it asked for them. /api/overseer threads[] do not
+     carry `call` yet (sidecar/overseer.js snapshot() sends leadRunId and slot only): until they do, every row reads as
+     one call and a lead run's rows sort by slot alone, so two calls in one run still interleave. */
   function batches(parentId) {
     if (typeof Workstreams === 'undefined' || !parentId) return [];
     const s = snap();
@@ -108,7 +110,9 @@ const Delegated = (() => {
   }
   // the sidecar's own explanation of a bad end, for a hover tip: a refusal's or an error's sentence (the ledger's result;
   // a timeout's or a rejected answer's result is the worker's partial work, never a reason) or a long free-text reason
-  // the status line leaves out (the liveness check's receipt). Clipped, never invented.
+  // the status line leaves out (the liveness check's receipt). Clipped, never invented. /api/overseer workers[] do not
+  // carry `result` yet, so today only the liveness receipt shows; a refused or failed row's tip stays empty until the
+  // route projects it.
   function tipOf(w) {
     if (!w || !['error', 'refused', 'stale'].includes(w.status)) return '';
     const reason = String(w.reason || '').trim();

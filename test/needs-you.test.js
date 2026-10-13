@@ -79,7 +79,8 @@ const NY = require('../frontend/app/needsyou.js');
   A.ok(!NY.items(NOW).some(i => i.key === 'routine:cron-r1'), 'a failed routine you have opened (read) leaves it too');
 }
 {
-  // the liveness check settles a hung worker as stale too (reason "stalled: …"), with no restart at all
+  // the liveness check settles a hung worker as stale too (reason "stalled: …"), with no restart at all.
+  // wr8's `result` is a field /api/overseer does not project yet: its tip assertion pins the page's half only.
   const ledger = global.Overseer;
   global.Overseer = { snapshot: () => ({ workers: [
     { runId: 'wr6', status: 'stale', reason: 'stalled: no progress for 450s — the liveness check stopped this worker (threshold 420s)', agentId: 'researcher', parentStreamId: 'home', streamId: 'thread_mira', completedAt: NOW - 2000 },
