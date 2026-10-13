@@ -1523,7 +1523,7 @@ const World = (() => {
     // RENDER PACING wake-ups (#69): focus, a visible page, or any hand on the window resumes full pace NOW
     window.addEventListener('focus', paceWake);
     document.addEventListener('visibilitychange', () => { if (!document.hidden) paceWake(); });
-    for (const ev of ['pointermove', 'pointerdown', 'wheel', 'keydown']) window.addEventListener(ev, paceEngage, { passive: true, capture: true });
+    for (const ev of ['pointermove', 'pointerdown', 'wheel', 'keydown']) window.addEventListener(ev, userActive, { passive: true, capture: true });
     /* STUCK CAMERA DRAG: a press dragged past the canvas edge and released elsewhere never delivers
        cv's mouseup, so `drag` survived — the bare cursor then panned the camera on every crossing and
        the next real click was swallowed as a "drag" (drag.moved was already true). Same class build.js
@@ -1571,6 +1571,7 @@ const World = (() => {
       scale = clampz(scale * Math.exp(-ev.deltaY * 0.0015), MINZ, MAXZ);
       panX = c.x - wx * scale; panY = c.y - wy * scale;
       camLerp = null; camLock = null; camUserAt = performance.now();   // the user is driving the camera — stop any focus ease, release any follow-lock, reset the cinecam idle clock
+      cameraMoved();
     }, { passive: false });
     cv.addEventListener('mousedown', ev => { if (kindleArmed) { kindleHolding = true; return; } camLerp = null; camLock = null; camUserAt = performance.now(); const c = toCanvas(ev); drag = { sx: c.x, sy: c.y, moved: false }; });
     cv.addEventListener('mousemove', ev => {
@@ -1586,6 +1587,7 @@ const World = (() => {
           drag.moved = true;
         }
         panX += c.x - drag.sx; panY += c.y - drag.sy; drag.sx = c.x; drag.sy = c.y;
+        cameraMoved();
         cv.style.cursor = 'grabbing'; return;
       }
       const wp = toWorld(ev);
@@ -1719,15 +1721,19 @@ const World = (() => {
      process alone burned ~1.1 cores, the renderer another ~0.7. Only the DRAWING is paced; every event handler and
      the harness state they write keep running in real time, and a throttled draw advances the simulation in real-
      time slices (see simSlices) so nothing walks or rides slower.
-       focused (or a pointer/key touched the window in the last PACE_ENGAGED_MS) → at most 30 draws/s
-       visible but unfocused → PACE_BLUR_MS between draws, the wait spent in a setTimeout (no 240 Hz rAF wakeups)
-       hidden/minimized → the browser stops rAF outright; the timer path parks on that same rAF
-     Focus, a pointer move, a key or the page becoming visible again wakes the loop immediately. A caller cap
-     (setFrameCap — the HUD widget's 48 ms) is that caller's stated intent and wins over the blur rate. */
-  const PACE_FOCUS_MS = 1000 / 30, PACE_BLUR_MS = 200, PACE_ENGAGED_MS = 2500;
+       visible, focused or not → at most 60 draws/s (PACE_VISIBLE_MS), rounded to the nearest vsync
+       YOU moving the camera (drag, wheel) → up to 144 draws/s (PACE_MOTION_MS) for PACE_MOTION_HOLD_MS after the hand
+       hidden/minimized → the browser stops rAF outright (the desktop shell sets the webview not-visible on minimize/tray)
+     (Andrew, 2026-10-13, on 0.13.5: "when you're not clicked into StarNet it goes at less than 5 FPS … if it's open on
+     screen this should not happen", and the 30 fps cap made every camera move judder on his 239 Hz panel next to
+     0.13.1's ~200 draws/s. The 5 fps unfocused tier is gone and the visible pace is 60: still ~4x under the uncapped
+     240 Hz loop #69 measured, and the FRAME BUDGET below keeps a slow machine's UI alive either way.) A caller cap
+     (setFrameCap — the HUD widget's 48 ms) is that caller's stated intent and wins over the visible pace. */
+  const PACE_VISIBLE_MS = 1000 / 60, PACE_MOTION_MS = 1000 / 144, PACE_MOTION_HOLD_MS = 1200;
   const PACE_TIMER_MIN_MS = 100;   // pace intervals at/above this wait in a timer instead of spinning rAF
   const SIM_SLICE_MS = 48, SIM_CATCHUP_MAX_MS = 1000;   // a slice stays under frameBody's 64 ms step clamp; past 1 s (a hidden page) the old freeze stands
-  let paceTimer = 0, paceLowRate = false, engagedUntil = 0, pacedDraws = 0, simMs = 0;   // simMs: total simulated time advanced (renderPace readout)
+  let paceTimer = 0, paceLowRate = false, motionUntil = 0, pacedDraws = 0, simMs = 0;   // simMs: total simulated time advanced (renderPace readout)
+  let vsyncMs = 0, lastRafAt = 0;   // the display's own frame interval, learned from back-to-back rAF callbacks (rounds the pace to whole vsyncs)
   function pageFocused() {
     try { return typeof document === 'undefined' || typeof document.hasFocus !== 'function' || document.hasFocus(); } catch (_) { return true; }
   }
@@ -1759,7 +1765,7 @@ const World = (() => {
      come in under STRAIN_EXIT_MS. That line sits 10% under the entry line: a 22-25 ms floor (fine at 30 fps) that a long
      stall pushed in must earn its way back (under the old 70% line it stayed strained for the session); three probes in
      a row and the 3-of-5 entry keep a borderline floor from flapping. A healthy station never enters. */
-  const STRAIN_ENTER_MS = PACE_FOCUS_MS * BUDGET_SHARE * 1.2, STRAIN_EXIT_MS = STRAIN_ENTER_MS * 0.9;
+  const STRAIN_ENTER_MS = (1000 / 30) * BUDGET_SHARE * 1.2, STRAIN_EXIT_MS = STRAIN_ENTER_MS * 0.9;   // anchored on 30 fps on purpose: the visible pace is not the strain line
   const STRAIN_SETTLE_DRAWS = 10, STRAIN_PROBE_DRAWS = 45, STRAIN_EXIT_PROBES = 3;   // settle: a boot-time false start is harmless (the probes undo it); a slow one is 15 s of slideshow at 2 draws/s
   let strained = false, strainProbe = false, strainProbeMs = 0, strainPasses = 0, strainDraws = 0, strainSlow = 0, strainForce = null;
   function noteStrain(ms) {
@@ -1780,7 +1786,7 @@ const World = (() => {
     if (strainDraws % STRAIN_PROBE_DRAWS === 0) strainProbe = true;   // the next draw measures full detail again
   }
   function paceMs(now) {
-    const base = frameCapMs ? Math.max(frameCapMs, PACE_FOCUS_MS) : (now < engagedUntil || pageFocused()) ? PACE_FOCUS_MS : PACE_BLUR_MS;
+    const base = frameCapMs ? Math.max(frameCapMs, PACE_VISIBLE_MS) : now < motionUntil ? PACE_MOTION_MS : PACE_VISIBLE_MS;
     return Math.max(base, budgetMs());
   }
   function cancelScheduled() {
@@ -1800,7 +1806,11 @@ const World = (() => {
     clearTimeout(paceTimer); paceTimer = 0;
     if (!raf) raf = requestAnimationFrame(frame);
   }
-  function paceEngage() { engagedUntil = performance.now() + PACE_ENGAGED_MS; paceWake(); }
+  // any hand on the window: you are here, so the idle auto-director stands down (it is for when you are AWAY, not while you
+  // type in COMMS) and a budget-throttled floor redraws now
+  function userActive() { camUserAt = performance.now(); paceWake(); }
+  // you are moving the camera: draw up to PACE_MOTION_MS for a moment so a pan or zoom tracks the hand
+  function cameraMoved() { motionUntil = performance.now() + PACE_MOTION_HOLD_MS; paceWake(); }
   /* The simulation's step list for one drawn frame. At draw rate it is the old single step (dt clamped to 64 ms, so a
      long stall never teleports anyone). While the pacer holds a low rate it is the real elapsed time cut into
      <= SIM_SLICE_MS slices, so bodies and crates cover the same ground per wall-second as at 30 fps. */
@@ -1814,8 +1824,8 @@ const World = (() => {
   function easeK(k60, dt) { return dt > 0 ? 1 - Math.pow(1 - k60, dt / (1000 / 60)) : 0; }
   function renderPace() {
     const now = performance.now(), pace = running ? paceMs(now) : 0;
-    return { running, focused: pageFocused(), engaged: now < engagedUntil, paceMs: +pace.toFixed(1),
-      mode: !running ? 'stopped' : frameCapMs ? 'capped' : pace >= PACE_BLUR_MS ? 'blur' : pace > PACE_FOCUS_MS + 0.5 ? 'budget' : 'focus',
+    return { running, focused: pageFocused(), motion: now < motionUntil, paceMs: +pace.toFixed(1), vsyncMs: +vsyncMs.toFixed(2),
+      mode: !running ? 'stopped' : frameCapMs ? 'capped' : pace > PACE_VISIBLE_MS + 0.5 ? 'budget' : pace < PACE_VISIBLE_MS - 0.5 ? 'motion' : 'visible',
       drawCostMs: +drawCostMs.toFixed(2), budgetMs: +budgetMs().toFixed(1), strained, strainProbeMs: +strainProbeMs.toFixed(1),
       draws: pacedDraws, simMs: Math.round(simMs), timerWait: !!paceTimer };
   }
@@ -6500,8 +6510,10 @@ const World = (() => {
     raf = 0;
     if (paceTimer) { clearTimeout(paceTimer); paceTimer = 0; }   // exactly one booking alive (redrawNow / start call in directly)
     const pace = paceMs(now);
+    { const d = now - lastRafAt; if (lastRafAt && d > 2 && d < 50) vsyncMs = !vsyncMs || d < vsyncMs ? d : vsyncMs + (d - vsyncMs) * 0.02; lastRafAt = now; }
     paceLowRate = pace >= PACE_TIMER_MIN_MS;
-    if (force !== true && now - lastDrawnAt < pace - 1) { scheduleFrame(pace); return; }   // RENDER PACING: not this vsync
+    // RENDER PACING: not this vsync. Half a vsync of slack draws on the vsync NEAREST the pace (never a whole one late)
+    if (force !== true && now - lastDrawnAt < pace - Math.max(1, Math.min(vsyncMs || 2, 17) / 2)) { scheduleFrame(pace); return; }
     lastDrawnAt = now; pacedDraws++;
     scheduleFrame(pace);   // schedule next frame FIRST — a throw below can't kill the loop
     const drawStart = performance.now(), bakedBefore = cache;   // only rebake() (and loadStation) replace the bake
