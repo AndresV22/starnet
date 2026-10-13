@@ -105,7 +105,7 @@ async function exercise(source, wire, options = {}) {
     for (const active of [true, false]) {
       const ws = { id: 'original', agentId: 'agent', history: [] };
       const calls = [], interruptedStreams = new Set();
-      const sandbox = { ws, acc: 'Retained partial', thisRunId: 'lead', interrupted: new Set(), interruptedStreams,
+      const sandbox = { ws, acc: 'Retained partial', thisRunId: 'lead', runRoot: null, interrupted: new Set(), interruptedStreams,
         persistPartial: (w, text) => { calls.push('partial'); w.history.push({ role: 'assistant', content: text }); },
         Harness: { pingEngine: async () => { calls.push('health'); return true; } },
         Friendly: { friendlyError: () => ({ kind: 'network', userMessage: 'Stream interrupted' }) },

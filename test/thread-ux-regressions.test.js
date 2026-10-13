@@ -246,9 +246,9 @@ test('spoken delegated approvals await confirmed exact-prompt settlement and pre
 
 test('COMMS prose resolves files where the speaking run wrote them (review comms-threads-ui-03)',()=>{
   const renders=[], ws={id:'s',agentId:'nova',projectRoot:'C:/proj',history:[
-    {role:'assistant',content:'[open it](site/index.html)',ts:1},
+    {role:'assistant',content:'[open it](site/index.html)',ts:1,projectRoot:'C:/proj'},
     {role:'assistant',content:'![chart](out/chart.png)',agentId:'mira',ts:2},
-    {role:'assistant',content:'[again](site/index.html)',agentId:'nova',ts:3}]};
+    {role:'assistant',content:'[again](site/index.html)',agentId:'nova',ts:3,projectRoot:'C:/proj'}]};
   const row=()=>({d:{classList:{add(){}},appendChild(){}},body:{textContent:'x',addEventListener(){}}});
   const base={activeWs:ws,renderingHistory:false,row,renderProse:(el,text,opts)=>renders.push(opts&&opts.files),workspaceFileRefs:(...a)=>a,
     addUser(){},toolLine(){},trimMarkerLine(){},offerTryAgain(){},offerRetry(){},isBusy:()=>false,endToolRail(){},autoscroll(){},
@@ -265,6 +265,43 @@ test('COMMS prose resolves files where the speaking run wrote them (review comms
   const hop=s.streamingAgent('MIRA','mira'); hop.append('see [it](out/chart.png)'); hop.done();
   assert.deepEqual(renders[0],['nova',null,'C:/proj'],'live reply links resolve at the project root');
   assert.deepEqual(renders[1],['mira',null,undefined],'a live work-line stage resolves in the stage agent\'s workspace');
+});
+
+test('a reply keeps the folder its own run used after the session joins a project (review follow-up, comms-threads-ui-03)',()=>{
+  // turn 1 ran before a path.trust ALWAYS anchored the session (at t=50); its files are in the agent's own workspace
+  const renders=[], ws={id:'s',agentId:'nova',projectRoot:'C:/proj',projectRootAt:50,history:[
+    {role:'assistant',content:'[a](site/index.html)',ts:10,projectRoot:null},
+    {role:'assistant',content:'[b](site/index.html)',ts:20},
+    {role:'assistant',content:'[c](site/index.html)',ts:60},
+    {role:'assistant',content:'[d](site/index.html)',ts:70,projectRoot:'C:/proj'},
+    {role:'assistant',content:'[e](out/x.png)',ts:80,agentId:'nova',projectRoot:null},
+    {role:'assistant',content:'[f](out/x.png)',ts:90,agentId:'mira',projectRoot:null}]};
+  const row=()=>({d:{classList:{add(){}},appendChild(){}},body:{textContent:'x',addEventListener(){}}});
+  const base={activeWs:ws,renderingHistory:false,row,renderProse:(el,text,opts)=>renders.push(opts&&opts.files),workspaceFileRefs:(...a)=>a,
+    addUser(){},toolLine(){},trimMarkerLine(){},offerTryAgain(){},offerRetry(){},isBusy:()=>false,endToolRail(){},autoscroll(){},
+    document:{hidden:true,createElement:()=>({remove(){}})}};
+  const refs=part(chat,'  function turnFileRefs(', '  function hydrateFileRefs(');
+  const c=ctx(refs+part(chat,'  function replayableDeliverables(', '  // A delivered/recovered answer'),base);
+  c.renderHistory();
+  assert.deepEqual(renders.map(r=>r[2]),[undefined,undefined,'C:/proj','C:/proj',undefined,undefined],
+    'stamped turns keep their own run\'s folder; an unstamped one uses the project only when it is newer than the anchor; a hop never does');
+  assert.deepEqual(renders[4],['nova',null,undefined],'a work-line stage run by the session\'s own agent still resolves in its workspace');
+  renders.length=0; delete ws.projectRootAt; c.renderHistory();
+  assert.deepEqual(renders[1],['nova',null,undefined],'with no record of when the session joined, an older unstamped reply resolves where it always did');
+  renders.length=0;
+  const s=ctx(refs+part(chat,'  function streamingAgent(', '  // close the live paragraph (if any)'),base);
+  for (const o of [s.streamingAgent(undefined,undefined,null),s.streamingAgent('NOVA','nova',null),s.streamingAgent()]) { o.append('see [it](site/index.html)'); o.done(); }
+  assert.deepEqual(renders.map(r=>r[2]),[undefined,undefined,'C:/proj'],'a live reply resolves at the folder its run was sent with (none for a hop)');
+  // every reply the send path persists records the folder that run was sent with; a hop records none
+  const p=ctx(part(chat,'  function persistPartial(', '  function isBusy(')+part(chat,'  function markStoppedTurn(', '  // WHY it stopped'),{capHistory(){},liveRunRoots:new Map([['a',null],['b','C:/proj']])});
+  const w={id:'a',history:[]}; p.persistPartial(w,'partial'); w.id='b'; p.markStoppedTurn(w,'');
+  assert.deepEqual(w.history.map(m=>m.projectRoot),[null,'C:/proj'],'a partial or stopped turn carries its in-flight run\'s folder');
+  const send=part(chat,'  async function send(text, opts) {', '  async function maybeRetitle(');
+  assert.match(send,/projectRoot: runRoot \|\| undefined,/,'the run body sends the same folder the turns record');
+  assert.equal((send.match(/error: true, ts: Date\.now\(\), projectRoot: runRoot \}/g)||[]).length,2,'both failure lines record the folder');
+  assert.match(send,/content: replyText, ts: Date\.now\(\), sourceRunId: thisRunId \|\| undefined, projectRoot: runRoot \}/,'the reply records the folder');
+  assert.match(send,/const runRoot = ws\.projectRoot \|\| null;\s+liveRunRoots\.set\(ws\.id, runRoot\);/,'the in-flight run\'s folder is what a partial or stopped turn records');
+  assert.match(part(chat,'  async function runWorkLine(', '  async function send(text, opts) {'),/content: hopText, agentId: nx, projectRoot: null, ts:/,'a work-line stage records that it ran without the project folder');
 });
 
 test('an explicit reveal survives the load\'s server-history repaint; a reader gesture forgets it (review comms-threads-ui-04)',async()=>{
