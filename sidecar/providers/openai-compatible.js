@@ -575,7 +575,10 @@
            next "hello" waited 26s behind them. Only a model Ollama says can think is told not to, and only here:
            Commander turns and tasks keep the model's own default. */
         const background = !(req.tools && req.tools.length) && typeof req.isTask !== 'boolean';
-        const think = (background && facts && facts.supportsReasoning === true) ? false : undefined;
+        // A background call that chose no effort of its own must not inherit the run's default (a CUSTOM endpoint on
+        // Ollama carries CUSTOM's 'medium', which maps to think:true). An explicit aux effort still rides.
+        if (background && !req.reasoningEffort && facts && facts.supportsReasoning === true) delete body.reasoning_effort;
+        const think =(background && facts && facts.supportsReasoning === true) ? false : undefined;
         wire = { native: true, modelMax, think, numCtx: ollamaNative.pickNumCtx(need, { pinned: pinnedCtx, ceiling: ctxCeiling, modelMax, floor: ollamaWindow(nativeBase, req.model) }) };
       }
       let res;

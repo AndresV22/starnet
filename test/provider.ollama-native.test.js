@@ -265,8 +265,19 @@ module.exports = (async () => {
     A.eq(seen.pop().think, undefined, 'a task keeps the model default');
     await collect(thinker(), { model: 'q', messages: msg, tools: TOOLS });
     A.eq(seen.pop().think, undefined, 'an internal run WITH tools keeps the model default');
-    await collect(makeOpenAICompatibleProvider({ fetch: mkFetch(['completion', 'tools', 'thinking']), baseUrl: 'http://think.test:11434/v1', nativeOllama: true, sendReasoningEffort: true, reasoningEffort: 'high' }), { model: 'q', messages: msg });
-    A.eq(seen.pop().think, true, 'an explicit reasoning effort still wins on a background call');
+    await collect(makeOpenAICompatibleProvider({ fetch: mkFetch(['completion', 'tools', 'thinking']), baseUrl: 'http://think.test:11434/v1', nativeOllama: true, sendReasoningEffort: true, reasoningEffort: 'high' }), { model: 'q', messages: msg, reasoningEffort: 'high' });
+    A.eq(seen.pop().think, true, 'an explicit per-request reasoning effort (the aux tier) still wins on a background call');
+    // Review providers-tools-04: a CUSTOM endpoint on Ollama's port carries CUSTOM's 'medium' run effort; a background
+    // call that chose no effort of its own must not inherit it (it would think again and hold the next greeting).
+    // (Once /api/show has been read, the catalog knows the model reasons and the effort reaches the wire: warm first.)
+    const thinkFetch = mkFetch(['completion', 'tools', 'thinking']);
+    const customOllama = factory.selectProvider({ provider: 'custom', baseUrl: 'http://localhost:11434/v1', reasoningEffort: 'medium',
+      fetch: async (url, init) => url.endsWith('/v1/models') ? new Response('{"data":[{"id":"q"}]}', { status: 200 }) : thinkFetch(url, init) });
+    await collect(customOllama, { model: 'q', messages: msg, isTask: false }); seen.pop();
+    await collect(customOllama, { model: 'q', messages: msg, tools: TOOLS, isTask: true });
+    A.eq(seen.pop().think, true, 'a task on that endpoint keeps its effort');
+    await collect(customOllama, { model: 'q', messages: msg });
+    A.eq(seen.pop().think, false, 'a background call on a CUSTOM Ollama endpoint does not inherit the run effort');
     await collect(makeOpenAICompatibleProvider({ fetch: mkFetch(['completion', 'tools']), baseUrl: 'http://nothink.test:11434/v1', nativeOllama: true }), { model: 'q', messages: msg });
     A.eq('think' in seen.pop(), false, 'a model that cannot think is never sent the field');
   }
