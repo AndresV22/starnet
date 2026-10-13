@@ -84,6 +84,15 @@ const roster = new Map([['researcher', { system: 'R', name: 'MIRA' }], ['writer'
   A.eq(ro.calls[0].sessionTitle, made[0].title, 'with that thread\'s title');
   A.eq(ro.calls[1].streamId, 'thread_2', 'every worker, not just the first');
   A.eq(ro.calls[2].streamId, 'thread_3', 'and the second dispatch runs in its own new thread');
+  // review threads-backend-15: markdown and label-only header lines never become the thread title
+  await dispatchTool.run({ workers: [
+    { agentId: 'researcher', prompt: '## Task\nFind three JWST facts' },
+    { agentId: 'writer', prompt: '**Goal:** Find three JWST facts' },
+    { agentId: 'writer', prompt: 'Goal setting for Q4' }
+  ] }, { agentId: 'agent', streamId: 'home', runId: 'lead2' });
+  A.eq(made[3].title, 'Find three JWST facts', 'a "## Task" header line is skipped');
+  A.eq(made[4].title, 'Find three JWST facts', 'a bold "Goal:" label and its asterisks are dropped');
+  A.eq(made[5].title, 'Goal setting for Q4', 'a sentence that merely starts with a label word keeps its words');
 }
 {
   const ro = fakeRunOnce(); let asked = 0;

@@ -548,9 +548,18 @@
        its turns had nowhere of their own to live and there was nothing to open. Now each one gets a child thread
        filed under the conversation that asked (the rail folds it under that parent). Best-effort: a thread that
        cannot be created leaves the worker running exactly as before — this never blocks or refuses work. */
+    // The first line that says something: markdown markers, a label-only header ("## Task") and a leading label
+    // ("**Goal:** …") are dropped, so threads are not all titled "## Task". A label needs a colon, a dash or the end
+    // of the line, so "Goal setting for Q4" keeps its words.
+    const TITLE_LABEL = /^(?:task|subtask|goal|objective|context|background|instructions?|overview|brief|assignment|request|your (?:task|job|goal))\s*(?::|[-–—]|$)\s*/i;
     function threadTitle(prompt, ident) {
-      const line = String(prompt || '').split(/\r?\n/).map(s => s.trim()).find(Boolean) || '';
-      const t = line.replace(/\s+/g, ' ').replace(/[.:;,\s]+$/, '');
+      const clean = s => String(s).replace(/^\s*(?:#{1,6}\s+|>+\s*|[-*+•]\s+|\d+[.)]\s+)/, '')
+        .replace(/\*\*|__|`/g, '').replace(/\s+/g, ' ').trim();
+      let t = '';
+      for (const raw of String(prompt || '').split(/\r?\n/)) {
+        const l = clean(raw).replace(TITLE_LABEL, '').replace(/[.:;,\s]+$/, '');
+        if (l && !/^you are\b/i.test(l)) { t = l; break; }
+      }
       if (t) return t.length > 48 ? t.slice(0, 47).trimEnd() + '…' : t;
       return ((ident && ident.name) || 'Delegated') + ' task';
     }
