@@ -338,4 +338,17 @@ for (const change of ['body', 'files', 'summary', 'baseline', 'pin']) {
   c = proposal(g.s); g.s.rejectCandidate({ agentId: 'a', candidateId: c.candidateId, candidateDigest: c.candidateDigest });
   A.eq(g.s.curate('a', { now: 100000, staleMs: 10, archiveMs: 1e9 }).stale, 1, 'aged Commander skill still goes stale');
 }
+// A proposal outdated by a Commander edit is listed as outdated (reject-only), and the refusal says what to do.
+{
+  const f = fixture(); seed(f); f.s.manage({ agentId: 'a', action: 'edit', target: 'Brief', body: BODY + '\n3. Check.' });
+  const c = proposal(f.s);
+  A.eq(c.baseCurrent, true, 'a fresh proposal is current');
+  f.s.manage({ agentId: 'a', action: 'edit', target: 'Brief', body: 'Commander correction', createdBy: 'user' });
+  A.eq(proposal(f.s).baseCurrent, false, 'the list marks a proposal outdated by an active edit');
+  A.eq(f.s.candidate('a', c.candidateId).baseCurrent, false, 'the single-candidate read agrees');
+  const refused = f.promote(c, f.issue(c));
+  A.eq(refused.ok, false, 'an outdated proposal cannot be promoted');
+  A.ok(/reject it/.test(refused.error) && !/regenerate/.test(refused.error), 'refusal names an action the Commander can take');
+  A.ok(f.s.rejectCandidate({ agentId: 'a', candidateId: c.candidateId, candidateDigest: c.candidateDigest }).ok, 'an outdated proposal can still be rejected');
+}
 A.report('skills.review-approval');

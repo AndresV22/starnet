@@ -622,14 +622,21 @@
       const out = clone(row); out.skill = projectSkill(row.skill, !!includeBody);
       return out;
     }
+    // A pending proposal whose base is no longer the active skill can only be rejected: say so (baseCurrent:false)
+    // instead of listing it as something the Commander can still evaluate.
+    function listedCandidate(row, includeBody) {
+      const out = projectCandidate(row, includeBody);
+      if (row.status === 'pending') out.baseCurrent = row.baseDigest === revisionDigest(latest.get(keyOf(row.agentId, row.name)) || null);
+      return out;
+    }
     function candidates(agentId, options) {
       const o = options || {};
       return Array.from(candidateRows.values()).filter(r => r.agentId === str(agentId)
-        && (o.includeResolved || r.status === 'pending')).map(r => projectCandidate(r, !!o.includeBody));
+        && (o.includeResolved || r.status === 'pending')).map(r => listedCandidate(r, !!o.includeBody));
     }
     function candidate(agentId, id) {
       const row = Array.from(candidateRows.values()).find(r => r.agentId === str(agentId) && r.candidateId === str(id));
-      return row ? projectCandidate(row, true) : null;
+      return row ? listedCandidate(row, true) : null;
     }
     function pendingView(agentId, target) {
       const row = Array.from(candidateRows.values()).find(r => r.agentId === str(agentId) && r.status === 'pending'
@@ -650,7 +657,7 @@
       const found = candidateDecision(e);
       if (found.error) return { ok: false, error: found.error };
       const { row, active } = found;
-      if (revisionDigest(active) !== row.baseDigest) return { ok: false, error: 'active skill changed; regenerate and evaluate the candidate against it' };
+      if (revisionDigest(active) !== row.baseDigest) return { ok: false, error: 'the active skill changed after this proposal; reject it or wait for the agent to propose a new revision' };
       if (row.skill.guardAction === 'block') return { ok: false, error: 'candidate is blocked by the skill guard' };
       if (!validatePromotionReceipt) return { ok: false, error: 'candidate needs a host-verified behavior evaluation before promotion' };
       let checked;
