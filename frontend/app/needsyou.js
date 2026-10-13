@@ -119,6 +119,8 @@ const NeedsYou = (() => {
     if (!i || !has(App, 'openWorkstream')) return;
     if (i.kind === 'failed') dismiss(i.key);   // you went to look at it: it has done its job here
     App.openWorkstream(i.wsId);
+    // a question lands on its question card in one hop (not on the worker's row, which only points there)
+    if (i.kind === 'question' && i.p && typeof Chat !== 'undefined' && Chat.revealAsk && Chat.revealAsk(i.p.promptId)) return;
     if (i.workerWsId && typeof Delegated !== 'undefined' && Delegated.reveal) Delegated.reveal(i.workerWsId);
   }
   async function act(kind, key, btn) {
@@ -129,7 +131,7 @@ const NeedsYou = (() => {
     if (kind === 'dismiss') { dismiss(key); lastSig = ''; render(); return; }
     if ((kind === 'once' || kind === 'deny') && i.p && typeof Chat !== 'undefined' && Chat.answerConsent) {
       if (btn) btn.disabled = true;
-      try { await Chat.answerConsent(i.p, Workstreams.get(i.wsId), kind); }
+      try { await Chat.answerConsent(i.p, Workstreams.get(i.wsId), kind, 'needs-you'); }
       catch (e) { if (btn) btn.disabled = false; if (typeof StationUI !== 'undefined' && StationUI.notify) StationUI.notify('Could not send that answer: ' + ((e && e.message) || e), 'warn'); }
       lastSig = ''; render(); if (has(App, 'refreshRail')) App.refreshRail(); return;
     }

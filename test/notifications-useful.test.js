@@ -79,8 +79,6 @@ A.ok(/function badges\(\)[\s\S]{0,200}isWaiting\(x\) \|\| !x\.read/.test(win), '
 /* ---- the call sites that matter carry a kind and a door ---- */
 A.ok(/needs approval to ' \+ actionPhrase\(p\)[^\n]*kind: 'needs', go: \{ ws: ws\.id \}, key: 'needs:' \+ ws\.id/.test(chat), 'an approval (open session) is a NEEDS YOU door to its session');
 A.ok(/function backgroundPermissionNotify[\s\S]{0,900}kind: 'needs', go: \{ ws: ws\.id \}, key: 'needs:' \+ ws\.id/.test(chat), 'an approval (background session) is a NEEDS YOU door');
-A.ok(/function answer\(text, doneLabel\) \{\s*\n\s*if \(ws[^\n]*settleNotifs\('needs:' \+ ws\.id\)/.test(chat), 'answering a quick question settles it');
-A.ok(/async function decide\(decision, doneLabel, isDeny\) \{\s*\n\s*if \(ws[^\n]*settleNotifs\('needs:' \+ ws\.id\)/.test(chat), 'deciding an approval settles it');
 A.ok(/' finished'\) \+ sessionNote\(ws\)/.test(chat) && /kind: 'result', go: \{ ws: ws\.id \}/.test(chat), 'a background session that finished says so and opens it');
 A.ok(/settleNotifs\('needs:' \+ ws\.id\);   \/\/ the run is over/.test(chat), 'a run that ends clears what it was waiting on');
 A.ok(/StationUI\.seenSession\(id\)/.test(app.slice(app.indexOf('function switchWorkstream'), app.indexOf('function switchWorkstream') + 300)), 'switching to a session reads its entries');
@@ -88,4 +86,45 @@ A.ok(/budget cap hit[^\n]*kind: 'alert'[^\n]*go: \{ term: 'settings', section: '
 A.ok(/settleNotifs\(toastKey\)/.test(world), 'a channel that reconnects settles its outage entry');
 A.ok(!/hudNote\('◈ recalled[^\n]*kind:/.test(world) && !/hudNote\('✎ memory saved'[^\n]*kind:/.test(world), 'memory telemetry stays a toast (never history)');
 
-A.report('notifications-useful.test');
+// Exercise both real submission functions with real notification state and Channels.
+// A failed or in-flight HTTP answer must never clear the bell or a sibling prompt.
+(async () => {
+  const Channels = require('../frontend/app/channels.js');
+  const settlement = chat.slice(chat.indexOf('  const settledPromptNotices = new Set();'), chat.indexOf('  async function answerConsent('));
+  for (const mode of ['question', 'approval']) {
+    Channels.reset(); ctx.store.notifs = []; ctx.store.settings = {};
+    const ws = { id: mode, agentId: 'lead' };
+    const p = { promptId: mode + '-first', runId: 'run-' + mode, tool: mode === 'question' ? 'brief.ask' : 'fs.write' };
+    const sibling = { promptId: mode + '-second', tool: 'fs.write', workerAgentId: 'rook' };
+    Channels.setPending(ws.id, p); Channels.setPending(ws.id, sibling);
+    N.notify('Waiting for first answer', 'warn', 'needsApproval', { kind: 'needs', go: { ws: ws.id }, key: 'needs:' + ws.id, prompt: p.promptId });
+    let reply = { ok: false, error: 'offline' }, calls = 0;
+    const buttons = [{ disabled: false }], events = [], tags = [];
+    const c = vm.createContext({ p, ws, decided: false, submitting: false, received: null, applyElsewhere: null,
+      btns: { querySelectorAll: () => buttons, remove: () => tags.push('removed') },
+      r: { body: { appendChild: tag => tags.push(tag) } }, document: { createElement: () => ({}) },
+      Harness: { consent: async () => { calls++; return reply; }, consentAnswer: async () => { calls++; return reply; } },
+      Channels, StationUI: N, askerName: row => row.workerAgentId || 'lead', actionPhrase: () => 'write a file',
+      U: { bus: { emit: (name, data) => events.push([name, data.promptId]) } }, isActiveWs: () => false, renderPresence() {}, syncStatus() {} });
+    const handler = mode === 'question' ? 'async function answer(text, doneLabel)' : 'async function decide(decision, doneLabel, isDeny)';
+    const body = A.fnBody(chat, handler);
+    A.ok(body.length > 200 && body.length < 4000, mode + ' submission function is bounded');
+    vm.runInContext(settlement + '\n' + A.fnBody(chat, 'async function answerConsent(p, ws, decision, via)') + '\n' + body, c);
+    const invoke = () => mode === 'question' ? c.answer('my answer', 'answered') : c.decide('once', 'approved', false);
+    await invoke();
+    A.eq(Channels.pendingAllOf(ws.id).map(x => x.promptId), [p.promptId, sibling.promptId], mode + ' failed response preserves both pending prompts');
+    A.eq(ctx.store.notifs.filter(n => n.key === 'needs:' + ws.id && !n.done).length, 1, mode + ' failure retains NEEDS YOU');
+    A.eq([buttons[0].disabled, events.length, tags.length], [false, 0, 0], mode + ' failure restores controls and emits no success');
+    let confirm; reply = new Promise(resolve => { confirm = resolve; });
+    const pending = invoke(); await Promise.resolve();
+    A.eq(Channels.pendingAllOf(ws.id).length, 2, mode + ' in-flight answer remains pending until confirmed');
+    A.eq(buttons[0].disabled, true, mode + ' prevents duplicate clicks while awaiting confirmation');
+    await invoke(); A.eq(calls, 2, mode + ' repeated submit cannot issue a second in-flight request');
+    confirm({ ok: true, decision: 'once' }); await pending;
+    A.eq(Channels.pendingAllOf(ws.id).map(x => x.promptId), [sibling.promptId], mode + ' confirmation clears only the answered prompt');
+    const waiting = ctx.store.notifs.filter(n => n.key === 'needs:' + ws.id && !n.done);
+    A.eq(waiting.map(n => n.prompt), [sibling.promptId], mode + ' confirmation keeps the remaining worker in NEEDS YOU');
+    A.eq(events, [['permission.response', p.promptId]], mode + ' emits one confirmed response with the exact prompt');
+  }
+  A.report('notifications-useful.test');
+})().catch(error => { A.ok(false, error.stack); A.report('notifications-useful.test'); });

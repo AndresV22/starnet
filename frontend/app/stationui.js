@@ -9048,6 +9048,9 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       save(); badges();
       if (open.notifs) rerender('notifs');
     }
+    // quiet: re-file the bell entry without a toast or sound — the same wait, still waiting (answering one of two asks
+    // used to re-pop and chime the one you had not touched)
+    if (opts && opts.quiet && rec) return;
     let tOpts = opts;
     if (go && !(opts && opts.onClick)) tOpts = Object.assign({}, opts, { onClick: () => openNotif(rec, go) });
     toast(String(text || ''), cls || '', pref.sound, tOpts);

@@ -122,9 +122,10 @@ function makeOverseer(deps) {
   const ceilingMs = () => (Number(deps.reportCeilingMs) > 0 ? Number(deps.reportCeilingMs) : 600000);
   // every worker generation already reported on — batch rows list theirs; a pre-batching '<runId>:review' row covers
   // its one worker (an upgrade never re-reviews history)
-  function covered() {
+  function covered(exceptId) {
     const out = new Set();
     for (const r of state.reviews) {
+      if (r.id === exceptId) continue;
       if (Array.isArray(r.workerRunIds)) r.workerRunIds.forEach(id => out.add(String(id)));
       else if (r.workerRunId) out.add(String(r.workerRunId));
     }
@@ -139,18 +140,25 @@ function makeOverseer(deps) {
     return Array.isArray(review && review.members) ? review.members
       : [{ workerId: review.workerId, workerRunId: review.workerRunId, generation: review.generation, streamId: review.childStreamId || '' }];
   }
+  const groupOf = w => w.parentStreamId + '|' + (w.parentRunId || 'solo-' + w.runId);
+  const reviewable = w => w && w.leadId === 'agent' && valid(w.parentStreamId) && w.cancelledBy !== 'parent';
+  const settledWorker = w => (w.completedAt || w.status === 'stale') && SETTLED.includes(w.status);
+  const memberOf = w => ({ workerId: w.id, workerRunId: w.runId, generation: w.generation, streamId: w.streamId || '', agentId: w.agentId });
+  const waitingMember = w => ({ workerId: w.id, workerRunId: w.runId, agentId: w.agentId });
   function freshReviews(workers, opts) {
     const done = covered();
     const groups = new Map();
     for (const w of workers) {
-      if (!(w && w.leadId === 'agent' && valid(w.parentStreamId) && w.cancelledBy !== 'parent' && !done.has(String(w.runId)))) continue;
-      const key = w.parentStreamId + '|' + (w.parentRunId || 'solo-' + w.runId);
+      if (!reviewable(w) || done.has(String(w.runId))) continue;
+      // A live lead may dispatch more workers later in the same turn. Its hand-off is not closed yet.
+      if (!(opts && opts.force) && w.parentRunId && deps.isRunActive && deps.isRunActive(w.parentRunId)) continue;
+      const key = groupOf(w);
       if (!groups.has(key)) groups.set(key, []);
       groups.get(key).push(w);
     }
     const out = [];
     for (const [key, members] of groups) {
-      const settled = members.filter(w => (w.completedAt || w.status === 'stale') && SETTLED.includes(w.status)).sort((a, b) => slotOf(a) - slotOf(b));
+      const settled = members.filter(settledWorker).sort((a, b) => slotOf(a) - slotOf(b));
       const running = members.filter(w => !settled.includes(w));
       if (!settled.length) continue;
       if (running.length && !(opts && opts.force)) {
@@ -163,14 +171,36 @@ function makeOverseer(deps) {
         parentStreamId: lead.parentStreamId, childStreamId: lead.streamId || '', agentId: lead.leadId,
         // the single-worker fields name the first member (older readers and the page's change signal keep working)
         workerId: lead.id, workerRunId: lead.runId, generation: lead.generation,
-        members: settled.map(w => ({ workerId: w.id, workerRunId: w.runId, generation: w.generation, streamId: w.streamId || '', agentId: w.agentId })),
+        members: settled.map(memberOf),
         workerRunIds: settled.map(w => String(w.runId)),
-        waitingOn: running.map(w => ({ workerId: w.id, workerRunId: w.runId, agentId: w.agentId })),
+        waitingOn: running.map(waitingMember),
         status: 'pending', createdAt: deps.now(), reviewRunId: '', error: '' });
     }
     return out;
   }
+  // Refresh a pending report when it can actually take the conversation lock. A worker that finished while
+  // the report waited belongs in this report, not a stale "still working" line followed by a second report.
+  // Completed/cancelled/reviewing reports are immutable, and another report's generations remain covered.
+  function refreshReview(id, workers) {
+    const current = state.reviews.find(r => r.id === id);
+    if (!current || current.status !== 'pending' || current.kind !== 'batch' || !current.groupKey) return current ? copy(current) : null;
+    const elsewhere = covered(id);
+    const group = workers.filter(w => reviewable(w) && groupOf(w) === current.groupKey && !elsewhere.has(String(w.runId)));
+    const settled = group.filter(settledWorker).sort((a, b) => slotOf(a) - slotOf(b));
+    const fields = { members: settled.map(memberOf), workerRunIds: settled.map(w => String(w.runId)),
+      waitingOn: group.filter(w => !settledWorker(w)).map(waitingMember) };
+    if (settled.length) Object.assign(fields, { workerId: settled[0].id, workerRunId: settled[0].runId,
+      generation: settled[0].generation, childStreamId: settled[0].streamId || '' });
+    if (Object.keys(fields).every(k => JSON.stringify(current[k]) === JSON.stringify(fields[k]))) return copy(current);
+    return patchReview(id, fields);
+  }
   function collect(workers) {
+    // Pending reports can wait for credentials or another turn too. Absorb their newly settled members before
+    // creating any follow-up; a follow-up is only for workers finishing after the earlier report began.
+    // only a pending batch report can absorb members — settled ones are history (refreshing every review ever made
+    // cost a find + a clone per review on every 2 s tick, and state.reviews is never pruned)
+    const open = state.reviews.filter(r => r && r.status === 'pending' && r.kind === 'batch' && r.groupKey).map(r => r.id);
+    for (const id of open) refreshReview(id, workers);
     const fresh = freshReviews(workers);
     if (fresh.length) update(s => { s.reviews.push(...fresh); return null; });
   }
@@ -219,6 +249,6 @@ function makeOverseer(deps) {
     if (state.paused || emergencyPaused) update(s => { s.paused = false; return null; });
     emergencyPaused = false;
   }
-  return { threads, resolve, create, ensure, projectHome, collect, patchReview, withThread, snapshot, stopReviews, resumeReviews, membersOf };
+  return { threads, resolve, create, ensure, projectHome, collect, patchReview, withThread, snapshot, stopReviews, resumeReviews, membersOf, refreshReview };
 }
 module.exports = { makeOverseer, isCoordinatorRun };

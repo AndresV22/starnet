@@ -108,7 +108,7 @@ const I = RemoteSessions._internals;
     const idx = rd('sidecar/index.js'), chat = rd('frontend/app/chat.js');
     A.ok(/const viaRemote = \(d\) => \{ orig\(d\); const decision = typeof d === 'string' \? [^;]+: \(d && d\.__clarify \? 'once' : null\);/.test(idx), 'a phone reply to a question emits permission.response on the desk run');
     const clar = chat.slice(chat.indexOf('function clarifyRow('), chat.indexOf('function permissionRow('));
-    A.ok(/U\.bus\.on\('permission\.response', onElsewhere\)/.test(clar) && /answered from your phone/.test(clar) && /Channels\.clearPending\(ws\.id, Date\.now\(\), p\.promptId\)/.test(clar), 'the question card settles to "answered from your phone" and clears only that prompt');
+    A.ok(/U\.bus\.on\('permission\.response', onElsewhere\)/.test(clar) && /'✓ answered' \+ settledWhere\(resp\)/.test(clar) && /resp\.via \? '' : ' from your phone'/.test(chat) &&/Channels\.clearPending\(ws\.id, Date\.now\(\), p\.promptId\)/.test(clar), 'the question card settles to "answered from your phone" and clears only its own prompt');
   }
   A.report('remote-sessions');
 })().catch((e) => { console.log('FAIL: threw ' + (e && e.stack || e)); process.exit(1); });

@@ -5155,6 +5155,7 @@ const overseer = require('./overseer.js').makeOverseer({ fs, path, writeDurable:
   file: path.join(WORKSPACES, 'overseer.json'), now: () => Date.now(),
   newId: () => 'ws_' + crypto.randomUUID().replace(/-/g, ''),
   sessions: () => saveStore.load('agent') || {}, hasAgent: id => id === 'agent' || agentRoster.has(id),
+  isRunActive: id => runs.has(id),
   // how long one hand-off's report waits on a straggler before NOVA reports the finished part (env OVERSEER_REPORT_CEILING_MS)
   reportCeilingMs: Math.max(30000, Number(process.env.OVERSEER_REPORT_CEILING_MS) || 600000) });
 
@@ -5217,7 +5218,7 @@ async function tickOverseer() {
   overseerTickRunning = true;
   try {
     overseer.collect(subagents.list());
-    for (const review of overseer.snapshot().reviews) {
+    for (let review of overseer.snapshot().reviews) {
       if (review.agentId !== 'agent') {
         if (review.status === 'pending' || review.status === 'reviewing') overseer.patchReview(review.id, {
           status: 'cancelled', error: 'Automatic coordination belongs to the station orchestrator.' });
@@ -5254,6 +5255,7 @@ async function tickOverseer() {
         if (updateHolding() || overseer.snapshot().paused || !overseer.snapshot().reviews.some(r => r.id === review.id && r.status === 'pending')) return;
         try { parent = overseer.resolve(review.parentStreamId); }
         catch (_) { overseer.patchReview(review.id, { status: 'cancelled', error: 'Parent conversation is no longer available.' }); return; }
+        review = overseer.refreshReview(review.id, subagents.list()) || review;
         members = liveOf(review);
         if (!members.length) {
           overseer.patchReview(review.id, { status: 'superseded', error: 'Every worker in this request has a newer attempt.' }); return;
@@ -5270,7 +5272,8 @@ async function tickOverseer() {
         };
         runs.set(runId, reviewAbort);
         runsMeta.set(runId, { agentId: review.agentId, startedAt: Date.now(), source: 'overseer', streamId: parent.id });
-        const waiting = (review.waitingOn || []).map(m => subagents.get(m.workerId)).filter(Boolean);
+        const waiting = (review.waitingOn || []).map(m => subagents.get(m.workerId))
+          .filter((w, i) => w && w.runId === review.waitingOn[i].workerRunId && w.status === 'running');
         const instruction = delegatedReportPrompt(members, waiting, review.followUp === true);
         try {
           await runOnceCoreCounted({ agentId: review.agentId, key, provider, baseUrl, model: ident.model,

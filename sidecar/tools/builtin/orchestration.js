@@ -581,7 +581,7 @@
       let out = null;
       const args = {
         streamId: job.streamId, sessionTitle: job.sessionTitle || job.session || '',
-        agentId: job.agentId, runId: row.runId || '', prompt: job.prompt, text: row.result,
+        agentId: job.agentId, runId: row.runId || '', prompt: job.prompt, text: row.result, reason: row.reason || '',
         parentStreamId: job.parentStreamId || undefined   // a fresh child thread the page may not have adopted yet
       };
       try { out = await station.request('station.deliver', args); }

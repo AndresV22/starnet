@@ -1151,3 +1151,6 @@ test/skill.evaluation-accounting.test.js
 test/verdictreview.lifecycle.test.js
 
 test/skill.evaluation.accounting.test.js
+test/thread-flow-navigation.test.js
+
+test/thread-ux-regressions.test.js

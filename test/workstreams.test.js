@@ -431,4 +431,42 @@ A.eq(idleDeletion.events.filter(e => e === 'del:work-1').length, 1, 'idle path d
 A.eq(idleDeletion.events.filter(e => e === 'persist').length, 1, 'idle deletion persists exactly once');
 A.eq(idleDeletion.events.filter(e => e === 'loadActiveStream').length, 1, 'deleting the open idle stream reloads General');
 
+/* A terminal reason is durable and belongs only to the most recent actual run. */
+W.init({}); W.adopt({ id: 'outcome', agentId: 'nova' });
+W.appendRun('outcome', 'run1'); W.noteRunEnd('outcome', 'run1', true, 'budget');
+A.eq(W.get('outcome').lastRunReason, 'budget', 'completed transport retains the actual budget outcome');
+W.appendRun('outcome', 'run1'); W.noteRunEnd('outcome', 'run1', true);
+A.eq(W.get('outcome').lastRunReason, 'budget', 'duplicate filing and old callers cannot erase a measured reason');
+W.init(JSON.parse(JSON.stringify(W.serialize())));
+A.eq(W.get('outcome').lastRunReason, 'budget', 'reason survives reload');
+W.appendRun('outcome', 'run2');
+A.eq(W.get('outcome').lastRunReason, '', 'a new run starts without a stale reason');
+A.ok(!W.noteRunEnd('outcome', 'run1', false, 'error'), 'an old run cannot settle a newer run');
+A.eq(W.get('outcome').lastRunReason, '', 'stale outcome left current reason unknown');
+W.noteRunEnd('outcome', 'run2', false, ' error ');
+A.eq(W.get('outcome').lastRunReason, 'error', 'reason is normalized');
+W.noteRunEnd('outcome', 'run2', false, 'x'.repeat(200));
+A.eq(W.get('outcome').lastRunReason.length, 80, 'saved reasons are bounded');
+W.adopt({ id: 'legacy' });
+A.eq(W.get('legacy').lastRunReason, '', 'old saves default to unknown');
+
+/* Backfilling old work never supplants an already-known newer run's truth or activity. */
+W.init({ activeId: 'recovery-order', generalId: 'general', workstreams: [
+  { id: 'general', title: null },
+  { id: 'recovery-order', title: 'Recovered work', kind: 'task', lane: 'shipped', runIds: ['newer'], lastRunOk: true, lastRunReason: 'done', lastActiveAt: 9000, lastReadAt: 9000 }
+] });
+const recoveredOrder = W.get('recovery-order');
+A.ok(W.appendRun(recoveredOrder.id, 'older', 1000, 'newer'), 'recovery inserts previously missing older work');
+A.eq(recoveredOrder.runIds, ['older', 'newer'], 'known server ordering keeps the newer run last');
+A.eq([recoveredOrder.lastRunOk, recoveredOrder.lastRunReason], [true, 'done'], 'older history preserves the latest successful outcome');
+A.eq([recoveredOrder.lastActiveAt, recoveredOrder.lastReadAt, recoveredOrder.lane], [9000, 9000, 'shipped'], 'history insertion never changes current activity, reading, or task state');
+A.ok(!W.noteRunEnd(recoveredOrder.id, 'older', false, 'error'), 'an older recovered failure cannot settle the newer run');
+W.init(JSON.parse(JSON.stringify(W.serialize())));
+A.eq(W.get(recoveredOrder.id).runIds, ['older', 'newer'], 'the restored ordering survives save and reload');
+W.appendRun(recoveredOrder.id, 'latest', 10000, 'unknown-anchor');
+A.eq(W.get(recoveredOrder.id).runIds, ['older', 'newer', 'latest'], 'an unknown anchor retains ordinary append behavior');
+A.eq([W.get(recoveredOrder.id).lastRunOk, W.get(recoveredOrder.id).lastRunReason, W.get(recoveredOrder.id).lastActiveAt], [null, '', 10000], 'ordinary appends still reset outcome and advance the event time');
+W.noteRunEnd(recoveredOrder.id, 'latest', true, 'done'); W.appendRun(recoveredOrder.id, 'older', 1000, 'newer');
+A.eq(W.get(recoveredOrder.id).runIds, ['older', 'newer', 'latest'], 'a duplicate recovery neither inserts twice nor changes ordering');
+A.eq([W.get(recoveredOrder.id).lastRunOk, W.get(recoveredOrder.id).lastRunReason], [true, 'done'], 'duplicate recovery preserves the latest outcome');
 A.report('workstreams.test');

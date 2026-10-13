@@ -853,6 +853,15 @@ function sessionTools(station, ro) {
 }
 const leadCtx = () => ({ agentId: 'agent', emit: () => {} });
 
+// Partial worker deliveries carry their real terminal reason; the page must not infer completion from text.
+for (const reason of ['done', 'budget', 'max_iters', 'aborted']) {
+  const ro = fakeRunOnce(async () => ({ reason, messages: [{ role: 'assistant', content: 'Recorded progress.' }], usd: 0 }));
+  const station = fakeStation(SESSIONS);
+  await sessionTools(station, ro).dispatchTool.run({ workers: [{ agentId: 'researcher', prompt: 'finish the research', session: 'research' }] }, leadCtx());
+  const delivered = station.seen.find(s => s.verb === 'station.deliver');
+  A.eq(delivered && delivered.args.reason, reason, 'the live delivery preserves ' + reason + ' as backend evidence');
+}
+
 // a named session resolves to its id, rides into the child run as streamId, and is delivered back to the page
 {
   const ro = fakeRunOnce();
@@ -989,7 +998,7 @@ const leadCtx = () => ({ agentId: 'agent', emit: () => {} });
   A.ok(/'station\.sessions'/.test(page), 'the page can list its sessions');
   A.ok(/'station\.deliver'/.test(page), 'the page can fold a delegated answer into a session');
   A.ok(/indexOf\(runId\) >= 0/.test(page), 'delivery is idempotent by runId (no double-posting)');
-  A.ok(/history\.push/.test(page) && !/ws\.history = next/.test(page), 'delivery APPENDS — it never replaces a session\'s existing thread');
+  A.ok(/history\.(?:push|splice)/.test(page) && !/ws\.history = next/.test(page), 'delivery APPENDS — it never replaces a session\'s existing thread');
   const mirror = fs.readFileSync(path.join(__dirname, '..', 'website', 'app', 'app', 'stationcommands.js'), 'utf8');
   A.eq(mirror, page, 'the website mirror of stationcommands.js is in sync');
 }

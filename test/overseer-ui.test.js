@@ -11,7 +11,7 @@ const path = require('node:path');
     module:{exports:{}}, console:{debug(){}}, AbortController,
     setTimeout(fn){timeout=fn;return 1;}, clearTimeout(){},
     document:{addEventListener(){}, createElement(){throw new Error('No additional UI permitted');}},
-    Workstreams:{generalId:()=> 'general',get:id=>rows.get(id),adopt:row=>{rows.set(row.id,row);return true;}},
+    Workstreams:{generalId:()=> 'general',get:id=>rows.get(id),adopt:row=>{if(!rows.has(row.id)) rows.set(row.id,row);return rows.get(row.id);}},
     App:{persist(){persisted++;},refreshRail(){},openWorkstream(){throw new Error('Must not move focus');}},
     StationCommands:{async reconcile(){reconciled++;}},
     fetch:async (_url,options)=>{
@@ -25,7 +25,7 @@ const path = require('node:path');
   await sync.refresh();
   assert.equal(rows.get('research').agentId,'custom_researcher');
   assert.equal(persisted,1);assert.equal(reconciled,1);
-  await sync.refresh();assert.equal(reconciled,1,'unchanged polling does not rebuild the transcript');
+  await sync.refresh();assert.equal(reconciled,1,'unchanged polling does not rebuild the transcript');assert.equal(persisted,1,'unchanged polling does not persist again');
   fail=true;await sync.refresh();fail=false;await sync.refresh();
   assert.equal(reconciled,2,'reconnect reconciles even if worker state did not change');
   hang=true;const pending=sync.refresh();timeout();await pending;hang=false;await sync.refresh();

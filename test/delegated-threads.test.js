@@ -118,6 +118,13 @@ const roster = new Map([['researcher', { system: 'R', name: 'MIRA' }], ['writer'
   A.eq(done.cls + '|' + done.live + '|' + done.t, 'done|Found|0:12', 'a finished worker quotes the first line it delivered, with its real run time');
   A.eq(st({ ws: ws(), worker: { status: 'error', reason: 'timeout' } }).live, 'failed · timeout', 'a failed worker says why');
   A.eq(st({ ws: ws(), worker: { status: 'stale' } }).live, 'stopped when the station restarted', 'a stale worker is honest about it');
+  const stale = { ws: ws({ runIds: ['r1', 'r2'], lastRunReason: 'done' }), worker: { status: 'done', reason: 'budget', runId: 'r1' } };
+  A.eq(st(stale).cls, 'done', 'an older capped ledger run cannot override the newer completed run');
+  A.eq(D._internals.workerRunOf(stale), 'r2', 'the receipt follows the newer recorded run');
+  busy.add('k'); runOf.set('k', 'r3'); stale.worker.status = 'running'; stale.worker.canInterrupt = true;
+  A.ok(st(stale).cls === 'working' && !st(stale).stop, 'an old running ledger cannot offer Stop for a newer live run');
+  A.eq(D._internals.workerRunOf(stale), 'r3', 'the receipt follows the current live run ahead of polling');
+  busy.delete('k'); runOf.delete('k');
   // a worker's ask rides the lead's channel stamped with the worker that asked: matched EXACTLY, never by agent id
   pend.set('home', [{ promptId: 'p1', tool: 'fs.write', agentId: 'agent', workerStreamId: 'k1', workerRunId: 'r1', workerAgentId: 'researcher' }]);
   A.eq(st({ ws: ws({ id: 'k1', agentId: 'researcher' }), worker: { status: 'running', startedAt: Date.now(), id: 'w1', runId: 'r1' } }).cls, 'waiting', 'the worker that asked reads as waiting on you');
@@ -142,7 +149,10 @@ const roster = new Map([['researcher', { system: 'R', name: 'MIRA' }], ['writer'
   pend.clear(); busy.add('k');
   A.eq(st({ ws: ws(), worker: null }).cls + '|' + st({ ws: ws(), worker: null }).t, 'working|1:05', 'a foreground worker is working while its thread channel is live');
   busy.clear();
-  A.eq(st({ ws: ws({ runIds: ['r9'] }), worker: null }).cls, 'done', 'a delivered foreground worker is done');
+  A.eq(st({ ws: ws({ runIds: ['r9'], lastRunReason: 'done' }), worker: null }).cls, 'done', 'a confirmed completed foreground worker is done');
+  A.eq(st({ ws: ws({ runIds: ['r9'] }), worker: null }).cls, 'recorded', 'a legacy delivery with unknown terminal reason is never claimed complete');
+  A.eq(st({ ws: ws({ runIds: ['r9'] }), worker: null }).live, 'delivered', '…and says only what is provable, in plain words (never "completion unconfirmed")');
+  for (const reason of ['budget', 'max_iters', 'aborted']) A.eq(st({ ws: ws({ runIds: ['r9'], lastRunReason: reason }), worker: null }).cls, 'stopped', reason + ' is unfinished even with partial output');
   busy.add('home'); runOf.set('home', 'lead1');
   A.eq(st({ ws: ws(), worker: null }).live, 'starting', 'before delivery, while the lead run that dispatched it is still live: starting');
   busy.clear();
@@ -153,8 +163,8 @@ const roster = new Map([['researcher', { system: 'R', name: 'MIRA' }], ['writer'
   const running = { lead: 'b1', rows: [{ ws: ws({ id: 'k1', agentId: 'researcher', title: 'Scan competitors' }), worker: { status: 'running', startedAt: Date.now(), canInterrupt: true, id: 'w1', runId: 'r1' } },
     { ws: ws({ id: 'k2', agentId: 'writer', title: 'Write the email (3)', runIds: ['r2'] }), worker: { status: 'done', startedAt: 1000, completedAt: 5000 } }] };
   const live = L.lineHtml(running, 'home');
-  A.ok(/aria-expanded="true"/.test(live) && /dg-li-task">Scan competitors/.test(live) && /data-dg-stop="w1"/.test(live), 'a running dispatch shows each worker, its task and Stop without a click');
-  A.ok(/data-dg-see="k2"/.test(live) && /dg-li-task">Write the email</.test(live), 'a finished worker offers See work (and its task loses the thread\'s "(3)")');
+  A.ok(/aria-expanded="true"/.test(live) && /dg-li-task"[^>]*>Scan competitors/.test(live) && /data-dg-stop="w1"/.test(live), 'a running dispatch shows each worker, its task and Stop without a click');
+  A.ok(/data-dg-see="k2"/.test(live) && /dg-li-task"[^>]*>Write the email</.test(live), 'a finished worker offers See work (and its task loses the thread\'s "(3)")');
   A.ok(!/data-dg-open/.test(live), 'nothing on the card opens a worker\'s thread: its work unfolds in place');
   const settled = L.lineHtml({ lead: 'b2', rows: [running.rows[1]] }, 'home');
   A.ok(/aria-expanded="false"/.test(settled) && !/dg-line-list/.test(settled), 'once every worker settles it folds to the one line');
@@ -164,6 +174,8 @@ const roster = new Map([['researcher', { system: 'R', name: 'MIRA' }], ['writer'
   const asking = L.lineHtml(running, 'home');
   A.ok(/aria-expanded="true"/.test(asking) && /data-dg-consent="once" data-dg-ws="k1"/.test(asking) && /data-dg-consent="deny" data-dg-ws="k1"/.test(asking), 'a worker waiting on you shows even folded, with Approve and Deny on its row');
   A.ok(!/data-dg-consent="(always|full|session)"/.test(asking), 'a worker row never offers a lead- or station-wide grant');
+  A.ok(/data-dg-consent="once" data-dg-ws="k1" data-dg-prompt="p5"/.test(asking) && /data-dg-consent="deny" data-dg-ws="k1" data-dg-prompt="p5"/.test(asking), 'each key is bound to the exact ask it was drawn for');
+  A.ok(/if \(key && key\.dataset && key\.dataset\.dgPrompt && String\(p\.promptId\) !== key\.dataset\.dgPrompt\) \{ repaint\(\); return; \}/.test(fs.readFileSync(path.join(__dirname, '..', 'frontend', 'app', 'delegated.js'), 'utf8')), 'a key never answers a different ask than it showed');
   pend.set('home', [{ promptId: 'question-1', tool: 'brief.ask', agentId: 'agent', workerStreamId: 'k1', argsSummary: JSON.stringify({ question: 'Which palette?', options: ['Blue', 'Green'] }) }]);
   const question = L.lineHtml(running, 'home');
   A.ok(/data-dg-question="question-1"[^>]*>Answer/.test(question), 'a delegated question links to its exact question card');
@@ -171,12 +183,15 @@ const roster = new Map([['researcher', { system: 'R', name: 'MIRA' }], ['writer'
   let click = null, focused = 0, scrolled = 0;
   global.document = { addEventListener: (name, fn) => { if (name === 'click') click = fn; }, getElementById: () => null };
   D.presentFor(); // wire the real delegation click handler without creating a second rendered card
-  const exact = { dataset: { clarifyPrompt: 'question-1' }, scrollIntoView: () => scrolled++, focus: () => focused++ };
-  const unrelated = { dataset: { clarifyPrompt: 'question-2' }, scrollIntoView: () => { throw new Error('wrong question'); } };
-  global.document.getElementById = () => ({ querySelectorAll: () => [unrelated, exact] });
+  // the card is found (or redrawn) by Chat.revealAsk — one path shared with NEEDS YOU (thread-ux-regressions covers it)
+  const revealedAsks = [], answered = [];
+  global.Chat = { revealAsk: id => { revealedAsks.push(id); scrolled++; focused++; return true; }, answerConsent: (...a) => answered.push(a) };
   const answerKey = { dataset: { dgQuestion: 'question-1' } };
   click({ target: { closest: selector => selector === '#chat-log [data-dg-question]' ? answerKey : null }, preventDefault() {} });
-  A.eq([scrolled, focused], [1, 1], 'Answer focuses only the exact existing question card and does not submit an approval');
+  A.eq([scrolled, focused], [1, 1], 'Answer brings the question card into view');
+  A.eq(revealedAsks, ['question-1'], 'exactly that question card, by its prompt');
+  A.eq(answered.length, 0, 'and does not submit an approval');
+  delete global.Chat;
   global.document = undefined;
   pend.clear(); L.closed.clear(); L.opened.add('b2');
   A.ok(/aria-expanded="true"/.test(L.lineHtml({ lead: 'b2', rows: [running.rows[1]] }, 'home')), 'and opening a settled one too');
@@ -217,7 +232,7 @@ const roster = new Map([['researcher', { system: 'R', name: 'MIRA' }], ['writer'
   A.ok(/x\.status === 'running' && x\.parentStreamId === w\.id/.test(app), 'a conversation whose crew is still working says so on its own lamp');
   A.ok(/title, worker: true \}\);/.test(idx) && /parentStreamId: t\.worker \? \(t\.parentStreamId \|\| ''\) : ''/.test(idx), 'the delegating run marks its threads as workers, and only those are briefed as delegated work');
   A.ok(/includeArchived: true, includeWorkers: true \}\)\.filter\(w => w && w\.worker === true && w\.parentStreamId === parentId\)/.test(dg), 'the card is the one place that reads workers\' threads');
-  A.ok(/parentStreamId: parentId, worker: true,/.test(sc) && /if \(prompt && !ws\.worker\) ws\.history\.push\(/.test(sc) && /markUnread && !ws\.worker/.test(sc), 'a worker adopted on first delivery is marked a worker, never unread on its own');
+  A.ok(/parentStreamId: parentId, worker: true,/.test(sc) && /if \(prompt && !ws\.worker\) turns\.push\(/.test(sc) && /markUnread && !ws\.worker/.test(sc), 'a worker adopted on first delivery is marked a worker, never unread on its own');
   A.ok(/Workstreams\.isHidden && Workstreams\.isHidden\(w\)\) \|\| filed/.test(rs), 'a deliverable\'s "open conversation" never adopts a worker\'s thread as a session');
   A.ok(/overseer\.threads\(\)\.filter\(w => w\.worker !== true\)\.map/.test(idx), 'the lead\'s session list never offers a worker\'s thread');
   A.ok(/workerThreadIds: \(\) =>/.test(idx) && /workers\.has\(r\.streamId\)/.test(src('sidecar/remote/host.js')), 'nor does the phone');
@@ -227,9 +242,10 @@ const roster = new Map([['researcher', { system: 'R', name: 'MIRA' }], ['writer'
   A.ok(/each worker\\'s work is filed on this conversation\\'s card/.test(idx), 'the lead prompt states the filing rule');
   A.ok(/childThread: require\('\.\/overseer\.js'\)\.isCoordinatorRun/.test(idx), 'only coordinator runs file child threads');
   A.ok(/for \(let n = 1; n <= 99; n\+\+\)/.test(idx) && /return make\(a\.title \+ ' · ' \+ new Date\(\)\.toISOString\(\)/.test(idx), 'the same ask delegated again and again never runs out of thread titles');
-  A.ok(/if \(!local\.parentStreamId\) \{ local\.parentStreamId = String\(row\.parentStreamId\); adopted = true; \}/.test(ov) && /if \(!local\.projectRoot && row\.projectRoot\)/.test(ov), 'a thread the page already had learns its parent and project');
-  A.ok(/Chat\.answerConsent\(p, Workstreams\.get\(Workstreams\.activeId\(\)\), decision === 'deny' \? 'deny' : 'once'\)/.test(dg), 'a worker\'s ask is answered from its row through the approval card\'s own path, once or deny only');
-  A.ok(/Chat\.renderProse\(el, text\)/.test(dg), 'a worker\'s answer renders through the safe prose renderer, never raw HTML');
+  // Existing-row adoption and cache invalidation run behaviorally in thread-flow-navigation.test.js.
+  A.ok(/const adoptedRow = Workstreams\.adopt\(row\)/.test(ov), 'polling adopts missing metadata through the participation-aware store');
+  A.ok(/Chat\.answerConsent\(p, Workstreams\.get\(Workstreams\.activeId\(\)\), decision === 'deny' \? 'deny' : 'once', 'row'\)/.test(dg), 'a worker\'s ask is answered from its row through the approval card\'s own path, once or deny only');
+  A.ok(/Chat\.renderProse\(el, text, \{ files:/.test(dg), 'a worker\'s answer renders through the safe prose renderer, never raw HTML');
   A.ok(/function openFile\(path, agentId, projectRoot\)/.test(chat) && /openFile, answerConsent, consentPhrase: actionPhrase,/.test(chat), 'a receipt\'s files open through the same doors as a COMMS file row');
   // COMING BACK (2026-10-09): every "what happened" line opens the conversation that holds it
   const ui = src('frontend/app/stationui.js'), world = src('frontend/app/world.js'), auto = src('frontend/app/autosessions.js'), rt = src('frontend/app/windows/routines.js');

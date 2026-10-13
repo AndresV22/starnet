@@ -44,11 +44,49 @@ try {
     A.eq(rows.length, 1, 'a straggler past the ceiling never holds the report: the finished part is reported');
     A.eq(rows[0].workerRunIds.join(','), 'w1_run', 'only the finished worker is covered');
     A.eq(rows[0].waitingOn.map(x => x.workerId).join(','), 'w2', 'and the report knows who is still working');
+    m.patchReview(rows[0].id, { status: 'reviewing', reviewRunId: 'partial-report' });
     w2.status = 'done'; w2.completedAt = ++clock;
     m.collect([w1, w2]);
     rows = m.snapshot().reviews;
     A.eq(rows.length, 2, 'the straggler gets ONE follow-up report when it settles');
     A.ok(rows[1].followUp === true && rows[1].workerRunIds.join(',') === 'w2_run', 'a follow-up, about the straggler only');
+  }
+  {
+    let active = true;
+    const m = mk('late-dispatch.json', { isRunActive: id => active && id === 'lead1' });
+    const first = worker('first', { status: 'done', completedAt: clock });
+    m.collect([first]);
+    clock += 9000; m.collect([first]);
+    A.eq(m.snapshot().reviews.length, 0, 'even a fast worker past the ceiling waits until its lead finishes assigning work');
+    const second = worker('second', { status: 'done', completedAt: clock });
+    active = false; m.collect([first, second]);
+    A.eq(m.snapshot().reviews.length, 1, 'two dispatch calls in one lead turn produce one report');
+    A.eq(m.snapshot().reviews[0].members.map(x => x.workerId).join(','), 'first,second', 'that report covers both calls');
+  }
+  {
+    const m = mk('queued-report.json');
+    const first = worker('first', { status: 'done', completedAt: clock }), second = worker('second');
+    clock += 5001; m.collect([first, second]);
+    const id = m.snapshot().reviews[0].id;
+    second.status = 'done'; second.completedAt = ++clock;
+    const current = m.refreshReview(id, [first, second]);
+    A.eq(current.members.length, 2, 'acquiring the conversation lock refreshes the report with a straggler that finished while queued');
+    A.eq(current.waitingOn.length, 0, 'the finished straggler is never described as still working');
+    m.collect([first, second]);
+    A.eq(m.snapshot().reviews.length, 1, 'refresh covers the absorbed result, so no redundant follow-up appears');
+    const restored = mk('queued-report.json');
+    A.eq(restored.snapshot().reviews[0].members.length, 2, 'the refreshed batch survives a coordinator restart');
+    m.patchReview(id, { status: 'done' });
+    A.eq(m.refreshReview(id, [first]).members.length, 2, 'a completed report cannot be rewritten by later registry changes');
+  }
+  {
+    const m = mk('credential-wait.json');
+    const first = worker('first', { status: 'done', completedAt: clock }), second = worker('second');
+    clock += 5001; m.collect([first, second]);
+    second.status = 'error'; second.completedAt = ++clock;
+    m.collect([first, second]);
+    A.eq(m.snapshot().reviews.length, 1, 'a report waiting for provider access absorbs newly settled workers');
+    A.eq(m.snapshot().reviews[0].members.length, 2, 'credential recovery reports both outcomes together');
   }
   {
     const m = mk('c.json');
