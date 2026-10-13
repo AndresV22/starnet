@@ -9429,9 +9429,16 @@ const World = (() => {
     const since = LineWatch.localMidnight(Date.now());
     try {
       fetch(apiUrl('/api/routing/lines/stats?since=' + since), { cache: 'no-store' })
-        .then(r => (r.ok ? r.json() : null))
+        .then(r => {
+          if (r.ok) return r.json();
+          /* the server ANSWERED and said it cannot read the numbers (runtime audit 2026-10-12): the plates, the pallets and the
+             panel's TODAY row stop showing the last ones — jobs and spend go on, so a kept number would freeze into a lie */
+          lineStats = { known: false, byLine: {}, since: 0 };
+          routingNags = buildRoutingNags();
+          return null;
+        })
         .then(j => {
-          if (!j || !Array.isArray(j.lines)) return;   // no answer — keep the last known truth
+          if (!j || !Array.isArray(j.lines)) return;   // no answer (a network drop) — keep the last server answer: the link-down dim marks it last-known
           const by = {};
           for (const l of j.lines) if (l && l.lineId) by[l.lineId] = l;
           lineStats = { known: true, byLine: by, since };
@@ -11064,6 +11071,9 @@ const World = (() => {
     for (const ob of geo.props) {
       if (ob.t !== 'outbox') continue;
       const lid = routingPlan.lineOfProp[ob.id], s = lid ? lineStats.byLine[lid] : null;
+      // SHIPPED unknown (the shipment history could not be read): no count is drawn — never 0, never a stale one — and the last
+      // drawn count is held, so the history coming back does not pop a crate for work that shipped before
+      if (s && s.shipped == null) continue;
       const done = s ? (s.shipped | 0) : 0;
       const seen = palletSeen.get(ob.id);
       if (!seen || seen.done !== done) palletSeen.set(ob.id, { done, at: (seen && done > seen.done) ? now : -1e9 });

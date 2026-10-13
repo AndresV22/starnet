@@ -635,12 +635,20 @@ const WorkflowsWindow = (() => {
     // (a refusal counted on one record spans the refusals, not a run: no "took")
     const took = job.endedAt && job.startedAt && !(job.repeats > 1) ? secs(job.endedAt - job.startedAt) : '';
     const bad = runs.find(r => r.reason && r.reason !== 'done');
-    const END = { empty: 'gave no final answer', error: 'hit an error', max_iters: 'ran out of turns', budget: 'hit the spending cap', refusal: 'refused the work', interrupted: 'was interrupted', stopped: 'was stopped' };
+    // a hand-off the station REFUSED (SEND TO): the line above this says "it was not sent on", so the reason is shown bare — never
+    // "not sent on: … — nothing was sent on" after it (wave 2 review, conveyor-backend-09)
+    const wasRefused = !!(job.from && job.status === 'failed' && /^not sent on:/.test(String(job.error || '')));
+    // a stored reason is a bare clause ("the station hit an internal fault and stopped this job"): the card says it as a sentence
+    // (wave 2 repair — the stopped and failed branches opened their paragraph in lowercase)
+    const sentence = (t, empty) => { t = String(t == null ? '' : t).trim().replace(/[.\s]+$/, ''); return t ? t.charAt(0).toUpperCase() + t.slice(1) + '.' : empty; };
+    const refusedWhy = () => sentence(String(job.error).replace(/^not sent on:\s*/, ''), 'Nothing ran.');
+    const END ={ empty: 'gave no final answer', error: 'hit an error', max_iters: 'ran out of turns', budget: 'hit the spending cap', refusal: 'refused the work', interrupted: 'was interrupted', stopped: 'was stopped' };
     const head = ok ? '<b class="ok">✓ DONE</b>' : job.status === 'stopped' ? '<b>■ STOPPED</b>' : job.status === 'interrupted' ? '<b class="warn">⚠ INTERRUPTED</b>' : job.status === 'failed' ? '<b class="warn">✕ IT DIDN’T RUN</b>' : '<b class="warn">⚠ FINISHED WITH A PROBLEM</b>';
     const meta = [runs.length + ' step' + (runs.length === 1 ? '' : 's'), usd(job.usd), took, inOutbox ? 'in the OUTBOX' : ''].filter(Boolean).join(' · ');
     const why = ok ? '' : job.status === 'problem' && bad ? (() => { const p = bad.dockId && st ? st.propById(bad.dockId) : null; return 'The ' + ((p && p.role) ? p.role + ' step' : 'step') + ' (' + NAME(bad.agentId) + ') ' + (END[bad.reason] || String(bad.reason || 'did not finish').replace(/_/g, ' ')) + ', so this job did not finish cleanly. Sending it again often works.'; })()
-      : job.status === 'stopped' ? (job.from && job.error ? job.error + '. What already ran is counted.' : 'You stopped this job. What already ran is counted.') : job.status === 'interrupted' ? 'The station stopped while this job was out. Send it again.'
-      : (job.error || 'Nothing ran.') + (job.repeats > 1 ? ' (' + job.repeats + ' hand-offs from ' + lineWord(job.from) + ' were refused like this — the last ' + ago(job.endedAt) + ')' : '');
+      // (a stopped record says WHO stopped it — "you stopped this job", E-STOP, or the station's own fault — never "You stopped" for all)
+      : job.status === 'stopped' ? sentence(job.error, 'You stopped this job.') + ' What already ran is counted.' : job.status === 'interrupted' ? 'The station stopped while this job was out. Send it again.'
+      : (wasRefused ? refusedWhy() : sentence(job.error, 'Nothing ran.')) + (job.repeats > 1 ? ' (' + job.repeats + ' hand-offs from ' + lineWord(job.from) + ' were refused like this — the last ' + ago(job.endedAt) + ')' : '');
     const passes = {};
     const steps = runs.map((r, i) => {
       const p = r.dockId && st ? st.propById(r.dockId) : null, k = r.dockId || r.agentId, pass = passes[k] = (passes[k] || 0) + 1, got = S.stepOut[r.runId];
@@ -657,8 +665,7 @@ const WorkflowsWindow = (() => {
     // job's record keeps the job as it first arrived (`text`) and what the sending line handed in (`handedIn`) apart.
     const hin = !job.from ? null : (typeof job.handedIn === 'string' && job.handedIn) ? { original: job.text, output: job.handedIn }
       : (typeof Pipeline !== 'undefined' && Pipeline.parseHandoffInput) ? Pipeline.parseHandoffInput(job.text) : null;
-    const wasRefused = !!(job.from && job.status === 'failed' && /^not sent on:/.test(String(job.error || '')));
-    const prov = (job.from ? '<p class="wfw-why wfw-from">' + (wasRefused ? esc(lineWord(job.from)) + ' tried to send its result on to this line — it was not sent on, so nothing ran here.' : 'From ' + esc(lineWord(job.from)) + ' — that line finished its part and sent its result on to this one.')
+    const prov =(job.from ? '<p class="wfw-why wfw-from">' + (wasRefused ? esc(lineWord(job.from)) + ' tried to send its result on to this line — it was not sent on, so nothing ran here.' : 'From ' + esc(lineWord(job.from)) + ' — that line finished its part and sent its result on to this one.')
         + (job.from.jobId ? ' <button type="button" class="wf-link" data-job="' + esc(job.from.jobId) + '">OPEN ITS JOB</button>' : '') + '</p>' : '')
       + (job.sentTo ? (job.sentTo.refused ? '<p class="wfw-why wfw-sent warn">NOT sent on to ' + esc(lineWord(job.sentTo)) + ' — ' + esc(job.sentTo.refused) + '.'
           : '<p class="wfw-why wfw-sent">Sent on to ' + esc(lineWord(job.sentTo)) + ' — that line works on this result next.')
@@ -865,6 +872,6 @@ const WorkflowsWindow = (() => {
     });
   }
   return { open, openLine: key => open({ view: 'line', line: key, job: null }), openNew: () => open({ view: 'new' }), openByStream, openOutbox, showJob,
-    _state: S, _floor: floor, _pick: pickStarter, _create: create, _send: send, _useFix: useFix, _styleKept: styleKept, _keepStyle: keepStyle, _putStyleBack: putStyleBack, _exampleBrief: exampleBrief, EX_HEAD };   // (the _ seams are test/eval reads)
+    _state: S, _floor: floor, _pick: pickStarter, _create: create, _send: send, _useFix: useFix, _styleKept: styleKept, _keepStyle: keepStyle, _putStyleBack: putStyleBack, _exampleBrief: exampleBrief, _resultHTML: resultHTML, EX_HEAD };   // (the _ seams are test/eval reads)
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = WorkflowsWindow;

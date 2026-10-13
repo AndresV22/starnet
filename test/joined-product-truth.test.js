@@ -125,6 +125,77 @@ function surface(plan) {
     assert.equal(ui.crates.length, before + 1, 'a release with no observed branch work invents no crate');
   }
 
+  /* THE RELEASE FOLLOWS THE CLEAN-JOB RULE (runtime audit 2026-10-12). The line-output authority fired whenever the line ended
+     unstopped at an OUTBOX — also for a job whose COPY branch failed, or whose hop ended max_iters with some text — while the
+     receipt (SHIPPED), SEND TO and the sample verdict all refused it: the floor put a product at the OUTBOX that nothing else
+     counted. Wired exactly as the host wires it: line-shipments.cleanJobRows over the job's own run rows. */
+  {
+    const { makeRunStore } = require('../sidecar/runstore.js');
+    const { cleanJobRows, makeLineShipments } = require('../sidecar/routing/line-shipments.js');
+    for (const id of ['second_opinion', 'swarm_synthesis']) {
+      /* (runtime repair 2026-10-12) two partial jobs the run rows cannot see: a COPY branch the host refused BEFORE it ran (hub
+         runAgent's roster refusal, the cron seam, 'the workflow changed' — no run row), and a branch still out when the joiner timed
+         out (the entry branch parked, its sibling never came: no row either). Every row that exists ended done; the chain knows. */
+      for (const [label, bad] of [['clean', null], ['a failed COPY branch', 'error'], ['a hop that ended max_iters with text', 'max_iters'],
+        ['a COPY branch refused before it ran (no run row)', 'norow'], ['a branch still out at the joiner timeout', 'timeout']]) {
+        const { plan, router } = floor(id), ui = surface(plan), events = [];
+        let t = 1000;
+        const runStore = makeRunStore({ clock: { now: () => ++t } });
+        let saved = [];
+        const receipts = makeLineShipments({ now: () => ++t, load: () => saved, save: v => { saved = v; }, runsFor: sid => runStore.list(null, { streamId: sid, limit: 200 }) });
+        const entry = router.resolveDock({ tag: 'general' }), lineId = router.lineOriginFor(entry.agentId, entry.dockId);
+        const streamId = 'chat-' + id, entryRunId = 'entry-' + id + '-' + (bad || 'clean'), shippedRecs = [];
+        runStore.record({ runId: entryRunId, agentId: entry.agentId, reason: 'done', streamId, lineId, dockId: entry.dockId, toolsOk: 1 });
+        ui.end(entry.agentId, entry.dockId, lineId, entryRunId);
+        const chain = makeChainRunner(Object.assign({
+          nextAgent: (a, c) => router.chainNext(a, c), stepDock: (d, c) => router.chainStepDock(d, c),
+          peekDock: (d, c) => router.chainPeekDock(d, c), entryDockOf: a => router.entryDockOf(a),
+          fanSiblingsDock: d => router.fanSiblingsDock(d), lineOfAgent: (a, d) => router.lineOfAgent(a, d),
+          lastStage: (a, d) => router.chainShipsToOutbox(a, d), onShipped: rec => { shippedRecs.push(rec); return receipts.record(rec); },
+          cleanJob: k => !!(k && k.streamId && k.entryRunId) && !!cleanJobRows(runStore.list(null, { streamId: k.streamId, limit: 200 }), k),
+          emit: (name, p) => { events.push({ name, p }); if (name === 'workitem.placed') ui.placed(p); if (name === 'workitem.delivered') ui.release(p); },
+          // the joiner's timeout clock, fired at once: the sibling of a 'timeout' job is never launched in this call
+          setTimer: fn => { fn(); return 0; }
+        }, bad === 'timeout' ? { fanSiblingsDock: () => [] } : {}));
+        let hop = 0;
+        const result = await chain.advance({ ...entry, lineId, runId: entryRunId, streamId, since: 0, text: 'Entry evidence', originalText: 'Compare the evidence',
+          runAgent: async h => {
+            const runId = 'run-' + id + '-' + (++hop), fails = bad && hop === 1;
+            if (fails && bad === 'norow') return { text: '', usd: 0, error: 'target agent ' + h.agentId + ' is not configured' };
+            runStore.record({ runId, agentId: h.agentId, reason: (fails && bad !== 'timeout') ? bad : 'done', streamId, lineId: h.lineId, dockId: h.dockId, toolsOk: 1 });
+            ui.end(h.agentId, h.dockId, lineId, runId, h.workitemId);
+            return fails && bad === 'error' ? { error: 'boom', usd: 0.01 } : { text: h.agentId + ' evidence', usd: 0.01 };
+          } });
+        await new Promise(r => setImmediate(r));
+        const outputs = events.filter(e => e.name === 'workitem.delivered' && e.p.box === 'line-output');
+        assert.equal(result.stopped, null, id + ' / ' + label + ': the line still answers (' + result.stopped + ')');
+        if (!bad) {
+          assert.equal(outputs.length, 1, id + ': a clean job is released at its OUTBOX once');
+          assert.equal(ui.crates.length, 1, id + ': and its product ships');
+          assert.equal(saved.length, 1, id + ': SHIPPED counts it');
+        } else {
+          assert.equal(outputs.length, 0, id + ' / ' + label + ': no line-output for a job the receipt refuses');
+          assert.equal(ui.crates.length, 0, id + ' / ' + label + ': so no product lands at the OUTBOX');
+          assert.equal(saved.length, 0, id + ' / ' + label + ': exactly as SHIPPED stays 0');
+          if (bad === 'norow' || bad === 'timeout') {
+            // every run row that exists ended done — the rows alone would call this job clean; the chain's own mark refuses it
+            assert.ok(runStore.list(null, { streamId, limit: 200 }).every(r => r.reason === 'done'), id + ' / ' + label + ': every recorded row ended done');
+            assert.ok(result.partial && /PARTIAL/.test(id === 'second_opinion' ? result.text : 'PARTIAL'), id + ' / ' + label + ': the job is marked partial (' + result.partial + ')');
+            assert.ok(shippedRecs.length === 1 && shippedRecs[0].partial === result.partial, id + ' / ' + label + ': SEND TO hears of it as partial, never as clean');
+          }
+        }
+      }
+    }
+    // a host whose rows cannot be read (or that throws) proves nothing: nothing is released
+    const { plan, router } = floor('second_opinion'), events = [];
+    const entry = router.resolveDock({ tag: 'general' }), lineId = router.lineOriginFor(entry.agentId, entry.dockId);
+    const chain = makeChainRunner({ nextAgent: (a, c) => router.chainNext(a, c), stepDock: (d, c) => router.chainStepDock(d, c),
+      peekDock: (d, c) => router.chainPeekDock(d, c), fanSiblingsDock: d => router.fanSiblingsDock(d), lineOfAgent: (a, d) => router.lineOfAgent(a, d),
+      cleanJob: () => { throw new Error('rows unreadable'); }, emit: (name, p) => events.push({ name, p }) });
+    await chain.advance({ ...entry, lineId, runId: 'throws', streamId: 'chat-x', text: 'Entry', originalText: 'Q', runAgent: async h => ({ text: h.agentId + ' out' }) });
+    assert.equal(events.filter(e => e.name === 'workitem.delivered' && e.p.box === 'line-output').length, 0, 'an unprovable job is never released');
+  }
+
   // A real compiled FILTER chooses direct OUTBOX for general output, JOINER for code output.
   // Holding a possibly-joined line must not strand its actual direct route.
   {

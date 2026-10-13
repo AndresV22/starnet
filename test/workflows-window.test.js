@@ -120,6 +120,39 @@ const tick = () => new Promise(r => setTimeout(r, 15));
     S.jobs = []; S.out = null;
   }
 
+  /* ---------- a REFUSED hand-off says "not sent on" once (wave 2 review, conveyor-backend-09): the card's first line says it was
+     not sent on, so the reason follows bare — never "not sent on: automation is stopped (E-STOP) — nothing was sent on" after it ---------- */
+  {
+    const refused = { id: 'job-0123456789bb', line: line.key, name: 'B', text: 'the first job', status: 'failed', error: 'not sent on: automation is stopped (E-STOP)',
+      from: { line: 'p998', jobId: null, name: 'A' }, runs: [], usd: 0, startedAt: 5, endedAt: 5, repeats: 3, notes: [], output: '' };
+    const html = WW._resultHTML(line, refused), plain = html.replace(/<[^>]+>/g, ' ').replace(/&[a-z#0-9]+;/gi, ' ');
+    A.ok(plain.includes('LINE A tried to send its result on to this line — it was not sent on, so nothing ran here.'), 'the card says once that it was not sent on — ' + plain.slice(0, 240));
+    A.ok(plain.includes('Automation is stopped (E-STOP). (3 hand-offs from LINE A were refused like this'), '…then the bare reason, and how many were refused like this');
+    A.eq((plain.match(/not sent on/gi) || []).length, 1, '"not sent on" appears once on the card, not three times');
+    const old = WW._resultHTML(line, Object.assign({}, refused, { error: 'not sent on: automation is stopped (E-STOP) — nothing was sent on', repeats: 1 })).replace(/<[^>]+>/g, ' ');
+    A.ok(old.includes('Automation is stopped (E-STOP) — nothing was sent on.') && (old.match(/not sent on/gi) || []).length === 1, 'an older record keeps its own words, without the repeated prefix');
+  }
+
+  /* ---------- every reason the card shows opens as a sentence (wave 2 repair): the stored reasons are bare clauses ("the station hit an
+     internal fault and stopped this job", "the hand-off could not start (hub down)"); the card opened its paragraph in lowercase under
+     ■ STOPPED / ✕ IT DIDN'T RUN. A fault-stopped sample job read "You stopped this job." — a stop the Commander never made. ---------- */
+  {
+    const plainOf = j => WW._resultHTML(line, j).replace(/<[^>]+>/g, ' ').replace(/&[a-z#0-9]+;/gi, ' ').replace(/\s+/g, ' ');
+    const base = { id: 'job-0123456789cc', line: line.key, name: 'B', text: 'the first job', runs: [], usd: 0, startedAt: 5, endedAt: 9, notes: [], output: '' };
+    const fault = plainOf(Object.assign({}, base, { status: 'stopped', error: 'the station hit an internal fault and stopped this job', from: { line: 'p998', jobId: null, name: 'A' } }));
+    A.ok(fault.includes('The station hit an internal fault and stopped this job. What already ran is counted.'), 'a fault-stopped hand-off opens with a capital — ' + fault.slice(0, 260));
+    const sampleFault = plainOf(Object.assign({}, base, { status: 'stopped', error: 'the station hit an internal fault and stopped this job' }));
+    A.ok(sampleFault.includes('The station hit an internal fault and stopped this job. What already ran is counted.') && !/You stopped this job/.test(sampleFault), 'a fault-stopped job of the line\'s own never says "You stopped this job" — ' + sampleFault.slice(0, 260));
+    const mine = plainOf(Object.assign({}, base, { status: 'stopped', error: 'you stopped this job' }));
+    A.ok(mine.includes('You stopped this job. What already ran is counted.'), 'the Commander\'s own stop keeps its words');
+    const bare = plainOf(Object.assign({}, base, { status: 'stopped' }));
+    A.ok(bare.includes('You stopped this job. What already ran is counted.'), 'an older stopped record with no reason reads as before');
+    const threw = plainOf(Object.assign({}, base, { status: 'failed', error: 'the hand-off could not start (hub down)', from: { line: 'p998', jobId: null, name: 'A' } }));
+    A.ok(threw.includes('The hand-off could not start (hub down).'), 'a dispatch failure opens with a capital and ends as a sentence — ' + threw.slice(0, 260));
+    const none = plainOf(Object.assign({}, base, { status: 'failed', error: '' }));
+    A.ok(none.includes('Nothing ran.'), 'no reason still reads "Nothing ran."');
+  }
+
   /* ---------- NEEDS CHANGES → USE THIS / PUT IT BACK: each field's note keeps its OWN before and after ---------- */
   {
     const step = WW._floor().lines[0].steps[1], dockId = step.id, wasDoes = st.propById(dockId).brief || '', wasHands = st.propById(dockId).hands || '';

@@ -60,11 +60,27 @@ function enact(s,ops) {const r=plan(s,ops);A.ok(r.ok,'plan accepted: '+(r.error|
 }
 (async()=>{
   let payload={};
-  const t=makeStationTools({station:{request:async()=>({ok:true,result:{lineId:'a',name:'A',crewed:1,steps:[]}})},runLineJob:async()=>({code:200,obj:Object.assign({ok:true,totalUsd:0.12,runs:[],replies:[]},payload)})}).testLineTool;
+  const t=makeStationTools({station:{request:async(verb,args)=>({ok:true,result:args&&args.line==='b'?{lineId:'b',name:'Line B',crewed:1,steps:[]}:{lineId:'a',name:'A',crewed:1,steps:[]}})},runLineJob:async()=>({code:200,obj:Object.assign({ok:true,totalUsd:0.12,runs:[],replies:[]},payload)})}).testLineTool;
   A.ok(/SEND TO.*own cost/.test(t.description),'test tool warns before paid downstream job');
   payload={sentTo:{line:'b',name:'Line B',jobId:'job-b'}};let r=await t.run({line:'A',job:'work'},{}),j=JSON.parse(r.content.split('\n')[0]);
   A.eq([j.cost,j.sentOnTo.lineId,j.sentOnTo.jobId],['$0.12','b','job-b'],'upstream cost and actual downstream job kept distinct');A.ok(/created/.test(j.sentOnTo.note)&&!/(now running|completed)/.test(j.sentOnTo.note),'created record is not a guessed current state');
   payload={sentTo:{line:'b',name:'B',refused:'budget exhausted'}};r=await t.run({line:'A',job:'work'},{});j=JSON.parse(r.content.split('\n')[0]);A.eq(j.sentOnTo.refused,'budget exhausted','downstream refusal preserved');A.ok(/refused/.test(r.summary),'summary says refused');
   payload={onwardDestinations:[{lineId:'b',outboxId:'o'}]};r=await t.run({line:'A',job:'work'},{});j=JSON.parse(r.content.split('\n')[0]);A.eq(j.sentOnTo.state,'unconfirmed','configured destination without durable link is unconfirmed');A.ok(!j.sentOnTo.jobId&&!/queued behind/.test(r.content),'no invented queue state');
+  // (wave 2 review, conveyor-backend-10) a destination is named, and only a job that reached its OUTBOX claims one
+  A.eq(j.sentOnTo.destinations,[{lineId:'b',line:'Line B',outboxId:'o'}],'each destination carries the line name the lead can say, its id and its OUTBOX');
+  payload={ok:false,error:'a step did not finish cleanly',runs:[{runId:'r1',reason:'error'}],onwardDestinations:[{lineId:'b',outboxId:'o'}]};r=await t.run({line:'A',job:'work'},{});j=JSON.parse(r.content.split('\n')[0]);
+  A.ok(j.status==='problem'&&!j.sentOnTo&&!/unconfirmed/.test(r.summary)&&!/Check this job again/.test(r.content),'a failed test claims no onward hand-off: '+r.summary);
+  payload={ok:false,stopped:true,onwardDestinations:[{lineId:'b'}]};r=await t.run({line:'A',job:'work'},{});j=JSON.parse(r.content.split('\n')[0]);
+  A.ok(j.status==='stopped'&&!j.sentOnTo,'nor does a stopped one');
+  // (wave 2 repair) a stop the station's own fault containment made is never told to the lead as the Commander's
+  payload={ok:false,stopped:true,stoppedBy:'fault',error:'stopped — the station hit an internal fault and stopped this job before it reached the OUTBOX'};r=await t.run({line:'A',job:'work'},{});j=JSON.parse(r.content.split('\n')[0]);
+  A.ok(j.status==='stopped'&&/internal fault/.test(j.verdict)&&!/Commander/.test(j.verdict),'a fault stop is said as the station\'s fault: '+j.verdict);
+  payload={ok:false,stopped:true};r=await t.run({line:'A',job:'work'},{});j=JSON.parse(r.content.split('\n')[0]);
+  A.eq(j.verdict,'The Commander stopped the job.','the Commander\'s own stop keeps its words');
+  // the shape the route sends TODAY (sidecar/index.js reads s.outboxId off plan.sendTo values, which carry none, and JSON drops the
+  // undefined): a destination is still named, and no OUTBOX id is invented for it (wave 2 review: the fixture above is the keyed shape
+  // the route's own repair, seams-06 / conveyor-ui-17, will send)
+  payload=JSON.parse(JSON.stringify({onwardDestinations:[{lineId:'b',outboxId:undefined}]}));r=await t.run({line:'A',job:'work'},{});j=JSON.parse(r.content.split('\n')[0]);
+  A.eq(j.sentOnTo.destinations,[{lineId:'b',line:'Line B'}],'today\'s route shape: named, no OUTBOX id invented');
   A.report('station-builder-lineops');
 })().catch(e=>{console.error(e);process.exitCode=1;});

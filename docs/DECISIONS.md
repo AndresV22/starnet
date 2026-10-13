@@ -188,3 +188,4 @@ many of these — they win on any wording conflict.
 - THE HAND: Conveyors hotbar keys 1–8 pick pieces, right-click removes, Q copies the pointed piece. PICK WHAT GOES HERE is a docked station window, never a popover.
 - Hold Alt for the floor’s junction settings and SEND TO overlay; keep the one-voice display rule.
 - No belt may close a work-line circle except a LOOP’s valid back lane. Copying a line preserves its internal settings and crew, not external SEND TOs, project folders or triggers.
+- A PARTIAL JOIN IS A DELIVERED REPLY, NOT A SHIPMENT (2026-10-12, conveyor runtime review). A JOINER that sends on without every branch (one failed, or never arrived before its timeout) still delivers the merged reply, marked PARTIAL, so the job is never swallowed. The job is not a product: no line-output at the OUTBOX, no SHIPPED receipt, no SEND TO hand-off, no 'delivered' verdict. SEND TO still hears of it as partial, so the next line's record says why nothing came.

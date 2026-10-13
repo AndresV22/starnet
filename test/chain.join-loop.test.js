@@ -219,6 +219,43 @@ function rig(floor, script, opts) {
     A.ok(/2 of 2 branches delivered/.test(res.text) && /alpha findings/.test(res.text) && /beta findings/.test(res.text), 'the merged crate is the delivered answer');
   }
 
+  /* ---- A PARTIAL JOIN IS A DELIVERED REPLY, NOT A SHIPMENT (wave 2 review, conveyor-backend-07; docs/DECISIONS.md): a COPY job whose
+     branch failed still answers (law 1 — the joiner sends on what arrived, marked PARTIAL), but the job is `partial`, the floor gets no
+     line-output product at the OUTBOX, and SEND TO hears of it only as partial (the host refuses it and says why on the next line —
+     never handed on, never counted as SHIPPED). Same verdict one after another and in parallel; the clean job is unchanged. ---- */
+  {
+    const floor = joinFloor();
+    floor.props[5] = { id: 'p6', t: 'outbox', x: 12, y: 4, w: 2, h: 2 };
+    const plan = P.compileRoutingPlan(floor), router = makeRouter();
+    A.ok(router.setPlan(plan).ok, 'partial: the join-to-OUTBOX floor deploys');
+    const entry = router.resolveDock({ tag: 'general' }), lineId = router.lineOriginFor(entry.agentId, entry.dockId);
+    for (const peek of [false, true]) for (const fail of [true, false]) {
+      const events = [], shipped = [];
+      const c = makeChainRunner(Object.assign({ nextAgent: (a, x) => router.chainNext(a, x), stepDock: (d, x) => router.chainStepDock(d, x),
+        entryDockOf: a => router.entryDockOf(a), fanSiblingsDock: d => router.fanSiblingsDock(d), lineOfAgent: (a, d) => router.lineOfAgent(a, d),
+        lastStage: (a, d) => router.chainShipsToOutbox(a, d), onShipped: r => { shipped.push(r); }, emit: (n, p) => events.push({ n, p }), now: clock,
+        setTimer: () => 0 }, peek ? { peekDock: (d, x) => router.chainPeekDock(d, x) } : {}));
+      const other = entry.agentId === 'A' ? 'B' : 'A';
+      const res = await c.advance({ agentId: entry.agentId, dockId: entry.dockId, text: entry.agentId + ' findings', originalText: 'research X', lineId, runId: 'pj' + peek + fail,
+        runAgent: async h => (fail && h.agentId === other ? { error: 'provider exploded' } : { text: h.agentId + ' findings', usd: 0.01 }) });
+      await new Promise(r => setImmediate(r));
+      const label = (peek ? 'parallel' : 'one after another') + (fail ? ', a failed branch' : ', clean');
+      const outputs = events.filter(e => e.n === 'workitem.delivered' && e.p.box === 'line-output');
+      A.eq(res.stopped, null, label + ': the line still answers (' + res.stopped + ')');
+      A.eq(res.outboxId, 'p6', label + ': at its OUTBOX');
+      if (fail) {
+        A.ok(typeof res.partial === 'string' && new RegExp(other + ' failed').test(res.partial), label + ': the job is partial, naming the failed branch (' + res.partial + ')');
+        A.ok(/PARTIAL/.test(res.text), label + ': the reply is still delivered, marked PARTIAL');
+        A.eq(outputs.length, 0, label + ': no product is released at the OUTBOX');
+        A.ok(shipped.length === 1 && shipped[0].partial === res.partial, label + ': SEND TO hears of it only as partial (the host refuses it, never hands it on)');
+      } else {
+        A.ok(!res.partial, label + ': a full join is not partial');
+        A.eq(outputs.length, 1, label + ': its product is released once');
+        A.ok(shipped.length === 1 && !shipped[0].partial, label + ': and it ships clean');
+      }
+    }
+  }
+
   /* ---- the chain USD cap still bounds a loop ---- */
   {
     const R = rig(loopFloor({ maxIter: 20 }), {

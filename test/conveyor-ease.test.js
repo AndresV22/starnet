@@ -95,10 +95,19 @@ A.ok(/S\.exampleStamp === mine\.stamp && exampleKept\(mine\)/.test(panel) && /St
 A.ok(/if \(!el \|\| !sr \|\| !sr\.pending\) \{ clearInterval\(liveTimer\); liveTimer = 0; markWorking\(null\); return; \}/.test(panel) && /if \(n\) n\.textContent = now\.text;/.test(panel) && (panel.match(/startLive\(\);/g) || []).length >= 4,
   'the live read-out runs while a job is out whatever card is open, so the diagram\'s working lamp stays true');
 /* ---------- the header's numbers say what they count; the line sentence names the way to run it ---------- */
-const tipSource = A.fnBody(panel, 'function todayTip(k)');
+const tipSource = A.fnBody(panel, 'function todayTip(k, v)');
 A.ok(tipSource.length > 0 && tipSource.length < 2200, 'load the actual bounded TODAY tooltip helper');
 const todayTip = vm.runInNewContext(tipSource + '\ntodayTip');
-A.ok(/'<span data-tip="' \+ esc\(todayTip\(c\[0\]\)\) \+ '">/.test(panel), 'each TODAY number renders its own escaped tooltip');
+A.ok(/'<span data-tip="' \+ esc\(todayTip\(c\[0\], c\[1\]\)\) \+ '">/.test(panel), 'each TODAY number renders its own escaped tooltip, from its label and its value');
+// (runtime audit 2026-10-12) an unreadable shipment history reads ? — its tip says the count is unknown, never that nothing shipped
+const unknownTip = todayTip('SHIPPED', '?');
+A.ok(/unknown right now/.test(unknownTip) && /shipment history can't be read/.test(unknownTip) && !/recorded jobs that reached the OUTBOX/.test(unknownTip), 'an unknown SHIPPED says why it is unknown');
+A.eq(todayTip('SHIPPED', '3'), todayTip('SHIPPED'), 'a known SHIPPED keeps its meaning');
+// (runtime repair 2026-10-12) the ? tip promised "the number comes back" — a job that shipped while the history was unreadable is
+// held in memory only, so the tip names the restart that loses it; and a LOWER BOUND (N+) says the real number is higher
+A.ok(/counted once it can be read again, unless the station restarts first/.test(unknownTip) && !/the number comes back when/.test(unknownTip), 'the ? tip never promises the whole count back: ' + unknownTip);
+const atLeastTip = todayTip('SHIPPED', '5000+');
+A.ok(/^SHIPPED\nat least this many/.test(atLeastTip) && /the real number is higher/.test(atLeastTip) && !/recorded jobs that reached the OUTBOX/.test(atLeastTip), 'a lower-bound SHIPPED says it is at least that many: ' + atLeastTip);
 for (const key of ['RUNS', 'SHIPPED', 'FAILED', 'TESTS', 'MEDIAN', '$ TODAY (UTC)']) {
   A.ok(todayTip(key).length > key.length, 'a meaning is available for the ' + key + ' number');
 }
@@ -129,6 +138,11 @@ const P = require('../frontend/app/pipeline.js'), Chain = require('../sidecar/ro
 const mid = P.handoffPrompt('3 AI stories, keep it short', 'researcher', 'the notes', 1, 'Write it up.');
 const last = P.handoffPrompt('3 AI stories, keep it short', 'researcher', 'the notes', 1, 'Write it up.', '', true);
 A.ok(/produce the output for the next stage/.test(mid) && !/LAST stage/.test(mid), 'a middle stage keeps its hand-off (and every old caller composes byte-identical turns)');
+/* R27 (live, real model, 2026-10-12): a 4-step line of un-instructed bays handed a two-sentence fun fact LOST it — stage 2, told
+   "Do not restate the upstream output — build on it", answered with only its own new facts, and the next stage is handed nothing
+   but that reply, so the line's result held none of the work that came in. A middle stage hands on the whole work so far. */
+A.ok(/your reply is all the next stage receives/i.test(mid) && /whole work so far with your part done/.test(mid) && /never only your own addition/.test(mid) && !/Do not restate the upstream output/.test(mid),
+  'a middle stage hands on the whole work so far, never only its addition: ' + JSON.stringify(mid.slice(mid.lastIndexOf('\n\n') + 2)));
 A.ok(/You are the LAST stage: your reply is the finished result the requester receives\. Give them exactly what the original request asks for — its format, length and tone/.test(last) && !/next stage|build on it/.test(last),
   'the stage whose reply leaves the line is told it IS the result: the request\'s format, length and tone, never "for the next stage"');
 A.ok(P.parseHandoff(last) && P.parseHandoff(last).original === '3 AI stories, keep it short', '…and the OUTBOX still reads the original request out of it');

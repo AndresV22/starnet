@@ -1511,10 +1511,17 @@
       if (reach && rec && rec.tile) walk(rec.tile);   // terminal: only to learn which OUTBOX the job lands in
       return null;
     }
+    /* THE LOOK PAST A JOINER (runtime repair 2026-10-12): a join answer's `next` is a LOOK-AHEAD, never the merged job's walk. It
+       used to walk on with the caller's advancing pick and write ctx.reach on EVERY branch's arrival, so a TAKE TURNS splitter after
+       the joiner moved once per arriving branch (2 branches = 2 moves of a 2-exit splitter: stuck on one OUTBOX) and the OUTBOX was
+       the last branch's, by that branch's tag. The merged job walks on from the joiner itself, once, by its own tag (the runner
+       resumes at ctx.fromTile). A quiet walk reads splitters with the pick's non-advancing `peek` (lane 0 without one) and never
+       writes ctx.reach. */
+    const peekPick = (pick && typeof pick.peek === 'function') ? pick.peek : null;
     // walk one lane to the first foreign dock, honouring filters/merges; stops at a join, a loop or a fan-out split
-    function walk(start, startDir) {
+    function walk(start, startDir, quiet) {
       let t = start, forced = startDir || null, guard = 0, lastOut = null; const seen = {};
-      const ended = () => { if (reach && lastOut) reach.outboxId = lastOut; return null; };
+      const ended = () => { if (reach && lastOut && !quiet) reach.outboxId = lastOut; return null; };
       while (t && guard++ < 4096) {
         const k = key(t.x, t.y);
         if (dockAt[k] && dockAt[k] !== dockId) return nodeOf(L, dockAt[k]);
@@ -1528,7 +1535,7 @@
         else if (j && j.kind === 'join') {
           const ex = outLanes(map, t.x, t.y)[0] || here, v = DIRV[ex];
           const nt = { x: t.x + v[0], y: t.y + v[1] };
-          return { join: k, expect: j.expect || 0, timeoutMin: j.timeoutMin || 10, next: map[key(nt.x, nt.y)] ? walkNode(walk(nt)) : null };
+          return { join: k, expect: j.expect || 0, timeoutMin: j.timeoutMin || 10, next: map[key(nt.x, nt.y)] ? walkNode(walk(nt, null, true)) : null };
         } else if (j && j.kind === 'loop') {
           const ll = loopLanes(map, t.x, t.y, j), vd = ll.done ? DIRV[ll.done] : null;
           const nt = vd ? { x: t.x + vd[0], y: t.y + vd[1] } : null;
@@ -1537,7 +1544,7 @@
           // the runner sends a verdict-exhausted crate THERE instead of annotating it onto the done lane
           // a DONE lane that meets a JOINER (a reviewed branch of a COPY split, 2026-10-10 audit): the walk's join answer rides
           // as `afterJoin` — walkNode alone dropped it, so the reviewed work never reached the barrier and the joiner timed out
-          const after = (nt && map[key(nt.x, nt.y)]) ? walk(nt) : null;
+          const after = (nt && map[key(nt.x, nt.y)]) ? walk(nt, null, quiet) : null;
           const ls = { loop: k, max: j.max || LOOP_MAX_DEFAULT, backTo: gateNode(g.backTo), when: j.when || null, esc: gateNode(g.escTo), next: walkNode(after) };
           if (after && after.join) ls.afterJoin = after;
           return ls;
@@ -1550,7 +1557,7 @@
           const has = d0 => branches.some(b => b.dockId === d0);
           for (const ld of lanes) {
             const v = DIRV[ld], nt = { x: t.x + v[0], y: t.y + v[1] }; if (!map[key(nt.x, nt.y)]) continue;
-            const r = walk(nt);
+            const r = walk(nt, null, quiet);
             if (r && r.branches) { for (const b of r.branches) if (!has(b.dockId)) branches.push(b); }
             else if (r && r.dockId && !has(r.dockId)) branches.push(walkNode(r));
           }
@@ -1560,7 +1567,7 @@
           d = (want && lanes.indexOf(want) >= 0) ? want : (j.def && lanes.indexOf(j.def) >= 0) ? j.def : (lanes[0] || here);
         } else if (j && j.kind === 'split') {
           const lanes = splitLanes(map, junctions, dockAt, t.x, t.y);
-          if (lanes.length) d = pickLane(lanes, k, pick);
+          if (lanes.length) d = pickLane(lanes, k, quiet ? peekPick : pick);
         }
         const v = DIRV[d], nx = t.x + v[0], ny = t.y + v[1];
         if (!map[key(nx, ny)]) return ended();   // the belt ends: shipped out (into the OUTBOX it passed last) or sank
@@ -1872,8 +1879,12 @@
         ? 'You are the LAST stage: your reply is the finished result the requester receives. Give them exactly what the original '
           + 'request asks for — its format, length and tone — using the upstream work above. Answer with the result itself; never '
           + 'mention stages, the line or the upstream work.'
-        : 'Do YOUR part of this work and produce the output for the next stage. Do not restate the upstream '
-          + 'output — build on it. Answer with the work itself, not a description of what you would do.');
+        /* R27 (live, real model, 2026-10-12): "Do not restate the upstream output — build on it" made an un-instructed middle stage
+           answer with ONLY its own addition, and the next stage is handed nothing but that reply — a fun fact that came in was gone
+           two stages later. The reply is all the next stage gets, so it carries the whole work so far. */
+        : 'Do YOUR part of this work and produce the output for the next stage. Your reply is all the next stage receives: '
+          + 'hand on the whole work so far with your part done, never only your own addition. Answer with the work itself, '
+          + 'not a description of what you would do.');
   }
 
   /* parseHandoff(text) -> { stage, original, from } | null — the INVERSE of handoffPrompt, for surfaces that show a work line's
@@ -2289,14 +2300,24 @@
     const nm = String(x.fromName == null ? '' : x.fromName).replace(/\s+/g, ' ').trim().slice(0, 48);
     const who = lineWord(nm, 'the line before this one');
     const original = String(x.original == null ? '' : x.original).trim().slice(0, 4000);
+    /* what was delivered: the same 12000 characters the receiving job's record keeps as handedIn (linejobs MAX_OUTPUT), never fewer —
+       the next line builds on all of it (runtime repair 2026-10-12: an 11700 cut dropped 300 unmarked characters for a 12400 frame
+       bound no consumer has). The frame is bounded by its parts: name 48, the job 4000, the work 12000, 20 file paths, fixed text. */
     const output = String(x.output == null ? '' : x.output).trim().slice(0, 12000);
     const files = (Array.isArray(x.files) ? x.files : []).map(f => String(f == null ? '' : f).trim()).filter((f, i, a) => f && a.indexOf(f) === i).slice(0, 20);
-    const parts = ['[HAND-OFF — ' + who + ' finished its part of this job and sent its result on to this line. Do this line’s part of the job, working from that result, and answer with the full finished work itself (what the job asks for), never a note on whether the job is done.]'];
+    /* R27 (live, real model, 2026-10-12): "working from that result" alone let an un-instructed line write a NEW answer of its own
+       (A's fun fact → B's different fact → C's third), so the end of a chain held none of the work sent on — and an instruction
+       only in the opening, read BEFORE the job, still lost to "Write a fun fact" on a small model. What was delivered is the work
+       so far; the frame CLOSES with what this line does with it: its standing brief, or — with none — hand that work on as the
+       result, corrected only where it falls short; the finished work itself, never a note on whether the job is done. */
+    const parts = ['[HAND-OFF — ' + who + ' finished its part of this job and sent its result on to this line. That result is the work so far.]'];
     if (original) parts.push('THE JOB AS IT FIRST ARRIVED:\n' + original);
     parts.push('WHAT ' + who.toUpperCase() + ' DELIVERED:\n' + (output || '(no text came back)'));
     if (files.length) parts.push('FILES IT MADE (paths on this machine):\n' + files.map(f => '- ' + f).join('\n'));
+    parts.push(HANDOFF_PART_HEAD + 'build on the work ' + who + ' delivered above, never start the job over with new work of your own. Do what your standing brief for this station says to it; with no brief, hand that work on as the finished result, corrected only where it falls short of the job. Answer with the full finished work itself (what the job asks for), never a note on whether the job is done.]');
     return parts.join('\n\n');
   }
+  const HANDOFF_PART_HEAD = '[THIS LINE’S PART — ';
   // parseHandoffInput(text) -> { fromName, original, output } | null — the reader of handoffInput's frame (the OUTBOX titles a
   // handed-on job by the job as it first arrived, never by the frame)
   function parseHandoffInput(text) {
@@ -2304,7 +2325,8 @@
     const m = /^\[HAND-OFF — (?:LINE (.+?)|the line before this one) finished its part/.exec(s);
     if (!m) return null;
     const orig = /THE JOB AS IT FIRST ARRIVED:\n([\s\S]*?)(?:\n\nWHAT [^\n]* DELIVERED:\n|$)/.exec(s);
-    const out = /DELIVERED:\n([\s\S]*?)(?:\n\nFILES IT MADE \(|$)/.exec(s);
+    // what was delivered ends at the files, or at the closing THIS LINE'S PART (a frame from before R27 has none)
+    const out = /DELIVERED:\n([\s\S]*?)(?:\n\nFILES IT MADE \(|\n\n\[THIS LINE’S PART — |$)/.exec(s);
     return { fromName: m[1] || '', original: orig ? orig[1] : '', output: out ? out[1] : '' };
   }
 

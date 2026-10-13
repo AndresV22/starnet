@@ -381,6 +381,17 @@ const detail = async (o, line) => (await layout(o, { line: line || 'draft & revi
     A.eq([D.steps[0].lastRun.result, D.steps[0].lastRun.failed, D.steps[0].lastRun.runId], ['budget', true, 'r1'], 'the detail carries the run id to look it up');
     const r = (await layout({ app: app(st, []), facts: {} })).r;
     A.eq(r.todayUnread, true, 'no stats reader: today is said to be unread, never zero');
+    // (runtime audit 2026-10-12) an unreadable shipment history: SHIPPED is unknown (null + why), the other numbers still stand
+    const why = 'shipment history unreadable: shipment history could not be read (invalid)';
+    const unread = { routed: FACTS.routed, budget: facts.budget,
+      today: () => ({ lines: [{ lineId: key, runs: 3, shipped: null, shippedUnknown: why, failed: 1, tests: 0, usdToday: 0.5, capUsdPerDay: 5, medianMs: null, spendDay: 'utc' }], docks: {}, shippedUnknown: why }) };
+    const U = (await layout({ app: app(st, []), facts: unread })).r.lines[0];
+    A.eq(U.today, { runs: 3, shipped: null, failed: 1, tests: 0, usd: 0.5, capUsdPerDay: 5, medianMs: null, day: 'UTC day', shippedUnknown: why }, 'an unknown SHIPPED is said with its reason, never as 0, and the rest still counts');
+    // (runtime repair 2026-10-12) a LOWER BOUND (some of today's shipped jobs have no saved record) is said, never as the exact count
+    const low = { routed: FACTS.routed, budget: facts.budget,
+      today: () => ({ lines: [{ lineId: key, runs: 3, shipped: 5000, shippedAtLeast: true, failed: 0, tests: 0, usdToday: 0.5, capUsdPerDay: 5, medianMs: null, spendDay: 'utc' }], docks: {}, shippedAtLeast: true }) };
+    const Lo = (await layout({ app: app(st, []), facts: low })).r.lines[0];
+    A.eq(Lo.today, { runs: 3, shipped: 5000, failed: 0, tests: 0, usd: 0.5, capUsdPerDay: 5, medianMs: null, day: 'UTC day', shippedAtLeast: true }, 'a lower-bound SHIPPED reaches the lead marked as at least');
   }
 
   /* ---- 18. the answer FITS the model's budget, as valid JSON, and names what it left out ---- */

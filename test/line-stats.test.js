@@ -20,6 +20,13 @@ A.ok(shippedRow({ reason: 'done', toolsOk: 1 }), 'done + a successful tool = shi
 A.ok(shippedRow({ reason: 'done', artifacts: [{ kind: 'file' }] }), 'done + an artifact = shipped');
 A.ok(!shippedRow({ reason: 'done', toolsOk: 0, artifacts: [] }), 'done with no proven work is NOT shipped (crate honesty)');
 A.ok(!shippedRow({ reason: 'error', toolsOk: 3 }), 'a failed run never ships');
+// ONE productive-work predicate (wave 2 review, conveyor-backend-11): line-stats judges a row exactly as the receipt does
+{
+  const { provenWork } = require('../sidecar/routing/line-shipments.js');
+  A.ok(typeof provenWork === 'function', 'line-shipments exports the one productive-work predicate');
+  const sample = [{ toolsOk: 1 }, { toolsOk: '2' }, { toolsOk: 0.5 }, { toolsOk: 0 }, { toolsOk: -1 }, { toolsOk: 'x' }, { artifacts: [{ kind: 'file' }] }, { artifacts: [] }, {}, { toolsOk: null, artifacts: 'no' }];
+  for (const r of sample) A.eq(shippedRow(Object.assign({ reason: 'done' }, r)), provenWork(r), 'shippedRow and the receipt agree on ' + JSON.stringify(r));
+}
 for (const r of ['error', 'refusal', 'max_iters', 'budget']) A.ok(failedRow({ reason: r }), r + ' is a failure');
 for (const r of ['done', 'cancelled', 'clarifying', 'empty', 'interrupted']) A.ok(!failedRow({ reason: r }), r + ' is not counted as failed');
 A.eq(FAILED_REASONS.slice().sort(), ['budget', 'error', 'max_iters', 'refusal'], 'the dead-run set is the slag set');
@@ -157,8 +164,12 @@ if (store && store.record) {
   fail = true;
   A.ok(!ledger.record(Object.assign({}, rec, { entryRunId: 'fresh' })), 'failed durable save refuses the count');
   A.eq(ledger.snapshot().length, 2, 'failed save does not publish an in-memory shipment');
+  // (runtime repair 2026-10-12) …it is held instead of dropped, and while it waits SHIPPED reads as a lower bound
+  A.ok(ledger.held() === 1 && ledger.missedAt() === clock, 'the unsaved receipt is held and marks the count a lower bound (missedAt ' + ledger.missedAt() + ')');
+  A.ok(lineStats({ lines: [{ lineId: 'L1' }], shipments: ledger.snapshot(), since: 0, shipmentsMissedAt: ledger.missedAt() }).lines[0].shippedAtLeast === true, '…which line-stats reports as N+');
   fail = false;
   A.ok(ledger.record(Object.assign({}, rec, { entryRunId: 'fresh' })), 'retry can record a proven artifact after storage recovers');
+  A.ok(ledger.held() === 0 && ledger.missedAt() === null && ledger.snapshot().length === 3, 'the held receipt is written once, and the count is exact again');
 }
 // The host must preserve domain-store provenance instead of reading .value alone.
 {
@@ -188,7 +199,10 @@ if (store && store.record) {
   A.ok(!ledger.record(fresh), 'unreadable prior history refuses receipt writes');
   A.eq(writes, 0, 'no write occurs while the load authority is unavailable');
   blocked = false;
-  A.eq(ledger.snapshot(), [original], 'next stats read retries and recovers the previous receipt');
+  // (runtime repair 2026-10-12) the job that shipped while the history was unreadable is HELD, no longer dropped: the first read
+  // after recovery restores the old receipt exactly and writes the held one beside it
+  A.eq(ledger.snapshot(), [original, { lineId: 'L1', entryRunId: 'new', terminalRunId: 'new', outboxId: 'o', at: 200 }], 'next stats read retries, recovers the previous receipt and writes the held one');
+  A.eq(writes, 1, 'one write, only after the history read valid');
   A.ok(ledger.record(fresh), 'after recovery a real new receipt may be saved');
   A.eq(disk.map(r => r.entryRunId), ['old', 'new'], 'recovered history and new shipment both survive');
 }
@@ -275,7 +289,8 @@ if (store && store.record) {
       const file = path.join(dir, 'line-shipments.json'); fs.writeFileSync(file, bytes);
       let writes = 0;
       const domain = makeHostStore(makeDomainStore, fs, path, dir, (deps, target, data) => { writes++; writeFileDurable(deps, target, data); }, validateShipments, { warn: () => {} });
-      const ledger = makeLineShipments({ now: () => 200, load: () => loadShipmentReceipts(domain), save: value => domain.save(value),
+      let saves = 0;
+      const ledger = makeLineShipments({ now: () => 200, load: () => loadShipmentReceipts(domain), save: value => { saves++; domain.save(value); },
         runsFor: () => [{ runId: 'new', lineId: 'L1', streamId: 's', agentId: 'a', dockId: 'd', reason: 'done', toolsOk: 1 }] });
       const rec = { lineId: 'L1', entryRunId: 'new', streamId: 's', agentId: 'a', dockId: 'd', outboxId: 'o' };
       A.throws(() => ledger.snapshot(), name + ': first poll is unavailable');
@@ -284,7 +299,9 @@ if (store && store.record) {
       A.eq(writes, 0, name + ': no attempted save');
       A.eq(fs.readFileSync(file, 'utf8'), bytes, name + ': forensic bytes remain at the authoritative path');
       fs.writeFileSync(file, JSON.stringify({ version: 1, value: [original, Object.assign({}, original)] }));
-      A.eq(ledger.snapshot(), [original], name + ': restoring valid duplicate copies recovers one exact old receipt');
+      // (runtime repair 2026-10-12) the productive job refused above is HELD, no longer dropped: written once the history reads valid
+      A.eq(ledger.snapshot(), [original, { lineId: 'L1', entryRunId: 'new', terminalRunId: 'new', outboxId: 'o', at: 200 }], name + ': restoring valid duplicate copies recovers one exact old receipt, then writes the job held while it was unreadable');
+      A.eq(saves, 1, name + ': one save, only after the restored history read valid');
       A.ok(ledger.record(rec), name + ': restored authority accepts the next real shipment');
       A.eq(JSON.parse(fs.readFileSync(file, 'utf8')).value.map(r => r.entryRunId), ['old', 'new'], name + ': next save retains old history exactly once');
     });
@@ -314,4 +331,147 @@ if (store && store.record) {
   A.ok(rows.every(r => !router.chainShipsToOutbox(r.agentId, r.dockId)), 'edited topology no longer reaches OUTBOX');
   A.eq(lineStats(input).lines.find(l => l.lineId === lineId).shipped, 1, 'floor edit cannot erase the real past shipment');
 }
-A.report();
+const asyncChecks = [];   // the world.js poll check is async: A.report waits for it
+// SHIPPED UNKNOWN (runtime audit 2026-10-12): an unreadable shipment history makes SHIPPED unknown on every line — null with the
+// reason, never 0 — and every other number keeps counting. Absent shipments WITHOUT that flag still answer 0 (no receipts yet).
+{
+  const rows = [{ runId: 'u1', lineId: 'L1', dockId: 'd1', agentId: 'a', reason: 'done', toolsOk: 1, ts: 50, durationMs: 1000 },
+    { runId: 'u2', lineId: 'L1', dockId: 'd2', agentId: 'b', reason: 'error', ts: 40, durationMs: 3000 }];
+  const why = 'shipment history unreadable: shipment history could not be read (invalid)';
+  const st = lineStats({ rows, lines: [{ lineId: 'L1' }, { lineId: 'L2' }], since: 0, spentToday: () => 0.25, capOf: () => 1, shipments: [receipt('L1', 'u1', 60)], shippedUnknown: why });
+  const L1 = st.lines.find(l => l.lineId === 'L1'), L2 = st.lines.find(l => l.lineId === 'L2');
+  A.ok(L1.shipped === null && L2.shipped === null, 'SHIPPED is null on every line while the history is unreadable');
+  A.ok(st.shippedUnknown === why && L1.shippedUnknown === why && L2.shippedUnknown === why, 'the answer and each line carry the reason');
+  A.eq([L1.runs, L1.failed, L1.medianMs, L1.usdToday, L1.capUsdPerDay], [2, 1, 2000, 0.25, 1], 'runs, failed, median, $ today and the cap still count');
+  A.ok(st.docks.d1 && st.docks.d2 && st.docks.d2.failed === true, 'the bay lamps keep their last outcomes');
+  const known = lineStats({ rows, lines: [{ lineId: 'L1' }], since: 0, shipments: [receipt('L1', 'u1', 60)] });
+  A.ok(known.lines[0].shipped === 1 && !('shippedUnknown' in known) && !('shippedUnknown' in known.lines[0]), 'a readable history answers a number and no reason');
+  A.eq(lineStats({ rows, lines: [{ lineId: 'L1' }], since: 0 }).lines[0].shipped, 0, 'no shipments and no flag is still 0 — no receipts yet');
+  // the page never turns unknown into a number
+  const LWu = require('../frontend/app/linewatch.js');
+  const plate = LWu.plateLines(L1), row = LWu.statsRow(L1);
+  A.ok(/^2 RUNS · \? SHIPPED · 1 FAILED$/.test(plate[0]), 'the INBOX plate reads ? SHIPPED: ' + plate[0]);
+  A.ok(/SHIPMENT HISTORY UNREADABLE/.test(plate[2]) && !/SHIPMENT HISTORY UNREADABLE/.test(LWu.plateLines(known.lines[0])[2]), 'the hover glance names why, only while it is unknown: ' + plate[2]);
+  A.eq(row.find(c => c[0] === 'SHIPPED'), ['SHIPPED', '?'], 'the Workflow panel TODAY row reads ?');
+  A.eq(LWu.statsRow(known.lines[0]).find(c => c[0] === 'SHIPPED'), ['SHIPPED', '1'], 'and a number when it is known');
+  // world.js: an HTTP failure clears the floor's numbers (a network drop keeps them, dimmed as last-known); an unknown SHIPPED
+  // holds the OUTBOX pallet instead of drawing a count
+  const vm = require('node:vm'), fs = require('node:fs'), path = require('node:path');
+  const world = fs.readFileSync(path.join(__dirname, '../frontend/app/world.js'), 'utf8');
+  const poll = world.slice(world.indexOf('  function pollLineStats() {'), world.indexOf('  function lineStatsSoon() {'));
+  const pallet = world.slice(world.indexOf('  function drawShippedPallet(now) {'), world.indexOf('  function drawPallet('));
+  A.ok(poll.length > 100 && pallet.length > 100, 'the real world.js poll and pallet functions are loaded');
+  const runPoll = async (response) => {
+    const ctx = vm.createContext({ LineWatch: LWu, apiUrl: u => u, pollLineJobStreams: () => {}, buildRoutingNags: () => ['nags'], routingNags: null,
+      lineWatch: () => ({ seedOutcomes: () => {} }), lineStats: { known: true, byLine: { L1: { runs: 9, shipped: 4 } }, since: 1 },
+      fetch: () => (response instanceof Error ? Promise.reject(response) : Promise.resolve(response)), Date });
+    vm.runInContext(poll + '\nglobalThis.go = pollLineStats; globalThis.read = () => lineStats;', ctx);
+    ctx.go(); for (let i = 0; i < 5; i++) await new Promise(r => setImmediate(r));
+    return ctx.read();
+  };
+  asyncChecks.push((async () => {
+    const after500 = await runPoll({ ok: false, status: 500, json: async () => ({ ok: false }) });
+    A.ok(after500.known === false && Object.keys(after500.byLine).length === 0, 'a 500 never leaves the last numbers standing: ' + JSON.stringify(after500));
+    const afterDrop = await runPoll(new Error('offline'));
+    A.ok(afterDrop.known === true && afterDrop.byLine.L1.runs === 9, 'a network drop keeps the last server answer (the link-down dim marks it last-known)');
+    const fresh = await runPoll({ ok: true, json: async () => ({ ok: true, lines: [{ lineId: 'L1', runs: 2, shipped: null, shippedUnknown: why }], docks: {} }) });
+    A.ok(fresh.known === true && fresh.byLine.L1.shipped === null, 'an unknown SHIPPED is kept as unknown');
+    const drawn = [];
+    const pctx = vm.createContext({ lineStats: { known: true, byLine: { L1: { runs: 2, shipped: null }, L2: { runs: 1, shipped: 3 } } },
+      routingPlan: { lineOfProp: { o1: 'L1', o2: 'L2' } }, geo: { props: [{ id: 'o1', t: 'outbox', x: 0, y: 0 }, { id: 'o2', t: 'outbox', x: 5, y: 0 }] },
+      palletSeen: new Map(), drawPallet: (ob, done) => drawn.push(ob.id + ':' + done) });
+    vm.runInContext(pallet + '\nglobalThis.draw = drawShippedPallet;', pctx);
+    pctx.draw(1000);
+    A.eq(drawn, ['o2:3'], 'an unknown SHIPPED draws no pallet count (never a 0, never the stale one); a known line still does');
+  })().catch(e => A.ok(false, 'world.js poll/pallet check threw: ' + (e && e.stack || e))));
+}
+// BOUNDED HISTORY (runtime audit 2026-10-12): every shipment rewrote and re-validated the WHOLE history synchronously inside
+// chain.advance, and nothing pruned it — 50 000 receipts blocked a job's hand-back 0.4–2 s. Receipts older than the retention
+// window are dropped on the next save; today's SHIPPED is unchanged (it only counts receipts since local midnight).
+{
+  const { SHIPMENT_KEEP_MS } = require('../sidecar/routing/line-shipments.js');
+  A.ok(typeof SHIPMENT_KEEP_MS === 'number' && SHIPMENT_KEEP_MS >= 2 * 24 * 60 * 60 * 1000, 'the retention window is exported and covers any local midnight');
+  const DAY = 24 * 60 * 60 * 1000, now = 100 * DAY, midnight = now - 6 * 60 * 60 * 1000;
+  const old = [];
+  for (let i = 0; i < 500; i++) old.push(receipt('L1', 'old-' + i, now - SHIPMENT_KEEP_MS - DAY - i));
+  const today = [receipt('L1', 'today-1', midnight + 1000), receipt('L1', 'today-2', midnight + 2000)];
+  let disk = old.concat(today), writes = 0;
+  const before = lineStats({ lines: [{ lineId: 'L1' }], shipments: disk, since: midnight }).lines[0].shipped;
+  const ledger = makeLineShipments({ now: () => now, load: () => disk, save: v => { writes++; disk = JSON.parse(JSON.stringify(v)); },
+    runsFor: () => [{ runId: 'job-3', lineId: 'L1', streamId: 's', agentId: 'a', dockId: 'd', reason: 'done', toolsOk: 1 }] });
+  A.ok(ledger.record({ lineId: 'L1', entryRunId: 'job-3', streamId: 's', agentId: 'a', dockId: 'd', outboxId: 'o' }), 'a new job records');
+  A.eq(writes, 1, 'one write');
+  A.eq(disk.map(r => r.entryRunId), ['today-1', 'today-2', 'job-3'], 'the saved history drops every receipt past the retention window');
+  A.eq(lineStats({ lines: [{ lineId: 'L1' }], shipments: disk, since: midnight }).lines[0].shipped, before + 1, 'today\'s SHIPPED is unchanged by the prune (+ the new job)');
+  A.eq(ledger.snapshot().length, 3, 'the cache matches what was saved');
+}
+/* BOUNDED BY COUNT TOO (runtime repair 2026-10-12): an age window alone still let a busy line keep ~50 000 receipts in it, every one
+   re-validated and rewritten per job. A save keeps at most the newest SHIPMENT_KEEP_MAX; when that cap bound inside a stats window,
+   SHIPPED there is a LOWER BOUND (shippedAtLeast, N+ on the page) — never a count that quietly lost jobs. */
+{
+  const { SHIPMENT_KEEP_MS, SHIPMENT_KEEP_MAX } = require('../sidecar/routing/line-shipments.js');
+  A.ok(SHIPMENT_KEEP_MS <= 2 * 24 * 60 * 60 * 1000 && SHIPMENT_KEEP_MAX > 0 && SHIPMENT_KEEP_MAX <= 5000, 'the history is bounded by age (48 h) AND by count (' + SHIPMENT_KEEP_MAX + ')');
+  const DAY = 24 * 60 * 60 * 1000, midnight = 200 * DAY;
+  let now = midnight + 60 * 1000;
+  // a high-volume day: the history already holds the cap, every receipt from today
+  let disk = [];
+  for (let i = 0; i < SHIPMENT_KEEP_MAX; i++) disk.push(receipt('L1', 'busy-' + i, midnight + 1000 + i));
+  let writes = 0, biggest = 0;
+  const ledger = makeLineShipments({ now: () => now, load: () => disk, save: v => { writes++; disk = v.slice(); biggest = Math.max(biggest, disk.length); },
+    runsFor: sid => [{ runId: sid, lineId: 'L1', streamId: sid, agentId: 'a', dockId: 'd', reason: 'done', toolsOk: 1 }] });
+  for (let i = 0; i < 40; i++) { now += 10; A.ok(ledger.record({ lineId: 'L1', entryRunId: 'more-' + i, streamId: 'more-' + i, agentId: 'a', dockId: 'd', outboxId: 'o' }), i ? null : 'more jobs record past the cap'); }
+  A.eq(writes, 40, 'one write per job');
+  A.ok(biggest === SHIPMENT_KEEP_MAX && disk.length === SHIPMENT_KEEP_MAX, 'the saved history never holds more than the cap (' + biggest + ')');
+  A.ok(disk.every(r => r.entryRunId !== 'busy-0' && r.entryRunId !== 'busy-39') && disk.some(r => r.entryRunId === 'busy-40') && disk[disk.length - 1].entryRunId === 'more-39', 'the OLDEST receipts are the ones dropped');
+  A.ok(JSON.stringify(disk).length < 200 * SHIPMENT_KEEP_MAX, 'so the file stays bounded: ' + JSON.stringify(disk).length + ' bytes');
+  const capped = lineStats({ lines: [{ lineId: 'L1' }, { lineId: 'L2' }], shipments: ledger.snapshot(), since: midnight });
+  A.ok(capped.lines[0].shipped === SHIPMENT_KEEP_MAX && capped.lines[0].shippedAtLeast === true && capped.shippedAtLeast === true && capped.lines[1].shippedAtLeast === true,
+    'a window the cap cut into answers a LOWER BOUND, on every line (which line lost a job is not known): ' + JSON.stringify(capped.lines[0]));
+  const inside = lineStats({ lines: [{ lineId: 'L1' }], shipments: disk, since: disk[0].at });
+  A.ok(!('shippedAtLeast' in inside.lines[0]) && !('shippedAtLeast' in inside), 'a window that starts after everything the cap dropped is exact');
+  const LWa = require('../frontend/app/linewatch.js');
+  A.ok(/ 5000\+ SHIPPED /.test(LWa.plateLines(capped.lines[0])[0].replace(/^/, ' ').replace(/ · /g, '  ')) || / 5000\+ SHIPPED/.test(' ' + LWa.plateLines(capped.lines[0])[0]), 'the plate reads N+ SHIPPED: ' + LWa.plateLines(capped.lines[0])[0]);
+  A.eq(LWa.statsRow(capped.lines[0]).find(c => c[0] === 'SHIPPED'), ['SHIPPED', SHIPMENT_KEEP_MAX + '+'], 'and the TODAY row N+');
+}
+/* HELD, NOT DROPPED (runtime repair 2026-10-12): a productive job that shipped while the history could not be read was refused for
+   good, so once the file was readable again SHIPPED showed a definite number that left it out. Its receipt is held and written by
+   the first snapshot()/record() after a validated read — never over the unreadable bytes. */
+{
+  const DAY = 24 * 60 * 60 * 1000, midnight = 300 * DAY, now = midnight + 5000;
+  let disk = [receipt('L1', 'before', midnight + 10)], broken = true, writes = 0;
+  const runs = sid => [{ runId: sid, lineId: 'L1', streamId: sid, agentId: 'a', dockId: 'd', reason: 'done', toolsOk: 1 }];
+  const ledger = makeLineShipments({ now: () => now, load: () => { if (broken) throw new Error('shipment history could not be read (corrupt)'); return disk; },
+    save: v => { if (broken) throw new Error('never written over unreadable bytes'); writes++; disk = v.slice(); }, runsFor: runs });
+  const job = id => ({ lineId: 'L1', entryRunId: id, streamId: id, agentId: 'a', dockId: 'd', outboxId: 'o' });
+  A.eq(ledger.record(job('during-1')), false, 'a job that ships while the history is unreadable is not persisted (false)');
+  A.eq(ledger.record(job('during-1')), false, '…the same job again holds once');
+  A.eq([ledger.held(), writes], [1, 0], 'its receipt is held, nothing was written');
+  A.ok((() => { try { ledger.snapshot(); return false; } catch (_) { return true; } })(), 'SHIPPED stays unknown while the history is unreadable');
+  broken = false;   // the user restores the file
+  const snap = ledger.snapshot();
+  A.eq([snap.map(r => r.entryRunId), ledger.held(), writes], [['before', 'during-1'], 0, 1], 'the first read after it is readable writes the held receipt');
+  A.eq(lineStats({ lines: [{ lineId: 'L1' }], shipments: snap, since: midnight }).lines[0].shipped, 2, 'SHIPPED counts the job that shipped while it was unreadable');
+  // held + a new job: one write carries both
+  broken = true; ledger.record(job('during-2'));
+  const r2 = (() => { broken = false; return ledger.record(job('after-1')); })();
+  A.ok(r2 && disk.map(r => r.entryRunId).join() === 'before,during-1,during-2,after-1' && ledger.held() === 0, 'a record() after recovery writes what was held first: ' + disk.map(r => r.entryRunId).join());
+  // past the hold bound: the jobs are not counted, and SHIPPED says it is a lower bound from then on
+  broken = true;
+  for (let i = 0; i < 520; i++) ledger.record(job('flood-' + i));
+  A.ok(ledger.held() === 500 && ledger.missedAt() === now, 'the hold is bounded (500) and remembers when a job went uncounted');
+  broken = false;
+  const flood = lineStats({ lines: [{ lineId: 'L1' }], shipments: ledger.snapshot(), since: midnight, shipmentsMissedAt: ledger.missedAt() });
+  A.ok(flood.lines[0].shipped === 504 && flood.lines[0].shippedAtLeast === true, 'what was held counts, and SHIPPED is a lower bound: ' + JSON.stringify(flood.lines[0]));
+  A.ok(!('shippedAtLeast' in lineStats({ lines: [{ lineId: 'L1' }], shipments: disk, since: now, shipmentsMissedAt: ledger.missedAt() }).lines[0]), 'a window that starts after the missed job is exact');
+}
+/* A PARTIAL JOINED JOB IS NOT A SHIPMENT (runtime repair 2026-10-12): a COPY branch the host refused before it ran writes no run row,
+   so every row that exists ended done — the chain's own mark (rec.partial) is what refuses it */
+{
+  let disk = [], writes = 0;
+  const ledger = makeLineShipments({ now: () => 5000, load: () => disk, save: v => { writes++; disk = v.slice(); },
+    runsFor: sid => [{ runId: sid, lineId: 'L1', streamId: sid, agentId: 'a', dockId: 'd', reason: 'done', toolsOk: 1 }] });
+  A.eq(ledger.record({ lineId: 'L1', entryRunId: 'pj', streamId: 'pj', agentId: 'a', dockId: 'd', outboxId: 'o', partial: 'crew0 failed' }), false, 'a partial joined job records no receipt');
+  A.eq([writes, disk.length], [0, 0], 'nothing is written');
+  A.ok(ledger.record({ lineId: 'L1', entryRunId: 'ok', streamId: 'ok', agentId: 'a', dockId: 'd', outboxId: 'o' }), 'the same job whole records');
+}
+Promise.all(asyncChecks).then(() => A.report());

@@ -1852,8 +1852,11 @@
         if (!myRec.superseded) return false;
         if (myRec.halted && !haltNoticeSent) {
           haltNoticeSent = true;
+          // the station's OWN process-fault containment marks the run `faulted` before it kills it (halt.js markFaulted): that
+          // stop is said as the fault it was, never as an E-STOP nobody pressed (wave 2 repair, conveyor-backend-08)
+          const why = myRec.faulted ? 'the station hit an internal fault and stopped this run' : 'E-STOP was pressed in the station';
           try {
-            await deliver(chatId, '⏹ Stopped — E-STOP was pressed in the station. This message got no reply and nothing further will run for it.', myRec.runId || '', 'command');
+            await deliver(chatId, '⏹ Stopped — ' + why + '. This message got no reply and nothing further will run for it.', myRec.runId || '', 'command');
           } catch (_) { /* a stop notice must never crash the teardown */ }
         } else if (!myRec.halted && myRec.supersededBy === 'message' && !haltNoticeSent && myRec.runId && !(state && state.errMsg)) {
           /* A NEWER MESSAGE STOPPED THIS RUN — never silently (2026-10-11). This is the fallback when the follow-up
@@ -2049,7 +2052,8 @@
         if (onLineOutcome) {
           // a throwing outcome hook is the HOST's bug (the trigger runner records every fire's truth through it): never
           // let it abort the reply, but never swallow it silently either — the failopen ledger names it
-          try { const lo = { agentId: line.agentId, stopped: line.stopped || null, hops: line.hops.slice(), usd: line.usd }; if (line.dockId) lo.dockId = line.dockId; onLineOutcome(lo); } catch (e) { failNote('channels.hub.lineOutcome', e); }
+          // partial (additive): the JOINER sent on without every branch — the job is not clean, whatever its run rows say
+          try { const lo = { agentId: line.agentId, stopped: line.stopped || null, hops: line.hops.slice(), usd: line.usd }; if (line.dockId) lo.dockId = line.dockId; if (line.partial) lo.partial = String(line.partial); onLineOutcome(lo); } catch (e) { failNote('channels.hub.lineOutcome', e); }
         }
         if (!myRec.superseded && line.hops.length) {
           // the line's answer replaces the first stage's — and the floor/channel agree on who produced it
