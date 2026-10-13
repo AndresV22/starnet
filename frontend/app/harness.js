@@ -166,6 +166,13 @@ const Harness = (() => {
   let _alternateCountByProvider = Object.create(null);
   let apiToken = (typeof window !== 'undefined' && window.__STARNET_API_TOKEN__) ? String(window.__STARNET_API_TOKEN__) : '';
   let apiTokenPromise = null;
+  /* A PAGE THE STATION KEPT ITS KEY FROM (review threads-backend-05 / sidecar-index-06). The sidecar serves this page
+     without its key when it cannot prove this browser runs as the station's own OS user (sidecar/peerowner.js: the
+     lookup failed or timed out, the connection could not be traced, it belongs to another account, or the platform
+     has no check) and says why in window.__STARNET_TOKEN_WITHHELD__. Every keyed /api call is then refused exactly
+     like a stale page, but re-reading or reloading the page only re-runs the same check — so this is NOT a restarted
+     station, and the page says why + the owner's escape hatch instead of "reload this page". '' = the page has its key. */
+  const tokenWithheld = (typeof window !== 'undefined' && !window.__STARNET_API_TOKEN__ && window.__STARNET_TOKEN_WITHHELD__) ? String(window.__STARNET_TOKEN_WITHHELD__) : '';
 
   // TRUE only for our OWN sidecar API — a same-origin request under /api/. The X-StarNet-Token this gates is a
   // PRIVATE local credential; a naive substring match on '/api/' would attach it to third-party URLs that merely
@@ -278,21 +285,44 @@ const Harness = (() => {
   }
   // Set when a stale-token 403 could NOT be recovered in place — the one state where the honest answer is
   // "reload this page". Surfaces read it (Harness.sessionStale) so they stop blaming the network or the catalog.
+  // NOT set for a page the station kept its key from (tokenWithheld): a reload would only re-run the same check.
   let sessionStale = false;
   let staleNotified = false;
-  function stationNotify(text, cls) {
-    try { if (typeof StationUI !== 'undefined' && StationUI && StationUI.notify) StationUI.notify(text, cls); } catch (_) {}
+  function stationNotify(text, cls, opts) {
+    try { if (typeof StationUI !== 'undefined' && StationUI && StationUI.notify) StationUI.notify(text, cls, undefined, opts); } catch (_) {}
+  }
+  // The withheld notice: why (sidecar/peerowner.js reason, in plain words), what it means, and the owner's way out.
+  function tokenWithheldNotice(reason) {
+    const r = String(reason || '');
+    if (!r) return '';
+    const why = r === 'lookup-failed' ? 'the ownership check timed out or failed'
+      : r === 'peer-not-found' ? 'the connection could not be traced'
+      : r === 'other-user' ? 'the connection belongs to another account'
+      : r === 'unsupported-platform' ? 'this system can’t run the ownership check'
+      : 'the ownership check did not pass';
+    return 'StarNet could not confirm this browser runs as your own user account (' + why + '), so it won’t take commands from this page. '
+      + 'Open StarNet from the desktop app, or if this is your own browser, restart StarNet with STARNET_TRUST_LOCAL_PEERS=1.';
+  }
+  // Shown ONCE per page life — at boot (init) or on the first refused call, whichever comes first — and kept in
+  // NOTIFICATIONS as one alert (key folds a repeat after a reload), because it outlives a toast's few seconds.
+  let withheldNotified = false;
+  function noteTokenWithheld() {
+    if (!tokenWithheld || withheldNotified) return;
+    withheldNotified = true;
+    stationNotify(tokenWithheldNotice(tokenWithheld), 'warn', { kind: 'alert', key: 'token-withheld' });
   }
   const staleToken = staleTokenRecovery({
     rawFetch: (u, init) => window.fetch(u, init),   // '/' is not an API URL, so the wrapper passes it straight through
     getToken: () => apiToken,
     setToken: t => { apiToken = t; try { window.__STARNET_API_TOKEN__ = t; } catch (_) {} },   // apiticket.js mints from the window copy
-    canRefresh: () => !DESKTOP && !(typeof window !== 'undefined' && window.__STARNET_API__),
+    // a withheld page never re-reads '/': that only re-runs the same ownership check on every refused call
+    canRefresh: () => !tokenWithheld && !DESKTOP && !(typeof window !== 'undefined' && window.__STARNET_API__),
     onRecovered: () => {
       sessionStale = false; staleNotified = false;
       stationNotify('The station service restarted — this page reconnected on its own.', 'good');
     },
     onStale: () => {
+      if (tokenWithheld) { noteTokenWithheld(); return; }   // not a restart: say why the key was kept, never "reload"
       sessionStale = true;
       if (!staleNotified) { staleNotified = true; stationNotify('The station restarted and this page could not reconnect — reload this page.', 'warn'); }
     }
@@ -315,6 +345,7 @@ const Harness = (() => {
 
   /* desktop: load the keychain "configured?" flag once at boot, before the connect screen reads it */
   async function init() {
+    noteTokenWithheld();   // a page the station kept its key from says why before its first refused call
     await ensureApiToken();
     // BEFORE the desktop early-return on purpose: managed credits live in the SIDECAR, not the keychain, so
     // they are configured identically in a browser build and a packaged one. Probing after the return would
@@ -1596,6 +1627,8 @@ const Harness = (() => {
     api,
     apiToken: ensureApiToken,
     sessionStale: () => sessionStale,   // a stale-token 403 that could not be recovered in place — the answer is "reload this page" (#39)
+    tokenWithheld: () => tokenWithheld,   // the station kept its key from this page (peerowner reason) — never "reload"; '' = it has its key
+    tokenWithheldNotice: () => tokenWithheldNotice(tokenWithheld),   // the full withheld sentence ('' = not withheld)
     apiFetch: (u, init) => ensureApiToken().then(t => fetch(u, withApiToken(init, t))),
     totals: () => totals,
     setTotals: t => { totals = { tokens: t.tokens || 0, cost: t.cost || 0, calls: t.calls || 0 }; },

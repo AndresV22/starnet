@@ -97,10 +97,71 @@ const forbiddenToken = () => new Response('forbidden token', { status: 403 });
   }
   // 3c. a page served to a different OS user withholds the token: nothing to adopt, the 403 stands.
   {
-    const { st, rec, replay } = rig({ page: '<html><head><script nonce="n">window.__STARNET_TOKEN_WITHHELD__="not-owner";</script></head></html>' });
+    const { st, rec, replay } = rig({ page: '<html><head><script nonce="n">window.__STARNET_TOKEN_WITHHELD__="other-user";</script></head></html>' });
     const res = forbiddenToken();
     const out = await rec.settle(res, 'OLD', replay());
     A.ok(out === res && st.replays.length === 0 && st.stale === 1, 'a withheld-token page is not a rotation: 403 stands, stale reported');
+  }
+  // 3d. A PAGE THE STATION KEPT ITS KEY FROM (review threads-backend-05 / sidecar-index-06). The sidecar serves the page
+  // without its key when it cannot prove this browser runs as its own OS user, and says why in
+  // window.__STARNET_TOKEN_WITHHELD__. Every keyed call 403s like a stale page, but a reload only re-runs the same check:
+  // the page must say WHY and name the owner's escape hatch, never "the station restarted — reload this page".
+  {
+    const noticeSrc = A.fnBody(harness, 'function tokenWithheldNotice(');
+    A.ok(noticeSrc.length > 100 && noticeSrc.length < 3000, 'harness.js defines tokenWithheldNotice(reason)');
+    const tokenWithheldNotice = new Function(noticeSrc + '\nreturn tokenWithheldNotice;')();
+    const WHY = { 'lookup-failed': /ownership check timed out or failed/, 'peer-not-found': /connection could not be traced/,
+      'other-user': /connection belongs to another account/, 'unsupported-platform': /can’t run the ownership check/, 'constructor': /ownership check did not pass/ };
+    for (const reason of Object.keys(WHY)) {
+      const t = tokenWithheldNotice(reason);
+      A.ok(WHY[reason].test(t), 'the withheld notice names the reason in plain words (' + reason + '): ' + t);
+      A.ok(/STARNET_TRUST_LOCAL_PEERS=1/.test(t) && /won’t take commands from this page/.test(t), 'and says what it means + the owner\'s escape hatch');
+      A.ok(!/restarted|reload/i.test(t), 'and never claims a restart or offers a reload (a reload re-runs the same check)');
+    }
+    A.eq(tokenWithheldNotice(''), '', 'a page that holds its key has no withheld notice');
+
+    // the real wiring (lifted from harness.js), driven with the real factory: a withheld page never re-reads '/',
+    // shows the withheld notice ONCE as a kept alert, and is not marked a stale (restarted) session
+    const wiringStart = harness.indexOf('  let sessionStale = false;');
+    const wiringEnd = harness.indexOf("  if (typeof window !== 'undefined' && window.fetch && !window.__STARNET_FETCH_HARDENED__)");
+    A.ok(wiringStart > 0 && wiringEnd > wiringStart, 'lifted the stale-token wiring');
+    const wiringSrc = harness.slice(wiringStart, wiringEnd);
+    const wire = (withheld, page) => {
+      const notes = []; let reads = 0;
+      const win = { fetch: () => { reads++; return Promise.resolve(new Response(page || '<html></html>', { status: 200 })); } };
+      if (!withheld) win.__STARNET_API_TOKEN__ = 'OLD';
+      const StationUI = { notify: (text, cls, category, opts) => notes.push({ text, cls, category, opts }) };
+      const w = new Function('window', 'DESKTOP', 'StationUI', 'staleTokenRecovery', 'tokenWithheld',
+        'let apiToken = window.__STARNET_API_TOKEN__ || "";\n' + wiringSrc + '\nreturn { staleToken, stale: () => sessionStale, note: noteTokenWithheld };')(
+        win, false, StationUI, staleTokenRecovery, withheld);
+      return { w, notes, reads: () => reads };
+    };
+    {
+      const { w, notes, reads } = wire('lookup-failed', '<html><script>window.__STARNET_TOKEN_WITHHELD__="lookup-failed";</script></html>');
+      w.note();   // boot (Harness.init) shows it first …
+      for (let i = 0; i < 3; i++) {
+        const res = forbiddenToken();
+        A.ok(await w.staleToken.settle(res, '', fresh => Promise.resolve(new Response('replayed:' + fresh))) === res, 'a withheld page\'s 403 stands (nothing to adopt)');
+      }
+      A.eq(reads(), 0, 'a withheld page never re-reads the page on a 403 (it would only re-run the same failing check)');
+      A.eq(notes.length, 1, '… and the withheld notice is shown ONCE (boot + every later 403): ' + JSON.stringify(notes.map(n => n.text)));
+      A.eq(notes[0].text, tokenWithheldNotice('lookup-failed'), 'the notice is the withheld wording, not the restart wording');
+      A.ok(notes[0].opts && notes[0].opts.kind === 'alert' && notes[0].opts.key === 'token-withheld', 'kept in NOTIFICATIONS as one alert (it outlives the toast)');
+      A.eq(w.stale(), false, 'a withheld page is not a stale (restarted) session: no surface may say "reload"');
+    }
+    {
+      const { w, notes, reads } = wire('', pageWith('OLD'));
+      w.note();
+      A.eq(notes.length, 0, 'a page that holds its key shows no withheld notice at boot');
+      await w.staleToken.settle(forbiddenToken(), 'OLD', null);
+      A.ok(reads() === 1 && w.stale() === true && notes.length === 1 && /station restarted/.test(notes[0].text),
+        'a keyed page whose token went stale keeps the restart + reload wording: ' + (notes[0] && notes[0].text));
+    }
+    A.ok(/const tokenWithheld = \(typeof window !== 'undefined' && !window\.__STARNET_API_TOKEN__ && window\.__STARNET_TOKEN_WITHHELD__\)/.test(harness),
+      'harness reads the withheld reason only when the page carries no key');
+    A.ok(/async function init\(\) \{\s*(\/\/[^\n]*\n\s*)?noteTokenWithheld\(\);/.test(harness), 'boot shows the withheld notice before the first refused call');
+    A.ok(/tokenWithheld: \(\) => tokenWithheld,/.test(harness) && /tokenWithheldNotice: \(\) => tokenWithheldNotice\(tokenWithheld\),/.test(harness),
+      'Harness exposes tokenWithheld() and tokenWithheldNotice() for the surfaces');
   }
   // 4. the served page carries the SAME token → no rotation proven → no replay; staleness reported.
   {
@@ -161,8 +222,8 @@ const forbiddenToken = () => new Response('forbidden token', { status: 403 });
   A.ok(/staleToken\.settle\(res, t, replayable \?/.test(wrapper), 'the global /api fetch wrapper routes every response through staleToken.settle');
   A.ok(/setToken: t => \{ apiToken = t; try \{ window\.__STARNET_API_TOKEN__ = t;/.test(harness),
     'adopting a token updates BOTH the cached header token and window.__STARNET_API_TOKEN__ (apiticket.js mints SSE/file/save tickets from it)');
-  A.ok(/canRefresh: \(\) => !DESKTOP && !\(typeof window !== 'undefined' && window\.__STARNET_API__\)/.test(harness),
-    'desktop never reads the page for a token (the shell keeps one token across respawns)');
+  A.ok(/canRefresh: \(\) => !tokenWithheld && !DESKTOP && !\(typeof window !== 'undefined' && window\.__STARNET_API__\)/.test(harness),
+    'desktop never reads the page for a token (the shell keeps one token across respawns), nor does a page the station kept its key from');
   A.ok(/sessionStale: \(\) => sessionStale/.test(harness), 'Harness exposes sessionStale() for the surfaces');
 
   // the START FRESH + recover polls: a 403 is not "not ready yet".
@@ -172,14 +233,29 @@ const forbiddenToken = () => new Response('forbidden token', { status: 403 });
   A.eq(polls.length, 2, 'both restart polls (START FRESH, RECOVER) stop and reload once on a 403 instead of greying out forever');
   A.ok(/const next = body && body\.lineage;[\s\S]{0,400}checked again — still nothing recoverable here/.test(gate),
     'RETRY with nothing recoverable re-asks the sidecar and SAYS so instead of a no-op reload');
-  A.ok(/Harness\.sessionStale\(\)\) \? 'the station restarted; reload this page' : 'report unavailable'/.test(gate),
-    'report export names a stale session instead of "report unavailable"');
+  A.ok(/throw new Error\(refusedPageLine\(\) \|\| 'report unavailable'\)/.test(gate),
+    'report export names a refused page (withheld key or stale session) instead of "report unavailable"');
+  A.ok(/could not check again — ' \+ \(refusedPageLine\(\) \|\| 'the station service did not answer'\)/.test(gate),
+    'RETRY names a refused page instead of "the station service did not answer"');
   // the connect screen: a stale session is not an offline catalog, and not the user's network.
   const models = A.fnBody(app, 'async function loadModels(');
-  A.ok(/Harness\.sessionStale\(\)\)\s*\?\s*'\(the station restarted — reload this page to load the catalog\)'\s*:\s*'\(catalog offline — type or pick a slug\)'/.test(models),
-    'loadModels says "the station restarted — reload" on a stale session, "catalog offline" only otherwise');
+  A.ok(/const refused = refusedPageLine\(\);\s*countEl\.textContent = refused \? '\(' \+ refused \+ '\)' : '\(catalog offline — type or pick a slug\)'/.test(models),
+    'loadModels names a refused page (withheld key or stale session), "catalog offline" only otherwise');
   const wake = A.fnBody(app, 'async function onWake(');
-  A.ok(/stale \? 'the station restarted; reload this page'/.test(wake), 'WAKE names a stale session instead of "Failed to fetch"');
+  A.ok(/const refused = refusedPageLine\(\);[\s\S]{0,300}'could not start — ' \+ \(refused \|\| /.test(wake), 'WAKE names a refused page instead of "Failed to fetch"');
+  // ONE phrase for "why this page is refused": a page the station kept its key from is checked FIRST, so no surface
+  // tells its owner "the station restarted; reload this page" — a reload re-runs the same check (review threads-backend-05)
+  {
+    const lineSrc = A.fnBody(app, 'function refusedPageLine(');
+    A.ok(lineSrc.length > 50 && lineSrc.length < 2000, 'app.js defines refusedPageLine()');
+    const lineFor = (H) => new Function('Harness', lineSrc + '\nreturn refusedPageLine;')(H)();
+    const withheld = lineFor({ tokenWithheld: () => 'peer-not-found', sessionStale: () => true });
+    A.ok(/not verified as your own account/.test(withheld) && /STARNET_TRUST_LOCAL_PEERS=1/.test(withheld) && !/restarted|reload/i.test(withheld),
+      'a withheld page says it was not verified + the escape hatch, never "restarted; reload": ' + withheld);
+    A.eq(lineFor({ tokenWithheld: () => '', sessionStale: () => true }), 'the station restarted; reload this page', 'a keyed page\'s stale session keeps the reload line');
+    A.eq(lineFor({ tokenWithheld: () => '', sessionStale: () => false }), '', 'a page that is not refused has no line');
+    A.eq(lineFor({}), '', 'an older Harness without either probe has no line');
+  }
 
   A.report('stale-token-recovery');
 })().catch(e => { console.error(e); process.exit(1); });
