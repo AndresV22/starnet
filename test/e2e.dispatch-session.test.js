@@ -282,8 +282,17 @@ for (const validRepair of [true, false]) {
       const response = await fixture.json('GET', '/api/runs?agent=researcher&limit=20');
       A.eq(response.status, 200, label + ': completed runs are available over the real API');
       const runs = response.body.runs || [];
-      const original = runs.find(r => r.runId === originalId);
+      const listed = runs.find(r => r.runId === originalId);
       const repair = runs.find(r => r.runId !== originalId);
+      // threads-backend-16: the LIST no longer repeats a final envelope's preview when it records the full length (the
+      // page reads the verified projection instead); the single-run read keeps the bounded preview
+      const single = await fixture.json('GET', '/api/runs?agent=researcher&runId=' + encodeURIComponent(originalId));
+      const original = ((single.body && single.body.runs) || []).find(r => r.runId === originalId);
+      A.ok(original && listed, label + ': the original run is in the list and in its single read');
+      if (Number.isSafeInteger(listed.dispatchDelivery.textLength)) {
+        A.ok(!('text' in listed.dispatchDelivery), label + ': the list carries the final answer once (deliveryText), not twice');
+        A.eq(Object.assign({}, original.dispatchDelivery, { text: undefined }), Object.assign({}, listed.dispatchDelivery, { text: undefined }), label + ': and is otherwise the same envelope');
+      }
       A.eq(runs.length, 2, label + ': one original and one repair are exactly two executions');
       A.eq(new Set(runs.map(r => r.runId)).size, 2, label + ': finalization does not append a duplicate execution');
       A.eq(original.reason, 'done', label + ': execution outcome remains immutable after dispatch validation');

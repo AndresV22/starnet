@@ -25920,7 +25920,17 @@ function serveRuns(req, res) {
     const snapshotAt = requestedThrough || Math.max(1, Date.now() - 1);
     const beforeRunId = u.searchParams.get('beforeRunId') || '';
     const page = runStore.list(agent === '*' ? null : agent, { limit: limit + 1, since, through: snapshotAt, beforeRunId });
-    const rows = page.slice(0, limit).map(withRunTruth);
+    // A final dispatch envelope that records its full length no longer repeats its preview here (deliveryText already
+    // carries it, and each worker row carried up to 24 KB twice on every reconcile). The page sees textLength differ
+    // from the missing text and reads the verified delivery projection. Old envelopes without textLength keep their
+    // text, and ?runId= (withRunChildren) is unchanged.
+    const rows = page.slice(0, limit).map(r => {
+      const out = withRunTruth(r), d = out.dispatchDelivery;
+      if (d && d.state === 'final' && Number.isSafeInteger(d.textLength) && d.textLength > 0 && 'text' in d) {
+        out.dispatchDelivery = Object.assign({}, d); delete out.dispatchDelivery.text;
+      }
+      return out;
+    });
     const nextCursor = page.length > limit && rows.length ? rows[rows.length - 1].runId : '';
     json(200, { runs: rows, nextCursor, snapshotAt });
   } catch (e) {
