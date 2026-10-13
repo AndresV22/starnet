@@ -4384,10 +4384,13 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
           finally { busy = false; run.disabled = false; }
         };
       }
-      // A reload (registering checks, sharing another skill) must not throw away a paid result: the host
-      // returns its newest receipt for this candidate and base digest, and approval re-verifies it by id.
+      // A reload (registering checks, sharing another skill) must not throw away a paid result. Contract:
+      // latestEvaluation is the whole stored receipt row (the same object evaluate-candidate returns), never a
+      // summary; tie and spend-stop are read from its cases. Only a receipt for these exact proposal and active
+      // versions counts, and approval still re-verifies it by id.
       const last = candidate.latestEvaluation;
-      if (last && last.receiptId) showResult(last, matching.find(s => s.id === last.suiteId) || {}, 'Last evaluation: ');
+      if (last && last.receiptId && last.candidateDigest === candidate.candidateDigest && last.baselineDigest === candidate.baseDigest)
+        showResult(last, matching.find(s => s.id === last.suiteId) || {}, 'Last evaluation: ');
       const decide = async extra => {
         if (busy || !receipt) return; busy = true; approve.disabled = true; acknowledge.disabled = true;
         try { await skillReviewPost('approve-candidate', Object.assign({}, request, { evaluation: receipt.receiptId }, extra)); loadAgentSkills(agentId); }

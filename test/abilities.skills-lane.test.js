@@ -191,25 +191,56 @@ async function checkCandidateReview() {
   A.ok(/spending/i.test(card8.querySelector('[data-evaluation-result]').textContent), 'a spend-denied run names the spending policy');
   A.ok(!card8.querySelector('[data-evaluation-result]').textContent.includes('insufficient_evidence'), 'no enum status reaches the owner');
   // The host's stored receipt for this exact revision (latestEvaluation) seeds the card after a reload.
-  status = 'passed'; extra = {};
-  const host7 = element(); ctx.host = host7; const sent = requests.length;
-  ctx.review = { candidates: [Object.assign({}, ctx.review.candidates[0], { latestEvaluation: { receiptId: 'stored-receipt', suiteId: 'brief-checks', status: 'passed', createdAt: 1,
-    allCandidatePassed: true, regressions: [], cases: [{ before: { completed: true, pass: false }, after: { completed: true, pass: true } }] } })], evaluationSuites: ctx.review.evaluationSuites };
-  vm.runInNewContext('renderSkillCandidates(host, "agent", review);', ctx);
-  const card7 = host7.children[0];
+  // Contract: latestEvaluation is the WHOLE stored receipt row, the same object evaluate-candidate returns as
+  // `receipt`, never a summary. The fixtures come from the real evaluator and its real store, not hand-written.
+  const SkillEvaluation = require('../sidecar/skillevaluation.js');
+  const store = {}, io = { get: k => store[k], set: (k, v) => { store[k] = v; } };
+  const suite = { id: 'brief-checks', skillName: 'Brief', version: 1, cases: [
+    { id: 'weekly', prompt: 'Write the weekly brief.', checks: [{ id: 'ok', kind: 'json_equal', path: ['ok'], expected: true }] },
+    { id: 'held', prompt: 'Write the held-out brief.', heldOut: true, checks: [{ id: 'ok', kind: 'json_equal', path: ['ok'], expected: true }] }] };
+  let mode = 'pass';
+  const runCase = async ({ phase }) => mode === 'denied' ? { reason: 'policy-denied' } : { reason: 'done', value: { ok: mode === 'tie' || phase === 'after' } };
+  const evaluator = SkillEvaluation.makeSkillEvaluator({ suites: [suite], runCase, io, clock: () => 1 });
+  const proposed = { id: 'brief', name: 'Brief', body: 'Proposed instructions', scope: 'agent', files: [] };
+  const active = { id: 'brief', name: 'Brief', body: 'Current instructions', scope: 'agent', files: [] };
+  const storedRow = async m => { mode = m; await evaluator.evaluate({ candidate: proposed, baseline: active, suiteId: suite.id }); return store['skill-evaluation-receipts'].at(-1); };
+  const passedRow = await storedRow('pass'), tieRow = await storedRow('tie'), deniedRow = await storedRow('denied');
+  A.eq([passedRow.status, tieRow.status, deniedRow.status], ['passed', 'insufficient_evidence', 'insufficient_evidence'], 'the real evaluator stored a pass, a tie and a spend-denied run');
+  // A candidate as serveSkillCandidates lists it: both digests come from SkillEvaluation.digestSkill (skillstore digestCandidate).
+  const listed = latestEvaluation => ({ review: { candidates: [{ candidateId: 'candidate-4', revision: 4, skill: proposed, latestEvaluation,
+    candidateDigest: SkillEvaluation.digestSkill(proposed), baseDigest: SkillEvaluation.digestSkill(active) }],
+    evaluationSuites: [{ id: 'brief-checks', skillId: 'brief', description: 'Weekly brief checks' }] } });
+  const reload = latestEvaluation => {
+    const h = element(); ctx.host = h; ctx.review = listed(latestEvaluation).review;
+    vm.runInNewContext('renderSkillCandidates(host, "agent", review);', ctx);
+    return h.children[0];
+  };
+  const card7 = reload(passedRow), sent = requests.length;
   A.ok(/^Last evaluation: Passed/.test(card7.querySelector('[data-evaluation-result]').textContent), 'a reloaded panel shows the last evaluation of this revision');
   A.eq(card7.querySelector('[data-candidate-approve]').disabled, false, 'a stored passing receipt keeps approval available');
   await card7.querySelector('[data-candidate-approve]').onclick();
   A.eq(requests.length, sent + 1, 'approval does not require paying for another evaluation');
-  A.eq(requests.at(-1).body.evaluation, 'stored-receipt', 'approval names the stored host receipt; the station re-verifies it');
+  A.eq(requests.at(-1).body.evaluation, passedRow.receiptId, 'approval names the stored host receipt; the station re-verifies it');
   // A stored tie offers only the armed acknowledgement, exactly like a fresh one.
-  const host9 = element(); ctx.host = host9;
-  ctx.review = { candidates: [Object.assign({}, ctx.review.candidates[0], { latestEvaluation: { receiptId: 'stored-tie', suiteId: 'brief-checks', status: 'insufficient_evidence',
-    allCandidatePassed: true, regressions: [], cases: tieCases } })], evaluationSuites: ctx.review.evaluationSuites };
-  vm.runInNewContext('renderSkillCandidates(host, "agent", review);', ctx);
-  const card9 = host9.children[0];
+  const card9 = reload(tieRow);
   A.eq(card9.querySelector('[data-candidate-acknowledge]').hidden, false, 'a stored tie shows the acknowledgement');
   A.eq(card9.querySelector('[data-candidate-approve]').disabled, true, 'a stored tie never enables the measured approval');
+  A.ok(/^Last evaluation: No improvement shown/.test(card9.querySelector('[data-evaluation-result]').textContent), 'a stored tie says no improvement was shown');
+  // A stored run the spending policy stopped still names the spending policy after a reload.
+  const card10 = reload(deniedRow);
+  A.ok(/spending policy stopped a run/.test(card10.querySelector('[data-evaluation-result]').textContent), 'a stored spend-denied run names the spending policy');
+  A.eq(card10.querySelector('[data-candidate-acknowledge]').hidden, true, 'a stored spend-denied run offers no acknowledgement');
+  // A receipt for another revision (or another active version) never reads as this proposal's result.
+  const stale = Object.assign({}, passedRow, { candidateDigest: SkillEvaluation.digestSkill(Object.assign({}, proposed, { body: 'An older proposal' })) });
+  const untouched = async (card, why) => {
+    const note = card.querySelector('[data-evaluation-result]'), before = requests.length;
+    A.eq(note.textContent, '', why + ': the markup keeps "No evaluation run from this panel yet."');
+    A.eq(note.children.length, 0, why + ': no receipt block');
+    await card.querySelector('[data-candidate-approve]').onclick();
+    A.eq(requests.length, before, why + ': approve sends nothing');
+  };
+  await untouched(reload(stale), 'a receipt for another revision is not shown as this one');
+  await untouched(reload(Object.assign({}, passedRow, { baselineDigest: SkillEvaluation.digestSkill(null) })), 'a receipt measured against another active version is not shown');
 }
 
 // Review finding world-render-10: Change sharing speaks plain words, marks the current choice, asks for a
