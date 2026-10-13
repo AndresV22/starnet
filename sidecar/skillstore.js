@@ -630,7 +630,10 @@
       return out;
     }
     // A pending proposal whose base is no longer the active skill can only be rejected: say so (baseCurrent:false)
-    // instead of listing it as something the Commander can still evaluate.
+    // instead of listing it as something the Commander can still evaluate. baseCurrent compares the STORED record,
+    // as approveCandidate does. The evaluate/approve routes must read their baseline the same way (hydrate:false,
+    // skills-eval-03): until they do, a hydrated body or support file can differ, so baseCurrent:true alone does not
+    // promise that Evaluate will be accepted.
     function listedCandidate(row, includeBody) {
       const out = projectCandidate(row, includeBody);
       if (row.status === 'pending') out.baseCurrent = row.baseDigest === revisionDigest(latest.get(keyOf(row.agentId, row.name)) || null);
