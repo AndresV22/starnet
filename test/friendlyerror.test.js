@@ -210,6 +210,34 @@ for (const raw of [
   // a PROVIDER 403 (no sidecar-gate marker) keeps the auth path — only the sidecar's own gate means "reload"
   A.eq(friendlyError(new Error('invalid api key'), 403).kind, 'auth', 'a provider 403 (key rejected) still classifies as auth');
 }
+// ---- a page the station KEPT its key from is not a restarted station (review threads-backend-05 / sidecar-index-06) ----
+// The sidecar withholds the key when it cannot prove this browser runs as its own OS user; every keyed call then 403s
+// exactly like a stale page, but a reload re-runs the same check — "the station restarted — reload" is false and a dead door.
+{
+  const NOTICE = 'StarNet could not confirm this browser runs as your own user account (the ownership check timed out or failed), so it won’t take commands from this page. TEST NOTICE';
+  const withheldHarness = { tokenWithheld: () => 'lookup-failed', tokenWithheldNotice: () => NOTICE };
+  globalThis.Harness = withheldHarness;
+  try {
+    for (const [err, status] of [[new Error('sidecar HTTP 403 — forbidden token')], [new Error('sidecar HTTP 403')], [new Error('forbidden token'), 403]]) {
+      const v = friendlyError(err, status);
+      A.eq(v.userMessage, NOTICE, 'a withheld page leads with the station\'s own withheld notice: ' + err.message);
+      A.ok(!/restart|reload/i.test(v.userMessage), 'a withheld page never claims a restart or offers a reload');
+      A.eq(v.action, null, 'a withheld page gets no RELOAD door (a reload re-runs the same check)');
+      A.eq(actionButton(v), null, 'actionButton offers no door for a withheld page');
+      A.eq(v.retryable, false, 'a withheld page is not fixed by a retry');
+      A.eq(v.withheld, true, 'the verdict says the key was withheld (diagnostics)');
+    }
+    A.eq(friendlyError(new Error('invalid api key'), 403).kind, 'auth', 'a provider 403 on a withheld page is still the provider\'s auth');
+    // a Harness without the notice still never says "restarted"
+    globalThis.Harness = { tokenWithheld: () => 'other-user' };
+    const bare = friendlyError(new Error('sidecar HTTP 403'));
+    A.ok(/STARNET_TRUST_LOCAL_PEERS=1/.test(bare.userMessage) && !/restart(ed)? —|reload/i.test(bare.userMessage), 'the fallback withheld copy names the escape hatch: ' + bare.userMessage);
+    // a page that DOES hold a key keeps the stale-session reload door
+    globalThis.Harness = { tokenWithheld: () => '' };
+    const stale = friendlyError(new Error('sidecar HTTP 403 — forbidden token'));
+    A.ok(stale.kind === 'stale_session' && stale.action === 'reload' && /restarted/.test(stale.userMessage), 'a keyed page\'s stale 403 keeps the restart + reload copy');
+  } finally { delete globalThis.Harness; }
+}
 
 // ---- EL-11 FIX 3 (ladder half): a pre-stream sidecar failure that CARRIES its body reaches the oauth door ----
 {
@@ -327,6 +355,16 @@ for (const raw of [
   A.eq(kindOf("sidecar HTTP 429 — codex: You've hit your usage limit. Resets in 3 days").kind,
     friendlyError(Object.assign(new Error("codex http 429 — You've hit your usage limit. Resets in 3 days"), { status: 429 })).kind,
     'the browser fallback and the shared sidecar table give the SAME verdict');
+  // BROWSER: both stale-session sites (the "sidecar HTTP 403" ladder and kindFromRaw's bare 403) on a page the station
+  // kept its key from lead with the withheld notice and offer no reload door (review threads-backend-05)
+  sandbox.Harness = { tokenWithheld: () => 'peer-not-found', tokenWithheldNotice: () => 'WITHHELD NOTICE' };
+  for (const [m, st] of [['http 403 forbidden'], ['sidecar HTTP 403 — forbidden token'], ['forbidden token', 403]]) {
+    const v = kindOf(m, st);
+    A.ok(v.userMessage === 'WITHHELD NOTICE' && v.action === null && B.actionButton(v) === null,
+      'BROWSER: a withheld page\'s 403 (' + m + ') leads with the withheld notice, no reload door');
+  }
+  delete sandbox.Harness;
+  A.eq(kindOf('http 403 forbidden').action, 'reload', 'BROWSER: a keyed page\'s bare 403 keeps the reload door');
 }
 
 /* ---- PROVIDER 5xx/OVERLOAD => name the PROVIDER's servers, never the local service (2026-07-30) ----
