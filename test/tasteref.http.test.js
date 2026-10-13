@@ -138,13 +138,21 @@ async function run(text, agentId) {
 
     // 5c. Keep first, then a real rejection, then PUT IT BACK: the rejection must reach the provider.
     A.ok((await api('/api/taste/keep-style', {runId: r3.runId})).body.ok, 'keep the second style again');
+    // memory-learning-11: a later run rewrote the rated run's page before the verdict. Its colours and fonts are the later
+    // run's work, so the rated run's reference keeps the path but must not record them.
+    const v2File = path.join(workspace, 'agent', 'site', 'v2.html');
+    fs.writeFileSync(v2File, PAGE('#00c2ff', 'Comic Neue'));
+    const later = new Date(Date.now() + 120000); fs.utimesSync(v2File, later, later);
     const miss = await api('/api/growth/ratings', {runId: r3.runId, verdict: 'miss', correction: 'wrong colors', epoch: 1});
     A.ok(miss.body.ok && miss.body.feedbackMemory && miss.body.feedbackMemory.stored, 'the real miss was stored');
+    const missRef = (miss.body.feedbackMemory || {}).reference || {};
+    A.ok((missRef.paths || []).indexOf('site/v2.html') >= 0, 'the rated run\'s page path stays in its reference: ' + JSON.stringify(missRef.paths));
+    A.ok((missRef.palette || []).indexOf('#00c2ff') < 0 && (missRef.fonts || []).indexOf('Comic Neue') < 0, 'a page rewritten after the run lends no colours or fonts to it: ' + JSON.stringify({palette: missRef.palette, fonts: missRef.fonts}));
     const undoMiss = await api('/api/taste/keep-style', {runId: r3.runId, undo: true});
     A.ok(undoMiss.body.undone && undoMiss.body.removed === false, 'unkeep retains the real verdict');
     const r7 = await run('Plan the quarterly planning meeting.');
     const arcadeLine = r7.prompt.split('\\n').find(line => line.includes('Design the arcade night flyer')) || '';
-    A.ok(/REJECTED .*Design the arcade night flyer.*wrong colors/.test(arcadeLine) && !/APPROVED|liked:/.test(arcadeLine), 'provider receives the rejection after unkeep: ' + arcadeLine);
+    A.ok(/REJECTED .*Design the arcade night flyer.*wrong colors/.test(arcadeLine) && !/APPROVED|(?:^|[^s])liked:/.test(arcadeLine), 'provider receives the rejection after unkeep: ' + arcadeLine);
 
     // 5d. seams-03: the crew's memory cannot be written (here: the notebook path is a directory). KEEP must not report
     // that the crew learned the style.

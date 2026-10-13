@@ -26619,10 +26619,13 @@ async function captureTasteRef(lead) {
       if (!abs) continue;
       try {
         const st = await fsp.stat(abs);
-        if (st.isFile() && st.size <= 512 * 1024) files.push({ path: a.path, text: await fsp.readFile(abs, 'utf8') });
+        // mtimeMs + ranUntil: a file a LATER run rewrote before this verdict keeps its path but lends no colours or
+        // fonts (TasteRef.unchangedSince), so a rating never records another run's style as this run's
+        if (st.isFile() && st.size <= 512 * 1024) files.push({ path: a.path, text: await fsp.readFile(abs, 'utf8'), mtimeMs: st.mtimeMs });
       } catch (e) { if (!e || e.code !== 'ENOENT') failNote('taste.ref.read', e); }
     }
-    return TasteRef.buildRef({ artifacts: shown, toolTrace: lead.toolTrace, rows, files, tainted: !!lead.taintedBy, redact: (t) => redact(t), agentId: proj ? '' : agentId });
+    const ranUntil = Number(lead.endedAt) || Number(lead.ts) || 0;
+    return TasteRef.buildRef({ artifacts: shown, toolTrace: lead.toolTrace, rows, files, ranUntil, tainted: !!lead.taintedBy, redact: (t) => redact(t), agentId: proj ? '' : agentId });
   } catch (e) { failNote('taste.ref', e); return null; }
 }
 async function recordFeedbackMemory(o) {
