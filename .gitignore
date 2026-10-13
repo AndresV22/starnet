@@ -216,3 +216,7 @@ sidecar/mcp/google-client.json
 src-tauri/frontend-embed/
 # user-study-loop live proof scratch (seeded workspace + chrome profile). Never committed.
 dev/.scratch-workspace-usl-proof/
+# workspace-recovery writes its owner-record generations beside the scratch workspace (sidecar/workspace-recovery.js). Never committed.
+dev/.scratch-workspace.recovery-owner.json.generations/
+# local gate/sweep logs and scratch output moved out of the repo root. Never committed.
+/logs/
