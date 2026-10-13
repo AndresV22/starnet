@@ -228,3 +228,18 @@ test('a delegated worker\'s question toasts in the WORKER\'s name, like its card
   assert.ok(/const asker = \(p && p\.workerAgentId\) \? askerName\(p, ws\) : name;[^\n]*\n\s*if \(ws && !announcedPrompt\(p\.promptId, ws\)[^\n]*StationUI\.notify\(asker \+ ' has a quick question for you'/.test(body));
   assert.ok(!/StationUI\.notify\(name \+ ' has a quick question/.test(body), 'never the lead\'s name');
 });
+
+test('a worker question is ONE hop away: revealAsk lands on its question card, redrawing it from the open ask when it is not in the transcript', () => {
+  const cards = [], revealed = [], drawn = [];
+  const mkCard = id => ({ dataset: { clarifyPrompt: id }, focus() {} });
+  const log = { querySelectorAll: () => cards };
+  const pend = [{ promptId: 'q1', tool: 'brief.ask', workerAgentId: 'MIRA' }, { promptId: 'p2', tool: 'fs.write' }];
+  const c = ctx(part(chat, '  function revealAsk(promptId) {', '  function pinLoadedHistoryAfterLayout('), {
+    log, activeWs: { id: 'ws1' }, Channels: { pendingAllOf: () => pend },
+    permissionRow: (p) => { drawn.push(p.promptId); cards.push(mkCard(String(p.promptId))); }, revealHistory: el => revealed.push(el.dataset.clarifyPrompt) });
+  assert.equal(c.revealAsk('q1'), true, 'a missing card is drawn again from the open ask'); assert.deepEqual(drawn, ['q1']); assert.deepEqual(revealed, ['q1']);
+  assert.equal(c.revealAsk('q1'), true); assert.deepEqual(drawn, ['q1'], 'a card already showing is revealed, never drawn twice');
+  assert.equal(c.revealAsk('p2'), false, 'an approval is not a question card'); assert.equal(c.revealAsk('gone'), false, 'an answered ask reveals nothing');
+  assert.ok(/if \(typeof Chat !== 'undefined' && Chat\.revealAsk\) Chat\.revealAsk\(q\.dataset\.dgQuestion\);/.test(delegated), 'the row\'s Answer key uses it');
+  assert.ok(/i\.kind === 'question' && i\.p && typeof Chat !== 'undefined' && Chat\.revealAsk && Chat\.revealAsk\(i\.p\.promptId\)\) return;/.test(fs.readFileSync('frontend/app/needsyou.js', 'utf8')), 'NEEDS YOU Answer lands on the card, not the row');
+});

@@ -420,9 +420,8 @@ const Delegated = (() => {
       if (q) {
         e.preventDefault();
         // A question already has its real choices/free-text card in COMMS. Approve/Deny would resolve
-        // its waiter without an answer; this key only brings that exact card into view.
-        const log = $log(), card = log && Array.from(log.querySelectorAll('[data-clarify-prompt]')).find(n => n.dataset.clarifyPrompt === q.dataset.dgQuestion);
-        if (card) { if (typeof Chat !== 'undefined' && Chat.revealHistory) Chat.revealHistory(card); else card.scrollIntoView({ block: 'center' }); if (card.focus) card.focus({ preventScroll: true }); }
+        // its waiter without an answer; this key brings that exact card into view (drawing it again if needed).
+        if (typeof Chat !== 'undefined' && Chat.revealAsk) Chat.revealAsk(q.dataset.dgQuestion);
         return;
       }
       const c = t.closest('#chat-log [data-dg-consent]');

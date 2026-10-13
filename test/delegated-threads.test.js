@@ -180,12 +180,15 @@ const roster = new Map([['researcher', { system: 'R', name: 'MIRA' }], ['writer'
   let click = null, focused = 0, scrolled = 0;
   global.document = { addEventListener: (name, fn) => { if (name === 'click') click = fn; }, getElementById: () => null };
   D.presentFor(); // wire the real delegation click handler without creating a second rendered card
-  const exact = { dataset: { clarifyPrompt: 'question-1' }, scrollIntoView: () => scrolled++, focus: () => focused++ };
-  const unrelated = { dataset: { clarifyPrompt: 'question-2' }, scrollIntoView: () => { throw new Error('wrong question'); } };
-  global.document.getElementById = () => ({ querySelectorAll: () => [unrelated, exact] });
+  // the card is found (or redrawn) by Chat.revealAsk — one path shared with NEEDS YOU (thread-ux-regressions covers it)
+  const revealedAsks = [], answered = [];
+  global.Chat = { revealAsk: id => { revealedAsks.push(id); scrolled++; focused++; return true; }, answerConsent: (...a) => answered.push(a) };
   const answerKey = { dataset: { dgQuestion: 'question-1' } };
   click({ target: { closest: selector => selector === '#chat-log [data-dg-question]' ? answerKey : null }, preventDefault() {} });
-  A.eq([scrolled, focused], [1, 1], 'Answer focuses only the exact existing question card and does not submit an approval');
+  A.eq([scrolled, focused], [1, 1], 'Answer brings the question card into view');
+  A.eq(revealedAsks, ['question-1'], 'exactly that question card, by its prompt');
+  A.eq(answered.length, 0, 'and does not submit an approval');
+  delete global.Chat;
   global.document = undefined;
   pend.clear(); L.closed.clear(); L.opened.add('b2');
   A.ok(/aria-expanded="true"/.test(L.lineHtml({ lead: 'b2', rows: [running.rows[1]] }, 'home')), 'and opening a settled one too');
