@@ -135,8 +135,11 @@ body #chat-panel .workshop-return .ws-plan {
   body #chat-panel .choice-row .choice { transition: none; }
 }
 /* Preserve the meaning of host-owned approval and multi-select states. */
-body #chat-panel :is(.cmsg.turnin,.cmsg.nudge,.cmsg.consent) .consent-btn.danger {
-  color: var(--warn); border-color: rgba(var(--gold-rgb),.5);
+/* Full access warns in its words and colour only: a gold edge made it look like the suggested key (2026-10-13 review) */
+body #chat-panel :is(.cmsg.turnin,.cmsg.nudge,.cmsg.consent) .consent-btn.danger { color: var(--warn); }
+/* the key just pressed stays lit while its answer is on its way */
+body #chat-panel :is(.cmsg.turnin,.cmsg.nudge,.cmsg.consent) .consent-btn.sel:disabled {
+  opacity: 1; color: var(--ph-bright); border-color: var(--ph); background: rgba(var(--ph-rgb),.2);
 }
 body #chat-panel :is(.cmsg.turnin,.cmsg.nudge,.cmsg.consent) .consent-btn.sel,
 body #chat-panel .choice-row .choice.sel {
@@ -257,6 +260,51 @@ body .task-conversation :is(.tc-caption,.tc-dimension,.tc-answer-label,.tc-hint)
 }
 body .task-conversation :is(.tc-caption,.tc-dimension) { color: var(--ph); }
 body .task-conversation .tc-question { font-size: var(--sn-type-title) !important; line-height: 1.4; }
+/* the one-on-one choice question (chat.js clarifyRow): who asks, the question at reading size, a plain hint, the reason
+   folded — the same reading order as the group question card */
+body #chat-panel .cmsg.consent[data-clarify-prompt] .cq-who {
+  font-size: var(--sn-type-meta) !important; line-height: 1.3; letter-spacing: 1.2px; text-transform: uppercase; color: var(--gold);
+}
+body #chat-panel .cmsg.consent[data-clarify-prompt] .cq-text {
+  margin: 6px 0 4px; font-size: var(--sn-type-prose) !important; line-height: 1.45; color: var(--ph-bright); white-space: pre-wrap;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden;
+}
+/* a long question shows three lines; the whole of it is one tap away (chat.js / taskconversation.js measure it) */
+body #chat-panel .cmsg.consent[data-clarify-prompt].cq-open .cq-text,
+body .task-conversation.tc-open .tc-question { display: block; -webkit-line-clamp: unset; overflow: visible; }
+body .task-conversation .tc-question { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; white-space: pre-wrap; }
+body #chat-panel .cmsg.consent[data-clarify-prompt] .cq-whole,
+body .task-conversation .tc-whole {
+  display: block; margin: 0 0 6px; padding: 3px 0; min-height: 0; font: inherit; font-size: var(--sn-type-meta) !important;
+  letter-spacing: .3px; color: var(--ph); background: none; border: 0; box-shadow: none; text-shadow: none; cursor: pointer;
+}
+body #chat-panel .cmsg.consent[data-clarify-prompt] .cq-whole[hidden], body .task-conversation .tc-whole[hidden] { display: none; }
+body #chat-panel .cmsg.consent[data-clarify-prompt] .cq-whole:focus-visible { outline: 2px solid var(--ph); outline-offset: 2px; }
+body #chat-panel .cmsg.consent[data-clarify-prompt] .consent-btns { margin: 8px 0 0; flex-direction: column; align-items: stretch; gap: 6px; }
+body #chat-panel .cmsg.consent[data-clarify-prompt] .consent-btn { text-align: left; }
+body #chat-panel .cmsg.consent[data-clarify-prompt] .consent-btn.quiet { align-self: flex-start; }
+body #chat-panel .cmsg.consent[data-clarify-prompt] .cq-why { margin: 6px 0 0; }
+body #chat-panel .cmsg.consent[data-clarify-prompt] .cq-why > summary {
+  cursor: pointer; padding: 3px 0; font-size: var(--sn-type-meta) !important; letter-spacing: .3px; color: var(--ph);
+}
+body #chat-panel .cmsg.consent[data-clarify-prompt] .cq-why > summary:focus-visible { outline: 2px solid var(--ph); outline-offset: 2px; }
+body #chat-panel .cmsg.consent[data-clarify-prompt] .cq-why > p {
+  margin: 6px 0 2px; font-size: var(--sn-type-control) !important; line-height: 1.5; color: var(--text);
+}
+body #chat-panel .cmsg.consent[data-clarify-prompt] .cq-hint {
+  margin: 8px 0 0; font-size: var(--sn-type-meta) !important; line-height: 1.4; color: var(--text); opacity: .85;
+}
+/* a starting point that is in the answer shows it (✓ + the pressed face) */
+body .task-conversation .consent-btn.tc-shortcut[aria-pressed=true] { color: var(--ph-bright); border-color: var(--ph); background: rgba(var(--ph-rgb),.2); }
+/* the pixel face draws "fi" as a broken ligature ("frst", "defned"): COMMS reads letter by letter */
+body #chat-panel { font-variant-ligatures: none; }
+/* the reason and the draft fold under labelled lines: the question and the answer box lead the card */
+body .task-conversation :is(.tc-why,.tc-draft) { margin: 8px 0; }
+body .task-conversation :is(.tc-why,.tc-draft) > summary {
+  cursor: pointer; padding: 4px 0; font-size: var(--sn-type-meta) !important; letter-spacing: .3px; color: var(--ph);
+}
+body .task-conversation :is(.tc-why,.tc-draft) > summary:focus-visible { outline: 2px solid var(--ph); outline-offset: 2px; }
+body .task-conversation .tc-why .tc-reason { margin: 6px 0 2px; }
 body .task-conversation :is(.tc-reason,.tc-understanding,.tc-sample-text,.tc-answer-sent) {
   font-size: var(--sn-type-prose) !important; line-height: 1.5; color: var(--text);
 }

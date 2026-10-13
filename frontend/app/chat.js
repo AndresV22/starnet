@@ -123,6 +123,25 @@ const Chat = (() => {
   let userScrollAt = 0;   // last real scroll GESTURE on the log (wheel/touch/scrollbar/keys) — only a gesture can unstick
   function nearBottom() { return !log || (log.scrollHeight - log.scrollTop - log.clientHeight < 40); }
   function autoscroll() { if (stick && log) log.scrollTop = log.scrollHeight; else if (log) showNewPill(true); }   // content landed while unstuck → "new messages"
+  // a question or approval card follows the bottom like any row — unless that cuts its TOP off (who asks and what): then it
+  // shows from its top and the follow waits until it is answered (2026-10-13 review)
+  let heldCard = null;
+  function revealCard(el) {
+    if (!(stick && log && el && el.getBoundingClientRect)) { autoscroll(); return; }
+    log.scrollTop = log.scrollHeight;
+    // the presence line lands under the card right after this (~50px) and the follow goes with it: leave it the room
+    const cut = log.getBoundingClientRect().top - el.getBoundingClientRect().top;
+    if (cut > 0 || el.offsetHeight + 90 > log.clientHeight) {
+      log.scrollTop += el.getBoundingClientRect().top - log.getBoundingClientRect().top - 8;
+      stick = false; heldCard = el; showNewPill(false);
+    }
+  }
+  // answered (here or elsewhere): the run goes on, so the transcript follows it again
+  function releaseCard(el) {
+    if (!el || heldCard !== el) return;
+    heldCard = null;
+    if (!stick && log) { stick = true; log.scrollTop = log.scrollHeight; hideNewPill(); }
+  }
 
   /* COMMS-PREMIUM · the jump-to-bottom pill. Two states over ONE control (stick machinery, no new scroll state):
      • scrolled UP to re-read (stick=false) → a dim, PERSISTENT "↓ latest" affordance (so a keyboard/AT user
@@ -291,10 +310,9 @@ const Chat = (() => {
     const tool = card.querySelector('.cp-tool');
     if (tool) {
       if (paused) {
-        // e.g. "paused — waiting for you to approve fs.write"; a clarify question is an ANSWER, not a grant
-        const t = pend.tool === 'brief.ask'
-          ? 'paused — waiting for your answer to the question above'
-          : 'paused — waiting for you to approve ' + shortName(pend.tool);
+        // e.g. "paused — waiting for your approval to change notes.md" (the card's own words, never a raw tool id like
+        // fs.write — 2026-10-13); a clarify question is an ANSWER, not a grant
+        const t = pend.tool === 'brief.ask' ? 'see the question above' : 'to ' + glance(actionPhrase(pend), 70);
         if (tool.textContent !== t) tool.textContent = t;
         tool.classList.add('has'); tool.classList.add('paused-note'); tool.classList.remove('wait-note');
       } else {
@@ -2107,7 +2125,8 @@ const Chat = (() => {
     statusEl.textContent = s;
     const low = String(s || '').toLowerCase();
     statusEl.classList.remove('status-thinking', 'status-working', 'status-approval', 'status-stopping', 'status-connecting', 'status-online', 'status-down', 'status-idle');
-    statusEl.classList.add(low.indexOf('approval') >= 0 ? 'status-approval'
+    // 'awaiting your answer…' / 'awaiting your context…' are the same pause as an approval: the card + presence line say it
+    statusEl.classList.add(low.indexOf('approval') >= 0 || low.indexOf('awaiting') >= 0 ? 'status-approval'
       : low.indexOf('stopping') >= 0 ? 'status-stopping'
       : low.indexOf('working') >= 0 ? 'status-working'
       : low.indexOf('thinking') >= 0 ? 'status-thinking'
@@ -3311,7 +3330,15 @@ const Chat = (() => {
   // control, folder trust, a login host, a question) and a bare short value the phrase already shows get no panel.
   function consentInspect(p) {
     const t = String((p && p.tool) || ''), raw = String((p && p.argsSummary) || '');
-    if (/^fs[._](?:write|append|edit|patch)$/.test(t)) return { label: 'Inspect proposed change (secret patterns redacted)', text: raw || '(payload unavailable)' };
+    if (/^fs[._](?:write|append|edit|patch)$/.test(t)) {
+      // read as a file, not as JSON: the path, then the text exactly as it will be written (real line breaks, no \n)
+      const label = 'Inspect proposed change (secret patterns redacted)', o = requestArgs(raw);
+      if (!o) return { label, text: raw || '(payload unavailable)' };
+      const heads = { content: '', find: 'Find:\n', replace: 'Replace with:\n', patch: 'Patch:\n' };
+      const parts = typeof o.path === 'string' ? ['File: ' + o.path] : [];
+      for (const k of Object.keys(o)) if (k !== 'path') parts.push((k in heads ? heads[k] : k + ': ') + (typeof o[k] === 'string' ? o[k] : JSON.stringify(o[k], null, 2)));
+      return { label, text: parts.join('\n\n') || raw };
+    }
     if (/^routine[._](?:create|manage)$/.test(t)) { const o = requestArgs(raw); return { label: 'What it will do each run', text: (o && o.prompt) ? String(o.prompt) : raw || '(payload unavailable)' }; }
     if (!raw.trim() || /^station[._]/.test(t) || /^(?:path\.trust|browser\.login(?:\.done)?|brief\.ask)$/.test(t)) return null;
     const o = requestArgs(raw), label = 'Inspect complete request (secret patterns redacted)';
@@ -3389,7 +3416,9 @@ const Chat = (() => {
       try { target = JSON.parse(target).path || 'a file'; } catch (_) {}
       return 'change ' + target;
     }
-    if (/write|append|edit/.test(t)) return 'write ' + (glance(ev.argsSummary) || 'a file');
+    if (/write|append|edit/.test(t)) { const o = requestArgs(ev.argsSummary); return 'write ' + (o ? (typeof o.path === 'string' && o.path ? glance(o.path, 80) : 'a file') : glance(ev.argsSummary) || 'a file'); }
+    if (t === 'web_request') { const o = requestArgs(ev.argsSummary) || {}; return 'send a ' + String(o.method || 'web').toUpperCase().replace(/^WEB$/, 'web') + ' request' + (typeof o.url === 'string' && o.url ? ' to ' + glance(o.url, 80) : ''); }
+    if (t === 'image_generate') { const o = requestArgs(ev.argsSummary) || {}; return 'make an image' + (typeof o.prompt === 'string' && o.prompt ? ': ' + glance(o.prompt, 80) : ''); }
     if (t === 'brief.ask') return 'ask you a quick question about the task';   // clarify card renders its own body
     // ROUTINES: say WHAT will run and WHEN, never the raw JSON (argsSummary may be clipped mid-object, so read fields
     // by pattern rather than JSON.parse). "Always" here lets the agent add and change routines without asking.
@@ -3419,7 +3448,14 @@ const Chat = (() => {
     if (/^station[._]start_line$/.test(t)) return 'set what starts ' + (String(ev.argsSummary || '').split('\n')[0] || 'a workflow line');
     // STATION CONTROL (2026-10-02): a settings change asked for in chat — the sidecar's catalog sentence, never raw JSON
     if (/^station[._](?:control|power)$/.test(t)) return String(ev.argsSummary || 'change a station setting').split('\n')[0];
-    return t.replace(/_/g, '.') + (ev.argsSummary ? ' ' + glance(ev.argsSummary) : '');
+    // ANY OTHER TOOL: its name in words and the one argument that says what it acts on — never raw JSON on the card or in a
+    // toast (the card's inspect panel holds every character of the request)
+    const words = t.replace(/[._]+/g, ' ').trim(), o = requestArgs(ev.argsSummary);
+    if (o) {
+      const lead = ['url', 'path', 'query', 'prompt', 'text', 'name', 'title', 'to', 'target', 'id'].map(k => o[k]).find(v => typeof v === 'string' && v.trim());
+      return 'use ' + words + (lead ? ': ' + glance(lead, 80) : '');
+    }
+    return 'use ' + words + (ev.argsSummary ? ': ' + glance(ev.argsSummary, 80) : '');
   }
 
   /* IN-TURN CLARIFY CARD (2026-07-31, Hermes-parity). A brief.ask prompt rides the consent transport but is
@@ -3437,21 +3473,34 @@ const Chat = (() => {
     r.d.dataset.clarifyPrompt = String(p.promptId || ''); r.d.tabIndex = -1;
     if(q.mode==='conversation' && typeof TaskConversation!=='undefined') {
       const rid=ws && Channels.runIdOf(ws.id);
-      TaskConversation.mount(r.body,q,async text=>{
+      TaskConversation.mount(r.body,Object.assign({},q,{asker:askerName(p,ws)}),async text=>{
         const result=await Harness.consentAnswer(rid,p.promptId,text,true);
         if(!result || !result.ok)return false;
         // the question is answered: say so on the bus like the approval card does, or the CREW card and the world pose stay "needs your OK"
         try{if(typeof U!=='undefined'&&U.bus)U.bus.emit('permission.response',{promptId:p.promptId,decision:'once'});}catch(_){}
         if(ws)Channels.clearPending(ws.id,Date.now(),p.promptId);
         if(isActiveWs(ws)){renderPresence();syncStatus();}
+        releaseCard(r.d);
         return true;
       });
-      status('awaiting your context…');autoscroll();return;
+      status('awaiting your context…');revealCard(r.d);return;
     }
     // A batched ask shows its place ("asks (2 of 3)") so the Commander knows one more tap ends it —
     // three unannounced sequential cards would read as an interrogation with no visible bottom.
     const seq = (Number(q.total) > 1 && Number(q.ordinal) > 0) ? ' (' + q.ordinal + ' of ' + q.total + ')' : '';
-    r.body.appendChild(document.createTextNode('▣ ' + askerName(p, ws) + ' asks' + seq + ': ' + (q.question || 'which way should this go?') + ' '));
+    // WHO asks on its own line, the question at reading size (Andrew 2026-10-13: "▣ NOVA asks: …" ran the asker into a
+    // long question, and the reason sat open under it as a wall of text)
+    /* READING ORDER (Andrew 2026-10-13: "tiny … unorganized and long"): who asks · the question, three lines at most (the
+       whole of it one tap away) · the answers as keys · one plain line on how to answer · the reason, folded. */
+    const askedBy = askerName(p, ws);
+    const who = document.createElement('div'); who.className = 'cq-who'; who.textContent = askedBy + ' asks' + seq;
+    const qText = document.createElement('p'); qText.className = 'cq-text'; qText.textContent = q.question || 'Which way should this go?';
+    r.body.appendChild(who); r.body.appendChild(qText);
+    const whole = document.createElement('button'); whole.type = 'button'; whole.className = 'cq-whole'; whole.textContent = '▸ Show the whole question';
+    whole.onclick = () => { const open = !r.d.classList.contains('cq-open'); r.d.classList.toggle('cq-open', open); whole.textContent = open ? '▾ Show less' : '▸ Show the whole question'; };
+    r.body.appendChild(whole);
+    // measured after layout: a question that fits drops the key (only a laid-out one: hidden COMMS measures 0)
+    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => { if (!r.d.classList.contains('cq-open') && qText.clientHeight > 0 && qText.scrollHeight <= qText.clientHeight + 2) whole.hidden = true; });
     // TWO KINDS of suggestion, and the same law the end-run card obeys: GROUNDED comes from the
     // Commander's own answered history (>=2 times) and is PROVABLE, so it outranks the model's guess and
     // states its count; `recommended` is a guess with a rationale and stands only when nothing was observed.
@@ -3459,24 +3508,30 @@ const Chat = (() => {
     const gCount = Number(q.grounded && q.grounded.count) || 0;
     const useGrounded = gOpts.length > 0 && gCount >= 2;
     const starred = useGrounded ? gOpts : ((q.recommended && (q.options || []).indexOf(q.recommended) >= 0) ? [q.recommended] : []);
-    if (useGrounded) {
-      const g = document.createElement('div'); g.className = 'tq-reason grounded';
-      g.textContent = gOpts.length > 1
-        ? '★ you usually pick these — ' + gOpts.join(', ') + ' (chosen ' + gCount + '+ times before)'
-        : '★ suggested: ' + gOpts[0] + ' — you chose this ' + gCount + ' times before';
-      r.body.appendChild(g);
-    } else if (q.reason) {
-      const why = document.createElement('div'); why.className = 'dim'; why.textContent = q.reason;
-      r.body.appendChild(why);
-    }
     const isStar = (opt) => starred.indexOf(opt) >= 0;
+    // one plain line on how to answer, and what the ★ is (a grounded ★ states its real count); it goes once answered
+    const hint = document.createElement('div'); hint.className = 'cq-hint';
+    const howTo = ((q.multiSelect === true && (q.options || []).length > 1) ? 'Pick all that apply, then confirm.' : 'Tap an answer.')
+      + (useGrounded ? (gOpts.length > 1 ? ' ★ = what you usually pick (chosen ' + gCount + '+ times before).' : ' ★ = what you picked ' + gCount + ' times before.')
+        : starred.length ? ' ★ is ' + askedBy + '\'s suggestion.' : '');
+    hint.textContent = howTo;
+    // the model's reason is kept, one tap away — never a paragraph between the question and its answers
+    let why = null;
+    if (q.reason) {
+      why = document.createElement('details'); why.className = 'cq-why';
+      const sum = document.createElement('summary'); sum.textContent = 'Why ' + askedBy + ' is asking';
+      const body = document.createElement('p'); body.textContent = q.reason;
+      why.appendChild(sum); why.appendChild(body);
+    }
     const btns = document.createElement('span'); btns.className = 'consent-btns';
     let decided = false, submitting = false, received = null, applyElsewhere = null;
-    async function answer(text, doneLabel) {
+    async function answer(text, doneLabel, key) {
       if (decided || submitting) return;
       submitting = true;
       const buttons = Array.from(btns.querySelectorAll('button')), disabled = buttons.map(b => b.disabled);
       buttons.forEach(b => { b.disabled = true; });
+      // the pressed key stays lit and the hint says it is on its way (one answer; a refusal frees the keys again)
+      if (key) key.classList.add('sel'); hint.textContent = 'Sending your answer…';
       const rid = p.runId || ((ws && typeof Channels !== 'undefined') ? Channels.runIdOf(ws.id) : null);
       try {
         const result = await Harness.consentAnswer(rid, p.promptId, text, true);
@@ -3484,6 +3539,7 @@ const Chat = (() => {
       } catch (e) {
         submitting = false;
         if (received && applyElsewhere) { applyElsewhere(received); return; }
+        if (key) key.classList.remove('sel'); hint.textContent = howTo;
         buttons.forEach((b, i) => { b.disabled = disabled[i]; });
         if (typeof StationUI !== 'undefined' && StationUI.notify) StationUI.notify('Could not answer: ' + ((e && e.message) || e), 'warn');
         return;
@@ -3496,9 +3552,9 @@ const Chat = (() => {
       try { if (typeof U !== 'undefined' && U.bus) U.bus.emit('permission.response', { promptId: p.promptId, decision: 'once' }); } catch (_) {}
       if (ws && typeof Channels !== 'undefined') Channels.clearPending(ws.id, Date.now(), p.promptId);   // the wait never counts as run time
       if (isActiveWs(ws)) renderPresence();
-      btns.remove();
+      btns.remove(); hint.remove(); releaseCard(r.d);
       const tag = document.createElement('span'); tag.className = 'consent-result'; tag.textContent = doneLabel;
-      r.body.appendChild(tag);
+      r.body.appendChild(tag); if (why) r.body.appendChild(why);
       syncStatus();
     }
     const opts = Array.isArray(q.options) ? q.options.slice(0, 6) : [];
@@ -3506,9 +3562,6 @@ const Chat = (() => {
       // NON-EXCLUSIVE options: chips toggle, a confirm chip fires. The answer is the Commander's picks
       // joined as plain text — a typed multi-answer was always legal downstream, so the store and the
       // model see exactly what free text would have said.
-      const hint = document.createElement('div'); hint.className = 'dim';
-      hint.textContent = 'pick all that apply, then confirm';
-      r.body.appendChild(hint);
       const picked = new Set();
       const done = document.createElement('button');
       const syncDone = () => { done.textContent = picked.size ? ('✔ confirm ' + picked.size + ' pick' + (picked.size > 1 ? 's' : '')) : '✔ confirm'; done.disabled = !picked.size; };
@@ -3535,15 +3588,15 @@ const Chat = (() => {
     } else {
       for (const opt of opts) {
         const b = document.createElement('button');
-        b.className = 'consent-btn';
+        b.className = 'consent-btn' + (isStar(opt) ? ' primary' : '');   // the suggested answer is the lit key
         b.textContent = (isStar(opt) ? '★ ' : '') + opt;
-        b.onclick = () => answer(opt, '✓ ' + opt);
+        b.onclick = () => answer(opt, '✓ ' + opt, b);
         btns.appendChild(b);
       }
     }
     const skip = document.createElement('button');
-    skip.className = 'consent-btn';
-    skip.textContent = 'use your judgment';
+    skip.className = 'consent-btn quiet';
+    skip.textContent = 'Use your judgment';   // the answer it sends stays 'use your judgment' (the host matches it)
     skip.onclick = () => answer('use your judgment', '✓ your call');
     btns.appendChild(skip);
     // BATCH-WIDE ESCAPE: opting out of a 3-question batch cost 3 taps, which is the wrong ratio for the
@@ -3553,12 +3606,12 @@ const Chat = (() => {
       const rest = document.createElement('button');
       rest.className = 'consent-btn quiet';
       const left = Number(q.total) - Number(q.ordinal) + 1;
-      rest.textContent = 'use your judgment for the rest (' + left + ')';
+      rest.textContent = 'Use your judgment for the rest (' + left + ')';
       rest.title = 'decide this and the remaining ' + (left - 1) + ' yourself — the run keeps going';
       rest.onclick = () => answer('use your judgment for the rest', '✓ your call on all ' + left);
       btns.appendChild(rest);
     }
-    r.body.appendChild(btns);
+    r.body.appendChild(btns); r.body.appendChild(hint); if (why) r.body.appendChild(why);
     // STARNET REMOTE: a paired phone can answer this question too (the sidecar then puts permission.response on this
     // run's stream, as for an approval). Settle the card to what happened — it used to keep live options and "awaiting
     // your answer…" after the run had moved on, and a tap then did nothing while the card claimed it answered.
@@ -3571,11 +3624,11 @@ const Chat = (() => {
         decided = true;
         if (ws && typeof Channels !== 'undefined') Channels.clearPending(ws.id, Date.now(), p.promptId);
         if (isActiveWs(ws)) renderPresence();
-        btns.remove();
+        btns.remove(); hint.remove(); releaseCard(r.d);
         const tag = document.createElement('span');
         tag.className = 'consent-result' + (resp.decision === 'deny' ? ' err' : '');
         tag.textContent = resp.expired ? '✕ no answer in time — the agent used its judgment' : resp.decision === 'deny' ? '✕ declined' + settledWhere(resp) : '✓ answered' + settledWhere(resp);
-        r.body.appendChild(tag);
+        r.body.appendChild(tag); if (why) r.body.appendChild(why);
         syncStatus();
       };
       U.bus.on('permission.response', onElsewhere);
@@ -3588,7 +3641,7 @@ const Chat = (() => {
     const asker = (p && p.workerAgentId) ? askerName(p, ws) : name;   // a delegated worker's question names the worker, like its card
     if (ws && !announcedPrompt(p.promptId, ws) && typeof StationUI !== 'undefined') StationUI.notify(asker + ' has a quick question for you' + sessionNote(ws), 'warn', 'needsApproval', { kind: 'needs', go: { ws: ws.id }, key: 'needs:' + ws.id, prompt: p.promptId });
     else if (!ws && typeof StationUI !== 'undefined') StationUI.notify(asker + ' has a quick question for you' + sessionNote(ws), 'warn', 'needsApproval');
-    autoscroll();
+    revealCard(r.d);
     const composerBusy = !!(input && (document.activeElement === input || (input.value && input.value.trim())));
     if (!composerBusy) { try { r.d.focus({ preventScroll: true }); } catch (_) { try { r.d.focus(); } catch (_) {} } }
   }
@@ -3673,7 +3726,6 @@ const Chat = (() => {
     }
     const r = row('agent'); r.d.classList.add('tool'); r.d.classList.add('consent');
     r.body.appendChild(document.createTextNode('▣ ' + ((p && p.workerAgentId) ? askerName(p, ws) : name) + ' wants to ' + actionPhrase(p) + ' '));
-    appendConsentDetails(r.body, p);
     const btns = document.createElement('span'); btns.className = 'consent-btns';
     let decided = false, submitting = false, received = null, applyElsewhere = null;
     async function decide(decision, doneLabel, isDeny) {
@@ -3692,39 +3744,42 @@ const Chat = (() => {
       if (received && applyElsewhere) applyElsewhere(received);
       if (decision === 'full' && !res.fullSaved) { doneLabel = '✕ full access was not saved'; isDeny = true; }
       else if (decision !== 'full' && res.appliedDecision === 'deny' && decision !== 'deny') { doneLabel = '✕ approval was not applied'; isDeny = true; }
-      btns.remove();
+      btns.remove(); releaseCard(r.d);
       const tag = document.createElement('span');
       tag.className = 'consent-result' + (isDeny ? ' err' : '');
       tag.textContent = doneLabel;
       r.body.appendChild(tag);
       syncStatus();
     }
-    const mk = (text, decision, cls, doneLabel, isDeny) => {
+    const mk = (text, decision, cls, doneLabel, isDeny, title) => {
       const b = document.createElement('button');
       b.className = 'consent-btn' + (cls ? ' ' + cls : '');
       b.textContent = text;
+      if (title) b.title = title;
       b.onclick = () => decide(decision, doneLabel, isDeny);
       btns.appendChild(b); return b;
     };
     // ATTENDED BROWSER LOGIN cards get purpose-built buttons: "Always"/"Full access" make no sense for a
     // one-shot window open, and the done-wait card is a completion signal, not a permission grade.
     if (p.tool === 'browser.login') {
-      mk('Open login window', 'once', '', '✓ window opened', false);
+      mk('Open login window', 'once', 'primary', '✓ window opened', false);
       mk('Deny', 'deny', 'deny', '✕ denied', true);
     } else if (p.tool === 'browser.login.done') {
-      mk('Done — I\'ve logged in', 'once', '', '✓ done', false);
+      mk('Done — I\'ve logged in', 'once', 'primary', '✓ done', false);
       mk('Cancel', 'deny', 'deny', '✕ cancelled', true);
     } else if (p.tool === 'station.power') {
       // widening the station's leash is answered fresh every time (permissions.js tier 1.5): no Always, no Full access
-      mk('Approve once', 'once', '', '✓ approved once', false);
+      mk('Approve once', 'once', 'primary', '✓ approved once', false);
       mk('Deny', 'deny', 'deny', '✕ denied', true);
     } else {
-      mk('Approve once', 'once', '', '✓ approved once', false);
-      mk('Always', 'always', '', '✓ always allowed', false);
-      mk('Full access', 'full', 'danger', '✓ full access', false);
+      const agentName = (p && p.workerAgentId) ? askerName(p, ws) : name;
+      mk('Approve once', 'once', 'primary', '✓ approved once', false, 'Allow just this one');
+      mk('Always', 'always', '', '✓ always allowed', false, 'Allow this kind of action from now on, without asking');
+      mk('Full access', 'full', 'danger', '✓ full access', false, 'Give ' + agentName + ' full access: it stops asking before most actions, until you change it back');
       mk('Deny', 'deny', 'deny', '✕ denied', true);
     }
     r.body.appendChild(btns);
+    appendConsentDetails(r.body, p);
     // STARNET REMOTE: a paired phone can answer this same prompt. The sidecar then puts permission.response on
     // this run's own stream (harness re-emits it on U.bus). Settle the card to what actually happened, so the
     // desk never keeps live buttons on a question that was already answered elsewhere. The desk's own answer
@@ -3739,7 +3794,7 @@ const Chat = (() => {
         const denied = resp.decision === 'deny';
         if (ws && typeof Channels !== 'undefined') Channels.clearPending(ws.id, Date.now(), p.promptId);
         if (isActiveWs(ws)) renderPresence();
-        btns.remove();
+        btns.remove(); releaseCard(r.d);
         const tag = document.createElement('span');
         tag.className = 'consent-result' + (denied ? ' err' : '');
         tag.textContent = resp.expired ? '✕ no answer in time — denied' : settledLabel(resp);
@@ -3761,7 +3816,7 @@ const Chat = (() => {
     // scroll when they were already at the bottom (honor stick), and only take focus (onto the row CONTAINER, so
     // Esc=deny works but Enter can't approve) when the composer is idle. Esc still denies either way: an idle
     // composer gets the row's Esc handler; a busy composer's own Esc handler stops the paused run (also a deny).
-    autoscroll();   // honors stick — never yanks a reader who scrolled up
+    revealCard(r.d);   // honors stick — never yanks a reader who scrolled up; a tall card shows from its top
     const composerBusy = !!(input && (document.activeElement === input || (input.value && input.value.trim())));
     if (!composerBusy) { try { r.d.focus({ preventScroll: true }); } catch (_) { try { r.d.focus(); } catch (_) {} } }
   }

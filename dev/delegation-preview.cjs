@@ -49,6 +49,22 @@ async function provider() {
       send({ content: (lines.length > 1 ? 'The launch kit is ready.' : 'Here is what came back.') + '\n\n' + lines.join('\n')
         + (still.length ? '\n\n' + still.join(' and ') + (still.length > 1 ? ' are' : ' is') + ' still working; I will report when they finish.' : '') });
     }
+    else if (/\bask me a (choice|shaping) question\b/i.test(user)) {
+      // the lead's OWN question cards (brief_ask): "choice" = the clarify card with one-tap answers, "shaping" = the
+      // LET'S SHAPE THIS card (free text + starting points + a draft) — to see and drive both the way a Commander does
+      const shaping = /shaping question/i.test(user);
+      const toolText = String((messages.slice(lastUser + 1).filter(m => m.role === 'tool').pop() || {}).content || '');
+      if (!used.includes('brief_ask')) call('brief_ask', shaping
+        ? { mode: 'conversation', dimension: 'deliverable', question: 'What should the conveyor deliver first, in your own words?', options: ['Validate business opportunities', 'Build approved prototypes', 'Fulfill digital-service orders'], reason: 'These outcomes need materially different stage instructions, acceptance gates and permissions; your goals favor validation first.', sample: 'Recommended first outcome: one evidence-backed GO / TEST / NO-GO opportunity brief per job, with a concrete offer, cited demand signals and unit economics.', discoverable: false }
+        : { mode: 'choice', dimension: 'deliverable', question: 'Commander, what should the conveyor deliver first: evidence-backed business opportunities for your approval, tested prototypes from ideas you approve, or completed customer orders for a defined digital service?', options: ['Validate business opportunities', 'Build approved prototypes', 'Fulfill digital-service orders'], recommended: 'Validate business opportunities', reason: 'The existing Venture Crucible has parallel demand, economics and engineering branches. These outcomes need materially different stage instructions, acceptance gates and permissions.', discoverable: false });
+      else send({ content: 'Got it. ' + toolText.slice(0, 160) });
+    }
+    else if (/\bwrite the opportunity brief\b/i.test(user)) {
+      // the lead's OWN approval card (SEED_FULL_ACCESS=0): a file write with a long request, so INSPECT has something to show
+      if (!used.includes('brief_proceed')) call('brief_proceed', { objective: 'Write the opportunity brief', deliverable: 'opportunity-brief.md' });
+      else if (!used.includes('fs_write')) call('fs_write', { path: 'opportunity-brief.md', content: '# GO / TEST / NO-GO\n\nOffer: a local-first AI station for solo builders.\nDemand signals: 3 cited threads, 2 competitor price points.\nUnit economics: $12/mo, 70% margin after model spend.\n' });
+      else send({ content: 'Wrote opportunity-brief.md.' });
+    }
     else if (task && !system.includes('[ORCHESTRATION]')) {
       // PREVIEW_TWO_ASKS=1 (with SEED_FULL_ACCESS=0): ROOK writes a file too, so two workers wait on approvals at once
       // — answering one must leave the other waiting, with its bell and no second toast
