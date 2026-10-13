@@ -75,7 +75,9 @@ function stubs() {
 
   // ---- the host: a "full" answer to its card answers this call only; its card offers once / deny ----
   const idx = fs.readFileSync(path.join(__dirname, '..', 'sidecar', 'index.js'), 'utf8');
-  A.ok(/if \(finish && decision === 'full' && finish\.freshConsent === true\) decision = 'once';\s*if \(finish && decision === 'full'\) \{\s*persisted = persistAgentFullAccess/.test(idx), 'handleConsent: a "full" on a fresh card never persists Full Access');
+  // app-shell-ui-03: every standing grade (full, always, session) answers a fresh card once, and the route ECHOES 'once',
+  // so no surface (desk card, phone, voice) confirms "always allowed" for a grant the harness never made
+  A.ok(/if \(finish && finish\.freshConsent === true && \/\^\(full\|always\|session\)\$\/\.test\(decision\)\) decision = 'once';\s*if \(finish && decision === 'full'\) \{\s*persisted = persistAgentFullAccess/.test(idx), 'handleConsent: any standing answer on a fresh card is applied and echoed as once, and never persists Full Access');
   A.ok(/fresh: !!\(tool && tool\.freshConsent === true\)/.test(idx) && /if \(orig && fields && fields\.fresh\) orig\.freshConsent = true;/.test(idx), 'the desk prompt marks a fresh card\'s finisher');
   const chat = fs.readFileSync(path.join(__dirname, '..', 'frontend', 'app', 'chat.js'), 'utf8');
   const card = chat.slice(chat.indexOf("} else if (p.tool === 'station.power') {"), chat.indexOf("} else {", chat.indexOf("} else if (p.tool === 'station.power') {")));

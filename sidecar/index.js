@@ -22807,8 +22807,9 @@ async function handleConsent(req, res) {
   const meta = finish ? runsMeta.get(body.runId) : null;
   const agentId = meta && meta.agentId;
   let persisted = true;
-  // a fresh-consent card (station.power) offers no Full access key; a forged "full" answers this one call only
-  if (finish && decision === 'full' && finish.freshConsent === true) decision = 'once';
+  // a fresh-consent card (station.power, plugin.submit) answers THIS call only: the broker grants any yes once, so a
+  // standing answer (full, always, session) is applied and echoed as 'once', and no surface confirms a grant never made
+  if (finish && finish.freshConsent === true && /^(full|always|session)$/.test(decision)) decision = 'once';
   if (finish && decision === 'full') {
     persisted = persistAgentFullAccess(agentId);
     if (!persisted) decision = 'deny';
