@@ -243,3 +243,26 @@ test('spoken delegated approvals await confirmed exact-prompt settlement and pre
   Channels.clearPending(ws.id,Date.now(),'remote-wins');reject(new Error('local network failed'));await drain();
   assert.deepEqual(spoken,['That approval is no longer waiting.'],'a failed local request on a remotely handled prompt says so, never that it still waits (review app-shell-ui-08)');
 });
+
+test('COMMS prose resolves files where the speaking run wrote them (review comms-threads-ui-03)',()=>{
+  const renders=[], ws={id:'s',agentId:'nova',projectRoot:'C:/proj',history:[
+    {role:'assistant',content:'[open it](site/index.html)',ts:1},
+    {role:'assistant',content:'![chart](out/chart.png)',agentId:'mira',ts:2},
+    {role:'assistant',content:'[again](site/index.html)',agentId:'nova',ts:3}]};
+  const row=()=>({d:{classList:{add(){}},appendChild(){}},body:{textContent:'x',addEventListener(){}}});
+  const base={activeWs:ws,renderingHistory:false,row,renderProse:(el,text,opts)=>renders.push(opts&&opts.files),workspaceFileRefs:(...a)=>a,
+    addUser(){},toolLine(){},trimMarkerLine(){},offerTryAgain(){},offerRetry(){},isBusy:()=>false,endToolRail(){},autoscroll(){},
+    document:{hidden:true,createElement:()=>({remove(){}})}};
+  const refs=part(chat,'  function turnFileRefs(', '  function hydrateFileRefs(');
+  const c=ctx(refs+part(chat,'  function replayableDeliverables(', '  // A delivered/recovered answer'),base);
+  c.renderHistory();
+  assert.deepEqual(renders[0],['nova',null,'C:/proj'],'the session agent\'s reply resolves at the project root it wrote into');
+  assert.deepEqual(renders[1],['mira',null,undefined],'a work-line stage resolves in its own agent\'s workspace (the hop runs without the project root)');
+  assert.deepEqual(renders[2],['nova',null,'C:/proj'],'a reconciled turn stamped with the session agent is still the session\'s own reply');
+  renders.length=0;
+  const s=ctx(refs+part(chat,'  function streamingAgent(', '  // close the live paragraph (if any)'),base);
+  const own=s.streamingAgent(); own.append('see [it](site/index.html)'); own.done();
+  const hop=s.streamingAgent('MIRA','mira'); hop.append('see [it](out/chart.png)'); hop.done();
+  assert.deepEqual(renders[0],['nova',null,'C:/proj'],'live reply links resolve at the project root');
+  assert.deepEqual(renders[1],['mira',null,undefined],'a live work-line stage resolves in the stage agent\'s workspace');
+});

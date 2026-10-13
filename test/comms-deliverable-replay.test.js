@@ -41,7 +41,7 @@ function boot(code = renderSource, failProse = false) {
     imageDeliverableLine: (title, owner) => events.push(['image', title, owner]),
     mediaPlayerLine: (title, owner, kind) => events.push([kind, title, owner]),
     addUser: text => events.push(['user', text]), toolLine: text => events.push(['status', text]), trimMarkerLine() {},
-    row: () => ({ d: { classList: { add() {} } }, body: {} }),
+    row: () => ({ d: { classList: { add() {} } }, body: {} }), turnFileRefs: agentId => ({ agentId }),
     renderProse: (_body, text) => { if (failProse) throw new Error('render failed'); events.push(['reply', text]); },
     isBusy: () => false, offerTryAgain: () => events.push(['retry']), offerRetry: () => events.push(['retry']) });
   vm.runInContext(code, c); return { c, events };

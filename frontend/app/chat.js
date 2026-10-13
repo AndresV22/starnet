@@ -780,6 +780,15 @@ const Chat = (() => {
       image: path => { const aid = agentId || attachAgentId(); return cachedBlob(scope + '|' + aid + '|' + (projectRoot || '') + '|' + path, () => imageBlobUrl(fileUrl(path, aid, projectRoot), path)); }
     };
   }
+  /* WHERE A COMMS REPLY'S FILES LIVE: where the run that wrote them put them. The session's own reply ran with the
+     session's project root, so its relative writes landed AT that root. A WORK LINE stage runs as its own agent and
+     its run carries no project root (the hop's Harness.chat sends none), so its files are in that agent's workspace.
+     agentId = the turn's stamped speaker, or none for the session agent. */
+  function turnFileRefs(agentId) {
+    const sessionAgent = (activeWs && activeWs.agentId) || null;
+    const own = !agentId || agentId === (sessionAgent || 'agent');
+    return workspaceFileRefs(own ? sessionAgent : agentId, null, own ? ((activeWs && activeWs.projectRoot) || undefined) : undefined);
+  }
   function hydrateFileRefs(bodyEl) {
     if (!bodyEl.querySelector || !bodyEl.querySelector('.md-file, .md-img')) return;
     const refs = bodyEl.__fileRefs || (bodyEl.__fileRefs = workspaceFileRefs(null));
@@ -7353,7 +7362,7 @@ const Chat = (() => {
       if (stamp !== false) flushDeliverablesBefore(stamp);   // the files this reply's run produced were shown BEFORE the reply landed
       const r = row('agent', { stamp: stamp, who: spoke });   // past turns render as plain GROUPED messages; only the LIVE reply is the lit headline
       if (m.error) r.d.classList.add('err');
-      renderProse(r.body, shownText);   // same linkify path as live tokens, so replayed history matches
+      renderProse(r.body, shownText, { files: turnFileRefs(m.agentId) });   // same linkify path as live tokens, so replayed history matches
       if (m.stopped && m.stopNote) toolLine('⏹ ' + m.stopNote);   // WHY it stopped survives the reload
       lastReal = m;
     }
@@ -7434,8 +7443,10 @@ const Chat = (() => {
   // so a turn reads top-to-bottom as "said this → did that → said this", classic-harness style.
   // whoName (optional) = the speaker to stamp on every row this controller opens. Passed by a WORK LINE stage so
   // the transcript names the agent that actually produced the text; omitted everywhere else = the focused agent.
-  function streamingAgent(whoName) {
+  // whoAgentId (optional) = that stage agent's id, so its file links resolve in ITS workspace (turnFileRefs).
+  function streamingAgent(whoName, whoAgentId) {
     let seg = null, caret = null, raw = '';   // seg: the currently-open agent row; raw: its accumulated prose (so URLs can be linkified as they complete)
+    const files = turnFileRefs(whoAgentId || null);   // one resolver per reply: every paragraph of it came from the same run
     /* PER-FRAME RENDER COALESCING (2026-08-26 lag fix). Once a paragraph contains any markdown
        marker or URL, renderProse re-parses and rebuilds the WHOLE accumulated paragraph — doing
        that on every streamed token is O(n²) per answer and is a real "COMMS gets slower the
@@ -7444,7 +7455,7 @@ const Chat = (() => {
        the DOM current RIGHT NOW (closeSeg's empty-stub check, error, cleanTaskIntent, a hidden
        tab where rAF never fires) goes through flushProse() synchronously. */
     let renderQueued = false;
-    function flushProse() { renderQueued = false; if (seg) renderProse(seg.body, raw); }
+    function flushProse() { renderQueued = false; if (seg) renderProse(seg.body, raw, { files }); }
     function queueProse() {
       if (renderQueued) return;
       if (typeof requestAnimationFrame !== 'function' || (typeof document !== 'undefined' && document.hidden)) { flushProse(); autoscroll(); return; }
@@ -9367,7 +9378,7 @@ const Chat = (() => {
       // chain runner passes (sidecar/routing/chain.js) — so the same floor composes the same run here too.
       const prompt = (typeof Pipeline !== 'undefined' && Pipeline.handoffPrompt)
         ? Pipeline.handoffPrompt(seed.originalText, cur, out.text, hop, nxr.brief, nxr.verdict, nxr.last) : out.text;   // + the VERDICT / LAST-stage parts hopTurn adds (sweep 2026-10-01)
-      const hopRow = isActiveWs(ws) ? streamingAgent(who) : null;
+      const hopRow = isActiveWs(ws) ? streamingAgent(who, nx) : null;
       if (hopRow) activeLiveRow = hopRow;
       let hopAcc = '';
       let res = null;
