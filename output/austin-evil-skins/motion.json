@@ -1,0 +1,50 @@
+{
+  "drevil": {
+    "sit": {
+      "north": [
+        "https://api.pixellab.ai/mcp/images/5a5691c0-95e8-4707-96ce-7b7d98fe65a1/download?index=4"
+      ],
+      "south": [
+        "https://api.pixellab.ai/mcp/images/25b90a01-7701-4963-931b-bc4cb33077a4/download?index=4"
+      ],
+      "east": [
+        "https://api.pixellab.ai/mcp/images/c221f7a4-fa22-45f4-9bb3-541f008ed122/download?index=4"
+      ],
+      "west": [
+        "https://api.pixellab.ai/mcp/images/d53c014a-d726-4ca4-9e3a-5cd23dc07947/download?index=4"
+      ]
+    },
+    "type": {
+      "north": [
+        "https://api.pixellab.ai/mcp/images/0cbde7e8-284a-4b49-a065-10a3ebf8e062/download?index=1",
+        "https://api.pixellab.ai/mcp/images/0cbde7e8-284a-4b49-a065-10a3ebf8e062/download?index=2",
+        "https://api.pixellab.ai/mcp/images/0cbde7e8-284a-4b49-a065-10a3ebf8e062/download?index=3",
+        "https://api.pixellab.ai/mcp/images/0cbde7e8-284a-4b49-a065-10a3ebf8e062/download?index=4"
+      ]
+    }
+  },
+  "austinpowers": {
+    "sit": {
+      "north": [
+        "https://api.pixellab.ai/mcp/images/93e258d5-64af-47ca-b62b-1ded02e0dc72/download?index=4"
+      ],
+      "east": [
+        "https://api.pixellab.ai/mcp/images/68354753-fa48-410a-8d86-ef5e9aea4b95/download?index=4"
+      ],
+      "south": [
+        "https://api.pixellab.ai/mcp/images/76f6e1f6-4502-4e28-9141-ff45a4083b89/download?index=4"
+      ],
+      "west": [
+        "https://api.pixellab.ai/mcp/images/a255fd82-0704-4636-94b1-41e95156af88/download?index=4"
+      ]
+    },
+    "type": {
+      "north": [
+        "https://api.pixellab.ai/mcp/images/f78539f5-e1e7-42f5-bf3d-dac173651a54/download?index=1",
+        "https://api.pixellab.ai/mcp/images/f78539f5-e1e7-42f5-bf3d-dac173651a54/download?index=2",
+        "https://api.pixellab.ai/mcp/images/f78539f5-e1e7-42f5-bf3d-dac173651a54/download?index=3",
+        "https://api.pixellab.ai/mcp/images/f78539f5-e1e7-42f5-bf3d-dac173651a54/download?index=4"
+      ]
+    }
+  }
+}

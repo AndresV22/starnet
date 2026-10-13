@@ -733,6 +733,34 @@
       "sourceStandingHeight": 76,
       "readyForStation": true,
       "renderSet": "approved_tylerdurden"
+    },
+    {
+      "id": "austinpowers",
+      "skin": "austinpowers",
+      "name": "Austin Powers",
+      "stage": "complete",
+      "targetStandingHeight": 19,
+      "walkFramesReady": true,
+      "walkReady": true,
+      "complete": true,
+      "retainedOriginal": false,
+      "sourceStandingHeight": 76,
+      "readyForStation": true,
+      "renderSet": "approved_austinpowers"
+    },
+    {
+      "id": "drevil",
+      "skin": "drevil",
+      "name": "Dr. Evil",
+      "stage": "complete",
+      "targetStandingHeight": 19,
+      "walkFramesReady": true,
+      "walkReady": true,
+      "complete": true,
+      "retainedOriginal": false,
+      "sourceStandingHeight": 76,
+      "readyForStation": true,
+      "renderSet": "approved_drevil"
     }
   ]
 }
