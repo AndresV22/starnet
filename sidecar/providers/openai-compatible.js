@@ -947,7 +947,9 @@
       return ['none'];
     }
 
-    return { stream, listModels, contextLimit, priceOf, supportsTools, reasoningEfforts };
+    // localRuntime names the Ollama server this instance talks to, so the loop never fails a local out-of-memory
+    // over to another model on the same server.
+    return { stream, listModels, contextLimit, priceOf, supportsTools, reasoningEfforts, localRuntime: nativeBase || undefined };
   }
 
   return { makeOpenAICompatibleProvider, _internals: { normalizeModel, cleanBaseUrl, responseErrorDetail, safeErrorField, clampToDeclared, canonicalEffort, paramNamed, supportedEffortsFrom, toolsForceNone, replayReasoningContent } };

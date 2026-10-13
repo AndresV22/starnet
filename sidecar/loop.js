@@ -1828,7 +1828,14 @@
           outputCapRetried, waitedMs: ladderWaitMs, patienceMs: STREAM_RETRY_PATIENCE_MS, jitterSample: sample,
           idleStalls
         });
-        let decision = decide(!!(context && summarize), fbIndex < fallbacks.length);
+        // A local out-of-memory must not fail over onto another model on the same local runtime (a second
+        // allocation on the same GPU): skip those entries, so the policy only picks 'fallback' when one is left.
+        const sameLocalRuntime = fb => !!fb && (fb.provider === provider || (!!provider.localRuntime && !!fb.provider && fb.provider.localRuntime === provider.localRuntime));
+        const fallbackLeft = () => {
+          if (cls.reason === 'local_memory') while (fbIndex < fallbacks.length && sameLocalRuntime(fallbacks[fbIndex])) fbIndex++;
+          return fbIndex < fallbacks.length;
+        };
+        let decision = decide(!!(context && summarize), fallbackLeft());
         if (decision.action === 'lower_output') {
           // output_cap: same turn, same prompt, the output budget lowered to the ceiling the provider named. No
           // fold (the prompt was never the problem) and no wait; outputCapRetried makes a second refusal fatal.
@@ -1875,7 +1882,7 @@
             });
             break;
           }
-          decision = decide(false, fbIndex < fallbacks.length);
+          decision = decide(false, fallbackLeft());
         }
         if (decision.action === 'fallback') {
           const fb = fallbacks[fbIndex++];

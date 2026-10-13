@@ -9,7 +9,7 @@
 
    Reasons: auth · billing · rate_limit · quota_exhausted · overloaded · server_error · timeout ·
             context_overflow · output_cap · model_not_found · content_policy_blocked · format_error ·
-            tls_certificate · local_error · unknown.
+            tls_certificate · local_memory · local_error · unknown.
 
    Priority pipeline: content/policy -> HTTP status (code+message consulted inside the ambiguous 400 branch)
    -> structured error-code (for errors with no HTTP status) -> message patterns -> transport -> a
@@ -61,6 +61,9 @@
        the same crash through the whole ~106s ladder before the user saw the real message. Deterministic code
        fails deterministically — fail fast, verbatim. */
     local_error:            { retryable: false, shouldRotateCredential: false, shouldFallback: false, shouldCompress: false },
+    /* An adapter-proven local allocation failure (Ollama out of memory). Resending repeats the allocation, so no
+       retry; a configured fallback OFF that local runtime may take over (the loop skips same-runtime entries). */
+    local_memory:           { retryable: false, shouldRotateCredential: false, shouldFallback: true,  shouldCompress: false },
     unknown:                { retryable: true,  shouldRotateCredential: false, shouldFallback: false, shouldCompress: false }
   };
 
@@ -306,7 +309,7 @@
     //    because neither carries a status or a body — so no later rule can be describing the provider's intent.
     if (!status && isTlsFailure(err, low)) return 'tls_certificate';
     // The Ollama adapter proves the runtime and an explicit failed allocation, even when it returns 500.
-    if (err && err.localModelMemory === true) return 'local_error';
+    if (err && err.localModelMemory === true) return 'local_memory';
     if (isLocalError(err, status, extractBody(err), low)) return 'local_error';
     /* 1. content / policy (most specific intent) — but a TRANSPORT status wins over a text match.
        This ran against the whole message before the status was consulted, so any retryable failure whose
@@ -393,7 +396,7 @@
     const f = REASONS[reason] || REASONS.unknown;
     const wait = extractRetryAfter(err, body, message);
     let text = annotateTransport(message, err);
-    if (reason === 'local_error' && !(err && err.localModelMemory === true)) {
+    if (reason === 'local_error') {
       // name the class so "Cannot read properties of undefined" reads as the crash it is, not a provider refusal
       const name = String((err && err.name) || 'Error');
       if (text.indexOf(name) !== 0) text = name + ': ' + text;

@@ -333,10 +333,12 @@ module.exports = (async () => {
         try { await collect(p, { model: 'qwen3:8b', messages: [{ role: 'user', content: 'hello' }] }); } catch (e) { err = e; }
         A.eq(posts, 1, mode + ': the failed allocation is never resent');
         const cls = errorClass.classifyApiError(err, { model: 'qwen3:8b' });
-        A.eq(cls.reason, 'local_error', mode + ': memory exhaustion uses the existing terminal local failure category');
+        A.eq(cls.reason, 'local_memory', mode + ': memory exhaustion has its own local category');
         A.eq(cls.retryable, false, mode + ': memory exhaustion cannot enter the host retry ladder');
+        A.eq(require('../sidecar/recovery-policy.js').providerFailure({ classification: cls, hasFallback: false, maxRecoveries: 3 }).action,
+          'fail', mode + ': with no eligible fallback it neither retries nor reallocates');
         A.eq(require('../sidecar/recovery-policy.js').providerFailure({ classification: cls, hasFallback: true, maxRecoveries: 3 }).action,
-          'fail', mode + ': neither retries nor an automatic second local-model allocation follow');
+          'fallback', mode + ': a configured fallback (off this runtime, the loop decides) may take over');
         A.ok(/^Local model ran out of memory\./.test(err && err.message), mode + ': forwarded error carries an actionable local-memory headline');
         A.ok(err && err.message.includes(detail), mode + ': the exact allocation failure remains available for diagnostics');
       }
@@ -368,10 +370,49 @@ module.exports = (async () => {
     A.eq(posts, 1, 'the real host loop does not restart a failed local model allocation');
     A.eq(waits, [], 'no adapter or host retry wait occurs');
     A.eq(recoveries, [], 'no retry recovery is falsely reported');
-    A.eq([result.reason, result.failureStage, result.failureCode], ['error', 'provider_stream', 'local_error'], 'terminal failure telemetry is retained');
+    A.eq([result.reason, result.failureStage, result.failureCode], ['error', 'provider_stream', 'local_memory'], 'terminal failure telemetry is retained');
     const error = seq.find(row => row.name === 'agent.run.error');
     A.eq(error && error.payload.transient, false, 'the actual emitted error is terminal');
     A.ok(error && /^Local model ran out of memory\./.test(error.payload.message), 'the actual error event carries the memory headline');
+  }
+
+  // Review providers-tools-02: out of memory fails over to a configured fallback OFF this local runtime, never to a
+  // second model on the same Ollama (another allocation on the same GPU), and fails honestly when only those remain.
+  for (const withHosted of [true, false]) {
+    let localPosts = 0, hostedPosts = 0;
+    const seq = [], waits = [];
+    const local = makeOpenAICompatibleProvider({ nativeOllama: true, baseUrl: 'http://127.0.0.1:11434/v1', fetch: async url => {
+      if (url.endsWith('/api/show')) return SHOW(40960, ['completion', 'tools']);
+      if (url.endsWith('/api/chat')) { localPosts++; return new Response(JSON.stringify({ error: 'failed to allocate CUDA0 buffer of size 4869357568' }), { status: 500 }); }
+      return new Response('{"data":[],"models":[]}', { status: 200 });
+    } });
+    // the saved SETTINGS chain shape: a separate Ollama provider object on the same runtime, then a hosted one
+    const localAgain = makeOpenAICompatibleProvider({ nativeOllama: true, baseUrl: 'http://127.0.0.1:11434/v1', fetch: async url => {
+      if (url.endsWith('/api/show')) return SHOW(40960, ['completion', 'tools']);
+      if (url.endsWith('/api/chat')) { localPosts++; return new Response(JSON.stringify({ error: 'failed to allocate CUDA0 buffer' }), { status: 500 }); }
+      return new Response('{"data":[],"models":[]}', { status: 200 });
+    } });
+    const hosted = makeOpenAICompatibleProvider({ baseUrl: 'https://hosted-fallback.test/v1', fetch: async url => {
+      if (url.endsWith('/chat/completions')) { hostedPosts++; return new Response('data: {"choices":[{"delta":{"content":"hosted ok"},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n', { status: 200 }); }
+      return new Response('{"data":[]}', { status: 200 });
+    } });
+    const fallbacks = [{ provider: local, providerId: 'ollama', model: 'qwen3:4b' }, { provider: localAgain, providerId: 'ollama', model: 'qwen3:1.7b' }];
+    if (withHosted) fallbacks.push({ provider: hosted, providerId: 'openrouter', model: 'hosted/model' });
+    const result = await require('../sidecar/loop.js').runAgentLoop({ provider: local, model: 'qwen3:14b', agentId: 'oom-fb', runId: 'oom-fb-' + withHosted,
+      messages: [{ role: 'user', content: 'hello' }], fallbacks, emit: (name, payload) => seq.push({ name, payload }), sleep: async ms => { waits.push(ms); } });
+    A.eq(localPosts, 1, (withHosted ? 'hosted chain' : 'local-only chain') + ': no second allocation on the same local runtime');
+    A.eq(waits, [], 'no retry wait after a local out-of-memory');
+    if (withHosted) {
+      A.eq(hostedPosts, 1, 'the hosted fallback is taken');
+      A.eq(result.reason, 'done', 'the run completes on the hosted fallback');
+      const fb = seq.find(r => r.name === 'provider.fallback');
+      A.ok(fb && fb.payload.toModel === 'hosted/model' && fb.payload.reason === 'local_memory', 'the failover receipt names the hosted model and the memory reason');
+    } else {
+      A.eq(result.reason, 'error', 'with only same-runtime fallbacks the run ends');
+      const error = seq.find(r => r.name === 'agent.run.error');
+      A.ok(error && /^Local model ran out of memory\./.test(error.payload.message), 'the memory headline is kept');
+      A.ok(!seq.some(r => r.name === 'provider.fallback'), 'no failover to the same runtime is reported');
+    }
   }
 
   A.report('provider.ollama-native.test');
