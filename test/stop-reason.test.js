@@ -30,6 +30,16 @@ A.ok(/no published price|no price/.test(SR.stopSentence('budget', { unpricedMode
 A.ok(!/^run ended without completion: empty$/.test(SR.incompleteRunMessage('empty')) && /empty reply/.test(SR.incompleteRunMessage('empty')) && /\[empty\]$/.test(SR.incompleteRunMessage('empty')),
   'a routine settlement reads in words and keeps the machine reason for triage: ' + SR.incompleteRunMessage('empty'));
 A.ok(/missing terminal outcome/.test(SR.incompleteRunMessage('')), 'a missing outcome is named, never blank');
+// a routine/loop has no conversation to say "continue" to: its settlement names a door that exists (review conveyor-backend-12)
+for (const r of ['max_iters', 'empty']) {
+  for (const extra of [undefined, { toolsRan: 2 }]) {
+    const line = SR.incompleteRunMessage(r, extra);
+    A.ok(!/continue/.test(line) && /run it again/.test(line), 'an unattended ' + r + ' end never says "continue": ' + line);
+  }
+}
+A.ok(/continue/.test(SR.stopSentence('max_iters')) && /continue/.test(SR.stopSentence('empty')), 'the chat wording (Telegram/Discord) keeps its "continue" door');
+A.ok(!/continue/.test(SR.stopSentence('done', { finishReason: 'length', unattended: true })), 'an unattended cut reply never says "continue"');
+A.ok(!/continue/.test(SR.stopSentence('budget', { subscriptionModel: 'claude', unattended: true })), 'an unattended subscription ceiling never says "continue"');
 // an empty end AFTER tools ran must never say "nothing was done" — a file may already be written (review threads-backend-03)
 {
   const afterTools = SR.stopSentence('empty', { toolsRan: 2 });
