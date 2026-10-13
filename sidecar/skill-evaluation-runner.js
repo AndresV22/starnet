@@ -41,6 +41,19 @@ function createTaskHandoffSuite(skillName) {
         checks: [{ id: 'do-not-transfer-old-success', kind: 'json_equal', expected: { objective: 'export inactive accounts', destination: 'reports/archive.json', verified: false, nextAction: 'write requested file' } }] }
     ] };
 }
+/* EVALUATION LIMITS, SIZED TO THE SUITE AND THE COMMANDER'S RUN CAP. A fixed 120 s clock and $0.08 per run stopped
+   every evaluation on a slow reasoning model (16 calls at ~15 s each) or a premium-priced one, and the stop left an
+   unsettled receipt. Every case runs twice (without and with the proposal). Each run gets the Commander's per-run
+   cap (runCapUsd; $0.08 when the host gives none), the whole evaluation is bounded by runs x that cap, and the wall
+   clock allows ~90 s per run, never under 2 minutes or over 20. The host sizes its timer, the page's wait, the
+   runner's limits.maxCostUsd and the accounting's runCapUsd/maxUsd from this one result. */
+function evaluationLimits(options) {
+  const o = options || {};
+  const runs = Math.max(1, Math.floor(Number(o.cases) || 0)) * 2;
+  const cap = Number(o.runCapUsd);
+  const perRunUsd = Number.isFinite(cap) && cap > 0 ? cap : 0.08;
+  return { runs, perRunUsd, totalUsd: perRunUsd * runs, wallClockMs: Math.min(20 * 60000, Math.max(120000, runs * 90000)) };
+}
 function makeAgentLoopCaseRunner(options) {
   const o = options || {};
   if (!o.provider || typeof o.provider.stream !== 'function') throw new Error('evaluation provider required');
@@ -160,4 +173,4 @@ function makeAgentLoopCaseRunner(options) {
     return { reason: result.reason, value, artifacts: Object.fromEntries(files), toolCalls };
   };
 }
-module.exports = { createArtifactWorkflowSuite, createTaskHandoffSuite, makeAgentLoopCaseRunner };
+module.exports = { createArtifactWorkflowSuite, createTaskHandoffSuite, makeAgentLoopCaseRunner, evaluationLimits };

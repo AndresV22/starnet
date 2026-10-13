@@ -164,6 +164,42 @@ async function main() {
     assert.equal(rows.length, 1); assert.equal(rows[0].usd, 0.01);
     assert.equal(ledger.health().complete, true);
   }
+  // EVALUATION LIMITS ARE SIZED, NOT FIXED (skills-eval-06): a fixed 120 s clock and $0.08 per run stopped every
+  // evaluation on a slow reasoning model or a premium-priced one. The wall clock grows with the suite and each run
+  // gets the Commander's per-run cap.
+  {
+    const { evaluationLimits } = require('../sidecar/skill-evaluation-runner.js');
+    assert.equal(typeof evaluationLimits, 'function', 'the runner exports its sizing rule');
+    const two = evaluationLimits({ cases: 2, runCapUsd: 1 });
+    assert.equal(two.runs, 4, 'every case runs once without and once with the proposal');
+    assert.ok(two.wallClockMs >= 4 * 90000, 'four ~15 s x 6-call runs fit the clock (' + two.wallClockMs + ' ms)');
+    assert.equal(two.perRunUsd, 1, 'a run gets the Commander\'s per-run cap');
+    assert.equal(two.totalUsd, 4, 'the whole evaluation is bounded by runs x that cap');
+    assert.equal(evaluationLimits({ cases: 12, runCapUsd: 1 }).wallClockMs, 20 * 60000, 'the clock never passes 20 minutes');
+    assert.equal(evaluationLimits({ cases: 1 }).wallClockMs, 180000);
+    assert.equal(evaluationLimits({}).perRunUsd, 0.08, 'no host cap keeps the old per-run default');
+    assert.equal(evaluationLimits({ cases: 2, runCapUsd: -1 }).perRunUsd, 0.08, 'a nonsense cap is ignored');
+    // A premium model: each provider call costs $0.10. Under the old fixed $0.08 a tool step plus the answer was
+    // refused mid-run; under the Commander's $1 run cap the run finishes and books both calls.
+    const premium = { type: 'usage', usage: { prompt_tokens: 12, completion_tokens: 4, cost: 0.10 } };
+    const script = (_request, n) => n === 1
+      ? (async function* () { yield { type: 'tool_start', index: 0, id: 'read', name: 'fs_read' }; yield { type: 'tool_args', index: 0, chunk: '{"path":"input.json"}' }; yield premium; yield { type: 'done', finishReason: 'tool_calls' }; })()
+      : (async function* () { yield text; yield premium; yield done; })();
+    const runPremium = async limits => {
+      let result;
+      const provider = { async *stream(request) { yield* script(request, ++runPremium.count); }, contextLimit: () => 8000 };
+      runPremium.count = 0;
+      const runner = makeAgentLoopCaseRunner({ provider, model: 'scripted/premium', runIdPrefix: 'premium', clock: { now: () => 1 },
+        cost: makeCostEngine({ priceOf: () => ({ in: 1, out: 1 }) }), limits: Object.assign({ maxIters: 3, grace: false, continueGuard: false, emptyRetry: false }, limits),
+        beforeRun: async () => true, onRun: async row => { result = row.result; } });
+      const observation = await runner({ task: { id: 'premium', prompt: 'Read input.json, then return only JSON {"answer":42}.', fixtures: { 'input.json': '{"answer":42}' } }, skill: null, phase: 'after' });
+      return { observation, result };
+    };
+    assert.equal((await runPremium({ maxCostUsd: 0.08 })).observation.reason, 'budget', 'the old fixed cap stops the premium run after its first call');
+    const sized = await runPremium({ maxCostUsd: evaluationLimits({ cases: 2, runCapUsd: 1 }).perRunUsd });
+    assert.equal(sized.observation.reason, 'done', 'the sized cap lets the premium run finish');
+    assert.ok(Math.abs(sized.result.usd - 0.20) < 1e-9 && sized.result.accountingIncomplete === false, 'both calls are booked as known spend');
+  }
   console.log('skill.evaluation.accounting: unmetered $0, metered unpriced, real loop usage, empty usage, partial throw, cancellation, retry uncertainty and billed length stop PASS');
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });
