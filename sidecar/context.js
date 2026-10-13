@@ -351,7 +351,10 @@
     const meta = records.recallMeta || {};
     const priority = new Set(meta.priority || records.filter(r => r && (r.pinned || isStandingMemory(r))));
     const priorityLimit = recallOpts.priorityLimit == null ? 4000 : Math.max(0, Math.min(8000, Number(recallOpts.priorityLimit) || 0));
-    let regularUsed = 0, priorityUsed = 0, omitted = Number(meta.omitted) || 0, shortened = 0;
+    // omitted/shortened = cut HERE to fit the budget. notShown = ranked below the top-k by rank(): ordinary ranking,
+    // disclosed as such, never as an omission (review memory-learning-04: it read as "52 memories omitted" every run).
+    let regularUsed = 0, priorityUsed = 0, omitted = 0, shortened = 0;
+    const notShown = Math.max(0, Math.floor(Number(meta.notShown) || 0));
     // Priority records have a separate bounded allowance. Never clip a requirement into an apparently
     // complete instruction: an omitted suffix may contain its exception or negation.
     for (const r of records) {
@@ -372,14 +375,23 @@
       if (!blocked && r && r.id) usedIds.push(r.id);
     }
     if (!lines.length && !omitted) return out;
-    const notice = omitted || shortened
-      ? '\n[' + omitted + ' matching saved memor' + (omitted === 1 ? 'y' : 'ies') + ' omitted; ' + shortened + ' shortened to fit the prompt. Use notebook.read to retrieve the full records before relying on a requirement not shown here.]'
-      : '';
+    const memories = n => n + ' saved memor' + (n === 1 ? 'y' : 'ies');
+    const parts = [];
+    if (omitted) parts.push(memories(omitted) + ' omitted' + (shortened ? ' and ' + shortened + ' shortened' : '') + ' to fit the prompt');
+    else if (shortened) parts.push(memories(shortened) + ' shortened to fit the prompt');
+    if (notShown) parts.push(typeof recallOpts.notShownText === 'function' ? recallOpts.notShownText(notShown)
+      : notShown + ' more ' + (meta.queried ? 'matching ' : '') + 'saved memor' + (notShown === 1 ? 'y' : 'ies') + ' ranked lower');
+    // The pointer is for a cut that can hide a requirement: a budget cut, or a pinned/standing record past rank's cap.
+    const pointer = recallOpts.pointer !== false && (omitted || shortened || Number(meta.priorityNotShown) > 0)
+      ? ' Use notebook.read with a query to check for a requirement not shown here.' : '';
+    const notice = recallOpts.notice !== false && parts.length ? '\n[' + parts.join('; ') + '.' + pointer + ']' : '';
     out.text = '<recalled-memory>\n' + header + '\n' + lines.join('\n') + notice + '\n</recalled-memory>';
     out.count = lines.length;
     out.chars = out.text.length;
     out.usedIds = usedIds;
-    if (omitted || shortened) { out.omitted = omitted; out.shortened = shortened; }
+    // out.omitted counts every record left out of the prompt (budget + ranking); out.notShown is the ranking part
+    if (omitted || shortened || notShown) { out.omitted = omitted + notShown; out.shortened = shortened; }
+    if (notShown) out.notShown = notShown;
 
     return out;
   }
@@ -598,14 +610,17 @@
     if (rankOpts.floor === false) {
       const explicit = scored.slice(0, k);
       const selected = explicit.map(s => s.r);
-      Object.defineProperty(selected, 'recallMeta', { value: { priority: explicit.filter(s => s.pinnedHere || s.standing).map(s => s.r), omitted: scored.length - selected.length } });
+      const shownPriority = explicit.filter(s => s.pinnedHere || s.standing);
+      Object.defineProperty(selected, 'recallMeta', { value: { priority: shownPriority.map(s => s.r), notShown: scored.length - selected.length, queried: rel.queried,
+        priorityNotShown: scored.filter(s => s.pinnedHere || s.standing).length - shownPriority.length } });
       return selected;
     }
-    const priority = scored.filter(s => s.pinnedHere || s.standing).slice(0, 32);
+    const allPriority = scored.filter(s => s.pinnedHere || s.standing);
+    const priority = allPriority.slice(0, 32);
     const ordinary = scored.filter(s => !(s.pinnedHere || s.standing)).slice(0, k);
     const chosen = new Set(priority.concat(ordinary));
     const selected = scored.filter(s => chosen.has(s)).map(s => s.r);
-    Object.defineProperty(selected, 'recallMeta', { value: { priority: priority.map(s => s.r), omitted: scored.length - selected.length } });
+    Object.defineProperty(selected, 'recallMeta', { value: { priority: priority.map(s => s.r), notShown: scored.length - selected.length, queried: rel.queried, priorityNotShown: allPriority.length - priority.length } });
     return selected;
   }
 
@@ -621,7 +636,7 @@
     const ranked = rank(records, recentText || '', { now: now, k: opts.k || 5, streamId: opts.streamId || null, projectRoot: opts.projectRoot || null, vectors: opts.vectors || null, queryVec: opts.queryVec || null });
     if (!ranked.length) return '';
     const rr = renderRecall(ranked, {
-      limit: opts.limit || 800, priorityLimit: 0,
+      limit: opts.limit || 800, priorityLimit: 0, notice: false,   // the summarizer has no tools: no notebook.read pointer
       header: '[durable memory — preserve any of these still-relevant facts in the summary below]'
     });
     return rr.text || '';

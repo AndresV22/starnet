@@ -424,4 +424,23 @@ A.ok(renderRecall([{ content: 'prefers reports', confirmation: 'user-confirmed' 
   A.eq(C.rank([old, Object.assign({}, corrected, { scope: 'project', projectRoot: 'C:/secret' })], 'tabs').map(x => x.id), ['old-copy'], 'project correction cannot retire a global preference');
 }
 
+// Review memory-learning-04: ordinary top-k ranking is not an omission. A 60-note notebook used to end every run's
+// recall with "[52 matching saved memories omitted … Use notebook.read …]", so models called notebook.read on routine
+// turns. Ranking cuts are disclosed as "ranked lower"; the notebook.read pointer is kept for budget cuts only.
+{
+  const C = require('../sidecar/context.js');
+  const notes = Array.from({ length: 60 }, (_, i) => ({ id: 'n' + i, kind: 'fact', content: 'deploy note ' + i, createdAt: i }));
+  const routine = C.renderRecall(C.rank(notes, 'deploy', { now: 100 }));
+  A.ok(/\[52 more matching saved memories ranked lower\.\]/.test(routine.text), 'a ranking cut is disclosed as ranked lower: ' + routine.text.slice(-120));
+  A.ok(!/notebook\.read/.test(routine.text) && !/omitted/.test(routine.text), 'a ranking cut does not tell the model to call notebook.read');
+  A.eq(routine.omitted, 52, 'out.omitted still counts every record left out of the prompt');
+  A.eq(routine.notShown, 52, 'out.notShown counts the ranking cut on its own');
+  const imageOnly = C.renderRecall(C.rank(notes, '', { now: 100 }));
+  A.ok(/\[52 more saved memories ranked lower\.\]/.test(imageOnly.text), 'a turn with no words does not claim the memories matched: ' + imageOnly.text.slice(-80));
+  const tight = C.renderRecall(C.rank(notes, 'deploy', { now: 100 }), { limit: 40 });
+  A.ok(/omitted to fit the prompt/.test(tight.text) && /notebook\.read/.test(tight.text), 'a budget cut keeps the notebook.read pointer: ' + tight.text.slice(-200));
+  const summarizer = C.compactionMemoryBlock(notes, 'deploy', { now: 100, limit: 60 });
+  A.ok(summarizer.length > 0 && !/notebook\.read/.test(summarizer) && !/omitted|ranked lower/.test(summarizer), 'the tool-less summarizer gets no notice: ' + summarizer);
+}
+
 A.report('context.test');

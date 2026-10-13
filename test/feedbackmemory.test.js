@@ -185,7 +185,8 @@ A.eq(block.usedIds.length, 2, 'both count as used');
   A.ok(selected.some(r => r.sourceRunId === 'old-database'), 'relevant older feedback competes with current verdicts');
   A.eq(selected[0].sourceRunId, 'new9', 'newest verdict remains first when older feedback is selected');
   const rendered = FM.renderTaste(selected, renderRecall);
-  A.ok(rendered.omitted > 0 && /omitted/.test(rendered.text), 'feedback selection discloses omitted stored records');
+  A.ok(rendered.omitted > 0 && /\[\d+ older verdicts? not shown\.\]/.test(rendered.text), 'feedback selection discloses the older verdicts it left out');
+  A.ok(!/notebook\.read/.test(rendered.text), 'no notebook.read pointer: a shared verdict has no id it could fetch (review memory-learning-04)');
   A.eq(FM.stationTaste([], [[Object.assign({}, old, { projectRoot: 'C:/private' })]]).length, 0, 'project-private feedback cannot enter the station taste block');
 }
 

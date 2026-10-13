@@ -202,7 +202,7 @@ function selectTaste(records, opts) {
   candidates.sort((a, b) => b.score - a.score || a.i - b.i);
   for (const row of candidates) { if (chosen.size >= limit) break; chosen.add(row.r); }
   const selected = all.filter(r => chosen.has(r));   // render newest first, so conflicts retain temporal authority
-  Object.defineProperty(selected, 'recallMeta', { value: { omitted: all.length - selected.length } });
+  Object.defineProperty(selected, 'recallMeta', { value: { notShown: all.length - selected.length } });
   return selected;
 }
 
@@ -306,9 +306,12 @@ function renderTaste(records, renderRecall, opts) {
   }
   const lines = recs.map((r, i) => ({ id: r.id, title: '', body: tasteLine(r, levels[i], viewer), content: String(r.content || r.body || '') + TasteRef.refLine(r.feedbackRef, 0, viewer) }));
   const header = TASTE_HEADER + (recs.some(r => r.feedbackRef) ? '\n' + TASTE_REF_RULE : '');
-  // the levels above already fit the budget; the slack only absorbs a recall-line format change, never drops a record
-  Object.defineProperty(lines, 'recallMeta', { value: { omitted: (records.recallMeta && records.recallMeta.omitted) || 0, priority: [] } });
-  return renderRecall(lines, { limit: budget + 400, priorityLimit: 0, header });
+  // the levels above already fit the budget; the slack only absorbs a recall-line format change, never drops a record.
+  // The selection cut is disclosed as older verdicts, with no notebook.read pointer: a verdict shared from another
+  // agent's notebook has no id here, so notebook.read could not fetch it.
+  Object.defineProperty(lines, 'recallMeta', { value: { notShown: (records.recallMeta && records.recallMeta.notShown) || 0, priority: [] } });
+  return renderRecall(lines, { limit: budget + 400, priorityLimit: 0, header, pointer: false,
+    notShownText: n => n + ' older verdict' + (n === 1 ? '' : 's') + ' not shown' });
 }
 
 module.exports = { ORIGIN, TASTE_HEADER, TASTE_REF_RULE, TASTE_LIMIT, TASTE_CHARS, content, apply, directiveFor, looksLikeFeedback, isTaste, selectTaste, stationTaste, stationStanding, adoptTaste, renderTaste, unkeep };
