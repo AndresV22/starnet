@@ -77,7 +77,17 @@ test('cards the sidecar words itself, and a short bare value, get no panel; file
 test('group chat clips its line and carries the whole request under it', () => {
   assert.match(group, /one\.length > 160 \? one\.slice\(0, 159\) \+ '…'/);
   assert.match(group, /Chat\.consentInspect\(t\.approval\)/, 'the group reads a request exactly as the desk card does');
-  assert.match(group, /h\('summary', \{\}, 'Inspect complete request \(secret patterns redacted\)'\), h\('pre', \{\}, ins\.text\)/);
+  assert.match(group, /h\('summary', \{\}, ins\.label \|\| 'Inspect complete request \(secret patterns redacted\)'\), h\('pre', \{\}, ins\.text\)/);
+  // a file change reads as a file: the path, then the text exactly as written (real line breaks, never \n escapes)
+  const file = card.consentInspect({ tool: 'fs.write', argsSummary: JSON.stringify({ path: 'notes/brief.md', content: '# Brief\nline two' }, null, 2) });
+  assert.equal(file.text, 'File: notes/brief.md\n\n# Brief\nline two');
+  assert.equal(card.consentInspect({ tool: 'fs.edit', argsSummary: JSON.stringify({ path: 'a.md', find: 'old', replace: 'new' }) }).text, 'File: a.md\n\nFind:\nold\n\nReplace with:\nnew');
+  // any other tool reads in words, never as raw JSON
+  assert.equal(card.actionPhrase({ tool: 'web_request', argsSummary: JSON.stringify({ method: 'post', url: 'https://api.example.com/v1/x' }) }), 'send a POST request to https://api.example.com/v1/x');
+  assert.equal(card.actionPhrase({ tool: 'image_generate', argsSummary: JSON.stringify({ prompt: 'a red fox' }) }), 'make an image: a red fox');
+  assert.equal(card.actionPhrase({ tool: 'skill.write', argsSummary: JSON.stringify({ path: 'skills/x.md', content: 'y' }) }), 'write skills/x.md');
+  assert.equal(card.actionPhrase({ tool: 'channel.send', argsSummary: JSON.stringify({ to: 'ops', text: 'hi' }) }), 'use channel send: hi');
+  assert.ok(!/[{}"]/.test(card.actionPhrase({ tool: 'loop.create', argsSummary: JSON.stringify({ every: 5, spec: { a: 1 } }) })), 'no JSON punctuation reaches the phrase');
   assert.match(group, /detail\.open = inspectOpen\.has\(pid\)/, 'a re-render keeps the panel the Commander opened');
 });
 
@@ -125,7 +135,7 @@ function clarificationFixture(mode) {
     Harness: { consentAnswer: () => Promise.resolve({ ok: true }) },
     TaskConversation: { mount: (el, question, cb) => { conversationAnswer = cb; } },
     U: { bus: { emit() {}, on: (name, fn) => listeners.set(name, fn), off: (name, fn) => { if (listeners.get(name) === fn) listeners.delete(name); } } },
-    isActiveWs: () => false, renderPresence() {}, syncStatus() {}, status() {}, autoscroll() {}, announcedPrompt: () => true,
+    isActiveWs: () => false, renderPresence() {}, syncStatus() {}, status() {}, autoscroll() {}, revealCard() {}, releaseCard() {}, announcedPrompt: () => true,
     askAnswerers: new Map(), glance: (t) => String(t) };
   vm.createContext(ctx); vm.runInContext(extract(chat, '  function settledWhere(resp)', '  async function answerConsent('), ctx); vm.runInContext(extract(chat, '  function clarifyRow(', '  // p = a consent payload'), ctx);
   ctx.clarifyRow(q, ws);
@@ -183,7 +193,7 @@ function permissionFixture(tool) {
     Harness: { consent: async (_run, _prompt, decision) => ({ ok: true, decision }) },
     U: { bus: { on: (name, fn) => listeners.set(name, fn), off: (name, fn) => { if (listeners.get(name) === fn) listeners.delete(name); },
       emit: (name, value) => { const fn = listeners.get(name); if (fn) fn(value); } } },
-    isActiveWs: () => false, renderPresence() {}, syncStatus() { synced++; }, status() {}, autoscroll() {}, announcedPrompt: () => true, askAnswerers: new Map() };
+    isActiveWs: () => false, renderPresence() {}, syncStatus() { synced++; }, status() {}, autoscroll() {}, revealCard() {}, releaseCard() {}, announcedPrompt: () => true, askAnswerers: new Map() };
   vm.createContext(ctx);
   // the card and the shared answer path live side by side in chat.js: an answer from any surface reaches the card on the bus
   vm.runInContext(extract(chat, '  const settledPromptNotices = new Set();', '  // the channel\'s record'), ctx);

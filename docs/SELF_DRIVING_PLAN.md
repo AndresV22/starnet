@@ -33,7 +33,11 @@ COMMS run is busy — routine.create/team.dispatch cover it), quest confirm/repo
 cron degraded-clear (accepts data loss — the Commander's call), credentials, consent answers, lifting an E-STOP.
 Real-model run: ✅ 2026-10-08 — see "Real-model proof" below.
 
-## Lane 4 — Ctrl+K: one search for everything  ✅ BUILT
+## Lane 4 — Ctrl+K: one search for everything  ⛔ REMOVED 2026-10-13
+Andrew never asked for or approved FIND; it was invented by this plan from a broad "easier to navigate" ask. Removed
+(window, dock button, Ctrl+K, place, manual lines, e2e). `Places.open` stays — station.show uses it. Do NOT rebuild a
+search/command palette, or any new UI surface, without Andrew's explicit yes.
+
 SYSTEM › FIND (windows/find.js): a station window (rises from the dock, never a centred popup), Ctrl+K anywhere. Searches
 every place, each crew member's dossier tabs + desk ("NOVA › CONFIG"), every open conversation; ↑↓ Enter. No match → ASK
 THE CREW types the words into COMMS (never sends). ONE opener: `Places.open` (app/places.js) — FIND and the agent's

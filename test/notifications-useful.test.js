@@ -101,13 +101,13 @@ A.ok(!/hudNote\('◈ recalled[^\n]*kind:/.test(world) && !/hudNote\('✎ memory 
     let reply = { ok: false, error: 'offline' }, calls = 0;
     const buttons = [{ disabled: false }], events = [], tags = [];
     const c = vm.createContext({ p, ws, decided: false, submitting: false, received: null, applyElsewhere: null,
-      btns: { querySelectorAll: () => buttons, remove: () => tags.push('removed') },
+      btns: { querySelectorAll: () => buttons, remove: () => tags.push('removed') }, hint: { remove() {} }, howTo: 'Tap an answer.', why: null, releaseCard() {},
       r: { body: { appendChild: tag => tags.push(tag) } }, document: { createElement: () => ({}) },
       Harness: { consent: async () => { calls++; return reply; }, consentAnswer: async () => { calls++; return reply; } },
       Channels, StationUI: N, askerName: row => row.workerAgentId || 'lead', actionPhrase: () => 'write a file',
       U: { bus: { emit: (name, data) => events.push([name, data.promptId]) } }, isActiveWs: () => false, renderPresence() {}, syncStatus() {},
       askAnswerers: new Map() /* chat.js: open questions the composer may answer (answer() retires its own entry) */ });
-    const handler = mode === 'question' ? 'async function answer(text, doneLabel)' : 'async function decide(decision, doneLabel, isDeny)';
+    const handler = mode === 'question' ? 'async function answer(text, doneLabel, key)' : 'async function decide(decision, doneLabel, isDeny)';
     const body = A.fnBody(chat, handler);
     A.ok(body.length > 200 && body.length < 4000, mode + ' submission function is bounded');
     vm.runInContext(settlement + '\n' + A.fnBody(chat, 'async function answerConsent(p, ws, decision, via)') + '\n' + body, c);

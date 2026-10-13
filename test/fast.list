@@ -1170,3 +1170,4 @@ test/thread-ux-regressions.test.js
 
 test/thread-flow-navigation.test.js
 test/remote-dispatch-history.test.js
+test/ask-cards-readable.test.js
