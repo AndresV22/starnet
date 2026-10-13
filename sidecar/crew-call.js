@@ -14,22 +14,15 @@
 
 // "have Ada …", "ask the researcher to …", "get Quill on this", "delegate to Ada", "loop in the analyst".
 const ASK = '(?:have|ask|get|tell|let|send|use|put|dispatch|task|loop in|bring in|(?:delegate|assign|hand|give)(?:\\s+(?:this|it|the task))?\\s+to)';
-// This note is an unconditional SYSTEM directive. Negated, conditional and quoted requests cannot prove it — but a
-// qualifier inside the TASK ("check if the tests pass", "no rush", "not Hubble", `npm test`) does not qualify the
-// request, so only one aimed at the delegation itself vetoes. The request must OPEN with the directive (an optional
-// polite "can you" / "hey," / "please"), so a leading "If needed," / "Do not" / "The note says:" never becomes one.
-const OPENER = "(?:(?:hey|hi|ok(?:ay)?|so|now|alright)\\b[,!.]?\\s*)?(?:(?:can|could|would|will)\\s+you\\s+|i\\s+(?:want|need|would\\s+like)\\s+you\\s+to\\s+|i['’]d\\s+like\\s+you\\s+to\\s+)?(?:please\\s+)?";
-const NEG = "(?:no|not|never|don['’]?t|doesn['’]?t|won['’]?t|without)";
-// a negated / cancelled / self-answered DELEGATION anywhere, or a bare "No." sentence ("Ask Ada? No, answer yourself.")
-const REVERSED = new RegExp('\\b' + NEG + '\\s+(?:need\\s+(?:to\\s+)?|any\\s+|more\\s+)?(?:delegat|dispatch|involv)\\w*'
-  + '|\\bnever\\s*mind\\b|(?:^|[.!?;:]\\s*)(?:actually[,\\s]+)?(?:cancel|scratch|forget)\\s+(?:that|this|it)\\b'
-  + "|(?<!\\b(?:don['’]?t|not|never)\\s+)\\b(?:answer|do|handle)\\s+(?:it\\s+|this\\s+|that\\s+)?(?:yourself|myself)\\b"
-  + "|(?:^|[.!?;:]\\s*)(?:(?:actually|wait|oh)[,\\s]+)?(?:no|nope|nah|don['’]?t|do\\s+not)\\s*(?:[.!?;,]|$)", 'i');
-// a CONDITIONAL delegation ("for help if needed", "unless …", "maybe"); "if" after a checking verb means "whether"
-const CONDITIONAL = /\b(?:unless|maybe|perhaps|in\s+case)\b|(?<!\b(?:check|see|find\s+out|figure\s+out|work\s+out|verify|confirm|test|determine|know|tell\s+(?:me|us)|look\s+into|investigate|sure)\s+)\bif\b/i;
-// an unbalanced quote: the directive may sit inside someone else's words ('have Ada do it," he said')
-const count = (t, re) => (t.match(re) || []).length;
-const unbalancedQuote = t => count(t, /"/g) % 2 === 1 || count(t, /`/g) % 2 === 1 || count(t, /“/g) !== count(t, /”/g);
+// This note is an unconditional SYSTEM directive, so a request that retracts, hedges or quotes cannot prove it: any such
+// word ANYWHERE vetoes it (fail closed — a missed note leaves the lead to decide; a wrong one delegates against the
+// Commander's wish). Ordinary task words are not hedges: "check IF the tests pass" and "write it WITHOUT jargon" still
+// ask Ada for the work (review 2026-10-12: the old list vetoed them, undoing the 0/4 -> 4/4 fix below).
+const QUALIFIED = /\b(?:no|not|never|nope|nah|cancel(?:l?ed)?|don['’]?t|doesn['’]?t|won['’]?t|shouldn['’]?t|unless|maybe|perhaps|instead|actually|wait|scratch\s+that|never\s*mind|on\s+second\s+thought|changed\s+my\s+mind)\b|\bi['’]?ll\s+(?:do|handle|take)\s+(?:it|this|that)\b|\bdo\s+it\s+yourself\b|\bif\s+(?:needed|necessary|required|possible|it\s+helps|you\s+(?:want|like|need|can|think|prefer))\b|["“”`]/i;
+// reassurance, not a retraction: "no rush" does not take the work back from Ada
+const REASSURANCE = /\bno\s+(?:rush|hurry|pressure|worries)\b/gi;
+// ordinary lead-ins before the ask: "can you have Ada…", "hey, ask Ada to…", "please get Quill on this"
+const LEAD = '^(?:(?:please|hey|hi|ok(?:ay)?|so|now|also|and|can\\s+you|could\\s+you|would\\s+you|will\\s+you|i(?:[\'’]d|\\s+would)\\s+like\\s+you\\s+to|i\\s+want\\s+you\\s+to|go\\s+ahead\\s+and)[\\s,]+)*';
 // Ids that are ordinary words in a sentence, never on their own a reference to one agent ("ask an agent").
 const GENERIC_IDS = new Set(['agent']);
 const esc = s => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -39,7 +32,7 @@ const esc = s => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
    appears as a whole word AND the request asks for work (a delegation verb, or "Name, …" / "Name: …" up front). */
 function crewMentions(text, crew, leadId) {
   const t = String(text || '').trim();
-  if (!t || !crew || REVERSED.test(t) || CONDITIONAL.test(t) || unbalancedQuote(t)) return [];
+  if (!t || !crew || QUALIFIED.test(t.replace(REASSURANCE, ' '))) return [];
   const members = [];
   for (const [agentId, ident] of crew) {
     if (!agentId || agentId === leadId) continue;
@@ -54,11 +47,9 @@ function crewMentions(text, crew, leadId) {
   const target = '(?:the\\s+)?(' + names + ')(?=$|[^A-Za-z0-9_-])';
   const separator = '\\s*(?:,|and|&)\\s*';
   const list = target + '(?:' + separator + target + ')*';
-  // "Have Quill draft it. Don't ask Ada." — a negated call to ANY named member retracts the directive outright
-  if (new RegExp('\\b' + NEG + '\\s+(?:need\\s+to\\s+)?(?:' + ASK + '|asking|having|getting|telling|bothering)\\s+' + target, 'i').test(t)) return [];
   // Match the whole target span before rejecting possession, so regex backtracking cannot
   // turn "Have Ada and Quill's report" into a directive for just Ada.
-  const action = new RegExp('^' + OPENER + ASK + '\\s+(' + list + ')', 'i').exec(t);
+  const action = new RegExp(LEAD + ASK + '\\s+(' + list + ')', 'i').exec(t);
   const tail = action ? t.slice(action[0].length) : '';
   const targets = new Set(action && !/^(?:['’]|\s*(?:,|&|and\b))/i.test(tail)
     ? Array.from(action[1].matchAll(new RegExp('(?:^|' + separator + ')' + target, 'ig')), m => m[1].toLowerCase())

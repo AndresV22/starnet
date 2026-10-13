@@ -57,15 +57,24 @@ for (const [text, expected] of [
   ['Have Ada and Ada-Aux review the plan.', ['researcher', 'ada-aux']],
   ['Ask the night-shift to review it.', ['night-shift']]
 ]) A.eq(ids(text), expected, 'only the exact affirmative targets receive the directive: ' + text);
-// a qualifier inside the TASK, or a polite opener, is still an ordinary delegation (10-11: 0/4 -> 4/4 needs the note)
+// an ordinary task word ("if", "without"), a reassurance ("no rush") or a polite opener is still an ordinary delegation
+// (10-11: 0/4 -> 4/4 needs the note; review 2026-10-12: the lane's whole-message veto on "if"/"no" and its start-of-message
+// anchor had undone it)
 for (const text of [
-  'Have Ada check if the tests pass', 'Have Ada write the report, no rush', 'Have Ada research JWST, not Hubble',
-  'Have Ada find out whether the API is down or not', 'Have Ada list facts about JWST that are not well known',
-  'Ask Ada to compare "React" and "Vue"', 'Please have Ada run `npm test`', "Have Ada research JWST. Don't use tables.",
-  "Have Ada research it, don't do it yourself", 'Have Ada see if the API works',
+  'Have Ada check if the tests pass', 'Have Ada write the report, no rush', 'Have Ada see if the API works',
+  'Have Ada write it without jargon', "Have Ada draft it, I'll review it after.",
   'Can you have Ada research three facts about JWST?', 'Could you ask Ada to research three facts about JWST',
   'Could you get Ada to look into this?', 'Hey, ask Ada to summarize the paper', 'I want you to have Ada draft the summary'
 ]) A.eq(ids(text), ['researcher'], 'an ordinary delegation request still gets the note: ' + text);
+// FAIL CLOSED: a negation, hedge or quote ANYWHERE vetoes the directive, even one that only qualifies the task. A missed
+// note leaves the lead to decide (it can still dispatch); a wrong one tells it to delegate against the Commander's wish —
+// and no word list tells "not Hubble" from "actually, not her" reliably (two review rounds tried and opened new holes).
+for (const text of [
+  'Have Ada research JWST, not Hubble', 'Have Ada find out whether the API is down or not', 'Ask Ada to compare "React" and "Vue"',
+  'Please have Ada run `npm test`', "Have Ada research JWST. Don't use tables.", "Have Ada research it, don't do it yourself",
+  'Have Ada check if the API is down or not', "Have Ada draft the email to Bob. Don't tell him about the price.",
+  'Have Ada review the PRs that are not yet merged', 'Have Ada research JWST, no need for citations'
+]) A.eq(crewCallNote(text, crew, 'chiefops'), '', 'fail closed: a negation or quote anywhere adds no directive: ' + text);
 // …while a qualifier on the DELEGATION itself, anywhere in the message, still vetoes it
 for (const text of [
   'Ask Ada for help if needed.', 'Have Ada review it unless you already know.', 'Maybe ask Ada.',
@@ -73,6 +82,28 @@ for (const text of [
   'Have Ada research it," he said.', 'Should I ask Ada?', 'Did you ask Ada?', "Have Ada review it. Actually, I'll do it myself.",
   'Answer without asking Ada.', 'Have Ada review it, or just do it yourself.', 'Have Ada review it. Scratch that.'
 ]) A.eq(crewCallNote(text, crew, 'chiefops'), '', 'a negated, conditional or quoted delegation adds no directive: ' + text);
+// a retraction ANYWHERE after the ask still vetoes it: a negation with nothing after it points back at the request
+for (const text of [
+  "Have Ada review it, actually don't", 'Have Ada review it. Actually, no need.', "Have Ada review it. No wait, I'll do it.",
+  "Have Ada review it — actually don't.", "Have Ada review it. On second thought, don't.", 'Have Ada review it. Hmm, no.',
+  "Have Ada review it. Don't bother.", 'Have Ada review it -- no.', 'Have Ada not do it', 'Have Ada review it, or not.',
+  'Have Ada not review it', 'Have Ada review it, scratch that', "Have Ada review it. Actually, I'll do it.", 'Have Ada review it. Nah.',
+  'Have Ada review it. Changed my mind.', 'Have Quill draft it, not Ada.', 'Have Ada review it. Not needed.', 'Have Ada review it. No need to ask her.'
+]) A.eq(crewCallNote(text, crew, 'chiefops'), '', 'a retraction after the delegation adds no directive: ' + text);
+// the reviewer's wider retraction set (2026-10-12): every one of these is vetoed by the same fail-closed rule
+for (const tail of [
+  "You don't need Ada.", 'No need for Ada.', "I don't want Ada on this.", "Actually, we don't need Ada for this.", 'No need for that.',
+  "Actually don't do that.", "Don't make her do it.", "Actually, don't loop her in.", 'Not today.', 'Not needed after all.',
+  'Actually, not her.', "Actually, Ada doesn't need to do that.", "Don't have her review it.", "I won't need her.", 'No need for her.',
+  "Actually, don't worry about it.", "I don't need her help.", "Don't send it to her."
+]) A.eq(crewCallNote('Have Ada review it. ' + tail, crew, 'chiefops'), '', 'a later retraction adds no directive: ' + tail);
+// linear: the veto never backtracks over long unpunctuated text (round two's lookbehind took 30 s on this)
+{
+  const t0 = process.hrtime.bigint();
+  crewMentions('Have Ada review this ' + 'x or no y '.repeat(50000), crew, 'chiefops');
+  crewMentions('Have Ada review ' + 'word '.repeat(100000), crew, 'chiefops');
+  A.ok(Number(process.hrtime.bigint() - t0) / 1e6 < 1000, 'a 500 KB request is classified in well under a second');
+}
 
 const note = crewCallNote('Have Ada research three facts about JWST', crew, 'chiefops');
 A.ok(/^\n\n\[CREW CALL\] The Commander named Ada \(agentId researcher\)/.test(note), 'the note names the member and its agentId');
