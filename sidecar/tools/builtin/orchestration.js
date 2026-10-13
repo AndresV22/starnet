@@ -598,7 +598,9 @@
 
     async function finalizeWorkerDelivery(runId, row) {
       const envelope = { state: 'final', text: row.result || '', reason: row.reason || 'error', repairRunId: row.repairRunId || '' };
-      if (typeof deps.finalizeDispatchDelivery === 'function') {
+      // a refused / never-admitted run filed no execution row: there is nothing to make recoverable
+      const recorded = typeof deps.runRecord !== 'function' || !!deps.runRecord(runId);
+      if (recorded && typeof deps.finalizeDispatchDelivery === 'function') {
         try { await deps.finalizeDispatchDelivery(runId, envelope); }
         catch (e) { failNote('dispatch.finalize-delivery', e); row.sessionNote = 'The result is available now, but its recovery record could not be saved.'; }
       }

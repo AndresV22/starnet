@@ -1139,6 +1139,25 @@ for (const mode of ['invalid', 'error', 'refused']) {
   else A.eq(store.latest(result.runId).dispatchDelivery.reason, expected, mode + ' durable outcome matches the live dispatch');
 }
 
+// Review threads-backend-08: a refused (never-started) worker filed no run row, so there is nothing to make
+// recoverable. It must not claim "The result is available now…" nor log a finalize failure per refusal.
+{
+  const { makeRunStore } = require('../sidecar/runstore.js');
+  const failopen = require('../sidecar/failopen.js');
+  const before = failopen.counts()['dispatch.finalize-delivery'] || 0;
+  const store = makeRunStore({ clock: { now: () => 1000 } });
+  const ro = fakeRunOnce(async () => null);
+  const tools = makeOrchestrationTools({ runOnce: ro, roster: () => new Map([['researcher', { system: 'R' }]]), key: 'k', model: 'm', newId: counter(), station: fakeStation(SESSIONS),
+    runRecord: id => store.latest(id),
+    // the production finalizer: it throws when the run filed no execution row
+    finalizeDispatchDelivery: (id, envelope) => require('../sidecar/dispatch-delivery.js').finalizeDispatchDelivery({ runStore: store, transcriptStore: null, redact: s => s, hash: s => s }, id, envelope) });
+  const out =(await tools.dispatchTool.run({ workers: [{ agentId: 'researcher', prompt: 'answer', session: 'research' }] }, leadCtx())).content;
+  const result = JSON.parse(out)[0];
+  A.eq(result.reason, 'refused', 'the refusal is reported as such');
+  A.ok(!/result is available now|recovery record could not be saved/.test(out), 'a refused worker never claims a result exists: ' + out);
+  A.eq(failopen.counts()['dispatch.finalize-delivery'] || 0, before, 'no finalize failure is logged for a run that never started');
+}
+
 // ---- G6 spawn quality gate and generation-bound steering tool ----
 {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'sk-orch-g6-'));
