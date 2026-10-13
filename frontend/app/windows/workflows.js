@@ -638,13 +638,17 @@ const WorkflowsWindow = (() => {
     // a hand-off the station REFUSED (SEND TO): the line above this says "it was not sent on", so the reason is shown bare — never
     // "not sent on: … — nothing was sent on" after it (wave 2 review, conveyor-backend-09)
     const wasRefused = !!(job.from && job.status === 'failed' && /^not sent on:/.test(String(job.error || '')));
-    const refusedWhy = () => { const t = String(job.error).replace(/^not sent on:\s*/, '').trim().replace(/[.\s]+$/, ''); return t ? t.charAt(0).toUpperCase() + t.slice(1) + '.' : 'Nothing ran.'; };
+    // a stored reason is a bare clause ("the station hit an internal fault and stopped this job"): the card says it as a sentence
+    // (wave 2 repair — the stopped and failed branches opened their paragraph in lowercase)
+    const sentence = (t, empty) => { t = String(t == null ? '' : t).trim().replace(/[.\s]+$/, ''); return t ? t.charAt(0).toUpperCase() + t.slice(1) + '.' : empty; };
+    const refusedWhy = () => sentence(String(job.error).replace(/^not sent on:\s*/, ''), 'Nothing ran.');
     const END ={ empty: 'gave no final answer', error: 'hit an error', max_iters: 'ran out of turns', budget: 'hit the spending cap', refusal: 'refused the work', interrupted: 'was interrupted', stopped: 'was stopped' };
     const head = ok ? '<b class="ok">✓ DONE</b>' : job.status === 'stopped' ? '<b>■ STOPPED</b>' : job.status === 'interrupted' ? '<b class="warn">⚠ INTERRUPTED</b>' : job.status === 'failed' ? '<b class="warn">✕ IT DIDN’T RUN</b>' : '<b class="warn">⚠ FINISHED WITH A PROBLEM</b>';
     const meta = [runs.length + ' step' + (runs.length === 1 ? '' : 's'), usd(job.usd), took, inOutbox ? 'in the OUTBOX' : ''].filter(Boolean).join(' · ');
     const why = ok ? '' : job.status === 'problem' && bad ? (() => { const p = bad.dockId && st ? st.propById(bad.dockId) : null; return 'The ' + ((p && p.role) ? p.role + ' step' : 'step') + ' (' + NAME(bad.agentId) + ') ' + (END[bad.reason] || String(bad.reason || 'did not finish').replace(/_/g, ' ')) + ', so this job did not finish cleanly. Sending it again often works.'; })()
-      : job.status === 'stopped' ? (job.from && job.error ? job.error + '. What already ran is counted.' : 'You stopped this job. What already ran is counted.') : job.status === 'interrupted' ? 'The station stopped while this job was out. Send it again.'
-      : (wasRefused ? refusedWhy() : (job.error || 'Nothing ran.')) + (job.repeats > 1 ? ' (' + job.repeats + ' hand-offs from ' + lineWord(job.from) + ' were refused like this — the last ' + ago(job.endedAt) + ')' : '');
+      // (a stopped record says WHO stopped it — "you stopped this job", E-STOP, or the station's own fault — never "You stopped" for all)
+      : job.status === 'stopped' ? sentence(job.error, 'You stopped this job.') + ' What already ran is counted.' : job.status === 'interrupted' ? 'The station stopped while this job was out. Send it again.'
+      : (wasRefused ? refusedWhy() : sentence(job.error, 'Nothing ran.')) + (job.repeats > 1 ? ' (' + job.repeats + ' hand-offs from ' + lineWord(job.from) + ' were refused like this — the last ' + ago(job.endedAt) + ')' : '');
     const passes = {};
     const steps = runs.map((r, i) => {
       const p = r.dockId && st ? st.propById(r.dockId) : null, k = r.dockId || r.agentId, pass = passes[k] = (passes[k] || 0) + 1, got = S.stepOut[r.runId];
