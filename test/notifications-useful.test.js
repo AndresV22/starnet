@@ -101,7 +101,7 @@ A.ok(!/hudNote\('◈ recalled[^\n]*kind:/.test(world) && !/hudNote\('✎ memory 
     let reply = { ok: false, error: 'offline' }, calls = 0;
     const buttons = [{ disabled: false }], events = [], tags = [];
     const c = vm.createContext({ p, ws, decided: false, submitting: false, received: null, applyElsewhere: null,
-      btns: { querySelectorAll: () => buttons, remove: () => tags.push('removed') }, hint: { remove() {} }, howTo: 'Tap an answer.', why: null, releaseCard() {},
+      btns: { querySelectorAll: () => buttons, remove: () => tags.push('removed') }, hint: { remove() {} }, howTo: 'Tap an answer.', why: null, releaseCard() {}, keepFocus() {},
       r: { body: { appendChild: tag => tags.push(tag) } }, document: { createElement: () => ({}) },
       Harness: { consent: async () => { calls++; return reply; }, consentAnswer: async () => { calls++; return reply; } },
       Channels, StationUI: N, askerName: row => row.workerAgentId || 'lead', actionPhrase: () => 'write a file',

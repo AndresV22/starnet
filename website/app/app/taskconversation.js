@@ -12,8 +12,11 @@ const TaskConversation = (() => {
     const whole=el('button','tc-whole','▸ Show the whole question');whole.type='button';
     whole.onclick=()=>{const open=!card.classList.contains('tc-open');card.classList.toggle('tc-open',open);whole.textContent=open?'▾ Show less':'▸ Show the whole question';};
     card.appendChild(whole);
-    // the key goes only once the question provably fits (a card laid out while COMMS is hidden measures 0 and keeps it)
-    if(typeof requestAnimationFrame==='function')requestAnimationFrame(()=>{if(!card.classList.contains('tc-open')&&question.clientHeight>0&&question.scrollHeight<=question.clientHeight+2)whole.hidden=true;});
+    // the key shows exactly while the question is clamped: re-measured whenever COMMS changes size (width, TEXT SIZE, shown
+    // after being hidden); a question that cannot be measured (hidden) keeps its key
+    const fit=()=>{if(card.classList.contains('tc-open')||!question.isConnected)return;whole.hidden=question.clientHeight>0&&question.scrollHeight<=question.clientHeight+2;};
+    if(typeof ResizeObserver!=='undefined')new ResizeObserver(fit).observe(question);
+    if(typeof requestAnimationFrame==='function')requestAnimationFrame(fit);
     // starting points: a tap adds that line to the answer, a second tap takes it out (✓ = it is in the answer)
     const options=el('div','tc-shortcuts');
     const lineAt=(option)=>input.value.split('\n').findIndex(line=>line.trim()===option);
@@ -32,18 +35,19 @@ const TaskConversation = (() => {
       };
       options.appendChild(b);
     }
-    if(options.children.length) {card.appendChild(el('div','tc-hint','Tap one to add it to your answer, then edit or send.'));card.appendChild(options);}
+    // one hint line, under the keys it explains (the keyboard tip lives in the box's placeholder)
+    const hint=el('div','tc-hint','Tap one to add it to your answer below, then edit and send.');
+    if(options.children.length) {card.appendChild(options);card.appendChild(hint);}
     const label=el('label','tc-answer-label','Your answer');
     const input=el('textarea','tc-answer');input.rows=3;input.maxLength=3800;
-    input.setAttribute('aria-label','Your answer');input.placeholder='Describe it in your own words. Rough notes are fine.';
+    input.setAttribute('aria-label','Your answer');input.placeholder='Describe it in your own words. Rough notes are fine. Ctrl + Enter sends.';
     label.appendChild(input);card.appendChild(label);
     const actions=el('div','tc-actions'), submit=el('button','consent-btn primary','Send answer'), skip=el('button','consent-btn tc-skip','Use your judgment');
     submit.type=skip.type='button';actions.appendChild(submit);actions.appendChild(skip);card.appendChild(actions);
     const feedback=el('div','tc-feedback');feedback.setAttribute('role','status');card.appendChild(feedback);
-    const keysHint=el('div','tc-hint','Ctrl + Enter to send · Enter adds a line');card.appendChild(keysHint);
     // the question leads; the model's reasoning, its understanding and its draft are one tap away, never a wall above the answer
     const fold=(cls,label,body)=>{const d=el('details',cls);d.appendChild(el('summary','',label));d.appendChild(body);return d;};
-    if(q.reason) card.appendChild(fold('tc-why','Why this matters',el('p','tc-reason',q.reason)));
+    if(q.reason) card.appendChild(fold('tc-why',q.asker ? 'Why '+q.asker+' is asking' : 'Why this matters',el('p','tc-reason',q.reason)));
     const cx=q.context;
     if(cx && ((cx.facts||[]).length || (cx.assumptions||[]).length || (cx.unknowns||[]).length)) {
       const details=el('details','tc-understanding');
@@ -63,7 +67,7 @@ const TaskConversation = (() => {
     }
     if(q.sample) {
       const sample=el('div','tc-sample');sample.appendChild(el('div','tc-sample-text',q.sample));
-      card.appendChild(fold('tc-draft','See the draft starting point',sample));
+      card.appendChild(fold('tc-draft',q.asker ? 'See the draft '+q.asker+' suggests' : 'See the draft starting point',sample));
     }
     let busy=false,done=false;
     function refresh(){submit.disabled=busy||done||!input.value.trim();skip.disabled=busy||done;input.disabled=busy||done;for(const b of options.children)b.disabled=busy||done;syncShortcuts();}
@@ -77,8 +81,7 @@ const TaskConversation = (() => {
         const accepted=await send(text);
         if(accepted===false)throw Error('This question is no longer waiting. Your text is kept here; send it in COMMS to continue.');
         done=true;feedback.textContent='Answer sent';
-        options.remove();label.remove();actions.remove();keysHint.remove();
-        for(const n of Array.from(card.children))if(n.className==='tc-hint')n.remove();
+        options.remove();label.remove();actions.remove();hint.remove();
         whole.remove();card.classList.add('tc-answered');card.setAttribute('aria-label','Shared task context');
         const receipt=el('details','tc-receipt');receipt.appendChild(el('summary','','You answered: '+text.slice(0,100)+(text.length>100?'…':'')));
         receipt.appendChild(el('p','tc-answer-sent',text));card.appendChild(receipt);
@@ -88,7 +91,14 @@ const TaskConversation = (() => {
     input.addEventListener('input',refresh);
     input.addEventListener('keydown',e=>{if(e.key==='Enter'&&(e.ctrlKey||e.metaKey)){e.preventDefault();answer(false);}});
     submit.onclick=()=>answer(false);skip.onclick=()=>answer(true);
-    refresh();host.appendChild(card);return {card,input};
+    // settled somewhere else (the phone, a timeout, a stop): the card says so and stops taking input; the question stays
+    function settle(text){
+      if(done)return false;
+      done=true;feedback.textContent=text||'Answered';
+      options.remove();hint.remove();label.remove();actions.remove();
+      card.classList.add('tc-settled');refresh();return true;
+    }
+    refresh();host.appendChild(card);return {card,input,settle,isDone:()=>done};
   }
   return {mount};
 })();

@@ -247,7 +247,11 @@ function makeGroupSessions(d) {
       q = g.questions.find(x => x.turnId === turnId && x.question === question && x.state === 'pending');
       if (!q) { q = { id: d.id(), turnId, origin: t.origin, agentId: t.agentId, question, options,
         mode: fields.mode === 'conversation' ? 'conversation' : 'choice', sample: text(fields.sample, 2400), reason: text(fields.reason, 600),
-        multiSelect: fields.multiSelect === true, recommended: options.includes(fields.recommended) ? fields.recommended : '', state: 'pending', createdAt: d.now() }; g.questions.push(q); }
+        multiSelect: fields.multiSelect === true, recommended: options.includes(fields.recommended) ? fields.recommended : '',
+        // its place in a batch ("2 of 3") and the Commander's own usual pick (a real count): the same card as one-on-one
+        ordinal: Math.max(0, Math.min(9, Number(fields.ordinal) || 0)), total: Math.max(0, Math.min(9, Number(fields.total) || 0)),
+        grounded: fields.grounded && Array.isArray(fields.grounded.options) ? { options: fields.grounded.options.map(v => text(v, 120)).filter(v => options.includes(v)).slice(0, 6), count: Math.max(0, Number(fields.grounded.count) || 0) } : null,
+        state: 'pending', createdAt: d.now() }; g.questions.push(q); }
       t.state = 'waiting for answer';
     });
     return new Promise(resolve => {

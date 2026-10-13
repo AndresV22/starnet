@@ -259,7 +259,7 @@ body .task-conversation :is(.tc-caption,.tc-dimension,.tc-answer-label,.tc-hint)
   font-size: var(--sn-type-meta) !important; line-height: 1.45; letter-spacing: .45px; color: var(--text);
 }
 body .task-conversation :is(.tc-caption,.tc-dimension) { color: var(--ph); }
-body .task-conversation .tc-question { font-size: var(--sn-type-title) !important; line-height: 1.4; }
+body .task-conversation .tc-question { font-size: var(--sn-type-prose) !important; line-height: 1.45; }   /* the question at the same 18px as every other card */
 /* the one-on-one choice question (chat.js clarifyRow): who asks, the question at reading size, a plain hint, the reason
    folded — the same reading order as the group question card */
 body #chat-panel .cmsg.consent[data-clarify-prompt] .cq-who {
@@ -282,7 +282,7 @@ body #chat-panel .cmsg.consent[data-clarify-prompt] .cq-whole[hidden], body .tas
 body #chat-panel .cmsg.consent[data-clarify-prompt] .cq-whole:focus-visible { outline: 2px solid var(--ph); outline-offset: 2px; }
 body #chat-panel .cmsg.consent[data-clarify-prompt] .consent-btns { margin: 8px 0 0; flex-direction: column; align-items: stretch; gap: 6px; }
 body #chat-panel .cmsg.consent[data-clarify-prompt] .consent-btn { text-align: left; }
-body #chat-panel .cmsg.consent[data-clarify-prompt] .consent-btn.quiet { align-self: flex-start; }
+body #chat-panel .cmsg.consent[data-clarify-prompt] .consent-btn.quiet { background: transparent; box-shadow: none; }   /* full width like the answers, quieter */
 body #chat-panel .cmsg.consent[data-clarify-prompt] .cq-why { margin: 6px 0 0; }
 body #chat-panel .cmsg.consent[data-clarify-prompt] .cq-why > summary {
   cursor: pointer; padding: 3px 0; font-size: var(--sn-type-meta) !important; letter-spacing: .3px; color: var(--ph);
@@ -298,6 +298,13 @@ body #chat-panel .cmsg.consent[data-clarify-prompt] .cq-hint {
 body .task-conversation .consent-btn.tc-shortcut[aria-pressed=true] { color: var(--ph-bright); border-color: var(--ph); background: rgba(var(--ph-rgb),.2); }
 /* the pixel face draws "fi" as a broken ligature ("frst", "defned"): COMMS reads letter by letter */
 body #chat-panel { font-variant-ligatures: none; }
+/* ONE disclosure marker on every card: the folds draw the same ▸ / ▾ the "Show the whole question" key does */
+body #chat-panel :is(.cq-why, .tc-why, .tc-draft, .tc-understanding, .tc-receipt, .consent-payload) > summary { list-style: none; text-wrap: pretty; }
+body #chat-panel :is(.cq-why, .tc-why, .tc-draft, .tc-understanding, .tc-receipt, .consent-payload) > summary::-webkit-details-marker { display: none; }
+body #chat-panel :is(.cq-why, .tc-why, .tc-draft, .tc-understanding, .tc-receipt, .consent-payload) > summary::before { content: '▸ '; }
+body #chat-panel :is(.cq-why, .tc-why, .tc-draft, .tc-understanding, .tc-receipt, .consent-payload)[open] > summary::before { content: '▾ '; }
+/* no orphan word on its own line under a hint or a question */
+body #chat-panel :is(.cq-hint, .tc-hint, .cq-text, .tc-question) { text-wrap: pretty; }
 /* the reason and the draft fold under labelled lines: the question and the answer box lead the card */
 body .task-conversation :is(.tc-why,.tc-draft) { margin: 8px 0; }
 body .task-conversation :is(.tc-why,.tc-draft) > summary {
@@ -317,9 +324,11 @@ body .task-conversation .tc-answer { font-size: var(--sn-type-control) !importan
 body .task-conversation .tc-answer::placeholder { font-size: inherit; color: var(--text); opacity: .8; }
 body .task-conversation .consent-btn {
   min-height: 34px; max-width: 100%; padding: 7px 11px; font-size: var(--sn-type-control) !important;
-  line-height: 1.4; white-space: normal; border: 1px solid var(--beat-edge); border-radius: 6px;
+  line-height: 1.4; white-space: normal; border: 1px solid var(--beat-edge); border-radius: 5px;
   background: rgba(var(--ph-rgb),.04); color: var(--ph-bright); text-shadow: none;
 }
+/* the skip key reads as the quieter choice beside Send answer (the dim rule in app.css lost to the key colour above) */
+body .task-conversation .consent-btn.tc-skip { color: var(--text); }
 body .task-conversation .consent-btn.primary { border-color: rgba(var(--gold-rgb),.5); background: rgba(var(--gold-rgb),.12); }
 body .task-conversation .consent-btn:enabled:hover { background: var(--beat-hover); }
 body .task-conversation .consent-btn:disabled { opacity: .45; cursor: default; }

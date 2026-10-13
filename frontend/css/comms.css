@@ -342,7 +342,7 @@ body.glass-demo :is(#chat-log, #gc-log) .cmsg.user  + .cmsg.user  > .cmsg-head {
 }
 #comms-presence.paused .cp-dot { animation: none; color: var(--gold); text-shadow: 0 0 6px color-mix(in srgb, var(--gold) 55%, transparent); opacity: .9; }
 #comms-presence.paused .cp-verb { color: var(--gold); text-shadow: 0 0 5px color-mix(in srgb, var(--gold) 45%, transparent); }
-#comms-presence .cp-tool.paused-note { color: var(--gold); flex: 1 1 auto; white-space: normal; opacity: .95; }
+#comms-presence .cp-tool.paused-note { color: var(--gold); flex: 1 1 auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; opacity: .95; }   /* one line: the card above holds the request */
 /* PAUSED reads at body size and matte (2026-10-13 review: a 12px glowing line under a decision card) */
 #comms-presence.comms-presence.paused { font-size: 14px; box-shadow: none; background: color-mix(in srgb, var(--gold) 8%, transparent); }
 #comms-presence.paused :is(.cp-dot, .cp-verb) { text-shadow: none; }
@@ -400,7 +400,7 @@ body.glass-demo :is(#chat-log, #gc-log) .cmsg.user  + .cmsg.user  > .cmsg-head {
   position: absolute; left: 50%; bottom: 74px; z-index: 6;   /* bottom is overwritten inline by chat.js */
   transform: translate(-50%, 6px);
   display: inline-flex; align-items: center; gap: 7px;
-  font: inherit; font-size: 11px; letter-spacing: 1.6px; text-transform: uppercase; cursor: pointer;
+  font: inherit; font-size: 13px; letter-spacing: 1.2px; text-transform: uppercase; cursor: pointer;
   color: var(--ph); background: linear-gradient(180deg, color-mix(in srgb, var(--ph) 9%, var(--panel2)), var(--panel2));
   border: 1px solid var(--ph-dim); border-radius: 999px;
   padding: 5px 15px; line-height: 1.3;
