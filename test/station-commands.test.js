@@ -27,7 +27,7 @@ function boot(opts) {
   const Channels = require('../frontend/app/channels.js');
   Workstreams.reset();
   Channels.reset();
-  const page = { rail: 0, persisted: 0, loaded: [], acks: [], save: null };
+  const page = { rail: 0, persisted: 0, loaded: [], delivered: [], repainted: 0, acks: [], save: null };
   const sandbox = {
     Workstreams, Channels,
     App: {
@@ -39,7 +39,8 @@ function boot(opts) {
       flush: async () => opts.saveFails ? false : true,
       pull: async () => opts.readBackFails ? null : page.save
     },
-    Chat: { load: ws => page.loaded.push(ws.id), canFocusSession: opts.canFocusSession || (() => true) },
+    Delegated: { repaint: () => page.repainted++ },
+    Chat: { deliverTurns: (ws, turns) => page.delivered.push({ id: ws.id, turns }), load: ws => page.loaded.push(ws.id), canFocusSession: opts.canFocusSession || (() => true) },
     U: { bus: { on: () => {} } },
     VoiceLive: opts.voiceLive,
     fetch: async (url, init) => {
@@ -148,6 +149,21 @@ for (const reason of ['done', 'budget', 'max_iters', 'aborted', 'error']) {
   A.eq(worker.history.length, 0, 'recovering an empty failure invents no assistant answer');
   A.eq(worker.runIds[0], 'empty-error', 'the failed run can still be inspected from its card');
   A.eq(env.page.save.workstreams.find(w => w.id === worker.id).lastRunReason, 'error', 'empty failure outcome is persisted');
+}
+
+// Recovering hidden worker state must not reconstruct the unrelated chat the reader is using.
+for (const text of ['', 'Final worker answer.']) {
+  const env = boot({ runs: [{ runId: 'hidden-result', streamId: 'hidden-worker', sessionTitle: 'Hidden worker',
+    reason: 'error', deliveryText: text, ts: 1000 }] });
+  const worker = env.W.adopt({ id: 'hidden-worker', title: 'Hidden worker', worker: true, parentStreamId: env.W.generalId() });
+  const reading = env.W.create('Reading another conversation');
+  reading.history.push({ role: 'assistant', content: 'Keep this reading position.', ts: 500 });
+  await call(env, 'station.dispatch_end', { streamId: worker.id, runId: 'hidden-result' });
+  await env.S.reconcile(worker.id);
+  A.eq(env.page.loaded.length, 0, 'hidden worker recovery never reloads the active chat');
+  A.eq(env.page.delivered.length, 0, 'hidden worker recovery never appends to an unrelated chat');
+  A.eq(env.W.activeId(), reading.id, 'reader focus stays in the unrelated chat');
+  A.ok(env.page.repainted > 0 && env.page.persisted > 0, 'worker state and durable save still refresh');
 }
 
 // Healing a missed older attempt must never make it the worker's newest result or stop a newer live retry.
@@ -290,7 +306,8 @@ for (const text of ['', 'Older partial work.']) {
   const env = boot();
   const ws = env.W.create('research');       // create() activates it
   await call(env, 'station.deliver', { streamId: ws.id, agentId: 'researcher', runId: 'run-1', text: 'done' });
-  A.eq(env.page.loaded[0], ws.id, 'the open session is reloaded so the answer appears at once');
+  A.eq(env.page.delivered[0].id, ws.id, 'the open session receives the new turns without a reload');
+  A.eq(env.page.loaded.length, 0, 'delivery preserves existing reader DOM');
   A.ok(!env.W.unread(ws.id), 'and it is not marked unread — it is on screen');
 }
 

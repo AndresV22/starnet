@@ -2288,6 +2288,7 @@ const Chat = (() => {
   // opts.live === true marks the streaming reply row, which always pins to the BOTTOM. Every other row (tool
   // ▶/◀ lines, deliverables, consent, turn-in) inserts ABOVE the pinned reply while one is live — so the work
   // log stacks above and the message the agent is actually saying stays at the bottom, never scrolled away.
+  let insertingDelivery = false;
   let renderingHistory = false;   // true only during renderHistory: mark rows .no-anim so a full replay doesn't fire up to 120 entrance animations at once
   /* TRANSCRIPT DOM CAP (2026-08-26 lag fix). HISTORY_CAP bounds only the WIRE payload — the
      rendered #chat-log grew unpruned all session, and every autoscroll() reads scrollHeight
@@ -2299,7 +2300,7 @@ const Chat = (() => {
      belt-and-braces guard (it is always among the newest rows anyway). */
   const LOG_DOM_CAP = 400;
   function pruneLog() {
-    if (!log || !stick) return;
+    if (!log || !stick || insertingDelivery) return;
     while (log.children.length > LOG_DOM_CAP) {
       const n = log.firstElementChild;
       if (!n || n.id === 'comms-presence' || (n.querySelector && n.querySelector('#comms-presence'))) break;
@@ -2375,13 +2376,37 @@ const Chat = (() => {
     return dayName + ' · ' + clock;
   }
   function timeBreak(at) {
-    if (!log || isNaN(at.getTime())) return;
+    if (!log || insertingDelivery || isNaN(at.getTime())) return;
     const prev = lastStampMs();
     const sameDay = prev && new Date(prev).toDateString() === at.toDateString();
     if (prev && sameDay && at.getTime() - prev < TIME_BREAK_MS) return;
     const d = document.createElement('div'); d.className = 'cmsg-timebreak'; d.setAttribute('role', 'separator');
     const t = document.createElement('span'); t.className = 'tb-when'; t.textContent = fmtBreak(at);
     d.appendChild(t); log.appendChild(d);
+  }
+  // Recovery can insert earlier turns. Recompute separator ownership without replacing message nodes.
+  function syncTimeBreaks() {
+    if (!log) return;
+    let prev = 0;
+    const keep = new Set();
+    for (const n of Array.from(log.children)) {
+      const stamp = Number(n.dataset.ts);
+      if (!stamp) continue;
+      const at = new Date(stamp), sameDay = prev && new Date(prev).toDateString() === at.toDateString();
+      if (!prev || !sameDay || stamp - prev >= TIME_BREAK_MS) {
+        let divider = n.previousElementSibling;
+        if (!divider || !divider.classList.contains('cmsg-timebreak')) {
+          divider = document.createElement('div'); divider.className = 'cmsg-timebreak'; divider.setAttribute('role', 'separator');
+          const label = document.createElement('span'); label.className = 'tb-when'; divider.appendChild(label);
+          log.insertBefore(divider, n);
+        }
+        const label = divider.querySelector('.tb-when'), text = fmtBreak(at);
+        if (label.textContent !== text) label.textContent = text;
+        keep.add(divider);
+      }
+      prev = stamp;
+    }
+    for (const n of Array.from(log.children)) if (n.classList.contains('cmsg-timebreak') && !keep.has(n)) n.remove();
   }
   // stamp: omitted → live now (real); a number/Date → the turn's stored real time; false → no stamp (replay of a
   // legacy turn that carries no time — never fabricate the current clock).
@@ -7258,11 +7283,11 @@ const Chat = (() => {
     else if (mk === 'video' || mk === 'audio') mediaPlayerLine(d.title, agentId, mk);
     else deliverableLine(d.title, agentId);
   }
-  function renderHistory() {
-    const h = activeWs ? activeWs.history : [];
+  function renderHistory(onlyTurns) {
+    const h = onlyTurns || (activeWs ? activeWs.history : []);
     let lastReal = null;   // the trailing dialogue turn (for the error-recovery re-offer below)
     renderingHistory = true;   // suppress the per-row entrance animation across this bulk replay (restored below)
-    const delivs = replayableDeliverables(activeWs);
+    const delivs = onlyTurns ? [] : replayableDeliverables(activeWs);
     const delivAgent = (activeWs && activeWs.agentId) || 'agent';
     let di = 0;
     // every recorded deliverable stamped at/before `ts` lands now (ts == null flushes the rest)
@@ -7301,10 +7326,36 @@ const Chat = (() => {
     // STRANDED-USER LAW: a reload/switch onto a stream whose LAST turn failed (error:true) must not leave the
     // Commander with a dead thread and no way out — load() wiped the live recovery chips. Re-offer a plain retry
     // (offerRetry's context-aware verdict isn't stored per-turn, so the safe universal recovery is a re-run).
-    if (lastReal && lastReal.role === 'assistant' && (lastReal.error || lastReal.stopped) && !isBusy()) {
+    if (!onlyTurns && lastReal && lastReal.role === 'assistant' && (lastReal.error || lastReal.stopped) && !isBusy()) {
       if (lastReal.stopped) offerTryAgain();
       else offerRetry(null);
     }
+  }
+
+  // A delivered/recovered answer updates this conversation in place. Existing disclosures, selection,
+  // live channels and the composer remain mounted; a reader above the bottom keeps the same visible row.
+  function deliverTurns(ws, turns) {
+    if (!log || !isActiveWs(ws) || ws.conversationMode === 'group' || !Array.isArray(turns) || !turns.length) return false;
+    const pinned = stick, top = log.scrollTop;
+    const viewport = log.getBoundingClientRect();
+    const scale = viewport.height / log.offsetHeight || 1;
+    const anchor = !pinned && Array.from(log.children).find(n => !n.classList.contains('cmsg-timebreak') && n.getBoundingClientRect().bottom > viewport.top);
+    const anchorTop = anchor && anchor.getBoundingClientRect().top;
+    if (!pinned) cancelHistoryPin();
+    insertingDelivery = true;
+    try { for (const turn of turns) {
+      const existing = new Set(log.children);
+      const before = Number(turn.ts) > 0 && Array.from(log.children).find(n => Number(n.dataset.ts) > Number(turn.ts));
+      renderHistory([turn]);
+      if (before) for (const n of Array.from(log.children)) if (!existing.has(n)) {
+        n.classList.remove('ts-repeat'); log.insertBefore(n, before);
+      }
+    } } finally { insertingDelivery = false; }
+    syncTimeBreaks();
+    pruneLog();
+    if (!pinned) log.scrollTop = anchor && log.contains(anchor) ? log.scrollTop + (anchor.getBoundingClientRect().top - anchorTop) / scale : top;
+    autoscroll();
+    return true;
   }
 
   // SWITCH-SURVIVAL: re-render whatever in-flight run we left on the now-displayed stream — its streamed
@@ -10229,5 +10280,5 @@ const Chat = (() => {
   // only" gate maybeStandaloneRate uses — so a pure-chat run is never bottle-offered. Used by App.runBottleInfo (R5).
   function runDidWork(id) { const w = id ? runWork.get(id) : null; return !!(w && ((w.toolsOk || 0) >= 1 || (w.delivered || 0) >= 1)); }
 
-  return { init, load, send, consentInspect, appendConsentDetails, revealHistory, copyText, continuityDiagnostics, refreshStarters, sendOrQueue, continueConnectorTask, stopActive, status, localLine, broadcast, renderProse, openFile, answerConsent, consentPhrase: actionPhrase, setSystem, getHistory, contextRef, abort, isBusy, beatBusy: skillBeatBusy, beginInterview, endInterview, echoUser, prefill, autoGrowInput, choices, clearChoices, retireDeskPrompt, typeLine, nudge, clearNudge, offerCuriosity, offerFork, planGoalPath, briefingReceipt, isComposerEngaged, canFocusSession, runMeta, runDidWork, awayDigest, awayReview, awayRate, sampleCard, workshopReturn, refreshIdBar: renderIdBar, refreshGroupControls: updateControls, refreshAgentIdentity, setRosterStatus, askBudgetSpent, spendAsk, clockLabel: fmtClock, breakLabel: fmtBreak, workspaceFileRefs, imageBlobUrl };
+  return { init, load, deliverTurns, send, consentInspect, appendConsentDetails, revealHistory, copyText, continuityDiagnostics, refreshStarters, sendOrQueue, continueConnectorTask, stopActive, status, localLine, broadcast, renderProse, openFile, answerConsent, consentPhrase: actionPhrase, setSystem, getHistory, contextRef, abort, isBusy, beatBusy: skillBeatBusy, beginInterview, endInterview, echoUser, prefill, autoGrowInput, choices, clearChoices, retireDeskPrompt, typeLine, nudge, clearNudge, offerCuriosity, offerFork, planGoalPath, briefingReceipt, isComposerEngaged, canFocusSession, runMeta, runDidWork, awayDigest, awayReview, awayRate, sampleCard, workshopReturn, refreshIdBar: renderIdBar, refreshGroupControls: updateControls, refreshAgentIdentity, setRosterStatus, askBudgetSpent, spendAsk, clockLabel: fmtClock, breakLabel: fmtBreak, workspaceFileRefs, imageBlobUrl };
 })();
