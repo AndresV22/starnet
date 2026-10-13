@@ -131,8 +131,9 @@ A.ok(/function stop\(\)\s*\{[^}]*cancelScheduled\(\)/.test(code), 'stop() cancel
 A.ok(/addEventListener\('focus', paceWake\)/.test(code) && /if \(!document\.hidden\) paceWake\(\)/.test(code), 'focus and becoming visible wake the loop');
 A.ok(/\['pointermove', 'pointerdown', 'wheel', 'keydown'\]\) window\.addEventListener\(ev, paceEngage/.test(code), 'input on the window engages full pace');
 A.ok(/renderPace,/.test(code), 'World.renderPace() is exported for live verification');
-A.ok(/finally \{\s*noteDrawCost\(performance\.now\(\) - drawStart\)/.test(frameSrc) && frameSrc.indexOf('const drawStart = performance.now()') < frameSrc.indexOf('frameBody(now)'),
-  'every draw (a throwing one included) reports its real cost to the frame budget');
+A.ok(/finally \{\s*if \(cache === bakedBefore\) \{\s*noteDrawCost\(performance\.now\(\) - drawStart\);\s*noteStrain\(performance\.now\(\) - drawStart\);/.test(frameSrc)
+  && frameSrc.indexOf('const drawStart = performance.now(), bakedBefore = cache') < frameSrc.indexOf('frameBody(now)'),
+  'every draw that did not bake the station (a throwing one included) reports its real cost to the frame budget and the strain band');
 
 // ---- 3. compositor: no infinite full-screen flicker; decorative loops rest while unfocused --------------------
 const appCode = strip(appCss);
@@ -171,6 +172,38 @@ A.ok(/armFlickerClock\(\); armMotionRest\(\);/.test(ui), 'applySettings arms bot
   A.eq(W.strain().strained, false, 'two full-detail probes that fit comfortably bring full detail back');
   W.resetBudget(); run(200, 14, 14);
   A.eq(W.strain().strained, false, '...and it stays back');
+}
+
+// ---- 4. A STATION BAKE IS NOT THE FLOOR'S DRAW COST (review world-render-01) -------------------------------------
+// The boot bake (and every room/font/recovery re-bake) is a one-off ~2.5 s on a big floor. Fed into the budget it seeded the
+// EMA at the 250 ms cap, STRAINED DETAIL switched on at draw 11, and a floor whose full draw is 22 ms (fine at 30 fps, but over
+// the 19.6 ms exit line) never earned its way back: crew lost walk frames, pose dissolve and body light for the session.
+// The real frame() and rebake() run here against a clock the stubs advance.
+{
+  const clk = { now: 0, drawMs: 22 };
+  const sb = { document: { hasFocus: () => true }, performance: { now: () => clk.now }, requestAnimationFrame: () => 1, cancelAnimationFrame: () => {},
+    setTimeout: () => 1, clearTimeout: () => {}, console, clk,
+    StationBake: { bake: () => { clk.now += 2500; return { doorOccluders: [] }; } } };
+  vm.createContext(sb);
+  const rebakeSrc = A.fnBody(code, 'function rebake()');
+  A.ok(rebakeSrc && /StationBake\.bake\(geo\)/.test(rebakeSrc), 'rebake() is the one place the station bake runs');
+  vm.runInContext('let frameCapMs = 0, lastDrawnAt = 0, running = true, raf = 0, renderFaults = 0, lastFaultMsg = "", reviewParts = null, reviewStamp = 0;\n' +
+    'const RENDER_FAULT_LIMIT = 30, reviewPerformance = { enabled: false, samples: [] };\n' +
+    'let station = {}, geo = {}, cache = null, geoDirty = false, bakeDirty = true, bakedAnchorKey = null;\n' +
+    'function buildHoldsFloor() { return false; } function rederive() {} function fixtureAnchorKey() { return ""; } function recordBakeProbe() {} function drawRenderFault() {}\n' +
+    'function frameBody(now) { if (bakeDirty || !cache) rebake(); clk.now += clk.drawMs; }\n' +
+    world.slice(from, to) + '\n' + rebakeSrc + '\n' + frameSrc +
+    '\nthis.F = { frame, strained: () => strained, cost: () => drawCostMs, edit: () => { bakeDirty = true; } };', sb);
+  const F = sb.F, draw = n => { for (let i = 0; i < n; i++) F.frame(clk.now, true); };
+  draw(1);
+  A.ok(F.cost() < 30, 'the boot frame that baked the station does not seed the frame budget (' + F.cost().toFixed(1) + ' ms)');
+  draw(200);
+  A.eq(F.strained(), false, 'a 22 ms floor after a 2.5 s boot bake keeps full detail');
+  A.ok(Math.abs(F.cost() - 22) < 0.5, '...and its budget is its real draw cost');
+  F.edit(); draw(1); draw(60);
+  A.eq(F.strained(), false, 'a room edit that re-bakes mid-session does not tip it into STRAINED DETAIL either');
+  clk.drawMs = 60; draw(40);
+  A.eq(F.strained(), true, 'a floor that really draws slowly still sheds detail (the bake exclusion hides nothing else)');
 }
 
 A.report('render pacing (#69)');

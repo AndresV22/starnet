@@ -6481,7 +6481,7 @@ const World = (() => {
     if (force !== true && now - lastDrawnAt < pace - 1) { scheduleFrame(pace); return; }   // RENDER PACING: not this vsync
     lastDrawnAt = now; pacedDraws++;
     scheduleFrame(pace);   // schedule next frame FIRST — a throw below can't kill the loop
-    const drawStart = performance.now();
+    const drawStart = performance.now(), bakedBefore = cache;   // only rebake() (and loadStation) replace the bake
     const reviewStart=reviewPerformance.enabled?drawStart:0;
     reviewParts=reviewPerformance.enabled?{}:null;reviewStamp=reviewStart;
     try {
@@ -6493,8 +6493,12 @@ const World = (() => {
       if (msg !== lastFaultMsg) { lastFaultMsg = msg; try { console.error('[world] render frame threw (x' + renderFaults + '):', e); } catch (_) {} }
       if (renderFaults >= RENDER_FAULT_LIMIT) { try { drawRenderFault(); } catch (_) {} }
     } finally {
-      noteDrawCost(performance.now() - drawStart);   // FRAME BUDGET: what this draw really cost the main thread
-      noteStrain(performance.now() - drawStart);     // STRAINED DETAIL: the same cost, raw (a probe is judged on its own draw)
+      // a frame that baked the station paid a one-off cost (~2.5 s on a big floor), not the floor's steady draw: it must neither
+      // seed the budget nor tip a healthy floor into STRAINED DETAIL, which only full-detail probes under the exit line undo
+      if (cache === bakedBefore) {
+        noteDrawCost(performance.now() - drawStart);   // FRAME BUDGET: what this draw really cost the main thread
+        noteStrain(performance.now() - drawStart);     // STRAINED DETAIL: the same cost, raw (a probe is judged on its own draw)
+      }
       if(reviewPerformance.enabled && reviewPerformance.samples.length<3600)reviewPerformance.samples.push({t:now,ms:performance.now()-reviewStart,parts:reviewParts});
       reviewParts=null;
     }
