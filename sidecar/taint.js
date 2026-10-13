@@ -105,6 +105,30 @@
     return true;
   }
 
+  // For an action-aware lock: which of the tool's OWN declared actions (schema action enum) a tainted run may still
+  // call, each probed alone through allowedWhenTainted. [] for a whole-tool lock, a tool without an action enum, or a
+  // predicate that throws, so nothing is ever offered as open that the gate would refuse.
+  function openActionsWhenTainted(tool) {
+    if (!tool || typeof tool.taintLocked !== 'function') return [];
+    const action = tool.schema && tool.schema.properties && tool.schema.properties.action;
+    const declared = action && Array.isArray(action.enum) ? action.enum : [];
+    return declared.filter(a => typeof a === 'string' && allowedWhenTainted(tool, { args: { action: a } }));
+  }
+
+  // The opening words of a taint lockout, as narrow as the lock. A whole-tool lock says the tool is gone; an action lock
+  // names only the refused action and the actions still open, so the model does not refuse "just pause it" believing the
+  // whole tool is gone. The action is echoed only when it is a plain word: it is model-written text. Pure.
+  function lockoutLead(tool, call) {
+    const name = String((call && call.name) || (tool && tool.name) || 'this tool');
+    const open = openActionsWhenTainted(tool);
+    if (!open.length) return '"' + name + '" is no longer available on this run.';
+    const raw = call && call.args && typeof call.args.action === 'string' ? call.args.action.trim() : '';
+    const subject = /^[A-Za-z][\w-]{0,29}$/.test(raw) ? 'Action "' + raw + '" of "' + name + '"' : 'This call to "' + name + '"';
+    const quoted = open.map(a => '"' + a + '"');
+    const still = quoted.length > 1 ? quoted.slice(0, -1).join(', ') + ' and ' + quoted[quoted.length - 1] + ' are' : quoted[0] + ' is';
+    return subject + ' is locked on this run; ' + still + ' still available.';
+  }
+
   // Pure state machine for the temporal confirmation boundary. Standing permission state is intentionally not
   // an input: only a decision obtained by the caller AFTER taint can yield a one-call recovery.
   function postTaintBoundary(tool, opts) {
@@ -125,5 +149,5 @@
     return { allow, needsConfirmation: false, oneShot: allow };
   }
 
-  return { isUntrustedSource, allowedWhenTainted, postTaintBoundary, relayedTaint, firstTaint, CONNECTOR_CAP, UNTRUSTED_PARK_PREFIX };
+  return { isUntrustedSource, allowedWhenTainted, openActionsWhenTainted, lockoutLead, postTaintBoundary, relayedTaint, firstTaint, CONNECTOR_CAP, UNTRUSTED_PARK_PREFIX };
 });
