@@ -7,20 +7,22 @@ const root = fs.mkdtempSync(path.join(os.tmpdir(),'starnet-checkpoint-git-'));
 const heartbeat = path.join(root,'heartbeat.txt');
 const worker = path.join(root,'worker.cjs');
 const launcher = path.join(root,'launcher.cjs');
-// The worker stops by itself after 30 s, or as soon as the temp dir is gone, so a failed run leaves nothing behind.
+// The worker stops by itself after 30 s, so a failed run leaves no process behind.
 fs.writeFileSync(worker,"const fs=require('node:fs'); setTimeout(()=>process.exit(0),30000); setInterval(()=>fs.appendFileSync(process.argv[2],'x'),40);");
 // The grandchild must be able to OUTLIVE the launcher, or killing only the direct child would pass. On Windows, node
 // puts a non-detached child in a kill-on-close job, so the launcher's death would take the worker with it; detached
 // keeps it out (as git's own children are). On POSIX it stays in the launcher's process group, as git's children
-// do. stdio 'ignore' so a surviving worker holds no pipe and fails the check instead of stalling the run.
-fs.writeFileSync(launcher,"require('node:child_process').spawn(process.execPath,[process.argv[2],process.argv[3]],{stdio:'ignore',windowsHide:true,cwd:require('node:os').tmpdir(),detached:process.platform==='win32'});setInterval(()=>{},1000);");
+// do. It inherits the output pipe, as git's children do, so the runner settles only once every holder is gone.
+fs.writeFileSync(launcher,"require('node:child_process').spawn(process.execPath,[process.argv[2],process.argv[3]],{stdio:'inherit',windowsHide:true,detached:process.platform==='win32'});setInterval(()=>{},1000);");
+// A grandchild that survives keeps that pipe open and the run never settles: bound the wait so that fails, not stalls.
+const settled=(p,ms)=>Promise.race([p,new Promise(r=>setTimeout(()=>r(null),ms))]);
 const run = makeCheckpointGitRunner({spawn,file:process.execPath,timeoutMs:1200,clock:{now:()=>Date.now()}});
 (async()=>{
   try {
     const split = await run(['-e',"process.stdout.write('data'); process.stderr.write('warning');"],{cwd:root});
     A.eq(split.code,0,'successful process'); A.eq(split.stdout,'data','stdout contains only data'); A.eq(split.stderr,'warning','stderr retained separately');
-    const timed = await run([launcher,worker,heartbeat],{cwd:root});
-    A.ok(timed.timedOut&&timed.code!==0,'timeout is observable');
+    const timed = await settled(run([launcher,worker,heartbeat],{cwd:root}),8000);
+    A.ok(timed&&timed.timedOut&&timed.code!==0,'timeout is observable, and the run settled (no descendant kept the output open)');
     A.ok(fs.existsSync(heartbeat),'descendant actually ran');
     const before=fs.statSync(heartbeat).size;
     await new Promise(r=>setTimeout(r,250));
@@ -35,8 +37,8 @@ const run = makeCheckpointGitRunner({spawn,file:process.execPath,timeoutMs:1200,
     while(fs.statSync(heartbeat).size===startSize&&Date.now()<deadline) await new Promise(r=>setTimeout(r,20));
     A.ok(fs.statSync(heartbeat).size>startSize,'descendant running before abort');
     controller.abort();
-    const abortResult=await aborted;
-    A.ok(abortResult.aborted&&abortResult.code!==0,'abort is observable');
+    const abortResult=await settled(aborted,8000);
+    A.ok(abortResult&&abortResult.aborted&&abortResult.code!==0,'abort is observable, and the run settled (no descendant kept the output open)');
     const afterAbort=fs.statSync(heartbeat).size;
     await new Promise(r=>setTimeout(r,250));
     A.eq(fs.statSync(heartbeat).size,afterAbort,'abort stopped descendant before returning');
