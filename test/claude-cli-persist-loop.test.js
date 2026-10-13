@@ -173,5 +173,20 @@ function fixture() {
       f.protocolChecks(); f.endChecks('error');
     } finally { f.dispose(); }
   }
+  // THE SUBSCRIPTION SEATBELT on the persistent path (cache-cap lane, 2026-10-12): every reused turn books its OWN usage,
+  // marked subscription, so loop.js noteSubscription counts each turn once (fresh input + output, cache re-reads 1/10).
+  // usage(n): 110n in (10n cached), n+2 out -> 102n+2 a turn: 104, then 310 after turn 2 >= a 300 ceiling.
+  {
+    const f = fixture();
+    const a = f.adapter('A', (c, n) => { const text = n < 3 ? block(n === 1 ? 'a' : 'b') : 'The fixture contains a and b.'; return [...(n === 1 ? [init('none')] : []), delta(text), result(text, n, 0)]; });
+    try {
+      const out = await f.run(a, [], { limits: { maxIters: 6, grace: false, maxSubscriptionTokens: 300 } });
+      A.eq([out.reason, f.reads], ['budget', ['a', 'b']], 'the ceiling stops the run after turn 2 (not turn 1: no double count; not never: no lost turn)');
+      A.eq([out.subscriptionTokens, out.subscriptionCapTokens, out.subscriptionModel], [310, 300, 'sonnet'], 'it names exactly the two persistent turns\' subscription tokens');
+      A.eq([a.children.length, a.children[0].inputs.length, a.provider.persistStats().reused], [1, 2, 1], 'both turns rode ONE child (turn 2 was a delta)');
+      A.eq(f.costs().map(c => [c.tokensIn, c.cachedTokens, c.usd]), [[110, 10, 0], [220, 20, 0]], 'one $0 booking per turn, per-turn tokens');
+      f.endChecks('budget');
+    } finally { f.dispose(); }
+  }
   A.report('claude-cli-persist-loop.test');
 })().catch(error => { console.error(error); process.exitCode = 1; });

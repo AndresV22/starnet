@@ -11,6 +11,7 @@
 const A = require('./_assert.js');
 const { EventEmitter } = require('events');
 const { makeClaudeCliProvider, _internals } = require('../sidecar/providers/claude-cli.js');
+const provider = require('../sidecar/providers/provider.js');
 
 function fakeCli(script) {
   const spawns = [];
@@ -221,6 +222,7 @@ const tick = ms => new Promise(r => setTimeout(r, ms || 0));
     const qt = await collect(quiet.p, req([SYS, { role: 'user', content: 'Read a.txt.' }]));
     A.ok(qt.some(e => e.type === 'done' && e.finishReason === 'tool_calls') && quiet.spawns[0].treeKilled && quiet.p.persistStats().closed.no_end === 1,
       'a reply that never ends is closed after the grace window; the turn still hands over its call');
+    A.eq(qt.filter(e => e.type === 'usage').map(e => e.usage.subscription), [true], 'its estimated usage is still ONE subscription booking');
   }
 
   // 4. STOP: mid-turn (no events, child killed) and between turns (a parked child dies with the run signal).
@@ -276,6 +278,7 @@ const tick = ms => new Promise(r => setTimeout(r, ms || 0));
     const t2 = await collect(p, req(msgs));
     A.eq([t1.find(e => e.type === 'usage').usage.cost, Math.round(t2.find(e => e.type === 'usage').usage.cost * 1000) / 1000], [0.25, 0.1], 'turn 2 books $0.10, not the running $0.35');
     A.eq(t1.find(e => e.type === 'usage').usage.completion_tokens, 7, 'a call turn that ended on its own books its real result usage');
+    A.eq([t1, t2].map(t => t.find(e => e.type === 'usage').usage.subscription), [undefined, undefined], 'an API-key turn is never marked subscription');
     const sub = make(reader);
     const su = await collect(sub.p, req([SYS, { role: 'user', content: 'Read a.txt.' }]));
     A.eq(su.find(e => e.type === 'usage').usage.cost, 0, 'a subscription turn still books $0');
@@ -367,6 +370,48 @@ const tick = ms => new Promise(r => setTimeout(r, ms || 0));
     A.eq(c[1], { type: 'text', text: '<user>\n[BEGIN EXTERNAL SCREEN CAPTURE]\n[image 1 — attached below]\n</user>' }, 'the capture is its own entry, naming where the picture sat');
     A.eq(c.slice(2), [{ type: 'text', text: 'Image 1:' }, { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'iVBORw0KGgo=' } }], 'and the picture rides as an image block right after it, on the same child');
     p.release('run-12');
+  }
+
+  // 13. THE MERGED BASE (cache-cap + lean-prompt, 2026-10-12): a fresh child starts from the per-entry PROMPT CACHE blocks
+  //     (a first message's run-context note joins its user entry, never the system prompt), each later turn sends only
+  //     the new entries in the same blocks (parallel results share one), and every turn's usage says `subscription`.
+  {
+    const files = {};
+    const fsRec = { statSync() { return { isFile: () => true }; }, writeFileSync(f, d) { files[f] = String(d); }, unlinkSync() {} };
+    const both = '<function_calls>\n' + ['a.txt', 'b.txt'].map(f => '<invoke name="fs_read">\n<parameter name="path">' + f + '</parameter>\n</invoke>').join('\n') + '\n</function_calls>';
+    const parallel = (rec, n) => {
+      const text = n === 1 ? both : (n === 2 ? block('c.txt') : 'All read.');
+      return { lines: [init(), start({ input_tokens: 3 }), delta(text), result(text)] };
+    };
+    const { p, spawns } = make(parallel, { fs: fsRec });
+    const ac = new AbortController();
+    const prefix = 'You are the test agent.';
+    const sys = { role: 'system', content: prefix + '\n\nFINISH THE JOB.' };
+    const note = provider.runContextNote('[RUNTIME]\nRun id: run-13');
+    const recall = '<recalled-memory>\n• prefers bullets\n</recalled-memory>';
+    const req = msgs => ({ model: 'sonnet', tools: TOOLS, messages: msgs.slice(), runId: 'run-13', signal: ac.signal, cacheSystemPrefix: prefix });
+    const msgs = [sys, { role: 'system', content: note }, { role: 'system', content: recall }, { role: 'user', content: 'Read a, b and c.' }];
+    const t1 = await collect(p, req(msgs));
+    A.eq(spawns[0].inputs[0].message.content, _internals.buildPrompt(msgs, TOOLS, prefix).blocks, 'a fresh child gets exactly the one-shot blocks');
+    A.eq(spawns[0].inputs[0].message.content, [{ type: 'text', text: '<user>\n' + note + '\n\n' + recall + '\n\nRead a, b and c.\n</user>' }], 'first message: the run-context note and recall lead the user entry (one block)');
+    const sysText = files[spawns[0].args[spawns[0].args.indexOf('--system-prompt-file') + 1]] || '';
+    A.ok(sysText.indexOf('run-13') < 0 && sysText.indexOf('<run_context>') < 0 && sysText.indexOf('<recalled-memory>') < 0, 'the per-run note never enters the child\'s system prompt');
+    A.ok(/^You are the test agent\.\n\n# Tools[^]*\n\n# Conversation\nThe first user message holds the conversation so far[^]*\n\n__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__\nFINISH THE JOB\.$/.test(sysText),
+      'system: stable prefix, tools, the persistent transcript note, then the boundary and the per-run text: ' + JSON.stringify(sysText.slice(-160)));
+    A.eq(sysText.replace(/# Conversation\n[^\n]*/, ''), _internals.buildPrompt(msgs, TOOLS, prefix).system.replace(/# Conversation\n[^\n]*/, ''), 'the rest of the system prompt is the one-shot one, byte for byte');
+    const r1 = reply(t1);
+    A.eq(r1.tool_calls.length, 2, 'turn 1 asks for two reads at once');
+    msgs.push(r1, ...results(r1, 'alpha'));
+    const t2 = await collect(p, req(msgs));
+    A.eq(spawns.length, 1, 'turn 2 rides the same child');
+    A.eq(spawns[0].inputs[1].message.content.map(b => b.text), ['<tool_result id="' + r1.tool_calls[0].id + '">\nalpha\n</tool_result>\n<tool_result id="' + r1.tool_calls[1].id + '">\nalpha\n</tool_result>'],
+      'turn 2: both parallel results in ONE block, nothing after them');
+    const r2 = reply(t2); msgs.push(r2, ...results(r2, 'gamma'), { role: 'system', content: '<steering_note>be brief</steering_note>' });
+    const t3 = await collect(p, req(msgs));
+    A.eq(spawns[0].inputs[2].message.content, _internals.buildPrompt(msgs, TOOLS, prefix).blocks.slice(-2), 'turn 3: exactly the last two one-shot blocks (the result, the note), sent alone');
+    A.ok(!JSON.stringify(spawns[0].inputs).includes('Continue as the assistant'), 'no per-turn instruction ever follows the newest entry');
+    [t1, t2, t3].forEach((t, i) => A.eq(t.filter(e => e.type === 'usage').map(e => e.usage.subscription), [true], 'turn ' + (i + 1) + ': ONE usage, marked subscription (the loop\'s maxSubscriptionTokens counts it)'));
+    p.release('run-13');
   }
 
   // 10. THE REAL LOOP drives the adapter (no hand-built replies): the reply loop.js records is exactly the one the child
