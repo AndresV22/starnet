@@ -1,13 +1,13 @@
-/* sidecar/verdictreview.js â€” VERDICT-TRIGGERED SKILL REVIEW (consistency loop, slice 1, 2026-08-22).
+/* sidecar/verdictreview.js — VERDICT-TRIGGERED SKILL REVIEW (consistency loop, slice 1, 2026-08-22).
 
-   The background skill review (skillreview.js) fires on run SIZE â€” â‰¥4 tool calls, â‰¥8 turns, â‰¥5000 chars. The
+   The background skill review (skillreview.js) fires on run SIZE — ≥4 tool calls, ≥8 turns, ≥5000 chars. The
    Commander's own verdict on the work was never an input: a small run rated `miss` taught the skillbase nothing,
    which is exactly the consistency complaint ("it did it wrong, and next week it does it wrong again").
 
    This module is the pure half of the fix. At run end, a run that did NOT earn a size-review gets a compact
    REVIEW PACKET parked here (the transcript + the aux provider handles the review would need). When a verdict
    arrives on POST /api/growth/ratings and it is `ok` or `miss`, the packet is TAKEN (once) and index.js runs the
-   same quiet review loop with the verdict in the prompt. `great` never triggers â€” praise is not a lesson.
+   same quiet review loop with the verdict in the prompt. `great` never triggers — praise is not a lesson.
 
    Bounded by construction: a capped LRU (oldest evicted), a TTL so a stale packet never reviews a run the
    Commander rated long after against a skillbase that has since moved, and take() deletes. Durable since
@@ -21,7 +21,7 @@ const { note: failNote } = require('./failopen.js');   // a swallowed error stay
 
 const VERDICTS_THAT_TEACH = new Set(['ok', 'miss']);
 
-// compactPacket â€” the persistable half of a review packet: no provider/cost objects (they are live handles, and a
+// compactPacket — the persistable half of a review packet: no provider/cost objects (they are live handles, and a
 // provider can carry a credential), and only the transcript the review prompt can actually read (skillreview's
 // transcript() tail-caps at 12k chars) plus the run's directive, so a packet on disk stays a few KB.
 const PERSIST_CHARS = 16000;
@@ -29,7 +29,7 @@ const PER_MESSAGE_CHARS = 4000;
 // the FINAL answer is kept whole (up to this cap): a `great` rating after a restart mints a golden from it, and a
 // golden measured against a truncated output would flag every faithful later run as off-length.
 const FINAL_CHARS = 60000;
-// redact (optional): the host's secret scrub â€” a tool that read a .env or an API response put that text in the
+// redact (optional): the host's secret scrub — a tool that read a .env or an API response put that text in the
 // transcript, and a packet on disk must never hold it in cleartext (every other durable transcript store redacts).
 function compactPacket(p, redact) {
   p = p || {};
@@ -173,7 +173,7 @@ function makeVerdictReview(opts) {
   /* ---- CORRECTION GRACE (slice 2, 2026-08-22) ----
      A verdict alone says "this fell short"; the Commander's NEXT words say HOW. Firing the review the instant the
      verdict lands threw those words away. arm() takes the packet and holds it for `graceMs`; correct() attaches
-     the Commander's correction â€” a chip tap (final:false) keeps waiting for the typed message, a typed message
+     the Commander's correction — a chip tap (final:false) keeps waiting for the typed message, a typed message
      (final:true) fires the review NOW with their words; the timer fires with whatever arrived. One review per
      run either way (held map is keyed by runId; fire is single-shot). Timers are INJECTED (determinism law). */
   const setT = typeof opts.setTimeout === 'function' ? opts.setTimeout : (fn, ms) => setTimeout(fn, ms);
@@ -284,7 +284,7 @@ function makeVerdictReview(opts) {
   }
   function holding(runId) { return held.has(String(runId || '').trim()); }
   // peek: read a parked packet WITHOUT consuming it (slice 4: a `great` verdict reads which skills the run loaded
-  // to mint a golden; it never spends the packet â€” praise is not a review).
+  // to mint a golden; it never spends the packet — praise is not a review).
   function peek(runId) { sweep(); const row = packets.get(String(runId || '').trim()); return row ? row.packet : null; }
 
   return { stash, shouldTrigger, take, size, has, cap, ttlMs, arm, correct, holding, peek, graceMs, snapshot, restore, resumeHeld };
