@@ -134,7 +134,7 @@ function boot(opts) {
     Chat: { isBusy: () => sandbox.__busy, status: s => { statusLog.push(s); nodes['chat-status'].textContent = s; }, send: t => sandbox.__sent.push(t), autoGrowInput() {} },
     SFX: { open() {}, click() {}, think() {}, boot() {} },
     Personas: { DEFAULT_ID: 'professional', get: () => ({ ttsVoice: 'Umbriel', ttsSpeed: 1 }) },
-    Harness: { getKey: () => (opts.ttsKey ? 'k' : ''), configured: () => false },
+    Harness: Object.assign({ getKey: () => (opts.ttsKey ? 'k' : ''), configured: () => false }, opts.harness || {}),
     __busy: false, __sent: []
   };
   if (opts.now) sandbox.Date = class extends Date { static now() { return opts.now(); } };
@@ -966,6 +966,22 @@ async function opensWithin(t, ms) {
     A.ok(t.statusLog.some(s => /restarted|reload/i.test(String(s))), 'stt 403: the failure is NAMED, not silently dropped');
     A.ok(/restarted|reload/i.test(String(t.nodes['chat-status'].textContent || '')),
       'stt 403: and the diagnostic SURVIVES endListening\'s same-tick restore (it is actually painted)');
+  }
+  // a page the station KEPT its key from (Harness.tokenWithheld) gets the same 403, but it is not a restart: a reload
+  // only re-runs the same ownership check, so the STT failure points at the station notice instead (threads-backend-05)
+  {
+    const sttFail = (url) => (String(url).indexOf('/api/stt') >= 0)
+      ? Promise.resolve({ ok: false, status: 403, headers: { get: () => 'text/plain' }, json: () => Promise.reject(new SyntaxError('Unexpected token f')) })
+      : Promise.resolve({ ok: true, headers: { get: () => 'application/json' }, json: () => Promise.resolve({}), blob: () => Promise.resolve({ size: 1 }) });
+    const t = boot({ recorder: true, fetch: sttFail, harness: { tokenWithheld: () => 'other-user' } });
+    t.Voice.startListening(); await tick(30);
+    mrInstances[mrInstances.length - 1].ondataavailable({ data: { size: 1 } });
+    t.Voice.stopListening();
+    await until(() => t.statusLog.some(s => /not verified|restarted/i.test(String(s))), 5000);
+    A.eq(t.sandbox.__sent.length, 0, 'stt 403 on a withheld page: nothing is sent');
+    A.ok(t.statusLog.some(s => /not verified as your own account/.test(String(s)) && /station notice/.test(String(s))),
+      'stt 403 on a withheld page: names the ownership check and the notice: ' + JSON.stringify(t.statusLog));
+    A.ok(!t.statusLog.some(s => /restarted/i.test(String(s))), 'stt 403 on a withheld page: never says the station restarted');
   }
   // the documented 200-degrade envelope keeps working, and its reason is painted too
   {

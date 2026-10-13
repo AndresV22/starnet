@@ -1450,8 +1450,12 @@ const Voice = (() => {
          the user's spoken sentence disappeared with no error and no diagnostic, byte-identical to having said
          nothing into a dead room. An unknown is not an empty. */
       if (!r.ok && !(j && (j.text || j.reason))) {
-        const reason = r.status === 403
-          ? 'the station restarted — reload the page to reconnect'
+        // a page the station KEPT its key from (Harness.tokenWithheld) gets the same 403, but it is not a restart: a
+        // reload only re-runs the same ownership check, and the station notice says why (review threads-backend-05)
+        const withheld = r.status === 403 && typeof Harness !== 'undefined' && Harness
+          && typeof Harness.tokenWithheld === 'function' && Harness.tokenWithheld();
+        const reason = withheld ? 'this browser was not verified as your own account — see the station notice'
+          : r.status === 403 ? 'the station restarted — reload the page to reconnect'
           : 'transcription unreachable (HTTP ' + r.status + ')';
         console.warn('[voice] STT HTTP', r.status);
         return { text: '', reason, failed: true };
