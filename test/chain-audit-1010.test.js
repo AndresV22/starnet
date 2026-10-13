@@ -147,20 +147,27 @@ const belt = (x, y, dir) => ({ x, y, dir });
     A.eq(plan.errors.filter(e => !e.warn).length, 0, 'compiles');
     const router = makeRouter(); router.setPlan(plan);
     const planner = s.props().find(p => p.role === 'PLANNER'), lineId = router.lineOfAgent('planner', planner.id);
+    // the precondition that lets the LAST-stage check below fail: lastStage IS wired here, and every divided branch's lane
+    // ships to the OUTBOX — so a branch turn built by hopTurn would carry "You are the LAST stage" (the 2026-10-10 live bug)
+    for (const b of s.props().filter(p => p.t === 'bay' && p.role !== 'PLANNER')) A.ok(router.chainShipsToOutbox(b.agentId, b.id), 'every divided branch lane ships to the OUTBOX (so the next check can fail): ' + b.agentId);
     const run = async (opts) => {
-      const shipped = [];
+      const shipped = [], turns = [];
       const c = makeChainRunner(Object.assign({ nextAgent: (a, x) => router.chainNext(a, x), stepAgent: (a, x) => router.chainStep(a, x),
         stepDock: (d, x) => router.chainStepDock(d, x), entryDockOf: a => router.entryDockOf(a), fanSiblingsDock: d => router.fanSiblingsDock(d),
         lineOfAgent: (a, d) => router.lineOfAgent(a, d), lastStage: (a, d) => router.chainShipsToOutbox(a, d), onShipped: r => shipped.push(r),
         setTimer: () => 0 }, opts.peek ? { peekDock: (d, x) => router.chainPeekDock(d, x) } : {}));
       const res = await c.advance({ agentId: 'planner', dockId: planner.id, text: opts.text, originalText: 'do X', lineId,
-        runAgent: async h => (opts.fail && h.agentId === opts.fail ? { error: 'down' } : { text: h.agentId + ' did it' }) });
+        runAgent: async h => { turns.push({ agentId: h.agentId, text: h.text }); return opts.fail && h.agentId === opts.fail ? { error: 'down' } : { text: h.agentId + ' did it' }; } });
       await new Promise(r => setImmediate(r));
-      return { res, shipped };
+      return { res, shipped, turns };
     };
     for (const [name, opts] of [['parallel + divided', { peek: true, text: 'PART 1: a\nPART 2: b\nPART 3: c' }], ['one after another + divided', { peek: false, text: 'PART 1: a\nPART 2: b\nPART 3: c' }],
       ['parallel, one branch failing', { peek: true, text: 'PART 1: a\nPART 2: b\nPART 3: c', fail: 'c2' }], ['one after another, last branch failing', { peek: false, text: 'PART 1: a\nPART 2: b\nPART 3: c', fail: 'c2' }]]) {
-      const { res, shipped } = await run(opts);
+      const { res, shipped, turns } = await run(opts);
+      const branchTurns = turns.filter(t => /^c\d$/.test(t.agentId));
+      A.eq(branchTurns.length, 3, name + ': three branch turns ran');
+      A.ok(branchTurns.every(t => /YOUR PART \(\d of 3\)/.test(t.text)), name + ': each branch is handed its own part');
+      A.ok(branchTurns.every(t => !/You are the LAST stage/.test(t.text)), name + ': no branch is told it is the LAST stage, though its lane ships (live 2026-10-10: that made each do the whole job)');
       A.eq(res.stopped, null, name + ': the line ends clean (' + res.stopped + ')');
       A.eq(res.outboxId, outbox.id, name + ': it names the OUTBOX the joined job landed in');
       A.ok(shipped.length === 1 && shipped[0].outboxId === outbox.id, name + ': SEND TO is told it shipped');
