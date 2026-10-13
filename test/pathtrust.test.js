@@ -182,11 +182,29 @@ function scriptPrompt(decision) {
     A.ok(/credential floor/.test(msg) && /Full Power/.test(msg), 'the refusal names the floor and the one switch that reaches it — got: ' + msg);
     const power = await h.pt.guard(path.join(home, '.ssh', 'id_ed25519'), { scope: 'read', surface: 'autonomous', unrestrictedHost: true });
     A.ok(power && power.unrestrictedHost === true, 'Full Power (the operator\'s explicit host-wide switch) still reaches it');
-    // a symlink named innocently that points INTO a credential store is caught on its real target
+    // a symlink named innocently that points INTO a credential store is caught on its real target. Non-admin
+    // Windows cannot create file symlinks, so the injected-fs case below proves the same rule on every host.
     const link = path.join(home, 'innocent.txt');
     let linked = false;
-    try { await fsp.symlink(path.join(home, '.ssh', 'id_ed25519'), link, 'file'); linked = true; } catch (_) {}
+    try { await fsp.symlink(path.join(home, '.ssh', 'id_ed25519'), link, 'file'); linked = true; }
+    catch (e) { if (!['EPERM', 'EACCES', 'ENOTSUP'].includes(e.code)) throw e; }
     if (linked) await rejects(h.pt.guard(link, { scope: 'read', surface: 'autonomous', fullAccess: true }), 'credential floor is re-proven on the symlink\'s real target');
+    else console.log('SKIP: credential-floor real-symlink case — this host cannot create file symlinks (the injected-fs case below still proves the rule)');
+  }
+  {
+    const PM = Object.assign({}, require('node:path').posix, { sep: '/' });
+    const LINK = '/home/innocent.txt', KEY = '/home/.ssh/id_ed25519';
+    const fspFake = {
+      async realpath(p) { return p === LINK ? KEY : p; },
+      async lstat(p) { if (p === LINK || p === KEY || p === '/home') return {}; const e = new Error('ENOENT'); e.code = 'ENOENT'; throw e; },
+      async stat(p) { if (p === '/home') return { isDirectory: () => true }; throw new Error('ENOENT'); }
+    };
+    const pt = makePathTrust({ fsp: fspFake, pathMod: PM, roots: () => ['/home'] });
+    let msg = '';
+    try { await pt.guard(LINK, { scope: 'read', surface: 'autonomous', fullAccess: true }); } catch (e) { msg = e.message; }
+    A.ok(/credential floor/.test(msg), 'credential floor is re-proven on the realpath (injected fs, runs on every host) — got: ' + msg);
+    const ok = await pt.guard('/home/notes.txt', { scope: 'read', surface: 'autonomous', fullAccess: true });
+    A.eq(ok.base, '/home', 'an ordinary file under the same root still reads');
   }
 
   // ---- security-storage-08: the browser-profile rule matches the browsers' real profile folders, not any folder
