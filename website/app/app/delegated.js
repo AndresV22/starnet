@@ -89,9 +89,19 @@ const Delegated = (() => {
     return arg && arg !== '.' ? verb + ' · ' + arg : verb;
   }
 
+  // Polling can lag behind a newer run on this thread. Never use the old ledger's state, Stop, or receipt.
+  function currentWorker(r) {
+    const w = r.worker, C = typeof Channels !== 'undefined' ? Channels : null;
+    if (!w || !w.runId) return w;
+    const live = C && C.isBusy && C.isBusy(r.ws.id) && C.runIdOf && C.runIdOf(r.ws.id);
+    if (live && String(live) !== String(w.runId)) return null;
+    const ids = (r.ws.runIds || []).map(String), i = ids.indexOf(String(w.runId));
+    return i >= 0 && i < ids.length - 1 ? null : w;
+  }
+
   /* the row's state, in priority order. `parentLive` = the lead run that dispatched it is still running on this page. */
   function stateOf(r, parentId, lead) {
-    const k = r.ws, w = r.worker, C = typeof Channels !== 'undefined' ? Channels : null;
+    const k = r.ws, w = currentWorker(r), C = typeof Channels !== 'undefined' ? Channels : null;
     // a worker's approval or question is raised on the conversation that dispatched it (the lead's consent broker),
     // stamped with the worker that asked — the row matches it EXACTLY by that worker's thread or run, never by agent
     const pend = askOf(r, parentId);
@@ -100,11 +110,16 @@ const Delegated = (() => {
       return { cls: 'working', live: doing(steps.get(String(w.runId))), t: clock(Date.now() - (+w.startedAt || Date.now())), stop: !!w.canInterrupt, worker: w };
     }
     if (C && C.isBusy && C.isBusy(k.id)) return { cls: 'working', live: 'working', t: C.elapsedOf ? clock(C.elapsedOf(k.id)) : '' };
+    const reason = String((w && w.reason) || k.lastRunReason || '');
+    if (reason === 'budget' || reason === 'max_iters') return { cls: 'stopped', live: reason === 'budget' ? 'budget limit reached' : 'step limit reached', t: '' };
+    if (['aborted', 'cancelled', 'interrupted', 'stopped'].includes(reason)) return { cls: 'stopped', live: 'stopped before completion', t: '' };
     if (w && w.status === 'done') return { cls: 'done', live: excerpt(k) || 'done', t: w.completedAt && w.startedAt ? clock(w.completedAt - w.startedAt) : '' };
     if (w && (w.status === 'error' || w.status === 'refused')) return { cls: 'failed', live: 'failed' + (w.reason && w.reason !== 'error' ? ' · ' + w.reason : ''), t: '' };
     if (w && (w.status === 'interrupted' || w.status === 'stale')) return { cls: 'stopped', live: w.status === 'stale' ? 'stopped when the station restarted' : 'stopped', t: '' };
     if (k.lastRunOk === false) return { cls: 'failed', live: 'failed', t: '' };
-    if ((k.runIds || []).length) return { cls: 'done', live: excerpt(k) || 'done', t: '' };
+    if (reason === 'done') return { cls: 'done', live: excerpt(k) || 'done', t: '' };
+    if (reason) return { cls: 'failed', live: 'ended · ' + reason, t: '' };
+    if ((k.runIds || []).length) return { cls: 'recorded', live: 'result available · completion unconfirmed', t: '' };
     const parentBusy = C && C.isBusy && C.isBusy(parentId) && (!C.runIdOf || !lead || C.runIdOf(parentId) === lead);
     if (parentBusy) return { cls: 'queued', live: 'starting', t: '' };
     return { cls: 'stopped', live: 'ended without a result', t: '' };
@@ -128,7 +143,10 @@ const Delegated = (() => {
   const closed = new Set();   // batch keys the Commander folded while they were still running
   const seen = new Set();     // worker thread ids whose work is unfolded (See work)
   const receipts = new Map(); // worker thread id -> { status: 'loading'|'ok'|'err', data, at, runId, error }
-  const WORD = { working: 'working', waiting: 'needs you', done: 'done', failed: 'failed', stopped: 'stopped', queued: 'starting' };
+  const loadingReceipts = new Set();
+  const answering = new Set();
+  const stopping = new Set();
+  const WORD = { recorded: 'result available', working: 'working', waiting: 'needs you', done: 'done', failed: 'failed', stopped: 'stopped', queued: 'starting' };
   function names(list) {
     const n = list.map(a => String(a.name || a.id));
     return n.length <= 3 ? (n.length > 1 ? n.slice(0, -1).join(', ') + ' and ' + n[n.length - 1] : n[0] || '')
@@ -140,13 +158,14 @@ const Delegated = (() => {
     const count = c => rows.filter(x => x.st.cls === c).length;
     const sum = [count('waiting') && count('waiting') + ' need' + (count('waiting') === 1 ? 's' : '') + ' you', count('working') && count('working') + ' working',
       count('queued') && count('queued') + ' starting', count('failed') && count('failed') + ' failed', count('stopped') && count('stopped') + ' stopped',
+      count('recorded') && count('recorded') + ' result' + (count('recorded') === 1 ? '' : 's') + ' available',
       count('done') && (count('done') === rows.length ? (rows.length > 1 ? 'all ' + rows.length + ' done' : 'done') : count('done') + ' done')]
       .filter(Boolean).join(' · ');
     const live = count('working') + count('waiting') + count('queued') > 0;
     // a worker waiting on you always shows (folding it would hide the one thing that needs you)
     const open = opened.has(b.lead) || count('waiting') > 0 || (live && !closed.has(b.lead));
     // the batch lamp: the most urgent worker state (needs you > working > failed > done)
-    const tone = count('waiting') ? 'waiting' : (count('working') || count('queued')) ? 'working' : (count('failed') || count('stopped')) ? 'failed' : 'done';
+    const tone = count('waiting') ? 'waiting' : (count('working') || count('queued')) ? 'working' : (count('failed') || count('stopped')) ? 'failed' : count('recorded') ? 'recorded' : 'done';
     const head = '<button type="button" class="dg-line-head" data-dg-toggle="' + esc(b.lead) + '" aria-expanded="' + open + '">'
       + '<span class="dg-lamp ' + tone + '" aria-hidden="true"></span>'
       + '<span class="dg-line-text">Delegated to <b>' + esc(names(rows.map(x => x.a))) + '</b></span>'
@@ -156,24 +175,27 @@ const Delegated = (() => {
       // the thread's " (2)" is only there to keep thread titles unique; the card says the task in its own words
       const task = String(r.ws.title || 'Delegated task').replace(/ \(\d+\)$/, '').replace(/ · \d{4}-\d\d-\d\d \d\d:\d\d:\d\d$/, '');
       const who = a.name || a.id, id = r.ws.id, shown = seen.has(id);
-      const status = st.cls === 'waiting' ? askLine(st.pend) : cap(st.cls === 'working' ? st.live + (st.t ? ' · ' + st.t : '') : WORD[st.cls] + (st.t && st.cls === 'done' ? ' · ' + st.t : ''));
+      const status = st.cls === 'waiting' ? askLine(st.pend) : cap(st.cls === 'done' ? WORD[st.cls] : st.live || WORD[st.cls]);
       // ONE way to act per state: answer its ask, stop it while it runs, else see its work
-      const key = st.cls === 'waiting'
-        ? '<span class="dg-keys"><button type="button" class="dg-key primary" data-dg-consent="once" data-dg-ws="' + esc(id) + '">Approve</button>'
-          + '<button type="button" class="dg-key deny" data-dg-consent="deny" data-dg-ws="' + esc(id) + '">Deny</button></span>'
+      const key = st.cls === 'waiting' && st.pend.tool === 'brief.ask'
+        ? '<button type="button" class="dg-key primary" data-dg-question="' + esc(st.pend.promptId) + '">Answer</button>'
+        : st.cls === 'waiting'
+        ? '<span class="dg-keys"><button type="button" class="dg-key primary" data-dg-consent="once" data-dg-ws="' + esc(id) + '"' + (answering.has(String(st.pend.promptId)) ? ' disabled' : '') + '>Approve</button>'
+          + '<button type="button" class="dg-key deny" data-dg-consent="deny" data-dg-ws="' + esc(id) + '"' + (answering.has(String(st.pend.promptId)) ? ' disabled' : '') + '>Deny</button></span>'
         : st.stop
-          ? '<button type="button" class="dg-key deny" data-dg-stop="' + esc(st.worker.id) + '" data-tip="Stop ' + esc(who) + '">Stop</button>'
+          ? '<button type="button" class="dg-key deny" data-dg-stop="' + esc(st.worker.id) + '" data-tip="Stop ' + esc(who) + '"' + (stopping.has(st.worker.id) ? ' disabled' : '') + '>' + (stopping.has(st.worker.id) ? 'Stopping…' : 'Stop') + '</button>'
           : '<button type="button" class="dg-key" data-dg-see="' + esc(id) + '" aria-expanded="' + shown + '">' + (shown ? 'Hide work' : 'See work') + '</button>';
       return '<div class="dg-li ' + st.cls + '" data-dg-row="' + esc(id) + '" role="group" aria-label="' + esc(who + ': ' + task + ' — ' + WORD[st.cls]) + '">'
         + '<span class="dg-lamp ' + st.cls + '" aria-hidden="true"></span><span class="dg-li-who">' + esc(who) + '</span>'
-        + '<span class="dg-li-task">' + esc(task) + '</span><span class="dg-li-st">' + esc(status) + '</span>' + key
-        + '</div>' + (shown ? '<div class="dg-work" data-dg-work="' + esc(id) + '">' + workHtml(id, who) + '</div>' : '');
+        + '<span class="dg-li-task" data-tip="' + esc(task) + '">' + esc(task) + '</span><span class="dg-li-st">' + esc(status) + '<span data-dg-clock="' + esc(id) + '"></span></span>' + key
+        + '</div>' + (st.pend && st.pend.tool !== 'brief.ask' ? '<div class="dg-inspect" data-dg-inspect="' + esc(id) + '" data-dg-prompt="' + esc(st.pend.promptId) + '"></div>' : '')
+        + (shown ? '<div class="dg-work" data-dg-work="' + esc(id) + '">' + workHtml(id, who) + '</div>' : '');
     }).join('') + '</div>';
   }
   // what a waiting worker wants, in its own words (the same phrase the approval card would use)
   function askLine(p) {
     if (!p) return 'Needs you';
-    if (p.tool === 'brief.ask') return 'Needs you · a question';
+    if (p.tool === 'brief.ask') { try { const q = JSON.parse(p.argsSummary || '{}'); return 'Needs you · ' + (q.question || 'a question'); } catch (_) { return 'Needs you · a question'; } }
     const phrase = typeof Chat !== 'undefined' && Chat.consentPhrase ? Chat.consentPhrase(p) : String(p.tool || '').replace(/[_.]+/g, ' ');
     return 'Needs you · ' + phrase;
   }
@@ -181,7 +203,9 @@ const Delegated = (() => {
   /* ---------------- SEE WORK: the worker's own answer and receipt, unfolded in place ---------------- */
   function workerRunOf(r) {
     const C = typeof Channels !== 'undefined' ? Channels : null;
-    return String((r.worker && r.worker.runId) || (r.ws.runIds || []).slice(-1)[0] || (C && C.runIdOf ? C.runIdOf(r.ws.id) : '') || '');
+    const live = C && C.isBusy && C.isBusy(r.ws.id) && C.runIdOf && C.runIdOf(r.ws.id);
+    const worker = currentWorker(r);
+    return String(live || (worker && worker.runId) || (r.ws.runIds || []).slice(-1)[0] || (C && C.runIdOf ? C.runIdOf(r.ws.id) : '') || '');
   }
   const fmtMs = ms => { const s = Math.round((Number(ms) || 0) / 1000); return s < 60 ? s + 's' : Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
   function costOf(row) {
@@ -212,31 +236,37 @@ const Delegated = (() => {
     }
     const files = ((row && row.artifacts) || []).filter(x => x && x.path && (!x.kind || x.kind === 'file' || x.kind === 'image'))
       .map(x => ({ name: String(x.path).split(/[\\/]/).pop(), path: String(x.path), agentId: row.agentId || 'agent', projectRoot: row.projectRoot || '' }));
-    return { answer, steps: stepsOut, sites, searches, files, ms: row ? Number(row.durationMs) || 0 : 0, cost: costOf(row), live: !row };
+    return { answer, agentId: (row && row.agentId) || '', projectRoot: row ? (row.projectRoot || '') : null, steps: stepsOut, sites, searches, files, ms: row ? Number(row.durationMs) || 0 : 0, cost: costOf(row), live: !row };
   }
   async function loadReceipt(id) {
     const r = findRow(id); if (!r) return;
     const runId = workerRunOf(r);
     if (!runId) { receipts.set(id, { status: 'err', error: 'no run is recorded for this worker yet', at: Date.now() }); repaint(); return; }
+    const requestKey = id + ':' + runId;
+    if (loadingReceipts.has(requestKey)) return;
+    loadingReceipts.add(requestKey);
     const prev = receipts.get(id);
     if (!prev || prev.runId !== runId) receipts.set(id, { status: 'loading', at: Date.now(), runId });
     try {
+      const read = async url => { const response = await fetch(url, { cache: 'no-store' }); if (!response.ok) throw new Error('HTTP ' + response.status); return response.json(); };
       const agent = encodeURIComponent(r.ws.agentId || 'agent');
       const [runs, tr] = await Promise.all([
-        fetch('/api/runs?agent=*&runId=' + encodeURIComponent(runId), { cache: 'no-store' }).then(x => x.ok ? x.json() : { runs: [] }),
-        fetch('/api/transcript?agent=' + agent + '&stream=' + encodeURIComponent(id) + '&runId=' + encodeURIComponent(runId) + '&limit=500', { cache: 'no-store' }).then(x => x.ok ? x.json() : { turns: [] })
+        read('/api/runs?agent=*&runId=' + encodeURIComponent(runId)),
+        read('/api/transcript?agent=' + agent + '&stream=' + encodeURIComponent(id) + '&runId=' + encodeURIComponent(runId) + '&limit=500')
       ]);
       const row = ((runs && runs.runs) || []).find(x => x && x.runId === runId) || null;
+      if (!row && !['working', 'waiting', 'queued'].includes(stateOf(r, r.ws.parentStreamId, r.lead).cls)) throw new Error('The run record is unavailable. Try again to retrieve its work.');
+      if (receipts.get(id) && receipts.get(id).runId !== runId) return; // a newer run owns this receipt now
       receipts.set(id, { status: 'ok', data: foldReceipt(row, (tr && tr.turns) || []), at: Date.now(), runId });
     } catch (e) {
-      receipts.set(id, { status: 'err', error: String((e && e.message) || e), at: Date.now(), runId });
-    }
+      if (!receipts.get(id) || receipts.get(id).runId === runId) receipts.set(id, { status: 'err', error: String((e && e.message) || e), at: Date.now(), runId });
+    } finally { loadingReceipts.delete(requestKey); }
     repaint();
   }
   function workHtml(id, who) {
     const rec = receipts.get(id);
     if (!rec || rec.status === 'loading') return '<p class="dg-work-note">Loading ' + esc(who) + '\'s work…</p>';
-    if (rec.status === 'err') return '<p class="dg-work-note bad">Couldn\'t load this work: ' + esc(rec.error) + '</p>';
+    if (rec.status === 'err') return '<p class="dg-work-note bad">Couldn\'t load this work: ' + esc(rec.error) + '</p><button type="button" class="dg-key" data-dg-retry="' + esc(id) + '">Try again</button>';
     const d = rec.data, meta = [d.steps.length && d.steps.length + ' step' + (d.steps.length === 1 ? '' : 's'), d.ms && fmtMs(d.ms), d.cost].filter(Boolean).join(' · ');
     const MAX = 12, shownSteps = d.steps.slice(0, MAX);
     return (d.answer ? '<div class="dg-work-answer" data-dg-answer="' + esc(id) + '"></div>' : (d.live ? '<p class="dg-work-note">Still working — its answer lands here when it finishes.</p>' : '<p class="dg-work-note">It delivered no answer.</p>'))
@@ -254,7 +284,21 @@ const Delegated = (() => {
   function hydrate(card) {
     card.querySelectorAll('[data-dg-answer]').forEach(el => {
       const rec = receipts.get(el.dataset.dgAnswer), text = rec && rec.data ? rec.data.answer : '';
-      if (typeof Chat !== 'undefined' && Chat.renderProse) Chat.renderProse(el, text); else el.textContent = text;
+      const ws = typeof Workstreams !== 'undefined' && Workstreams.get(el.dataset.dgAnswer);
+      const agentId = (rec && rec.data && rec.data.agentId) || (ws && ws.agentId) || 'agent';
+      const projectRoot = rec && rec.data && rec.data.projectRoot != null ? rec.data.projectRoot : (ws && ws.projectRoot) || '';
+      const scope = 'delegated:' + el.dataset.dgAnswer + ':' + ((rec && rec.runId) || '') + ':' + agentId + ':' + projectRoot;
+      if (typeof Chat !== 'undefined' && Chat.renderProse) {
+        if (el.__proseSource !== text || el.__dgScope !== scope) Chat.renderProse(el, text, { files: Chat.workspaceFileRefs ? Chat.workspaceFileRefs(agentId, scope, projectRoot) : undefined });
+        el.__dgScope = scope;
+      } else el.textContent = text;
+    });
+  }
+  function hydrateInspectors(card, parentId) {
+    card.querySelectorAll('[data-dg-inspect]').forEach(host => {
+      if (host.childNodes.length || typeof Chat === 'undefined' || !Chat.appendConsentDetails) return;
+      const r = findRow(host.dataset.dgInspect), p = r && askOf(r, parentId);
+      if (p && String(p.promptId) === host.dataset.dgPrompt) Chat.appendConsentDetails(host, p);
     });
   }
   function findRow(id) {
@@ -294,9 +338,22 @@ const Delegated = (() => {
       const html = lineHtml(b, parentId);
       if (card.dataset.dgHtml !== html) {
         // keep the key the Commander is on (the 1s clock repaints a live card)
-        const focusKey = document.activeElement && card.contains(document.activeElement) ? keyOf(document.activeElement) : '';
-        card.innerHTML = html; card.dataset.dgHtml = html; hydrate(card);
-        if (focusKey) { const again = card.querySelector(focusKey); if (again && again.focus) again.focus({ preventScroll: true }); }
+        const focused = document.activeElement && card.contains(document.activeElement) ? document.activeElement : null;
+        const focusKey = focused ? keyOf(focused) : '';
+        const retained = new Map(Array.from(card.querySelectorAll('[data-dg-inspect], [data-dg-answer]')).map(n => [n.hasAttribute('data-dg-inspect') ? 'ask:' + n.dataset.dgPrompt : 'answer:' + n.dataset.dgAnswer, n]));
+        card.innerHTML = html; card.dataset.dgHtml = html;
+        card.querySelectorAll('[data-dg-inspect], [data-dg-answer]').forEach(n => {
+          const old = retained.get(n.hasAttribute('data-dg-inspect') ? 'ask:' + n.dataset.dgPrompt : 'answer:' + n.dataset.dgAnswer);
+          if (old) n.replaceWith(old);
+        });
+        if (focused && card.contains(focused) && focused.focus) focused.focus({ preventScroll: true });
+        else if (focusKey) { const again = card.querySelector(focusKey); if (again && again.focus) again.focus({ preventScroll: true }); }
+      }
+      // Clock-only ticks never replace the reader's disclosure, text selection, images or focused controls.
+      hydrate(card); hydrateInspectors(card, parentId);
+      for (const r of b.rows) {
+        const st = stateOf(r, parentId, b.lead), clockNode = Array.from(card.querySelectorAll('[data-dg-clock]')).find(n => n.dataset.dgClock === r.ws.id);
+        if (clockNode) { const text = st.t && (st.cls === 'working' || st.cls === 'done') ? ' · ' + st.t : ''; if (clockNode.textContent !== text) clockNode.textContent = text; }
       }
       // an unfolded receipt of a worker still running refreshes itself (its transcript grows as it works)
       for (const r of b.rows) {
@@ -309,7 +366,7 @@ const Delegated = (() => {
     if (!anyLive && ticker) { clearInterval(ticker); ticker = 0; }
   }
   function keyOf(el) {
-    for (const a of ['data-dg-see', 'data-dg-stop', 'data-dg-toggle', 'data-dg-file']) if (el.hasAttribute && el.hasAttribute(a)) return '[' + a + '="' + String(el.getAttribute(a)).replace(/["\\]/g, '\\$&') + '"]';
+    for (const a of ['data-dg-see', 'data-dg-stop', 'data-dg-toggle', 'data-dg-file', 'data-dg-question', 'data-dg-retry']) if (el.hasAttribute && el.hasAttribute(a)) return '[' + a + '="' + String(el.getAttribute(a)).replace(/["\\]/g, '\\$&') + '"]';
     if (el.hasAttribute && el.hasAttribute('data-dg-consent')) return '[data-dg-consent="' + el.getAttribute('data-dg-consent') + '"][data-dg-ws="' + String(el.getAttribute('data-dg-ws')).replace(/["\\]/g, '\\$&') + '"]';
     return '';
   }
@@ -322,12 +379,13 @@ const Delegated = (() => {
     if (!receipts.has(r.ws.id)) loadReceipt(r.ws.id);
     repaint();
     const log = $log(), row = log && log.querySelector('[data-dg-row="' + String(r.ws.id).replace(/["\\]/g, '\\$&') + '"]');
-    if (row && row.scrollIntoView) row.scrollIntoView({ block: 'center' });
+    if (row && row.scrollIntoView) { if (typeof Chat !== 'undefined' && Chat.revealHistory) Chat.revealHistory(row); else row.scrollIntoView({ block: 'center' }); }
     return true;
   }
 
   async function stop(id, key) {
-    key.disabled = true; key.textContent = 'Stopping…';
+    if (stopping.has(id)) return;
+    stopping.add(id); key.disabled = true; key.textContent = 'Stopping…';
     try {
       const r = await fetch('/api/subagents/interrupt', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) });
       let j = null; try { j = await r.json(); } catch (_) { j = null; }
@@ -336,18 +394,20 @@ const Delegated = (() => {
       key.disabled = false; key.textContent = 'Stop';
       if (typeof StationUI !== 'undefined' && StationUI.notify) StationUI.notify('Could not stop that worker: ' + e.message, 'warn', undefined, { kind: 'alert' });
     }
-    if (typeof Overseer !== 'undefined' && Overseer.refresh) Overseer.refresh();
+    if (typeof Overseer !== 'undefined' && Overseer.refresh) await Overseer.refresh();
+    stopping.delete(id); repaint();
   }
   // answer a worker's ask from its row: the SAME answer path as the approval card (Chat.answerConsent), once or deny only
-  // (Always / Full access are station- or lead-wide grants — they stay on the full approval card, never a worker row)
+  // (Always / Full access are standing grants; a worker row grants only this request)
   function answer(wsId, decision, key) {
     const r = findRow(wsId); if (!r) return;
     const p = askOf(r, Workstreams.activeId());
-    if (!p || typeof Chat === 'undefined' || !Chat.answerConsent) return;
-    key.disabled = true;
+    if (!p || p.tool === 'brief.ask' || typeof Chat === 'undefined' || !Chat.answerConsent) return;
+    const promptId = String(p.promptId); if (answering.has(promptId)) return;
+    answering.add(promptId); key.disabled = true; repaint();
     Promise.resolve(Chat.answerConsent(p, Workstreams.get(Workstreams.activeId()), decision === 'deny' ? 'deny' : 'once'))
       .catch(e => { key.disabled = false; if (typeof StationUI !== 'undefined' && StationUI.notify) StationUI.notify('Could not send that answer: ' + ((e && e.message) || e), 'warn'); })
-      .then(() => repaint());
+      .then(() => { answering.delete(promptId); repaint(); });
   }
 
   function wire() {
@@ -356,10 +416,21 @@ const Delegated = (() => {
       const t = e.target && e.target.closest ? e.target : null; if (!t) return;
       const s = t.closest('#chat-log [data-dg-stop]');
       if (s) { e.preventDefault(); stop(s.dataset.dgStop, s); return; }
+      const q = t.closest('#chat-log [data-dg-question]');
+      if (q) {
+        e.preventDefault();
+        // A question already has its real choices/free-text card in COMMS. Approve/Deny would resolve
+        // its waiter without an answer; this key only brings that exact card into view.
+        const log = $log(), card = log && Array.from(log.querySelectorAll('[data-clarify-prompt]')).find(n => n.dataset.clarifyPrompt === q.dataset.dgQuestion);
+        if (card) { if (typeof Chat !== 'undefined' && Chat.revealHistory) Chat.revealHistory(card); else card.scrollIntoView({ block: 'center' }); if (card.focus) card.focus({ preventScroll: true }); }
+        return;
+      }
       const c = t.closest('#chat-log [data-dg-consent]');
       if (c) { e.preventDefault(); answer(c.dataset.dgWs, c.dataset.dgConsent, c); return; }
       const f = t.closest('#chat-log [data-dg-file]');
       if (f) { e.preventDefault(); if (typeof Chat !== 'undefined' && Chat.openFile) Chat.openFile(f.dataset.dgFile, f.dataset.dgAgent, f.dataset.dgProject); return; }
+      const retry = t.closest('#chat-log [data-dg-retry]');
+      if (retry) { e.preventDefault(); receipts.delete(retry.dataset.dgRetry); loadReceipt(retry.dataset.dgRetry); repaint(); return; }
       const see = t.closest('#chat-log [data-dg-see]');
       if (see) {
         e.preventDefault(); const id = see.dataset.dgSee;
@@ -378,7 +449,7 @@ const Delegated = (() => {
       U.bus.on('agent.run.end', p => { if (p && p.runId) steps.delete(String(p.runId)); });
       // a worker's ask arrives or is answered (here, on the phone, or by its timeout): its row changes state now
       U.bus.on('permission.prompt', () => repaint());
-      U.bus.on('permission.response', () => repaint());
+      U.bus.on('permission.response', () => Promise.resolve().then(repaint)); // pending-state listeners settle first
     }
   }
 
@@ -393,6 +464,6 @@ const Delegated = (() => {
   }
 
   if (typeof document !== 'undefined') document.addEventListener('DOMContentLoaded', wire);
-  return { presentFor, repaint, batches, stateOf, reveal, hosts, _internals: { anchorFor, excerpt, lineHtml, opened, closed, seen, receipts, foldReceipt, askOf } };
+  return { presentFor, repaint, batches, stateOf, reveal, hosts, _internals: { workerRunOf, anchorFor, excerpt, lineHtml, opened, closed, seen, receipts, foldReceipt, askOf, hydrate, loadReceipt } };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = Delegated;

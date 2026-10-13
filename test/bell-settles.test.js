@@ -45,27 +45,53 @@ const rd = p => fs.readFileSync(path.join(__dirname, '..', p), 'utf8');
 
   // B5: a prompt answered ANYWHERE (desk, phone, Telegram, voice — permission.response on the bus) settles its bell entry;
   // R8: re-rendering a pending prompt (reopening its session) never re-announces it
-  A.ok(/U\.bus\.on\('permission\.response', \(resp\) => \{\s*const key = resp && resp\.promptId != null \? promptNeeds\.get\(String\(resp\.promptId\)\) : null;\s*if \(key && typeof StationUI !== 'undefined' && StationUI\.settleNotifs\) StationUI\.settleNotifs\(key\);/.test(ch), 'one listener settles a prompt entry wherever the prompt is answered');
   A.eq((ch.match(/!announcedPrompt\(/g) || []).length, 4, 'the approval card, question card, delegated worker row and background approval each guard prompt announcements');
   A.eq((ch.match(/key: 'needs:' \+ ws\.id, prompt: /g) || []).length, 4, '…and file each path with its promptId');
   // Execute the shared guard and settlement listener: the same worker prompt may arrive as a new
   // payload object or be redrawn on another surface, but it still owns one parent-session bell key.
-  const promptBus = A.makeBus(), promptSettled = [];
+  // Run the complete production dependency chain and let listener errors fail the test.
+  const promptHandlers = [], promptSettled = [], promptNotified = [];
+  const promptBus = { on: (name, fn) => { if (name === 'permission.response') promptHandlers.push(fn); },
+    emit: (_name, value) => { for (const fn of promptHandlers) fn(value); } };
+  const Channels = require('../frontend/app/channels.js'); Channels.reset();
   const promptStart = ch.indexOf('  const promptNeeds = new Map();');
   const promptEnd = ch.indexOf('  function backgroundPermissionNotify(', promptStart);
-  A.ok(promptStart >= 0 && promptEnd > promptStart, 'the production prompt guard and response listener are present');
-  const promptCtx = vm.createContext({ U: { bus: promptBus },
-    StationUI: { settleNotifs: key => promptSettled.push(key) } });
-  vm.runInContext(ch.slice(promptStart, promptEnd) + '\n;this.__announcedPrompt = announcedPrompt;', promptCtx);
+  const settleStart = ch.indexOf('  const settledPromptNotices = new Set();');
+  const settleEnd = ch.indexOf('  async function answerConsent(', settleStart);
+  A.ok(promptStart >= 0 && promptEnd > promptStart && settleStart >= 0 && settleEnd > settleStart, 'complete prompt guard, settlement helper and listener are present');
+  const promptCtx = vm.createContext({ U: { bus: promptBus }, Channels,
+    askerName: p => p.workerAgentId || 'worker', actionPhrase: () => 'write a file',
+    StationUI: { settleNotifs: key => promptSettled.push(key), notify: (_text, _cls, _category, opts) => promptNotified.push(opts) } });
+  vm.runInContext(ch.slice(settleStart, settleEnd) + ch.slice(promptStart, promptEnd) + '\n;this.__announcedPrompt = announcedPrompt;', promptCtx);
+  A.eq(promptHandlers.length, 1, 'one shared prompt-response listener is registered');
   A.eq(promptCtx.__announcedPrompt('worker-prompt', { id: 'parent' }), false, 'a worker prompt is announced on its first arrival');
-  A.eq(promptCtx.__announcedPrompt('worker-prompt', { id: 'parent' }), true, 'a copied payload or re-render cannot announce that prompt again');
-  A.eq(promptCtx.__announcedPrompt('worker-prompt', { id: 'other' }), true, 'another surface cannot refile the same prompt under another session');
-  A.eq(promptCtx.__announcedPrompt('next-prompt', { id: 'other' }), false, 'a different prompt still gets its own announcement');
+  A.eq(promptCtx.__announcedPrompt('worker-prompt', { id: 'parent' }), true, 'a copied payload cannot announce that prompt again');
+  A.eq(promptCtx.__announcedPrompt('worker-prompt', { id: 'other' }), true, 'another surface cannot refile the prompt under another session');
+  A.eq(promptCtx.__announcedPrompt('next-prompt', { id: 'other' }), false, 'a different prompt gets its own announcement');
+  Channels.setPending('parent', { promptId: 'worker-prompt' });
+  Channels.setPending('other', { promptId: 'next-prompt' });
   promptBus.emit('permission.response', { promptId: 'worker-prompt' });
-  A.eq(promptSettled, ['needs:parent'], 'a response settles the original parent-session bell entry by promptId');
+  A.eq(promptSettled, ['needs:parent'], 'a confirmed response settles its original parent without a mounted card');
+  A.eq(Channels.pendingAllOf('parent'), [], 'the background prompt leaves its original channel');
+  A.eq(Channels.pendingAllOf('other').map(p => p.promptId), ['next-prompt'], 'a response cannot clear another conversation');
   promptBus.emit('permission.response', { promptId: 'unknown-prompt' });
-  A.eq(promptSettled, ['needs:parent'], 'an unknown response cannot settle an unrelated bell entry');
-  A.eq(promptCtx.__announcedPrompt('worker-prompt', { id: 'parent' }), true, 'a late re-render cannot re-announce a settled prompt');
+  promptBus.emit('permission.response', {});
+  promptBus.emit('permission.response', { promptId: 'worker-prompt' });
+  A.eq(promptSettled, ['needs:parent'], 'unknown, missing and duplicate responses cannot settle unrelated entries');
+  A.eq(Channels.pendingAllOf('other').map(p => p.promptId), ['next-prompt'], 'negative responses preserve unrelated pending state');
+  A.eq(promptCtx.__announcedPrompt('worker-prompt', { id: 'parent' }), true, 'late rendering cannot re-announce a settled prompt');
+  for (const id of ['mira', 'rook']) {
+    Channels.setPending('siblings', { promptId: id, workerAgentId: id, tool: 'fs.write' });
+    promptCtx.__announcedPrompt(id, { id: 'siblings' });
+  }
+  promptBus.emit('permission.response', { promptId: 'mira' });
+  A.eq(Channels.pendingAllOf('siblings').map(p => p.promptId), ['rook'], 'a remote response removes exactly one background sibling');
+  A.eq(promptNotified.map(n => [n.prompt, n.go.ws]), [['rook', 'siblings']], 'the bell keeps the actual remaining sibling in its original conversation');
+  promptBus.emit('permission.response', { promptId: 'mira' });
+  A.eq(promptNotified.length, 1, 'a duplicate does not re-notify the sibling');
+  promptBus.emit('permission.response', { promptId: 'rook' });
+  A.eq(Channels.pendingAllOf('siblings'), [], 'the final remote response clears the last background prompt');
+  A.eq(promptSettled, ['needs:parent', 'needs:siblings'], 'the last sibling settles its bell without resurrecting the first');
   // B4: a prompt entry from an earlier page life (reload / restart: desk runs die with the page) leaves NEEDS YOU
   const su = rd('frontend/app/stationui.js');
   A.ok(/r\.kind === 'needs' && !r\.done && r\.prompt && r\.life !== NOTIF_LIFE\) \{ r\.done = true; r\.read = true;/.test(su) && /if \(opts && opts\.prompt\) \{ rec\.prompt = String\(opts\.prompt\); rec\.life = NOTIF_LIFE; \}/.test(su), 'a prompt entry raised before this page life is marked handled');

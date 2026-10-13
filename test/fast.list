@@ -1140,3 +1140,5 @@ test/rail-agent-empty-archived.test.js
 test/run-stop-handles.test.js
 
 test/thread-flow-navigation.test.js
+
+test/thread-ux-regressions.test.js
