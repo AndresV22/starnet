@@ -156,6 +156,28 @@ const userRowIndex = (rows, k) => { let n = 0; for (let i = 0; i < rows.length; 
     const again = F.mergeUserMessages(back, [], 2000);
     A.ok(again.items.some(it => it.kind === 'task'), 'a later, tighter fold never drops it');
   }
+  // review memory-learning-05: the drop phase counted the current task at its 240-char floor, but the task then took
+  // 70% of the budget, so nothing was dropped and ordinary messages rendered as 1-char stubs. Every carried message
+  // keeps at least min(its length, 240) chars; what cannot fit is dropped and counted in the omitted line.
+  {
+    const items = [{ kind: 'task', text: 'Build the bakery site. ' + 't'.repeat(3977) }];
+    for (let k = 0; k < 3; k++) items.push({ kind: 'user', text: 'Always rule ' + k + ' ' + 'r'.repeat(486) });
+    for (let k = 0; k < 4; k++) items.push({ kind: 'user', text: 'Status ' + k + ': ' + 'w'.repeat(491) });
+    const sec = F.mergeUserMessages(null, items, 2000);
+    const others = sec.items.filter(it => it.kind !== 'task');
+    A.ok(sec.items.some(it => it.kind === 'task'), 'the current task is still carried');
+    A.ok(others.every(it => it.text.length >= Math.min(Number(it.fullChars) || it.text.length, 240)), 'every other carried message keeps at least its floor: ' + others.map(it => it.text.length).join(','));
+    A.eq(others.length + sec.omitted, 7, 'whatever could not keep its floor is dropped and counted (' + others.length + ' kept + ' + sec.omitted + ' omitted)');
+    A.ok(sec.items.reduce((a, it) => a + it.text.length, 0) <= 2000 + sec.items.length, 'the section still fits its budget');
+    const rulesKept = others.filter(it => /^Always rule/.test(it.text)).length;
+    A.ok(rulesKept > 0 && rulesKept >= others.length - rulesKept, 'instructions outlast ordinary messages (' + rulesKept + ' of ' + others.length + ')');
+    // a wider window with ~10 rules and 10 ordinary messages: ordinary ones used to get ~15 chars each
+    const wide = [{ kind: 'task', text: 'Ship the release. ' + 't'.repeat(12000) }];
+    for (let k = 0; k < 10; k++) wide.push({ kind: 'user', text: 'Never break rule ' + k + ' ' + 'r'.repeat(480) });
+    for (let k = 0; k < 10; k++) wide.push({ kind: 'user', text: 'Note ' + k + ': ' + 'w'.repeat(490) });
+    const ws = F.mergeUserMessages(null, wide, 6400);
+    A.ok(ws.items.filter(it => it.kind !== 'task').every(it => it.text.length >= Math.min(Number(it.fullChars) || it.text.length, 240)), 'wide window: no carried message is shrunk below its floor: ' + ws.items.map(it => it.text.length).join(','));
+  }
 
   // ---- 4. the REAL loop: its compaction merges onto the note, the instruction rides every post-fold request once ----
   {
