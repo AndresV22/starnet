@@ -55,7 +55,7 @@ const workspaceRecovery = require('./workspace-recovery.js');
 const { makeUpdatePreparation } = require('./update-preparation.js');
 const { makeAgentLifecycle } = require('./agent-lifecycle.js');
 const { makeConsentWait } = require('./consentwait.js');   // EL-11: fail-closed consent timer + human-visible ack extension
-const { killAll } = require('./halt.js');
+const { killAll, markFaulted } = require('./halt.js');
 const { makeRegistry, outputBudgetFor, outputWindowFor } = require('./tools/registry.js');
 const { makeOutputArtifacts, visibleOutputPath } = require('./output-artifacts.js');
 const { makeWebTools, makePoliteScheduler } = require('./tools/builtin/web.js');
@@ -12037,6 +12037,9 @@ function quiesceForProcessFault() {
     });
     const tgBotInflights = [...telegramBots.values()].map((w) => (w && w.hub && w.hub._internals) ? w.hub._internals.inflight : null);
     const devInflight = (devHub && devHub._internals) ? devHub._internals.inflight : null;
+    // the station's OWN fault, never the Commander's E-STOP: each run it kills is marked first, so a chat's notice and a STEP
+    // THROUGH name the fault (halt.js markFaulted; wave 2 repair, conveyor-backend-08)
+    markFaulted(tgInflight, dcInflight, ...genericInflights, ...tgBotInflights, devInflight, stepTest ? stepTest.inflight : null);
     killAll(runs, tgInflight, dcInflight, ...genericInflights, ...tgBotInflights, devInflight, stepTest ? stepTest.inflight : null);
   });
   // line triggers, as E-STOP does (handleHalt): no further folder poll, every waiting item dropped, every trigger
@@ -12047,14 +12050,16 @@ function quiesceForProcessFault() {
     if (triggerPollTimer) clearInterval(triggerPollTimer);
     triggerPollTimer = null;
     triggerRunner.haltAll();
+    markFaulted(...triggerRunner.inflights());
     killAll(null, ...triggerRunner.inflights());
   });
   // SEND TO hand-offs: every waiting one dropped, every target line's live run killed (handoffRunner is declared below too)
   // (each dropped one is said on its records — the station's fault, never the Commander's E-STOP)
-  contain('handoffs', () => { if (handoffRunner) { handoffRunner.haltAll('the station hit an internal fault and stopped its background work'); killAll(null, ...handoffRunner.inflights()); } });
+  contain('handoffs', () => { if (handoffRunner) { handoffRunner.haltAll('the station hit an internal fault and stopped its background work'); markFaulted(...handoffRunner.inflights()); killAll(null, ...handoffRunner.inflights()); } });
   // the whole-line SAMPLE hub's run (POST /api/routing/sample) is real spend too — its own containment for the same
-  // reason as the triggers above (sampleHub is declared further down this file)
-  contain('sample', () => { if (sampleInFlight) sampleInFlight.stopRequested = true; killAll(null, (sampleHub && sampleHub._internals) ? sampleHub._internals.inflight : null); });
+  // reason as the triggers above (sampleHub is declared further down this file). stopCause 'fault': its record and its answer
+  // name the station's fault, never "you stopped this job" (wave 2 repair, conveyor-backend-08's sibling)
+  contain('sample', () => { if (sampleInFlight) { sampleInFlight.stopRequested = true; sampleInFlight.stopCause = 'fault'; } markFaulted((sampleHub && sampleHub._internals) ? sampleHub._internals.inflight : null); killAll(null, (sampleHub && sampleHub._internals) ? sampleHub._internals.inflight : null); });
   contain('groups', () => groupSessions && groupSessions.halt && groupSessions.halt());
   contain('subagents', () => subagents && subagents.interruptAll && subagents.interruptAll());
   contain('shell-background', () => shellBg && shellBg.killAll && shellBg.killAll());
@@ -12532,9 +12537,10 @@ async function runSampleJob(readArgs) {
     const firstWarn = (sampleReplies.find(x => /^⚠/.test(String(x).trim())) || '').trim().replace(/^⚠\s*/, '').trim();
     if (jobId) {
       const stoppedJob = !!sampleInFlight.stopRequested;
+      // (wave 2 repair) the station's own fault containment stopped it (stopCause 'fault'): said as that, never "you stopped this job"
       lineJobsSet(LineJobs.finish(lineJobs, jobId, { at: Date.now(), usd: totalUsd, output: sampleReplies.join(''), runs,
         status: completed ? 'delivered' : stoppedJob ? 'stopped' : runs.length ? 'problem' : 'failed',
-        error: completed ? '' : stoppedJob ? 'you stopped this job' : !onLine ? 'the job did not enter through this line' : (partial && runs.every(r => r.reason === 'done')) ? 'the joiner sent on without every branch (' + partial + ')' : runs.length ? 'a step did not finish cleanly' : (firstWarn || 'no step ran') }));
+        error: completed ? '' : stoppedJob ? (sampleInFlight.stopCause === 'fault' ? 'the station hit an internal fault and stopped this job' : 'you stopped this job') :!onLine ? 'the job did not enter through this line' : (partial && runs.every(r => r.reason === 'done')) ? 'the joiner sent on without every branch (' + partial + ')' : runs.length ? 'a step did not finish cleanly' : (firstWarn || 'no step ran') }));
       sampleInFlight.jobId = null;
     }
     const recordedJob = jobId ? LineJobs.get(lineJobs, jobId) : null;
@@ -12556,7 +12562,9 @@ async function runSampleJob(readArgs) {
           : runs.length ? 'sample job did not complete cleanly' : (firstWarn || 'sample job produced no durable run outcome'),
         chatId: SAMPLE_CHAT, streamId: streamId, agentId: agentId || null, isTask: isTask,
         workitemId: workitemId || null, replies: sampleReplies.slice(), runs: runs, delivered: null, totalUsd: totalUsd
-      }, line ? { line: line } : null, stopped ? { stopped: true } : null, jobId ? { jobId } : null, onward));
+      }, line ? { line: line } : null, stopped ? { stopped: true } : null, jobId ? { jobId } : null, onward,
+      // (wave 2 repair) a stop the station's own fault containment made is said as that fault, never as the Commander's stop
+      (stopped && sampleInFlight.stopCause === 'fault') ? { error: 'stopped — the station hit an internal fault and stopped this job before it reached the OUTBOX', stoppedBy: 'fault' } : null));
     }
     return json(200, Object.assign({
       ok: true, sample: true, chatId: SAMPLE_CHAT, streamId: streamId,

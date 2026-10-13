@@ -72,5 +72,15 @@ function enact(s,ops) {const r=plan(s,ops);A.ok(r.ok,'plan accepted: '+(r.error|
   A.ok(j.status==='problem'&&!j.sentOnTo&&!/unconfirmed/.test(r.summary)&&!/Check this job again/.test(r.content),'a failed test claims no onward hand-off: '+r.summary);
   payload={ok:false,stopped:true,onwardDestinations:[{lineId:'b'}]};r=await t.run({line:'A',job:'work'},{});j=JSON.parse(r.content.split('\n')[0]);
   A.ok(j.status==='stopped'&&!j.sentOnTo,'nor does a stopped one');
+  // (wave 2 repair) a stop the station's own fault containment made is never told to the lead as the Commander's
+  payload={ok:false,stopped:true,stoppedBy:'fault',error:'stopped — the station hit an internal fault and stopped this job before it reached the OUTBOX'};r=await t.run({line:'A',job:'work'},{});j=JSON.parse(r.content.split('\n')[0]);
+  A.ok(j.status==='stopped'&&/internal fault/.test(j.verdict)&&!/Commander/.test(j.verdict),'a fault stop is said as the station\'s fault: '+j.verdict);
+  payload={ok:false,stopped:true};r=await t.run({line:'A',job:'work'},{});j=JSON.parse(r.content.split('\n')[0]);
+  A.eq(j.verdict,'The Commander stopped the job.','the Commander\'s own stop keeps its words');
+  // the shape the route sends TODAY (sidecar/index.js reads s.outboxId off plan.sendTo values, which carry none, and JSON drops the
+  // undefined): a destination is still named, and no OUTBOX id is invented for it (wave 2 review: the fixture above is the keyed shape
+  // the route's own repair, seams-06 / conveyor-ui-17, will send)
+  payload=JSON.parse(JSON.stringify({onwardDestinations:[{lineId:'b',outboxId:undefined}]}));r=await t.run({line:'A',job:'work'},{});j=JSON.parse(r.content.split('\n')[0]);
+  A.eq(j.sentOnTo.destinations,[{lineId:'b',line:'Line B'}],'today\'s route shape: named, no OUTBOX id invented');
   A.report('station-builder-lineops');
 })().catch(e=>{console.error(e);process.exitCode=1;});

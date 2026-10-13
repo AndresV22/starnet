@@ -398,6 +398,22 @@ const settle = async (R, id) => { for (let i = 0; i < 50; i++) { await R.st.sett
     A.eq(s.state, 'stopped'); A.ok(/E-STOP/.test(s.error), 'says E-STOP: ' + s.error);
   }
 
+  /* ---- THE STATION'S OWN FAULT (wave 2 repair, conveyor-backend-08's sibling): the process-fault containment marks the step-test run
+     faulted before it kills it, so the test says the station hit a fault — never an E-STOP nobody pressed ---- */
+  {
+    let release; const hold = new Promise(res => { release = res; });
+    const R = rig(twoDock(), {}, { gate: () => hold });
+    const r = R.st.start({ line: R.lineId, text: 'go' });
+    const { killAll, markFaulted } = require('../sidecar/halt.js');
+    markFaulted(R.st.inflight);
+    A.eq(killAll(null, R.st.inflight), 1, 'fault: the containment reaches the step-test run');
+    release();
+    const s = await settle(R, r.session.id);
+    A.eq(s.state, 'stopped', 'fault: the test is stopped');
+    A.ok(/internal fault/.test(s.error) && !/E-STOP/.test(s.error), 'fault: says the station hit a fault, not E-STOP: ' + s.error);
+    A.ok(/internal fault/.test(s.hops[0].error || ''), 'fault: the step\'s own error says it too: ' + s.hops[0].error);
+  }
+
   /* ---- (sweep 2026-09-25) the owner reads display names, never raw agent ids ---- */
   {
     const noOut = twoDock();

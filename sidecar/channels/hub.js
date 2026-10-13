@@ -1833,8 +1833,11 @@
         if (!myRec.superseded) return false;
         if (myRec.halted && !haltNoticeSent) {
           haltNoticeSent = true;
+          // the station's OWN process-fault containment marks the run `faulted` before it kills it (halt.js markFaulted): that
+          // stop is said as the fault it was, never as an E-STOP nobody pressed (wave 2 repair, conveyor-backend-08)
+          const why = myRec.faulted ? 'the station hit an internal fault and stopped this run' : 'E-STOP was pressed in the station';
           try {
-            await deliver(chatId, '⏹ Stopped — E-STOP was pressed in the station. This message got no reply and nothing further will run for it.', myRec.runId || '', 'command');
+            await deliver(chatId, '⏹ Stopped — ' + why + '. This message got no reply and nothing further will run for it.', myRec.runId || '', 'command');
           } catch (_) { /* a stop notice must never crash the teardown */ }
         } else if (!myRec.halted && myRec.supersededBy === 'message' && !haltNoticeSent && myRec.runId && !(state && state.errMsg)) {
           /* A NEWER MESSAGE STOPPED THIS RUN — never silently (2026-10-11). This is the fallback when the follow-up

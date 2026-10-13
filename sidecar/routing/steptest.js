@@ -312,7 +312,9 @@ function makeStepTest(o) {
       s._spent = (s._spent || 0) + usd;
       if (daySpend && usd) { try { daySpend.note(s.lineId, usd); } catch (e) { failNote('steptest.dayLedger', e); } }
       const output = typeof r.text === 'string' ? r.text : '';
-      const stoppedBy = rec.halted ? 'E-STOP was pressed — the test stopped mid-run' : (s._stop ? 'stopped by you mid-run' : null);
+      // (wave 2 repair) the station's own process-fault containment marks the run faulted before killing it: said as that fault
+      const stoppedBy = rec.halted ? (rec.faulted ? 'the station hit an internal fault — the test stopped mid-run' : 'E-STOP was pressed — the test stopped mid-run')
+        : (s._stop ? 'stopped by you mid-run' : null);
       const err = stoppedBy || (r.error ? who(job.agentId) + ' failed: ' + r.error : (!output.trim() ? who(job.agentId) + ' returned nothing' : null));
       s.hops.push({
         i: s.hops.length, agentId: job.agentId, dockId: job.dockId || null, agentLabel: call(label, job.agentId) || null, pass,

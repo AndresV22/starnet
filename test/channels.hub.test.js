@@ -721,6 +721,26 @@ async function run() {
     A.eq(sends.filter(s => /E-STOP/.test(s)).length, 1, 'the stop notice is delivered exactly once');
   }
 
+  // ---- V1. THE STATION'S OWN FAULT is not an E-STOP (wave 2 repair, conveyor-backend-08): the process-fault containment marks the
+  // runs it kills `faulted` first, so the chat is told the station hit a fault — never that someone pressed an E-STOP ----------------
+  {
+    const { killAll, markFaulted } = require('../sidecar/halt.js');
+    const store = fakeStore(); const sends = [];
+    const runOnce = async (o) => {
+      o.emit('agent.run.start', { agentId: o.agentId, runId: o.runId, trigger: 'event', model: o.model });
+      await new Promise(res => { if (o.signal.aborted) return res(); o.signal.addEventListener('abort', () => res(), { once: true }); });
+      o.emit('agent.run.end', { agentId: o.agentId, runId: o.runId, reason: 'cancelled', turns: 0, usd: 0 });
+    };
+    const hub = makeChannelHub({ runOnce, store, send: (c, t) => { sends.push(t); return Promise.resolve({ ok: true }); }, secrets: () => ({ key: 'k', model: 'm' }), classify: () => false, newId: idGen() });
+    const parked = hub.onInbound(dm('do the long thing'));
+    await new Promise(r => setTimeout(r, 10));
+    markFaulted(hub._internals.inflight);
+    A.eq(killAll(null, hub._internals.inflight), 1, 'fault: the containment aborted the one in-flight channel run');
+    await parked;
+    A.eq(sends.filter(s => /internal fault/.test(s)).length, 1, 'fault: the chat is told once that the station hit a fault — ' + JSON.stringify(sends));
+    A.ok(!sends.some(s => /E-STOP/.test(s)), 'fault: never "E-STOP was pressed"');
+  }
+
   // ---- V2. a supersede by a NEWER message is NOT silent (2026-10-11), but never says E-STOP either --------
   {
     const store = fakeStore(); const sends = []; let call = 0;
