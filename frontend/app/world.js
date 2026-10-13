@@ -36,6 +36,7 @@ const World = (() => {
   let routingNags = null;                        // [{x,y,w,h,label,warn}] in-world callouts mirroring the compiler's errors
   let firstShipPulse = null;
   let feedState = { known: false, fed: true };   // server-proven "something feeds the intake" truth (channels/cron); fed=true until proven otherwise
+  let startFacts = null;                         // …and the server's own answers it was read from ({ chans, cron, lt }) — what starts ONE line (WorkflowLine.lineStarts)
   let feedNagOn = false;                         // a NO FEED nag is showing → the intake becomes clickable (→ CHANNELS)
   let selectedRoutingTile = null;                // explicit canvas selection; full routing instructions never open on hover
 
@@ -8295,10 +8296,9 @@ const World = (() => {
     SPLIT_ONE_LANE: 'SPLITTER — BELT THROUGH IT, 2 OUT', CHAIN_CYCLE: 'WORK LINE LOOPS',
     JOIN_ONE_LANE: 'JOINER — NEEDS 2 BELTS IN', LOOP_NO_DONE: 'LOOP — NO DONE LANE OUT', LOOP_NO_BACK: 'LOOP — NO BACK LANE',
     BELT_BURIED: 'PROP ON THE LINE — MOVE IT',
-    ORPHAN_JUNCTION: 'NOT ON A BELT — MOVE IT',
+    ORPHAN_JUNCTION: 'NOT ON A BELT — BELT INTO IT',
     LINE_TOO_LONG: 'TOO LONG — RAISE THE LINE BUDGET',
     SEND_TO_MISSING: 'SENDS NOWHERE — PICK A LINE', SEND_TO_SELF: 'SENDS TO ITSELF — PICK ANOTHER LINE',
-    SEND_TO_PRIVATE_FILES: 'PRIVATE FILES — PICK A SHARED PROJECT',
     SEND_TO_LOOP: 'SENDS IN A CIRCLE — CUT ONE SEND TO'
   };
   // project the compiled plan's error list onto floor rectangles once per recompile (zero per-frame walk)
@@ -8379,6 +8379,11 @@ const World = (() => {
       const offJobs = (cron && !cron.enabled) ? jobs.filter(j => j && j.enabled !== false).map(j => ({ dockId: j.dockId || null, agentId: j.agentId || null })) : [];
       const schedOff = offJobs.length > 0;
       const next = { known: true, fed: chan || cronFeeds || trgFeeds, schedOff, offJobs };
+      // the answers themselves, per fact (one that did not answer keeps its last answer — a hiccup never unsays a start): BUILD MODE's
+      // FINISH THE LINE reads what starts ONE line from these, never the station-wide `fed` (wave 2 repair, build-12)
+      const was = startFacts || {};
+      startFacts = { chans: (chans && typeof chans === 'object') ? chans : (was.chans || null), cron: (cron && Array.isArray(cron.jobs)) ? cron : (was.cron || null),
+        lt: (trg && Array.isArray(trg.triggers)) ? trg : (was.lt || null) };
       const offSig = s => (s.offJobs || []).map(j => j.dockId + '|' + j.agentId).join(',');
       const changed = next.known !== feedState.known || next.fed !== feedState.fed || next.schedOff !== feedState.schedOff || offSig(next) !== offSig(feedState);
       feedState = next;
@@ -9606,14 +9611,17 @@ const World = (() => {
     const who = (b && b.name) ? String(b.name).toUpperCase() : (aid ? String(aid).toUpperCase() : 'NO AGENT');
     return (p && (p.label || p.role) ? String(p.label || p.role).toUpperCase() : 'BAY') + ' · ' + who;
   }
-  // A lineId is the line's KEY (its oldest member prop, often a BAY), never its name: read the compiled line record, as the
-  // SENDS TO plate and the Workflow panel do. A key an edit retired resolves through that prop's current line; one whose
-  // prop is gone says so.
+  // a line as every surface names it — the ONE naming rule (worldmodel.lineName: its first named INBOX, else LINE <its first
+  // INBOX's letter>), never the label of whichever prop keys the line (final floor lane M17/M23). A lineId is a KEY: read the
+  // compiled line record (a key an edit retired resolves through that prop's current line; one whose prop is gone says so),
+  // then name that record by the station's rule — the record's own name + INBOX letter only where no station rule is loaded.
   function lwLineName(lineId) {
     const ls = routingPlan && Array.isArray(routingPlan.lines) ? routingPlan.lines : [];
     const moved = routingPlan && routingPlan.lineOfProp ? routingPlan.lineOfProp[lineId] : null;
     const rec = ls.find(l => l && l.lineId === lineId) || (moved ? ls.find(l => l && l.lineId === moved) : null);
     if (!rec) return 'a line since edited';
+    const ruled = station && station.lineName ? station.lineName(rec.lineId) : null;
+    if (ruled) return ruled;
     const iid = rec.intakes && rec.intakes[0], letter = iid && station && station.lineLetter ? station.lineLetter(iid) : null;
     return Pipeline.lineWord(rec.name, letter ? 'LINE ' + letter : 'UNNAMED LINE');
   }
@@ -9729,8 +9737,7 @@ const World = (() => {
     for (const obId of Object.keys(routingPlan.sendTo)) {
       const st = routingPlan.sendTo[obId], ob = geo.props.find(q => q.id === obId);
       if (!st || !ob) continue;
-      const rec = routingPlan.lines.find(l => l && l.lineId === st.toLine), nm = rec && rec.name ? String(rec.name).toUpperCase() : '';
-      const text = 'SENDS TO ' + Pipeline.lineWord(nm, station && station.lineLetter ? 'LINE ' + station.lineLetter(st.intakeId) : 'LINE ' + st.toLine);
+      const text = 'SENDS TO ' + ((station && station.lineName ? station.lineName(st.toLine) || station.lineName(st.intakeId) : null) || 'ANOTHER LINE');   // (the one line name)
       const w = ctx.measureText(text).width + 6, h = 8, cx = (ob.x + (ob.w || 1) / 2) * T;
       const room = lwRoomBox(ob.x, ob.y);
       const clampX = x => room ? Math.max(room.x, Math.min(room.x + room.w - w, x)) : x;
@@ -11340,6 +11347,8 @@ const World = (() => {
     // BUILD MODE's finish-the-line card reads THIS, never a parallel poll, so the two can never disagree.
     fedLines: knownFedLines,
     feedState: () => ({ known: feedState.known, fed: feedState.fed }),
+    // the server answers that feed truth was read from ({ chans, cron, lt } | null until one answered) — what starts ONE line
+    startFacts: () => startFacts,
     // does this INBOX's line wait on a routine saved while scheduling is off? (the floor's SCHEDULE OFF — CLICK) — BUILD MODE's
     // finish card asks it with ITS OWN compiled plan (plan param), so a line stamped this session answers too
     schedOffFor: (intakeId, plan) => schedOffFor(intakeId, plan),

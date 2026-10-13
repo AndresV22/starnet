@@ -297,6 +297,8 @@
         const x = { lineId: L.lineId, name: L.name, status: L.status, ready: L.ready, howItRuns: L.howItRuns, blocking: L.blocking, hints: L.hints,
           starts: { schedules: L.starts.schedules, channels: L.starts.channels, events: L.starts.events, paused: L.starts.paused } };
         if (L.startsUnread) x.startsUnread = L.startsUnread;
+        // an unnamed line: the word its plate shows (LINE F — final floor lane M25), which line= also takes
+        if (!L.name && L.word) x.word = L.word;
         // SEND TO (2026-10-10): where every finished job goes next / which lines hand theirs to this one — never "it ends at the OUTBOX"
         if (L.sendsWorkTo) x.sendsWorkTo = L.sendsWorkTo.map(s => s.name);
         if (L.getsWorkFromLines) x.getsWorkFromLines = L.getsWorkFromLines.map(s => s.name);
@@ -372,7 +374,8 @@
         const fitted = fitLayout(shaped, Math.max(2000, max - 64), !!line);
         const lines = r.lines || [];
         const routing = r.routing && r.routing.state ? 'routing ' + r.routing.state : 'routing unknown';
-        const head = lines.length === 1 ? '"' + (lines[0].name || 'unnamed line') + '": ' + (lines[0].status || '?') : lines.length + ' line(s)';
+        // (an unnamed line by the word its plate shows — LINE F — the same word the result carries; repair: 'unnamed line')
+        const head = lines.length === 1 ? '"' + (lines[0].name || lines[0].word || 'unnamed line') + '": ' + (lines[0].status || '?') : lines.length + ' line(s)';
         return { content: JSON.stringify(fitted), summary: head + ' · ' + routing };
       }
     };

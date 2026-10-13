@@ -362,11 +362,16 @@ const StationCommands = (() => {
   function pickLine(lines, want) {
     const lower = want.toLowerCase();
     const byId = lines.filter(l => l.lineId === want);
-    const byName = lines.filter(l => l.name && l.name.toLowerCase() === lower);
+    // …or by the word the floor shows it under (LINE F for an unnamed line, LINE RESEARCH for 'Research' — final floor lane M25)
+    // An exact NAME speaks before a shown word (repair: a line named 'F' and an unnamed line both matched "F", one by name and one
+    // by word; the floor now shows the unnamed one as LINE F 2, and its own name is asked first all the same).
+    const shown = typeof Pipeline !== 'undefined' && Pipeline.lineWord ? Pipeline.lineWord(want) : null;
+    const byLabel = lines.filter(l => l.name && l.name.toLowerCase() === lower);
+    const byName = byLabel.length ? byLabel : lines.filter(l => shown && l.word && l.word === shown);
     const byPart = lines.filter(l => l.name && l.name.toLowerCase().indexOf(lower) >= 0);
     const hits = byId.length ? byId : (byName.length ? byName : byPart);
     if (hits.length === 1) return hits[0];
-    const names = lines.map(l => (l.name || 'unnamed') + ' (' + l.lineId + ')').join(', ');
+    const names = lines.map(l => (l.name || l.word || 'unnamed') + ' (' + l.lineId + ')').join(', ');
     throw new Error(hits.length > 1 ? 'more than one line matches "' + want + '" — name it exactly. Lines: ' + names
       : 'there is no line called "' + want + '"' + (names ? '. Lines: ' + names : ' — this station has no assembly lines'));
   }
@@ -400,8 +405,10 @@ const StationCommands = (() => {
     const geo = st.projectGeometry(), plan = P.compileRoutingPlan(geo) || {};
     const origin = geo.origin || { tx: 0, ty: 0 };
     const roomAtTile = t => { const id = st.roomAt(t.x + origin.tx, t.y + origin.ty); const r = id && st.roomById(id); return r ? (r.name || r.kind || id) : null; };
+    // advice that is not a routing finding (never painted on the floor at rest) still reaches the lead, in its own words
+    const ADVICE_LABEL = { SEND_TO_PRIVATE_FILES: 'PRIVATE FILES — THE NEXT CREW CANNOT OPEN THEM' };
     const issue = e => {
-      const o = { code: e.code, label: label(e.code), blocking: !e.warn, propId: e.propId || null };
+      const o = { code: e.code, label: ADVICE_LABEL[e.code] || label(e.code), blocking: !e.warn, propId: e.propId || null };
       const f = why(e.code); if (f !== o.label) o.fix = f;
       if (!o.propId && e.tile) { const room = roomAtTile(e.tile); if (room) o.room = room; }   // a belt CYCLE has only a tile: say where it is
       return o;
@@ -414,7 +421,8 @@ const StationCommands = (() => {
       const p = propOf(pid);
       return (p && P.composeStageBrief && P.composeStageBrief(p.brief, p.hands)) || '';
     };
-    const errors = (plan.errors || []).filter(Boolean), claimed = new Set();
+    // + the SEND TO file advice, only where it is TRUE (Pipeline.sendToFileAdvice: no project folder, a different crew next — M19 / M29)
+    const errors = (plan.errors || []).filter(Boolean).concat(P.sendToFileAdvice ? P.sendToFileAdvice(plan) : []), claimed = new Set();
     const onLine = (c, e) => (e.propId != null && c.props.indexOf(e.propId) >= 0) || !!(e.tile && c.tiles && c.tiles[e.tile.x + ',' + e.tile.y])
       || (e.propId == null && !e.tile && [].concat(e.agentId || [], e.agents || []).some(a => c.bays.some(b => b.agentId === a)));
     const unread = (facts && facts.unread) || [];
@@ -425,7 +433,11 @@ const StationCommands = (() => {
       : (I.beltTileNear ? (t => t ? t.x + ',' + t.y : null)(I.beltTileNear(plan.belts || {}, p.x, p.y, p.w || 1, p.h || 1)) : null);
     const comps = (P.lineComponents(geo) || []).filter(c => c.intakes.length || c.bays.length || c.outboxes.length);
     // SEND TO (2026-10-10): a line names another by its INBOX's label; the hand-offs are the COMPILED plan's (plan.sendTo)
-    const lineName = id => { const cc = comps.find(x => x.key === id), l = cc ? (cc.intakes.map(i => propOf(i)).find(p => p && p.label) || {}).label : null; return l ? (P.lineWord ? P.lineWord(l) : 'LINE ' + String(l).replace(/^line\b[\s:·-]*/i, '').toUpperCase()) : 'an unnamed line (lineId ' + id + ')'; };
+    /* the floor's own name for a line (worldmodel.lineName: its first named INBOX, else LINE <its first INBOX's letter> — what the
+       plates and the SEND TO chips say), with its lineId when unnamed so station.layout line= can still take it (final floor lane
+       M25 / R62: 'an unnamed line' named no line the Commander could see) */
+    const floorWord = id => (typeof st.lineName === 'function' ? st.lineName(id) : null);
+    const lineName = id => { const cc = comps.find(x => x.key === id), l = cc ? (cc.intakes.map(i => propOf(i)).find(p => p && p.label) || {}).label : null; if (l) return P.lineWord ? P.lineWord(l) : 'LINE ' + String(l).replace(/^line\b[\s:·-]*/i, '').toUpperCase(); const w = floorWord(id); return (w || 'an unnamed line') + ' (lineId ' + id + ')'; };
     // the SEND TOs a step's own lane can ship into (a line with two OUTBOXes hands on only from the one that sends — 10-11 repair)
     const sendsOf = (lineId, pid) => (P.sendsReachedOf ? P.sendsReachedOf(plan, lineId, pid) : []);
     const reachedOf = pid => (P.outboxesReached ? P.outboxesReached(plan, pid) : []);
@@ -495,7 +507,7 @@ const StationCommands = (() => {
         filters.push({ propId: fp.id, rules: Object.keys(j.routes || {}).map(tag => ({ tag, goesTo: to(j.routes[tag]) })), otherwise: j.def ? to(j.def) : [] });
       }
       const mine = errors.filter(e => onLine(c, e)); mine.forEach(e => claimed.add(e));
-      const out = { lineId: c.key, name: (c.intakes.map(id => propOf(id)).find(p => p && p.label) || {}).label || null,
+      const out = { lineId: c.key, name: (c.intakes.map(id => propOf(id)).find(p => p && p.label) || {}).label || null, word: floorWord(c.key) || null,
         status: W.pillText(ready), ready: !!ready.ready, howItRuns: W.sentenceText(segs),
         blocking: ready.blocking.map(b => b.what), hints,
         starts: { schedules: starts.schedules, channels: starts.channels, events: starts.events, paused: starts.paused,

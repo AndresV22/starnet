@@ -1000,7 +1000,8 @@ const WorkflowPanel = (() => {
         + (r.connected ? '' : ' · <span class="trg-warn">not connected</span>') + '</div></div>').join('');
     const feed = H.feedState(), feedPlan = H.plan() || {};
     const incoming = Object.values(feedPlan.sendTo || {}).filter(s => s.intakeId === p.id);
-    const incomingNames = incoming.map(s => { const l = (feedPlan.lines || []).find(x => x.lineId === s.fromLine); return Pipeline.lineWord(l && l.name, 'LINE ' + s.fromLine); });
+    // the sending line by the one line name (worldmodel.lineName) — never 'LINE p3', the raw key of a line whose BAY went down first
+    const incomingNames = incoming.map(s => { const st = H.station(); return (st && st.lineName ? st.lineName(s.fromLine) : null) || 'another line'; });
     // a schedule SAVED for this line while scheduling is off is not "nothing wired" (2026-09-28 retest) — the switch is right above
     const feedTxt = incomingNames.length ? '✓ FED — ' + [...new Set(incomingNames)].join(' / ') + ' sends its finished work here.' : !feed.known ? 'Checking what feeds this floor…' : feed.fed ? '✓ FED — a channel, an armed routine, a watched folder or a webhook is wired to drop work on this floor.'
       : (tr.offSchedules || []).length ? 'SCHEDULE OFF — this line’s schedule is saved, but scheduling is off for the whole station, so nothing starts it yet. Turn it on above.'
@@ -1534,14 +1535,16 @@ const WorkflowPanel = (() => {
     const no = typeof st.sendToRefusal === 'function' ? st.sendToRefusal(o.id, o.sendTo) : null;
     return { to: o.sendTo, off: !!no, why: no ? (no.msg || no.error || 'it cannot send there') : '' };
   }
+  // a SEND TO chip's line: sendToChoices names it by the one line name (worldmodel.lineName) already
+  const sendChipName = c => c.name || Pipeline.lineWord('', H.station().lineLetter ? 'LINE ' + H.station().lineLetter(c.intakeId) : 'ANOTHER LINE');
   function sendTarget(outboxId) {
     const s = sendState(outboxId); if (!s) return null;
     const on = sendChoices(outboxId).find(c => c.on);
-    return { name: on ? Pipeline.lineWord(on.name, H.station().lineLetter ? 'LINE ' + H.station().lineLetter(on.intakeId) : 'LINE ' + on.intakeId) : 'an INBOX', off: s.off };
+    return { name: on ? sendChipName(on) : 'an INBOX', off: s.off };
   }
   function paintOutbox(body, f, p) {
     const choices = sendChoices(p.id), on = choices.find(c => c.on), ss = sendState(p.id);
-    const nameOf = c => Pipeline.lineWord(c.name, H.station().lineLetter ? 'LINE ' + H.station().lineLetter(c.intakeId) : 'LINE ' + c.intakeId);
+    const nameOf = sendChipName;
     const oldBelts = H.station().oldHandoffBelts ? H.station().oldHandoffBelts(p.id) : [];
     const onName = on ? nameOf(on, choices.indexOf(on)) : null;
     // NOWHERE is pressed only when the OUTBOX points nowhere — a pointer the compiler turned off is still a pointer NOWHERE clears
@@ -1549,6 +1552,10 @@ const WorkflowPanel = (() => {
       + choices.map((c, i) => '<button type="button" class="wf-chip' + (c.refusal ? ' off' : '') + '" data-sendto="' + esc(c.intakeId) + '" aria-pressed="' + c.on + '"'
         + (c.refusal ? ' aria-disabled="true"' : '') + '>' + esc(nameOf(c, i)) + '</button>').join('');
     const why = choices.map((c, i) => c.refusal ? '<p class="wf-help dim wf-sendwhy">' + esc(nameOf(c, i)) + ' — ' + esc(c.refusal.msg || c.refusal.error) + '</p>' : '').join('');
+    /* PRIVATE FILES (final floor lane M19 / M29): said HERE, quietly, on the OUTBOX's own card — and only when it is true (the
+       compiled SEND TO is live, this line has no project folder, and the next crew is not the same agent: Pipeline.sendToFileAdvice) */
+    const fileAdv = ss && !ss.off && typeof Pipeline !== 'undefined' && Pipeline.sendToFileAdvice ? Pipeline.sendToFileAdvice(H.plan() || {}).find(a => a.propId === p.id) : null;
+    const filesNote = fileAdv ? '<p class="wf-help dim wf-sendwhy" id="send-files">' + esc(H.valLabel('SEND_TO_PRIVATE_FILES')) + '</p>' : '';
     body.innerHTML = '<section class="wf-sec"><h3><span class="n">OUTBOX</span>Collect the finished work</h3>'
       + '<p class="wf-help">' + (f && f.outbox.reached ? 'This line’s finished work lands here — leave build mode and click it to read what came back.' : 'Drag the last BAY onto it to lay the belt (or BELT: click the BAY, then this OUTBOX).') + '</p>'
       + '<h4 class="wf-sub">SEND TO ›</h4>'
@@ -1556,7 +1563,7 @@ const WorkflowPanel = (() => {
       + (choices.length ? '<div class="wf-chips" role="group" aria-label="Where this line sends its finished work">' + chips + '</div>' + why
         : oldBelts.length ? '' : '<p class="wf-help dim">There is no other line on the floor yet. Build one, then pick it here to hand this line’s finished work on to it.</p>')
       + '<p class="wf-help' + (ss && ss.off ? ' wf-warnline' : '') + '" id="send-note">' + (ss && !ss.off && onName ? 'Every job that lands in this OUTBOX rides on to <b>' + esc(onName) + '</b> — its own crew works it, under its own budget. This line’s result stays here too.'
-        : ss ? '✕ Its SEND TO' + (onName ? ' <b>' + esc(onName) + '</b>' : '') + ' is off, so nothing is sent on — ' + esc(ss.why) + ' (Or pick NOWHERE.)' : 'This line’s work stops here.') + '</p>'
+        : ss ? '✕ Its SEND TO' + (onName ? ' <b>' + esc(onName) + '</b>' : '') + ' is off, so nothing is sent on — ' + esc(ss.why) + ' (Or pick NOWHERE.)' : 'This line’s work stops here.') + '</p>' + filesNote
       + '<p class="wf-help dim">Or drag this OUTBOX onto another line’s INBOX. One UNDO takes it back.</p></section>';
     const convert = body.querySelector('#wf-convert-sendto');
     if (convert) convert.onclick = () => { const r = H.station().convertHandoffBelt(p.id); if (r && r.ok) { H.sfx('click'); paint(true); } else { H.sfx('bad'); note((r && r.msg) || 'the old belt could not be converted', true, convert); } };

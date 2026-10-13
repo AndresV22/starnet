@@ -8,6 +8,14 @@
   const H = StationUI.h;
   const esc = H.esc, sfx = H.sfx, fmtRel = H.fmtRel, notify = H.notify, openTerm = H.openTerm;
   const WS = H.WS, persistWS = H.persistWS;
+  /* a job's FROM / SENT ON TO end by the floor's own line name (worldmodel.lineName — LINE N for an unnamed line, as its plate
+     says), else the name the job recorded. A job end is { line, jobId, name } (linejobs normEnd): it never carried a lineId, so
+     every unnamed line read 'ANOTHER LINE' here (repair). */
+  function lineOfEnd(e) {
+    let st = null; try { st = (typeof App !== 'undefined' && App.station) ? App.station() : null; } catch (_) { st = null; }
+    const w = e && e.line != null && st && typeof st.lineName === 'function' ? st.lineName(e.line) : null;
+    return w || Pipeline.lineWord(e && e.name, 'ANOTHER LINE');
+  }
 
   /* ============== OUTBOX — the finished-work window (accordion redesign, 2026-07-16 round 4) ==============
      Andrew's spec, exactly: an EXTREMELY simple list. Collapsed row = the task's TITLE + a small
@@ -188,7 +196,7 @@
         if (jobStream) {
           try {
             const lj = await Harness.api.get('/api/line-jobs?stream=' + encodeURIComponent(rw.streamId) + '&limit=1');
-            const sj = lj && Array.isArray(lj.jobs) ? lj.jobs[0] : null, word = e => Pipeline.lineWord(e && e.name, e && e.lineId ? 'LINE ' + e.lineId : 'ANOTHER LINE');
+            const sj = lj && Array.isArray(lj.jobs) ? lj.jobs[0] : null, word = e => lineOfEnd(e);
             // (a REFUSED hand-off is NOT SENT ON, with why — never "sent on" for work the station did not send, 10-11)
             const bits = sj ? [sj.from ? 'FROM ' + word(sj.from) : '', sj.sentTo ? (sj.sentTo.refused ? 'NOT SENT ON TO ' + word(sj.sentTo) + ' — ' + sj.sentTo.refused : 'SENT ON TO ' + word(sj.sentTo)) : ''].filter(Boolean) : [];
             const pv = row.querySelector('.ob-prov');

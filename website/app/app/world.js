@@ -36,6 +36,7 @@ const World = (() => {
   let routingNags = null;                        // [{x,y,w,h,label,warn}] in-world callouts mirroring the compiler's errors
   let firstShipPulse = null;
   let feedState = { known: false, fed: true };   // server-proven "something feeds the intake" truth (channels/cron); fed=true until proven otherwise
+  let startFacts = null;                         // …and the server's own answers it was read from ({ chans, cron, lt }) — what starts ONE line (WorkflowLine.lineStarts)
   let feedNagOn = false;                         // a NO FEED nag is showing → the intake becomes clickable (→ CHANNELS)
   let selectedRoutingTile = null;                // explicit canvas selection; full routing instructions never open on hover
 
@@ -637,6 +638,7 @@ const World = (() => {
     novelty = []; seenProps = null; seenBelts = null;   // re-learn the scene from scratch (no cross-station novelty)
     beltWatch = null;                                   // ...and the belt-watch claim: this floor's belts are gone, so a claim on them is a ghost holding the slot
     clearDeferredShips();                               // a crate waiting on the OLD floor's handoff must never land on this one
+    clearSendCrates();                                  // ...nor a SEND TO hand-off held or flying on the old floor
     dockLineWork.clear(); activeDock.clear();          // ...and the dock glow it feeds (written together in intakeMessage)
     // LINE WATCH state is keyed by prop id, and a fresh doc reissues low ids — the old floor's lamps/plates would
     // light this floor's colliding bays. Drop the watch (lazily rebuilt; acks re-read from localStorage) and the
@@ -693,6 +695,7 @@ const World = (() => {
         if (b.state === 'walk') { b.state = 'idle'; b.idleUntil = 0; }
       }
     }
+    reframeSendCrates();           // a held/flying SEND TO crate re-reads its OUTBOX + INBOX in the new frame (after the plan + belts moved)
     syncCrewFromPlan();            // reconcile the light crew bodies with the plan's bound bays
     if (agent) {
       if (agent.unplaced) placeAgent();
@@ -781,7 +784,7 @@ const World = (() => {
   let lastRecoverAt = 0;       // when the last recovery ran (only consulted while backing off)
   let futileRecoveries = 0;    // consecutive recoveries that did NOT restore an opaque bake
   let recoveries = 0;
-  const PROBE_MS = 250, RECOVER_COOLDOWN_MS = 3000;
+  const PROBE_MS = 250, RECOVER_COOLDOWN_MS = 3000, RECOVER_MAX_COOLDOWN_MS = 60000;
 
   /* Find one pixel the fresh bake painted OPAQUE. Centre first (on any real station the middle
      of the footprint is deck), then a coarse ring outward — so the common case is a single
@@ -949,8 +952,12 @@ const World = (() => {
        by the FIRST loss made the station sit black through the next one. A recovery that
        restored an opaque bake is proof the GPU is healthy, so the next loss must heal on the
        spot; only a recovery that changed nothing (futile) is evidence of a broken GPU worth
-       rate-limiting. Recovering is cheap. Sitting in a black station is not. */
-    if (futileRecoveries > 0 && now - lastRecoverAt < RECOVER_COOLDOWN_MS) return false;
+       rate-limiting. Recovering is cheap. Sitting in a black station is not.
+       A futile streak waits longer each time (3 s, 6 s, 12 s ... capped at a minute): every retry is a full station bake (~2.5 s
+       on a big industrial floor) into a GPU that is not giving canvases back, and a flat 3 s kept the main thread ~80% busy for
+       as long as it stayed broken. A restored context or the page coming back starts the streak over. */
+    const cooldown = Math.min(RECOVER_MAX_COOLDOWN_MS, RECOVER_COOLDOWN_MS * 2 ** Math.max(0, futileRecoveries - 1));
+    if (futileRecoveries > 0 && now - lastRecoverAt < cooldown) return false;
     lastRecoverAt = now; recoveries++;
     try {
       console.warn('[world] cached canvases lost (' + why + ') — rebuilding station + sky + ground (recovery #' + recoveries + ')');
@@ -958,10 +965,15 @@ const World = (() => {
     bakeDirty = true; bakeProbe = null;
     resetLossProbe();
     try { if (typeof IndustrialTextures !== 'undefined' && IndustrialTextures.restoreMaterials) IndustrialTextures.restoreMaterials(); } catch (_) {}
-    try { if (typeof PropRemaster !== 'undefined' && PropRemaster.restore) PropRemaster.restore(); } catch (_) {}
+    // the prop catalog is re-prepared once per loss, not per futile retry: PropRemaster retries its own failed entries, and
+    // watchCanvasLoss re-prepares it again once the GPU gives an opaque bake back
+    if (!futileRecoveries) restorePropArt();
     try { if (typeof SpaceBG !== 'undefined' && SpaceBG.invalidate) SpaceBG.invalidate(); } catch (_) {}
     try { if (typeof Terrain !== 'undefined' && Terrain.invalidate) Terrain.invalidate(); } catch (_) {}
     return true;
+  }
+  function restorePropArt() {
+    try { if (typeof PropRemaster !== 'undefined' && PropRemaster.restore) PropRemaster.restore(); } catch (_) {}
   }
 
   /* per-frame (throttled) sentinel read — called from frameBody. Heals in THIS frame: rebake()
@@ -977,9 +989,11 @@ const World = (() => {
       recoveries++; futileRecoveries = 0;
       return; // native bake is intact; do not stall the frame rebaking the entire station
     }
+    const streak = futileRecoveries;
     if (!recoverLostCanvases(now, 'bake sentinel went transparent')) return;
     rebake();
     futileRecoveries = bakeProbe ? 0 : futileRecoveries + 1;
+    if (streak && bakeProbe) restorePropArt();   // the GPU is back after a broken spell: prop art prepared during it may be blank too
   }
 
   /* ---------- STAGE CONTEXT LOSS — the OTHER way the station goes black ----------
@@ -1501,7 +1515,7 @@ const World = (() => {
        block), NOT in wireStageInput(): that function re-runs on every stage rebuild, and these
        two target document/window — the only listeners in it that would survive the old canvas
        and stack forever (every other handler is cv-scoped and dies with the replaced node). */
-    document.addEventListener('visibilitychange', () => { if (!document.hidden) lastProbeAt = 0; });
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) { lastProbeAt = 0; futileRecoveries = 0; } });   // (a sleep/wake GPU reset heals on THIS frame, not after the broken spell's back-off)
     window.addEventListener('focus', () => { lastProbeAt = 0; });
     // RENDER PACING wake-ups (#69): focus, a visible page, or any hand on the window resumes full pace NOW
     window.addEventListener('focus', paceWake);
@@ -1540,7 +1554,7 @@ const World = (() => {
         try { console.warn('[world] canvas 2d context lost — awaiting restore'); } catch (_) {}
       }, false);
       cv.addEventListener('contextrestored', () => {
-        lastRecoverAt = 0;   // an explicit restore always wins the cooldown
+        lastRecoverAt = 0; futileRecoveries = 0;   // an explicit restore always wins the cooldown (and re-prepares the props)
         recoverLostCanvases(performance.now(), 'contextrestored');
         redrawNow();
       }, false);
@@ -1735,23 +1749,29 @@ const World = (() => {
   /* STRAINED DETAIL (2026-10-10, "1 frame per hour — can't navigate"; see SPRITES.setStrained). The budget above keeps
      the UI alive but cannot make a slow draw fast: a weak machine sat at 5 draws/s and every pan landed 5 times a second.
      While the floor's draw would hold the budget under ~25 fps the crew drops its extra passes (walk in-between, pose
-     dissolve, local light). Leaving needs proof, not a prediction: every STRAIN_PROBE_DRAWS strained draws, one draw is
-     made at full detail and timed, and full detail returns only after two probes in a row fit comfortably
-     (STRAIN_EXIT_MS, well under the entry line, so a borderline station can't flap). A healthy station never enters. */
-  const STRAIN_ENTER_MS = PACE_FOCUS_MS * BUDGET_SHARE * 1.2, STRAIN_EXIT_MS = STRAIN_ENTER_MS * 0.7;
-  const STRAIN_SETTLE_DRAWS = 10, STRAIN_PROBE_DRAWS = 45;   // settle: a boot-time false start is harmless (the probes undo it); a slow one is 15 s of slideshow at 2 draws/s
-  let strained = false, strainProbe = false, strainProbeMs = 0, strainPasses = 0, strainDraws = 0, strainForce = null;
+     dissolve, local light). Entering needs a slow floor, not one hitch: the budget over STRAIN_ENTER_MS AND 3 of the last
+     5 draws over it (a GC pause, a page-in after a restore or a props-only rederive holds a 22 ms floor's EMA over the
+     line ~13 draws, yet it is one slow draw). Leaving needs proof, not a prediction: every STRAIN_PROBE_DRAWS strained
+     draws, one draw is made at full detail and timed, and full detail returns after STRAIN_EXIT_PROBES probes in a row
+     come in under STRAIN_EXIT_MS. That line sits 10% under the entry line: a 22-25 ms floor (fine at 30 fps) that a long
+     stall pushed in must earn its way back (under the old 70% line it stayed strained for the session); three probes in
+     a row and the 3-of-5 entry keep a borderline floor from flapping. A healthy station never enters. */
+  const STRAIN_ENTER_MS = PACE_FOCUS_MS * BUDGET_SHARE * 1.2, STRAIN_EXIT_MS = STRAIN_ENTER_MS * 0.9;
+  const STRAIN_SETTLE_DRAWS = 10, STRAIN_PROBE_DRAWS = 45, STRAIN_EXIT_PROBES = 3;   // settle: a boot-time false start is harmless (the probes undo it); a slow one is 15 s of slideshow at 2 draws/s
+  let strained = false, strainProbe = false, strainProbeMs = 0, strainPasses = 0, strainDraws = 0, strainSlow = 0, strainForce = null;
   function noteStrain(ms) {
     strainDraws++;
     if (strainForce != null) { strained = strainForce; strainProbe = false; return; }
     if (!strained) {
-      if (strainDraws > STRAIN_SETTLE_DRAWS && drawCostMs > STRAIN_ENTER_MS) { strained = true; strainDraws = 0; strainPasses = 0; }
+      strainSlow = ((strainSlow << 1) | (ms > STRAIN_ENTER_MS ? 1 : 0)) & 31;   // the last 5 draws, one bit each: over the line
+      let slow = 0; for (let b = strainSlow; b; b &= b - 1) slow++;
+      if (strainDraws > STRAIN_SETTLE_DRAWS && drawCostMs > STRAIN_ENTER_MS && slow >= 3) { strained = true; strainDraws = 0; strainPasses = 0; strainSlow = 0; }
       return;
     }
     if (strainProbe) {   // the draw that just finished was the full-detail probe
       strainProbe = false; strainProbeMs = ms;
       strainPasses = ms < STRAIN_EXIT_MS ? strainPasses + 1 : 0;
-      if (strainPasses >= 2) { strained = false; strainDraws = 0; }
+      if (strainPasses >= STRAIN_EXIT_PROBES) { strained = false; strainDraws = 0; }
       return;
     }
     if (strainDraws % STRAIN_PROBE_DRAWS === 0) strainProbe = true;   // the next draw measures full detail again
@@ -6481,7 +6501,7 @@ const World = (() => {
     if (force !== true && now - lastDrawnAt < pace - 1) { scheduleFrame(pace); return; }   // RENDER PACING: not this vsync
     lastDrawnAt = now; pacedDraws++;
     scheduleFrame(pace);   // schedule next frame FIRST — a throw below can't kill the loop
-    const drawStart = performance.now();
+    const drawStart = performance.now(), bakedBefore = cache;   // only rebake() (and loadStation) replace the bake
     const reviewStart=reviewPerformance.enabled?drawStart:0;
     reviewParts=reviewPerformance.enabled?{}:null;reviewStamp=reviewStart;
     try {
@@ -6493,8 +6513,12 @@ const World = (() => {
       if (msg !== lastFaultMsg) { lastFaultMsg = msg; try { console.error('[world] render frame threw (x' + renderFaults + '):', e); } catch (_) {} }
       if (renderFaults >= RENDER_FAULT_LIMIT) { try { drawRenderFault(); } catch (_) {} }
     } finally {
-      noteDrawCost(performance.now() - drawStart);   // FRAME BUDGET: what this draw really cost the main thread
-      noteStrain(performance.now() - drawStart);     // STRAINED DETAIL: the same cost, raw (a probe is judged on its own draw)
+      // a frame that baked the station paid a one-off cost (~2.5 s on a big floor), not the floor's steady draw: it must neither
+      // seed the budget nor tip a healthy floor into STRAINED DETAIL, which only full-detail probes under the exit line undo
+      if (cache === bakedBefore) {
+        noteDrawCost(performance.now() - drawStart);   // FRAME BUDGET: what this draw really cost the main thread
+        noteStrain(performance.now() - drawStart);     // STRAINED DETAIL: the same cost, raw (a probe is judged on its own draw)
+      }
       if(reviewPerformance.enabled && reviewPerformance.samples.length<3600)reviewPerformance.samples.push({t:now,ms:performance.now()-reviewStart,parts:reviewParts});
       reviewParts=null;
     }
@@ -8272,10 +8296,9 @@ const World = (() => {
     SPLIT_ONE_LANE: 'SPLITTER — BELT THROUGH IT, 2 OUT', CHAIN_CYCLE: 'WORK LINE LOOPS',
     JOIN_ONE_LANE: 'JOINER — NEEDS 2 BELTS IN', LOOP_NO_DONE: 'LOOP — NO DONE LANE OUT', LOOP_NO_BACK: 'LOOP — NO BACK LANE',
     BELT_BURIED: 'PROP ON THE LINE — MOVE IT',
-    ORPHAN_JUNCTION: 'NOT ON A BELT — MOVE IT',
+    ORPHAN_JUNCTION: 'NOT ON A BELT — BELT INTO IT',
     LINE_TOO_LONG: 'TOO LONG — RAISE THE LINE BUDGET',
     SEND_TO_MISSING: 'SENDS NOWHERE — PICK A LINE', SEND_TO_SELF: 'SENDS TO ITSELF — PICK ANOTHER LINE',
-    SEND_TO_PRIVATE_FILES: 'PRIVATE FILES — PICK A SHARED PROJECT',
     SEND_TO_LOOP: 'SENDS IN A CIRCLE — CUT ONE SEND TO'
   };
   // project the compiled plan's error list onto floor rectangles once per recompile (zero per-frame walk)
@@ -8356,6 +8379,11 @@ const World = (() => {
       const offJobs = (cron && !cron.enabled) ? jobs.filter(j => j && j.enabled !== false).map(j => ({ dockId: j.dockId || null, agentId: j.agentId || null })) : [];
       const schedOff = offJobs.length > 0;
       const next = { known: true, fed: chan || cronFeeds || trgFeeds, schedOff, offJobs };
+      // the answers themselves, per fact (one that did not answer keeps its last answer — a hiccup never unsays a start): BUILD MODE's
+      // FINISH THE LINE reads what starts ONE line from these, never the station-wide `fed` (wave 2 repair, build-12)
+      const was = startFacts || {};
+      startFacts = { chans: (chans && typeof chans === 'object') ? chans : (was.chans || null), cron: (cron && Array.isArray(cron.jobs)) ? cron : (was.cron || null),
+        lt: (trg && Array.isArray(trg.triggers)) ? trg : (was.lt || null) };
       const offSig = s => (s.offJobs || []).map(j => j.dockId + '|' + j.agentId).join(',');
       const changed = next.known !== feedState.known || next.fed !== feedState.fed || next.schedOff !== feedState.schedOff || offSig(next) !== offSig(feedState);
       feedState = next;
@@ -9583,9 +9611,19 @@ const World = (() => {
     const who = (b && b.name) ? String(b.name).toUpperCase() : (aid ? String(aid).toUpperCase() : 'NO AGENT');
     return (p && (p.label || p.role) ? String(p.label || p.role).toUpperCase() : 'BAY') + ' · ' + who;
   }
+  // a line as every surface names it — the ONE naming rule (worldmodel.lineName: its first named INBOX, else LINE <its first
+  // INBOX's letter>), never the label of whichever prop keys the line (final floor lane M17/M23). A lineId is a KEY: read the
+  // compiled line record (a key an edit retired resolves through that prop's current line; one whose prop is gone says so),
+  // then name that record by the station's rule — the record's own name + INBOX letter only where no station rule is loaded.
   function lwLineName(lineId) {
-    const ip = geo && geo.props ? geo.props.find(q => q.id === lineId) : null;
-    return Pipeline.lineWord(ip && ip.label, station && station.lineLetter ? 'LINE ' + station.lineLetter(lineId) : 'LINE ' + lineId);   // the Workflow panel names a line; an unnamed one says so
+    const ls = routingPlan && Array.isArray(routingPlan.lines) ? routingPlan.lines : [];
+    const moved = routingPlan && routingPlan.lineOfProp ? routingPlan.lineOfProp[lineId] : null;
+    const rec = ls.find(l => l && l.lineId === lineId) || (moved ? ls.find(l => l && l.lineId === moved) : null);
+    if (!rec) return 'a line since edited';
+    const ruled = station && station.lineName ? station.lineName(rec.lineId) : null;
+    if (ruled) return ruled;
+    const iid = rec.intakes && rec.intakes[0], letter = iid && station && station.lineLetter ? station.lineLetter(iid) : null;
+    return Pipeline.lineWord(rec.name, letter ? 'LINE ' + letter : 'UNNAMED LINE');
   }
   function lwAgentName(aid) { const b = bodyForAgent(aid); return (b && b.name) ? String(b.name).toUpperCase() : String(aid || '?').toUpperCase(); }
   function crateCtx(payload) {
@@ -9699,8 +9737,7 @@ const World = (() => {
     for (const obId of Object.keys(routingPlan.sendTo)) {
       const st = routingPlan.sendTo[obId], ob = geo.props.find(q => q.id === obId);
       if (!st || !ob) continue;
-      const rec = routingPlan.lines.find(l => l && l.lineId === st.toLine), nm = rec && rec.name ? String(rec.name).toUpperCase() : '';
-      const text = 'SENDS TO ' + Pipeline.lineWord(nm, station && station.lineLetter ? 'LINE ' + station.lineLetter(st.intakeId) : 'LINE ' + st.toLine);
+      const text = 'SENDS TO ' + ((station && station.lineName ? station.lineName(st.toLine) || station.lineName(st.intakeId) : null) || 'ANOTHER LINE');   // (the one line name)
       const w = ctx.measureText(text).width + 6, h = 8, cx = (ob.x + (ob.w || 1) / 2) * T;
       const room = lwRoomBox(ob.x, ob.y);
       const clampX = x => room ? Math.max(room.x, Math.min(room.x + room.w - w, x)) : x;
@@ -9752,6 +9789,19 @@ const World = (() => {
     sendCrates.push({ p, ob, ib, born: fnow, t0: 0 });
     if (sendCrates.length > 12) sendCrates.shift();
     return true;
+  }
+  function clearSendCrates() { sendCrates.length = 0; outboxSunk.clear(); }   // loadStation: the old floor's crates and (recycled) ids
+  /* Props live in the local tile frame and each edit derives new prop objects: a crate re-reads its OUTBOX and INBOX by id, so an
+     origin shift (a room added at the north/west edge) or a moved prop carries the arc with it. A crate whose OUTBOX or INBOX is
+     gone is not dropped — the sidecar really placed that work — it lands now, the way any work the floor cannot arc in does. */
+  function reframeSendCrates() {
+    if (!sendCrates.length || !geo || !geo.props) return;
+    const gone = [];
+    for (let i = 0; i < sendCrates.length; i++) {
+      const c = sendCrates[i], ob = geo.props.find(q => q.id === c.ob.id), ib = geo.props.find(q => q.id === c.ib.id);
+      if (ob && ib) { c.ob = ob; c.ib = ib; } else gone.push(c);
+    }
+    for (const c of gone) { sendCrates.splice(sendCrates.indexOf(c), 1); landSendCrate(c); }
   }
   function noteOutboxSink(x, y) {
     if (!geo || !geo.props) return;
@@ -11297,6 +11347,8 @@ const World = (() => {
     // BUILD MODE's finish-the-line card reads THIS, never a parallel poll, so the two can never disagree.
     fedLines: knownFedLines,
     feedState: () => ({ known: feedState.known, fed: feedState.fed }),
+    // the server answers that feed truth was read from ({ chans, cron, lt } | null until one answered) — what starts ONE line
+    startFacts: () => startFacts,
     // does this INBOX's line wait on a routine saved while scheduling is off? (the floor's SCHEDULE OFF — CLICK) — BUILD MODE's
     // finish card asks it with ITS OWN compiled plan (plan param), so a line stamped this session answers too
     schedOffFor: (intakeId, plan) => schedOffFor(intakeId, plan),

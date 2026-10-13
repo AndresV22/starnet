@@ -53,7 +53,10 @@ const lineOf = (pl, id) => pl.lineOfProp[id];
   A.eq(recA.sendTo, [{ outboxId: a.outbox, intakeId: b.intake, toLine: lineOf(p1, b.intake) }], 'LINE A’s record names where it sends');
   A.ok(recA.name === 'A' && typeof recA.stages === 'number' && recA.stages >= 1 && recA.maxHops === P.LINE_LIMIT_DEFAULTS.maxHops, 'the line record carries its name and stages n / max — ' + JSON.stringify({ name: recA.name, stages: recA.stages, maxHops: recA.maxHops }));
   A.eq(p1.hash, hash0, 'plan.hash never moves with a SEND TO (dispatch topology is unchanged; SPLITTER counters keep)');
-  A.ok(P.ok(p1) && !p1.errors.some(e => /^SEND_TO_(MISSING|SELF|LOOP)$/.test(e.code)), 'a clean SEND TO has no disabling finding (private-file access may still need a shared project)');
+  // RESTORED (final floor lane M19 / M29): e2f430f6e narrowed this to /^SEND_TO_(MISSING|SELF|LOOP)$/ so a PRIVATE FILES warning
+  // could ride every default SEND TO. Whether the next crew can open this line's files is advice (Pipeline.sendToFileAdvice), never
+  // a routing finding: a clean SEND TO is no finding at all.
+  A.ok(P.ok(p1) && !p1.errors.some(e => /^SEND_TO/.test(e.code)), 'a clean SEND TO is no finding');
 
   // the same pointer again burns no undo slot
   st.undo(); A.eq(st.propById(a.outbox).sendTo, undefined, 'UNDO takes the pointer back');
@@ -251,8 +254,13 @@ const lineOf = (pl, id) => pl.lineOfProp[id];
   const src = f => fs.readFileSync(path.join(__dirname, '..', 'frontend', 'app', f), 'utf8');
   const build = src('build.js'), panel = src('workflowpanel.js'), world = src('world.js'), cmds = src('stationcommands.js'), outbox = src('windows/outbox.js'), wfw = src('windows/workflows.js');
   A.ok(/const fo = station\.propById\(connectFrom\);\s*if \(fo && fo\.t === 'outbox' && pp\.t === 'intake'\) \{ connectFrom = null; commitSendTo\(fo\.id, pid, ev\); return; \}/.test(build), 'BELT tool: the armed OUTBOX’s click on an INBOX is a SEND TO (before connectBelt is ever asked)');
-  A.ok(/const so = station\.propById\(d\.propId\), si = !d\.add && !ev\.shiftKey && so && so\.t === 'outbox' \? intakeAt\(d\.cur\.tx, d\.cur\.ty\) : null;\s*if \(si\) \{ commitSendTo\(so\.id, si\.id, ev\); return; \}/.test(build), 'SELECT: an OUTBOX let go on another line’s INBOX is a SEND TO (it does not move)');
-  A.ok(/const sendTo = !drag\.add && !drag\.forceMove && p\.t === 'outbox' && \(dx \|\| dy\) \? intakeAt\(drag\.cur\.tx, drag\.cur\.ty\) : null;/.test(build) && /if \(g\.sendTo\) \{ drawSendGhost\(t, now, g\); return; \}/.test(build), '…its ghost is the SEND TO arc + the verdict, before the drop');
+  // (wave 2, build-13: the SELECT drag's SEND TO is THE HAND's — planHandGesture's 'send' plan and commitHandGesture's setSendTo; the
+  //  propmove copy of it was unreachable but by a Shift let go before the release, and then sent against its own ghost)
+  const plan2 = build.slice(build.indexOf('function planHandGesture('), build.indexOf('// R mid-drag: the corner turns'));
+  const commit2 = build.slice(build.indexOf('function commitHandGesture('), build.indexOf('/* PICK WHAT GOES HERE'));
+  A.ok(/if \(A\.t === 'outbox' && T\.t === 'intake' && typeof station\.setSendTo === 'function'\)/.test(plan2) && /return \{ ok: true, kind: 'send', to: T, why: 'SEND EVERY RESULT TO ' \+ mName\(T\.id\) \};/.test(plan2), 'SELECT: an OUTBOX dragged onto another line’s INBOX plans a SEND TO (it does not move)');
+  A.ok(/else if \(plan\.kind === 'send'\) \{ res = station\.setSendTo\(d\.propId, plan\.to\.id\);/.test(commit2) && /strokeSendArc\(sendArc\(t, A, plan\.to\), col, now, 0\.95\)/.test(build), '…its release sets the SEND TO, and its ghost is the SEND TO arc + the verdict, before the drop');
+  A.ok(!/intakeAt|commitSendTo/.test(build.slice(build.indexOf('function commitPropMove('), build.indexOf('function commitPaint('))), '…and a plain MOVE never sends');
   A.ok(/const r = typeof station\.setSendTo === 'function' \? station\.setSendTo\(outboxId, intakeId\) : null;/.test(build), 'one writer: station.setSendTo');
   A.ok(/drawLayer\('sendTo', \(\) => drawSendLinks\(t, now\)\);/.test(build) && /if \(!near\) continue;   \/\/ ONE-VOICE LAW/.test(build), 'build mode draws each SEND TO as an arc; its words only when you look at either end');
   A.ok(/if \(p\.t === 'outbox'\) return paintOutbox\(body, f, p\);/.test(panel) && /const r = H\.station\(\)\.setSendTo\(p\.id, b\.dataset\.sendto \|\| null\);/.test(panel) && /wf-sendwhy/.test(panel), 'the Workflow panel’s OUTBOX card: SEND TO chips (+ NOWHERE), a circle disabled with its reason inline');
@@ -260,7 +268,7 @@ const lineOf = (pl, id) => pl.lineOfProp[id];
     && /' is off, so nothing is sent on — ' \+ esc\(ss\.why\)/.test(panel) && /\(sendsTo\.off \? ' · OFF' : ''\)/.test(panel), 'NOWHERE reads the doc pointer; a SEND TO the compiler has off is said OFF on the card and the tile (never "rides on")');
   A.ok(/\+ '\|' \+ JSON\.stringify\(plan\.sendTo \|\| \{\}\)\) : '';/.test(world), 'the plan poster re-posts on a SEND TO edit (outside plan.hash)');
   A.ok(/if \(p\.kind === 'handoff' && placeSendCrate\(p\)\) return;/.test(world) && /noteOutboxSink\(bx\.x, bx\.y\);/.test(world) && /fnow - c\.born >= HANDOFF_GRACE_MS/.test(world), 'the hand-off crate: held until the sending line’s crate sinks (or the grace runs out), then flown OUTBOX → INBOX');
-  A.ok(/drawSendPlates\(\);/.test(world) && /const text = 'SENDS TO ' \+ Pipeline\.lineWord\(nm,/.test(world) && /for \(const s of stat\) if \(s\.box\) taken\.push\(s\.box\);/.test(world), 'the OUTBOX plate SENDS TO LINE B, placed in the line plates’ own pass');
+  A.ok(/drawSendPlates\(\);/.test(world) && /const text = 'SENDS TO ' \+ \(\(station && station\.lineName \? station\.lineName\(st\.toLine\) \|\| station\.lineName\(st\.intakeId\) : null\) \|\| 'ANOTHER LINE'\);/.test(world) && /for \(const s of stat\) if \(s\.box\) taken\.push\(s\.box\);/.test(world), 'the OUTBOX plate SENDS TO LINE B, placed in the line plates’ own pass');
   A.ok(/: 'OUTBOX, then on to ' \+ to \+ ' \(SEND TO: that line’s own crew and budget work it next\)';/.test(cmds) && /out\.sendsWorkTo = /.test(cmds) && /P\.sendsReachedOf\(plan, lineId, pid\)/.test(cmds), 'station.map tells the agent where a line’s work goes after its OUTBOX — from the OUTBOX each step’s lane really ships into');
   A.ok(/const jobStream = \/\^\(sample\|handoff\)-\/\.test/.test(outbox) && /: 'SENT ON TO ' \+ word\(sj\.sentTo\)/.test(outbox) && /'FROM ' \+ word\(sj\.from\)/.test(outbox), 'DELIVERABLES: a handed-on job opens in WORKFLOWS and says FROM / SENT ON TO');
   A.ok(/sj\.sentTo\.refused \? 'NOT SENT ON TO ' \+ word\(sj\.sentTo\) \+ ' — ' \+ sj\.sentTo\.refused/.test(outbox), '…and a REFUSED hand-off says NOT SENT ON TO, with why (10-11 repair)');

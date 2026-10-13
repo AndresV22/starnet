@@ -1081,11 +1081,7 @@
     const onCircle = Object.keys(sendTo).filter(k => sendReaches(sendTo[k].toLine, sendTo[k].fromLine)).sort(propIdCmp);
     for (const k of onCircle) { errors.push({ code: 'SEND_TO_LOOP', propId: k, lineId: sendTo[k].fromLine, toLine: sendTo[k].toLine, warn: true }); delete sendTo[k]; }
     const sendKeys = Object.keys(sendTo).sort(propIdCmp);
-    // Absolute paths identify the files, but a private agent workspace is not granted to the next line's crew.
-    for (const k of sendKeys) {
-      const source = lines.find(l => l.lineId === sendTo[k].fromLine);
-      if (!source || !source.projectRoot) errors.push({ code: 'SEND_TO_PRIVATE_FILES', propId: k, lineId: sendTo[k].fromLine, toLine: sendTo[k].toLine, warn: true });
-    }
+    // (whether the next crew can OPEN the files this line makes is advice, never a routing finding: sendToFileAdvice below)
     if (sendKeys.length) {
       plan.sendTo = {};
       for (const k of sendKeys) plan.sendTo[k] = sendTo[k];
@@ -2197,7 +2193,7 @@
     }
     if (!barrier) return null;
     return 'STEP THROUGH carries one crate at a time and cannot finish this ' + (barrier === 'fanout' ? 'parallel' : 'joined')
-      + ' line. Use RUN ONE REAL JOB to test the whole line, or TRY THIS STEP on an individual BAY.';
+      + ' line. Use RUN ONE REAL JOB to test the whole line, or TEST THIS STEP on a single BAY.';   // (the BAY card's key reads TEST THIS STEP)
   }
   /* THE HAND's ALT VIEW (build mode, 2026-10-10): how many stages one job on a line can run, and its ceiling — the same count
      LINE_TOO_LONG makes (jobStages from every INBOX feed mouth of the line), for a line that is NOT over budget too, so the
@@ -2226,10 +2222,47 @@
     return { stages, worst, max: maxHops + 1, maxHops };
   }
 
-  // Per-line evidence that an INBOX is fed: a compiled hand-off or a recorded real run, never a doc pointer.
+  /* SEND TO FILE ADVICE (final floor lane M19 / M26 / M29, 2026-10-12) — whether the next line's crew can OPEN the files this line
+     makes. Only the finished TEXT is guaranteed to ride on; a file rides as its absolute path (handoff-runner), and opening it is
+     the receiving agent's own file access (sidecar pathtrust): a line with a project folder makes its files there, a station
+     project the next crew may read; a line with none makes them in each agent's PRIVATE workspace, which only that same agent can
+     open. So the advice is TRUE only when the sending line has no project folder AND some crew member on it is not the agent the
+     next line hands the job to (any agent on either line differs) — never for the default SEND TO of one agent's own two lines, and
+     never as a floor nag at rest: it is not a routing finding (plan.errors stays clean, a clean SEND TO is no finding), it is
+     advice the OUTBOX's own card and the lead's refit card say. -> [{ code: 'SEND_TO_PRIVATE_FILES', propId: outboxId, lineId,
+     toLine, agents: [the sending line's crew] }] for the compiled SEND TOs it is true of. Pure. */
+  function sendToFileAdvice(plan) {
+    const out = [], lines = (plan && Array.isArray(plan.lines)) ? plan.lines : [], st = (plan && plan.sendTo) || {};
+    for (const k of Object.keys(st).sort(propIdCmp)) {
+      const s = st[k], src = lines.find(l => l && l.lineId === s.fromLine), dst = lines.find(l => l && l.lineId === s.toLine);
+      if (!src || src.projectRoot) continue;   // files in a project folder: the next crew can open them
+      const from = (src.agents || []).filter(Boolean), to = (dst && dst.agents || []).filter(Boolean);
+      if (from.some(a => to.some(b => b !== a))) out.push({ code: 'SEND_TO_PRIVATE_FILES', propId: k, lineId: s.fromLine, toLine: s.toLine, agents: from.slice(), warn: true });
+    }
+    return out;
+  }
+
+  /* the lines whose SEND TO hands work on to `toLine` AND that can run: a sender is a line with an INBOX (wave 2 repair, build-12 — a
+     BAY → OUTBOX fragment whose INBOX is not laid yet compiles a hand-off, but no job can ever start on it, so it feeds nothing). A plan
+     with no line records (a hand-made one) cannot say, and keeps every compiled sender. Sorted lineIds, each once. */
+  function senderRuns(plan, fromLine) {
+    const lines = plan && Array.isArray(plan.lines) ? plan.lines : null;
+    if (!lines) return true;
+    const rec = fromLine == null ? null : lines.find(l => l && String(l.lineId) === String(fromLine));
+    return !!(rec && Array.isArray(rec.intakes) && rec.intakes.length);
+  }
+  function lineSenders(plan, toLine) {
+    const out = [];
+    for (const s of Object.values((plan && plan.sendTo) || {})) {
+      if (!s || s.fromLine == null || s.toLine == null || String(s.toLine) !== String(toLine) || !senderRuns(plan, s.fromLine)) continue;
+      if (out.indexOf(String(s.fromLine)) < 0) out.push(String(s.fromLine));
+    }
+    return out.sort(propIdCmp);
+  }
+  // Per-line evidence that an INBOX is fed: a compiled hand-off from a line that can run, or a recorded real run — never a doc pointer.
   function fedLineIds(plan, stats) {
     const out = {};
-    for (const s of Object.values((plan && plan.sendTo) || {})) if (s && s.toLine) out[s.toLine] = true;
+    for (const s of Object.values((plan && plan.sendTo) || {})) if (s && s.toLine && senderRuns(plan, s.fromLine)) out[s.toLine] = true;
     if (stats && stats.known) for (const id of Object.keys(stats.byLine || {})) if (stats.byLine[id] && stats.byLine[id].runs > 0) out[id] = true;
     return out;
   }
@@ -2295,6 +2328,50 @@
     const bare = raw.replace(/^line\b[\s:·.\-–—]*/i, '').trim() || raw;
     return 'LINE ' + bare.toUpperCase();
   }
+  /* lineLetterOf(intakeId) -> 'N' — an unnamed line's LETTER, from its INBOX's persistent id (p14 -> N), never its index among
+     surviving lines (worldmodel.lineLetter is this, for an INBOX). Pure. */
+  function lineLetterOf(id) {
+    const digits = /^p([1-9][0-9]*)$/.exec(String(id));
+    let n = digits ? Number(digits[1]) : 0;
+    if (!Number.isSafeInteger(n) || n <= 0) { n = 0; for (const c of String(id)) n = (Math.imul(n, 31) + c.charCodeAt(0)) >>> 0; n++; }
+    let name = ''; do { n--; name = String.fromCharCode(65 + n % 26) + name; n = Math.floor(n / 26); } while (n > 0);
+    return name;
+  }
+  /* lineNames(lines) -> { [lineId]: 'LINE …' } — THE LINE NAME every surface shows (final floor lane, 2026-10-12 repair), from
+     line records { lineId, intakes, name } (the compiled plan's own lines, or worldmodel's components): a line is called by its
+     first NAMED INBOX (lineWord of `name`), else LINE <the letter of its first INBOX> — and no two lines share a name: an unnamed
+     line whose LINE <letter> a named line already shows (a line called 'F', then a new INBOX p6 = F) is LINE F 2, the next free
+     number, never a second LINE F that neither the Commander nor the lead can tell apart. A line with no INBOX has no name here.
+     Pure — the floor (worldmodel.lineName) and the sidecar (the hand-off runner's words) name a line by this one rule. */
+  function lineNames(lines) {
+    const out = {}, taken = new Set(), unnamed = [];
+    for (const l of lines || []) {
+      if (!l || l.lineId == null || !Array.isArray(l.intakes) || !l.intakes.length) continue;
+      const nm = typeof l.name === 'string' ? l.name.trim() : '';
+      if (nm) { const w = lineWord(nm); out[l.lineId] = w; taken.add(w); } else unnamed.push(l);
+    }
+    for (const l of unnamed) {
+      const base = 'LINE ' + lineLetterOf(l.intakes[0]);
+      let w = base; for (let n = 2; taken.has(w); n++) w = base + ' ' + n;
+      out[l.lineId] = w; taken.add(w);
+    }
+    return out;
+  }
+  /* uniqueLineName(wanted, taken) -> the name a NEW line gets: `wanted` when no line shows it yet, else numbered on — from the name's
+     own trailing number ('BATCH 7' → 'BATCH 8'), else from 2 ('RESEARCH' → 'RESEARCH 2') — never longer than 48. `taken(name)` is the
+     floor's own duplicate test (worldmodel lineNameTaken: judged by the shown word). THE ONE numbering rule (wave 2, worldmodel-07):
+     a paste, a stamped or laid shelf line and the lead's planned line are all numbered by it — a paste made 'BATCH 2' of 'BATCH 7'
+     while the lead made 'BATCH 7 2', and a stamped ALLOWANCE DESK was never numbered at all. Pure. */
+  function uniqueLineName(wanted, taken) {
+    const base = String(wanted == null ? '' : wanted).trim().slice(0, 48);
+    if (!base || typeof taken !== 'function' || !taken(base)) return base;
+    const m = /^(.*\S)\s+(\d{1,6})$/.exec(base), stem = m ? m[1] : base;
+    for (let n = m ? Number(m[2]) + 1 : 2, i = 0; i < 1000; n++, i++) {
+      const tail = ' ' + n, nm = stem.slice(0, 48 - tail.length).trimEnd() + tail;
+      if (!taken(nm)) return nm;
+    }
+    return base;   // (a floor holds far fewer lines than the candidates above)
+  }
   function handoffInput(o) {
     const x = o || {};
     const nm = String(x.fromName == null ? '' : x.fromName).replace(/\s+/g, ' ').trim().slice(0, 48);
@@ -2330,7 +2407,7 @@
     return { fromName: m[1] || '', original: orig ? orig[1] : '', output: out ? out[1] : '' };
   }
 
-  return { stepTestRefusal, lineStages, fedLineIds, rejoinOf, deriveLinks, reconcileLinks, compileRoutingPlan, sendToOf, sendsReachedOf, outboxesReached, lineWord, handoffInput, parseHandoffInput, composeStageBrief, HANDS_LEAD, resolveTarget, lineOf, lineOriginOf, lineLimitsOf, normalizeLineLimits, LINE_LIMIT_DEFAULTS, LINE_LIMIT_CEILINGS, sourceFor, ok, liveTiles, routeFrom, junctionLaneOwners, chainNext, chainStep, fanSiblings, handoffPrompt, parseHandoff, isHandoff, stripVerdictLine, joinPayload, divideJob, partTurn, partHandoff, divideBrief, divideAfterDock, splitFedByDock, lineComponents, LOOP_MAX_DEFAULT, LOOP_MAX_CEILING,
+  return { stepTestRefusal, lineStages, fedLineIds, lineSenders, sendToFileAdvice, rejoinOf, deriveLinks, reconcileLinks, compileRoutingPlan, sendToOf, sendsReachedOf, outboxesReached, lineWord, lineLetterOf, lineNames, uniqueLineName, handoffInput, parseHandoffInput, composeStageBrief, HANDS_LEAD, resolveTarget, lineOf, lineOriginOf, lineLimitsOf, normalizeLineLimits, LINE_LIMIT_DEFAULTS, LINE_LIMIT_CEILINGS, sourceFor, ok, liveTiles, routeFrom, junctionLaneOwners, chainNext, chainStep, fanSiblings, handoffPrompt, parseHandoff, isHandoff, stripVerdictLine, joinPayload, divideJob, partTurn, partHandoff, divideBrief, divideAfterDock, splitFedByDock, lineComponents, LOOP_MAX_DEFAULT, LOOP_MAX_CEILING,
     // THE DOCK LAYER (multi-bay agents, 2026-09-22) — the dock-keyed truth the agent readings above are views of
     resolveDock, chainNextDock, chainStepDock, fanSiblingsDock, junctionLaneDocks, lineOfDock, lineOriginOfDock, entryDockOf, docksOf, dockOf, agentOfDock: agentOfDockIn, deriveDockLayer, dockLayer, hasDockLayer, stepToAgents, propIdCmp,
     _internals: { DIRV, OPP, LANE_ORDER, key, buildBeltMap, outLanes, inLanes, loopLanes, beltTileNear, ringBelts, junctionAnchor, dirBetween, linkTilesByProp, linkedBeltMap, nextTiles, splitLanes, detectCycle, hashStr, compileChains, compileDockChains, chainCycle, shipFrom, propIdCmp, entryDocksOf, agentChainsView } };
