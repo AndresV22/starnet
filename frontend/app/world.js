@@ -10064,6 +10064,14 @@ const World = (() => {
     const lines = routingPlan && Array.isArray(routingPlan.lines) ? routingPlan.lines : [];
     return lines.some(l => l && l.lineId && !hasCount(String(l.lineId))) && shipBaseHash !== (routingPlan.hash || '');
   }
+  /* the channel stream (re)connected and finished its replay (the bridge's open(): stream 'ready'): a line may have shipped while the
+     stream was down (a receipt the server no longer replays) — this page's counts are no baseline any more; read them again before
+     the next receipt is judged. Its own function, called AFTER the bridge's authoritative snapshot: FIRST SHIP's bookkeeping never
+     stands between a replay and the state refresh it owes (conveyor-final repair: inlined ahead of fetchSnapshot inside the
+     bridge's catch-all, any throw here silently skipped the reconciliation — test/channels.sse). */
+  function forgetShipBase() {
+    shipBase = { known: false, byLine: {} }; shipApplied = shipSeq; shipBaseReading = false; refreshShipBase();
+  }
   function noteFirstShip(p) {
     if (!p || p.box !== 'line-output' || !p.lineId || !p.outboxId || !p.workitemId || firstShipSeen.has(p.workitemId)) return null;
     firstShipSeen.add(p.workitemId);
@@ -11073,12 +11081,12 @@ const World = (() => {
           const m = JSON.parse(ev.data);
           if (m && m.stream === 'ready') {
             bridgeCursor = String(m.cursor || '');
-            // FIRST SHIP: a line may have shipped while the stream was down (a receipt the server no longer replays) — this
-            // page's counts are no baseline any more; read them again before the next receipt is judged
-            shipBase = { known: false, byLine: {} }; shipApplied = shipSeq; shipBaseReading = false; refreshShipBase();
             // Snapshot reconciliation is also needed after a complete replay: it repairs any
             // pre-existing local drift without pretending an expired history was delivered.
             fetchSnapshot();
+            // FIRST SHIP: a line may have shipped while the stream was down — its counts are read again (forgetShipBase), only
+            // AFTER the authoritative refresh above, which nothing of FIRST SHIP's may stand in the way of
+            forgetShipBase();
             return;
           }
           if (m && m.name) {

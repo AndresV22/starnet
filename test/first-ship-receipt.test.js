@@ -128,7 +128,10 @@ const section1 = (async () => {
   A.ok(/U\.bus\.on\('workitem\.delivered', p => \{ releaseJoinedProduct\(p\); noteFirstShip\(p\); \}\)/.test(world), 'the receipt listener calls it');
   A.ok(/if \(shipBaseStale\(\)\) refreshShipBase\(\);/.test(slice(world, '  function pollLineStats() {', '\n  }\n')), 'the line-stats cadence re-reads the counts when the posted floor has a line without one');
   A.ok(/name === 'workitem\.placed' \|\| name === 'agent\.run\.start'[\s\S]{0,200}if \(lid && !hasCount\(String\(lid\)\)\) refreshShipBase\(\);/.test(slice(world, '  function watchEvent(name, p) {', '\n  }\n')), 'a job starting on a line with no count reads the counts before it can ship');
-  A.ok(/m\.stream === 'ready'[\s\S]{0,400}shipBase = \{ known: false, byLine: \{\} \}; shipApplied = shipSeq; shipBaseReading = false; refreshShipBase\(\);/.test(world), 'a (re)connected stream drops the old counts and reads them again');
+  // (conveyor-final repair: the reset is FIRST SHIP's own forgetShipBase, called after the bridge's authoritative snapshot — inlined
+  // ahead of it, inside the bridge's catch-all, a throw here skipped the reconciliation; test/channels.sse drives the order)
+  A.ok(/function forgetShipBase\(\) \{\s*shipBase = \{ known: false, byLine: \{\} \}; shipApplied = shipSeq; shipBaseReading = false; refreshShipBase\(\);\s*\}/.test(world)
+    && /m\.stream === 'ready'[\s\S]{0,400}fetchSnapshot\(\);[\s\S]{0,300}forgetShipBase\(\);/.test(world), 'a (re)connected stream drops the old counts and reads them again');
   A.ok(/shipBase = \{ known: false, byLine: \{\} \}; shipBaseHash = null; shipApplied = shipSeq; firstShipPending\.clear\(\);/.test(world), 'another station starts with no counts');
 }
 
