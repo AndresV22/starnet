@@ -43,7 +43,7 @@
 
   // strip a recall fence the model may have echoed, so a forged <recalled-memory> block can't be reflected
   // into a durable memory (mirrors context.stripRecallFence — kept inline so reflect stays standalone).
-  const RECALL_FENCE = /<(recalled-memory|run_context)>[\s\S]*?<\/\1>|<\/?(?:recalled-memory|run_context)>/gi;   // + the per-run <run_context> note (lean-prompt 2026-10-12)
+  const RECALL_FENCE = /<(recalled-memory|run_context|crew_call)>[\s\S]*?<\/\1>|<\/?(?:recalled-memory|run_context|crew_call)>/gi;   // + the per-run <run_context> and <crew_call> notes (lean-prompt 2026-10-12)
 
   /* the reflection prompt: the recent user/assistant exchange (system + tool turns stripped), tail-capped —
      preceded by WHAT IS ALREADY KNOWN (2026-08-05).
