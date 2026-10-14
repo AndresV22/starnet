@@ -9677,8 +9677,10 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       const dis = NY.canDismiss(it), sev = LIVE_SEV[it.kind] || 'warn';
       return '<div class="nf ' + sev + ' sev-' + sev + ' nf-k-needs nf-door nf-live" style="--ci:' + i + '" data-ny-key="' + esc(it.key) + '" role="button" tabindex="0" data-tip="Open where this waits">' +
         '<span class="nf-sev" aria-hidden="true">' + esc(SEV_GLYPH[sev]) + '</span>' +
-        '<div class="nf-copy"><div class="nf-meta"><span class="nf-kind">NEEDS YOU</span>' + (it.since ? '<span class="nf-ts">' + notifStamp(it.since) + '</span>' : '') + '</div>' +
-        '<span class="nf-txt">' + esc(it.who + ' ' + NY.lineOf(it) + ' · in ' + it.where) + '</span><span class="nf-go">OPEN ▸</span></div>' +
+        // the tag says WHERE it waits (every row here is under the NEEDS YOU heading: repeating that told nothing), and the
+        // line is who + what. A wait with no time (extensions: the sidecar's pending list carries none) shows no stamp.
+        '<div class="nf-copy"><div class="nf-meta"><span class="nf-kind">in ' + esc(it.where) + '</span>' + (it.since ? '<span class="nf-ts">' + notifStamp(it.since) + '</span>' : '') + '</div>' +
+        '<span class="nf-txt">' + esc(it.who + ' ' + NY.lineOf(it)) + '</span><span class="nf-go">OPEN ▸</span></div>' +
         (dis ? '<button class="nf-x" data-ny-dismiss="' + esc(it.key) + '" data-tip="Dismiss: it leaves NEEDS YOU here and on the rail" aria-label="Dismiss ' + esc(it.who + ' ' + it.what) + '">✕</button>' : '') + '</div>';
     };
     const needsRows = NY ? live.map(liveRow) : waiting.map(row);

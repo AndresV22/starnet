@@ -63,6 +63,7 @@ const NeedsYou = (() => {
      filtered to NEEDS A DECISION) · a quest an agent says is done → Confirm / Not yet · goal-loop results → Open (GOAL LOOPS).
      A background worker's ask is already an approval row through Channels: it is never added twice. */
   const WAIT_KINDS = new Set(['approval', 'question', 'group', 'stepin', 'attest', 'extension', 'build', 'loop']);
+  const WAIT_RANK = { approval: 0, question: 0, group: 0, stepin: 1, attest: 2, build: 2, loop: 2, extension: 2 };
   const STEPIN_WHY = { login: 'sign in', '2fa': 'enter a sign-in code', captcha: 'get past a human check', payment: 'confirm a payment', other: 'help with a page' };
   const plural = (n, one, many) => n + ' ' + (n === 1 ? one : many);
   function blockingWaits(out, now) {
@@ -157,7 +158,12 @@ const NeedsYou = (() => {
         where: 'routines', since: Number(ws.lastActiveAt) || 0, routineId: (ws.automation && ws.automation.id) || '' });
     }
     blockingWaits(out, now);
-    const asks = out.filter(i => WAIT_KINDS.has(i.kind)).sort((a, b) => (a.since || 0) - (b.since || 0));
+    // the asks a running conversation is stopped on (they auto-deny on a timer) lead, oldest first as ever (a group with no
+    // age first); then an agent held at STEP-IN; then the station's other waits (a quest said done, a build, loop results,
+    // extensions), oldest first with an untimed one last — an extension with no time never jumps the approval in your chat
+    const rank = i => WAIT_RANK[i.kind] || 0;
+    const asks = out.filter(i => WAIT_KINDS.has(i.kind)).sort((a, b) => (rank(a) - rank(b))
+      || (rank(a) === 0 ? (a.since || 0) - (b.since || 0) : (!a.since - !b.since) || (a.since || 0) - (b.since || 0)));
     const fails = out.filter(i => i.kind === 'failed' || i.kind === 'routine').sort((a, b) => (b.since || 0) - (a.since || 0));
     return asks.concat(fails);
   }
@@ -190,7 +196,8 @@ const NeedsYou = (() => {
     }
     if (i.kind === 'question') return k('open', 'Answer', 'primary');
     // a quest an agent says is done: the QUESTS card's own verdict keys (Confirm → done; Not yet keeps it open, the agent sees why)
-    if (i.kind === 'attest') return k('attest-yes', 'Confirm ✓', 'primary', sending) + k('attest-no', 'Not yet', 'deny', sending);
+    // (the rail's key drops the card's ✓: a symbol glyph is a fallback font in a VT323 label and overran the key's edge)
+    if (i.kind === 'attest') return k('attest-yes', 'Confirm', 'primary', sending) + k('attest-no', 'Not yet', 'deny', sending);
     if (i.kind === 'routine' && i.routineId) return k('retry', 'Retry', 'primary') + k('open', 'Open');
     if (i.kind === 'failed') return k('open', 'Open') + k('dismiss', 'Dismiss', 'quiet');
     return k('open', 'Open');
