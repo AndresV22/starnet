@@ -197,9 +197,10 @@ const GroupChat = (() => {
   }
   function name(id) { return id === 'user' ? 'COMMANDER' : (roster.find(a => a.id === id)?.name || App.agents?.().find(a => a.id === id)?.name || id); }
   function colorOf(id) { const c = typeof App !== 'undefined' && App.agents ? App.agents().find(a => a.id === id)?.color : ''; return /^#[0-9a-f]{3,8}$/i.test(c || '') ? c : ''; }
-  /* The group header: a [ GROUP ] tag, then EVERY member by name in their roster colour (lead first), the count, and
-     the + key. Names wrap to a second line before anything is hidden; past two lines the rest fold into "+N", which
-     opens the full list (Andrew 10-04: "you cant even tell when the groupchat is there, it does not show all the agents"). */
+  /* The group header: EVERY member by name in their roster colour (lead first), the count, and the + key (Andrew 10-04:
+     "you cant even tell when the groupchat is there, it does not show all the agents"). No GROUP word in front of them —
+     the names and the count say it (the no-shrunken-chips law, 10-13; walk 10-14 #18). ONE line: names that do not fit
+     fold into "+N", which opens the full list, so a name never drops alone onto a second line. */
   function participantsHeader(element, ids, paused, leadId) {
     const order = leadId && ids.includes(leadId) ? [leadId, ...ids.filter(id => id !== leadId)] : ids.slice();
     const people = h('button', { type: 'button', class: 'gc-people', title: order.map(name).join(' · '), 'aria-label': 'Agents in this chat: ' + order.map(name).join(', ') + '. Add or remove agents', onclick: () => picker(true) });
@@ -209,11 +210,11 @@ const GroupChat = (() => {
       people.append(p);
     }
     const more = h('span', { class: 'gc-more', hidden: '' }); people.append(more);
-    element.replaceChildren(h('span', { class: 'gc-badge', 'aria-hidden': 'true' }, 'GROUP'), people, h('span', { class: 'gc-count' }, ids.length + (ids.length === 1 ? ' agent' : ' agents')));
+    element.replaceChildren(people, h('span', { class: 'gc-count' }, ids.length + (ids.length === 1 ? ' agent' : ' agents')));
     if (paused) element.append(h('small', {}, 'Paused'));
     fitPeople(people);
   }
-  // two lines of names at most: hide from the end until it fits, and say how many are folded away
+  // one line of names: hide from the end until it fits, and say how many are folded away
   function fitPeople(people) {
     if (!people || typeof people.querySelectorAll !== 'function' || !people.isConnected) return;
     const persons = [...people.querySelectorAll('.gc-person')], more = people.querySelector('.gc-more');
@@ -274,12 +275,11 @@ const GroupChat = (() => {
       #gc-tray .gc-tray-scroll.more-below{-webkit-mask-image:linear-gradient(#000 calc(100% - 28px),transparent);mask-image:linear-gradient(#000 calc(100% - 28px),transparent)}
       #comms-idbar{flex:0 0 auto;flex-wrap:nowrap}#comms-idbar.gc-group>.comms-agent-wrap,#comms-idbar.gc-group>#comms-agent-model,#chat-panel #comms-idbar.gc-group>.comms-identity,#chat-panel #comms-idbar.gc-group>.comms-portrait{display:none}
       #gc-header{display:flex;align-items:center;gap:10px;flex:1;min-width:0;color:var(--ph)}
-      .gc-badge{flex:0 0 auto;align-self:baseline;font:inherit;font-size:15px;line-height:18px;letter-spacing:1px;text-transform:uppercase;color:var(--ph);text-shadow:var(--pg-glow-soft,none);white-space:nowrap}
       .gc-count{order:2;flex:0 0 auto;font-size:12px;letter-spacing:1px;text-transform:uppercase;color:var(--ph-dim);white-space:nowrap}
       #gc-add-agents{flex:0 0 auto;white-space:nowrap}
-      .gc-people{display:flex;flex-wrap:wrap;align-items:baseline;column-gap:12px;row-gap:2px;flex:1 1 0;min-width:0;max-height:38px;overflow:hidden;margin:0;padding:0;border:0;background:none;font:inherit;text-align:left;cursor:pointer;color:var(--ph)}
+      .gc-people{display:flex;flex-wrap:wrap;align-items:baseline;column-gap:12px;row-gap:2px;flex:1 1 0;min-width:0;max-height:18px;overflow:hidden;margin:0;padding:0;border:0;background:none;font:inherit;text-align:left;cursor:pointer;color:var(--ph)}
       .gc-person{display:inline-block;font-size:15px;line-height:18px;letter-spacing:1px;text-transform:uppercase;color:var(--ph-bright);white-space:nowrap;text-shadow:var(--pg-glow-soft,none)}.gc-person[hidden],.gc-more[hidden]{display:none}
-      .gc-more{display:inline-block;font-size:13px;line-height:18px;letter-spacing:1px;color:var(--ph)}
+      .gc-more{display:inline-block;font-size:var(--sn-type-control,16px);line-height:18px;letter-spacing:1px;color:var(--ph)}
       .gc-people:hover .gc-person,.gc-people:hover .gc-more{text-decoration:underline;text-underline-offset:3px}
       #group-chat .bb,#gc-add-agents{margin:0;padding:3px 8px;min-height:26px;font-size:13px;line-height:18px;letter-spacing:1px;border:1px solid var(--ph-faint);border-radius:3px;background:var(--panel2);color:var(--ph);box-shadow:var(--raise)}
       #group-chat .bb:hover,#gc-add-agents:hover{border-color:var(--ph);background:var(--ph-faint)}
