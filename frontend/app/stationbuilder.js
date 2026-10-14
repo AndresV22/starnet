@@ -434,6 +434,23 @@
       used[hit.step] = 1;
       if (s.instructions != null) hit.brief = String(s.instructions).trim().slice(0, 2000);
       if (s.agent != null) { const a = agentOf(env, s.agent); if (!a.ok) return a; hit.agentId = a.id; hit.recruit = !!a.recruit; }
+      hit.said = s.instructions != null ? String(s.instructions) : '';
+      hit.roleNamed = s.role != null || (label != null && norm(hit.role) === norm(label));
+    }
+    /* EVERY STEP IS ANOTHER LINE'S WORK (the second live re-run, 10-14): asked to "draft the post, then review it", the model
+       planned research_line (Researcher → Writer) with right step numbers, so COPY drafted as a Researcher and STRATEGY reviewed
+       as a Writer — and it told the Commander "COPY drafts → STRATEGY reviews". When no step names its role and every step's
+       instructions are, in order, EXACTLY another ready-made line's steps (each read for the role it names first), with work this
+       line has no step for, that line is named instead. Never a guess: no exact line, no refusal; a step's role keeps this line. */
+    const cat = catalog(env.WorldModel), here = cat.find(l => l.id === lineId);
+    if (here && stepsOut.every(x => x.said && !x.roleNamed)) {
+      const work = stepsOut.map(x => roleWordFirst(x.said)), mine = stepsOut.map(x => roleKey(x.role));
+      const other = work.every(Boolean) && work.some(r => mine.indexOf(r) < 0) ? cat.find(l => l.id !== here.id && l.roles.join() === work.join()) : null;
+      if (other) {
+        const whose = work.map(r => (/^[AEIOU]/.test(r) ? 'an ' : 'a ') + titleCase(r) + '\'s'), list = whose.length > 1 ? whose.slice(0, -1).join(', ') + ' and ' + whose[whose.length - 1] : whose[0];
+        return refuse('These steps are ' + list + ' work (' + stepsOut.map(x => 'step ' + x.step + ': "' + x.said.replace(/\s+/g, ' ').trim().slice(0, 40) + '…"').join(', ') + '), and ' + here.id + '\'s steps are ' + steps + '. '
+          + '{ "line": "' + other.id + '" } (' + other.roles.map(titleCase).join(' → ') + ') has exactly these steps: plan it with the same steps. To keep ' + here.id + ', give each step its role ({ "step": 1, "role": "' + titleCase(stepsOut[0].role) + '", … }).');
+      }
     }
     if (read.length && ctx && Array.isArray(ctx.notes)) ctx.notes.push('steps read as: ' + read.join(', ') + ' (step numbers are 1 to ' + stepsOut.length + ' in run order)');
     for (const x of stepsOut) if (!x.brief) {

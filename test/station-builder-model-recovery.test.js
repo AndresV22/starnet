@@ -82,6 +82,20 @@ const STRAT_REVIEW = 'Review the draft post. Approve if it is ready to ship, or 
   // the walker's eleventh: three named steps on a Writer → Reviewer → Fixer line, the third named for shipping
   const eleven = plan({ line: 'fire_escape', steps: [{ step: 'Draft', agent: 'COPY' }, { step: 'Review', agent: 'STRATEGY' }, { step: 'Ship', agent: 'agent' }] });
   A.ok(!eleven.ok && /"Ship" reads as a Shipper step, and fire_escape has none/.test(eleven.error) && /crucible \(Writer → Reviewer → Shipper → Reviewer\)|"shape": \["WRITER", "REVIEWER", "SHIPPER"\]/.test(eleven.error), 'a third step named for shipping says which line or shape has a Shipper: ' + (eleven.error || 'PLANNED'));
+  /* the second live re-run: the model picked research_line (Researcher → Writer) for "draft the post, then review it" and
+     numbered its steps right, so COPY drafted as a RESEARCHER and STRATEGY reviewed as a WRITER, and its reply said "COPY drafts →
+     STRATEGY reviews". When every step's instructions are another ready-made line's work, exactly, that line is named instead. */
+  const DRAFT2 = 'Draft the launch post based on the refined version from the team discussion. Keep it exactly 2 sentences.';
+  const REVIEW2 = 'Review the launch post draft. Check that it is exactly 2 sentences and ready for publication.';
+  const wrong = plan({ line: 'research_line', where: 'HOME', name: 'launch_post', steps: [{ step: 1, agent: 'COPY', instructions: DRAFT2 }, { step: 2, agent: 'STRATEGY', instructions: REVIEW2 }] });
+  A.ok(!wrong.ok && /^These steps are a Writer's and a Reviewer's work \(step 1: "Draft the launch post/.test(wrong.error) && /research_line's steps are 1 Researcher, 2 Writer\./.test(wrong.error), 'a line whose steps are another line\'s work is refused: ' + (wrong.error || 'PLANNED ' + (wrong.plan || {}).summary));
+  A.ok(/\{ "line": "revision_loop" \} \(Writer → Reviewer\) has exactly these steps: plan it with the same steps/.test(wrong.error) && /To keep research_line, give each step its role \(\{ "step": 1, "role": "Researcher", … \}\)/.test(wrong.error), '…naming the line that fits, and how to keep this one: ' + wrong.error);
+  const right = plan({ line: 'revision_loop', where: 'HOME', name: 'launch_post', steps: [{ step: 1, agent: 'COPY', instructions: DRAFT2 }, { step: 2, agent: 'STRATEGY', instructions: REVIEW2 }] });
+  A.ok(right.ok && /Writer \(COPY\) → Reviewer \(STRATEGY\)/.test(right.plan.summary), 'the line it names plans: ' + (right.error || right.plan.summary.slice(0, 160)));
+  const kept = plan({ line: 'research_line', steps: [{ step: 1, role: 'Researcher', agent: 'COPY', instructions: DRAFT2 }, { step: 2, role: 'Writer', agent: 'STRATEGY', instructions: REVIEW2 }] });
+  A.ok(kept.ok, 'naming each step\'s role keeps the line asked for: ' + (kept.error || ''));
+  const code = plan({ line: 'build_test', steps: [{ step: 1, agent: 'NOVA', instructions: 'Write the code for the feature.' }, { step: 2, agent: 'STRATEGY', instructions: 'Test it and send it back until it passes.' }] });
+  A.ok(code.ok, 'instructions that fit no other ready-made line exactly never refuse ("Write the code" on an Engineer step): ' + (code.error || ''));
   // the old refusals keep their words (and now say how to fix them)
   const pilot = plan({ line: 'build_test', steps: [{ role: 'PILOT' }] });
   A.ok(!pilot.ok && /This line has no PILOT step\. Its steps are: 1 Engineer, 2 Tester/.test(pilot.error) && /"step": 1/.test(pilot.error), 'an unknown role: ' + pilot.error);
