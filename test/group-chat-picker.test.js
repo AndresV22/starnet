@@ -215,7 +215,7 @@ const group = (members, extra = {}) => ({ id: 'direct', title: 'Direct', members
   assert.match(source, /className: 'gc-picker-win'/, 'the ADD AGENTS window names itself to the dock');
   const glass = fs.readFileSync(path.join(__dirname, '../frontend/app/glass-demo.js'), 'utf8');
   assert.match(glass, /const roster = w\.classList\.contains\('gc-picker-win'\)/, 'the dock knows the picker is a roster');
-  assert.match(glass, /\(work \|\| roster\) \? available \* \.8/, 'and opens it at 80% of the band, not the 56% that showed one and a half agents');
+  assert.match(glass, /roster \? available \* \.8/, 'and opens it at 80% of the band, not the 56% that showed one and a half agents');
   // tiny text (walk 10-14 #14): the footer status, section heads, how-to line and the lead tag read at the 14px glass floor
   for (const sel of ['.gc-sect-h', '.gc-picker-footer .gc-delta', '.gc-hint', '.gc-row .gc-lead']) {
     const rule = (source.match(new RegExp(sel.replace(/[.]/g, '\\.').replace(/ /g, ' ') + '\\{[^}]*\\}')) || [''])[0];

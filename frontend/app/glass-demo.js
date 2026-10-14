@@ -118,7 +118,7 @@
     const work = w.classList.contains('wfw-win');
     // The ADD AGENTS picker is a roster you pick from: at 56% its add list showed one agent and a half (walk 10-14 #9).
     const roster = w.classList.contains('gc-picker-win');
-    const preferred = catalog ? Math.max(available * .75, w.offsetHeight - catalog.offsetHeight + 260) : page ? available * .82 : (work || roster) ? available * .8 : available * .56;
+    const preferred = catalog ? Math.max(available * .75, w.offsetHeight - catalog.offsetHeight + 260) : page ? available * .82 : work ? available * .8 : roster ? available * .8 : available * .56;
     const h = s.expanded ? available : Math.min(available, Math.max(220, s.height || preferred));
     w.style.animation = 'none'; w.style.transform = 'none';
     const geometry = {left:b.x+'px',top:(b.bottom-h)+'px',width:b.width+'px',height:h+'px',maxWidth:b.width+'px',maxHeight:available+'px'};
