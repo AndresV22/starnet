@@ -2342,11 +2342,12 @@ const Chat = (() => {
       if (!target || target.archived || Channels.isBusy(target.id)) return;
       ws = Workstreams.switch(target.id);
     } else {
-      // ORG P25: a starter picked on a BLANK open session (no history, no runs, not busy — same agent and project)
-      // fills THAT session instead of minting another empty row beside it. Anything with content keeps today's create.
+      // ORG P25: a starter picked on a BLANK open session fills THAT session instead of minting another empty row
+      // beside it. Blank = Workstreams.isUntouched (the same test +NEW uses: a plain untitled chat with no messages,
+      // runs, deliverables or spend, not pinned / a task card / a room / a goal loop), not a worker, not busy, same
+      // agent and project. A titled TO DO card or a pinned empty session keeps today's create.
       const cur = Workstreams.active ? Workstreams.active() : null;
-      const blank = !!cur && !cur.archived && cur.conversationMode !== 'group' && cur.worker !== true
-        && !(cur.history && cur.history.length) && !(cur.runIds && cur.runIds.length) && !Channels.isBusy(cur.id)
+      const blank = !!cur && Workstreams.isUntouched(cur) && cur.worker !== true && !Channels.isBusy(cur.id)
         && (cur.agentId || 'agent') === (ctx.agentId || 'agent') && (cur.projectRoot || '') === (ctx.projectRoot || '');
       ws = blank ? cur : Workstreams.create(st.label, { agentId: ctx.agentId, projectRoot: ctx.projectRoot || undefined });
     }

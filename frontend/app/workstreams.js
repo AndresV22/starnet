@@ -251,16 +251,21 @@
     const scoped = Object.prototype.hasOwnProperty.call(opts, 'projectRoot');
     const wantedRoot = scoped && opts.projectRoot != null ? String(opts.projectRoot) : null;
     const sameScope = !scoped || ((cur && cur.projectRoot) || null) === wantedRoot;
-    const c = cur && cur.cost || {};
-    const untouched = !!cur && cur.conversationMode !== 'group' && !cur.archived && cur.kind === 'chat' && cur.title == null
-      && cur.titleAuto !== false && !cur.pinned && cur.roomId == null && !cur.goalLoop
-      && (!cur.history || cur.history.length === 0)
-      && (!cur.runIds || cur.runIds.length === 0)
-      && (!cur.deliverables || cur.deliverables.length === 0)
-      && !(+c.tokens || +c.usd || +c.calls)
-      && sameScope;
-    if (opts.reuseActive !== false && untouched) return cur;
+    if (opts.reuseActive !== false && isUntouched(cur) && sameScope) return cur;
     return create(null, opts);
+  }
+  // UNTOUCHED = a plain chat nobody has used or shaped yet: no messages, runs, deliverables or spend, and no
+  // title / pin / room / goal loop / task-card kind someone gave it. The ONE blank test every "reuse the open session
+  // instead of minting a row" seam shares (+NEW above, COMMS starter ideas in chat.js), so a titled task card or a
+  // pinned empty session is never taken over by a different conversation.
+  function isUntouched(w) {
+    const c = (w && w.cost) || {};
+    return !!w && w.conversationMode !== 'group' && !w.archived && w.kind === 'chat' && w.title == null
+      && w.titleAuto !== false && !w.pinned && w.roomId == null && !w.goalLoop
+      && (!w.history || w.history.length === 0)
+      && (!w.runIds || w.runIds.length === 0)
+      && (!w.deliverables || w.deliverables.length === 0)
+      && !(+c.tokens || +c.usd || +c.calls);
   }
   // ADOPT a workstream with a CALLER-CHOSEN id (idempotent): if one already exists with opts.id it is
   // keeps its content and adopts only missing thread metadata; otherwise a new record is minted WITHOUT stealing the active
@@ -769,7 +774,7 @@
     init, reset, serialize, all, list, search, setConnectorHandoff, connectorHandoff, automationOf, railGroups,
     exportConversation, parseConversationExport, clearConversation,
     previewArchive, archivePreview, canUndo, undoLast,
-    create, startSession, adopt, get, active, activeId: getActiveId, generalId: getGeneralId, isHidden, homeOf, titleOf,
+    create, startSession, isUntouched, adopt, get, active, activeId: getActiveId, generalId: getGeneralId, isHidden, homeOf, titleOf,
     switch: switchTo, rename, setAgent, setLane, setProjectRoot, pin, archive, del, removeByAgent, isDeleted, touch, markUnread, markRead, unread: isUnread,
     autoTitle, retitle, deriveTitle, needsModelTitle, isLowSignal, titleBasis,
     finalDeliveryText, appendRun, noteRunEnd, recordDeliverable, addCost, costOf, noteModel, modelOf,

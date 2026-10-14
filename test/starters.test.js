@@ -50,4 +50,17 @@ const blank = W.create(null, { agentId: ctx.agentId || 'agent', projectRoot: ctx
 input.value = ''; const rowsBefore = W.list().length; scope.idea = S.defaults()[0]; loaded = null; vm.runInContext('openStarter(idea, hint)', scope);
 A.eq(loaded && loaded.id, blank.id, 'a starter on a blank open session fills it'); A.eq(W.list().length, rowsBefore, 'no new empty session is minted beside it');
 A.ok(input.value.length > 0, 'the starter prompt is prefilled into the blank session');
+// org P25 fix (review): "blank" is Workstreams.isUntouched — the same test +NEW uses. A titled TO DO card from the board,
+// or a pinned empty chat, has no history but IS shaped: a starter must never take it over, so today's create stays.
+for (const [why, mk] of [
+  ['a titled TO DO card (board addTask)', () => W.create('Ship pricing page', { agentId: ctx.agentId || 'agent', projectRoot: ctx.projectRoot || undefined, kind: 'task' })],
+  ['a pinned empty chat', () => { const p = W.create(null, { agentId: ctx.agentId || 'agent', projectRoot: ctx.projectRoot || undefined }); W.pin(p.id, true); return p; }]
+]) {
+  const shaped = mk(); W.switch(shaped.id);
+  input.value = ''; const before = W.list().length; scope.idea = S.defaults()[0]; loaded = null; vm.runInContext('openStarter(idea, hint)', scope);
+  A.ok(loaded && loaded.id !== shaped.id && loaded.title === S.defaults()[0].label, 'a starter on ' + why + ' keeps today\'s create — the card is not taken over');
+  A.eq(W.list().length, before + 1, 'a starter on ' + why + ' mints its own session');
+  A.eq(W.get(shaped.id).title, shaped.title, why + ' keeps its own title');
+}
+A.ok(W.isUntouched(W.create(null, {})) && !W.isUntouched(W.create('x', { kind: 'task' })), 'Workstreams.isUntouched is exported: an untitled chat is untouched, a titled task card is not');
 A.report('starters');
