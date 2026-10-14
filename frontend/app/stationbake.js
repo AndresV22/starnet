@@ -5399,14 +5399,27 @@ const StationBake = (() => {
       chunkPx: CHUNK_PX
     };
   }
-  /* EVERY CHUNK IS A WHOLE SQUARE (2026-10-14, the busy-station walk: a room past the south edge re-baked the whole bottom row
-     of chunks). An edge chunk used to end at the floor's edge, so a floor that grew or shrank there changed the size of every
-     chunk along it, and a chunk of another size is another bake. A chunk is CHUNK_PX square wherever it lies: the floor's
-     margin is wider than anything a tile paints, so past the floor's edge a chunk is transparent (the live world's stitched
-     floor and a BUILD MODE frame drew the same pixels either way, measured on the busy station and a station of every
-     material), and growth there re-bakes only the chunks its rects reach. */
   function chunkViewport(geo, cx, cy) {
-    return { x: cx * CHUNK_PX, y: cy * CHUNK_PX, w: CHUNK_PX, h: CHUNK_PX };
+    const x = cx * CHUNK_PX, y = cy * CHUNK_PX;
+    return { x, y, w: Math.min(CHUNK_PX, geo.W - x), h: Math.min(CHUNK_PX, geo.H - y) };
+  }
+  /* AN EDGE CHUNK IS RESIZED, NOT RE-BAKED (2026-10-14, the busy-station walk: a room past the south edge re-baked the whole
+     bottom row of chunks). An edge chunk ends at the floor's edge, so a floor that grows or shrinks there changes the size of
+     every chunk along it. The floor's margin is wider than anything a tile paints — past the floor's edge a bake is
+     transparent, and a chunk's pixels do not depend on where its canvas ends (both measured on the busy station and a station
+     of every material: a chunk baked a whole square is the clipped one plus transparent pixels) — so a chunk the edit's rects
+     do not reach is the same chunk at its new size: its canvases and dense plate copied 1:1 into the new size, cut or padded
+     with transparent pixels. Null when its plate will not copy onto whole plate pixels (it bakes instead). */
+  function resizedChunk(c, v) {
+    const copy = cv => {
+      if (!cv) return null;
+      const n = canvas(v.w, v.h), g = n.getContext('2d');
+      g.imageSmoothingEnabled = false; g.drawImage(cv, 0, 0);
+      return n;
+    };
+    const baseCv = copy(c.baseCv);
+    if (typeof IndustrialTextures !== 'undefined' && IndustrialTextures.cropBase && !IndustrialTextures.cropBase(c.baseCv, baseCv, 0, 0)) return null;
+    return Object.assign({}, c, { w: v.w, h: v.h, baseCv, lightCv: copy(c.lightCv), interiorCv: copy(c.interiorCv) });
   }
   // a rect is padded by the dirty reach (what a tile there can paint) unless it names its own (`pad`, in px: a room's name
   // plate changes only the text's pixels — worldmodel nameplateRect)
@@ -5515,7 +5528,7 @@ const StationBake = (() => {
      new frame and re-bake every visible chunk: ~6 s on a large station for one room. Chunks whose rect is unchanged in
      the new frame are kept; an edge chunk the new size reshapes is dropped (a visible one re-bakes below). An origin
      move still re-bakes everything: the bake hashes some marks by local coordinates, so a shifted chunk would not be
-     pixel-identical to a fresh one. (Since every chunk is a whole square, an edge chunk keeps its rect too.) */
+     pixel-identical to a fresh one. (An edge chunk the new size reshapes is resized: AN EDGE CHUNK IS RESIZED, NOT RE-BAKED.) */
   /* ...AND THE PLATE DENSITY DID NOT MOVE EITHER (2026-10-14). The density follows the floor's larger side, so a room past
      the east edge of a wide station (or the south edge of a tall one) changes it: every kept chunk's dense plate was painted
      at the old density, at another size than a fresh chunk's (9 chunks on the busy-station walk). Then nothing is kept. */
@@ -5529,7 +5542,9 @@ const StationBake = (() => {
     for (const c of prev.chunkMap.values()) {
       if (c.cx >= grid.cols || c.cy >= grid.rows) continue;
       const v = chunkViewport(geo, c.cx, c.cy);
-      if (v.x === c.x && v.y === c.y && v.w === c.w && v.h === c.h) kept.set(c.key, c);
+      if (v.x !== c.x || v.y !== c.y) continue;
+      if (v.w === c.w && v.h === c.h) kept.set(c.key, c);
+      else { const r = resizedChunk(c, v); if (r) kept.set(c.key, r); }   // AN EDGE CHUNK IS RESIZED, NOT RE-BAKED
     }
     return kept;
   }
@@ -5550,7 +5565,8 @@ const StationBake = (() => {
     const prevGrid = chunkGrid(prev);
     if (!prev.stitched && prevGrid.cols * prevGrid.rows > 1) return null;
     const grid = chunkGrid(geo), old = { W: prev.W, H: prev.H }, out = new Map();
-    // (a chunk of the old floor: past its edge the cut is transparent, as a fresh chunk is there)
+    // (a chunk of the old floor, cut at its size in the new one: past the old floor's edge the cut is transparent, as a fresh
+    // chunk is there — AN EDGE CHUNK IS RESIZED, NOT RE-BAKED)
     const cut = (cv, v) => {
       if (!cv) return null;
       const c = canvas(v.w, v.h), g = c.getContext('2d');
@@ -5559,7 +5575,7 @@ const StationBake = (() => {
     };
     for (let cy = 0; cy < grid.rows; cy++) for (let cx = 0; cx < grid.cols; cx++) {
       const v = chunkViewport(geo, cx, cy), o = chunkViewport(old, cx, cy);
-      if (cx >= prevGrid.cols || cy >= prevGrid.rows || v.x !== o.x || v.y !== o.y || v.w !== o.w || v.h !== o.h) continue;
+      if (cx >= prevGrid.cols || cy >= prevGrid.rows || v.x !== o.x || v.y !== o.y) continue;
       const baseCv = cut(prev.baseCv, v);
       if (typeof IndustrialTextures !== 'undefined' && IndustrialTextures.cropBase && !IndustrialTextures.cropBase(prev.baseCv, baseCv, v.x, v.y)) continue;
       out.set(chunkKey(cx, cy), { key: chunkKey(cx, cy), cx, cy, x: v.x, y: v.y, w: v.w, h: v.h,

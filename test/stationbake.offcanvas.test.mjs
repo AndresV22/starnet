@@ -84,22 +84,26 @@ function probe() {
     if (misses(this, x, y, w, h)) tally.drawImage[1]++;
     return orig.drawImage.apply(this, a);
   };
-  // a face strip is a 48px-wide canvas (STRIP_TILES tiles) read back once rendered; a chunk's light map is a CHUNK_PX
-  // square read back for its dither (and the only one: the scratch rasters the bake reads are taller)
-  const getImageData = P.getImageData, strips = [0, 0], fillRect = P.fillRect, lights = { n: 0, drawsBetween: 0, drawsSince: 0 };
+  // a face strip is a 48px-wide canvas (STRIP_TILES tiles) read back once rendered; every readback of the first bake is
+  // logged with the fillRects made since the one before, and the chunks' own light canvases are picked out after it
+  const getImageData = P.getImageData, strips = [0, 0], fillRect = P.fillRect, reads = [];
+  let drawsSince = 0;
   let pass = 0;
   P.getImageData = function (...a) {
     if (this.canvas.width === 48) strips[pass]++;
-    if (pass === 0 && this.canvas.width === SB.CHUNK_PX && this.canvas.height === SB.CHUNK_PX) { if (lights.n++) lights.drawsBetween += lights.drawsSince; lights.drawsSince = 0; }
+    if (pass === 0) { reads.push({ cv: this.canvas, draws: drawsSince }); drawsSince = 0; }
     return getImageData.apply(this, a);
   };
-  P.fillRect = function (...a) { lights.drawsSince++; return fillRect.apply(this, a); };
+  P.fillRect = function (...a) { drawsSince++; return fillRect.apply(this, a); };
   let baked;
   try {
     baked = SB.bakeIncremental(geo, null, null);
     P.fillRect = orig.fillRect; P.drawImage = orig.drawImage;
     pass = 1; SB.bakeIncremental(geo, null, null);
   } finally { P.fillRect = orig.fillRect; P.drawImage = orig.drawImage; P.getImageData = getImageData; }
+  const lightCvs = new Set([...baked.chunkMap.values()].map(c => c.lightCv)), lightReads = reads.map((r, i) => lightCvs.has(r.cv) ? i : -1).filter(i => i >= 0);
+  const first = lightReads[0], lastRead = lightReads[lightReads.length - 1];
+  const lights = { n: lightReads.length, drawsBetween: reads.slice(first + 1, lastRead + 1).reduce((m, r) => m + r.draws, 0) };
   return { textures: IndustrialTextures.status(), rooms: st.rooms().length, W: geo.W, H: geo.H, chunks: baked.chunkMap.size, tally, strips, lights };
 }
 
