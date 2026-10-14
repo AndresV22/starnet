@@ -27,14 +27,17 @@ function load() {
     querySelector: s => s === '.crew-name' ? name : s === '.crew-status' ? status : s === '.crew-clock' ? kids['crew-clock'] : s === '.crew-step' ? row._step : null
   };
   status.after = x => { row._step = x; };
-  let tick = null;
+  let tick = null, nextMs = null;
+  const win = {};
   const ctx = {
+    window: win,
     U: { bus },
     Date: { now: () => t },
     document: { readyState: 'complete', querySelectorAll: () => [row], querySelector: () => null, getElementById: () => null,
       createElement: () => ({ className: '', textContent: '', setAttribute() {} }) },
     MutationObserver: class { observe() {} },
-    setInterval: (fn) => { tick = fn; return 1; }
+    // the paint loop is a setTimeout chain timed to the clock's next second (msToNextSecond); the stub keeps the latest one
+    setTimeout: (fn, ms) => { tick = fn; nextMs = ms; return 1; }, clearTimeout: () => {}
   };
   vm.runInNewContext(src, ctx);
   return {
@@ -42,7 +45,9 @@ function load() {
     advance(ms) { t += ms; if (tick) tick(); },
     clock: () => (kids['crew-clock'] || {}).textContent,
     step: () => (row._step || {}).textContent,
-    asking: () => cl.has('asking')
+    asking: () => cl.has('asking'),
+    nextMs: () => nextMs, crewClock: () => win.CrewClock,
+    at: (ms) => { t = ms; }, now: () => t
   };
 }
 
@@ -80,7 +85,33 @@ function load() {
   A.eq(c.clock(), '0:03', 'a run is kept through a brief not-working blip (8s grace)');
 }
 
-// 4) the page side: every way a question/approval is settled reaches the bus
+// 4) CREW turns its second in the same frame the world's desk tag does (review of rc walk #21: a free-running 1 s interval
+//    painted at the page's own phase, so the card read a second behind the tag that reads the same clock every frame)
+{
+  const c = load();
+  c.emit('agent.run.start', { agentId: 'nova', runId: 'r1' });
+  const t0 = c.now();
+  c.at(t0 + 2300); c.advance(0);                      // a paint 2.3 s into the run
+  A.eq(c.clock(), '0:02', 'fixture: 2.3 s reads 0:02');
+  A.eq(c.nextMs(), 700 + 4, 'the next paint is due when the clock turns 0:03 (700 ms on, +4 ms past the turn): ' + c.nextMs());
+  c.advance(c.nextMs());
+  A.eq(c.clock(), '0:03', '…and the paint at that moment reads 0:03, as the world tag does');
+  A.eq(c.crewClock().msToNextSecond(c.now()), 1000 - 4 + 4, 'CrewClock answers the same next turn for any other once-a-second readout');
+  c.emit('permission.prompt', { promptId: 'p1', agentId: 'nova', tool: 'fs.write' });
+  c.advance(0);
+  A.eq(c.nextMs(), 1000, 'a clock held on a wait on you never turns: the loop idles at 1 s');
+  // one run's own clock, by runId (a DELEGATED row names its worker's run)
+  c.at(c.now() + 30000);
+  A.eq(c.crewClock().elapsedOfRun('r1', c.now()), 3004, 'elapsedOfRun excludes the open wait on you: ' + c.crewClock().elapsedOfRun('r1', c.now()));
+  A.eq(c.crewClock().elapsedOfRun('r-never-seen', c.now()), null, 'a run this page never saw start has no clock here (null, never 0)');
+  c.emit('agent.run.start', { agentId: 'nova', runId: 'r2' });
+  c.emit('permission.response', { promptId: 'p1', decision: 'once' });
+  c.at(c.now() + 5000);
+  A.eq(c.crewClock().elapsedOfRun('r2', c.now()), 5000, 'a second run of the same agent keeps its own clock');
+  A.eq(c.crewClock().elapsedOf('nova', c.now()), 8004, 'the agent clock (CREW) is still its oldest run');
+}
+
+// 5) the page side: every way a question/approval is settled reaches the bus
 {
   const chat = fs.readFileSync(path.join(__dirname, '..', 'frontend', 'app', 'chat.js'), 'utf8');
   const clar = chat.slice(chat.indexOf('function clarifyRow('), chat.indexOf('function permissionRow('));

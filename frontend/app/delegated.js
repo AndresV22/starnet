@@ -129,7 +129,11 @@ const Delegated = (() => {
       // the station stopped answering (Overseer.fresh): the last ledger can no longer vouch for this worker, so the row
       // claims neither working nor stopped — no live clock, no Stop key (a failed poll repaints at once)
       if (typeof Overseer !== 'undefined' && Overseer.fresh && !Overseer.fresh()) return { cls: 'unknown', live: 'status unknown — station unreachable', t: '' };
-      return { cls: 'working', live: doing(steps.get(String(w.runId))), t: clock(Date.now() - (+w.startedAt || Date.now())), stop: !!w.canInterrupt, worker: w };
+      // the worker's OWN run as CREW clocks it (every wait on the Commander excluded — rc walk #21: this branch still read the
+      // ledger's wall clock, so a worker that waited on an approval read a minute ahead of CREW and the world tag); the
+      // ledger's start only when this page never saw that run begin
+      const runMs = (typeof CrewClock !== 'undefined' && CrewClock && typeof CrewClock.elapsedOfRun === 'function' && w.runId) ? CrewClock.elapsedOfRun(w.runId, Date.now()) : null;
+      return { cls: 'working', live: doing(steps.get(String(w.runId))), t: clock(typeof runMs === 'number' && isFinite(runMs) ? runMs : Date.now() - (+w.startedAt || Date.now())), stop: !!w.canInterrupt, worker: w };
     }
     // elapsedOf needs NOW: without it the clock read NaN and painted "0:00" for the whole run (live walkthrough 2026-10-13)
     if (C && C.isBusy && C.isBusy(k.id)) {
@@ -410,8 +414,11 @@ const Delegated = (() => {
       }
     }
     const anyLive = list.some(b => b.rows.some(r => (r.worker && r.worker.status === 'running') || (typeof Channels !== 'undefined' && Channels.isBusy && Channels.isBusy(r.ws.id))));
-    if (anyLive && !ticker) ticker = setInterval(repaint, 1000);
-    if (!anyLive && ticker) { clearInterval(ticker); ticker = 0; }
+    // the clock tick lands when CREW's clocks turn their second (CrewClock.msToNextSecond), so this row, CREW and the world tag
+    // change in the same frame; repaint re-arms it while anything is live
+    const nextMs = (typeof CrewClock !== 'undefined' && CrewClock && typeof CrewClock.msToNextSecond === 'function') ? CrewClock.msToNextSecond(Date.now()) : 1000;
+    if (anyLive && !ticker) ticker = setTimeout(() => { ticker = 0; repaint(); }, nextMs);
+    if (!anyLive && ticker) { clearTimeout(ticker); ticker = 0; }
   }
   function keyOf(el) {
     for (const a of ['data-dg-see', 'data-dg-stop', 'data-dg-toggle', 'data-dg-file', 'data-dg-question', 'data-dg-retry']) if (el.hasAttribute && el.hasAttribute(a)) return '[' + a + '="' + String(el.getAttribute(a)).replace(/["\\]/g, '\\$&') + '"]';

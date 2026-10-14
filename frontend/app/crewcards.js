@@ -31,6 +31,13 @@
 
   /* THE CLOCK EXCLUDES WAITS ON YOU (the duration law COMMS keeps with Channels.elapsedOf): time a run spent with an
      open prompt is subtracted — closed waits from pausedMs, an open one up to now — so the card and COMMS agree. */
+  // the oldest still-open wait on you for an agent (0 = none)
+  function openAskFrom(id) {
+    let openFrom = 0;
+    for (const a of asks.values()) if (a.agentId === id && (!openFrom || a.at < openFrom)) openFrom = a.at;
+    return openFrom;
+  }
+  const runElapsed = (r, openFrom, now) => Math.max(0, now - r.startedAt - (r.pausedMs || 0) - (openFrom ? Math.max(0, now - Math.max(openFrom, r.startedAt)) : 0));
   function forAgent(id, now) {
     let oldest = null, tool = '';
     for (const r of runs.values()) {
@@ -38,11 +45,19 @@
       if (!oldest || r.startedAt < oldest.startedAt) oldest = r;
       if (r.tool) tool = r.tool;
     }
-    let asking = false, openFrom = 0;
-    for (const a of asks.values()) if (a.agentId === id) { asking = true; if (!openFrom || a.at < openFrom) openFrom = a.at; }
-    let elapsed = 0;
-    if (oldest) elapsed = Math.max(0, now - oldest.startedAt - (oldest.pausedMs || 0) - (openFrom ? Math.max(0, now - Math.max(openFrom, oldest.startedAt)) : 0));
-    return { start: oldest ? oldest.startedAt : 0, elapsed, tool, asking };
+    const openFrom = openAskFrom(id);
+    return { start: oldest ? oldest.startedAt : 0, elapsed: oldest ? runElapsed(oldest, openFrom, now) : 0, tool, asking: !!openFrom };
+  }
+  /* PAINT ON THE SECOND (review of rc walk #21): a free-running 1 s interval painted at whatever phase the page loaded in, so CREW
+     read up to a second behind the world's desk tag, which reads this same clock every frame ("RUN 0:41" over a card saying
+     "0:40"). The next paint is due when the soonest live clock turns its second — a clock held on a wait on you never turns. */
+  function msToNextSecond(now) {
+    let wait = 1000;
+    for (const r of runs.values()) {
+      if (openAskFrom(r.agentId)) continue;
+      wait = Math.min(wait, 1000 - (runElapsed(r, 0, now) % 1000));
+    }
+    return Math.max(16, Math.min(1000, Math.ceil(wait) + 4));   // +4 ms: land just past the turn, never just before it
   }
   // a wait on you closed (answered, denied, or its run ended): its span stops counting toward every run it paused
   function closeAsk(promptId, now) {
@@ -118,12 +133,20 @@
     }
     const crew = document.getElementById('crew');
     if (crew) new MutationObserver(paint).observe(crew, { childList: true });
-    setInterval(paint, 1000);
-    paint();
+    let tickTimer = 0;
+    const tick = () => { paint(); clearTimeout(tickTimer); tickTimer = setTimeout(tick, msToNextSecond(Date.now())); };
+    tick();
   }
   /* ONE CLOCK PER WORKER (live walkthrough 2026-10-13): CREW read RESEARCH "3:04" while its DELEGATED row read "4:04" —
      the row's thread clock never saw the worker's approval waits (they are filed on the lead's conversation). The row
      reads this one: the same run, with every wait on the Commander excluded. null = no live run for that agent here. */
-  if (typeof window !== 'undefined') window.CrewClock = { elapsedOf: (agentId, now) => { const f = forAgent(String(agentId || ''), now || Date.now()); return f.start ? f.elapsed : null; } };
+  /* elapsedOfRun: ONE run's clock, by its runId (a DELEGATED row names its worker's run — two workers of one agent each keep
+     their own); null = this page never saw that run start. msToNextSecond: when the next live clock turns, so a readout that
+     repaints once a second turns in the same frame as CREW and the world tag. */
+  if (typeof window !== 'undefined') window.CrewClock = {
+    elapsedOf: (agentId, now) => { const f = forAgent(String(agentId || ''), now || Date.now()); return f.start ? f.elapsed : null; },
+    elapsedOfRun: (runId, now) => { const r = runs.get(String(runId || '')); return r ? runElapsed(r, openAskFrom(r.agentId), now || Date.now()) : null; },
+    msToNextSecond: (now) => msToNextSecond(now || Date.now())
+  };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', wire); else wire();
 })();
