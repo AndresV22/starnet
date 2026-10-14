@@ -791,6 +791,17 @@ body.glass-demo.rows-inbox:not(.hud-mode) #left #workstreams .ws-pin {
   width: 7px; height: 10px; overflow: hidden; color: transparent; font-size: 0; text-shadow: none;
   background: var(--gold); clip-path: polygon(0 0, 100% 0, 100% 100%, 50% 72%, 0 100%); opacity: .85;
 }
+/* a GROUP row's headline is its names ("ULTRON, CYPHER +3"): they own line 1, and the pin and time/status end the title
+   line (rc walk 10-14: beside "Connecting" the names measured 0px wide, and "NOVA, COPY" was cut even beside "6m") */
+body.glass-demo.rows-inbox:not(.hud-mode) #left #workstreams .ws-row:not(.attn):has(> .ws-agent-group) {
+  grid-template-areas:
+    "dot agent agent agent"
+    ".   title pin   meta";
+}
+/* at headline size two real names can be wider than the rail: they wrap at a space, never end in "…" */
+body.glass-demo.rows-inbox:not(.hud-mode) #left #workstreams .ws-agent.ws-agent-group { display: block; white-space: normal; text-overflow: clip; }
+body.glass-demo.rows-inbox:not(.hud-mode) #left #workstreams .ws-agent-group > .ws-agent-names { display: inline; white-space: normal; overflow: visible; text-overflow: clip; }
+body.glass-demo.rows-inbox:not(.hud-mode) #left #workstreams .ws-agent-group > .ws-agent-more { margin-left: .4em; }
 /* a row that needs you keeps the agent's whole name and puts the call to action on a line of its own */
 body.glass-demo.rows-inbox:not(.hud-mode) #left #workstreams .ws-row.attn {
   grid-template-areas:

@@ -519,6 +519,31 @@
     // behaves exactly as before. Availability is probed lazily per use (Chrome may not exist).
     const reader = deps.reader || null;
     const readerReady = () => { try { return !!(reader && reader.available().ok); } catch (_) { return false; } };
+    /* THE READER RUNG KEEPS TIME (live walk 10-14: a worker's search sat on "Searching …" for 80 s, then 185 s, while
+       Chromium failed to launch, and nobody was told). When a later rung can still answer (OpenRouter), the browser's
+       START gets READER_RUNG_MS; a browser not up by then is passed over, and while it is still starting no search
+       queues behind it. The budget bounds ONLY the start (review 10-14): once the browser has produced a page
+       (reader.search's onLaunched) the search waits for it as before, so a healthy-but-slow read never tips into the
+       PAID OpenRouter search. A browser that could not start is named in the answer (webreader holds it down a while). */
+    const READER_RUNG_MS = Number.isFinite(deps.readerBudgetMs) ? Math.max(1, deps.readerBudgetMs) : 15000;
+    let readerStarting = null;   // a reader search still running after its rung passed it over
+    const readerDown = () => { try { const a = reader && reader.available(); return a && !a.ok && a.launchFailed ? String(a.reason || 'the station browser could not start') : ''; } catch (_) { return ''; } };
+    // start(onLaunched) -> the reader's search promise; resolves LATE when the browser has not STARTED within ms
+    function readerWithin(start, ms) {
+      let timer = null, up = false, giveUp = null;
+      const late = new Promise(res => { giveUp = res; });
+      const p = start(() => { up = true; if (timer) { clearTimeout(timer); timer = null; } });
+      if (!up) timer = setTimeout(() => giveUp(LATE), ms);
+      return Promise.race([p, late]).then(v => {
+        if (timer) { clearTimeout(timer); timer = null; }
+        if (v !== LATE) return v;
+        readerStarting = p;
+        const clear = () => { if (readerStarting === p) readerStarting = null; };
+        p.then(clear, clear);
+        return LATE;
+      });
+    }
+    const LATE = { late: true };
     const serviceKeys = {
       resolve: (name, sfc) => (typeof deps.resolveServiceKey === 'function'
         ? deps.resolveServiceKey(name, sfc)
@@ -608,11 +633,29 @@
       ];
       // The READER outranks the paid fallback: a real local Chrome sails past the fingerprint checks
       // that throttle the scrape endpoints, costs nothing, and keeps search working with zero keys.
-      if (readerReady()) chain.push(['browser', async () => {
-        const r = await reader.search(query, { signal: parent });
-        return (r && r.results) || [];
-      }]);
-      if (or && or.apiKey) chain.push(['openrouter', () => openrouterSearch(query, parent), 'openrouter.ai']);
+      // browserNote: what the Commander is told when this search reached the browser rung and the browser was
+      // down, still starting, or too slow — only when the rung was actually reached (an engine that answered first
+      // makes the browser irrelevant to this search).
+      let browserNote = '';
+      const laterRung = !!(or && or.apiKey);
+      if (reader) {
+        const down = readerDown();
+        const starting = !down && !!readerStarting && laterRung;
+        if (down || starting || readerReady()) chain.push(['browser', async () => {
+          if (down) { browserNote = down; throw new Error(down); }
+          if (starting) { browserNote = 'the station browser is still starting'; throw new Error(browserNote); }
+          const r = laterRung
+            ? await readerWithin(onLaunched => reader.search(query, { signal: parent, onLaunched }), READER_RUNG_MS)
+            : await reader.search(query, { signal: parent });
+          if (r === LATE) {
+            browserNote = 'the station browser was not ready within ' + (READER_RUNG_MS >= 1000 ? Math.round(READER_RUNG_MS / 1000) + ' s' : READER_RUNG_MS + ' ms');
+            throw new Error(browserNote);
+          }
+          if (r && r.launchFailed) { browserNote = String(r.reason || 'the station browser could not start'); throw new Error(browserNote); }
+          return (r && r.results) || [];
+        }]);
+      }
+      if (laterRung) chain.push(['openrouter', () => openrouterSearch(query, parent), 'openrouter.ai']);
       /* Throttling vs. no connection (2026-10-07). "Every engine declined" is web weather only if some engine
          ANSWERED (a status, an anomaly page, 0 results). When every HTTP engine failed before any server
          answered (offline, DNS down, TLS broken on this machine), calling that throttling would be the harness
@@ -624,7 +667,7 @@
         if (source !== 'browser') httpTried++;
         try {
           const results = await fn();
-          if (results && results.length) return { results: results.slice(0, (opts && opts.limit) || 8), source };
+          if (results && results.length) return { results: results.slice(0, (opts && opts.limit) || 8), source, browserNote };
           errors.push(source + ': 0 results');
         } catch (e) {
           if (parent && parent.aborted) throw e;
@@ -641,7 +684,7 @@
         : 'web_search failed (' + errors.join(' | ')
           + '). Search providers are temporarily unavailable; do not immediately repeat the same search. '
           + 'Use sources already returned, try a known direct URL with web_fetch, or finish with an explicit evidence limitation.');
-      e.__allFailed = true; e.__unreachable = unreachable; e.__errors = errors.slice(); throw e;
+      e.__allFailed = true; e.__unreachable = unreachable; e.__errors = errors.slice(); e.__browserNote = browserNote; throw e;
     }
 
     // ====================================================================
@@ -799,13 +842,22 @@
       schema: { type: 'object', required: ['query'], properties: { query: { type: 'string' } } },
       run: async (args, ctx) => {
         // visible tool activity is the loop's frozen agent.tool_call / agent.tool_result events
-        let results, source;
-        try { ({ results, source } = await webSearch(args.query, { signal: ctx && ctx.signal })); }
+        let results, source, browserNote = '';
+        try { ({ results, source, browserNote } = await webSearch(args.query, { signal: ctx && ctx.signal })); }
         catch (e) {
           // An exhausted keyless chain is the engines' weather, not a harness fault — answer it as
           // information (see softFetchAnswer's rationale above). webSearch itself still throws, so
           // programmatic callers and tests keep the strict contract. NOT when no engine could even be reached
           // (__unreachable: offline / TLS broken here) — that is a genuine fault and stays an isError result.
+          // …unless the station browser was DOWN (review 10-14): the browser is what gets past the engines' throttling, so a
+          // dead one is a station fault the Commander must hear about — named in the summary, never called web weather.
+          if (e && e.__allFailed && !e.__unreachable && e.__browserNote) return {
+            content: 'No results this time — the keyless engines declined (' + (e.__errors || []).filter(x => !/^browser:/.test(x)).join('; ') + '), and ' +
+                     e.__browserNote + ', so it could not search past them. Do not immediately repeat the same search: ' +
+                     'use sources already gathered, web_fetch a known URL directly, or finish and state the evidence ' +
+                     'limitation (name the station browser problem to the Commander).',
+            summary: 'no results · ' + e.__browserNote
+          };
           if (e && e.__allFailed && !e.__unreachable) return {
             content: 'No results this time — every search engine declined (' + (e.__errors || []).join('; ') + '). ' +
                      'This is temporary throttling of the keyless engines, not a malfunction. Do not immediately ' +
@@ -820,7 +872,9 @@
               results.map((r, i) => (i + 1) + '. ' + r.title + '\n   ' + r.url + (r.snippet ? '\n   ' + r.snippet : '')).join('\n'),
               'search results (titles/snippets are third-party text)')
           : 'No results.';
-        return { content, summary: results.length + ' result(s) via ' + source };
+        // the station's own note, outside the fence: why this search did not use the station browser
+        const note = browserNote ? 'Note: ' + browserNote + ', so this search used ' + source + '.\n' : '';
+        return { content: note + content, summary: results.length + ' result(s) via ' + source + (browserNote ? ' · ' + browserNote : '') };
       }
     };
 

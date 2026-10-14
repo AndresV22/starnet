@@ -114,10 +114,15 @@
     // sliver, the ▾ under the card) and every other notch let the NEXT card peek in. So a mid-list
     // cut ends exactly where the next row's box begins, and only the last one adds the trailing
     // margin + list padding — which is then the list's whole scrollHeight, so nothing scrolls.
+    // The LAST cut is the list's whole scrollHeight, so it is read from the row's true (fractional) bottom and rounded UP:
+    // offsetTop/offsetHeight round to whole pixels, and a card ending in .4 (TEXT SIZE zoom; a working card whose run clock
+    // took the line under its name) left the list 1px taller than its window — a scrollbar that narrowed every card.
+    const ulTop = ul.getBoundingClientRect().top, z = zoomOf();
     return [].map.call(rows, (r, i) => {
       const next = rows[i + 1];
       if (next) return next.offsetTop - base;
-      return (r.offsetTop - base) + r.offsetHeight + (parseFloat(getComputedStyle(r).marginBottom) || 0) + padBottom;
+      const bottom = Math.max((r.offsetTop - base) + r.offsetHeight, Math.ceil((r.getBoundingClientRect().bottom - ulTop) / z + (ul.scrollTop || 0) - 0.01));
+      return bottom + (parseFloat(getComputedStyle(r).marginBottom) || 0) + padBottom;
     });
   }
 
@@ -173,7 +178,13 @@
     // ROW COUNT — crewRender replaces the list wholesale. Deliberately NOT subtree: crewTick
     // rewrites every status line's textContent once a second, and a subtree childList observer
     // turns that into ~8 forced layouts a second for nothing.
-    new MutationObserver(schedule).observe(ul, { childList: true });
+    // ROW HEIGHT, the way no class announces: a working card's run clock takes the line under the name when the two do
+    // not fit side by side (crew-glass.css), and a clock can outgrow its line mid-run (9:59 → 10:00). Each row is watched
+    // for its own size (a ResizeObserver fires on a real size change only, never on the 1s status rewrite).
+    const rowSize = typeof ResizeObserver === 'function' ? new ResizeObserver(schedule) : null;
+    const watchRows = () => { if (!rowSize) return; rowSize.disconnect(); ul.querySelectorAll('.crew-row').forEach(r => rowSize.observe(r)); };
+    new MutationObserver(() => { watchRows(); schedule(); }).observe(ul, { childList: true });
+    watchRows();
     if (crewSearch) new MutationObserver(schedule).observe(crewSearch, { attributeFilter: ['hidden'] });
     // NEEDS YOU appearing, gaining or losing an ask, or expanding "N more" — a ResizeObserver, not a hidden-attribute
     // watch: needsyou.js re-sets `hidden` on every 1s tick while the list is empty, and that would re-fit every second

@@ -22,6 +22,8 @@ function boot(options = {}) {
     StationBuilder: {
       plan: () => ({ ok: true, plan: { spec: { kind: 'line' }, summary: 'Build SHIP IT', ready: true } }),
       apply: () => { applies++; return result; }, sigOf: () => 'sig-' + applies,
+      // the receipt's body is the builder's own (the page answers station.build with it), so the real one shapes it here too
+      receipt: require('../frontend/app/stationbuilder.js').receipt,
       lineRef: () => ({ ok: true, lineId: 'p12', name: 'SHIP IT', steps: [], crewed: true }),
       mapOf: () => ({ ok: true, map: { rooms: [] } })
     },

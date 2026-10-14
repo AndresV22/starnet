@@ -99,7 +99,7 @@ function load(src, headers, globals, extra) {
   const src = rd('frontend/app/deliverables.js');
   const fns = load(src, ['function cardHtml(r, i, now)', 'function detailHtml(r)'], {
     plainLine: D.plainLine, safeMarkdown: D.safeMarkdown, pillOf: s => ({ cls: s, label: String(s).toUpperCase() }), crewHtml: () => '', agoOf: () => 'now',
-    fmtSize: n => n + ' B', fileHref: () => '#'
+    fmtSize: n => n + ' B', fileHref: () => '#', openHref: () => '#'
   });
   const job = fns.cardHtml({ title: 'Launch kit — write it', authored: false, summary: '**TEASER 1:** a text-only answer ## Notes Nothing was saved.', status: 'produced', files: [], output: '**TEASER 1:** a text-only answer\n\n## Notes\nNothing was saved.', jobId: 'job-1' }, 0, 0);
   A.ok(/<p class="dlv-sum">TEASER 1: a text-only answer Notes Nothing was saved\.<\/p>/.test(job), 'a workflow job\'s glance is plain words: ' + (/<p class="dlv-sum">[^<]*/.exec(job) || [''])[0]);

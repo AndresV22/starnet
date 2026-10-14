@@ -33,6 +33,12 @@
   // The background-worker controls a BACKGROUND team.spawn / team.dispatch result reveals: a crewless lead holds them
   // deferred (index.js ZERO-CREW DIET), so the workers it just started must be one call away, not one search away.
   const BACKGROUND_CONTROLS = Object.freeze(['team.subagents', 'team.steer', 'team.interrupt', 'team.resume']);
+  /* WHAT THE LEAD READS of a background start (rc walk 10-14: "The task is running under runId 8b7d03a9-2b85-…" — the lead
+     quoted the start row's internals to the Commander). The handle it needs to watch, steer or stop the worker (id +
+     generation), who it is and its state — nothing else. The run ids, the prompt it just wrote and the empty event log stay
+     in the durable record, where team.subagents reads them when they are asked for. A row with no id (a refused worker)
+     passes through whole: its reason is the message. */
+  const startedHandle = v => (v && v.id) ? { id: v.id, agentId: v.agentId, status: v.status, generation: v.generation } : v;
   /* A worker the way the briefing SHOWS it: the crew list prints "id (Name) — role", and small local models
      (2026-10-11 report: a Qwen lead that "would not delegate") answer with "Researcher" or "researcher (Ada)"
      and got a bare "no such live worker" back, so they gave up and did the work themselves. An UNAMBIGUOUS
@@ -714,7 +720,12 @@
       // user keeps the frictionless flow by choosing it. Lead-only conferral + budget caps + the concurrency
       // ceiling + autonomous workers (default-deny) all still stand underneath.
       name: 'team.dispatch', capability: 'orchestrator', scope: 'execute', requiresConsent: true,
-      description: 'Delegate subtasks to your specialist crew. Each worker runs its OWN real agent loop (live web search/read, files, memory) and returns its result for you to synthesize into the final answer. Address workers by the agentId listed under YOUR TEAM. Pass background:true to start watchable workers and keep working. SESSIONS: pass `session` on a worker (the session\'s NAME, as the Commander says it) to make that subtask run in — and be filed under — that session instead of this one. Without it, each worker\'s work is filed on this conversation\'s card. A name that does not match one on this station is REFUSED, not guessed, and that worker does not run. FILES: in a conversation scoped to a trusted project, a worker\'s RELATIVE file paths (fs_write, image_generate, voice_generate) land in that project folder, the same place yours do, so fs_read finds them by the same relative path. Otherwise each worker saves into its OWN private workspace. After the dispatch you may fs_read EXACTLY the files a worker\'s row lists (artifacts[].abs) — never guess another path. The artifacts list is the proof of what each worker saved; the Commander sees those files as cards. ORDER: workers run one after another, each handed the earlier ones\' results and files — list a worker that needs another\'s output AFTER it; parallel:true only for independent subtasks. COMMANDS: in ASK mode a delegated worker cannot run shell commands (shell_exec / verify_run are withheld from delegated runs, WORKBENCH or not, unless that worker is set to FULL POWER); run commands in this conversation yourself, or have the worker return the exact commands to you. BUILDER: builder:true lends that worker your station.map/plan/build for this job; builds follow your approval setting.',
+      /* INTO THIS CHAT IS NOT A DISPATCH (rc walk 10-14, Haiku 4.5 in ASK): "bring two crew in to help me write a launch post"
+         and "add them into this chat" both went to team.dispatch — the lead even said "Bringing COPY and STRATEGY into this
+         chat" while dispatching. This is the description the model reads when it picks; it now says where a worker works and
+         names the one call that seats crew in this chat (station.control group.add, deferred). Tightened elsewhere to pay
+         for it (payload.budget: lead-with-crew tool bytes), nothing dropped. */
+      description: 'Delegate subtasks to your specialist crew, each worker in its own thread (never in this chat). Each runs its OWN real agent loop (web, files, memory) and returns its result for you to synthesize. To bring crew INTO this chat to work with the Commander, use station.control group.add instead (tool_search "group add"). Address workers by the agentId listed under YOUR TEAM. background:true starts watchable workers while you keep working. SESSIONS: a worker\'s `session` (the session\'s NAME, as the Commander says it) runs and files that subtask in that session; without it, its work is filed on this conversation\'s card. A name not on this station is REFUSED, not guessed, and that worker does not run. FILES: in a conversation scoped to a trusted project, a worker\'s RELATIVE paths (fs_write, image_generate, voice_generate) land in that project folder, where fs_read finds them by the same path; otherwise each worker saves into its OWN private workspace. After the dispatch you may fs_read EXACTLY the files a worker\'s row lists (artifacts[].abs) — never guess another path. That list proves what each worker saved; the Commander sees those files as cards. ORDER: workers run one after another, each handed the earlier ones\' results and files — list a worker that needs another\'s output AFTER it; parallel:true only for independent subtasks. COMMANDS: in ASK mode a delegated worker cannot run shell commands (shell_exec / verify_run are withheld unless that worker has FULL POWER, WORKBENCH or not); run them here yourself, or have the worker return the exact commands. BUILDER: builder:true lends that worker your station.map/plan/build for this job; builds follow your approval setting.',
       schema: {
         type: 'object', required: ['workers'], properties: {
           workers: {
@@ -1004,7 +1015,7 @@
                 taintedBy: r.taintedBy || '' };
             });
           });
-          const startedRows = started.concat(overflowRows());
+          const startedRows = started.map(startedHandle).concat(overflowRows());
           // revealTools: a crewless lead holds the background controls DEFERRED (index.js ZERO-CREW DIET) — the workers it just
           // started must be one call away from being watched/steered/stopped. A no-op wherever they are already advertised.
           return { content: JSON.stringify(startedRows), summary: 'started ' + started.filter(r => r && r.id).length + ' background worker(s)' + overflowNote,
@@ -1235,7 +1246,7 @@
 
         const spawned = reqs.map(spawnOne);
         if (args.background) {
-          const rows = spawned.map(s => Object.assign({ label: s.label }, s.view)).concat(overflowRows());
+          const rows = spawned.map(s => Object.assign({ label: s.label }, startedHandle(s.view))).concat(overflowRows());
           // revealTools: see team.dispatch background — a crewless lead's spawned background workers get their controls
           return { content: JSON.stringify(rows), summary: 'spawned ' + spawned.filter(s => s.started).length + ' subagent(s)' + overflowNote,
             control: { revealTools: BACKGROUND_CONTROLS.slice() } };
@@ -1268,7 +1279,7 @@
       timeoutMs: 180000,
       name: 'team.summon', capability: 'orchestrator', scope: 'write', requiresConsent: true,
       briefExempt: true,   // hiring is station setup, not the deliverable: never held behind the Task Brief (taskbrief-policy canMutate)
-      description: 'Summon a NEW specialist agent onto the crew for the Commander, live — the same thing they would do in the Recruitment Bay. Use this when a specialist you need does not exist yet; if it is already listed under YOUR TEAM, delegate to it with team.dispatch instead. Pick a class with specId (one of: ' + SPEC_IDS + ') or describe a custom one with name + purpose. The station places the new agent\'s workstation with it, so never tell the Commander to go build it a desk. Returns the new agentId, which you can immediately delegate to. In APPROVAL mode the Commander confirms the summon first.',
+      description: 'Summon a NEW specialist agent onto the crew for the Commander, live — as the Recruitment Bay does. Use it when the specialist you need does not exist yet; one already under YOUR TEAM takes work through team.dispatch. Pick a class with specId (one of: ' + SPEC_IDS + ') or describe a custom one with name + purpose. The station places the new agent\'s workstation with it, so never tell the Commander to go build it a desk. Returns the new agentId: bring it INTO this chat with station.control group.add, or hand it work with team.dispatch. In APPROVAL mode the Commander confirms the summon first.',
       schema: {
         type: 'object', required: ['name'], properties: {
           name: { type: 'string' },        // the new agent's display name (e.g. "RESEARCHER")
@@ -1295,17 +1306,23 @@
         // the station resolves { agentId, desk }; a bare id string is still accepted (older stubs/callers).
         const newId = (ack && typeof ack === 'object') ? ack.agentId : ack;
         const desk = (ack && typeof ack === 'object' && ack.desk) ? String(ack.desk) : '';
-        if (!newId) return { content: 'The summon was not completed — the Commander declined it, or the station did not respond. No agent was created.', summary: 'declined' };
+        // said to the Commander in the second person: the model echoes a result's wording ("The Commander declined …", rc walk 10-14)
+        if (!newId) return { content: 'No agent was created: the summon was declined on its card, or the station did not respond. If you mention it, say it to the Commander as "you".', summary: 'declined' };
         // DESK: a summoned specialist needs a workstation to sit and work at, so the station sorts its desk as
         // part of THIS summon. Reported only when the station named a room — never assumed, so the reply can't
         // promise furniture the floor doesn't have (and can't tell the Commander to go build a second one).
         // Worded "workstation is in X", not "placed": the station may have bound a free desk it already had.
         const out = { agentId: newId, name: spec.name || spec.specId };
         if (desk) out.workstation = desk;
-        // revealTools: a crewless lead holds team.dispatch DEFERRED (index.js ZERO-CREW DIET) — the agent it just summoned must
-        // be one call away, not one search away. A no-op wherever team.dispatch is already advertised (loop.js reveal).
-        return { content: JSON.stringify(out), summary: 'summoned ' + newId + (desk ? ' (workstation in ' + desk + ')' : '') + ' — now delegate work to it with team.dispatch',
-          control: { revealTools: ['team.dispatch'] } };
+        /* NEXT: the two things a new hire is for, by the Commander's words (rc walk 10-14: "bring two crew in to help me write
+           a launch post" summoned two, then background-dispatched them — the chat never got them). In this chat with the
+           Commander = station.control group.add; a job in its own thread = team.dispatch. */
+        out.next = 'to work IN this chat with the Commander: station.control {"action": "group.add", "args": {"agents": [' + JSON.stringify(out.name) + ']}}; a job in its own thread: team.dispatch';
+        // revealTools: a crewless lead holds team.dispatch DEFERRED (index.js ZERO-CREW DIET) and every lead holds station.control
+        // deferred — the agent it just summoned must be one call away for either, not one search away. A no-op wherever a
+        // name is already advertised or not granted (loop.js reveal).
+        return { content: JSON.stringify(out), summary: 'summoned ' + newId + (desk ? ' (workstation in ' + desk + ')' : '') + ' — bring it into this chat (station.control group.add) or delegate work to it with team.dispatch',
+          control: { revealTools: ['team.dispatch', 'station.control'] } };
       }
     };
 

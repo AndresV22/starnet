@@ -117,7 +117,7 @@ function deliveryDom(pinned=false, count=4, scale=1, nativeAnchor=false) {
   for(let i=0;i<count;i++){const n=new Node();n.dataset.ts=String(first+i*1000);n.textContent='original '+i;log.appendChild(n);}
   const ws={id:'read'}, original=log.children.slice();
   const code=part(chat,'  function syncTimeBreaks()', '  // stamp: omitted')+part(chat,'  function pruneLog()', '  function row(')+part(chat,'  function deliverTurns(', '  // SWITCH-SURVIVAL:');
-  const c=ctx(code,{log,stick:pinned,insertingDelivery:false,LOG_DOM_CAP:400,TIME_BREAK_MS:1800000,document:{createElement:()=>new Node()},fmtBreak:at=>at.toISOString(),isActiveWs:w=>w===ws,cancelHistoryPin(){},autoscroll(){},Set,Array,Number,Date});
+  const c=ctx(code,{log,stick:pinned,insertingDelivery:false,LOG_DOM_CAP:400,TIME_BREAK_MS:1800000,document:{createElement:()=>new Node()},fmtBreak:at=>at.toISOString(),isActiveWs:w=>w===ws,cancelHistoryPin(){},autoscroll(){},noteDeliveryLanding(){},Set,Array,Number,Date});
   c.renderHistory=turns=>{for(const m of turns){const n=new Node();n.dataset.ts=String(m.ts);n.textContent=m.content;log.appendChild(n);if(nativeAnchor)log.scrollTop+=20;c.pruneLog();}};
   c.syncTimeBreaks();return {c,log,ws,original,first};
 }

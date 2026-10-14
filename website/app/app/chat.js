@@ -782,7 +782,7 @@ const Chat = (() => {
      invariant is inviolate: every model substring is HTML-ESCAPED first (escapeHtml / linkify both escape), and
      we only ever wrap ALREADY-ESCAPED text in our OWN tags — model output never reaches innerHTML raw. `code`
      spans are pulled to placeholders before the bold pass so a ** inside code stays literal. */
-  const MD_MARKERS = /\||^\s*>|^\s*\d+[.)]\s|\*\*|`|^#{1,6}\s|^[ \t]*[-*+]\s|\r?\n[ \t]*\r?\n|\]\(/m;   // plain paragraph breaks need the same spacing as formatted prose
+  const MD_MARKERS = /\||^\s*>|^\s*\d+[.)]\s|\*\*|\*[^\s*][^*\n]*\*|`|^#{1,6}\s|^[ \t]*[-*+]\s|\r?\n[ \t]*\r?\n|\]\(/m;   // plain paragraph breaks need the same spacing as formatted prose; *italic* too
   function mdInline(safe) {
     // `safe` is escaped-and-linkified HTML. Pull `inline code` to placeholders, bold the rest, restore code.
     const codes = [];
@@ -906,9 +906,12 @@ const Chat = (() => {
   }
   function reportInline(raw) {
     // Tokenize raw text before escaping; generated markup never enters another pass.
-    const re = /`([^`\n]+)`|\[([^\]\n]+)\]\((https?:\/\/[^\s<>"']+)\)|\*\*([^*\n]+)\*\*|!\[([^\]\n]*)\]\(([^)\s<>"']+)\)|\[([^\]\n]+)\]\(([^)\s<>"']+)\)|https?:\/\/[^\s<>"']+/g;
+    const re = /`([^`\n]+)`|\[([^\]\n]+)\]\((https?:\/\/[^\s<>"']+)\)|\*\*([^*\n]+)\*\*|!\[([^\]\n]*)\]\(([^)\s<>"']+)\)|\[([^\]\n]+)\]\(([^)\s<>"']+)\)|\*(?![\s*])([^*\n]*?[^\s*\\])\*(?![*\w])|https?:\/\/[^\s<>"']+/g;
     let out='',last=0,m;
     while((m=re.exec(raw))) {
+      // *italic* opens only where a word does not (no lookbehind — older macOS WebKit cannot parse one): "2*3*4" and
+      // "file*name*" keep their asterisks; the scan resumes one character on so a real *italic* later still matches
+      if(m[9]!==undefined && m.index>0 && /[\w*]/.test(raw[m.index-1])){re.lastIndex=m.index+1;continue;}
       out+=escapeHtml(raw.slice(last,m.index));
       // A code span that IS a URL (`http://localhost:8765`) stays code-styled but clickable: models
       // backtick server addresses constantly, and a dead address costs the user a copy-paste.
@@ -919,6 +922,9 @@ const Chat = (() => {
       else if(m[4]!==undefined)out+='<span class="md-b">'+reportInline(m[4])+'</span>';
       else if(m[6]!==undefined)out+=fileRefImage(m[5],m[6]);
       else if(m[8]!==undefined)out+=fileRefLink(m[7],m[8]);
+      // *italic* (rc walk 2026-10-14: "*speed*", "*does*" sat in replies with their asterisks) — like bold, its inside holds no
+      // '*' and is read again for code and links
+      else if(m[9]!==undefined)out+='<span class="md-i">'+reportInline(m[9])+'</span>';
       else out+=linkify(m[0]);
       last=re.lastIndex;
     }
@@ -1749,9 +1755,14 @@ const Chat = (() => {
       const parts = runParts.get(String(turn.sourceRunId)) || [];
       parts.push(text); runParts.set(String(turn.sourceRunId), parts);
     }
-    const committedAggregate = (row, runId) => {
-      if (row.role !== 'assistant' || row.rowId || row.stopped || row.error || (row.attachments && row.attachments.length)) return false;
-      const parts = runParts.get(runId) || [], text = String(row.content || '');
+    /* EXPLICIT RUN IDENTITY, HARNESS BYTES ASIDE (rc walk 2026-10-14: a reload showed a reply twice — its durable turns AND
+       the page's saved aggregate). The page's aggregate of a run differs from that run's durable turns only by what the
+       harness itself adds or removes: the paragraph break streamed after a hidden Task Brief step (loop.js TURN BREAK) and
+       the choice marker the chat strips before saving. Only for a row that names its run (an unattributed one stays exact).
+       Self-contained (the phone runs this same function): the marker rule is fork.js's — a list number, keyword (MARKER_KEY's
+       one case rule), colon, `||` options. */
+    const squash = s => String(s == null ? '' : s).replace(/(?:\d{1,2}[.)][ \t]*)?[*_`~]*(?:\bF(?:ORK|ork)|[Tt][Aa][Ss][Kk]_[Qq][Uu][Ee][Ss][Tt][Ii][Oo][Nn])[*_`~]*[ \t]*:[^\n]*\|\|[^\n]*/g, '').replace(/\s+/g, '');
+    const joinsTo = (parts, text) => {
       for (let start = 0; start < parts.length - 1; start++) {
         if (!text.startsWith(parts[start])) continue;
         let joined = parts[start];
@@ -1762,6 +1773,14 @@ const Chat = (() => {
         }
       }
       return false;
+    };
+    const committedAggregate = (row, runId, explicit) => {
+      if (row.role !== 'assistant' || row.rowId || row.stopped || row.error || (row.attachments && row.attachments.length)) return false;
+      const parts = runParts.get(runId) || [], text = String(row.content || '');
+      if (joinsTo(parts, text)) return true;
+      if (!explicit) return false;
+      const target = squash(text);
+      return !!target && joinsTo(parts.map(squash), target);
     };
     const kept = [], buckets = new Map();
     let userRunId = '';
@@ -1780,7 +1799,7 @@ const Chat = (() => {
         finalSlots.set(id, kept.length);
       }
       if (row.role === 'user') userRunId = String(row.sourceRunId || '');
-      if (committedAggregate(row, String(row.sourceRunId || userRunId))) continue;
+      if (committedAggregate(row, String(row.sourceRunId || userRunId), !!row.sourceRunId)) continue;
       if (row.role === 'assistant' && !String(row.content == null ? '' : row.content).trim()) continue;
       const key = row.role + '\u0000' + String(row.content || '');
       const q = buckets.get(key) || []; q.push(kept.length); buckets.set(key, q);
@@ -2316,17 +2335,25 @@ const Chat = (() => {
   function starterOptions() {
     return { system, modelKey: typeof Harness !== 'undefined' ? Harness.getProv() + ':' + Harness.getModel() : '' };
   }
+  // Whose ideas a shown generation is: personalization on or paused, and the agent. Drift keeps them; a change here rebuilds.
+  function starterOwner(ctx) { return (ctx && ctx.enabled === false ? 'paused' : 'on') + ':' + String((ctx && ctx.agentId) || 'agent'); }
   function refreshStarters() {
     if (!log || !activeWs || activeWs.history.length || isBusy() || interview || (input && input.value.trim())) return;
     const d = log.querySelector('.cmsg-empty');
     if (!d) { maybeEmptyState(); return; }
-    const key = JSON.stringify([starterContext(), starterOptions()]);
+    const ctxNow = starterContext();
+    const key = JSON.stringify([ctxNow, starterOptions()]);
     if (d.starterKey === key && !(d.retryAt && Date.now() >= d.retryAt) && Date.now() < d.expiresAt) return;
     // Keep focus stable during keyboard selection. The next idle tick can refresh it.
     if (d.contains(document.activeElement)) return;
     if (d.starterKey === key && d.retryAt && Date.now() >= d.retryAt && d.forcePending) {
       requestStarterIdeas(d, d.querySelector('.cmsg-empty-hint'), starterContext(), starterOptions(), true); return;
     }
+    // PERSONALIZED ideas from a finished generation stay up while the context drifts (a crew run elsewhere, a busy flag
+    // flipping): every click re-validates its evidence and destination (openStarter), and REFRESH SUGGESTIONS asks again.
+    // Rebuilding on each drift asked the model once a minute while an empty session sat open. Pausing personalization or
+    // another agent is not drift: the owner changed, so it rebuilds (test/starter-drift.test.js).
+    if (d.keptOwner && d.keptOwner === starterOwner(ctxNow) && Date.now() < d.expiresAt) return;
     clearEmptyState(); maybeEmptyState();
   }
   function openStarter(st, hint) {
@@ -2357,7 +2384,8 @@ const Chat = (() => {
     if (!st.general) StarterStore.prepare(st, ws.id, input.value);
     clearEmptyState(); refreshWorkflowViews();
   }
-  function renderStarterIdeas(d, hint, result) {
+  // ctx: the context `result` was generated for (absent = the loading or generic state, never kept through drift)
+  function renderStarterIdeas(d, hint, result, ctx) {
     const old = d.querySelector('.cmsg-empty-chips'); if (old) old.remove();
     const chips = document.createElement('div'); chips.className = 'cmsg-empty-chips';
     const personalized = result.ideas || [], ideas = personalized.length ? personalized : Starters.defaults();
@@ -2370,6 +2398,7 @@ const Chat = (() => {
       ready: personalized.length ? 'Based on your work and goals. Choose a session to review its brief.' : 'Three substantial starting points. Your own requests will shape future suggestions.'
     };
     hint.textContent = messages[result.status] || messages.ready;
+    d.keptOwner = (result.status === 'ready' && personalized.length && ctx) ? starterOwner(ctx) : '';   // the refresh tick keeps these through drift
     d.retryAt = result.status === 'cooldown' ? result.retryAt : 0;
     for (const st of ideas) {
       if (!st.general) StarterStore.shown(st);
@@ -2404,8 +2433,12 @@ const Chat = (() => {
     const origin = activeWs && activeWs.id, key = JSON.stringify([ctx, options]);
     StarterStore.request(ctx, { ...options, force: !!force }).then(result => {
       if (!d.isConnected || !activeWs || activeWs.id !== origin || activeWs.history.length || isBusy()) return;
-      if (JSON.stringify([starterContext(), starterOptions()]) !== key) { clearEmptyState(); maybeEmptyState(); return; }
-      if (result.status !== 'cancelled') renderStarterIdeas(d, hint, result);
+      // a paid generation of personalized ideas that finished after the context drifted is still shown, for the same owner
+      // (its ideas re-validate on click); anything else re-evaluates against the new context, as before
+      const now = starterContext();
+      const keep = result.status === 'ready' && (result.ideas || []).length && starterOwner(now) === starterOwner(ctx);
+      if (!keep && JSON.stringify([now, starterOptions()]) !== key) { clearEmptyState(); maybeEmptyState(); return; }
+      if (result.status !== 'cancelled') renderStarterIdeas(d, hint, result, ctx);
     });
   }
   function maybeEmptyState() {
@@ -2425,7 +2458,7 @@ const Chat = (() => {
     const ctx = starterContext(), options = starterOptions(), result = StarterStore.peek(ctx, options);
     d.starterKey = JSON.stringify([ctx, options]); d.expiresAt = Date.now() + StarterStore.TTL;
     if (result.status === 'empty' || result.status === 'loading') requestStarterIdeas(d, hint, ctx, options);
-    else renderStarterIdeas(d, hint, result);
+    else renderStarterIdeas(d, hint, result, ctx);
   }
 
   /* THE ONE STEP A HAND-SUMMONED AGENT LEAVES TO THE COMMANDER (2026-08-03).
@@ -2892,9 +2925,18 @@ const Chat = (() => {
     }
     return out;
   }
-  function argDigest(argsSummary) {
+  function argDigest(argsSummary, tool) {
     const raw = String(argsSummary == null ? '' : argsSummary).trim();
     if (!raw) return '';
+    // A HAND-OFF READS AS WHO (review 10-14: the team.dispatch row above the approval card showed
+    // '{"background":true,"workers":[{"agentId":"copywrit…'). Ids by pattern (the summary is capped), shown by name.
+    if (/^team\.dispatch$/.test(shortName(tool))) {
+      const ids = [...new Set([...raw.matchAll(/"agentId"\s*:\s*"([^"]+)"/g)].map(m => m[1]))];
+      // a capped summary may hold more workers than it shows: mark the cut ("LENS …") — never imply LENS was the only one,
+      // and never invent a second one either (", …" read as more workers on a one-worker hand-off, live 10-14)
+      let whole = true; try { JSON.parse(raw); } catch (_) { whole = false; }
+      if (ids.length) return brief(ids.map(id => (typeof App !== 'undefined' && App.agentName && App.agentName(id)) || id).join(', ') + (whole ? '' : ' …') + (/"background"\s*:\s*true/.test(raw) ? ' · background' : ''));
+    }
     const pairs = argPairs(raw);
     for (const k of ARG_KEYS) { const v = pairs.get(k); if (v) return brief(v); }
     if (pairs.size === 1) { const v = pairs.values().next().value; if (v) return brief(v); }
@@ -2927,9 +2969,9 @@ const Chat = (() => {
     // disclosure state from the thing it can activate.
     const btn = chip.querySelector('.tc-head'); if (btn) btn.setAttribute('aria-expanded', open ? 'true' : 'false');
   }
-  // render a tool CALL as a chip; returns the chip element. ev: { callId, name, argsSummary }
-  function toolChip(ev) {
-    const rail = ensureToolRail();
+  // the chip's DOM for one tool CALL: head (glyph · name · short args · stat · chevron) + its expandable detail. Shared by the
+  // live one-on-one rail (toolChip) and a transcript this file does not own (toolRailOf — the group chat).
+  function chipNode(ev) {
     const flav = skillFlavor(ev);   // A1: skill.* tools re-labelled in the agent's voice
     const chip = document.createElement('div'); chip.className = 'tool-chip pending' + (flav ? ' skill' : '');
     const head = document.createElement('button'); head.type = 'button'; head.className = 'tc-head';
@@ -2938,21 +2980,8 @@ const Chat = (() => {
     const nm = document.createElement('span'); nm.className = 'tc-name'; nm.textContent = flav ? flav.label : shortName(ev.name);
     // for a flavored skill chip the human phrase already carries the skill name, so the raw args stay in the
     // expand detail only (kept below) — the chip head is clean.
-    const args = document.createElement('span'); args.className = 'tc-args'; args.textContent = flav ? '' : argDigest(ev.argsSummary);
+    const args = document.createElement('span'); args.className = 'tc-args'; args.textContent = flav ? '' : argDigest(ev.argsSummary, ev.name);
     const stat = document.createElement('span'); stat.className = 'tc-stat'; stat.textContent = '';   // filled by resolveChip
-    if (/^browser\./.test(ev.name || '') && ev.runId) {
-      stat.setAttribute('aria-live', 'polite');
-      const checkWait = async () => {
-        if (!chip.isConnected || !chip.classList.contains('pending')) return;
-        try {
-          const j = await Harness.api.get('/api/connectors');
-          if (!chip.isConnected || !chip.classList.contains('pending')) return;
-          stat.textContent = (j.browserSession?.waitingRunIds || []).includes(ev.runId) ? 'Waiting for browser session…' : '';
-        } catch (_) { if (chip.classList.contains('pending')) stat.textContent = ''; }
-        if (chip.isConnected && chip.classList.contains('pending')) setTimeout(checkWait, 1000);
-      };
-      setTimeout(checkWait, 500);
-    }
     const exp = document.createElement('span'); exp.className = 'tc-exp'; exp.setAttribute('aria-hidden', 'true'); exp.textContent = '▸';   // disclosure chevron (rotates when open)
     head.appendChild(glyph); head.appendChild(nm); if (args.textContent) head.appendChild(args); head.appendChild(stat); head.appendChild(exp);
     const detail = document.createElement('div'); detail.className = 'tc-detail';
@@ -2966,12 +2995,50 @@ const Chat = (() => {
       : '(no arguments)';
     detail.appendChild(dArgs);
     chip.appendChild(head); chip.appendChild(detail);
+    return chip;
+  }
+  // render a tool CALL as a chip; returns the chip element. ev: { callId, name, argsSummary }
+  function toolChip(ev) {
+    const rail = ensureToolRail();
+    const chip = chipNode(ev);
+    const stat = chip.querySelector('.tc-stat');
+    if (/^browser\./.test(ev.name || '') && ev.runId) {
+      stat.setAttribute('aria-live', 'polite');
+      const checkWait = async () => {
+        if (!chip.isConnected || !chip.classList.contains('pending')) return;
+        try {
+          const j = await Harness.api.get('/api/connectors');
+          if (!chip.isConnected || !chip.classList.contains('pending')) return;
+          stat.textContent = (j.browserSession?.waitingRunIds || []).includes(ev.runId) ? 'Waiting for browser session…' : '';
+        } catch (_) { if (chip.classList.contains('pending')) stat.textContent = ''; }
+        if (chip.isConnected && chip.classList.contains('pending')) setTimeout(checkWait, 1000);
+      };
+      setTimeout(checkWait, 500);
+    }
     rail.appendChild(chip);
     if (ev.callId != null) { pendingChips.set(ev.callId, chip); if (pendingChips.size > 200) pendingChips.delete(pendingChips.keys().next().value); }
     autoscroll();
     return chip;
   }
-  // fold a tool RESULT into its paired chip (✓/✗ + duration + result summary). ev: { callId, summary, isError, ms }
+  // fold a tool RESULT into a chip (✓/✗ + duration + result summary). ev: { summary, isError, ms }
+  function foldChipResult(chip, ev) {
+    chip.classList.remove('pending');
+    // A call the Task Brief gate HELD did not run and did not fail: the model settles the brief and makes it again (a new
+    // chip). Neutral, never the red ✗ "failed" an error draws (rc walk 2026-10-14) — and never a ✓ either.
+    const heldCall = typeof TaskIntent !== 'undefined' && TaskIntent.isGateHeld && TaskIntent.isGateHeld(ev);
+    chip.classList.add(heldCall ? 'held' : ev.isError ? 'err' : 'ok');
+    const glyph = chip.querySelector('.tc-glyph'); if (glyph) glyph.textContent = heldCall ? '▸' : ev.isError ? '✗' : '✓';
+    const stat = chip.querySelector('.tc-stat');
+    if (stat) stat.textContent = heldCall ? 'not run yet' : ev.ms ? fmtMs(ev.ms) : (ev.isError ? 'failed' : '');
+    const detail = chip.querySelector('.tc-detail');
+    if (detail) {
+      const dRes = document.createElement('div'); dRes.className = 'tc-d-res' + (heldCall ? ' held' : ev.isError ? ' err' : '');
+      dRes.textContent = heldCall ? cap(ev.summary) : (ev.isError ? '✗ ' : '✓ ') + cap(ev.summary || (ev.isError ? 'error' : 'ok'));
+      detail.appendChild(dRes);
+    }
+    return chip;
+  }
+  // fold a tool RESULT into its paired chip. ev: { callId, summary, isError, ms }
   function resolveChip(ev, fallbackName) {
     let chip = (ev.callId != null) ? pendingChips.get(ev.callId) : null;
     if (chip) pendingChips.delete(ev.callId);
@@ -2979,19 +3046,24 @@ const Chat = (() => {
       // ORPHAN result (no paired call — e.g. switched-to mid-run): render a standalone resolved chip
       chip = toolChip({ callId: null, name: fallbackName || 'tool', argsSummary: '' });
     }
-    chip.classList.remove('pending');
-    chip.classList.add(ev.isError ? 'err' : 'ok');
-    const glyph = chip.querySelector('.tc-glyph'); if (glyph) glyph.textContent = ev.isError ? '✗' : '✓';
-    const stat = chip.querySelector('.tc-stat');
-    if (stat) stat.textContent = ev.ms ? fmtMs(ev.ms) : (ev.isError ? 'failed' : '');
-    const detail = chip.querySelector('.tc-detail');
-    if (detail) {
-      const dRes = document.createElement('div'); dRes.className = 'tc-d-res' + (ev.isError ? ' err' : '');
-      dRes.textContent = (ev.isError ? '✗ ' : '✓ ') + cap(ev.summary || (ev.isError ? 'error' : 'ok'));
-      detail.appendChild(dRes);
-    }
+    foldChipResult(chip, ev);
     autoscroll();
     return chip;
+  }
+  /* THE SAME CHIPS IN THE GROUP CHAT (rc walk 2026-10-14: a group transcript showed none of the lead's calls). One rail of
+     a reply's tool calls — steps: [{ name, args, done, isError, summary, ms }] — built exactly like the one-on-one rail.
+     #gc-log has no delegated chip handler, so each head toggles its own detail. */
+  function toolRailOf(steps) {
+    const rail = document.createElement('div'); rail.className = 'tool-rail';
+    for (const s of (Array.isArray(steps) ? steps : [])) {
+      const chip = chipNode({ name: s && s.name, argsSummary: (s && s.args) || '' });
+      if (s && s.callId) chip.dataset.callId = String(s.callId);   // a re-rendered draft keeps an opened chip open (group-chat renderFlow)
+      if (s && s.done) foldChipResult(chip, { isError: !!s.isError, summary: s.summary || '', ms: s.ms || 0 });
+      const head = chip.querySelector('.tc-head');
+      if (head) head.addEventListener('click', () => toggleChip(head));
+      rail.appendChild(chip);
+    }
+    return rail;
   }
   // a clickable COMMS row for a file the agent produced — opens it via the sidecar's jailed /api/file route
   function fileBlobUrl(title, agentId) {
@@ -3011,12 +3083,18 @@ const Chat = (() => {
   // prose-link handler in init), so hand the saved path to the OS default app. If native opening rejects
   // the path or file type, the jailed browser preview remains a safe fallback. stopPropagation prevents
   // the delegated prose-link handler from opening it a second time.
+  /* THE READABLE DOCUMENT VIEW (live walk 10-14: OPEN on a worker's tagline.md landed on raw text in a white, unstyled
+     tab). A TEXT deliverable opened in a browser asks the jailed file route for its station reading page (?view=doc,
+     sidecar/file-response.js — the same list of formats, locked by test/file-open-readable.test.js). Media keep their
+     players, pages the BROWSER window, binaries the plain bytes; on desktop the OS app opens the file itself. */
+  const TEXT_DOC_RE = /\.(md|markdown|txt|text|csv|tsv|log|json|ya?ml|toml|ini|cfg|conf|py|tsx?|jsx|s?css|sh|ps1|bat|sql|rb|go|rs|java|kt|c|h|cpp|cs|php)$/i;
+  function readableUrl(url, filePath) { return TEXT_DOC_RE.test(String(filePath || '').split(/[?#]/)[0]) ? url + '&view=doc' : url; }
   function wireFileOpen(a, title, agentId, projectRoot) {
-    a.href = fileUrl(title, agentId, projectRoot);
+    a.href = readableUrl(fileUrl(title, agentId, projectRoot), title);
     a.target = '_blank'; a.rel = 'noopener';
     // the rendered ticket lives minutes, the row lives forever: re-mint right before any use of the href
     // (capture-phase listeners run before the native navigation / the context menu's copy-link reads it).
-    const refresh = () => { try { a.href = fileUrl(title, agentId, projectRoot); } catch (_) {} };
+    const refresh = () => { try { a.href = readableUrl(fileUrl(title, agentId, projectRoot), title); } catch (_) {} };
     a.addEventListener('click', refresh, true); a.addEventListener('auxclick', refresh, true);
     a.addEventListener('contextmenu', refresh, true); a.addEventListener('focus', refresh, true);
     // Project-relative worker links use the same canonical project/host routing as their receipt's Open key.
@@ -3048,7 +3126,7 @@ const Chat = (() => {
             // The host shows a native confirm before any OS launch (renderer clicks are not host
             // gestures). Cancel there is an ANSWER, not a failure — never fall back around it.
             if (/declined at the host/i.test(String(err || ''))) return;
-            return Promise.resolve(core.invoke('open_external_url', { url: fileUrl(title, agentId) }))
+            return Promise.resolve(core.invoke('open_external_url', { url: readableUrl(fileUrl(title, agentId), title) }))
               .catch(() => { if (typeof StationUI !== 'undefined' && StationUI.notify) StationUI.notify('could not open that file — use folder or copy path to find it on disk', 'warn'); });
           });
       });
@@ -3200,6 +3278,7 @@ const Chat = (() => {
     return b;
   }
   function deliverableLine(title, agentId) {
+    noteDeliveryLanding();
     const r = row('agent'); r.d.classList.add('tool'); r.d.classList.add('deliverable');
     r.body.appendChild(document.createTextNode('▤ saved '));
     const a = document.createElement('a');
@@ -3216,6 +3295,7 @@ const Chat = (() => {
   // thumbnail (src = the sidecar's jailed /api/file viewer URL, served with an image content-type); clicking
   // opens the full image in a new tab. Built with DOM nodes (never innerHTML) so the title can't inject markup.
   function imageDeliverableLine(title, agentId) {
+    noteDeliveryLanding();
     const r = row('agent'); r.d.classList.add('tool'); r.d.classList.add('deliverable'); r.d.classList.add('image');
     r.body.appendChild(document.createTextNode('▤ made '));
     const a = document.createElement('a');
@@ -3267,7 +3347,7 @@ const Chat = (() => {
     if (!rel) return;
     const isAbs = /^([A-Za-z]:[\\/]|[\\/])/.test(rel), root = projectRoot && !isAbs ? String(projectRoot).replace(/[\\/]+$/, '') : '';
     if (!root && typeof OutputBrowser !== 'undefined' && OutputBrowser.isHtml && OutputBrowser.isHtml(rel)) { OutputBrowser.open({ agentId: aid, path: rel }); return; }
-    const url = fileUrl(rel, aid, root);
+    const url = readableUrl(fileUrl(rel, aid, root), rel);   // a text deliverable opens as the readable document, never raw text
     const core = tauriCore();
     if (core && core.invoke) {
       Promise.resolve(core.invoke('starnet_open_artifact', { path: root ? root + '/' + rel : rel, agentId: aid }))
@@ -3400,8 +3480,10 @@ const Chat = (() => {
     head.textContent = [role, entry.agentId || '', entry.model && entry.model !== '(unknown)' ? entry.model : '', (entry.reasoningEffort && entry.reasoningEffort !== 'none') ? entry.reasoningEffort : '', Number(entry.durationMs) > 0 ? fmtMs(Number(entry.durationMs)) : '', calls + (calls === 1 ? ' call' : ' calls')].filter(Boolean).join(' · ');
     wrap.appendChild(head);
     for (const t of (skipTools ? [] : (Array.isArray(entry.toolTrace) ? entry.toolTrace : []))) {
-      const line = document.createElement('div'); line.className = 'rt-tool' + (t.isError ? ' err' : '');
-      line.textContent = '↳ ' + String(t.name || 'unknown') + ' · ' + fmtMs(Math.max(0, Number(t.ms) || 0)) + ' · ' + (t.isError ? 'failed' : 'ok');
+      // a call the Task Brief held did not run: "not run yet", never "failed" (TaskIntent.GATE_HELD on its record)
+      const held = typeof TaskIntent !== 'undefined' && TaskIntent.isGateHeld && TaskIntent.isGateHeld(t);
+      const line = document.createElement('div'); line.className = 'rt-tool' + (held ? ' held' : t.isError ? ' err' : '');
+      line.textContent = '↳ ' + String(t.name || 'unknown') + ' · ' + fmtMs(Math.max(0, Number(t.ms) || 0)) + ' · ' + (held ? 'not run yet' : t.isError ? 'failed' : 'ok');
       if (t.summary) line.title = String(t.summary);
       wrap.appendChild(line);
     }
@@ -3542,7 +3624,7 @@ const Chat = (() => {
       if (fig) host.appendChild(fig);
     }
   }
-  function actionPhrase(ev) {
+  function actionPhrase(ev, detail) {   // detail: the approval card itself (room for what each worker is handed)
     const t = ev.tool || 'act';
     // a PLUGIN tool (plugin__<id>__<tool>): say whose code it is before what it does — checked first, so a plugin
     // tool that happens to be named like a built-in (edit_*, *notebook*) can never borrow a built-in's phrasing
@@ -3615,9 +3697,39 @@ const Chat = (() => {
     // Read the ids by pattern: argsSummary may be clipped mid-object.
     if (/^team[._](?:dispatch|spawn)$/.test(t)) {
       const s = String(ev.argsSummary || ''), ids = [...new Set([...s.matchAll(/"agentId"\s*:\s*"([^"]+)"/g)].map(m => m[1]))];
-      const names = ids.map(id => (typeof App !== 'undefined' && App.agentName && App.agentName(id)) || id);
-      const who = names.length > 1 ? names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1] : names[0] || 'the crew';
-      return 'hand work to ' + who + (/"background"\s*:\s*true/.test(s) ? ' (in the background)' : '');
+      const nameOf = id => (typeof App !== 'undefined' && App.agentName && App.agentName(id)) || id;
+      const and = list => list.length > 1 ? list.slice(0, -1).join(', ') + ' and ' + list[list.length - 1] : list[0] || '';
+      const bg = /"background"\s*:\s*true/.test(s) ? ' (in the background)' : '';
+      /* THE CARD SAYS WHO GETS WHAT (rc walk 10-14: "NOVA wants to hand work to COPY and STRATEGY" — the tasks were raw JSON
+         under Inspect). On the card itself (`detail`) each worker's task rides beside its name, its first sentence at a
+         glance — the shorter the more workers; the toast, the bell and NEEDS YOU keep the short line. The whole request is
+         still one click away in INSPECT. A summary that does not parse (capped) falls back to the names. */
+      const o = detail ? requestArgs(s) : null;
+      const jobs = o ? (Array.isArray(o.workers) ? o.workers : Array.isArray(o.tasks) ? o.tasks : []).filter(w => w && typeof w.prompt === 'string' && w.prompt.trim()) : [];
+      if (jobs.length) {
+        const n = Math.max(36, Math.floor(140 / Math.min(jobs.length, 3)));
+        // its first sentence when that fits, else cut at a word (never "statio…")
+        // …and the file a task names is its deliverable: when the cut would lose it, the middle goes instead (review 10-14:
+        // "…into a file called…" lost tagline.md)
+        const FILE = /(?:[\w-]+[\\/])*[\w-][\w.-]*\.(?:md|markdown|txt|html?|css|m?js|cjs|tsx?|jsx|json|ya?ml|csv|tsv|py|rb|go|rs|java|sh|ps1|sql|xml|svg|png|jpe?g|gif|webp|pdf|docx?|xlsx?|pptx?|mp3|wav|mp4|zip)(?![\w-])/i;
+        const task = p => {
+          const one = p.replace(/\s+/g, ' ').trim(), cut = one.search(/[.!?](?:\s|$)/), s = cut > 12 && cut < n ? one.slice(0, cut) : one;
+          if (s.length <= n) return '“' + s + '”';
+          const file = (one.match(FILE) || [''])[0], room = file && file.length < n / 2 ? n - file.length - 2 : n;
+          const sp = s.lastIndexOf(' ', room - 1);
+          const head = s.slice(0, sp > room * 0.6 ? sp : room - 1).replace(/[\s,;:]+$/, '');
+          return '“' + head + (room < n && head.indexOf(file) < 0 ? ' … ' + file : '…') + '”';
+        };
+        const shown = jobs.slice(0, 3), more = jobs.length - shown.length;
+        if (/spawn$/.test(t)) return 'run ' + (jobs.length > 1 ? jobs.length + ' copies' : 'a copy') + ' of itself on ' + and(shown.map(w => task(w.prompt)).concat(more ? [more + ' more'] : [])) + bg;
+        return 'hand ' + and(shown.map(w => nameOf(String(w.agentId || 'the crew')) + ' ' + task(w.prompt)).concat(more ? [more + ' more'] : [])) + bg;
+      }
+      return 'hand work to ' + (and(ids.map(nameOf)) || 'the crew') + bg;
+    }
+    // A GOAL LOOP (rc walk 10-14: the card read "use loop create: Write and refine…"): what it repeats toward, in words
+    if (/^loop[._]create$/.test(t)) {
+      const o = requestArgs(ev.argsSummary) || {}, what = [o.objective, o.name].find(v => typeof v === 'string' && v.trim());
+      return 'start a goal loop' + (typeof o.agentId === 'string' && o.agentId.trim() ? ' for ' + ((typeof App !== 'undefined' && App.agentName && App.agentName(o.agentId)) || o.agentId) : '') + (what ? ': ' + glance(what, 90) : '');
     }
     // THE STATION BUILDER (2026-09-29): the card IS the plan — what gets built, where, who works each step. The sidecar
     // sends the plan's own summary (its dry run on a copy of the station), never the model's words.
@@ -4017,7 +4129,7 @@ const Chat = (() => {
       return null;
     }
     const r = row('agent'); r.d.classList.add('tool'); r.d.classList.add('consent'); r.d.dataset.liveAsk = '1';
-    r.body.appendChild(document.createTextNode('▣ ' + ((p && p.workerAgentId) ? askerName(p, ws) : name) + ' wants to ' + actionPhrase(p) + ' '));
+    r.body.appendChild(document.createTextNode('▣ ' + ((p && p.workerAgentId) ? askerName(p, ws) : name) + ' wants to ' + actionPhrase(p, true) + ' '));
     const btns = document.createElement('span'); btns.className = 'consent-btns';
     let decided = false, submitting = false, received = null, applyElsewhere = null;
     async function decide(decision, doneLabel, isDeny) {
@@ -6198,6 +6310,17 @@ const Chat = (() => {
     if (typeof studyBlocked === 'function') return studyBlocked();
     return isBusy() || interview;
   }
+  /* A DELIVERY LANDING OWNS COMMS OVER THE ARC (rc review 2026-10-14). deliveryLanding() stands the arc down at offer time, but
+     the offer then waits seconds on the decomposition call, and the panel stays up until it is answered: a worker's hand-back
+     (deliverTurns) or a saved file that lands in that window was hidden behind it. Every landing bumps deliveryLandSeq; an
+     offer in flight stands down when it moved, and an open panel steps aside — unanswered, never a decline, so the arc is
+     offered again at a later run end. A panel the Commander opened themselves (PLAN A PATH) stays until they answer it. */
+  let deliveryLandSeq = 0, arcYield = null;
+  const STEPPED_ASIDE = { steppedAside: true };
+  function noteDeliveryLanding() {
+    deliveryLandSeq++;
+    if (arcYield) arcYield();
+  }
   async function offerArc(runId) {
     let opened = false;
     if (typeof GoalStore === 'undefined' || typeof Dialogue === 'undefined') return;
@@ -6205,6 +6328,7 @@ const Chat = (() => {
     if (slotCanArc() !== 'free' || arcBlocked()) return;   // the LOWEST priority: a taken/blocked moment just drops (re-offers next run end)
     if (GoalStore.isFiring && GoalStore.isFiring()) return;
     const lifecycle = beatCards, lifecycleGeneration = lifecycle && lifecycle.generation();
+    const askedFor = /^manual:/.test(String(runId || '')), landSeq = deliveryLandSeq;
     GoalStore.setFiring && GoalStore.setFiring(true);
     try {
       const res = await GoalStore.proposeDecomposition();   // the aux model call (reason-only) + parse
@@ -6212,6 +6336,7 @@ const Chat = (() => {
       if (!res || !res.belief || !Array.isArray(res.texts) || res.texts.length < 3) return;   // no usable path — stay un-offered so a later belief change retries
       // re-check the moment after the async model round-trip — memory/study may have claimed it meanwhile.
       if (slotCanArc() !== 'free' || arcBlocked()) return;
+      if (!askedFor && deliveryLandSeq !== landSeq) return;   // a delivery landed during the call: it owns COMMS now
       clearNudge();                 // claim the one post-run beat, retiring any gentle nudge
       const arcBeat = beatCards && beatCards.claim({
         kind: 'arc', runId: runId,
@@ -6220,19 +6345,25 @@ const Chat = (() => {
       });
       if (!arcBeat) return;
       let path = res.texts.slice();
+      // an unasked panel steps aside for a delivery landing (see noteDeliveryLanding): `stepped` resolves the wait it is in
+      let stepAside = null;
+      const stepped = askedFor ? null : new Promise(r => { stepAside = r; });
+      const unlessLanding = p => stepped ? Promise.race([p, stepped]) : p;
+      if (stepAside) arcYield = () => stepAside(STEPPED_ASIDE);
       try {
         Dialogue.open({ name: (name || 'AGENT') });
         opened = true;
-        await Dialogue.say('i think i see the path to that goal — here’s how i’d break it down. does this look right?');
+        if (await unlessLanding(Dialogue.say('i think i see the path to that goal — here’s how i’d break it down. does this look right?')) === STEPPED_ASIDE) return opened;
         const linesOf = ts => ts.map((t, i) => (i + 1) + '. ' + t).join('\n');
         // Confirm / Not-now + an ✎ EDIT custom path (allowCustom): typing a revised path (steps separated by a
         // newline OR a semicolon) replaces it, then re-applies the pure floor/cap on Confirm. The custom text is
         // user-typed (never model markup); Dialogue renders it via textContent only.
-        const choice = await Dialogue.node({
+        const choice = await unlessLanding(Dialogue.node({
           lines: linesOf(path),
           options: [ { label: 'confirm the path', value: 'confirm' }, { label: 'not now', value: 'other', skip: true } ],
-          allowCustom: true, customLabel: '✎ edit the milestones', customPlaceholder: 'your milestones, separated by ; …'
-        });
+          allowCustom: true, customLabel: 'edit the milestones', customPlaceholder: 'your milestones, separated by ; …'   // Dialogue draws the ✎ itself (it read "✎✎")
+        }));
+        if (choice === STEPPED_ASIDE) return opened;   // unanswered: no confirm, no decline, no learning signal
         if (Dialogue.isOpen && Dialogue.isOpen()) Dialogue.close();
         // route the choice through the PURE resolver (Goals.resolveConfirmChoice, behaviorally tested): an explicit
         // Confirm or a VALID edit (≥3 steps) persists; a too-short edit is a REJECTION of the model tree and
@@ -6265,6 +6396,7 @@ const Chat = (() => {
         // release the moment — and if a memory deck QUEUED behind this panel (a late memory.proposed during a
         // minutes-long confirm), HAND it the slot and render it now (mirrors studyCard's done()): the consent deck
         // must never sit invisible while its pendingMemory claim freezes the study/arc lanes.
+        arcYield = null;
         arcBeat.decide();
         arcBeat.finish();
         try { if (Dialogue.isOpen && Dialogue.isOpen()) Dialogue.close(); } catch (_) {}
@@ -6279,6 +6411,17 @@ const Chat = (() => {
   // one arc confirm per run: the collection pass consults this before staging the arc candidate (the offer
   // itself, including the paid decomposition call, only happens if the arc actually WINS the moment).
   function arcSeen(runId) { return !!runId && arcRunsSeen.has(runId); }
+  /* THE ARC NEVER TAKES OVER COMMS WHILE A DELIVERY LANDS (rc walk 2026-10-14). The goal-arc Dialogue replaces the whole COMMS
+     panel; it opened right as a background worker's file landed ("COPY finished: tagline.md is saved…") and hid it. A run end
+     carries a delivery when this page did not start the run (a worker's hand-back, a channel or routine run lands its result
+     now), when the run delivered a file, or when it handed work to crew and got their results back. The arc stands down for
+     that run end WITHOUT spending its once-token, so it is offered again at the next run end that has nothing new to show. */
+  function deliveryLanding(runId) {
+    const meta = runMeta(runId);
+    if (!meta) return true;
+    const w = runWork.get(runId);
+    return !!(meta.delegated || (w && (w.delivered || 0) > 0));
+  }
   function arcOnce(runId) {
     if (!runId) return true;
     if (arcRunsSeen.has(runId)) return false;
@@ -7400,6 +7543,8 @@ const Chat = (() => {
       return { kind: 'arc', dim: 'goals', reconfirm: true, why: recCite(text, beliefCiteKind(belief)), title: text,
                fire: () => { if (arcOnce(runId)) reconfirmCard(belief, 'goals', weeks, fp, runId); } };
     }
+    // A DELIVERY IS LANDING: the confirm panel takes over the whole COMMS panel, so it waits for a moment with nothing new on it.
+    if (deliveryLanding(runId)) return null;
     // STRENGTH: the cited goal belief's OWN freshness × how well the goals dimension is corroborated. A goal the
     // Commander stated last season, with nothing since to confirm it, is a weaker thing to build an arc on.
     return { kind: 'arc', dim: 'goals', why: recCite(text, beliefCiteKind(belief)), strength: recStrengthOfBelief(belief, 'goals'),
@@ -7831,6 +7976,7 @@ const Chat = (() => {
     pruneLog();
     if (!pinned) log.scrollTop = anchor && log.contains(anchor) ? log.scrollTop + (anchor.getBoundingClientRect().top - anchorTop) / scale : top;
     autoscroll();
+    noteDeliveryLanding();   // a hand-back just landed in the open conversation: a goal-arc panel steps aside for it
     return true;
   }
 
@@ -7890,7 +8036,14 @@ const Chat = (() => {
        the DOM current RIGHT NOW (closeSeg's empty-stub check, error, cleanTaskIntent, a hidden
        tab where rAF never fires) goes through flushProse() synchronously. */
     let renderQueued = false;
-    function flushProse() { renderQueued = false; if (seg) renderProse(seg.body, raw, { files }); }
+    // a still-open paragraph renders its LIVE text (Fork.liveText: no choice marker — complete or still being typed — ever
+    // shows raw); a paragraph that is closing renders its final text (complete markers removed, every prose line kept).
+    function shownProse(final) {
+      if (typeof Fork === 'undefined') return raw;
+      return final ? (Fork.stripMarkers ? Fork.stripMarkers(raw) : raw) : (Fork.liveText ? Fork.liveText(raw) : raw);
+    }
+    let lastShown = null;   // the text the open paragraph last rendered (a close re-renders only when its final text differs)
+    function flushProse(final) { renderQueued = false; if (seg) { lastShown = shownProse(final); renderProse(seg.body, lastShown, { files }); } }
     function queueProse() {
       if (renderQueued) return;
       if (typeof requestAnimationFrame !== 'function' || (typeof document !== 'undefined' && document.hidden)) { flushProse(); autoscroll(); return; }
@@ -7914,13 +8067,13 @@ const Chat = (() => {
     }
     function open() {
       endToolRail();   // a fresh prose paragraph opening below a rail closes it, so the next tool call starts a NEW rail under this prose (keeps chronological "said → did → said → did")
-      seg = row('agent', { stamp: true, who: whoName || null }); raw = '';
+      seg = row('agent', { stamp: true, who: whoName || null }); raw = ''; lastShown = null;
       if (seg.body && seg.body.addEventListener) seg.body.addEventListener('pointerdown', holdWhilePressed);
       caret = document.createElement('span'); caret.className = 'caret'; caret.textContent = '▮';
       seg.d.appendChild(caret);   // caret is a sibling of .body, so re-rendering .body's content never disturbs it
     }
     function closeSeg() {   // drop the caret, discard an empty stub, and arm the next token to start fresh
-      if (renderQueued) flushProse();   // pending tokens must land before the empty-stub check reads textContent
+      if (seg && (renderQueued || shownProse(true) !== lastShown)) flushProse(true);   // pending tokens land — and a line the live render held back shows — before the empty-stub check reads textContent
       if (caret) { caret.remove(); caret = null; }
       if (seg && !seg.body.textContent.trim()) seg.d.remove();
       seg = null; raw = '';
@@ -7959,7 +8112,7 @@ const Chat = (() => {
       error(m, rawDetail) {
         if (!seg) open();
         seg.d.classList.add('err');
-        raw += (raw ? '\n' : '') + '⚠ ' + m; flushProse();
+        raw += (raw ? '\n' : '') + '⚠ ' + m; flushProse(true);
         if (rawDetail && String(rawDetail).trim() && String(rawDetail).trim() !== String(m).trim()) {
           const sub = document.createElement('span'); sub.className = 'err-detail dim';
           sub.textContent = String(rawDetail).trim();
@@ -7991,8 +8144,8 @@ const Chat = (() => {
   // INTERRUPT — a per-stream stop. It cancels
   // only the DISPLAYED stream's in-flight run; the plumbing already exists (each stream owns an AbortController
   // here + a server runId) so this just exposes a ⏹ button / Esc for it. Flag the stream interrupted so send()'s
-  // catch keeps what already streamed instead of logging an error, and drop that stream's type-ahead queue — a
-  // deliberate stop means "I'm taking over", not "now run my backlog".
+  // catch keeps what already streamed instead of logging an error, and take that stream's type-ahead queue off the
+  // belt — a deliberate stop means "I'm taking over", not "now run my backlog" — and back into the box (restoreQueued).
   function stopActive(how) {
     if (activeWs?.conversationMode === 'group' && typeof GroupChat !== 'undefined') return GroupChat.stop();
     // /loop: Stop ends the interval watcher too, or the next tick fires a run the user just said they didn't
@@ -8010,15 +8163,18 @@ const Chat = (() => {
     interrupted.add(id);
     // how: 'esc' from the composer key; the STOP button passes its click event, voice barge-in passes nothing — all YOU
     stopSource.set(id, how === 'esc' ? 'esc' : 'you');
-    queued.delete(id);
+    restoreQueued(id);
     // GOAL LOOP: a deliberate Stop means "I'm taking over" — pause any active loop so the teardown's judge doesn't
     // fire the next continuation. (The user resumes it explicitly with /goal resume.)
     if (typeof GoalLoop !== 'undefined') { const g = goalOf(activeWs); if (g && GoalLoop.isActive(g)) { GoalLoop.pause(g, 'you stopped the run'); persistGoal(); } }
+    // what this run itself is paused on, read before the bulk clear (a background worker's ask outlives the run: not one of them)
+    const ownAsks = (typeof Channels !== 'undefined' && Channels.pendingAllOf) ? Channels.pendingAllOf(id).filter(p => p && p.promptId && p.background !== true) : [];
     if (typeof Channels !== 'undefined' && Channels.clearPending) Channels.clearPending(id, Date.now());   // a pending approval is moot once stopped
     status('stopping…'); updateControls();
     if (typeof SFX !== 'undefined') (SFX.close || SFX.press)();   // STOP winds a run down: the docks' close() cue
-    // runs only once the stop is CONFIRMED (or there was no run id to kill): the run's open approval cards go dead with it
-    const localAbort = () => { retireOpenConsents(id, (typeof Channels !== 'undefined' && Channels.runIdOf(id)) || ''); const ac = aborters.get(id); if (ac) { try { ac.abort(); } catch (_) {} } };   // aborts the fetch → reader throws → send()'s catch
+    // runs only once the stop is CONFIRMED (or there was no run id to kill): the run's open approval cards go dead with it,
+    // and every other surface holding one of its asks (the bell, CREW, the floor) is told it is over
+    const localAbort = () => { retireOpenConsents(id, (typeof Channels !== 'undefined' && Channels.runIdOf(id)) || ''); settleStoppedAsks(ownAsks); const ac = aborters.get(id); if (ac) { try { ac.abort(); } catch (_) {} } };   // aborts the fetch → reader throws → send()'s catch
     const rid = (typeof Channels !== 'undefined') ? Channels.runIdOf(id) : null;
     // STOP MEANS STOP (2026-09-04): the local fetch is torn down only AFTER the sidecar confirmed the kill. A
     // swallowed /api/cancel failure used to render a clean "RUN STOPPED" while the run kept burning server-side;
@@ -8027,6 +8183,30 @@ const Chat = (() => {
     if (rid && typeof Harness !== 'undefined' && Harness.cancel) {
       Promise.resolve(Harness.cancel(rid)).then(v => { if (v && v.ok) localAbort(); else stopFailed(id, v); }, e => stopFailed(id, { ok: false, error: (e && e.message) || String(e), transport: true }));
     } else localAbort();
+  }
+  /* QUEUED WORDS ARE NEVER LOST ON STOP (live walk 2026-10-14): a message typed while the run worked became a queued pill,
+     and STOP deleted it — not sent, not in the box, no notice. The stop still takes the backlog off the belt (nothing
+     auto-sends behind your back), but the words go back into the message box, ahead of whatever is typed there, unsent,
+     and one line says so — the same "give the typed text back" a refused /skill command does. */
+  function restoreQueued(id) {
+    const arr = queued.get(id) || [];
+    queued.delete(id);
+    renderQueued();
+    if (!arr.length || !input) return;
+    const typed = String(input.value || '').trim();
+    input.value = arr.concat(typed ? [typed] : []).join('\n');
+    autoGrowInput();
+    localLine(arr.length === 1 ? 'Your queued message was not sent — it is back in the message box.'
+      : 'Your ' + arr.length + ' queued messages were not sent — they are back in the message box.');
+  }
+  /* A STOPPED RUN'S ASKS LEAVE EVERY SURFACE (live walk 2026-10-14). The station denies a killed run's open prompts, but the
+     page drops the stream right after the kill is confirmed, so that permission.response never arrived: the bell kept
+     "NEEDS YOU — 2 waiting" while the rail said 1, CREW kept its gold "needs your OK" and the floor kept AWAITING APPROVAL
+     over an idle agent, until a reload. Once the stop is CONFIRMED each of the run's own asks is announced settled in the
+     station's own words for a stopped wait — decision 'deny', stopped:true: nothing was approved. */
+  function settleStoppedAsks(asks) {
+    if (typeof U === 'undefined' || !U.bus) return;
+    for (const p of asks) U.bus.emit('permission.response', { promptId: p.promptId, decision: 'deny', stopped: true });
   }
 
   // The sidecar did NOT confirm the stop: un-flag the stream (never mark it stopped on a claim the harness can't
@@ -8088,6 +8268,10 @@ const Chat = (() => {
   }
   function renderQueued() {
     const strip = el('chat-queued'); if (!strip) return;
+    /* THE QUEUE NEVER HIDES THE LIVE LINE (live walk 2026-10-14): the strip sits between the log and the message box, so a
+       new pill shrinks the log from its bottom — and with an approval card held (no follow) the presence line under it was
+       cut in half. A log showing its end keeps showing it: it moves up by what the strip grew (never past a held card's top). */
+    const atEnd = !!log && nearBottom(), h0 = strip.offsetHeight;
     const arr = (activeWs && queued.get(activeWs.id)) || [];
     strip.innerHTML = '';
     arr.forEach((t, i) => {
@@ -8103,6 +8287,8 @@ const Chat = (() => {
       pill.appendChild(document.createTextNode('⤷ ')); pill.appendChild(label); pill.appendChild(x);
       strip.appendChild(pill);
     });
+    const grew = strip.offsetHeight - h0;
+    if (atEnd && grew > 0) log.scrollTop += (heldCard && log.contains(heldCard)) ? Math.min(grew, Math.max(0, topInLog(heldCard) - 8)) : grew;
   }
   // a stream just freed (or was switched back to while idle) — send its next queued follow-up. Guarded to the
   // DISPLAYED stream so send()'s DOM writes always target the visible log; a backgrounded queue waits for return.
@@ -8715,7 +8901,8 @@ const Chat = (() => {
       try {
         const sys = GoalLoop.judgeSystem();
         const usr = GoalLoop.judgeUser(s, reply, { now: new Date().toISOString() });
-        const res = await Harness.chat({ system: sys, messages: [{ role: 'user', content: usr }], agentId: ws.agentId || 'agent', isTask: false, placed: [], internal: true });
+        // keepEffort: a verdict that ends the Commander's loop runs on their reasoning effort, never the cheap aux one
+        const res = await Harness.chat({ system: sys, messages: [{ role: 'user', content: usr }], agentId: ws.agentId || 'agent', isTask: false, placed: [], internal: true, keepEffort: true });
         raw = (res && !res.error) ? (res.text || '') : '';
       } catch (_) { raw = ''; }
       judged = GoalLoop.parseVerdict(raw);
@@ -10194,7 +10381,7 @@ const Chat = (() => {
         // sse.js:runTeeView — so the in-band stream stays the richest source for the page that started the run.)
         // callId joins it to its tool_call; isError drives the success-vs-failure surge. `summary`/`ms` ride
         // along per the frozen event shape so any consumer sees the result's own words, never a bare 'error'.
-        onToolResult: ev => { if (!ev.isError) runToolsOk++; const nm = callNames[ev.callId] || 'tool'; if (!ev.isError && /^station[._]control$/.test(nm) && ev.summary === 'estop.engage') runPressedEstop = true; Channels.addToolResult(ws.id, { callId: ev.callId, name: nm, summary: ev.summary, isError: ev.isError, ms: ev.ms }); presenceToolResult(ws); if (isActiveWs(ws)) resolveChip(ev, nm); if (typeof U !== 'undefined' && U.bus && ev.callId) U.bus.emit('agent.tool_result', { name: nm, agentId: ws.agentId, runId: ev.runId, callId: ev.callId, ok: !ev.isError, isError: !!ev.isError, summary: ev.summary, ms: ev.ms }); },   // runId rides along: a runId-less copy reset xp.js's per-run buffer (freshRun(undefined)) and wiped buffered memory-reuse credit
+        onToolResult: ev => { if (!ev.isError) runToolsOk++; const nm = callNames[ev.callId] || 'tool'; if (!ev.isError && /^(?:team[._]dispatch|group[._]handoff)$/.test(nm)) { const rm = runMeta(thisRunId); if (rm) rm.delegated = true; } /* crew results land in this run (deliveryLanding) */ if (!ev.isError && /^station[._]control$/.test(nm) && ev.summary === 'estop.engage') runPressedEstop = true; Channels.addToolResult(ws.id, { callId: ev.callId, name: nm, summary: ev.summary, isError: ev.isError, ms: ev.ms }); presenceToolResult(ws); if (isActiveWs(ws)) resolveChip(ev, nm); if (typeof U !== 'undefined' && U.bus && ev.callId) U.bus.emit('agent.tool_result', { name: nm, agentId: ws.agentId, runId: ev.runId, callId: ev.callId, ok: !ev.isError, isError: !!ev.isError, held: !!(typeof TaskIntent !== 'undefined' && TaskIntent.isGateHeld && TaskIntent.isGateHeld(ev)), summary: ev.summary, ms: ev.ms }); },   // runId rides along: a runId-less copy reset xp.js's per-run buffer (freshRun(undefined)) and wiped buffered memory-reuse credit
         onDeliverable: ev => {
           // BROWSER window: every write (not just the first per run) — it live-reloads the page on screen and, with
           // FOLLOW on, shows a new web page as it's made. Before the per-run dedupe on purpose.
@@ -10494,6 +10681,9 @@ const Chat = (() => {
       // crew HUD would stick at WORKING — clear this run's count here. Normal + in-band-error completions deliver
       // run.end (decremented by the bus listener), so we must NOT clear there or a concurrent sibling under-counts.
       if (typeof StationUI !== 'undefined' && StationUI.clearRunning) StationUI.clearRunning(ws.agentId || 'agent');
+      // ...and its waits on you end with it, exactly as an in-band end settles them: the bell drops this run's asks
+      // (a background worker's keeps its entry), so it never reads "NEEDS YOU — 2 waiting" beside a rail that says 1
+      settleRunNeeds(ws.id);
     } finally {
       aborters.delete(ws.id);
       liveRunRoots.delete(ws.id);
@@ -10822,7 +11012,7 @@ const Chat = (() => {
   // only" gate maybeStandaloneRate uses — so a pure-chat run is never bottle-offered. Used by App.runBottleInfo (R5).
   function runDidWork(id) { const w = id ? runWork.get(id) : null; return !!(w && ((w.toolsOk || 0) >= 1 || (w.delivered || 0) >= 1)); }
 
-  return { init, load, paintTitle, deliverTurns, send, consentInspect, appendConsentDetails, revealHistory, revealAsk, copyText, continuityDiagnostics, refreshStarters, sendOrQueue, continueConnectorTask, stopActive, status, localLine, broadcast, renderProse, openFile, answerConsent, consentPhrase: actionPhrase, reconcileBackgroundAsks, setSystem, getHistory, contextRef, abort, isBusy, beatBusy: skillBeatBusy, beginInterview, endInterview, echoUser, prefill, autoGrowInput, choices, clearChoices, retireDeskPrompt, typeLine, nudge, clearNudge, offerCuriosity, offerFork, planGoalPath, briefingReceipt, isComposerEngaged, canFocusSession, runMeta, runDidWork, awayDigest, awayReview, awayRate, sampleCard, workshopReturn, refreshIdBar: renderIdBar, refreshGroupControls: updateControls, refreshAgentIdentity, setRosterStatus, askBudgetSpent, spendAsk, clockLabel: fmtClock, breakLabel: fmtBreak, workspaceFileRefs, imageBlobUrl,
+  return { init, load, paintTitle, deliverTurns, send, consentInspect, appendConsentDetails, revealHistory, revealAsk, copyText, continuityDiagnostics, refreshStarters, sendOrQueue, continueConnectorTask, stopActive, status, localLine, broadcast, renderProse, toolRailOf, openFile, answerConsent, consentPhrase: actionPhrase, reconcileBackgroundAsks, setSystem, getHistory, contextRef, abort, isBusy, beatBusy: skillBeatBusy, beginInterview, endInterview, echoUser, prefill, autoGrowInput, choices, clearChoices, retireDeskPrompt, typeLine, nudge, clearNudge, offerCuriosity, offerFork, planGoalPath, briefingReceipt, isComposerEngaged, canFocusSession, runMeta, runDidWork, awayDigest, awayReview, awayRate, sampleCard, workshopReturn, refreshIdBar: renderIdBar, refreshGroupControls: updateControls, refreshAgentIdentity, setRosterStatus, askBudgetSpent, spendAsk, clockLabel: fmtClock, breakLabel: fmtBreak, workspaceFileRefs, imageBlobUrl, readableUrl,
     // the COMMS '▤ saved' row's folder / copy-path keys and their path resolver, shared with MY WORK › DELIVERABLES' FILES rows (org pass 10-14, P24)
     folderButton, copyPathButton, fullSavedPath: absoluteArtifactPath };
 })();

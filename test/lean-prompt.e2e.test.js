@@ -193,6 +193,11 @@ async function run(fixture, up, stream, messages) {
     A.ok(crewSys.indexOf('YOUR TEAM') >= 0 && crewSys.indexOf('researcher (Ada)') >= 0 && crewSys.indexOf('You have no crew yet') < 0, 'with crew: the full briefing with the team list');
     A.ok(crewSys.indexOf('\n• CREW CONFIGURATION: use team.config') >= 0 && crewSys.indexOf('\n• SESSIONS: session_list') >= 0, 'with crew: config + sessions paragraphs intact');
     A.ok(crewSys.indexOf('\n• SPAWN temporary') >= 0 && crewSys.indexOf('\n• SUMMON a NEW specialist') >= 0 && crewSys.indexOf('team.dispatch is granted but not loaded') < 0, 'with crew: the full SPAWN / SUMMON briefing, no crewless pointer');
+    // CREW IN THIS CHAT (rc walk 10-14): seating crew here is group.add, never a dispatch — with crew and without
+    const seat = '\n• CREW IN THIS CHAT ("bring X in", "add them into this chat"): station.control group.add (tool_search "group add"), never team.dispatch.';
+    A.ok(crewSys.indexOf(seat) >= 0 && crewSys.indexOf(seat) < crewSys.indexOf('\n• SPAWN temporary'), 'with crew: the seat line rides right under the team list');
+    A.ok(/It returns the new agentId: hand it work with team\.dispatch, or seat it in this chat with group\.add\./.test(crewSys), 'with crew: SUMMON names both next steps');
+    A.ok(sys1.indexOf(seat) >= 0, 'zero crew: the seat line rides too (a summoned hire is seated the same way)');
     await fixture.dispose();
 
     // ---- 3: kill switches restore the old request shape ----

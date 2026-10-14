@@ -52,6 +52,12 @@
     const base = apiBase();
     return base && href.charAt(0) === '/' ? base + href : href;
   }
+  // OPENING a text deliverable (not previewing it in a card) asks for the station's readable document view, never raw text on
+  // a white tab (live walk 10-14; Chat.readableUrl keeps the one list of text formats). The in-card preview still reads fileHref.
+  function openHref(f) {
+    const href = fileHref(f);
+    return (typeof Chat !== 'undefined' && Chat && typeof Chat.readableUrl === 'function' && /^[^?#]*\/api\/file\?/.test(href)) ? Chat.readableUrl(href, f && f.path) : href;
+  }
   // The backend's openUrl already carries the exact jailed path it proved. Read that value instead of
   // rebuilding Workshop paths from display fields (a kept/pending row may have a different lifecycle shape).
   function artifactPath(f) {
@@ -108,7 +114,7 @@
       // Cancel at the host confirmation is an answer. Falling through would bypass the user's refusal.
       if (/declined at the host/i.test(String(err || ''))) return true;
       // re-mint: the host confirmation above may have outlasted the first ticket's few-minute life
-      try { await core.invoke('open_external_url', { url: fileHref(f) }); }
+      try { await core.invoke('open_external_url', { url: openHref(f) }); }
       // the file row's own folder key takes over (org pass 10-14, P24): reveal it in its folder, or copy its full path.
       // No key on this row: a TO REVIEW FILES row (outbox.js) has no key slot, but its run is filed in the library below,
       // whose drawer row carries one; a library row whose key never wired keeps the old real places to look.
@@ -205,7 +211,7 @@
     const core = tauriCore();
     // A browser-only non-preview is already a real href; let the anchor perform its native navigation — with a
     // FRESH ticket (the rendered one may be past its few-minute life; a click handler runs before the navigation).
-    if ((!core || !core.invoke) && (!f.preview || f.sandboxed)) { try { link.href = fileHref(f); } catch (_) {} return false; }
+    if ((!core || !core.invoke) && (!f.preview || f.sandboxed)) { try { link.href = openHref(f); } catch (_) {} return false; }
     ev.preventDefault();
     ev.stopPropagation();
     if (core && core.invoke) {
@@ -362,7 +368,7 @@
         // the main file leads the list (its OPEN is the drawer's first key — org pass 10-14, P13); the rows are built in the
         // backend's order first, so every data-file index still points at its own file
         ? '<ul class="dlv-files">' + mainFirst((r.files || []).map((f, fi) => f.openUrl
-            ? '<li><a class="bb sm' + (r.main && f.path === r.main ? ' dlv-hero' : '') + '" data-file="' + fi + '" href="' + esc(fileHref(f)) + '" target="_blank" rel="noopener">OPEN</a><span class="dlv-floc" data-floc="' + fi + '"></span><span class="dlv-fname">' + esc(f.path) + '</span><span class="dlv-fsize">' + esc(fmtSize(f.bytes)) + '</span>' + (r.main && f.path === r.main ? '<span class="dlv-fmain">the main one</span>' : '') + '</li>'
+            ? '<li><a class="bb sm' + (r.main && f.path === r.main ? ' dlv-hero' : '') + '" data-file="' + fi + '" href="' + esc(openHref(f)) + '" target="_blank" rel="noopener">OPEN</a><span class="dlv-floc" data-floc="' + fi + '"></span><span class="dlv-fname">' + esc(f.path) + '</span><span class="dlv-fsize">' + esc(fmtSize(f.bytes)) + '</span>' + (r.main && f.path === r.main ? '<span class="dlv-fmain">the main one</span>' : '') + '</li>'
             : '<li><span class="dlv-fname off">' + esc(f.path) + '</span><span class="dlv-fsize">no longer available</span></li>')) + '</ul>'
         : '<p class="dlv-none">This run recorded no files.</p>';
       const openSession = (r.jobId ? '<button class="bb sm" data-act="workflow">OPEN IN WORKFLOWS</button>' : '') + ((run && run.streamId) ? '<button class="bb sm" data-act="session">↗ OPEN THE FULL CONVERSATION</button>' : '');

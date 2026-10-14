@@ -577,6 +577,9 @@ const StationCommands = (() => {
   const builtWrite = (st, list) => { try { localStorage.setItem(builtKey(st), JSON.stringify(list.slice(-10))); } catch (_) {} };
   let planSeq = 0;
   const NEXT_STEP = 'Tell the Commander the summary in plain words, then call station.build with this planId. Nothing has been built yet.';
+  // a LINE plan with nobody on a step says how to staff it in the same plan (StationBuilder.planNext: its top-level steps), else the
+  // usual word; a room or build plan staffs a line inside its zones and lines (staff), so its receipt names the staff form instead
+  const planNextOf = pl => (StationBuilder.planNext && StationBuilder.planNext(pl, (App.agents ? App.agents() : []).map(x => x && x.name).filter(Boolean))) || NEXT_STEP;
   function park(r) {
     if (!r || !r.ok) throw new Error((r && r.error) || 'the plan failed');
     const now = Date.now();
@@ -726,7 +729,7 @@ const StationCommands = (() => {
       const { st, env } = builderReady(a);
       const p = park(StationBuilder.plan(st.serialize(), (a && a.request) || {}, env));
       return { planId: p.planId, summary: p.plan.summary, line: p.plan.line, where: p.plan.where, steps: p.plan.steps, ready: p.plan.ready, blocking: p.plan.blocking,
-        recruits: p.plan.recruits, picked: p.plan.picked, notes: p.plan.notes, expiresInMinutes: PLAN_TTL_MS / 60000, next: NEXT_STEP };
+        recruits: p.plan.recruits, picked: p.plan.picked, notes: p.plan.notes, expiresInMinutes: PLAN_TTL_MS / 60000, next: planNextOf(p.plan) };
     },
     // ROOMS & DECOR (phase 2): a hand-designed room kit (a new room, or furnishing one with clear floor), or every room of a preset
     'station.plan_room': (a) => {
@@ -830,9 +833,8 @@ const StationCommands = (() => {
       const undo = 'The Commander can take all of it back with one UNDO in Build mode'
         + (r.kind === 'swap' ? ', or bring the old station back with RESTORE PREVIOUS in Build → Presets' : '')
         + ((r.recruited || []).length ? '; the recruited agents stay on the crew (DELETE AGENT in a Dossier removes one)' : '') + '.';
-      const result = Object.assign({ built: true, undo }, r.line
-        ? { summary: r.summary, line: r.line, where: r.where, steps: r.steps, lineId: r.lineKey, ready: r.ready, blocking: r.blocking, recruited: r.recruited }
-        : { summary: r.summary, rooms: r.rooms, hallways: r.hallways, lines: r.lines, recruited: r.recruited, where: r.where });
+      // the receipt's body is the builder's own (StationBuilder.receipt): every line it laid or touched, with the floor's readiness
+      const result = Object.assign({ built: true, undo }, StationBuilder.receipt(r, e.plan));
       result.routing = await builderPublication();
       if (!result.routing.published) {
         result.ready = false;

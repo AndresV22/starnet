@@ -137,7 +137,7 @@ async function quickRun(answers, stopAt, wake = false, mind = null, receipts = [
   const yes = await pathRun({ value: 'confirm' }, true);
   assert.deepEqual(yes.proposedFor, [yes.goals[yes.goals.length - 1].id], 'the belief this meeting just wrote (not an older identical one) is drafted into steps');
   assert.notEqual(yes.proposedFor[0], 'cd_old');
-  const pathPrompt = yes.prompts.find(p => p.customLabel === '✎ edit the steps');
+  const pathPrompt = yes.prompts.find(p => p.customLabel === 'edit the steps');
   assert.ok(pathPrompt, 'the path is offered in the meeting with an edit option');
   assert.ok(yes.prompts.indexOf(pathPrompt) > yes.prompts.findIndex(p => (p.options || []).some(o => o.value === 'suggest')), 'the path comes after the cadence beat');
   assert.deepEqual(yes.confirmed, [[yes.proposedFor[0], ['Shortlist three features', 'Prototype the best one', 'Ship it to five users']]], 'confirm persists the drafted path');
@@ -153,6 +153,6 @@ async function quickRun(answers, stopAt, wake = false, mind = null, receipts = [
   assert.ok(longMission.length > 280, 'precondition: the mission is longer than a belief can hold');
   assert.equal(long.confirmed.length, 1, 'a mission longer than 280 chars (the dossier caps it) still gets its path offered and saved');
   const noGoalStore = await quickRun([{value:'loose'}, {value:'I want help deciding what to build.'}, {value:'My station onboarding.'}, {value:'yes'}, {value:'wait'}], null, false, mind);
-  assert.ok(!noGoalStore.prompts.some(p => p.customLabel === '✎ edit the steps'), 'without a goal store the meeting is unchanged');
+  assert.ok(!noGoalStore.prompts.some(p => p.customLabel === 'edit the steps'), 'without a goal store the meeting is unchanged');
   console.log('onboarding-refresh: OK (quick setup, exact answers, posture, deferred profile, cancellation, first path)');
 })().catch(error => { console.error(error); process.exitCode = 1; });

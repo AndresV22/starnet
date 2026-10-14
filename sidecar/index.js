@@ -63,7 +63,7 @@ const { makeWebReader } = require('./tools/builtin/webreader.js');
 const { makeBrowserTools, _internals: browserInternals } = require('./tools/builtin/browser.js');
 // ONE reader for the whole sidecar (lazy: no Chrome until the first bot-walled fetch actually needs
 // it; idle self-teardown). Per-run construction would pay the Chrome cold start on every run.
-const stationWebReader = makeWebReader({ env: process.env });
+const stationWebReader = makeWebReader({ env: process.env, now: () => Date.now() });
 const stationWebPoliteness = makePoliteScheduler({ now: () => Date.now() });
 const { makeComputerTools } = require('./tools/builtin/computer.js');
 const { makeCuaComputerTools } = require('./tools/builtin/cua-computer.js');
@@ -199,7 +199,7 @@ const WorkspaceReserved = require('./workspace-reserved.js');   // agent ids tha
 const { runRouteFailure } = require('./runroute.js');   // a failure escaping handleRun must never read as an empty 200
 const { json: respondJson, readJsonBody, isAgentId } = require('./respond.js');   // canonical json()/body/agent-id helpers — adopt incrementally, don't mass-migrate
 const { readBody, readBodyBuffer } = require('./http-body.js');
-const { MIME, CHANNEL_UPLOAD_MAX_BYTES, mimeForPath, safeDownloadName, isActiveDeliverable, parseRange } = require('./file-response.js');
+const { MIME, CHANNEL_UPLOAD_MAX_BYTES, mimeForPath, safeDownloadName, isActiveDeliverable, parseRange, isTextDocument, documentViewHtml, DOC_VIEW_CSP, DOC_VIEW_MAX_BYTES } = require('./file-response.js');
 const { reflect, reflectSalient, recordFromProposal, feedbackFor, highStakes } = require('./reflect.js');
 const FeedbackMemory = require('./feedbackmemory.js');   // THE COMMANDER'S TASTE: verdicts + corrections -> durable like/dislike memory
 const TasteRef = require('./tasteref.js');   // DESIGN ANCHOR: the rated run's real files / palette / fonts / image args / method, captured on a verdict
@@ -377,6 +377,7 @@ const { registerTaskBriefTools } = require('./taskbrief-tools.js'); // structure
 const CrewCall = require('./crew-call.js');   // names a crew member the Commander asked for at the END of the lead prompt
 const CrewDiet = require('./crew-diet.js');   // ZERO-CREW DIET: which crewless lead defers which part of the crew kit
 const TaskIntent = require('../frontend/app/fork.js').TaskIntent;    // shared TASK_QUESTION protocol + prompt doctrine
+const ForkMarkers = require('../frontend/app/fork.js');               // the one choice-marker grammar (parse / stripMarkers)
 const CommanderContext = require('./commander-context.js');    // bounded provenance-labelled task context
 const threadmine = require('./threadmine.js');                // NS-6: pure post-run thread-mining producer (reflect/study mold)
 const AuxGovernor = require('./auxgovernor.js');              // aux-budget lane: PURE joint ceiling over the post-run aux passes (priority + budget)
@@ -3136,6 +3137,27 @@ function auxReasoningEffort(provider, model) {
   let allowed; try { allowed = provider.reasoningEfforts(model); } catch (_) { return null; }
   return (Array.isArray(allowed) && allowed.indexOf(want) >= 0) ? want : null;
 }
+/* auxPassEffort — the effort for the station's REASON-ONLY aux work: the post-run passes (reflection · failure
+   review · study · thread-mine · scout) and INTERNAL self-talk runs (a session title, session ideas, a goal plan, a
+   pitch). A configured aux tier (STARNET_AUX_EFFORT / STARNET_AUX_MODEL) gets exactly auxReasoningEffort. Unconfigured,
+   this used to be no override at all, so every aux call inherited the Commander's chat effort and paid hidden
+   thinking for a strict-format reply — measured live on haiku-4.5 (10-14): a title 483 reasoning tokens for 4 words,
+   a reflection 401 for the one PREFERENCE line it wrote in 24 at 'none', a goal plan ~6.8k over 63 s, and a
+   session-ideas pass that ran past its own 45 s deadline and was thrown away. Now the LOWEST effort the provider
+   lists for that model (AuxGovernor.pickAuxEffort; null = no override). The native adapters state each model's levels;
+   OpenRouter's /models does not, so its list is a guess until the endpoint refuses a rung — the adapter then learns the
+   refusal and resends at the nearest rung kept ('Reasoning is mandatory' on none -> minimal; test/openrouter-effort-heal).
+   Compaction stays on auxReasoningEffort: a fold is the Commander's own task context, not self-talk (test/aux-effort). */
+function auxPassEffort(provider, model) {
+  if (String(ENV('AUX_EFFORT') || '').trim() || resolveAuxModel()) return auxReasoningEffort(provider, model);
+  const allowed = providerEfforts(provider, model);
+  return allowed ? AuxGovernor.pickAuxEffort(allowed) : null;
+}
+// the levels the provider lists for `model` right now (after any refusal its adapter learned), or null
+function providerEfforts(provider, model) {
+  if (!provider || typeof provider.reasoningEfforts !== 'function') return null;
+  try { return provider.reasoningEfforts(model); } catch (e) { failNote('aux.effort', e); return null; }
+}
 
 /* ---- HYBRID RECALL — the embedding lane (memory-compound lane) ----------------------------------------------
    BM25 alone can never surface "registry pushes rate-limit" for a task phrased "uploads keep getting throttled":
@@ -3713,7 +3735,7 @@ async function runBackgroundSkillReview(o) {
   finally {
     clearTimeout(timer);
     if (result && result.usd) {
-      try { ledger.record({ runId: reviewRunId, agentId, turns: result.turns || 0, usd: result.usd || 0, tokens: result.tokens || 0, unmetered }); } catch (_) {}
+      try { ledger.record({ runId: reviewRunId, agentId, turns: result.turns || 0, usd: result.usd || 0, tokens: result.tokens || 0, model: model || '', unmetered }); } catch (_) {}   // model: the spend row names what it spent on, like every other aux row
     }
   }
   // false asks verdictreview to retry: only a pass that failed before it changed the skillbase (a budget/turn-ceiling/
@@ -3772,7 +3794,7 @@ async function runSkillCurator(o) {
   finally {
     clearTimeout(timer);
     if (result && result.usd) {
-      try { ledger.record({ runId: curatorRunId, agentId, turns: result.turns || 0, usd: result.usd || 0, tokens: result.tokens || 0, unmetered }); } catch (_) {}
+      try { ledger.record({ runId: curatorRunId, agentId, turns: result.turns || 0, usd: result.usd || 0, tokens: result.tokens || 0, model: model || '', unmetered }); } catch (_) {}
     }
   }
 }
@@ -11111,7 +11133,7 @@ const groupSessions = require('./group-sessions.js').makeGroupSessions({
         // the agent's own room gear (its dish = web, its cabinet = files …), exactly as its one-on-one chat gets it from
         // the durable floor (/api/run, savedPlacement): in a group a researcher could not search (2026-10-13 gap review)
         extraObjects: require('./capability/saved-placement.js').savedPlacement(saveStore.load('agent'), t.agentId),
-        prompt: (call, tool) => prompt({ tool: call.name, scope: tool?.scope || 'write', argsSummary: consentSummary(call), argsFull: consentArgsFull(call) }),
+        prompt: (call, tool) => prompt({ tool: call.name, scope: tool?.scope || 'write', argsSummary: consentSummary(call, { streamId: g.id, chat: 'group' }), argsFull: consentArgsFull(call) }),
         loginPrompt: prompt, reflect: false
       });
     } finally {
@@ -11215,9 +11237,10 @@ function remoteNotify(evt) {
     let last = '';
     try { const turns = transcriptStore.history(evt.streamId, { limit: 4 }) || []; for (let i = turns.length - 1; i >= 0; i--) if (turns[i].role === 'assistant' && typeof turns[i].content === 'string' && turns[i].content.trim()) { last = turns[i].content; break; } }
     catch (e) { failNote('remote.index.pushReply', e); }
-    const qm = /^\s*(?:TASK_QUESTION|FORK):\s*(.+?)\s*\|\|/m.exec(String(last));
-    if (qm && !evt.error) return remotePushSend({ title: remoteAgentName(evt.agentId) + ' has a question', body: qm[1].slice(0, 200), tag: 'run:' + evt.runId, url: '#thread=' + evt.streamId });
-    const line = String(last).replace(/[*#`>_]+/g, '').replace(/\s+/g, ' ').trim();
+    // the chat's own marker grammar (fork.js): a bold, numbered or mid-line marker is a question too, and never pushed raw
+    const asked = TaskIntent.parse(last) || ForkMarkers.parse(last);
+    if (asked && !evt.error) return remotePushSend({ title: remoteAgentName(evt.agentId) + ' has a question', body: asked.question.slice(0, 200), tag: 'run:' + evt.runId, url: '#thread=' + evt.streamId });
+    const line = String(ForkMarkers.stripMarkers(last)).replace(/[*#`>_]+/g, '').replace(/\s+/g, ' ').trim();
     remotePushSend({ title: remoteAgentName(evt.agentId) + (evt.error ? ' hit a problem' : ' finished'),
       body: (evt.error ? String(evt.error) : line || 'Tap to read the reply').slice(0, 200), tag: 'run:' + evt.runId, url: '#thread=' + evt.streamId });
   }
@@ -11538,6 +11561,11 @@ const ROUTES = [
       // the parent's DELEGATED card (frontend/app/delegated.js): who, which dispatch, and whether STOP can act
       agentId: w.agentId, parentRunId: w.parentRunId || '', generation: w.generation, completedAt: w.completedAt || 0,
       canInterrupt: !!w.canInterrupt, reason: w.reason || '',
+      // the files this worker really saved (its own artifacts ledger), by workspace-relative path — never the disk path —
+      // so the conversation's report can OPEN what it names (live walk 10-14; delegated.js linkSavedFiles)
+      files: (Array.isArray(w.artifacts) ? w.artifacts : []).filter(a => a && (a.kind === 'file' || a.kind === 'image') && a.path)
+        .slice(-12).map(a => ({ path: String(a.path), agentId: String(a.agentId || w.agentId || 'agent') })),
+      projectRoot: w.projectRoot || '',
       // the ledger's own explanation of a refused or failed worker (the crew-cap or sign-in sentence, a run's error) for
       // the card's hover tip and NEEDS YOU, as `failure` and only when there is one. This polled route never carries a
       // worker's `result` (heavy, and a timeout's or rejected answer's result is partial work, never a reason).
@@ -15603,6 +15631,7 @@ function handleStateSnapshot(req, res) {
         // worker's ask also outlives its lead's turn: it carries what a reloaded page needs to file and answer it
         // (the conversation, what it asks for) — the same fields its permission.prompt carried (askHuman)
         const row = { runId: runId, agentId: (ask && ask.workerAgentId) || agentId, promptId: promptId };
+        if (ask && ask.tool) row.tool = ask.tool;   // additive: a reloaded floor words a question (brief.ask) as one, not an approval
         if (ask && f.detached) Object.assign(row, { background: true, tool: ask.tool, scope: ask.scope, argsSummary: ask.argsSummary,
           workerAgentId: ask.workerAgentId, workerRunId: ask.workerRunId, workerStreamId: ask.workerStreamId, streamId: ask.streamId, askedAt: ask.askedAt, leadAgentId: ask.agentId });
         out.prompts.push(row);
@@ -19083,6 +19112,11 @@ async function handleRun(req, res) {
   // this Commander should do next, so it may request the same bounded evidence pack an ordinary task run gets.
   // Only meaningful alongside internal; runOnce ignores it otherwise.
   const evidence = !!(body && body.evidence);
+  // …and an internal run that must run on the Commander's own reasoning effort says so (keepEffort): a reply that IS work
+  // they read (the autopilot's desk draft + its self-critique, a plan they asked for), a decision that must not be wrong
+  // (the goal loop's done/continue judge), and the WAKE preflight (it proves the path the awakening uses). Every other
+  // internal run is strict-format self-talk on the aux effort.
+  const keepEffort = !!(internal && body && body.keepEffort === true);
   const runProvider = normalizeProvider(provider);
   const reasoningEffort = resolveReasoningEffort(runProvider, body && (body.reasoningEffort || body.reasoning_effort || (body.reasoning && body.reasoning.effort)));
   const preloadSkills = Array.isArray(body && body.preloadSkills) ? body.preloadSkills.map(s => String(s || '').trim()).filter(Boolean).slice(0, 8) : [];
@@ -19239,7 +19273,7 @@ async function handleRun(req, res) {
     if (detached && pendingByRun.get(runId) !== pending) pendingByRun.set(runId, pending);   // the turn already ended: reopen its answer slot
     const sessionOver = (d) => (detached && leadOver && d === 'session') ? 'once' : d;
     return makeConsentWait({
-      timeoutDecision: opts && opts.timeoutDecision,
+      timeoutDecision: opts && opts.timeoutDecision, abortDecision: opts && opts.abortDecision,
       // Node 18 / 20.0-20.2 have no AbortSignal.any: the ask then rides the run's own signal and the timeout (still
       // fail-closed; only the instant withdrawal when that one worker stops is lost)
       pending, signal: detached ? by.signal : (by && by.signal && typeof AbortSignal.any === 'function') ? AbortSignal.any([ac.signal, by.signal]) : ac.signal, timeoutMs: CONSENT_TIMEOUT_MS, extendMs: CONSENT_ACK_EXTEND_MS,
@@ -19289,7 +19323,8 @@ async function handleRun(req, res) {
   }
   function promptConsent(call, tool) {
     // an unanswered COMMS card is not a refusal: the broker's 'timeout' result says so (the card still gets expired:true)
-    return askHuman({ tool: call.name, scope: (tool && tool.scope) || 'write', argsSummary: consentSummary(call), argsFull: consentArgsFull(call), fresh: !!(tool && tool.freshConsent === true) }, { timeoutDecision: 'timeout' });
+    // …and one withdrawn by a stop or teardown is not one either ('cancelled': the broker's withdrawn result, never "you declined")
+    return askHuman({ tool: call.name, scope: (tool && tool.scope) || 'write', argsSummary: consentSummary(call, { streamId }), argsFull: consentArgsFull(call), fresh: !!(tool && tool.freshConsent === true) }, { timeoutDecision: 'timeout', abortDecision: 'cancelled' });
   }
   // NS-5: the "work in <root>? always/once/no" channel — the SAME permission.prompt mechanism, so the browser's
   // existing consent card answers it (Always = record a standing path grant; Approve once = this access only;
@@ -19394,7 +19429,7 @@ async function handleRun(req, res) {
     // of default-denying. The SAME run host (runOnce) is reused by the messaging hub with surface:'autonomous'.
     const continuedResult = await runOnce({
       key, keyPool: body && body.keyPool, model, system: (projectLine || projectRules) ? (String(system || '') + projectLine + projectRules) : system, messages: runMessages, agentId, isTask, provider: runProvider, baseUrl, reasoningEffort, fallbackModels, fallbackProviders,
-      emit, signal: ac.signal, runId, trigger: 'directive', internal, evidence,
+      emit, signal: ac.signal, runId, trigger: 'directive', internal, evidence, keepEffort,
       voiceTurn: !!(body && body.voiceTurn === true),   // the reply will be SPOKEN: the voice chat model may answer it
       initialTaint: hasUserAttachments ? 'user attachment' : null,
       learningInput,   // host-captured BEFORE attachment expansion; never accepted from request metadata
@@ -19464,7 +19499,8 @@ async function handleRun(req, res) {
     const p = pendingByRun.get(runId);   // deny any prompt still open (belt-and-suspenders; the loop normally awaits)
     if (p) {
       // ...except a background worker's ask: it outlives this turn (askHuman) and closes the slot when it settles
-      for (const f of p.values()) { if (f && f.detached) continue; try { f('deny'); } catch (e) { failNote('run.finally.denyOpenAsk', e); } }
+      // each with its own withdrawn word (consentwait abortDecision): a capability ask reads "withdrawn", never "you declined"
+      for (const f of p.values()) { if (f && f.detached) continue; try { f((f && f.abortDecision) || 'deny'); } catch (e) { failNote('run.finally.denyOpenAsk', e); } }
       if (!p.size) pendingByRun.delete(runId);
     }
     const ps = pendingSummonByRun.get(runId);   // settle any summon request still open → null (no agent created)
@@ -21353,6 +21389,15 @@ async function runOnceCore(o) {
   const fallbacks = rotationFallbacks
     .concat(fallbackModels.map(m => ({ provider, providerId, model: m })))
     .concat(providerFallbacks);
+  // INTERNAL self-talk (a title, session ideas, a goal plan) is reason-only aux work: it runs on the aux effort, not the
+  // effort the Commander picked for their own chat (auxPassEffort). Every adapter clamps a per-request effort to what
+  // the model it lands on offers, so a fallback hop stays valid. null = no override (every other run — an /v1
+  // outputOnly repair is an external caller's own request, so it is o.internal here, not `internal`).
+  // An internal run marked o.keepEffort (work the Commander reads, the goal judge, the wake preflight) keeps their effort.
+  const internalEffort = o.internal && !o.keepEffort ? auxPassEffort(provider, model) : null;
+  // …and the effort it RAN on, read after the run: a pick the endpoint refused was resent at the nearest rung it keeps
+  // (OpenRouter learns the refusal), so the record names that rung, never the refused one.
+  const internalEffortRan = () => internalEffort ? AuxGovernor.effortAsRan(internalEffort, providerEfforts(provider, model)) : null;
 
   // ---- context auto-compaction: fold older turns into a summary once the live prompt passes 65% of the model's
   //      window, so a long run shrinks instead of overflowing. The summarizer is ONE model call over the older
@@ -21654,7 +21699,13 @@ async function runOnceCore(o) {
          recovery nudge follows (loop.js). */
       if (!postTaint.allow && humanAnswered && String(decision || '').toLowerCase() === 'deny') {
         return { ok: false, isError: true, summary: 'denied',
-          content: 'consent denied for ' + c.name + ': the Commander declined this call. Do NOT retry it or work around it with another tool; carry on without it and, if it mattered, say plainly that it was declined.' };
+          // said to the Commander as "you", the way registry.js words their No (the model repeats a result's framing)
+          content: 'consent denied for ' + c.name + ': the Commander said no on the approval card, so it was NOT run. Do NOT retry it or work around it with another tool; carry on without it and, if it mattered, say plainly that it was declined, to them as "you" ("you declined …").' };
+      }
+      // withdrawn before anyone answered (the run stopped): not a No, and not the taint lock either
+      if (!postTaint.allow && humanAnswered && String(decision || '').toLowerCase() === 'cancelled') {
+        return { ok: false, isError: true, summary: 'cancelled',
+          content: 'approval withdrawn for ' + c.name + ': the request ended before anyone answered it, so it was NOT run. Nobody said no; do NOT retry it yourself.' };
       }
     }
     const postTaintConfirmed = postTaint.oneShot;
@@ -21715,8 +21766,11 @@ async function runOnceCore(o) {
       if (!execution.consumeToolCall(o.maxToolCalls)) return { ok: false, isError: true, summary: 'tool-budget', content: 'This worker reached its task-specific tool-call budget. Finish now with the evidence already collected.' };
     }
     if (taskBriefState && !internalBriefControl) {
-      const gate = TaskBriefPolicy.canMutate(taskBriefState.brief, liveTool);
-      if (!gate.ok) return { ok: false, isError: true, content: 'Task Brief gate: ' + gate.reason, summary: 'paused — settling the task first' };
+      const gate = TaskBriefPolicy.canMutate(taskBriefState.brief, liveTool, c);
+      // NOT RUN, NOT FAILED (rc walk 2026-10-14): the summary is the shared held-call stamp (fork.js TaskIntent.GATE_HELD) the
+      // chat draws as a neutral not-run chip, and the model is told this is a routine step (it narrated "Ah, I need to settle
+      // the brief first" over a red ✗ team.dispatch chip).
+      if (!gate.ok) return { ok: false, isError: true, content: TaskIntent.GATE_HELD_LEAD + ' ' + String(gate.reason).charAt(0).toUpperCase() + String(gate.reason).slice(1) + ', then make this same call again. This is a routine step: the Commander sees your brief as its own card, so make the brief call with no text before it and never mention the gate.', summary: TaskIntent.GATE_HELD, quietRepair: true };
     }
     /* EVIDENCE-PROGRESS GUARD. The old loop guard below catches an identical call only when it FAILS. The
        live Drive incident spent 100+ calls on nominal successes (same page text, fresh refs, "clicked", parked
@@ -21774,6 +21828,14 @@ async function runOnceCore(o) {
     // A name no registered tool answers to: the registry's "unknown tool" reply names the closest tools THIS run can
     // call (advertised + deferred wire names), never an ungranted one (loop-breaker.js counts these as strikes).
     if (!liveTool) dctx = Object.assign({}, dctx, { toolNames: Array.from(fromWire.keys()) });
+    // CREW SEATED MID-TASK START FROM THE ANSWERS (review 10-14): station.control hands group.add what the Commander already
+    // answered in this run's Task Brief (host-composed, their own words), so the kickoff in the group never re-asks it
+    if (/^station[._]control$/.test(String(c.name || '')) && taskBriefState && taskBriefState.brief) {
+      try {
+        const answers = require('./taskbrief-context.js').answeredSoFar(taskBriefState.brief);
+        if (answers) dctx = Object.assign({}, dctx, { briefAnswers: answers });
+      } catch (e) { failNote('station-control.brief-answers', e); }
+    }
     if (postTaintConfirmed) {
       const baseAuthorize = dctx && dctx.authorize;
       dctx = Object.assign({}, dctx, {
@@ -22105,8 +22167,15 @@ async function runOnceCore(o) {
   // SPAWN and CREW CONFIGURATION hold with or without crew too (clones need no crew; the lead configures its OWN Dossier),
   // and so does the project workspace: computed once, shared verbatim by both briefings.
   const spawnLine = '\n• SPAWN temporary same-identity subagents with team.spawn for one-off parallel subtasks when no named specialist is needed. '
-    + 'Use background:true for watchable long-running spawned workers, then inspect/control them with team.subagents, team.interrupt, and team.resume. '
-    + 'When a running background worker needs a mid-flight correction or new information, use team.steer (pass the id and generation from team.subagents) instead of interrupting and restarting it.';
+    + 'background:true makes them watchable: inspect/control them with team.subagents, team.interrupt and team.resume, and give a running one a mid-flight correction '
+    + 'or new information with team.steer (the id and generation from team.subagents) instead of restarting it.';
+  /* CREW IN THIS CHAT (rc walk 10-14, Haiku 4.5): "bring two crew in to help me write a launch post" and "add them into this
+     chat" went to team.dispatch / team.summon — the chat never got them, and the lead said "Bringing COPY and STRATEGY into
+     this chat" while dispatching. Seating crew here is station.control group.add (deferred, so the search words ride along).
+     Only when this run holds it: the prompt never names a tool the run does not have. Paid for by the tighter SPAWN line
+     above and YOUR TEAM line below (payload.budget). */
+  const seatLine = resolved.tools.includes('station.control')
+    ? '\n• CREW IN THIS CHAT ("bring X in", "add them into this chat"): station.control group.add (tool_search "group add"), never team.dispatch.' : '';
   const crewConfigLine = '\n• CREW CONFIGURATION: use team.config to read Dossier documents, then team.configure to edit the requested agent by exact ID. '
     + 'A notebook entry does not update another agent\'s Purpose or standing orders. Report a change only after the tool confirms it was saved. '
     + 'Dossier Purpose and standing orders describe the ongoing role; Bay briefs add the workflow-stage job. '
@@ -22135,7 +22204,7 @@ async function runOnceCore(o) {
       + '("create a research agent for me"), actually DO it with team.summon — don\'t just describe it or claim you cannot; '
       + 'it returns the new agentId, and team.dispatch becomes callable to hand it work. team.dispatch is granted but not loaded '
       + 'until then (tool_search "delegate subtasks" finds it); a background team.spawn makes its worker controls callable.'
-      + projectWorkspaceNote + spawnLine + crewConfigLine + sessionsNote;
+      + seatLine + projectWorkspaceNote + spawnLine + crewConfigLine + sessionsNote;
   } else if (isTask && resolved.tools.includes('team.dispatch')) {
     teamNote = '\n\n[ORCHESTRATION] You are the lead orchestrator. You can build and direct a crew for the Commander:';
     if (require('./overseer.js').isCoordinatorRun({ ...o, agentId, surface })) teamNote += '\nCoordinate the Commander\'s existing station crew from this conversation. Handle simple work directly. '
@@ -22160,8 +22229,8 @@ async function runOnceCore(o) {
       if (track) anyTrack = true;
       lines.push('  - ' + aid + ' (' + (ident.name || aid) + ')' + (ident.role ? ' — ' + ident.role : '') + (track ? ' [' + track + ']' : ''));
     }
-    if (lines.length) teamNote += '\n• YOUR TEAM — DELEGATE to your existing specialist crew with team.dispatch — call it with '
-      + 'workers:[{agentId, prompt}] and synthesize their returned results into your final answer. '
+    if (lines.length) teamNote += '\n• YOUR TEAM — DELEGATE to your existing specialist crew with team.dispatch (workers:[{agentId, prompt}]) '
+      + 'and synthesize their results into your final answer. '
       // THE DELIVERABLE IS A THING TO OPEN (rc walk #41: asked for a launch email, the lead listed two file names and asked
       // "want me to pull the actual email draft text?"). Each file a worker saved is already a card the Commander opens.
       + 'That answer hands the Commander what they asked for: name the deliverable and say it is ready to open on its card (every file a worker saved is one) — never answer with only a list of file names, and never ask whether to show or fetch it:\n' + lines.join('\n')
@@ -22170,14 +22239,14 @@ async function runOnceCore(o) {
       + (anyTrack ? '\n  A [bracketed] note is that specialist\'s REAL track record on this station — earned from work the '
         + 'Commander rated and runs the harness watched finish. Use it to pick the right worker; it is evidence, not a '
         + 'permission level, and an agent without one is simply new, not worse.' : '');
-    teamNote += spawnLine;
+    teamNote += seatLine + spawnLine;
     // Class Loadouts S1: the class list here is composed from the SHARED catalog (id + tagline), never hardcoded,
     // so the summon prose can't drift from the Recruitment Bay's actual classes as new ones are added.
     const classListLine = SPECIALIST_CLASSES.map(c => c.id + (c.tagline ? ' — ' + c.tagline : '')).join('; ');
     teamNote += '\n• SUMMON a NEW specialist with team.summon when the Commander wants an agent you don\'t have yet '
       + '(e.g. "create a research agent for me"): pass a class via specId — one of: ' + classListLine + ' — '
       + 'or a custom name + purpose. It returns the new '
-      + 'agentId, which you can immediately hand work to with team.dispatch. When the Commander asks you to create or '
+      + 'agentId: hand it work with team.dispatch, or seat it in this chat with group.add. When the Commander asks you to create or '
       + 'summon an agent, actually DO it with team.summon — don\'t just describe it or claim you cannot. '
       + 'For scheduled work, create StarNet routines with routine_create; if the work clearly belongs to a specialist '
       + '(research/news/latest => researcher/scout/analyst), target that agentId, or summon the specialist first.';
@@ -22187,7 +22256,7 @@ async function runOnceCore(o) {
     teamNote = '\n\n[STATION — you lead this group chat] Change StarNet through its own tools, in the background, never through the screen: '
       + 'read assembly lines with station.layout first and quote its status; tool_search "station builder" for station.map (see the floor), station.plan (plan any change on a copy), '
       + 'station.build (build a plan; it follows the Commander\'s approval setting), station.test_line and station.start_line; tool_search "station settings" for settings. '
-      + 'Claim only what those tools report. Hand work to the other participants with group.handoff.';
+      + 'Claim only what those tools report. Hand work to the other participants with group.handoff; bring more crew into this chat with station.control group.add.';
   } else if (isTask && o.delegatedBy && resolved.tools.includes('station.build')) {
     // THE LENT BUILDER (team.dispatch builder:true): this worker holds the floor tools for this job only. Without this
     // line a Build Manager handed "rebuild the lab" has deferred tools it never searches for, and says it cannot build.
@@ -22341,9 +22410,12 @@ async function runOnceCore(o) {
   // CREW CALL (crew-call.js): a request that names a crew member gets one closing line naming them and the exact
   // team.dispatch call. Only host-attested owner input may produce this directive; handoffs/workers are data.
   // Same grant gate as the [ORCHESTRATION] note: never ask for a tool this run does not have.
+  // A request that asks for crew IN THIS CHAT ("get ROOK in here") is a seat: its note names station.control group.add, so
+  // that one composes when this run holds station.control (crew-call.js HERE); the dispatch note still needs team.dispatch.
   let crewCallNote = '';
-  if (commanderWords && !internal && isTask && resolved && Array.isArray(resolved.tools) && resolved.tools.includes('team.dispatch')) {
-    try { crewCallNote = CrewCall.crewCallNote(latestUserText(messages), agentRoster, agentId); } catch (e) { failNote('crew-call', e); }
+  const crewCallTools = resolved && Array.isArray(resolved.tools) ? { dispatch: resolved.tools.includes('team.dispatch'), seat: resolved.tools.includes('station.control') } : null;
+  if (commanderWords && !internal && isTask && crewCallTools && (crewCallTools.dispatch || crewCallTools.seat)) {
+    try { crewCallNote = CrewCall.crewCallNote(latestUserText(messages), agentRoster, agentId, crewCallTools); } catch (e) { failNote('crew-call', e); }
   }
   // SERVICE KEYS (KEYS tab): advertise the env-var NAMES of the Commander's connected platform keys — value never
   // rides the prompt. TRUTHFUL-TELEMETRY GATE: the block says "available to your shell commands", so it composes
@@ -22772,6 +22844,7 @@ async function runOnceCore(o) {
       result = await runAgentLoop({
       messages: msgs, provider, emit: loopEmit, cost, tools: o.outputOnly ? [] : toolDefs, dispatch, capCtx,
       isTask: internal ? undefined : isTask,
+      reasoningEffort: internalEffort || undefined,
       // no project folder = no build or test to run: a standalone web page saved in the agent's own workspace is not
       // "code to verify" (loop.js VERIFY-ON-STOP) — the nudge sent agents into file:// browsing and shell reads of
       // their own deliverable after they had said "Done." (live walkthrough 2026-10-13)
@@ -22999,7 +23072,7 @@ async function runOnceCore(o) {
         }
       }
       const runEndedAt = Date.now();
-      runStore.record({ runId, parentRunId: o.parentRunId || '', delegatedBy: o.delegatedBy || '', agentId, provider: activeProviderId, reason: ((result && result.reason) || 'done'), clarifying: taskQuestionAsked, turns: finalTurns, tokens: finalTokens, usd: finalUsd, title: title, streamId: o.streamId || '', sessionTitle: o.sessionTitle || '', deliveryPrompt: o.syntheticTrigger ? '' : (o.sessionPrompt || ''), deliveryText, dispatchDelivery: o.dispatchDelivery, recipeId: o.recipeId || '', projectRoot: o.projectRoot || '', deliverable: deliverableNotes.take(runId), model: finalModel, reasoningEffort, unmetered: runUnmetered && mediaUsd === 0, artifacts: execution.artifactList(), toolsOk: execution.toolsOk(), toolTrace: execution.toolTraceList(), failureStage: execution.failureStage(), failureCode: execution.failureCode(), uncertainMutations: execution.uncertainMutations(), completionEvidence: finalCompletionEvidence, recoveryAttempts: execution.recoveryAttempts(), startedAt: runStartedAt, endedAt: runEndedAt, durationMs: runEndedAt - runStartedAt, identityFallback, internal, surface, ownerDirective, recoveryOf: o.recovery ? String(o.recovery.sourceRunId || '') : '', handoffEdited: o.handoffEdited === true, stepTest: o.stepTest === true, lineId: o.lineId || '', dockId: o.dockId || '', cronJobId: trigger === 'schedule' ? String(o.cronJobId || '') : '', pageClosed: pageClosedRuns.get(runId) || null, taintedBy: execution.taintedBy() || '' });   // execution terminal stays separate from the neutral Task Brief outcome used by progression; recoveryOf links a continuation to the interrupted run it resumed
+      runStore.record({ runId, parentRunId: o.parentRunId || '', delegatedBy: o.delegatedBy || '', agentId, provider: activeProviderId, reason: ((result && result.reason) || 'done'), clarifying: taskQuestionAsked, turns: finalTurns, tokens: finalTokens, usd: finalUsd, title: title, streamId: o.streamId || '', sessionTitle: o.sessionTitle || '', deliveryPrompt: o.syntheticTrigger ? '' : (o.sessionPrompt || ''), deliveryText, dispatchDelivery: o.dispatchDelivery, recipeId: o.recipeId || '', projectRoot: o.projectRoot || '', deliverable: deliverableNotes.take(runId), model: finalModel, reasoningEffort: internalEffortRan() || reasoningEffort, unmetered: runUnmetered && mediaUsd === 0, artifacts: execution.artifactList(), toolsOk: execution.toolsOk(), toolTrace: execution.toolTraceList(), failureStage: execution.failureStage(), failureCode: execution.failureCode(), uncertainMutations: execution.uncertainMutations(), completionEvidence: finalCompletionEvidence, recoveryAttempts: execution.recoveryAttempts(), startedAt: runStartedAt, endedAt: runEndedAt, durationMs: runEndedAt - runStartedAt, identityFallback, internal, surface, ownerDirective, recoveryOf: o.recovery ? String(o.recovery.sourceRunId || '') : '', handoffEdited: o.handoffEdited === true, stepTest: o.stepTest === true, lineId: o.lineId || '', dockId: o.dockId || '', cronJobId: trigger === 'schedule' ? String(o.cronJobId || '') : '', pageClosed: pageClosedRuns.get(runId) || null, taintedBy: execution.taintedBy() || '' });   // execution terminal stays separate from the neutral Task Brief outcome used by progression; recoveryOf links a continuation to the interrupted run it resumed
 
       // P0.1/H1.1: persist the full DIALOGUE (not just the outcome) — a durable server-side transcript for EVERY
       // run, incl. headless ones (cron/Telegram/delegated). Append the triggering user directive, then EVERY new
@@ -23095,12 +23168,12 @@ async function runOnceCore(o) {
   const _auxFail = !!(!o.recovery && result && Failreview.reviewableReason(result.reason) && isTask && !internal && !signal.aborted);
   const _auxNow = Date.now();       // one clock read for the scout cadence fold + curator-due check below
   const _auxModel = _auxDone ? (reflectModel || resolveEffectiveModel({ result, requestedModel: o.model, usingCodex, codexDefaultModel: CODEX_DEFAULT_MODEL, defaultModel: CRON_DEFAULT_MODEL })) : '';
-  // per-request effort for the single-shot aux streams — null unless the aux tier is engaged AND the provider
-  // verifiably offers the effort for _auxModel (auxReasoningEffort); null = no override, byte-identical requests.
-  const _auxEffort = _auxDone ? auxReasoningEffort(provider, _auxModel) : null;
+  // per-request effort for the single-shot aux streams: the configured aux tier, else the lowest effort the provider
+  // verifiably offers for _auxModel (auxPassEffort) — a strict-format extraction never pays for hidden thinking.
+  const _auxEffort = _auxDone ? auxPassEffort(provider, _auxModel) : null;
   // failure-review resolves its model/effort through the SAME single resolution (aux tier first, else the run's own).
   const _auxFailModel = _auxFail ? (reflectModel || resolveEffectiveModel({ result, requestedModel: o.model, usingCodex, codexDefaultModel: CODEX_DEFAULT_MODEL, defaultModel: CRON_DEFAULT_MODEL })) : '';
-  const _auxFailEffort = _auxFail ? auxReasoningEffort(provider, _auxFailModel) : null;
+  const _auxFailEffort = _auxFail ? auxPassEffort(provider, _auxFailModel) : null;
   // the skill review/curator forks are nested TOOL loops: they take the cheap aux model only when it is
   // VERIFIABLY tool-capable on this run's provider (supportsTools === true), else the run's own model as today.
   const _auxSkillModel = auxSkillModel(provider, model);
@@ -23269,7 +23342,7 @@ async function runOnceCore(o) {
   if (result) {
     if (!result.artifacts) { try { result.artifacts = execution.artifactList(); } catch (_) {} }
     result.model = result.model || model;
-    result.reasoningEffort = reasoningEffort;
+    result.reasoningEffort = internalEffortRan() || reasoningEffort;   // the effort this run actually ran on (self-talk rides the aux effort)
     result.toolsOk = execution.toolsOk();
     result.toolTrace = execution.toolTraceList();
     result.startedAt = runStartedAt;
@@ -24055,6 +24128,12 @@ function awayBriefingState(raw) {
   return { through: Math.max(0, Number(s.through) || 0), last: (s.last && typeof s.last === 'object') ? s.last : null };
 }
 function readAwayBriefingState() { try { return awayBriefingState(awayBriefingStore.get('briefing')); } catch (_) { return awayBriefingState(null); } }
+// the OPEN consent prompts awaiting the Commander right now (the same pendingByRun /api/state/snapshot lists)
+function openAskCount() {
+  let n = 0;
+  try { for (const pending of pendingByRun.values()) n += (pending && pending.size) || 0; } catch (e) { failNote('away-briefing.asks', e); }
+  return n;
+}
 async function awayBriefingInputs(since, now, tzOffsetMin) {
   let runs = []; try { runs = runStore.list(null, { limit: 500, since: Math.max(0, since - 1) }) || []; } catch (_) { runs = []; }
   // the run row keeps deliveryText only for session-scoped runs; a routine/loop's own words live in its durable
@@ -24115,7 +24194,11 @@ async function handleAwayBriefingDeliver(req, res) {
     let out = null;
     await awayBriefingStore.update('briefing', async (raw) => {
       const st = awayBriefingState(raw), now = Date.now();
-      const since = st.through || (now - AWAY_BRIEFING_FIRST_WINDOW_MS);
+      // THE ABSENCE (live walk 10-14): { seen:true } is the page stamping the Commander's presence; minAwayMs is the
+      // page's own away threshold — a stamp fresher than it is a reload or a restart, never a "While you were away"
+      const gap = AwayBriefing.absence({ through: st.through, now, seen: body.seen === true, minAwayMs: Number(body.minAwayMs) || 0, firstWindowMs: AWAY_BRIEFING_FIRST_WINDOW_MS });
+      if (!gap.brief) { out = { delivered: false, why: gap.why }; return { through: gap.through, last: st.last }; }
+      const since = gap.since;
       const inputs = await awayBriefingInputs(since, now, tz);
       const b = AwayBriefing.compose(inputs);
       if (b.empty) { out = { delivered: false, counts: b.counts }; return { through: now, last: st.last }; }
@@ -24124,7 +24207,10 @@ async function handleAwayBriefingDeliver(req, res) {
       const quoted = (inputs.runs || []).find(r => r && r.taintedBy && (Number(r.endedAt) || Number(r.ts) || 0) > since);
       transcriptStore.append({ streamId: AwayBriefing.STREAM_ID, agentId: AWAY_BRIEFING_AGENT, role: 'assistant', taint: quoted ? 'away briefing quoting ' + String(quoted.taintedBy).slice(0, 80) : null, content: b.text });
       const last = { at: now, since: b.since, items: b.items, counts: b.counts };
-      out = { delivered: true, at: now, text: b.text, items: b.items, counts: b.counts };
+      // asksWaiting: open approvals/questions on the station right now. A waiting ask outranks the report — the page keeps
+      // the Commander on the conversation that needs them instead of jumping to the briefing (a reloaded page may not
+      // have refiled a background worker's ask yet; the station's own list is the truth)
+      out = { delivered: true, at: now, text: b.text, items: b.items, counts: b.counts, asksWaiting: openAskCount() };
       return { through: now, last };
     });
     json(200, Object.assign({ ok: true, streamId: AwayBriefing.STREAM_ID, agentId: AWAY_BRIEFING_AGENT, title: AwayBriefing.TITLE }, out || { delivered: false }));
@@ -25908,7 +25994,7 @@ function callOwnRoute(method, url, body) {
 }
 // a short, human-readable summary of WHAT a consent prompt is approving — the file path for fs.* (what the user
 // actually cares about), else the compact args. Never echoes secrets (redact() also runs on the emitted event).
-function consentSummary(call) {
+function consentSummary(call, where) {
   const a = (call && call.args) || {};
   // Approval is the place to inspect the proposed mutation, not the capped run-log digest.
   if (/^fs[._](?:write|append|edit|patch)$/.test(String(call && call.name || ''))) {
@@ -25928,7 +26014,8 @@ function consentSummary(call) {
     return ln + ': ' + how + ', with the job: "' + job.slice(0, 240) + (job.length > 240 ? '…' : '') + '". From then on it runs the line\'s agents unattended, within the line\'s budget.';
   }
   // station.control / station.power: the catalog's own sentence for the change (sidecar/tools/builtin/station-control.js)
-  if (/^station[._](?:control|power)$/.test(String(call && call.name || ''))) return stationControlCard(redact(a));
+  // …told who the crew are and what kind of chat this is, so group.add's card names people and the one true clause
+  if (/^station[._](?:control|power)$/.test(String(call && call.name || ''))) return stationControlCard(redact(a), { nameOf: crewNameOf, chat: (where && where.chat) || chatKindOf(where && where.streamId) });
   if (/^station[._]test_line$/.test(String(call && call.name || ''))) return 'the line ' + String(a.line || '').replace(/\s+/g, ' ').trim().slice(0, 48) + ', with this test job: "' + String(a.job || '').replace(/\s+/g, ' ').trim().slice(0, 240) + (String(a.job || '').length > 240 ? '…' : '') + '". It runs the line\'s agents and spends what they spend; the result lands in DELIVERABLES › TO REVIEW. If its OUTBOX has SEND TO, the downstream line also runs the result at its own cost.';
   if (/^station[._]make_prop$/.test(String(call && call.name || ''))) return '"' + String(a.describe || '').replace(/\s+/g, ' ').trim().slice(0, 60) + '", drawn with your StarNet credits (about $0.35' + (a.sideView ? ', and about $0.30 more for its side view' : '') + '). It joins your MADE BY YOU library; nothing is placed until a plan says so.';
   // a bare path names the call only when nothing else it carries could change what is approved (flags, counts)
@@ -25943,6 +26030,27 @@ function consentSummary(call) {
     const s = JSON.stringify(redact(a), null, 2);
     return s.length > FULL_MAX ? s.slice(0, FULL_MAX) + '\n… [' + (s.length - FULL_MAX) + ' more characters not shown: the request is too large for the card]' : s;
   } catch (_) { return ''; }
+}
+/* WHO and WHERE for a station.control card (rc walk 10-14: the group.add card read "copywriter", "strategist" and explained
+   General on a one-on-one chat). A crew reference -> the name the Commander knows (by id, then by exact name), '' when it is
+   no one on the roster (the card then shows what the model sent, quoted). A conversation -> its kind in the page's own
+   save: 'general' (the station's home line) | 'group' | 'direct'; '' when the save does not list it. */
+function crewNameOf(ref) {
+  const want = String(ref == null ? '' : ref).trim();
+  if (!want) return '';
+  const byId = agentRoster.get(want) || agentRoster.get(want.toLowerCase());
+  if (byId && byId.name) return String(byId.name);
+  for (const ident of agentRoster.values()) if (ident && ident.name && String(ident.name).trim().toLowerCase() === want.toLowerCase()) return String(ident.name);
+  return '';
+}
+function chatKindOf(streamId) {
+  const id = String(streamId || '');
+  if (!id) return '';
+  let save;
+  try { save = saveStore.load('agent') || {}; } catch (e) { failNote('consent.chat-kind', e); return ''; }
+  if (save.generalId === id) return 'general';
+  const w = (Array.isArray(save.workstreams) ? save.workstreams : []).find(x => x && x.id === id);
+  return !w ? '' : w.conversationMode === 'group' ? 'group' : 'direct';
 }
 // the WHOLE request behind a consent card (GET /api/consent/args), for the Commander who must see every character of a long
 // command or path before approving it. The SAME redaction as consentSummary; capped, and the cap says so honestly.
@@ -26031,9 +26139,10 @@ async function handleAttachmentUpload(req, res) {
 // STREAMS the bytes (createReadStream, never the whole file in memory) and honors HTTP Range so the COMMS
 // <video>/<audio> elements can seek — the Node analogue of Starlette's FileResponse in the reference gateway.
 async function serveWorkspaceFile(req, res) {
-  let abs;
+  let abs, docView = false;
   try {
     const u = new URL(req.url, 'http://127.0.0.1');
+    docView = u.searchParams.get('view') === 'doc';   // the readable document view (file-response.js documentViewHtml)
     const agent = u.searchParams.get('agent') || 'agent';
     const rel = u.searchParams.get('path') || '';
     const project = u.searchParams.get('project') || '';
@@ -26066,6 +26175,19 @@ async function serveWorkspaceFile(req, res) {
   if (!st.isFile()) { res.writeHead(404); return res.end('not found'); }
 
   const ext = path.extname(abs).toLowerCase();
+  /* ?view=doc on a TEXT deliverable (live walk 10-14): the station's dark reading page instead of raw text on a white tab.
+     Inert by construction (escaped into one <pre>, sandboxed, no script, loads nothing). A file too large, or one that is
+     not really text (a NUL byte), falls through to the plain bytes below. */
+  if (docView && req.method === 'GET' && isTextDocument(abs) && st.size <= DOC_VIEW_MAX_BYTES) {
+    let text = null;
+    try { text = await fsp.readFile(abs, 'utf8'); } catch (e) { failNote('file.doc-view', e); text = null; }
+    if (text != null && text.indexOf('\0') === -1) {
+      const html = documentViewHtml(abs, text);
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'Content-Security-Policy': DOC_VIEW_CSP,
+        'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer', 'Content-Length': Buffer.byteLength(html) });
+      return res.end(html);
+    }
+  }
   const active = isActiveDeliverable(abs);
   const headers = {
     'Content-Type': active ? 'application/octet-stream' : (MIME[ext] || 'text/plain; charset=utf-8'),

@@ -337,13 +337,13 @@
     if (exitHooked || typeof process === 'undefined' || typeof process.once !== 'function') return;
     exitHooked = true;
     process.once('exit', () => {
-      const cp = require('node:child_process');
+      const cp = require('../child-env.js').guardChildProcess(require('node:child_process'));   // ChildProcess stays reachable through the guard's prototype
       for (const [c, unlinkPrompt] of LIVE) {
         // observed exit: its pid may already be reused, so it is never killed — but its prompt file still goes
         if (c.exitCode == null && c.signalCode == null) {
           try {
             if (process.platform === 'win32' && c instanceof cp.ChildProcess && c.pid && c.exitCode == null) {
-              require('../child-env.js').guardChildProcess(cp).spawnSync('taskkill', ['/pid', String(c.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true });
+              cp.spawnSync('taskkill', ['/pid', String(c.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true });
             } else c.kill();
           } catch (e) { failNote('claudecli.persist.exit', e); }
         }

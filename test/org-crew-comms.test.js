@@ -27,7 +27,11 @@ const keyRule = (ICSS.match(/#crew \.crew-dossier \{[^}]*\}/) || [''])[0];
 A.ok(keyRule && !/opacity:\s*0/.test(keyRule), 'P20: the DOSSIER key is visible without hover (no opacity:0 base)');
 A.ok(!/:is\(:hover,:focus-within,\.filtering\) \.crew-dossier \{ opacity: 1; \}/.test(ICSS), 'P20: no hover-only reveal rule is left');
 A.ok(/font: 14px\/1 'VT323'/.test(keyRule), 'P20: the key wears key metrics (14px), not the 12px faint chip');
-A.ok(/#crew \.crew-row:has\(\.crew-dossier\) \.crew-step \{ padding-right: 66px; \}/.test(CG) && !/:is\(:hover, :focus-within, \.filtering\):has\(\.crew-dossier\) \.crew-step/.test(CG),
+// the base rows pad the text column for the bottom-right key; the glass rows seat the key at the foot of the portrait well
+// (left, off the text column — the 10-14 live-walk crew-card fit), so no row's step text sits under it
+A.ok(/#crew \.crew-row:has\(\.crew-dossier\) :is\(\.crew-status, \.crew-step\) \{ padding-right: 66px; \}/.test(ICSS)
+  && /#crew \.crew-dossier \{[^}]*left: 9px; right: auto;/.test(CG)
+  && !/:is\(:hover, :focus-within, \.filtering\):has\(\.crew-dossier\) \.crew-step/.test(CG),
   'P20: EVERY row keeps its step text clear of the key (not just a hovered/filtering row)');
 const MAN = require('../sidecar/manual.js').starnetManual();
 A.ok(!/focuses it/.test(MAN) && !/click the row to focus/.test(MAN) && !/intended agent is focused/.test(MAN), 'P20: the manual never says a crew-row click focuses an agent');
@@ -92,7 +96,7 @@ A.ok(/model:\s*\(pin && pin\.model\)\s*\|\|\s*agent\.model/.test(read('frontend/
 A.ok(!/AS A SPECIALTY|SAVE SPECIALTY|EDIT SPECIALTY|none of your specialists|as a specialty above|before summoning|its own <span data-hint="workstream">chat thread/.test(MKT) &&
   MKT.includes('＋ SAVE THIS AGENT AS A CLASS') && MKT.includes("'none of your classes match your search — '") && MKT.includes('before recruiting') &&
   MKT.includes('its own <span data-hint="workstream">session</span>'), 'P22 fix: the hints, save key, name helper and CTA sub-line speak RECRUIT / CLASS / session too');
-A.ok(read('frontend/index.html').includes('grow the crew — recruit a class, or re-spec your agent') && /Recruitment Bay and RECRUIT one/.test(MAN), 'P22: the dock subtitle and the manual say RECRUIT');
+A.ok(read('frontend/index.html').includes('<small>recruit a class, or re-spec your agent</small>') && /Recruitment Bay and RECRUIT one/.test(MAN), 'P22: the dock subtitle and the manual say RECRUIT');
 
 /* ---------- P26: name the open session in the COMMS title (behaviour, run in a vm against the shipped functions) ---------- */
 const CHAT = read('frontend/app/chat.js');

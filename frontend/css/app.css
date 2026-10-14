@@ -3220,14 +3220,22 @@ body.rows-inbox #workstreams .ws-kebab { grid-area: meta; }
 /* a GROUP row is told by its agent line alone: "ULTRON, CYPHER +3" (Andrew 10-13: no GROUP label at all). The names
    ellipsize; the +N never does. Same font and colour as the line it sits in. */
 body.rows-inbox #workstreams .ws-agent.ws-agent-group { display: flex; align-items: baseline; min-width: 0; gap: .4em; }
+/* …and the names own that top line in INBOX too (rc walk 10-14: beside a "Connecting" status the names measured 0px wide,
+   and "NOVA, COPY" was cut even beside "4m"). The pin and time/status end the title line, as in COMPACT below. */
+body.rows-inbox #workstreams .ws-row:has(> .ws-agent-group) {
+  grid-template-areas: "dot agent agent agent" "title title pin meta" "recpt recpt recpt recpt";
+}
 .ws-agent-names { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ws-agent-more { flex: 0 0 auto; white-space: nowrap; }
 /* Group identity stays visible outside INBOX too. Give it a line of its own so a custom title does not
    compete with two names and +N in the narrow rail. Match the existing markup rather than adding a row
-   class that the live ticker would have to maintain; single-agent and PROJECTS rows keep their layouts. */
+   class that the live ticker would have to maintain; single-agent and PROJECTS rows keep their layouts.
+   The names own that whole line (rc walk 10-14: a busy row read "NOVA, … +1  Working" — the status took the width two
+   short names needed). Its pin and time/status end the title line instead, the way a one-on-one row reads
+   "title ★ 3m" — no cell is shared across the two lines, so a long status can never widen a track the names need. */
 body:not(.rows-inbox) #workstreams .ws-row:has(> .ws-agent-group) {
   display: grid; grid-template-columns: 7px minmax(0, 1fr) auto auto;
-  grid-template-areas: "dot agent pin meta" "title title title title";
+  grid-template-areas: "dot agent agent agent" "title title pin meta";
   gap: 4px 7px;
 }
 body:not(.rows-inbox) #workstreams .ws-row:has(> .ws-agent-group) > .ws-dot { grid-area: dot; }
