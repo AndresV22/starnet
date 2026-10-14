@@ -671,7 +671,9 @@ const WorkflowsWindow = (() => {
   }
   function resultHTML(l, job) {
     const st = stationOf(), runs = (job.runs || []).slice().reverse(), work = workOf(job.output), ok = job.status === 'delivered';
-    const delivered = ok && (job.runs || [])[0], inOutbox = !!(delivered && typeof ReturnStore !== 'undefined' && ReturnStore.pendingRows && ReturnStore.pendingRows().some(r => r && r.runId === delivered.runId));
+    const delivered = ok && (job.runs || [])[0];
+    // the TO REVIEW row this delivered run still waits on (ReturnStore's ledger) — none once it was rated, or if it was never folded
+    const waitRow = delivered && delivered.runId && typeof ReturnStore !== 'undefined' && ReturnStore.pendingRows ? (ReturnStore.pendingRows().find(r => r && r.runId === delivered.runId) || null) : null, inOutbox = !!waitRow;
     // (a refusal counted on one record spans the refusals, not a run: no "took")
     const took = job.endedAt && job.startedAt && !(job.repeats > 1) ? secs(job.endedAt - job.startedAt) : '';
     const bad = runs.find(r => r.reason && r.reason !== 'done');
@@ -684,7 +686,7 @@ const WorkflowsWindow = (() => {
     const refusedWhy = () => sentence(String(job.error).replace(/^not sent on:\s*/, ''), 'Nothing ran.');
     const END ={ empty: 'gave no final answer', error: 'hit an error', max_iters: 'ran out of turns', budget: 'hit the spending cap', refusal: 'refused the work', interrupted: 'was interrupted', stopped: 'was stopped' };
     const head = ok ? '<b class="ok">✓ DONE</b>' : job.status === 'stopped' ? '<b>■ STOPPED</b>' : job.status === 'interrupted' ? '<b class="warn">⚠ INTERRUPTED</b>' : job.status === 'failed' ? '<b class="warn">✕ IT DIDN’T RUN</b>' : '<b class="warn">⚠ FINISHED WITH A PROBLEM</b>';
-    const meta = [runs.length + ' step' + (runs.length === 1 ? '' : 's'), usd(job.usd), took, inOutbox ? 'in the OUTBOX' : ''].filter(Boolean).join(' · ');
+    const meta = [runs.length + ' step' + (runs.length === 1 ? '' : 's'), usd(job.usd), took].filter(Boolean).join(' · ');
     // a step goes by its NAME first, then its role — the map's word for it (conveyor-ui-15)
     const why = ok ? '' : job.status === 'problem' && bad ? (() => { const p = bad.dockId && st ? st.propById(bad.dockId) : null, nm = p && (p.label || p.role); return 'The ' + (nm ? nm + ' step' : 'step') + ' (' + NAME(bad.agentId) + ') ' + (END[bad.reason] || String(bad.reason || 'did not finish').replace(/_/g, ' ')) + ', so this job did not finish cleanly. Sending it again often works.'; })()
       // (a stopped record says WHO stopped it — "you stopped this job", E-STOP, or the station's own fault — never "You stopped" for all)
@@ -711,7 +713,11 @@ const WorkflowsWindow = (() => {
       + (job.sentTo ? (job.sentTo.refused ? '<p class="wfw-why wfw-sent warn">NOT sent on to ' + esc(lineWord(job.sentTo)) + ' — ' + esc(job.sentTo.refused) + '.'
           : '<p class="wfw-why wfw-sent">Sent on to ' + esc(lineWord(job.sentTo)) + ' — that line works on this result next.')
         + (job.sentTo.jobId ? ' <button type="button" class="wf-link" data-job="' + esc(job.sentTo.jobId) + '">OPEN ITS JOB</button>' : '') + '</p>' : '');
-    let h = '<section class="wfw-sec wfw-result"><div class="wfw-rhead">' + head + '<span class="wfw-rmeta">' + esc(meta) + '</span></div>'
+    /* (org P14) a delivered job still waiting for its verdict says WHERE it waits — a door into DELIVERABLES › TO REVIEW, never "in the
+       OUTBOX" (the OUTBOX on the floor holds no verdict control) — and the same rate control TO REVIEW mounts sits under the result,
+       so rating it here clears it there too (Chat.awayRate + ReturnStore.resolve, exactly as windows/outbox.js does) */
+    let h = '<section class="wfw-sec wfw-result"><div class="wfw-rhead">' + head + '<span class="wfw-rmeta">' + esc(meta) + '</span>'
+      + (inOutbox ? '<button type="button" class="wf-link" data-act="toreview" data-tip="Opens DELIVERABLES at TO REVIEW, where finished work waits for your rating.">waiting in DELIVERABLES › TO REVIEW</button>' : '') + '</div>'
       + prov
       + (why ? '<p class="wfw-why">' + esc(why) + '</p>' : '')
       + work.notes.map(t => '<p class="wfw-why">⚠ ' + esc(t) + '</p>').join('')
@@ -728,12 +734,26 @@ const WorkflowsWindow = (() => {
       + (job.from ? '' : '<button type="button" class="bb refit-primary" data-act="again"' + (runningJob() ? ' disabled' : '') + '>↻ SEND IT AGAIN</button>')
       + '<button type="button" class="bb" data-act="newjob">+ NEW JOB</button>'
       + (job.from ? '<span class="wfw-note">To run it again, send ' + esc(lineWord(job.from)) + '’s job again — it hands its result on to this line.</span>' : '') + '</div>'
+      + (inOutbox ? '<div class="wfw-rate" data-rate-for="' + esc(waitRow.runId) + '"></div>' : '')
       + (S.fix && S.fix.jobId === job.id && S.fix.open ? fixHTML(job, l) : '')
       + (prev ? '<details class="wf-more wfw-last"><summary>' + ((prev.notes || []).some(n => n.kind === 'fix' || n.kind === 'example') ? 'Last time, before your change' : 'Last time') + '</summary><div class="wf-io" data-md data-md-src="' + esc(workOf(prev.output).rest || '(empty)') + '">' + esc(workOf(prev.output).rest || '(empty)') + '</div></details>' : '')
       + (runs.length ? '<details class="wf-more wfw-steps"><summary>How each step did it</summary><div class="wf-steps">' + steps + '</div></details>' : '')
       + (changes ? '<details class="wf-more"><summary>What you changed after this job</summary><ul class="wfw-changes">' + changes + '</ul></details>' : '')
       + '</section>';
     return h;
+  }
+  // the rating TO REVIEW asks for, mounted into the delivered result's host (resultHTML draws it only while its run waits there)
+  function mountRate() {
+    const host = body && body.querySelector('.wfw-rate[data-rate-for]'); if (!host) return;
+    const id = host.dataset.rateFor, rw = typeof ReturnStore !== 'undefined' && ReturnStore.pendingRows ? ReturnStore.pendingRows().find(r => r && r.runId === id) : null;
+    if (!rw) { host.remove(); return; }
+    const clear = () => { if (typeof ReturnStore !== 'undefined' && ReturnStore.resolve) ReturnStore.resolve(rw.runId); schedule(); };
+    const mounted = (typeof Chat !== 'undefined' && Chat.awayRate) ? Chat.awayRate(host, rw, clear) : false;
+    if (!mounted) {   // already judged this session: the plain collect, so the job never waits in TO REVIEW forever
+      const b = document.createElement('button'); b.type = 'button'; b.className = 'bb sm'; b.textContent = '✓ MARK REVIEWED';
+      b.addEventListener('click', ev => { ev.stopPropagation(); clear(); });
+      host.appendChild(b);
+    }
   }
   function fixHTML(job, l) {
     const fx = S.fix, asking = fx.state === 'asking';
@@ -822,7 +842,10 @@ const WorkflowsWindow = (() => {
     on('[data-fix-use]', n => { if (S.job) useFix(S.job, +n.dataset.fixUse, false); });
     on('[data-fix-back]', n => { if (S.job) useFix(S.job, +n.dataset.fixBack, true); });
     on('[data-act="keep"]', () => { if (S.job) keepStyle(S.job); });
+    // (org P14) the door to where this job waits for its rating: DELIVERABLES › TO REVIEW (the 'outbox' key is that deep link)
+    on('[data-act="toreview"]', () => { sfx('click'); const h = H(); if (h && h.navigateWork) h.navigateWork('workflows', 'outbox'); else if (UI() && UI().openTerm) UI().openTerm('outbox'); });
     on('[data-act="unkeep"]', () => { if (S.job) putStyleBack(S.job); });
+    mountRate();
     // each step's reply, read when its row is opened (and the result's own words drawn as COMMS draws them)
     body.querySelectorAll('.wfw-steps').forEach(d => d.addEventListener('toggle', () => { if (d.open && S.job) (S.job.runs || []).forEach(r => readStep(r, S.job.streamId)); }));
   }

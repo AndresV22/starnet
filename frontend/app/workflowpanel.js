@@ -1990,11 +1990,15 @@ const WorkflowPanel = (() => {
           + (o.jobId ? ' <button type="button" class="wf-link" data-open-job="' + esc(o.jobId) + '">OPEN ITS JOB</button>' : '') + '</p>'
       : o.kind === 'sends' ? '<p class="wf-help wf-sent">This line sends its finished work on to ' + to + ' (SEND TO) — WORKFLOWS › LAST JOBS shows that line’s job, or why it was not sent.</p>'
       : '<p class="wf-help wf-sent">An OUTBOX on this line sends on to ' + to + ' (SEND TO) — if this job was handed on, WORKFLOWS › LAST JOBS shows that line’s job, or why it was not sent.</p>';
+    /* (org P14) a delivered job folded into the finished-work ledger says WHERE it waits for its rating — DELIVERABLES › TO REVIEW,
+       a door there — never "in the OUTBOX" (the floor OUTBOX holds no verdict control). Once it is rated it no longer waits, so the
+       ledger is read again (ReturnStore.pendingRows); a page with no ledger loaded keeps what the fold said. */
+    const waits = !!mine.folded && (typeof ReturnStore === 'undefined' || !ReturnStore.pendingRows || ReturnStore.pendingRows().some(r => r && runs.some(x => x && x.runId === r.runId)));
     return '<div class="wf-job' + (v.ok ? '' : ' problem') + '">'
       /* DELIVERED AND SHIPPED SAY ONE THING (rc walk #30: "✓ DELIVERED" sat under TODAY "SHIPPED 0"): a job the server says was not
          counted in SHIPPED says so here, with the rule as its tip (notShippedNote: the reason only when the server proved it). The
          server's own answer (true / false / unknown) — never guessed from the reply text. */
-      + (v.ok ? '<div class="wf-job-h"><b>✓ DELIVERED</b> · ' + runs.length + ' step' + (runs.length === 1 ? '' : 's') + (v.usd != null ? ' · $' + v.usd.toFixed(4) : '') + (mine.folded ? ' · in the OUTBOX' : '')
+      + (v.ok ? '<div class="wf-job-h"><b>✓ DELIVERED</b> · ' + runs.length + ' step' + (runs.length === 1 ? '' : 's') + (v.usd != null ? ' · $' + v.usd.toFixed(4) : '') + (waits ? ' · <button type="button" class="wf-link" data-to-review data-tip="Opens DELIVERABLES at TO REVIEW, where finished work waits for your rating.">waiting in DELIVERABLES › TO REVIEW</button>' : '')
         + notShippedNote(mine) + '</div>'
         : '<div class="wf-job-h"><b class="warn">⚠ FINISHED WITH A PROBLEM</b> · ' + runs.length + ' step' + (runs.length === 1 ? '' : 's') + (v.usd != null ? ' · $' + v.usd.toFixed(4) : '') + '</div><div class="wf-warnline">' + esc(badLine) + '</div>')
       + onward
@@ -2138,6 +2142,7 @@ const WorkflowPanel = (() => {
     $$('[data-fix-use]').forEach(b => { b.onclick = () => useFix(+b.dataset.fixUse); });
     const kx = $('#wf-keep-ex'); if (kx) kx.onclick = () => keepExample(mine);
     // OPEN ITS JOB: the next line's job record, in WORKFLOWS (Build Mode steps aside, as for every window the panel opens)
+    $$('[data-to-review]').forEach(b => { b.onclick = () => { H.sfx('click'); saveOpenFields(); H.openTerm('outbox'); }; });   // (org P14) the 'outbox' key = DELIVERABLES › TO REVIEW
     $$('[data-open-job]').forEach(b => { b.onclick = () => { H.sfx('click'); saveOpenFields(); H.openTerm('workflows'); if (typeof WorkflowsWindow !== 'undefined' && WorkflowsWindow.showJob) WorkflowsWindow.showJob(b.dataset.openJob); }; });
     // the job's words drawn as a reply (the card painted them as plain text)
     const P = typeof Pipeline !== 'undefined' ? Pipeline : null, clean = t => loopNotes(P && P.stripVerdictLine ? P.stripVerdictLine(t || '') : (t || '')).rest.trim();

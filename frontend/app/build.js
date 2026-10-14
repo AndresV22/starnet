@@ -2996,7 +2996,7 @@ const Build = (() => {
         (sr?.view ? '<div class="example-result">'+finSampleHTML(sr.view)+finOnwardHTML(sr)+(sr.output?'<details><summary>Read the finished result</summary><pre>'+esc(sr.output)+'</pre></details>':'')+'</div>' : '')+
         /* NEXT: USE IT FOR REAL — one click to the Inbox's own settings in the Workflow panel (what starts it; the working
            folder a software line builds in), instead of a sentence about where to click */
-        '<section class="example-next"><h4>Use it for real</h4><p>'+(software ? 'Choose the project folder the Builder works in, and when the line runs: on a schedule or from a chat app.' : 'Choose when the line runs: on a schedule or from a chat app.')+' Finished work lands in the Outbox and opens in the Logbook.</p>'+
+        '<section class="example-next"><h4>Use it for real</h4><p>'+(software ? 'Choose the project folder the Builder works in, and when the line runs: on a schedule or from a chat app.' : 'Choose when the line runs: on a schedule or from a chat app.')+' Finished work lands in its OUTBOX and in DELIVERABLES.</p>'+
         (e.inboxId ? '<button type="button" class="bb" data-example-inbox'+(pending?' disabled':'')+'>'+(software ? 'OPEN THE INBOX: FOLDER + START' : 'OPEN THE INBOX: HOW IT STARTS')+'</button>' : '')+'</section>';
       body.querySelectorAll('[data-example-agent]').forEach(select => { select.onchange = () => {
         const propId = select.dataset.exampleAgent;

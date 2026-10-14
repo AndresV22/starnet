@@ -4608,7 +4608,7 @@ const Chat = (() => {
     if (workRatedRuns.has(rw.runId)) { try { onRated(rw.runId); } catch (_) {} return; }   // already judged — just clear the crate
     const r = row('agent'); r.d.classList.add('tool'); r.d.classList.add('turnin'); r.d.classList.add('work-rate');
     const title = document.createElement('span'); title.className = 'turnin-title';
-    title.textContent = '◈ OUTBOX crate — this run finished while you were away:';
+    title.textContent = '◈ finished while you were away:';
     r.body.appendChild(title);
     const item = document.createElement('div'); item.className = 'turnin-item';
     const text = document.createElement('span'); text.className = 'turnin-text'; text.textContent = awayRowLabel(rw);
@@ -4660,7 +4660,7 @@ const Chat = (() => {
     text.textContent = (job && job.text
       ? 'your test job (“' + (job.text.length > 70 ? job.text.slice(0, 70) + '…' : job.text) + '”) rides the real belts'
       : 'a labeled test crate (“SAMPLE JOB…”) rides the real belts — write your own test job in the INBOX’s Workflow panel —')
-      + ' — the router picks the dock, the run spends real budget, and the reply lands on the OUTBOX.';
+      + ' — the router picks the dock, the run spends real budget, and the reply lands on the OUTBOX and in DELIVERABLES.';
     const btns = document.createElement('span'); btns.className = 'consent-btns';
     item.appendChild(text); item.appendChild(btns);
     r.body.appendChild(item);
@@ -4718,7 +4718,7 @@ const Chat = (() => {
         const who = String((whoRec && whoRec.name) || whoId).toUpperCase();
         const cost = (+j.totalUsd > 0 && typeof U !== 'undefined' && U.usd) ? (' · ' + U.usd(+j.totalUsd)) : '';
         text.textContent = clean
-          ? ('✔ job delivered — ' + who + ' finished the last step' + cost + '.' + (folded ? ' the result is on the OUTBOX.' : ''))
+          ? ('✔ job delivered — ' + who + ' finished the last step' + cost + '.' + (folded ? ' the result is on the OUTBOX and in DELIVERABLES.' : ''))
           : ('⚠ the job rode the line, but the run did not finish clean — the reply below says why.');
         const reply = (j.replies && j.replies.length) ? String(j.replies[j.replies.length - 1]).replace(/\s+/g, ' ').trim() : '';
         if (reply) {
