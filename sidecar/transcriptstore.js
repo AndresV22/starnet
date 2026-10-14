@@ -124,12 +124,13 @@
       if (row.dispatchState === 'final') { if (!finals.has(id)) finals.set(id, row); }
     }
     const out = [];
+    const closedAfter = new Map();   // runId -> out index just past that run's last row (page-closed line goes there)
     for (const row of rows) {
       const id = String(row.sourceRunId || '');
       if (row.dispatchState === 'final') { if (isFinalDeliveryRow(row, hash, (record(id) || {}).dispatchDelivery) && !emitted.has(id)) { out.push(row); emitted.add(id); } continue; }
       const run = id ? record(id) : null, delivery = run && run.dispatchDelivery;
       const state = row.dispatchState || (delivery && delivery.state);
-      if (!state) { out.push(row); continue; } // pre-envelope history keeps its exact existing shape
+      if (!state) { out.push(row); if (pageClosedLine(run)) closedAfter.set(id, out.length); continue; } // pre-envelope history keeps its exact existing shape
       if (state === 'internal') continue;
       const final = finals.get(id);
       // A run StarNet stopped before it finished was never finalized and never will be. Show its directive and one
@@ -153,7 +154,24 @@
         out.push(Object.assign({}, row, { content: finalPrompt })); prompts.add(id);
       }
     }
+    // THE PAGE WENT AWAY MID-ASK (rc-walk #60): one station line after the run's last row, saying it ended there and
+    // that nothing it waited on was approved. Same shape and rule as the interrupted line above (transcriptPending: the
+    // merges take the station's copy on every read, so it never stacks). Inserted back to front so indexes stay true.
+    const at = Array.from(closedAfter.entries()).sort((a, b) => b[1] - a[1]);
+    for (const [id, idx] of at) {
+      const run = record(id), last = out[idx - 1] || {};
+      out.splice(idx, 0, { streamId: last.streamId, agentId: last.agentId, role: 'assistant', sys: true, error: true, transcriptPending: true, sourceRunId: id,
+        dispatchState: 'page-closed', ts: num(run.pageClosed.at) || num(run.endedAt) || num(last.ts), content: pageClosedLine(run) });
+    }
     return out;
+  }
+  // the line for a desk run cancelled because its page closed while approvals waited ('' = no line: nothing waited,
+  // or the run was not cancelled). Words come from the run record only (runstore `pageClosed`), never from the page.
+  function pageClosedLine(run) {
+    const pc = run && run.reason === 'cancelled' && run.pageClosed;
+    const waiting = pc && Array.isArray(pc.waitingOn) ? pc.waitingOn.map(str).filter(Boolean) : [];
+    if (!waiting.length) return '';
+    return '■ the run ended when this page closed or reloaded while it waited for ' + waiting.join(' and ') + ' — nothing was approved';
   }
 
   function makeTranscriptStore(opts) {

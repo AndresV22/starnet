@@ -128,6 +128,14 @@
     };
   }
 
+  // the page-closed note (record's `pageClosed`), bounded at the persistence boundary like every other host field
+  function pageClosedOf(v) {
+    if (!v || typeof v !== 'object') return null;
+    const waitingOn = (Array.isArray(v.waitingOn) ? v.waitingOn : []).slice(0, 16)
+      .map(s => str(s).replace(/\s+/g, ' ').trim().slice(0, 200)).filter(Boolean).slice(0, 4);
+    return { at: nonnegative(v.at), waitingOn };
+  }
+
   function toolTraceList(v) {
     if (!Array.isArray(v)) return [];
     const out = [];
@@ -324,6 +332,11 @@
         // orchestration — parentRunId alone also links overseer reviews and connector continuations, which are not
         // delegated work. Present only when set, so every other row stays byte-identical.
         ...(ID_RE.test(str(e.delegatedBy)) ? { delegatedBy: str(e.delegatedBy) } : {}),
+        // PAGE CLOSED (additive, rc-walk #60, 2026-10-13): the page watching this desk run closed or reloaded while the run
+        // was live, so the station cancelled it (the disconnect law). `waitingOn` names, in plain words, the approvals
+        // still open at that moment — the disconnect denied them, so none of them was granted. Set only by the host that
+        // saw its stream close (index.js handleRun); present only on such a run, so every other row stays byte-identical.
+        ...(pageClosedOf(e.pageClosed) ? { pageClosed: pageClosedOf(e.pageClosed) } : {}),
         toolTrace: toolTraceList(e.toolTrace),
         failureStage: str(e.failureStage).trim().slice(0, FAILURE_FIELD_MAX),
         failureCode: str(e.failureCode).trim().slice(0, FAILURE_FIELD_MAX),
