@@ -5,7 +5,7 @@
    deltas, a reconciled agent.cost, and exactly one agent.run.end{reason:'done'} — no real key, no network. */
 'use strict';
 const A = require('./_assert.js');
-const { runContextOf } = require('./helpers/host-notes.js');
+const { runContextOf, userWords } = require('./helpers/host-notes.js');
 const http = require('http');
 const path = require('path');
 const os = require('os');
@@ -224,7 +224,8 @@ function boot(port, env, attemptsLeft) {
       const raw = await r.text();
       const evs = raw.split('\n').filter(Boolean).map(l => { try { return JSON.parse(l); } catch (_) { return null; } }).filter(Boolean);
       A.ok(evs.some(e => e.name === 'agent.run.end' && e.payload.reason === 'done'), 'compatible route recovers malformed tool history through the real sidecar');
-      const wire = mock.requests.slice(before).find(q => (q.messages || []).some(m => m.role === 'user' && m.content === 'PAIRRECOVERY compatible route'));
+      // the run-context note leads the Commander's own message (provider.js noteCarrier), not the recovered-result turn
+      const wire = mock.requests.slice(before).find(q => (q.messages || []).some(m => m.role === 'user' && userWords(m) === 'PAIRRECOVERY compatible route'));
       A.ok(wire && wire.messages.some(m => m.role === 'user' && String(m.content).includes('[recovered tool result') && String(m.content).includes('evidence survives')), 'compatible wire retains orphan evidence as labeled recovery text');
       A.ok(evs.some(e => e.name === 'agent.cost' && e.payload.reconciled === true), 'compatible recovery still emits reconciled cost');
     }
