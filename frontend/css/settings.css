@@ -57,6 +57,7 @@
 .settings-console .prov-stat-t { font-size: 12px; line-height: 1.4; }
 /* #62: the reason a saved key failed its check, under the verdict (sentence case, wraps, never truncated by the badge) */
 .settings-console .prov-stat-why { display: block; white-space: normal; margin-top: 3px; font-size: 12px; line-height: 1.4; letter-spacing: 0; color: var(--bad, var(--ph-dim)); overflow-wrap: anywhere; }
+.settings-console .prov-stat-why.soft { color: inherit; }   /* org P03: a neutral reason wears its NOT VERIFIED line's amber, not the alarm red */
 .settings-console .prov-key-edit, .settings-console .prov-oauth-inline { grid-column: 1 / -1; }
 /* subscription stacking: the CLAUDE CODE card's connected sign-ins + ＋ ADD ACCOUNT, full width under the card head */
 .settings-console .prov-accounts { grid-column: 1 / -1; display: grid; gap: 8px; margin-top: 4px; }
