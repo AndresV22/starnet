@@ -543,6 +543,18 @@
     return /^[a-z]:\//i.test(k) ? k.toLowerCase() : k;   // Windows drive paths are case-insensitive; POSIX paths are not
   }
 
+  // notebook.write stores project notes as stream + the host's projectRoot.
+  // Give those existing records the same boundary as the explicit project tier, without
+  // migrating history or reclassifying global/agent records with incidental project metadata.
+  function memoryProjectKey(record) {
+    return record && (record.scope === 'project' || record.scope === 'stream') ? projectKey(record.projectRoot) : '';
+  }
+
+  function memoryAllowedInProject(record, root) {
+    const key = memoryProjectKey(record);
+    return !key || key === projectKey(root);
+  }
+
   function rank(records, query, rankOpts) {
     rankOpts = rankOpts || {};
     const now = typeof rankOpts.now === 'number' ? rankOpts.now : 0;
@@ -559,14 +571,13 @@
     const k = rankOpts.k || 8;
     const halfLife = rankOpts.halfLifeMs || 6048e5;   // 7 days (usage recency)
     const trustHalfLife = rankOpts.trustHalfLifeMs || 2592e6;   // 30 days (endorsement fade — mirrors memcore.TRUST_HALFLIFE_MS)
-    // PROJECT TIER: a record scoped 'project' belongs to ONE root — it is NEVER injected into a different project
-    // (or an unscoped run): a lesson about repo A's flaky registry must not steer work in repo B. Global records
-    // (no projectRoot, or scope global/stream) always compete, exactly as before. Same-project records get the
-    // same-stream boost below so a project's own lessons float up inside it.
+    // Project notes (including legacy stream + projectRoot) belong to ONE root, even on an
+    // explicit read or an unscoped run with the same stream id. Unanchored streams still compete
+    // across conversations; explicit global/agent scopes keep their existing audience semantics.
     // A proven correction retires its older exact copy from AUTO-recall only. An explicit read (floor:false) keeps
     // every record its own gate admitted: that search is how the agent finds the stale copy to correct or forget.
     const recs = (rankOpts.floor === false ? (Array.isArray(records) ? records.filter(Boolean) : []) : activeMemoryRecords(records))
-      .filter(r => !(r.scope === 'project' && projectKey(r.projectRoot) && projectKey(r.projectRoot) !== project));
+      .filter(r => memoryAllowedInProject(r, project));
     if (!recs.length) return [];
     const rel = lexicalScores(recs, query, rankOpts);   // exact and bounded lexical expansion; vectors below remain semantic
     let scored = recs.map((r, i) => {
@@ -590,8 +601,8 @@
       // unchanged) and a pinned record keeps its hard top.
       const rawDistrust = Math.max(0, Math.min(1, Number(r.distrust) || 0));
       const distrust = rawDistrust > 0 ? rawDistrust * Math.pow(0.5, tAge / trustHalfLife) : 0;
-      // M-mem.2b: same-stream working memory floats up; global records always compete; OTHER streams stay
-      // searchable (no boost, not filtered) — "global always-on, workstream-scoped, cross-stream searchable".
+      // Unanchored working memory remains cross-stream searchable. Project eligibility was
+      // applied above, independently of this relevance boost or whether the record is pinned.
       const sameStream = (streamId && r.scope === 'stream' && r.streamId === streamId) ? 0.5 : 0;
       const inProject = !!(project && r.projectRoot && projectKey(r.projectRoot) === project);
       const sameProject = inProject ? 0.5 : 0;   // this project's own lessons float up (memory-compound lane)
@@ -604,8 +615,8 @@
       const eligible = !(r.pinned && r.projectRoot) || inProject || (!project && streamId && r.streamId === streamId);
       return { r: r, i: i, written: written, score: score, relevance: relevance, semantic: semantic, pinnedHere: pinnedHere, standing: standing, eligible: eligible };
     });
-    // Approved project requirements are not generic facts for another project.
-    // Explicit notebook searches remain able to retrieve them (floor:false).
+    // Keep the existing pin eligibility rule for other record shapes. The project boundary
+    // above applies to both automatic recall and explicit notebook searches (floor:false).
     if (rankOpts.floor !== false) scored = scored.filter(s => s.eligible);
     // RELEVANCE FLOOR: under a query with at least one significant token, a record with ZERO term overlap is
     // dropped unless pinned — slice(0, k) alone injected 8 memories into EVERY run even at relevance 0. A
@@ -868,5 +879,5 @@
     return api;
   }
 
-  return { makeContext, redact, setKnownSecretSource, renderRecall, injectRecall, rank, bm25, lexicalScores, expandRecallQuery, isStandingMemory, activeMemoryRecords, projectKey, cosine, SEMANTIC_FLOOR, flagInjection, stripRecallFence, compactionMemoryBlock, compactionSummaryPrompt, COMPACTION_SECTIONS, CHARS_PER_TOKEN, IMAGE_TOKENS_DEFAULT, imageTokens, estimateContentTokens, RUN_CONTEXT_DEFAULTS, REARM_MIN_FREED, foldFreedEnough };
+  return { makeContext, redact, setKnownSecretSource, renderRecall, injectRecall, rank, bm25, lexicalScores, expandRecallQuery, isStandingMemory, activeMemoryRecords, projectKey, memoryProjectKey, memoryAllowedInProject, cosine, SEMANTIC_FLOOR, flagInjection, stripRecallFence, compactionMemoryBlock, compactionSummaryPrompt, COMPACTION_SECTIONS, CHARS_PER_TOKEN, IMAGE_TOKENS_DEFAULT, imageTokens, estimateContentTokens, RUN_CONTEXT_DEFAULTS, REARM_MIN_FREED, foldFreedEnough };
 });
