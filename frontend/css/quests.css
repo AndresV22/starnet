@@ -93,6 +93,13 @@
    on the window's top edge: nothing scrolls above it. */
 .quests-win .q-view-tabs { top: -22px; }
 @media(max-width: 680px) { .quests-win .q-view-tabs { top: -14px; } }
+/* org P10 polish: flush, the strip's border met the title bar's rule and scrolled content showed past its rounded top corners.
+   It now stops 8px under the window's top edge on an opaque band (::before) that fills that gap and the corners behind the
+   tray; the tray's own border is redrawn above the band (::after), so its rounded outline stays whole. */
+.quests-win .q-view-tabs { top: -14px; border-color: transparent; }
+@media(max-width: 680px) { .quests-win .q-view-tabs { top: -6px; } }
+.quests-win .q-view-tabs::before { content: ''; position: absolute; z-index: -1; left: -1px; right: -1px; top: -9px; height: 19px; background: var(--panel); pointer-events: none; }
+.quests-win .q-view-tabs::after { content: ''; position: absolute; z-index: -1; inset: -1px; border: 1px solid rgba(var(--ph-rgb),.15); border-radius: 9px; pointer-events: none; }
 .quests-win .q-mission-list { max-height: 380px; }
 .quests-win .q-done .q-card::before { display: none; }
 @media(max-width: 680px) { .quests-win .q-mission-list { max-height: 185px; } }
