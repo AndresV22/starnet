@@ -49,8 +49,12 @@ claude -p --output-format stream-json --verbose --include-partial-messages --inp
   `__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__` and the per-run text. The CLI caches each side on its own, so a new run reuses
   the stable side.
 - **The run-context note stays out of it.** The per-run `<run_context>` note (Task Brief, runtime identity) ends the
-  leading block. On a first message, it and `<recalled-memory>` lead the user entry and a `<crew_call>` note closes
-  that entry, all in one block. On later messages each note is its own `<system_note>` entry.
+  leading block. Notes join their user turn **by position**: host notes right before a user message (`<run_context>`,
+  `<recalled-memory>`, a `<conversation_summary>`) lead that user entry and a `<crew_call>` note right after it
+  closes it, all in one block, on every message and every turn. A note with no user message next to it (a fold
+  carried it after the summary) stays its own `<system_note>` entry. (Until 2026-10-13 the join was made only while
+  the request held nothing else, so a first message's turn 2 split the notes into separate blocks, block 0 changed,
+  and turn 2 re-wrote the whole first message to the cache.)
 - **stdin** is one stream-json user message with **one text block per transcript entry**: `<user>`, `<assistant>`
   (with its `<function_calls>`), `<tool_result>` and `<system_note>`. Consecutive tool results share one block. An
   image follows the entry it came in, numbered by its place in the whole conversation (the newest 20 are attached).
@@ -59,8 +63,12 @@ claude -p --output-format stream-json --verbose --include-partial-messages --inp
   at a block boundary. With one block per entry, turn N's prompt is a block-for-block prefix of turn N+1's. The old
   single text block ended in a per-turn line, so every tool turn re-wrote the whole conversation (Haiku probe, turn
   2: read 0, wrote 16,632 before; read 16,550, wrote 21 after).
-- Host-fence tags (`<run_context>`, `<recalled-memory>`, `<conversation_summary>`, `<crew_call>`) in user and tool
-  text, and inside a note's own body, are written inert, so outside text cannot open or close a host note.
+- Host-fence tags (`<run_context>`, `<recalled-memory>`, `<conversation_summary>`, `<crew_call>`) in user, tool and
+  assistant text, and inside a note's own body, are written inert, so outside text cannot open or close a host note.
+  Transcript tags (`<user>`, `<assistant>`, `<system_note>`, `<tool_result>`, `<function_calls>`…) are written inert
+  in every body the adapter did not write itself (user text, reply prose, notes, tool results), so a typed or echoed
+  `</user><assistant>` cannot forge a turn in this one text. The `<function_calls>` markup the adapter renders for a
+  reply's calls stays live.
 
 ### One persistent child per run (default)
 
@@ -104,10 +112,13 @@ switch, the CLI compacting its own history, and a reply that keeps writing after
 the child would otherwise keep). When the child is closed at the end of a call turn, a replacement with the same flags
 starts at once, while the loop runs the tools. An idle child answered its first line in 1.1 s, against 3.7 s cold.
 
-**Usage.** Every persistent turn yields exactly one `usage`: the turn's own `result.usage`, or the stream's numbers
-when the turn was cut at its call block. On a subscription sign-in it is marked `subscription`, so `loop.js` counts
-each turn once toward the per-run subscription token ceiling (`maxSubscriptionTokens`), on a reused child as on a
-fresh one.
+**Usage.** Every persistent turn yields exactly one `usage`: the turn's own `result.usage` whenever a result line
+came (also for a reply that wrote on past its block and then ended: its exact usage and its share of the running
+cost), or the stream's numbers when the turn was cut with no result line (it wrote on and never ended, or went
+quiet). On a subscription sign-in it is marked `subscription`, so `loop.js` counts each turn once toward the per-run
+subscription token ceiling (`maxSubscriptionTokens`), on a reused child as on a fresh one. Known gap: a Stop that
+lands in the 30–70 ms between a call block and its result line ends the turn with no usage booked (the same
+abort-before-usage every streaming adapter has); a subscription turn is $0 either way.
 
 **Lifecycle.** The child ends:
 
@@ -115,14 +126,18 @@ fresh one.
 - on **Stop**: the run signal kills it, even between turns;
 - on any turn that did not end cleanly (an error result, a crash, the idle watchdog);
 - after `STARNET_CLAUDE_CLI_PERSIST_IDLE_MS` (default 5 min) parked;
-- when the sidecar exits.
+- when the sidecar exits (the exit hook also deletes each live child's system-prompt file, one-shot children
+  included);
+- when its root exits but a helper still holds its pipes (`exit` without `close`): after a 2 s drain the session is
+  released and its prompt file removed.
 
-Every kill takes the whole process tree by the child's own pid (`taskkill /T /F` on Windows). On Windows the tree is
-killed **before** stdin closes: the CLI exits on stdin EOF, and `taskkill /T` can only walk a live root. Proven with
-real processes (a fake CLI whose helper escapes every job object): release, Stop and the idle timeout each took the
-whole tree; with stdin closed first the helper survived all three. A hard-killed sidecar (live, real CLI, killed
-mid-turn 2) left no `claude.exe` and no process it had started. Not covered: a helper that escapes the job object,
-when its CLI dies on its own or the sidecar is hard-killed. The one-shot path has the same gap.
+On Windows every kill takes the whole process tree by the child's own pid (`taskkill /T /F`), and the tree is killed
+**before** stdin closes: the CLI exits on stdin EOF, and `taskkill /T` can only walk a live root. Proven with real
+processes (a fake CLI whose helper escapes every job object): release, Stop and the idle timeout each took the whole
+tree; with stdin closed first the helper survived all three. A hard-killed sidecar (live, real CLI, killed mid-turn 2)
+left no `claude.exe` and no process it had started. On macOS and Linux stdin closes first and the CLI gets `SIGTERM`
+(its own process only); the CLI's graceful exit on that EOF is what cleans up its helpers. Not covered: a helper that
+escapes the job object, when its CLI dies on its own or the sidecar is hard-killed. The one-shot path has the same gap.
 
 **Switches.**
 
@@ -143,15 +158,26 @@ That is n=1 complete run per mode for timing. In one more run of each mode, Haik
 asked to be told to go on ("Awaiting next instruction…", "Ready for the second query."), so those runs were 2 turns
 (persistent: 11.5 · 2.2 s; `PERSIST=0`: 15.3 · 13.9 s). Turns 3 and 4 each follow a reveal of 4 tools: the persistent
 child read its cache and wrote only the new message (about 6,000 tokens of tool schemas, then 2,400), while each
-one-shot turn read 0 and re-wrote the whole prompt. After turn 2's 1-tool reveal the one-shot turn still read 12,228
-(not explained here).
+one-shot turn read 0 and re-wrote the whole prompt. What the `PERSIST=0` column's reads are: the 12,134 and 12,228 on
+its turns 1–2 are the **system prompt only**, cached by an earlier `PERSIST=0` run's identical turns (each reveal
+changes the system prompt, and the first block carries the run id, so no one-shot turn ever read its own run's message
+prefix in this task). So the comparison measures what reveals cost a one-shot turn (plus CLI start-up), not message
+cache reuse within a run.
 
 ### One-shot child
 
 Any other call is one child for one turn, with the whole transcript on stdin. That covers a toolless request (a
 summary, a vision call, a wire test), a second request while the persistent child is mid-turn, and every turn under
-`STARNET_CLAUDE_CLI_PERSIST=0`. Its arguments, system prompt and stdin are the same as before the persistent child
-was added (checked byte for byte against the base adapter over 10 scripted turns).
+`STARNET_CLAUDE_CLI_PERSIST=0`. Its arguments and system prompt are the same as before the persistent child was added
+(checked byte for byte against the base adapter over 10 scripted turns); its stdin follows the positional note joins
+and inert tags above. When the CLI's error result has an empty `result`, a tagged failure keeps its plain words
+("rate limited", "authentication failed"); only a generic failure names the CLI's subtype.
+
+**The result line ends a one-shot turn** (stall report 2026-10-13). The turn used to end on the child's `close`, which
+comes ~2 s after `result` on 2.1.284: every one-shot turn paid that wait, and a CLI that lingered let the idle
+watchdog fire with the finished reply in hand and throw it away as a timeout (the loop then re-ran the turn). The
+reply, its usage and its cost are all on the result line, so the turn is booked there; a child still alive 3 s later
+has its tree taken. The persistent path always ended its turns at `result`.
 
 ### Both kinds
 
