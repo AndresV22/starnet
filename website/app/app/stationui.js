@@ -5665,8 +5665,10 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       // #62: NOT VERIFIED / CHECK FAILED says WHY (the probe's own reason: "credential probe HTTP 401", a station
       // refusal, a timeout) — a bare verdict left a valid-key user with nothing to act on.
       // org P03: a probe that gave no reason still says what it saw — never a bare NOT VERIFIED / CHECK FAILED.
+      // a probe with no failure reason (the provider answered, the key was just not confirmed) reads in the amber of
+      // the NOT VERIFIED line it explains; only a real failure (HTTP 401, a refusal, no answer) keeps the error red
       const statWhy = p.live && !codexDead && credentialSaved && !isClaude && !keyless && health && !health.credentialVerified
-        ? '<span class="prov-stat-why">' + esc(health.error ? String(health.error).slice(0, 200)
+        ? '<span class="prov-stat-why' + (!health.error && health.reachable ? ' soft' : '') + '">' + esc(health.error ? String(health.error).slice(0, 200)
           : health.reachable ? 'the provider answered but did not confirm this key' : 'the check got no answer from the provider') + '</span>' : '';
       const n = ks.length;
       // NO-KEY cards that accept a key get an inline, collapsible paste-and-save row so the user never has to hunt
