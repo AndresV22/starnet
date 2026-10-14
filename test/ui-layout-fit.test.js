@@ -29,4 +29,21 @@ const px = v => { const m = String(v || '').match(/(\d+(?:\.\d+)?)px/); return m
   A.eq(decl(rulesOf('frontend/css/app.css'), '.mp-wrap', 'flex-wrap'), 'wrap', 'when both do not fit one line the effort select drops under the model select');
 }
 
+/* #14 tiny text. SETTINGS › PERMISSIONS: a reach chip's house name at 9px, the per-agent mode and the posture state at
+   10px, the per-agent state cut at "returns to FU…"; QUESTS › Goals "nothing passed" at 9px; the OUTBOX "1 pending" world
+   tag at 3px (~5px on screen). */
+{
+  const rd = rulesOf('frontend/css/readability.css');
+  const floor = rd.find(r => r.sels.some(s => s.startsWith('body #terms :is(') && s.includes('.pc-rh')));
+  A.ok(!!floor && /font-size:\s*var\(--sn-type-meta\)\s*!important/.test(floor.body), 'the permissions/quests small print has a 14px floor rule');
+  const roles = floor ? floor.sels.join(',') : '';
+  for (const c of ['.pc-rh', '.pa-mode', '.pa-state', '.pp-state', '.pp-who', '.q-outcome', '.gx-tag'])
+    A.ok(roles.includes(c), c + ' reads at the 14px floor');
+  A.eq(decl(rd, 'body #terms .perm-crew-row .pc-head .pa-state', 'white-space'), 'normal', 'the per-agent state line wraps whole instead of "returns to FU…"');
+  const pm = read('frontend/app/propremaster.js');
+  const body = pm.slice(pm.indexOf('function approvedState('), pm.indexOf('function approvedState(') + 1400);
+  const m = body.match(/ctx\.font=["'](\d+(?:\.\d+)?)px/);
+  A.ok(!!m && +m[1] >= 7, 'the OUTBOX / board / case world tag is set at a world-tag size (>= 7 world px like RUN and NO FEED), got ' + (m && m[1]));
+}
+
 A.report('ui-layout-fit.test');
