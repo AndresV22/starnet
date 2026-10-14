@@ -5348,6 +5348,8 @@ select.fbc-sel:focus { border-color: var(--ph); box-shadow: inset 0 2px 5px rgba
 .set-sub[hidden], .key-list[hidden] { display: none !important; }   /* beats the scoped settings-pane display rules */
 .set-sub-k { color: var(--ph); letter-spacing: var(--ls-2); flex: 0 0 auto; }
 .set-sub-d { color: var(--ph-dim); letter-spacing: var(--ls-1); min-width: 0; }
+/* (org D10 polish) AUTOMATE's rail: ON ITS OWN sits over its rung (SUGGEST), never run together on one cramped line */
+.auto-init-head .set-sub { flex-direction: column; align-items: flex-start; gap: 3px; }
 
 /* ---------- SETTINGS ▸ NIGHT SHIFT — the live status GRID ----------
    Five readouts about ONE machine (state · mode · daily limit · last job · next job). They used to be
