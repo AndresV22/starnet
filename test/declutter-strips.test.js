@@ -45,7 +45,13 @@ A.ok(/<details class="dlv-clean-list">/.test(dlv) && /dl-clean-cancel/.test(dlv)
 A.ok(/FOLD_KEY = 'starnet\.dlv\.review\.open', FEW = 3/.test(outbox), 'TO REVIEW folds (remembered) and shows the first 3 rows');
 A.ok(/r\.hidden = !showAll && i >= FEW/.test(outbox), 'rows past the first few wait behind SHOW ALL');
 A.ok(/RS\.resolveAll\(ids\)/.test(outbox) && /ArmConfirm\.wire\(clearAll,/.test(outbox), 'CLEAR ALL arms, then collects every crate in one go');
+// org pass 10-14 (P12): the key says what it does (files them unrated), and the dim line says what the list holds
+A.ok(/class="bb sm ob-clearall" data-tip="Files every one without a rating[^"]*">MARK ALL REVIEWED ' \+ rows\.length/.test(outbox), 'the clear key reads MARK ALL REVIEWED N, a glass key with a data-tip (no title=)');
+A.ok(/armedLabel: 'MARK ALL REVIEWED — SURE\?'/.test(outbox) && /'Marked ' \+ ids\.length \+ ' reviewed\. The work stays in your library\.'/.test(outbox), 'its armed label and toast say mark reviewed');
+A.ok(/away runs and workflow jobs waiting for your rating/.test(outbox) && /Chats are rated in COMMS/.test(outbox) && !/waiting for your verdict \(/.test(outbox), 'the TO REVIEW dim line names what it holds');
+A.ok(!/CLEAR ALL ' \+ (rows|live)\.length/.test(outbox), 'no second CLEAR ALL label sits above the library’s own CLEAR ALL');
 const rstore = read('frontend/app/returnstore.js');
+A.ok(/function outboxLine\(\) \{ return 'they wait in TO REVIEW until you rate them\.'; \}/.test(rstore), 'the away digest points at TO REVIEW, not a floor crate (OUTBOX LAW)');
 A.ok(/function resolveAll\(runIds\)[\s\S]{0,300}save\(\);[\s\S]{0,200}OutboxView\.refresh\(\)/.test(rstore), 'resolveAll is one save + one refresh');
 A.ok(/\bresolveAll\b/.test(rstore.slice(rstore.lastIndexOf('return {'))), 'ReturnStore exports resolveAll');
 

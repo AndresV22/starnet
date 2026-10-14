@@ -97,7 +97,7 @@ A.ok(/RS\.openWork\s*\?\s*await RS\.openWork\(rw\)/.test(buildFn) || /await RS\.
 A.ok(/w\.create\(\('follow-up: [\s\S]{0,120}agentId:\s*rw\.agentId/.test(buildFn), '⊕ NEW SESSION binds the follow-up chat to the RUN’s agent');
 A.ok(/App\.openWorkstream\(ws\.id\)/.test(buildFn), '⊕ NEW SESSION opens the fresh session');
 A.ok(/Chat\.prefill\(/.test(buildFn), '⊕ NEW SESSION prefills the composer naming the task (no fabricated turns)');
-A.ok(/collect crate/.test(buildFn), 'an already-judged run still offers a plain collect (a crate can never wedge)');
+A.ok(/✓ mark reviewed/.test(buildFn), 'an already-judged run still offers a plain mark-reviewed (a crate can never wedge)');
 // honest failure copy — a missing/unreachable transcript never renders as a silent blank
 A.ok(/no transcript recorded for this run/.test(buildFn), 'a run with no transcript says so honestly');
 A.ok(/wasn’t reachable|couldn’t read the result/.test(buildFn), 'a FAILED transcript fetch is distinguished from an empty one');
