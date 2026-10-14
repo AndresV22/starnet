@@ -460,6 +460,20 @@
     return { ok: true };
   }
 
+  /* THE NEXT STEP OF A PLAN WITH NOBODY ON A STEP (the third live re-run, 10-14): the lead planned Draft + review with no crew,
+     built it, then staffed it with a second plan on guessed ids and a SECOND approval card. A plan whose steps (line, room or
+     build) have nobody on them says, before anything is built, how to staff them in the same plan; null keeps the usual word.
+     Never staffs anyone itself: who works a step is the Commander's call, or the lead's on the Commander's words. */
+  function planNext(p, crewNames) {
+    const idle = ((p && p.steps) || []).filter(s => s && s.step != null && !s.agent);
+    if (!idle.length) return null;
+    const one = idle.length === 1, names = (crewNames || []).filter(Boolean);
+    const list = idle.map(s => s.step + ' (' + s.role + ')'), said = one ? list[0] : list.slice(0, -1).join(', ') + ' and ' + list[list.length - 1];
+    return 'Nothing is built yet. ' + (one ? 'Step ' : 'Steps ') + said + (one ? ' has nobody to work it' : ' have nobody to work them') + ', so the line will not run. '
+      + 'If the Commander said who works ' + (one ? 'it' : 'them') + (names.length ? ', or someone on the crew (' + names.join(', ') + ') is right for ' + (one ? 'it' : 'them') : '') + ', plan again with the same request plus steps: [ '
+      + idle.map(s => '{ "step": ' + s.step + ', "agent": "…" }').join(', ') + ' ], so ONE approval builds it ready to run. Otherwise tell the Commander the summary, call station.build with this planId, and say which steps still need crew.';
+  }
+
   function plan(doc, req, env) {
     const WM = env && env.WorldModel, P = env && env.Pipeline, W = env && env.WorkflowLine;
     if (!WM || !P || !W || !doc) return refuse('the station builder is not loaded on this page');
@@ -4032,5 +4046,5 @@
       lineKey: rd.comp ? rd.comp.key : null, ready: rd.ready, blocking: rd.blocking, recruited };
   }
 
-  return { strandedHalls, MENU, STEP_KEYS, ROOM_MENU, STYLE_MENU, DESIGN_MENU, ZONE_KEYS, ROOM_KEYS, LINE_KEYS, LAYOUT_KEYS, LAYOUT_ROOM_KEYS, AREAS, SIZES, EDIT_KEYS, catalog, resolveLine, plan, planRoom, planRestyle, planEdit, planUndo, planDesign, planBuild, planLayout, mapOf, lineRef, roomPlacements, dressRoom, shapeGraph, areaOf, apply, sigOf };
+  return { strandedHalls, MENU, STEP_KEYS, ROOM_MENU, STYLE_MENU, DESIGN_MENU, ZONE_KEYS, ROOM_KEYS, LINE_KEYS, LAYOUT_KEYS, LAYOUT_ROOM_KEYS, AREAS, SIZES, EDIT_KEYS, catalog, resolveLine, plan, planNext, planRoom, planRestyle, planEdit, planUndo, planDesign, planBuild, planLayout, mapOf, lineRef, roomPlacements, dressRoom, shapeGraph, areaOf, apply, sigOf };
 });

@@ -62,6 +62,23 @@ const STRAT_REVIEW = 'Review the draft post. Approve if it is ready to ship, or 
   A.ok(SB.plan(st.serialize(), { line: 'revision_loop', steps: [{ step: '2', agent: 'STRATEGY' }] }, env).ok, 'a number sent as text still counts');
 }
 
+/* ---- 1b. a line planned with nobody on its steps says, BEFORE the build, how to staff it in the same plan ----
+   (the third live re-run built Draft + review empty, then staffed it with a second plan and a second approval card) */
+{
+  const st = walkerStation(), names = crew.map(a => a.name);
+  const bare = SB.plan(st.serialize(), { line: 'revision_loop', where: 'HOME', name: 'draft_and_review' }, env);
+  const next = bare.ok ? SB.planNext(bare.plan, names) : null;
+  A.ok(/^Nothing is built yet\. Steps 1 \(Writer\) and 2 \(Reviewer\) have nobody to work them, so the line will not run\. /.test(next || '')
+    && /If the Commander said who works them, or someone on the crew \(NOVA, COPY, STRATEGY\) is right for them, plan again with the same request plus steps: \[ \{ "step": 1, "agent": "…" \}, \{ "step": 2, "agent": "…" \} \], so ONE approval builds it ready to run\. Otherwise tell the Commander the summary, call station\.build with this planId, and say which steps still need crew\.$/.test(next || ''), 'an unstaffed plan says how to staff it before building: ' + next);
+  const half = SB.plan(st.serialize(), { line: 'revision_loop', steps: [{ step: 1, agent: 'COPY' }] }, env);
+  A.ok(/^Nothing is built yet\. Step 2 \(Reviewer\) has nobody to work it, so the line will not run\. /.test(SB.planNext(half.plan, names) || ''), 'one empty step, in the singular');
+  const full = SB.plan(st.serialize(), { line: 'revision_loop', steps: [{ step: 1, agent: 'COPY' }, { step: 2, agent: 'STRATEGY' }] }, env);
+  A.eq(SB.planNext(full.plan, names), null, 'a staffed plan keeps the usual next step');
+  A.eq(SB.planNext({ steps: [] }, names), null, 'a plan with no steps (an edit, a room) keeps it too');
+  const cmds = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'frontend', 'app', 'stationcommands.js'), 'utf8');
+  A.ok((cmds.match(/next: planNextOf\(p\.plan\)/g) || []).length === 3, 'the page hands it on for a line, a room and a build plan (the three that carry steps)');
+}
+
 /* ---- 2. every refusal is actionable in one read: what was wrong, the accepted shape with an example, what fits ---- */
 {
   const st = walkerStation(), before = snap(st);
@@ -178,9 +195,14 @@ const STRAT_REVIEW = 'Review the draft post. Approve if it is ready to ship, or 
   reply = { built: true, summary: 'Draft + review ("LAUNCH POST") in a new room east of HOME: Writer (COPY) → Reviewer (STRATEGY) → Outbox.', line: { name: 'Draft + review' }, ready: true, blocking: [] };
   const done = JSON.parse((await tools.buildTool.run({ planId: 'p1' }, {})).content);
   A.ok(/^DONE: it is built and ready to run\. Tell the Commander what was built in a sentence or two, and stop: there is nothing left to build or check for this\./.test(done.next || ''), 'a ready build says DONE and to stop: ' + done.next);
-  reply = { built: true, summary: 'Build + test …', line: { name: 'Build + test' }, ready: false, blocking: ['BAY 2 (TESTER) needs an agent'] };
+  reply = { built: true, summary: 'Build + test …', line: { name: 'Build + test' }, ready: false, blocking: ['the line is not connected'] };
   const todo = JSON.parse((await tools.buildTool.run({ planId: 'p2' }, {})).content);
-  A.ok(/^DONE: it is built\. Still to do before it runs: BAY 2 \(TESTER\) needs an agent\. Tell the Commander exactly that, and stop/.test(todo.next || ''), 'a build with work left says DONE and names exactly what is left: ' + todo.next);
+  A.ok(/^DONE: it is built\. Still to do before it runs: the line is not connected\. Tell the Commander exactly that, and stop/.test(todo.next || ''), 'a build with work left says DONE and names exactly what is left: ' + todo.next);
+  /* the third live re-run: the lead built Draft + review with nobody on it, then staffed it with a refit on GUESSED ids ("p12_bay_0",
+     refused), a map, a plan and a SECOND approval card. A receipt whose only work left is crew says the one form that staffs it. */
+  reply = { built: true, summary: 'Draft + review …', line: { id: 'revision_loop', name: 'Draft + review', label: 'draft_and_review' }, ready: false, blocking: ['BAY 1 (WRITER) needs an agent', 'BAY 2 (REVIEWER) needs an agent'] };
+  const crewLeft = JSON.parse((await tools.buildTool.run({ planId: 'p5' }, {})).content);
+  A.ok(/^DONE: it is built\. Still to do before it runs: BAY 1 \(WRITER\) needs an agent; BAY 2 \(REVIEWER\) needs an agent\. If the Commander said who works those steps, staff them in one plan: station\.plan \{ "staff": \{ "line": "draft_and_review", "steps": \[ \{ "step": 1, "agent": "a crew name" \} \] \} \}, then station\.build; otherwise tell the Commander exactly that, and stop\./.test(crewLeft.next || ''), 'a build that only needs crew names the staff form, by the line\'s own name: ' + crewLeft.next);
   reply = { built: true, summary: 'Restyle HOME.', where: 'HOME' };
   const room = JSON.parse((await tools.buildTool.run({ planId: 'p3' }, {})).content);
   A.ok(/^DONE: it is built\. If you laid it out by hand, look at it once \(station\.map \{ look: the room \}\) and fix only what is wrong; then tell the Commander what was built in a sentence or two, and stop\./.test(room.next || ''), 'a room build says DONE, keeping its one look for a hand-laid design: ' + room.next);

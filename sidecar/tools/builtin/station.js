@@ -527,8 +527,12 @@
            reaching for more tools (the walk's lead, out of plans, made a loop nobody asked for). The receipt's own readiness decides
            the words: ready, or exactly what is still to do — never more than it proves. */
         const left = (r.blocking || []).filter(Boolean).map(String);
+        /* only crew is missing (the third live re-run staffed a built line through guessed ids, a map, a plan and a second card):
+           the one form that staffs a line by its own name and step numbers, for when the Commander said who works them */
+        const lineName = r.line && (r.line.label || r.line.name), crewOnly = lineName && left.length && left.every(b => /needs an agent/i.test(b));
+        const staff = crewOnly ? ' If the Commander said who works those steps, staff them in one plan: station.plan { "staff": { "line": ' + JSON.stringify(String(lineName)) + ', "steps": [ { "step": 1, "agent": "a crew name" } ] } }, then station.build; otherwise tell the Commander exactly that, and stop.' : '';
         // a ready-made line is finished when it lands; a design laid by hand keeps its one look (the planner's LOOK at your work)
-        if (r.built) r.next = 'DONE: it is built' + (left.length ? '. Still to do before it runs: ' + left.join('; ').replace(/\.$/, '') + '. Tell the Commander exactly that, and stop: build nothing else for this unless they ask.'
+        if (r.built) r.next = 'DONE: it is built' + (left.length ? '. Still to do before it runs: ' + left.join('; ').replace(/\.$/, '') + '.' + (staff || ' Tell the Commander exactly that, and stop: build nothing else for this unless they ask.')
           : (r.ready ? ' and ready to run' : '') + '. ' + (r.line ? 'Tell the Commander what was built in a sentence or two, and stop: there is nothing left to build or check for this.'
             : 'If you laid it out by hand, look at it once (station.map { look: the room }) and fix only what is wrong; then tell the Commander what was built in a sentence or two, and stop.'));
         return { content: JSON.stringify(r), summary: 'built ' + what + (r.line ? (r.ready ? ' · ready to run' : ' · ' + ((r.blocking || []).length) + ' to do') : '') };
