@@ -428,6 +428,75 @@ const Delegated = (() => {
       else ticker = setTimeout(fire, 1000);
     }
     if (!anyLive && ticker) { if (ticker > 0) clearTimeout(ticker); ticker = 0; tickGen++; }
+    linkSavedFiles(parentId);
+  }
+  /* THE REPORT OPENS WHAT IT NAMES (live walk 10-14: the lead's "COPY finished: tagline.md is saved and ready to open." was
+     plain text — the file it named could be opened only by finding this card). A file a worker of THIS conversation really
+     saved (the worker ledger's own artifacts: /api/overseer workers[].files) becomes an Open link wherever a crew message
+     here names it — the same door as the card's Open key (data-dg-file → Chat.openFile). Code, links, a longer name or a
+     path that merely ends in the name stay text. */
+  function savedFiles(parentId) {
+    const out = new Map();
+    const workers = parentId ? (snap().workers || []) : [];
+    for (const w of (Array.isArray(workers) ? workers : [])) {
+      if (!w || w.parentStreamId !== parentId || !Array.isArray(w.files)) continue;
+      for (const f of w.files) {
+        const p = String((f && f.path) || '').trim();
+        if (!p || /^[a-z][a-z0-9+.-]*:/i.test(p) || p.length > 240) continue;
+        const entry = { path: p, agentId: String((f && f.agentId) || w.agentId || 'agent'), projectRoot: String(w.projectRoot || '') };
+        out.set(p, entry);
+        const base = p.split(/[\\/]/).pop();
+        if (base && base !== p && !out.has(base)) out.set(base, entry);
+      }
+    }
+    return out;
+  }
+  const reEsc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  function linkMentions(body, files) {
+    if (!body || !files || !files.size || typeof document === 'undefined') return;
+    const names = Array.from(files.keys()).sort((a, b) => b.length - a.length);
+    // a whole name: not inside a longer word or path, and a trailing "." only as the end of a sentence
+    const re = new RegExp('(^|[^\\w./\\\\-])(' + names.map(reEsc).join('|') + ')(?=$|[^\\w./\\\\-]|\\.(?!\\w))', 'g');
+    const visit = node => {
+      for (const c of Array.from(node.childNodes || [])) {
+        if (c.nodeType === 1) { if (!/^(A|CODE|PRE|BUTTON)$/.test(c.tagName) && !(c.classList && c.classList.contains('md-code'))) visit(c); continue; }
+        if (c.nodeType !== 3 || !c.nodeValue) continue;
+        const v = c.nodeValue; let last = 0, m, hit = false;
+        re.lastIndex = 0;
+        while ((m = re.exec(v))) {
+          const at = m.index + m[1].length, name = m[2], f = files.get(name);
+          if (!f) continue;
+          if (at > last) node.insertBefore(document.createTextNode(v.slice(last, at)), c);
+          const a = document.createElement('a');
+          a.className = 'md-file dg-file-ref'; a.setAttribute('href', '#');
+          a.setAttribute('data-dg-file', f.path); a.setAttribute('data-dg-agent', f.agentId); a.setAttribute('data-dg-project', f.projectRoot);
+          a.setAttribute('data-tip', 'open ' + f.path);
+          a.appendChild(document.createTextNode(name));
+          node.insertBefore(a, c);
+          last = at + name.length; hit = true;
+        }
+        if (!hit) continue;
+        if (last < v.length) node.insertBefore(document.createTextNode(v.slice(last)), c);
+        node.removeChild(c);
+      }
+    };
+    visit(body);
+  }
+  const linkedBodies = new WeakMap();   // body -> the prose + file set it was last linked for (a repaint never re-walks it)
+  function linkSavedFiles(parentId) {
+    const log = $log();
+    if (!log || !log.querySelectorAll) return;
+    const files = savedFiles(parentId);
+    if (!files.size) return;
+    const sig = Array.from(files.keys()).join('\n');
+    log.querySelectorAll('.cmsg.agent:not(.tool) > .body').forEach(body => {
+      const src = typeof body.__proseSource === 'string' ? body.__proseSource : body.textContent;
+      const was = linkedBodies.get(body);
+      // a body re-rendered in place (same prose) lost its links: walk it again
+      if (was && was.sig === sig && was.src === src && (!was.hits || (body.querySelector && body.querySelector('a.dg-file-ref')))) return;
+      linkMentions(body, files);
+      linkedBodies.set(body, { sig, src, hits: !!(body.querySelector && body.querySelector('a.dg-file-ref')) });
+    });
   }
   function keyOf(el) {
     for (const a of ['data-dg-see', 'data-dg-stop', 'data-dg-toggle', 'data-dg-file', 'data-dg-question', 'data-dg-retry']) if (el.hasAttribute && el.hasAttribute(a)) return '[' + a + '="' + String(el.getAttribute(a)).replace(/["\\]/g, '\\$&') + '"]';
@@ -493,7 +562,13 @@ const Delegated = (() => {
       const c = t.closest('#chat-log [data-dg-consent]');
       if (c) { e.preventDefault(); answer(c.dataset.dgWs, c.dataset.dgConsent, c); return; }
       const f = t.closest('#chat-log [data-dg-file]');
-      if (f) { e.preventDefault(); if (typeof Chat !== 'undefined' && Chat.openFile) Chat.openFile(f.dataset.dgFile, f.dataset.dgAgent, f.dataset.dgProject); return; }
+      if (f) {
+        e.preventDefault();
+        // a file name in prose is selectable text: ending a drag-selection over it is not an open (COMMS' SELECTION GUARD)
+        if (f.tagName === 'A' && typeof window !== 'undefined' && window.getSelection && String(window.getSelection())) return;
+        if (typeof Chat !== 'undefined' && Chat.openFile) Chat.openFile(f.dataset.dgFile, f.dataset.dgAgent, f.dataset.dgProject);
+        return;
+      }
       const retry = t.closest('#chat-log [data-dg-retry]');
       if (retry) { e.preventDefault(); receipts.delete(retry.dataset.dgRetry); loadReceipt(retry.dataset.dgRetry); repaint(); return; }
       const see = t.closest('#chat-log [data-dg-see]');
@@ -529,6 +604,6 @@ const Delegated = (() => {
   }
 
   if (typeof document !== 'undefined') document.addEventListener('DOMContentLoaded', wire);
-  return { presentFor, repaint, batches, stateOf, reveal, hosts, staleLine, whyOf, tipOf, _internals: { workerRunOf, anchorFor, lineHtml, opened, closed, seen, receipts, foldReceipt, askOf, hydrate, loadReceipt } };
+  return { presentFor, repaint, batches, stateOf, reveal, hosts, staleLine, whyOf, tipOf, _internals: { workerRunOf, anchorFor, lineHtml, opened, closed, seen, receipts, foldReceipt, askOf, hydrate, loadReceipt, savedFiles, linkMentions } };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = Delegated;

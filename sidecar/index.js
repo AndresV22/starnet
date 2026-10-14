@@ -11525,6 +11525,11 @@ const ROUTES = [
       // the parent's DELEGATED card (frontend/app/delegated.js): who, which dispatch, and whether STOP can act
       agentId: w.agentId, parentRunId: w.parentRunId || '', generation: w.generation, completedAt: w.completedAt || 0,
       canInterrupt: !!w.canInterrupt, reason: w.reason || '',
+      // the files this worker really saved (its own artifacts ledger), by workspace-relative path — never the disk path —
+      // so the conversation's report can OPEN what it names (live walk 10-14; delegated.js linkSavedFiles)
+      files: (Array.isArray(w.artifacts) ? w.artifacts : []).filter(a => a && (a.kind === 'file' || a.kind === 'image') && a.path)
+        .slice(-12).map(a => ({ path: String(a.path), agentId: String(a.agentId || w.agentId || 'agent') })),
+      projectRoot: w.projectRoot || '',
       // the ledger's own explanation of a refused or failed worker (the crew-cap or sign-in sentence, a run's error) for
       // the card's hover tip and NEEDS YOU, as `failure` and only when there is one. This polled route never carries a
       // worker's `result` (heavy, and a timeout's or rejected answer's result is partial work, never a reason).
