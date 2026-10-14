@@ -111,6 +111,15 @@ A.ok(/p !== 'codex' && p !== 'grok' && p !== 'kimi'/.test(keycta), 'keycta treat
   // the card handler must route codex's connected truth to its literal status state (codexStatusKnown), not
   // the grok/kimi shared cache — otherwise the row keeps reading NOT SIGNED IN after a successful sign-in.
   A.ok(/pid === 'codex'.*codexStatusKnown\s*=\s*\{\s*connected:\s*true/.test(signinHandler), "a card-driven codex sign-in lands in codexStatusKnown (the codex truth the row actually reads)");
+  // org P03 review: a Settings repaint mid-sign-in (the first open's background checks) replaced the card and the
+  // device code went into the detached box. The box is drawn FROM state, and the callbacks repaint the live box.
+  A.ok(/const oauthCardFlow = \{\}/.test(ui) && /function oauthCardFlowView\(pid, keepEnded\)/.test(ui), 'the card sign-in keeps its flow in module state, not in the card DOM');
+  A.ok(/\(wantsOAuthSignin \|\| cardFlow\s*\?/.test(ui) && /cardFlow \? '' : ' hidden'/.test(ui), 'the card render draws an in-flight sign-in box (code + page) from that state');
+  const starter = ui.slice(ui.indexOf('function startCardSignin('), ui.indexOf('function startCardSignin(') + 3000);
+  A.ok(/onCode: c => \{[\s\S]*?Object\.assign\(mine, \{ phase: 'code'/.test(starter) && !/card\.querySelector/.test(starter), 'onCode writes the code into state and paints whatever card is live — never a captured node');
+  // a RECONNECT door on a card with no sign-in key (still listed as connected) starts the same card flow itself
+  A.ok(/if \(b\) b\.click\(\); else if \(isOAuthProvider\(id\)\) startCardSignin\(id\)/.test(ui), 'a sign-in door always runs a sign-in, even on a card that shows no ⏼ SIGN IN key');
+  A.ok(/if \(!card\.isConnected\) \{ land\(\); return; \}/.test(ui), 'a repaint right after the landing lands on the new card, not at the top of the page');
 }
 
 // ---- 2026-07-22 auth-lifecycle hardening (source-locks; the live races/keychain failures need real tokens

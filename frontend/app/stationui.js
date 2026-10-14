@@ -5582,6 +5582,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       // ⏼ RE-SIGN-IN row sits far below under API KEYS, and a user who read only the card had no way back in.
       // credentialSaved is already false for a dead sign-in, so the dead state needs no clause of its own here.
       const wantsOAuthSignin = p.live && isOAuthProvider(p.id) && !credentialSaved;
+      const cardFlow = isOAuthProvider(p.id) ? oauthCardFlowView(p.id, wantsOAuthSignin) : null;   // an in-flight card sign-in (survives repaints)
       const wantsClaudeSignin = p.id === 'claude-cli' && !!(claudeCliSt && claudeCliSt.installed && !claudeCliSt.loggedIn);
       const wantsClaudeInstall = p.id === 'claude-cli' && !!(claudeCliSt && !claudeCliSt.installed);
       const claudeFlowing = wantsClaudeSignin && !claudeCard.account && typeof ClaudeCliSignIn !== 'undefined' && ClaudeCliSignIn.active();
@@ -5610,11 +5611,13 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
         (isClaude && claudeCliSt && claudeCliSt.installed ? claudeAccountsHtml() : '') +
         (p.id === 'kimi' && p.live ? kimiRegionHtml() : '') +
         (STACKABLE_OAUTH.indexOf(p.id) >= 0 ? oauthAccountsHtml(p.id) : '') +
-        (wantsOAuthSignin
-          ? '<div class="key-edit codex-inline prov-oauth-inline" id="prov-oauth-inline-' + esc(p.id) + '" hidden>' +
-            '<span class="dim" id="prov-oauth-status-' + esc(p.id) + '"></span>' +
-            '<code class="key-mask" id="prov-oauth-code-' + esc(p.id) + '" hidden></code>' +
-            '<button class="bb sm" id="prov-oauth-open-' + esc(p.id) + '" hidden>↗ OPEN PAGE</button>' +
+        // the card's device-code box is drawn FROM oauthCardFlow, so a Settings repaint mid-sign-in (a status check
+        // landing, the first-open probes) redraws the code the Commander still has to type instead of losing it
+        (wantsOAuthSignin || cardFlow
+          ? '<div class="key-edit codex-inline prov-oauth-inline" id="prov-oauth-inline-' + esc(p.id) + '"' + (cardFlow ? '' : ' hidden') + '>' +
+            '<span class="dim" id="prov-oauth-status-' + esc(p.id) + '">' + (cardFlow ? cardFlow.statusHtml : '') + '</span>' +
+            '<code class="key-mask" id="prov-oauth-code-' + esc(p.id) + '"' + (cardFlow && cardFlow.code ? '>' + esc(cardFlow.code) : ' hidden>') + '</code>' +
+            '<button class="bb sm" id="prov-oauth-open-' + esc(p.id) + '"' + (cardFlow && cardFlow.openUri ? '' : ' hidden') + '>↗ OPEN PAGE</button>' +
             '</div>'
           : '') +
         '</div>';
@@ -6276,41 +6279,14 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       if (oauthSignin) oauthSignin.addEventListener('click', ev => {
         ev.stopPropagation();
         sfx('click');
-        const pid = card.dataset.provider;
-        const engine = (typeof OAuthSignIn !== 'undefined') ? OAuthSignIn.for(pid) : null;
-        if (!engine) return;
-        const box = card.querySelector('#prov-oauth-inline-' + pid);
-        const st = card.querySelector('#prov-oauth-status-' + pid);
-        const code = card.querySelector('#prov-oauth-code-' + pid);
-        const open = card.querySelector('#prov-oauth-open-' + pid);
-        if (box) { box.hidden = false; box.addEventListener('click', e2 => e2.stopPropagation()); }
-        engine.start({
-          onRequesting: () => { if (st) st.textContent = 'requesting a sign-in code…'; },
-          onError: msg => { if (st) st.textContent = msg; sfx('bad'); },
-          onTimeout: () => { if (st) st.textContent = 'sign-in timed out — hit ⏼ SIGN IN to start again'; },
-          onCode: c => {
-            if (code) { code.textContent = c.user_code; code.hidden = false; }
-            // DISPLAY the bare address, OPEN the code-carrying one — kimi's page REQUIRES ?user_code=.
-            if (st) st.innerHTML = 'enter this code at <b>' + esc(c.verification_uri) + '</b> (opening it now)…';
-            if (open) { open.hidden = false; open.onclick = e2 => { e2.stopPropagation(); sfx('click'); openExternal(c.open_uri || c.verification_uri); }; }
-            openExternal(c.open_uri || c.verification_uri);
-          },
-          onConnected: () => {
-            // the sidecar just exchanged + persisted fresh tokens — that POLL answer is backend truth.
-            // codex keeps its own literal status state (source-lock pinned); grok/kimi live in the shared cache.
-            if (pid === 'codex') { codexStatusKnown = { connected: true, expired: false, reason: '' }; refreshCodexConnectionStatus(); }
-            else { oauthStatus[pid] = { connected: true, expired: false, reason: '' }; refreshOAuthStatus(pid); }
-            if (typeof Harness !== 'undefined' && Harness.setDesktopConfigured) Harness.setDesktopConfigured(pid, true);   // desktop map learns mid-session (genesis feeds it; Settings must too)
-            // honest claim: runs ride the ACTIVE provider. A sign-in on a non-active card must say the extra
-            // step, not promise "your agents can run on your subscription" while runs continue elsewhere.
-            notify(activeProv() === pid
-              ? '✓ signed in to ' + provName(pid) + ' — your agents can run on your subscription'
-              : '✓ signed in to ' + provName(pid) + ' — click its card to make it your active brain', 'good');
-            if (typeof ModelDock !== 'undefined' && ModelDock.reflect) ModelDock.reflect();
-            if (typeof KeyCTA !== 'undefined' && KeyCTA.refresh) KeyCTA.refresh();
-            rerender('settings');
-          }
-        });
+        startCardSignin(card.dataset.provider, oauthSignin.textContent.trim());
+      });
+      // the device-code box: its clicks never select the provider; ↗ OPEN PAGE reopens the page the code belongs to
+      const oauthBox = card.querySelector('#prov-oauth-inline-' + card.dataset.provider);
+      if (oauthBox) oauthBox.addEventListener('click', e2 => {
+        e2.stopPropagation();
+        const f = oauthCardFlow[card.dataset.provider];
+        if (f && f.openUri && e2.target.closest('#prov-oauth-open-' + card.dataset.provider)) { sfx('click'); openExternal(f.openUri); }
       });
       // clicks on the inline key controls must NOT bubble up to provider-select — they toggle/save the key row.
       const inlineToggle = card.querySelector('[data-act="prov-add-toggle"]');
@@ -6344,6 +6320,78 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       // interactive descendants of a role=button card (invalid accessibility tree / conflicting activation).
       const providerSelect = card.querySelector('[data-act="prov-select"]');
       if (providerSelect) providerSelect.addEventListener('click', activate);
+    });
+  }
+
+  /* The CARD's device-code sign-in (codex/grok/kimi): one driver for the card's ⏼ SIGN IN / ⏼ RECONNECT key and for an
+     error door's sign-in press (focusProvider). Its state lives HERE, not in the card's DOM: Settings repaints whenever a
+     background check lands (the first open of a session starts several), and a repaint replaces the card — a code
+     written into the old card's box was lost while the browser page still waited for it. The card render draws the
+     box from oauthCardFlow; each callback updates the state and repaints just that box in whatever card is live. */
+  const oauthCardFlow = {};   // pid -> { phase: 'requesting'|'code'|'ended', msg, code, uri, openUri }
+  // keepEnded: the card still offers its own sign-in key, so a failed/timed-out attempt's message stays beside it. A card
+  // that offers none (an error door reconnecting a sign-in the station still lists) keeps that message for a minute.
+  function oauthCardFlowView(pid, keepEnded) {
+    const f = oauthCardFlow[pid];
+    if (!f) return null;
+    if (f.phase === 'ended' && !keepEnded && Date.now() - f.endedAt > 60000) return null;
+    const engine = (typeof OAuthSignIn !== 'undefined') ? OAuthSignIn.for(pid) : null;
+    // a code is only worth showing while the engine still polls for it (a sign-in started elsewhere supersedes it)
+    if (f.phase === 'code' && !(engine && engine.active())) { delete oauthCardFlow[pid]; return null; }
+    return {
+      statusHtml: f.phase === 'code' ? 'enter this code at <b>' + esc(f.uri) + '</b>' + (f.fresh ? ' (opening it now)…' : '') : esc(f.msg),
+      code: f.phase === 'code' ? f.code : '',
+      openUri: f.phase === 'code' ? f.openUri : ''
+    };
+  }
+  function paintOAuthCardFlow(pid) {
+    const w = open.settings;
+    const box = w && w.querySelector('#prov-oauth-inline-' + pid);
+    if (!box) return;   // the card isn't drawn right now — its next render draws the box from the state
+    const v = oauthCardFlowView(pid, true);
+    box.hidden = !v;
+    const st = box.querySelector('#prov-oauth-status-' + pid), code = box.querySelector('#prov-oauth-code-' + pid), openBtn = box.querySelector('#prov-oauth-open-' + pid);
+    if (st) st.innerHTML = v ? v.statusHtml : '';
+    if (code) { code.textContent = v ? v.code : ''; code.hidden = !(v && v.code); }
+    if (openBtn) openBtn.hidden = !(v && v.openUri);
+  }
+  function startCardSignin(pid, retryLabel) {
+    const engine = (typeof OAuthSignIn !== 'undefined') ? OAuthSignIn.for(pid) : null;
+    if (!engine) return;
+    const retry = retryLabel || '⏼ RE-SIGN-IN';
+    const mine = oauthCardFlow[pid] = { phase: 'requesting', msg: 'requesting a sign-in code…', code: '', uri: '', openUri: '' };
+    const mineNow = () => oauthCardFlow[pid] === mine;   // a newer start (or a finished one) owns the box now
+    // the box the RECONNECT door starts on a card that shows no sign-in key exists only while a flow is shown
+    if (open.settings && !open.settings.querySelector('#prov-oauth-inline-' + pid)) scheduleSettingsRepaint();
+    paintOAuthCardFlow(pid);
+    engine.start({
+      onRequesting: () => { if (mineNow()) paintOAuthCardFlow(pid); },
+      onError: msg => { if (!mineNow()) return; mine.phase = 'ended'; mine.endedAt = Date.now(); mine.msg = msg; paintOAuthCardFlow(pid); sfx('bad'); },
+      onTimeout: () => { if (!mineNow()) return; mine.phase = 'ended'; mine.endedAt = Date.now(); mine.msg = 'sign-in timed out — hit ' + retry + ' to start again'; paintOAuthCardFlow(pid); },
+      onCode: c => {
+        if (!mineNow()) return;
+        // DISPLAY the bare address, OPEN the code-carrying one — kimi's page REQUIRES ?user_code=.
+        Object.assign(mine, { phase: 'code', code: c.user_code, uri: c.verification_uri, openUri: c.open_uri || c.verification_uri, fresh: true });
+        paintOAuthCardFlow(pid);
+        mine.fresh = false;
+        openExternal(c.open_uri || c.verification_uri);
+      },
+      onConnected: () => {
+        if (mineNow()) delete oauthCardFlow[pid];
+        // the sidecar just exchanged + persisted fresh tokens — that POLL answer is backend truth.
+        // codex keeps its own literal status state (source-lock pinned); grok/kimi live in the shared cache.
+        if (pid === 'codex') { codexStatusKnown = { connected: true, expired: false, reason: '' }; refreshCodexConnectionStatus(); }
+        else { oauthStatus[pid] = { connected: true, expired: false, reason: '' }; refreshOAuthStatus(pid); }
+        if (typeof Harness !== 'undefined' && Harness.setDesktopConfigured) Harness.setDesktopConfigured(pid, true);   // desktop map learns mid-session (genesis feeds it; Settings must too)
+        // honest claim: runs ride the ACTIVE provider. A sign-in on a non-active card must say the extra
+        // step, not promise "your agents can run on your subscription" while runs continue elsewhere.
+        notify(activeProv() === pid
+          ? '✓ signed in to ' + provName(pid) + ' — your agents can run on your subscription'
+          : '✓ signed in to ' + provName(pid) + ' — click its card to make it your active brain', 'good');
+        if (typeof ModelDock !== 'undefined' && ModelDock.reflect) ModelDock.reflect();
+        if (typeof KeyCTA !== 'undefined' && KeyCTA.refresh) KeyCTA.refresh();
+        rerender('settings');
+      }
     });
   }
 
@@ -11633,14 +11681,16 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
   /* org P03 — an error door lands ON the provider's card, not at the top of a long AI & MODELS page. Opens the
      section, scrolls the card to the top of the pane (the CONFIG jump's offsetTop landing, never scrollIntoView's
      minimum scroll) and marks it for a moment. `signin` presses the card's own ⏼ SIGN IN / ⏼ RECONNECT — the same
-     prov-oauth-signin flow a click starts; a card that shows no such key (already signed in) is only landed on.
+     prov-oauth-signin flow a click starts; on a card that shows no such key (a sign-in still listed as connected) it
+     starts that same card flow itself (startCardSignin), so a RECONNECT door always reconnects.
      The section can paint a beat after openTerm, so the card is looked up again for up to ~3s. */
   function focusProvider(pid, opts) {
     const o = opts || {};
     const id = String(pid || '').replace(/[^a-z0-9_-]/gi, '');
     openTerm('settings', 'providers');
     if (!id) return;
-    let tries = 0;
+    let tries = 0, pressed = false;
+    const until = Date.now() + 4000;
     const land = () => {
       const w = open.settings;
       const card = w && w.querySelector('.prov-card[data-provider="' + id + '"]');
@@ -11649,7 +11699,22 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       if (pane) pane.scrollTop = Math.max(0, card.offsetTop - pane.offsetTop - 8);
       card.classList.add('prov-landed');
       setTimeout(() => card.classList.remove('prov-landed'), 2400);
-      if (o.signin) { const b = card.querySelector('[data-act="prov-oauth-signin"]'); if (b) b.click(); }
+      // a sign-in door RUNS the sign-in: the card's own key when it shows one, else the same card flow directly — a
+      // RECONNECT door can name a sign-in the station still lists as connected (a mid-run 401 the sidecar has not
+      // marked expired yet), and that card shows no key to press. The flow's box is drawn from state, so the
+      // first-open repaints below can't lose its code.
+      if (o.signin && !pressed) {
+        pressed = true;
+        const b = card.querySelector('[data-act="prov-oauth-signin"]'); if (b) b.click(); else if (isOAuthProvider(id)) startCardSignin(id);
+      }
+      // the first open of Settings starts background checks whose answers repaint the whole window (a fresh pane at the
+      // top); while the landing is new, a repaint that replaced this card lands on the new one instead of the top
+      const stay = () => {
+        if (Date.now() > until || !open.settings) return;
+        if (!card.isConnected) { land(); return; }
+        setTimeout(stay, 200);
+      };
+      setTimeout(stay, 200);
     };
     land();
   }
