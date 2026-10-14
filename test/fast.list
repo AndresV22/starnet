@@ -915,6 +915,7 @@ test/source-release-mirror.test.js
 test/release-train-chrome-warmup.test.js
 test/release-train-provenance.test.js
 test/frontend-dist-staging.test.js
+test/bundle-source-integrity.test.js
 test/desktop-build-macos-notarization.test.js
 test/desktop-build-macos-python-host.test.js
 test/desktop-artifact-open.test.js
