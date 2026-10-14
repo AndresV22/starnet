@@ -7675,7 +7675,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       '<p class="set-about">Credentials are saved locally and used to authenticate with the selected service. Saved keys stay masked. Desktop storage uses the OS keychain when available.</p>' +
       // org P05: model keys live here; keys for services live in CONNECT › ABILITIES — one door, the places.js api-connections target
       // (the key sits OUTSIDE the .set-about prose: that paragraph's 0.55 reading-dim greyed it into a disabled-looking key)
-      '<p class="set-about">Keys for Gmail, Notion and other services live in CONNECT › ABILITIES.</p>' +
+      '<p class="set-about">Keys for Gmail, Notion and other services live in CONNECT › ABILITIES › SAVED API CONNECTIONS.</p>' +
       '<div class="mc-acts"><button type="button" class="bb sm" data-act="to-service-keys">↗ SAVED API CONNECTIONS</button></div>' +
       // STORE / MANAGED CREDITS — rendered ONLY when the sidecar reports a configured credits backend (/api/credits).
       // When credits aren't wired this stays an empty node (no dead card, no fake balance — the honesty law). wireCredits
