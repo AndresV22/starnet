@@ -295,6 +295,49 @@ A.eq(reset.stats.chunkCount, 1, 'origin reset can rebuild only the visible chunk
 A.ok(canvases.every(boundedCanvas),
   'origin reset does not allocate full-world base/light canvases');
 
+/* THE FLOOR GREW, THE FRAME DID NOT MOVE (2026-10-13): a room stamped past the south edge changes H, not the origin —
+   the chunks it cannot reach are kept (the same objects), the reshaped edge row re-bakes, and the composite is still
+   pixel-identical to a monolithic bake of the grown floor. */
+function roomsGeo(rooms, ROWS, chamfer) {
+  const TILE = 12, COLS = 75, zoneGrid = new Array(COLS * ROWS).fill(null), idx = (x, y) => y * COLS + x, zones = {};
+  for (const r of rooms) { zones[r.z] = r; for (let y = r.y1; y <= r.y2; y++) for (let x = r.x1; x <= r.x2; x++) zoneGrid[idx(x, y)] = r.z; }
+  return {
+    TILE, COLS, ROWS, W: COLS * TILE, H: ROWS * TILE, origin: { tx: 0, ty: 0 },
+    allRects: rooms.slice(), zones, ROOM_IDS: rooms.map(r => r.z), windows: [], doorDefs: [], zoneGrid, idx,
+    chamfers: chamfer ? rooms.flatMap(r => [[r.x1, r.y1, 'tl'], [r.x2, r.y1, 'tr'], [r.x1, r.y2, 'bl'], [r.x2, r.y2, 'br']]) : [],
+    isCorridor: () => false,
+    canStep: (x1, y1, x2, y2) => zoneGrid[idx(x1, y1)] === zoneGrid[idx(x2, y2)],
+    baseColorOf: () => '#30343a', nameOf: z => z.toUpperCase(), kindOf: () => 'hab',
+    FLOOR_STYLES: { hull: { base: '#30343a' } }
+  };
+}
+const northRoom = { z: 'r1', x1: 2, y1: 2, x2: 60, y2: 20 }, southRoom = { z: 'r2', x1: 4, y1: 44, x2: 30, y2: 60 };
+const before = roomsGeo([northRoom], 52), beforeBake = StationBake.bakeIncremental(before, null, null);
+const grownGeo = roomsGeo([northRoom, southRoom], 66);
+const grownBake = StationBake.bakeIncremental(grownGeo, beforeBake, [southRoom]);
+A.eq(grownBake.stats.fullReset, false, 'a floor that grew south keeps its frame');
+A.ok(grownBake.chunkMap.get('0,0') === beforeBake.chunkMap.get('0,0') && grownBake.chunkMap.get('2,0') === beforeBake.chunkMap.get('2,0'),
+  'chunks the new room cannot reach are kept, not re-baked');
+A.ok(grownBake.chunkMap.get('0,1') !== beforeBake.chunkMap.get('0,1'), 'the edge row the new size reshapes is re-baked');
+const grownMono = StationBake.bake(grownGeo);
+A.eq(pixelDiff(composeLayer(grownBake, 'base'), grownMono.baseCv), 0, 'the kept + re-baked composite is the grown floor, pixel for pixel');
+A.eq(pixelDiff(composeLayer(grownBake, 'light'), grownMono.lightCv), 0, '…its light too');
+const shrunk = StationBake.bakeIncremental(before, grownBake, [southRoom]);
+A.eq(pixelDiff(composeLayer(shrunk, 'base'), StationBake.bake(before).baseCv), 0, 'removing it again composes the original floor');
+const movedOrigin = roomsGeo([northRoom], 52); movedOrigin.origin = { tx: -3, ty: 0 };
+A.eq(StationBake.bakeIncremental(movedOrigin, beforeBake, [northRoom]).stats.fullReset, true, 'an origin move still resets every chunk');
+// an edit with no rects re-bakes the station: only what is on screen bakes now, the rest as it pans into view
+const everything = StationBake.bakeIncremental(before, beforeBake, [], { visibleRect: { x: 0, y: 0, w: 384, h: 384 } });
+A.eq(everything.stats.rebakedChunks, 1, 'a station-wide edit bakes the visible chunk, not all six');
+A.eq(everything.stats.chunkCount, 1, '…and drops the stale others');
+A.eq(StationBake.missingVisibleChunks(everything, { x: 384, y: 0, w: 384, h: 384 }), ['1,0'], '…which the pan path re-bakes on sight');
+// A CHUNK PAINTS ONLY WHAT CAN REACH IT: far-apart rounded rooms, chunked == monolithic
+const spread = roomsGeo([{ z: 'a', x1: 2, y1: 3, x2: 12, y2: 12 }, { z: 'b', x1: 52, y1: 3, x2: 70, y2: 14 }, { z: 'c', x1: 20, y1: 36, x2: 40, y2: 48 }], 52, true);
+const spreadMono = StationBake.bake(spread), spreadChunks = StationBake.bakeIncremental(spread, null, null);
+A.eq(pixelDiff(composeLayer(spreadChunks, 'base'), spreadMono.baseCv), 0, 'culled chunks compose the monolithic base exactly');
+A.eq(pixelDiff(composeLayer(spreadChunks, 'light'), spreadMono.lightCv), 0, 'culled chunks compose the monolithic light exactly');
+A.eq(spreadChunks.lamps.length, spreadMono.lamps.length, 'every lamp survives the cull');
+
 /* Deck MATERIAL selection rides the same chunk path as everything above; the per-material
    pixel work is asserted in stationbake.materials.test.js instead. It can't be asserted HERE:
    this file's canvas mock resolves a gradient fillStyle to a single value, so the room-lighting

@@ -743,6 +743,16 @@ const StationBake = (() => {
   // chunk bake and leave a stale strip of wall behind.
   const dirtyPadPx = () => pad + Math.max(WALL.skirt, Math.max(WALL.up, WALL.corUp) + WALL.capH + 8) + 48;
   let G, T, HR, W, H, VX, VY, CW, CH, lampPos, edges, chamferAt, extN, openJoins;
+  /* A CHUNK PAINTS ONLY WHAT CAN REACH IT (2026-10-13, Andrew: "a huge delay in build mode" placing a block). BUILD MODE bakes
+     the station in 384px chunks, and every chunk walked and painted EVERY wall tile and rounded corner on the station, clipped
+     only by its canvas — one chunk cost about a third of a whole-station bake, so a room stamp that re-baked ten visible chunks
+     froze the editor for ~6 s. The incremental bake already rests on one contract: nothing a tile paints lands further than
+     dirtyPadPx() from it (an edit there re-bakes only the chunks within that reach). The same reach now bounds which walls, floors and
+     corners a chunk paints at all — one tile wider for safety — so a culled one could not have touched this chunk's pixels.
+     A whole-station bake (no viewport) culls nothing. */
+  let cullBox = null;
+  const rectCulled = r => !!cullBox && ((r.x2 + 1) * T < cullBox[0] || r.x1 * T > cullBox[2] || (r.y2 + 1) * T < cullBox[1] || r.y1 * T > cullBox[3]);
+  const tileCulled = (tx, ty) => !!cullBox && ((tx + 1) * T < cullBox[0] || tx * T > cullBox[2] || (ty + 1) * T < cullBox[1] || ty * T > cullBox[3]);
   const h2 = (x, y, s) => U.hash(x + ',' + y + ',' + (s || ''));
 
   /* ---------- THE ONE ROUNDED-CORNER RASTER ----------
@@ -3608,6 +3618,7 @@ const StationBake = (() => {
 
   function bakeWalls(b) {
     for (const e of edges) {
+      if (tileCulled(e.x, e.y)) continue;   // see A CHUNK PAINTS ONLY WHAT CAN REACH IT
       const X = e.x * T, Y = e.y * T;
       // a doorway gets its sill; an OPEN JOIN gets nothing at all — see "A THRESHOLD IS A HOLE IN
       // A WALL". Painting a track down a seam with no wall on it is what put a bar between two
@@ -4157,6 +4168,9 @@ const StationBake = (() => {
     const tmp = canvas(CW, CH2);
     const tg = tmp.getContext('2d');
     const list = [...groups.values()];
+    // a footprint's plate ring that misses this canvas entirely ([VX, VX+CW] x [VY-M, VY-M+CH2]) draws nothing on it, so
+    // its per-footprint scratch layers below are skipped — exact, not a reach estimate (see A CHUNK PAINTS ONLY WHAT CAN REACH IT)
+    const offCanvas = r => (r.x2 + 1) * T + pad < VX - 1 || r.x1 * T - pad > VX + CW + 1 || (r.y2 + 1) * T + pad < VY - M - 1 || r.y1 * T - pad > VY - M + CH2 + 1;
     const stampRect = (g, r) => g.fillRect(r.x1 * T - pad, r.y1 * T - pad, (r.x2 - r.x1 + 1) * T + pad * 2, (r.y2 - r.y1 + 1) * T + pad * 2);
     const eraseAllChamfers = g => { for (const [ccx, ccy, kind] of G.chamfers) { const A = CORNER[kind]; eraseSpandrel(g, kind, (ccx + A.cx) * T, (ccy + A.cy) * T, HR); } };
     /* which chamfers are a rect's OWN — the four corners it can legitimately round off itself */
@@ -4198,6 +4212,7 @@ const StationBake = (() => {
       const keep = canvas(CW, CH2), kg = keep.getContext('2d');
       kg.imageSmoothingEnabled = false;
       for (const r of grp.rects) {
+        if (offCanvas(r)) continue;
         const one = canvas(CW, CH2), og = one.getContext('2d');
         og.imageSmoothingEnabled = false;
         og.save(); og.translate(-VX, -(VY - M)); og.fillStyle = '#fff'; stampRect(og, r);
@@ -4267,6 +4282,7 @@ const StationBake = (() => {
          keeps but ownership dropped would be masked straight back out and the corner would stay
          short. The two rasters must agree pixel for pixel or the fix is invisible. */
       rects.forEach((r, i) => {
+        if (offCanvas(r)) return;
         const one = canvas(CW, CH2), og = one.getContext('2d');
         og.imageSmoothingEnabled = false;
         og.save(); og.translate(-VX, -(VY - M));
@@ -4885,7 +4901,7 @@ const StationBake = (() => {
     b.globalCompositeOperation = 'source-over';
 
     // floors
-    for (const r of G.allRects) (G.isCorridor(r.z) ? bakeCorridorFloor : bakeDeck)(b, r);
+    for (const r of G.allRects) if (!rectCulled(r)) (G.isCorridor(r.z) ? bakeCorridorFloor : bakeDeck)(b, r);
     bakeEdgeAO(b);
     bakeCorridorDressing(b);
     bakeWalls(b);
@@ -4898,6 +4914,7 @@ const StationBake = (() => {
        makes it connect. */
     // chamfer floor-cut + curved interior wall pass — depth order, same as the rim pass above
     for (const [ccx, ccy, kind] of chamfersByDepth) {
+      if (tileCulled(ccx, ccy)) continue;   // see A CHUNK PAINTS ONLY WHAT CAN REACH IT
       const X = ccx * T, Y = ccy * T, A = CORNER[kind], ax = X + A.cx * T, ay = Y + A.cy * T;
       // a rounded corner belongs to the room it was cut from — take that room's wall palette so a
       // coloured room's corner arc doesn't revert to the old universal brown-grey.
@@ -5137,6 +5154,8 @@ const StationBake = (() => {
     crownReach = new Map();   // ...and the corner crown's measured reach, which the mask erase reads back
     VX = viewport ? viewport.x : 0; VY = viewport ? viewport.y : 0;
     CW = viewport ? viewport.w : W; CH = viewport ? viewport.h : H;
+    const reach = dirtyPadPx() + T;
+    cullBox = viewport ? [VX - reach, VY - reach, VX + CW + reach, VY + CH + reach] : null;
     lampPos = []; wallFixtures = []; chamferAt = {}; extN = new Set();
     extNByCol = null;   // ...and the tall-north-face column index the corner ring's depth clip reads
     for (const [cx, cy, k] of geo.chamfers) chamferAt[cx + ',' + cy] = k;
@@ -5362,15 +5381,40 @@ const StationBake = (() => {
     }
     return out;
   }
+  /* THE FLOOR GREW, THE FRAME DID NOT MOVE (2026-10-13). A room stamped past the station's south or east edge (or one
+     removed there) changes W/H but not the origin, so every local pixel coordinate — and every chunk's content — is
+     unchanged except near the edit, which the dirty rects name exactly as for any in-frame edit. It used to count as a
+     new frame and re-bake every visible chunk: ~6 s on a large station for one room. Chunks whose rect is unchanged in
+     the new frame are kept; an edge chunk the new size reshapes is dropped (a visible one re-bakes below). An origin
+     move still re-bakes everything: the bake hashes some marks by local coordinates, so a shifted chunk would not be
+     pixel-identical to a fresh one. */
+  function keptChunks(prev, geo) {
+    if (!(prev && prev.chunked && prev.chunkMap && prev.origin && prev.chunkPx === CHUNK_PX &&
+      prev.origin.tx === geo.origin.tx && prev.origin.ty === geo.origin.ty)) return null;
+    const grid = chunkGrid(geo), kept = new Map();
+    for (const c of prev.chunkMap.values()) {
+      if (c.cx >= grid.cols || c.cy >= grid.rows) continue;
+      const v = chunkViewport(geo, c.cx, c.cy);
+      if (v.x === c.x && v.y === c.y && v.w === c.w && v.h === c.h) kept.set(c.key, c);
+    }
+    return kept;
+  }
   function bakeIncremental(geo, previous, dirtyRects, opts) {
     opts = opts || {};
-    const reuse = sameChunkFrame(previous, geo);
+    const same = sameChunkFrame(previous, geo), grown = same ? null : keptChunks(previous, geo);
+    const reuse = same || !!grown;
     const generation = reuse ? (previous.generation || 0) + 1 : 1;
-    const chunkMap = reuse ? new Map(previous.chunkMap) : new Map();
+    const chunkMap = same ? new Map(previous.chunkMap) : grown || new Map();
     const visible = chunkRefsForRect(geo, opts.visibleRect);
     const visibleKeys = new Set((visible || []).map(c => c.key));
-    let dirty = (reuse && opts.onlyMissingVisible) ? [] : (reuse ? dirtyChunks(geo, dirtyRects) : dirtyChunks(geo, []));
-    if (!reuse && visible) dirty = dirty.filter(d => visibleKeys.has(d.key));
+    // an edit with no rects re-bakes the whole station: nothing kept is still true, so it is a reset — the visible chunks
+    // bake now and the rest lazily as they pan into view (as on any reset), never every chunk of the station in one frame
+    const everything = reuse && !(same && opts.onlyMissingVisible) && !(dirtyRects && dirtyRects.length) && !!visible;
+    if (everything) chunkMap.clear();
+    let dirty = (same && opts.onlyMissingVisible) ? [] : (reuse ? dirtyChunks(geo, dirtyRects) : dirtyChunks(geo, []));
+    if ((!reuse || everything) && visible) dirty = dirty.filter(d => visibleKeys.has(d.key));
+    // with no viewport the caller wants the whole floor, like a cold bake: chunks a grown frame dropped or added fill in too
+    if (grown && !visible) for (const d of dirtyChunks(geo, [])) if (!chunkMap.has(d.key) && !dirty.some(x => x.key === d.key)) dirty.push(d);
     for (const d of dirty) chunkMap.set(d.key, bakeChunk(geo, d.cx, d.cy, generation));
     const requiredKeys = new Set(dirty.map(d => d.key));
     let visibleBaked = 0;
