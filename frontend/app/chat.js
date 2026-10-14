@@ -4522,11 +4522,14 @@ const Chat = (() => {
     const ratedWork = runWork.get(runId);
     const ratedTask = String((ratedMeta && ratedMeta.directive) || (ratedWork && ratedWork.title) || '').replace(/\s+/g, ' ').trim();
     lbl.textContent = 'rate ' + ratee + '’s work';
-    // one short line: what was asked + a short, stable run reference (the full task and run id are its tooltip)
-    const ref = document.createElement('div'); ref.className = 'work-rate-reference';
-    ref.textContent = (ratedTask ? ratedTask.slice(0, 90) + (ratedTask.length > 90 ? '…' : '') + ' · ' : '') + 'run ' + String(runId).slice(0, 8);
-    ref.title = (ratedTask ? ratedTask + ' · ' : '') + 'run ' + runId;
-    host.appendChild(ref);
+    // one short line: what was asked + a short, stable run reference (the full task and run id are its tooltip).
+    // (org D1) no task text → no line: a bare 'run 3f9a2c1b' tells the reader nothing, so the id rides the label's tip.
+    if (ratedTask) {
+      const ref = document.createElement('div'); ref.className = 'work-rate-reference';
+      ref.textContent = ratedTask.slice(0, 90) + (ratedTask.length > 90 ? '…' : '') + ' · run ' + String(runId).slice(0, 8);
+      ref.title = ratedTask + ' · run ' + runId;
+      host.appendChild(ref);
+    } else lbl.title = 'run ' + runId;
     const btns = document.createElement('span'); btns.className = 'consent-btns';
     host.appendChild(lbl); host.appendChild(btns);
     let done = false;
