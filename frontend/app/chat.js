@@ -8835,8 +8835,10 @@ const Chat = (() => {
     if (!s) return localLine('Usage: /goal <what you want done>');
     activeWs.goalLoop = s; persistGoal();
     /* ONE MEANING FOR 'GOAL LOOP' (org pass 10-14, P29): /goal is a loop on THIS session only — not an AUTOMATE › GOAL LOOPS
-       entry. Say so, and hand over a real door key (never a menu path) to where lasting goal loops live. */
-    const set = localLine('⊙ goal set for this session only: ' + s.goal + ' (budget ' + s.maxTurns + ' turns). It works while StarNet is open, and a reload keeps it. Working toward it…');
+       entry. Say so, and hand over a real door key (never a menu path) to where lasting goal loops live. A reload does not end
+       the session, so the line says the goal stays WITH this session through one (P29 polish 2: 'session only … a reload keeps it'
+       read as a contradiction). */
+    const set = localLine('⊙ goal set for this session only: ' + s.goal + ' (budget ' + s.maxTurns + ' turns). It works while StarNet is open and stays with this session through a reload. Working toward it…');
     if (set && typeof StationUI !== 'undefined' && StationUI.openTerm) {
       const door = document.createElement('button'); door.type = 'button'; door.className = 'consent-btn goal-loops-door'; door.textContent = '▸ AUTOMATE › GOAL LOOPS';
       door.onclick = () => StationUI.openTerm('automation', 'loops');

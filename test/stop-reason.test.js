@@ -140,7 +140,7 @@ A.ok(/function noteStopReason\(/.test(chat) && /m\.stopped && m\.stopNote\) tool
     GoalLoop, { id: 'w' }, () => null, t => { lines.push(t); return row; }, () => {}, () => { kicked++; }, { openTerm: (k, sec) => opened.push(k + ':' + sec) }, doc);
   goal('ship the landing page');
   A.ok(/^⊙ goal set for this session only: ship the landing page \(budget 8 turns\)\./.test(lines[0]) && !/ {2}|lasting goal loops/.test(lines[0]), 'the /goal set line says session-only, one space before the budget, no dangling door label: ' + lines[0]);
-  A.ok(/It works while StarNet is open, and a reload keeps it\./.test(lines[0]), 'org P19: it says when it runs — while StarNet is open, across a reload');
+  A.ok(/It works while StarNet is open and stays with this session through a reload\./.test(lines[0]), 'org P19: it says when it runs — while StarNet is open, and that a reload keeps it on this session');
   const doorRow = kids.find(k => k && k.className === 'goal-loops-row');
   A.ok(doorRow && doorRow.kids[0] && doorRow.kids[0].text === 'Lasting goal loops:', 'P29 polish: the door rides a row of its own, labelled Lasting goal loops:');
   const door = doorRow && doorRow.kids.find(k => k && k.className && /goal-loops-door/.test(k.className));
