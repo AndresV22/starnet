@@ -328,10 +328,14 @@ const GroupChat = (() => {
       #gc-notice:empty{display:none}#gc-notice{flex:0 0 auto;padding:4px 12px;font-size:13px;color:var(--gold);overflow-wrap:anywhere}
       /* the picker IS its window's height: the two lists share it and scroll on their own, the how-to line and the footer stay
          in the flow under them (min-height:100% let it grow past the window, and the sticky footer then sat over the how-to
-         line, which showed through its 95%-alpha panel — walk 10-14 #9) */
-      .gc-picker{min-width:0;height:100%;box-sizing:border-box;display:flex;flex-direction:column;gap:10px}.gc-picker>.key-input{flex:0 0 auto;display:block;width:100%;box-sizing:border-box;margin:0}
-      .gc-sect{display:flex;flex-direction:column;min-width:0;min-height:0}.gc-sect.in{flex:0 0 auto}.gc-sect.out{flex:1 1 0;min-height:0}
-      .gc-sect-h{flex:0 0 auto;display:flex;align-items:baseline;gap:8px;margin:0 0 4px;font-size:var(--sn-type-meta,14px);letter-spacing:1.5px;text-transform:uppercase;color:var(--ph-dim)}.gc-sect-h b{font-weight:normal;color:var(--ph)}
+         line, which showed through its 95%-alpha panel — walk 10-14 #9). The ADD list keeps a floor of two agents and the
+         members list gives way first, to one; below both floors the window body scrolls, the how-to line and footer still in
+         the flow (review 10-14: at min-height:0 a 5-member group showed no agent to add on a window 80px shorter). The floors
+         count in rows: the 38px portrait + its padding + its 1px rule (8px here, 11px in glass-comms.css). */
+      .gc-picker{--gc-row-h:55px;--gc-head-h:22px;min-width:0;height:100%;box-sizing:border-box;display:flex;flex-direction:column;gap:10px}.gc-picker>.key-input{flex:0 0 auto;display:block;width:100%;box-sizing:border-box;margin:0}
+      .gc-sect{display:flex;flex-direction:column;min-width:0;min-height:0}.gc-sect.in{flex:0 1 auto;min-height:calc(var(--gc-head-h) + var(--gc-row-h))}.gc-sect.out{flex:1 1 0;min-height:calc(var(--gc-head-h) + 2 * var(--gc-row-h))}
+      body.glass-demo .gc-picker{--gc-row-h:61px}
+      .gc-sect-h{flex:0 0 auto;display:flex;align-items:baseline;gap:8px;margin:0 0 4px;font-size:var(--sn-type-meta,14px);line-height:18px;letter-spacing:1.5px;text-transform:uppercase;color:var(--ph-dim)}.gc-sect-h b{font-weight:normal;color:var(--ph)}
       .gc-sect-list{flex:1 1 auto;min-height:0;overflow:auto;border:1px solid var(--ph-faint);border-radius:3px;background:rgba(0,0,0,.18)}.gc-sect-list:empty{display:none}.gc-sect.in .gc-sect-list{flex:0 1 auto;max-height:min(30vh,174px)}
       .gc-row{display:flex;align-items:center;gap:10px;padding:8px 10px;border-bottom:1px solid var(--ph-faint);min-width:0}.gc-row:last-child{border-bottom:0}.gc-row[hidden]{display:none}
       .gc-row .gc-led{flex:0 0 auto;width:8px;height:8px;border-radius:2px;background:var(--ph-dim)}.gc-row.in .gc-led{box-shadow:0 0 6px var(--ph-glow)}

@@ -209,7 +209,22 @@ const group = (members, extra = {}) => ({ id: 'direct', title: 'Direct', members
   assert.match(pickerCss, /height:100%/, 'the picker is exactly its window\'s height (min-height:100% let it overflow under its sticky footer)');
   assert.doesNotMatch(pickerCss, /min-height:100%/, 'no min-height:100% that grows the picker past its window');
   assert.match(source, /\.gc-empty:empty\{display:none\}/, 'an empty "whole crew is here" slot takes no room from the add list');
-  assert.match(source, /\.gc-sect\.out\{[^}]*min-height:0/, 'the add list shrinks with the window instead of pushing the footer over the how-to line');
+  /* the ADD list keeps a floor of TWO rows (review 10-14: at min-height:0 a 5-member group's add list was 1.3 rows at
+     1440x900 and none at all on a window ~80px shorter — 1366x768, a larger TEXT SIZE, a dragged picker). The members list
+     gives way first, down to one row; below both floors the window body scrolls with the how-to line and footer in the flow. */
+  const outRule = (source.match(/\.gc-sect\.out\{[^}]*\}/) || [''])[0], inRule = (source.match(/\.gc-sect\.in\{[^}]*\}/) || [''])[0];
+  assert.match(outRule, /min-height:calc\(var\(--gc-head-h\) \+ 2 \* var\(--gc-row-h\)\)/, 'the add list never shrinks below its heading and two agents');
+  assert.match(inRule, /flex:0 1 auto/, 'the members list gives way when the window is short');
+  assert.match(inRule, /min-height:calc\(var\(--gc-head-h\) \+ var\(--gc-row-h\)\)/, 'but never below its heading and one agent');
+  // the row height the floors count in is the row's real height: the 38px portrait plus its padding and its 1px rule
+  const thumbH = +(source.match(/thumbHTML\(.*?, 32, (\d+), 'gc-av'\)/) || [])[1];
+  const basePad = +((source.match(/\.gc-row\{[^}]*padding:(\d+)px/) || [])[1]);
+  const glassCss = fs.readFileSync(path.join(__dirname, '../frontend/css/glass-comms.css'), 'utf8');
+  const glassPad = +((glassCss.match(/body\.glass-demo \.gc-picker \.gc-row \{[^}]*padding: (\d+)px/) || [])[1]);
+  assert.equal(+((source.match(/\.gc-picker\{[^}]*--gc-row-h:(\d+)px/) || [])[1]), thumbH + 2 * basePad + 1, 'the base row height the floors count in');
+  assert.equal(+((source.match(/body\.glass-demo \.gc-picker\{--gc-row-h:(\d+)px/) || [])[1]), thumbH + 2 * glassPad + 1, 'the glass row (11px padding) height the floors count in');
+  assert.match(source, /\.gc-sect-h\{[^}]*line-height:18px/, 'the section heading has a fixed line the floors count in');
+  assert.match(source, /--gc-head-h:22px/, 'the heading is its 18px line plus its 4px gap');
   assert.doesNotMatch((source.match(/\.gc-picker-footer\{[^}]*\}/) || [''])[0], /position:sticky/, 'the footer sits in the flow under the how-to line, never stuck over text that scrolls behind its 95%-alpha panel');
   // the picker opens tall enough to show its roster, like the other pick-from windows (an explicit drag still wins)
   assert.match(source, /className: 'gc-picker-win'/, 'the ADD AGENTS window names itself to the dock');
