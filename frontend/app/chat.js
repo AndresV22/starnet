@@ -7878,7 +7878,8 @@ const Chat = (() => {
       if (typeof Fork === 'undefined') return raw;
       return final ? (Fork.stripMarkers ? Fork.stripMarkers(raw) : raw) : (Fork.liveText ? Fork.liveText(raw) : raw);
     }
-    function flushProse(final) { renderQueued = false; if (seg) renderProse(seg.body, shownProse(final), { files }); }
+    let lastShown = null;   // the text the open paragraph last rendered (a close re-renders only when its final text differs)
+    function flushProse(final) { renderQueued = false; if (seg) { lastShown = shownProse(final); renderProse(seg.body, lastShown, { files }); } }
     function queueProse() {
       if (renderQueued) return;
       if (typeof requestAnimationFrame !== 'function' || (typeof document !== 'undefined' && document.hidden)) { flushProse(); autoscroll(); return; }
@@ -7902,13 +7903,13 @@ const Chat = (() => {
     }
     function open() {
       endToolRail();   // a fresh prose paragraph opening below a rail closes it, so the next tool call starts a NEW rail under this prose (keeps chronological "said → did → said → did")
-      seg = row('agent', { stamp: true, who: whoName || null }); raw = '';
+      seg = row('agent', { stamp: true, who: whoName || null }); raw = ''; lastShown = null;
       if (seg.body && seg.body.addEventListener) seg.body.addEventListener('pointerdown', holdWhilePressed);
       caret = document.createElement('span'); caret.className = 'caret'; caret.textContent = '▮';
       seg.d.appendChild(caret);   // caret is a sibling of .body, so re-rendering .body's content never disturbs it
     }
     function closeSeg() {   // drop the caret, discard an empty stub, and arm the next token to start fresh
-      if (seg) flushProse(true);   // pending tokens land — and a line the live render held back shows — before the empty-stub check reads textContent
+      if (seg && (renderQueued || shownProse(true) !== lastShown)) flushProse(true);   // pending tokens land — and a line the live render held back shows — before the empty-stub check reads textContent
       if (caret) { caret.remove(); caret = null; }
       if (seg && !seg.body.textContent.trim()) seg.d.remove();
       seg = null; raw = '';

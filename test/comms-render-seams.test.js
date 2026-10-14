@@ -53,6 +53,28 @@ const { makeStationControlTools } = require('../sidecar/tools/builtin/station-co
   A.eq(Policy.canMutate({ status: 'ready' }, reg.get('station.power')).ok, false, 'station.power (an escalation) still waits for brief_proceed');
 }
 
+/* ---------- A2. the LIVE reply (chat.js streamingAgent, executed) never shows a choice marker, and keeps every prose line ---------- */
+{
+  const vm = require('vm');
+  const chat = read('frontend/app/chat.js');
+  const part = (start, end) => { const i = chat.indexOf(start), j = chat.indexOf(end, i + start.length); A.ok(i >= 0 && j > i, 'chat.js has ' + start.trim()); return chat.slice(i, j); };
+  const renders = [];
+  const row = () => ({ d: { classList: { add() {} }, appendChild() {}, remove() {} }, body: { textContent: 'x', addEventListener() {} } });
+  const c = vm.createContext({ Fork, activeWs: { id: 's', agentId: 'agent' }, row, renderProse: (el, text) => { renders.push(text); el.textContent = text; },
+    turnFileRefs: () => null, endToolRail() {}, autoscroll() {}, document: { hidden: true, createElement: () => ({ remove() {} }) } });
+  vm.runInContext(part('  function streamingAgent(', '  // close the live paragraph (if any)'), c);
+  const live = c.streamingAgent();
+  live.append('One thing first. Is it:\n\n**FORK: which angle?** || local-first | pixel art');
+  A.eq(renders.at(-1), 'One thing first. Is it:', 'a bold FORK never renders in the live reply');
+  live.append('\n\nTASK_QUESTION: who is it fo');
+  A.ok(!/TASK_QUESTION/.test(renders.at(-1)), 'a marker still being typed is held back: ' + JSON.stringify(renders.at(-1)));
+  const prose = c.streamingAgent();
+  prose.append('The FORK: in the road');
+  A.eq(renders.at(-1), 'The', 'the last line waits while it could still become a marker');
+  prose.done();
+  A.eq(renders.at(-1), 'The FORK: in the road', 'and shows in full the moment the paragraph closes');
+}
+
 /* ---------- B. *italic* renders as italics in COMMS and group replies (one renderer: Chat.renderProse) ---------- */
 {
   const src = read('frontend/app/chat.js');
