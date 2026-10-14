@@ -14,7 +14,8 @@
      · a click on a machine inspects it and a click off the deck is refused with its reason — nothing placed, the INBOX still held;
      · the hotbar's own INBOX (key 2) keeps its multi-place hand: only NEW LINE is one-shot;
      · the INBOX that lands is DRAWN: its landing never hides it once the frame clock passes the click, and settles to a plain
-       draw in LAND_MS. */
+       draw in LAND_MS; and the frame's draw list (propDrawOrder, memoized per edit) holds every prop the model holds, so a prop
+       can never be outlined (the panel's gold mark reads the model) yet left undrawn. */
 'use strict';
 const A = require('./_assert.js');
 const fs = require('fs');
@@ -149,7 +150,27 @@ const verbOf = h => { const m = /<span class="refit-hint-verb">([^<]*)<\/span>/.
   A.eq(r.machines().filter(m => !before.includes(m)), ['intake@36,20'], '…having placed one INBOX');
 }
 
-/* ---------- 5. the wiring: the key, Esc and right-click ---------- */
+/* ---------- 5. every prop the model holds is in the draw list (the frame's own propDrawOrder) ---------- */
+{
+  // the memo is per edit (geoVer); the gold outline reads the model directly — so a prop the model gained without the version moving
+  // must still be drawn (and picked): the memo answers only while it is the model's own list at the model's own length
+  const s = WM.create(); s.projectGeometry();
+  s.addRoom({ kind: 'hab', rect: { x1: 30, y1: 0, x2: 70, y2: 30 } });
+  s.addProp({ t: 'bay', x: 50, y: 10, w: 2, h: 2, block: true });
+  const ctx = { station: s, geoVer: 7, mountVer: 0, mountOrder: null, mountMap: null, Map, PropSprites: { spec: () => null, TILE: 12 } };
+  vm.createContext(ctx);
+  vm.runInContext(between('  let mountList = null, mountLen = -1;', '  // conveyor — belts (floor machinery)') + '\nthis.__order = propDrawOrder;', ctx);
+  const ids = () => ctx.__order(s.props()).map(p => p.t + '@' + p.x + ',' + p.y);
+  A.eq(ids(), ['bay@50,10'], 'the draw list holds the floor\'s props');
+  const first = ctx.__order(s.props());
+  A.ok(ctx.__order(s.props()) === first, '…memoized: an unchanged floor re-uses the same sorted list (no per-frame sort)');
+  s.addProp({ t: 'intake', x: 36, y: 20, w: 2, h: 2, block: true });   // the model gains an INBOX; geoVer is NOT bumped
+  A.ok(ids().includes('intake@36,20'), 'a prop the model gained without the edit version moving is still in the next frame\'s draw list');
+  s.undo();   // the model hands in a new props array (restore)
+  A.eq(ids(), ['bay@50,10'], '…and one the model let go of is not');
+}
+
+/* ---------- 6. the wiring: the key, Esc and right-click ---------- */
 const own = between('        /* BUILD YOUR OWN (conveyor-links phase D)', '        const grid = document.createElement(\'div\'); grid.className = \'refit-linegrid\';');
 A.ok(/own\.onclick = \(\) => startNewLine\(\);/.test(own), 'the BUILD YOUR OWN LINE key runs startNewLine');
 A.ok(!/lineEditRun\(|LineEdit\.|openWorkflowPanel\(/.test(own), '…and never lays a line or opens a panel itself');

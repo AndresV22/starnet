@@ -7925,9 +7925,15 @@ const Build = (() => {
      prop's footprint top (masts/crowns; measured over propsprites.js), and SURFACE_RISE adds a few
      more — so the pad is better than double the art that can ever hang outside a footprint. */
   const PROP_CULL_PAD = 4;
+  /* EVERY PROP THE FLOOR HOLDS IS IN THE DRAW LIST (2026-10-13, Andrew: a new INBOX on the floor, its gold outline drawn, its body
+     not). The sorted list is memoized per edit (geoVer) and the outline reads the model directly, so a prop that reached the model
+     without the version moving would be outlined and never drawn — or picked. Whatever the edit path, the memo is the model's list
+     only while it IS that list at that length: the same array (an undo hands in a new one) and the same count (an add pushes). Two
+     compares a frame; a recompute only when they disagree. */
+  let mountList = null, mountLen = -1;
   function propDrawOrder(list) {
-    if (mountVer === geoVer && mountOrder) return mountOrder;
-    mountVer = geoVer;
+    if (mountVer === geoVer && mountOrder && mountList === list && mountLen === list.length) return mountOrder;
+    mountVer = geoVer; mountList = list; mountLen = list.length;
     const mounts = new Map();
     for (const p of list) {
       let m = null;
