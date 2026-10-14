@@ -3053,7 +3053,8 @@ const App = (() => {
   async function preflightWire() {
     try {
       if (typeof Harness === 'undefined' || !Harness.chat) return { ok: false, why: 'the harness is not loaded (reload the app)' };
-      const call = Harness.chat({ system: '', messages: [{ role: 'user', content: 'Reply with exactly: OK' }], agentId: 'agent', isTask: false, placed: [], internal: true })
+      // keepEffort: the Commander's own reasoning effort, the one the awakening runs on — not the aux effort self-talk uses
+      const call = Harness.chat({ system: '', messages: [{ role: 'user', content: 'Reply with exactly: OK' }], agentId: 'agent', isTask: false, placed: [], internal: true, keepEffort: true })
         .catch(e => ({ error: true, text: String((e && e.message) || e) }));
       const res = await Promise.race([call, new Promise(r => setTimeout(() => r(null), 30000))]);
       if (!res) return { ok: false, why: 'no reply within 30 seconds (network or provider stall)' };

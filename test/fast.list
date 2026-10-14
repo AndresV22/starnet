@@ -1200,3 +1200,4 @@ test/run-context.compaction.test.js
 test/internal-run-not-working.test.js
 test/aux-effort.test.js
 test/starter-drift.test.js
+test/openrouter-effort-heal.test.js

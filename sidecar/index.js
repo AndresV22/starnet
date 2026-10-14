@@ -3143,8 +3143,10 @@ function auxReasoningEffort(provider, model) {
    thinking for a strict-format reply — measured live on haiku-4.5 (10-14): a title 483 reasoning tokens for 4 words,
    a reflection 401 for the one PREFERENCE line it wrote in 24 at 'none', a goal plan ~6.8k over 63 s, and a
    session-ideas pass that ran past its own 45 s deadline and was thrown away. Now the LOWEST effort the provider
-   verifiably offers for that model (AuxGovernor.pickAuxEffort; null = no override). Compaction stays on
-   auxReasoningEffort: a fold is the Commander's own task context, not self-talk (test/aux-effort.test.js). */
+   lists for that model (AuxGovernor.pickAuxEffort; null = no override). The native adapters state each model's levels;
+   OpenRouter's /models does not, so its list is a guess until the endpoint refuses a rung — the adapter then learns the
+   refusal and resends at the nearest rung kept ('Reasoning is mandatory' on none -> minimal; test/openrouter-effort-heal).
+   Compaction stays on auxReasoningEffort: a fold is the Commander's own task context, not self-talk (test/aux-effort). */
 function auxPassEffort(provider, model) {
   if (String(ENV('AUX_EFFORT') || '').trim() || resolveAuxModel()) return auxReasoningEffort(provider, model);
   if (!provider || typeof provider.reasoningEfforts !== 'function') return null;
@@ -19077,9 +19079,11 @@ async function handleRun(req, res) {
   // this Commander should do next, so it may request the same bounded evidence pack an ordinary task run gets.
   // Only meaningful alongside internal; runOnce ignores it otherwise.
   const evidence = !!(body && body.evidence);
-  // …and an internal run whose reply IS work the Commander will read (the autopilot's desk draft and its self-critique)
-  // keeps the Commander's reasoning effort; every other internal run is strict-format self-talk on the aux effort.
-  const workProduct = !!(internal && body && body.workProduct === true);
+  // …and an internal run that must run on the Commander's own reasoning effort says so (keepEffort): a reply that IS work
+  // they read (the autopilot's desk draft + its self-critique, a plan they asked for), a decision that must not be wrong
+  // (the goal loop's done/continue judge), and the WAKE preflight (it proves the path the awakening uses). Every other
+  // internal run is strict-format self-talk on the aux effort.
+  const keepEffort = !!(internal && body && body.keepEffort === true);
   const runProvider = normalizeProvider(provider);
   const reasoningEffort = resolveReasoningEffort(runProvider, body && (body.reasoningEffort || body.reasoning_effort || (body.reasoning && body.reasoning.effort)));
   const preloadSkills = Array.isArray(body && body.preloadSkills) ? body.preloadSkills.map(s => String(s || '').trim()).filter(Boolean).slice(0, 8) : [];
@@ -19391,7 +19395,7 @@ async function handleRun(req, res) {
     // of default-denying. The SAME run host (runOnce) is reused by the messaging hub with surface:'autonomous'.
     const continuedResult = await runOnce({
       key, keyPool: body && body.keyPool, model, system: (projectLine || projectRules) ? (String(system || '') + projectLine + projectRules) : system, messages: runMessages, agentId, isTask, provider: runProvider, baseUrl, reasoningEffort, fallbackModels, fallbackProviders,
-      emit, signal: ac.signal, runId, trigger: 'directive', internal, evidence, workProduct,
+      emit, signal: ac.signal, runId, trigger: 'directive', internal, evidence, keepEffort,
       voiceTurn: !!(body && body.voiceTurn === true),   // the reply will be SPOKEN: the voice chat model may answer it
       initialTaint: hasUserAttachments ? 'user attachment' : null,
       learningInput,   // host-captured BEFORE attachment expansion; never accepted from request metadata
@@ -21354,8 +21358,8 @@ async function runOnceCore(o) {
   // effort the Commander picked for their own chat (auxPassEffort). Every adapter clamps a per-request effort to what
   // the model it lands on offers, so a fallback hop stays valid. null = no override (every other run — an /v1
   // outputOnly repair is an external caller's own request, so it is o.internal here, not `internal`).
-  // An internal run whose reply IS work the Commander reads (o.workProduct: the autopilot's desk draft) keeps their effort.
-  const internalEffort = o.internal && !o.workProduct ? auxPassEffort(provider, model) : null;
+  // An internal run marked o.keepEffort (work the Commander reads, the goal judge, the wake preflight) keeps their effort.
+  const internalEffort = o.internal && !o.keepEffort ? auxPassEffort(provider, model) : null;
 
   // ---- context auto-compaction: fold older turns into a summary once the live prompt passes 65% of the model's
   //      window, so a long run shrinks instead of overflowing. The summarizer is ONE model call over the older

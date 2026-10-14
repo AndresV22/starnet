@@ -8637,7 +8637,8 @@ const Chat = (() => {
       try {
         const sys = GoalLoop.judgeSystem();
         const usr = GoalLoop.judgeUser(s, reply, { now: new Date().toISOString() });
-        const res = await Harness.chat({ system: sys, messages: [{ role: 'user', content: usr }], agentId: ws.agentId || 'agent', isTask: false, placed: [], internal: true });
+        // keepEffort: a verdict that ends the Commander's loop runs on their reasoning effort, never the cheap aux one
+        const res = await Harness.chat({ system: sys, messages: [{ role: 'user', content: usr }], agentId: ws.agentId || 'agent', isTask: false, placed: [], internal: true, keepEffort: true });
         raw = (res && !res.error) ? (res.text || '') : '';
       } catch (_) { raw = ''; }
       judged = GoalLoop.parseVerdict(raw);
