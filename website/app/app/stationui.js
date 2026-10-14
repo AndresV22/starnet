@@ -1820,7 +1820,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       crewPortrait(a) +
       '<span class="dot on"></span>' +
       '<div class="crew-main">' +
-      '<div class="crew-name" style="color:' + esc(a.color) + '">' + esc(a.name) +
+      '<div class="crew-name" style="color:' + esc(a.color) + '"><span class="crew-nm">' + esc(a.name) + '</span>' +
       (duplicateAgentName(a) ? '<span class="crew-id">[' + esc(duplicateAgentName(a)) + ']</span>' : '') +
       '<span class="crew-room">' + (a.stats && a.stats.level ? 'Lv ' + a.stats.level : '') + '</span></div>' +
       '<div class="crew-status" id="cs-' + esc(a.id) + '">…</div>' +
@@ -5038,10 +5038,33 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     if (h && h.setDesktopConfigured) h.setDesktopConfigured('starnet', !!configured);
     if (typeof ModelDock !== 'undefined' && ModelDock.reflect) ModelDock.reflect();
   }
+  /* ONE READ, NOT ONE PER REPAINT (live walk 10-14: opening SETTINGS › SPENDING LIMITS fired /api/credits 12 times in
+     1.5 s, every one a 404 — each pane repaint re-ran both this card's read and the STORE's). A settled answer is
+     reused for a minute; a 404 is the station's definitive "no cloud account linked" and holds for ten (only a LINK
+     can change it, and LINK forgets it); an outage or timeout is never kept, so RETRY really retries. Callers sharing a
+     read in flight share its one request. LINK / UNLINK / RETRY / REFRESH / the STORE key call forgetCreditsReads(). */
+  const CREDITS_FRESH_MS = 60000;
+  const CREDITS_UNLINKED_MS = 10 * 60000;
+  const _creditsReads = new Map();   // url -> { at, epoch, pending, notLinked, p }
+  function creditsRead(url, opts) {
+    // Harness.creditsEpoch moves on EVERY link/unlink/switch (refreshCreditsConfigured), the connect screen's included
+    const now = Date.now(), epoch = Harness.creditsEpoch ? Harness.creditsEpoch() : 0, hit = _creditsReads.get(url);
+    if (hit && hit.epoch === epoch && (hit.pending || now - hit.at < (hit.notLinked ? CREDITS_UNLINKED_MS : CREDITS_FRESH_MS))) return hit.p;
+    const rec = { at: now, epoch, pending: true, notLinked: false, p: null };
+    rec.p = Harness.api.get(url, opts).then(v => { rec.pending = false; rec.at = Date.now(); return v; }, e => {
+      rec.pending = false; rec.at = Date.now();
+      rec.notLinked = /http 404\b/.test(String((e && e.message) || e));
+      if (!rec.notLinked && _creditsReads.get(url) === rec) _creditsReads.delete(url);   // trouble is not an answer: ask again next time
+      throw e;
+    });
+    _creditsReads.set(url, rec);
+    return rec.p;
+  }
+  function forgetCreditsReads() { _creditsReads.clear(); }
   function refreshCreditsProvider() {
     const prior = creditsProv;
     // the STORE's wait (wireCredits): a read that self-heals the link takes ~16s, past api.get's 15s default
-    return Harness.api.get('/api/credits?history=0', { timeoutMs: 20000 }).catch(e => ({ configured: false, unavailable: !/http 404\b/.test(String((e && e.message) || e)) }))
+    return creditsRead('/api/credits?history=0', { timeoutMs: 20000 }).catch(e => ({ configured: false, unavailable: !/http 404\b/.test(String((e && e.message) || e)) }))
       .then(j => {
         if (j && j.configured) {
           publishCreditsConfigured(true);
@@ -5060,7 +5083,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
           return creditsProv;
         }
         if (!(j && j.unavailable)) publishCreditsConfigured(false);   // 404/unlinked is definitive; an outage is not
-        return Harness.api.get('/api/credits/linkable').catch(() => ({ available: false }))
+        return creditsRead('/api/credits/linkable').catch(() => ({ available: false }))
           .then(lk => {
             creditsProv = { state: (lk && lk.available) ? 'linkable' : 'absent', balanceUsd: null, tier: '' };
             return creditsProv;
@@ -6314,7 +6337,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
         const host = body.querySelector('#credits-store');
         if (host && host.scrollIntoView) host.scrollIntoView({ behavior: 'smooth', block: 'center' });
         // Re-read rather than trust the last paint: the user may have linked or unlinked in another window.
-        wireCredits(body);
+        forgetCreditsReads(); wireCredits(body);
         const btn = host && host.querySelector('#credits-link');
         if (btn && btn.focus) btn.focus();
       });
@@ -6401,7 +6424,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     // The wait outlasts the sidecar's worst case for this FULL read: a link self-heal (/v1/whoami 8s + one /v1/balance
     // 8s), then the activity history on the healed adapter (8s) = 24s. api.get's 15s default gave up first and painted
     // "could not check" over a funded account that was about to answer (E29, 10-07).
-    return Harness.api.get('/api/credits', { timeoutMs: 26000 }).catch(error => {
+    return creditsRead('/api/credits', { timeoutMs: 26000 }).catch(error => {
       if (/http 404\b/.test(String(error && error.message || error))) return { configured: false };
       throw error;
     })
@@ -6411,7 +6434,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
         if (j && j.configured) return renderCreditsConfigured(body, host, j);
         // unconfigured → is this station LINKABLE (STARNET_CLOUD_URL wired)? If so, offer LINK STATION. Otherwise
         // render NOTHING (honesty law: a bare BYOK install shows no STORE surface at all).
-        return Harness.api.get('/api/credits/linkable')
+        return creditsRead('/api/credits/linkable')
           .then(lk => {
             if (!current()) return;
             if (lk && lk.available === true) renderCreditsLinkCard(body, host,
@@ -6435,7 +6458,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       creditsUnlinkErrorMarkup() +
       '<p class="set-about" role="alert">Could not check your account connection. Retry to load your balance or linking options.</p>' +
       '<button class="bb sm" id="credits-retry">↻ RETRY</button>';
-    host.querySelector('#credits-retry').addEventListener('click', () => { sfx('click'); wireCredits(body); });
+    host.querySelector('#credits-retry').addEventListener('click', () => { sfx('click'); forgetCreditsReads(); wireCredits(body); });
   }
 
   // A ledger entry's own name for itself. The backend sends `label` for rows that are not model calls
@@ -6518,7 +6541,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     const manage = host.querySelector('#credits-manage');
     if (manage) manage.addEventListener('click', () => { sfx('click'); openExternal(j.manageUrl || j.purchaseUrl); });
     const ref = host.querySelector('#credits-refresh');
-    if (ref) ref.addEventListener('click', () => { sfx('click'); wireCredits(body); });
+    if (ref) ref.addEventListener('click', () => { sfx('click'); forgetCreditsReads(); wireCredits(body); });
     // UNLINK gives up a money-spending credential, so it is destructive → the house two-step
     // arm/confirm, same idiom as key remove and permission revoke. It used to raise a native
     // window.confirm, which the OS paints: a grey system dialog over the CRT, and the one thing
@@ -6551,7 +6574,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
         })
         // Symmetric to the link path: a station that just gave up its credential must stop reporting
         // that it can run on credits, or STARNET stays selectable and every run fails at admission.
-        .then(() => (H() && H().refreshCreditsConfigured) ? H().refreshCreditsConfigured() : null)
+        .then(() => { forgetCreditsReads(); return (H() && H().refreshCreditsConfigured) ? H().refreshCreditsConfigured() : null; })   // the account just changed: every read below is afresh
         .then(() => refreshCreditsProvider())
         .then(() => { _creditsUnlinkPending = false; scheduleSettingsRepaint(); wireCredits(body); })
         .catch(() => {
@@ -6562,7 +6585,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
               ? 'Could not confirm that unlink completed. Refresh the account connection, then retry UNLINK if it is still linked.'
               : 'Unlink completed, but the account display could not refresh. Retry to load the linking options.';
           scheduleSettingsRepaint();
-          wireCredits(body);
+          forgetCreditsReads(); wireCredits(body);
         });
     };
     if (unlink) {
@@ -6665,7 +6688,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
             // Tell Harness the credential now exists: configured('starnet') is what resume and the
             // model dock gate on, and it was probed at boot when this station was NOT yet linked.
             adoptCreditsToken()
-              .then(() => (H() && H().refreshCreditsConfigured) ? H().refreshCreditsConfigured() : null)
+              .then(() => { forgetCreditsReads(); return (H() && H().refreshCreditsConfigured) ? H().refreshCreditsConfigured() : null; })   // the account just changed: every read below is afresh
               .then(() => refreshCreditsProvider())
               .then(() => { scheduleSettingsRepaint(); wireCredits(body); });
             return;

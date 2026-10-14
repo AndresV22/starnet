@@ -298,6 +298,7 @@ const GroupChat = (() => {
       body #chat-panel #gc-log .gc-message.agent .who.gc-who:is(:hover,:focus-visible){color:var(--ph-bright);text-shadow:0 0 5px var(--ph-glow)}
       .gc-message.draft .body{opacity:.85}.gc-message.draft .body::after{content:'▌';color:var(--ph);animation:1s steps(1) infinite comms-blink}
       .gc-message .gc-partial{display:block;margin-top:4px;font-size:12px;letter-spacing:.5px;color:var(--gold)}
+      #gc-log>.gc-retired{flex:0 0 auto}#gc-log>.gc-retired .consent-result{display:block;margin-top:4px}
       #gc-recipients:not(:empty){padding:4px 12px;font-size:12px;letter-spacing:.8px;text-transform:uppercase;color:var(--ph-dim);display:flex;align-items:center;gap:6px;flex-wrap:wrap}
       #gc-recipients .gc-to{color:var(--ph)}#gc-recipients .bb{font-size:11px!important;min-height:20px!important;padding:0 6px!important}
       #gc-mentions{flex:0 0 auto;display:flex;flex-direction:column;max-height:min(40vh,264px);overflow:auto;margin:0 0 6px;padding:0;border:1px solid rgba(var(--ph-rgb),.35);border-radius:4px;background:color-mix(in srgb,var(--panel2) 94%,var(--ph));scrollbar-color:var(--ph-dim) transparent}
@@ -438,6 +439,41 @@ const GroupChat = (() => {
     }
     if (gen === generation && active?.conversationMode === 'group') timer = setTimeout(() => poll(gen), 900);
   }
+  /* A REPLY'S FLOW (rc walk 2026-10-14). The group transcript glued the lead's streamed sentences together ("Let me configure
+     it:The steps are locked.") and showed none of its tool calls. A reply that made visible calls carries its flow from the
+     host (sidecar group-sessions.js: the prose as it streamed + each call's offset into it); it is drawn the way the
+     one-on-one chat draws a run — said → did → said — with the same chips (Chat.toolRailOf). `clean` is the finished
+     message's marker rule; a still-streaming draft (`live`) never shows a choice marker, complete or half-typed. */
+  function renderFlow(body, text, steps, files, clean, live) {
+    // a streaming draft re-renders on every token or poll: a chip the Commander opened stays open (keyed by its call id)
+    const opened = new Set(Array.from(body.querySelectorAll('.tool-chip.open')).map(c => c.dataset && c.dataset.callId).filter(Boolean));
+    body.replaceChildren();
+    const src = String(text == null ? '' : text);
+    const list = (Array.isArray(steps) ? steps : []).slice().sort((a, b) => (Number(a.at) || 0) - (Number(b.at) || 0));
+    const shownOf = s => (live && typeof Fork !== 'undefined' && Fork.liveText) ? Fork.liveText(s) : clean ? clean(s) : s;
+    const prose = s => {
+      const shown = String(shownOf(s) || '').trim();
+      if (!shown) return;
+      const seg = h('div', { class: 'gc-seg' });
+      if (typeof Chat !== 'undefined' && Chat.renderProse) Chat.renderProse(seg, shown, { files }); else seg.textContent = shown;
+      body.append(seg);
+    };
+    const offset = s => Math.max(0, Math.min(src.length, Number(s && s.at) || 0));
+    let from = 0, i = 0;
+    while (i < list.length) {
+      const at = Math.max(from, offset(list[i])), batch = [];
+      while (i < list.length && Math.max(from, offset(list[i])) === at) batch.push(list[i++]);
+      prose(src.slice(from, at));
+      if (typeof Chat !== 'undefined' && Chat.toolRailOf) body.append(Chat.toolRailOf(batch));
+      from = at;
+    }
+    prose(src.slice(from));
+    if (opened.size) for (const c of Array.from(body.querySelectorAll('.tool-chip'))) {
+      if (!(c.dataset && opened.has(c.dataset.callId))) continue;
+      c.classList.add('open');
+      const head = c.querySelector('.tc-head'); if (head) head.setAttribute('aria-expanded', 'true');
+    }
+  }
   // the turn's REAL recorded time (never the current clock for a message that carries none)
   function stampOf(at) { const d = new Date(at); return at && !isNaN(d.getTime()) ? d : null; }
   const clockLabel = d => typeof Chat !== 'undefined' && Chat.clockLabel ? Chat.clockLabel(d) : d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
@@ -489,10 +525,20 @@ const GroupChat = (() => {
       return cp;
     };
     let prevAt = 0, prevAuthor = null, prevClock = '';
+    /* A STOP WHILE AN APPROVAL WAITED retires that card here, in the one-on-one card's words (live walk 2026-10-14: the card
+       just vanished): right under the reply it interrupted, or — when the turn had said nothing — where the turn ended. */
+    const retiredAt = new Map();   // message id -> turns whose unanswered approval follows it
+    const shown = group.messages.filter(m => String(m.content || '').trim());
+    for (const t of group.turns) if (t.unansweredApproval) {
+      const at = shown.find(m => m.turnId === t.id) || shown.filter(m => !t.endedAt || (Number(m.at) || 0) <= t.endedAt).at(-1) || shown.find(m => m.id === t.origin);
+      if (at) retiredAt.set(at.id, (retiredAt.get(at.id) || []).concat(t));
+    }
+    const turnOf = id => (id ? group.turns.find(t => t.id === id) : null);
     for (const m of group.messages) {
-      // brief.ask's fallback marker belongs to the durable question card, not a chat bubble.
-      const content = (group.questions || []).some(q => q.turnId === m.turnId)
-        ? m.content.replace(/(?:^|\n)TASK_QUESTION:[^\n]*(?:\n|$)/g, '\n').trim() : m.content;
+      // brief.ask's fallback marker belongs to the durable question card, not a chat bubble. A marker no card claimed
+      // (a FORK, or a TASK_QUESTION the host never registered) reads as its question and options — never machine syntax.
+      const asks = (group.questions || []).some(q => q.turnId === m.turnId);
+      const content = (typeof Fork === 'undefined' || m.author === 'user') ? m.content : asks ? Fork.stripMarkers(m.content) : Fork.readable(m.content);
       if (!content) continue;
       const attachments = (m.artifactIds || []).map(id => group.artifacts.find(f => f.id === id)).filter(Boolean);
       // TIME BREAKS, the direct chat's rule: the first stamped turn, a new day, or 30 minutes of quiet
@@ -506,11 +552,16 @@ const GroupChat = (() => {
         prevAt = at.getTime();
       }
       const askedQ = m.questionId ? (group.questions || []).find(q => q.id === m.questionId) : null;
-      const rowKey = JSON.stringify([m, content, attachments, group.members, name(m.author), colorOf(m.author), clock, askedQ && askedQ.question]);
+      // a reply the Commander STOPPED says so; any other unfinished one stays "partial" (failed, cut off)
+      const endedTurn = m.partial ? turnOf(m.turnId) : null;
+      const unfinished = endedTurn && endedTurn.state === 'stopped' && /^stopped by you$/i.test(String(endedTurn.reason || '')) ? 'stopped by you · work did not complete' : 'partial · work did not complete';
+      const rowKey = JSON.stringify([m, content, attachments, group.members, name(m.author), colorOf(m.author), clock, askedQ && askedQ.question, m.partial && unfinished]);
       const row = keep('m:' + m.id, rowKey, () => {
         const row = h('article', { class: 'gc-message cmsg' + (m.author === 'user' ? ' user' : ' agent'), 'data-message-id': m.id });
         const body = h('div', { class: 'body' });
-        if (typeof Chat !== 'undefined' && Chat.renderProse) Chat.renderProse(body, content, { files: fileRefs(group.id, m.author, m.id) }); else body.textContent = content;
+        if (m.author !== 'user' && m.flow && Array.isArray(m.flow.steps) && m.flow.steps.length && typeof Chat !== 'undefined' && Chat.toolRailOf)
+          renderFlow(body, m.flow.text, m.flow.steps, fileRefs(group.id, m.author, m.id), s => (typeof Fork === 'undefined' ? s : asks ? Fork.stripMarkers(s) : Fork.readable(s)), false);
+        else if (typeof Chat !== 'undefined' && Chat.renderProse) Chat.renderProse(body, content, { files: fileRefs(group.id, m.author, m.id) }); else body.textContent = content;
         const color = colorOf(m.author); if (color) { row.style.setProperty('--gc-c', color); body.style.setProperty('--rail', color); }
         const who = group.members.includes(m.author) ? speaker(m.author, m.id) : h('span', { class: 'who' }, name(m.author).toUpperCase());
         // the answer to a question keeps its question (the card leaves the strip once answered)
@@ -519,7 +570,7 @@ const GroupChat = (() => {
           const head = h('span', { class: 'cmsg-head' }); head.append(who, h('span', { class: 'cmsg-ts' }, clock));
           row.dataset.ts = String(at.getTime()); row.append(head); if (asked) row.append(asked); row.append(body);
         } else { row.append(who); if (asked) row.append(asked); row.append(body); }
-        if (m.partial) row.append(h('small', { class: 'gc-partial' }, 'partial · work did not complete'));
+        if (m.partial) row.append(h('small', { class: 'gc-partial' }, unfinished));
         if (attachments.length) renderMessageAttachments(row, group.id, attachments);
         row.append(copyKey(content));
         return row;
@@ -530,6 +581,18 @@ const GroupChat = (() => {
       // above may be someone else, so only a true same-speaker follow-up continues it
       row.classList.toggle('gc-cont', prevAuthor === m.author);
       prevAuthor = m.author; prevClock = clock;
+      for (const t of retiredAt.get(m.id) || []) {
+        const ask = t.unansweredApproval;
+        const phrase = typeof Chat !== 'undefined' && Chat.consentPhrase ? String(Chat.consentPhrase(ask) || '').trim() : '';
+        const said = '▣ ' + name(t.agentId) + ' wants to ' + (phrase || String(ask.tool || 'take an action')) + ' ';
+        keep('ra:' + t.id, said, () => {
+          const card = h('div', { class: 'cmsg agent tool consent gc-retired', role: 'note' }), body = h('div', { class: 'body' });
+          body.append(said, h('span', { class: 'consent-result err' }, '■ the run ended before an answer — nothing was approved'));
+          card.append(body);
+          return card;
+        });
+        prevAuthor = null;
+      }
       // replies a PAUSE stopped before they ran (E-STOP, a restart, PAUSE — then a new message carried on): said under
       // the message they were for, with the one key that runs them now
       const unrun = m.author === 'user' ? group.turns.filter(t => t.origin === m.id && t.state === 'stopped' && t.reason === 'Paused before it ran' && !group.turns.some(x => x.retryOf === t.id)) : [];
@@ -544,14 +607,15 @@ const GroupChat = (() => {
         prevAuthor = null;
       }
     }
-    for (const t of group.turns) if (t.draft) {
-      // a streaming reply keeps its row; only its text moves
+    for (const t of group.turns) if (t.draft || (t.draftSteps && t.draftSteps.length)) {
+      // a streaming reply keeps its row; only its flow moves (prose + the calls it made so far, like the one-on-one chat)
       const n = keep('dr:' + t.id, name(t.agentId) + colorOf(t.agentId), () => {
         const row = h('article', { class: 'gc-message cmsg agent draft' }), body = h('div', { class: 'body' }); const color = colorOf(t.agentId);
         if (color) { row.style.setProperty('--gc-c', color); body.style.setProperty('--rail', color); }
         row.append(h('span', { class: 'who' }, name(t.agentId).toUpperCase()), body); row._gcBody = body; return row;
       });
-      if (n._gcBody && n._gcBody.textContent !== t.draft) n._gcBody.textContent = t.draft;
+      const draftSig = JSON.stringify([t.draft || '', t.draftSteps || []]);
+      if (n._gcBody && n._gcDraftSig !== draftSig) { n._gcDraftSig = draftSig; renderFlow(n._gcBody, t.draft || '', t.draftSteps || [], fileRefs(group.id, t.agentId, 'draft:' + t.id), null, true); }
     }
     for (let i = 0; i < nodes.length; i++) { const cur = log.children[i]; if (cur !== nodes[i]) log.insertBefore(nodes[i], cur || null); }
     while (log.children.length > nodes.length) log.lastElementChild.remove();
@@ -873,7 +937,10 @@ const GroupChat = (() => {
       }
       const cur = ws.pendingJoin && ws.pendingJoin.runId === runId ? ws.pendingJoin.ids : [];
       const all = [...new Set([...cur, ...add])].slice(0, 10);
-      ws.pendingJoin = { runId, ids: all, at: Date.now() }; save();
+      // what the Commander already answered in that run's Task Brief (the sidecar's host stamp): the kickoff starts from it
+      const brief = typeof caller.brief === 'string' && caller.brief.trim() ? caller.brief.trim().slice(0, 600)
+        : (ws.pendingJoin && ws.pendingJoin.runId === runId && ws.pendingJoin.brief) || '';
+      ws.pendingJoin = { runId, ids: all, at: Date.now(), ...(brief ? { brief } : {}) }; save();
       return { joining: true, agents: all.map(name), note: agentNames(all) + (all.length > 1 ? ' join ' : ' joins ')
         + (isGeneral(ws) ? 'a new group chat that opens beside General' : 'this chat (it becomes a group chat, its history kept)')
         + ' the moment this reply ends. If the reply is stopped or fails, nobody is added and the Commander is told in the chat.' };
@@ -904,7 +971,10 @@ const GroupChat = (() => {
     try {
       // the lead asked for them to work on the Commander's request: it gets the first turn in the group to hand them their parts
       const kickoff = agentNames(ids) + (ids.length > 1 ? ' have' : ' has') + ' joined this chat at your request. Carry on with the Commander\'s request: give '
-        + (ids.length > 1 ? 'each of them their part' : 'them their part') + ' (group.handoff) and do your own.';
+        + (ids.length > 1 ? 'each of them their part' : 'them their part') + ' (group.handoff) and do your own.'
+        // …starting from what the Commander already answered (review 10-14: from General the new group re-asked "What are
+        // we launching?" seconds after they had answered it there)
+        + (job.brief ? ' The Commander already answered: ' + String(job.brief).replace(/[\s.;,]+$/, '') + '. Never ask those again.' : '');
       const out = ws.conversationMode === 'group' ? await addAgents(ws, ids, null) : await startGroup(ws, ids, { kickoff });
       if (typeof StationUI !== 'undefined' && StationUI.notify) StationUI.notify(agentNames(ids) + (ids.length > 1 ? ' joined ' : ' joined ') + (out && out.title ? '"' + out.title + '"' : 'the chat'), 'good');
       return out;

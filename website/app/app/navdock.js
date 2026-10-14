@@ -96,11 +96,16 @@
   const COACH_KEY = 'starnet.navcoach.seen';
   const coach = document.getElementById('nav-coach');
   let coachTimer = 0;
+  // RETIRING IS NOT HIDING (live walk 10-14: the tip came back after a reload 40 minutes into heavy use). The 15 s fade
+  // hides it without retiring it, and a dock opened after that returned early here because the tip was already hidden —
+  // so finding every dock was never written down. Opening a dock (or GOT IT) retires it whether or not it is on screen.
   function dismissCoach(persist) {
-    if (!coach || coach.hidden) return;
-    coach.hidden = true;
-    if (coachTimer) { clearTimeout(coachTimer); coachTimer = 0; }
-    if (persist !== false) { try { localStorage.setItem(COACH_KEY, '1'); } catch (_) {} }
+    if (!coach) return;
+    if (!coach.hidden) {
+      coach.hidden = true;
+      if (coachTimer) { clearTimeout(coachTimer); coachTimer = 0; }
+    }
+    if (persist !== false) { try { localStorage.setItem(COACH_KEY, '1'); } catch (e) { console.warn('[navdock] could not remember the dock tip was retired (storage blocked)', e); } }
   }
   // ONCE PER PAGE (live walkthrough 2026-10-13): the observer below fires on ANY class change of #screen-game, and a
   // flicker effect toggles a class there every 7 s — so the hint came back 15 s on / 7 s off for the whole session,
