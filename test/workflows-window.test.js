@@ -314,7 +314,8 @@ const tick = () => new Promise(r => setTimeout(r, 15));
     A.ok(sl && sl.dockId === entry && sl.agentId === 'nova', 'startLines: the line\'s first routed step and its agent (SCHEDULES › RUN BY)');
     // the page: STARTS sits between Send it a job and Last jobs; its key opens EDIT WORKFLOW at 'Or start it automatically'
     A.ok(/\+ '<\/section>' \+ startsHTML\(l\) \+ '<section class="wfw-sec"><h3>Last jobs<\/h3>'/.test(src), 'STARTS: sits between the job box and LAST JOBS');
-    A.ok(/data-act="automatic" data-tip="[^"]+">⊕ MAKE IT AUTOMATIC<\/button>/.test(src) && /B\(\)\.editLine\(l\.intakeId\)\)\) return;\s*\n\s*if \(typeof WorkflowPanel !== 'undefined' && WorkflowPanel\.revealStarts\)/.test(src), '⊕ MAKE IT AUTOMATIC opens the editor on the INBOX and reveals its starts');
+    A.ok(/data-act="automatic" data-tip="[^"]+">⊕ MAKE IT AUTOMATIC<\/button>/.test(src) && /data-act="automatic" data-tip="[^"]+">⊕ CHANGE STARTS<\/button>/.test(src)
+      && /const started = !!t && t\.split\(' · '\)\.slice\(1\)\.some\(p => !\/could not be read\$\/\.test\(p\)\);/.test(src) && /B\(\)\.editLine\(l\.intakeId\)\)\) return;\s*\n\s*if \(typeof WorkflowPanel !== 'undefined' && WorkflowPanel\.revealStarts\)/.test(src), '⊕ MAKE IT AUTOMATIC opens the editor on the INBOX and reveals its starts');
     const panelSrc = rd('frontend/app/workflowpanel.js');
     A.ok(/<section class="wf-sec" id="wf-starts"><h3>Or start it automatically<\/h3>/.test(panelSrc) && /selectFromFloor, revealStarts, showTest,/.test(panelSrc), 'the panel names that section and exports revealStarts');
     A.ok(src.includes('scheduled and channel runs are filed in DELIVERABLES'), 'an empty LAST JOBS says where scheduled and channel runs are filed');

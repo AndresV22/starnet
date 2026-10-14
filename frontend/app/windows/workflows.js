@@ -481,7 +481,7 @@ const WorkflowsWindow = (() => {
     S.pick = null; S.drafting = null; S.made = null; S.draft.name = ''; S.draft.describe = '';
     S.view = made ? 'line' : 'list'; S.line = made ? made.key : null; S.job = null; S.step = null;
     // said in the window, under the job box — a toast would sit over the SEND key
-    S.msg = made ? { text: '✓ ' + shown + ' is on your floor' + (lr && !lr.ok ? ' (not named ' + name + ' — ' + String(lr.short || lr.msg || 'that name was refused').toLowerCase() + ')' : '') + (pk.job ? ', with a first job written for you' : '') + '. Send it a job whenever you like.' } : null;
+    S.msg = made ? { text: '✓ ' + shown + ' is on your floor' + (lr && !lr.ok ? ' (not named ' + name + ' — ' + String(lr.short || lr.msg || 'that name was refused').toLowerCase() + ')' : '') + (pk.job ? ', with a first job written for you' : '') + '. Send a job whenever you like.' } : null;
     paint();
     focusIn('#wfw-job');
   }
@@ -638,7 +638,7 @@ const WorkflowsWindow = (() => {
   function composeHTML(l) {
     // one job runs at a time (the station's rule): the one this window sent counts before the server's list shows it
     const busy = runningJob() || (S.out ? { line: S.out.line, name: (lineOf(floor(), S.out.line) || {}).name } : null), other = busy && busy.line !== l.key;
-    return '<section class="wfw-sec wfw-send"><h3>Send it a job</h3>'
+    return '<section class="wfw-sec wfw-send"><h3>Send a job</h3>'
       + '<textarea id="wfw-job" class="wfw-field" rows="3" maxlength="2000" aria-label="The job for this workflow" placeholder="' + esc(exampleJob(l)) + '">' + esc(S.draft['job:' + l.key] || '') + '</textarea>'
       + '<div class="wf-row"><button type="button" class="bb refit-primary" data-act="send"' + (busy ? ' disabled' : '') + '>▶ SEND A JOB</button>'
       + '<span class="wfw-note">' + (other ? 'Another workflow (' + esc(busy.name || 'a line') + ') is working on a job — one job runs at a time.' : 'Real agents do the work, at real cost. The result comes back here, and to the OUTBOX.' + ((l.sendNames || []).length ? ' Then it ' + (l.sendsAll ? 'rides on' : 'can ride on') + ' to ' + esc(l.sendNames.join(' / ')) + ' — its crew, at its cost.' : '')) + '</span></div>'
@@ -669,8 +669,13 @@ const WorkflowsWindow = (() => {
   }
   function startsHTML(l) {
     const t = startsText(l);
+    // a line that already has a start (on or off) is not offered MAKE IT AUTOMATIC beside it — the key says it changes the starts
+    const started = !!t && t.split(' · ').slice(1).some(p => !/could not be read$/.test(p));
     return '<section class="wfw-sec wfw-starts"><div class="wf-row"><span class="wfw-k">STARTS:</span><span class="wfw-startsv">' + esc(t == null ? 'checking…' : t) + '</span>'
-      + '<button type="button" class="bb sm" data-act="automatic" data-tip="Opens EDIT WORKFLOW at its INBOX’s ‘Or start it automatically’: a schedule, a channel message, a folder or a webhook.">⊕ MAKE IT AUTOMATIC</button></div></section>';
+      + (started
+        ? '<button type="button" class="bb sm" data-act="automatic" data-tip="Opens EDIT WORKFLOW at its INBOX’s ‘Or start it automatically’: change these starts, or add a schedule, a channel message, a folder or a webhook.">⊕ CHANGE STARTS</button>'
+        : '<button type="button" class="bb sm" data-act="automatic" data-tip="Opens EDIT WORKFLOW at its INBOX’s ‘Or start it automatically’: a schedule, a channel message, a folder or a webhook.">⊕ MAKE IT AUTOMATIC</button>')
+      + '</div></section>';
   }
   function runningHTML(l, rec) {
     const text = S.out ? S.out.text : (rec && rec.text) || '';
