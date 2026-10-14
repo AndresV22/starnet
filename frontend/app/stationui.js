@@ -1818,7 +1818,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       return;
     }
     ul.innerHTML = present.map((a, i) =>
-      '<li class="crew-row" role="button" tabindex="0" aria-label="' + (present.length > 1 ? 'Show sessions with ' + esc(a.name || a.id) + '; Shift+F10 for the dossier" aria-keyshortcuts="Shift+F10' : 'Open dossier for ' + esc(a.name || a.id)) + '" data-i="' + i + '" data-agent-id="' + esc(a.id) + '" style="--ci:' + i + '">' +
+      '<li class="crew-row" role="button" tabindex="0" aria-label="' + (present.length > 1 ? 'Show sessions with ' + esc(a.name || a.id) + '; Shift+F10 for the dossier' : 'Open dossier for ' + esc(a.name || a.id)) + '" aria-keyshortcuts="Shift+F10" data-i="' + i + '" data-agent-id="' + esc(a.id) + '" style="--ci:' + i + '">' +
       crewPortrait(a) +
       '<span class="dot on"></span>' +
       '<div class="crew-main">' +
@@ -1830,15 +1830,17 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       // The shimmer (.bar-active) reads as live activity; it's an indeterminate sweep, not a % readout.
       '<div class="crew-prog bar-active" id="cp-' + esc(a.id) + '" aria-hidden="true"><div></div></div>' +
       '</div>' +
-      // the dossier stays one step away: this key (or a right-click) opens it; the row itself shows the sessions
-      (present.length > 1 ? '<button type="button" class="crew-dossier" tabindex="-1" aria-label="Open dossier for ' + esc(a.name || a.id) + '" data-tip="Open ' + esc(a.name || a.id) + '&#39;s dossier">DOSSIER</button>' : '') +
+      // ORG P20: the dossier door is the SAME key at every crew size — always shown, never hover-only (touch can't hover),
+      // so the door learned on day one doesn't move after the first recruit. With 2+ agents the row itself shows the
+      // sessions; with one, the row and this key both open the dossier. Right-click / Shift+F10 / the sprite stay.
+      '<button type="button" class="crew-dossier" tabindex="-1" aria-label="Open dossier for ' + esc(a.name || a.id) + '" data-tip="Open ' + esc(a.name || a.id) + '&#39;s dossier">DOSSIER</button>' +
       '</li>').join('');
     // (the head's roster count moved out — #crew-sum below the list already totals the same crew)
     ul.querySelectorAll('.crew-row').forEach(li => {
       if (typeof AgentPortraits !== 'undefined') AgentPortraits.paint(li.querySelector('.crew-portrait img'), present[+li.dataset.i]);
       // PER-AGENT THREADS: a row click narrows the SESSIONS rail to this agent's sessions (again = all of them).
       // A one-agent station has nothing to narrow — every session is already that agent's — so there the
-      // row keeps opening the dossier, as it always has.
+      // row keeps opening the dossier, as it always has (its DOSSIER key opens the same file).
       li.addEventListener('click', () => {
         sfx('click');
         // "needs your OK" (the gold card): one click lands where it is waiting — the approval or the question
