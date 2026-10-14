@@ -1620,8 +1620,8 @@ const World = (() => {
       hoverBay = (hit || hoverOutbox || hoverCrate) ? null : boundBayAt(wp);   // LINE WATCH: a bound bay's lamp glance
       if (hoverCrate) hoverBeltTile = null;   // one voice: the crate's glance replaces the belt's route tag under it
       hoverPlate = (hit || hoverOutbox || hoverCrate || hoverBay) ? null : lwPlateAt(wp);   // LINE WATCH: an INBOX's whole reading
-      hoverCap = (hit || hoverOutbox || hoverCrate || hoverBay || hoverPlate) ? null : capPropAt(wp);   // ORG P33: a capability prop's GLANCE nameplate
-      cv.style.cursor = (hit || hoverCap || hoverOutbox || hoverCrate || (hoverBay && failedBayAt(wp)) || arcadeAt(wp) || missionBoardAt(wp) || trophyCaseAt(wp) || pluginTerminalAt(wp) || unboundBayAt(wp) || intakeSampleAt(wp) || intakeFeedAt(wp) || (onDesk && deskAt(wp))) ? 'pointer' : 'default';   // arcade cabinets + a stacked OUTBOX + the MISSION BOARD + the TROPHY CASE + an unbound BAY + a complete-line INBOX + a starved INTAKE are clickable too
+      hoverCap = (hit || hoverOutbox || hoverCrate || hoverBay || hoverPlate) ? null : capPropAt(wp);   // ORG P33: a capability prop's GLANCE nameplate — no pointer: its click does nothing until Andrew picks one, and a pointer would promise it
+      cv.style.cursor = (hit || hoverOutbox || hoverCrate || (hoverBay && failedBayAt(wp)) || arcadeAt(wp) || missionBoardAt(wp) || trophyCaseAt(wp) || pluginTerminalAt(wp) || unboundBayAt(wp) || intakeSampleAt(wp) || intakeFeedAt(wp) || (onDesk && deskAt(wp))) ? 'pointer' : 'default';   // arcade cabinets + a stacked OUTBOX + the MISSION BOARD + the TROPHY CASE + an unbound BAY + a complete-line INBOX + a starved INTAKE are clickable too
     });
     cv.addEventListener('mouseup', ev => {
       if (kindleArmed) { kindleHolding = false; return; }   // releasing during the kindle lets the spark ebb

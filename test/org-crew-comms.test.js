@@ -6,7 +6,7 @@
      P22 — RECRUIT speaks one language: RECRUIT a new agent from a CLASS, RE-SPEC an existing one.
      P26 — the COMMS title names the open session ('COMMS · <session>'), with one writer.
      P25 — fewer empty sessions: a background hire mints none, a starter fills a blank open session, the busy row names who.
-     P33 — starter-room machines show what they are: a capability prop raises a GLANCE nameplate + a pointer on hover. */
+     P33 — starter-room machines show what they are: a capability prop raises a GLANCE nameplate on hover (no pointer until a click exists). */
 'use strict';
 const A = require('./_assert.js');
 const fs = require('fs');
@@ -183,8 +183,11 @@ A.eq((at(props[3]) || {}).text, 'WORKBENCH · TERMINAL', 'P33: the WORKBENCH gla
 A.eq((at(props[4]) || {}).text, 'STUDIO · IMAGES', 'P33: the STUDIO glances IMAGES');
 A.eq(at(props[5]), null, 'P33: a desk keeps its own DESK SCREEN click/glance (no plate)');
 A.eq(at(props[6]), null, 'P33: decor raises nothing');
-A.ok(/hoverCap = \(hit \|\| hoverOutbox \|\| hoverCrate \|\| hoverBay \|\| hoverPlate\) \? null : capPropAt\(wp\);/.test(WORLD) && /cv\.style\.cursor = \(hit \|\| hoverCap \|\|/.test(WORLD),
-  'P33: hover arms the plate below every existing glance and the cursor turns to a pointer');
+// P33 fix (review): the click is not built (Andrew picks a or b), so the pointer would promise a dead click — the
+// cursor stays default over a capability prop; the pointer returns in the same change that adds the click branch.
+const cursorLine = (WORLD.match(/\n\s*cv\.style\.cursor = \(hit[^\n]*/) || [''])[0];
+A.ok(/hoverCap = \(hit \|\| hoverOutbox \|\| hoverCrate \|\| hoverBay \|\| hoverPlate\) \? null : capPropAt\(wp\);/.test(WORLD) && cursorLine && !/hoverCap|capPropAt/.test(cursorLine),
+  'P33: hover arms the plate below every existing glance, and the cursor does NOT turn to a pointer while the click does nothing');
 A.ok(/drawCapHoverTag\(now\);/.test(WORLD) && !/capPropAt\(wp\)[^\n]*openTerm|hoverCap[^\n]*openTerm/.test(WORLD), 'P33: the plate is drawn as a glance — hover never opens a window');
 const mouseup = (WORLD.match(/cv\.addEventListener\('mouseup', ev => \{[\s\S]*?\n    \}\);/) || [''])[0];
 A.ok(mouseup && !/capPropAt|hoverCap/.test(mouseup), 'P33: no click is added (what a click does stays Andrew\'s pick)');
