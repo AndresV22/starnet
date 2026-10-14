@@ -4375,17 +4375,27 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     return 'Reusable procedures ' + n + ' created or learned. These appear as a compact index in ' + n + '’s future runs; it loads the full body only when a task matches.';
   }
   // ORG P21: open SETTINGS › LOOK & SOUND with VOICE FOR already on this agent (the existing picker, preselected)
+  // The settings window can be rebuilt right after it opens (the credits re-read rerenders it), which drops a
+  // picker value set from outside and scrolls back to the top. So the wish is kept for a few seconds:
+  // wireLiveVoice preselects it on every (re)build, and land() re-scrolls each NEW picker element it finds.
+  let voiceForWish = null;
+  function voiceForWanted() { return voiceForWish && Date.now() < voiceForWish.until ? voiceForWish.id : ''; }
   function openVoiceFor(agentId) {
+    voiceForWish = { id: agentId, until: Date.now() + 5000 };
     openTerm('settings', 'appearance');
+    let landed = null;
     const land = () => {
       const w = open.settings; const pick = w && w.querySelector('#set-lv-agent');
-      if (!pick) return false;
-      if (Array.from(pick.options).some(o => o.value === agentId)) { pick.value = agentId; if (typeof pick.onchange === 'function') pick.onchange(); }
-      try { pick.scrollIntoView({ block: 'center' }); } catch (_) { /* older engines: the section is already showing */ }
+      if (!pick || pick === landed || !pick.isConnected) return;
+      landed = pick;
+      if (pick.value !== agentId && Array.from(pick.options).some(o => o.value === agentId)) {
+        pick.value = agentId; if (typeof pick.onchange === 'function') pick.onchange();
+      }
+      const group = pick.closest('.settings-group') || pick;
+      try { group.scrollIntoView({ block: 'start' }); } catch (_) { /* older engines: the section is already showing */ }
       pick.focus({ preventScroll: true });
-      return true;
     };
-    requestAnimationFrame(() => { if (!land()) setTimeout(land, 120); });
+    [0, 120, 400, 900, 1800, 3000].forEach(ms => setTimeout(() => requestAnimationFrame(land), ms));
   }
   async function skillReviewPost(action, body, opts) {
     const r = await Harness.api.post('/api/agent-skills/' + action, body, { timeoutMs: (opts && opts.timeoutMs > 0) ? opts.timeoutMs : action === 'evaluate-candidate' ? 180000 : 60000 });
@@ -8117,6 +8127,8 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       };
       target.onchange = () => { message.textContent = ''; refresh(); };
       inherit.onclick = () => save('');
+      const wish = voiceForWanted();   // a dossier VOICE door that just opened this window (openVoiceFor)
+      if (wish && Array.from(target.options).some(o => o.value === wish)) target.value = wish;
       refresh();
       const effects = host.querySelector('#set-lv-effect');
       const effectMsg = host.querySelector('#set-lv-effect-msg');
