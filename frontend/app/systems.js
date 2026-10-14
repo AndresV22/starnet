@@ -40,7 +40,7 @@ const Systems = (() => {
     { id: 'connect', label: 'CONNECT', group: 'build', sel: '#bb-connect', terms: ['connectors', 'skills', 'messaging'], words: ['ABILITIES', 'CHANNELS'], start: true, tip: 'Services your agents use, and where you message them' },
     { id: 'newapp', label: 'NEW APP', group: 'build', sel: '#bb-newapp-build', start: true, tip: 'Describe anything and your crew builds it in its own window' },
     { id: 'manual', label: 'FIELD MANUAL', group: 'system', sel: '.bb[data-term="manual"]', terms: ['manual'], start: true, tip: 'First mission, controls and the station handbook' },
-    { id: 'settings', label: 'SETTINGS', group: 'system', sel: '.bb[data-term="settings"]', terms: ['settings'], start: true, tip: 'AI models & keys, permissions, spending, look & sound' },
+    { id: 'settings', label: 'SETTINGS', group: 'system', sel: '.bb[data-term="settings"]', terms: ['settings'], start: true, tip: 'Models, keys, permissions, spending & more' },
     { id: 'updates', label: 'UPDATES', group: 'system', sel: '.bb[data-term="updates"]', terms: ['updates'], start: true, tip: 'Version and release notes' },
     { id: 'notifs', label: 'NOTIFICATIONS', group: 'system', sel: '.bb[data-term="notifs"]', terms: ['notifs'], start: true, tip: 'Alerts and unread events' }
   ];

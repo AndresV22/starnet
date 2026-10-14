@@ -135,8 +135,8 @@ for (const o of [undefined, { cancelSource: 'estop_by_run' }]) {
   const rd = f => fs.readFileSync(path.join(__dirname, '..', f), 'utf8');
   const sys = rd('frontend/app/systems.js'), idx = rd('frontend/index.html'), con = rd('frontend/app/windows/connectors.js');
   const ui = rd('frontend/app/stationui.js'), places = rd('frontend/app/places.js');
-  A.ok(/tip: 'AI models & keys, permissions, spending, look & sound'/.test(sys), 'SETTINGS dock tip names what Settings holds');
-  A.ok(/<small>AI models &amp; keys, permissions, spending, look &amp; sound<\/small>/.test(idx), 'the SETTINGS dock subtitle says the same line');
+  A.ok(/tip: 'Models, keys, permissions, spending & more'/.test(sys), 'SETTINGS dock tip names what Settings holds, and says there is more');
+  A.ok(/<small>models, keys, permissions, spending &amp; more<\/small>/.test(idx), 'the SETTINGS dock subtitle says the same line, on one line like its neighbours');
   A.ok(!/Keys, models, voice, data|keys, models, voice, data/.test(sys + idx), 'the old "keys, models, voice, data" line is gone');
   A.ok(!/in <b>MCP CONNECTORS<\/b>|in <b>KEYS<\/b>|in TOOLSETS:|'CATALOG' : 'MCP CONNECTORS'/.test(con), 'ABILITIES copy names no retired tab (MCP CONNECTORS, KEYS, TOOLSETS)');
   A.ok(/in <b>CONNECTED SERVICES<\/b>, or paste a custom platform key in <b>SAVED API CONNECTIONS<\/b>/.test(con), 'the catalog footer names CONNECTED SERVICES and SAVED API CONNECTIONS');
