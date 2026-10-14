@@ -561,11 +561,11 @@ const WorkflowsWindow = (() => {
       + '<section class="wfw-sec"><h3>What should it make?</h3>'
       + '<textarea id="wfw-describe" class="wfw-field" rows="2" maxlength="600" placeholder="e.g. a weekly digest of AI news for my newsletter">' + esc(S.draft.describe || '') + '</textarea>'
       + '<div class="wf-row"><button type="button" class="bb refit-primary" data-act="draft"' + (dr && dr.state === 'asking' ? ' disabled' : '') + '>' + (dr && dr.state === 'asking' ? 'SETTING IT UP…' : '✦ SET IT UP FOR ME') + '</button>'
-      + '<span class="wfw-note">The station picks one of ' + catalogLines().length + ' ready-made workflows and writes each step’s instructions (one short model call).</span></div>'   // (org D11) this page's word, workflows
+      + '<span class="wfw-note">One short model call picks one of ' + catalogLines().length + ' ready-made workflows and writes its steps.</span></div>'   // (org D11) this page's word, workflows; (org D5 polish) short enough for one line
       + (dr && dr.state === 'error' ? '<p class="wfw-bad">✕ ' + esc(dr.error) + '</p>' : '')
       + '</section>'
       + '<section class="wfw-sec"><h3>Or pick one</h3><div class="wfw-tiles">' + tiles + '</div>'
-      + '<div class="wf-row"><button type="button" class="wf-link" data-act="more">More ready-made lines are in the Build Library ›</button></div></section>';
+      + '<div class="wf-row"><button type="button" class="wf-link" data-act="more">More ready-made workflows are in the Build Library ›</button></div></section>';
     if (pk) h += pickedHTML(pk);
     return h;
   }

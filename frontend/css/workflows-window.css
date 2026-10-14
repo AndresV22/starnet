@@ -62,7 +62,7 @@ textarea.wfw-field { min-height: 76px; }
 .wfw-grow { flex: 1 1 auto; }
 .wfw .wf-pill { cursor: default; }
 .wfw-lead { margin: 10px 0 2px; font-size: 17px; color: var(--text); }
-.wfw-note { font-size: 15px; line-height: 1.35; color: var(--ph-dim); }
+.wfw-note { font-size: 15px; line-height: 1.35; color: var(--ph-dim); text-wrap: pretty; }   /* (org D5 polish) a wrapped note never strands one word */
 .wfw-bad { margin: 0; font-size: 16px; line-height: 1.4; color: var(--warn); }
 .wfw-okline { margin: 0; font-size: 16px; line-height: 1.4; color: var(--ok); }
 .wfw-why { margin: 0; font-size: 17px; line-height: 1.45; color: var(--text); }
