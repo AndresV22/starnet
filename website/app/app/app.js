@@ -21,7 +21,11 @@ const App = (() => {
   let pickedPersona = (typeof Personas !== 'undefined') ? Personas.DEFAULT_ID : 'professional';
   let pickedTraits = {};        // the VOICE & MANNER fine-tune dials (warmth/humor/formality/length + emoji/blunt) — only set keys contribute prompt text
   let pickedCustomVoice = '';   // the Commander's free-text "in their own words" voice note (optional)
-  let pickedApproval = 'ask';   // the APPROVAL mode — 'ask' (consent-gated) | 'full' (auto-approve). Drives the REAL consent broker (sidecar bypass), not a cosmetic toggle.
+  // THE ACCESS ANSWER (org pass 10-14, ONE ACCESS): one of the three answers SETTINGS › PERMISSIONS and the dossier ask —
+  // 'careful' (CHECK WITH ME) | 'balanced' (LET IT WORK) | 'open' (FULL POWER) — or null = a RESUMED agent whose own
+  // mix matches none. It writes BOTH real fields (approvalMode drives the consent broker, executionProfile the reach).
+  let pickedPosture = 'balanced';
+  let pickedAccessMix = null;   // RESUME only: the saved agent's own { approvalMode, executionProfile } when it is a custom mix
   let pickedProvider = 'openai';   // BEGINNER-FIRST funnel: the STARNET hero is the promoted start, but it only exists once the cloud seam is proven (revealStarnetGenesis auto-picks it on a fresh create). Until then OPENAI leads — its card carries BOTH paths (ChatGPT sign-in or an API key). initConnect() still honours a returning agent's saved provider.
   // POWER-USER LOOP PL-03 — entry is a four-surface truth transaction. World opens its EventSource
   // before Chat/StationUI finish mounting, and their independent timers used to expose an impossible
@@ -1090,9 +1094,15 @@ const App = (() => {
       return (m && typeof m === 'object') ? m : {};
     } catch (_) { return {}; }
   }
-  function resolveTierModel(tier, baseModel) {
+  // the SETTINGS › New agent defaults pin for a class tier, or null — the ONE reader the summon path and the
+  // Recruitment Bay's MODEL helper share, so the bay never promises a copy that applyLoadout then replaces.
+  function tierModelFor(tier) {
     const pinned = tier && tierModelMap()[tier];
-    if (pinned && String(pinned).trim()) return String(pinned).trim();
+    return (pinned && String(pinned).trim()) ? String(pinned).trim() : null;
+  }
+  function resolveTierModel(tier, baseModel) {
+    const pinned = tierModelFor(tier);
+    if (pinned) return pinned;
     return baseModel || ((typeof Harness !== 'undefined' && Harness.getModel) ? Harness.getModel() : null) || null;
   }
   // fold the class loadout (model tier + effort + skills) onto an agent record. A class's `kit` is NOT placed
@@ -1171,10 +1181,14 @@ const App = (() => {
     if (typeof StationUI !== 'undefined' && StationUI.setRoster) StationUI.setRoster(liveAgents());
     else console.warn('[summon] StationUI.setRoster missing — crew manifest not refreshed');
     try { if (window.__STARNET_DEV__) console.log('[summon]', JSON.stringify({ id, name: a.name, skin: a.skin, hadHero: !!agent, worldSpawn: _spawned, crew: (typeof World !== 'undefined' && World.crewCount) ? World.crewCount() : '?', roster: agents.size })); } catch (e) {}
-    // a fresh workstream BOUND to the new agent, but inactive by default. Activation is the explicit
-    // "talk to this specialist directly" action; summon itself only expands the crew/roster.
+    // ORG P25 — FEWER EMPTY SESSIONS: a session is made only when someone is going to talk in it. An ACTIVATED summon (the
+    // bay's RECRUIT: "talk to this specialist now") opens its own session; a background hire (the overseer's team.summon,
+    // a workflow RECRUIT) makes NONE — it only grows the crew. Its first session is minted when it is first needed:
+    // ON THE LINE (selectAgent's "a specialist that has no stream yet gets a fresh one"), the narrowed rail's START ONE,
+    // a delegation's own worker thread. Every reader takes "no session yet" (waitingSessionOf walks pending asks, the
+    // HUD falls back to selectAgent, channels are keyed by session id, group add is by agent id).
     const activate = opts.activate === true;
-    const ws = (typeof Workstreams !== 'undefined') ? Workstreams.create(a.name, { agentId: id, activate }) : null;
+    const ws = (activate && typeof Workstreams !== 'undefined') ? Workstreams.create(a.name, { agentId: id, activate }) : null;
     // the COMMS "who you're talking to" selector reads App.agents() but only rebuilds inside renderIdBar —
     // without this, a summon leaves the selector stale (missing the new agent) until some other stream
     // switch happens, while the toast says "switch to its stream". Refresh it the moment the roster grows.
@@ -1211,7 +1225,7 @@ const App = (() => {
       // "took the free desk" vs "desk placed": ensureWorkstation may ADOPT an unbound workstation instead of
       // building one, and saying "placed" for a desk that was already there is a small lie about the floor.
       const deskLine = (desk && desk.ok) ? ((desk.adopted ? 'took the free desk' : 'desk placed') + (deskRoom ? ' in ' + deskRoom : '') + '. ') : '';
-      _notify(a.name + ' summoned — ' + deskLine + 'switch to its stream to task it, or let the overseer delegate.', 'good');
+      _notify(a.name + ' summoned — ' + deskLine + 'pick it ON THE LINE in COMMS to talk to it, or let the overseer delegate.', 'good');
     }
     // ONE loadout beat: state plainly what the class summon actually applied — the skills enabled, the effort
     // applied, and the STATION GEAR the class draws on (honest present/missing under the overseer, NOT per-agent
@@ -1783,14 +1797,24 @@ const App = (() => {
      it — picking a swatch recolours live AND writes through StationUI.setTheme so it survives enterGame
      and stays in lockstep with the in-game Settings panel. No new state, no fakery. */
   const PHOSPHOR = Object.freeze([['amber', '#ffaa33'], ['green', '#3dff70'], ['blue', '#46c8ff'], ['purple', '#b46bff'], ['red', '#ff4136'], ['white', '#e8f0e8']]);
-  // THE APPROVAL MODE — the crucial pick for the everything-orchestrator: how much it can do on its own. This is
-  // NOT cosmetic — it drives the REAL consent broker in the sidecar (full → bypass the gate; ask → prompt on any
-  // mutation/network call), threaded through pushRoster → /api/roster. `np` is the nameplate readout.
-  const APPROVAL = Object.freeze([
-    Object.freeze({ id: 'ask',  label: 'ASK FOR APPROVAL', icon: '✋', desc: 'stops to check with you before it writes, runs, or reaches out', np: 'asks for approval' }),
-    Object.freeze({ id: 'full', label: 'FULL POWER', icon: '⚡', desc: 'uses the whole local computer without approval prompts',          np: 'full power' })
-  ]);
-  const approvalById = id => APPROVAL.find(a => a.id === id) || APPROVAL[0];
+  // THE ACCESS ANSWER — the crucial pick for the everything-orchestrator: how much it can do. This is NOT cosmetic —
+  // its approval drives the REAL consent broker in the sidecar (full → bypass the gate; ask → prompt on any
+  // mutation/network call) and its profile the real reach, both threaded through pushRoster → /api/roster.
+  // ONE ACCESS (org pass 10-14): the create screen asks the SAME question, with the SAME three answers, as the dossier
+  // ACCESS card and SETTINGS › PERMISSIONS — read from StationUI's one table (labels, approval, reach profile and the
+  // per-agent agentBlurb), never a second copy that could drift. Only the icon and the nameplate words live here.
+  // The station-wide unattended level (ON ITS OWN) is NOT part of an agent's answer: create never writes it — the
+  // awakening's "while you're away" question is the one place that sets it.
+  const POSTURE_FACE = Object.freeze({
+    careful:  Object.freeze({ icon: '✋', np: 'checks with you' }),
+    balanced: Object.freeze({ icon: '▸', np: 'lets it work' }),
+    open:     Object.freeze({ icon: '⚡', np: 'full power' })
+  });
+  const accessPostures = () => (typeof StationUI !== 'undefined' && StationUI.accessPostures) ? StationUI.accessPostures() : [];
+  const postureById = id => accessPostures().find(P => P.id === id) || null;
+  // the answer a saved agent holds: same rule as the dossier (approval AND reach profile both match), else null = custom
+  const postureOfAgent = a => accessPostures().find(P =>
+    ((a && a.approvalMode === 'full') ? 'full' : 'ask') === P.approval && executionProfileOf(a) === P.profile) || null;
   function applyTheme(t) {
     document.body.classList.remove('theme-amber', 'theme-green', 'theme-blue', 'theme-purple', 'theme-red', 'theme-white', 'theme-custom');
     document.body.classList.add('theme-' + t);
@@ -1818,34 +1842,64 @@ const App = (() => {
     });
   }
 
-  // THE APPROVAL PICKER — two wide cards (ask vs full access). The pick rides on agent.approvalMode and drives
-  // the real consent broker; 'ask' is pre-selected (the safe default), so it never blocks WAKE.
+  // THE ACCESS PICKER — "How much can it do?": the three answers as wide cards. LET IT WORK is pre-selected because it
+  // IS today's real default (ask first + approved project folders), so it never blocks WAKE. FULL POWER keeps the
+  // house two-press arm (the PERMISSIONS card recipe: arm the NAME line only, 4 s, any other pick disarms). A resumed
+  // custom mix selects no card — the nameplate says so instead of claiming the nearest answer.
   function buildApproval() {
     const wrap = el('approval-picker'); if (!wrap) return;
     wrap.innerHTML = '';
-    APPROVAL.forEach(m => {
+    let armed = null, armTimer = 0;
+    const disarm = () => {
+      if (armTimer) { clearTimeout(armTimer); armTimer = 0; }
+      if (!armed) return;
+      const n = armed.el.querySelector('.ov-card-nm'); if (n) n.textContent = armed.P.label;
+      armed.el.classList.remove('armed'); delete armed.el.dataset.armed; armed = null;
+    };
+    const pick = (c, P) => {
+      pickedPosture = P.id; pickedAccessMix = null;
+      [...wrap.children].forEach(x => { const on = x === c; x.classList.toggle('sel', on); x.setAttribute('aria-pressed', String(on)); });
+      SFX.click(); updateNameplate();
+    };
+    accessPostures().forEach(P => {
+      const face = POSTURE_FACE[P.id] || { icon: '◆', np: String(P.label).toLowerCase() };
       const c = document.createElement('button'); c.type = 'button';
-      c.className = 'ov-card' + (pickedApproval === m.id ? ' sel' : '');
-      c.dataset.a = m.id; c.title = m.desc; c.setAttribute('aria-pressed', String(pickedApproval === m.id));
+      c.className = 'ov-card' + (pickedPosture === P.id ? ' sel' : '');
+      // NO SENTENCES UNDER TILES: a tile is its icon + name; the answer's description is the hover tip, and the one
+      // #approval-plain line under the picker reads the SELECTED answer (the dossier ACCESS card's own pattern)
+      c.dataset.a = P.id; c.dataset.tip = P.agentBlurb + ' ' + P.who; c.setAttribute('aria-pressed', String(pickedPosture === P.id));
       const pk = document.createElement('span'); pk.className = 'ov-card-pick'; pk.textContent = '◆';
-      const ic = document.createElement('div'); ic.className = 'ov-card-ic'; ic.textContent = m.icon;
-      const nm = document.createElement('div'); nm.className = 'ov-card-nm'; nm.textContent = m.label;
-      const ds = document.createElement('div'); ds.className = 'ov-card-ds'; ds.textContent = m.desc;
-      c.appendChild(pk); c.appendChild(ic); c.appendChild(nm); c.appendChild(ds);
+      const ic = document.createElement('div'); ic.className = 'ov-card-ic'; ic.textContent = face.icon;
+      const nm = document.createElement('div'); nm.className = 'ov-card-nm'; nm.textContent = P.label;
+      c.appendChild(pk); c.appendChild(ic); c.appendChild(nm);
       c.onclick = () => {
-        pickedApproval = m.id;
-        [...wrap.children].forEach(x => { const on = x === c; x.classList.toggle('sel', on); x.setAttribute('aria-pressed', String(on)); });
-        SFX.click(); updateNameplate();
+        if (P.id !== 'open' || pickedPosture === 'open') { disarm(); pick(c, P); return; }
+        if (armed && armed.el === c) { disarm(); pick(c, P); return; }
+        disarm(); armed = { el: c, P: P }; c.classList.add('armed'); c.dataset.armed = '1';
+        nm.textContent = 'SURE? WHOLE COMPUTER';
+        SFX.click();
+        armTimer = setTimeout(disarm, 4000);
       };
       wrap.appendChild(c);
     });
     updateNameplate();
   }
 
-  // the live nameplate under the agent: NAME (from the input) + the approval-posture readout.
+  // what the access pick WRITES: the answer's approval + reach profile, or a resumed custom mix unchanged. A missing
+  // table (StationUI not loaded) falls back to LET IT WORK's exact fields — today's default, never a wider one.
+  function createAccess() {
+    if (!pickedPosture && pickedAccessMix) return { approvalMode: pickedAccessMix.approvalMode, executionProfile: pickedAccessMix.executionProfile };
+    const P = postureById(pickedPosture || 'balanced');
+    return P ? { approvalMode: P.approval === 'full' ? 'full' : 'ask', executionProfile: P.profile } : { approvalMode: 'ask', executionProfile: 'trusted-project' };
+  }
+  // the live nameplate under the agent: NAME (from the input) + the access-answer readout.
   function updateNameplate() {
     const np = el('np-name'); if (np) np.textContent = ((el('in-name') && el('in-name').value.trim()) || 'OVERSEER').toUpperCase();
-    const nm = el('np-mode'); if (nm) nm.textContent = approvalById(pickedApproval).np;
+    const nm = el('np-mode');
+    if (nm) nm.textContent = pickedPosture ? ((POSTURE_FACE[pickedPosture] || {}).np || pickedPosture) : 'custom — change it in the dossier';
+    // the selected answer's one plain line (its agentBlurb), under the picker — never a sentence under each tile
+    const pl = el('approval-plain'); const P = pickedPosture ? postureById(pickedPosture) : null;
+    if (pl) pl.textContent = P ? P.agentBlurb : (pickedPosture ? '' : 'A custom mix of reach and asking — it is kept as it is.');
   }
 
   function buildModelPicks() {
@@ -2851,11 +2905,15 @@ const App = (() => {
       pickedTraits = Object.assign({}, savedAgent.voiceTraits || {});
       pickedCustomVoice = savedAgent.customVoice || '';
       pickedPersona = savedAgent.personaId || ((typeof Personas !== 'undefined') ? Personas.DEFAULT_ID : 'professional');
-      pickedApproval = (savedAgent.approvalMode === 'full') ? 'full' : 'ask';
+      // seed from BOTH fields (the dossier's rule), never approvalMode alone: a custom mix selects no card and is
+      // carried as-is, so a resume can never relabel it as the nearest answer or rewrite it on WAKE
+      const heldPosture = postureOfAgent(savedAgent);
+      pickedPosture = heldPosture ? heldPosture.id : null;
+      pickedAccessMix = heldPosture ? null : { approvalMode: savedAgent.approvalMode === 'full' ? 'full' : 'ask', executionProfile: executionProfileOf(savedAgent) };
       pickedSkin = savedAgent.skin || pickedSkin;
     } else {
       pickedTraits = {}; pickedCustomVoice = ''; pickedPersona = (typeof Personas !== 'undefined') ? Personas.DEFAULT_ID : 'professional';
-      pickedApproval = 'ask';   // a fresh create screen defaults to the safe posture (color is fixed: the lead's gold)
+      pickedPosture = 'balanced'; pickedAccessMix = null;   // a fresh create screen preselects LET IT WORK — today's real default (color is fixed: the lead's gold)
     }
     buildPhosphor();
     buildSkins();
@@ -3251,7 +3309,7 @@ const App = (() => {
               provider: (typeof Harness !== 'undefined' && Harness.getProv) ? Harness.getProv() : 'openrouter',   // #4: stamp the chosen provider+effort onto the hero so a later agent-switch can restore them
               reasoningEffort: (typeof Harness !== 'undefined' && Harness.getReasoningEffort) ? Harness.getReasoningEffort() : 'medium',
               personaId: pickedPersona, voiceTraits: Object.assign({}, pickedTraits), customVoice: pickedCustomVoice.trim(),
-              approvalMode: (pickedApproval === 'full' ? 'full' : 'ask'), executionProfile: (pickedApproval === 'full' ? 'this-computer' : 'trusted-project'), purpose: null, onboarded: false, createdAt: newCommanderEpoch };   // legacy approval choice seeds an honest host profile; the two axes are independently changeable in the dossier
+              approvalMode: createAccess().approvalMode, executionProfile: createAccess().executionProfile, purpose: null, onboarded: false, createdAt: newCommanderEpoch };   // the access answer writes both real fields; the two axes stay independently changeable in the dossier
     agentDocs(agent);                              // seed identity.md (overseer-aware) / purpose.md / operating-manual.md
     registerHero(agent);   // found the multi-agent registry with the hero BEFORE composing — rosterClause reads the registry, and a same-session re-wake must not see the prior crew
     agent.systemPrompt = composeSystemPrompt(agent);
@@ -4068,6 +4126,17 @@ const App = (() => {
   }
   // NEEDS YOU (needsyou.js, 2026-10-11) replaced the "Waiting for you" filter: one pinned list of every ask and failure
   // on the station, each with its own action. It lives in the SESSIONS view only.
+  /* station.show 'needs-you' (org P01): put the SESSIONS view (where NEEDS YOU lives) in front and bring the list into view.
+     open = the rail is on screen (BUILD MODE or a hidden crew rail is not); waiting = how many rows it holds right now. */
+  function showNeedsYou() {
+    if (railView !== 'sessions') setRailView('sessions');
+    if (typeof NeedsYou !== 'undefined' && NeedsYou.render) NeedsYou.render();
+    const left = el('left'), host = el('ws-needs');
+    const railShown = !!(left && left.getClientRects && left.getClientRects().length);
+    const waiting = typeof NeedsYou !== 'undefined' && NeedsYou.items ? NeedsYou.items().length : 0;
+    if (railShown && host && !host.hidden && host.scrollIntoView) host.scrollIntoView({ block: 'nearest' });
+    return { open: railShown, key: 'needs-you', waiting };
+  }
   function syncRailAttention(pending) {
     railAttentionKey = [...pending].sort().join('\n');
     const host = el('ws-needs'); if (!host) return;
@@ -4229,6 +4298,7 @@ const App = (() => {
   function renderRail() {
     const ul = el('workstreams');
     if (!ul || typeof Workstreams === 'undefined') return;
+    if (typeof Chat !== 'undefined' && Chat.paintTitle) Chat.paintTitle();   // ORG P26: a rename / auto-title / group change renames the COMMS title too
     const activeId = Workstreams.activeId();
     const oldFocus = document.activeElement && document.activeElement.closest ? document.activeElement.closest('.ws-row[data-id]') : null;
     const restoreFocus = !!(oldFocus && ul.contains(oldFocus));
@@ -4345,6 +4415,7 @@ const App = (() => {
     const pending = railPendingIds();
     if ([...pending].sort().join('\n') !== railAttentionKey) { renderRail(); return; }
     if (railView === 'sessions' && typeof NeedsYou !== 'undefined' && NeedsYou.render) NeedsYou.render();   // ages tick, failures arrive
+    if (typeof StationUI !== 'undefined' && StationUI.badges) StationUI.badges();   // org P01: the bell adds the live NEEDS YOU count, in every rail view
     const activeId = Workstreams.activeId();
     document.querySelectorAll('#workstreams .ws-row,#projects .proj-sess-full').forEach(li => {
       if (li.querySelector('.ws-rename')) return;   // leave a row alone while its title is being edited in place
@@ -5886,6 +5957,7 @@ const App = (() => {
   // currentAgent/agents/applyConfig (slash-plan): the slash-command suite reads/writes the live roster
   // and per-agent config (/agents, /model, /personality, …).
   return { show, refreshUsage, persist, pushRoster, refreshRail: renderRail, openWorkstream, waitingSessionOf, launchRecipe, summonAgent, summonForRequest, crewCount: () => agents.size,
+    tierModelFor,   // org P22 fix: the bay's MODEL helper names a SETTINGS tier pin instead of promising a copy
     // a team.spawn clone ('sub-<id>', never on the roster) is a HELPER: its raw id was the name on its approval card and NEEDS
     // YOU once its ask could outlive the lead's turn (live walk 2026-10-14); the sidecar says "a helper" for it too
     agentName: id => { const a = agents.get(id); return a ? (a.name || a.id) : (/^sub-/.test(String(id || '')) ? 'HELPER' : null); },
@@ -5898,6 +5970,7 @@ const App = (() => {
     selectAgent: selectAgent,   // COMMS top-bar agent selector: switch to (or mint) a workstream bound to agentId
     // PER-AGENT THREADS: the CREW roster narrows the SESSIONS rail to one agent (same id again / null = all)
     filterRailByAgent: setRailAgentFilter,
+    showNeedsYou: showNeedsYou,   // station.show 'needs-you' (app/places.js)
     railAgentFilter: () => railAgentFilter,
     // THE POST-SUMMON DESK STEP, owned by the session (chat.js maybeDeskPrompt): the read that decides whether a
     // stream still owes its agent a workstation, and the door its chip opens (BUILD MODE, armed on WORKSTATIONS).

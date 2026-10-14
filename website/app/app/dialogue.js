@@ -124,6 +124,7 @@ const Dialogue = (() => {
   function flushSay() { if (pendingSay) { const f = pendingSay; pendingSay = null; try { f(); } catch (_) {} } }
 
   function closePanel() {
+    const wasOpen = open;
     cancelType(); clearKeys(); clearOpts();
     clearGate(true);      // a torn-down panel FLUSHES a waiting narration beat — an awaiting caller must never hang
     flushSay();           // …including one still MID-TYPE (cancelType dropped its onDone, so the gate never armed)
@@ -135,6 +136,8 @@ const Dialogue = (() => {
     if (panel) panel.remove();
     panel = speakerEl = lineEl = optsEl = moreEl = inkEl = stageEl = host = null;
     stageTitle = stageDetail = '';
+    // COMMS is uncovered again: a hint that points at COMMS (navdock's coach) waits for this (org P31 review fix).
+    if (wasOpen && typeof document !== 'undefined' && typeof CustomEvent === 'function') document.dispatchEvent(new CustomEvent('starnet:dialogue-closed'));
   }
 
   /* THE INK STAMP — show one line landing in the operating file ("» filed · pain: …"). Non-blocking:

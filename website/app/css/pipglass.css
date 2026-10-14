@@ -593,6 +593,9 @@ body.glass-demo:not(.hud-mode) #left .ws-needs .ny-key:focus-visible { outline: 
 body.glass-demo:not(.hud-mode) #left .ws-needs .ny-key.primary { color: var(--ph-bright); border-color: rgba(var(--gold-rgb), .55); background: linear-gradient(140deg, rgba(var(--gold-rgb), .15), rgba(var(--ph-rgb), .04)); }
 body.glass-demo:not(.hud-mode) #left .ws-needs .ny-key.deny { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 35%, transparent); background: color-mix(in srgb, var(--bad) 5%, transparent); }
 body.glass-demo:not(.hud-mode) #left .ws-needs .ny-key.quiet { color: var(--text); background: transparent; }
+/* org P02: a direct-chat ask's Review sits on its own full-width line under Approve once · Deny (three keys never fit the rail) */
+body.glass-demo:not(.hud-mode) #left .ws-needs .ny-keys { flex-wrap: wrap; }
+body.glass-demo:not(.hud-mode) #left .ws-needs .ny-key.ny-review { flex: 1 1 100%; }
 body.glass-demo:not(.hud-mode) #left .ws-needs .ny-key:disabled { opacity: .55; cursor: default; }
 body.glass-demo:not(.hud-mode) #left .ws-needs .ny-more {
   display: block; width: 100%; padding: 6px 0 2px; text-align: left; cursor: pointer;

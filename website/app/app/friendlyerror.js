@@ -171,6 +171,31 @@
     format_error: 'unknown', unknown: 'unknown'
   };
 
+  /* WHICH provider an error came from (org P03) — so a door lands on that provider's card in AI & MODELS and the
+     billing copy can name the account. Evidence only, never a guess: the adapter's own "<name> http <status>"
+     signature (anthropic / gemini / openrouter and the device-OAuth labels), the sidecar credential guard's
+     registry label ("connect a OPENROUTER API key", "configure the CUSTOM base URL"), or the provider's own
+     console host in the body. An "openai-compatible http …" error with no host names nobody, so it returns null
+     and the copy stays provider-neutral. Ids are the AI & MODELS card ids (.prov-card[data-provider]). */
+  const PROVIDER_IDS = ['starnet', 'openrouter', 'codex', 'grok', 'kimi', 'openai', 'anthropic', 'gemini', 'xai', 'groq',
+    'mistral', 'deepseek', 'together', 'fireworks', 'perplexity', 'cerebras', 'ollama', 'custom'];
+  const PROVIDER_WORDS = { codex: 'CHATGPT', grok: 'GROK', kimi: 'KIMI', starnet: 'STARNET' };
+  function providerWord(id) { return PROVIDER_WORDS[id] || String(id || '').toUpperCase(); }
+  function providerFromRaw(raw) {
+    const low = String(raw || '').toLowerCase();
+    let m = low.match(/\b(openrouter|anthropic|gemini|grok \(xai\)|kimi for coding) http \d{3}\b/);
+    if (m) return m[1].indexOf('grok') === 0 ? 'grok' : m[1].indexOf('kimi') === 0 ? 'kimi' : m[1];
+    m = low.match(/connect an? (.+?) api key\b/) || low.match(/configure the (.+?) base url/);
+    if (m) {
+      const id = m[1].trim().replace(/\s+(api|oauth)$/, '').replace(/\s+/g, '');
+      if (PROVIDER_IDS.indexOf(id) >= 0) return id;
+    }
+    if (/\bconsole\.x\.ai\b|\bapi\.x\.ai\b/.test(low)) return 'xai';
+    if (/\bopenrouter\.ai\b/.test(low)) return 'openrouter';
+    if (/\bplatform\.openai\.com\b/.test(low)) return 'openai';
+    return null;
+  }
+
   /* MIRROR of sidecar/stop-reason.js STOP_EXPLAINERS — the browser never loads sidecar modules, so the harness's own
      stop messages are explained here in the SAME words (test/stop-reason.test.js locks the two copies together).
      Matched BEFORE any provider classification: these are StarNet's own decisions, not API failures. */
@@ -223,8 +248,8 @@
     }
     if (r === 'refusal') return 'the model declined that request — try rephrasing it';
     if (r === 'cancelled') {
-      if (o.cancelSource === 'estop_by_run') return 'stopped by the E-STOP this run pressed — RESUME AUTOMATION (top bar) is yours alone';
-      return 'stopped from outside this chat — a STOP elsewhere (desk screen, HUD, phone or E-STOP) ended it before it finished';
+      if (o.cancelSource === 'estop_by_run') return 'stopped — this run paused all automation (what Pause Automation in the StarNet tray menu does); RESUME AUTOMATION (top bar) is yours alone';
+      return 'stopped from outside this chat — a STOP elsewhere (desk screen, HUD, phone, or Pause Automation in the StarNet tray menu) ended it before it finished';
     }
     if (r === 'error') return 'it stopped on an error before it finished — try again';
     if (!r || r === 'done' || r === 'clarifying') return '';
@@ -586,8 +611,8 @@
       // NEVER signed in is not "expired". The sidecar says "not signed in" / "sign in to <X> first" (or the
       // provider's *_not_connected code); a sign-in that died mid-life keeps the reconnect wording. The door
       // reads SIGN IN vs RECONNECT off `signedOut` (actionButton).
-      const signedOut = !!nm && /not signed in|not[ _-]?connected|sign in to [a-z0-9 ()]+ first/.test(low);
-      const userMessage = !nm ? k.msg
+      const signedOut = /not signed in|not[ _-]?connected|sign in to [a-z0-9 ()]+ first|connect chatgpt first/.test(low);
+      const userMessage = !nm ? (signedOut ? 'No ChatGPT sign-in yet — sign in under SETTINGS → AI & MODELS → CHATGPT (CODEX), or add a provider key instead.' : k.msg)
         : !signedOut ? ('Your ' + nm + ' sign-in expired — reconnect it (or add a provider key instead).')
         : provider === 'grok'
           ? "Grok isn't signed in yet — sign in with your SuperGrok or X Premium+ account under SETTINGS → AI & MODELS → GROK (XAI), or add an xAI API key instead."
@@ -609,7 +634,16 @@
       } else if (!/sidecar http|chatgpt|codex/.test(low) && (REJECTED_KEY_RE.test(low) || /\bhttp (?:400|401|403)\b/.test(low))) {
         userMessage = 'The provider rejected the API key — check it, or paste a new one under SETTINGS → AI & MODELS.';
       }
-      return { userMessage: userMessage, kind: kind, retryable: k.retryable, action: k.action, raw: raw };
+      return { userMessage: userMessage, kind: kind, retryable: k.retryable, action: k.action, provider: providerFromRaw(raw), raw: raw };
+    }
+    // billing: name the account that is out of credit when the error proves which provider it was (org P03)
+    if (kind === 'billing') {
+      const provider = providerFromRaw(raw);
+      const userMessage = provider ? 'Your ' + providerWord(provider) + ' account is out of credit — top it up, then try again.' : k.msg;
+      return { userMessage: userMessage, kind: kind, retryable: k.retryable, action: k.action, provider: provider, raw: raw };
+    }
+    if (kind === 'quota_exhausted') {
+      return { userMessage: k.msg, kind: kind, retryable: k.retryable, action: k.action, provider: providerFromRaw(raw), raw: raw };
     }
     if (kind === 'spend_unknown') {
       return { userMessage: spendUnknownMessage(raw), kind: kind, retryable: k.retryable, action: k.action, raw: raw };
@@ -660,9 +694,12 @@
   }
   // open Settings, landing on a specific section when the host supports it (Lane C's openTerm(key, section)); the
   // bare openTerm('settings') is the graceful fallback so this works today.
-  function openSettings(section) {
+  // org P03: a provider-named door lands ON that provider's card (StationUI.focusProvider scrolls to it and marks it);
+  // `signin` also presses the card's own ⏼ SIGN IN / ⏼ RECONNECT, the same prov-oauth-signin flow a click starts.
+  function openSettings(section, provider, opts) {
     if (typeof StationUI === 'undefined') return;
     try {
+      if (section === 'providers' && provider && StationUI.focusProvider) { StationUI.focusProvider(provider, opts || {}); return; }
       if (section && StationUI.openTerm && StationUI.openTerm.length >= 2) { StationUI.openTerm('settings', section); return; }
       if (StationUI.openTerm) StationUI.openTerm('settings');
     } catch (_) { try { if (StationUI.openTerm) StationUI.openTerm('settings'); } catch (_) {} }
@@ -739,44 +776,43 @@
         // the only surface with a ▶ CONNECT SPOTIFY control. The action KEY stays 'toolsets' (internal, and the
         // shelf inside is still called TOOLSETS); only the LABEL follows the dock button, which reads ABILITIES.
         return { label: '⇄ OPEN ABILITIES', run: () => { try { if (typeof StationUI !== 'undefined' && StationUI.openTerm) StationUI.openTerm('connectors'); } catch (_) {} } };
-      case 'settings':
+      case 'settings': {
+        // org P03 — ONE label for the AI & MODELS door (▸ OPEN AI & MODELS), and it lands on the provider's card when
+        // the error proves which provider it was. Sign-in doors keep the provider's name and press its sign-in.
         // Grok's OAuth sign-in is 403-allowlisted off for this account — the honest door is the xAI (API KEY)
-        // provider, not a doomed reconnect. Lands on the PROVIDERS section where the xAI key row lives.
+        // provider, not a doomed reconnect. Lands on the XAI card, where its key field lives.
         if (verdict.kind === 'grok_oauth_unavailable')
-          return { label: '▸ USE XAI (API KEY)', run: () => openSettings('providers') };
-        // A codex sign-in-class failure (dead/consumed refresh token, not-signed-in) ALWAYS gets the reconnect
-        // door — the 2026-07-08 escape was exactly this error landing with only a generic "add a key" path.
-        // Settings→PROVIDERS is where the row's ⏼ RE-SIGN-IN action now lives.
+          return { label: '▸ USE XAI (API KEY)', run: () => openSettings('providers', 'xai') };
+        // A sign-in-class failure (dead/consumed refresh token, never signed in) ALWAYS gets the sign-in door — the
+        // 2026-07-08 escape was exactly this error landing with only a generic "add a key" path. The door names the
+        // provider whose sign-in died and runs that card's ⏼ SIGN IN / ⏼ RECONNECT (prov-oauth-signin): SIGN IN TO
+        // when it was never signed in, RECONNECT when a sign-in expired.
         if (verdict.kind === 'oauth') {
-          // the door names the specific provider whose sign-in died (all land on the same PROVIDERS section);
-          // a never-signed-in grok/kimi reads SIGN IN — there is nothing to reconnect.
+          const pid = verdict.provider === 'grok' || verdict.provider === 'kimi' ? verdict.provider : 'codex';
           const verb = verdict.signedOut ? '⏼ SIGN IN TO ' : '⏼ RECONNECT ';
-          const label = verdict.provider === 'grok' ? verb + 'GROK'
-            : verdict.provider === 'kimi' ? verb + 'KIMI'
-            : '⏼ RECONNECT CHATGPT';
-          return { label: label, run: () => openSettings('providers') };
+          return { label: verb + providerWord(pid), run: () => openSettings('providers', pid, { signin: true }) };
         }
         // no_model: a provider is connected, only the model is missing — the model dock is the door
         if (verdict.kind === 'no_model' || verdict.kind === 'local_model_memory') return pickModelDoor();
-        // other auth/no-key: if ChatGPT is already the connected brain, the honest door is still "reconnect";
-        // otherwise the provider key field. Both land on the same PROVIDERS section.
-        if (verdict.kind === 'auth' && codexConnected())
-          return { label: '⏼ RECONNECT CHATGPT', run: () => openSettings('providers') };
-        if (verdict.kind === 'auth')
-          return { label: '＋ Add a key', run: () => openSettings('providers') };
+        // other auth/no-key: if ChatGPT is already the connected brain, the honest door is still "reconnect"
+        if (verdict.kind === 'auth' && codexConnected() && !verdict.provider)
+          return { label: '⏼ RECONNECT CHATGPT', run: () => openSettings('providers', 'codex', { signin: true }) };
         // model_not_found: the fix is repointing the PRIMARY model, which lives in the COMMS model dock —
         // NOT Settings→MODELS (that section is the fallback chain + class tiers and cannot change the primary;
         // sending users there was a door onto a room without the lever). Fall back to Settings only when the
         // dock isn't mounted (headless/tests).
         if (verdict.kind === 'model_not_found') return pickModelDoor();
-        return { label: '⚙ Open Settings', run: () => openSettings('providers') };
+        // auth (add / fix a key), billing, quota: AI & MODELS, on the named provider's card when the error names one
+        return { label: '▸ OPEN AI & MODELS', run: () => openSettings('providers', verdict.provider || null) };
+      }
       case 'reload':
         // stale_session: the page holds a dead boot token — a reload is the ONE honest reconnect (the token is
         // injected at serve time; there is no in-page re-fetch handshake). Degrades quietly outside a browser.
         return { label: '↻ RELOAD & RECONNECT', run: () => { try { if (typeof location !== 'undefined' && location.reload) location.reload(); } catch (_) {} } };
       case 'store':
         // this door opens the PROVIDERS section (there is no "store") — name it truthfully with a CRT glyph.
-        return { label: '▸ OPEN AI & MODELS', run: () => openSettings('providers') };
+        // managed credits: the STARNET MANAGED card (balance, LINK STATION) is the lever
+        return { label: '▸ OPEN AI & MODELS', run: () => openSettings('providers', 'starnet') };
       case 'budget':
         // spend_unknown: SETTINGS › SPENDING LIMITS lists the interrupted runs to settle (or says restart) — the
         // only surface that clears the refusal. No retry chip rides with it: a retry hits the same refusal.
@@ -789,5 +825,5 @@
   }
 
   return { friendlyError, actionButton, connectorDoor, connectorChipLabel, routeConsoleSearch, linkStartFailure, explainStop, stopLine, STOP_EXPLAINERS, KINDS, CAP_INFO,
-    _internals: { kindFromRaw, isTransportLoss, isUpstreamFetchFailure, isUserAbort, REASON_TO_KIND, capFromRaw, capdeniedMessage, codexConnected, transportMessage } };
+    _internals: { providerFromRaw, kindFromRaw, isTransportLoss, isUpstreamFetchFailure, isUserAbort, REASON_TO_KIND, capFromRaw, capdeniedMessage, codexConnected, transportMessage } };
 });

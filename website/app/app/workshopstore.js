@@ -195,6 +195,7 @@ const WorkshopStore = (() => {
       const r = await fetch('/api/workshop/decide', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
       const j = await r.json().catch(() => null);
       if (r.ok && j && j.ok === true) {
+        if (decision !== 'later' && typeof NeedsYou !== 'undefined' && NeedsYou.refreshFeeds) NeedsYou.refreshFeeds(true);   // org P01: its NEEDS YOU row leaves now
         const keptPath = (j && j.destPath) || body.destPath;
         // Keep is a filesystem copy only. Renderer IPC cannot prove a fresh user
         // gesture, so a run may not launch an OS file manager on the user's desktop.
@@ -576,7 +577,9 @@ const WorkshopStore = (() => {
   // S2/new-hero: a fresh Commander inherits no prior "later" list.
   function reset() { state = hydrate(null); fired = false; try { localStorage.removeItem(KEY); } catch (_) {} }
 
-  return { init, queue, decide, implement, discardIfPending, readFile, runUrl, openFile, desktopDefault, fetchPending, presentOnReturn, presentFor, ensureSession, reset, queueConfirmLine, grantOf, openGrant, onBuilt, _hydrate: hydrate, _pfDelays: pfDelays, _maybePresent: maybePresent };
+  // pendingAll(): every agent's undecided builds, unfiltered (NEEDS YOU lists each one, org P01); pendingAllOk(): whether
+  // that last read was answered by the station (an unreachable station is not "nothing to decide")
+  return { init, queue, decide, implement, discardIfPending, readFile, runUrl, openFile, desktopDefault, fetchPending, pendingAll: fetchRaw, pendingAllOk: () => lastRawOk, presentOnReturn, presentFor, ensureSession, reset, queueConfirmLine, grantOf, openGrant, onBuilt, _hydrate: hydrate, _pfDelays: pfDelays, _maybePresent: maybePresent };
 })();
 
 if (typeof module !== 'undefined' && module.exports) module.exports = { WorkshopStore };

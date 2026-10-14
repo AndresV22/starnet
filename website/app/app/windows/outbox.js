@@ -38,13 +38,17 @@
      (TERM_ALIAS outbox → deliverables § review). Empty = the section hides; the library below is always there. */
   const mounted = new Set();
   function buildOutbox(body) {
+    // what TO REVIEW really holds (org pass 10-14, P12): ReturnStore.pendingRows = runs that finished while you were away
+    // (schedules too) plus folded line jobs, workflow samples and SEND TO hand-offs — never an attended chat, which is
+    // rated in COMMS. Each one is ALREADY filed in the library below; this list is only the rating reminder.
+    const reviewDim = n => '— away runs and workflow jobs waiting for your rating (' + n + '). They’re already in the library below. Chats are rated in COMMS.';
     const RS = (typeof ReturnStore !== 'undefined') ? ReturnStore : null;
     const rows = (RS && RS.pendingRows) ? RS.pendingRows() : [];
     mounted.add(body);
     body.hidden = !rows.length;
     body.innerHTML =
-      '<h4 class="ms-h dlv-review-h"><button type="button" class="dlv-review-tog" aria-expanded="true"><span class="ob-caret-all" aria-hidden="true">▾</span> TO REVIEW <span class="dim">— finished work waiting for your verdict (' + rows.length + ')</span></button>' +
-        '<button type="button" class="bb sm ob-clearall">✓ CLEAR ALL ' + rows.length + '</button></h4>' +
+      '<h4 class="ms-h dlv-review-h"><button type="button" class="dlv-review-tog" aria-expanded="true"><span class="ob-caret-all" aria-hidden="true">▾</span> TO REVIEW <span class="dim">' + reviewDim(rows.length) + '</span></button>' +
+        '<button type="button" class="bb sm ob-clearall" data-tip="Files every one without a rating — the work stays in your library">MARK ALL REVIEWED ' + rows.length + '</button></h4>' +
       '<div id="ob-list" class="ob-list"></div>' +
       '<button type="button" class="bb sm ob-showall" hidden></button>' +
       '<div class="row ob-doors" style="margin-top:10px;gap:8px"><button class="bb sm" id="ob-logbook">AGENT RECORD · run history</button></div>';
@@ -72,18 +76,18 @@
       more.hidden = !sectionOpen || live.length <= FEW;
       more.textContent = showAll ? 'SHOW FEWER ▴' : 'SHOW ALL ' + live.length + ' ▾';
       // the counts follow the live list as crates are collected one by one
-      const n = tog.querySelector('.dim'); if (n) n.textContent = '— finished work waiting for your verdict (' + live.length + ')';
-      if (clearAll.dataset.armed !== '1') clearAll.textContent = '✓ CLEAR ALL ' + live.length;
+      const n = tog.querySelector('.dim'); if (n) n.textContent = reviewDim(live.length);
+      if (clearAll.dataset.armed !== '1') clearAll.textContent = 'MARK ALL REVIEWED ' + live.length;
     };
     tog.addEventListener('click', () => { sectionOpen = !sectionOpen; try { localStorage.setItem(FOLD_KEY, sectionOpen ? '1' : '0'); } catch (_) {} paintFold(); });
     more.addEventListener('click', () => { showAll = !showAll; paintFold(); });
     const clearEvery = () => {
       const ids = Array.from(list.children).filter(r => r.dataset.collected !== '1').map(r => r.dataset.runId).filter(Boolean);
       if (RS && RS.resolveAll) RS.resolveAll(ids); else if (RS && RS.resolve) ids.forEach(id => RS.resolve(id));
-      notify('Cleared ' + ids.length + ' from TO REVIEW. The work stays in your library.', '');
+      notify('Marked ' + ids.length + ' reviewed. The work stays in your library.', '');
       renderEmpty();
     };
-    if (typeof ArmConfirm !== 'undefined' && ArmConfirm.wire) ArmConfirm.wire(clearAll, { armedLabel: 'CLEAR ALL — SURE?', onDisarm: paintFold, onConfirm: clearEvery });
+    if (typeof ArmConfirm !== 'undefined' && ArmConfirm.wire) ArmConfirm.wire(clearAll, { armedLabel: 'MARK ALL REVIEWED — SURE?', onDisarm: paintFold, onConfirm: clearEvery });
     else clearAll.addEventListener('click', clearEvery);
     // agent id → display name via the live roster (raw ids read as debug output)
     const agentName = id => { const a = (Array.isArray(H.present) ? H.present.find(x => x && x.id === id) : null); return (a && a.name) || id || 'agent'; };
@@ -276,7 +280,7 @@
         ? Chat.awayRate(rateHost, rw, () => { if (RS && RS.resolve) RS.resolve(rw.runId); collected(row); })
         : false;
       if (!mounted) {   // already judged this session — offer the plain collect so the crate never wedges
-        const b = document.createElement('button'); b.type = 'button'; b.className = 'consent-btn'; b.textContent = '✓ collect crate';
+        const b = document.createElement('button'); b.type = 'button'; b.className = 'consent-btn'; b.textContent = '✓ mark reviewed';
         b.addEventListener('click', ev => { ev.stopPropagation(); if (RS && RS.resolve) RS.resolve(rw.runId); collected(row); });
         rateHost.appendChild(b);
       }

@@ -11,6 +11,14 @@
   const esc = H.esc, sfx = H.sfx, notify = H.notify, fmtRel = H.fmtRel;
   const consoleSection = H.consoleSection;
   let routineAgentId = 'agent'; // selected roster agent for new scheduled routines (window-local state)
+  let routineLineKey = null;    // RUN BY a workflow (org P16): the picked line's key, or null when an agent runs it
+  /* RUN BY's workflows (org P16, 2026-10-14): every line on the floor, read the way WORKFLOWS reads it (its compiled plan —
+     WorkflowsWindow.startLines). A line with no agent on its first step has no dockId and is offered disabled. [] when the
+     floor is not loaded: the form then offers agents only, as before. */
+  function startLines() {
+    try { return (typeof WorkflowsWindow !== 'undefined' && WorkflowsWindow.startLines) ? (WorkflowsWindow.startLines() || []) : []; }
+    catch (e) { return []; }
+  }
 
   // the browser's IANA zone, or undefined when the runtime won't resolve one (then the host default
   // applies server-side, exactly as before). Sent with create and its preview; rescheduling uses the
@@ -47,6 +55,8 @@
      last-result only from real server data, and says plainly when the scheduler tick is off. */
   function routinesLane(body) {
     const roster = H.present.length ? H.present : [{ id: 'agent', name: 'Agent', color: 'var(--ph)' }];
+    const lines = startLines();
+    if (routineLineKey && !lines.some(l => l.key === routineLineKey && l.dockId)) routineLineKey = null;
     const hasSelected = roster.some(a => a && a.id === routineAgentId);
     if (!hasSelected) routineAgentId = (H.present[H.sel] && H.present[H.sel].id) || (roster[0] && roster[0].id) || 'agent';
     function agentFor(id) { return roster.find(a => a && a.id === id) || null; }
@@ -79,7 +89,13 @@
     const secCreate =
       '<div class="mc-form rt-simple-create">' +
         '<div class="rt-identity"><label class="sn-menu-field">Name<input id="rt-name" class="key-input" placeholder="e.g. Morning research brief" maxlength="80" autocomplete="off"></label>' +
-        '<label class="sn-menu-field">Agent<select id="rt-agent-select" class="key-input">' + roster.map(a => '<option value="' + esc(a.id) + '"' + (a.id === routineAgentId ? ' selected' : '') + '>' + esc(a.name || a.id) + '</option>').join('') + '</select></label></div>' +
+        // RUN BY (org P16): agents first, then workflows — a workflow runs the WHOLE line from its first step (runsLine)
+        '<label class="sn-menu-field">RUN BY<select id="rt-agent-select" class="key-input">' +
+          (lines.length ? '<optgroup label="AGENTS">' : '') +
+          roster.map(a => '<option value="' + esc(a.id) + '"' + (!routineLineKey && a.id === routineAgentId ? ' selected' : '') + '>' + esc(a.name || a.id) + '</option>').join('') +
+          (lines.length ? '</optgroup><optgroup label="WORKFLOWS">' + lines.map(l => '<option value="line:' + esc(l.key) + '"' + (l.dockId ? '' : ' disabled') + (routineLineKey === l.key ? ' selected' : '') + '>' +
+            esc(String(l.name || 'workflow').toUpperCase()) + (l.dockId ? '' : ' (no agent on its first step)') + '</option>').join('') + '</optgroup>' : '') +
+        '</select></label></div>' +
         '<div hidden><div class="rt-agent-pick">' + roster.map(agentButton).join('') + '</div></div><input id="rt-agent" type="hidden" value="' + esc(routineAgentId) + '">' +
         '<label class="sn-menu-field">What should it do?<textarea id="rt-prompt" class="key-input" rows="2" placeholder="e.g. Find three research updates and summarize them with source links." style="resize:vertical"></textarea></label>' +
         // WHEN — the schedule PICKER (frontend/app/schedpicker.js). It owns the `#rt-sched` text input and
@@ -331,7 +347,12 @@
         // matter what the intent flag says, or the create-confirm promises a fire that an E-STOP is holding down.
         schedulerArmed = !!(j && j.enabled && !j.halted);
         const createState = body.querySelector('#rt-create-state');
-        if (createState) createState.textContent = schedulerArmed ? 'Scheduling is enabled. Saving adds this task to the schedule shown below.' : 'Scheduling is off. You can save a routine, but it will not run automatically until you enable scheduling in Active Routines.';
+        // ONE ARM RULE (org P16): the line says what saving will really do — it turns a never-set switch on, never an explicit OFF
+        // (GET /api/cron armSet), never an E-STOP
+        if (createState) createState.textContent = schedulerArmed ? 'Scheduling is on. Saving adds this task to the schedule shown below.'
+          : (j && j.halted) ? 'Scheduling is stopped (E-STOP). Saving keeps it stopped: it runs only after you turn scheduling on in Active Routines.'
+          : (j && j.armSet) ? 'Scheduling is off — you turned it off. Saving keeps it off: press ▶ TURN SCHEDULING ON in Active Routines when you want it to run.'
+          : 'Saving turns scheduling on unless you turned it off.';
         maxConsecutive = (j && Number(j.maxConsecutiveFailures)) || 0;
         maxPendingDeliveries = (j && Number(j.maxPendingDeliveries)) || 0;
         // DEGRADED STORE (routine hardening, 2026-08-21): GET /api/cron carries `degraded` when cron.jobs.json AND
@@ -353,7 +374,7 @@
         // show the armed state + a DISABLE control. `enabled` comes straight from GET /api/cron (the live
         // cronArmed), so the badge reflects a runtime arm/disarm immediately.
         // G4.6 — when OFF, this is not a whisper: promote it to a .brief-block banner (same vocabulary the quest
-        // APPROVE ask uses) with the ENABLE SCHEDULING action inline, so "saved but won't fire" reads loudly and
+        // APPROVE ask uses) with the ▶ TURN SCHEDULING ON action inline, so "saved but won't fire" reads loudly and
         // the fix is one click away. When ON, the calm one-liner + DISABLE control is enough. `#rt-arm`/data-arm
         // stay identical so the arm/disarm wiring below binds unchanged.
         // E-STOP WINS OVER `enabled` (bug-sweep P0). GET /api/cron carries `halted` — the durable stand-down written
@@ -365,16 +386,16 @@
           ? '<div class="brief-block" style="border-left-color:var(--bad);margin-bottom:8px">' +
               '<div class="brief-k" style="color:var(--bad)">✕ SCHEDULING IS STOPPED (E-STOP)</div>' +
               '<div class="brief-v">Your routines are saved but <b>will not fire</b> — an emergency stop is engaged and it survives a restart.' +
-              '<div style="margin-top:8px"><button class="bb xs" id="rt-arm" data-arm="1">▶ RESUME SCHEDULING</button></div>' +
+              '<div style="margin-top:8px"><button class="bb xs" id="rt-arm" data-arm="1">▶ TURN SCHEDULING ON</button></div>' +
             '</div></div>'
           : j && j.enabled
           ? '<span style="color:var(--gold)">● scheduler armed</span> <span class="dim">— routines fire automatically.</span>' + tickHealthLine(j) + ' ' +
-            '<button class="bb xs" id="rt-arm" data-arm="0">⏸ DISABLE SCHEDULING</button>'
+            '<button class="bb xs" id="rt-arm" data-arm="0">⏸ TURN SCHEDULING OFF</button>'
           : '<div class="brief-block" style="border-left-color:var(--bad);margin-bottom:8px">' +
               '<div class="brief-k" style="color:var(--bad)">○ SCHEDULING IS OFF</div>' +
               '<div class="brief-v">Your routines are saved but <b>will not fire</b> — the scheduler is disarmed. ' +
-              'Enable scheduling to arm the live timer now (no restart needed).' +
-              '<div style="margin-top:8px"><button class="bb xs" id="rt-arm" data-arm="1">▶ ENABLE SCHEDULING</button></div>' +
+              'Turn scheduling on to arm the live timer now (no restart needed).' +
+              '<div style="margin-top:8px"><button class="bb xs" id="rt-arm" data-arm="1">▶ TURN SCHEDULING ON</button></div>' +
             '</div></div>');
         const degradedBtn = gateEl.querySelector('#rt-degraded-clear');
         if (degradedBtn) degradedBtn.addEventListener('click', async () => {
@@ -389,10 +410,10 @@
         const armBtn = gateEl.querySelector('#rt-arm');
         if (armBtn) armBtn.addEventListener('click', async () => {
           const want = armBtn.dataset.arm === '1';
-          armBtn.disabled = true; armBtn.textContent = want ? '… enabling' : '… disabling';
+          armBtn.disabled = true; armBtn.textContent = want ? '… turning on' : '… turning off';
           try {
             const r = await (await post('/api/cron/arm', { enabled: want })).json();
-            if (r && r.ok) { notify(want ? 'scheduling enabled — routines will now fire' : 'scheduling disabled', want ? 'good' : 'warn'); sfx('click'); }
+            if (r && r.ok) { notify(want ? 'scheduling is on — routines will now fire' : 'scheduling is off', want ? 'good' : 'warn'); sfx('click'); }
             else { notify((r && r.error) || 'could not change scheduling', 'warn'); sfx('bad'); }
           } catch (_) { notify('could not reach the sidecar', 'warn'); sfx('bad'); }
           refresh();   // re-render the badge from the authoritative GET /api/cron enabled
@@ -495,10 +516,14 @@
     body._rtPicker = picker;   // AUTOMATION.openDraft pre-selects a takeover's suggested cadence through set()
 
     body.querySelector('#rt-agent-select').addEventListener('change', e => {
-      const btn = Array.from(body.querySelectorAll('.rt-agent-btn')).find(b => b.dataset.agent === e.target.value); if (btn) btn.click();
+      const v = String(e.target.value || '');
+      if (v.indexOf('line:') === 0) { routineLineKey = v.slice(5); sfx('click'); return; }   // RUN BY a workflow (org P16)
+      routineLineKey = null;
+      const btn = Array.from(body.querySelectorAll('.rt-agent-btn')).find(b => b.dataset.agent === v); if (btn) btn.click();
     });
     body.querySelectorAll('.rt-agent-btn').forEach(btn => btn.addEventListener('click', () => {
       routineAgentId = btn.dataset.agent || 'agent';
+      routineLineKey = null;
       body.querySelector('#rt-agent-select').value = routineAgentId;
       const input = body.querySelector('#rt-agent');
       if (input) input.value = routineAgentId;
@@ -772,7 +797,15 @@
       const name = (body.querySelector('#rt-name').value || '').trim();
       const prompt = (body.querySelector('#rt-prompt').value || '').trim();
       const schedule = (body.querySelector('#rt-sched').value || '').trim();
-      const agentId = (body.querySelector('#rt-agent').value || '').trim();
+      let agentId = (body.querySelector('#rt-agent').value || '').trim();
+      /* RUN BY a workflow (org P16): the line's first-step agent at that step's BAY, runsLine:true — the very body the INBOX
+         form posts (createCronJobFromSpec's line path). Re-read at save so a floor edit since the paint is honoured. */
+      let line = null;
+      if (routineLineKey) {
+        line = startLines().find(l => l.key === routineLineKey && l.dockId && l.agentId) || null;
+        if (!line) { sfx('bad'); msgEl.textContent = 'that workflow has no agent on its first step any more — pick it again or choose an agent'; return; }
+        agentId = line.agentId;
+      }
       // Inherit the selected agent's provider; the station's chat selection is not an override.
       if ((!prompt && !(body.querySelector('#rt-script').value || '').trim()) || !schedule) { sfx('bad'); msgEl.textContent = 'a prompt or script and a schedule are required'; return; }
       addBtn.disabled = true;
@@ -795,7 +828,8 @@
         const attachToSession = !!body.querySelector('#rt-continue').checked;
         if ((deliveryMode === 'origin' || attachToSession) && !activeSession) throw new Error('Open the conversation this routine should return to, then save again.');
         const r = await (await post('/api/cron', {
-          name, prompt, schedule, agentId: agentId || undefined, tz, arm: true,   // a routine you just made should fire (E-STOP still holds)
+          name, prompt, schedule, agentId: agentId || undefined, tz, arm: true,   // ONE ARM RULE (org P16): turns a never-set switch on; an explicit OFF and an E-STOP hold
+          dockId: line ? line.dockId : undefined, runsLine: line ? true : undefined,
           meta: body.querySelector('#rt-prompt').dataset.widgetId
             ? { widgetId: body.querySelector('#rt-prompt').dataset.widgetId }
             : body.querySelector('#rt-prompt').dataset.workflowTakeoverId
@@ -822,9 +856,24 @@
           // ("saved, but the scheduler is off — this won't run until you enable scheduling"). Built for exactly this.
           if (r && r.scheduler) schedulerArmed = !!r.scheduler.armed;   // the create reply carries the live arm state
           const arm = (typeof AutoJobs !== 'undefined' && AutoJobs.armStateLine) ? AutoJobs.armStateLine(schedulerArmed) : null;
+          const who = line ? 'the ' + String(line.name || 'workflow').toUpperCase() + ' workflow' : agentLabel(agentId || 'agent');
           if (r && r.scheduler && r.scheduler.halted) notify('routine "' + (name || 'unnamed') + '" saved — the scheduler is on E-STOP, so nothing fires until you resume it in AUTOMATE › SCHEDULES', 'warn');
+          // ONE ARM RULE (org P16): said as it happened — this save turned scheduling on, or it kept the Commander's OFF and offers the switch
+          else if (r && r.scheduler && r.scheduler.armedNow) { msgEl.textContent = '✓ saved · scheduling is now on'; notify('routine "' + (name || 'unnamed') + '" scheduled for ' + who + ' — scheduling is now on', 'good'); }
+          else if (r && r.scheduler && r.scheduler.offByChoice) {
+            msgEl.innerHTML = '✓ saved · scheduling is off (you turned it off), so it will not run yet. <button class="bb xs" id="rt-msg-arm" type="button">▶ TURN SCHEDULING ON</button>';
+            const mArm = msgEl.querySelector('#rt-msg-arm');
+            if (mArm) mArm.addEventListener('click', async () => {
+              mArm.disabled = true; mArm.textContent = '… turning on';
+              try {
+                const ar = await (await post('/api/cron/arm', { enabled: true })).json();
+                if (ar && ar.ok) { msgEl.textContent = '✓ scheduling is on'; sfx('click'); } else { mArm.disabled = false; mArm.textContent = '▶ TURN SCHEDULING ON'; notify((ar && ar.error) || 'could not turn scheduling on', 'warn'); sfx('bad'); }
+              } catch (e) { mArm.disabled = false; mArm.textContent = '▶ TURN SCHEDULING ON'; notify('could not reach the sidecar', 'warn'); sfx('bad'); }
+              refresh();
+            });
+          }
           else if (arm) notify('routine "' + (name || 'unnamed') + '" ' + arm.text, 'warn');
-          else notify('routine "' + (name || 'unnamed') + '" scheduled for ' + agentLabel(agentId || 'agent'), 'good');
+          else notify('routine "' + (name || 'unnamed') + '" scheduled for ' + who, 'good');
           sfx('click');
           ['#rt-name', '#rt-prompt'].forEach(s => { body.querySelector(s).value = ''; });
           delete body.querySelector('#rt-prompt').dataset.workflowTakeoverId;

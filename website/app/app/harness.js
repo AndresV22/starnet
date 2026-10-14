@@ -701,7 +701,7 @@ const Harness = (() => {
     const cleaned = Array.from(new Set((Array.isArray(keys) ? keys : []).map(cleanKey).filter(Boolean))).slice(0, 8);
     for (const candidate of cleaned) {
       const { r, j, text } = await postKeyCheck('/api/providers/validate', { provider: p, key: candidate, baseUrl: getBaseUrl(p) || '', model: p === getProv() ? getModel() : '' });
-      if (!r.ok || !j.credentialVerified) throw new Error((r.ok && !j.error ? 'a backup key was rejected' : keyCheckFailure(r.status, j, text)) + ' — your previous backup pool is unchanged');
+      if (!r.ok || !j.credentialVerified) throw new Error((r.ok && !j.error ? 'a spare key was rejected' : keyCheckFailure(r.status, j, text)) + ' — your previous spare keys are unchanged');
     }
     return setKeyPool(cleaned, p);
   }
@@ -737,7 +737,7 @@ const Harness = (() => {
   // got the endpoint. setBaseUrl still never rejects; it resolves the failure in the { engine } shape warnIfStationLacksKey reads.
   function desktopEndpointFailed(p, e) {
     console.warn('[harness] ' + p + ': desktop endpoint store failed: ' + ((e && e.message) || e));
-    return { engine: { ok: false, error: 'the endpoint change is saved in this window, but the desktop could not apply it to the station — retry STATION LINK before running' } };
+    return { engine: { ok: false, error: 'the endpoint change is saved in this window, but the desktop could not apply it to the station — retry ✎ ENDPOINT URL before running' } };
   }
   const setBaseUrl = (u, provider) => {
     selectionRevision++;

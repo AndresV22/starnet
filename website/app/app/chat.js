@@ -1925,6 +1925,39 @@ const Chat = (() => {
     if (typeof Channels !== 'undefined') Channels.setComposeTarget(ws.id);
     updateControls(); autoGrowInput();
   }
+  /* ORG P26 — THE OPEN SESSION IN THE COMMS TITLE ('COMMS · <session>'). ONE writer for #comms-title: Chat.load and the
+     rail's repaint (renames, a first message's auto-title, group membership) call paintTitle. Two owners borrow it and
+     hand it back: a PROJECT HOME (project-home.js) while it is shown, and the HUD's ACTIVITY view (hudmode.js titleWas)
+     — on exit each calls paintTitle again. A title names WHICH conversation, never run state (comms-header-no-run-state).
+     An untitled group reads like its rail row ('ULTRON, CYPHER +3'); every other name is Workstreams.titleOf. */
+  function sessionTitleText(ws) {
+    if (!ws) return '';
+    if (!ws.title && ws.conversationMode === 'group' && typeof GroupChat !== 'undefined' && GroupChat.membersOf) {
+      const members = GroupChat.membersOf(ws.id) || [];
+      if (members.length >= 2) {
+        const ids = [ws.agentId].concat(members.filter(id => id !== ws.agentId)).filter(id => members.includes(id));
+        const nm = id => (typeof App !== 'undefined' && App.agentName && App.agentName(id)) || id;
+        const more = ids.length - 2;
+        return ids.slice(0, 2).map(nm).join(', ') + (more > 0 ? ' +' + more : '');
+      }
+    }
+    return streamLabel(ws);
+  }
+  function paintTitle() {
+    const t = el('comms-title'); if (!t) return;
+    if (typeof ProjectHome !== 'undefined' && ProjectHome.owns && ProjectHome.owns()) return;   // the project home names the panel while shown
+    if (document.body && document.body.classList.contains('hud-view-activity')) return;          // the HUD's ▮ ACTIVITY view owns it
+    const ws = activeWs || (typeof Workstreams !== 'undefined' ? Workstreams.active() : null);
+    const name = ws ? sessionTitleText(ws) : '';
+    const painted = name ? (t.dataset.session === name && !!t.querySelector('.comms-session')) : t.textContent === 'COMMS';
+    if (painted) return;
+    t.dataset.session = name;
+    if (!name) { t.textContent = 'COMMS'; t.removeAttribute('data-tip'); return; }
+    t.textContent = 'COMMS';
+    const s = document.createElement('span'); s.className = 'comms-session'; s.textContent = ' · ' + name;
+    t.appendChild(s);
+    t.setAttribute('data-tip', 'This conversation: ' + name);   // the whole name when the panel clamps it
+  }
   function load(ws) {
     const historyPin = ++historyPinSeq;
     historyPinPending = historyPin;
@@ -1932,6 +1965,7 @@ const Chat = (() => {
     const nextWs = ws || (typeof Workstreams !== 'undefined' ? Workstreams.active() : null);
     if (activeWs?.id !== nextWs?.id) focusVersion++;
     activeWs = nextWs;
+    paintTitle();
     noteContinuity(activeWs, 'session-selected');
     heldCard = null; heldQueue.length = 0;
     if (activeWs && activeWs.conversationMode === 'group' && typeof GroupChat !== 'undefined') {
@@ -2208,7 +2242,9 @@ const Chat = (() => {
     const rowEl = old || document.createElement('div');
     rowEl.id = 'comms-agent-busy'; rowEl.className = 'choice-row comms-agent-busy'; rowEl.textContent = '';
     const label = document.createElement('span'); label.className = 'dim';
-    label.textContent = peer ? ('ALSO RUNNING IN ' + streamLabel(peer).toUpperCase()) : String(detail || 'AGENT BUSY');
+    // ORG P25: say WHO is busy and WHERE — it explains why a first message here queues (kept visible in an empty session)
+    const busyName = peer ? ((typeof App !== 'undefined' && App.agentName && App.agentName(peer.agentId || 'agent')) || name || 'This agent') : '';
+    label.textContent = peer ? (String(busyName).toUpperCase() + ' IS BUSY IN ' + streamLabel(peer).toUpperCase()) : String(detail || 'AGENT BUSY');
     rowEl.appendChild(label);
     if (peer) {
       const view = document.createElement('button'); view.type = 'button'; view.className = 'choice'; view.textContent = 'VIEW ACTIVE RUN';
@@ -2305,7 +2341,16 @@ const Chat = (() => {
       const target = Workstreams.get(st.sessionId);
       if (!target || target.archived || Channels.isBusy(target.id)) return;
       ws = Workstreams.switch(target.id);
-    } else ws = Workstreams.create(st.label, { agentId: ctx.agentId, projectRoot: ctx.projectRoot || undefined });
+    } else {
+      // ORG P25: a starter picked on a BLANK open session fills THAT session instead of minting another empty row
+      // beside it. Blank = Workstreams.isUntouched (the same test +NEW uses: a plain untitled chat with no messages,
+      // runs, deliverables or spend, not pinned / a task card / a room / a goal loop), not a worker, not busy, same
+      // agent and project. A titled TO DO card or a pinned empty session keeps today's create.
+      const cur = Workstreams.active ? Workstreams.active() : null;
+      const blank = !!cur && Workstreams.isUntouched(cur) && cur.worker !== true && !Channels.isBusy(cur.id)
+        && (cur.agentId || 'agent') === (ctx.agentId || 'agent') && (cur.projectRoot || '') === (ctx.projectRoot || '');
+      ws = blank ? cur : Workstreams.create(st.label, { agentId: ctx.agentId, projectRoot: ctx.projectRoot || undefined });
+    }
     if (!ws) return;
     load(ws);
     prefill(Starters.launchPrompt(st));
@@ -2634,6 +2679,7 @@ const Chat = (() => {
     if (open0) d.classList.add('open');
     d.appendChild(head); d.appendChild(bodyWrap);
     log.appendChild(d); autoscroll();
+    return d;
   }
 
   /* ---------- CELEBRATION broadcast: a terse station system line (level-up / quest / trophy) ----------
@@ -3426,8 +3472,8 @@ const Chat = (() => {
   }
 
   // a live consent prompt: the agent wants to do something that needs approval (a file write today). The run is
-  // PAUSED on the sidecar until the Commander answers — once / always (this kind) / full access (everything this
-  // session) / deny. Answering resumes the stream automatically.
+  // PAUSED on the sidecar until the Commander answers — once / always (this kind) / full power (that agent stops asking
+  // and can use the whole local computer) / deny. Answering resumes the stream automatically.
   /* THE GLANCE LINE (user report 10-08). argsSummary is the WHOLE request now (consentSummary stopped clipping it at
      77 chars, which hid a long command's tail), so it never goes into a phrase, a toast or a notification raw: those
      get one short line, and the card carries the whole thing in INSPECT COMPLETE REQUEST (permissionRow). */
@@ -3530,7 +3576,7 @@ const Chat = (() => {
     }
     // NS-5 conversational path trust: a file was referenced OUTSIDE the agent's workspace — "Always" blesses
     // the whole project folder for future reads (revocable in Permissions); argsSummary is the proposed root.
-    if (t === 'path.trust') return 'work with files in ' + (ev.argsSummary || 'a project folder') + ' (reads; "Always" or "Full access" trusts it for later)';
+    if (t === 'path.trust') return 'work with files in ' + (ev.argsSummary || 'a project folder') + ' (reads; "Always" or "Full power" trusts it for later)';
     // ATTENDED BROWSER LOGIN: two-phase takeover. Phase 1 asks to open a visible Chrome window the COMMANDER
     // drives; phase 2 holds the run until they click Done. Password honesty is part of the card copy.
     if (t === 'browser.login') return 'open a browser window so YOU can log in to ' + (ev.argsSummary || 'a website') + ' (you type your password in that window — the agent never sees it)';
@@ -3878,7 +3924,7 @@ const Chat = (() => {
   // the login window) grants this one call whatever grade another surface sent, so it settles in its own yes/no words
   function settledLabel(resp, own) {
     if (resp.decision === 'deny') return ((own && own.deny) || '✕ denied') + settledWhere(resp);
-    const words = { always: '✓ always allowed', session: '✓ approved for this session', full: '✓ full access' };
+    const words = { always: '✓ always allowed', session: '✓ approved for this session', full: '✓ full power' };
     const grade = own ? own[resp.decision] || (resp.decision === 'session' && own.always ? words.session : own.once) : words[resp.decision];
     return (grade || '✓ approved once') + settledWhere(resp);
   }
@@ -3899,7 +3945,7 @@ const Chat = (() => {
     // surface the decision on the bus (schema: permission.response) so listeners — e.g. the first-run tutorial —
     // can tell an approve from a deny and narrate the consent loop honestly. Additive; the run resumes via Harness.consent.
     try { if (typeof U !== 'undefined' && U.bus) U.bus.emit('permission.response', { promptId: p.promptId, decision: appliedDecision, via: via || 'desk' }); } catch (_) {}
-    // NS conversational anchor: "Always" — and now "Full access" — on a path.trust card IS the project bless
+    // NS conversational anchor: "Always" — and now "Full power" — on a path.trust card IS the project bless
     // (a standing path grant + known-projects row land on the sidecar). Stamp the origin session's projectRoot
     // with the SAME proposed root so the PROJECTS rail lists this session under its project — the identical
     // anchor "Work here" stamps. Both standing grades, never "once" (it grants nothing standing, so there is
@@ -3924,12 +3970,27 @@ const Chat = (() => {
     return (typeof App !== 'undefined' && App.agentName && App.agentName(id)) || id;
   }
   /* A STOPPED RUN TAKES ITS OPEN CARDS WITH IT (live walkthrough 2026-10-13): after STOP the run's approval card kept
-     live Approve once / Always / Full access / Deny keys while NEEDS YOU and the toast had already cleared — a key that
+     live Approve once / Always / Full power / Deny keys while NEEDS YOU and the toast had already cleared — a key that
      answers nothing. promptId -> { wsId, runId, worker, background, retire(text) }; retireOpenConsents runs at the run's
      end. A BACKGROUND worker's ask (background:true — the station keeps it open past the lead's turn, and its runId IS the
      lead's) is never retired by a run's end: it settles through its own permission.response, or retireConsentCard when the
      reconnect snapshot no longer lists it (2026-10-14 review: such a card read "nothing was approved" with the ask live). */
   const openConsentCards = new Map();
+  /* THE CARD'S ONE HINT LINE (org P02): an approval card says what happens if nobody answers — the station denies an
+     unanswered ask on a timer (sidecar consent deadline: 120 s while unseen, longer once this page acks the card). The
+     sidecar never tells the page that deadline, so the hint carries no number (never a hard-coded "2 min"). On the SECOND
+     ask for the same tool in the same direct chat, the line teaches Always instead (one hint, never both). Always is a
+     standing grant across the station (permissions.js grantsPermanent), so the hint says "from now on", never "here".
+     wsId -> Map(tool -> Set(promptId)): a re-render of the same ask never counts as a second ask. */
+  const askedTools = new Map();
+  function consentHintFor(p, ws) {
+    const tool = String((p && p.tool) || '');
+    if (!tool || !ws || !p || p.promptId == null || p.workerAgentId || p.workerRunId || p.background === true) return 'auto-denies if left unanswered';
+    const byTool = askedTools.get(ws.id) || new Map(); askedTools.set(ws.id, byTool);
+    const ids = byTool.get(tool) || new Set(); byTool.set(tool, ids);
+    ids.add(String(p.promptId)); if (ids.size > 20) ids.delete(ids.values().next().value);
+    return ids.size > 1 ? 'Always stops asking for ' + tool + ' from now on' : 'auto-denies if left unanswered';
+  }
   function retireOpenConsents(wsId, runId) {
     for (const [id, c] of openConsentCards) {
       if (c.wsId !== wsId || c.background) continue;
@@ -3973,7 +4034,7 @@ const Chat = (() => {
       }
       submitting = false; decided = true;
       if (received && applyElsewhere) applyElsewhere(received);
-      if (decision === 'full' && !res.fullSaved) { doneLabel = '✕ full access was not saved'; isDeny = true; }
+      if (decision === 'full' && !res.fullSaved) { doneLabel = '✕ full power was not saved'; isDeny = true; }
       else if (decision !== 'full' && res.appliedDecision === 'deny' && decision !== 'deny') { doneLabel = '✕ approval was not applied'; isDeny = true; }
       btns.remove(); keepFocus(r.d); releaseCard(r.d);
       const tag = document.createElement('span');
@@ -3988,11 +4049,11 @@ const Chat = (() => {
       const b = document.createElement('button');
       b.className = 'consent-btn' + (cls ? ' ' + cls : '');
       b.textContent = text;
-      if (title) b.title = title;
+      if (title) b.dataset.tip = title;   // the station tip (tooltip.js), never the OS title bubble
       b.onclick = () => decide(decision, doneLabel, isDeny);
       btns.appendChild(b); return b;
     };
-    // ATTENDED BROWSER LOGIN cards get purpose-built buttons: "Always"/"Full access" make no sense for a
+    // ATTENDED BROWSER LOGIN cards get purpose-built buttons: "Always"/"Full power" make no sense for a
     // one-shot window open, and the done-wait card is a completion signal, not a permission grade.
     if (p.tool === 'browser.login') {
       mk('Open login window', 'once', 'primary', '✓ window opened', false);
@@ -4002,15 +4063,18 @@ const Chat = (() => {
       mk('Cancel', 'deny', 'deny', '✕ cancelled', true);
     } else if (p.tool === 'station.power' || p.tool === 'plugin.submit') {
       // widening the station's leash and installing a plugin are answered fresh every time (freshConsent tools,
-      // permissions.js tier 1.5): the station grants any yes once, so no Always and no Full access
+      // permissions.js tier 1.5): the station grants any yes once, so no Always and no Full power
       mk('Approve once', 'once', 'primary', '✓ approved once', false);
       mk('Deny', 'deny', 'deny', '✕ denied', true);
     } else {
       const agentName = (p && p.workerAgentId) ? askerName(p, ws) : name;
       mk('Approve once', 'once', 'primary', '✓ approved once', false, 'Allow just this one');
       mk('Always', 'always', '', '✓ always allowed', false, 'Allow this kind of action from now on, without asking');
-      mk('Full access', 'full', 'danger', '✓ full access', false, 'Give ' + agentName + ' full access: it stops asking before most actions, until you change it back');
+      mk('Full power', 'full', 'danger', '✓ full power', false, agentName + ' stops asking and can use the whole local computer, until you change it back');
       mk('Deny', 'deny', 'deny', '✕ denied', true);
+      // one hint line, inside the keys' row so it leaves with them once the card is answered
+      const hint = document.createElement('span'); hint.className = 'consent-hint'; hint.textContent = consentHintFor(p, ws);
+      btns.appendChild(hint);
     }
     appendConsentDetails(r.body, p, 'plan');   // a station build's steps and drawing are read before deciding
     r.body.appendChild(btns);
@@ -4607,7 +4671,7 @@ const Chat = (() => {
     if (workRatedRuns.has(rw.runId)) { try { onRated(rw.runId); } catch (_) {} return; }   // already judged — just clear the crate
     const r = row('agent'); r.d.classList.add('tool'); r.d.classList.add('turnin'); r.d.classList.add('work-rate');
     const title = document.createElement('span'); title.className = 'turnin-title';
-    title.textContent = '◈ OUTBOX crate — this run finished while you were away:';
+    title.textContent = '◈ finished while you were away:';
     r.body.appendChild(title);
     const item = document.createElement('div'); item.className = 'turnin-item';
     const text = document.createElement('span'); text.className = 'turnin-text'; text.textContent = awayRowLabel(rw);
@@ -4659,19 +4723,19 @@ const Chat = (() => {
     text.textContent = (job && job.text
       ? 'your test job (“' + (job.text.length > 70 ? job.text.slice(0, 70) + '…' : job.text) + '”) rides the real belts'
       : 'a labeled test crate (“SAMPLE JOB…”) rides the real belts — write your own test job in the INBOX’s Workflow panel —')
-      + ' — the router picks the dock, the run spends real budget, and the reply lands on the OUTBOX.';
+      + ' — the router picks the dock, the run spends real budget, and the reply lands on the OUTBOX and in DELIVERABLES.';
     const btns = document.createElement('span'); btns.className = 'consent-btns';
     item.appendChild(text); item.appendChild(btns);
     r.body.appendChild(item);
     const note = document.createElement('div');   // refusal / result area (below the action row)
     r.body.appendChild(note);
-    const run = document.createElement('button'); run.className = 'consent-btn primary'; run.textContent = '▸ RUN ONE REAL JOB';
+    const run = document.createElement('button'); run.className = 'consent-btn primary'; run.textContent = '▸ SEND A REAL JOB';
     const later = document.createElement('button'); later.className = 'consent-btn deny'; later.textContent = 'not now';
     later.onclick = () => vanish(r.d);
     btns.appendChild(run); btns.appendChild(later);
     if (opts.schedOff) {
       // a schedule IS saved; the station's scheduling is off — the fix is one click, right here (R3)
-      const arm = document.createElement('button'); arm.className = 'consent-btn'; arm.textContent = '▸ TURN SCHEDULING ON';
+      const arm = document.createElement('button'); arm.className = 'consent-btn'; arm.textContent = '▶ TURN SCHEDULING ON';
       arm.onclick = () => {
         arm.disabled = true; arm.textContent = '… turning on';
         Harness.api.post('/api/cron/arm', { enabled: true }).then(res => {
@@ -4679,7 +4743,7 @@ const Chat = (() => {
           arm.textContent = ok ? '✓ scheduling is on' : 'could not turn scheduling on';
           if (!ok) arm.disabled = false;
           if (ok && typeof World !== 'undefined' && World.pollFeed) { try { World.pollFeed(); } catch (_) {} }
-        }).catch(() => { arm.disabled = false; arm.textContent = '▸ TURN SCHEDULING ON'; });
+        }).catch(() => { arm.disabled = false; arm.textContent = '▶ TURN SCHEDULING ON'; });
       };
       btns.appendChild(arm);
     }
@@ -4693,7 +4757,7 @@ const Chat = (() => {
       const err = document.createElement('span'); err.className = 'consent-result err';
       err.textContent = msg;
       note.textContent = ''; note.appendChild(err);
-      run.disabled = false; later.disabled = false; run.textContent = '▸ RUN ONE REAL JOB';
+      run.disabled = false; later.disabled = false; run.textContent = '▸ SEND A REAL JOB';
       autoscroll();
     };
     run.onclick = () => {
@@ -4717,7 +4781,7 @@ const Chat = (() => {
         const who = String((whoRec && whoRec.name) || whoId).toUpperCase();
         const cost = (+j.totalUsd > 0 && typeof U !== 'undefined' && U.usd) ? (' · ' + U.usd(+j.totalUsd)) : '';
         text.textContent = clean
-          ? ('✔ job delivered — ' + who + ' finished the last step' + cost + '.' + (folded ? ' the result is on the OUTBOX.' : ''))
+          ? ('✔ job delivered — ' + who + ' finished the last step' + cost + '.' + (folded ? ' the result is on the OUTBOX and in DELIVERABLES.' : ''))
           : ('⚠ the job rode the line, but the run did not finish clean — the reply below says why.');
         const reply = (j.replies && j.replies.length) ? String(j.replies[j.replies.length - 1]).replace(/\s+/g, ' ').trim() : '';
         if (reply) {
@@ -5953,7 +6017,7 @@ const Chat = (() => {
     text.textContent = String(spec.proposal == null ? '' : spec.proposal);
     const btns = document.createElement('span'); btns.className = 'consent-btns';
     item.appendChild(text);
-    // the note is CONSEQUENCE, not evidence ("raises the dial to FREE") — a dim aside between the
+    // the note is CONSEQUENCE, not evidence ("raises ON ITS OWN to FREE") — a dim aside between the
     // proposal and the buttons, so the card still ENDS on the two taps.
     const note = String(spec.note == null ? '' : spec.note).trim();
     if (note) { const n = document.createElement('div'); n.className = 'turnin-evidence'; n.textContent = '↳ ' + note; item.appendChild(n); }
@@ -6243,6 +6307,8 @@ const Chat = (() => {
     if (typeof TrustStore.markShown === 'function') TrustStore.markShown();   // spend the one session-cap slot
     // the ask, composed from the REAL track record (task count + satisfaction %) — never fabricated.
     const pv = offer.provenance || {};
+    // the rung by the name the ON ITS OWN dial renders (SMALL JOBS, FREE…), never the stored id ('leash') — call #57
+    const rung = (typeof StationUI !== 'undefined' && StationUI.initiativeLabel) ? StationUI.initiativeLabel(offer.to) : String(offer.to || '').toUpperCase();
     const ask = offer.kind === 'grant'
       ? 'trust me to write files on my own?'
       : 'grant me free rein on small jobs?';
@@ -6255,7 +6321,7 @@ const Chat = (() => {
       kind: 'trust', evidence: evLine,
       label: offer.kind === 'grant' ? 'GRANT' : 'AUTONOMY',
       proposal: ask,
-      note: offer.kind === 'grant' ? 'writes stay jailed + reversible' : 'raises the dial to ' + String(offer.to).toUpperCase()
+      note: offer.kind === 'grant' ? 'writes stay jailed + reversible' : 'raises ON ITS OWN to ' + rung
     });
     if (!card0) return false;
     const r = { d: card0.row };
@@ -6284,10 +6350,10 @@ const Chat = (() => {
         Promise.resolve(TrustStore.accept(offer)).then(ok => {
           if (!card.isCurrent()) return;
           if (!ok) { settle('✕ couldn’t apply', true); return; }   // honest: never flash "✓ granted" on a failed/unverified apply
-          settle(offer.kind === 'grant' ? '✓ granted' : '✓ ' + String(offer.to).toLowerCase(), false);
+          settle(offer.kind === 'grant' ? '✓ granted' : '✓ raised to ' + rung.toLowerCase(), false);
           recAccept('trust', '', false);   // recorded only on the VERIFIED apply — never on an attempt
           if (typeof SFX !== 'undefined' && SFX.level) { try { SFX.level(); } catch (_) {} }
-          if (typeof StationUI !== 'undefined' && StationUI.notify) StationUI.notify(offer.kind === 'grant' ? '◈ earned — it may write files on its own now (revoke any time in Settings)' : '◈ earned — autonomy raised to ' + String(offer.to).toUpperCase() + ' (adjust any time in Settings)', 'gold');
+          if (typeof StationUI !== 'undefined' && StationUI.notify) StationUI.notify(offer.kind === 'grant' ? '◈ earned — it may write files on its own now (revoke any time in Settings)' : '◈ ON ITS OWN raised to ' + rung + ' (adjust any time in SETTINGS › AUTONOMY)', 'gold');
           // if the Settings AUTONOMY panel is open, repaint its EARNED badge live (fail-open no-op otherwise).
           if (typeof StationUI !== 'undefined' && StationUI.repaintAutonomy) { try { StationUI.repaintAutonomy(); } catch (_) {} }
         }).catch(() => { if (card.isCurrent()) settle('✕ couldn’t apply', true); });
@@ -8025,7 +8091,11 @@ const Chat = (() => {
     const arr = (activeWs && queued.get(activeWs.id)) || [];
     strip.innerHTML = '';
     arr.forEach((t, i) => {
-      const pill = document.createElement('span'); pill.className = 'queued-pill'; pill.title = t;
+      const pill = document.createElement('span'); pill.className = 'queued-pill';
+      // the pill clips the text (.queued-text max-width), so its tip carries the whole message — then what queuing DOES (a
+      // follow-up, not a mid-run edit). The tip card keeps 400 chars (tooltip.js MAX_LEN): the message gives way, the hint never does
+      const QHINT = 'sends after this run · /steer changes the running task', room = 400 - QHINT.length - 5;
+      pill.setAttribute('data-tip', '“' + (t.length > room ? t.slice(0, room - 1) + '…' : t) + '” · ' + QHINT);
       const label = document.createElement('span'); label.className = 'queued-text'; label.textContent = t;
       const x = document.createElement('button'); x.className = 'queued-x'; x.type = 'button'; x.textContent = '✕';
       x.setAttribute('aria-label', 'Cancel queued message');
@@ -8326,7 +8396,14 @@ const Chat = (() => {
   // show the Stop control + the queued pills for whatever stream is on screen. Called from syncStatus (covers
   // switch + turn-end) and at send() start (status goes 'thinking…' without a syncStatus).
   function updateControls() {
-    const stop = el('chat-stop'); if (stop) stop.hidden = !isBusy();
+    const stop = el('chat-stop');
+    if (stop) {
+      stop.hidden = !isBusy();
+      // in a group ■ is stop-all (GroupChat.stop), so its tip says it stops every agent, not one turn
+      const groupStop = activeWs?.conversationMode === 'group';
+      stop.setAttribute('data-tip', groupStop ? 'Stop every agent in this chat (Esc)' : 'Stop the running turn (Esc)');
+      stop.setAttribute('aria-label', groupStop ? 'Stop every agent in this chat' : 'Stop the running turn');
+    }
     // CONCURRENT SESSIONS: a peer run on this agent no longer disables the composer — the backend admits
     // concurrent same-agent runs (workspace lease guards the real collision). The peer surfaces as the soft
     // status row + a tooltip; send stays live.
@@ -8388,10 +8465,10 @@ const Chat = (() => {
     Object.freeze({ name: 'routine', aliases: ['routines'], desc: 'list, create, preview, pause or delete a scheduled routine', argsHint: '[list | add <schedule> | <task> | preview <schedule> | pause N | resume N | rm N]', action: 'routine' }),
     Object.freeze({ name: 'loop', desc: 'repeat a prompt on an interval in this workstream', argsHint: '<interval> <prompt> | status | off', action: 'loop' }),
     Object.freeze({ name: 'goal', desc: 'set an autonomous standing goal (status/pause/resume/clear)', argsHint: '[text|status|pause|resume|clear]', action: 'goal' }),
-    Object.freeze({ name: 'subgoal', desc: 'add a criterion the goal loop must also satisfy', argsHint: '[text|remove N|clear]', action: 'subgoal' }),
+    Object.freeze({ name: 'subgoal', desc: 'add a criterion the session goal must also satisfy', argsHint: '[text|remove N|clear]', action: 'subgoal' }),
     Object.freeze({ name: 'model', desc: 'show or set the active model', argsHint: '[model-id]', action: 'model' }),
     Object.freeze({ name: 'personality', desc: 'show or set the active personality', argsHint: '[personality]', action: 'personality' }),
-    Object.freeze({ name: 'yolo', desc: 'toggle full-access approval mode', argsHint: '[on|off]', action: 'yolo' }),
+    Object.freeze({ name: 'yolo', desc: 'toggle full power (never asks, whole local computer)', argsHint: '[on|off]', action: 'yolo' }),
     Object.freeze({ name: 'reasoning', desc: 'show or set how hard the model thinks before answering', argsHint: '[none|minimal|low|medium|high|xhigh]', action: 'reasoning' }),
     Object.freeze({ name: 'fast', desc: 'drop reasoning effort to minimal for quicker, cheaper replies', action: 'fast' }),
     Object.freeze({ name: 'voice', desc: 'show or toggle spoken replies', argsHint: '[on|off|handsfree|status]', action: 'voice' }),
@@ -8511,31 +8588,39 @@ const Chat = (() => {
   function goalCommand(args) {
     const raw = String(args || '').trim();
     const low = raw.toLowerCase();
-    if (typeof GoalLoop === 'undefined') return localLine('The goal loop is not available in this build.');
+    if (typeof GoalLoop === 'undefined') return localLine('Session goals are not available in this build.');
     if (!activeWs) return localLine('Open a workstream first.');
     const cur = goalOf(activeWs);
     if (!raw || low === 'status') return localLine(GoalLoop.statusLine(cur));
     if (low === 'pause') {
-      if (!cur || cur.status === 'cleared') return localLine('No goal loop to pause.');
+      if (!cur || cur.status === 'cleared') return localLine('No session goal to pause.');
       GoalLoop.pause(cur, 'you paused it'); persistGoal();
-      return localLine('⏸ goal loop paused. /goal resume to continue.');
+      return localLine('⏸ session goal paused. /goal resume to continue.');
     }
     if (low === 'resume') {
-      if (!cur || cur.status !== 'paused') return localLine('No paused goal loop to resume.');
+      if (!cur || cur.status !== 'paused') return localLine('No paused session goal to resume.');
       GoalLoop.resume(cur); persistGoal();
-      localLine('▶ goal loop resumed (' + cur.turnsUsed + '/' + cur.maxTurns + '). Kicking off the next step…');
+      localLine('▶ session goal resumed (' + cur.turnsUsed + '/' + cur.maxTurns + '). Kicking off the next step…');
       return kickGoal(activeWs);   // resume immediately fires the next continuation if the stream is free
     }
     if (low === 'clear') {
-      if (!cur || cur.status === 'cleared') return localLine('No goal loop to clear.');
+      if (!cur || cur.status === 'cleared') return localLine('No session goal to clear.');
       GoalLoop.clear(cur); activeWs.goalLoop = undefined; persistGoal();
-      return localLine('Cleared the goal loop.');
+      return localLine('Cleared the session goal.');
     }
     // /goal <text> — set (or replace) the standing goal and start working toward it
     const s = GoalLoop.create(raw, { now: Date.now() });
     if (!s) return localLine('Usage: /goal <what you want done>');
     activeWs.goalLoop = s; persistGoal();
-    localLine('⊙ goal loop set: ' + s.goal + '  (budget ' + s.maxTurns + ' turns). Working toward it…');
+    /* ONE MEANING FOR 'GOAL LOOP' (org pass 10-14, P29): /goal is a loop on THIS session only — not an AUTOMATE › GOAL LOOPS
+       entry. Say so, and hand over a real door key (never a menu path) to where lasting goal loops live. */
+    const set = localLine('⊙ goal set for this session only: ' + s.goal + '  (budget ' + s.maxTurns + ' turns). It runs while StarNet is open (it survives a reload). Working toward it… · lasting goal loops:');
+    if (set && typeof StationUI !== 'undefined' && StationUI.openTerm) {
+      const door = document.createElement('button'); door.type = 'button'; door.className = 'consent-btn goal-loops-door'; door.textContent = '▸ AUTOMATE › GOAL LOOPS';
+      door.onclick = () => StationUI.openTerm('automation', 'loops');
+      const host = set.querySelector ? (set.querySelector('.body') || set) : set;
+      host.appendChild(document.createTextNode(' ')); host.appendChild(door);
+    }
     kickGoal(activeWs);
   }
   // /subgoal <text>          — append a criterion the loop must ALSO satisfy before it's done
@@ -8543,11 +8628,11 @@ const Chat = (() => {
   function subgoalCommand(args) {
     const raw = String(args || '').trim();
     const low = raw.toLowerCase();
-    if (typeof GoalLoop === 'undefined') return localLine('The goal loop is not available in this build.');
+    if (typeof GoalLoop === 'undefined') return localLine('Session goals are not available in this build.');
     const cur = activeWs && goalOf(activeWs);
     if (!raw) {
       const subs = (cur && cur.subgoals) || [];
-      return localLine(subs.length ? ('Subgoals: ' + subs.map((t, i) => (i + 1) + '. ' + t).join(' | ')) : 'No subgoals set. Use /subgoal <text> once a goal loop is running.');
+      return localLine(subs.length ? ('Subgoals: ' + subs.map((t, i) => (i + 1) + '. ' + t).join(' | ')) : 'No subgoals set. Use /subgoal <text> once a session goal is set.');
     }
     if (!cur || !GoalLoop.hasGoal(cur)) return localLine('Set a goal first with /goal <text>, then add criteria with /subgoal.');
     if (low === 'clear') { cur.subgoals = []; persistGoal(); return localLine('Cleared subgoals.'); }
@@ -8617,7 +8702,7 @@ const Chat = (() => {
          /goal resume (the existing control) picks it up once the cause is handled. */
       const why = String(stall || 'the last step ended without a reply').trim();
       GoalLoop.pause(s, why); persistGoal();
-      if (isActiveWs(ws)) localLine('⏸ goal loop paused: ' + why + ' — /goal resume to continue.');
+      if (isActiveWs(ws)) localLine('⏸ session goal paused: ' + why + ' — /goal resume to continue.');
       return;
     }
     goalJudging.add(ws.id);
@@ -8789,9 +8874,11 @@ const Chat = (() => {
         if (ended) { loopEnded.delete(wsId); return localLine(ended + ' /loop <interval> <prompt> to start another.'); }
         return localLine('No loop in this workstream. /loop <interval> <prompt> — e.g. /loop 5m check whether the build went green.');
       }
-      return localLine('Loop: every ' + cur.label + ', ' + cur.fired + '/' + LOOP_MAX_ITERS + ' runs done'
+      const st = localLine('Loop: every ' + cur.label + ', ' + cur.fired + '/' + LOOP_MAX_ITERS + ' runs done'
         + (cur.skipped ? ', ' + cur.skipped + ' tick' + (cur.skipped === 1 ? '' : 's') + ' skipped (a run, a question or another stream had the floor)' : '')
         + ' — "' + String(cur.prompt).slice(0, 60) + '". It stops if you close StarNet; /routine makes it permanent.');
+      automateDoor(st, '▸ AUTOMATE › SCHEDULES', 'routines-create');   // org P19: the lasting form of a loop is a schedule
+      return st;
     }
 
     const sp = raw.search(/\s/);
@@ -9004,7 +9091,7 @@ const Chat = (() => {
       localLine(was === now
         ? ('Approval mode unchanged: ' + now + '.')
         : ('Approval mode: ' + was + ' → ' + now + '. ' + (want
-          ? 'The agent will NOT pause for approval prompts — /yolo off to restore them.'
+          ? 'The agent will NOT pause for approval prompts and can use the whole local computer — /yolo off to restore them.'
           : 'The agent will pause before gated actions.')));
     } else localLine('Could not change approval mode.');
   }
@@ -9206,23 +9293,25 @@ const Chat = (() => {
   }
   async function cronCommand(args) {
     const raw = String(args || '').trim().toLowerCase();
+    // org P19: /cron runs HERE (a client action, not a server 'say'), so its reply carries the SCHEDULES door itself
+    const reply = t => { const n = localLine(t); automateDoor(n, '▸ AUTOMATE › SCHEDULES', 'routines'); return n; };
     try {
       if (/^(on|enable|enabled|arm)$/.test(raw) || /^(off|disable|disabled|disarm)$/.test(raw)) {
         const want = /^(on|enable|enabled|arm)$/.test(raw);
         const r = await fetch('/api/cron/arm', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled: want }) });
         const j = await r.json().catch(() => null);
-        return localLine(r.ok && j ? ('Routines scheduler ' + (j.enabled ? 'enabled' : 'disabled') + '.') : 'Could not update the routines scheduler.');
+        return reply(r.ok && j ? ('Routines scheduler ' + (j.enabled ? 'enabled' : 'disabled') + '.') : 'Could not update the routines scheduler.');
       }
       const r = await fetch('/api/cron', { cache: 'no-store' });
       // an errored read is NOT "scheduler off, 0 jobs" — that reassuring line is exactly the lie to avoid.
-      if (!r.ok) return localLine('Could not read the routines scheduler (HTTP ' + r.status + ') — its real state is unknown.');
+      if (!r.ok) return reply('Could not read the routines scheduler (HTTP ' + r.status + ') — its real state is unknown.');
       const j = await r.json();
       const jobs = (j && Array.isArray(j.jobs)) ? j.jobs : [];
       const bits = jobs.slice(0, 5).map((job, i) => (i + 1) + '. ' + (job.name || job.id || 'routine') + (job.enabled === false ? ' [paused]' : ''));
       const schedulerLine = j && j.halted ? 'stopped (E-STOP)' : (j && j.enabled ? 'on' : 'off');
-      localLine('Routines: scheduler ' + schedulerLine + ', ' + jobs.length + ' job' + (jobs.length === 1 ? '' : 's')
+      reply('Routines: scheduler ' + schedulerLine + ', ' + jobs.length + ' job' + (jobs.length === 1 ? '' : 's')
         + (bits.length ? ' - ' + bits.join(' | ') : '.') + (j && j.halted ? ' Use /cron on to resume.' : ' Use /cron on or /cron off to arm/disarm.'));
-    } catch (_) { localLine('Could not load routines from the sidecar.'); }
+    } catch (_) { reply('Could not load routines from the sidecar.'); }
   }
   async function reloadMcpCommand(args) {
     const target = String(args || '').trim();
@@ -9583,13 +9672,29 @@ const Chat = (() => {
     // line. Nothing here re-derives or re-formats state, so this surface cannot disagree with the sidecar's.
     if (directive.type === 'say') {
       const lines = Array.isArray(directive.lines) ? directive.lines.filter(s => String(s || '').trim()) : [];
-      if (lines.length) systemCard(directive.title || 'Result', lines);
-      else localLine(String(directive.text || '').trim() || 'Done.');
+      lastSaid = lines.length ? systemCard(directive.title || 'Result', lines) : localLine(String(directive.text || '').trim() || 'Done.');
       return true;
     }
     return false;
   }
+  /* ONE DOOR KEY on an automation slash reply (org P19, 2026-10-14): a consent key on the reply itself — never a new card — into
+     the AUTOMATE tab where that command's lasting form lives. node = a localLine row or a systemCard; section = the AUTOMATE console
+     section (automation.js: routines / routines-create / loops / away). */
+  function automateDoor(node, label, section) {
+    if (!node || typeof StationUI === 'undefined' || !StationUI.openTerm) return null;
+    const door = document.createElement('button'); door.type = 'button'; door.className = 'consent-btn automate-door'; door.textContent = label;
+    door.onclick = () => StationUI.openTerm('automation', section);
+    const host = node.querySelector ? (node.querySelector('.body') || node) : node;
+    host.appendChild(document.createTextNode(' ')); host.appendChild(door);
+    return door;
+  }
+  // the server ran /routine or /away and printed its reply: the reply carries the door to the tab that holds that work
+  // (/cron is a CLIENT action — cronCommand attaches its own door)
+  // (client-side only — sidecar/slash.js and its reply text are unchanged)
+  const SERVER_SLASH_DOORS = { routine: ['▸ AUTOMATE › SCHEDULES', 'routines'], away: ['▸ AUTOMATE › AWAY WORK', 'away'] };
+  let lastSaid = null;
   async function dispatchSlash(item, rawInput) {
+    lastSaid = null;
     try {
       const r = await fetch('/api/slash/dispatch', {
         method: 'POST',
@@ -9606,7 +9711,11 @@ const Chat = (() => {
       // the station ANSWERED no (a skill that was removed or pulled, gear not placed): remember its words, so the
       // caller reports what the station said instead of blaming the connection
       slashDispatchRefusal = (!r.ok || !j || !j.ok) && j && j.error ? { status: r.status, error: String(j.error) } : null;
-      return !!(r.ok && j && j.ok && applySlashDirective(j.directive));
+      const ok = !!(r.ok && j && j.ok && applySlashDirective(j.directive));
+      const door = ok && lastSaid && item && Object.prototype.hasOwnProperty.call(SERVER_SLASH_DOORS, item.name) ? SERVER_SLASH_DOORS[item.name] : null;
+      if (door) automateDoor(lastSaid, door[0], door[1]);
+      lastSaid = null;
+      return ok;
     } catch (_) { slashDispatchRefusal = null; return false; }
   }
   let slashDispatchRefusal = null;
@@ -10713,5 +10822,7 @@ const Chat = (() => {
   // only" gate maybeStandaloneRate uses — so a pure-chat run is never bottle-offered. Used by App.runBottleInfo (R5).
   function runDidWork(id) { const w = id ? runWork.get(id) : null; return !!(w && ((w.toolsOk || 0) >= 1 || (w.delivered || 0) >= 1)); }
 
-  return { init, load, deliverTurns, send, consentInspect, appendConsentDetails, revealHistory, revealAsk, copyText, continuityDiagnostics, refreshStarters, sendOrQueue, continueConnectorTask, stopActive, status, localLine, broadcast, renderProse, openFile, answerConsent, consentPhrase: actionPhrase, reconcileBackgroundAsks, setSystem, getHistory, contextRef, abort, isBusy, beatBusy: skillBeatBusy, beginInterview, endInterview, echoUser, prefill, autoGrowInput, choices, clearChoices, retireDeskPrompt, typeLine, nudge, clearNudge, offerCuriosity, offerFork, planGoalPath, briefingReceipt, isComposerEngaged, canFocusSession, runMeta, runDidWork, awayDigest, awayReview, awayRate, sampleCard, workshopReturn, refreshIdBar: renderIdBar, refreshGroupControls: updateControls, refreshAgentIdentity, setRosterStatus, askBudgetSpent, spendAsk, clockLabel: fmtClock, breakLabel: fmtBreak, workspaceFileRefs, imageBlobUrl };
+  return { init, load, paintTitle, deliverTurns, send, consentInspect, appendConsentDetails, revealHistory, revealAsk, copyText, continuityDiagnostics, refreshStarters, sendOrQueue, continueConnectorTask, stopActive, status, localLine, broadcast, renderProse, openFile, answerConsent, consentPhrase: actionPhrase, reconcileBackgroundAsks, setSystem, getHistory, contextRef, abort, isBusy, beatBusy: skillBeatBusy, beginInterview, endInterview, echoUser, prefill, autoGrowInput, choices, clearChoices, retireDeskPrompt, typeLine, nudge, clearNudge, offerCuriosity, offerFork, planGoalPath, briefingReceipt, isComposerEngaged, canFocusSession, runMeta, runDidWork, awayDigest, awayReview, awayRate, sampleCard, workshopReturn, refreshIdBar: renderIdBar, refreshGroupControls: updateControls, refreshAgentIdentity, setRosterStatus, askBudgetSpent, spendAsk, clockLabel: fmtClock, breakLabel: fmtBreak, workspaceFileRefs, imageBlobUrl,
+    // the COMMS '▤ saved' row's folder / copy-path keys and their path resolver, shared with MY WORK › DELIVERABLES' FILES rows (org pass 10-14, P24)
+    folderButton, copyPathButton, fullSavedPath: absoluteArtifactPath };
 })();

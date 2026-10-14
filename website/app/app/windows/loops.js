@@ -50,7 +50,7 @@
        have nothing to show until they do (this is a sandbox product; nothing is locked). */
     const secStart =
       '<div class="lp-wiz">' +
-        '<div class="lp-step-h">Choose a workflow</div>' +
+        '<div class="lp-step-h">Choose a kind of loop</div>' +
         '<div id="lp-shapes" class="lp-shapes"></div>' +
         '<div id="lp-s2" class="lp-stage" hidden>' +
           '<div class="lp-step-h">Your goal</div>' +
@@ -69,7 +69,7 @@
     // the querySelector wiring below resolves exactly as it always did.
     const sections = [
       { id: 'loops', label: 'ACTIVE LOOPS', glyph: '∞', desc: 'Work that repeats toward a goal. Check its progress, review each result, or pause it here.', build: frag(secActive) },
-      { id: 'loops-start', label: 'START A LOOP', glyph: '✦', desc: 'Choose a workflow and describe your goal. Review the stopping condition and daily budget before starting.', build: frag(secStart) }
+      { id: 'loops-start', label: 'START A LOOP', glyph: '✦', desc: 'Choose a kind of loop and describe your goal. Review the stopping condition and daily budget before starting.', build: frag(secStart) }
     ];
     function wire() {
     const listEl = body.querySelector('#lp-list'), gateEl = body.querySelector('#lp-gate');
@@ -349,7 +349,7 @@
         }
         else {
           listEl.innerHTML = '<div class="empty-state"><span class="es-glyph">∞</span>' +
-            '<b>NO LOOPS YET</b><span>A loop keeps working at one objective and stops for your verdict. Choose a workflow to define its goal and stopping condition.</span>' +
+            '<b>NO LOOPS YET</b><span>A loop keeps working at one objective and stops for your verdict. Choose a kind of loop to define its goal and stopping condition.</span>' +
             '<button class="es-cta" id="lp-empty-cta" type="button">✦ START A LOOP</button></div>';
           const cta = listEl.querySelector('#lp-empty-cta');
           if (cta) cta.addEventListener('click', () => {
@@ -750,6 +750,8 @@
     dot.title = n + ' loop result' + (n === 1 ? '' : 's') + ' waiting on you';
   }
 
+  let reviewWaiting = [];
+  if (typeof window !== 'undefined') window.LoopsReview = { waiting: () => reviewWaiting.map(l => Object.assign({}, l)) };
   async function watch() {
     let j;
     try {
@@ -772,6 +774,10 @@
     paintBadge(waiting);
     // every result reviewed: the bell's "waiting on your review" leaves NEEDS YOU (it stayed lit for good)
     if (!waiting && typeof StationUI !== 'undefined' && StationUI.settleNotifs) StationUI.settleNotifs('loops-review');
+    // org P01: NEEDS YOU lists each loop with results waiting on review, from this same read (never the bell's entry)
+    reviewWaiting = loops.filter(l => l && l.id && (l.pendingCount || 0) > 0).map(l => ({ id: l.id, name: l.name || '', agentId: l.agentId || '', count: l.pendingCount,
+      since: Math.min(...(l.pending || []).map(p => Number(p.endedAt) || Infinity)) }))
+      .map(l => Object.assign(l, { since: isFinite(l.since) ? l.since : 0 }));
     saveSeen(seen);
     // announce at most one line per sweep — N new candidates at once is one event to a human, not N.
     if (fresh.length && typeof StationUI !== 'undefined' && StationUI.h && StationUI.h.notify) {

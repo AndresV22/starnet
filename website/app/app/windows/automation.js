@@ -45,13 +45,14 @@
     const hints = { routines: 'Next runs and recent results', 'routines-create': 'Repeat a task at a chosen time', loops: 'Progress and work to review', 'loops-start': 'Work toward a defined stopping point', away: 'Queued work between messages' };
     sections.forEach(sec => { sec.label = labels[sec.id] || sec.label; });
     // ONE AUTOMATION DOOR: the agents' initiative lives in SETTINGS › AUTONOMY, but whoever opens AUTOMATION sees it
-    // here (read from the confirmed posture, never assumed) with a CHANGE door — no hunting through two windows.
-    const INIT_NAME = { wait: 'WAIT', propose: 'SUGGEST', leash: 'BUILD', free: 'FREE' };
+    // here (read from the confirmed posture, never assumed) with a CHANGE door — no hunting through two windows. The rung
+    // name comes from the dial's one INITIATIVE_RUNGS table (StationUI.initiativeLabel), so AUTOMATE reads SMALL JOBS
+    // exactly where SETTINGS › AUTONOMY does.
     const railTop = top => {
       const sum = (typeof AutonomyStore !== 'undefined' && AutonomyStore.summary) ? AutonomyStore.summary() : null;
       top.classList.add('auto-init-head');
       top.innerHTML = '<div class="set-sub"><span class="set-sub-k">ON ITS OWN</span><span class="set-sub-d">'
-        + (sum ? H.esc(INIT_NAME[sum.initiative] || String(sum.initiative).toUpperCase()) : 'not loaded yet') + '</span></div>'
+        + (sum ? H.esc(StationUI.initiativeLabel(sum.initiative)) : 'not loaded yet') + '</span></div>'
         + '<button type="button" class="bb sm" id="auto-init-change" data-tip="Whether agents start work nobody asked for. It does not change the schedules here.">CHANGE</button>';
       top.querySelector('#auto-init-change').addEventListener('click', () => H.openTerm('settings', 'autonomy'));
     };

@@ -225,6 +225,22 @@ const WorkflowPanel = (() => {
   function paint(force) {
     if (!el || !H) return;
     parked(() => paintAll(force));
+    if (S.revealUntil && Date.now() < S.revealUntil) scrollToStarts();
+  }
+  /* ⊕ MAKE IT AUTOMATIC (org P15, 2026-10-14): WORKFLOWS' door lands on this INBOX's 'Or start it automatically' — the one
+     place a line's starts are made (no second trigger editor). It stays in view through the first repaints the open sets off
+     (server facts, TODAY) for a moment, then the Commander's own scrolling owns the view again. */
+  function scrollToStarts() {
+    const sc = $('#wf-scroll'), sec = $('#wf-starts');
+    if (!sc || !sec) return false;
+    // rects are VISUAL px, scrollTop is ZOOMED px (the uiZoom law): divide once
+    const z = (typeof U !== 'undefined' && U.uiZoom) ? (U.uiZoom() || 1) : 1;
+    sc.scrollTop += (sec.getBoundingClientRect().top - sc.getBoundingClientRect().top) / z;
+    return true;
+  }
+  function revealStarts() {
+    S.revealUntil = Date.now() + 1500;
+    return scrollToStarts();
   }
   function paintAll(force) {
     const f = flow();
@@ -391,7 +407,7 @@ const WorkflowPanel = (() => {
         + '<div class="wf-name">' + (intake
           ? '<input id="wf-name" data-name-for="' + esc(intake.id) + '" class="wf-name-in" type="text" maxlength="48" aria-label="Workflow name" placeholder="' + esc(H.stampName(intake.id) || 'Name this workflow') + '" value="' + esc(intake.label || '') + '" />'
           : '<span class="wf-name-none">' + (c ? 'Unnamed line' : 'A single BAY') + '</span>') + '</div>'
-        + '<div class="wf-ready"><span class="wf-pill" id="wf-pill"></span><button type="button" class="bb sm refit-primary" id="wf-sendnow" hidden>▶ SEND IT A JOB</button><span class="wf-est" id="wf-est"></span></div>'
+        + '<div class="wf-ready"><span class="wf-pill" id="wf-pill"></span><button type="button" class="bb sm refit-primary" id="wf-sendnow" hidden>▶ SEND A JOB</button><span class="wf-est" id="wf-est"></span></div>'
         + '<div class="wf-warnline wf-toolong" id="wf-toolong" role="status" hidden></div>'
         + '<p class="wf-today" id="wf-today" aria-label="This line today"></p>'
         + '<p class="wf-sentence" id="wf-sentence" aria-live="polite"></p><ul class="wf-hints" id="wf-hints"></ul>';
@@ -410,7 +426,7 @@ const WorkflowPanel = (() => {
     const pill = $('#wf-pill');
     /* A READY LINE SAYS WHAT TO DO NEXT (2026-09-30, found walking a fresh station: "READY TO RUN" sat over a BAY card with no way
        on — the send box lives on the INBOX card). The pill keeps the station's own word — the status an agent reads with
-       station.layout, held equal by station-layout.e2e — and beside it a key, ▶ SEND IT A JOB, takes you to that box (hidden while
+       station.layout, held equal by station-layout.e2e — and beside it a key, ▶ SEND A JOB, takes you to that box (hidden while
        the INBOX card is the one open: the box is right there). */
     const sendTo = r && r.ready && f && f.trigger && f.trigger.propId ? f.trigger.propId : '';
     if (r) { pill.textContent = W.pillText(r); pill.className = 'wf-pill' + (r.ready ? ' ok' : ''); pill.dataset.go = r.ready ? sendTo : (r.blocking[0].propId || ''); }
@@ -715,7 +731,7 @@ const WorkflowPanel = (() => {
     const s = S.session && S.session.lineId === S.lineKey ? S.session : null;
     let html = '<span class="wf-foot-note">' + (S.view === 'test' ? (testModeNow() === 'watch' && !(S.session && S.session.lineId === S.lineKey && WL() && WL().isLive(S.session)) ? 'WATCH IT is free: no agent runs.' : 'Real test runs count against the LINE BUDGET.') : 'Edits save as you go.') + '</span>';
     /* ONE TEST CONTROL (2026-09-28): the footer's single TEST opens the TEST view, whose modes say what each test is —
-       WATCH IT (free) · STEP THROUGH (real, pauses) · RUN ONE REAL JOB (real, lands in the OUTBOX). */
+       WATCH IT (free) · STEP THROUGH (real, pauses) · SEND A REAL JOB (real, lands in the OUTBOX). */
     if (c && S.seam !== null) {
       html += S.view === 'test' ? '<button type="button" class="bb sm" id="wf-back">◂ SETUP</button>'
         : '<button type="button" class="bb sm refit-primary" id="wf-test">' + (s && W.isLive(s) ? '▶ TEST · ' + s.state.toUpperCase() : '▶ TEST') + '</button>';
@@ -742,7 +758,7 @@ const WorkflowPanel = (() => {
     if (wasOpen) for (const [k, d] of detailsKeys(body)) if (wasOpen.has(k) && d.open !== wasOpen.get(k)) d.open = wasOpen.get(k);
   }
   function paintBodyInner(body, f) {
-    // The picker owns capability fallback; an older sidecar still offers WATCH IT and RUN ONE REAL JOB.
+    // The picker owns capability fallback; an older sidecar still offers WATCH IT and SEND A REAL JOB.
     if (S.view === 'test' && comp()) { paintTest(body, f); restoreDrafts(); return; }
     const p = prop(S.sel);
     if (!p) { body.innerHTML = '<p class="wf-help">Select a part of the line.</p>'; return; }
@@ -804,7 +820,7 @@ const WorkflowPanel = (() => {
     if (!p || !p.agentId) return '';
     if (H.hasCompute(p.agentId, p.id)) return '<span class="wf-ok">✓ ' + esc(nameOf(p.agentId)) + ' has a workstation for this step.</span>';
     return '<span class="wf-warnline">' + esc(nameOf(p.agentId)) + ' needs an assigned workstation in this room before this step can run.</span>'
-      + '<button type="button" class="bb sm refit-primary" id="wf-pc">⊕ ADD A WORKSTATION HERE</button>';
+      + '<button type="button" class="bb sm refit-primary" id="wf-pc">GIVE ' + esc(String(nameOf(p.agentId)).toUpperCase()) + ' A DESK</button>';
   }
   function addWorkstation(b) {
     b.disabled = true;
@@ -1069,7 +1085,7 @@ const WorkflowPanel = (() => {
       + '<textarea id="wf-send-in" class="refit-input refit-brief" rows="3" maxlength="2000" aria-label="The job to send down this line" placeholder="What should the line work on? e.g. Find this week’s most useful research on sleep and memory.">'
       + esc(S.testJob[S.lineKey] || (routines.find(r => r.startsLine) || {}).prompt || '') + '</textarea>'
       + '<div data-live="send">' + sendDynHTML(f) + '</div></section>';
-    body.innerHTML = sendHTML + '<section class="wf-sec"><h3>Or start it automatically</h3>'
+    body.innerHTML = sendHTML + '<section class="wf-sec" id="wf-starts"><h3>Or start it automatically</h3>'
       + '<p class="wf-help">Any of these runs the <b>whole line</b> by itself. A direct COMMS message only runs the agent you message.</p>'
       + startHead('A schedule', !S.cron ? 'reading…' : routines.length ? '' : 'none yet', 'rt',
         '<button type="button" class="bb sm' + (S.trgOpen ? ' active' : '') + '" id="trg-new" aria-expanded="' + S.trgOpen + '" aria-controls="trg-form">⊕ ADD A SCHEDULE</button><button type="button" class="bb sm" id="trg-auto">MANAGE</button>')
@@ -1086,13 +1102,14 @@ const WorkflowPanel = (() => {
         + (docks.length > 1 ? '<details class="wf-more"><summary>Starting agent · ' + esc(nameOf(trgAgent())) + '</summary><p class="wf-help">Usually, start with the first step. Choosing a later step skips the steps before it.</p><div class="wf-chips" id="trg-docks">' + docks.map(dockChip).join('') + '</div><div class="wf-help trg-dock-hint" id="trg-dock-hint">' + esc(dockHint(S.trgDock)) + '</div></details>'
           : docks.length === 1 ? '<div class="wf-help">fires at ' + thumb(docks[0].agentId, 16, 20, 'wf-ithumb') + '<b>' + esc((firstName ? firstName + ' · ' : '') + nameOf(docks[0].agentId)) + '</b> — this line’s first step</div>'
           : '<div class="wf-warnline">Assign an agent to a connected BAY first. A schedule needs an agent to start the work.</div>')
-        /* SAVE, AND TURN IT ON (2026-09-28 — "have saving the first schedule offer to turn scheduling on"): while scheduling is off
-           for the station, saving offers the switch in the same click — a schedule saved under a switched-off scheduler was the
-           T1 trap. SAVE ONLY stays one tap away; an E-STOP is never lifted from here (that is a deliberate act in AUTOMATION). */
+        /* ONE ARM RULE (org P16, 2026-10-14 — the SCHEDULES form's rule, one server seam): the first save on a scheduling switch nobody
+           ever set turns it ON; after the Commander turned it OFF a save keeps it off and offers ▶ TURN SCHEDULING ON; an E-STOP is
+           never lifted from here. One SAVE SCHEDULE key — the help line says which of the three this save will do (GET /api/cron armSet). */
+        + '<div class="wf-row"><button type="button" class="bb sm refit-primary" id="trg-create"' + (docks.length ? '' : ' disabled') + '>▸ SAVE SCHEDULE</button><button type="button" class="bb sm" id="trg-cancel">CANCEL</button></div>'
         + ((S.cron && !S.cron.enabled && !S.cron.halted)
-          ? '<div class="wf-row"><button type="button" class="bb sm refit-primary" id="trg-create" data-arm="1"' + (docks.length ? '' : ' disabled') + '>▸ SAVE · TURN SCHEDULING ON</button><button type="button" class="bb sm" id="trg-create-only"' + (docks.length ? '' : ' disabled') + '>SAVE ONLY</button><button type="button" class="bb sm" id="trg-cancel">CANCEL</button></div>'
-            + '<div class="wf-help dim">Scheduling is off for the whole station. Turning it on lets every saved schedule run at its time.</div>'
-          : '<div class="wf-row"><button type="button" class="bb sm refit-primary" id="trg-create"' + (docks.length ? '' : ' disabled') + '>▸ SAVE SCHEDULE</button><button type="button" class="bb sm" id="trg-cancel">CANCEL</button></div>')
+          ? '<div class="wf-help dim">' + (S.cron.armSet ? 'Scheduling is off — you turned it off. Saving keeps it off; press ▶ TURN SCHEDULING ON when you want it to run.'
+            : 'Saving turns scheduling on for the whole station, so every saved schedule runs at its time.') + '</div>'
+          : (S.cron && S.cron.halted) ? '<div class="wf-help dim">Scheduling is stopped (E-STOP). Saving keeps it stopped — turn scheduling on in AUTOMATE › SCHEDULES.</div>' : '')
         + '</div><div class="wf-help trg-msg' + (S.trgMsg && S.trgMsg.bad ? ' bad' : '') + '" id="trg-msg"' + (S.trgMsg ? '' : ' hidden') + '>' + esc(S.trgMsg ? S.trgMsg.t : '') + '</div></div>'
       + startHead('A channel message', !S.chans ? 'checking…' : tr.chanRows.length ? '' : 'none connected', 'ch', '<button type="button" class="bb sm" id="trg-chan">CONNECT A CHANNEL ▸</button>')
       + '<div class="trg-list" id="wf-chans">' + chanRows + '</div></div>'
@@ -1414,12 +1431,12 @@ const WorkflowPanel = (() => {
     const showForm = on => { S.trgOpen = on; S.trgMsg = null; const m = $('#trg-msg'); if (m) m.hidden = true; formEl.hidden = !on; newBtn.classList.toggle('active', on); newBtn.setAttribute('aria-expanded', on ? 'true' : 'false'); if (on) promptEl.focus(); else newBtn.focus(); };
     newBtn.onclick = () => { H.sfx('click'); showForm(formEl.hidden); };
     $('#trg-cancel').onclick = () => { H.sfx('click'); showForm(false); };
-    const create = arm => {
+    const create = () => {
       const prompt = promptEl.value.trim(), schedule = schedEl.value.trim();
       if (!prompt || !schedule) { H.sfx('bad'); say('a task and a schedule are required', true); return; }
       const dockId = S.trgDock, agentId = agentOfDock(dockId);
       if (!dockId || !agentId) { H.sfx('bad'); say('assign an agent to a step first — a routine fires at an agent', true); return; }
-      const btns = [$('#trg-create'), $('#trg-create-only')].filter(Boolean), hold = on => btns.forEach(b => { b.disabled = on; });
+      const btns = [$('#trg-create')].filter(Boolean), hold = on => btns.forEach(b => { b.disabled = on; });
       hold(true); say('saving…');
       const ln = lineName();
       const name = (ln ? ln + ' — ' : '') + (prompt.length > 48 ? prompt.slice(0, 45) + '…' : prompt);
@@ -1427,7 +1444,8 @@ const WorkflowPanel = (() => {
       // FIRES AT a bay: the agent that runs + WHICH of its bays (multi-bay; cron-store keeps dockId additively).
       // No provider: the routine inherits its agent's (or the station default's) model AND provider together, exactly
       // like the ROUTINES window — freezing the dock's current wire here paired one provider with another's model (#24 class).
-      api('/api/cron', 'POST', { name, prompt, schedule, agentId, dockId, tz, runsLine: true }).then(async ({ status, j: r }) => {
+      // arm:true — the one arm rule, decided server-side (handleCronCreate → armOnSaveIfUnset): on only when never set (org P16)
+      api('/api/cron', 'POST', { name, prompt, schedule, agentId, dockId, tz, runsLine: true, arm: true }).then(async ({ status, j: r }) => {
         if (r && r.error) return refuse(r.error);
         if (r && r.declined) return refuse(r.message || 'this routine name was deleted before — reword the task');
         if (r && r.duplicate) return refuse('a similar routine already exists' + (r.job && r.job.name ? ' ("' + r.job.name + '")' : '') + ' — reword the task; nothing new was created');
@@ -1436,31 +1454,23 @@ const WorkflowPanel = (() => {
         const cur = rb.j, saved = cur && Array.isArray(cur.jobs) && cur.jobs.find(x => x.id === r.job.id);
         if (!saved || cur.degraded) return refuse('save not confirmed — check AUTOMATION before retrying');
         S.cron = cur; hold(false); H.sfx('chime');
-        let armedNow = !!(cur.enabled && !cur.halted), armedHere = false, armFailed = false;
-        // SAVE · TURN SCHEDULING ON: the same POST /api/cron/arm the switch and AUTOMATION use — then the truth is re-read
-        if (arm && !armedNow && !cur.halted && saved.enabled) {
-          const ar = await api('/api/cron/arm', 'POST', { enabled: true }).catch(() => null);
-          if (ar && ar.status === 200 && ar.j && ar.j.ok) {
-            const rb2 = await api('/api/cron').catch(() => null);
-            if (rb2 && rb2.j && Array.isArray(rb2.j.jobs)) S.cron = rb2.j;
-            armedNow = !!(S.cron.enabled && !S.cron.halted); armedHere = armedNow; armFailed = !armedNow;
-          } else armFailed = true;
-        }
+        // what the save did to the switch: the create reply's own verdict (armedNow), checked against the re-read truth
+        const sch = (r && r.scheduler) || {}, armedNow = !!(cur.enabled && !cur.halted), armedHere = !!sch.armedNow && armedNow, offByChoice = !armedNow && !cur.halted && !!sch.offByChoice;
         if (!S.testJob[S.lineKey]) { S.testJob[S.lineKey] = prompt; saveTests(); }
         // saved: the form starts clean (un-flag the fields too, or the next paint's keepDrafts re-remembers them)
         S.drafts['trgprompt:' + p.id] = ''; delete S.drafts[schedKey]; promptEl.dataset.typed = ''; schedEl.dataset.typed = '';
         S.trgOpen = false;
         H.pollFeed().then(() => paint(true), () => paint(true));
         say(saved.state === 'completed' ? '✓ routine completed — see its result in AUTOMATION' : !saved.enabled ? '✓ saved — this routine is paused; manage it in AUTOMATION'
-          : armedHere ? '✓ schedule saved and scheduling is on — fires at ' + nameOf(agentId)
+          : armedHere ? '✓ saved · scheduling is now on — fires at ' + nameOf(agentId)
           : armedNow ? '✓ schedule saved — fires at ' + nameOf(agentId)
-          : armFailed ? '✓ saved — but scheduling could not be turned on: press TURN SCHEDULING ON above'
+          : cur.halted ? '✓ saved — scheduling is stopped (E-STOP), so it will not run until you turn scheduling on in AUTOMATE › SCHEDULES'
+          : offByChoice ? '✓ saved — scheduling is off (you turned it off), so it will not run: press ▶ TURN SCHEDULING ON above'
           : '✓ saved — scheduling is off for the whole station, so it will not run until you turn it on (above)', !saved.enabled || !armedNow);
         paint(true);
       }).catch(() => refuse('save not confirmed — check AUTOMATION before retrying'));
     };
-    $('#trg-create').onclick = () => create(!!$('#trg-create').dataset.arm);
-    const createOnly = $('#trg-create-only'); if (createOnly) createOnly.onclick = () => create(false);
+    $('#trg-create').onclick = () => create();
   }
 
   /* ===== LOOP / JOINER gates — the same configureJunction path, the same compiled-plan labels ===== */
@@ -1821,14 +1831,14 @@ const WorkflowPanel = (() => {
   const nextDockOf = (f, nx) => !f || !nx || nx.kind !== 'agent' ? null : ((nx.dockId && f.docks[nx.dockId]) ? nx.dockId : f.order.find(x => f.docks[x].agentId === nx.agentId) || null);
   /* THE TEST VIEW'S MODES (2026-09-28 — one TEST control instead of four buttons that meant four different things). Each
      mode says what it spends and where its result goes; STEP THROUGH needs the sidecar's step-test seam, and a station
-     without it says so and offers RUN ONE REAL JOB. The test job typed here is the INBOX's test job. */
+     without it says so and offers SEND A REAL JOB. The test job typed here is the INBOX's test job. */
   const TEST_MODES = [
     ['watch', 'WATCH IT · FREE', 'a crate rides the belts; no agent runs'],
     ['step', 'STEP THROUGH · REAL', 'pauses at every hand-off; nothing is delivered'],
-    ['real', 'RUN ONE REAL JOB', 'end to end; the result lands in the OUTBOX']
+    ['real', 'SEND A REAL JOB', 'end to end; the result lands in the OUTBOX']
   ];
   /* THE JOB, READ BACK (2026-09-30 — Andrew: "if the output is terrible and not consistent … how the user can properly correct
-     it"): a job sent from the panel (SEND IT DOWN THE LINE, RUN ONE REAL JOB) comes back as the WHOLE result — never 80 characters
+     it"): a job sent from the panel (SEND A JOB, or TEST's SEND A REAL JOB) comes back as the WHOLE result — never 80 characters
      — and HOW EACH STEP DID IT: every stage's own reply, read from its run's transcript (GET /api/transcript by runId: the OUTBOX
      window's own read), in line order and named by its BAY, so a Commander can see which step made the result what it is. A
      refused or stopped job keeps the server's verdict as before. A step whose reply cannot be read says so — nothing is guessed. */
@@ -1904,11 +1914,11 @@ const WorkflowPanel = (() => {
      read back. The panel never rebuilds its body while a field has focus (paintLive), and a Commander who types the job and
      presses SEND can keep the cursor in the box (WebKit leaves focus in a textarea when a button is clicked) — the job ran, and
      the card never showed it riding or what came back. As a LIVE region this part follows the job whatever has focus, and is
-     left alone only while the cursor is INSIDE it (the NOT RIGHT? box), so nothing being typed there is rebuilt. */
+     left alone only while the cursor is INSIDE it (the NEEDS CHANGES box), so nothing being typed there is rebuilt. */
   function sendDynHTML(f) {
     const c = comp(), sr = H.sampleState ? H.sampleState() : null, mine = sr && c && sr.key === c.key ? sr : null;
     return '<div class="wf-row"><button type="button" class="bb sm refit-primary" id="wf-send"' + ((mine && mine.pending) || !c ? ' disabled' : '') + '>'
-      + (mine && mine.pending ? (mine.phase === 'post' ? 'POSTING LINE…' : 'THE JOB IS RIDING THE LINE…') : '▶ SEND IT DOWN THE LINE') + '</button>'
+      + (mine && mine.pending ? (mine.phase === 'post' ? 'POSTING LINE…' : 'THE JOB IS RIDING THE LINE…') : '▶ SEND A JOB') + '</button>'
       + (mine && mine.pending && mine.phase === 'run' && H.stopSample ? '<button type="button" class="bb sm" id="wf-send-stop"' + (mine.stopping ? ' disabled' : '') + ' data-tip="stop this job: the running step is cut off and nothing more runs — what already ran is counted">' + (mine.stopping ? 'STOPPING…' : '■ STOP') + '</button>' : '')
       + '</div>' + (mine && mine.pending && mine.phase === 'run' ? '<p class="wf-help wf-live" id="wf-send-live" role="status">' + esc(liveText(f)) + '</p>' : '')
       + '<p class="wf-help dim">The whole line works on it for real — real agents, real cost — and the result lands in the OUTBOX.' + onwardNote() + '</p>'
@@ -1980,39 +1990,43 @@ const WorkflowPanel = (() => {
           + (o.jobId ? ' <button type="button" class="wf-link" data-open-job="' + esc(o.jobId) + '">OPEN ITS JOB</button>' : '') + '</p>'
       : o.kind === 'sends' ? '<p class="wf-help wf-sent">This line sends its finished work on to ' + to + ' (SEND TO) — WORKFLOWS › LAST JOBS shows that line’s job, or why it was not sent.</p>'
       : '<p class="wf-help wf-sent">An OUTBOX on this line sends on to ' + to + ' (SEND TO) — if this job was handed on, WORKFLOWS › LAST JOBS shows that line’s job, or why it was not sent.</p>';
+    /* (org P14) a delivered job folded into the finished-work ledger says WHERE it waits for its rating — DELIVERABLES › TO REVIEW,
+       a door there — never "in the OUTBOX" (the floor OUTBOX holds no verdict control). Once it is rated it no longer waits, so the
+       ledger is read again (ReturnStore.pendingRows); a page with no ledger loaded keeps what the fold said. */
+    const waits = !!mine.folded && (typeof ReturnStore === 'undefined' || !ReturnStore.pendingRows || ReturnStore.pendingRows().some(r => r && runs.some(x => x && x.runId === r.runId)));
     return '<div class="wf-job' + (v.ok ? '' : ' problem') + '">'
       /* DELIVERED AND SHIPPED SAY ONE THING (rc walk #30: "✓ DELIVERED" sat under TODAY "SHIPPED 0"): a job the server says was not
          counted in SHIPPED says so here, with the rule as its tip (notShippedNote: the reason only when the server proved it). The
          server's own answer (true / false / unknown) — never guessed from the reply text. */
-      + (v.ok ? '<div class="wf-job-h"><b>✓ DELIVERED</b> · ' + runs.length + ' step' + (runs.length === 1 ? '' : 's') + (v.usd != null ? ' · $' + v.usd.toFixed(4) : '') + (mine.folded ? ' · in the OUTBOX' : '')
+      + (v.ok ? '<div class="wf-job-h"><b>✓ DELIVERED</b> · ' + runs.length + ' step' + (runs.length === 1 ? '' : 's') + (v.usd != null ? ' · $' + v.usd.toFixed(4) : '') + (waits ? ' · <button type="button" class="wf-link" data-to-review data-tip="Opens DELIVERABLES at TO REVIEW, where finished work waits for your rating.">waiting in DELIVERABLES › TO REVIEW</button>' : '')
         + notShippedNote(mine) + '</div>'
         : '<div class="wf-job-h"><b class="warn">⚠ FINISHED WITH A PROBLEM</b> · ' + runs.length + ' step' + (runs.length === 1 ? '' : 's') + (v.usd != null ? ' · $' + v.usd.toFixed(4) : '') + '</div><div class="wf-warnline">' + esc(badLine) + '</div>')
       + onward
       + ln.notes.map(t => '<div class="wf-warnline">⚠ ' + esc(t) + '</div>').join('')
       + (v.ok || shown.trim() ? '<div class="wf-from"><span>' + (v.ok ? 'THE RESULT' : 'WHAT CAME OUT') + '</span></div><div class="wf-io out wf-job-out">' + esc(shown.trim() || '(the line delivered an empty reply)') + '</div>' : '')
-      + (!v.ok ? '' : '<div class="wf-row">' + (S.exampleStamp === mine.stamp && exampleKept(mine) ? '<span class="wf-tag">★ THE LINE’S EXAMPLE</span>'
-        : '<button type="button" class="bb sm" id="wf-keep-ex" data-tip="The step that wrote this result will match its format, length and tone every time: the result is added to that step’s instructions as its example, and the whole crew matches its style in similar work. UNDO takes it back.">★ KEEP AS THE EXAMPLE</button>') + '</div>')
+      + (!v.ok ? '' : '<div class="wf-row">' + (S.exampleStamp === mine.stamp && exampleKept(mine) ? '<span class="wf-tag">★ STYLE KEPT</span>'
+        : '<button type="button" class="bb sm" id="wf-keep-ex" data-tip="The step that wrote this result will match its format, length and tone every time: the result is added to that step’s instructions as its example, and the whole crew matches its style in similar work. UNDO takes it back.">★ KEEP THIS STYLE</button>') + '</div>')
       // the same job run again after a fix: what it gave LAST time stays one click away, to see the change
       + (prev ? '<details class="wf-more wf-lasttime"><summary>Last time, before your fix</summary><div class="wf-io">' + esc(loopNotes(P && P.stripVerdictLine ? P.stripVerdictLine(prev.output) : prev.output).rest.trim() || '(empty)') + '</div></details>' : '')
       + (runs.length ? '<div class="wf-from"><span>HOW EACH STEP DID IT</span><span class="src">open a step to read its reply</span></div><div class="wf-steps">' + steps + '</div>' : '')
       + notRightHTML(mine, f) + '</div>';
   }
-  /* NOT RIGHT? (2026-09-30 — "if they run the belt and its not as intended … how the user can fix the conveyor system to their
+  /* ✎ NEEDS CHANGES (was NOT RIGHT?; org P17 gave both editors one word set) (2026-09-30 — "if they run the belt and its not as intended … how the user can fix the conveyor system to their
      liking"): under a delivered job, the Commander says in plain words what is wrong; the station's own model reads each step's
      instructions and what it actually produced (POST /api/routing/fix-suggest — one billed call, its cost shown) and suggests the
      exact changes: which step's DOES or HANDS OFF to rewrite, and why. Each is a card to USE (the ordinary brief edit: saved, one
-     UNDO) or ignore; nothing changes on its own. RUN THE SAME JOB AGAIN is the proof: the new result comes back in this same card.
+     UNDO) or ignore; nothing changes on its own. ↻ SEND IT AGAIN is the proof: the new result comes back in this same card.
      S.fix = { stamp (the job it is for), state 'asking'|'done'|'error', complaint, diagnosis, fixes:[{dockId, does?, hands?, why,
      was, applied?}], usd, model, error }. */
   function notRightHTML(mine, f) {
     const fx = S.fix && S.fix.stamp === mine.stamp ? S.fix : null, asking = !!(fx && fx.state === 'asking');
-    let h = '<div class="wf-notright"><div class="wf-from"><span>NOT RIGHT?</span><span class="src">say what’s wrong: the station suggests exact changes</span></div>'
+    let h = '<div class="wf-notright"><div class="wf-from"><span>✎ NEEDS CHANGES</span><span class="src">say what’s wrong: the station suggests exact changes</span></div>'
       + '<textarea id="wf-nr-in" class="wf-io" rows="2" maxlength="1200" aria-label="What is wrong with the result" placeholder="e.g. too long, no sources, the wrong tone, it missed the main point">' + esc(fx ? fx.complaint : (S.fixDraft || '')) + '</textarea>'
-      + '<div class="wf-row"><button type="button" class="bb sm refit-primary" id="wf-nr-go"' + (asking ? ' disabled' : '') + '>' + (asking ? 'THINKING…' : 'SUGGEST FIXES') + '</button></div>';
+      + '<div class="wf-row"><button type="button" class="bb sm refit-primary" id="wf-nr-go"' + (asking ? ' disabled' : '') + '>' + (asking ? 'THINKING…' : 'SUGGEST CHANGES') + '</button></div>';
     if (fx && fx.state === 'error') h += '<div class="wf-warnline">✕ ' + esc(fx.error) + '</div>';
     if (fx && fx.state === 'done') {
       h += (fx.diagnosis ? '<p class="wf-help">' + esc(fx.diagnosis) + '</p>' : '') + fx.fixes.map((x, i) => fixCardHTML(x, i, f)).join('')
-        + '<div class="wf-row"><button type="button" class="bb sm' + (fx.fixes.some(fixInUse) ? ' refit-primary' : '') + '" id="wf-nr-again">↻ RUN THE SAME JOB AGAIN</button></div>'
+        + '<div class="wf-row"><button type="button" class="bb sm' + (fx.fixes.some(fixInUse) ? ' refit-primary' : '') + '" id="wf-nr-again">↻ SEND IT AGAIN</button></div>'
         + '<p class="wf-help dim">Suggested by ' + esc(fx.model || 'the station’s model') + (fx.usd ? ' · $' + (+fx.usd).toFixed(4) : '') + '. Nothing changes until you use a fix, and UNDO takes it back.</p>';
     }
     return h + '</div>';
@@ -2057,7 +2071,7 @@ const WorkflowPanel = (() => {
     H.sfx('chime'); H.flashTip('step instructions changed · UNDO takes it back', true);
     paint(false);
   }
-  /* ★ KEEP AS THE EXAMPLE (2026-09-30 — "if the output is … not consistent"): a result the Commander likes becomes the model the
+  /* ★ KEEP THIS STYLE (was KEEP AS THE EXAMPLE) (2026-09-30 — "if the output is … not consistent"): a result the Commander likes becomes the model the
      line's LAST step (the one whose reply ships — the delivered run, runs[0]) matches every time. It is written INTO that step's
      DOES as one marked block — visible and editable on the BAY card, one UNDO, replacing any earlier example — so it rides the
      step's standing brief like every other instruction (router.stageBrief): no hidden state. */
@@ -2115,7 +2129,7 @@ const WorkflowPanel = (() => {
       if (status !== 200 || !(j && j.ok)) H.flashTip('the example is out of the step, but the crew still remembers its style: ' + ((j && j.error) || 'http ' + status), false);
     }, () => H.flashTip('the example is out of the step, but the crew’s copy of its style could not be taken back', false)));
   }
-  // after a job's card is painted: read each step's reply, and wire NOT RIGHT?
+  // after a job's card is painted: read each step's reply, and wire NEEDS CHANGES
   function wireJob() {
     readJobSteps();
     const sr = H.sampleState ? H.sampleState() : null, c = comp();
@@ -2128,6 +2142,7 @@ const WorkflowPanel = (() => {
     $$('[data-fix-use]').forEach(b => { b.onclick = () => useFix(+b.dataset.fixUse); });
     const kx = $('#wf-keep-ex'); if (kx) kx.onclick = () => keepExample(mine);
     // OPEN ITS JOB: the next line's job record, in WORKFLOWS (Build Mode steps aside, as for every window the panel opens)
+    $$('[data-to-review]').forEach(b => { b.onclick = () => { H.sfx('click'); saveOpenFields(); H.openTerm('outbox'); }; });   // (org P14) the 'outbox' key = DELIVERABLES › TO REVIEW
     $$('[data-open-job]').forEach(b => { b.onclick = () => { H.sfx('click'); saveOpenFields(); H.openTerm('workflows'); if (typeof WorkflowsWindow !== 'undefined' && WorkflowsWindow.showJob) WorkflowsWindow.showJob(b.dataset.openJob); }; });
     // the job's words drawn as a reply (the card painted them as plain text)
     const P = typeof Pipeline !== 'undefined' ? Pipeline : null, clean = t => loopNotes(P && P.stripVerdictLine ? P.stripVerdictLine(t || '') : (t || '')).rest.trim();
@@ -2138,7 +2153,7 @@ const WorkflowPanel = (() => {
     if (again) again.onclick = () => { const cc = comp(); if (!cc) return; H.sfx('click'); S.fixDraft = ''; liveSeen = false; S.prevJob = { text: mine.text, output: mine.output, stamp: mine.stamp }; H.runSample(cc, { text: mine.text || (S.testJob[S.lineKey] || '').trim() || undefined, onUpdate: jobUpdate }); startLive(); };
   }
   function stepTestUnavailable() {
-    if (S.seam !== true) return 'this station cannot pause a line between steps — RUN ONE REAL JOB runs it end to end';
+    if (S.seam !== true) return 'this station cannot pause a line between steps — SEND A REAL JOB runs it end to end';
     return typeof Pipeline !== 'undefined' && Pipeline.stepTestRefusal ? Pipeline.stepTestRefusal(H.plan(), S.lineKey) : null;
   }
   function testModeNow() {
@@ -2168,7 +2183,7 @@ const WorkflowPanel = (() => {
       body = '<p class="wf-help">Your test job runs through the line for real, end to end: real agents, real cost, and the result lands in the <b>OUTBOX</b> like any job.' + onwardNote() + '</p>'
         + input
         + '<div class="wf-row"><button type="button" class="bb sm refit-primary" id="wf-real"' + (mine && mine.pending ? ' disabled' : '') + '>'
-        + (mine && mine.pending ? (mine.phase === 'post' ? 'POSTING LINE…' : 'THE JOB IS RIDING THE LINE…') : '▶ RUN ONE REAL JOB') + '</button>'
+        + (mine && mine.pending ? (mine.phase === 'post' ? 'POSTING LINE…' : 'THE JOB IS RIDING THE LINE…') : '▶ SEND A REAL JOB · costs a run') + '</button>'
         // ■ STOP (2026-09-29): a real job can be stopped while it rides — THIS job only (the station's E-STOP stops everything)
         + (mine && mine.pending && mine.phase === 'run' && H.stopSample ? '<button type="button" class="bb sm" id="wf-real-stop"' + (mine.stopping ? ' disabled' : '') + ' data-tip="stop this job: the running step is cut off and nothing more runs — what already ran is counted">' + (mine.stopping ? 'STOPPING…' : '■ STOP') + '</button>' : '')
         + '</div>'
@@ -2251,7 +2266,7 @@ const WorkflowPanel = (() => {
   function deniedLine(h) {
     const d = h && Array.isArray(h.denied) ? h.denied : [];
     if (!d.length) return '';
-    return '<div class="wf-warnline">⚠ ' + esc(nameOf(h.agentId)) + ' was not allowed to use ' + esc(d.join(', ')) + ' — a test run has no one to approve tools, so that part was not done and the reply below may be asking for permission instead of giving the work. Ask for the result in the reply (its brief), or give the agent FULL ACCESS in its dossier.</div>';
+    return '<div class="wf-warnline">⚠ ' + esc(nameOf(h.agentId)) + ' was not allowed to use ' + esc(d.join(', ')) + ' — a test run has no one to approve tools, so that part was not done and the reply below may be asking for permission instead of giving the work. Ask for the result in the reply (its brief), or give the agent FULL POWER in its dossier.</div>';
   }
   function hopDetailHTML(s, i) {
     const h = s.hops[i];
@@ -2333,7 +2348,7 @@ const WorkflowPanel = (() => {
     });
   }
 
-  return { open, close, isOpen, refresh, select, selectFromFloor, showTest, _state: S, _flow: () => flow() };
+  return { open, close, isOpen, refresh, select, selectFromFloor, revealStarts, showTest, _state: S, _flow: () => flow() };
 })();
 
 if (typeof module !== 'undefined' && module.exports) module.exports = WorkflowPanel;

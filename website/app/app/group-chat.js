@@ -971,7 +971,8 @@ const GroupChat = (() => {
         onclick: () => acceptMention(item) });
       if (mentionBusy) row.setAttribute('disabled', '');
       const led = h('span', { class: 'gc-led', 'aria-hidden': 'true' }); const c = colorOf(item.id); if (c) led.style.background = c;
-      const what = item.all ? 'everyone here' : item.member ? 'in this chat' : inGroup ? 'adds to this chat' : 'starts a group with ' + lead;
+      // from General the pick never converts General: a new group opens beside it (startGroup), so the row says so
+      const what = item.all ? 'everyone here' : item.member ? 'in this chat' : inGroup ? 'adds to this chat' : isGeneral(active) ? 'opens a group chat with ' + lead + ' beside General' : 'starts a group with ' + lead;
       row.append(led, h('span', { class: 'gc-mn' }, item.all ? '@all' : item.name), h('span', { class: 'gc-mt' }, what));
       e.append(row);
     });

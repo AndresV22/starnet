@@ -62,6 +62,30 @@
   function tauriCore() {
     return (typeof window !== 'undefined' && window.__TAURI__ && window.__TAURI__.core) ? window.__TAURI__.core : null;
   }
+  /* WHERE A LIBRARY FILE IS SAVED (org pass 10-14, P24), read off the backend's own openUrl — never rebuilt from display
+     fields: { agentId, path, inProject }. 'path' is what the shared folder / copy-path keys take (relative = the agent's
+     workspace, absolute as is); 'inProject' is true only when the URL proves the file sits in that project folder
+     (?project=), false only when it proves the file is NOT in it (an agent-workspace path), null when there is no project. */
+  function savedLocation(r, f, project) {
+    const url = String((f && f.openUrl) || '');
+    const isAbs = p => /^(?:[A-Za-z]:[\\/]|\/)/.test(p);
+    const norm = p => String(p || '').replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+    const dec = s => { try { return decodeURIComponent(s); } catch (_) { return ''; } };
+    const within = full => project ? norm(full).indexOf(norm(project) + '/') === 0 : null;
+    const ws = /^\/workshop-run\/([^/?#]+)\/([^/?#]+)\/([^?#]+)/.exec(url);
+    if (ws) return { agentId: dec(ws[1]) || r.agentId || 'agent', path: 'workshop/' + dec(ws[2]) + '/' + ws[3].split('/').map(dec).join('/'), inProject: project ? false : null };
+    const agent = dec((/[?&]agent=([^&#]*)/.exec(url) || [])[1] || '') || r.agentId || 'agent';
+    const rel = artifactPath(f);
+    if (!rel) return null;
+    const root = dec((/[?&]project=([^&#]*)/.exec(url) || [])[1] || '');
+    if (root && !isAbs(rel)) {
+      const sep = root.indexOf('\\') >= 0 ? '\\' : '/';
+      const full = root.replace(/[\\/]+$/, '') + sep + rel.replace(/^[\\/]+/, '').replace(/[\\/]/g, sep);
+      return { agentId: agent, path: full, inProject: within(full) };
+    }
+    if (isAbs(rel)) return { agentId: agent, path: rel, inProject: within(rel) };
+    return { agentId: agent, path: rel, inProject: project ? false : null };   // relative, no project: the agent's own workspace
+  }
   function revokePreview(state) {
     if (!state) return;
     state.previewId = (state.previewId || 0) + 1;
@@ -70,7 +94,7 @@
     if (state.blobUrl) try { URL.revokeObjectURL(state.blobUrl); } catch (_) {}
     state.blobUrl = '';
   }
-  async function openDesktop(r, f, href, say) {
+  async function openDesktop(r, f, href, say, folderKey, inLibrary) {
     const core = tauriCore();
     if (!core || !core.invoke) return false;
     if (f.sandboxed) {
@@ -85,7 +109,14 @@
       if (/declined at the host/i.test(String(err || ''))) return true;
       // re-mint: the host confirmation above may have outlasted the first ticket's few-minute life
       try { await core.invoke('open_external_url', { url: fileHref(f) }); }
-      catch (_) { if (say) say('Could not open that file — use its session or workspace folder to find it on disk.', true); }
+      // the file row's own folder key takes over (org pass 10-14, P24): reveal it in its folder, or copy its full path.
+      // No key on this row: a TO REVIEW FILES row (outbox.js) has no key slot, but its run is filed in the library below,
+      // whose drawer row carries one; a library row whose key never wired keeps the old real places to look.
+      catch (_) {
+        if (folderKey && folderKey.click) { folderKey.click(); if (say) say('Could not open that file — showing where it is saved instead.', true); }
+        else if (say && !inLibrary) say('Could not open that file — open its run in the library below; the folder key on its file row shows where it is saved.', true);
+        else if (say) say('Could not open that file — use its session or workspace folder to find it on disk.', true);
+      }
     }
     return true;
   }
@@ -177,7 +208,10 @@
     if ((!core || !core.invoke) && (!f.preview || f.sandboxed)) { try { link.href = fileHref(f); } catch (_) {} return false; }
     ev.preventDefault();
     ev.stopPropagation();
-    if (core && core.invoke) return openDesktop(r, f, fileHref(f), say);
+    if (core && core.invoke) {
+      const li = link.closest('li'); const slot = li && li.querySelector ? li.querySelector('.dlv-floc') : null;
+      return openDesktop(r, f, fileHref(f), say, slot ? slot.querySelector('.deliverable-folder') : null, !!slot);
+    }
     return previewInCard(f, card.querySelector('[data-preview]'), state || {}, say);
   }
 
@@ -249,7 +283,11 @@
     // a four-line paragraph sat (TO REVIEW still lands right after this p.muted — stationui's deliverables builder)
     body.innerHTML = '<div class="cfg dlv"><p class="muted dlv-lead" title="Previews open safely inside StarNet in a browser; desktop OPEN uses your file app.">Everything your crew made, filed by project — open one for the ask, the answer and every file.</p>' +
       '<div id="dl-head" class="dlv-head-strip"></div><div id="dl-run-scope" class="cfg-block" hidden></div>' +
-      '<div class="deliverables-toolbar"><input id="dl-query" aria-label="Search deliverables" placeholder="search title, agent, project"><select id="dl-status" aria-label="Filter deliverables"><option value="">ALL</option><option value="pending">NEEDS A DECISION</option><option value="produced">DONE</option><option value="kept">KEPT</option><option value="implemented">IMPLEMENTED</option><option value="failed">FAILED</option><option value="discarded">DISCARDED</option></select><button class="bb sm" id="dl-refresh">REFRESH</button><button class="bb sm" id="dl-clear-shown" hidden>CLEAR ALL</button><button class="bb sm" id="dl-clean">CLEAN OLD RECORDS</button></div>' +
+      '<div class="deliverables-toolbar"><input id="dl-query" aria-label="Search deliverables" placeholder="search title, agent, project"><select id="dl-status" aria-label="Filter deliverables"><option value="">ALL</option><option value="pending">NEEDS A DECISION</option><option value="produced">DONE</option><option value="kept">KEPT</option><option value="implemented">IMPLEMENTED</option><option value="failed">FAILED</option><option value="discarded">DISCARDED</option></select><button class="bb sm" id="dl-clear-shown" hidden>CLEAR ALL</button>' +
+        // the two upkeep keys fold behind ONE quiet MORE key (org pass 10-14, P13): search, the status filter, the KIND chips and
+        // CLEAR ALL/THESE stay in view (FOLD BY FREQUENCY); the fold opens inline in this row — never a popover.
+        '<details class="dlv-tools" id="dl-tools"><summary class="bb sm" aria-label="More library tools">MORE <span class="dlv-tools-car" aria-hidden="true">▸</span></summary>' +
+        '<span class="dlv-tools-keys"><button class="bb sm" id="dl-refresh">REFRESH</button><button class="bb sm" id="dl-clean" data-tip="Previews first: removes only the records of failed and discarded runs — files are not deleted, and UNDO brings them back">DELETE FAILED &amp; DISCARDED RECORDS</button></span></details></div>' +
       '<div id="dl-kinds" class="dlv-kinds"></div>' +
       '<div id="dl-msg" class="msg" aria-live="polite"></div><div id="dl-cleanup"></div>' +
       '<div class="dlv-split"><nav id="dl-rail" class="dlv-rail" aria-label="Projects"></nav><div id="dl-list" class="dlv-main"></div></div></div>';
@@ -261,6 +299,10 @@
       runScope.hidden = !runFilter;
       runScope.innerHTML = runFilter ? '<b>OUTPUTS FROM THIS STEP</b><p>' + esc(runFilter.label) + '</p><button class="bb sm" id="dl-all-runs">SHOW ALL WORK</button>' : '';
       runScope.querySelector('button')?.addEventListener('click', () => { runFilter = null; q.value = ''; status.value = ''; project = ''; kind = ''; renderRunScope(); load(); });
+    };
+    // org P01: NEEDS YOU's build row lands here on NEEDS A DECISION — the same status filter the summary's route drives
+    body._deliverablesShowStatus = (st) => {
+      runFilter = null; q.value = ''; project = ''; kind = ''; status.value = String(st || ''); renderRunScope(); load();
     };
     body._deliverablesShowRun = (runId, label) => {
       runFilter = { runId: String(runId), label: String(label || 'Selected step') };
@@ -302,6 +344,8 @@
     function detailHtml(r) {
       const run = r.run || null;
       const files = r.files || [];
+      const mainAt = r.main ? files.findIndex(f => f && f.path === r.main) : -1;
+      const mainFirst = lis => (mainAt > 0 ? [lis[mainAt]].concat(lis.filter((_, i) => i !== mainAt)) : lis).join('');
       const sec = (label, inner) => inner ? '<div class="dlv-sec"><h5>' + label + '</h5>' + inner + '</div>' : '';
       // THE ASK — the Commander's own words, quoted rather than paraphrased.
       const ask = sec('WHAT YOU ASKED FOR', r.ask ? '<p class="dlv-quote">' + esc(r.ask) + '</p>' : '');
@@ -315,16 +359,18 @@
       const back = sec('WHAT CAME BACK', said ? '<div class="dlv-said md">' + safeMarkdown(said) + '</div>' : '');
       // THE FILES — each openable on its own, with the size measured off disk.
       const fileRows = files.length
-        ? '<ul class="dlv-files">' + (r.files || []).map((f, fi) => f.openUrl
-            ? '<li><a class="bb sm' + (r.main && f.path === r.main ? ' dlv-hero' : '') + '" data-file="' + fi + '" href="' + esc(fileHref(f)) + '" target="_blank" rel="noopener">OPEN</a><span class="dlv-fname">' + esc(f.path) + '</span><span class="dlv-fsize">' + esc(fmtSize(f.bytes)) + '</span>' + (r.main && f.path === r.main ? '<span class="dlv-fmain">the main one</span>' : '') + '</li>'
-            : '<li><span class="dlv-fname off">' + esc(f.path) + '</span><span class="dlv-fsize">no longer available</span></li>').join('') + '</ul>'
+        // the main file leads the list (its OPEN is the drawer's first key — org pass 10-14, P13); the rows are built in the
+        // backend's order first, so every data-file index still points at its own file
+        ? '<ul class="dlv-files">' + mainFirst((r.files || []).map((f, fi) => f.openUrl
+            ? '<li><a class="bb sm' + (r.main && f.path === r.main ? ' dlv-hero' : '') + '" data-file="' + fi + '" href="' + esc(fileHref(f)) + '" target="_blank" rel="noopener">OPEN</a><span class="dlv-floc" data-floc="' + fi + '"></span><span class="dlv-fname">' + esc(f.path) + '</span><span class="dlv-fsize">' + esc(fmtSize(f.bytes)) + '</span>' + (r.main && f.path === r.main ? '<span class="dlv-fmain">the main one</span>' : '') + '</li>'
+            : '<li><span class="dlv-fname off">' + esc(f.path) + '</span><span class="dlv-fsize">no longer available</span></li>')) + '</ul>'
         : '<p class="dlv-none">This run recorded no files.</p>';
       const openSession = (r.jobId ? '<button class="bb sm" data-act="workflow">OPEN IN WORKFLOWS</button>' : '') + ((run && run.streamId) ? '<button class="bb sm" data-act="session">↗ OPEN THE FULL CONVERSATION</button>' : '');
       const decide = ((r.actions && r.actions.keep) ? '<button class="bb sm" data-act="keep">KEEP IT</button>' : '') +
         ((r.actions && r.actions.discard) ? '<button class="bb sm danger" data-act="discard">DISCARD</button>' : '') +
         // DONE WITH IT (2026-10-10): clears the card out of the library — files stay on disk, UNDO brings it back. An
         // undecided build is the one row that can't go: it still needs KEEP IT or DISCARD (the backend refuses it too).
-        (r.status !== 'pending' ? '<button class="bb sm" data-act="clear" title="Takes it out of this library. The files stay on disk.">✓ DONE · CLEAR</button>' : '');
+        (r.status !== 'pending' ? '<button class="bb sm" data-act="clear" data-tip="Takes it out of this library. The files stay on disk.">✓ DONE · CLEAR</button>' : '');
       const acts = (openSession || decide) ? '<div class="row dlv-acts">' + openSession + decide + '</div>' : '';
       return ask + back + sec('FILES', fileRows) + acts;
     }
@@ -368,10 +414,13 @@
     }
 
     // KIND chips — the second axis, after project. Counts are pre-filter for the same reason the rail's are.
+    // the chip reads a plain plural (org pass 10-14, P13) — the raw kind word stays the filter value; an unknown kind reads in caps
+    const KIND_LABEL = { files: 'FILES', workflow: 'WORKFLOW JOBS', build: 'BUILDS', patch: 'CODE PATCHES', skill: 'SKILLS', report: 'REPORTS', damaged: 'DAMAGED RECORDS' };
+    const kindLabel = k => KIND_LABEL[String(k || '').toLowerCase()] || String(k || '').toUpperCase();
     function renderKinds() {
       if (!kinds.length) { kindbar.innerHTML = ''; return; }
       const chip = (k, label, count) => '<button class="dlv-chip' + (kind === k ? ' on' : '') + '" data-kind="' + esc(k) + '">' + esc(label) + '<span>' + count + '</span></button>';
-      kindbar.innerHTML = chip('', 'ALL KINDS', kinds.reduce((n, k) => n + k.count, 0)) + kinds.map(k => chip(k.kind, k.kind, k.count)).join('');
+      kindbar.innerHTML = chip('', 'ALL KINDS', kinds.reduce((n, k) => n + k.count, 0)) + kinds.map(k => chip(k.kind, kindLabel(k.kind), k.count)).join('');
     }
 
     function render() {
@@ -539,7 +588,7 @@
     async function decide(r, act, b) {
       if (b.disabled) return;   // belt to the once-wiring: a second confirm on an in-flight decide is never a second POST
       b.disabled = true;
-      try { const j = await post('/api/workshop/decide', { agentId: r.agentId, runId: r.runId, decision: act }); lastUndo = null; say(j.decision === 'keep' ? ('Kept ' + r.title + (j.destPath ? ' in ' + j.destPath : '')) : ('Discarded ' + r.title)); await load(); }
+      try { const j = await post('/api/workshop/decide', { agentId: r.agentId, runId: r.runId, decision: act }); lastUndo = null; if (typeof NeedsYou !== 'undefined' && NeedsYou.refreshFeeds) NeedsYou.refreshFeeds(true); say(j.decision === 'keep' ? ('Kept ' + r.title + (j.destPath ? ' in ' + j.destPath : '')) : ('Discarded ' + r.title)); await load(); }
       catch (e) { b.disabled = false; say(e.message, true); }
     }
     /* ONE DRAWER OPEN AT A TIME — the same rule the OUTBOX accordion follows. Two open drawers turn a scannable
@@ -559,7 +608,30 @@
         headBtn.setAttribute('aria-expanded', 'true');
         headBtn.classList.add('on');
         wireDiscards();   // the drawer's DISCARD only exists once it is open
+        wireLocations(card);
       }
+    }
+    /* FIND IT ON DISK (org pass 10-14, P24): each FILES row gets the COMMS '▤ saved' row's own keys — folder (desktop reveals
+       the file, a browser copies its path) and, on desktop, copy path. The full path rides the key's tip, never printed on the
+       card (Andrew cut a printed path); when the file provably sits outside this item's project, the tip says so first. */
+    function wireLocations(card) {
+      if (typeof Chat === 'undefined' || !Chat.folderButton || !Chat.copyPathButton) return;
+      const r = rows[Number(card.dataset.i)]; if (!r) return;
+      const projLeaf = p => { const s = String(p || '').replace(/[\\/]+$/, ''); return s.split(/[\\/]/).pop() || s; };
+      card.querySelectorAll('.dlv-floc[data-floc]').forEach(slot => {
+        if (slot.dataset.wired === '1') return;
+        const f = r.files && r.files[Number(slot.dataset.floc)];
+        const loc = f && savedLocation(r, f, r.project || '');
+        if (!loc) return;
+        slot.dataset.wired = '1';
+        const keys = [Chat.folderButton(loc.agentId, loc.path)];
+        if (tauriCore()) keys.push(Chat.copyPathButton(loc.agentId, loc.path));
+        const lead = loc.inProject === false ? 'saved in ' + agentLabel(loc.agentId) + ' workspace, not in ' + projLeaf(r.project) + ' — ' : '';
+        const tip = p => keys.forEach(k => { k.removeAttribute('title'); k.setAttribute('data-tip', lead + p); });
+        keys.forEach(k => { k.classList.add('bb', 'sm', 'dlv-loc-key'); slot.appendChild(k); });
+        tip(loc.path);
+        if (Chat.fullSavedPath) Promise.resolve(Chat.fullSavedPath(loc.agentId, loc.path)).then(full => { if (full) tip(full); }, () => tip(loc.path));
+      });
     }
 
     list.addEventListener('click', async ev => {
@@ -625,6 +697,8 @@
       load();
     });
     let debounce = 0; q.addEventListener('input', () => { clearTimeout(debounce); debounce = setTimeout(load, 180); }); status.addEventListener('change', load); body.querySelector('#dl-refresh').addEventListener('click', load);
+    const tools = body.querySelector('#dl-tools');
+    if (tools && tools.addEventListener) tools.addEventListener('toggle', () => { const c = tools.querySelector('.dlv-tools-car'); if (c) c.textContent = tools.open ? '▾' : '▸'; });
     body.querySelector('#dl-clean').addEventListener('click', async () => {
       try { const p = await post('/api/deliverables/cleanup-preview', { statuses: ['discarded', 'failed'] }); cleanup.innerHTML = '<div class="cfg-block"><b>CLEANUP PREVIEW</b><p>' + p.targets.length + ' discarded/failed lifecycle record(s) will be removed. ' + p.protected.length + ' pending, kept, or produced record(s) are protected. Files are not deleted.</p>' + (p.targets.length ? '<details class="dlv-clean-list"><summary>SEE THE ' + p.targets.length + ' RECORD' + (p.targets.length === 1 ? '' : 'S') + '</summary><ul>' + p.targets.map(r => '<li>' + esc(r.title) + ' · ' + esc(r.status) + ' · ' + esc(r.runId || r.id) + '</li>').join('') + '</ul></details>' : '') + '<div class="row dlv-acts"><button class="bb sm danger" id="dl-clean-apply" ' + (p.targets.length ? '' : 'disabled') + '>REMOVE EXACTLY THESE ' + p.targets.length + ' RECORDS</button><button class="bb sm" id="dl-clean-cancel">CANCEL</button></div></div>'; cleanup.querySelector('#dl-clean-cancel').addEventListener('click', () => { cleanup.innerHTML = ''; }); const apply = cleanup.querySelector('#dl-clean-apply'); if (apply) apply.addEventListener('click', async () => { try { const c = await post('/api/deliverables/cleanup', { statuses: p.statuses, fingerprint: p.fingerprint }); cleanup.innerHTML = '<div class="msg ok">Removed ' + c.removed + ' record(s). <button class="bb sm" id="dl-undo">UNDO</button></div>'; cleanup.querySelector('#dl-undo').addEventListener('click', async () => { const u = await post('/api/deliverables/cleanup-undo', { undoToken: c.undoToken }); say('Restored ' + u.restored + ' record(s).'); cleanup.innerHTML = ''; await load(); }); await load(); } catch (e) { say(e.message, true); } }); }
       catch (e) { say('Could not preview cleanup: ' + e.message, true); }
@@ -632,9 +706,13 @@
     body._deliverablesCleanup = revoke;
     load();
   }
+  function showStatus(body, st) {
+    if (!body || typeof body._deliverablesShowStatus !== 'function') return false;
+    body._deliverablesShowStatus(st); return true;
+  }
   function showRun(body, runId, label) {
     if (!runId || !body || typeof body._deliverablesShowRun !== 'function') return false;
     body._deliverablesShowRun(runId, label); return true;
   }
-  return { esc, safeMarkdown, plainLine, safeCsv, openUrl, fileHref, artifactPath, handleOpenClick, bucketOf, pillOf, agentLabel, agoOf, fmtSize, mount, showRun, rowsForRun, BUCKETS };
+  return { esc, safeMarkdown, plainLine, safeCsv, openUrl, fileHref, artifactPath, savedLocation, handleOpenClick, bucketOf, pillOf, agentLabel, agoOf, fmtSize, mount, showRun, showStatus, rowsForRun, BUCKETS };
 });

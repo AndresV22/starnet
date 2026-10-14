@@ -1076,8 +1076,8 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
      name — the name the manual, the agents and every error door already use. Never a merged card grid: each
      tab stays its own distinct surface (the August ABILITIES lesson). */
   const FAMILIES = {
-    mywork: { label: 'MY WORK', tabs: [
-      { id: 'tasks', k: 'tasks', label: 'TASKS', tip: 'Planned work on the task board — chats and routines live in COMMS' },
+    mywork: { label: 'MY WORK', first: 'deliverables', tabs: [
+      { id: 'tasks', k: 'tasks', label: 'TASKS', tip: 'Planned work you track — chats and routines live in COMMS' },
       { id: 'deliverables', k: 'deliverables', label: 'DELIVERABLES', tip: 'Everything your crew finished, with its files' },
       { id: 'recipes', k: 'marketplace', label: 'RECIPES', tip: 'Ready-made jobs to start',
         is: () => typeof Marketplace !== 'undefined' && Marketplace.currentTab && Marketplace.currentTab() === 'recipes',
@@ -1197,7 +1197,9 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       if (k && open[k] && termPos[fromKey]) { carry(k); placeTerm(open[k], k); }
     }
   }
-  // the dock button of a menu: open its last-used tab — or, like every dock button, raise / close what is showing
+  // the dock button of a menu: open its last-used tab — or, like every dock button, raise / close what is showing.
+  // A menu's FIRST open lands on its `first` tab when it names one (MY WORK opens on DELIVERABLES: the TASKS board
+  // stays empty after plain COMMS work, org pass 10-14 #45/#46); the tab ORDER, aliases and deep links never change.
   function toggleFamily(famId) {
     const fam = FAMILIES[famId]; if (!fam) return;
     const showing = Object.keys(open).filter(k => open[k] && !minimized[k] && familyOf(k) === famId);
@@ -1210,7 +1212,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     const min = Object.keys(open).find(k => open[k] && minimized[k] && familyOf(k) === famId);
     if (min) { restoreTerm(min); return; }
     const last = store.famLast && store.famLast[famId];
-    openFamilyTab(famId, fam.tabs.find(t => t.id === last) || fam.tabs[0]);
+    openFamilyTab(famId, fam.tabs.find(t => t.id === last) || (fam.first && fam.tabs.find(t => t.id === fam.first)) || fam.tabs[0]);
   }
 
   function toggleTerm(key, title, builder, opts) {
@@ -1811,12 +1813,12 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     wireCrewLive();   // ensure the per-agent run-state listener is live
     const ul = $('#crew'); if (!ul) return;
     if (!present.length) {
-      ul.innerHTML = '<li class="crew-empty"><div class="empty-state"><span class="es-glyph">▯</span><b>NO AGENTS ON STATION</b><span>Commission one from RECRUITMENT to begin.</span></div></li>';
+      ul.innerHTML = '<li class="crew-empty"><div class="empty-state"><span class="es-glyph">▯</span><b>NO AGENTS ON STATION</b><span>RECRUIT one from the CREW dock.</span></div></li>';
       $('#crew-sum').innerHTML = '';
       return;
     }
     ul.innerHTML = present.map((a, i) =>
-      '<li class="crew-row" role="button" tabindex="0" aria-label="' + (present.length > 1 ? 'Show sessions with ' + esc(a.name || a.id) + '; Shift+F10 for the dossier" aria-keyshortcuts="Shift+F10' : 'Open dossier for ' + esc(a.name || a.id)) + '" data-i="' + i + '" data-agent-id="' + esc(a.id) + '" style="--ci:' + i + '">' +
+      '<li class="crew-row" role="button" tabindex="0" aria-label="' + (present.length > 1 ? 'Show sessions with ' + esc(a.name || a.id) + '; Shift+F10 for the dossier' : 'Open dossier for ' + esc(a.name || a.id)) + '" aria-keyshortcuts="Shift+F10" data-i="' + i + '" data-agent-id="' + esc(a.id) + '" style="--ci:' + i + '">' +
       crewPortrait(a) +
       '<span class="dot on"></span>' +
       '<div class="crew-main">' +
@@ -1828,15 +1830,17 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       // The shimmer (.bar-active) reads as live activity; it's an indeterminate sweep, not a % readout.
       '<div class="crew-prog bar-active" id="cp-' + esc(a.id) + '" aria-hidden="true"><div></div></div>' +
       '</div>' +
-      // the dossier stays one step away: this key (or a right-click) opens it; the row itself shows the sessions
-      (present.length > 1 ? '<button type="button" class="crew-dossier" tabindex="-1" aria-label="Open dossier for ' + esc(a.name || a.id) + '" data-tip="Open ' + esc(a.name || a.id) + '&#39;s dossier">DOSSIER</button>' : '') +
+      // ORG P20: the dossier door is the SAME key at every crew size — always shown, never hover-only (touch can't hover),
+      // so the door learned on day one doesn't move after the first recruit. With 2+ agents the row itself shows the
+      // sessions; with one, the row and this key both open the dossier. Right-click / Shift+F10 / the sprite stay.
+      '<button type="button" class="crew-dossier" tabindex="-1" aria-label="Open dossier for ' + esc(a.name || a.id) + '" data-tip="Open ' + esc(a.name || a.id) + '&#39;s dossier">DOSSIER</button>' +
       '</li>').join('');
     // (the head's roster count moved out — #crew-sum below the list already totals the same crew)
     ul.querySelectorAll('.crew-row').forEach(li => {
       if (typeof AgentPortraits !== 'undefined') AgentPortraits.paint(li.querySelector('.crew-portrait img'), present[+li.dataset.i]);
       // PER-AGENT THREADS: a row click narrows the SESSIONS rail to this agent's sessions (again = all of them).
       // A one-agent station has nothing to narrow — every session is already that agent's — so there the
-      // row keeps opening the dossier, as it always has.
+      // row keeps opening the dossier, as it always has (its DOSSIER key opens the same file).
       li.addEventListener('click', () => {
         sfx('click');
         // "needs your OK" (the gold card): one click lands where it is waiting — the approval or the question
@@ -1963,13 +1967,15 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       desc: 'The system prompt sent to the model on every run — the heart of who your agent is.',
       ph: 'You are …' },
     { key: 'purpose', file: 'purpose.md', badge: 'YOU WRITE THIS',
-      desc: 'What your agent is for. Folded into the prompt so it colours everything it does.',
+      // P23 REACH: the purpose and house rules are THIS agent's only; rules for every agent are YOU › PREFERENCES'
+      // standing orders (DossierStore.composeBlock rides every agent's prompt + cron's withDossier). Name the reach.
+      desc: n => 'What your agent is for. Folded into the prompt so it colours everything it does. Only ' + n + ' · a workflow step’s DOES can add to it.',
       ph: 'e.g. Track AI-policy news and brief me each morning.' },
     { key: 'context', file: 'context.md', badge: 'YOU WRITE THIS',
       desc: 'About you and your world — your project, domain, and what "good" looks like. Grounds every run.',
       ph: 'e.g. I build TypeScript web apps solo; "good" = tested, minimal diffs, no hand-waving.' },
     { key: 'manual', file: 'operating-manual.md', badge: 'YOU WRITE THIS',
-      desc: 'House rules appended to every run — tone, format, the do-nots. Always obeyed.',
+      desc: n => 'Only ' + n + ' follows these house rules — tone, format, the do-nots · rules for every agent live in YOU › PREFERENCES.',
       ph: '- Cite your sources.\n- Keep it terse.\n- Never message anyone without asking first.' }
   ];
 
@@ -2063,16 +2069,22 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     // stating this plainly. (test/permissions-ui.test.js greps the SOURCE for the index form — so this comment
     // must not spell it out either; a locked grep is a contract on the text, not just on the behaviour.)
     const prof = executionProfileOf(executionProfileId(a));
+    // ORG P21: VOICE and SKILLS are per-agent settings that live OUTSIDE the dossier (SETTINGS › LOOK & SOUND's VOICE FOR,
+    // ABILITIES › AGENT SKILLS) — the strip is the index, so it names them too. Each row's tip says where its click lands.
+    let voice = '';
+    try { voice = (typeof Voice !== 'undefined' && Voice.voiceChoice && a && a.id) ? Voice.voiceChoice(a.id) : ''; } catch (_) { voice = ''; }
     const rows = [
-      { lbl: 'MODEL',     val: pin || 'station default', dim: !pin,                 go: 'ag-model-card' },
-      { lbl: 'PERSONALITY',     val: persona || '—',           dim: !persona,             go: 'ag-persona-card' },
-      { lbl: 'ACCESS',    val: 'checking effective access…', dim: false, go: 'ag-approval-card' },
-      { lbl: 'PROFILE',   val: prof.label.toLowerCase(),  dim: false,               go: 'ag-execution-card' },
-      { lbl: 'AWAY WORK', val: (a && a.workshop) ? 'on'  : 'off', dim: !(a && a.workshop), go: 'ag-workshop-card' }
+      { lbl: 'MODEL',     val: pin || 'station default', dim: !pin,                 go: 'ag-model-card',     tip: 'change it in CONFIG › MODEL' },
+      { lbl: 'PERSONALITY',     val: persona || '—',           dim: !persona,             go: 'ag-persona-card',   tip: 'change it in CONFIG › PERSONALITY' },
+      { lbl: 'ACCESS',    val: 'checking effective access…', dim: false, go: 'ag-approval-card',  tip: 'change it in CONFIG › ACCESS' },
+      { lbl: 'PROFILE',   val: prof.label.toLowerCase(),  dim: false,               go: 'ag-execution-card', tip: 'change it in CONFIG › ACCESS' },
+      { lbl: 'VOICE',     val: voice || 'station default', dim: !voice,             go: 'ag-voice',          tip: 'opens SETTINGS › LOOK & SOUND › VOICE FOR this agent' },
+      { lbl: 'SKILLS',    val: 'its own procedures',       dim: true,               go: 'ag-skills',         tip: 'opens ABILITIES › AGENT SKILLS for this agent' },
+      { lbl: 'AWAY WORK', val: (a && a.workshop) ? 'on'  : 'off', dim: !(a && a.workshop), go: 'ag-workshop-card',  tip: 'opens AUTOMATE › AWAY WORK' }
     ];
     return '<div class="ag-setup" role="group" aria-label="How this agent is set up">' +
       rows.map(r =>
-        '<button type="button" class="ag-setup-row" data-goconfig="' + r.go + '" title="change this in CONFIG">' +
+        '<button type="button" class="ag-setup-row" data-goconfig="' + r.go + '" data-tip="' + esc(r.tip) + '">' +
           '<span class="ag-setup-lbl">' + r.lbl + '</span>' +
           '<span class="ag-setup-val' + (r.dim ? ' dim' : '') + '">' + esc(r.val) + '</span>' +
           '<span class="ag-setup-go" aria-hidden="true">›</span></button>').join('') +
@@ -2156,14 +2168,14 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     const nAg = present.length || 1;
     return s ? (
       '<div class="gx-station" style="margin-top:18px;">' +
-      '<div class="hd"><span class="badge">●</span><span class="ttl">Station prestige</span><span class="agents">&Sigma; ' + nAg + ' AGENT' + (nAg === 1 ? '' : 'S') + '</span></div>' +
+      '<div class="hd"><span class="badge">●</span><span class="ttl">STATION XP</span><span class="agents">&Sigma; ' + nAg + ' AGENT' + (nAg === 1 ? '' : 'S') + '</span></div>' +
       '<div class="body">' +
         '<div class="lv"><div class="gx-lbl" style="font-size:9px;">STATION</div><div class="n">' + s.level + '</div><div class="gx-lbl" style="font-size:9px;">LEVEL</div></div>' +
         '<div style="flex:1;">' +
           '<div class="gx-row" style="margin-bottom:6px;"><span class="gx-val" style="font-size:13px;">' + s.xp.toLocaleString() + ' <span class="gx-dim">/</span> ' + Xp.xpForLevel(s.level + 1).toLocaleString() + ' <span class="gx-dim" style="font-size:11px;">XP</span></span><span class="gx-val" style="color:var(--gold);font-size:13px;">' + s.pct + '%</span></div>' +
           '<div class="gx-trk"><div class="gx-gfill" style="width:' + s.pct + '%;"></div></div>' +
           '<div class="gx-row" style="margin-top:7px;"><span class="gx-val gx-dim" style="font-size:11px;">' + s.toNext.toLocaleString() + ' XP TO LV ' + (s.level + 1) + '</span>' +
-            '<span class="gx-mono" style="font-size:10px;color:var(--ph-dim);">' + s.positiveFeedback + ' APPROVALS &middot; <span style="color:var(--ph);">' + (s.known ? s.band.toUpperCase() : 'CALIBRATING') + '</span></span></div>' +
+            '<span class="gx-mono" style="font-size:10px;color:var(--ph-dim);">' + s.positiveFeedback + ' THUMBS-UP &middot; <span style="color:var(--ph);">' + (s.known ? s.band.toUpperCase() : 'CALIBRATING') + '</span></span></div>' +
         '</div>' +
       '</div></div>'
     ) : '';
@@ -2328,7 +2340,10 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
         if (!view || !view.authority || !Array.isArray(view.toolsets)) throw Error('Access unavailable');
         const authority = view.authority;
         const summary = body.querySelector('[data-goconfig="ag-approval-card"] .ag-setup-val');
-        if (summary) summary.textContent = authority.unrestricted ? 'Full Power · no prompts' : 'ASK · standing grants apply';
+        // ORG P21: the summary speaks the ONE ACCESS posture words. FULL POWER only when the live authority is unrestricted;
+        // otherwise the agent's saved posture if it is an asking one, else custom — never a posture the live answer contradicts.
+        const askingPosture = () => { const AP = agentPostureOf(a); return (AP && AP.approval === 'ask') ? AP.label : 'custom'; };
+        if (summary) summary.textContent = authority.unrestricted ? 'FULL POWER · no prompts' : askingPosture() + ' · standing grants apply';
         const reach = body.querySelector('#ag-execution-plain');
         if (reach) reach.textContent = authority.filesystemLabel + (authority.unrestricted ? '. Full Power overrides the saved profile below.' : '. The selected profile and standing grants apply.');
         const html = '<p><b>' + esc(authority.approvalLabel) + '</b><br>' + esc(authority.filesystemLabel) + ' · ' + esc(authority.profileLabel) + '</p>' +
@@ -2341,7 +2356,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
         const ready = view.toolsets.filter(x => x.available);
         const compactHtml = '<p class="ag-can-do"><b>' + ready.length + ' of ' + view.toolsets.length + ' toolsets ready</b>'
           + (ready.length ? ' · ' + ready.slice(0, 6).map(x => esc(x.label)).join(', ') + (ready.length > 6 ? ' +' + (ready.length - 6) : '') : '')
-          + ' · ' + esc(authority.approvalLabel) + '</p><button class="bb sm" data-access-full>SEE FULL ACCESS</button>';
+          + ' · ' + esc(authority.approvalLabel) + '</p><button class="bb sm" data-access-full>SEE ALL ACCESS</button>';
         targets.forEach(target => {
           if (typeof target.hasAttribute === 'function' && target.hasAttribute('data-access-compact')) {
             target.innerHTML = compactHtml;
@@ -2369,7 +2384,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       '<span class="cf-badge you">' + f.badge + '</span>' +
       '<span class="cf-bytes">' + (val || '').length + ' chars</span>' +
       (editing ? '' : '<button class="bb sm cf-edit" data-edit="' + f.key + '">✎ EDIT</button>') +
-      '</div><div class="cf-desc">' + f.desc + '</div>';
+      '</div><div class="cf-desc">' + (typeof f.desc === 'function' ? f.desc(esc((a && a.name) || 'this agent')) : f.desc) + '</div>';
     if (editing) {
       return '<div class="cf cf-on">' + head +
         '<textarea class="cf-ta" id="cf-ta-' + f.key + '" aria-label="' + esc(f.file) + '" spellcheck="false" placeholder="' + esc(f.ph) + '">' + esc(val) + '</textarea>' +
@@ -2399,7 +2414,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       // sidecar (station-wide, not per-agent — the reflect loop is a station engine). Plus a plain scope note.
       '<div class="gx-sec"><span class="gx-ref">◈</span><span class="gx-title">Reflection</span></div>' +
       '<div class="mc-note" id="mc-scope">How the station learns from finished work.</div>' +
-      '<label class="set-row"><input type="checkbox" id="mc-reflect-on"> REFLECTION ON <span class="dim">— propose memories after a completed task</span></label>' +
+      '<label class="set-row"><input type="checkbox" id="mc-reflect-on"> REFLECTION (all agents) <span class="dim">— propose memories after a completed task</span></label>' +
       '<div class="set-row"><label for="mc-cooldown">TIME BETWEEN SUGGESTIONS (MINUTES)</label><input id="mc-cooldown" class="key-input" type="number" min="0" max="60" step="1" style="max-width:90px" title="minimum gap between turn-in beats per agent"></div>' +
       '<div class="mc-acts"><button class="bb sm" id="mc-reflect-save">SAVE</button><span class="msg" id="mc-reflect-msg"></span></div></div>' +
       // AWAITING A VERDICT — the durable high-stakes deck. Runs that finish while nobody is watching (a routine, a
@@ -2658,7 +2673,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     U.bus.on('deliverable', p => {
       if (!p || p.kind !== 'skill') return;
       if (!open['connectors'] || !$('#sk-agent')) return;             // the AGENT SKILLS host lives in the ABILITIES console (skills lane)
-      const a = present[sel]; const shownId = (a && a.id) || 'agent';
+      const shownId = skillsAgentId();
       if ((p.agentId || 'agent') !== shownId) return;                 // only refresh the agent the panel is actually showing
       clearTimeout(skillsRefreshTimer);
       skillsRefreshTimer = setTimeout(() => { if (open['connectors'] && $('#sk-agent')) loadAgentSkills(shownId); }, 400);
@@ -2702,7 +2717,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       CF_GROUPS.map((g, i) => {
         const key = a.id + ':' + g.id;
         return '<details class="cf-group" id="' + g.id + '" data-cf-group="' + esc(key) + '"' + (cfOpen.get(key) ? ' open' : '') + '><summary><span class="cf-group-title">' + g.label + '</span><span class="cf-group-summary">' + esc(summaries[i]) + '</span></summary><div class="cf-group-body">' + content[i] + '</div></details>';
-      }).join('') + '<div class="cf-card" id="ag-away-link"><button class="bb sm" data-away-open>WHILE I’M AWAY → AUTOMATE</button></div>' +
+      }).join('') + '<div class="cf-card" id="ag-away-link"><button class="bb sm" data-away-open data-tip="opens AUTOMATE › AWAY WORK">AWAY WORK ▸</button></div>' +
       agDeleteRow(a);
   }
 
@@ -2722,11 +2737,11 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       '</label>' +
       '<div id="ag-workshop-msg" class="msg"></div>' +
       '<div id="ag-ws-live"><div class="dim" style="font-size:11px;">reading the build list…</div></div>' +
-      '<p class="ws-queue-help">Add work from a quest’s <b>Build while away</b> action, or type <code>/build-away</code> in COMMS.</p>' +
+      '<p class="ws-queue-help">Add work from a quest’s <b>Build while away</b> action, or type <code>/away</code> in COMMS.</p>' +
     '</div>';
   }
 
-  // Per-agent APPROVAL posture (dossier CONFIG card): the same ASK / FULL ACCESS choice as the create screen,
+  // Per-agent APPROVAL posture (dossier CONFIG card): the same ASKS FIRST / FULL POWER choice as the create screen,
   // changeable any time — until now the ONLY post-create path was the /yolo slash command in COMMS, which most
   // Commanders never find (a creation-time picker with no live-app twin — the codex-sign-in escape class).
   // Applies via access.config.setApproval → pushRoster, so the sidecar's per-run consent gate flips with it.
@@ -2760,6 +2775,18 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
        a posture may not put a crew member somewhere the harness has not confirmed it can run.
      · Applying counts what actually changed and reports THAT number (an agent deleted from another
        surface mid-click must not be counted as converted). */
+  /* THE ON ITS OWN RUNGS (org pass 10-14, call #57): the dial's rendered names in ONE place. The ids are the stored
+     autonomy.js INITIATIVE values and never change; the labels are what the Commander reads, so a trust offer or a
+     PERMISSIONS notice that names a rung reads it from here and can never print the internal id ('leash').
+     'leash' reads SMALL JOBS (its own tip's words): BUILD clashed with the BUILD dock, and DRAFT is untrue once
+     the away workshop is on and jobs build real deliverables. */
+  const INITIATIVE_RUNGS = [
+    { id: 'wait', label: 'WAIT', tip: 'nothing runs unless you ask' },
+    { id: 'propose', label: 'SUGGEST', tip: 'lines up suggestions you approve — never acts on its own' },
+    { id: 'leash', label: 'SMALL JOBS', tip: 'does a few small grounded jobs a day on its own' },
+    { id: 'free', label: 'FREE', tip: 'picks & does work toward your goals while you’re away' }
+  ];
+  const initiativeLabel = (id) => { const r = INITIATIVE_RUNGS.find(x => x.id === id); return r ? r.label : String(id || '').toUpperCase(); };
   const STATION_POSTURES = [
     { id: 'careful', label: 'CHECK WITH ME', approval: 'ask', profile: 'station-gear', level: 'suggest',
       blurb: 'It asks you before every risky step, and only touches what you placed on the station.',
@@ -2841,13 +2868,13 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
   function approvalCard(a) {
     const full = !!(a && a.approvalMode === 'full');
     const chip = (id, label, desc, sel) =>
-      '<button type="button" class="ov-vchip' + (sel ? ' sel' : '') + '" data-approval="' + id + '" data-name="' + esc(label) + '" title="' + esc(desc) + '" aria-pressed="' + (sel ? 'true' : 'false') + '">' + esc(label) + '</button>';
+      '<button type="button" class="ov-vchip' + (sel ? ' sel' : '') + '" data-approval="' + id + '" data-name="' + esc(label) + '" data-tip="' + esc(desc) + '" aria-pressed="' + (sel ? 'true' : 'false') + '">' + esc(label) + '</button>';
     return '<div class="cf-card" id="ag-approval-card">' +
       '<div class="cf-head"><span class="cf-file">✋ approval prompts</span></div>' +
-      '<div class="cf-desc">ASK respects the selected reach profile and pauses before risky calls. FULL POWER authorizes the whole local computer: all available tools, host paths, arbitrary commands, visible apps, and screen/input control. <code>/yolo</code> is the Full Power shortcut.</div>' +
+      '<div class="cf-desc">ASKS FIRST respects the selected reach profile and pauses before risky calls. FULL POWER stops the approval prompts and authorizes the whole local computer: all available tools, host paths, arbitrary commands, visible apps, and screen/input control. <code>/yolo</code> is the full-power shortcut.</div>' +
       '<div class="ov-vchips" id="ag-approval-chips">' +
-        chip('ask', 'ASK FOR APPROVAL', 'stops to check with you before it writes, runs, or reaches out', !full) +
-        chip('full', 'FULL POWER', 'uses the whole local computer without approval prompts', full) +
+        chip('ask', 'ASKS FIRST', 'stops to check with you before it writes, runs, or reaches out', !full) +
+        chip('full', 'FULL POWER', 'never asks first — covers the whole local computer, not just its reach profile', full) +
       '</div>' +
       '<div id="ag-approval-msg" class="msg"></div>' +
     '</div>';
@@ -3085,7 +3112,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     }
 
     // APPROVAL chips — apply via access.config.setApproval, then rerender so the sel chip reflects recorded
-    // truth. FULL ACCESS is the dangerous pick, so it keeps the house two-press confirm (the personality
+    // truth. FULL POWER is the dangerous pick, so it keeps the house two-press confirm (the personality
     // UNHINGED pattern): press one names what it means (warn tint), press two applies; anything else disarms.
     const apWrap = body.querySelector('#ag-approval-chips');
     if (apWrap) {
@@ -3108,7 +3135,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
         if (!(access.config && access.config.setApproval)) { setApMsg('approval change unavailable', false); sfx('bad'); return; }
         const ok = access.config.setApproval(a && a.id, id);
         if (ok === false) { setApMsg('could not change approval', false); sfx('bad'); return; }
-        notify(id === 'full' ? '⚡ ' + ((a && a.name) || 'agent') + ' now has Full Power over the local computer' : '✋ ' + ((a && a.name) || 'agent') + ' will ask before risky moves again', id === 'full' ? 'warn' : 'good');
+        notify(id === 'full' ? '⚡ ' + ((a && a.name) || 'agent') + ' has full power now — it stops asking and can act across the whole local computer' : '✋ ' + ((a && a.name) || 'agent') + ' will ask before risky moves again', id === 'full' ? 'warn' : 'good');
         sfx('click'); rerender('agents');
       }));
     }
@@ -3279,6 +3306,10 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
        scrolled the minimum distance leaves the card you asked for hugging the bottom edge. */
     const jumpToConfig = (anchor) => {
       if (anchor === 'ag-workshop-card' && window.AutomationWindow) { window.AutomationWindow.openAway(a.id); return; }
+      // ORG P21: VOICE lands on SETTINGS › LOOK & SOUND with VOICE FOR already on this agent; SKILLS on ABILITIES ›
+      // AGENT SKILLS showing this agent. Both are the existing editors — the strip only routes.
+      if (anchor === 'ag-voice') { sfx('click'); openVoiceFor(a.id); return; }
+      if (anchor === 'ag-skills') { sfx('click'); skillsPick = a.id; openTerm('connectors', 'agent'); return; }
       consoleSection['agents'] = 'config'; sfx('click'); rerender('agents');
       if (!anchor || anchor === '1') return;
       requestAnimationFrame(() => {
@@ -3392,7 +3423,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     if (!present.length) {
       // shared empty-state vocabulary rather than a bare paragraph (no agents = nothing to dossier)
       body.innerHTML = '<div class="empty-state" style="margin:32px auto;"><span class="es-glyph">▯</span>' +
-        '<b>NO AGENTS ON STATION</b><span>Commission one from RECRUITMENT to open its dossier.</span></div>';
+        '<b>NO AGENTS ON STATION</b><span>RECRUIT one from the CREW dock.</span></div>';
       return;
     }
     if (sel >= present.length) sel = 0;
@@ -3720,15 +3751,27 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
      owns the whole "what agents can do" axis. Same two-part lane shape as windows/automation.js
      ({sections, wire}); wire() runs after the shared mountConsole call. */
   function abilitySkillsLane(body) {
-    const a = present[sel];
+    // ORG P21: the skills lane shows ONE agent — the one sent from its dossier's SKILLS row (a one-shot request,
+    // consumed here so a later open from anywhere else follows the dossier again), or the one picked in this same
+    // open window (kept across its own rerenders), else the dossier's selected agent, as before.
+    const sentFrom = skillsPick; skillsPick = null;
+    const keptHere = (skillsShown && skillsShown.win === open.connectors) ? skillsShown.id : null;
+    const picked = present.find(x => x && x.id === (sentFrom || keptHere));
+    const a = picked || present[sel];
     const agentId = (a && a.id) || 'agent';
+    skillsShown = { id: agentId, win: open.connectors };
+    const agentPicker = present.length
+      ? '<label class="mc-hint" for="sk-agent-pick">Skills of</label><select id="sk-agent-pick" class="ab-agent-pick" aria-label="Show the skills of agent">' +
+        present.map(x => '<option value="' + esc(x.id) + '"' + (x.id === agentId ? ' selected' : '') + '>' + esc(x.name || x.id) + '</option>').join('') + '</select>'
+      : '';
     const secLibrary =
       // "recipes" here collided with the ❒ RECIPES dock feature (audit finding 2) — these are PROCEDURES: how-to
       // guides an agent follows mid-task, not launchable jobs.
       '<p class="sk-note sk-lib-intro">Enable skills for the whole station. Agents use them when relevant, with the tools and service access they already have.</p>' +
       '<div id="sk-lib" class="sk-lib"><div class="sk-loading"><span class="loading pulse">loading the skill library…</span></div></div>';
     const secAgent =
-      '<p class="sk-note sk-lib-intro">Reusable procedures this agent created or learned. These appear as a compact index in future runs; the agent loads the full body only when a task matches.</p>' +
+      agentPicker +
+      '<p class="sk-note sk-lib-intro" id="sk-agent-intro">' + skillsIntro(a) + '</p>' +
       '<div id="sk-agent" class="sk-lib"><div class="sk-loading">loading agent skills…</div></div>';
     const secExchange =
       '<p class="sk-note sk-lib-intro">Install a complete open skill package from a public HTTPS or GitHub <b>SKILL.md</b>. StarNet freezes the instructions and support files under one SHA-256 before review. Missing, oversized, unsafe, or partial packages are refused.</p>' +
@@ -3774,7 +3817,16 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       loadSkillMarket(agentId);
       loadSkillLibrary(agentId);
       loadAgentSkills(agentId);
-      wireSkillExchange(agentId);
+      const pick = document.getElementById('sk-agent-pick');
+      if (pick) pick.addEventListener('change', () => {
+        skillsShown = { id: pick.value, win: open.connectors }; sfx('click');
+        const shown = present.find(x => x && x.id === pick.value);
+        const intro = document.getElementById('sk-agent-intro'); if (intro) intro.innerHTML = skillsIntro(shown);
+        // one agent per lane: the library's "active for <agent>" readout, the market's gear check and an exchange
+        // install all follow the pick, not the agent the window first opened on
+        loadAgentSkills(pick.value); loadSkillLibrary(pick.value); loadSkillMarket(pick.value);
+      });
+      wireSkillExchange(skillsAgentId);
       wireSkillsLive();   // A3: keep the AGENT SKILLS list live while the panel is open (registers once)
     }
     return { sections, wire };
@@ -3943,10 +3995,12 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       const f = $('#skm-filters');
       if (f) f.querySelectorAll('[data-skm-filter]').forEach(x => { const on = x.dataset.skmFilter === 'all'; x.classList.toggle('active', on); x.setAttribute('aria-pressed', on ? 'true' : 'false'); });
     }
+    host.dataset.agent = agentId;   // ORG P21: the once-wired handler below acts for the agent of the LATEST load
+    const load = ++skillMarketLoad;  // …and only the latest load may land (the picker can reload for another agent mid-fetch)
     skillPlacedTypes(agentId)
       .then(placed => Harness.api.get('/api/skill-market?placed=' + encodeURIComponent(placed.join(',')) + (refresh ? '&refresh=1' : '')))
-      .then(d => { if ($('#skm-list') === host) { renderSkillMarket(host, d, agentId); const search = host.closest('.term-body')?.querySelector('.con-search-in'); if (search && search.value.trim()) search.dispatchEvent(new Event('input', { bubbles: true })); } })
-      .catch(e => { if ($('#skm-list') === host) renderSkillMarket(host, { ok: false, error: e && e.message }, agentId); });
+      .then(d => { if ($('#skm-list') === host && load === skillMarketLoad) { renderSkillMarket(host, d, agentId); const search = host.closest('.term-body')?.querySelector('.con-search-in'); if (search && search.value.trim()) search.dispatchEvent(new Event('input', { bubbles: true })); } })
+      .catch(e => { if ($('#skm-list') === host && load === skillMarketLoad) renderSkillMarket(host, { ok: false, error: e && e.message }, agentId); });
     if (host.dataset.wired) return;
     host.dataset.wired = '1';
     const filters = $('#skm-filters');
@@ -3958,10 +4012,11 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     });
     host.addEventListener('click', async ev => {
       const place = ev.target.closest('[data-place]');
-      if (place) { sfx('click'); placeGearForSkill(place.dataset.place, (typeof App !== 'undefined' && App.agentName) ? App.agentName(agentId) : ''); return; }
+      const shownId = host.dataset.agent || agentId;
+      if (place) { sfx('click'); placeGearForSkill(place.dataset.place, (typeof App !== 'undefined' && App.agentName) ? App.agentName(shownId) : ''); return; }
       const b = ev.target.closest('[data-skm-act]'); if (!b || b.disabled) return;
       const act = b.dataset.skmAct, slug = b.dataset.slug;
-      if (act === 'retry') { host.innerHTML = '<span class="loading pulse">loading the skill market…</span>'; loadSkillMarket(agentId, true); return; }
+      if (act === 'retry') { host.innerHTML = '<span class="loading pulse">loading the skill market…</span>'; loadSkillMarket(shownId, true); return; }
       if (skmBusy.has(slug)) return;
       const msg = $('#skm-msg');
       const card = b.closest('[data-skm]');
@@ -3987,7 +4042,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
         // always re-read: even a timed-out request may have finished on the station
         skmBusy.delete(slug);
         skmFocus = slug;
-        loadSkillMarket(agentId); loadSkillLibrary(agentId);
+        loadSkillMarket(shownId); loadSkillLibrary(shownId);
       }
     });
   }
@@ -3997,6 +4052,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
   // that was closed mid-fetch is a safe no-op. The global fetch wrapper (harness.js) attaches the API token.
   function loadSkillLibrary(agentId) {
     const host = $('#sk-lib'); if (!host) return;
+    const load = ++skillLibLoad;   // ORG P21: the picker can reload for another agent mid-fetch — only the latest load may land
     let placed = [];
     try { placed = (typeof World !== 'undefined' && World.heroCaps) ? World.heroCaps(agentId).map(c => c.objectType) : []; } catch (e) {}
     Harness.api.get('/api/toolsets?agent=' + encodeURIComponent(agentId) + '&placed=' + encodeURIComponent(placed.join(',')))
@@ -4011,7 +4067,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       .then(r => { if (!r.ok) throw Error('Skill library unavailable'); return r.json(); })
       .then(d => {
         const h = $('#sk-lib');
-        if (h === host) {
+        if (h === host && load === skillLibLoad) {
           renderSkillLibrary(h, (d && d.skills) || [], agentId, placed);
           const search = h.closest('.term-body')?.querySelector('.con-search-in');
           if (search && search.value.trim()) search.dispatchEvent(new Event('input', { bubbles:true }));
@@ -4020,7 +4076,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       })
       .catch(() => {
         const h = $('#sk-lib');
-        if (h) {
+        if (h && load === skillLibLoad) {
           h.innerHTML = '<div class="sk-loading">Could not load the skill library — is the sidecar running?</div>';
           requestAnimationFrame(() => fitTermInViewport(open.connectors));
         }
@@ -4102,7 +4158,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     const placedSet = {}; (placed || []).forEach(p => placedSet[p] = true);
     const objLabel = (r) => SK_OBJ_NAME[r] || String(r).toUpperCase();
     const active = skills.filter(s => s.enabled && s.available).length;
-    const agentName = (present[sel] && present[sel].name) || agentId;
+    const agentName = ((present.find(x => x && x.id === agentId) || {}).name) || agentId;   // ORG P21: the agent this list was loaded for
     const groups = groupSkillsByState(skills);
     let html = '<div class="sk-lib-sum">' + skills.length + ' skill' + (skills.length === 1 ? '' : 's') +
       ' · <b>' + active + '</b> active for ' + esc(agentName) + '</div>';
@@ -4237,7 +4293,8 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     });
   }
 
-  function wireSkillExchange(agentId) {
+  function wireSkillExchange(agentOf) {
+    const shownAgent = () => (typeof agentOf === 'function' ? agentOf() : agentOf);   // ORG P21: the lane's picker can change the agent after wiring
     const input = $('#sk-exchange-url'), button = $('#sk-exchange-inspect'), importer = $('#sk-exchange-import'), host = $('#sk-exchange-preview');
     if (!input || !button || !host || !Harness.skillExchangeInspect) return;
     const inspect = async () => {
@@ -4247,7 +4304,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       host.innerHTML = '<div class="sk-loading"><span class="loading pulse">fetching and scanning exact source bytes…</span></div>';
       const r = await Harness.skillExchangeInspect(url);
       button.classList.remove('busy'); button.textContent = 'INSPECT';
-      if (r && r.ok && r.preview) renderSkillExchangePreview(host, r.preview, agentId);
+      if (r && r.ok && r.preview) renderSkillExchangePreview(host, r.preview, shownAgent());
       else host.innerHTML = '<div class="sk-exchange-note bad">' + esc((r && r.error) || 'That source could not be inspected.') + '</div>';
     };
     button.addEventListener('click', inspect);
@@ -4258,7 +4315,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       let envelope = ''; try { envelope = await file.text(); } catch (_) {}
       const r = envelope ? await Harness.skillExchangeImport(envelope) : { ok: false, error: 'That file could not be read.' };
       importer.value = '';
-      if (r && r.ok && r.preview) renderSkillExchangePreview(host, r.preview, agentId);
+      if (r && r.ok && r.preview) renderSkillExchangePreview(host, r.preview, shownAgent());
       else host.innerHTML = '<div class="sk-exchange-note bad">' + esc((r && r.error) || 'That package could not be inspected.') + '</div>';
     });
     const registryUrl = $('#sk-registry-url'), registryQuery = $('#sk-registry-query'), registryButton = $('#sk-registry-search'), registryResults = $('#sk-registry-results');
@@ -4299,6 +4356,33 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
   }
 
   let skillPanelLoad = 0;
+  // ORG P21: skillsPick = a ONE-SHOT request from a dossier's SKILLS row (consumed when the lane builds);
+  // skillsShown = the agent the open ABILITIES skills lane shows, tied to that window instance so a fresh open never
+  // inherits an old pick. skillsAgentId() is what every skills action reads at click time.
+  let skillsPick = null;
+  let skillsShown = null;
+  let skillLibLoad = 0, skillMarketLoad = 0;
+  function skillsAgentId() {
+    const id = skillsShown && skillsShown.win === open.connectors && present.some(x => x && x.id === skillsShown.id) ? skillsShown.id : null;
+    return id || (present[sel] && present[sel].id) || 'agent';
+  }
+  function skillsIntro(a) {
+    const n = '<b>' + esc((a && (a.name || a.id)) || 'this agent') + '</b>';
+    return 'Reusable procedures ' + n + ' created or learned. These appear as a compact index in ' + n + '’s future runs; it loads the full body only when a task matches.';
+  }
+  // ORG P21: open SETTINGS › LOOK & SOUND with VOICE FOR already on this agent (the existing picker, preselected)
+  function openVoiceFor(agentId) {
+    openTerm('settings', 'appearance');
+    const land = () => {
+      const w = open.settings; const pick = w && w.querySelector('#set-lv-agent');
+      if (!pick) return false;
+      if (Array.from(pick.options).some(o => o.value === agentId)) { pick.value = agentId; if (typeof pick.onchange === 'function') pick.onchange(); }
+      try { pick.scrollIntoView({ block: 'center' }); } catch (_) { /* older engines: the section is already showing */ }
+      pick.focus({ preventScroll: true });
+      return true;
+    };
+    requestAnimationFrame(() => { if (!land()) setTimeout(land, 120); });
+  }
   async function skillReviewPost(action, body, opts) {
     const r = await Harness.api.post('/api/agent-skills/' + action, body, { timeoutMs: (opts && opts.timeoutMs > 0) ? opts.timeoutMs : action === 'evaluate-candidate' ? 180000 : 60000 });
     if (!r.ok || !r.j || !r.j.ok) throw new Error((r.j && r.j.error) || 'The station refused this change.');
@@ -4654,7 +4738,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
      TO DO -> IN PROGRESS the instant a real run fires (Workstreams.appendRun); SHIPPED is only ever a
      deliberate human turn-in (the ✓ SHIP button). The General chat home isn't a project, so it shows
      in the rail but never on this board. App owns persistence + the rail; we drive both via sync(). */
-  const COLS = [['todo', 'TO DO'], ['active', 'IN PROGRESS / REVIEW'], ['shipped', 'COMPLETED']];
+  const COLS = [['todo', 'TO DO'], ['active', 'IN PROGRESS'], ['shipped', 'COMPLETED']];
   const WS = () => (typeof Workstreams === 'object' && Workstreams) ? Workstreams : null;
   function boardStreams() {
     const w = WS(); if (!w) return [];
@@ -4788,7 +4872,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       // chat.js's in-band error branch. null (no outcome recorded — legacy save / delegated run) keeps
       // the DONE chip: we only claim FAILED when the failure is provable, never by inference.
       if (s.lastRunOk === false) return '<div class="kb-state failed">✗ RUN FAILED — REVIEW</div>';
-      return '<div class="kb-state done">FINISHED — REVIEW RESULT</div>';
+      return '<div class="kb-state done">FINISHED — RESULT READY</div>';
     }
     return '';
   }
@@ -4802,7 +4886,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     const parts = [];
     if (running) parts.push(running + ' RUNNING');
     if (failed) parts.push(failed + ' FAILED');
-    if (ready) parts.push(ready + ' READY TO REVIEW');
+    if (ready) parts.push(ready + ' READY');
     return parts.length ? '<small class="kb-col-state">' + parts.join(' · ') + '</small>' : '';
   }
   // the card's bound-agent chip: the workstream's OWN agent (s.agentId) resolved to a name + color from the live
@@ -4876,7 +4960,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     const streams = boardStreams();
     const openMenus = live ? Array.from(body.querySelectorAll('.kb-more[open]')).map(d => d.closest('.kb-card').dataset.id) : [];
     body.innerHTML =
-      '<div class="kb-heading"><header class="kb-header"><h2>Your tasks</h2><p>Plan, start, and review your work.</p></header></div>' +   // OUTBOX / DELIVERABLES are this window's MY WORK tabs now (FAMILIES) — no second pair of doors here
+      '<div class="kb-heading"><header class="kb-header"><h2>TASKS</h2><p>Plan, start, and review your work.</p></header></div>' +   // OUTBOX / DELIVERABLES are this window's MY WORK tabs now (FAMILIES) — no second pair of doors here
       '<div class="kb-add"><input id="kb-in" data-draft aria-label="New task" maxlength="80" placeholder="What would you like to get done?" autocomplete="off">' +
       '<button class="bb sm" id="kb-add">ADD TASK</button></div><p class="kb-add-note">Adding saves your plan. Start sends the task to its agent.</p>' +
       '<div class="kb-cols">' +
@@ -4884,7 +4968,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
         const items = streams.filter(s => s.lane === lane);
         return '<div class="kb-col"><h4>' + label + ' <i>' + items.length + '</i>' +
           (lane === 'active' ? activeAggregate(items) : '') + '</h4>' +
-          '<p class="kb-lane-note">' + ({todo:'Planned tasks, ready when you are.',active:'Ongoing work and results to review.',shipped:'Tasks you marked complete.'}[lane]) + '</p>' +
+          '<p class="kb-lane-note">' + ({todo:'Planned tasks, ready when you are.',active:'Ongoing work and results to open.',shipped:'Tasks you marked complete.'}[lane]) + '</p>' +
           (items.length ? items.map(card).join('') : kbEmpty(lane)) + '</div>';
       }).join('') +
       '</div>' +
@@ -5429,7 +5513,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       const set = h.hasStoredCredential ? h.hasStoredCredential(provider)
         : ((h.configured && h.configured(provider)) || !!(h.getKey && h.getKey(provider)));
       // A KEYLESS custom endpoint (vLLM / LM Studio / any no-auth OpenAI-compatible server) still earns its row:
-      // the ✎ STATION LINK editor lives ONLY on this row, so gating it on a stored key froze the endpoint at
+      // the ✎ ENDPOINT URL editor lives ONLY on this row, so gating it on a stored key froze the endpoint at
       // whatever onboarding stored — and REMOVE-ing the last custom key stranded a still-active endpoint with no
       // editor. hasStoredCredential('custom') stays false for it (an endpoint is configuration, not a credential).
       const keylessEp = provider === 'custom' && !!(h.getBaseUrl && h.getBaseUrl('custom'));
@@ -5484,18 +5568,24 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       rerender('settings');
     });
   }
+  /* ONE KEY BOX PER PROVIDER (org P04): a provider whose card shows ＋ ADD KEY / ⏼ SIGN IN takes its key THERE — a second
+     "Add a <provider> key" box under API KEYS left users unsure which one counted. This list-side form survives only for a
+     provider with no such card key (cardOffersAdd false), and CUSTOM never gets one: its card's ＋ ADD KEY takes the
+     endpoint URL (#113). */
+  const ADD_ON_CARD = 'Add a key on a provider card above.';
+  function cardOffersAdd(provider) {
+    const p = PROVIDERS.find(x => x.id === provider);
+    return !!(p && p.live && (providerAcceptsKey(provider) || isOAuthProvider(provider)));
+  }
   function addKeyHtml(provider, empty) {
     provider = provider || 'openrouter';
-    const custom = provider === 'custom';
+    if (provider === 'custom') return '<div class="key-empty"><p>' + ADD_ON_CARD + '</p></div>';
     return '<div class="key-empty">' +
-      '<p>' + (custom
-        ? 'Point StarNet at any OpenAI-compatible endpoint (LM Studio, vLLM, FreeLLMAPI…). The key is optional — many local servers need none.'
-        : empty
+      '<p>' + (empty
           ? 'No API keys connected. Paste a key here to reconnect - it stays on this machine.'
           : 'Add a ' + esc(provName(provider)) + ' key — it stays on this machine.') + '</p>' +
       '<div class="key-edit">' +
-      (custom ? customEndpointInputHtml('base-in-new') : '') +
-      '<input type="password" class="key-input" id="key-in-new" placeholder="paste ' + esc(provName(provider)) + ' key' + (custom ? ' (optional)' : '') + '..." autocomplete="off" spellcheck="false">' +
+      '<input type="password" class="key-input" id="key-in-new" placeholder="paste ' + esc(provName(provider)) + ' key..." autocomplete="off" spellcheck="false">' +
       '<button class="bb sm" data-act="add" data-provider="' + esc(provider) + '">SAVE</button>' +
       '</div></div>';
   }
@@ -5547,8 +5637,10 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
         : isClaude ? claudeStat : keyless ? localStat : credentialSaved ? keyStat : (isOAuthProvider(p.id) ? '○ NOT SIGNED IN' : (p.id === 'custom' ? '○ NO ENDPOINT' : '○ NO KEY'));
       // #62: NOT VERIFIED / CHECK FAILED says WHY (the probe's own reason: "credential probe HTTP 401", a station
       // refusal, a timeout) — a bare verdict left a valid-key user with nothing to act on.
-      const statWhy = p.live && !codexDead && credentialSaved && !isClaude && !keyless && health && !health.credentialVerified && health.error
-        ? '<span class="prov-stat-why">' + esc(String(health.error).slice(0, 200)) + '</span>' : '';
+      // org P03: a probe that gave no reason still says what it saw — never a bare NOT VERIFIED / CHECK FAILED.
+      const statWhy = p.live && !codexDead && credentialSaved && !isClaude && !keyless && health && !health.credentialVerified
+        ? '<span class="prov-stat-why">' + esc(health.error ? String(health.error).slice(0, 200)
+          : health.reachable ? 'the provider answered but did not confirm this key' : 'the check got no answer from the provider') + '</span>' : '';
       const n = ks.length;
       // NO-KEY cards that accept a key get an inline, collapsible paste-and-save row so the user never has to hunt
       // for where keys live. It reuses the SAME save path (Harness.setKey) as the key list below — no duplicate logic.
@@ -5562,6 +5654,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       // ⏼ RE-SIGN-IN row sits far below under API KEYS, and a user who read only the card had no way back in.
       // credentialSaved is already false for a dead sign-in, so the dead state needs no clause of its own here.
       const wantsOAuthSignin = p.live && isOAuthProvider(p.id) && !credentialSaved;
+      const cardFlow = isOAuthProvider(p.id) ? oauthCardFlowView(p.id, wantsOAuthSignin) : null;   // an in-flight card sign-in (survives repaints)
       const wantsClaudeSignin = p.id === 'claude-cli' && !!(claudeCliSt && claudeCliSt.installed && !claudeCliSt.loggedIn);
       const wantsClaudeInstall = p.id === 'claude-cli' && !!(claudeCliSt && !claudeCliSt.installed);
       const claudeFlowing = wantsClaudeSignin && !claudeCard.account && typeof ClaudeCliSignIn !== 'undefined' && ClaudeCliSignIn.active();
@@ -5590,11 +5683,13 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
         (isClaude && claudeCliSt && claudeCliSt.installed ? claudeAccountsHtml() : '') +
         (p.id === 'kimi' && p.live ? kimiRegionHtml() : '') +
         (STACKABLE_OAUTH.indexOf(p.id) >= 0 ? oauthAccountsHtml(p.id) : '') +
-        (wantsOAuthSignin
-          ? '<div class="key-edit codex-inline prov-oauth-inline" id="prov-oauth-inline-' + esc(p.id) + '" hidden>' +
-            '<span class="dim" id="prov-oauth-status-' + esc(p.id) + '"></span>' +
-            '<code class="key-mask" id="prov-oauth-code-' + esc(p.id) + '" hidden></code>' +
-            '<button class="bb sm" id="prov-oauth-open-' + esc(p.id) + '" hidden>↗ OPEN PAGE</button>' +
+        // the card's device-code box is drawn FROM oauthCardFlow, so a Settings repaint mid-sign-in (a status check
+        // landing, the first-open probes) redraws the code the Commander still has to type instead of losing it
+        (wantsOAuthSignin || cardFlow
+          ? '<div class="key-edit codex-inline prov-oauth-inline" id="prov-oauth-inline-' + esc(p.id) + '"' + (cardFlow ? '' : ' hidden') + '>' +
+            '<span class="dim" id="prov-oauth-status-' + esc(p.id) + '">' + (cardFlow ? cardFlow.statusHtml : '') + '</span>' +
+            '<code class="key-mask" id="prov-oauth-code-' + esc(p.id) + '"' + (cardFlow && cardFlow.code ? '>' + esc(cardFlow.code) : ' hidden>') + '</code>' +
+            '<button class="bb sm" id="prov-oauth-open-' + esc(p.id) + '"' + (cardFlow && cardFlow.openUri ? '' : ' hidden') + '>↗ OPEN PAGE</button>' +
             '</div>'
           : '') +
         '</div>';
@@ -5664,7 +5759,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     const keys = connectedKeys(), active = activeProv();
     const addProvider = active === 'codex' ? 'openrouter' : active;
     const hasAddProvider = keys.some(k => k.provider === addProvider);
-    if (!keys.length) return providerAcceptsKey(addProvider) ? addKeyHtml(addProvider, true) : '<div class="key-empty"><p>No API keys connected.</p></div>';
+    if (!keys.length) return (cardOffersAdd(addProvider) || !providerAcceptsKey(addProvider)) ? '<div class="key-empty"><p>' + ADD_ON_CARD + '</p></div>' : addKeyHtml(addProvider, true);
 /*
     if (!keys.length) {
       // reachable in-session via REMOVE — let the user reconnect right here, no CONNECT-screen round-trip.
@@ -5743,13 +5838,13 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
           ' · <span class="key-stat">no API key needed</span></div>' +
           '</div></div>';
       }
-      // STATION LINK / base-URL edit (post-onboarding, EL-11 #12): a custom OpenAI-compatible endpoint carries an
+      // ENDPOINT URL / base-URL edit (post-onboarding, EL-11 #12): a custom OpenAI-compatible endpoint carries an
       // editable base URL. Onboarding is the only other place Harness.setBaseUrl is called; without this control the
       // endpoint was frozen at whatever onboarding stored. Only the 'custom' provider uses a base URL, so gate on it.
       const isCustomEp = k.provider === 'custom';
       const poolCount = H() && H().keyPoolSize ? H().keyPoolSize(k.provider) : 0;
       const baseBtn = isCustomEp
-        ? '<button class="bb sm" data-act="baseurl-edit" data-i="' + i + '" title="change this station link / endpoint URL without re-onboarding">✎ STATION LINK</button>'
+        ? '<button class="bb sm" data-act="baseurl-edit" data-i="' + i + '" data-tip="change this endpoint URL without re-onboarding">✎ ENDPOINT URL</button>'
         : '';
       const baseBlock = isCustomEp
         ? '<div class="key-edit" id="base-edit-' + i + '" hidden>' +
@@ -5768,7 +5863,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
         '</div>' +
         '<div class="key-acts">' +
         '<button class="bb sm" data-act="edit" data-i="' + i + '">✎ UPDATE</button>' +
-        '<button class="bb sm" data-act="pool-edit" data-i="' + i + '">↻ BACKUPS' + (poolCount ? ' (' + poolCount + ')' : '') + '</button>' +
+        '<button class="bb sm" data-act="pool-edit" data-i="' + i + '">↻ SPARE KEYS' + (poolCount ? ' (' + poolCount + ')' : '') + '</button>' +
         baseBtn +
         '<button class="bb sm danger" data-act="rm" data-i="' + i + '">✕ REMOVE</button>' +
         '</div></div>' +
@@ -5777,14 +5872,14 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
         '<button class="bb sm" data-act="save" data-i="' + i + '">SAVE</button>' +
         '</div>' +
         '<div class="key-edit" id="pool-edit-' + i + '" hidden>' +
-        '<input type="password" class="key-input" id="pool-in-' + i + '" placeholder="paste backup keys, separated by commas…" autocomplete="off" spellcheck="false">' +
+        '<input type="password" class="key-input" id="pool-in-' + i + '" placeholder="paste spare keys, separated by commas…" autocomplete="off" spellcheck="false">' +
         '<button class="bb sm" data-act="pool-save" data-i="' + i + '">REPLACE POOL</button>' +
         '<button class="bb sm danger" data-act="pool-clear" data-i="' + i + '">CLEAR POOL</button>' +
         '<span class="dim">up to 8 · scoped only to ' + esc(provName(k.provider)) + ' · failed saves restore the prior pool or report an incomplete rollback</span>' +
         '</div>' +
         baseBlock;
     });
-    if (providerAcceptsKey(addProvider) && !hasAddProvider) rows.push(addKeyHtml(addProvider, false));
+    if (providerAcceptsKey(addProvider) && !hasAddProvider && !cardOffersAdd(addProvider)) rows.push(addKeyHtml(addProvider, false));
     return rows.join('');
   }
   // edit-in-place / guarded remove for a stored key. Mirrors the CLEAR arm/confirm pattern
@@ -5893,10 +5988,6 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
           return;
         }
         if (!h) return;
-        if (act === 'add' && (b.dataset.provider || activeProv()) === 'custom') {
-          saveCustomEndpoint(body.querySelector('#base-in-new'), body.querySelector('#key-in-new'));
-          return;
-        }
         if (act === 'add') {              // empty-state: connect a first key without leaving the game
           const inp = body.querySelector('#key-in-new');
           const v = inp ? inp.value.trim() : '';
@@ -5930,13 +6021,13 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
         } else if (act === 'pool-save' || act === 'pool-clear') {
           const inp = body.querySelector('#pool-in-' + i);
           const keys = act === 'pool-clear' ? [] : String((inp && inp.value) || '').split(/[\n,;]+/).map(v => v.trim()).filter(Boolean);
-          if (act === 'pool-save' && !keys.length) { notify('paste at least one backup key, or use CLEAR POOL', 'bad'); sfx('bad'); return; }
+          if (act === 'pool-save' && !keys.length) { notify('paste at least one spare key, or use CLEAR POOL', 'bad'); sfx('bad'); return; }
           Promise.resolve(h.validateAndSetKeyPool ? h.validateAndSetKeyPool(keys, row.provider) : h.setKeyPool(keys, row.provider)).then(res => {
             const count = (res && typeof res === 'object') ? Number(res.count) || 0 : res;   // { count, engine } (#89); a bare count from older hosts
-            notify(count ? ('✓ ' + count + ' verified backup key' + (count === 1 ? '' : 's') + ' active only for ' + provName(row.provider)) : ('cleared backup keys for ' + provName(row.provider)), count ? 'good' : 'warn');
+            notify(count ? ('✓ ' + count + ' verified spare key' + (count === 1 ? '' : 's') + ' active only for ' + provName(row.provider)) : ('cleared spare keys for ' + provName(row.provider)), count ? 'good' : 'warn');
             warnIfStationLacksKey(res);   // #89: …and whether the station's copy for routines followed
             rerender('settings');
-          }).catch(err => { notify('✕ ' + ((err && err.message) || 'could not update backup keys'), 'bad'); sfx('bad'); });
+          }).catch(err => { notify('✕ ' + ((err && err.message) || 'could not update spare keys'), 'bad'); sfx('bad'); });
         } else if (act === 'baseurl-edit') {
           const ed = body.querySelector('#base-edit-' + i);
           if (ed) { ed.hidden = !ed.hidden; if (!ed.hidden) { const inp = body.querySelector('#base-in-' + i); if (inp) inp.focus(); } }
@@ -6039,6 +6130,8 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
         rerender('settings');
       });
     };
+    const toServiceKeys = body.querySelector('[data-act="to-service-keys"]');
+    if (toServiceKeys) toServiceKeys.addEventListener('click', () => { sfx('click'); openTerm('connectors', 'keys'); });
     body.querySelectorAll('.prov-card[data-provider]').forEach(card => {
       const activate = () => {
         const h = H();
@@ -6258,41 +6351,14 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       if (oauthSignin) oauthSignin.addEventListener('click', ev => {
         ev.stopPropagation();
         sfx('click');
-        const pid = card.dataset.provider;
-        const engine = (typeof OAuthSignIn !== 'undefined') ? OAuthSignIn.for(pid) : null;
-        if (!engine) return;
-        const box = card.querySelector('#prov-oauth-inline-' + pid);
-        const st = card.querySelector('#prov-oauth-status-' + pid);
-        const code = card.querySelector('#prov-oauth-code-' + pid);
-        const open = card.querySelector('#prov-oauth-open-' + pid);
-        if (box) { box.hidden = false; box.addEventListener('click', e2 => e2.stopPropagation()); }
-        engine.start({
-          onRequesting: () => { if (st) st.textContent = 'requesting a sign-in code…'; },
-          onError: msg => { if (st) st.textContent = msg; sfx('bad'); },
-          onTimeout: () => { if (st) st.textContent = 'sign-in timed out — hit ⏼ SIGN IN to start again'; },
-          onCode: c => {
-            if (code) { code.textContent = c.user_code; code.hidden = false; }
-            // DISPLAY the bare address, OPEN the code-carrying one — kimi's page REQUIRES ?user_code=.
-            if (st) st.innerHTML = 'enter this code at <b>' + esc(c.verification_uri) + '</b> (opening it now)…';
-            if (open) { open.hidden = false; open.onclick = e2 => { e2.stopPropagation(); sfx('click'); openExternal(c.open_uri || c.verification_uri); }; }
-            openExternal(c.open_uri || c.verification_uri);
-          },
-          onConnected: () => {
-            // the sidecar just exchanged + persisted fresh tokens — that POLL answer is backend truth.
-            // codex keeps its own literal status state (source-lock pinned); grok/kimi live in the shared cache.
-            if (pid === 'codex') { codexStatusKnown = { connected: true, expired: false, reason: '' }; refreshCodexConnectionStatus(); }
-            else { oauthStatus[pid] = { connected: true, expired: false, reason: '' }; refreshOAuthStatus(pid); }
-            if (typeof Harness !== 'undefined' && Harness.setDesktopConfigured) Harness.setDesktopConfigured(pid, true);   // desktop map learns mid-session (genesis feeds it; Settings must too)
-            // honest claim: runs ride the ACTIVE provider. A sign-in on a non-active card must say the extra
-            // step, not promise "your agents can run on your subscription" while runs continue elsewhere.
-            notify(activeProv() === pid
-              ? '✓ signed in to ' + provName(pid) + ' — your agents can run on your subscription'
-              : '✓ signed in to ' + provName(pid) + ' — click its card to make it your active brain', 'good');
-            if (typeof ModelDock !== 'undefined' && ModelDock.reflect) ModelDock.reflect();
-            if (typeof KeyCTA !== 'undefined' && KeyCTA.refresh) KeyCTA.refresh();
-            rerender('settings');
-          }
-        });
+        startCardSignin(card.dataset.provider, oauthSignin.textContent.trim());
+      });
+      // the device-code box: its clicks never select the provider; ↗ OPEN PAGE reopens the page the code belongs to
+      const oauthBox = card.querySelector('#prov-oauth-inline-' + card.dataset.provider);
+      if (oauthBox) oauthBox.addEventListener('click', e2 => {
+        e2.stopPropagation();
+        const f = oauthCardFlow[card.dataset.provider];
+        if (f && f.openUri && e2.target.closest('#prov-oauth-open-' + card.dataset.provider)) { sfx('click'); openExternal(f.openUri); }
       });
       // clicks on the inline key controls must NOT bubble up to provider-select — they toggle/save the key row.
       const inlineToggle = card.querySelector('[data-act="prov-add-toggle"]');
@@ -6326,6 +6392,78 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       // interactive descendants of a role=button card (invalid accessibility tree / conflicting activation).
       const providerSelect = card.querySelector('[data-act="prov-select"]');
       if (providerSelect) providerSelect.addEventListener('click', activate);
+    });
+  }
+
+  /* The CARD's device-code sign-in (codex/grok/kimi): one driver for the card's ⏼ SIGN IN / ⏼ RECONNECT key and for an
+     error door's sign-in press (focusProvider). Its state lives HERE, not in the card's DOM: Settings repaints whenever a
+     background check lands (the first open of a session starts several), and a repaint replaces the card — a code
+     written into the old card's box was lost while the browser page still waited for it. The card render draws the
+     box from oauthCardFlow; each callback updates the state and repaints just that box in whatever card is live. */
+  const oauthCardFlow = {};   // pid -> { phase: 'requesting'|'code'|'ended', msg, code, uri, openUri }
+  // keepEnded: the card still offers its own sign-in key, so a failed/timed-out attempt's message stays beside it. A card
+  // that offers none (an error door reconnecting a sign-in the station still lists) keeps that message for a minute.
+  function oauthCardFlowView(pid, keepEnded) {
+    const f = oauthCardFlow[pid];
+    if (!f) return null;
+    if (f.phase === 'ended' && !keepEnded && Date.now() - f.endedAt > 60000) return null;
+    const engine = (typeof OAuthSignIn !== 'undefined') ? OAuthSignIn.for(pid) : null;
+    // a code is only worth showing while the engine still polls for it (a sign-in started elsewhere supersedes it)
+    if (f.phase === 'code' && !(engine && engine.active())) { delete oauthCardFlow[pid]; return null; }
+    return {
+      statusHtml: f.phase === 'code' ? 'enter this code at <b>' + esc(f.uri) + '</b>' + (f.fresh ? ' (opening it now)…' : '') : esc(f.msg),
+      code: f.phase === 'code' ? f.code : '',
+      openUri: f.phase === 'code' ? f.openUri : ''
+    };
+  }
+  function paintOAuthCardFlow(pid) {
+    const w = open.settings;
+    const box = w && w.querySelector('#prov-oauth-inline-' + pid);
+    if (!box) return;   // the card isn't drawn right now — its next render draws the box from the state
+    const v = oauthCardFlowView(pid, true);
+    box.hidden = !v;
+    const st = box.querySelector('#prov-oauth-status-' + pid), code = box.querySelector('#prov-oauth-code-' + pid), openBtn = box.querySelector('#prov-oauth-open-' + pid);
+    if (st) st.innerHTML = v ? v.statusHtml : '';
+    if (code) { code.textContent = v ? v.code : ''; code.hidden = !(v && v.code); }
+    if (openBtn) openBtn.hidden = !(v && v.openUri);
+  }
+  function startCardSignin(pid, retryLabel) {
+    const engine = (typeof OAuthSignIn !== 'undefined') ? OAuthSignIn.for(pid) : null;
+    if (!engine) return;
+    const retry = retryLabel || '⏼ RE-SIGN-IN';
+    const mine = oauthCardFlow[pid] = { phase: 'requesting', msg: 'requesting a sign-in code…', code: '', uri: '', openUri: '' };
+    const mineNow = () => oauthCardFlow[pid] === mine;   // a newer start (or a finished one) owns the box now
+    // the box the RECONNECT door starts on a card that shows no sign-in key exists only while a flow is shown
+    if (open.settings && !open.settings.querySelector('#prov-oauth-inline-' + pid)) scheduleSettingsRepaint();
+    paintOAuthCardFlow(pid);
+    engine.start({
+      onRequesting: () => { if (mineNow()) paintOAuthCardFlow(pid); },
+      onError: msg => { if (!mineNow()) return; mine.phase = 'ended'; mine.endedAt = Date.now(); mine.msg = msg; paintOAuthCardFlow(pid); sfx('bad'); },
+      onTimeout: () => { if (!mineNow()) return; mine.phase = 'ended'; mine.endedAt = Date.now(); mine.msg = 'sign-in timed out — hit ' + retry + ' to start again'; paintOAuthCardFlow(pid); },
+      onCode: c => {
+        if (!mineNow()) return;
+        // DISPLAY the bare address, OPEN the code-carrying one — kimi's page REQUIRES ?user_code=.
+        Object.assign(mine, { phase: 'code', code: c.user_code, uri: c.verification_uri, openUri: c.open_uri || c.verification_uri, fresh: true });
+        paintOAuthCardFlow(pid);
+        mine.fresh = false;
+        openExternal(c.open_uri || c.verification_uri);
+      },
+      onConnected: () => {
+        if (mineNow()) delete oauthCardFlow[pid];
+        // the sidecar just exchanged + persisted fresh tokens — that POLL answer is backend truth.
+        // codex keeps its own literal status state (source-lock pinned); grok/kimi live in the shared cache.
+        if (pid === 'codex') { codexStatusKnown = { connected: true, expired: false, reason: '' }; refreshCodexConnectionStatus(); }
+        else { oauthStatus[pid] = { connected: true, expired: false, reason: '' }; refreshOAuthStatus(pid); }
+        if (typeof Harness !== 'undefined' && Harness.setDesktopConfigured) Harness.setDesktopConfigured(pid, true);   // desktop map learns mid-session (genesis feeds it; Settings must too)
+        // honest claim: runs ride the ACTIVE provider. A sign-in on a non-active card must say the extra
+        // step, not promise "your agents can run on your subscription" while runs continue elsewhere.
+        notify(activeProv() === pid
+          ? '✓ signed in to ' + provName(pid) + ' — your agents can run on your subscription'
+          : '✓ signed in to ' + provName(pid) + ' — click its card to make it your active brain', 'good');
+        if (typeof ModelDock !== 'undefined' && ModelDock.reflect) ModelDock.reflect();
+        if (typeof KeyCTA !== 'undefined' && KeyCTA.refresh) KeyCTA.refresh();
+        rerender('settings');
+      }
     });
   }
 
@@ -7208,6 +7346,28 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     { key: 'cronTickMs', label: 'ROUTINE TICK (MS)', hint: 'how often the scheduler checks for due routines.', min: 5000, max: 600000, step: 1000 },
     { key: 'maxSubscriptionTokens', label: 'CLAUDE CODE TOKEN CEILING', hint: 'tokens one run may use on a Claude subscription sign-in (cache re-reads count 1/10). 0 = no ceiling.', min: 0, max: 100000000, step: 100000 }
   ];
+  /* the STANDING APPROVALS heading's tip (org P02): when an ask nobody answers is denied, in minutes, and where to change
+     it. The number is the deadline the sidecar ENFORCES now (GET /api/runtime/knobs consentTimeoutMs.live — frozen at
+     boot) and its ack bound (liveAckMs: an ask whose card is on screen waits 5× as long, capped at 15 min). A CONSENT
+     TIMEOUT saved (or cleared) since boot is not enforced yet: the tip says it changes after a restart, never states it as the
+     deadline. Unknown → no number. */
+  function consentMinutes(ms) { const m = Math.round(Number(ms) / 6000) / 10; return (m >= 10 ? Math.round(m) : m) + ' min'; }
+  function consentTipText(ms, ackMs, nextMs) {
+    const where = ' · change it in APP & BACKUP › Runtime limits';
+    if (!(Number(ms) > 0)) return 'unanswered asks are denied on a timer' + where;
+    const seen = Number(ackMs) > 0 ? Number(ackMs) : Math.min(Number(ms) * 5, 900000);
+    const next = Number(nextMs) > 0 && Number(nextMs) !== Number(ms) ? ' · changes to ' + consentMinutes(nextMs) + ' after a restart' : '';
+    return 'unanswered asks are denied after ' + consentMinutes(ms) + ' (' + consentMinutes(seen) + ' once the card is on screen)' + next + where;
+  }
+  function paintConsentTip(host) {
+    const h = host && host.querySelector ? host.querySelector('#perm-standing-h') : null;
+    if (!h || typeof Harness === 'undefined' || !Harness.api || !Harness.api.get) return;
+    Harness.api.get('/api/runtime/knobs').then(st => {
+      const f = st && st.fields && st.fields.consentTimeoutMs;
+      // only the enforced (boot-frozen) deadline is stated; a sidecar that does not report it keeps the numberless tip
+      if (f && Number(f.live) > 0) h.setAttribute('data-tip', consentTipText(f.live, f.liveAckMs, f.effective));
+    }).catch(e => { if (typeof console !== 'undefined') console.warn('[permissions] consent timeout tip unavailable', e); });   // the numberless tip stays
+  }
   function wireAdvanced(body) {
     const form = body.querySelector('#adv-form');
     const msgEl = body.querySelector('#adv-msg');
@@ -7446,6 +7606,8 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       '<h4 class="ms-h">API KEYS</h4>' +
       '<div class="key-list">' + keysHtml() + '</div>' +
       '<p class="set-about">Credentials are saved locally and used to authenticate with the selected service. Saved keys stay masked. Desktop storage uses the OS keychain when available.</p>' +
+      // org P05: model keys live here; keys for services live in CONNECT › ABILITIES — one door, the places.js api-connections target
+      '<p class="set-about">Keys for Gmail, Notion and other services live in CONNECT › ABILITIES. <button type="button" class="bb sm" data-act="to-service-keys">▸ SAVED API CONNECTIONS</button></p>' +
       // STORE / MANAGED CREDITS — rendered ONLY when the sidecar reports a configured credits backend (/api/credits).
       // When credits aren't wired this stays an empty node (no dead card, no fake balance — the honesty law). wireCredits
       // fetches the real balance + history and the external purchase link; buying opens a browser tab, never an in-app form.
@@ -7467,18 +7629,17 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
          be three equal rows plus a fold, which read as four questions a newcomer had to answer. */
       '<div class="set-sub"><span class="set-sub-k">ON ITS OWN</span><span class="set-sub-d">what it does while you are away</span></div>' +
       '<div class="set-themes" id="auto-init">' +
-        '<button class="set-theme" data-init="wait" title="nothing runs unless you ask">WAIT</button>' +
-        '<button class="set-theme" data-init="propose" title="lines up suggestions you approve — never acts on its own">SUGGEST</button>' +
-        '<button class="set-theme" data-init="leash" title="does a few small grounded jobs a day on its own">BUILD</button>' +
-        '<button class="set-theme" data-init="free" title="picks &amp; does work toward your goals while you’re away">FREE</button>' +
+        // rung names come from INITIATIVE_RUNGS (the ONE table trust offers and PERMISSIONS notices read too)
+        INITIATIVE_RUNGS.map(r => '<button class="set-theme" data-init="' + r.id + '" data-tip="' + esc(r.tip) + '">' + esc(r.label) + '</button>').join('') +
       '</div>' +
       '<p class="mc-hint">The three answers in PERMISSIONS set this too.</p>' +
       '<details class="cf-group set-fold" id="auto-direction-fold"><summary><h4 class="ms-h">FINE-TUNE <span class="dim">— how far, how often, and where</span></h4></summary>' +
       '<div class="set-sub"><span class="set-sub-k">REACH</span><span class="set-sub-d">how far an unattended action may go</span></div>' +
       '<div class="set-themes" id="auto-reach">' +
-        '<button class="set-theme" data-reach="observe" title="read / research only — writes nothing">OBSERVE</button>' +
-        '<button class="set-theme" data-reach="sandbox" title="build &amp; write locally — nothing leaves the machine">SANDBOX</button>' +
-        '<button class="set-theme" data-reach="reach" title="the highest rung: unattended actions may leave the machine — send, publish, or contact external services">SEND &amp; PUBLISH</button>' +
+        '<button class="set-theme" data-reach="observe" data-tip="read / research only — writes nothing">OBSERVE</button>' +
+        // LOCAL ONLY (org pass 10-14): "sandbox" read as a restriction, not as "stays on this machine"; the stored value is unchanged
+        '<button class="set-theme" data-reach="sandbox" data-tip="build &amp; write locally — nothing leaves the machine">LOCAL ONLY</button>' +
+        '<button class="set-theme" data-reach="reach" data-tip="the highest rung: unattended actions may leave the machine — send, publish, or contact external services">SEND &amp; PUBLISH</button>' +
       '</div>' +
       '<div class="set-sub"><span class="set-sub-k">PACE</span><span class="set-sub-d">how many unattended jobs per day</span></div>' +
       '<div class="set-themes" id="auto-pace">' +
@@ -7580,7 +7741,8 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       '<h4 class="ms-h">EACH CREW MEMBER <span class="dim">— give one agent a different answer</span></h4>' +
       '<div class="perm-list" id="perm-crew"></div>' +
       // ── ALWAYS-YES — what you already said ALWAYS to. Visible: a revocation you cannot find is not revocable.
-      '<h4 class="ms-h">STANDING APPROVALS <span class="dim">— things you said ALWAYS to</span></h4>' +
+      // its tip says what happens to an ask nobody answers (org P02), filled from the sidecar's own timeout (consentTipText)
+      '<h4 class="ms-h" id="perm-standing-h" data-tip="' + esc(consentTipText(null)) + '">STANDING APPROVALS <span class="dim">— things you said ALWAYS to</span></h4>' +
       '<p class="set-about perm-lede" id="perm-status" aria-live="polite">checking standing approvals…</p>' +
       '<div class="key-list perm-grants" id="perm-grants"></div>' +
       // ── ADVANCED — ONE fold, never a fold inside a fold. The override's EFFECT is never hidden (glance + rows).
@@ -7617,7 +7779,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       // MODELS — the ordered FALLBACK CHAIN (P0-3). The primary model is chosen live in the COMMS model dock; this
       // sets what the loop tries NEXT if that model fails mid-run. Persisted server-side + applied live to every run
       // path (browser, cron, channels); env SKYNET_FALLBACK_MODELS is the default until you save one here.
-      '<h4 class="ms-h">Backup models <span class="dim">— tried in order if your primary model fails</span></h4>' +
+      '<h4 class="ms-h">FALLBACK MODELS <span class="dim">— tried in order if your primary model fails</span></h4>' +
       '<p class="set-about">Choose your primary model in COMMS. If it fails mid-run because of availability, authentication, billing, or rate limits, StarNet tries this list from top to bottom. Saved models use your OpenRouter connection, or your StarNet connection when StarNet is the primary provider. <b>An empty list disables fallback.</b> Model changes appear in COMMS and the logbook.</p>' +
       '<div class="mc-form" id="fbc-form">' +
         '<div id="fbc-list" class="mc-list-fb"><div class="dim">reading chain…</div></div>' +
@@ -7831,7 +7993,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       '<div id="diag-build" class="dim" style="margin-top:6px;font-size:11px" hidden></div>' +
       // CLEAR NOTIFICATIONS moved to the NOTIFICATIONS section (where it belongs); this is now just the about note.
       '<h4 class="ms-h">ABOUT</h4>' +
-      '<p class="set-about">STARNET — gamified AI-agent harness.<br>Theme, display & audio preferences are saved locally on this machine. Manage planned tasks on the TASK BOARD and saved conversations under SESSIONS in COMMS.</p>';
+      '<p class="set-about">STARNET — gamified AI-agent harness.<br>Theme, display & audio preferences are saved locally on this machine. Manage planned tasks under MY WORK › TASKS and saved conversations under SESSIONS in COMMS.</p>';
 
     // Keep every control mounted and reachable; group existing nodes without replacing their IDs.
     function arrangeSettingsPane(el) {
@@ -7955,7 +8117,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     let paintBackdropSwatches = () => {};
 
     const sections = [
-      { id: 'providers', label: 'AI & MODELS', glyph: '⌁', desc: 'Connect an AI service, manage its saved credentials, and choose backup models and defaults for new agents.', build: frag(secProviders + secModels) },
+      { id: 'providers', label: 'AI & MODELS', glyph: '⌁', desc: 'Connect an AI service, manage its saved credentials, and choose fallback models and defaults for new agents.', build: frag(secProviders + secModels) },
       // ONE WORD: AUTONOMY — the dial and what it did while you were away are one section (the old NIGHT SHIFT
       // section folded in; openTerm maps its id here so an old deep link still lands).
       { id: 'autonomy', label: 'AUTONOMY', glyph: '◈', desc: 'Choose when agents work on their own, where that work goes, and see what they did while you were away.', build: frag(secAutonomy + secAwayActivity) },
@@ -7971,8 +8133,8 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       { id: 'notifs', label: 'ALERTS', glyph: '◔', desc: 'What pings you while you work, and whether it chimes.', build: frag(secNotifs) },
       // STARNET REMOTE: pair a phone and drive the station from anywhere (app/remote-devices.js owns the pane)
       { id: 'remote', label: 'REMOTE', glyph: '▯', desc: 'Pair your phone and control this station from anywhere.', build: el => { if (typeof RemoteDevices !== 'undefined') RemoteDevices.mount(el, arrangeSettingsPane); else el.textContent = 'Remote is not available in this build.'; } },
-      // BROWSER: where the station browser lives — built-in / a Chrome window / your Chrome (app/outputbrowser.js owns the pane)
-      { id: 'browser', label: 'BROWSER', glyph: '◎', desc: 'Where the station browser runs: inside StarNet, as its own Chrome window, or in your own Chrome.', build: el => {
+      // BROWSER: where the station browser lives — built-in / a Chrome window (YOUR CHROME is not offered yet; app/outputbrowser.js owns the pane)
+      { id: 'browser', label: 'BROWSER', glyph: '◎', desc: 'Where the station browser runs: inside StarNet, or as its own Chrome window.', build: el => {
         if (typeof OutputBrowser !== 'undefined' && OutputBrowser.mountSettings) OutputBrowser.mountSettings(el, arrangeSettingsPane);
         // SAVED SIGN-INS: STEP-IN is no longer a standing dock button, so the sign-ins it keeps get a door here
         const row = mkEl('div', 'set-row');
@@ -8193,7 +8355,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
             const why = (v.reasons && v.reasons.length) ? v.reasons.join(', ') : 'armed background work';
             lifeDesc.textContent = 'Right now, closing the window KEEPS the station running in the background (' + why + '). Quit fully from the tray icon. Otherwise closing would fully quit.';
           } else {
-            lifeDesc.textContent = 'Right now, nothing is armed — closing the window fully quits StarNet (no background process). Arm a routine, connect a channel, or set autonomy to BUILD or FREE to keep it running while closed.';
+            lifeDesc.textContent = 'Right now, nothing is armed — closing the window fully quits StarNet (no background process). Arm a routine, connect a channel, or set ON ITS OWN to ' + initiativeLabel('leash') + ' or ' + initiativeLabel('free') + ' in SETTINGS › AUTONOMY to keep it running while closed.';
           }
         }).catch(() => { lifeDesc.textContent = 'Closing the window keeps the station running only when armed work needs it — otherwise it fully quits.'; });
       };
@@ -8566,8 +8728,12 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
           const ledger = (ledgerRes && Array.isArray(ledgerRes.entries)) ? ledgerRes.entries : [];
           const drafts = (draftsRes && Array.isArray(draftsRes.drafts)) ? draftsRes.drafts : [];
           let rep; try { rep = NightReport.compose({ status, ledger, drafts, awaySince, nowMs: now, tzOffsetMin: tzMin() }); } catch (_) { rep = null; }
+          // the exact readiness counts (call #57): the awakening readout gives one plain reason, so the N-of-M numbers
+          // live HERE — straight from the same status read, '' once the station is hot (never an invented line).
+          const readyLine = NightReport.readinessText ? NightReport.readinessText(status && status.readiness) : '';
           if (!rep || !rep.hasReport) {
-            nsReport.innerHTML = '<p class="set-about">no report to show — autonomy recorded no acts or declines in the last 24h.</p>';
+            nsReport.innerHTML = '<p class="set-about">no report to show — autonomy recorded no acts or declines in the last 24h.</p>' +
+              (readyLine ? '<div class="set-row"><span class="dim">' + esc(readyLine) + '</span></div>' : '');
             return;
           }
           const lines = [];
@@ -8576,6 +8742,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
           for (const l of (rep.actLines || [])) lines.push(l);
           for (const l of (rep.declineLines || [])) lines.push(l);
           if (rep.idleReason) lines.push(rep.idleReason);
+          if (readyLine) lines.push(readyLine);
           nsReport.innerHTML = lines.map(l => '<div class="set-row"><span class="dim">' + esc(l) + '</span></div>').join('');
           // surfaced → mark the drafts seen so the live unseen-drafts nudge won't re-announce them.
           try {
@@ -8587,9 +8754,9 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
         });
       };
       if (nsReportBtn) nsReportBtn.addEventListener('click', () => { renderLastReport(); sfx('click'); });
-      // Re-setting the dial / a LEVEL click is the (silent) act that LIFTS a durable E-STOP halt
-      // (handleAutonomyPosture → clearHalt) — re-read the status shortly after so the ⛔ HALTED card clears
-      // (or appears) from the ROUTE's truth, never from an optimistic guess.
+      // An ON ITS OWN rung or a PERMISSIONS posture click LIFTS a durable E-STOP halt (handleAutonomyPosture → clearHalt;
+      // REACH and PACE never do, org P06) and AutonomyStore says "Automation resumed" when the route reports haltLifted —
+      // re-read the status shortly after so the ⛔ HALTED card clears (or appears) from the ROUTE's truth, never a guess.
       host.querySelectorAll('#auto-init [data-init], #auto-reach [data-reach], #auto-pace [data-pace]')
         .forEach(b => b.addEventListener('click', () => { setTimeout(refreshPanel, 600); }));
       // a PERMISSIONS posture sets the level too (the old level row's job) — its cards are repainted wholesale, so
@@ -8603,6 +8770,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     if (typeof PermissionsStore !== 'undefined' && PermissionsStore.snapshot) {
       // (the four-rung unattended ladder that used to sit here lives in AUTONOMY only; a posture still sets it)
       const grantsWrap = host.querySelector('#perm-grants'), permStatus = host.querySelector('#perm-status');
+      paintConsentTip(host);
       const plabel = (k) => (typeof Permissions !== 'undefined' && Permissions.catalogLabel) ? Permissions.catalogLabel(k) : k;
       const pcurated = () => (typeof Permissions !== 'undefined' && Permissions.grantableKeys) ? Permissions.grantableKeys() : [];
       const repaintDial = () => {
@@ -8774,16 +8942,24 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
         )).then(res => {
           const done = res.filter(r => r.ok).length;
           return Promise.resolve(PermissionsStore.setLevel(P.level))
-            .then(() => ({ done: done, of: present.length }))
+            // levelSet = the store's own re-derived level now IS this answer's — the notice may name the rung only then
+            .then(snap => ({ done: done, of: present.length, levelSet: !!(snap && snap.level === P.level) }))
             .catch(() => ({ done: done, of: present.length, levelFailed: true }));
         });
+        // the ON ITS OWN rung a posture's level lands on (level → autonomy preset → initiative), by the dial's own
+        // label — '' when the engines are not loaded; named only when the store confirms the level (r.levelSet), never assumed.
+        const postureRung = (P) => {
+          const plan = (typeof Permissions !== 'undefined' && Permissions.levelPlan) ? Permissions.levelPlan(P.level) : null;
+          const preset = plan && typeof Autonomy !== 'undefined' && Autonomy.presetById ? Autonomy.presetById(plan.preset) : null;
+          return preset ? initiativeLabel(preset.initiative) : '';
+        };
         const run = (btn, P) => {
           btn.disabled = true;
           apply(P).then(r => {
             refreshExecutionProfiles(); repaintPerm(); repaintDial();
             notify(!r.done
               ? (present.length ? 'nothing changed — the station kept its previous settings' : 'no crew to change — summon an agent first')
-              : r.done + ' of ' + r.of + ' crew set to ' + P.label + (r.levelFailed ? ' — the unattended level could not be saved' : ''),
+              : r.done + ' of ' + r.of + ' crew set to ' + P.label + (r.levelFailed ? ' — the unattended level could not be saved' : (r.levelSet && postureRung(P) ? ' — also set ON ITS OWN to ' + postureRung(P) : '')),
               (!r.done || r.levelFailed) ? 'bad' : (P.id === 'open' ? 'warn' : 'good'));
           });
         };
@@ -8884,7 +9060,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
           const badge = effFull ? 'FULL POWER' : (AP ? AP.label : 'CUSTOM');
           const stateLine = overridden
             ? 'whole-station override is ON · ' + (AP ? 'returns to ' + AP.label : 'returns to its custom mix') + ' when it is off'
-            : (AP ? AP.agentBlurb : (full ? 'never asks · ' : 'asks first · ') + p.short);
+            : (AP ? AP.agentBlurb : full ? 'full power · the whole local computer' : 'asks first · ' + p.short);
           const postureChips = STATION_POSTURES.map(P =>
             '<button class="ov-vchip pc-posture' + (AP && AP.id === P.id ? ' sel' : '') + (P.id === 'open' ? ' danger' : '') + '" data-agent-posture="' + P.id + '" data-agent="' + esc(String(a.id)) + '"' +
               ' title="' + esc(P.agentBlurb) + '" aria-pressed="' + (AP && AP.id === P.id ? 'true' : 'false') + '"' + (can && canAsk ? '' : ' disabled') + '>' + esc(P.label) + '</button>').join('');
@@ -8897,7 +9073,10 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
               '<span class="pc-caret" aria-hidden="true">▸</span>' +
             '</summary>' +
             '<div class="ov-vchips pc-chips pc-posture-chips">' + postureChips + '</div>' +
-            (AP ? '' : '<p class="pc-plain">A custom mix — it reaches <b>' + esc(p.plainLabel.toLowerCase()) + '</b> and ' + (full ? 'never asks' : 'asks before risky steps') + '. Pick an answer above to reset it, or fine-tune below.</p>') +
+            (AP ? '' : '<p class="pc-plain">A custom mix — ' + (full
+              // approvalMode 'full' is the whole local computer (unrestrictedHostNow): the saved reach limits nothing, so it is never named as a limit
+              ? 'it has <b>full power</b> over the whole local computer; the saved reach below does not limit it'
+              : 'it reaches <b>' + esc(p.plainLabel.toLowerCase()) + '</b> and asks before risky steps') + '. Pick an answer above to reset it, or fine-tune below.</p>') +
             '<details class="mc-adv pc-exact"' + (permExactOpen.has(String(a.id)) || id === 'remote-ssh' ? ' open' : '') + ' data-exact-agent="' + esc(String(a.id)) + '"><summary>More options — exact reach, asking, sandbox</summary>' +
             '<div class="pc-axis">' +
               '<span class="pc-q">CAN REACH</span>' +
@@ -9424,6 +9603,14 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     if (store.notifs.length !== before) save();
   }
   const isWaiting = n => n.kind === 'needs' && !n.done;
+  /* ONE NEEDS YOU (org P01): NOTIFICATIONS › NEEDS YOU renders the rail's live list (needsyou.js NeedsYou.items — every ask,
+     approval, STEP-IN, extension, build decision, quest confirmation, loop review and failure, each read from its own
+     source), so its count, Dismiss and OPEN are the rail's. A stored entry whose wait a live row already shows (an
+     approval or question by its prompt, STEP-IN, extensions, loop reviews) is not listed or counted twice; any other
+     stored wait (a finished reply that asked a question) stays in the history below, still counted on the bell. */
+  const liveNeeds = () => (typeof NeedsYou !== 'undefined' && NeedsYou.items) ? NeedsYou : null;
+  const liveCovered = n => isWaiting(n) && !!(n.prompt || n.key === 'extensions-pending' || n.key === 'loops-review' || /^stepin-/.test(String(n.key || '')));
+  const shownInHistory = n => !(liveNeeds() ? liveCovered(n) : isWaiting(n));
   function buildNotifs(body) {
     pruneLegacyNotifs();
     reapDeadPrompts();
@@ -9432,14 +9619,17 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     if (backfilled) save();
     // NEEDS YOU first (an agent is waiting on you — stays until it's answered or the run ends), then everything
     // that finished or went wrong, newest first. Every entry with a destination is a door: click = go there.
-    const waiting = store.notifs.filter(isWaiting).reverse();
-    const rest = store.notifs.filter(n => !isWaiting(n));
-    const unread = rest.filter(n => !n.read).length;
+    const NY = liveNeeds();
+    const live = NY ? NY.items() : [];
+    const waiting = NY ? [] : store.notifs.filter(isWaiting).reverse();   // (no live list on this page: the stored entries)
+    const nWaiting = NY ? live.length : waiting.length;
+    const rest = store.notifs.filter(shownInHistory);
+    const unread = rest.filter(n => !n.read && !isWaiting(n)).length, restWaiting = rest.filter(isWaiting).length;
     const rows = rest.slice().reverse().filter(n => notifView !== 'unread' || !n.read);
     const row = (n, i) => {
       const sev = severityOf(n.cls);
       const door = !!(n.go && (n.go.ws || n.go.term));
-      const tag = n.kind === 'needs' ? (n.done ? 'Handled' : 'Waiting on you') : (n.kind === 'result' ? 'Finished' : 'Alert');
+      const tag = n.kind === 'needs' ? (n.done ? 'Handled' : 'NEEDS YOU') : (n.kind === 'result' ? 'Finished' : 'Alert');
       return '<div class="nf ' + esc(n.cls || '') + ' sev-' + sev + ' nf-k-' + esc(n.kind || 'alert') + (n.read ? ' read' : '') + (door ? ' nf-door' : '') + '" style="--ci:' + i + '" data-nid="' + esc(n.id) + '"' +
         (door ? ' role="button" tabindex="0" title="Open where this happened"' : '') + '>' +
         '<span class="nf-sev" aria-hidden="true">' + esc(SEV_GLYPH[sev]) + '</span>' +
@@ -9448,13 +9638,24 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
         (door ? '<span class="nf-go">OPEN ▸</span>' : '') + '</div>' +
         '<button class="nf-x" data-nid="' + esc(n.id) + '" title="Dismiss notification" aria-label="Dismiss ' + esc(n.txt) + '">✕</button></div>';
     };
+    // a live NEEDS YOU row: the rail's own line, its OPEN, and Dismiss only where the rail has one (failed work)
+    const liveRow = (it, i) => {
+      const dis = NY.canDismiss(it);
+      return '<div class="nf warn sev-warn nf-k-needs nf-door nf-live" style="--ci:' + i + '" data-ny-key="' + esc(it.key) + '" role="button" tabindex="0" data-tip="Open where this waits">' +
+        '<span class="nf-sev" aria-hidden="true">' + esc(SEV_GLYPH.warn) + '</span>' +
+        '<div class="nf-copy"><div class="nf-meta"><span class="nf-kind">NEEDS YOU</span>' + (it.since ? '<span class="nf-ts">' + notifStamp(it.since) + '</span>' : '') + '</div>' +
+        '<span class="nf-txt">' + esc(it.who + ' ' + NY.lineOf(it) + ' · in ' + it.where) + '</span><span class="nf-go">OPEN ▸</span></div>' +
+        (dis ? '<button class="nf-x" data-ny-dismiss="' + esc(it.key) + '" data-tip="Dismiss: it leaves NEEDS YOU here and on the rail" aria-label="Dismiss ' + esc(it.who + ' ' + it.what) + '">✕</button>' : '') + '</div>';
+    };
+    const needsRows = NY ? live.map(liveRow) : waiting.map(row);
+    const needsHtml = needsRows.length ? '<section class="nf-needs"><h4 class="ms-h">NEEDS YOU <span class="dim">— ' + needsRows.length + ' waiting</span></h4><div class="nf-list nf-list-needs">' + needsRows.join('') + '</div></section>' : '';
     body.innerHTML = '<header class="utility-head"><h2>Notifications</h2><p>What needs you, and what finished or went wrong while you were elsewhere. Click one to go there.</p></header>' +
-      (waiting.length ? '<section class="nf-needs"><h4 class="ms-h">NEEDS YOU <span class="dim">— ' + waiting.length + ' waiting</span></h4><div class="nf-list nf-list-needs">' + waiting.map(row).join('') + '</div></section>' : '') +
+      needsHtml +
       '<div class="nf-toolbar"><div class="utility-tabs" role="group" aria-label="Show notifications">' +
       // the counts include NEEDS YOU (shown above, in both views): "New" is the bell badge's own number, never fewer than the
       // rows on screen (self-driving lane 5 — it read "All · 0" with waiting rows listed, and New disagreed with the bell)
-      '<button type="button" data-nf-view="all" aria-pressed="' + (notifView === 'all') + '">All · ' + (rest.length + waiting.length) + '</button>' +
-      '<button type="button" data-nf-view="unread" aria-pressed="' + (notifView === 'unread') + '">New · ' + (unread + waiting.length) + '</button></div>' +
+      '<button type="button" data-nf-view="all" aria-pressed="' + (notifView === 'all') + '">All · ' + (rest.length + nWaiting) + '</button>' +
+      '<button type="button" data-nf-view="unread" aria-pressed="' + (notifView === 'unread') + '">New · ' + (unread + restWaiting + nWaiting) + '</button></div>' +
       '<button class="bb sm" id="nf-clear"' + (!unread ? ' disabled' : '') + '>MARK ALL READ</button></div>' +
       '<div class="nf-list">' + (rows.length ? rows.map(row).join('') : '<div class="empty-state"><span class="es-glyph">▮</span><b>' + (notifView === 'unread' ? 'You’re all caught up' : 'Nothing yet') + '</b><span>' + (notifView === 'unread' ? 'Switch to All to see earlier ones.' : 'When an agent needs your OK, or work finishes while you’re elsewhere, it lands here.') + '</span></div>') + '</div>';
     body.querySelectorAll('[data-nf-view]').forEach(b => b.addEventListener('click', () => {
@@ -9464,12 +9665,23 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     body.querySelector('#nf-clear').addEventListener('click', () => {
       store.notifs.forEach(n => { if (!isWaiting(n)) n.read = true; }); save(); rerender('notifs'); badges(); sfx('click');
     });
-    body.querySelectorAll('.nf.nf-door').forEach(el => {
+    body.querySelectorAll('.nf.nf-live').forEach(el => {
+      // a session door steps NOTIFICATIONS aside with a way back (as a stored entry's go.ws does); a window door (STEP-IN,
+      // EXTENSIONS, DELIVERABLES, QUESTS, GOAL LOOPS) only opens its window and keeps the focus there (as go.term does)
+      const go = () => { sfx('click'); const did = NY && NY.openKey(el.dataset.nyKey); if (did && did.conversation && open.notifs) workConversation('notifs'); };
+      el.addEventListener('click', go);
+      el.addEventListener('keydown', ev => { if (ev.target === el && (ev.key === 'Enter' || ev.key === ' ')) { ev.preventDefault(); go(); } });
+    });
+    body.querySelectorAll('[data-ny-dismiss]').forEach(b => b.addEventListener('click', ev => {
+      ev.stopPropagation();
+      if (NY && NY.dismissKey(b.dataset.nyDismiss)) { badges(); rerender('notifs'); sfx('click'); }
+    }));
+    body.querySelectorAll('.nf.nf-door:not(.nf-live)').forEach(el => {
       const go = () => { const n = store.notifs.find(x => x.id === el.dataset.nid); if (n) { sfx('click'); openNotif(n); } };
       el.addEventListener('click', go);
       el.addEventListener('keydown', ev => { if (ev.target === el && (ev.key === 'Enter' || ev.key === ' ')) { ev.preventDefault(); go(); } });
     });
-    body.querySelectorAll('.nf-x').forEach(b => b.addEventListener('click', ev => {
+    body.querySelectorAll('.nf-x[data-nid]').forEach(b => b.addEventListener('click', ev => {
       ev.stopPropagation();
       store.notifs = store.notifs.filter(x => x.id !== b.dataset.nid);
       save(); badges(); rerender('notifs'); sfx('click');
@@ -9483,19 +9695,30 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     let marked = 0;
     store.notifs.forEach(n => { if (!isWaiting(n) && !n.read) { n.read = true; marked++; } });
     const saved = save(); rerender('notifs'); badges();
-    return { marked, waiting: store.notifs.filter(isWaiting).length, saved };
+    return { marked, waiting: liveWaitingCount(), saved };
   }
   function notifsClear() {
     const keep = store.notifs.filter(isWaiting), cleared = store.notifs.length - keep.length;
     store.notifs = keep;
     const saved = save(); badges(); rerender('notifs');
-    return { cleared, waiting: keep.length, saved };
+    return { cleared, waiting: liveWaitingCount(), saved };
   }
+  // what is waiting on the Commander right now: the live NEEDS YOU list + any stored wait it does not cover (else, on a
+  // page without the live list, the stored entries)
+  function liveWaitingCount() {
+    const NY = liveNeeds();
+    return NY ? NY.items().length + store.notifs.filter(x => x && isWaiting(x) && !liveCovered(x)).length : store.notifs.filter(isWaiting).length;
+  }
+  let lastLiveShape = null;
+  // The bell counts unread finished/alert entries AND adds the live NEEDS YOU count — never one in place of the other.
   function badges() {
     reapDeadPrompts();
-    const n = store.notifs.filter(x => x && x.kind && (isWaiting(x) || !x.read)).length;
+    const NY = liveNeeds();
+    const n = store.notifs.filter(x => x && x.kind && shownInHistory(x) && (isWaiting(x) || !x.read)).length + (NY ? NY.items().length : 0);
+    // the open NOTIFICATIONS window follows the live list (an ask answered on the rail, a STEP-IN handed back)
+    if (NY && NY.listShape) { const sh = NY.listShape(); if (lastLiveShape !== null && sh !== lastLiveShape && open.notifs) rerender('notifs'); lastLiveShape = sh; }
     const b = $('#nf-badge');
-    if (b) { b.textContent = n || ''; b.style.display = n ? 'inline-block' : 'none'; }
+    if (b) { const t = n ? String(n) : ''; if (b.textContent !== t) b.textContent = t; const d = n ? 'inline-block' : 'none'; if (b.style.display !== d) b.style.display = d; }
   }
 
   /* ============== periodic + save dot ============== */
@@ -9841,7 +10064,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
         door.appendChild(go); el.appendChild(door);
         addCards(['goals', 'pain', 'ambition'])(el);
       } },
-      { id: 'preferences', label: 'PREFERENCES', glyph: '≡', desc: 'How you like to work, your standing instructions, and your schedule.', build: addCards(['style', 'standing_orders', 'schedule']) },
+      { id: 'preferences', label: 'PREFERENCES', glyph: '≡', desc: 'How you like to work, your standing orders (every agent follows these), and your schedule.', build: addCards(['style', 'standing_orders', 'schedule']) },
       { id: 'briefing', label: 'AGENT BRIEFING', glyph: '▤', desc: 'See the exact profile text included in your agents’ briefing.', build: el => {
         el.appendChild(mkEl('p', 'cd-privacy', 'Your profile is stored locally. Its briefing is sent to each agent’s configured model when it works; relevant summaries may also be used for suggestions.'));
         el.appendChild(cdBriefing(ds));
@@ -10478,7 +10701,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
   }
 
   // The three progression tracks stay deliberately separate:
-  //   AGENT GROWTH = explicit feedback XP (the existing meter below)
+  //   STATION XP = explicit feedback XP, station-wide (stationPrestigeHtml; each agent's own share lives in its dossier's GROWTH)
   //   COMMANDER JOURNEY = real-world goal metrics + verified outcomes
   //   STATION EVOLUTION = expressive history of distinct goals reached, never a capability gate
   function journeyHtml() {
@@ -10705,7 +10928,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     if (QSS && QSS.sync) { try { QSS.sync(); } catch (_) {} }   // never render a stale diff — the log always reflects the memory it just folded
     const v = (typeof QuestStore !== 'undefined' && QuestStore.view) ? QuestStore.view() : null;
     if (!v) { body.innerHTML = '<p class="dim">Quest log unavailable.</p>'; return; }
-    const m = v.meter, all = Array.isArray(v.quests) ? v.quests : [];
+    const all = Array.isArray(v.quests) ? v.quests : [];
     const qs = (QSS && QSS.visible) ? QSS.visible(all) : all;   // dismissed = gone forever (degrades to the raw list if the store is absent)
     /* THE GOAL ARC IS RENDERED AS A TRACK, NOT AS CARDS. Its header + milestone steps are pulled out of the
        card grid here and drawn by questTrackHtml as one continuous path at the top of the panel. They are
@@ -10817,9 +11040,8 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
         + '<div class="sub">' + esc(q.status === 'done' ? ('▸ ' + q.reward) : q.desc) + '</div>'
         + cwHtml + (q.status === 'done' ? '' : rewardHtml) + attestHtml + declineHtml + actionRow + lifeActions + '</div>';
     };
-    const meterHtml = m
-      ? '<div class="gx-sec"><span class="gx-title">AGENT GROWTH</span> <span class="gx-tag">Lv ' + m.level + ' &middot; ' + m.pct + '% to next</span> <button type="button" class="bb xs" data-open-growth>OPEN IN THE DOSSIER</button></div>'
-      : '';
+    // (org pass 10-14, P28: the 'AGENT GROWTH Lv N' meter that sat here was Xp.compute(stationStats) — the SAME number as
+    // STATION XP above it, under a second, false name. It is gone; each agent's own growth stays in its dossier's GROWTH.)
     // G4 feature 2 — PROPOSALS: pending autojob proposals the agent pinned to the MISSION BOARD. A distinct
     // amber card with APPROVE (→ the real POST /api/cron) / DECLINE (→ dropped forever). Rendered above OPEN so
     // the "the agent wants to run this for you" ask reads first. Only shown when the ledger has cards.
@@ -10838,9 +11060,10 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       : '';
     const milestoneDone = milestones.filter(q => q.status === 'done').length;
     const milestonesHtml = milestones.length
-      ? '<details class="q-milestones q-progress-section"><summary><span>Station milestones</span><span class="q-section-count">' + milestoneDone + ' / ' + milestones.length + '</span></summary>'
-        + '<div class="q-section-body"><div class="gx-tros q-grid q-milestone-grid">' + milestones.map(tro).join('') + '</div>'
-        + '<p class="q-trophy-door"><button type="button" class="bb xs" data-open-trophies>OPEN THE TROPHY CASE</button></p></div></details>'
+      // folded, with the TROPHY CASE door on the summary row itself so it is reachable without unfolding (org pass 10-14, P28)
+      ? '<details class="q-milestones q-progress-section"><summary><span>MILESTONES</span><span class="q-section-count">' + milestoneDone + ' / ' + milestones.length + '</span>'
+        + '<button type="button" class="bb xs q-trophy-door" data-open-trophies>OPEN THE TROPHY CASE ▸</button></summary>'
+        + '<div class="q-section-body"><div class="gx-tros q-grid q-milestone-grid">' + milestones.map(tro).join('') + '</div></div></details>'
       : '';
     // Selection is presentation state only. Keep it on the stable window body across background data pokes;
     // if a selected quest completes/disappears, fall back to the first remaining quest in this category.
@@ -10874,10 +11097,10 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
         + (open.length ? 'Choose another category to find your next action.' : 'Set a direction or refresh your quests when you are ready for what comes next.') + '</p></div>')
       + '</section></div>';
     const questViews = [
-      ['available', 'Now', 'Your next move, open work, and station quests.'],
-      ['goals', 'Goals', 'Define what you want to achieve long term, then choose a goal to focus on. Its plan breaks the goal into smaller steps.'],
-      ['progress', 'Progress', 'Your recorded progress across all goals: planned steps, tracked metrics, and earned achievements.'],
-      ['completed', 'History', 'Your goals, results, reflections, and changes of direction.']
+      ['available', 'NOW', 'Your next move, open work, and station quests.'],
+      ['goals', 'GOALS', 'Define what you want to achieve long term, then choose a goal to focus on. Its plan breaks the goal into smaller steps.'],
+      ['progress', 'PROGRESS', 'Your recorded progress across all goals: planned steps, tracked metrics, and earned achievements.'],
+      ['completed', 'HISTORY', 'Your goals, results, reflections, and changes of direction.']
     ];
     body.classList.add('quests-content');
     body.innerHTML = '<div class="gx gx-quests">'
@@ -10894,7 +11117,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       + '</section><section id="q-view-goals" class="q-view-panel q-journal-planning" role="tabpanel" aria-labelledby="q-tab-goals">'
       + questTrackHtml(arcs) + lifeGoalsHtml() + '<details class="q-refresh-options"><summary>Quest suggestions <span class="q-section-note">Direction &amp; refresh</span></summary>' + questRefreshHtml() + '</details>'
       + '</section><section id="q-view-progress" class="q-view-panel q-journal-progress" role="tabpanel" aria-labelledby="q-tab-progress">'
-      + systemsHtml() + journeyHtml() + stationPrestigeHtml() + milestonesHtml + meterHtml
+      + systemsHtml() + journeyHtml() + stationPrestigeHtml() + milestonesHtml
       + '</section><section id="q-view-completed" class="q-view-panel q-journal-history" role="tabpanel" aria-labelledby="q-tab-completed">'
       + journeyChaptersHtml() + '<div class="gx-tros q-grid q-done">' + (done.map(tro).join('') || '<div class="q-journal-empty"><h3>No completed quests yet</h3><p>Finished quests and their results will appear here.</p></div>') + '</div></section></div>';
     // Stable field identities keep a background refresh from transplanting a draft into another chapter.
@@ -11393,7 +11616,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     // (TERM_ALIAS). UPDATES stays its own SYSTEM-dock window (Andrew's call — an update is a
     // check-it-now surface, not a setting).
     updates:  ['UPDATE CENTER',          buildUpdates,   {}],
-    tasks:    ['TASK BOARD',             buildTasks,     { console: true, className: 'tasks-win' }],   // three kanban lanes side by side
+    tasks:    ['TASKS',                  buildTasks,     { console: true, className: 'tasks-win' }],   // three kanban lanes side by side
     // DELIVERABLES is console-WIDE (a project rail beside the cards needs the room) and holds a STEADY height for
     // the same reason the dossier does: a never-moved window is CSS-centred, so a content-fit box would re-centre
     // itself every time a card's details drawer opens — the row you just clicked would slide out from under you.
@@ -11444,6 +11667,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     // live core state (read-only views — never reassign through these)
     get present() { return present; },
     get sel() { return sel; },
+    skillsAgentId,   // ORG P21: the agent the ABILITIES skills lane shows — the BUILT-IN ABILITIES picker opens on the same one
     get deskAgentId() { return deskAgentId; },
     get store() { return store; }
   };
@@ -11472,14 +11696,15 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
         const k = b.dataset.term, def = BUILDERS[k];
         if (def) toggleTerm(k, def[0], def[1], def[2]);
       }));
-    // ONE PROGRESS HOME doors: an agent's GROWTH points at the station's progress, the station's progress at an agent's
-    // GROWTH and at the TROPHY CASE (until now reachable only by clicking its prop on the floor)
+    // ONE PROGRESS HOME doors: an agent's GROWTH points at the station's progress, the station's progress at the TROPHY CASE
+    // (until now reachable only by clicking its prop on the floor). The TROPHY CASE door rides a <summary>: its click must
+    // not also fold the milestones.
     document.addEventListener('click', ev => {
-      const b = ev.target && ev.target.closest && ev.target.closest('[data-open-progress],[data-open-growth],[data-open-trophies]');
+      const b = ev.target && ev.target.closest && ev.target.closest('[data-open-progress],[data-open-trophies]');
       if (!b || !b.closest('#terms')) return;
+      if (b.closest('summary')) ev.preventDefault();
       sfx('click');
       if (b.hasAttribute('data-open-progress')) openTerm('quests', 'progress');
-      else if (b.hasAttribute('data-open-growth')) openTerm('agents', 'growth');
       else openTerm('trophies');
     });
     // ONE MENU dock buttons (MY WORK / AUTOMATE / CONNECT): open the menu's last-used tab
@@ -11530,10 +11755,50 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     if (sib && !windowDirty(open[sib])) { swapInPlace(sib, () => toggleTerm(key, def[0], def[1], def[2])); return; }
     toggleTerm(key, def[0], def[1], def[2]);
   }
+  /* org P03 — an error door lands ON the provider's card, not at the top of a long AI & MODELS page. Opens the
+     section, scrolls the card to the top of the pane (the CONFIG jump's offsetTop landing, never scrollIntoView's
+     minimum scroll) and marks it for a moment. `signin` presses the card's own ⏼ SIGN IN / ⏼ RECONNECT — the same
+     prov-oauth-signin flow a click starts; on a card that shows no such key (a sign-in still listed as connected) it
+     starts that same card flow itself (startCardSignin), so a RECONNECT door always reconnects.
+     The section can paint a beat after openTerm, so the card is looked up again for up to ~3s. */
+  function focusProvider(pid, opts) {
+    const o = opts || {};
+    const id = String(pid || '').replace(/[^a-z0-9_-]/gi, '');
+    openTerm('settings', 'providers');
+    if (!id) return;
+    let tries = 0, pressed = false;
+    const until = Date.now() + 4000;
+    const land = () => {
+      const w = open.settings;
+      const card = w && w.querySelector('.prov-card[data-provider="' + id + '"]');
+      if (!card) { if (++tries < 12) setTimeout(land, 250); return; }
+      const pane = card.closest('.con-pane');
+      if (pane) pane.scrollTop = Math.max(0, card.offsetTop - pane.offsetTop - 8);
+      card.classList.add('prov-landed');
+      setTimeout(() => card.classList.remove('prov-landed'), 2400);
+      // a sign-in door RUNS the sign-in: the card's own key when it shows one, else the same card flow directly — a
+      // RECONNECT door can name a sign-in the station still lists as connected (a mid-run 401 the sidecar has not
+      // marked expired yet), and that card shows no key to press. The flow's box is drawn from state, so the
+      // first-open repaints below can't lose its code.
+      if (o.signin && !pressed) {
+        pressed = true;
+        const b = card.querySelector('[data-act="prov-oauth-signin"]'); if (b) b.click(); else if (isOAuthProvider(id)) startCardSignin(id);
+      }
+      // the first open of Settings starts background checks whose answers repaint the whole window (a fresh pane at the
+      // top); while the landing is new, a repaint that replaced this card lands on the new one instead of the top
+      const stay = () => {
+        if (Date.now() > until || !open.settings) return;
+        if (!card.isConnected) { land(); return; }
+        setTimeout(stay, 200);
+      };
+      setTimeout(stay, 200);
+    };
+    land();
+  }
 
   // Following work should uncover the destination and preserve the source's scroll/draft.
   // Reuse the window manager's suspension, never destroy a form to follow a link.
-  const WORK_LABELS = { tasks: 'TASK BOARD', deliverables: 'DELIVERABLES', agents: 'AGENT RECORD', notifs: 'NOTIFICATIONS' };
+  const WORK_LABELS = { tasks: 'TASKS', deliverables: 'DELIVERABLES', agents: 'AGENT DOSSIER', notifs: 'NOTIFICATIONS' };   // display words only (org P30): the keys stay
   let workTrail = [];
   function navigateWork(from, to, section, back) {
     const alias = TERM_ALIAS[to];
@@ -11724,7 +11989,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
   // GROWTH Tier 3: repaint the Settings AUTONOMY panel's EARNED badge if it is open (no-op otherwise — the paint fn
   // queries its own (possibly detached) host nodes, so a closed panel costs nothing). Called after a trust accept.
   const repaintAutonomy = () => { try { if (repaintAutonomyDial) repaintAutonomyDial(); } catch (_) {} };
-  return { init, enter, setRoster, leave, clearRunning, runningCount: () => runningAgents.size, isAgentRunning: (id) => agentLive(id), notify, warnIfStationLacksKey, settleNotifs, waitingNotifKeys, seenSession, flashSave, openAgent, refreshCrew: () => crewTick(), openArcade, toggleTerm, openTerm, showTerm, showAgent, notifsMarkRead, notifsClear, openDesk, closeTerm, rerender, refreshBoard: refreshBoardLive, pokeQuests, setTheme, getTheme, setLook, lookNow, lookOptions, repaintAutonomy, refreshSystems, toggleFamily, familyOf, registerWindow, h, motionRestState, reseatToasts };
+  return { init, enter, setRoster, leave, clearRunning, runningCount: () => runningAgents.size, isAgentRunning: (id) => agentLive(id), notify, warnIfStationLacksKey, settleNotifs, waitingNotifKeys, seenSession, flashSave, openAgent, refreshCrew: () => crewTick(), openArcade, toggleTerm, openTerm, focusProvider, showTerm, showAgent, notifsMarkRead, notifsClear, badges, openDesk, closeTerm, rerender, refreshBoard: refreshBoardLive, pokeQuests, setTheme, getTheme, setLook, lookNow, lookOptions, repaintAutonomy, initiativeLabel, accessPostures: () => STATION_POSTURES.map(P => Object.assign({}, P)), refreshSystems, toggleFamily, familyOf, registerWindow, h, motionRestState, reseatToasts };
 })();
 
 if (typeof module !== 'undefined' && module.exports) module.exports = { visibleTerminalRect, clampTerminalSize };
