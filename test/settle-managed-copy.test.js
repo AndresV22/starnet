@@ -115,7 +115,7 @@ const harness = (status) => {
   assert.equal(dRow.children.length, 3, 'no COUNT AS: a damaged line recorded no limit');
   dRow.children[2].click(); await tick();
   assert.equal(dm.posts.length, 0, 'a blank charge is never booked as $0');
-  assert.match(dm.node('#budget-spend').textContent, /— a line of your spend record is damaged, so what it recorded is unknown, so your spending limits can’t be checked\. Settle it below/, dm.node('#budget-spend').textContent);
+  assert.match(dm.node('#budget-spend').textContent, /— a line of your spend record is damaged \(what it recorded is unknown\), so your spending limits can’t be checked\. Settle it below/, dm.node('#budget-spend').textContent);
   dRow.children[1].value = '0.3'; dRow.children[2].click(); await tick();
   assert.match(dm.node('#budget-msg').textContent, /damaged record line settled/, dm.node('#budget-msg').textContent);
   const mixed = harness({ ...st, unsettled: [damagedLine, st.unsettled[1]] }); await tick();

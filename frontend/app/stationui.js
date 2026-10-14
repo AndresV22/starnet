@@ -6764,7 +6764,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
         // an unreadable line of the spend record (kind 'damaged') is not a run: say what it is
         const damagedLines = open ? st.unsettled.filter(r => r && r.kind === 'damaged').length : 0;
         const missing = damagedLines === open
-          ? (open === 1 ? 'a line of your spend record is damaged, so what it recorded is unknown' : open + ' lines of your spend record are damaged, so what they recorded is unknown')
+          ? (open === 1 ? 'a line of your spend record is damaged (what it recorded is unknown)' : open + ' lines of your spend record are damaged (what they recorded is unknown)')
           : evals === open
           ? (open === 1 ? 'a skill evaluation run has no recorded price' : open + ' skill evaluation runs have no recorded price')
           : damagedLines ? open + ' items in your spend history have no recorded charge'
