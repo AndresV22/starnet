@@ -9323,7 +9323,16 @@ const Build = (() => {
     keyUp: (key) => { onKeyUp({ key, preventDefault() {} }); return { alt: altOn() }; },
     pick: (t) => { commitDropPick(t); return { pick: !!dropPick }; },
     // one synchronous frame (the hidden preview pane never fires requestAnimationFrame)
-    frame: () => { if (running) frame(performance.now()); return root ? root.dataset.renderState : null; },
+    // (it takes over the pending frame: frame() schedules the next one itself, so a harness calling this never stacks
+    //  a second requestAnimationFrame chain — every extra chain re-ran the whole frame per vsync and faked a slowdown)
+    frame: () => {
+      if (running) {
+        if (raf) cancelAnimationFrame(raf), raf = 0;
+        if (frameRetryTimer) clearTimeout(frameRetryTimer), frameRetryTimer = 0;
+        frame(performance.now());
+      }
+      return root ? root.dataset.renderState : null;
+    },
     // the build feel (2026-10-01): what is landing / dissolving right now — CDP proof reads these mid-animation
     feel: () => ({ landing: [...landings.keys()], vanishing: vanishing.length, selected: selectedPropId }),
     // MANY AT ONCE: the ids selected right now (one, a group, or none)
