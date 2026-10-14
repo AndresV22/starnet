@@ -23,6 +23,7 @@
 .dlv-review .ob-title { font-size: 21px; letter-spacing: .2px; }
 .dlv-review .ob-title b { white-space: normal; overflow-wrap: anywhere; font-weight: normal; }
 .dlv-review .ob-desc { font-size: 16px; line-height: 1.45; margin-top: 8px; opacity: 1; }
+.ob-desc:empty { display: none; }   /* (P11 polish 2) a card with nothing real to say under its title takes no room there */
 .dlv-review .ob-meta { font-size: 13px; letter-spacing: .2px; margin-top: 10px; }
 .dlv-review .ob-body { padding: 16px 18px 18px; background: rgba(0,0,0,.12); }
 .dlv-review .ob-sec { font-size: 12px; letter-spacing: .7px; margin: 16px 0 8px; }

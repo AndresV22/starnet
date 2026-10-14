@@ -44,14 +44,16 @@
     /* ONE CLEAN HEADING (org pass 10-14, P12 polish): '▾ TO REVIEW 3' on one line, like every other section heading — the count
        is its own number, not buried mid-sentence — and what the list holds is a dim note UNDER it, never a hanging paragraph */
     const reviewNote = 'Away runs and workflow jobs waiting for your rating — they’re already in the library below. Chats are rated in COMMS.';
-    const markLabel = n => '✓ MARK ALL REVIEWED · ' + n;
+    // the count sits after ALL, idle and armed alike ('✓ MARK ALL 3 REVIEWED' → 'MARK ALL 3 REVIEWED — SURE?'), the way the
+    // toolbar's CLEAR ALL 3 carries its own (P12 polish 2)
+    const markLabel = n => '✓ MARK ALL ' + n + ' REVIEWED';
     const RS = (typeof ReturnStore !== 'undefined') ? ReturnStore : null;
     const rows = (RS && RS.pendingRows) ? RS.pendingRows() : [];
     mounted.add(body);
     body.hidden = !rows.length;
     body.innerHTML =
       '<h4 class="ms-h dlv-review-h"><button type="button" class="dlv-review-tog" aria-expanded="true"><span class="ob-caret-all" aria-hidden="true">▾</span> <span class="dlv-review-lbl">TO REVIEW</span> <span class="dlv-review-n">' + rows.length + '</span></button>' +
-        '<button type="button" class="bb sm ob-clearall" data-tip="Takes every run off this list without a rating — the work stays in your library">' + markLabel(rows.length) + '</button></h4>' +
+        '<button type="button" class="bb sm ob-clearall" data-tip="Takes every run off this list without a rating — the work stays in your library.">' + markLabel(rows.length) + '</button></h4>' +
       '<p class="dim dlv-review-note">' + reviewNote + '</p>' +
       '<div id="ob-list" class="ob-list"></div>' +
       '<button type="button" class="bb sm ob-showall" hidden></button>' +
@@ -122,9 +124,10 @@
         const j = await Harness.api.get('/api/deliverables?includeCleared=1');   // a crate whose library card was cleared keeps its files
         for (const it of ((j && j.items) || [])) {
           if (!it || !it.runId) continue;
-          const cur = byRun.get(it.runId) || { agentId: it.agentId, runId: it.runId, files: [], main: '' };
+          const cur = byRun.get(it.runId) || { agentId: it.agentId, runId: it.runId, files: [], main: '', summary: '' };
           for (const f of (it.files || [])) if (f && f.path && !cur.files.some(x => x.path === f.path)) cur.files.push(f);
           if (it.main && !cur.main) cur.main = it.main;
+          if (it.summary && !cur.summary) cur.summary = String(it.summary);   // the agent's own one-line note for the glance
           byRun.set(it.runId, cur);
         }
       } catch (_) {}                                      // library unreachable → drawers simply omit FILES (never invented)
@@ -152,7 +155,10 @@
       row.innerHTML =
         '<div class="ob-head" role="button" tabindex="0" aria-expanded="false">' +
           '<div class="ob-title">◷ <b></b><span class="ob-caret">▸</span></div>' +
-          '<div class="ob-desc">Open to read this run’s result.</div>' +
+          // (P11 polish 2) no filler under the title: every card read 'Open to read this run’s result.', three copies of one
+          // sentence. The line stays empty (and takes no room) until the library's own summary for this run — or, once
+          // opened, the run's reply — fills it.
+          '<div class="ob-desc"></div>' +
           '<div class="ob-meta">' + esc(agentName(rw.agentId)) + ' · ' + when + usd + '</div>' +
         '</div>' +
         '<div class="ob-body" hidden>' +
@@ -169,6 +175,8 @@
         '</div>';
       row.querySelector('.ob-title b').textContent = provisionalTitle;
       list.appendChild(row);
+      // the glance line: the library's summary of this run, when it filed one (never invented)
+      dlvJoin.then(m => { const d = m.get(rw.runId); const el = row.querySelector('.ob-desc'); if (d && d.summary && el && !el.textContent) el.textContent = firstLine(plain(d.summary), 150); }, () => {});
       // Load expanded work only, scoped by durable run identity before the transcript page limit.
       let reading = false, loaded = false;
       const readResult = async () => {
