@@ -540,6 +540,33 @@ const imageReply = png => jsonResp({ choices: [{ message: { images: [{ image_url
         A.ok(message.length < 600, tag + ': displayed error bounded');
       }
     }
+    // Synthetic error envelopes: exercise original-only and augmented prompt echoes through the real tool path.
+    const campaignPrompt = 'private-campaign-marker';
+    const referenceName = 'issue118-reference.png';
+    await fsp.writeFile(path.join(ROOT, 'hero', referenceName), logo);
+    const referenceUrl = 'data:image/png;base64,' + logo.toString('base64');
+    const transparencySuffix = ' Render the subject alone on a fully transparent background (PNG with an alpha channel): no backdrop, no scenery and no checkerboard pattern.';
+    const referencePrefix = 'Match the attached reference image: the same art style, colour palette, lighting and overall concept. ';
+    for (const [tag, transparent, withReference] of [['transparent', true, false], ['reference', false, true], ['combined', true, true]]) {
+      const dispatchedPrompt = (withReference ? referencePrefix : '') + campaignPrompt + (transparent ? transparencySuffix : '');
+      for (const echoedPrompt of [campaignPrompt, dispatchedPrompt]) {
+        for (const output of ['issue118-existing.png', 'issue118-missing.png']) {
+          let message = '', renewals = 0, usageCalls = 0;
+          const beforeEmits = emits.length;
+          const echoFetch = stubFetch(() => ({ status: 400, text: async () => JSON.stringify({ error: { message: 'echo=' + echoedPrompt + (withReference ? ' reference=' + referenceUrl : '') } }) }));
+          const echoTool = makeImageTools({ openrouter: { provider: 'codex', protocol: 'codex-responses', apiKey: privateKey, getToken: async () => jwt, renewToken: async () => { renewals++; return jwt; } }, fsp, pathMod: path, root: ROOT, fetchImpl: echoFetch, onUsage: () => { usageCalls++; } });
+          try { await echoTool.generateTool.run({ prompt: campaignPrompt, transparent, reference: withReference ? referenceName : undefined, path: output }, ctx); } catch (e) { message = String(e.message); }
+          A.eq(message, 'ChatGPT 400: echo=[redacted-secret]' + (withReference ? ' reference=[redacted-secret]' : ''), tag + ': original and augmented prompt echoes are fully redacted');
+          A.eq([echoFetch.calls.length, renewals, usageCalls, emits.length - beforeEmits], [1, 0, 0, 0], tag + ': no retry, billing fallback, booking or publication');
+          const request = echoFetch.calls[0];
+          A.eq([request.url, request.body.model, request.body.tools], ['https://chatgpt.com/backend-api/codex/responses', 'gpt-5.5', [{ type: 'image_generation', output_format: 'png', partial_images: 1, model: 'gpt-image-2', size: '1024x1024', quality: 'medium', background: transparent ? 'transparent' : 'opaque' }]], tag + ': route and hosted image parameters unchanged');
+          A.eq(request.body.input[0].content, [{ type: 'input_text', text: dispatchedPrompt }].concat(withReference ? [{ type: 'input_image', image_url: referenceUrl }] : []), tag + ': dispatched augmented prompt and reference bytes unchanged');
+          A.eq(await fsp.readFile(existingPath, 'utf8'), 'original image bytes', tag + ': failure cannot overwrite existing output');
+          A.ok(!fssync.existsSync(missingPath), tag + ': failure cannot create absent output');
+          A.ok((await fsp.readFile(path.join(ROOT, 'hero', referenceName))).equals(logo), tag + ': reference file unchanged');
+        }
+      }
+    }
     const rawSensitive = stubFetch(() => ({ status: 400, text: async () => 'not JSON: ' + jwt + ' acct-1 ' + privateKey + ' ' + privatePrompt }));
     let rawMessage = '';
     try { await makeImageTools({ openrouter: { provider: 'codex', protocol: 'codex-responses', apiKey: privateKey, getToken: async () => jwt }, fsp, pathMod: path, root: ROOT, fetchImpl: rawSensitive }).generateTool.run({ prompt: privatePrompt, path: 'issue118-existing.png' }, ctx); } catch (e) { rawMessage = String(e.message); }

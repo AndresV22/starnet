@@ -493,7 +493,7 @@
     // the publish path below stays one path. No usage is booked: the plan is flat-rate, and the host chat model's
     // token counts would otherwise be priced at API rates the user never pays. refUrl: a reference image (data URL)
     // rides the user turn as an input_image part.
-    async function codexImagePost(tool, prompt, timeoutMs, parentSignal, refUrl) {
+    async function codexImagePost(tool, prompt, timeoutMs, parentSignal, refUrl, originalPrompt) {
       checkCancelled(parentSignal);
       if (!getCodexToken) throw new Error('STUDIO image generation is unavailable: the ChatGPT sign-in is not connected. Open SETTINGS and sign in to ChatGPT, or connect an OpenAI or OpenRouter API key, then retry; no image was produced.');
       const userContent = [{ type: 'input_text', text: prompt }];
@@ -515,7 +515,7 @@
           .then(async r => ({ status: r.status, text: await r.text() })), timeoutMs, parentSignal || deps.signal);
       };
       let token = await getCodexToken();
-      const errorSecrets = [token, jwtAccountId(token), apiKey, prompt, refUrl];
+      const errorSecrets = [token, jwtAccountId(token), apiKey, prompt, originalPrompt, refUrl];
       let res = await send(token);
       // The server is the authority on expiry (codex.js renewToken law): one renew + retry on a 401.
       if (res.status === 401 && renewCodexToken) { checkCancelled(parentSignal); token = await renewCodexToken(token); errorSecrets.push(token, jwtAccountId(token)); res = await send(token); }
@@ -609,7 +609,7 @@
         if (isCodex) {
           // the hosted tool takes the Images API's own parameters; quality is pinned (see CODEX_IMAGE_QUALITY)
           data = await codexImagePost({ model, size: openAIImageSize(shape), quality: CODEX_IMAGE_QUALITY, background: transparent ? 'transparent' : 'opaque' },
-            refPrompt, GEN_TIMEOUT_MS, signal, ref ? ref.url : '');
+            refPrompt, GEN_TIMEOUT_MS, signal, ref ? ref.url : '', prompt);
         } else if (protocol === 'openai-images') {
           const body = { model, prompt: genPrompt, size: openAIImageSize(shape) };
           // gpt-image models take transparency as a parameter (gpt-image-2: preview since 2026-08-20). Alpha needs
