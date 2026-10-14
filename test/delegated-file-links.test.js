@@ -51,11 +51,20 @@ const links = body => { const out = []; const walk = n => { for (const c of n.ch
   A.eq(links(body).length, 1, 'linking again never wraps a link twice');
 }
 {
-  const body = el('span', 'body', ['STRATEGY — wrote notes/plan.md; ', el('code', 'md-code', ['tagline.md']), ' and ', el('a', '', ['tagline.md']), ' and mytagline.md and tagline.mdx and tagline.md.bak and (tagline.md)']);
+  const body = el('span', 'body', ['STRATEGY — wrote notes/plan.md; ', el('code', 'md-code', ['npm run tagline.md']), ' and ', el('a', '', ['tagline.md']), ' and mytagline.md and tagline.mdx and tagline.md.bak and (tagline.md)']);
   I.linkMentions(body, files);
   const ls = links(body);
-  A.eq(ls.map(a => a.textContent).join(','), 'notes/plan.md,tagline.md', 'a path links whole; code, links, longer names and other files stay text: ' + ls.map(a => a.textContent).join(','));
+  A.eq(ls.map(a => a.textContent).join(','), 'notes/plan.md,tagline.md', 'a path links whole; other code, links, longer names and other files stay text: ' + ls.map(a => a.textContent).join(','));
   A.eq(ls[0].dataset.dgProject, 'C:/proj', 'a project file opens in its project');
+}
+{
+  // LIVE (10-14 re-walk): the lead wrote "saved it to `tagline.md`." — a code span that IS the saved file's name
+  const code = el('code', 'md-code', ['tagline.md']);
+  const body = el('span', 'body', [el('span', 'md-p', ['Done. COPY saved it to ', code, '.'])]);
+  I.linkMentions(body, files);
+  const ls = links(body);
+  A.ok(ls.length === 1 && ls[0].childNodes[0] === code && ls[0].dataset.dgFile === 'tagline.md', 'a backticked saved-file name stays code-styled and becomes the link');
+  A.eq(body.textContent, 'Done. COPY saved it to tagline.md.', 'and the sentence still reads as written');
 }
 
 // ---- the wiring ----

@@ -457,9 +457,28 @@ const Delegated = (() => {
     const names = Array.from(files.keys()).sort((a, b) => b.length - a.length);
     // a whole name: not inside a longer word or path, and a trailing "." only as the end of a sentence
     const re = new RegExp('(^|[^\\w./\\\\-])(' + names.map(reEsc).join('|') + ')(?=$|[^\\w./\\\\-]|\\.(?!\\w))', 'g');
+    const fileLink = f => {
+      const a = document.createElement('a');
+      a.className = 'md-file dg-file-ref'; a.setAttribute('href', '#');
+      a.setAttribute('data-dg-file', f.path); a.setAttribute('data-dg-agent', f.agentId); a.setAttribute('data-dg-project', f.projectRoot);
+      a.setAttribute('data-tip', 'open ' + f.path);
+      return a;
+    };
     const visit = node => {
       for (const c of Array.from(node.childNodes || [])) {
-        if (c.nodeType === 1) { if (!/^(A|CODE|PRE|BUTTON)$/.test(c.tagName) && !(c.classList && c.classList.contains('md-code'))) visit(c); continue; }
+        if (c.nodeType === 1) {
+          // models backtick the files they name ("saved it to `tagline.md`"): an inline code span that IS a saved file's
+          // name stays code-styled and becomes the link (the house rule for a code span that is a URL); any other code,
+          // a fenced block, a link or a key is left alone
+          const isCode = c.tagName === 'CODE' || (c.classList && c.classList.contains('md-code'));
+          if (isCode && files.get(String(c.textContent || '').trim())) {
+            const a = fileLink(files.get(String(c.textContent || '').trim()));
+            node.insertBefore(a, c); node.removeChild(c); a.appendChild(c);
+            continue;
+          }
+          if (!isCode && !/^(A|PRE|BUTTON)$/.test(c.tagName) && !(c.classList && (c.classList.contains('md-pre') || c.classList.contains('md-pre-wrap')))) visit(c);
+          continue;
+        }
         if (c.nodeType !== 3 || !c.nodeValue) continue;
         const v = c.nodeValue; let last = 0, m, hit = false;
         re.lastIndex = 0;
@@ -467,10 +486,7 @@ const Delegated = (() => {
           const at = m.index + m[1].length, name = m[2], f = files.get(name);
           if (!f) continue;
           if (at > last) node.insertBefore(document.createTextNode(v.slice(last, at)), c);
-          const a = document.createElement('a');
-          a.className = 'md-file dg-file-ref'; a.setAttribute('href', '#');
-          a.setAttribute('data-dg-file', f.path); a.setAttribute('data-dg-agent', f.agentId); a.setAttribute('data-dg-project', f.projectRoot);
-          a.setAttribute('data-tip', 'open ' + f.path);
+          const a = fileLink(f);
           a.appendChild(document.createTextNode(name));
           node.insertBefore(a, c);
           last = at + name.length; hit = true;
