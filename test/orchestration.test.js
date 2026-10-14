@@ -306,6 +306,8 @@ const tick = () => new Promise(resolve => setImmediate(resolve));
     A.eq(out.summary, 'resumed', 'team.resume restarts the interrupted worker');
     await tick(); await tick();
     A.eq(ro.calls[0].maxIters, 7, 'resumed worker receives the configured iteration cap');
+    // a resumed worker runs on in the background past the resuming lead's turn, so its asks must outlive that turn too
+    A.eq(ro.calls[0].detachedConsent, true, "a RESUMED background worker's asks are detached from the lead's turn");
     A.eq(ro.calls[0].dispatchDelivery.state, 'pending', 'resumed execution is provisional until validated');
     A.eq(finalized.length, 1, 'resumed worker finalizes once');
     A.eq(finalized[0].id, ro.calls[0].runId, 'resumed finalization belongs to the current generation run');

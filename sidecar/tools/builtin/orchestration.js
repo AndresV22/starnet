@@ -1397,6 +1397,9 @@
             parentRunId: ctx && ctx.runId, delegatedBy: (ctx && ctx.agentId) || '',
             trigger: 'directive', surface: 'autonomous',
             consent: ctx && ctx.consent,
+            // a resumed worker runs on in the background past the resuming lead's turn (subagents.resume returns at once),
+            // so its asks outlive that turn too (index.js askHuman) — the same as a fresh background dispatch
+            detachedConsent: true,
             // a worker the lead LENT the builder keeps it on resume, while the resuming lead can still build
             extraObjects: kitFor(rec.builder === true && canLendBuilder(ctx)),
             maxCostUsd: perWorker,
