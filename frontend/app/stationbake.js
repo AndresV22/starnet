@@ -824,6 +824,16 @@ const StationBake = (() => {
     c.height = Math.max(1, Math.ceil(h));
     return c;
   }
+  /* A SCRATCH THE BAKE ONLY READS BACK (2026-10-14, the busy-station walk: a room edit froze BUILD MODE 0.4-1.3 s and a
+     quarter of every chunk bake was getImageData — GPU round trips). The ownership raster and the alley silhouette are
+     painted only to be read (getImageData) and never drawn into a displayed canvas, so they live on the CPU, where a
+     readback is a copy. Only integer-aligned opaque fills, 1px corner rows and 1:1 copies go on them: those raster to the
+     same pixels on either backend. */
+  function readbackCanvas(w, h) {
+    const c = canvas(w, h);
+    c.getContext('2d', { willReadFrequently: true });
+    return c;
+  }
   function translatedContext(c) {
     const g = c.getContext('2d');
     g.imageSmoothingEnabled = false;
@@ -4292,7 +4302,7 @@ const StationBake = (() => {
     const rects = G.allRects;
     let own = null, tops = null;
     {
-      const idxCv = canvas(CW, CH2), ig = idxCv.getContext('2d');
+      const idxCv = readbackCanvas(CW, CH2), ig = idxCv.getContext('2d');
       ig.imageSmoothingEnabled = false;
       ig.save();
       ig.translate(-VX, -(VY - M));
@@ -4308,10 +4318,11 @@ const StationBake = (() => {
          ownership raster is what `maskTo` cuts every group back to, so a plate ring the silhouette
          keeps but ownership dropped would be masked straight back out and the corner would stay
          short. The two rasters must agree pixel for pixel or the fix is invisible. */
+      const one = readbackCanvas(CW, CH2), og = one.getContext('2d');   // one scratch, cleared per footprint
       rects.forEach((r, i) => {
         if (offCanvas(r)) return;
-        const one = canvas(CW, CH2), og = one.getContext('2d');
         og.imageSmoothingEnabled = false;
+        og.clearRect(0, 0, CW, CH2);
         og.save(); og.translate(-VX, -(VY - M));
         og.fillStyle = idxOf(i);
         og.fillRect(r.x1 * T - pad, r.y1 * T - pad, (r.x2 - r.x1 + 1) * T + pad * 2, (r.y2 - r.y1 + 1) * T + pad * 2);
@@ -4492,7 +4503,7 @@ const StationBake = (() => {
     const GAP = T * 5 + pad * 2;   // how far apart two hulls can be and still bound an alley run
     const M = GAP + pad;
     const w = CW + 2 * M, h = CH + 2 * M;
-    const sil = canvas(w, h);
+    const sil = readbackCanvas(w, h);
     const g = sil.getContext('2d');
     g.imageSmoothingEnabled = false;
     g.translate(-(VX - M), -(VY - M));
