@@ -58,7 +58,17 @@
   /* PHRASES (rc walk 10-14). A lead told to search "station builder" searched "station builder - create assembly lines and
      workflows": "create" is a whole tool NAME (app.create, loop.create), so those outscored every builder tool, whose
      descriptions carry "station builder" only as two weak words — and two of three real runs spent a second search. Two
-     adjacent words of the query (neither a stop word) that a description carries word for word score like an exact name. */
+     adjacent words of the query (neither a stop word) that a description's LEADING LABEL carries word for word score like an
+     exact name. The label only — the words before its first ':' when they are a heading of at most four words ("STATION
+     BUILDER, step 2"), never a sentence: scored anywhere in a description, "every assembly line" in station.layout's text
+     buried the builder for "build an assembly line", and "previous page" revealed the 13 KB station.plan beside browser.back
+     (review, measured on the real browser + station shelf: test/toolsearch.phrases-real.test.js). */
+  function label(tool) {
+    const d = String((tool && tool.description) || '').toLowerCase(), i = d.indexOf(':');
+    if (i < 0) return '';
+    const head = d.slice(0, i);
+    return head.split(/[^a-z0-9_.]+/).filter(Boolean).length <= 4 ? head : '';
+  }
   function phrases(s) {
     const words = String(s == null ? '' : s).toLowerCase().split(/[^a-z0-9_.]+/).filter(Boolean), out = [];
     for (let i = 0; i + 1 < words.length; i++) {
@@ -78,7 +88,7 @@
     // a phrase weighs what its two words weigh; one no tool (or every tool) carries cannot discriminate either
     out.phrases = phrases(query).map(p => {
       let df = 0;
-      for (const t of pool) if (String(t.description || '').toLowerCase().indexOf(p) >= 0) df++;
+      for (const t of pool) if (label(t).indexOf(p) >= 0) df++;
       const [a, b] = p.split(' '), wa = (out.find(x => x.q === a) || {}).w || 0, wb = (out.find(x => x.q === b) || {}).w || 0;
       return { p, w: (!df || df >= pool.length) ? 0 : wa + wb };
     }).filter(x => x.w);
@@ -99,7 +109,8 @@
       if (desc.indexOf(q) >= 0) base += 4;
       s += base * w;
     }
-    for (const { p, w } of weighted.phrases || []) if (desc.indexOf(p) >= 0) s += 100 * w;
+    const head = (weighted.phrases || []).length ? label(tool) : '';
+    for (const { p, w } of weighted.phrases || []) if (head.indexOf(p) >= 0) s += 100 * w;
     return s;
   }
 

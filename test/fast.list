@@ -809,6 +809,7 @@ test/prop-starter-shelf.test.js
 test/waitanchor.test.js
 test/harness.integration.test.js
 test/toolsearch.test.js
+test/toolsearch.phrases-real.test.js
 test/consent.interactive.test.js
 test/consentwait.test.js
 test/page-closed-line.test.js
