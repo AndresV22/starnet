@@ -153,8 +153,8 @@ const card = (fns, st, outboxId) => { const b = { innerHTML: '', querySelector: 
   const say = strip(fns.onwardNote());
   A.ok(/^ When it finishes cleanly it is sent on to LINE B: that line’s crew starts a job of its own on the result, at its own cost\.$/.test(say), 'the send box says the job goes on to LINE B, at that line\'s own cost — ' + say);
   const box = strip(fns.sendDynHTML(null));
-  A.ok(/lands in the OUTBOX and in DELIVERABLES\. When it finishes cleanly it is sent on to LINE B/.test(box), 'SEND IT DOWN THE LINE says it — ' + box);
-  A.ok(/body = '<p class="wf-help">Your test job runs through the line for real, end to end: real agents, real cost, and the result lands in the <b>OUTBOX<\/b> and in <b>DELIVERABLES<\/b> like any job\.' \+ onwardNote\(\) \+ '<\/p>'/.test(A.fnBody(panel, 'function testPickerHTML(s)')), 'RUN ONE REAL JOB says it too');
+  A.ok(/lands in this line’s OUTBOX and is also filed in DELIVERABLES\. When it finishes cleanly it is sent on to LINE B/.test(box), 'SEND IT DOWN THE LINE says it — ' + box);
+  A.ok(/body = '<p class="wf-help">Your test job runs through the line for real, end to end: real agents, real cost, and the result lands in this line’s <b>OUTBOX<\/b> and is also filed in <b>DELIVERABLES<\/b>, like any job\.' \+ onwardNote\(\) \+ '<\/p>'/.test(A.fnBody(panel, 'function testPickerHTML(s)')), 'RUN ONE REAL JOB says it too');
   // the result card
   const key = compA.key, view = { ok: true, stages: ['AG'], usd: 0.01, reply: 'x' }, runs = [{ runId: 'r1', dockId: a.bays[1], agentId: 'ag', reason: 'done', usd: 0.01 }];
   const world = { lineName: id => (id === plan0.lineOfProp[b.intake] ? 'LINE B' : null) };
@@ -185,7 +185,7 @@ const card = (fns, st, outboxId) => { const b = { innerHTML: '', querySelector: 
   let say = strip(fns.onwardNote());
   A.ok(/^ Its SEND TO LINE B is set, but nothing will be sent on: LINE B has no agent on its first BAY yet\.$/.test(say), 'an uncrewed target: the send box says nothing will be sent on, and why — ' + say);
   A.ok(!/starts a job of its own/.test(say), '…never the promise of a paid job the station would refuse');
-  A.ok(/lands in the OUTBOX and in DELIVERABLES\. Its SEND TO LINE B is set, but nothing will be sent on: LINE B has no agent on its first BAY yet\./.test(strip(fns.sendDynHTML(null))), 'SEND IT DOWN THE LINE says it too');
+  A.ok(/lands in this line’s OUTBOX and is also filed in DELIVERABLES\. Its SEND TO LINE B is set, but nothing will be sent on: LINE B has no agent on its first BAY yet\./.test(strip(fns.sendDynHTML(null))), 'SEND IT DOWN THE LINE says it too');
   A.ok(/LINE B has no agent on its first BAY yet — nothing is sent on until it has one\./.test(strip(card(fns, st, a.outbox))), 'the OUTBOX card says the same refusal (one predicate)');
   for (const id of b.bays) st.assignPropAgent(id, 'ag_' + id);
   // the target's daily limit is spent

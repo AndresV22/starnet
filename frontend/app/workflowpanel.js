@@ -1921,7 +1921,7 @@ const WorkflowPanel = (() => {
       + (mine && mine.pending ? (mine.phase === 'post' ? 'POSTING LINE…' : 'THE JOB IS RIDING THE LINE…') : '▶ SEND A JOB') + '</button>'
       + (mine && mine.pending && mine.phase === 'run' && H.stopSample ? '<button type="button" class="bb sm" id="wf-send-stop"' + (mine.stopping ? ' disabled' : '') + ' data-tip="stop this job: the running step is cut off and nothing more runs — what already ran is counted">' + (mine.stopping ? 'STOPPING…' : '■ STOP') + '</button>' : '')
       + '</div>' + (mine && mine.pending && mine.phase === 'run' ? '<p class="wf-help wf-live" id="wf-send-live" role="status">' + esc(liveText(f)) + '</p>' : '')
-      + '<p class="wf-help dim">The whole line works on it for real — real agents, real cost — and the result lands in the OUTBOX and in DELIVERABLES.' + onwardNote() + '</p>'
+      + '<p class="wf-help dim">The whole line works on it for real — real agents, real cost — and the result lands in this line’s OUTBOX and is also filed in DELIVERABLES.' + onwardNote() + '</p>'
       + (mine && mine.view ? jobResultHTML(mine, f) : '');
   }
   // wire the SEND box's keys (again after paintLive rebuilt the region: one wiring per element)
@@ -2183,7 +2183,7 @@ const WorkflowPanel = (() => {
         + '<div class="wf-row"><button type="button" class="bb sm refit-primary" id="wf-st-go"' + (S.busy ? ' disabled' : '') + '>▶ START STEP-THROUGH</button></div>';
     } else {
       const sr = H.sampleState ? H.sampleState() : null, mine = sr && c && sr.key === c.key ? sr : null;   // the server's own verdict on the job, here
-      body = '<p class="wf-help">Your test job runs through the line for real, end to end: real agents, real cost, and the result lands in the <b>OUTBOX</b> and in <b>DELIVERABLES</b> like any job.' + onwardNote() + '</p>'
+      body = '<p class="wf-help">Your test job runs through the line for real, end to end: real agents, real cost, and the result lands in this line’s <b>OUTBOX</b> and is also filed in <b>DELIVERABLES</b>, like any job.' + onwardNote() + '</p>'
         + input
         + '<div class="wf-row"><button type="button" class="bb sm refit-primary" id="wf-real"' + (mine && mine.pending ? ' disabled' : '') + '>'
         + (mine && mine.pending ? (mine.phase === 'post' ? 'POSTING LINE…' : 'THE JOB IS RIDING THE LINE…') : '▶ SEND A REAL JOB') + '</button>'   // (org D4 polish) the cost is the sentence above it ('real agents, real cost'), never a suffix on one key

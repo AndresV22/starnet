@@ -321,20 +321,22 @@ const tick = () => new Promise(r => setTimeout(r, 15));
     A.ok(src.includes('scheduled and channel runs are filed in DELIVERABLES'), 'an empty LAST JOBS says where scheduled and channel runs are filed');
   }
 
-  /* ---------- org P14 (2026-10-14): a delivered job waiting for its rating says where it waits, and can be rated right here ---------- */
+  /* ---------- org P14 (2026-10-14; final round): a delivered job waiting for its rating is rated right here, and the view a floor OUTBOX
+     click opens never links on to DELIVERABLES (Andrew 10-03: "the outbox … should never link back to deliverables") ---------- */
   {
     const dj = { id: 'job-0123456789dd', line: line.key, name: line.name, text: 'three facts about the moon', status: 'delivered', runs: [{ runId: 'rp14', agentId: 'nova', reason: 'done', usd: 0.001 }], output: 'The moon…', usd: 0.001, notes: [], startedAt: 1, endedAt: 2 };
     const was = ctx.ReturnStore.pendingRows;
     ctx.ReturnStore.pendingRows = () => [{ runId: 'rp14', agentId: 'nova', title: 'three facts about the moon' }];
     const waiting = WW._resultHTML(line, dj), plain = waiting.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
-    A.ok(/<button type="button" class="wf-link" data-act="toreview"[^>]*>waiting in DELIVERABLES › TO REVIEW<\/button>/.test(waiting) && !/in the OUTBOX/.test(plain), 'a job still in TO REVIEW names it, as a door — never "in the OUTBOX": ' + plain.slice(0, 160));
+    A.ok(!/data-act="toreview"/.test(waiting) && !/DELIVERABLES/.test(plain) && !/in the OUTBOX/.test(plain), 'a job still in TO REVIEW carries no door on to DELIVERABLES (the OUTBOX\'s own page) and never says "in the OUTBOX": ' + plain.slice(0, 160));
     A.ok(/<div class="wfw-rate" data-rate-for="rp14"><\/div>/.test(waiting), '…and carries the rate host TO REVIEW mounts (Chat.awayRate) for its run');
     ctx.ReturnStore.pendingRows = () => [];
     const rated = WW._resultHTML(line, dj);
     A.ok(!/TO REVIEW/.test(rated) && !/wfw-rate/.test(rated), 'a job already rated (no pending row) says nothing about TO REVIEW and offers no rating');
     ctx.ReturnStore.pendingRows = was;
     A.ok(/Chat\.awayRate\(host, rw, clear\)/.test(src) && /ReturnStore\.resolve\(rw\.runId\)/.test(src), 'rating here resolves the same crate TO REVIEW holds (the windows/outbox.js path)');
-    A.ok(/\[data-act="toreview"\]', \(\) => \{[^\n]*navigateWork\('workflows', 'outbox'\)/.test(src), 'the door is the TO REVIEW deep link (the outbox key), with a ‹ back to WORKFLOWS');
+    A.ok(!/toreview/.test(src) && !/waiting in DELIVERABLES/.test(src), 'no TO REVIEW door and no handler for one anywhere in WORKFLOWS');
+    A.ok(src.includes('The result comes back here, lands in this line’s OUTBOX and is also filed in DELIVERABLES.'), 'the send helper says the result lands in this line\'s OUTBOX and is also filed in DELIVERABLES (one wording with the panel, g7 D7)');
   }
 
   /* ---------- org P17 (2026-10-14): WORKFLOWS and the Workflow panel use ONE word set for the same line ---------- */

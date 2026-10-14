@@ -649,7 +649,7 @@ const WorkflowsWindow = (() => {
     return '<section class="wfw-sec wfw-send"><h3>Send a job</h3>'
       + '<textarea id="wfw-job" class="wfw-field" rows="3" maxlength="2000" aria-label="The job for this workflow" placeholder="' + esc(exampleJob(l)) + '">' + esc(S.draft['job:' + l.key] || '') + '</textarea>'
       + '<div class="wf-row"><button type="button" class="bb refit-primary" data-act="send"' + (busy ? ' disabled' : '') + '>▶ SEND A JOB</button>'
-      + '<span class="wfw-note">' + (other ? 'Another workflow (' + esc(busy.name || 'a line') + ') is working on a job — one job runs at a time.' : 'Real agents do the work, at real cost. The result comes back here, on the OUTBOX and in DELIVERABLES.' + ((l.sendNames || []).length ? ' Then it ' + (l.sendsAll ? 'rides on' : 'can ride on') + ' to ' + esc(l.sendNames.join(' / ')) + ' — its crew, at its cost.' : '')) + '</span></div>'
+      + '<span class="wfw-note">' + (other ? 'Another workflow (' + esc(busy.name || 'a line') + ') is working on a job — one job runs at a time.' : 'Real agents do the work, at real cost. The result comes back here, lands in this line’s OUTBOX and is also filed in DELIVERABLES.' + ((l.sendNames || []).length ? ' Then it ' + (l.sendsAll ? 'rides on' : 'can ride on') + ' to ' + esc(l.sendNames.join(' / ')) + ' — its crew, at its cost.' : '')) + '</span></div>'
       + (S.msg ? '<p class="' + (S.msg.bad ? 'wfw-bad' : 'wfw-okline') + '">' + (S.msg.bad ? '✕ ' : '') + esc(S.msg.text) + '</p>' : '')
       + '</section>' + startsHTML(l) + '<section class="wfw-sec"><h3>Last jobs</h3>' + jobRows(l) + '</section>';
   }
@@ -711,7 +711,7 @@ const WorkflowsWindow = (() => {
     const st = stationOf(), runs = (job.runs || []).slice().reverse(), work = workOf(job.output), ok = job.status === 'delivered';
     const delivered = ok && (job.runs || [])[0];
     // the TO REVIEW row this delivered run still waits on (ReturnStore's ledger) — none once it was rated, or if it was never folded
-    const waitRow = delivered && delivered.runId && typeof ReturnStore !== 'undefined' && ReturnStore.pendingRows ? (ReturnStore.pendingRows().find(r => r && r.runId === delivered.runId) || null) : null, inOutbox = !!waitRow;
+    const waitRow = delivered && delivered.runId && typeof ReturnStore !== 'undefined' && ReturnStore.pendingRows ? (ReturnStore.pendingRows().find(r => r && r.runId === delivered.runId) || null) : null, waits = !!waitRow;
     // (a refusal counted on one record spans the refusals, not a run: no "took")
     const took = job.endedAt && job.startedAt && !(job.repeats > 1) ? secs(job.endedAt - job.startedAt) : '';
     const bad = runs.find(r => r.reason && r.reason !== 'done');
@@ -751,11 +751,12 @@ const WorkflowsWindow = (() => {
       + (job.sentTo ? (job.sentTo.refused ? '<p class="wfw-why wfw-sent warn">NOT sent on to ' + esc(lineWord(job.sentTo)) + ' — ' + esc(job.sentTo.refused) + '.'
           : '<p class="wfw-why wfw-sent">Sent on to ' + esc(lineWord(job.sentTo)) + ' — that line works on this result next.')
         + (job.sentTo.jobId ? ' <button type="button" class="wf-link" data-job="' + esc(job.sentTo.jobId) + '">OPEN ITS JOB</button>' : '') + '</p>' : '');
-    /* (org P14) a delivered job still waiting for its verdict says WHERE it waits — a door into DELIVERABLES › TO REVIEW, never "in the
-       OUTBOX" (the OUTBOX on the floor holds no verdict control) — and the same rate control TO REVIEW mounts sits under the result,
-       so rating it here clears it there too (Chat.awayRate + ReturnStore.resolve, exactly as windows/outbox.js does) */
-    let h = '<section class="wfw-sec wfw-result"><div class="wfw-rhead">' + head + '<span class="wfw-rmeta">' + esc(meta) + '</span>'
-      + (inOutbox ? '<button type="button" class="wf-link" data-act="toreview" data-tip="Opens DELIVERABLES at TO REVIEW, where finished work waits for your rating.">waiting in DELIVERABLES › TO REVIEW</button>' : '') + '</div>'
+    /* (org P14, final round) a delivered job still waiting for its verdict is rated RIGHT HERE: the same rate control TO REVIEW mounts
+       sits under the result, so rating it here clears it there too (Chat.awayRate + ReturnStore.resolve, exactly as windows/outbox.js
+       does). This is the view a floor OUTBOX click opens, so it never links on to DELIVERABLES (Andrew 10-03: "the outbox should only
+       show output of the specific conveyor system, it should never link back to deliverables") — the result is filed there as well,
+       but the OUTBOX's page holds only this line's work. */
+    let h = '<section class="wfw-sec wfw-result"><div class="wfw-rhead">' + head + '<span class="wfw-rmeta">' + esc(meta) + '</span></div>'
       + prov
       + (why ? '<p class="wfw-why">' + esc(why) + '</p>' : '')
       + work.notes.map(t => '<p class="wfw-why">⚠ ' + esc(t) + '</p>').join('')
@@ -772,7 +773,7 @@ const WorkflowsWindow = (() => {
       + (job.from ? '' : '<button type="button" class="bb refit-primary" data-act="again"' + (runningJob() ? ' disabled' : '') + '>↻ SEND IT AGAIN</button>')
       + '<button type="button" class="bb" data-act="newjob">+ NEW JOB</button>'
       + (job.from ? '<span class="wfw-note">To run it again, send ' + esc(lineWord(job.from)) + '’s job again — it hands its result on to this line.</span>' : '') + '</div>'
-      + (inOutbox ? '<div class="wfw-rate" data-rate-for="' + esc(waitRow.runId) + '"></div>' : '')
+      + (waits ? '<div class="wfw-rate" data-rate-for="' + esc(waitRow.runId) + '"></div>' : '')
       + (S.fix && S.fix.jobId === job.id && S.fix.open ? fixHTML(job, l) : '')
       + (prev ? '<details class="wf-more wfw-last"><summary>' + ((prev.notes || []).some(n => n.kind === 'fix' || n.kind === 'example') ? 'Last time, before your change' : 'Last time') + '</summary><div class="wf-io" data-md data-md-src="' + esc(workOf(prev.output).rest || '(empty)') + '">' + esc(workOf(prev.output).rest || '(empty)') + '</div></details>' : '')
       + (runs.length ? '<details class="wf-more wfw-steps"><summary>How each step did it</summary><div class="wf-steps">' + steps + '</div></details>' : '')
@@ -880,8 +881,6 @@ const WorkflowsWindow = (() => {
     on('[data-fix-use]', n => { if (S.job) useFix(S.job, +n.dataset.fixUse, false); });
     on('[data-fix-back]', n => { if (S.job) useFix(S.job, +n.dataset.fixBack, true); });
     on('[data-act="keep"]', () => { if (S.job) keepStyle(S.job); });
-    // (org P14) the door to where this job waits for its rating: DELIVERABLES › TO REVIEW (the 'outbox' key is that deep link)
-    on('[data-act="toreview"]', () => { sfx('click'); const h = H(); if (h && h.navigateWork) h.navigateWork('workflows', 'outbox'); else if (UI() && UI().openTerm) UI().openTerm('outbox'); });
     on('[data-act="unkeep"]', () => { if (S.job) putStyleBack(S.job); });
     mountRate();
     // each step's reply, read when its row is opened (and the result's own words drawn as COMMS draws them)
