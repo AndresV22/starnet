@@ -555,7 +555,7 @@ const WorkflowsWindow = (() => {
       + '<section class="wfw-sec"><h3>What should it make?</h3>'
       + '<textarea id="wfw-describe" class="wfw-field" rows="2" maxlength="600" placeholder="e.g. a weekly digest of AI news for my newsletter">' + esc(S.draft.describe || '') + '</textarea>'
       + '<div class="wf-row"><button type="button" class="bb refit-primary" data-act="draft"' + (dr && dr.state === 'asking' ? ' disabled' : '') + '>' + (dr && dr.state === 'asking' ? 'SETTING IT UP…' : '✦ SET IT UP FOR ME') + '</button>'
-      + '<span class="wfw-note">The station picks one of the ' + catalogLines().length + ' ready-made lines and writes its steps’ instructions — one short model call.</span></div>'
+      + '<span class="wfw-note">The station picks one of ' + catalogLines().length + ' ready-made workflows and writes each step’s instructions (one short model call).</span></div>'   // (org D11) this page's word, workflows
       + (dr && dr.state === 'error' ? '<p class="wfw-bad">✕ ' + esc(dr.error) + '</p>' : '')
       + '</section>'
       + '<section class="wfw-sec"><h3>Or pick one</h3><div class="wfw-tiles">' + tiles + '</div>'
