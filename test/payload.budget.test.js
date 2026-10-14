@@ -85,7 +85,8 @@ const HOST = '127.0.0.1';
    CREW IN THIS CHAT 2026-10-14 (rc walk: "bring two crew in" / "add them into this chat" went to team.dispatch): the
    [ORCHESTRATION] seat line (station.control group.add, never team.dispatch) and the steer in team_dispatch / team_summon's
    descriptions are paid for by tightening the SPAWN and YOUR TEAM lines and team_dispatch's own wording — no budget moved.
-   Measured: default 22,100 | fully 22,321 | crew 25,268 system chars; 61,334 / 61,334 / 66,164 tool bytes. */
+   Measured: default 22,093 | fully 22,314 | crew 25,261 system chars; 61,334 / 61,334 / 66,164 tool bytes (review round:
+   the seat line quotes "add them into this chat", paid for by a shorter team.steer clause). */
 const BUDGET = {
   'default-new-install': { systemChars: 22140, tools: 79, toolBytes: 61350 },
   'fully-granted-floor': { systemChars: 22360, tools: 79, toolBytes: 61350 },

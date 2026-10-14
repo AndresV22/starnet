@@ -22100,14 +22100,14 @@ async function runOnceCore(o) {
   // and so does the project workspace: computed once, shared verbatim by both briefings.
   const spawnLine = '\n• SPAWN temporary same-identity subagents with team.spawn for one-off parallel subtasks when no named specialist is needed. '
     + 'background:true makes them watchable: inspect/control them with team.subagents, team.interrupt and team.resume, and give a running one a mid-flight correction '
-    + 'or new information with team.steer (the id and generation from team.subagents) instead of interrupting and restarting it.';
+    + 'or new information with team.steer (the id and generation from team.subagents) instead of restarting it.';
   /* CREW IN THIS CHAT (rc walk 10-14, Haiku 4.5): "bring two crew in to help me write a launch post" and "add them into this
      chat" went to team.dispatch / team.summon — the chat never got them, and the lead said "Bringing COPY and STRATEGY into
      this chat" while dispatching. Seating crew here is station.control group.add (deferred, so the search words ride along).
      Only when this run holds it: the prompt never names a tool the run does not have. Paid for by the tighter SPAWN line
      above and YOUR TEAM line below (payload.budget). */
   const seatLine = resolved.tools.includes('station.control')
-    ? '\n• CREW IN THIS CHAT ("bring X in", "add them here"): station.control group.add (tool_search "group add"), never team.dispatch.' : '';
+    ? '\n• CREW IN THIS CHAT ("bring X in", "add them into this chat"): station.control group.add (tool_search "group add"), never team.dispatch.' : '';
   const crewConfigLine = '\n• CREW CONFIGURATION: use team.config to read Dossier documents, then team.configure to edit the requested agent by exact ID. '
     + 'A notebook entry does not update another agent\'s Purpose or standing orders. Report a change only after the tool confirms it was saved. '
     + 'Dossier Purpose and standing orders describe the ongoing role; Bay briefs add the workflow-stage job. '
