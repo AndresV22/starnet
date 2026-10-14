@@ -336,6 +336,8 @@ const WorkflowPanel = (() => {
     if (!cells || quiet) { row.innerHTML = ''; return; }
     row.innerHTML = '<span class="wf-today-l">TODAY</span>' + cells.map(c => '<span data-tip="' + esc(todayTip(c[0], c[1])) + '"><span class="k">' + esc(c[0]) + '</span> <b' + (c[0] === 'FAILED' && c[1] !== '0' ? ' class="bad"' : '') + '>' + esc(c[1]) + '</b></span>').join('');
   }
+  // the delivered job card's word for a job SHIPPED leaves out (rc walk #30) — the same rule as the SHIPPED tip below
+  const NOT_SHIPPED_TIP = 'NOT IN SHIPPED\nSHIPPED counts jobs that reached the OUTBOX after a tool succeeded or a file was saved. This job answered in text only: it is delivered (the result is below), just not counted there';
   /* WHAT EACH TODAY NUMBER COUNTS: RUNS counts stages; SHIPPED counts recorded productive OUTBOX jobs.
      Older runs without shipment receipts cannot prove a historic delivery total. Each tip names its scope. */
   function todayTip(k, v) {
@@ -356,6 +358,13 @@ const WorkflowPanel = (() => {
     if (typeof World === 'undefined' || !World.pollLineStats) return;
     World.pollLineStats();
     setTimeout(() => { if (el) parked(paintToday); }, 1500);   // the answer lands in the floor's cache; repaint from it
+  }
+  // a job sent from this panel moves: repaint, and once it has settled re-read TODAY so RUNS / SHIPPED agree with the job card
+  // now, not on the next 60 s poll (rc walk #30)
+  function jobUpdate() {
+    paint(false);
+    const sr = H.sampleState ? H.sampleState() : null;
+    if (sr && !sr.pending && sr.view) refreshToday();
   }
   function paintHead(f) {
     const head = $('#wf-head'); if (!head) return;
@@ -1905,7 +1914,7 @@ const WorkflowPanel = (() => {
       if (!t) { refuse('write the job first: what should the line work on?', send); job.focus(); return; }
       job.blur();   // the cursor leaves the box: the card follows the job from here
       S.testJob[S.lineKey] = job.value; saveTests(); S.prevJob = null; liveSeen = false;   // a new job: nothing to compare it with, nothing seen working yet
-      H.runSample(cc, { text: t, onUpdate: () => paint(false) }); startLive();
+      H.runSample(cc, { text: t, onUpdate: jobUpdate }); startLive();
     };
     const sendStop = $('#wf-send-stop'); if (sendStop) sendStop.onclick = () => {
       H.sfx('click');
@@ -1962,7 +1971,11 @@ const WorkflowPanel = (() => {
       : o.kind === 'sends' ? '<p class="wf-help wf-sent">This line sends its finished work on to ' + to + ' (SEND TO) — WORKFLOWS › LAST JOBS shows that line’s job, or why it was not sent.</p>'
       : '<p class="wf-help wf-sent">An OUTBOX on this line sends on to ' + to + ' (SEND TO) — if this job was handed on, WORKFLOWS › LAST JOBS shows that line’s job, or why it was not sent.</p>';
     return '<div class="wf-job' + (v.ok ? '' : ' problem') + '">'
-      + (v.ok ? '<div class="wf-job-h"><b>✓ DELIVERED</b> · ' + runs.length + ' step' + (runs.length === 1 ? '' : 's') + (v.usd != null ? ' · $' + v.usd.toFixed(4) : '') + (mine.folded ? ' · in the OUTBOX' : '') + '</div>'
+      /* DELIVERED AND SHIPPED SAY ONE THING (rc walk #30: "✓ DELIVERED" sat under TODAY "SHIPPED 0"): a job the server says was not
+         counted in SHIPPED (a text-only answer — no tool succeeded, no file saved) says so here, with the rule as its tip. The
+         server's own answer (true / false / unknown) — never guessed from the reply text. */
+      + (v.ok ? '<div class="wf-job-h"><b>✓ DELIVERED</b> · ' + runs.length + ' step' + (runs.length === 1 ? '' : 's') + (v.usd != null ? ' · $' + v.usd.toFixed(4) : '') + (mine.folded ? ' · in the OUTBOX' : '')
+        + (mine.shipped === false ? ' · <span class="wf-noship" data-tip="' + esc(NOT_SHIPPED_TIP) + '">a text answer: not counted in SHIPPED</span>' : '') + '</div>'
         : '<div class="wf-job-h"><b class="warn">⚠ FINISHED WITH A PROBLEM</b> · ' + runs.length + ' step' + (runs.length === 1 ? '' : 's') + (v.usd != null ? ' · $' + v.usd.toFixed(4) : '') + '</div><div class="wf-warnline">' + esc(badLine) + '</div>')
       + onward
       + ln.notes.map(t => '<div class="wf-warnline">⚠ ' + esc(t) + '</div>').join('')
@@ -2112,7 +2125,7 @@ const WorkflowPanel = (() => {
     const lt = el && el.querySelector('.wf-lasttime .wf-io'); if (lt && S.prevJob) proseInto(lt, clean(S.prevJob.output) || '(empty)');
     if (el) el.querySelectorAll('.wf-step-out').forEach(d => { const got = stepOut[d.dataset.run]; if (got && got.output) proseInto(d.querySelector('.wf-io'), got.output); });
     const again = $('#wf-nr-again');
-    if (again) again.onclick = () => { const cc = comp(); if (!cc) return; H.sfx('click'); S.fixDraft = ''; liveSeen = false; S.prevJob = { text: mine.text, output: mine.output, stamp: mine.stamp }; H.runSample(cc, { text: mine.text || (S.testJob[S.lineKey] || '').trim() || undefined, onUpdate: () => paint(false) }); startLive(); };
+    if (again) again.onclick = () => { const cc = comp(); if (!cc) return; H.sfx('click'); S.fixDraft = ''; liveSeen = false; S.prevJob = { text: mine.text, output: mine.output, stamp: mine.stamp }; H.runSample(cc, { text: mine.text || (S.testJob[S.lineKey] || '').trim() || undefined, onUpdate: jobUpdate }); startLive(); };
   }
   function stepTestUnavailable() {
     if (S.seam !== true) return 'this station cannot pause a line between steps — RUN ONE REAL JOB runs it end to end';
@@ -2204,7 +2217,7 @@ const WorkflowPanel = (() => {
       const si = $('#wf-st-in'), t = ((si || {}).value || '').trim();
       if (si) si.blur();   // the cursor leaves the box: the TEST view can follow the job
       S.testJob[S.lineKey] = t;
-      H.runSample(c, { text: t || undefined, onUpdate: () => paint(false) }); startLive();
+      H.runSample(c, { text: t || undefined, onUpdate: jobUpdate }); startLive();
     };
     const realStop = $('#wf-real-stop'); if (realStop) realStop.onclick = () => {
       H.sfx('click');
