@@ -14,7 +14,7 @@ const group = fs.readFileSync(require.resolve('../frontend/app/group-chat.js'), 
 function extract(src, start, end) { const i = src.indexOf(start); assert.ok(i >= 0, 'missing ' + start); return src.slice(i, src.indexOf(end, i)); }
 
 const sidecar = { redact: require('../sidecar/context.js').redact };
-vm.createContext(sidecar); vm.runInContext(extract(backend, 'function consentSummary(call)', 'function throttleSearch'), sidecar);
+vm.createContext(sidecar); vm.runInContext(extract(backend, 'function consentSummary(call, where)', 'function throttleSearch'), sidecar);
 const card = {};
 vm.createContext(card); vm.runInContext(extract(chat, 'function glance(', '  function clarifyRow('), card);
 
