@@ -134,7 +134,7 @@
      the judge's reason so the agent knows why it's still going. */
   function continuationPrompt(s) {
     if (!isActive(s)) return null;
-    let p = '[Continuing toward your standing goal]\nGoal: ' + s.goal + '\n\n';
+    let p = '[Continuing toward your session goal]\nGoal: ' + s.goal + '\n\n';
     if (s.subgoals.length) {
       p += 'Additional criteria the Commander added:\n'
         + s.subgoals.map((t, i) => '- ' + (i + 1) + '. ' + t).join('\n') + '\n\n'

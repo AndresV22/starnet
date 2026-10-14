@@ -250,6 +250,10 @@ input[type=file]::file-selector-button:hover { border-color: var(--ph); backgrou
   border: 1px solid rgba(var(--ph-rgb),.35); border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.45);
 }
 .station-tip.glass-tip::first-line { color: var(--ph-bright); }
+/* A PATH TIP (org pass 10-14, P24): a saved file's key names its full path — wide enough that a real path reads in two or three
+   lines, its own line breaks kept (what the key does / where it is / the path), and the path breaks after a folder separator */
+.station-tip.path-tip { max-width: min(520px, 92vw); white-space: pre-line; }
+.station-tip.path-tip::first-line { color: var(--ph-bright); }
 .station-tip.glass-tip::after { border-top-color: rgba(var(--ph-rgb),.35); }
 .station-tip.glass-tip.below::after { border-top-color: transparent; border-bottom-color: rgba(var(--ph-rgb),.35); }
 @media (prefers-reduced-motion: reduce) {
@@ -856,6 +860,8 @@ body.no-curve #stage-wrap::before { background: none; box-shadow: none; }
 .turnin-item > .turnin-queue { grid-column: 1 / -1; justify-self: start; min-width: 0; overflow-wrap: anywhere; }
 .turnin-item > .consent-result { grid-column: 1 / -1; min-width: 0; overflow-wrap: anywhere; }
 .turnin-item > .turnin-rate { grid-column: 1 / -1; min-width: 0; }
+/* the away digest's 'they wait in TO REVIEW' aside (org pass 10-14, P12 polish): a dim line of its own under the keys, never a chip */
+.turnin-rate > .turnin-keep { flex-basis: 100%; }
 .turnin-edit {
   grid-column: 1 / -1; width: 100%; box-sizing: border-box; min-width: 0;
   font: inherit; font-size: 14px; color: var(--ph-bright);

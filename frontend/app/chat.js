@@ -3258,8 +3258,9 @@ const Chat = (() => {
   function folderButton(agentId, relPath) {
     const b = document.createElement('button');
     b.type = 'button'; b.className = 'deliverable-folder';
-    b.appendChild(glyphSpan(SVG_FOLDER));
     const desktop = !!tauriCore();
+    // the folder glyph only where the key really opens a folder: a browser's key copies the path, so it wears copy path's ⧉
+    b.appendChild(desktop ? glyphSpan(SVG_FOLDER) : document.createTextNode('⧉'));
     const defaultLabel = desktop ? 'folder' : 'copy path';
     b.setAttribute('data-default-label', defaultLabel);
     const lbl = document.createElement('span'); lbl.className = 'fb-label'; lbl.textContent = defaultLabel; b.appendChild(lbl);
@@ -4771,16 +4772,17 @@ const Chat = (() => {
     // the ONE door that always works, prop or no prop on the floor: open the OUTBOX window — every listed
     // run readable + rateable in one place (2026-07-16; a floor with no OUTBOX placed had no other path).
     if (typeof StationUI !== 'undefined' && StationUI.openTerm) {
-      const ob = document.createElement('button'); ob.className = 'consent-btn'; ob.textContent = '▸ review it in DELIVERABLES';
+      const ob = document.createElement('button'); ob.className = 'consent-btn'; ob.textContent = '▸ open TO REVIEW';
       ob.onclick = () => StationUI.openTerm('outbox');
       foot.appendChild(ob);
     }
     const dis = document.createElement('button'); dis.className = 'consent-btn deny'; dis.textContent = 'dismiss';
     dis.onclick = () => vanish(r.d);
     foot.appendChild(dis);
-    // ADOPTION (Lane F): a dim line so dismissing doesn't read as LOSING the runs — they wait on the OUTBOX crate.
+    // ADOPTION (Lane F): a dim line so dismissing doesn't read as LOSING the runs — they wait in TO REVIEW. A plain aside on a
+    // line of its own (org pass 10-14, P12 polish): boxed as a .turnin-queue chip it read as one more key beside the real ones.
     if (typeof ReturnStore !== 'undefined' && ReturnStore.outboxLine) {
-      const keep = document.createElement('span'); keep.className = 'turnin-queue'; keep.textContent = ReturnStore.outboxLine();
+      const keep = document.createElement('span'); keep.className = 'turnin-evidence turnin-keep'; keep.textContent = ReturnStore.outboxLine();
       foot.appendChild(keep);
     }
     r.body.appendChild(foot);
@@ -4918,7 +4920,7 @@ const Chat = (() => {
         const who = String((whoRec && whoRec.name) || whoId).toUpperCase();
         const cost = (+j.totalUsd > 0 && typeof U !== 'undefined' && U.usd) ? (' · ' + U.usd(+j.totalUsd)) : '';
         text.textContent = clean
-          ? ('✔ job delivered — ' + who + ' finished the last step' + cost + '.' + (folded ? ' the result is on the OUTBOX and in DELIVERABLES.' : ''))
+          ? ('✔ job delivered — ' + who + ' finished the last step' + cost + '.' + (folded ? ' the result waits in TO REVIEW.' : ''))
           : ('⚠ the job rode the line, but the run did not finish clean — the reply below says why.');
         const reply = (j.replies && j.replies.length) ? String(j.replies[j.replies.length - 1]).replace(/\s+/g, ' ').trim() : '';
         if (reply) {
@@ -4928,7 +4930,7 @@ const Chat = (() => {
         }
         const acts = document.createElement('div'); acts.className = 'turnin-rate';
         if (folded && typeof StationUI !== 'undefined' && StationUI.openTerm) {
-          const ob = document.createElement('button'); ob.className = 'consent-btn'; ob.textContent = '▸ review it in DELIVERABLES';
+          const ob = document.createElement('button'); ob.className = 'consent-btn'; ob.textContent = '▸ open TO REVIEW';
           ob.onclick = () => StationUI.openTerm('outbox');
           acts.appendChild(ob);
         }
@@ -8806,7 +8808,9 @@ const Chat = (() => {
     if (low === 'pause') {
       if (!cur || cur.status === 'cleared') return localLine('No session goal to pause.');
       GoalLoop.pause(cur, 'you paused it'); persistGoal();
-      return localLine('⏸ session goal paused. /goal resume to continue.');
+      return localLine((typeof isBusy === 'function' && isBusy())
+        ? '⏸ session goal paused — the step already running finishes, and no next step starts. /goal resume to continue.'
+        : '⏸ session goal paused. /goal resume to continue.');
     }
     if (low === 'resume') {
       if (!cur || cur.status !== 'paused') return localLine('No paused session goal to resume.');
@@ -8825,12 +8829,14 @@ const Chat = (() => {
     activeWs.goalLoop = s; persistGoal();
     /* ONE MEANING FOR 'GOAL LOOP' (org pass 10-14, P29): /goal is a loop on THIS session only — not an AUTOMATE › GOAL LOOPS
        entry. Say so, and hand over a real door key (never a menu path) to where lasting goal loops live. */
-    const set = localLine('⊙ goal set for this session only: ' + s.goal + '  (budget ' + s.maxTurns + ' turns). It runs while StarNet is open (it survives a reload). Working toward it… · lasting goal loops:');
+    const set = localLine('⊙ goal set for this session only: ' + s.goal + ' (budget ' + s.maxTurns + ' turns). It works while StarNet is open, and a reload keeps it. Working toward it…');
     if (set && typeof StationUI !== 'undefined' && StationUI.openTerm) {
       const door = document.createElement('button'); door.type = 'button'; door.className = 'consent-btn goal-loops-door'; door.textContent = '▸ AUTOMATE › GOAL LOOPS';
       door.onclick = () => StationUI.openTerm('automation', 'loops');
       const host = set.querySelector ? (set.querySelector('.body') || set) : set;
-      host.appendChild(document.createTextNode(' ')); host.appendChild(door);
+      const doorRow = document.createElement('div'); doorRow.className = 'goal-loops-row';
+      doorRow.appendChild(document.createTextNode('Lasting goal loops:')); doorRow.appendChild(door);
+      host.appendChild(doorRow);
     }
     kickGoal(activeWs);
   }

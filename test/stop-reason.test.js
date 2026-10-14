@@ -133,15 +133,17 @@ A.ok(/function noteStopReason\(/.test(chat) && /m\.stopped && m\.stopNote\) tool
   const lines = [], opened = [], kids = [];
   const body = { appendChild: n => kids.push(n) };
   const row = { querySelector: sel => sel === '.body' ? body : null };
-  const doc = { createElement: () => ({ type: '', className: '', textContent: '', onclick: null }), createTextNode: t => ({ text: t }) };
+  const doc = { createElement: () => { const el = { type: '', className: '', textContent: '', onclick: null, kids: [] }; el.appendChild = n => el.kids.push(n); return el; }, createTextNode: t => ({ text: t }) };
   const GoalLoop = { create: (goal) => ({ goal, maxTurns: 8, status: 'active' }), statusLine: () => '' };
   let kicked = 0;
   const goal = new Function('GoalLoop', 'activeWs', 'goalOf', 'localLine', 'persistGoal', 'kickGoal', 'StationUI', 'document', src + '\nreturn goalCommand;')(
     GoalLoop, { id: 'w' }, () => null, t => { lines.push(t); return row; }, () => {}, () => { kicked++; }, { openTerm: (k, sec) => opened.push(k + ':' + sec) }, doc);
   goal('ship the landing page');
-  A.ok(/^⊙ goal set for this session only: ship the landing page/.test(lines[0]) && /lasting goal loops:$/.test(lines[0]), 'the /goal set line says session-only and points at lasting goal loops: ' + lines[0]);
-  A.ok(/It runs while StarNet is open \(it survives a reload\)\./.test(lines[0]), 'org P19: it says when it runs — while StarNet is open, across a reload');
-  const door = kids.find(k => k && k.className && /goal-loops-door/.test(k.className));
+  A.ok(/^⊙ goal set for this session only: ship the landing page \(budget 8 turns\)\./.test(lines[0]) && !/ {2}|lasting goal loops/.test(lines[0]), 'the /goal set line says session-only, one space before the budget, no dangling door label: ' + lines[0]);
+  A.ok(/It works while StarNet is open, and a reload keeps it\./.test(lines[0]), 'org P19: it says when it runs — while StarNet is open, across a reload');
+  const doorRow = kids.find(k => k && k.className === 'goal-loops-row');
+  A.ok(doorRow && doorRow.kids[0] && doorRow.kids[0].text === 'Lasting goal loops:', 'P29 polish: the door rides a row of its own, labelled Lasting goal loops:');
+  const door = doorRow && doorRow.kids.find(k => k && k.className && /goal-loops-door/.test(k.className));
   A.ok(door && door.type === 'button' && /consent-btn/.test(door.className) && door.textContent === '▸ AUTOMATE › GOAL LOOPS', 'a real door key rides the line (not a menu path)');
   door.onclick(); A.eq(opened, ['automation:loops'], 'the door opens AUTOMATE › GOAL LOOPS');
   A.eq(kicked, 1, 'the session goal still starts working');
