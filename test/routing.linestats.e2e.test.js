@@ -163,6 +163,8 @@ function twoStagePlan() {
     st = await call('GET', '/api/routing/lines/stats?since=' + t0);
     L = st.j.lines.find(l => l.lineId === lineId);
     A.eq([L.runs, L.shipped, L.failed], [2, 0, 0], 'stats match the stamped rows (talk-only runs are not proven work)');
+    // rc walk #30: the job's own answer agrees with SHIPPED — delivered (200), but a talk-only job is not shipped
+    A.eq(s1.j.shipped, false, 'the sample answer says this delivered job was not counted in SHIPPED (it agrees with the plate)');
     A.ok(typeof L.medianMs === 'number' && L.medianMs > 0, 'a real median time per run: ' + L.medianMs);
     A.eq(st.j.docks.b1.failed, false, 'bay b1: last outcome done');
     A.eq(st.j.docks.b2.reason, 'done', 'bay b2: last outcome done');
