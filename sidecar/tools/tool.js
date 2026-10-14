@@ -65,6 +65,9 @@
       taintLocked: typeof def.taintLocked === 'function' ? def.taintLocked : def.taintLocked === true,
       // never approved by a cached grant, never left behind as one, and Full Access keeps its taint lock (permissions.js, taint.js)
       freshConsent: def.freshConsent === true,
+      // never held behind an unsettled Task Brief (taskbrief-policy canMutate) — station setup such as team.summon. Dropped here
+      // until 2026-10-14, so the gate read the REGISTERED tool and still refused every hire (live proof, final-rc-seams lane)
+      briefExempt: def.briefExempt === true,
       timeoutMs: def.timeoutMs || 0,
       preconditions: normalizePreconditions(def.preconditions),
       run: def.run || (async () => { throw new Error('tool "' + def.name + '" has no run()'); })
