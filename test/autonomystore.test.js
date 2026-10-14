@@ -50,6 +50,10 @@ global.fetch=async(url,opts)=>{
   let res=await S.setInitiative('free');assert.equal(res.haltLifted,false);assert.equal(notes.length,0,'no halt lifted → no notice');
   lifted=true;res=await S.applyPreset('build');assert.equal(res.haltLifted,true);
   assert.deepEqual(notes,[['Automation resumed — schedules and away work will run again','good']],'a lifted halt says Automation resumed');
+  // a lift that saved a rung where nothing acts unattended (WAIT / SUGGEST) never promises away work (P06 review)
+  global.StationUI.initiativeLabel=id=>({wait:'WAIT',propose:'SUGGEST'})[id]||id;
+  notes.length=0;await S.setInitiative('wait');await S.applyPreset('suggest');
+  assert.deepEqual(notes,[['Automation resumed — schedules will run again; away work stays off at WAIT','good'],['Automation resumed — schedules will run again; away work stays off at SUGGEST','good']],'a lift at WAIT or SUGGEST says away work stays off');
   global.fetch=plain;delete global.StationUI;
   // the route's haltLifted is TRUE only when this write cleared a standing halt (nightshift halted, or liftCronHalt() lifted one)
   const idx=require('fs').readFileSync(require('path').join(__dirname,'..','sidecar','index.js'),'utf8');

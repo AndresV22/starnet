@@ -40,7 +40,7 @@ const AutonomyStore = (() => {
         state = normalize(j.summary); loaded = true; error = ''; save();
         if (j.nightshiftStatePersisted === false || j.cronHaltPersisted === false) error = 'Autonomy saved, but emergency stop could not be resumed. Try Resume again.';
         // org P06: a write that LIFTED a standing halt says so — the route's haltLifted is the proof, never the request
-        if (j.haltLifted === true && !error) announceResume();
+        if (j.haltLifted === true && !error) announceResume(get());
         return { ok: !error, posture: get(), error, haltLifted: j.haltLifted === true };
       } catch (e) {
         if (generation === epoch) {
@@ -56,8 +56,17 @@ const AutonomyStore = (() => {
     tail = job.then(() => undefined, () => undefined);
     return job;
   }
-  function announceResume() {
-    try { if (typeof StationUI !== 'undefined' && StationUI.notify) StationUI.notify(RESUMED, 'good'); } catch (e) { console.warn('[autonomy] resume notice failed:', (e && e.message) || e); }
+  // the receipt states what the SAVED posture lets run: away work (the night shift) only beats at SMALL JOBS or FREE
+  // (sidecar nightshift.js gates every beat on actsUnattended), so a lift that saved WAIT or SUGGEST never promises it
+  function resumedText(posture) {
+    const s = ready() ? Autonomy.summary(posture) : null;
+    if (s && s.actsUnattended) return RESUMED;
+    const id = (posture && posture.initiative) || 'wait';
+    const rung = (typeof StationUI !== 'undefined' && StationUI.initiativeLabel) ? StationUI.initiativeLabel(id) : String(id).toUpperCase();
+    return 'Automation resumed — schedules will run again; away work stays off at ' + rung;
+  }
+  function announceResume(posture) {
+    try { if (typeof StationUI !== 'undefined' && StationUI.notify) StationUI.notify(resumedText(posture), 'good'); } catch (e) { console.warn('[autonomy] resume notice failed:', (e && e.message) || e); }
   }
   function init() { get(); return refresh(); }
   function refresh() { return enqueue(() => request()); }
