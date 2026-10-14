@@ -1678,19 +1678,24 @@ const Chat = (() => {
     // their durable turns only when the run identity AND exact contiguous bytes
     // prove that the entire aggregate is already committed. This also heals old
     // saves, whose assistant row inherited identity only from its preceding user.
+    // A steering note folded mid-run streams into the local reply as a '\n[steering] …\n' line, but the durable
+    // transcript stores only the model's own turns. Twins are matched WITHOUT those lines; the local row (which
+    // still carries them, so a reload can redraw the note) is the one that survives.
+    const steerless = text => String(text || '').replace(/(?:^|\n)\[steering\] [^\n]*\n?/g, '');
+    const hasSteer = text => /(?:^|\n)\[steering\] /.test(String(text || ''));
     const committedAggregate = (row, runId) => {
-      if (row.role !== 'assistant' || row.rowId || row.stopped || row.error || (row.attachments && row.attachments.length)) return false;
-      const parts = runParts.get(runId) || [], text = String(row.content || '');
+      if (row.role !== 'assistant' || row.rowId || row.stopped || row.error || (row.attachments && row.attachments.length)) return null;
+      const parts = runParts.get(runId) || [], text = steerless(row.content);
       for (let start = 0; start < parts.length - 1; start++) {
         if (!text.startsWith(parts[start])) continue;
         let joined = parts[start];
         for (let end = start + 1; end < parts.length; end++) {
           joined += parts[end];
-          if (joined === text) return true;
+          if (joined === text) return parts.slice(start, end + 1);
           if (joined.length >= text.length) break;
         }
       }
-      return false;
+      return null;
     };
     // THE LOCAL THREAD OWNS ITS ORDER (2026-09-13). The durable transcript is NOT a byte-exact superset of what
     // the Commander saw: a group/@mention run records its user turn as a "Shared conversation context…" packet,
@@ -1710,9 +1715,15 @@ const Chat = (() => {
       if (row && row.sys) { if (!row.transcriptPending) kept.push({ row, key: null }); continue; }
       if (!row || (row.role !== 'user' && row.role !== 'assistant')) continue;
       if (row.role === 'user') userRunId = String(row.sourceRunId || '');
-      if (committedAggregate(row, String(row.sourceRunId || userRunId))) continue;
+      const aggregate = committedAggregate(row, String(row.sourceRunId || userRunId));
+      if (aggregate && !hasSteer(row.content)) continue;
+      if (aggregate) {   // keep the steered row: each durable part it already shows enriches it instead of re-inserting
+        for (const part of aggregate) { const k = 'assistant\u0000' + part, q = buckets.get(k) || []; q.push(kept.length); buckets.set(k, q); }
+        kept.push({ row, key: null });
+        continue;
+      }
       if (row.role === 'assistant' && !String(row.content == null ? '' : row.content).trim()) continue;
-      const key = row.role + '\u0000' + String(row.content || '');
+      const key = row.role + '\u0000' + (row.role === 'assistant' ? steerless(row.content) : String(row.content || ''));
       const q = buckets.get(key) || []; q.push(kept.length); buckets.set(key, q);
       kept.push({ row, key });
     }
@@ -1732,7 +1743,7 @@ const Chat = (() => {
       const q = buckets.get(key), idx = (q && q.length) ? q.shift() : -1;
       if (idx >= 0) {
         const prior = kept[idx].row;
-        kept[idx].row = Object.assign({}, turn, prior, { role: turn.role, content, ts: turn.ts != null ? turn.ts : prior.ts });
+        kept[idx].row = Object.assign({}, turn, prior, { role: turn.role, content: hasSteer(prior.content) ? prior.content : content, ts: turn.ts != null ? turn.ts : prior.ts });
         anchor = idx;
         continue;
       }
@@ -7469,9 +7480,16 @@ const Chat = (() => {
       // one, or a reload would silently re-attribute two other agents' work to whoever owns the stream now.
       const spoke = (m && m.agentId && typeof App !== 'undefined' && App.agentName) ? App.agentName(m.agentId) : null;
       if (stamp !== false) flushDeliverablesBefore(stamp);   // the files this reply's run produced were shown BEFORE the reply landed
-      const r = row('agent', { stamp: stamp, who: spoke });   // past turns render as plain GROUPED messages; only the LIVE reply is the lit headline
-      if (m.error) r.d.classList.add('err');
-      renderProse(r.body, shownText);   // same linkify path as live tokens, so replayed history matches
+      // a steering note folded mid-run is saved inside the reply as a '[steering] …' line (the token stream carried it):
+      // replay it as the same dim note row the live stream drew, never as a line of the agent's own prose
+      const parts = /(^|\n)\[steering\] /.test(shownText) ? shownText.split(/(?:^|\n)\[steering\] ([^\n]*)\n?/) : [shownText];
+      for (let pi = 0; pi < parts.length; pi++) {
+        if (pi % 2 === 1) { const s = row('agent', { stamp: stamp, who: spoke }); s.d.classList.add('tool', 'steer-echo'); s.body.textContent = '[steering] ' + parts[pi]; continue; }
+        if (!parts[pi].trim()) continue;
+        const r = row('agent', { stamp: stamp, who: spoke });   // past turns render as plain GROUPED messages; only the LIVE reply is the lit headline
+        if (m.error) r.d.classList.add('err');
+        renderProse(r.body, parts[pi]);   // same linkify path as live tokens, so replayed history matches
+      }
       if (m.stopped && m.stopNote) toolLine('⏹ ' + m.stopNote);   // WHY it stopped survives the reload
       lastReal = m;
     }
@@ -7762,9 +7780,37 @@ const Chat = (() => {
       const x = document.createElement('button'); x.className = 'queued-x'; x.type = 'button'; x.textContent = '✕';
       x.setAttribute('aria-label', 'Cancel queued message');
       x.onclick = () => { const a = queued.get(activeWs.id) || []; a.splice(i, 1); a.length ? queued.set(activeWs.id, a) : queued.delete(activeWs.id); renderQueued(); };
-      pill.appendChild(document.createTextNode('⤷ ')); pill.appendChild(label); pill.appendChild(x);
+      const now = document.createElement('button'); now.className = 'queued-now'; now.type = 'button'; now.textContent = 'send now';
+      now.title = 'Fold this into the run that is working now instead of waiting for it to finish';
+      now.onclick = () => sendQueuedNow(activeWs.id, i, t);
+      pill.appendChild(document.createTextNode('⤷ ')); pill.appendChild(label); pill.appendChild(now); pill.appendChild(x);
       strip.appendChild(pill);
     });
+  }
+  /* SEND NOW — a queued follow-up STEERS the live run instead of waiting for it to end (Andrew 2026-10-14). The
+     pill leaves the queue while the POST is in flight (so flushQueued can't also send it as a new turn); it goes
+     back to the FRONT of the queue on any refusal — run not confirmed yet (no runId), the loop already closed its
+     buffer (409), buffer full (429), network — and the line says why. A 200 only means the sidecar holds it: the
+     transcript's own '[steering] …' row is the proof it landed, so the success line promises the next step, nothing more. */
+  function sendQueuedNow(id, i, text) {
+    const back = (why) => {
+      const a = queued.get(id) || []; a.unshift(text); queued.set(id, a); renderQueued();
+      localLine(why + ' — it stays queued as your next message.');
+      flushQueued(id);   // the run may have ended while we asked → the queue drains now
+    };
+    const a = queued.get(id) || [];
+    const at = a[i] === text ? i : a.indexOf(text);
+    if (at < 0) return;   // already sent / cancelled
+    a.splice(at, 1); a.length ? queued.set(id, a) : queued.delete(id); renderQueued();
+    const rid = (typeof Channels !== 'undefined' && Channels.runIdOf) ? Channels.runIdOf(id) : null;
+    if (!rid || typeof fetch === 'undefined') return back('The run has not started yet, so there is nothing to steer');
+    fetch('/api/run/steer', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ runId: rid, text: text }) })
+      .then(r => r.json().catch(() => null).then(j => ({ status: r.status, j: j })))
+      .then(({ status, j }) => {
+        if (j && j.ok) return localLine('Sent into the live run — the agent reads it before its next step.');
+        back(status === 409 || status === 404 ? 'The run had already finished its work' : status === 429 ? 'The run is holding too many notes already' : 'The station did not take it');
+      })
+      .catch(() => back('The station did not answer'));
   }
   // a stream just freed (or was switched back to while idle) — send its next queued follow-up. Guarded to the
   // DISPLAYED stream so send()'s DOM writes always target the visible log; a backgrounded queue waits for return.
