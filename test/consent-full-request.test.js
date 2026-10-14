@@ -77,6 +77,12 @@ test('the desk card: a glance line in the phrase, the whole request in INSPECT',
     'hand work to researcher (in the background)', 'a capped summary falls back to the names it can read');
   assert.equal(card.actionPhrase({ tool: 'team.spawn', argsSummary: JSON.stringify({ tasks: [{ prompt: 'Check the API docs.' }, { prompt: 'Check the SDK.' }] }) }, true),
     'run 2 copies of itself on “Check the API docs” and “Check the SDK”', 'a spawn is copies of the lead, never "the crew"');
+  // the file a task names is its deliverable: a cut keeps it, losing the middle instead (review 10-14: "…into a file called…")
+  const tagline = { tool: 'team.dispatch', argsSummary: JSON.stringify({ background: true, workers: [
+    { agentId: 'copywriter', prompt: 'Write a 2-line launch tagline for StarNet 0.13.5 into a file called tagline.md.' },
+    { agentId: 'strategist', prompt: 'Review the positioning of the StarNet 0.13.5 launch and name the one claim to cut.' }] }) };
+  assert.equal(card.actionPhrase(tagline, true), 'hand copywriter “Write a 2-line launch tagline for StarNet 0.13.5 into a … tagline.md” and strategist “Review the positioning of the StarNet 0.13.5 launch and name the one…” (in the background)');
+  assert.doesNotMatch(card.actionPhrase({ tool: 'team.dispatch', argsSummary: JSON.stringify({ workers: [{ agentId: 'a', prompt: 'Compare version 0.13.5 against 0.13.2 and list every regression you can find in the notes' }] }) }, true), / … 0\.13/, 'a version number is not a file');
   // a goal loop says what it repeats toward (it read "use loop create: …")
   assert.equal(card.actionPhrase({ tool: 'loop.create', argsSummary: JSON.stringify({ objective: 'Write and refine the final 2-sentence launch post', exitOn: 'never' }) }),
     'start a goal loop: Write and refine the final 2-sentence launch post');
@@ -420,4 +426,13 @@ test('a conversation question declined elsewhere says declined, never answered',
   const g = clarificationFixture('conversation');
   g.listeners.get('permission.response')({ promptId: 'q1', decision: 'once', via: 'voice' });
   assert.deepEqual(g.settledWith, ['Answered by voice']);
+});
+
+// the tool row above a dispatch card reads WHO it hands work to, never the capped JSON (review 10-14)
+test('a team.dispatch tool row names the workers', () => {
+  const rail = { App: { agentName: id => ({ copywriter: 'COPY', strategist: 'STRATEGY' })[id] || '' } };
+  vm.createContext(rail); vm.runInContext(extract(chat, '  function brief(s)', '\n  // NOTIFICATIONS THAT MEAN SOMETHING') + '\n' + extract(chat, '  let toolRail = null;', '  function ensureToolRail()'), rail);
+  assert.equal(rail.argDigest('{"background":true,"workers":[{"agentId":"copywriter","prompt":"Write a 2-line launch tagline for StarNet 0.13.5 into a file called ta', 'team_dispatch'), 'COPY · background');
+  assert.equal(rail.argDigest('{"workers":[{"agentId":"copywriter","prompt":"a"},{"agentId":"strategist","prompt":"b"}]}', 'team.dispatch'), 'COPY, STRATEGY');
+  assert.equal(rail.argDigest('{"path":"src/app.js","content":"x', 'fs_write'), 'src/app.js', 'every other tool keeps its salient argument');
 });

@@ -2846,9 +2846,15 @@ const Chat = (() => {
     }
     return out;
   }
-  function argDigest(argsSummary) {
+  function argDigest(argsSummary, tool) {
     const raw = String(argsSummary == null ? '' : argsSummary).trim();
     if (!raw) return '';
+    // A HAND-OFF READS AS WHO (review 10-14: the team.dispatch row above the approval card showed
+    // '{"background":true,"workers":[{"agentId":"copywrit…'). Ids by pattern (the summary is capped), shown by name.
+    if (/^team\.dispatch$/.test(shortName(tool))) {
+      const ids = [...new Set([...raw.matchAll(/"agentId"\s*:\s*"([^"]+)"/g)].map(m => m[1]))];
+      if (ids.length) return brief(ids.map(id => (typeof App !== 'undefined' && App.agentName && App.agentName(id)) || id).join(', ') + (/"background"\s*:\s*true/.test(raw) ? ' · background' : ''));
+    }
     const pairs = argPairs(raw);
     for (const k of ARG_KEYS) { const v = pairs.get(k); if (v) return brief(v); }
     if (pairs.size === 1) { const v = pairs.values().next().value; if (v) return brief(v); }
@@ -2892,7 +2898,7 @@ const Chat = (() => {
     const nm = document.createElement('span'); nm.className = 'tc-name'; nm.textContent = flav ? flav.label : shortName(ev.name);
     // for a flavored skill chip the human phrase already carries the skill name, so the raw args stay in the
     // expand detail only (kept below) — the chip head is clean.
-    const args = document.createElement('span'); args.className = 'tc-args'; args.textContent = flav ? '' : argDigest(ev.argsSummary);
+    const args = document.createElement('span'); args.className = 'tc-args'; args.textContent = flav ? '' : argDigest(ev.argsSummary, ev.name);
     const stat = document.createElement('span'); stat.className = 'tc-stat'; stat.textContent = '';   // filled by resolveChip
     if (/^browser\./.test(ev.name || '') && ev.runId) {
       stat.setAttribute('aria-live', 'polite');
@@ -3581,11 +3587,16 @@ const Chat = (() => {
       if (jobs.length) {
         const n = Math.max(36, Math.floor(140 / Math.min(jobs.length, 3)));
         // its first sentence when that fits, else cut at a word (never "statio…")
+        // …and the file a task names is its deliverable: when the cut would lose it, the middle goes instead (review 10-14:
+        // "…into a file called…" lost tagline.md)
+        const FILE = /(?:[\w-]+[\\/])*[\w-][\w.-]*\.(?:md|markdown|txt|html?|css|m?js|cjs|tsx?|jsx|json|ya?ml|csv|tsv|py|rb|go|rs|java|sh|ps1|sql|xml|svg|png|jpe?g|gif|webp|pdf|docx?|xlsx?|pptx?|mp3|wav|mp4|zip)(?![\w-])/i;
         const task = p => {
           const one = p.replace(/\s+/g, ' ').trim(), cut = one.search(/[.!?](?:\s|$)/), s = cut > 12 && cut < n ? one.slice(0, cut) : one;
           if (s.length <= n) return '“' + s + '”';
-          const sp = s.lastIndexOf(' ', n - 1);
-          return '“' + s.slice(0, sp > n * 0.6 ? sp : n - 1).replace(/[\s,;:]+$/, '') + '…”';
+          const file = (one.match(FILE) || [''])[0], room = file && file.length < n / 2 ? n - file.length - 2 : n;
+          const sp = s.lastIndexOf(' ', room - 1);
+          const head = s.slice(0, sp > room * 0.6 ? sp : room - 1).replace(/[\s,;:]+$/, '');
+          return '“' + head + (room < n && head.indexOf(file) < 0 ? ' … ' + file : '…') + '”';
         };
         const shown = jobs.slice(0, 3), more = jobs.length - shown.length;
         if (/spawn$/.test(t)) return 'run ' + (jobs.length > 1 ? jobs.length + ' copies' : 'a copy') + ' of itself on ' + and(shown.map(w => task(w.prompt)).concat(more ? [more + ' more'] : [])) + bg;
