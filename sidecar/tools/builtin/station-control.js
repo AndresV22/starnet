@@ -541,7 +541,7 @@
           const r = spec.page ? await page('station.control', Object.assign({}, a, { action: spec.name }, caller)) : await spec.run(a, env);
           if (!r || r.status >= 400 || r.refused || (r.json && r.json.ok === false)) return refuse(errorOf(r));
           // a change that lands only when this reply ends is NOT done yet — say exactly that (truthful telemetry)
-          if (r.json && r.json.joining) return { content: 'QUEUED, NOT DONE YET: ' + clip(r.json.note, 400) + ' Tell the Commander exactly that. They are not in the chat yet, so do not hand them work in this reply: once they join you get a turn in the group chat to hand them their parts (group.handoff).', summary: spec.name + ' (queued)' };
+          if (r.json && r.json.joining) return { content: 'QUEUED, NOT DONE YET: ' + clip(r.json.note, 400) + ' Tell the Commander exactly that — never "done" or "added" (live 10-14: "Done. COPY and STRATEGY are joining…"). They are not in the chat yet, so do not hand them work in this reply: once they join you get a turn in the group chat to hand them their parts (group.handoff).', summary: spec.name + ' (queued)' };
           return { content: shape({ done: spec.name, result: r.json }), summary: spec.name };
         }
       };

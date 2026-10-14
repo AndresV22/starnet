@@ -56,7 +56,8 @@ const { makeStationControlTools, cardFor, ACTIONS } = require('../sidecar/tools/
   answer = { ok: true, result: { joining: true, agents: ['NOVA'], note: 'NOVA joins this chat (it becomes a group chat, its history kept) the moment your reply ends.' } };
   r = await t.controlTool.run({ action: 'group.add', args: { agents: 'NOVA' } }, ctx);
   A.ok(/once they join you get a turn in the group chat to hand them their parts/.test(r.content), 'the asking agent knows it gets a turn once they join (so it neither hands off early nor promises what will not happen)');
-  A.ok(/^QUEUED, NOT DONE YET: NOVA joins this chat/.test(r.content) && /not in the chat yet/.test(r.content) && !/"done"/.test(r.content), 'a join waiting for the reply is never reported as done: ' + r.content);
+  A.ok(/^QUEUED, NOT DONE YET: NOVA joins this chat/.test(r.content) && /not in the chat yet/.test(r.content) && !/"done":/.test(r.content), 'a join waiting for the reply is never reported as done: ' + r.content);
+  A.ok(/never "done" or "added"/.test(r.content), 'and the lead is told not to open with "Done." (it did, live 10-14)');
   r = await t.controlTool.run({ action: 'group.add', args: { agents: [] } }, ctx);
   A.ok(/^REFUSED: group.add named no crew member/.test(r.content), 'naming nobody is refused before the page is asked');
   r = await t.controlTool.run({ action: 'group.add', args: { agents: ['NOVA'] } }, {});
