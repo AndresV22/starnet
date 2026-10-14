@@ -18,7 +18,7 @@ ok(/<h4 class="ms-h">EACH CREW MEMBER/.test(src), 'the crew list is a real secti
 // posture still sets it), and the two sweep buttons that repeated the postures are gone.
 ok(!/ONE-STEP AUTONOMY/.test(src) && !/id="perm-level"/.test(src), 'no second copy of the AUTONOMY ladder on the permissions pane');
 ok(!/id="perm-full-all"/.test(src) && !/id="perm-ask-all"/.test(src), 'no whole-station sweep buttons repeating the postures');
-ok(/<h4 class="ms-h">STANDING APPROVALS/.test(src), 'standing-approvals header is a real section header');
+ok(/<h4 class="ms-h"[^>]*>STANDING APPROVALS/.test(src), 'standing-approvals header is a real section header');   // org P02: it carries an id + the consent-timeout data-tip
 // Block NUMBERS are gone. They forced the reader to hold a cross-reference ("overridden by block 2")
 // and they only existed because the pane made a newcomer walk all four blocks in order.
 ok(!/ms-h">\d · /.test(src) && !/block 2/i.test(src), 'no numbered blocks and no cross-references to them');
@@ -54,7 +54,7 @@ ok(/<details class="perm-fold" id="perm-advanced">/.test(src), 'ADVANCED is one 
 ok(/const advFold = bypassWrap\.closest\('details'\);[\s\S]{0,160}advFold\.open = true;/.test(src),
   'an ON override opens its fold, so the switch outranking every row is on screen');
 ok(/Turn the whole-station override off under <b>Advanced<\/b> below/.test(src), 'the glance says where to turn the override off');
-ok(/id="perm-crew"[\s\S]{0,400}<h4 class="ms-h">STANDING APPROVALS[\s\S]{0,600}id="perm-advanced"/.test(src),
+ok(/id="perm-crew"[\s\S]{0,400}<h4 class="ms-h"[^>]*>STANDING APPROVALS[\s\S]{0,600}id="perm-advanced"/.test(src),
   'the pane runs question → crew → standing approvals → advanced, in that order');
 // TIER 2 MUST STAY VISIBLE. Folding the per-agent rows away over-corrected: a posture can only set
 // every agent the SAME way, so the "except this one" control may never hide behind a disclosure.

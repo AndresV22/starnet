@@ -7220,6 +7220,24 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     { key: 'cronTickMs', label: 'ROUTINE TICK (MS)', hint: 'how often the scheduler checks for due routines.', min: 5000, max: 600000, step: 1000 },
     { key: 'maxSubscriptionTokens', label: 'CLAUDE CODE TOKEN CEILING', hint: 'tokens one run may use on a Claude subscription sign-in (cache re-reads count 1/10). 0 = no ceiling.', min: 0, max: 100000000, step: 100000 }
   ];
+  /* the STANDING APPROVALS heading's tip (org P02): when an ask nobody answers is denied, in minutes, and where to change
+     it. The number is the sidecar's own CONSENT TIMEOUT (GET /api/runtime/knobs, effective) and its ack bound — an ask
+     whose card is on screen waits 5× as long, capped at 15 min (sidecar CONSENT_ACK_EXTEND_MS). Unknown → no number. */
+  function consentMinutes(ms) { const m = Math.round(Number(ms) / 6000) / 10; return (m >= 10 ? Math.round(m) : m) + ' min'; }
+  function consentTipText(ms) {
+    const where = ' · change it in APP & BACKUP › Runtime limits';
+    if (!(Number(ms) > 0)) return 'unanswered asks are denied on a timer' + where;
+    const seen = Math.min(Number(ms) * 5, 900000);
+    return 'unanswered asks are denied after ' + consentMinutes(ms) + ' (' + consentMinutes(seen) + ' once the card is on screen)' + where;
+  }
+  function paintConsentTip(host) {
+    const h = host && host.querySelector ? host.querySelector('#perm-standing-h') : null;
+    if (!h || typeof Harness === 'undefined' || !Harness.api || !Harness.api.get) return;
+    Harness.api.get('/api/runtime/knobs').then(st => {
+      const f = st && st.fields && st.fields.consentTimeoutMs;
+      if (f && Number(f.effective) > 0) h.setAttribute('data-tip', consentTipText(f.effective));
+    }).catch(e => { if (typeof console !== 'undefined') console.warn('[permissions] consent timeout tip unavailable', e); });   // the numberless tip stays
+  }
   function wireAdvanced(body) {
     const form = body.querySelector('#adv-form');
     const msgEl = body.querySelector('#adv-msg');
@@ -7591,7 +7609,8 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       '<h4 class="ms-h">EACH CREW MEMBER <span class="dim">— give one agent a different answer</span></h4>' +
       '<div class="perm-list" id="perm-crew"></div>' +
       // ── ALWAYS-YES — what you already said ALWAYS to. Visible: a revocation you cannot find is not revocable.
-      '<h4 class="ms-h">STANDING APPROVALS <span class="dim">— things you said ALWAYS to</span></h4>' +
+      // its tip says what happens to an ask nobody answers (org P02), filled from the sidecar's own timeout (consentTipText)
+      '<h4 class="ms-h" id="perm-standing-h" data-tip="' + esc(consentTipText(null)) + '">STANDING APPROVALS <span class="dim">— things you said ALWAYS to</span></h4>' +
       '<p class="set-about perm-lede" id="perm-status" aria-live="polite">checking standing approvals…</p>' +
       '<div class="key-list perm-grants" id="perm-grants"></div>' +
       // ── ADVANCED — ONE fold, never a fold inside a fold. The override's EFFECT is never hidden (glance + rows).
@@ -8619,6 +8638,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     if (typeof PermissionsStore !== 'undefined' && PermissionsStore.snapshot) {
       // (the four-rung unattended ladder that used to sit here lives in AUTONOMY only; a posture still sets it)
       const grantsWrap = host.querySelector('#perm-grants'), permStatus = host.querySelector('#perm-status');
+      paintConsentTip(host);
       const plabel = (k) => (typeof Permissions !== 'undefined' && Permissions.catalogLabel) ? Permissions.catalogLabel(k) : k;
       const pcurated = () => (typeof Permissions !== 'undefined' && Permissions.grantableKeys) ? Permissions.grantableKeys() : [];
       const repaintDial = () => {

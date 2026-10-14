@@ -351,7 +351,9 @@ for (const decision of ['always', 'full']) test('a plugin.submit card offers onl
 test('a general approval card offers Never ask (not Full access) and settles in those words', () => {
   const f = permissionFixture('fs.read');
   const buttons = f.nodes[0].body.children.find(n => n.className === 'consent-btns');
-  assert.deepEqual(buttons.children.map(b => b.textContent), ['Approve once', 'Always', 'Never ask', 'Deny'], 'the standing key reads Never ask');
+  assert.deepEqual(buttons.children.filter(b => b.className !== 'consent-hint').map(b => b.textContent), ['Approve once', 'Always', 'Never ask', 'Deny'], 'the standing key reads Never ask');
+  // org P02: one hint line under the keys says what happens if nobody answers (no number: the page is never told the deadline)
+  assert.deepEqual(buttons.children.filter(b => b.className === 'consent-hint').map(b => b.textContent), ['auto-denies if left unanswered'], 'one hint line, numberless');
   assert.ok(!buttons.children.some(b => /full access|full power/i.test(String(b.textContent) + ' ' + String(b.title || ''))), 'no key or tip borrows the FULL POWER / full access name');
   f.listeners.get('permission.response')({ promptId: f.p.promptId, decision: 'full' });
   assert.equal(f.nodes[0].body.children.filter(n => /^consent-result/.test(n.className || ''))[0].textContent, '✓ never asks from your phone', 'the receipt names what was applied');

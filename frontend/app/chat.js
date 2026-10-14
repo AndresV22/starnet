@@ -3930,6 +3930,21 @@ const Chat = (() => {
      lead's) is never retired by a run's end: it settles through its own permission.response, or retireConsentCard when the
      reconnect snapshot no longer lists it (2026-10-14 review: such a card read "nothing was approved" with the ask live). */
   const openConsentCards = new Map();
+  /* THE CARD'S ONE HINT LINE (org P02): an approval card says what happens if nobody answers — the station denies an
+     unanswered ask on a timer (sidecar consent deadline: 120 s while unseen, longer once this page acks the card). The
+     sidecar never tells the page that deadline, so the hint carries no number (never a hard-coded "2 min"). On the SECOND
+     ask for the same tool in the same direct chat, the line teaches Always instead (one hint, never both). Always is a
+     standing grant across the station (permissions.js grantsPermanent), so the hint says "from now on", never "here".
+     wsId -> Map(tool -> Set(promptId)): a re-render of the same ask never counts as a second ask. */
+  const askedTools = new Map();
+  function consentHintFor(p, ws) {
+    const tool = String((p && p.tool) || '');
+    if (!tool || !ws || !p || p.promptId == null || p.workerAgentId || p.workerRunId || p.background === true) return 'auto-denies if left unanswered';
+    const byTool = askedTools.get(ws.id) || new Map(); askedTools.set(ws.id, byTool);
+    const ids = byTool.get(tool) || new Set(); byTool.set(tool, ids);
+    ids.add(String(p.promptId)); if (ids.size > 20) ids.delete(ids.values().next().value);
+    return ids.size > 1 ? 'Always stops asking for ' + tool + ' from now on' : 'auto-denies if left unanswered';
+  }
   function retireOpenConsents(wsId, runId) {
     for (const [id, c] of openConsentCards) {
       if (c.wsId !== wsId || c.background) continue;
@@ -4011,6 +4026,9 @@ const Chat = (() => {
       mk('Always', 'always', '', '✓ always allowed', false, 'Allow this kind of action from now on, without asking');
       mk('Never ask', 'full', 'danger', '✓ never asks', false, agentName + ' stops asking before most actions, until you change it back');
       mk('Deny', 'deny', 'deny', '✕ denied', true);
+      // one hint line, inside the keys' row so it leaves with them once the card is answered
+      const hint = document.createElement('span'); hint.className = 'consent-hint'; hint.textContent = consentHintFor(p, ws);
+      btns.appendChild(hint);
     }
     appendConsentDetails(r.body, p, 'plan');   // a station build's steps and drawing are read before deciding
     r.body.appendChild(btns);

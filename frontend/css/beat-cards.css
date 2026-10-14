@@ -31,7 +31,7 @@ body #chat-panel .cmsg:is(.turnin,.nudge,.consent) :is(.turnin-text,.ws-line,.ws
 body #chat-panel .cmsg:is(.turnin,.nudge,.consent) :is(.ws-k,.ws-fhead,.turnin-kind,.ws-kindchip,.turnin-queue) {
   font-size: var(--sn-type-meta) !important; line-height: 1.35; letter-spacing: .65px;
 }
-body #chat-panel .cmsg:is(.turnin,.nudge,.consent) :is(.turnin-evidence,.work-rate-hint,.work-rate-reference,.consent-result,.ws-verline,.ws-vcmd,.ws-vexit,.tq-reason,.tq-hint) {
+body #chat-panel .cmsg:is(.turnin,.nudge,.consent) :is(.turnin-evidence,.work-rate-hint,.work-rate-reference,.consent-result,.consent-hint,.ws-verline,.ws-vcmd,.ws-vexit,.tq-reason,.tq-hint) {
   font-size: var(--sn-type-control) !important; line-height: 1.45;
   color: var(--text); opacity: 1; letter-spacing: .15px;
 }

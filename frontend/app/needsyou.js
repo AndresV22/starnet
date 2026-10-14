@@ -11,7 +11,8 @@
      conversation this page holds, until you open it or dismiss it;
    - a routine run that failed and you have not looked at: its own cron-<runId> session (lastRunOk === false, unread).
    Actions are the real ones: Approve / Deny answer through the approval card's own path (Chat.answerConsent) — Approve
-   only when the rail's line is the whole request, else Review opens the card that shows all of it — Retry runs the
+   only when the rail's line is the whole request, else Review opens the card that shows all of it (a direct-chat ask
+   offers Review beside Approve once too, org P02) — Retry runs the
    routine again (POST /api/cron/run), Open lands on the conversation (a worker's work unfolded on its card). */
 const NeedsYou = (() => {
   const DAY = 86400000;
@@ -105,7 +106,14 @@ const NeedsYou = (() => {
   function keysFor(i) {
     const k = (act, label, cls, off) => '<button type="button" class="ny-key' + (cls ? ' ' + cls : '') + '" data-ny-act="' + act + '" data-ny-key="' + esc(i.key) + '"' + (off ? ' disabled' : '') + '>' + label + '</button>';
     const sending = !!(i.p && answering.has(String(i.p.promptId)));
-    if (i.kind === 'approval') return (hiddenDetail(i.p) ? k('open', 'Review', 'primary') : k('once', 'Approve once', 'primary', sending)) + k('deny', 'Deny', 'deny', sending);
+    if (i.kind === 'approval') {
+      if (hiddenDetail(i.p)) return k('open', 'Review', 'primary') + k('deny', 'Deny', 'deny', sending);
+      // org P02: a direct-chat ask always offers Review too — the COMMS card holds the whole request and its Always /
+      // Never ask keys, which the rail never grants. A worker's ask (background ones too) reviews on its Delegated row's
+      // INSPECT instead, so its row stays Approve once · Deny.
+      const worker = !!(i.p && (i.p.workerStreamId || i.p.workerRunId || i.p.background === true));
+      return k('once', 'Approve once', 'primary', sending) + k('deny', 'Deny', 'deny', sending) + (worker ? '' : k('open', 'Review', 'quiet ny-review'));
+    }
     if (i.kind === 'question') return k('open', 'Answer', 'primary');
     if (i.kind === 'routine' && i.routineId) return k('retry', 'Retry', 'primary') + k('open', 'Open');
     if (i.kind === 'failed') return k('open', 'Open') + k('dismiss', 'Dismiss', 'quiet');
