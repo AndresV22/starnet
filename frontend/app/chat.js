@@ -2280,17 +2280,25 @@ const Chat = (() => {
   function starterOptions() {
     return { system, modelKey: typeof Harness !== 'undefined' ? Harness.getProv() + ':' + Harness.getModel() : '' };
   }
+  // Whose ideas a shown generation is: personalization on or paused, and the agent. Drift keeps them; a change here rebuilds.
+  function starterOwner(ctx) { return (ctx && ctx.enabled === false ? 'paused' : 'on') + ':' + String((ctx && ctx.agentId) || 'agent'); }
   function refreshStarters() {
     if (!log || !activeWs || activeWs.history.length || isBusy() || interview || (input && input.value.trim())) return;
     const d = log.querySelector('.cmsg-empty');
     if (!d) { maybeEmptyState(); return; }
-    const key = JSON.stringify([starterContext(), starterOptions()]);
+    const ctxNow = starterContext();
+    const key = JSON.stringify([ctxNow, starterOptions()]);
     if (d.starterKey === key && !(d.retryAt && Date.now() >= d.retryAt) && Date.now() < d.expiresAt) return;
     // Keep focus stable during keyboard selection. The next idle tick can refresh it.
     if (d.contains(document.activeElement)) return;
     if (d.starterKey === key && d.retryAt && Date.now() >= d.retryAt && d.forcePending) {
       requestStarterIdeas(d, d.querySelector('.cmsg-empty-hint'), starterContext(), starterOptions(), true); return;
     }
+    // PERSONALIZED ideas from a finished generation stay up while the context drifts (a crew run elsewhere, a busy flag
+    // flipping): every click re-validates its evidence and destination (openStarter), and REFRESH SUGGESTIONS asks again.
+    // Rebuilding on each drift asked the model once a minute while an empty session sat open. Pausing personalization or
+    // another agent is not drift: the owner changed, so it rebuilds (test/starter-drift.test.js).
+    if (d.keptOwner && d.keptOwner === starterOwner(ctxNow) && Date.now() < d.expiresAt) return;
     clearEmptyState(); maybeEmptyState();
   }
   function openStarter(st, hint) {
@@ -2312,7 +2320,8 @@ const Chat = (() => {
     if (!st.general) StarterStore.prepare(st, ws.id, input.value);
     clearEmptyState(); refreshWorkflowViews();
   }
-  function renderStarterIdeas(d, hint, result) {
+  // ctx: the context `result` was generated for (absent = the loading or generic state, never kept through drift)
+  function renderStarterIdeas(d, hint, result, ctx) {
     const old = d.querySelector('.cmsg-empty-chips'); if (old) old.remove();
     const chips = document.createElement('div'); chips.className = 'cmsg-empty-chips';
     const personalized = result.ideas || [], ideas = personalized.length ? personalized : Starters.defaults();
@@ -2325,6 +2334,7 @@ const Chat = (() => {
       ready: personalized.length ? 'Based on your work and goals. Choose a session to review its brief.' : 'Three substantial starting points. Your own requests will shape future suggestions.'
     };
     hint.textContent = messages[result.status] || messages.ready;
+    d.keptOwner = (result.status === 'ready' && personalized.length && ctx) ? starterOwner(ctx) : '';   // the refresh tick keeps these through drift
     d.retryAt = result.status === 'cooldown' ? result.retryAt : 0;
     for (const st of ideas) {
       if (!st.general) StarterStore.shown(st);
@@ -2359,8 +2369,12 @@ const Chat = (() => {
     const origin = activeWs && activeWs.id, key = JSON.stringify([ctx, options]);
     StarterStore.request(ctx, { ...options, force: !!force }).then(result => {
       if (!d.isConnected || !activeWs || activeWs.id !== origin || activeWs.history.length || isBusy()) return;
-      if (JSON.stringify([starterContext(), starterOptions()]) !== key) { clearEmptyState(); maybeEmptyState(); return; }
-      if (result.status !== 'cancelled') renderStarterIdeas(d, hint, result);
+      // a paid generation of personalized ideas that finished after the context drifted is still shown, for the same owner
+      // (its ideas re-validate on click); anything else re-evaluates against the new context, as before
+      const now = starterContext();
+      const keep = result.status === 'ready' && (result.ideas || []).length && starterOwner(now) === starterOwner(ctx);
+      if (!keep && JSON.stringify([now, starterOptions()]) !== key) { clearEmptyState(); maybeEmptyState(); return; }
+      if (result.status !== 'cancelled') renderStarterIdeas(d, hint, result, ctx);
     });
   }
   function maybeEmptyState() {
@@ -2380,7 +2394,7 @@ const Chat = (() => {
     const ctx = starterContext(), options = starterOptions(), result = StarterStore.peek(ctx, options);
     d.starterKey = JSON.stringify([ctx, options]); d.expiresAt = Date.now() + StarterStore.TTL;
     if (result.status === 'empty' || result.status === 'loading') requestStarterIdeas(d, hint, ctx, options);
-    else renderStarterIdeas(d, hint, result);
+    else renderStarterIdeas(d, hint, result, ctx);
   }
 
   /* THE ONE STEP A HAND-SUMMONED AGENT LEAVES TO THE COMMANDER (2026-08-03).
@@ -8630,7 +8644,8 @@ const Chat = (() => {
       try {
         const sys = GoalLoop.judgeSystem();
         const usr = GoalLoop.judgeUser(s, reply, { now: new Date().toISOString() });
-        const res = await Harness.chat({ system: sys, messages: [{ role: 'user', content: usr }], agentId: ws.agentId || 'agent', isTask: false, placed: [], internal: true });
+        // keepEffort: a verdict that ends the Commander's loop runs on their reasoning effort, never the cheap aux one
+        const res = await Harness.chat({ system: sys, messages: [{ role: 'user', content: usr }], agentId: ws.agentId || 'agent', isTask: false, placed: [], internal: true, keepEffort: true });
         raw = (res && !res.error) ? (res.text || '') : '';
       } catch (_) { raw = ''; }
       judged = GoalLoop.parseVerdict(raw);

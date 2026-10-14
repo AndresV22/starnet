@@ -8928,13 +8928,17 @@ const World = (() => {
        { ts, runs:[{runId, agentId, startedAt, source}], prompts:[{runId, agentId, promptId}], summons:[], queues:[] }
      with startedAt in epoch ms — normalizeSnapshot() maps it onto the internal shape below (all fields optional):
        { activeRuns:[{agentId, startedMsAgo?}], pendingPrompts:[{promptId, agentId}], inflightTools:[{agentId, name, callId}],
-         serverLitAgents:[agentId] }  */
+         serverLitAgents:[agentId] }
+     A row the sidecar marks `internal` is the harness's own self-talk (session ideas, a title, a goal plan): live, its
+     run.start/run.end never reach the bus, so it never lights the floor — and the snapshot must not either. Read as an
+     active run it lit NOVA's CREW card WORKING with a RUN clock after a reload (live walk 10-13); it is not the agent
+     working for the Commander (test/internal-run-not-working.test.js). */
   function normalizeSnapshot(snap) {
     if (!snap || typeof snap !== 'object' || snap.activeRuns) return snap;   // already internal-shaped (dbg/test paths)
     if (!Array.isArray(snap.runs) && !Array.isArray(snap.prompts)) return snap;
     const ts = +snap.ts || 0;
     const out = Object.assign({}, snap);
-    if (Array.isArray(snap.runs)) out.activeRuns = snap.runs.map(r => r && r.agentId ? {
+    if (Array.isArray(snap.runs)) out.activeRuns = snap.runs.map(r => r && r.agentId && !r.internal ? {
       agentId: r.agentId,
       runId: r.runId || null,
       startedMsAgo: (ts && +r.startedAt) ? Math.max(0, ts - (+r.startedAt)) : 0
