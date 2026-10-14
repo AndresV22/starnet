@@ -190,5 +190,37 @@ const group = (members, extra = {}) => ({ id: 'direct', title: 'Direct', members
   const one = twice.ctx.GroupChat.startWith(['peer']), two = twice.ctx.GroupChat.startWith(['peer']);
   gate.resolve(); const [g1, g2] = await Promise.all([one, two]);
   assert.equal(creates, 1, 'a second Enter joins the conversion in flight'); assert.equal(g1, g2);
+  // ---- NO SENTENCES UNDER TILES (walk 10-14 #9): a picker row is portrait + name; its description is the row's hover tip ----
+  const tipped = await boot({ crew: [{ id: 'agent', name: 'Lead', role: 'overseer' }, { id: 'peer', name: 'Peer', role: 'Answers with every claim sourced' }, { id: 'third', name: 'Third' }] });
+  tipped.request(async () => ok({ roster: [{ id: 'agent', name: 'Lead' }, { id: 'peer', name: 'Peer' }, { id: 'third', name: 'Third' }], groups: [] }));
+  await tipped.click('+ Add agents');
+  const rowOf = id => walk(tipped.find('gc-picker')).find(e => e.attrs.role === 'listitem' && e.attrs['data-agent-name'] === id);
+  const peerRow = rowOf('peer');
+  assert.ok(peerRow, 'the picker lists Peer');
+  assert.ok(!walk(peerRow).some(e => /\bgc-tag\b/.test(e.className || '')), 'no description line is built under the name');
+  assert.ok(!/Answers with every claim sourced/.test(text(peerRow)), 'the sentence is not printed on the row');
+  assert.equal(peerRow.attrs.title, 'Answers with every claim sourced', 'the description is the row\'s hover tip (adopted into the station tooltip)');
+  assert.equal(peerRow.attrs['aria-description'], 'Answers with every claim sourced', 'and is still read to a screen reader');
+  assert.equal(rowOf('third').attrs.title, undefined, 'no description, no tip (never an invented job title)');
+  assert.match(text(tipped.find('gc-picker')), /Talk to one agent with/, 'the how-to line is kept (simplify = organization, never removal)');
+  await tipped.click('DONE');
+  // the picker fills its window and never overflows it: the lists flex, the how-to line and the footer stay in the flow
+  const pickerCss = (source.match(/\.gc-picker\{[^}]*\}/) || [''])[0];
+  assert.match(pickerCss, /height:100%/, 'the picker is exactly its window\'s height (min-height:100% let it overflow under its sticky footer)');
+  assert.doesNotMatch(pickerCss, /min-height:100%/, 'no min-height:100% that grows the picker past its window');
+  assert.match(source, /\.gc-empty:empty\{display:none\}/, 'an empty "whole crew is here" slot takes no room from the add list');
+  assert.match(source, /\.gc-sect\.out\{[^}]*min-height:0/, 'the add list shrinks with the window instead of pushing the footer over the how-to line');
+  assert.doesNotMatch((source.match(/\.gc-picker-footer\{[^}]*\}/) || [''])[0], /position:sticky/, 'the footer sits in the flow under the how-to line, never stuck over text that scrolls behind its 95%-alpha panel');
+  // the picker opens tall enough to show its roster, like the other pick-from windows (an explicit drag still wins)
+  assert.match(source, /className: 'gc-picker-win'/, 'the ADD AGENTS window names itself to the dock');
+  const glass = fs.readFileSync(path.join(__dirname, '../frontend/app/glass-demo.js'), 'utf8');
+  assert.match(glass, /const roster = w\.classList\.contains\('gc-picker-win'\)/, 'the dock knows the picker is a roster');
+  assert.match(glass, /\(work \|\| roster\) \? available \* \.8/, 'and opens it at 80% of the band, not the 56% that showed one and a half agents');
+  // tiny text (walk 10-14 #14): the footer status, section heads, how-to line and the lead tag read at the 14px glass floor
+  for (const sel of ['.gc-sect-h', '.gc-picker-footer .gc-delta', '.gc-hint', '.gc-row .gc-lead']) {
+    const rule = (source.match(new RegExp(sel.replace(/[.]/g, '\\.').replace(/ /g, ' ') + '\\{[^}]*\\}')) || [''])[0];
+    assert.match(rule, /font-size:var\(--sn-type-meta,14px\)/, sel + ' reads at 14px (was 11-13px)');
+  }
+
   console.log('group-chat-picker: loading, failure, cancellation, + ADD/✕ REMOVE save at once, nothing claimed before the backend, General never converted, @ menu in a direct chat with keyboard pick, exact @handle resolution PASS');
 })().catch(e => { console.error(e); process.exitCode = 1; });
