@@ -852,7 +852,7 @@
           // …unless the station browser was DOWN (review 10-14): the browser is what gets past the engines' throttling, so a
           // dead one is a station fault the Commander must hear about — named in the summary, never called web weather.
           if (e && e.__allFailed && !e.__unreachable && e.__browserNote) return {
-            content: 'No results this time — the keyless engines declined (' + (e.__errors || []).join('; ') + '), and ' +
+            content: 'No results this time — the keyless engines declined (' + (e.__errors || []).filter(x => !/^browser:/.test(x)).join('; ') + '), and ' +
                      e.__browserNote + ', so it could not search past them. Do not immediately repeat the same search: ' +
                      'use sources already gathered, web_fetch a known URL directly, or finish and state the evidence ' +
                      'limitation (name the station browser problem to the Commander).',
