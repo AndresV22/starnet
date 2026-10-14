@@ -1,12 +1,11 @@
-/* node test/consent-timer-hint.test.js — org(P02): an ask says what happens if nobody answers, and where Always lives.
-   GENUINE: chat.js consentHintFor run for real — the approval card's one hint line says it auto-denies: numberless until
-   the sidecar's own on-screen bound (GET /api/runtime/knobs liveAckMs) is read, then "within N min" (never a hard-coded
-   number); the SECOND ask for the same tool in the same direct chat ALSO teaches Always, after the warning, naming the
-   tool in the card title's words (a re-render of one ask is not a second ask; a worker's ask never gets it).
-   stationui.js consentTipText run for real — the STANDING APPROVALS heading's tip names
-   the sidecar's own timeout in minutes, its on-screen bound (5×, capped at 15 min), and where to change it.
-   SOURCE-LOCKED: the hint is only on the default card (never station.power / plugin.submit / browser.login, the
-   freshConsent tools whose Always grants one call), and the heading's tip is a data-tip, never a native title. */
+/* node test/consent-timer-hint.test.js — org(P02): where Always lives, and when an unanswered ask is denied — said in
+   SETTINGS, never on the approval card (Andrew 10-14: "the approval key doesn't have to mention the auto denies").
+   GENUINE: chat.js consentHintFor run for real — a first ask has NO hint line; the SECOND ask for the same tool in the same
+   direct chat carries one line teaching Always, naming the tool in the card title's words (a re-render of one ask is not a
+   second ask; a worker's ask never gets it). stationui.js consentTipText run for real — the STANDING APPROVALS heading's
+   tip names the sidecar's own timeout in minutes, its on-screen bound (5×, capped at 15 min), and where to change it.
+   SOURCE-LOCKED: no approval card says it auto-denies; the line is only on the default card (never station.power /
+   plugin.submit / browser.login, the freshConsent tools whose Always grants one call); the heading's tip is a data-tip. */
 'use strict';
 const fs = require('node:fs');
 const path = require('node:path');
@@ -16,35 +15,30 @@ const root = path.resolve(__dirname, '..');
 const read = file => fs.readFileSync(path.join(root, file), 'utf8');
 const part = (s, a, b) => { const i = s.indexOf(a), j = s.indexOf(b, i + a.length); if (i < 0 || j < 0) throw new Error('slice ' + a); return s.slice(i, j); };
 
-// ---- the card's hint line ----
+// ---- the card: no auto-deny line; a repeat ask's one Always line ----
 const chat = read('frontend/app/chat.js');
-const c = vm.createContext({ String, Map, Set, Math });
-vm.runInContext(part(chat, '  const askedTools = new Map();', '  function retireOpenConsents(') + '\n;this.hint = consentHintFor; this.seen = ms => { consentSeenMs = ms; };', c);
+const hintSrc = part(chat, '  const askedTools = new Map();', '  function retireOpenConsents(');
+const c = vm.createContext({ String, Map, Set });
+vm.runInContext(hintSrc + '\n;this.hint = consentHintFor;', c);
 const ws = { id: 'w1', agentId: 'agent' }, other = { id: 'w2', agentId: 'agent' };
-const AUTO = 'Auto-denies on a timer if left unanswered';
-A.eq(c.hint({ promptId: 'a1', tool: 'fs.write' }, ws), AUTO, 'the first ask says it auto-denies, with no number');
-A.eq(c.hint({ promptId: 'a1', tool: 'fs.write' }, ws), AUTO, 'a re-render of the same ask is not a second ask');
-A.eq(c.hint({ promptId: 'a2', tool: 'fs.write' }, ws), AUTO + ' · Always stops asking for fs write from now on', 'the second ask for the same tool in the same chat keeps the warning AND teaches Always, in the title words');
-A.eq(c.hint({ promptId: 'a3', tool: 'shell.exec' }, ws), AUTO, 'another tool starts its own count');
-A.eq(c.hint({ promptId: 'a4', tool: 'fs.write' }, other), AUTO, 'another chat starts its own count');
+A.eq(c.hint({ promptId: 'a1', tool: 'fs.write' }, ws), '', 'a first ask carries no hint line');
+A.eq(c.hint({ promptId: 'a1', tool: 'fs.write' }, ws), '', 'a re-render of the same ask is not a second ask');
+A.eq(c.hint({ promptId: 'a2', tool: 'fs.write' }, ws), 'Always stops asking for fs write from now on', 'the second ask for the same tool in the same chat teaches Always, in the title words');
+A.eq(c.hint({ promptId: 'a3', tool: 'shell.exec' }, ws), '', 'another tool starts its own count');
+A.eq(c.hint({ promptId: 'a4', tool: 'fs.write' }, other), '', 'another chat starts its own count');
+A.eq(c.hint({ promptId: 'm1', tool: 'mcp__sheets__write_values' }, other), '', 'a first connector ask: no line');
+A.eq(c.hint({ promptId: 'm2', tool: 'mcp__sheets__write_values' }, other), 'Always stops asking for sheets write values from now on', 'a connector tool says whose, as its title does');
 for (const w of [{ workerAgentId: 'writer' }, { workerRunId: 'wr1' }, { background: true }]) {
   c.hint(Object.assign({ promptId: 'b1', tool: 'web_request' }, w), ws);
-  A.eq(c.hint(Object.assign({ promptId: 'b2', tool: 'web_request' }, w), ws), AUTO, 'a worker\'s ask never gets the Always hint: ' + Object.keys(w)[0]);
+  A.eq(c.hint(Object.assign({ promptId: 'b2', tool: 'web_request' }, w), ws), '', 'a worker\'s ask never gets a line: ' + Object.keys(w)[0]);
 }
-A.ok(!/\d\s*min/.test(part(chat, '  const askedTools = new Map();', '  function retireOpenConsents(').replace(/\/\*[\s\S]*?\*\//g, '')), 'the card never states a hard-coded minute count');
-A.eq(c.hint({ promptId: 'm1', tool: 'web_request' }, other), AUTO, 'until the sidecar has answered: no number');
-c.seen(600000);
-A.eq(c.hint({ promptId: 'm2', tool: 'mcp__sheets__write_values' }, other), 'Auto-denies within 10 min if left unanswered', 'the on-screen bound the sidecar reports, in minutes');
-A.eq(c.hint({ promptId: 'm3', tool: 'mcp__sheets__write_values' }, other), 'Auto-denies within 10 min if left unanswered · Always stops asking for sheets write values from now on', 'a connector tool says whose, as its title does');
-c.seen(450000);
-A.eq(c.hint({ promptId: 'm4', tool: 'x' }, other), 'Auto-denies within 7.5 min if left unanswered', 'minutes, never MS');
-A.ok(/Harness\.api\.get\('\/api\/runtime\/knobs'\)[\s\S]{0,200}Math\.max\(Number\(f\.liveAckMs\) \|\| 0, Number\(f\.live\) \|\| 0\)/.test(chat), 'the number is the enforced on-screen bound (liveAckMs, boot-frozen), never a saved-but-not-live value');
-A.ok(/btns\.appendChild\(hint\); readConsentDeadline\(\);/.test(chat), 'the first card asks for the bound; the cards already up gain their number when it lands');
+A.ok(!/auto-den/i.test(hintSrc.replace(/\/\*[\s\S]*?\*\//g, '')) && !/readConsentDeadline|consentSeenMs|liveAckMs/.test(chat), 'no approval card says it auto-denies, and the card never reads the deny deadline');
 const branches = part(chat, "    if (p.tool === 'browser.login') {", "    appendConsentDetails(r.body, p, 'plan');");
 const dflt = branches.slice(branches.lastIndexOf('    } else {'));
-A.ok(/hint\.className = 'consent-hint'; hint\.textContent = consentHintFor\(p, ws\);/.test(dflt) && /btns\.appendChild\(hint\)/.test(dflt), 'the default card carries the one hint line inside its keys (it leaves with them)');
+A.ok(/const hintText = consentHintFor\(p, ws\);/.test(dflt) && /if \(hintText\) \{ const hint = document\.createElement\('span'\); hint\.className = 'consent-hint'; hint\.textContent = hintText; btns\.appendChild\(hint\); \}/.test(dflt),
+  'the default card adds the line only when there is one, inside its keys (it leaves with them)');
 A.eq((branches.match(/consentHintFor\(/g) || []).length, 1, 'only the default card has it: never station.power / plugin.submit / browser.login');
-A.ok(/\.consent-hint \{[^}]*flex-basis: 100%/.test(read('frontend/css/app.css')), 'the hint is a full-width line in the keys row');
+A.ok(/\.consent-hint \{[^}]*flex-basis: 100%/.test(read('frontend/css/app.css')), 'the line is a full-width line in the keys row');
 
 // ---- the STANDING APPROVALS heading's tip ----
 const ui = read('frontend/app/stationui.js');

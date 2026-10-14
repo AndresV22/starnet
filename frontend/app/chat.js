@@ -4093,45 +4093,22 @@ const Chat = (() => {
      lead's) is never retired by a run's end: it settles through its own permission.response, or retireConsentCard when the
      reconnect snapshot no longer lists it (2026-10-14 review: such a card read "nothing was approved" with the ask live). */
   const openConsentCards = new Map();
-  /* THE CARD'S ONE HINT LINE (org P02): an approval card says what happens if nobody answers — the station denies an
-     unanswered ask on a timer (sidecar consent deadline: 120 s while unseen, a one-time longer bound once this page acks the
-     card). The minutes are the sidecar's own: GET /api/runtime/knobs reports the boot-frozen on-screen bound
-     (consentTimeoutMs.liveAckMs), and "within" that bound is always true from the moment the card shows (an unseen ask ends
-     sooner; the ack extends once, so a re-rendered card never gains time). Until the station has answered, or when it
-     cannot, the line carries no number (never a hard-coded one). On the SECOND ask for the same tool in the same direct chat
-     the line also teaches Always, after the auto-deny warning (every card times out, so every card says so). Always is a
-     standing grant across the station (permissions.js grantsPermanent), so the hint says "from now on", never "here"; the
-     tool is named in the card title's own words ("fs read", never "fs.read").
+  /* THE REPEAT-ASK LINE (org P02): on the SECOND ask for the same tool in the same direct chat, the card's keys row carries
+     one quiet line saying what Always does — the only hint an approval card has (no auto-deny line: Andrew 10-14, "the
+     approval key doesn't have to mention the auto denies"). Always is a standing grant across the station (permissions.js
+     grantsPermanent), so the line says "from now on", never "here"; the tool is named in the card title's own words
+     ("fs read", never "fs.read"). A first ask, a worker's ask and a background ask get no line.
      wsId -> Map(tool -> Set(promptId)): a re-render of the same ask never counts as a second ask. */
   const askedTools = new Map();
-  // sentence case like the card's title and keys; with no number yet it still says WHAT ends it (a timer), never a bare threat
-  const NUMBERLESS_DENY = 'Auto-denies on a timer if left unanswered';
-  let consentSeenMs = 0;   // the sidecar's on-screen deny bound, once read (0 = unknown: no number)
-  function autoDenyWords() {
-    const m = consentSeenMs > 0 ? Math.round(consentSeenMs / 6000) / 10 : 0;
-    return m > 0 ? 'Auto-denies within ' + (m >= 10 ? Math.round(m) : m) + ' min if left unanswered' : NUMBERLESS_DENY;
-  }
   // the tool in the card title's words (actionPhrase's ANY OTHER TOOL line): a connector tool says whose
   const toolWordsOf = t => { const mcp = /^mcp__(.+?)__(.+)$/.exec(t); return (mcp ? mcp[1] + ' ' + mcp[2] : t).replace(/[._]+/g, ' ').trim(); };
   function consentHintFor(p, ws) {
     const tool = String((p && p.tool) || '');
-    if (!tool || !ws || !p || p.promptId == null || p.workerAgentId || p.workerRunId || p.background === true) return autoDenyWords();
+    if (!tool || !ws || !p || p.promptId == null || p.workerAgentId || p.workerRunId || p.background === true) return '';
     const byTool = askedTools.get(ws.id) || new Map(); askedTools.set(ws.id, byTool);
     const ids = byTool.get(tool) || new Set(); byTool.set(tool, ids);
     ids.add(String(p.promptId)); if (ids.size > 20) ids.delete(ids.values().next().value);
-    return ids.size > 1 ? autoDenyWords() + ' · Always stops asking for ' + toolWordsOf(tool) + ' from now on' : autoDenyWords();
-  }
-  // read the on-screen bound once (the first card asks); the cards already up gain their number when it lands
-  let consentSeenRead = null;
-  function readConsentDeadline() {
-    if (consentSeenMs > 0 || consentSeenRead || typeof Harness === 'undefined' || !Harness.api || typeof Harness.api.get !== 'function') return;
-    consentSeenRead = Promise.resolve().then(() => Harness.api.get('/api/runtime/knobs')).then(st => {
-      const f = st && st.fields && st.fields.consentTimeoutMs;
-      const seen = f ? Math.max(Number(f.liveAckMs) || 0, Number(f.live) || 0) : 0;
-      if (!(seen > 0)) { consentSeenRead = null; return; }   // a station that does not report it: numberless, asked again next card
-      consentSeenMs = seen;
-      try { document.querySelectorAll('.consent-hint').forEach(h => { h.textContent = h.textContent.replace(NUMBERLESS_DENY, autoDenyWords()); }); } catch (_) { /* no document: the next card reads it */ }
-    }).catch(e => { consentSeenRead = null; if (typeof console !== 'undefined') console.warn('[consent] deny deadline unavailable', e); });   // the numberless line stays
+    return ids.size > 1 ? 'Always stops asking for ' + toolWordsOf(tool) + ' from now on' : '';
   }
   function retireOpenConsents(wsId, runId) {
     for (const [id, c] of openConsentCards) {
@@ -4214,9 +4191,9 @@ const Chat = (() => {
       mk('Always', 'always', '', '✓ always allowed', false, 'Allow this kind of action from now on, without asking');
       mk('Full access', 'full', 'danger', '✓ full access', false, 'Give ' + agentName + ' full access: it stops asking before most actions, until you change it back');
       mk('Deny', 'deny', 'deny', '✕ denied', true);
-      // one hint line, inside the keys' row so it leaves with them once the card is answered
-      const hint = document.createElement('span'); hint.className = 'consent-hint'; hint.textContent = consentHintFor(p, ws);
-      btns.appendChild(hint); readConsentDeadline();
+      // a repeat ask's one line (what Always does), inside the keys' row so it leaves with them once the card is answered
+      const hintText = consentHintFor(p, ws);
+      if (hintText) { const hint = document.createElement('span'); hint.className = 'consent-hint'; hint.textContent = hintText; btns.appendChild(hint); }
     }
     appendConsentDetails(r.body, p, 'plan');   // a station build's steps and drawing are read before deciding
     r.body.appendChild(btns);

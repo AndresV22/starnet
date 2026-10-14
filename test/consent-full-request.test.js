@@ -374,9 +374,8 @@ for (const decision of ['always', 'full']) test('a plugin.submit card offers onl
 test('a general approval card offers Full access, as the 0.13.5 candidate had it, and settles in those words', () => {
   const f = permissionFixture('fs.read');
   const buttons = f.nodes[0].body.children.find(n => n.className === 'consent-btns');
-  assert.deepEqual(buttons.children.filter(b => b.className !== 'consent-hint').map(b => b.textContent), ['Approve once', 'Always', 'Full access', 'Deny'], 'the standing key reads Full access');
-  // org P02: one hint line under the keys says what happens if nobody answers (no number: the page is never told the deadline)
-  assert.deepEqual(buttons.children.filter(b => b.className === 'consent-hint').map(b => b.textContent), ['Auto-denies on a timer if left unanswered'], 'one hint line, numberless');
+  // org P02 (Andrew 10-14): no auto-deny line on the card — a first ask is the candidate's four keys and nothing else
+  assert.deepEqual(buttons.children.map(b => b.textContent), ['Approve once', 'Always', 'Full access', 'Deny'], 'the standing key reads Full access, and no hint line rides a first ask');
   assert.ok(!buttons.children.some(b => /never ask|full power/i.test(String(b.textContent) + ' ' + String((b.dataset && b.dataset.tip) || b.title || ''))), 'no key or tip uses the struck Never ask / Full power names');
   const fullKey = buttons.children.find(b => b.textContent === 'Full access');
   assert.ok(/^Give .+ full access: it stops asking before most actions, until you change it back$/.test(String(fullKey.title || '')), 'the Full access tip is the candidate\'s: ' + fullKey.title);

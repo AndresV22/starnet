@@ -792,7 +792,7 @@ body.no-curve #stage-wrap::before { background: none; box-shadow: none; }
 .consent-btn.consent-confirm:disabled { color: var(--ph-dim); border-color: rgba(var(--ph-rgb), .28);
   background: none; cursor: default; box-shadow: none; text-shadow: none; }
 .consent-result { font-size: 13px; letter-spacing: 0.5px; color: var(--ph); }
-/* org P02: the approval card's one hint line (auto-deny, or what Always does) — a full-width quiet line under the keys */
+/* org P02: a repeat ask's one line (what Always does) — a full-width quiet line under the keys; no card says it auto-denies */
 .consent-hint { flex-basis: 100%; width: 100%; color: var(--ph-dim); font-size: 11px; letter-spacing: .3px; margin-top: 2px; }
 .consent-result.err { color: var(--bad); }
 
