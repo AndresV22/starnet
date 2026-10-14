@@ -639,7 +639,8 @@ const Tutorial = (() => {
     });
     U.bus.on('permission.response', p => {
       if (p && ['once', 'always', 'full'].includes(p.decision)) tickBrief('approve');
-      if (active && demoActive && p && demoPrompts.has(p.promptId) && p.decision === 'deny') sawDeny = true;
+      // a STOPPED run's ask settles as deny + stopped:true — the run ended, the Commander never said no
+      if (active && demoActive && p && demoPrompts.has(p.promptId) && p.decision === 'deny' && !p.stopped) sawDeny = true;
     });
     // FIRST-STEPS "give a command" tracks any CLEAN run (tutorial or not) — outside the active guard so it keeps
     // working for the whole session; gated on reason==='done' so an errored run no longer falsely ticks it.
