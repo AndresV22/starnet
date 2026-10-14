@@ -261,13 +261,16 @@
 
   // the cold-start explanation behind a 'readiness' stand-down: how far the station is from EITHER hot bar
   // (dossier breadth or recent-run evidence). '' when already hot / no detail (an empty line is never invented).
+  // A NECESSARY condition, never a promise: clearing a bar does not make it act while the dial is on WAIT / SUGGEST (the
+  // 'posture' gate binds first) or while you are at the station — so the line says what it WON'T do until then, which is
+  // true on every surface that shows it (the AUTONOMY panel beside the posture reason, and LAST REPORT with no dial).
   function readinessText(rd) {
     if (!rd || typeof rd !== 'object' || rd.tier === 'hot') return '';
     const dims = Array.isArray(rd.usableDims) ? rd.usableDims.length : 0;
     const dimsBar = Number.isFinite(Number(rd.hotDimsMin)) ? Number(rd.hotDimsMin) : 4;
     const runsBar = Number.isFinite(Number(rd.hotRunsMin)) ? Number(rd.hotRunsMin) : 4;
     const runs = Number(rd.activityCount) || 0;
-    return 'still learning you — it knows ' + dims + ' of ' + dimsBar + ' areas and has ' + runs + ' of ' + runsBar + ' recent runs; it starts acting on its own once either is complete';
+    return 'still learning you — it knows ' + dims + ' of ' + dimsBar + ' areas and has ' + runs + ' of ' + runsBar + ' recent runs; it won’t act on its own until one of those is complete';
   }
 
   // THE PLAIN HOLD-BACK REASON (org pass 10-14, call #57): the readout's one sentence for a cold-start station — what
