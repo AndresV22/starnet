@@ -345,6 +345,7 @@ textarea.wf-io:focus { outline: none; border-color: var(--ph); box-shadow: var(-
 .wf-md .md-p:first-child { margin-top: 0; }
 .wf-md .md-h { display: block; margin: .6em 0 .25em; color: var(--ph-bright); letter-spacing: .5px; }
 .wf-md .md-b { color: var(--ph-bright); }
+.wf-md .md-i { font-style: italic; }   /* *italic* slants here as in COMMS (.cmsg .body .md-i): the one renderer draws it everywhere */
 .wf-md .md-list { margin: .35em 0; padding-left: 1.6em; }
 .wf-md .md-list li { margin: .15em 0; }
 .wf-md .md-code { font-family: inherit; padding: 0 4px; border-radius: 4px; background: rgba(var(--ph-rgb),.08); }   /* the station face, as COMMS — never the browser's monospace */
