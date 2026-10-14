@@ -5912,6 +5912,8 @@ async function configureConnectorCfg(cfg, options) {
    Lives in the PROTECTED WORKSPACES dir so the agent's own fs.* tools can't reach in and re-grant itself. */
 const TOOLSETS_FILE = path.join(WORKSPACES, 'toolsets.json');
 const computerRuns = new Set();
+// StarNet's OWN window belongs to the desktop shell that spawned this sidecar: computer.use refuses input that lands in it.
+const STARNET_SELF_PIDS = DESKTOP_SHELL && process.ppid > 0 ? [process.ppid] : [];
 const computerControl = require('./computer-control.js').makeComputerControl({
   root: WORKSPACES, desktopShell: DESKTOP_SHELL,
   load: file => loadResilient(file, 'computer-control'), save: saveResilient,
@@ -10841,8 +10843,9 @@ const groupSessions = require('./group-sessions.js').makeGroupSessions({
         runId, signal, emit, broadcast: true, streamId: g.id, sessionTitle: g.title,
         isTask: Classify.isTaskDirective(g.messages.find(m => m.id === t.origin)?.content || ''), trigger: 'directive',
         taskKey: 'stream:' + g.id, taskSource: 'interactive',
-        // the group's LEAD keeps the overseer's station tools (group.add brings more crew in from inside the group, settings,
-        // builds); every other participant is a peer. team.* / session.* stay stripped in a group (resolveTools below).
+        // THE GROUP'S LEAD IS THE ORCHESTRATOR (2026-10-13): with lead:false here a lead asked to configure a conveyor had no
+        // station tools and drove StarNet's own window by computer use for 21 minutes. The lead now holds the station kit
+        // (layout, builder, settings, routines, group.add to bring more crew in); every other participant stays a worker.
         surface: 'interactive', lead: t.agentId === g.leadId, groupTools: tools, askCommander,
         station: router.stationFor(t.agentId) || undefined,
         // the agent's own room gear (its dish = web, its cabinet = files …), exactly as its one-on-one chat gets it from
@@ -19846,7 +19849,7 @@ async function runOnceCore(o) {
   // at authority, capability, consent, and tool boundaries before any desktop action can reach Windows.
   if (computerControl.selection() === 'cua') {
     runComputer = makeCuaComputerTools({
-      allowPhysicalInput: DESKTOP_SHELL, imageWire, signal, clock: { now: () => Date.now() },
+      allowPhysicalInput: DESKTOP_SHELL, imageWire, signal, clock: { now: () => Date.now() }, selfPids: STARNET_SELF_PIDS,
       binary: computerControl.binary(), isEnabled: () => computerControl.selection() === 'cua' && computerControl.available()
     });
   } else {
@@ -19855,8 +19858,8 @@ async function runOnceCore(o) {
       if (!computerControl.available() || computerControl.selection() !== 'win32') throw new Error('Computer backend changed or is unavailable; start a new run');
       return fn(...args);
     };
-    runComputer = makeComputerTools({ allowPhysicalInput: DESKTOP_SHELL, imageWire,
-      driver: native ? { perform: guard(native.perform), capture: guard(native.capture) } : undefined });
+    runComputer = makeComputerTools({ allowPhysicalInput: DESKTOP_SHELL, imageWire, selfPids: STARNET_SELF_PIDS,
+      driver: native ? { perform: guard(native.perform), capture: guard(native.capture), windowAt: guard(native.windowAt), foreground: guard(native.foreground) } : undefined });
   }
   runComputer.register(registry);
   computerRuns.add(runComputer);
@@ -20261,6 +20264,8 @@ async function runOnceCore(o) {
   if (ownerTrusted || unattendedGrants.indexOf('workbench') >= 0) station = stationWithObject(station, agentId, 'workbench');
   if (ownerTrusted || unattendedGrants.indexOf('connectors') >= 0) station = stationWithConnectors(station, agentId, connectors.ids());
   if (ownerTrusted) station = stationWithObject(station, agentId, 'orchestrator');
+  // a group chat's LEAD may stand in a bay room (router.stationFor), which bypasses composeOffice: confer the kit directly
+  if (o.lead && Array.isArray(o.groupTools)) station = stationWithObject(station, agentId, 'orchestrator');
   // FULL POWER is capability authority, not merely a prompt preference. Materialize every execution object
   // family and every configured connector; unavailable external services still report their real prerequisite.
   // Keep the pre-existing LEAD-ONLY orchestration invariant: a delegated worker gets the whole computer but not
@@ -21604,6 +21609,11 @@ async function runOnceCore(o) {
       + 'read it first with session_peek — NEVER answer from memory or assumption. Your own thread does not show other '
       + 'sessions\' turns, so without peeking you would be guessing, and a guessed "nothing happened" about real finished '
       + 'work is a lie the Commander will catch.';
+  } else if (isTask && Array.isArray(o.groupTools) && o.lead && resolved.tools.includes('station.build')) {
+    teamNote = '\n\n[STATION — you lead this group chat] Change StarNet through its own tools, in the background, never through the screen: '
+      + 'read assembly lines with station.layout first and quote its status; tool_search "station builder" for station.map (see the floor), station.plan (plan any change on a copy), '
+      + 'station.build (build a plan; the Commander approves each build), station.test_line and station.start_line; tool_search "station settings" for settings. '
+      + 'Claim only what those tools report. Hand work to the other participants with group.handoff.';
   } else if (isTask && o.delegatedBy && resolved.tools.includes('station.build')) {
     // THE LENT BUILDER (team.dispatch builder:true): this worker holds the floor tools for this job only. Without this
     // line a Build Manager handed "rebuild the lab" has deferred tools it never searches for, and says it cannot build.

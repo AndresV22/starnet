@@ -22,6 +22,18 @@
   // The harness's own window (desktop shell exe or a browser tab titled STARNET). Typing into it is never the
   // intent — it means the target app lost focus (the 2026-07-08 "typed the song into its own chat box" incident).
   const SELF_WINDOW_RE = /starnet/i;
+  /* STARNET IS NEVER DRIVEN THROUGH THE SCREEN (2026-10-13). Asked in a group chat to configure a conveyor, a lead with no
+     station tools spent 21 minutes clicking StarNet's own Workflow panel (~110 screenshot→click round trips) and then
+     scripted keystrokes at the StarNet window — while station.plan/build does the same job in the background behind one
+     card. So a click or keystroke that would land IN StarNet is refused and pointed at those tools. Structural: the
+     top-level window under the point (or the focused one, for keys) is matched by its owning process — the desktop
+     shell that spawned this sidecar (selfPids) or its exe name — and, for StarNet open in a browser tab, its title. */
+  const POINTER_ACTIONS = ['click', 'double_click', 'drag'];
+  const SELF_PROCESS_RE = /^skynet-desktop(.exe)?$/i;
+  const SELF_TITLE_RE = /^starnet(?![w.])/i;
+  const SELF_DRIVE_HELP = 'never operate StarNet through the screen: its own tools change it in the background while the Commander keeps working. '
+    + 'Read assembly lines with station.layout; tool_search "station builder" for station.map, station.plan, station.build, station.test_line and station.start_line; '
+    + 'tool_search "station settings" for settings. If those tools are not in your list, tell the Commander which change you need instead.';
   const DESTRUCTIVE_HOTKEYS = [
     'ctrl+alt+delete',
     'ctrl+shift+esc',
@@ -91,6 +103,29 @@
       }
     }
     return 'foreground="' + title + '" (' + proc + ')';
+  }
+  function isSelfWindow(win, selfPids) {
+    win = win || {};
+    const pid = Number(win.pid) || 0;
+    return (pid > 0 && (selfPids || []).indexOf(pid) >= 0) || SELF_PROCESS_RE.test(String(win.process || '')) || SELF_TITLE_RE.test(String(win.title || ''));
+  }
+  // Throws (input NOT sent) when the action would land in StarNet's own window. A paired remote owner is the user at the
+  // machine and keeps the whole desktop; a driver that cannot report windows (injected test drivers) is not checked.
+  async function guardSelfTarget(driver, action, deps, ctx) {
+    if (ctx && ctx.remoteDesktopAuthorized === true && ctx.ownerTrusted === true) return;
+    const selfPids = (typeof deps.selfPids === 'function' ? deps.selfPids() : deps.selfPids) || [];
+    const probes = [];
+    if (POINTER_ACTIONS.indexOf(action.action) >= 0 && typeof driver.windowAt === 'function') {
+      probes.push({ where: 'the window at (' + action.x + ', ' + action.y + ')', read: () => driver.windowAt(action.x, action.y) });
+      if (action.action === 'drag') { const ex = (Number(action.x) || 0) + (Number(action.dx) || 0), ey = (Number(action.y) || 0) + (Number(action.dy) || 0); probes.push({ where: 'the window at (' + ex + ', ' + ey + ')', read: () => driver.windowAt(ex, ey) }); }
+    }
+    if (KEYBOARD_ACTIONS.indexOf(action.action) >= 0 && typeof driver.foreground === 'function') probes.push({ where: 'the focused window', read: () => driver.foreground() });
+    for (const p of probes) {
+      let win;
+      try { win = await p.read(); }
+      catch (e) { throw new Error('refused: could not confirm ' + p.where + ' is not StarNet (' + String((e && e.message) || e).slice(0, 160) + ') — input was NOT sent'); }
+      if (isSelfWindow(win, selfPids)) throw new Error('refused: ' + p.where + ' is StarNet itself ("' + String((win && (win.title || win.process)) || 'StarNet') + '"), so input was NOT sent — ' + SELF_DRIVE_HELP);
+    }
   }
   function win32DriverRequested(env) {
     env = env || process.env;
@@ -205,6 +240,7 @@
       run: async (args, ctx) => {
         assertPhysicalInputAllowed(deps, ctx);
         const action = hardBlock(args || {});
+        await guardSelfTarget(driver, action, deps, ctx);
         // The paired Telegram owner is at the controls; foreground observations must not silently narrow which
         // window they can use. The screenshot action remains available for visual verification after any input.
         const fgNote = '';
@@ -226,8 +262,8 @@
         return { content, summary: summarize(action), images };
       }
     };
-    return { useTool, register(reg) { reg.register(useTool); return reg; }, _internals: { ACTIONS, KEYBOARD_ACTIONS, SELF_WINDOW_RE, checkFocus, hardBlock, validateAction, summarize, COMMAND_TEXT_RE, win32DriverRequested, win32DriverActive, win32DriverDisabled, underDesktopShell, makeWin32DesktopDriver, makeInertDriver, physicalInputAllowed, assertPhysicalInputAllowed } };
+    return { useTool, register(reg) { reg.register(useTool); return reg; }, _internals: { ACTIONS, KEYBOARD_ACTIONS, SELF_WINDOW_RE, SELF_DRIVE_HELP, isSelfWindow, guardSelfTarget, checkFocus, hardBlock, validateAction, summarize, COMMAND_TEXT_RE, win32DriverRequested, win32DriverActive, win32DriverDisabled, underDesktopShell, makeWin32DesktopDriver, makeInertDriver, physicalInputAllowed, assertPhysicalInputAllowed } };
   }
 
-  return { makeComputerTools, _internals: { ACTIONS, KEYBOARD_ACTIONS, SELF_WINDOW_RE, checkFocus, hardBlock, validateAction, summarize, COMMAND_TEXT_RE, win32DriverRequested, win32DriverActive, win32DriverDisabled, underDesktopShell, makeWin32DesktopDriver, makeInertDriver, physicalInputAllowed, assertPhysicalInputAllowed } };
+  return { makeComputerTools, _internals: { ACTIONS, KEYBOARD_ACTIONS, SELF_WINDOW_RE, SELF_DRIVE_HELP, isSelfWindow, guardSelfTarget, checkFocus, hardBlock, validateAction, summarize, COMMAND_TEXT_RE, win32DriverRequested, win32DriverActive, win32DriverDisabled, underDesktopShell, makeWin32DesktopDriver, makeInertDriver, physicalInputAllowed, assertPhysicalInputAllowed } };
 });

@@ -32,8 +32,8 @@ A.ok(/loginPrompt:\s*askHuman/.test(around) && /surface:\s*'interactive', prompt
 for (const rel of ['sidecar/channels/hub.js', 'sidecar/remote/host.js']) {
   A.ok(!/stationBrowser/.test(read(rel)), rel + ' never claims the station browser');
 }
-// the group-session runOnce (surface 'interactive', lead:false) must not either
-const group = index.indexOf("surface: 'interactive', lead: false, groupTools: tools");
+// the group-session runOnce (surface 'interactive', lead only for the group's lead) must not either
+const group = index.indexOf("surface: 'interactive', lead: t.agentId === g.leadId, groupTools: tools");
 A.ok(group > 0, 'the group-session run is still where this test expects it');
 const groupCall = index.slice(group - 1500, group + 1500);
 A.ok(!/stationBrowser/.test(groupCall), 'group sessions never claim the station browser');
