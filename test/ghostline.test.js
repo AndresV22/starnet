@@ -224,4 +224,50 @@ const geoChain = bound => ({
   A.eq(g.peek().boxes.length, 0, 'a non-deployable plan projects nothing (a ghost may never ride a loop)');
 }
 
+/* ---- 7. captions are LAID OUT, never piled (walk 10-14 #13): two captions printed on top of each other on the busy
+   station, and one crossed the hull into space. draw() places each caption where no caption drawn this frame sits,
+   asks the caller's fit (keep it on the station; null = that spot is taken) at each spot it tries, and leaves out a
+   caption with no clear spot. ---- */
+{
+  const geo = geoChain(false);
+  const plan = P.compileRoutingPlan(geo), g = GhostLine.create();
+  g.setContext({ plan, comps: P.lineComponents(geo), offset: { tx: 0, ty: 0 } });
+  const jm = jmapOf(plan);
+  let plates = [];
+  const target = { fillStyle: '', measureText: t => ({ width: String(t).length * 4 }), getTransform: () => ({ a: 1 }),
+    fillRect(x, y, w, h) { if (target.fillStyle === 'rgba(4,6,8,0.86)') plates.push({ x, y, w, h }); } };
+  const ctx = new Proxy(target, { get: (o, k) => (k in o ? o[k] : () => {}), set: (o, k, v) => { o[k] = v; return true; } });
+  const over = (a, b) => a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+  let now = 0, crowded = 0, piled = 0, outside = 0, oneSpot = 0, refused = 0, moved = 0, below = 0;
+  const room = { x: -30, y: -40, w: 180, h: 60 };
+  const keepIn = b => { b.x = Math.max(room.x, Math.min(room.x + room.w - b.w, b.x)); return b; };
+  for (let i = 0; i < 2600; i++) {
+    now += 16; g.tick(16, now, geo.belts, jm, { feed: { known: false, fed: false } });
+    const notes = g.peek().notes;
+    if (notes.length < 2) continue;
+    crowded++;
+    plates = []; g.draw(ctx, now, 12, 8, null, keepIn);
+    for (let a = 0; a < plates.length; a++) for (let b = a + 1; b < plates.length; b++) if (over(plates[a], plates[b])) piled++;
+    for (const p of plates) if (p.x < room.x - 0.01 || p.x + p.w > room.x + room.w + 0.01) outside++;
+    plates = []; g.draw(ctx, now, 12, 8, null, b => ({ x: 0, y: 0, w: b.w, h: b.h }));   // every spot is the same spot
+    if (plates.length === 1) oneSpot++;
+    plates = []; g.draw(ctx, now, 12, 8, null, () => null);                            // every spot is taken by something real
+    if (plates.length === 0) refused++;
+    // the newest caption is laid out first; refuse ONLY its own first spot and it must land on its next one
+    const first = notes[notes.length - 1], isDock = / WOULD RUN IT$/.test(first.text), firstSpot = (first.y + 1) * 12 + 3;   // a dock caption hangs under its tile
+    if (isDock) {
+      below++;
+      plates = []; g.draw(ctx, now, 12, 8, null, (b, n) => (n && n.text === first.text && n.x === first.x && b.y === firstSpot) ? null : b);
+      if (plates.length && plates[0].y !== firstSpot && Math.abs(plates[0].y - (first.y * 12 - 3 - 8 * 1.36)) < 8) moved++;
+    }
+  }
+  A.ok(crowded > 0, 'the chain line shows two captions at once at some point (' + crowded + ' frames)');
+  A.eq(piled, 0, 'no two captions drawn in one frame overlap');
+  A.eq(outside, 0, 'every caption stays inside the box the caller keeps it in (the station, never space)');
+  A.eq(oneSpot, crowded, 'when every candidate spot is the same spot, ONE caption is drawn there, never a pile');
+  A.eq(refused, crowded, 'a caption whose every spot is taken by something real sits the pass out');
+  A.ok(below > 0 && moved === below, 'a dock caption refused under its tile goes over it instead (' + moved + '/' + below + ' frames)');
+  A.ok(/if \(!b\) continue;\s*placed\.push\(b\);/.test(require('fs').readFileSync(require('path').join(__dirname, '../frontend/app/ghostline.js'), 'utf8')), 'draw() records each placed caption before the next is laid out');
+}
+
 A.report('ghostline');

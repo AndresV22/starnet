@@ -34,6 +34,7 @@ const World = (() => {
   let hoverBeltTile = null;                      // belt tile under the cursor (hover-glance route tag), or null
   let hoverOutbox = null;                        // stacked OUTBOX under the cursor (hover-glance "N TO REVIEW" tag), or null
   let routingNags = null;                        // [{x,y,w,h,label,warn}] in-world callouts mirroring the compiler's errors
+  let nagLabelBoxes = [];                        // where drawRoutingNags laid its labels last frame (world px) — WOULD-captions yield to them
   let firstShipPulse = null;
   let feedState = { known: false, fed: true };   // server-proven "something feeds the intake" truth (channels/cron); fed=true until proven otherwise
   let startFacts = null;                         // …and the server's own answers it was read from ({ chans, cron, lt }) — what starts ONE line (WorkflowLine.lineStarts)
@@ -6966,7 +6967,7 @@ const World = (() => {
       // (2026-09-30) the caption plate is set at a reading size ON SCREEN — 14px, by pixel ratio and TEXT SIZE — whatever the camera
       // zoom: at the shared 8 world px a plate grew to twice the NO FEED nag at a close zoom and covered the machines it spoke of
       const capPx = 14 * (window.devicePixelRatio || 1) * ((typeof U !== 'undefined' && U.uiZoom && U.uiZoom()) || 1) / (scale || 1);
-      ghost.draw(ctx, now, T, capPx, plates.length ? (bx, paint) => { if (!onPlate(bx)) paint(); } : null);
+      ghost.draw(ctx, now, T, capPx, plates.length ? (bx, paint) => { if (!onPlate(bx)) paint(); } : null, (bx, n) => captionInStation(bx, n, plates));
     }
     drawHandoffBoxes(now);   // Stage 2: lead→worker delegation boxes fly over the entities
     drawSendCrates();        // SEND TO: a line's product crate flies from its OUTBOX to the next line's INBOX
@@ -8557,7 +8558,7 @@ const World = (() => {
     return result;
   }
   function drawRoutingNags(now) {
-    if (!routingNags || !routingNags.length) return;
+    if (!routingNags || !routingNags.length) { nagLabelBoxes = []; return; }
     const pulse = 0.55 + 0.35 * Math.sin(now / 280);
     for (const n of routingNags) {
       const X = n.x * T, Y = n.y * T, Wd = n.w * T, Hd = n.h * T;
@@ -8589,6 +8590,7 @@ const World = (() => {
           w: (r.x2 - r.x1 + 1) * T - 4, h: (r.y2 - r.y1 + 1) * T - 4 } : null;
       }
     });
+    nagLabelBoxes = labels.map(b => ({ x: b.x, y: b.y, w: b.w, h: b.h }));
     for (const box of labels) {
       ctx.shadowBlur = 0; ctx.fillStyle = '#111812'; ctx.fillRect(box.x, box.y, box.w, box.h);
       ctx.fillStyle = box.warn ? '#ffbe3c' : '#ff5046'; ctx.shadowColor = ctx.fillStyle; ctx.shadowBlur = 2;
@@ -9693,6 +9695,33 @@ const World = (() => {
       openWorkflow: f => { if (!f || typeof Build === 'undefined') return; try { if (!Build.isOpen()) Build.open(); if (f.dockId && Build.openAssign) Build.openAssign(f.dockId); } catch (_) { /* BUILD MODE absent: nothing to open */ } }
     });
     return true;
+  }
+  /* A WOULD-caption stays ON the station (walk 10-14 #13: "THE RESULT WOULD SHIP OUT HERE" crossed the hull into space and
+     past the stage frame, "NO FEED — CLICK" sat on "A MESSAGE WOULD ARRIVE HERE"). Sideways it stays inside its tile's room
+     when it fits there, else inside the station's floor; up and down it stays between the top wall's face and the floor's
+     last row; and always on the visible stage. On a routing callout or a line plate it answers null, so ghostline.js tries
+     the caption's next spot — and with none clear, the projection sits that pass out. */
+  function captionInStation(b, n, plates) {
+    const hull = stationFloorBox(), room = n ? lwRoomBox(Math.floor(n.x), Math.floor(n.y)) : null;
+    const across = room && b.w <= room.w ? room : hull;
+    if (across && b.w <= across.w) b.x = Math.max(across.x, Math.min(across.x + across.w - b.w, b.x));
+    if (hull) { const top = hull.y - ((typeof StationBake !== 'undefined' && StationBake.WALL && StationBake.WALL.up) || 0); b.y = Math.max(top, Math.min(hull.y + hull.h - b.h, b.y)); }
+    const v = { x: (4 - panX) / scale, y: (4 - panY) / scale, w: Math.max(0, (cv.width - 8) / scale), h: Math.max(0, (cv.height - 8) / scale) };
+    if (b.w <= v.w) b.x = Math.max(v.x, Math.min(v.x + v.w - b.w, b.x));
+    if (b.h <= v.h) b.y = Math.max(v.y, Math.min(v.y + v.h - b.h, b.y));
+    const hit = o => !!o && b.x < o.x + o.w && b.x + b.w > o.x && b.y < o.y + o.h && b.y + b.h > o.y;
+    if (nagLabelBoxes.some(hit) || (plates || []).some(p => hit(p.box))) return null;
+    return b;
+  }
+  // the station's floor extent (every room's floor rect, local px) — what "inside the station" means for a world label
+  let floorBoxMemo = null, floorBoxGeo = null;
+  function stationFloorBox() {
+    if (!geo || !geo.allRects || !geo.allRects.length) return null;
+    if (floorBoxGeo === geo) return floorBoxMemo;
+    let x1 = Infinity, y1 = Infinity, x2 = -Infinity, y2 = -Infinity;
+    for (const r of geo.allRects) { x1 = Math.min(x1, r.x1); y1 = Math.min(y1, r.y1); x2 = Math.max(x2, r.x2); y2 = Math.max(y2, r.y2); }
+    floorBoxGeo = geo; floorBoxMemo = { x: x1 * T + 2, y: y1 * T + 2, w: (x2 - x1 + 1) * T - 4, h: (y2 - y1 + 1) * T - 4 };
+    return floorBoxMemo;
   }
   // the floor rectangle of the room a local tile sits in (the nag layout's containerFor, reused)
   function lwRoomBox(tx, ty) {

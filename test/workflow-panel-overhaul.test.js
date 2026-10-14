@@ -134,7 +134,7 @@ A.ok(/captionPlate\(c, label, box, '#5fd8ff'\)/.test(marks) && !/shadowBlur/.tes
 A.ok(/ghost\.draw\(ctx, now, t, capFs\(\), \(box, paint\) => voiceSay\('ghostCaption', box, box, paint\), captionFit\);/.test(build), 'the projection\'s captions take the same size and stay on the glass');
 const gdraw = at(ghost, '    function draw(ctx, nowMs, T, fontPx, say, fit) {', '    function reset()');
 A.ok(/ctx\.fillStyle = 'rgba\(4,6,8,0\.86\)'; ctx\.fillRect\(b\.x, b\.y, b\.w, b\.h\);/.test(gdraw) && /ctx\.setLineDash\(\[3 \* px1, 2 \* px1\]\)/.test(gdraw) && !/shadowBlur/.test(ghost), 'a WOULD-caption is a plate edged with a DASHED hairline (dashed = projected), with no glow');
-A.ok(/return \(fit && fit\(b\)\) \|\| b;/.test(gdraw), '…placed by the caller\'s fit when it gives one');
+A.ok(/const c = fit \? fit\(\{ x: b\.x, y, w, h: ph \}, n\) : \{ x: b\.x, y, w, h: ph \};/.test(gdraw), '…placed by the caller\'s fit at every spot it tries (walk 10-14 #13: laid out, never piled)');
 A.ok(/k < 0\.12 \? k \/ 0\.12 : k > 0\.75 \? \(1 - k\) \/ 0\.25 : 1/.test(gdraw), '…and lit while it is read');
 const wait = at(world, '  function drawWaitCrate(cx, cy) {', '  /* SHIPPED TODAY'), ship = at(world, '  function drawShipCrate(cx, cy, pop) {', '  // E2 verification hooks');
 A.ok(/Conveyor\.drawCrate\(ctx, Math\.round\(cx\), Math\.round\(cy\), 'ore'\)/.test(wait) && /Conveyor\.drawCrate\(ctx, x, y, 'product'\)/.test(ship), 'the INBOX\'s waiting jam and the OUTBOX\'s shipped pallet park the same crate');

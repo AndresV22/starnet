@@ -271,12 +271,24 @@ const GhostLine = (() => {
       const font = fs + "px 'VT323','Courier New',monospace";
       const padX = fs * 0.45, padY = fs * 0.18, ph = fs + padY * 2;
       // the plate: above the tile (rising as it appears), or under it (a dock caption — its nameplate owns the space above)
+      /* LAID OUT, NEVER PILED (walk 10-14 #13: two captions printed on top of each other; one crossed the hull into space).
+         A caption drawn this frame is never covered by a later one: the later one tries the other side of its tile, then one
+         plate further out on either side. `fit(box, note)` is the caller's keep-it-on-the-station clamp; it may answer null
+         where a spot is taken by something real. With no clear spot a caption sits this pass out — it is only a projection. */
+      const placed = [];
+      const over = (a, o) => a.x < o.x + o.w && a.x + a.w > o.x && a.y < o.y + o.h && a.y + a.h > o.y;
       const boxOf = (n, rise) => {
         ctx.save(); ctx.font = font;
         const w = ctx.measureText(n.text).width + padX * 2;
         ctx.restore();
         const b = { x: (n.x + 0.5) * T - w / 2, y: n.below ? (n.y + 1) * T + 3 : n.y * T - 3 - rise - ph, w, h: ph };
-        return (fit && fit(b)) || b;
+        const above = n.y * T - 3 - rise - ph, below = (n.y + 1) * T + 3;
+        const ys = n.below ? [b.y, above, below + ph + 2, above - ph - 2] : [b.y, below, above - ph - 2, below + ph + 2];
+        for (const y of ys) {
+          const c = fit ? fit({ x: b.x, y, w, h: ph }, n) : { x: b.x, y, w, h: ph };
+          if (c && !placed.some(o => over(c, o))) return c;
+        }
+        return null;
       };
       const paintNote = (n, k, b) => {
         const tf = ctx.getTransform ? ctx.getTransform() : null, px1 = 1 / ((tf && tf.a) || 1);   // one screen pixel, in the caller's frame
@@ -294,6 +306,8 @@ const GhostLine = (() => {
         const n = notes[i], k = (nowMs - n.t0) / NOTE_MS;
         if (k >= 1 || k < 0) { notes.splice(i, 1); continue; }
         const b = boxOf(n, n.below ? 0 : Math.min(1, k * 4) * 3);
+        if (!b) continue;
+        placed.push(b);
         if (say) say(b, paintNote.bind(null, n, k, b)); else paintNote(n, k, b);
       }
     }

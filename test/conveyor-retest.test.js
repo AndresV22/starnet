@@ -159,7 +159,13 @@ A.ok(/const RING_DOCK_T = \{ bay: 1, intake: 1, outbox: 1 \}/.test(build) && /'C
   // (2026-09-30: a caption is a PLATE — the same rect is offered to the arbiter and painted)
   A.ok(/note\(x, y, '◇ ' \+ who \+ ' WOULD RUN IT', true\)/.test(ghost) && /y: n\.below \? \(n\.y \+ 1\) \* T \+ 3 : n\.y \* T - 3 - rise - ph/.test(ghost), 'a dock caption hangs under its tile (the nameplate owns the space above)');
   A.ok(/if \(say\) say\(b, paintNote\.bind\(null, n, k, b\)\); else paintNote\(n, k, b\);/.test(ghost), '…and the arbiter is told where it really is');
-  A.ok(/ghost\.draw\(ctx, now, T, capPx, plates\.length \? \(bx, paint\) => \{ if \(!onPlate\(bx\)\) paint\(\); \} : null\)/.test(world), 'on the live floor a caption never prints over a line plate');
+  A.ok(/ghost\.draw\(ctx, now, T, capPx, plates\.length \? \(bx, paint\) => \{ if \(!onPlate\(bx\)\) paint\(\); \} : null, \(bx, n\) => captionInStation\(bx, n, plates\)\)/.test(world), 'on the live floor a caption never prints over a line plate, and is kept on the station (walk 10-14 #13)');
+  const fitSrc = world.slice(world.indexOf('function captionInStation('), world.indexOf('function stationFloorBox('));
+  A.ok(fitSrc.length > 200 && fitSrc.length < 4000, 'world.js has one bounded captionInStation');
+  A.ok(/lwRoomBox\(/.test(fitSrc) && /stationFloorBox\(\)/.test(fitSrc), 'a caption is held inside its room, else the station floor — never across the hull into space');
+  A.ok(/\(4 - panX\) \/ scale/.test(fitSrc), '…and on the visible stage, never past its frame');
+  A.ok(/nagLabelBoxes\.some\(hit\)/.test(fitSrc) && /return null;/.test(fitSrc), 'a spot on a routing callout (NO FEED — CLICK) is refused, so the caption moves to its next spot');
+  A.ok(/nagLabelBoxes = labels\.map\(/.test(world), 'drawRoutingNags records where its labels landed');
   A.ok(/const capPx = 14 \* \(window\.devicePixelRatio \|\| 1\) \* \(\(typeof U !== 'undefined' && U\.uiZoom && U\.uiZoom\(\)\) \|\| 1\) \/ \(scale \|\| 1\);/.test(world), '…and it reads at 14px on screen whatever the zoom (never a plate twice the size of the floor\'s own nags)');
   const pos = build.slice(build.indexOf('  function positionFinCard() {'), build.indexOf('  /* the delivery-retirement hook'));
   A.ok(/const FIN_AVOID = \{ intake: 1, bay: 1, outbox: 1, filter: 1, splitter: 1, merger: 1, joiner: 1, loop: 1 \}/.test(pos) && /spots\.find\(clear\) \|\| spots\[0\]/.test(pos), 'the FINISH card takes the first spot that covers no workflow machine');
