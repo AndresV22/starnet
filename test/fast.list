@@ -822,6 +822,8 @@ test/background-asks-ui.test.js
 test/consent-visibility.test.js
 test/consent-full-args.test.js
 test/session-indicators.test.js
+test/rail-group-line-fit.test.js
+test/ui-layout-fit.test.js
 test/estop-persistence-ui.test.js
 test/channels.adapter.test.js
 test/channels.proxy-fetch.test.js

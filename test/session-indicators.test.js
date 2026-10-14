@@ -155,7 +155,7 @@ A.ok(!context.railRowTip(savedA, row(savedA), true).includes('right-click'), 'pr
   };
   A.eq(decl('.ws-agent', 'display'), 'none', 'COMPACT still hides the agent line by default (direct rows keep their one-line layout)');
   A.eq(decl('body:not(.rows-inbox) #workstreams .ws-agent.ws-agent-group', 'display'), 'flex', 'a group row shows its crew identity line in COMPACT');
-  A.eq(decl('body:not(.rows-inbox) #workstreams .ws-agent.ws-agent-group', 'font-size'), '12px', 'the compact crew line is the INBOX line’s readable size, not a shrunken chip');
+  A.eq(decl('body:not(.rows-inbox) #workstreams .ws-agent.ws-agent-group', 'font-size'), '14px', 'the compact crew line sits at the 14px glass floor, not a shrunken chip (walk 10-14 #6: it was 12px under a 17px title)');
   const grid = 'body:not(.rows-inbox) #workstreams .ws-row:has(> .ws-agent-group)';
   A.eq(decl(grid, 'display'), 'grid', 'a compact group row lays the identity on its own line');
   // the names own the whole first line; the row's time/status ends the title line (rc walk 10-14: "NOVA, … +1  Working")

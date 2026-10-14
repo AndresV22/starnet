@@ -4004,6 +4004,7 @@ const App = (() => {
   let railTicker = 0;
   let railShowArchived = false;   // when true the rail also lists archived (put-away) sessions, dimmed
   let railFocusId = null;         // roving-tabindex cursor: one rail stop regardless of session count
+  let railLineObserver = null;    // re-fits each group row's names line when its room changes (fitRailAgentLines)
   let railAttentionKey = '';
   // PER-AGENT THREADS: a crew-row click narrows the rail to that agent's sessions — the streams bound to it
   // plus group chats and conversations holding its delegated work. The SESSIONS tab, the chip's ✕,
@@ -4175,6 +4176,39 @@ const App = (() => {
     const more = ids.length - 2;
     return '<span class="ws-agent-names">' + U.esc(names) + '</span>' + (more > 0 ? '<span class="ws-agent-more">+' + more + '</span>' : '');
   }
+  /* WHOLE NAMES (walk 10-14 #6): the row gives the names line its whole first line (app.css / pipglass.css), and this
+     picks the reading that fits it — "ULTRON, CYPHER +3", else "ULTRON +4" — so a name is never cut mid-word
+     ("ULTRON, CYP… +3", "ULTR… +3"). The full reading rides data-full, so a wider rail or the COMPACT/INBOX switch
+     brings the second name back. A line that is not laid out is left alone (a zero measure is not "too narrow"). */
+  function fitRailAgentLine(line) {
+    const names = line && line.querySelector ? line.querySelector('.ws-agent-names') : null;
+    if (!names || !line.getClientRects().length) return;
+    if (names.dataset.full == null) {
+      const more0 = line.querySelector('.ws-agent-more');
+      names.dataset.full = names.textContent;
+      names.dataset.more = String(more0 ? (parseInt(more0.textContent.replace('+', ''), 10) || 0) : 0);
+    }
+    const full = names.dataset.full, extra = +names.dataset.more || 0, parts = full.split(', ');
+    const show = (text, n) => {
+      if (names.textContent !== text) names.textContent = text;
+      let more = line.querySelector('.ws-agent-more');
+      if (n > 0) {
+        if (!more) { more = document.createElement('span'); more.className = 'ws-agent-more'; line.appendChild(more); }
+        if (more.textContent !== '+' + n) more.textContent = '+' + n;
+      } else if (more) more.remove();
+    };
+    show(full, extra);
+    if (parts.length > 1 && names.scrollWidth > names.clientWidth + 1) show(parts[0], extra + parts.length - 1);
+  }
+  function fitRailAgentLines() {
+    const lines = document.querySelectorAll('#workstreams .ws-agent-group');
+    lines.forEach(fitRailAgentLine);
+    // the rail's width and the row layout (COMPACT/INBOX) change the room without a re-render: re-fit on resize
+    if (typeof ResizeObserver === 'undefined') return;
+    if (!railLineObserver) railLineObserver = new ResizeObserver(entries => { for (const e of entries) fitRailAgentLine(e.target); });
+    railLineObserver.disconnect();
+    lines.forEach(l => railLineObserver.observe(l));
+  }
   // the INBOX row names its agent in that agent's own colour, exactly as its CREW card does (a group row: the lead's)
   function railAgentColorAttr(w) {
     const a = agents.get(w.agentId);
@@ -4287,6 +4321,7 @@ const App = (() => {
     } else if (!rows.length && railKind === 'automated') {
       ul.innerHTML = '<li class="proj-empty" role="presentation"><span role="status">No automation sessions yet.</span></li>';
     }
+    fitRailAgentLines();
     ul.querySelectorAll('[data-ws-group]').forEach(button => {
       button.onclick = () => {
         const key = button.dataset.wsGroup;
