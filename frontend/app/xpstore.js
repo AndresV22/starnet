@@ -104,6 +104,19 @@ const XpStore = (() => {
     }
   }
 
+  // the trophies some OTHER case on this station had already lit before this event: the station rollup's, and every other
+  // crew member's (a roster read that fails counts only the rollup — a repeated line, never a silenced one).
+  function litElsewhere(a, agentId, stationLitBefore) {
+    const lit = new Set(stationLitBefore);
+    let list = [];
+    try { list = (allAgents ? allAgents() : null) || []; } catch (e) { console.warn('[xp] roster read for trophy announce', e); list = []; }
+    for (const ag of list) {
+      if (!ag || ag === a || (ag.id || 'agent') === (a.id || agentId)) continue;
+      for (const id of ((ag.stats && Array.isArray(ag.stats.milestones)) ? ag.stats.milestones : [])) lit.add(String(id));
+    }
+    return lit;
+  }
+
   // fold one real event into BOTH the agent's stats and the station rollup (same engine, same path).
   function onEvent(name, payload, opts) {
     opts = opts || {};
@@ -119,6 +132,7 @@ const XpStore = (() => {
        hundreds of ordinary events a working agent emits; without the before/after comparison this would fire
        a full /api/roster POST (every agent's whole composed system prompt) on every single run. */
     const credBefore = (Xp.credential && a.stats) ? Xp.credential(a.stats).key : '';
+    const stationLitBefore = Array.isArray(station.milestones) ? station.milestones.slice() : [];
     const ra = Xp.applyEvent(a.stats, ev); a.stats = ra.stats;
     const rs = Xp.applyEvent(station, ev); station = rs.stats;
     if (Xp.credential) {
@@ -134,10 +148,15 @@ const XpStore = (() => {
 
       if (ra.awards.levelUp) { refreshCrewLevel(); celebrateAgent(a, ra.awards.levelTo); }
       /* ONE TROPHY LINE PER STATION (rc walk 2026-10-14: "TROPHY EARNED · FIRST LIGHT" twice in one conversation and again
-         in General — every crew member's first task earned its own, and the line never says whose). Each agent's case still
-         lights silently (ra above); COMMS announces a trophy the moment the STATION first earns it. The rollup counts every
-         agent's work, so it earns each one first — once, ever. */
-      for (const id of rs.awards.milestones) announceMilestone(id);
+         in General — every crew member's first task earned its own, and the line never says whose). Every case still lights;
+         COMMS announces a trophy only the first time ANY trophy case on this station lights it — the rollup's or a crew
+         member's. Count trophies reach the rollup first; a ratio trophy (TRUSTED, DEPENDABLE) a specialist earns while the
+         rest of the crew holds the station ratio down is announced from the specialist's case, once. */
+      const earned = Array.from(new Set(rs.awards.milestones.concat(ra.awards.milestones)));
+      if (earned.length) {
+        const lit = litElsewhere(a, agentId, stationLitBefore);
+        for (const id of earned) if (!lit.has(id)) announceMilestone(id);
+      }
       if (rs.awards.levelUp) celebrateStation(rs.awards.levelTo);
     }
 

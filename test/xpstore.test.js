@@ -119,6 +119,25 @@ A.eq((XpStore.stationStats().counters || {}).positiveFeedback, 6, 'station rollu
 // OWN case, but COMMS said "TROPHY EARNED · FIRST LIGHT" twice (and never whose). The station earns it once; it is said once.
 A.ok(researcher.stats.milestones.includes('first_light') && overseer.stats.milestones.includes('first_light'), 'each agent\'s own trophy case still lights FIRST LIGHT');
 A.eq(broadcasts.filter(b => b.text === 'TROPHY EARNED · FIRST LIGHT').length, 1, 'FIRST LIGHT is announced once per station, not once per crew member');
+// …but a RATIO trophy (TRUSTED: satisfaction 85%) a specialist earns while the rollup never does — the rest of the crew pulls
+// the station ratio down — is still announced, once: a trophy is said the first time ANY trophy case on the station lights it
+// (rc review 2026-10-14: announcing only the rollup silenced these).
+{
+  const lead = { id: 'agent', name: 'NOVA' }, copy = { id: 'copy', name: 'COPY' }, strat = { id: 'strat', name: 'STRAT' };
+  const crew = new Map([['agent', lead], ['copy', copy], ['strat', strat]]);
+  XpStore.init({ getAgent: id => crew.get(id || 'agent') || null, agents: () => Array.from(crew.values()), station: Xp.fresh(), persist: () => {} });
+  const b0 = broadcasts.length;
+  const said = label => broadcasts.slice(b0).filter(b => b.text === 'TROPHY EARNED · ' + label).length;
+  for (let i = 1; i <= 8; i++) { reject('agent', 100 + i); approve('copy', 100 + i); }
+  A.ok(copy.stats.milestones.includes('trusted'), 'COPY earns TRUSTED on its own feedback');
+  A.ok(!XpStore.stationStats().milestones.includes('trusted'), 'the station rollup does not (the lead\'s rejections pull it down)');
+  A.eq(said('TRUSTED'), 1, 'TRUSTED is announced the first time a case on this station lights it');
+  for (let i = 1; i <= 8; i++) { reject('agent', 200 + i); approve('strat', 100 + i); }
+  A.ok(strat.stats.milestones.includes('trusted'), 'STRAT earns it too');
+  A.eq(said('TRUSTED'), 1, 'and it is not announced again for a second crew member');
+  done('copy', 100); done('strat', 100); done('agent', 100);
+  A.eq(said('FIRST LIGHT'), 1, 'FIRST LIGHT is still said once across three first tasks');
+}
 
 /* ---- S4: the boot-time TROPHY RECONCILE + honest announce copy ----
    A save written before a badge existed holds the record that earns it and none of the credit. Without the
