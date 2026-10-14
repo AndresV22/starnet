@@ -57,4 +57,24 @@ ctx.ridePending = false; ctx.rideAgentId = null; ctx.ridePrevReach = null; ctx.r
 compile('foreman', 'nova');
 assert.equal(ctx.ridePending, false, 'a station that already had its narrated ride never arms another');
 
+/* …and the ride reads THIS compile's lines. rebake() recompiled the plan and called maybeFirstRide BEFORE regrouping the
+   floor's lines (valComps), so the entry compile judged every line against no lines at all (null: nothing complete, nothing
+   armed) and the user's first edit then found every already-complete line "newly complete" — the live repro on the busy
+   station, BUILD MODE opened on the Conveyors tab: one lone INBOX, and LINE READY on the foreman's line. */
+const bStart = build.indexOf('  function rebake() {'), bEnd = build.indexOf('  // A browser animation callback', bStart);
+assert.ok(bStart > 0 && bEnd > bStart, 'rebake is where the test reads it');
+const comps = [{ intakes: [1], bays: [{ agentId: 'foreman' }] }];
+let seenComps = 'never called';
+const editor = vm.createContext({
+  station: { projectGeometry: () => ({ origin: { tx: 0, ty: 0 } }) }, cache: {}, cacheGeo: null, bakeDirty: false, bakeDirtyRects: null,
+  projectionDirty: false, bakeDirtyRectsGlobal: false, bakeVisibleOnly: false, planDirty: true, valPlan: null, valLive: null, valComps: null,
+  ghost: null, lastStampIds: null, renderFinCard() {}, refreshLineFacts() {}, visibleBakeRect() { return null; }, MAX_REFIT_CHUNKS: 18,
+  StationBake: { bakeIncremental() { return {}; } },
+  Pipeline: { compileRoutingPlan: () => ({ reach: { foreman: true } }), lineComponents: () => comps },
+  maybeFirstRide() { seenComps = editor.valComps; }
+});
+vm.runInContext(build.slice(bStart, bEnd), editor);
+vm.runInContext('rebake()', editor);
+assert.equal(seenComps, comps, 'the first-ride check runs on the lines THIS compile grouped, never on none (or the last edit\'s)');
+
 console.log('refit-firstride-stale: an entry-armed ride never fires after an unrelated edit; the line the user powers keeps its ride — PASS');

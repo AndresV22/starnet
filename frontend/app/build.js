@@ -7385,9 +7385,12 @@ const Build = (() => {
         for (const k in lv) { const p = k.split(','); valLive[(+p[0] + o.tx) + ',' + (+p[1] + o.ty)] = true; }
       }
       planDirty = false;
-      maybeFirstRide();   // a floor edit just recompiled the plan — the line may have just powered on
       // finish-the-line: regroup the floor's physical lines from the SAME geometry the plan compiled
       valComps = (typeof Pipeline !== 'undefined' && Pipeline.lineComponents) ? Pipeline.lineComponents(cacheGeo) : [];
+      // a floor edit just recompiled the plan — the line may have just powered on. Judged on THESE lines (2026-10-14: it ran
+      // before the regroup, so entry saw no lines at all and the first edit found every complete line "new" — LINE READY on
+      // an untouched line after one lone INBOX)
+      maybeFirstRide();
       if (lastStampIds) {   // a stamp just landed — the card adopts the stamped line
         const set = {}; for (const id of lastStampIds) set[id] = 1;
         const c = valComps.find(cc => cc.props.some(id => set[id]));
