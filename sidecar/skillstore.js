@@ -811,7 +811,15 @@
       const o = options || {};
       let matches = listAccessible(agentId, o).filter(s => (!o.ownerAgentId || s.agentId === str(o.ownerAgentId))
         && (s.id === str(target) || s.name.toLowerCase() === str(target).toLowerCase()));
-      if (!o.ownerAgentId && matches.some(s => s.agentId === str(agentId))) matches = matches.filter(s => s.agentId === str(agentId));
+      if (!o.ownerAgentId && matches.some(s => s.agentId === str(agentId))) {
+        const own = matches.filter(s => s.agentId === str(agentId));
+        /* An agent's own pending-only PROPOSAL is not an active skill, so it never hides an active skill of the same
+           name the agent can read (customer report f702f2f6: a worker whose background review had drafted a same-name
+           proposal was told the Commander-approved station skill awaited approval). Its own ACTIVE skill still wins. */
+        const ownActive = own.filter(s => !s.pendingCandidate);
+        const others = matches.filter(s => s.agentId !== str(agentId) && !s.pendingCandidate);
+        matches = ownActive.length ? ownActive : (others.length ? others : own);
+      }
       if (matches.length !== 1) return null;   // never choose an arbitrary owner's same-name skill
       return matches[0].pendingCandidate ? matches[0] : view(matches[0].agentId, matches[0].id, o);
     }
