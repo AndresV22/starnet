@@ -1966,7 +1966,7 @@ const WorldModel = (() => {
       if (doc.belts[beltKey(x, y)] === dir) return { ok: true };   // no-op: don't burn an undo slot
       snapshot();
       doc.belts[beltKey(x, y)] = dir;
-      emit([{ x1: x, y1: y, x2: x, y2: y }]);
+      emit([{ x1: x, y1: y, x2: x, y2: y }], { staticBakeUnchanged: true });   // belts are the conveyor's layer, never the deck bake
       return { ok: true };
     }
     function removeBelt(x, y) {
@@ -1974,7 +1974,7 @@ const WorldModel = (() => {
       if (!doc.belts[k]) return fail('NOT_FOUND', 'no belt here');
       snapshot();
       delete doc.belts[k];
-      emit([{ x1: x | 0, y1: y | 0, x2: x | 0, y2: y | 0 }]);
+      emit([{ x1: x | 0, y1: y | 0, x2: x | 0, y2: y | 0 }], { staticBakeUnchanged: true });
       return { ok: true };
     }
     // batch-remove a set of belt tiles in ONE undo slot (a RECLAIM drag clearing a whole run —
@@ -1986,7 +1986,7 @@ const WorldModel = (() => {
       snapshot();
       const dirty = [];
       for (const [x, y] of hit) { delete doc.belts[beltKey(x, y)]; dirty.push({ x1: x, y1: y, x2: x, y2: y }); }
-      emit(dirty);
+      emit(dirty, { staticBakeUnchanged: true });
       return { ok: true, count: hit.length };
     }
     // lay a straight run a→b; direction = the dominant drag axis (drag east → E belts, etc.)
@@ -2010,7 +2010,7 @@ const WorldModel = (() => {
       if (!changed) { doc.belts = prev; return { ok: true }; }
       doc.belts = prev; snapshot();                                  // snapshot the pre-run state
       for (const [x, y] of tiles) doc.belts[beltKey(x, y)] = dir;
-      emit(dirty);
+      emit(dirty, { staticBakeUnchanged: true });
       return { ok: true, dir, count: tiles.length };
     }
     const canPlaceBeltRun = (a, b) => {
@@ -2155,7 +2155,7 @@ const WorldModel = (() => {
       const before = routingSummary([A.id, B.id]);
       return transact(() => {
         for (const t of lane.tiles) delete doc.belts[beltKey(t.x, t.y)];
-        emit(lane.tiles.map(t => ({ x1: t.x, y1: t.y, x2: t.x, y2: t.y })));
+        emit(lane.tiles.map(t => ({ x1: t.x, y1: t.y, x2: t.x, y2: t.y })), { staticBakeUnchanged: true });
         let tried = 0;
         for (const c of cands) {
           if (tried > 60) break;
@@ -2771,7 +2771,7 @@ const WorldModel = (() => {
           if (d) { fake.from = Object.assign({}, fake.from, { port: 'esc' }); A.esc = d; }
         }
       }
-      emit(layBelt(A, B, r, linked, null));
+      emit(layBelt(A, B, r, linked, null), { staticBakeUnchanged: true });
       return { ok: true, count: r.path.length, from: A.t, to: B.t };
     }
     // the next free link id (l1, l2, …) — ids are never reused while a link still holds one
@@ -3904,10 +3904,19 @@ const WorldModel = (() => {
         doc.belts[beltKey(x, y)] = b.d;
         dirty.push({ x1: x, y1: y, x2: x, y2: y });
       }
-      emit(dirty);
+      emit(dirty, { staticBakeUnchanged: !bp.props.some(s => s.t === 'airlock') });   // machines + belts only, unless it brings a door
       return { ok: true, ids, props: bp.props.length, belts: bp.belts.length };
     }
 
+    /* WHERE A ROOM'S NAME IS PAINTED (2026-10-13, Andrew: "a huge delay in build mode"). The bake reads a room's name in one
+       place: the faint plate it stencils at the bottom-right corner of the room's bounding box (StationBake buildBase, a
+       24-char cap at 7px — well inside one chunk reach of that corner). A rename used to emit [] and re-bake the whole
+       station (~6 s on a large floor); it now names that corner, so only the chunks around the plate re-bake. */
+    function nameplateRect(rm) {
+      let x2 = -Infinity, y2 = -Infinity;
+      for (const r of rm.rects) { if (r.x2 > x2) x2 = r.x2; if (r.y2 > y2) y2 = r.y2; }
+      return { x1: x2 - 3, y1: y2, x2, y2 };
+    }
     function renameRoom(id, name) {
       const rm = doc.rooms[id];
       if (!rm) return fail('NOT_FOUND', 'no such room');
@@ -3915,7 +3924,7 @@ const WorldModel = (() => {
       if (nm === rm.name) return { ok: true };   // no-op: don't burn an undo slot / wipe redo
       snapshot();
       rm.name = nm;
-      emit([]);
+      emit([nameplateRect(rm)]);
       return { ok: true };
     }
 
@@ -3975,6 +3984,34 @@ const WorldModel = (() => {
         : moved.length ? 'MOVE' : belts ? 'BELT' : rects.length ? 'SETTINGS' : 'EDIT';
       return { rects, word };
     }
+    /* AN UNDO RE-BAKES ONLY WHAT IT PUT BACK (2026-10-13, Andrew: "a huge delay in build mode"). undo()/redo() used to
+       emit [] — re-bake the whole station — for every slot, so Ctrl+Z on one stool froze BUILD MODE for ~6 s on a
+       218-prop floor. The patch now says what the forward edit said, read off the two snapshots: a slot that changed only
+       machines, belts, links or pipeline edges (no airlock) leaves the bake alone; changed rooms re-bake their own rects,
+       old and new (a renamed one its name plate too); anything the bake reads station-wide — a re-clad shell, the
+       trunk/spawn rooms, the room order, any airlock (a sealed room drops every doorway it has) — is a global edit, so
+       every chunk re-bakes exactly as before. */
+    function restoreEmit(a, b, d) {
+      const same = (x, y) => JSON.stringify(x === undefined ? null : x) === JSON.stringify(y === undefined ? null : y);
+      const everything = () => emit([], { global: true });
+      if (!same(a.meta, b.meta)) return everything();
+      const ra = a.rooms || {}, rb = b.rooms || {};
+      const common = id => id in ra && id in rb;
+      if (!same((a.order || []).filter(common), (b.order || []).filter(common))) return everything();
+      const air = new Map();   // airlocks that came, went, moved or changed state
+      for (const p of (a.props || [])) if (p.t === 'airlock') air.set(p.id, JSON.stringify(p));
+      for (const p of (b.props || [])) if (p.t === 'airlock') { const k = JSON.stringify(p); if (air.get(p.id) === k) air.delete(p.id); else air.set(p.id, k); }
+      if (air.size) return everything();
+      const rects = [];
+      for (const id of new Set(Object.keys(ra).concat(Object.keys(rb)))) {
+        const x = ra[id], y = rb[id];
+        if (same(x, y)) continue;
+        if (x && y && ((x.hullStyle || null) !== (y.hullStyle || null) || (x.hullMat || null) !== (y.hullMat || null))) return everything();
+        for (const r of ((x && x.rects) || []).concat((y && y.rects) || [])) rects.push({ x1: r.x1, y1: r.y1, x2: r.x2, y2: r.y2 });
+        if (x && y && x.name !== y.name) rects.push(nameplateRect(x), nameplateRect(y));
+      }
+      return rects.length ? emit(rects.concat(d.rects)) : emit(d.rects, { staticBakeUnchanged: true });
+    }
     function undo() {
       if (!undoStack.length) return fail('NOTHING', 'nothing to undo');
       const cur = snap(), back = undoStack.pop();
@@ -3982,7 +4019,7 @@ const WorldModel = (() => {
       redoStack.push(cur);
       const d = editDiff(cur, back);
       restore(back);
-      emit([]);   // empty dirty = full re-bake
+      restoreEmit(cur, back, d);
       return { ok: true, label: back._label || d.word, rects: d.rects };
     }
     function redo() {
@@ -3992,7 +4029,7 @@ const WorldModel = (() => {
       undoStack.push(cur);
       const d = editDiff(cur, fwd);
       restore(fwd);
-      emit([]);
+      restoreEmit(cur, fwd, d);
       return { ok: true, label: fwd._label || d.word, rects: d.rects };
     }
     const canUndo = () => undoStack.length > 0;
@@ -4354,7 +4391,7 @@ const WorldModel = (() => {
       if (aid && !AID_RE.test(aid)) return fail('BAD_AGENT', 'agentId must match ' + AID_RE);
       snapshot();
       if (aid) p.agentId = aid; else delete p.agentId;   // empty string unbinds
-      emit([{ x1: p.x, y1: p.y, x2: p.x + (p.w || 1) - 1, y2: p.y + (p.h || 1) - 1 }]);
+      emit([{ x1: p.x, y1: p.y, x2: p.x + (p.w || 1) - 1, y2: p.y + (p.h || 1) - 1 }], { staticBakeUnchanged: true });
       return { ok: true, id: propId, agentId: aid || null };
     }
     // cycle an AIRLOCK's door state (open|closed|jammed) — the room-seal (merge/staging) handle. Mirrors
@@ -4414,7 +4451,7 @@ const WorldModel = (() => {
         const lanes = junctionOutLanes(p);
         if (lanes.length) doc.links = doc.links.map(l => { const o = lanes.find(q => q.link === l); return o ? Object.assign({}, l, { from: junctionPort(p, o.dir) }) : l; });
       }
-      emit([{ x1: p.x, y1: p.y, x2: p.x + (p.w || 1) - 1, y2: p.y + (p.h || 1) - 1 }]);
+      emit([{ x1: p.x, y1: p.y, x2: p.x + (p.w || 1) - 1, y2: p.y + (p.h || 1) - 1 }], { staticBakeUnchanged: true });
       return { ok: true, id: propId, routes: p.routes || null, def: p.def || null, bufferSize: p.bufferSize || null, timeoutMin: p.timeoutMin || null, maxIter: p.maxIter || null, done: p.done || null, when: p.when || null };
     }
     // bind/clear the connectorId on a CONNECTOR PORTAL — WHICH MCP server this gateway grants (per-instance).
@@ -4426,7 +4463,7 @@ const WorldModel = (() => {
       snapshot();
       const id = (connectorId == null ? '' : String(connectorId)).trim();
       if (id) p.connectorId = id; else delete p.connectorId;
-      emit([{ x1: p.x, y1: p.y, x2: p.x + (p.w || 1) - 1, y2: p.y + (p.h || 1) - 1 }]);
+      emit([{ x1: p.x, y1: p.y, x2: p.x + (p.w || 1) - 1, y2: p.y + (p.h || 1) - 1 }], { staticBakeUnchanged: true });
       return { ok: true, id: propId, connectorId: p.connectorId || null };
     }
     // bind/clear the pluginId on a PLUGIN TERMINAL — WHICH plugin's tools it grants and whose window it opens.
@@ -4439,7 +4476,7 @@ const WorldModel = (() => {
       if (id && !PLUGIN_ID_RE.test(id)) return fail('BAD_PLUGIN', 'that is not a plugin id');
       snapshot();
       if (id) p.pluginId = id; else delete p.pluginId;
-      emit([{ x1: p.x, y1: p.y, x2: p.x + (p.w || 1) - 1, y2: p.y + (p.h || 1) - 1 }]);
+      emit([{ x1: p.x, y1: p.y, x2: p.x + (p.w || 1) - 1, y2: p.y + (p.h || 1) - 1 }], { staticBakeUnchanged: true });
       return { ok: true, id: propId, pluginId: p.pluginId || null };
     }
     /* PLACE A PLUGIN'S TERMINAL (install places it — Andrew 2026-09-29): a REAL placed prop, bound to the plugin, in
@@ -4468,7 +4505,7 @@ const WorldModel = (() => {
             if (!added.ok) continue;
             const p = doc.props.find(q => q.id === added.id);
             p.pluginId = pid;
-            emit([{ x1: x, y1: y, x2: x, y2: y + 1 }]);
+            emit([{ x1: x, y1: y, x2: x, y2: y + 1 }], { staticBakeUnchanged: true });
             return { ok: true, id: added.id, x, y, roomId };
           }
         }
@@ -4489,7 +4526,7 @@ const WorldModel = (() => {
       if ((p.role || null) === r) return { ok: true, id: propId, role: r };
       snapshot();
       if (r) p.role = r; else delete p.role;
-      emit([{ x1: p.x, y1: p.y, x2: p.x + (p.w || 1) - 1, y2: p.y + (p.h || 1) - 1 }]);
+      emit([{ x1: p.x, y1: p.y, x2: p.x + (p.w || 1) - 1, y2: p.y + (p.h || 1) - 1 }], { staticBakeUnchanged: true });
       return { ok: true, id: propId, role: r };
     }
     function setPropBrief(propId, brief) {
@@ -4500,7 +4537,7 @@ const WorldModel = (() => {
       if ((p.brief || '') === b || (!p.brief && !b)) return { ok: true, id: propId, brief: p.brief || null };   // no-op: no undo slot, no re-emit
       snapshot();
       if (b) p.brief = b; else delete p.brief;
-      emit([{ x1: p.x, y1: p.y, x2: p.x + (p.w || 1) - 1, y2: p.y + (p.h || 1) - 1 }]);
+      emit([{ x1: p.x, y1: p.y, x2: p.x + (p.w || 1) - 1, y2: p.y + (p.h || 1) - 1 }], { staticBakeUnchanged: true });
       return { ok: true, id: propId, brief: p.brief || null };
     }
     /* set/clear a BAY's HANDS OFF phrase (workflow panel, 2026-09-22) — the short "what this step hands to the
@@ -4514,7 +4551,7 @@ const WorldModel = (() => {
       if ((p.hands || '') === h || (!p.hands && !h)) return { ok: true, id: propId, hands: p.hands || null };
       snapshot();
       if (h) p.hands = h; else delete p.hands;
-      emit([{ x1: p.x, y1: p.y, x2: p.x + (p.w || 1) - 1, y2: p.y + (p.h || 1) - 1 }]);
+      emit([{ x1: p.x, y1: p.y, x2: p.x + (p.w || 1) - 1, y2: p.y + (p.h || 1) - 1 }], { staticBakeUnchanged: true });
       return { ok: true, id: propId, hands: p.hands || null };
     }
     // set/clear an INTAKE's line name (step editor) — pure legibility (the finish-the-line header + the
@@ -4533,7 +4570,7 @@ const WorldModel = (() => {
       }
       snapshot('NAME');   // (UNDID · NAME)
       if (l) p.label = l; else delete p.label;
-      emit([{ x1: p.x, y1: p.y, x2: p.x + (p.w || 1) - 1, y2: p.y + (p.h || 1) - 1 }]);
+      emit([{ x1: p.x, y1: p.y, x2: p.x + (p.w || 1) - 1, y2: p.y + (p.h || 1) - 1 }], { staticBakeUnchanged: true });
       return { ok: true, id: propId, label: p.label || null };
     }
     function setPropProject(propId, projectRoot) {
@@ -4548,7 +4585,7 @@ const WorldModel = (() => {
       if (targets.every(q => (q.projectRoot || '') === root)) return { ok: true, projectRoot: root };
       snapshot();
       for (const q of targets) { if (root) q.projectRoot = root; else delete q.projectRoot; }
-      emit(targets.map(q => ({ x1: q.x, y1: q.y, x2: q.x + (q.w || 1) - 1, y2: q.y + (q.h || 1) - 1 })));
+      emit(targets.map(q => ({ x1: q.x, y1: q.y, x2: q.x + (q.w || 1) - 1, y2: q.y + (q.h || 1) - 1 })), { staticBakeUnchanged: true });
       return { ok: true, projectRoot: root };
     }
     /* set/clear an INTAKE's LINE BUDGET (REFIT flow card, 2026-08-21): { maxHops, maxUsdPerMessage, maxUsdPerDay }.
@@ -4565,7 +4602,7 @@ const WorldModel = (() => {
       if (same) return { ok: true, id: propId, limits: p.limits || null, clamped: (norm && norm.clamped) || [] };
       snapshot();
       if (next) p.limits = next; else delete p.limits;
-      emit([{ x1: p.x, y1: p.y, x2: p.x + (p.w || 1) - 1, y2: p.y + (p.h || 1) - 1 }]);
+      emit([{ x1: p.x, y1: p.y, x2: p.x + (p.w || 1) - 1, y2: p.y + (p.h || 1) - 1 }], { staticBakeUnchanged: true });
       return { ok: true, id: propId, limits: p.limits || null, clamped: (norm && norm.clamped) || [] };
     }
     const propsByType = t => doc.props.filter(p => p.t === t).map(clone);
@@ -4584,7 +4621,7 @@ const WorldModel = (() => {
       if (JSON.stringify(clean) === JSON.stringify(doc.edges || [])) return { ok: true, count: clean.length };
       snapshot();
       doc.edges = clean;
-      emit([]);
+      emit([], { staticBakeUnchanged: true });
       return { ok: true, count: clean.length };
     }
     function addPipelineEdge(edge) {
@@ -4600,7 +4637,7 @@ const WorldModel = (() => {
       if (next.length === before.length) return fail('NOT_FOUND', 'no such edge');
       snapshot();
       doc.edges = next;
-      emit([]);
+      emit([], { staticBakeUnchanged: true });
       return { ok: true, count: next.length };
     }
     /* The agent's CAPABILITY room — the capability-isolation seam. REMOTE-BAY RULING (2026-08-14, Andrew):

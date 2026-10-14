@@ -106,16 +106,45 @@ for(const change of [()=>st.moveProp(added.id,1,0),()=>st.rotateProp(added.id,1)
   ()=>st.mirrorProp(added.id),()=>st.removeProp(added.id)]){
   assert.ok(change().ok);assert.equal(patch.staticBakeUnchanged,true);
 }
-st.undo();assert.equal(patch.staticBakeUnchanged,undefined,'undo conservatively rebakes');
-st.redo();assert.equal(patch.staticBakeUnchanged,undefined,'redo conservatively rebakes');
+// AN UNDO RE-BAKES ONLY WHAT IT PUT BACK (2026-10-13): history says what the forward edit said
+st.undo();assert.equal(patch.staticBakeUnchanged,true,'undoing a furniture edit leaves the bake alone');
+assert.ok(patch.dirtyRects.length>0&&!patch.global,'…and still names where it happened');
+st.redo();assert.equal(patch.staticBakeUnchanged,true,'redoing it too');
 const door=st.addProp({t:'airlock',door:'closed',x:6,y:4,w:1,h:1});
 assert.ok(door.ok);assert.equal(patch.staticBakeUnchanged,undefined,'airlock can change doorways');
 for(const change of [()=>st.moveProp(door.id,1,0),()=>st.rotateProp(door.id,1),
   ()=>st.mirrorProp(door.id),()=>st.removeProp(door.id)]){
   assert.ok(change().ok);assert.equal(patch.staticBakeUnchanged,undefined);
 }
-st.setFloor(st.rooms()[0].id,'cobalt');
+st.undo();assert.equal(patch.staticBakeUnchanged,undefined,'undoing an airlock edit re-bakes');
+assert.ok(patch.global&&patch.dirtyRects.length===0,'…the whole station (a sealed room drops every doorway it has)');
+st.redo();assert.ok(patch.global,'…and so does redoing it');
+const r0=st.rooms()[0];
+st.setFloor(r0.id,'cobalt');
 assert.equal(patch.staticBakeUnchanged,undefined,'floor changes still rebake');
+st.undo();assert.equal(patch.staticBakeUnchanged,undefined,'undoing a floor change re-bakes');
+assert.ok(!patch.global&&patch.dirtyRects.some(r=>r.x1===r0.rects[0].x1&&r.y2===r0.rects[0].y2),'…that room, by its own rects');
+const clad=Object.keys(WM.HULL_MATERIALS).find(m=>m!==(st.rooms()[0].hullMat||'station'));
+assert.ok(clad&&st.setHull(r0.id,{mat:clad}).ok&&patch.global,'re-cladding a shell is a global edit');
+st.undo();assert.ok(patch.global,'…and so is undoing it (the shell is a station-wide composite)');
+// belts, links and a machine's settings are read by the conveyor, the crew and the compiler — never by the deck/wall/light bake
+const bx=r0.rects[0].x1+1, by=r0.rects[0].y1+1;
+assert.ok(st.setBelt(bx,by,'E').ok);assert.equal(patch.staticBakeUnchanged,true,'a belt leaves the bake alone');
+st.undo();assert.equal(patch.staticBakeUnchanged,true,'…undoing it too');
+assert.ok(st.placeBeltRun({tx:bx,ty:by},{tx:bx+3,ty:by}).ok);assert.equal(patch.staticBakeUnchanged,true,'a belt run too');
+assert.ok(st.removeBelts([[bx,by],[bx+1,by]]).ok);assert.equal(patch.staticBakeUnchanged,true,'clearing belts too');
+assert.ok(st.removeBelt(bx+2,by).ok);assert.equal(patch.staticBakeUnchanged,true,'removing one too');
+const intake=st.addProp({t:'intake',x:bx,y:by+3,w:2,h:2});
+if(intake.ok){
+  assert.ok(st.setPropLabel(intake.id,'PERF LINE').ok);assert.equal(patch.staticBakeUnchanged,true,'a line name leaves the bake alone');
+  assert.ok(st.assignPropAgent(intake.id,'nova').ok);assert.equal(patch.staticBakeUnchanged,true,'binding an agent too');
+}
+// a room's name is stencilled by the bake at its bounding box's bottom-right corner: a rename re-bakes the chunks there
+const rn=st.rooms()[0], x2=Math.max(...rn.rects.map(r=>r.x2)), y2=Math.max(...rn.rects.map(r=>r.y2));
+assert.ok(st.renameRoom(rn.id,'RENAMED').ok);assert.equal(patch.staticBakeUnchanged,undefined,'a room name is part of the bake');
+assert.ok(!patch.global&&patch.dirtyRects.length===1&&patch.dirtyRects[0].x2===x2&&patch.dirtyRects[0].y2===y2,
+  '…so a rename names that corner, not the whole station: '+JSON.stringify(patch.dirtyRects));
+st.undo();assert.ok(!patch.global&&patch.dirtyRects.some(r=>r.x2===x2&&r.y2===y2),'…and undoing it re-bakes the same plate');
 console.log('refit placement: prop-only pixels, fresh geometry/routing, mixed edits, airlock and history PASS');
 
 // Render invalidation is not authorization to publish a floor held in Build.
