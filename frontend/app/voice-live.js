@@ -286,13 +286,16 @@ const VoiceLive = (() => {
     if (el.id === 'lv-agent') el.classList.toggle('on', !!el.textContent.trim());
   }
 
+  // the name the rail shows (Workstreams.titleOf): only the General home is "General" — an untitled other session is a
+  // "New session", so the voice model never hears two Generals or a run "in General" the rail calls something else
+  const sessionName = ws => (typeof Workstreams !== 'undefined' && Workstreams.titleOf) ? Workstreams.titleOf(ws) : ((ws && ws.title) || 'General');
   function statusSnapshot() {
     if (typeof Workstreams === 'undefined' || typeof Channels === 'undefined') return { active: null, workstreams: [] };
     const current = Workstreams.active();
     return {
       active: current ? current.id : null,
       workstreams: Workstreams.list().slice(0, 12).map(ws => ({
-        id: ws.id, title: ws.title || 'General', lane: ws.lane || null,
+        id: ws.id, title: sessionName(ws), lane: ws.lane || null,
         busy: Channels.isBusy(ws.id), status: Channels.statusOf(ws.id),
         approvalRequired: !!Channels.pendingOf(ws.id)
       }))
@@ -1431,9 +1434,9 @@ const VoiceLive = (() => {
       lines.push('The crew on this station: ' + ctx.crew.map(a => (a.name || a.id) + (a.role ? ' (' + a.role + ')' : '')).join('; ') + '.');
     }
     if (ctx.streams.length) {
-      lines.push('Open sessions: ' + ctx.streams.slice(0, 12).map(w => (w.title || 'General')).join('; ') + '.');
+      lines.push('Open sessions: ' + ctx.streams.slice(0, 12).map(sessionName).join('; ') + '.');
     }
-    if (ctx.activeWs) lines.push('The active session is "' + (ctx.activeWs.title || 'General') + '".');
+    if (ctx.activeWs) lines.push('The active session is "' + sessionName(ctx.activeWs) + '".');
     lines.push('Call get_starnet_status before answering any question about what is running, what is waiting for approval, or what the crew is doing — never guess or invent task state, tool results, approvals or files.');
     lines.push('For anything requiring research, code, file changes, tools or sustained work, call start_starnet_task rather than claiming you did it yourself. Afterwards confirm in one short sentence and note that the work is visible in the session.');
     lines.push('Use interrupt_starnet_task only when the Commander clearly asks to stop or change direction.');

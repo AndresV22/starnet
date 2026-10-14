@@ -115,6 +115,30 @@ async function call(env, verb, args) {
   A.eq(env.page.loaded.length, 0, 'a session that is NOT open is not force-rendered');
 }
 
+// ---- a result names a session the way the rail does: an untitled non-General session is a "New session", never "General" ----
+// (rc walk 2026-10-13: the rail read "General" twice; the station results kept saying "General" for a fresh untitled session,
+// so the lead could report work "in General" that the rail filed under "New session")
+{
+  const env = boot();
+  const blank = env.W.startSession({ reuseActive: false });
+  A.eq(blank.title, null, 'a + NEW session starts untitled');
+  const dlv = await call(env, 'station.deliver', { streamId: blank.id, agentId: 'researcher', runId: 'untitled-1', prompt: 'look into X', text: 'X, done.' });
+  A.eq(dlv.ok && dlv.result.session, 'New session', 'a delivery into an untitled session names it "New session": ' + JSON.stringify(dlv.result));
+  const again = await call(env, 'station.deliver', { streamId: blank.id, agentId: 'researcher', runId: 'untitled-1', text: 'X, done.' });
+  A.eq(again.result.reason === 'already delivered' && again.result.session, 'New session', '…and so does the already-delivered answer');
+  const start = await call(env, 'station.dispatch_start', { streamId: blank.id, runId: 'untitled-2' });
+  A.eq(start.ok && start.result.session, 'New session', 'dispatch start names it the same');
+  const end = await call(env, 'station.dispatch_end', { streamId: blank.id, runId: 'untitled-2' });
+  A.eq(end.ok && end.result.session, 'New session', 'dispatch end names it the same');
+  const read = await call(env, 'station.read_session', { session: blank.id });
+  A.eq(read.ok && read.result.title, 'New session', 'reading it by id names it the same');
+  const home = await call(env, 'station.deliver', { streamId: env.W.generalId(), agentId: 'researcher', runId: 'home-1', text: 'Y, done.' });
+  A.eq(home.result.session, 'General', 'the General home is still "General"');
+  const listed = (await call(env, 'station.sessions', {})).result.sessions.find(s => s.id === blank.id);
+  A.ok(listed && listed.title !== 'General', 'the session list never calls the untitled session "General"');
+  A.ok(!/\btitle \|\| 'General'|title != null \? \w+\.title : 'General'/.test(src), 'no station result falls back to "General" for an untitled session');
+}
+
 // A foreground worker's text is not proof of completion: keep the actual terminal reason live and after recovery.
 for (const reason of ['done', 'budget', 'max_iters', 'aborted', 'error']) {
   const env = boot();

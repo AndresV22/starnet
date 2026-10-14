@@ -548,7 +548,9 @@
     for (const re of SECRET_RES) out = out.replace(re, '[redacted]');
     return out;
   }
-  function safeTitle(w) { return scrubSecrets((w && w.title) || 'General'); }
+  // the exported file's heading / name and the search title are the name the rail shows (titleOf): an untitled
+  // session exports as "New session", never as a second "General"
+  function safeTitle(w) { return scrubSecrets(titleOf(w) || 'New session'); }
 
   function exportConversation(id, format, opts) {
     const w = find(id); if (!w) return null;
@@ -570,7 +572,7 @@
     if (!doc || doc.schema !== 'starnet.conversation' || doc.version !== 1 || !Array.isArray(doc.messages)) return null;
     const messages = doc.messages.filter(m => m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string')
       .map(m => ({ role: m.role, content: scrubSecrets(m.content) }));
-    return { title: scrubSecrets(doc.title || 'General'), messages, secretsIncluded: false };
+    return { title: scrubSecrets(doc.title || 'New session'), messages, secretsIncluded: false };
   }
 
   function clone(v) { return JSON.parse(JSON.stringify(v)); }
