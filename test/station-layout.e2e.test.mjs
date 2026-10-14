@@ -23,6 +23,7 @@ import { findChrome, connectCDP, evalJS, collectDiagnostics, sleep } from '../sc
 import { materializeSeedWorkspace, bootSeededSidecar, waitUp, waitDevReady } from '../scripts/lib/seed.mjs';
 const require = createRequire(import.meta.url);
 const { bootToken } = require('./_httpToken.js');
+const { userWords } = require('./helpers/host-notes.js');   // the user's own words: the run-context note leads the newest user message on this wire
 
 let chromePath = null;
 try { chromePath = findChrome(); } catch (_) { chromePath = null; }
@@ -53,7 +54,7 @@ const stopChild = (child, graceful = false) => new Promise(resolve => {
 // Match the actual foreground turn, never a quotation in auxiliary context or a desired tool.
 function hasExactUserTurn(request, run) {
   const users = (request.messages || []).filter(m => m && m.role === 'user');
-  return request.model === run.model && users.length === 1 && users[0].content === run.prompt;
+  return request.model === run.model && users.length === 1 && userWords(users[0]) === run.prompt;
 }
 function leadRequest(mock, run) {
   const matches = mock.requests.filter(r => hasExactUserTurn(r, run)

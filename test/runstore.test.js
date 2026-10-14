@@ -306,7 +306,7 @@ const clock = { now: () => clk };
   A.eq(s.list(null, { streamId: 'nope' }).length, 0, 'an unknown stream has no rows');
   const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'sidecar', 'index.js'), 'utf8');
   A.ok(/runsFor: \(streamId\) => \(runStore\.list\(null, \{ streamId: streamId/.test(src), 'the trigger runner reads its fire back by streamId');
-  A.ok(/runs = \(runStore\.list\(null, \{ streamId: streamId, limit: 200 \}\)/.test(src), 'the sample route reads its runs back by streamId');
+  A.ok(/(?:runs|const rows) = \(runStore\.list\(null, \{ streamId: streamId, limit: 200 \}\)/.test(src), 'the sample route reads its runs back by streamId');   // `rows` since the delivered-receipt rule reads them twice
 }
 
 // ---- ROUTINE HISTORY (2026-10-01): a scheduled run carries its routine id; ordinary rows stay byte-identical ----
