@@ -803,13 +803,14 @@
       let line = null;
       if (routineLineKey) {
         line = startLines().find(l => l.key === routineLineKey && l.dockId && l.agentId) || null;
-        if (!line) { sfx('bad'); msgEl.textContent = 'that workflow has no agent on its first step any more — pick it again or choose an agent'; return; }
+        if (!line) { sfx('bad'); msgEl.className = 'msg'; msgEl.textContent = 'that workflow has no agent on its first step any more — pick it again or choose an agent'; return; }
         agentId = line.agentId;
       }
       // Inherit the selected agent's provider; the station's chat selection is not an override.
-      if ((!prompt && !(body.querySelector('#rt-script').value || '').trim()) || !schedule) { sfx('bad'); msgEl.textContent = 'a prompt or script and a schedule are required'; return; }
+      if ((!prompt && !(body.querySelector('#rt-script').value || '').trim()) || !schedule) { sfx('bad'); msgEl.className = 'msg'; msgEl.textContent = 'a prompt or script and a schedule are required'; return; }
       addBtn.disabled = true;
-      msgEl.textContent = 'saving…';
+      // a save's own lines read in the success ink (.msg.ok); refusals below paint their own --bad span
+      msgEl.className = 'msg ok'; msgEl.textContent = 'saving…';
       try {
         // tz honesty (G4.1): send the browser's IANA timezone so a wall-clock schedule ("every morning 9:00")
         // fires in the user's LOCAL time, not the server host's. Backend validates + persists it (invalid tz 400s).
