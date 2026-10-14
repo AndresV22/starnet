@@ -819,8 +819,8 @@ const WorkflowPanel = (() => {
   function computeHTML(p) {
     if (!p || !p.agentId) return '';
     if (H.hasCompute(p.agentId, p.id)) return '<span class="wf-ok">✓ ' + esc(nameOf(p.agentId)) + ' has a workstation for this step.</span>';
-    return '<span class="wf-warnline">' + esc(nameOf(p.agentId)) + ' needs an assigned workstation in this room before this step can run.</span>'
-      + '<button type="button" class="bb sm refit-primary" id="wf-pc">GIVE ' + esc(String(nameOf(p.agentId)).toUpperCase()) + ' A DESK</button>';
+    return '<span class="wf-warnline">' + esc(nameOf(p.agentId)) + ' needs a desk in this room before this step can run.</span>'   // (org D9) one word, desk, for the line and its ⊕ key
+      + '<button type="button" class="bb sm refit-primary" id="wf-pc">⊕ GIVE ' + esc(String(nameOf(p.agentId)).toUpperCase()) + ' A DESK</button>';
   }
   function addWorkstation(b) {
     b.disabled = true;
