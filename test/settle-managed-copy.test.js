@@ -101,6 +101,25 @@ const harness = (status) => {
     assert.match(line, settle);
     assert.doesNotMatch(line, /interrupted/, 'an evaluation is never counted as an interrupted run: ' + line);
   }
+  // d688ea20: an unreadable line of the spend record (kind 'damaged') is listed to settle, and is never called a run
+  // that was interrupted, nor told its billing source is unknown (it is a damaged line, not a run with a receipt)
+  const damagedLine = { runId: 'damaged-0123456789abcdef01234567', agentId: 'nova', ts: Date.now(), title: 'unreadable spend record line (run old-a)', kind: 'damaged', provider: null, model: 'deepseek/deepseek-chat', managed: null, runCapUsd: null };
+  const dm = harness({ ...st, unsettled: [damagedLine] }); await tick();
+  const dRow = dm.node('#budget-unsettled').children[0];
+  assert.match(dRow.children[0].textContent, /^DAMAGED RECORD — unreadable spend record line \(run old-a\)/, dRow.children[0].textContent);
+  assert.doesNotMatch(dRow.children[0].textContent, /INTERRUPTED|BILLING SOURCE UNKNOWN/);
+  assert.match(dRow.attrs['data-tip'], /^One line of your spend record could not be read/, dRow.attrs['data-tip']);
+  assert.match(dRow.attrs['data-tip'], /it names deepseek\/deepseek-chat/);
+  assert.match(dRow.attrs['data-tip'], /keeps the damaged line untouched/);
+  assert.doesNotMatch(dRow.attrs['data-tip'], /stopped before/);
+  assert.equal(dRow.children.length, 3, 'no COUNT AS: a damaged line recorded no limit');
+  dRow.children[2].click(); await tick();
+  assert.equal(dm.posts.length, 0, 'a blank charge is never booked as $0');
+  assert.match(dm.node('#budget-spend').textContent, /— a line of your spend record is damaged, so what it recorded is unknown, so your spending limits can’t be checked\. Settle it below/, dm.node('#budget-spend').textContent);
+  dRow.children[1].value = '0.3'; dRow.children[2].click(); await tick();
+  assert.match(dm.node('#budget-msg').textContent, /damaged record line settled/, dm.node('#budget-msg').textContent);
+  const mixed = harness({ ...st, unsettled: [damagedLine, st.unsettled[1]] }); await tick();
+  assert.match(mixed.node('#budget-spend').textContent, /— 2 items in your spend history have no recorded charge, so/, mixed.node('#budget-spend').textContent);
   // every skill evaluation run id opens with the runner's 'skill-eval-' namespace, so its first 8 chars are the same for
   // all of them: the tip and RECENT ACTIVITY both name its evaluation, serial and phase instead (one helper, same words)
   const evalId = 'skill-eval-3f2a9c1d-7b4e-4c1a-9d2e-0123456789ab';

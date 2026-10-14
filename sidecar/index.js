@@ -1137,17 +1137,49 @@ function unsettledReceiptOf(receipt) {
   if (typeof receipt.runCapUsd === 'number' && Number.isFinite(receipt.runCapUsd) && receipt.runCapUsd > 0) r.runCapUsd = receipt.runCapUsd;
   return r;
 }
+/* A DAMAGED LINE IS ONE UNKNOWN CHARGE, NOT AN UNREADABLE LOGBOOK (customer reports d688ea20). Appends before
+   2026-09-22 could leave a torn or glued line after a crash, and the old reader skipped it; the strict reader turned
+   that one line into "spend history could not be read" — every capped run refused, restart and reinstall reading the
+   same bytes, and nothing in SPENDING LIMITS to settle. Now the line's charge is unknown (never $0) and listed like an
+   interrupted run, settled only by the Commander; the line itself is never rewritten or removed — the attested row
+   names the line it resolves (resolvesLine), so the next boot skips it. A torn fragment of a row the ledger holds whole
+   (the settlement journal replays it) is that row's own crash residue and is not asked about. The FILE failing to
+   read (I/O error, past the read limit) still fails the whole read. */
+function damagedSpendReceipt(line) {
+  const hash = crypto.createHash('sha256').update(line).digest('hex');
+  const grab = re => { const m = re.exec(line); return m ? m[1] : ''; };
+  const r = { runId: 'damaged-' + hash.slice(0, 24), agentId: grab(/"agentId"\s*:\s*"([^"\\]{1,80})"/), kind: 'damaged', lineHash: hash };
+  const ts = Number(grab(/"ts"\s*:\s*(\d{10,16})\b/));
+  if (Number.isFinite(ts) && ts > 0) r.ts = ts;
+  const model = grab(/"model"\s*:\s*"([^"\\]{1,80})"/); if (model) r.model = model;
+  const origin = grab(/"runId"\s*:\s*"([^"\\]{1,120})"/); if (origin) r.recordedRunId = origin;
+  return r;
+}
 const ledgerIo = {
   readAll() {
     unsettledSpendReceipts.clear();
-    const rows = loadBounded({ fs, strict: true }, LEDGER_FILE, LOG_MAX_BYTES).map(line => {
-      const row = JSON.parse(line);
-      if (!row || typeof row !== 'object' || Array.isArray(row) || typeof row.usd !== 'number' || !Number.isFinite(row.usd) || row.usd < 0) throw new Error('invalid spend history row');
-      return row;
-    });
+    const rows = [], damaged = [];
+    for (const line of loadBounded({ fs, strict: true }, LEDGER_FILE, LOG_MAX_BYTES)) {
+      let row = null;
+      try { row = JSON.parse(line); } catch (e) { row = null; }   // unreadable: kept below as one unknown charge
+      if (!row || typeof row !== 'object' || Array.isArray(row) || typeof row.usd !== 'number' || !Number.isFinite(row.usd) || row.usd < 0) damaged.push(line);
+      else rows.push(row);
+    }
+    const listDamaged = () => {
+      if (!damaged.length) return;
+      const resolved = new Set(rows.filter(row => row.attested === true && typeof row.resolvesLine === 'string').map(row => row.resolvesLine));
+      for (const line of damaged) {
+        const r = damagedSpendReceipt(line);
+        if (resolved.has(r.lineHash) || unsettledSpendReceipts.has(r.runId)) continue;
+        // a torn copy of a row held whole: the fragment names that row's run and is the start of its exact bytes
+        if (r.recordedRunId && rows.some(row => row.runId === r.recordedRunId && JSON.stringify(row).length > line.length && JSON.stringify(row).startsWith(line))) continue;
+        unsettledSpendReceipts.set(r.runId, r);
+      }
+      console.warn('[ledger] ' + damaged.length + ' unreadable spend record line(s); ' + [...unsettledSpendReceipts.values()].filter(r => r.kind === 'damaged').length + ' still need the Commander to settle them in SETTINGS › SPENDING LIMITS');
+    };
     let files;
     try { files = fs.readdirSync(SPEND_PENDING_DIR); }
-    catch (e) { if (e.code === 'ENOENT') return rows; throw e; }
+    catch (e) { if (e.code === 'ENOENT') { listDamaged(); return rows; } throw e; }
     const settled = new Set(rows.map(row => row.runId));
     const receipts = files.filter(name => name.endsWith('.json')).map(file => ({ file, receipt: JSON.parse(fs.readFileSync(path.join(SPEND_PENDING_DIR, file), 'utf8')) }));
     // Settle completed entries before checking dispatch markers, independent of filesystem order.
@@ -1173,6 +1205,7 @@ const ledgerIo = {
       }
       fs.unlinkSync(path.join(SPEND_PENDING_DIR, file));
     }
+    listDamaged();   // after the journal replay: a replayed row is the authority for its own torn fragment
     return rows;
   },
   unsettled() { return [...unsettledSpendReceipts.values()]; },
@@ -13388,8 +13421,11 @@ function budgetUnsettledRuns() {
     // panel does not call a finished evaluation an interrupted run of the agent
     const evaluation = String(r.runId || '').startsWith('skill-eval-');
     if (!title && evaluation) title = 'skill evaluation (' + (r.agentId || 'agent') + ')';
+    // a damaged record line is not a run: name it by what could be read off it (ledgerIo damagedSpendReceipt)
+    const damaged = r.kind === 'damaged';
+    if (damaged) title = 'unreadable spend record line' + (r.recordedRunId ? ' (run ' + String(r.recordedRunId).slice(0, 60) + ')' : '');
     return {
-      runId: r.runId, agentId: r.agentId || '', ts: r.ts || null, title: title.slice(0, 120), ...(evaluation ? { kind: 'evaluation' } : {}),
+      runId: r.runId, agentId: r.agentId || '', ts: r.ts || null, title: title.slice(0, 120), ...(evaluation ? { kind: 'evaluation' } : damaged ? { kind: 'damaged' } : {}),
       provider: r.provider || null, model: r.model || null, managed: typeof r.managed === 'boolean' ? r.managed : null,
       runCapUsd: (typeof r.runCapUsd === 'number' && r.runCapUsd > 0) ? r.runCapUsd : null
     };
@@ -13742,7 +13778,7 @@ async function handleBudgetSettle(req, res) {
   // spend-unknown. The ledger row above is the authority — a row this could not restamp (not scanned yet, or a failed
   // append) is healed from it by syncInterruptedRunHistory at the next scan/boot.
   try { runStore.settleSpend(runId, usd, body.mode === 'limit' ? 'limit' : 'entered'); } catch (e) { failNote('budget.settle.history', e); }
-  console.log('[budget] interrupted run ' + runId + ' settled at $' + usd + (body.mode === 'limit' ? ' (its per-run limit)' : ' (entered by the Commander)'));
+  console.log('[budget] ' + (open.kind === 'damaged' ? 'unreadable spend record line ' : 'interrupted run ') + runId + ' settled at $' + usd + (body.mode === 'limit' ? ' (its per-run limit)' : ' (entered by the Commander)'));
   return handleBudgetStatus(req, res);
 }
 

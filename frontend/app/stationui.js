@@ -6761,8 +6761,13 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
         // a skill evaluation row (kind 'evaluation') may have finished: what it lacks is a price, so it is never counted
         // as an interrupted run; a mix of both kinds gets the wording that is true of each
         const evals = open ? st.unsettled.filter(r => r && r.kind === 'evaluation').length : 0;
-        const missing = evals === open
+        // an unreadable line of the spend record (kind 'damaged') is not a run: say what it is
+        const damagedLines = open ? st.unsettled.filter(r => r && r.kind === 'damaged').length : 0;
+        const missing = damagedLines === open
+          ? (open === 1 ? 'a line of your spend record is damaged, so what it recorded is unknown' : open + ' lines of your spend record are damaged, so what they recorded is unknown')
+          : evals === open
           ? (open === 1 ? 'a skill evaluation run has no recorded price' : open + ' skill evaluation runs have no recorded price')
+          : damagedLines ? open + ' items in your spend history have no recorded charge'
           : evals ? open + ' runs never recorded what they spent'
             : (open === 1 ? 'an interrupted run never recorded what it spent' : open + ' interrupted runs never recorded what they spent');
         const floor = (st.atLeast && typeof st.atLeast.today === 'number') ? ' At least ' + fmtUsd(st.atLeast.today) + ' today.' : '';
@@ -6800,7 +6805,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
             refresh();
             return;
           }
-          paint(j); setMsg('✓ ' + (r.kind === 'evaluation' ? 'skill evaluation run' : 'interrupted run') + ' settled — its spend is in your history', true); sfx('click');
+          paint(j); setMsg('✓ ' + (r.kind === 'evaluation' ? 'skill evaluation run' : r.kind === 'damaged' ? 'damaged record line' : 'interrupted run') + ' settled — its spend is in your history', true); sfx('click');
         })
         .catch(() => { setMsg('could not reach the sidecar'); sfx('bad'); btns.forEach(b => { b.disabled = false; }); });
     };
@@ -6821,7 +6826,12 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
         // A skill evaluation run (budgetUnsettledRuns tags it kind 'evaluation' from its runId, which survives a restart)
         // may well have finished: what it lacks is a recorded price, so it reads UNPRICED, never INTERRUPTED.
         const evaluation = r.kind === 'evaluation';
-        row.setAttribute('data-tip', (evaluation ? 'This skill evaluation run has no recorded price: its provider usage came back without one, or the call failed or was cut off'
+        // a DAMAGED record line (sidecar ledgerIo): one line of the spend record could not be read, so its charge is
+        // unknown. It is never rewritten or deleted; settling it books the verified charge once and history is whole again.
+        const damaged = r.kind === 'damaged';
+        if (damaged) row.setAttribute('data-tip', 'One line of your spend record could not be read (an older crash can leave a torn line), so what it recorded is unknown' +
+          (r.model ? ' (it names ' + r.model + ')' : '') + '. Match it to StarNet Recent Activity or your provider billing records, then enter only its verified charge: StarNet books it once, keeps the damaged line untouched, and your spending limits can be checked again.');
+        else row.setAttribute('data-tip', (evaluation ? 'This skill evaluation run has no recorded price: its provider usage came back without one, or the call failed or was cut off'
           : 'This run stopped before StarNet recorded what it spent') +
           (managed ? ' (it ran on your StarNet credits' + (r.model ? ', ' + r.model : '') + ')' : (where ? ' (it started on ' + where + ')' : '')) +
           (managed ? '. Enter what StarNet charged for it — SETTINGS → AI & MODELS › STORE › RECENT ACTIVITY lists those charges as ' + creditRunTag(r.runId)
@@ -6830,10 +6840,10 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
         what.className = 'bg-un-what';
         const name = document.createElement('b');
         name.textContent = String(r.title || r.agentId || 'a run').slice(0, 80);
-        what.appendChild(document.createTextNode(evaluation ? 'UNPRICED — ' : 'INTERRUPTED — '));
+        what.appendChild(document.createTextNode(damaged ? 'DAMAGED RECORD — ' : evaluation ? 'UNPRICED — ' : 'INTERRUPTED — '));
         what.appendChild(name);
         what.appendChild(document.createTextNode(' · ' + whenOf(r.ts)));
-        if (!managed && !byok) what.appendChild(document.createTextNode(' · BILLING SOURCE UNKNOWN'));
+        if (!managed && !byok && !damaged) what.appendChild(document.createTextNode(' · BILLING SOURCE UNKNOWN'));
         const usd = document.createElement('input');
         usd.className = 'key-input bg-cap bg-un-usd';
         usd.type = 'number'; usd.min = '0'; usd.step = '0.01'; usd.placeholder = '$ charged';
