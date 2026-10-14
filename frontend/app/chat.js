@@ -2291,6 +2291,10 @@ const Chat = (() => {
     if (d.starterKey === key && d.retryAt && Date.now() >= d.retryAt && d.forcePending) {
       requestStarterIdeas(d, d.querySelector('.cmsg-empty-hint'), starterContext(), starterOptions(), true); return;
     }
+    // Ideas from a FINISHED generation stay up while the context drifts (a crew run elsewhere, a busy flag flipping):
+    // every click re-validates its evidence and destination (openStarter), and REFRESH SUGGESTIONS asks again. Rebuilding
+    // on each drift asked the model once a minute while an empty session sat open (test/starter-drift.test.js).
+    if (d.shownStatus === 'ready' && Date.now() < d.expiresAt) return;
     clearEmptyState(); maybeEmptyState();
   }
   function openStarter(st, hint) {
@@ -2325,6 +2329,7 @@ const Chat = (() => {
       ready: personalized.length ? 'Based on your work and goals. Choose a session to review its brief.' : 'Three substantial starting points. Your own requests will shape future suggestions.'
     };
     hint.textContent = messages[result.status] || messages.ready;
+    d.shownStatus = result.status;   // the refresh tick keeps a shown READY generation through context drift
     d.retryAt = result.status === 'cooldown' ? result.retryAt : 0;
     for (const st of ideas) {
       if (!st.general) StarterStore.shown(st);
@@ -2359,7 +2364,9 @@ const Chat = (() => {
     const origin = activeWs && activeWs.id, key = JSON.stringify([ctx, options]);
     StarterStore.request(ctx, { ...options, force: !!force }).then(result => {
       if (!d.isConnected || !activeWs || activeWs.id !== origin || activeWs.history.length || isBusy()) return;
-      if (JSON.stringify([starterContext(), starterOptions()]) !== key) { clearEmptyState(); maybeEmptyState(); return; }
+      // a paid generation that finished after the context drifted is still shown (its ideas re-validate on click);
+      // anything else re-evaluates against the new context, as before
+      if (result.status !== 'ready' && JSON.stringify([starterContext(), starterOptions()]) !== key) { clearEmptyState(); maybeEmptyState(); return; }
       if (result.status !== 'cancelled') renderStarterIdeas(d, hint, result);
     });
   }
