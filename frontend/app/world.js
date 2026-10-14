@@ -8665,9 +8665,14 @@ const World = (() => {
     const p = hoverCap.p;
     ctx.save();
     ctx.font = NAG_FONT; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+    const cx = (p.x + (p.w || 1) / 2) * T, ty = p.y * T - 8, tw = ctx.measureText(hoverCap.text).width, pad = 3;
+    // a small dark plate behind the letters (the AWAITING tag's idiom) so the name never crosses busy sprite pixels
+    ctx.globalAlpha = 0.78; ctx.fillStyle = '#04100a';
+    ctx.fillRect(Math.round(cx - tw / 2 - pad), Math.round(ty - 7), Math.round(tw + pad * 2), 9);
+    ctx.globalAlpha = 1;
     ctx.shadowBlur = 3; ctx.shadowColor = '#62ff9e';
     ctx.fillStyle = '#9adcb0';
-    ctx.fillText(hoverCap.text, (p.x + (p.w || 1) / 2) * T, p.y * T - 8);
+    ctx.fillText(hoverCap.text, cx, ty);
     ctx.restore();
   }
   // the hover-glance route tag over the belt tile under the cursor (green = flows to a bound bay, amber = doesn't)
