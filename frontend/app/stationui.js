@@ -1811,7 +1811,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     wireCrewLive();   // ensure the per-agent run-state listener is live
     const ul = $('#crew'); if (!ul) return;
     if (!present.length) {
-      ul.innerHTML = '<li class="crew-empty"><div class="empty-state"><span class="es-glyph">▯</span><b>NO AGENTS ON STATION</b><span>Commission one from RECRUITMENT to begin.</span></div></li>';
+      ul.innerHTML = '<li class="crew-empty"><div class="empty-state"><span class="es-glyph">▯</span><b>NO AGENTS ON STATION</b><span>RECRUIT one from the CREW dock.</span></div></li>';
       $('#crew-sum').innerHTML = '';
       return;
     }
@@ -3404,7 +3404,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     if (!present.length) {
       // shared empty-state vocabulary rather than a bare paragraph (no agents = nothing to dossier)
       body.innerHTML = '<div class="empty-state" style="margin:32px auto;"><span class="es-glyph">▯</span>' +
-        '<b>NO AGENTS ON STATION</b><span>Commission one from RECRUITMENT to open its dossier.</span></div>';
+        '<b>NO AGENTS ON STATION</b><span>RECRUIT one from the CREW dock.</span></div>';
       return;
     }
     if (sel >= present.length) sel = 0;
