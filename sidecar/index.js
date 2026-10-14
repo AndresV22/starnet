@@ -21986,7 +21986,7 @@ async function runOnceCore(o) {
   } else if (isTask && Array.isArray(o.groupTools) && o.lead && resolved.tools.includes('station.build')) {
     teamNote = '\n\n[STATION — you lead this group chat] Change StarNet through its own tools, in the background, never through the screen: '
       + 'read assembly lines with station.layout first and quote its status; tool_search "station builder" for station.map (see the floor), station.plan (plan any change on a copy), '
-      + 'station.build (build a plan; the Commander approves each build), station.test_line and station.start_line; tool_search "station settings" for settings. '
+      + 'station.build (build a plan; it follows the Commander\'s approval setting), station.test_line and station.start_line; tool_search "station settings" for settings. '
       + 'Claim only what those tools report. Hand work to the other participants with group.handoff.';
   } else if (isTask && o.delegatedBy && resolved.tools.includes('station.build')) {
     // THE LENT BUILDER (team.dispatch builder:true): this worker holds the floor tools for this job only. Without this
