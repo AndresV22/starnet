@@ -155,10 +155,10 @@ A.ok(!context.railRowTip(savedA, row(savedA), true).includes('right-click'), 'pr
   };
   A.eq(decl('.ws-agent', 'display'), 'none', 'COMPACT still hides the agent line by default (direct rows keep their one-line layout)');
   A.eq(decl('body:not(.rows-inbox) #workstreams .ws-agent.ws-agent-group', 'display'), 'flex', 'a group row shows its crew identity line in COMPACT');
-  A.eq(decl('body:not(.rows-inbox) #workstreams .ws-agent.ws-agent-group', 'font-size'), '12px', 'the compact crew line is the INBOX line’s readable size, not a shrunken chip');
+  A.eq(decl('body:not(.rows-inbox) #workstreams .ws-agent.ws-agent-group', 'font-size'), '14px', 'the compact crew line sits at the 14px glass floor, not a shrunken chip (walk 10-14 #6: it was 12px under a 17px title)');
   const grid = 'body:not(.rows-inbox) #workstreams .ws-row:has(> .ws-agent-group)';
   A.eq(decl(grid, 'display'), 'grid', 'a compact group row lays the identity on its own line');
-  A.ok(/"dot agent pin meta"\s*"title title title title"/.test(decl(grid, 'grid-template-areas') || ''), 'names sit above the full-width title');
+  A.ok(/"dot agent agent agent"\s*"title title pin meta"/.test(decl(grid, 'grid-template-areas') || ''), 'names own the whole first line above the title (its time on the title line, walk 10-14 #6)');
   const attn = 'body:not(.rows-inbox) #workstreams .ws-row.attn:has(> .ws-agent-group)';
   A.ok(/"\. meta meta menu"/.test(decl(attn, 'grid-template-areas') || ''), 'an attention group row keeps its request and its menu in separate cells');
   A.eq(decl(attn + ' > .ws-kebab', 'grid-area'), 'menu', 'the kebab takes the menu cell, not the request');
