@@ -5950,8 +5950,11 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     });
     if (providerAcceptsKey(addProvider) && !hasAddProvider && !cardOffersAdd(addProvider)) rows.push(addKeyHtml(addProvider, false));
     // org P04: the selected provider's card holds its ＋ ADD KEY, but API KEYS still says the selected provider has no key yet
-    // (only when addProvider IS the selection: under CHATGPT it is the openrouter stand-in, which is not selected)
-    else if (addProvider === active && providerAcceptsKey(addProvider) && !hasAddProvider) rows.push('<div class="key-empty"><p>The selected provider, ' + esc(provName(addProvider)) + ', has no key yet. Add it on its card above.</p></div>');
+    // (only when addProvider IS the selection: under CHATGPT it is the openrouter stand-in, which is not selected).
+    // (g4 final round) "its card above" pointed at whatever card sat above (CLAUDE CODE, OPENROUTER): the line is a real DOOR —
+    // its key lands ON that provider's card (focusProvider: scrolls to it and marks it), in reading-size words
+    else if (addProvider === active && providerAcceptsKey(addProvider) && !hasAddProvider) rows.push('<div class="key-empty key-goto"><p>The selected provider, ' + esc(provName(addProvider)) + ', has no key yet.</p>'
+      + '<div class="mc-acts"><button type="button" class="bb sm" data-act="to-prov-card" data-provider="' + esc(addProvider) + '">▸ ADD IT ON THE ' + esc(provName(addProvider)) + ' CARD</button></div></div>');
     return rows.join('');
   }
   // edit-in-place / guarded remove for a stored key. Mirrors the CLEAR arm/confirm pattern
@@ -6204,6 +6207,8 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     };
     const toServiceKeys = body.querySelector('[data-act="to-service-keys"]');
     if (toServiceKeys) toServiceKeys.addEventListener('click', () => { sfx('click'); openTerm('connectors', 'keys'); });
+    // org P04 (g4 final round): API KEYS' no-key line lands ON the selected provider's card — the error doors' own landing
+    body.querySelectorAll('[data-act="to-prov-card"][data-provider]').forEach(b => b.addEventListener('click', () => { sfx('click'); focusProvider(b.dataset.provider); }));
     body.querySelectorAll('.prov-card[data-provider]').forEach(card => {
       const activate = () => {
         const h = H();

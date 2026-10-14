@@ -88,6 +88,12 @@ ok(/data-act="baseurl-edit" data-i="' \+ i \+ '" data-tip="[^"]+">✎ ENDPOINT U
 ok(/a spare key was rejected/.test(harness) && /your previous spare keys are unchanged/.test(harness) && !/backup key|backup pool is/.test(harness), 'a rejected ↻ SPARE KEYS save names spare keys, never a backup pool');
 ok(/set your fallback models to/.test(fs.readFileSync(path.join(__dirname, '..', 'sidecar', 'tools', 'builtin', 'station-control.js'), 'utf8')), 'the fallback.set approval card names FALLBACK MODELS, the heading AI & MODELS shows');
 ok(!/while keeping your ChatGPT sign-in connected/.test(station), 'the add-key copy never claims a ChatGPT sign-in');
+// org P04 (g4 final round): "Add it on its card above" pointed at whatever card sat above it — the no-key line is a real door
+// that lands ON the selected provider's card (focusProvider: the error doors' scroll + mark), in reading-size words
+ok(/rows\.push\('<div class="key-empty key-goto"><p>The selected provider, ' \+ esc\(provName\(addProvider\)\) \+ ', has no key yet\.<\/p>'\s*\+ '<div class="mc-acts"><button type="button" class="bb sm" data-act="to-prov-card" data-provider="' \+ esc\(addProvider\) \+ '">▸ ADD IT ON THE ' \+ esc\(provName\(addProvider\)\) \+ ' CARD<\/button><\/div><\/div>'\);/.test(station)
+  && !/Add it on its card above/.test(station), 'the selected provider\'s no-key line names its card as a door, never "its card above"');
+ok(/body\.querySelectorAll\('\[data-act="to-prov-card"\]\[data-provider\]'\)\.forEach\(b => b\.addEventListener\('click', \(\) => \{ sfx\('click'\); focusProvider\(b\.dataset\.provider\); \}\)\);/.test(station), 'that door lands on the provider\'s card through focusProvider');
+ok(/\.settings-console \.key-empty\.key-goto p \{ font-size: 16px;[^}]*opacity: 1; \}/.test(fs.readFileSync(path.join(__dirname, '..', 'frontend', 'css', 'settings.css'), 'utf8')), 'the no-key line reads at the paragraphs\' size, not the dim 12px empty-state voice');
 {
   const src = station.slice(station.indexOf('  function normEndpoint(raw) {'), station.indexOf('  function addKeyHtml('));
   const norm = new Function(src.slice(0, src.indexOf('\n  }\n') + 4) + '\nreturn normEndpoint;')();
