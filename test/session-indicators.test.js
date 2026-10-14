@@ -15,7 +15,7 @@ const context = vm.createContext({
   agents: new Map([['nova', { name: 'NOVA' }]]),
   railFmtElapsed: ms => String(ms), railRelTime: () => '1m'
 });
-const names = ['railRowState(w)', 'railAgentName(w)', 'railModelFull(w)', 'railRowLabel(w, st, project = false)', 'railRowTip(w, st, project = false)'];
+const names = ['railRowState(w)', 'railAgentName(w)', 'railAgentLine(w)', 'railModelFull(w)', 'railRowLabel(w, st, project = false)', 'railRowTip(w, st, project = false)'];
 vm.runInContext(names.map(n => A.fnBody(app, 'function ' + n)).join('\n'), context);
 const row = w => context.railRowState(w);
 Workstreams.init({ workstreams: [
@@ -109,5 +109,37 @@ A.ok(!context.railRowTip(savedA, row(savedA), true).includes('right-click'), 'pr
   A.ok(!/working/.test(st.meta) && /unknown/.test(st.meta), 'station unreachable: the row says the crew state is unknown, not "2 working"');
   A.ok(/unreachable/.test(st.status) && /unknown/.test(st.status), 'the row tip says why the crew state is unknown');
   delete context.Overseer;
+}
+// All row layouts share this projection. Execute the real escaping/name/state helpers; these controls do
+// not claim that native CSS layout, clipping or focus geometry has been verified.
+{
+  const util = fs.readFileSync(path.join(__dirname, '../frontend/js/util.js'), 'utf8');
+  const start = util.indexOf('  esc(s) {'), end = util.indexOf('\n  // seeded-ish', start);
+  A.ok(start >= 0 && end > start && end - start < 500, 'the control uses the bounded production escaping method');
+  vm.runInContext('this.U = {' + util.slice(start, end) + '};', context);
+  const members = { pair: ['cypher', 'ultron'], crew: ['cypher', 'mira', 'ultron', 'rook', 'vex'] };
+  const groupState = {};
+  context.GroupChat = { membersOf: id => members[id] || null, stateOf: id => groupState[id] || null };
+  for (const id of ['ultron', 'cypher', 'mira', 'rook', 'vex']) context.agents.set(id, { name: id.toUpperCase() });
+  const title = 'Launch plan — website, pricing, delivery, and QA follow-up & decisions';
+  const pair = { id: 'pair', agentId: 'ultron', conversationMode: 'group', title };
+  const crew = { id: 'crew', agentId: 'ultron', conversationMode: 'group', title };
+  A.eq(context.railAgentLine(pair), '<span class="ws-agent-names">ULTRON, CYPHER</span>', 'two members show their names, lead first, without a +0');
+  A.eq(context.railAgentLine(crew), '<span class="ws-agent-names">ULTRON, CYPHER</span><span class="ws-agent-more">+3</span>', 'five members keep the remaining count separate from the first two names');
+  A.eq(context.railAgentName(crew), 'ULTRON + CYPHER + MIRA + ROOK + VEX', 'accessible identity retains every member in lead-first order');
+  A.eq(context.railRowLabel(crew, row(crew)), title + ' group chat, ULTRON + CYPHER + MIRA + ROOK + VEX, read; Enter to open; Shift+F10 for actions', 'custom long titles do not replace accessible crew membership or keyboard actions');
+  for (const question of [true, false]) {
+    groupState.crew = { questions: question ? 1 : 0, approvals: question ? 0 : 1, busy: true };
+    A.eq([row(crew).attn, row(crew).meta], [true, question ? 'Reply needed' : 'Approval needed'], 'group attention reads the actual pending-request state');
+    A.ok(context.railRowLabel(crew, row(crew)).includes(question ? 'waiting for your answer' : 'awaiting your approval'), 'the full crew label retains the truthful pending request');
+    A.eq(context.railAgentLine(crew), '<span class="ws-agent-names">ULTRON, CYPHER</span><span class="ws-agent-more">+3</span>', 'attention does not replace or shorten the crew identity');
+  }
+  members.crew = ['ultron', 'vex']; delete groupState.crew;
+  A.eq(context.railAgentLine(crew), '<span class="ws-agent-names">ULTRON, VEX</span>', 'membership shrink removes the stale overflow count');
+  context.agents.set('ultron', { name: 'UL<&"\'' });
+  members.pair = ['ultron', 'missing<&'];
+  A.eq(context.railAgentLine(pair), '<span class="ws-agent-names">UL&lt;&amp;&quot;&#39;, missing&lt;&amp;</span>', 'names and unknown roster-ID fallbacks are escaped by production U.esc');
+  A.eq(context.railAgentLine({ ...pair, conversationMode: 'direct' }), 'UL&lt;&amp;&quot;&#39;', 'a direct conversation ignores group membership and keeps its escaped agent name');
+  A.eq(context.railAgentLine({ ...pair, id: 'unknown' }), 'UL&lt;&amp;&quot;&#39;', 'unknown group membership never invents a count or a second member');
 }
 A.report('session-indicators.test');

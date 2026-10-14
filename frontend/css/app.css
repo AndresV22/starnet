@@ -2994,7 +2994,8 @@ body:not(.no-flicker) #screen-game.active.flick-dip { animation: flick-dip 280ms
 
 /* ---------- SESSION ROWS = INBOX (StationUI setting `sessionRow`, body.rows-inbox) ----------
    The SAME .ws-row markup, re-laid as a three-line card. The two extra spans (.ws-agent, .ws-receipt)
-   are ALWAYS in the DOM and simply display:none in COMPACT, so switching the setting is a repaint —
+   are ALWAYS in the DOM; direct-agent lines and receipts stay hidden in COMPACT, while group identity
+   has its own compact line below. Switching the setting is a repaint —
    renderRail is never re-run, and rail focus, scroll position and an in-place rename all survive it.
 
    Agent above the wrapping session title, then a quiet latest-message excerpt.
@@ -3211,6 +3212,29 @@ body.rows-inbox #workstreams .ws-kebab { grid-area: meta; }
 body.rows-inbox #workstreams .ws-agent.ws-agent-group { display: flex; align-items: baseline; min-width: 0; gap: .4em; }
 .ws-agent-names { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ws-agent-more { flex: 0 0 auto; white-space: nowrap; }
+/* Group identity stays visible outside INBOX too. Give it a line of its own so a custom title does not
+   compete with two names and +N in the narrow rail. Match the existing markup rather than adding a row
+   class that the live ticker would have to maintain; single-agent and PROJECTS rows keep their layouts. */
+body:not(.rows-inbox) #workstreams .ws-row:has(> .ws-agent-group) {
+  display: grid; grid-template-columns: 7px minmax(0, 1fr) auto auto;
+  grid-template-areas: "dot agent pin meta" "title title title title";
+  gap: 4px 7px;
+}
+body:not(.rows-inbox) #workstreams .ws-row:has(> .ws-agent-group) > .ws-dot { grid-area: dot; }
+body:not(.rows-inbox) #workstreams .ws-row:has(> .ws-agent-group) > :is(.ws-title, .ws-rename) { grid-area: title; }
+body:not(.rows-inbox) #workstreams .ws-row:has(> .ws-agent-group) > .ws-pin { grid-area: pin; }
+body:not(.rows-inbox) #workstreams .ws-row:has(> .ws-agent-group) > :is(.ws-meta, .ws-kebab) { grid-area: meta; }
+body:not(.rows-inbox) #workstreams .ws-agent.ws-agent-group {
+  display: flex; grid-area: agent; align-items: baseline; min-width: 0; gap: .4em;
+  font-size: 12px; line-height: 1.2; letter-spacing: .5px; color: var(--ph-dim);
+  white-space: nowrap; overflow: hidden;
+}
+/* Attention is a pending request, not another row setting. Its action retains a separate line and menu
+   cell; hover/focus must never replace the visible request with the kebab. */
+body:not(.rows-inbox) #workstreams .ws-row.attn:has(> .ws-agent-group) {
+  grid-template-areas: "dot agent agent pin" "title title title title" ". meta meta menu";
+}
+body:not(.rows-inbox) #workstreams .ws-row.attn:has(> .ws-agent-group) > .ws-kebab { grid-area: menu; }
 /* the ⋯ button is the discoverable twin of right-click: hidden until the row is hovered, where it takes the meta slot */
 .ws-kebab {
   display: none; flex: 0 0 auto; font-family: inherit; font-size: 15px; line-height: 1; letter-spacing: 1px;
