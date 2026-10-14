@@ -6584,6 +6584,7 @@ const World = (() => {
     if (!(typeof IndustrialTextures !== 'undefined' && typeof IndustrialTextures.drawBase === 'function'
       && IndustrialTextures.drawBase(ctx, d.image, d.x, d.y))) ctx.drawImage(d.image, d.x, d.y);
   }
+  const TAGGED_PROPS = { outbox: 1, missionboard: 1, trophycase: 1, airlock: 1 };   // the props propremaster.js approvedState tags
   function drawLitProp(p, work, live) {
     PropSprites.draw(p, work, live);
     if (!sceneRenderer || !PropSprites.canLightResponse || !PropSprites.canLightResponse(p)) return;
@@ -6850,6 +6851,9 @@ const World = (() => {
           if (db && db.name) dp = Object.assign(dp === p ? Object.assign({}, p) : dp, { dockName: db.name + (away ? ' ↔ home' : '') });
           if (propOnScreen(dp)) bayLabels.push(dp);
         }
+        // a prop that wears a small state tag under it ("1 pending", "3 quests") is told its room's floor, so the tag is drawn
+        // inside it — never across the hull wall beside an OUTBOX that stands against it (review 10-14)
+        if (TAGGED_PROPS[p.t]) dp = Object.assign(dp === p ? Object.assign({}, p) : dp, { tagRoom: lwRoomBox(p.x, p.y) });
         // OCCUPIED BED: the base pass holds the quilt back so the sleeper can be drawn between the
         // frame and the covers (drawOver, below). Same copy-on-write idiom as the nameplate above.
         if (sleeper) dp = Object.assign(dp === p ? Object.assign({}, p) : dp, { sleeper: true });
@@ -6967,7 +6971,7 @@ const World = (() => {
       // (2026-09-30) the caption plate is set at a reading size ON SCREEN — 14px, by pixel ratio and TEXT SIZE — whatever the camera
       // zoom: at the shared 8 world px a plate grew to twice the NO FEED nag at a close zoom and covered the machines it spoke of
       const capPx = 14 * (window.devicePixelRatio || 1) * ((typeof U !== 'undefined' && U.uiZoom && U.uiZoom()) || 1) / (scale || 1);
-      ghost.draw(ctx, now, T, capPx, plates.length ? (bx, paint) => { if (!onPlate(bx)) paint(); } : null, (bx, n) => captionInStation(bx, n, plates));
+      ghost.draw(ctx, now, T, capPx, plates.length ? (bx, paint) => { if (onPlate(bx)) return false; paint(); return true; } : null, (bx, n) => captionInStation(bx, n, plates));
     }
     drawHandoffBoxes(now);   // Stage 2: lead→worker delegation boxes fly over the entities
     drawSendCrates();        // SEND TO: a line's product crate flies from its OUTBOX to the next line's INBOX
@@ -9697,33 +9701,60 @@ const World = (() => {
     return true;
   }
   /* A WOULD-caption stays ON the station (walk 10-14 #13: "THE RESULT WOULD SHIP OUT HERE" crossed the hull into space and
-     past the stage frame, "NO FEED — CLICK" sat on "A MESSAGE WOULD ARRIVE HERE"). Sideways it stays inside its tile's room
-     when it fits there, else inside the station's floor; up and down it stays between the top wall's face and the floor's
-     last row; and always on the visible stage. On a routing callout or a line plate it answers null, so ghostline.js tries
-     the caption's next spot — and with none clear, the projection sits that pass out. */
+     past the stage frame, "NO FEED — CLICK" sat on "A MESSAGE WOULD ARRIVE HERE"). It sits in its OWN room: across, inside
+     that room when it fits (a caption wider than its room is centred on its tile and may run on over the floor beside it);
+     and every part of it must be over a room's floor or that room's north wall face — never the empty space between a
+     cross-shaped station's wings, which the station's bounding box held (review 10-14). It always overlaps its own tile
+     across, so its "HERE" stays beside the machine it names, and it stays on the visible stage. A spot off the floor, on a
+     routing callout, a line plate or a bay's name plate answers null, so ghostline.js tries the caption's next spot (the
+     other side of its tile, then a plate further out) — and with none clear, the projection sits that pass out. */
   function captionInStation(b, n, plates) {
-    const hull = stationFloorBox(), room = n ? lwRoomBox(Math.floor(n.x), Math.floor(n.y)) : null;
-    const across = room && b.w <= room.w ? room : hull;
-    if (across && b.w <= across.w) b.x = Math.max(across.x, Math.min(across.x + across.w - b.w, b.x));
-    if (hull) { const top = hull.y - ((typeof StationBake !== 'undefined' && StationBake.WALL && StationBake.WALL.up) || 0); b.y = Math.max(top, Math.min(hull.y + hull.h - b.h, b.y)); }
+    const rooms = stationRoomBoxes();
+    if (!rooms.length) return b;
+    const room = (n && lwRoomBox(Math.floor(n.x), Math.floor(n.y))) || nearestRoomBox(rooms, n ? (n.x + 0.5) * T : b.x + b.w / 2, n ? (n.y + 0.5) * T : b.y + b.h / 2);
+    if (room && b.w <= room.w) b.x = Math.max(room.x, Math.min(room.x + room.w - b.w, b.x));
     const v = { x: (4 - panX) / scale, y: (4 - panY) / scale, w: Math.max(0, (cv.width - 8) / scale), h: Math.max(0, (cv.height - 8) / scale) };
     if (b.w <= v.w) b.x = Math.max(v.x, Math.min(v.x + v.w - b.w, b.x));
-    if (b.h <= v.h) b.y = Math.max(v.y, Math.min(v.y + v.h - b.h, b.y));
+    if (b.h <= v.h && (b.y < v.y || b.y + b.h > v.y + v.h)) return null;   // off the stage up or down: take the next spot
+    if (!overStation(b, rooms)) return null;
+    if (n && (b.x >= (Math.floor(n.x) + 1) * T || b.x + b.w <= Math.floor(n.x) * T)) return null;   // "HERE" stays beside its machine
     const hit = o => !!o && b.x < o.x + o.w && b.x + b.w > o.x && b.y < o.y + o.h && b.y + b.h > o.y;
     if (nagLabelBoxes.some(hit) || (plates || []).some(p => hit(p.box))) return null;
     // a bay's name plate is its agent's name: a caption never covers it either
     for (const d of (routingPlan && routingPlan.dockBays) || []) { if (!d.agentId) continue; const q = bayPlateBox(d); if (hit({ x: q.left, y: q.top, w: q.width, h: q.h })) return null; }
     return b;
   }
-  // the station's floor extent (every room's floor rect, local px) — what "inside the station" means for a world label
-  let floorBoxMemo = null, floorBoxGeo = null;
-  function stationFloorBox() {
-    if (!geo || !geo.allRects || !geo.allRects.length) return null;
-    if (floorBoxGeo === geo) return floorBoxMemo;
-    let x1 = Infinity, y1 = Infinity, x2 = -Infinity, y2 = -Infinity;
-    for (const r of geo.allRects) { x1 = Math.min(x1, r.x1); y1 = Math.min(y1, r.y1); x2 = Math.max(x2, r.x2); y2 = Math.max(y2, r.y2); }
-    floorBoxGeo = geo; floorBoxMemo = { x: x1 * T + 2, y: y1 * T + 2, w: (x2 - x1 + 1) * T - 4, h: (y2 - y1 + 1) * T - 4 };
-    return floorBoxMemo;
+  /* the station's rooms (local px): `floor` is a room's floor rect inset like lwRoomBox (where a caption is held across),
+     `body` the whole tiles plus the north wall face standing above them (StationBake.WALL.up) — what "on the station" means */
+  let roomBoxMemo = [], roomBoxGeo = null;
+  function stationRoomBoxes() {
+    if (!geo || !geo.allRects || !geo.allRects.length) return [];
+    if (roomBoxGeo === geo) return roomBoxMemo;
+    const up = (typeof StationBake !== 'undefined' && StationBake.WALL && StationBake.WALL.up) || 0;
+    roomBoxGeo = geo;
+    roomBoxMemo = geo.allRects.map(r => ({
+      floor: { x: r.x1 * T + 2, y: r.y1 * T + 2, w: (r.x2 - r.x1 + 1) * T - 4, h: (r.y2 - r.y1 + 1) * T - 4 },
+      body: { x: r.x1 * T, y: r.y1 * T - up, w: (r.x2 - r.x1 + 1) * T, h: (r.y2 - r.y1 + 1) * T + up }
+    }));
+    return roomBoxMemo;
+  }
+  // the floor of the room nearest a point (a caption whose tile is in no room still sits in one)
+  function nearestRoomBox(rooms, px, py) {
+    let best = null, bd = Infinity;
+    for (const r of rooms) {
+      const f = r.floor, dx = Math.max(f.x - px, 0, px - f.x - f.w), dy = Math.max(f.y - py, 0, py - f.y - f.h), d = dx * dx + dy * dy;
+      if (d < bd) { bd = d; best = f; }
+    }
+    return best;
+  }
+  // is every part of the box over some room's body? (rooms are tile-aligned, so a probe every half tile along the box's top
+  // and bottom edges finds any gap between them)
+  function overStation(b, rooms) {
+    const step = T / 2, x2 = b.x + b.w - 0.5, ys = [b.y + 0.5, b.y + b.h - 0.5];
+    for (let x = b.x + 0.5; ; x = Math.min(x2, x + step)) {
+      for (const y of ys) if (!rooms.some(r => x >= r.body.x && x <= r.body.x + r.body.w && y >= r.body.y && y <= r.body.y + r.body.h)) return false;
+      if (x >= x2) return true;
+    }
   }
   // the floor rectangle of the room a local tile sits in (the nag layout's containerFor, reused)
   function lwRoomBox(tx, ty) {

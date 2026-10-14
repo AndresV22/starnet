@@ -451,8 +451,12 @@ const PropRemaster = (() => {
     if(id==='missionboard'&&state.pins>0)label=String(state.pins)+' quests';
     if(id==='trophycase'&&state.trophies>0)label=String(state.trophies)+' earned';
     if(id==='airlock'&&state.door)label=String(state.door).slice(0,16);
-    // 8 world px, the size of every other world tag (NO FEED, AWAITING APPROVAL): at 3px "1 pending" was ~5px on screen (walk 10-14 #14)
-    if(label){ctx.font="8px 'VT323','Courier New',monospace";ctx.textAlign='center';ctx.textBaseline='top';ctx.fillStyle='#cbb985';ctx.fillText(label,x+e.spec.footprint.w*6,y+e.box.y+e.box.height+1);}
+    // 8 world px, the size of every other world tag (NO FEED, AWAITING APPROVAL): at 3px "1 pending" was ~5px on screen (walk 10-14 #14).
+    // At that size it is wider than a 2-tile OUTBOX: state.tagRoom (the room's floor, from world.js) keeps it off the hull wall.
+    if(label){ctx.font="8px 'VT323','Courier New',monospace";ctx.textAlign='center';ctx.textBaseline='top';ctx.fillStyle='#cbb985';
+      let cx=x+e.spec.footprint.w*6;const r=state.tagRoom,tw=r?ctx.measureText(label).width:0;
+      if(r&&tw<=r.w)cx=Math.max(r.x+tw/2,Math.min(r.x+r.w-tw/2,cx));
+      ctx.fillText(label,cx,y+e.box.y+e.box.height+1);}
     const trigger=e.spec.activity,amount=trigger==='fired'?Math.max(0,Math.min(1,+state.fired||0)):trigger==='work'&&state.work?1:trigger==='ambient'?.3:0;
     if(amount&&!e.lost&&!e.approved&&e.indicators){ctx.globalAlpha*=amount*(state.still?.45:.35+.15*Math.sin((+state.now||0)/280));ctx.drawImage(e.indicators[state.bad?1:0],x+e.frame.x,y+e.frame.y,e.body.width/DENSITY,e.body.height/DENSITY);}
   }

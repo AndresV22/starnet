@@ -262,7 +262,8 @@ const GhostLine = (() => {
        A CAPTION IS A PLATE (2026-09-30): it was bare cyan text with a glow, laid over machines and belts — hard to read and
        easy to lose. It is a small dark plate now, edged with a DASHED hairline in the projection's cyan (dashed = projected,
        the same way the ghost crate is a hologram), holding plain text; it is fully lit for most of its life and fades at the
-       end. `fit` (optional) lets the caller keep a plate on its visible glass: fit(box) answers the box to use. */
+       end. `fit` (optional) lets the caller keep a plate on its visible glass: fit(box) answers the box to use.
+       `say` answering false means it declined to paint that caption: its spot is then free for the next one. */
     function draw(ctx, nowMs, T, fontPx, say, fit) {
       if (!engine) return;
       engine.drawBoxes(ctx, nowMs, T);
@@ -307,8 +308,9 @@ const GhostLine = (() => {
         if (k >= 1 || k < 0) { notes.splice(i, 1); continue; }
         const b = boxOf(n, n.below ? 0 : Math.min(1, k * 4) * 3);
         if (!b) continue;
-        placed.push(b);
-        if (say) say(b, paintNote.bind(null, n, k, b)); else paintNote(n, k, b);
+        // a caption holds its spot unless the arbiter says it was NOT painted (answers false) — then the next one may have it;
+        // an arbiter that paints later (BUILD MODE's voice queue answers nothing) keeps the spot reserved
+        if (say) { if (say(b, paintNote.bind(null, n, k, b)) !== false) placed.push(b); } else { paintNote(n, k, b); placed.push(b); }
       }
     }
 
