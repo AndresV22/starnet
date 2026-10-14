@@ -123,6 +123,16 @@ const Chat = (() => {
   let revealKey = '';   // selector of the last explicit reveal (revealHistory); a fresh load or the reader's own gesture forgets it
   let userScrollHeld = false;
   let userScrollAt = 0;   // last real scroll GESTURE on the log (wheel/touch/scrollbar/keys) — only a gesture can unstick
+  /* A PRESS IS NOT A SCROLL (live walk 10-14: the approval card and the MY READ card landed below the fold under a NEW
+     MESSAGES pill). Every pointer release in the WINDOW stamped a gesture — the click on the composer or the send key —
+     and so did a press on a key inside the log (Approve once, a brief chip). Content landing in the next 1.2 s then read
+     as "they scrolled up" and the follow stopped mid-exchange. Only a scroll gesture on the log counts: wheel, touch, the
+     scrollbar or text drag (a hold that began ON the log), or a key outside a control. */
+  const PRESS_SEL = 'button, a[href], input, textarea, select, label, summary, [role="button"], [contenteditable="true"]';
+  function isPress(ev) { const t = ev && ev.target; return !!(t && t.closest && t.closest(PRESS_SEL)); }
+  function logGesture(ev) { if (!isPress(ev)) userScrollAt = Date.now(); }
+  function logHold(ev) { if (!isPress(ev)) userScrollHeld = true; }
+  function endLogHold() { if (!userScrollHeld) return; userScrollHeld = false; userScrollAt = Date.now(); }   // a release ends a hold begun on the log, never stamps one begun elsewhere
   function nearBottom() { return !log || (log.scrollHeight - log.scrollTop - log.clientHeight < 40); }
   function autoscroll() { if (stick && log) log.scrollTop = log.scrollHeight; else if (log) showNewPill(true); }   // content landed while unstuck → "new messages"
   /* A QUESTION OR APPROVAL CARD follows the bottom like any row — unless that cuts its TOP off (who asks and what): then it
@@ -186,14 +196,17 @@ const Chat = (() => {
   // ONE HOP TO A QUESTION (2026-10-13 review: from NEEDS YOU it took Answer → the worker's row → Answer → the card). A
   // question is answered on its own question card; the row's Answer key and NEEDS YOU both land there. If the card is not
   // in the transcript, draw it again from the conversation's open ask, so the key is never dead.
+  // AN APPROVAL TOO (live walk 10-14): NEEDS YOU › Review on an approval re-opened the session and left its card below
+  // the fold. Review lands on the approval card the same way (a delegated worker's ask lives on its delegation card:
+  // permissionRow draws nothing for it, and NEEDS YOU unfolds that worker's row instead).
   function revealAsk(promptId) {
     if (!log || promptId == null) return false;
     const id = String(promptId);
-    const find = () => Array.from(log.querySelectorAll('[data-clarify-prompt]')).find(n => n.dataset.clarifyPrompt === id);
+    const find = () => Array.from(log.querySelectorAll('[data-clarify-prompt], [data-consent-prompt]')).find(n => (n.dataset.clarifyPrompt || n.dataset.consentPrompt) === id);
     let card = find();
     if (!card && activeWs && typeof Channels !== 'undefined' && Channels.pendingAllOf) {
       const p = Channels.pendingAllOf(activeWs.id).find(x => x && String(x.promptId) === id);
-      if (p && p.tool === 'brief.ask') { permissionRow(p, activeWs); card = find(); }
+      if (p) { permissionRow(p, activeWs); card = find(); }
     }
     if (!card) return false;
     revealHistory(card);
@@ -1110,11 +1123,12 @@ const Chat = (() => {
       // A real attempt to inspect history wins even during the two-frame settle window.
       ['wheel', 'touchstart', 'pointerdown'].forEach(type => log.addEventListener(type, cancelHistoryPin, { passive: true }));
       ['wheel', 'touchstart', 'pointerdown', 'keydown'].forEach(type => log.addEventListener(type, forgetReveal, { passive: true }));   // …and their own reading (keys too: PageUp/arrows) wins over an earlier reveal
-      ['wheel', 'touchstart', 'touchmove', 'pointerdown', 'keydown'].forEach(type => log.addEventListener(type, () => { userScrollAt = Date.now(); }, { passive: true }));
-      log.addEventListener('pointerdown', () => { userScrollHeld = true; }, { passive: true });
+      ['wheel', 'touchmove'].forEach(type => log.addEventListener(type, () => { userScrollAt = Date.now(); }, { passive: true }));
+      ['touchstart', 'pointerdown', 'keydown'].forEach(type => log.addEventListener(type, logGesture, { passive: true }));   // a press on a key in the log is not reading history
+      log.addEventListener('pointerdown', logHold, { passive: true });
       if (!window.__chatScrollReleaseWired) {
         window.__chatScrollReleaseWired = true;
-        ['pointerup', 'pointercancel', 'blur'].forEach(type => window.addEventListener(type, () => { userScrollHeld = false; userScrollAt = Date.now(); }, { passive: true }));
+        ['pointerup', 'pointercancel', 'blur'].forEach(type => window.addEventListener(type, endLogHold, { passive: true }));
       }
     }
     // LINKS OUTSIDE COMMS (QA 2026-10-02): group chats, a group's .md file preview and the WORKFLOWS results render through
@@ -3956,6 +3970,7 @@ const Chat = (() => {
       return null;
     }
     const r = row('agent'); r.d.classList.add('tool'); r.d.classList.add('consent'); r.d.dataset.liveAsk = '1';
+    r.d.dataset.consentPrompt = String((p && p.promptId) || '');   // NEEDS YOU › Review lands here (revealAsk)
     r.body.appendChild(document.createTextNode('▣ ' + ((p && p.workerAgentId) ? askerName(p, ws) : name) + ' wants to ' + actionPhrase(p) + ' '));
     const btns = document.createElement('span'); btns.className = 'consent-btns';
     let decided = false, submitting = false, received = null, applyElsewhere = null;

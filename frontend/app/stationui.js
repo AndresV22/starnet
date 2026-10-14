@@ -9361,10 +9361,14 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     let stack = document.getElementById('toast-stack');
     if (!stack) { stack = mkEl('div'); stack.id = 'toast-stack'; document.body.appendChild(stack); }
     const toastKey = String((opts && opts.key) || '').slice(0, 120);
+    // ONE CARD PER KEY, UPDATED IN PLACE (live walk 10-14: four quick effort presses stacked four MODEL cards over the CREW
+    // column). The replacement takes the prior card's seat without the slide-in, so a keyed readout reads as one card
+    // whose value changed; its text still decodes and its dwell starts over.
+    let swapSeat = null, swapped = false;
     if (toastKey) {
       // Avoid selector escaping entirely: keys may contain channel instance punctuation.
       const prior = Array.prototype.find.call(stack.children, n => n.dataset && n.dataset.toastKey === toastKey);
-      if (prior) { prior._killed = true; prior.remove(); }
+      if (prior) { swapped = !prior._killed; swapSeat = prior.nextSibling; prior._killed = true; prior.remove(); }
     }
     seatToastRack(stack);   // re-read the cabinet before the card is visible — a rail drag or a breakpoint may have moved the seam
     const sev = severityOf(cls);
@@ -9375,7 +9379,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     const hasAction = !!(opts && typeof opts.onClick === 'function');
     const dwell = hasAction ? 10000 : sev === 'bad' ? 6500 : 4200;
     const cut = splitToastLabel(text);
-    const t = mkEl('div', 'toast' + (cls ? ' ' + cls : '') + ' sev-' + sev + (cut.label ? ' labeled' : ''));
+    const t = mkEl('div', 'toast' + (cls ? ' ' + cls : '') + ' sev-' + sev + (cut.label ? ' labeled' : '') + (swapped ? ' swap' : ''));
     if (toastKey) t.dataset.toastKey = toastKey;
     // The dwell rail drains over exactly `dwell` — the card SHOWS how long it has left rather than
     // vanishing without warning; --dwell is read by the CSS animation so the two can never disagree.
@@ -9390,7 +9394,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       '</div>' +
       '<span class="toast-ts">' + clock(Date.now()) + '</span>' +
       '<span class="toast-dwell" aria-hidden="true"></span>';
-    stack.appendChild(t);
+    if (swapSeat && swapSeat.parentNode === stack) stack.insertBefore(t, swapSeat); else stack.appendChild(t);
     // ASCII-motion (asciifx.js): the toast message DECODES out of glyph-static as it slides in — the same
     // signal-resolving language as the window titles. Short (toasts are frequent); reduced-motion no-op.
     try { if (typeof AsciiFX !== 'undefined') AsciiFX.scramble(t.querySelector('.toast-txt'), { duration: 420 }); } catch (_) {}

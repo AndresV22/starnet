@@ -962,9 +962,11 @@ const App = (() => {
           : sel.reason === 'effort'
             ? 'REASONING: ' + effortLabel(effort)
             : 'MODEL: ' + providerLabel(provider) + ' / ' + shortModelLabel(model) + ' / ' + effortLabel(effort);
-      // a dock pick ('model'/'effort') is the user's own press — silent receipt; a catalog-driven change keeps its bell
+      // a dock pick ('model'/'effort') is the user's own press — silent receipt; a catalog-driven change keeps its bell.
+      // One receipt card for every pick (live walk 10-14: LOW, MED, HIGH, MAX stacked four cards over the CREW column):
+      // the next press updates the card already up instead of stacking another.
       const userPick = sel.reason === 'model' || sel.reason === 'effort';
-      StationUI.notify(msg, 'good', undefined, userPick ? { silent: true } : undefined);
+      StationUI.notify(msg, 'good', undefined, userPick ? { silent: true, key: 'model-pick' } : undefined);
     }
   }
   // the persisted shape of a crew member (systemPrompt is derived, recomposed on rehydrate).

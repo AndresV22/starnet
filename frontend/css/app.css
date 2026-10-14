@@ -2510,6 +2510,15 @@ body:not(.no-flicker) #screen-game.active.flick-dip { animation: flick-dip 280ms
   box-shadow: 0 0 0 3px rgba(0,0,0,.9), 0 -6px 26px rgba(0,0,0,.75), 0 0 20px var(--ph-glow2);
 }
 .bb-group.open .bb-menu { display: flex; }
+/* AN OPEN DOCK MENU IS ABOVE EVERY WINDOW (live walk 10-14, blocker). The menu's own z-index cannot leave #bottombar:
+   the glass deck is a stacking context (backdrop-filter) that ranks as z 0 inside #screen-game, UNDER #terms (z 50, where
+   every window stacks from U.zTop() 500 up). So CREW / WORK / BUILD / SYSTEM opened behind any open window, and BUILD MODE
+   and SETTINGS could not be reached until it closed. While a menu is open the deck itself rises over the window layer
+   (51 > 50); the windows keep their own order and still rise from the dock, and a click on a window closes the menu
+   (navdock) and drops the deck back. The drop waits out the menu's close fade (--t-fast), so a closing menu never
+   flashes behind a window. Locked by test/dock-focus-seams.test.js. */
+#screen-game #bottombar { z-index: 0; transition: z-index 0s linear var(--t-fast, 120ms); }
+#screen-game #bottombar:has(.bb-group.open) { z-index: 51; transition-delay: 0s; }
 .bb-menu .bb {
   display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
   border: 1px solid transparent; padding: 6px 10px; font-size: 15px; letter-spacing: 1.5px;
