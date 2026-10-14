@@ -328,7 +328,9 @@ const run = (provider, extra) => runAgentLoop(Object.assign({
       'I will read main.js now, then I will summarize when they report.',
       'I will summarize when they report, then read main.js now.',
       'I will read main.js now, then summarize when they report.',
-      'I will read main.js now; MIRA is researching; ROOK is drafting; both are on their tasks.'
+      'I will read main.js now; MIRA is researching; ROOK is drafting; both are on their tasks.',
+      "I'll wait for ROOK to finish and then read main.js now.",
+      "I'll wait for ROOK to finish; I will read main.js now."
     ];
     for (const phrase of mixed) {
       const provider = scripted([handoffTurn, textTurn(phrase), toolTurn(42), textTurn('The local check is complete.')]);
@@ -344,7 +346,13 @@ const run = (provider, extra) => runAgentLoop(Object.assign({
       A.eq(stuck.reason, 'error', 'repeated mixed promise cannot finish done: ' + phrase);
       A.eq(stuck.failureCode, 'incomplete_work', 'mixed promise retains bounded failure: ' + phrase);
     }
-    for (const phrase of [wait, 'I will summarize when they report.', 'I will merge both drafts once MIRA and ROOK finish.', 'When they report, I will read main.js and summarize.', 'When they report, I will read main.js and run tests.', 'When they report, I will run tests and read main.js.']) {
+    for (const phrase of [wait, 'I will summarize when they report.', 'I will merge both drafts once MIRA and ROOK finish.', 'When they report, I will read main.js and summarize.', 'When they report, I will read main.js and run tests.', 'When they report, I will run tests and read main.js.',
+      // What follows an explicit wait in sequence is the same dependent plan (a regression the clause split once
+      // brought back: the lead's turn failed and its queued hand-offs were stopped).
+      "I'll wait for ROOK to finish and then review his draft.",
+      "I'll wait for their reports and then put together the final plan.",
+      "Handed off to MIRA. I'll wait for her report and then build the plan.",
+      "I'll wait for ROOK to finish, then review his draft and merge it."]) {
       const provider = scripted([handoffTurn, textTurn(phrase)]);
       const result = await run(provider, { tools, dispatch: okDispatch });
       A.eq(result.reason, 'done', 'pure successful peer wait stays allowed: ' + phrase);

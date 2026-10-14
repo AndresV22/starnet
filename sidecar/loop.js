@@ -740,15 +740,36 @@
   // Split only explicit action coordination for the peer exemption. Keep the outer sentence list intact:
   // semicolons must not move a promise out of the existing last-three-sentences window.
   const CG_PEER_ACTION = '(?:' + CG_VERBS + '|summari[sz]e|merge)\\b';
-  const CG_PEER_SPLIT = new RegExp(';\\s*|,?\\s+(?:(?:and|but)(?:\\s+then)?|then)\\s+(?=(?:' + CG_SUBJ + '|let\\s+me|now|' + CG_PEER_ACTION + ')\\b)', 'i');
+  const CG_PEER_SPLIT = new RegExp(';\\s*|,?\\s+(?:(?:and|but)(?:\\s+then)?|then)\\s+(?=(?:' + CG_SUBJ + '|let\\s+me|now|' + CG_PEER_ACTION + ')\\b)', 'gi');
+  const CG_PEER_ACTION_HEAD = new RegExp('^' + CG_PEER_ACTION, 'i');
+  const CG_OWN_SUBJECT = new RegExp('^(?:' + CG_SUBJ + '|let\\s+me)\\b', 'i');
+  // "I'll wait for ROOK to finish" names the wait itself: the run handed work on and is now waiting for it.
+  const CG_WAIT_VERB = /\bwait(?:ing)?\s+(?:for|on|until)\b/i;
+  function peerClauseWaits(clause) {
+    return CG_WAITS.some(re => re.test(clause)) || waitsOnPeers(clause) || CG_WAIT_VERB.test(clause);
+  }
   function hasIndependentPeerIntent(sentence) {
     const subject = sentence.match(new RegExp('\\b(' + CG_SUBJ + '|let\\s+me)\\s+', 'i'));
-    return sentence.split(CG_PEER_SPLIT).some((clause, index) => {
+    const clauses = [];
+    let last = 0, joint = '';
+    for (const m of sentence.matchAll(CG_PEER_SPLIT)) {
+      clauses.push({ clause: sentence.slice(last, m.index), joint });
+      joint = m[0]; last = m.index + m[0].length;
+    }
+    clauses.push({ clause: sentence.slice(last), joint });
+    let waiting = false;
+    return clauses.some(({ clause, joint }, index) => {
+      // What follows a wait in sequence ("…wait for ROOK to finish and then review his draft") happens after that wait:
+      // it is the same dependent plan, not a second promise. A clause that restates its own subject or says "now" is
+      // independent again ("…when they report, then I will read main.js now"). A semicolon or "but" never chains.
+      const chained = index > 0 && waiting && !/;|\bbut\b/i.test(joint);
+      if (chained && !CG_OWN_SUBJECT.test(clause) && !/\bnow\b/i.test(clause)) return false;
       // "I will read now and summarize when they report" has two actions sharing "I will".
       // Carry that subject to a bare coordinated action so it is checked by the same intent patterns.
-      const c = index && subject && new RegExp('^' + CG_PEER_ACTION, 'i').test(clause)
+      const c = index && subject && CG_PEER_ACTION_HEAD.test(clause)
         ? subject[1] + ' ' + clause : clause;
-      return CG_PATTERNS.some(re => re.test(c)) && !CG_WAITS.some(re => re.test(c)) && !waitsOnPeers(c);
+      waiting = peerClauseWaits(c);
+      return CG_PATTERNS.some(re => re.test(c)) && !waiting;
     });
   }
   function announcesIntent(text, allowPeerWait = false) {
