@@ -2613,6 +2613,16 @@ const StationBake = (() => {
      render must never inject phantom windows into the live bake (same guard sampleWall uses). */
   const STRIP_TILES = 4;
   let stripCache = null;
+  /* STRIPS OUTLIVE A BAKE (2026-10-14, the busy-station walk: a strip the industrial atlas does not cover — glass, hedge — is
+     rendered and read back from the GPU on every chunk bake, ~30 ms of each room edit). A strip is a function of its key
+     (material, paint, height) and of what this token names — the tile size, the live-tunable knobs (the CRT LAB writes them),
+     the surface renderer in use and the texture pack's state — never of the floor, so it is kept until the token moves. */
+  let stripCacheToken = '';
+  const stripToken = () => {
+    const tex = typeof document !== 'undefined' && document.documentElement && document.documentElement.dataset
+      ? document.documentElement.dataset.textureRevision || '' : '';
+    return JSON.stringify([T, WALL, DEPTH, SHAPE, WALL_TONE, nextSurfaces(), remastered(), tex]);
+  };
   function faceStrip(matId, pal, h) {
     // The same selected face must wrap onto side walls and corners. A pending
     // atlas (or a specialized native material) falls through to the real recipe.
@@ -5229,8 +5239,11 @@ const StationBake = (() => {
     if (geo !== sharedGeo) {
       wallPalCache = null;   // per-room wall palettes are derived from THIS geometry — never reuse across bakes
       hullPalCache = null;   // ...and so are the per-room exterior shells
-      stripCache = null;     // ...and the rendered face strips the curved surfaces sample
     }
+    // the rendered face strips the curved surfaces sample: kept while nothing they are rendered from has changed (STRIPS
+    // OUTLIVE A BAKE)
+    const st = stripToken();
+    if (st !== stripCacheToken || (stripCache && stripCache.size > 96)) { stripCache = null; stripCacheToken = st; }
     viewportRects = [];    // ...and so are the window holes the wall pass punches
     crownRects = [];       // ...and the crown rects the ambient cut reads back
     cornerFaceRects = [];  // actual curved wall pixels, shared with the light receiver

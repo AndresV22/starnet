@@ -6,7 +6,9 @@
    the pixels are the same (the kept bake still equals the fresh one, stationbake.plate-parity; a chunk set and its stitched
    floor were compared with the previous bake pixel for pixel on the busy station, the dev seed and a station of every
    material). This counts, in a real page with the industrial textures loaded, the draw calls a chunked bake makes whose
-   destination misses the canvas they are made on. */
+   destination misses the canvas they are made on.
+   ...and a face strip the industrial atlas does not cover (glass, here) is rendered and read back once, not on every bake:
+   the second bake of the same floor reads no strip back at all. */
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { createServer as createHttp } from 'node:http';
@@ -63,6 +65,7 @@ function probe() {
     room('hab', [{ x1: x, y1: y, x2: x + w, y2: y + h }]);
     if (gx < 2) room('corridor', [{ x1: x + w + 1, y1: y + 3, x2: x + 21, y2: y + 5 }]);
   }
+  doc.rooms.r0.wallMat = 'viewport'; doc.rooms.r4.wallMat = 'viewport';   // glass: the strip only the bake itself renders
   const st = WM.create(doc), geo = st.projectGeometry();
   const P = CanvasRenderingContext2D.prototype, orig = { fillRect: P.fillRect, drawImage: P.drawImage };
   const tally = { fillRect: [0, 0], drawImage: [0, 0] };
@@ -79,9 +82,17 @@ function probe() {
     if (misses(this, x, y, w, h)) tally.drawImage[1]++;
     return orig.drawImage.apply(this, a);
   };
+  // a face strip is a 48px-wide canvas (STRIP_TILES tiles) read back once rendered
+  const getImageData = P.getImageData, strips = [0, 0];
+  let pass = 0;
+  P.getImageData = function (...a) { if (this.canvas.width === 48) strips[pass]++; return getImageData.apply(this, a); };
   let baked;
-  try { baked = SB.bakeIncremental(geo, null, null); } finally { P.fillRect = orig.fillRect; P.drawImage = orig.drawImage; }
-  return { textures: IndustrialTextures.status(), rooms: st.rooms().length, W: geo.W, H: geo.H, chunks: baked.chunkMap.size, tally };
+  try {
+    baked = SB.bakeIncremental(geo, null, null);
+    P.fillRect = orig.fillRect; P.drawImage = orig.drawImage;
+    pass = 1; SB.bakeIncremental(geo, null, null);
+  } finally { P.fillRect = orig.fillRect; P.drawImage = orig.drawImage; P.getImageData = getImageData; }
+  return { textures: IndustrialTextures.status(), rooms: st.rooms().length, W: geo.W, H: geo.H, chunks: baked.chunkMap.size, tally, strips };
 }
 
 let chrome, cdp, profile, failed = false;
@@ -109,6 +120,9 @@ try {
   console.log(`  ${r.rooms} rooms, ${r.W}x${r.H}, ${r.chunks} chunks: fillRect ${r.tally.fillRect[1]} of ${r.tally.fillRect[0]} off the canvas, drawImage ${r.tally.drawImage[1]} of ${r.tally.drawImage[0]}`);
   assert.ok(share('fillRect') < 0.08, 'a chunk bake makes few fillRects off its canvas (' + (share('fillRect') * 100).toFixed(1) + '%)');
   assert.ok(share('drawImage') < 0.08, 'a chunk bake makes few drawImages off its canvas (' + (share('drawImage') * 100).toFixed(1) + '%)');
+  console.log('  face strips read back: ' + r.strips[0] + ' on the first bake, ' + r.strips[1] + ' on the second');
+  assert.ok(r.strips[0] > 0, 'the first bake renders the face strips the floor needs');
+  assert.equal(r.strips[1], 0, 'a second bake of the same floor renders and reads back no face strip again');
   console.log('stationbake.offcanvas: a chunk bake paints its own square — ' + (share('fillRect') * 100).toFixed(1) + '% fillRect, ' + (share('drawImage') * 100).toFixed(1) + '% drawImage off the canvas');
 } catch (error) { failed = true; console.error(error.stack || error); }
 finally {
