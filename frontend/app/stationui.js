@@ -3834,7 +3834,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     const sections = [
       { id: 'market', label: 'SKILL MARKET', glyph: '▦', desc: 'Browse StarNet Originals and credited community skills, and install one for the whole crew in one click.', build: frag(secMarket) },
       { id: 'library', label: 'SKILL LIBRARY', glyph: '▤', desc: 'The procedures your agents follow when a task matches: the ones built into StarNet and the ones you installed from the market.', build: frag(secLibrary) },
-      { id: 'agent', label: 'AGENT SKILLS', glyph: '✎', desc: 'Procedures this agent created or learned itself.', build: frag(secAgent) },
+      { id: 'agent', label: 'AGENT SKILLS', glyph: '✎', desc: 'Each agent keeps its own skill library. Pick whose to see.', build: frag(secAgent) },
       { id: 'exchange', label: 'SKILL EXCHANGE', glyph: '⇩', desc: 'Inspect and install open SKILL.md procedures with provenance and guard review.', build: frag(secExchange) }
     ];
     function wire() {

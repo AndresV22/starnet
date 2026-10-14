@@ -92,8 +92,8 @@
     // capability your agents can use, grouped into toolsets…"). Every pane in this console had the same
     // stutter. The `desc` is the one that stays — it is also what the search box matches on.
     const secToolsets =
-      '<label class="mc-hint" for="ts-agent">Capabilities for agent</label><select id="ts-agent" class="ab-agent-pick" aria-label="Capabilities for agent"></select>' +
-      '<button class="bb xs" id="ts-refresh" type="button">REFRESH AUTHORITY</button>' +
+      '<label class="mc-hint" for="ts-agent">Abilities of</label><select id="ts-agent" class="ab-agent-pick" aria-label="Show the abilities of agent"></select>' +
+      '<button class="bb xs" id="ts-refresh" type="button">REFRESH ACCESS</button>' +
       '<div id="ts-authority" class="set-about" role="status"></div>' +
       '<div class="ts-core set-row"><span class="ts-glyph" aria-hidden="true">◉</span>' +
         '<span class="ts-main"><span class="ts-name">COMPUTE <span class="ts-core-tag">CORE</span></span>' +
@@ -344,7 +344,7 @@
     // sections are unchanged — only the first one shown.
     if (H.consoleSection && !H.consoleSection.connectors) H.consoleSection.connectors = 'catalog';
     const host = mountConsole(body, 'connectors', [
-      { id: 'toolsets', label: 'BUILT-IN ABILITIES', glyph: '▤', desc: 'See what one agent can use. Each switch turns a built-in ability on or off for every agent; CHECK WITH ME and LET IT WORK obey the switches, FULL POWER overrides them. Connected services still need working credentials.', build: frag(secToolsets) },
+      { id: 'toolsets', label: 'BUILT-IN ABILITIES', glyph: '▤', desc: 'The list shows what the agent you pick can use, but each switch turns a built-in ability on or off for every agent; CHECK WITH ME and LET IT WORK obey the switches, FULL POWER overrides them. Connected services still need working credentials.', build: frag(secToolsets) },
       { id: 'computer', label: 'COMPUTER CONTROL', glyph: '▣', desc: 'Choose how agents interact with native desktop apps. Full Power or a paired remote-owner lease is required.', build: frag(
         '<div class="set-about">CUA targets windows and accessibility elements, works in the background where supported, and reports evidence for each action. Foreground input can move focus when needed.</div>' +
         '<div id="cu-status" class="set-about" role="status" aria-live="polite">Checking computer control…</div>' +
@@ -793,7 +793,7 @@
             (t.object ? '<button class="bb xs ts-place" type="button" data-ts-place="' + esc(t.object) + '">⚒ PLACE ONE</button>' : '') +
           '</span>'
         : '';
-      const consent = '<span class="ts-tag">' + (t.available ? esc(t.grantSource || 'granted') : 'not granted') + '</span>' + (t.consentGated ? '<span class="ts-tag">risky actions may ask</span>' : '');
+      const consent = '<span class="ts-tag">' + (t.available ? esc(t.grantSource === 'Full Power' ? 'FULL POWER' : (t.grantSource || 'granted')) : 'not granted') + '</span>' + (t.consentGated ? '<span class="ts-tag">risky actions may ask</span>' : '');
       const status = '<span class="ts-availability' + (t.available ? ' available' : '') + '">' + availability + '</span>';
       const isJuke = t.id === 'jukebox';
       const all = (t.tools && t.tools.length) ? t.tools : [];
@@ -805,7 +805,7 @@
           '</div></details>'
         : '';
       return '<div class="set-row ts-row' + (off ? ' ts-off' : '') + (inert ? ' ts-inert-row' : '') + '" data-id="' + esc(t.id) + '" style="--ci:' + (ri || 0) + '">' +
-          '<input type="checkbox" data-ts-toggle="' + esc(t.id) + '"' + (t.enabled ? ' checked' : '') + ' aria-label="Enable ' + esc(t.label) + ' for every agent"' + (t.switchEffective ? ' data-tip="Turns ' + esc(t.label) + ' on or off for every agent"' : ' disabled data-tip="FULL POWER overrides this saved switch. Change access first."') + '>' +
+          '<input type="checkbox" data-ts-toggle="' + esc(t.id) + '"' + (t.enabled ? ' checked' : '') + ' aria-label="Enable ' + esc(t.label) + ' for every agent"' + (t.switchEffective ? ' data-tip="Turns ' + esc(t.label) + ' on or off for every agent"' : ' disabled data-tip-below data-tip="FULL POWER overrides this saved switch. Change access first."') + '>' +
           '<span class="ts-glyph" aria-hidden="true">' + esc(t.glyph || '▪') + '</span>' +
           '<span class="ts-main">' +
             '<span class="ts-name">' + esc(t.label) + ' ' + status + consent +
