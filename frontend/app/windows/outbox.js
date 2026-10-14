@@ -41,14 +41,18 @@
     // what TO REVIEW really holds (org pass 10-14, P12): ReturnStore.pendingRows = runs that finished while you were away
     // (schedules too) plus folded line jobs, workflow samples and SEND TO hand-offs — never an attended chat, which is
     // rated in COMMS. Each one is ALREADY filed in the library below; this list is only the rating reminder.
-    const reviewDim = n => '— away runs and workflow jobs waiting for your rating (' + n + '). They’re already in the library below. Chats are rated in COMMS.';
+    /* ONE CLEAN HEADING (org pass 10-14, P12 polish): '▾ TO REVIEW 3' on one line, like every other section heading — the count
+       is its own number, not buried mid-sentence — and what the list holds is a dim note UNDER it, never a hanging paragraph */
+    const reviewNote = 'Away runs and workflow jobs waiting for your rating — they’re already in the library below. Chats are rated in COMMS.';
+    const markLabel = n => '✓ MARK ALL REVIEWED · ' + n;
     const RS = (typeof ReturnStore !== 'undefined') ? ReturnStore : null;
     const rows = (RS && RS.pendingRows) ? RS.pendingRows() : [];
     mounted.add(body);
     body.hidden = !rows.length;
     body.innerHTML =
-      '<h4 class="ms-h dlv-review-h"><button type="button" class="dlv-review-tog" aria-expanded="true"><span class="ob-caret-all" aria-hidden="true">▾</span> TO REVIEW <span class="dim">' + reviewDim(rows.length) + '</span></button>' +
-        '<button type="button" class="bb sm ob-clearall" data-tip="Files every one without a rating — the work stays in your library">MARK ALL REVIEWED ' + rows.length + '</button></h4>' +
+      '<h4 class="ms-h dlv-review-h"><button type="button" class="dlv-review-tog" aria-expanded="true"><span class="ob-caret-all" aria-hidden="true">▾</span> <span class="dlv-review-lbl">TO REVIEW</span> <span class="dlv-review-n">' + rows.length + '</span></button>' +
+        '<button type="button" class="bb sm ob-clearall" data-tip="Takes every run off this list without a rating — the work stays in your library">' + markLabel(rows.length) + '</button></h4>' +
+      '<p class="dim dlv-review-note">' + reviewNote + '</p>' +
       '<div id="ob-list" class="ob-list"></div>' +
       '<button type="button" class="bb sm ob-showall" hidden></button>' +
       '<div class="row ob-doors" style="margin-top:10px;gap:8px"><button class="bb sm" id="ob-logbook">AGENT RECORD · run history</button></div>';
@@ -71,13 +75,14 @@
       tog.setAttribute('aria-expanded', sectionOpen ? 'true' : 'false');
       tog.querySelector('.ob-caret-all').textContent = sectionOpen ? '▾' : '▸';
       list.hidden = !sectionOpen; if (doors) doors.hidden = !sectionOpen; clearAll.hidden = !sectionOpen;
+      const note = body.querySelector('.dlv-review-note'); if (note) note.hidden = !sectionOpen;
       const live = Array.from(list.children);
       live.forEach((r, i) => { r.hidden = !showAll && i >= FEW; });
       more.hidden = !sectionOpen || live.length <= FEW;
       more.textContent = showAll ? 'SHOW FEWER ▴' : 'SHOW ALL ' + live.length + ' ▾';
       // the counts follow the live list as crates are collected one by one
-      const n = tog.querySelector('.dim'); if (n) n.textContent = reviewDim(live.length);
-      if (clearAll.dataset.armed !== '1') clearAll.textContent = 'MARK ALL REVIEWED ' + live.length;
+      const n = tog.querySelector('.dlv-review-n'); if (n) n.textContent = String(live.length);
+      if (clearAll.dataset.armed !== '1') clearAll.textContent = markLabel(live.length);
     };
     tog.addEventListener('click', () => { sectionOpen = !sectionOpen; try { localStorage.setItem(FOLD_KEY, sectionOpen ? '1' : '0'); } catch (_) {} paintFold(); });
     more.addEventListener('click', () => { showAll = !showAll; paintFold(); });
@@ -87,7 +92,7 @@
       notify('Marked ' + ids.length + ' reviewed. The work stays in your library.', '');
       renderEmpty();
     };
-    if (typeof ArmConfirm !== 'undefined' && ArmConfirm.wire) ArmConfirm.wire(clearAll, { armedLabel: 'MARK ALL REVIEWED — SURE?', onDisarm: paintFold, onConfirm: clearEvery });
+    if (typeof ArmConfirm !== 'undefined' && ArmConfirm.wire) ArmConfirm.wire(clearAll, { armedLabel: 'MARK ALL REVIEWED — SURE?', onArm: b => { b.textContent = 'MARK ALL ' + list.children.length + ' REVIEWED — SURE?'; }, onDisarm: paintFold, onConfirm: clearEvery });
     else clearAll.addEventListener('click', clearEvery);
     // agent id → display name via the live roster (raw ids read as debug output)
     const agentName = id => { const a = (Array.isArray(H.present) ? H.present.find(x => x && x.id === id) : null); return (a && a.name) || id || 'agent'; };

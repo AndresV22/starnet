@@ -46,9 +46,10 @@ A.ok(/FOLD_KEY = 'starnet\.dlv\.review\.open', FEW = 3/.test(outbox), 'TO REVIEW
 A.ok(/r\.hidden = !showAll && i >= FEW/.test(outbox), 'rows past the first few wait behind SHOW ALL');
 A.ok(/RS\.resolveAll\(ids\)/.test(outbox) && /ArmConfirm\.wire\(clearAll,/.test(outbox), 'CLEAR ALL arms, then collects every crate in one go');
 // org pass 10-14 (P12): the key says what it does (files them unrated), and the dim line says what the list holds
-A.ok(/class="bb sm ob-clearall" data-tip="Files every one without a rating[^"]*">MARK ALL REVIEWED ' \+ rows\.length/.test(outbox), 'the clear key reads MARK ALL REVIEWED N, a glass key with a data-tip (no title=)');
+A.ok(/class="bb sm ob-clearall" data-tip="Takes every run off this list without a rating[^"]*">' \+ markLabel\(rows\.length\)/.test(outbox) && /const markLabel = n => '✓ MARK ALL REVIEWED · ' \+ n;/.test(outbox), 'the clear key reads ✓ MARK ALL REVIEWED · N, a glass key with a data-tip (no title=)');
 A.ok(/armedLabel: 'MARK ALL REVIEWED — SURE\?'/.test(outbox) && /'Marked ' \+ ids\.length \+ ' reviewed\. The work stays in your library\.'/.test(outbox), 'its armed label and toast say mark reviewed');
-A.ok(/away runs and workflow jobs waiting for your rating/.test(outbox) && /Chats are rated in COMMS/.test(outbox) && !/waiting for your verdict \(/.test(outbox), 'the TO REVIEW dim line names what it holds');
+A.ok(/Away runs and workflow jobs waiting for your rating/.test(outbox) && /Chats are rated in COMMS/.test(outbox) && !/waiting for your verdict \(/.test(outbox), 'the TO REVIEW dim line names what it holds');
+A.ok(/<span class="dlv-review-lbl">TO REVIEW<\/span> <span class="dlv-review-n">' \+ rows\.length/.test(outbox) && /<p class="dim dlv-review-note">' \+ reviewNote/.test(outbox), 'P12 polish: the heading is one line (TO REVIEW N); what it holds is a note under it');
 A.ok(!/CLEAR ALL ' \+ (rows|live)\.length/.test(outbox), 'no second CLEAR ALL label sits above the library’s own CLEAR ALL');
 const rstore = read('frontend/app/returnstore.js');
 A.ok(/function outboxLine\(\) \{ return 'they wait in TO REVIEW until you rate them\.'; \}/.test(rstore), 'the away digest points at TO REVIEW, not a floor crate (OUTBOX LAW)');
@@ -101,7 +102,7 @@ A.ok(/el\.addEventListener\('click', \(\) => showInterruption\(''\)\)/.test(voic
   A.ok(/\.dlv-tools > summary \{ list-style: none;/.test(css) && /\.dlv-tools-keys \{ display: inline-flex;/.test(css), 'the fold opens inline in the toolbar row (no popover)');
   // run the REAL drawer: the main file's OPEN leads, data-file indices still point at each file, DONE · CLEAR comes last
   const src = dlv.slice(dlv.indexOf('    function detailHtml(r) {'), dlv.indexOf('    function cardHtml('));
-  const detailHtml = new Function('esc', 'fileHref', 'fmtSize', 'safeMarkdown', src + '; return detailHtml;')(v => String(v), f => f.openUrl, n => n + 'B', v => v);
+  const detailHtml = new Function('esc', 'fileHref', 'openHref', 'fmtSize', 'safeMarkdown', src + '; return detailHtml;')(v => String(v), f => f.openUrl, f => f.openUrl, n => n + 'B', v => v);
   const html = detailHtml({ status: 'produced', main: 'out/report.md', files: [{ path: 'notes.txt', openUrl: 'u0', bytes: 1 }, { path: 'out/report.md', openUrl: 'u1', bytes: 2 }, { path: 'gone.csv', bytes: 3 }], actions: { keep: true } });
   A.ok(html.indexOf('report.md') < html.indexOf('notes.txt') && html.indexOf('notes.txt') < html.indexOf('gone.csv'), 'the main file is listed first, the rest keep their order');
   A.ok(/class="bb sm dlv-hero" data-file="1"/.test(html) && /data-file="0"[^>]*>OPEN<\/a>(<span class="dlv-floc" data-floc="0"><\/span>)?<span class="dlv-fname">notes\.txt/.test(html), 'each OPEN keeps its original backend index');
