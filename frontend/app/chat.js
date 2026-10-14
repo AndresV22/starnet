@@ -310,9 +310,15 @@ const Chat = (() => {
     }
     return card;
   }
+  // the ask THIS conversation's live run is paused on. A background worker's ask (filed on the same conversation) never
+  // pauses it: the run keeps working, so its presence card must not read AWAITING APPROVAL for someone else's wait
+  function runPendingOf(ws) {
+    if (!ws || typeof Channels === 'undefined') return null;
+    return Channels.runPendingOf ? Channels.runPendingOf(ws.id) : Channels.pendingOf(ws.id);
+  }
   // derive the presence VERB from the same real state syncStatus() reads (pending approval > working > thinking)
   function presenceVerb() {
-    const p = (activeWs && typeof Channels !== 'undefined') ? Channels.pendingOf(activeWs.id) : null;
+    const p = runPendingOf(activeWs);
     // A clarify question rides the SAME consent transport as a permission grant, but it is not one:
     // "AWAITING APPROVAL / approve brief.ask" told the Commander to approve an internal tool name when
     // the run is simply waiting for them to answer a question (caught in shot review, 2026-08-14).
@@ -332,7 +338,7 @@ const Chat = (() => {
     // PAUSED-ON-APPROVAL: the run is stopped on the sidecar waiting for the Commander. Restyle the card so it
     // reads as a deliberate pause (no working pulse) and NAME the pending action — truth source is the same
     // Channels.pendingOf payload that renders the approval prompt, so this can never claim a pause that isn't real.
-    const pend = (activeWs && typeof Channels !== 'undefined') ? Channels.pendingOf(activeWs.id) : null;
+    const pend = runPendingOf(activeWs);
     const paused = !!pend;
     card.classList.toggle('paused', paused);
     const verb = card.querySelector('.cp-verb'); if (verb) verb.textContent = presenceVerb();
@@ -2234,7 +2240,8 @@ const Chat = (() => {
   // clobber the high-priority 'awaiting your approval…' after a switch-back. One source of truth.
   function syncStatus() {
     if (interview) { status('waking…'); stopElapsedTimer(); return; }
-    const p = (activeWs && typeof Channels !== 'undefined') ? Channels.pendingOf(activeWs.id) : null;
+    // a working run reads its OWN ask (a background worker waiting does not pause it); an idle one reads any ask filed here
+    const p = isBusy() ? runPendingOf(activeWs) : ((activeWs && typeof Channels !== 'undefined') ? Channels.pendingOf(activeWs.id) : null);
     const channelStatus = (activeWs && typeof Channels !== 'undefined' && Channels.statusOf) ? Channels.statusOf(activeWs.id) : '';
     // F2 (2026-07-14 adversarial sweep): the idle claim folds the REAL bridge health (World.linkState — the
     // same E1 predicate the topbar #sig / canvas LINK DOWN already read). A dead sidecar kept this label
@@ -4081,6 +4088,67 @@ const Chat = (() => {
         { kind: 'needs', go: { ws: ws.id }, key: 'needs:' + ws.id, prompt: ev && ev.promptId });
     }
     try { if (typeof App !== 'undefined' && App.refreshRail) App.refreshRail(); } catch (_) {}
+  }
+
+  /* A BACKGROUND WORKER'S ASK (2026-10-13). A worker handed off in the background (team.dispatch background:true) runs on
+     after the reply that started it ended, so its approvals can never ride that reply's stream: the sidecar announces them
+     on the station bus (background:true, stamped with the conversation that handed the work off and the run id to answer
+     with — index.js askHuman), and the reconnect snapshot lists them while they wait. File each one under that
+     conversation exactly like a live run's own ask (Channels → its worker row's Approve once / Deny + Inspect, NEEDS YOU,
+     the bell) and attest it is on screen (consentAck → the one bounded extension). The answer goes through answerConsent
+     → POST /api/consent with that runId; its permission.response (here or from any other surface) clears it. */
+  function backgroundAskHome(ev) {
+    if (typeof Workstreams === 'undefined' || !Workstreams.get) return null;
+    const direct = ev.streamId ? Workstreams.get(ev.streamId) : null;
+    if (direct) return direct;
+    const thread = ev.workerStreamId ? Workstreams.get(ev.workerStreamId) : null;
+    return (thread && thread.parentStreamId && Workstreams.get(thread.parentStreamId)) || null;
+  }
+  function fileBackgroundAsk(ev) {
+    if (!ev || ev.background !== true || !ev.promptId || !ev.runId || typeof Channels === 'undefined') return false;
+    const ws = backgroundAskHome(ev);
+    if (!ws) return false;   // no conversation on this page handed this work off: the surface that did answers it
+    if (Channels.pendingAllOf(ws.id).some(x => x && String(x.promptId) === String(ev.promptId))) return true;   // already filed
+    Channels.setPending(ws.id, Object.assign(pendingFrom(ev, ws), { runId: String(ev.runId), agentId: ev.leadAgentId || ev.agentId || ws.agentId, background: true }));
+    if (isActiveWs(ws)) { permissionRow(ev, ws); syncStatus(); } else backgroundPermissionNotify(ev, ws);
+    try { if (typeof App !== 'undefined' && App.refreshRail) App.refreshRail(); } catch (e) { console.warn('[comms] rail refresh after a background ask failed', e); }
+    try {
+      Promise.resolve(Harness.consentAck(ev.runId, ev.promptId)).then(v => { if (!(v && v.ok)) consentAckFailed(ws, ev, v); },
+        e => consentAckFailed(ws, ev, { ok: false, error: (e && e.message) || String(e) }));
+    } catch (e) { consentAckFailed(ws, ev, { ok: false, error: (e && e.message) || String(e) }); }
+    return true;
+  }
+  if (typeof U !== 'undefined' && U.bus && U.bus.on) U.bus.on('permission.prompt', fileBackgroundAsk);
+  /* The reconnect snapshot (world.js fetchSnapshot: every bridge (re)open, then every 30 s) is the station's own list of
+     open asks. A background ask this page never heard (it reloaded, or the bridge was down) is announced on the page bus
+     the way the bridge would have — so the worker's row, NEEDS YOU, the bell, CREW and the floor all learn it at once. A
+     filed background ask the station no longer lists, and that is older than the snapshot, was settled while this page
+     was not listening: it is withdrawn here (no decision is claimed for it). */
+  function reconcileBackgroundAsks(snap) {
+    if (!snap || !Array.isArray(snap.prompts) || typeof Channels === 'undefined' || !Channels.allPending) return;
+    const open = new Set();
+    for (const row of snap.prompts) {
+      if (!row || row.background !== true || !row.promptId) continue;
+      open.add(String(row.promptId));
+      if (Channels.allPending().some(x => x.p && String(x.p.promptId) === String(row.promptId))) continue;
+      const ev = { promptId: row.promptId, agentId: row.leadAgentId || 'agent', tool: row.tool, scope: row.scope, argsSummary: row.argsSummary || '',
+        workerAgentId: row.workerAgentId || '', workerRunId: row.workerRunId || '', workerStreamId: row.workerStreamId || '', askedAt: row.askedAt || Date.now(),
+        background: true, runId: row.runId, streamId: row.streamId || '' };
+      if (typeof U !== 'undefined' && U.bus && U.bus.emit) U.bus.emit('permission.prompt', ev); else fileBackgroundAsk(ev);
+    }
+    const asOf = Number(snap.ts) || 0;
+    let withdrawn = 0;
+    for (const { wsId, p } of Channels.allPending()) {
+      if (!p || p.background !== true || open.has(String(p.promptId)) || !asOf || !(Number(p.askedAt) < asOf - 5000)) continue;
+      Channels.clearPending(wsId, Date.now(), p.promptId);
+      settlePromptNotice(wsId, p.promptId);
+      withdrawn++;
+    }
+    if (!withdrawn) return;
+    if (typeof Delegated !== 'undefined' && Delegated.repaint) Delegated.repaint();
+    if (typeof NeedsYou !== 'undefined' && NeedsYou.render) NeedsYou.render();
+    try { if (typeof App !== 'undefined' && App.refreshRail) App.refreshRail(); } catch (e) { console.warn('[comms] rail refresh after a settled background ask failed', e); }
+    syncStatus();
   }
 
   // ── "RATE THE WORK" — the PRIMARY leveling beat. After a run that actually DID work, the Commander gives a
@@ -10611,5 +10679,5 @@ const Chat = (() => {
   // only" gate maybeStandaloneRate uses — so a pure-chat run is never bottle-offered. Used by App.runBottleInfo (R5).
   function runDidWork(id) { const w = id ? runWork.get(id) : null; return !!(w && ((w.toolsOk || 0) >= 1 || (w.delivered || 0) >= 1)); }
 
-  return { init, load, deliverTurns, send, consentInspect, appendConsentDetails, revealHistory, revealAsk, copyText, continuityDiagnostics, refreshStarters, sendOrQueue, continueConnectorTask, stopActive, status, localLine, broadcast, renderProse, openFile, answerConsent, consentPhrase: actionPhrase, setSystem, getHistory, contextRef, abort, isBusy, beatBusy: skillBeatBusy, beginInterview, endInterview, echoUser, prefill, autoGrowInput, choices, clearChoices, retireDeskPrompt, typeLine, nudge, clearNudge, offerCuriosity, offerFork, planGoalPath, briefingReceipt, isComposerEngaged, canFocusSession, runMeta, runDidWork, awayDigest, awayReview, awayRate, sampleCard, workshopReturn, refreshIdBar: renderIdBar, refreshGroupControls: updateControls, refreshAgentIdentity, setRosterStatus, askBudgetSpent, spendAsk, clockLabel: fmtClock, breakLabel: fmtBreak, workspaceFileRefs, imageBlobUrl };
+  return { init, load, deliverTurns, send, consentInspect, appendConsentDetails, revealHistory, revealAsk, copyText, continuityDiagnostics, refreshStarters, sendOrQueue, continueConnectorTask, stopActive, status, localLine, broadcast, renderProse, openFile, answerConsent, consentPhrase: actionPhrase, reconcileBackgroundAsks, setSystem, getHistory, contextRef, abort, isBusy, beatBusy: skillBeatBusy, beginInterview, endInterview, echoUser, prefill, autoGrowInput, choices, clearChoices, retireDeskPrompt, typeLine, nudge, clearNudge, offerCuriosity, offerFork, planGoalPath, briefingReceipt, isComposerEngaged, canFocusSession, runMeta, runDidWork, awayDigest, awayReview, awayRate, sampleCard, workshopReturn, refreshIdBar: renderIdBar, refreshGroupControls: updateControls, refreshAgentIdentity, setRosterStatus, askBudgetSpent, spendAsk, clockLabel: fmtClock, breakLabel: fmtBreak, workspaceFileRefs, imageBlobUrl };
 })();

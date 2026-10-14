@@ -11136,7 +11136,12 @@ const World = (() => {
     try {
       fetch(apiUrl('/api/state/snapshot'), { cache: 'no-store' })
         .then(r => { if (!r.ok) return null; return r.json(); })
-        .then(snap => { if (snap && source === chanES && !bridgePaused) { try { reconcileFromSnapshot(snap); bridgeRecovering = false; } catch (_) {} } })
+        .then(snap => {
+          if (!snap || source !== chanES || bridgePaused) return;
+          try { reconcileFromSnapshot(snap); bridgeRecovering = false; } catch (_) {}
+          // a background worker's ask this page never heard (a reload, a dropped bridge) is filed from the same snapshot
+          try { if (typeof Chat !== 'undefined' && Chat.reconcileBackgroundAsks) Chat.reconcileBackgroundAsks(snap); } catch (e) { console.warn('[bridge] background asks reconcile failed', e); }
+        })
         .catch(() => {});   // endpoint absent / offline: TTL net covers it
     } catch (_) {}
   }

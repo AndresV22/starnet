@@ -799,6 +799,7 @@ test/toolsearch.test.js
 test/consent.interactive.test.js
 test/consentwait.test.js
 test/page-closed-line.test.js
+test/background-asks-ui.test.js
 test/consent-visibility.test.js
 test/consent-full-args.test.js
 test/session-indicators.test.js
