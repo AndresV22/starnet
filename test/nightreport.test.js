@@ -239,6 +239,9 @@ A.ok(/I’ll start once I’ve seen a few of your runs/.test(outCold), 'the cold
 A.ok(!/\d+ of \d+/.test(outCold) && !/reaching either|lets it act|set REACH/i.test(outCold), 'the readout carries no N-of-M counter and no unlock instruction');
 // …and the exact counts are never dropped: readinessText keeps them for SETTINGS › AUTONOMY and LAST REPORT.
 A.ok(/still learning you/i.test(NR.readinessText(rdWarm)) && /3 of 4 areas/.test(NR.readinessText(rdWarm)), 'readinessText still carries the exact N-of-M counts');
+// P09 review fix: the counts line names a NECESSARY condition, never a promise — with the dial on WAIT / SUGGEST, clearing a
+// bar does not make it act, and LAST REPORT shows this line with no dial context at all.
+A.ok(/won’t act on its own until one of those is complete/.test(NR.readinessText(rdWarm)) && !/starts acting|once either|lets it act/i.test(NR.readinessText(rdWarm)), 'readinessText never promises it will act once a bar clears');
 A.eq(NR.readinessPlain({ tier: 'hot' }), '', 'a hot station has no hold-back reason');
 // a fully-hot, granted build station: present tense, the real pace from leashPerDay, each job a new ⚒ session.
 const outBuild = NR.postureOutlook(Object.assign({}, stBase, { buildMode: 'build', draftReason: null, workshopGranted: true, readiness: { tier: 'hot' } }));
