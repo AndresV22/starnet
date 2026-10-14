@@ -79,7 +79,7 @@ const splitOf = plan => Object.keys(plan.junctions).find(k => plan.junctions[k].
   const ot = build.slice(build.indexOf('  function openTest(e) {'), build.indexOf('  function sendTestBoxes(ev, auto, agentId) {'));
   A.ok(/WP\.showTest\('watch'\)/.test(ot) && /return sendTestBoxes\(e\);/.test(ot), 'TEST opens the TEST view AND plays the free walkthrough (one click, as before)');
   A.ok(/preview: \(\) => sendTestBoxes\(null\)/.test(build), 'WATCH IT drives the same walkthrough');
-  A.ok(/\['watch', 'WATCH IT · FREE'/.test(panel) && /\['step', 'STEP THROUGH · REAL'/.test(panel) && /\['real', 'RUN ONE REAL JOB'/.test(panel), 'three named modes');
+  A.ok(/\['watch', 'WATCH IT · FREE'/.test(panel) && /\['step', 'STEP THROUGH · REAL'/.test(panel) && /\['real', 'SEND A REAL JOB'/.test(panel), 'three named modes');
   // Exercise the production decision AND its render entry point. A source spelling
   // check missed a correct fallback helper hidden behind a seam-only panel guard.
   const headers = ['function stepTestUnavailable()', 'function testModeNow()', 'function testPickerHTML(s)', 'function paintBodyInner(body, f)', 'function onwardNote()'];   // (onwardNote: RUN ONE REAL JOB's SEND TO line — conveyor-ui-01; these lines send nowhere, so it adds nothing)

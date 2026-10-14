@@ -328,5 +328,18 @@ const tick = () => new Promise(r => setTimeout(r, 15));
     A.ok(/\[data-act="toreview"\]', \(\) => \{[^\n]*navigateWork\('workflows', 'outbox'\)/.test(src), 'the door is the TO REVIEW deep link (the outbox key), with a ‹ back to WORKFLOWS');
   }
 
+  /* ---------- org P17 (2026-10-14): WORKFLOWS and the Workflow panel use ONE word set for the same line ---------- */
+  {
+    const panelSrc = rd('frontend/app/workflowpanel.js'), buildSrc = rd('frontend/app/build.js');
+    A.ok(src.includes('<span class="wfw-st ok">✓ DELIVERED</span>') && src.includes('<b class="ok">✓ DELIVERED</b>') && !src.includes('✓ DONE'), 'a finished job reads ✓ DELIVERED in LAST JOBS and on its result (the panel\'s ✓ DONE is its close key)');
+    A.ok(src.includes('>▶ SEND A JOB</button>') && panelSrc.includes("'▶ SEND A JOB')") && panelSrc.includes('id="wf-sendnow" hidden>▶ SEND A JOB</button>'), '▶ SEND A JOB in both editors');
+    A.ok(panelSrc.includes("'▶ SEND A REAL JOB · costs a run'") && panelSrc.includes("['real', 'SEND A REAL JOB',"), 'TEST says the real job costs a run');
+    A.ok(src.includes('>↻ SEND IT AGAIN</button>') && panelSrc.includes('id="wf-nr-again">↻ SEND IT AGAIN</button>') && !/RUN THE SAME JOB AGAIN</.test(src + panelSrc), '↻ SEND IT AGAIN after a fix, in both');
+    A.ok(panelSrc.includes('<span>✎ NEEDS CHANGES</span>') && panelSrc.includes("'SUGGEST CHANGES'") && panelSrc.includes('★ KEEP THIS STYLE</button>'), 'the panel says ✎ NEEDS CHANGES · SUGGEST CHANGES · ★ KEEP THIS STYLE, as WORKFLOWS does');
+    A.ok(src.includes("' DOES EVERY STEP</button>'") && buildSrc.includes("+' DOES EVERY STEP</button>'") && src.includes(' A DESK</button>') && buildSrc.includes(">GIVE '+esc(") && panelSrc.includes('id="wf-pc">GIVE \' + esc('), '<NAME> DOES EVERY STEP and GIVE <NAME> A DESK in WORKFLOWS, BUILD and the panel');
+    A.ok(buildSrc.includes("FINISH SETUP${lname ? ' · '") && !buildSrc.includes("'FINISH THE LINE'"), 'the FINISH card reads FINISH SETUP');
+    A.ok(!/Choose a workflow/.test(rd('frontend/app/windows/loops.js')) && /Choose a kind of loop/.test(rd('frontend/app/windows/loops.js')), 'GOAL LOOPS asks for a kind of loop, never "a workflow"');
+  }
+
   A.report('workflows-window.test');
 })().catch(e => { console.error(e); process.exit(1); });
