@@ -395,6 +395,16 @@ const Build = (() => {
     window.removeEventListener('keyup', onKeyUp);
     window.removeEventListener('blur', onBlur);
     if (typeof SFX !== 'undefined') SFX.close();
+    // BUILD MODE HANDS ITS FLOOR BACK: when nothing is left to bake, its chunks stitched into one whole-station bake become
+    // the live world's (World rebake / StationBake.stitchWhole), instead of the world re-baking the station it just left
+    if (opts.world && opts.world.adoptBuildBake && StationBake.stitchWhole && station && cache && cache.chunked && !bakeDirty) {
+      let whole = null;
+      try { whole = StationBake.stitchWhole(station.projectGeometry(), cache); }
+      catch (e) { console.warn('[refit] could not hand the floor back to the world; it re-bakes the station instead', e); }
+      if (whole) opts.world.adoptBuildBake(station, whole);
+    }
+    // the chunks (and their dense plates) are not drawn again until the next open() takes the world's bake: free them now
+    cache = null; cacheGeo = null; bakeDirty = true;
     const saved = opts.persist ? opts.persist() : false;
     if (saved && typeof StationUI !== 'undefined' && StationUI.notify) StationUI.notify('Station layout saved locally', 'good', undefined, { transient: true });
     if (opts.world && opts.world.refit) opts.world.refit();     // recenter the live world on the new build
@@ -9323,7 +9333,16 @@ const Build = (() => {
     keyUp: (key) => { onKeyUp({ key, preventDefault() {} }); return { alt: altOn() }; },
     pick: (t) => { commitDropPick(t); return { pick: !!dropPick }; },
     // one synchronous frame (the hidden preview pane never fires requestAnimationFrame)
-    frame: () => { if (running) frame(performance.now()); return root ? root.dataset.renderState : null; },
+    // (it takes over the pending frame: frame() schedules the next one itself, so a harness calling this never stacks
+    //  a second requestAnimationFrame chain — every extra chain re-ran the whole frame per vsync and faked a slowdown)
+    frame: () => {
+      if (running) {
+        if (raf) cancelAnimationFrame(raf), raf = 0;
+        if (frameRetryTimer) clearTimeout(frameRetryTimer), frameRetryTimer = 0;
+        frame(performance.now());
+      }
+      return root ? root.dataset.renderState : null;
+    },
     // the build feel (2026-10-01): what is landing / dissolving right now — CDP proof reads these mid-animation
     feel: () => ({ landing: [...landings.keys()], vanishing: vanishing.length, selected: selectedPropId }),
     // MANY AT ONCE: the ids selected right now (one, a group, or none)

@@ -25,7 +25,8 @@ A.ok(/station\.onChange\(p => \{ geoDirty = true; if \(!p \|\| !p\.staticBakeUnc
   'the floor subscription marks the bake only for an edit WorldModel says changes it');
 A.ok(/if \(bakeEditPending \|\| frameMoved \|\| fixtureAnchorKey\(geo\) !== bakedAnchorKey\) bakeDirty = true;/.test(world),
   'rederive re-bakes for a bake edit, a moved frame, or a moved lamp anchor — nothing else');
-A.ok(/cache = StationBake\.bake\(geo\);\s*bakedAnchorKey = fixtureAnchorKey\(geo\);/.test(world), 'every bake records the anchors it was planned with');
+// (a floor BUILD MODE hands back is checked against the CURRENT fixture plan before it is stitched — StationBake.stitchWhole)
+A.ok(/cache = [^;]*\? handed\.bake : StationBake\.bake\(geo\);\s*bakedAnchorKey = fixtureAnchorKey\(geo\);/.test(world), 'every bake records the anchors it was planned with');
 
 // a furnished room: tables against the north wall (where lamps anchor) and out in the middle
 const st = WM.create(); st.projectGeometry();

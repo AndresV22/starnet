@@ -739,11 +739,20 @@ const World = (() => {
   function buildHoldsFloor() {
     return !!(station && (geoDirty || !geo) && typeof Build !== 'undefined' && Build.isOpen());
   }
+  /* BUILD MODE HANDS ITS FLOOR BACK (2026-10-13, Andrew: "a huge delay in build mode"). SAVE & EXIT after a room edit
+     re-baked the whole station here (~2.3 s on the demo station) right after BUILD MODE had painted every chunk of it.
+     Build.close() now offers its chunks stitched into one whole-station bake (StationBake.stitchWhole — refused unless
+     they cover this exact floor); the rebake that start() runs takes it only for THIS station at THIS edit revision, and
+     the offer dies with that first frame either way. */
+  let handedBake = null;
   function rebake() {
     if (buildHoldsFloor()) { bakeDirty = true; return; }
     if (geoDirty || !geo) rederive();
     if (!geo) return;
-    cache = StationBake.bake(geo);
+    const handed = handedBake; handedBake = null;
+    cache = handed && handed.station === station && handed.seq === station.getSeq() && handed.bake.W === geo.W && handed.bake.H === geo.H &&
+      handed.bake.origin && geo.origin && handed.bake.origin.tx === geo.origin.tx && handed.bake.origin.ty === geo.origin.ty
+      ? handed.bake : StationBake.bake(geo);
     bakedAnchorKey = fixtureAnchorKey(geo);
     for (const d of cache.doorOccluders || []) {
       if (d.image.addEventListener) d.image.addEventListener('contextlost', () => { bakeDirty = true; });
@@ -1708,6 +1717,7 @@ const World = (() => {
     // floor otherwise waited up to a minute before the INBOX plate counted it (2026-09-28 retest)
     try { if (typeof LineWatch !== 'undefined' && typeof fetch !== 'undefined') lineStatsSoon(); } catch (_) {}
     frame(last);
+    handedBake = null;   // BUILD MODE's floor is taken by this first frame's rebake or not at all
   }
   function stop() { cancelArrival(); running = false; cancelScheduled(); }
   /* FRAME CAP (HUD widget, 2026-09-29): an opt-in ceiling on how often the floor is DRAWN. Frames in between are
@@ -11465,6 +11475,8 @@ const World = (() => {
     // pre-edit bake. The editor replaces its reference on its first real edit.
     refitBake: st => st === station && !geoDirty && !bakeDirty && cache && geo
       ? { cache, geo } : null,
+    // ...and the way back (see handedBake): BUILD MODE's stitched floor, for the rebake its close() starts
+    adoptBuildBake: (st, bake) => { handedBake = st && st === station && bake && typeof st.getSeq === 'function' ? { station: st, seq: st.getSeq(), bake } : null; return !!handedBake; },
     // FEED TRUTH accessor (guided workflows): the exact server-proven state the NO FEED nag keys on —
     // BUILD MODE's finish-the-line card reads THIS, never a parallel poll, so the two can never disagree.
     fedLines: knownFedLines,
