@@ -11339,7 +11339,7 @@ const PropSprites = (() => {
     // applied — a prop function must never bake its own mount height.
     const lift = surfaceLift(f);
     const X = f.x * TILE, Y = f.y * TILE - lift, W = (f.w || 1) * TILE, H = (f.h || 1) * TILE;
-    const o = { x: f.x, work: !!work, agentId: f.agentId || null, dockName: f.dockName || null, door: f.door || null };
+    const o = { x: f.x, work: !!work, agentId: f.agentId || null, dockName: f.dockName || null, door: f.door || null, tagRoom: f.tagRoom || null };
     o.occupied = live && typeof live.occupied === 'boolean' ? live.occupied : !!work;
     o.still = !!(live && live.still);
     o.scanning = !!(live && live.scanning);

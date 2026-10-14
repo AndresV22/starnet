@@ -332,6 +332,9 @@ button:active {
 .toast.actionable:hover .toast-txt { color: var(--ph-bright); }
 
 .toast.leaving { animation: toast-out var(--t-med) var(--ease-soft) forwards; }
+/* a keyed card replaced in its own seat (StationUI.toast: one MODEL card for four quick presses) is the same readout with a new
+   value — no second slide-in or blade strike; its text still decodes and its dwell rail starts over */
+.toast.swap:not(.leaving), .toast.swap .toast-lamp { animation: none; }
 @keyframes toast-in {
   from { opacity: 0; transform: translate3d(-20px, 4px, 0); }
   to   { opacity: 1; transform: translate3d(0, 0, 0); }

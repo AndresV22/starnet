@@ -283,8 +283,9 @@ const NeedsYou = (() => {
     if (!i || !has(App, 'openWorkstream')) return false;
     if (i.kind === 'failed') dismiss(i.key);   // you went to look at it: it has done its job here
     App.openWorkstream(i.wsId);
-    // a question lands on its question card in one hop (not on the worker's row, which only points there)
-    if (i.kind === 'question' && i.p && typeof Chat !== 'undefined' && Chat.revealAsk && Chat.revealAsk(i.p.promptId)) return true;
+    // a question lands on its question card in one hop (not on the worker's row, which only points there), and Review on
+    // an approval lands on its approval card (live walk 10-14: it re-opened the session and left the card below the fold)
+    if ((i.kind === 'question' || i.kind === 'approval') && i.p && typeof Chat !== 'undefined' && Chat.revealAsk && Chat.revealAsk(i.p.promptId)) return true;
     if (i.workerWsId && typeof Delegated !== 'undefined' && Delegated.reveal) Delegated.reveal(i.workerWsId);
     return true;
   }

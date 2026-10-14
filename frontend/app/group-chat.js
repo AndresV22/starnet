@@ -197,9 +197,10 @@ const GroupChat = (() => {
   }
   function name(id) { return id === 'user' ? 'COMMANDER' : (roster.find(a => a.id === id)?.name || App.agents?.().find(a => a.id === id)?.name || id); }
   function colorOf(id) { const c = typeof App !== 'undefined' && App.agents ? App.agents().find(a => a.id === id)?.color : ''; return /^#[0-9a-f]{3,8}$/i.test(c || '') ? c : ''; }
-  /* The group header: a [ GROUP ] tag, then EVERY member by name in their roster colour (lead first), the count, and
-     the + key. Names wrap to a second line before anything is hidden; past two lines the rest fold into "+N", which
-     opens the full list (Andrew 10-04: "you cant even tell when the groupchat is there, it does not show all the agents"). */
+  /* The group header: EVERY member by name in their roster colour (lead first), the count, and the + key (Andrew 10-04:
+     "you cant even tell when the groupchat is there, it does not show all the agents"). No GROUP word in front of them —
+     the names and the count say it (the no-shrunken-chips law, 10-13; walk 10-14 #18). ONE line: names that do not fit
+     fold into "+N", which opens the full list, so a name never drops alone onto a second line. */
   function participantsHeader(element, ids, paused, leadId) {
     const order = leadId && ids.includes(leadId) ? [leadId, ...ids.filter(id => id !== leadId)] : ids.slice();
     const people = h('button', { type: 'button', class: 'gc-people', title: order.map(name).join(' · '), 'aria-label': 'Agents in this chat: ' + order.map(name).join(', ') + '. Add or remove agents', onclick: () => picker(true) });
@@ -209,11 +210,11 @@ const GroupChat = (() => {
       people.append(p);
     }
     const more = h('span', { class: 'gc-more', hidden: '' }); people.append(more);
-    element.replaceChildren(h('span', { class: 'gc-badge', 'aria-hidden': 'true' }, 'GROUP'), people, h('span', { class: 'gc-count' }, ids.length + (ids.length === 1 ? ' agent' : ' agents')));
+    element.replaceChildren(people, h('span', { class: 'gc-count' }, ids.length + (ids.length === 1 ? ' agent' : ' agents')));
     if (paused) element.append(h('small', {}, 'Paused'));
     fitPeople(people);
   }
-  // two lines of names at most: hide from the end until it fits, and say how many are folded away
+  // one line of names: hide from the end until it fits, and say how many are folded away
   function fitPeople(people) {
     if (!people || typeof people.querySelectorAll !== 'function' || !people.isConnected) return;
     const persons = [...people.querySelectorAll('.gc-person')], more = people.querySelector('.gc-more');
@@ -225,7 +226,7 @@ const GroupChat = (() => {
       if (more) { more.hidden = false; more.textContent = '+' + hidden; }
     }
   }
-  /* Per-row description for the picker: the class tagline when the agent was recruited from the
+  /* Per-row description for the picker (the row's hover tip, never a line under the name): the class tagline when the agent was recruited from the
      catalog, otherwise its role. Never invented — blank beats a made-up job title. */
   function describe(id) {
     const a = typeof App !== 'undefined' && App.agents ? App.agents().find(x => x.id === id) : null; if (!a) return '';
@@ -274,12 +275,11 @@ const GroupChat = (() => {
       #gc-tray .gc-tray-scroll.more-below{-webkit-mask-image:linear-gradient(#000 calc(100% - 28px),transparent);mask-image:linear-gradient(#000 calc(100% - 28px),transparent)}
       #comms-idbar{flex:0 0 auto;flex-wrap:nowrap}#comms-idbar.gc-group>.comms-agent-wrap,#comms-idbar.gc-group>#comms-agent-model,#chat-panel #comms-idbar.gc-group>.comms-identity,#chat-panel #comms-idbar.gc-group>.comms-portrait{display:none}
       #gc-header{display:flex;align-items:center;gap:10px;flex:1;min-width:0;color:var(--ph)}
-      .gc-badge{flex:0 0 auto;align-self:baseline;font:inherit;font-size:15px;line-height:18px;letter-spacing:1px;text-transform:uppercase;color:var(--ph);text-shadow:var(--pg-glow-soft,none);white-space:nowrap}
       .gc-count{order:2;flex:0 0 auto;font-size:12px;letter-spacing:1px;text-transform:uppercase;color:var(--ph-dim);white-space:nowrap}
       #gc-add-agents{flex:0 0 auto;white-space:nowrap}
-      .gc-people{display:flex;flex-wrap:wrap;align-items:baseline;column-gap:12px;row-gap:2px;flex:1 1 0;min-width:0;max-height:38px;overflow:hidden;margin:0;padding:0;border:0;background:none;font:inherit;text-align:left;cursor:pointer;color:var(--ph)}
+      .gc-people{display:flex;flex-wrap:wrap;align-items:baseline;column-gap:12px;row-gap:2px;flex:1 1 0;min-width:0;max-height:18px;overflow:hidden;margin:0;padding:0;border:0;background:none;font:inherit;text-align:left;cursor:pointer;color:var(--ph)}
       .gc-person{display:inline-block;font-size:15px;line-height:18px;letter-spacing:1px;text-transform:uppercase;color:var(--ph-bright);white-space:nowrap;text-shadow:var(--pg-glow-soft,none)}.gc-person[hidden],.gc-more[hidden]{display:none}
-      .gc-more{display:inline-block;font-size:13px;line-height:18px;letter-spacing:1px;color:var(--ph)}
+      .gc-more{display:inline-block;font-size:var(--sn-type-control,16px);line-height:18px;letter-spacing:1px;color:var(--ph)}
       .gc-people:hover .gc-person,.gc-people:hover .gc-more{text-decoration:underline;text-underline-offset:3px}
       #group-chat .bb,#gc-add-agents{margin:0;padding:3px 8px;min-height:26px;font-size:13px;line-height:18px;letter-spacing:1px;border:1px solid var(--ph-faint);border-radius:3px;background:var(--panel2);color:var(--ph);box-shadow:var(--raise)}
       #group-chat .bb:hover,#gc-add-agents:hover{border-color:var(--ph);background:var(--ph-faint)}
@@ -327,22 +327,28 @@ const GroupChat = (() => {
       .gc-state .gc-inspect summary{cursor:pointer;list-style:none;text-wrap:pretty}.gc-state .gc-inspect summary::-webkit-details-marker{display:none}.gc-state .gc-inspect summary::before{content:'▸ '}.gc-state .gc-inspect[open] summary::before{content:'▾ '}#gc-states .gc-state .gc-what.gc-asks{flex:1 1 auto;font-size:var(--sn-type-control,16px)!important;line-height:1.4;color:var(--ph-bright);overflow:visible;overflow-wrap:anywhere;white-space:normal;text-wrap:pretty}.gc-state .gc-ok-row{flex:1 0 100%;display:flex;flex-wrap:wrap;gap:8px;margin:4px 0 2px}.gc-state .gc-inspect pre{max-height:240px;overflow:auto;margin:4px 0;white-space:pre-wrap;overflow-wrap:anywhere;user-select:text;font-family:inherit}.gc-state .gc-ok{min-width:8em;min-height:36px;padding:6px 14px;font:inherit;font-size:var(--sn-type-control,16px);line-height:1.2;letter-spacing:.2px;color:var(--ph-bright);border:1px solid var(--beat-edge);border-radius:5px;background:rgba(var(--ph-rgb),.04);box-shadow:inset 0 1px 0 var(--beat-light);text-shadow:none;cursor:pointer}.gc-state .gc-ok.lit{border-color:rgba(var(--gold-rgb),.55);background:linear-gradient(140deg,rgba(var(--gold-rgb),.15),rgba(var(--ph-rgb),.04))}.gc-state .gc-ok.deny{color:var(--bad);border-color:color-mix(in srgb,var(--bad) 35%,transparent);background:color-mix(in srgb,var(--bad) 5%,transparent)}.gc-state .gc-ok:hover:not(:disabled){background:var(--beat-hover)}.gc-state .gc-ok:disabled{opacity:.55;cursor:default}.gc-state .gc-ok:focus-visible{outline:2px solid var(--ph);outline-offset:2px}#gc-states .gc-state .gc-approval:not(.gc-inspect){font-size:var(--sn-type-control,16px)!important;color:var(--ph-bright);opacity:1}#gc-states .gc-state .gc-inspect :is(summary,pre){font-size:var(--sn-type-control,16px)!important;line-height:1.45}.gc-state .gc-approval{flex:1 0 100%;font-size:14px;line-height:1.45;color:var(--text);opacity:.9;overflow-wrap:anywhere}.gc-state .bb{margin-left:auto!important;font-size:15px!important;min-height:34px!important;padding:0 14px!important}.gc-state .bb+.bb{margin-left:0!important}
       #gc-questions:empty{display:none}#gc-questions{padding:2px 12px 6px}.gc-question{margin:6px 0;padding:13px 15px;border:1px solid rgba(var(--ph-rgb),.2);border-left:2px solid var(--gc-c,rgba(var(--gold-rgb),.62));border-radius:5px;background:var(--cg-card,var(--beat-face));box-shadow:none;color:var(--text);text-shadow:none;overflow-wrap:anywhere;font-variant-ligatures:none}.gc-question .gc-q-who{font-size:var(--sn-type-meta,14px);line-height:1.3;letter-spacing:1.2px;text-transform:uppercase;color:var(--gc-c,var(--gold))}.gc-question .gc-q-cue{color:var(--text);opacity:.85}.gc-question .gc-q-more>summary{list-style:none}.gc-question .gc-q-more>summary::-webkit-details-marker{display:none}.gc-question .gc-q-more>summary::before{content:'▸ '}.gc-question .gc-q-more[open]>summary::before{content:'▾ '}.gc-question .gc-q-hint,.gc-question .gc-q-more>summary{text-wrap:pretty}.gc-question .gc-q-text{margin:6px 0 2px;font-size:var(--sn-type-prose,18px);line-height:1.45;color:var(--ph-bright);white-space:pre-wrap;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;overflow:hidden}.gc-question.whole .gc-q-text{display:block;-webkit-line-clamp:unset;max-height:calc(1.45em * 7);overflow-y:auto}.gc-question .gc-q-whole{display:block;margin:2px 0 0;padding:3px 0;font:inherit;font-size:var(--sn-type-meta,14px);letter-spacing:.3px;color:var(--ph);background:none;border:0;box-shadow:none;text-shadow:none;cursor:pointer}.gc-question .gc-q-whole[hidden]{display:none}.gc-question .gc-q-whole:focus-visible{outline:2px solid var(--ph);outline-offset:2px}.gc-question-choices{display:flex;flex-direction:column;align-items:stretch;gap:6px;margin:10px 0}.gc-question .gc-q-choice{min-height:36px;width:100%;padding:6px 14px;font:inherit;font-size:var(--sn-type-control,16px);line-height:1.25;letter-spacing:.2px;text-align:left;white-space:normal;color:var(--ph-bright);border:1px solid var(--beat-edge);border-radius:5px;background:rgba(var(--ph-rgb),.04);box-shadow:inset 0 1px 0 var(--beat-light);text-shadow:none;cursor:pointer}.gc-question .gc-q-choice.lit{border-color:rgba(var(--gold-rgb),.55);background:linear-gradient(140deg,rgba(var(--gold-rgb),.15),rgba(var(--ph-rgb),.04))}.gc-question .gc-q-choice:hover:not(:disabled){background:var(--beat-hover);border-color:var(--ph-dim)}.gc-question .gc-q-choice[aria-pressed=true],.gc-question .gc-q-choice.chosen{border-color:var(--ph-bright);background:linear-gradient(140deg,rgba(var(--gold-rgb),.32),rgba(var(--ph-rgb),.08))}.gc-question .gc-q-choice:disabled{cursor:default;opacity:.55}.gc-question .gc-q-choice.chosen:disabled{opacity:1}.gc-question .gc-q-choice:focus-visible{outline:2px solid var(--ph);outline-offset:3px}.gc-question .gc-q-hint{font-size:var(--sn-type-meta,14px);line-height:1.4;color:var(--text);opacity:.85}.gc-question .gc-q-folds{display:flex;flex-wrap:wrap;gap:2px 22px;margin-top:6px}.gc-question .gc-q-folds>details[open]{flex-basis:100%}.gc-question .gc-q-more>summary{cursor:pointer;padding:3px 0;font-size:var(--sn-type-meta,14px);letter-spacing:.3px;color:var(--ph)}.gc-question .gc-q-more>summary:focus-visible{outline:2px solid var(--ph);outline-offset:2px}.gc-question .gc-q-more>p{margin:6px 0 2px;font-size:var(--sn-type-control,16px);line-height:1.5;color:var(--text);white-space:pre-wrap}.gc-question .gc-q-more>p.gc-q-draft{padding:10px 12px;border:1px solid var(--beat-edge);border-radius:5px;background:rgba(0,0,0,.2)}.gc-message .gc-asked{margin:0 0 4px;font-size:var(--sn-type-meta,14px);line-height:1.4;color:var(--text);opacity:.8;font-variant-ligatures:none}.gc-transfer{color:var(--ph-dim);font-size:12px;padding:2px 0 5px 14px;flex:0 0 auto}.gc-transfer{color:var(--ph-dim);font-size:12px;padding:2px 0 5px 14px;flex:0 0 auto}
       #gc-notice:empty{display:none}#gc-notice{flex:0 0 auto;padding:4px 12px;font-size:13px;color:var(--gold);overflow-wrap:anywhere}
-      /* the picker fills its window: the two lists share the height and scroll on their own, the footer never leaves view */
-      .gc-picker{min-width:0;min-height:100%;box-sizing:border-box;display:flex;flex-direction:column;gap:10px}.gc-picker>.key-input{flex:0 0 auto;display:block;width:100%;box-sizing:border-box;margin:0}
-      .gc-sect{display:flex;flex-direction:column;min-width:0;min-height:0}.gc-sect.in{flex:0 0 auto}.gc-sect.out{flex:1 1 0;min-height:132px}
-      .gc-sect-h{flex:0 0 auto;display:flex;align-items:baseline;gap:8px;margin:0 0 4px;font-size:12px;letter-spacing:1.5px;text-transform:uppercase;color:var(--ph-dim)}.gc-sect-h b{font-weight:normal;color:var(--ph)}
+      /* the picker IS its window's height: the two lists share it and scroll on their own, the how-to line and the footer stay
+         in the flow under them (min-height:100% let it grow past the window, and the sticky footer then sat over the how-to
+         line, which showed through its 95%-alpha panel — walk 10-14 #9). The ADD list keeps a floor of two agents and the
+         members list gives way first, to one; below both floors the window body scrolls, the how-to line and footer still in
+         the flow (review 10-14: at min-height:0 a 5-member group showed no agent to add on a window 80px shorter). The floors
+         count in rows: the 38px portrait + its padding + its 1px rule (8px here, 11px in glass-comms.css), plus the list's 1px frame. */
+      .gc-picker{--gc-row-h:55px;--gc-head-h:22px;min-width:0;height:100%;box-sizing:border-box;display:flex;flex-direction:column;gap:10px}.gc-picker>.key-input{flex:0 0 auto;display:block;width:100%;box-sizing:border-box;margin:0}
+      .gc-sect{display:flex;flex-direction:column;min-width:0;min-height:0}.gc-sect.in{flex:0 1 auto;min-height:calc(var(--gc-head-h) + var(--gc-row-h) + 2px)}.gc-sect.out{flex:1 1 0;min-height:calc(var(--gc-head-h) + 2 * var(--gc-row-h) + 2px)}
+      body.glass-demo .gc-picker{--gc-row-h:61px}
+      .gc-sect-h{flex:0 0 auto;display:flex;align-items:baseline;gap:8px;margin:0 0 4px;font-size:var(--sn-type-meta,14px);line-height:18px;letter-spacing:1.5px;text-transform:uppercase;color:var(--ph-dim)}.gc-sect-h b{font-weight:normal;color:var(--ph)}
       .gc-sect-list{flex:1 1 auto;min-height:0;overflow:auto;border:1px solid var(--ph-faint);border-radius:3px;background:rgba(0,0,0,.18)}.gc-sect-list:empty{display:none}.gc-sect.in .gc-sect-list{flex:0 1 auto;max-height:min(30vh,174px)}
       .gc-row{display:flex;align-items:center;gap:10px;padding:8px 10px;border-bottom:1px solid var(--ph-faint);min-width:0}.gc-row:last-child{border-bottom:0}.gc-row[hidden]{display:none}
       .gc-row .gc-led{flex:0 0 auto;width:8px;height:8px;border-radius:2px;background:var(--ph-dim)}.gc-row.in .gc-led{box-shadow:0 0 6px var(--ph-glow)}
       .gc-row .gc-pic{flex:0 0 auto;display:flex;line-height:0}.gc-row .gc-av{border-radius:5px;background:rgba(0,0,0,.34);box-shadow:inset 0 0 0 1px rgba(var(--ph-rgb),.22),inset 0 1px 3px rgba(0,0,0,.15)}
-      .gc-row .gc-id{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:1px}.gc-row .gc-nm{font-size:14px;letter-spacing:1px;text-transform:uppercase;color:var(--ph-bright);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.gc-row .gc-tag{font-size:12px;color:var(--ph-dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.gc-row .gc-tag:empty{display:none}
+      .gc-row .gc-id{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:1px}.gc-row .gc-nm{font-size:14px;letter-spacing:1px;text-transform:uppercase;color:var(--ph-bright);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
       .gc-row.in .gc-nm{color:var(--ph)}.gc-row .bb{flex:0 0 auto;min-width:74px;text-align:center}.gc-row.in .bb{color:var(--ph-dim)}.gc-row.in .bb:hover{color:var(--bad);border-color:var(--bad);background:transparent}
       .gc-row .bb[disabled]{opacity:.45;cursor:default}
-      .gc-row .gc-lead{flex:0 0 auto;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--gold)}
-      .gc-empty{padding:10px;font-size:13px;line-height:1.4;color:var(--ph-dim)}.gc-empty a{color:var(--ph);cursor:pointer}
-      .gc-hint{flex:0 0 auto;margin:0;font-size:13px;line-height:1.4;color:var(--ph-dim)}.gc-hint b{font-weight:normal;color:var(--ph)}
-      .gc-picker>[role=alert]{flex:0 0 auto;margin:0;color:var(--bad);font-size:13px}.gc-picker>[role=alert]:empty{display:none}
-      .gc-picker-footer{flex:0 0 auto;position:sticky;bottom:0;display:flex;align-items:center;gap:8px;padding:10px 0 0;border-top:1px solid var(--ph-faint);background:var(--panel)}.gc-picker-footer .gc-delta{flex:1 1 auto;font-size:12px;letter-spacing:1px;text-transform:uppercase;color:var(--ph-dim)}
+      .gc-row .gc-lead{flex:0 0 auto;font-size:var(--sn-type-meta,14px);letter-spacing:1px;text-transform:uppercase;color:var(--gold)}
+      .gc-empty{padding:10px;font-size:13px;line-height:1.4;color:var(--ph-dim)}.gc-empty:empty{display:none}.gc-empty a{color:var(--ph);cursor:pointer}
+      .gc-hint{flex:0 0 auto;margin:0;font-size:var(--sn-type-meta,14px);line-height:1.4;color:var(--ph-dim)}.gc-hint b{font-weight:normal;color:var(--ph)}
+      .gc-picker>[role=alert]{flex:0 0 auto;margin:0;color:var(--bad);font-size:var(--sn-type-meta,14px)}.gc-picker>[role=alert]:empty{display:none}
+      .gc-picker-footer{flex:0 0 auto;display:flex;align-items:center;gap:8px;padding:10px 0 0;border-top:1px solid var(--ph-faint)}.gc-picker-footer .gc-delta{flex:1 1 auto;font-size:var(--sn-type-meta,14px);letter-spacing:1px;text-transform:uppercase;color:var(--ph-dim)}
       .gc-picker-footer .gc-delta.ok{color:var(--ph)}.gc-picker-footer .bb.primary{color:var(--ph-bright);border-color:var(--ph-dim)}
     `; document.head.append(css);
     discover().catch(e => { notice = e.message || String(e); });   // quiet: nobody asked yet (and the website embed has no sidecar)
@@ -1180,7 +1186,7 @@ const GroupChat = (() => {
     const dialog = h('div', { id: 'gc-picker', class: 'gc-picker' });
     const close = () => StationUI.closeTerm('group-agents');
     dialog.append(h('p', { role: 'status' }, 'Loading agents…'), button('CANCEL', close));
-    StationUI.toggleTerm('group-agents', origin?.conversationMode === 'group' ? 'AGENTS IN THIS CHAT' : 'ADD AGENTS', body => body.replaceChildren(dialog), { onClose: () => { dialog.remove(); pickerFor = null; pickerRepaint = null; } });
+    StationUI.toggleTerm('group-agents', origin?.conversationMode === 'group' ? 'AGENTS IN THIS CHAT' : 'ADD AGENTS', body => body.replaceChildren(dialog), { className: 'gc-picker-win', onClose: () => { dialog.remove(); pickerFor = null; pickerRepaint = null; } });
     try {
       if (App.pushRoster) await App.pushRoster();
       const info = await api(); roster = info.roster;
@@ -1220,12 +1226,14 @@ const GroupChat = (() => {
         finally { saving = null; if (dialog.isConnected) render(); }
       }
       function row(a, inChat) {
-        const r = h('div', { class: 'gc-row' + (inChat ? ' in' : ''), role: 'listitem', 'data-agent-name': label(a.id).toLowerCase() });
+        // NO SENTENCES UNDER TILES (walk 10-14 #9): portrait + name; the agent's description is the row's hover tip
+        const about = describe(a.id);
+        const r = h('div', { class: 'gc-row' + (inChat ? ' in' : ''), role: 'listitem', 'data-agent-name': label(a.id).toLowerCase(), ...(about ? { title: about, 'aria-description': about } : {}) });
         const led = h('span', { class: 'gc-led', 'aria-hidden': 'true' }); if (colorOf(a.id)) led.style.background = colorOf(a.id);
         // the agent's own skin (the shared thumb path every crew surface uses); a skin still loading shows the silhouette
         const pic = h('span', { class: 'gc-pic', 'aria-hidden': 'true' });
         if (typeof AgentPortraits !== 'undefined' && AgentPortraits.thumbHTML) pic.innerHTML = AgentPortraits.thumbHTML(App.agents?.().find(x => x.id === a.id) || a, 32, 38, 'gc-av');
-        const idc = h('div', { class: 'gc-id' }); idc.append(h('span', { class: 'gc-nm' }, label(a.id)), h('span', { class: 'gc-tag' }, describe(a.id)));
+        const idc = h('div', { class: 'gc-id' }); idc.append(h('span', { class: 'gc-nm' }, label(a.id)));
         r.append(led, pic, idc);
         if (inChat && a.id === leadNow()) { r.append(h('span', { class: 'gc-lead', title: 'Answers when you do not @ anyone' }, 'lead')); return r; }
         const b = inChat ? button(saving === a.id ? 'REMOVING…' : '✕ REMOVE', () => change(a.id, false)) : button(saving === a.id ? 'ADDING…' : '+ ADD', () => change(a.id, true));
@@ -1251,6 +1259,8 @@ const GroupChat = (() => {
       pickerRepaint = g => { const k = g.members.join('\n') + '|' + g.leadId; current = g; if (!saving && k !== shown) render(); };
       if (search) search.addEventListener('input', render);
       render();
+      const win = dialog.closest ? dialog.closest('.term') : null;
+      if (win && typeof win._fitDockedSheet === 'function') win._fitDockedSheet();   // the dock re-seats it to hold its floors
     } catch (e) {
       if (!dialog.isConnected) return;
       dialog.replaceChildren(h('p', { role: 'alert' }, e.message || String(e)), button('RETRY', () => { close(); return picker(true); }), button('CANCEL', close));

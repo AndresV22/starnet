@@ -2669,7 +2669,7 @@ const Build = (() => {
     // SURFACE means three different gestures depending on which surface is targeted — say which
     let verb = (t && t.verb) || (t && t.hint) || '';
     if (tool === 'select' && buildGroup === 'props') verb = 'Pick a prop, then click the floor to place it · click a placed one to edit it';
-    if (tool === 'select' && buildGroup === 'workflow') verb = 'Drag a machine onto another to belt them · click a piece, then drag it onto open floor to move it · drag a belt to branch it · 1–8 pick a piece · Q picks up the one under the pointer · right-click removes · hold Alt to see every setting';
+    if (tool === 'select' && buildGroup === 'workflow') verb = 'Drag a machine onto another to belt them · click a piece, then drag it onto open floor to move it · drag a belt to branch it · 1–8 pick a piece · Q picks up the one under the pointer · right-click removes a conveyor piece or belt · hold Alt to see every setting';
     // THE HAND: what is held, what a click does with it, and how to put it down (or what the armed dock key's next tap does)
     if (tool === 'select' && hand && hand.newLine) verb = 'Click where your line starts · Esc cancels';   // (the dock's hint bar shows ~45 characters; right-click cancels too)
     else if (tool === 'select' && hand) verb = 'Holding ' + propLabel(hand.t) + (hand.agentId ? ' (crewed by ' + agentLabel(hand.agentId) + ')' : '') + ' · click to place it' + (JUNCTION_TAG_TYPES[hand.t] ? ' · click a belt to put it on that line' : '') + ' · right-click or Esc puts it down';
@@ -4167,19 +4167,24 @@ const Build = (() => {
     /* THE RIDE NAMES ITS LINE (conveyor-audit 2026-08-10). "Complete" used to be any reach=true
        plus any doc-order intake — on a floor with an older decorative intake, the one narrated
        ride entered the WRONG line and sank. Now the arm records WHICH dock powered on (prefer
-       the reach that flipped true THIS compile — that bind is the teachable moment; a session's
-       first compile baselines against nothing, so an already-complete floor still narrates), and
+       the reach that flipped true THIS compile — that bind is the teachable moment), and
        fireFirstRide rides THAT dock's own front door via rideMouthFor. */
-    const prev = ridePrevReach || {}, now = {};
-    if (valPlan && valPlan.reach) for (const a in valPlan.reach) if (valPlan.reach[a]) now[a] = true;
+    const prev = ridePrevReach || {}, now = {}, entry = !ridePrevReach;
+    // a line counts once it is COMPLETE: its dock reached by an intake lane AND every step of it crewed (2026-09-30: it
+    // announced LINE COMPLETE over the panel while the WRITER had none) — so binding a line's last agent completes it too
+    const crewed = a => (valComps || []).some(c => c.intakes.length && c.bays.some(b => b.agentId === a) && c.bays.every(b => b.agentId));
+    if (valPlan && valPlan.reach) for (const a in valPlan.reach) if (valPlan.reach[a] && crewed(a)) now[a] = true;
     ridePrevReach = now;
-    if (ridePending || rideSeen()) return;
+    /* A RIDE ONLY ANSWERS THE EDIT THAT POWERED ITS LINE (2026-10-14, the busy-station walk: one lone INBOX placed, and the
+       floor said "LINE READY — a test crate rides it now" over the foreman's untouched line across the station). The
+       session's first compile only takes the baseline: a line that was already complete when BUILD MODE opened is nobody's
+       edit, and a ride armed for it played over the floor as the editor opened (or, held back by a card, after the user's
+       first unrelated edit). Its one shot is not burned — the ride arms on the first line a compile completes after an edit,
+       and stays armed until it narrates. */
+    if (entry || ridePending || rideSeen()) return;
     let rideA = null;
-    for (const a in now) if (!prev[a]) { rideA = a; break; }   // freshly powered line first
-    if (!rideA) for (const a in now) { rideA = a; break; }     // else any provably-reaching one
+    for (const a in now) if (!prev[a]) { rideA = a; break; }   // the line this compile completed
     if (!rideA || !rideMouthFor(rideA)) return;   // complete = an intake lane reaches a bound bay, entered through ITS OWN mouth
-    // …AND every step of that line has an agent (2026-09-30: it announced LINE COMPLETE over the panel while the WRITER had none)
-    if (!(valComps || []).some(c => c.intakes.length && c.bays.some(b => b.agentId === rideA) && c.bays.every(b => b.agentId))) return;
     rideAgentId = rideA;
     ridePending = true;   // armed — frame() fires it once nothing coach-like is up
   }
@@ -4989,6 +4994,13 @@ const Build = (() => {
       if (drag) { releaseDrag(); hideTip(); } if (connectFrom || connectTo) { connectFrom = null; connectTo = null; hideTip(); } if (dupe) { dupe = null; hideTip(); setHint(); }
       if (hand || touchArm || dropPick) setHand(null, { silent: true });
       if (!held && removeAt(ev)) return;
+      /* ...AND ON FURNITURE IT SAYS SO (2026-10-14, the busy-station walk: five right-clicks on a plant removed nothing and said
+         nothing while the Conveyors strip read "right-click removes"). Right-click stays the conveyors' gesture; with nothing
+         held, landing on furniture names what it removes and how this piece goes instead (click it, then Del). */
+      if (!held) {
+        const fid = propAtEvent(ev), fp = fid && station.propById(fid);
+        if (fp && !isConveyorPiece(fp)) { sfx('bad'); flashTip(ev, String(propLabel(fp.t)).toUpperCase() + ' — RIGHT-CLICK REMOVES ONLY CONVEYOR PIECES AND BELTS · CLICK IT, THEN DEL', false); }
+      }
       deselectTool(); return;
     }
     if (ev.pointerType === 'touch') {
@@ -7398,9 +7410,12 @@ const Build = (() => {
         for (const k in lv) { const p = k.split(','); valLive[(+p[0] + o.tx) + ',' + (+p[1] + o.ty)] = true; }
       }
       planDirty = false;
-      maybeFirstRide();   // a floor edit just recompiled the plan — the line may have just powered on
       // finish-the-line: regroup the floor's physical lines from the SAME geometry the plan compiled
       valComps = (typeof Pipeline !== 'undefined' && Pipeline.lineComponents) ? Pipeline.lineComponents(cacheGeo) : [];
+      // a floor edit just recompiled the plan — the line may have just powered on. Judged on THESE lines (2026-10-14: it ran
+      // before the regroup, so entry saw no lines at all and the first edit found every complete line "new" — LINE READY on
+      // an untouched line after one lone INBOX)
+      maybeFirstRide();
       if (lastStampIds) {   // a stamp just landed — the card adopts the stamped line
         const set = {}; for (const id of lastStampIds) set[id] = 1;
         const c = valComps.find(cc => cc.props.some(id => set[id]));
@@ -8058,7 +8073,33 @@ const Build = (() => {
     convey.drawBoxes(ctx, now, t); drawTestNotes(now, t);
     // projection + WOULD-captions over the real layer — captions go THROUGH the arbiter
     // (ghostCaption layer: mutes whenever any other voice speaks or the pointer rides the floor)
-    if (ghost && buildGroup === 'workflow') ghost.draw(ctx, now, t, capFs(), (box, paint) => voiceSay('ghostCaption', box, box, paint), captionFit);
+    if (ghost && buildGroup === 'workflow') ghost.draw(ctx, now, t, capFs(), (box, paint) => voiceSay('ghostCaption', box, box, paint), ghostCaptionFit);
+  }
+  /* A WOULD-caption in BUILD MODE keeps the live floor's law (GhostLine.onStation, review 10-14): in its own room, every part
+     over the station — never across the hull into space — and beside the machine its "HERE" names, slid onto the visible
+     glass by captionFit. It never covers a bay's name plate either (world.js captionInStation refuses the live floor's plates
+     the same way): the gantry plate PropSprites.drawBayNames paints this frame for every bound bay drawProps listed — centred
+     on the bay, straddling its top edge, 11px tall. A spot that fails answers null, so ghostline.js tries the caption's next
+     spot (and with none clear it sits the pass out). */
+  function ghostCaptionFit(box, n) {
+    const t = T(), b = GhostLine.onStation(box, n, buildRoomBoxes(), t, bx => { captionFit(bx); return true; });
+    if (!b) return null;
+    for (const p of frameBayLabels) {
+      const w = Math.max(12, (p.w || 1) * t - 1), cx = (p.x + (p.w || 1) / 2) * t, top = p.y * t + 1 - 5.5;
+      if (b.x < cx + w / 2 && b.x + b.w > cx - w / 2 && b.y < top + 11 && b.y + b.h > top) return null;
+    }
+    return b;
+  }
+  // the floor's rooms in BUILD MODE's tile frame (the compiler's local rects + the bake origin, like the ghost's own offset)
+  let buildRoomMemo = [], buildRoomGeo = null;
+  function buildRoomBoxes() {
+    if (!cacheGeo || !cacheGeo.allRects || typeof GhostLine === 'undefined' || !GhostLine.roomBoxes) return [];
+    if (buildRoomGeo !== cacheGeo) {
+      const o = cacheGeo.origin || { tx: 0, ty: 0 };
+      buildRoomGeo = cacheGeo;
+      buildRoomMemo = GhostLine.roomBoxes(cacheGeo.allRects, T(), o.tx, o.ty, (typeof StationBake !== 'undefined' && StationBake.WALL && StationBake.WALL.up) || 0);
+    }
+    return buildRoomMemo;
   }
 
   /* THE GUIDANCE LIVES WHERE THE HANDS ARE (2026-07-05 playtest): callouts render INSIDE build mode, in

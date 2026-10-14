@@ -227,8 +227,10 @@
     { id: 'centurion',   label: 'CENTURION',   hint: '100 tasks',         when: (c) => (c.tasksDone || 0) >= 100 },   // 100 tasks shipped
     // delivered work OUT through a channel (Telegram, Discord, Slack…) — work that reached you away from the station.
     // It used to read the COMMS `delivered` counter, so any finished chat task earned it in the same beat as FIRST
-    // LIGHT (first-hour walk 2026-09-28: "NIGHT SHIFT" at 22:50 for listings pasted into chat). The id stays.
-    { id: 'night_shift', label: 'NIGHT SHIFT', hint: '1 channel delivery', when: (c) => (c.awayDelivered || 0) >= 1 },
+    // LIGHT (first-hour walk 2026-09-28: it fired at 22:50 for listings pasted into chat). The id stays (saved trophy cases
+    // hold it); the NAME says what it marks — work that reached you far from the station — never "night shift": user-visible
+    // text says autonomy, only the server-side driver keeps that internal name (walk 10-14 #20).
+    { id: 'night_shift', label: 'LONG RANGE', hint: '1 channel delivery', when: (c) => (c.awayDelivered || 0) >= 1 },
     { id: 'trusted',     label: 'TRUSTED',     hint: 'satisfaction 85%',  when: (c, s) => s.samples >= MIN_SAMPLES && s.confidence >= 85 },   // satisfaction -> TRUSTED
     { id: 'dependable',  label: 'DEPENDABLE',  hint: '85% of 10+ runs',   when: (c, s) => (c.runsOwned || 0) >= 10 && reliability(s).band === 'dependable' },   // S4: the harness's own read, SUSTAINED
     { id: 'seasoned',    label: 'SEASONED',    hint: 'reach Lv 5',        when: (c, s) => s.level >= 5 },             // S4: the one rung on an otherwise empty Lv1 -> Lv10 ladder

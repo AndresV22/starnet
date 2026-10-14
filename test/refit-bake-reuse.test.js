@@ -153,9 +153,12 @@ if(intake.ok){
 // a room's name is stencilled by the bake at its bounding box's bottom-right corner: a rename re-bakes the chunks there
 const rn=st.rooms()[0], x2=Math.max(...rn.rects.map(r=>r.x2)), y2=Math.max(...rn.rects.map(r=>r.y2));
 assert.ok(st.renameRoom(rn.id,'RENAMED').ok);assert.equal(patch.staticBakeUnchanged,undefined,'a room name is part of the bake');
-assert.ok(!patch.global&&patch.dirtyRects.length===1&&patch.dirtyRects[0].x2===x2&&patch.dirtyRects[0].y2===y2,
-  '…so a rename names that corner, not the whole station: '+JSON.stringify(patch.dirtyRects));
-st.undo();assert.ok(!patch.global&&patch.dirtyRects.length===2&&patch.dirtyRects.every(r=>r.x2===x2&&r.y2===y2),
+// the plate is the text's own pixels — 24 chars at 7px written rightward from 28px inside the box's right edge, in its
+// bottom tile row — so its rect holds exactly that span and carries no wall reach (pad 0)
+const plateRect=r=>r.x1===x2-3&&r.x2===x2+12&&r.y1===y2&&r.y2===y2&&r.pad===0;
+assert.ok(!patch.global&&patch.dirtyRects.length===1&&plateRect(patch.dirtyRects[0]),
+  '…so a rename names that plate, not the whole station: '+JSON.stringify(patch.dirtyRects));
+st.undo();assert.ok(!patch.global&&patch.dirtyRects.length===2&&patch.dirtyRects.every(plateRect),
   '…and undoing it re-bakes only that plate, never the whole room: '+JSON.stringify(patch.dirtyRects));
 console.log('refit placement: prop-only pixels, fresh geometry/routing, mixed edits, airlock and history PASS');
 

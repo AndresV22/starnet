@@ -331,7 +331,9 @@ body.glass-demo #screen-game #bottombar .bb-menu {
   width: 320px; min-width: 0; max-width: calc(100vw - 24px); max-height: min(500px,70vh); overflow-y: auto;
   padding: 7px; gap: 3px; bottom: calc(100% + 10px);
   border: 1px solid rgba(var(--ph-rgb),.3); border-radius: 5px;
-  background: linear-gradient(145deg,rgba(var(--ph-rgb),.09),transparent 65%),var(--panel);
+  /* --panel is 95% alpha: over the dark station that read as solid, but an open menu now sits over windows (app.css: the
+     deck rises over #terms), and their bright text showed through the menu's items. Same face, laid on the opaque --bg. */
+  background: linear-gradient(145deg,rgba(var(--ph-rgb),.09),transparent 65%),linear-gradient(var(--panel),var(--panel)),var(--bg);
   box-shadow: inset 0 1px 0 var(--gd-light), 0 12px 35px rgba(0,0,0,.6);
 }
 body.glass-demo #screen-game #bottombar .bb-menu .bb {

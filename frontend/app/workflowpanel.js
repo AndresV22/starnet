@@ -496,7 +496,7 @@ const WorkflowPanel = (() => {
         // a + that can only refuse is shown OFF with its reason (2026-09-27 audit B3) — never a role picker that ends in an error
         const lined = canPlus && H.lineEdit ? canEdit('insertStep', a, { from: a, to: b }) : null;
         const chk = lined && lined.ok ? lined : canPlus && H.canInsertBay ? (H.canInsertBay(a, b) || { ok: true }) : { ok: true };
-        html += '<div class="wf-belt">' + (carry ? '<span class="carry">' + esc(carry) + '</span>' : '') + '<span class="rail"></span>'
+        html += '<div class="wf-belt">' + (carry ? '<span class="carry" data-tip="' + esc(carry) + '">' + esc(carry) + '</span>' : '') + '<span class="rail"></span>'
           + (canPlus ? (chk.ok
             ? '<button type="button" class="wf-plus" data-plus="' + i + '" data-plus-at="' + i + '" data-from="' + esc(a) + '" data-to="' + esc(b) + '" aria-label="Add a step here" data-tip="Add a step here">+</button>'
             // OFF: its reason is the hover tip (the station card, like every key here) and, clicked, the panel's own answer line
