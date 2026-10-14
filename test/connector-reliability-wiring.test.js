@@ -16,7 +16,7 @@ A.ok(/fn harness_store_provider_key_pool[\s\S]*rollback_error\(e, failures\)/.te
 A.eq((rust.match(/let _ = push_provider_(?:config|key_pool)/g) || []).length, 0, 'provider rollback acknowledgement failures are never swallowed');
 A.ok(/async function validateAndSetKey[\s\S]{0,1000}providers\/validate[\s\S]{0,1000}setKey\(candidate/.test(harness), 'candidate key is probed before persistence');
 A.ok(/previous key is unchanged/.test(harness), 'rejected key replacement reports the preserved old credential');
-A.ok(/validateAndSetKeyPool/.test(settings) && /restore the prior pool or report an incomplete rollback/.test(settings), 'Settings describes the provider-pool rollback boundary truthfully');
+A.ok(/validateAndSetKeyPool/.test(settings) && /keeps your previous spare keys or reports an incomplete rollback/.test(settings) && !/REPLACE POOL|CLEAR POOL|prior pool/.test(settings), 'Settings describes the provider-pool rollback boundary truthfully');
 A.ok(/KEY_POOL_' \+ id\.toUpperCase/.test(host), 'runtime pool environment lookup includes the provider id');
 A.eq(/ENV\('KEY_POOL'\)/.test(host), false, 'global cross-provider key pool is no longer consumed');
 A.ok(/connectorOauthAttempts/.test(host) && /oauth\/cancel/.test(connectors), 'OAuth cancellation reaches both UI and backend discovery');

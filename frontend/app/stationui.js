@@ -5896,9 +5896,9 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
         '</div>' +
         '<div class="key-edit" id="pool-edit-' + i + '" hidden>' +
         '<input type="password" class="key-input" id="pool-in-' + i + '" placeholder="paste spare keys, separated by commas…" autocomplete="off" spellcheck="false">' +
-        '<button class="bb sm" data-act="pool-save" data-i="' + i + '">REPLACE POOL</button>' +
-        '<button class="bb sm danger" data-act="pool-clear" data-i="' + i + '">CLEAR POOL</button>' +
-        '<span class="dim">up to 8 · scoped only to ' + esc(provName(k.provider)) + ' · failed saves restore the prior pool or report an incomplete rollback</span>' +
+        '<button class="bb sm" data-act="pool-save" data-i="' + i + '">SAVE SPARE KEYS</button>' +
+        '<button class="bb sm danger" data-act="pool-clear" data-i="' + i + '">CLEAR SPARE KEYS</button>' +
+        '<span class="dim">up to 8 · scoped only to ' + esc(provName(k.provider)) + ' · a failed save keeps your previous spare keys or reports an incomplete rollback</span>' +
         '</div>' +
         baseBlock;
     });
@@ -6044,7 +6044,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
         } else if (act === 'pool-save' || act === 'pool-clear') {
           const inp = body.querySelector('#pool-in-' + i);
           const keys = act === 'pool-clear' ? [] : String((inp && inp.value) || '').split(/[\n,;]+/).map(v => v.trim()).filter(Boolean);
-          if (act === 'pool-save' && !keys.length) { notify('paste at least one spare key, or use CLEAR POOL', 'bad'); sfx('bad'); return; }
+          if (act === 'pool-save' && !keys.length) { notify('paste at least one spare key, or use CLEAR SPARE KEYS', 'bad'); sfx('bad'); return; }
           Promise.resolve(h.validateAndSetKeyPool ? h.validateAndSetKeyPool(keys, row.provider) : h.setKeyPool(keys, row.provider)).then(res => {
             const count = (res && typeof res === 'object') ? Number(res.count) || 0 : res;   // { count, engine } (#89); a bare count from older hosts
             notify(count ? ('✓ ' + count + ' verified spare key' + (count === 1 ? '' : 's') + ' active only for ' + provName(row.provider)) : ('cleared spare keys for ' + provName(row.provider)), count ? 'good' : 'warn');
