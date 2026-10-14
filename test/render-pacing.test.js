@@ -203,7 +203,7 @@ function floorSim() {
   vm.createContext(sb);
   vm.runInContext('let frameCapMs = 0, lastDrawnAt = 0, running = true, raf = 0, renderFaults = 0, lastFaultMsg = "", reviewParts = null, reviewStamp = 0;\n' +
     'const RENDER_FAULT_LIMIT = 30, reviewPerformance = { enabled: false, samples: [] };\n' +
-    'let station = {}, geo = {}, cache = null, geoDirty = false, bakeDirty = true, bakedAnchorKey = null;\n' +
+    'let station = {}, geo = {}, cache = null, geoDirty = false, bakeDirty = true, bakedAnchorKey = null, handedBake = null;\n' +
     'function buildHoldsFloor() { return false; } function rederive() {} function fixtureAnchorKey() { return ""; } function recordBakeProbe() {} function drawRenderFault() {}\n' +
     'function frameBody(now) { if (bakeDirty || !cache) rebake(); clk.now += clk.drawMs; }\n' +
     world.slice(from, to) + '\n' + rebakeSrc + '\n' + frameSrc +

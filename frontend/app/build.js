@@ -395,6 +395,14 @@ const Build = (() => {
     window.removeEventListener('keyup', onKeyUp);
     window.removeEventListener('blur', onBlur);
     if (typeof SFX !== 'undefined') SFX.close();
+    // BUILD MODE HANDS ITS FLOOR BACK: when nothing is left to bake, its chunks stitched into one whole-station bake become
+    // the live world's (World rebake / StationBake.stitchWhole), instead of the world re-baking the station it just left
+    if (opts.world && opts.world.adoptBuildBake && StationBake.stitchWhole && station && cache && cache.chunked && !bakeDirty) {
+      let whole = null;
+      try { whole = StationBake.stitchWhole(station.projectGeometry(), cache); }
+      catch (e) { console.warn('[refit] could not hand the floor back to the world; it re-bakes the station instead', e); }
+      if (whole) opts.world.adoptBuildBake(station, whole);
+    }
     const saved = opts.persist ? opts.persist() : false;
     if (saved && typeof StationUI !== 'undefined' && StationUI.notify) StationUI.notify('Station layout saved locally', 'good', undefined, { transient: true });
     if (opts.world && opts.world.refit) opts.world.refit();     // recenter the live world on the new build

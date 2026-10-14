@@ -163,7 +163,7 @@ console.log('refit placement: prop-only pixels, fresh geometry/routing, mixed ed
 const fnBody=require('./_assert').fnBody;
 let buildOpen=true,derived=0,painted=0;
 const render=vm.createContext({
-  station:{},geo:{},geoDirty:true,bakeDirty:false,cache:{},bakedAnchorKey:null,
+  station:{},geo:{},geoDirty:true,bakeDirty:false,cache:{},bakedAnchorKey:null,handedBake:null,
   Build:{isOpen:()=>buildOpen},
   StationBake:{bake(){painted++;return {}; }},fixtureAnchorKey:()=>'',recordBakeProbe(){},
   rederive(){derived++;render.geo={};render.geoDirty=false;}
@@ -185,5 +185,24 @@ assert.equal(painted,2,'deferred visual work is consumed after publication');
 assert.equal(render.bakeDirty,false,'successful bake clears only visual invalidation');
 delete render.Build;render.geoDirty=true;render.rebake();
 assert.equal(derived,2,'bootstrap without Build still derives the floor');
+// BUILD MODE HANDS ITS FLOOR BACK: the world's rebake takes the stitched floor only for this station at this edit revision
+let seqNow=7;const handedSt={getSeq:()=>seqNow},frameOf={W:10,H:5,origin:{tx:-3,ty:2}},stitched={W:10,H:5,origin:{tx:-3,ty:2},tag:'stitched'};
+Object.assign(render,{station:handedSt,geo:frameOf,geoDirty:false});
+render.handedBake={station:handedSt,seq:7,bake:stitched};
+const paintedBefore=painted;render.rebake();
+assert.equal(render.cache,stitched,'the stitched floor becomes the world bake');
+assert.equal(painted,paintedBefore,'…without baking the station again');
+assert.equal(render.handedBake,null,'…and the offer is spent');
+render.handedBake={station:handedSt,seq:7,bake:stitched};seqNow=8;render.rebake();
+assert.ok(render.cache!==stitched&&painted===paintedBefore+1,'a floor edited since the offer bakes for itself');
+render.handedBake={station:{getSeq:()=>8},seq:8,bake:stitched};render.rebake();
+assert.ok(render.cache!==stitched&&painted===paintedBefore+2,'another station\'s floor is never taken');
+render.handedBake={station:handedSt,seq:8,bake:Object.assign({},stitched,{H:6})};render.rebake();
+assert.ok(render.cache.tag!=='stitched'&&painted===paintedBefore+3,'nor one of another size');
+const worldStart=fnBody(world,'function start(');
+assert.ok(/frame\(last\);\s*handedBake = null;/.test(worldStart),'start() lets the offer live for its first frame only');
+const buildClose=fnBody(build,'function close(');
+assert.ok(buildClose.indexOf('adoptBuildBake')>0&&buildClose.indexOf('adoptBuildBake')<buildClose.indexOf('opts.world.start()'),'BUILD MODE offers its floor before the world starts again');
+assert.ok(/!bakeDirty/.test(buildClose.slice(0,buildClose.lastIndexOf('adoptBuildBake'))),'…and only with nothing left to bake');
 console.log('render-only Build publication boundaries PASS');
 assert.equal(require('./_assert').fails(),0,'shared assertion helpers have no pending failures');

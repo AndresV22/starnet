@@ -757,6 +757,7 @@ const StationBake = (() => {
      sharper after an edit than before it. Every bake of a station now paints at the station's own density, quantised
      to 1/128 so a chunk edge (CHUNK_PX * k/128 = 3k plate pixels) always lands on whole plate pixels — which is what
      lets a chunk be CUT from the whole-station plate instead of re-baked (see slicedChunks). */
+  const fixtureOpts = () => ({ wallUp: WALL.up, corUp: WALL.corUp, infillFixtures: projectionPresentation });
   const detailRef = () => ({ scale: Math.floor(Math.min(6, 4096 / Math.max(W, H, 1)) * 128) / 128 });
   const rectCulled = r => !!cullBox && ((r.x2 + 1) * T < cullBox[0] || r.x1 * T > cullBox[2] || (r.y2 + 1) * T < cullBox[1] || r.y1 * T > cullBox[3]);
   const tileCulled = (tx, ty) => !!cullBox && ((tx + 1) * T < cullBox[0] || tx * T > cullBox[2] || (ty + 1) * T < cullBox[1] || ty * T > cullBox[3]);
@@ -5127,7 +5128,7 @@ const StationBake = (() => {
 
     bakeRoomLighting(b);   // after the chamfers, so a rounded corner is lit like every other surface
     if (nextSurfaces() && WorldSurface.paintFixtures) wallFixtures = WorldSurface.paintFixtures(b, G,
-      { wallUp: WALL.up, corUp: WALL.corUp, infillFixtures: projectionPresentation, viewport: { x: VX, y: VY, w: CW, h: CH } });
+      Object.assign(fixtureOpts(), { viewport: { x: VX, y: VY, w: CW, h: CH } }));
 
     // faint room name plates (the v7 floor-code stencil, generalized)
     b.font = "7px 'VT323','Courier New',monospace"; b.fillStyle = 'rgba(255,255,255,0.07)'; b.textAlign = 'left';
@@ -5272,7 +5273,8 @@ const StationBake = (() => {
     const { lightCv, interiorCv, flickers, lamps } = buildLightMap();
     const navLights = hullNavLights(baseCv, interiorCv), interiorPath = interiorLightPath(interiorCv);
     const doorOccluders = buildDoorOccluders(baseCv);
-    return { baseCv, lightCv, interiorCv, interiorPath, navLights, doorOccluders, W: geo.W, H: geo.H, origin: geo.origin, flickers, lamps, wallFixtures, viewport: viewport || { x: 0, y: 0, w: geo.W, h: geo.H } };
+    return { baseCv, lightCv, interiorCv, interiorPath, navLights, doorOccluders, W: geo.W, H: geo.H, origin: geo.origin, flickers, lamps, wallFixtures,
+      viewport: viewport || { x: 0, y: 0, w: geo.W, h: geo.H }, doorRecords: doorOcclusion, glassRects: viewportRects };
   }
 
   function bake(geo) {
@@ -5365,7 +5367,8 @@ const StationBake = (() => {
     const baked = bakeViewport(geo, viewport);
     return { key: chunkKey(cx, cy), cx, cy, x: viewport.x, y: viewport.y, w: viewport.w, h: viewport.h,
       baseCv: baked.baseCv, lightCv: baked.lightCv, interiorCv: baked.interiorCv,
-      flickers: baked.flickers, lamps: baked.lamps || [], wallFixtures: baked.wallFixtures || [], usedAt: usedAt || 0 };
+      flickers: baked.flickers, lamps: baked.lamps || [], wallFixtures: baked.wallFixtures || [], usedAt: usedAt || 0,
+      doorRecords: baked.doorRecords || null, glassRects: baked.glassRects || null };
   }
   function pruneChunkMap(chunkMap, maxRetainedChunks, requiredKeys) {
     if (!maxRetainedChunks || chunkMap.size <= maxRetainedChunks) return { evicted: 0 };
@@ -5431,7 +5434,8 @@ const StationBake = (() => {
       if (typeof IndustrialTextures !== 'undefined' && IndustrialTextures.cropBase && !IndustrialTextures.cropBase(prev.baseCv, baseCv, v.x, v.y)) continue;
       out.set(chunkKey(cx, cy), { key: chunkKey(cx, cy), cx, cy, x: v.x, y: v.y, w: v.w, h: v.h,
         baseCv, lightCv: cut(prev.lightCv, v), interiorCv: cut(prev.interiorCv, v),
-        flickers: prev.flickers || [], lamps: prev.lamps || [], wallFixtures: prev.wallFixtures || [], usedAt: 0 });
+        flickers: prev.flickers || [], lamps: prev.lamps || [], wallFixtures: prev.wallFixtures || [], usedAt: 0,
+        doorRecords: prev.doorRecords || null, glassRects: prev.glassRects || null });
     }
     return out;
   }
@@ -5451,7 +5455,8 @@ const StationBake = (() => {
     if ((!reuse || everything) && visible) dirty = dirty.filter(d => visibleKeys.has(d.key));
     // with no viewport the caller wants the whole floor, like a cold bake: chunks a grown frame dropped or added fill in too
     if (grown && !visible) for (const d of dirtyChunks(geo, [])) if (!chunkMap.has(d.key) && !dirty.some(x => x.key === d.key)) dirty.push(d);
-    for (const d of dirty) chunkMap.set(d.key, bakeChunk(geo, d.cx, d.cy, generation));
+    const bakedNow = [];
+    for (const d of dirty) { const c = bakeChunk(geo, d.cx, d.cy, generation); chunkMap.set(d.key, c); bakedNow.push(c); }
     const requiredKeys = new Set(dirty.map(d => d.key));
     let visibleBaked = 0;
     for (const v of (visible || [])) {
@@ -5459,20 +5464,68 @@ const StationBake = (() => {
       const existing = chunkMap.get(v.key);
       if (existing) existing.usedAt = generation;
       else {
-        chunkMap.set(v.key, bakeChunk(geo, v.cx, v.cy, generation));
+        const c = bakeChunk(geo, v.cx, v.cy, generation);
+        chunkMap.set(v.key, c); bakedNow.push(c);
         visibleBaked++;
       }
     }
     const pruned = pruneChunkMap(chunkMap, opts.maxRetainedChunks, requiredKeys);
     const chunks = Array.from(chunkMap.values()).sort((a, b) => (a.cy - b.cy) || (a.cx - b.cx));
+    /* THE LIGHTS ARE THE FLOOR'S NOW, NOT EVERY FLOOR A CHUNK EVER SAW (2026-10-13). Every chunk bake lists the lamps,
+       flickers and wall fixtures of the WHOLE station as it stood when that chunk baked, and the cache used to be the union
+       of all of them — so a room removed (or moved) in BUILD MODE kept its lamps and fixtures lit from every chunk the
+       edit did not reach (3 phantom lamps + 3 fixtures and 116 flickers for 69 after removing one room on the demo
+       station). The lists now come from the chunks baked in THIS call (all of them baked against this floor), else they
+       carry over unchanged from the cache this one continues (nothing re-baked = nothing moved), else the union. */
+    const carried = !bakedNow.length && reuse && previous && previous.lamps && previous.flickers && previous.wallFixtures;
+    const lists = field => bakedNow.length ? uniqueFlickers(bakedNow, field) : carried ? previous[field || 'flickers'] : uniqueFlickers(chunks, field);
     return {
       chunked: true, chunks, chunkMap, chunkPx: CHUNK_PX, generation,
-      W: geo.W, H: geo.H, origin: geo.origin, flickers: uniqueFlickers(chunks), lamps: uniqueFlickers(chunks, 'lamps'),
-      wallFixtures: uniqueFlickers(chunks, 'wallFixtures'),
+      W: geo.W, H: geo.H, origin: geo.origin, flickers: lists(), lamps: lists('lamps'),
+      wallFixtures: lists('wallFixtures'),
       stats: { chunkCount: chunks.length, rebakedChunks: dirty.length + visibleBaked, reusedChunks: reuse ? Math.max(0, chunks.length - dirty.length - visibleBaked) : 0,
         dirtyChunks: dirty.map(d => d.key), visibleChunks: visible ? Array.from(visibleKeys) : null,
         evictedChunks: pruned.evicted, fullReset: !reuse }
     };
+  }
+
+  /* BUILD MODE HANDS ITS FLOOR BACK (2026-10-13, Andrew: "a huge delay in build mode"). Leaving BUILD MODE after a room
+     edit re-baked the whole station for the live world (~2.3 s of SAVE & EXIT on the demo station) although BUILD MODE
+     had just painted every chunk of it. When its chunk set covers the floor exactly — every chunk present, in this frame,
+     each showing the wall-fixture housings this floor's plan puts in its rect NOW (furniture reaches the bake only
+     through that plan; every other edit re-baked the chunks it reaches) — the chunks are stitched into one whole-station bake instead: 1:1 copies of their canvases and dense plates, plus the
+     parts only a whole bake has (door occluders, nav lights, the interior clip), built from the stitched pixels. Anything
+     less returns null and the world bakes as before. */
+  // the housings a bake paints into one chunk rect (WorldSurface.paintFixtures' own cull), as a comparable key
+  const paintedIn = (fx, c) => (fx || []).filter(f => !(f.fixtureX + 5 <= c.x || f.fixtureX - 5 >= c.x + c.w || f.fixtureY + 6 <= c.y || f.fixtureY - 2 >= c.y + c.h))
+    .map(f => f.id + '@' + f.fixtureX + ',' + f.fixtureY + ':' + f.base).sort().join(';');
+  function stitchWhole(geo, baked) {
+    if (!baked || !baked.chunked || !sameChunkFrame(baked, geo)) return null;
+    const grid = chunkGrid(geo), cells = [];
+    for (let cy = 0; cy < grid.rows; cy++) for (let cx = 0; cx < grid.cols; cx++) {
+      const c = baked.chunkMap.get(chunkKey(cx, cy)), v = chunkViewport(geo, cx, cy);
+      if (!c || c.x !== v.x || c.y !== v.y || c.w !== v.w || c.h !== v.h || !c.baseCv || !c.lightCv || !c.doorRecords || !c.glassRects) return null;
+      cells.push(c);
+    }
+    if (!setBakeState(geo, null)) return null;
+    const plan = nextSurfaces() && WorldSurface.paintFixtures ? WorldSurface.paintFixtures(null, G, fixtureOpts()) : [];
+    if (cells.some(c => paintedIn(c.wallFixtures, c) !== paintedIn(plan, c))) return null;
+    const baseCv = canvas(W, H), lightCv = canvas(W, H), interiorCv = canvas(W, H);
+    for (const [cv, field] of [[baseCv, 'baseCv'], [lightCv, 'lightCv'], [interiorCv, 'interiorCv']]) {
+      const g = cv.getContext('2d'); g.imageSmoothingEnabled = false;
+      for (const c of cells) if (c[field]) g.drawImage(c[field], c.x, c.y);
+    }
+    if (typeof IndustrialTextures !== 'undefined' && IndustrialTextures.stitchBase &&
+      !IndustrialTextures.stitchBase(baseCv, cells.map(c => ({ cv: c.baseCv, x: c.x, y: c.y })))) return null;
+    const seen = new Set(), unique = (list, key) => list.filter(d => { const k = key(d); if (seen.has(k)) return false; seen.add(k); return true; });
+    doorOcclusion = unique([].concat(...cells.map(c => c.doorRecords)), d => 'd' + d.x + ',' + d.y + ',' + d.w + ',' + d.h + ',' + d.sortY);
+    viewportRects = unique([].concat(...cells.map(c => c.glassRects)), v => 'g' + v.x + ',' + v.y + ',' + v.w + ',' + v.h);
+    lampPos = []; wallFixtures = plan;
+    const navLights = hullNavLights(baseCv, interiorCv), interiorPath = interiorLightPath(interiorCv);
+    const doorOccluders = buildDoorOccluders(baseCv);
+    return { baseCv, lightCv, interiorCv, interiorPath, navLights, doorOccluders, W: geo.W, H: geo.H, origin: geo.origin,
+      flickers: baked.flickers, lamps: baked.lamps, wallFixtures, viewport: { x: 0, y: 0, w: geo.W, h: geo.H },
+      doorRecords: doorOcclusion, glassRects: viewportRects, stitched: true };
   }
 
   function drawBase(ctx, baked, ox, oy, visibleRect) {
@@ -5574,7 +5627,7 @@ const StationBake = (() => {
      doorway and keeps its sill, track, guide ticks and light spill. */
   const seamOpenJoins = geo => [...classifyJoins(geo)].sort();
 
-  return { bake, bakeIncremental, dirtyChunks, visibleChunks, missingVisibleChunks, drawBase, drawLight, sampleMaterial, sampleWall, sampleHull, seamOpenJoins, wallFloorShadow, CHUNK_PX, LIGHT, WALL, DEPTH, SHAPE, get HULL_EXPOSURE() { return hullLit(); }, hullRampExposure };
+  return { bake, bakeIncremental, stitchWhole, dirtyChunks, visibleChunks, missingVisibleChunks, drawBase, drawLight, sampleMaterial, sampleWall, sampleHull, seamOpenJoins, wallFloorShadow, CHUNK_PX, LIGHT, WALL, DEPTH, SHAPE, get HULL_EXPOSURE() { return hullLit(); }, hullRampExposure };
 })();
 
 if (typeof module !== 'undefined' && module.exports) module.exports = StationBake;

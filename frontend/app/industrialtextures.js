@@ -216,6 +216,22 @@ const IndustrialTextures = (() => {
     if (cv.addEventListener) cv.addEventListener('contextlost', () => plates.delete(dst), { once: true });
     return true;
   }
+  // ...and the way back: one plate for `dst` made of its pieces' plates, each copied 1:1 at (x, y) * scale. Refused (false,
+  // nothing registered) unless every piece has a plate of one scale that lands on whole plate pixels; true with nothing to
+  // do when no piece has a plate.
+  function stitchBase(dst, pieces) {
+    const plated = enabled() ? pieces.map(p => plates.get(p.cv)) : [];
+    if (!plated.some(Boolean)) return true;
+    if (!plated.every(Boolean)) return false;
+    const scale = plateScales.get(plated[0]);
+    if (!(scale > 0) || plated.some(hi => plateScales.get(hi) !== scale) || pieces.some(p => !Number.isInteger(p.x * scale) || !Number.isInteger(p.y * scale))) return false;
+    const cv = document.createElement('canvas'); cv.width = Math.ceil(dst.width * scale); cv.height = Math.ceil(dst.height * scale);
+    const g = cv.getContext('2d'); g.imageSmoothingEnabled = false;
+    pieces.forEach((p, i) => g.drawImage(plated[i], p.x * scale, p.y * scale));
+    plates.set(dst, cv); plateScales.set(cv, scale);
+    if (cv.addEventListener) cv.addEventListener('contextlost', () => plates.delete(dst), { once: true });
+    return true;
+  }
   function drawBase(ctx, cv, x = 0, y = 0) {
     const hi = enabled() && plates.get(cv);
     if (!hi) return false;
@@ -562,7 +578,7 @@ const IndustrialTextures = (() => {
     ctx.drawImage(im, x + (w - dw) / 2, y + h - dh, dw, dh);
     ctx.restore(); return true;
   }
-  return Object.freeze({ ready, enabled, isRemaster, lighting, detailContext, cropBase, baseLayers, discardBaseLayer, restoreMaterials, _dbgLoseMaterials, drawBase, floor, wall, wallStrip, wallPatch, crown, doorReturn, viewportFrame, shell, shellPlate, propPanel, workstation, workstationEmitter, chair, crate,
+  return Object.freeze({ ready, enabled, isRemaster, lighting, detailContext, cropBase, stitchBase, baseLayers, discardBaseLayer, restoreMaterials, _dbgLoseMaterials, drawBase, floor, wall, wallStrip, wallPatch, crown, doorReturn, viewportFrame, shell, shellPlate, propPanel, workstation, workstationEmitter, chair, crate,
     furniture, supportsWall: id => enabled() && (wallIds.includes(id)||wallMaterials.includes(id)),
     status: () => ({ requested, loaded, failed: failed.slice(), assets: Object.keys(images) }) });
 })();

@@ -347,6 +347,31 @@ A.eq(firstGrown.stats.reusedChunks, 3, '…cutting the row the new size leaves u
 A.eq(pixelDiff(composeLayer(firstGrown, 'base'), grownMono.baseCv), 0, '…and the composite is the grown floor, pixel for pixel');
 A.eq(pixelDiff(composeLayer(firstGrown, 'light'), grownMono.lightCv), 0, '…its light too');
 A.eq(StationBake.bakeIncremental(movedOrigin, wholeBefore, [northRoom]).stats.fullReset, true, 'an origin move still bakes every chunk');
+/* THE LIGHTS ARE THE FLOOR'S NOW (2026-10-13): every chunk lists the whole station's lamps as they stood when it baked —
+   removing a room in-frame must take its lamps out of the cache, even from chunks the edit never reached. */
+const sideRoom = { z: 'r3', x1: 4, y1: 30, x2: 14, y2: 40 };
+const twoRooms = StationBake.bakeIncremental(roomsGeo([northRoom, sideRoom], 52), null, null);
+const oneRoomGeo = roomsGeo([northRoom], 52), freshOne = StationBake.bakeIncremental(oneRoomGeo, null, null);
+A.ok(twoRooms.lamps.length > freshOne.lamps.length, 'the second room has lamps of its own');
+const roomGone = StationBake.bakeIncremental(oneRoomGeo, twoRooms, [sideRoom]);
+A.ok(roomGone.stats.reusedChunks > 0, 'removing it keeps the chunks it never reached');
+A.eq([roomGone.lamps.length, roomGone.flickers.length], [freshOne.lamps.length, freshOne.flickers.length], '…and its lamps and flickers go with it');
+A.eq(StationBake.bakeIncremental(oneRoomGeo, roomGone, null, { visibleRect: { x: 0, y: 0, w: 384, h: 384 }, onlyMissingVisible: true }).lamps.length,
+  freshOne.lamps.length, 'a pan that bakes nothing carries the lists over unchanged');
+
+/* BUILD MODE HANDS ITS FLOOR BACK (2026-10-13): a chunk set that covers the floor stitches into the whole-station bake the
+   live world takes on SAVE & EXIT, pixel for pixel; one with holes, or from another frame, is refused (the world bakes). */
+const handedBack = StationBake.stitchWhole(before, firstSame);
+A.ok(handedBack && handedBack.stitched, 'a complete chunk set stitches into one whole-station bake');
+A.eq(pixelDiff(handedBack.baseCv, wholeBefore.baseCv), 0, '…its base is the whole-station bake');
+A.eq(pixelDiff(handedBack.lightCv, wholeBefore.lightCv), 0, '…and so is its light');
+A.eq([handedBack.W, handedBack.H, handedBack.lamps.length, handedBack.doorOccluders.length],
+  [wholeBefore.W, wholeBefore.H, wholeBefore.lamps.length, wholeBefore.doorOccluders.length], '…with the same frame, lamps and door occluders');
+const grownHandedBack = StationBake.stitchWhole(grownGeo, firstGrown);
+A.ok(grownHandedBack && pixelDiff(grownHandedBack.baseCv, grownMono.baseCv) === 0, 'a grown floor hands back its grown whole bake');
+const holes = StationBake.bakeIncremental(before, null, [], { visibleRect: { x: 0, y: 0, w: 384, h: 384 } });
+A.eq(StationBake.stitchWhole(before, holes), null, 'a chunk set with holes is refused');
+A.eq(StationBake.stitchWhole(grownGeo, firstSame), null, '…and so is one baked in another frame');
 
 // A CHUNK PAINTS ONLY WHAT CAN REACH IT: far-apart rounded rooms, chunked == monolithic
 const spread = roomsGeo([{ z: 'a', x1: 2, y1: 3, x2: 12, y2: 12 }, { z: 'b', x1: 52, y1: 3, x2: 70, y2: 14 }, { z: 'c', x1: 20, y1: 36, x2: 40, y2: 48 }], 52, true);

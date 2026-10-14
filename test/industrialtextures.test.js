@@ -197,6 +197,14 @@ async function main() {
     ok(!api.cropBase(odd,refused,1,0),'a cut off the plate grid is refused (the caller bakes that chunk instead)');
     equal(api.baseLayers(refused).length,0,'…and nothing is registered for it');
     ok(api.cropBase(canvas(4,4),canvas(2,2),0,0),'a bake without a plate needs nothing cut');
+    // ...and the way back: the pieces stitch into one plate, the very one they were cut from
+    const left=canvas(8,8); ok(api.cropBase(whole,left,0,0));
+    const back=canvas(16,8);
+    ok(api.stitchBase(back,[{cv:left,x:0,y:0},{cv:piece,x:8,y:0}]),'cut pieces stitch back into one plate');
+    equal(Buffer.from(api.baseLayers(back)[0].pixels),Buffer.from(plate.pixels),'…the very plate they were cut from');
+    const unplated=canvas(16,8);
+    ok(!api.stitchBase(unplated,[{cv:left,x:0,y:0},{cv:canvas(8,8),x:8,y:0}]),'a piece without a plate is refused');
+    equal(api.baseLayers(unplated).length,0,'…and nothing is registered for it');
   }
 
   const black=draw(api,'floor',0,0,12,0,0,'plate','#111111'), gray=draw(api,'floor',0,0,12,0,0,'plate','#888888');
