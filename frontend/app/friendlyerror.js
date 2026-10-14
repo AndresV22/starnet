@@ -612,11 +612,11 @@
       // provider's *_not_connected code); a sign-in that died mid-life keeps the reconnect wording. The door
       // reads SIGN IN vs RECONNECT off `signedOut` (actionButton).
       const signedOut = /not signed in|not[ _-]?connected|sign in to [a-z0-9 ()]+ first|connect chatgpt first/.test(low);
-      const userMessage = !nm ? (signedOut ? 'No ChatGPT sign-in yet — sign in under SETTINGS → AI & MODELS → CHATGPT (CODEX), or add a provider key instead.' : k.msg)
+      const userMessage = !nm ? (signedOut ? 'No ChatGPT sign-in yet — sign in under SETTINGS → AI\u00a0&\u00a0MODELS → CHATGPT\u00a0(CODEX), or add a provider key.' : k.msg)
         : !signedOut ? ('Your ' + nm + ' sign-in expired — reconnect it (or add a provider key instead).')
         : provider === 'grok'
-          ? "Grok isn't signed in yet — sign in with your SuperGrok or X Premium+ account under SETTINGS → AI & MODELS → GROK (XAI), or add an xAI API key instead."
-          : "Kimi isn't signed in yet — sign in with your Kimi account under SETTINGS → AI & MODELS → KIMI FOR CODING, or add a provider key instead.";
+          ? "Grok isn't signed in yet — sign in with your SuperGrok or X Premium+ account under SETTINGS → AI\u00a0&\u00a0MODELS → GROK\u00a0(XAI), or add an xAI API key instead."
+          : "Kimi isn't signed in yet — sign in with your Kimi account under SETTINGS → AI\u00a0&\u00a0MODELS → KIMI\u00a0FOR\u00a0CODING, or add a provider key instead.";
       return { userMessage: userMessage, kind: kind, retryable: k.retryable, action: k.action, provider: provider, signedOut: signedOut, raw: raw };
     }
     // auth: say WHICH credential is missing, or that the provider REJECTED one. "No model is connected yet" is only
