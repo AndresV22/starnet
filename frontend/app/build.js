@@ -1536,19 +1536,16 @@ const Build = (() => {
       pal.appendChild(secs);
       if (convSection === 'machines') pal.appendChild(machinePalette());
       else {
-        /* BUILD YOUR OWN (conveyor-links phase D): an INBOX, one step and an OUTBOX laid on clear floor in view, with its Workflow
-           panel open — where steps, branches, review loops and sorters are added, every change one UNDO */
-        if (typeof LineEdit !== 'undefined') {
-          const own = document.createElement('button'); own.type = 'button'; own.className = 'bb refit-ownline';
-          own.textContent = '＋ BUILD YOUR OWN LINE';
-          own.dataset.tip = 'an INBOX, one step and an OUTBOX, placed in view — then add steps, branches and review loops from its Workflow panel';
-          own.onclick = () => {
-            const r = lineEditRun('newLine', null, {});
-            if (r && r.ok) { sfx('chime'); flashTip(null, 'a new line: INBOX → a step → OUTBOX · UNDO removes it', true); openWorkflowPanel(r.focus); }
-            else { sfx('bad'); flashTip(null, (r && r.msg) || 'there is no clear floor for a new line here', false); }
-          };
-          pal.appendChild(own);
-        }
+        /* BUILD YOUR OWN (conveyor-links phase D) — the Commander places the line, the station never does (Andrew 2026-10-13: "it
+           should open the menu and automatically choose for the user to place an inbox, where they can click wherever they want to
+           place it. Not automatically place it for the user"). The key puts an INBOX IN HAND (startNewLine — the hotbar's own hand,
+           its ghost on the pointer); the click places it where they choose, and the line grows the hand's way from there. */
+        const own = document.createElement('button'); own.type = 'button'; own.className = 'bb refit-ownline' + (hand && hand.newLine ? ' active' : '');
+        own.setAttribute('aria-pressed', String(!!(hand && hand.newLine)));
+        own.textContent = '＋ BUILD YOUR OWN LINE';
+        own.dataset.tip = 'Hold an INBOX: click the floor where your line starts, then drag from it to lay the belt to its next piece';
+        own.onclick = () => startNewLine();
+        pal.appendChild(own);
         const grid = document.createElement('div'); grid.className = 'refit-linegrid';
         grid.setAttribute('aria-label', 'Line library');
         /* START FROM INTENT (2026-09-28): the ready-made line with the SHAPE of the Commander's own goal leads the shelf; its tip
@@ -1806,6 +1803,15 @@ const Build = (() => {
     if (!(o && o.silent)) sfx('click');
   }
   const toggleHand = t => setHand(hand && hand.t === t && !hand.agentId && !hand.cfg ? null : { t });
+  /* NEW LINE = AN INBOX IN HAND (Andrew 2026-10-13). BUILD YOUR OWN LINE used to lay INBOX → BAY → OUTBOX itself, near the middle of
+     the view; now nothing lands until the Commander clicks: the INBOX rides the pointer as the hand's ghost, a click on clear floor
+     places it THERE (commitPropStamp), and Esc / right-click puts it down with nothing placed. `newLine` marks it one-shot: once it
+     lands the hand empties, so the next drag FROM the INBOX lays its belt and letting go on clear floor offers the next piece (PICK
+     WHAT GOES HERE) — the hand's own way to grow a line, nothing laid for them. */
+  function startNewLine() {
+    setHand({ t: 'intake', newLine: true });
+    hidePropCard();
+  }
   // THE HOTBAR: the conveyor pieces, art + name (the sentence is the hover tip — no sentences under tiles), its key in the corner
   function hotbarEl() {
     const wrap = document.createElement('div'); wrap.className = 'refit-hotbar-wrap';
@@ -1852,6 +1858,7 @@ const Build = (() => {
   function paintHandKeys() {
     if (!root) return;
     root.querySelectorAll('.refit-hotslot').forEach(b => { const on = !!hand && b.dataset.hot === hand.t; b.classList.toggle('active', on); b.setAttribute('aria-pressed', String(on)); });
+    root.querySelectorAll('.refit-ownline').forEach(b => { const on = !!(hand && hand.newLine); b.classList.toggle('active', on); b.setAttribute('aria-pressed', String(on)); });
     root.querySelectorAll('.refit-machinetile').forEach(b => { const on = (!!hand && b.dataset.machine === hand.t) || (tool === 'prop' && propType === b.dataset.machine); b.classList.toggle('active', on); b.setAttribute('aria-pressed', String(on)); });
     const lit = { remove: touchArm === 'remove', pipette: touchArm === 'pipette', corner: flipPref, alt: altLatched };
     root.querySelectorAll('.refit-handkey').forEach(b => { const on = !!lit[b.dataset.handkey]; b.classList.toggle('active', on); b.setAttribute('aria-pressed', String(on)); });
@@ -2637,7 +2644,8 @@ const Build = (() => {
     if (tool === 'select' && buildGroup === 'props') verb = 'Pick a prop, then click the floor to place it · click a placed one to edit it';
     if (tool === 'select' && buildGroup === 'workflow') verb = 'Drag a machine onto another to belt them · click a piece, then drag it onto open floor to move it · drag a belt to branch it · 1–8 pick a piece · Q picks up the one under the pointer · right-click removes · hold Alt to see every setting';
     // THE HAND: what is held, what a click does with it, and how to put it down (or what the armed dock key's next tap does)
-    if (tool === 'select' && hand) verb = 'Holding ' + propLabel(hand.t) + (hand.agentId ? ' (crewed by ' + agentLabel(hand.agentId) + ')' : '') + ' · click to place it' + (JUNCTION_TAG_TYPES[hand.t] ? ' · click a belt to put it on that line' : '') + ' · right-click or Esc puts it down';
+    if (tool === 'select' && hand && hand.newLine) verb = 'Click where your line starts · Esc cancels';   // (the dock's hint bar shows ~45 characters; right-click cancels too)
+    else if (tool === 'select' && hand) verb = 'Holding ' + propLabel(hand.t) + (hand.agentId ? ' (crewed by ' + agentLabel(hand.agentId) + ')' : '') + ' · click to place it' + (JUNCTION_TAG_TYPES[hand.t] ? ' · click a belt to put it on that line' : '') + ' · right-click or Esc puts it down';
     if (tool === 'dupe' && dupe && dupe.type === 'lines') verb = 'Holding ' + dupe.label + ' · click to place a copy (it stays in hand) · R turns it · right-click or Esc puts it down';   // THE HAND part 2
     if (tool === 'select' && touchArm === 'remove') verb = 'REMOVE · tap a conveyor piece or a belt to remove it · tap REMOVE again to stop';
     if (tool === 'select' && touchArm === 'pipette') verb = 'PICK UP · tap a piece to hold one like it · tap PICK UP again to stop';
@@ -6276,6 +6284,10 @@ const Build = (() => {
       // Configuration is a separate, explicit click on the placed object.
     }
     if (res && res.ok) renderEquipmentInfo(propType);
+    if (res && res.ok && held && held.newLine) {   // NEW LINE (startNewLine): one INBOX, where they clicked — then the hand's way on
+      setHand(null, { silent: true });
+      return feedback(res, ev, 'INBOX PLACED · DRAG FROM IT TO LAY YOUR LINE');
+    }
     if (res && res.ok && WORKSTATION_TYPES[propType]) {
       if (owner) { deskOwner = null; setHint(); }   // the next desk dropped is nobody's until picked
       selectedPropId = res.id; renderSelection();   // the tool stays armed; the new desk's card asks who sits there
