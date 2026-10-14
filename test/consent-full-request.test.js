@@ -63,6 +63,23 @@ test('the desk card: a glance line in the phrase, the whole request in INSPECT',
   assert.equal(card.actionPhrase({ tool: 'team.dispatch', argsSummary: '{"background":true,"workers":[{"agentId":"researcher","prompt":"a"},{"agentId":"writer","prompt":"b"},{"agentId":"designer","pro' }),
     'hand work to researcher, writer and designer (in the background)');
   assert.equal(card.actionPhrase({ tool: 'team.dispatch', argsSummary: '{"background":false}' }), 'hand work to the crew');
+  /* THE CARD SAYS WHO GETS WHAT (rc walk 10-14: "NOVA wants to hand work to COPY and STRATEGY", the tasks raw JSON under
+     Inspect). On the card itself each worker's task rides beside its name; every other surface keeps the short line. */
+  const launch = { tool: 'team.dispatch', argsSummary: JSON.stringify({ background: true, workers: [
+    { agentId: 'copywriter', prompt: 'Write a launch post for StarNet 0.13.5, a local-first AI agent station with a pixel-art UI. Keep it under 120 words.' },
+    { agentId: 'strategist', prompt: 'Critique the positioning.\nName the one claim to cut.' }] }, null, 2) };
+  assert.equal(card.actionPhrase(launch, true), 'hand copywriter “Write a launch post for StarNet 0.13.5, a local-first AI agent…” and strategist “Critique the positioning” (in the background)');
+  assert.equal(card.actionPhrase(launch), 'hand work to copywriter and strategist (in the background)', 'toasts, the bell and NEEDS YOU keep the short line');
+  const four = { tool: 'team.dispatch', argsSummary: JSON.stringify({ workers: ['a', 'b', 'c', 'd'].map(id => ({ agentId: id, prompt: 'Task for ' + id + ' with a fairly long description that keeps going' })) }) };
+  const many = card.actionPhrase(four, true);
+  assert.match(many, /^hand a “Task for a with a fairly long description…”, b “[^”]+”, c “[^”]+” and 1 more$/, 'four workers: three tasks and a count, never a wall: ' + many);
+  assert.equal(card.actionPhrase({ tool: 'team.dispatch', argsSummary: '{"background":true,"workers":[{"agentId":"researcher","prompt":"a"},{"agentId":"wri' }, true),
+    'hand work to researcher (in the background)', 'a capped summary falls back to the names it can read');
+  assert.equal(card.actionPhrase({ tool: 'team.spawn', argsSummary: JSON.stringify({ tasks: [{ prompt: 'Check the API docs.' }, { prompt: 'Check the SDK.' }] }) }, true),
+    'run 2 copies of itself on “Check the API docs” and “Check the SDK”', 'a spawn is copies of the lead, never "the crew"');
+  // a goal loop says what it repeats toward (it read "use loop create: …")
+  assert.equal(card.actionPhrase({ tool: 'loop.create', argsSummary: JSON.stringify({ objective: 'Write and refine the final 2-sentence launch post', exitOn: 'never' }) }),
+    'start a goal loop: Write and refine the final 2-sentence launch post');
 });
 
 test('cards the sidecar words itself, and a short bare value, get no panel; file changes keep theirs', () => {

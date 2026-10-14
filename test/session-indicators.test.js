@@ -158,7 +158,15 @@ A.ok(!context.railRowTip(savedA, row(savedA), true).includes('right-click'), 'pr
   A.eq(decl('body:not(.rows-inbox) #workstreams .ws-agent.ws-agent-group', 'font-size'), '12px', 'the compact crew line is the INBOX line’s readable size, not a shrunken chip');
   const grid = 'body:not(.rows-inbox) #workstreams .ws-row:has(> .ws-agent-group)';
   A.eq(decl(grid, 'display'), 'grid', 'a compact group row lays the identity on its own line');
-  A.ok(/"dot agent pin meta"\s*"title title title title"/.test(decl(grid, 'grid-template-areas') || ''), 'names sit above the full-width title');
+  // the names own the whole first line; the row's time/status ends the title line (rc walk 10-14: "NOVA, … +1  Working")
+  A.ok(/"dot agent agent agent"\s*"title title pin meta"/.test(decl(grid, 'grid-template-areas') || ''), 'names take the whole first line; the pin and status end the title line (no shared cell can widen under the names)');
+  A.ok(/"dot agent agent agent"\s*"title title pin meta"\s*"recpt recpt recpt recpt"/.test(decl('body.rows-inbox #workstreams .ws-row:has(> .ws-agent-group)', 'grid-template-areas') || ''),
+    'INBOX: a group row\'s names own the top line too (a "Connecting" status squeezed them to 0px)');
+  // the shipped glass INBOX look (pipglass.css) lays its own rows: the same law there, and two real names too wide for the
+  // rail at headline size wrap at a space instead of ending in "…"
+  const glass = fs.readFileSync(path.join(__dirname, '../frontend/css/pipglass.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+  A.ok(/\.ws-row:not\(\.attn\):has\(> \.ws-agent-group\) \{\s*grid-template-areas:\s*"dot agent agent agent"\s*"\.\s+title pin\s+meta";/.test(glass), 'glass INBOX: the names own line 1, the pin and status end the title line');
+  A.ok(/\.ws-agent-group > \.ws-agent-names \{ display: inline; white-space: normal; overflow: visible; text-overflow: clip; \}/.test(glass), 'glass INBOX: the names wrap, never ellipsize');
   const attn = 'body:not(.rows-inbox) #workstreams .ws-row.attn:has(> .ws-agent-group)';
   A.ok(/"\. meta meta menu"/.test(decl(attn, 'grid-template-areas') || ''), 'an attention group row keeps its request and its menu in separate cells');
   A.eq(decl(attn + ' > .ws-kebab', 'grid-area'), 'menu', 'the kebab takes the menu cell, not the request');

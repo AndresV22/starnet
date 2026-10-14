@@ -436,6 +436,11 @@ body #chat-panel #chat-log > .dg-line .dg-li.waiting .dg-li-st { color: var(--go
 body #chat-panel #chat-log > .dg-line .dg-li:is(.failed, .stopped) .dg-li-st { color: var(--bad); opacity: 1; }
 body #chat-panel #chat-log > .dg-line .dg-li > :is(.dg-key, .dg-keys) { grid-column: 4; grid-row: 1 / span 2; margin-left: 4px; }
 body #chat-panel #chat-log > .dg-line .dg-keys { display: flex; gap: 6px; }
+/* A WORKER WAITING ON YOU (rc walk 10-14: "Needs you · change taglin…" — its two answer keys took the width its ask needed):
+   the task and the ask take the whole row and the ask wraps rather than cut the path it names; the keys sit under them. */
+body #chat-panel #chat-log > .dg-line .dg-li.waiting .dg-li-task { grid-column: 3 / -1; }
+body #chat-panel #chat-log > .dg-line .dg-li.waiting .dg-li-st { grid-column: 3 / -1; white-space: normal; overflow-wrap: anywhere; }
+body #chat-panel #chat-log > .dg-line .dg-li.waiting > :is(.dg-key, .dg-keys) { grid-column: 3 / -1; grid-row: 3; justify-self: start; margin: 4px 0 0; }
 /* the key: the Build Library / Workflow panel glass key, at COMMS's 34px */
 body #chat-panel #chat-log .dg-line .dg-key {
   min-height: 34px; padding: 6px 14px; font-family: inherit; font-size: var(--sn-type-control) !important; line-height: 1.15; letter-spacing: .4px;
