@@ -76,7 +76,8 @@ const STRAT_REVIEW = 'Review the draft post. Approve if it is ready to ship, or 
   A.eq(SB.planNext(full.plan, names), null, 'a staffed plan keeps the usual next step');
   A.eq(SB.planNext({ steps: [] }, names), null, 'a plan with no steps (an edit, a room) keeps it too');
   const cmds = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'frontend', 'app', 'stationcommands.js'), 'utf8');
-  A.ok((cmds.match(/next: planNextOf\(p\.plan\)/g) || []).length === 3, 'the page hands it on for a line, a room and a build plan (the three that carry steps)');
+  const lineVerb = cmds.slice(cmds.indexOf("'station.plan_line': (a) => {"), cmds.indexOf("'station.plan_room': (a) => {"));
+  A.ok((cmds.match(/next: planNextOf\(p\.plan\)/g) || []).length === 1 && /next: planNextOf\(p\.plan\)/.test(lineVerb), 'the page hands it on for a line plan (the one whose request takes top-level steps)');
 }
 
 /* ---- 2. every refusal is actionable in one read: what was wrong, the accepted shape with an example, what fits ---- */

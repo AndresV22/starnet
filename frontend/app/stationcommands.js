@@ -577,7 +577,8 @@ const StationCommands = (() => {
   const builtWrite = (st, list) => { try { localStorage.setItem(builtKey(st), JSON.stringify(list.slice(-10))); } catch (_) {} };
   let planSeq = 0;
   const NEXT_STEP = 'Tell the Commander the summary in plain words, then call station.build with this planId. Nothing has been built yet.';
-  // a plan with nobody on a step says how to staff it in the same plan (StationBuilder.planNext), else the usual word
+  // a LINE plan with nobody on a step says how to staff it in the same plan (StationBuilder.planNext: its top-level steps), else the
+  // usual word; a room or build plan staffs a line inside its zones and lines (staff), so its receipt names the staff form instead
   const planNextOf = pl => (StationBuilder.planNext && StationBuilder.planNext(pl, (App.agents ? App.agents() : []).map(x => x && x.name).filter(Boolean))) || NEXT_STEP;
   function park(r) {
     if (!r || !r.ok) throw new Error((r && r.error) || 'the plan failed');
@@ -734,7 +735,7 @@ const StationCommands = (() => {
     'station.plan_room': (a) => {
       const { st, env } = builderReady(a);
       const p = park(StationBuilder.planRoom(st.serialize(), (a && a.request) || {}, env));
-      return { planId: p.planId, summary: p.plan.summary, rooms: p.plan.rooms, lines: p.plan.lines, steps: p.plan.steps, notes: p.plan.notes, expiresInMinutes: PLAN_TTL_MS / 60000, next: planNextOf(p.plan) };
+      return { planId: p.planId, summary: p.plan.summary, rooms: p.plan.rooms, lines: p.plan.lines, steps: p.plan.steps, notes: p.plan.notes, expiresInMinutes: PLAN_TTL_MS / 60000, next: NEXT_STEP };
     },
     /* THE SPATIAL BUILDER (2026-09-30): the lead SEES the floor (station.map: every room's place and size, what joins what,
        what fits where, the floor drawn in characters) and then says where rooms go in words — beside which room, on which
@@ -754,7 +755,7 @@ const StationCommands = (() => {
     'station.plan_build': (a) => {
       const { st, env } = builderReady(a);
       const p = park(StationBuilder.planBuild(st.serialize(), (a && a.request) || {}, env));
-      return { planId: p.planId, summary: p.plan.summary, rooms: p.plan.rooms, hallways: p.plan.hallways, lines: p.plan.lines, steps: p.plan.steps, notes: p.plan.notes, expiresInMinutes: PLAN_TTL_MS / 60000, next: planNextOf(p.plan) };
+      return { planId: p.planId, summary: p.plan.summary, rooms: p.plan.rooms, hallways: p.plan.hallways, lines: p.plan.lines, steps: p.plan.steps, notes: p.plan.notes, expiresInMinutes: PLAN_TTL_MS / 60000, next: NEXT_STEP };
     },
     // the one cosmetic change: a room's floor, material or name
     'station.plan_restyle': (a) => {
