@@ -4736,7 +4736,11 @@ const Chat = (() => {
         text.textContent = clean
           ? ('✔ job delivered — ' + who + ' finished the last step' + cost + '.' + (folded ? ' the result is on the OUTBOX.' : ''))
           : ('⚠ the job rode the line, but the run did not finish clean — the reply below says why.');
-        const reply = (j.replies && j.replies.length) ? plainQuote(j.replies[j.replies.length - 1], 220) : '';
+        // a long answer reaches the line's channel in chunks: a clean job is quoted from its OPENING words (where TO REVIEW's glance
+        // starts), never whichever chunk came last ('“All done.”' for a 5k answer, review 10-14); a job that did not finish clean
+        // is quoted by its last word — the reason the text above promises
+        const said = (j.replies && j.replies.length) ? (clean ? j.replies.join('\n') : j.replies[j.replies.length - 1]) : '';
+        const reply = said ? plainQuote(said, 220) : '';
         if (reply) {
           const out = document.createElement('div'); out.className = 'turnin-text';
           out.textContent = reply;

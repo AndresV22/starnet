@@ -29,7 +29,7 @@
       .replace(/(^|\n)[ \t]*\|?[ \t]*:?-{3,}:?[ \t]*(\|[ \t]*:?-{3,}:?[ \t]*)*\|?[ \t]*(?=\n|$)/g, '$1')   // a table's rule row
       .replace(/(^|\n)[ \t]*([-*_])([ \t]*\2){2,}[ \t]*(?=\n|$)/g, '$1')                             // a --- / *** rule
       .replace(/[ \t]*\|[ \t]*/g, ' ')
-      .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+      .replace(/!?\[([^\]]+)\]\([^)]*\)/g, '$1')   // a link or an image keeps its words (an image's '!' drops too)
       .replace(/(^|\n)\s{0,3}(?:#{1,6}\s+|[-*+]\s+|\d+[.)]\s+|>\s*)/g, '$1')
       .replace(/(^|\s)#{1,6}\s+/g, '$1')   // a heading inside a summary the server already folded onto one line
       .replace(/(\*\*|__|\x60)/g, '').replace(/(^|[\s(])[*_]([^*_\n]+)[*_](?=[\s).,:;!?]|$)/g, '$1$2')

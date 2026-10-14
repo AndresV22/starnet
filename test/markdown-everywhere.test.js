@@ -248,13 +248,23 @@ A.eq(cascadeWhiteSpace(['cmsg', 'body']).value, 'pre-wrap', 'cascade sanity: COM
   A.eq(plainQuote('', 220), '', 'no reply, no quote');
   A.eq(plainQuote('```js\nconst a = 1;\nnpm run dev\n```', 220), '“const a = 1; npm run dev”', 'a reply that is only code is quoted as that code (the not-clean card says “the reply below says why”)');
   const card = A.fnBody(chatSrc, '  function sampleCard(opts)');
-  A.ok(/plainQuote\(j\.replies\[j\.replies\.length - 1\], 220\)/.test(card), 'the INBOX card quotes through plainQuote');
+  const pick = /const said = [^\n]+\n\s*const reply = [^\n]+/.exec(card);
+  A.ok(pick && /plainQuote\(said, 220\)/.test(pick[0]), 'the INBOX card quotes through plainQuote, picked in one place');
+  /* live 10-14: a 5.5k answer reached the sample channel in two chunks and the card quoted the LAST one ('“All done.”') */
+  const quoteOf = (j, clean) => vm.runInContext((pick ? pick[0] : '') + '\nreply;', vm.createContext({ j, clean, plainQuote }));
+  A.eq(quoteOf({ replies: ['The report is in [the report](out/r.md).\n\n```\nx = 1\n```', '```\ny = 2\n```\n\nAll done.'] }, true), '“The report is in the report. All done.”',
+    'a clean job is quoted from its opening words, across the chunks the channel split it into');
+  A.eq(quoteOf({ replies: ['half an answer', '⚠ the model refused: the key is out of credit'] }, false), '“⚠ the model refused: the key is out of credit”',
+    'a job that did not finish clean is quoted by its last word — the reason the card promises');
+  A.eq(quoteOf({ replies: [] }, true), '', 'no replies, no quote');
 }
 
 /* ---------- #17 the one plain line itself ---------- */
 {
   A.eq(D.plainLine(REPLY), PLAIN, 'plainLine: headings, list dashes, bold and code marks drop; words stay');
   A.eq(D.plainLine('Run this:\n```js\nconst a = 1;\n```\nthen\n\n| a | b |\n|---|:---:|\n| 1 | 2 |\n\n---\nend'), 'Run this: then a b 1 2 end', 'plainLine: a fenced block, a table’s rule row and pipes, a --- rule drop');
+  A.eq(D.plainLine('The report is in [the report](out/report.md) and the chart is ![chart](out/c.png).'), 'The report is in the report and the chart is chart.', 'plainLine: an image keeps its words, its “!” drops (live: “the chart is !chart”)');
+  A.eq(D.plainLine('```js\nconst a = 1;\n```'), 'const a = 1;', 'plainLine: a reply that is only code reads as its code');
   A.eq(D.plainLine('**TEASER 1:** Your _agents_ never sleep. ## Subject - [Read more](https://x.test) and `code`'), 'TEASER 1: Your agents never sleep. Subject - Read more and code', 'a server-folded one-line summary still reads as before');
 }
 
