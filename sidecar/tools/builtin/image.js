@@ -31,9 +31,9 @@
    can never escape <root>/<agentId>/. */
 'use strict';
 (function (root, factory) {
-  if (typeof module !== 'undefined' && module.exports) module.exports = factory(require('./fs.js'));
-  else { root.SK = root.SK || {}; root.SK.tools = root.SK.tools || {}; (root.SK.tools.builtin = root.SK.tools.builtin || {}).image = factory(root.SK.tools.builtin.fs); }
-})(typeof globalThis !== 'undefined' ? globalThis : this, function (fsMod) {
+  if (typeof module !== 'undefined' && module.exports) module.exports = factory(require('./fs.js'), require('../../context.js'));
+  else { root.SK = root.SK || {}; root.SK.tools = root.SK.tools || {}; (root.SK.tools.builtin = root.SK.tools.builtin || {}).image = factory(root.SK.tools.builtin.fs, root.SK.context); }
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (fsMod, contextMod) {
   'use strict';
 
   const DEFAULT_OR_URL = 'https://openrouter.ai/api/v1/chat/completions';
@@ -48,6 +48,27 @@
      model may be a slug the image tool does not ride. */
   const DEFAULT_CODEX_URL = 'https://chatgpt.com/backend-api/codex';
   const CODEX_HOST_MODEL = 'gpt-5.5';
+  // Issue #118: classify only the explicitly quoted dispatched host, not a generic 400 or a model substring.
+  // The reported text is known; its enclosing backend JSON shape is not customer-provided evidence.
+  function codexHostRejected(status, detail, host, image) {
+    if (status !== 400 || typeof detail !== 'string' || detail.length > 8192) return false;
+    if (typeof host !== 'string' || typeof image !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._/-]{0,119}$/.test(host) || !/^[A-Za-z0-9][A-Za-z0-9._/-]{0,119}$/.test(image)) return false;
+    if (host === image || host.startsWith(image) || image.startsWith(host)) return false;
+    const m = /^The (['"])([A-Za-z0-9][A-Za-z0-9._/-]*)\1 model is not supported when using Codex with a ChatGPT account\.(?:\s|$)/.exec(detail);
+    if (!m || m[2] !== host) return false;
+    // If the detail also names the image model, its attribution is ambiguous: retain the generic error.
+    return !(detail.match(/[A-Za-z0-9][A-Za-z0-9._/-]*/g) || []).some(token => token.replace(/\.+$/, '') === image);
+  }
+  function codexErrorDetail(detail, secrets) {
+    if (typeof detail !== 'string' || detail.length > 8192) return '[provider detail withheld]';
+    let clean = detail;
+    for (const secret of (secrets || []).filter(value => typeof value === 'string' && value).sort((a, b) => b.length - a.length)) clean = clean.split(secret).join('[redacted-secret]');
+    try {
+      if (!contextMod || typeof contextMod.redact !== 'function') return '[provider detail withheld]';
+      clean = contextMod.redact(clean);
+    } catch (_) { return '[provider detail withheld]'; }
+    return String(clean).replace(/[\r\n\t]+/g, ' ').slice(0, 300);
+  }
   const CODEX_IMAGE_QUALITY = 'medium';   // the reference default: ~40s; 'high' runs ~2 minutes, past this tool's timeout
   const CODEX_INSTRUCTIONS = 'You are an assistant that must fulfill image generation and image editing requests by using the image_generation tool when provided.';
   // 2026-07-07 image-quality escape: the old default (gemini-2.5-flash-image, "Nano Banana 1") is the OLDEST
@@ -494,14 +515,20 @@
           .then(async r => ({ status: r.status, text: await r.text() })), timeoutMs, parentSignal || deps.signal);
       };
       let token = await getCodexToken();
+      const errorSecrets = [token, jwtAccountId(token), apiKey, prompt, refUrl];
       let res = await send(token);
       // The server is the authority on expiry (codex.js renewToken law): one renew + retry on a 401.
-      if (res.status === 401 && renewCodexToken) { checkCancelled(parentSignal); token = await renewCodexToken(token); res = await send(token); }
+      if (res.status === 401 && renewCodexToken) { checkCancelled(parentSignal); token = await renewCodexToken(token); errorSecrets.push(token, jwtAccountId(token)); res = await send(token); }
       if (res.status < 200 || res.status >= 300) {
         let errMsg = 'http ' + res.status;
         try { const j = JSON.parse(res.text); errMsg = (j && j.error && (j.error.message || j.error.code)) || (j && j.detail) || errMsg; }
-        catch (_) { if (res.text) errMsg = String(res.text).slice(0, 300); }
-        throw new Error('ChatGPT ' + res.status + ': ' + (typeof errMsg === 'string' ? errMsg : JSON.stringify(errMsg)));
+        catch (_) { if (res.text) errMsg = String(res.text); }
+        const detail = errMsg; // Non-string provider details are withheld, never serialized into display text.
+        const safe = codexErrorDetail(detail, errorSecrets);
+        if (codexHostRejected(res.status, detail, body.model, tool.model)) {
+          throw new Error('ChatGPT rejected image host ' + body.model + ' for this request (HTTP ' + res.status + '). Requested image model: ' + tool.model + '. No image was returned or saved by this attempt. Provider detail: ' + safe);
+        }
+        throw new Error('ChatGPT ' + res.status + ': ' + safe);
       }
       const out = parseCodexImageStream(res.text);
       if (!out.image && out.failed) throw new Error('ChatGPT image generation failed: ' + out.failed);
@@ -806,7 +833,7 @@
 
     return {
       generateTool, analyzeTool, analyzeImageUrl, browserVision, hasVision,
-      _internals: { parseImageFromResponse, parseOpenAIImageResponse, parseCodexImageStream, jwtAccountId, openAIImageSize, textFromResponse, dataUrlToBuffer, imageUrlFromPart, imageToUrl, analyzeImageUrl, resolveShape, fitToSize, alphaCoverage, TRANSPARENT_ASK, TRANSPARENT_IMAGE_MODEL },
+      _internals: { codexHostRejected, codexErrorDetail, parseImageFromResponse, parseOpenAIImageResponse, parseCodexImageStream, jwtAccountId, openAIImageSize, textFromResponse, dataUrlToBuffer, imageUrlFromPart, imageToUrl, analyzeImageUrl, resolveShape, fitToSize, alphaCoverage, TRANSPARENT_ASK, TRANSPARENT_IMAGE_MODEL },
       register(reg) { reg.register(generateTool); reg.register(analyzeTool); return reg; }
     };
   }
