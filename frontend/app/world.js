@@ -1243,7 +1243,7 @@ const World = (() => {
     if (!b.pendingApprovals) b.pendingApprovals = new Map();
     const now = performance.now();
     if (!crewIsAwaiting(b)) b.awaitResumeWork = !!b.working;
-    b.pendingApprovals.set(p.promptId, { at: now, runId: p.runId || null });
+    b.pendingApprovals.set(p.promptId, { at: now, runId: p.runId || null, question: p.tool === 'brief.ask' });
     seizeFromIdle(b);
     b.working = false; b.sitting = false; b.goal = 'awaiting'; b.state = 'idle';
     b.target = null; b.pathPts = null;
@@ -7998,10 +7998,22 @@ const World = (() => {
      how long the run has actually been going (agent.run.start -> .end, runStartByAgent). World-space,
      the station's VT323 terminal face with a faint phosphor bloom — a glance, never a window. */
   const RUN_FONT = "7px 'VT323','Courier New',monospace";
+  /* NEIGHBOURING CLOCKS NEVER RUN TOGETHER (live walk 2026-10-14: two crew at side-by-side desks read "RUN 2:54 RUN 2:14" as
+     one string — each tag starts at its desk's right edge, so it spans the next desk's crown up to that desk's own tag). A tag
+     that would touch one already drawn this frame steps up a line until it stands clear. */
+  function clearOfTags(placed, x, y, w) {
+    const GAP = 4, LINE = 9;   // world px: the space a tag keeps from its neighbour, and one 7px line of VT323 plus air
+    for (let step = 0; step < 6; step++) {
+      if (!placed.some(t => Math.abs(t.y - y) < LINE && x < t.x + t.w + GAP && t.x < x + w + GAP)) break;
+      y -= LINE;
+    }
+    return y;
+  }
   function drawRunClocks(now) {
     if (!runStartByAgent.size) return;
     ctx.save();
     if (linkStaleDim) ctx.globalAlpha = 0.3;   // E1: link down → these clocks are last-known, not live; dim them
+    const placed = [];   // this frame's tags, for clearOfTags
     for (const [aid, t0] of runStartByAgent) {
       const b = bodyForAgent(aid);
       if (!b || b.unplaced || crewIsAwaiting(b)) continue;
@@ -8026,6 +8038,9 @@ const World = (() => {
       else { ax = b.px + 7; ay = b.py - 16; }
       ctx.save();
       ctx.font = RUN_FONT; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+      const tw = ctx.measureText(label).width;
+      ay = clearOfTags(placed, ax, ay, tw);
+      placed.push({ x: ax, y: ay, w: tw });
       ctx.shadowBlur = 3; ctx.shadowColor = '#62ff9e';
       ctx.fillStyle = '#9adcb0';
       ctx.fillText(label, ax, ay);
@@ -8070,7 +8085,10 @@ const World = (() => {
     if (body ? (!crewIsAwaiting(body) || body.unplaced) : (!awaitPrompt || !agent || agent.unplaced)) return;
     const x = body ? bodyPosX(body) : rposX(), y = body ? bodyPosY(body) : rposY();
     const pulse = 0.55 + 0.45 * (0.5 + 0.5 * Math.sin(now / 380));   // slow breathing so it never looks frozen
-    const label = 'AWAITING APPROVAL';
+    // a QUESTION (brief.ask) waits on your answer, never on an approval (live walk 2026-10-14: a question read AWAITING
+    // APPROVAL) — the words COMMS uses. A crew body says answer only while every one of its waits is a question.
+    const question = body ? ![...body.pendingApprovals.values()].some(p => !(p && p.question)) : !!awaitPrompt.question;
+    const label = question ? 'AWAITING YOUR ANSWER' : 'AWAITING APPROVAL';
     ctx.save();
     ctx.font = AWAIT_FONT; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
     const tw = ctx.measureText(label).width, ty = y - 22, pad = 3;
@@ -8879,6 +8897,9 @@ const World = (() => {
     const s = aid ? liveRunsByAgent.get(aid) : null; if (!s) return 0;
     if (rid) s.delete(rid); else s.clear();   // a runId-less end can't be matched — treat it as agent-terminal (old behavior)
     if (!s.size) liveRunsByAgent.delete(aid);
+    // the hero's LAST live run ended: no run of it can still be waiting on you, so its AWAITING plate goes now — a STOPPED
+    // stream loses its run.end and the station's response, and the plate used to stand over an idle hero until the TTL
+    if (!s.size && agent && aid === agent.id && awaitPrompt) clearAwait();
     return s.size;
   }
   function agentRunsLive(aid) { const s = aid ? liveRunsByAgent.get(aid) : null; return s ? s.size : 0; }
@@ -8999,7 +9020,7 @@ const World = (() => {
       const prompts = Array.isArray(snap.pendingPrompts) ? snap.pendingPrompts : [];
       reconcileCrewAwaits(prompts);
       const mine = prompts.find(p => p && (!p.agentId || (agent && p.agentId === agent.id)));
-      if (mine) enterAwait({ promptId: mine.promptId || '', agentId: mine.agentId || (agent && agent.id) });
+      if (mine) enterAwait({ promptId: mine.promptId || '', agentId: mine.agentId || (agent && agent.id), question: mine.tool === 'brief.ask' });
       else if (awaitPrompt) clearAwait();   // the prompt was answered during the outage
     }
     // ---- delegation window: the server no longer reports an open dispatch we tracked ----
@@ -10982,7 +11003,7 @@ const World = (() => {
     // permission.response ({promptId, decision}) resumes (approve) or ends (deny) the run server-side, so we clear
     // the await and let the ongoing/finished run drive the body back to work or idle. Crew pauses hold position with the same amber tag; prompt IDs isolate overlapping approvals.
     // a delegated worker's ask rides its lead's run but names the worker (workerAgentId): the WORKER's body waits, not the lead's
-    U.bus.on('permission.prompt', p => { if (p && p.workerAgentId) { enterCrewAwait(Object.assign({}, p, { agentId: p.workerAgentId })); return; } if (p && (!p.agentId || (agent && p.agentId === agent.id))) enterAwait({ promptId: p.promptId || '', agentId: p.agentId || (agent && agent.id) }); else enterCrewAwait(p); });
+    U.bus.on('permission.prompt', p => { if (p && p.workerAgentId) { enterCrewAwait(Object.assign({}, p, { agentId: p.workerAgentId })); return; } if (p && (!p.agentId || (agent && p.agentId === agent.id))) enterAwait({ promptId: p.promptId || '', agentId: p.agentId || (agent && agent.id), question: p.tool === 'brief.ask' }); else enterCrewAwait(p); });
     U.bus.on('permission.response', p => {
       if (p && awaitPrompt && (!p.promptId || p.promptId === awaitPrompt.promptId)) clearAwait();
       if (p && p.promptId) for (const b of crew) clearCrewAwait(b, p.promptId, true);
