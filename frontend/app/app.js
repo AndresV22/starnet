@@ -4112,6 +4112,17 @@ const App = (() => {
   }
   // NEEDS YOU (needsyou.js, 2026-10-11) replaced the "Waiting for you" filter: one pinned list of every ask and failure
   // on the station, each with its own action. It lives in the SESSIONS view only.
+  /* station.show 'needs-you' (org P01): put the SESSIONS view (where NEEDS YOU lives) in front and bring the list into view.
+     open = the rail is on screen (BUILD MODE or a hidden crew rail is not); waiting = how many rows it holds right now. */
+  function showNeedsYou() {
+    if (railView !== 'sessions') setRailView('sessions');
+    if (typeof NeedsYou !== 'undefined' && NeedsYou.render) NeedsYou.render();
+    const left = el('left'), host = el('ws-needs');
+    const railShown = !!(left && left.getClientRects && left.getClientRects().length);
+    const waiting = typeof NeedsYou !== 'undefined' && NeedsYou.items ? NeedsYou.items().length : 0;
+    if (railShown && host && !host.hidden && host.scrollIntoView) host.scrollIntoView({ block: 'nearest' });
+    return { open: railShown, key: 'needs-you', waiting };
+  }
   function syncRailAttention(pending) {
     railAttentionKey = [...pending].sort().join('\n');
     const host = el('ws-needs'); if (!host) return;
@@ -4389,6 +4400,7 @@ const App = (() => {
     const pending = railPendingIds();
     if ([...pending].sort().join('\n') !== railAttentionKey) { renderRail(); return; }
     if (railView === 'sessions' && typeof NeedsYou !== 'undefined' && NeedsYou.render) NeedsYou.render();   // ages tick, failures arrive
+    if (typeof StationUI !== 'undefined' && StationUI.badges) StationUI.badges();   // org P01: the bell adds the live NEEDS YOU count, in every rail view
     const activeId = Workstreams.activeId();
     document.querySelectorAll('#workstreams .ws-row,#projects .proj-sess-full').forEach(li => {
       if (li.querySelector('.ws-rename')) return;   // leave a row alone while its title is being edited in place
@@ -5942,6 +5954,7 @@ const App = (() => {
     selectAgent: selectAgent,   // COMMS top-bar agent selector: switch to (or mint) a workstream bound to agentId
     // PER-AGENT THREADS: the CREW roster narrows the SESSIONS rail to one agent (same id again / null = all)
     filterRailByAgent: setRailAgentFilter,
+    showNeedsYou: showNeedsYou,   // station.show 'needs-you' (app/places.js)
     railAgentFilter: () => railAgentFilter,
     // THE POST-SUMMON DESK STEP, owned by the session (chat.js maybeDeskPrompt): the read that decides whether a
     // stream still owes its agent a workstation, and the door its chip opens (BUILD MODE, armed on WORKSTATIONS).

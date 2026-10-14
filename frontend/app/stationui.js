@@ -9468,6 +9468,14 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     if (store.notifs.length !== before) save();
   }
   const isWaiting = n => n.kind === 'needs' && !n.done;
+  /* ONE NEEDS YOU (org P01): NOTIFICATIONS › NEEDS YOU renders the rail's live list (needsyou.js NeedsYou.items — every ask,
+     approval, STEP-IN, extension, build decision, quest confirmation, loop review and failure, each read from its own
+     source), so its count, Dismiss and OPEN are the rail's. A stored entry whose wait a live row already shows (an
+     approval or question by its prompt, STEP-IN, extensions, loop reviews) is not listed or counted twice; any other
+     stored wait (a finished reply that asked a question) stays in the history below, still counted on the bell. */
+  const liveNeeds = () => (typeof NeedsYou !== 'undefined' && NeedsYou.items) ? NeedsYou : null;
+  const liveCovered = n => isWaiting(n) && !!(n.prompt || n.key === 'extensions-pending' || n.key === 'loops-review' || /^stepin-/.test(String(n.key || '')));
+  const shownInHistory = n => !(liveNeeds() ? liveCovered(n) : isWaiting(n));
   function buildNotifs(body) {
     pruneLegacyNotifs();
     reapDeadPrompts();
@@ -9476,14 +9484,17 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     if (backfilled) save();
     // NEEDS YOU first (an agent is waiting on you — stays until it's answered or the run ends), then everything
     // that finished or went wrong, newest first. Every entry with a destination is a door: click = go there.
-    const waiting = store.notifs.filter(isWaiting).reverse();
-    const rest = store.notifs.filter(n => !isWaiting(n));
-    const unread = rest.filter(n => !n.read).length;
+    const NY = liveNeeds();
+    const live = NY ? NY.items() : [];
+    const waiting = NY ? [] : store.notifs.filter(isWaiting).reverse();   // (no live list on this page: the stored entries)
+    const nWaiting = NY ? live.length : waiting.length;
+    const rest = store.notifs.filter(shownInHistory);
+    const unread = rest.filter(n => !n.read && !isWaiting(n)).length, restWaiting = rest.filter(isWaiting).length;
     const rows = rest.slice().reverse().filter(n => notifView !== 'unread' || !n.read);
     const row = (n, i) => {
       const sev = severityOf(n.cls);
       const door = !!(n.go && (n.go.ws || n.go.term));
-      const tag = n.kind === 'needs' ? (n.done ? 'Handled' : 'Waiting on you') : (n.kind === 'result' ? 'Finished' : 'Alert');
+      const tag = n.kind === 'needs' ? (n.done ? 'Handled' : 'NEEDS YOU') : (n.kind === 'result' ? 'Finished' : 'Alert');
       return '<div class="nf ' + esc(n.cls || '') + ' sev-' + sev + ' nf-k-' + esc(n.kind || 'alert') + (n.read ? ' read' : '') + (door ? ' nf-door' : '') + '" style="--ci:' + i + '" data-nid="' + esc(n.id) + '"' +
         (door ? ' role="button" tabindex="0" title="Open where this happened"' : '') + '>' +
         '<span class="nf-sev" aria-hidden="true">' + esc(SEV_GLYPH[sev]) + '</span>' +
@@ -9492,13 +9503,24 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
         (door ? '<span class="nf-go">OPEN ▸</span>' : '') + '</div>' +
         '<button class="nf-x" data-nid="' + esc(n.id) + '" title="Dismiss notification" aria-label="Dismiss ' + esc(n.txt) + '">✕</button></div>';
     };
+    // a live NEEDS YOU row: the rail's own line, its OPEN, and Dismiss only where the rail has one (failed work)
+    const liveRow = (it, i) => {
+      const dis = NY.canDismiss(it);
+      return '<div class="nf warn sev-warn nf-k-needs nf-door nf-live" style="--ci:' + i + '" data-ny-key="' + esc(it.key) + '" role="button" tabindex="0" data-tip="Open where this waits">' +
+        '<span class="nf-sev" aria-hidden="true">' + esc(SEV_GLYPH.warn) + '</span>' +
+        '<div class="nf-copy"><div class="nf-meta"><span class="nf-kind">NEEDS YOU</span>' + (it.since ? '<span class="nf-ts">' + notifStamp(it.since) + '</span>' : '') + '</div>' +
+        '<span class="nf-txt">' + esc(it.who + ' ' + NY.lineOf(it) + ' · in ' + it.where) + '</span><span class="nf-go">OPEN ▸</span></div>' +
+        (dis ? '<button class="nf-x" data-ny-dismiss="' + esc(it.key) + '" data-tip="Dismiss: it leaves NEEDS YOU here and on the rail" aria-label="Dismiss ' + esc(it.who + ' ' + it.what) + '">✕</button>' : '') + '</div>';
+    };
+    const needsRows = NY ? live.map(liveRow) : waiting.map(row);
+    const needsHtml = needsRows.length ? '<section class="nf-needs"><h4 class="ms-h">NEEDS YOU <span class="dim">— ' + needsRows.length + ' waiting</span></h4><div class="nf-list nf-list-needs">' + needsRows.join('') + '</div></section>' : '';
     body.innerHTML = '<header class="utility-head"><h2>Notifications</h2><p>What needs you, and what finished or went wrong while you were elsewhere. Click one to go there.</p></header>' +
-      (waiting.length ? '<section class="nf-needs"><h4 class="ms-h">NEEDS YOU <span class="dim">— ' + waiting.length + ' waiting</span></h4><div class="nf-list nf-list-needs">' + waiting.map(row).join('') + '</div></section>' : '') +
+      needsHtml +
       '<div class="nf-toolbar"><div class="utility-tabs" role="group" aria-label="Show notifications">' +
       // the counts include NEEDS YOU (shown above, in both views): "New" is the bell badge's own number, never fewer than the
       // rows on screen (self-driving lane 5 — it read "All · 0" with waiting rows listed, and New disagreed with the bell)
-      '<button type="button" data-nf-view="all" aria-pressed="' + (notifView === 'all') + '">All · ' + (rest.length + waiting.length) + '</button>' +
-      '<button type="button" data-nf-view="unread" aria-pressed="' + (notifView === 'unread') + '">New · ' + (unread + waiting.length) + '</button></div>' +
+      '<button type="button" data-nf-view="all" aria-pressed="' + (notifView === 'all') + '">All · ' + (rest.length + nWaiting) + '</button>' +
+      '<button type="button" data-nf-view="unread" aria-pressed="' + (notifView === 'unread') + '">New · ' + (unread + restWaiting + nWaiting) + '</button></div>' +
       '<button class="bb sm" id="nf-clear"' + (!unread ? ' disabled' : '') + '>MARK ALL READ</button></div>' +
       '<div class="nf-list">' + (rows.length ? rows.map(row).join('') : '<div class="empty-state"><span class="es-glyph">▮</span><b>' + (notifView === 'unread' ? 'You’re all caught up' : 'Nothing yet') + '</b><span>' + (notifView === 'unread' ? 'Switch to All to see earlier ones.' : 'When an agent needs your OK, or work finishes while you’re elsewhere, it lands here.') + '</span></div>') + '</div>';
     body.querySelectorAll('[data-nf-view]').forEach(b => b.addEventListener('click', () => {
@@ -9508,12 +9530,21 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     body.querySelector('#nf-clear').addEventListener('click', () => {
       store.notifs.forEach(n => { if (!isWaiting(n)) n.read = true; }); save(); rerender('notifs'); badges(); sfx('click');
     });
-    body.querySelectorAll('.nf.nf-door').forEach(el => {
+    body.querySelectorAll('.nf.nf-live').forEach(el => {
+      const go = () => { sfx('click'); if (NY && NY.openKey(el.dataset.nyKey) && open.notifs) workConversation('notifs'); };
+      el.addEventListener('click', go);
+      el.addEventListener('keydown', ev => { if (ev.target === el && (ev.key === 'Enter' || ev.key === ' ')) { ev.preventDefault(); go(); } });
+    });
+    body.querySelectorAll('[data-ny-dismiss]').forEach(b => b.addEventListener('click', ev => {
+      ev.stopPropagation();
+      if (NY && NY.dismissKey(b.dataset.nyDismiss)) { badges(); rerender('notifs'); sfx('click'); }
+    }));
+    body.querySelectorAll('.nf.nf-door:not(.nf-live)').forEach(el => {
       const go = () => { const n = store.notifs.find(x => x.id === el.dataset.nid); if (n) { sfx('click'); openNotif(n); } };
       el.addEventListener('click', go);
       el.addEventListener('keydown', ev => { if (ev.target === el && (ev.key === 'Enter' || ev.key === ' ')) { ev.preventDefault(); go(); } });
     });
-    body.querySelectorAll('.nf-x').forEach(b => b.addEventListener('click', ev => {
+    body.querySelectorAll('.nf-x[data-nid]').forEach(b => b.addEventListener('click', ev => {
       ev.stopPropagation();
       store.notifs = store.notifs.filter(x => x.id !== b.dataset.nid);
       save(); badges(); rerender('notifs'); sfx('click');
@@ -9527,19 +9558,30 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     let marked = 0;
     store.notifs.forEach(n => { if (!isWaiting(n) && !n.read) { n.read = true; marked++; } });
     const saved = save(); rerender('notifs'); badges();
-    return { marked, waiting: store.notifs.filter(isWaiting).length, saved };
+    return { marked, waiting: liveWaitingCount(), saved };
   }
   function notifsClear() {
     const keep = store.notifs.filter(isWaiting), cleared = store.notifs.length - keep.length;
     store.notifs = keep;
     const saved = save(); badges(); rerender('notifs');
-    return { cleared, waiting: keep.length, saved };
+    return { cleared, waiting: liveWaitingCount(), saved };
   }
+  // what is waiting on the Commander right now: the live NEEDS YOU list + any stored wait it does not cover (else, on a
+  // page without the live list, the stored entries)
+  function liveWaitingCount() {
+    const NY = liveNeeds();
+    return NY ? NY.items().length + store.notifs.filter(x => x && isWaiting(x) && !liveCovered(x)).length : store.notifs.filter(isWaiting).length;
+  }
+  let lastLiveShape = null;
+  // The bell counts unread finished/alert entries AND adds the live NEEDS YOU count — never one in place of the other.
   function badges() {
     reapDeadPrompts();
-    const n = store.notifs.filter(x => x && x.kind && (isWaiting(x) || !x.read)).length;
+    const NY = liveNeeds();
+    const n = store.notifs.filter(x => x && x.kind && shownInHistory(x) && (isWaiting(x) || !x.read)).length + (NY ? NY.items().length : 0);
+    // the open NOTIFICATIONS window follows the live list (an ask answered on the rail, a STEP-IN handed back)
+    if (NY && NY.listShape) { const sh = NY.listShape(); if (lastLiveShape !== null && sh !== lastLiveShape && open.notifs) rerender('notifs'); lastLiveShape = sh; }
     const b = $('#nf-badge');
-    if (b) { b.textContent = n || ''; b.style.display = n ? 'inline-block' : 'none'; }
+    if (b) { const t = n ? String(n) : ''; if (b.textContent !== t) b.textContent = t; const d = n ? 'inline-block' : 'none'; if (b.style.display !== d) b.style.display = d; }
   }
 
   /* ============== periodic + save dot ============== */
@@ -11768,7 +11810,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
   // GROWTH Tier 3: repaint the Settings AUTONOMY panel's EARNED badge if it is open (no-op otherwise — the paint fn
   // queries its own (possibly detached) host nodes, so a closed panel costs nothing). Called after a trust accept.
   const repaintAutonomy = () => { try { if (repaintAutonomyDial) repaintAutonomyDial(); } catch (_) {} };
-  return { init, enter, setRoster, leave, clearRunning, runningCount: () => runningAgents.size, isAgentRunning: (id) => agentLive(id), notify, warnIfStationLacksKey, settleNotifs, waitingNotifKeys, seenSession, flashSave, openAgent, refreshCrew: () => crewTick(), openArcade, toggleTerm, openTerm, showTerm, showAgent, notifsMarkRead, notifsClear, openDesk, closeTerm, rerender, refreshBoard: refreshBoardLive, pokeQuests, setTheme, getTheme, setLook, lookNow, lookOptions, repaintAutonomy, initiativeLabel, accessPostures: () => STATION_POSTURES.map(P => Object.assign({}, P)), refreshSystems, toggleFamily, familyOf, registerWindow, h, motionRestState, reseatToasts };
+  return { init, enter, setRoster, leave, clearRunning, runningCount: () => runningAgents.size, isAgentRunning: (id) => agentLive(id), notify, warnIfStationLacksKey, settleNotifs, waitingNotifKeys, seenSession, flashSave, openAgent, refreshCrew: () => crewTick(), openArcade, toggleTerm, openTerm, showTerm, showAgent, notifsMarkRead, notifsClear, badges, openDesk, closeTerm, rerender, refreshBoard: refreshBoardLive, pokeQuests, setTheme, getTheme, setLook, lookNow, lookOptions, repaintAutonomy, initiativeLabel, accessPostures: () => STATION_POSTURES.map(P => Object.assign({}, P)), refreshSystems, toggleFamily, familyOf, registerWindow, h, motionRestState, reseatToasts };
 })();
 
 if (typeof module !== 'undefined' && module.exports) module.exports = { visibleTerminalRect, clampTerminalSize };

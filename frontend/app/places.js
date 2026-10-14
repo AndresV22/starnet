@@ -10,7 +10,7 @@
    Each place: { id, words (the UI's own path — what the Commander sees), about (one line: what it is for),
    open: how the page reaches it — { term, section? } a window (StationUI.openTerm key + console section, aliases
    included), { agent: <dossier tab> } an agent's dossier tab, { desk: true } an agent's desk screen,
-   { fn: 'build' | 'recruit' | 'recipes' } a door that is not a plain window }.
+   { fn: 'build' | 'recruit' | 'recipes' | 'needs-you' } a door that is not a plain window }.
    Pure data + lookups: no DOM, no IO — node-requirable (the sidecar reads it) and browser-loadable. */
 'use strict';
 (function (root, factory) {
@@ -74,6 +74,7 @@
     P('settings-remote', 'SETTINGS › REMOTE', 'pair a phone and control the station from anywhere', { term: 'settings', section: 'remote' }),
     P('settings-browser', 'SETTINGS › BROWSER', 'where the station browser runs, and RESET STATION BROWSER when it is stuck', { term: 'settings', section: 'browser' }),
     P('settings-app', 'SETTINGS › APP & BACKUP', 'startup, runtime limits, backups, updates, troubleshooting and ERASE EVERYTHING', { term: 'settings', section: 'system' }),
+    P('needs-you', 'SESSIONS › NEEDS YOU', 'every approval, question and decision waiting on the Commander, at the top of SESSIONS (also NOTIFICATIONS › NEEDS YOU)', { fn: 'needs-you' }),
     P('notifications', 'NOTIFICATIONS', 'everything that happened and what is waiting on the Commander', { term: 'notifs' }),
     P('updates', 'UPDATES', 'check for and install a StarNet update', { term: 'updates' }),
     P('field-manual', 'FIELD MANUAL', 'the Commander\'s guide to StarNet', { term: 'manual' })
@@ -96,6 +97,11 @@
       if (!env.build || !env.build.open) throw new Error('BUILD MODE is not loaded on this page');
       env.build.open();
       return { open: !!(env.build.isOpen && env.build.isOpen()), key: 'build-mode' };
+    }
+    // NEEDS YOU is not a window: it heads the SESSIONS rail (App.showNeedsYou puts that view in front)
+    if (o.fn === 'needs-you') {
+      if (!env.app || !env.app.showNeedsYou) throw new Error('NEEDS YOU is not loaded on this page');
+      return env.app.showNeedsYou();
     }
     if (o.fn === 'recruit' || o.fn === 'recipes') {
       const fn = env.app && (o.fn === 'recruit' ? env.app.openSummonBay : env.app.openRecipes);

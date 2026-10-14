@@ -750,6 +750,8 @@
     dot.title = n + ' loop result' + (n === 1 ? '' : 's') + ' waiting on you';
   }
 
+  let reviewWaiting = [];
+  if (typeof window !== 'undefined') window.LoopsReview = { waiting: () => reviewWaiting.map(l => Object.assign({}, l)) };
   async function watch() {
     let j;
     try {
@@ -772,6 +774,10 @@
     paintBadge(waiting);
     // every result reviewed: the bell's "waiting on your review" leaves NEEDS YOU (it stayed lit for good)
     if (!waiting && typeof StationUI !== 'undefined' && StationUI.settleNotifs) StationUI.settleNotifs('loops-review');
+    // org P01: NEEDS YOU lists each loop with results waiting on review, from this same read (never the bell's entry)
+    reviewWaiting = loops.filter(l => l && l.id && (l.pendingCount || 0) > 0).map(l => ({ id: l.id, name: l.name || '', agentId: l.agentId || '', count: l.pendingCount,
+      since: Math.min(...(l.pending || []).map(p => Number(p.endedAt) || Infinity)) }))
+      .map(l => Object.assign(l, { since: isFinite(l.since) ? l.since : 0 }));
     saveSeen(seen);
     // announce at most one line per sweep — N new candidates at once is one event to a human, not N.
     if (fresh.length && typeof StationUI !== 'undefined' && StationUI.h && StationUI.h.notify) {

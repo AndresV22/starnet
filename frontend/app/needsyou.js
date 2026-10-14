@@ -9,7 +9,14 @@
    - a group chat waiting on you: GroupChat.attentionIds();
    - delegated work that failed, or was stopped by a restart or the liveness check: the overseer's worker ledger (/api/overseer), for a
      conversation this page holds, until you open it or dismiss it;
-   - a routine run that failed and you have not looked at: its own cron-<runId> session (lastRunOk === false, unread).
+   - a routine run that failed and you have not looked at: its own cron-<runId> session (lastRunOk === false, unread);
+   - (org P01) every other wait that BLOCKS on the Commander, each from its own live source, never the bell's stored entries:
+     an agent waiting at STEP-IN (StepIn.live — the sidecar's handoff records), extensions awaiting approval (GET /api/hooks +
+     /api/plugins, re-read every minute), builds that need a keep/discard decision (GET /api/workshop/pending via
+     WorkshopStore.pendingAll — DELIVERABLES' NEEDS A DECISION), a quest an agent says is done (QuestLedgerStore.pendingAttests),
+     and goal-loop results waiting on review (LoopsReview.waiting — the loops watcher's own GET /api/loops). TO REVIEW (an
+     optional rating pile) and PROPOSALS (optional, in QUESTS) are not waits and are never listed.
+   NOTIFICATIONS › NEEDS YOU renders this SAME list (StationUI buildNotifs), so its count, Dismiss and OPEN match the rail.
    Actions are the real ones: Approve / Deny answer through the approval card's own path (Chat.answerConsent) — Approve
    only when the rail's line is the whole request, else Review opens the card that shows all of it (a direct-chat ask
    offers Review beside Approve once too, org P02) — Retry runs the
@@ -20,6 +27,10 @@ const NeedsYou = (() => {
   const SHOW = 3;                       // rows before "N more"
   const DISMISS_KEY = 'skynet.needs-dismissed';
   let expanded = false, wired = false, lastShape = '';
+  // (org P01) the waits whose source is a sidecar read, not page state: re-read at most once a minute (and at once after a
+  // decision here), so each row is the station's last answer. null = never answered yet: say nothing rather than guess.
+  const FEED_MS = 60000;
+  let feeds = { builds: null, extensions: null }, feedsAt = 0, feedsLoading = null;
   const answering = new Set();          // promptIds whose answer is on its way: their keys stay disabled through re-renders
   let parked = null;                    // { act, cls, key } of a focused key that went disabled: focus returns when it can
   const has = (o, k) => typeof o !== 'undefined' && o && typeof o[k] === 'function';
@@ -45,6 +56,60 @@ const NeedsYou = (() => {
     if (w.status === 'stale') return D && D.staleLine ? D.staleLine(w) : 'stopped';
     const why = w.reason && w.reason !== 'error' && D && D.whyOf ? D.whyOf(w.reason) : '';
     return 'failed' + (why ? ': ' + why : '');
+  }
+
+  /* (org P01) THE OTHER BLOCKING WAITS — each read live from its own source, each keeping its existing action words:
+     STEP-IN → Open (its window, on that handoff) · extensions → Open (ABILITIES › EXTENSIONS) · a build → Open (DELIVERABLES,
+     filtered to NEEDS A DECISION) · a quest an agent says is done → Confirm / Not yet · goal-loop results → Open (GOAL LOOPS).
+     A background worker's ask is already an approval row through Channels: it is never added twice. */
+  const WAIT_KINDS = new Set(['approval', 'question', 'group', 'stepin', 'attest', 'extension', 'build', 'loop']);
+  const STEPIN_WHY = { login: 'sign in', '2fa': 'enter a sign-in code', captcha: 'get past a human check', payment: 'confirm a payment', other: 'help with a page' };
+  const plural = (n, one, many) => n + ' ' + (n === 1 ? one : many);
+  function blockingWaits(out, now) {
+    if (typeof StepIn !== 'undefined' && StepIn.live) {
+      for (const h of StepIn.live()) {
+        if (!h || !h.id) continue;
+        out.push({ key: 'stepin:' + h.id, kind: 'stepin', handoffId: String(h.id), who: nameOf(h.agentId),
+          what: 'needs you to ' + (STEPIN_WHY[h.reason] || STEPIN_WHY.other) + (h.where ? ' at ' + h.where : ''), where: 'STEP-IN', since: Number(h.requestedAt) || 0 });
+      }
+    }
+    if (typeof QuestLedgerStore !== 'undefined' && QuestLedgerStore.pendingAttests) {
+      for (const q of QuestLedgerStore.pendingAttests()) {
+        if (!q || !q.id || !q.attest) continue;
+        out.push({ key: 'attest:' + q.id + '@' + (Number(q.attest.at) || 0), kind: 'attest', questId: String(q.id), who: nameOf(q.attest.agentId || 'agent'),
+          what: 'says "' + String(q.title || 'a quest') + '" is done', tip: String(q.attest.evidence || ''), where: 'QUESTS', since: Number(q.attest.at) || 0 });
+      }
+    }
+    if (typeof LoopsReview !== 'undefined' && LoopsReview.waiting) {
+      for (const l of LoopsReview.waiting()) {
+        if (!l || !l.id || !(l.count > 0)) continue;
+        out.push({ key: 'loop:' + l.id, kind: 'loop', who: nameOf(l.agentId || 'agent'),
+          what: '"' + String(l.name || 'a goal loop') + '" has ' + plural(l.count, 'result', 'results') + ' waiting on your review', where: 'GOAL LOOPS', since: Number(l.since) || 0 });
+      }
+    }
+    refreshFeeds(false, now);
+    if (feeds.extensions > 0) out.push({ key: 'extensions', kind: 'extension', who: 'STATION', what: plural(feeds.extensions, 'extension', 'extensions') + ' awaiting your approval', where: 'EXTENSIONS', since: 0 });
+    for (const m of (feeds.builds || [])) {
+      out.push({ key: 'build:' + m.runId, kind: 'build', who: nameOf(m.agentId), what: 'built "' + String(m.title || 'a build') + '": keep or discard it', where: 'DELIVERABLES', since: Number(m.builtAt) || 0 });
+    }
+  }
+  // re-read the sidecar-backed waits (builds, extensions) when a minute has passed, or now (force). A failed read keeps the
+  // last answer: an unreachable station is not "nothing waiting".
+  function refreshFeeds(force, now) {
+    if (typeof fetch !== 'function' || feedsLoading) return feedsLoading;
+    now = Number(now) || Date.now();
+    if (!force && feedsAt && now - feedsAt < FEED_MS) return null;
+    if (typeof document !== 'undefined' && document && document.hidden && !force) return null;
+    feedsAt = now;
+    const json = url => fetch(url, { cache: 'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null);
+    const builds = typeof WorkshopStore !== 'undefined' && WorkshopStore.pendingAll ? WorkshopStore.pendingAll().catch(() => null) : Promise.resolve(null);
+    feedsLoading = Promise.all([builds, json('/api/hooks'), json('/api/plugins')]).then(([b, h, p]) => {
+      const before = JSON.stringify(feeds);
+      if (Array.isArray(b) && (typeof WorkshopStore === 'undefined' || !WorkshopStore.pendingAllOk || WorkshopStore.pendingAllOk())) feeds.builds = b.filter(m => m && m.runId);
+      if (h && p && Array.isArray(h.pending || []) && Array.isArray(p.plugins)) feeds.extensions = (h.pending || []).length + p.plugins.filter(x => x && x.pending).length;
+      if (JSON.stringify(feeds) !== before) { lastShape = ''; render(); if (typeof StationUI !== 'undefined' && StationUI.badges) StationUI.badges(); }
+    }).then(() => { feedsLoading = null; }, () => { feedsLoading = null; });
+    return feedsLoading;
   }
 
   // the live list, most urgent first: asks (oldest waiting first), then what failed (newest first)
@@ -83,7 +148,8 @@ const NeedsYou = (() => {
       out.push({ key: 'routine:' + ws.id, kind: 'routine', wsId: ws.id, who: nameOf(ws.agentId), what: 'routine "' + ((ws.automation && ws.automation.name) || ws.title || 'routine') + '" failed',
         where: 'routines', since: Number(ws.lastActiveAt) || 0, routineId: (ws.automation && ws.automation.id) || '' });
     }
-    const asks = out.filter(i => i.kind === 'approval' || i.kind === 'question' || i.kind === 'group').sort((a, b) => (a.since || 0) - (b.since || 0));
+    blockingWaits(out, now);
+    const asks = out.filter(i => WAIT_KINDS.has(i.kind)).sort((a, b) => (a.since || 0) - (b.since || 0));
     const fails = out.filter(i => i.kind === 'failed' || i.kind === 'routine').sort((a, b) => (b.since || 0) - (a.since || 0));
     return asks.concat(fails);
   }
@@ -105,7 +171,7 @@ const NeedsYou = (() => {
   }
   function keysFor(i) {
     const k = (act, label, cls, off) => '<button type="button" class="ny-key' + (cls ? ' ' + cls : '') + '" data-ny-act="' + act + '" data-ny-key="' + esc(i.key) + '"' + (off ? ' disabled' : '') + '>' + label + '</button>';
-    const sending = !!(i.p && answering.has(String(i.p.promptId)));
+    const sending = !!(i.p && answering.has(String(i.p.promptId))) || answering.has(i.key);
     if (i.kind === 'approval') {
       if (hiddenDetail(i.p)) return k('open', 'Review', 'primary') + k('deny', 'Deny', 'deny', sending);
       // org P02: a direct-chat ask always offers Review too — the COMMS card holds the whole request and its Always /
@@ -115,6 +181,8 @@ const NeedsYou = (() => {
       return k('once', 'Approve once', 'primary', sending) + k('deny', 'Deny', 'deny', sending) + (worker ? '' : k('open', 'Review', 'quiet ny-review'));
     }
     if (i.kind === 'question') return k('open', 'Answer', 'primary');
+    // a quest an agent says is done: the QUESTS card's own verdict keys (Confirm → done; Not yet keeps it open, the agent sees why)
+    if (i.kind === 'attest') return k('attest-yes', 'Confirm ✓', 'primary', sending) + k('attest-no', 'Not yet', 'deny', sending);
     if (i.kind === 'routine' && i.routineId) return k('retry', 'Retry', 'primary') + k('open', 'Open');
     if (i.kind === 'failed') return k('open', 'Open') + k('dismiss', 'Dismiss', 'quiet');
     return k('open', 'Open');
@@ -172,7 +240,26 @@ const NeedsYou = (() => {
       if (live && live.focus) live.focus({ preventScroll: true });
     }
   }
+  // (org P01) the waits that live in a window, not a conversation: Open goes through that window's own door
+  function openDoor(i) {
+    const ui = typeof StationUI !== 'undefined' ? StationUI : null;
+    if (i.kind === 'stepin') { if (typeof StepIn !== 'undefined' && StepIn.open) StepIn.open(i.handoffId); return true; }
+    if (!ui || !ui.openTerm) return true;
+    if (i.kind === 'extension') ui.openTerm('connectors', 'extensions');
+    else if (i.kind === 'attest') ui.openTerm('quests');
+    else if (i.kind === 'loop') ui.openTerm('loops');
+    else if (i.kind === 'build') {
+      ui.openTerm('deliverables');
+      // lands on NEEDS A DECISION: the library's own status filter (the summary's "N need a decision" route)
+      const lib = typeof document !== 'undefined' && document.querySelector ? document.querySelector('#dl-status') : null;
+      const body = lib && lib.closest ? lib.closest('.term-body') : null;
+      if (body && typeof Deliverables !== 'undefined' && Deliverables.showStatus) Deliverables.showStatus(body, 'pending');
+      refreshFeeds(true);   // a decision is likely next: the row follows it at once, not a minute later
+    }
+    return true;
+  }
   function open(i) {
+    if (i && !i.wsId) return openDoor(i);
     if (!i || !has(App, 'openWorkstream')) return;
     if (i.kind === 'failed') dismiss(i.key);   // you went to look at it: it has done its job here
     App.openWorkstream(i.wsId);
@@ -185,7 +272,18 @@ const NeedsYou = (() => {
     if (kind === 'more') { expanded = !expanded; lastShape = ''; render(); return; }
     if (!i) { lastShape = ''; render(); return; }
     if (kind === 'open' || (kind === 'once' && hiddenDetail(i.p))) return open(i);   // never approve what the rail cannot show
-    if (kind === 'dismiss') { dismiss(key); lastShape = ''; render(); return; }
+    if (kind === 'dismiss') { if (i.kind === 'failed') dismiss(key); lastShape = ''; render(); return; }
+    if ((kind === 'attest-yes' || kind === 'attest-no') && i.kind === 'attest' && typeof QuestLedgerStore !== 'undefined' && QuestLedgerStore.confirm) {
+      if (answering.has(key)) return;
+      answering.add(key); render(); if (btn) btn.disabled = true;
+      let r = null;
+      try { r = await QuestLedgerStore.confirm(i.questId, kind === 'attest-yes'); }
+      catch (e) { r = { ok: false, error: (e && e.message) || String(e) }; }
+      finally { answering.delete(key); }
+      if (!(r && r.ok) && typeof StationUI !== 'undefined' && StationUI.notify) StationUI.notify('could not record that verdict', 'bad');
+      if (typeof StationUI !== 'undefined' && StationUI.rerender) StationUI.rerender('quests', false);
+      lastShape = ''; render(); if (typeof StationUI !== 'undefined' && StationUI.badges) StationUI.badges(); return;
+    }
     if ((kind === 'once' || kind === 'deny') && i.p && typeof Chat !== 'undefined' && Chat.answerConsent) {
       // one answer per ask: a re-render while it is on its way keeps both keys disabled, and a second click sends nothing
       const promptId = String(i.p.promptId);
@@ -224,8 +322,18 @@ const NeedsYou = (() => {
       // an ask arrives or is answered anywhere (here, its card, the phone, a timeout): the list follows at once
       U.bus.on('permission.prompt', () => setTimeout(render, 0));
       U.bus.on('permission.response', () => setTimeout(render, 0));
+      // (org P01) a STEP-IN opens or ends, a build lands: the list follows at once (a build is a sidecar read: re-read now)
+      U.bus.on('browser.handoff', () => setTimeout(render, 0));
+      U.bus.on('workshop.built', () => { refreshFeeds(true); });
     }
   }
-  return { items, render, _internals: { html, age, keysFor, dismissed } };
+  /* (org P01) for NOTIFICATIONS › NEEDS YOU, which renders this same list: the line it reads, Open / Dismiss by key, and a
+     shape that moves only when the list does (the bell repaints on it) */
+  const lineOf = i => (KIND[i.kind] ? KIND[i.kind] + ' ' : '') + i.what;
+  function openKey(key) { const i = items().find(x => x.key === key); if (!i) return false; open(i); return true; }
+  function dismissKey(key) { const i = items().find(x => x.key === key); if (!i || i.kind !== 'failed') return false; dismiss(key); lastShape = ''; render(); return true; }
+  const canDismiss = i => !!i && i.kind === 'failed';
+  const listShape = list => (list || items()).map(i => i.key + '\u0001' + i.what + '\u0001' + i.where).join('\u0002');
+  return { items, render, openKey, dismissKey, canDismiss, lineOf, listShape, refreshFeeds, _internals: { html, age, keysFor, dismissed, feeds: () => feeds } };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = NeedsYou;

@@ -262,6 +262,10 @@
       runScope.innerHTML = runFilter ? '<b>OUTPUTS FROM THIS STEP</b><p>' + esc(runFilter.label) + '</p><button class="bb sm" id="dl-all-runs">SHOW ALL WORK</button>' : '';
       runScope.querySelector('button')?.addEventListener('click', () => { runFilter = null; q.value = ''; status.value = ''; project = ''; kind = ''; renderRunScope(); load(); });
     };
+    // org P01: NEEDS YOU's build row lands here on NEEDS A DECISION — the same status filter the summary's route drives
+    body._deliverablesShowStatus = (st) => {
+      runFilter = null; q.value = ''; project = ''; kind = ''; status.value = String(st || ''); renderRunScope(); load();
+    };
     body._deliverablesShowRun = (runId, label) => {
       runFilter = { runId: String(runId), label: String(label || 'Selected step') };
       q.value = ''; status.value = ''; project = ''; kind = ''; renderRunScope(); load();
@@ -539,7 +543,7 @@
     async function decide(r, act, b) {
       if (b.disabled) return;   // belt to the once-wiring: a second confirm on an in-flight decide is never a second POST
       b.disabled = true;
-      try { const j = await post('/api/workshop/decide', { agentId: r.agentId, runId: r.runId, decision: act }); lastUndo = null; say(j.decision === 'keep' ? ('Kept ' + r.title + (j.destPath ? ' in ' + j.destPath : '')) : ('Discarded ' + r.title)); await load(); }
+      try { const j = await post('/api/workshop/decide', { agentId: r.agentId, runId: r.runId, decision: act }); lastUndo = null; if (typeof NeedsYou !== 'undefined' && NeedsYou.refreshFeeds) NeedsYou.refreshFeeds(true); say(j.decision === 'keep' ? ('Kept ' + r.title + (j.destPath ? ' in ' + j.destPath : '')) : ('Discarded ' + r.title)); await load(); }
       catch (e) { b.disabled = false; say(e.message, true); }
     }
     /* ONE DRAWER OPEN AT A TIME — the same rule the OUTBOX accordion follows. Two open drawers turn a scannable
@@ -632,9 +636,13 @@
     body._deliverablesCleanup = revoke;
     load();
   }
+  function showStatus(body, st) {
+    if (!body || typeof body._deliverablesShowStatus !== 'function') return false;
+    body._deliverablesShowStatus(st); return true;
+  }
   function showRun(body, runId, label) {
     if (!runId || !body || typeof body._deliverablesShowRun !== 'function') return false;
     body._deliverablesShowRun(runId, label); return true;
   }
-  return { esc, safeMarkdown, plainLine, safeCsv, openUrl, fileHref, artifactPath, handleOpenClick, bucketOf, pillOf, agentLabel, agoOf, fmtSize, mount, showRun, rowsForRun, BUCKETS };
+  return { esc, safeMarkdown, plainLine, safeCsv, openUrl, fileHref, artifactPath, handleOpenClick, bucketOf, pillOf, agentLabel, agoOf, fmtSize, mount, showRun, showStatus, rowsForRun, BUCKETS };
 });

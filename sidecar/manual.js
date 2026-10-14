@@ -194,7 +194,7 @@ const CONCEPTS =
   'project folders), FULL POWER (never asks, the whole computer). Set station-wide or per agent in SETTINGS › PERMISSIONS ' +
   '[settings-permissions]; per agent also in dossier CONFIG [agent-config]. In the ask modes a paused agent shows an approval card ' +
   'in COMMS where it paused: Approve once / Always (a standing approval) / Never ask (that agent stops asking for approval) / Deny. ' +
-  'NOTIFICATIONS › NEEDS YOU lists every card waiting. You: station.control to narrow access, station.power to widen it. Trap: you ' +
+  'NEEDS YOU at the top of SESSIONS [needs-you] lists every card waiting (also NOTIFICATIONS › NEEDS YOU). You: station.control to narrow access, station.power to widen it. Trap: you ' +
   'can never answer an approval card yourself.\n' +
   '- AUTONOMY [settings-autonomy]: how much agents do ON THEIR OWN (WAIT / SUGGEST / BUILD / FREE) while the Commander is away; ' +
   '"While you were away" is a session summarizing what they did. You: station.power autonomy.set. Trap: it does not change ' +
@@ -218,7 +218,7 @@ const CONCEPTS =
   '- QUESTS [quests] / PROGRESS [progress] / TROPHIES [trophies]: quests are personal goals, goal steps and floor gaps; progress ' +
   'is the station level and the systems that came online (nothing is ever locked); trophies are real completions only. You: ' +
   'quest.update; station.control quest.dismiss / quest.later. Trap: attest_complete only PROPOSES — the Commander confirms.\n' +
-  '- NOTIFICATIONS [notifications]: NEEDS YOU (waiting on the Commander, on top until answered), finished results, and alerts; ' +
+  '- NOTIFICATIONS [notifications]: NEEDS YOU (the same list as at the top of SESSIONS [needs-you]: everything waiting on the Commander, on top until answered), finished results, and alerts; ' +
   'what pings is set in SETTINGS › ALERTS [settings-alerts]. You: station.show opens it; station.control notifications.read / ' +
   'notifications.clear (a NEEDS YOU entry always stays).\n' +
   '- ABILITIES [abilities]: everything agents can use — connectors (CATALOG [find-a-service], CONNECTED SERVICES, SAVED API ' +
@@ -249,7 +249,7 @@ const TROUBLESHOOTING =
   '- “The agent won’t run / it says NO COMPUTE” → its bay has no workstation; place a desk or ' +
   'console in its room so it has its own PC.\n' +
   '- “An agent is stuck / waiting” → it may be waiting on an approval: its card is in COMMS, in the conversation ' +
-  'where it paused (NOTIFICATIONS › NEEDS YOU lists every one waiting). Approve or Deny it there.\n' +
+  'where it paused (NEEDS YOU at the top of SESSIONS lists every one waiting; also NOTIFICATIONS › NEEDS YOU). Approve or Deny it there.\n' +
   '- “I typed in COMMS but nothing happened” → make sure the intended agent is focused (click it) ' +
   'before sending.\n' +
   '- “Where did my agent go?” → agents walk to their workstation to work and roam when idle; they ' +
