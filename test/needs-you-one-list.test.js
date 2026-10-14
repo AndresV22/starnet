@@ -60,8 +60,8 @@ const NY = require('../frontend/app/needsyou.js');
   const att = byKind('attest')[0];
   A.eq([att.who, att.what, att.where].join(' | '), 'ROOK | says "Ship the landing page" is done | QUESTS', 'a quest an agent says is done');
   A.eq(att.tip, 'deployed to /landing', 'its evidence rides the row\'s tip');
-  A.eq(byKind('loop')[0].what, '"Tidy the docs" has 2 results waiting on your review', 'goal-loop results waiting on review');
-  A.eq(byKind('extension')[0].what, '2 extensions awaiting your approval', 'extensions awaiting approval (1 hook + 1 plugin)');
+  A.eq(byKind('loop')[0].what, 'has 2 results waiting on your review from "Tidy the docs"', 'goal-loop results waiting on review (who + a verb)');
+  A.eq(byKind('extension')[0].what, 'has 2 extensions awaiting your approval', 'extensions awaiting approval (1 hook + 1 plugin), read as STATION has …');
   A.eq([byKind('build')[0].who, byKind('build')[0].what, byKind('build')[0].where].join(' | '), 'VEX | built "Pricing page v2": keep or discard it | DELIVERABLES', 'a build that needs a decision');
 
   // each keeps its existing action words
