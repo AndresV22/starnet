@@ -94,6 +94,8 @@ A.ok(/function start\(\) \{[\s\S]{0,420}lineStatsSoon\(\);/.test(world), 'the fl
   A.ok(/App\.agents\(\) \|\| \[\]\)\.find\(a => a && a\.id === whoId\)/.test(sc), '…by NAME (the seeded hero\'s id is literally "agent")');
   A.ok(/'③ RUNNING — THE JOB IS RIDING THE LINE…'/.test(build) && /'✓ DELIVERED — SEND ANOTHER'/.test(build), 'the FINISH card says job too (SEND ANOTHER, org P17), and ✓ DELIVERED like WORKFLOWS so it stays one line (org D4)');
   A.ok(build.includes(".replace('SEND ANOTHER', '<span class=\"fl-again\">SEND ANOTHER</span>')") && /\.refit-finline \.fl-step \.fl-again \{[^}]*color: var\(--ph\)/.test(read('frontend/css/refit.css')), 'SEND ANOTHER keeps a key\'s amber beside the green ✓ DELIVERED (org D8 polish)');
+  A.ok(build.includes('title="${esc(sampleTip)}"><span class="fl-lbl">${esc(sampleTxt).replace(') && build.includes("SEND ANOTHER</span>')}</span></button>"),
+    '③ rides ONE span inside the flex .fl-step, so the space in "✓ DELIVERED — SEND ANOTHER" never collapses beside the amber span (org g7 D1)');
   A.ok(!/use Run a sample job/.test(build) && /STEP THROUGH and SEND A REAL JOB run it for real/.test(build), 'the TEST tooltip names the modes that run for real');
 }
 

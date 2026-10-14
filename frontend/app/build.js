@@ -4491,6 +4491,8 @@ const Build = (() => {
     const sr = (finSampleRes && finSampleRes.key === c.key) ? finSampleRes : null;
     const sampleOn = finSample === true && crewDone && !(sr && sr.pending);
     const sampleTip = finSample !== true ? 'coming online soon' : (crewDone ? 'run ONE real job through the whole line (your INBOX test job, if you wrote one)' + (onward ? '. ' + onward : '') : 'Assign each step an agent first');
+    // (org g7 D1, final round) the ③ label rides ONE span: .fl-step is a flex row, and a bare text run beside the amber
+    // .fl-again span became its own flex item whose trailing space collapsed — '✓ DELIVERED —SEND ANOTHER'
     // (org D4/D5) the title is FINISH + the line's own name (one separator at most — a preset's name carries its own ·), FINISH SETUP
     // unnamed; the done row says ✓ DELIVERED like WORKFLOWS — both stay on the narrow card's lines instead of stranding a word
     const sampleTxt = (sr && sr.pending) ? (sr.phase === 'post' ? '③ POSTING LINE…' : '③ RUNNING — THE JOB IS RIDING THE LINE…') : (sr && sr.view && sr.view.ok) ? '✓ DELIVERED — SEND ANOTHER' : '③ SEND A REAL JOB';
@@ -4500,7 +4502,7 @@ const Build = (() => {
       <button type="button" class="bb fl-step" data-act="overview">EDIT STEPS & RESULT</button>
       <button type="button" class="bb fl-step${crewDone ? ' done' : ''}" data-act="crew"${crewDone ? ' disabled' : ''}>${esc(crewTxt)}</button>
       <button type="button" class="bb fl-step${st.feedDone ? ' done' : ''}" data-act="feed"${st.feedDone ? ' disabled' : ''}>${esc(feedTxt)}</button>
-      <button type="button" class="bb fl-step${sampleOn ? '' : ' off'}${sr && sr.view && sr.view.ok ? ' done' : ''}" data-act="sample" title="${esc(sampleTip)}">${esc(sampleTxt).replace('SEND ANOTHER', '<span class="fl-again">SEND ANOTHER</span>')}</button>
+      <button type="button" class="bb fl-step${sampleOn ? '' : ' off'}${sr && sr.view && sr.view.ok ? ' done' : ''}" data-act="sample" title="${esc(sampleTip)}"><span class="fl-lbl">${esc(sampleTxt).replace('SEND ANOTHER', '<span class="fl-again">SEND ANOTHER</span>')}</span></button>
       ${sr && sr.view ? finSampleHTML(sr.view) + finOnwardHTML(sr) : onward ? '<div class="fl-result fl-onward"><span class="fl-result-k">SEND TO</span> ' + esc(onward) + '</div>' : ''}`;
     finCardEl.querySelector('.fl-x').onclick = () => { finMark(station, c.key, 'dis'); sfx('click'); renderFinCard(); };
     const example = currentPresetExample();
