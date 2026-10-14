@@ -226,6 +226,101 @@ const { makeStationControlTools } = require('../sidecar/tools/builtin/station-co
   A.ok(/function toolRailOf\(steps\)[\s\S]{0,700}chipNode\([\s\S]{0,300}foldChipResult\(chip/.test(chat), 'toolRailOf builds the same chip DOM and folds the same result (held stays neutral)');
   A.ok(/head\.addEventListener\('click', \(\) => toggleChip\(head\)\)/.test(chat), 'a group chip toggles its own detail (#gc-log has no delegated handler)');
   A.ok(/renderProse, toolRailOf, openFile/.test(chat), 'Chat exports toolRailOf');
+  A.ok(/function toolRailOf\(steps\)[\s\S]{0,400}if \(s && s\.callId\) chip\.dataset\.callId = String\(s\.callId\);/.test(chat), 'a group chip carries its call id');
+  /* D2. A CHIP THE COMMANDER OPENED STAYS OPEN WHILE THE REPLY STREAMS (rc review 2026-10-14): the draft rebuilds its flow on
+     every token or poll, which collapsed an expanded chip mid-read. renderFlow is executed on a minimal DOM. */
+  {
+    const vm = require('vm');
+    class El {
+      constructor(tag) { this.tag = tag; this.children = []; this.dataset = {}; this.attrs = {}; this.className = ''; this.textContent = ''; }
+      get classList() { const el = this; return { add: c => { if (!el.has(c)) el.className = (el.className + ' ' + c).trim(); }, contains: c => el.has(c), toggle: c => { if (el.has(c)) { el.className = el.className.split(/\s+/).filter(x => x !== c).join(' '); return false; } el.className = (el.className + ' ' + c).trim(); return true; } }; }
+      has(c) { return this.className.split(/\s+/).includes(c); }
+      append(...n) { this.children.push(...n); } appendChild(n) { this.children.push(n); return n; }
+      replaceChildren() { this.children = []; }
+      setAttribute(k, v) { this.attrs[k] = String(v); } addEventListener() {}
+      all() { return this.children.flatMap(c => [c].concat(c.all ? c.all() : [])); }
+      querySelectorAll(sel) { const want = sel.split('.').filter(Boolean); return this.all().filter(n => want.every(c => n.has && n.has(c))); }
+      querySelector(sel) { return this.querySelectorAll(sel)[0] || null; }
+    }
+    const railOf = steps => { const rail = new El('div'); rail.className = 'tool-rail'; for (const s of steps) { const chip = new El('div'); chip.className = 'tool-chip'; if (s.callId) chip.dataset.callId = s.callId; const head = new El('button'); head.className = 'tc-head'; chip.append(head); rail.append(chip); } return rail; };
+    const ctx = vm.createContext({ document: { createElement: t => new El(t) }, Chat: { toolRailOf: railOf, renderProse: (el, s) => { el.textContent = s; } }, Fork });
+    const gsrc = read('frontend/app/group-chat.js');
+    const hs = gsrc.indexOf('  const h = (tag'), he = gsrc.indexOf('\n', gsrc.indexOf('return e;', hs) + 12);
+    const fs0 = gsrc.indexOf('  function renderFlow('), fe = gsrc.indexOf('\n  }\n', fs0) + 4;
+    vm.runInContext(gsrc.slice(hs, he + 1) + gsrc.slice(fs0, fe) + '\nthis.renderFlow = renderFlow;', ctx);
+    const body = new El('div');
+    const steps = [{ at: 5, callId: 'c1', name: 'fs.list', done: true }, { at: 12, callId: 'c2', name: 'fs.write', done: false }];
+    ctx.renderFlow(body, 'Look:\n\nWrite:', steps, null, null, true);
+    const chip = id => body.querySelectorAll('.tool-chip').find(c => c.dataset.callId === id);
+    chip('c1').classList.toggle('open');
+    ctx.renderFlow(body, 'Look:\n\nWrite: done', steps, null, null, true);
+    A.ok(chip('c1') && chip('c1').has('open'), 'the chip the Commander opened is still open after the draft re-renders');
+    A.eq(chip('c1').querySelector('.tc-head').attrs['aria-expanded'], 'true', 'and its disclosure says so');
+    A.ok(!chip('c2').has('open'), 'a chip they did not open stays closed');
+  }
+
+  /* C2. A DELIVERY THAT LANDS AFTER THE ARC WAS OFFERED (rc review 2026-10-14): the check at offer time could not see a worker's
+     hand-back landing during the seconds-long decomposition call, or while the panel was open. offerArc is executed here. */
+  {
+    const vm = require('vm');
+    const i = chat.indexOf('  function arcBlocked() {'), j = chat.indexOf('  function planGoalPath()', i);
+    A.ok(i > 0 && j > i, 'chat.js has arcBlocked … offerArc');
+    const mk = () => {
+      const log = { open: 0, close: 0, decline: 0, recDecline: 0, finished: 0, firing: [] };
+      let isOpen = false, releaseAux = null, sayDone = null;
+      const ctx = vm.createContext({
+        console, Promise,
+        GoalStore: { willOfferDecomposition: () => true, isFiring: () => false, setFiring: v => log.firing.push(v),
+          proposeDecomposition: () => new Promise(r => { releaseAux = () => r({ belief: { text: 'ship it' }, texts: ['a', 'b', 'c'] }); }),
+          confirm: () => ({}), declineDecomposition: () => { log.decline++; } },
+        Dialogue: { open: () => { log.open++; isOpen = true; }, say: () => new Promise(r => { sayDone = r; }), node: () => new Promise(() => {}),
+          isOpen: () => isOpen, close: () => { log.close++; isOpen = false; } },
+        slotCanArc: () => 'free', studyBlocked: () => false, clearNudge() {}, turninQueue: [], activeTurnin: null, showNextTurnin() {},
+        beatCards: { generation: () => 1, claim: () => ({ decide() {}, finish() { log.finished++; } }) },
+        name: 'NOVA', recAccept() {}, recDecline: () => { log.recDecline++; }
+      });
+      vm.runInContext(chat.slice(i, j) + '\nthis.offerArc = offerArc; this.noteDeliveryLanding = noteDeliveryLanding;', ctx);
+      return { ctx, log, aux: () => releaseAux && releaseAux(), say: () => sayDone && sayDone() };
+    };
+    const tick = () => new Promise(r => setImmediate(r));
+    // (1) a delivery lands DURING the decomposition call: the panel never opens
+    {
+      const t = mk();
+      const p = t.ctx.offerArc('run-1');
+      await tick();
+      t.ctx.noteDeliveryLanding();
+      t.aux();
+      await p;
+      A.eq(t.log.open, 0, 'a delivery that lands during the decomposition call keeps the arc panel shut');
+      A.eq(t.log.decline, 0, 'and records no decline (it is offered again at a later run end)');
+      A.eq(t.log.firing.at(-1), false, 'and the arc lane is released');
+    }
+    // (2) a delivery lands WHILE the panel is open: it steps aside, unanswered, never a decline
+    {
+      const t = mk();
+      const p = t.ctx.offerArc('run-2');
+      await tick(); t.aux(); await tick(); t.say(); await tick(); await tick();
+      A.eq(t.log.open, 1, 'with nothing landing the arc panel opens');
+      t.ctx.noteDeliveryLanding();
+      await p;
+      A.ok(t.log.close >= 1, 'a delivery landing while the panel is open closes it, so the delivery shows');
+      A.eq(t.log.decline + t.log.recDecline, 0, 'stepping aside is not the Commander declining (no decline, no learning signal)');
+      A.eq(t.log.finished, 1, 'the beat slot is released');
+      A.eq(t.log.firing.at(-1), false, 'and the arc lane is released');
+    }
+    // (3) the Commander asked for it (PLAN A PATH): a landing does not yank a panel they opened themselves
+    {
+      const t = mk();
+      const p = t.ctx.offerArc('manual:1');
+      await tick(); t.ctx.noteDeliveryLanding(); t.aux(); await tick(); t.say(); await tick(); await tick();
+      A.eq(t.log.open, 1, 'a panel the Commander asked for still opens');
+      t.ctx.noteDeliveryLanding(); await tick();
+      A.eq(t.log.close, 0, 'and stays open until they answer it');
+      void p;
+    }
+    A.ok(/function deliverTurns\(ws, turns\) \{[\s\S]*?noteDeliveryLanding\(\);[\s\S]*?return true;\n  \}/.test(chat), 'a delivered answer landing in the open conversation (deliverTurns) is a delivery landing');
+    A.ok(/function deliverableLine\(title, agentId\) \{[\s\S]{0,120}noteDeliveryLanding\(\);/.test(chat) && /function imageDeliverableLine\(title, agentId\) \{[\s\S]{0,160}noteDeliveryLanding\(\);/.test(chat), 'so is a saved file or image line');
+  }
 
   A.report('comms-render-seams.test');
 })().catch(e => { console.error(e); process.exit(1); });

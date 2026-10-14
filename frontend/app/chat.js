@@ -2988,6 +2988,7 @@ const Chat = (() => {
     const rail = document.createElement('div'); rail.className = 'tool-rail';
     for (const s of (Array.isArray(steps) ? steps : [])) {
       const chip = chipNode({ name: s && s.name, argsSummary: (s && s.args) || '' });
+      if (s && s.callId) chip.dataset.callId = String(s.callId);   // a re-rendered draft keeps an opened chip open (group-chat renderFlow)
       if (s && s.done) foldChipResult(chip, { isError: !!s.isError, summary: s.summary || '', ms: s.ms || 0 });
       const head = chip.querySelector('.tc-head');
       if (head) head.addEventListener('click', () => toggleChip(head));
@@ -3202,6 +3203,7 @@ const Chat = (() => {
     return b;
   }
   function deliverableLine(title, agentId) {
+    noteDeliveryLanding();
     const r = row('agent'); r.d.classList.add('tool'); r.d.classList.add('deliverable');
     r.body.appendChild(document.createTextNode('▤ saved '));
     const a = document.createElement('a');
@@ -3218,6 +3220,7 @@ const Chat = (() => {
   // thumbnail (src = the sidecar's jailed /api/file viewer URL, served with an image content-type); clicking
   // opens the full image in a new tab. Built with DOM nodes (never innerHTML) so the title can't inject markup.
   function imageDeliverableLine(title, agentId) {
+    noteDeliveryLanding();
     const r = row('agent'); r.d.classList.add('tool'); r.d.classList.add('deliverable'); r.d.classList.add('image');
     r.body.appendChild(document.createTextNode('▤ made '));
     const a = document.createElement('a');
@@ -6184,6 +6187,17 @@ const Chat = (() => {
     if (typeof studyBlocked === 'function') return studyBlocked();
     return isBusy() || interview;
   }
+  /* A DELIVERY LANDING OWNS COMMS OVER THE ARC (rc review 2026-10-14). deliveryLanding() stands the arc down at offer time, but
+     the offer then waits seconds on the decomposition call, and the panel stays up until it is answered: a worker's hand-back
+     (deliverTurns) or a saved file that lands in that window was hidden behind it. Every landing bumps deliveryLandSeq; an
+     offer in flight stands down when it moved, and an open panel steps aside — unanswered, never a decline, so the arc is
+     offered again at a later run end. A panel the Commander opened themselves (PLAN A PATH) stays until they answer it. */
+  let deliveryLandSeq = 0, arcYield = null;
+  const STEPPED_ASIDE = { steppedAside: true };
+  function noteDeliveryLanding() {
+    deliveryLandSeq++;
+    if (arcYield) arcYield();
+  }
   async function offerArc(runId) {
     let opened = false;
     if (typeof GoalStore === 'undefined' || typeof Dialogue === 'undefined') return;
@@ -6191,6 +6205,7 @@ const Chat = (() => {
     if (slotCanArc() !== 'free' || arcBlocked()) return;   // the LOWEST priority: a taken/blocked moment just drops (re-offers next run end)
     if (GoalStore.isFiring && GoalStore.isFiring()) return;
     const lifecycle = beatCards, lifecycleGeneration = lifecycle && lifecycle.generation();
+    const askedFor = /^manual:/.test(String(runId || '')), landSeq = deliveryLandSeq;
     GoalStore.setFiring && GoalStore.setFiring(true);
     try {
       const res = await GoalStore.proposeDecomposition();   // the aux model call (reason-only) + parse
@@ -6198,6 +6213,7 @@ const Chat = (() => {
       if (!res || !res.belief || !Array.isArray(res.texts) || res.texts.length < 3) return;   // no usable path — stay un-offered so a later belief change retries
       // re-check the moment after the async model round-trip — memory/study may have claimed it meanwhile.
       if (slotCanArc() !== 'free' || arcBlocked()) return;
+      if (!askedFor && deliveryLandSeq !== landSeq) return;   // a delivery landed during the call: it owns COMMS now
       clearNudge();                 // claim the one post-run beat, retiring any gentle nudge
       const arcBeat = beatCards && beatCards.claim({
         kind: 'arc', runId: runId,
@@ -6206,19 +6222,25 @@ const Chat = (() => {
       });
       if (!arcBeat) return;
       let path = res.texts.slice();
+      // an unasked panel steps aside for a delivery landing (see noteDeliveryLanding): `stepped` resolves the wait it is in
+      let stepAside = null;
+      const stepped = askedFor ? null : new Promise(r => { stepAside = r; });
+      const unlessLanding = p => stepped ? Promise.race([p, stepped]) : p;
+      if (stepAside) arcYield = () => stepAside(STEPPED_ASIDE);
       try {
         Dialogue.open({ name: (name || 'AGENT') });
         opened = true;
-        await Dialogue.say('i think i see the path to that goal — here’s how i’d break it down. does this look right?');
+        if (await unlessLanding(Dialogue.say('i think i see the path to that goal — here’s how i’d break it down. does this look right?')) === STEPPED_ASIDE) return opened;
         const linesOf = ts => ts.map((t, i) => (i + 1) + '. ' + t).join('\n');
         // Confirm / Not-now + an ✎ EDIT custom path (allowCustom): typing a revised path (steps separated by a
         // newline OR a semicolon) replaces it, then re-applies the pure floor/cap on Confirm. The custom text is
         // user-typed (never model markup); Dialogue renders it via textContent only.
-        const choice = await Dialogue.node({
+        const choice = await unlessLanding(Dialogue.node({
           lines: linesOf(path),
           options: [ { label: 'confirm the path', value: 'confirm' }, { label: 'not now', value: 'other', skip: true } ],
           allowCustom: true, customLabel: 'edit the milestones', customPlaceholder: 'your milestones, separated by ; …'   // Dialogue draws the ✎ itself (it read "✎✎")
-        });
+        }));
+        if (choice === STEPPED_ASIDE) return opened;   // unanswered: no confirm, no decline, no learning signal
         if (Dialogue.isOpen && Dialogue.isOpen()) Dialogue.close();
         // route the choice through the PURE resolver (Goals.resolveConfirmChoice, behaviorally tested): an explicit
         // Confirm or a VALID edit (≥3 steps) persists; a too-short edit is a REJECTION of the model tree and
@@ -6251,6 +6273,7 @@ const Chat = (() => {
         // release the moment — and if a memory deck QUEUED behind this panel (a late memory.proposed during a
         // minutes-long confirm), HAND it the slot and render it now (mirrors studyCard's done()): the consent deck
         // must never sit invisible while its pendingMemory claim freezes the study/arc lanes.
+        arcYield = null;
         arcBeat.decide();
         arcBeat.finish();
         try { if (Dialogue.isOpen && Dialogue.isOpen()) Dialogue.close(); } catch (_) {}
@@ -7828,6 +7851,7 @@ const Chat = (() => {
     pruneLog();
     if (!pinned) log.scrollTop = anchor && log.contains(anchor) ? log.scrollTop + (anchor.getBoundingClientRect().top - anchorTop) / scale : top;
     autoscroll();
+    noteDeliveryLanding();   // a hand-back just landed in the open conversation: a goal-arc panel steps aside for it
     return true;
   }
 

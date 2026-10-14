@@ -444,6 +444,8 @@ const GroupChat = (() => {
      one-on-one chat draws a run — said → did → said — with the same chips (Chat.toolRailOf). `clean` is the finished
      message's marker rule; a still-streaming draft (`live`) never shows a choice marker, complete or half-typed. */
   function renderFlow(body, text, steps, files, clean, live) {
+    // a streaming draft re-renders on every token or poll: a chip the Commander opened stays open (keyed by its call id)
+    const opened = new Set(Array.from(body.querySelectorAll('.tool-chip.open')).map(c => c.dataset && c.dataset.callId).filter(Boolean));
     body.replaceChildren();
     const src = String(text == null ? '' : text);
     const list = (Array.isArray(steps) ? steps : []).slice().sort((a, b) => (Number(a.at) || 0) - (Number(b.at) || 0));
@@ -465,6 +467,11 @@ const GroupChat = (() => {
       from = at;
     }
     prose(src.slice(from));
+    if (opened.size) for (const c of Array.from(body.querySelectorAll('.tool-chip'))) {
+      if (!(c.dataset && opened.has(c.dataset.callId))) continue;
+      c.classList.add('open');
+      const head = c.querySelector('.tc-head'); if (head) head.setAttribute('aria-expanded', 'true');
+    }
   }
   // the turn's REAL recorded time (never the current clock for a message that carries none)
   function stampOf(at) { const d = new Date(at); return at && !isNaN(d.getTime()) ? d : null; }
