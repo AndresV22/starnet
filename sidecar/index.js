@@ -3149,10 +3149,13 @@ function auxReasoningEffort(provider, model) {
    Compaction stays on auxReasoningEffort: a fold is the Commander's own task context, not self-talk (test/aux-effort). */
 function auxPassEffort(provider, model) {
   if (String(ENV('AUX_EFFORT') || '').trim() || resolveAuxModel()) return auxReasoningEffort(provider, model);
+  const allowed = providerEfforts(provider, model);
+  return allowed ? AuxGovernor.pickAuxEffort(allowed) : null;
+}
+// the levels the provider lists for `model` right now (after any refusal its adapter learned), or null
+function providerEfforts(provider, model) {
   if (!provider || typeof provider.reasoningEfforts !== 'function') return null;
-  let allowed;
-  try { allowed = provider.reasoningEfforts(model); } catch (e) { failNote('aux.effort', e); return null; }
-  return AuxGovernor.pickAuxEffort(allowed);
+  try { return provider.reasoningEfforts(model); } catch (e) { failNote('aux.effort', e); return null; }
 }
 
 /* ---- HYBRID RECALL — the embedding lane (memory-compound lane) ----------------------------------------------
@@ -21360,6 +21363,9 @@ async function runOnceCore(o) {
   // outputOnly repair is an external caller's own request, so it is o.internal here, not `internal`).
   // An internal run marked o.keepEffort (work the Commander reads, the goal judge, the wake preflight) keeps their effort.
   const internalEffort = o.internal && !o.keepEffort ? auxPassEffort(provider, model) : null;
+  // …and the effort it RAN on, read after the run: a pick the endpoint refused was resent at the nearest rung it keeps
+  // (OpenRouter learns the refusal), so the record names that rung, never the refused one.
+  const internalEffortRan = () => internalEffort ? AuxGovernor.effortAsRan(internalEffort, providerEfforts(provider, model)) : null;
 
   // ---- context auto-compaction: fold older turns into a summary once the live prompt passes 65% of the model's
   //      window, so a long run shrinks instead of overflowing. The summarizer is ONE model call over the older
@@ -23007,7 +23013,7 @@ async function runOnceCore(o) {
         }
       }
       const runEndedAt = Date.now();
-      runStore.record({ runId, parentRunId: o.parentRunId || '', delegatedBy: o.delegatedBy || '', agentId, provider: activeProviderId, reason: ((result && result.reason) || 'done'), clarifying: taskQuestionAsked, turns: finalTurns, tokens: finalTokens, usd: finalUsd, title: title, streamId: o.streamId || '', sessionTitle: o.sessionTitle || '', deliveryPrompt: o.syntheticTrigger ? '' : (o.sessionPrompt || ''), deliveryText, dispatchDelivery: o.dispatchDelivery, recipeId: o.recipeId || '', projectRoot: o.projectRoot || '', deliverable: deliverableNotes.take(runId), model: finalModel, reasoningEffort: internalEffort || reasoningEffort, unmetered: runUnmetered && mediaUsd === 0, artifacts: execution.artifactList(), toolsOk: execution.toolsOk(), toolTrace: execution.toolTraceList(), failureStage: execution.failureStage(), failureCode: execution.failureCode(), uncertainMutations: execution.uncertainMutations(), completionEvidence: finalCompletionEvidence, recoveryAttempts: execution.recoveryAttempts(), startedAt: runStartedAt, endedAt: runEndedAt, durationMs: runEndedAt - runStartedAt, identityFallback, internal, surface, ownerDirective, recoveryOf: o.recovery ? String(o.recovery.sourceRunId || '') : '', handoffEdited: o.handoffEdited === true, stepTest: o.stepTest === true, lineId: o.lineId || '', dockId: o.dockId || '', cronJobId: trigger === 'schedule' ? String(o.cronJobId || '') : '', pageClosed: pageClosedRuns.get(runId) || null, taintedBy: execution.taintedBy() || '' });   // execution terminal stays separate from the neutral Task Brief outcome used by progression; recoveryOf links a continuation to the interrupted run it resumed
+      runStore.record({ runId, parentRunId: o.parentRunId || '', delegatedBy: o.delegatedBy || '', agentId, provider: activeProviderId, reason: ((result && result.reason) || 'done'), clarifying: taskQuestionAsked, turns: finalTurns, tokens: finalTokens, usd: finalUsd, title: title, streamId: o.streamId || '', sessionTitle: o.sessionTitle || '', deliveryPrompt: o.syntheticTrigger ? '' : (o.sessionPrompt || ''), deliveryText, dispatchDelivery: o.dispatchDelivery, recipeId: o.recipeId || '', projectRoot: o.projectRoot || '', deliverable: deliverableNotes.take(runId), model: finalModel, reasoningEffort: internalEffortRan() || reasoningEffort, unmetered: runUnmetered && mediaUsd === 0, artifacts: execution.artifactList(), toolsOk: execution.toolsOk(), toolTrace: execution.toolTraceList(), failureStage: execution.failureStage(), failureCode: execution.failureCode(), uncertainMutations: execution.uncertainMutations(), completionEvidence: finalCompletionEvidence, recoveryAttempts: execution.recoveryAttempts(), startedAt: runStartedAt, endedAt: runEndedAt, durationMs: runEndedAt - runStartedAt, identityFallback, internal, surface, ownerDirective, recoveryOf: o.recovery ? String(o.recovery.sourceRunId || '') : '', handoffEdited: o.handoffEdited === true, stepTest: o.stepTest === true, lineId: o.lineId || '', dockId: o.dockId || '', cronJobId: trigger === 'schedule' ? String(o.cronJobId || '') : '', pageClosed: pageClosedRuns.get(runId) || null, taintedBy: execution.taintedBy() || '' });   // execution terminal stays separate from the neutral Task Brief outcome used by progression; recoveryOf links a continuation to the interrupted run it resumed
 
       // P0.1/H1.1: persist the full DIALOGUE (not just the outcome) — a durable server-side transcript for EVERY
       // run, incl. headless ones (cron/Telegram/delegated). Append the triggering user directive, then EVERY new
@@ -23277,7 +23283,7 @@ async function runOnceCore(o) {
   if (result) {
     if (!result.artifacts) { try { result.artifacts = execution.artifactList(); } catch (_) {} }
     result.model = result.model || model;
-    result.reasoningEffort = internalEffort || reasoningEffort;   // the effort this run actually ran on (self-talk rides the aux effort)
+    result.reasoningEffort = internalEffortRan() || reasoningEffort;   // the effort this run actually ran on (self-talk rides the aux effort)
     result.toolsOk = execution.toolsOk();
     result.toolTrace = execution.toolTraceList();
     result.startedAt = runStartedAt;

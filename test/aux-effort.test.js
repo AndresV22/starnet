@@ -36,16 +36,29 @@ A.eq(G.pickAuxEffort([]), null, 'an empty list: no override');
 A.eq(G.pickAuxEffort(null), null, 'no list at all: no override');
 A.eq(G.pickAuxEffort(['HIGH', 'Low']), null, 'only exact effort ids count (the providers normalize before listing)');
 
+// ---- the effort a run is RECORDED on is the one it ran on (truthful telemetry): a refused pick healed mid-run ----
+A.eq(G.effortAsRan('none', ['minimal', 'low', 'medium', 'high', 'xhigh', 'max']), 'minimal', 'none refused (Reasoning is mandatory) ran at minimal');
+A.eq(G.effortAsRan('none', ['low', 'medium', 'high']), 'low', 'none refused by o4-mini ran at low');
+A.eq(G.effortAsRan('minimal', ['none', 'low', 'medium']), 'none', 'a refused rung clamps down first, as the adapter does');
+A.eq(G.effortAsRan('none', ['none', 'minimal', 'low']), 'none', 'an accepted pick is recorded as itself');
+A.eq(G.effortAsRan('none', []), 'none', 'no list: the pick as asked');
+A.eq(G.effortAsRan(null, ['low']), null, 'no pick: nothing to record');
+
 // ---- the composition root wires it (source locks) ----
 const idx = fs.readFileSync(path.join(__dirname, '..', 'sidecar', 'index.js'), 'utf8');
 const fnSrc = A.fnBody(idx, 'function auxPassEffort(');
 A.ok(/AUX_EFFORT/.test(fnSrc) && /resolveAuxModel\(\)/.test(fnSrc) && /return auxReasoningEffort\(provider, model\)/.test(fnSrc),
   'auxPassEffort: a configured aux tier (STARNET_AUX_EFFORT / STARNET_AUX_MODEL) keeps exactly auxReasoningEffort');
-A.ok(/provider\.reasoningEfforts\(model\)/.test(fnSrc) && /AuxGovernor\.pickAuxEffort\(/.test(fnSrc),
+A.ok(/providerEfforts\(provider, model\)/.test(fnSrc) && /AuxGovernor\.pickAuxEffort\(/.test(fnSrc) && /provider\.reasoningEfforts\(model\)/.test(A.fnBody(idx, 'function providerEfforts(')),
   'auxPassEffort: unconfigured, it picks from the levels the provider lists for that model');
 A.ok(/const _auxEffort = _auxDone \? auxPassEffort\(provider, _auxModel\) : null;/.test(idx), 'reflection · study · thread-mine · scout ride auxPassEffort');
 A.ok(/const _auxFailEffort = _auxFail \? auxPassEffort\(provider, _auxFailModel\) : null;/.test(idx), 'failure review rides auxPassEffort');
 A.ok(/reasoningEffort: internalEffort \|\| undefined,/.test(idx), 'and hands it to the loop (absent for every other run)');
+A.ok(/const internalEffortRan = \(\) => internalEffort \? AuxGovernor\.effortAsRan\(internalEffort, providerEfforts\(provider, model\)\) : null;/.test(idx),
+  'after the run, the internal effort is re-read against the model\'s list (a mid-run heal moved it)');
+A.ok(/reasoningEffort: internalEffortRan\(\) \|\| reasoningEffort, unmetered:/.test(idx) && /result\.reasoningEffort = internalEffortRan\(\) \|\| reasoningEffort;/.test(idx),
+  'the run record and the result carry the effort the run ran on');
+A.ok(!/internalEffort \|\| reasoningEffort/.test(idx), 'no record keeps the pre-heal pick');
 // …except an internal run whose reply IS work the Commander reads (the autopilot's desk draft + its self-critique):
 // it keeps the Commander's effort. Opt-out is explicit, end to end: page -> /api/run body -> runOnce.
 A.ok(/const internalEffort = o\.internal && !o\.keepEffort \? auxPassEffort\(provider, model\) : null;/.test(idx), 'an INTERNAL self-talk run picks the aux effort for its own model (o.internal, never an /v1 outputOnly repair); a work-product one keeps the Commander effort');
