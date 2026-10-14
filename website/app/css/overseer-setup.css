@@ -73,6 +73,7 @@
 #screen-connect .ov-card-ds { font-size:14px; line-height:1.4; margin:0; color:var(--text); opacity:.75; }
 #screen-connect .ov-card.sel { border-color:var(--ph-dim); box-shadow:inset 0 1px 0 var(--gd-light),inset 2px 0 0 var(--ph); }
 #screen-connect .ov-crewnote { font-size:13px; line-height:1.4; color:var(--ph-dim); margin-top:10px; }
+#screen-connect .ov-access-plain { font-size:14px; color:var(--ph); }   /* the SELECTED answer reads as the status line; the standing FULL POWER note under it stays the dim footnote, never a second paragraph of equal weight */
 #screen-connect .ov-brain { padding:0; border:0; background:none; box-shadow:none; }
 #screen-connect .ov-col-brain>.ov-step { display:none; }
 #screen-connect .provider-row { display:block; }

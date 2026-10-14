@@ -2744,7 +2744,8 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     '</div>';
   }
 
-  // Per-agent APPROVAL posture (dossier CONFIG card): the same ASKS FIRST / FULL POWER choice as the create screen,
+  // Per-agent APPROVAL posture (dossier CONFIG card, folded under MORE OPTIONS): the asking half of the create screen's
+  // answers — CHECK WITH ME and LET IT WORK both ask first, FULL POWER does not — as the exact ASKS FIRST / FULL POWER pair,
   // changeable any time — until now the ONLY post-create path was the /yolo slash command in COMMS, which most
   // Commanders never find (a creation-time picker with no live-app twin — the codex-sign-in escape class).
   // Applies via access.config.setApproval → pushRoster, so the sidecar's per-run consent gate flips with it.
@@ -2874,7 +2875,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       '<button type="button" class="ov-vchip' + (sel ? ' sel' : '') + '" data-approval="' + id + '" data-name="' + esc(label) + '" data-tip="' + esc(desc) + '" aria-pressed="' + (sel ? 'true' : 'false') + '">' + esc(label) + '</button>';
     return '<div class="cf-card" id="ag-approval-card">' +
       '<div class="cf-head"><span class="cf-file">✋ approval prompts</span></div>' +
-      '<div class="cf-desc">ASKS FIRST respects the selected reach profile and pauses before risky calls. FULL POWER stops the approval prompts and authorizes the whole local computer: all available tools, host paths, arbitrary commands, visible apps, and screen/input control. <code>/yolo</code> is the full-power shortcut.</div>' +
+      '<div class="cf-desc">The asking half of the answer above: CHECK WITH ME and LET IT WORK both ask first, FULL POWER does not. ASKS FIRST stops to check with you before risky steps and stays inside the reach you set. FULL POWER stops the approval prompts and authorizes the whole local computer: every tool, file, command and app, plus your screen, mouse and keyboard. <code>/yolo</code> is the full-power shortcut.</div>' +
       '<div class="ov-vchips" id="ag-approval-chips">' +
         chip('ask', 'ASKS FIRST', 'stops to check with you before it writes, runs, or reaches out', !full) +
         chip('full', 'FULL POWER', 'never asks first — covers the whole local computer, not just its reach profile', full) +
@@ -8760,8 +8761,10 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
           // live HERE — straight from the same status read, '' once the station is hot (never an invented line).
           const readyLine = NightReport.readinessText ? NightReport.readinessText(status && status.readiness) : '';
           if (!rep || !rep.hasReport) {
+            // the still-learning line is a second sentence of the SAME grey status paragraph style, full stop and all —
+            // an amber .dim row under a grey status read louder than the status it qualifies
             nsReport.innerHTML = '<p class="set-about">no report to show — autonomy recorded no acts or declines in the last 24h.</p>' +
-              (readyLine ? '<div class="set-row"><span class="dim">' + esc(readyLine) + '</span></div>' : '');
+              (readyLine ? '<p class="set-about">' + esc(readyLine.replace(/[.\s]*$/, '.')) + '</p>' : '');
             return;
           }
           const lines = [];

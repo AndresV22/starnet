@@ -5354,8 +5354,11 @@ select.fbc-sel:focus { border-color: var(--ph); box-shadow: inset 0 2px 5px rgba
    missing readout. Separate cells simply aren't there when there is nothing to show. */
 .ns-grid {
   display: grid; gap: 8px; margin: 10px 0 12px;
-  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  /* at most TWO across (a track is never narrower than half the row), one across under ~430px */
+  grid-template-columns: repeat(auto-fit, minmax(max(210px, calc(50% - 12px)), 1fr));
 }
+/* five readouts in two columns left NEXT JOB EARLIEST alone beside an empty slot: an odd last cell takes the full row */
+.ns-grid > .ns-cell:last-child:nth-child(odd) { grid-column: 1 / -1; }
 .ns-cell {
   display: flex; flex-direction: column; gap: 4px; padding: 9px 12px;
   border: 1px solid var(--ph-faint); border-left: 3px solid var(--ph-dim);
