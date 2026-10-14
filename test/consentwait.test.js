@@ -242,7 +242,8 @@ async function settled(p) { let v, done = false; p.then(x => { v = x; done = tru
     A.ok(/try \{ f\(\(f && f\.abortDecision\) \|\| 'deny'\); \}/.test(host), 'the run teardown answers each open ask with its own withdrawn word');
     A.ok(/=== 'cancelled'\) \{\s*return \{ ok: false, isError: true, summary: 'cancelled',/.test(host), 'and a withdrawn post-taint confirmation never reads as the taint lock');
     const gs = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'sidecar', 'group-sessions.js'), 'utf8');
-    A.ok(/const onAbort = \(\) => finish\('cancelled'\);/.test(gs), 'a stopped group turn withdraws its ask the same way');
+    // (the stop also marks the ask as settled by the stop, so the transcript retires its card as unanswered: group-stop-truth)
+    A.ok(/const onAbort = \(\) => \{ stoppedFirst = true; finish\('cancelled'\); \};/.test(gs), 'a stopped group turn withdraws its ask the same way');
   }
 
   A.report('consentwait');
