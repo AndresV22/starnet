@@ -6055,6 +6055,8 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
         rerender('settings');
       });
     };
+    const toServiceKeys = body.querySelector('[data-act="to-service-keys"]');
+    if (toServiceKeys) toServiceKeys.addEventListener('click', () => { sfx('click'); openTerm('connectors', 'keys'); });
     body.querySelectorAll('.prov-card[data-provider]').forEach(card => {
       const activate = () => {
         const h = H();
@@ -7480,6 +7482,8 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       '<h4 class="ms-h">API KEYS</h4>' +
       '<div class="key-list">' + keysHtml() + '</div>' +
       '<p class="set-about">Credentials are saved locally and used to authenticate with the selected service. Saved keys stay masked. Desktop storage uses the OS keychain when available.</p>' +
+      // org P05: model keys live here; keys for services live in CONNECT › ABILITIES — one door, the places.js api-connections target
+      '<p class="set-about">Keys for Gmail, Notion and other services live in CONNECT › ABILITIES. <button type="button" class="bb sm" data-act="to-service-keys">▸ SAVED API CONNECTIONS</button></p>' +
       // STORE / MANAGED CREDITS — rendered ONLY when the sidecar reports a configured credits backend (/api/credits).
       // When credits aren't wired this stays an empty node (no dead card, no fake balance — the honesty law). wireCredits
       // fetches the real balance + history and the external purchase link; buying opens a browser tab, never an in-app form.

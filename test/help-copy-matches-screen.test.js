@@ -90,4 +90,22 @@ for (const o of [undefined, { cancelSource: 'estop_by_run' }]) {
   A.ok(!/E-STOP/.test(line) && /Pause Automation in the StarNet tray menu/.test(line), 'stop line names the tray\'s Pause Automation: ' + line);
 }
 
+/* ---- org P05: "where do I paste my key?" has one answer per kind of key ----
+   SETTINGS' tip and dock subtitle say what is actually in there; ABILITIES' own copy names its real tabs; AI & MODELS'
+   API KEYS points service keys at CONNECT › ABILITIES › SAVED API CONNECTIONS through the places.js target. */
+{
+  const rd = f => fs.readFileSync(path.join(__dirname, '..', f), 'utf8');
+  const sys = rd('frontend/app/systems.js'), idx = rd('frontend/index.html'), con = rd('frontend/app/windows/connectors.js');
+  const ui = rd('frontend/app/stationui.js'), places = rd('frontend/app/places.js');
+  A.ok(/tip: 'AI models & keys, permissions, spending, look & sound'/.test(sys), 'SETTINGS dock tip names what Settings holds');
+  A.ok(/<small>AI models &amp; keys, permissions, spending, look &amp; sound<\/small>/.test(idx), 'the SETTINGS dock subtitle says the same line');
+  A.ok(!/Keys, models, voice, data|keys, models, voice, data/.test(sys + idx), 'the old "keys, models, voice, data" line is gone');
+  A.ok(!/in <b>MCP CONNECTORS<\/b>|in <b>KEYS<\/b>|in TOOLSETS:|'CATALOG' : 'MCP CONNECTORS'/.test(con), 'ABILITIES copy names no retired tab (MCP CONNECTORS, KEYS, TOOLSETS)');
+  A.ok(/in <b>CONNECTED SERVICES<\/b>, or paste a custom platform key in <b>SAVED API CONNECTIONS<\/b>/.test(con), 'the catalog footer names CONNECTED SERVICES and SAVED API CONNECTIONS');
+  A.ok(/\{ id: 'keys', label: 'SAVED API CONNECTIONS'/.test(con) && /\{ id: 'mcp', label: 'CONNECTED SERVICES'/.test(con) && /\{ id: 'toolsets', label: 'BUILT-IN ABILITIES'/.test(con), 'the names it uses are the real tab labels');
+  A.ok(/Keys for Gmail, Notion and other services live in CONNECT › ABILITIES\. <button type="button" class="bb sm" data-act="to-service-keys">▸ SAVED API CONNECTIONS<\/button>/.test(ui), 'API KEYS points service keys at SAVED API CONNECTIONS with a glass key');
+  A.ok(/toServiceKeys\.addEventListener\('click', \(\) => \{ sfx\('click'\); openTerm\('connectors', 'keys'\); \}\)/.test(ui), 'the key opens the connectors keys section');
+  A.ok(/P\('api-connections', [^\n]*\{ term: 'connectors', section: 'keys' \}\)/.test(places), 'which is the places.js api-connections target');
+}
+
 A.report('help-copy-matches-screen.test');
