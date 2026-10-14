@@ -2510,6 +2510,15 @@ body:not(.no-flicker) #screen-game.active.flick-dip { animation: flick-dip 280ms
   box-shadow: 0 0 0 3px rgba(0,0,0,.9), 0 -6px 26px rgba(0,0,0,.75), 0 0 20px var(--ph-glow2);
 }
 .bb-group.open .bb-menu { display: flex; }
+/* AN OPEN DOCK MENU IS ABOVE EVERY WINDOW (live walk 10-14, blocker). The menu's own z-index cannot leave #bottombar:
+   the glass deck is a stacking context (backdrop-filter) that ranks as z 0 inside #screen-game, UNDER #terms (z 50, where
+   every window stacks from U.zTop() 500 up). So CREW / WORK / BUILD / SYSTEM opened behind any open window, and BUILD MODE
+   and SETTINGS could not be reached until it closed. While a menu is open the deck itself rises over the window layer
+   (51 > 50); the windows keep their own order and still rise from the dock, and a click on a window closes the menu
+   (navdock) and drops the deck back. The drop waits out the menu's close fade (--t-fast), so a closing menu never
+   flashes behind a window. Locked by test/dock-focus-seams.test.js. */
+#screen-game #bottombar { z-index: 0; transition: z-index 0s linear var(--t-fast, 120ms); }
+#screen-game #bottombar:has(.bb-group.open) { z-index: 51; transition-delay: 0s; }
 .bb-menu .bb {
   display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
   border: 1px solid transparent; padding: 6px 10px; font-size: 15px; letter-spacing: 1.5px;
@@ -3211,7 +3220,9 @@ body.rows-inbox #workstreams .ws-kebab { grid-area: meta; }
    ellipsize; the +N never does. Same font and colour as the line it sits in. */
 body.rows-inbox #workstreams .ws-agent.ws-agent-group { display: flex; align-items: baseline; min-width: 0; gap: .4em; }
 /* …and the names own that top line in INBOX too (rc walk 10-14: beside a "Connecting" status the names measured 0px wide,
-   and "NOVA, COPY" was cut even beside "4m"). The pin and time/status end the title line, as in COMPACT below. */
+   and "NOVA, COPY" was cut even beside "4m"; walk 10-14 #6: they got 48-82 of the 123 px "ULTRON, CYPHER" needs). The pin and
+   time/status end the title line, as in COMPACT below. Where the names line never wraps, fitRailAgentLine (app.js) reads
+   "ULTRON +4" when two names still cannot fit; the glass INBOX headline wraps at a space instead (pipglass.css). */
 body.rows-inbox #workstreams .ws-row:has(> .ws-agent-group) {
   grid-template-areas: "dot agent agent agent" "title title pin meta" "recpt recpt recpt recpt";
 }
@@ -3221,7 +3232,8 @@ body.rows-inbox #workstreams .ws-row:has(> .ws-agent-group) {
    compete with two names and +N in the narrow rail. Match the existing markup rather than adding a row
    class that the live ticker would have to maintain; single-agent and PROJECTS rows keep their layouts.
    The names own that whole line (rc walk 10-14: a busy row read "NOVA, … +1  Working" — the status took the width two
-   short names needed). Its pin and time/status end the title line instead, the way a one-on-one row reads
+   short names needed; walk 10-14 #6: the time and an empty pin column left them 66 of the 74 px "ULTRON, CYPHER" needs
+   at 1440). Its pin and time/status end the title line instead, the way a one-on-one row reads
    "title ★ 3m" — no cell is shared across the two lines, so a long status can never widen a track the names need. */
 body:not(.rows-inbox) #workstreams .ws-row:has(> .ws-agent-group) {
   display: grid; grid-template-columns: 7px minmax(0, 1fr) auto auto;
@@ -3234,13 +3246,13 @@ body:not(.rows-inbox) #workstreams .ws-row:has(> .ws-agent-group) > .ws-pin { gr
 body:not(.rows-inbox) #workstreams .ws-row:has(> .ws-agent-group) > :is(.ws-meta, .ws-kebab) { grid-area: meta; }
 body:not(.rows-inbox) #workstreams .ws-agent.ws-agent-group {
   display: flex; grid-area: agent; align-items: baseline; min-width: 0; gap: .4em;
-  font-size: 12px; line-height: 1.2; letter-spacing: .5px; color: var(--ph-dim);
+  font-size: 14px; line-height: 1.2; letter-spacing: .5px; color: var(--ph-dim);
   white-space: nowrap; overflow: hidden;
 }
 /* Attention is a pending request, not another row setting. Its action retains a separate line and menu
-   cell; hover/focus must never replace the visible request with the kebab. */
+   cell; hover/focus must never replace the visible request with the kebab. The names keep the whole first line. */
 body:not(.rows-inbox) #workstreams .ws-row.attn:has(> .ws-agent-group) {
-  grid-template-areas: "dot agent agent pin" "title title title title" ". meta meta menu";
+  grid-template-areas: "dot agent agent agent" "title title title pin" ". meta meta menu";
 }
 body:not(.rows-inbox) #workstreams .ws-row.attn:has(> .ws-agent-group) > .ws-kebab { grid-area: menu; }
 /* the hover/focus swap below hides every other row's meta for its kebab; this row's kebab has its own cell */
@@ -3495,8 +3507,8 @@ body:not(.rows-inbox) #workstreams .ws-row.attn:not(.renaming):has(> .ws-agent-g
 .gx-sec { display:flex; align-items:center; gap:7px; height:18px; border-bottom:1px solid var(--ph-glow2); margin-bottom:11px; }
 .gx-ref { font-family:inherit; font-size:11px; letter-spacing:.1em; color:var(--ink); background:var(--ph); padding:1px 6px; border-radius:2px; }
 .gx-ref.gold { background:var(--gold); }
-.gx-title { font-family:inherit; font-size:12px; letter-spacing:.16em; color:var(--ph); text-transform:uppercase; }
-.gx-tag { margin-left:auto; font-family:inherit; font-size:10px; letter-spacing:.1em; color:var(--ph-dim); }
+.gx-title { font-family:inherit; font-size:var(--sn-type-meta, 14px); letter-spacing:.16em; color:var(--ph); text-transform:uppercase; }
+.gx-tag { margin-left:auto; font-family:inherit; font-size:var(--sn-type-meta, 14px); letter-spacing:.1em; color:var(--ph-dim); }
 
 .gx-lbl { font-family:inherit; font-size:10px; letter-spacing:.12em; color:var(--ph-dim); text-transform:uppercase; }
 .gx-val { font-family:inherit; color:var(--ph-bright); }
@@ -3679,7 +3691,7 @@ body:not(.rows-inbox) #workstreams .ws-row.attn:not(.renaming):has(> .ws-agent-g
    chip treatment the kind badges use, so the headers stop being bare text with a number floated right. */
 .gx-quests .gx-sec { height: auto; padding-bottom: 6px; margin-bottom: 10px; }
 .gx-quests .gx-sec .gx-tag { border: 1px solid var(--ph-glow2); border-radius: 2px; padding: 0 6px;
-  font-size: 9.5px; line-height: 1.6; color: var(--ph); opacity: .85; font-variant-numeric: tabular-nums; }
+  font-size: var(--sn-type-meta, 14px); line-height: 1.6; color: var(--ph); opacity: .85; font-variant-numeric: tabular-nums; }
 /* the north star is the thing every quest below points at — give it the presence to lead the panel */
 .gx-quests .q-refresh-card { padding: 11px 13px; }
 .gx-quests .q-ns-text { font-size: 14px; line-height: 1.4; margin-top: 5px; }
@@ -3746,7 +3758,9 @@ body:not(.rows-inbox) #workstreams .ws-row.attn:not(.renaming):has(> .ws-agent-g
 .q-refresh-btn { flex:0 0 auto; }
 .q-refresh-due { margin:0; }
 .q-refresh-last { margin-top:4px; opacity:.85; }
-.q-outcome { display:inline-block; font-size:9px; letter-spacing:.06em; text-transform:uppercase; padding:0 5px; border-radius:2px; border:1px solid var(--ph-glow2); color:var(--ph-dim); }
+/* the outcome leads its own line, so it is set in that line's size (live walk 10-14: 'NOTHING PASSED' read at 10 px beside
+   its sentence — the no-shrunken-inline-chips law) */
+.q-outcome { display:inline-block; font-size:inherit; line-height:inherit; letter-spacing:.06em; text-transform:uppercase; padding:0 5px; border-radius:2px; border:1px solid var(--ph-glow2); color:var(--ph-dim); }
 .q-oc-minted, .q-oc-advanced { color:var(--gold); border-color:var(--gold); }
 .q-oc-none   { color:var(--ph); border-color:var(--ph-glow2); }
 .q-oc-skipped, .q-oc-rejected { color:var(--ph-dim); }
@@ -4682,6 +4696,10 @@ body.crew-rail-off #screen-game.active {
 .mc-pick-row { display: flex; align-items: center; gap: 10px; margin: 6px 0; }
 .mc-pick-row > label { flex: 0 0 60px; color: var(--ph-dim); font-size: 12px; letter-spacing: .5px; }
 .mc-pick { flex: 1; min-width: 0; }
+/* the picker fills its cell (live walk 10-14: an inline-flex wrap in a block cell sized itself to the longest model name —
+   a 418 px select in a 242 px column ran past the card and the window and pushed the EFFORT select out of reach). With the
+   cell's width it shrinks the model select and wraps EFFORT under it when they do not fit side by side. */
+.mc-pick .mp-wrap { display: flex; width: 100%; }
 .mc-adv { margin: 4px 0 6px; }
 .mc-adv > summary { cursor: pointer; color: var(--ph-dim); font-size: 11px; letter-spacing: .5px; list-style: none; padding: 2px 0; }
 .mc-adv > summary::-webkit-details-marker { display: none; }
@@ -5508,7 +5526,9 @@ select.fbc-sel:focus { border-color: var(--ph); box-shadow: inset 0 2px 5px rgba
 /* the reach chip carries the plain meaning big and the house name small underneath */
 .pc-reach-chip { align-items: flex-start !important; }
 .pc-rl { display: flex; flex-direction: column; gap: 1px; line-height: 1.15; text-align: left; }
-.pc-rh { font-size: 9px; letter-spacing: 1px; opacity: 0.55; font-style: normal; }
+/* the reach rung's house name rides under its plain label; it was 9 px (10 px on screen, 60 of them on a 12-agent station —
+   live walk 10-14). It keeps its dim second-line voice at the station's smallest type, not a size of its own. */
+.pc-rh { font-size: var(--sn-type-meta, 14px); letter-spacing: 1px; opacity: 0.55; font-style: normal; }
 /* the merged crew row: a header line, then one labelled block per axis. Stacked, not columnar — each
    axis owns a chip strip AND a plain sentence, which cannot share a row honestly at this width. */
 /* THE ROW IS A <details> (2026-08-14). Collapsed it is ONE line that still answers the question — who,
@@ -5680,6 +5700,8 @@ button:disabled, select:disabled, input:disabled, textarea:disabled {
 .ob-sec { font-size: 10px; letter-spacing: 2px; color: var(--ph-dim); margin: 10px 0 4px; }
 .ob-sec:first-child { margin-top: 0; }
 .ob-ask, .ob-out { white-space: pre-wrap; word-break: break-word; max-height: 240px; overflow: auto; font-size: 12px; color: var(--text); }
+.ob-out.wf-md { white-space: pre-wrap; }   /* WHAT CAME BACK drawn by COMMS' renderer keeps a plain reply's own line breaks, as COMMS' .cmsg .body does (its blocks join with no whitespace) */
+.ob-cut { margin-top: 6px; color: var(--ph-dim); }   /* the 'output truncated' note sits under the answer, never inside it */
 /* dim helper copy inside windows — NOT .mc-detail (that's the CONNECTORS error-detail class, alarm-red) */
 .win-note { font-size: 12px; color: var(--ph-dim); line-height: 1.45; }
 .ob-acts { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin-top: 12px; }
@@ -5945,6 +5967,7 @@ button:disabled, select:disabled, input:disabled, textarea:disabled {
   scrollbar-width: thin; scrollbar-color: var(--ph-dim) transparent; }
 /* the closing message rendered (safeMarkdown: one block per line) — paragraphs and headings at the card's own size, no gaps */
 .dlv-said.md { white-space: normal; }
+.dlv-said.wf-md { white-space: pre-wrap; }   /* once COMMS' renderer draws it (proseSaid): a plain reply keeps its line breaks, as in COMMS */
 .dlv-said.md p, .dlv-said.md h1, .dlv-said.md h2, .dlv-said.md h3 { margin: 0 0 6px; font-size: inherit; line-height: inherit; }
 .dlv-said.md h1, .dlv-said.md h2, .dlv-said.md h3 { color: var(--ph-bright); font-weight: normal; letter-spacing: .6px; }
 .dlv-said.md code { font-family: inherit; color: var(--ph-bright); }

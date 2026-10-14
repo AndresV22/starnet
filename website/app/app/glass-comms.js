@@ -106,7 +106,13 @@
     const items=rows();
     (last?items.at(-1):items.find(row=>row.getAttribute('aria-selected')==='true')||items[0])?.focus();
   }
-  button.addEventListener('click',()=>{if(menu.hidden)open();else close();});
+  // Closing it sounds like a dock going back (walk 10-14: the close played the press cue): close(), as the model selector does.
+  function toggle() {
+    if(menu.hidden){open();return;}
+    close();
+    if(typeof SFX!=='undefined'&&SFX.close)SFX.close();   // stamps the cue first, so the delegated press yields
+  }
+  button.addEventListener('click',toggle);
   button.addEventListener('keydown',e=>{
     if(e.key==='ArrowDown'||e.key==='ArrowUp'){e.preventDefault();open(e.key==='ArrowUp');}
     else if(e.key==='Escape'){e.preventDefault();close();}

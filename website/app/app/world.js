@@ -34,6 +34,7 @@ const World = (() => {
   let hoverBeltTile = null;                      // belt tile under the cursor (hover-glance route tag), or null
   let hoverOutbox = null;                        // stacked OUTBOX under the cursor (hover-glance "N TO REVIEW" tag), or null
   let routingNags = null;                        // [{x,y,w,h,label,warn}] in-world callouts mirroring the compiler's errors
+  let nagLabelBoxes = [];                        // where drawRoutingNags laid its labels last frame (world px) — WOULD-captions yield to them
   let firstShipPulse = null;
   let feedState = { known: false, fed: true };   // server-proven "something feeds the intake" truth (channels/cron); fed=true until proven otherwise
   let startFacts = null;                         // …and the server's own answers it was read from ({ chans, cron, lt }) — what starts ONE line (WorkflowLine.lineStarts)
@@ -6583,6 +6584,15 @@ const World = (() => {
     if (!(typeof IndustrialTextures !== 'undefined' && typeof IndustrialTextures.drawBase === 'function'
       && IndustrialTextures.drawBase(ctx, d.image, d.x, d.y))) ctx.drawImage(d.image, d.x, d.y);
   }
+  const TAGGED_PROPS = { outbox: 1, missionboard: 1, trophycase: 1, airlock: 1 };   // the props propremaster.js approvedState tags
+  /* a tagged prop's room, side walls included: the tag stays centred under its prop while it overhangs no further than the
+     wall's own thickness, and is nudged in only where it would run past the hull's outer face. (Clamped to the floor itself,
+     the walker's OUTBOX-by-the-wall tag slid under the next bay's name plate, which hid its count.) */
+  function tagRoomOf(p) {
+    const r = lwRoomBox(p.x, p.y); if (!r) return null;
+    const side = ((typeof StationBake !== 'undefined' && StationBake.WALL && StationBake.WALL.side) || 0) + 2;   // + lwRoomBox's 2px inset
+    return { x: r.x - side, y: r.y, w: r.w + side * 2, h: r.h };
+  }
   function drawLitProp(p, work, live) {
     PropSprites.draw(p, work, live);
     if (!sceneRenderer || !PropSprites.canLightResponse || !PropSprites.canLightResponse(p)) return;
@@ -6849,6 +6859,9 @@ const World = (() => {
           if (db && db.name) dp = Object.assign(dp === p ? Object.assign({}, p) : dp, { dockName: db.name + (away ? ' ↔ home' : '') });
           if (propOnScreen(dp)) bayLabels.push(dp);
         }
+        // a prop that wears a small state tag under it ("1 pending", "3 quests") is told its room's extent, so the tag never runs
+        // past the hull into space (review 10-14)
+        if (TAGGED_PROPS[p.t]) dp = Object.assign(dp === p ? Object.assign({}, p) : dp, { tagRoom: tagRoomOf(p) });
         // OCCUPIED BED: the base pass holds the quilt back so the sleeper can be drawn between the
         // frame and the covers (drawOver, below). Same copy-on-write idiom as the nameplate above.
         if (sleeper) dp = Object.assign(dp === p ? Object.assign({}, p) : dp, { sleeper: true });
@@ -6966,7 +6979,7 @@ const World = (() => {
       // (2026-09-30) the caption plate is set at a reading size ON SCREEN — 14px, by pixel ratio and TEXT SIZE — whatever the camera
       // zoom: at the shared 8 world px a plate grew to twice the NO FEED nag at a close zoom and covered the machines it spoke of
       const capPx = 14 * (window.devicePixelRatio || 1) * ((typeof U !== 'undefined' && U.uiZoom && U.uiZoom()) || 1) / (scale || 1);
-      ghost.draw(ctx, now, T, capPx, plates.length ? (bx, paint) => { if (!onPlate(bx)) paint(); } : null);
+      ghost.draw(ctx, now, T, capPx, plates.length ? (bx, paint) => { if (onPlate(bx)) return false; paint(); return true; } : null, (bx, n) => captionInStation(bx, n, plates));
     }
     drawHandoffBoxes(now);   // Stage 2: lead→worker delegation boxes fly over the entities
     drawSendCrates();        // SEND TO: a line's product crate flies from its OUTBOX to the next line's INBOX
@@ -8575,7 +8588,7 @@ const World = (() => {
     return result;
   }
   function drawRoutingNags(now) {
-    if (!routingNags || !routingNags.length) return;
+    if (!routingNags || !routingNags.length) { nagLabelBoxes = []; return; }
     const pulse = 0.55 + 0.35 * Math.sin(now / 280);
     for (const n of routingNags) {
       const X = n.x * T, Y = n.y * T, Wd = n.w * T, Hd = n.h * T;
@@ -8607,6 +8620,7 @@ const World = (() => {
           w: (r.x2 - r.x1 + 1) * T - 4, h: (r.y2 - r.y1 + 1) * T - 4 } : null;
       }
     });
+    nagLabelBoxes = labels.map(b => ({ x: b.x, y: b.y, w: b.w, h: b.h }));
     for (const box of labels) {
       ctx.shadowBlur = 0; ctx.fillStyle = '#111812'; ctx.fillRect(box.x, box.y, box.w, box.h);
       ctx.fillStyle = box.warn ? '#ffbe3c' : '#ff5046'; ctx.shadowColor = ctx.fillStyle; ctx.shadowBlur = 2;
@@ -9721,6 +9735,32 @@ const World = (() => {
       openWorkflow: f => { if (!f || typeof Build === 'undefined') return; try { if (!Build.isOpen()) Build.open(); if (f.dockId && Build.openAssign) Build.openAssign(f.dockId); } catch (_) { /* BUILD MODE absent: nothing to open */ } }
     });
     return true;
+  }
+  /* A WOULD-caption stays ON the station (walk 10-14 #13: "THE RESULT WOULD SHIP OUT HERE" crossed the hull into space and
+     past the stage frame, "NO FEED — CLICK" sat on "A MESSAGE WOULD ARRIVE HERE"). GhostLine.onStation holds the law BUILD
+     MODE shares: in its own room, every part over the station, beside the machine its "HERE" names. Here it also stays on
+     the visible stage (a spot above or below the stage is refused, never slid onto a machine it is not about), and a spot
+     on a routing callout, a line plate or a bay's name plate answers null, so ghostline.js tries the caption's next spot —
+     with none clear, the projection sits that pass out. */
+  function captionInStation(b, n, plates) {
+    const v = { x: (4 - panX) / scale, y: (4 - panY) / scale, w: Math.max(0, (cv.width - 8) / scale), h: Math.max(0, (cv.height - 8) / scale) };
+    const onStage = bx => {
+      if (bx.w <= v.w) bx.x = Math.max(v.x, Math.min(v.x + v.w - bx.w, bx.x));
+      return !(bx.h <= v.h && (bx.y < v.y || bx.y + bx.h > v.y + v.h));
+    };
+    if (!GhostLine.onStation(b, n, stationRoomBoxes(), T, onStage)) return null;
+    const hit = o => !!o && b.x < o.x + o.w && b.x + b.w > o.x && b.y < o.y + o.h && b.y + b.h > o.y;
+    if (nagLabelBoxes.some(hit) || (plates || []).some(p => hit(p.box))) return null;
+    // a bay's name plate is its agent's name: a caption never covers it either
+    for (const d of (routingPlan && routingPlan.dockBays) || []) { if (!d.agentId) continue; const q = bayPlateBox(d); if (hit({ x: q.left, y: q.top, w: q.width, h: q.h })) return null; }
+    return b;
+  }
+  // the station's rooms in local px (GhostLine.roomBoxes): what "on the station" means for a world caption
+  let roomBoxMemo = [], roomBoxGeo = null;
+  function stationRoomBoxes() {
+    if (!geo || !geo.allRects || !geo.allRects.length || typeof GhostLine === 'undefined') return [];
+    if (roomBoxGeo !== geo) { roomBoxGeo = geo; roomBoxMemo = GhostLine.roomBoxes(geo.allRects, T, 0, 0, (typeof StationBake !== 'undefined' && StationBake.WALL && StationBake.WALL.up) || 0); }
+    return roomBoxMemo;
   }
   // the floor rectangle of the room a local tile sits in (the nag layout's containerFor, reused)
   function lwRoomBox(tx, ty) {

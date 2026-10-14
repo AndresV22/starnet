@@ -8031,7 +8031,33 @@ const Build = (() => {
     convey.drawBoxes(ctx, now, t); drawTestNotes(now, t);
     // projection + WOULD-captions over the real layer — captions go THROUGH the arbiter
     // (ghostCaption layer: mutes whenever any other voice speaks or the pointer rides the floor)
-    if (ghost && buildGroup === 'workflow') ghost.draw(ctx, now, t, capFs(), (box, paint) => voiceSay('ghostCaption', box, box, paint), captionFit);
+    if (ghost && buildGroup === 'workflow') ghost.draw(ctx, now, t, capFs(), (box, paint) => voiceSay('ghostCaption', box, box, paint), ghostCaptionFit);
+  }
+  /* A WOULD-caption in BUILD MODE keeps the live floor's law (GhostLine.onStation, review 10-14): in its own room, every part
+     over the station — never across the hull into space — and beside the machine its "HERE" names, slid onto the visible
+     glass by captionFit. It never covers a bay's name plate either (world.js captionInStation refuses the live floor's plates
+     the same way): the gantry plate PropSprites.drawBayNames paints this frame for every bound bay drawProps listed — centred
+     on the bay, straddling its top edge, 11px tall. A spot that fails answers null, so ghostline.js tries the caption's next
+     spot (and with none clear it sits the pass out). */
+  function ghostCaptionFit(box, n) {
+    const t = T(), b = GhostLine.onStation(box, n, buildRoomBoxes(), t, bx => { captionFit(bx); return true; });
+    if (!b) return null;
+    for (const p of frameBayLabels) {
+      const w = Math.max(12, (p.w || 1) * t - 1), cx = (p.x + (p.w || 1) / 2) * t, top = p.y * t + 1 - 5.5;
+      if (b.x < cx + w / 2 && b.x + b.w > cx - w / 2 && b.y < top + 11 && b.y + b.h > top) return null;
+    }
+    return b;
+  }
+  // the floor's rooms in BUILD MODE's tile frame (the compiler's local rects + the bake origin, like the ghost's own offset)
+  let buildRoomMemo = [], buildRoomGeo = null;
+  function buildRoomBoxes() {
+    if (!cacheGeo || !cacheGeo.allRects || typeof GhostLine === 'undefined' || !GhostLine.roomBoxes) return [];
+    if (buildRoomGeo !== cacheGeo) {
+      const o = cacheGeo.origin || { tx: 0, ty: 0 };
+      buildRoomGeo = cacheGeo;
+      buildRoomMemo = GhostLine.roomBoxes(cacheGeo.allRects, T(), o.tx, o.ty, (typeof StationBake !== 'undefined' && StationBake.WALL && StationBake.WALL.up) || 0);
+    }
+    return buildRoomMemo;
   }
 
   /* THE GUIDANCE LIVES WHERE THE HANDS ARE (2026-07-05 playtest): callouts render INSIDE build mode, in
