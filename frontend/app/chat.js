@@ -4857,7 +4857,7 @@ const Chat = (() => {
     const r = row('agent'); r.d.classList.add('tool'); r.d.classList.add('turnin'); r.d.classList.add('sample-card');
     sampleCardEl = r.d;
     const title = document.createElement('span'); title.className = 'turnin-title';
-    title.textContent = '◈ INBOX — prove the line: run one small, real job through it, end to end.';
+    title.textContent = '◈ INBOX — prove the line: send one small, real job through it, end to end.';   // (org D6) 'send', like its ▸ SEND A REAL JOB key
     r.body.appendChild(title);
     const item = document.createElement('div'); item.className = 'turnin-item';
     const text = document.createElement('span'); text.className = 'turnin-text';
