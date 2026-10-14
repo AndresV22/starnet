@@ -84,6 +84,8 @@
   .settings-console .key-row { flex-wrap: wrap; }
   .settings-console .key-main { flex: 1 1 calc(100% - 21px); }
   .settings-console .key-acts { flex: 1 1 100%; flex-direction: row; padding-left: 21px; }
+  /* org P04 polish: each wrapped line of keys fills the row, so a third key (✕ REMOVE) is a full-width key under the pair, never a lone tile */
+  .settings-console .key-acts > .bb { flex: 1 1 auto; }
 }
 .settings-console .ns-grid { gap: 12px; }
 .settings-console .ns-cell { border-radius: 9px; padding: 14px; border-color: rgba(var(--ph-rgb), .16); background: rgba(0,0,0,.1); }
