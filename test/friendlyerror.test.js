@@ -473,6 +473,11 @@ for (const raw of [
     'the interrupted cause names the run and the SETTLE fix (got: ' + interrupted.userMessage + ')');
   const unsaved = friendlyError('Spend history could not be saved to disk, so the spending limits you set can’t be checked. Restart StarNet to recover it.');
   A.ok(/Restart StarNet/.test(unsaved.userMessage) && !/Settle/.test(unsaved.userMessage), 'a failed save says restart, never settle (got: ' + unsaved.userMessage + ')');
+  // d688ea20: the loop's damaged-line cause (sidecar/loop.js) is spend_unknown, names the damaged line and keeps the SETTLE door
+  const damagedLine = friendlyError('A line of the spend record is damaged, so what it recorded is unknown and the spending limits you set can’t be checked. Settle it in SETTINGS › SPENDING LIMITS.');
+  A.eq(damagedLine.kind, 'spend_unknown', 'the damaged-line refusal is spend_unknown');
+  A.ok(/line of StarNet's spend record is damaged/.test(damagedLine.userMessage) && /Settle it in SETTINGS › SPENDING LIMITS/.test(damagedLine.userMessage) && !/earlier run/.test(damagedLine.userMessage),
+    'the damaged cause is never called an interrupted run (got: ' + damagedLine.userMessage + ')');
   const unread = friendlyError('Spend history could not be read, so the spending limits you set can’t be checked. See SETTINGS › SPENDING LIMITS.');
   A.eq(unread.userMessage, KINDS.spend_unknown.msg, 'an unreadable record gets the cause-neutral headline');
   A.ok(/spend history is unknown/.test(KINDS.spend_unknown.msg), 'the fallback headline says spend history is unknown');

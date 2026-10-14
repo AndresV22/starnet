@@ -48,3 +48,11 @@ _Filled in when the bug leaves the backlog: what was true, and why it is closed.
 
 
 ## Sibling coverage
+
+## Shadowing proposal repair — 2026-10-14
+
+Not reproduced as reported (0.13.0 had no skill sharing, so a worker with a different agent id could not read another agent's skill at all; the exact denial path for that build is unknown). On the candidate, real store, package mirror, guard, gate and skill tools show an approved, station-shared skill loads identically for the lead, a named crew worker and a team.spawn helper.
+
+One candidate seam matched the symptom: a worker whose background review had drafted a same-name proposal asked for the approved station skill and was told it awaited the Commander's evaluation and approval in ABILITIES > SKILLS, across restarts, because the lookup prefers the asker's own record and a pending-only proposal counted as one. Source repair df73589b8: a proposal is not an active skill, so the shared skill answers; the proposal stays named as withheld; the asker's own active skill still wins; a lone proposal still says it awaits approval; two other owners stay ambiguous. Regression: test/skills.worker-shared-approval.test.js (failed 6 assertions before the fix).
+
+No installer or customer recovery is claimed; the customer's exact worker id, skill owner and denial text are still needed. The report stays open.
