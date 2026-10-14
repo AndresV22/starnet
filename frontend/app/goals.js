@@ -48,6 +48,7 @@
   const TRANSIENT = /^(the user (said|asked|wanted)|we (discussed|talked|covered)|in this (run|task|session)|this (run|task|session)|today (i|we))\b/i;
   // lines the model sometimes emits as framing, not steps — dropped (a header is not a milestone).
   const FRAMING = /^(here('| i)s|the (path|plan|breakdown|milestones?|steps?)( i see)?|milestones?|steps?|plan)\s*[:\-—]?\s*$/i;
+  const HEADING = /^\s{0,3}#{1,6}\s/;   // "## The roadmap" — a markdown header line, never a step
 
   // a self-contained secret scrubber (the default redact) — the decomposition model text is authored client-side
   // (unlike study proposals, which the sidecar redacts before they reach the browser), so a milestone line must be
@@ -114,12 +115,16 @@
     // milestone line is never stored with an obvious key shape even when no redact is injected.
     const inject = typeof opts.redact === 'function' ? opts.redact : (x => x);
     const redact = s => scrubSecrets(inject(s));
+    // a milestone is read as plain words (walk 10-14: the confirm panel typed '**Item one:**' and '`code`' at the Commander, and
+    // Confirm would have stored them so) — opts.plain is the host's markdown → one plain line (Deliverables.plainLine)
+    const plain = typeof opts.plain === 'function' ? opts.plain : (x => x);
     const out = [];
     const seen = new Set();
     for (const ln of String(modelText == null ? '' : modelText).split('\n')) {
+      if (HEADING.test(ln)) continue;   // a markdown heading is a header, not a milestone
       const m = LINE.exec(ln);
       if (!m) continue;
-      let text = redact(String(m[1])).trim();
+      let text = redact(String(plain(m[1]))).trim();
       if (!text) continue;
       if (lowValue(text)) continue;
       text = clip(text, TEXT_CHARS);

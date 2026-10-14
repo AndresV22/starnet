@@ -5672,6 +5672,7 @@ button:disabled, select:disabled, input:disabled, textarea:disabled {
 .ob-sec { font-size: 10px; letter-spacing: 2px; color: var(--ph-dim); margin: 10px 0 4px; }
 .ob-sec:first-child { margin-top: 0; }
 .ob-ask, .ob-out { white-space: pre-wrap; word-break: break-word; max-height: 240px; overflow: auto; font-size: 12px; color: var(--text); }
+.ob-out.wf-md { white-space: normal; }   /* WHAT CAME BACK drawn by COMMS' renderer: its blocks carry their own wrapping */
 /* dim helper copy inside windows — NOT .mc-detail (that's the CONNECTORS error-detail class, alarm-red) */
 .win-note { font-size: 12px; color: var(--ph-dim); line-height: 1.45; }
 .ob-acts { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin-top: 12px; }

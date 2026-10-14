@@ -36,6 +36,18 @@
      deliverables and all organized output'): this list is DELIVERABLES' TO REVIEW section — finished runs waiting for
      your verdict — not a window of its own. openTerm('outbox') / the floor OUTBOX / every old door land there
      (TERM_ALIAS outbox → deliverables § review). Empty = the section hides; the library below is always there. */
+  /* ONE READING OF AN ANSWER (walk 10-14 — TO REVIEW printed '## Findings', '- **Item one:**', '`code`' raw while the library below,
+     the WORKFLOWS job view and the Workflow panel drew the same reply): WHAT CAME BACK is drawn by COMMS' own renderer
+     (Chat.renderProse — escape-first, so a reply's markup never runs) on the panel scale (wf-md); plain text where it is not loaded.
+     The collapsed glance is the library's own markdown → one plain line (Deliverables.plainLine): no '## ', no list dashes, and a
+     stripped `code` leaves no stray space ('with code .'). */
+  function answerInto(out, text) {
+    if (typeof Chat !== 'undefined' && Chat.renderProse) { out.classList.add('wf-md'); Chat.renderProse(out, text); }
+    else out.textContent = text;
+  }
+  function plain(s) {
+    return (typeof Deliverables !== 'undefined' && Deliverables.plainLine) ? Deliverables.plainLine(s) : String(s || '').replace(/\s+/g, ' ').trim();
+  }
   const mounted = new Set();
   function buildOutbox(body) {
     const RS = (typeof ReturnStore !== 'undefined') ? ReturnStore : null;
@@ -88,9 +100,6 @@
     // agent id → display name via the live roster (raw ids read as debug output)
     const agentName = id => { const a = (Array.isArray(H.present) ? H.present.find(x => x && x.id === id) : null); return (a && a.name) || id || 'agent'; };
     const firstLine = (s, n) => { const t = String(s || '').replace(/\s+/g, ' ').trim(); return t.length > n ? t.slice(0, n - 1).trimEnd() + '…' : t; };
-    // strip markdown scaffolding (fences, table pipes, headings, emphasis) for the one-line glance —
-    // the FULL untouched output stays in .ob-out; this only keeps the collapsed desc readable.
-    const plain = s => String(s || '').replace(/```[\s\S]*?(```|$)/g, ' ').replace(/[|#*_>`]+/g, ' ').replace(/(^|\s)[-:=]{3,}(?=\s|$)/g, ' ').replace(/\s+/g, ' ').trim();
     // legacy crates (persisted before streamId rode the rows) — fill their transcript join once, best-effort.
     const fillStreams = (async () => {
       if (rows.every(r => r.streamId)) return;
@@ -208,9 +217,9 @@
           : hand ? String(hand.original) + '\n\n— the result of a work line: this reply is from step ' + hand.stage + ', after ' + String(agentName(hand.from)).toUpperCase() + '.'
           : users.length ? String(users[0].content) : '';
         ask.textContent = askFull ? (askFull.length > 1500 ? askFull.slice(0, 1500) + ' …' : askFull) : (rw.title || '—');
-        out.textContent = lastReply ? (lastReply.length > 4000 ? lastReply.slice(0, 4000) + '\n\n… output truncated — ↗ OPEN SESSION opens the conversation.' : lastReply)
-          : (turns === null ? '⚠ couldn’t load the output — the run’s transcript wasn’t reachable.'
-            : 'this run recorded no readable output.');
+        if (lastReply) answerInto(out, lastReply.length > 4000 ? lastReply.slice(0, 4000) + '\n\n… output truncated — ↗ OPEN SESSION opens the conversation.' : lastReply);
+        else out.textContent = turns === null ? '⚠ couldn’t load the output — the run’s transcript wasn’t reachable.'
+          : 'this run recorded no readable output.';
         // FILES — the library's rows for this run, in the library's own markup (dlv-files), sized off
         // disk by the backend. Only rendered when the index proves the run produced something; a plain
         // conversation gets no section (an every-row "no files" line would be noise, not honesty).

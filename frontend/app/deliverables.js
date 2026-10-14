@@ -13,9 +13,15 @@
       return s ? '<p>' + s + '</p>' : '';
     }).join('');
   }
-  // markdown -> one plain line (a card's glance): links keep their words, heading/list/quote marks and **, __, `, * drop
+  // markdown -> one plain line (a card's glance): links keep their words, heading/list/quote marks and **, __, `, * drop.
+  // THE ONE GLANCE (walk 10-14): TO REVIEW's preview, the COMMS INBOX card's quote and a goal's milestones read through this
+  // same line — a fenced block, a table's rule row and pipes, a --- rule drop too, and a stripped `code` leaves no stray space.
   function plainLine(raw) {
-    return String(raw || '').replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+    return String(raw || '').replace(/\x60\x60\x60[\s\S]*?(\x60\x60\x60|$)/g, ' ')
+      .replace(/(^|\n)[ \t]*\|?[ \t]*:?-{3,}:?[ \t]*(\|[ \t]*:?-{3,}:?[ \t]*)*\|?[ \t]*(?=\n|$)/g, '$1')   // a table's rule row
+      .replace(/(^|\n)[ \t]*([-*_])([ \t]*\2){2,}[ \t]*(?=\n|$)/g, '$1')                             // a --- / *** rule
+      .replace(/[ \t]*\|[ \t]*/g, ' ')
+      .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
       .replace(/(^|\n)\s{0,3}(?:#{1,6}\s+|[-*+]\s+|\d+[.)]\s+|>\s*)/g, '$1')
       .replace(/(^|\s)#{1,6}\s+/g, '$1')   // a heading inside a summary the server already folded onto one line
       .replace(/(\*\*|__|\x60)/g, '').replace(/(^|[\s(])[*_]([^*_\n]+)[*_](?=[\s).,:;!?]|$)/g, '$1$2')
@@ -559,7 +565,19 @@
         headBtn.setAttribute('aria-expanded', 'true');
         headBtn.classList.add('on');
         wireDiscards();   // the drawer's DISCARD only exists once it is open
+        proseSaid(more, rows[Number(card.dataset.i)]);
       }
+    }
+    /* ONE READING OF AN ANSWER (walk 10-14): WHAT CAME BACK is drawn by COMMS' own renderer (Chat.renderProse — escape-first;
+       lists, code blocks, tables), exactly as TO REVIEW above it, WORKFLOWS and the Workflow panel draw the same reply — once,
+       when the drawer first opens. The safe-markdown HTML stays where COMMS' renderer is not loaded. */
+    function proseSaid(more, r) {
+      const said = more.querySelector('.dlv-said');
+      const text = r ? ((r.run && r.run.deliveryText) || r.output || '') : '';
+      if (!said || said.__prose || !text || typeof Chat === 'undefined' || !Chat.renderProse) return;
+      said.__prose = true;
+      said.classList.add('wf-md');
+      Chat.renderProse(said, text);
     }
 
     list.addEventListener('click', async ev => {
