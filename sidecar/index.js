@@ -1144,10 +1144,16 @@ function unsettledReceiptOf(receipt) {
    interrupted run, settled only by the Commander; the line itself is never rewritten or removed — the attested row
    names the line it resolves (resolvesLine), so the next boot skips it. A torn fragment of a row the ledger holds whole
    (the settlement journal replays it) is that row's own crash residue and is not asked about. The FILE failing to
-   read (I/O error, past the read limit) still fails the whole read. */
-function damagedSpendReceipt(line) {
+   read (I/O error, past the read limit) still fails the whole read.
+   A GLUED line is a torn fragment with the next append's WHOLE row stuck to its end (logbound.js appendJsonlDurable:
+   "the NEW row was lost"). That row's charge is fully recorded, so it is read and counted exactly once (gluedSpendRows)
+   — dropping it would count a known charge as $0 while history then reads complete. Only the fragment is unknown: the
+   receipt names what the FRAGMENT says (its run, agent, model, time), never the glued row's, and keeps the hash of the
+   whole line as its identity so a row already attested against that line still resolves it. */
+function damagedSpendReceipt(line, fragment) {
   const hash = crypto.createHash('sha256').update(line).digest('hex');
-  const grab = re => { const m = re.exec(line); return m ? m[1] : ''; };
+  const text = typeof fragment === 'string' ? fragment : line;
+  const grab = re => { const m = re.exec(text); return m ? m[1] : ''; };
   const r = { runId: 'damaged-' + hash.slice(0, 24), agentId: grab(/"agentId"\s*:\s*"([^"\\]{1,80})"/), kind: 'damaged', lineHash: hash };
   const ts = Number(grab(/"ts"\s*:\s*(\d{10,16})\b/));
   if (Number.isFinite(ts) && ts > 0) r.ts = ts;
@@ -1155,24 +1161,63 @@ function damagedSpendReceipt(line) {
   const origin = grab(/"runId"\s*:\s*"([^"\\]{1,120})"/); if (origin) r.recordedRunId = origin;
   return r;
 }
+function spendRowOf(row) { return !!row && typeof row === 'object' && !Array.isArray(row) && typeof row.usd === 'number' && Number.isFinite(row.usd) && row.usd >= 0; }
+/* Peel the whole rows glued onto the end of an unparsable line. A row counts only when its text is EXACTLY what an
+   append wrote (JSON.stringify of the parsed row, so a lucky parse inside a fragment never becomes a charge), and the
+   earliest such start wins (a row's own nested objects never split it). Bounded: a ledger row is a few hundred bytes.
+   Returns the rows in file order and the fragment left in front of them ('' when nothing of the line is unknown). */
+const GLUED_ROW_MAX_CHARS = 64 * 1024, GLUED_ROW_MAX_TRIES = 64, GLUED_ROWS_MAX = 8;
+function gluedSpendRows(line) {
+  const rows = [];
+  let rest = line;
+  for (let peel = 0; peel < GLUED_ROWS_MAX && rest; peel++) {
+    const whole = rest.trimEnd();
+    let row = null;
+    try { row = JSON.parse(whole); } catch (e) { row = null; }   // not one whole row: look for one glued to its end
+    if (peel > 0 && spendRowOf(row) && JSON.stringify(row) === whole) { rows.unshift(row); rest = ''; break; }
+    let found = -1, tries = 0;
+    for (let i = rest.indexOf('{"', 1); i > 0 && tries < GLUED_ROW_MAX_TRIES; i = rest.indexOf('{"', i + 1)) {
+      if (rest.length - i > GLUED_ROW_MAX_CHARS) continue;
+      tries++;
+      const tail = rest.slice(i).trimEnd();
+      let cand = null;
+      try { cand = JSON.parse(tail); } catch (e) { continue; }   // a fragment's own text from here: try the next start
+      if (spendRowOf(cand) && JSON.stringify(cand) === tail) { rows.unshift(cand); found = i; break; }
+    }
+    if (found < 0) break;
+    rest = rest.slice(0, found);
+  }
+  return { rows, fragment: rest.trim() ? rest : '' };
+}
 const ledgerIo = {
   readAll() {
     unsettledSpendReceipts.clear();
-    const rows = [], damaged = [];
+    const rows = [], damaged = [], read = [];
     for (const line of loadBounded({ fs, strict: true }, LEDGER_FILE, LOG_MAX_BYTES)) {
-      let row = null;
-      try { row = JSON.parse(line); } catch (e) { row = null; }   // unreadable: kept below as one unknown charge
-      if (!row || typeof row !== 'object' || Array.isArray(row) || typeof row.usd !== 'number' || !Number.isFinite(row.usd) || row.usd < 0) damaged.push(line);
-      else rows.push(row);
+      let row = null, parsed = true;
+      try { row = JSON.parse(line); } catch (e) { row = null; parsed = false; }   // unreadable: glued rows peeled below, the rest one unknown charge
+      if (spendRowOf(row)) read.push({ row });
+      else read.push({ line, glued: parsed ? { rows: [], fragment: line.trim() ? line : '' } : gluedSpendRows(line) });
     }
+    // A glued row counts once: never twice when a clean copy of the same row is also in the file (an older boot
+    // re-appended it from its journal) — the same entryId, or the same bytes for a row without one.
+    const rowKey = row => (typeof row.entryId === 'string' && row.entryId) ? 'e:' + row.entryId : 'j:' + JSON.stringify(row);
+    const held = new Set(read.filter(x => x.row).map(x => rowKey(x.row)));
+    let recovered = 0;
+    for (const x of read) {
+      if (x.row) { rows.push(x.row); continue; }
+      for (const row of x.glued.rows) { const key = rowKey(row); if (held.has(key)) continue; held.add(key); rows.push(row); recovered++; }
+      if (x.glued.fragment) damaged.push({ line: x.line, fragment: x.glued.fragment });
+    }
+    if (recovered) console.warn('[ledger] read ' + recovered + ' whole spend row(s) glued onto a torn line; each is counted once');
     const listDamaged = () => {
       if (!damaged.length) return;
       const resolved = new Set(rows.filter(row => row.attested === true && typeof row.resolvesLine === 'string').map(row => row.resolvesLine));
-      for (const line of damaged) {
-        const r = damagedSpendReceipt(line);
+      for (const { line, fragment } of damaged) {
+        const r = damagedSpendReceipt(line, fragment);
         if (resolved.has(r.lineHash) || unsettledSpendReceipts.has(r.runId)) continue;
         // a torn copy of a row held whole: the fragment names that row's run and is the start of its exact bytes
-        if (r.recordedRunId && rows.some(row => row.runId === r.recordedRunId && JSON.stringify(row).length > line.length && JSON.stringify(row).startsWith(line))) continue;
+        if (r.recordedRunId && rows.some(row => row.runId === r.recordedRunId && JSON.stringify(row).length > fragment.length && JSON.stringify(row).startsWith(fragment))) continue;
         unsettledSpendReceipts.set(r.runId, r);
       }
       console.warn('[ledger] ' + damaged.length + ' unreadable spend record line(s); ' + [...unsettledSpendReceipts.values()].filter(r => r.kind === 'damaged').length + ' still need the Commander to settle them in SETTINGS › SPENDING LIMITS');
