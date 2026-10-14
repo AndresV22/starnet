@@ -811,7 +811,8 @@ body.glass-demo.rows-inbox:not(.hud-mode) #left #workstreams .ws-row.attn:not(.r
 body.glass-demo.rows-inbox:not(.hud-mode) #left #workstreams .ws-row.attn > .ws-kebab { grid-area: menu; }
 /* a GROUP row's names line is several names, not one: it takes the WHOLE first line (walk 10-14 #6 — beside the time
    it got 48-82 of the 123 px "ULTRON, CYPHER" needs, and read "ULTR… +3"). The pin and the time sit at the end of the
-   title's first line; fitRailAgentLine (app.js) reads "ULTRON +4" when two names still cannot fit this rail. */
+   title's first line. Two names too wide for this rail wrap at a space (the headline rule above), so fitRailAgentLine
+   (app.js) keeps "ULTRON, CYPHER +3" here and folds to "ULTRON +4" only where a names line never wraps. */
 body.glass-demo.rows-inbox:not(.hud-mode) #left #workstreams .ws-row:has(> .ws-agent-group) {
   grid-template-areas:
     "dot agent agent agent"

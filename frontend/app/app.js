@@ -4179,7 +4179,9 @@ const App = (() => {
   /* WHOLE NAMES (walk 10-14 #6): the row gives the names line its whole first line (app.css / pipglass.css), and this
      picks the reading that fits it — "ULTRON, CYPHER +3", else "ULTRON +4" — so a name is never cut mid-word
      ("ULTRON, CYP… +3", "ULTR… +3"). The full reading rides data-full, so a wider rail or the COMPACT/INBOX switch
-     brings the second name back. A line that is not laid out is left alone (a zero measure is not "too narrow"). */
+     brings the second name back. A line that is not laid out is left alone (a zero measure is not "too narrow").
+     A names line that WRAPS at a space (the glass INBOX headline, pipglass.css — rc walk 10-14) already shows every
+     name whole on its own lines: it keeps the full reading and never folds. */
   function fitRailAgentLine(line) {
     const names = line && line.querySelector ? line.querySelector('.ws-agent-names') : null;
     if (!names || !line.getClientRects().length) return;
@@ -4198,6 +4200,7 @@ const App = (() => {
       } else if (more) more.remove();
     };
     show(full, extra);
+    if (typeof getComputedStyle === 'function' && getComputedStyle(names).whiteSpace !== 'nowrap') return;
     if (parts.length > 1 && names.scrollWidth > names.clientWidth + 1) show(parts[0], extra + parts.length - 1);
   }
   function fitRailAgentLines() {

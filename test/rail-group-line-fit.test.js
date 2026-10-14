@@ -57,6 +57,20 @@ const read2 = l => [l.querySelector('.ws-agent-names').textContent, (l.querySele
   ctx.fit(l);
   A.eq(read2(l), ['ULTRON, CYPHER', '+3'], 'a line that is not laid out (hidden row) is left alone, never folded on a zero measure');
 }
+{
+  // the glass INBOX headline WRAPS its names at a space (pipglass.css, rc walk 10-14): every name already shows whole on its
+  // own lines there, so the line keeps "ULTRON, CYPHER +3" however narrow the rail — it never folds to "ULTRON +4"
+  const wrapCtx = vm.createContext({ document: { createElement: () => new El('') }, getComputedStyle: () => ({ whiteSpace: 'normal' }) });
+  vm.runInContext(body + '\nthis.fit = fitRailAgentLine;', wrapCtx);
+  const l = line('ULTRON, CYPHER', '+3', 9 * CH);
+  wrapCtx.fit(l);
+  A.eq(read2(l), ['ULTRON, CYPHER', '+3'], 'a names line that wraps keeps both whole names and its count');
+  const nowrapCtx = vm.createContext({ document: { createElement: () => new El('') }, getComputedStyle: () => ({ whiteSpace: 'nowrap' }) });
+  vm.runInContext(body + '\nthis.fit = fitRailAgentLine;', nowrapCtx);
+  const l2 = line('ULTRON, CYPHER', '+3', 9 * CH);
+  nowrapCtx.fit(l2);
+  A.eq(read2(l2), ['ULTRON', '+4'], 'a names line that never wraps still folds the second name into the count');
+}
 const render = A.fnBody(app, 'function renderRail()');
 A.ok(/fitRailAgentLines\(\)/.test(render), 'renderRail fits every group line after it builds the rows');
 const lines = A.fnBody(app, 'function fitRailAgentLines()');
