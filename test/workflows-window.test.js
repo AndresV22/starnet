@@ -301,6 +301,14 @@ const tick = () => new Promise(r => setTimeout(r, 15));
     A.eq(WW._startsText(l0), 'by hand · every 6h · when a file lands in C:/in', 'a schedule and a folder trigger, composed by WorkflowLine.lineStarts');
     ctx.World.startFacts = () => ({ cron: { enabled: false, halted: false, jobs: [job] }, lt: { triggers: [] }, chans: {} });
     A.eq(WW._startsText(l0), 'by hand · every 6h (scheduling is off)', 'a schedule saved while scheduling is off is said as off, never as a start');
+    // an E-STOP is named as the E-STOP, never as the scheduling switch
+    ctx.World.startFacts = () => ({ cron: { enabled: true, halted: true, jobs: [job] }, lt: { triggers: [] }, chans: {} });
+    A.eq(WW._startsText(l0), 'by hand · every 6h (stopped by E-STOP)', 'a schedule the E-STOP holds says stopped by E-STOP');
+    // a fact whose endpoint never answered is unknown: never 'by hand only'
+    ctx.World.startFacts = () => ({ cron: null, lt: { triggers: [] }, chans: {} });
+    A.eq(WW._startsText(l0), 'by hand · schedules could not be read', 'unread schedules are said unread, never as by hand only');
+    ctx.World.startFacts = () => ({ cron: { enabled: true, halted: false, jobs: [job] }, lt: null, chans: null });
+    A.eq(WW._startsText(l0), 'by hand · every 6h · channels and folder/webhook triggers could not be read', 'a known start still shows beside the facts that were not read');
     // org P16's RUN BY reads the same entry the INBOX form's schedule fires at
     const sl = WW.startLines().find(x => x.key === l0.key);
     A.ok(sl && sl.dockId === entry && sl.agentId === 'nova', 'startLines: the line\'s first routed step and its agent (SCHEDULES › RUN BY)');

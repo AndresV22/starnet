@@ -658,8 +658,14 @@ const WorkflowsWindow = (() => {
     let st;
     try { st = Wl.lineStarts(l.flow, { lt: facts.lt, lineKey: l.key, cron: facts.cron, chans: facts.chans, agents: roster(), human }); } catch (e) { return null; }
     const auto = [].concat(st.schedules || [], (st.channels || []).map(c => 'when a ' + c + ' message arrives'), st.events || []);
-    const off = (st.offSchedules || []).map(s => s + ' (scheduling is off)');
-    return auto.length || off.length ? ['by hand'].concat(auto, off).join(' · ') : 'by hand only';
+    // a schedule the E-STOP holds is named as the E-STOP (the /cron line and the Workflow panel say 'stopped (E-STOP)'), never as an OFF switch
+    const offWhy = facts.cron && facts.cron.halted ? ' (stopped by E-STOP)' : ' (scheduling is off)';
+    const off = (st.offSchedules || []).map(s => s + offWhy);
+    // World keeps a fact only once its endpoint has answered: a fact never read is UNKNOWN, so 'by hand only' would be a claim it can't prove
+    const unread = [facts.cron ? '' : 'schedules', facts.chans ? '' : 'channels', facts.lt ? '' : 'folder/webhook triggers'].filter(Boolean);
+    const unknown = unread.length ? ' · ' + unread.join(', ').replace(/, ([^,]*)$/, ' and $1') + ' could not be read' : '';
+    if (!auto.length && !off.length) return unknown ? 'by hand' + unknown : 'by hand only';
+    return ['by hand'].concat(auto, off).join(' · ') + unknown;
   }
   function startsHTML(l) {
     const t = startsText(l);
