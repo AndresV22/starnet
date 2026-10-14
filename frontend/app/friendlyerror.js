@@ -181,6 +181,11 @@
     'mistral', 'deepseek', 'together', 'fireworks', 'perplexity', 'cerebras', 'ollama', 'custom'];
   const PROVIDER_WORDS = { codex: 'CHATGPT', grok: 'GROK', kimi: 'KIMI', starnet: 'STARNET' };
   function providerWord(id) { return PROVIDER_WORDS[id] || String(id || '').toUpperCase(); }
+  // a provider's name inside a SENTENCE (org P03): the brand's own case, like the sibling rows' 'No ChatGPT sign-in yet'.
+  // Key labels keep providerWord's capitals; an id with no prose name keeps the provider-neutral copy.
+  const PROVIDER_PROSE = { openrouter: 'OpenRouter', codex: 'ChatGPT', grok: 'Grok', kimi: 'Kimi', starnet: 'StarNet', openai: 'OpenAI',
+    anthropic: 'Anthropic', gemini: 'Gemini', xai: 'xAI', groq: 'Groq', mistral: 'Mistral', deepseek: 'DeepSeek', together: 'Together AI',
+    fireworks: 'Fireworks', perplexity: 'Perplexity', cerebras: 'Cerebras' };
   function providerFromRaw(raw) {
     const low = String(raw || '').toLowerCase();
     let m = low.match(/\b(openrouter|anthropic|gemini|grok \(xai\)|kimi for coding) http \d{3}\b/);
@@ -639,7 +644,7 @@
     // billing: name the account that is out of credit when the error proves which provider it was (org P03)
     if (kind === 'billing') {
       const provider = providerFromRaw(raw);
-      const userMessage = provider ? 'Your ' + providerWord(provider) + ' account is out of credit — top it up, then try again.' : k.msg;
+      const userMessage = provider && PROVIDER_PROSE[provider] ? 'Your ' + PROVIDER_PROSE[provider] + ' account is out of credit — top it up, then try again.' : k.msg;
       return { userMessage: userMessage, kind: kind, retryable: k.retryable, action: k.action, provider: provider, raw: raw };
     }
     if (kind === 'quota_exhausted') {

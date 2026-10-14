@@ -542,7 +542,7 @@ for (const raw of [
 
   const or = friendlyError(Object.assign(new Error('openrouter http 402 — This request requires more credits'), { status: 402 }));
   A.eq(or.kind, 'billing', 'an openrouter 402 is billing');
-  A.ok(/^Your OPENROUTER account is out of credit/.test(or.userMessage), 'the billing copy names the account (got: ' + or.userMessage + ')');
+  A.ok(/^Your OpenRouter account is out of credit/.test(or.userMessage), 'the billing copy names the account (got: ' + or.userMessage + ')');
   A.eq(or.provider, 'openrouter', 'the billing verdict carries the provider');
   const anon = friendlyError(Object.assign(new Error('insufficient credit'), { status: 402 }));
   A.eq(anon.userMessage, KINDS.billing.msg, 'an unnamed billing error keeps the provider-neutral copy (truthful: nothing named it)');
