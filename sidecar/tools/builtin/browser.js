@@ -903,6 +903,7 @@
 
     let proc = null, procExited = false, procError = null, procClosePromise = null, cdp = null, consoleLog = [], dialog = null, attachedPort = null;
     let networkProxy = null, proxyFailed = false;
+    const proxyCloseResults = new WeakMap();   // retain each proxy's pending/failed cleanup across close callers
     // true once tab 0's target went away and no other tab was left to take its place (see openerLost)
     let pageLost = false;
     const allowedLocalOrigins = new Set();
@@ -2785,27 +2786,49 @@
         try { return await Promise.race([waitForClose, new Promise(resolve => { timer = setTimeout(() => resolve(false), ms); })]); }
         finally { clearTimeout(timer); }
       }
-      // Only OUR persistent browser: a forced kill can lose newly written login cookies. Browser.close
-      // flushes Chromium's profile stores. An attached user browser has no owned process and is never closed.
-      let exited = false;
-      if (owned && cdp && onPersistent()) {
-        let timer;
-        try {
-          await Promise.race([cdp.send('Browser.close').catch(swallow('browser.profile.close')), new Promise(resolve => { timer = setTimeout(resolve, 1500); })]);
-        } finally { clearTimeout(timer); }
-        exited = await exitedWithin(2000);
+      let closeError = null;
+      try {
+        // Only OUR persistent browser: a forced kill can lose newly written login cookies. Browser.close
+        // flushes Chromium's profile stores. An attached user browser has no owned process and is never closed.
+        let exited = false;
+        if (owned && cdp && onPersistent()) {
+          let timer;
+          try {
+            await Promise.race([cdp.send('Browser.close').catch(swallow('browser.profile.close')), new Promise(resolve => { timer = setTimeout(resolve, 1500); })]);
+          } finally { clearTimeout(timer); }
+          exited = await exitedWithin(2000);
+        }
+        try { cdp && cdp.close(); } catch (_) {}
+        // only a process that has NOT exited is still ours to kill: an exited one's id may already be someone else's
+        if (owned && !exited && !procExited) { if (process.platform === 'win32' && owned.pid && spawn === CP.spawn) await killTree(owned.pid); else { try { owned.kill('SIGKILL'); } catch (e) { failNote('browser.close.kill', e); } } }
+        cdp = null;
+        if (owned && waitForClose && !exited) {
+          // a force-killed process can take seconds to leave on a busy Windows box (antivirus holding a freshly unpacked
+          // browser's files, measured 2026-09-30): wait long enough before calling it stuck
+          exited = await exitedWithin(8000);
+          if (!exited) throw new Error('owned Chromium did not exit after synthetic test session closed');
+        }
+        // Retain ownership after a failed close: a later close must still prove exit before deleting the profile.
+        proc = null;
+      } catch (e) {
+        closeError = e;
+        throw e;
+      } finally {
+        // The proxy owns sockets even when Chromium cannot be confirmed closed. Release them without
+        // replacing the original shutdown error or reaching profile cleanup on that failed path.
+        if (networkProxy) {
+          const proxy = networkProxy;
+          let closing = proxyCloseResults.get(proxy);
+          if (!closing) {
+            closing = Promise.resolve().then(() => proxy.close());
+            proxyCloseResults.set(proxy, closing);
+          }
+          try {
+            await closing;
+            if (networkProxy === proxy) networkProxy = null;
+          } catch (e) { if (!closeError) throw e; failNote('browser.close.proxy', e); }
+        }
       }
-      try { cdp && cdp.close(); } catch (_) {}
-      // only a process that has NOT exited is still ours to kill: an exited one's id may already be someone else's
-      if (owned && !exited && !procExited) { if (process.platform === 'win32' && owned.pid && spawn === CP.spawn) await killTree(owned.pid); else { try { owned.kill('SIGKILL'); } catch (e) { failNote('browser.close.kill', e); } } }
-      cdp = null; proc = null;
-      if (owned && waitForClose && !exited) {
-        // a force-killed process can take seconds to leave on a busy Windows box (antivirus holding a freshly unpacked
-        // browser's files, measured 2026-09-30): wait long enough before calling it stuck
-        exited = await exitedWithin(8000);
-        if (!exited) throw new Error('owned Chromium did not exit after synthetic test session closed');
-      }
-      if (networkProxy) { const proxy = networkProxy; networkProxy = null; await proxy.close(); }
       // keepProfile: a dead browser being replaced — its successor is about to start on this same directory
       if (deps.cleanupProfile === true && !(opts && opts.keepProfile)) { try { FS.rmSync(profileDir, { recursive: true, force: true }); } catch (_) {} }
       // the held-profile fallback's temporary dir is this driver's alone (a successor makes its own): always removed —
